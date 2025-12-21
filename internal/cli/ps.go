@@ -179,6 +179,7 @@ func colorStatus(status model.Status) string {
 		model.StatusQueued:   "\033[37m", // white
 		model.StatusBooting:  "\033[32m", // green
 		model.StatusCanceled: "\033[90m", // gray
+		model.StatusUnknown:  "\033[35m", // magenta - agent exited unexpectedly
 	}
 
 	reset := "\033[0m"

@@ -33,6 +33,7 @@ const (
 	StatusDone     Status = "done"
 	StatusFailed   Status = "failed"
 	StatusCanceled Status = "canceled"
+	StatusUnknown  Status = "unknown" // Agent exited unexpectedly, shell prompt showing
 )
 
 // Phase values

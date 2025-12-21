@@ -112,11 +112,11 @@ func (d *Daemon) Stop() {
 	d.wg.Wait()
 }
 
-// monitorAll checks all active runs (running, booting, or blocked)
-// Blocked runs are monitored so we can detect when they resume working
+// monitorAll checks all active runs (running, booting, blocked, or unknown)
+// Non-terminal runs are monitored so we can detect state transitions
 func (d *Daemon) monitorAll() {
 	runs, err := d.store.ListRuns(&store.ListRunsFilter{
-		Status: []model.Status{model.StatusRunning, model.StatusBooting, model.StatusBlocked},
+		Status: []model.Status{model.StatusRunning, model.StatusBooting, model.StatusBlocked, model.StatusUnknown},
 	})
 	if err != nil {
 		d.logger.Printf("error listing runs: %v", err)

@@ -68,9 +68,15 @@ func (d *Daemon) monitorRun(run *model.Run) error {
 // Uses claude-squad logic:
 //   - outputChanged=true → Running (agent is actively working)
 //   - outputChanged=false && hasPrompt → Blocked
+//   - outputChanged=false && agentExited → Unknown (shell prompt showing)
 //   - outputChanged=false && !hasPrompt → check for done/failed, otherwise no change
 func (d *Daemon) detectStatus(run *model.Run, output string, state *RunState, outputChanged, hasPrompt bool) model.Status {
-	// Check for completion patterns first (terminal states)
+	// Check for agent exit first (shell prompt showing = agent died/exited)
+	if d.isAgentExited(output) {
+		return model.StatusUnknown
+	}
+
+	// Check for completion patterns (terminal states)
 	if d.isCompleted(output) {
 		return model.StatusDone
 	}
@@ -172,6 +178,61 @@ func (d *Daemon) isWaitingForInput(output string) bool {
 	// Also detect the "accept edits" prompt
 	if strings.Contains(output, "accept edits") {
 		return true
+	}
+
+	return false
+}
+
+// isAgentExited checks if the agent process has exited and shell prompt is showing
+// This happens when the user kills Claude or it crashes
+func (d *Daemon) isAgentExited(output string) bool {
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	if len(lines) == 0 {
+		return false
+	}
+
+	// Get the last non-empty line
+	lastLine := ""
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line != "" {
+			lastLine = line
+			break
+		}
+	}
+
+	if lastLine == "" {
+		return false
+	}
+
+	// Common shell prompt patterns at the end of output
+	// These indicate the agent exited and we're back at shell
+	shellPrompts := []string{
+		"➜",  // oh-my-zsh arrow
+		"❯",  // starship/other prompts
+		"$",  // bash default
+		"%",  // zsh default
+		"#",  // root prompt
+	}
+
+	for _, prompt := range shellPrompts {
+		if strings.Contains(lastLine, prompt) {
+			// Make sure it's not Claude's output by checking for Claude-specific patterns
+			if strings.Contains(output, "↵ send") ||
+				strings.Contains(output, "accept edits") ||
+				strings.Contains(output, "Claude") {
+				return false // Still in Claude
+			}
+			return true
+		}
+	}
+
+	// Also detect "git:(" pattern which appears in many shell prompts
+	if strings.Contains(lastLine, "git:(") {
+		if !strings.Contains(output, "↵ send") &&
+			!strings.Contains(output, "accept edits") {
+			return true
+		}
 	}
 
 	return false
