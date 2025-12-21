@@ -384,6 +384,14 @@ func (m *Monitor) ListIssues() ([]*model.Issue, error) {
 	return m.store.ListIssues()
 }
 
+// ListRunsForIssue fetches runs for a specific issue.
+func (m *Monitor) ListRunsForIssue(issueID string) ([]*model.Run, error) {
+	if strings.TrimSpace(issueID) == "" {
+		return nil, fmt.Errorf("issue id is required")
+	}
+	return m.store.ListRuns(&store.ListRunsFilter{IssueID: issueID})
+}
+
 func (m *Monitor) createSession() error {
 	cmd := m.runsDashboardCommand()
 	cfg := &tmux.SessionConfig{

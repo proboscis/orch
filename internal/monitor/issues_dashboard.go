@@ -15,6 +15,7 @@ type issueDashboardMode int
 const (
 	modeIssues issueDashboardMode = iota
 	modeCreateIssue
+	modeSelectRun
 )
 
 type createIssueState struct {
@@ -22,6 +23,14 @@ type createIssueState struct {
 	issueID string
 	title   string
 	input   string
+}
+
+type selectRunState struct {
+	issueID string
+	runs    []*model.Run
+	cursor  int
+	offset  int
+	loading bool
 }
 
 // IssueDashboard is the bubbletea model for the issues UI.
@@ -34,9 +43,10 @@ type IssueDashboard struct {
 	width  int
 	height int
 
-	mode    issueDashboardMode
-	message string
-	create  createIssueState
+	mode      issueDashboardMode
+	message   string
+	create    createIssueState
+	selectRun selectRunState
 
 	keymap IssueKeyMap
 	styles Styles
@@ -48,6 +58,11 @@ type IssueDashboard struct {
 
 type issuesRefreshMsg struct {
 	rows []IssueRow
+}
+
+type issueRunsMsg struct {
+	issueID string
+	runs    []*model.Run
 }
 
 type issueTickMsg time.Time
@@ -95,6 +110,26 @@ func (d *IssueDashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		d.ensureCursorVisible()
 		return d, nil
+	case issueRunsMsg:
+		if msg.issueID != d.selectRun.issueID {
+			return d, nil
+		}
+		d.selectRun.runs = msg.runs
+		d.selectRun.loading = false
+		if len(d.selectRun.runs) == 0 {
+			d.mode = modeIssues
+			d.message = fmt.Sprintf("no runs found for %s", msg.issueID)
+			return d, nil
+		}
+		if len(d.selectRun.runs) == 1 {
+			d.mode = modeIssues
+			return d, d.openRunCmd(d.selectRun.runs[0])
+		}
+		d.selectRun.cursor = 0
+		d.selectRun.offset = 0
+		d.ensureSelectRunVisible()
+		d.mode = modeSelectRun
+		return d, nil
 	case infoMsg:
 		d.message = msg.text
 		d.refreshing = true
@@ -121,6 +156,8 @@ func (d *IssueDashboard) View() string {
 	switch d.mode {
 	case modeCreateIssue:
 		return d.styles.Box.Render(d.viewCreateIssue())
+	case modeSelectRun:
+		return d.styles.Box.Render(d.viewSelectRun())
 	default:
 		return d.styles.Box.Render(d.viewIssues())
 	}
@@ -134,6 +171,8 @@ func (d *IssueDashboard) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch d.mode {
 	case modeCreateIssue:
 		return d.handleCreateIssueKey(msg)
+	case modeSelectRun:
+		return d.handleSelectRunKey(msg)
 	default:
 		return d.handleIssuesKey(msg)
 	}
@@ -155,10 +194,7 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			d.message = err.Error()
 		}
 		return d, nil
-	case "r":
-		d.refreshing = true
-		return d, d.refreshCmd()
-	case "o":
+	case d.keymap.Open:
 		if row := d.currentIssue(); row != nil {
 			return d, d.openIssueCmd(row.ID)
 		}
@@ -168,11 +204,14 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return d, d.resolveIssueCmd(row.ID)
 		}
 		return d, nil
-	case "n":
-		d.mode = modeCreateIssue
-		d.create = createIssueState{}
+	case d.keymap.OpenRun:
+		if row := d.currentIssue(); row != nil {
+			d.mode = modeSelectRun
+			d.selectRun = selectRunState{issueID: row.ID, loading: true}
+			return d, d.loadIssueRunsCmd(row.ID)
+		}
 		return d, nil
-	case "enter":
+	case d.keymap.StartRun:
 		if row := d.currentIssue(); row != nil {
 			return d, d.startRunCmd(row.ID)
 		}
@@ -188,6 +227,44 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			d.cursor++
 		}
 		d.ensureCursorVisible()
+		return d, nil
+	case "?":
+		d.message = d.keymap.HelpLine()
+		return d, nil
+	}
+	return d, nil
+}
+
+func (d *IssueDashboard) handleSelectRunKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		d.mode = modeIssues
+		return d, nil
+	case "q":
+		return d.quit()
+	case d.keymap.StartRun:
+		if strings.TrimSpace(d.selectRun.issueID) != "" {
+			d.mode = modeIssues
+			return d, d.startRunCmd(d.selectRun.issueID)
+		}
+		return d, nil
+	case "enter":
+		if run := d.currentSelectRun(); run != nil {
+			d.mode = modeIssues
+			return d, d.openRunCmd(run)
+		}
+		return d, nil
+	case "up", "k":
+		if d.selectRun.cursor > 0 {
+			d.selectRun.cursor--
+		}
+		d.ensureSelectRunVisible()
+		return d, nil
+	case "down", "j":
+		if d.selectRun.cursor < len(d.selectRun.runs)-1 {
+			d.selectRun.cursor++
+		}
+		d.ensureSelectRunVisible()
 		return d, nil
 	case "?":
 		d.message = d.keymap.HelpLine()
@@ -259,6 +336,16 @@ func (d *IssueDashboard) tickCmd() tea.Cmd {
 	})
 }
 
+func (d *IssueDashboard) loadIssueRunsCmd(issueID string) tea.Cmd {
+	return func() tea.Msg {
+		runs, err := d.monitor.ListRunsForIssue(issueID)
+		if err != nil {
+			return errMsg{err: err}
+		}
+		return issueRunsMsg{issueID: issueID, runs: runs}
+	}
+}
+
 func (d *IssueDashboard) startRunCmd(issueID string) tea.Cmd {
 	return func() tea.Msg {
 		output, err := d.monitor.StartRun(issueID)
@@ -266,6 +353,18 @@ func (d *IssueDashboard) startRunCmd(issueID string) tea.Cmd {
 			return errMsg{err: fmt.Errorf("%s", output)}
 		}
 		return infoMsg{text: output}
+	}
+}
+
+func (d *IssueDashboard) openRunCmd(run *model.Run) tea.Cmd {
+	return func() tea.Msg {
+		if run == nil {
+			return errMsg{err: fmt.Errorf("run not found")}
+		}
+		if err := d.monitor.OpenRun(run); err != nil {
+			return errMsg{err: err}
+		}
+		return infoMsg{text: fmt.Sprintf("opened %s#%s", run.IssueID, run.RunID)}
 	}
 }
 
@@ -337,6 +436,53 @@ func (d *IssueDashboard) viewCreateIssue() string {
 		lines = append(lines, "Title (optional):", fmt.Sprintf("> %s", d.create.input))
 		lines = append(lines, "", "[Enter] create  [Esc] cancel")
 	}
+	return strings.Join(lines, "\n")
+}
+
+func (d *IssueDashboard) viewSelectRun() string {
+	header := d.styles.Title.Render("OPEN RUN")
+	lines := []string{header, ""}
+
+	issueID := d.selectRun.issueID
+	if strings.TrimSpace(issueID) == "" {
+		issueID = "-"
+	}
+	lines = append(lines, fmt.Sprintf("Issue: %s", issueID), "")
+
+	if d.selectRun.loading {
+		lines = append(lines, "Loading runs...")
+		return strings.Join(lines, "\n")
+	}
+
+	if len(d.selectRun.runs) == 0 {
+		lines = append(lines, "No runs found.")
+		lines = append(lines, "", "[Esc] back  [r] start run")
+		return strings.Join(lines, "\n")
+	}
+
+	lines = append(lines, "Select a run:", "")
+	maxRows := d.selectRunMaxRows()
+	visibleRows := d.selectRunVisibleRows(maxRows)
+	start := d.selectRun.offset
+	end := len(d.selectRun.runs)
+	if visibleRows > 0 {
+		end = start + visibleRows
+		if end > len(d.selectRun.runs) {
+			end = len(d.selectRun.runs)
+		}
+	} else {
+		end = start
+	}
+	for i, run := range d.selectRun.runs[start:end] {
+		label := fmt.Sprintf("  %s#%s  %s  %s", run.IssueID, run.RunID, run.Status, formatRelativeTime(run.UpdatedAt, time.Now()))
+		label = truncate(label, d.safeWidth()-2)
+		if i+start == d.selectRun.cursor {
+			label = d.styles.Selected.Render(label)
+		}
+		lines = append(lines, label)
+	}
+
+	lines = append(lines, "", "[Enter] open run  [Esc] back  [r] start run")
 	return strings.Join(lines, "\n")
 }
 
@@ -555,6 +701,13 @@ func (d *IssueDashboard) currentIssue() *IssueRow {
 	return &d.issues[d.cursor]
 }
 
+func (d *IssueDashboard) currentSelectRun() *model.Run {
+	if d.selectRun.cursor < 0 || d.selectRun.cursor >= len(d.selectRun.runs) {
+		return nil
+	}
+	return d.selectRun.runs[d.selectRun.cursor]
+}
+
 func (d *IssueDashboard) tableMaxRows() int {
 	listRows, _ := d.layoutHeights()
 	return listRows
@@ -576,6 +729,25 @@ func (d *IssueDashboard) pageSize() int {
 		return 1
 	}
 	return rows
+}
+
+func (d *IssueDashboard) selectRunMaxRows() int {
+	base := 8
+	available := d.safeHeight() - base
+	if available < 1 {
+		return 1
+	}
+	return available
+}
+
+func (d *IssueDashboard) selectRunVisibleRows(maxRows int) int {
+	if maxRows <= 0 {
+		return 0
+	}
+	if len(d.selectRun.runs) < maxRows {
+		return len(d.selectRun.runs)
+	}
+	return maxRows
 }
 
 func (d *IssueDashboard) ensureCursorVisible() {
@@ -603,6 +775,34 @@ func (d *IssueDashboard) ensureCursorVisible() {
 	}
 	if d.offset < 0 {
 		d.offset = 0
+	}
+}
+
+func (d *IssueDashboard) ensureSelectRunVisible() {
+	if len(d.selectRun.runs) == 0 {
+		d.selectRun.offset = 0
+		return
+	}
+	visibleRows := d.selectRunVisibleRows(d.selectRunMaxRows())
+	if visibleRows <= 0 {
+		d.selectRun.offset = 0
+		return
+	}
+	if d.selectRun.cursor < d.selectRun.offset {
+		d.selectRun.offset = d.selectRun.cursor
+	}
+	if d.selectRun.cursor >= d.selectRun.offset+visibleRows {
+		d.selectRun.offset = d.selectRun.cursor - visibleRows + 1
+	}
+	maxOffset := len(d.selectRun.runs) - visibleRows
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if d.selectRun.offset > maxOffset {
+		d.selectRun.offset = maxOffset
+	}
+	if d.selectRun.offset < 0 {
+		d.selectRun.offset = 0
 	}
 }
 
