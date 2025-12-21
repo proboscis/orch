@@ -7,6 +7,7 @@ type IssueKeyMap struct {
 	Runs     string
 	Issues   string
 	Chat     string
+	Agent    string
 	StartRun string
 	Open     string
 	NewIssue string
@@ -22,7 +23,8 @@ func DefaultIssueKeyMap() IssueKeyMap {
 		Runs:     "g",
 		Issues:   "i",
 		Chat:     "c",
-		StartRun: "enter",
+		Agent:    "enter",
+		StartRun: "s",
 		Open:     "o",
 		NewIssue: "n",
 		Resolve:  "x",
@@ -34,6 +36,6 @@ func DefaultIssueKeyMap() IssueKeyMap {
 
 // HelpLine renders the footer help text.
 func (k IssueKeyMap) HelpLine() string {
-	return fmt.Sprintf("[%s] runs  [%s] issues  [%s] chat  [%s] start  [%s] open  [%s] new  [%s] resolve  [%s] refresh  [%s] quit  [%s] help",
-		k.Runs, k.Issues, k.Chat, k.StartRun, k.Open, k.NewIssue, k.Resolve, k.Refresh, k.Quit, k.Help)
+	return fmt.Sprintf("[%s] runs  [%s] issues  [%s] chat  [%s] agent  [%s] start  [%s] open  [%s] new  [%s] resolve  [%s] refresh  [%s] quit  [%s] help",
+		k.Runs, k.Issues, k.Chat, k.Agent, k.StartRun, k.Open, k.NewIssue, k.Resolve, k.Refresh, k.Quit, k.Help)
 }

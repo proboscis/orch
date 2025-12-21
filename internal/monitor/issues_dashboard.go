@@ -152,10 +152,10 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			d.message = err.Error()
 		}
 		return d, nil
-	case "r":
+	case d.keymap.Refresh:
 		d.refreshing = true
 		return d, d.refreshCmd()
-	case "o":
+	case d.keymap.Open:
 		if row := d.currentIssue(); row != nil {
 			return d, d.openIssueCmd(row.ID)
 		}
@@ -165,11 +165,16 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return d, d.resolveIssueCmd(row.ID)
 		}
 		return d, nil
-	case "n":
+	case d.keymap.NewIssue:
 		d.mode = modeCreateIssue
 		d.create = createIssueState{}
 		return d, nil
-	case "enter":
+	case d.keymap.Agent:
+		if row := d.currentIssue(); row != nil {
+			return d, d.openIssueAgentCmd(row.ID)
+		}
+		return d, nil
+	case d.keymap.StartRun:
 		if row := d.currentIssue(); row != nil {
 			return d, d.startRunCmd(row.ID)
 		}
@@ -261,6 +266,15 @@ func (d *IssueDashboard) startRunCmd(issueID string) tea.Cmd {
 			return errMsg{err: fmt.Errorf("%s", output)}
 		}
 		return infoMsg{text: output}
+	}
+}
+
+func (d *IssueDashboard) openIssueAgentCmd(issueID string) tea.Cmd {
+	return func() tea.Msg {
+		if err := d.monitor.OpenIssueAgent(issueID); err != nil {
+			return errMsg{err: err}
+		}
+		return infoMsg{text: fmt.Sprintf("opened agent for %s", issueID)}
 	}
 }
 

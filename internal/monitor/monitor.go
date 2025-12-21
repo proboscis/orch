@@ -339,6 +339,34 @@ func (m *Monitor) OpenIssue(issueID string) (string, error) {
 	return output, nil
 }
 
+// OpenIssueAgent opens the latest active run (or latest run) for an issue.
+func (m *Monitor) OpenIssueAgent(issueID string) error {
+	if strings.TrimSpace(issueID) == "" {
+		return fmt.Errorf("issue id is required")
+	}
+	runs, err := m.store.ListRuns(&store.ListRunsFilter{
+		IssueID: issueID,
+		Limit:   100,
+	})
+	if err != nil {
+		return err
+	}
+	if len(runs) == 0 {
+		return fmt.Errorf("no runs found for issue: %s", issueID)
+	}
+	var target *model.Run
+	for _, run := range runs {
+		if isActiveStatus(run.Status) {
+			target = run
+			break
+		}
+	}
+	if target == nil {
+		target = runs[0]
+	}
+	return m.OpenRun(target)
+}
+
 // CreateIssue creates a new issue via orch issue create.
 func (m *Monitor) CreateIssue(issueID, title string) (string, error) {
 	args := append([]string{}, m.globalFlags...)
