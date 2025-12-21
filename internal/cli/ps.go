@@ -267,7 +267,7 @@ func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime boo
 	gitStates := gitStatesForRuns(runs, baseBranch)
 
 	// Collect data rows
-	headers := []string{"ID", "ISSUE", "ISSUE-ST", "AGENT", "STATUS", "MERGED", "UPDATED", "TOPIC"}
+	headers := []string{"ID", "ISSUE", "ISSUE-ST", "AGENT", "STATUS", "PR", "MERGED", "UPDATED", "TOPIC"}
 	var rows [][]string
 
 	for _, r := range runs {
@@ -292,10 +292,13 @@ func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime boo
 		}
 
 		merged := "-"
-		if r.Branch != "" {
-			if state, ok := gitStates[r.Branch]; ok {
-				merged = state
-			}
+		if state, ok := gitStates[r.RunID]; ok {
+			merged = state
+		}
+
+		pr := "-"
+		if r.PRUrl != "" {
+			pr = "yes"
 		}
 
 		agent := r.Agent
@@ -309,6 +312,7 @@ func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime boo
 			issueStatus,
 			agent,
 			colorStatus(r.Status),
+			pr,
 			merged,
 			updated,
 			display,
@@ -459,16 +463,6 @@ func colorStatus(status model.Status) string {
 }
 
 func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
-	branches := make(map[string]struct{})
-	for _, r := range runs {
-		if r.Branch != "" {
-			branches[r.Branch] = struct{}{}
-		}
-	}
-	if len(branches) == 0 {
-		return nil
-	}
-
 	repoRoot, err := git.FindRepoRoot("")
 	if err != nil {
 		return nil
@@ -484,43 +478,45 @@ func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
 		return nil
 	}
 
-	mergedForRuns := make(map[string]bool)
+	states := make(map[string]string)
+
 	for _, r := range runs {
-		if r.Branch == "" || !merged[r.Branch] {
-			continue
-		}
-		if r.StartedAt.IsZero() {
-			mergedForRuns[r.Branch] = true
-			continue
-		}
-		commitTime, ok := commitTimes[r.Branch]
-		if !ok {
-			continue
-		}
-		if !commitTime.Before(r.StartedAt) {
-			mergedForRuns[r.Branch] = true
-		}
-	}
-
-	states := make(map[string]string, len(branches))
-	for branch := range branches {
-		if mergedForRuns[branch] {
-			states[branch] = "yes"
-			continue
-		}
-		if merged[branch] {
+		if r.Branch == "" {
 			continue
 		}
 
-		conflict, err := git.CheckMergeConflict(repoRoot, branch, targetRef)
-		if err != nil {
+		// Check if merged (reachable from target)
+		isMerged := merged[r.Branch]
+
+		// Check commit time relative to run start
+		commitTime, hasCommitTime := commitTimes[r.Branch]
+		isNewWork := false
+		if hasCommitTime && (r.StartedAt.IsZero() || !commitTime.Before(r.StartedAt)) {
+			isNewWork = true
+		}
+
+		if isMerged {
+			if isNewWork {
+				states[r.RunID] = "merged"
+			} else {
+				states[r.RunID] = "no change"
+			}
+			continue
+		}
+
+		// Not merged, check if modified (ahead > 0)
+		conflict, _ := git.CheckMergeConflict(repoRoot, r.Branch, targetRef)
+
+		ahead, _ := git.GetAheadCount(repoRoot, r.Branch, targetRef)
+		if ahead == 0 {
+			states[r.RunID] = "no change"
 			continue
 		}
 
 		if conflict {
-			states[branch] = "conflict"
+			states[r.RunID] = "conflict"
 		} else {
-			states[branch] = "clean"
+			states[r.RunID] = "clean"
 		}
 	}
 

@@ -61,6 +61,7 @@ func TestResolveIssue(t *testing.T) {
 	content := `---
 type: issue
 title: Test Issue
+topic: Short topic
 status: open
 ---
 
@@ -81,6 +82,9 @@ This is a test issue.
 	}
 	if issue.Title != "Test Issue" {
 		t.Errorf("Title = %v, want Test Issue", issue.Title)
+	}
+	if issue.Topic != "Short topic" {
+		t.Errorf("Topic = %v, want Short topic", issue.Topic)
 	}
 }
 
@@ -440,5 +444,58 @@ func TestGetRunByShortIDAmbiguousForced(t *testing.T) {
 	}
 	if !strings.Contains(errStr, "Hint:") {
 		t.Errorf("expected 'Hint:' in error, got: %v", errStr)
+	}
+}
+
+func TestSetIssueStatus(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	content := `---
+type: issue
+id: test123
+status: open
+---
+# Test`
+	createTestIssue(t, vault, "test123", content)
+
+	s, _ := New(vault)
+	if err := s.SetIssueStatus("test123", "resolved"); err != nil {
+		t.Fatalf("SetIssueStatus() error = %v", err)
+	}
+
+	// Verify cache
+	issue, _ := s.ResolveIssue("test123")
+	if issue.Frontmatter["status"] != "resolved" {
+		t.Errorf("expected cached status resolved, got %s", issue.Frontmatter["status"])
+	}
+
+	// Verify file content
+	reloaded, _ := New(vault) // New store to force re-read
+	issue2, _ := reloaded.ResolveIssue("test123")
+	if issue2.Frontmatter["status"] != "resolved" {
+		t.Errorf("expected reloaded status resolved, got %s", issue2.Frontmatter["status"])
+	}
+}
+
+func TestSetIssueStatusMissing(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	content := `---
+type: issue
+id: test123
+---
+# Test`
+	createTestIssue(t, vault, "test123", content)
+
+	s, _ := New(vault)
+	if err := s.SetIssueStatus("test123", "resolved"); err != nil {
+		t.Fatalf("SetIssueStatus() error = %v", err)
+	}
+
+	issue, _ := s.ResolveIssue("test123")
+	if issue.Frontmatter["status"] != "resolved" {
+		t.Errorf("expected status resolved, got %s", issue.Frontmatter["status"])
 	}
 }
