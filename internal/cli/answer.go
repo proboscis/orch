@@ -44,12 +44,8 @@ func runAnswer(refStr, questionID string, opts *answerOptions) error {
 		return err
 	}
 
-	ref, err := model.ParseRunRef(refStr)
-	if err != nil {
-		return err
-	}
-
-	run, err := st.GetRun(ref)
+	// Resolve by short ID or run ref
+	run, err := resolveRun(st, refStr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "run not found: %s\n", refStr)
 		os.Exit(ExitRunNotFound)

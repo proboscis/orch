@@ -236,6 +236,31 @@ func (s *FileStore) GetLatestRun(issueID string) (*model.Run, error) {
 	return s.loadRun(issueID, latestName, s.runPath(issueID, latestName))
 }
 
+// GetRunByShortID finds a run by its 6-char short ID
+func (s *FileStore) GetRunByShortID(shortID string) (*model.Run, error) {
+	// List all runs and find matching short ID
+	runs, err := s.ListRuns(&store.ListRunsFilter{})
+	if err != nil {
+		return nil, err
+	}
+
+	var matches []*model.Run
+	for _, run := range runs {
+		if run.ShortID() == shortID {
+			matches = append(matches, run)
+		}
+	}
+
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("run not found: %s", shortID)
+	}
+	if len(matches) > 1 {
+		return nil, fmt.Errorf("ambiguous short ID %s: matches %d runs", shortID, len(matches))
+	}
+
+	return matches[0], nil
+}
+
 // loadRun loads a run from its file
 func (s *FileStore) loadRun(issueID, runID, path string) (*model.Run, error) {
 	file, err := os.Open(path)

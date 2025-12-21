@@ -87,12 +87,8 @@ func runTick(refStr string, opts *tickOptions) error {
 			return fmt.Errorf("RUN_REF required (or use --all)")
 		}
 
-		ref, err := model.ParseRunRef(refStr)
-		if err != nil {
-			return err
-		}
-
-		run, err := st.GetRun(ref)
+		// Resolve by short ID or run ref
+		run, err := resolveRun(st, refStr)
 		if err != nil {
 			os.Exit(ExitRunNotFound)
 			return err

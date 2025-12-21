@@ -49,34 +49,44 @@ func runOpen(refStr string, opts *openOptions) error {
 
 	var path string
 
-	// Try to parse as run ref first
-	ref, err := model.ParseRunRef(refStr)
-	if err != nil {
-		return err
+	// Try as short ID first
+	if shortIDRegex.MatchString(refStr) {
+		run, err := st.GetRunByShortID(refStr)
+		if err == nil {
+			path = run.Path
+		}
 	}
 
-	if ref.IsLatest() {
-		// Could be either issue or latest run
-		// First try issue
-		issue, err := st.ResolveIssue(ref.IssueID)
-		if err == nil {
-			path = issue.Path
+	if path == "" {
+		// Try to parse as run ref
+		ref, err := model.ParseRunRef(refStr)
+		if err != nil {
+			return err
+		}
+
+		if ref.IsLatest() {
+			// Could be either issue or latest run
+			// First try issue
+			issue, err := st.ResolveIssue(ref.IssueID)
+			if err == nil {
+				path = issue.Path
+			} else {
+				// Try as latest run
+				run, err := st.GetLatestRun(ref.IssueID)
+				if err != nil {
+					return fmt.Errorf("not found: %s", refStr)
+				}
+				path = run.Path
+			}
 		} else {
-			// Try as latest run
-			run, err := st.GetLatestRun(ref.IssueID)
+			// Specific run
+			run, err := st.GetRun(ref)
 			if err != nil {
-				return fmt.Errorf("not found: %s", refStr)
+				os.Exit(ExitRunNotFound)
+				return err
 			}
 			path = run.Path
 		}
-	} else {
-		// Specific run
-		run, err := st.GetRun(ref)
-		if err != nil {
-			os.Exit(ExitRunNotFound)
-			return err
-		}
-		path = run.Path
 	}
 
 	// Output

@@ -77,6 +77,7 @@ func outputJSON(runs []*model.Run) error {
 	type runOutput struct {
 		IssueID      string `json:"issue_id"`
 		RunID        string `json:"run_id"`
+		ShortID      string `json:"short_id"`
 		Status       string `json:"status"`
 		Phase        string `json:"phase,omitempty"`
 		UpdatedAt    string `json:"updated_at"`
@@ -99,6 +100,7 @@ func outputJSON(runs []*model.Run) error {
 		output.Items[i] = runOutput{
 			IssueID:      r.IssueID,
 			RunID:        r.RunID,
+			ShortID:      r.ShortID(),
 			Status:       string(r.Status),
 			Phase:        string(r.Phase),
 			UpdatedAt:    r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
@@ -116,12 +118,13 @@ func outputJSON(runs []*model.Run) error {
 }
 
 // TSV columns (fixed order per spec):
-// issue_id, run_id, status, phase, updated_at, pr_url, branch, worktree_path, tmux_session
+// issue_id, run_id, short_id, status, phase, updated_at, pr_url, branch, worktree_path, tmux_session
 func outputTSV(runs []*model.Run) error {
 	for _, r := range runs {
-		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			r.IssueID,
 			r.RunID,
+			r.ShortID(),
 			r.Status,
 			r.Phase,
 			r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
@@ -143,7 +146,7 @@ func outputTable(runs []*model.Run) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ISSUE\tRUN\tSTATUS\tPHASE\tUPDATED\tBRANCH")
+	fmt.Fprintln(w, "ID\tISSUE\tSTATUS\tPHASE\tUPDATED\tBRANCH")
 
 	for _, r := range runs {
 		// Truncate branch for display
@@ -156,8 +159,8 @@ func outputTable(runs []*model.Run) error {
 		updated := r.UpdatedAt.Format("01-02 15:04")
 
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			r.ShortID(),
 			r.IssueID,
-			r.RunID,
 			colorStatus(r.Status),
 			r.Phase,
 			updated,

@@ -3,7 +3,9 @@ package cli
 import (
 	"fmt"
 	"os"
+	"regexp"
 
+	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/store"
 	"github.com/s22625/orch/internal/store/file"
 	"github.com/spf13/cobra"
@@ -115,4 +117,31 @@ func getStore() (store.Store, error) {
 	default:
 		return nil, fmt.Errorf("unsupported backend: %s", globalOpts.Backend)
 	}
+}
+
+// shortIDRegex matches a 6-char hex string (git-style short ID)
+var shortIDRegex = regexp.MustCompile(`^[0-9a-f]{6}$`)
+
+// resolveRun resolves a run by short ID or run reference (issue#run or issue)
+// Accepts:
+//   - 6-char hex short ID (e.g., "a3b4c5")
+//   - Full run ref (e.g., "my-task#20231220-100000")
+//   - Issue ID for latest run (e.g., "my-task")
+func resolveRun(st store.Store, refStr string) (*model.Run, error) {
+	// First, try as a short ID (6-char hex)
+	if shortIDRegex.MatchString(refStr) {
+		run, err := st.GetRunByShortID(refStr)
+		if err == nil {
+			return run, nil
+		}
+		// Fall through to try as regular ref
+	}
+
+	// Try as a regular run reference
+	ref, err := model.ParseRunRef(refStr)
+	if err != nil {
+		return nil, err
+	}
+
+	return st.GetRun(ref)
 }

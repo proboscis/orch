@@ -52,6 +52,15 @@ func runStop(refStr string, opts *stopOptions) error {
 		return err
 	}
 
+	// Try as short ID first
+	if shortIDRegex.MatchString(refStr) {
+		run, err := st.GetRunByShortID(refStr)
+		if err == nil {
+			return stopRun(st, run, opts)
+		}
+		// Fall through to try as regular ref
+	}
+
 	ref, err := model.ParseRunRef(refStr)
 	if err != nil {
 		return err

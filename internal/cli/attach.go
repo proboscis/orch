@@ -9,6 +9,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// attach accepts short ID or run ref
+
 type attachOptions struct {
 	Pane   string
 	Window string
@@ -41,12 +43,8 @@ func runAttach(refStr string, opts *attachOptions) error {
 		return err
 	}
 
-	ref, err := model.ParseRunRef(refStr)
-	if err != nil {
-		return err
-	}
-
-	run, err := st.GetRun(ref)
+	// Resolve by short ID or run ref
+	run, err := resolveRun(st, refStr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "run not found: %s\n", refStr)
 		os.Exit(ExitRunNotFound)

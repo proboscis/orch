@@ -1,6 +1,8 @@
 package model
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -68,6 +70,17 @@ func (r *Run) Ref() *RunRef {
 		IssueID: r.IssueID,
 		RunID:   r.RunID,
 	}
+}
+
+// ShortID returns a 6-character hex identifier for the run (git-style)
+func (r *Run) ShortID() string {
+	return GenerateShortID(r.IssueID, r.RunID)
+}
+
+// GenerateShortID generates a 6-char hex ID from issue and run IDs
+func GenerateShortID(issueID, runID string) string {
+	h := sha256.Sum256([]byte(issueID + "#" + runID))
+	return hex.EncodeToString(h[:])[:6]
 }
 
 // GetStatus derives status from events (last status event wins)
