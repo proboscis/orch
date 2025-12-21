@@ -3,7 +3,7 @@ type: issue
 id: orch-026
 title: Pass agent prompt via temporary file
 summary: Avoid shell escaping issues by writing prompt to a file and asking agent to read it
-status: open
+status: resolved
 priority: high
 ---
 
