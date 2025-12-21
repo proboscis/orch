@@ -109,9 +109,6 @@ func TestRunDeriveState(t *testing.T) {
 	if run.Status != StatusRunning {
 		t.Errorf("Status = %v, want running", run.Status)
 	}
-	if run.Phase != PhaseImplement {
-		t.Errorf("Phase = %v, want implement", run.Phase)
-	}
 	if run.WorktreePath != "/tmp/wt" {
 		t.Errorf("WorktreePath = %v, want /tmp/wt", run.WorktreePath)
 	}

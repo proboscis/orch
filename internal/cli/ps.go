@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/store"
@@ -182,7 +183,12 @@ func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
 		}
 	}
 
-	mergedBranches := mergedBranchesForRuns(runs)
+	baseBranch := "main"
+	if cfg, err := config.Load(); err == nil && cfg.BaseBranch != "" {
+		baseBranch = cfg.BaseBranch
+	}
+
+	gitStates := gitStatesForRuns(runs, baseBranch)
 
 	// Collect data rows
 	headers := []string{"ID", "ISSUE", "AGENT", "STATUS", "MERGED", "UPDATED", "SUMMARY"}
@@ -208,8 +214,10 @@ func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
 		}
 
 		merged := "-"
-		if r.Branch != "" && mergedBranches[r.Branch] {
-			merged = "yes"
+		if r.Branch != "" {
+			if state, ok := gitStates[r.Branch]; ok {
+				merged = state
+			}
 		}
 
 		agent := r.Agent
@@ -320,30 +328,27 @@ func colorStatus(status model.Status) string {
 	return string(status)
 }
 
-func mergedBranchesForRuns(runs []*model.Run) map[string]bool {
-	var repoRoot string
+func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
+	branches := make(map[string]struct{})
 	for _, r := range runs {
 		if r.Branch != "" {
-			var err error
-			repoRoot, err = git.FindRepoRoot("")
-			if err != nil {
-				return nil
-			}
-			break
+			branches[r.Branch] = struct{}{}
 		}
 	}
-	if repoRoot == "" {
+	if len(branches) == 0 {
 		return nil
 	}
 
-	merged, err := git.GetMergedBranches(repoRoot, "origin/main")
-	if err != nil {
-		// Fallback to local main if origin/main is not available
-		merged, err = git.GetMergedBranches(repoRoot, "main")
-	}
+	repoRoot, err := git.FindRepoRoot("")
 	if err != nil {
 		return nil
 	}
+
+	targetRef, merged, err := mergedBranchesForTarget(repoRoot, target)
+	if err != nil {
+		return nil
+	}
+
 	commitTimes, err := git.GetBranchCommitTimes(repoRoot)
 	if err != nil {
 		return nil
@@ -367,7 +372,58 @@ func mergedBranchesForRuns(runs []*model.Run) map[string]bool {
 		}
 	}
 
-	return mergedForRuns
+	states := make(map[string]string, len(branches))
+	for branch := range branches {
+		if mergedForRuns[branch] {
+			states[branch] = "yes"
+			continue
+		}
+		if merged[branch] {
+			continue
+		}
+
+		conflict, err := git.CheckMergeConflict(repoRoot, branch, targetRef)
+		if err != nil {
+			continue
+		}
+
+		if conflict {
+			states[branch] = "conflict"
+		} else {
+			states[branch] = "clean"
+		}
+	}
+
+	return states
+}
+
+func mergedBranchesForTarget(repoRoot, target string) (string, map[string]bool, error) {
+	if target == "" {
+		target = "main"
+	}
+	if strings.HasPrefix(target, "origin/") {
+		merged, err := git.GetMergedBranches(repoRoot, target)
+		if err == nil {
+			return target, merged, nil
+		}
+		trimmed := strings.TrimPrefix(target, "origin/")
+		merged, err = git.GetMergedBranches(repoRoot, trimmed)
+		if err != nil {
+			return "", nil, err
+		}
+		return trimmed, merged, nil
+	}
+
+	merged, err := git.GetMergedBranches(repoRoot, "origin/"+target)
+	if err == nil {
+		return "origin/" + target, merged, nil
+	}
+
+	merged, err = git.GetMergedBranches(repoRoot, target)
+	if err != nil {
+		return "", nil, err
+	}
+	return target, merged, nil
 }
 
 func filterResolvedRuns(runs []*model.Run) []*model.Run {

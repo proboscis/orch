@@ -61,7 +61,6 @@ func TestOutputTableTruncatesSummary(t *testing.T) {
 		IssueID:   "issue-1",
 		RunID:     "run-1",
 		Status:    model.StatusRunning,
-		Phase:     model.PhasePlan,
 		UpdatedAt: time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC),
 	}
 	now := time.Date(2025, 1, 2, 3, 6, 0, 0, time.UTC)
@@ -99,7 +98,6 @@ func TestOutputJSON(t *testing.T) {
 		IssueID:      "issue-1",
 		RunID:        "run-1",
 		Status:       model.StatusRunning,
-		Phase:        model.PhasePlan,
 		Branch:       "branch",
 		WorktreePath: "/tmp/worktree",
 		TmuxSession:  "session",
@@ -121,7 +119,6 @@ func TestOutputJSON(t *testing.T) {
 			RunID        string `json:"run_id"`
 			ShortID      string `json:"short_id"`
 			Status       string `json:"status"`
-			Phase        string `json:"phase"`
 			UpdatedAt    string `json:"updated_at"`
 			UpdatedAgo   string `json:"updated_ago"`
 			StartedAt    string `json:"started_at"`
