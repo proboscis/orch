@@ -65,11 +65,12 @@ func (d *Daemon) monitorRun(run *model.Run) error {
 }
 
 // detectStatus analyzes the output to determine the run status
-// Uses claude-squad logic:
-//   - outputChanged=true → Running (agent is actively working)
-//   - outputChanged=false && hasPrompt → Blocked
-//   - outputChanged=false && agentExited → Unknown (shell prompt showing)
-//   - outputChanged=false && !hasPrompt → check for done/failed, otherwise no change
+// Priority order:
+//  1. Agent exited (shell prompt) → Unknown
+//  2. Completion/error patterns → Done/Failed
+//  3. Has input prompt → Blocked (even if output is changing slightly)
+//  4. Output changing → Running
+//  5. Otherwise → no change
 func (d *Daemon) detectStatus(run *model.Run, output string, state *RunState, outputChanged, hasPrompt bool) model.Status {
 	// Check for agent exit first (shell prompt showing = agent died/exited)
 	if d.isAgentExited(output) {
@@ -86,16 +87,15 @@ func (d *Daemon) detectStatus(run *model.Run, output string, state *RunState, ou
 		return model.StatusFailed
 	}
 
-	// Claude-squad logic for Running vs Blocked
-	if outputChanged {
-		// Output changed → agent is actively working → Running
-		return model.StatusRunning
+	// If Claude is showing an input prompt, it's blocked - even if output has minor changes
+	// This prevents oscillation due to token counter updates, cursor blinks, etc.
+	if hasPrompt {
+		return model.StatusBlocked
 	}
 
-	// Output hasn't changed
-	if hasPrompt {
-		// Has prompt and output stable → Blocked (waiting for input)
-		return model.StatusBlocked
+	// Output changed and no prompt → agent is actively working
+	if outputChanged {
+		return model.StatusRunning
 	}
 
 	// No change, no prompt - check for stalling (just log, don't change status)
@@ -158,26 +158,30 @@ func (d *Daemon) isFailed(output string) bool {
 }
 
 // isWaitingForInput checks if the agent is waiting for user input
-// Detects both permission dialogs and normal input prompts
+// Detects permission dialogs, input prompts, and menus
 func (d *Daemon) isWaitingForInput(output string) bool {
-	// Claude Code permission dialog
-	// Source: claude-squad uses this exact pattern
-	if strings.Contains(output, "No, and tell Claude what to do differently") {
-		return true
-	}
-	if strings.Contains(output, "tell Claude what to do differently") {
-		return true
+	promptPatterns := []string{
+		// Permission dialog
+		"No, and tell Claude what to do differently",
+		"tell Claude what to do differently",
+		// Input prompt (with text typed)
+		"↵ send",
+		// Input prompt (empty/idle)
+		"? for shortcuts",
+		// Accept edits prompt
+		"accept edits",
+		// Bypass permissions mode (status bar indicator)
+		"bypass permissions",
+		"shift+tab to cycle",
+		// Resume/project menu
+		"Esc to cancel",
+		"to show all projects",
 	}
 
-	// Claude Code normal input prompt - waiting for user to type/send
-	// The "↵ send" indicator shows Claude is at the input prompt
-	if strings.Contains(output, "↵ send") {
-		return true
-	}
-
-	// Also detect the "accept edits" prompt
-	if strings.Contains(output, "accept edits") {
-		return true
+	for _, pattern := range promptPatterns {
+		if strings.Contains(output, pattern) {
+			return true
+		}
 	}
 
 	return false
@@ -186,6 +190,23 @@ func (d *Daemon) isWaitingForInput(output string) bool {
 // isAgentExited checks if the agent process has exited and shell prompt is showing
 // This happens when the user kills Claude or it crashes
 func (d *Daemon) isAgentExited(output string) bool {
+	// First, check for ANY Claude UI patterns - if present, agent is still running
+	claudePatterns := []string{
+		"↵ send",
+		"accept edits",
+		"? for shortcuts",
+		"tell Claude what to do differently",
+		"tokens",              // token counter at bottom
+		"Esc to cancel",       // menu option
+		"to show all projects", // menu option
+	}
+
+	for _, pattern := range claudePatterns {
+		if strings.Contains(output, pattern) {
+			return false // Claude is still running
+		}
+	}
+
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 	if len(lines) == 0 {
 		return false
@@ -205,34 +226,23 @@ func (d *Daemon) isAgentExited(output string) bool {
 		return false
 	}
 
-	// Common shell prompt patterns at the end of output
-	// These indicate the agent exited and we're back at shell
-	shellPrompts := []string{
-		"➜",  // oh-my-zsh arrow
-		"❯",  // starship/other prompts
-		"$",  // bash default
-		"%",  // zsh default
-		"#",  // root prompt
+	// Shell prompt pattern: line ends with common prompt characters
+	// AND contains path or git info typical of shell prompts
+	if strings.Contains(lastLine, "git:(") && strings.Contains(lastLine, ")") {
+		// Looks like a shell prompt with git branch info
+		return true
 	}
 
-	for _, prompt := range shellPrompts {
-		if strings.Contains(lastLine, prompt) {
-			// Make sure it's not Claude's output by checking for Claude-specific patterns
-			if strings.Contains(output, "↵ send") ||
-				strings.Contains(output, "accept edits") ||
-				strings.Contains(output, "Claude") {
-				return false // Still in Claude
-			}
-			return true
-		}
-	}
-
-	// Also detect "git:(" pattern which appears in many shell prompts
-	if strings.Contains(lastLine, "git:(") {
-		if !strings.Contains(output, "↵ send") &&
-			!strings.Contains(output, "accept edits") {
-			return true
-		}
+	// Check for common shell prompt endings (must be at/near end of line)
+	if strings.HasSuffix(lastLine, "$ ") ||
+		strings.HasSuffix(lastLine, "% ") ||
+		strings.HasSuffix(lastLine, "# ") ||
+		strings.HasSuffix(lastLine, "❯ ") ||
+		strings.HasSuffix(lastLine, "➜ ") ||
+		strings.HasSuffix(strings.TrimRight(lastLine, " "), "$") ||
+		strings.HasSuffix(strings.TrimRight(lastLine, " "), "%") ||
+		strings.HasSuffix(strings.TrimRight(lastLine, " "), "✗") {
+		return true
 	}
 
 	return false
