@@ -22,8 +22,14 @@ type psOptions struct {
 }
 
 type psRun struct {
-	Run         *model.Run
-	IssueStatus string
+	Run          *model.Run
+	IssueStatus  string
+	IssueSummary string
+}
+
+type issueInfo struct {
+	status  string
+	summary string
 }
 
 func newPsCmd() *cobra.Command {
@@ -97,37 +103,42 @@ func runPs(opts *psOptions) error {
 }
 
 func buildPsRuns(st store.Store, runs []*model.Run, issueStatusFilter map[string]bool) []psRun {
-	issueStatusCache := make(map[string]string)
+	issueCache := make(map[string]issueInfo)
 	psRuns := make([]psRun, 0, len(runs))
 
 	for _, r := range runs {
-		issueStatus := resolveIssueStatus(st, issueStatusCache, r.IssueID)
-		if len(issueStatusFilter) > 0 && !issueStatusFilter[issueStatus] {
+		info := resolveIssueInfo(st, issueCache, r.IssueID)
+		if len(issueStatusFilter) > 0 && !issueStatusFilter[info.status] {
 			continue
 		}
 		psRuns = append(psRuns, psRun{
-			Run:         r,
-			IssueStatus: issueStatus,
+			Run:          r,
+			IssueStatus:  info.status,
+			IssueSummary: info.summary,
 		})
 	}
 
 	return psRuns
 }
 
-func resolveIssueStatus(st store.Store, cache map[string]string, issueID string) string {
-	if status, ok := cache[issueID]; ok {
-		return status
+func resolveIssueInfo(st store.Store, cache map[string]issueInfo, issueID string) issueInfo {
+	if info, ok := cache[issueID]; ok {
+		return info
 	}
 
 	issue, err := st.ResolveIssue(issueID)
 	if err != nil {
-		cache[issueID] = ""
-		return ""
+		info := issueInfo{}
+		cache[issueID] = info
+		return info
 	}
 
-	status := issue.Frontmatter["status"]
-	cache[issueID] = status
-	return status
+	info := issueInfo{
+		status:  issue.Frontmatter["status"],
+		summary: issue.Summary,
+	}
+	cache[issueID] = info
+	return info
 }
 
 func outputJSON(runs []psRun) error {
@@ -208,21 +219,23 @@ func outputTable(runs []psRun) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tISSUE\tISSUE-ST\tSTATUS\tPHASE\tUPDATED\tBRANCH")
+	fmt.Fprintln(w, "ID\tISSUE\tISSUE-ST\tSTATUS\tPHASE\tUPDATED\tSUMMARY")
 
 	for _, r := range runs {
 		run := r.Run
-		// Truncate branch for display
-		branch := run.Branch
-		if len(branch) > 30 {
-			branch = "..." + branch[len(branch)-27:]
-		}
-
 		// Format updated time as relative or short form
 		updated := run.UpdatedAt.Format("01-02 15:04")
 		issueStatus := r.IssueStatus
 		if issueStatus == "" {
 			issueStatus = "-"
+		}
+
+		// Get issue summary, truncate if too long
+		summary := r.IssueSummary
+		if summary == "" {
+			summary = "-"
+		} else if len(summary) > 40 {
+			summary = summary[:37] + "..."
 		}
 
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
@@ -232,7 +245,7 @@ func outputTable(runs []psRun) error {
 			colorStatus(run.Status),
 			run.Phase,
 			updated,
-			branch,
+			summary,
 		)
 	}
 

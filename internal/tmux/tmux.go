@@ -7,6 +7,8 @@ import (
 	"strings"
 )
 
+var execCommand = exec.Command
+
 // SessionConfig holds configuration for creating a tmux session
 type SessionConfig struct {
 	SessionName string
@@ -17,7 +19,7 @@ type SessionConfig struct {
 
 // HasSession checks if a tmux session exists
 func HasSession(name string) bool {
-	cmd := exec.Command("tmux", "has-session", "-t", name)
+	cmd := execCommand("tmux", "has-session", "-t", name)
 	return cmd.Run() == nil
 }
 
@@ -33,8 +35,11 @@ func NewSession(cfg *SessionConfig) error {
 		args = append(args, "-c", cfg.WorkDir)
 	}
 
-	cmd := exec.Command("tmux", args...)
-	cmd.Env = append(os.Environ(), cfg.Env...)
+	cmd := execCommand("tmux", args...)
+	if cmd.Env == nil {
+		cmd.Env = os.Environ()
+	}
+	cmd.Env = append(cmd.Env, cfg.Env...)
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
@@ -53,7 +58,7 @@ func NewSession(cfg *SessionConfig) error {
 
 // SendKeys sends keys to a tmux session
 func SendKeys(session, keys string) error {
-	cmd := exec.Command("tmux", "send-keys", "-t", session, keys, "Enter")
+	cmd := execCommand("tmux", "send-keys", "-t", session, keys, "Enter")
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
@@ -61,7 +66,7 @@ func SendKeys(session, keys string) error {
 // CapturePane captures the content of a tmux pane
 func CapturePane(session string, lines int) (string, error) {
 	startLine := fmt.Sprintf("-%d", lines)
-	cmd := exec.Command("tmux", "capture-pane", "-t", session, "-p", "-S", startLine)
+	cmd := execCommand("tmux", "capture-pane", "-t", session, "-p", "-S", startLine)
 	output, err := cmd.Output()
 	if err != nil {
 		return "", err
@@ -71,7 +76,7 @@ func CapturePane(session string, lines int) (string, error) {
 
 // AttachSession attaches to an existing tmux session (foreground)
 func AttachSession(session string) error {
-	cmd := exec.Command("tmux", "attach-session", "-t", session)
+	cmd := execCommand("tmux", "attach-session", "-t", session)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -80,14 +85,14 @@ func AttachSession(session string) error {
 
 // KillSession kills a tmux session
 func KillSession(session string) error {
-	cmd := exec.Command("tmux", "kill-session", "-t", session)
+	cmd := execCommand("tmux", "kill-session", "-t", session)
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
 
 // ListSessions returns all tmux session names
 func ListSessions() ([]string, error) {
-	cmd := exec.Command("tmux", "list-sessions", "-F", "#{session_name}")
+	cmd := execCommand("tmux", "list-sessions", "-F", "#{session_name}")
 	output, err := cmd.Output()
 	if err != nil {
 		// tmux returns error if no sessions exist
@@ -116,7 +121,7 @@ func NewWindow(session, name, workDir, command string) error {
 		args = append(args, "-c", workDir)
 	}
 
-	cmd := exec.Command("tmux", args...)
+	cmd := execCommand("tmux", args...)
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return err
@@ -135,6 +140,6 @@ func NewWindow(session, name, workDir, command string) error {
 
 // IsTmuxAvailable checks if tmux is installed and accessible
 func IsTmuxAvailable() bool {
-	cmd := exec.Command("tmux", "-V")
+	cmd := execCommand("tmux", "-V")
 	return cmd.Run() == nil
 }
