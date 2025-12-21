@@ -51,6 +51,7 @@ type Dashboard struct {
 
 	runs   []RunRow
 	cursor int
+	offset int
 	width  int
 	height int
 
@@ -128,6 +129,7 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				d.cursor = 0
 			}
 		}
+		d.ensureCursorVisible()
 		return d, nil
 	case issuesMsg:
 		d.newRun.issues = msg.issues
@@ -228,11 +230,13 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if d.cursor > 0 {
 			d.cursor--
 		}
+		d.ensureCursorVisible()
 		return d, nil
 	case "down", "j":
 		if d.cursor < len(d.runs)-1 {
 			d.cursor++
 		}
+		d.ensureCursorVisible()
 		return d, nil
 	case "enter":
 		if d.cursor >= 0 && d.cursor < len(d.runs) {
@@ -528,7 +532,7 @@ func (d *Dashboard) answerCmd(run *model.Run, questionID, text string) tea.Cmd {
 func (d *Dashboard) viewDashboard() string {
 	title := d.styles.Title.Render("ORCH MONITOR")
 	meta := d.renderMeta()
-	table := d.renderTable()
+	table := d.renderTable(d.tableMaxRows())
 	stats := d.renderStats()
 	footer := d.renderFooter()
 	message := ""
@@ -650,29 +654,44 @@ func (d *Dashboard) viewNewRun() string {
 	return strings.Join(lines, "\n")
 }
 
-func (d *Dashboard) renderTable() string {
+func (d *Dashboard) renderTable(maxRows int) string {
 	if len(d.runs) == 0 {
 		return "No runs found."
 	}
 
-	idxW, idW, issueW, statusW, agoW, summaryW := d.tableWidths()
+	idxW, idW, issueW, issueStatusW, agentW, statusW, prW, mergedW, updatedW, topicW := d.tableWidths()
 
-	header := d.renderRow(idxW, idW, issueW, statusW, agoW, summaryW,
-		"#", "ID", "ISSUE", "STATUS", "AGO", "SUMMARY", true, nil)
+	header := d.renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, prW, mergedW, updatedW, topicW,
+		"#", "ID", "ISSUE", "ISSUE-ST", "AGENT", "STATUS", "PR", "MERGED", "UPDATED", "TOPIC", true, nil)
 
 	var rows []string
-	for i, row := range d.runs {
-		r := d.renderRow(idxW, idW, issueW, statusW, agoW, summaryW,
+	visibleRows := d.runVisibleRows(maxRows)
+	start := d.offset
+	end := len(d.runs)
+	if visibleRows > 0 {
+		end = start + visibleRows
+		if end > len(d.runs) {
+			end = len(d.runs)
+		}
+	} else {
+		end = start
+	}
+	for i, row := range d.runs[start:end] {
+		r := d.renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, prW, mergedW, updatedW, topicW,
 			fmt.Sprintf("%d", row.Index),
 			row.ShortID,
 			row.IssueID,
+			row.IssueStatus,
+			row.Agent,
 			string(row.Status),
+			row.PR,
+			row.Merged,
 			formatRelativeTime(row.Updated, time.Now()),
-			row.Summary,
+			row.Topic,
 			false,
 			&row,
 		)
-		if i == d.cursor {
+		if i+start == d.cursor {
 			r = d.styles.Selected.Render(r)
 		}
 		rows = append(rows, r)
@@ -681,24 +700,32 @@ func (d *Dashboard) renderTable() string {
 	return strings.Join(append([]string{header}, rows...), "\n")
 }
 
-func (d *Dashboard) renderRow(idxW, idW, issueW, statusW, agoW, summaryW int, idx, id, issue, status, ago, summary string, header bool, row *RunRow) string {
+func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, prW, mergedW, updatedW, topicW int, idx, id, issue, issueStatus, agent, status, pr, merged, updated, topic string, header bool, row *RunRow) string {
 	baseStyle := d.styles.Text
 	headerStyle := d.styles.Header
 
 	idxCol := d.pad(idx, idxW, baseStyle)
 	idCol := d.pad(id, idW, baseStyle)
 	issueCol := d.pad(issue, issueW, baseStyle)
-	agoCol := d.pad(ago, agoW, baseStyle)
-	summaryCol := d.pad(summary, summaryW, baseStyle)
+	issueStatusCol := d.pad(issueStatus, issueStatusW, baseStyle)
+	agentCol := d.pad(agent, agentW, baseStyle)
+	updatedCol := d.pad(updated, updatedW, baseStyle)
+	topicCol := d.pad(topic, topicW, baseStyle)
 	statusCol := d.pad(status, statusW, baseStyle)
+	prCol := d.pad(pr, prW, baseStyle)
+	mergedCol := d.pad(merged, mergedW, baseStyle)
 
 	if header {
 		idxCol = d.pad(idx, idxW, headerStyle)
 		idCol = d.pad(id, idW, headerStyle)
 		issueCol = d.pad(issue, issueW, headerStyle)
-		agoCol = d.pad(ago, agoW, headerStyle)
-		summaryCol = d.pad(summary, summaryW, headerStyle)
+		issueStatusCol = d.pad(issueStatus, issueStatusW, headerStyle)
+		agentCol = d.pad(agent, agentW, headerStyle)
+		updatedCol = d.pad(updated, updatedW, headerStyle)
+		topicCol = d.pad(topic, topicW, headerStyle)
 		statusCol = d.pad(status, statusW, headerStyle)
+		prCol = d.pad(pr, prW, headerStyle)
+		mergedCol = d.pad(merged, mergedW, headerStyle)
 	}
 
 	if row != nil {
@@ -707,7 +734,7 @@ func (d *Dashboard) renderRow(idxW, idW, issueW, statusW, agoW, summaryW int, id
 		}
 	}
 
-	return strings.Join([]string{idxCol, idCol, issueCol, statusCol, agoCol, summaryCol}, "  ")
+	return strings.Join([]string{idxCol, idCol, issueCol, issueStatusCol, agentCol, statusCol, prCol, mergedCol, updatedCol, topicCol}, "  ")
 }
 
 func (d *Dashboard) renderStats() string {
@@ -751,7 +778,8 @@ func (d *Dashboard) renderMeta() string {
 
 	sync := d.renderSyncStatus()
 	nav := d.renderNav()
-	return strings.Join([]string{filter, sync, nav}, "  ")
+	rows := d.renderRunRange()
+	return strings.Join([]string{filter, sync, nav, rows}, "  ")
 }
 
 func (d *Dashboard) renderSyncStatus() string {
@@ -773,22 +801,44 @@ func (d *Dashboard) renderNav() string {
 	return fmt.Sprintf("nav: [%s] runs  [%s] issues  [%s] chat", d.keymap.Runs, d.keymap.Issues, d.keymap.Chat)
 }
 
+func (d *Dashboard) renderRunRange() string {
+	if len(d.runs) == 0 {
+		return "rows: 0/0"
+	}
+	visibleRows := d.runVisibleRows(d.tableMaxRows())
+	if visibleRows == 0 {
+		return fmt.Sprintf("rows: 0/%d", len(d.runs))
+	}
+	start := d.offset + 1
+	if start < 1 {
+		start = 1
+	}
+	end := d.offset + visibleRows
+	if end > len(d.runs) {
+		end = len(d.runs)
+	}
+	return fmt.Sprintf("rows: %d-%d/%d", start, end, len(d.runs))
+}
+
 func (d *Dashboard) renderFooter() string {
 	return d.keymap.HelpLine()
 }
 
-func (d *Dashboard) tableWidths() (idxW, idW, issueW, statusW, agoW, summaryW int) {
+func (d *Dashboard) tableWidths() (idxW, idW, issueW, issueStatusW, agentW, statusW, prW, mergedW, updatedW, topicW int) {
 	idxW = 2
 	idW = 6
-	issueW = 12
+	issueW = 10
+	issueStatusW = 8
+	agentW = 6
 	statusW = 10
-	agoW = 6
-
+	prW = 3
+	mergedW = 8
+	updatedW = 7
 	contentWidth := d.safeWidth()
-	fixed := idxW + idW + issueW + statusW + agoW + 10
-	summaryW = contentWidth - fixed
-	if summaryW < 20 {
-		summaryW = 20
+	fixed := idxW + idW + issueW + issueStatusW + agentW + statusW + prW + mergedW + updatedW + 18
+	topicW = contentWidth - fixed
+	if topicW < 12 {
+		topicW = 12
 	}
 	return
 }
@@ -798,6 +848,71 @@ func (d *Dashboard) safeWidth() int {
 		return d.width - 2
 	}
 	return 80
+}
+
+func (d *Dashboard) safeHeight() int {
+	if d.height > 2 {
+		return d.height - 2
+	}
+	return 24
+}
+
+func (d *Dashboard) tableMaxRows() int {
+	base := 8
+	if d.message != "" {
+		base += 2
+	}
+	available := d.safeHeight() - base
+	if available <= 1 {
+		return 0
+	}
+	return available - 1
+}
+
+func (d *Dashboard) runVisibleRows(maxRows int) int {
+	if maxRows <= 0 {
+		return 0
+	}
+	if len(d.runs) < maxRows {
+		return len(d.runs)
+	}
+	return maxRows
+}
+
+func (d *Dashboard) pageSize() int {
+	rows := d.runVisibleRows(d.tableMaxRows())
+	if rows < 1 {
+		return 1
+	}
+	return rows
+}
+
+func (d *Dashboard) ensureCursorVisible() {
+	if len(d.runs) == 0 {
+		d.offset = 0
+		return
+	}
+	visibleRows := d.runVisibleRows(d.tableMaxRows())
+	if visibleRows <= 0 {
+		d.offset = 0
+		return
+	}
+	if d.cursor < d.offset {
+		d.offset = d.cursor
+	}
+	if d.cursor >= d.offset+visibleRows {
+		d.offset = d.cursor - visibleRows + 1
+	}
+	maxOffset := len(d.runs) - visibleRows
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if d.offset > maxOffset {
+		d.offset = maxOffset
+	}
+	if d.offset < 0 {
+		d.offset = 0
+	}
 }
 
 func (d *Dashboard) pad(s string, width int, style lipgloss.Style) string {
