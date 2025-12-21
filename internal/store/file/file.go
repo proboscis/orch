@@ -16,7 +16,9 @@ import (
 
 // FileStore implements store.Store using the filesystem
 type FileStore struct {
-	vaultPath string
+	vaultPath  string
+	issueCache map[string]*model.Issue // id -> issue
+	cacheDirty bool
 }
 
 // New creates a new FileStore
@@ -34,7 +36,11 @@ func New(vaultPath string) (*FileStore, error) {
 		return nil, fmt.Errorf("vault path is not a directory: %s", absPath)
 	}
 
-	return &FileStore{vaultPath: absPath}, nil
+	return &FileStore{
+		vaultPath:  absPath,
+		issueCache: make(map[string]*model.Issue),
+		cacheDirty: true,
+	}, nil
 }
 
 // VaultPath returns the vault root path
@@ -42,9 +48,112 @@ func (s *FileStore) VaultPath() string {
 	return s.vaultPath
 }
 
-// issuePath returns the path to an issue document
-func (s *FileStore) issuePath(issueID string) string {
-	return filepath.Join(s.vaultPath, "issues", issueID+".md")
+// scanIssues walks the vault and finds all files with type: issue frontmatter
+func (s *FileStore) scanIssues() error {
+	s.issueCache = make(map[string]*model.Issue)
+
+	err := filepath.Walk(s.vaultPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Skip files we can't access
+		}
+
+		// Skip directories and non-markdown files
+		if info.IsDir() || !strings.HasSuffix(path, ".md") {
+			return nil
+		}
+
+		// Skip runs directory
+		if strings.Contains(path, filepath.Join(s.vaultPath, "runs")) {
+			return nil
+		}
+
+		// Try to parse as issue
+		issue, err := s.parseIssueFile(path)
+		if err != nil || issue == nil {
+			return nil // Not an issue file
+		}
+
+		s.issueCache[issue.ID] = issue
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	s.cacheDirty = false
+	return nil
+}
+
+// parseIssueFile reads a file and returns an Issue if it has type: issue frontmatter
+func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse frontmatter
+	lines := strings.Split(string(content), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return nil, nil // No frontmatter
+	}
+
+	frontmatter := make(map[string]string)
+	bodyStart := 0
+	inFrontmatter := true
+
+	for i := 1; i < len(lines); i++ {
+		line := lines[i]
+		if strings.TrimSpace(line) == "---" {
+			inFrontmatter = false
+			bodyStart = i + 1
+			break
+		}
+		if inFrontmatter {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				key := strings.TrimSpace(parts[0])
+				value := strings.TrimSpace(parts[1])
+				frontmatter[key] = value
+			}
+		}
+	}
+
+	// Check if this is an issue file
+	if frontmatter["type"] != "issue" {
+		return nil, nil
+	}
+
+	// Get issue ID from frontmatter or filename
+	issueID := frontmatter["id"]
+	if issueID == "" {
+		issueID = strings.TrimSuffix(filepath.Base(path), ".md")
+	}
+
+	// Get title
+	title := frontmatter["title"]
+	if title == "" && bodyStart < len(lines) {
+		for _, line := range lines[bodyStart:] {
+			if strings.HasPrefix(line, "# ") {
+				title = strings.TrimPrefix(line, "# ")
+				break
+			}
+		}
+	}
+
+	// Get body
+	body := ""
+	if bodyStart < len(lines) {
+		body = strings.Join(lines[bodyStart:], "\n")
+	}
+
+	return &model.Issue{
+		ID:          issueID,
+		Title:       title,
+		Body:        body,
+		Path:        path,
+		Frontmatter: frontmatter,
+	}, nil
 }
 
 // runPath returns the path to a run document
@@ -59,70 +168,42 @@ func (s *FileStore) runsDir(issueID string) string {
 
 // ResolveIssue retrieves an issue by ID
 func (s *FileStore) ResolveIssue(issueID string) (*model.Issue, error) {
-	path := s.issuePath(issueID)
-	content, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
+	// Scan if cache is dirty
+	if s.cacheDirty {
+		if err := s.scanIssues(); err != nil {
+			return nil, err
+		}
+	}
+
+	issue, ok := s.issueCache[issueID]
+	if !ok {
+		// Try rescanning in case file was added
+		s.cacheDirty = true
+		if err := s.scanIssues(); err != nil {
+			return nil, err
+		}
+		issue, ok = s.issueCache[issueID]
+		if !ok {
 			return nil, fmt.Errorf("issue not found: %s", issueID)
 		}
-		return nil, err
-	}
-
-	issue := &model.Issue{
-		ID:   issueID,
-		Path: path,
-	}
-
-	// Parse frontmatter and body
-	lines := strings.Split(string(content), "\n")
-	inFrontmatter := false
-	frontmatterLines := []string{}
-	bodyStart := 0
-
-	for i, line := range lines {
-		if i == 0 && strings.TrimSpace(line) == "---" {
-			inFrontmatter = true
-			continue
-		}
-		if inFrontmatter {
-			if strings.TrimSpace(line) == "---" {
-				inFrontmatter = false
-				bodyStart = i + 1
-				continue
-			}
-			frontmatterLines = append(frontmatterLines, line)
-		}
-	}
-
-	// Parse simple frontmatter (key: value)
-	issue.Frontmatter = make(map[string]string)
-	for _, line := range frontmatterLines {
-		parts := strings.SplitN(line, ":", 2)
-		if len(parts) == 2 {
-			key := strings.TrimSpace(parts[0])
-			value := strings.TrimSpace(parts[1])
-			issue.Frontmatter[key] = value
-			if key == "title" {
-				issue.Title = value
-			}
-		}
-	}
-
-	// Extract title from first heading if not in frontmatter
-	if issue.Title == "" && bodyStart < len(lines) {
-		for _, line := range lines[bodyStart:] {
-			if strings.HasPrefix(line, "# ") {
-				issue.Title = strings.TrimPrefix(line, "# ")
-				break
-			}
-		}
-	}
-
-	if bodyStart < len(lines) {
-		issue.Body = strings.Join(lines[bodyStart:], "\n")
 	}
 
 	return issue, nil
+}
+
+// ListIssues returns all issues in the vault
+func (s *FileStore) ListIssues() ([]*model.Issue, error) {
+	if s.cacheDirty {
+		if err := s.scanIssues(); err != nil {
+			return nil, err
+		}
+	}
+
+	issues := make([]*model.Issue, 0, len(s.issueCache))
+	for _, issue := range s.issueCache {
+		issues = append(issues, issue)
+	}
+	return issues, nil
 }
 
 // CreateRun creates a new run for an issue

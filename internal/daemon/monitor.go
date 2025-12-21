@@ -39,13 +39,15 @@ func (d *Daemon) monitorRun(run *model.Run) error {
 	}
 
 	// Check for output changes (same as claude-squad's HasUpdated)
-	outputHash := hashString(output)
-	outputChanged := outputHash != state.OutputHash
+	// Hash only the content portion, excluding status bar (last 5 lines)
+	// to avoid false positives from token counter updates
+	contentHash := hashContent(output)
+	outputChanged := contentHash != state.OutputHash
 	hasPrompt := d.isWaitingForInput(output)
 
 	if outputChanged {
 		// Output changed - update tracking
-		state.OutputHash = outputHash
+		state.OutputHash = contentHash
 		state.LastOutput = output
 		state.LastOutputAt = time.Now()
 	}
@@ -65,11 +67,11 @@ func (d *Daemon) monitorRun(run *model.Run) error {
 }
 
 // detectStatus analyzes the output to determine the run status
-// Priority order:
+// Uses claude-squad logic:
 //  1. Agent exited (shell prompt) → Unknown
 //  2. Completion/error patterns → Done/Failed
-//  3. Has input prompt → Blocked (even if output is changing slightly)
-//  4. Output changing → Running
+//  3. Content changing → Running (agent is actively working)
+//  4. Content stable + has prompt → Blocked (waiting for input)
 //  5. Otherwise → no change
 func (d *Daemon) detectStatus(run *model.Run, output string, state *RunState, outputChanged, hasPrompt bool) model.Status {
 	// Check for agent exit first (shell prompt showing = agent died/exited)
@@ -87,15 +89,15 @@ func (d *Daemon) detectStatus(run *model.Run, output string, state *RunState, ou
 		return model.StatusFailed
 	}
 
-	// If Claude is showing an input prompt, it's blocked - even if output has minor changes
-	// This prevents oscillation due to token counter updates, cursor blinks, etc.
-	if hasPrompt {
-		return model.StatusBlocked
-	}
-
-	// Output changed and no prompt → agent is actively working
+	// Claude-squad logic: output changing = Running, stable + prompt = Blocked
+	// We hash content (excluding status bar) so token counter updates don't cause oscillation
 	if outputChanged {
 		return model.StatusRunning
+	}
+
+	// Content is stable - if showing a prompt, it's blocked
+	if hasPrompt {
+		return model.StatusBlocked
 	}
 
 	// No change, no prompt - check for stalling (just log, don't change status)
@@ -259,6 +261,17 @@ func (d *Daemon) updateStatus(run *model.Run, status model.Status) error {
 func hashString(s string) string {
 	h := md5.Sum([]byte(s))
 	return hex.EncodeToString(h[:])
+}
+
+// hashContent hashes the main content area, excluding the status bar
+// This prevents token counter updates from causing false "output changed" signals
+func hashContent(output string) string {
+	lines := strings.Split(output, "\n")
+	// Skip the last 5 lines (status bar area: tokens, shortcuts, prompts)
+	if len(lines) > 5 {
+		lines = lines[:len(lines)-5]
+	}
+	return hashString(strings.Join(lines, "\n"))
 }
 
 // getLastLines returns the last n lines of a string

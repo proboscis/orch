@@ -88,6 +88,8 @@ func runIssueCreate(issueID string, opts *issueCreateOptions) error {
 	// Build issue content
 	var sb strings.Builder
 	sb.WriteString("---\n")
+	sb.WriteString("type: issue\n")
+	sb.WriteString(fmt.Sprintf("id: %s\n", issueID))
 	sb.WriteString(fmt.Sprintf("title: %s\n", title))
 	sb.WriteString("status: open\n")
 	sb.WriteString("---\n\n")
@@ -149,20 +151,13 @@ func newIssueListCmd() *cobra.Command {
 }
 
 func runIssueList() error {
-	vaultPath, err := getVaultPath()
+	st, err := getStore()
 	if err != nil {
 		return err
 	}
 
-	issuesDir := filepath.Join(vaultPath, "issues")
-	entries, err := os.ReadDir(issuesDir)
+	issues, err := st.ListIssues()
 	if err != nil {
-		if os.IsNotExist(err) {
-			if !globalOpts.Quiet {
-				fmt.Println("No issues found")
-			}
-			return nil
-		}
 		return err
 	}
 
@@ -172,30 +167,13 @@ func runIssueList() error {
 		Path  string `json:"path"`
 	}
 
-	var issues []issueInfo
-
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-			continue
-		}
-
-		id := strings.TrimSuffix(e.Name(), ".md")
-		path := filepath.Join(issuesDir, e.Name())
-
-		// Try to extract title from frontmatter
-		title := id
-		content, err := os.ReadFile(path)
-		if err == nil {
-			lines := strings.Split(string(content), "\n")
-			for _, line := range lines {
-				if strings.HasPrefix(line, "title:") {
-					title = strings.TrimSpace(strings.TrimPrefix(line, "title:"))
-					break
-				}
-			}
-		}
-
-		issues = append(issues, issueInfo{ID: id, Title: title, Path: path})
+	var issueInfos []issueInfo
+	for _, issue := range issues {
+		issueInfos = append(issueInfos, issueInfo{
+			ID:    issue.ID,
+			Title: issue.Title,
+			Path:  issue.Path,
+		})
 	}
 
 	if globalOpts.JSON {
@@ -204,21 +182,21 @@ func runIssueList() error {
 			Issues []issueInfo `json:"issues"`
 		}{
 			OK:     true,
-			Issues: issues,
+			Issues: issueInfos,
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(output)
 	}
 
-	if len(issues) == 0 {
+	if len(issueInfos) == 0 {
 		if !globalOpts.Quiet {
 			fmt.Println("No issues found")
 		}
 		return nil
 	}
 
-	for _, issue := range issues {
+	for _, issue := range issueInfos {
 		fmt.Printf("%s\t%s\n", issue.ID, issue.Title)
 	}
 

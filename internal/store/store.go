@@ -14,8 +14,11 @@ type ListRunsFilter struct {
 
 // Store defines the interface for knowledge store backends
 type Store interface {
-	// ResolveIssue retrieves an issue by ID
+	// ResolveIssue retrieves an issue by ID (looks for type: issue frontmatter)
 	ResolveIssue(issueID string) (*model.Issue, error)
+
+	// ListIssues returns all issues in the vault
+	ListIssues() ([]*model.Issue, error)
 
 	// CreateRun creates a new run for an issue
 	CreateRun(issueID, runID string, metadata map[string]string) (*model.Run, error)
