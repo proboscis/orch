@@ -233,7 +233,11 @@ func (m *Monitor) OpenRun(run *model.Run) error {
 	_ = tmux.SetPaneTitle(chatPane, chatPaneTitle)
 	m.activeRun = sessionName
 	m.activeTitle = title
-	return tmux.SelectPane(runPane)
+	monitorPane, err := m.findPaneByTitle(m.session, title)
+	if err != nil {
+		return tmux.SelectPane(runPane)
+	}
+	return tmux.SelectPane(monitorPane)
 }
 
 // CloseRunPane restores the chat pane if a run is open.
@@ -493,36 +497,93 @@ func (m *Monitor) ensureRunSession(w *RunWindow) error {
 }
 
 func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
-	issueSummaries := make(map[string]string)
+	type issueDisplay struct {
+		status string
+		topic  string
+	}
+
+	issueInfo := make(map[string]issueDisplay)
 	for _, w := range windows {
-		if _, ok := issueSummaries[w.Run.IssueID]; ok {
+		if w == nil || w.Run == nil {
+			continue
+		}
+		if _, ok := issueInfo[w.Run.IssueID]; ok {
 			continue
 		}
 		issue, err := m.store.ResolveIssue(w.Run.IssueID)
 		if err != nil {
 			continue
 		}
-		summary := issue.Summary
-		if summary == "" {
-			summary = issue.Title
+		status := "-"
+		if issue.Frontmatter != nil && issue.Frontmatter["status"] != "" {
+			status = issue.Frontmatter["status"]
 		}
-		issueSummaries[w.Run.IssueID] = summary
+		topic := formatIssueTopic(issue)
+		if topic == "" {
+			topic = "-"
+		}
+		issueInfo[w.Run.IssueID] = issueDisplay{
+			status: status,
+			topic:  topic,
+		}
 	}
+
+	runList := make([]*model.Run, 0, len(windows))
+	for _, w := range windows {
+		if w != nil && w.Run != nil {
+			runList = append(runList, w.Run)
+		}
+	}
+	baseBranch := "main"
+	if cfg, err := config.Load(); err == nil && cfg.BaseBranch != "" {
+		baseBranch = cfg.BaseBranch
+	}
+	gitStates := gitStatesForRuns(runList, baseBranch)
 
 	rows := make([]RunRow, 0, len(windows))
 	for _, w := range windows {
-		summary := issueSummaries[w.Run.IssueID]
-		if summary == "" {
-			summary = "-"
+		if w == nil || w.Run == nil {
+			continue
+		}
+		info := issueInfo[w.Run.IssueID]
+		issueStatus := info.status
+		if issueStatus == "" {
+			issueStatus = "-"
+		}
+		topic := info.topic
+		if topic == "" {
+			topic = "-"
+		}
+		agent := w.Run.Agent
+		if agent == "" {
+			agent = "-"
+		}
+		pr := "-"
+		if w.Run.PRUrl != "" || w.Run.Status == model.StatusPROpen {
+			pr = "yes"
+		}
+		merged := "-"
+		if state, ok := gitStates[w.Run.RunID]; ok {
+			merged = state
+		}
+		shortID := w.Run.ShortID()
+		if w.Run.WorktreePath != "" {
+			if _, err := os.Stat(w.Run.WorktreePath); os.IsNotExist(err) {
+				shortID += "*"
+			}
 		}
 		rows = append(rows, RunRow{
-			Index:   w.Index,
-			ShortID: w.Run.ShortID(),
-			IssueID: w.Run.IssueID,
-			Status:  w.Run.Status,
-			Summary: summary,
-			Updated: w.Run.UpdatedAt,
-			Run:     w.Run,
+			Index:       w.Index,
+			ShortID:     shortID,
+			IssueID:     w.Run.IssueID,
+			IssueStatus: issueStatus,
+			Agent:       agent,
+			Status:      w.Run.Status,
+			PR:          pr,
+			Merged:      merged,
+			Updated:     w.Run.UpdatedAt,
+			Topic:       topic,
+			Run:         w.Run,
 		})
 	}
 

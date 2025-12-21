@@ -8,13 +8,17 @@ import (
 
 // RunRow holds display data for a run.
 type RunRow struct {
-	Index   int
-	ShortID string
-	IssueID string
-	Status  model.Status
-	Summary string
-	Updated time.Time
-	Run     *model.Run
+	Index       int
+	ShortID     string
+	IssueID     string
+	IssueStatus string
+	Agent       string
+	Status      model.Status
+	PR          string
+	Merged      string
+	Updated     time.Time
+	Topic       string
+	Run         *model.Run
 }
 
 // IssueRow holds display data for an issue.
