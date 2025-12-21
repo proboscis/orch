@@ -112,6 +112,8 @@ func runPs(opts *psOptions) error {
 		runs = runs[:requestedLimit]
 	}
 
+	populatePRUrls(runs)
+
 	// Output based on format
 	now := time.Now()
 	if globalOpts.JSON {
