@@ -214,6 +214,107 @@ func TestRenameWindow(t *testing.T) {
 	}
 }
 
+func TestListPanes(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{output: "%1:0:runs:orch\n%2:1:issues:orch\n"}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	panes, err := ListPanes("sess:0")
+	if err != nil {
+		t.Fatalf("ListPanes error: %v", err)
+	}
+	if len(panes) != 2 {
+		t.Fatalf("expected 2 panes, got %d", len(panes))
+	}
+	if panes[0].ID != "%1" || panes[0].Index != 0 || panes[0].Title != "runs" || panes[0].Command != "orch" {
+		t.Fatalf("unexpected pane: %+v", panes[0])
+	}
+	call := exec.recorded[0]
+	if !equalArgs(call.args, []string{"list-panes", "-t", "sess:0", "-F", "#{pane_id}:#{pane_index}:#{pane_title}:#{pane_current_command}"}) {
+		t.Fatalf("list-panes args = %v", call.args)
+	}
+}
+
+func TestSplitWindow(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{output: "%3\n"}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	paneID, err := SplitWindow("sess:0.0", true, 25)
+	if err != nil {
+		t.Fatalf("SplitWindow error: %v", err)
+	}
+	if paneID != "%3" {
+		t.Fatalf("pane id = %q", paneID)
+	}
+	call := exec.recorded[0]
+	if !equalArgs(call.args, []string{"split-window", "-d", "-t", "sess:0.0", "-P", "-F", "#{pane_id}", "-v", "-p", "25"}) {
+		t.Fatalf("split-window args = %v", call.args)
+	}
+}
+
+func TestKillPane(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	if err := KillPane("%1"); err != nil {
+		t.Fatalf("KillPane error: %v", err)
+	}
+	call := exec.recorded[0]
+	if !equalArgs(call.args, []string{"kill-pane", "-t", "%1"}) {
+		t.Fatalf("kill-pane args = %v", call.args)
+	}
+}
+
+func TestSwapPane(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	if err := SwapPane("%1", "%2"); err != nil {
+		t.Fatalf("SwapPane error: %v", err)
+	}
+	call := exec.recorded[0]
+	if !equalArgs(call.args, []string{"swap-pane", "-s", "%1", "-t", "%2"}) {
+		t.Fatalf("swap-pane args = %v", call.args)
+	}
+}
+
+func TestSelectPane(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	if err := SelectPane("%1"); err != nil {
+		t.Fatalf("SelectPane error: %v", err)
+	}
+	call := exec.recorded[0]
+	if !equalArgs(call.args, []string{"select-pane", "-t", "%1"}) {
+		t.Fatalf("select-pane args = %v", call.args)
+	}
+}
+
+func TestSetPaneTitle(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	if err := SetPaneTitle("%1", "chat"); err != nil {
+		t.Fatalf("SetPaneTitle error: %v", err)
+	}
+	call := exec.recorded[0]
+	if !equalArgs(call.args, []string{"select-pane", "-t", "%1", "-T", "chat"}) {
+		t.Fatalf("set-pane-title args = %v", call.args)
+	}
+}
+
 func equalArgs(got, want []string) bool {
 	if len(got) != len(want) {
 		return false
