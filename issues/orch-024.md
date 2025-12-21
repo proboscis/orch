@@ -3,7 +3,7 @@ type: issue
 id: orch-024
 title: Add dedicated PR column to orch ps
 summary: Separate PR status from MERGED column in orch ps
-status: open
+status: resolved
 priority: medium
 ---
 
