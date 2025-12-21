@@ -89,7 +89,7 @@ func runStop(refStr string, opts *stopOptions) error {
 func stopIssueRuns(st store.Store, issueID string, opts *stopOptions) error {
 	runs, err := st.ListRuns(&store.ListRunsFilter{
 		IssueID: issueID,
-		Status:  []model.Status{model.StatusRunning, model.StatusBooting, model.StatusBlocked, model.StatusQueued},
+		Status:  []model.Status{model.StatusRunning, model.StatusBooting, model.StatusBlocked, model.StatusBlockedAPI, model.StatusQueued},
 	})
 	if err != nil {
 		return err
@@ -147,7 +147,9 @@ func runStopAll(opts *stopOptions) error {
 	return nil
 }
 
-func stopRun(st interface{ AppendEvent(ref *model.RunRef, event *model.Event) error }, run *model.Run, opts *stopOptions) error {
+func stopRun(st interface {
+	AppendEvent(ref *model.RunRef, event *model.Event) error
+}, run *model.Run, opts *stopOptions) error {
 	// Skip if already terminal
 	if run.Status == model.StatusDone || run.Status == model.StatusFailed || run.Status == model.StatusCanceled {
 		if !globalOpts.Quiet {

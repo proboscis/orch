@@ -49,7 +49,7 @@ The run will be started in a tmux session by default.`,
 	}
 
 	cmd.Flags().BoolVar(&opts.New, "new", true, "Always create a new run (default)")
-	cmd.Flags().BoolVar(&opts.Reuse, "reuse", false, "Reuse the latest run if blocked")
+	cmd.Flags().BoolVar(&opts.Reuse, "reuse", false, "Reuse the latest run if blocked or blocked_api")
 	cmd.Flags().StringVar(&opts.RunID, "run-id", "", "Manually specify run ID")
 	cmd.Flags().StringVar(&opts.Agent, "agent", "claude", "Agent type (claude|codex|gemini|custom)")
 	cmd.Flags().StringVar(&opts.AgentCmd, "agent-cmd", "", "Custom agent command (when --agent=custom)")
@@ -102,7 +102,7 @@ func runRun(issueID string, opts *runOptions) error {
 		if opts.Reuse {
 			// Try to get latest run
 			latestRun, err := st.GetLatestRun(issueID)
-			if err == nil && latestRun.Status == model.StatusBlocked {
+			if err == nil && (latestRun.Status == model.StatusBlocked || latestRun.Status == model.StatusBlockedAPI) {
 				runID = latestRun.RunID
 			}
 		}

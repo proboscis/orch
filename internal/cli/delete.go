@@ -132,7 +132,7 @@ func parseStatus(s string) ([]model.Status, error) {
 	switch status {
 	case model.StatusDone, model.StatusFailed, model.StatusCanceled:
 		return []model.Status{status}, nil
-	case model.StatusRunning, model.StatusBooting, model.StatusBlocked, model.StatusQueued:
+	case model.StatusRunning, model.StatusBooting, model.StatusBlocked, model.StatusBlockedAPI, model.StatusQueued:
 		return nil, fmt.Errorf("cannot delete %s runs (use 'orch stop' first)", status)
 	default:
 		return nil, fmt.Errorf("unknown status: %s", s)
@@ -280,7 +280,7 @@ func deleteRuns(st store.Store, runs []*model.Run, opts *deleteOptions) error {
 	var activeRuns []*model.Run
 	var deletableRuns []*model.Run
 	for _, run := range runs {
-		if run.Status == model.StatusRunning || run.Status == model.StatusBooting || run.Status == model.StatusBlocked {
+		if run.Status == model.StatusRunning || run.Status == model.StatusBooting || run.Status == model.StatusBlocked || run.Status == model.StatusBlockedAPI {
 			activeRuns = append(activeRuns, run)
 		} else {
 			deletableRuns = append(deletableRuns, run)
