@@ -128,7 +128,7 @@ func (r *Run) UnansweredQuestions() []*Event {
 	return unanswered
 }
 
-// DeriveState updates Status, Phase, and artifacts from events
+// DeriveState updates Status and artifacts from events
 func (r *Run) DeriveState() {
 	r.Status = r.GetStatus()
 

@@ -2,6 +2,9 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -40,7 +43,20 @@ func TestColorStatus(t *testing.T) {
 func TestOutputTableTruncatesSummary(t *testing.T) {
 	resetGlobalOpts(t)
 
-	summary := strings.Repeat("s", 50)
+	vault := t.TempDir()
+	globalOpts.VaultPath = vault
+
+	issuesDir := filepath.Join(vault, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("mkdir issues: %v", err)
+	}
+
+	longSummary := strings.Repeat("s", 60)
+	issueContent := fmt.Sprintf("---\ntype: issue\nsummary: %s\n---\n# Title\n", longSummary)
+	if err := os.WriteFile(filepath.Join(issuesDir, "issue-1.md"), []byte(issueContent), 0644); err != nil {
+		t.Fatalf("write issue: %v", err)
+	}
+
 	run := &model.Run{
 		IssueID:   "issue-1",
 		RunID:     "run-1",
@@ -50,18 +66,92 @@ func TestOutputTableTruncatesSummary(t *testing.T) {
 	now := time.Date(2025, 1, 2, 3, 6, 0, 0, time.UTC)
 
 	out := captureStdout(t, func() {
-		if err := outputTable([]psRun{{
-			Run:          run,
-			IssueStatus:  "open",
-			IssueSummary: summary,
-		}}, now, false); err != nil {
+		if err := outputTable([]*model.Run{run}, now, false); err != nil {
 			t.Fatalf("outputTable: %v", err)
 		}
 	})
 
-	want := summary[:37] + "..."
+	want := longSummary[:37] + "..."
 	if !strings.Contains(out, want) {
 		t.Fatalf("output missing truncated summary %q: %q", want, out)
+	}
+}
+
+func TestOutputTableUsesTopic(t *testing.T) {
+	resetGlobalOpts(t)
+
+	vault := t.TempDir()
+	globalOpts.VaultPath = vault
+
+	issuesDir := filepath.Join(vault, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("mkdir issues: %v", err)
+	}
+
+	topic := "one two three four five six"
+	summary := "unused-summary"
+	issueContent := fmt.Sprintf("---\ntype: issue\ntopic: %s\nsummary: %s\n---\n# Title\n", topic, summary)
+	if err := os.WriteFile(filepath.Join(issuesDir, "issue-1.md"), []byte(issueContent), 0644); err != nil {
+		t.Fatalf("write issue: %v", err)
+	}
+
+	run := &model.Run{
+		IssueID:   "issue-1",
+		RunID:     "run-1",
+		Status:    model.StatusRunning,
+		UpdatedAt: time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC),
+	}
+	now := time.Date(2025, 1, 2, 3, 6, 0, 0, time.UTC)
+
+	out := captureStdout(t, func() {
+		if err := outputTable([]*model.Run{run}, now, false); err != nil {
+			t.Fatalf("outputTable: %v", err)
+		}
+	})
+
+	want := "one two three four five..."
+	if !strings.Contains(out, want) {
+		t.Fatalf("output missing truncated topic %q: %q", want, out)
+	}
+	if strings.Contains(out, summary) {
+		t.Fatalf("output should not include summary %q: %q", summary, out)
+	}
+}
+
+func TestOutputTableTruncatesTopicChars(t *testing.T) {
+	resetGlobalOpts(t)
+
+	vault := t.TempDir()
+	globalOpts.VaultPath = vault
+
+	issuesDir := filepath.Join(vault, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("mkdir issues: %v", err)
+	}
+
+	longTopic := strings.Repeat("t", 35)
+	issueContent := fmt.Sprintf("---\ntype: issue\ntopic: %s\n---\n# Title\n", longTopic)
+	if err := os.WriteFile(filepath.Join(issuesDir, "issue-1.md"), []byte(issueContent), 0644); err != nil {
+		t.Fatalf("write issue: %v", err)
+	}
+
+	run := &model.Run{
+		IssueID:   "issue-1",
+		RunID:     "run-1",
+		Status:    model.StatusRunning,
+		UpdatedAt: time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC),
+	}
+	now := time.Date(2025, 1, 2, 3, 6, 0, 0, time.UTC)
+
+	out := captureStdout(t, func() {
+		if err := outputTable([]*model.Run{run}, now, false); err != nil {
+			t.Fatalf("outputTable: %v", err)
+		}
+	})
+
+	want := strings.Repeat("t", 27) + "..."
+	if !strings.Contains(out, want) {
+		t.Fatalf("output missing truncated topic %q: %q", want, out)
 	}
 }
 
@@ -95,10 +185,7 @@ func TestOutputJSON(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		if err := outputJSON([]psRun{{
-			Run:         run,
-			IssueStatus: "open",
-		}}, now); err != nil {
+		if err := outputJSON([]*model.Run{run}, now); err != nil {
 			t.Fatalf("outputJSON: %v", err)
 		}
 	})
@@ -106,19 +193,18 @@ func TestOutputJSON(t *testing.T) {
 	var got struct {
 		OK    bool `json:"ok"`
 		Items []struct {
-			IssueID      string `json:"issue_id"`
-			IssueStatus  string `json:"issue_status"`
-			RunID        string `json:"run_id"`
-			ShortID      string `json:"short_id"`
-			Agent        string `json:"agent"`
-			Status       string `json:"status"`
-			UpdatedAt    string `json:"updated_at"`
-			UpdatedAgo   string `json:"updated_ago"`
-			StartedAt    string `json:"started_at"`
-			PRUrl        string `json:"pr_url"`
-			Branch       string `json:"branch"`
-			WorktreePath string `json:"worktree_path"`
-			TmuxSession  string `json:"tmux_session"`
+			IssueID     string `json:"issue_id"`
+			IssueStatus string `json:"issue_status"`
+			RunID       string `json:"run_id"`
+			ShortID     string `json:"short_id"`
+			Status      string `json:"status"`
+			UpdatedAt   string `json:"updated_at"`
+			UpdatedAgo  string `json:"updated_ago"`
+			StartedAt   string `json:"started_at"`
+			PRUrl       string `json:"pr_url"`
+			Branch      string `json:"branch"`
+			Worktree    string `json:"worktree_path"`
+			TmuxSession string `json:"tmux_session"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
@@ -131,11 +217,8 @@ func TestOutputJSON(t *testing.T) {
 	if item.ShortID != run.ShortID() {
 		t.Fatalf("short_id = %q, want %q", item.ShortID, run.ShortID())
 	}
-	if item.Agent != "" {
-		t.Fatalf("agent = %q, want empty", item.Agent)
-	}
-	if item.IssueStatus != "open" {
-		t.Fatalf("issue_status = %q, want %q", item.IssueStatus, "open")
+	if item.IssueStatus != "" {
+		t.Fatalf("issue_status = %q, want empty", item.IssueStatus)
 	}
 	if item.UpdatedAt != "2025-01-02T03:05:06Z" {
 		t.Fatalf("updated_at = %q", item.UpdatedAt)

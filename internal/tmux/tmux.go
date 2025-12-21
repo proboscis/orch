@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -15,6 +16,7 @@ type SessionConfig struct {
 	WorkDir     string
 	Command     string   // Command to run in the session
 	Env         []string // Environment variables (KEY=VALUE format)
+	WindowName  string
 }
 
 // HasSession checks if a tmux session exists
@@ -33,6 +35,9 @@ func NewSession(cfg *SessionConfig) error {
 
 	if cfg.WorkDir != "" {
 		args = append(args, "-c", cfg.WorkDir)
+	}
+	if cfg.WindowName != "" {
+		args = append(args, "-n", cfg.WindowName)
 	}
 
 	cmd := execCommand("tmux", args...)
@@ -142,4 +147,76 @@ func NewWindow(session, name, workDir, command string) error {
 func IsTmuxAvailable() bool {
 	cmd := execCommand("tmux", "-V")
 	return cmd.Run() == nil
+}
+
+// Window describes a tmux window.
+type Window struct {
+	Index int
+	Name  string
+	ID    string
+}
+
+// ListWindows returns windows for a session.
+func ListWindows(session string) ([]Window, error) {
+	cmd := execCommand("tmux", "list-windows", "-t", session, "-F", "#{window_index}:#{window_name}:#{window_id}")
+	output, err := cmd.Output()
+	if err != nil {
+		if strings.Contains(err.Error(), "no server running") || strings.Contains(err.Error(), "can't find session") {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var windows []Window
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, ":", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		index, err := strconv.Atoi(parts[0])
+		if err != nil {
+			continue
+		}
+		windows = append(windows, Window{
+			Index: index,
+			Name:  parts[1],
+			ID:    parts[2],
+		})
+	}
+	return windows, nil
+}
+
+// LinkWindow links an existing window into a session.
+func LinkWindow(sourceSession string, sourceWindow int, targetSession string, targetIndex int) error {
+	source := fmt.Sprintf("%s:%d", sourceSession, sourceWindow)
+	target := fmt.Sprintf("%s:%d", targetSession, targetIndex)
+	cmd := execCommand("tmux", "link-window", "-s", source, "-t", target)
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// UnlinkWindow removes a window from a session.
+func UnlinkWindow(session string, index int) error {
+	target := fmt.Sprintf("%s:%d", session, index)
+	cmd := execCommand("tmux", "unlink-window", "-t", target)
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// SelectWindow switches to a window in a session.
+func SelectWindow(session string, index int) error {
+	target := fmt.Sprintf("%s:%d", session, index)
+	cmd := execCommand("tmux", "select-window", "-t", target)
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// SwitchClient switches the active tmux client to a session.
+func SwitchClient(session string) error {
+	cmd := execCommand("tmux", "switch-client", "-t", session)
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
