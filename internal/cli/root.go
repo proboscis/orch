@@ -41,6 +41,7 @@ var globalOpts = &GlobalOptions{}
 var noDaemonCommands = map[string]bool{
 	"daemon":     true,
 	"repair":     true,
+	"delete":     true,
 	"help":       true,
 	"completion": true,
 }
@@ -85,6 +86,7 @@ func init() {
 	rootCmd.AddCommand(newStopCmd())
 	rootCmd.AddCommand(newDaemonCmd())
 	rootCmd.AddCommand(newRepairCmd())
+	rootCmd.AddCommand(newDeleteCmd())
 }
 
 // Execute runs the root command
