@@ -99,7 +99,6 @@ func TestOutputTableUsesTopic(t *testing.T) {
 		IssueID:   "issue-1",
 		RunID:     "run-1",
 		Status:    model.StatusRunning,
-		Phase:     model.PhasePlan,
 		UpdatedAt: time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC),
 	}
 	now := time.Date(2025, 1, 2, 3, 6, 0, 0, time.UTC)
@@ -140,7 +139,6 @@ func TestOutputTableTruncatesTopicChars(t *testing.T) {
 		IssueID:   "issue-1",
 		RunID:     "run-1",
 		Status:    model.StatusRunning,
-		Phase:     model.PhasePlan,
 		UpdatedAt: time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC),
 	}
 	now := time.Date(2025, 1, 2, 3, 6, 0, 0, time.UTC)
