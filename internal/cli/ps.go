@@ -145,18 +145,36 @@ func outputTable(runs []*model.Run) error {
 		return nil
 	}
 
+	// Get store to fetch issue summaries
+	st, err := getStore()
+	if err != nil {
+		return err
+	}
+
+	// Build issue summary cache
+	issueSummaries := make(map[string]string)
+	for _, r := range runs {
+		if _, ok := issueSummaries[r.IssueID]; !ok {
+			if issue, err := st.ResolveIssue(r.IssueID); err == nil {
+				issueSummaries[r.IssueID] = issue.Summary
+			}
+		}
+	}
+
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tISSUE\tSTATUS\tPHASE\tUPDATED\tBRANCH")
+	fmt.Fprintln(w, "ID\tISSUE\tSTATUS\tPHASE\tUPDATED\tSUMMARY")
 
 	for _, r := range runs {
-		// Truncate branch for display
-		branch := r.Branch
-		if len(branch) > 30 {
-			branch = "..." + branch[len(branch)-27:]
-		}
-
 		// Format updated time as relative or short form
 		updated := r.UpdatedAt.Format("01-02 15:04")
+
+		// Get issue summary, truncate if too long
+		summary := issueSummaries[r.IssueID]
+		if summary == "" {
+			summary = "-"
+		} else if len(summary) > 40 {
+			summary = summary[:37] + "..."
+		}
 
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			r.ShortID(),
@@ -164,7 +182,7 @@ func outputTable(runs []*model.Run) error {
 			colorStatus(r.Status),
 			r.Phase,
 			updated,
-			branch,
+			summary,
 		)
 	}
 

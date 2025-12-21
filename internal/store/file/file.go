@@ -147,9 +147,19 @@ func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
 		body = strings.Join(lines[bodyStart:], "\n")
 	}
 
+	// Get summary (fall back to truncated title if not set)
+	summary := frontmatter["summary"]
+	if summary == "" && title != "" {
+		summary = title
+		if len(summary) > 50 {
+			summary = summary[:47] + "..."
+		}
+	}
+
 	return &model.Issue{
 		ID:          issueID,
 		Title:       title,
+		Summary:     summary,
 		Body:        body,
 		Path:        path,
 		Frontmatter: frontmatter,
