@@ -448,7 +448,12 @@ func TestGetOption(t *testing.T) {
 }
 
 func TestSetPaneTitle(t *testing.T) {
-	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
+	// SetPaneTitle now: 1) gets current pane, 2) sets title, 3) optionally restores focus
+	exec := &fakeExecutor{calls: []fakeCall{
+		{output: "%2\n", exitCode: 0}, // display-message returns different pane
+		{exitCode: 0},                 // select-pane to set title
+		{exitCode: 0},                 // select-pane to restore focus
+	}}
 	orig := execCommand
 	execCommand = exec.Command
 	t.Cleanup(func() { execCommand = orig })
@@ -457,16 +462,58 @@ func TestSetPaneTitle(t *testing.T) {
 		t.Fatalf("SetPaneTitle error: %v", err)
 	}
 
-	if len(exec.recorded) != 2 {
-		t.Fatalf("expected 2 calls, got %d", len(exec.recorded))
+	if len(exec.recorded) < 2 {
+		t.Fatalf("expected at least 2 calls, got %d", len(exec.recorded))
 	}
-	first := exec.recorded[0]
-	if !equalArgs(first.args, []string{"display-message", "-p", "#{pane_id}"}) {
-		t.Fatalf("display-message args = %v", first.args)
+
+	// First call: get current pane
+	call := exec.recorded[0]
+	if !equalArgs(call.args, []string{"display-message", "-p", "#{pane_id}"}) {
+		t.Fatalf("display-message args = %v", call.args)
 	}
-	second := exec.recorded[1]
-	if !equalArgs(second.args, []string{"select-pane", "-t", "%1", "-T", "chat"}) {
-		t.Fatalf("set-pane-title args = %v", second.args)
+
+	// Second call: set the title
+	call = exec.recorded[1]
+	if !equalArgs(call.args, []string{"select-pane", "-t", "%1", "-T", "chat"}) {
+		t.Fatalf("set-pane-title args = %v", call.args)
+	}
+
+	// Third call: restore focus (because current pane was different)
+	if len(exec.recorded) == 3 {
+		call = exec.recorded[2]
+		if !equalArgs(call.args, []string{"select-pane", "-t", "%2"}) {
+			t.Fatalf("restore-focus args = %v", call.args)
+		}
+	}
+}
+
+func TestSendKeys(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	if err := SendKeys("sess", "hello world"); err != nil {
+		t.Fatalf("SendKeys error: %v", err)
+	}
+	call := exec.recorded[0]
+	if !equalArgs(call.args, []string{"send-keys", "-t", "sess", "hello world", "Enter"}) {
+		t.Fatalf("send-keys args = %v", call.args)
+	}
+}
+
+func TestSendKeysLiteral(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	if err := SendKeysLiteral("sess", "partial input"); err != nil {
+		t.Fatalf("SendKeysLiteral error: %v", err)
+	}
+	call := exec.recorded[0]
+	if !equalArgs(call.args, []string{"send-keys", "-t", "sess", "-l", "partial input"}) {
+		t.Fatalf("send-keys-literal args = %v", call.args)
 	}
 }
 
