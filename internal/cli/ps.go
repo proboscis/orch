@@ -180,6 +180,11 @@ func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
 			updated = r.UpdatedAt.Format("01-02 15:04")
 		}
 
+		displayID := r.ShortID()
+		if _, err := os.Stat(r.WorktreePath); os.IsNotExist(err) {
+			displayID += "*"
+		}
+
 		// Get issue summary, truncate if too long
 		summary := issueSummaries[r.IssueID]
 		if summary == "" {
@@ -199,7 +204,7 @@ func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
 		}
 
 		rows = append(rows, []string{
-			r.ShortID(),
+			displayID,
 			r.IssueID,
 			colorStatus(r.Status),
 			phase,
