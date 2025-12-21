@@ -14,6 +14,7 @@ type Styles struct {
 	Selected lipgloss.Style
 	Faint    lipgloss.Style
 	Status   map[model.Status]lipgloss.Style
+	PRState  map[string]lipgloss.Style
 }
 
 // DefaultStyles returns the standard dashboard styles.
@@ -36,6 +37,11 @@ func DefaultStyles() Styles {
 			model.StatusFailed:     lipgloss.NewStyle().Foreground(lipgloss.Color("1")),
 			model.StatusCanceled:   lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
 			model.StatusUnknown:    lipgloss.NewStyle().Foreground(lipgloss.Color("5")),
+		},
+		PRState: map[string]lipgloss.Style{
+			"open":   lipgloss.NewStyle().Foreground(lipgloss.Color("2")),  // green - PR is open
+			"merged": lipgloss.NewStyle().Foreground(lipgloss.Color("5")),  // magenta - PR was merged
+			"closed": lipgloss.NewStyle().Foreground(lipgloss.Color("1")),  // red - PR was closed without merge
 		},
 	}
 }

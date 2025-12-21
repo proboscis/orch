@@ -11,6 +11,7 @@ import (
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/pr"
 	"github.com/s22625/orch/internal/store"
 	"github.com/s22625/orch/internal/tmux"
 )
@@ -548,6 +549,9 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 	}
 	gitStates := gitStatesForRuns(runList, baseBranch)
 
+	// Populate PR info
+	prInfoMap := pr.PopulateRunInfo(runList)
+
 	rows := make([]RunRow, 0, len(windows))
 	for _, w := range windows {
 		if w == nil || w.Run == nil {
@@ -566,10 +570,17 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		if agent == "" {
 			agent = "-"
 		}
-		pr := "-"
-		if w.Run.PRUrl != "" || w.Run.Status == model.StatusPROpen {
-			pr = "yes"
+
+		// Build PR display string and state
+		prDisplay := "-"
+		prState := ""
+		if prInfo := prInfoMap[w.Run.Branch]; prInfo != nil {
+			prDisplay = fmt.Sprintf("#%d", prInfo.Number)
+			prState = strings.ToLower(prInfo.State)
+		} else if w.Run.PRUrl != "" || w.Run.Status == model.StatusPROpen {
+			prDisplay = "yes"
 		}
+
 		merged := "-"
 		if state, ok := gitStates[w.Run.RunID]; ok {
 			merged = state
@@ -587,7 +598,8 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 			IssueStatus: issueStatus,
 			Agent:       agent,
 			Status:      w.Run.Status,
-			PR:          pr,
+			PR:          prDisplay,
+			PRState:     prState,
 			Merged:      merged,
 			Updated:     w.Run.UpdatedAt,
 			Topic:       topic,

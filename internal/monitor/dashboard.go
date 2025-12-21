@@ -732,6 +732,12 @@ func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, 
 		if style, ok := d.styles.Status[row.Status]; ok {
 			statusCol = d.pad(status, statusW, style)
 		}
+		// Apply PR state styling
+		if row.PRState != "" {
+			if style, ok := d.styles.PRState[row.PRState]; ok {
+				prCol = d.pad(pr, prW, style)
+			}
+		}
 	}
 
 	return strings.Join([]string{idxCol, idCol, issueCol, issueStatusCol, agentCol, statusCol, prCol, mergedCol, updatedCol, topicCol}, "  ")
@@ -830,7 +836,7 @@ func (d *Dashboard) tableWidths() (idxW, idW, issueW, issueStatusW, agentW, stat
 	issueStatusW = 8
 	agentW = 6
 	statusW = 10
-	prW = 3
+	prW = 6 // Increased to fit PR numbers like "#1234"
 	mergedW = 8
 	updatedW = 7
 	contentWidth := d.safeWidth()
