@@ -2,7 +2,7 @@
 type: issue
 id: orch-009
 title: Show elapsed time instead of absolute time in orch ps
-status: open
+status: resolved
 priority: medium
 ---
 

@@ -3,7 +3,7 @@ type: issue
 id: orch-017
 title: Show branch merge status in orch ps
 summary: Indicate if a run's branch has been merged to main in the process list
-status: open
+status: resolved
 priority: medium
 ---
 

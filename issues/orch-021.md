@@ -3,7 +3,7 @@ type: issue
 id: orch-021
 title: Show merge conflict status in orch ps
 summary: Indicate if a run's branch has merge conflicts with main in orch ps
-status: open
+status: resolved
 priority: medium
 ---
 

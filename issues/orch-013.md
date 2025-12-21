@@ -3,7 +3,7 @@ type: issue
 id: orch-013
 title: Add comprehensive unit tests
 summary: Unit tests for cli, agent, git, tmux, config, daemon packages
-status: open
+status: resolved
 priority: high
 ---
 

@@ -3,7 +3,7 @@ type: issue
 id: orch-020
 title: Fix false positive merged status for fresh branches
 summary: Improve branch merge detection to ignore fresh branches that haven't diverged
-status: open
+status: resolved
 priority: medium
 ---
 

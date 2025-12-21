@@ -3,7 +3,7 @@ type: issue
 id: orch-015
 title: Add support for Gemini agent
 summary: Finalize and verify support for Google Gemini CLI agent
-status: open
+status: resolved
 priority: medium
 ---
 

@@ -2,7 +2,7 @@
 type: issue
 id: orch-001
 title: Implement orch repair command
-status: open
+status: resolved
 priority: medium
 ---
 

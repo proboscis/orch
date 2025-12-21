@@ -2,7 +2,7 @@
 type: issue
 id: orch-005
 title: Add orch delete command for removing runs
-status: open
+status: resolved
 priority: medium
 ---
 

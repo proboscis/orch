@@ -3,7 +3,7 @@ type: issue
 id: orch-010
 title: Show issue summary in orch ps output
 summary: Add summary column to ps for quick issue context
-status: open
+status: resolved
 priority: high
 ---
 
