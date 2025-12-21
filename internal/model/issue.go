@@ -4,6 +4,7 @@ package model
 type Issue struct {
 	ID          string
 	Title       string
+	Summary     string            // Short one-line summary for display
 	Body        string
 	Path        string            // File path to issue document
 	Frontmatter map[string]string // YAML frontmatter fields

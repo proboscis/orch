@@ -14,9 +14,10 @@ import (
 )
 
 type issueCreateOptions struct {
-	Title string
-	Body  string
-	Edit  bool
+	Title   string
+	Summary string
+	Body    string
+	Edit    bool
 }
 
 func newIssueCmd() *cobra.Command {
@@ -51,6 +52,7 @@ Examples:
 	}
 
 	cmd.Flags().StringVarP(&opts.Title, "title", "t", "", "Issue title")
+	cmd.Flags().StringVarP(&opts.Summary, "summary", "s", "", "Short summary for display (~50 chars)")
 	cmd.Flags().StringVarP(&opts.Body, "body", "b", "", "Issue body/description")
 	cmd.Flags().BoolVarP(&opts.Edit, "edit", "e", false, "Open in $EDITOR after creation")
 
@@ -93,6 +95,9 @@ func runIssueCreate(issueID string, opts *issueCreateOptions) error {
 	sb.WriteString("type: issue\n")
 	sb.WriteString(fmt.Sprintf("id: %s\n", issueID))
 	sb.WriteString(fmt.Sprintf("title: %s\n", title))
+	if opts.Summary != "" {
+		sb.WriteString(fmt.Sprintf("summary: %s\n", opts.Summary))
+	}
 	sb.WriteString("status: open\n")
 	sb.WriteString("---\n\n")
 	sb.WriteString(fmt.Sprintf("# %s\n\n", title))
@@ -158,11 +163,12 @@ type runSummary struct {
 }
 
 type issueInfo struct {
-	ID     string       `json:"id"`
-	Title  string       `json:"title"`
-	Status string       `json:"status"`
-	Path   string       `json:"path"`
-	Runs   []runSummary `json:"runs,omitempty"`
+	ID      string       `json:"id"`
+	Title   string       `json:"title"`
+	Summary string       `json:"summary,omitempty"`
+	Status  string       `json:"status"`
+	Path    string       `json:"path"`
+	Runs    []runSummary `json:"runs,omitempty"`
 }
 
 func runIssueList() error {
@@ -186,10 +192,11 @@ func runIssueList() error {
 	var issueInfos []issueInfo
 	for _, issue := range issues {
 		info := issueInfo{
-			ID:     issue.ID,
-			Title:  issue.Title,
-			Status: issue.Frontmatter["status"],
-			Path:   issue.Path,
+			ID:      issue.ID,
+			Title:   issue.Title,
+			Summary: issue.Summary,
+			Status:  issue.Frontmatter["status"],
+			Path:    issue.Path,
 		}
 
 		// Add active runs (non-terminal states)
@@ -230,7 +237,7 @@ func runIssueList() error {
 
 	// Print with tabwriter for alignment
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tSTATUS\tTITLE\tRUNS")
+	fmt.Fprintln(w, "ID\tSTATUS\tSUMMARY\tRUNS")
 	for _, issue := range issueInfos {
 		runsSummary := "-"
 		if len(issue.Runs) > 0 {
@@ -240,7 +247,13 @@ func runIssueList() error {
 		if status == "" {
 			status = "-"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", issue.ID, status, issue.Title, runsSummary)
+		summary := issue.Summary
+		if summary == "" {
+			summary = "-"
+		} else if len(summary) > 40 {
+			summary = summary[:37] + "..."
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", issue.ID, status, summary, runsSummary)
 	}
 	w.Flush()
 
