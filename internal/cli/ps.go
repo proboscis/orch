@@ -13,11 +13,12 @@ import (
 )
 
 type psOptions struct {
-	Status []string
-	Issue  string
-	Limit  int
-	Sort   string
-	Since  string
+	Status      []string
+	IssueStatus []string
+	Issue       string
+	Limit       int
+	Sort        string
+	Since       string
 }
 
 func newPsCmd() *cobra.Command {
@@ -33,6 +34,7 @@ func newPsCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringSliceVar(&opts.Status, "status", nil, "Filter by status (running,blocked,failed,pr_open,done)")
+	cmd.Flags().StringSliceVar(&opts.IssueStatus, "issue-status", nil, "Filter by issue status (open,closed,etc)")
 	cmd.Flags().StringVar(&opts.Issue, "issue", "", "Filter by issue ID")
 	cmd.Flags().IntVar(&opts.Limit, "limit", 50, "Maximum number of runs to show")
 	cmd.Flags().StringVar(&opts.Sort, "sort", "updated", "Sort by (updated|started)")
@@ -63,19 +65,51 @@ func runPs(opts *psOptions) error {
 		return err
 	}
 
+	// Build issue status cache and filter by issue status if requested
+	issueStatusCache := make(map[string]string)
+	issueStatusFilter := make(map[string]bool)
+	for _, s := range opts.IssueStatus {
+		issueStatusFilter[strings.ToLower(s)] = true
+	}
+
+	// Pre-populate cache for all runs
+	for _, r := range runs {
+		if _, ok := issueStatusCache[r.IssueID]; !ok {
+			issue, err := st.ResolveIssue(r.IssueID)
+			if err == nil && issue != nil {
+				issueStatusCache[r.IssueID] = issue.Frontmatter["status"]
+			} else {
+				issueStatusCache[r.IssueID] = ""
+			}
+		}
+	}
+
+	// Filter by issue status if requested
+	if len(issueStatusFilter) > 0 {
+		var filteredRuns []*model.Run
+		for _, r := range runs {
+			issueStatus := strings.ToLower(issueStatusCache[r.IssueID])
+			if issueStatusFilter[issueStatus] {
+				filteredRuns = append(filteredRuns, r)
+			}
+		}
+		runs = filteredRuns
+	}
+
 	// Output based on format
 	if globalOpts.JSON {
-		return outputJSON(runs)
+		return outputJSON(runs, issueStatusCache)
 	}
 	if globalOpts.TSV {
-		return outputTSV(runs)
+		return outputTSV(runs, issueStatusCache)
 	}
-	return outputTable(runs)
+	return outputTable(runs, issueStatusCache)
 }
 
-func outputJSON(runs []*model.Run) error {
+func outputJSON(runs []*model.Run, issueStatusCache map[string]string) error {
 	type runOutput struct {
 		IssueID      string `json:"issue_id"`
+		IssueStatus  string `json:"issue_status,omitempty"`
 		RunID        string `json:"run_id"`
 		ShortID      string `json:"short_id"`
 		Status       string `json:"status"`
@@ -99,6 +133,7 @@ func outputJSON(runs []*model.Run) error {
 	for i, r := range runs {
 		output.Items[i] = runOutput{
 			IssueID:      r.IssueID,
+			IssueStatus:  issueStatusCache[r.IssueID],
 			RunID:        r.RunID,
 			ShortID:      r.ShortID(),
 			Status:       string(r.Status),
@@ -118,11 +153,12 @@ func outputJSON(runs []*model.Run) error {
 }
 
 // TSV columns (fixed order per spec):
-// issue_id, run_id, short_id, status, phase, updated_at, pr_url, branch, worktree_path, tmux_session
-func outputTSV(runs []*model.Run) error {
+// issue_id, issue_status, run_id, short_id, status, phase, updated_at, pr_url, branch, worktree_path, tmux_session
+func outputTSV(runs []*model.Run, issueStatusCache map[string]string) error {
 	for _, r := range runs {
-		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			r.IssueID,
+			issueStatusCache[r.IssueID],
 			r.RunID,
 			r.ShortID(),
 			r.Status,
@@ -137,7 +173,7 @@ func outputTSV(runs []*model.Run) error {
 	return nil
 }
 
-func outputTable(runs []*model.Run) error {
+func outputTable(runs []*model.Run, issueStatusCache map[string]string) error {
 	if len(runs) == 0 {
 		if !globalOpts.Quiet {
 			fmt.Println("No runs found")
@@ -146,7 +182,7 @@ func outputTable(runs []*model.Run) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tISSUE\tSTATUS\tPHASE\tUPDATED\tBRANCH")
+	fmt.Fprintln(w, "ID\tISSUE\tISSUE-ST\tSTATUS\tPHASE\tUPDATED\tBRANCH")
 
 	for _, r := range runs {
 		// Truncate branch for display
@@ -158,9 +194,13 @@ func outputTable(runs []*model.Run) error {
 		// Format updated time as relative or short form
 		updated := r.UpdatedAt.Format("01-02 15:04")
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		// Get issue status from cache
+		issueStatus := issueStatusCache[r.IssueID]
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			r.ShortID(),
 			r.IssueID,
+			colorIssueStatus(issueStatus),
 			colorStatus(r.Status),
 			r.Phase,
 			updated,
@@ -190,6 +230,26 @@ func colorStatus(status model.Status) string {
 		return color + string(status) + reset
 	}
 	return string(status)
+}
+
+func colorIssueStatus(status string) string {
+	// ANSI color codes for terminal
+	reset := "\033[0m"
+	colors := map[string]string{
+		"open":        "\033[32m", // green
+		"in_progress": "\033[33m", // yellow
+		"closed":      "\033[90m", // gray
+		"done":        "\033[34m", // blue
+	}
+
+	if status == "" {
+		return "-"
+	}
+
+	if color, ok := colors[strings.ToLower(status)]; ok {
+		return color + status + reset
+	}
+	return status
 }
 
 // parseStatusList parses a comma-separated status list
