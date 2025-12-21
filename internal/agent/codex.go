@@ -34,4 +34,8 @@ func (a *CodexAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 	return strings.Join(args, " "), nil
 }
 
+func (a *CodexAdapter) PromptInjection() InjectionMethod {
+	return InjectionArg
+}
+
 var _ Adapter = (*CodexAdapter)(nil)
