@@ -102,7 +102,7 @@ func runRun(issueID string, opts *runOptions) error {
 		if opts.Reuse {
 			// Try to get latest run
 			latestRun, err := st.GetLatestRun(issueID)
-			if err == nil && latestRun.Status == model.StatusBlocked {
+			if err == nil && (latestRun.Status == model.StatusBlocked || latestRun.Status == model.StatusBlockedAPI) {
 				runID = latestRun.RunID
 			}
 		}

@@ -90,10 +90,12 @@ func (d *Daemon) monitorRun(run *model.Run) error {
 // detectStatus analyzes the output to determine the run status
 // Uses claude-squad logic:
 //  1. Agent exited (shell prompt) → Unknown
-//  2. Completion/error patterns → Done/Failed
-//  3. Content changing → Running (agent is actively working)
-//  4. Content stable + has prompt → Blocked (waiting for input)
-//  5. Otherwise → no change
+//  2. Completion patterns → Done
+//  3. API limit patterns → Blocked API
+//  4. Error patterns → Failed
+//  5. Content changing → Running (agent is actively working)
+//  6. Content stable + has prompt → Blocked (waiting for input)
+//  7. Otherwise → no change
 func (d *Daemon) detectStatus(run *model.Run, output string, state *RunState, outputChanged, hasPrompt bool) model.Status {
 	// Check for agent exit first (shell prompt showing = agent died/exited)
 	if d.isAgentExited(output) {
@@ -103,6 +105,11 @@ func (d *Daemon) detectStatus(run *model.Run, output string, state *RunState, ou
 	// Check for completion patterns (terminal states)
 	if d.isCompleted(output) {
 		return model.StatusDone
+	}
+
+	// Check for API limit patterns before generic failures or blocked prompts
+	if d.isAPILimited(output) {
+		return model.StatusBlockedAPI
 	}
 
 	// Check for error patterns (terminal states)
@@ -156,6 +163,29 @@ func (d *Daemon) isCompleted(output string) bool {
 	return false
 }
 
+// isAPILimited checks if the output indicates an API usage limit or quota block
+func (d *Daemon) isAPILimited(output string) bool {
+	lines := getLastLines(output, 12)
+	lowerOutput := strings.ToLower(lines)
+
+	limitPatterns := []string{
+		"cost limit reached",
+		"rate limit exceeded",
+		"rate limit reached",
+		"quota exceeded",
+		"resource exhausted",
+		"insufficient quota",
+	}
+
+	for _, pattern := range limitPatterns {
+		if strings.Contains(lowerOutput, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // isFailed checks if the output indicates the agent failed
 func (d *Daemon) isFailed(output string) bool {
 	lines := getLastLines(output, 10)
@@ -168,7 +198,6 @@ func (d *Daemon) isFailed(output string) bool {
 		"agent crashed",
 		"session terminated",
 		"authentication failed",
-		"rate limit exceeded",
 	}
 
 	for _, pattern := range errorPatterns {
@@ -219,8 +248,8 @@ func (d *Daemon) isAgentExited(output string) bool {
 		"accept edits",
 		"? for shortcuts",
 		"tell Claude what to do differently",
-		"tokens",              // token counter at bottom
-		"Esc to cancel",       // menu option
+		"tokens",               // token counter at bottom
+		"Esc to cancel",        // menu option
 		"to show all projects", // menu option
 	}
 
