@@ -11,17 +11,6 @@ import (
 	"github.com/s22625/orch/internal/model"
 )
 
-// RunRow holds display data for a run.
-type RunRow struct {
-	Index   int
-	ShortID string
-	IssueID string
-	Status  model.Status
-	Summary string
-	Updated time.Time
-	Run     *model.Run
-}
-
 type dashboardMode int
 
 const (
@@ -74,11 +63,17 @@ type Dashboard struct {
 
 	keymap KeyMap
 	styles Styles
+
+	lastRefresh     time.Time
+	refreshing      bool
+	refreshInterval time.Duration
 }
 
 type refreshMsg struct {
 	rows []RunRow
 }
+
+type tickMsg time.Time
 
 type issuesMsg struct {
 	issues []*model.Issue
@@ -95,10 +90,11 @@ type errMsg struct {
 // NewDashboard creates a dashboard model.
 func NewDashboard(m *Monitor) *Dashboard {
 	return &Dashboard{
-		monitor: m,
-		keymap:  DefaultKeyMap(),
-		styles:  DefaultStyles(),
-		mode:    modeDashboard,
+		monitor:         m,
+		keymap:          DefaultKeyMap(),
+		styles:          DefaultStyles(),
+		mode:            modeDashboard,
+		refreshInterval: defaultRefreshInterval,
 	}
 }
 
@@ -111,7 +107,8 @@ func (d *Dashboard) Run() error {
 
 // Init implements tea.Model.
 func (d *Dashboard) Init() tea.Cmd {
-	return d.refreshCmd()
+	d.refreshing = true
+	return tea.Batch(d.refreshCmd(), d.tickCmd())
 }
 
 // Update implements tea.Model.
@@ -123,6 +120,8 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return d, nil
 	case refreshMsg:
 		d.runs = msg.rows
+		d.refreshing = false
+		d.lastRefresh = time.Now()
 		if d.cursor >= len(d.runs) {
 			d.cursor = len(d.runs) - 1
 			if d.cursor < 0 {
@@ -137,10 +136,18 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return d, nil
 	case infoMsg:
 		d.message = msg.text
+		d.refreshing = true
 		return d, d.refreshCmd()
 	case errMsg:
 		d.message = msg.err.Error()
+		d.refreshing = false
 		return d, nil
+	case tickMsg:
+		if d.refreshing {
+			return d, d.tickCmd()
+		}
+		d.refreshing = true
+		return d, tea.Batch(d.refreshCmd(), d.tickCmd())
 	case tea.KeyMsg:
 		return d.handleKey(msg)
 	default:
@@ -193,7 +200,23 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q":
 		return d.quit()
+	case d.keymap.Runs:
+		if err := d.monitor.SwitchRuns(); err != nil {
+			d.message = err.Error()
+		}
+		return d, nil
+	case d.keymap.Issues:
+		if err := d.monitor.SwitchIssues(); err != nil {
+			d.message = err.Error()
+		}
+		return d, nil
+	case d.keymap.Chat:
+		if err := d.monitor.SwitchChat(); err != nil {
+			d.message = err.Error()
+		}
+		return d, nil
 	case "r":
+		d.refreshing = true
 		return d, d.refreshCmd()
 	case "a":
 		return d.enterAnswerMode()
@@ -454,6 +477,12 @@ func (d *Dashboard) refreshCmd() tea.Cmd {
 	}
 }
 
+func (d *Dashboard) tickCmd() tea.Cmd {
+	return tea.Tick(d.refreshInterval, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
+}
+
 func (d *Dashboard) loadIssuesCmd() tea.Cmd {
 	return func() tea.Msg {
 		issues, err := d.monitor.ListIssues()
@@ -503,6 +532,7 @@ func (d *Dashboard) answerCmd(run *model.Run, questionID, text string) tea.Cmd {
 
 func (d *Dashboard) viewDashboard() string {
 	title := d.styles.Title.Render("ORCH MONITOR")
+	meta := d.renderMeta()
 	table := d.renderTable()
 	stats := d.renderStats()
 	footer := d.renderFooter()
@@ -513,6 +543,8 @@ func (d *Dashboard) viewDashboard() string {
 
 	lines := []string{
 		title,
+		"",
+		meta,
 		"",
 		table,
 		"",
@@ -690,14 +722,55 @@ func (d *Dashboard) renderStats() string {
 	}
 
 	stats := []string{
+		fmt.Sprintf("booting: %d", counts[model.StatusBooting]),
+		fmt.Sprintf("queued: %d", counts[model.StatusQueued]),
 		fmt.Sprintf("running: %d", counts[model.StatusRunning]),
 		fmt.Sprintf("blocked: %d", counts[model.StatusBlocked]),
 		fmt.Sprintf("blocked_api: %d", counts[model.StatusBlockedAPI]),
+		fmt.Sprintf("pr_open: %d", counts[model.StatusPROpen]),
 		fmt.Sprintf("done: %d", counts[model.StatusDone]),
+		fmt.Sprintf("resolved: %d", counts[model.StatusResolved]),
 		fmt.Sprintf("failed: %d", counts[model.StatusFailed]),
+		fmt.Sprintf("canceled: %d", counts[model.StatusCanceled]),
 	}
 
 	return strings.Join(stats, "  ")
+}
+
+func (d *Dashboard) renderMeta() string {
+	filterParts := []string{}
+	if d.monitor.issueFilter != "" {
+		filterParts = append(filterParts, fmt.Sprintf("issue=%s", d.monitor.issueFilter))
+	}
+	if len(d.monitor.statusFilter) > 0 {
+		var statuses []string
+		for _, s := range d.monitor.statusFilter {
+			statuses = append(statuses, string(s))
+		}
+		filterParts = append(filterParts, fmt.Sprintf("status=%s", strings.Join(statuses, ",")))
+	}
+	filter := "filter: all"
+	if len(filterParts) > 0 {
+		filter = "filter: " + strings.Join(filterParts, " ")
+	}
+
+	sync := d.renderSyncStatus()
+	return strings.Join([]string{filter, sync}, "  ")
+}
+
+func (d *Dashboard) renderSyncStatus() string {
+	if d.refreshing {
+		return "sync: syncing..."
+	}
+	if d.lastRefresh.IsZero() {
+		return "sync: pending"
+	}
+	ago := formatRelativeTime(d.lastRefresh, time.Now())
+	label := fmt.Sprintf("sync: %s", ago)
+	if time.Since(d.lastRefresh) > d.refreshInterval*3 {
+		label += " (stale)"
+	}
+	return label
 }
 
 func (d *Dashboard) renderFooter() string {
