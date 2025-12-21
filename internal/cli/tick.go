@@ -75,7 +75,7 @@ func runTick(refStr string, opts *tickOptions) error {
 	if opts.All {
 		// Get all blocked runs
 		filter := &store.ListRunsFilter{
-			Status: []model.Status{model.StatusBlocked},
+			Status: []model.Status{model.StatusBlocked, model.StatusBlockedAPI},
 			Limit:  opts.Max,
 		}
 		runs, err = st.ListRuns(filter)
@@ -104,7 +104,7 @@ func runTick(refStr string, opts *tickOptions) error {
 
 	for _, run := range runs {
 		// Check if run is blocked (when processing single run)
-		if opts.OnlyBlocked && run.Status != model.StatusBlocked {
+		if opts.OnlyBlocked && run.Status != model.StatusBlocked && run.Status != model.StatusBlockedAPI {
 			result.Skipped = append(result.Skipped, skippedRun{
 				IssueID: run.IssueID,
 				RunID:   run.RunID,
@@ -245,7 +245,11 @@ func buildResumePrompt(issue *model.Issue, run *model.Run) string {
 	if issue.Title != "" {
 		prompt += fmt.Sprintf("Title: %s\n\n", issue.Title)
 	}
-	prompt += "The previous session was blocked but all questions have been answered.\n"
+	if run.Status == model.StatusBlockedAPI {
+		prompt += "The previous session was blocked by API usage limits.\n"
+	} else {
+		prompt += "The previous session was blocked but all questions have been answered.\n"
+	}
 	prompt += "Please continue from where you left off.\n"
 	return prompt
 }

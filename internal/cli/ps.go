@@ -34,7 +34,7 @@ func newPsCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringSliceVar(&opts.Status, "status", nil, "Filter by status (running,blocked,failed,pr_open,done)")
+	cmd.Flags().StringSliceVar(&opts.Status, "status", nil, "Filter by status (running,blocked,blocked_api,failed,pr_open,done)")
 	cmd.Flags().StringVar(&opts.Issue, "issue", "", "Filter by issue ID")
 	cmd.Flags().IntVar(&opts.Limit, "limit", 50, "Maximum number of runs to show")
 	cmd.Flags().StringVar(&opts.Sort, "sort", "updated", "Sort by (updated|started)")
@@ -222,15 +222,16 @@ func formatRelativeTime(when time.Time, now time.Time) string {
 func colorStatus(status model.Status) string {
 	// ANSI color codes for terminal
 	colors := map[model.Status]string{
-		model.StatusRunning:  "\033[32m", // green
-		model.StatusBlocked:  "\033[33m", // yellow
-		model.StatusFailed:   "\033[31m", // red
-		model.StatusDone:     "\033[34m", // blue
-		model.StatusPROpen:   "\033[36m", // cyan
-		model.StatusQueued:   "\033[37m", // white
-		model.StatusBooting:  "\033[32m", // green
-		model.StatusCanceled: "\033[90m", // gray
-		model.StatusUnknown:  "\033[35m", // magenta - agent exited unexpectedly
+		model.StatusRunning:    "\033[32m", // green
+		model.StatusBlocked:    "\033[33m", // yellow
+		model.StatusBlockedAPI: "\033[33m", // yellow
+		model.StatusFailed:     "\033[31m", // red
+		model.StatusDone:       "\033[34m", // blue
+		model.StatusPROpen:     "\033[36m", // cyan
+		model.StatusQueued:     "\033[37m", // white
+		model.StatusBooting:    "\033[32m", // green
+		model.StatusCanceled:   "\033[90m", // gray
+		model.StatusUnknown:    "\033[35m", // magenta - agent exited unexpectedly
 	}
 
 	reset := "\033[0m"

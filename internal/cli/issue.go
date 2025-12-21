@@ -203,6 +203,7 @@ func runIssueList() error {
 		for _, run := range runsByIssue[issue.ID] {
 			if run.Status == model.StatusRunning ||
 				run.Status == model.StatusBlocked ||
+				run.Status == model.StatusBlockedAPI ||
 				run.Status == model.StatusBooting ||
 				run.Status == model.StatusQueued {
 				info.Runs = append(info.Runs, runSummary{
