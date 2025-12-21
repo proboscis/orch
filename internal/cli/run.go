@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/template"
 
@@ -150,10 +151,6 @@ func runRun(issueID string, opts *runOptions) error {
 		// Build the command that would be run (for display purposes)
 		agentType, _ := agent.ParseAgentType(opts.Agent)
 		adapter, _ := agent.GetAdapter(agentType)
-		promptOpts := &promptOptions{
-			NoPR:           opts.NoPR,
-			PromptTemplate: opts.PromptTemplate,
-		}
 		launchCfg := &agent.LaunchConfig{
 			Type:      agentType,
 			CustomCmd: opts.AgentCmd,
@@ -162,7 +159,7 @@ func runRun(issueID string, opts *runOptions) error {
 			RunID:     runID,
 			VaultPath: "",
 			Branch:    branch,
-			Prompt:    buildAgentPrompt(issue, promptOpts),
+			Prompt:    promptFileInstruction,
 			Profile:   opts.AgentProfile,
 		}
 		agentCmd, _ := adapter.LaunchCommand(launchCfg)
@@ -241,6 +238,11 @@ func runRun(issueID string, opts *runOptions) error {
 		NoPR:           opts.NoPR,
 		PromptTemplate: opts.PromptTemplate,
 	}
+	agentPrompt := buildAgentPrompt(issue, promptOpts)
+	promptPath := filepath.Join(worktreeResult.WorktreePath, promptFileName)
+	if err := os.WriteFile(promptPath, []byte(agentPrompt), 0644); err != nil {
+		return exitWithCode(fmt.Errorf("failed to write prompt file: %w", err), ExitInternalError)
+	}
 	launchCfg := &agent.LaunchConfig{
 		Type:      agentType,
 		CustomCmd: opts.AgentCmd,
@@ -250,7 +252,7 @@ func runRun(issueID string, opts *runOptions) error {
 		RunPath:   run.Path,
 		VaultPath: st.VaultPath(),
 		Branch:    worktreeResult.Branch,
-		Prompt:    buildAgentPrompt(issue, promptOpts),
+		Prompt:    promptFileInstruction,
 		Profile:   opts.AgentProfile,
 	}
 
@@ -315,6 +317,11 @@ type promptOptions struct {
 	NoPR           bool   // Skip PR instructions
 	PromptTemplate string // Custom prompt template file path
 }
+
+const (
+	promptFileName        = "ORCH_PROMPT.md"
+	promptFileInstruction = "Please read '" + promptFileName + "' in the current directory and follow the instructions found there."
+)
 
 // defaultPromptTemplate is the built-in template for agent prompts
 const defaultPromptTemplate = `<issue>
