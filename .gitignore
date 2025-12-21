@@ -1,1 +1,5 @@
 .git-worktrees/
+
+# orch run logs (when using repo as vault)
+/runs/
+/.orch/daemon.*

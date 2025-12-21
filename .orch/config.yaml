@@ -1,2 +1,5 @@
-vault: ~/vault
+# orch uses itself as the vault - issues live in this repo
+vault: .
 agent: claude
+worktree_root: .git-worktrees
+base_branch: main
