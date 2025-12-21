@@ -39,6 +39,7 @@ type RunState struct {
 	LastOutputAt time.Time
 	LastCheckAt  time.Time
 	OutputHash   string // Simple hash to detect changes
+	PRRecorded   bool   // Whether PR artifact has been recorded
 }
 
 // New creates a new Daemon instance
@@ -112,11 +113,11 @@ func (d *Daemon) Stop() {
 	d.wg.Wait()
 }
 
-// monitorAll checks all active runs (running, booting, blocked, or unknown)
+// monitorAll checks all active runs (running, booting, blocked, pr_open, or unknown)
 // Non-terminal runs are monitored so we can detect state transitions
 func (d *Daemon) monitorAll() {
 	runs, err := d.store.ListRuns(&store.ListRunsFilter{
-		Status: []model.Status{model.StatusRunning, model.StatusBooting, model.StatusBlocked, model.StatusUnknown},
+		Status: []model.Status{model.StatusRunning, model.StatusBooting, model.StatusBlocked, model.StatusPROpen, model.StatusUnknown},
 	})
 	if err != nil {
 		d.logger.Printf("error listing runs: %v", err)
