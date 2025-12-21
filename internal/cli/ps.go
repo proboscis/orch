@@ -173,16 +173,15 @@ func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
 		return err
 	}
 
-	// Build issue summary cache
+	// Build issue display cache
 	issueSummaries := make(map[string]string)
 	for _, r := range runs {
 		if _, ok := issueSummaries[r.IssueID]; !ok {
 			if issue, err := st.ResolveIssue(r.IssueID); err == nil {
-				issueSummaries[r.IssueID] = issue.Summary
+				issueSummaries[r.IssueID] = formatIssueTopic(issue)
 			}
 		}
 	}
-
 	baseBranch := "main"
 	if cfg, err := config.Load(); err == nil && cfg.BaseBranch != "" {
 		baseBranch = cfg.BaseBranch
@@ -191,7 +190,7 @@ func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
 	gitStates := gitStatesForRuns(runs, baseBranch)
 
 	// Collect data rows
-	headers := []string{"ID", "ISSUE", "AGENT", "STATUS", "MERGED", "UPDATED", "SUMMARY"}
+	headers := []string{"ID", "ISSUE", "AGENT", "STATUS", "MERGED", "UPDATED", "TOPIC"}
 	var rows [][]string
 
 	for _, r := range runs {
@@ -199,18 +198,15 @@ func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
 		if absoluteTime {
 			updated = r.UpdatedAt.Format("01-02 15:04")
 		}
-
 		displayID := r.ShortID()
 		if _, err := os.Stat(r.WorktreePath); os.IsNotExist(err) {
 			displayID += "*"
 		}
 
-		// Get issue summary, truncate if too long
-		summary := issueSummaries[r.IssueID]
-		if summary == "" {
-			summary = "-"
-		} else if len(summary) > 40 {
-			summary = summary[:37] + "..."
+		// Get issue topic or summary
+		display := issueSummaries[r.IssueID]
+		if display == "" {
+			display = "-"
 		}
 
 		merged := "-"
@@ -232,7 +228,7 @@ func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
 			colorStatus(r.Status),
 			merged,
 			updated,
-			summary,
+			display,
 		})
 	}
 
@@ -281,6 +277,57 @@ var ansiRegex = regexp.MustCompile(`\033\[[0-9;]*m`)
 func visibleLen(s string) int {
 	stripped := ansiRegex.ReplaceAllString(s, "")
 	return len(stripped)
+}
+
+const (
+	summaryMaxLen = 40
+	topicMaxLen   = 30
+	topicMaxWords = 5
+)
+
+func formatIssueTopic(issue *model.Issue) string {
+	if issue == nil {
+		return ""
+	}
+
+	topic := formatTopic(issue.Topic)
+	if topic != "" {
+		return topic
+	}
+
+	summary := strings.TrimSpace(issue.Summary)
+	if summary == "" {
+		return ""
+	}
+	return truncateWithEllipsis(summary, summaryMaxLen)
+}
+
+func formatTopic(topic string) string {
+	topic = strings.TrimSpace(topic)
+	if topic == "" {
+		return ""
+	}
+
+	words := strings.Fields(topic)
+	if len(words) > topicMaxWords {
+		topic = strings.Join(words[:topicMaxWords], " ") + "..."
+	}
+
+	if len(topic) > topicMaxLen {
+		topic = truncateWithEllipsis(topic, topicMaxLen)
+	}
+
+	return topic
+}
+
+func truncateWithEllipsis(text string, max int) string {
+	if len(text) <= max {
+		return text
+	}
+	if max <= 3 {
+		return text[:max]
+	}
+	return text[:max-3] + "..."
 }
 
 func formatRelativeTime(when time.Time, now time.Time) string {

@@ -77,6 +77,86 @@ func TestOutputTableTruncatesSummary(t *testing.T) {
 	}
 }
 
+func TestOutputTableUsesTopic(t *testing.T) {
+	resetGlobalOpts(t)
+
+	vault := t.TempDir()
+	globalOpts.VaultPath = vault
+
+	issuesDir := filepath.Join(vault, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("mkdir issues: %v", err)
+	}
+
+	topic := "one two three four five six"
+	summary := "unused-summary"
+	issueContent := fmt.Sprintf("---\ntype: issue\ntopic: %s\nsummary: %s\n---\n# Title\n", topic, summary)
+	if err := os.WriteFile(filepath.Join(issuesDir, "issue-1.md"), []byte(issueContent), 0644); err != nil {
+		t.Fatalf("write issue: %v", err)
+	}
+
+	run := &model.Run{
+		IssueID:   "issue-1",
+		RunID:     "run-1",
+		Status:    model.StatusRunning,
+		Phase:     model.PhasePlan,
+		UpdatedAt: time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC),
+	}
+	now := time.Date(2025, 1, 2, 3, 6, 0, 0, time.UTC)
+
+	out := captureStdout(t, func() {
+		if err := outputTable([]*model.Run{run}, now, false); err != nil {
+			t.Fatalf("outputTable: %v", err)
+		}
+	})
+
+	want := "one two three four five..."
+	if !strings.Contains(out, want) {
+		t.Fatalf("output missing truncated topic %q: %q", want, out)
+	}
+	if strings.Contains(out, summary) {
+		t.Fatalf("output should not include summary %q: %q", summary, out)
+	}
+}
+
+func TestOutputTableTruncatesTopicChars(t *testing.T) {
+	resetGlobalOpts(t)
+
+	vault := t.TempDir()
+	globalOpts.VaultPath = vault
+
+	issuesDir := filepath.Join(vault, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("mkdir issues: %v", err)
+	}
+
+	longTopic := strings.Repeat("t", 35)
+	issueContent := fmt.Sprintf("---\ntype: issue\ntopic: %s\n---\n# Title\n", longTopic)
+	if err := os.WriteFile(filepath.Join(issuesDir, "issue-1.md"), []byte(issueContent), 0644); err != nil {
+		t.Fatalf("write issue: %v", err)
+	}
+
+	run := &model.Run{
+		IssueID:   "issue-1",
+		RunID:     "run-1",
+		Status:    model.StatusRunning,
+		Phase:     model.PhasePlan,
+		UpdatedAt: time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC),
+	}
+	now := time.Date(2025, 1, 2, 3, 6, 0, 0, time.UTC)
+
+	out := captureStdout(t, func() {
+		if err := outputTable([]*model.Run{run}, now, false); err != nil {
+			t.Fatalf("outputTable: %v", err)
+		}
+	})
+
+	want := strings.Repeat("t", 27) + "..."
+	if !strings.Contains(out, want) {
+		t.Fatalf("output missing truncated topic %q: %q", want, out)
+	}
+}
+
 func TestOutputTableNoRuns(t *testing.T) {
 	resetGlobalOpts(t)
 
