@@ -158,11 +158,15 @@ func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
 		}
 	}
 
+	// Get status (defaults to open if not set)
+	status := model.ParseIssueStatus(frontmatter["status"])
+
 	return &model.Issue{
 		ID:          issueID,
 		Title:       title,
 		Topic:       topic,
 		Summary:     summary,
+		Status:      status,
 		Body:        body,
 		Path:        path,
 		Frontmatter: frontmatter,
@@ -530,7 +534,7 @@ func (s *FileStore) ListRuns(filter *store.ListRunsFilter) ([]*model.Run, error)
 }
 
 // SetIssueStatus updates the status of an issue in its frontmatter
-func (s *FileStore) SetIssueStatus(issueID string, status string) error {
+func (s *FileStore) SetIssueStatus(issueID string, status model.IssueStatus) error {
 	issue, err := s.ResolveIssue(issueID)
 	if err != nil {
 		return err
@@ -546,6 +550,7 @@ func (s *FileStore) SetIssueStatus(issueID string, status string) error {
 		return fmt.Errorf("issue file has no frontmatter: %s", issue.Path)
 	}
 
+	statusStr := string(status)
 	var newLines []string
 	newLines = append(newLines, lines[0])
 	foundStatus := false
@@ -557,7 +562,7 @@ func (s *FileStore) SetIssueStatus(issueID string, status string) error {
 			if strings.TrimSpace(line) == "---" {
 				if !foundStatus {
 					// Add status if not found in frontmatter
-					newLines = append(newLines, fmt.Sprintf("status: %s", status))
+					newLines = append(newLines, fmt.Sprintf("status: %s", statusStr))
 				}
 				newLines = append(newLines, line)
 				inFrontmatter = false
@@ -566,7 +571,7 @@ func (s *FileStore) SetIssueStatus(issueID string, status string) error {
 
 			parts := strings.SplitN(line, ":", 2)
 			if len(parts) == 2 && strings.TrimSpace(parts[0]) == "status" {
-				newLines = append(newLines, fmt.Sprintf("status: %s", status))
+				newLines = append(newLines, fmt.Sprintf("status: %s", statusStr))
 				foundStatus = true
 			} else {
 				newLines = append(newLines, line)
@@ -581,7 +586,8 @@ func (s *FileStore) SetIssueStatus(issueID string, status string) error {
 	}
 
 	// Update cache
-	issue.Frontmatter["status"] = status
+	issue.Frontmatter["status"] = statusStr
+	issue.Status = status
 	s.cacheDirty = true // Mark dirty to be safe, although we updated the object
 
 	return nil

@@ -249,16 +249,17 @@ run: 20231220-100000
 }
 
 func TestPsIssueStatusFilter(t *testing.T) {
-	createTestIssue(t, "status-open", "---\ntype: issue\ntitle: Open Issue\nstatus: filter-open\n---\n# Open Issue")
-	createTestIssue(t, "status-closed", "---\ntype: issue\ntitle: Closed Issue\nstatus: filter-closed\n---\n# Closed Issue")
+	// Create issues with valid issue status values (open, resolved, closed)
+	createTestIssue(t, "issue-open-status", "---\ntype: issue\ntitle: Open Issue\nstatus: open\n---\n# Open Issue")
+	createTestIssue(t, "issue-resolved-status", "---\ntype: issue\ntitle: Resolved Issue\nstatus: resolved\n---\n# Resolved Issue")
 
-	openRunDir := filepath.Join(testVault, "runs", "status-open")
-	closedRunDir := filepath.Join(testVault, "runs", "status-closed")
+	openRunDir := filepath.Join(testVault, "runs", "issue-open-status")
+	resolvedRunDir := filepath.Join(testVault, "runs", "issue-resolved-status")
 	os.MkdirAll(openRunDir, 0755)
-	os.MkdirAll(closedRunDir, 0755)
+	os.MkdirAll(resolvedRunDir, 0755)
 
 	openRunContent := `---
-issue: status-open
+issue: issue-open-status
 run: 20231221-100000
 ---
 
@@ -266,8 +267,8 @@ run: 20231221-100000
 
 - 2023-12-21T10:00:00+09:00 | status | running
 `
-	closedRunContent := `---
-issue: status-closed
+	resolvedRunContent := `---
+issue: issue-resolved-status
 run: 20231221-110000
 ---
 
@@ -276,9 +277,10 @@ run: 20231221-110000
 - 2023-12-21T11:00:00+09:00 | status | done
 `
 	os.WriteFile(filepath.Join(openRunDir, "20231221-100000.md"), []byte(openRunContent), 0644)
-	os.WriteFile(filepath.Join(closedRunDir, "20231221-110000.md"), []byte(closedRunContent), 0644)
+	os.WriteFile(filepath.Join(resolvedRunDir, "20231221-110000.md"), []byte(resolvedRunContent), 0644)
 
-	output, err := runOrch(t, "ps", "--issue-status", "filter-open", "--json")
+	// Filter by issue status "open" and specific issue - should only return run from that open issue
+	output, err := runOrch(t, "ps", "--issue-status", "open", "--issue", "issue-open-status", "--json")
 	if err != nil {
 		t.Fatalf("ps --issue-status failed: %v", err)
 	}
@@ -300,11 +302,11 @@ run: 20231221-110000
 	if len(result.Items) != 1 {
 		t.Fatalf("expected 1 run, got %d", len(result.Items))
 	}
-	if result.Items[0].IssueID != "status-open" {
-		t.Errorf("expected issue_id=status-open, got %s", result.Items[0].IssueID)
+	if result.Items[0].IssueID != "issue-open-status" {
+		t.Errorf("expected issue_id=issue-open-status, got %s", result.Items[0].IssueID)
 	}
-	if result.Items[0].IssueStatus != "filter-open" {
-		t.Errorf("expected issue_status=filter-open, got %s", result.Items[0].IssueStatus)
+	if result.Items[0].IssueStatus != "open" {
+		t.Errorf("expected issue_status=open, got %s", result.Items[0].IssueStatus)
 	}
 }
 

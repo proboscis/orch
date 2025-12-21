@@ -21,7 +21,7 @@ const (
 	EventTypeNote     EventType = "note"
 )
 
-// Status values
+// Status represents run operational lifecycle states
 type Status string
 
 const (
@@ -32,11 +32,43 @@ const (
 	StatusBlockedAPI Status = "blocked_api"
 	StatusPROpen     Status = "pr_open"
 	StatusDone       Status = "done"
-	StatusResolved   Status = "resolved"
 	StatusFailed     Status = "failed"
 	StatusCanceled   Status = "canceled"
 	StatusUnknown    Status = "unknown" // Agent exited unexpectedly, shell prompt showing
 )
+
+// IssueStatus represents issue resolution states
+type IssueStatus string
+
+const (
+	IssueStatusOpen     IssueStatus = "open"     // Issue is active, work in progress
+	IssueStatusResolved IssueStatus = "resolved" // Issue specification has been resolved
+	IssueStatusClosed   IssueStatus = "closed"   // Issue is closed/archived
+)
+
+// ParseIssueStatus converts a string to IssueStatus, returning IssueStatusOpen for unknown values
+func ParseIssueStatus(s string) IssueStatus {
+	switch s {
+	case string(IssueStatusOpen):
+		return IssueStatusOpen
+	case string(IssueStatusResolved):
+		return IssueStatusResolved
+	case string(IssueStatusClosed):
+		return IssueStatusClosed
+	default:
+		return IssueStatusOpen // Default to open for backwards compatibility
+	}
+}
+
+// IsValidIssueStatus checks if a string is a valid IssueStatus
+func IsValidIssueStatus(s string) bool {
+	switch s {
+	case string(IssueStatusOpen), string(IssueStatusResolved), string(IssueStatusClosed):
+		return true
+	default:
+		return false
+	}
+}
 
 // Phase values
 type Phase string

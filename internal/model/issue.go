@@ -4,8 +4,9 @@ package model
 type Issue struct {
 	ID          string
 	Title       string
-	Topic       string // Short topic for ps display
-	Summary     string // Short one-line summary for display
+	Topic       string      // Short topic for ps display
+	Summary     string      // Short one-line summary for display
+	Status      IssueStatus // Issue resolution status (open/resolved/closed)
 	Body        string
 	Path        string            // File path to issue document
 	Frontmatter map[string]string // YAML frontmatter fields

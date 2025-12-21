@@ -21,7 +21,7 @@ type Store interface {
 	ListIssues() ([]*model.Issue, error)
 
 	// SetIssueStatus updates an issue's status in frontmatter
-	SetIssueStatus(issueID string, status string) error
+	SetIssueStatus(issueID string, status model.IssueStatus) error
 
 	// CreateRun creates a new run for an issue
 	CreateRun(issueID, runID string, metadata map[string]string) (*model.Run, error)
