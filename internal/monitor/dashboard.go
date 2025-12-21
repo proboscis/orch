@@ -51,6 +51,7 @@ type Dashboard struct {
 
 	runs   []RunRow
 	cursor int
+	offset int
 	width  int
 	height int
 
@@ -128,6 +129,7 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				d.cursor = 0
 			}
 		}
+		d.ensureRunCursorVisible()
 		return d, nil
 	case issuesMsg:
 		d.newRun.issues = msg.issues
@@ -225,13 +227,25 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "n":
 		return d.enterNewRunMode()
 	case "up", "k":
-		if d.cursor > 0 {
-			d.cursor--
-		}
+		d.moveRunCursor(-1)
 		return d, nil
 	case "down", "j":
-		if d.cursor < len(d.runs)-1 {
-			d.cursor++
+		d.moveRunCursor(1)
+		return d, nil
+	case "pgup", "ctrl+u":
+		d.pageRun(-1)
+		return d, nil
+	case "pgdown", "ctrl+d":
+		d.pageRun(1)
+		return d, nil
+	case "home":
+		d.cursor = 0
+		d.ensureRunCursorVisible()
+		return d, nil
+	case "end":
+		if len(d.runs) > 0 {
+			d.cursor = len(d.runs) - 1
+			d.ensureRunCursorVisible()
 		}
 		return d, nil
 	case "enter":
@@ -528,7 +542,7 @@ func (d *Dashboard) answerCmd(run *model.Run, questionID, text string) tea.Cmd {
 func (d *Dashboard) viewDashboard() string {
 	title := d.styles.Title.Render("ORCH MONITOR")
 	meta := d.renderMeta()
-	table := d.renderTable()
+	table := d.renderTable(d.tableMaxRows())
 	stats := d.renderStats()
 	footer := d.renderFooter()
 	message := ""
@@ -650,7 +664,7 @@ func (d *Dashboard) viewNewRun() string {
 	return strings.Join(lines, "\n")
 }
 
-func (d *Dashboard) renderTable() string {
+func (d *Dashboard) renderTable(maxRows int) string {
 	if len(d.runs) == 0 {
 		return "No runs found."
 	}
@@ -661,7 +675,23 @@ func (d *Dashboard) renderTable() string {
 		"#", "ID", "ISSUE", "STATUS", "AGO", "SUMMARY", true, nil)
 
 	var rows []string
-	for i, row := range d.runs {
+	visibleRows := d.runVisibleRows(maxRows)
+	start := d.offset
+	end := len(d.runs)
+	if visibleRows > 0 {
+		if start < 0 {
+			start = 0
+		}
+		if start > len(d.runs) {
+			start = len(d.runs)
+		}
+		end = start + visibleRows
+		if end > len(d.runs) {
+			end = len(d.runs)
+		}
+	}
+	for i, row := range d.runs[start:end] {
+		rowIndex := start + i
 		r := d.renderRow(idxW, idW, issueW, statusW, agoW, summaryW,
 			fmt.Sprintf("%d", row.Index),
 			row.ShortID,
@@ -672,7 +702,7 @@ func (d *Dashboard) renderTable() string {
 			false,
 			&row,
 		)
-		if i == d.cursor {
+		if rowIndex == d.cursor {
 			r = d.styles.Selected.Render(r)
 		}
 		rows = append(rows, r)
@@ -751,7 +781,8 @@ func (d *Dashboard) renderMeta() string {
 
 	sync := d.renderSyncStatus()
 	nav := d.renderNav()
-	return strings.Join([]string{filter, sync, nav}, "  ")
+	rows := d.renderRunRange()
+	return strings.Join([]string{filter, sync, nav, rows}, "  ")
 }
 
 func (d *Dashboard) renderSyncStatus() string {
@@ -771,6 +802,25 @@ func (d *Dashboard) renderSyncStatus() string {
 
 func (d *Dashboard) renderNav() string {
 	return fmt.Sprintf("nav: [%s] runs  [%s] issues  [%s] chat", d.keymap.Runs, d.keymap.Issues, d.keymap.Chat)
+}
+
+func (d *Dashboard) renderRunRange() string {
+	if len(d.runs) == 0 {
+		return "rows: 0/0"
+	}
+	visibleRows := d.runVisibleRows(d.tableMaxRows())
+	if visibleRows == 0 {
+		return fmt.Sprintf("rows: 0/%d", len(d.runs))
+	}
+	start := d.offset + 1
+	if start < 1 {
+		start = 1
+	}
+	end := d.offset + visibleRows
+	if end > len(d.runs) {
+		end = len(d.runs)
+	}
+	return fmt.Sprintf("rows: %d-%d/%d", start, end, len(d.runs))
 }
 
 func (d *Dashboard) renderFooter() string {
@@ -798,6 +848,92 @@ func (d *Dashboard) safeWidth() int {
 		return d.width - 2
 	}
 	return 80
+}
+
+func (d *Dashboard) safeHeight() int {
+	if d.height > 2 {
+		return d.height - 2
+	}
+	return 24
+}
+
+func (d *Dashboard) tableMaxRows() int {
+	height := d.safeHeight()
+	fixed := 8
+	if d.message != "" {
+		fixed += 2
+	}
+	available := height - fixed
+	if available < 1 {
+		return 1
+	}
+	return available
+}
+
+func (d *Dashboard) runVisibleRows(maxRows int) int {
+	if maxRows <= 1 {
+		return 0
+	}
+	return maxRows - 1
+}
+
+func (d *Dashboard) runScrollRows() int {
+	rows := d.runVisibleRows(d.tableMaxRows())
+	if rows < 1 {
+		return 1
+	}
+	return rows
+}
+
+func (d *Dashboard) ensureRunCursorVisible() {
+	if len(d.runs) == 0 {
+		d.offset = 0
+		d.cursor = 0
+		return
+	}
+	if d.cursor < 0 {
+		d.cursor = 0
+	}
+	if d.cursor >= len(d.runs) {
+		d.cursor = len(d.runs) - 1
+	}
+
+	rows := d.runScrollRows()
+	if d.cursor < d.offset {
+		d.offset = d.cursor
+	} else if d.cursor >= d.offset+rows {
+		d.offset = d.cursor - rows + 1
+	}
+	maxOffset := len(d.runs) - rows
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if d.offset > maxOffset {
+		d.offset = maxOffset
+	}
+	if d.offset < 0 {
+		d.offset = 0
+	}
+}
+
+func (d *Dashboard) moveRunCursor(delta int) {
+	if len(d.runs) == 0 {
+		return
+	}
+	d.cursor += delta
+	d.ensureRunCursorVisible()
+}
+
+func (d *Dashboard) pageRun(dir int) {
+	if len(d.runs) == 0 {
+		return
+	}
+	step := d.runScrollRows()
+	if step < 1 {
+		step = 1
+	}
+	d.cursor += dir * step
+	d.ensureRunCursorVisible()
 }
 
 func (d *Dashboard) pad(s string, width int, style lipgloss.Style) string {
