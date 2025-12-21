@@ -27,7 +27,7 @@ type psRun struct {
 	IssueSummary string
 }
 
-type issueInfo struct {
+type psIssueInfo struct {
 	status  string
 	summary string
 }
@@ -103,7 +103,7 @@ func runPs(opts *psOptions) error {
 }
 
 func buildPsRuns(st store.Store, runs []*model.Run, issueStatusFilter map[string]bool) []psRun {
-	issueCache := make(map[string]issueInfo)
+	issueCache := make(map[string]psIssueInfo)
 	psRuns := make([]psRun, 0, len(runs))
 
 	for _, r := range runs {
@@ -121,19 +121,19 @@ func buildPsRuns(st store.Store, runs []*model.Run, issueStatusFilter map[string
 	return psRuns
 }
 
-func resolveIssueInfo(st store.Store, cache map[string]issueInfo, issueID string) issueInfo {
+func resolveIssueInfo(st store.Store, cache map[string]psIssueInfo, issueID string) psIssueInfo {
 	if info, ok := cache[issueID]; ok {
 		return info
 	}
 
 	issue, err := st.ResolveIssue(issueID)
 	if err != nil {
-		info := issueInfo{}
+		info := psIssueInfo{}
 		cache[issueID] = info
 		return info
 	}
 
-	info := issueInfo{
+	info := psIssueInfo{
 		status:  issue.Frontmatter["status"],
 		summary: issue.Summary,
 	}

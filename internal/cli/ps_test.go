@@ -37,28 +37,31 @@ func TestColorStatus(t *testing.T) {
 	}
 }
 
-func TestOutputTableTruncatesBranch(t *testing.T) {
+func TestOutputTableTruncatesSummary(t *testing.T) {
 	resetGlobalOpts(t)
 
-	branch := strings.Repeat("b", 40)
+	summary := strings.Repeat("s", 50)
 	run := &model.Run{
 		IssueID:   "issue-1",
 		RunID:     "run-1",
-		Branch:    branch,
 		Status:    model.StatusRunning,
 		Phase:     model.PhasePlan,
 		UpdatedAt: time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC),
 	}
 
 	out := captureStdout(t, func() {
-		if err := outputTable([]*model.Run{run}); err != nil {
+		if err := outputTable([]psRun{{
+			Run:          run,
+			IssueStatus:  "open",
+			IssueSummary: summary,
+		}}); err != nil {
 			t.Fatalf("outputTable: %v", err)
 		}
 	})
 
-	want := "..." + branch[len(branch)-27:]
+	want := summary[:37] + "..."
 	if !strings.Contains(out, want) {
-		t.Fatalf("output missing truncated branch %q: %q", want, out)
+		t.Fatalf("output missing truncated summary %q: %q", want, out)
 	}
 }
 
@@ -91,7 +94,10 @@ func TestOutputJSON(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		if err := outputJSON([]*model.Run{run}); err != nil {
+		if err := outputJSON([]psRun{{
+			Run:         run,
+			IssueStatus: "open",
+		}}); err != nil {
 			t.Fatalf("outputJSON: %v", err)
 		}
 	})
@@ -100,6 +106,7 @@ func TestOutputJSON(t *testing.T) {
 		OK    bool `json:"ok"`
 		Items []struct {
 			IssueID      string `json:"issue_id"`
+			IssueStatus  string `json:"issue_status"`
 			RunID        string `json:"run_id"`
 			ShortID      string `json:"short_id"`
 			Status       string `json:"status"`
@@ -121,6 +128,9 @@ func TestOutputJSON(t *testing.T) {
 	item := got.Items[0]
 	if item.ShortID != run.ShortID() {
 		t.Fatalf("short_id = %q, want %q", item.ShortID, run.ShortID())
+	}
+	if item.IssueStatus != "open" {
+		t.Fatalf("issue_status = %q, want %q", item.IssueStatus, "open")
 	}
 	if item.UpdatedAt != "2025-01-02T03:05:06Z" {
 		t.Fatalf("updated_at = %q", item.UpdatedAt)
