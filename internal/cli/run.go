@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
+	"text/template"
 
 	"github.com/s22625/orch/internal/agent"
+	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/tmux"
@@ -13,19 +16,21 @@ import (
 )
 
 type runOptions struct {
-	New          bool
-	Reuse        bool
-	RunID        string
-	Agent        string
-	AgentCmd     string
-	AgentProfile string
-	BaseBranch   string
-	Branch       string
-	WorktreeRoot string
-	RepoRoot     string
-	Tmux         bool
-	TmuxSession  string
-	DryRun       bool
+	New            bool
+	Reuse          bool
+	RunID          string
+	Agent          string
+	AgentCmd       string
+	AgentProfile   string
+	BaseBranch     string
+	Branch         string
+	WorktreeRoot   string
+	RepoRoot       string
+	Tmux           bool
+	TmuxSession    string
+	DryRun         bool
+	NoPR           bool   // Skip PR instructions in prompt
+	PromptTemplate string // Custom prompt template file
 }
 
 func newRunCmd() *cobra.Command {
@@ -56,6 +61,8 @@ The run will be started in a tmux session by default.`,
 	cmd.Flags().BoolVar(&opts.Tmux, "tmux", true, "Run in tmux session")
 	cmd.Flags().StringVar(&opts.TmuxSession, "tmux-session", "", "Tmux session name (default: run-<ISSUE>-<RUN>)")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Show what would be done without doing it")
+	cmd.Flags().BoolVar(&opts.NoPR, "no-pr", false, "Skip PR creation instructions in agent prompt")
+	cmd.Flags().StringVar(&opts.PromptTemplate, "prompt-template", "", "Custom prompt template file")
 
 	return cmd
 }
@@ -75,6 +82,11 @@ type runResult struct {
 func runRun(issueID string, opts *runOptions) error {
 	st, err := getStore()
 	if err != nil {
+		return exitWithCode(err, ExitInternalError)
+	}
+
+	// Apply config defaults for prompt options
+	if err := applyPromptConfigDefaults(opts); err != nil {
 		return exitWithCode(err, ExitInternalError)
 	}
 
@@ -138,6 +150,10 @@ func runRun(issueID string, opts *runOptions) error {
 		// Build the command that would be run (for display purposes)
 		agentType, _ := agent.ParseAgentType(opts.Agent)
 		adapter, _ := agent.GetAdapter(agentType)
+		promptOpts := &promptOptions{
+			NoPR:           opts.NoPR,
+			PromptTemplate: opts.PromptTemplate,
+		}
 		launchCfg := &agent.LaunchConfig{
 			Type:      agentType,
 			CustomCmd: opts.AgentCmd,
@@ -146,7 +162,7 @@ func runRun(issueID string, opts *runOptions) error {
 			RunID:     runID,
 			VaultPath: "",
 			Branch:    branch,
-			Prompt:    buildAgentPrompt(issue),
+			Prompt:    buildAgentPrompt(issue, promptOpts),
 			Profile:   opts.AgentProfile,
 		}
 		agentCmd, _ := adapter.LaunchCommand(launchCfg)
@@ -221,6 +237,10 @@ func runRun(issueID string, opts *runOptions) error {
 	}
 
 	// Build agent launch config
+	promptOpts := &promptOptions{
+		NoPR:           opts.NoPR,
+		PromptTemplate: opts.PromptTemplate,
+	}
 	launchCfg := &agent.LaunchConfig{
 		Type:      agentType,
 		CustomCmd: opts.AgentCmd,
@@ -230,7 +250,7 @@ func runRun(issueID string, opts *runOptions) error {
 		RunPath:   run.Path,
 		VaultPath: st.VaultPath(),
 		Branch:    worktreeResult.Branch,
-		Prompt:    buildAgentPrompt(issue),
+		Prompt:    buildAgentPrompt(issue, promptOpts),
 		Profile:   opts.AgentProfile,
 	}
 
@@ -290,7 +310,72 @@ func runRun(issueID string, opts *runOptions) error {
 	return nil
 }
 
-func buildAgentPrompt(issue *model.Issue) string {
+// promptOptions contains options for building the agent prompt
+type promptOptions struct {
+	NoPR           bool   // Skip PR instructions
+	PromptTemplate string // Custom prompt template file path
+}
+
+// defaultPromptTemplate is the built-in template for agent prompts
+const defaultPromptTemplate = `<issue>
+{{.Body}}
+</issue>
+
+Instructions:
+- Implement the changes described in the issue above
+- Run tests to verify your changes work correctly
+{{- if not .NoPR}}
+- When complete, create a pull request:
+  - Title should summarize the change
+  - Body should reference issue: {{.IssueID}}
+  - Include a summary of changes made
+{{- end}}
+`
+
+func buildAgentPrompt(issue *model.Issue, opts *promptOptions) string {
+	if opts == nil {
+		opts = &promptOptions{}
+	}
+
+	// If custom template provided, try to load it
+	if opts.PromptTemplate != "" {
+		content, err := os.ReadFile(opts.PromptTemplate)
+		if err == nil {
+			return executeTemplate(string(content), issue, opts)
+		}
+		// Fall back to default if template file not found
+	}
+
+	return executeTemplate(defaultPromptTemplate, issue, opts)
+}
+
+// executeTemplate executes a prompt template with issue data
+func executeTemplate(tmplStr string, issue *model.Issue, opts *promptOptions) string {
+	// Simple template execution - replace placeholders
+	data := map[string]interface{}{
+		"IssueID": issue.ID,
+		"Title":   issue.Title,
+		"Body":    issue.Body,
+		"NoPR":    opts.NoPR,
+	}
+
+	// Use text/template for proper template execution
+	tmpl, err := template.New("prompt").Parse(tmplStr)
+	if err != nil {
+		// Fallback to simple format if template parsing fails
+		return buildSimplePrompt(issue, opts)
+	}
+
+	var buf strings.Builder
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return buildSimplePrompt(issue, opts)
+	}
+
+	return buf.String()
+}
+
+// buildSimplePrompt creates a basic prompt without template processing
+func buildSimplePrompt(issue *model.Issue, opts *promptOptions) string {
 	prompt := fmt.Sprintf("You are working on issue: %s\n\n", issue.ID)
 	if issue.Title != "" {
 		prompt += fmt.Sprintf("Title: %s\n\n", issue.Title)
@@ -298,7 +383,39 @@ func buildAgentPrompt(issue *model.Issue) string {
 	if issue.Body != "" {
 		prompt += fmt.Sprintf("Description:\n%s\n", issue.Body)
 	}
+	if !opts.NoPR {
+		prompt += "\nInstructions:\n"
+		prompt += "- Implement the changes described in the issue above\n"
+		prompt += "- Run tests to verify your changes work correctly\n"
+		prompt += "- When complete, create a pull request:\n"
+		prompt += fmt.Sprintf("  - Title should summarize the change\n")
+		prompt += fmt.Sprintf("  - Body should reference issue: %s\n", issue.ID)
+		prompt += "  - Include a summary of changes made\n"
+	}
 	return prompt
+}
+
+// applyPromptConfigDefaults applies config file defaults for prompt options
+// Command-line flags take precedence over config values
+func applyPromptConfigDefaults(opts *runOptions) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	// Only apply config defaults if the command-line flag wasn't explicitly set
+	// For PromptTemplate: empty string means not set
+	if opts.PromptTemplate == "" && cfg.PromptTemplate != "" {
+		opts.PromptTemplate = cfg.PromptTemplate
+	}
+
+	// For NoPR: config sets the default, but --no-pr flag overrides
+	// Since bool flags default to false, we apply config value if it's true
+	if cfg.NoPR && !opts.NoPR {
+		opts.NoPR = cfg.NoPR
+	}
+
+	return nil
 }
 
 func exitWithCode(err error, code int) error {

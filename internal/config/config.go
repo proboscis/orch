@@ -9,11 +9,13 @@ import (
 
 // Config holds orch configuration
 type Config struct {
-	Vault        string `yaml:"vault"`
-	Agent        string `yaml:"agent"`
-	WorktreeRoot string `yaml:"worktree_root"`
-	BaseBranch   string `yaml:"base_branch"`
-	LogLevel     string `yaml:"log_level"`
+	Vault          string `yaml:"vault"`
+	Agent          string `yaml:"agent"`
+	WorktreeRoot   string `yaml:"worktree_root"`
+	BaseBranch     string `yaml:"base_branch"`
+	LogLevel       string `yaml:"log_level"`
+	PromptTemplate string `yaml:"prompt_template"` // Path to custom prompt template
+	NoPR           bool   `yaml:"no_pr"`           // Disable PR instructions by default
 }
 
 // configFile is the name of the config file
@@ -120,6 +122,12 @@ func loadFromFile(path string, cfg *Config) error {
 	if fileCfg.LogLevel != "" {
 		cfg.LogLevel = fileCfg.LogLevel
 	}
+	if fileCfg.PromptTemplate != "" {
+		cfg.PromptTemplate = fileCfg.PromptTemplate
+	}
+	// NoPR is a boolean, so we need special handling - yaml will parse it
+	// For now, let the yaml directly merge it
+	cfg.NoPR = fileCfg.NoPR
 
 	return nil
 }
@@ -140,6 +148,12 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("ORCH_LOG_LEVEL"); v != "" {
 		cfg.LogLevel = v
+	}
+	if v := os.Getenv("ORCH_PROMPT_TEMPLATE"); v != "" {
+		cfg.PromptTemplate = v
+	}
+	if v := os.Getenv("ORCH_NO_PR"); v != "" {
+		cfg.NoPR = v == "true" || v == "1" || v == "yes"
 	}
 }
 

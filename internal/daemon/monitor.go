@@ -3,6 +3,7 @@ package daemon
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"regexp"
 	"strings"
 	"time"
 
@@ -50,6 +51,26 @@ func (d *Daemon) monitorRun(run *model.Run) error {
 		state.OutputHash = contentHash
 		state.LastOutput = output
 		state.LastOutputAt = time.Now()
+	}
+
+	// Check for PR creation in output (before status detection)
+	// This records the PR artifact and potentially changes status to pr_open
+	if prURL := d.detectPRCreation(output); prURL != "" {
+		// Check if we already recorded this PR
+		if !state.PRRecorded {
+			d.logger.Printf("%s#%s: PR created: %s", run.IssueID, run.RunID, prURL)
+			// Record PR artifact
+			if err := d.recordPRArtifact(run, prURL); err != nil {
+				d.logger.Printf("%s#%s: failed to record PR artifact: %v", run.IssueID, run.RunID, err)
+			} else {
+				state.PRRecorded = true
+				// Update status to pr_open
+				if err := d.updateStatus(run, model.StatusPROpen); err != nil {
+					d.logger.Printf("%s#%s: failed to update status to pr_open: %v", run.IssueID, run.RunID, err)
+				}
+				return nil
+			}
+		}
 	}
 
 	// Detect state using claude-squad logic:
@@ -281,4 +302,27 @@ func getLastLines(s string, n int) string {
 		return s
 	}
 	return strings.Join(lines[len(lines)-n:], "\n")
+}
+
+// prURLRegex matches GitHub/GitLab PR URLs
+var prURLRegex = regexp.MustCompile(`https://(?:github\.com|gitlab\.com)/[^\s]+/pull/\d+|https://(?:github\.com|gitlab\.com)/[^\s]+/merge_requests/\d+`)
+
+// detectPRCreation scans output for PR creation URLs
+// Returns the first PR URL found, or empty string if none
+func (d *Daemon) detectPRCreation(output string) string {
+	// Look for GitHub/GitLab PR URLs in the output
+	match := prURLRegex.FindString(output)
+	if match != "" {
+		return match
+	}
+	return ""
+}
+
+// recordPRArtifact records a PR artifact event for the run
+func (d *Daemon) recordPRArtifact(run *model.Run, prURL string) error {
+	ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
+	event := model.NewArtifactEvent("pr", map[string]string{
+		"url": prURL,
+	})
+	return d.store.AppendEvent(ref, event)
 }
