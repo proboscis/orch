@@ -32,7 +32,8 @@ type Store interface {
 	// GetRun retrieves a run by reference
 	GetRun(ref *model.RunRef) (*model.Run, error)
 
-	// GetRunByShortID finds a run by its 6-char short ID
+	// GetRunByShortID finds a run by its short ID prefix (2-6 hex chars)
+	// Returns an error if no match found or if multiple runs match (ambiguous)
 	GetRunByShortID(shortID string) (*model.Run, error)
 
 	// GetLatestRun retrieves the latest run for an issue

@@ -49,12 +49,16 @@ func runOpen(refStr string, opts *openOptions) error {
 
 	var path string
 
-	// Try as short ID first
+	// Try as short ID prefix first (2-6 hex chars)
 	if shortIDRegex.MatchString(refStr) {
 		run, err := st.GetRunByShortID(refStr)
 		if err == nil {
 			path = run.Path
+		} else if len(refStr) == 6 {
+			// For full 6-char short ID that failed, report the error
+			return err
 		}
+		// For shorter prefixes, fall through to try as regular ref
 	}
 
 	if path == "" {

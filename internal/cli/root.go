@@ -142,22 +142,26 @@ func getStore() (store.Store, error) {
 	}
 }
 
-// shortIDRegex matches a 6-char hex string (git-style short ID)
-var shortIDRegex = regexp.MustCompile(`^[0-9a-f]{6}$`)
+// shortIDRegex matches a 2-6 char hex string (git-style short ID prefix)
+var shortIDRegex = regexp.MustCompile(`^[0-9a-f]{2,6}$`)
 
 // resolveRun resolves a run by short ID or run reference (issue#run or issue)
 // Accepts:
-//   - 6-char hex short ID (e.g., "a3b4c5")
+//   - 2-6 char hex short ID prefix (e.g., "a3", "a3b4", "a3b4c5")
 //   - Full run ref (e.g., "my-task#20231220-100000")
 //   - Issue ID for latest run (e.g., "my-task")
 func resolveRun(st store.Store, refStr string) (*model.Run, error) {
-	// First, try as a short ID (6-char hex)
+	// First, try as a short ID prefix (2-6 hex chars)
 	if shortIDRegex.MatchString(refStr) {
 		run, err := st.GetRunByShortID(refStr)
 		if err == nil {
 			return run, nil
 		}
-		// Fall through to try as regular ref
+		// If it's exactly 6 chars and failed, report the short ID error
+		// For shorter prefixes, fall through to try as regular ref
+		if len(refStr) == 6 {
+			return nil, err
+		}
 	}
 
 	// Try as a regular run reference
