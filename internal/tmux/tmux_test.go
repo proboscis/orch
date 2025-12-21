@@ -195,6 +195,25 @@ func TestMoveWindow(t *testing.T) {
 	}
 }
 
+func TestRenameWindow(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	if err := RenameWindow("sess", 3, "run-123"); err != nil {
+		t.Fatalf("RenameWindow error: %v", err)
+	}
+
+	if len(exec.recorded) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(exec.recorded))
+	}
+	call := exec.recorded[0]
+	if !equalArgs(call.args, []string{"rename-window", "-t", "sess:3", "run-123"}) {
+		t.Fatalf("rename-window args = %v", call.args)
+	}
+}
+
 func equalArgs(got, want []string) bool {
 	if len(got) != len(want) {
 		return false

@@ -198,6 +198,14 @@ func MoveWindow(session, source string, index int) error {
 	return cmd.Run()
 }
 
+// RenameWindow renames a window in a session.
+func RenameWindow(session string, index int, name string) error {
+	target := fmt.Sprintf("%s:%d", session, index)
+	cmd := execCommand("tmux", "rename-window", "-t", target, name)
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 // LinkWindow links an existing window into a session.
 func LinkWindow(sourceSession string, sourceWindow int, targetSession string, targetIndex int) error {
 	source := fmt.Sprintf("%s:%d", sourceSession, sourceWindow)

@@ -236,8 +236,8 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d, nil
 	case "enter":
 		if d.cursor >= 0 && d.cursor < len(d.runs) {
-			index := d.runs[d.cursor].Index
-			if err := d.monitor.SwitchWindow(index); err != nil {
+			run := d.runs[d.cursor].Run
+			if err := d.monitor.OpenRun(run); err != nil {
 				d.message = err.Error()
 			}
 		}
@@ -247,11 +247,6 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d, nil
 	}
 
-	if index, ok := parseNumberKey(msg); ok {
-		if err := d.monitor.SwitchWindow(index); err != nil {
-			d.message = err.Error()
-		}
-	}
 	return d, nil
 }
 
