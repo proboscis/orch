@@ -112,6 +112,8 @@ func runPs(opts *psOptions) error {
 		runs = runs[:requestedLimit]
 	}
 
+	populatePRUrls(runs)
+
 	// Output based on format
 	now := time.Now()
 	if globalOpts.JSON {
@@ -297,7 +299,7 @@ func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime boo
 		}
 
 		pr := "-"
-		if r.PRUrl != "" {
+		if r.PRUrl != "" || r.Status == model.StatusPROpen {
 			pr = "yes"
 		}
 

@@ -211,6 +211,31 @@ func TestOutputTableShowsPRColumn(t *testing.T) {
 	}
 }
 
+func TestOutputTableShowsPRColumnForPROpenStatus(t *testing.T) {
+	resetGlobalOpts(t)
+
+	vault := t.TempDir()
+	globalOpts.VaultPath = vault
+
+	updatedAt := time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC)
+	run := &model.Run{
+		IssueID:   "issue-2",
+		RunID:     "run-2",
+		Status:    model.StatusPROpen,
+		UpdatedAt: updatedAt,
+	}
+
+	out := captureStdout(t, func() {
+		if err := outputTable([]*model.Run{run}, updatedAt, false); err != nil {
+			t.Fatalf("outputTable: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "yes") {
+		t.Fatalf("missing PR value for pr_open status: %q", out)
+	}
+}
+
 func TestOutputJSON(t *testing.T) {
 	updatedAt := time.Date(2025, 1, 2, 3, 5, 6, 0, time.UTC)
 	now := updatedAt.Add(2 * time.Minute)
