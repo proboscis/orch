@@ -317,9 +317,10 @@ func (s *FileStore) GetLatestRun(issueID string) (*model.Run, error) {
 	return s.loadRun(issueID, latestName, s.runPath(issueID, latestName))
 }
 
-// GetRunByShortID finds a run by its 6-char short ID
+// GetRunByShortID finds a run by its short ID prefix (2-6 hex chars)
+// Returns an error if no match found or if multiple runs match (ambiguous)
 func (s *FileStore) GetRunByShortID(shortID string) (*model.Run, error) {
-	// List all runs and find matching short ID
+	// List all runs and find matching short ID prefix
 	runs, err := s.ListRuns(&store.ListRunsFilter{})
 	if err != nil {
 		return nil, err
@@ -327,7 +328,7 @@ func (s *FileStore) GetRunByShortID(shortID string) (*model.Run, error) {
 
 	var matches []*model.Run
 	for _, run := range runs {
-		if run.ShortID() == shortID {
+		if strings.HasPrefix(run.ShortID(), shortID) {
 			matches = append(matches, run)
 		}
 	}
@@ -336,10 +337,32 @@ func (s *FileStore) GetRunByShortID(shortID string) (*model.Run, error) {
 		return nil, fmt.Errorf("run not found: %s", shortID)
 	}
 	if len(matches) > 1 {
-		return nil, fmt.Errorf("ambiguous short ID %s: matches %d runs", shortID, len(matches))
+		return nil, formatAmbiguousError(shortID, matches)
 	}
 
 	return matches[0], nil
+}
+
+// formatAmbiguousError formats an error message for ambiguous short ID matches
+func formatAmbiguousError(shortID string, matches []*model.Run) error {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("ambiguous run ID '%s': matches %d runs\n", shortID, len(matches)))
+
+	// Show up to 5 matches with their details
+	limit := 5
+	if len(matches) < limit {
+		limit = len(matches)
+	}
+	for i := 0; i < limit; i++ {
+		run := matches[i]
+		sb.WriteString(fmt.Sprintf("  %s  %s#%s\n", run.ShortID(), run.IssueID, run.RunID))
+	}
+	if len(matches) > 5 {
+		sb.WriteString(fmt.Sprintf("  ... and %d more\n", len(matches)-5))
+	}
+	sb.WriteString("Hint: use more characters to disambiguate")
+
+	return fmt.Errorf("%s", sb.String())
 }
 
 // loadRun loads a run from its file

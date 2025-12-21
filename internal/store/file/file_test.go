@@ -1,8 +1,10 @@
 package file
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/s22625/orch/internal/model"
@@ -57,6 +59,7 @@ func TestResolveIssue(t *testing.T) {
 	defer cleanup()
 
 	content := `---
+type: issue
 title: Test Issue
 status: open
 ---
@@ -96,7 +99,7 @@ func TestCreateRun(t *testing.T) {
 	vault, cleanup := setupTestVault(t)
 	defer cleanup()
 
-	createTestIssue(t, vault, "test123", "---\ntitle: Test\n---\n# Test")
+	createTestIssue(t, vault, "test123", "---\ntype: issue\ntitle: Test\n---\n# Test")
 
 	s, _ := New(vault)
 	run, err := s.CreateRun("test123", "20231220-100000", map[string]string{"agent": "claude"})
@@ -121,7 +124,7 @@ func TestCreateRunDuplicate(t *testing.T) {
 	vault, cleanup := setupTestVault(t)
 	defer cleanup()
 
-	createTestIssue(t, vault, "test123", "---\ntitle: Test\n---\n# Test")
+	createTestIssue(t, vault, "test123", "---\ntype: issue\ntitle: Test\n---\n# Test")
 
 	s, _ := New(vault)
 	_, err := s.CreateRun("test123", "20231220-100000", nil)
@@ -140,7 +143,7 @@ func TestAppendEvent(t *testing.T) {
 	vault, cleanup := setupTestVault(t)
 	defer cleanup()
 
-	createTestIssue(t, vault, "test123", "---\ntitle: Test\n---\n# Test")
+	createTestIssue(t, vault, "test123", "---\ntype: issue\ntitle: Test\n---\n# Test")
 
 	s, _ := New(vault)
 	run, _ := s.CreateRun("test123", "20231220-100000", nil)
@@ -164,7 +167,7 @@ func TestGetRun(t *testing.T) {
 	vault, cleanup := setupTestVault(t)
 	defer cleanup()
 
-	createTestIssue(t, vault, "test123", "---\ntitle: Test\n---\n# Test")
+	createTestIssue(t, vault, "test123", "---\ntype: issue\ntitle: Test\n---\n# Test")
 
 	s, _ := New(vault)
 	_, _ = s.CreateRun("test123", "20231220-100000", nil)
@@ -184,7 +187,7 @@ func TestGetLatestRun(t *testing.T) {
 	vault, cleanup := setupTestVault(t)
 	defer cleanup()
 
-	createTestIssue(t, vault, "test123", "---\ntitle: Test\n---\n# Test")
+	createTestIssue(t, vault, "test123", "---\ntype: issue\ntitle: Test\n---\n# Test")
 
 	s, _ := New(vault)
 	s.CreateRun("test123", "20231220-100000", nil)
@@ -205,8 +208,8 @@ func TestListRuns(t *testing.T) {
 	vault, cleanup := setupTestVault(t)
 	defer cleanup()
 
-	createTestIssue(t, vault, "test123", "---\ntitle: Test\n---\n# Test")
-	createTestIssue(t, vault, "test456", "---\ntitle: Test 2\n---\n# Test 2")
+	createTestIssue(t, vault, "test123", "---\ntype: issue\ntitle: Test\n---\n# Test")
+	createTestIssue(t, vault, "test456", "---\ntype: issue\ntitle: Test 2\n---\n# Test 2")
 
 	s, _ := New(vault)
 	s.CreateRun("test123", "20231220-100000", nil)
@@ -239,7 +242,7 @@ func TestListRunsWithStatusFilter(t *testing.T) {
 	vault, cleanup := setupTestVault(t)
 	defer cleanup()
 
-	createTestIssue(t, vault, "test123", "---\ntitle: Test\n---\n# Test")
+	createTestIssue(t, vault, "test123", "---\ntype: issue\ntitle: Test\n---\n# Test")
 
 	s, _ := New(vault)
 
@@ -263,5 +266,179 @@ func TestListRunsWithStatusFilter(t *testing.T) {
 	runs, _ = s.ListRuns(&store.ListRunsFilter{Status: []model.Status{model.StatusRunning, model.StatusBlocked}})
 	if len(runs) != 2 {
 		t.Errorf("expected 2 runs, got %d", len(runs))
+	}
+}
+
+func TestGetRunByShortID(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	createTestIssue(t, vault, "test123", "---\ntype: issue\ntitle: Test\n---\n# Test")
+
+	s, _ := New(vault)
+	run, _ := s.CreateRun("test123", "20231220-100000", nil)
+
+	// Get the full short ID for this run
+	fullShortID := run.ShortID()
+
+	// Test exact match with full 6-char short ID
+	foundRun, err := s.GetRunByShortID(fullShortID)
+	if err != nil {
+		t.Fatalf("GetRunByShortID() with full ID error = %v", err)
+	}
+	if foundRun.RunID != run.RunID {
+		t.Errorf("expected run %s, got %s", run.RunID, foundRun.RunID)
+	}
+
+	// Test prefix match with 4-char prefix
+	prefix4 := fullShortID[:4]
+	foundRun, err = s.GetRunByShortID(prefix4)
+	if err != nil {
+		t.Fatalf("GetRunByShortID() with 4-char prefix error = %v", err)
+	}
+	if foundRun.RunID != run.RunID {
+		t.Errorf("expected run %s, got %s", run.RunID, foundRun.RunID)
+	}
+
+	// Test prefix match with 2-char prefix
+	prefix2 := fullShortID[:2]
+	foundRun, err = s.GetRunByShortID(prefix2)
+	if err != nil {
+		t.Fatalf("GetRunByShortID() with 2-char prefix error = %v", err)
+	}
+	if foundRun.RunID != run.RunID {
+		t.Errorf("expected run %s, got %s", run.RunID, foundRun.RunID)
+	}
+}
+
+func TestGetRunByShortIDNotFound(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	createTestIssue(t, vault, "test123", "---\ntype: issue\ntitle: Test\n---\n# Test")
+
+	s, _ := New(vault)
+	s.CreateRun("test123", "20231220-100000", nil)
+
+	// Test non-matching short ID
+	_, err := s.GetRunByShortID("ffffff")
+	if err == nil {
+		t.Error("expected error for non-matching short ID")
+	}
+	if !strings.Contains(err.Error(), "run not found") {
+		t.Errorf("expected 'run not found' error, got: %v", err)
+	}
+
+	// Test non-matching prefix
+	_, err = s.GetRunByShortID("zz")
+	if err == nil {
+		t.Error("expected error for non-matching prefix")
+	}
+}
+
+func TestGetRunByShortIDAmbiguous(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	createTestIssue(t, vault, "test123", "---\ntype: issue\ntitle: Test\n---\n# Test")
+	createTestIssue(t, vault, "test456", "---\ntype: issue\ntitle: Test 2\n---\n# Test 2")
+
+	s, _ := New(vault)
+
+	// Create multiple runs
+	run1, _ := s.CreateRun("test123", "20231220-100000", nil)
+	run2, _ := s.CreateRun("test123", "20231220-110000", nil)
+	run3, _ := s.CreateRun("test456", "20231220-120000", nil)
+
+	// Find the shortest common prefix among all runs
+	ids := []string{run1.ShortID(), run2.ShortID(), run3.ShortID()}
+
+	// Find runs that share a common prefix (testing ambiguity)
+	// Try to find any 2-char prefix that matches multiple runs
+	prefixCounts := make(map[string]int)
+	for _, id := range ids {
+		prefix := id[:2]
+		prefixCounts[prefix]++
+	}
+
+	var ambiguousPrefix string
+	for prefix, count := range prefixCounts {
+		if count > 1 {
+			ambiguousPrefix = prefix
+			break
+		}
+	}
+
+	if ambiguousPrefix != "" {
+		// Test that ambiguous prefix returns error
+		_, err := s.GetRunByShortID(ambiguousPrefix)
+		if err == nil {
+			t.Error("expected error for ambiguous short ID prefix")
+		}
+		if !strings.Contains(err.Error(), "ambiguous") {
+			t.Errorf("expected 'ambiguous' error, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "Hint:") {
+			t.Errorf("expected hint in error message, got: %v", err)
+		}
+	} else {
+		// If no natural collision, skip this test
+		t.Log("No naturally ambiguous prefixes found in test runs, skipping ambiguity test")
+	}
+}
+
+func TestGetRunByShortIDAmbiguousForced(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	// Create many runs to increase chance of collision
+	createTestIssue(t, vault, "test", "---\ntype: issue\ntitle: Test\n---\n# Test")
+
+	s, _ := New(vault)
+
+	// Create 20 runs to increase collision probability
+	var runs []*model.Run
+	for i := 0; i < 20; i++ {
+		runID := fmt.Sprintf("20231220-%02d0000", i)
+		run, err := s.CreateRun("test", runID, nil)
+		if err != nil {
+			t.Fatalf("failed to create run %d: %v", i, err)
+		}
+		runs = append(runs, run)
+	}
+
+	// Find any prefix that has collisions
+	prefixCounts := make(map[string][]*model.Run)
+	for _, run := range runs {
+		prefix := run.ShortID()[:2]
+		prefixCounts[prefix] = append(prefixCounts[prefix], run)
+	}
+
+	var ambiguousPrefix string
+	for prefix, matchingRuns := range prefixCounts {
+		if len(matchingRuns) > 1 {
+			ambiguousPrefix = prefix
+			break
+		}
+	}
+
+	if ambiguousPrefix == "" {
+		t.Skip("No collisions found even with 20 runs, very unlucky hash distribution")
+	}
+
+	// Test that ambiguous prefix returns error
+	_, err := s.GetRunByShortID(ambiguousPrefix)
+	if err == nil {
+		t.Error("expected error for ambiguous short ID prefix")
+	}
+	errStr := err.Error()
+	if !strings.Contains(errStr, "ambiguous") {
+		t.Errorf("expected 'ambiguous' in error, got: %v", errStr)
+	}
+	if !strings.Contains(errStr, "matches") {
+		t.Errorf("expected 'matches' in error, got: %v", errStr)
+	}
+	if !strings.Contains(errStr, "Hint:") {
+		t.Errorf("expected 'Hint:' in error, got: %v", errStr)
 	}
 }

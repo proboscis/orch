@@ -52,13 +52,17 @@ func runStop(refStr string, opts *stopOptions) error {
 		return err
 	}
 
-	// Try as short ID first
+	// Try as short ID prefix first (2-6 hex chars)
 	if shortIDRegex.MatchString(refStr) {
 		run, err := st.GetRunByShortID(refStr)
 		if err == nil {
 			return stopRun(st, run, opts)
 		}
-		// Fall through to try as regular ref
+		// If it's a full 6-char short ID that failed, report the error
+		// For shorter prefixes, fall through to try as regular ref
+		if len(refStr) == 6 {
+			return err
+		}
 	}
 
 	ref, err := model.ParseRunRef(refStr)
