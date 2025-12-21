@@ -149,6 +149,11 @@ func IsTmuxAvailable() bool {
 	return cmd.Run() == nil
 }
 
+// IsInsideTmux returns true if we're currently inside a tmux session
+func IsInsideTmux() bool {
+	return os.Getenv("TMUX") != ""
+}
+
 // Window describes a tmux window.
 type Window struct {
 	Index int

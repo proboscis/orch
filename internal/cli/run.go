@@ -124,17 +124,17 @@ func runRun(issueID string, opts *runOptions) error {
 		tmuxSession = model.GenerateTmuxSession(issueID, runID)
 	}
 
-	// Find repo root
+	// Find repo root - use main repo root to handle running from inside worktrees
 	repoRoot := opts.RepoRoot
 	if repoRoot == "" {
-		repoRoot, err = git.FindRepoRoot("")
+		repoRoot, err = git.FindMainRepoRoot("")
 		if err != nil {
 			return exitWithCode(fmt.Errorf("could not find git repository: %w", err), ExitWorktreeError)
 		}
 	}
 
-	// Compute worktree path
-	worktreePath := fmt.Sprintf("%s/%s/%s", opts.WorktreeRoot, issueID, runID)
+	// Compute worktree path (absolute to ensure correct directory regardless of cwd)
+	worktreePath := filepath.Join(repoRoot, opts.WorktreeRoot, issueID, runID)
 
 	result := &runResult{
 		OK:           true,
