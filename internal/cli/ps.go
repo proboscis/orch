@@ -83,6 +83,7 @@ func outputJSON(runs []*model.Run, now time.Time) error {
 		IssueID      string `json:"issue_id"`
 		RunID        string `json:"run_id"`
 		ShortID      string `json:"short_id"`
+		Agent        string `json:"agent,omitempty"`
 		Status       string `json:"status"`
 		Phase        string `json:"phase,omitempty"`
 		UpdatedAt    string `json:"updated_at"`
@@ -107,6 +108,7 @@ func outputJSON(runs []*model.Run, now time.Time) error {
 			IssueID:      r.IssueID,
 			RunID:        r.RunID,
 			ShortID:      r.ShortID(),
+			Agent:        r.Agent,
 			Status:       string(r.Status),
 			Phase:        string(r.Phase),
 			UpdatedAt:    r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
@@ -125,13 +127,14 @@ func outputJSON(runs []*model.Run, now time.Time) error {
 }
 
 // TSV columns (fixed order per spec):
-// issue_id, run_id, short_id, status, phase, updated_at, pr_url, branch, worktree_path, tmux_session
+// issue_id, run_id, short_id, agent, status, phase, updated_at, pr_url, branch, worktree_path, tmux_session
 func outputTSV(runs []*model.Run) error {
 	for _, r := range runs {
-		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			r.IssueID,
 			r.RunID,
 			r.ShortID(),
+			r.Agent,
 			r.Status,
 			r.Phase,
 			r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
@@ -171,7 +174,7 @@ func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
 	mergedBranches := mergedBranchesForRuns(runs)
 
 	// Collect data rows
-	headers := []string{"ID", "ISSUE", "STATUS", "PHASE", "MERGED", "UPDATED", "SUMMARY"}
+	headers := []string{"ID", "ISSUE", "AGENT", "STATUS", "PHASE", "MERGED", "UPDATED", "SUMMARY"}
 	var rows [][]string
 
 	for _, r := range runs {
@@ -203,9 +206,15 @@ func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
 			phase = "-"
 		}
 
+		agent := r.Agent
+		if agent == "" {
+			agent = "-"
+		}
+
 		rows = append(rows, []string{
 			displayID,
 			r.IssueID,
+			agent,
 			colorStatus(r.Status),
 			phase,
 			merged,

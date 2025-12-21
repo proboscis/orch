@@ -58,6 +58,7 @@ type Run struct {
 	UpdatedAt time.Time
 
 	// Artifacts (from events)
+	Agent        string
 	Branch       string
 	WorktreePath string
 	TmuxSession  string
