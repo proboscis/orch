@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/store"
@@ -13,11 +14,12 @@ import (
 )
 
 type psOptions struct {
-	Status []string
-	Issue  string
-	Limit  int
-	Sort   string
-	Since  string
+	Status       []string
+	Issue        string
+	Limit        int
+	Sort         string
+	Since        string
+	AbsoluteTime bool
 }
 
 func newPsCmd() *cobra.Command {
@@ -37,6 +39,7 @@ func newPsCmd() *cobra.Command {
 	cmd.Flags().IntVar(&opts.Limit, "limit", 50, "Maximum number of runs to show")
 	cmd.Flags().StringVar(&opts.Sort, "sort", "updated", "Sort by (updated|started)")
 	cmd.Flags().StringVar(&opts.Since, "since", "", "Only show runs updated since (ISO8601)")
+	cmd.Flags().BoolVar(&opts.AbsoluteTime, "absolute-time", false, "Show absolute timestamps instead of relative")
 
 	return cmd
 }
@@ -64,16 +67,17 @@ func runPs(opts *psOptions) error {
 	}
 
 	// Output based on format
+	now := time.Now()
 	if globalOpts.JSON {
-		return outputJSON(runs)
+		return outputJSON(runs, now)
 	}
 	if globalOpts.TSV {
 		return outputTSV(runs)
 	}
-	return outputTable(runs)
+	return outputTable(runs, now, opts.AbsoluteTime)
 }
 
-func outputJSON(runs []*model.Run) error {
+func outputJSON(runs []*model.Run, now time.Time) error {
 	type runOutput struct {
 		IssueID      string `json:"issue_id"`
 		RunID        string `json:"run_id"`
@@ -81,6 +85,7 @@ func outputJSON(runs []*model.Run) error {
 		Status       string `json:"status"`
 		Phase        string `json:"phase,omitempty"`
 		UpdatedAt    string `json:"updated_at"`
+		UpdatedAgo   string `json:"updated_ago"`
 		StartedAt    string `json:"started_at"`
 		PRUrl        string `json:"pr_url,omitempty"`
 		Branch       string `json:"branch,omitempty"`
@@ -104,6 +109,7 @@ func outputJSON(runs []*model.Run) error {
 			Status:       string(r.Status),
 			Phase:        string(r.Phase),
 			UpdatedAt:    r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			UpdatedAgo:   formatRelativeTime(r.UpdatedAt, now),
 			StartedAt:    r.StartedAt.Format("2006-01-02T15:04:05Z07:00"),
 			PRUrl:        r.PRUrl,
 			Branch:       r.Branch,
@@ -137,7 +143,7 @@ func outputTSV(runs []*model.Run) error {
 	return nil
 }
 
-func outputTable(runs []*model.Run) error {
+func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
 	if len(runs) == 0 {
 		if !globalOpts.Quiet {
 			fmt.Println("No runs found")
@@ -165,8 +171,10 @@ func outputTable(runs []*model.Run) error {
 	fmt.Fprintln(w, "ID\tISSUE\tSTATUS\tPHASE\tUPDATED\tSUMMARY")
 
 	for _, r := range runs {
-		// Format updated time as relative or short form
-		updated := r.UpdatedAt.Format("01-02 15:04")
+		updated := formatRelativeTime(r.UpdatedAt, now)
+		if absoluteTime {
+			updated = r.UpdatedAt.Format("01-02 15:04")
+		}
 
 		// Get issue summary, truncate if too long
 		summary := issueSummaries[r.IssueID]
@@ -187,6 +195,28 @@ func outputTable(runs []*model.Run) error {
 	}
 
 	return w.Flush()
+}
+
+func formatRelativeTime(when time.Time, now time.Time) string {
+	if when.After(now) {
+		return "just now"
+	}
+
+	elapsed := now.Sub(when)
+	switch {
+	case elapsed < 10*time.Second:
+		return "just now"
+	case elapsed < time.Minute:
+		return fmt.Sprintf("%ds ago", int(elapsed.Seconds()))
+	case elapsed < time.Hour:
+		return fmt.Sprintf("%dm ago", int(elapsed.Minutes()))
+	case elapsed < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(elapsed.Hours()))
+	case elapsed < 7*24*time.Hour:
+		return fmt.Sprintf("%dd ago", int(elapsed.Hours()/24))
+	default:
+		return fmt.Sprintf("%dw ago", int(elapsed.Hours()/(24*7)))
+	}
 }
 
 func colorStatus(status model.Status) string {

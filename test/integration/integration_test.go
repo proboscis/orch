@@ -3,6 +3,7 @@ package integration
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -67,9 +68,39 @@ func runOrch(t *testing.T, args ...string) (string, error) {
 func createTestIssue(t *testing.T, id, content string) {
 	t.Helper()
 	path := filepath.Join(testVault, "issues", id+".md")
+	content = ensureIssueType(content)
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func ensureIssueType(content string) string {
+	lines := strings.Split(content, "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return content
+	}
+
+	frontmatterEnd := -1
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			frontmatterEnd = i
+			break
+		}
+	}
+	if frontmatterEnd == -1 {
+		return content
+	}
+
+	for i := 1; i < frontmatterEnd; i++ {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "type:") {
+			return content
+		}
+	}
+
+	updated := append([]string{}, lines[:1]...)
+	updated = append(updated, "type: issue")
+	updated = append(updated, lines[1:]...)
+	return strings.Join(updated, "\n")
 }
 
 func TestPsEmpty(t *testing.T) {
@@ -91,6 +122,68 @@ func TestPsEmpty(t *testing.T) {
 	}
 	if len(result.Items) != 0 {
 		t.Errorf("expected empty items, got %d", len(result.Items))
+	}
+}
+
+func TestPsJSONUpdatedAgo(t *testing.T) {
+	createTestIssue(t, "json-ago-test", "---\ntitle: JSON Ago Test\n---\n# JSON Ago Test")
+
+	runDir := filepath.Join(testVault, "runs", "json-ago-test")
+	if err := os.MkdirAll(runDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	runID := time.Now().Format("20060102-150405")
+	updatedAt := time.Now().Add(-2 * time.Minute).UTC().Format(time.RFC3339)
+	runContent := fmt.Sprintf(`---
+issue: json-ago-test
+run: %s
+---
+
+# Events
+
+- %s | status | running
+`, runID, updatedAt)
+	if err := os.WriteFile(filepath.Join(runDir, runID+".md"), []byte(runContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	output, err := runOrch(t, "ps", "--json")
+	if err != nil {
+		t.Fatalf("ps --json failed: %v", err)
+	}
+
+	var result struct {
+		OK    bool `json:"ok"`
+		Items []struct {
+			IssueID    string `json:"issue_id"`
+			UpdatedAt  string `json:"updated_at"`
+			UpdatedAgo string `json:"updated_ago"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+
+	var found bool
+	for _, item := range result.Items {
+		if item.IssueID != "json-ago-test" {
+			continue
+		}
+		found = true
+		if item.UpdatedAt == "" {
+			t.Errorf("expected updated_at to be set")
+		}
+		if item.UpdatedAgo == "" {
+			t.Errorf("expected updated_ago to be set")
+		}
+		if item.UpdatedAgo != "just now" && !strings.HasSuffix(item.UpdatedAgo, "ago") {
+			t.Errorf("unexpected updated_ago format: %q", item.UpdatedAgo)
+		}
+		break
+	}
+	if !found {
+		t.Fatalf("json-ago-test run not found in output: %s", output)
 	}
 }
 
@@ -172,12 +265,12 @@ run: 20231220-100000
 	}
 
 	var result struct {
-		OK        bool `json:"ok"`
-		IssueID   string `json:"issue_id"`
-		RunID     string `json:"run_id"`
-		Status    string `json:"status"`
-		Phase     string `json:"phase"`
-		Branch    string `json:"branch"`
+		OK        bool       `json:"ok"`
+		IssueID   string     `json:"issue_id"`
+		RunID     string     `json:"run_id"`
+		Status    string     `json:"status"`
+		Phase     string     `json:"phase"`
+		Branch    string     `json:"branch"`
 		Events    []struct{} `json:"events"`
 		Questions []struct {
 			ID   string `json:"id"`
