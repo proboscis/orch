@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var execCommand = exec.Command
@@ -77,6 +78,33 @@ func CapturePane(session string, lines int) (string, error) {
 		return "", err
 	}
 	return string(output), nil
+}
+
+// WaitForReady polls the tmux pane until the pattern is found or timeout is reached
+func WaitForReady(session, pattern string, timeout time.Duration) error {
+	if pattern == "" {
+		return nil
+	}
+
+	deadline := time.Now().Add(timeout)
+	pollInterval := 200 * time.Millisecond
+
+	for time.Now().Before(deadline) {
+		content, err := CapturePane(session, 50)
+		if err != nil {
+			// Session might not be ready yet, keep trying
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		if strings.Contains(content, pattern) {
+			return nil
+		}
+
+		time.Sleep(pollInterval)
+	}
+
+	return fmt.Errorf("timeout waiting for agent to be ready (pattern: %q)", pattern)
 }
 
 // AttachSession attaches to an existing tmux session (foreground)

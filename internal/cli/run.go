@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/config"
@@ -284,6 +285,13 @@ func runRun(issueID string, opts *runOptions) error {
 
 		// If the agent uses tmux send-keys for prompt injection, send the prompt now
 		if adapter.PromptInjection() == agent.InjectionTmux && launchCfg.Prompt != "" {
+			// Wait for the agent to be ready before sending the prompt
+			if pattern := adapter.ReadyPattern(); pattern != "" {
+				if err := tmux.WaitForReady(tmuxSession, pattern, 30*time.Second); err != nil {
+					st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+					return exitWithCode(fmt.Errorf("agent did not become ready: %w", err), ExitAgentError)
+				}
+			}
 			if err := tmux.SendKeys(tmuxSession, launchCfg.Prompt); err != nil {
 				st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
 				return exitWithCode(fmt.Errorf("failed to send prompt to session: %w", err), ExitTmuxError)

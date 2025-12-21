@@ -88,6 +88,11 @@ type Adapter interface {
 	// PromptInjection returns how the prompt should be sent to the agent
 	// Default implementations should return InjectionArg
 	PromptInjection() InjectionMethod
+
+	// ReadyPattern returns a regex pattern to detect when the agent is ready for input
+	// The pattern is matched against the tmux pane content
+	// Return empty string if no detection is needed (prompt is passed via command line)
+	ReadyPattern() string
 }
 
 // GetAdapter returns the adapter for the given agent type
