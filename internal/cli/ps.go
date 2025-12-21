@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/store"
@@ -13,11 +14,12 @@ import (
 )
 
 type psOptions struct {
-	Status []string
-	Issue  string
-	Limit  int
-	Sort   string
-	Since  string
+	Status       []string
+	Issue        string
+	Limit        int
+	Sort         string
+	Since        string
+	AbsoluteTime bool
 }
 
 func newPsCmd() *cobra.Command {
@@ -37,6 +39,7 @@ func newPsCmd() *cobra.Command {
 	cmd.Flags().IntVar(&opts.Limit, "limit", 50, "Maximum number of runs to show")
 	cmd.Flags().StringVar(&opts.Sort, "sort", "updated", "Sort by (updated|started)")
 	cmd.Flags().StringVar(&opts.Since, "since", "", "Only show runs updated since (ISO8601)")
+	cmd.Flags().BoolVar(&opts.AbsoluteTime, "absolute-time", false, "Show absolute timestamps instead of relative")
 
 	return cmd
 }
@@ -65,15 +68,15 @@ func runPs(opts *psOptions) error {
 
 	// Output based on format
 	if globalOpts.JSON {
-		return outputJSON(runs)
+		return outputJSON(runs, opts.AbsoluteTime)
 	}
 	if globalOpts.TSV {
 		return outputTSV(runs)
 	}
-	return outputTable(runs)
+	return outputTable(runs, opts.AbsoluteTime)
 }
 
-func outputJSON(runs []*model.Run) error {
+func outputJSON(runs []*model.Run, absoluteTime bool) error {
 	type runOutput struct {
 		IssueID      string `json:"issue_id"`
 		RunID        string `json:"run_id"`
@@ -81,7 +84,9 @@ func outputJSON(runs []*model.Run) error {
 		Status       string `json:"status"`
 		Phase        string `json:"phase,omitempty"`
 		UpdatedAt    string `json:"updated_at"`
+		UpdatedAgo   string `json:"updated_ago"`
 		StartedAt    string `json:"started_at"`
+		StartedAgo   string `json:"started_ago"`
 		PRUrl        string `json:"pr_url,omitempty"`
 		Branch       string `json:"branch,omitempty"`
 		WorktreePath string `json:"worktree_path,omitempty"`
@@ -104,7 +109,9 @@ func outputJSON(runs []*model.Run) error {
 			Status:       string(r.Status),
 			Phase:        string(r.Phase),
 			UpdatedAt:    r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			UpdatedAgo:   formatRelativeTime(r.UpdatedAt),
 			StartedAt:    r.StartedAt.Format("2006-01-02T15:04:05Z07:00"),
+			StartedAgo:   formatRelativeTime(r.StartedAt),
 			PRUrl:        r.PRUrl,
 			Branch:       r.Branch,
 			WorktreePath: r.WorktreePath,
@@ -137,7 +144,7 @@ func outputTSV(runs []*model.Run) error {
 	return nil
 }
 
-func outputTable(runs []*model.Run) error {
+func outputTable(runs []*model.Run, absoluteTime bool) error {
 	if len(runs) == 0 {
 		if !globalOpts.Quiet {
 			fmt.Println("No runs found")
@@ -155,8 +162,13 @@ func outputTable(runs []*model.Run) error {
 			branch = "..." + branch[len(branch)-27:]
 		}
 
-		// Format updated time as relative or short form
-		updated := r.UpdatedAt.Format("01-02 15:04")
+		// Format updated time as relative or absolute
+		var updated string
+		if absoluteTime {
+			updated = r.UpdatedAt.Format("01-02 15:04")
+		} else {
+			updated = formatRelativeTime(r.UpdatedAt)
+		}
 
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			r.ShortID(),
@@ -203,4 +215,38 @@ func parseStatusList(s string) []model.Status {
 		statuses[i] = model.Status(strings.TrimSpace(p))
 	}
 	return statuses
+}
+
+// formatRelativeTime formats a time as a relative/elapsed time string.
+// Format rules:
+//   - < 1 minute: "just now"
+//   - < 1 hour: "<N>m ago"
+//   - < 24 hours: "<N>h ago"
+//   - < 7 days: "<N>d ago"
+//   - >= 7 days: "<N>w ago"
+func formatRelativeTime(t time.Time) string {
+	now := time.Now()
+	d := now.Sub(t)
+
+	if d < 0 {
+		// Future time, show as "just now"
+		return "just now"
+	}
+
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		minutes := int(d.Minutes())
+		return fmt.Sprintf("%dm ago", minutes)
+	case d < 24*time.Hour:
+		hours := int(d.Hours())
+		return fmt.Sprintf("%dh ago", hours)
+	case d < 7*24*time.Hour:
+		days := int(d.Hours() / 24)
+		return fmt.Sprintf("%dd ago", days)
+	default:
+		weeks := int(d.Hours() / 24 / 7)
+		return fmt.Sprintf("%dw ago", weeks)
+	}
 }
