@@ -301,7 +301,15 @@ func TestSelectPane(t *testing.T) {
 }
 
 func TestSetPaneTitle(t *testing.T) {
-	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
+	// SetPaneTitle makes 3 calls:
+	// 1. display-message to get current pane
+	// 2. select-pane to set the title
+	// 3. select-pane to restore focus to original pane
+	exec := &fakeExecutor{calls: []fakeCall{
+		{output: "%0", exitCode: 0}, // display-message returns current pane
+		{exitCode: 0},               // select-pane to set title
+		{exitCode: 0},               // select-pane to restore focus
+	}}
 	orig := execCommand
 	execCommand = exec.Command
 	t.Cleanup(func() { execCommand = orig })
@@ -309,7 +317,11 @@ func TestSetPaneTitle(t *testing.T) {
 	if err := SetPaneTitle("%1", "chat"); err != nil {
 		t.Fatalf("SetPaneTitle error: %v", err)
 	}
-	call := exec.recorded[0]
+	if len(exec.recorded) < 2 {
+		t.Fatalf("expected at least 2 calls, got %d", len(exec.recorded))
+	}
+	// Check the second call which sets the pane title
+	call := exec.recorded[1]
 	if !equalArgs(call.args, []string{"select-pane", "-t", "%1", "-T", "chat"}) {
 		t.Fatalf("set-pane-title args = %v", call.args)
 	}
