@@ -29,6 +29,8 @@ type WorktreeResult struct {
 }
 
 // FindRepoRoot finds the git repository root from the current directory
+// Note: For worktrees, this returns the worktree directory, not the main repo.
+// Use FindMainRepoRoot to get the main repository root.
 func FindRepoRoot(startDir string) (string, error) {
 	if startDir == "" {
 		var err error
@@ -45,6 +47,35 @@ func FindRepoRoot(startDir string) (string, error) {
 	}
 
 	return strings.TrimSpace(string(output)), nil
+}
+
+// FindMainRepoRoot finds the main git repository root, even when inside a worktree.
+// This uses --git-common-dir to find the shared .git directory, then returns its parent.
+func FindMainRepoRoot(startDir string) (string, error) {
+	if startDir == "" {
+		var err error
+		startDir, err = os.Getwd()
+		if err != nil {
+			return "", err
+		}
+	}
+
+	cmd := exec.Command("git", "-C", startDir, "rev-parse", "--git-common-dir")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("not a git repository: %w", err)
+	}
+
+	gitDir := strings.TrimSpace(string(output))
+
+	// If gitDir is absolute, return its parent
+	// If relative (like ".git"), resolve from startDir
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(startDir, gitDir)
+	}
+
+	// Return the parent of the .git directory
+	return filepath.Dir(gitDir), nil
 }
 
 // CreateWorktree creates a new git worktree for the run
