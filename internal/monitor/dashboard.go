@@ -226,6 +226,12 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d.enterStopMode()
 	case "n":
 		return d.enterNewRunMode()
+	case d.keymap.Resolve:
+		if d.cursor >= 0 && d.cursor < len(d.runs) {
+			run := d.runs[d.cursor].Run
+			return d, d.resolveRunCmd(run)
+		}
+		return d, nil
 	case "up", "k":
 		if d.cursor > 0 {
 			d.cursor--
@@ -526,6 +532,18 @@ func (d *Dashboard) answerCmd(run *model.Run, questionID, text string) tea.Cmd {
 			return errMsg{err: err}
 		}
 		return infoMsg{text: fmt.Sprintf("answered %s for %s#%s", questionID, run.IssueID, run.RunID)}
+	}
+}
+
+func (d *Dashboard) resolveRunCmd(run *model.Run) tea.Cmd {
+	return func() tea.Msg {
+		if run == nil {
+			return errMsg{err: fmt.Errorf("run not found")}
+		}
+		if err := d.monitor.ResolveRun(run); err != nil {
+			return errMsg{err: err}
+		}
+		return infoMsg{text: fmt.Sprintf("resolved %s#%s and issue %s", run.IssueID, run.RunID, run.IssueID)}
 	}
 }
 

@@ -379,6 +379,27 @@ func (m *Monitor) SetIssueStatus(issueID string, status model.IssueStatus) error
 	return m.store.SetIssueStatus(issueID, status)
 }
 
+// ResolveRun marks the run as done and its corresponding issue as resolved.
+func (m *Monitor) ResolveRun(run *model.Run) error {
+	if run == nil {
+		return fmt.Errorf("run not found")
+	}
+
+	// Mark the run as done if not already in a terminal state
+	if !isTerminalStatus(run.Status) {
+		if err := m.store.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusDone)); err != nil {
+			return fmt.Errorf("failed to mark run as done: %w", err)
+		}
+	}
+
+	// Mark the corresponding issue as resolved
+	if err := m.store.SetIssueStatus(run.IssueID, model.IssueStatusResolved); err != nil {
+		return fmt.Errorf("failed to resolve issue: %w", err)
+	}
+
+	return nil
+}
+
 // ListIssues fetches issues from the store.
 func (m *Monitor) ListIssues() ([]*model.Issue, error) {
 	return m.store.ListIssues()
