@@ -66,6 +66,13 @@ func runOrch(t *testing.T, args ...string) (string, error) {
 
 func createTestIssue(t *testing.T, id, content string) {
 	t.Helper()
+	if !strings.Contains(content, "type: issue") {
+		if strings.HasPrefix(content, "---\n") {
+			content = strings.Replace(content, "---\n", "---\ntype: issue\n", 1)
+		} else {
+			content = "---\ntype: issue\n---\n" + content
+		}
+	}
 	path := filepath.Join(testVault, "issues", id+".md")
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
@@ -172,12 +179,12 @@ run: 20231220-100000
 	}
 
 	var result struct {
-		OK        bool `json:"ok"`
-		IssueID   string `json:"issue_id"`
-		RunID     string `json:"run_id"`
-		Status    string `json:"status"`
-		Phase     string `json:"phase"`
-		Branch    string `json:"branch"`
+		OK        bool       `json:"ok"`
+		IssueID   string     `json:"issue_id"`
+		RunID     string     `json:"run_id"`
+		Status    string     `json:"status"`
+		Phase     string     `json:"phase"`
+		Branch    string     `json:"branch"`
 		Events    []struct{} `json:"events"`
 		Questions []struct {
 			ID   string `json:"id"`
