@@ -3,7 +3,7 @@ type: issue
 id: orch-011
 title: Implement orch monitor command with TUI dashboard
 summary: Interactive tmux-based monitor using bubbletea
-status: open
+status: resolved
 priority: high
 ---
 
