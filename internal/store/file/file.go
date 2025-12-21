@@ -210,10 +210,9 @@ func (s *FileStore) ResolveIssue(issueID string) (*model.Issue, error) {
 
 // ListIssues returns all issues in the vault
 func (s *FileStore) ListIssues() ([]*model.Issue, error) {
-	if s.cacheDirty {
-		if err := s.scanIssues(); err != nil {
-			return nil, err
-		}
+	// Always rescan issues from disk to ensure fresh data for auto-refresh
+	if err := s.scanIssues(); err != nil {
+		return nil, err
 	}
 
 	issues := make([]*model.Issue, 0, len(s.issueCache))
