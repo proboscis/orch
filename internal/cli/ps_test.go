@@ -193,17 +193,18 @@ func TestOutputJSON(t *testing.T) {
 	var got struct {
 		OK    bool `json:"ok"`
 		Items []struct {
-			IssueID      string `json:"issue_id"`
-			RunID        string `json:"run_id"`
-			ShortID      string `json:"short_id"`
-			Status       string `json:"status"`
-			UpdatedAt    string `json:"updated_at"`
-			UpdatedAgo   string `json:"updated_ago"`
-			StartedAt    string `json:"started_at"`
-			PRUrl        string `json:"pr_url"`
-			Branch       string `json:"branch"`
-			WorktreePath string `json:"worktree_path"`
-			TmuxSession  string `json:"tmux_session"`
+			IssueID     string `json:"issue_id"`
+			IssueStatus string `json:"issue_status"`
+			RunID       string `json:"run_id"`
+			ShortID     string `json:"short_id"`
+			Status      string `json:"status"`
+			UpdatedAt   string `json:"updated_at"`
+			UpdatedAgo  string `json:"updated_ago"`
+			StartedAt   string `json:"started_at"`
+			PRUrl       string `json:"pr_url"`
+			Branch      string `json:"branch"`
+			Worktree    string `json:"worktree_path"`
+			TmuxSession string `json:"tmux_session"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
@@ -215,6 +216,9 @@ func TestOutputJSON(t *testing.T) {
 	item := got.Items[0]
 	if item.ShortID != run.ShortID() {
 		t.Fatalf("short_id = %q, want %q", item.ShortID, run.ShortID())
+	}
+	if item.IssueStatus != "" {
+		t.Fatalf("issue_status = %q, want empty", item.IssueStatus)
 	}
 	if item.UpdatedAt != "2025-01-02T03:05:06Z" {
 		t.Fatalf("updated_at = %q", item.UpdatedAt)

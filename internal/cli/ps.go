@@ -17,12 +17,18 @@ import (
 
 type psOptions struct {
 	Status       []string
+	IssueStatus  []string
 	Issue        string
 	Limit        int
 	Sort         string
 	Since        string
 	AbsoluteTime bool
 	All          bool
+}
+
+type psIssueInfo struct {
+	status  string
+	display string
 }
 
 func newPsCmd() *cobra.Command {
@@ -38,6 +44,7 @@ func newPsCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringSliceVar(&opts.Status, "status", nil, "Filter by status (queued,booting,running,blocked,blocked_api,pr_open,done,resolved,failed,canceled,unknown)")
+	cmd.Flags().StringSliceVar(&opts.IssueStatus, "issue-status", nil, "Filter by issue status (open,closed,...)")
 	cmd.Flags().StringVar(&opts.Issue, "issue", "", "Filter by issue ID")
 	cmd.Flags().IntVar(&opts.Limit, "limit", 50, "Maximum number of runs to show")
 	cmd.Flags().StringVar(&opts.Sort, "sort", "updated", "Sort by (updated|started)")
@@ -61,6 +68,9 @@ func runPs(opts *psOptions) error {
 		Limit:   opts.Limit,
 		Since:   opts.Since,
 	}
+	if len(opts.IssueStatus) > 0 {
+		filter.Limit = 0
+	}
 
 	if len(opts.Status) > 0 {
 		for _, s := range opts.Status {
@@ -77,25 +87,76 @@ func runPs(opts *psOptions) error {
 
 	if len(opts.Status) == 0 && !opts.All {
 		runs = filterResolvedRuns(runs)
-		if requestedLimit > 0 && len(runs) > requestedLimit {
-			runs = runs[:requestedLimit]
+	}
+
+	issueStatusFilter := make(map[string]bool)
+	for _, status := range opts.IssueStatus {
+		trimmed := strings.TrimSpace(status)
+		if trimmed != "" {
+			issueStatusFilter[trimmed] = true
 		}
+	}
+
+	issueCache := make(map[string]psIssueInfo)
+	filteredRuns := make([]*model.Run, 0, len(runs))
+	for _, r := range runs {
+		info := resolveIssueInfo(st, issueCache, r.IssueID)
+		if len(issueStatusFilter) > 0 && !issueStatusFilter[info.status] {
+			continue
+		}
+		filteredRuns = append(filteredRuns, r)
+	}
+	runs = filteredRuns
+
+	if requestedLimit > 0 && len(runs) > requestedLimit {
+		runs = runs[:requestedLimit]
 	}
 
 	// Output based on format
 	now := time.Now()
 	if globalOpts.JSON {
-		return outputJSON(runs, now)
+		return outputJSONWithIssueInfo(runs, now, issueCache)
 	}
 	if globalOpts.TSV {
-		return outputTSV(runs)
+		return outputTSVWithIssueInfo(runs, issueCache)
 	}
-	return outputTable(runs, now, opts.AbsoluteTime)
+	return outputTableWithIssueInfo(runs, now, opts.AbsoluteTime, issueCache)
+}
+
+func resolveIssueInfo(st store.Store, cache map[string]psIssueInfo, issueID string) psIssueInfo {
+	if info, ok := cache[issueID]; ok {
+		return info
+	}
+
+	if st == nil {
+		info := psIssueInfo{}
+		cache[issueID] = info
+		return info
+	}
+
+	issue, err := st.ResolveIssue(issueID)
+	if err != nil {
+		info := psIssueInfo{}
+		cache[issueID] = info
+		return info
+	}
+
+	info := psIssueInfo{
+		status:  issue.Frontmatter["status"],
+		display: formatIssueTopic(issue),
+	}
+	cache[issueID] = info
+	return info
 }
 
 func outputJSON(runs []*model.Run, now time.Time) error {
+	return outputJSONWithIssueInfo(runs, now, nil)
+}
+
+func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[string]psIssueInfo) error {
 	type runOutput struct {
 		IssueID      string `json:"issue_id"`
+		IssueStatus  string `json:"issue_status"`
 		RunID        string `json:"run_id"`
 		ShortID      string `json:"short_id"`
 		Agent        string `json:"agent,omitempty"`
@@ -118,8 +179,14 @@ func outputJSON(runs []*model.Run, now time.Time) error {
 	}
 
 	for i, r := range runs {
+		issueStatus := ""
+		if issueCache != nil {
+			issueStatus = issueCache[r.IssueID].status
+		}
+
 		output.Items[i] = runOutput{
 			IssueID:      r.IssueID,
+			IssueStatus:  issueStatus,
 			RunID:        r.RunID,
 			ShortID:      r.ShortID(),
 			Agent:        r.Agent,
@@ -140,11 +207,21 @@ func outputJSON(runs []*model.Run, now time.Time) error {
 }
 
 // TSV columns (fixed order per spec):
-// issue_id, run_id, short_id, agent, status, updated_at, pr_url, branch, worktree_path, tmux_session
+// issue_id, issue_status, run_id, short_id, agent, status, updated_at, pr_url, branch, worktree_path, tmux_session
 func outputTSV(runs []*model.Run) error {
+	return outputTSVWithIssueInfo(runs, nil)
+}
+
+func outputTSVWithIssueInfo(runs []*model.Run, issueCache map[string]psIssueInfo) error {
 	for _, r := range runs {
-		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		issueStatus := ""
+		if issueCache != nil {
+			issueStatus = issueCache[r.IssueID].status
+		}
+
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			r.IssueID,
+			issueStatus,
 			r.RunID,
 			r.ShortID(),
 			r.Agent,
@@ -160,6 +237,10 @@ func outputTSV(runs []*model.Run) error {
 }
 
 func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
+	return outputTableWithIssueInfo(runs, now, absoluteTime, nil)
+}
+
+func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime bool, issueCache map[string]psIssueInfo) error {
 	if len(runs) == 0 {
 		if !globalOpts.Quiet {
 			fmt.Println("No runs found")
@@ -167,21 +248,17 @@ func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
 		return nil
 	}
 
-	// Get store to fetch issue summaries
-	st, err := getStore()
-	if err != nil {
-		return err
-	}
-
-	// Build issue display cache
-	issueSummaries := make(map[string]string)
-	for _, r := range runs {
-		if _, ok := issueSummaries[r.IssueID]; !ok {
-			if issue, err := st.ResolveIssue(r.IssueID); err == nil {
-				issueSummaries[r.IssueID] = formatIssueTopic(issue)
-			}
+	if issueCache == nil {
+		st, err := getStore()
+		if err != nil {
+			return err
+		}
+		issueCache = make(map[string]psIssueInfo)
+		for _, r := range runs {
+			resolveIssueInfo(st, issueCache, r.IssueID)
 		}
 	}
+
 	baseBranch := "main"
 	if cfg, err := config.Load(); err == nil && cfg.BaseBranch != "" {
 		baseBranch = cfg.BaseBranch
@@ -190,7 +267,7 @@ func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
 	gitStates := gitStatesForRuns(runs, baseBranch)
 
 	// Collect data rows
-	headers := []string{"ID", "ISSUE", "AGENT", "STATUS", "PR", "MERGED", "UPDATED", "TOPIC"}
+	headers := []string{"ID", "ISSUE", "ISSUE-ST", "AGENT", "STATUS", "PR", "MERGED", "UPDATED", "TOPIC"}
 	var rows [][]string
 
 	for _, r := range runs {
@@ -203,10 +280,15 @@ func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
 			displayID += "*"
 		}
 
-		// Get issue topic or summary
-		display := issueSummaries[r.IssueID]
+		info := issueCache[r.IssueID]
+		display := info.display
 		if display == "" {
 			display = "-"
+		}
+
+		issueStatus := info.status
+		if issueStatus == "" {
+			issueStatus = "-"
 		}
 
 		merged := "-"
@@ -227,6 +309,7 @@ func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
 		rows = append(rows, []string{
 			displayID,
 			r.IssueID,
+			issueStatus,
 			agent,
 			colorStatus(r.Status),
 			pr,
@@ -404,7 +487,7 @@ func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
 
 		// Check if merged (reachable from target)
 		isMerged := merged[r.Branch]
-		
+
 		// Check commit time relative to run start
 		commitTime, hasCommitTime := commitTimes[r.Branch]
 		isNewWork := false
@@ -423,7 +506,7 @@ func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
 
 		// Not merged, check if modified (ahead > 0)
 		conflict, _ := git.CheckMergeConflict(repoRoot, r.Branch, targetRef)
-		
+
 		ahead, _ := git.GetAheadCount(repoRoot, r.Branch, targetRef)
 		if ahead == 0 {
 			states[r.RunID] = "no change"

@@ -71,16 +71,19 @@ runs一覧を表示（人間/機械）
 
 | オプション | 説明 |
 |-----------|------|
-| `--status` | running,blocked,failed,pr_open,done |
+| `--status` | queued,booting,running,blocked,blocked_api,pr_open,done,resolved,failed,canceled,unknown |
+| `--issue-status` | open,closed,etc |
 | `--issue <ISSUE_ID>` | 特定issueのrunのみ |
 | `--limit N` | default 50 |
 | `--sort updated\|started` | default updated |
 | `--since <timestamp>` | 指定日時以降 |
+| `--absolute-time` | 相対時間ではなく絶対時刻で表示 |
+| `--all` | resolved を含めて表示 |
 
 ### TSV列（固定順）
 
 ```
-issue_id, run_id, status, phase, updated_at, pr_url, branch, worktree_path, tmux_session
+issue_id, issue_status, run_id, short_id, agent, status, updated_at, pr_url, branch, worktree_path, tmux_session
 ```
 
 ---
