@@ -21,8 +21,8 @@ func (a *GeminiAdapter) IsAvailable() bool {
 func (a *GeminiAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 	var args []string
 
-	// gemini CLI (assuming similar pattern to claude)
-	args = append(args, "gemini")
+	// gemini CLI with yolo mode
+	args = append(args, "gemini", "--yolo")
 
 	// Add the prompt
 	if cfg.Prompt != "" {

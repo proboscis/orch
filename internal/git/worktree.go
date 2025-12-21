@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+var execCommand = exec.Command
+
 // WorktreeConfig holds configuration for worktree creation
 type WorktreeConfig struct {
 	RepoRoot      string
@@ -38,7 +40,7 @@ func FindRepoRoot(startDir string) (string, error) {
 		}
 	}
 
-	cmd := exec.Command("git", "-C", startDir, "rev-parse", "--show-toplevel")
+	cmd := execCommand("git", "-C", startDir, "rev-parse", "--show-toplevel")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("not a git repository: %w", err)
@@ -104,7 +106,7 @@ func CreateWorktree(cfg *WorktreeConfig) (*WorktreeResult, error) {
 	}
 
 	// Fetch the base branch to ensure it's up to date
-	fetchCmd := exec.Command("git", "-C", cfg.RepoRoot, "fetch", "origin", cfg.BaseBranch)
+	fetchCmd := execCommand("git", "-C", cfg.RepoRoot, "fetch", "origin", cfg.BaseBranch)
 	fetchCmd.Stderr = os.Stderr
 	_ = fetchCmd.Run() // Ignore error, might not have remote
 
@@ -117,7 +119,7 @@ func CreateWorktree(cfg *WorktreeConfig) (*WorktreeResult, error) {
 		cfg.BaseBranch,
 	}
 
-	cmd := exec.Command("git", args...)
+	cmd := execCommand("git", args...)
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		// Try without -b if branch might exist
@@ -127,7 +129,7 @@ func CreateWorktree(cfg *WorktreeConfig) (*WorktreeResult, error) {
 			cfg.WorktreePath,
 			cfg.Branch,
 		}
-		cmd = exec.Command("git", args...)
+		cmd = execCommand("git", args...)
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
 			return nil, fmt.Errorf("failed to create worktree: %w", err)
@@ -143,14 +145,14 @@ func CreateWorktree(cfg *WorktreeConfig) (*WorktreeResult, error) {
 
 // RemoveWorktree removes a git worktree
 func RemoveWorktree(repoRoot, worktreePath string) error {
-	cmd := exec.Command("git", "-C", repoRoot, "worktree", "remove", worktreePath, "--force")
+	cmd := execCommand("git", "-C", repoRoot, "worktree", "remove", worktreePath, "--force")
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
 
 // ListWorktrees returns all worktrees for a repository
 func ListWorktrees(repoRoot string) ([]string, error) {
-	cmd := exec.Command("git", "-C", repoRoot, "worktree", "list", "--porcelain")
+	cmd := execCommand("git", "-C", repoRoot, "worktree", "list", "--porcelain")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, err
@@ -168,7 +170,7 @@ func ListWorktrees(repoRoot string) ([]string, error) {
 
 // GetCurrentBranch returns the current branch name
 func GetCurrentBranch(repoPath string) (string, error) {
-	cmd := exec.Command("git", "-C", repoPath, "rev-parse", "--abbrev-ref", "HEAD")
+	cmd := execCommand("git", "-C", repoPath, "rev-parse", "--abbrev-ref", "HEAD")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", err
