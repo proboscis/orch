@@ -7,7 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"text/tabwriter"
 
+	"github.com/s22625/orch/internal/model"
 	"github.com/spf13/cobra"
 )
 
@@ -150,6 +152,19 @@ func newIssueListCmd() *cobra.Command {
 	return cmd
 }
 
+type runSummary struct {
+	RunID  string `json:"run_id"`
+	Status string `json:"status"`
+}
+
+type issueInfo struct {
+	ID     string       `json:"id"`
+	Title  string       `json:"title"`
+	Status string       `json:"status"`
+	Path   string       `json:"path"`
+	Runs   []runSummary `json:"runs,omitempty"`
+}
+
 func runIssueList() error {
 	st, err := getStore()
 	if err != nil {
@@ -161,19 +176,36 @@ func runIssueList() error {
 		return err
 	}
 
-	type issueInfo struct {
-		ID    string `json:"id"`
-		Title string `json:"title"`
-		Path  string `json:"path"`
+	// Get all runs to match with issues
+	allRuns, _ := st.ListRuns(nil)
+	runsByIssue := make(map[string][]*model.Run)
+	for _, run := range allRuns {
+		runsByIssue[run.IssueID] = append(runsByIssue[run.IssueID], run)
 	}
 
 	var issueInfos []issueInfo
 	for _, issue := range issues {
-		issueInfos = append(issueInfos, issueInfo{
-			ID:    issue.ID,
-			Title: issue.Title,
-			Path:  issue.Path,
-		})
+		info := issueInfo{
+			ID:     issue.ID,
+			Title:  issue.Title,
+			Status: issue.Frontmatter["status"],
+			Path:   issue.Path,
+		}
+
+		// Add active runs (non-terminal states)
+		for _, run := range runsByIssue[issue.ID] {
+			if run.Status == model.StatusRunning ||
+				run.Status == model.StatusBlocked ||
+				run.Status == model.StatusBooting ||
+				run.Status == model.StatusQueued {
+				info.Runs = append(info.Runs, runSummary{
+					RunID:  run.RunID,
+					Status: string(run.Status),
+				})
+			}
+		}
+
+		issueInfos = append(issueInfos, info)
 	}
 
 	if globalOpts.JSON {
@@ -196,9 +228,39 @@ func runIssueList() error {
 		return nil
 	}
 
+	// Print with tabwriter for alignment
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tSTATUS\tTITLE\tRUNS")
 	for _, issue := range issueInfos {
-		fmt.Printf("%s\t%s\n", issue.ID, issue.Title)
+		runsSummary := "-"
+		if len(issue.Runs) > 0 {
+			runsSummary = formatRunsSummary(issue.Runs)
+		}
+		status := issue.Status
+		if status == "" {
+			status = "-"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", issue.ID, status, issue.Title, runsSummary)
 	}
+	w.Flush()
 
 	return nil
+}
+
+// formatRunsSummary formats runs into a summary like "1 running, 1 blocked"
+func formatRunsSummary(runs []runSummary) string {
+	counts := make(map[string]int)
+	for _, r := range runs {
+		counts[r.Status]++
+	}
+
+	var parts []string
+	for status, count := range counts {
+		parts = append(parts, fmt.Sprintf("%d %s", count, status))
+	}
+
+	if len(parts) == 0 {
+		return "-"
+	}
+	return strings.Join(parts, ", ")
 }

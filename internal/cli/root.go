@@ -3,8 +3,10 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 
+	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/store"
 	"github.com/s22625/orch/internal/store/file"
@@ -93,15 +95,34 @@ func Execute() {
 	}
 }
 
-// getVaultPath returns the vault path from flags or environment
+// getVaultPath returns the vault path from flags, environment, or config files
+// Precedence: --vault flag > ORCH_VAULT env > .orch/config.yaml > ~/.config/orch/config.yaml
 func getVaultPath() (string, error) {
+	// 1. Command-line flag (highest precedence)
 	if globalOpts.VaultPath != "" {
 		return globalOpts.VaultPath, nil
 	}
-	if envPath := os.Getenv("ORCH_VAULT"); envPath != "" {
-		return envPath, nil
+
+	// 2. Load from config (handles env vars and config files)
+	cfg, err := config.Load()
+	if err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("vault path not specified (use --vault or set ORCH_VAULT)")
+
+	if cfg.Vault != "" {
+		// Expand path relative to repo config dir if it's a relative path
+		vaultPath := cfg.Vault
+		if len(vaultPath) > 0 && !filepath.IsAbs(vaultPath) && vaultPath[0] != '~' {
+			// Relative path - expand relative to .orch directory location
+			repoDir := config.RepoConfigDir()
+			if repoDir != "" {
+				vaultPath = filepath.Join(filepath.Dir(repoDir), vaultPath)
+			}
+		}
+		return config.ExpandPath(vaultPath, ""), nil
+	}
+
+	return "", fmt.Errorf("vault path not specified (use --vault, set ORCH_VAULT, or create .orch/config.yaml)")
 }
 
 // getStore returns a store instance based on configuration
