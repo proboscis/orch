@@ -301,20 +301,49 @@ func colorStatus(status model.Status) string {
 }
 
 func mergedBranchesForRuns(runs []*model.Run) map[string]bool {
+	var repoRoot string
 	for _, r := range runs {
 		if r.Branch != "" {
-			repoRoot, err := git.FindRepoRoot("")
+			var err error
+			repoRoot, err = git.FindRepoRoot("")
 			if err != nil {
 				return nil
 			}
-			merged, err := git.GetMergedBranches(repoRoot, "main")
-			if err != nil {
-				return nil
-			}
-			return merged
+			break
 		}
 	}
-	return nil
+	if repoRoot == "" {
+		return nil
+	}
+
+	merged, err := git.GetMergedBranches(repoRoot, "main")
+	if err != nil {
+		return nil
+	}
+	commitTimes, err := git.GetBranchCommitTimes(repoRoot)
+	if err != nil {
+		return nil
+	}
+
+	mergedForRuns := make(map[string]bool)
+	for _, r := range runs {
+		if r.Branch == "" || !merged[r.Branch] {
+			continue
+		}
+		if r.StartedAt.IsZero() {
+			mergedForRuns[r.Branch] = true
+			continue
+		}
+		commitTime, ok := commitTimes[r.Branch]
+		if !ok {
+			continue
+		}
+		if !commitTime.Before(r.StartedAt) {
+			mergedForRuns[r.Branch] = true
+		}
+	}
+
+	return mergedForRuns
 }
 
 // parseStatusList parses a comma-separated status list
