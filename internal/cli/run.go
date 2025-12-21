@@ -323,10 +323,6 @@ const defaultPromptTemplate = `<issue>
 
 Instructions:
 - Implement the changes described in the issue above
-- Use the following phases to report your progress by printing "PHASE: <phase_name>" to stdout:
-  - plan: when analyzing the issue and planning changes
-  - implement: when writing code
-  - test: when verifying changes
 - Run tests to verify your changes work correctly
 {{- if not .NoPR}}
 - When complete, create a pull request:
@@ -387,13 +383,10 @@ func buildSimplePrompt(issue *model.Issue, opts *promptOptions) string {
 	if issue.Body != "" {
 		prompt += fmt.Sprintf("Description:\n%s\n", issue.Body)
 	}
-	prompt += "\nInstructions:\n"
-	prompt += "- Implement the changes described in the issue above\n"
-	prompt += "- Use the following phases to report your progress by printing \"PHASE: <phase_name>\" to stdout:\n"
-	prompt += "  - plan, implement, test\n"
-	prompt += "- Run tests to verify your changes work correctly\n"
-
 	if !opts.NoPR {
+		prompt += "\nInstructions:\n"
+		prompt += "- Implement the changes described in the issue above\n"
+		prompt += "- Run tests to verify your changes work correctly\n"
 		prompt += "- When complete, create a pull request:\n"
 		prompt += fmt.Sprintf("  - Title should summarize the change\n")
 		prompt += fmt.Sprintf("  - Body should reference issue: %s\n", issue.ID)

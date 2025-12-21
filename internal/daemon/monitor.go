@@ -73,18 +73,6 @@ func (d *Daemon) monitorRun(run *model.Run) error {
 		}
 	}
 
-	// Check for phase change in output
-	if phase := d.detectPhaseChange(output); phase != "" {
-		if phase != state.LastPhase && phase != string(run.Phase) {
-			d.logger.Printf("%s#%s: phase change -> %s", run.IssueID, run.RunID, phase)
-			if err := d.updatePhase(run, model.Phase(phase)); err != nil {
-				d.logger.Printf("%s#%s: failed to update phase: %v", run.IssueID, run.RunID, err)
-			} else {
-				state.LastPhase = phase
-			}
-		}
-	}
-
 	// Detect state using claude-squad logic:
 	// - updated=true → Running
 	// - updated=false && hasPrompt → Blocked
@@ -319,13 +307,6 @@ func (d *Daemon) updateStatus(run *model.Run, status model.Status) error {
 	return d.store.AppendEvent(ref, event)
 }
 
-// updatePhase appends a phase event to the run
-func (d *Daemon) updatePhase(run *model.Run, phase model.Phase) error {
-	ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
-	event := model.NewPhaseEvent(phase)
-	return d.store.AppendEvent(ref, event)
-}
-
 // hashString returns a simple hash of a string
 func hashString(s string) string {
 	h := md5.Sum([]byte(s))
@@ -362,21 +343,6 @@ func (d *Daemon) detectPRCreation(output string) string {
 	match := prURLRegex.FindString(output)
 	if match != "" {
 		return match
-	}
-	return ""
-}
-
-var phaseRegex = regexp.MustCompile(`(?i)PHASE:\s*(\w+)`)
-
-// detectPhaseChange scans output for phase change indicators
-// Returns the phase name found, or empty string if none
-func (d *Daemon) detectPhaseChange(output string) string {
-	// Only look at the last 20 lines to avoid re-detecting old phase changes
-	lines := getLastLines(output, 20)
-	matches := phaseRegex.FindAllStringSubmatch(lines, -1)
-	if len(matches) > 0 {
-		// Return the last match found in the tail
-		return strings.ToLower(matches[len(matches)-1][1])
 	}
 	return ""
 }

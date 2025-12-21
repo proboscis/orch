@@ -40,7 +40,6 @@ type RunState struct {
 	LastCheckAt  time.Time
 	OutputHash   string // Simple hash to detect changes
 	PRRecorded   bool   // Whether PR artifact has been recorded
-	LastPhase    string // Last detected phase name
 }
 
 // New creates a new Daemon instance
