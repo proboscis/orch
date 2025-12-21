@@ -16,17 +16,15 @@ import (
 )
 
 const (
-	defaultSessionName = "orch-monitor"
-	runsWindowIndex    = 0
-	issuesWindowIndex  = 1
-	agentWindowIndex   = 2
-	runWindowIndex     = 3
+	defaultSessionName  = "orch-monitor"
+	dashboardWindowName = "dashboard"
+	dashboardWindowIdx  = 0
 )
 
 const (
-	runsWindowName   = "runs"
-	issuesWindowName = "issues"
-	agentWindowName  = "agent"
+	runsPaneTitle   = "runs"
+	issuesPaneTitle = "issues"
+	chatPaneTitle   = "chat"
 )
 
 // Options configures the monitor behavior.
@@ -52,6 +50,8 @@ type Monitor struct {
 	forceNew     bool
 	runs         []*RunWindow
 	dashboard    *Dashboard
+	activeRun    string
+	activeTitle  string
 }
 
 // RunWindow links a run to a dashboard index.
@@ -106,7 +106,7 @@ func (m *Monitor) Start() error {
 		}
 	}
 
-	if err := m.ensureAuxWindows(); err != nil {
+	if err := m.ensurePaneLayout(); err != nil {
 		return err
 	}
 
@@ -162,26 +162,26 @@ func (m *Monitor) SwitchWindow(index int) error {
 
 // SwitchRuns switches to the runs dashboard window.
 func (m *Monitor) SwitchRuns() error {
-	if err := m.CloseRunWindow(); err != nil {
+	if err := m.CloseRunPane(); err != nil {
 		return err
 	}
-	return m.SwitchWindow(runsWindowIndex)
+	return m.selectPaneByTitle(runsPaneTitle)
 }
 
 // SwitchIssues switches to the issues dashboard window.
 func (m *Monitor) SwitchIssues() error {
-	if err := m.CloseRunWindow(); err != nil {
+	if err := m.CloseRunPane(); err != nil {
 		return err
 	}
-	return m.SwitchWindow(issuesWindowIndex)
+	return m.selectPaneByTitle(issuesPaneTitle)
 }
 
 // SwitchChat switches to the agent chat window.
 func (m *Monitor) SwitchChat() error {
-	if err := m.CloseRunWindow(); err != nil {
+	if err := m.CloseRunPane(); err != nil {
 		return err
 	}
-	return m.SwitchWindow(agentWindowIndex)
+	return m.selectPaneByTitle(chatPaneTitle)
 }
 
 // OpenRun links a run session into the monitor and switches to it.
@@ -205,33 +205,58 @@ func (m *Monitor) OpenRun(run *model.Run) error {
 		return fmt.Errorf("run session not found: %s", sessionName)
 	}
 
-	if err := m.CloseRunWindow(); err != nil {
+	if err := m.ensurePaneLayout(); err != nil {
 		return err
 	}
-	if err := tmux.LinkWindow(sessionName, 0, m.session, runWindowIndex); err != nil {
+	if err := m.CloseRunPane(); err != nil {
 		return err
 	}
-	_ = tmux.RenameWindow(m.session, runWindowIndex, runWindowTitle(run))
-	return tmux.SelectWindow(m.session, runWindowIndex)
-}
 
-// CloseRunWindow removes the linked run window from the monitor session.
-func (m *Monitor) CloseRunWindow() error {
-	if !tmux.HasSession(m.session) {
-		return nil
-	}
-	windows, err := tmux.ListWindows(m.session)
+	chatPane, err := m.findPaneByTitle(m.session, chatPaneTitle)
 	if err != nil {
 		return err
 	}
-	for _, w := range windows {
-		if w.Index == runWindowIndex {
-			if err := tmux.UnlinkWindow(m.session, runWindowIndex); err != nil {
-				return err
-			}
-			break
-		}
+	runPane, err := m.findPaneByTitle(sessionName, "")
+	if err != nil {
+		return err
 	}
+	if err := tmux.SwapPane(runPane, chatPane); err != nil {
+		return err
+	}
+
+	title := runWindowTitle(run)
+	_ = tmux.SetPaneTitle(runPane, title)
+	_ = tmux.SetPaneTitle(chatPane, chatPaneTitle)
+	m.activeRun = sessionName
+	m.activeTitle = title
+	return tmux.SelectPane(runPane)
+}
+
+// CloseRunPane restores the chat pane if a run is open.
+func (m *Monitor) CloseRunPane() error {
+	if m.activeRun == "" {
+		return nil
+	}
+	runTitle := m.activeTitle
+	runPane, err := m.findPaneByTitle(m.session, runTitle)
+	if err != nil {
+		m.activeRun = ""
+		m.activeTitle = ""
+		return nil
+	}
+	chatPane, err := m.findPaneByTitle(m.activeRun, chatPaneTitle)
+	if err != nil {
+		m.activeRun = ""
+		m.activeTitle = ""
+		return nil
+	}
+	if err := tmux.SwapPane(chatPane, runPane); err != nil {
+		return err
+	}
+	_ = tmux.SetPaneTitle(chatPane, chatPaneTitle)
+	_ = tmux.SetPaneTitle(runPane, runTitle)
+	m.activeRun = ""
+	m.activeTitle = ""
 	return nil
 }
 
@@ -356,7 +381,7 @@ func (m *Monitor) createSession() error {
 	cfg := &tmux.SessionConfig{
 		SessionName: m.session,
 		Command:     cmd,
-		WindowName:  runsWindowName,
+		WindowName:  dashboardWindowName,
 	}
 	if err := tmux.NewSession(cfg); err != nil {
 		return fmt.Errorf("failed to create monitor session: %w", err)
@@ -371,67 +396,50 @@ func (m *Monitor) attachSession() error {
 	return tmux.AttachSession(m.session)
 }
 
-func (m *Monitor) ensureAuxWindows() error {
+func (m *Monitor) ensurePaneLayout() error {
 	if !tmux.HasSession(m.session) {
 		return nil
 	}
 
-	windows, err := tmux.ListWindows(m.session)
+	target := fmt.Sprintf("%s:%d", m.session, dashboardWindowIdx)
+	panes, err := tmux.ListPanes(target)
 	if err != nil {
 		return err
 	}
 
-	indexToName := make(map[int]string, len(windows))
-	nameToIndex := make(map[string]int, len(windows))
-	for _, w := range windows {
-		indexToName[w.Index] = w.Name
-		nameToIndex[w.Name] = w.Index
+	if hasPaneLayout(panes) {
+		return nil
 	}
 
-	if name, ok := indexToName[issuesWindowIndex]; ok && name != issuesWindowName {
-		_ = tmux.UnlinkWindow(m.session, issuesWindowIndex)
-	}
-	if _, ok := nameToIndex[issuesWindowName]; !ok {
-		if err := tmux.NewWindow(m.session, issuesWindowName, "", m.issuesDashboardCommand()); err != nil {
+	if len(panes) > 0 {
+		base := panes[0]
+		for _, p := range panes {
+			if p.Index < base.Index {
+				base = p
+			}
+		}
+		for _, p := range panes {
+			if p.ID != base.ID {
+				_ = tmux.KillPane(p.ID)
+			}
+		}
+		_ = tmux.SetPaneTitle(base.ID, runsPaneTitle)
+		if chatPane, err := tmux.SplitWindow(base.ID, true, 25); err == nil {
+			_ = tmux.SetPaneTitle(chatPane, chatPaneTitle)
+			_ = tmux.SendKeys(chatPane, m.agentChatCommand())
+		} else {
 			return err
 		}
-	}
-
-	if name, ok := indexToName[agentWindowIndex]; ok && name != agentWindowName {
-		_ = tmux.UnlinkWindow(m.session, agentWindowIndex)
-	}
-	if _, ok := nameToIndex[agentWindowName]; !ok {
-		workDir, _ := os.Getwd()
-		if err := tmux.NewWindow(m.session, agentWindowName, workDir, m.agentChatCommand()); err != nil {
+		if issuesPane, err := tmux.SplitWindow(base.ID, false, 0); err == nil {
+			_ = tmux.SetPaneTitle(issuesPane, issuesPaneTitle)
+			_ = tmux.SendKeys(issuesPane, m.issuesDashboardCommand())
+		} else {
 			return err
 		}
+		return nil
 	}
 
-	windows, err = tmux.ListWindows(m.session)
-	if err != nil {
-		return err
-	}
-	nameToIndex = make(map[string]int, len(windows))
-	for _, w := range windows {
-		nameToIndex[w.Name] = w.Index
-	}
-
-	if index, ok := nameToIndex[issuesWindowName]; ok && index != issuesWindowIndex {
-		if err := tmux.MoveWindow(m.session, issuesWindowName, issuesWindowIndex); err != nil {
-			return err
-		}
-	}
-	if index, ok := nameToIndex[agentWindowName]; ok && index != agentWindowIndex {
-		if err := tmux.MoveWindow(m.session, agentWindowName, agentWindowIndex); err != nil {
-			return err
-		}
-	}
-
-	if err := m.CloseRunWindow(); err != nil {
-		return err
-	}
-
-	return nil
+	return fmt.Errorf("failed to initialize panes")
 }
 
 func (m *Monitor) loadRuns() ([]*RunWindow, error) {
@@ -677,4 +685,53 @@ func runWindowTitle(run *model.Run) string {
 		return "run"
 	}
 	return fmt.Sprintf("%s#%s", run.IssueID, run.RunID)
+}
+
+func (m *Monitor) selectPaneByTitle(title string) error {
+	pane, err := m.findPaneByTitle(m.session, title)
+	if err != nil {
+		return err
+	}
+	return tmux.SelectPane(pane)
+}
+
+func (m *Monitor) findPaneByTitle(session, title string) (string, error) {
+	window := dashboardWindowIdx
+	if session != m.session {
+		window = 0
+	}
+	target := fmt.Sprintf("%s:%d", session, window)
+	panes, err := tmux.ListPanes(target)
+	if err != nil {
+		return "", err
+	}
+	if title == "" {
+		if len(panes) == 0 {
+			return "", fmt.Errorf("no panes found in %s", target)
+		}
+		return panes[0].ID, nil
+	}
+	for _, pane := range panes {
+		if pane.Title == title {
+			return pane.ID, nil
+		}
+	}
+	return "", fmt.Errorf("pane not found: %s", title)
+}
+
+func hasPaneLayout(panes []tmux.Pane) bool {
+	if len(panes) != 3 {
+		return false
+	}
+	foundRuns := false
+	foundIssues := false
+	for _, pane := range panes {
+		if pane.Title == runsPaneTitle {
+			foundRuns = true
+		}
+		if pane.Title == issuesPaneTitle {
+			foundIssues = true
+		}
+	}
+	return foundRuns && foundIssues
 }

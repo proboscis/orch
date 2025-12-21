@@ -156,6 +156,14 @@ type Window struct {
 	ID    string
 }
 
+// Pane describes a tmux pane.
+type Pane struct {
+	ID      string
+	Index   int
+	Title   string
+	Command string
+}
+
 // ListWindows returns windows for a session.
 func ListWindows(session string) ([]Window, error) {
 	cmd := execCommand("tmux", "list-windows", "-t", session, "-F", "#{window_index}:#{window_name}:#{window_id}")
@@ -189,11 +197,97 @@ func ListWindows(session string) ([]Window, error) {
 	return windows, nil
 }
 
+// ListPanes returns panes for a window target (session:window).
+func ListPanes(target string) ([]Pane, error) {
+	cmd := execCommand("tmux", "list-panes", "-t", target, "-F", "#{pane_id}:#{pane_index}:#{pane_title}:#{pane_current_command}")
+	output, err := cmd.Output()
+	if err != nil {
+		if strings.Contains(err.Error(), "no server running") || strings.Contains(err.Error(), "can't find") {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var panes []Pane
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, ":", 4)
+		if len(parts) < 2 {
+			continue
+		}
+		index, err := strconv.Atoi(parts[1])
+		if err != nil {
+			continue
+		}
+		pane := Pane{
+			ID:    parts[0],
+			Index: index,
+		}
+		if len(parts) > 2 {
+			pane.Title = parts[2]
+		}
+		if len(parts) > 3 {
+			pane.Command = parts[3]
+		}
+		panes = append(panes, pane)
+	}
+	return panes, nil
+}
+
+// SplitWindow splits a pane and returns the new pane ID.
+func SplitWindow(target string, vertical bool, percent int) (string, error) {
+	args := []string{"split-window", "-d", "-t", target, "-P", "-F", "#{pane_id}"}
+	if vertical {
+		args = append(args, "-v")
+	} else {
+		args = append(args, "-h")
+	}
+	if percent > 0 {
+		args = append(args, "-p", strconv.Itoa(percent))
+	}
+	cmd := execCommand("tmux", args...)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+// KillPane kills a pane by ID or target.
+func KillPane(target string) error {
+	cmd := execCommand("tmux", "kill-pane", "-t", target)
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 // MoveWindow moves a window to a new index.
 func MoveWindow(session, source string, index int) error {
 	src := fmt.Sprintf("%s:%s", session, source)
 	target := fmt.Sprintf("%s:%d", session, index)
 	cmd := execCommand("tmux", "move-window", "-s", src, "-t", target)
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// SwapPane swaps two panes.
+func SwapPane(source, target string) error {
+	cmd := execCommand("tmux", "swap-pane", "-s", source, "-t", target)
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// SelectPane focuses a pane.
+func SelectPane(target string) error {
+	cmd := execCommand("tmux", "select-pane", "-t", target)
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// SetPaneTitle sets a pane title.
+func SetPaneTitle(target, title string) error {
+	cmd := execCommand("tmux", "select-pane", "-t", target, "-T", title)
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
