@@ -318,11 +318,28 @@ func SelectPane(target string) error {
 	return cmd.Run()
 }
 
-// SetPaneTitle sets a pane title.
+// SetPaneTitle sets a pane title without changing focus.
 func SetPaneTitle(target, title string) error {
+	// Get current pane to restore focus after
+	currentCmd := execCommand("tmux", "display-message", "-p", "#{pane_id}")
+	currentOutput, displayErr := currentCmd.Output()
+	currentPane := strings.TrimSpace(string(currentOutput))
+
+	// Set the title (this unfortunately selects the pane)
 	cmd := execCommand("tmux", "select-pane", "-t", target, "-T", title)
 	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+
+	// Restore focus to original pane if we had one
+	if displayErr == nil && currentPane != "" && currentPane != target {
+		restoreCmd := execCommand("tmux", "select-pane", "-t", currentPane)
+		restoreCmd.Stderr = os.Stderr
+		_ = restoreCmd.Run() // Best effort
+	}
+
+	return nil
 }
 
 // RenameWindow renames a window in a session.
