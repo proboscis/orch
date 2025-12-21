@@ -12,7 +12,6 @@ import (
 type attachOptions struct {
 	Pane   string
 	Window string
-	Create bool
 }
 
 func newAttachCmd() *cobra.Command {
@@ -32,7 +31,6 @@ This allows manual interaction with the agent, including image paste support.`,
 
 	cmd.Flags().StringVar(&opts.Pane, "pane", "", "Pane to attach to (log|shell)")
 	cmd.Flags().StringVar(&opts.Window, "window", "", "Window to attach to")
-	cmd.Flags().BoolVar(&opts.Create, "create", false, "Create session if it doesn't exist")
 
 	return cmd
 }
@@ -61,24 +59,24 @@ func runAttach(refStr string, opts *attachOptions) error {
 		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
 	}
 
-	// Check if session exists
+	// Check if session exists, auto-create if missing
 	if !tmux.HasSession(sessionName) {
-		if opts.Create {
-			// Create the session
-			err := tmux.NewSession(&tmux.SessionConfig{
-				SessionName: sessionName,
-				WorkDir:     run.WorktreePath,
-			})
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "failed to create session: %v\n", err)
-				os.Exit(ExitTmuxError)
-				return err
-			}
-		} else {
-			fmt.Fprintf(os.Stderr, "session not found: %s\n", sessionName)
-			fmt.Fprintf(os.Stderr, "Use --create to create a new session\n")
+		if run.WorktreePath == "" {
+			fmt.Fprintf(os.Stderr, "session not found and no worktree path: %s\n", sessionName)
 			os.Exit(ExitRunNotFound)
 			return fmt.Errorf("session not found: %s", sessionName)
+		}
+
+		// Auto-create the session in the run's worktree
+		fmt.Fprintf(os.Stderr, "session not found, creating: %s\n", sessionName)
+		err := tmux.NewSession(&tmux.SessionConfig{
+			SessionName: sessionName,
+			WorkDir:     run.WorktreePath,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to create session: %v\n", err)
+			os.Exit(ExitTmuxError)
+			return err
 		}
 	}
 

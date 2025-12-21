@@ -161,11 +161,15 @@ issue_id, run_id, status, phase, updated_at, pr_url, branch, worktree_path, tmux
 オプション
 	•	–pane log|shell（予約。v0.2ではセッションattachのみでもOK）
 	•	–window （任意）
-	•	–create（セッションが無い時に作る。デフォルトoff）
+
+挙動
+	•	セッションが存在すればattach
+	•	セッションが無い場合、worktreeが存在すれば自動作成してattach
+	•	worktreeも無い場合はエラー
 
 終了コード
 	•	0 attach成功
-	•	6 session not found
+	•	6 run not found / no worktree
 	•	10 internal error
 
 ⸻
@@ -222,25 +226,121 @@ issue_id, run_id, status, phase, updated_at, pr_url, branch, worktree_path, tmux
 
 ⸻
 
-5. Agent adapter（差し替え層）仕様
+4.8 orch stop ISSUE_ID | ISSUE_ID#RUN_ID | --all
 
-orch は “LLMの状態”を直接取らない。agentは単なる外部プロセスとして扱う。
+目的: 実行中のrunを停止する
 
-v0.2での最小責務
-	•	起動コマンドに以下を環境変数で渡せること
+挙動
+	•	ISSUE_ID のみ指定 → そのissueの全アクティブrun（running/booting/blocked/queued）を停止
+	•	ISSUE_ID#RUN_ID 指定 → 特定runのみ停止
+	•	--all → 全アクティブrunを停止
+
+停止処理
+	•	tmuxセッションが存在すれば kill-session
+	•	status=canceled イベントを追記
+
+オプション
+	•	–all（全runを停止）
+	•	–force（セッションが無くても強制的にcanceled化）
+
+終了コード
+	•	0 成功
+	•	6 run not found
+	•	10 internal error
+
+⸻
+
+4.9 orch repair
+
+目的: システム状態を修復する（最終手段）
+
+挙動
+	•	daemonが異常なら再起動
+	•	"running"だがtmuxセッションが無いrunを検出 → failed化
+	•	orphanedなworktree/sessionを検出（警告のみ）
+	•	矛盾した状態を修正
+
+オプション
+	•	–dry-run（修復せず問題を報告のみ）
+	•	–force（確認なしで修復実行）
+
+終了コード
+	•	0 成功（修復不要含む）
+	•	1 修復実行（問題があり修復した）
+	•	10 internal error
+
+⸻
+
+5. Daemon（バックグラウンド監視）
+
+5.1 概要
+
+orchは自動的にバックグラウンドdaemonを起動・管理する。ユーザーはdaemonの存在を意識する必要がない。
+
+5.2 ライフサイクル
+
+	•	任意のorch コマンド実行時、daemonが起動していなければ自動起動
+	•	daemonはidempotent（多重起動しない）
+	•	PIDファイル: $VAULT/.orch/daemon.pid
+	•	ログファイル: $VAULT/.orch/daemon.log
+
+5.3 監視ループ（5-10秒間隔）
+
+各"running"状態のrunに対して:
+	1.	tmuxセッション存在確認
+	2.	capture-paneで最新出力を取得
+	3.	状態判定:
+		•	出力が流れている → working（running維持）
+		•	N秒以上出力なし → stalling（注意喚起、将来的にevent追記）
+		•	入力待ちパターン検出 → blocked + question event追記
+		•	セッション終了（exit 0）→ done
+		•	セッション終了（error）→ failed
+		•	セッション消失 → failed
+
+5.4 検出パターン（例）
+
+	•	Claude Code の質問: プロンプト末尾が "?" や選択肢表示
+	•	プロセス終了: tmux session が存在しない
+	•	アイドル: 60秒以上出力なし
+
+5.5 ファイル構造
+
+vault/
+  .orch/
+    daemon.pid      # daemon PID
+    daemon.log      # daemon ログ
+    daemon.sock     # （将来）IPC用Unix socket
+
+⸻
+
+6. Agent adapter（差し替え層）仕様
+
+orch は "LLMの状態"を直接取らない。agentは単なる外部プロセスとして扱う。
+daemonがtmuxセッションを監視し、状態を推定する。
+
+6.1 起動時の環境変数
+
 	•	ORCH_ISSUE_ID
 	•	ORCH_RUN_ID
 	•	ORCH_RUN_PATH
 	•	ORCH_WORKTREE_PATH
 	•	ORCH_BRANCH
 	•	ORCH_VAULT
-	•	agent は進捗/状態を events に追記してよい（推奨は orch subcommand 経由）
-	•	推奨: agentは orch event append ... を呼ぶ（v0.3で追加予定）
-	•	v0.2: agentが直接run doc末尾へ追記してもよいが、競合回避のため「append-only」「短い1行」厳守
+
+6.2 プロンプト渡し
+
+agent起動時、issue本文をプロンプトとして渡す:
+	•	claude: claude "prompt..."
+	•	codex/gemini: 各CLIの規約に従う
+
+6.3 状態更新
+
+	•	agentは自発的に状態更新しなくてよい（daemonが監視）
+	•	agentが明示的に状態を変えたい場合は orch event append ... を呼ぶ（将来）
 
 ⸻
 
-6. Eventフォーマット（Dataview friendly）
+7. Eventフォーマット（Dataview friendly）
 
 Run本文に箇条書きで追記する。1行 = 1イベント。
 
@@ -254,16 +354,17 @@ ts: ISO8601（例: 2025-12-20T11:45:10+09:00）
 	•	phase | plan/implement/test/pr/review
 	•	artifact | worktree path=… / branch name=… / pr url=…
 	•	test |  result=PASS|FAIL log=…
-	•	question |  text=”…” choices=“A,B” severity=…
-	•	answer |  text=”…” by=user
-	•	note |  text=”…”（人間メモ）
+	•	question |  text="…" choices="A,B" severity=…
+	•	answer |  text="…" by=user
+	•	note |  text="…"（人間メモ）
+	•	monitor | working/stalling/idle（daemon検出）
 
 未回答判定（v0.2標準）
 	•	question(qid) が存在し、その後に answer(qid) が存在しない → 未回答
 
 ⸻
 
-7. fzf対応（次ステージのための今の約束）
+8. fzf対応（次ステージのための今の約束）
 	•	orch ps --tsv の列順固定（上記）
 	•	RUN_REF = ISSUE_ID#RUN_ID の正規形固定
 	•	orch show/attach/answer/tick はすべて RUN_REF を受け取れる
@@ -272,7 +373,7 @@ ts: ISO8601（例: 2025-12-20T11:45:10+09:00）
 
 ⸻
 
-8. 互換性ポリシー
+9. 互換性ポリシー
 	•	v0.x: 破壊的変更あり得るが、以下は極力維持
 	•	サブコマンド名
 	•	--json のトップレベルキー（ok/issue_id/run_id等）
@@ -281,11 +382,13 @@ ts: ISO8601（例: 2025-12-20T11:45:10+09:00）
 
 ⸻
 
-9. 最低限の実装順序（推奨）
+10. 実装順序（推奨）
 	1.	ps（runs走査・イベントtail解析）
 	2.	run（worktree+tmux起動+events追記）
-	3.	attach
-	4.	answer
-	5.	tick
-	6.	show / open
+	3.	attach（自動セッション作成）
+	4.	stop（run停止）
+	5.	daemon（バックグラウンド監視）
+	6.	repair（状態修復）
+	7.	answer / tick
+	8.	show / open
 

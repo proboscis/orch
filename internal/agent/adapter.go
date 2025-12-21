@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"os"
 )
 
 // AgentType represents the type of agent
@@ -43,11 +44,12 @@ type LaunchConfig struct {
 	Prompt      string // Initial prompt/instruction for the agent
 	Resume      bool   // Whether to resume an existing session
 	SessionName string // For agents that support session naming
+	Profile     string // Profile name for agents that support it (e.g., claude --profile)
 }
 
 // Env returns the environment variables to pass to the agent
 func (c *LaunchConfig) Env() []string {
-	return []string{
+	env := []string{
 		fmt.Sprintf("ORCH_ISSUE_ID=%s", c.IssueID),
 		fmt.Sprintf("ORCH_RUN_ID=%s", c.RunID),
 		fmt.Sprintf("ORCH_RUN_PATH=%s", c.RunPath),
@@ -55,6 +57,11 @@ func (c *LaunchConfig) Env() []string {
 		fmt.Sprintf("ORCH_BRANCH=%s", c.Branch),
 		fmt.Sprintf("ORCH_VAULT=%s", c.VaultPath),
 	}
+	// Ensure HOME is passed for OAuth credentials in ~/.claude.json
+	if home := os.Getenv("HOME"); home != "" {
+		env = append(env, fmt.Sprintf("HOME=%s", home))
+	}
+	return env
 }
 
 // Adapter defines the interface for agent adapters

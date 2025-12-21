@@ -33,6 +33,14 @@ type GlobalOptions struct {
 
 var globalOpts = &GlobalOptions{}
 
+// Commands that should NOT auto-start the daemon
+var noDaemonCommands = map[string]bool{
+	"daemon":     true,
+	"repair":     true,
+	"help":       true,
+	"completion": true,
+}
+
 // rootCmd represents the base command
 var rootCmd = &cobra.Command{
 	Use:   "orch",
@@ -44,6 +52,12 @@ It operates non-interactively by default, using events to track state
 and questions to handle human input requirements.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// Auto-start daemon for most commands
+		if !noDaemonCommands[cmd.Name()] {
+			ensureDaemon()
+		}
+	},
 }
 
 func init() {
@@ -64,6 +78,9 @@ func init() {
 	rootCmd.AddCommand(newAnswerCmd())
 	rootCmd.AddCommand(newTickCmd())
 	rootCmd.AddCommand(newOpenCmd())
+	rootCmd.AddCommand(newStopCmd())
+	rootCmd.AddCommand(newDaemonCmd())
+	rootCmd.AddCommand(newRepairCmd())
 }
 
 // Execute runs the root command

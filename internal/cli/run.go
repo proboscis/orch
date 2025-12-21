@@ -18,6 +18,7 @@ type runOptions struct {
 	RunID        string
 	Agent        string
 	AgentCmd     string
+	AgentProfile string
 	BaseBranch   string
 	Branch       string
 	WorktreeRoot string
@@ -47,6 +48,7 @@ The run will be started in a tmux session by default.`,
 	cmd.Flags().StringVar(&opts.RunID, "run-id", "", "Manually specify run ID")
 	cmd.Flags().StringVar(&opts.Agent, "agent", "claude", "Agent type (claude|codex|gemini|custom)")
 	cmd.Flags().StringVar(&opts.AgentCmd, "agent-cmd", "", "Custom agent command (when --agent=custom)")
+	cmd.Flags().StringVar(&opts.AgentProfile, "profile", "", "Agent profile (e.g., claude --profile)")
 	cmd.Flags().StringVar(&opts.BaseBranch, "base-branch", "main", "Base branch for worktree")
 	cmd.Flags().StringVar(&opts.Branch, "branch", "", "Branch name (default: issue/<ID>/run-<RUN_ID>)")
 	cmd.Flags().StringVar(&opts.WorktreeRoot, "worktree-root", ".git-worktrees", "Root directory for worktrees")
@@ -133,6 +135,22 @@ func runRun(issueID string, opts *runOptions) error {
 
 	// Dry run - just output what would happen
 	if opts.DryRun {
+		// Build the command that would be run (for display purposes)
+		agentType, _ := agent.ParseAgentType(opts.Agent)
+		adapter, _ := agent.GetAdapter(agentType)
+		launchCfg := &agent.LaunchConfig{
+			Type:      agentType,
+			CustomCmd: opts.AgentCmd,
+			WorkDir:   worktreePath,
+			IssueID:   issueID,
+			RunID:     runID,
+			VaultPath: "",
+			Branch:    branch,
+			Prompt:    buildAgentPrompt(issue),
+			Profile:   opts.AgentProfile,
+		}
+		agentCmd, _ := adapter.LaunchCommand(launchCfg)
+
 		if globalOpts.JSON {
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
@@ -144,6 +162,7 @@ func runRun(issueID string, opts *runOptions) error {
 		fmt.Printf("  Branch:    %s\n", branch)
 		fmt.Printf("  Worktree:  %s\n", worktreePath)
 		fmt.Printf("  Session:   %s\n", tmuxSession)
+		fmt.Printf("  Command:   %s\n", agentCmd)
 		return nil
 	}
 
@@ -212,6 +231,7 @@ func runRun(issueID string, opts *runOptions) error {
 		VaultPath: st.VaultPath(),
 		Branch:    worktreeResult.Branch,
 		Prompt:    buildAgentPrompt(issue),
+		Profile:   opts.AgentProfile,
 	}
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)
