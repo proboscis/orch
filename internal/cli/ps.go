@@ -13,11 +13,17 @@ import (
 )
 
 type psOptions struct {
-	Status []string
-	Issue  string
-	Limit  int
-	Sort   string
-	Since  string
+	Status      []string
+	IssueStatus []string
+	Issue       string
+	Limit       int
+	Sort        string
+	Since       string
+}
+
+type psRun struct {
+	Run         *model.Run
+	IssueStatus string
 }
 
 func newPsCmd() *cobra.Command {
@@ -33,6 +39,7 @@ func newPsCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringSliceVar(&opts.Status, "status", nil, "Filter by status (running,blocked,failed,pr_open,done)")
+	cmd.Flags().StringSliceVar(&opts.IssueStatus, "issue-status", nil, "Filter by issue status (open,closed,...)")
 	cmd.Flags().StringVar(&opts.Issue, "issue", "", "Filter by issue ID")
 	cmd.Flags().IntVar(&opts.Limit, "limit", 50, "Maximum number of runs to show")
 	cmd.Flags().StringVar(&opts.Sort, "sort", "updated", "Sort by (updated|started)")
@@ -53,6 +60,9 @@ func runPs(opts *psOptions) error {
 		Limit:   opts.Limit,
 		Since:   opts.Since,
 	}
+	if len(opts.IssueStatus) > 0 {
+		filter.Limit = 0
+	}
 
 	for _, s := range opts.Status {
 		filter.Status = append(filter.Status, model.Status(s))
@@ -63,19 +73,67 @@ func runPs(opts *psOptions) error {
 		return err
 	}
 
+	issueStatusFilter := make(map[string]bool)
+	for _, status := range opts.IssueStatus {
+		trimmed := strings.TrimSpace(status)
+		if trimmed != "" {
+			issueStatusFilter[trimmed] = true
+		}
+	}
+
+	psRuns := buildPsRuns(st, runs, issueStatusFilter)
+	if opts.Limit > 0 && len(psRuns) > opts.Limit {
+		psRuns = psRuns[:opts.Limit]
+	}
+
 	// Output based on format
 	if globalOpts.JSON {
-		return outputJSON(runs)
+		return outputJSON(psRuns)
 	}
 	if globalOpts.TSV {
-		return outputTSV(runs)
+		return outputTSV(psRuns)
 	}
-	return outputTable(runs)
+	return outputTable(psRuns)
 }
 
-func outputJSON(runs []*model.Run) error {
+func buildPsRuns(st store.Store, runs []*model.Run, issueStatusFilter map[string]bool) []psRun {
+	issueStatusCache := make(map[string]string)
+	psRuns := make([]psRun, 0, len(runs))
+
+	for _, r := range runs {
+		issueStatus := resolveIssueStatus(st, issueStatusCache, r.IssueID)
+		if len(issueStatusFilter) > 0 && !issueStatusFilter[issueStatus] {
+			continue
+		}
+		psRuns = append(psRuns, psRun{
+			Run:         r,
+			IssueStatus: issueStatus,
+		})
+	}
+
+	return psRuns
+}
+
+func resolveIssueStatus(st store.Store, cache map[string]string, issueID string) string {
+	if status, ok := cache[issueID]; ok {
+		return status
+	}
+
+	issue, err := st.ResolveIssue(issueID)
+	if err != nil {
+		cache[issueID] = ""
+		return ""
+	}
+
+	status := issue.Frontmatter["status"]
+	cache[issueID] = status
+	return status
+}
+
+func outputJSON(runs []psRun) error {
 	type runOutput struct {
 		IssueID      string `json:"issue_id"`
+		IssueStatus  string `json:"issue_status"`
 		RunID        string `json:"run_id"`
 		ShortID      string `json:"short_id"`
 		Status       string `json:"status"`
@@ -97,18 +155,20 @@ func outputJSON(runs []*model.Run) error {
 	}
 
 	for i, r := range runs {
+		run := r.Run
 		output.Items[i] = runOutput{
-			IssueID:      r.IssueID,
-			RunID:        r.RunID,
-			ShortID:      r.ShortID(),
-			Status:       string(r.Status),
-			Phase:        string(r.Phase),
-			UpdatedAt:    r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
-			StartedAt:    r.StartedAt.Format("2006-01-02T15:04:05Z07:00"),
-			PRUrl:        r.PRUrl,
-			Branch:       r.Branch,
-			WorktreePath: r.WorktreePath,
-			TmuxSession:  r.TmuxSession,
+			IssueID:      run.IssueID,
+			IssueStatus:  r.IssueStatus,
+			RunID:        run.RunID,
+			ShortID:      run.ShortID(),
+			Status:       string(run.Status),
+			Phase:        string(run.Phase),
+			UpdatedAt:    run.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			StartedAt:    run.StartedAt.Format("2006-01-02T15:04:05Z07:00"),
+			PRUrl:        run.PRUrl,
+			Branch:       run.Branch,
+			WorktreePath: run.WorktreePath,
+			TmuxSession:  run.TmuxSession,
 		}
 	}
 
@@ -118,26 +178,28 @@ func outputJSON(runs []*model.Run) error {
 }
 
 // TSV columns (fixed order per spec):
-// issue_id, run_id, short_id, status, phase, updated_at, pr_url, branch, worktree_path, tmux_session
-func outputTSV(runs []*model.Run) error {
+// issue_id, issue_status, run_id, short_id, status, phase, updated_at, pr_url, branch, worktree_path, tmux_session
+func outputTSV(runs []psRun) error {
 	for _, r := range runs {
-		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			r.IssueID,
-			r.RunID,
-			r.ShortID(),
-			r.Status,
-			r.Phase,
-			r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
-			r.PRUrl,
-			r.Branch,
-			r.WorktreePath,
-			r.TmuxSession,
+		run := r.Run
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			run.IssueID,
+			r.IssueStatus,
+			run.RunID,
+			run.ShortID(),
+			run.Status,
+			run.Phase,
+			run.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			run.PRUrl,
+			run.Branch,
+			run.WorktreePath,
+			run.TmuxSession,
 		)
 	}
 	return nil
 }
 
-func outputTable(runs []*model.Run) error {
+func outputTable(runs []psRun) error {
 	if len(runs) == 0 {
 		if !globalOpts.Quiet {
 			fmt.Println("No runs found")
@@ -146,23 +208,29 @@ func outputTable(runs []*model.Run) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tISSUE\tSTATUS\tPHASE\tUPDATED\tBRANCH")
+	fmt.Fprintln(w, "ID\tISSUE\tISSUE-ST\tSTATUS\tPHASE\tUPDATED\tBRANCH")
 
 	for _, r := range runs {
+		run := r.Run
 		// Truncate branch for display
-		branch := r.Branch
+		branch := run.Branch
 		if len(branch) > 30 {
 			branch = "..." + branch[len(branch)-27:]
 		}
 
 		// Format updated time as relative or short form
-		updated := r.UpdatedAt.Format("01-02 15:04")
+		updated := run.UpdatedAt.Format("01-02 15:04")
+		issueStatus := r.IssueStatus
+		if issueStatus == "" {
+			issueStatus = "-"
+		}
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			r.ShortID(),
-			r.IssueID,
-			colorStatus(r.Status),
-			r.Phase,
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			run.ShortID(),
+			run.IssueID,
+			issueStatus,
+			colorStatus(run.Status),
+			run.Phase,
 			updated,
 			branch,
 		)

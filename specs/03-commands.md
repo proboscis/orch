@@ -72,6 +72,7 @@ runs一覧を表示（人間/機械）
 | オプション | 説明 |
 |-----------|------|
 | `--status` | running,blocked,failed,pr_open,done |
+| `--issue-status` | open,closed,etc |
 | `--issue <ISSUE_ID>` | 特定issueのrunのみ |
 | `--limit N` | default 50 |
 | `--sort updated\|started` | default updated |
@@ -80,7 +81,7 @@ runs一覧を表示（人間/機械）
 ### TSV列（固定順）
 
 ```
-issue_id, run_id, status, phase, updated_at, pr_url, branch, worktree_path, tmux_session
+issue_id, issue_status, run_id, short_id, status, phase, updated_at, pr_url, branch, worktree_path, tmux_session
 ```
 
 ---
