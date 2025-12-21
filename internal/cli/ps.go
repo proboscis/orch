@@ -190,7 +190,7 @@ func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
 	gitStates := gitStatesForRuns(runs, baseBranch)
 
 	// Collect data rows
-	headers := []string{"ID", "ISSUE", "AGENT", "STATUS", "MERGED", "UPDATED", "TOPIC"}
+	headers := []string{"ID", "ISSUE", "AGENT", "STATUS", "PR", "MERGED", "UPDATED", "TOPIC"}
 	var rows [][]string
 
 	for _, r := range runs {
@@ -214,6 +214,11 @@ func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
 			merged = state
 		}
 
+		pr := "-"
+		if r.PRUrl != "" {
+			pr = "yes"
+		}
+
 		agent := r.Agent
 		if agent == "" {
 			agent = "-"
@@ -224,6 +229,7 @@ func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
 			r.IssueID,
 			agent,
 			colorStatus(r.Status),
+			pr,
 			merged,
 			updated,
 			display,
@@ -416,34 +422,19 @@ func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
 		}
 
 		// Not merged, check if modified (ahead > 0)
-		// Optimization: if not merged, it's likely ahead or divergent.
-		// We can check conflict status.
 		conflict, _ := git.CheckMergeConflict(repoRoot, r.Branch, targetRef)
 		
-		state := "modified"
-		if r.PRUrl != "" {
-			state = "pr"
-		} else {
-			// Double check if it's actually ahead or just divergent/behind?
-			// If not merged and not ahead, it might be behind (no change relative to ours).
-			// But for simplicity, assume if not merged it has something or is in progress.
-			// Let's check Ahead count to be sure.
-			ahead, _ := git.GetAheadCount(repoRoot, r.Branch, targetRef)
-			if ahead == 0 {
-				states[r.RunID] = "no change"
-				continue
-			}
+		ahead, _ := git.GetAheadCount(repoRoot, r.Branch, targetRef)
+		if ahead == 0 {
+			states[r.RunID] = "no change"
+			continue
 		}
 
 		if conflict {
-			state += " (conflict)"
+			states[r.RunID] = "conflict"
 		} else {
-			if state == "pr" {
-				state += " (clean)"
-			}
+			states[r.RunID] = "clean"
 		}
-		
-		states[r.RunID] = state
 	}
 
 	return states
