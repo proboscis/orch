@@ -169,6 +169,48 @@ func TestOutputTableNoRuns(t *testing.T) {
 	}
 }
 
+func TestOutputTableShowsPRColumn(t *testing.T) {
+	resetGlobalOpts(t)
+
+	vault := t.TempDir()
+	globalOpts.VaultPath = vault
+
+	updatedAt := time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC)
+	run := &model.Run{
+		IssueID:   "issue-1",
+		RunID:     "run-1",
+		Status:    model.StatusRunning,
+		PRUrl:     "http://example.com/pr/1",
+		UpdatedAt: updatedAt,
+	}
+
+	out := captureStdout(t, func() {
+		if err := outputTable([]*model.Run{run}, updatedAt, false); err != nil {
+			t.Fatalf("outputTable: %v", err)
+		}
+	})
+
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected header and row output, got %q", out)
+	}
+
+	header := lines[0]
+	statusIdx := strings.Index(header, "STATUS")
+	prIdx := strings.Index(header, "PR")
+	mergedIdx := strings.Index(header, "MERGED")
+	if statusIdx == -1 || prIdx == -1 || mergedIdx == -1 {
+		t.Fatalf("missing columns in header: %q", header)
+	}
+	if !(statusIdx < prIdx && prIdx < mergedIdx) {
+		t.Fatalf("unexpected header order: %q", header)
+	}
+
+	if !strings.Contains(lines[1], "yes") {
+		t.Fatalf("missing PR value in row: %q", lines[1])
+	}
+}
+
 func TestOutputJSON(t *testing.T) {
 	updatedAt := time.Date(2025, 1, 2, 3, 5, 6, 0, time.UTC)
 	now := updatedAt.Add(2 * time.Minute)
