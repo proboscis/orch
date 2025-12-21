@@ -566,7 +566,14 @@ func (m *Monitor) issuesDashboardCommand() string {
 }
 
 func (m *Monitor) agentChatCommand() string {
-	prompt := buildAgentChatPrompt(m.store.VaultPath())
+	// Write the control prompt file with dynamic repo context
+	_, err := writeControlPromptFile(m.store)
+	if err != nil {
+		return fallbackChatCommand(fmt.Sprintf("failed to write prompt file: %v", err))
+	}
+
+	// Use the instruction to read the prompt file
+	prompt := GetControlPromptInstruction()
 
 	cfg, err := config.Load()
 	if err != nil {
