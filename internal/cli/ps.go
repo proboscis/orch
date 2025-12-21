@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"github.com/s22625/orch/internal/git"
@@ -170,175 +170,135 @@ func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
 
 	mergedBranches := mergedBranchesForRuns(runs)
 
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', tabwriter.StripEscape)
+	// Collect data rows
+	headers := []string{"ID", "ISSUE", "STATUS", "PHASE", "MERGED", "UPDATED", "SUMMARY"}
+	var rows [][]string
 
-		fmt.Fprintln(w, "ID\tISSUE\tSTATUS\tPHASE\tMERGED\tUPDATED\tSUMMARY")
-
-	
-
-		for _, r := range runs {
-
-			updated := formatRelativeTime(r.UpdatedAt, now)
-
-			if absoluteTime {
-
-				updated = r.UpdatedAt.Format("01-02 15:04")
-
-			}
-
-	
-
-			// Get issue summary, truncate if too long
-
-			summary := issueSummaries[r.IssueID]
-
-			if summary == "" {
-
-				summary = "-"
-
-			} else if len(summary) > 40 {
-
-				summary = summary[:37] + "..."
-
-			}
-
-	
-
-			merged := "-"
-
-			if r.Branch != "" && mergedBranches[r.Branch] {
-
-				merged = "yes"
-
-			}
-
-	
-
-			phase := string(r.Phase)
-
-			if phase == "" {
-
-				phase = "-"
-
-			}
-
-	
-
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-
-				r.ShortID(),
-
-				r.IssueID,
-
-				colorStatus(r.Status),
-
-				phase,
-
-				merged,
-
-				updated,
-
-				summary,
-
-			)
-
+	for _, r := range runs {
+		updated := formatRelativeTime(r.UpdatedAt, now)
+		if absoluteTime {
+			updated = r.UpdatedAt.Format("01-02 15:04")
 		}
 
-	
+		// Get issue summary, truncate if too long
+		summary := issueSummaries[r.IssueID]
+		if summary == "" {
+			summary = "-"
+		} else if len(summary) > 40 {
+			summary = summary[:37] + "..."
+		}
 
-		return w.Flush()
+		merged := "-"
+		if r.Branch != "" && mergedBranches[r.Branch] {
+			merged = "yes"
+		}
 
+		phase := string(r.Phase)
+		if phase == "" {
+			phase = "-"
+		}
+
+		rows = append(rows, []string{
+			r.ShortID(),
+			r.IssueID,
+			colorStatus(r.Status),
+			phase,
+			merged,
+			updated,
+			summary,
+		})
 	}
 
-	
-
-	func formatRelativeTime(when time.Time, now time.Time) string {
-
-		if when.After(now) {
-
-			return "just now"
-
-		}
-
-	
-
-		elapsed := now.Sub(when)
-
-		switch {
-
-		case elapsed < 10*time.Second:
-
-			return "just now"
-
-		case elapsed < time.Minute:
-
-			return fmt.Sprintf("%ds ago", int(elapsed.Seconds()))
-
-		case elapsed < time.Hour:
-
-			return fmt.Sprintf("%dm ago", int(elapsed.Minutes()))
-
-		case elapsed < 24*time.Hour:
-
-			return fmt.Sprintf("%dh ago", int(elapsed.Hours()))
-
-		case elapsed < 7*24*time.Hour:
-
-			return fmt.Sprintf("%dd ago", int(elapsed.Hours()/24))
-
-		default:
-
-			return fmt.Sprintf("%dw ago", int(elapsed.Hours()/(24*7)))
-
-		}
-
+	// Calculate column widths
+	widths := make([]int, len(headers))
+	for i, h := range headers {
+		widths[i] = len(h)
 	}
 
-	
-
-	func colorStatus(status model.Status) string {
-
-		// ANSI color codes for terminal
-
-		// We wrap them in \xff (tabwriter.Escape) so tabwriter ignores them for width calculation
-
-		colors := map[model.Status]string{
-
-			model.StatusRunning:    "\xff\033[32m\xff", // green
-
-			model.StatusBlocked:    "\xff\033[33m\xff", // yellow
-
-			model.StatusBlockedAPI: "\xff\033[33m\xff", // yellow
-
-			model.StatusFailed:     "\xff\033[31m\xff", // red
-
-			model.StatusDone:       "\xff\033[34m\xff", // blue
-
-			model.StatusPROpen:     "\xff\033[36m\xff", // cyan
-
-			model.StatusQueued:     "\xff\033[37m\xff", // white
-
-			model.StatusBooting:    "\xff\033[32m\xff", // green
-
-			model.StatusCanceled:   "\xff\033[90m\xff", // gray
-
-			model.StatusUnknown:    "\xff\033[35m\xff", // magenta - agent exited unexpectedly
-
+	for _, row := range rows {
+		for i, cell := range row {
+			l := visibleLen(cell)
+			if l > widths[i] {
+				widths[i] = l
+			}
 		}
-
-	
-
-		reset := "\xff\033[0m\xff"
-
-		if color, ok := colors[status]; ok {
-
-			return color + string(status) + reset
-
-		}
-
-		return string(status)
-
 	}
+
+	// Print table
+	// Print header
+	printRow(headers, widths)
+
+	// Print rows
+	for _, row := range rows {
+		printRow(row, widths)
+	}
+
+	return nil
+}
+
+func printRow(row []string, widths []int) {
+	for i, cell := range row {
+		padding := widths[i] - visibleLen(cell)
+		fmt.Print(cell)
+		if i < len(row)-1 {
+			fmt.Print(strings.Repeat(" ", padding+2)) // +2 space gutter
+		}
+	}
+	fmt.Println()
+}
+
+// ansiRegex matches ANSI escape codes
+// \033 is octal for ESC (27)
+var ansiRegex = regexp.MustCompile(`\033\[[0-9;]*m`)
+
+func visibleLen(s string) int {
+	stripped := ansiRegex.ReplaceAllString(s, "")
+	return len(stripped)
+}
+
+func formatRelativeTime(when time.Time, now time.Time) string {
+	if when.After(now) {
+		return "just now"
+	}
+
+	elapsed := now.Sub(when)
+	switch {
+	case elapsed < 10*time.Second:
+		return "just now"
+	case elapsed < time.Minute:
+		return fmt.Sprintf("%ds ago", int(elapsed.Seconds()))
+	case elapsed < time.Hour:
+		return fmt.Sprintf("%dm ago", int(elapsed.Minutes()))
+	case elapsed < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(elapsed.Hours()))
+	case elapsed < 7*24*time.Hour:
+		return fmt.Sprintf("%dd ago", int(elapsed.Hours()/24))
+	default:
+		return fmt.Sprintf("%dw ago", int(elapsed.Hours()/(24*7)))
+	}
+}
+
+func colorStatus(status model.Status) string {
+	// ANSI color codes for terminal
+	colors := map[model.Status]string{
+		model.StatusRunning:    "\033[32m", // green
+		model.StatusBlocked:    "\033[33m", // yellow
+		model.StatusBlockedAPI: "\033[33m", // yellow
+		model.StatusFailed:     "\033[31m", // red
+		model.StatusDone:       "\033[34m", // blue
+		model.StatusPROpen:     "\033[36m", // cyan
+		model.StatusQueued:     "\033[37m", // white
+		model.StatusBooting:    "\033[32m", // green
+		model.StatusCanceled:   "\033[90m", // gray
+		model.StatusUnknown:    "\033[35m", // magenta - agent exited unexpectedly
+	}
+
+	reset := "\033[0m"
+	if color, ok := colors[status]; ok {
+		return color + string(status) + reset
+	}
+	return string(status)
+}
 
 func mergedBranchesForRuns(runs []*model.Run) map[string]bool {
 	for _, r := range runs {
