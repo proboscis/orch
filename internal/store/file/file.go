@@ -433,6 +433,13 @@ func (s *FileStore) loadRun(issueID, runID, path string) (*model.Run, error) {
 	}
 
 	run.DeriveState()
+
+	// Resolve relative worktree paths against the vault path
+	// This handles runs created before worktree paths were made absolute
+	if run.WorktreePath != "" && !filepath.IsAbs(run.WorktreePath) {
+		run.WorktreePath = filepath.Join(s.vaultPath, run.WorktreePath)
+	}
+
 	return run, nil
 }
 
