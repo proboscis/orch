@@ -160,6 +160,11 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return d, d.openIssueCmd(row.ID)
 		}
 		return d, nil
+	case d.keymap.Resolve:
+		if row := d.currentIssue(); row != nil {
+			return d, d.resolveIssueCmd(row.ID)
+		}
+		return d, nil
 	case "n":
 		d.mode = modeCreateIssue
 		d.create = createIssueState{}
@@ -269,6 +274,15 @@ func (d *IssueDashboard) openIssueCmd(issueID string) tea.Cmd {
 	}
 }
 
+func (d *IssueDashboard) resolveIssueCmd(issueID string) tea.Cmd {
+	return func() tea.Msg {
+		if err := d.monitor.SetIssueStatus(issueID, "resolved"); err != nil {
+			return errMsg{err: err}
+		}
+		return infoMsg{text: fmt.Sprintf("resolved issue %s", issueID)}
+	}
+}
+
 func (d *IssueDashboard) createIssueCmd(issueID, title string) tea.Cmd {
 	return func() tea.Msg {
 		output, err := d.monitor.CreateIssue(issueID, title)
@@ -323,7 +337,8 @@ func (d *IssueDashboard) viewCreateIssue() string {
 func (d *IssueDashboard) renderMeta() string {
 	sync := d.renderSyncStatus()
 	total := fmt.Sprintf("issues: %d", len(d.issues))
-	return strings.Join([]string{total, sync}, "  ")
+	nav := d.renderNav()
+	return strings.Join([]string{total, sync, nav}, "  ")
 }
 
 func (d *IssueDashboard) renderSyncStatus() string {
@@ -339,6 +354,10 @@ func (d *IssueDashboard) renderSyncStatus() string {
 		label += " (stale)"
 	}
 	return label
+}
+
+func (d *IssueDashboard) renderNav() string {
+	return fmt.Sprintf("nav: [%s] runs  [%s] issues  [%s] chat", d.keymap.Runs, d.keymap.Issues, d.keymap.Chat)
 }
 
 func (d *IssueDashboard) renderTable() string {

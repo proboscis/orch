@@ -750,7 +750,8 @@ func (d *Dashboard) renderMeta() string {
 	}
 
 	sync := d.renderSyncStatus()
-	return strings.Join([]string{filter, sync}, "  ")
+	nav := d.renderNav()
+	return strings.Join([]string{filter, sync, nav}, "  ")
 }
 
 func (d *Dashboard) renderSyncStatus() string {
@@ -766,6 +767,10 @@ func (d *Dashboard) renderSyncStatus() string {
 		label += " (stale)"
 	}
 	return label
+}
+
+func (d *Dashboard) renderNav() string {
+	return fmt.Sprintf("nav: [%s] runs  [%s] issues  [%s] chat", d.keymap.Runs, d.keymap.Issues, d.keymap.Chat)
 }
 
 func (d *Dashboard) renderFooter() string {
