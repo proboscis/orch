@@ -25,15 +25,16 @@ const (
 type Status string
 
 const (
-	StatusQueued   Status = "queued"
-	StatusBooting  Status = "booting"
-	StatusRunning  Status = "running"
-	StatusBlocked  Status = "blocked"
-	StatusPROpen   Status = "pr_open"
-	StatusDone     Status = "done"
-	StatusFailed   Status = "failed"
-	StatusCanceled Status = "canceled"
-	StatusUnknown  Status = "unknown" // Agent exited unexpectedly, shell prompt showing
+	StatusQueued     Status = "queued"
+	StatusBooting    Status = "booting"
+	StatusRunning    Status = "running"
+	StatusBlocked    Status = "blocked"
+	StatusBlockedAPI Status = "blocked_api"
+	StatusPROpen     Status = "pr_open"
+	StatusDone       Status = "done"
+	StatusFailed     Status = "failed"
+	StatusCanceled   Status = "canceled"
+	StatusUnknown    Status = "unknown" // Agent exited unexpectedly, shell prompt showing
 )
 
 // Phase values

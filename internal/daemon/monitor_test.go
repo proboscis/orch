@@ -37,6 +37,9 @@ func TestDetectStatus(t *testing.T) {
 	if got := d.detectStatus(run, "Task completed successfully", state, false, false); got != model.StatusDone {
 		t.Fatalf("completed status = %q, want %q", got, model.StatusDone)
 	}
+	if got := d.detectStatus(run, "Error: rate limit exceeded", state, false, false); got != model.StatusBlockedAPI {
+		t.Fatalf("api limited status = %q, want %q", got, model.StatusBlockedAPI)
+	}
 	if got := d.detectStatus(run, "Fatal error: bad things", state, false, false); got != model.StatusFailed {
 		t.Fatalf("failed status = %q, want %q", got, model.StatusFailed)
 	}

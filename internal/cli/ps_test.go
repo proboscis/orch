@@ -48,13 +48,14 @@ func TestOutputTableTruncatesSummary(t *testing.T) {
 		Phase:     model.PhasePlan,
 		UpdatedAt: time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC),
 	}
+	now := time.Date(2025, 1, 2, 3, 6, 0, 0, time.UTC)
 
 	out := captureStdout(t, func() {
 		if err := outputTable([]psRun{{
 			Run:          run,
 			IssueStatus:  "open",
 			IssueSummary: summary,
-		}}); err != nil {
+		}}, now, false); err != nil {
 			t.Fatalf("outputTable: %v", err)
 		}
 	})
@@ -69,7 +70,7 @@ func TestOutputTableNoRuns(t *testing.T) {
 	resetGlobalOpts(t)
 
 	out := captureStdout(t, func() {
-		if err := outputTable(nil); err != nil {
+		if err := outputTable(nil, time.Now(), false); err != nil {
 			t.Fatalf("outputTable: %v", err)
 		}
 	})
@@ -80,6 +81,8 @@ func TestOutputTableNoRuns(t *testing.T) {
 }
 
 func TestOutputJSON(t *testing.T) {
+	updatedAt := time.Date(2025, 1, 2, 3, 5, 6, 0, time.UTC)
+	now := updatedAt.Add(2 * time.Minute)
 	run := &model.Run{
 		IssueID:      "issue-1",
 		RunID:        "run-1",
@@ -90,14 +93,14 @@ func TestOutputJSON(t *testing.T) {
 		TmuxSession:  "session",
 		PRUrl:        "http://example.com/pr/1",
 		StartedAt:    time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC),
-		UpdatedAt:    time.Date(2025, 1, 2, 3, 5, 6, 0, time.UTC),
+		UpdatedAt:    updatedAt,
 	}
 
 	out := captureStdout(t, func() {
 		if err := outputJSON([]psRun{{
 			Run:         run,
 			IssueStatus: "open",
-		}}); err != nil {
+		}}, now); err != nil {
 			t.Fatalf("outputJSON: %v", err)
 		}
 	})
@@ -112,6 +115,7 @@ func TestOutputJSON(t *testing.T) {
 			Status       string `json:"status"`
 			Phase        string `json:"phase"`
 			UpdatedAt    string `json:"updated_at"`
+			UpdatedAgo   string `json:"updated_ago"`
 			StartedAt    string `json:"started_at"`
 			PRUrl        string `json:"pr_url"`
 			Branch       string `json:"branch"`
@@ -134,5 +138,35 @@ func TestOutputJSON(t *testing.T) {
 	}
 	if item.UpdatedAt != "2025-01-02T03:05:06Z" {
 		t.Fatalf("updated_at = %q", item.UpdatedAt)
+	}
+	if item.UpdatedAgo != "2m ago" {
+		t.Fatalf("updated_ago = %q, want %q", item.UpdatedAgo, "2m ago")
+	}
+}
+
+func TestFormatRelativeTime(t *testing.T) {
+	now := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name string
+		when time.Time
+		want string
+	}{
+		{name: "just-now", when: now.Add(-5 * time.Second), want: "just now"},
+		{name: "seconds", when: now.Add(-42 * time.Second), want: "42s ago"},
+		{name: "minutes", when: now.Add(-2 * time.Minute), want: "2m ago"},
+		{name: "hours", when: now.Add(-3 * time.Hour), want: "3h ago"},
+		{name: "days", when: now.Add(-4 * 24 * time.Hour), want: "4d ago"},
+		{name: "weeks", when: now.Add(-15 * 24 * time.Hour), want: "2w ago"},
+		{name: "future", when: now.Add(5 * time.Second), want: "just now"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatRelativeTime(tt.when, now)
+			if got != tt.want {
+				t.Fatalf("expected %q, got %q", tt.want, got)
+			}
+		})
 	}
 }

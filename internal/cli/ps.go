@@ -4,21 +4,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
-	"text/tabwriter"
+	"time"
 
+	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/store"
 	"github.com/spf13/cobra"
 )
 
 type psOptions struct {
-	Status      []string
-	IssueStatus []string
-	Issue       string
-	Limit       int
-	Sort        string
-	Since       string
+	Status       []string
+	IssueStatus  []string
+	Issue        string
+	Limit        int
+	Sort         string
+	Since        string
+	AbsoluteTime bool
 }
 
 type psRun struct {
@@ -44,12 +47,13 @@ func newPsCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringSliceVar(&opts.Status, "status", nil, "Filter by status (running,blocked,failed,pr_open,done)")
+	cmd.Flags().StringSliceVar(&opts.Status, "status", nil, "Filter by status (running,blocked,blocked_api,failed,pr_open,done)")
 	cmd.Flags().StringSliceVar(&opts.IssueStatus, "issue-status", nil, "Filter by issue status (open,closed,...)")
 	cmd.Flags().StringVar(&opts.Issue, "issue", "", "Filter by issue ID")
 	cmd.Flags().IntVar(&opts.Limit, "limit", 50, "Maximum number of runs to show")
 	cmd.Flags().StringVar(&opts.Sort, "sort", "updated", "Sort by (updated|started)")
 	cmd.Flags().StringVar(&opts.Since, "since", "", "Only show runs updated since (ISO8601)")
+	cmd.Flags().BoolVar(&opts.AbsoluteTime, "absolute-time", false, "Show absolute timestamps instead of relative")
 
 	return cmd
 }
@@ -92,14 +96,15 @@ func runPs(opts *psOptions) error {
 		psRuns = psRuns[:opts.Limit]
 	}
 
+	now := time.Now()
 	// Output based on format
 	if globalOpts.JSON {
-		return outputJSON(psRuns)
+		return outputJSON(psRuns, now)
 	}
 	if globalOpts.TSV {
 		return outputTSV(psRuns)
 	}
-	return outputTable(psRuns)
+	return outputTable(psRuns, now, opts.AbsoluteTime)
 }
 
 func buildPsRuns(st store.Store, runs []*model.Run, issueStatusFilter map[string]bool) []psRun {
@@ -141,7 +146,7 @@ func resolveIssueInfo(st store.Store, cache map[string]psIssueInfo, issueID stri
 	return info
 }
 
-func outputJSON(runs []psRun) error {
+func outputJSON(runs []psRun, now time.Time) error {
 	type runOutput struct {
 		IssueID      string `json:"issue_id"`
 		IssueStatus  string `json:"issue_status"`
@@ -150,6 +155,7 @@ func outputJSON(runs []psRun) error {
 		Status       string `json:"status"`
 		Phase        string `json:"phase,omitempty"`
 		UpdatedAt    string `json:"updated_at"`
+		UpdatedAgo   string `json:"updated_ago"`
 		StartedAt    string `json:"started_at"`
 		PRUrl        string `json:"pr_url,omitempty"`
 		Branch       string `json:"branch,omitempty"`
@@ -175,6 +181,7 @@ func outputJSON(runs []psRun) error {
 			Status:       string(run.Status),
 			Phase:        string(run.Phase),
 			UpdatedAt:    run.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			UpdatedAgo:   formatRelativeTime(run.UpdatedAt, now),
 			StartedAt:    run.StartedAt.Format("2006-01-02T15:04:05Z07:00"),
 			PRUrl:        run.PRUrl,
 			Branch:       run.Branch,
@@ -210,7 +217,7 @@ func outputTSV(runs []psRun) error {
 	return nil
 }
 
-func outputTable(runs []psRun) error {
+func outputTable(runs []psRun, now time.Time, absoluteTime bool) error {
 	if len(runs) == 0 {
 		if !globalOpts.Quiet {
 			fmt.Println("No runs found")
@@ -218,13 +225,19 @@ func outputTable(runs []psRun) error {
 		return nil
 	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tISSUE\tISSUE-ST\tSTATUS\tPHASE\tUPDATED\tSUMMARY")
+	mergedBranches := mergedBranchesForRuns(runs)
+
+	// Collect data rows
+	headers := []string{"ID", "ISSUE", "ISSUE-ST", "STATUS", "PHASE", "MERGED", "UPDATED", "SUMMARY"}
+	var rows [][]string
 
 	for _, r := range runs {
 		run := r.Run
-		// Format updated time as relative or short form
-		updated := run.UpdatedAt.Format("01-02 15:04")
+		updated := formatRelativeTime(run.UpdatedAt, now)
+		if absoluteTime {
+			updated = run.UpdatedAt.Format("01-02 15:04")
+		}
+
 		issueStatus := r.IssueStatus
 		if issueStatus == "" {
 			issueStatus = "-"
@@ -238,32 +251,110 @@ func outputTable(runs []psRun) error {
 			summary = summary[:37] + "..."
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		merged := "-"
+		if run.Branch != "" && mergedBranches[run.Branch] {
+			merged = "yes"
+		}
+
+		phase := string(run.Phase)
+		if phase == "" {
+			phase = "-"
+		}
+
+		rows = append(rows, []string{
 			run.ShortID(),
 			run.IssueID,
 			issueStatus,
 			colorStatus(run.Status),
-			run.Phase,
+			phase,
+			merged,
 			updated,
 			summary,
-		)
+		})
 	}
 
-	return w.Flush()
+	// Calculate column widths
+	widths := make([]int, len(headers))
+	for i, h := range headers {
+		widths[i] = len(h)
+	}
+
+	for _, row := range rows {
+		for i, cell := range row {
+			l := visibleLen(cell)
+			if l > widths[i] {
+				widths[i] = l
+			}
+		}
+	}
+
+	// Print table
+	// Print header
+	printRow(headers, widths)
+
+	// Print rows
+	for _, row := range rows {
+		printRow(row, widths)
+	}
+
+	return nil
+}
+
+func printRow(row []string, widths []int) {
+	for i, cell := range row {
+		padding := widths[i] - visibleLen(cell)
+		fmt.Print(cell)
+		if i < len(row)-1 {
+			fmt.Print(strings.Repeat(" ", padding+2)) // +2 space gutter
+		}
+	}
+	fmt.Println()
+}
+
+// ansiRegex matches ANSI escape codes
+// \033 is octal for ESC (27)
+var ansiRegex = regexp.MustCompile(`\033\[[0-9;]*m`)
+
+func visibleLen(s string) int {
+	stripped := ansiRegex.ReplaceAllString(s, "")
+	return len(stripped)
+}
+
+func formatRelativeTime(when time.Time, now time.Time) string {
+	if when.After(now) {
+		return "just now"
+	}
+
+	elapsed := now.Sub(when)
+	switch {
+	case elapsed < 10*time.Second:
+		return "just now"
+	case elapsed < time.Minute:
+		return fmt.Sprintf("%ds ago", int(elapsed.Seconds()))
+	case elapsed < time.Hour:
+		return fmt.Sprintf("%dm ago", int(elapsed.Minutes()))
+	case elapsed < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(elapsed.Hours()))
+	case elapsed < 7*24*time.Hour:
+		return fmt.Sprintf("%dd ago", int(elapsed.Hours()/24))
+	default:
+		return fmt.Sprintf("%dw ago", int(elapsed.Hours()/(24*7)))
+	}
 }
 
 func colorStatus(status model.Status) string {
 	// ANSI color codes for terminal
 	colors := map[model.Status]string{
-		model.StatusRunning:  "\033[32m", // green
-		model.StatusBlocked:  "\033[33m", // yellow
-		model.StatusFailed:   "\033[31m", // red
-		model.StatusDone:     "\033[34m", // blue
-		model.StatusPROpen:   "\033[36m", // cyan
-		model.StatusQueued:   "\033[37m", // white
-		model.StatusBooting:  "\033[32m", // green
-		model.StatusCanceled: "\033[90m", // gray
-		model.StatusUnknown:  "\033[35m", // magenta - agent exited unexpectedly
+		model.StatusRunning:    "\033[32m", // green
+		model.StatusBlocked:    "\033[33m", // yellow
+		model.StatusBlockedAPI: "\033[33m", // yellow
+		model.StatusFailed:     "\033[31m", // red
+		model.StatusDone:       "\033[34m", // blue
+		model.StatusPROpen:     "\033[36m", // cyan
+		model.StatusQueued:     "\033[37m", // white
+		model.StatusBooting:    "\033[32m", // green
+		model.StatusCanceled:   "\033[90m", // gray
+		model.StatusUnknown:    "\033[35m", // magenta - agent exited unexpectedly
 	}
 
 	reset := "\033[0m"
@@ -271,6 +362,24 @@ func colorStatus(status model.Status) string {
 		return color + string(status) + reset
 	}
 	return string(status)
+}
+
+func mergedBranchesForRuns(runs []psRun) map[string]bool {
+	for _, r := range runs {
+		run := r.Run
+		if run.Branch != "" {
+			repoRoot, err := git.FindRepoRoot("")
+			if err != nil {
+				return nil
+			}
+			merged, err := git.GetMergedBranches(repoRoot, "main")
+			if err != nil {
+				return nil
+			}
+			return merged
+		}
+	}
+	return nil
 }
 
 // parseStatusList parses a comma-separated status list
