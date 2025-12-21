@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func runGitCmd(t *testing.T, dir string, args ...string) string {
+func runGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	out, err := cmd.CombinedOutput()
@@ -22,16 +22,16 @@ func initRepo(t *testing.T) string {
 	t.Helper()
 
 	dir := t.TempDir()
-	runGitCmd(t, dir, "init")
-	runGitCmd(t, dir, "config", "user.email", "test@example.com")
-	runGitCmd(t, dir, "config", "user.name", "Test")
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test")
 	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("test"), 0644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
-	runGitCmd(t, dir, "add", "README.md")
-	runGitCmd(t, dir, "commit", "-m", "init")
-	runGitCmd(t, dir, "branch", "-M", "main")
-	runGitCmd(t, dir, "remote", "add", "origin", dir)
+	runGit(t, dir, "add", "README.md")
+	runGit(t, dir, "commit", "-m", "init")
+	runGit(t, dir, "branch", "-M", "main")
+	runGit(t, dir, "remote", "add", "origin", dir)
 	return dir
 }
 

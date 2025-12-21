@@ -365,21 +365,52 @@ func colorStatus(status model.Status) string {
 }
 
 func mergedBranchesForRuns(runs []psRun) map[string]bool {
+	var repoRoot string
 	for _, r := range runs {
 		run := r.Run
-		if run.Branch != "" {
-			repoRoot, err := git.FindRepoRoot("")
-			if err != nil {
-				return nil
-			}
-			merged, err := git.GetMergedBranches(repoRoot, "main")
-			if err != nil {
-				return nil
-			}
-			return merged
+		if run == nil || run.Branch == "" {
+			continue
+		}
+		var err error
+		repoRoot, err = git.FindRepoRoot("")
+		if err != nil {
+			return nil
+		}
+		break
+	}
+	if repoRoot == "" {
+		return nil
+	}
+
+	merged, err := git.GetMergedBranches(repoRoot, "main")
+	if err != nil {
+		return nil
+	}
+	commitTimes, err := git.GetBranchCommitTimes(repoRoot)
+	if err != nil {
+		return nil
+	}
+
+	mergedForRuns := make(map[string]bool)
+	for _, r := range runs {
+		run := r.Run
+		if run == nil || run.Branch == "" || !merged[run.Branch] {
+			continue
+		}
+		if run.StartedAt.IsZero() {
+			mergedForRuns[run.Branch] = true
+			continue
+		}
+		commitTime, ok := commitTimes[run.Branch]
+		if !ok {
+			continue
+		}
+		if !commitTime.Before(run.StartedAt) {
+			mergedForRuns[run.Branch] = true
 		}
 	}
-	return nil
+
+	return mergedForRuns
 }
 
 // parseStatusList parses a comma-separated status list
