@@ -333,22 +333,15 @@ func (m *Monitor) ensureAuxWindows() error {
 
 	if name, ok := indexToName[issuesWindowIndex]; ok && name != issuesWindowName {
 		_ = tmux.UnlinkWindow(m.session, issuesWindowIndex)
-		delete(indexToName, issuesWindowIndex)
 	}
 	if _, ok := nameToIndex[issuesWindowName]; !ok {
 		if err := tmux.NewWindow(m.session, issuesWindowName, "", m.issuesDashboardCommand()); err != nil {
 			return err
 		}
 	}
-	if index, ok := nameToIndex[issuesWindowName]; !ok || index != issuesWindowIndex {
-		if err := tmux.MoveWindow(m.session, issuesWindowName, issuesWindowIndex); err != nil {
-			return err
-		}
-	}
 
 	if name, ok := indexToName[agentWindowIndex]; ok && name != agentWindowName {
 		_ = tmux.UnlinkWindow(m.session, agentWindowIndex)
-		delete(indexToName, agentWindowIndex)
 	}
 	if _, ok := nameToIndex[agentWindowName]; !ok {
 		workDir, _ := os.Getwd()
@@ -356,7 +349,22 @@ func (m *Monitor) ensureAuxWindows() error {
 			return err
 		}
 	}
-	if index, ok := nameToIndex[agentWindowName]; !ok || index != agentWindowIndex {
+
+	windows, err = tmux.ListWindows(m.session)
+	if err != nil {
+		return err
+	}
+	nameToIndex = make(map[string]int, len(windows))
+	for _, w := range windows {
+		nameToIndex[w.Name] = w.Index
+	}
+
+	if index, ok := nameToIndex[issuesWindowName]; ok && index != issuesWindowIndex {
+		if err := tmux.MoveWindow(m.session, issuesWindowName, issuesWindowIndex); err != nil {
+			return err
+		}
+	}
+	if index, ok := nameToIndex[agentWindowName]; ok && index != agentWindowIndex {
 		if err := tmux.MoveWindow(m.session, agentWindowName, agentWindowIndex); err != nil {
 			return err
 		}
