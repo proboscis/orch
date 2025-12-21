@@ -45,9 +45,9 @@ func runResolve(refStr string, opts *resolveOptions) error {
 		return err
 	}
 
-	if run.Status == model.StatusResolved {
+	if run.Status == model.StatusCompleted {
 		if !globalOpts.Quiet {
-			fmt.Printf("%s#%s already resolved\n", run.IssueID, run.RunID)
+			fmt.Printf("%s#%s already completed\n", run.IssueID, run.RunID)
 		}
 		return nil
 	}
@@ -56,13 +56,14 @@ func runResolve(refStr string, opts *resolveOptions) error {
 		return fmt.Errorf("run %s#%s is %s; use --force to resolve anyway", run.IssueID, run.RunID, run.Status)
 	}
 
-	if err := st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusResolved)); err != nil {
-		return fmt.Errorf("failed to append resolved event: %w", err)
+	// Mark run as completed (operational lifecycle state)
+	if err := st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusCompleted)); err != nil {
+		return fmt.Errorf("failed to append completed event: %w", err)
 	}
 
-	// Also mark issue as resolved
-	if err := st.SetIssueStatus(run.IssueID, "resolved"); err != nil {
-		// Log error but don't fail the command since the run was resolved
+	// Mark issue as resolved (issue resolution state)
+	if err := st.SetIssueStatus(run.IssueID, model.IssueStatusResolved); err != nil {
+		// Log error but don't fail the command since the run was completed
 		fmt.Fprintf(os.Stderr, "warning: failed to mark issue as resolved: %v\n", err)
 	}
 

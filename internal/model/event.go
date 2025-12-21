@@ -21,7 +21,7 @@ const (
 	EventTypeNote     EventType = "note"
 )
 
-// Status values
+// Status values for run lifecycle (operational states only)
 type Status string
 
 const (
@@ -32,7 +32,7 @@ const (
 	StatusBlockedAPI Status = "blocked_api"
 	StatusPROpen     Status = "pr_open"
 	StatusDone       Status = "done"
-	StatusResolved   Status = "resolved"
+	StatusCompleted  Status = "completed" // Run has been marked as successfully completed
 	StatusFailed     Status = "failed"
 	StatusCanceled   Status = "canceled"
 	StatusUnknown    Status = "unknown" // Agent exited unexpectedly, shell prompt showing

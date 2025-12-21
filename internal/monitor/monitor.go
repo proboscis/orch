@@ -622,7 +622,7 @@ func isReservedWindowIndex(index int) bool {
 
 func isTerminalStatus(status model.Status) bool {
 	switch status {
-	case model.StatusDone, model.StatusFailed, model.StatusCanceled, model.StatusResolved:
+	case model.StatusDone, model.StatusFailed, model.StatusCanceled, model.StatusCompleted:
 		return true
 	default:
 		return false

@@ -43,14 +43,14 @@ func newPsCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringSliceVar(&opts.Status, "status", nil, "Filter by status (queued,booting,running,blocked,blocked_api,pr_open,done,resolved,failed,canceled,unknown)")
+	cmd.Flags().StringSliceVar(&opts.Status, "status", nil, "Filter by status (queued,booting,running,blocked,blocked_api,pr_open,done,completed,failed,canceled,unknown)")
 	cmd.Flags().StringSliceVar(&opts.IssueStatus, "issue-status", nil, "Filter by issue status (open,closed,...)")
 	cmd.Flags().StringVar(&opts.Issue, "issue", "", "Filter by issue ID")
 	cmd.Flags().IntVar(&opts.Limit, "limit", 50, "Maximum number of runs to show")
 	cmd.Flags().StringVar(&opts.Sort, "sort", "updated", "Sort by (updated|started)")
 	cmd.Flags().StringVar(&opts.Since, "since", "", "Only show runs updated since (ISO8601)")
 	cmd.Flags().BoolVar(&opts.AbsoluteTime, "absolute-time", false, "Show absolute timestamps instead of relative")
-	cmd.Flags().BoolVarP(&opts.All, "all", "a", false, "Show all runs including resolved")
+	cmd.Flags().BoolVarP(&opts.All, "all", "a", false, "Show all runs including completed")
 
 	return cmd
 }
@@ -86,7 +86,7 @@ func runPs(opts *psOptions) error {
 	}
 
 	if len(opts.Status) == 0 && !opts.All {
-		runs = filterResolvedRuns(runs)
+		runs = filterCompletedRuns(runs)
 	}
 
 	issueStatusFilter := make(map[string]bool)
@@ -449,7 +449,7 @@ func colorStatus(status model.Status) string {
 		model.StatusBlockedAPI: "\033[33m", // yellow
 		model.StatusFailed:     "\033[31m", // red
 		model.StatusDone:       "\033[34m", // blue
-		model.StatusResolved:   "\033[90m", // gray
+		model.StatusCompleted:  "\033[90m", // gray
 		model.StatusPROpen:     "\033[36m", // cyan
 		model.StatusQueued:     "\033[37m", // white
 		model.StatusBooting:    "\033[32m", // green
@@ -554,13 +554,13 @@ func mergedBranchesForTarget(repoRoot, target string) (string, map[string]bool, 
 	return target, merged, nil
 }
 
-func filterResolvedRuns(runs []*model.Run) []*model.Run {
+func filterCompletedRuns(runs []*model.Run) []*model.Run {
 	if len(runs) == 0 {
 		return runs
 	}
 	filtered := make([]*model.Run, 0, len(runs))
 	for _, run := range runs {
-		if run.Status != model.StatusResolved {
+		if run.Status != model.StatusCompleted {
 			filtered = append(filtered, run)
 		}
 	}

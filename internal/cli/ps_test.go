@@ -322,7 +322,7 @@ func TestFormatRelativeTime(t *testing.T) {
 	}
 }
 
-func TestRunPsExcludesResolvedByDefault(t *testing.T) {
+func TestRunPsExcludesCompletedByDefault(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
@@ -337,12 +337,12 @@ func TestRunPsExcludesResolvedByDefault(t *testing.T) {
 		t.Fatalf("getStore: %v", err)
 	}
 
-	runResolved, err := st.CreateRun("issue-1", "run-1", nil)
+	runCompleted, err := st.CreateRun("issue-1", "run-1", nil)
 	if err != nil {
-		t.Fatalf("CreateRun resolved: %v", err)
+		t.Fatalf("CreateRun completed: %v", err)
 	}
-	if err := st.AppendEvent(runResolved.Ref(), model.NewStatusEvent(model.StatusResolved)); err != nil {
-		t.Fatalf("AppendEvent resolved: %v", err)
+	if err := st.AppendEvent(runCompleted.Ref(), model.NewStatusEvent(model.StatusCompleted)); err != nil {
+		t.Fatalf("AppendEvent completed: %v", err)
 	}
 
 	runActive, err := st.CreateRun("issue-1", "run-2", nil)
@@ -373,7 +373,7 @@ func TestRunPsExcludesResolvedByDefault(t *testing.T) {
 	}
 }
 
-func TestRunPsAllIncludesResolved(t *testing.T) {
+func TestRunPsAllIncludesCompleted(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
@@ -388,12 +388,12 @@ func TestRunPsAllIncludesResolved(t *testing.T) {
 		t.Fatalf("getStore: %v", err)
 	}
 
-	runResolved, err := st.CreateRun("issue-2", "run-1", nil)
+	runCompleted, err := st.CreateRun("issue-2", "run-1", nil)
 	if err != nil {
-		t.Fatalf("CreateRun resolved: %v", err)
+		t.Fatalf("CreateRun completed: %v", err)
 	}
-	if err := st.AppendEvent(runResolved.Ref(), model.NewStatusEvent(model.StatusResolved)); err != nil {
-		t.Fatalf("AppendEvent resolved: %v", err)
+	if err := st.AppendEvent(runCompleted.Ref(), model.NewStatusEvent(model.StatusCompleted)); err != nil {
+		t.Fatalf("AppendEvent completed: %v", err)
 	}
 
 	runActive, err := st.CreateRun("issue-2", "run-2", nil)

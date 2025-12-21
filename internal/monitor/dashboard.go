@@ -729,7 +729,7 @@ func (d *Dashboard) renderStats() string {
 		fmt.Sprintf("blocked_api: %d", counts[model.StatusBlockedAPI]),
 		fmt.Sprintf("pr_open: %d", counts[model.StatusPROpen]),
 		fmt.Sprintf("done: %d", counts[model.StatusDone]),
-		fmt.Sprintf("resolved: %d", counts[model.StatusResolved]),
+		fmt.Sprintf("completed: %d", counts[model.StatusCompleted]),
 		fmt.Sprintf("failed: %d", counts[model.StatusFailed]),
 		fmt.Sprintf("canceled: %d", counts[model.StatusCanceled]),
 	}

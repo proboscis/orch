@@ -40,8 +40,8 @@ func TestRunResolveMarksResolved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRun: %v", err)
 	}
-	if updated.Status != model.StatusResolved {
-		t.Fatalf("status = %q, want %q", updated.Status, model.StatusResolved)
+	if updated.Status != model.StatusCompleted {
+		t.Fatalf("status = %q, want %q", updated.Status, model.StatusCompleted)
 	}
 }
 
@@ -80,8 +80,8 @@ func TestRunResolveRequiresForceForActive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRun: %v", err)
 	}
-	if updated.Status != model.StatusResolved {
-		t.Fatalf("status = %q, want %q", updated.Status, model.StatusResolved)
+	if updated.Status != model.StatusCompleted {
+		t.Fatalf("status = %q, want %q", updated.Status, model.StatusCompleted)
 	}
 }
 
