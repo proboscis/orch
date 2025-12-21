@@ -297,7 +297,7 @@ func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime boo
 		}
 
 		pr := "-"
-		if r.PRUrl != "" {
+		if r.PRUrl != "" || r.Status == model.StatusPROpen {
 			pr = "yes"
 		}
 
