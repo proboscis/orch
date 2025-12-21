@@ -78,6 +78,7 @@ func showJSON(run *model.Run, opts *showOptions) error {
 		IssueID      string           `json:"issue_id"`
 		RunID        string           `json:"run_id"`
 		Status       string           `json:"status"`
+		Phase        string           `json:"phase,omitempty"`
 		Branch       string           `json:"branch,omitempty"`
 		WorktreePath string           `json:"worktree_path,omitempty"`
 		TmuxSession  string           `json:"tmux_session,omitempty"`
@@ -89,6 +90,7 @@ func showJSON(run *model.Run, opts *showOptions) error {
 		IssueID:      run.IssueID,
 		RunID:        run.RunID,
 		Status:       string(run.Status),
+		Phase:        string(run.Phase),
 		Branch:       run.Branch,
 		WorktreePath: run.WorktreePath,
 		TmuxSession:  run.TmuxSession,

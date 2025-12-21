@@ -189,6 +189,15 @@ func ListWindows(session string) ([]Window, error) {
 	return windows, nil
 }
 
+// MoveWindow moves a window to a new index.
+func MoveWindow(session, source string, index int) error {
+	src := fmt.Sprintf("%s:%s", session, source)
+	target := fmt.Sprintf("%s:%d", session, index)
+	cmd := execCommand("tmux", "move-window", "-s", src, "-t", target)
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 // LinkWindow links an existing window into a session.
 func LinkWindow(sourceSession string, sourceWindow int, targetSession string, targetIndex int) error {
 	source := fmt.Sprintf("%s:%d", sourceSession, sourceWindow)

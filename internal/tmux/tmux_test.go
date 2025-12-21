@@ -176,6 +176,25 @@ func TestNewSessionSendsKeys(t *testing.T) {
 	}
 }
 
+func TestMoveWindow(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	if err := MoveWindow("sess", "issues", 1); err != nil {
+		t.Fatalf("MoveWindow error: %v", err)
+	}
+
+	if len(exec.recorded) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(exec.recorded))
+	}
+	call := exec.recorded[0]
+	if !equalArgs(call.args, []string{"move-window", "-s", "sess:issues", "-t", "sess:1"}) {
+		t.Fatalf("move-window args = %v", call.args)
+	}
+}
+
 func equalArgs(got, want []string) bool {
 	if len(got) != len(want) {
 		return false

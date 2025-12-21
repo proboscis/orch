@@ -39,6 +39,7 @@ var globalOpts = &GlobalOptions{}
 
 // Commands that should NOT auto-start the daemon
 var noDaemonCommands = map[string]bool{
+	"show":       true,
 	"daemon":     true,
 	"repair":     true,
 	"delete":     true,

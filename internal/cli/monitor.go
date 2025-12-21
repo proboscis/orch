@@ -9,11 +9,12 @@ import (
 )
 
 type monitorOptions struct {
-	Issue     string
-	Status    []string
-	Attach    bool
-	ForceNew  bool
-	Dashboard bool
+	Issue           string
+	Status          []string
+	Attach          bool
+	ForceNew        bool
+	Dashboard       bool
+	IssuesDashboard bool
 }
 
 func newMonitorCmd() *cobra.Command {
@@ -32,7 +33,9 @@ func newMonitorCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.Attach, "attach", false, "Attach to existing monitor session if present")
 	cmd.Flags().BoolVar(&opts.ForceNew, "new", false, "Force create a new monitor session")
 	cmd.Flags().BoolVar(&opts.Dashboard, "dashboard", false, "Run dashboard UI (internal)")
+	cmd.Flags().BoolVar(&opts.IssuesDashboard, "issues-dashboard", false, "Run issues dashboard UI (internal)")
 	_ = cmd.Flags().MarkHidden("dashboard")
+	_ = cmd.Flags().MarkHidden("issues-dashboard")
 
 	return cmd
 }
@@ -62,6 +65,9 @@ func runMonitor(opts *monitorOptions) error {
 
 	if opts.Dashboard {
 		return m.RunDashboard()
+	}
+	if opts.IssuesDashboard {
+		return m.RunIssuesDashboard()
 	}
 
 	return m.Start()
