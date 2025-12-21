@@ -96,7 +96,7 @@ func TestPsEmpty(t *testing.T) {
 
 func TestPsTSV(t *testing.T) {
 	// Create an issue and run first
-	createTestIssue(t, "tsv-test", "---\ntitle: TSV Test\n---\n# TSV Test")
+	createTestIssue(t, "tsv-test", "---\ntype: issue\nid: tsv-test\ntitle: TSV Test\n---\n# TSV Test")
 
 	// Create a run directory and file manually
 	runDir := filepath.Join(testVault, "runs", "tsv-test")
@@ -147,7 +147,7 @@ run: 20231220-100000
 
 func TestShowRun(t *testing.T) {
 	// Create a run with events
-	createTestIssue(t, "show-test", "---\ntitle: Show Test\n---\n# Show Test")
+	createTestIssue(t, "show-test", "---\ntype: issue\nid: show-test\ntitle: Show Test\n---\n# Show Test")
 
 	runDir := filepath.Join(testVault, "runs", "show-test")
 	os.MkdirAll(runDir, 0755)
@@ -200,7 +200,7 @@ run: 20231220-100000
 }
 
 func TestAnswerQuestion(t *testing.T) {
-	createTestIssue(t, "answer-test", "---\ntitle: Answer Test\n---\n# Answer Test")
+	createTestIssue(t, "answer-test", "---\ntype: issue\nid: answer-test\ntitle: Answer Test\n---\n# Answer Test")
 
 	runDir := filepath.Join(testVault, "runs", "answer-test")
 	os.MkdirAll(runDir, 0755)
@@ -241,7 +241,7 @@ run: 20231220-100000
 }
 
 func TestRunDryRun(t *testing.T) {
-	createTestIssue(t, "dryrun-test", "---\ntitle: Dry Run Test\n---\n# Dry Run Test")
+	createTestIssue(t, "dryrun-test", "---\ntype: issue\nid: dryrun-test\ntitle: Dry Run Test\n---\n# Dry Run Test")
 
 	output, err := runOrch(t, "run", "dryrun-test", "--dry-run", "--json")
 	if err != nil {
@@ -282,7 +282,7 @@ func TestRunDryRun(t *testing.T) {
 }
 
 func TestOpenPrintPath(t *testing.T) {
-	createTestIssue(t, "open-test", "---\ntitle: Open Test\n---\n# Open Test")
+	createTestIssue(t, "open-test", "---\ntype: issue\nid: open-test\ntitle: Open Test\n---\n# Open Test")
 
 	output, err := runOrch(t, "open", "open-test", "--print-path")
 	if err != nil {
@@ -306,7 +306,7 @@ func TestRunWithTmux(t *testing.T) {
 		t.Skip("tmux not available")
 	}
 
-	createTestIssue(t, "tmux-test", "---\ntitle: Tmux Test\n---\n# Tmux Test")
+	createTestIssue(t, "tmux-test", "---\ntype: issue\nid: tmux-test\ntitle: Tmux Test\n---\n# Tmux Test")
 
 	// Use a unique run ID
 	runID := time.Now().Format("20060102-150405")
@@ -345,7 +345,7 @@ func TestRunWithTmux(t *testing.T) {
 }
 
 func TestTickBlocked(t *testing.T) {
-	createTestIssue(t, "tick-test", "---\ntitle: Tick Test\n---\n# Tick Test")
+	createTestIssue(t, "tick-test", "---\ntype: issue\nid: tick-test\ntitle: Tick Test\n---\n# Tick Test")
 
 	runDir := filepath.Join(testVault, "runs", "tick-test")
 	os.MkdirAll(runDir, 0755)
