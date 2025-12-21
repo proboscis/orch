@@ -321,7 +321,11 @@ func mergedBranchesForRuns(runs []*model.Run) map[string]bool {
 		return nil
 	}
 
-	merged, err := git.GetMergedBranches(repoRoot, "main")
+	merged, err := git.GetMergedBranches(repoRoot, "origin/main")
+	if err != nil {
+		// Fallback to local main if origin/main is not available
+		merged, err = git.GetMergedBranches(repoRoot, "main")
+	}
 	if err != nil {
 		return nil
 	}
