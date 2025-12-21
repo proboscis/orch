@@ -188,43 +188,6 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		d.ensureCursorVisible()
 		return d, nil
-	case "pgup", "ctrl+u":
-		page := d.pageSize()
-		if page < 1 {
-			page = 1
-		}
-		d.cursor -= page
-		if d.cursor < 0 {
-			d.cursor = 0
-		}
-		d.ensureCursorVisible()
-		return d, nil
-	case "pgdown", "ctrl+d":
-		page := d.pageSize()
-		if page < 1 {
-			page = 1
-		}
-		d.cursor += page
-		if d.cursor > len(d.issues)-1 {
-			d.cursor = len(d.issues) - 1
-		}
-		if d.cursor < 0 {
-			d.cursor = 0
-		}
-		d.ensureCursorVisible()
-		return d, nil
-	case "home":
-		d.cursor = 0
-		d.ensureCursorVisible()
-		return d, nil
-	case "end":
-		if len(d.issues) > 0 {
-			d.cursor = len(d.issues) - 1
-		} else {
-			d.cursor = 0
-		}
-		d.ensureCursorVisible()
-		return d, nil
 	case "?":
 		d.message = d.keymap.HelpLine()
 		return d, nil
