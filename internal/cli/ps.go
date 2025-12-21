@@ -21,6 +21,7 @@ type psOptions struct {
 	Sort         string
 	Since        string
 	AbsoluteTime bool
+	All          bool
 }
 
 func newPsCmd() *cobra.Command {
@@ -35,12 +36,13 @@ func newPsCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringSliceVar(&opts.Status, "status", nil, "Filter by status (running,blocked,blocked_api,failed,pr_open,done)")
+	cmd.Flags().StringSliceVar(&opts.Status, "status", nil, "Filter by status (queued,booting,running,blocked,blocked_api,pr_open,done,resolved,failed,canceled,unknown)")
 	cmd.Flags().StringVar(&opts.Issue, "issue", "", "Filter by issue ID")
 	cmd.Flags().IntVar(&opts.Limit, "limit", 50, "Maximum number of runs to show")
 	cmd.Flags().StringVar(&opts.Sort, "sort", "updated", "Sort by (updated|started)")
 	cmd.Flags().StringVar(&opts.Since, "since", "", "Only show runs updated since (ISO8601)")
 	cmd.Flags().BoolVar(&opts.AbsoluteTime, "absolute-time", false, "Show absolute timestamps instead of relative")
+	cmd.Flags().BoolVarP(&opts.All, "all", "a", false, "Show all runs including resolved")
 
 	return cmd
 }
@@ -52,19 +54,31 @@ func runPs(opts *psOptions) error {
 	}
 
 	// Build filter
+	requestedLimit := opts.Limit
 	filter := &store.ListRunsFilter{
 		IssueID: opts.Issue,
 		Limit:   opts.Limit,
 		Since:   opts.Since,
 	}
 
-	for _, s := range opts.Status {
-		filter.Status = append(filter.Status, model.Status(s))
+	if len(opts.Status) > 0 {
+		for _, s := range opts.Status {
+			filter.Status = append(filter.Status, model.Status(s))
+		}
+	} else if !opts.All {
+		filter.Limit = 0
 	}
 
 	runs, err := st.ListRuns(filter)
 	if err != nil {
 		return err
+	}
+
+	if len(opts.Status) == 0 && !opts.All {
+		runs = filterResolvedRuns(runs)
+		if requestedLimit > 0 && len(runs) > requestedLimit {
+			runs = runs[:requestedLimit]
+		}
 	}
 
 	// Output based on format
@@ -300,6 +314,7 @@ func colorStatus(status model.Status) string {
 		model.StatusBlockedAPI: "\033[33m", // yellow
 		model.StatusFailed:     "\033[31m", // red
 		model.StatusDone:       "\033[34m", // blue
+		model.StatusResolved:   "\033[90m", // gray
 		model.StatusPROpen:     "\033[36m", // cyan
 		model.StatusQueued:     "\033[37m", // white
 		model.StatusBooting:    "\033[32m", // green
@@ -362,6 +377,19 @@ func mergedBranchesForRuns(runs []*model.Run) map[string]bool {
 	}
 
 	return mergedForRuns
+}
+
+func filterResolvedRuns(runs []*model.Run) []*model.Run {
+	if len(runs) == 0 {
+		return runs
+	}
+	filtered := make([]*model.Run, 0, len(runs))
+	for _, run := range runs {
+		if run.Status != model.StatusResolved {
+			filtered = append(filtered, run)
+		}
+	}
+	return filtered
 }
 
 // parseStatusList parses a comma-separated status list

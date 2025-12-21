@@ -15,14 +15,14 @@ import (
 
 // Exit codes as per spec
 const (
-	ExitOK            = 0
-	ExitIssueNotFound = 2
-	ExitWorktreeError = 3
-	ExitTmuxError     = 4
-	ExitAgentError    = 5
-	ExitRunNotFound   = 6
+	ExitOK               = 0
+	ExitIssueNotFound    = 2
+	ExitWorktreeError    = 3
+	ExitTmuxError        = 4
+	ExitAgentError       = 5
+	ExitRunNotFound      = 6
 	ExitQuestionNotFound = 7
-	ExitInternalError = 10
+	ExitInternalError    = 10
 )
 
 // GlobalOptions holds options shared across all commands
@@ -84,6 +84,7 @@ func init() {
 	rootCmd.AddCommand(newTickCmd())
 	rootCmd.AddCommand(newOpenCmd())
 	rootCmd.AddCommand(newStopCmd())
+	rootCmd.AddCommand(newResolveCmd())
 	rootCmd.AddCommand(newDaemonCmd())
 	rootCmd.AddCommand(newRepairCmd())
 	rootCmd.AddCommand(newDeleteCmd())
