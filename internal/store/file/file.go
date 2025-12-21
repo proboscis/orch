@@ -1,7 +1,6 @@
 package file
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -377,14 +376,13 @@ func formatAmbiguousError(shortID string, matches []*model.Run) error {
 
 // loadRun loads a run from its file
 func (s *FileStore) loadRun(issueID, runID, path string) (*model.Run, error) {
-	file, err := os.Open(path)
+	content, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("run not found: %s#%s", issueID, runID)
 		}
 		return nil, err
 	}
-	defer file.Close()
 
 	run := &model.Run{
 		IssueID: issueID,
@@ -393,21 +391,41 @@ func (s *FileStore) loadRun(issueID, runID, path string) (*model.Run, error) {
 		Events:  []*model.Event{},
 	}
 
-	scanner := bufio.NewScanner(file)
-	eventPattern := regexp.MustCompile(`^-\s+\d{4}-\d{2}-\d{2}`)
+	// Parse frontmatter
+	lines := strings.Split(string(content), "\n")
+	bodyStart := 0
+	if len(lines) > 0 && strings.TrimSpace(lines[0]) == "---" {
+		inFrontmatter := true
+		for i := 1; i < len(lines); i++ {
+			line := lines[i]
+			if strings.TrimSpace(line) == "---" {
+				inFrontmatter = false
+				bodyStart = i + 1
+				break
+			}
+			if inFrontmatter {
+				parts := strings.SplitN(line, ":", 2)
+				if len(parts) == 2 {
+					key := strings.TrimSpace(parts[0])
+					value := strings.TrimSpace(parts[1])
+					if key == "agent" {
+						run.Agent = value
+					}
+				}
+			}
+		}
+	}
 
-	for scanner.Scan() {
-		line := scanner.Text()
+	// Parse events from body
+	eventPattern := regexp.MustCompile(`^-\s+\d{4}-\d{2}-\d{2}`)
+	for i := bodyStart; i < len(lines); i++ {
+		line := lines[i]
 		if eventPattern.MatchString(line) {
 			event, err := model.ParseEvent(line)
 			if err == nil {
 				run.Events = append(run.Events, event)
 			}
 		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("failed to read run file: %w", err)
 	}
 
 	run.DeriveState()

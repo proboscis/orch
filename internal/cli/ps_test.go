@@ -61,7 +61,6 @@ func TestOutputTableTruncatesSummary(t *testing.T) {
 		IssueID:   "issue-1",
 		RunID:     "run-1",
 		Status:    model.StatusRunning,
-		Phase:     model.PhasePlan,
 		UpdatedAt: time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC),
 	}
 	now := time.Date(2025, 1, 2, 3, 6, 0, 0, time.UTC)
@@ -99,7 +98,6 @@ func TestOutputJSON(t *testing.T) {
 		IssueID:      "issue-1",
 		RunID:        "run-1",
 		Status:       model.StatusRunning,
-		Phase:        model.PhasePlan,
 		Branch:       "branch",
 		WorktreePath: "/tmp/worktree",
 		TmuxSession:  "session",
@@ -121,7 +119,6 @@ func TestOutputJSON(t *testing.T) {
 			RunID        string `json:"run_id"`
 			ShortID      string `json:"short_id"`
 			Status       string `json:"status"`
-			Phase        string `json:"phase"`
 			UpdatedAt    string `json:"updated_at"`
 			UpdatedAgo   string `json:"updated_ago"`
 			StartedAt    string `json:"started_at"`
@@ -173,5 +170,112 @@ func TestFormatRelativeTime(t *testing.T) {
 				t.Fatalf("expected %q, got %q", tt.want, got)
 			}
 		})
+	}
+}
+
+func TestRunPsExcludesResolvedByDefault(t *testing.T) {
+	resetGlobalOpts(t)
+
+	vault := t.TempDir()
+	globalOpts.VaultPath = vault
+	globalOpts.Backend = "file"
+	globalOpts.JSON = true
+
+	writeIssue(t, vault, "issue-1")
+
+	st, err := getStore()
+	if err != nil {
+		t.Fatalf("getStore: %v", err)
+	}
+
+	runResolved, err := st.CreateRun("issue-1", "run-1", nil)
+	if err != nil {
+		t.Fatalf("CreateRun resolved: %v", err)
+	}
+	if err := st.AppendEvent(runResolved.Ref(), model.NewStatusEvent(model.StatusResolved)); err != nil {
+		t.Fatalf("AppendEvent resolved: %v", err)
+	}
+
+	runActive, err := st.CreateRun("issue-1", "run-2", nil)
+	if err != nil {
+		t.Fatalf("CreateRun active: %v", err)
+	}
+	if err := st.AppendEvent(runActive.Ref(), model.NewStatusEvent(model.StatusRunning)); err != nil {
+		t.Fatalf("AppendEvent active: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		if err := runPs(&psOptions{Limit: 10}); err != nil {
+			t.Fatalf("runPs: %v", err)
+		}
+	})
+
+	var got struct {
+		OK    bool `json:"ok"`
+		Items []struct {
+			RunID string `json:"run_id"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got.Items) != 1 || got.Items[0].RunID != "run-2" {
+		t.Fatalf("unexpected items: %#v", got.Items)
+	}
+}
+
+func TestRunPsAllIncludesResolved(t *testing.T) {
+	resetGlobalOpts(t)
+
+	vault := t.TempDir()
+	globalOpts.VaultPath = vault
+	globalOpts.Backend = "file"
+	globalOpts.JSON = true
+
+	writeIssue(t, vault, "issue-2")
+
+	st, err := getStore()
+	if err != nil {
+		t.Fatalf("getStore: %v", err)
+	}
+
+	runResolved, err := st.CreateRun("issue-2", "run-1", nil)
+	if err != nil {
+		t.Fatalf("CreateRun resolved: %v", err)
+	}
+	if err := st.AppendEvent(runResolved.Ref(), model.NewStatusEvent(model.StatusResolved)); err != nil {
+		t.Fatalf("AppendEvent resolved: %v", err)
+	}
+
+	runActive, err := st.CreateRun("issue-2", "run-2", nil)
+	if err != nil {
+		t.Fatalf("CreateRun active: %v", err)
+	}
+	if err := st.AppendEvent(runActive.Ref(), model.NewStatusEvent(model.StatusRunning)); err != nil {
+		t.Fatalf("AppendEvent active: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		if err := runPs(&psOptions{All: true, Limit: 10}); err != nil {
+			t.Fatalf("runPs: %v", err)
+		}
+	})
+
+	var got struct {
+		OK    bool `json:"ok"`
+		Items []struct {
+			RunID string `json:"run_id"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	found := map[string]bool{}
+	for _, item := range got.Items {
+		found[item.RunID] = true
+	}
+	if !found["run-1"] || !found["run-2"] {
+		t.Fatalf("missing runs in output: %#v", found)
 	}
 }

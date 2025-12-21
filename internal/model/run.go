@@ -52,12 +52,12 @@ type Run struct {
 
 	// Derived from events
 	Status    Status
-	Phase     Phase
 	Events    []*Event
 	StartedAt time.Time
 	UpdatedAt time.Time
 
 	// Artifacts (from events)
+	Agent        string
 	Branch       string
 	WorktreePath string
 	TmuxSession  string
@@ -94,17 +94,6 @@ func (r *Run) GetStatus() Status {
 	return StatusQueued
 }
 
-// GetPhase derives phase from events (last phase event wins)
-func (r *Run) GetPhase() Phase {
-	for i := len(r.Events) - 1; i >= 0; i-- {
-		e := r.Events[i]
-		if e.Type == EventTypePhase {
-			return Phase(e.Name)
-		}
-	}
-	return ""
-}
-
 // GetArtifacts extracts artifacts from events
 func (r *Run) GetArtifacts() map[string]map[string]string {
 	artifacts := make(map[string]map[string]string)
@@ -139,10 +128,9 @@ func (r *Run) UnansweredQuestions() []*Event {
 	return unanswered
 }
 
-// DeriveState updates Status, Phase, and artifacts from events
+// DeriveState updates Status and artifacts from events
 func (r *Run) DeriveState() {
 	r.Status = r.GetStatus()
-	r.Phase = r.GetPhase()
 
 	artifacts := r.GetArtifacts()
 	if worktree, ok := artifacts["worktree"]; ok {

@@ -13,7 +13,6 @@ func TestShowJSONIncludesQuestions(t *testing.T) {
 		IssueID:      "issue-1",
 		RunID:        "run-1",
 		Status:       model.StatusBlocked,
-		Phase:        model.PhasePlan,
 		Branch:       "branch",
 		WorktreePath: "/tmp/worktree",
 		TmuxSession:  "session",

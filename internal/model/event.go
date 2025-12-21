@@ -32,6 +32,7 @@ const (
 	StatusBlockedAPI Status = "blocked_api"
 	StatusPROpen     Status = "pr_open"
 	StatusDone       Status = "done"
+	StatusResolved   Status = "resolved"
 	StatusFailed     Status = "failed"
 	StatusCanceled   Status = "canceled"
 	StatusUnknown    Status = "unknown" // Agent exited unexpectedly, shell prompt showing
