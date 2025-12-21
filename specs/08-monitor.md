@@ -103,33 +103,9 @@ orch monitor --attach     # Auto-attach to monitor if exists
 
 ## Implementation
 
-### Phase 1: Basic Monitor (Shell Script)
+### Phase 1: Go Implementation
 
-Simple implementation using bash/tmux:
-
-```bash
-#!/bin/bash
-# orch-monitor.sh
-
-SESSION="orch-monitor"
-
-# Create session with dashboard window
-tmux new-session -d -s $SESSION -n dashboard
-
-# Dashboard shows orch ps in a loop
-tmux send-keys -t $SESSION:dashboard "watch -n2 'orch ps'" Enter
-
-# Add window for each active run
-for run in $(orch ps --tsv | tail -n+2 | cut -f1,2); do
-  # ... create window and attach to run's session
-done
-
-tmux attach -t $SESSION
-```
-
-### Phase 2: Go Implementation
-
-Proper implementation in Go:
+Implementation in Go using bubbletea TUI library:
 
 ```go
 type Monitor struct {
@@ -154,7 +130,7 @@ func (m *Monitor) Start() error {
 }
 ```
 
-### Phase 3: Real-time Updates
+### Phase 2: Real-time Updates
 
 - Daemon sends notifications via Unix socket
 - Monitor subscribes to status changes
