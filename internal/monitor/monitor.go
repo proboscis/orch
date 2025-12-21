@@ -20,7 +20,7 @@ const (
 	runsWindowIndex    = 0
 	issuesWindowIndex  = 1
 	agentWindowIndex   = 2
-	runWindowOffset    = 3
+	runWindowIndex     = 3
 )
 
 const (
@@ -54,7 +54,7 @@ type Monitor struct {
 	dashboard    *Dashboard
 }
 
-// RunWindow links a run to a tmux window index.
+// RunWindow links a run to a dashboard index.
 type RunWindow struct {
 	Index        int
 	Run          *model.Run
@@ -115,9 +115,6 @@ func (m *Monitor) Start() error {
 		return err
 	}
 	m.runs = runs
-	if err := m.syncWindows(runs); err != nil {
-		return err
-	}
 
 	return m.attachSession()
 }
@@ -142,11 +139,6 @@ func (m *Monitor) Refresh() ([]RunRow, error) {
 		return nil, err
 	}
 	m.runs = runs
-	if tmux.HasSession(m.session) {
-		if err := m.syncWindows(runs); err != nil {
-			return nil, err
-		}
-	}
 	return m.buildRunRows(runs)
 }
 
@@ -170,17 +162,77 @@ func (m *Monitor) SwitchWindow(index int) error {
 
 // SwitchRuns switches to the runs dashboard window.
 func (m *Monitor) SwitchRuns() error {
+	if err := m.CloseRunWindow(); err != nil {
+		return err
+	}
 	return m.SwitchWindow(runsWindowIndex)
 }
 
 // SwitchIssues switches to the issues dashboard window.
 func (m *Monitor) SwitchIssues() error {
+	if err := m.CloseRunWindow(); err != nil {
+		return err
+	}
 	return m.SwitchWindow(issuesWindowIndex)
 }
 
 // SwitchChat switches to the agent chat window.
 func (m *Monitor) SwitchChat() error {
+	if err := m.CloseRunWindow(); err != nil {
+		return err
+	}
 	return m.SwitchWindow(agentWindowIndex)
+}
+
+// OpenRun links a run session into the monitor and switches to it.
+func (m *Monitor) OpenRun(run *model.Run) error {
+	if run == nil {
+		return fmt.Errorf("run not found")
+	}
+
+	sessionName := run.TmuxSession
+	if sessionName == "" {
+		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+	}
+	w := &RunWindow{
+		Run:          run,
+		AgentSession: sessionName,
+	}
+	if err := m.ensureRunSession(w); err != nil {
+		return err
+	}
+	if !tmux.HasSession(sessionName) {
+		return fmt.Errorf("run session not found: %s", sessionName)
+	}
+
+	if err := m.CloseRunWindow(); err != nil {
+		return err
+	}
+	if err := tmux.LinkWindow(sessionName, 0, m.session, runWindowIndex); err != nil {
+		return err
+	}
+	_ = tmux.RenameWindow(m.session, runWindowIndex, runWindowTitle(run))
+	return tmux.SelectWindow(m.session, runWindowIndex)
+}
+
+// CloseRunWindow removes the linked run window from the monitor session.
+func (m *Monitor) CloseRunWindow() error {
+	if !tmux.HasSession(m.session) {
+		return nil
+	}
+	windows, err := tmux.ListWindows(m.session)
+	if err != nil {
+		return err
+	}
+	for _, w := range windows {
+		if w.Index == runWindowIndex {
+			if err := tmux.UnlinkWindow(m.session, runWindowIndex); err != nil {
+				return err
+			}
+			break
+		}
+	}
+	return nil
 }
 
 // Quit terminates the monitor tmux session.
@@ -370,6 +422,10 @@ func (m *Monitor) ensureAuxWindows() error {
 		}
 	}
 
+	if err := m.CloseRunWindow(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -397,49 +453,13 @@ func (m *Monitor) loadRuns() ([]*RunWindow, error) {
 			sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
 		}
 		runWindows = append(runWindows, &RunWindow{
-			Index:        runWindowOffset + i,
+			Index:        i + 1,
 			Run:          run,
 			AgentSession: sessionName,
 		})
 	}
 
 	return runWindows, nil
-}
-
-func (m *Monitor) syncWindows(windows []*RunWindow) error {
-	existing, err := tmux.ListWindows(m.session)
-	if err != nil {
-		return fmt.Errorf("failed to list windows: %w", err)
-	}
-
-	desired := make(map[int]*RunWindow)
-	for _, w := range windows {
-		desired[w.Index] = w
-	}
-
-	for _, w := range existing {
-		if isReservedWindowIndex(w.Index) {
-			continue
-		}
-		if _, ok := desired[w.Index]; !ok {
-			_ = tmux.UnlinkWindow(m.session, w.Index)
-		}
-	}
-
-	for _, w := range windows {
-		if err := m.ensureRunSession(w); err != nil {
-			return err
-		}
-		if !tmux.HasSession(w.AgentSession) {
-			continue
-		}
-		_ = tmux.UnlinkWindow(m.session, w.Index)
-		if err := tmux.LinkWindow(w.AgentSession, 0, m.session, w.Index); err != nil {
-			return fmt.Errorf("failed to link window %d: %w", w.Index, err)
-		}
-	}
-
-	return nil
 }
 
 func (m *Monitor) ensureRunSession(w *RunWindow) error {
@@ -611,15 +631,6 @@ func defaultStatuses() []model.Status {
 	}
 }
 
-func isReservedWindowIndex(index int) bool {
-	switch index {
-	case runsWindowIndex, issuesWindowIndex, agentWindowIndex:
-		return true
-	default:
-		return false
-	}
-}
-
 func isTerminalStatus(status model.Status) bool {
 	switch status {
 	case model.StatusDone, model.StatusFailed, model.StatusCanceled, model.StatusResolved:
@@ -654,4 +665,11 @@ func shellQuote(s string) string {
 		return s
 	}
 	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}
+
+func runWindowTitle(run *model.Run) string {
+	if run == nil {
+		return "run"
+	}
+	return fmt.Sprintf("%s#%s", run.IssueID, run.RunID)
 }
