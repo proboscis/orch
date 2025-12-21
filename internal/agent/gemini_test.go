@@ -22,3 +22,14 @@ func TestGeminiPromptInjection(t *testing.T) {
 		t.Fatalf("PromptInjection() = %v, want %v", adapter.PromptInjection(), InjectionTmux)
 	}
 }
+
+func TestGeminiReadyPattern(t *testing.T) {
+	adapter := &GeminiAdapter{}
+	pattern := adapter.ReadyPattern()
+	if pattern == "" {
+		t.Fatal("ReadyPattern() should not be empty for Gemini")
+	}
+	if pattern != "Type your message" {
+		t.Fatalf("ReadyPattern() = %q, want %q", pattern, "Type your message")
+	}
+}

@@ -57,4 +57,8 @@ func (a *ClaudeAdapter) PromptInjection() InjectionMethod {
 	return InjectionArg
 }
 
+func (a *ClaudeAdapter) ReadyPattern() string {
+	return "" // Not needed - prompt passed via command line
+}
+
 var _ Adapter = (*ClaudeAdapter)(nil)

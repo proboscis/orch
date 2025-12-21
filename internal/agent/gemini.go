@@ -33,4 +33,12 @@ func (a *GeminiAdapter) PromptInjection() InjectionMethod {
 	return InjectionTmux
 }
 
+func (a *GeminiAdapter) ReadyPattern() string {
+	// Gemini shows this prompt when ready for input:
+	// ╭────────────────────────────────────────────────────────╮
+	// │ *   Type your message or @path/to/file                 │
+	// ╰────────────────────────────────────────────────────────╯
+	return "Type your message"
+}
+
 var _ Adapter = (*GeminiAdapter)(nil)
