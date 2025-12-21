@@ -63,6 +63,8 @@ type Run struct {
 	WorktreePath string
 	TmuxSession  string
 	PRUrl        string
+	PRNumber     int    // PR number (e.g., 123)
+	PRState      string // PR state: open, merged, closed
 }
 
 // Ref returns the RunRef for this run

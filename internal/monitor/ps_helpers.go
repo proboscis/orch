@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/s22625/orch/internal/git"
@@ -56,6 +57,16 @@ func truncateWithEllipsis(text string, max int) string {
 		return text[:max]
 	}
 	return text[:max-3] + "..."
+}
+
+// formatPRInfo returns a display string for PR info showing state and number.
+// Examples: "#123 open", "#45 merged", "#67 closed", or just "yes" if no detailed info.
+func formatPRInfo(run *model.Run) string {
+	if run.PRNumber > 0 && run.PRState != "" {
+		return fmt.Sprintf("#%d %s", run.PRNumber, run.PRState)
+	}
+	// Fallback for when we have a PR URL but no state info yet
+	return "yes"
 }
 
 func gitStatesForRuns(runs []*model.Run, target string) map[string]string {

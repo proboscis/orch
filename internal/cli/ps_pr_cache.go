@@ -22,6 +22,8 @@ const (
 
 type prCacheEntry struct {
 	URL       string    `json:"url,omitempty"`
+	Number    int       `json:"number,omitempty"`
+	State     string    `json:"state,omitempty"` // open, merged, closed
 	CheckedAt time.Time `json:"checked_at"`
 }
 
@@ -76,6 +78,8 @@ func populatePRUrls(runs []*model.Run) {
 			if !entry.CheckedAt.IsZero() && now.Sub(entry.CheckedAt) < ttl {
 				if entry.URL != "" {
 					r.PRUrl = entry.URL
+					r.PRNumber = entry.Number
+					r.PRState = entry.State
 				}
 				continue
 			}
@@ -85,7 +89,7 @@ func populatePRUrls(runs []*model.Run) {
 			break
 		}
 
-		url, err := lookupPRUrl(repoRoot, r.Branch)
+		info, err := lookupPRInfo(repoRoot, r.Branch)
 		fetchTime := time.Now()
 		cache.LastFetch = fetchTime
 		fetches++
@@ -96,10 +100,20 @@ func populatePRUrls(runs []*model.Run) {
 			continue
 		}
 
-		cache.Entries[r.Branch] = prCacheEntry{URL: url, CheckedAt: fetchTime}
-		if url != "" {
-			r.PRUrl = url
+		if info == nil {
+			cache.Entries[r.Branch] = prCacheEntry{CheckedAt: fetchTime}
+			continue
 		}
+
+		cache.Entries[r.Branch] = prCacheEntry{
+			URL:       info.URL,
+			Number:    info.Number,
+			State:     info.State,
+			CheckedAt: fetchTime,
+		}
+		r.PRUrl = info.URL
+		r.PRNumber = info.Number
+		r.PRState = info.State
 	}
 
 	if dirty {
@@ -123,27 +137,41 @@ func applyCachedPRUrls(runs []*model.Run, cache prCache, now time.Time) {
 			continue
 		}
 		r.PRUrl = entry.URL
+		r.PRNumber = entry.Number
+		r.PRState = entry.State
 	}
 }
 
-func lookupPRUrl(repoRoot, branch string) (string, error) {
-	cmd := exec.Command("gh", "pr", "list", "--head", branch, "--state", "all", "--json", "url", "--limit", "1")
+type prInfo struct {
+	URL    string
+	Number int
+	State  string
+}
+
+func lookupPRInfo(repoRoot, branch string) (*prInfo, error) {
+	cmd := exec.Command("gh", "pr", "list", "--head", branch, "--state", "all", "--json", "url,number,state", "--limit", "1")
 	cmd.Dir = repoRoot
 	output, err := cmd.Output()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	var prs []struct {
-		URL string `json:"url"`
+		URL    string `json:"url"`
+		Number int    `json:"number"`
+		State  string `json:"state"`
 	}
 	if err := json.Unmarshal(output, &prs); err != nil {
-		return "", err
+		return nil, err
 	}
 	if len(prs) == 0 {
-		return "", nil
+		return nil, nil
 	}
-	return prs[0].URL, nil
+	return &prInfo{
+		URL:    prs[0].URL,
+		Number: prs[0].Number,
+		State:  prs[0].State,
+	}, nil
 }
 
 func prCachePath(repoRoot string) (string, error) {

@@ -589,7 +589,7 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		}
 		pr := "-"
 		if w.Run.PRUrl != "" || w.Run.Status == model.StatusPROpen {
-			pr = "yes"
+			pr = formatPRInfo(w.Run)
 		}
 		merged := "-"
 		if state, ok := gitStates[w.Run.RunID]; ok {
