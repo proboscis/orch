@@ -33,7 +33,6 @@ func DefaultStyles() Styles {
 			model.StatusQueued:     lipgloss.NewStyle().Foreground(lipgloss.Color("7")),
 			model.StatusPROpen:     lipgloss.NewStyle().Foreground(lipgloss.Color("6")),
 			model.StatusDone:       lipgloss.NewStyle().Foreground(lipgloss.Color("4")),
-			model.StatusResolved:   lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
 			model.StatusFailed:     lipgloss.NewStyle().Foreground(lipgloss.Color("1")),
 			model.StatusCanceled:   lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
 			model.StatusUnknown:    lipgloss.NewStyle().Foreground(lipgloss.Color("5")),

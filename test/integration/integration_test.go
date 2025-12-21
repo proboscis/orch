@@ -196,7 +196,7 @@ run: %s
 
 func TestPsTSV(t *testing.T) {
 	// Create an issue and run first
-	createTestIssue(t, "tsv-test", "---\ntype: issue\nid: tsv-test\ntitle: TSV Test\n---\n# TSV Test")
+	createTestIssue(t, "tsv-test", "---\ntype: issue\nid: tsv-test\ntitle: TSV Test\nstatus: open\n---\n# TSV Test")
 
 	// Create a run directory and file manually
 	runDir := filepath.Join(testVault, "runs", "tsv-test")
@@ -223,7 +223,7 @@ run: 20231220-100000
 		t.Fatal("expected at least one TSV line")
 	}
 
-	// TSV columns: issue_id, run_id, status, phase, updated_at, pr_url, branch, worktree_path, tmux_session
+	// TSV columns: issue_id, issue_status, run_id, short_id, agent, status, updated_at, pr_url, branch, worktree_path, tmux_session
 	// Find our test line
 	var testLine string
 	for _, line := range lines {
@@ -237,11 +237,76 @@ run: 20231220-100000
 	}
 
 	fields := strings.Split(testLine, "\t")
-	if len(fields) < 9 {
-		t.Errorf("expected 9 TSV fields, got %d: %q", len(fields), testLine)
+	if len(fields) < 11 {
+		t.Errorf("expected 11 TSV fields, got %d: %q", len(fields), testLine)
 	}
 	if fields[0] != "tsv-test" {
 		t.Errorf("expected issue_id=tsv-test, got %s", fields[0])
+	}
+	if fields[1] != "open" {
+		t.Errorf("expected issue_status=open, got %s", fields[1])
+	}
+}
+
+func TestPsIssueStatusFilter(t *testing.T) {
+	// Create issues with valid issue status values (open, resolved, closed)
+	createTestIssue(t, "issue-open-status", "---\ntype: issue\ntitle: Open Issue\nstatus: open\n---\n# Open Issue")
+	createTestIssue(t, "issue-resolved-status", "---\ntype: issue\ntitle: Resolved Issue\nstatus: resolved\n---\n# Resolved Issue")
+
+	openRunDir := filepath.Join(testVault, "runs", "issue-open-status")
+	resolvedRunDir := filepath.Join(testVault, "runs", "issue-resolved-status")
+	os.MkdirAll(openRunDir, 0755)
+	os.MkdirAll(resolvedRunDir, 0755)
+
+	openRunContent := `---
+issue: issue-open-status
+run: 20231221-100000
+---
+
+# Events
+
+- 2023-12-21T10:00:00+09:00 | status | running
+`
+	resolvedRunContent := `---
+issue: issue-resolved-status
+run: 20231221-110000
+---
+
+# Events
+
+- 2023-12-21T11:00:00+09:00 | status | done
+`
+	os.WriteFile(filepath.Join(openRunDir, "20231221-100000.md"), []byte(openRunContent), 0644)
+	os.WriteFile(filepath.Join(resolvedRunDir, "20231221-110000.md"), []byte(resolvedRunContent), 0644)
+
+	// Filter by issue status "open" and specific issue - should only return run from that open issue
+	output, err := runOrch(t, "ps", "--issue-status", "open", "--issue", "issue-open-status", "--json")
+	if err != nil {
+		t.Fatalf("ps --issue-status failed: %v", err)
+	}
+
+	var result struct {
+		OK    bool `json:"ok"`
+		Items []struct {
+			IssueID     string `json:"issue_id"`
+			IssueStatus string `json:"issue_status"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+
+	if !result.OK {
+		t.Error("expected ok=true")
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(result.Items))
+	}
+	if result.Items[0].IssueID != "issue-open-status" {
+		t.Errorf("expected issue_id=issue-open-status, got %s", result.Items[0].IssueID)
+	}
+	if result.Items[0].IssueStatus != "open" {
+		t.Errorf("expected issue_status=open, got %s", result.Items[0].IssueStatus)
 	}
 }
 

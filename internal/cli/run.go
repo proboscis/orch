@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/config"
@@ -123,17 +125,17 @@ func runRun(issueID string, opts *runOptions) error {
 		tmuxSession = model.GenerateTmuxSession(issueID, runID)
 	}
 
-	// Find repo root
+	// Find repo root - use main repo root to handle running from inside worktrees
 	repoRoot := opts.RepoRoot
 	if repoRoot == "" {
-		repoRoot, err = git.FindRepoRoot("")
+		repoRoot, err = git.FindMainRepoRoot("")
 		if err != nil {
 			return exitWithCode(fmt.Errorf("could not find git repository: %w", err), ExitWorktreeError)
 		}
 	}
 
-	// Compute worktree path
-	worktreePath := fmt.Sprintf("%s/%s/%s", opts.WorktreeRoot, issueID, runID)
+	// Compute worktree path (absolute to ensure correct directory regardless of cwd)
+	worktreePath := filepath.Join(repoRoot, opts.WorktreeRoot, issueID, runID)
 
 	result := &runResult{
 		OK:           true,
@@ -150,10 +152,6 @@ func runRun(issueID string, opts *runOptions) error {
 		// Build the command that would be run (for display purposes)
 		agentType, _ := agent.ParseAgentType(opts.Agent)
 		adapter, _ := agent.GetAdapter(agentType)
-		promptOpts := &promptOptions{
-			NoPR:           opts.NoPR,
-			PromptTemplate: opts.PromptTemplate,
-		}
 		launchCfg := &agent.LaunchConfig{
 			Type:      agentType,
 			CustomCmd: opts.AgentCmd,
@@ -162,7 +160,7 @@ func runRun(issueID string, opts *runOptions) error {
 			RunID:     runID,
 			VaultPath: "",
 			Branch:    branch,
-			Prompt:    buildAgentPrompt(issue, promptOpts),
+			Prompt:    promptFileInstruction,
 			Profile:   opts.AgentProfile,
 		}
 		agentCmd, _ := adapter.LaunchCommand(launchCfg)
@@ -241,6 +239,11 @@ func runRun(issueID string, opts *runOptions) error {
 		NoPR:           opts.NoPR,
 		PromptTemplate: opts.PromptTemplate,
 	}
+	agentPrompt := buildAgentPrompt(issue, promptOpts)
+	promptPath := filepath.Join(worktreeResult.WorktreePath, promptFileName)
+	if err := os.WriteFile(promptPath, []byte(agentPrompt), 0644); err != nil {
+		return exitWithCode(fmt.Errorf("failed to write prompt file: %w", err), ExitInternalError)
+	}
 	launchCfg := &agent.LaunchConfig{
 		Type:      agentType,
 		CustomCmd: opts.AgentCmd,
@@ -250,7 +253,7 @@ func runRun(issueID string, opts *runOptions) error {
 		RunPath:   run.Path,
 		VaultPath: st.VaultPath(),
 		Branch:    worktreeResult.Branch,
-		Prompt:    buildAgentPrompt(issue, promptOpts),
+		Prompt:    promptFileInstruction,
 		Profile:   opts.AgentProfile,
 	}
 
@@ -278,6 +281,21 @@ func runRun(issueID string, opts *runOptions) error {
 		if err != nil {
 			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
 			return exitWithCode(fmt.Errorf("failed to create tmux session: %w", err), ExitTmuxError)
+		}
+
+		// If the agent uses tmux send-keys for prompt injection, send the prompt now
+		if adapter.PromptInjection() == agent.InjectionTmux && launchCfg.Prompt != "" {
+			// Wait for the agent to be ready before sending the prompt
+			if pattern := adapter.ReadyPattern(); pattern != "" {
+				if err := tmux.WaitForReady(tmuxSession, pattern, 30*time.Second); err != nil {
+					st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+					return exitWithCode(fmt.Errorf("agent did not become ready: %w", err), ExitAgentError)
+				}
+			}
+			if err := tmux.SendKeys(tmuxSession, launchCfg.Prompt); err != nil {
+				st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+				return exitWithCode(fmt.Errorf("failed to send prompt to session: %w", err), ExitTmuxError)
+			}
 		}
 
 		// Record session artifact
@@ -315,6 +333,11 @@ type promptOptions struct {
 	NoPR           bool   // Skip PR instructions
 	PromptTemplate string // Custom prompt template file path
 }
+
+const (
+	promptFileName        = "ORCH_PROMPT.md"
+	promptFileInstruction = "Please read '" + promptFileName + "' in the current directory and follow the instructions found there."
+)
 
 // defaultPromptTemplate is the built-in template for agent prompts
 const defaultPromptTemplate = `<issue>

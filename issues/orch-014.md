@@ -3,7 +3,7 @@ type: issue
 id: orch-014
 title: Add support for Codex agent
 summary: Finalize and verify support for OpenAI Codex CLI agent
-status: open
+status: resolved
 priority: medium
 ---
 

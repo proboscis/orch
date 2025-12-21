@@ -34,4 +34,12 @@ func (a *CodexAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 	return strings.Join(args, " "), nil
 }
 
+func (a *CodexAdapter) PromptInjection() InjectionMethod {
+	return InjectionArg
+}
+
+func (a *CodexAdapter) ReadyPattern() string {
+	return "" // Not needed - prompt passed via command line
+}
+
 var _ Adapter = (*CodexAdapter)(nil)

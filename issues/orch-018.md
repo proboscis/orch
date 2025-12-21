@@ -3,7 +3,7 @@ type: issue
 id: orch-018
 title: Add topic field to issue for short summary in ps
 summary: Add a dedicated 'topic' frontmatter field for a short summary in orch ps
-status: open
+status: resolved
 priority: medium
 ---
 

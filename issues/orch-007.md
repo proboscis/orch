@@ -2,7 +2,7 @@
 type: issue
 id: orch-007
 title: Prompt agent to create PR at end of run
-status: open
+status: resolved
 priority: high
 ---
 

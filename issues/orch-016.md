@@ -3,7 +3,7 @@ type: issue
 id: orch-016
 title: Detect API usage limit block state
 summary: Add detection for API usage limit block and specific status
-status: open
+status: resolved
 priority: medium
 ---
 

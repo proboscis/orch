@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/s22625/orch/internal/model"
 )
 
 type issueDashboardMode int
@@ -29,6 +30,7 @@ type IssueDashboard struct {
 
 	issues []IssueRow
 	cursor int
+	offset int
 	width  int
 	height int
 
@@ -91,6 +93,7 @@ func (d *IssueDashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				d.cursor = 0
 			}
 		}
+		d.ensureCursorVisible()
 		return d, nil
 	case infoMsg:
 		d.message = msg.text
@@ -160,6 +163,11 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return d, d.openIssueCmd(row.ID)
 		}
 		return d, nil
+	case d.keymap.Resolve:
+		if row := d.currentIssue(); row != nil {
+			return d, d.resolveIssueCmd(row.ID)
+		}
+		return d, nil
 	case "n":
 		d.mode = modeCreateIssue
 		d.create = createIssueState{}
@@ -173,11 +181,13 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if d.cursor > 0 {
 			d.cursor--
 		}
+		d.ensureCursorVisible()
 		return d, nil
 	case "down", "j":
 		if d.cursor < len(d.issues)-1 {
 			d.cursor++
 		}
+		d.ensureCursorVisible()
 		return d, nil
 	case "?":
 		d.message = d.keymap.HelpLine()
@@ -269,6 +279,15 @@ func (d *IssueDashboard) openIssueCmd(issueID string) tea.Cmd {
 	}
 }
 
+func (d *IssueDashboard) resolveIssueCmd(issueID string) tea.Cmd {
+	return func() tea.Msg {
+		if err := d.monitor.SetIssueStatus(issueID, model.IssueStatusResolved); err != nil {
+			return errMsg{err: err}
+		}
+		return infoMsg{text: fmt.Sprintf("resolved issue %s", issueID)}
+	}
+}
+
 func (d *IssueDashboard) createIssueCmd(issueID, title string) tea.Cmd {
 	return func() tea.Msg {
 		output, err := d.monitor.CreateIssue(issueID, title)
@@ -282,8 +301,9 @@ func (d *IssueDashboard) createIssueCmd(issueID, title string) tea.Cmd {
 func (d *IssueDashboard) viewIssues() string {
 	title := d.styles.Title.Render("ORCH ISSUES")
 	meta := d.renderMeta()
-	table := d.renderTable()
-	details := d.renderDetails()
+	listRows, detailRows := d.layoutHeights()
+	table := d.renderTable(listRows)
+	details := d.renderDetails(detailRows)
 	footer := d.renderFooter()
 	message := ""
 	if d.message != "" {
@@ -323,7 +343,9 @@ func (d *IssueDashboard) viewCreateIssue() string {
 func (d *IssueDashboard) renderMeta() string {
 	sync := d.renderSyncStatus()
 	total := fmt.Sprintf("issues: %d", len(d.issues))
-	return strings.Join([]string{total, sync}, "  ")
+	nav := d.renderNav()
+	rows := d.renderIssueRange()
+	return strings.Join([]string{total, sync, nav, rows}, "  ")
 }
 
 func (d *IssueDashboard) renderSyncStatus() string {
@@ -341,7 +363,30 @@ func (d *IssueDashboard) renderSyncStatus() string {
 	return label
 }
 
-func (d *IssueDashboard) renderTable() string {
+func (d *IssueDashboard) renderNav() string {
+	return fmt.Sprintf("nav: [%s] runs  [%s] issues  [%s] chat", d.keymap.Runs, d.keymap.Issues, d.keymap.Chat)
+}
+
+func (d *IssueDashboard) renderIssueRange() string {
+	if len(d.issues) == 0 {
+		return "rows: 0/0"
+	}
+	visibleRows := d.issueVisibleRows(d.tableMaxRows())
+	if visibleRows == 0 {
+		return fmt.Sprintf("rows: 0/%d", len(d.issues))
+	}
+	start := d.offset + 1
+	if start < 1 {
+		start = 1
+	}
+	end := d.offset + visibleRows
+	if end > len(d.issues) {
+		end = len(d.issues)
+	}
+	return fmt.Sprintf("rows: %d-%d/%d", start, end, len(d.issues))
+}
+
+func (d *IssueDashboard) renderTable(maxRows int) string {
 	if len(d.issues) == 0 {
 		return "No issues found."
 	}
@@ -352,7 +397,18 @@ func (d *IssueDashboard) renderTable() string {
 		"#", "ID", "STATUS", "LATEST", "ACTIVE", "SUMMARY", true, nil)
 
 	var rows []string
-	for i, row := range d.issues {
+	visibleRows := d.issueVisibleRows(maxRows)
+	start := d.offset
+	end := len(d.issues)
+	if visibleRows > 0 {
+		end = start + visibleRows
+		if end > len(d.issues) {
+			end = len(d.issues)
+		}
+	} else {
+		end = start
+	}
+	for i, row := range d.issues[start:end] {
 		latest := "-"
 		if row.LatestRunID != "" {
 			latest = string(row.LatestStatus)
@@ -367,7 +423,7 @@ func (d *IssueDashboard) renderTable() string {
 			false,
 			&row,
 		)
-		if i == d.cursor {
+		if i+start == d.cursor {
 			r = d.styles.Selected.Render(r)
 		}
 		rows = append(rows, r)
@@ -405,7 +461,7 @@ func (d *IssueDashboard) renderRow(idxW, idW, statusW, latestW, activeW, summary
 	return strings.Join([]string{idxCol, idCol, statusCol, latestCol, activeCol, summaryCol}, "  ")
 }
 
-func (d *IssueDashboard) renderDetails() string {
+func (d *IssueDashboard) renderDetails(maxLines int) string {
 	issue := d.currentIssue()
 	if issue == nil || issue.Issue == nil {
 		return "No issue selected."
@@ -444,6 +500,13 @@ func (d *IssueDashboard) renderDetails() string {
 		lines = append(lines, wrapText(summary, d.safeWidth()-2)...)
 	}
 
+	if maxLines > 0 && len(lines) > maxLines {
+		lines = lines[:maxLines]
+		if maxLines > 1 {
+			lines[maxLines-1] = "..."
+		}
+	}
+
 	return strings.Join(lines, "\n")
 }
 
@@ -474,6 +537,13 @@ func (d *IssueDashboard) safeWidth() int {
 	return 80
 }
 
+func (d *IssueDashboard) safeHeight() int {
+	if d.height > 2 {
+		return d.height - 2
+	}
+	return 24
+}
+
 func (d *IssueDashboard) pad(s string, width int, style lipgloss.Style) string {
 	return style.Width(width).Render(truncate(s, width))
 }
@@ -483,4 +553,83 @@ func (d *IssueDashboard) currentIssue() *IssueRow {
 		return nil
 	}
 	return &d.issues[d.cursor]
+}
+
+func (d *IssueDashboard) tableMaxRows() int {
+	listRows, _ := d.layoutHeights()
+	return listRows
+}
+
+func (d *IssueDashboard) issueVisibleRows(maxRows int) int {
+	if maxRows <= 0 {
+		return 0
+	}
+	if len(d.issues) < maxRows {
+		return len(d.issues)
+	}
+	return maxRows
+}
+
+func (d *IssueDashboard) pageSize() int {
+	rows := d.issueVisibleRows(d.tableMaxRows())
+	if rows < 1 {
+		return 1
+	}
+	return rows
+}
+
+func (d *IssueDashboard) ensureCursorVisible() {
+	if len(d.issues) == 0 {
+		d.offset = 0
+		return
+	}
+	visibleRows := d.issueVisibleRows(d.tableMaxRows())
+	if visibleRows <= 0 {
+		d.offset = 0
+		return
+	}
+	if d.cursor < d.offset {
+		d.offset = d.cursor
+	}
+	if d.cursor >= d.offset+visibleRows {
+		d.offset = d.cursor - visibleRows + 1
+	}
+	maxOffset := len(d.issues) - visibleRows
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if d.offset > maxOffset {
+		d.offset = maxOffset
+	}
+	if d.offset < 0 {
+		d.offset = 0
+	}
+}
+
+func (d *IssueDashboard) layoutHeights() (listRows, detailRows int) {
+	base := 7
+	if d.message != "" {
+		base += 2
+	}
+	available := d.safeHeight() - base
+	if available <= 1 {
+		return 0, 0
+	}
+
+	detailRows = 8
+	if detailRows > available-2 {
+		detailRows = available / 3
+	}
+	if detailRows < 3 {
+		detailRows = 3
+	}
+	listRows = available - detailRows - 1
+	if listRows < 1 {
+		listRows = 1
+		detailRows = available - 1
+		if detailRows < 0 {
+			detailRows = 0
+		}
+	}
+	return listRows, detailRows
 }

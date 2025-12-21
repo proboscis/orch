@@ -9,7 +9,7 @@ import (
 	"github.com/s22625/orch/internal/model"
 )
 
-func TestRunResolveMarksResolved(t *testing.T) {
+func TestRunResolveMarksIssueResolved(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
@@ -24,6 +24,7 @@ func TestRunResolveMarksResolved(t *testing.T) {
 		t.Fatalf("getStore: %v", err)
 	}
 
+	// Create a completed run
 	run, err := st.CreateRun("issue-1", "run-1", nil)
 	if err != nil {
 		t.Fatalf("CreateRun: %v", err)
@@ -32,20 +33,28 @@ func TestRunResolveMarksResolved(t *testing.T) {
 		t.Fatalf("AppendEvent: %v", err)
 	}
 
-	if err := runResolve("issue-1#run-1", &resolveOptions{}); err != nil {
+	// Resolve the issue
+	if err := runResolve("issue-1", &resolveOptions{}); err != nil {
 		t.Fatalf("runResolve: %v", err)
 	}
 
-	updated, err := st.GetRun(run.Ref())
+	// Get a fresh store to check the updated issue status
+	st2, err := getStore()
 	if err != nil {
-		t.Fatalf("GetRun: %v", err)
+		t.Fatalf("getStore for check: %v", err)
 	}
-	if updated.Status != model.StatusResolved {
-		t.Fatalf("status = %q, want %q", updated.Status, model.StatusResolved)
+
+	// Check that issue status is resolved
+	issue, err := st2.ResolveIssue("issue-1")
+	if err != nil {
+		t.Fatalf("ResolveIssue: %v", err)
+	}
+	if issue.Status != model.IssueStatusResolved {
+		t.Fatalf("issue status = %q, want %q", issue.Status, model.IssueStatusResolved)
 	}
 }
 
-func TestRunResolveRequiresForceForActive(t *testing.T) {
+func TestRunResolveRequiresForceWithoutCompletedRuns(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
@@ -60,6 +69,7 @@ func TestRunResolveRequiresForceForActive(t *testing.T) {
 		t.Fatalf("getStore: %v", err)
 	}
 
+	// Create a running (not completed) run
 	run, err := st.CreateRun("issue-2", "run-1", nil)
 	if err != nil {
 		t.Fatalf("CreateRun: %v", err)
@@ -68,24 +78,54 @@ func TestRunResolveRequiresForceForActive(t *testing.T) {
 		t.Fatalf("AppendEvent: %v", err)
 	}
 
-	if err := runResolve("issue-2#run-1", &resolveOptions{}); err == nil {
-		t.Fatal("expected error without --force")
+	// Resolve should fail without --force since no completed runs
+	if err := runResolve("issue-2", &resolveOptions{}); err == nil {
+		t.Fatal("expected error without --force when no completed runs")
 	}
 
-	if err := runResolve("issue-2#run-1", &resolveOptions{Force: true}); err != nil {
+	// Resolve should succeed with --force
+	if err := runResolve("issue-2", &resolveOptions{Force: true}); err != nil {
 		t.Fatalf("runResolve --force: %v", err)
 	}
 
-	updated, err := st.GetRun(run.Ref())
+	// Get a fresh store to check the updated issue status
+	st2, err := getStore()
 	if err != nil {
-		t.Fatalf("GetRun: %v", err)
+		t.Fatalf("getStore for check: %v", err)
 	}
-	if updated.Status != model.StatusResolved {
-		t.Fatalf("status = %q, want %q", updated.Status, model.StatusResolved)
+
+	// Check that issue status is resolved
+	issue, err := st2.ResolveIssue("issue-2")
+	if err != nil {
+		t.Fatalf("ResolveIssue: %v", err)
+	}
+	if issue.Status != model.IssueStatusResolved {
+		t.Fatalf("issue status = %q, want %q", issue.Status, model.IssueStatusResolved)
+	}
+}
+
+func TestRunResolveAlreadyResolved(t *testing.T) {
+	resetGlobalOpts(t)
+
+	vault := t.TempDir()
+	globalOpts.VaultPath = vault
+	globalOpts.Backend = "file"
+	globalOpts.Quiet = true
+
+	writeIssueWithStatus(t, vault, "issue-3", "resolved")
+
+	// Resolve should succeed (no-op) for already resolved issue
+	if err := runResolve("issue-3", &resolveOptions{}); err != nil {
+		t.Fatalf("runResolve already resolved: %v", err)
 	}
 }
 
 func writeIssue(t *testing.T, vaultPath, issueID string) {
+	t.Helper()
+	writeIssueWithStatus(t, vaultPath, issueID, "open")
+}
+
+func writeIssueWithStatus(t *testing.T, vaultPath, issueID, status string) {
 	t.Helper()
 
 	issuesDir := filepath.Join(vaultPath, "issues")
@@ -94,7 +134,7 @@ func writeIssue(t *testing.T, vaultPath, issueID string) {
 	}
 
 	issuePath := filepath.Join(issuesDir, issueID+".md")
-	content := fmt.Sprintf("---\ntype: issue\nid: %s\ntitle: %s\n---\n# %s\n", issueID, issueID, issueID)
+	content := fmt.Sprintf("---\ntype: issue\nid: %s\ntitle: %s\nstatus: %s\n---\n# %s\n", issueID, issueID, status, issueID)
 	if err := os.WriteFile(issuePath, []byte(content), 0644); err != nil {
 		t.Fatalf("write issue: %v", err)
 	}

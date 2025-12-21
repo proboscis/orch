@@ -2,7 +2,7 @@
 type: issue
 id: orch-006
 title: Support partial short IDs for run references
-status: open
+status: resolved
 priority: high
 ---
 

@@ -49,3 +49,37 @@ func GetBranchCommitTimes(repoRoot string) (map[string]time.Time, error) {
 
 	return commitTimes, nil
 }
+
+// GetAheadCount returns the number of commits the branch is ahead of the target.
+// equivalent to: git rev-list --count target..branch
+func GetAheadCount(repoRoot, branch, target string) (int, error) {
+	if repoRoot == "" {
+		var err error
+		repoRoot, err = FindRepoRoot("")
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	// Use -- to separate paths from revisions to handle branch names that look like flags/paths
+	cmd := exec.Command(
+		"git",
+		"-C", repoRoot,
+		"rev-list",
+		"--count",
+		fmt.Sprintf("%s..%s", target, branch),
+		"--",
+	)
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, fmt.Errorf("git rev-list count: %w", err)
+	}
+
+	countStr := strings.TrimSpace(string(output))
+	count, err := strconv.Atoi(countStr)
+	if err != nil {
+		return 0, fmt.Errorf("invalid commit count %q: %w", countStr, err)
+	}
+
+	return count, nil
+}

@@ -78,10 +78,17 @@ func runAttach(refStr string, opts *attachOptions) error {
 		}
 	}
 
-	// Attach to session
-	if err := tmux.AttachSession(sessionName); err != nil {
-		os.Exit(ExitTmuxError)
-		return err
+	// Attach to session - use switch-client if already inside tmux
+	if tmux.IsInsideTmux() {
+		if err := tmux.SwitchClient(sessionName); err != nil {
+			os.Exit(ExitTmuxError)
+			return err
+		}
+	} else {
+		if err := tmux.AttachSession(sessionName); err != nil {
+			os.Exit(ExitTmuxError)
+			return err
+		}
 	}
 
 	return nil

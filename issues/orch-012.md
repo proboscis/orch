@@ -3,7 +3,7 @@ type: issue
 id: orch-012
 title: Implement orch exec command
 summary: Run commands in a run's worktree environment
-status: open
+status: resolved
 priority: high
 ---
 

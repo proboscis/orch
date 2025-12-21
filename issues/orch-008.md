@@ -2,7 +2,7 @@
 type: issue
 id: orch-008
 title: Show issue status in orch ps output
-status: open
+status: resolved
 priority: medium
 ---
 

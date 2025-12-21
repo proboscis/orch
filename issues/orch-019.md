@@ -3,7 +3,7 @@ type: issue
 id: orch-019
 title: Mark runs with missing worktrees in ps
 summary: Identify runs whose worktrees have been deleted in orch ps
-status: open
+status: resolved
 priority: medium
 ---
 

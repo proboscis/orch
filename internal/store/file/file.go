@@ -158,11 +158,15 @@ func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
 		}
 	}
 
+	// Get status (defaults to open if not set)
+	status := model.ParseIssueStatus(frontmatter["status"])
+
 	return &model.Issue{
 		ID:          issueID,
 		Title:       title,
 		Topic:       topic,
 		Summary:     summary,
+		Status:      status,
 		Body:        body,
 		Path:        path,
 		Frontmatter: frontmatter,
@@ -433,6 +437,13 @@ func (s *FileStore) loadRun(issueID, runID, path string) (*model.Run, error) {
 	}
 
 	run.DeriveState()
+
+	// Resolve relative worktree paths against the vault path
+	// This handles runs created before worktree paths were made absolute
+	if run.WorktreePath != "" && !filepath.IsAbs(run.WorktreePath) {
+		run.WorktreePath = filepath.Join(s.vaultPath, run.WorktreePath)
+	}
+
 	return run, nil
 }
 
@@ -520,6 +531,66 @@ func (s *FileStore) ListRuns(filter *store.ListRunsFilter) ([]*model.Run, error)
 	}
 
 	return runs, nil
+}
+
+// SetIssueStatus updates the status of an issue in its frontmatter
+func (s *FileStore) SetIssueStatus(issueID string, status model.IssueStatus) error {
+	issue, err := s.ResolveIssue(issueID)
+	if err != nil {
+		return err
+	}
+
+	content, err := os.ReadFile(issue.Path)
+	if err != nil {
+		return fmt.Errorf("failed to read issue file: %w", err)
+	}
+
+	lines := strings.Split(string(content), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return fmt.Errorf("issue file has no frontmatter: %s", issue.Path)
+	}
+
+	statusStr := string(status)
+	var newLines []string
+	newLines = append(newLines, lines[0])
+	foundStatus := false
+	inFrontmatter := true
+
+	for i := 1; i < len(lines); i++ {
+		line := lines[i]
+		if inFrontmatter {
+			if strings.TrimSpace(line) == "---" {
+				if !foundStatus {
+					// Add status if not found in frontmatter
+					newLines = append(newLines, fmt.Sprintf("status: %s", statusStr))
+				}
+				newLines = append(newLines, line)
+				inFrontmatter = false
+				continue
+			}
+
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 && strings.TrimSpace(parts[0]) == "status" {
+				newLines = append(newLines, fmt.Sprintf("status: %s", statusStr))
+				foundStatus = true
+			} else {
+				newLines = append(newLines, line)
+			}
+		} else {
+			newLines = append(newLines, line)
+		}
+	}
+
+	if err := os.WriteFile(issue.Path, []byte(strings.Join(newLines, "\n")), 0644); err != nil {
+		return fmt.Errorf("failed to write issue file: %w", err)
+	}
+
+	// Update cache
+	issue.Frontmatter["status"] = statusStr
+	issue.Status = status
+	s.cacheDirty = true // Mark dirty to be safe, although we updated the object
+
+	return nil
 }
 
 // Ensure FileStore implements Store

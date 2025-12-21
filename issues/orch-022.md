@@ -3,7 +3,7 @@ type: issue
 id: orch-022
 title: Add command to resolve runs and hide them by default
 summary: Implement 'orch resolve' to mark runs/issues as resolved and update 'orch ps' default filtering
-status: open
+status: resolved
 priority: high
 ---
 
