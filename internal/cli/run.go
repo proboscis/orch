@@ -282,6 +282,14 @@ func runRun(issueID string, opts *runOptions) error {
 			return exitWithCode(fmt.Errorf("failed to create tmux session: %w", err), ExitTmuxError)
 		}
 
+		// If the agent uses tmux send-keys for prompt injection, send the prompt now
+		if adapter.PromptInjection() == agent.InjectionTmux && launchCfg.Prompt != "" {
+			if err := tmux.SendKeys(tmuxSession, launchCfg.Prompt); err != nil {
+				st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+				return exitWithCode(fmt.Errorf("failed to send prompt to session: %w", err), ExitTmuxError)
+			}
+		}
+
 		// Record session artifact
 		st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", map[string]string{
 			"name": tmuxSession,

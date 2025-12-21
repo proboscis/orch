@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"fmt"
 	"os/exec"
 	"strings"
 )
@@ -22,16 +21,16 @@ func (a *GeminiAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 	var args []string
 
 	// gemini CLI with yolo mode
+	// Note: We don't pass -p flag here because Gemini exits after processing
+	// the prompt. Instead, the prompt is sent via tmux send-keys to keep
+	// the interactive session open. See PromptInjection() method.
 	args = append(args, "gemini", "--yolo")
 
-	// Add the prompt
-	if cfg.Prompt != "" {
-		// Escape the prompt for shell
-		escapedPrompt := strings.ReplaceAll(cfg.Prompt, "'", "'\"'\"'")
-		args = append(args, "-p", fmt.Sprintf("'%s'", escapedPrompt))
-	}
-
 	return strings.Join(args, " "), nil
+}
+
+func (a *GeminiAdapter) PromptInjection() InjectionMethod {
+	return InjectionTmux
 }
 
 var _ Adapter = (*GeminiAdapter)(nil)

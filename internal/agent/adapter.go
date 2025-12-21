@@ -5,6 +5,16 @@ import (
 	"os"
 )
 
+// InjectionMethod specifies how the prompt should be sent to the agent
+type InjectionMethod string
+
+const (
+	// InjectionArg means the prompt is passed as a command-line argument (default)
+	InjectionArg InjectionMethod = "arg"
+	// InjectionTmux means the prompt should be sent via tmux send-keys after the session starts
+	InjectionTmux InjectionMethod = "tmux"
+)
+
 // AgentType represents the type of agent
 type AgentType string
 
@@ -74,6 +84,10 @@ type Adapter interface {
 
 	// IsAvailable checks if the agent CLI is available
 	IsAvailable() bool
+
+	// PromptInjection returns how the prompt should be sent to the agent
+	// Default implementations should return InjectionArg
+	PromptInjection() InjectionMethod
 }
 
 // GetAdapter returns the adapter for the given agent type

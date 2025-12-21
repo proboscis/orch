@@ -23,4 +23,8 @@ func (a *CustomAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 	return cfg.CustomCmd, nil
 }
 
+func (a *CustomAdapter) PromptInjection() InjectionMethod {
+	return InjectionArg
+}
+
 var _ Adapter = (*CustomAdapter)(nil)

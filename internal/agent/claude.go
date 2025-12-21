@@ -53,4 +53,8 @@ func doubleQuote(s string) string {
 	return "\"" + s + "\""
 }
 
+func (a *ClaudeAdapter) PromptInjection() InjectionMethod {
+	return InjectionArg
+}
+
 var _ Adapter = (*ClaudeAdapter)(nil)
