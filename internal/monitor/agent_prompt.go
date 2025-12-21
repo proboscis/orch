@@ -159,9 +159,9 @@ func buildControlAgentPrompt(st store.Store) (string, error) {
 	// Build issue info list
 	issueInfos := make([]IssueInfo, 0, len(issues))
 	for _, issue := range issues {
-		status := "open"
-		if issue.Frontmatter != nil && issue.Frontmatter["status"] != "" {
-			status = issue.Frontmatter["status"]
+		status := string(issue.Status)
+		if status == "" {
+			status = string(model.IssueStatusOpen)
 		}
 		title := issue.Title
 		if title == "" {

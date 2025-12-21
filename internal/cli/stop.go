@@ -151,7 +151,7 @@ func stopRun(st interface {
 	AppendEvent(ref *model.RunRef, event *model.Event) error
 }, run *model.Run, opts *stopOptions) error {
 	// Skip if already terminal
-	if run.Status == model.StatusDone || run.Status == model.StatusResolved || run.Status == model.StatusFailed || run.Status == model.StatusCanceled {
+	if run.Status == model.StatusDone || run.Status == model.StatusFailed || run.Status == model.StatusCanceled {
 		if !globalOpts.Quiet {
 			fmt.Printf("%s#%s already %s\n", run.IssueID, run.RunID, run.Status)
 		}

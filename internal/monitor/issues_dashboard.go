@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/s22625/orch/internal/model"
 )
 
 type issueDashboardMode int
@@ -280,7 +281,7 @@ func (d *IssueDashboard) openIssueCmd(issueID string) tea.Cmd {
 
 func (d *IssueDashboard) resolveIssueCmd(issueID string) tea.Cmd {
 	return func() tea.Msg {
-		if err := d.monitor.SetIssueStatus(issueID, "resolved"); err != nil {
+		if err := d.monitor.SetIssueStatus(issueID, model.IssueStatusResolved); err != nil {
 			return errMsg{err: err}
 		}
 		return infoMsg{text: fmt.Sprintf("resolved issue %s", issueID)}

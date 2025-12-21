@@ -375,7 +375,7 @@ func (m *Monitor) CreateIssue(issueID, title string) (string, error) {
 }
 
 // SetIssueStatus updates the issue status in the store.
-func (m *Monitor) SetIssueStatus(issueID, status string) error {
+func (m *Monitor) SetIssueStatus(issueID string, status model.IssueStatus) error {
 	return m.store.SetIssueStatus(issueID, status)
 }
 
@@ -602,9 +602,9 @@ func (m *Monitor) buildIssueRows(issues []*model.Issue, runs []*model.Run) []Iss
 
 	rows := make([]IssueRow, 0, len(issues))
 	for i, issue := range issues {
-		status := "-"
-		if issue.Frontmatter != nil && issue.Frontmatter["status"] != "" {
-			status = issue.Frontmatter["status"]
+		status := string(issue.Status)
+		if status == "" {
+			status = string(model.IssueStatusOpen)
 		}
 
 		summary := issue.Summary
@@ -718,7 +718,7 @@ func defaultStatuses() []model.Status {
 
 func isTerminalStatus(status model.Status) bool {
 	switch status {
-	case model.StatusDone, model.StatusFailed, model.StatusCanceled, model.StatusResolved:
+	case model.StatusDone, model.StatusFailed, model.StatusCanceled:
 		return true
 	default:
 		return false

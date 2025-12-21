@@ -195,7 +195,7 @@ func runIssueList() error {
 			ID:      issue.ID,
 			Title:   issue.Title,
 			Summary: issue.Summary,
-			Status:  issue.Frontmatter["status"],
+			Status:  string(issue.Status),
 			Path:    issue.Path,
 		}
 

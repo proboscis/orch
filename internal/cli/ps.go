@@ -43,14 +43,14 @@ func newPsCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringSliceVar(&opts.Status, "status", nil, "Filter by status (queued,booting,running,blocked,blocked_api,pr_open,done,resolved,failed,canceled,unknown)")
-	cmd.Flags().StringSliceVar(&opts.IssueStatus, "issue-status", nil, "Filter by issue status (open,closed,...)")
+	cmd.Flags().StringSliceVar(&opts.Status, "status", nil, "Filter by run status (queued,booting,running,blocked,blocked_api,pr_open,done,failed,canceled,unknown)")
+	cmd.Flags().StringSliceVar(&opts.IssueStatus, "issue-status", nil, "Filter by issue status (open,resolved,closed)")
 	cmd.Flags().StringVar(&opts.Issue, "issue", "", "Filter by issue ID")
 	cmd.Flags().IntVar(&opts.Limit, "limit", 50, "Maximum number of runs to show")
 	cmd.Flags().StringVar(&opts.Sort, "sort", "updated", "Sort by (updated|started)")
 	cmd.Flags().StringVar(&opts.Since, "since", "", "Only show runs updated since (ISO8601)")
 	cmd.Flags().BoolVar(&opts.AbsoluteTime, "absolute-time", false, "Show absolute timestamps instead of relative")
-	cmd.Flags().BoolVarP(&opts.All, "all", "a", false, "Show all runs including resolved")
+	cmd.Flags().BoolVarP(&opts.All, "all", "a", false, "Show all runs including those from resolved issues")
 
 	return cmd
 }
@@ -85,10 +85,6 @@ func runPs(opts *psOptions) error {
 		return err
 	}
 
-	if len(opts.Status) == 0 && !opts.All {
-		runs = filterResolvedRuns(runs)
-	}
-
 	issueStatusFilter := make(map[string]bool)
 	for _, status := range opts.IssueStatus {
 		trimmed := strings.TrimSpace(status)
@@ -97,11 +93,18 @@ func runPs(opts *psOptions) error {
 		}
 	}
 
+	// By default, exclude runs from resolved issues unless --all is set or specific issue status is requested
+	excludeResolvedIssues := !opts.All && len(issueStatusFilter) == 0
+
 	issueCache := make(map[string]psIssueInfo)
 	filteredRuns := make([]*model.Run, 0, len(runs))
 	for _, r := range runs {
 		info := resolveIssueInfo(st, issueCache, r.IssueID)
 		if len(issueStatusFilter) > 0 && !issueStatusFilter[info.status] {
+			continue
+		}
+		// Filter out runs from resolved issues by default
+		if excludeResolvedIssues && info.status == string(model.IssueStatusResolved) {
 			continue
 		}
 		filteredRuns = append(filteredRuns, r)
@@ -144,7 +147,7 @@ func resolveIssueInfo(st store.Store, cache map[string]psIssueInfo, issueID stri
 	}
 
 	info := psIssueInfo{
-		status:  issue.Frontmatter["status"],
+		status:  string(issue.Status),
 		display: formatIssueTopic(issue),
 	}
 	cache[issueID] = info
@@ -449,7 +452,6 @@ func colorStatus(status model.Status) string {
 		model.StatusBlockedAPI: "\033[33m", // yellow
 		model.StatusFailed:     "\033[31m", // red
 		model.StatusDone:       "\033[34m", // blue
-		model.StatusResolved:   "\033[90m", // gray
 		model.StatusPROpen:     "\033[36m", // cyan
 		model.StatusQueued:     "\033[37m", // white
 		model.StatusBooting:    "\033[32m", // green
@@ -552,19 +554,6 @@ func mergedBranchesForTarget(repoRoot, target string) (string, map[string]bool, 
 		return "", nil, err
 	}
 	return target, merged, nil
-}
-
-func filterResolvedRuns(runs []*model.Run) []*model.Run {
-	if len(runs) == 0 {
-		return runs
-	}
-	filtered := make([]*model.Run, 0, len(runs))
-	for _, run := range runs {
-		if run.Status != model.StatusResolved {
-			filtered = append(filtered, run)
-		}
-	}
-	return filtered
 }
 
 // parseStatusList parses a comma-separated status list
