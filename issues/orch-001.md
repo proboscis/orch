@@ -1,6 +1,6 @@
 ---
 type: issue
-id: repair-command
+id: orch-001
 title: Implement orch repair command
 status: open
 priority: medium

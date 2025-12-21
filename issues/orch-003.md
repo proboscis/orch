@@ -1,6 +1,6 @@
 ---
 type: issue
-id: issue-list-filters
+id: orch-003
 title: Add filters to orch issue list
 status: open
 priority: medium

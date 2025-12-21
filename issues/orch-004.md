@@ -1,6 +1,6 @@
 ---
 type: issue
-id: fzf-ui
+id: orch-004
 title: Create orch ui command with fzf integration
 status: open
 priority: low
