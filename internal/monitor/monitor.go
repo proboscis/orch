@@ -228,16 +228,17 @@ func (m *Monitor) OpenRun(run *model.Run) error {
 		return err
 	}
 
+	// After SwapPane, the pane contents are swapped but pane IDs remain unchanged:
+	// - chatPane (in monitor session) now contains the run's terminal
+	// - runPane (in run session) now contains the chat terminal
+	// We set titles and select based on this swapped state.
 	title := runWindowTitle(run)
-	_ = tmux.SetPaneTitle(runPane, title)
-	_ = tmux.SetPaneTitle(chatPane, chatPaneTitle)
+	_ = tmux.SetPaneTitle(chatPane, title)      // chatPane now shows the run
+	_ = tmux.SetPaneTitle(runPane, chatPaneTitle) // runPane now holds the chat
 	m.activeRun = sessionName
 	m.activeTitle = title
-	monitorPane, err := m.findPaneByTitle(m.session, title)
-	if err != nil {
-		return tmux.SelectPane(runPane)
-	}
-	return tmux.SelectPane(monitorPane)
+	// Select chatPane directly since it's in the monitor session and contains the run
+	return tmux.SelectPane(chatPane)
 }
 
 // CloseRunPane restores the chat pane if a run is open.
@@ -246,23 +247,29 @@ func (m *Monitor) CloseRunPane() error {
 		return nil
 	}
 	runTitle := m.activeTitle
-	runPane, err := m.findPaneByTitle(m.session, runTitle)
+	// Find the pane in monitor session that's showing the run (has run title)
+	monitorPane, err := m.findPaneByTitle(m.session, runTitle)
 	if err != nil {
 		m.activeRun = ""
 		m.activeTitle = ""
 		return nil
 	}
-	chatPane, err := m.findPaneByTitle(m.activeRun, chatPaneTitle)
+	// Find the pane in run session that's holding the chat (has chat title)
+	runSessionPane, err := m.findPaneByTitle(m.activeRun, chatPaneTitle)
 	if err != nil {
 		m.activeRun = ""
 		m.activeTitle = ""
 		return nil
 	}
-	if err := tmux.SwapPane(chatPane, runPane); err != nil {
+	// Swap them back: monitor gets chat content, run session gets run content
+	if err := tmux.SwapPane(runSessionPane, monitorPane); err != nil {
 		return err
 	}
-	_ = tmux.SetPaneTitle(chatPane, chatPaneTitle)
-	_ = tmux.SetPaneTitle(runPane, runTitle)
+	// After swap:
+	// - monitorPane now has chat content -> set to "chat"
+	// - runSessionPane now has run content -> set to run title
+	_ = tmux.SetPaneTitle(monitorPane, chatPaneTitle)
+	_ = tmux.SetPaneTitle(runSessionPane, runTitle)
 	m.activeRun = ""
 	m.activeTitle = ""
 	return nil
