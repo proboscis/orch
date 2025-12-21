@@ -39,6 +39,9 @@ type Store interface {
 	// GetLatestRun retrieves the latest run for an issue
 	GetLatestRun(issueID string) (*model.Run, error)
 
+	// SetIssueStatus updates the status of an issue
+	SetIssueStatus(issueID string, status string) error
+
 	// VaultPath returns the vault root path
 	VaultPath() string
 }

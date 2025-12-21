@@ -60,6 +60,12 @@ func runResolve(refStr string, opts *resolveOptions) error {
 		return fmt.Errorf("failed to append resolved event: %w", err)
 	}
 
+	// Also mark issue as resolved
+	if err := st.SetIssueStatus(run.IssueID, "resolved"); err != nil {
+		// Log error but don't fail the command since the run was resolved
+		fmt.Fprintf(os.Stderr, "warning: failed to mark issue as resolved: %v\n", err)
+	}
+
 	if !globalOpts.Quiet {
 		fmt.Printf("resolved: %s#%s\n", run.IssueID, run.RunID)
 	}
