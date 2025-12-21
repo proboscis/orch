@@ -61,6 +61,7 @@ func TestResolveIssue(t *testing.T) {
 	content := `---
 type: issue
 title: Test Issue
+topic: Short topic
 status: open
 ---
 
@@ -81,6 +82,9 @@ This is a test issue.
 	}
 	if issue.Title != "Test Issue" {
 		t.Errorf("Title = %v, want Test Issue", issue.Title)
+	}
+	if issue.Topic != "Short topic" {
+		t.Errorf("Topic = %v, want Short topic", issue.Topic)
 	}
 }
 
