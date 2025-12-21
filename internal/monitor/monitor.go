@@ -341,6 +341,11 @@ func (m *Monitor) CreateIssue(issueID, title string) (string, error) {
 	return output, nil
 }
 
+// SetIssueStatus updates the issue status in the store.
+func (m *Monitor) SetIssueStatus(issueID, status string) error {
+	return m.store.SetIssueStatus(issueID, status)
+}
+
 // ListIssues fetches issues from the store.
 func (m *Monitor) ListIssues() ([]*model.Issue, error) {
 	return m.store.ListIssues()

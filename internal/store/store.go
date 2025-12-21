@@ -20,6 +20,9 @@ type Store interface {
 	// ListIssues returns all issues in the vault
 	ListIssues() ([]*model.Issue, error)
 
+	// SetIssueStatus updates an issue's status in frontmatter
+	SetIssueStatus(issueID string, status string) error
+
 	// CreateRun creates a new run for an issue
 	CreateRun(issueID, runID string, metadata map[string]string) (*model.Run, error)
 
@@ -38,9 +41,6 @@ type Store interface {
 
 	// GetLatestRun retrieves the latest run for an issue
 	GetLatestRun(issueID string) (*model.Run, error)
-
-	// SetIssueStatus updates the status of an issue
-	SetIssueStatus(issueID string, status string) error
 
 	// VaultPath returns the vault root path
 	VaultPath() string
