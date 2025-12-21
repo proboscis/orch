@@ -181,11 +181,7 @@ func (m *Monitor) SwitchChat() error {
 	if err := tmux.SelectWindow(m.session, dashboardWindowIdx); err != nil {
 		return err
 	}
-	pane, err := m.findChatPane()
-	if err != nil {
-		return err
-	}
-	return tmux.SelectPane(pane)
+	return m.selectPaneByTitle(chatPaneTitle)
 }
 
 // OpenRun links a run session into the monitor and switches to it.
@@ -763,28 +759,6 @@ func (m *Monitor) selectPaneByTitle(title string) error {
 		return err
 	}
 	return tmux.SelectPane(pane)
-}
-
-func (m *Monitor) findChatPane() (string, error) {
-	target := fmt.Sprintf("%s:%d", m.session, dashboardWindowIdx)
-	panes, err := tmux.ListPanes(target)
-	if err != nil {
-		return "", err
-	}
-	if len(panes) == 0 {
-		return "", fmt.Errorf("no panes found in %s", target)
-	}
-	for _, pane := range panes {
-		if pane.Title == chatPaneTitle {
-			return pane.ID, nil
-		}
-	}
-	for _, pane := range panes {
-		if pane.Title != runsPaneTitle && pane.Title != issuesPaneTitle {
-			return pane.ID, nil
-		}
-	}
-	return "", fmt.Errorf("pane not found: %s", chatPaneTitle)
 }
 
 func (m *Monitor) findPaneByTitle(session, title string) (string, error) {
