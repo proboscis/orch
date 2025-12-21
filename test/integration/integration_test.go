@@ -223,7 +223,7 @@ run: 20231220-100000
 		t.Fatal("expected at least one TSV line")
 	}
 
-	// TSV columns: issue_id, issue_status, run_id, short_id, status, phase, updated_at, pr_url, branch, worktree_path, tmux_session
+	// TSV columns: issue_id, issue_status, run_id, short_id, agent, status, updated_at, pr_url, branch, worktree_path, tmux_session
 	// Find our test line
 	var testLine string
 	for _, line := range lines {

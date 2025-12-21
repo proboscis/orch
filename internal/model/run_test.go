@@ -97,7 +97,6 @@ func TestRunDeriveState(t *testing.T) {
 		Events: []*Event{
 			{Timestamp: ts, Type: EventTypeStatus, Name: "queued"},
 			{Timestamp: ts.Add(time.Second), Type: EventTypeStatus, Name: "running"},
-			{Timestamp: ts.Add(2 * time.Second), Type: EventTypePhase, Name: "implement"},
 			{Timestamp: ts.Add(3 * time.Second), Type: EventTypeArtifact, Name: "worktree", Attrs: map[string]string{"path": "/tmp/wt"}},
 			{Timestamp: ts.Add(4 * time.Second), Type: EventTypeArtifact, Name: "branch", Attrs: map[string]string{"name": "feature/test"}},
 			{Timestamp: ts.Add(5 * time.Second), Type: EventTypeArtifact, Name: "session", Attrs: map[string]string{"name": "run-plc124"}},
@@ -108,9 +107,6 @@ func TestRunDeriveState(t *testing.T) {
 
 	if run.Status != StatusRunning {
 		t.Errorf("Status = %v, want running", run.Status)
-	}
-	if run.Phase != PhaseImplement {
-		t.Errorf("Phase = %v, want implement", run.Phase)
 	}
 	if run.WorktreePath != "/tmp/wt" {
 		t.Errorf("WorktreePath = %v, want /tmp/wt", run.WorktreePath)

@@ -22,6 +22,7 @@ type psOptions struct {
 	Sort         string
 	Since        string
 	AbsoluteTime bool
+	All          bool
 }
 
 type psRun struct {
@@ -47,13 +48,14 @@ func newPsCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringSliceVar(&opts.Status, "status", nil, "Filter by status (running,blocked,blocked_api,failed,pr_open,done)")
+	cmd.Flags().StringSliceVar(&opts.Status, "status", nil, "Filter by status (queued,booting,running,blocked,blocked_api,pr_open,done,resolved,failed,canceled,unknown)")
 	cmd.Flags().StringSliceVar(&opts.IssueStatus, "issue-status", nil, "Filter by issue status (open,closed,...)")
 	cmd.Flags().StringVar(&opts.Issue, "issue", "", "Filter by issue ID")
 	cmd.Flags().IntVar(&opts.Limit, "limit", 50, "Maximum number of runs to show")
 	cmd.Flags().StringVar(&opts.Sort, "sort", "updated", "Sort by (updated|started)")
 	cmd.Flags().StringVar(&opts.Since, "since", "", "Only show runs updated since (ISO8601)")
 	cmd.Flags().BoolVar(&opts.AbsoluteTime, "absolute-time", false, "Show absolute timestamps instead of relative")
+	cmd.Flags().BoolVarP(&opts.All, "all", "a", false, "Show all runs including resolved")
 
 	return cmd
 }
@@ -65,6 +67,7 @@ func runPs(opts *psOptions) error {
 	}
 
 	// Build filter
+	requestedLimit := opts.Limit
 	filter := &store.ListRunsFilter{
 		IssueID: opts.Issue,
 		Limit:   opts.Limit,
@@ -74,13 +77,21 @@ func runPs(opts *psOptions) error {
 		filter.Limit = 0
 	}
 
-	for _, s := range opts.Status {
-		filter.Status = append(filter.Status, model.Status(s))
+	if len(opts.Status) > 0 {
+		for _, s := range opts.Status {
+			filter.Status = append(filter.Status, model.Status(s))
+		}
+	} else if !opts.All {
+		filter.Limit = 0
 	}
 
 	runs, err := st.ListRuns(filter)
 	if err != nil {
 		return err
+	}
+
+	if len(opts.Status) == 0 && !opts.All {
+		runs = filterResolvedRuns(runs)
 	}
 
 	issueStatusFilter := make(map[string]bool)
@@ -92,8 +103,8 @@ func runPs(opts *psOptions) error {
 	}
 
 	psRuns := buildPsRuns(st, runs, issueStatusFilter)
-	if opts.Limit > 0 && len(psRuns) > opts.Limit {
-		psRuns = psRuns[:opts.Limit]
+	if requestedLimit > 0 && len(psRuns) > requestedLimit {
+		psRuns = psRuns[:requestedLimit]
 	}
 
 	now := time.Now()
@@ -152,8 +163,8 @@ func outputJSON(runs []psRun, now time.Time) error {
 		IssueStatus  string `json:"issue_status"`
 		RunID        string `json:"run_id"`
 		ShortID      string `json:"short_id"`
+		Agent        string `json:"agent,omitempty"`
 		Status       string `json:"status"`
-		Phase        string `json:"phase,omitempty"`
 		UpdatedAt    string `json:"updated_at"`
 		UpdatedAgo   string `json:"updated_ago"`
 		StartedAt    string `json:"started_at"`
@@ -178,8 +189,8 @@ func outputJSON(runs []psRun, now time.Time) error {
 			IssueStatus:  r.IssueStatus,
 			RunID:        run.RunID,
 			ShortID:      run.ShortID(),
+			Agent:        run.Agent,
 			Status:       string(run.Status),
-			Phase:        string(run.Phase),
 			UpdatedAt:    run.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			UpdatedAgo:   formatRelativeTime(run.UpdatedAt, now),
 			StartedAt:    run.StartedAt.Format("2006-01-02T15:04:05Z07:00"),
@@ -196,7 +207,7 @@ func outputJSON(runs []psRun, now time.Time) error {
 }
 
 // TSV columns (fixed order per spec):
-// issue_id, issue_status, run_id, short_id, status, phase, updated_at, pr_url, branch, worktree_path, tmux_session
+// issue_id, issue_status, run_id, short_id, agent, status, updated_at, pr_url, branch, worktree_path, tmux_session
 func outputTSV(runs []psRun) error {
 	for _, r := range runs {
 		run := r.Run
@@ -205,8 +216,8 @@ func outputTSV(runs []psRun) error {
 			r.IssueStatus,
 			run.RunID,
 			run.ShortID(),
+			run.Agent,
 			run.Status,
-			run.Phase,
 			run.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			run.PRUrl,
 			run.Branch,
@@ -228,7 +239,7 @@ func outputTable(runs []psRun, now time.Time, absoluteTime bool) error {
 	mergedBranches := mergedBranchesForRuns(runs)
 
 	// Collect data rows
-	headers := []string{"ID", "ISSUE", "ISSUE-ST", "STATUS", "PHASE", "MERGED", "UPDATED", "SUMMARY"}
+	headers := []string{"ID", "ISSUE", "ISSUE-ST", "STATUS", "AGENT", "MERGED", "UPDATED", "SUMMARY"}
 	var rows [][]string
 
 	for _, r := range runs {
@@ -241,6 +252,11 @@ func outputTable(runs []psRun, now time.Time, absoluteTime bool) error {
 		issueStatus := r.IssueStatus
 		if issueStatus == "" {
 			issueStatus = "-"
+		}
+
+		displayID := run.ShortID()
+		if _, err := os.Stat(run.WorktreePath); os.IsNotExist(err) {
+			displayID += "*"
 		}
 
 		// Get issue summary, truncate if too long
@@ -256,17 +272,17 @@ func outputTable(runs []psRun, now time.Time, absoluteTime bool) error {
 			merged = "yes"
 		}
 
-		phase := string(run.Phase)
-		if phase == "" {
-			phase = "-"
+		agent := run.Agent
+		if agent == "" {
+			agent = "-"
 		}
 
 		rows = append(rows, []string{
-			run.ShortID(),
+			displayID,
 			run.IssueID,
 			issueStatus,
 			colorStatus(run.Status),
-			phase,
+			agent,
 			merged,
 			updated,
 			summary,
@@ -350,6 +366,7 @@ func colorStatus(status model.Status) string {
 		model.StatusBlockedAPI: "\033[33m", // yellow
 		model.StatusFailed:     "\033[31m", // red
 		model.StatusDone:       "\033[34m", // blue
+		model.StatusResolved:   "\033[90m", // gray
 		model.StatusPROpen:     "\033[36m", // cyan
 		model.StatusQueued:     "\033[37m", // white
 		model.StatusBooting:    "\033[32m", // green
@@ -382,7 +399,11 @@ func mergedBranchesForRuns(runs []psRun) map[string]bool {
 		return nil
 	}
 
-	merged, err := git.GetMergedBranches(repoRoot, "main")
+	merged, err := git.GetMergedBranches(repoRoot, "origin/main")
+	if err != nil {
+		// Fallback to local main if origin/main is not available
+		merged, err = git.GetMergedBranches(repoRoot, "main")
+	}
 	if err != nil {
 		return nil
 	}
@@ -411,6 +432,19 @@ func mergedBranchesForRuns(runs []psRun) map[string]bool {
 	}
 
 	return mergedForRuns
+}
+
+func filterResolvedRuns(runs []*model.Run) []*model.Run {
+	if len(runs) == 0 {
+		return runs
+	}
+	filtered := make([]*model.Run, 0, len(runs))
+	for _, run := range runs {
+		if run.Status != model.StatusResolved {
+			filtered = append(filtered, run)
+		}
+	}
+	return filtered
 }
 
 // parseStatusList parses a comma-separated status list

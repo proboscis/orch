@@ -85,7 +85,7 @@ Use --dry-run to see what would be deleted without actually deleting.`,
 
 	cmd.Flags().BoolVar(&opts.All, "all", false, "Delete all runs for the specified issue")
 	cmd.Flags().StringVar(&opts.OlderThan, "older-than", "", "Delete runs older than duration (e.g., 7d, 2w, 1m)")
-	cmd.Flags().StringVar(&opts.Status, "status", "", "Only delete runs with specific status (done/failed/canceled)")
+	cmd.Flags().StringVar(&opts.Status, "status", "", "Only delete runs with specific status (done/failed/canceled/resolved)")
 	cmd.Flags().BoolVar(&opts.Force, "force", false, "Skip confirmation prompt")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Show what would be deleted without deleting")
 	cmd.Flags().BoolVar(&opts.WithWorktree, "with-worktree", false, "Also remove git worktree")
@@ -130,7 +130,7 @@ func parseStatus(s string) ([]model.Status, error) {
 
 	status := model.Status(s)
 	switch status {
-	case model.StatusDone, model.StatusFailed, model.StatusCanceled:
+	case model.StatusDone, model.StatusResolved, model.StatusFailed, model.StatusCanceled:
 		return []model.Status{status}, nil
 	case model.StatusRunning, model.StatusBooting, model.StatusBlocked, model.StatusBlockedAPI, model.StatusQueued:
 		return nil, fmt.Errorf("cannot delete %s runs (use 'orch stop' first)", status)
