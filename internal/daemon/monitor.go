@@ -216,6 +216,8 @@ func (d *Daemon) isWaitingForInput(output string) bool {
 		// Permission dialog
 		"No, and tell Claude what to do differently",
 		"tell Claude what to do differently",
+		// Gemini input prompt
+		"Type your message",
 		// Input prompt (with text typed)
 		"↵ send",
 		// Input prompt (empty/idle)

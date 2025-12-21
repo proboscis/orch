@@ -56,6 +56,9 @@ func TestPromptDetection(t *testing.T) {
 	if !d.isWaitingForInput("accept edits to continue") {
 		t.Fatal("expected prompt detection")
 	}
+	if !d.isWaitingForInput("Type your message or @path/to/file") {
+		t.Fatal("expected gemini prompt detection")
+	}
 	if d.isWaitingForInput("no prompts here") {
 		t.Fatal("unexpected prompt detection")
 	}
