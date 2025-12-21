@@ -8,6 +8,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/store"
 	"github.com/spf13/cobra"
@@ -167,8 +168,10 @@ func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
 		}
 	}
 
+	mergedBranches := mergedBranchesForRuns(runs)
+
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tISSUE\tSTATUS\tPHASE\tUPDATED\tSUMMARY")
+	fmt.Fprintln(w, "ID\tISSUE\tSTATUS\tPHASE\tMERGED\tUPDATED\tSUMMARY")
 
 	for _, r := range runs {
 		updated := formatRelativeTime(r.UpdatedAt, now)
@@ -184,11 +187,17 @@ func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
 			summary = summary[:37] + "..."
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		merged := "-"
+		if r.Branch != "" && mergedBranches[r.Branch] {
+			merged = "yes"
+		}
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			r.ShortID(),
 			r.IssueID,
 			colorStatus(r.Status),
 			r.Phase,
+			merged,
 			updated,
 			summary,
 		)
@@ -239,6 +248,23 @@ func colorStatus(status model.Status) string {
 		return color + string(status) + reset
 	}
 	return string(status)
+}
+
+func mergedBranchesForRuns(runs []*model.Run) map[string]bool {
+	for _, r := range runs {
+		if r.Branch != "" {
+			repoRoot, err := git.FindRepoRoot("")
+			if err != nil {
+				return nil
+			}
+			merged, err := git.GetMergedBranches(repoRoot, "main")
+			if err != nil {
+				return nil
+			}
+			return merged
+		}
+	}
+	return nil
 }
 
 // parseStatusList parses a comma-separated status list

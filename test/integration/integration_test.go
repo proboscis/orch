@@ -67,6 +67,13 @@ func runOrch(t *testing.T, args ...string) (string, error) {
 
 func createTestIssue(t *testing.T, id, content string) {
 	t.Helper()
+	if !strings.Contains(content, "type: issue") {
+		if strings.HasPrefix(content, "---\n") {
+			content = strings.Replace(content, "---\n", "---\ntype: issue\n", 1)
+		} else {
+			content = "---\ntype: issue\n---\n" + content
+		}
+	}
 	path := filepath.Join(testVault, "issues", id+".md")
 	content = ensureIssueType(content)
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
