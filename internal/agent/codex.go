@@ -21,8 +21,8 @@ func (a *CodexAdapter) IsAvailable() bool {
 func (a *CodexAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 	var args []string
 
-	// codex CLI with full-auto approval mode
-	args = append(args, "codex", "--full-auto")
+	// codex CLI with yolo mode
+	args = append(args, "codex", "--yolo")
 
 	// Add the prompt
 	if cfg.Prompt != "" {
