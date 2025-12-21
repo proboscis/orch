@@ -20,6 +20,7 @@ const (
 	defaultSessionName  = "orch-monitor"
 	dashboardWindowName = "dashboard"
 	dashboardWindowIdx  = 0
+	runViewWindowIdx    = 1
 )
 
 const (
@@ -51,8 +52,6 @@ type Monitor struct {
 	forceNew     bool
 	runs         []*RunWindow
 	dashboard    *Dashboard
-	activeRun    string
-	activeTitle  string
 }
 
 // RunWindow links a run to a dashboard index.
@@ -163,7 +162,7 @@ func (m *Monitor) SwitchWindow(index int) error {
 
 // SwitchRuns switches to the runs dashboard window.
 func (m *Monitor) SwitchRuns() error {
-	if err := m.CloseRunPane(); err != nil {
+	if err := tmux.SelectWindow(m.session, dashboardWindowIdx); err != nil {
 		return err
 	}
 	return m.selectPaneByTitle(runsPaneTitle)
@@ -171,7 +170,7 @@ func (m *Monitor) SwitchRuns() error {
 
 // SwitchIssues switches to the issues dashboard window.
 func (m *Monitor) SwitchIssues() error {
-	if err := m.CloseRunPane(); err != nil {
+	if err := tmux.SelectWindow(m.session, dashboardWindowIdx); err != nil {
 		return err
 	}
 	return m.selectPaneByTitle(issuesPaneTitle)
@@ -179,7 +178,7 @@ func (m *Monitor) SwitchIssues() error {
 
 // SwitchChat switches to the agent chat window.
 func (m *Monitor) SwitchChat() error {
-	if err := m.CloseRunPane(); err != nil {
+	if err := tmux.SelectWindow(m.session, dashboardWindowIdx); err != nil {
 		return err
 	}
 	pane, err := m.findChatPane()
@@ -213,67 +212,25 @@ func (m *Monitor) OpenRun(run *model.Run) error {
 	if err := m.ensurePaneLayout(); err != nil {
 		return err
 	}
-	if err := m.CloseRunPane(); err != nil {
+	if m.hasRunWindow() {
+		if err := tmux.UnlinkWindow(m.session, runViewWindowIdx); err != nil {
+			return err
+		}
+	}
+	if err := tmux.LinkWindow(sessionName, 0, m.session, runViewWindowIdx); err != nil {
 		return err
 	}
-
-	chatPane, err := m.findChatPane()
-	if err != nil {
-		return err
-	}
-	runPane, err := m.findPaneByTitle(sessionName, "")
-	if err != nil {
-		return err
-	}
-	if err := tmux.SwapPane(runPane, chatPane); err != nil {
-		return err
-	}
-
-	// After SwapPane, the pane contents are swapped but pane IDs remain unchanged:
-	// - chatPane (in monitor session) now contains the run's terminal
-	// - runPane (in run session) now contains the chat terminal
-	// We set titles and select based on this swapped state.
-	title := runWindowTitle(run)
-	_ = tmux.SetPaneTitle(chatPane, title)      // chatPane now shows the run
-	_ = tmux.SetPaneTitle(runPane, chatPaneTitle) // runPane now holds the chat
-	m.activeRun = sessionName
-	m.activeTitle = title
-	// Select chatPane directly since it's in the monitor session and contains the run
-	return tmux.SelectPane(chatPane)
+	return tmux.SelectWindow(m.session, runViewWindowIdx)
 }
 
-// CloseRunPane restores the chat pane if a run is open.
-func (m *Monitor) CloseRunPane() error {
-	if m.activeRun == "" {
-		return nil
+// CloseRun closes the run view window if present and returns to the dashboard.
+func (m *Monitor) CloseRun() error {
+	if m.hasRunWindow() {
+		if err := tmux.UnlinkWindow(m.session, runViewWindowIdx); err != nil {
+			return err
+		}
 	}
-	runTitle := m.activeTitle
-	// Find the pane in monitor session that's showing the run (has run title)
-	monitorPane, err := m.findPaneByTitle(m.session, runTitle)
-	if err != nil {
-		m.activeRun = ""
-		m.activeTitle = ""
-		return nil
-	}
-	// Find the pane in run session that's holding the chat (has chat title)
-	runSessionPane, err := m.findPaneByTitle(m.activeRun, chatPaneTitle)
-	if err != nil {
-		m.activeRun = ""
-		m.activeTitle = ""
-		return nil
-	}
-	// Swap them back: monitor gets chat content, run session gets run content
-	if err := tmux.SwapPane(runSessionPane, monitorPane); err != nil {
-		return err
-	}
-	// After swap:
-	// - monitorPane now has chat content -> set to "chat"
-	// - runSessionPane now has run content -> set to run title
-	_ = tmux.SetPaneTitle(monitorPane, chatPaneTitle)
-	_ = tmux.SetPaneTitle(runSessionPane, runTitle)
-	m.activeRun = ""
-	m.activeTitle = ""
-	return nil
+	return tmux.SelectWindow(m.session, dashboardWindowIdx)
 }
 
 // Quit terminates the monitor tmux session.
@@ -800,13 +757,6 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
 }
 
-func runWindowTitle(run *model.Run) string {
-	if run == nil {
-		return "run"
-	}
-	return fmt.Sprintf("%s#%s", run.IssueID, run.RunID)
-}
-
 func (m *Monitor) selectPaneByTitle(title string) error {
 	pane, err := m.findPaneByTitle(m.session, title)
 	if err != nil {
@@ -859,6 +809,10 @@ func (m *Monitor) findPaneByTitle(session, title string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("pane not found: %s", title)
+}
+
+func (m *Monitor) hasRunWindow() bool {
+	return tmux.HasWindow(m.session, runViewWindowIdx)
 }
 
 func hasPaneLayout(panes []tmux.Pane) bool {

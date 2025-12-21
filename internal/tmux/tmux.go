@@ -230,6 +230,20 @@ func ListWindows(session string) ([]Window, error) {
 	return windows, nil
 }
 
+// HasWindow checks if a window index exists in the session.
+func HasWindow(session string, index int) bool {
+	windows, err := ListWindows(session)
+	if err != nil {
+		return false
+	}
+	for _, window := range windows {
+		if window.Index == index {
+			return true
+		}
+	}
+	return false
+}
+
 // ListPanes returns panes for a window target (session:window).
 func ListPanes(target string) ([]Pane, error) {
 	cmd := execCommand("tmux", "list-panes", "-t", target, "-F", "#{pane_id}:#{pane_index}:#{pane_title}:#{pane_current_command}")
@@ -300,6 +314,20 @@ func MoveWindow(session, source string, index int) error {
 	src := fmt.Sprintf("%s:%s", session, source)
 	target := fmt.Sprintf("%s:%d", session, index)
 	cmd := execCommand("tmux", "move-window", "-s", src, "-t", target)
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// JoinPane joins a pane into another target.
+func JoinPane(source, target string) error {
+	cmd := execCommand("tmux", "join-pane", "-s", source, "-t", target)
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// MovePane moves a pane to another target.
+func MovePane(source, target string) error {
+	cmd := execCommand("tmux", "move-pane", "-s", source, "-t", target)
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }

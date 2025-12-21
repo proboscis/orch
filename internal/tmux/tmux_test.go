@@ -195,6 +195,36 @@ func TestMoveWindow(t *testing.T) {
 	}
 }
 
+func TestHasWindow(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{output: "0:dashboard:@1\n2:run:@2\n"}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	if !HasWindow("sess", 2) {
+		t.Fatal("expected window to exist")
+	}
+
+	if len(exec.recorded) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(exec.recorded))
+	}
+	call := exec.recorded[0]
+	if !equalArgs(call.args, []string{"list-windows", "-t", "sess", "-F", "#{window_index}:#{window_name}:#{window_id}"}) {
+		t.Fatalf("list-windows args = %v", call.args)
+	}
+}
+
+func TestHasWindowMissing(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{output: "0:dashboard:@1\n"}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	if HasWindow("sess", 2) {
+		t.Fatal("expected window to be missing")
+	}
+}
+
 func TestRenameWindow(t *testing.T) {
 	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
 	orig := execCommand
@@ -270,6 +300,36 @@ func TestKillPane(t *testing.T) {
 	}
 }
 
+func TestJoinPane(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	if err := JoinPane("%1", "%2"); err != nil {
+		t.Fatalf("JoinPane error: %v", err)
+	}
+	call := exec.recorded[0]
+	if !equalArgs(call.args, []string{"join-pane", "-s", "%1", "-t", "%2"}) {
+		t.Fatalf("join-pane args = %v", call.args)
+	}
+}
+
+func TestMovePane(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	if err := MovePane("%1", "%2"); err != nil {
+		t.Fatalf("MovePane error: %v", err)
+	}
+	call := exec.recorded[0]
+	if !equalArgs(call.args, []string{"move-pane", "-s", "%1", "-t", "%2"}) {
+		t.Fatalf("move-pane args = %v", call.args)
+	}
+}
+
 func TestSwapPane(t *testing.T) {
 	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
 	orig := execCommand
@@ -309,9 +369,17 @@ func TestSetPaneTitle(t *testing.T) {
 	if err := SetPaneTitle("%1", "chat"); err != nil {
 		t.Fatalf("SetPaneTitle error: %v", err)
 	}
-	call := exec.recorded[0]
-	if !equalArgs(call.args, []string{"select-pane", "-t", "%1", "-T", "chat"}) {
-		t.Fatalf("set-pane-title args = %v", call.args)
+
+	if len(exec.recorded) != 2 {
+		t.Fatalf("expected 2 calls, got %d", len(exec.recorded))
+	}
+	first := exec.recorded[0]
+	if !equalArgs(first.args, []string{"display-message", "-p", "#{pane_id}"}) {
+		t.Fatalf("display-message args = %v", first.args)
+	}
+	second := exec.recorded[1]
+	if !equalArgs(second.args, []string{"select-pane", "-t", "%1", "-T", "chat"}) {
+		t.Fatalf("set-pane-title args = %v", second.args)
 	}
 }
 
