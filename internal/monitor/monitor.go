@@ -495,7 +495,20 @@ func (m *Monitor) ContinueRun(issueID, branch, agentType, prompt string) (string
 	if agentType != "" {
 		args = append(args, "--agent", agentType)
 	}
+	return m.runContinueCmd(args, prompt)
+}
 
+// ContinueRunFromRef launches a continue run by invoking orch with a run ref.
+func (m *Monitor) ContinueRunFromRef(ref, agentType, prompt string) (string, error) {
+	args := append([]string{}, m.globalFlags...)
+	args = append(args, "continue", ref)
+	if agentType != "" {
+		args = append(args, "--agent", agentType)
+	}
+	return m.runContinueCmd(args, prompt)
+}
+
+func (m *Monitor) runContinueCmd(args []string, prompt string) (string, error) {
 	cmd := exec.Command(m.orchPath, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
