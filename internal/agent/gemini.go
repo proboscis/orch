@@ -21,24 +21,20 @@ func (a *GeminiAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 	var args []string
 
 	// gemini CLI with yolo mode
-	// Note: We don't pass -p flag here because Gemini exits after processing
-	// the prompt. Instead, the prompt is sent via tmux send-keys to keep
-	// the interactive session open. See PromptInjection() method.
 	args = append(args, "gemini", "--yolo")
+	if cfg.Prompt != "" {
+		args = append(args, "--prompt-interactive", doubleQuote(cfg.Prompt))
+	}
 
 	return strings.Join(args, " "), nil
 }
 
 func (a *GeminiAdapter) PromptInjection() InjectionMethod {
-	return InjectionTmux
+	return InjectionArg
 }
 
 func (a *GeminiAdapter) ReadyPattern() string {
-	// Gemini shows this prompt when ready for input:
-	// ╭────────────────────────────────────────────────────────╮
-	// │ *   Type your message or @path/to/file                 │
-	// ╰────────────────────────────────────────────────────────╯
-	return "Type your message"
+	return "" // Prompt passed via command line.
 }
 
 var _ Adapter = (*GeminiAdapter)(nil)
