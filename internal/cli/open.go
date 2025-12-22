@@ -3,11 +3,11 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 
 	"github.com/s22625/orch/internal/model"
 	"github.com/spf13/cobra"
@@ -134,15 +134,20 @@ func openFile(path, app, vaultPath string) error {
 }
 
 func openInObsidian(path, vaultPath string) error {
-	// Obsidian URI format: obsidian://open?vault=NAME&file=PATH
-	// The path should be relative to the vault
-	relPath := strings.TrimPrefix(path, vaultPath)
-	relPath = strings.TrimPrefix(relPath, "/")
+	// Use file path based URI to avoid relying on Obsidian vault names.
+	absPath := path
+	if !filepath.IsAbs(absPath) {
+		if vaultPath == "" {
+			return fmt.Errorf("vault path is required to resolve relative path")
+		}
+		absPath = filepath.Join(vaultPath, absPath)
+	}
+	absPath, err := filepath.Abs(absPath)
+	if err != nil {
+		return err
+	}
 
-	// Get vault name from path
-	vaultName := filepath.Base(vaultPath)
-
-	uri := fmt.Sprintf("obsidian://open?vault=%s&file=%s", vaultName, relPath)
+	uri := fmt.Sprintf("obsidian://open?path=%s", url.QueryEscape(absPath))
 	return openWithSystem(uri)
 }
 
