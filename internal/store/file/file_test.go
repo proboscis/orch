@@ -106,7 +106,11 @@ func TestCreateRun(t *testing.T) {
 	createTestIssue(t, vault, "test123", "---\ntype: issue\ntitle: Test\n---\n# Test")
 
 	s, _ := New(vault)
-	run, err := s.CreateRun("test123", "20231220-100000", map[string]string{"agent": "claude"})
+	metadata := map[string]string{
+		"agent":          "claude",
+		"continued_from": "test123#20231220-090000",
+	}
+	run, err := s.CreateRun("test123", "20231220-100000", metadata)
 	if err != nil {
 		t.Fatalf("CreateRun() error = %v", err)
 	}
@@ -121,6 +125,17 @@ func TestCreateRun(t *testing.T) {
 	// Verify file exists
 	if _, err := os.Stat(run.Path); os.IsNotExist(err) {
 		t.Error("run file was not created")
+	}
+
+	loaded, err := s.GetRun(run.Ref())
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if loaded.Agent != metadata["agent"] {
+		t.Errorf("Agent = %v, want %v", loaded.Agent, metadata["agent"])
+	}
+	if loaded.ContinuedFrom != metadata["continued_from"] {
+		t.Errorf("ContinuedFrom = %v, want %v", loaded.ContinuedFrom, metadata["continued_from"])
 	}
 }
 

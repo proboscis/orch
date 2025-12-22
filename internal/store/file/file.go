@@ -415,8 +415,11 @@ func (s *FileStore) loadRun(issueID, runID, path string) (*model.Run, error) {
 				if len(parts) == 2 {
 					key := strings.TrimSpace(parts[0])
 					value := strings.TrimSpace(parts[1])
-					if key == "agent" {
+					switch key {
+					case "agent":
 						run.Agent = value
+					case "continued_from":
+						run.ContinuedFrom = value
 					}
 				}
 			}

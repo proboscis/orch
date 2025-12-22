@@ -63,6 +63,31 @@
 
 ---
 
+## orch continue RUN_REF
+
+既存runのworktree/branchを再利用して新しいrunを開始する。
+
+### オプション
+
+| オプション | 説明 |
+|-----------|------|
+| `--agent claude\|codex\|gemini\|custom` | agent種別（省略時: 元runのagent、無い場合はclaude） |
+| `--agent-cmd` | custom時の起動コマンド |
+| `--profile` | agentのprofile指定 |
+| `--tmux / --no-tmux` | デフォルトtmux |
+| `--tmux-session` | 省略時は規約生成 |
+| `--prompt-template` | プロンプトテンプレート |
+| `--no-pr` | PR作成指示を省略 |
+
+### 挙動
+
+- 対象runがアクティブならエラー（stopで停止が必要）
+- 既存worktree/branchを再利用
+- 新しいrun docを作成し、continued_fromを記録
+- agentを起動
+
+---
+
 ## orch ps
 
 runs一覧を表示（人間/機械）
