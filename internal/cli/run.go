@@ -364,7 +364,7 @@ Instructions:
 - Run tests to verify your changes work correctly
 {{- if not .NoPR}}
 - When complete, create a pull request on GitHub (an actual PR, not just a draft):
-  - Run orch pr create $ORCH_ISSUE_ID#$ORCH_RUN_ID to open the PR (or gh pr create if needed)
+  - Use gh pr create (or the GitHub UI) to open the PR
   - Title should summarize the change
   - Body should reference issue: {{.IssueID}}
   - Include a summary of changes made
@@ -428,7 +428,7 @@ func buildSimplePrompt(issue *model.Issue, opts *promptOptions) string {
 		prompt += "- Implement the changes described in the issue above\n"
 		prompt += "- Run tests to verify your changes work correctly\n"
 		prompt += "- When complete, create a pull request on GitHub (an actual PR, not just a draft):\n"
-		prompt += "  - Run orch pr create $ORCH_ISSUE_ID#$ORCH_RUN_ID to open the PR (or gh pr create if needed)\n"
+		prompt += "  - Use gh pr create (or the GitHub UI) to open the PR\n"
 		prompt += "  - Title should summarize the change\n"
 		prompt += fmt.Sprintf("  - Body should reference issue: %s\n", issue.ID)
 		prompt += "  - Include a summary of changes made\n"
