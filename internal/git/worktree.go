@@ -34,6 +34,36 @@ type WorktreeInfo struct {
 	Branch string
 }
 
+func normalizeWorktreePath(cfg *WorktreeConfig) error {
+	if cfg.WorktreePath == "" {
+		cfg.WorktreePath = filepath.Join(cfg.WorktreeRoot, cfg.IssueID, cfg.RunID)
+	}
+
+	if filepath.IsAbs(cfg.WorktreePath) {
+		cfg.WorktreePath = filepath.Clean(cfg.WorktreePath)
+		return nil
+	}
+
+	base := cfg.RepoRoot
+	if base != "" && !filepath.IsAbs(base) {
+		absBase, err := filepath.Abs(base)
+		if err != nil {
+			return fmt.Errorf("failed to resolve repo root: %w", err)
+		}
+		base = absBase
+	}
+	if base != "" {
+		cfg.WorktreePath = filepath.Join(base, cfg.WorktreePath)
+	}
+
+	absPath, err := filepath.Abs(cfg.WorktreePath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve worktree path: %w", err)
+	}
+	cfg.WorktreePath = absPath
+	return nil
+}
+
 // FindRepoRoot finds the git repository root from the current directory
 // Note: For worktrees, this returns the worktree directory, not the main repo.
 // Use FindMainRepoRoot to get the main repository root.
@@ -96,9 +126,8 @@ func CreateWorktree(cfg *WorktreeConfig) (*WorktreeResult, error) {
 		cfg.Branch = fmt.Sprintf("issue/%s/run-%s", cfg.IssueID, cfg.RunID)
 	}
 
-	// Generate worktree path if not provided
-	if cfg.WorktreePath == "" {
-		cfg.WorktreePath = filepath.Join(cfg.WorktreeRoot, cfg.IssueID, cfg.RunID)
+	if err := normalizeWorktreePath(cfg); err != nil {
+		return nil, err
 	}
 
 	// Ensure worktree parent directory exists
@@ -158,8 +187,8 @@ func CreateWorktreeFromBranch(cfg *WorktreeConfig) (*WorktreeResult, error) {
 		return nil, fmt.Errorf("branch is required")
 	}
 
-	if cfg.WorktreePath == "" {
-		cfg.WorktreePath = filepath.Join(cfg.WorktreeRoot, cfg.IssueID, cfg.RunID)
+	if err := normalizeWorktreePath(cfg); err != nil {
+		return nil, err
 	}
 
 	if err := os.MkdirAll(filepath.Dir(cfg.WorktreePath), 0755); err != nil {
