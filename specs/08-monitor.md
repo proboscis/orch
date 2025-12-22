@@ -5,7 +5,6 @@
 `orch monitor` provides an interactive terminal UI for managing multiple concurrent runs. It allows users to:
 - See all active runs at a glance
 - Switch between agent sessions with keyboard shortcuts
-- Answer blocked questions inline
 - Receive notifications on status changes
 
 ## Design Principles
@@ -45,7 +44,7 @@ All runs consolidated into one tmux session with:
 │  ● running: 1    ◐ blocked: 2    ✓ done: 0    ✗ failed: 0       │
 │                                                                  │
 ├──────────────────────────────────────────────────────────────────┤
-│  [1-9] attach   [a] answer   [s] stop   [n] new run   [q] quit   │
+│  [1-9] attach   [s] stop   [n] new run   [q] quit                │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -56,7 +55,6 @@ All runs consolidated into one tmux session with:
 | Key | Action |
 |-----|--------|
 | `1-9` | Attach to run by index |
-| `a` | Answer mode - select blocked run to answer questions |
 | `s` | Stop mode - select run to stop |
 | `n` | New run - select issue to start |
 | `r` | Refresh display |
@@ -151,45 +149,6 @@ When switching to a run window, show context header:
 └─────────────────────────────────────────────────────────────────┘
 
 < agent output below >
-```
-
-## Answer Mode
-
-When pressing `a` in dashboard:
-
-```
-┌─ ANSWER QUESTION ───────────────────────────────────────────────┐
-│                                                                  │
-│  Blocked runs with pending questions:                            │
-│                                                                  │
-│  [1] orch-008 - 2 questions                                      │
-│      Q1: Should I add color coding? (yes/no)                     │
-│      Q2: Include in JSON output? (yes/no)                        │
-│                                                                  │
-│  [2] orch-009 - 1 question                                       │
-│      Q1: Use "ago" suffix or just duration? (ago/bare)           │
-│                                                                  │
-├──────────────────────────────────────────────────────────────────┤
-│  Select run [1-2], or [Esc] to cancel:                           │
-└──────────────────────────────────────────────────────────────────┘
-```
-
-After selecting run, show question details and prompt for answer:
-
-```
-┌─ ANSWER: orch-008 Q1 ───────────────────────────────────────────┐
-│                                                                  │
-│  Question: Should I add color coding to the status column?       │
-│                                                                  │
-│  Context: Currently status is plain text. I can add ANSI         │
-│  colors like green for running, yellow for blocked, etc.         │
-│                                                                  │
-│  Choices: [y]es  [n]o  [s]kip                                    │
-│                                                                  │
-├──────────────────────────────────────────────────────────────────┤
-│  Your answer (or type custom response):                          │
-│  > _                                                             │
-└──────────────────────────────────────────────────────────────────┘
 ```
 
 ## Notifications

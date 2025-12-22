@@ -113,17 +113,6 @@ func runTick(refStr string, opts *tickOptions) error {
 			continue
 		}
 
-		// Check for unanswered questions
-		unanswered := run.UnansweredQuestions()
-		if len(unanswered) > 0 {
-			result.Skipped = append(result.Skipped, skippedRun{
-				IssueID: run.IssueID,
-				RunID:   run.RunID,
-				Reason:  fmt.Sprintf("%d unanswered questions", len(unanswered)),
-			})
-			continue
-		}
-
 		// Resume the run
 		if err := resumeRun(st, run, opts.Agent); err != nil {
 			result.Skipped = append(result.Skipped, skippedRun{
@@ -248,7 +237,7 @@ func buildResumePrompt(issue *model.Issue, run *model.Run) string {
 	if run.Status == model.StatusBlockedAPI {
 		prompt += "The previous session was blocked by API usage limits.\n"
 	} else {
-		prompt += "The previous session was blocked but all questions have been answered.\n"
+		prompt += "The previous session was blocked.\n"
 	}
 	prompt += "Please continue from where you left off.\n"
 	return prompt

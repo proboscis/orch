@@ -30,15 +30,15 @@ func TestParseEvent(t *testing.T) {
 		},
 		{
 			name:    "event with quoted attribute",
-			input:   `- 2023-12-20T10:00:00+09:00 | question | q1 | text="What should we do?"`,
+			input:   `- 2023-12-20T10:00:00+09:00 | note | n1 | text="What should we do?"`,
 			wantErr: false,
 			check: func(e *Event) bool {
-				return e.Type == EventTypeQuestion && e.Name == "q1" && e.Attrs["text"] == "What should we do?"
+				return e.Type == EventTypeNote && e.Name == "n1" && e.Attrs["text"] == "What should we do?"
 			},
 		},
 		{
 			name:    "event with multiple attributes",
-			input:   `- 2023-12-20T10:00:00+09:00 | question | q1 | text="Choose one" | choices="A,B,C"`,
+			input:   `- 2023-12-20T10:00:00+09:00 | note | n1 | text="Choose one" | choices="A,B,C"`,
 			wantErr: false,
 			check: func(e *Event) bool {
 				return e.Attrs["text"] == "Choose one" && e.Attrs["choices"] == "A,B,C"
@@ -102,11 +102,11 @@ func TestEventString(t *testing.T) {
 			name: "event with quoted attribute",
 			event: &Event{
 				Timestamp: ts,
-				Type:      EventTypeQuestion,
-				Name:      "q1",
+				Type:      EventTypeNote,
+				Name:      "n1",
 				Attrs:     map[string]string{"text": "What is this?"},
 			},
-			want: `- 2023-12-20T10:00:00+09:00 | question | q1 | text="What is this?"`,
+			want: `- 2023-12-20T10:00:00+09:00 | note | n1 | text="What is this?"`,
 		},
 	}
 
@@ -130,18 +130,15 @@ func TestNewStatusEvent(t *testing.T) {
 	}
 }
 
-func TestNewQuestionEvent(t *testing.T) {
-	event := NewQuestionEvent("q1", "What is your choice?", map[string]string{"choices": "A,B"})
-	if event.Type != EventTypeQuestion {
-		t.Errorf("expected question type, got %s", event.Type)
+func TestNewArtifactEvent(t *testing.T) {
+	event := NewArtifactEvent("worktree", map[string]string{"path": "/tmp/test"})
+	if event.Type != EventTypeArtifact {
+		t.Errorf("expected artifact type, got %s", event.Type)
 	}
-	if event.Name != "q1" {
-		t.Errorf("expected q1, got %s", event.Name)
+	if event.Name != "worktree" {
+		t.Errorf("expected worktree, got %s", event.Name)
 	}
-	if event.Attrs["text"] != "What is your choice?" {
-		t.Errorf("expected question text, got %s", event.Attrs["text"])
-	}
-	if event.Attrs["choices"] != "A,B" {
-		t.Errorf("expected choices, got %s", event.Attrs["choices"])
+	if event.Attrs["path"] != "/tmp/test" {
+		t.Errorf("expected path attr, got %s", event.Attrs["path"])
 	}
 }

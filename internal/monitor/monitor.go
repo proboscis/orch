@@ -299,14 +299,6 @@ func (m *Monitor) Quit() error {
 	return tmux.KillSession(m.session)
 }
 
-// AnswerQuestion appends an answer event for a run.
-func (m *Monitor) AnswerQuestion(run *model.Run, questionID, text string) error {
-	if strings.TrimSpace(text) == "" {
-		return fmt.Errorf("answer text is required")
-	}
-	return m.store.AppendEvent(run.Ref(), model.NewAnswerEvent(questionID, text, "user"))
-}
-
 // StopRun kills the run tmux session and marks the run canceled.
 func (m *Monitor) StopRun(run *model.Run) error {
 	if isTerminalStatus(run.Status) {
