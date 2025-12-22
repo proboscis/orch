@@ -64,6 +64,9 @@ type Run struct {
 	TmuxSession  string
 	TmuxWindowID string
 	PRUrl        string
+
+	// Frontmatter metadata
+	ContinuedFrom string
 }
 
 // Ref returns the RunRef for this run

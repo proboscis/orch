@@ -12,13 +12,13 @@ var execCommand = exec.Command
 
 // WorktreeConfig holds configuration for worktree creation
 type WorktreeConfig struct {
-	RepoRoot      string
-	WorktreeRoot  string
-	IssueID       string
-	RunID         string
-	BaseBranch    string
-	Branch        string
-	WorktreePath  string // Computed or provided
+	RepoRoot     string
+	WorktreeRoot string
+	IssueID      string
+	RunID        string
+	BaseBranch   string
+	Branch       string
+	WorktreePath string // Computed or provided
 }
 
 // WorktreeResult contains the result of worktree creation
@@ -26,6 +26,12 @@ type WorktreeResult struct {
 	WorktreePath string
 	Branch       string
 	BaseBranch   string
+}
+
+// WorktreeInfo holds worktree metadata from git.
+type WorktreeInfo struct {
+	Path   string
+	Branch string
 }
 
 // FindRepoRoot finds the git repository root from the current directory
@@ -143,11 +149,113 @@ func CreateWorktree(cfg *WorktreeConfig) (*WorktreeResult, error) {
 	}, nil
 }
 
+// CreateWorktreeFromBranch creates a worktree for an existing branch without creating a new branch.
+func CreateWorktreeFromBranch(cfg *WorktreeConfig) (*WorktreeResult, error) {
+	if cfg.RepoRoot == "" {
+		return nil, fmt.Errorf("repo root is required")
+	}
+	if cfg.Branch == "" {
+		return nil, fmt.Errorf("branch is required")
+	}
+
+	if cfg.WorktreePath == "" {
+		cfg.WorktreePath = filepath.Join(cfg.WorktreeRoot, cfg.IssueID, cfg.RunID)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(cfg.WorktreePath), 0755); err != nil {
+		return nil, fmt.Errorf("failed to create worktree parent directory: %w", err)
+	}
+
+	if _, err := os.Stat(cfg.WorktreePath); err == nil {
+		return nil, fmt.Errorf("worktree path already exists: %s", cfg.WorktreePath)
+	}
+
+	args := []string{
+		"-C", cfg.RepoRoot,
+		"worktree", "add",
+		cfg.WorktreePath,
+		cfg.Branch,
+	}
+	cmd := execCommand("git", args...)
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to create worktree: %w", err)
+	}
+
+	return &WorktreeResult{
+		WorktreePath: cfg.WorktreePath,
+		Branch:       cfg.Branch,
+	}, nil
+}
+
 // RemoveWorktree removes a git worktree
 func RemoveWorktree(repoRoot, worktreePath string) error {
 	cmd := execCommand("git", "-C", repoRoot, "worktree", "remove", worktreePath, "--force")
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// ListWorktreeInfos returns detailed worktree information for a repository.
+func ListWorktreeInfos(repoRoot string) ([]WorktreeInfo, error) {
+	if repoRoot == "" {
+		var err error
+		repoRoot, err = FindRepoRoot("")
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	cmd := execCommand("git", "-C", repoRoot, "worktree", "list", "--porcelain")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	var infos []WorktreeInfo
+	var current *WorktreeInfo
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "worktree ") {
+			if current != nil {
+				infos = append(infos, *current)
+			}
+			current = &WorktreeInfo{Path: strings.TrimPrefix(line, "worktree ")}
+			continue
+		}
+		if current == nil {
+			continue
+		}
+		if strings.HasPrefix(line, "branch ") {
+			ref := strings.TrimPrefix(line, "branch ")
+			if ref != "(detached)" {
+				current.Branch = strings.TrimPrefix(ref, "refs/heads/")
+			}
+		}
+	}
+	if current != nil {
+		infos = append(infos, *current)
+	}
+
+	return infos, nil
+}
+
+// FindWorktreesByBranch returns worktrees that have the specified branch checked out.
+func FindWorktreesByBranch(repoRoot, branch string) ([]WorktreeInfo, error) {
+	infos, err := ListWorktreeInfos(repoRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	var matches []WorktreeInfo
+	for _, info := range infos {
+		if info.Branch == branch {
+			matches = append(matches, info)
+		}
+	}
+	return matches, nil
 }
 
 // ListWorktrees returns all worktrees for a repository

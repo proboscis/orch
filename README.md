@@ -122,6 +122,8 @@ flowchart TD
 | Situation | Command |
 |-----------|---------|
 | Start working on an issue | `orch run ISSUE` |
+| Continue from an existing run | `orch continue ISSUE#RUN_ID` |
+| Continue from a branch | `orch continue ISSUE --branch BRANCH` |
 | Check what's running | `orch ps` |
 | Watch agent work / interact | `orch attach RUN` |
 | See run details | `orch show RUN` |

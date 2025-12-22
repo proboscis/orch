@@ -65,26 +65,28 @@ func showJSON(run *model.Run, opts *showOptions) error {
 	}
 
 	output := struct {
-		OK           bool          `json:"ok"`
-		IssueID      string        `json:"issue_id"`
-		RunID        string        `json:"run_id"`
-		Status       string        `json:"status"`
-		Phase        string        `json:"phase,omitempty"`
-		Branch       string        `json:"branch,omitempty"`
-		WorktreePath string        `json:"worktree_path,omitempty"`
-		TmuxSession  string        `json:"tmux_session,omitempty"`
-		PRUrl        string        `json:"pr_url,omitempty"`
-		Events       []eventOutput `json:"events,omitempty"`
+		OK            bool          `json:"ok"`
+		IssueID       string        `json:"issue_id"`
+		RunID         string        `json:"run_id"`
+		Status        string        `json:"status"`
+		Phase         string        `json:"phase,omitempty"`
+		ContinuedFrom string        `json:"continued_from,omitempty"`
+		Branch        string        `json:"branch,omitempty"`
+		WorktreePath  string        `json:"worktree_path,omitempty"`
+		TmuxSession   string        `json:"tmux_session,omitempty"`
+		PRUrl         string        `json:"pr_url,omitempty"`
+		Events        []eventOutput `json:"events,omitempty"`
 	}{
-		OK:           true,
-		IssueID:      run.IssueID,
-		RunID:        run.RunID,
-		Status:       string(run.Status),
-		Phase:        string(run.Phase),
-		Branch:       run.Branch,
-		WorktreePath: run.WorktreePath,
-		TmuxSession:  run.TmuxSession,
-		PRUrl:        run.PRUrl,
+		OK:            true,
+		IssueID:       run.IssueID,
+		RunID:         run.RunID,
+		Status:        string(run.Status),
+		Phase:         string(run.Phase),
+		ContinuedFrom: run.ContinuedFrom,
+		Branch:        run.Branch,
+		WorktreePath:  run.WorktreePath,
+		TmuxSession:   run.TmuxSession,
+		PRUrl:         run.PRUrl,
 	}
 
 	// Add events (tail)
@@ -121,6 +123,9 @@ func showHuman(run *model.Run, opts *showOptions) error {
 		}
 		if run.WorktreePath != "" {
 			fmt.Printf("Worktree: %s\n", run.WorktreePath)
+		}
+		if run.ContinuedFrom != "" {
+			fmt.Printf("Continued From: %s\n", run.ContinuedFrom)
 		}
 		if run.TmuxSession != "" {
 			fmt.Printf("Session:  %s\n", run.TmuxSession)

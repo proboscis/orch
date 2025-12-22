@@ -127,6 +127,89 @@ func TestCreateWorktreePathExists(t *testing.T) {
 	}
 }
 
+func TestCreateWorktreeFromBranch(t *testing.T) {
+	repo := initRepo(t)
+	runGit(t, repo, "branch", "feature-branch")
+
+	worktreeRoot := filepath.Join(repo, ".git-worktrees")
+	result, err := CreateWorktreeFromBranch(&WorktreeConfig{
+		RepoRoot:     repo,
+		WorktreeRoot: worktreeRoot,
+		IssueID:      "issue",
+		RunID:        "run",
+		Branch:       "feature-branch",
+	})
+	if err != nil {
+		t.Fatalf("CreateWorktreeFromBranch error: %v", err)
+	}
+
+	if result.Branch != "feature-branch" {
+		t.Fatalf("Branch = %q, want %q", result.Branch, "feature-branch")
+	}
+	if _, err := os.Stat(result.WorktreePath); err != nil {
+		t.Fatalf("worktree missing: %v", err)
+	}
+
+	branch, err := GetCurrentBranch(result.WorktreePath)
+	if err != nil {
+		t.Fatalf("GetCurrentBranch error: %v", err)
+	}
+	if branch != "feature-branch" {
+		t.Fatalf("worktree branch = %q, want %q", branch, "feature-branch")
+	}
+}
+
+func TestListWorktreeInfos(t *testing.T) {
+	repo := initRepo(t)
+	worktreeRoot := filepath.Join(repo, ".git-worktrees")
+	result, err := CreateWorktree(&WorktreeConfig{
+		RepoRoot:     repo,
+		WorktreeRoot: worktreeRoot,
+		IssueID:      "issue",
+		RunID:        "run",
+	})
+	if err != nil {
+		t.Fatalf("CreateWorktree error: %v", err)
+	}
+
+	infos, err := ListWorktreeInfos(repo)
+	if err != nil {
+		t.Fatalf("ListWorktreeInfos error: %v", err)
+	}
+
+	if !containsWorktreeInfo(infos, repo, "main") {
+		t.Fatalf("expected main worktree info for %s", repo)
+	}
+	if !containsWorktreeInfo(infos, result.WorktreePath, result.Branch) {
+		t.Fatalf("expected worktree info for %s branch %s", result.WorktreePath, result.Branch)
+	}
+}
+
+func TestFindWorktreesByBranch(t *testing.T) {
+	repo := initRepo(t)
+	worktreeRoot := filepath.Join(repo, ".git-worktrees")
+	result, err := CreateWorktree(&WorktreeConfig{
+		RepoRoot:     repo,
+		WorktreeRoot: worktreeRoot,
+		IssueID:      "issue",
+		RunID:        "run",
+	})
+	if err != nil {
+		t.Fatalf("CreateWorktree error: %v", err)
+	}
+
+	matches, err := FindWorktreesByBranch(repo, result.Branch)
+	if err != nil {
+		t.Fatalf("FindWorktreesByBranch error: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 match, got %d", len(matches))
+	}
+	if !containsPath([]string{matches[0].Path}, result.WorktreePath) {
+		t.Fatalf("unexpected match path: %s", matches[0].Path)
+	}
+}
+
 func containsPath(paths []string, want string) bool {
 	wantEval, err := filepath.EvalSymlinks(want)
 	if err != nil {
@@ -138,6 +221,23 @@ func containsPath(paths []string, want string) bool {
 			gotEval = p
 		}
 		if gotEval == wantEval {
+			return true
+		}
+	}
+	return false
+}
+
+func containsWorktreeInfo(infos []WorktreeInfo, wantPath, wantBranch string) bool {
+	wantEval, err := filepath.EvalSymlinks(wantPath)
+	if err != nil {
+		wantEval = wantPath
+	}
+	for _, info := range infos {
+		gotEval, err := filepath.EvalSymlinks(info.Path)
+		if err != nil {
+			gotEval = info.Path
+		}
+		if gotEval == wantEval && info.Branch == wantBranch {
 			return true
 		}
 	}
