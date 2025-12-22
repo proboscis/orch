@@ -900,13 +900,14 @@ func (d *IssueDashboard) renderDetails(maxLines int) string {
 		title = issue.Issue.ID
 	}
 
+	contentWidth := d.safeWidth()
 	lines := []string{
 		d.styles.Header.Render("DETAILS"),
-		fmt.Sprintf("ID: %s", issue.ID),
-		fmt.Sprintf("Title: %s", title),
-		fmt.Sprintf("Status: %s", issue.Status),
-		fmt.Sprintf("Active runs: %d", issue.ActiveRuns),
 	}
+	lines = append(lines, wrapLabelValue("ID: ", issue.ID, contentWidth)...)
+	lines = append(lines, wrapLabelValue("Title: ", title, contentWidth)...)
+	lines = append(lines, wrapLabelValue("Status: ", issue.Status, contentWidth)...)
+	lines = append(lines, wrapLabelValue("Active runs: ", fmt.Sprintf("%d", issue.ActiveRuns), contentWidth)...)
 
 	latest := "-"
 	if issue.LatestRunID != "" {
@@ -914,9 +915,9 @@ func (d *IssueDashboard) renderDetails(maxLines int) string {
 	}
 	if issue.LatestRunID != "" {
 		updated := formatRelativeTime(issue.LatestUpdated, time.Now())
-		lines = append(lines, fmt.Sprintf("Latest run: %s, %s", latest, updated))
+		lines = append(lines, wrapLabelValue("Latest run: ", fmt.Sprintf("%s, %s", latest, updated), contentWidth)...)
 	} else {
-		lines = append(lines, fmt.Sprintf("Latest run: %s", latest))
+		lines = append(lines, wrapLabelValue("Latest run: ", latest, contentWidth)...)
 	}
 
 	summary := issue.Summary
@@ -925,7 +926,7 @@ func (d *IssueDashboard) renderDetails(maxLines int) string {
 	}
 	if strings.TrimSpace(summary) != "" {
 		lines = append(lines, "Summary:")
-		lines = append(lines, wrapText(summary, d.safeWidth()-2)...)
+		lines = append(lines, wrapText(summary, contentWidth)...)
 	}
 
 	if maxLines > 0 && len(lines) > maxLines {
