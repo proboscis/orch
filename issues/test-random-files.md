@@ -2,7 +2,7 @@
 type: issue
 id: test-random-files
 title: Create 10 random sample files
-status: open
+status: resolved
 ---
 
 # Create 10 random sample files

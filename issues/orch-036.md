@@ -2,7 +2,7 @@
 type: issue
 id: orch-036
 title: Refactor monitor pane management to eliminate swap-based architecture
-status: open
+status: resolved
 ---
 
 # Refactor monitor pane management to eliminate swap-based architecture
