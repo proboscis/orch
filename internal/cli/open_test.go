@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -44,7 +45,11 @@ func TestOpenInObsidianBuildsURI(t *testing.T) {
 		t.Fatalf("read capture: %v", err)
 	}
 
-	want := fmt.Sprintf("obsidian://open?vault=%s&file=issues/issue.md", filepath.Base(vaultPath))
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		t.Fatalf("abs path: %v", err)
+	}
+	want := fmt.Sprintf("obsidian://open?path=%s", url.QueryEscape(absPath))
 	if string(data) != want {
 		t.Fatalf("uri = %q, want %q", string(data), want)
 	}
