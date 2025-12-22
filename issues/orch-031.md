@@ -2,7 +2,7 @@
 type: issue
 id: orch-031
 title: Show PR info in monitor run panel
-status: open
+status: resolved
 ---
 
 # Show PR info in monitor run panel

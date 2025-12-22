@@ -2,7 +2,7 @@
 type: issue
 id: orch-033
 title: Add tmux-based agent communication commands
-status: open
+status: resolved
 ---
 
 # Add tmux-based agent communication commands

@@ -2,7 +2,7 @@
 type: issue
 id: state-model-refactor
 title: Separate issue resolution from run lifecycle states
-status: open
+status: resolved
 ---
 
 # Separate issue resolution from run lifecycle states

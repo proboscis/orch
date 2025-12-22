@@ -2,7 +2,7 @@
 type: issue
 id: orch-032
 title: Add resolve keybinding (R) to orch monitor
-status: open
+status: resolved
 ---
 
 # Add resolve keybinding (R) to orch monitor

@@ -3,7 +3,7 @@ type: issue
 id: orch-023
 title: Integrated TUI for runs, issues, and agent chat control
 summary: Combine run/issue dashboards and an agent chat panel into a single interactive UI
-status: open
+status: resolved
 priority: high
 ---
 

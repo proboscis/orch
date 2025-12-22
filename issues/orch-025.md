@@ -3,7 +3,7 @@ type: issue
 id: orch-025
 title: Fix Gemini CLI interactive session termination
 summary: Modify Gemini agent integration to keep the interactive session open after the initial prompt
-status: open
+status: resolved
 priority: high
 ---
 
