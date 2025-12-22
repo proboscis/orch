@@ -2,8 +2,6 @@ package monitor
 
 import (
 	"fmt"
-	"os/exec"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -12,7 +10,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
-	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 )
 
@@ -76,9 +73,6 @@ type errMsg struct {
 	err error
 }
 
-type execFinishedMsg struct {
-	err error
-}
 
 // NewDashboard creates a dashboard model.
 func NewDashboard(m *Monitor) *Dashboard {
@@ -136,12 +130,6 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		d.message = msg.err.Error()
 		d.refreshing = false
 		return d, nil
-	case execFinishedMsg:
-		if msg.err != nil {
-			d.message = msg.err.Error()
-		}
-		d.refreshing = true
-		return d, d.refreshCmd()
 	case tickMsg:
 		if d.refreshing {
 			return d, d.tickCmd()
@@ -418,43 +406,12 @@ func (d *Dashboard) resolveRunCmd(run *model.Run) tea.Cmd {
 }
 
 func (d *Dashboard) execShellCmd(run *model.Run) tea.Cmd {
-	if run == nil {
-		return func() tea.Msg {
-			return errMsg{err: fmt.Errorf("run not found")}
+	return func() tea.Msg {
+		if err := d.monitor.OpenExecWindow(run); err != nil {
+			return errMsg{err: err}
 		}
+		return nil
 	}
-
-	// Resolve worktree path
-	worktreePath := run.WorktreePath
-	if worktreePath == "" {
-		return func() tea.Msg {
-			return errMsg{err: fmt.Errorf("run has no worktree")}
-		}
-	}
-	if !filepath.IsAbs(worktreePath) {
-		repoRoot, err := git.FindMainRepoRoot("")
-		if err != nil {
-			return func() tea.Msg {
-				return errMsg{err: fmt.Errorf("could not find git repository: %w", err)}
-			}
-		}
-		worktreePath = filepath.Join(repoRoot, worktreePath)
-	}
-
-	// Create shell command
-	c := exec.Command("zsh")
-	c.Dir = worktreePath
-	c.Env = append(c.Environ(),
-		fmt.Sprintf("ORCH_ISSUE_ID=%s", run.IssueID),
-		fmt.Sprintf("ORCH_RUN_ID=%s", run.RunID),
-		fmt.Sprintf("ORCH_RUN_PATH=%s", run.Path),
-		fmt.Sprintf("ORCH_WORKTREE_PATH=%s", worktreePath),
-		fmt.Sprintf("ORCH_BRANCH=%s", run.Branch),
-	)
-
-	return tea.ExecProcess(c, func(err error) tea.Msg {
-		return execFinishedMsg{err: err}
-	})
 }
 
 func (d *Dashboard) requestMergeCmd(run *model.Run) tea.Cmd {

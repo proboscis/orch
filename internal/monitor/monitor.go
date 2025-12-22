@@ -272,6 +272,28 @@ func (m *Monitor) SwitchChat() error {
 	return tmux.SelectPane(pane)
 }
 
+// OpenExecWindow opens a new tmux window in the run's worktree and switches to it.
+func (m *Monitor) OpenExecWindow(run *model.Run) error {
+	if run == nil {
+		return fmt.Errorf("run not found")
+	}
+	worktreePath, err := resolveRunWorktreePath(run)
+	if err != nil {
+		return err
+	}
+
+	windowName := fmt.Sprintf("exec-%s-%s", run.IssueID, run.RunID)
+	if run.RunID == "" {
+		windowName = fmt.Sprintf("exec-%s", run.IssueID)
+	}
+	command := execShellCommand(run, worktreePath)
+
+	if err := tmux.NewWindow(m.session, windowName, worktreePath, command); err != nil {
+		return err
+	}
+	return nil
+}
+
 // OpenRun links a run session into the monitor and switches to it.
 func (m *Monitor) OpenRun(run *model.Run) error {
 	if run == nil {
@@ -985,6 +1007,39 @@ func shellJoin(args []string) string {
 		quoted = append(quoted, shellQuote(arg))
 	}
 	return strings.Join(quoted, " ")
+}
+
+func resolveRunWorktreePath(run *model.Run) (string, error) {
+	if run == nil {
+		return "", fmt.Errorf("run not found")
+	}
+	worktreePath := run.WorktreePath
+	if worktreePath == "" {
+		return "", fmt.Errorf("run has no worktree")
+	}
+	if filepath.IsAbs(worktreePath) {
+		return worktreePath, nil
+	}
+
+	repoRoot, err := git.FindMainRepoRoot("")
+	if err != nil {
+		return "", fmt.Errorf("could not find git repository: %w", err)
+	}
+	return filepath.Join(repoRoot, worktreePath), nil
+}
+
+func execShellCommand(run *model.Run, worktreePath string) string {
+	env := []string{
+		fmt.Sprintf("ORCH_ISSUE_ID=%s", run.IssueID),
+		fmt.Sprintf("ORCH_RUN_ID=%s", run.RunID),
+		fmt.Sprintf("ORCH_RUN_PATH=%s", run.Path),
+		fmt.Sprintf("ORCH_WORKTREE_PATH=%s", worktreePath),
+		fmt.Sprintf("ORCH_BRANCH=%s", run.Branch),
+	}
+
+	args := append([]string{"exec", "env"}, env...)
+	args = append(args, "zsh")
+	return shellJoin(args)
 }
 
 func shellQuote(s string) string {
