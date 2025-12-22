@@ -121,7 +121,6 @@ func (r *Run) GetArtifacts() map[string]map[string]string {
 	return artifacts
 }
 
-
 // DeriveState updates Status and artifacts from events
 func (r *Run) DeriveState() {
 	r.Status = r.GetStatus()
@@ -142,6 +141,13 @@ func (r *Run) DeriveState() {
 	}
 	if pr, ok := artifacts["pr"]; ok {
 		r.PRUrl = pr["url"]
+	}
+	if agentInfo, ok := artifacts["agent"]; ok {
+		if name := agentInfo["name"]; name != "" {
+			r.Agent = name
+		} else if name := agentInfo["type"]; name != "" {
+			r.Agent = name
+		}
 	}
 
 	// Derive timestamps

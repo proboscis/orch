@@ -97,6 +97,7 @@ func TestRunDeriveState(t *testing.T) {
 		Events: []*Event{
 			{Timestamp: ts, Type: EventTypeStatus, Name: "queued"},
 			{Timestamp: ts.Add(time.Second), Type: EventTypeStatus, Name: "running"},
+			{Timestamp: ts.Add(2 * time.Second), Type: EventTypeArtifact, Name: "agent", Attrs: map[string]string{"name": "codex"}},
 			{Timestamp: ts.Add(3 * time.Second), Type: EventTypeArtifact, Name: "worktree", Attrs: map[string]string{"path": "/tmp/wt"}},
 			{Timestamp: ts.Add(4 * time.Second), Type: EventTypeArtifact, Name: "branch", Attrs: map[string]string{"name": "feature/test"}},
 			{Timestamp: ts.Add(5 * time.Second), Type: EventTypeArtifact, Name: "session", Attrs: map[string]string{"name": "run-plc124"}},
@@ -116,6 +117,9 @@ func TestRunDeriveState(t *testing.T) {
 	}
 	if run.TmuxSession != "run-plc124" {
 		t.Errorf("TmuxSession = %v, want run-plc124", run.TmuxSession)
+	}
+	if run.Agent != "codex" {
+		t.Errorf("Agent = %v, want codex", run.Agent)
 	}
 }
 

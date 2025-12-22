@@ -19,6 +19,7 @@ const (
 	modeDashboard dashboardMode = iota
 	modeStopSelectRun
 	modeNewSelectIssue
+	modeSwapSelectAgent
 )
 
 type stopState struct {
@@ -29,6 +30,12 @@ type newRunState struct {
 	issues  []*model.Issue
 	cursor  int
 	loading bool
+}
+
+type swapAgentState struct {
+	run    *model.Run
+	agents []string
+	cursor int
 }
 
 // Dashboard is the bubbletea model for the monitor UI.
@@ -46,6 +53,7 @@ type Dashboard struct {
 
 	stop   stopState
 	newRun newRunState
+	swap   swapAgentState
 
 	keymap KeyMap
 	styles Styles
@@ -149,6 +157,8 @@ func (d *Dashboard) View() string {
 		return d.styles.Box.Render(d.viewStopRuns())
 	case modeNewSelectIssue:
 		return d.styles.Box.Render(d.viewNewRun())
+	case modeSwapSelectAgent:
+		return d.styles.Box.Render(d.viewSwapAgent())
 	default:
 		return d.styles.Box.Render(d.viewDashboard())
 	}
@@ -166,6 +176,8 @@ func (d *Dashboard) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d.handleStopKey(msg)
 	case modeNewSelectIssue:
 		return d.handleNewRunKey(msg)
+	case modeSwapSelectAgent:
+		return d.handleSwapAgentKey(msg)
 	default:
 		return d, nil
 	}
@@ -195,6 +207,8 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d, d.refreshCmd()
 	case "s":
 		return d.enterStopMode()
+	case d.keymap.Swap:
+		return d.enterSwapAgentMode()
 	case "n":
 		return d.enterNewRunMode()
 	case d.keymap.Resolve:
@@ -289,6 +303,46 @@ func (d *Dashboard) handleNewRunKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return d, nil
 }
 
+func (d *Dashboard) handleSwapAgentKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		d.mode = modeDashboard
+		return d, nil
+	case "q":
+		return d.quit()
+	case "enter":
+		if d.swap.cursor >= 0 && d.swap.cursor < len(d.swap.agents) {
+			agentType := d.swap.agents[d.swap.cursor]
+			run := d.swap.run
+			d.mode = modeDashboard
+			return d, d.swapAgentCmd(run, agentType)
+		}
+		return d, nil
+	case "up", "k":
+		if d.swap.cursor > 0 {
+			d.swap.cursor--
+		}
+		return d, nil
+	case "down", "j":
+		if d.swap.cursor < len(d.swap.agents)-1 {
+			d.swap.cursor++
+		}
+		return d, nil
+	}
+
+	if index, ok := parseNumberKey(msg); ok {
+		idx := index - 1
+		if idx >= 0 && idx < len(d.swap.agents) {
+			agentType := d.swap.agents[idx]
+			run := d.swap.run
+			d.mode = modeDashboard
+			return d, d.swapAgentCmd(run, agentType)
+		}
+	}
+
+	return d, nil
+}
+
 func (d *Dashboard) quit() (tea.Model, tea.Cmd) {
 	_ = d.monitor.Quit()
 	return d, tea.Quit
@@ -318,6 +372,41 @@ func (d *Dashboard) enterNewRunMode() (tea.Model, tea.Cmd) {
 	d.newRun = newRunState{loading: true}
 	d.mode = modeNewSelectIssue
 	return d, d.loadIssuesCmd()
+}
+
+func (d *Dashboard) enterSwapAgentMode() (tea.Model, tea.Cmd) {
+	if d.cursor < 0 || d.cursor >= len(d.runs) {
+		d.message = "no run selected"
+		return d, nil
+	}
+	row := d.runs[d.cursor]
+	if row.Run == nil {
+		d.message = "run not found"
+		return d, nil
+	}
+	if isTerminalStatus(row.Status) {
+		d.message = fmt.Sprintf("run %s#%s is %s", row.IssueID, row.Run.RunID, row.Status)
+		return d, nil
+	}
+
+	agents := d.monitor.GetAvailableAgents()
+	cursor := 0
+	if row.Run.Agent != "" {
+		for i, agent := range agents {
+			if agent == row.Run.Agent {
+				cursor = i
+				break
+			}
+		}
+	}
+
+	d.swap = swapAgentState{
+		run:    row.Run,
+		agents: agents,
+		cursor: cursor,
+	}
+	d.mode = modeSwapSelectAgent
+	return d, nil
 }
 
 func (d *Dashboard) refreshCmd() tea.Cmd {
@@ -355,6 +444,22 @@ func (d *Dashboard) startRunCmd(issueID string) tea.Cmd {
 		output, err := d.monitor.StartRun(issueID, "")
 		if err != nil {
 			return errMsg{err: fmt.Errorf("%s", output)}
+		}
+		return infoMsg{text: output}
+	}
+}
+
+func (d *Dashboard) swapAgentCmd(run *model.Run, agentType string) tea.Cmd {
+	return func() tea.Msg {
+		if run == nil {
+			return errMsg{err: fmt.Errorf("run not found")}
+		}
+		output, err := d.monitor.SwapAgent(run, agentType)
+		if err != nil {
+			if strings.TrimSpace(output) != "" {
+				return errMsg{err: fmt.Errorf("%s", output)}
+			}
+			return errMsg{err: err}
 		}
 		return infoMsg{text: output}
 	}
@@ -450,6 +555,49 @@ func (d *Dashboard) viewNewRun() string {
 		lines = append(lines, label)
 	}
 	lines = append(lines, "", "[Enter] start  [Esc] cancel")
+	return strings.Join(lines, "\n")
+}
+
+func (d *Dashboard) viewSwapAgent() string {
+	lines := []string{
+		d.styles.Title.Render("SWAP AGENT"),
+		"",
+	}
+
+	issueID := "-"
+	runID := "-"
+	currentAgent := "-"
+	if d.swap.run != nil {
+		if d.swap.run.IssueID != "" {
+			issueID = d.swap.run.IssueID
+		}
+		if d.swap.run.RunID != "" {
+			runID = d.swap.run.RunID
+		}
+		if d.swap.run.Agent != "" {
+			currentAgent = d.swap.run.Agent
+		}
+	}
+
+	lines = append(lines, fmt.Sprintf("Run: %s#%s", issueID, runID))
+	lines = append(lines, fmt.Sprintf("Current agent: %s", currentAgent), "")
+
+	if len(d.swap.agents) == 0 {
+		lines = append(lines, "No agents available.")
+		lines = append(lines, "", "[Esc] back")
+		return strings.Join(lines, "\n")
+	}
+
+	lines = append(lines, "Select a new agent:", "")
+	for i, agent := range d.swap.agents {
+		label := fmt.Sprintf("  [%d] %s", i+1, agent)
+		if i == d.swap.cursor {
+			label = d.styles.Selected.Render(label)
+		}
+		lines = append(lines, label)
+	}
+
+	lines = append(lines, "", "[Enter/1-9] swap  [Esc] back")
 	return strings.Join(lines, "\n")
 }
 
