@@ -852,7 +852,7 @@ func (d *Dashboard) renderFooter() string {
 func (d *Dashboard) tableWidths() (idxW, idW, issueW, issueStatusW, agentW, statusW, prW, mergedW, updatedW, topicW int) {
 	idxW = 2
 	idW = 6
-	issueW = 10
+	issueW = 14
 	issueStatusW = 8
 	agentW = 6
 	statusW = 10
