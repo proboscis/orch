@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/s22625/orch/internal/model"
 )
 
 func runGit(t *testing.T, dir string, args ...string) string {
@@ -75,12 +77,14 @@ func TestCreateWorktree(t *testing.T) {
 		WorktreeRoot: worktreeRoot,
 		IssueID:      "issue",
 		RunID:        "run",
+		Agent:        "claude",
 	})
 	if err != nil {
 		t.Fatalf("CreateWorktree error: %v", err)
 	}
 
-	wantPath := filepath.Join(worktreeRoot, "issue", "run")
+	worktreeName := model.GenerateWorktreeName("issue", "run", "claude")
+	wantPath := filepath.Join(worktreeRoot, "issue", worktreeName)
 	gotPath, err := filepath.EvalSymlinks(result.WorktreePath)
 	if err != nil {
 		t.Fatalf("EvalSymlinks worktree: %v", err)
@@ -136,12 +140,14 @@ func TestCreateWorktreeRelativeRootUsesRepoRoot(t *testing.T) {
 		WorktreeRoot: ".git-worktrees",
 		IssueID:      "issue",
 		RunID:        "run",
+		Agent:        "claude",
 	})
 	if err != nil {
 		t.Fatalf("CreateWorktree error: %v", err)
 	}
 
-	wantPath := filepath.Join(repo, ".git-worktrees", "issue", "run")
+	worktreeName := model.GenerateWorktreeName("issue", "run", "claude")
+	wantPath := filepath.Join(repo, ".git-worktrees", "issue", worktreeName)
 	gotPath, err := filepath.EvalSymlinks(result.WorktreePath)
 	if err != nil {
 		t.Fatalf("EvalSymlinks worktree: %v", err)
@@ -182,6 +188,7 @@ func TestCreateWorktreeFromBranch(t *testing.T) {
 		WorktreeRoot: worktreeRoot,
 		IssueID:      "issue",
 		RunID:        "run",
+		Agent:        "claude",
 		Branch:       "feature-branch",
 	})
 	if err != nil {
@@ -212,6 +219,7 @@ func TestListWorktreeInfos(t *testing.T) {
 		WorktreeRoot: worktreeRoot,
 		IssueID:      "issue",
 		RunID:        "run",
+		Agent:        "claude",
 	})
 	if err != nil {
 		t.Fatalf("CreateWorktree error: %v", err)
@@ -238,6 +246,7 @@ func TestFindWorktreesByBranch(t *testing.T) {
 		WorktreeRoot: worktreeRoot,
 		IssueID:      "issue",
 		RunID:        "run",
+		Agent:        "claude",
 	})
 	if err != nil {
 		t.Fatalf("CreateWorktree error: %v", err)

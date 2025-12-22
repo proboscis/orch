@@ -2,6 +2,8 @@ package monitor
 
 import (
 	"fmt"
+	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -10,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
+	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 )
 
@@ -31,6 +34,13 @@ type newRunState struct {
 	loading bool
 }
 
+type captureState struct {
+	runRef  string
+	content string
+	message string
+	loading bool
+}
+
 // Dashboard is the bubbletea model for the monitor UI.
 type Dashboard struct {
 	monitor *Monitor
@@ -43,6 +53,7 @@ type Dashboard struct {
 
 	mode    dashboardMode
 	message string
+	capture captureState
 
 	stop   stopState
 	newRun newRunState
@@ -70,6 +81,16 @@ type infoMsg struct {
 }
 
 type errMsg struct {
+	err error
+}
+
+type captureMsg struct {
+	runRef  string
+	content string
+	err     error
+}
+
+type execFinishedMsg struct {
 	err error
 }
 
@@ -115,7 +136,7 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		d.ensureCursorVisible()
-		return d, nil
+		return d, d.startCapture()
 	case issuesMsg:
 		d.newRun.issues = msg.issues
 		d.newRun.cursor = 0
@@ -129,6 +150,31 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		d.message = msg.err.Error()
 		d.refreshing = false
 		return d, nil
+	case captureMsg:
+		if msg.runRef != d.capture.runRef {
+			return d, nil
+		}
+		d.capture.loading = false
+		if msg.err != nil {
+			d.capture.content = ""
+			d.capture.message = "No capture available."
+			return d, nil
+		}
+		trimmed := strings.TrimRight(msg.content, "\n")
+		if strings.TrimSpace(trimmed) == "" {
+			d.capture.content = ""
+			d.capture.message = "No capture available."
+			return d, nil
+		}
+		d.capture.content = trimmed
+		d.capture.message = ""
+		return d, nil
+	case execFinishedMsg:
+		if msg.err != nil {
+			d.message = msg.err.Error()
+		}
+		d.refreshing = true
+		return d, d.refreshCmd()
 	case tickMsg:
 		if d.refreshing {
 			return d, d.tickCmd()
@@ -197,6 +243,11 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d.enterStopMode()
 	case "n":
 		return d.enterNewRunMode()
+	case d.keymap.Sort:
+		sortKey := d.monitor.CycleRunSort()
+		d.message = fmt.Sprintf("sort: %s", sortKey)
+		d.refreshing = true
+		return d, d.refreshCmd()
 	case d.keymap.Resolve:
 		if d.cursor >= 0 && d.cursor < len(d.runs) {
 			run := d.runs[d.cursor].Run
@@ -212,14 +263,16 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "up", "k":
 		if d.cursor > 0 {
 			d.cursor--
+			d.ensureCursorVisible()
+			return d, d.startCapture()
 		}
-		d.ensureCursorVisible()
 		return d, nil
 	case "down", "j":
 		if d.cursor < len(d.runs)-1 {
 			d.cursor++
+			d.ensureCursorVisible()
+			return d, d.startCapture()
 		}
-		d.ensureCursorVisible()
 		return d, nil
 	case "enter":
 		if d.cursor >= 0 && d.cursor < len(d.runs) {
@@ -228,6 +281,15 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				d.message = err.Error()
 			}
 		}
+		return d, nil
+	case d.keymap.Exec:
+		if d.cursor >= 0 && d.cursor < len(d.runs) {
+			run := d.runs[d.cursor].Run
+			if run != nil {
+				return d, d.execShellCmd(run)
+			}
+		}
+		d.message = "no run selected"
 		return d, nil
 	case "?":
 		d.message = d.keymap.HelpLine()
@@ -342,6 +404,34 @@ func (d *Dashboard) tickCmd() tea.Cmd {
 	})
 }
 
+func (d *Dashboard) startCapture() tea.Cmd {
+	run := d.selectedRun()
+	if run == nil {
+		d.capture = captureState{message: "No capture available."}
+		return nil
+	}
+	runRef := run.Ref().String()
+	if d.capture.runRef != runRef {
+		d.capture.content = ""
+	}
+	d.capture.runRef = runRef
+	d.capture.message = ""
+	d.capture.loading = true
+	return d.captureCmd(run, runRef)
+}
+
+func (d *Dashboard) captureCmd(run *model.Run, runRef string) tea.Cmd {
+	lines := defaultCaptureLines
+	return func() tea.Msg {
+		content, err := d.monitor.CaptureRun(run, lines)
+		return captureMsg{
+			runRef:  runRef,
+			content: content,
+			err:     err,
+		}
+	}
+}
+
 func (d *Dashboard) loadIssuesCmd() tea.Cmd {
 	return func() tea.Msg {
 		issues, err := d.monitor.ListIssues()
@@ -390,6 +480,46 @@ func (d *Dashboard) resolveRunCmd(run *model.Run) tea.Cmd {
 	}
 }
 
+func (d *Dashboard) execShellCmd(run *model.Run) tea.Cmd {
+	if run == nil {
+		return func() tea.Msg {
+			return errMsg{err: fmt.Errorf("run not found")}
+		}
+	}
+
+	// Resolve worktree path
+	worktreePath := run.WorktreePath
+	if worktreePath == "" {
+		return func() tea.Msg {
+			return errMsg{err: fmt.Errorf("run has no worktree")}
+		}
+	}
+	if !filepath.IsAbs(worktreePath) {
+		repoRoot, err := git.FindMainRepoRoot("")
+		if err != nil {
+			return func() tea.Msg {
+				return errMsg{err: fmt.Errorf("could not find git repository: %w", err)}
+			}
+		}
+		worktreePath = filepath.Join(repoRoot, worktreePath)
+	}
+
+	// Create shell command
+	c := exec.Command("zsh")
+	c.Dir = worktreePath
+	c.Env = append(c.Environ(),
+		fmt.Sprintf("ORCH_ISSUE_ID=%s", run.IssueID),
+		fmt.Sprintf("ORCH_RUN_ID=%s", run.RunID),
+		fmt.Sprintf("ORCH_RUN_PATH=%s", run.Path),
+		fmt.Sprintf("ORCH_WORKTREE_PATH=%s", worktreePath),
+		fmt.Sprintf("ORCH_BRANCH=%s", run.Branch),
+	)
+
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return execFinishedMsg{err: err}
+	})
+}
+
 func (d *Dashboard) requestMergeCmd(run *model.Run) tea.Cmd {
 	return func() tea.Msg {
 		if run == nil {
@@ -414,6 +544,7 @@ func (d *Dashboard) viewDashboard() string {
 	meta := d.renderMeta()
 	table := d.renderTable(d.tableMaxRows())
 	stats := d.renderStats()
+	capture := d.renderCapture(d.capturePaneHeight())
 	footer := d.renderFooter()
 	message := ""
 	if d.message != "" {
@@ -431,6 +562,9 @@ func (d *Dashboard) viewDashboard() string {
 	}
 	if message != "" {
 		lines = append(lines, "", message)
+	}
+	if capture != "" {
+		lines = append(lines, "", capture)
 	}
 	lines = append(lines, "", footer)
 	return strings.Join(lines, "\n")
@@ -476,6 +610,13 @@ func (d *Dashboard) viewNewRun() string {
 	}
 	lines = append(lines, "", "[Enter] start  [Esc] cancel")
 	return strings.Join(lines, "\n")
+}
+
+func (d *Dashboard) selectedRun() *model.Run {
+	if d.cursor >= 0 && d.cursor < len(d.runs) {
+		return d.runs[d.cursor].Run
+	}
+	return nil
 }
 
 func (d *Dashboard) renderTable(maxRows int) string {
@@ -588,6 +729,45 @@ func (d *Dashboard) renderStats() string {
 	return strings.Join(stats, "  ")
 }
 
+func (d *Dashboard) renderCapture(height int) string {
+	if height <= 0 {
+		return ""
+	}
+	width := d.safeWidth()
+	label := "CAPTURE"
+	if run := d.selectedRun(); run != nil {
+		label = fmt.Sprintf("CAPTURE %s", run.Ref().String())
+	}
+	header := d.styles.Header.Render(truncate(label, width))
+	if height == 1 {
+		return header
+	}
+
+	contentHeight := height - 1
+	lines := d.captureLines(width)
+	if len(lines) > contentHeight {
+		lines = lines[len(lines)-contentHeight:]
+	}
+	if len(lines) == 0 {
+		return header
+	}
+	return strings.Join(append([]string{header}, lines...), "\n")
+}
+
+func (d *Dashboard) captureLines(width int) []string {
+	if d.capture.loading && d.capture.content == "" {
+		return []string{d.styles.Faint.Render("Loading capture...")}
+	}
+	if d.capture.message != "" {
+		return []string{d.styles.Faint.Render(d.capture.message)}
+	}
+	content := d.capture.content
+	if strings.TrimSpace(content) == "" {
+		return []string{d.styles.Faint.Render("No capture available.")}
+	}
+	return wrapText(content, width)
+}
+
 func (d *Dashboard) renderMeta() string {
 	filterParts := []string{}
 	if d.monitor.issueFilter != "" {
@@ -605,10 +785,11 @@ func (d *Dashboard) renderMeta() string {
 		filter = "filter: " + strings.Join(filterParts, " ")
 	}
 
+	sortLabel := fmt.Sprintf("sort: %s", d.monitor.RunSort())
 	sync := d.renderSyncStatus()
 	nav := d.renderNav()
 	rows := d.renderRunRange()
-	return strings.Join([]string{filter, sync, nav, rows}, "  ")
+	return strings.Join([]string{filter, sortLabel, sync, nav, rows}, "  ")
 }
 
 func (d *Dashboard) renderSyncStatus() string {
@@ -688,12 +869,41 @@ func (d *Dashboard) safeHeight() int {
 	return 24
 }
 
-func (d *Dashboard) tableMaxRows() int {
+func (d *Dashboard) baseHeight() int {
 	base := 8
 	if d.message != "" {
 		base += 2
 	}
-	available := d.safeHeight() - base
+	return base
+}
+
+func (d *Dashboard) capturePaneHeight() int {
+	available := d.safeHeight() - d.baseHeight()
+	if available <= 1 {
+		return 0
+	}
+	desired := available / 3
+	if desired < 4 {
+		desired = 4
+	}
+	if desired > 10 {
+		desired = 10
+	}
+	maxCapture := available - 1
+	if maxCapture < 0 {
+		return 0
+	}
+	if desired > maxCapture {
+		desired = maxCapture
+	}
+	if desired < 0 {
+		return 0
+	}
+	return desired
+}
+
+func (d *Dashboard) tableMaxRows() int {
+	available := d.safeHeight() - d.baseHeight() - d.capturePaneHeight()
 	if available <= 1 {
 		return 0
 	}

@@ -64,7 +64,7 @@ func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
 		return nil
 	}
 
-	targetRef, merged, err := mergedBranchesForTarget(repoRoot, target)
+	targetRef, merged, err := git.MergedBranchesForTarget(repoRoot, target)
 	if err != nil {
 		return nil
 	}
@@ -114,33 +114,4 @@ func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
 	}
 
 	return states
-}
-
-func mergedBranchesForTarget(repoRoot, target string) (string, map[string]bool, error) {
-	if target == "" {
-		target = "main"
-	}
-	if strings.HasPrefix(target, "origin/") {
-		merged, err := git.GetMergedBranches(repoRoot, target)
-		if err == nil {
-			return target, merged, nil
-		}
-		trimmed := strings.TrimPrefix(target, "origin/")
-		merged, err = git.GetMergedBranches(repoRoot, trimmed)
-		if err != nil {
-			return "", nil, err
-		}
-		return trimmed, merged, nil
-	}
-
-	merged, err := git.GetMergedBranches(repoRoot, "origin/"+target)
-	if err == nil {
-		return "origin/" + target, merged, nil
-	}
-
-	merged, err = git.GetMergedBranches(repoRoot, target)
-	if err != nil {
-		return "", nil, err
-	}
-	return target, merged, nil
 }

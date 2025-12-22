@@ -135,7 +135,8 @@ func runRun(issueID string, opts *runOptions) error {
 	}
 
 	// Compute worktree path (absolute to ensure correct directory regardless of cwd)
-	worktreePath := filepath.Join(repoRoot, opts.WorktreeRoot, issueID, runID)
+	worktreeName := model.GenerateWorktreeName(issueID, runID, opts.Agent)
+	worktreePath := filepath.Join(repoRoot, opts.WorktreeRoot, issueID, worktreeName)
 
 	result := &runResult{
 		OK:           true,
@@ -200,6 +201,7 @@ func runRun(issueID string, opts *runOptions) error {
 		WorktreeRoot: opts.WorktreeRoot,
 		IssueID:      issueID,
 		RunID:        runID,
+		Agent:        opts.Agent,
 		BaseBranch:   opts.BaseBranch,
 		Branch:       branch,
 	})
