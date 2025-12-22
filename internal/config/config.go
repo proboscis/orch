@@ -22,9 +22,10 @@ type Config struct {
 const configFile = "config.yaml"
 
 // Load loads configuration with the following precedence (highest first):
-// 1. Environment variables
-// 2. Repo-local .orch/config.yaml (searched upward from cwd)
-// 3. Global ~/.config/orch/config.yaml
+// 1. Repo-local .orch/config.yaml in the current directory
+// 2. Parent .orch/config.yaml files (searched upward from cwd)
+// 3. Environment variables
+// 4. Global ~/.config/orch/config.yaml
 func Load() (*Config, error) {
 	cfg := &Config{}
 
@@ -36,16 +37,19 @@ func Load() (*Config, error) {
 		}
 	}
 
-	// Load repo-local config (higher precedence)
-	repoPath, _ := findRepoConfig()
-	if repoPath != "" {
+	// Apply environment variables (higher precedence than global config)
+	applyEnv(cfg)
+
+	// Load repo-local config files (highest precedence)
+	repoPaths, err := findRepoConfigs()
+	if err != nil {
+		return nil, err
+	}
+	for _, repoPath := range repoPaths {
 		if err := loadFromFile(repoPath, cfg); err != nil && !os.IsNotExist(err) {
 			return nil, err
 		}
 	}
-
-	// Apply environment variables (highest precedence)
-	applyEnv(cfg)
 
 	return cfg, nil
 }
@@ -59,18 +63,32 @@ func RepoConfigDir() string {
 	return filepath.Dir(configPath)
 }
 
-// findRepoConfig searches upward from cwd for .orch/config.yaml
+// findRepoConfig searches upward from cwd for the closest .orch/config.yaml.
 func findRepoConfig() (string, error) {
-	cwd, err := os.Getwd()
+	paths, err := findRepoConfigs()
 	if err != nil {
 		return "", err
 	}
+	if len(paths) == 0 {
+		return "", nil
+	}
+	return paths[len(paths)-1], nil
+}
+
+// findRepoConfigs searches upward from cwd for .orch/config.yaml files.
+// Returned paths are ordered from furthest ancestor to closest (highest precedence last).
+func findRepoConfigs() ([]string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
 
 	dir := cwd
+	var paths []string
 	for {
 		configPath := filepath.Join(dir, ".orch", configFile)
 		if _, err := os.Stat(configPath); err == nil {
-			return configPath, nil
+			paths = append(paths, configPath)
 		}
 
 		parent := filepath.Dir(dir)
@@ -81,7 +99,11 @@ func findRepoConfig() (string, error) {
 		dir = parent
 	}
 
-	return "", nil
+	for i, j := 0, len(paths)-1; i < j; i, j = i+1, j-1 {
+		paths[i], paths[j] = paths[j], paths[i]
+	}
+
+	return paths, nil
 }
 
 // globalConfigPath returns the path to global config
@@ -103,7 +125,17 @@ func loadFromFile(path string, cfg *Config) error {
 	}
 
 	// Parse into a temporary struct to merge non-empty values
-	var fileCfg Config
+	type fileConfig struct {
+		Vault          string `yaml:"vault"`
+		Agent          string `yaml:"agent"`
+		WorktreeRoot   string `yaml:"worktree_root"`
+		BaseBranch     string `yaml:"base_branch"`
+		LogLevel       string `yaml:"log_level"`
+		PromptTemplate string `yaml:"prompt_template"`
+		NoPR           *bool  `yaml:"no_pr"`
+	}
+
+	var fileCfg fileConfig
 	if err := yaml.Unmarshal(data, &fileCfg); err != nil {
 		return err
 	}
@@ -138,9 +170,9 @@ func loadFromFile(path string, cfg *Config) error {
 	if fileCfg.PromptTemplate != "" {
 		cfg.PromptTemplate = resolvePathFromConfig(fileCfg.PromptTemplate, baseDir)
 	}
-	// NoPR is a boolean, so we need special handling - yaml will parse it
-	// For now, let the yaml directly merge it
-	cfg.NoPR = fileCfg.NoPR
+	if fileCfg.NoPR != nil {
+		cfg.NoPR = *fileCfg.NoPR
+	}
 
 	return nil
 }

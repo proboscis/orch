@@ -53,8 +53,81 @@ func TestLoadPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load env error: %v", err)
 	}
-	if cfgEnv.Vault != "/env" || cfgEnv.Agent != "gemini" {
+	if cfgEnv.Vault != "/repo" || cfgEnv.Agent != "codex" {
 		t.Fatalf("unexpected env config: %+v", cfgEnv)
+	}
+
+	other := t.TempDir()
+	if err := os.Chdir(other); err != nil {
+		t.Fatalf("chdir other: %v", err)
+	}
+	cfgEnvOnly, err := Load()
+	if err != nil {
+		t.Fatalf("Load env-only error: %v", err)
+	}
+	if cfgEnvOnly.Vault != "/env" || cfgEnvOnly.Agent != "gemini" {
+		t.Fatalf("unexpected env-only config: %+v", cfgEnvOnly)
+	}
+}
+
+func TestParentConfigPrecedence(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_VAULT", "/env")
+	t.Setenv("ORCH_AGENT", "gemini")
+	t.Setenv("ORCH_WORKTREE_ROOT", "/env-worktrees")
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("vault: /parent\nagent: claude\n"), 0644); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	child := filepath.Join(repo, "child")
+	if err := os.MkdirAll(child, 0755); err != nil {
+		t.Fatalf("mkdir child: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(child); err != nil {
+		t.Fatalf("chdir child: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.Vault != "/parent" || cfg.Agent != "claude" {
+		t.Fatalf("unexpected parent config: %+v", cfg)
+	}
+	if cfg.WorktreeRoot != "/env-worktrees" {
+		t.Fatalf("unexpected env worktree_root: %q", cfg.WorktreeRoot)
+	}
+
+	if err := os.MkdirAll(filepath.Join(child, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir child .orch: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(child, ".orch", "config.yaml"), []byte("vault: /local\n"), 0644); err != nil {
+		t.Fatalf("write child config: %v", err)
+	}
+
+	cfgLocal, err := Load()
+	if err != nil {
+		t.Fatalf("Load local error: %v", err)
+	}
+	if cfgLocal.Vault != "/local" || cfgLocal.Agent != "claude" {
+		t.Fatalf("unexpected local config: %+v", cfgLocal)
+	}
+	if cfgLocal.WorktreeRoot != "/env-worktrees" {
+		t.Fatalf("unexpected env worktree_root (local): %q", cfgLocal.WorktreeRoot)
 	}
 }
 
