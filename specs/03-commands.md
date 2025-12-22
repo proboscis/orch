@@ -50,7 +50,7 @@
 ### 規約（デフォルト）
 
 - RUN_ID = `YYYYMMDD-HHMMSS`
-- branch = `issue/<ISSUE_ID>/run-<RUN_ID>`
+- branch = `issue/<ISSUE_ID>/run-<RUN_ID>` (branch_template 設定時はそれに従う)
 - worktree_path = `<worktree_root>/<ISSUE_ID>/<RUN_ID>`
 - tmux_session = `run-<ISSUE_ID>-<RUN_ID>`
 

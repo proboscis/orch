@@ -40,6 +40,17 @@ worktree_root: .git-worktrees
 
 # base branch for new runs
 base_branch: main
+
+# branch template for new runs
+# placeholders:
+# - <issue-id>
+# - <run-id>
+# - <short-id>
+# - <generated-name> (ISSUE_ID/run-RUN_ID)
+# - <doeff-generated-name> (same as <generated-name>)
+# - <default-branch> (issue/ISSUE_ID/run-RUN_ID)
+# - <user-space> (current $USER or $USERNAME)
+branch_template: "<user-space>/issue/<generated-name>"
 ```
 
 ### 自動検出

@@ -13,6 +13,7 @@ type Config struct {
 	Agent          string `yaml:"agent"`
 	WorktreeRoot   string `yaml:"worktree_root"`
 	BaseBranch     string `yaml:"base_branch"`
+	BranchTemplate string `yaml:"branch_template"`
 	LogLevel       string `yaml:"log_level"`
 	PromptTemplate string `yaml:"prompt_template"` // Path to custom prompt template
 	NoPR           bool   `yaml:"no_pr"`           // Disable PR instructions by default
@@ -25,6 +26,7 @@ type fileConfig struct {
 	Agent          string `yaml:"agent"`
 	WorktreeRoot   string `yaml:"worktree_root"`
 	BaseBranch     string `yaml:"base_branch"`
+	BranchTemplate string `yaml:"branch_template"`
 	LogLevel       string `yaml:"log_level"`
 	PromptTemplate string `yaml:"prompt_template"`
 	NoPR           *bool  `yaml:"no_pr"`
@@ -172,6 +174,9 @@ func loadFromFile(path string, cfg *Config) error {
 	}
 	if fileCfg.BaseBranch != "" {
 		cfg.BaseBranch = fileCfg.BaseBranch
+	}
+	if fileCfg.BranchTemplate != "" {
+		cfg.BranchTemplate = fileCfg.BranchTemplate
 	}
 	if fileCfg.LogLevel != "" {
 		cfg.LogLevel = fileCfg.LogLevel

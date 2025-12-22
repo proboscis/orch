@@ -284,6 +284,41 @@ func TestRepoConfigDir(t *testing.T) {
 	}
 }
 
+func TestBranchTemplateLoad(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_AGENT", "")
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	configData := "branch_template: team/<issue-id>/run-<run-id>\n"
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(configData), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.BranchTemplate != "team/<issue-id>/run-<run-id>" {
+		t.Fatalf("BranchTemplate = %q, want %q", cfg.BranchTemplate, "team/<issue-id>/run-<run-id>")
+	}
+}
+
 func TestExpandPath(t *testing.T) {
 	t.Setenv("HOME", "/home/test")
 

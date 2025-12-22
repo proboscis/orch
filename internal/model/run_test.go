@@ -134,6 +134,32 @@ func TestGenerateBranchName(t *testing.T) {
 	}
 }
 
+func TestGenerateBranchNameFromTemplate(t *testing.T) {
+	branch, err := GenerateBranchNameFromTemplate("team/<doeff-generated-name>", "plc124", "20231220")
+	if err != nil {
+		t.Fatalf("GenerateBranchNameFromTemplate error: %v", err)
+	}
+	want := "team/plc124/run-20231220"
+	if branch != want {
+		t.Fatalf("GenerateBranchNameFromTemplate() = %v, want %v", branch, want)
+	}
+
+	branch, err = GenerateBranchNameFromTemplate("<default-branch>", "plc124", "20231220")
+	if err != nil {
+		t.Fatalf("GenerateBranchNameFromTemplate default error: %v", err)
+	}
+	want = "issue/plc124/run-20231220"
+	if branch != want {
+		t.Fatalf("GenerateBranchNameFromTemplate default = %v, want %v", branch, want)
+	}
+}
+
+func TestGenerateBranchNameFromTemplateUnknownPlaceholder(t *testing.T) {
+	if _, err := GenerateBranchNameFromTemplate("<unknown-token>", "plc124", "20231220"); err == nil {
+		t.Fatalf("expected error for unknown placeholder")
+	}
+}
+
 func TestGenerateTmuxSession(t *testing.T) {
 	session := GenerateTmuxSession("plc124", "20231220")
 	want := "run-plc124-20231220"

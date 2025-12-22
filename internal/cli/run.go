@@ -57,7 +57,7 @@ The run will be started in a tmux session by default.`,
 	cmd.Flags().StringVar(&opts.AgentCmd, "agent-cmd", "", "Custom agent command (when --agent=custom)")
 	cmd.Flags().StringVar(&opts.AgentProfile, "profile", "", "Agent profile (e.g., claude --profile)")
 	cmd.Flags().StringVar(&opts.BaseBranch, "base-branch", "main", "Base branch for worktree")
-	cmd.Flags().StringVar(&opts.Branch, "branch", "", "Branch name (default: issue/<ID>/run-<RUN_ID>)")
+	cmd.Flags().StringVar(&opts.Branch, "branch", "", "Branch name (default: branch_template or issue/<ID>/run-<RUN_ID>)")
 	cmd.Flags().StringVar(&opts.WorktreeRoot, "worktree-root", ".git-worktrees", "Root directory for worktrees")
 	cmd.Flags().StringVar(&opts.RepoRoot, "repo-root", "", "Git repository root (default: auto-detect)")
 	cmd.Flags().BoolVar(&opts.Tmux, "tmux", true, "Run in tmux session")
@@ -116,7 +116,18 @@ func runRun(issueID string, opts *runOptions) error {
 	// Determine branch name
 	branch := opts.Branch
 	if branch == "" {
-		branch = model.GenerateBranchName(issueID, runID)
+		cfg, err := config.Load()
+		if err != nil {
+			return exitWithCode(err, ExitInternalError)
+		}
+		if cfg.BranchTemplate != "" {
+			branch, err = model.GenerateBranchNameFromTemplate(cfg.BranchTemplate, issueID, runID)
+			if err != nil {
+				return exitWithCode(fmt.Errorf("invalid branch_template: %w", err), ExitInternalError)
+			}
+		} else {
+			branch = model.GenerateBranchName(issueID, runID)
+		}
 	}
 
 	// Determine tmux session name
