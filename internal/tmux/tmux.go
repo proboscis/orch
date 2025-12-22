@@ -387,6 +387,14 @@ func LinkWindow(sourceSession string, sourceWindow int, targetSession string, ta
 	return cmd.Run()
 }
 
+// LinkWindowByID links an existing window by ID into a session.
+func LinkWindowByID(windowID, targetSession string, targetIndex int) error {
+	target := fmt.Sprintf("%s:%d", targetSession, targetIndex)
+	cmd := execCommand("tmux", "link-window", "-s", windowID, "-t", target)
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 // UnlinkWindow removes a window from a session.
 func UnlinkWindow(session string, index int) error {
 	target := fmt.Sprintf("%s:%d", session, index)
@@ -399,6 +407,40 @@ func UnlinkWindow(session string, index int) error {
 func SelectWindow(session string, index int) error {
 	target := fmt.Sprintf("%s:%d", session, index)
 	cmd := execCommand("tmux", "select-window", "-t", target)
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// CurrentSession returns the name of the current tmux session.
+func CurrentSession() (string, error) {
+	cmd := execCommand("tmux", "display-message", "-p", "#{session_name}")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+// SetOption sets a tmux option on a session.
+func SetOption(session, option, value string) error {
+	cmd := execCommand("tmux", "set-option", "-t", session, option, value)
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// GetOption retrieves a tmux option value for a session.
+func GetOption(session, option string) (string, error) {
+	cmd := execCommand("tmux", "show-option", "-t", session, "-v", option)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+// SelectWindowByID switches to a window by ID.
+func SelectWindowByID(windowID string) error {
+	cmd := execCommand("tmux", "select-window", "-t", windowID)
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }

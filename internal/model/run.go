@@ -62,6 +62,7 @@ type Run struct {
 	Branch       string
 	WorktreePath string
 	TmuxSession  string
+	TmuxWindowID string
 	PRUrl        string
 }
 
@@ -154,6 +155,9 @@ func (r *Run) DeriveState() {
 	}
 	if session, ok := artifacts["session"]; ok {
 		r.TmuxSession = session["name"]
+	}
+	if window, ok := artifacts["window"]; ok {
+		r.TmuxWindowID = window["id"]
 	}
 	if pr, ok := artifacts["pr"]; ok {
 		r.PRUrl = pr["url"]

@@ -302,6 +302,21 @@ func runRun(issueID string, opts *runOptions) error {
 		st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", map[string]string{
 			"name": tmuxSession,
 		}))
+
+		windowID := ""
+		if windows, err := tmux.ListWindows(tmuxSession); err == nil {
+			for _, window := range windows {
+				if window.Index == 0 {
+					windowID = window.ID
+					break
+				}
+			}
+		}
+		if windowID != "" {
+			st.AppendEvent(run.Ref(), model.NewArtifactEvent("window", map[string]string{
+				"id": windowID,
+			}))
+		}
 	}
 
 	// Update status to running

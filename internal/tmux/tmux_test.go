@@ -195,6 +195,25 @@ func TestMoveWindow(t *testing.T) {
 	}
 }
 
+func TestLinkWindowByID(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	if err := LinkWindowByID("@7", "sess", 3); err != nil {
+		t.Fatalf("LinkWindowByID error: %v", err)
+	}
+
+	if len(exec.recorded) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(exec.recorded))
+	}
+	call := exec.recorded[0]
+	if !equalArgs(call.args, []string{"link-window", "-s", "@7", "-t", "sess:3"}) {
+		t.Fatalf("link-window args = %v", call.args)
+	}
+}
+
 func TestHasWindow(t *testing.T) {
 	exec := &fakeExecutor{calls: []fakeCall{{output: "0:dashboard:@1\n2:run:@2\n"}}}
 	orig := execCommand
@@ -357,6 +376,74 @@ func TestSelectPane(t *testing.T) {
 	call := exec.recorded[0]
 	if !equalArgs(call.args, []string{"select-pane", "-t", "%1"}) {
 		t.Fatalf("select-pane args = %v", call.args)
+	}
+}
+
+func TestSelectWindowByID(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	if err := SelectWindowByID("@7"); err != nil {
+		t.Fatalf("SelectWindowByID error: %v", err)
+	}
+	call := exec.recorded[0]
+	if !equalArgs(call.args, []string{"select-window", "-t", "@7"}) {
+		t.Fatalf("select-window args = %v", call.args)
+	}
+}
+
+func TestCurrentSession(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{output: "orch-monitor\n"}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	name, err := CurrentSession()
+	if err != nil {
+		t.Fatalf("CurrentSession error: %v", err)
+	}
+	if name != "orch-monitor" {
+		t.Fatalf("session = %q", name)
+	}
+	call := exec.recorded[0]
+	if !equalArgs(call.args, []string{"display-message", "-p", "#{session_name}"}) {
+		t.Fatalf("display-message args = %v", call.args)
+	}
+}
+
+func TestSetOption(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	if err := SetOption("sess", "@orch_chat_pane", "%1"); err != nil {
+		t.Fatalf("SetOption error: %v", err)
+	}
+	call := exec.recorded[0]
+	if !equalArgs(call.args, []string{"set-option", "-t", "sess", "@orch_chat_pane", "%1"}) {
+		t.Fatalf("set-option args = %v", call.args)
+	}
+}
+
+func TestGetOption(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{output: "%1\n"}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	value, err := GetOption("sess", "@orch_chat_pane")
+	if err != nil {
+		t.Fatalf("GetOption error: %v", err)
+	}
+	if value != "%1" {
+		t.Fatalf("option value = %q", value)
+	}
+	call := exec.recorded[0]
+	if !equalArgs(call.args, []string{"show-option", "-t", "sess", "-v", "@orch_chat_pane"}) {
+		t.Fatalf("show-option args = %v", call.args)
 	}
 }
 

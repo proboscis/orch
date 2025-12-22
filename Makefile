@@ -1,7 +1,11 @@
-.PHONY: build install test clean
+.PHONY: all build install test clean
+.DEFAULT_GOAL := install
 
 BINARY_NAME := orch
 INSTALL_DIR := $(HOME)/.local/bin
+UNAME_S := $(shell uname -s)
+
+all: install
 
 build:
 	go build -o $(BINARY_NAME) ./cmd/orch
@@ -9,6 +13,11 @@ build:
 install: build
 	mkdir -p $(INSTALL_DIR)
 	cp $(BINARY_NAME) $(INSTALL_DIR)/$(BINARY_NAME)
+ifneq ($(UNAME_S),)
+	@if [ "$(UNAME_S)" = "Darwin" ]; then \
+		codesign --force --sign - "$(INSTALL_DIR)/$(BINARY_NAME)"; \
+	fi
+endif
 
 test:
 	go test ./...
