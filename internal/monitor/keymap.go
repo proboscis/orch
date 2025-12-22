@@ -12,6 +12,7 @@ type KeyMap struct {
 	Stop    string
 	NewRun  string
 	Resolve string
+	Merge   string
 	Refresh string
 	Quit    string
 	Help    string
@@ -28,6 +29,7 @@ func DefaultKeyMap() KeyMap {
 		Stop:    "s",
 		NewRun:  "n",
 		Resolve: "R",
+		Merge:   "M",
 		Refresh: "r",
 		Quit:    "q",
 		Help:    "?",
@@ -36,6 +38,6 @@ func DefaultKeyMap() KeyMap {
 
 // HelpLine renders the footer help text.
 func (k KeyMap) HelpLine() string {
-	return fmt.Sprintf("[%s] runs  [%s] issues  [%s] chat  [%s] open  [%s] exec  [%s] stop  [%s] new  [%s] resolve  [%s] refresh  [%s] quit  [%s] help",
-		k.Runs, k.Issues, k.Chat, k.Open, k.Exec, k.Stop, k.NewRun, k.Resolve, k.Refresh, k.Quit, k.Help)
+	return fmt.Sprintf("[%s] runs  [%s] issues  [%s] chat  [%s] open  [%s] exec  [%s] stop  [%s] new  [%s] resolve  [%s] merge  [%s] refresh  [%s] quit  [%s] help",
+		k.Runs, k.Issues, k.Chat, k.Open, k.Exec, k.Stop, k.NewRun, k.Resolve, k.Merge, k.Refresh, k.Quit, k.Help)
 }
