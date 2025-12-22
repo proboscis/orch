@@ -503,7 +503,8 @@ func (d *Dashboard) loadIssuesCmd() tea.Cmd {
 
 func (d *Dashboard) startRunCmd(issueID string) tea.Cmd {
 	return func() tea.Msg {
-		output, err := d.monitor.StartRun(issueID)
+		// Use empty agent type to use default agent
+		output, err := d.monitor.StartRun(issueID, "")
 		if err != nil {
 			return errMsg{err: fmt.Errorf("%s", output)}
 		}
