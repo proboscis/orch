@@ -65,6 +65,16 @@ func runOrch(t *testing.T, args ...string) (string, error) {
 	return stdout.String(), err
 }
 
+func runGitCmd(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v error: %v (%s)", args, err, strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out))
+}
+
 func createTestIssue(t *testing.T, id, content string) {
 	t.Helper()
 	if !strings.Contains(content, "type: issue") {
@@ -307,6 +317,56 @@ run: 20231221-110000
 	}
 	if result.Items[0].IssueStatus != "open" {
 		t.Errorf("expected issue_status=open, got %s", result.Items[0].IssueStatus)
+	}
+}
+
+func TestContinueFromBranch(t *testing.T) {
+	issueID := "continue-branch"
+	createTestIssue(t, issueID, "---\ntitle: Continue Branch\n---\n# Continue Branch")
+
+	runGitCmd(t, testRepo, "checkout", "-b", "feature/continue-branch")
+	if err := os.WriteFile(filepath.Join(testRepo, "feature.txt"), []byte("feature"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	runGitCmd(t, testRepo, "add", "feature.txt")
+	runGitCmd(t, testRepo, "commit", "-m", "feature work")
+	runGitCmd(t, testRepo, "checkout", "main")
+
+	output, err := runOrch(t, "--json", "continue", issueID, "--branch", "feature/continue-branch", "--tmux=false")
+	if err != nil {
+		t.Fatalf("continue failed: %v", err)
+	}
+
+	var result struct {
+		OK            bool   `json:"ok"`
+		IssueID       string `json:"issue_id"`
+		RunID         string `json:"run_id"`
+		Branch        string `json:"branch"`
+		WorktreePath  string `json:"worktree_path"`
+		ContinuedFrom string `json:"continued_from"`
+	}
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !result.OK {
+		t.Fatalf("expected ok=true, got false: %s", output)
+	}
+	if result.IssueID != issueID {
+		t.Fatalf("IssueID = %q, want %q", result.IssueID, issueID)
+	}
+	if result.Branch != "feature/continue-branch" {
+		t.Fatalf("Branch = %q, want %q", result.Branch, "feature/continue-branch")
+	}
+	if !strings.HasPrefix(result.ContinuedFrom, "branch:") {
+		t.Fatalf("ContinuedFrom = %q, want prefix %q", result.ContinuedFrom, "branch:")
+	}
+	if _, err := os.Stat(result.WorktreePath); err != nil {
+		t.Fatalf("worktree missing: %v", err)
+	}
+
+	branch := runGitCmd(t, result.WorktreePath, "rev-parse", "--abbrev-ref", "HEAD")
+	if branch != "feature/continue-branch" {
+		t.Fatalf("worktree branch = %q, want %q", branch, "feature/continue-branch")
 	}
 }
 

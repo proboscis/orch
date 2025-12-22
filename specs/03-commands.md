@@ -63,7 +63,7 @@
 
 ---
 
-## orch continue RUN_REF
+## orch continue RUN_REF|ISSUE_ID
 
 既存runのworktree/branchを再利用して新しいrunを開始する。
 
@@ -78,11 +78,15 @@
 | `--tmux-session` | 省略時は規約生成 |
 | `--prompt-template` | プロンプトテンプレート |
 | `--no-pr` | PR作成指示を省略 |
+| `--branch` | 既存branchから継続する場合に指定 |
+| `--issue` | `--branch` 使用時のissue ID（引数がISSUE_IDなら省略可） |
+| `--worktree-root` | worktree配置先（デフォルト: `.git-worktrees`） |
+| `--repo-root` | git rootを明示（省略時は探索） |
 
 ### 挙動
 
 - 対象runがアクティブならエラー（stopで停止が必要）
-- 既存worktree/branchを再利用
+- `--branch` 指定時は既存branchからworktreeを作成（既存worktreeがあれば再利用）
 - 新しいrun docを作成し、continued_fromを記録
 - agentを起動
 
