@@ -60,7 +60,7 @@ func runMonitor(opts *monitorOptions) error {
 		Attach:      opts.Attach,
 		ForceNew:    opts.ForceNew,
 		OrchPath:    os.Args[0],
-		GlobalFlags: monitorGlobalFlags(),
+		GlobalFlags: monitorGlobalFlagsWithVault(st.VaultPath()),
 	})
 
 	if opts.Dashboard {
@@ -76,6 +76,26 @@ func runMonitor(opts *monitorOptions) error {
 func monitorGlobalFlags() []string {
 	var flags []string
 	if globalOpts.VaultPath != "" {
+		flags = append(flags, "--vault", globalOpts.VaultPath)
+	}
+	if globalOpts.Backend != "" {
+		flags = append(flags, "--backend", globalOpts.Backend)
+	}
+	if globalOpts.LogLevel != "" {
+		flags = append(flags, "--log-level", globalOpts.LogLevel)
+	}
+	return flags
+}
+
+// monitorGlobalFlagsWithVault returns global flags for child processes,
+// ensuring the vault path is always included (even when loaded from config).
+func monitorGlobalFlagsWithVault(vaultPath string) []string {
+	var flags []string
+	// Use the resolved vault path (from store) to ensure child processes
+	// use the same vault, even when it was loaded from config file
+	if vaultPath != "" {
+		flags = append(flags, "--vault", vaultPath)
+	} else if globalOpts.VaultPath != "" {
 		flags = append(flags, "--vault", globalOpts.VaultPath)
 	}
 	if globalOpts.Backend != "" {
