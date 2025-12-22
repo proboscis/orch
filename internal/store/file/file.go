@@ -47,11 +47,95 @@ func (s *FileStore) VaultPath() string {
 	return s.vaultPath
 }
 
+func walkWithSymlinks(root string, walkFn filepath.WalkFunc) error {
+	visited := make(map[string]struct{})
+
+	var walk func(path string) error
+	walk = func(path string) error {
+		info, err := os.Stat(path)
+		if err != nil {
+			return walkFn(path, nil, err)
+		}
+
+		skipChildren := false
+		if info.IsDir() {
+			realPath, err := filepath.EvalSymlinks(path)
+			if err == nil {
+				if _, ok := visited[realPath]; ok {
+					skipChildren = true
+				} else {
+					visited[realPath] = struct{}{}
+				}
+			} else if absPath, absErr := filepath.Abs(path); absErr == nil {
+				if _, ok := visited[absPath]; ok {
+					skipChildren = true
+				} else {
+					visited[absPath] = struct{}{}
+				}
+			}
+		}
+
+		switch err := walkFn(path, info, nil); err {
+		case nil:
+		case filepath.SkipDir:
+			if info.IsDir() {
+				return nil
+			}
+			return filepath.SkipDir
+		case filepath.SkipAll:
+			return filepath.SkipAll
+		default:
+			return err
+		}
+
+		if !info.IsDir() || skipChildren {
+			return nil
+		}
+
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			switch err := walkFn(path, info, err); err {
+			case nil, filepath.SkipDir:
+				return nil
+			case filepath.SkipAll:
+				return filepath.SkipAll
+			default:
+				return err
+			}
+		}
+
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].Name() < entries[j].Name()
+		})
+
+		for _, entry := range entries {
+			childPath := filepath.Join(path, entry.Name())
+			if err := walk(childPath); err != nil {
+				if err == filepath.SkipDir {
+					return nil
+				}
+				if err == filepath.SkipAll {
+					return filepath.SkipAll
+				}
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	if err := walk(root); err != nil && err != filepath.SkipAll {
+		return err
+	}
+
+	return nil
+}
+
 // scanIssues walks the vault and finds all files with type: issue frontmatter
 func (s *FileStore) scanIssues() error {
 	s.issueCache = make(map[string]*model.Issue)
 
-	err := filepath.Walk(s.vaultPath, func(path string, info os.FileInfo, err error) error {
+	err := walkWithSymlinks(s.vaultPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip files we can't access
 		}
