@@ -2,6 +2,8 @@ package monitor
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -71,7 +73,7 @@ type RunWindow struct {
 func New(st store.Store, opts Options) *Monitor {
 	session := opts.Session
 	if session == "" {
-		session = defaultSessionName
+		session = monitorSessionName(st)
 	}
 	orchPath := resolveOrchPath(opts.OrchPath)
 	return &Monitor{
@@ -84,6 +86,31 @@ func New(st store.Store, opts Options) *Monitor {
 		attach:       opts.Attach,
 		forceNew:     opts.ForceNew,
 	}
+}
+
+func monitorSessionName(st store.Store) string {
+	if st == nil {
+		return defaultSessionName
+	}
+	return monitorSessionNameForVault(st.VaultPath())
+}
+
+func monitorSessionNameForVault(vaultPath string) string {
+	vaultPath = strings.TrimSpace(vaultPath)
+	if vaultPath == "" {
+		return defaultSessionName
+	}
+	vaultPath = filepath.Clean(vaultPath)
+	hash := hashString(vaultPath)
+	if len(hash) > 8 {
+		hash = hash[:8]
+	}
+	return fmt.Sprintf("%s-%s", defaultSessionName, hash)
+}
+
+func hashString(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
 }
 
 // Start creates or attaches to the monitor tmux session.
