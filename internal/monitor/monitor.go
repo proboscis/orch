@@ -43,6 +43,7 @@ type Options struct {
 	Session     string
 	Issue       string
 	Statuses    []model.Status
+	Agent       string
 	Attach      bool
 	ForceNew    bool
 	OrchPath    string
@@ -57,6 +58,7 @@ type Monitor struct {
 	store        store.Store
 	orchPath     string
 	globalFlags  []string
+	agent        string
 	attach       bool
 	forceNew     bool
 	runs         []*RunWindow
@@ -84,6 +86,7 @@ func New(st store.Store, opts Options) *Monitor {
 		store:        st,
 		orchPath:     orchPath,
 		globalFlags:  opts.GlobalFlags,
+		agent:        opts.Agent,
 		attach:       opts.Attach,
 		forceNew:     opts.ForceNew,
 	}
@@ -833,12 +836,13 @@ func (m *Monitor) agentChatCommand() string {
 	// Use the instruction to read the prompt file
 	prompt := GetControlPromptInstruction()
 
-	cfg, err := config.Load()
-	if err != nil {
-		return fallbackChatCommand("failed to load config")
+	agentName := strings.TrimSpace(m.agent)
+	if agentName == "" {
+		cfg, err := config.Load()
+		if err == nil {
+			agentName = cfg.Agent
+		}
 	}
-
-	agentName := cfg.Agent
 	if agentName == "" {
 		agentName = "claude"
 	}
