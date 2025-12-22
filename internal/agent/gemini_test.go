@@ -9,8 +9,7 @@ func TestGeminiLaunchCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LaunchCommand error: %v", err)
 	}
-	// Gemini now launches without -p flag; prompt is sent via tmux send-keys
-	want := `gemini --yolo`
+	want := `gemini --yolo --prompt-interactive "hello 'world'"`
 	if cmd != want {
 		t.Fatalf("command = %q, want %q", cmd, want)
 	}
@@ -18,18 +17,15 @@ func TestGeminiLaunchCommand(t *testing.T) {
 
 func TestGeminiPromptInjection(t *testing.T) {
 	adapter := &GeminiAdapter{}
-	if adapter.PromptInjection() != InjectionTmux {
-		t.Fatalf("PromptInjection() = %v, want %v", adapter.PromptInjection(), InjectionTmux)
+	if adapter.PromptInjection() != InjectionArg {
+		t.Fatalf("PromptInjection() = %v, want %v", adapter.PromptInjection(), InjectionArg)
 	}
 }
 
 func TestGeminiReadyPattern(t *testing.T) {
 	adapter := &GeminiAdapter{}
 	pattern := adapter.ReadyPattern()
-	if pattern == "" {
-		t.Fatal("ReadyPattern() should not be empty for Gemini")
-	}
-	if pattern != "Type your message" {
-		t.Fatalf("ReadyPattern() = %q, want %q", pattern, "Type your message")
+	if pattern != "" {
+		t.Fatalf("ReadyPattern() = %q, want %q", pattern, "")
 	}
 }

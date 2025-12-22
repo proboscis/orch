@@ -43,16 +43,6 @@ func (a *ClaudeAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 	return strings.Join(args, " "), nil
 }
 
-// doubleQuote wraps a string in double quotes, escaping special characters
-func doubleQuote(s string) string {
-	// Escape backslashes, double quotes, backticks, and dollar signs
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "\"", "\\\"")
-	s = strings.ReplaceAll(s, "`", "\\`")
-	s = strings.ReplaceAll(s, "$", "\\$")
-	return "\"" + s + "\""
-}
-
 func (a *ClaudeAdapter) PromptInjection() InjectionMethod {
 	return InjectionArg
 }
