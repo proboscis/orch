@@ -363,10 +363,12 @@ Instructions:
 - Implement the changes described in the issue above
 - Run tests to verify your changes work correctly
 {{- if not .NoPR}}
-- When complete, create a pull request:
+- When complete, create a pull request on GitHub (an actual PR, not just a draft):
+  - Use gh pr create (or the GitHub UI) to open the PR
   - Title should summarize the change
   - Body should reference issue: {{.IssueID}}
   - Include a summary of changes made
+  - Paste the PR URL after creation
 {{- end}}
 `
 
@@ -425,10 +427,12 @@ func buildSimplePrompt(issue *model.Issue, opts *promptOptions) string {
 		prompt += "\nInstructions:\n"
 		prompt += "- Implement the changes described in the issue above\n"
 		prompt += "- Run tests to verify your changes work correctly\n"
-		prompt += "- When complete, create a pull request:\n"
-		prompt += fmt.Sprintf("  - Title should summarize the change\n")
+		prompt += "- When complete, create a pull request on GitHub (an actual PR, not just a draft):\n"
+		prompt += "  - Use gh pr create (or the GitHub UI) to open the PR\n"
+		prompt += "  - Title should summarize the change\n"
 		prompt += fmt.Sprintf("  - Body should reference issue: %s\n", issue.ID)
 		prompt += "  - Include a summary of changes made\n"
+		prompt += "  - Paste the PR URL after creation\n"
 	}
 	return prompt
 }
