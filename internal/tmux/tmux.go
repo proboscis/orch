@@ -62,9 +62,17 @@ func NewSession(cfg *SessionConfig) error {
 	return nil
 }
 
-// SendKeys sends keys to a tmux session
+// SendKeys sends keys to a tmux session followed by Enter
 func SendKeys(session, keys string) error {
 	cmd := execCommand("tmux", "send-keys", "-t", session, keys, "Enter")
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// SendKeysLiteral sends keys to a tmux session without pressing Enter
+// Uses -l flag to send keys literally (without interpreting special keys)
+func SendKeysLiteral(session, keys string) error {
+	cmd := execCommand("tmux", "send-keys", "-t", session, "-l", keys)
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
