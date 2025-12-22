@@ -583,7 +583,7 @@ func (d *IssueDashboard) createIssueCmd(issueID, title string) tea.Cmd {
 }
 
 func (d *IssueDashboard) viewIssues() string {
-	title := d.styles.Title.Render("ORCH ISSUES")
+	title := d.styles.Title.Render(d.monitor.titleWithRepo("ORCH ISSUES"))
 	meta := d.renderMeta()
 	listRows, detailRows := d.layoutHeights()
 	table := d.renderTable(listRows)

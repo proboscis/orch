@@ -60,6 +60,7 @@ type Monitor struct {
 	runSort      SortKey
 	issueSort    SortKey
 	store        store.Store
+	repoName     string
 	orchPath     string
 	globalFlags  []string
 	agent        string
@@ -91,6 +92,7 @@ func New(st store.Store, opts Options) *Monitor {
 	if !IsValidSortKey(issueSort) {
 		issueSort = SortByName
 	}
+	repoName := resolveRepoName(st)
 	return &Monitor{
 		session:      session,
 		issueFilter:  opts.Issue,
@@ -98,6 +100,7 @@ func New(st store.Store, opts Options) *Monitor {
 		runSort:      runSort,
 		issueSort:    issueSort,
 		store:        st,
+		repoName:     repoName,
 		orchPath:     orchPath,
 		globalFlags:  opts.GlobalFlags,
 		agent:        opts.Agent,
@@ -156,6 +159,31 @@ func sessionNameForVault(vaultPath string) string {
 	baseName = strings.ReplaceAll(baseName, " ", "-")
 
 	return fmt.Sprintf("orch-%s-%s", baseName, shortHash)
+}
+
+func resolveRepoName(st store.Store) string {
+	if st == nil {
+		return ""
+	}
+
+	vaultPath := strings.TrimSpace(st.VaultPath())
+	if vaultPath == "" {
+		return ""
+	}
+
+	repoRoot, err := git.FindMainRepoRoot(vaultPath)
+	if err != nil {
+		return filepath.Base(vaultPath)
+	}
+
+	return filepath.Base(repoRoot)
+}
+
+func (m *Monitor) titleWithRepo(base string) string {
+	if m == nil || m.repoName == "" {
+		return base
+	}
+	return fmt.Sprintf("%s (%s)", base, m.repoName)
 }
 
 // Start creates or attaches to the monitor tmux session.

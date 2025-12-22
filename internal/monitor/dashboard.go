@@ -540,7 +540,7 @@ func (d *Dashboard) requestMergeCmd(run *model.Run) tea.Cmd {
 }
 
 func (d *Dashboard) viewDashboard() string {
-	title := d.styles.Title.Render("ORCH MONITOR")
+	title := d.styles.Title.Render(d.monitor.titleWithRepo("ORCH MONITOR"))
 	meta := d.renderMeta()
 	table := d.renderTable(d.tableMaxRows())
 	stats := d.renderStats()

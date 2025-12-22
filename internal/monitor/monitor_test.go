@@ -92,6 +92,37 @@ func TestSessionNameForVaultUniqueness(t *testing.T) {
 	}
 }
 
+func TestTitleWithRepo(t *testing.T) {
+	tests := []struct {
+		name     string
+		repoName string
+		base     string
+		want     string
+	}{
+		{
+			name:     "with repo name",
+			repoName: "orch",
+			base:     "ORCH MONITOR",
+			want:     "ORCH MONITOR (orch)",
+		},
+		{
+			name:     "without repo name",
+			repoName: "",
+			base:     "ORCH MONITOR",
+			want:     "ORCH MONITOR",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Monitor{repoName: tt.repoName}
+			if got := m.titleWithRepo(tt.base); got != tt.want {
+				t.Errorf("titleWithRepo(%q) = %q, want %q", tt.base, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFilterBranchesForIssue(t *testing.T) {
 	now := time.Now()
 	branches := map[string]time.Time{
