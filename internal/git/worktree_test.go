@@ -116,6 +116,51 @@ func TestCreateWorktree(t *testing.T) {
 	}
 }
 
+func TestCreateWorktreeRelativeRootUsesRepoRoot(t *testing.T) {
+	repo := initRepo(t)
+	outside := t.TempDir()
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(outside); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	result, err := CreateWorktree(&WorktreeConfig{
+		RepoRoot:     repo,
+		WorktreeRoot: ".git-worktrees",
+		IssueID:      "issue",
+		RunID:        "run",
+	})
+	if err != nil {
+		t.Fatalf("CreateWorktree error: %v", err)
+	}
+
+	wantPath := filepath.Join(repo, ".git-worktrees", "issue", "run")
+	gotPath, err := filepath.EvalSymlinks(result.WorktreePath)
+	if err != nil {
+		t.Fatalf("EvalSymlinks worktree: %v", err)
+	}
+	wantEval, err := filepath.EvalSymlinks(wantPath)
+	if err != nil {
+		t.Fatalf("EvalSymlinks want: %v", err)
+	}
+	if gotPath != wantEval {
+		t.Fatalf("WorktreePath = %q, want %q", gotPath, wantEval)
+	}
+	if !filepath.IsAbs(result.WorktreePath) {
+		t.Fatalf("WorktreePath is not absolute: %q", result.WorktreePath)
+	}
+	if _, err := os.Stat(result.WorktreePath); err != nil {
+		t.Fatalf("worktree missing: %v", err)
+	}
+}
+
 func TestCreateWorktreePathExists(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(dir, 0755); err != nil {
