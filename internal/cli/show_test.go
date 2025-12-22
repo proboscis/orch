@@ -8,11 +8,11 @@ import (
 	"github.com/s22625/orch/internal/model"
 )
 
-func TestShowJSONIncludesQuestions(t *testing.T) {
+func TestShowJSONIncludesEvents(t *testing.T) {
 	run := &model.Run{
 		IssueID:      "issue-1",
 		RunID:        "run-1",
-		Status:       model.StatusBlocked,
+		Status:       model.StatusRunning,
 		Branch:       "branch",
 		WorktreePath: "/tmp/worktree",
 		TmuxSession:  "session",
@@ -23,17 +23,12 @@ func TestShowJSONIncludesQuestions(t *testing.T) {
 		{
 			Timestamp: time.Date(2025, 1, 1, 1, 0, 0, 0, time.UTC),
 			Type:      model.EventTypeStatus,
-			Name:      string(model.StatusBlocked),
+			Name:      string(model.StatusRunning),
 		},
 		{
 			Timestamp: time.Date(2025, 1, 1, 1, 1, 0, 0, time.UTC),
-			Type:      model.EventTypeQuestion,
-			Name:      "q1",
-			Attrs: map[string]string{
-				"text":     "Need input",
-				"choices":  "A/B",
-				"severity": "high",
-			},
+			Type:      model.EventTypePhase,
+			Name:      "implement",
 		},
 	}
 
@@ -44,13 +39,7 @@ func TestShowJSONIncludesQuestions(t *testing.T) {
 	})
 
 	var got struct {
-		OK        bool `json:"ok"`
-		Questions []struct {
-			ID       string `json:"id"`
-			Text     string `json:"text"`
-			Choices  string `json:"choices"`
-			Severity string `json:"severity"`
-		} `json:"unanswered_questions"`
+		OK     bool `json:"ok"`
 		Events []struct {
 			Type string `json:"type"`
 			Name string `json:"name"`
@@ -62,8 +51,5 @@ func TestShowJSONIncludesQuestions(t *testing.T) {
 	}
 	if !got.OK || len(got.Events) != 2 {
 		t.Fatalf("unexpected response: %+v", got)
-	}
-	if len(got.Questions) != 1 || got.Questions[0].ID != "q1" {
-		t.Fatalf("unexpected questions: %+v", got.Questions)
 	}
 }

@@ -15,25 +15,9 @@ type dashboardMode int
 
 const (
 	modeDashboard dashboardMode = iota
-	modeAnswerSelectRun
-	modeAnswerSelectQuestion
-	modeAnswerInput
 	modeStopSelectRun
 	modeNewSelectIssue
 )
-
-type answerRun struct {
-	windowIndex int
-	run         *model.Run
-	questions   []*model.Event
-}
-
-type answerState struct {
-	runs             []answerRun
-	selectedRun      int
-	selectedQuestion int
-	input            string
-}
 
 type stopState struct {
 	runs []RunRow
@@ -58,7 +42,6 @@ type Dashboard struct {
 	mode    dashboardMode
 	message string
 
-	answer answerState
 	stop   stopState
 	newRun newRunState
 
@@ -160,12 +143,6 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View implements tea.Model.
 func (d *Dashboard) View() string {
 	switch d.mode {
-	case modeAnswerSelectRun:
-		return d.styles.Box.Render(d.viewAnswerRuns())
-	case modeAnswerSelectQuestion:
-		return d.styles.Box.Render(d.viewAnswerQuestions())
-	case modeAnswerInput:
-		return d.styles.Box.Render(d.viewAnswerInput())
 	case modeStopSelectRun:
 		return d.styles.Box.Render(d.viewStopRuns())
 	case modeNewSelectIssue:
@@ -183,12 +160,6 @@ func (d *Dashboard) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch d.mode {
 	case modeDashboard:
 		return d.handleDashboardKey(msg)
-	case modeAnswerSelectRun:
-		return d.handleAnswerRunKey(msg)
-	case modeAnswerSelectQuestion:
-		return d.handleAnswerQuestionKey(msg)
-	case modeAnswerInput:
-		return d.handleAnswerInputKey(msg)
 	case modeStopSelectRun:
 		return d.handleStopKey(msg)
 	case modeNewSelectIssue:
@@ -220,8 +191,6 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		d.refreshing = true
 		return d, d.refreshCmd()
-	case "a":
-		return d.enterAnswerMode()
 	case "s":
 		return d.enterStopMode()
 	case "n":
@@ -258,99 +227,6 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return d, nil
-}
-
-func (d *Dashboard) handleAnswerRunKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
-		d.mode = modeDashboard
-		return d, nil
-	case "q":
-		return d.quit()
-	}
-
-	if index, ok := parseNumberKey(msg); ok {
-		if selectionIndex := d.answerRunIndexByWindowIndex(index); selectionIndex >= 0 {
-			d.answer.selectedRun = selectionIndex
-			d.answer.selectedQuestion = 0
-			d.answer.input = ""
-			if len(d.answer.runs[selectionIndex].questions) > 1 {
-				d.mode = modeAnswerSelectQuestion
-			} else {
-				d.mode = modeAnswerInput
-			}
-		} else {
-			d.message = "run not in answer list"
-		}
-	}
-	return d, nil
-}
-
-func (d *Dashboard) handleAnswerQuestionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
-		d.mode = modeAnswerSelectRun
-		return d, nil
-	case "q":
-		return d.quit()
-	}
-
-	if index, ok := parseNumberKey(msg); ok {
-		selection := d.currentAnswerRun()
-		if selection == nil {
-			d.mode = modeDashboard
-			return d, nil
-		}
-		if index < 1 || index > len(selection.questions) {
-			d.message = "question not in list"
-			return d, nil
-		}
-		d.answer.selectedQuestion = index - 1
-		d.answer.input = ""
-		d.mode = modeAnswerInput
-	}
-	return d, nil
-}
-
-func (d *Dashboard) handleAnswerInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
-		d.mode = modeAnswerSelectQuestion
-		return d, nil
-	case "enter":
-		selection := d.currentAnswerRun()
-		if selection == nil {
-			d.mode = modeDashboard
-			return d, nil
-		}
-		if d.answer.selectedQuestion < 0 || d.answer.selectedQuestion >= len(selection.questions) {
-			d.message = "question not selected"
-			return d, nil
-		}
-		if strings.TrimSpace(d.answer.input) == "" {
-			d.message = "answer text is required"
-			return d, nil
-		}
-		question := selection.questions[d.answer.selectedQuestion]
-		cmd := d.answerCmd(selection.run, question.Name, d.answer.input)
-		d.mode = modeDashboard
-		d.answer.input = ""
-		return d, cmd
-	}
-
-	switch msg.Type {
-	case tea.KeyBackspace, tea.KeyDelete:
-		if len(d.answer.input) > 0 {
-			runes := []rune(d.answer.input)
-			d.answer.input = string(runes[:len(runes)-1])
-		}
-		return d, nil
-	case tea.KeyRunes:
-		d.answer.input += string(msg.Runes)
-		return d, nil
-	default:
-		return d, nil
-	}
 }
 
 func (d *Dashboard) handleStopKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -414,36 +290,6 @@ func (d *Dashboard) handleNewRunKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (d *Dashboard) quit() (tea.Model, tea.Cmd) {
 	_ = d.monitor.Quit()
 	return d, tea.Quit
-}
-
-func (d *Dashboard) enterAnswerMode() (tea.Model, tea.Cmd) {
-	var runs []answerRun
-	for _, row := range d.runs {
-		if row.Run == nil {
-			continue
-		}
-		if row.Status != model.StatusBlocked && row.Status != model.StatusBlockedAPI {
-			continue
-		}
-		questions := row.Run.UnansweredQuestions()
-		if len(questions) == 0 {
-			continue
-		}
-		runs = append(runs, answerRun{
-			windowIndex: row.Index,
-			run:         row.Run,
-			questions:   questions,
-		})
-	}
-
-	if len(runs) == 0 {
-		d.message = "no blocked runs with unanswered questions"
-		return d, nil
-	}
-
-	d.answer = answerState{runs: runs}
-	d.mode = modeAnswerSelectRun
-	return d, nil
 }
 
 func (d *Dashboard) enterStopMode() (tea.Model, tea.Cmd) {
@@ -523,18 +369,6 @@ func (d *Dashboard) stopCmd(run *model.Run) tea.Cmd {
 	}
 }
 
-func (d *Dashboard) answerCmd(run *model.Run, questionID, text string) tea.Cmd {
-	return func() tea.Msg {
-		if run == nil {
-			return errMsg{err: fmt.Errorf("run not found")}
-		}
-		if err := d.monitor.AnswerQuestion(run, questionID, text); err != nil {
-			return errMsg{err: err}
-		}
-		return infoMsg{text: fmt.Sprintf("answered %s for %s#%s", questionID, run.IssueID, run.RunID)}
-	}
-}
-
 func (d *Dashboard) resolveRunCmd(run *model.Run) tea.Cmd {
 	return func() tea.Msg {
 		if run == nil {
@@ -571,62 +405,6 @@ func (d *Dashboard) viewDashboard() string {
 		lines = append(lines, "", message)
 	}
 	lines = append(lines, "", footer)
-	return strings.Join(lines, "\n")
-}
-
-func (d *Dashboard) viewAnswerRuns() string {
-	lines := []string{
-		d.styles.Title.Render("ANSWER MODE"),
-		"",
-		"Blocked runs with unanswered questions:",
-		"",
-	}
-	for _, run := range d.answer.runs {
-		line := fmt.Sprintf("  [%d] %s - %d questions", run.windowIndex, run.run.IssueID, len(run.questions))
-		lines = append(lines, line)
-		for i, q := range run.questions {
-			label := fmt.Sprintf("      Q%d: %s", i+1, q.Attrs["text"])
-			lines = append(lines, truncate(label, d.safeWidth()-4))
-		}
-		lines = append(lines, "")
-	}
-	lines = append(lines, "Select run [1-9], or [Esc] to cancel.")
-	return strings.Join(lines, "\n")
-}
-
-func (d *Dashboard) viewAnswerQuestions() string {
-	current := d.currentAnswerRun()
-	if current == nil {
-		return "No blocked runs found."
-	}
-	lines := []string{
-		d.styles.Title.Render(fmt.Sprintf("ANSWER: %s", current.run.IssueID)),
-		"",
-		"Select question:",
-		"",
-	}
-	for i, q := range current.questions {
-		label := fmt.Sprintf("  [%d] %s", i+1, q.Attrs["text"])
-		lines = append(lines, truncate(label, d.safeWidth()-2))
-	}
-	lines = append(lines, "", "Select question [1-9], or [Esc] to cancel.")
-	return strings.Join(lines, "\n")
-}
-
-func (d *Dashboard) viewAnswerInput() string {
-	current := d.currentAnswerRun()
-	if current == nil {
-		return "No blocked runs found."
-	}
-	q := current.questions[d.answer.selectedQuestion]
-	lines := []string{
-		d.styles.Title.Render(fmt.Sprintf("ANSWER: %s", current.run.IssueID)),
-		"",
-		"Question:",
-	}
-	lines = append(lines, wrapText(q.Attrs["text"], d.safeWidth()-2)...)
-	lines = append(lines, "", "Your answer:", fmt.Sprintf("> %s", d.answer.input))
-	lines = append(lines, "", "[Enter] submit  [Esc] back")
 	return strings.Join(lines, "\n")
 }
 
@@ -940,22 +718,6 @@ func (d *Dashboard) ensureCursorVisible() {
 
 func (d *Dashboard) pad(s string, width int, style lipgloss.Style) string {
 	return style.Width(width).Render(truncate(s, width))
-}
-
-func (d *Dashboard) answerRunIndexByWindowIndex(windowIndex int) int {
-	for i, run := range d.answer.runs {
-		if run.windowIndex == windowIndex {
-			return i
-		}
-	}
-	return -1
-}
-
-func (d *Dashboard) currentAnswerRun() *answerRun {
-	if d.answer.selectedRun < 0 || d.answer.selectedRun >= len(d.answer.runs) {
-		return nil
-	}
-	return &d.answer.runs[d.answer.selectedRun]
 }
 
 func parseNumberKey(msg tea.KeyMsg) (int, bool) {

@@ -119,32 +119,6 @@ func TestRunDeriveState(t *testing.T) {
 	}
 }
 
-func TestRunUnansweredQuestions(t *testing.T) {
-	ts := time.Now()
-	run := &Run{
-		Events: []*Event{
-			{Timestamp: ts, Type: EventTypeQuestion, Name: "q1", Attrs: map[string]string{"text": "First question"}},
-			{Timestamp: ts.Add(time.Second), Type: EventTypeQuestion, Name: "q2", Attrs: map[string]string{"text": "Second question"}},
-			{Timestamp: ts.Add(2 * time.Second), Type: EventTypeAnswer, Name: "q1", Attrs: map[string]string{"text": "Answer 1"}},
-			{Timestamp: ts.Add(3 * time.Second), Type: EventTypeQuestion, Name: "q3", Attrs: map[string]string{"text": "Third question"}},
-		},
-	}
-
-	unanswered := run.UnansweredQuestions()
-	if len(unanswered) != 2 {
-		t.Errorf("expected 2 unanswered questions, got %d", len(unanswered))
-	}
-
-	// Check that q2 and q3 are unanswered
-	ids := make(map[string]bool)
-	for _, q := range unanswered {
-		ids[q.Name] = true
-	}
-	if !ids["q2"] || !ids["q3"] {
-		t.Errorf("expected q2 and q3 to be unanswered, got %v", ids)
-	}
-}
-
 func TestGenerateRunID(t *testing.T) {
 	id := GenerateRunID()
 	if len(id) != 15 { // YYYYMMDD-HHMMSS

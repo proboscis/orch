@@ -16,8 +16,6 @@ const (
 	EventTypePhase    EventType = "phase"
 	EventTypeArtifact EventType = "artifact"
 	EventTypeTest     EventType = "test"
-	EventTypeQuestion EventType = "question"
-	EventTypeAnswer   EventType = "answer"
 	EventTypeNote     EventType = "note"
 )
 
@@ -197,19 +195,3 @@ func NewArtifactEvent(name string, attrs map[string]string) *Event {
 	return NewEvent(EventTypeArtifact, name, attrs)
 }
 
-// NewQuestionEvent creates a question event
-func NewQuestionEvent(id, text string, attrs map[string]string) *Event {
-	if attrs == nil {
-		attrs = make(map[string]string)
-	}
-	attrs["text"] = text
-	return NewEvent(EventTypeQuestion, id, attrs)
-}
-
-// NewAnswerEvent creates an answer event
-func NewAnswerEvent(questionID, text, by string) *Event {
-	return NewEvent(EventTypeAnswer, questionID, map[string]string{
-		"text": text,
-		"by":   by,
-	})
-}

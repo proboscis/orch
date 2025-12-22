@@ -4,7 +4,7 @@ Orchestrator for managing multiple LLM CLIs (claude/codex/gemini) using a unifie
 
 ## Overview
 
-orch operates **non-interactively** by default. When human input is needed, it uses events (`question`) to externalize the interaction, and `answer` + `tick` to resume.
+orch operates **non-interactively** by default. When human input is needed, use `orch attach` to connect to the tmux session and interact directly with the agent.
 
 ## User Interaction Flow
 
@@ -26,16 +26,15 @@ sequenceDiagram
     O-->>U: shows status (running/blocked/done)
 
     alt Agent needs help
-        A->>O: emits question event
-        A->>A: stops (blocked)
-        Note over U: See blocked status
+        A->>A: stops or shows prompt
+        Note over U: See status or attach
         U->>O: orch ps
-        O-->>U: status: blocked
-        U->>O: orch show my-issue
-        O-->>U: shows pending question
-        U->>O: orch answer my-issue q1 --text "answer"
-        U->>O: orch tick my-issue
-        O->>A: resume agent
+        O-->>U: status: blocked or running
+        U->>O: orch attach my-issue
+        O->>T: attach session
+        Note over U,T: Direct terminal interaction
+        U->>T: (provide input to agent)
+        U->>T: Ctrl+B D (detach)
     end
 
     alt Want to interact directly
@@ -74,7 +73,7 @@ stateDiagram-v2
     running --> failed: error occurred
     running --> canceled: orch stop
 
-    blocked --> running: orch answer + tick
+    blocked --> running: orch attach (provide input)
     blocked --> canceled: orch stop
 
     pr_open --> done: PR merged
@@ -103,10 +102,8 @@ flowchart TD
     DECIDE --> |no| WAIT
     ATTACH --> |done interacting| WAIT
 
-    BLOCKED --> SHOW[orch show --questions]
-    SHOW --> ANSWER[orch answer RUN Q --text '...']
-    ANSWER --> TICK[orch tick RUN]
-    TICK --> WAIT
+    BLOCKED --> ATTACH2[orch attach]
+    ATTACH2 --> |provide input| WAIT
 
     FAILED --> RETRY{Retry?}
     RETRY --> |yes| RUN
@@ -117,9 +114,7 @@ flowchart TD
     style RUN fill:#4CAF50,color:#fff
     style PS fill:#2196F3,color:#fff
     style ATTACH fill:#FF9800,color:#fff
-    style SHOW fill:#9C27B0,color:#fff
-    style ANSWER fill:#9C27B0,color:#fff
-    style TICK fill:#9C27B0,color:#fff
+    style ATTACH2 fill:#FF9800,color:#fff
 ```
 
 ## Quick Reference
@@ -130,9 +125,7 @@ flowchart TD
 | Check what's running | `orch ps` |
 | Watch agent work / interact | `orch attach RUN` |
 | See run details | `orch show RUN` |
-| Agent is blocked - see why | `orch show RUN --questions` |
-| Answer agent's question | `orch answer RUN QID --text "..."` |
-| Resume after answering | `orch tick RUN` |
+| Agent is blocked - interact | `orch attach RUN` |
 | Stop all runs for an issue | `orch stop ISSUE` |
 | Stop a specific run | `orch stop ISSUE#RUN_ID` |
 | Stop all runs globally | `orch stop --all` |
@@ -145,7 +138,7 @@ flowchart TD
 | `queued` | Run created, waiting to start | Wait |
 | `booting` | Agent is starting up | Wait |
 | `running` | Agent is actively working | Wait, or `attach` to watch |
-| `blocked` | Agent needs input | `show` → `answer` → `tick` |
+| `blocked` | Agent needs input | `attach` to interact |
 | `pr_open` | PR created, awaiting review | Review the PR |
 | `done` | Work completed | Nothing - celebrate! |
 | `failed` | Run failed | Check logs, maybe retry |

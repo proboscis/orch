@@ -58,22 +58,6 @@ Run状態の変更:
 - <ts> | test | <test_name> | result=PASS|FAIL | log=...
 ```
 
-### question
-
-質問（人間の判断が必要）:
-
-```
-- <ts> | question | <qid> | text="..." | choices="A,B" | severity=...
-```
-
-### answer
-
-質問への回答:
-
-```
-- <ts> | answer | <qid> | text="..." | by=user
-```
-
 ### note
 
 人間メモ:
@@ -92,6 +76,3 @@ daemon検出（参考情報）:
 | stalling | N秒以上出力なし |
 | idle | アイドル状態 |
 
-## 未回答判定
-
-`question(qid)` が存在し、その後に `answer(qid)` が存在しない → 未回答
