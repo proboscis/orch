@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 	"github.com/s22625/orch/internal/model"
 )
 
@@ -17,6 +18,7 @@ const (
 	modeCreateIssue
 	modeSelectRun
 	modeSelectAgent
+	modeFilter
 )
 
 type createIssueState struct {
@@ -40,21 +42,39 @@ type selectAgentState struct {
 	cursor  int
 }
 
+// filterState holds the current filter settings for the issue list
+type filterState struct {
+	showResolved bool // Show resolved issues (default: true)
+	showClosed   bool // Show closed issues (default: true)
+	cursor       int  // Currently selected option in filter dialog
+}
+
+// defaultFilterState returns the default filter state
+func defaultFilterState() filterState {
+	return filterState{
+		showResolved: true,
+		showClosed:   true,
+		cursor:       0,
+	}
+}
+
 // IssueDashboard is the bubbletea model for the issues UI.
 type IssueDashboard struct {
 	monitor *Monitor
 
-	issues []IssueRow
-	cursor int
-	offset int
-	width  int
-	height int
+	issues         []IssueRow
+	filteredIssues []IssueRow // Issues after applying filter
+	cursor         int
+	offset         int
+	width          int
+	height         int
 
 	mode        issueDashboardMode
 	message     string
 	create      createIssueState
 	selectRun   selectRunState
 	selectAgent selectAgentState
+	filter      filterState
 
 	keymap IssueKeyMap
 	styles Styles
@@ -82,6 +102,7 @@ func NewIssueDashboard(m *Monitor) *IssueDashboard {
 		keymap:          DefaultIssueKeyMap(),
 		styles:          DefaultStyles(),
 		mode:            modeIssues,
+		filter:          defaultFilterState(),
 		refreshInterval: defaultRefreshInterval,
 	}
 }
@@ -108,10 +129,11 @@ func (d *IssueDashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return d, nil
 	case issuesRefreshMsg:
 		d.issues = msg.rows
+		d.applyFilter()
 		d.refreshing = false
 		d.lastRefresh = time.Now()
-		if d.cursor >= len(d.issues) {
-			d.cursor = len(d.issues) - 1
+		if d.cursor >= len(d.filteredIssues) {
+			d.cursor = len(d.filteredIssues) - 1
 			if d.cursor < 0 {
 				d.cursor = 0
 			}
@@ -168,6 +190,8 @@ func (d *IssueDashboard) View() string {
 		return d.styles.Box.Render(d.viewSelectRun())
 	case modeSelectAgent:
 		return d.styles.Box.Render(d.viewSelectAgent())
+	case modeFilter:
+		return d.styles.Box.Render(d.viewFilter())
 	default:
 		return d.styles.Box.Render(d.viewIssues())
 	}
@@ -185,6 +209,8 @@ func (d *IssueDashboard) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d.handleSelectRunKey(msg)
 	case modeSelectAgent:
 		return d.handleSelectAgentKey(msg)
+	case modeFilter:
+		return d.handleFilterKey(msg)
 	default:
 		return d.handleIssuesKey(msg)
 	}
@@ -216,6 +242,9 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return d, d.resolveIssueCmd(row.ID)
 		}
 		return d, nil
+	case d.keymap.Filter:
+		d.mode = modeFilter
+		return d, nil
 	case d.keymap.OpenRun:
 		if row := d.currentIssue(); row != nil {
 			d.mode = modeSelectRun
@@ -240,7 +269,7 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		d.ensureCursorVisible()
 		return d, nil
 	case "down", "j":
-		if d.cursor < len(d.issues)-1 {
+		if d.cursor < len(d.filteredIssues)-1 {
 			d.cursor++
 		}
 		d.ensureCursorVisible()
@@ -369,6 +398,37 @@ func (d *IssueDashboard) handleSelectAgentKey(msg tea.KeyMsg) (tea.Model, tea.Cm
 			d.mode = modeIssues
 			return d, d.startRunCmd(issueID, agentType)
 		}
+		return d, nil
+	}
+	return d, nil
+}
+
+func (d *IssueDashboard) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "f":
+		d.mode = modeIssues
+		return d, nil
+	case "q":
+		return d.quit()
+	case "up", "k":
+		if d.filter.cursor > 0 {
+			d.filter.cursor--
+		}
+		return d, nil
+	case "down", "j":
+		if d.filter.cursor < 1 { // 2 filter options (0 and 1)
+			d.filter.cursor++
+		}
+		return d, nil
+	case "enter", " ":
+		// Toggle the selected filter option
+		switch d.filter.cursor {
+		case 0:
+			d.filter.showResolved = !d.filter.showResolved
+		case 1:
+			d.filter.showClosed = !d.filter.showClosed
+		}
+		d.applyFilter()
 		return d, nil
 	}
 	return d, nil
@@ -574,9 +634,79 @@ func (d *IssueDashboard) viewSelectAgent() string {
 	return strings.Join(lines, "\n")
 }
 
+func (d *IssueDashboard) viewFilter() string {
+	header := d.styles.Title.Render("FILTER ISSUES")
+	lines := []string{header, ""}
+
+	lines = append(lines, "Toggle visibility of issues by status:", "")
+
+	// Filter options
+	options := []struct {
+		label   string
+		enabled bool
+	}{
+		{"Show resolved issues", d.filter.showResolved},
+		{"Show closed issues", d.filter.showClosed},
+	}
+
+	for i, opt := range options {
+		checkbox := "[ ]"
+		if opt.enabled {
+			checkbox = "[x]"
+		}
+		label := fmt.Sprintf("  %s %s", checkbox, opt.label)
+		if i == d.filter.cursor {
+			label = d.styles.Selected.Render(label)
+		}
+		lines = append(lines, label)
+	}
+
+	lines = append(lines, "", "[Enter/Space] toggle  [Esc/f] close")
+	return strings.Join(lines, "\n")
+}
+
+// applyFilter filters the issues list based on current filter settings
+func (d *IssueDashboard) applyFilter() {
+	if d.filter.showResolved && d.filter.showClosed {
+		// No filtering needed, show all issues
+		d.filteredIssues = d.issues
+		return
+	}
+
+	filtered := make([]IssueRow, 0, len(d.issues))
+	for _, issue := range d.issues {
+		status := model.ParseIssueStatus(issue.Status)
+		if status == model.IssueStatusResolved && !d.filter.showResolved {
+			continue
+		}
+		if status == model.IssueStatusClosed && !d.filter.showClosed {
+			continue
+		}
+		filtered = append(filtered, issue)
+	}
+	d.filteredIssues = filtered
+
+	// Reset cursor if it's out of bounds
+	if d.cursor >= len(d.filteredIssues) {
+		d.cursor = len(d.filteredIssues) - 1
+		if d.cursor < 0 {
+			d.cursor = 0
+		}
+	}
+	d.ensureCursorVisible()
+}
+
+// hasActiveFilters returns true if any filters are hiding issues
+func (d *IssueDashboard) hasActiveFilters() bool {
+	return !d.filter.showResolved || !d.filter.showClosed
+}
+
 func (d *IssueDashboard) renderMeta() string {
 	sync := d.renderSyncStatus()
-	total := fmt.Sprintf("issues: %d", len(d.issues))
+	total := fmt.Sprintf("issues: %d", len(d.filteredIssues))
+	if d.hasActiveFilters() {
+		total = fmt.Sprintf("issues: %d/%d (filtered)", len(d.filteredIssues), len(d.issues))
+	}
 	nav := d.renderNav()
 	rows := d.renderIssueRange()
 	return strings.Join([]string{total, sync, nav, rows}, "  ")
@@ -602,26 +732,29 @@ func (d *IssueDashboard) renderNav() string {
 }
 
 func (d *IssueDashboard) renderIssueRange() string {
-	if len(d.issues) == 0 {
+	if len(d.filteredIssues) == 0 {
 		return "rows: 0/0"
 	}
 	visibleRows := d.issueVisibleRows(d.tableMaxRows())
 	if visibleRows == 0 {
-		return fmt.Sprintf("rows: 0/%d", len(d.issues))
+		return fmt.Sprintf("rows: 0/%d", len(d.filteredIssues))
 	}
 	start := d.offset + 1
 	if start < 1 {
 		start = 1
 	}
 	end := d.offset + visibleRows
-	if end > len(d.issues) {
-		end = len(d.issues)
+	if end > len(d.filteredIssues) {
+		end = len(d.filteredIssues)
 	}
-	return fmt.Sprintf("rows: %d-%d/%d", start, end, len(d.issues))
+	return fmt.Sprintf("rows: %d-%d/%d", start, end, len(d.filteredIssues))
 }
 
 func (d *IssueDashboard) renderTable(maxRows int) string {
-	if len(d.issues) == 0 {
+	if len(d.filteredIssues) == 0 {
+		if d.hasActiveFilters() {
+			return "No issues found (filters active - press 'f' to adjust)."
+		}
 		return "No issues found."
 	}
 
@@ -633,16 +766,16 @@ func (d *IssueDashboard) renderTable(maxRows int) string {
 	var rows []string
 	visibleRows := d.issueVisibleRows(maxRows)
 	start := d.offset
-	end := len(d.issues)
+	end := len(d.filteredIssues)
 	if visibleRows > 0 {
 		end = start + visibleRows
-		if end > len(d.issues) {
-			end = len(d.issues)
+		if end > len(d.filteredIssues) {
+			end = len(d.filteredIssues)
 		}
 	} else {
 		end = start
 	}
-	for i, row := range d.issues[start:end] {
+	for i, row := range d.filteredIssues[start:end] {
 		latest := "-"
 		if row.LatestRunID != "" {
 			latest = string(row.LatestStatus)
@@ -756,10 +889,27 @@ func (d *IssueDashboard) tableWidths() (idxW, idW, statusW, latestW, activeW, su
 	activeW = 6
 
 	contentWidth := d.safeWidth()
+	maxID := idW
+	for _, row := range d.issues {
+		if w := runewidth.StringWidth(row.ID); w > maxID {
+			maxID = w
+		}
+	}
+	summaryMin := 20
+	maxIDForSummary := contentWidth - (idxW + statusW + latestW + activeW + 10 + summaryMin)
+	if maxIDForSummary < idW {
+		maxIDForSummary = idW
+	}
+	if maxID > maxIDForSummary {
+		idW = maxIDForSummary
+	} else {
+		idW = maxID
+	}
+
 	fixed := idxW + idW + statusW + latestW + activeW + 10
 	summaryW = contentWidth - fixed
-	if summaryW < 20 {
-		summaryW = 20
+	if summaryW < summaryMin {
+		summaryW = summaryMin
 	}
 	return
 }
@@ -783,10 +933,10 @@ func (d *IssueDashboard) pad(s string, width int, style lipgloss.Style) string {
 }
 
 func (d *IssueDashboard) currentIssue() *IssueRow {
-	if d.cursor < 0 || d.cursor >= len(d.issues) {
+	if d.cursor < 0 || d.cursor >= len(d.filteredIssues) {
 		return nil
 	}
-	return &d.issues[d.cursor]
+	return &d.filteredIssues[d.cursor]
 }
 
 func (d *IssueDashboard) currentSelectRun() *model.Run {
@@ -805,8 +955,8 @@ func (d *IssueDashboard) issueVisibleRows(maxRows int) int {
 	if maxRows <= 0 {
 		return 0
 	}
-	if len(d.issues) < maxRows {
-		return len(d.issues)
+	if len(d.filteredIssues) < maxRows {
+		return len(d.filteredIssues)
 	}
 	return maxRows
 }
@@ -839,7 +989,7 @@ func (d *IssueDashboard) selectRunVisibleRows(maxRows int) int {
 }
 
 func (d *IssueDashboard) ensureCursorVisible() {
-	if len(d.issues) == 0 {
+	if len(d.filteredIssues) == 0 {
 		d.offset = 0
 		return
 	}
@@ -854,7 +1004,7 @@ func (d *IssueDashboard) ensureCursorVisible() {
 	if d.cursor >= d.offset+visibleRows {
 		d.offset = d.cursor - visibleRows + 1
 	}
-	maxOffset := len(d.issues) - visibleRows
+	maxOffset := len(d.filteredIssues) - visibleRows
 	if maxOffset < 0 {
 		maxOffset = 0
 	}

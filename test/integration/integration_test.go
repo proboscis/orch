@@ -327,7 +327,6 @@ run: 20231220-100000
 - 2023-12-20T10:00:01+09:00 | status | running
 - 2023-12-20T10:00:05+09:00 | artifact | branch | name=feature/test
 - 2023-12-20T10:00:10+09:00 | phase | implement
-- 2023-12-20T10:05:00+09:00 | question | q1 | text="What should we do?"
 `
 	os.WriteFile(filepath.Join(runDir, "20231220-100000.md"), []byte(runContent), 0644)
 
@@ -337,17 +336,13 @@ run: 20231220-100000
 	}
 
 	var result struct {
-		OK        bool       `json:"ok"`
-		IssueID   string     `json:"issue_id"`
-		RunID     string     `json:"run_id"`
-		Status    string     `json:"status"`
-		Phase     string     `json:"phase"`
-		Branch    string     `json:"branch"`
-		Events    []struct{} `json:"events"`
-		Questions []struct {
-			ID   string `json:"id"`
-			Text string `json:"text"`
-		} `json:"unanswered_questions"`
+		OK      bool       `json:"ok"`
+		IssueID string     `json:"issue_id"`
+		RunID   string     `json:"run_id"`
+		Status  string     `json:"status"`
+		Phase   string     `json:"phase"`
+		Branch  string     `json:"branch"`
+		Events  []struct{} `json:"events"`
 	}
 	if err := json.Unmarshal([]byte(output), &result); err != nil {
 		t.Fatalf("failed to parse JSON: %v\nOutput: %s", err, output)
@@ -358,50 +353,6 @@ run: 20231220-100000
 	}
 	if result.Phase != "implement" {
 		t.Errorf("expected phase=implement, got %s", result.Phase)
-	}
-	if len(result.Questions) != 1 {
-		t.Errorf("expected 1 unanswered question, got %d", len(result.Questions))
-	}
-}
-
-func TestAnswerQuestion(t *testing.T) {
-	createTestIssue(t, "answer-test", "---\ntype: issue\nid: answer-test\ntitle: Answer Test\n---\n# Answer Test")
-
-	runDir := filepath.Join(testVault, "runs", "answer-test")
-	os.MkdirAll(runDir, 0755)
-	runContent := `---
-issue: answer-test
-run: 20231220-100000
----
-
-# Events
-
-- 2023-12-20T10:00:00+09:00 | status | blocked
-- 2023-12-20T10:05:00+09:00 | question | q1 | text="What should we do?"
-`
-	runPath := filepath.Join(runDir, "20231220-100000.md")
-	os.WriteFile(runPath, []byte(runContent), 0644)
-
-	// Answer the question
-	_, err := runOrch(t, "answer", "answer-test#20231220-100000", "q1", "--text", "Use option A")
-	if err != nil {
-		t.Fatalf("answer failed: %v", err)
-	}
-
-	// Verify the answer was appended
-	content, _ := os.ReadFile(runPath)
-	if !strings.Contains(string(content), "answer") {
-		t.Error("expected answer event in run file")
-	}
-
-	// Check unanswered questions
-	output, _ := runOrch(t, "show", "answer-test#20231220-100000", "--json")
-	var result struct {
-		Questions []struct{} `json:"unanswered_questions"`
-	}
-	json.Unmarshal([]byte(output), &result)
-	if len(result.Questions) != 0 {
-		t.Errorf("expected 0 unanswered questions after answer, got %d", len(result.Questions))
 	}
 }
 
@@ -515,7 +466,7 @@ func TestTickBlocked(t *testing.T) {
 	runDir := filepath.Join(testVault, "runs", "tick-test")
 	os.MkdirAll(runDir, 0755)
 
-	// Create a blocked run with answered question
+	// Create a blocked run
 	runContent := `---
 issue: tick-test
 run: 20231220-100000
@@ -524,12 +475,10 @@ run: 20231220-100000
 # Events
 
 - 2023-12-20T10:00:00+09:00 | status | blocked
-- 2023-12-20T10:05:00+09:00 | question | q1 | text="What should we do?"
-- 2023-12-20T10:10:00+09:00 | answer | q1 | text="Use option A" | by=user
 `
 	os.WriteFile(filepath.Join(runDir, "20231220-100000.md"), []byte(runContent), 0644)
 
-	// Tick should detect no unanswered questions
+	// Tick the blocked run
 	output, err := runOrch(t, "tick", "tick-test#20231220-100000", "--json")
 	if err != nil {
 		t.Logf("tick output: %s", output)

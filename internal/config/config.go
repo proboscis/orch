@@ -94,6 +94,8 @@ func globalConfigPath() string {
 }
 
 // loadFromFile loads config from a YAML file, merging into existing cfg
+// Relative paths for vault, worktree_root, and prompt_template are resolved
+// relative to the config file's parent directory (not .orch, but the repo/home dir)
 func loadFromFile(path string, cfg *Config) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -106,15 +108,26 @@ func loadFromFile(path string, cfg *Config) error {
 		return err
 	}
 
+	// Get the base directory for resolving relative paths
+	// For .orch/config.yaml, this should be the parent of .orch (the repo root)
+	// For ~/.config/orch/config.yaml, this should be ~/.config/orch
+	configDir := filepath.Dir(path)
+	baseDir := configDir
+	if filepath.Base(configDir) == ".orch" {
+		// For repo config, resolve relative to repo root (parent of .orch)
+		baseDir = filepath.Dir(configDir)
+	}
+
 	// Merge: only override if value is non-empty
+	// Resolve relative paths at load time
 	if fileCfg.Vault != "" {
-		cfg.Vault = fileCfg.Vault
+		cfg.Vault = resolvePathFromConfig(fileCfg.Vault, baseDir)
 	}
 	if fileCfg.Agent != "" {
 		cfg.Agent = fileCfg.Agent
 	}
 	if fileCfg.WorktreeRoot != "" {
-		cfg.WorktreeRoot = fileCfg.WorktreeRoot
+		cfg.WorktreeRoot = resolvePathFromConfig(fileCfg.WorktreeRoot, baseDir)
 	}
 	if fileCfg.BaseBranch != "" {
 		cfg.BaseBranch = fileCfg.BaseBranch
@@ -123,13 +136,36 @@ func loadFromFile(path string, cfg *Config) error {
 		cfg.LogLevel = fileCfg.LogLevel
 	}
 	if fileCfg.PromptTemplate != "" {
-		cfg.PromptTemplate = fileCfg.PromptTemplate
+		cfg.PromptTemplate = resolvePathFromConfig(fileCfg.PromptTemplate, baseDir)
 	}
 	// NoPR is a boolean, so we need special handling - yaml will parse it
 	// For now, let the yaml directly merge it
 	cfg.NoPR = fileCfg.NoPR
 
 	return nil
+}
+
+// resolvePathFromConfig resolves a path from a config file
+// - Expands ~ to home directory
+// - Makes relative paths absolute relative to baseDir
+// - Returns absolute paths unchanged
+func resolvePathFromConfig(path, baseDir string) string {
+	if path == "" {
+		return ""
+	}
+
+	// Expand ~
+	if len(path) > 0 && path[0] == '~' {
+		home, _ := os.UserHomeDir()
+		path = filepath.Join(home, path[1:])
+	}
+
+	// Make relative paths absolute
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(baseDir, path)
+	}
+
+	return path
 }
 
 // applyEnv applies environment variables to config

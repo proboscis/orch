@@ -121,24 +121,6 @@ tmux attach（画像コピペ等の手動対話）
 
 ---
 
-## orch answer RUN_REF QUESTION_ID
-
-questionに回答イベントを追記（non-interactive）
-
-### オプション
-
-| オプション | 説明 |
-|-----------|------|
-| `--text "…"` | 回答テキスト |
-| `--file <path>` | ファイルから読み込み |
-| `--by user\|system` | default user |
-
-### 副作用
-
-- Event追記: `answer | <qid> | text=…`
-
----
-
 ## orch tick RUN_REF | --all
 
 blocked等のrunを再開するトリガ（質問が解消されていれば次フェーズを進める）

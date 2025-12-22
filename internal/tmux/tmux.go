@@ -77,6 +77,13 @@ func SendKeysLiteral(session, keys string) error {
 	return cmd.Run()
 }
 
+// SendText sends text to a tmux session without pressing Enter
+func SendText(session, text string) error {
+	cmd := execCommand("tmux", "send-keys", "-t", session, text)
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 // CapturePane captures the content of a tmux pane
 func CapturePane(session string, lines int) (string, error) {
 	startLine := fmt.Sprintf("-%d", lines)
