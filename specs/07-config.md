@@ -5,9 +5,10 @@
 orch は以下の順序で設定を解決する:
 
 1. コマンドラインオプション（`--vault`, `--backend` 等）
-2. 環境変数（`ORCH_VAULT`, `ORCH_BACKEND` 等）
-3. リポジトリローカル設定（`.orch/config.yaml`）
-4. グローバル設定（`~/.config/orch/config.yaml`）
+2. カレントディレクトリの `.orch/config.yaml`
+3. 親ディレクトリの `.orch/config.yaml`（上方向に探索）
+4. 環境変数（`ORCH_VAULT`, `ORCH_BACKEND` 等）
+5. グローバル設定（`~/.config/orch/config.yaml`）
 
 ## リポジトリローカル設定
 
@@ -46,8 +47,9 @@ base_branch: main
 `orch` コマンド実行時:
 
 1. カレントディレクトリから上方向に `.orch/config.yaml` を探索
-2. 見つかればその設定を読み込み
-3. 見つからなければ環境変数/グローバル設定にフォールバック
+2. 見つかった設定を親→子の順で読み込み（近い設定ほど優先）
+3. 環境変数はそれより低い優先度で利用
+4. 見つからなければグローバル設定にフォールバック
 
 これにより、ユーザーはリポジトリ内で単に `orch ps` や `orch run ISSUE` を実行できる。
 
