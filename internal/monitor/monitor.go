@@ -488,10 +488,25 @@ func (m *Monitor) ListBranchesForIssue(issueID string) ([]branchInfo, error) {
 	return filterBranchesForIssue(branches, issueID), nil
 }
 
+// ContinueRunRequest describes the selection for a continue run.
+type ContinueRunRequest struct {
+	RunRef  string
+	IssueID string
+	Branch  string
+}
+
 // ContinueRun launches a continue run by invoking the orch binary.
-func (m *Monitor) ContinueRun(issueID, branch, agentType, prompt string) (string, error) {
+func (m *Monitor) ContinueRun(req ContinueRunRequest, agentType, prompt string) (string, error) {
 	args := append([]string{}, m.globalFlags...)
-	args = append(args, "continue", "--issue", issueID, "--branch", branch)
+	args = append(args, "continue")
+	if strings.TrimSpace(req.RunRef) != "" {
+		args = append(args, req.RunRef)
+	} else {
+		if strings.TrimSpace(req.IssueID) == "" || strings.TrimSpace(req.Branch) == "" {
+			return "", fmt.Errorf("issue and branch are required to continue from a branch")
+		}
+		args = append(args, "--issue", req.IssueID, "--branch", req.Branch)
+	}
 	if agentType != "" {
 		args = append(args, "--agent", agentType)
 	}
