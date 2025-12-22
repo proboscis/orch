@@ -294,9 +294,12 @@ func (m *Monitor) StopRun(run *model.Run) error {
 }
 
 // StartRun launches a new run by invoking the orch binary.
-func (m *Monitor) StartRun(issueID string) (string, error) {
+func (m *Monitor) StartRun(issueID string, agentType string) (string, error) {
 	args := append([]string{}, m.globalFlags...)
 	args = append(args, "run", issueID)
+	if agentType != "" {
+		args = append(args, "--agent", agentType)
+	}
 
 	cmd := exec.Command(m.orchPath, args...)
 	var stdout, stderr bytes.Buffer
@@ -315,6 +318,36 @@ func (m *Monitor) StartRun(issueID string) (string, error) {
 		output = "run started"
 	}
 	return output, nil
+}
+
+// GetAvailableAgents returns a list of available agent types.
+func (m *Monitor) GetAvailableAgents() []string {
+	agents := []string{
+		string(agent.AgentClaude),
+		string(agent.AgentCodex),
+		string(agent.AgentGemini),
+		string(agent.AgentCustom),
+	}
+
+	// Filter to only include available agents
+	available := make([]string, 0, len(agents))
+	for _, agentName := range agents {
+		aType, err := agent.ParseAgentType(agentName)
+		if err != nil {
+			continue
+		}
+		adapter, err := agent.GetAdapter(aType)
+		if err != nil {
+			continue
+		}
+		// Custom agent is always technically "available" (has no CLI check)
+		// For others, check if the CLI is installed
+		if adapter.IsAvailable() {
+			available = append(available, agentName)
+		}
+	}
+
+	return available
 }
 
 // OpenIssue opens an issue via orch open.

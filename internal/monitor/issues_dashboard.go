@@ -16,6 +16,7 @@ const (
 	modeIssues issueDashboardMode = iota
 	modeCreateIssue
 	modeSelectRun
+	modeSelectAgent
 )
 
 type createIssueState struct {
@@ -33,6 +34,12 @@ type selectRunState struct {
 	loading bool
 }
 
+type selectAgentState struct {
+	issueID string
+	agents  []string
+	cursor  int
+}
+
 // IssueDashboard is the bubbletea model for the issues UI.
 type IssueDashboard struct {
 	monitor *Monitor
@@ -43,10 +50,11 @@ type IssueDashboard struct {
 	width  int
 	height int
 
-	mode      issueDashboardMode
-	message   string
-	create    createIssueState
-	selectRun selectRunState
+	mode        issueDashboardMode
+	message     string
+	create      createIssueState
+	selectRun   selectRunState
+	selectAgent selectAgentState
 
 	keymap IssueKeyMap
 	styles Styles
@@ -158,6 +166,8 @@ func (d *IssueDashboard) View() string {
 		return d.styles.Box.Render(d.viewCreateIssue())
 	case modeSelectRun:
 		return d.styles.Box.Render(d.viewSelectRun())
+	case modeSelectAgent:
+		return d.styles.Box.Render(d.viewSelectAgent())
 	default:
 		return d.styles.Box.Render(d.viewIssues())
 	}
@@ -173,6 +183,8 @@ func (d *IssueDashboard) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d.handleCreateIssueKey(msg)
 	case modeSelectRun:
 		return d.handleSelectRunKey(msg)
+	case modeSelectAgent:
+		return d.handleSelectAgentKey(msg)
 	default:
 		return d.handleIssuesKey(msg)
 	}
@@ -213,7 +225,12 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d, nil
 	case d.keymap.StartRun:
 		if row := d.currentIssue(); row != nil {
-			return d, d.startRunCmd(row.ID)
+			d.selectAgent = selectAgentState{
+				issueID: row.ID,
+				agents:  d.monitor.GetAvailableAgents(),
+				cursor:  0,
+			}
+			d.mode = modeSelectAgent
 		}
 		return d, nil
 	case "up", "k":
@@ -244,8 +261,12 @@ func (d *IssueDashboard) handleSelectRunKey(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		return d.quit()
 	case d.keymap.StartRun:
 		if strings.TrimSpace(d.selectRun.issueID) != "" {
-			d.mode = modeIssues
-			return d, d.startRunCmd(d.selectRun.issueID)
+			d.selectAgent = selectAgentState{
+				issueID: d.selectRun.issueID,
+				agents:  d.monitor.GetAvailableAgents(),
+				cursor:  0,
+			}
+			d.mode = modeSelectAgent
 		}
 		return d, nil
 	case "enter":
@@ -315,6 +336,44 @@ func (d *IssueDashboard) handleCreateIssueKey(msg tea.KeyMsg) (tea.Model, tea.Cm
 	}
 }
 
+func (d *IssueDashboard) handleSelectAgentKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		d.mode = modeIssues
+		return d, nil
+	case "q":
+		return d.quit()
+	case "enter":
+		if d.selectAgent.cursor >= 0 && d.selectAgent.cursor < len(d.selectAgent.agents) {
+			agentType := d.selectAgent.agents[d.selectAgent.cursor]
+			issueID := d.selectAgent.issueID
+			d.mode = modeIssues
+			return d, d.startRunCmd(issueID, agentType)
+		}
+		return d, nil
+	case "up", "k":
+		if d.selectAgent.cursor > 0 {
+			d.selectAgent.cursor--
+		}
+		return d, nil
+	case "down", "j":
+		if d.selectAgent.cursor < len(d.selectAgent.agents)-1 {
+			d.selectAgent.cursor++
+		}
+		return d, nil
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		idx := int(msg.String()[0] - '1')
+		if idx >= 0 && idx < len(d.selectAgent.agents) {
+			agentType := d.selectAgent.agents[idx]
+			issueID := d.selectAgent.issueID
+			d.mode = modeIssues
+			return d, d.startRunCmd(issueID, agentType)
+		}
+		return d, nil
+	}
+	return d, nil
+}
+
 func (d *IssueDashboard) quit() (tea.Model, tea.Cmd) {
 	_ = d.monitor.Quit()
 	return d, tea.Quit
@@ -346,9 +405,9 @@ func (d *IssueDashboard) loadIssueRunsCmd(issueID string) tea.Cmd {
 	}
 }
 
-func (d *IssueDashboard) startRunCmd(issueID string) tea.Cmd {
+func (d *IssueDashboard) startRunCmd(issueID, agentType string) tea.Cmd {
 	return func() tea.Msg {
-		output, err := d.monitor.StartRun(issueID)
+		output, err := d.monitor.StartRun(issueID, agentType)
 		if err != nil {
 			return errMsg{err: fmt.Errorf("%s", output)}
 		}
@@ -483,6 +542,35 @@ func (d *IssueDashboard) viewSelectRun() string {
 	}
 
 	lines = append(lines, "", "[Enter] open run  [Esc] back  [r] start run")
+	return strings.Join(lines, "\n")
+}
+
+func (d *IssueDashboard) viewSelectAgent() string {
+	header := d.styles.Title.Render("SELECT AGENT")
+	lines := []string{header, ""}
+
+	issueID := d.selectAgent.issueID
+	if strings.TrimSpace(issueID) == "" {
+		issueID = "-"
+	}
+	lines = append(lines, fmt.Sprintf("Issue: %s", issueID), "")
+
+	if len(d.selectAgent.agents) == 0 {
+		lines = append(lines, "No agents available.")
+		lines = append(lines, "", "[Esc] back")
+		return strings.Join(lines, "\n")
+	}
+
+	lines = append(lines, "Select an agent for the run:", "")
+	for i, agent := range d.selectAgent.agents {
+		label := fmt.Sprintf("  [%d] %s", i+1, agent)
+		if i == d.selectAgent.cursor {
+			label = d.styles.Selected.Render(label)
+		}
+		lines = append(lines, label)
+	}
+
+	lines = append(lines, "", "[Enter/1-9] select agent  [Esc] back")
 	return strings.Join(lines, "\n")
 }
 
