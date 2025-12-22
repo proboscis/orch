@@ -159,3 +159,14 @@ func TestAPILimitDetection(t *testing.T) {
 		t.Fatalf("detectStatus = %q, want %q", got, model.StatusBlockedAPI)
 	}
 }
+
+func TestAPILimitDetectionNormalizesUnicode(t *testing.T) {
+	d := newTestDaemon()
+
+	if !d.isAPILimited("You\u2019ve hit your limit") {
+		t.Fatal("expected API limit detection with curly apostrophe")
+	}
+	if !d.isAPILimited("Stop\u00a0and wait for limit to reset") {
+		t.Fatal("expected API limit detection with non-breaking space")
+	}
+}
