@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/config"
@@ -44,6 +45,7 @@ type Options struct {
 	Statuses    []model.Status
 	RunSort     SortKey
 	IssueSort   SortKey
+	Agent       string
 	Attach      bool
 	ForceNew    bool
 	OrchPath    string
@@ -60,6 +62,7 @@ type Monitor struct {
 	store        store.Store
 	orchPath     string
 	globalFlags  []string
+	agent        string
 	attach       bool
 	forceNew     bool
 	runs         []*RunWindow
@@ -97,6 +100,7 @@ func New(st store.Store, opts Options) *Monitor {
 		store:        st,
 		orchPath:     orchPath,
 		globalFlags:  opts.GlobalFlags,
+		agent:        opts.Agent,
 		attach:       opts.Attach,
 		forceNew:     opts.ForceNew,
 	}
@@ -620,7 +624,9 @@ func (m *Monitor) ensurePaneLayout() error {
 		_ = tmux.SetPaneTitle(base.ID, runsPaneTitle)
 		if chatPane, err := tmux.SplitWindow(base.ID, true, 25); err == nil {
 			_ = tmux.SetPaneTitle(chatPane, chatPaneTitle)
-			_ = tmux.SendKeys(chatPane, m.agentChatCommand())
+			launch := m.agentChatLaunch()
+			_ = tmux.SendKeys(chatPane, launch.command)
+			m.sendAgentChatPrompt(chatPane, launch)
 			_ = tmux.SetOption(m.session, chatPaneOption, chatPane)
 		} else {
 			return err
@@ -873,35 +879,43 @@ func (m *Monitor) issuesDashboardCommand() string {
 	return shellJoin(args)
 }
 
-func (m *Monitor) agentChatCommand() string {
+type agentChatLaunch struct {
+	command      string
+	prompt       string
+	injection    agent.InjectionMethod
+	readyPattern string
+}
+
+func (m *Monitor) agentChatLaunch() agentChatLaunch {
 	// Write the control prompt file with dynamic repo context
 	_, err := writeControlPromptFile(m.store)
 	if err != nil {
-		return fallbackChatCommand(fmt.Sprintf("failed to write prompt file: %v", err))
+		return agentChatLaunch{command: fallbackChatCommand(fmt.Sprintf("failed to write prompt file: %v", err))}
 	}
 
 	// Use the instruction to read the prompt file
 	prompt := GetControlPromptInstruction()
 
-	cfg, err := config.Load()
-	if err != nil {
-		return fallbackChatCommand("failed to load config")
+	agentName := strings.TrimSpace(m.agent)
+	if agentName == "" {
+		cfg, err := config.Load()
+		if err == nil {
+			agentName = cfg.Agent
+		}
 	}
-
-	agentName := cfg.Agent
 	if agentName == "" {
 		agentName = "claude"
 	}
 	aType, err := agent.ParseAgentType(agentName)
 	if err != nil {
-		return fallbackChatCommand(err.Error())
+		return agentChatLaunch{command: fallbackChatCommand(err.Error())}
 	}
 	adapter, err := agent.GetAdapter(aType)
 	if err != nil {
-		return fallbackChatCommand(err.Error())
+		return agentChatLaunch{command: fallbackChatCommand(err.Error())}
 	}
 	if !adapter.IsAvailable() {
-		return fallbackChatCommand(fmt.Sprintf("%s CLI not available", agentName))
+		return agentChatLaunch{command: fallbackChatCommand(fmt.Sprintf("%s CLI not available", agentName))}
 	}
 
 	cmd, err := adapter.LaunchCommand(&agent.LaunchConfig{
@@ -910,9 +924,30 @@ func (m *Monitor) agentChatCommand() string {
 		Prompt:    prompt,
 	})
 	if err != nil {
-		return fallbackChatCommand(err.Error())
+		return agentChatLaunch{command: fallbackChatCommand(err.Error())}
 	}
-	return cmd
+
+	return agentChatLaunch{
+		command:      cmd,
+		prompt:       prompt,
+		injection:    adapter.PromptInjection(),
+		readyPattern: adapter.ReadyPattern(),
+	}
+}
+
+func (m *Monitor) sendAgentChatPrompt(pane string, launch agentChatLaunch) {
+	if launch.injection != agent.InjectionTmux || launch.prompt == "" {
+		return
+	}
+	paneID := pane
+	prompt := launch.prompt
+	pattern := launch.readyPattern
+	go func() {
+		if pattern != "" {
+			_ = tmux.WaitForReady(paneID, pattern, 30*time.Second)
+		}
+		_ = tmux.SendKeys(paneID, prompt)
+	}()
 }
 
 func defaultStatuses() []model.Status {
