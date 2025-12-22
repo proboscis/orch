@@ -48,7 +48,7 @@ type selectAgentState struct {
 
 // filterState holds the current filter settings for the issue list
 type filterState struct {
-	showResolved bool // Show resolved issues (default: true)
+	showResolved bool // Show resolved issues (default: false)
 	showClosed   bool // Show closed issues (default: true)
 	cursor       int  // Currently selected option in filter dialog
 }
@@ -56,7 +56,7 @@ type filterState struct {
 // defaultFilterState returns the default filter state
 func defaultFilterState() filterState {
 	return filterState{
-		showResolved: true,
+		showResolved: false,
 		showClosed:   true,
 		cursor:       0,
 	}
