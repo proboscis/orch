@@ -40,6 +40,7 @@ func TestLaunchConfigEnv(t *testing.T) {
 		WorkDir:   "/work",
 		Branch:    "branch",
 		VaultPath: "/vault",
+		Model:     "claude-3-5-sonnet-20241022",
 	}
 
 	env := cfg.Env()
@@ -49,6 +50,7 @@ func TestLaunchConfigEnv(t *testing.T) {
 	assertEnvContains(t, env, "ORCH_WORKTREE_PATH=/work")
 	assertEnvContains(t, env, "ORCH_BRANCH=branch")
 	assertEnvContains(t, env, "ORCH_VAULT=/vault")
+	assertEnvContains(t, env, "ORCH_MODEL=claude-3-5-sonnet-20241022")
 	assertEnvContains(t, env, "HOME=/tmp/home")
 }
 

@@ -39,6 +39,7 @@
 | `--run-id <RUN_ID>` | 手動指定 |
 | `--agent claude\|codex\|gemini\|custom:` | agent種別 |
 | `--agent-cmd` | custom時の起動コマンド |
+| `--model <MODEL>` | agent model (e.g., gpt-4o, claude-3-5-sonnet-20241022, gemini-1.5-pro) |
 | `--base-branch main` | デフォルトmain |
 | `--branch` | 省略時は規約生成 |
 | `--worktree-root` | 例: .git-worktrees |

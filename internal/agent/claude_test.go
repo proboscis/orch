@@ -16,6 +16,7 @@ func TestClaudeLaunchCommand(t *testing.T) {
 	cfg := &LaunchConfig{
 		Prompt:      "hello",
 		Profile:     "work",
+		Model:       "sonnet",
 		Resume:      true,
 		SessionName: "session-1",
 	}
@@ -24,7 +25,7 @@ func TestClaudeLaunchCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LaunchCommand error: %v", err)
 	}
-	want := "claude --dangerously-skip-permissions --profile work --resume session-1 \"hello\""
+	want := "claude --dangerously-skip-permissions --profile work --model sonnet --resume session-1 \"hello\""
 	if cmd != want {
 		t.Fatalf("command = %q, want %q", cmd, want)
 	}

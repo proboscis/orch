@@ -22,6 +22,8 @@ const (
 	modeDashboard dashboardMode = iota
 	modeStopSelectRun
 	modeNewSelectIssue
+	modeNewSelectModel
+	modeNewCustomModel
 )
 
 type stopState struct {
@@ -41,6 +43,14 @@ type captureState struct {
 	loading bool
 }
 
+type newModelState struct {
+	issueID string
+	agent   string
+	models  []string
+	cursor  int
+	input   string
+}
+
 // Dashboard is the bubbletea model for the monitor UI.
 type Dashboard struct {
 	monitor *Monitor
@@ -57,6 +67,7 @@ type Dashboard struct {
 
 	stop   stopState
 	newRun newRunState
+	newModel newModelState
 
 	keymap KeyMap
 	styles Styles
@@ -195,6 +206,10 @@ func (d *Dashboard) View() string {
 		return d.styles.Box.Render(d.viewStopRuns())
 	case modeNewSelectIssue:
 		return d.styles.Box.Render(d.viewNewRun())
+	case modeNewSelectModel:
+		return d.styles.Box.Render(d.viewNewModel())
+	case modeNewCustomModel:
+		return d.styles.Box.Render(d.viewNewCustomModel())
 	default:
 		return d.styles.Box.Render(d.viewDashboard())
 	}
@@ -212,6 +227,10 @@ func (d *Dashboard) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d.handleStopKey(msg)
 	case modeNewSelectIssue:
 		return d.handleNewRunKey(msg)
+	case modeNewSelectModel:
+		return d.handleNewModelKey(msg)
+	case modeNewCustomModel:
+		return d.handleNewCustomModelKey(msg)
 	default:
 		return d, nil
 	}
@@ -341,8 +360,15 @@ func (d *Dashboard) handleNewRunKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		if d.newRun.cursor >= 0 && d.newRun.cursor < len(d.newRun.issues) {
 			issueID := d.newRun.issues[d.newRun.cursor].ID
-			d.mode = modeDashboard
-			return d, d.startRunCmd(issueID)
+			agentName := defaultRunAgent()
+			d.newModel = newModelState{
+				issueID: issueID,
+				agent:   agentName,
+				models:  modelOptionsForAgent(agentName),
+				cursor:  0,
+			}
+			d.mode = modeNewSelectModel
+			return d, nil
 		}
 		return d, nil
 	}
@@ -350,11 +376,101 @@ func (d *Dashboard) handleNewRunKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if index, ok := parseNumberKey(msg); ok {
 		if index >= 1 && index <= len(d.newRun.issues) {
 			issueID := d.newRun.issues[index-1].ID
-			d.mode = modeDashboard
-			return d, d.startRunCmd(issueID)
+			agentName := defaultRunAgent()
+			d.newModel = newModelState{
+				issueID: issueID,
+				agent:   agentName,
+				models:  modelOptionsForAgent(agentName),
+				cursor:  0,
+			}
+			d.mode = modeNewSelectModel
+			return d, nil
 		}
 	}
 	return d, nil
+}
+
+func (d *Dashboard) handleNewModelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		d.mode = modeNewSelectIssue
+		return d, nil
+	case "q":
+		return d.quit()
+	case "enter":
+		if d.newModel.cursor >= 0 && d.newModel.cursor < len(d.newModel.models) {
+			selection := d.newModel.models[d.newModel.cursor]
+			modelName, needsCustom := modelSelectionValue(selection)
+			if needsCustom {
+				d.newModel.input = ""
+				d.mode = modeNewCustomModel
+				return d, nil
+			}
+			issueID := d.newModel.issueID
+			d.mode = modeDashboard
+			return d, d.startRunCmd(issueID, d.newModel.agent, modelName)
+		}
+		return d, nil
+	case "up", "k":
+		if d.newModel.cursor > 0 {
+			d.newModel.cursor--
+		}
+		return d, nil
+	case "down", "j":
+		if d.newModel.cursor < len(d.newModel.models)-1 {
+			d.newModel.cursor++
+		}
+		return d, nil
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		idx := int(msg.String()[0] - '1')
+		if idx >= 0 && idx < len(d.newModel.models) {
+			selection := d.newModel.models[idx]
+			modelName, needsCustom := modelSelectionValue(selection)
+			if needsCustom {
+				d.newModel.input = ""
+				d.mode = modeNewCustomModel
+				return d, nil
+			}
+			issueID := d.newModel.issueID
+			d.mode = modeDashboard
+			return d, d.startRunCmd(issueID, d.newModel.agent, modelName)
+		}
+		return d, nil
+	}
+	return d, nil
+}
+
+func (d *Dashboard) handleNewCustomModelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		d.mode = modeNewSelectModel
+		return d, nil
+	case "q":
+		return d.quit()
+	case "enter":
+		modelName := strings.TrimSpace(d.newModel.input)
+		if modelName == "" {
+			d.message = "model is required"
+			return d, nil
+		}
+		issueID := d.newModel.issueID
+		d.mode = modeDashboard
+		return d, d.startRunCmd(issueID, d.newModel.agent, modelName)
+	}
+
+	switch msg.Type {
+	case tea.KeyBackspace, tea.KeyDelete:
+		if len(d.newModel.input) > 0 {
+			runes := []rune(d.newModel.input)
+			d.newModel.input = string(runes[:len(runes)-1])
+		}
+		return d, nil
+	case tea.KeyRunes:
+		d.newModel.input += string(msg.Runes)
+		return d, nil
+	default:
+		return d, nil
+	}
 }
 
 func (d *Dashboard) quit() (tea.Model, tea.Cmd) {
@@ -445,10 +561,10 @@ func (d *Dashboard) loadIssuesCmd() tea.Cmd {
 	}
 }
 
-func (d *Dashboard) startRunCmd(issueID string) tea.Cmd {
+func (d *Dashboard) startRunCmd(issueID, agentType, modelName string) tea.Cmd {
 	return func() tea.Msg {
 		// Use empty agent type to use default agent
-		output, err := d.monitor.StartRun(issueID, "")
+		output, err := d.monitor.StartRun(issueID, agentType, modelName)
 		if err != nil {
 			return errMsg{err: fmt.Errorf("%s", output)}
 		}
@@ -608,7 +724,61 @@ func (d *Dashboard) viewNewRun() string {
 		}
 		lines = append(lines, label)
 	}
-	lines = append(lines, "", "[Enter] start  [Esc] cancel")
+	lines = append(lines, "", "[Enter] next  [Esc] cancel")
+	return strings.Join(lines, "\n")
+}
+
+func (d *Dashboard) viewNewModel() string {
+	lines := []string{
+		d.styles.Title.Render("NEW RUN - SELECT MODEL"),
+		"",
+	}
+
+	issueID := d.newModel.issueID
+	if strings.TrimSpace(issueID) == "" {
+		issueID = "-"
+	}
+	agentName := d.newModel.agent
+	if strings.TrimSpace(agentName) == "" {
+		agentName = defaultRunAgent()
+	}
+	lines = append(lines, fmt.Sprintf("Issue: %s", issueID), fmt.Sprintf("Agent: %s", agentName), "")
+
+	if len(d.newModel.models) == 0 {
+		lines = append(lines, "No models available.", "", "[Esc] back")
+		return strings.Join(lines, "\n")
+	}
+
+	lines = append(lines, "Select a model:", "")
+	for i, modelName := range d.newModel.models {
+		label := fmt.Sprintf("  [%d] %s", i+1, modelName)
+		if i == d.newModel.cursor {
+			label = d.styles.Selected.Render(label)
+		}
+		lines = append(lines, label)
+	}
+
+	lines = append(lines, "", "[Enter/1-9] select model  [Esc] back")
+	return strings.Join(lines, "\n")
+}
+
+func (d *Dashboard) viewNewCustomModel() string {
+	lines := []string{
+		d.styles.Title.Render("NEW RUN - CUSTOM MODEL"),
+		"",
+	}
+
+	issueID := d.newModel.issueID
+	if strings.TrimSpace(issueID) == "" {
+		issueID = "-"
+	}
+	agentName := d.newModel.agent
+	if strings.TrimSpace(agentName) == "" {
+		agentName = defaultRunAgent()
+	}
+	lines = append(lines, fmt.Sprintf("Issue: %s", issueID), fmt.Sprintf("Agent: %s", agentName), "")
+	lines = append(lines, "Model:", fmt.Sprintf("> %s", d.newModel.input))
+	lines = append(lines, "", "[Enter] start  [Esc] back")
 	return strings.Join(lines, "\n")
 }
 

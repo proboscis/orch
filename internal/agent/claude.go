@@ -30,6 +30,11 @@ func (a *ClaudeAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 		args = append(args, "--profile", cfg.Profile)
 	}
 
+	// Add model if specified
+	if cfg.Model != "" {
+		args = append(args, "--model", cfg.Model)
+	}
+
 	// Add resume flag if applicable
 	if cfg.Resume && cfg.SessionName != "" {
 		args = append(args, "--resume", cfg.SessionName)

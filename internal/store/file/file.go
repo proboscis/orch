@@ -559,6 +559,8 @@ func (s *FileStore) loadRun(issueID, runID, path string) (*model.Run, error) {
 					switch key {
 					case "agent":
 						run.Agent = value
+					case "model":
+						run.Model = value
 					case "continued_from":
 						run.ContinuedFrom = value
 					}

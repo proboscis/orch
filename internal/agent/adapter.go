@@ -55,6 +55,7 @@ type LaunchConfig struct {
 	Resume      bool   // Whether to resume an existing session
 	SessionName string // For agents that support session naming
 	Profile     string // Profile name for agents that support it (e.g., claude --profile)
+	Model       string // Model name for agents that support it (e.g., --model)
 }
 
 // Env returns the environment variables to pass to the agent
@@ -66,6 +67,9 @@ func (c *LaunchConfig) Env() []string {
 		fmt.Sprintf("ORCH_WORKTREE_PATH=%s", c.WorkDir),
 		fmt.Sprintf("ORCH_BRANCH=%s", c.Branch),
 		fmt.Sprintf("ORCH_VAULT=%s", c.VaultPath),
+	}
+	if c.Model != "" {
+		env = append(env, fmt.Sprintf("ORCH_MODEL=%s", c.Model))
 	}
 	// Ensure HOME is passed for OAuth credentials in ~/.claude.json
 	if home := os.Getenv("HOME"); home != "" {
