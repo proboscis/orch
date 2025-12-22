@@ -88,6 +88,15 @@ func GenerateShortID(issueID, runID string) string {
 	return hex.EncodeToString(h[:])[:6]
 }
 
+// GenerateWorktreeName generates a worktree directory name using a short ID.
+func GenerateWorktreeName(issueID, runID, agent string) string {
+	agent = strings.TrimSpace(agent)
+	if agent == "" {
+		agent = "unknown"
+	}
+	return fmt.Sprintf("%s_%s_%s", GenerateShortID(issueID, runID), agent, runID)
+}
+
 // GetStatus derives status from events (last status event wins)
 func (r *Run) GetStatus() Status {
 	for i := len(r.Events) - 1; i >= 0; i-- {
@@ -120,7 +129,6 @@ func (r *Run) GetArtifacts() map[string]map[string]string {
 	}
 	return artifacts
 }
-
 
 // DeriveState updates Status and artifacts from events
 func (r *Run) DeriveState() {

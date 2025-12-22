@@ -51,7 +51,7 @@
 
 - RUN_ID = `YYYYMMDD-HHMMSS`
 - branch = `issue/<ISSUE_ID>/run-<RUN_ID>`
-- worktree_path = `<worktree_root>/<ISSUE_ID>/<RUN_ID>`
+- worktree_path = `<worktree_root>/<ISSUE_ID>/<RUN_SHORT>_<AGENT>_<RUN_ID>`（RUN_SHORT = 6桁hex）
 - tmux_session = `run-<ISSUE_ID>-<RUN_ID>`
 
 ### 副作用

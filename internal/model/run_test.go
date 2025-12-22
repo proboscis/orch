@@ -141,3 +141,11 @@ func TestGenerateTmuxSession(t *testing.T) {
 		t.Errorf("GenerateTmuxSession() = %v, want %v", session, want)
 	}
 }
+
+func TestGenerateWorktreeName(t *testing.T) {
+	got := GenerateWorktreeName("plc124", "20231220-100000", "claude")
+	want := GenerateShortID("plc124", "20231220-100000") + "_claude_20231220-100000"
+	if got != want {
+		t.Errorf("GenerateWorktreeName() = %v, want %v", got, want)
+	}
+}

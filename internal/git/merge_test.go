@@ -146,3 +146,40 @@ func TestCheckMergeConflict(t *testing.T) {
 		t.Fatalf("expected clean branch to merge without conflicts")
 	}
 }
+
+func TestMergedBranchesForTargetFallbackToMaster(t *testing.T) {
+	repoDir := t.TempDir()
+
+	runGit(t, repoDir, "init")
+	runGit(t, repoDir, "config", "user.email", "test@test.com")
+	runGit(t, repoDir, "config", "user.name", "Test")
+
+	readmePath := filepath.Join(repoDir, "README.md")
+	if err := os.WriteFile(readmePath, []byte("test"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "initial")
+	runGit(t, repoDir, "branch", "-M", "master")
+
+	runGit(t, repoDir, "checkout", "-b", "feature/merged")
+	if err := os.WriteFile(readmePath, []byte("test\nchange"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", "README.md")
+	runGit(t, repoDir, "commit", "-m", "feature")
+
+	runGit(t, repoDir, "checkout", "master")
+	runGit(t, repoDir, "merge", "--no-ff", "feature/merged", "-m", "merge feature")
+
+	targetRef, merged, err := MergedBranchesForTarget(repoDir, "main")
+	if err != nil {
+		t.Fatalf("MergedBranchesForTarget failed: %v", err)
+	}
+	if targetRef != "master" {
+		t.Fatalf("targetRef = %q, want %q", targetRef, "master")
+	}
+	if !merged["feature/merged"] {
+		t.Fatalf("expected feature/merged to be merged into master")
+	}
+}
