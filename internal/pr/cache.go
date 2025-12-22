@@ -4,9 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/s22625/orch/internal/git"
@@ -185,6 +187,24 @@ func lookupInfo(repoRoot, branch string) (*Info, error) {
 		Number: prs[0].Number,
 		State:  prs[0].State,
 	}, nil
+}
+
+// LookupInfo returns PR info for a branch using the GitHub CLI.
+func LookupInfo(repoRoot, branch string) (*Info, error) {
+	if strings.TrimSpace(branch) == "" {
+		return nil, fmt.Errorf("branch is required")
+	}
+	if _, err := exec.LookPath("gh"); err != nil {
+		return nil, err
+	}
+	if repoRoot == "" {
+		var err error
+		repoRoot, err = git.FindMainRepoRoot("")
+		if err != nil {
+			return nil, err
+		}
+	}
+	return lookupInfo(repoRoot, branch)
 }
 
 func getCachePath(repoRoot string) (string, error) {
