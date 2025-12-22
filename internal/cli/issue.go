@@ -65,7 +65,10 @@ func runIssueCreate(issueID string, opts *issueCreateOptions) error {
 		return err
 	}
 
-	issuesDir := filepath.Join(vaultPath, "issues")
+	issuesDir, err := resolveIssuesDir(vaultPath)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(issuesDir, 0755); err != nil {
 		return fmt.Errorf("failed to create issues directory: %w", err)
 	}
@@ -143,6 +146,36 @@ func runIssueCreate(issueID string, opts *issueCreateOptions) error {
 	}
 
 	return nil
+}
+
+func resolveIssuesDir(vaultPath string) (string, error) {
+	if strings.TrimSpace(vaultPath) == "" {
+		return "", fmt.Errorf("vault path is required")
+	}
+
+	if strings.EqualFold(filepath.Base(vaultPath), "issues") {
+		return vaultPath, nil
+	}
+
+	issuesDir := filepath.Join(vaultPath, "issues")
+	if dirExists(issuesDir) {
+		return issuesDir, nil
+	}
+
+	issuesDir = filepath.Join(vaultPath, "Issues")
+	if dirExists(issuesDir) {
+		return issuesDir, nil
+	}
+
+	return filepath.Join(vaultPath, "issues"), nil
+}
+
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
 }
 
 func newIssueListCmd() *cobra.Command {

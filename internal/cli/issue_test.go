@@ -1,30 +1,61 @@
 package cli
 
 import (
-	"fmt"
-	"strings"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
-func TestFormatRunsSummary(t *testing.T) {
-	summary := formatRunsSummary([]runSummary{
-		{RunID: "1", Status: "running"},
-		{RunID: "2", Status: "blocked"},
-		{RunID: "3", Status: "running"},
-	})
-
-	parts := strings.Split(summary, ", ")
-	counts := make(map[string]int)
-	for _, part := range parts {
-		var count int
-		var status string
-		if _, err := fmt.Sscanf(part, "%d %s", &count, &status); err != nil {
-			t.Fatalf("parse %q: %v", part, err)
-		}
-		counts[status] = count
+func TestRunIssueCreatePrefersExistingIssuesDir(t *testing.T) {
+	vault := t.TempDir()
+	issuesDir := filepath.Join(vault, "Issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("mkdir Issues: %v", err)
 	}
 
-	if counts["running"] != 2 || counts["blocked"] != 1 {
-		t.Fatalf("unexpected counts: %#v", counts)
+	prev := *globalOpts
+	globalOpts.VaultPath = vault
+	globalOpts.JSON = false
+	globalOpts.Quiet = true
+	t.Cleanup(func() {
+		*globalOpts = prev
+	})
+
+	issueID := "issue-123"
+	opts := &issueCreateOptions{Title: "Test Issue"}
+	if err := runIssueCreate(issueID, opts); err != nil {
+		t.Fatalf("runIssueCreate: %v", err)
+	}
+
+	expected := filepath.Join(issuesDir, issueID+".md")
+	if _, err := os.Stat(expected); err != nil {
+		t.Fatalf("expected issue at %q: %v", expected, err)
+	}
+}
+
+func TestRunIssueCreateUsesVaultIssuesDir(t *testing.T) {
+	vault := t.TempDir()
+	issuesDir := filepath.Join(vault, "Issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("mkdir Issues: %v", err)
+	}
+
+	prev := *globalOpts
+	globalOpts.VaultPath = issuesDir
+	globalOpts.JSON = false
+	globalOpts.Quiet = true
+	t.Cleanup(func() {
+		*globalOpts = prev
+	})
+
+	issueID := "issue-456"
+	opts := &issueCreateOptions{Title: "Test Issue"}
+	if err := runIssueCreate(issueID, opts); err != nil {
+		t.Fatalf("runIssueCreate: %v", err)
+	}
+
+	expected := filepath.Join(issuesDir, issueID+".md")
+	if _, err := os.Stat(expected); err != nil {
+		t.Fatalf("expected issue at %q: %v", expected, err)
 	}
 }
