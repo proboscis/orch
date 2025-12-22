@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 	"github.com/s22625/orch/internal/model"
 )
 
@@ -977,11 +978,30 @@ func truncate(s string, width int) string {
 	if lipgloss.Width(s) <= width {
 		return s
 	}
-	runes := []rune(s)
 	if width <= 3 {
-		return string(runes[:width])
+		return truncateToWidth(s, width)
 	}
-	return string(runes[:width-3]) + "..."
+	return truncateToWidth(s, width-3) + "..."
+}
+
+func truncateToWidth(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if runewidth.StringWidth(s) <= width {
+		return s
+	}
+	var b strings.Builder
+	current := 0
+	for _, r := range s {
+		rw := runewidth.RuneWidth(r)
+		if current+rw > width {
+			break
+		}
+		b.WriteRune(r)
+		current += rw
+	}
+	return b.String()
 }
 
 func wrapText(s string, width int) []string {
