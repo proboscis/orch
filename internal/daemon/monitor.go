@@ -165,7 +165,7 @@ func (d *Daemon) isCompleted(output string) bool {
 
 // isAPILimited checks if the output indicates API usage limits
 func (d *Daemon) isAPILimited(output string) bool {
-	lines := getLastLines(output, 10)
+	lines := getLastLines(output, 30)
 	lowerOutput := strings.ToLower(lines)
 
 	apiLimitPatterns := []string{
@@ -175,6 +175,9 @@ func (d *Daemon) isAPILimited(output string) bool {
 		"quota exceeded",
 		"insufficient quota",
 		"resource exhausted",
+		"you've hit your limit",
+		"/rate-limit-options",
+		"stop and wait for limit to reset",
 	}
 
 	for _, pattern := range apiLimitPatterns {

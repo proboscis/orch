@@ -125,3 +125,37 @@ func TestGetOrCreateState(t *testing.T) {
 		t.Fatal("expected same state instance")
 	}
 }
+
+func TestAPILimitDetection(t *testing.T) {
+	d := newTestDaemon()
+
+	// Sample from issue
+	sampleOutput := `➜  20251222-181424 claude --dangerously-skip-permissions "Please read 'ORCH_PROMPT.md' in the current directory and follow the instructions found there."
+
+ * ▐▛███▜▌ *   Claude Code v2.0.75
+* ▝▜█████▛▘ *  Opus 4.5 · Claude Enterprise
+ *  ▘▘ ▝▝  *   ~/repos/manga/placement/.git-worktrees/ISSUE-PLC-145/20251222-181424
+
+> Please read 'ORCH_PROMPT.md' in the current directory and follow the instructions found there.
+  ⎿  You've hit your limit · resets 7pm (Asia/Tokyo)
+     Opening your options…
+
+> /rate-limit-options
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ What do you want to do?                                                                                                                                                                                                                                                                                                                                                                                                                  │
+│                                                                                                                                                                                                                                                                                                                                                                                                                                          │
+│ ❯ 1. Stop and wait for limit to reset                                                                                                                                                                                                                                                                                                                                                                                                    │
+│   2. Request more                                                                                                                                                                                                                                                                                                                                                                                                                        │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯`
+
+	if !d.isAPILimited(sampleOutput) {
+		t.Fatal("expected API limit detection for Claude Code output")
+	}
+
+	// Also check detectStatus returns StatusBlockedAPI
+	run := &model.Run{}
+	state := &RunState{LastOutputAt: time.Now()}
+	if got := d.detectStatus(run, sampleOutput, state, false, false); got != model.StatusBlockedAPI {
+		t.Fatalf("detectStatus = %q, want %q", got, model.StatusBlockedAPI)
+	}
+}

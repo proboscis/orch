@@ -20,7 +20,7 @@ const (
 	modeSelectRun
 	modeSelectAgent
 	modeFilter
-	modeContinueBranch
+	modeContinueTarget
 	modeContinueAgent
 	modeContinuePrompt
 )
@@ -68,15 +68,29 @@ type branchInfo struct {
 	commitTime time.Time
 }
 
+type continueTargetKind int
+
+const (
+	continueTargetRun continueTargetKind = iota
+	continueTargetBranch
+)
+
+type continueTarget struct {
+	kind   continueTargetKind
+	run    *model.Run
+	branch branchInfo
+}
+
 // continueState holds the state for the continue run dialogue
 type continueState struct {
-	issueID  string
-	branches []branchInfo
-	cursor   int
-	offset   int
-	loading  bool
-	agent    string
-	prompt   string
+	issueID     string
+	targets     []continueTarget
+	cursor      int
+	offset      int
+	loading     bool
+	agentCursor int
+	agent       string
+	prompt      string
 }
 
 // IssueDashboard is the bubbletea model for the issues UI.
@@ -115,9 +129,11 @@ type issueRunsMsg struct {
 	runs    []*model.Run
 }
 
-type issueBranchesMsg struct {
-	issueID  string
-	branches []branchInfo
+type issueContinueTargetsMsg struct {
+	issueID   string
+	runs      []*model.Run
+	branches  []branchInfo
+	branchErr error
 }
 
 type issueTickMsg time.Time
@@ -187,21 +203,24 @@ func (d *IssueDashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		d.ensureSelectRunVisible()
 		d.mode = modeSelectRun
 		return d, nil
-	case issueBranchesMsg:
+	case issueContinueTargetsMsg:
 		if msg.issueID != d.continue_.issueID {
 			return d, nil
 		}
-		d.continue_.branches = msg.branches
 		d.continue_.loading = false
-		if len(d.continue_.branches) == 0 {
+		if msg.branchErr != nil {
+			d.message = fmt.Sprintf("failed to load branches for %s: %v", msg.issueID, msg.branchErr)
+		}
+		d.continue_.targets = buildContinueTargets(msg.runs, msg.branches)
+		if len(d.continue_.targets) == 0 {
 			d.mode = modeIssues
-			d.message = fmt.Sprintf("no branches found for %s", msg.issueID)
+			d.message = fmt.Sprintf("no runs or branches found for %s", msg.issueID)
 			return d, nil
 		}
 		d.continue_.cursor = 0
 		d.continue_.offset = 0
-		d.ensureContinueBranchVisible()
-		d.mode = modeContinueBranch
+		d.ensureContinueTargetVisible()
+		d.mode = modeContinueTarget
 		return d, nil
 	case infoMsg:
 		d.message = msg.text
@@ -235,8 +254,8 @@ func (d *IssueDashboard) View() string {
 		return d.styles.Box.Render(d.viewSelectAgent())
 	case modeFilter:
 		return d.styles.Box.Render(d.viewFilter())
-	case modeContinueBranch:
-		return d.styles.Box.Render(d.viewContinueBranch())
+	case modeContinueTarget:
+		return d.styles.Box.Render(d.viewContinueTarget())
 	case modeContinueAgent:
 		return d.styles.Box.Render(d.viewContinueAgent())
 	case modeContinuePrompt:
@@ -260,8 +279,8 @@ func (d *IssueDashboard) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d.handleSelectAgentKey(msg)
 	case modeFilter:
 		return d.handleFilterKey(msg)
-	case modeContinueBranch:
-		return d.handleContinueBranchKey(msg)
+	case modeContinueTarget:
+		return d.handleContinueTargetKey(msg)
 	case modeContinueAgent:
 		return d.handleContinueAgentKey(msg)
 	case modeContinuePrompt:
@@ -325,7 +344,7 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case d.keymap.ContinueRun:
 		if row := d.currentIssue(); row != nil {
 			d.continue_ = continueState{issueID: row.ID, loading: true}
-			return d, d.loadIssueBranchesCmd(row.ID)
+			return d, d.loadContinueTargetsCmd(row.ID)
 		}
 		return d, nil
 	case "up", "k":
@@ -1144,7 +1163,7 @@ func (d *IssueDashboard) layoutHeights() (listRows, detailRows int) {
 
 // Continue dialogue handlers
 
-func (d *IssueDashboard) handleContinueBranchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (d *IssueDashboard) handleContinueTargetKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		d.mode = modeIssues
@@ -1152,9 +1171,10 @@ func (d *IssueDashboard) handleContinueBranchKey(msg tea.KeyMsg) (tea.Model, tea
 	case "q":
 		return d.quit()
 	case "enter":
-		if d.continue_.cursor >= 0 && d.continue_.cursor < len(d.continue_.branches) {
+		if target := d.currentContinueTarget(); target != nil {
 			// Move to agent selection
 			d.continue_.agent = ""
+			d.continue_.agentCursor = d.defaultContinueAgentCursor(target)
 			d.mode = modeContinueAgent
 		}
 		return d, nil
@@ -1162,13 +1182,13 @@ func (d *IssueDashboard) handleContinueBranchKey(msg tea.KeyMsg) (tea.Model, tea
 		if d.continue_.cursor > 0 {
 			d.continue_.cursor--
 		}
-		d.ensureContinueBranchVisible()
+		d.ensureContinueTargetVisible()
 		return d, nil
 	case "down", "j":
-		if d.continue_.cursor < len(d.continue_.branches)-1 {
+		if d.continue_.cursor < len(d.continue_.targets)-1 {
 			d.continue_.cursor++
 		}
-		d.ensureContinueBranchVisible()
+		d.ensureContinueTargetVisible()
 		return d, nil
 	}
 	return d, nil
@@ -1178,13 +1198,13 @@ func (d *IssueDashboard) handleContinueAgentKey(msg tea.KeyMsg) (tea.Model, tea.
 	agents := d.monitor.GetAvailableAgents()
 	switch msg.String() {
 	case "esc":
-		d.mode = modeContinueBranch
+		d.mode = modeContinueTarget
 		return d, nil
 	case "q":
 		return d.quit()
 	case "enter":
 		if len(agents) > 0 {
-			idx := d.continue_.cursor
+			idx := d.continue_.agentCursor
 			if idx < 0 {
 				idx = 0
 			}
@@ -1198,19 +1218,20 @@ func (d *IssueDashboard) handleContinueAgentKey(msg tea.KeyMsg) (tea.Model, tea.
 		}
 		return d, nil
 	case "up", "k":
-		if d.continue_.cursor > 0 {
-			d.continue_.cursor--
+		if d.continue_.agentCursor > 0 {
+			d.continue_.agentCursor--
 		}
 		return d, nil
 	case "down", "j":
-		if d.continue_.cursor < len(agents)-1 {
-			d.continue_.cursor++
+		if d.continue_.agentCursor < len(agents)-1 {
+			d.continue_.agentCursor++
 		}
 		return d, nil
 	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		idx := int(msg.String()[0] - '1')
 		if idx >= 0 && idx < len(agents) {
 			d.continue_.agent = agents[idx]
+			d.continue_.agentCursor = idx
 			d.continue_.prompt = ""
 			d.mode = modeContinuePrompt
 		}
@@ -1223,10 +1244,10 @@ func (d *IssueDashboard) handleContinuePromptKey(msg tea.KeyMsg) (tea.Model, tea
 	switch msg.String() {
 	case "esc":
 		// Reset cursor for agent selection
-		d.continue_.cursor = 0
+		d.continue_.agentCursor = 0
 		for i, agent := range d.monitor.GetAvailableAgents() {
 			if agent == d.continue_.agent {
-				d.continue_.cursor = i
+				d.continue_.agentCursor = i
 				break
 			}
 		}
@@ -1234,8 +1255,14 @@ func (d *IssueDashboard) handleContinuePromptKey(msg tea.KeyMsg) (tea.Model, tea
 		return d, nil
 	case "enter":
 		// Execute continue command
+		target := d.currentContinueTarget()
+		if target == nil {
+			d.mode = modeIssues
+			d.message = "no continue target selected"
+			return d, nil
+		}
 		d.mode = modeIssues
-		return d, d.continueRunCmd(d.continue_.issueID, d.currentContinueBranch(), d.continue_.agent, d.continue_.prompt)
+		return d, d.continueRunCmd(d.continue_.issueID, *target, d.continue_.agent, d.continue_.prompt)
 	}
 
 	switch msg.Type {
@@ -1253,8 +1280,8 @@ func (d *IssueDashboard) handleContinuePromptKey(msg tea.KeyMsg) (tea.Model, tea
 	}
 }
 
-func (d *IssueDashboard) viewContinueBranch() string {
-	header := d.styles.Title.Render("CONTINUE RUN - SELECT BRANCH")
+func (d *IssueDashboard) viewContinueTarget() string {
+	header := d.styles.Title.Render("CONTINUE RUN - SELECT RUN/BRANCH")
 	lines := []string{header, ""}
 
 	issueID := d.continue_.issueID
@@ -1264,32 +1291,31 @@ func (d *IssueDashboard) viewContinueBranch() string {
 	lines = append(lines, fmt.Sprintf("Issue: %s", issueID), "")
 
 	if d.continue_.loading {
-		lines = append(lines, "Loading branches...")
+		lines = append(lines, "Loading runs and branches...")
 		return strings.Join(lines, "\n")
 	}
 
-	if len(d.continue_.branches) == 0 {
-		lines = append(lines, "No branches found for this issue.")
+	if len(d.continue_.targets) == 0 {
+		lines = append(lines, "No runs or branches found for this issue.")
 		lines = append(lines, "", "[Esc] back")
 		return strings.Join(lines, "\n")
 	}
 
-	lines = append(lines, "Select a branch to continue from:", "")
-	maxRows := d.continueBranchMaxRows()
-	visibleRows := d.continueBranchVisibleRows(maxRows)
+	lines = append(lines, "Select a run or branch to continue from:", "")
+	maxRows := d.continueTargetMaxRows()
+	visibleRows := d.continueTargetVisibleRows(maxRows)
 	start := d.continue_.offset
-	end := len(d.continue_.branches)
+	end := len(d.continue_.targets)
 	if visibleRows > 0 {
 		end = start + visibleRows
-		if end > len(d.continue_.branches) {
-			end = len(d.continue_.branches)
+		if end > len(d.continue_.targets) {
+			end = len(d.continue_.targets)
 		}
 	} else {
 		end = start
 	}
-	for i, branch := range d.continue_.branches[start:end] {
-		timeStr := formatRelativeTime(branch.commitTime, time.Now())
-		label := fmt.Sprintf("  %s  (%s)", branch.name, timeStr)
+	for i, target := range d.continue_.targets[start:end] {
+		label := d.formatContinueTargetLabel(target)
 		label = truncate(label, d.safeWidth()-2)
 		if i+start == d.continue_.cursor {
 			label = d.styles.Selected.Render(label)
@@ -1297,7 +1323,7 @@ func (d *IssueDashboard) viewContinueBranch() string {
 		lines = append(lines, label)
 	}
 
-	lines = append(lines, "", "[Enter] select branch  [Esc] cancel")
+	lines = append(lines, "", "[Enter] select  [Esc] cancel")
 	return strings.Join(lines, "\n")
 }
 
@@ -1309,11 +1335,14 @@ func (d *IssueDashboard) viewContinueAgent() string {
 	if strings.TrimSpace(issueID) == "" {
 		issueID = "-"
 	}
-	branch := d.currentContinueBranch()
+	runRef, branch := d.currentContinueDetails()
 	if branch == "" {
 		branch = "-"
 	}
 	lines = append(lines, fmt.Sprintf("Issue: %s", issueID))
+	if runRef != "" {
+		lines = append(lines, fmt.Sprintf("Run: %s", runRef))
+	}
 	lines = append(lines, fmt.Sprintf("Branch: %s", branch), "")
 
 	agents := d.monitor.GetAvailableAgents()
@@ -1326,7 +1355,7 @@ func (d *IssueDashboard) viewContinueAgent() string {
 	lines = append(lines, "Select an agent:", "")
 	for i, agent := range agents {
 		label := fmt.Sprintf("  [%d] %s", i+1, agent)
-		if i == d.continue_.cursor {
+		if i == d.continue_.agentCursor {
 			label = d.styles.Selected.Render(label)
 		}
 		lines = append(lines, label)
@@ -1344,11 +1373,14 @@ func (d *IssueDashboard) viewContinuePrompt() string {
 	if strings.TrimSpace(issueID) == "" {
 		issueID = "-"
 	}
-	branch := d.currentContinueBranch()
+	runRef, branch := d.currentContinueDetails()
 	if branch == "" {
 		branch = "-"
 	}
 	lines = append(lines, fmt.Sprintf("Issue: %s", issueID))
+	if runRef != "" {
+		lines = append(lines, fmt.Sprintf("Run: %s", runRef))
+	}
 	lines = append(lines, fmt.Sprintf("Branch: %s", branch))
 	lines = append(lines, fmt.Sprintf("Agent: %s", d.continue_.agent), "")
 
@@ -1359,19 +1391,42 @@ func (d *IssueDashboard) viewContinuePrompt() string {
 	return strings.Join(lines, "\n")
 }
 
-func (d *IssueDashboard) loadIssueBranchesCmd(issueID string) tea.Cmd {
+func (d *IssueDashboard) loadContinueTargetsCmd(issueID string) tea.Cmd {
 	return func() tea.Msg {
-		branches, err := d.monitor.ListBranchesForIssue(issueID)
+		runs, err := d.monitor.ListRunsForIssue(issueID)
 		if err != nil {
 			return errMsg{err: err}
 		}
-		return issueBranchesMsg{issueID: issueID, branches: branches}
+		branches, branchErr := d.monitor.ListBranchesForIssue(issueID)
+		if branchErr != nil {
+			branches = nil
+		}
+		return issueContinueTargetsMsg{
+			issueID:   issueID,
+			runs:      runs,
+			branches:  branches,
+			branchErr: branchErr,
+		}
 	}
 }
 
-func (d *IssueDashboard) continueRunCmd(issueID, branch, agentType, prompt string) tea.Cmd {
+func (d *IssueDashboard) continueRunCmd(issueID string, target continueTarget, agentType, prompt string) tea.Cmd {
 	return func() tea.Msg {
-		output, err := d.monitor.ContinueRun(issueID, branch, agentType, prompt)
+		var req ContinueRunRequest
+		switch target.kind {
+		case continueTargetRun:
+			if target.run == nil {
+				return errMsg{err: fmt.Errorf("continue target run not found")}
+			}
+			req.RunRef = target.run.Ref().String()
+		case continueTargetBranch:
+			req.IssueID = issueID
+			req.Branch = target.branch.name
+		default:
+			return errMsg{err: fmt.Errorf("unknown continue target")}
+		}
+
+		output, err := d.monitor.ContinueRun(req, agentType, prompt)
 		if err != nil {
 			return errMsg{err: fmt.Errorf("%s", output)}
 		}
@@ -1379,14 +1434,64 @@ func (d *IssueDashboard) continueRunCmd(issueID, branch, agentType, prompt strin
 	}
 }
 
-func (d *IssueDashboard) currentContinueBranch() string {
-	if d.continue_.cursor < 0 || d.continue_.cursor >= len(d.continue_.branches) {
-		return ""
+func (d *IssueDashboard) currentContinueTarget() *continueTarget {
+	if d.continue_.cursor < 0 || d.continue_.cursor >= len(d.continue_.targets) {
+		return nil
 	}
-	return d.continue_.branches[d.continue_.cursor].name
+	return &d.continue_.targets[d.continue_.cursor]
 }
 
-func (d *IssueDashboard) continueBranchMaxRows() int {
+func (d *IssueDashboard) currentContinueDetails() (string, string) {
+	target := d.currentContinueTarget()
+	if target == nil {
+		return "", ""
+	}
+	if target.kind == continueTargetRun && target.run != nil {
+		return target.run.Ref().String(), target.run.Branch
+	}
+	return "", target.branch.name
+}
+
+func (d *IssueDashboard) defaultContinueAgentCursor(target *continueTarget) int {
+	agents := d.monitor.GetAvailableAgents()
+	if target == nil || len(agents) == 0 {
+		return 0
+	}
+	if target.kind == continueTargetRun && target.run != nil && target.run.Agent != "" {
+		for i, agent := range agents {
+			if agent == target.run.Agent {
+				return i
+			}
+		}
+	}
+	return 0
+}
+
+func (d *IssueDashboard) formatContinueTargetLabel(target continueTarget) string {
+	switch target.kind {
+	case continueTargetRun:
+		if target.run == nil {
+			return "  run -"
+		}
+		branch := target.run.Branch
+		if branch == "" {
+			branch = "-"
+		}
+		agent := target.run.Agent
+		if agent == "" {
+			agent = "-"
+		}
+		updated := formatRelativeTime(target.run.UpdatedAt, time.Now())
+		return fmt.Sprintf("  run %s#%s  %s  %s  %s  %s", target.run.IssueID, target.run.RunID, target.run.Status, agent, branch, updated)
+	case continueTargetBranch:
+		timeStr := formatRelativeTime(target.branch.commitTime, time.Now())
+		return fmt.Sprintf("  branch %s  (%s)", target.branch.name, timeStr)
+	default:
+		return "  -"
+	}
+}
+
+func (d *IssueDashboard) continueTargetMaxRows() int {
 	base := 8
 	available := d.safeHeight() - base
 	if available < 1 {
@@ -1395,22 +1500,22 @@ func (d *IssueDashboard) continueBranchMaxRows() int {
 	return available
 }
 
-func (d *IssueDashboard) continueBranchVisibleRows(maxRows int) int {
+func (d *IssueDashboard) continueTargetVisibleRows(maxRows int) int {
 	if maxRows <= 0 {
 		return 0
 	}
-	if len(d.continue_.branches) < maxRows {
-		return len(d.continue_.branches)
+	if len(d.continue_.targets) < maxRows {
+		return len(d.continue_.targets)
 	}
 	return maxRows
 }
 
-func (d *IssueDashboard) ensureContinueBranchVisible() {
-	if len(d.continue_.branches) == 0 {
+func (d *IssueDashboard) ensureContinueTargetVisible() {
+	if len(d.continue_.targets) == 0 {
 		d.continue_.offset = 0
 		return
 	}
-	visibleRows := d.continueBranchVisibleRows(d.continueBranchMaxRows())
+	visibleRows := d.continueTargetVisibleRows(d.continueTargetMaxRows())
 	if visibleRows <= 0 {
 		d.continue_.offset = 0
 		return
@@ -1421,7 +1526,7 @@ func (d *IssueDashboard) ensureContinueBranchVisible() {
 	if d.continue_.cursor >= d.continue_.offset+visibleRows {
 		d.continue_.offset = d.continue_.cursor - visibleRows + 1
 	}
-	maxOffset := len(d.continue_.branches) - visibleRows
+	maxOffset := len(d.continue_.targets) - visibleRows
 	if maxOffset < 0 {
 		maxOffset = 0
 	}
@@ -1431,6 +1536,28 @@ func (d *IssueDashboard) ensureContinueBranchVisible() {
 	if d.continue_.offset < 0 {
 		d.continue_.offset = 0
 	}
+}
+
+func buildContinueTargets(runs []*model.Run, branches []branchInfo) []continueTarget {
+	targets := make([]continueTarget, 0, len(runs)+len(branches))
+	for _, run := range runs {
+		if run == nil {
+			continue
+		}
+		targets = append(targets, continueTarget{
+			kind: continueTargetRun,
+			run:  run,
+		})
+	}
+
+	for _, branch := range branches {
+		targets = append(targets, continueTarget{
+			kind:   continueTargetBranch,
+			branch: branch,
+		})
+	}
+
+	return targets
 }
 
 // filterBranchesForIssue filters branches that contain the issue ID in their name
