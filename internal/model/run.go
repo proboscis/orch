@@ -4,7 +4,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"os"
+	"regexp"
 	"strings"
+	"text/template"
 	"time"
 )
 
@@ -121,7 +124,6 @@ func (r *Run) GetArtifacts() map[string]map[string]string {
 	return artifacts
 }
 
-
 // DeriveState updates Status and artifacts from events
 func (r *Run) DeriveState() {
 	r.Status = r.GetStatus()
@@ -159,6 +161,89 @@ func GenerateRunID() string {
 // GenerateBranchName generates a branch name using the convention
 func GenerateBranchName(issueID, runID string) string {
 	return fmt.Sprintf("issue/%s/run-%s", issueID, runID)
+}
+
+// BranchTemplateData holds values for branch naming templates.
+type BranchTemplateData struct {
+	IssueID       string
+	RunID         string
+	ShortID       string
+	GeneratedName string
+	DefaultBranch string
+	User          string
+}
+
+var branchTemplateReplacer = strings.NewReplacer(
+	"<issue-id>", "{{.IssueID}}",
+	"<run-id>", "{{.RunID}}",
+	"<short-id>", "{{.ShortID}}",
+	"<generated-name>", "{{.GeneratedName}}",
+	"<doeff-generated-name>", "{{.GeneratedName}}",
+	"<default-branch>", "{{.DefaultBranch}}",
+	"<branch-name>", "{{.DefaultBranch}}",
+	"<user-space>", "{{.User}}",
+	"<user>", "{{.User}}",
+)
+
+var branchTemplateTokenPattern = regexp.MustCompile(`<[^>]+>`)
+
+// GenerateBranchNameFromTemplate renders a branch name from a template string.
+func GenerateBranchNameFromTemplate(templateStr, issueID, runID string) (string, error) {
+	if strings.TrimSpace(templateStr) == "" {
+		return GenerateBranchName(issueID, runID), nil
+	}
+
+	data := BranchTemplateData{
+		IssueID:       issueID,
+		RunID:         runID,
+		ShortID:       GenerateShortID(issueID, runID),
+		GeneratedName: fmt.Sprintf("%s/run-%s", issueID, runID),
+		DefaultBranch: GenerateBranchName(issueID, runID),
+		User:          branchTemplateUser(),
+	}
+
+	normalized := branchTemplateReplacer.Replace(templateStr)
+	if unknown := branchTemplateTokenPattern.FindAllString(normalized, -1); len(unknown) > 0 {
+		return "", fmt.Errorf("unknown branch template placeholders: %s", strings.Join(uniqueStrings(unknown), ", "))
+	}
+
+	tmpl, err := template.New("branch").Option("missingkey=error").Parse(normalized)
+	if err != nil {
+		return "", fmt.Errorf("invalid branch template: %w", err)
+	}
+
+	var buf strings.Builder
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("failed to render branch template: %w", err)
+	}
+
+	branch := strings.TrimSpace(buf.String())
+	if branch == "" {
+		return "", fmt.Errorf("branch template produced an empty branch name")
+	}
+
+	return branch, nil
+}
+
+func branchTemplateUser() string {
+	user := strings.TrimSpace(os.Getenv("USER"))
+	if user != "" {
+		return user
+	}
+	return strings.TrimSpace(os.Getenv("USERNAME"))
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 // GenerateTmuxSession generates a tmux session name using the convention
