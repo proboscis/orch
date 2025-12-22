@@ -22,19 +22,16 @@ func (a *GeminiAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 
 	// gemini CLI with yolo mode
 	args = append(args, "gemini", "--yolo")
-	if cfg.Prompt != "" {
-		args = append(args, "--prompt-interactive", doubleQuote(cfg.Prompt))
-	}
 
 	return strings.Join(args, " "), nil
 }
 
 func (a *GeminiAdapter) PromptInjection() InjectionMethod {
-	return InjectionArg
+	return InjectionTmux
 }
 
 func (a *GeminiAdapter) ReadyPattern() string {
-	return "" // Prompt passed via command line.
+	return "Type your message"
 }
 
 var _ Adapter = (*GeminiAdapter)(nil)
