@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 
 	"github.com/s22625/orch/internal/config"
@@ -106,26 +105,20 @@ func Execute() {
 func getVaultPath() (string, error) {
 	// 1. Command-line flag (highest precedence)
 	if globalOpts.VaultPath != "" {
-		return globalOpts.VaultPath, nil
+		return config.ExpandPath(globalOpts.VaultPath, ""), nil
 	}
 
 	// 2. Load from config (handles env vars and config files)
+	// Note: config.Load() resolves relative paths from config files at load time
 	cfg, err := config.Load()
 	if err != nil {
 		return "", err
 	}
 
 	if cfg.Vault != "" {
-		// Expand path relative to repo config dir if it's a relative path
-		vaultPath := cfg.Vault
-		if len(vaultPath) > 0 && !filepath.IsAbs(vaultPath) && vaultPath[0] != '~' {
-			// Relative path - expand relative to .orch directory location
-			repoDir := config.RepoConfigDir()
-			if repoDir != "" {
-				vaultPath = filepath.Join(filepath.Dir(repoDir), vaultPath)
-			}
-		}
-		return config.ExpandPath(vaultPath, ""), nil
+		// Path is already resolved if it came from a config file
+		// For env vars, ExpandPath will handle ~ but relative paths stay relative to cwd
+		return config.ExpandPath(cfg.Vault, ""), nil
 	}
 
 	return "", fmt.Errorf("vault path not specified (use --vault, set ORCH_VAULT, or create .orch/config.yaml)")
