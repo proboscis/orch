@@ -104,6 +104,7 @@ func Execute() {
 
 // getVaultPath returns the vault path from flags, environment, or config files
 // Precedence: --vault flag > ORCH_VAULT env > .orch/config.yaml > ~/.config/orch/config.yaml
+// Note: if a repo-local config exists but does not set vault, global defaults are ignored.
 func getVaultPath() (string, error) {
 	// 1. Command-line flag (highest precedence)
 	if globalOpts.VaultPath != "" {
