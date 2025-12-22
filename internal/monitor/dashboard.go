@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -1010,29 +1011,70 @@ func wrapText(s string, width int) []string {
 	if width <= 0 {
 		return []string{s}
 	}
-	words := strings.Fields(s)
-	if len(words) == 0 {
-		return []string{""}
-	}
-
 	var lines []string
-	var current strings.Builder
-	for _, word := range words {
-		if current.Len() == 0 {
-			current.WriteString(word)
+	for _, raw := range strings.Split(s, "\n") {
+		if raw == "" {
+			lines = append(lines, "")
 			continue
 		}
-		if lipgloss.Width(current.String())+1+lipgloss.Width(word) > width {
-			lines = append(lines, current.String())
-			current.Reset()
-			current.WriteString(word)
-			continue
+		runes := []rune(raw)
+		start := 0
+		for start < len(runes) {
+			if runewidth.StringWidth(string(runes[start:])) <= width {
+				lines = append(lines, string(runes[start:]))
+				break
+			}
+			curWidth := 0
+			lastSpace := -1
+			end := start
+			for ; end < len(runes); end++ {
+				rw := runewidth.RuneWidth(runes[end])
+				if curWidth+rw > width {
+					break
+				}
+				curWidth += rw
+				if unicode.IsSpace(runes[end]) {
+					lastSpace = end
+				}
+			}
+			split := end
+			if lastSpace >= start {
+				split = lastSpace
+			}
+			if split == start {
+				split = end
+				if split == start {
+					split = start + 1
+				}
+			}
+			line := strings.TrimRightFunc(string(runes[start:split]), unicode.IsSpace)
+			lines = append(lines, line)
+			start = split
+			for start < len(runes) && unicode.IsSpace(runes[start]) {
+				start++
+			}
 		}
-		current.WriteString(" ")
-		current.WriteString(word)
 	}
-	if current.Len() > 0 {
-		lines = append(lines, current.String())
+	return lines
+}
+
+func wrapLabelValue(label, value string, width int) []string {
+	if width <= 0 {
+		return []string{label + value}
+	}
+	labelWidth := runewidth.StringWidth(label)
+	if labelWidth >= width {
+		return wrapText(label+value, width)
+	}
+	valueLines := wrapText(value, width-labelWidth)
+	if len(valueLines) == 0 {
+		return []string{label}
+	}
+	lines := make([]string, 0, len(valueLines))
+	lines = append(lines, label+valueLines[0])
+	indent := strings.Repeat(" ", labelWidth)
+	for _, line := range valueLines[1:] {
+		lines = append(lines, indent+line)
 	}
 	return lines
 }
