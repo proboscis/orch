@@ -3,6 +3,7 @@ package monitor
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSessionNameForVault(t *testing.T) {
@@ -88,5 +89,81 @@ func TestSessionNameForVaultUniqueness(t *testing.T) {
 
 	if result1 == result2 {
 		t.Errorf("different paths produced same session name: %q", result1)
+	}
+}
+
+func TestFilterBranchesForIssue(t *testing.T) {
+	now := time.Now()
+	branches := map[string]time.Time{
+		"issue/orch-001/run-1": now.Add(-1 * time.Hour),
+		"issue/orch-001/run-2": now.Add(-30 * time.Minute),
+		"issue/orch-002/run-1": now.Add(-2 * time.Hour),
+		"feature/something":    now.Add(-3 * time.Hour),
+		"main":                 now,
+	}
+
+	tests := []struct {
+		name     string
+		issueID  string
+		wantLen  int
+		wantName string // first branch name expected (most recent)
+	}{
+		{
+			name:     "filters branches with issue ID",
+			issueID:  "orch-001",
+			wantLen:  2,
+			wantName: "issue/orch-001/run-2", // Most recent
+		},
+		{
+			name:     "case insensitive match",
+			issueID:  "ORCH-001",
+			wantLen:  2,
+			wantName: "issue/orch-001/run-2",
+		},
+		{
+			name:    "no matching branches",
+			issueID: "orch-999",
+			wantLen: 0,
+		},
+		{
+			name:     "partial match",
+			issueID:  "orch-00",
+			wantLen:  3, // Both orch-001 runs and orch-002
+			wantName: "issue/orch-001/run-2",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := filterBranchesForIssue(branches, tt.issueID)
+			if len(result) != tt.wantLen {
+				t.Errorf("filterBranchesForIssue() got %d branches, want %d", len(result), tt.wantLen)
+			}
+			if tt.wantLen > 0 && result[0].name != tt.wantName {
+				t.Errorf("filterBranchesForIssue() first branch = %q, want %q", result[0].name, tt.wantName)
+			}
+		})
+	}
+}
+
+func TestFilterBranchesForIssueSorting(t *testing.T) {
+	now := time.Now()
+	branches := map[string]time.Time{
+		"issue/test-001/old":    now.Add(-24 * time.Hour),
+		"issue/test-001/newest": now,
+		"issue/test-001/middle": now.Add(-1 * time.Hour),
+	}
+
+	result := filterBranchesForIssue(branches, "test-001")
+	if len(result) != 3 {
+		t.Fatalf("expected 3 branches, got %d", len(result))
+	}
+
+	// Should be sorted by commit time descending (most recent first)
+	expected := []string{"issue/test-001/newest", "issue/test-001/middle", "issue/test-001/old"}
+	for i, want := range expected {
+		if result[i].name != want {
+			t.Errorf("branch[%d] = %q, want %q", i, result[i].name, want)
+		}
 	}
 }

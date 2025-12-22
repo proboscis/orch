@@ -13,6 +13,7 @@ import (
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/config"
+	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/pr"
 	"github.com/s22625/orch/internal/store"
@@ -462,6 +463,70 @@ func (m *Monitor) ListRunsForIssue(issueID string) ([]*model.Run, error) {
 		return nil, fmt.Errorf("issue id is required")
 	}
 	return m.store.ListRuns(&store.ListRunsFilter{IssueID: issueID})
+}
+
+// ListBranchesForIssue returns branches that contain the issue ID in their name.
+func (m *Monitor) ListBranchesForIssue(issueID string) ([]branchInfo, error) {
+	if strings.TrimSpace(issueID) == "" {
+		return nil, fmt.Errorf("issue id is required")
+	}
+
+	repoRoot, err := m.getRepoRoot()
+	if err != nil {
+		return nil, err
+	}
+
+	branches, err := git.GetBranchCommitTimes(repoRoot)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list branches: %w", err)
+	}
+
+	return filterBranchesForIssue(branches, issueID), nil
+}
+
+// ContinueRun launches a continue run by invoking the orch binary.
+func (m *Monitor) ContinueRun(issueID, branch, agentType, prompt string) (string, error) {
+	args := append([]string{}, m.globalFlags...)
+	args = append(args, "continue", "--issue", issueID, "--branch", branch)
+	if agentType != "" {
+		args = append(args, "--agent", agentType)
+	}
+
+	cmd := exec.Command(m.orchPath, args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	// If prompt is provided, we need to inject it after the run starts
+	// For now, we'll pass it via environment variable or stdin
+	// The continue command doesn't have a --prompt flag, so we'll handle this differently
+	if prompt != "" {
+		// Store the prompt to be injected via tmux after the session starts
+		cmd.Env = append(os.Environ(), fmt.Sprintf("ORCH_CONTINUE_PROMPT=%s", prompt))
+	}
+
+	err := cmd.Run()
+
+	output := strings.TrimSpace(strings.TrimSpace(stdout.String()) + "\n" + strings.TrimSpace(stderr.String()))
+	if err != nil {
+		if strings.TrimSpace(output) == "" {
+			output = err.Error()
+		}
+		return output, err
+	}
+	if strings.TrimSpace(output) == "" {
+		output = "run continued"
+	}
+	return output, nil
+}
+
+func (m *Monitor) getRepoRoot() (string, error) {
+	// Try to find the repo root from the store vault path
+	vaultPath := m.store.VaultPath()
+	if vaultPath == "" {
+		return "", fmt.Errorf("vault path not set")
+	}
+	return git.FindMainRepoRoot(vaultPath)
 }
 
 func (m *Monitor) createSession() error {
