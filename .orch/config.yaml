@@ -3,3 +3,4 @@ vault: .
 agent: claude
 worktree_root: .git-worktrees
 base_branch: main
+pr_target_branch: main

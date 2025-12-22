@@ -33,6 +33,7 @@ type runOptions struct {
 	DryRun         bool
 	NoPR           bool   // Skip PR instructions in prompt
 	PromptTemplate string // Custom prompt template file
+	PRTargetBranch string // Default PR target branch for prompt
 }
 
 func newRunCmd() *cobra.Command {
@@ -238,6 +239,7 @@ func runRun(issueID string, opts *runOptions) error {
 	promptOpts := &promptOptions{
 		NoPR:           opts.NoPR,
 		PromptTemplate: opts.PromptTemplate,
+		PRTargetBranch: opts.PRTargetBranch,
 	}
 	agentPrompt := buildAgentPrompt(issue, promptOpts)
 	promptPath := filepath.Join(worktreeResult.WorktreePath, promptFileName)
@@ -347,11 +349,13 @@ func runRun(issueID string, opts *runOptions) error {
 type promptOptions struct {
 	NoPR           bool   // Skip PR instructions
 	PromptTemplate string // Custom prompt template file path
+	PRTargetBranch string // Default PR target branch for PR instructions
 }
 
 const (
 	promptFileName        = "ORCH_PROMPT.md"
 	promptFileInstruction = "Please read '" + promptFileName + "' in the current directory and follow the instructions found there."
+	defaultPRTargetBranch = "main"
 )
 
 // defaultPromptTemplate is the built-in template for agent prompts
@@ -364,16 +368,26 @@ Instructions:
 - Run tests to verify your changes work correctly
 {{- if not .NoPR}}
 - When complete, create a pull request:
+  - Target branch: {{.PRTargetBranch}}
   - Title should summarize the change
   - Body should reference issue: {{.IssueID}}
   - Include a summary of changes made
 {{- end}}
 `
 
-func buildAgentPrompt(issue *model.Issue, opts *promptOptions) string {
+func applyPromptDefaults(opts *promptOptions) *promptOptions {
 	if opts == nil {
 		opts = &promptOptions{}
 	}
+	opts.PRTargetBranch = strings.TrimSpace(opts.PRTargetBranch)
+	if opts.PRTargetBranch == "" {
+		opts.PRTargetBranch = defaultPRTargetBranch
+	}
+	return opts
+}
+
+func buildAgentPrompt(issue *model.Issue, opts *promptOptions) string {
+	opts = applyPromptDefaults(opts)
 
 	// If custom template provided, try to load it
 	if opts.PromptTemplate != "" {
@@ -389,12 +403,15 @@ func buildAgentPrompt(issue *model.Issue, opts *promptOptions) string {
 
 // executeTemplate executes a prompt template with issue data
 func executeTemplate(tmplStr string, issue *model.Issue, opts *promptOptions) string {
+	opts = applyPromptDefaults(opts)
+
 	// Simple template execution - replace placeholders
 	data := map[string]interface{}{
-		"IssueID": issue.ID,
-		"Title":   issue.Title,
-		"Body":    issue.Body,
-		"NoPR":    opts.NoPR,
+		"IssueID":        issue.ID,
+		"Title":          issue.Title,
+		"Body":           issue.Body,
+		"NoPR":           opts.NoPR,
+		"PRTargetBranch": opts.PRTargetBranch,
 	}
 
 	// Use text/template for proper template execution
@@ -414,6 +431,8 @@ func executeTemplate(tmplStr string, issue *model.Issue, opts *promptOptions) st
 
 // buildSimplePrompt creates a basic prompt without template processing
 func buildSimplePrompt(issue *model.Issue, opts *promptOptions) string {
+	opts = applyPromptDefaults(opts)
+
 	prompt := fmt.Sprintf("You are working on issue: %s\n\n", issue.ID)
 	if issue.Title != "" {
 		prompt += fmt.Sprintf("Title: %s\n\n", issue.Title)
@@ -426,6 +445,7 @@ func buildSimplePrompt(issue *model.Issue, opts *promptOptions) string {
 		prompt += "- Implement the changes described in the issue above\n"
 		prompt += "- Run tests to verify your changes work correctly\n"
 		prompt += "- When complete, create a pull request:\n"
+		prompt += fmt.Sprintf("  - Target branch: %s\n", opts.PRTargetBranch)
 		prompt += fmt.Sprintf("  - Title should summarize the change\n")
 		prompt += fmt.Sprintf("  - Body should reference issue: %s\n", issue.ID)
 		prompt += "  - Include a summary of changes made\n"
@@ -445,6 +465,10 @@ func applyPromptConfigDefaults(opts *runOptions) error {
 	// For PromptTemplate: empty string means not set
 	if opts.PromptTemplate == "" && cfg.PromptTemplate != "" {
 		opts.PromptTemplate = cfg.PromptTemplate
+	}
+
+	if opts.PRTargetBranch == "" && cfg.PRTargetBranch != "" {
+		opts.PRTargetBranch = cfg.PRTargetBranch
 	}
 
 	// For NoPR: config sets the default, but --no-pr flag overrides

@@ -24,7 +24,7 @@ func TestLoadPrecedence(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
 		t.Fatalf("mkdir repo: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("vault: /repo\nagent: codex\nno_pr: true\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("vault: /repo\nagent: codex\npr_target_branch: develop\nno_pr: true\n"), 0644); err != nil {
 		t.Fatalf("write repo config: %v", err)
 	}
 
@@ -43,7 +43,7 @@ func TestLoadPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load error: %v", err)
 	}
-	if cfg.Vault != "/repo" || cfg.Agent != "codex" || !cfg.NoPR {
+	if cfg.Vault != "/repo" || cfg.Agent != "codex" || !cfg.NoPR || cfg.PRTargetBranch != "develop" {
 		t.Fatalf("unexpected config: %+v", cfg)
 	}
 
