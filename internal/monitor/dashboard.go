@@ -210,6 +210,11 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d.enterStopMode()
 	case "n":
 		return d.enterNewRunMode()
+	case d.keymap.Sort:
+		sortKey := d.monitor.CycleRunSort()
+		d.message = fmt.Sprintf("sort: %s", sortKey)
+		d.refreshing = true
+		return d, d.refreshCmd()
 	case d.keymap.Resolve:
 		if d.cursor >= 0 && d.cursor < len(d.runs) {
 			run := d.runs[d.cursor].Run
@@ -667,10 +672,11 @@ func (d *Dashboard) renderMeta() string {
 		filter = "filter: " + strings.Join(filterParts, " ")
 	}
 
+	sortLabel := fmt.Sprintf("sort: %s", d.monitor.RunSort())
 	sync := d.renderSyncStatus()
 	nav := d.renderNav()
 	rows := d.renderRunRange()
-	return strings.Join([]string{filter, sync, nav, rows}, "  ")
+	return strings.Join([]string{filter, sortLabel, sync, nav, rows}, "  ")
 }
 
 func (d *Dashboard) renderSyncStatus() string {
