@@ -1,0 +1,180 @@
+{
+  "name": "vscode-orch",
+  "displayName": "Orch",
+  "description": "Monitor and manage orch issues and runs from VS Code.",
+  "version": "0.0.1",
+  "publisher": "orch",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:orchIssues",
+    "onView:orchRuns",
+    "onCommand:orch.refreshIssues",
+    "onCommand:orch.refreshRuns",
+    "onCommand:orch.refreshAll",
+    "onCommand:orch.issue.open",
+    "onCommand:orch.issue.startRun",
+    "onCommand:orch.issue.continueRun",
+    "onCommand:orch.run.attach",
+    "onCommand:orch.run.stop",
+    "onCommand:orch.run.resolve"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "views": {
+      "explorer": [
+        {
+          "id": "orchIssues",
+          "name": "Issues"
+        },
+        {
+          "id": "orchRuns",
+          "name": "Runs"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "orch.refreshIssues",
+        "title": "Refresh Issues"
+      },
+      {
+        "command": "orch.refreshRuns",
+        "title": "Refresh Runs"
+      },
+      {
+        "command": "orch.refreshAll",
+        "title": "Refresh Orch Panels"
+      },
+      {
+        "command": "orch.issue.open",
+        "title": "Open Issue"
+      },
+      {
+        "command": "orch.issue.startRun",
+        "title": "Start Run"
+      },
+      {
+        "command": "orch.issue.continueRun",
+        "title": "Continue Run"
+      },
+      {
+        "command": "orch.run.attach",
+        "title": "Attach to Run"
+      },
+      {
+        "command": "orch.run.stop",
+        "title": "Stop Run"
+      },
+      {
+        "command": "orch.run.resolve",
+        "title": "Resolve Run"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "orch.refreshIssues",
+          "when": "view == orchIssues",
+          "group": "navigation"
+        },
+        {
+          "command": "orch.refreshRuns",
+          "when": "view == orchRuns",
+          "group": "navigation"
+        },
+        {
+          "command": "orch.refreshAll",
+          "when": "view == orchIssues || view == orchRuns",
+          "group": "navigation@1"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "orch.issue.open",
+          "when": "view == orchIssues && viewItem == orchIssue",
+          "group": "inline"
+        },
+        {
+          "command": "orch.issue.startRun",
+          "when": "view == orchIssues && viewItem == orchIssue",
+          "group": "action"
+        },
+        {
+          "command": "orch.issue.continueRun",
+          "when": "view == orchIssues && viewItem == orchIssue",
+          "group": "action@1"
+        },
+        {
+          "command": "orch.run.attach",
+          "when": "view == orchRuns && viewItem == orchRun",
+          "group": "inline"
+        },
+        {
+          "command": "orch.run.stop",
+          "when": "view == orchRuns && viewItem == orchRun",
+          "group": "action"
+        },
+        {
+          "command": "orch.run.resolve",
+          "when": "view == orchRuns && viewItem == orchRun",
+          "group": "action@1"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Orch",
+      "properties": {
+        "orch.vaultPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the orch vault (fallback when .orch/config.yaml is missing)."
+        },
+        "orch.refreshInterval": {
+          "type": "number",
+          "default": 30,
+          "description": "Auto-refresh interval in seconds."
+        },
+        "orch.issues.showResolved": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show resolved/closed issues in the Issues panel."
+        },
+        "orch.runs.statusFilter": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "booting",
+              "running",
+              "blocked",
+              "blocked_api",
+              "pr_open",
+              "done",
+              "failed",
+              "canceled",
+              "unknown"
+            ]
+          },
+          "description": "Filter runs by status. Empty list shows all statuses."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.5"
+  }
+}
