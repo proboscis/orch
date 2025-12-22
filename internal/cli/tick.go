@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/model"
@@ -205,10 +206,15 @@ func resumeRun(st store.Store, run *model.Run, agentType string) error {
 	if sessionName == "" {
 		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
 	}
+	tmuxTarget := sessionName
 
 	if tmux.HasSession(sessionName) {
 		// Create new window in existing session
-		err = tmux.NewWindow(sessionName, "resume", run.WorktreePath, agentCmd)
+		windowName := "resume"
+		err = tmux.NewWindow(sessionName, windowName, run.WorktreePath, agentCmd)
+		if err == nil {
+			tmuxTarget = sessionName + ":" + windowName
+		}
 	} else {
 		// Create new session
 		err = tmux.NewSession(&tmux.SessionConfig{
@@ -221,6 +227,17 @@ func resumeRun(st store.Store, run *model.Run, agentType string) error {
 
 	if err != nil {
 		return fmt.Errorf("failed to resume agent: %w", err)
+	}
+
+	if adapter.PromptInjection() == agent.InjectionTmux && launchCfg.Prompt != "" {
+		if pattern := adapter.ReadyPattern(); pattern != "" {
+			if err := tmux.WaitForReady(tmuxTarget, pattern, 30*time.Second); err != nil {
+				return fmt.Errorf("agent did not become ready: %w", err)
+			}
+		}
+		if err := tmux.SendKeys(tmuxTarget, launchCfg.Prompt); err != nil {
+			return fmt.Errorf("failed to send prompt to session: %w", err)
+		}
 	}
 
 	// Update status

@@ -118,7 +118,7 @@ func TestSendText(t *testing.T) {
 }
 
 func TestSendKeys(t *testing.T) {
-	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}, {exitCode: 0}}}
 	orig := execCommand
 	execCommand = exec.Command
 	t.Cleanup(func() { execCommand = orig })
@@ -127,13 +127,16 @@ func TestSendKeys(t *testing.T) {
 		t.Fatalf("SendKeys error: %v", err)
 	}
 
-	if len(exec.recorded) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(exec.recorded))
+	if len(exec.recorded) != 2 {
+		t.Fatalf("expected 2 calls, got %d", len(exec.recorded))
 	}
-	call := exec.recorded[0]
-	// SendKeys should include "Enter"
-	if !equalArgs(call.args, []string{"send-keys", "-t", "sess", "hello world", "Enter"}) {
-		t.Fatalf("send-keys args = %v, want %v", call.args, []string{"send-keys", "-t", "sess", "hello world", "Enter"})
+	// First call should be literal
+	if !equalArgs(exec.recorded[0].args, []string{"send-keys", "-t", "sess", "-l", "hello world"}) {
+		t.Fatalf("first send-keys args = %v, want %v", exec.recorded[0].args, []string{"send-keys", "-t", "sess", "-l", "hello world"})
+	}
+	// Second call should be Enter
+	if !equalArgs(exec.recorded[1].args, []string{"send-keys", "-t", "sess", "Enter"}) {
+		t.Fatalf("second send-keys args = %v, want %v", exec.recorded[1].args, []string{"send-keys", "-t", "sess", "Enter"})
 	}
 }
 
@@ -183,7 +186,7 @@ func TestListSessionsError(t *testing.T) {
 }
 
 func TestNewSessionSendsKeys(t *testing.T) {
-	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}, {exitCode: 0}}}
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}, {exitCode: 0}, {exitCode: 0}}}
 	orig := execCommand
 	execCommand = exec.Command
 	t.Cleanup(func() { execCommand = orig })
@@ -198,8 +201,8 @@ func TestNewSessionSendsKeys(t *testing.T) {
 		t.Fatalf("NewSession error: %v", err)
 	}
 
-	if len(exec.recorded) != 2 {
-		t.Fatalf("expected 2 calls, got %d", len(exec.recorded))
+	if len(exec.recorded) != 3 {
+		t.Fatalf("expected 3 calls, got %d", len(exec.recorded))
 	}
 
 	first := exec.recorded[0]
@@ -211,8 +214,12 @@ func TestNewSessionSendsKeys(t *testing.T) {
 	}
 
 	second := exec.recorded[1]
-	if !equalArgs(second.args, []string{"send-keys", "-t", "sess", "echo hi", "Enter"}) {
-		t.Fatalf("send-keys args = %v", second.args)
+	if !equalArgs(second.args, []string{"send-keys", "-t", "sess", "-l", "echo hi"}) {
+		t.Fatalf("first send-keys args = %v", second.args)
+	}
+	third := exec.recorded[2]
+	if !equalArgs(third.args, []string{"send-keys", "-t", "sess", "Enter"}) {
+		t.Fatalf("second send-keys args = %v", third.args)
 	}
 }
 
