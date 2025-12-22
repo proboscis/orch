@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 	"github.com/s22625/orch/internal/model"
 )
 
@@ -756,10 +757,27 @@ func (d *IssueDashboard) tableWidths() (idxW, idW, statusW, latestW, activeW, su
 	activeW = 6
 
 	contentWidth := d.safeWidth()
+	maxID := idW
+	for _, row := range d.issues {
+		if w := runewidth.StringWidth(row.ID); w > maxID {
+			maxID = w
+		}
+	}
+	summaryMin := 20
+	maxIDForSummary := contentWidth - (idxW + statusW + latestW + activeW + 10 + summaryMin)
+	if maxIDForSummary < idW {
+		maxIDForSummary = idW
+	}
+	if maxID > maxIDForSummary {
+		idW = maxIDForSummary
+	} else {
+		idW = maxID
+	}
+
 	fixed := idxW + idW + statusW + latestW + activeW + 10
 	summaryW = contentWidth - fixed
-	if summaryW < 20 {
-		summaryW = 20
+	if summaryW < summaryMin {
+		summaryW = summaryMin
 	}
 	return
 }
