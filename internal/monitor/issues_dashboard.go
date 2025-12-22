@@ -915,15 +915,17 @@ func (d *IssueDashboard) tableWidths() (idxW, idW, statusW, latestW, activeW, su
 }
 
 func (d *IssueDashboard) safeWidth() int {
-	if d.width > 2 {
-		return d.width - 2
+	frame := d.styles.Box.GetHorizontalFrameSize()
+	if d.width > frame {
+		return d.width - frame
 	}
 	return 80
 }
 
 func (d *IssueDashboard) safeHeight() int {
-	if d.height > 2 {
-		return d.height - 2
+	frame := d.styles.Box.GetVerticalFrameSize()
+	if d.height > frame {
+		return d.height - frame
 	}
 	return 24
 }
