@@ -97,6 +97,46 @@ func TestHasSessionMissing(t *testing.T) {
 	}
 }
 
+func TestSendText(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	if err := SendText("sess", "hello world"); err != nil {
+		t.Fatalf("SendText error: %v", err)
+	}
+
+	if len(exec.recorded) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(exec.recorded))
+	}
+	call := exec.recorded[0]
+	// SendText should NOT include "Enter"
+	if !equalArgs(call.args, []string{"send-keys", "-t", "sess", "hello world"}) {
+		t.Fatalf("send-keys args = %v, want %v", call.args, []string{"send-keys", "-t", "sess", "hello world"})
+	}
+}
+
+func TestSendKeys(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	if err := SendKeys("sess", "hello world"); err != nil {
+		t.Fatalf("SendKeys error: %v", err)
+	}
+
+	if len(exec.recorded) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(exec.recorded))
+	}
+	call := exec.recorded[0]
+	// SendKeys should include "Enter"
+	if !equalArgs(call.args, []string{"send-keys", "-t", "sess", "hello world", "Enter"}) {
+		t.Fatalf("send-keys args = %v, want %v", call.args, []string{"send-keys", "-t", "sess", "hello world", "Enter"})
+	}
+}
+
 func TestCapturePane(t *testing.T) {
 	exec := &fakeExecutor{calls: []fakeCall{{output: "line1\nline2\n"}}}
 	orig := execCommand

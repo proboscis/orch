@@ -91,6 +91,7 @@ func init() {
 	rootCmd.AddCommand(newRepairCmd())
 	rootCmd.AddCommand(newDeleteCmd())
 	rootCmd.AddCommand(newExecCmd())
+	rootCmd.AddCommand(newSendCmd())
 }
 
 // Execute runs the root command
