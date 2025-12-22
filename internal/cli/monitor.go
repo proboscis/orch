@@ -11,6 +11,8 @@ import (
 type monitorOptions struct {
 	Issue           string
 	Status          []string
+	SortRuns        string
+	SortIssues      string
 	Attach          bool
 	ForceNew        bool
 	Dashboard       bool
@@ -30,6 +32,8 @@ func newMonitorCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&opts.Issue, "issue", "", "Filter to specific issue")
 	cmd.Flags().StringSliceVar(&opts.Status, "status", nil, "Filter by status")
+	cmd.Flags().StringVar(&opts.SortRuns, "sort-runs", string(monitor.SortByUpdated), "Sort runs by (name|updated|status)")
+	cmd.Flags().StringVar(&opts.SortIssues, "sort-issues", string(monitor.SortByName), "Sort issues by (name|updated|status)")
 	cmd.Flags().BoolVar(&opts.Attach, "attach", false, "Attach to existing monitor session if present")
 	cmd.Flags().BoolVar(&opts.ForceNew, "new", false, "Force create a new monitor session")
 	cmd.Flags().BoolVar(&opts.Dashboard, "dashboard", false, "Run dashboard UI (internal)")
@@ -54,9 +58,20 @@ func runMonitor(opts *monitorOptions) error {
 		statuses = append(statuses, model.Status(s))
 	}
 
+	runSort, err := monitor.ParseSortKey(opts.SortRuns, monitor.SortByUpdated)
+	if err != nil {
+		return err
+	}
+	issueSort, err := monitor.ParseSortKey(opts.SortIssues, monitor.SortByName)
+	if err != nil {
+		return err
+	}
+
 	m := monitor.New(st, monitor.Options{
 		Issue:       opts.Issue,
 		Statuses:    statuses,
+		RunSort:     runSort,
+		IssueSort:   issueSort,
 		Attach:      opts.Attach,
 		ForceNew:    opts.ForceNew,
 		OrchPath:    os.Args[0],

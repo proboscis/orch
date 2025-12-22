@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/s22625/orch/internal/agent"
@@ -43,6 +42,8 @@ type Options struct {
 	Session     string
 	Issue       string
 	Statuses    []model.Status
+	RunSort     SortKey
+	IssueSort   SortKey
 	Attach      bool
 	ForceNew    bool
 	OrchPath    string
@@ -54,6 +55,8 @@ type Monitor struct {
 	session      string
 	issueFilter  string
 	statusFilter []model.Status
+	runSort      SortKey
+	issueSort    SortKey
 	store        store.Store
 	orchPath     string
 	globalFlags  []string
@@ -77,16 +80,48 @@ func New(st store.Store, opts Options) *Monitor {
 		session = sessionNameForVault(st.VaultPath())
 	}
 	orchPath := resolveOrchPath(opts.OrchPath)
+	runSort := opts.RunSort
+	if !IsValidSortKey(runSort) {
+		runSort = SortByUpdated
+	}
+	issueSort := opts.IssueSort
+	if !IsValidSortKey(issueSort) {
+		issueSort = SortByName
+	}
 	return &Monitor{
 		session:      session,
 		issueFilter:  opts.Issue,
 		statusFilter: opts.Statuses,
+		runSort:      runSort,
+		issueSort:    issueSort,
 		store:        st,
 		orchPath:     orchPath,
 		globalFlags:  opts.GlobalFlags,
 		attach:       opts.Attach,
 		forceNew:     opts.ForceNew,
 	}
+}
+
+// RunSort returns the current run sort key.
+func (m *Monitor) RunSort() SortKey {
+	return m.runSort
+}
+
+// IssueSort returns the current issue sort key.
+func (m *Monitor) IssueSort() SortKey {
+	return m.issueSort
+}
+
+// CycleRunSort advances to the next run sort key.
+func (m *Monitor) CycleRunSort() SortKey {
+	m.runSort = NextSortKey(m.runSort)
+	return m.runSort
+}
+
+// CycleIssueSort advances to the next issue sort key.
+func (m *Monitor) CycleIssueSort() SortKey {
+	m.issueSort = NextSortKey(m.issueSort)
+	return m.issueSort
 }
 
 // sessionNameForVault generates a unique monitor session name based on the vault path.
@@ -462,7 +497,12 @@ func (m *Monitor) ListRunsForIssue(issueID string) ([]*model.Run, error) {
 	if strings.TrimSpace(issueID) == "" {
 		return nil, fmt.Errorf("issue id is required")
 	}
-	return m.store.ListRuns(&store.ListRunsFilter{IssueID: issueID})
+	runs, err := m.store.ListRuns(&store.ListRunsFilter{IssueID: issueID})
+	if err != nil {
+		return nil, err
+	}
+	sortRuns(runs, m.runSort)
+	return runs, nil
 }
 
 // ListBranchesForIssue returns branches that contain the issue ID in their name.
@@ -747,14 +787,11 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		})
 	}
 
+	sortRunRows(rows, m.runSort)
 	return rows, nil
 }
 
 func (m *Monitor) buildIssueRows(issues []*model.Issue, runs []*model.Run) []IssueRow {
-	sort.Slice(issues, func(i, j int) bool {
-		return issues[i].ID < issues[j].ID
-	})
-
 	runsByIssue := make(map[string][]*model.Run)
 	for _, run := range runs {
 		runsByIssue[run.IssueID] = append(runsByIssue[run.IssueID], run)
@@ -802,6 +839,7 @@ func (m *Monitor) buildIssueRows(issues []*model.Issue, runs []*model.Run) []Iss
 		rows = append(rows, row)
 	}
 
+	sortIssueRows(rows, m.issueSort)
 	return rows
 }
 
@@ -814,12 +852,24 @@ func (m *Monitor) runsDashboardCommand() string {
 	for _, status := range m.statusFilter {
 		args = append(args, "--status", string(status))
 	}
+	if m.runSort != "" {
+		args = append(args, "--sort-runs", string(m.runSort))
+	}
+	if m.issueSort != "" {
+		args = append(args, "--sort-issues", string(m.issueSort))
+	}
 	return shellJoin(args)
 }
 
 func (m *Monitor) issuesDashboardCommand() string {
 	args := append([]string{m.orchPath}, m.globalFlags...)
 	args = append(args, "monitor", "--issues-dashboard")
+	if m.runSort != "" {
+		args = append(args, "--sort-runs", string(m.runSort))
+	}
+	if m.issueSort != "" {
+		args = append(args, "--sort-issues", string(m.issueSort))
+	}
 	return shellJoin(args)
 }
 
