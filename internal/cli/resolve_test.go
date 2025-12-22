@@ -9,7 +9,7 @@ import (
 	"github.com/s22625/orch/internal/model"
 )
 
-func TestRunResolveMarksIssueResolved(t *testing.T) {
+func TestRunResolveMarksIssueCompleted(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
@@ -44,13 +44,13 @@ func TestRunResolveMarksIssueResolved(t *testing.T) {
 		t.Fatalf("getStore for check: %v", err)
 	}
 
-	// Check that issue status is resolved
+	// Check that issue status is completed
 	issue, err := st2.ResolveIssue("issue-1")
 	if err != nil {
 		t.Fatalf("ResolveIssue: %v", err)
 	}
-	if issue.Status != model.IssueStatusResolved {
-		t.Fatalf("issue status = %q, want %q", issue.Status, model.IssueStatusResolved)
+	if issue.Status != model.IssueStatusCompleted {
+		t.Fatalf("issue status = %q, want %q", issue.Status, model.IssueStatusCompleted)
 	}
 }
 
@@ -94,17 +94,17 @@ func TestRunResolveRequiresForceWithoutCompletedRuns(t *testing.T) {
 		t.Fatalf("getStore for check: %v", err)
 	}
 
-	// Check that issue status is resolved
+	// Check that issue status is completed
 	issue, err := st2.ResolveIssue("issue-2")
 	if err != nil {
 		t.Fatalf("ResolveIssue: %v", err)
 	}
-	if issue.Status != model.IssueStatusResolved {
-		t.Fatalf("issue status = %q, want %q", issue.Status, model.IssueStatusResolved)
+	if issue.Status != model.IssueStatusCompleted {
+		t.Fatalf("issue status = %q, want %q", issue.Status, model.IssueStatusCompleted)
 	}
 }
 
-func TestRunResolveAlreadyResolved(t *testing.T) {
+func TestRunResolveAlreadyCompleted(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
@@ -112,11 +112,11 @@ func TestRunResolveAlreadyResolved(t *testing.T) {
 	globalOpts.Backend = "file"
 	globalOpts.Quiet = true
 
-	writeIssueWithStatus(t, vault, "issue-3", "resolved")
+	writeIssueWithStatus(t, vault, "issue-3", "completed")
 
-	// Resolve should succeed (no-op) for already resolved issue
+	// Resolve should succeed (no-op) for already completed issue
 	if err := runResolve("issue-3", &resolveOptions{}); err != nil {
-		t.Fatalf("runResolve already resolved: %v", err)
+		t.Fatalf("runResolve already completed: %v", err)
 	}
 }
 

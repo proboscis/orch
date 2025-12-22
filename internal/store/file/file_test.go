@@ -475,21 +475,21 @@ status: open
 	createTestIssue(t, vault, "test123", content)
 
 	s, _ := New(vault)
-	if err := s.SetIssueStatus("test123", model.IssueStatusResolved); err != nil {
+	if err := s.SetIssueStatus("test123", model.IssueStatusCompleted); err != nil {
 		t.Fatalf("SetIssueStatus() error = %v", err)
 	}
 
 	// Verify cache
 	issue, _ := s.ResolveIssue("test123")
-	if issue.Status != model.IssueStatusResolved {
-		t.Errorf("expected cached status resolved, got %s", issue.Status)
+	if issue.Status != model.IssueStatusCompleted {
+		t.Errorf("expected cached status completed, got %s", issue.Status)
 	}
 
 	// Verify file content
 	reloaded, _ := New(vault) // New store to force re-read
 	issue2, _ := reloaded.ResolveIssue("test123")
-	if issue2.Status != model.IssueStatusResolved {
-		t.Errorf("expected reloaded status resolved, got %s", issue2.Status)
+	if issue2.Status != model.IssueStatusCompleted {
+		t.Errorf("expected reloaded status completed, got %s", issue2.Status)
 	}
 }
 
@@ -505,12 +505,12 @@ id: test123
 	createTestIssue(t, vault, "test123", content)
 
 	s, _ := New(vault)
-	if err := s.SetIssueStatus("test123", model.IssueStatusResolved); err != nil {
+	if err := s.SetIssueStatus("test123", model.IssueStatusCompleted); err != nil {
 		t.Fatalf("SetIssueStatus() error = %v", err)
 	}
 
 	issue, _ := s.ResolveIssue("test123")
-	if issue.Status != model.IssueStatusResolved {
-		t.Errorf("expected status resolved, got %s", issue.Status)
+	if issue.Status != model.IssueStatusCompleted {
+		t.Errorf("expected status completed, got %s", issue.Status)
 	}
 }

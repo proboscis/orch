@@ -35,37 +35,52 @@ const (
 	StatusUnknown    Status = "unknown" // Agent exited unexpectedly, shell prompt showing
 )
 
-// IssueStatus represents issue resolution states
+// IssueStatus represents issue lifecycle states
 type IssueStatus string
 
 const (
-	IssueStatusOpen     IssueStatus = "open"     // Issue is active, work in progress
-	IssueStatusResolved IssueStatus = "resolved" // Issue specification has been resolved
-	IssueStatusClosed   IssueStatus = "closed"   // Issue is closed/archived
+	IssueStatusOpen       IssueStatus = "open"        // Issue is open but not yet in progress
+	IssueStatusInProgress IssueStatus = "in_progress" // Issue work is underway
+	IssueStatusCompleted  IssueStatus = "completed"   // Issue work finished successfully
+	IssueStatusCanceled   IssueStatus = "canceled"    // Issue work was canceled
+	IssueStatusBlocked    IssueStatus = "blocked"     // Issue work is blocked
 )
+
+// NormalizeIssueStatus converts a string to a canonical IssueStatus.
+// It returns false for unknown values.
+func NormalizeIssueStatus(s string) (IssueStatus, bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case string(IssueStatusOpen):
+		return IssueStatusOpen, true
+	case string(IssueStatusInProgress):
+		return IssueStatusInProgress, true
+	case string(IssueStatusCompleted):
+		return IssueStatusCompleted, true
+	case string(IssueStatusCanceled):
+		return IssueStatusCanceled, true
+	case string(IssueStatusBlocked):
+		return IssueStatusBlocked, true
+	case "resolved":
+		return IssueStatusCompleted, true
+	case "closed":
+		return IssueStatusCanceled, true
+	default:
+		return IssueStatusOpen, false
+	}
+}
 
 // ParseIssueStatus converts a string to IssueStatus, returning IssueStatusOpen for unknown values
 func ParseIssueStatus(s string) IssueStatus {
-	switch s {
-	case string(IssueStatusOpen):
-		return IssueStatusOpen
-	case string(IssueStatusResolved):
-		return IssueStatusResolved
-	case string(IssueStatusClosed):
-		return IssueStatusClosed
-	default:
-		return IssueStatusOpen // Default to open for backwards compatibility
+	if status, ok := NormalizeIssueStatus(s); ok {
+		return status
 	}
+	return IssueStatusOpen // Default to open for backwards compatibility
 }
 
 // IsValidIssueStatus checks if a string is a valid IssueStatus
 func IsValidIssueStatus(s string) bool {
-	switch s {
-	case string(IssueStatusOpen), string(IssueStatusResolved), string(IssueStatusClosed):
-		return true
-	default:
-		return false
-	}
+	_, ok := NormalizeIssueStatus(s)
+	return ok
 }
 
 // Phase values
@@ -194,4 +209,3 @@ func NewPhaseEvent(phase Phase) *Event {
 func NewArtifactEvent(name string, attrs map[string]string) *Event {
 	return NewEvent(EventTypeArtifact, name, attrs)
 }
-

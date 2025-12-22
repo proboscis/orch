@@ -79,9 +79,11 @@ var runStatusOrder = map[model.Status]int{
 }
 
 var issueStatusOrder = map[model.IssueStatus]int{
-	model.IssueStatusOpen:     0,
-	model.IssueStatusResolved: 1,
-	model.IssueStatusClosed:   2,
+	model.IssueStatusOpen:       0,
+	model.IssueStatusInProgress: 1,
+	model.IssueStatusBlocked:    2,
+	model.IssueStatusCompleted:  3,
+	model.IssueStatusCanceled:   4,
 }
 
 func runStatusRank(status model.Status) int {

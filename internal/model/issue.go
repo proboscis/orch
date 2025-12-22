@@ -6,7 +6,7 @@ type Issue struct {
 	Title       string
 	Topic       string      // Short topic for ps display
 	Summary     string      // Short one-line summary for display
-	Status      IssueStatus // Issue resolution status (open/resolved/closed)
+	Status      IssueStatus // Issue lifecycle status (open/in_progress/completed/canceled/blocked)
 	Body        string
 	Path        string            // File path to issue document
 	Frontmatter map[string]string // YAML frontmatter fields

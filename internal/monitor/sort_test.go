@@ -129,13 +129,13 @@ func TestSortIssueRows(t *testing.T) {
 	updatedNew := base.Add(4 * time.Hour)
 
 	rows := []IssueRow{
-		{ID: "orch-2", Status: string(model.IssueStatusResolved), LatestUpdated: updatedMid},
+		{ID: "orch-2", Status: string(model.IssueStatusCompleted), LatestUpdated: updatedMid},
 		{ID: "orch-1", Status: string(model.IssueStatusOpen), LatestUpdated: updatedOld},
-		{ID: "orch-3", Status: string(model.IssueStatusClosed), LatestUpdated: updatedNew},
+		{ID: "orch-3", Status: string(model.IssueStatusCanceled), LatestUpdated: updatedNew},
 	}
 
 	sortIssueRows(rows, SortByStatus)
-	if rows[0].Status != string(model.IssueStatusOpen) || rows[1].Status != string(model.IssueStatusResolved) || rows[2].Status != string(model.IssueStatusClosed) {
+	if rows[0].Status != string(model.IssueStatusOpen) || rows[1].Status != string(model.IssueStatusCompleted) || rows[2].Status != string(model.IssueStatusCanceled) {
 		t.Fatalf("SortByStatus order mismatch: got %s, %s, %s", rows[0].Status, rows[1].Status, rows[2].Status)
 	}
 
@@ -145,10 +145,10 @@ func TestSortIssueRows(t *testing.T) {
 	}
 
 	rows = []IssueRow{
-		{ID: "orch-2", Status: string(model.IssueStatusResolved), LatestUpdated: updatedMid},
+		{ID: "orch-2", Status: string(model.IssueStatusCompleted), LatestUpdated: updatedMid},
 		{ID: "orch-4", Status: string(model.IssueStatusOpen)},
 		{ID: "orch-1", Status: string(model.IssueStatusOpen), LatestUpdated: updatedOld},
-		{ID: "orch-3", Status: string(model.IssueStatusClosed), LatestUpdated: updatedNew},
+		{ID: "orch-3", Status: string(model.IssueStatusCanceled), LatestUpdated: updatedNew},
 	}
 	sortIssueRows(rows, SortByUpdated)
 	if rows[0].ID != "orch-3" || rows[1].ID != "orch-2" || rows[2].ID != "orch-1" || rows[3].ID != "orch-4" {

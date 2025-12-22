@@ -20,6 +20,7 @@ const (
 	modeSelectRun
 	modeSelectAgent
 	modeFilter
+	modeSetStatus
 	modeContinueBranch
 	modeContinueAgent
 	modeContinuePrompt
@@ -46,20 +47,34 @@ type selectAgentState struct {
 	cursor  int
 }
 
+type issueStatusState struct {
+	issueID string
+	current model.IssueStatus
+	cursor  int
+}
+
 // filterState holds the current filter settings for the issue list
 type filterState struct {
-	showResolved bool // Show resolved issues (default: true)
-	showClosed   bool // Show closed issues (default: true)
-	cursor       int  // Currently selected option in filter dialog
+	showCompleted bool // Show completed issues (default: true)
+	showCanceled  bool // Show canceled issues (default: true)
+	cursor        int  // Currently selected option in filter dialog
 }
 
 // defaultFilterState returns the default filter state
 func defaultFilterState() filterState {
 	return filterState{
-		showResolved: true,
-		showClosed:   true,
-		cursor:       0,
+		showCompleted: true,
+		showCanceled:  true,
+		cursor:        0,
 	}
+}
+
+var issueStatusOptions = []model.IssueStatus{
+	model.IssueStatusOpen,
+	model.IssueStatusInProgress,
+	model.IssueStatusBlocked,
+	model.IssueStatusCompleted,
+	model.IssueStatusCanceled,
 }
 
 // branchInfo holds info about a branch for the continue dialogue
@@ -96,6 +111,7 @@ type IssueDashboard struct {
 	selectRun   selectRunState
 	selectAgent selectAgentState
 	filter      filterState
+	status      issueStatusState
 	continue_   continueState
 
 	keymap IssueKeyMap
@@ -235,6 +251,8 @@ func (d *IssueDashboard) View() string {
 		return d.styles.Box.Render(d.viewSelectAgent())
 	case modeFilter:
 		return d.styles.Box.Render(d.viewFilter())
+	case modeSetStatus:
+		return d.styles.Box.Render(d.viewIssueStatus())
 	case modeContinueBranch:
 		return d.styles.Box.Render(d.viewContinueBranch())
 	case modeContinueAgent:
@@ -260,6 +278,8 @@ func (d *IssueDashboard) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d.handleSelectAgentKey(msg)
 	case modeFilter:
 		return d.handleFilterKey(msg)
+	case modeSetStatus:
+		return d.handleIssueStatusKey(msg)
 	case modeContinueBranch:
 		return d.handleContinueBranchKey(msg)
 	case modeContinueAgent:
@@ -292,9 +312,15 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return d, d.openIssueCmd(row.ID)
 		}
 		return d, nil
-	case d.keymap.Resolve:
+	case d.keymap.Status:
 		if row := d.currentIssue(); row != nil {
-			return d, d.resolveIssueCmd(row.ID)
+			current := model.ParseIssueStatus(row.Status)
+			d.status = issueStatusState{
+				issueID: row.ID,
+				current: current,
+				cursor:  issueStatusIndex(current),
+			}
+			d.mode = modeSetStatus
 		}
 		return d, nil
 	case d.keymap.Filter:
@@ -490,11 +516,49 @@ func (d *IssueDashboard) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Toggle the selected filter option
 		switch d.filter.cursor {
 		case 0:
-			d.filter.showResolved = !d.filter.showResolved
+			d.filter.showCompleted = !d.filter.showCompleted
 		case 1:
-			d.filter.showClosed = !d.filter.showClosed
+			d.filter.showCanceled = !d.filter.showCanceled
 		}
 		d.applyFilter()
+		return d, nil
+	}
+	return d, nil
+}
+
+func (d *IssueDashboard) handleIssueStatusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		d.mode = modeIssues
+		return d, nil
+	case "q":
+		return d.quit()
+	case "enter":
+		if len(issueStatusOptions) == 0 {
+			d.mode = modeIssues
+			return d, nil
+		}
+		status := issueStatusOptions[d.status.cursor]
+		issueID := d.status.issueID
+		d.mode = modeIssues
+		return d, d.updateIssueStatusCmd(issueID, status)
+	case "up", "k":
+		if d.status.cursor > 0 {
+			d.status.cursor--
+		}
+		return d, nil
+	case "down", "j":
+		if d.status.cursor < len(issueStatusOptions)-1 {
+			d.status.cursor++
+		}
+		return d, nil
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		idx := int(msg.String()[0] - '1')
+		if idx >= 0 && idx < len(issueStatusOptions) {
+			issueID := d.status.issueID
+			d.mode = modeIssues
+			return d, d.updateIssueStatusCmd(issueID, issueStatusOptions[idx])
+		}
 		return d, nil
 	}
 	return d, nil
@@ -563,12 +627,12 @@ func (d *IssueDashboard) openIssueCmd(issueID string) tea.Cmd {
 	}
 }
 
-func (d *IssueDashboard) resolveIssueCmd(issueID string) tea.Cmd {
+func (d *IssueDashboard) updateIssueStatusCmd(issueID string, status model.IssueStatus) tea.Cmd {
 	return func() tea.Msg {
-		if err := d.monitor.SetIssueStatus(issueID, model.IssueStatusResolved); err != nil {
+		if err := d.monitor.SetIssueStatus(issueID, status); err != nil {
 			return errMsg{err: err}
 		}
-		return infoMsg{text: fmt.Sprintf("resolved issue %s", issueID)}
+		return infoMsg{text: fmt.Sprintf("set issue %s to %s", issueID, status)}
 	}
 }
 
@@ -711,8 +775,8 @@ func (d *IssueDashboard) viewFilter() string {
 		label   string
 		enabled bool
 	}{
-		{"Show resolved issues", d.filter.showResolved},
-		{"Show closed issues", d.filter.showClosed},
+		{"Show completed issues", d.filter.showCompleted},
+		{"Show canceled issues", d.filter.showCanceled},
 	}
 
 	for i, opt := range options {
@@ -731,9 +795,36 @@ func (d *IssueDashboard) viewFilter() string {
 	return strings.Join(lines, "\n")
 }
 
+func (d *IssueDashboard) viewIssueStatus() string {
+	header := d.styles.Title.Render("SET ISSUE STATUS")
+	lines := []string{header, ""}
+
+	issueID := d.status.issueID
+	if strings.TrimSpace(issueID) == "" {
+		issueID = "-"
+	}
+	lines = append(lines, fmt.Sprintf("Issue: %s", issueID), "")
+	lines = append(lines, "Select new status:", "")
+
+	for i, status := range issueStatusOptions {
+		marker := "[ ]"
+		if status == d.status.current {
+			marker = "[x]"
+		}
+		label := fmt.Sprintf("  %s [%d] %s", marker, i+1, status)
+		if i == d.status.cursor {
+			label = d.styles.Selected.Render(label)
+		}
+		lines = append(lines, label)
+	}
+
+	lines = append(lines, "", fmt.Sprintf("[Enter/1-%d] set status  [Esc] cancel", len(issueStatusOptions)))
+	return strings.Join(lines, "\n")
+}
+
 // applyFilter filters the issues list based on current filter settings
 func (d *IssueDashboard) applyFilter() {
-	if d.filter.showResolved && d.filter.showClosed {
+	if d.filter.showCompleted && d.filter.showCanceled {
 		// No filtering needed, show all issues
 		d.filteredIssues = d.issues
 		return
@@ -742,10 +833,10 @@ func (d *IssueDashboard) applyFilter() {
 	filtered := make([]IssueRow, 0, len(d.issues))
 	for _, issue := range d.issues {
 		status := model.ParseIssueStatus(issue.Status)
-		if status == model.IssueStatusResolved && !d.filter.showResolved {
+		if status == model.IssueStatusCompleted && !d.filter.showCompleted {
 			continue
 		}
-		if status == model.IssueStatusClosed && !d.filter.showClosed {
+		if status == model.IssueStatusCanceled && !d.filter.showCanceled {
 			continue
 		}
 		filtered = append(filtered, issue)
@@ -764,7 +855,7 @@ func (d *IssueDashboard) applyFilter() {
 
 // hasActiveFilters returns true if any filters are hiding issues
 func (d *IssueDashboard) hasActiveFilters() bool {
-	return !d.filter.showResolved || !d.filter.showClosed
+	return !d.filter.showCompleted || !d.filter.showCanceled
 }
 
 func (d *IssueDashboard) renderMeta() string {
@@ -952,7 +1043,7 @@ func (d *IssueDashboard) renderFooter() string {
 func (d *IssueDashboard) tableWidths() (idxW, idW, statusW, latestW, activeW, summaryW int) {
 	idxW = 2
 	idW = 14
-	statusW = 10
+	statusW = 12
 	latestW = 10
 	activeW = 6
 
@@ -1007,6 +1098,15 @@ func (d *IssueDashboard) currentIssue() *IssueRow {
 		return nil
 	}
 	return &d.filteredIssues[d.cursor]
+}
+
+func issueStatusIndex(status model.IssueStatus) int {
+	for i, option := range issueStatusOptions {
+		if option == status {
+			return i
+		}
+	}
+	return 0
 }
 
 func (d *IssueDashboard) currentSelectRun() *model.Run {

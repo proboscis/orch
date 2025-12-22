@@ -18,11 +18,11 @@ func newResolveCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "resolve ISSUE_ID",
-		Short: "Mark an issue as resolved",
-		Long: `Mark an issue as resolved. This indicates the issue specification has been
-completed and no further work is needed.
+		Short: "Mark an issue as completed",
+		Long: `Mark an issue as completed. This indicates the issue specification has been
+finished and no further work is needed.
 
-This updates the issue's status in its frontmatter from 'open' to 'resolved'.
+This updates the issue's status in its frontmatter from 'open' to 'completed'.
 Note: This does not change run statuses - runs have their own lifecycle states.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -48,9 +48,9 @@ func runResolve(issueID string, opts *resolveOptions) error {
 		return err
 	}
 
-	if issue.Status == model.IssueStatusResolved {
+	if issue.Status == model.IssueStatusCompleted {
 		if !globalOpts.Quiet {
-			fmt.Printf("issue %s already resolved\n", issueID)
+			fmt.Printf("issue %s already completed\n", issueID)
 		}
 		return nil
 	}
@@ -76,12 +76,12 @@ func runResolve(issueID string, opts *resolveOptions) error {
 		}
 	}
 
-	if err := st.SetIssueStatus(issueID, model.IssueStatusResolved); err != nil {
-		return fmt.Errorf("failed to mark issue as resolved: %w", err)
+	if err := st.SetIssueStatus(issueID, model.IssueStatusCompleted); err != nil {
+		return fmt.Errorf("failed to mark issue as completed: %w", err)
 	}
 
 	if !globalOpts.Quiet {
-		fmt.Printf("resolved: %s\n", issueID)
+		fmt.Printf("completed: %s\n", issueID)
 	}
 
 	return nil
