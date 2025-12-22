@@ -14,6 +14,7 @@ import (
 	"github.com/mattn/go-runewidth"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/tmux"
 )
 
 type dashboardMode int
@@ -56,6 +57,11 @@ type Dashboard struct {
 	lastRefresh     time.Time
 	refreshing      bool
 	refreshInterval time.Duration
+
+	// Tmux capture display
+	captureContent   string // Last captured tmux pane content
+	captureRunID     string // Run ID for which capture was fetched
+	captureTimestamp time.Time
 }
 
 type refreshMsg struct {
@@ -78,6 +84,11 @@ type errMsg struct {
 
 type execFinishedMsg struct {
 	err error
+}
+
+type captureMsg struct {
+	runID   string
+	content string
 }
 
 // NewDashboard creates a dashboard model.
@@ -122,7 +133,7 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		d.ensureCursorVisible()
-		return d, nil
+		return d, d.captureCmd()
 	case issuesMsg:
 		d.newRun.issues = msg.issues
 		d.newRun.cursor = 0
@@ -142,12 +153,17 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		d.refreshing = true
 		return d, d.refreshCmd()
+	case captureMsg:
+		d.captureContent = msg.content
+		d.captureRunID = msg.runID
+		d.captureTimestamp = time.Now()
+		return d, nil
 	case tickMsg:
 		if d.refreshing {
 			return d, d.tickCmd()
 		}
 		d.refreshing = true
-		return d, tea.Batch(d.refreshCmd(), d.tickCmd())
+		return d, tea.Batch(d.refreshCmd(), d.tickCmd(), d.captureCmd())
 	case tea.KeyMsg:
 		return d.handleKey(msg)
 	default:
@@ -232,13 +248,13 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			d.cursor--
 		}
 		d.ensureCursorVisible()
-		return d, nil
+		return d, d.captureCmd()
 	case "down", "j":
 		if d.cursor < len(d.runs)-1 {
 			d.cursor++
 		}
 		d.ensureCursorVisible()
-		return d, nil
+		return d, d.captureCmd()
 	case "enter":
 		if d.cursor >= 0 && d.cursor < len(d.runs) {
 			run := d.runs[d.cursor].Run
@@ -369,6 +385,40 @@ func (d *Dashboard) tickCmd() tea.Cmd {
 	})
 }
 
+// captureCmd fetches the tmux capture for the currently selected run.
+func (d *Dashboard) captureCmd() tea.Cmd {
+	if d.cursor < 0 || d.cursor >= len(d.runs) {
+		return nil
+	}
+	row := d.runs[d.cursor]
+	if row.Run == nil {
+		return nil
+	}
+	run := row.Run
+	runID := run.IssueID + "#" + run.RunID
+
+	// Get the tmux session name for this run
+	session := run.TmuxSession
+	if session == "" {
+		// Try generating the session name from convention
+		session = model.GenerateTmuxSession(run.IssueID, run.RunID)
+	}
+
+	return func() tea.Msg {
+		// Check if session exists
+		if !tmux.HasSession(session) {
+			return captureMsg{runID: runID, content: ""}
+		}
+
+		// Capture the pane content (last 50 lines)
+		content, err := tmux.CapturePane(session, 50)
+		if err != nil {
+			return captureMsg{runID: runID, content: ""}
+		}
+		return captureMsg{runID: runID, content: content}
+	}
+}
+
 func (d *Dashboard) loadIssuesCmd() tea.Cmd {
 	return func() tea.Msg {
 		issues, err := d.monitor.ListIssues()
@@ -481,6 +531,7 @@ func (d *Dashboard) viewDashboard() string {
 	meta := d.renderMeta()
 	table := d.renderTable(d.tableMaxRows())
 	stats := d.renderStats()
+	capture := d.renderCapture()
 	footer := d.renderFooter()
 	message := ""
 	if d.message != "" {
@@ -495,6 +546,9 @@ func (d *Dashboard) viewDashboard() string {
 		table,
 		"",
 		stats,
+	}
+	if capture != "" {
+		lines = append(lines, "", capture)
 	}
 	if message != "" {
 		lines = append(lines, "", message)
@@ -653,6 +707,70 @@ func (d *Dashboard) renderStats() string {
 	}
 
 	return strings.Join(stats, "  ")
+}
+
+// renderCapture renders the tmux capture pane for the selected run.
+func (d *Dashboard) renderCapture() string {
+	// No runs or no selection
+	if len(d.runs) == 0 || d.cursor < 0 || d.cursor >= len(d.runs) {
+		return ""
+	}
+
+	row := d.runs[d.cursor]
+	if row.Run == nil {
+		return ""
+	}
+
+	// Build capture header
+	runRef := row.IssueID + "#" + row.Run.RunID
+	header := d.styles.Header.Render("CAPTURE") + "  " + d.styles.Faint.Render(runRef)
+
+	// Check if we have capture content for the current run
+	currentRunID := row.Run.IssueID + "#" + row.Run.RunID
+	if d.captureRunID != currentRunID || d.captureContent == "" {
+		// No capture available for this run
+		return header + "\n" + d.styles.Faint.Render("No capture available (session may not be active)")
+	}
+
+	// Render capture content with a maximum height
+	maxCaptureLines := d.captureMaxLines()
+	if maxCaptureLines <= 0 {
+		return header + "\n" + d.styles.Faint.Render("(window too small)")
+	}
+
+	// Split and truncate content
+	contentLines := strings.Split(strings.TrimRight(d.captureContent, "\n"), "\n")
+
+	// Take only the last N lines if content is too long
+	if len(contentLines) > maxCaptureLines {
+		contentLines = contentLines[len(contentLines)-maxCaptureLines:]
+	}
+
+	// Truncate each line to fit width
+	width := d.safeWidth()
+	for i, line := range contentLines {
+		contentLines[i] = truncate(line, width)
+	}
+
+	captureBox := d.styles.Faint.Render(strings.Join(contentLines, "\n"))
+
+	return header + "\n" + captureBox
+}
+
+// captureMaxLines returns the maximum number of lines to show in the capture pane.
+func (d *Dashboard) captureMaxLines() int {
+	// Default max lines for capture pane
+	maxLines := 8
+	// Minimum height required for other UI elements (title, meta, table header, stats, footer, etc.)
+	minOtherHeight := 20
+	available := d.safeHeight() - minOtherHeight
+	if available <= 0 {
+		return 0
+	}
+	if available < maxLines {
+		return available
+	}
+	return maxLines
 }
 
 func (d *Dashboard) renderMeta() string {

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/s22625/orch/internal/model"
 )
 
 func TestSessionNameForVault(t *testing.T) {
@@ -165,5 +167,89 @@ func TestFilterBranchesForIssueSorting(t *testing.T) {
 		if result[i].name != want {
 			t.Errorf("branch[%d] = %q, want %q", i, result[i].name, want)
 		}
+	}
+}
+
+func TestDashboardRenderCapture(t *testing.T) {
+	tests := []struct {
+		name           string
+		runs           []RunRow
+		cursor         int
+		captureRunID   string
+		captureContent string
+		wantEmpty      bool
+		wantContains   []string
+	}{
+		{
+			name:      "empty runs returns empty",
+			runs:      nil,
+			cursor:    0,
+			wantEmpty: true,
+		},
+		{
+			name:      "cursor out of bounds returns empty",
+			runs:      []RunRow{{Index: 0}},
+			cursor:    5,
+			wantEmpty: true,
+		},
+		{
+			name:   "run without run data returns empty",
+			runs:   []RunRow{{Index: 0, Run: nil}},
+			cursor: 0,
+			wantEmpty: true,
+		},
+		{
+			name:   "no capture content shows message",
+			runs:   []RunRow{{Index: 0, IssueID: "test-001", Run: &model.Run{IssueID: "test-001", RunID: "20231225-120000"}}},
+			cursor: 0,
+			captureRunID:   "",
+			captureContent: "",
+			wantContains:   []string{"CAPTURE", "No capture available"},
+		},
+		{
+			name:   "capture content for different run shows message",
+			runs:   []RunRow{{Index: 0, IssueID: "test-001", Run: &model.Run{IssueID: "test-001", RunID: "20231225-120000"}}},
+			cursor: 0,
+			captureRunID:   "test-002#20231225-130000",
+			captureContent: "some content",
+			wantContains:   []string{"CAPTURE", "No capture available"},
+		},
+		{
+			name:   "capture content for current run is displayed",
+			runs:   []RunRow{{Index: 0, IssueID: "test-001", Run: &model.Run{IssueID: "test-001", RunID: "20231225-120000"}}},
+			cursor: 0,
+			captureRunID:   "test-001#20231225-120000",
+			captureContent: "Hello from tmux pane",
+			wantContains:   []string{"CAPTURE", "Hello from tmux pane"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := &Dashboard{
+				runs:           tt.runs,
+				cursor:         tt.cursor,
+				captureRunID:   tt.captureRunID,
+				captureContent: tt.captureContent,
+				width:          120,
+				height:         80, // Larger height to accommodate capture pane
+				styles:         DefaultStyles(),
+			}
+
+			result := d.renderCapture()
+
+			if tt.wantEmpty {
+				if result != "" {
+					t.Errorf("renderCapture() = %q, want empty", result)
+				}
+				return
+			}
+
+			for _, want := range tt.wantContains {
+				if !strings.Contains(result, want) {
+					t.Errorf("renderCapture() = %q, want to contain %q", result, want)
+				}
+			}
+		})
 	}
 }
