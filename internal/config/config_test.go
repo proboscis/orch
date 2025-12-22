@@ -132,6 +132,51 @@ func TestLoadDefaultVault(t *testing.T) {
 	}
 }
 
+func TestRepoConfigWithoutVaultDoesNotUseGlobal(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_AGENT", "")
+
+	globalDir := filepath.Join(home, ".config", "orch")
+	if err := os.MkdirAll(globalDir, 0755); err != nil {
+		t.Fatalf("mkdir global: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(globalDir, "config.yaml"), []byte("default_vault: /global\n"), 0644); err != nil {
+		t.Fatalf("write global config: %v", err)
+	}
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("agent: codex\n"), 0644); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.Vault != "" {
+		t.Fatalf("Vault = %q, want empty", cfg.Vault)
+	}
+	if cfg.Agent != "codex" {
+		t.Fatalf("Agent = %q, want codex", cfg.Agent)
+	}
+}
+
 func TestRepoConfigDir(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {

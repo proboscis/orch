@@ -51,6 +51,7 @@ func Load() (*Config, error) {
 	// Load repo-local config (higher precedence)
 	repoPath, _ := findRepoConfig()
 	if repoPath != "" {
+		cfg.Vault = ""
 		if err := loadFromFile(repoPath, cfg); err != nil && !os.IsNotExist(err) {
 			return nil, err
 		}
