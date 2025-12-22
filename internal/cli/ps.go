@@ -44,13 +44,13 @@ func newPsCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringSliceVar(&opts.Status, "status", nil, "Filter by run status (queued,booting,running,blocked,blocked_api,pr_open,done,failed,canceled,unknown)")
-	cmd.Flags().StringSliceVar(&opts.IssueStatus, "issue-status", nil, "Filter by issue status (open,resolved,closed)")
+	cmd.Flags().StringSliceVar(&opts.IssueStatus, "issue-status", nil, "Filter by issue status (open,in_progress,completed,canceled,blocked)")
 	cmd.Flags().StringVar(&opts.Issue, "issue", "", "Filter by issue ID")
 	cmd.Flags().IntVar(&opts.Limit, "limit", 50, "Maximum number of runs to show")
 	cmd.Flags().StringVar(&opts.Sort, "sort", "updated", "Sort by (updated|started)")
 	cmd.Flags().StringVar(&opts.Since, "since", "", "Only show runs updated since (ISO8601)")
 	cmd.Flags().BoolVar(&opts.AbsoluteTime, "absolute-time", false, "Show absolute timestamps instead of relative")
-	cmd.Flags().BoolVarP(&opts.All, "all", "a", false, "Show all runs including those from resolved issues")
+	cmd.Flags().BoolVarP(&opts.All, "all", "a", false, "Show all runs including those from completed or canceled issues")
 
 	return cmd
 }
@@ -89,12 +89,16 @@ func runPs(opts *psOptions) error {
 	for _, status := range opts.IssueStatus {
 		trimmed := strings.TrimSpace(status)
 		if trimmed != "" {
-			issueStatusFilter[trimmed] = true
+			if normalized, ok := model.NormalizeIssueStatus(trimmed); ok {
+				issueStatusFilter[string(normalized)] = true
+			} else {
+				issueStatusFilter[trimmed] = true
+			}
 		}
 	}
 
-	// By default, exclude runs from resolved issues unless --all is set or specific issue status is requested
-	excludeResolvedIssues := !opts.All && len(issueStatusFilter) == 0
+	// By default, exclude runs from completed or canceled issues unless --all is set or specific issue status is requested
+	excludeTerminalIssues := !opts.All && len(issueStatusFilter) == 0
 
 	issueCache := make(map[string]psIssueInfo)
 	filteredRuns := make([]*model.Run, 0, len(runs))
@@ -103,8 +107,8 @@ func runPs(opts *psOptions) error {
 		if len(issueStatusFilter) > 0 && !issueStatusFilter[info.status] {
 			continue
 		}
-		// Filter out runs from resolved issues by default
-		if excludeResolvedIssues && info.status == string(model.IssueStatusResolved) {
+		// Filter out runs from completed or canceled issues by default
+		if excludeTerminalIssues && (info.status == string(model.IssueStatusCompleted) || info.status == string(model.IssueStatusCanceled)) {
 			continue
 		}
 		filteredRuns = append(filteredRuns, r)

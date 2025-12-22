@@ -322,7 +322,7 @@ func TestFormatRelativeTime(t *testing.T) {
 	}
 }
 
-func TestRunPsExcludesResolvedIssuesByDefault(t *testing.T) {
+func TestRunPsExcludesCompletedIssuesByDefault(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
@@ -330,8 +330,8 @@ func TestRunPsExcludesResolvedIssuesByDefault(t *testing.T) {
 	globalOpts.Backend = "file"
 	globalOpts.JSON = true
 
-	// Create a resolved issue
-	writeIssueWithStatus(t, vault, "issue-resolved", "resolved")
+	// Create a completed issue
+	writeIssueWithStatus(t, vault, "issue-completed", "completed")
 	// Create an open issue
 	writeIssue(t, vault, "issue-open")
 
@@ -340,12 +340,12 @@ func TestRunPsExcludesResolvedIssuesByDefault(t *testing.T) {
 		t.Fatalf("getStore: %v", err)
 	}
 
-	// Create run for resolved issue
-	runFromResolved, err := st.CreateRun("issue-resolved", "run-1", nil)
+	// Create run for completed issue
+	runFromCompleted, err := st.CreateRun("issue-completed", "run-1", nil)
 	if err != nil {
-		t.Fatalf("CreateRun from resolved: %v", err)
+		t.Fatalf("CreateRun from completed: %v", err)
 	}
-	if err := st.AppendEvent(runFromResolved.Ref(), model.NewStatusEvent(model.StatusDone)); err != nil {
+	if err := st.AppendEvent(runFromCompleted.Ref(), model.NewStatusEvent(model.StatusDone)); err != nil {
 		t.Fatalf("AppendEvent done: %v", err)
 	}
 
@@ -374,13 +374,13 @@ func TestRunPsExcludesResolvedIssuesByDefault(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	// Should only see run from open issue (runs from resolved issues are hidden by default)
+	// Should only see run from open issue (runs from completed issues are hidden by default)
 	if len(got.Items) != 1 || got.Items[0].IssueID != "issue-open" {
 		t.Fatalf("unexpected items: %#v", got.Items)
 	}
 }
 
-func TestRunPsAllIncludesResolvedIssues(t *testing.T) {
+func TestRunPsAllIncludesCompletedIssues(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
@@ -388,8 +388,8 @@ func TestRunPsAllIncludesResolvedIssues(t *testing.T) {
 	globalOpts.Backend = "file"
 	globalOpts.JSON = true
 
-	// Create a resolved issue
-	writeIssueWithStatus(t, vault, "issue-resolved", "resolved")
+	// Create a completed issue
+	writeIssueWithStatus(t, vault, "issue-completed", "completed")
 	// Create an open issue
 	writeIssue(t, vault, "issue-open")
 
@@ -398,12 +398,12 @@ func TestRunPsAllIncludesResolvedIssues(t *testing.T) {
 		t.Fatalf("getStore: %v", err)
 	}
 
-	// Create run for resolved issue
-	runFromResolved, err := st.CreateRun("issue-resolved", "run-1", nil)
+	// Create run for completed issue
+	runFromCompleted, err := st.CreateRun("issue-completed", "run-1", nil)
 	if err != nil {
-		t.Fatalf("CreateRun from resolved: %v", err)
+		t.Fatalf("CreateRun from completed: %v", err)
 	}
-	if err := st.AppendEvent(runFromResolved.Ref(), model.NewStatusEvent(model.StatusDone)); err != nil {
+	if err := st.AppendEvent(runFromCompleted.Ref(), model.NewStatusEvent(model.StatusDone)); err != nil {
 		t.Fatalf("AppendEvent done: %v", err)
 	}
 
@@ -438,7 +438,7 @@ func TestRunPsAllIncludesResolvedIssues(t *testing.T) {
 	for _, item := range got.Items {
 		found[item.IssueID] = true
 	}
-	if !found["issue-resolved"] || !found["issue-open"] {
+	if !found["issue-completed"] || !found["issue-open"] {
 		t.Fatalf("missing issues in output: %#v", found)
 	}
 }

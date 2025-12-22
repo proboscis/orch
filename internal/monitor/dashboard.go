@@ -380,7 +380,7 @@ func (d *Dashboard) resolveRunCmd(run *model.Run) tea.Cmd {
 		if err := d.monitor.ResolveRun(run); err != nil {
 			return errMsg{err: err}
 		}
-		return infoMsg{text: fmt.Sprintf("resolved %s#%s and issue %s", run.IssueID, run.RunID, run.IssueID)}
+		return infoMsg{text: fmt.Sprintf("completed %s#%s and issue %s", run.IssueID, run.RunID, run.IssueID)}
 	}
 }
 

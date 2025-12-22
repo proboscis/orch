@@ -29,6 +29,7 @@ func newIssueCmd() *cobra.Command {
 
 	cmd.AddCommand(newIssueCreateCmd())
 	cmd.AddCommand(newIssueListCmd())
+	cmd.AddCommand(newIssueStatusCmd())
 
 	return cmd
 }
@@ -188,6 +189,69 @@ func newIssueListCmd() *cobra.Command {
 	}
 
 	return cmd
+}
+
+func newIssueStatusCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "status ISSUE_ID STATUS",
+		Short: "Update an issue status",
+		Long: `Update an issue status in frontmatter.
+
+Supported statuses: open, in_progress, completed, canceled, blocked.`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runIssueStatus(args[0], args[1])
+		},
+	}
+
+	return cmd
+}
+
+func runIssueStatus(issueID, status string) error {
+	st, err := getStore()
+	if err != nil {
+		return err
+	}
+
+	normalized, ok := model.NormalizeIssueStatus(status)
+	if !ok {
+		return fmt.Errorf("invalid status %q (supported: %s)", status, strings.Join(issueStatusValues(), ", "))
+	}
+
+	if err := st.SetIssueStatus(issueID, normalized); err != nil {
+		return err
+	}
+
+	if globalOpts.JSON {
+		output := struct {
+			OK      bool   `json:"ok"`
+			IssueID string `json:"issue_id"`
+			Status  string `json:"status"`
+		}{
+			OK:      true,
+			IssueID: issueID,
+			Status:  string(normalized),
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(output)
+	}
+
+	if !globalOpts.Quiet {
+		fmt.Printf("updated %s status to %s\n", issueID, normalized)
+	}
+
+	return nil
+}
+
+func issueStatusValues() []string {
+	return []string{
+		string(model.IssueStatusOpen),
+		string(model.IssueStatusInProgress),
+		string(model.IssueStatusCompleted),
+		string(model.IssueStatusCanceled),
+		string(model.IssueStatusBlocked),
+	}
 }
 
 type runSummary struct {
