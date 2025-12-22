@@ -2,7 +2,7 @@
 type: issue
 id: orch-046
 title: orch send command doesn't send final Enter key to submit message
-status: open
+status: resolved
 ---
 
 # orch send command doesn't send final Enter key to submit message

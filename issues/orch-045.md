@@ -2,7 +2,7 @@
 type: issue
 id: orch-045
 title: Add continue run feature to resume work from existing runs
-status: open
+status: resolved
 ---
 
 # Add continue run feature to resume work from existing runs

@@ -2,7 +2,7 @@
 type: issue
 id: orch-043
 title: Fix Japanese text breaking ASCII layout in monitor issue dashboard
-status: open
+status: resolved
 ---
 
 # Fix Japanese text breaking ASCII layout in monitor issue dashboard
