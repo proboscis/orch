@@ -2,6 +2,8 @@ package monitor
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -71,7 +73,7 @@ type RunWindow struct {
 func New(st store.Store, opts Options) *Monitor {
 	session := opts.Session
 	if session == "" {
-		session = defaultSessionName
+		session = sessionNameForVault(st.VaultPath())
 	}
 	orchPath := resolveOrchPath(opts.OrchPath)
 	return &Monitor{
@@ -84,6 +86,36 @@ func New(st store.Store, opts Options) *Monitor {
 		attach:       opts.Attach,
 		forceNew:     opts.ForceNew,
 	}
+}
+
+// sessionNameForVault generates a unique monitor session name based on the vault path.
+// This ensures each project has its own monitor session.
+func sessionNameForVault(vaultPath string) string {
+	if vaultPath == "" {
+		return defaultSessionName
+	}
+
+	// Normalize the path to handle symlinks and relative paths
+	absPath, err := filepath.Abs(vaultPath)
+	if err != nil {
+		absPath = vaultPath
+	}
+	// Try to resolve symlinks for consistent naming
+	if resolved, err := filepath.EvalSymlinks(absPath); err == nil {
+		absPath = resolved
+	}
+
+	// Generate a short hash of the path for uniqueness
+	hash := sha256.Sum256([]byte(absPath))
+	shortHash := hex.EncodeToString(hash[:])[:6]
+
+	// Use the last directory component for readability
+	baseName := filepath.Base(absPath)
+	// Clean up the base name for tmux session naming
+	baseName = strings.ReplaceAll(baseName, ".", "-")
+	baseName = strings.ReplaceAll(baseName, " ", "-")
+
+	return fmt.Sprintf("orch-%s-%s", baseName, shortHash)
 }
 
 // Start creates or attaches to the monitor tmux session.
