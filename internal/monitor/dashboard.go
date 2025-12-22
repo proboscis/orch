@@ -2,6 +2,8 @@ package monitor
 
 import (
 	"fmt"
+	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -10,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
+	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 )
 
@@ -73,6 +76,10 @@ type errMsg struct {
 	err error
 }
 
+type execFinishedMsg struct {
+	err error
+}
+
 // NewDashboard creates a dashboard model.
 func NewDashboard(m *Monitor) *Dashboard {
 	return &Dashboard{
@@ -129,6 +136,12 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		d.message = msg.err.Error()
 		d.refreshing = false
 		return d, nil
+	case execFinishedMsg:
+		if msg.err != nil {
+			d.message = msg.err.Error()
+		}
+		d.refreshing = true
+		return d, d.refreshCmd()
 	case tickMsg:
 		if d.refreshing {
 			return d, d.tickCmd()
@@ -222,6 +235,15 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				d.message = err.Error()
 			}
 		}
+		return d, nil
+	case d.keymap.Exec:
+		if d.cursor >= 0 && d.cursor < len(d.runs) {
+			run := d.runs[d.cursor].Run
+			if run != nil {
+				return d, d.execShellCmd(run)
+			}
+		}
+		d.message = "no run selected"
 		return d, nil
 	case "?":
 		d.message = d.keymap.HelpLine()
@@ -382,6 +404,46 @@ func (d *Dashboard) resolveRunCmd(run *model.Run) tea.Cmd {
 		}
 		return infoMsg{text: fmt.Sprintf("resolved %s#%s and issue %s", run.IssueID, run.RunID, run.IssueID)}
 	}
+}
+
+func (d *Dashboard) execShellCmd(run *model.Run) tea.Cmd {
+	if run == nil {
+		return func() tea.Msg {
+			return errMsg{err: fmt.Errorf("run not found")}
+		}
+	}
+
+	// Resolve worktree path
+	worktreePath := run.WorktreePath
+	if worktreePath == "" {
+		return func() tea.Msg {
+			return errMsg{err: fmt.Errorf("run has no worktree")}
+		}
+	}
+	if !filepath.IsAbs(worktreePath) {
+		repoRoot, err := git.FindMainRepoRoot("")
+		if err != nil {
+			return func() tea.Msg {
+				return errMsg{err: fmt.Errorf("could not find git repository: %w", err)}
+			}
+		}
+		worktreePath = filepath.Join(repoRoot, worktreePath)
+	}
+
+	// Create shell command
+	c := exec.Command("zsh")
+	c.Dir = worktreePath
+	c.Env = append(c.Environ(),
+		fmt.Sprintf("ORCH_ISSUE_ID=%s", run.IssueID),
+		fmt.Sprintf("ORCH_RUN_ID=%s", run.RunID),
+		fmt.Sprintf("ORCH_RUN_PATH=%s", run.Path),
+		fmt.Sprintf("ORCH_WORKTREE_PATH=%s", worktreePath),
+		fmt.Sprintf("ORCH_BRANCH=%s", run.Branch),
+	)
+
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return execFinishedMsg{err: err}
+	})
 }
 
 func (d *Dashboard) viewDashboard() string {
