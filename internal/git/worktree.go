@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/s22625/orch/internal/model"
 )
 
 var execCommand = exec.Command
@@ -16,6 +18,7 @@ type WorktreeConfig struct {
 	WorktreeRoot string
 	IssueID      string
 	RunID        string
+	Agent        string
 	BaseBranch   string
 	Branch       string
 	WorktreePath string // Computed or provided
@@ -36,7 +39,8 @@ type WorktreeInfo struct {
 
 func normalizeWorktreePath(cfg *WorktreeConfig) error {
 	if cfg.WorktreePath == "" {
-		cfg.WorktreePath = filepath.Join(cfg.WorktreeRoot, cfg.IssueID, cfg.RunID)
+		worktreeName := model.GenerateWorktreeName(cfg.IssueID, cfg.RunID, cfg.Agent)
+		cfg.WorktreePath = filepath.Join(cfg.WorktreeRoot, cfg.IssueID, worktreeName)
 	}
 
 	if filepath.IsAbs(cfg.WorktreePath) {
