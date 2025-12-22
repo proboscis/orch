@@ -92,6 +92,27 @@
 
 ---
 
+## orch pr create RUN_REF
+
+Create a pull request for the run's branch using GitHub CLI.
+
+### オプション
+
+| オプション | 説明 |
+|-----------|------|
+| `--title` | PR title（default: issue title） |
+| `--body` | PR body（default: auto-generated） |
+| `--base` | Base branch（default: repo default） |
+| `--draft` | Draft PRとして作成 |
+
+### 挙動
+
+- runのbranchをpush
+- `gh pr create` を実行
+- PR URL をartifactとして記録し、statusを `pr_open` に更新
+
+---
+
 ## orch ps
 
 runs一覧を表示（人間/機械）

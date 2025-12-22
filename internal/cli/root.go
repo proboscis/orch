@@ -90,6 +90,7 @@ func init() {
 	rootCmd.AddCommand(newRepairCmd())
 	rootCmd.AddCommand(newDeleteCmd())
 	rootCmd.AddCommand(newExecCmd())
+	rootCmd.AddCommand(newPrCmd())
 	rootCmd.AddCommand(newSendCmd())
 	rootCmd.AddCommand(newCaptureCmd())
 }
