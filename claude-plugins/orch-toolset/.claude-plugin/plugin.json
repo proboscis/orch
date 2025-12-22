@@ -1,0 +1,17 @@
+{
+  "name": "orch-toolset",
+  "version": "0.1.0",
+  "description": "Agent Skills for using the orch CLI to manage issues, runs, monitoring, and multi-agent coordination",
+  "author": {
+    "name": "Orch Maintainers"
+  },
+  "repository": "https://github.com/proboscis/orch",
+  "homepage": "https://github.com/proboscis/orch",
+  "keywords": [
+    "orch",
+    "orchestration",
+    "multi-agent",
+    "claude-code",
+    "agent-skills"
+  ]
+}
