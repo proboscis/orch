@@ -326,6 +326,11 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case d.keymap.Filter:
 		d.mode = modeFilter
 		return d, nil
+	case d.keymap.Sort:
+		sortKey := d.monitor.CycleIssueSort()
+		d.message = fmt.Sprintf("sort: %s", sortKey)
+		d.refreshing = true
+		return d, d.refreshCmd()
 	case d.keymap.OpenRun:
 		if row := d.currentIssue(); row != nil {
 			d.mode = modeSelectRun
@@ -859,9 +864,10 @@ func (d *IssueDashboard) renderMeta() string {
 	if d.hasActiveFilters() {
 		total = fmt.Sprintf("issues: %d/%d (filtered)", len(d.filteredIssues), len(d.issues))
 	}
+	sortLabel := fmt.Sprintf("sort: %s", d.monitor.IssueSort())
 	nav := d.renderNav()
 	rows := d.renderIssueRange()
-	return strings.Join([]string{total, sync, nav, rows}, "  ")
+	return strings.Join([]string{total, sortLabel, sync, nav, rows}, "  ")
 }
 
 func (d *IssueDashboard) renderSyncStatus() string {
