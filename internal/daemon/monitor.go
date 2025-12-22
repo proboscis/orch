@@ -165,8 +165,8 @@ func (d *Daemon) isCompleted(output string) bool {
 
 // isAPILimited checks if the output indicates API usage limits
 func (d *Daemon) isAPILimited(output string) bool {
-	lines := getLastLines(output, 10)
-	lowerOutput := strings.ToLower(lines)
+	lines := getLastLines(output, 30)
+	lowerOutput := normalizeForMatch(lines)
 
 	apiLimitPatterns := []string{
 		"cost limit reached",
@@ -175,6 +175,9 @@ func (d *Daemon) isAPILimited(output string) bool {
 		"quota exceeded",
 		"insufficient quota",
 		"resource exhausted",
+		"you've hit your limit",
+		"/rate-limit-options",
+		"stop and wait for limit to reset",
 	}
 
 	for _, pattern := range apiLimitPatterns {
@@ -184,6 +187,21 @@ func (d *Daemon) isAPILimited(output string) bool {
 	}
 
 	return false
+}
+
+var normalizeMatchReplacer = strings.NewReplacer(
+	"\u00a0", " ", // non-breaking space
+	"\u2007", " ", // figure space
+	"\u202f", " ", // narrow no-break space
+	"\u2018", "'",
+	"\u2019", "'",
+	"\u201c", "\"",
+	"\u201d", "\"",
+)
+
+func normalizeForMatch(output string) string {
+	output = strings.ToLower(output)
+	return normalizeMatchReplacer.Replace(output)
 }
 
 // isFailed checks if the output indicates the agent failed
