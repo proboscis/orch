@@ -102,3 +102,127 @@ func TestExpandPath(t *testing.T) {
 		t.Fatalf("ExpandPath relative = %q", got)
 	}
 }
+
+func TestRelativeVaultPathResolution(t *testing.T) {
+	// Clear environment variables that could interfere
+	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_AGENT", "")
+	t.Setenv("ORCH_WORKTREE_ROOT", "")
+	t.Setenv("ORCH_PROMPT_TEMPLATE", "")
+
+	// Create a temp home directory to avoid loading user's global config
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Create a repo with relative vault path
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "VAULT"), 0755); err != nil {
+		t.Fatalf("mkdir VAULT: %v", err)
+	}
+
+	// Test with ./VAULT relative path
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("vault: ./VAULT\n"), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	// Vault should be resolved to absolute path
+	expectedVault, err := filepath.EvalSymlinks(filepath.Join(repo, "VAULT"))
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
+	gotVault, err := filepath.EvalSymlinks(cfg.Vault)
+	if err != nil {
+		t.Fatalf("EvalSymlinks vault: %v", err)
+	}
+
+	if gotVault != expectedVault {
+		t.Fatalf("vault path not resolved correctly: got %q, want %q", gotVault, expectedVault)
+	}
+}
+
+func TestRelativePathFromSubdirectory(t *testing.T) {
+	// Clear environment variables
+	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_AGENT", "")
+	t.Setenv("ORCH_WORKTREE_ROOT", "")
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Create a repo with a subdirectory
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "VAULT"), 0755); err != nil {
+		t.Fatalf("mkdir VAULT: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "src", "subdir"), 0755); err != nil {
+		t.Fatalf("mkdir subdir: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("vault: ./VAULT\nworktree_root: .git-worktrees\n"), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+
+	// Run from a subdirectory - config should still resolve relative to repo root
+	if err := os.Chdir(filepath.Join(repo, "src", "subdir")); err != nil {
+		t.Fatalf("chdir to subdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	expectedVault, err := filepath.EvalSymlinks(filepath.Join(repo, "VAULT"))
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
+	gotVault, err := filepath.EvalSymlinks(cfg.Vault)
+	if err != nil {
+		t.Fatalf("EvalSymlinks vault: %v", err)
+	}
+
+	if gotVault != expectedVault {
+		t.Fatalf("vault not resolved relative to repo root: got %q, want %q", gotVault, expectedVault)
+	}
+
+	// WorktreeRoot directory doesn't exist, so we can't use EvalSymlinks
+	// But we need to handle the /private symlink on macOS
+	// The easiest way is to check if the path ends correctly
+	expectedSuffix := ".git-worktrees"
+	if !filepath.IsAbs(cfg.WorktreeRoot) {
+		t.Fatalf("worktree_root should be absolute: got %q", cfg.WorktreeRoot)
+	}
+	if filepath.Base(cfg.WorktreeRoot) != expectedSuffix {
+		t.Fatalf("worktree_root should end with %q: got %q", expectedSuffix, cfg.WorktreeRoot)
+	}
+}

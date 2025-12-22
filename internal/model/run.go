@@ -121,28 +121,6 @@ func (r *Run) GetArtifacts() map[string]map[string]string {
 	return artifacts
 }
 
-// UnansweredQuestions returns question IDs that have no corresponding answer
-func (r *Run) UnansweredQuestions() []*Event {
-	questions := make(map[string]*Event)
-	answered := make(map[string]bool)
-
-	for _, e := range r.Events {
-		switch e.Type {
-		case EventTypeQuestion:
-			questions[e.Name] = e
-		case EventTypeAnswer:
-			answered[e.Name] = true
-		}
-	}
-
-	var unanswered []*Event
-	for id, q := range questions {
-		if !answered[id] {
-			unanswered = append(unanswered, q)
-		}
-	}
-	return unanswered
-}
 
 // DeriveState updates Status and artifacts from events
 func (r *Run) DeriveState() {

@@ -2,7 +2,7 @@
 type: issue
 id: orch-030
 title: Fix issue panel auto-refresh in dashboard
-status: open
+status: resolved
 ---
 
 # Fix issue panel auto-refresh in dashboard

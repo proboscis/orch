@@ -3,7 +3,7 @@
 ## 0. 目的
 
 orch は「複数LLM CLI（claude/codex/gemini等）を、issue/run/event という統一語彙で運用する」ためのオーケストレーター。
-中核は non-interactive（対話しない）。対話が必要な局面はイベント（question）として外部化し、answer と tick で再開する。
+中核は non-interactive（対話しない）。対話が必要な局面は `orch attach` で tmux セッションに接続して直接対話する。
 
 ## 設計原則
 

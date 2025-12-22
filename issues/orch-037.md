@@ -2,7 +2,7 @@
 type: issue
 id: orch-037
 title: Fix 'c' keybinding in monitor to open control agent chat pane
-status: open
+status: resolved
 ---
 
 # Fix 'c' keybinding in monitor to open control agent chat pane

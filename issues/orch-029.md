@@ -2,7 +2,7 @@
 type: issue
 id: orch-029
 title: Fix Gemini agent idle detection in daemon
-status: open
+status: resolved
 ---
 
 # Fix Gemini agent idle detection in daemon
