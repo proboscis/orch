@@ -729,7 +729,7 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 			runList = append(runList, w.Run)
 		}
 	}
-	baseBranch := "main"
+	baseBranch := ""
 	if cfg, err := config.Load(); err == nil && cfg.BaseBranch != "" {
 		baseBranch = cfg.BaseBranch
 	}
