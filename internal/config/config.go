@@ -18,6 +18,18 @@ type Config struct {
 	NoPR           bool   `yaml:"no_pr"`           // Disable PR instructions by default
 }
 
+type fileConfig struct {
+	Vault          string `yaml:"vault"`
+	VaultLegacy    string `yaml:"Vault"`
+	DefaultVault   string `yaml:"default_vault"`
+	Agent          string `yaml:"agent"`
+	WorktreeRoot   string `yaml:"worktree_root"`
+	BaseBranch     string `yaml:"base_branch"`
+	LogLevel       string `yaml:"log_level"`
+	PromptTemplate string `yaml:"prompt_template"`
+	NoPR           *bool  `yaml:"no_pr"`
+}
+
 // configFile is the name of the config file
 const configFile = "config.yaml"
 
@@ -125,16 +137,6 @@ func loadFromFile(path string, cfg *Config) error {
 	}
 
 	// Parse into a temporary struct to merge non-empty values
-	type fileConfig struct {
-		Vault          string `yaml:"vault"`
-		Agent          string `yaml:"agent"`
-		WorktreeRoot   string `yaml:"worktree_root"`
-		BaseBranch     string `yaml:"base_branch"`
-		LogLevel       string `yaml:"log_level"`
-		PromptTemplate string `yaml:"prompt_template"`
-		NoPR           *bool  `yaml:"no_pr"`
-	}
-
 	var fileCfg fileConfig
 	if err := yaml.Unmarshal(data, &fileCfg); err != nil {
 		return err
@@ -152,8 +154,15 @@ func loadFromFile(path string, cfg *Config) error {
 
 	// Merge: only override if value is non-empty
 	// Resolve relative paths at load time
-	if fileCfg.Vault != "" {
-		cfg.Vault = resolvePathFromConfig(fileCfg.Vault, baseDir)
+	vault := fileCfg.Vault
+	if vault == "" {
+		vault = fileCfg.VaultLegacy
+	}
+	if vault == "" {
+		vault = fileCfg.DefaultVault
+	}
+	if vault != "" {
+		cfg.Vault = resolvePathFromConfig(vault, baseDir)
 	}
 	if fileCfg.Agent != "" {
 		cfg.Agent = fileCfg.Agent
