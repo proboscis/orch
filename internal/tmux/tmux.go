@@ -11,6 +11,22 @@ import (
 
 var execCommand = exec.Command
 
+var shellCommands = map[string]struct{}{
+	"bash":       {},
+	"zsh":        {},
+	"sh":         {},
+	"fish":       {},
+	"ksh":        {},
+	"tcsh":       {},
+	"dash":       {},
+	"pwsh":       {},
+	"powershell": {},
+	"cmd":        {},
+	"cmd.exe":    {},
+	"nu":         {},
+	"elvish":     {},
+}
+
 // SessionConfig holds configuration for creating a tmux session
 type SessionConfig struct {
 	SessionName string
@@ -297,6 +313,67 @@ func ListPanes(target string) ([]Pane, error) {
 		panes = append(panes, pane)
 	}
 	return panes, nil
+}
+
+// ListPaneCommands returns current commands for all panes grouped by session.
+func ListPaneCommands() (map[string][]string, error) {
+	cmd := execCommand("tmux", "list-panes", "-a", "-F", "#{session_name}\t#{pane_current_command}")
+	output, err := cmd.Output()
+	if err != nil {
+		if strings.Contains(err.Error(), "no server running") {
+			return map[string][]string{}, nil
+		}
+		return nil, err
+	}
+
+	commands := make(map[string][]string)
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		session := strings.TrimSpace(parts[0])
+		if session == "" {
+			continue
+		}
+		command := strings.TrimSpace(parts[1])
+		commands[session] = append(commands[session], command)
+	}
+
+	return commands, nil
+}
+
+// AgentAlive reports whether a session has a non-shell foreground command.
+func AgentAlive(session string, paneCommands map[string][]string) (bool, bool) {
+	if paneCommands == nil {
+		return false, false
+	}
+	session = strings.TrimSpace(session)
+	if session == "" {
+		return false, false
+	}
+	commands, ok := paneCommands[session]
+	if !ok || len(commands) == 0 {
+		return false, true
+	}
+	for _, command := range commands {
+		if !isShellCommand(command) {
+			return true, true
+		}
+	}
+	return false, true
+}
+
+func isShellCommand(command string) bool {
+	command = strings.ToLower(strings.TrimSpace(command))
+	if command == "" {
+		return true
+	}
+	_, ok := shellCommands[command]
+	return ok
 }
 
 // SplitWindow splits a pane and returns the new pane ID.

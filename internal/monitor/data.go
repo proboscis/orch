@@ -14,6 +14,7 @@ type RunRow struct {
 	IssueStatus string
 	Agent       string
 	Status      model.Status
+	Alive       string
 	Branch      string
 	Worktree    string
 	PR          string // PR display string (e.g., "#123" or "-")
