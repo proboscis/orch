@@ -131,37 +131,120 @@ func walkWithSymlinks(root string, walkFn filepath.WalkFunc) error {
 	return nil
 }
 
+func resolvePath(path string) string {
+	if path == "" {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		return abs
+	}
+	return path
+}
+
+func isWithinDir(path, dir string) bool {
+	if path == "" || dir == "" {
+		return false
+	}
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return false
+	}
+	if rel == "." {
+		return true
+	}
+	sep := string(filepath.Separator)
+	if rel == ".." || strings.HasPrefix(rel, ".."+sep) {
+		return false
+	}
+	return true
+}
+
+func findIssuesDir(vaultPath string) (string, bool) {
+	if strings.TrimSpace(vaultPath) == "" {
+		return "", false
+	}
+
+	candidates := []string{
+		filepath.Join(vaultPath, "issues"),
+		filepath.Join(vaultPath, "Issues"),
+	}
+	for _, candidate := range candidates {
+		info, err := os.Stat(candidate)
+		if err != nil {
+			continue
+		}
+		if info.IsDir() {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
 // scanIssues walks the vault and finds all files with type: issue frontmatter
 func (s *FileStore) scanIssues() error {
 	s.issueCache = make(map[string]*model.Issue)
 
-	err := walkWithSymlinks(s.vaultPath, func(path string, info os.FileInfo, err error) error {
+	type scanRoot struct {
+		path    string
+		skipDir string
+	}
+
+	roots := []scanRoot{{path: s.vaultPath}}
+	if issuesDir, ok := findIssuesDir(s.vaultPath); ok {
+		vaultReal := resolvePath(s.vaultPath)
+		issuesReal := resolvePath(issuesDir)
+		if issuesReal != "" && !isWithinDir(issuesReal, vaultReal) {
+			roots[0].skipDir = issuesDir
+			roots = append(roots, scanRoot{path: issuesReal})
+		}
+	}
+
+	for _, root := range roots {
+		if strings.TrimSpace(root.path) == "" {
+			continue
+		}
+		runsDir := filepath.Join(root.path, "runs")
+		err := walkWithSymlinks(root.path, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil // Skip files we can't access
+			}
+
+			if info.IsDir() {
+				if root.skipDir != "" && filepath.Clean(path) == filepath.Clean(root.skipDir) {
+					return filepath.SkipDir
+				}
+				if isWithinDir(path, runsDir) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+
+			// Skip non-markdown files
+			if !strings.HasSuffix(path, ".md") {
+				return nil
+			}
+
+			// Skip runs directory files
+			if isWithinDir(path, runsDir) {
+				return nil
+			}
+
+			// Try to parse as issue
+			issue, err := s.parseIssueFile(path)
+			if err != nil || issue == nil {
+				return nil // Not an issue file
+			}
+
+			s.issueCache[issue.ID] = issue
+			return nil
+		})
+
 		if err != nil {
-			return nil // Skip files we can't access
+			return err
 		}
-
-		// Skip directories and non-markdown files
-		if info.IsDir() || !strings.HasSuffix(path, ".md") {
-			return nil
-		}
-
-		// Skip runs directory
-		if strings.Contains(path, filepath.Join(s.vaultPath, "runs")) {
-			return nil
-		}
-
-		// Try to parse as issue
-		issue, err := s.parseIssueFile(path)
-		if err != nil || issue == nil {
-			return nil // Not an issue file
-		}
-
-		s.issueCache[issue.ID] = issue
-		return nil
-	})
-
-	if err != nil {
-		return err
 	}
 
 	s.cacheDirty = false

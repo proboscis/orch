@@ -130,6 +130,54 @@ This is a test issue.
 	}
 }
 
+func TestListIssuesWithExternalIssuesDir(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	issuesTarget, err := os.MkdirTemp("", "orch-issues-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(issuesTarget)
+
+	issuesPath := filepath.Join(vault, "issues")
+	if err := os.RemoveAll(issuesPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(issuesTarget, issuesPath); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	createTestIssue(t, vault, "inside", "---\ntype: issue\nid: inside\n---\n# Inside")
+
+	miscDir := filepath.Join(vault, "misc")
+	if err := os.MkdirAll(miscDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	outsidePath := filepath.Join(miscDir, "outside.md")
+	outsideContent := "---\ntype: issue\nid: outside\n---\n# Outside\n"
+	if err := os.WriteFile(outsidePath, []byte(outsideContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	s, _ := New(vault)
+	issues, err := s.ListIssues()
+	if err != nil {
+		t.Fatalf("ListIssues() error = %v", err)
+	}
+
+	ids := make(map[string]bool)
+	for _, issue := range issues {
+		ids[issue.ID] = true
+	}
+	if !ids["inside"] {
+		t.Errorf("expected inside issue to be listed")
+	}
+	if !ids["outside"] {
+		t.Errorf("expected outside issue to be listed")
+	}
+}
+
 func TestResolveIssueNotFound(t *testing.T) {
 	vault, cleanup := setupTestVault(t)
 	defer cleanup()
