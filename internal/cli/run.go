@@ -53,12 +53,12 @@ The run will be started in a tmux session by default.`,
 	cmd.Flags().BoolVar(&opts.New, "new", true, "Always create a new run (default)")
 	cmd.Flags().BoolVar(&opts.Reuse, "reuse", false, "Reuse the latest run if blocked or blocked_api")
 	cmd.Flags().StringVar(&opts.RunID, "run-id", "", "Manually specify run ID")
-	cmd.Flags().StringVar(&opts.Agent, "agent", "claude", "Agent type (claude|codex|gemini|custom)")
+	cmd.Flags().StringVar(&opts.Agent, "agent", "", "Agent type (claude|codex|gemini|custom)")
 	cmd.Flags().StringVar(&opts.AgentCmd, "agent-cmd", "", "Custom agent command (when --agent=custom)")
 	cmd.Flags().StringVar(&opts.AgentProfile, "profile", "", "Agent profile (e.g., claude --profile)")
-	cmd.Flags().StringVar(&opts.BaseBranch, "base-branch", "main", "Base branch for worktree")
+	cmd.Flags().StringVar(&opts.BaseBranch, "base-branch", "", "Base branch for worktree")
 	cmd.Flags().StringVar(&opts.Branch, "branch", "", "Branch name (default: issue/<ID>/run-<RUN_ID>)")
-	cmd.Flags().StringVar(&opts.WorktreeRoot, "worktree-root", ".git-worktrees", "Root directory for worktrees")
+	cmd.Flags().StringVar(&opts.WorktreeRoot, "worktree-root", "", "Root directory for worktrees")
 	cmd.Flags().StringVar(&opts.RepoRoot, "repo-root", "", "Git repository root (default: auto-detect)")
 	cmd.Flags().BoolVar(&opts.Tmux, "tmux", true, "Run in tmux session")
 	cmd.Flags().StringVar(&opts.TmuxSession, "tmux-session", "", "Tmux session name (default: run-<ISSUE>-<RUN>)")
@@ -443,8 +443,37 @@ func applyPromptConfigDefaults(opts *runOptions) error {
 		return err
 	}
 
-	// Only apply config defaults if the command-line flag wasn't explicitly set
-	// For PromptTemplate: empty string means not set
+	// Apply config defaults for core run options
+	// Only apply if command-line flag wasn't explicitly set (empty string = not set)
+
+	// BaseBranch: use config value if flag not provided, fallback to "main"
+	if opts.BaseBranch == "" {
+		if cfg.BaseBranch != "" {
+			opts.BaseBranch = cfg.BaseBranch
+		} else {
+			opts.BaseBranch = "main"
+		}
+	}
+
+	// Agent: use config value if flag not provided, fallback to "claude"
+	if opts.Agent == "" {
+		if cfg.Agent != "" {
+			opts.Agent = cfg.Agent
+		} else {
+			opts.Agent = "claude"
+		}
+	}
+
+	// WorktreeRoot: use config value if flag not provided, fallback to ".git-worktrees"
+	if opts.WorktreeRoot == "" {
+		if cfg.WorktreeRoot != "" {
+			opts.WorktreeRoot = cfg.WorktreeRoot
+		} else {
+			opts.WorktreeRoot = ".git-worktrees"
+		}
+	}
+
+	// PromptTemplate: use config value if flag not provided
 	if opts.PromptTemplate == "" && cfg.PromptTemplate != "" {
 		opts.PromptTemplate = cfg.PromptTemplate
 	}
