@@ -2,7 +2,6 @@ package monitor
 
 import (
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/mattn/go-runewidth"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/tmux"
 )
 
 type dashboardMode int
@@ -504,20 +504,22 @@ func (d *Dashboard) execShellCmd(run *model.Run) tea.Cmd {
 		worktreePath = filepath.Join(repoRoot, worktreePath)
 	}
 
-	// Create shell command
-	c := exec.Command("zsh")
-	c.Dir = worktreePath
-	c.Env = append(c.Environ(),
-		fmt.Sprintf("ORCH_ISSUE_ID=%s", run.IssueID),
-		fmt.Sprintf("ORCH_RUN_ID=%s", run.RunID),
-		fmt.Sprintf("ORCH_RUN_PATH=%s", run.Path),
-		fmt.Sprintf("ORCH_WORKTREE_PATH=%s", worktreePath),
-		fmt.Sprintf("ORCH_BRANCH=%s", run.Branch),
-	)
+	windowName := fmt.Sprintf("exec-%s", run.ShortID())
+	env := []string{
+		fmt.Sprintf("ORCH_ISSUE_ID=%s", shellQuote(run.IssueID)),
+		fmt.Sprintf("ORCH_RUN_ID=%s", shellQuote(run.RunID)),
+		fmt.Sprintf("ORCH_RUN_PATH=%s", shellQuote(run.Path)),
+		fmt.Sprintf("ORCH_WORKTREE_PATH=%s", shellQuote(worktreePath)),
+		fmt.Sprintf("ORCH_BRANCH=%s", shellQuote(run.Branch)),
+	}
+	shellCmd := strings.Join(env, " ") + " exec zsh"
 
-	return tea.ExecProcess(c, func(err error) tea.Msg {
-		return execFinishedMsg{err: err}
-	})
+	return func() tea.Msg {
+		if err := tmux.NewWindow(d.monitor.session, windowName, worktreePath, shellCmd); err != nil {
+			return execFinishedMsg{err: fmt.Errorf("failed to open exec window: %w", err)}
+		}
+		return execFinishedMsg{err: nil}
+	}
 }
 
 func (d *Dashboard) requestMergeCmd(run *model.Run) tea.Cmd {
