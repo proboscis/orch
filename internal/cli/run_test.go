@@ -113,3 +113,119 @@ func TestApplyPromptConfigDefaults(t *testing.T) {
 		t.Fatalf("NoPR override = false, want true")
 	}
 }
+
+func TestApplyConfigDefaultsBaseBranch(t *testing.T) {
+	temp := t.TempDir()
+	home := filepath.Join(temp, "home")
+	if err := os.MkdirAll(home, 0755); err != nil {
+		t.Fatalf("mkdir home: %v", err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_BASE_BRANCH", "")
+	t.Setenv("ORCH_AGENT", "")
+	t.Setenv("ORCH_WORKTREE_ROOT", "")
+
+	repo := filepath.Join(temp, "repo")
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+
+	// Test config with custom values
+	configData := "base_branch: develop\nagent: codex\nworktree_root: custom-worktrees\n"
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(configData), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	// Test: config values should be applied when flags are empty
+	opts := &runOptions{}
+	if err := applyPromptConfigDefaults(opts); err != nil {
+		t.Fatalf("applyPromptConfigDefaults: %v", err)
+	}
+	if opts.BaseBranch != "develop" {
+		t.Fatalf("BaseBranch = %q, want %q", opts.BaseBranch, "develop")
+	}
+	if opts.Agent != "codex" {
+		t.Fatalf("Agent = %q, want %q", opts.Agent, "codex")
+	}
+	// Compare paths after resolving symlinks (macOS /var -> /private/var)
+	wantWorktreeRoot := filepath.Join(repo, "custom-worktrees")
+	gotWorktreeRoot, _ := filepath.EvalSymlinks(opts.WorktreeRoot)
+	wantWorktreeRootResolved, _ := filepath.EvalSymlinks(wantWorktreeRoot)
+	if gotWorktreeRoot != wantWorktreeRootResolved {
+		t.Fatalf("WorktreeRoot = %q, want %q", opts.WorktreeRoot, wantWorktreeRoot)
+	}
+
+	// Test: explicit flags should override config values
+	opts2 := &runOptions{BaseBranch: "feature", Agent: "claude", WorktreeRoot: "explicit-worktrees"}
+	if err := applyPromptConfigDefaults(opts2); err != nil {
+		t.Fatalf("applyPromptConfigDefaults explicit: %v", err)
+	}
+	if opts2.BaseBranch != "feature" {
+		t.Fatalf("BaseBranch override = %q, want %q", opts2.BaseBranch, "feature")
+	}
+	if opts2.Agent != "claude" {
+		t.Fatalf("Agent override = %q, want %q", opts2.Agent, "claude")
+	}
+	if opts2.WorktreeRoot != "explicit-worktrees" {
+		t.Fatalf("WorktreeRoot override = %q, want %q", opts2.WorktreeRoot, "explicit-worktrees")
+	}
+}
+
+func TestApplyConfigDefaultsFallbacks(t *testing.T) {
+	temp := t.TempDir()
+	home := filepath.Join(temp, "home")
+	if err := os.MkdirAll(home, 0755); err != nil {
+		t.Fatalf("mkdir home: %v", err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_BASE_BRANCH", "")
+	t.Setenv("ORCH_AGENT", "")
+	t.Setenv("ORCH_WORKTREE_ROOT", "")
+
+	repo := filepath.Join(temp, "repo")
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+
+	// Empty config - should use fallback defaults
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(""), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	// Test: when config is empty, fallback defaults should be used
+	opts := &runOptions{}
+	if err := applyPromptConfigDefaults(opts); err != nil {
+		t.Fatalf("applyPromptConfigDefaults: %v", err)
+	}
+	if opts.BaseBranch != "main" {
+		t.Fatalf("BaseBranch fallback = %q, want %q", opts.BaseBranch, "main")
+	}
+	if opts.Agent != "claude" {
+		t.Fatalf("Agent fallback = %q, want %q", opts.Agent, "claude")
+	}
+	if opts.WorktreeRoot != ".git-worktrees" {
+		t.Fatalf("WorktreeRoot fallback = %q, want %q", opts.WorktreeRoot, ".git-worktrees")
+	}
+}
