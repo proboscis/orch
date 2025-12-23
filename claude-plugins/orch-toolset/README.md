@@ -1,10 +1,10 @@
-# Orch Toolset - Claude Code Skill Plugin
+# Orch Toolset - Claude Code Skill
 
 Agent Skills for Claude Code that teach the orch CLI workflow: issue management, run orchestration, monitoring, and multi-agent coordination.
 
 ## Overview
 
-This plugin provides Claude Code with comprehensive knowledge about using the **orch** orchestrator CLI to:
+This skill provides Claude Code with comprehensive knowledge about using the **orch** orchestrator CLI to:
 
 - Create and manage issues
 - Start, stop, and monitor LLM agent runs
@@ -14,43 +14,39 @@ This plugin provides Claude Code with comprehensive knowledge about using the **
 
 ## Installation
 
-### Option 1: Add as Local Marketplace (Recommended)
+### Option 1: Symlink (Recommended)
 
-Add the plugin as a local marketplace in your Claude Code settings (`~/.claude/settings.json`):
+Create a symlink from the orch repo to your Claude Code skills directory:
 
-```json
-{
-  "enabledPlugins": {
-    "orch-toolset@orch-toolset-marketplace": true
-  },
-  "extraKnownMarketplaces": {
-    "orch-toolset-marketplace": {
-      "source": {
-        "source": "directory",
-        "path": "/absolute/path/to/orch/claude-plugins/orch-toolset"
-      }
-    }
-  }
-}
+```bash
+ln -s /path/to/orch/claude-plugins/orch-toolset/skills/orch-toolset ~/.claude/skills/orch-toolset
 ```
 
-Replace `/absolute/path/to/orch` with your actual orch repository path.
+### Option 2: Copy
 
-### Option 2: Load Per-Session
+Copy the skill directory:
 
-Load the plugin for a single session:
+```bash
+cp -r /path/to/orch/claude-plugins/orch-toolset/skills/orch-toolset ~/.claude/skills/
+```
+
+### Option 3: Load as Plugin (Per-Session)
+
+Load the entire plugin for a single session:
 
 ```bash
 claude --plugin-dir /path/to/orch/claude-plugins/orch-toolset
 ```
 
-### Option 3: GitHub Marketplace (Future)
+## Verification
 
-After publishing to a public GitHub marketplace:
+After installation, verify the skill is in place:
 
 ```bash
-claude plugin install proboscis/orch-toolset
+ls ~/.claude/skills/orch-toolset/SKILL.md
 ```
+
+Then **restart Claude Code** for the skill to be loaded.
 
 ## Usage
 
@@ -62,38 +58,22 @@ Skills are model-invoked - Claude will automatically use this skill when you ask
 - "How do I run tests in an agent's worktree?"
 - "What commands can I use to check on blocked runs?"
 
-### Slash Commands
-
-- `/install` - Install this plugin to your Claude Code settings (when loaded temporarily)
-
-## Plugin Contents
+## Skill Contents
 
 ```
 orch-toolset/
-├── .claude-plugin/
-│   ├── plugin.json           # Plugin metadata
-│   └── marketplace.json      # Local marketplace definition
-├── skills/
-│   ├── orch-toolset/
-│   │   ├── SKILL.md          # Core orchestration guidance
-│   │   └── reference.md      # Detailed command reference
-│   └── install-orch-plugin/
-│       └── SKILL.md          # Installation helper skill
-├── commands/
-│   └── install.md            # /install command
-└── README.md                 # This file
+├── SKILL.md          # Core orchestration guidance
+└── reference.md      # Detailed command reference
 ```
 
-### Skills
+### SKILL.md
 
-**orch-toolset**: Main skill covering:
+Main skill file covering:
 - Core workflow and design philosophy
 - Command categories (issues, runs, monitoring, communication)
 - Run lifecycle states
 - Best practices for multi-run orchestration
 - Control agent workflow
-
-**install-orch-plugin**: Helper skill for installing the plugin to user settings.
 
 ### reference.md
 
@@ -148,3 +128,8 @@ MIT
 ## Contributing
 
 Issues and PRs welcome at https://github.com/proboscis/orch
+
+## Sources
+
+- [Agent Skills - Claude Code Docs](https://code.claude.com/docs/en/skills)
+- [How to create custom Skills | Claude Help Center](https://support.claude.com/en/articles/12512198-how-to-create-custom-skills)

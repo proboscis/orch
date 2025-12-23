@@ -1,53 +1,36 @@
 ---
 name: install
-description: Install the orch-toolset plugin to Claude Code settings
-allowed-tools: Read, Write, Edit, Bash, Glob
+description: Install the orch-toolset skill to ~/.claude/skills/
+allowed-tools: Bash
 ---
 
-# Install Orch-Toolset Plugin
+# Install Orch-Toolset Skill
 
-Install this plugin to the user's Claude Code settings so it's available in all sessions.
+Install this skill to the user's Claude Code skills directory so it's available in all sessions.
 
 ## Instructions
 
-1. **Find the orch repository path**:
-   - Check if we're currently in the orch repo by looking for `claude-plugins/orch-toolset`
-   - Search common locations: `~/repos/orch`, `~/orch`, or use `which orch` to find it
-   - Ask the user if the path cannot be determined
+1. **Find the orch repository path** by checking current directory or asking user
 
-2. **Get the absolute plugin path**:
+2. **Create symlink** to `~/.claude/skills/orch-toolset`:
    ```bash
-   PLUGIN_PATH="$(cd /path/to/orch/claude-plugins/orch-toolset && pwd)"
+   ln -sf /path/to/orch/claude-plugins/orch-toolset/skills/orch-toolset ~/.claude/skills/orch-toolset
    ```
 
-3. **Check user's Claude Code settings** at `~/.claude/settings.json`:
-   - If file doesn't exist, create it with the plugin
-   - If file exists, read it and check if plugin is already installed
-   - If not installed, add to the `plugins` array
+3. **Verify installation**:
+   ```bash
+   ls -la ~/.claude/skills/orch-toolset
+   ```
 
-4. **Update the settings file**:
-   - Preserve all existing settings
-   - Add the absolute plugin path to `plugins` array
-   - Handle case where `plugins` key doesn't exist
-
-5. **Report success** and tell user to restart Claude Code
-
-## Settings File Format
-
-```json
-{
-  "plugins": [
-    "/absolute/path/to/orch/claude-plugins/orch-toolset"
-  ]
-}
-```
-
-## Error Handling
-
-- If orch repo not found: Ask user for the path
-- If plugin already installed: Inform user, no changes needed
-- If settings file has invalid JSON: Report error, don't overwrite
+4. **Report success** and tell user to restart Claude Code
 
 ## Execute Now
 
-Find the orch repository and install the plugin to `~/.claude/settings.json`.
+Create a symlink from the orch repo's skill to ~/.claude/skills/orch-toolset.
+
+The orch repo is likely at one of:
+- Current working directory or parent
+- ~/repos/orch
+- The directory containing the currently loaded plugin
+
+After creating the symlink, verify it points to a directory containing SKILL.md.
