@@ -21,6 +21,8 @@ type continueOptions struct {
 	Agent          string
 	AgentCmd       string
 	AgentProfile   string
+	Model          string
+	Thinking       string
 	Tmux           bool
 	TmuxSession    string
 	NoPR           bool
@@ -68,6 +70,8 @@ Use --branch with an issue ID to continue from an untracked branch.`,
 	cmd.Flags().StringVar(&opts.Agent, "agent", "", "Agent type (claude|codex|gemini|custom)")
 	cmd.Flags().StringVar(&opts.AgentCmd, "agent-cmd", "", "Custom agent command (when --agent=custom)")
 	cmd.Flags().StringVar(&opts.AgentProfile, "profile", "", "Agent profile (e.g., claude --profile)")
+	cmd.Flags().StringVar(&opts.Model, "model", "", "Agent model (e.g., gpt-4o, claude-3-5-sonnet-20241022, gemini-1.5-pro)")
+	cmd.Flags().StringVar(&opts.Thinking, "thinking", "", "Model reasoning effort (codex only: minimal|low|medium|high|xhigh)")
 	cmd.Flags().BoolVar(&opts.Tmux, "tmux", true, "Run in tmux session")
 	cmd.Flags().StringVar(&opts.TmuxSession, "tmux-session", "", "Tmux session name (default: run-<ISSUE>-<RUN>)")
 	cmd.Flags().BoolVar(&opts.NoPR, "no-pr", false, "Skip PR creation instructions in agent prompt")
@@ -151,6 +155,14 @@ func continueFromRun(st store.Store, refStr string, opts *continueOptions) error
 			agentName = "claude"
 		}
 	}
+	modelName := opts.Model
+	if modelName == "" {
+		modelName = fromRun.Model
+	}
+	thinking := opts.Thinking
+	if thinking == "" {
+		thinking = fromRun.Thinking
+	}
 
 	runID := model.GenerateRunID()
 	tmuxSession := opts.TmuxSession
@@ -170,10 +182,17 @@ func continueFromRun(st store.Store, refStr string, opts *continueOptions) error
 		ContinuedFrom: continuedFrom,
 	}
 
-	run, err := st.CreateRun(fromRun.IssueID, runID, map[string]string{
+	metadata := map[string]string{
 		"agent":          agentName,
 		"continued_from": continuedFrom,
-	})
+	}
+	if modelName != "" {
+		metadata["model"] = modelName
+	}
+	if thinking != "" {
+		metadata["thinking"] = thinking
+	}
+	run, err := st.CreateRun(fromRun.IssueID, runID, metadata)
 	if err != nil {
 		return exitWithCode(fmt.Errorf("failed to create run: %w", err), ExitInternalError)
 	}
@@ -202,6 +221,9 @@ func continueFromRun(st store.Store, refStr string, opts *continueOptions) error
 	if err != nil {
 		return exitWithCode(err, ExitAgentError)
 	}
+	if thinking != "" && agentType != agent.AgentCodex && agentType != agent.AgentCustom {
+		return exitWithCode(fmt.Errorf("thinking is only supported for codex and custom agents"), ExitAgentError)
+	}
 
 	adapter, err := agent.GetAdapter(agentType)
 	if err != nil {
@@ -223,6 +245,8 @@ func continueFromRun(st store.Store, refStr string, opts *continueOptions) error
 		Branch:    fromRun.Branch,
 		Prompt:    buildContinuePrompt(continuedFrom),
 		Profile:   opts.AgentProfile,
+		Model:     modelName,
+		Thinking:  thinking,
 	}
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)
@@ -337,6 +361,8 @@ func continueFromBranch(st store.Store, refStr string, opts *continueOptions) er
 	if agentName == "" {
 		agentName = "claude"
 	}
+	modelName := opts.Model
+	thinking := opts.Thinking
 
 	worktreePath, err := resolveWorktreeForBranch(repoRoot, branch, opts.WorktreeRoot, issueID, runID, agentName)
 	if err != nil {
@@ -355,10 +381,17 @@ func continueFromBranch(st store.Store, refStr string, opts *continueOptions) er
 		ContinuedFrom: continuedFrom,
 	}
 
-	run, err := st.CreateRun(issueID, runID, map[string]string{
+	metadata := map[string]string{
 		"agent":          agentName,
 		"continued_from": continuedFrom,
-	})
+	}
+	if modelName != "" {
+		metadata["model"] = modelName
+	}
+	if thinking != "" {
+		metadata["thinking"] = thinking
+	}
+	run, err := st.CreateRun(issueID, runID, metadata)
 	if err != nil {
 		return exitWithCode(fmt.Errorf("failed to create run: %w", err), ExitInternalError)
 	}
@@ -387,6 +420,9 @@ func continueFromBranch(st store.Store, refStr string, opts *continueOptions) er
 	if err != nil {
 		return exitWithCode(err, ExitAgentError)
 	}
+	if thinking != "" && agentType != agent.AgentCodex && agentType != agent.AgentCustom {
+		return exitWithCode(fmt.Errorf("thinking is only supported for codex and custom agents"), ExitAgentError)
+	}
 	adapter, err := agent.GetAdapter(agentType)
 	if err != nil {
 		return exitWithCode(err, ExitAgentError)
@@ -406,6 +442,8 @@ func continueFromBranch(st store.Store, refStr string, opts *continueOptions) er
 		Branch:    branch,
 		Prompt:    buildContinuePrompt(continuedFrom),
 		Profile:   opts.AgentProfile,
+		Model:     modelName,
+		Thinking:  thinking,
 	}
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)

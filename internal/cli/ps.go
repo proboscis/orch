@@ -24,6 +24,7 @@ type psOptions struct {
 	Since        string
 	AbsoluteTime bool
 	All          bool
+	AgentDetail  bool
 }
 
 type psIssueInfo struct {
@@ -51,6 +52,7 @@ func newPsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.Since, "since", "", "Only show runs updated since (ISO8601)")
 	cmd.Flags().BoolVar(&opts.AbsoluteTime, "absolute-time", false, "Show absolute timestamps instead of relative")
 	cmd.Flags().BoolVarP(&opts.All, "all", "a", false, "Show all runs including those from resolved issues")
+	cmd.Flags().BoolVar(&opts.AgentDetail, "agent-detail", false, "Show model/thinking columns for agents")
 
 	return cmd
 }
@@ -123,9 +125,9 @@ func runPs(opts *psOptions) error {
 		return outputJSONWithIssueInfo(runs, now, issueCache)
 	}
 	if globalOpts.TSV {
-		return outputTSVWithIssueInfo(runs, issueCache)
+		return outputTSVWithIssueInfo(runs, issueCache, opts.AgentDetail)
 	}
-	return outputTableWithIssueInfo(runs, now, opts.AbsoluteTime, issueCache)
+	return outputTableWithIssueInfo(runs, now, opts.AbsoluteTime, issueCache, opts.AgentDetail)
 }
 
 func resolveIssueInfo(st store.Store, cache map[string]psIssueInfo, issueID string) psIssueInfo {
@@ -165,6 +167,8 @@ func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[st
 		RunID        string `json:"run_id"`
 		ShortID      string `json:"short_id"`
 		Agent        string `json:"agent,omitempty"`
+		Model        string `json:"model,omitempty"`
+		Thinking     string `json:"thinking,omitempty"`
 		Status       string `json:"status"`
 		UpdatedAt    string `json:"updated_at"`
 		UpdatedAgo   string `json:"updated_ago"`
@@ -195,6 +199,8 @@ func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[st
 			RunID:        r.RunID,
 			ShortID:      r.ShortID(),
 			Agent:        r.Agent,
+			Model:        r.Model,
+			Thinking:     r.Thinking,
 			Status:       string(r.Status),
 			UpdatedAt:    r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			UpdatedAgo:   formatRelativeTime(r.UpdatedAt, now),
@@ -213,15 +219,35 @@ func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[st
 
 // TSV columns (fixed order per spec):
 // issue_id, issue_status, run_id, short_id, agent, status, updated_at, pr_url, branch, worktree_path, tmux_session
+// With --agent-detail, model and thinking are inserted after agent.
 func outputTSV(runs []*model.Run) error {
-	return outputTSVWithIssueInfo(runs, nil)
+	return outputTSVWithIssueInfo(runs, nil, false)
 }
 
-func outputTSVWithIssueInfo(runs []*model.Run, issueCache map[string]psIssueInfo) error {
+func outputTSVWithIssueInfo(runs []*model.Run, issueCache map[string]psIssueInfo, agentDetail bool) error {
 	for _, r := range runs {
 		issueStatus := ""
 		if issueCache != nil {
 			issueStatus = issueCache[r.IssueID].status
+		}
+
+		if agentDetail {
+			fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				r.IssueID,
+				issueStatus,
+				r.RunID,
+				r.ShortID(),
+				r.Agent,
+				r.Model,
+				r.Thinking,
+				r.Status,
+				r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+				r.PRUrl,
+				r.Branch,
+				r.WorktreePath,
+				r.TmuxSession,
+			)
+			continue
 		}
 
 		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
@@ -242,10 +268,10 @@ func outputTSVWithIssueInfo(runs []*model.Run, issueCache map[string]psIssueInfo
 }
 
 func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
-	return outputTableWithIssueInfo(runs, now, absoluteTime, nil)
+	return outputTableWithIssueInfo(runs, now, absoluteTime, nil, false)
 }
 
-func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime bool, issueCache map[string]psIssueInfo) error {
+func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime bool, issueCache map[string]psIssueInfo, agentDetail bool) error {
 	if len(runs) == 0 {
 		if !globalOpts.Quiet {
 			fmt.Println("No runs found")
@@ -272,7 +298,11 @@ func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime boo
 	gitStates := gitStatesForRuns(runs, baseBranch)
 
 	// Collect data rows
-	headers := []string{"ID", "ISSUE", "ISSUE-ST", "AGENT", "STATUS", "PR", "MERGED", "UPDATED", "TOPIC"}
+	headers := []string{"ID", "ISSUE", "ISSUE-ST", "AGENT"}
+	if agentDetail {
+		headers = append(headers, "MODEL", "THINK")
+	}
+	headers = append(headers, "STATUS", "PR", "MERGED", "UPDATED", "TOPIC")
 	var rows [][]string
 
 	for _, r := range runs {
@@ -310,18 +340,26 @@ func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime boo
 		if agent == "" {
 			agent = "-"
 		}
+		modelAlias := model.ShortModelAlias(r.Model)
+		if modelAlias == "" {
+			modelAlias = "-"
+		}
+		thinkingAlias := model.ShortThinkingAlias(r.Thinking)
+		if thinkingAlias == "" {
+			thinkingAlias = "-"
+		}
 
-		rows = append(rows, []string{
+		row := []string{
 			displayID,
 			r.IssueID,
 			issueStatus,
 			agent,
-			colorStatus(r.Status),
-			pr,
-			merged,
-			updated,
-			display,
-		})
+		}
+		if agentDetail {
+			row = append(row, modelAlias, thinkingAlias)
+		}
+		row = append(row, colorStatus(r.Status), pr, merged, updated, display)
+		rows = append(rows, row)
 	}
 
 	// Calculate column widths

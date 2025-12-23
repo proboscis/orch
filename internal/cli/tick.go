@@ -16,6 +16,8 @@ type tickOptions struct {
 	All         bool
 	OnlyBlocked bool
 	Agent       string
+	Model       string
+	Thinking    string
 	Max         int
 }
 
@@ -41,6 +43,8 @@ With --all, processes all blocked runs. Otherwise, processes a single run.`,
 	cmd.Flags().BoolVar(&opts.All, "all", false, "Process all blocked runs")
 	cmd.Flags().BoolVar(&opts.OnlyBlocked, "only-blocked", true, "Only process blocked runs (default when --all)")
 	cmd.Flags().StringVar(&opts.Agent, "agent", "", "Agent to use for resumption")
+	cmd.Flags().StringVar(&opts.Model, "model", "", "Agent model to use for resumption")
+	cmd.Flags().StringVar(&opts.Thinking, "thinking", "", "Model reasoning effort (codex only: minimal|low|medium|high|xhigh)")
 	cmd.Flags().IntVar(&opts.Max, "max", 10, "Maximum runs to process with --all")
 
 	return cmd
@@ -114,7 +118,7 @@ func runTick(refStr string, opts *tickOptions) error {
 		}
 
 		// Resume the run
-		if err := resumeRun(st, run, opts.Agent); err != nil {
+		if err := resumeRun(st, run, opts.Agent, opts.Model, opts.Thinking); err != nil {
 			result.Skipped = append(result.Skipped, skippedRun{
 				IssueID: run.IssueID,
 				RunID:   run.RunID,
@@ -160,15 +164,24 @@ func runTick(refStr string, opts *tickOptions) error {
 	return nil
 }
 
-func resumeRun(st store.Store, run *model.Run, agentType string) error {
+func resumeRun(st store.Store, run *model.Run, agentType, modelName, thinking string) error {
 	// Determine agent type
 	if agentType == "" {
 		agentType = "claude" // default
+	}
+	if modelName == "" {
+		modelName = run.Model
+	}
+	if thinking == "" {
+		thinking = run.Thinking
 	}
 
 	aType, err := agent.ParseAgentType(agentType)
 	if err != nil {
 		return err
+	}
+	if thinking != "" && aType != agent.AgentCodex && aType != agent.AgentCustom {
+		return fmt.Errorf("thinking is only supported for codex and custom agents")
 	}
 
 	adapter, err := agent.GetAdapter(aType)
@@ -193,6 +206,8 @@ func resumeRun(st store.Store, run *model.Run, agentType string) error {
 		Prompt:      buildResumePrompt(issue, run),
 		Resume:      true,
 		SessionName: run.TmuxSession,
+		Model:       modelName,
+		Thinking:    thinking,
 	}
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)

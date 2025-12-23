@@ -24,6 +24,14 @@ func (a *CodexAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 	// codex CLI with yolo mode
 	args = append(args, "codex", "--yolo")
 
+	// Add model if specified
+	if cfg.Model != "" {
+		args = append(args, "--model", cfg.Model)
+	}
+	if cfg.Thinking != "" {
+		args = append(args, "-c", fmt.Sprintf("model_reasoning_effort=%s", cfg.Thinking))
+	}
+
 	// Add the prompt
 	if cfg.Prompt != "" {
 		// Escape the prompt for shell

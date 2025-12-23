@@ -358,11 +358,17 @@ func (m *Monitor) StopRun(run *model.Run) error {
 }
 
 // StartRun launches a new run by invoking the orch binary.
-func (m *Monitor) StartRun(issueID string, agentType string) (string, error) {
+func (m *Monitor) StartRun(issueID string, agentType string, modelName string, thinking string) (string, error) {
 	args := append([]string{}, m.globalFlags...)
 	args = append(args, "run", issueID)
 	if agentType != "" {
 		args = append(args, "--agent", agentType)
+	}
+	if strings.TrimSpace(modelName) != "" {
+		args = append(args, "--model", modelName)
+	}
+	if strings.TrimSpace(thinking) != "" {
+		args = append(args, "--thinking", thinking)
 	}
 
 	cmd := exec.Command(m.orchPath, args...)
@@ -783,6 +789,8 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 			IssueID:     w.Run.IssueID,
 			IssueStatus: issueStatus,
 			Agent:       agent,
+			Model:       w.Run.Model,
+			Thinking:    w.Run.Thinking,
 			Status:      w.Run.Status,
 			PR:          prDisplay,
 			PRState:     prState,

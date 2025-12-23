@@ -19,6 +19,10 @@ const (
 	modeCreateIssue
 	modeSelectRun
 	modeSelectAgent
+	modeSelectModel
+	modeCustomModel
+	modeSelectThinking
+	modeCustomThinking
 	modeFilter
 	modeContinueBranch
 	modeContinueAgent
@@ -44,6 +48,23 @@ type selectAgentState struct {
 	issueID string
 	agents  []string
 	cursor  int
+}
+
+type selectModelState struct {
+	issueID string
+	agent   string
+	models  []string
+	cursor  int
+	input   string
+}
+
+type selectThinkingState struct {
+	issueID string
+	agent   string
+	model   string
+	options []string
+	cursor  int
+	input   string
 }
 
 // filterState holds the current filter settings for the issue list
@@ -90,13 +111,15 @@ type IssueDashboard struct {
 	width          int
 	height         int
 
-	mode        issueDashboardMode
-	message     string
-	create      createIssueState
-	selectRun   selectRunState
-	selectAgent selectAgentState
-	filter      filterState
-	continue_   continueState
+	mode           issueDashboardMode
+	message        string
+	create         createIssueState
+	selectRun      selectRunState
+	selectAgent    selectAgentState
+	selectModel    selectModelState
+	selectThinking selectThinkingState
+	filter         filterState
+	continue_      continueState
 
 	keymap IssueKeyMap
 	styles Styles
@@ -233,6 +256,14 @@ func (d *IssueDashboard) View() string {
 		return d.styles.Box.Render(d.viewSelectRun())
 	case modeSelectAgent:
 		return d.styles.Box.Render(d.viewSelectAgent())
+	case modeSelectModel:
+		return d.styles.Box.Render(d.viewSelectModel())
+	case modeCustomModel:
+		return d.styles.Box.Render(d.viewCustomModel())
+	case modeSelectThinking:
+		return d.styles.Box.Render(d.viewSelectThinking())
+	case modeCustomThinking:
+		return d.styles.Box.Render(d.viewCustomThinking())
 	case modeFilter:
 		return d.styles.Box.Render(d.viewFilter())
 	case modeContinueBranch:
@@ -258,6 +289,14 @@ func (d *IssueDashboard) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d.handleSelectRunKey(msg)
 	case modeSelectAgent:
 		return d.handleSelectAgentKey(msg)
+	case modeSelectModel:
+		return d.handleSelectModelKey(msg)
+	case modeCustomModel:
+		return d.handleCustomModelKey(msg)
+	case modeSelectThinking:
+		return d.handleSelectThinkingKey(msg)
+	case modeCustomThinking:
+		return d.handleCustomThinkingKey(msg)
 	case modeFilter:
 		return d.handleFilterKey(msg)
 	case modeContinueBranch:
@@ -442,8 +481,14 @@ func (d *IssueDashboard) handleSelectAgentKey(msg tea.KeyMsg) (tea.Model, tea.Cm
 		if d.selectAgent.cursor >= 0 && d.selectAgent.cursor < len(d.selectAgent.agents) {
 			agentType := d.selectAgent.agents[d.selectAgent.cursor]
 			issueID := d.selectAgent.issueID
-			d.mode = modeIssues
-			return d, d.startRunCmd(issueID, agentType)
+			d.selectModel = selectModelState{
+				issueID: issueID,
+				agent:   agentType,
+				models:  modelOptionsForAgent(agentType),
+				cursor:  0,
+			}
+			d.mode = modeSelectModel
+			return d, nil
 		}
 		return d, nil
 	case "up", "k":
@@ -461,12 +506,223 @@ func (d *IssueDashboard) handleSelectAgentKey(msg tea.KeyMsg) (tea.Model, tea.Cm
 		if idx >= 0 && idx < len(d.selectAgent.agents) {
 			agentType := d.selectAgent.agents[idx]
 			issueID := d.selectAgent.issueID
-			d.mode = modeIssues
-			return d, d.startRunCmd(issueID, agentType)
+			d.selectModel = selectModelState{
+				issueID: issueID,
+				agent:   agentType,
+				models:  modelOptionsForAgent(agentType),
+				cursor:  0,
+			}
+			d.mode = modeSelectModel
+			return d, nil
 		}
 		return d, nil
 	}
 	return d, nil
+}
+
+func (d *IssueDashboard) handleSelectModelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		d.mode = modeSelectAgent
+		return d, nil
+	case "q":
+		return d.quit()
+	case "enter":
+		if d.selectModel.cursor >= 0 && d.selectModel.cursor < len(d.selectModel.models) {
+			selection := d.selectModel.models[d.selectModel.cursor]
+			modelName, needsCustom := modelSelectionValue(selection)
+			if needsCustom {
+				d.selectModel.input = ""
+				d.mode = modeCustomModel
+				return d, nil
+			}
+			issueID := d.selectModel.issueID
+			agentType := d.selectModel.agent
+			if options := thinkingOptionsForAgent(agentType); len(options) > 0 {
+				d.selectThinking = selectThinkingState{
+					issueID: issueID,
+					agent:   agentType,
+					model:   modelName,
+					options: options,
+					cursor:  0,
+				}
+				d.mode = modeSelectThinking
+				return d, nil
+			}
+			d.mode = modeIssues
+			return d, d.startRunCmd(issueID, agentType, modelName, "")
+		}
+		return d, nil
+	case "up", "k":
+		if d.selectModel.cursor > 0 {
+			d.selectModel.cursor--
+		}
+		return d, nil
+	case "down", "j":
+		if d.selectModel.cursor < len(d.selectModel.models)-1 {
+			d.selectModel.cursor++
+		}
+		return d, nil
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		idx := int(msg.String()[0] - '1')
+		if idx >= 0 && idx < len(d.selectModel.models) {
+			selection := d.selectModel.models[idx]
+			modelName, needsCustom := modelSelectionValue(selection)
+			if needsCustom {
+				d.selectModel.input = ""
+				d.mode = modeCustomModel
+				return d, nil
+			}
+			issueID := d.selectModel.issueID
+			agentType := d.selectModel.agent
+			if options := thinkingOptionsForAgent(agentType); len(options) > 0 {
+				d.selectThinking = selectThinkingState{
+					issueID: issueID,
+					agent:   agentType,
+					model:   modelName,
+					options: options,
+					cursor:  0,
+				}
+				d.mode = modeSelectThinking
+				return d, nil
+			}
+			d.mode = modeIssues
+			return d, d.startRunCmd(issueID, agentType, modelName, "")
+		}
+		return d, nil
+	}
+	return d, nil
+}
+
+func (d *IssueDashboard) handleCustomModelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		d.mode = modeSelectModel
+		return d, nil
+	case "q":
+		return d.quit()
+	case "enter":
+		modelName := strings.TrimSpace(d.selectModel.input)
+		if modelName == "" {
+			d.message = "model is required"
+			return d, nil
+		}
+		issueID := d.selectModel.issueID
+		agentType := d.selectModel.agent
+		if options := thinkingOptionsForAgent(agentType); len(options) > 0 {
+			d.selectThinking = selectThinkingState{
+				issueID: issueID,
+				agent:   agentType,
+				model:   modelName,
+				options: options,
+				cursor:  0,
+			}
+			d.mode = modeSelectThinking
+			return d, nil
+		}
+		d.mode = modeIssues
+		return d, d.startRunCmd(issueID, agentType, modelName, "")
+	}
+
+	switch msg.Type {
+	case tea.KeyBackspace, tea.KeyDelete:
+		if len(d.selectModel.input) > 0 {
+			runes := []rune(d.selectModel.input)
+			d.selectModel.input = string(runes[:len(runes)-1])
+		}
+		return d, nil
+	case tea.KeyRunes:
+		d.selectModel.input += string(msg.Runes)
+		return d, nil
+	default:
+		return d, nil
+	}
+}
+
+func (d *IssueDashboard) handleSelectThinkingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		d.mode = modeSelectModel
+		return d, nil
+	case "q":
+		return d.quit()
+	case "enter":
+		if d.selectThinking.cursor >= 0 && d.selectThinking.cursor < len(d.selectThinking.options) {
+			selection := d.selectThinking.options[d.selectThinking.cursor]
+			thinking, needsCustom := thinkingSelectionValue(selection)
+			if needsCustom {
+				d.selectThinking.input = ""
+				d.mode = modeCustomThinking
+				return d, nil
+			}
+			issueID := d.selectThinking.issueID
+			agentType := d.selectThinking.agent
+			d.mode = modeIssues
+			return d, d.startRunCmd(issueID, agentType, d.selectThinking.model, thinking)
+		}
+		return d, nil
+	case "up", "k":
+		if d.selectThinking.cursor > 0 {
+			d.selectThinking.cursor--
+		}
+		return d, nil
+	case "down", "j":
+		if d.selectThinking.cursor < len(d.selectThinking.options)-1 {
+			d.selectThinking.cursor++
+		}
+		return d, nil
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		idx := int(msg.String()[0] - '1')
+		if idx >= 0 && idx < len(d.selectThinking.options) {
+			selection := d.selectThinking.options[idx]
+			thinking, needsCustom := thinkingSelectionValue(selection)
+			if needsCustom {
+				d.selectThinking.input = ""
+				d.mode = modeCustomThinking
+				return d, nil
+			}
+			issueID := d.selectThinking.issueID
+			agentType := d.selectThinking.agent
+			d.mode = modeIssues
+			return d, d.startRunCmd(issueID, agentType, d.selectThinking.model, thinking)
+		}
+		return d, nil
+	}
+	return d, nil
+}
+
+func (d *IssueDashboard) handleCustomThinkingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		d.mode = modeSelectThinking
+		return d, nil
+	case "q":
+		return d.quit()
+	case "enter":
+		thinking := strings.TrimSpace(d.selectThinking.input)
+		if thinking == "" {
+			d.message = "thinking is required"
+			return d, nil
+		}
+		issueID := d.selectThinking.issueID
+		agentType := d.selectThinking.agent
+		d.mode = modeIssues
+		return d, d.startRunCmd(issueID, agentType, d.selectThinking.model, thinking)
+	}
+
+	switch msg.Type {
+	case tea.KeyBackspace, tea.KeyDelete:
+		if len(d.selectThinking.input) > 0 {
+			runes := []rune(d.selectThinking.input)
+			d.selectThinking.input = string(runes[:len(runes)-1])
+		}
+		return d, nil
+	case tea.KeyRunes:
+		d.selectThinking.input += string(msg.Runes)
+		return d, nil
+	default:
+		return d, nil
+	}
 }
 
 func (d *IssueDashboard) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -531,9 +787,9 @@ func (d *IssueDashboard) loadIssueRunsCmd(issueID string) tea.Cmd {
 	}
 }
 
-func (d *IssueDashboard) startRunCmd(issueID, agentType string) tea.Cmd {
+func (d *IssueDashboard) startRunCmd(issueID, agentType, modelName, thinking string) tea.Cmd {
 	return func() tea.Msg {
-		output, err := d.monitor.StartRun(issueID, agentType)
+		output, err := d.monitor.StartRun(issueID, agentType, modelName, thinking)
 		if err != nil {
 			return errMsg{err: fmt.Errorf("%s", output)}
 		}
@@ -697,6 +953,116 @@ func (d *IssueDashboard) viewSelectAgent() string {
 	}
 
 	lines = append(lines, "", "[Enter/1-9] select agent  [Esc] back")
+	return strings.Join(lines, "\n")
+}
+
+func (d *IssueDashboard) viewSelectModel() string {
+	header := d.styles.Title.Render("SELECT MODEL")
+	lines := []string{header, ""}
+
+	issueID := d.selectModel.issueID
+	if strings.TrimSpace(issueID) == "" {
+		issueID = "-"
+	}
+	agentName := d.selectModel.agent
+	if strings.TrimSpace(agentName) == "" {
+		agentName = defaultRunAgent()
+	}
+	lines = append(lines, fmt.Sprintf("Issue: %s", issueID), fmt.Sprintf("Agent: %s", agentName), "")
+
+	if len(d.selectModel.models) == 0 {
+		lines = append(lines, "No models available.")
+		lines = append(lines, "", "[Esc] back")
+		return strings.Join(lines, "\n")
+	}
+
+	lines = append(lines, "Select a model for the run:", "")
+	for i, modelName := range d.selectModel.models {
+		label := fmt.Sprintf("  [%d] %s", i+1, modelName)
+		if i == d.selectModel.cursor {
+			label = d.styles.Selected.Render(label)
+		}
+		lines = append(lines, label)
+	}
+
+	lines = append(lines, "", "[Enter/1-9] select model  [Esc] back")
+	return strings.Join(lines, "\n")
+}
+
+func (d *IssueDashboard) viewCustomModel() string {
+	header := d.styles.Title.Render("CUSTOM MODEL")
+	lines := []string{header, ""}
+
+	issueID := d.selectModel.issueID
+	if strings.TrimSpace(issueID) == "" {
+		issueID = "-"
+	}
+	agentName := d.selectModel.agent
+	if strings.TrimSpace(agentName) == "" {
+		agentName = defaultRunAgent()
+	}
+	lines = append(lines, fmt.Sprintf("Issue: %s", issueID), fmt.Sprintf("Agent: %s", agentName), "")
+	lines = append(lines, "Model:", fmt.Sprintf("> %s", d.selectModel.input))
+	lines = append(lines, "", "[Enter] next  [Esc] back")
+	return strings.Join(lines, "\n")
+}
+
+func (d *IssueDashboard) viewSelectThinking() string {
+	header := d.styles.Title.Render("SELECT THINKING")
+	lines := []string{header, ""}
+
+	issueID := d.selectThinking.issueID
+	if strings.TrimSpace(issueID) == "" {
+		issueID = "-"
+	}
+	agentName := d.selectThinking.agent
+	if strings.TrimSpace(agentName) == "" {
+		agentName = defaultRunAgent()
+	}
+	modelName := d.selectThinking.model
+	if strings.TrimSpace(modelName) == "" {
+		modelName = "default"
+	}
+	lines = append(lines, fmt.Sprintf("Issue: %s", issueID), fmt.Sprintf("Agent: %s", agentName), fmt.Sprintf("Model: %s", modelName), "")
+
+	if len(d.selectThinking.options) == 0 {
+		lines = append(lines, "No thinking options available.")
+		lines = append(lines, "", "[Esc] back")
+		return strings.Join(lines, "\n")
+	}
+
+	lines = append(lines, "Select thinking effort:", "")
+	for i, option := range d.selectThinking.options {
+		label := fmt.Sprintf("  [%d] %s", i+1, option)
+		if i == d.selectThinking.cursor {
+			label = d.styles.Selected.Render(label)
+		}
+		lines = append(lines, label)
+	}
+
+	lines = append(lines, "", "[Enter/1-9] select  [Esc] back")
+	return strings.Join(lines, "\n")
+}
+
+func (d *IssueDashboard) viewCustomThinking() string {
+	header := d.styles.Title.Render("CUSTOM THINKING")
+	lines := []string{header, ""}
+
+	issueID := d.selectThinking.issueID
+	if strings.TrimSpace(issueID) == "" {
+		issueID = "-"
+	}
+	agentName := d.selectThinking.agent
+	if strings.TrimSpace(agentName) == "" {
+		agentName = defaultRunAgent()
+	}
+	modelName := d.selectThinking.model
+	if strings.TrimSpace(modelName) == "" {
+		modelName = "default"
+	}
+	lines = append(lines, fmt.Sprintf("Issue: %s", issueID), fmt.Sprintf("Agent: %s", agentName), fmt.Sprintf("Model: %s", modelName), "")
+	lines = append(lines, "Thinking:", fmt.Sprintf("> %s", d.selectThinking.input))
+	lines = append(lines, "", "[Enter] start  [Esc] back")
 	return strings.Join(lines, "\n")
 }
 

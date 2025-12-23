@@ -71,6 +71,8 @@ func showJSON(run *model.Run, opts *showOptions) error {
 		Status        string        `json:"status"`
 		Phase         string        `json:"phase,omitempty"`
 		ContinuedFrom string        `json:"continued_from,omitempty"`
+		Model         string        `json:"model,omitempty"`
+		Thinking      string        `json:"thinking,omitempty"`
 		Branch        string        `json:"branch,omitempty"`
 		WorktreePath  string        `json:"worktree_path,omitempty"`
 		TmuxSession   string        `json:"tmux_session,omitempty"`
@@ -83,6 +85,8 @@ func showJSON(run *model.Run, opts *showOptions) error {
 		Status:        string(run.Status),
 		Phase:         string(run.Phase),
 		ContinuedFrom: run.ContinuedFrom,
+		Model:         run.Model,
+		Thinking:      run.Thinking,
 		Branch:        run.Branch,
 		WorktreePath:  run.WorktreePath,
 		TmuxSession:   run.TmuxSession,
@@ -120,6 +124,12 @@ func showHuman(run *model.Run, opts *showOptions) error {
 	if !opts.EventsOnly {
 		if run.Branch != "" {
 			fmt.Printf("Branch:   %s\n", run.Branch)
+		}
+		if run.Model != "" {
+			fmt.Printf("Model:    %s\n", run.Model)
+		}
+		if run.Thinking != "" {
+			fmt.Printf("Thinking: %s\n", run.Thinking)
 		}
 		if run.WorktreePath != "" {
 			fmt.Printf("Worktree: %s\n", run.WorktreePath)
