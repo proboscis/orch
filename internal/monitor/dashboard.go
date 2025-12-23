@@ -22,6 +22,7 @@ const (
 	modeDashboard dashboardMode = iota
 	modeStopSelectRun
 	modeNewSelectIssue
+	modeDashboardFilter
 )
 
 type stopState struct {
@@ -57,6 +58,7 @@ type Dashboard struct {
 
 	stop   stopState
 	newRun newRunState
+	filter runFilterState
 
 	keymap KeyMap
 	styles Styles
@@ -64,6 +66,7 @@ type Dashboard struct {
 	lastRefresh     time.Time
 	refreshing      bool
 	refreshInterval time.Duration
+	filterPreset    int
 }
 
 type refreshMsg struct {
@@ -102,6 +105,7 @@ func NewDashboard(m *Monitor) *Dashboard {
 		styles:          DefaultStyles(),
 		mode:            modeDashboard,
 		refreshInterval: defaultRefreshInterval,
+		filterPreset:    -1,
 	}
 }
 
@@ -195,6 +199,8 @@ func (d *Dashboard) View() string {
 		return d.styles.Box.Render(d.viewStopRuns())
 	case modeNewSelectIssue:
 		return d.styles.Box.Render(d.viewNewRun())
+	case modeDashboardFilter:
+		return d.styles.Box.Render(d.viewFilter())
 	default:
 		return d.styles.Box.Render(d.viewDashboard())
 	}
@@ -212,6 +218,8 @@ func (d *Dashboard) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d.handleStopKey(msg)
 	case modeNewSelectIssue:
 		return d.handleNewRunKey(msg)
+	case modeDashboardFilter:
+		return d.handleFilterKey(msg)
 	default:
 		return d, nil
 	}
@@ -243,6 +251,10 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d.enterStopMode()
 	case "n":
 		return d.enterNewRunMode()
+	case d.keymap.Filter, "/":
+		return d.enterFilterMode()
+	case d.keymap.QuickFilter:
+		return d.applyQuickFilterPreset()
 	case d.keymap.Sort:
 		sortKey := d.monitor.CycleRunSort()
 		d.message = fmt.Sprintf("sort: %s", sortKey)
@@ -625,6 +637,9 @@ func (d *Dashboard) selectedRun() *model.Run {
 
 func (d *Dashboard) renderTable(maxRows int) string {
 	if len(d.runs) == 0 {
+		if !d.monitor.RunFilter().IsDefault() {
+			return "No runs found (filters active - press 'f' to adjust)."
+		}
 		return "No runs found."
 	}
 
@@ -814,22 +829,7 @@ func (d *Dashboard) captureLines(width int) []string {
 }
 
 func (d *Dashboard) renderMeta() string {
-	filterParts := []string{}
-	if d.monitor.issueFilter != "" {
-		filterParts = append(filterParts, fmt.Sprintf("issue=%s", d.monitor.issueFilter))
-	}
-	if len(d.monitor.statusFilter) > 0 {
-		var statuses []string
-		for _, s := range d.monitor.statusFilter {
-			statuses = append(statuses, string(s))
-		}
-		filterParts = append(filterParts, fmt.Sprintf("status=%s", strings.Join(statuses, ",")))
-	}
-	filter := "filter: all"
-	if len(filterParts) > 0 {
-		filter = "filter: " + strings.Join(filterParts, " ")
-	}
-
+	filter := d.monitor.RunFilter().Summary()
 	sortLabel := fmt.Sprintf("sort: %s", d.monitor.RunSort())
 	sync := d.renderSyncStatus()
 	nav := d.renderNav()
