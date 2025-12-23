@@ -2,6 +2,8 @@ package integration
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -118,6 +120,11 @@ func ensureIssueType(content string) string {
 	updated = append(updated, "type: issue")
 	updated = append(updated, lines[1:]...)
 	return strings.Join(updated, "\n")
+}
+
+func shortRunID(issueID, runID string) string {
+	sum := sha256.Sum256([]byte(issueID + "#" + runID))
+	return hex.EncodeToString(sum[:])[:6]
 }
 
 func TestPsEmpty(t *testing.T) {
@@ -447,6 +454,15 @@ func TestRunDryRun(t *testing.T) {
 	}
 	if result.TmuxSession == "" {
 		t.Error("expected tmux_session to be set")
+	}
+	if result.WorktreePath == "" {
+		t.Error("expected worktree_path to be set")
+	}
+
+	shortID := shortRunID(result.IssueID, result.RunID)
+	expectedSuffix := filepath.Join(".git-worktrees", result.IssueID, fmt.Sprintf("%s_claude_%s", shortID, result.RunID))
+	if !strings.HasSuffix(result.WorktreePath, expectedSuffix) {
+		t.Errorf("expected worktree_path to end with %q, got %q", expectedSuffix, result.WorktreePath)
 	}
 
 	// Verify no run was actually created
