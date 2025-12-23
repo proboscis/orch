@@ -40,6 +40,9 @@ worktree_root: .git-worktrees
 
 # base branch for new runs
 base_branch: main
+
+# default PR target branch
+pr_target_branch: main
 ```
 
 ### 自動検出
@@ -76,3 +79,4 @@ log_level: info
 | `ORCH_BACKEND` | Backend type (file/github/linear) |
 | `ORCH_AGENT` | Default agent |
 | `ORCH_LOG_LEVEL` | Log level |
+| `ORCH_PR_TARGET_BRANCH` | Default PR target branch |

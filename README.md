@@ -171,6 +171,31 @@ export ORCH_VAULT=~/vault
 orch --vault ~/vault ps
 ```
 
+Per-repo defaults can live in `.orch/config.yaml`:
+
+```yaml
+vault: ~/vault
+agent: claude
+worktree_root: .git-worktrees
+base_branch: main
+pr_target_branch: develop
+```
+
+`pr_target_branch` controls the target branch mentioned in agent PR instructions.
+
+### Repo config
+
+Create `.orch/config.yaml` in the repo root to set defaults:
+
+```yaml
+vault: ~/vault
+agent: claude
+base_branch: main
+pr_target_branch: develop
+```
+
+`pr_target_branch` controls the default target branch in the agent PR instructions.
+
 ## Vault Structure
 
 ```
