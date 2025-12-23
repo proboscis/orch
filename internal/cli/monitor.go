@@ -18,6 +18,8 @@ type monitorOptions struct {
 	ForceNew        bool
 	Dashboard       bool
 	IssuesDashboard bool
+	ShowResolved    bool
+	ShowClosed      bool
 }
 
 func newMonitorCmd() *cobra.Command {
@@ -40,8 +42,12 @@ func newMonitorCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.ForceNew, "new", false, "Force create a new monitor session")
 	cmd.Flags().BoolVar(&opts.Dashboard, "dashboard", false, "Run dashboard UI (internal)")
 	cmd.Flags().BoolVar(&opts.IssuesDashboard, "issues-dashboard", false, "Run issues dashboard UI (internal)")
+	cmd.Flags().BoolVar(&opts.ShowResolved, "show-resolved", false, "Show resolved issues (internal)")
+	cmd.Flags().BoolVar(&opts.ShowClosed, "show-closed", true, "Show closed issues (internal)")
 	_ = cmd.Flags().MarkHidden("dashboard")
 	_ = cmd.Flags().MarkHidden("issues-dashboard")
+	_ = cmd.Flags().MarkHidden("show-resolved")
+	_ = cmd.Flags().MarkHidden("show-closed")
 
 	return cmd
 }
@@ -52,6 +58,10 @@ func runMonitor(opts *monitorOptions) error {
 		return err
 	}
 
+	// Load UI settings from .orch directory
+	orchDir := monitor.GetOrchDir(st.VaultPath())
+	settings := monitor.LoadUISettings(orchDir)
+
 	var statuses []model.Status
 	for _, s := range opts.Status {
 		if s == "" {
@@ -60,25 +70,38 @@ func runMonitor(opts *monitorOptions) error {
 		statuses = append(statuses, model.Status(s))
 	}
 
-	runSort, err := monitor.ParseSortKey(opts.SortRuns, monitor.SortByUpdated)
+	// Use saved settings as fallbacks when flags aren't explicitly set
+	runSortFallback := settings.RunSort
+	if !monitor.IsValidSortKey(runSortFallback) {
+		runSortFallback = monitor.SortByUpdated
+	}
+	issueSortFallback := settings.IssueSort
+	if !monitor.IsValidSortKey(issueSortFallback) {
+		issueSortFallback = monitor.SortByName
+	}
+
+	runSort, err := monitor.ParseSortKey(opts.SortRuns, runSortFallback)
 	if err != nil {
 		return err
 	}
-	issueSort, err := monitor.ParseSortKey(opts.SortIssues, monitor.SortByName)
+	issueSort, err := monitor.ParseSortKey(opts.SortIssues, issueSortFallback)
 	if err != nil {
 		return err
 	}
 
 	m := monitor.New(st, monitor.Options{
-		Issue:       opts.Issue,
-		Statuses:    statuses,
-		RunSort:     runSort,
-		IssueSort:   issueSort,
-		Agent:       opts.Agent,
-		Attach:      opts.Attach,
-		ForceNew:    opts.ForceNew,
-		OrchPath:    os.Args[0],
-		GlobalFlags: monitorGlobalFlagsWithVault(st.VaultPath()),
+		Issue:        opts.Issue,
+		Statuses:     statuses,
+		RunSort:      runSort,
+		IssueSort:    issueSort,
+		Agent:        opts.Agent,
+		Attach:       opts.Attach,
+		ForceNew:     opts.ForceNew,
+		OrchPath:     os.Args[0],
+		GlobalFlags:  monitorGlobalFlagsWithVault(st.VaultPath()),
+		ShowResolved: opts.ShowResolved,
+		ShowClosed:   opts.ShowClosed,
+		UISettings:   settings,
 	})
 
 	if opts.Dashboard {

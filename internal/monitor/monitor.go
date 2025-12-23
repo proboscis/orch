@@ -40,32 +40,39 @@ const (
 
 // Options configures the monitor behavior.
 type Options struct {
-	Session     string
-	Issue       string
-	Statuses    []model.Status
-	RunSort     SortKey
-	IssueSort   SortKey
-	Agent       string
-	Attach      bool
-	ForceNew    bool
-	OrchPath    string
-	GlobalFlags []string
+	Session      string
+	Issue        string
+	Statuses     []model.Status
+	RunSort      SortKey
+	IssueSort    SortKey
+	Agent        string
+	Attach       bool
+	ForceNew     bool
+	OrchPath     string
+	GlobalFlags  []string
+	ShowResolved bool
+	ShowClosed   bool
+	UISettings   *UISettings
 }
 
 // Monitor manages tmux windows and dashboard state.
 type Monitor struct {
-	session     string
-	runFilter   RunFilter
-	runSort     SortKey
-	issueSort   SortKey
-	store       store.Store
-	orchPath    string
-	globalFlags []string
-	agent       string
-	attach      bool
-	forceNew    bool
-	runs        []*RunWindow
-	dashboard   *Dashboard
+	session      string
+	runFilter    RunFilter
+	runSort      SortKey
+	issueSort    SortKey
+	store        store.Store
+	orchPath     string
+	globalFlags  []string
+	agent        string
+	attach       bool
+	forceNew     bool
+	runs         []*RunWindow
+	dashboard    *Dashboard
+	showResolved bool
+	showClosed   bool
+	uiSettings   *UISettings
+	orchDir      string
 }
 
 // RunWindow links a run to a dashboard index.
@@ -90,17 +97,26 @@ func New(st store.Store, opts Options) *Monitor {
 	if !IsValidSortKey(issueSort) {
 		issueSort = SortByName
 	}
+	uiSettings := opts.UISettings
+	if uiSettings == nil {
+		uiSettings = DefaultUISettings()
+	}
+	orchDir := GetOrchDir(st.VaultPath())
 	return &Monitor{
-		session:     session,
-		runFilter:   newRunFilter(opts),
-		runSort:     runSort,
-		issueSort:   issueSort,
-		store:       st,
-		orchPath:    orchPath,
-		globalFlags: opts.GlobalFlags,
-		agent:       opts.Agent,
-		attach:      opts.Attach,
-		forceNew:    opts.ForceNew,
+		session:      session,
+		runFilter:    newRunFilter(opts),
+		runSort:      runSort,
+		issueSort:    issueSort,
+		store:        st,
+		orchPath:     orchPath,
+		globalFlags:  opts.GlobalFlags,
+		agent:        opts.Agent,
+		attach:       opts.Attach,
+		forceNew:     opts.ForceNew,
+		showResolved: opts.ShowResolved,
+		showClosed:   opts.ShowClosed,
+		uiSettings:   uiSettings,
+		orchDir:      orchDir,
 	}
 }
 
@@ -114,16 +130,55 @@ func (m *Monitor) IssueSort() SortKey {
 	return m.issueSort
 }
 
-// CycleRunSort advances to the next run sort key.
+// CycleRunSort advances to the next run sort key and saves the setting.
 func (m *Monitor) CycleRunSort() SortKey {
 	m.runSort = NextSortKey(m.runSort)
+	m.saveUISettings()
 	return m.runSort
 }
 
-// CycleIssueSort advances to the next issue sort key.
+// CycleIssueSort advances to the next issue sort key and saves the setting.
 func (m *Monitor) CycleIssueSort() SortKey {
 	m.issueSort = NextSortKey(m.issueSort)
+	m.saveUISettings()
 	return m.issueSort
+}
+
+// ShowResolved returns whether resolved issues should be shown.
+func (m *Monitor) ShowResolved() bool {
+	return m.showResolved
+}
+
+// ShowClosed returns whether closed issues should be shown.
+func (m *Monitor) ShowClosed() bool {
+	return m.showClosed
+}
+
+// SetShowResolved sets whether resolved issues should be shown and saves the setting.
+func (m *Monitor) SetShowResolved(show bool) {
+	m.showResolved = show
+	m.saveUISettings()
+}
+
+// SetShowClosed sets whether closed issues should be shown and saves the setting.
+func (m *Monitor) SetShowClosed(show bool) {
+	m.showClosed = show
+	m.saveUISettings()
+}
+
+// saveUISettings persists the current UI settings to disk.
+func (m *Monitor) saveUISettings() {
+	if m.orchDir == "" {
+		return
+	}
+	settings := &UISettings{
+		RunSort:      m.runSort,
+		IssueSort:    m.issueSort,
+		ShowResolved: m.showResolved,
+		ShowClosed:   m.showClosed,
+	}
+	// Ignore errors - settings persistence is best-effort
+	_ = SaveUISettings(m.orchDir, settings)
 }
 
 // sessionNameForVault generates a unique monitor session name based on the vault path.
@@ -923,6 +978,13 @@ func (m *Monitor) issuesDashboardCommand() string {
 	}
 	if m.issueSort != "" {
 		args = append(args, "--sort-issues", string(m.issueSort))
+	}
+	// Pass filter settings from persisted UI settings
+	if m.showResolved {
+		args = append(args, "--show-resolved")
+	}
+	if !m.showClosed {
+		args = append(args, "--show-closed=false")
 	}
 	return shellJoin(args)
 }
