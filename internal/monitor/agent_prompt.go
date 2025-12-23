@@ -16,7 +16,7 @@ import (
 
 const (
 	controlPromptFileName        = "ORCH_CONTROL_PROMPT.md"
-	controlPromptFileInstruction = "Please read '" + controlPromptFileName + "' in the current directory and follow the instructions found there."
+	controlPromptFileInstruction = "ultrathink Please read '" + controlPromptFileName + "' in the current directory and follow the instructions found there."
 )
 
 // controlPromptTemplate is the template for the control agent prompt
