@@ -62,9 +62,9 @@ func NewSession(cfg *SessionConfig) error {
 	return nil
 }
 
-const enterKey = "C-m"
+const enterKey = "Enter"
 
-// SendKeys sends keys to a tmux session followed by Enter (carriage return)
+// SendKeys sends keys to a tmux session followed by Enter.
 func SendKeys(session, keys string) error {
 	if err := SendKeysLiteral(session, keys); err != nil {
 		return err

@@ -134,9 +134,9 @@ func TestSendKeys(t *testing.T) {
 	if !equalArgs(exec.recorded[0].args, []string{"send-keys", "-t", "sess", "-l", "hello world"}) {
 		t.Fatalf("first send-keys args = %v, want %v", exec.recorded[0].args, []string{"send-keys", "-t", "sess", "-l", "hello world"})
 	}
-	// Second call should be Enter (C-m)
-	if !equalArgs(exec.recorded[1].args, []string{"send-keys", "-t", "sess", "C-m"}) {
-		t.Fatalf("second send-keys args = %v, want %v", exec.recorded[1].args, []string{"send-keys", "-t", "sess", "C-m"})
+	// Second call should be Enter
+	if !equalArgs(exec.recorded[1].args, []string{"send-keys", "-t", "sess", "Enter"}) {
+		t.Fatalf("second send-keys args = %v, want %v", exec.recorded[1].args, []string{"send-keys", "-t", "sess", "Enter"})
 	}
 }
 
@@ -218,7 +218,7 @@ func TestNewSessionSendsKeys(t *testing.T) {
 		t.Fatalf("first send-keys args = %v", second.args)
 	}
 	third := exec.recorded[2]
-	if !equalArgs(third.args, []string{"send-keys", "-t", "sess", "C-m"}) {
+	if !equalArgs(third.args, []string{"send-keys", "-t", "sess", "Enter"}) {
 		t.Fatalf("second send-keys args = %v", third.args)
 	}
 }
