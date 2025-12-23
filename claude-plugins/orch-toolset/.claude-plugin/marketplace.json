@@ -1,0 +1,14 @@
+{
+  "name": "orch-toolset-marketplace",
+  "owner": {
+    "name": "Orch Maintainers"
+  },
+  "plugins": [
+    {
+      "name": "orch-toolset",
+      "source": ".",
+      "description": "Agent Skills for using the orch CLI to orchestrate LLM agent runs, manage issues, monitor agents, and coordinate multi-agent workflows",
+      "version": "1.0.0"
+    }
+  ]
+}
