@@ -24,6 +24,8 @@ const (
 	modeNewSelectIssue
 	modeNewSelectModel
 	modeNewCustomModel
+	modeNewSelectThinking
+	modeNewCustomThinking
 )
 
 type stopState struct {
@@ -51,6 +53,15 @@ type newModelState struct {
 	input   string
 }
 
+type newThinkingState struct {
+	issueID string
+	agent   string
+	model   string
+	options []string
+	cursor  int
+	input   string
+}
+
 // Dashboard is the bubbletea model for the monitor UI.
 type Dashboard struct {
 	monitor *Monitor
@@ -61,13 +72,15 @@ type Dashboard struct {
 	width  int
 	height int
 
-	mode    dashboardMode
-	message string
-	capture captureState
+	mode        dashboardMode
+	message     string
+	capture     captureState
+	agentDetail bool
 
-	stop   stopState
-	newRun newRunState
-	newModel newModelState
+	stop        stopState
+	newRun      newRunState
+	newModel    newModelState
+	newThinking newThinkingState
 
 	keymap KeyMap
 	styles Styles
@@ -210,6 +223,10 @@ func (d *Dashboard) View() string {
 		return d.styles.Box.Render(d.viewNewModel())
 	case modeNewCustomModel:
 		return d.styles.Box.Render(d.viewNewCustomModel())
+	case modeNewSelectThinking:
+		return d.styles.Box.Render(d.viewNewThinking())
+	case modeNewCustomThinking:
+		return d.styles.Box.Render(d.viewNewCustomThinking())
 	default:
 		return d.styles.Box.Render(d.viewDashboard())
 	}
@@ -231,6 +248,10 @@ func (d *Dashboard) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d.handleNewModelKey(msg)
 	case modeNewCustomModel:
 		return d.handleNewCustomModelKey(msg)
+	case modeNewSelectThinking:
+		return d.handleNewThinkingKey(msg)
+	case modeNewCustomThinking:
+		return d.handleNewCustomThinkingKey(msg)
 	default:
 		return d, nil
 	}
@@ -309,6 +330,9 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		d.message = "no run selected"
+		return d, nil
+	case d.keymap.AgentDetail:
+		d.agentDetail = !d.agentDetail
 		return d, nil
 	case "?":
 		d.message = d.keymap.HelpLine()
@@ -407,8 +431,19 @@ func (d *Dashboard) handleNewModelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return d, nil
 			}
 			issueID := d.newModel.issueID
+			if options := thinkingOptionsForAgent(d.newModel.agent); len(options) > 0 {
+				d.newThinking = newThinkingState{
+					issueID: issueID,
+					agent:   d.newModel.agent,
+					model:   modelName,
+					options: options,
+					cursor:  0,
+				}
+				d.mode = modeNewSelectThinking
+				return d, nil
+			}
 			d.mode = modeDashboard
-			return d, d.startRunCmd(issueID, d.newModel.agent, modelName)
+			return d, d.startRunCmd(issueID, d.newModel.agent, modelName, "")
 		}
 		return d, nil
 	case "up", "k":
@@ -432,8 +467,19 @@ func (d *Dashboard) handleNewModelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return d, nil
 			}
 			issueID := d.newModel.issueID
+			if options := thinkingOptionsForAgent(d.newModel.agent); len(options) > 0 {
+				d.newThinking = newThinkingState{
+					issueID: issueID,
+					agent:   d.newModel.agent,
+					model:   modelName,
+					options: options,
+					cursor:  0,
+				}
+				d.mode = modeNewSelectThinking
+				return d, nil
+			}
 			d.mode = modeDashboard
-			return d, d.startRunCmd(issueID, d.newModel.agent, modelName)
+			return d, d.startRunCmd(issueID, d.newModel.agent, modelName, "")
 		}
 		return d, nil
 	}
@@ -454,8 +500,19 @@ func (d *Dashboard) handleNewCustomModelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 			return d, nil
 		}
 		issueID := d.newModel.issueID
+		if options := thinkingOptionsForAgent(d.newModel.agent); len(options) > 0 {
+			d.newThinking = newThinkingState{
+				issueID: issueID,
+				agent:   d.newModel.agent,
+				model:   modelName,
+				options: options,
+				cursor:  0,
+			}
+			d.mode = modeNewSelectThinking
+			return d, nil
+		}
 		d.mode = modeDashboard
-		return d, d.startRunCmd(issueID, d.newModel.agent, modelName)
+		return d, d.startRunCmd(issueID, d.newModel.agent, modelName, "")
 	}
 
 	switch msg.Type {
@@ -467,6 +524,89 @@ func (d *Dashboard) handleNewCustomModelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		return d, nil
 	case tea.KeyRunes:
 		d.newModel.input += string(msg.Runes)
+		return d, nil
+	default:
+		return d, nil
+	}
+}
+
+func (d *Dashboard) handleNewThinkingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		d.mode = modeNewSelectModel
+		return d, nil
+	case "q":
+		return d.quit()
+	case "enter":
+		if d.newThinking.cursor >= 0 && d.newThinking.cursor < len(d.newThinking.options) {
+			selection := d.newThinking.options[d.newThinking.cursor]
+			thinking, needsCustom := thinkingSelectionValue(selection)
+			if needsCustom {
+				d.newThinking.input = ""
+				d.mode = modeNewCustomThinking
+				return d, nil
+			}
+			issueID := d.newThinking.issueID
+			d.mode = modeDashboard
+			return d, d.startRunCmd(issueID, d.newThinking.agent, d.newThinking.model, thinking)
+		}
+		return d, nil
+	case "up", "k":
+		if d.newThinking.cursor > 0 {
+			d.newThinking.cursor--
+		}
+		return d, nil
+	case "down", "j":
+		if d.newThinking.cursor < len(d.newThinking.options)-1 {
+			d.newThinking.cursor++
+		}
+		return d, nil
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		idx := int(msg.String()[0] - '1')
+		if idx >= 0 && idx < len(d.newThinking.options) {
+			selection := d.newThinking.options[idx]
+			thinking, needsCustom := thinkingSelectionValue(selection)
+			if needsCustom {
+				d.newThinking.input = ""
+				d.mode = modeNewCustomThinking
+				return d, nil
+			}
+			issueID := d.newThinking.issueID
+			d.mode = modeDashboard
+			return d, d.startRunCmd(issueID, d.newThinking.agent, d.newThinking.model, thinking)
+		}
+		return d, nil
+	}
+	return d, nil
+}
+
+func (d *Dashboard) handleNewCustomThinkingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		d.mode = modeNewSelectThinking
+		return d, nil
+	case "q":
+		return d.quit()
+	case "enter":
+		thinking := strings.TrimSpace(d.newThinking.input)
+		if thinking == "" {
+			d.message = "thinking is required"
+			return d, nil
+		}
+		issueID := d.newThinking.issueID
+		d.mode = modeDashboard
+		return d, d.startRunCmd(issueID, d.newThinking.agent, d.newThinking.model, thinking)
+	}
+
+	switch msg.Type {
+	case tea.KeyBackspace, tea.KeyDelete:
+		if len(d.newThinking.input) > 0 {
+			runes := []rune(d.newThinking.input)
+			d.newThinking.input = string(runes[:len(runes)-1])
+		}
+		return d, nil
+	case tea.KeyRunes:
+		d.newThinking.input += string(msg.Runes)
 		return d, nil
 	default:
 		return d, nil
@@ -561,10 +701,10 @@ func (d *Dashboard) loadIssuesCmd() tea.Cmd {
 	}
 }
 
-func (d *Dashboard) startRunCmd(issueID, agentType, modelName string) tea.Cmd {
+func (d *Dashboard) startRunCmd(issueID, agentType, modelName, thinking string) tea.Cmd {
 	return func() tea.Msg {
 		// Use empty agent type to use default agent
-		output, err := d.monitor.StartRun(issueID, agentType, modelName)
+		output, err := d.monitor.StartRun(issueID, agentType, modelName, thinking)
 		if err != nil {
 			return errMsg{err: fmt.Errorf("%s", output)}
 		}
@@ -778,6 +918,68 @@ func (d *Dashboard) viewNewCustomModel() string {
 	}
 	lines = append(lines, fmt.Sprintf("Issue: %s", issueID), fmt.Sprintf("Agent: %s", agentName), "")
 	lines = append(lines, "Model:", fmt.Sprintf("> %s", d.newModel.input))
+	lines = append(lines, "", "[Enter] next  [Esc] back")
+	return strings.Join(lines, "\n")
+}
+
+func (d *Dashboard) viewNewThinking() string {
+	lines := []string{
+		d.styles.Title.Render("NEW RUN - SELECT THINKING"),
+		"",
+	}
+
+	issueID := d.newThinking.issueID
+	if strings.TrimSpace(issueID) == "" {
+		issueID = "-"
+	}
+	agentName := d.newThinking.agent
+	if strings.TrimSpace(agentName) == "" {
+		agentName = defaultRunAgent()
+	}
+	modelName := d.newThinking.model
+	if strings.TrimSpace(modelName) == "" {
+		modelName = "default"
+	}
+	lines = append(lines, fmt.Sprintf("Issue: %s", issueID), fmt.Sprintf("Agent: %s", agentName), fmt.Sprintf("Model: %s", modelName), "")
+
+	if len(d.newThinking.options) == 0 {
+		lines = append(lines, "No thinking options available.", "", "[Esc] back")
+		return strings.Join(lines, "\n")
+	}
+
+	lines = append(lines, "Select thinking effort:", "")
+	for i, option := range d.newThinking.options {
+		label := fmt.Sprintf("  [%d] %s", i+1, option)
+		if i == d.newThinking.cursor {
+			label = d.styles.Selected.Render(label)
+		}
+		lines = append(lines, label)
+	}
+
+	lines = append(lines, "", "[Enter/1-9] select  [Esc] back")
+	return strings.Join(lines, "\n")
+}
+
+func (d *Dashboard) viewNewCustomThinking() string {
+	lines := []string{
+		d.styles.Title.Render("NEW RUN - CUSTOM THINKING"),
+		"",
+	}
+
+	issueID := d.newThinking.issueID
+	if strings.TrimSpace(issueID) == "" {
+		issueID = "-"
+	}
+	agentName := d.newThinking.agent
+	if strings.TrimSpace(agentName) == "" {
+		agentName = defaultRunAgent()
+	}
+	modelName := d.newThinking.model
+	if strings.TrimSpace(modelName) == "" {
+		modelName = "default"
+	}
+	lines = append(lines, fmt.Sprintf("Issue: %s", issueID), fmt.Sprintf("Agent: %s", agentName), fmt.Sprintf("Model: %s", modelName), "")
+	lines = append(lines, "Thinking:", fmt.Sprintf("> %s", d.newThinking.input))
 	lines = append(lines, "", "[Enter] start  [Esc] back")
 	return strings.Join(lines, "\n")
 }
@@ -794,10 +996,10 @@ func (d *Dashboard) renderTable(maxRows int) string {
 		return "No runs found."
 	}
 
-	idxW, idW, issueW, issueStatusW, agentW, statusW, prW, mergedW, updatedW, topicW := d.tableWidths()
+	idxW, idW, issueW, issueStatusW, agentW, modelW, thinkingW, statusW, prW, mergedW, updatedW, topicW := d.tableWidths()
 
-	header := d.renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, prW, mergedW, updatedW, topicW,
-		"#", "ID", "ISSUE", "ISSUE-ST", "AGENT", "STATUS", "PR", "MERGED", "UPDATED", "TOPIC", true, nil)
+	header := d.renderRow(idxW, idW, issueW, issueStatusW, agentW, modelW, thinkingW, statusW, prW, mergedW, updatedW, topicW,
+		"#", "ID", "ISSUE", "ISSUE-ST", "AGENT", "MODEL", "THINK", "STATUS", "PR", "MERGED", "UPDATED", "TOPIC", true, nil)
 
 	var rows []string
 	visibleRows := d.runVisibleRows(maxRows)
@@ -812,12 +1014,22 @@ func (d *Dashboard) renderTable(maxRows int) string {
 		end = start
 	}
 	for i, row := range d.runs[start:end] {
-		r := d.renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, prW, mergedW, updatedW, topicW,
+		modelAlias := model.ShortModelAlias(row.Model)
+		if modelAlias == "" {
+			modelAlias = "-"
+		}
+		thinkingAlias := model.ShortThinkingAlias(row.Thinking)
+		if thinkingAlias == "" {
+			thinkingAlias = "-"
+		}
+		r := d.renderRow(idxW, idW, issueW, issueStatusW, agentW, modelW, thinkingW, statusW, prW, mergedW, updatedW, topicW,
 			fmt.Sprintf("%d", row.Index),
 			row.ShortID,
 			row.IssueID,
 			row.IssueStatus,
 			row.Agent,
+			modelAlias,
+			thinkingAlias,
 			string(row.Status),
 			row.PR,
 			row.Merged,
@@ -835,7 +1047,7 @@ func (d *Dashboard) renderTable(maxRows int) string {
 	return strings.Join(append([]string{header}, rows...), "\n")
 }
 
-func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, prW, mergedW, updatedW, topicW int, idx, id, issue, issueStatus, agent, status, pr, merged, updated, topic string, header bool, row *RunRow) string {
+func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, modelW, thinkingW, statusW, prW, mergedW, updatedW, topicW int, idx, id, issue, issueStatus, agent, modelName, thinking, status, pr, merged, updated, topic string, header bool, row *RunRow) string {
 	baseStyle := d.styles.Text
 	headerStyle := d.styles.Header
 
@@ -844,6 +1056,12 @@ func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, 
 	issueCol := d.pad(issue, issueW, baseStyle)
 	issueStatusCol := d.pad(issueStatus, issueStatusW, baseStyle)
 	agentCol := d.pad(agent, agentW, baseStyle)
+	modelCol := ""
+	thinkingCol := ""
+	if modelW > 0 {
+		modelCol = d.pad(modelName, modelW, baseStyle)
+		thinkingCol = d.pad(thinking, thinkingW, baseStyle)
+	}
 	updatedCol := d.pad(updated, updatedW, baseStyle)
 	topicCol := d.pad(topic, topicW, baseStyle)
 	statusCol := d.pad(status, statusW, baseStyle)
@@ -856,6 +1074,10 @@ func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, 
 		issueCol = d.pad(issue, issueW, headerStyle)
 		issueStatusCol = d.pad(issueStatus, issueStatusW, headerStyle)
 		agentCol = d.pad(agent, agentW, headerStyle)
+		if modelW > 0 {
+			modelCol = d.pad(modelName, modelW, headerStyle)
+			thinkingCol = d.pad(thinking, thinkingW, headerStyle)
+		}
 		updatedCol = d.pad(updated, updatedW, headerStyle)
 		topicCol = d.pad(topic, topicW, headerStyle)
 		statusCol = d.pad(status, statusW, headerStyle)
@@ -875,7 +1097,12 @@ func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, 
 		}
 	}
 
-	return strings.Join([]string{idxCol, idCol, issueCol, issueStatusCol, agentCol, statusCol, prCol, mergedCol, updatedCol, topicCol}, "  ")
+	cols := []string{idxCol, idCol, issueCol, issueStatusCol, agentCol}
+	if modelW > 0 {
+		cols = append(cols, modelCol, thinkingCol)
+	}
+	cols = append(cols, statusCol, prCol, mergedCol, updatedCol, topicCol)
+	return strings.Join(cols, "  ")
 }
 
 func (d *Dashboard) renderStats() string {
@@ -1004,18 +1231,26 @@ func (d *Dashboard) renderFooter() string {
 	return d.keymap.HelpLine()
 }
 
-func (d *Dashboard) tableWidths() (idxW, idW, issueW, issueStatusW, agentW, statusW, prW, mergedW, updatedW, topicW int) {
+func (d *Dashboard) tableWidths() (idxW, idW, issueW, issueStatusW, agentW, modelW, thinkingW, statusW, prW, mergedW, updatedW, topicW int) {
 	idxW = 2
 	idW = 6
 	issueW = 14
 	issueStatusW = 8
 	agentW = 6
+	if d.agentDetail {
+		modelW = 14
+		thinkingW = 7
+	}
 	statusW = 10
 	prW = 6 // Increased to fit PR numbers like "#1234"
 	mergedW = 8
 	updatedW = 7
 	contentWidth := d.safeWidth()
-	fixed := idxW + idW + issueW + issueStatusW + agentW + statusW + prW + mergedW + updatedW + 18
+	gapCount := 9
+	if d.agentDetail {
+		gapCount = 11
+	}
+	fixed := idxW + idW + issueW + issueStatusW + agentW + modelW + thinkingW + statusW + prW + mergedW + updatedW + gapCount*2
 	topicW = contentWidth - fixed
 	if topicW < 12 {
 		topicW = 12

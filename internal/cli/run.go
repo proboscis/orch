@@ -25,6 +25,7 @@ type runOptions struct {
 	AgentCmd       string
 	AgentProfile   string
 	Model          string
+	Thinking       string
 	BaseBranch     string
 	Branch         string
 	WorktreeRoot   string
@@ -58,6 +59,7 @@ The run will be started in a tmux session by default.`,
 	cmd.Flags().StringVar(&opts.AgentCmd, "agent-cmd", "", "Custom agent command (when --agent=custom)")
 	cmd.Flags().StringVar(&opts.AgentProfile, "profile", "", "Agent profile (e.g., claude --profile)")
 	cmd.Flags().StringVar(&opts.Model, "model", "", "Agent model (e.g., gpt-4o, claude-3-5-sonnet-20241022, gemini-1.5-pro)")
+	cmd.Flags().StringVar(&opts.Thinking, "thinking", "", "Model reasoning effort (codex only: minimal|low|medium|high|xhigh)")
 	cmd.Flags().StringVar(&opts.BaseBranch, "base-branch", "main", "Base branch for worktree")
 	cmd.Flags().StringVar(&opts.Branch, "branch", "", "Branch name (default: issue/<ID>/run-<RUN_ID>)")
 	cmd.Flags().StringVar(&opts.WorktreeRoot, "worktree-root", ".git-worktrees", "Root directory for worktrees")
@@ -154,6 +156,9 @@ func runRun(issueID string, opts *runOptions) error {
 	if opts.DryRun {
 		// Build the command that would be run (for display purposes)
 		agentType, _ := agent.ParseAgentType(opts.Agent)
+		if opts.Thinking != "" && agentType != agent.AgentCodex && agentType != agent.AgentCustom {
+			return exitWithCode(fmt.Errorf("thinking is only supported for codex and custom agents"), ExitAgentError)
+		}
 		adapter, _ := agent.GetAdapter(agentType)
 		launchCfg := &agent.LaunchConfig{
 			Type:      agentType,
@@ -166,6 +171,7 @@ func runRun(issueID string, opts *runOptions) error {
 			Prompt:    promptFileInstruction,
 			Profile:   opts.AgentProfile,
 			Model:     opts.Model,
+			Thinking:  opts.Thinking,
 		}
 		agentCmd, _ := adapter.LaunchCommand(launchCfg)
 
@@ -190,6 +196,9 @@ func runRun(issueID string, opts *runOptions) error {
 	}
 	if opts.Model != "" {
 		metadata["model"] = opts.Model
+	}
+	if opts.Thinking != "" {
+		metadata["thinking"] = opts.Thinking
 	}
 	run, err := st.CreateRun(issueID, runID, metadata)
 	if err != nil {
@@ -233,6 +242,9 @@ func runRun(issueID string, opts *runOptions) error {
 	if err != nil {
 		return exitWithCode(err, ExitAgentError)
 	}
+	if opts.Thinking != "" && agentType != agent.AgentCodex && agentType != agent.AgentCustom {
+		return exitWithCode(fmt.Errorf("thinking is only supported for codex and custom agents"), ExitAgentError)
+	}
 
 	adapter, err := agent.GetAdapter(agentType)
 	if err != nil {
@@ -265,6 +277,7 @@ func runRun(issueID string, opts *runOptions) error {
 		Prompt:    promptFileInstruction,
 		Profile:   opts.AgentProfile,
 		Model:     opts.Model,
+		Thinking:  opts.Thinking,
 	}
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)

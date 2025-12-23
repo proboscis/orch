@@ -6,7 +6,13 @@ func KnownModels(agentType AgentType) []string {
 	switch agentType {
 	case AgentCodex:
 		return []string{
+			"gpt-5.2-codex",
+			"gpt-5.2",
+			"gpt-5.1-codex-max",
+			"gpt-5.1-codex",
+			"gpt-5.1",
 			"o3",
+			"o4-mini",
 			"o1",
 			"gpt-4o",
 			"gpt-4o-mini",
@@ -16,6 +22,7 @@ func KnownModels(agentType AgentType) []string {
 			"sonnet",
 			"opus",
 			"haiku",
+			"claude-sonnet-4-5-20250929",
 			"claude-3-5-sonnet-20241022",
 			"claude-3-opus-latest",
 			"claude-3-5-haiku-20241022",

@@ -40,6 +40,7 @@
 | `--agent claude\|codex\|gemini\|custom:` | agent種別 |
 | `--agent-cmd` | custom時の起動コマンド |
 | `--model <MODEL>` | agent model (e.g., gpt-4o, claude-3-5-sonnet-20241022, gemini-1.5-pro) |
+| `--thinking <EFFORT>` | codex reasoning effort (minimal\|low\|medium\|high\|xhigh) |
 | `--base-branch main` | デフォルトmain |
 | `--branch` | 省略時は規約生成 |
 | `--worktree-root` | 例: .git-worktrees |
@@ -75,6 +76,8 @@
 | `--agent claude\|codex\|gemini\|custom` | agent種別（省略時: 元runのagent、無い場合はclaude） |
 | `--agent-cmd` | custom時の起動コマンド |
 | `--profile` | agentのprofile指定 |
+| `--model <MODEL>` | agent model (e.g., gpt-4o, claude-3-5-sonnet-20241022, gemini-1.5-pro) |
+| `--thinking <EFFORT>` | codex reasoning effort (minimal\|low\|medium\|high\|xhigh) |
 | `--tmux / --no-tmux` | デフォルトtmux |
 | `--tmux-session` | 省略時は規約生成 |
 | `--prompt-template` | プロンプトテンプレート |
@@ -109,11 +112,18 @@ runs一覧を表示（人間/機械）
 | `--since <timestamp>` | 指定日時以降 |
 | `--absolute-time` | 相対時間ではなく絶対時刻で表示 |
 | `--all` | resolved を含めて表示 |
+| `--agent-detail` | MODEL/THINK列を追加表示 |
 
 ### TSV列（固定順）
 
 ```
 issue_id, issue_status, run_id, short_id, agent, status, updated_at, pr_url, branch, worktree_path, tmux_session
+```
+
+`--agent-detail` 指定時は `agent` の後に `model, thinking` を追加:
+
+```
+issue_id, issue_status, run_id, short_id, agent, model, thinking, status, updated_at, pr_url, branch, worktree_path, tmux_session
 ```
 
 ---
@@ -161,6 +171,8 @@ blocked等のrunを再開するトリガ（質問が解消されていれば次�
 |-----------|------|
 | `--only-blocked` | default on when --all |
 | `--agent …` | 再開時のagent指定 |
+| `--model <MODEL>` | 再開時のmodel指定 |
+| `--thinking <EFFORT>` | codex reasoning effort (minimal\|low\|medium\|high\|xhigh) |
 | `--max N` | --all時の最大処理件数 |
 
 ### 挙動

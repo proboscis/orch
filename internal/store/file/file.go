@@ -561,6 +561,8 @@ func (s *FileStore) loadRun(issueID, runID, path string) (*model.Run, error) {
 						run.Agent = value
 					case "model":
 						run.Model = value
+					case "thinking":
+						run.Thinking = value
 					case "continued_from":
 						run.ContinuedFrom = value
 					}

@@ -28,6 +28,9 @@ func (a *CodexAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 	if cfg.Model != "" {
 		args = append(args, "--model", cfg.Model)
 	}
+	if cfg.Thinking != "" {
+		args = append(args, "-c", fmt.Sprintf("model_reasoning_effort=%s", cfg.Thinking))
+	}
 
 	// Add the prompt
 	if cfg.Prompt != "" {
