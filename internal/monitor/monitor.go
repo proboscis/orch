@@ -54,19 +54,18 @@ type Options struct {
 
 // Monitor manages tmux windows and dashboard state.
 type Monitor struct {
-	session      string
-	issueFilter  string
-	statusFilter []model.Status
-	runSort      SortKey
-	issueSort    SortKey
-	store        store.Store
-	orchPath     string
-	globalFlags  []string
-	agent        string
-	attach       bool
-	forceNew     bool
-	runs         []*RunWindow
-	dashboard    *Dashboard
+	session     string
+	runFilter   RunFilter
+	runSort     SortKey
+	issueSort   SortKey
+	store       store.Store
+	orchPath    string
+	globalFlags []string
+	agent       string
+	attach      bool
+	forceNew    bool
+	runs        []*RunWindow
+	dashboard   *Dashboard
 }
 
 // RunWindow links a run to a dashboard index.
@@ -92,17 +91,16 @@ func New(st store.Store, opts Options) *Monitor {
 		issueSort = SortByName
 	}
 	return &Monitor{
-		session:      session,
-		issueFilter:  opts.Issue,
-		statusFilter: opts.Statuses,
-		runSort:      runSort,
-		issueSort:    issueSort,
-		store:        st,
-		orchPath:     orchPath,
-		globalFlags:  opts.GlobalFlags,
-		agent:        opts.Agent,
-		attach:       opts.Attach,
-		forceNew:     opts.ForceNew,
+		session:     session,
+		runFilter:   newRunFilter(opts),
+		runSort:     runSort,
+		issueSort:   issueSort,
+		store:       st,
+		orchPath:    orchPath,
+		globalFlags: opts.GlobalFlags,
+		agent:       opts.Agent,
+		attach:      opts.Attach,
+		forceNew:    opts.ForceNew,
 	}
 }
 
@@ -223,7 +221,23 @@ func (m *Monitor) Refresh() ([]RunRow, error) {
 		return nil, err
 	}
 	m.runs = runs
-	return m.buildRunRows(runs)
+	rows, err := m.buildRunRows(runs)
+	if err != nil {
+		return nil, err
+	}
+	filtered := m.runFilter.FilterRows(rows, time.Now())
+	reindexRunRows(filtered)
+	return filtered, nil
+}
+
+// RunFilter returns the active run filter.
+func (m *Monitor) RunFilter() RunFilter {
+	return m.runFilter.Clone()
+}
+
+// SetRunFilter updates the active run filter.
+func (m *Monitor) SetRunFilter(filter RunFilter) {
+	m.runFilter = normalizeRunFilter(filter)
 }
 
 // RefreshIssues reloads issue data for the issues dashboard.
@@ -647,15 +661,19 @@ func (m *Monitor) ensurePaneLayout() error {
 
 func (m *Monitor) loadRuns() ([]*RunWindow, error) {
 	filter := &store.ListRunsFilter{
-		IssueID: m.issueFilter,
-		Limit:   100,
+		Limit: 100,
 	}
 
-	statuses := m.statusFilter
-	if len(statuses) == 0 {
-		statuses = defaultStatuses()
+	if len(m.runFilter.Statuses) == 0 {
+		return []*RunWindow{}, nil
 	}
-	filter.Status = statuses
+	filter.Status = statusSlice(m.runFilter.Statuses)
+	if m.runFilter.UpdatedWithin > 0 {
+		filter.Since = time.Now().Add(-m.runFilter.UpdatedWithin).Format(time.RFC3339)
+	}
+	if !m.runFilter.IsDefault() {
+		filter.Limit = 0
+	}
 
 	runs, err := m.store.ListRuns(filter)
 	if err != nil {
@@ -852,10 +870,10 @@ func (m *Monitor) buildIssueRows(issues []*model.Issue, runs []*model.Run) []Iss
 func (m *Monitor) runsDashboardCommand() string {
 	args := append([]string{m.orchPath}, m.globalFlags...)
 	args = append(args, "monitor", "--dashboard")
-	if m.issueFilter != "" {
-		args = append(args, "--issue", m.issueFilter)
+	if m.runFilter.IssueQuery != "" {
+		args = append(args, "--issue", m.runFilter.IssueQuery)
 	}
-	for _, status := range m.statusFilter {
+	for _, status := range statusSlice(m.runFilter.Statuses) {
 		args = append(args, "--status", string(status))
 	}
 	if m.runSort != "" {
