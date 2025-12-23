@@ -466,7 +466,9 @@ func exitWithCode(err error, code int) error {
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		enc.Encode(result)
+		_ = enc.Encode(result)
+	} else {
+		fmt.Fprintln(os.Stderr, err)
 	}
 	os.Exit(code)
 	return err
