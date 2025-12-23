@@ -240,6 +240,7 @@ func runRun(issueID string, opts *runOptions) error {
 	promptOpts := &promptOptions{
 		NoPR:           opts.NoPR,
 		PromptTemplate: opts.PromptTemplate,
+		BaseBranch:     opts.BaseBranch,
 	}
 	agentPrompt := buildAgentPrompt(issue, promptOpts)
 	promptPath := filepath.Join(worktreeResult.WorktreePath, promptFileName)
@@ -349,6 +350,7 @@ func runRun(issueID string, opts *runOptions) error {
 type promptOptions struct {
 	NoPR           bool   // Skip PR instructions
 	PromptTemplate string // Custom prompt template file path
+	BaseBranch     string // Target branch for PR creation
 }
 
 const (
@@ -365,7 +367,7 @@ Instructions:
 - Implement the changes described in the issue above
 - Run tests to verify your changes work correctly
 {{- if not .NoPR}}
-- When complete, create a pull request:
+- When complete, create a pull request targeting ` + "`" + `{{.BaseBranch}}` + "`" + `:
   - Title should summarize the change
   - Body should reference issue: {{.IssueID}}
   - Include a summary of changes made
@@ -393,10 +395,11 @@ func buildAgentPrompt(issue *model.Issue, opts *promptOptions) string {
 func executeTemplate(tmplStr string, issue *model.Issue, opts *promptOptions) string {
 	// Simple template execution - replace placeholders
 	data := map[string]interface{}{
-		"IssueID": issue.ID,
-		"Title":   issue.Title,
-		"Body":    issue.Body,
-		"NoPR":    opts.NoPR,
+		"IssueID":    issue.ID,
+		"Title":      issue.Title,
+		"Body":       issue.Body,
+		"NoPR":       opts.NoPR,
+		"BaseBranch": opts.BaseBranch,
 	}
 
 	// Use text/template for proper template execution
@@ -427,8 +430,8 @@ func buildSimplePrompt(issue *model.Issue, opts *promptOptions) string {
 		prompt += "\nInstructions:\n"
 		prompt += "- Implement the changes described in the issue above\n"
 		prompt += "- Run tests to verify your changes work correctly\n"
-		prompt += "- When complete, create a pull request:\n"
-		prompt += fmt.Sprintf("  - Title should summarize the change\n")
+		prompt += fmt.Sprintf("- When complete, create a pull request targeting `%s`:\n", opts.BaseBranch)
+		prompt += "  - Title should summarize the change\n"
 		prompt += fmt.Sprintf("  - Body should reference issue: %s\n", issue.ID)
 		prompt += "  - Include a summary of changes made\n"
 	}
