@@ -14,6 +14,8 @@ type RunRow struct {
 	IssueStatus string
 	Agent       string
 	Status      model.Status
+	Branch      string
+	Worktree    string
 	PR          string // PR display string (e.g., "#123" or "-")
 	PRState     string // PR state: open, merged, closed, or empty
 	Merged      string

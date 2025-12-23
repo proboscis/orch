@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -272,7 +273,7 @@ func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime boo
 	gitStates := gitStatesForRuns(runs, baseBranch)
 
 	// Collect data rows
-	headers := []string{"ID", "ISSUE", "ISSUE-ST", "AGENT", "STATUS", "PR", "MERGED", "UPDATED", "TOPIC"}
+	headers := []string{"ID", "ISSUE", "ISSUE-ST", "AGENT", "STATUS", "BRANCH", "WORKTREE", "PR", "MERGED", "UPDATED", "TOPIC"}
 	var rows [][]string
 
 	for _, r := range runs {
@@ -311,12 +312,17 @@ func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime boo
 			agent = "-"
 		}
 
+		branch := formatBranchDisplay(r.Branch, branchMaxLen)
+		worktree := formatWorktreeDisplay(r.WorktreePath, worktreeMaxLen)
+
 		rows = append(rows, []string{
 			displayID,
 			r.IssueID,
 			issueStatus,
 			agent,
 			colorStatus(r.Status),
+			branch,
+			worktree,
 			pr,
 			merged,
 			updated,
@@ -372,9 +378,11 @@ func visibleLen(s string) int {
 }
 
 const (
-	summaryMaxLen = 40
-	topicMaxLen   = 30
-	topicMaxWords = 5
+	summaryMaxLen  = 40
+	topicMaxLen    = 30
+	topicMaxWords  = 5
+	branchMaxLen   = 24
+	worktreeMaxLen = 40
 )
 
 func formatIssueTopic(issue *model.Issue) string {
@@ -420,6 +428,69 @@ func truncateWithEllipsis(text string, max int) string {
 		return text[:max]
 	}
 	return text[:max-3] + "..."
+}
+
+func formatBranchDisplay(branch string, max int) string {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return "-"
+	}
+	if max <= 0 {
+		return branch
+	}
+	return truncateWithEllipsis(branch, max)
+}
+
+func formatWorktreeDisplay(path string, max int) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "-"
+	}
+	if max <= 0 {
+		return path
+	}
+	path = abbreviateHome(path)
+	short := shortenPath(path)
+	return truncateLeading(short, max)
+}
+
+func abbreviateHome(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	if path == home {
+		return "~"
+	}
+	homePrefix := home + string(os.PathSeparator)
+	if strings.HasPrefix(path, homePrefix) {
+		return "~" + path[len(home):]
+	}
+	return path
+}
+
+func shortenPath(path string) string {
+	cleaned := filepath.Clean(path)
+	sep := string(os.PathSeparator)
+	parts := strings.Split(cleaned, sep)
+	if len(parts) < 2 {
+		return cleaned
+	}
+	suffix := filepath.Join(parts[len(parts)-2], parts[len(parts)-1])
+	if suffix == cleaned {
+		return cleaned
+	}
+	return "..." + sep + suffix
+}
+
+func truncateLeading(text string, max int) string {
+	if len(text) <= max {
+		return text
+	}
+	if max <= 3 {
+		return text[:max]
+	}
+	return "..." + text[len(text)-(max-3):]
 }
 
 func formatRelativeTime(when time.Time, now time.Time) string {
