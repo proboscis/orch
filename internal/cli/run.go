@@ -353,7 +353,7 @@ type promptOptions struct {
 
 const (
 	promptFileName        = "ORCH_PROMPT.md"
-	promptFileInstruction = "Please read '" + promptFileName + "' in the current directory and follow the instructions found there."
+	promptFileInstruction = "ultrathink Please read '" + promptFileName + "' in the current directory and follow the instructions found there."
 )
 
 // defaultPromptTemplate is the built-in template for agent prompts
