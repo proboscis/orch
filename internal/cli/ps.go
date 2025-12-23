@@ -13,6 +13,7 @@ import (
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/store"
+	"github.com/s22625/orch/internal/tmux"
 	"github.com/spf13/cobra"
 )
 
@@ -30,6 +31,11 @@ type psOptions struct {
 type psIssueInfo struct {
 	status  string
 	display string
+}
+
+type agentAliveInfo struct {
+	alive bool
+	known bool
 }
 
 func newPsCmd() *cobra.Command {
@@ -117,16 +123,17 @@ func runPs(opts *psOptions) error {
 	}
 
 	populatePRUrls(runs)
+	aliveByRun := resolveAgentAliveInfo(runs)
 
 	// Output based on format
 	now := time.Now()
 	if globalOpts.JSON {
-		return outputJSONWithIssueInfo(runs, now, issueCache)
+		return outputJSONWithIssueInfo(runs, now, issueCache, aliveByRun)
 	}
 	if globalOpts.TSV {
-		return outputTSVWithIssueInfo(runs, issueCache)
+		return outputTSVWithIssueInfo(runs, issueCache, aliveByRun)
 	}
-	return outputTableWithIssueInfo(runs, now, opts.AbsoluteTime, issueCache)
+	return outputTableWithIssueInfo(runs, now, opts.AbsoluteTime, issueCache, aliveByRun)
 }
 
 func resolveIssueInfo(st store.Store, cache map[string]psIssueInfo, issueID string) psIssueInfo {
@@ -156,10 +163,10 @@ func resolveIssueInfo(st store.Store, cache map[string]psIssueInfo, issueID stri
 }
 
 func outputJSON(runs []*model.Run, now time.Time) error {
-	return outputJSONWithIssueInfo(runs, now, nil)
+	return outputJSONWithIssueInfo(runs, now, nil, nil)
 }
 
-func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[string]psIssueInfo) error {
+func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[string]psIssueInfo, aliveByRun map[string]agentAliveInfo) error {
 	type runOutput struct {
 		IssueID      string `json:"issue_id"`
 		IssueStatus  string `json:"issue_status"`
@@ -167,6 +174,7 @@ func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[st
 		ShortID      string `json:"short_id"`
 		Agent        string `json:"agent,omitempty"`
 		Status       string `json:"status"`
+		AgentAlive   string `json:"agent_alive"`
 		UpdatedAt    string `json:"updated_at"`
 		UpdatedAgo   string `json:"updated_ago"`
 		StartedAt    string `json:"started_at"`
@@ -189,6 +197,10 @@ func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[st
 		if issueCache != nil {
 			issueStatus = issueCache[r.IssueID].status
 		}
+		aliveInfo := agentAliveInfo{}
+		if aliveByRun != nil {
+			aliveInfo = aliveByRun[r.RunID]
+		}
 
 		output.Items[i] = runOutput{
 			IssueID:      r.IssueID,
@@ -197,6 +209,7 @@ func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[st
 			ShortID:      r.ShortID(),
 			Agent:        r.Agent,
 			Status:       string(r.Status),
+			AgentAlive:   formatAliveText(aliveInfo),
 			UpdatedAt:    r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			UpdatedAgo:   formatRelativeTime(r.UpdatedAt, now),
 			StartedAt:    r.StartedAt.Format("2006-01-02T15:04:05Z07:00"),
@@ -213,25 +226,30 @@ func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[st
 }
 
 // TSV columns (fixed order per spec):
-// issue_id, issue_status, run_id, short_id, agent, status, updated_at, pr_url, branch, worktree_path, tmux_session
+// issue_id, issue_status, run_id, short_id, agent, status, alive, updated_at, pr_url, branch, worktree_path, tmux_session
 func outputTSV(runs []*model.Run) error {
-	return outputTSVWithIssueInfo(runs, nil)
+	return outputTSVWithIssueInfo(runs, nil, nil)
 }
 
-func outputTSVWithIssueInfo(runs []*model.Run, issueCache map[string]psIssueInfo) error {
+func outputTSVWithIssueInfo(runs []*model.Run, issueCache map[string]psIssueInfo, aliveByRun map[string]agentAliveInfo) error {
 	for _, r := range runs {
 		issueStatus := ""
 		if issueCache != nil {
 			issueStatus = issueCache[r.IssueID].status
 		}
+		aliveInfo := agentAliveInfo{}
+		if aliveByRun != nil {
+			aliveInfo = aliveByRun[r.RunID]
+		}
 
-		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			r.IssueID,
 			issueStatus,
 			r.RunID,
 			r.ShortID(),
 			r.Agent,
 			r.Status,
+			formatAliveText(aliveInfo),
 			r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			r.PRUrl,
 			r.Branch,
@@ -243,10 +261,10 @@ func outputTSVWithIssueInfo(runs []*model.Run, issueCache map[string]psIssueInfo
 }
 
 func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
-	return outputTableWithIssueInfo(runs, now, absoluteTime, nil)
+	return outputTableWithIssueInfo(runs, now, absoluteTime, nil, nil)
 }
 
-func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime bool, issueCache map[string]psIssueInfo) error {
+func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime bool, issueCache map[string]psIssueInfo, aliveByRun map[string]agentAliveInfo) error {
 	if len(runs) == 0 {
 		if !globalOpts.Quiet {
 			fmt.Println("No runs found")
@@ -273,7 +291,7 @@ func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime boo
 	gitStates := gitStatesForRuns(runs, baseBranch)
 
 	// Collect data rows
-	headers := []string{"ID", "ISSUE", "ISSUE-ST", "AGENT", "STATUS", "BRANCH", "WORKTREE", "PR", "MERGED", "UPDATED", "TOPIC"}
+	headers := []string{"ID", "ISSUE", "ISSUE-ST", "AGENT", "STATUS", "ALIVE", "BRANCH", "WORKTREE", "PR", "MERGED", "UPDATED", "TOPIC"}
 	var rows [][]string
 
 	for _, r := range runs {
@@ -314,6 +332,10 @@ func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime boo
 
 		branch := formatBranchDisplay(r.Branch, branchMaxLen)
 		worktree := formatWorktreeDisplay(r.WorktreePath, worktreeMaxLen)
+		aliveInfo := agentAliveInfo{}
+		if aliveByRun != nil {
+			aliveInfo = aliveByRun[r.RunID]
+		}
 
 		rows = append(rows, []string{
 			displayID,
@@ -321,6 +343,7 @@ func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime boo
 			issueStatus,
 			agent,
 			colorStatus(r.Status),
+			colorAlive(aliveInfo),
 			branch,
 			worktree,
 			pr,
@@ -535,6 +558,56 @@ func colorStatus(status model.Status) string {
 		return color + string(status) + reset
 	}
 	return string(status)
+}
+
+func resolveAgentAliveInfo(runs []*model.Run) map[string]agentAliveInfo {
+	if len(runs) == 0 {
+		return nil
+	}
+	if !tmux.IsTmuxAvailable() {
+		return nil
+	}
+
+	paneCommands, err := tmux.ListPaneCommands()
+	if err != nil {
+		return nil
+	}
+
+	aliveByRun := make(map[string]agentAliveInfo, len(runs))
+	for _, r := range runs {
+		if r == nil {
+			continue
+		}
+		session := r.TmuxSession
+		if session == "" {
+			session = model.GenerateTmuxSession(r.IssueID, r.RunID)
+		}
+		alive, known := tmux.AgentAlive(session, paneCommands)
+		aliveByRun[r.RunID] = agentAliveInfo{alive: alive, known: known}
+	}
+
+	return aliveByRun
+}
+
+func formatAliveText(info agentAliveInfo) string {
+	if !info.known {
+		return "-"
+	}
+	if info.alive {
+		return "yes"
+	}
+	return "no"
+}
+
+func colorAlive(info agentAliveInfo) string {
+	text := formatAliveText(info)
+	if !info.known {
+		return "\033[90m" + text + "\033[0m"
+	}
+	if info.alive {
+		return "\033[32m" + text + "\033[0m"
+	}
+	return "\033[31m" + text + "\033[0m"
 }
 
 func gitStatesForRuns(runs []*model.Run, target string) map[string]string {

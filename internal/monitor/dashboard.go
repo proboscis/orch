@@ -644,11 +644,10 @@ func (d *Dashboard) renderTable(maxRows int) string {
 		}
 		return "No runs found."
 	}
+	idxW, idW, issueW, issueStatusW, agentW, statusW, aliveW, branchW, worktreeW, prW, mergedW, updatedW, topicW := d.tableWidths()
 
-	idxW, idW, issueW, issueStatusW, agentW, statusW, branchW, worktreeW, prW, mergedW, updatedW, topicW := d.tableWidths()
-
-	header := d.renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, branchW, worktreeW, prW, mergedW, updatedW, topicW,
-		"#", "ID", "ISSUE", "ISSUE-ST", "AGENT", "STATUS", "BRANCH", "WORKTREE", "PR", "MERGED", "UPDATED", "TOPIC", true, nil)
+	header := d.renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, aliveW, branchW, worktreeW, prW, mergedW, updatedW, topicW,
+		"#", "ID", "ISSUE", "ISSUE-ST", "AGENT", "STATUS", "ALIVE", "BRANCH", "WORKTREE", "PR", "MERGED", "UPDATED", "TOPIC", true, nil)
 
 	var rows []string
 	visibleRows := d.runVisibleRows(maxRows)
@@ -663,13 +662,14 @@ func (d *Dashboard) renderTable(maxRows int) string {
 		end = start
 	}
 	for i, row := range d.runs[start:end] {
-		r := d.renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, branchW, worktreeW, prW, mergedW, updatedW, topicW,
+		r := d.renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, aliveW, branchW, worktreeW, prW, mergedW, updatedW, topicW,
 			fmt.Sprintf("%d", row.Index),
 			row.ShortID,
 			row.IssueID,
 			row.IssueStatus,
 			row.Agent,
 			string(row.Status),
+			row.Alive,
 			row.Branch,
 			row.Worktree,
 			row.PR,
@@ -688,7 +688,7 @@ func (d *Dashboard) renderTable(maxRows int) string {
 	return strings.Join(append([]string{header}, rows...), "\n")
 }
 
-func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, branchW, worktreeW, prW, mergedW, updatedW, topicW int, idx, id, issue, issueStatus, agent, status, branch, worktree, pr, merged, updated, topic string, header bool, row *RunRow) string {
+func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, aliveW, branchW, worktreeW, prW, mergedW, updatedW, topicW int, idx, id, issue, issueStatus, agent, status, alive, branch, worktree, pr, merged, updated, topic string, header bool, row *RunRow) string {
 	baseStyle := d.styles.Text
 	headerStyle := d.styles.Header
 
@@ -697,11 +697,12 @@ func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, 
 	issueCol := d.pad(issue, issueW, baseStyle)
 	issueStatusCol := d.pad(issueStatus, issueStatusW, baseStyle)
 	agentCol := d.pad(agent, agentW, baseStyle)
-	branchCol := d.pad(branch, branchW, baseStyle)
-	worktreeCol := d.pad(worktree, worktreeW, baseStyle)
 	updatedCol := d.pad(updated, updatedW, baseStyle)
 	topicCol := d.pad(topic, topicW, baseStyle)
 	statusCol := d.pad(status, statusW, baseStyle)
+	aliveCol := d.pad(alive, aliveW, baseStyle)
+	branchCol := d.pad(branch, branchW, baseStyle)
+	worktreeCol := d.pad(worktree, worktreeW, baseStyle)
 	prCol := d.pad(pr, prW, baseStyle)
 	mergedCol := d.pad(merged, mergedW, baseStyle)
 
@@ -711,11 +712,12 @@ func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, 
 		issueCol = d.pad(issue, issueW, headerStyle)
 		issueStatusCol = d.pad(issueStatus, issueStatusW, headerStyle)
 		agentCol = d.pad(agent, agentW, headerStyle)
-		branchCol = d.pad(branch, branchW, headerStyle)
-		worktreeCol = d.pad(worktree, worktreeW, headerStyle)
 		updatedCol = d.pad(updated, updatedW, headerStyle)
 		topicCol = d.pad(topic, topicW, headerStyle)
 		statusCol = d.pad(status, statusW, headerStyle)
+		aliveCol = d.pad(alive, aliveW, headerStyle)
+		branchCol = d.pad(branch, branchW, headerStyle)
+		worktreeCol = d.pad(worktree, worktreeW, headerStyle)
 		prCol = d.pad(pr, prW, headerStyle)
 		mergedCol = d.pad(merged, mergedW, headerStyle)
 	}
@@ -723,6 +725,9 @@ func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, 
 	if row != nil {
 		if style, ok := d.styles.Status[row.Status]; ok {
 			statusCol = d.pad(status, statusW, style)
+		}
+		if style, ok := d.styles.Alive[row.Alive]; ok {
+			aliveCol = d.pad(alive, aliveW, style)
 		}
 		// Apply PR state styling
 		if row.PRState != "" {
@@ -732,7 +737,7 @@ func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, 
 		}
 	}
 
-	return strings.Join([]string{idxCol, idCol, issueCol, issueStatusCol, agentCol, statusCol, branchCol, worktreeCol, prCol, mergedCol, updatedCol, topicCol}, "  ")
+	return strings.Join([]string{idxCol, idCol, issueCol, issueStatusCol, agentCol, statusCol, aliveCol, branchCol, worktreeCol, prCol, mergedCol, updatedCol, topicCol}, "  ")
 }
 
 func (d *Dashboard) renderStats() string {
@@ -881,21 +886,22 @@ func (d *Dashboard) renderFooter() string {
 	return d.keymap.HelpLine()
 }
 
-func (d *Dashboard) tableWidths() (idxW, idW, issueW, issueStatusW, agentW, statusW, branchW, worktreeW, prW, mergedW, updatedW, topicW int) {
+func (d *Dashboard) tableWidths() (idxW, idW, issueW, issueStatusW, agentW, statusW, aliveW, branchW, worktreeW, prW, mergedW, updatedW, topicW int) {
 	idxW = 2
 	idW = 6
 	issueW = 14
 	issueStatusW = 8
 	agentW = 6
 	statusW = 10
+	aliveW = 5
 	branchW = runTableBranchWidth
 	worktreeW = runTableWorktreeWidth
 	prW = 6 // Increased to fit PR numbers like "#1234"
 	mergedW = 8
 	updatedW = 7
 	contentWidth := d.safeWidth()
-	columnCount := 12
-	fixed := idxW + idW + issueW + issueStatusW + agentW + statusW + branchW + worktreeW + prW + mergedW + updatedW + (columnCount-1)*2
+	columnCount := 13
+	fixed := idxW + idW + issueW + issueStatusW + agentW + statusW + aliveW + branchW + worktreeW + prW + mergedW + updatedW + (columnCount-1)*2
 	topicW = contentWidth - fixed
 	if topicW < 6 {
 		topicW = 6

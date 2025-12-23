@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"reflect"
 	"strconv"
 	"testing"
 )
@@ -329,6 +330,62 @@ func TestListPanes(t *testing.T) {
 	call := exec.recorded[0]
 	if !equalArgs(call.args, []string{"list-panes", "-t", "sess:0", "-F", "#{pane_id}:#{pane_index}:#{pane_title}:#{pane_current_command}"}) {
 		t.Fatalf("list-panes args = %v", call.args)
+	}
+}
+
+func TestListPaneCommands(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{output: "run-1\tclaude\nrun-1\tzsh\nrun-2\tbash\n"}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	commands, err := ListPaneCommands()
+	if err != nil {
+		t.Fatalf("ListPaneCommands error: %v", err)
+	}
+	want := map[string][]string{
+		"run-1": {"claude", "zsh"},
+		"run-2": {"bash"},
+	}
+	if !reflect.DeepEqual(commands, want) {
+		t.Fatalf("commands = %#v, want %#v", commands, want)
+	}
+
+	call := exec.recorded[0]
+	if !equalArgs(call.args, []string{"list-panes", "-a", "-F", "#{session_name}\t#{pane_current_command}"}) {
+		t.Fatalf("list-panes args = %v", call.args)
+	}
+}
+
+func TestAgentAlive(t *testing.T) {
+	paneCommands := map[string][]string{
+		"run-1": {"claude"},
+		"run-2": {"zsh"},
+		"run-3": {"bash", "gemini"},
+	}
+
+	tests := []struct {
+		name      string
+		session   string
+		commands  map[string][]string
+		wantAlive bool
+		wantKnown bool
+	}{
+		{name: "alive", session: "run-1", commands: paneCommands, wantAlive: true, wantKnown: true},
+		{name: "shell-only", session: "run-2", commands: paneCommands, wantAlive: false, wantKnown: true},
+		{name: "mixed", session: "run-3", commands: paneCommands, wantAlive: true, wantKnown: true},
+		{name: "missing-session", session: "missing", commands: paneCommands, wantAlive: false, wantKnown: true},
+		{name: "empty-session", session: "", commands: paneCommands, wantAlive: false, wantKnown: false},
+		{name: "unknown-commands", session: "run-1", commands: nil, wantAlive: false, wantKnown: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotAlive, gotKnown := AgentAlive(tt.session, tt.commands)
+			if gotAlive != tt.wantAlive || gotKnown != tt.wantKnown {
+				t.Fatalf("AgentAlive = (%v,%v), want (%v,%v)", gotAlive, gotKnown, tt.wantAlive, tt.wantKnown)
+			}
+		})
 	}
 }
 
