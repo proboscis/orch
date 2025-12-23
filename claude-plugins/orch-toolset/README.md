@@ -14,32 +14,43 @@ This plugin provides Claude Code with comprehensive knowledge about using the **
 
 ## Installation
 
-### Option 1: Local Development
+### Option 1: Add as Local Marketplace (Recommended)
 
-Load the plugin directly while testing:
+Add the plugin as a local marketplace in your Claude Code settings (`~/.claude/settings.json`):
+
+```json
+{
+  "enabledPlugins": {
+    "orch-toolset@orch-toolset-marketplace": true
+  },
+  "extraKnownMarketplaces": {
+    "orch-toolset-marketplace": {
+      "source": {
+        "source": "directory",
+        "path": "/absolute/path/to/orch/claude-plugins/orch-toolset"
+      }
+    }
+  }
+}
+```
+
+Replace `/absolute/path/to/orch` with your actual orch repository path.
+
+### Option 2: Load Per-Session
+
+Load the plugin for a single session:
 
 ```bash
 claude --plugin-dir /path/to/orch/claude-plugins/orch-toolset
 ```
 
-### Option 2: From GitHub Repository
+### Option 3: GitHub Marketplace (Future)
 
-If you have the orch repository cloned:
-
-```bash
-claude --plugin-dir ./claude-plugins/orch-toolset
-```
-
-### Option 3: Marketplace Install
-
-After publishing to a Claude Code marketplace:
+After publishing to a public GitHub marketplace:
 
 ```bash
-claude plugin install orch-toolset@<marketplace>
+claude plugin install proboscis/orch-toolset
 ```
-
-For marketplace setup and publishing guidelines, see:
-https://code.claude.com/docs/en/plugin-marketplaces
 
 ## Usage
 
@@ -51,27 +62,38 @@ Skills are model-invoked - Claude will automatically use this skill when you ask
 - "How do I run tests in an agent's worktree?"
 - "What commands can I use to check on blocked runs?"
 
+### Slash Commands
+
+- `/install` - Install this plugin to your Claude Code settings (when loaded temporarily)
+
 ## Plugin Contents
 
 ```
 orch-toolset/
 ├── .claude-plugin/
-│   └── plugin.json           # Plugin metadata
+│   ├── plugin.json           # Plugin metadata
+│   └── marketplace.json      # Local marketplace definition
 ├── skills/
-│   └── orch-toolset/
-│       ├── SKILL.md          # Core orchestration guidance
-│       └── reference.md      # Detailed command reference
+│   ├── orch-toolset/
+│   │   ├── SKILL.md          # Core orchestration guidance
+│   │   └── reference.md      # Detailed command reference
+│   └── install-orch-plugin/
+│       └── SKILL.md          # Installation helper skill
+├── commands/
+│   └── install.md            # /install command
 └── README.md                 # This file
 ```
 
-### SKILL.md
+### Skills
 
-Main skill file covering:
+**orch-toolset**: Main skill covering:
 - Core workflow and design philosophy
 - Command categories (issues, runs, monitoring, communication)
 - Run lifecycle states
 - Best practices for multi-run orchestration
 - Control agent workflow
+
+**install-orch-plugin**: Helper skill for installing the plugin to user settings.
 
 ### reference.md
 
