@@ -26,6 +26,19 @@ func TestBuildAgentPromptDefault(t *testing.T) {
 	}
 }
 
+func TestBuildAgentPromptWithBaseBranch(t *testing.T) {
+	issue := &model.Issue{
+		ID:    "orch-1",
+		Title: "Title",
+		Body:  "Body text",
+	}
+
+	prompt := buildAgentPrompt(issue, &promptOptions{BaseBranch: "develop"})
+	if !strings.Contains(prompt, "create a pull request targeting `develop`") {
+		t.Fatalf("prompt missing base branch in PR instructions: %q", prompt)
+	}
+}
+
 func TestBuildAgentPromptNoPR(t *testing.T) {
 	issue := &model.Issue{ID: "orch-2", Body: "Body"}
 	prompt := buildAgentPrompt(issue, &promptOptions{NoPR: true})
