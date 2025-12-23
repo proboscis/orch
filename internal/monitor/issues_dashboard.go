@@ -124,12 +124,18 @@ type issueTickMsg time.Time
 
 // NewIssueDashboard creates an issue dashboard model.
 func NewIssueDashboard(m *Monitor) *IssueDashboard {
+	// Initialize filter state from monitor's persisted settings
+	filter := filterState{
+		showResolved: m.ShowResolved(),
+		showClosed:   m.ShowClosed(),
+		cursor:       0,
+	}
 	return &IssueDashboard{
 		monitor:         m,
 		keymap:          DefaultIssueKeyMap(),
 		styles:          DefaultStyles(),
 		mode:            modeIssues,
-		filter:          defaultFilterState(),
+		filter:          filter,
 		refreshInterval: defaultRefreshInterval,
 	}
 }
@@ -487,12 +493,14 @@ func (d *IssueDashboard) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return d, nil
 	case "enter", " ":
-		// Toggle the selected filter option
+		// Toggle the selected filter option and persist the setting
 		switch d.filter.cursor {
 		case 0:
 			d.filter.showResolved = !d.filter.showResolved
+			d.monitor.SetShowResolved(d.filter.showResolved)
 		case 1:
 			d.filter.showClosed = !d.filter.showClosed
+			d.monitor.SetShowClosed(d.filter.showClosed)
 		}
 		d.applyFilter()
 		return d, nil
