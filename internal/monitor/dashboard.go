@@ -544,6 +544,7 @@ func (d *Dashboard) viewDashboard() string {
 	meta := d.renderMeta()
 	table := d.renderTable(d.tableMaxRows())
 	stats := d.renderStats()
+	details := d.renderDetails(d.detailsPaneHeight())
 	capture := d.renderCapture(d.capturePaneHeight())
 	footer := d.renderFooter()
 	message := ""
@@ -562,6 +563,9 @@ func (d *Dashboard) viewDashboard() string {
 	}
 	if message != "" {
 		lines = append(lines, "", message)
+	}
+	if details != "" {
+		lines = append(lines, "", details)
 	}
 	if capture != "" {
 		lines = append(lines, "", capture)
@@ -624,10 +628,10 @@ func (d *Dashboard) renderTable(maxRows int) string {
 		return "No runs found."
 	}
 
-	idxW, idW, issueW, issueStatusW, agentW, statusW, prW, mergedW, updatedW, topicW := d.tableWidths()
+	idxW, idW, issueW, issueStatusW, agentW, statusW, branchW, worktreeW, prW, mergedW, updatedW, topicW := d.tableWidths()
 
-	header := d.renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, prW, mergedW, updatedW, topicW,
-		"#", "ID", "ISSUE", "ISSUE-ST", "AGENT", "STATUS", "PR", "MERGED", "UPDATED", "TOPIC", true, nil)
+	header := d.renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, branchW, worktreeW, prW, mergedW, updatedW, topicW,
+		"#", "ID", "ISSUE", "ISSUE-ST", "AGENT", "STATUS", "BRANCH", "WORKTREE", "PR", "MERGED", "UPDATED", "TOPIC", true, nil)
 
 	var rows []string
 	visibleRows := d.runVisibleRows(maxRows)
@@ -642,13 +646,15 @@ func (d *Dashboard) renderTable(maxRows int) string {
 		end = start
 	}
 	for i, row := range d.runs[start:end] {
-		r := d.renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, prW, mergedW, updatedW, topicW,
+		r := d.renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, branchW, worktreeW, prW, mergedW, updatedW, topicW,
 			fmt.Sprintf("%d", row.Index),
 			row.ShortID,
 			row.IssueID,
 			row.IssueStatus,
 			row.Agent,
 			string(row.Status),
+			row.Branch,
+			row.Worktree,
 			row.PR,
 			row.Merged,
 			formatRelativeTime(row.Updated, time.Now()),
@@ -665,7 +671,7 @@ func (d *Dashboard) renderTable(maxRows int) string {
 	return strings.Join(append([]string{header}, rows...), "\n")
 }
 
-func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, prW, mergedW, updatedW, topicW int, idx, id, issue, issueStatus, agent, status, pr, merged, updated, topic string, header bool, row *RunRow) string {
+func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, branchW, worktreeW, prW, mergedW, updatedW, topicW int, idx, id, issue, issueStatus, agent, status, branch, worktree, pr, merged, updated, topic string, header bool, row *RunRow) string {
 	baseStyle := d.styles.Text
 	headerStyle := d.styles.Header
 
@@ -674,6 +680,8 @@ func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, 
 	issueCol := d.pad(issue, issueW, baseStyle)
 	issueStatusCol := d.pad(issueStatus, issueStatusW, baseStyle)
 	agentCol := d.pad(agent, agentW, baseStyle)
+	branchCol := d.pad(branch, branchW, baseStyle)
+	worktreeCol := d.pad(worktree, worktreeW, baseStyle)
 	updatedCol := d.pad(updated, updatedW, baseStyle)
 	topicCol := d.pad(topic, topicW, baseStyle)
 	statusCol := d.pad(status, statusW, baseStyle)
@@ -686,6 +694,8 @@ func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, 
 		issueCol = d.pad(issue, issueW, headerStyle)
 		issueStatusCol = d.pad(issueStatus, issueStatusW, headerStyle)
 		agentCol = d.pad(agent, agentW, headerStyle)
+		branchCol = d.pad(branch, branchW, headerStyle)
+		worktreeCol = d.pad(worktree, worktreeW, headerStyle)
 		updatedCol = d.pad(updated, updatedW, headerStyle)
 		topicCol = d.pad(topic, topicW, headerStyle)
 		statusCol = d.pad(status, statusW, headerStyle)
@@ -705,7 +715,7 @@ func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, 
 		}
 	}
 
-	return strings.Join([]string{idxCol, idCol, issueCol, issueStatusCol, agentCol, statusCol, prCol, mergedCol, updatedCol, topicCol}, "  ")
+	return strings.Join([]string{idxCol, idCol, issueCol, issueStatusCol, agentCol, statusCol, branchCol, worktreeCol, prCol, mergedCol, updatedCol, topicCol}, "  ")
 }
 
 func (d *Dashboard) renderStats() string {
@@ -727,6 +737,41 @@ func (d *Dashboard) renderStats() string {
 	}
 
 	return strings.Join(stats, "  ")
+}
+
+func (d *Dashboard) renderDetails(maxLines int) string {
+	if maxLines <= 0 {
+		return ""
+	}
+	run := d.selectedRun()
+	if run == nil {
+		return "No run selected."
+	}
+
+	branch := strings.TrimSpace(run.Branch)
+	if branch == "" {
+		branch = "-"
+	}
+	worktree := strings.TrimSpace(run.WorktreePath)
+	if worktree == "" {
+		worktree = "-"
+	}
+
+	contentWidth := d.safeWidth()
+	lines := []string{
+		d.styles.Header.Render("DETAILS"),
+	}
+	lines = append(lines, wrapLabelValue("Run: ", run.Ref().String(), contentWidth)...)
+	lines = append(lines, wrapLabelValue("Branch: ", branch, contentWidth)...)
+	lines = append(lines, wrapLabelValue("Worktree: ", worktree, contentWidth)...)
+
+	if maxLines > 0 && len(lines) > maxLines {
+		lines = lines[:maxLines]
+		if maxLines > 1 {
+			lines[maxLines-1] = "..."
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (d *Dashboard) renderCapture(height int) string {
@@ -834,21 +879,24 @@ func (d *Dashboard) renderFooter() string {
 	return d.keymap.HelpLine()
 }
 
-func (d *Dashboard) tableWidths() (idxW, idW, issueW, issueStatusW, agentW, statusW, prW, mergedW, updatedW, topicW int) {
+func (d *Dashboard) tableWidths() (idxW, idW, issueW, issueStatusW, agentW, statusW, branchW, worktreeW, prW, mergedW, updatedW, topicW int) {
 	idxW = 2
 	idW = 6
 	issueW = 14
 	issueStatusW = 8
 	agentW = 6
 	statusW = 10
+	branchW = runTableBranchWidth
+	worktreeW = runTableWorktreeWidth
 	prW = 6 // Increased to fit PR numbers like "#1234"
 	mergedW = 8
 	updatedW = 7
 	contentWidth := d.safeWidth()
-	fixed := idxW + idW + issueW + issueStatusW + agentW + statusW + prW + mergedW + updatedW + 18
+	columnCount := 12
+	fixed := idxW + idW + issueW + issueStatusW + agentW + statusW + branchW + worktreeW + prW + mergedW + updatedW + (columnCount-1)*2
 	topicW = contentWidth - fixed
-	if topicW < 12 {
-		topicW = 12
+	if topicW < 6 {
+		topicW = 6
 	}
 	return
 }
@@ -877,8 +925,15 @@ func (d *Dashboard) baseHeight() int {
 	return base
 }
 
+func (d *Dashboard) detailsPaneHeight() int {
+	return runDetailsMaxLines
+}
+
 func (d *Dashboard) capturePaneHeight() int {
 	available := d.safeHeight() - d.baseHeight()
+	if details := d.detailsPaneHeight(); details > 0 {
+		available -= details + 1
+	}
 	if available <= 1 {
 		return 0
 	}
@@ -904,6 +959,9 @@ func (d *Dashboard) capturePaneHeight() int {
 
 func (d *Dashboard) tableMaxRows() int {
 	available := d.safeHeight() - d.baseHeight() - d.capturePaneHeight()
+	if details := d.detailsPaneHeight(); details > 0 {
+		available -= details + 1
+	}
 	if available <= 1 {
 		return 0
 	}

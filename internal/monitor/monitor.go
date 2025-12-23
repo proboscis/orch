@@ -777,6 +777,8 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 				shortID += "*"
 			}
 		}
+		branch := formatBranchDisplay(w.Run.Branch, runTableBranchWidth)
+		worktree := formatWorktreeDisplay(w.Run.WorktreePath, runTableWorktreeWidth)
 		rows = append(rows, RunRow{
 			Index:       w.Index,
 			ShortID:     shortID,
@@ -784,6 +786,8 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 			IssueStatus: issueStatus,
 			Agent:       agent,
 			Status:      w.Run.Status,
+			Branch:      branch,
+			Worktree:    worktree,
 			PR:          prDisplay,
 			PRState:     prState,
 			Merged:      merged,
