@@ -42,6 +42,13 @@ type captureState struct {
 	loading bool
 }
 
+type issueState struct {
+	issueID string
+	content string
+	message string
+	loading bool
+}
+
 // Dashboard is the bubbletea model for the monitor UI.
 type Dashboard struct {
 	monitor *Monitor
@@ -55,6 +62,7 @@ type Dashboard struct {
 	mode    dashboardMode
 	message string
 	capture captureState
+	issue   issueState
 
 	stop   stopState
 	newRun newRunState
@@ -89,6 +97,12 @@ type errMsg struct {
 
 type captureMsg struct {
 	runRef  string
+	content string
+	err     error
+}
+
+type issueContentMsg struct {
+	issueID string
 	content string
 	err     error
 }
@@ -140,7 +154,7 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		d.ensureCursorVisible()
-		return d, d.startCapture()
+		return d, d.startRunPanels()
 	case issuesMsg:
 		d.newRun.issues = msg.issues
 		d.newRun.cursor = 0
@@ -172,6 +186,25 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		d.capture.content = trimmed
 		d.capture.message = ""
+		return d, nil
+	case issueContentMsg:
+		if msg.issueID != d.issue.issueID {
+			return d, nil
+		}
+		d.issue.loading = false
+		if msg.err != nil {
+			d.issue.content = ""
+			d.issue.message = "No issue content available."
+			return d, nil
+		}
+		trimmed := strings.TrimRight(msg.content, "\n")
+		if strings.TrimSpace(trimmed) == "" {
+			d.issue.content = ""
+			d.issue.message = "No issue content available."
+			return d, nil
+		}
+		d.issue.content = trimmed
+		d.issue.message = ""
 		return d, nil
 	case execFinishedMsg:
 		if msg.err != nil {
@@ -276,14 +309,14 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if d.cursor > 0 {
 			d.cursor--
 			d.ensureCursorVisible()
-			return d, d.startCapture()
+			return d, d.startRunPanels()
 		}
 		return d, nil
 	case "down", "j":
 		if d.cursor < len(d.runs)-1 {
 			d.cursor++
 			d.ensureCursorVisible()
-			return d, d.startCapture()
+			return d, d.startRunPanels()
 		}
 		return d, nil
 	case "enter":
@@ -416,6 +449,18 @@ func (d *Dashboard) tickCmd() tea.Cmd {
 	})
 }
 
+func (d *Dashboard) startRunPanels() tea.Cmd {
+	captureCmd := d.startCapture()
+	issueCmd := d.startIssueContent()
+	if captureCmd == nil {
+		return issueCmd
+	}
+	if issueCmd == nil {
+		return captureCmd
+	}
+	return tea.Batch(captureCmd, issueCmd)
+}
+
 func (d *Dashboard) startCapture() tea.Cmd {
 	run := d.selectedRun()
 	if run == nil {
@@ -432,12 +477,39 @@ func (d *Dashboard) startCapture() tea.Cmd {
 	return d.captureCmd(run, runRef)
 }
 
+func (d *Dashboard) startIssueContent() tea.Cmd {
+	run := d.selectedRun()
+	if run == nil || strings.TrimSpace(run.IssueID) == "" {
+		d.issue = issueState{message: "No issue content available."}
+		return nil
+	}
+	issueID := run.IssueID
+	if d.issue.issueID != issueID {
+		d.issue.content = ""
+	}
+	d.issue.issueID = issueID
+	d.issue.message = ""
+	d.issue.loading = true
+	return d.issueContentCmd(issueID)
+}
+
 func (d *Dashboard) captureCmd(run *model.Run, runRef string) tea.Cmd {
 	lines := defaultCaptureLines
 	return func() tea.Msg {
 		content, err := d.monitor.CaptureRun(run, lines)
 		return captureMsg{
 			runRef:  runRef,
+			content: content,
+			err:     err,
+		}
+	}
+}
+
+func (d *Dashboard) issueContentCmd(issueID string) tea.Cmd {
+	return func() tea.Msg {
+		content, err := d.monitor.IssueContent(issueID)
+		return issueContentMsg{
+			issueID: issueID,
 			content: content,
 			err:     err,
 		}
@@ -559,7 +631,7 @@ func (d *Dashboard) viewDashboard() string {
 	table := d.renderTable(d.tableMaxRows())
 	stats := d.renderStats()
 	details := d.renderDetails(d.detailsPaneHeight())
-	capture := d.renderCapture(d.capturePaneHeight())
+	context := d.renderContext(d.capturePaneHeight())
 	footer := d.renderFooter()
 	message := ""
 	if d.message != "" {
@@ -581,8 +653,8 @@ func (d *Dashboard) viewDashboard() string {
 	if details != "" {
 		lines = append(lines, "", details)
 	}
-	if capture != "" {
-		lines = append(lines, "", capture)
+	if context != "" {
+		lines = append(lines, "", context)
 	}
 	lines = append(lines, "", footer)
 	return strings.Join(lines, "\n")
@@ -796,29 +868,60 @@ func (d *Dashboard) renderDetails(maxLines int) string {
 	return strings.Join(lines, "\n")
 }
 
-func (d *Dashboard) renderCapture(height int) string {
+func (d *Dashboard) renderContext(height int) string {
 	if height <= 0 {
 		return ""
 	}
 	width := d.safeWidth()
-	label := "CAPTURE"
+	issueLabel := "ISSUE"
+	captureLabel := "CAPTURE"
 	if run := d.selectedRun(); run != nil {
-		label = fmt.Sprintf("CAPTURE %s", run.Ref().String())
+		if strings.TrimSpace(run.IssueID) != "" {
+			issueLabel = fmt.Sprintf("ISSUE %s", run.IssueID)
+		}
+		captureLabel = fmt.Sprintf("CAPTURE %s", run.Ref().String())
 	}
-	header := d.styles.Header.Render(truncate(label, width))
+	issueHeader := d.styles.Header.Render(truncate(issueLabel, width))
+	captureHeader := d.styles.Header.Render(truncate(captureLabel, width))
 	if height == 1 {
-		return header
+		return issueHeader
+	}
+	if height == 2 {
+		return strings.Join([]string{issueHeader, captureHeader}, "\n")
 	}
 
-	contentHeight := height - 1
-	lines := d.captureLines(width)
-	if len(lines) > contentHeight {
-		lines = lines[len(lines)-contentHeight:]
+	contentHeight := height - 2
+	issueLines := d.issueLines(width)
+	captureLines := d.captureLines(width)
+	issueContentLines := contentHeight / 2
+	if issueContentLines < 1 {
+		issueContentLines = 1
 	}
-	if len(lines) == 0 {
-		return header
+	captureContentLines := contentHeight - issueContentLines
+	if captureContentLines < 1 {
+		captureContentLines = 1
+		issueContentLines = contentHeight - captureContentLines
 	}
-	return strings.Join(append([]string{header}, lines...), "\n")
+
+	if len(issueLines) > issueContentLines && issueContentLines > 0 {
+		issueLines = issueLines[:issueContentLines]
+		if issueContentLines > 1 {
+			issueLines[issueContentLines-1] = "..."
+		}
+	}
+	if len(captureLines) > captureContentLines && captureContentLines > 0 {
+		captureLines = captureLines[len(captureLines)-captureContentLines:]
+	}
+
+	lines := []string{issueHeader}
+	if issueContentLines > 0 {
+		lines = append(lines, issueLines...)
+	}
+	lines = append(lines, captureHeader)
+	if captureContentLines > 0 {
+		lines = append(lines, captureLines...)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (d *Dashboard) captureLines(width int) []string {
@@ -831,6 +934,20 @@ func (d *Dashboard) captureLines(width int) []string {
 	content := d.capture.content
 	if strings.TrimSpace(content) == "" {
 		return []string{d.styles.Faint.Render("No capture available.")}
+	}
+	return wrapText(content, width)
+}
+
+func (d *Dashboard) issueLines(width int) []string {
+	if d.issue.loading && d.issue.content == "" {
+		return []string{d.styles.Faint.Render("Loading issue...")}
+	}
+	if d.issue.message != "" {
+		return []string{d.styles.Faint.Render(d.issue.message)}
+	}
+	content := d.issue.content
+	if strings.TrimSpace(content) == "" {
+		return []string{d.styles.Faint.Render("No issue content available.")}
 	}
 	return wrapText(content, width)
 }
