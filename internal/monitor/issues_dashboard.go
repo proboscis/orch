@@ -2,6 +2,8 @@ package monitor
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -122,6 +124,10 @@ type issueBranchesMsg struct {
 
 type issueTickMsg time.Time
 
+type editorFinishedMsg struct {
+	err error
+}
+
 // NewIssueDashboard creates an issue dashboard model.
 func NewIssueDashboard(m *Monitor) *IssueDashboard {
 	// Initialize filter state from monitor's persisted settings
@@ -223,6 +229,13 @@ func (d *IssueDashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		d.refreshing = true
 		return d, tea.Batch(d.refreshCmd(), d.tickCmd())
+	case editorFinishedMsg:
+		if msg.err != nil {
+			d.message = fmt.Sprintf("editor error: %v", msg.err)
+		}
+		// Refresh issues after editor closes (user may have modified the issue)
+		d.refreshing = true
+		return d, d.refreshCmd()
 	case tea.KeyMsg:
 		return d.handleKey(msg)
 	default:
@@ -291,6 +304,11 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case d.keymap.Chat:
 		if err := d.monitor.SwitchChat(); err != nil {
 			d.message = err.Error()
+		}
+		return d, nil
+	case d.keymap.EditIssue:
+		if row := d.currentIssue(); row != nil && row.Issue != nil {
+			return d, d.editIssueInEditorCmd(row.Issue.Path)
 		}
 		return d, nil
 	case d.keymap.Open:
@@ -588,6 +606,20 @@ func (d *IssueDashboard) createIssueCmd(issueID, title string) tea.Cmd {
 		}
 		return infoMsg{text: output}
 	}
+}
+
+// editIssueInEditorCmd opens the issue file in $EDITOR, suspending the TUI.
+// When the editor closes, the TUI resumes and the issue list is refreshed.
+func (d *IssueDashboard) editIssueInEditorCmd(path string) tea.Cmd {
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vim"
+	}
+
+	c := exec.Command(editor, path)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return editorFinishedMsg{err: err}
+	})
 }
 
 func (d *IssueDashboard) viewIssues() string {
