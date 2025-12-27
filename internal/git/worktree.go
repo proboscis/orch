@@ -15,7 +15,7 @@ var execCommand = exec.Command
 // WorktreeConfig holds configuration for worktree creation
 type WorktreeConfig struct {
 	RepoRoot     string
-	WorktreeRoot string
+	WorktreeDir  string
 	IssueID      string
 	RunID        string
 	Agent        string
@@ -40,7 +40,7 @@ type WorktreeInfo struct {
 func normalizeWorktreePath(cfg *WorktreeConfig) error {
 	if cfg.WorktreePath == "" {
 		worktreeName := model.GenerateWorktreeName(cfg.IssueID, cfg.RunID, cfg.Agent)
-		cfg.WorktreePath = filepath.Join(cfg.WorktreeRoot, cfg.IssueID, worktreeName)
+		cfg.WorktreePath = filepath.Join(cfg.WorktreeDir, cfg.IssueID, worktreeName)
 	}
 
 	if filepath.IsAbs(cfg.WorktreePath) {

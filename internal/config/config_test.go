@@ -75,7 +75,7 @@ func TestParentConfigPrecedence(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("ORCH_VAULT", "/env")
 	t.Setenv("ORCH_AGENT", "gemini")
-	t.Setenv("ORCH_WORKTREE_ROOT", "/env-worktrees")
+	t.Setenv("ORCH_WORKTREE_DIR", "/env-worktrees")
 
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
@@ -108,8 +108,8 @@ func TestParentConfigPrecedence(t *testing.T) {
 	if cfg.Vault != "/parent" || cfg.Agent != "claude" {
 		t.Fatalf("unexpected parent config: %+v", cfg)
 	}
-	if cfg.WorktreeRoot != "/env-worktrees" {
-		t.Fatalf("unexpected env worktree_root: %q", cfg.WorktreeRoot)
+	if cfg.WorktreeDir != "/env-worktrees" {
+		t.Fatalf("unexpected env worktree_dir: %q", cfg.WorktreeDir)
 	}
 
 	if err := os.MkdirAll(filepath.Join(child, ".orch"), 0755); err != nil {
@@ -126,8 +126,8 @@ func TestParentConfigPrecedence(t *testing.T) {
 	if cfgLocal.Vault != "/local" || cfgLocal.Agent != "claude" {
 		t.Fatalf("unexpected local config: %+v", cfgLocal)
 	}
-	if cfgLocal.WorktreeRoot != "/env-worktrees" {
-		t.Fatalf("unexpected env worktree_root (local): %q", cfgLocal.WorktreeRoot)
+	if cfgLocal.WorktreeDir != "/env-worktrees" {
+		t.Fatalf("unexpected env worktree_dir (local): %q", cfgLocal.WorktreeDir)
 	}
 }
 
@@ -299,7 +299,7 @@ func TestRelativeVaultPathResolution(t *testing.T) {
 	// Clear environment variables that could interfere
 	t.Setenv("ORCH_VAULT", "")
 	t.Setenv("ORCH_AGENT", "")
-	t.Setenv("ORCH_WORKTREE_ROOT", "")
+	t.Setenv("ORCH_WORKTREE_DIR", "")
 	t.Setenv("ORCH_PROMPT_TEMPLATE", "")
 
 	// Create a temp home directory to avoid loading user's global config
@@ -355,7 +355,7 @@ func TestRelativePathFromSubdirectory(t *testing.T) {
 	// Clear environment variables
 	t.Setenv("ORCH_VAULT", "")
 	t.Setenv("ORCH_AGENT", "")
-	t.Setenv("ORCH_WORKTREE_ROOT", "")
+	t.Setenv("ORCH_WORKTREE_DIR", "")
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -372,7 +372,7 @@ func TestRelativePathFromSubdirectory(t *testing.T) {
 		t.Fatalf("mkdir subdir: %v", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("vault: ./VAULT\nworktree_root: .git-worktrees\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("vault: ./VAULT\nworktree_dir: .git-worktrees\n"), 0644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -407,14 +407,14 @@ func TestRelativePathFromSubdirectory(t *testing.T) {
 		t.Fatalf("vault not resolved relative to repo root: got %q, want %q", gotVault, expectedVault)
 	}
 
-	// WorktreeRoot directory doesn't exist, so we can't use EvalSymlinks
+	// WorktreeDir directory doesn't exist, so we can't use EvalSymlinks
 	// But we need to handle the /private symlink on macOS
 	// The easiest way is to check if the path ends correctly
 	expectedSuffix := ".git-worktrees"
-	if !filepath.IsAbs(cfg.WorktreeRoot) {
-		t.Fatalf("worktree_root should be absolute: got %q", cfg.WorktreeRoot)
+	if !filepath.IsAbs(cfg.WorktreeDir) {
+		t.Fatalf("worktree_dir should be absolute: got %q", cfg.WorktreeDir)
 	}
-	if filepath.Base(cfg.WorktreeRoot) != expectedSuffix {
-		t.Fatalf("worktree_root should end with %q: got %q", expectedSuffix, cfg.WorktreeRoot)
+	if filepath.Base(cfg.WorktreeDir) != expectedSuffix {
+		t.Fatalf("worktree_dir should end with %q: got %q", expectedSuffix, cfg.WorktreeDir)
 	}
 }

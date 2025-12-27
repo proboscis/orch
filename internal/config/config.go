@@ -11,7 +11,7 @@ import (
 type Config struct {
 	Vault          string `yaml:"vault"`
 	Agent          string `yaml:"agent"`
-	WorktreeRoot   string `yaml:"worktree_root"`
+	WorktreeDir    string `yaml:"worktree_dir"`
 	BaseBranch     string `yaml:"base_branch"`
 	LogLevel       string `yaml:"log_level"`
 	PromptTemplate string `yaml:"prompt_template"` // Path to custom prompt template
@@ -19,15 +19,16 @@ type Config struct {
 }
 
 type fileConfig struct {
-	Vault          string `yaml:"vault"`
-	VaultLegacy    string `yaml:"Vault"`
-	DefaultVault   string `yaml:"default_vault"`
-	Agent          string `yaml:"agent"`
-	WorktreeRoot   string `yaml:"worktree_root"`
-	BaseBranch     string `yaml:"base_branch"`
-	LogLevel       string `yaml:"log_level"`
-	PromptTemplate string `yaml:"prompt_template"`
-	NoPR           *bool  `yaml:"no_pr"`
+	Vault           string `yaml:"vault"`
+	VaultLegacy     string `yaml:"Vault"`
+	DefaultVault    string `yaml:"default_vault"`
+	Agent           string `yaml:"agent"`
+	WorktreeDir     string `yaml:"worktree_dir"`
+	WorktreeDirLegacy string `yaml:"worktree_root"` // Legacy name for backwards compatibility
+	BaseBranch      string `yaml:"base_branch"`
+	LogLevel        string `yaml:"log_level"`
+	PromptTemplate  string `yaml:"prompt_template"`
+	NoPR            *bool  `yaml:"no_pr"`
 }
 
 // configFile is the name of the config file
@@ -167,8 +168,12 @@ func loadFromFile(path string, cfg *Config) error {
 	if fileCfg.Agent != "" {
 		cfg.Agent = fileCfg.Agent
 	}
-	if fileCfg.WorktreeRoot != "" {
-		cfg.WorktreeRoot = resolvePathFromConfig(fileCfg.WorktreeRoot, baseDir)
+	worktreeDir := fileCfg.WorktreeDir
+	if worktreeDir == "" {
+		worktreeDir = fileCfg.WorktreeDirLegacy // Support legacy worktree_root
+	}
+	if worktreeDir != "" {
+		cfg.WorktreeDir = resolvePathFromConfig(worktreeDir, baseDir)
 	}
 	if fileCfg.BaseBranch != "" {
 		cfg.BaseBranch = fileCfg.BaseBranch
@@ -217,8 +222,10 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("ORCH_AGENT"); v != "" {
 		cfg.Agent = v
 	}
-	if v := os.Getenv("ORCH_WORKTREE_ROOT"); v != "" {
-		cfg.WorktreeRoot = v
+	if v := os.Getenv("ORCH_WORKTREE_DIR"); v != "" {
+		cfg.WorktreeDir = v
+	} else if v := os.Getenv("ORCH_WORKTREE_ROOT"); v != "" {
+		cfg.WorktreeDir = v // Support legacy env var
 	}
 	if v := os.Getenv("ORCH_BASE_BRANCH"); v != "" {
 		cfg.BaseBranch = v

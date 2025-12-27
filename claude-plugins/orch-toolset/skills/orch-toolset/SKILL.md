@@ -149,7 +149,7 @@ Example `.orch/config.yaml`:
 ```yaml
 vault: ~/vault
 agent: claude
-worktree_root: .git-worktrees
+worktree_dir: ~/.orch/worktrees
 base_branch: main
 ```
 

@@ -136,7 +136,7 @@ func TestApplyConfigDefaultsBaseBranch(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("ORCH_BASE_BRANCH", "")
 	t.Setenv("ORCH_AGENT", "")
-	t.Setenv("ORCH_WORKTREE_ROOT", "")
+	t.Setenv("ORCH_WORKTREE_DIR", "")
 
 	repo := filepath.Join(temp, "repo")
 	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
@@ -144,7 +144,7 @@ func TestApplyConfigDefaultsBaseBranch(t *testing.T) {
 	}
 
 	// Test config with custom values
-	configData := "base_branch: develop\nagent: codex\nworktree_root: custom-worktrees\n"
+	configData := "base_branch: develop\nagent: codex\nworktree_dir: custom-worktrees\n"
 	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(configData), 0644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -172,15 +172,15 @@ func TestApplyConfigDefaultsBaseBranch(t *testing.T) {
 		t.Fatalf("Agent = %q, want %q", opts.Agent, "codex")
 	}
 	// Compare paths after resolving symlinks (macOS /var -> /private/var)
-	wantWorktreeRoot := filepath.Join(repo, "custom-worktrees")
-	gotWorktreeRoot, _ := filepath.EvalSymlinks(opts.WorktreeRoot)
-	wantWorktreeRootResolved, _ := filepath.EvalSymlinks(wantWorktreeRoot)
-	if gotWorktreeRoot != wantWorktreeRootResolved {
-		t.Fatalf("WorktreeRoot = %q, want %q", opts.WorktreeRoot, wantWorktreeRoot)
+	wantWorktreeDir := filepath.Join(repo, "custom-worktrees")
+	gotWorktreeDir, _ := filepath.EvalSymlinks(opts.WorktreeDir)
+	wantWorktreeDirResolved, _ := filepath.EvalSymlinks(wantWorktreeDir)
+	if gotWorktreeDir != wantWorktreeDirResolved {
+		t.Fatalf("WorktreeDir = %q, want %q", opts.WorktreeDir, wantWorktreeDir)
 	}
 
 	// Test: explicit flags should override config values
-	opts2 := &runOptions{BaseBranch: "feature", Agent: "claude", WorktreeRoot: "explicit-worktrees"}
+	opts2 := &runOptions{BaseBranch: "feature", Agent: "claude", WorktreeDir: "explicit-worktrees"}
 	if err := applyPromptConfigDefaults(opts2); err != nil {
 		t.Fatalf("applyPromptConfigDefaults explicit: %v", err)
 	}
@@ -190,8 +190,8 @@ func TestApplyConfigDefaultsBaseBranch(t *testing.T) {
 	if opts2.Agent != "claude" {
 		t.Fatalf("Agent override = %q, want %q", opts2.Agent, "claude")
 	}
-	if opts2.WorktreeRoot != "explicit-worktrees" {
-		t.Fatalf("WorktreeRoot override = %q, want %q", opts2.WorktreeRoot, "explicit-worktrees")
+	if opts2.WorktreeDir != "explicit-worktrees" {
+		t.Fatalf("WorktreeDir override = %q, want %q", opts2.WorktreeDir, "explicit-worktrees")
 	}
 }
 
@@ -204,7 +204,7 @@ func TestApplyConfigDefaultsFallbacks(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("ORCH_BASE_BRANCH", "")
 	t.Setenv("ORCH_AGENT", "")
-	t.Setenv("ORCH_WORKTREE_ROOT", "")
+	t.Setenv("ORCH_WORKTREE_DIR", "")
 
 	repo := filepath.Join(temp, "repo")
 	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
@@ -238,7 +238,9 @@ func TestApplyConfigDefaultsFallbacks(t *testing.T) {
 	if opts.Agent != "claude" {
 		t.Fatalf("Agent fallback = %q, want %q", opts.Agent, "claude")
 	}
-	if opts.WorktreeRoot != ".git-worktrees" {
-		t.Fatalf("WorktreeRoot fallback = %q, want %q", opts.WorktreeRoot, ".git-worktrees")
+	// Default is now ~/.orch/worktrees
+	wantWorktreeDir := filepath.Join(home, ".orch", "worktrees")
+	if opts.WorktreeDir != wantWorktreeDir {
+		t.Fatalf("WorktreeDir fallback = %q, want %q", opts.WorktreeDir, wantWorktreeDir)
 	}
 }

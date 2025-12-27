@@ -26,7 +26,7 @@ type runOptions struct {
 	AgentProfile   string
 	BaseBranch     string
 	Branch         string
-	WorktreeRoot   string
+	WorktreeDir    string
 	RepoRoot       string
 	Tmux           bool
 	TmuxSession    string
@@ -58,7 +58,7 @@ The run will be started in a tmux session by default.`,
 	cmd.Flags().StringVar(&opts.AgentProfile, "profile", "", "Agent profile (e.g., claude --profile)")
 	cmd.Flags().StringVar(&opts.BaseBranch, "base-branch", "", "Base branch for worktree")
 	cmd.Flags().StringVar(&opts.Branch, "branch", "", "Branch name (default: issue/<ID>/run-<RUN_ID>)")
-	cmd.Flags().StringVar(&opts.WorktreeRoot, "worktree-root", "", "Root directory for worktrees")
+	cmd.Flags().StringVar(&opts.WorktreeDir, "worktree-dir", "", "Directory for worktrees (default: ~/.orch/worktrees)")
 	cmd.Flags().StringVar(&opts.RepoRoot, "repo-root", "", "Git repository root (default: auto-detect)")
 	cmd.Flags().BoolVar(&opts.Tmux, "tmux", true, "Run in tmux session")
 	cmd.Flags().StringVar(&opts.TmuxSession, "tmux-session", "", "Tmux session name (default: run-<ISSUE>-<RUN>)")
@@ -136,7 +136,14 @@ func runRun(issueID string, opts *runOptions) error {
 
 	// Compute worktree path (absolute to ensure correct directory regardless of cwd)
 	worktreeName := model.GenerateWorktreeName(issueID, runID, opts.Agent)
-	worktreePath := filepath.Join(repoRoot, opts.WorktreeRoot, issueID, worktreeName)
+	var worktreePath string
+	if filepath.IsAbs(opts.WorktreeDir) {
+		// Absolute path: use directly without joining with repoRoot
+		worktreePath = filepath.Join(opts.WorktreeDir, issueID, worktreeName)
+	} else {
+		// Relative path: join with repoRoot
+		worktreePath = filepath.Join(repoRoot, opts.WorktreeDir, issueID, worktreeName)
+	}
 
 	result := &runResult{
 		OK:           true,
@@ -198,7 +205,7 @@ func runRun(issueID string, opts *runOptions) error {
 	// Create worktree
 	worktreeResult, err := git.CreateWorktree(&git.WorktreeConfig{
 		RepoRoot:     repoRoot,
-		WorktreeRoot: opts.WorktreeRoot,
+		WorktreeDir:  opts.WorktreeDir,
 		IssueID:      issueID,
 		RunID:        runID,
 		Agent:        opts.Agent,
@@ -467,12 +474,14 @@ func applyPromptConfigDefaults(opts *runOptions) error {
 		}
 	}
 
-	// WorktreeRoot: use config value if flag not provided, fallback to ".git-worktrees"
-	if opts.WorktreeRoot == "" {
-		if cfg.WorktreeRoot != "" {
-			opts.WorktreeRoot = cfg.WorktreeRoot
+	// WorktreeDir: use config value if flag not provided, fallback to "~/.orch/worktrees"
+	if opts.WorktreeDir == "" {
+		if cfg.WorktreeDir != "" {
+			opts.WorktreeDir = cfg.WorktreeDir
 		} else {
-			opts.WorktreeRoot = ".git-worktrees"
+			// Default to ~/.orch/worktrees (outside repo, keeps repo clean)
+			home, _ := os.UserHomeDir()
+			opts.WorktreeDir = filepath.Join(home, ".orch", "worktrees")
 		}
 	}
 
