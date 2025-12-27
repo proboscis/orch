@@ -41,7 +41,7 @@
 | `--agent-cmd` | custom時の起動コマンド |
 | `--base-branch main` | デフォルトmain |
 | `--branch` | 省略時は規約生成 |
-| `--worktree-root` | 例: .git-worktrees |
+| `--worktree-dir` | ワークツリーディレクトリ（デフォルト: ~/.orch/worktrees） |
 | `--repo-root` | git rootを明示（省略時は探索） |
 | `--tmux / --no-tmux` | デフォルトtmux |
 | `--tmux-session` | 省略時は規約生成 |
@@ -51,7 +51,7 @@
 
 - RUN_ID = `YYYYMMDD-HHMMSS`
 - branch = `issue/<ISSUE_ID>/run-<RUN_ID>`
-- worktree_path = `<worktree_root>/<ISSUE_ID>/<RUN_SHORT>_<AGENT>_<RUN_ID>`（RUN_SHORT = 6桁hex）
+- worktree_path = `<worktree_dir>/<ISSUE_ID>/<RUN_SHORT>_<AGENT>_<RUN_ID>`（RUN_SHORT = 6桁hex）
 - tmux_session = `run-<ISSUE_ID>-<RUN_ID>`
 
 ### 副作用
@@ -80,7 +80,7 @@
 | `--no-pr` | PR作成指示を省略 |
 | `--branch` | 既存branchから継続する場合に指定 |
 | `--issue` | `--branch` 使用時のissue ID（引数がISSUE_IDなら省略可） |
-| `--worktree-root` | worktree配置先（デフォルト: `.git-worktrees`） |
+| `--worktree-dir` | worktree配置先（デフォルト: `~/.orch/worktrees`） |
 | `--repo-root` | git rootを明示（省略時は探索） |
 
 ### 挙動

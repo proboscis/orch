@@ -165,7 +165,7 @@ orch run orch-055 --agent claude --profile my-profile
 | `--run-id` | Manual run ID (default: YYYYMMDD-HHMMSS) |
 | `--base-branch` | Base branch (default: main) |
 | `--branch` | Custom branch name |
-| `--worktree-root` | Worktree location (default: .git-worktrees) |
+| `--worktree-dir` | Worktree location (default: ~/.orch/worktrees) |
 | `--repo-root` | Explicit git root |
 | `--tmux / --no-tmux` | Enable/disable tmux (default: tmux) |
 | `--tmux-session` | Custom session name |
@@ -175,7 +175,7 @@ orch run orch-055 --agent claude --profile my-profile
 **Default Conventions:**
 - RUN_ID: `YYYYMMDD-HHMMSS`
 - Branch: `issue/<ISSUE_ID>/run-<RUN_ID>`
-- Worktree: `<worktree_root>/<ISSUE_ID>/<SHORT_ID>_<AGENT>_<RUN_ID>`
+- Worktree: `<worktree_dir>/<ISSUE_ID>/<SHORT_ID>_<AGENT>_<RUN_ID>`
 - Tmux session: `run-<ISSUE_ID>-<RUN_ID>`
 
 ### orch continue RUN_REF|ISSUE_ID

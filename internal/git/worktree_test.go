@@ -74,7 +74,7 @@ func TestCreateWorktree(t *testing.T) {
 
 	result, err := CreateWorktree(&WorktreeConfig{
 		RepoRoot:     repo,
-		WorktreeRoot: worktreeRoot,
+		WorktreeDir: worktreeRoot,
 		IssueID:      "issue",
 		RunID:        "run",
 		Agent:        "claude",
@@ -137,7 +137,7 @@ func TestCreateWorktreeRelativeRootUsesRepoRoot(t *testing.T) {
 
 	result, err := CreateWorktree(&WorktreeConfig{
 		RepoRoot:     repo,
-		WorktreeRoot: ".git-worktrees",
+		WorktreeDir: ".git-worktrees",
 		IssueID:      "issue",
 		RunID:        "run",
 		Agent:        "claude",
@@ -185,7 +185,7 @@ func TestCreateWorktreeFromBranch(t *testing.T) {
 	worktreeRoot := filepath.Join(repo, ".git-worktrees")
 	result, err := CreateWorktreeFromBranch(&WorktreeConfig{
 		RepoRoot:     repo,
-		WorktreeRoot: worktreeRoot,
+		WorktreeDir: worktreeRoot,
 		IssueID:      "issue",
 		RunID:        "run",
 		Agent:        "claude",
@@ -216,7 +216,7 @@ func TestListWorktreeInfos(t *testing.T) {
 	worktreeRoot := filepath.Join(repo, ".git-worktrees")
 	result, err := CreateWorktree(&WorktreeConfig{
 		RepoRoot:     repo,
-		WorktreeRoot: worktreeRoot,
+		WorktreeDir: worktreeRoot,
 		IssueID:      "issue",
 		RunID:        "run",
 		Agent:        "claude",
@@ -243,7 +243,7 @@ func TestFindWorktreesByBranch(t *testing.T) {
 	worktreeRoot := filepath.Join(repo, ".git-worktrees")
 	result, err := CreateWorktree(&WorktreeConfig{
 		RepoRoot:     repo,
-		WorktreeRoot: worktreeRoot,
+		WorktreeDir: worktreeRoot,
 		IssueID:      "issue",
 		RunID:        "run",
 		Agent:        "claude",

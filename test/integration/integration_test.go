@@ -491,7 +491,7 @@ func TestRunWithTmux(t *testing.T) {
 		"--run-id", runID,
 		"--agent", "custom",
 		"--agent-cmd", "echo 'test'; sleep 1",
-		"--worktree-root", filepath.Join(testRepo, ".git-worktrees"),
+		"--worktree-dir", filepath.Join(testRepo, ".git-worktrees"),
 		"--repo-root", testRepo,
 		"--json",
 	)
