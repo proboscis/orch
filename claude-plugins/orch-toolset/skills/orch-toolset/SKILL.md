@@ -43,6 +43,8 @@ Orch is a non-interactive orchestrator for managing multiple LLM CLI agents (Cla
 ### Run Management
 - `orch run <ISSUE_ID>`: Start new run (creates worktree, launches agent in tmux)
 - `orch continue <RUN_REF>`: Resume from existing worktree/branch
+  - Pass a failed/canceled run's short ID to retry: `orch continue 33632a`
+  - Use `--agent` to change agent type: `orch continue 33632a --agent codex`
 - `orch ps`: List runs with status filtering
 - `orch show <RUN_REF>`: Inspect run details and events
 - `orch stop <RUN_REF>`: Kill tmux session and mark canceled
@@ -102,6 +104,7 @@ State meanings:
 ### Workflow Tips
 - Stop idle/stale runs before starting new ones
 - Use short IDs (2-6 hex chars) for speed: `orch attach a3b4c5`
+- Continue failed runs instead of starting fresh: `orch continue <failed-run-id> --agent codex`
 - Keep issue queue clean: resolve completed, close duplicates
 - Use `orch exec -- <test>` for isolated testing without tmux
 
@@ -156,6 +159,7 @@ base_branch: main
 |------|---------|
 | Create issue | `orch issue create <ID> --title "..."` |
 | Start run | `orch run <ISSUE>` |
+| Continue failed run | `orch continue <RUN_ID> --agent codex` |
 | List active | `orch ps --status running,blocked` |
 | Inspect run | `orch show <RUN>` |
 | Watch agent | `orch attach <RUN>` |
