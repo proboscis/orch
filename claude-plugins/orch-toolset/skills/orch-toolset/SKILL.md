@@ -140,7 +140,7 @@ Types: `status`, `artifact`, `phase`, `test`, `monitor`
 ## Configuration
 
 Config resolution order:
-1. Command-line options (`--vault`, `--backend`)
+1. Command-line options (`--vault`, `--backend`, `--worktree-dir`)
 2. `.orch/config.yaml` in current/parent directories
 3. Environment variables (`ORCH_VAULT`, `ORCH_BACKEND`)
 4. Global config (`~/.config/orch/config.yaml`)
@@ -152,6 +152,17 @@ agent: claude
 worktree_dir: ~/.orch/worktrees
 base_branch: main
 ```
+
+### Worktree Directory
+
+Worktrees are created outside the repo by default at `~/.orch/worktrees/`. Override with:
+- CLI: `orch run <issue> --worktree-dir /path/to/dir`
+- Config: `worktree_dir: /custom/path`
+
+Benefits of external worktrees:
+- Keeps repository directory clean
+- Centralizes worktrees across multiple orch-managed repos
+- Allows placement on faster storage
 
 ## Quick Command Reference
 
