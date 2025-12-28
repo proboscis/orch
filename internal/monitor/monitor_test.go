@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/s22625/orch/internal/model"
 )
 
 func TestSessionNameForVault(t *testing.T) {
@@ -165,5 +167,99 @@ func TestFilterBranchesForIssueSorting(t *testing.T) {
 		if result[i].name != want {
 			t.Errorf("branch[%d] = %q, want %q", i, result[i].name, want)
 		}
+	}
+}
+
+func TestDashboardRenderCapture(t *testing.T) {
+	tests := []struct {
+		name         string
+		runs         []RunRow
+		cursor       int
+		capture      captureState
+		height       int
+		wantEmpty    bool
+		wantContains []string
+	}{
+		{
+			name:      "zero height returns empty",
+			runs:      nil,
+			cursor:    0,
+			height:    0,
+			wantEmpty: true,
+		},
+		{
+			name:         "no runs shows header only with no capture",
+			runs:         nil,
+			cursor:       0,
+			height:       10,
+			wantContains: []string{"CAPTURE", "No capture available"},
+		},
+		{
+			name:         "with selected run shows run ref in header",
+			runs:         []RunRow{{Index: 0, IssueID: "test-001", Run: &model.Run{IssueID: "test-001", RunID: "20231225-120000"}}},
+			cursor:       0,
+			height:       10,
+			wantContains: []string{"CAPTURE", "test-001#20231225-120000"},
+		},
+		{
+			name:    "no capture content shows message",
+			runs:    []RunRow{{Index: 0, IssueID: "test-001", Run: &model.Run{IssueID: "test-001", RunID: "20231225-120000"}}},
+			cursor:  0,
+			capture: captureState{runRef: "", content: "", message: ""},
+			height:  10,
+			wantContains: []string{"CAPTURE", "No capture available"},
+		},
+		{
+			name:    "capture message is displayed",
+			runs:    []RunRow{{Index: 0, IssueID: "test-001", Run: &model.Run{IssueID: "test-001", RunID: "20231225-120000"}}},
+			cursor:  0,
+			capture: captureState{message: "Session not found"},
+			height:  10,
+			wantContains: []string{"CAPTURE", "Session not found"},
+		},
+		{
+			name:    "capture content is displayed",
+			runs:    []RunRow{{Index: 0, IssueID: "test-001", Run: &model.Run{IssueID: "test-001", RunID: "20231225-120000"}}},
+			cursor:  0,
+			capture: captureState{runRef: "test-001#20231225-120000", content: "Hello from tmux pane"},
+			height:  10,
+			wantContains: []string{"CAPTURE", "Hello from tmux pane"},
+		},
+		{
+			name:    "loading state shows loading message",
+			runs:    []RunRow{{Index: 0, IssueID: "test-001", Run: &model.Run{IssueID: "test-001", RunID: "20231225-120000"}}},
+			cursor:  0,
+			capture: captureState{loading: true},
+			height:  10,
+			wantContains: []string{"CAPTURE", "Loading capture"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := &Dashboard{
+				runs:    tt.runs,
+				cursor:  tt.cursor,
+				capture: tt.capture,
+				width:   120,
+				height:  80,
+				styles:  DefaultStyles(),
+			}
+
+			result := d.renderCapture(tt.height)
+
+			if tt.wantEmpty {
+				if result != "" {
+					t.Errorf("renderCapture() = %q, want empty", result)
+				}
+				return
+			}
+
+			for _, want := range tt.wantContains {
+				if !strings.Contains(result, want) {
+					t.Errorf("renderCapture() = %q, want to contain %q", result, want)
+				}
+			}
+		})
 	}
 }

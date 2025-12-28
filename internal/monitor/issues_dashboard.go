@@ -2,6 +2,8 @@ package monitor
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -48,7 +50,7 @@ type selectAgentState struct {
 
 // filterState holds the current filter settings for the issue list
 type filterState struct {
-	showResolved bool // Show resolved issues (default: true)
+	showResolved bool // Show resolved issues (default: false)
 	showClosed   bool // Show closed issues (default: true)
 	cursor       int  // Currently selected option in filter dialog
 }
@@ -56,7 +58,7 @@ type filterState struct {
 // defaultFilterState returns the default filter state
 func defaultFilterState() filterState {
 	return filterState{
-		showResolved: true,
+		showResolved: false,
 		showClosed:   true,
 		cursor:       0,
 	}
@@ -122,14 +124,24 @@ type issueBranchesMsg struct {
 
 type issueTickMsg time.Time
 
+type editorFinishedMsg struct {
+	err error
+}
+
 // NewIssueDashboard creates an issue dashboard model.
 func NewIssueDashboard(m *Monitor) *IssueDashboard {
+	// Initialize filter state from monitor's persisted settings
+	filter := filterState{
+		showResolved: m.ShowResolved(),
+		showClosed:   m.ShowClosed(),
+		cursor:       0,
+	}
 	return &IssueDashboard{
 		monitor:         m,
 		keymap:          DefaultIssueKeyMap(),
 		styles:          DefaultStyles(),
 		mode:            modeIssues,
-		filter:          defaultFilterState(),
+		filter:          filter,
 		refreshInterval: defaultRefreshInterval,
 	}
 }
@@ -217,6 +229,13 @@ func (d *IssueDashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		d.refreshing = true
 		return d, tea.Batch(d.refreshCmd(), d.tickCmd())
+	case editorFinishedMsg:
+		if msg.err != nil {
+			d.message = fmt.Sprintf("editor error: %v", msg.err)
+		}
+		// Refresh issues after editor closes (user may have modified the issue)
+		d.refreshing = true
+		return d, d.refreshCmd()
 	case tea.KeyMsg:
 		return d.handleKey(msg)
 	default:
@@ -287,6 +306,11 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			d.message = err.Error()
 		}
 		return d, nil
+	case d.keymap.EditIssue:
+		if row := d.currentIssue(); row != nil && row.Issue != nil {
+			return d, d.editIssueInEditorCmd(row.Issue.Path)
+		}
+		return d, nil
 	case d.keymap.Open:
 		if row := d.currentIssue(); row != nil {
 			return d, d.openIssueCmd(row.ID)
@@ -300,6 +324,11 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case d.keymap.Filter:
 		d.mode = modeFilter
 		return d, nil
+	case d.keymap.Sort:
+		sortKey := d.monitor.CycleIssueSort()
+		d.message = fmt.Sprintf("sort: %s", sortKey)
+		d.refreshing = true
+		return d, d.refreshCmd()
 	case d.keymap.OpenRun:
 		if row := d.currentIssue(); row != nil {
 			d.mode = modeSelectRun
@@ -482,12 +511,14 @@ func (d *IssueDashboard) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return d, nil
 	case "enter", " ":
-		// Toggle the selected filter option
+		// Toggle the selected filter option and persist the setting
 		switch d.filter.cursor {
 		case 0:
 			d.filter.showResolved = !d.filter.showResolved
+			d.monitor.SetShowResolved(d.filter.showResolved)
 		case 1:
 			d.filter.showClosed = !d.filter.showClosed
+			d.monitor.SetShowClosed(d.filter.showClosed)
 		}
 		d.applyFilter()
 		return d, nil
@@ -575,6 +606,20 @@ func (d *IssueDashboard) createIssueCmd(issueID, title string) tea.Cmd {
 		}
 		return infoMsg{text: output}
 	}
+}
+
+// editIssueInEditorCmd opens the issue file in $EDITOR, suspending the TUI.
+// When the editor closes, the TUI resumes and the issue list is refreshed.
+func (d *IssueDashboard) editIssueInEditorCmd(path string) tea.Cmd {
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vim"
+	}
+
+	c := exec.Command(editor, path)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return editorFinishedMsg{err: err}
+	})
 }
 
 func (d *IssueDashboard) viewIssues() string {
@@ -768,9 +813,10 @@ func (d *IssueDashboard) renderMeta() string {
 	if d.hasActiveFilters() {
 		total = fmt.Sprintf("issues: %d/%d (filtered)", len(d.filteredIssues), len(d.issues))
 	}
+	sortLabel := fmt.Sprintf("sort: %s", d.monitor.IssueSort())
 	nav := d.renderNav()
 	rows := d.renderIssueRange()
-	return strings.Join([]string{total, sync, nav, rows}, "  ")
+	return strings.Join([]string{total, sortLabel, sync, nav, rows}, "  ")
 }
 
 func (d *IssueDashboard) renderSyncStatus() string {

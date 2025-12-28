@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -41,21 +40,27 @@ const (
 
 // Options configures the monitor behavior.
 type Options struct {
-	Session     string
-	Issue       string
-	Statuses    []model.Status
-	Agent       string
-	Attach      bool
-	ForceNew    bool
-	OrchPath    string
-	GlobalFlags []string
+	Session      string
+	Issue        string
+	Statuses     []model.Status
+	RunSort      SortKey
+	IssueSort    SortKey
+	Agent        string
+	Attach       bool
+	ForceNew     bool
+	OrchPath     string
+	GlobalFlags  []string
+	ShowResolved bool
+	ShowClosed   bool
+	UISettings   *UISettings
 }
 
 // Monitor manages tmux windows and dashboard state.
 type Monitor struct {
 	session      string
-	issueFilter  string
-	statusFilter []model.Status
+	runFilter    RunFilter
+	runSort      SortKey
+	issueSort    SortKey
 	store        store.Store
 	orchPath     string
 	globalFlags  []string
@@ -64,6 +69,10 @@ type Monitor struct {
 	forceNew     bool
 	runs         []*RunWindow
 	dashboard    *Dashboard
+	showResolved bool
+	showClosed   bool
+	uiSettings   *UISettings
+	orchDir      string
 }
 
 // RunWindow links a run to a dashboard index.
@@ -80,17 +89,96 @@ func New(st store.Store, opts Options) *Monitor {
 		session = sessionNameForVault(st.VaultPath())
 	}
 	orchPath := resolveOrchPath(opts.OrchPath)
+	runSort := opts.RunSort
+	if !IsValidSortKey(runSort) {
+		runSort = SortByUpdated
+	}
+	issueSort := opts.IssueSort
+	if !IsValidSortKey(issueSort) {
+		issueSort = SortByName
+	}
+	uiSettings := opts.UISettings
+	if uiSettings == nil {
+		uiSettings = DefaultUISettings()
+	}
+	orchDir := GetOrchDir(st.VaultPath())
 	return &Monitor{
 		session:      session,
-		issueFilter:  opts.Issue,
-		statusFilter: opts.Statuses,
+		runFilter:    newRunFilter(opts),
+		runSort:      runSort,
+		issueSort:    issueSort,
 		store:        st,
 		orchPath:     orchPath,
 		globalFlags:  opts.GlobalFlags,
 		agent:        opts.Agent,
 		attach:       opts.Attach,
 		forceNew:     opts.ForceNew,
+		showResolved: opts.ShowResolved,
+		showClosed:   opts.ShowClosed,
+		uiSettings:   uiSettings,
+		orchDir:      orchDir,
 	}
+}
+
+// RunSort returns the current run sort key.
+func (m *Monitor) RunSort() SortKey {
+	return m.runSort
+}
+
+// IssueSort returns the current issue sort key.
+func (m *Monitor) IssueSort() SortKey {
+	return m.issueSort
+}
+
+// CycleRunSort advances to the next run sort key and saves the setting.
+func (m *Monitor) CycleRunSort() SortKey {
+	m.runSort = NextSortKey(m.runSort)
+	m.saveUISettings()
+	return m.runSort
+}
+
+// CycleIssueSort advances to the next issue sort key and saves the setting.
+func (m *Monitor) CycleIssueSort() SortKey {
+	m.issueSort = NextSortKey(m.issueSort)
+	m.saveUISettings()
+	return m.issueSort
+}
+
+// ShowResolved returns whether resolved issues should be shown.
+func (m *Monitor) ShowResolved() bool {
+	return m.showResolved
+}
+
+// ShowClosed returns whether closed issues should be shown.
+func (m *Monitor) ShowClosed() bool {
+	return m.showClosed
+}
+
+// SetShowResolved sets whether resolved issues should be shown and saves the setting.
+func (m *Monitor) SetShowResolved(show bool) {
+	m.showResolved = show
+	m.saveUISettings()
+}
+
+// SetShowClosed sets whether closed issues should be shown and saves the setting.
+func (m *Monitor) SetShowClosed(show bool) {
+	m.showClosed = show
+	m.saveUISettings()
+}
+
+// saveUISettings persists the current UI settings to disk.
+func (m *Monitor) saveUISettings() {
+	if m.orchDir == "" {
+		return
+	}
+	settings := &UISettings{
+		RunSort:      m.runSort,
+		IssueSort:    m.issueSort,
+		ShowResolved: m.showResolved,
+		ShowClosed:   m.showClosed,
+	}
+	// Ignore errors - settings persistence is best-effort
+	_ = SaveUISettings(m.orchDir, settings)
 }
 
 // sessionNameForVault generates a unique monitor session name based on the vault path.
@@ -188,7 +276,23 @@ func (m *Monitor) Refresh() ([]RunRow, error) {
 		return nil, err
 	}
 	m.runs = runs
-	return m.buildRunRows(runs)
+	rows, err := m.buildRunRows(runs)
+	if err != nil {
+		return nil, err
+	}
+	filtered := m.runFilter.FilterRows(rows, time.Now())
+	reindexRunRows(filtered)
+	return filtered, nil
+}
+
+// RunFilter returns the active run filter.
+func (m *Monitor) RunFilter() RunFilter {
+	return m.runFilter.Clone()
+}
+
+// SetRunFilter updates the active run filter.
+func (m *Monitor) SetRunFilter(filter RunFilter) {
+	m.runFilter = normalizeRunFilter(filter)
 }
 
 // RefreshIssues reloads issue data for the issues dashboard.
@@ -466,7 +570,12 @@ func (m *Monitor) ListRunsForIssue(issueID string) ([]*model.Run, error) {
 	if strings.TrimSpace(issueID) == "" {
 		return nil, fmt.Errorf("issue id is required")
 	}
-	return m.store.ListRuns(&store.ListRunsFilter{IssueID: issueID})
+	runs, err := m.store.ListRuns(&store.ListRunsFilter{IssueID: issueID})
+	if err != nil {
+		return nil, err
+	}
+	sortRuns(runs, m.runSort)
+	return runs, nil
 }
 
 // ListBranchesForIssue returns branches that contain the issue ID in their name.
@@ -607,15 +716,19 @@ func (m *Monitor) ensurePaneLayout() error {
 
 func (m *Monitor) loadRuns() ([]*RunWindow, error) {
 	filter := &store.ListRunsFilter{
-		IssueID: m.issueFilter,
-		Limit:   100,
+		Limit: 100,
 	}
 
-	statuses := m.statusFilter
-	if len(statuses) == 0 {
-		statuses = defaultStatuses()
+	if len(m.runFilter.Statuses) == 0 {
+		return []*RunWindow{}, nil
 	}
-	filter.Status = statuses
+	filter.Status = statusSlice(m.runFilter.Statuses)
+	if m.runFilter.UpdatedWithin > 0 {
+		filter.Since = time.Now().Add(-m.runFilter.UpdatedWithin).Format(time.RFC3339)
+	}
+	if !m.runFilter.IsDefault() {
+		filter.Limit = 0
+	}
 
 	runs, err := m.store.ListRuns(filter)
 	if err != nil {
@@ -657,6 +770,13 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		topic  string
 	}
 
+	var paneCommands map[string][]string
+	if tmux.IsTmuxAvailable() {
+		if commands, err := tmux.ListPaneCommands(); err == nil {
+			paneCommands = commands
+		}
+	}
+
 	issueInfo := make(map[string]issueDisplay)
 	for _, w := range windows {
 		if w == nil || w.Run == nil {
@@ -689,7 +809,7 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 			runList = append(runList, w.Run)
 		}
 	}
-	baseBranch := "main"
+	baseBranch := ""
 	if cfg, err := config.Load(); err == nil && cfg.BaseBranch != "" {
 		baseBranch = cfg.BaseBranch
 	}
@@ -737,6 +857,8 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 				shortID += "*"
 			}
 		}
+		branch := formatBranchDisplay(w.Run.Branch, runTableBranchWidth)
+		worktree := formatWorktreeDisplay(w.Run.WorktreePath, runTableWorktreeWidth)
 		rows = append(rows, RunRow{
 			Index:       w.Index,
 			ShortID:     shortID,
@@ -744,6 +866,9 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 			IssueStatus: issueStatus,
 			Agent:       agent,
 			Status:      w.Run.Status,
+			Alive:       runAliveLabel(w.Run, paneCommands),
+			Branch:      branch,
+			Worktree:    worktree,
 			PR:          prDisplay,
 			PRState:     prState,
 			Merged:      merged,
@@ -753,14 +878,29 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		})
 	}
 
+	sortRunRows(rows, m.runSort)
 	return rows, nil
 }
 
-func (m *Monitor) buildIssueRows(issues []*model.Issue, runs []*model.Run) []IssueRow {
-	sort.Slice(issues, func(i, j int) bool {
-		return issues[i].ID < issues[j].ID
-	})
+func runAliveLabel(run *model.Run, paneCommands map[string][]string) string {
+	if run == nil {
+		return "-"
+	}
+	session := run.TmuxSession
+	if session == "" {
+		session = model.GenerateTmuxSession(run.IssueID, run.RunID)
+	}
+	alive, known := tmux.AgentAlive(session, paneCommands)
+	if !known {
+		return "-"
+	}
+	if alive {
+		return "yes"
+	}
+	return "no"
+}
 
+func (m *Monitor) buildIssueRows(issues []*model.Issue, runs []*model.Run) []IssueRow {
 	runsByIssue := make(map[string][]*model.Run)
 	for _, run := range runs {
 		runsByIssue[run.IssueID] = append(runsByIssue[run.IssueID], run)
@@ -808,17 +948,24 @@ func (m *Monitor) buildIssueRows(issues []*model.Issue, runs []*model.Run) []Iss
 		rows = append(rows, row)
 	}
 
+	sortIssueRows(rows, m.issueSort)
 	return rows
 }
 
 func (m *Monitor) runsDashboardCommand() string {
 	args := append([]string{m.orchPath}, m.globalFlags...)
 	args = append(args, "monitor", "--dashboard")
-	if m.issueFilter != "" {
-		args = append(args, "--issue", m.issueFilter)
+	if m.runFilter.IssueQuery != "" {
+		args = append(args, "--issue", m.runFilter.IssueQuery)
 	}
-	for _, status := range m.statusFilter {
+	for _, status := range statusSlice(m.runFilter.Statuses) {
 		args = append(args, "--status", string(status))
+	}
+	if m.runSort != "" {
+		args = append(args, "--sort-runs", string(m.runSort))
+	}
+	if m.issueSort != "" {
+		args = append(args, "--sort-issues", string(m.issueSort))
 	}
 	return shellJoin(args)
 }
@@ -826,6 +973,19 @@ func (m *Monitor) runsDashboardCommand() string {
 func (m *Monitor) issuesDashboardCommand() string {
 	args := append([]string{m.orchPath}, m.globalFlags...)
 	args = append(args, "monitor", "--issues-dashboard")
+	if m.runSort != "" {
+		args = append(args, "--sort-runs", string(m.runSort))
+	}
+	if m.issueSort != "" {
+		args = append(args, "--sort-issues", string(m.issueSort))
+	}
+	// Pass filter settings from persisted UI settings
+	if m.showResolved {
+		args = append(args, "--show-resolved")
+	}
+	if !m.showClosed {
+		args = append(args, "--show-closed=false")
+	}
 	return shellJoin(args)
 }
 

@@ -491,7 +491,7 @@ func TestRunWithTmux(t *testing.T) {
 		"--run-id", runID,
 		"--agent", "custom",
 		"--agent-cmd", "echo 'test'; sleep 1",
-		"--worktree-root", filepath.Join(testRepo, ".git-worktrees"),
+		"--worktree-dir", filepath.Join(testRepo, ".git-worktrees"),
 		"--repo-root", testRepo,
 		"--json",
 	)
@@ -500,9 +500,10 @@ func TestRunWithTmux(t *testing.T) {
 	}
 
 	var result struct {
-		OK          bool   `json:"ok"`
-		Status      string `json:"status"`
-		TmuxSession string `json:"tmux_session"`
+		OK           bool   `json:"ok"`
+		Status       string `json:"status"`
+		TmuxSession  string `json:"tmux_session"`
+		WorktreePath string `json:"worktree_path"`
 	}
 	json.Unmarshal([]byte(output), &result)
 
@@ -516,8 +517,9 @@ func TestRunWithTmux(t *testing.T) {
 	}
 
 	// Clean up: remove worktree
-	worktreePath := filepath.Join(testRepo, ".git-worktrees", "tmux-test", runID)
-	exec.Command("git", "-C", testRepo, "worktree", "remove", worktreePath, "--force").Run()
+	if result.WorktreePath != "" {
+		exec.Command("git", "-C", testRepo, "worktree", "remove", result.WorktreePath, "--force").Run()
+	}
 }
 
 func TestTickBlocked(t *testing.T) {

@@ -88,6 +88,48 @@ This is a test issue.
 	}
 }
 
+func TestResolveIssueWithSymlinkedIssuesDir(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	issuesTarget, err := os.MkdirTemp("", "orch-issues-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(issuesTarget)
+
+	issuesPath := filepath.Join(vault, "issues")
+	if err := os.RemoveAll(issuesPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(issuesTarget, issuesPath); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	content := `---
+type: issue
+title: Test Issue
+topic: Short topic
+status: open
+---
+
+# Test Issue
+
+This is a test issue.
+`
+	createTestIssue(t, vault, "test123", content)
+
+	s, _ := New(vault)
+	issue, err := s.ResolveIssue("test123")
+	if err != nil {
+		t.Fatalf("ResolveIssue() error = %v", err)
+	}
+
+	if issue.ID != "test123" {
+		t.Errorf("ID = %v, want test123", issue.ID)
+	}
+}
+
 func TestResolveIssueNotFound(t *testing.T) {
 	vault, cleanup := setupTestVault(t)
 	defer cleanup()

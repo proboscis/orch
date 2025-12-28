@@ -28,7 +28,7 @@ type continueOptions struct {
 	PRTargetBranch string
 	Branch         string
 	IssueID        string
-	WorktreeRoot   string
+	WorktreeDir    string
 	RepoRoot       string
 }
 
@@ -75,7 +75,7 @@ Use --branch with an issue ID to continue from an untracked branch.`,
 	cmd.Flags().StringVar(&opts.PromptTemplate, "prompt-template", "", "Custom prompt template file")
 	cmd.Flags().StringVar(&opts.Branch, "branch", "", "Existing branch to continue from")
 	cmd.Flags().StringVar(&opts.IssueID, "issue", "", "Issue ID (required with --branch when no RUN_REF)")
-	cmd.Flags().StringVar(&opts.WorktreeRoot, "worktree-root", ".git-worktrees", "Root directory for worktrees")
+	cmd.Flags().StringVar(&opts.WorktreeDir, "worktree-dir", "", "Directory for worktrees (default: ~/.orch/worktrees)")
 	cmd.Flags().StringVar(&opts.RepoRoot, "repo-root", "", "Git repository root (default: auto-detect)")
 
 	return cmd
@@ -335,14 +335,14 @@ func continueFromBranch(st store.Store, refStr string, opts *continueOptions) er
 		tmuxSession = model.GenerateTmuxSession(issueID, runID)
 	}
 
-	worktreePath, err := resolveWorktreeForBranch(repoRoot, branch, opts.WorktreeRoot, issueID, runID)
-	if err != nil {
-		return exitWithCode(err, ExitWorktreeError)
-	}
-
 	agentName := opts.Agent
 	if agentName == "" {
 		agentName = "claude"
+	}
+
+	worktreePath, err := resolveWorktreeForBranch(repoRoot, branch, opts.WorktreeDir, issueID, runID, agentName)
+	if err != nil {
+		return exitWithCode(err, ExitWorktreeError)
 	}
 
 	continuedFrom := fmt.Sprintf("branch:%s", branch)
@@ -524,6 +524,17 @@ func applyPromptConfigDefaultsForContinue(opts *continueOptions) error {
 		opts.NoPR = cfg.NoPR
 	}
 
+	// WorktreeDir: use config value if flag not provided, fallback to "~/.orch/worktrees"
+	if opts.WorktreeDir == "" {
+		if cfg.WorktreeDir != "" {
+			opts.WorktreeDir = cfg.WorktreeDir
+		} else {
+			// Default to ~/.orch/worktrees (outside repo, keeps repo clean)
+			home, _ := os.UserHomeDir()
+			opts.WorktreeDir = filepath.Join(home, ".orch", "worktrees")
+		}
+	}
+
 	return nil
 }
 
@@ -554,7 +565,7 @@ func normalizeBranchName(branch string) string {
 	return strings.TrimPrefix(branch, "refs/heads/")
 }
 
-func resolveWorktreeForBranch(repoRoot, branch, worktreeRoot, issueID, runID string) (string, error) {
+func resolveWorktreeForBranch(repoRoot, branch, worktreeDir, issueID, runID, agent string) (string, error) {
 	matches, err := git.FindWorktreesByBranch(repoRoot, branch)
 	if err != nil {
 		return "", fmt.Errorf("failed to list worktrees: %w", err)
@@ -590,14 +601,13 @@ func resolveWorktreeForBranch(repoRoot, branch, worktreeRoot, issueID, runID str
 		return path, nil
 	}
 
-	worktreePath := filepath.Join(repoRoot, worktreeRoot, issueID, runID)
 	result, err := git.CreateWorktreeFromBranch(&git.WorktreeConfig{
-		RepoRoot:     repoRoot,
-		WorktreeRoot: worktreeRoot,
-		IssueID:      issueID,
-		RunID:        runID,
-		Branch:       branch,
-		WorktreePath: worktreePath,
+		RepoRoot:    repoRoot,
+		WorktreeDir: worktreeDir,
+		IssueID:     issueID,
+		RunID:       runID,
+		Agent:       agent,
+		Branch:      branch,
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to create worktree: %w", err)

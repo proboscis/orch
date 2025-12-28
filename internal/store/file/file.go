@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/s22625/orch/internal/model"
@@ -16,6 +17,7 @@ import (
 // FileStore implements store.Store using the filesystem
 type FileStore struct {
 	vaultPath  string
+	issueMu    sync.RWMutex
 	issueCache map[string]*model.Issue // id -> issue
 	cacheDirty bool
 }
@@ -47,22 +49,112 @@ func (s *FileStore) VaultPath() string {
 	return s.vaultPath
 }
 
+func walkWithSymlinks(root string, walkFn filepath.WalkFunc) error {
+	visited := make(map[string]struct{})
+
+	var walk func(path string) error
+	walk = func(path string) error {
+		info, err := os.Stat(path)
+		if err != nil {
+			return walkFn(path, nil, err)
+		}
+
+		skipChildren := false
+		if info.IsDir() {
+			realPath, err := filepath.EvalSymlinks(path)
+			if err == nil {
+				if _, ok := visited[realPath]; ok {
+					skipChildren = true
+				} else {
+					visited[realPath] = struct{}{}
+				}
+			} else if absPath, absErr := filepath.Abs(path); absErr == nil {
+				if _, ok := visited[absPath]; ok {
+					skipChildren = true
+				} else {
+					visited[absPath] = struct{}{}
+				}
+			}
+		}
+
+		switch err := walkFn(path, info, nil); err {
+		case nil:
+		case filepath.SkipDir:
+			if info.IsDir() {
+				return nil
+			}
+			return filepath.SkipDir
+		case filepath.SkipAll:
+			return filepath.SkipAll
+		default:
+			return err
+		}
+
+		if !info.IsDir() || skipChildren {
+			return nil
+		}
+
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			switch err := walkFn(path, info, err); err {
+			case nil, filepath.SkipDir:
+				return nil
+			case filepath.SkipAll:
+				return filepath.SkipAll
+			default:
+				return err
+			}
+		}
+
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].Name() < entries[j].Name()
+		})
+
+		for _, entry := range entries {
+			childPath := filepath.Join(path, entry.Name())
+			if err := walk(childPath); err != nil {
+				if err == filepath.SkipDir {
+					return nil
+				}
+				if err == filepath.SkipAll {
+					return filepath.SkipAll
+				}
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	if err := walk(root); err != nil && err != filepath.SkipAll {
+		return err
+	}
+
+	return nil
+}
+
 // scanIssues walks the vault and finds all files with type: issue frontmatter
 func (s *FileStore) scanIssues() error {
-	s.issueCache = make(map[string]*model.Issue)
+	runsDir := filepath.Join(s.vaultPath, "runs")
+	issues := make(map[string]*model.Issue)
 
-	err := filepath.Walk(s.vaultPath, func(path string, info os.FileInfo, err error) error {
+	s.issueMu.Lock()
+	defer s.issueMu.Unlock()
+
+	err := walkWithSymlinks(s.vaultPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip files we can't access
 		}
 
 		// Skip directories and non-markdown files
-		if info.IsDir() || !strings.HasSuffix(path, ".md") {
+		if info.IsDir() {
+			if path == runsDir {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 
-		// Skip runs directory
-		if strings.Contains(path, filepath.Join(s.vaultPath, "runs")) {
+		if !strings.HasSuffix(path, ".md") {
 			return nil
 		}
 
@@ -72,14 +164,16 @@ func (s *FileStore) scanIssues() error {
 			return nil // Not an issue file
 		}
 
-		s.issueCache[issue.ID] = issue
+		issues[issue.ID] = issue
 		return nil
 	})
 
 	if err != nil {
+		s.cacheDirty = true
 		return err
 	}
 
+	s.issueCache = issues
 	s.cacheDirty = false
 	return nil
 }
@@ -173,6 +267,56 @@ func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
 	}, nil
 }
 
+func (s *FileStore) isCacheDirty() bool {
+	s.issueMu.RLock()
+	dirty := s.cacheDirty
+	s.issueMu.RUnlock()
+	return dirty
+}
+
+func (s *FileStore) markCacheDirty() {
+	s.issueMu.Lock()
+	s.cacheDirty = true
+	s.issueMu.Unlock()
+}
+
+func (s *FileStore) issueFromCache(issueID string) (*model.Issue, bool) {
+	s.issueMu.RLock()
+	issue, ok := s.issueCache[issueID]
+	if !ok {
+		s.issueMu.RUnlock()
+		return nil, false
+	}
+	clone := cloneIssue(issue)
+	s.issueMu.RUnlock()
+	return clone, true
+}
+
+func (s *FileStore) issuesFromCache() []*model.Issue {
+	s.issueMu.RLock()
+	issues := make([]*model.Issue, 0, len(s.issueCache))
+	for _, issue := range s.issueCache {
+		issues = append(issues, cloneIssue(issue))
+	}
+	s.issueMu.RUnlock()
+	return issues
+}
+
+func cloneIssue(issue *model.Issue) *model.Issue {
+	if issue == nil {
+		return nil
+	}
+
+	clone := *issue
+	if issue.Frontmatter != nil {
+		clone.Frontmatter = make(map[string]string, len(issue.Frontmatter))
+		for k, v := range issue.Frontmatter {
+			clone.Frontmatter[k] = v
+		}
+	}
+	return &clone
+}
+
 // runPath returns the path to a run document
 func (s *FileStore) runPath(issueID, runID string) string {
 	return filepath.Join(s.vaultPath, "runs", issueID, runID+".md")
@@ -186,20 +330,20 @@ func (s *FileStore) runsDir(issueID string) string {
 // ResolveIssue retrieves an issue by ID
 func (s *FileStore) ResolveIssue(issueID string) (*model.Issue, error) {
 	// Scan if cache is dirty
-	if s.cacheDirty {
+	if s.isCacheDirty() {
 		if err := s.scanIssues(); err != nil {
 			return nil, err
 		}
 	}
 
-	issue, ok := s.issueCache[issueID]
+	issue, ok := s.issueFromCache(issueID)
 	if !ok {
 		// Try rescanning in case file was added
-		s.cacheDirty = true
+		s.markCacheDirty()
 		if err := s.scanIssues(); err != nil {
 			return nil, err
 		}
-		issue, ok = s.issueCache[issueID]
+		issue, ok = s.issueFromCache(issueID)
 		if !ok {
 			return nil, fmt.Errorf("issue not found: %s", issueID)
 		}
@@ -215,10 +359,7 @@ func (s *FileStore) ListIssues() ([]*model.Issue, error) {
 		return nil, err
 	}
 
-	issues := make([]*model.Issue, 0, len(s.issueCache))
-	for _, issue := range s.issueCache {
-		issues = append(issues, issue)
-	}
+	issues := s.issuesFromCache()
 	return issues, nil
 }
 
@@ -587,10 +728,7 @@ func (s *FileStore) SetIssueStatus(issueID string, status model.IssueStatus) err
 		return fmt.Errorf("failed to write issue file: %w", err)
 	}
 
-	// Update cache
-	issue.Frontmatter["status"] = statusStr
-	issue.Status = status
-	s.cacheDirty = true // Mark dirty to be safe, although we updated the object
+	s.markCacheDirty()
 
 	return nil
 }

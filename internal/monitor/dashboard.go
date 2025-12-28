@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -10,7 +11,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
+	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/tmux"
 )
 
 type dashboardMode int
@@ -19,6 +22,7 @@ const (
 	modeDashboard dashboardMode = iota
 	modeStopSelectRun
 	modeNewSelectIssue
+	modeDashboardFilter
 )
 
 type stopState struct {
@@ -28,6 +32,20 @@ type stopState struct {
 type newRunState struct {
 	issues  []*model.Issue
 	cursor  int
+	loading bool
+}
+
+type captureState struct {
+	runRef  string
+	content string
+	message string
+	loading bool
+}
+
+type issueState struct {
+	issueID string
+	content string
+	message string
 	loading bool
 }
 
@@ -43,9 +61,12 @@ type Dashboard struct {
 
 	mode    dashboardMode
 	message string
+	capture captureState
+	issue   issueState
 
 	stop   stopState
 	newRun newRunState
+	filter runFilterState
 
 	keymap KeyMap
 	styles Styles
@@ -53,6 +74,7 @@ type Dashboard struct {
 	lastRefresh     time.Time
 	refreshing      bool
 	refreshInterval time.Duration
+	filterPreset    int
 }
 
 type refreshMsg struct {
@@ -73,6 +95,22 @@ type errMsg struct {
 	err error
 }
 
+type captureMsg struct {
+	runRef  string
+	content string
+	err     error
+}
+
+type issueContentMsg struct {
+	issueID string
+	content string
+	err     error
+}
+
+type execFinishedMsg struct {
+	err error
+}
+
 // NewDashboard creates a dashboard model.
 func NewDashboard(m *Monitor) *Dashboard {
 	return &Dashboard{
@@ -81,6 +119,7 @@ func NewDashboard(m *Monitor) *Dashboard {
 		styles:          DefaultStyles(),
 		mode:            modeDashboard,
 		refreshInterval: defaultRefreshInterval,
+		filterPreset:    -1,
 	}
 }
 
@@ -115,7 +154,7 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		d.ensureCursorVisible()
-		return d, nil
+		return d, d.startRunPanels()
 	case issuesMsg:
 		d.newRun.issues = msg.issues
 		d.newRun.cursor = 0
@@ -129,6 +168,50 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		d.message = msg.err.Error()
 		d.refreshing = false
 		return d, nil
+	case captureMsg:
+		if msg.runRef != d.capture.runRef {
+			return d, nil
+		}
+		d.capture.loading = false
+		if msg.err != nil {
+			d.capture.content = ""
+			d.capture.message = "No capture available."
+			return d, nil
+		}
+		trimmed := strings.TrimRight(msg.content, "\n")
+		if strings.TrimSpace(trimmed) == "" {
+			d.capture.content = ""
+			d.capture.message = "No capture available."
+			return d, nil
+		}
+		d.capture.content = trimmed
+		d.capture.message = ""
+		return d, nil
+	case issueContentMsg:
+		if msg.issueID != d.issue.issueID {
+			return d, nil
+		}
+		d.issue.loading = false
+		if msg.err != nil {
+			d.issue.content = ""
+			d.issue.message = "No issue content available."
+			return d, nil
+		}
+		trimmed := strings.TrimRight(msg.content, "\n")
+		if strings.TrimSpace(trimmed) == "" {
+			d.issue.content = ""
+			d.issue.message = "No issue content available."
+			return d, nil
+		}
+		d.issue.content = trimmed
+		d.issue.message = ""
+		return d, nil
+	case execFinishedMsg:
+		if msg.err != nil {
+			d.message = msg.err.Error()
+		}
+		d.refreshing = true
+		return d, d.refreshCmd()
 	case tickMsg:
 		if d.refreshing {
 			return d, d.tickCmd()
@@ -149,6 +232,8 @@ func (d *Dashboard) View() string {
 		return d.styles.Box.Render(d.viewStopRuns())
 	case modeNewSelectIssue:
 		return d.styles.Box.Render(d.viewNewRun())
+	case modeDashboardFilter:
+		return d.styles.Box.Render(d.viewFilter())
 	default:
 		return d.styles.Box.Render(d.viewDashboard())
 	}
@@ -166,6 +251,8 @@ func (d *Dashboard) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d.handleStopKey(msg)
 	case modeNewSelectIssue:
 		return d.handleNewRunKey(msg)
+	case modeDashboardFilter:
+		return d.handleFilterKey(msg)
 	default:
 		return d, nil
 	}
@@ -197,23 +284,40 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d.enterStopMode()
 	case "n":
 		return d.enterNewRunMode()
+	case d.keymap.Filter, "/":
+		return d.enterFilterMode()
+	case d.keymap.QuickFilter:
+		return d.applyQuickFilterPreset()
+	case d.keymap.Sort:
+		sortKey := d.monitor.CycleRunSort()
+		d.message = fmt.Sprintf("sort: %s", sortKey)
+		d.refreshing = true
+		return d, d.refreshCmd()
 	case d.keymap.Resolve:
 		if d.cursor >= 0 && d.cursor < len(d.runs) {
 			run := d.runs[d.cursor].Run
 			return d, d.resolveRunCmd(run)
 		}
 		return d, nil
+	case d.keymap.Merge:
+		if d.cursor >= 0 && d.cursor < len(d.runs) {
+			run := d.runs[d.cursor].Run
+			return d, d.requestMergeCmd(run)
+		}
+		return d, nil
 	case "up", "k":
 		if d.cursor > 0 {
 			d.cursor--
+			d.ensureCursorVisible()
+			return d, d.startRunPanels()
 		}
-		d.ensureCursorVisible()
 		return d, nil
 	case "down", "j":
 		if d.cursor < len(d.runs)-1 {
 			d.cursor++
+			d.ensureCursorVisible()
+			return d, d.startRunPanels()
 		}
-		d.ensureCursorVisible()
 		return d, nil
 	case "enter":
 		if d.cursor >= 0 && d.cursor < len(d.runs) {
@@ -222,6 +326,15 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				d.message = err.Error()
 			}
 		}
+		return d, nil
+	case d.keymap.Exec:
+		if d.cursor >= 0 && d.cursor < len(d.runs) {
+			run := d.runs[d.cursor].Run
+			if run != nil {
+				return d, d.execShellCmd(run)
+			}
+		}
+		d.message = "no run selected"
 		return d, nil
 	case "?":
 		d.message = d.keymap.HelpLine()
@@ -336,6 +449,73 @@ func (d *Dashboard) tickCmd() tea.Cmd {
 	})
 }
 
+func (d *Dashboard) startRunPanels() tea.Cmd {
+	captureCmd := d.startCapture()
+	issueCmd := d.startIssueContent()
+	if captureCmd == nil {
+		return issueCmd
+	}
+	if issueCmd == nil {
+		return captureCmd
+	}
+	return tea.Batch(captureCmd, issueCmd)
+}
+
+func (d *Dashboard) startCapture() tea.Cmd {
+	run := d.selectedRun()
+	if run == nil {
+		d.capture = captureState{message: "No capture available."}
+		return nil
+	}
+	runRef := run.Ref().String()
+	if d.capture.runRef != runRef {
+		d.capture.content = ""
+	}
+	d.capture.runRef = runRef
+	d.capture.message = ""
+	d.capture.loading = true
+	return d.captureCmd(run, runRef)
+}
+
+func (d *Dashboard) startIssueContent() tea.Cmd {
+	run := d.selectedRun()
+	if run == nil || strings.TrimSpace(run.IssueID) == "" {
+		d.issue = issueState{message: "No issue content available."}
+		return nil
+	}
+	issueID := run.IssueID
+	if d.issue.issueID != issueID {
+		d.issue.content = ""
+	}
+	d.issue.issueID = issueID
+	d.issue.message = ""
+	d.issue.loading = true
+	return d.issueContentCmd(issueID)
+}
+
+func (d *Dashboard) captureCmd(run *model.Run, runRef string) tea.Cmd {
+	lines := defaultCaptureLines
+	return func() tea.Msg {
+		content, err := d.monitor.CaptureRun(run, lines)
+		return captureMsg{
+			runRef:  runRef,
+			content: content,
+			err:     err,
+		}
+	}
+}
+
+func (d *Dashboard) issueContentCmd(issueID string) tea.Cmd {
+	return func() tea.Msg {
+		content, err := d.monitor.IssueContent(issueID)
+		return issueContentMsg{
+			issueID: issueID,
+			content: content,
+			err:     err,
+		}
+	}
+}
+
 func (d *Dashboard) loadIssuesCmd() tea.Cmd {
 	return func() tea.Msg {
 		issues, err := d.monitor.ListIssues()
@@ -384,11 +564,74 @@ func (d *Dashboard) resolveRunCmd(run *model.Run) tea.Cmd {
 	}
 }
 
+func (d *Dashboard) execShellCmd(run *model.Run) tea.Cmd {
+	if run == nil {
+		return func() tea.Msg {
+			return errMsg{err: fmt.Errorf("run not found")}
+		}
+	}
+
+	// Resolve worktree path
+	worktreePath := run.WorktreePath
+	if worktreePath == "" {
+		return func() tea.Msg {
+			return errMsg{err: fmt.Errorf("run has no worktree")}
+		}
+	}
+	if !filepath.IsAbs(worktreePath) {
+		repoRoot, err := git.FindMainRepoRoot("")
+		if err != nil {
+			return func() tea.Msg {
+				return errMsg{err: fmt.Errorf("could not find git repository: %w", err)}
+			}
+		}
+		worktreePath = filepath.Join(repoRoot, worktreePath)
+	}
+
+	windowName := fmt.Sprintf("exec-%s", run.ShortID())
+	env := []string{
+		fmt.Sprintf("ORCH_ISSUE_ID=%s", shellQuote(run.IssueID)),
+		fmt.Sprintf("ORCH_RUN_ID=%s", shellQuote(run.RunID)),
+		fmt.Sprintf("ORCH_RUN_PATH=%s", shellQuote(run.Path)),
+		fmt.Sprintf("ORCH_WORKTREE_PATH=%s", shellQuote(worktreePath)),
+		fmt.Sprintf("ORCH_BRANCH=%s", shellQuote(run.Branch)),
+	}
+	shellCmd := strings.Join(env, " ") + " exec zsh"
+
+	return func() tea.Msg {
+		if err := tmux.NewWindow(d.monitor.session, windowName, worktreePath, shellCmd); err != nil {
+			return execFinishedMsg{err: fmt.Errorf("failed to open exec window: %w", err)}
+		}
+		return execFinishedMsg{err: nil}
+	}
+}
+
+func (d *Dashboard) requestMergeCmd(run *model.Run) tea.Cmd {
+	return func() tea.Msg {
+		if run == nil {
+			return errMsg{err: fmt.Errorf("run not found")}
+		}
+		output, err := d.monitor.RequestMerge(run)
+		if err != nil {
+			if strings.TrimSpace(output) == "" {
+				return errMsg{err: err}
+			}
+			return errMsg{err: fmt.Errorf("%s", output)}
+		}
+		if strings.TrimSpace(output) == "" {
+			output = fmt.Sprintf("merge requested for %s#%s", run.IssueID, run.RunID)
+		}
+		return infoMsg{text: output}
+	}
+}
+
 func (d *Dashboard) viewDashboard() string {
 	title := d.styles.Title.Render("ORCH MONITOR")
 	meta := d.renderMeta()
 	table := d.renderTable(d.tableMaxRows())
 	stats := d.renderStats()
+	details := d.renderDetails(d.detailsPaneHeight())
+	context := d.renderContext(d.capturePaneHeight())
 	footer := d.renderFooter()
 	message := ""
 	if d.message != "" {
@@ -406,6 +649,12 @@ func (d *Dashboard) viewDashboard() string {
 	}
 	if message != "" {
 		lines = append(lines, "", message)
+	}
+	if details != "" {
+		lines = append(lines, "", details)
+	}
+	if context != "" {
+		lines = append(lines, "", context)
 	}
 	lines = append(lines, "", footer)
 	return strings.Join(lines, "\n")
@@ -453,15 +702,24 @@ func (d *Dashboard) viewNewRun() string {
 	return strings.Join(lines, "\n")
 }
 
+func (d *Dashboard) selectedRun() *model.Run {
+	if d.cursor >= 0 && d.cursor < len(d.runs) {
+		return d.runs[d.cursor].Run
+	}
+	return nil
+}
+
 func (d *Dashboard) renderTable(maxRows int) string {
 	if len(d.runs) == 0 {
+		if !d.monitor.RunFilter().IsDefault() {
+			return "No runs found (filters active - press 'f' to adjust)."
+		}
 		return "No runs found."
 	}
+	idxW, idW, issueW, issueStatusW, agentW, statusW, aliveW, branchW, worktreeW, prW, mergedW, updatedW, topicW := d.tableWidths()
 
-	idxW, idW, issueW, issueStatusW, agentW, statusW, prW, mergedW, updatedW, topicW := d.tableWidths()
-
-	header := d.renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, prW, mergedW, updatedW, topicW,
-		"#", "ID", "ISSUE", "ISSUE-ST", "AGENT", "STATUS", "PR", "MERGED", "UPDATED", "TOPIC", true, nil)
+	header := d.renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, aliveW, branchW, worktreeW, prW, mergedW, updatedW, topicW,
+		"#", "ID", "ISSUE", "ISSUE-ST", "AGENT", "STATUS", "ALIVE", "BRANCH", "WORKTREE", "PR", "MERGED", "UPDATED", "TOPIC", true, nil)
 
 	var rows []string
 	visibleRows := d.runVisibleRows(maxRows)
@@ -476,13 +734,16 @@ func (d *Dashboard) renderTable(maxRows int) string {
 		end = start
 	}
 	for i, row := range d.runs[start:end] {
-		r := d.renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, prW, mergedW, updatedW, topicW,
+		r := d.renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, aliveW, branchW, worktreeW, prW, mergedW, updatedW, topicW,
 			fmt.Sprintf("%d", row.Index),
 			row.ShortID,
 			row.IssueID,
 			row.IssueStatus,
 			row.Agent,
 			string(row.Status),
+			row.Alive,
+			row.Branch,
+			row.Worktree,
 			row.PR,
 			row.Merged,
 			formatRelativeTime(row.Updated, time.Now()),
@@ -499,7 +760,7 @@ func (d *Dashboard) renderTable(maxRows int) string {
 	return strings.Join(append([]string{header}, rows...), "\n")
 }
 
-func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, prW, mergedW, updatedW, topicW int, idx, id, issue, issueStatus, agent, status, pr, merged, updated, topic string, header bool, row *RunRow) string {
+func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, aliveW, branchW, worktreeW, prW, mergedW, updatedW, topicW int, idx, id, issue, issueStatus, agent, status, alive, branch, worktree, pr, merged, updated, topic string, header bool, row *RunRow) string {
 	baseStyle := d.styles.Text
 	headerStyle := d.styles.Header
 
@@ -511,6 +772,9 @@ func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, 
 	updatedCol := d.pad(updated, updatedW, baseStyle)
 	topicCol := d.pad(topic, topicW, baseStyle)
 	statusCol := d.pad(status, statusW, baseStyle)
+	aliveCol := d.pad(alive, aliveW, baseStyle)
+	branchCol := d.pad(branch, branchW, baseStyle)
+	worktreeCol := d.pad(worktree, worktreeW, baseStyle)
 	prCol := d.pad(pr, prW, baseStyle)
 	mergedCol := d.pad(merged, mergedW, baseStyle)
 
@@ -523,6 +787,9 @@ func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, 
 		updatedCol = d.pad(updated, updatedW, headerStyle)
 		topicCol = d.pad(topic, topicW, headerStyle)
 		statusCol = d.pad(status, statusW, headerStyle)
+		aliveCol = d.pad(alive, aliveW, headerStyle)
+		branchCol = d.pad(branch, branchW, headerStyle)
+		worktreeCol = d.pad(worktree, worktreeW, headerStyle)
 		prCol = d.pad(pr, prW, headerStyle)
 		mergedCol = d.pad(merged, mergedW, headerStyle)
 	}
@@ -530,6 +797,9 @@ func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, 
 	if row != nil {
 		if style, ok := d.styles.Status[row.Status]; ok {
 			statusCol = d.pad(status, statusW, style)
+		}
+		if style, ok := d.styles.Alive[row.Alive]; ok {
+			aliveCol = d.pad(alive, aliveW, style)
 		}
 		// Apply PR state styling
 		if row.PRState != "" {
@@ -539,7 +809,7 @@ func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, 
 		}
 	}
 
-	return strings.Join([]string{idxCol, idCol, issueCol, issueStatusCol, agentCol, statusCol, prCol, mergedCol, updatedCol, topicCol}, "  ")
+	return strings.Join([]string{idxCol, idCol, issueCol, issueStatusCol, agentCol, statusCol, aliveCol, branchCol, worktreeCol, prCol, mergedCol, updatedCol, topicCol}, "  ")
 }
 
 func (d *Dashboard) renderStats() string {
@@ -563,27 +833,136 @@ func (d *Dashboard) renderStats() string {
 	return strings.Join(stats, "  ")
 }
 
-func (d *Dashboard) renderMeta() string {
-	filterParts := []string{}
-	if d.monitor.issueFilter != "" {
-		filterParts = append(filterParts, fmt.Sprintf("issue=%s", d.monitor.issueFilter))
+func (d *Dashboard) renderDetails(maxLines int) string {
+	if maxLines <= 0 {
+		return ""
 	}
-	if len(d.monitor.statusFilter) > 0 {
-		var statuses []string
-		for _, s := range d.monitor.statusFilter {
-			statuses = append(statuses, string(s))
-		}
-		filterParts = append(filterParts, fmt.Sprintf("status=%s", strings.Join(statuses, ",")))
-	}
-	filter := "filter: all"
-	if len(filterParts) > 0 {
-		filter = "filter: " + strings.Join(filterParts, " ")
+	run := d.selectedRun()
+	if run == nil {
+		return "No run selected."
 	}
 
+	branch := strings.TrimSpace(run.Branch)
+	if branch == "" {
+		branch = "-"
+	}
+	worktree := strings.TrimSpace(run.WorktreePath)
+	if worktree == "" {
+		worktree = "-"
+	}
+
+	contentWidth := d.safeWidth()
+	lines := []string{
+		d.styles.Header.Render("DETAILS"),
+	}
+	lines = append(lines, wrapLabelValue("Run: ", run.Ref().String(), contentWidth)...)
+	lines = append(lines, wrapLabelValue("Branch: ", branch, contentWidth)...)
+	lines = append(lines, wrapLabelValue("Worktree: ", worktree, contentWidth)...)
+
+	if maxLines > 0 && len(lines) > maxLines {
+		lines = lines[:maxLines]
+		if maxLines > 1 {
+			lines[maxLines-1] = "..."
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (d *Dashboard) renderContext(height int) string {
+	if height <= 0 {
+		return ""
+	}
+	width := d.safeWidth()
+	issueLabel := "ISSUE"
+	captureLabel := "CAPTURE"
+	if run := d.selectedRun(); run != nil {
+		if strings.TrimSpace(run.IssueID) != "" {
+			issueLabel = fmt.Sprintf("ISSUE %s", run.IssueID)
+		}
+		captureLabel = fmt.Sprintf("CAPTURE %s", run.Ref().String())
+	}
+	issueHeader := d.styles.Header.Render(truncate(issueLabel, width))
+	captureHeader := d.styles.Header.Render(truncate(captureLabel, width))
+	if height == 1 {
+		return issueHeader
+	}
+	if height == 2 {
+		return strings.Join([]string{issueHeader, captureHeader}, "\n")
+	}
+
+	contentHeight := height - 2
+	issueLines := d.issueLines(width)
+	captureLines := d.captureLines(width)
+	issueContentLines := contentHeight / 2
+	if issueContentLines < 1 {
+		issueContentLines = 1
+	}
+	captureContentLines := contentHeight - issueContentLines
+	if captureContentLines < 1 {
+		captureContentLines = 1
+		issueContentLines = contentHeight - captureContentLines
+	}
+
+	if len(issueLines) > issueContentLines && issueContentLines > 0 {
+		issueLines = issueLines[:issueContentLines]
+		if issueContentLines > 1 {
+			issueLines[issueContentLines-1] = "..."
+		}
+	}
+	if len(captureLines) > captureContentLines && captureContentLines > 0 {
+		captureLines = captureLines[len(captureLines)-captureContentLines:]
+	}
+
+	lines := []string{issueHeader}
+	if issueContentLines > 0 {
+		lines = append(lines, issueLines...)
+	}
+	lines = append(lines, captureHeader)
+	if captureContentLines > 0 {
+		lines = append(lines, captureLines...)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (d *Dashboard) renderCapture(height int) string {
+	return d.renderContext(height)
+}
+
+func (d *Dashboard) captureLines(width int) []string {
+	if d.capture.loading && d.capture.content == "" {
+		return []string{d.styles.Faint.Render("Loading capture...")}
+	}
+	if d.capture.message != "" {
+		return []string{d.styles.Faint.Render(d.capture.message)}
+	}
+	content := d.capture.content
+	if strings.TrimSpace(content) == "" {
+		return []string{d.styles.Faint.Render("No capture available.")}
+	}
+	return wrapText(content, width)
+}
+
+func (d *Dashboard) issueLines(width int) []string {
+	if d.issue.loading && d.issue.content == "" {
+		return []string{d.styles.Faint.Render("Loading issue...")}
+	}
+	if d.issue.message != "" {
+		return []string{d.styles.Faint.Render(d.issue.message)}
+	}
+	content := d.issue.content
+	if strings.TrimSpace(content) == "" {
+		return []string{d.styles.Faint.Render("No issue content available.")}
+	}
+	return wrapText(content, width)
+}
+
+func (d *Dashboard) renderMeta() string {
+	filter := d.monitor.RunFilter().Summary()
+	sortLabel := fmt.Sprintf("sort: %s", d.monitor.RunSort())
 	sync := d.renderSyncStatus()
 	nav := d.renderNav()
 	rows := d.renderRunRange()
-	return strings.Join([]string{filter, sync, nav, rows}, "  ")
+	return strings.Join([]string{filter, sortLabel, sync, nav, rows}, "  ")
 }
 
 func (d *Dashboard) renderSyncStatus() string {
@@ -628,21 +1007,25 @@ func (d *Dashboard) renderFooter() string {
 	return d.keymap.HelpLine()
 }
 
-func (d *Dashboard) tableWidths() (idxW, idW, issueW, issueStatusW, agentW, statusW, prW, mergedW, updatedW, topicW int) {
+func (d *Dashboard) tableWidths() (idxW, idW, issueW, issueStatusW, agentW, statusW, aliveW, branchW, worktreeW, prW, mergedW, updatedW, topicW int) {
 	idxW = 2
 	idW = 6
 	issueW = 14
 	issueStatusW = 8
 	agentW = 6
 	statusW = 10
+	aliveW = 5
+	branchW = runTableBranchWidth
+	worktreeW = runTableWorktreeWidth
 	prW = 6 // Increased to fit PR numbers like "#1234"
 	mergedW = 8
 	updatedW = 7
 	contentWidth := d.safeWidth()
-	fixed := idxW + idW + issueW + issueStatusW + agentW + statusW + prW + mergedW + updatedW + 18
+	columnCount := 13
+	fixed := idxW + idW + issueW + issueStatusW + agentW + statusW + aliveW + branchW + worktreeW + prW + mergedW + updatedW + (columnCount-1)*2
 	topicW = contentWidth - fixed
-	if topicW < 12 {
-		topicW = 12
+	if topicW < 6 {
+		topicW = 6
 	}
 	return
 }
@@ -663,12 +1046,51 @@ func (d *Dashboard) safeHeight() int {
 	return 24
 }
 
-func (d *Dashboard) tableMaxRows() int {
+func (d *Dashboard) baseHeight() int {
 	base := 8
 	if d.message != "" {
 		base += 2
 	}
-	available := d.safeHeight() - base
+	return base
+}
+
+func (d *Dashboard) detailsPaneHeight() int {
+	return runDetailsMaxLines
+}
+
+func (d *Dashboard) capturePaneHeight() int {
+	available := d.safeHeight() - d.baseHeight()
+	if details := d.detailsPaneHeight(); details > 0 {
+		available -= details + 1
+	}
+	if available <= 1 {
+		return 0
+	}
+	desired := available / 3
+	if desired < 4 {
+		desired = 4
+	}
+	if desired > 10 {
+		desired = 10
+	}
+	maxCapture := available - 1
+	if maxCapture < 0 {
+		return 0
+	}
+	if desired > maxCapture {
+		desired = maxCapture
+	}
+	if desired < 0 {
+		return 0
+	}
+	return desired
+}
+
+func (d *Dashboard) tableMaxRows() int {
+	available := d.safeHeight() - d.baseHeight() - d.capturePaneHeight()
+	if details := d.detailsPaneHeight(); details > 0 {
+		available -= details + 1
+	}
 	if available <= 1 {
 		return 0
 	}

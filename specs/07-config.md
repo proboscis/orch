@@ -35,8 +35,8 @@ vault: .
 # default agent
 agent: claude
 
-# worktree settings
-worktree_root: .git-worktrees
+# worktree directory (default: ~/.orch/worktrees)
+worktree_dir: ~/.orch/worktrees
 
 # base branch for new runs
 base_branch: main

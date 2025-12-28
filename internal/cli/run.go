@@ -26,7 +26,7 @@ type runOptions struct {
 	AgentProfile   string
 	BaseBranch     string
 	Branch         string
-	WorktreeRoot   string
+	WorktreeDir    string
 	RepoRoot       string
 	Tmux           bool
 	TmuxSession    string
@@ -54,12 +54,12 @@ The run will be started in a tmux session by default.`,
 	cmd.Flags().BoolVar(&opts.New, "new", true, "Always create a new run (default)")
 	cmd.Flags().BoolVar(&opts.Reuse, "reuse", false, "Reuse the latest run if blocked or blocked_api")
 	cmd.Flags().StringVar(&opts.RunID, "run-id", "", "Manually specify run ID")
-	cmd.Flags().StringVar(&opts.Agent, "agent", "claude", "Agent type (claude|codex|gemini|custom)")
+	cmd.Flags().StringVar(&opts.Agent, "agent", "", "Agent type (claude|codex|gemini|custom)")
 	cmd.Flags().StringVar(&opts.AgentCmd, "agent-cmd", "", "Custom agent command (when --agent=custom)")
 	cmd.Flags().StringVar(&opts.AgentProfile, "profile", "", "Agent profile (e.g., claude --profile)")
-	cmd.Flags().StringVar(&opts.BaseBranch, "base-branch", "main", "Base branch for worktree")
+	cmd.Flags().StringVar(&opts.BaseBranch, "base-branch", "", "Base branch for worktree")
 	cmd.Flags().StringVar(&opts.Branch, "branch", "", "Branch name (default: issue/<ID>/run-<RUN_ID>)")
-	cmd.Flags().StringVar(&opts.WorktreeRoot, "worktree-root", ".git-worktrees", "Root directory for worktrees")
+	cmd.Flags().StringVar(&opts.WorktreeDir, "worktree-dir", "", "Directory for worktrees (default: ~/.orch/worktrees)")
 	cmd.Flags().StringVar(&opts.RepoRoot, "repo-root", "", "Git repository root (default: auto-detect)")
 	cmd.Flags().BoolVar(&opts.Tmux, "tmux", true, "Run in tmux session")
 	cmd.Flags().StringVar(&opts.TmuxSession, "tmux-session", "", "Tmux session name (default: run-<ISSUE>-<RUN>)")
@@ -136,7 +136,15 @@ func runRun(issueID string, opts *runOptions) error {
 	}
 
 	// Compute worktree path (absolute to ensure correct directory regardless of cwd)
-	worktreePath := filepath.Join(repoRoot, opts.WorktreeRoot, issueID, runID)
+	worktreeName := model.GenerateWorktreeName(issueID, runID, opts.Agent)
+	var worktreePath string
+	if filepath.IsAbs(opts.WorktreeDir) {
+		// Absolute path: use directly without joining with repoRoot
+		worktreePath = filepath.Join(opts.WorktreeDir, issueID, worktreeName)
+	} else {
+		// Relative path: join with repoRoot
+		worktreePath = filepath.Join(repoRoot, opts.WorktreeDir, issueID, worktreeName)
+	}
 
 	result := &runResult{
 		OK:           true,
@@ -197,12 +205,13 @@ func runRun(issueID string, opts *runOptions) error {
 
 	// Create worktree
 	worktreeResult, err := git.CreateWorktree(&git.WorktreeConfig{
-		RepoRoot:     repoRoot,
-		WorktreeRoot: opts.WorktreeRoot,
-		IssueID:      issueID,
-		RunID:        runID,
-		BaseBranch:   opts.BaseBranch,
-		Branch:       branch,
+		RepoRoot:    repoRoot,
+		WorktreeDir: opts.WorktreeDir,
+		IssueID:     issueID,
+		RunID:       runID,
+		Agent:       opts.Agent,
+		BaseBranch:  opts.BaseBranch,
+		Branch:      branch,
 	})
 	if err != nil {
 		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
@@ -239,6 +248,7 @@ func runRun(issueID string, opts *runOptions) error {
 	promptOpts := &promptOptions{
 		NoPR:           opts.NoPR,
 		PromptTemplate: opts.PromptTemplate,
+		BaseBranch:     opts.BaseBranch,
 		PRTargetBranch: opts.PRTargetBranch,
 	}
 	agentPrompt := buildAgentPrompt(issue, promptOpts)
@@ -349,12 +359,13 @@ func runRun(issueID string, opts *runOptions) error {
 type promptOptions struct {
 	NoPR           bool   // Skip PR instructions
 	PromptTemplate string // Custom prompt template file path
-	PRTargetBranch string // Default PR target branch for PR instructions
+	BaseBranch     string // Base branch for worktrees (template data)
+	PRTargetBranch string // Target branch for PR instructions
 }
 
 const (
 	promptFileName        = "ORCH_PROMPT.md"
-	promptFileInstruction = "Please read '" + promptFileName + "' in the current directory and follow the instructions found there."
+	promptFileInstruction = "ultrathink Please read '" + promptFileName + "' in the current directory and follow the instructions found there."
 	defaultPRTargetBranch = "main"
 )
 
@@ -367,8 +378,7 @@ Instructions:
 - Implement the changes described in the issue above
 - Run tests to verify your changes work correctly
 {{- if not .NoPR}}
-- When complete, create a pull request:
-  - Target branch: {{.PRTargetBranch}}
+- When complete, create a pull request targeting ` + "`" + `{{.PRTargetBranch}}` + "`" + `:
   - Title should summarize the change
   - Body should reference issue: {{.IssueID}}
   - Include a summary of changes made
@@ -379,7 +389,11 @@ func applyPromptDefaults(opts *promptOptions) *promptOptions {
 	if opts == nil {
 		opts = &promptOptions{}
 	}
+	opts.BaseBranch = strings.TrimSpace(opts.BaseBranch)
 	opts.PRTargetBranch = strings.TrimSpace(opts.PRTargetBranch)
+	if opts.PRTargetBranch == "" {
+		opts.PRTargetBranch = opts.BaseBranch
+	}
 	if opts.PRTargetBranch == "" {
 		opts.PRTargetBranch = defaultPRTargetBranch
 	}
@@ -411,6 +425,7 @@ func executeTemplate(tmplStr string, issue *model.Issue, opts *promptOptions) st
 		"Title":          issue.Title,
 		"Body":           issue.Body,
 		"NoPR":           opts.NoPR,
+		"BaseBranch":     opts.BaseBranch,
 		"PRTargetBranch": opts.PRTargetBranch,
 	}
 
@@ -444,9 +459,8 @@ func buildSimplePrompt(issue *model.Issue, opts *promptOptions) string {
 		prompt += "\nInstructions:\n"
 		prompt += "- Implement the changes described in the issue above\n"
 		prompt += "- Run tests to verify your changes work correctly\n"
-		prompt += "- When complete, create a pull request:\n"
-		prompt += fmt.Sprintf("  - Target branch: %s\n", opts.PRTargetBranch)
-		prompt += fmt.Sprintf("  - Title should summarize the change\n")
+		prompt += fmt.Sprintf("- When complete, create a pull request targeting `%s`:\n", opts.PRTargetBranch)
+		prompt += "  - Title should summarize the change\n"
 		prompt += fmt.Sprintf("  - Body should reference issue: %s\n", issue.ID)
 		prompt += "  - Include a summary of changes made\n"
 	}
@@ -461,8 +475,39 @@ func applyPromptConfigDefaults(opts *runOptions) error {
 		return err
 	}
 
-	// Only apply config defaults if the command-line flag wasn't explicitly set
-	// For PromptTemplate: empty string means not set
+	// Apply config defaults for core run options
+	// Only apply if command-line flag wasn't explicitly set (empty string = not set)
+
+	// BaseBranch: use config value if flag not provided, fallback to "main"
+	if opts.BaseBranch == "" {
+		if cfg.BaseBranch != "" {
+			opts.BaseBranch = cfg.BaseBranch
+		} else {
+			opts.BaseBranch = "main"
+		}
+	}
+
+	// Agent: use config value if flag not provided, fallback to "claude"
+	if opts.Agent == "" {
+		if cfg.Agent != "" {
+			opts.Agent = cfg.Agent
+		} else {
+			opts.Agent = "claude"
+		}
+	}
+
+	// WorktreeDir: use config value if flag not provided, fallback to "~/.orch/worktrees"
+	if opts.WorktreeDir == "" {
+		if cfg.WorktreeDir != "" {
+			opts.WorktreeDir = cfg.WorktreeDir
+		} else {
+			// Default to ~/.orch/worktrees (outside repo, keeps repo clean)
+			home, _ := os.UserHomeDir()
+			opts.WorktreeDir = filepath.Join(home, ".orch", "worktrees")
+		}
+	}
+
+	// PromptTemplate: use config value if flag not provided
 	if opts.PromptTemplate == "" && cfg.PromptTemplate != "" {
 		opts.PromptTemplate = cfg.PromptTemplate
 	}
@@ -488,7 +533,9 @@ func exitWithCode(err error, code int) error {
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		enc.Encode(result)
+		_ = enc.Encode(result)
+	} else {
+		fmt.Fprintln(os.Stderr, err)
 	}
 	os.Exit(code)
 	return err

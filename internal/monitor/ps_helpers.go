@@ -1,6 +1,8 @@
 package monitor
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/s22625/orch/internal/git"
@@ -58,13 +60,76 @@ func truncateWithEllipsis(text string, max int) string {
 	return text[:max-3] + "..."
 }
 
+func formatBranchDisplay(branch string, max int) string {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return "-"
+	}
+	if max <= 0 {
+		return branch
+	}
+	return truncateWithEllipsis(branch, max)
+}
+
+func formatWorktreeDisplay(path string, max int) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "-"
+	}
+	if max <= 0 {
+		return path
+	}
+	path = abbreviateHome(path)
+	short := shortenPath(path)
+	return truncateLeading(short, max)
+}
+
+func abbreviateHome(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	if path == home {
+		return "~"
+	}
+	homePrefix := home + string(os.PathSeparator)
+	if strings.HasPrefix(path, homePrefix) {
+		return "~" + path[len(home):]
+	}
+	return path
+}
+
+func shortenPath(path string) string {
+	cleaned := filepath.Clean(path)
+	sep := string(os.PathSeparator)
+	parts := strings.Split(cleaned, sep)
+	if len(parts) < 2 {
+		return cleaned
+	}
+	suffix := filepath.Join(parts[len(parts)-2], parts[len(parts)-1])
+	if suffix == cleaned {
+		return cleaned
+	}
+	return "..." + sep + suffix
+}
+
+func truncateLeading(text string, max int) string {
+	if len(text) <= max {
+		return text
+	}
+	if max <= 3 {
+		return text[:max]
+	}
+	return "..." + text[len(text)-(max-3):]
+}
+
 func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
 	repoRoot, err := git.FindRepoRoot("")
 	if err != nil {
 		return nil
 	}
 
-	targetRef, merged, err := mergedBranchesForTarget(repoRoot, target)
+	targetRef, merged, err := git.MergedBranchesForTarget(repoRoot, target)
 	if err != nil {
 		return nil
 	}
@@ -114,33 +179,4 @@ func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
 	}
 
 	return states
-}
-
-func mergedBranchesForTarget(repoRoot, target string) (string, map[string]bool, error) {
-	if target == "" {
-		target = "main"
-	}
-	if strings.HasPrefix(target, "origin/") {
-		merged, err := git.GetMergedBranches(repoRoot, target)
-		if err == nil {
-			return target, merged, nil
-		}
-		trimmed := strings.TrimPrefix(target, "origin/")
-		merged, err = git.GetMergedBranches(repoRoot, trimmed)
-		if err != nil {
-			return "", nil, err
-		}
-		return trimmed, merged, nil
-	}
-
-	merged, err := git.GetMergedBranches(repoRoot, "origin/"+target)
-	if err == nil {
-		return "origin/" + target, merged, nil
-	}
-
-	merged, err = git.GetMergedBranches(repoRoot, target)
-	if err != nil {
-		return "", nil, err
-	}
-	return target, merged, nil
 }

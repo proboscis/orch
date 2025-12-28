@@ -14,6 +14,7 @@ type Styles struct {
 	Selected lipgloss.Style
 	Faint    lipgloss.Style
 	Status   map[model.Status]lipgloss.Style
+	Alive    map[string]lipgloss.Style
 	PRState  map[string]lipgloss.Style
 }
 
@@ -38,10 +39,15 @@ func DefaultStyles() Styles {
 			model.StatusCanceled:   lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
 			model.StatusUnknown:    lipgloss.NewStyle().Foreground(lipgloss.Color("5")),
 		},
+		Alive: map[string]lipgloss.Style{
+			"yes": lipgloss.NewStyle().Foreground(lipgloss.Color("2")),
+			"no":  lipgloss.NewStyle().Foreground(lipgloss.Color("1")),
+			"-":   lipgloss.NewStyle().Foreground(lipgloss.Color("241")),
+		},
 		PRState: map[string]lipgloss.Style{
-			"open":   lipgloss.NewStyle().Foreground(lipgloss.Color("2")),  // green - PR is open
-			"merged": lipgloss.NewStyle().Foreground(lipgloss.Color("5")),  // magenta - PR was merged
-			"closed": lipgloss.NewStyle().Foreground(lipgloss.Color("1")),  // red - PR was closed without merge
+			"open":   lipgloss.NewStyle().Foreground(lipgloss.Color("2")), // green - PR is open
+			"merged": lipgloss.NewStyle().Foreground(lipgloss.Color("5")), // magenta - PR was merged
+			"closed": lipgloss.NewStyle().Foreground(lipgloss.Color("1")), // red - PR was closed without merge
 		},
 	}
 }

@@ -197,12 +197,15 @@ func TestOutputTableShowsPRColumn(t *testing.T) {
 
 	header := lines[0]
 	statusIdx := strings.Index(header, "STATUS")
+	aliveIdx := strings.Index(header, "ALIVE")
+	branchIdx := strings.Index(header, "BRANCH")
+	worktreeIdx := strings.Index(header, "WORKTREE")
 	prIdx := strings.Index(header, "PR")
 	mergedIdx := strings.Index(header, "MERGED")
-	if statusIdx == -1 || prIdx == -1 || mergedIdx == -1 {
+	if statusIdx == -1 || aliveIdx == -1 || branchIdx == -1 || worktreeIdx == -1 || prIdx == -1 || mergedIdx == -1 {
 		t.Fatalf("missing columns in header: %q", header)
 	}
-	if !(statusIdx < prIdx && prIdx < mergedIdx) {
+	if !(statusIdx < aliveIdx && aliveIdx < branchIdx && branchIdx < worktreeIdx && worktreeIdx < prIdx && prIdx < mergedIdx) {
 		t.Fatalf("unexpected header order: %q", header)
 	}
 
