@@ -456,12 +456,13 @@ func applyPromptConfigDefaults(opts *runOptions) error {
 	// Apply config defaults for core run options
 	// Only apply if command-line flag wasn't explicitly set (empty string = not set)
 
-	// BaseBranch: use config value if flag not provided, fallback to "main"
+	// BaseBranch: use config value if flag not provided, fallback to "origin/main"
+	// Using origin/main ensures worktree is based on remote state, not potentially stale local branch
 	if opts.BaseBranch == "" {
 		if cfg.BaseBranch != "" {
 			opts.BaseBranch = cfg.BaseBranch
 		} else {
-			opts.BaseBranch = "main"
+			opts.BaseBranch = "origin/main"
 		}
 	}
 

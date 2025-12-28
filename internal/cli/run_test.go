@@ -232,8 +232,9 @@ func TestApplyConfigDefaultsFallbacks(t *testing.T) {
 	if err := applyPromptConfigDefaults(opts); err != nil {
 		t.Fatalf("applyPromptConfigDefaults: %v", err)
 	}
-	if opts.BaseBranch != "main" {
-		t.Fatalf("BaseBranch fallback = %q, want %q", opts.BaseBranch, "main")
+	// Default is now origin/main to use remote branch for worktree creation
+	if opts.BaseBranch != "origin/main" {
+		t.Fatalf("BaseBranch fallback = %q, want %q", opts.BaseBranch, "origin/main")
 	}
 	if opts.Agent != "claude" {
 		t.Fatalf("Agent fallback = %q, want %q", opts.Agent, "claude")

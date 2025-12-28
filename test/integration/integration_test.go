@@ -493,6 +493,7 @@ func TestRunWithTmux(t *testing.T) {
 		"--agent-cmd", "echo 'test'; sleep 1",
 		"--worktree-dir", filepath.Join(testRepo, ".git-worktrees"),
 		"--repo-root", testRepo,
+		"--base-branch", "main", // Use local branch since test repo has no origin remote
 		"--json",
 	)
 	if err != nil {

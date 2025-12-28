@@ -34,6 +34,8 @@ func initRepo(t *testing.T) string {
 	runGit(t, dir, "commit", "-m", "init")
 	runGit(t, dir, "branch", "-M", "main")
 	runGit(t, dir, "remote", "add", "origin", dir)
+	// Fetch to create origin/main remote tracking ref
+	runGit(t, dir, "fetch", "origin")
 	return dir
 }
 
@@ -296,4 +298,88 @@ func containsWorktreeInfo(infos []WorktreeInfo, wantPath, wantBranch string) boo
 		}
 	}
 	return false
+}
+
+func TestParseRemoteBranch(t *testing.T) {
+	tests := []struct {
+		ref        string
+		wantRemote string
+		wantBranch string
+	}{
+		{"origin/main", "origin", "main"},
+		{"upstream/develop", "upstream", "develop"},
+		{"main", "", "main"},
+		{"feature/test", "feature", "test"},
+		{"origin/feature/branch", "origin", "feature/branch"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.ref, func(t *testing.T) {
+			remote, branch := parseRemoteBranch(tt.ref)
+			if remote != tt.wantRemote {
+				t.Errorf("parseRemoteBranch(%q) remote = %q, want %q", tt.ref, remote, tt.wantRemote)
+			}
+			if branch != tt.wantBranch {
+				t.Errorf("parseRemoteBranch(%q) branch = %q, want %q", tt.ref, branch, tt.wantBranch)
+			}
+		})
+	}
+}
+
+func TestCreateWorktreeFromRemoteBranch(t *testing.T) {
+	repo := initRepo(t)
+	worktreeRoot := filepath.Join(repo, ".git-worktrees")
+
+	// Create worktree using origin/main as base
+	result, err := CreateWorktree(&WorktreeConfig{
+		RepoRoot:    repo,
+		WorktreeDir: worktreeRoot,
+		IssueID:     "issue",
+		RunID:       "run",
+		Agent:       "claude",
+		BaseBranch:  "origin/main",
+	})
+	if err != nil {
+		t.Fatalf("CreateWorktree with origin/main error: %v", err)
+	}
+
+	if result.BaseBranch != "origin/main" {
+		t.Fatalf("BaseBranch = %q, want %q", result.BaseBranch, "origin/main")
+	}
+	if _, err := os.Stat(result.WorktreePath); err != nil {
+		t.Fatalf("worktree missing: %v", err)
+	}
+
+	// Verify the branch was created and contains the expected content
+	branch, err := GetCurrentBranch(result.WorktreePath)
+	if err != nil {
+		t.Fatalf("GetCurrentBranch error: %v", err)
+	}
+	if branch != result.Branch {
+		t.Fatalf("worktree branch = %q, want %q", branch, result.Branch)
+	}
+}
+
+func TestCreateWorktreeDefaultsToRemoteBranch(t *testing.T) {
+	repo := initRepo(t)
+	worktreeRoot := filepath.Join(repo, ".git-worktrees")
+
+	// Create worktree without specifying BaseBranch - should default to origin/main
+	result, err := CreateWorktree(&WorktreeConfig{
+		RepoRoot:    repo,
+		WorktreeDir: worktreeRoot,
+		IssueID:     "issue2",
+		RunID:       "run2",
+		Agent:       "claude",
+	})
+	if err != nil {
+		t.Fatalf("CreateWorktree with default base branch error: %v", err)
+	}
+
+	if result.BaseBranch != "origin/main" {
+		t.Fatalf("BaseBranch = %q, want %q", result.BaseBranch, "origin/main")
+	}
+	if _, err := os.Stat(result.WorktreePath); err != nil {
+		t.Fatalf("worktree missing: %v", err)
+	}
 }
