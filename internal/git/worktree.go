@@ -118,12 +118,39 @@ func FindMainRepoRoot(startDir string) (string, error) {
 	return filepath.Dir(gitDir), nil
 }
 
-// CreateWorktree creates a new git worktree for the run
+// ParseRemoteBranch parses a base branch specification into remote and branch components.
+// Supports formats like "origin/main", "upstream/develop", or just "main" (defaults to origin).
+func ParseRemoteBranch(baseBranch string) (remote, branch string) {
+	if baseBranch == "" {
+		return "origin", "main"
+	}
+
+	// Check if it's in remote/branch format
+	if idx := strings.Index(baseBranch, "/"); idx > 0 {
+		return baseBranch[:idx], baseBranch[idx+1:]
+	}
+
+	// Default to origin if only branch name provided
+	return "origin", baseBranch
+}
+
+// RemoteBranchRef returns the full remote branch reference (e.g., "origin/main")
+func RemoteBranchRef(remote, branch string) string {
+	return fmt.Sprintf("%s/%s", remote, branch)
+}
+
+// CreateWorktree creates a new git worktree for the run.
+// The worktree is created from the remote branch (e.g., origin/main) to ensure
+// it's based on the latest remote state rather than potentially stale local state.
 func CreateWorktree(cfg *WorktreeConfig) (*WorktreeResult, error) {
 	// Set defaults
 	if cfg.BaseBranch == "" {
 		cfg.BaseBranch = "main"
 	}
+
+	// Parse the base branch to extract remote and branch components
+	remote, branch := ParseRemoteBranch(cfg.BaseBranch)
+	remoteBranchRef := RemoteBranchRef(remote, branch)
 
 	// Generate branch name if not provided
 	if cfg.Branch == "" {
@@ -144,41 +171,61 @@ func CreateWorktree(cfg *WorktreeConfig) (*WorktreeResult, error) {
 		return nil, fmt.Errorf("worktree path already exists: %s", cfg.WorktreePath)
 	}
 
-	// Fetch the base branch to ensure it's up to date
-	fetchCmd := execCommand("git", "-C", cfg.RepoRoot, "fetch", "origin", cfg.BaseBranch)
+	// Fetch the remote branch to ensure we have the latest state
+	fetchCmd := execCommand("git", "-C", cfg.RepoRoot, "fetch", remote, branch)
 	fetchCmd.Stderr = os.Stderr
-	_ = fetchCmd.Run() // Ignore error, might not have remote
+	if err := fetchCmd.Run(); err != nil {
+		// Continue even if fetch fails - remote might not exist or be offline
+		// The worktree creation will fail if the ref doesn't exist
+	}
 
-	// Create worktree with new branch
+	// Create worktree with new branch based on the remote branch ref
+	// Using the remote ref (e.g., origin/main) ensures we're based on the
+	// latest remote state, not potentially stale local branch
 	args := []string{
 		"-C", cfg.RepoRoot,
 		"worktree", "add",
 		"-b", cfg.Branch,
 		cfg.WorktreePath,
-		cfg.BaseBranch,
+		remoteBranchRef,
 	}
 
+	actualBaseBranch := remoteBranchRef
 	cmd := execCommand("git", args...)
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		// Try without -b if branch might exist
+		// Fall back to local branch if remote ref doesn't exist
+		// This handles repos without remotes or when the remote is unavailable
 		args = []string{
 			"-C", cfg.RepoRoot,
 			"worktree", "add",
+			"-b", cfg.Branch,
 			cfg.WorktreePath,
-			cfg.Branch,
+			branch, // local branch name
 		}
 		cmd = execCommand("git", args...)
 		cmd.Stderr = os.Stderr
+		actualBaseBranch = branch
 		if err := cmd.Run(); err != nil {
-			return nil, fmt.Errorf("failed to create worktree: %w", err)
+			// Try without -b if branch might already exist
+			args = []string{
+				"-C", cfg.RepoRoot,
+				"worktree", "add",
+				cfg.WorktreePath,
+				cfg.Branch,
+			}
+			cmd = execCommand("git", args...)
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err != nil {
+				return nil, fmt.Errorf("failed to create worktree: %w", err)
+			}
 		}
 	}
 
 	return &WorktreeResult{
 		WorktreePath: cfg.WorktreePath,
 		Branch:       cfg.Branch,
-		BaseBranch:   cfg.BaseBranch,
+		BaseBranch:   actualBaseBranch,
 	}, nil
 }
 
