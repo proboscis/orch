@@ -55,6 +55,7 @@ type LaunchConfig struct {
 	Resume      bool   // Whether to resume an existing session
 	SessionName string // For agents that support session naming
 	Profile     string // Profile name for agents that support it (e.g., claude --profile)
+	Model       string // Model name for agents that support it (e.g., claude-sonnet-4-5-20250929, gpt-5-codex, gemini-2.5-pro)
 }
 
 // Env returns the environment variables to pass to the agent

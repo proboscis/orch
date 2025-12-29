@@ -11,6 +11,7 @@ import (
 type Config struct {
 	Vault          string `yaml:"vault"`
 	Agent          string `yaml:"agent"`
+	Model          string `yaml:"model"` // Model name for agents (e.g., claude-sonnet-4-5-20250929, gpt-5-codex, gemini-2.5-pro)
 	WorktreeDir    string `yaml:"worktree_dir"`
 	BaseBranch     string `yaml:"base_branch"`
 	PRTargetBranch string `yaml:"pr_target_branch"`
@@ -24,6 +25,7 @@ type fileConfig struct {
 	VaultLegacy       string `yaml:"Vault"`
 	DefaultVault      string `yaml:"default_vault"`
 	Agent             string `yaml:"agent"`
+	Model             string `yaml:"model"`
 	WorktreeDir       string `yaml:"worktree_dir"`
 	WorktreeDirLegacy string `yaml:"worktree_root"` // Legacy name for backwards compatibility
 	BaseBranch        string `yaml:"base_branch"`
@@ -170,6 +172,9 @@ func loadFromFile(path string, cfg *Config) error {
 	if fileCfg.Agent != "" {
 		cfg.Agent = fileCfg.Agent
 	}
+	if fileCfg.Model != "" {
+		cfg.Model = fileCfg.Model
+	}
 	worktreeDir := fileCfg.WorktreeDir
 	if worktreeDir == "" {
 		worktreeDir = fileCfg.WorktreeDirLegacy // Support legacy worktree_root
@@ -226,6 +231,9 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("ORCH_AGENT"); v != "" {
 		cfg.Agent = v
+	}
+	if v := os.Getenv("ORCH_MODEL"); v != "" {
+		cfg.Model = v
 	}
 	if v := os.Getenv("ORCH_WORKTREE_DIR"); v != "" {
 		cfg.WorktreeDir = v

@@ -21,6 +21,7 @@ const (
 	modeCreateIssue
 	modeSelectRun
 	modeSelectAgent
+	modeSelectModel
 	modeFilter
 	modeContinueBranch
 	modeContinueAgent
@@ -43,9 +44,11 @@ type selectRunState struct {
 }
 
 type selectAgentState struct {
-	issueID string
-	agents  []string
-	cursor  int
+	issueID       string
+	agents        []string
+	cursor        int
+	selectedAgent string // The selected agent after selection
+	modelInput    string // Model name input for the agent
 }
 
 // filterState holds the current filter settings for the issue list
@@ -252,6 +255,8 @@ func (d *IssueDashboard) View() string {
 		return d.styles.Box.Render(d.viewSelectRun())
 	case modeSelectAgent:
 		return d.styles.Box.Render(d.viewSelectAgent())
+	case modeSelectModel:
+		return d.styles.Box.Render(d.viewSelectModel())
 	case modeFilter:
 		return d.styles.Box.Render(d.viewFilter())
 	case modeContinueBranch:
@@ -277,6 +282,8 @@ func (d *IssueDashboard) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d.handleSelectRunKey(msg)
 	case modeSelectAgent:
 		return d.handleSelectAgentKey(msg)
+	case modeSelectModel:
+		return d.handleSelectModelKey(msg)
 	case modeFilter:
 		return d.handleFilterKey(msg)
 	case modeContinueBranch:
@@ -464,10 +471,9 @@ func (d *IssueDashboard) handleSelectAgentKey(msg tea.KeyMsg) (tea.Model, tea.Cm
 		return d.quit()
 	case "enter":
 		if d.selectAgent.cursor >= 0 && d.selectAgent.cursor < len(d.selectAgent.agents) {
-			agentType := d.selectAgent.agents[d.selectAgent.cursor]
-			issueID := d.selectAgent.issueID
-			d.mode = modeIssues
-			return d, d.startRunCmd(issueID, agentType)
+			d.selectAgent.selectedAgent = d.selectAgent.agents[d.selectAgent.cursor]
+			d.selectAgent.modelInput = ""
+			d.mode = modeSelectModel
 		}
 		return d, nil
 	case "up", "k":
@@ -483,14 +489,45 @@ func (d *IssueDashboard) handleSelectAgentKey(msg tea.KeyMsg) (tea.Model, tea.Cm
 	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		idx := int(msg.String()[0] - '1')
 		if idx >= 0 && idx < len(d.selectAgent.agents) {
-			agentType := d.selectAgent.agents[idx]
-			issueID := d.selectAgent.issueID
-			d.mode = modeIssues
-			return d, d.startRunCmd(issueID, agentType)
+			d.selectAgent.selectedAgent = d.selectAgent.agents[idx]
+			d.selectAgent.modelInput = ""
+			d.mode = modeSelectModel
 		}
 		return d, nil
 	}
 	return d, nil
+}
+
+func (d *IssueDashboard) handleSelectModelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		// Go back to agent selection
+		d.mode = modeSelectAgent
+		return d, nil
+	case "q":
+		return d.quit()
+	case "enter":
+		// Start the run with the selected agent and model
+		issueID := d.selectAgent.issueID
+		agentType := d.selectAgent.selectedAgent
+		modelName := strings.TrimSpace(d.selectAgent.modelInput)
+		d.mode = modeIssues
+		return d, d.startRunCmd(issueID, agentType, modelName)
+	}
+
+	switch msg.Type {
+	case tea.KeyBackspace, tea.KeyDelete:
+		if len(d.selectAgent.modelInput) > 0 {
+			runes := []rune(d.selectAgent.modelInput)
+			d.selectAgent.modelInput = string(runes[:len(runes)-1])
+		}
+		return d, nil
+	case tea.KeyRunes:
+		d.selectAgent.modelInput += string(msg.Runes)
+		return d, nil
+	default:
+		return d, nil
+	}
 }
 
 func (d *IssueDashboard) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -557,9 +594,9 @@ func (d *IssueDashboard) loadIssueRunsCmd(issueID string) tea.Cmd {
 	}
 }
 
-func (d *IssueDashboard) startRunCmd(issueID, agentType string) tea.Cmd {
+func (d *IssueDashboard) startRunCmd(issueID, agentType, modelName string) tea.Cmd {
 	return func() tea.Msg {
-		output, err := d.monitor.StartRun(issueID, agentType)
+		output, err := d.monitor.StartRun(issueID, agentType, modelName)
 		if err != nil {
 			return errMsg{err: fmt.Errorf("%s", output)}
 		}
@@ -737,6 +774,49 @@ func (d *IssueDashboard) viewSelectAgent() string {
 	}
 
 	lines = append(lines, "", "[Enter/1-9] select agent  [Esc] back")
+	return strings.Join(lines, "\n")
+}
+
+func (d *IssueDashboard) viewSelectModel() string {
+	header := d.styles.Title.Render("SELECT MODEL")
+	lines := []string{header, ""}
+
+	issueID := d.selectAgent.issueID
+	if strings.TrimSpace(issueID) == "" {
+		issueID = "-"
+	}
+	agentType := d.selectAgent.selectedAgent
+	if strings.TrimSpace(agentType) == "" {
+		agentType = "-"
+	}
+
+	lines = append(lines, fmt.Sprintf("Issue: %s", issueID))
+	lines = append(lines, fmt.Sprintf("Agent: %s", agentType), "")
+
+	lines = append(lines, "Enter model name (or leave blank for default):", "")
+
+	// Show example models based on agent type
+	var examples string
+	switch agentType {
+	case "claude":
+		examples = "e.g., claude-sonnet-4-5-20250929, claude-opus-4-5-20251101"
+	case "codex":
+		examples = "e.g., gpt-5-codex, o4-mini, gpt-5.2-codex"
+	case "gemini":
+		examples = "e.g., gemini-2.5-pro, gemini-3-flash"
+	default:
+		examples = "Enter the model name supported by the agent"
+	}
+	lines = append(lines, d.styles.Faint.Render(examples), "")
+
+	// Show input field
+	inputDisplay := d.selectAgent.modelInput
+	if inputDisplay == "" {
+		inputDisplay = "(default)"
+	}
+	lines = append(lines, fmt.Sprintf("Model: %s_", inputDisplay), "")
+
+	lines = append(lines, "[Enter] start run  [Esc] back")
 	return strings.Join(lines, "\n")
 }
 

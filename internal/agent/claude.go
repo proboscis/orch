@@ -25,6 +25,11 @@ func (a *ClaudeAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 	// Skip all permission prompts for autonomous operation
 	args = append(args, "--dangerously-skip-permissions")
 
+	// Add model if specified
+	if cfg.Model != "" {
+		args = append(args, "--model", cfg.Model)
+	}
+
 	// Add profile if specified
 	if cfg.Profile != "" {
 		args = append(args, "--profile", cfg.Profile)
