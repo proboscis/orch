@@ -24,6 +24,9 @@ func TestBuildAgentPromptDefault(t *testing.T) {
 	if !strings.Contains(prompt, "create a pull request") {
 		t.Fatalf("prompt missing PR instructions: %q", prompt)
 	}
+	if !strings.Contains(prompt, "create a pull request targeting `main`") {
+		t.Fatalf("prompt missing PR target branch: %q", prompt)
+	}
 }
 
 func TestBuildAgentPromptWithBaseBranch(t *testing.T) {
@@ -44,6 +47,14 @@ func TestBuildAgentPromptNoPR(t *testing.T) {
 	prompt := buildAgentPrompt(issue, &promptOptions{NoPR: true})
 	if strings.Contains(prompt, "create a pull request") {
 		t.Fatalf("unexpected PR instructions: %q", prompt)
+	}
+}
+
+func TestBuildAgentPromptTargetBranch(t *testing.T) {
+	issue := &model.Issue{ID: "orch-3", Body: "Body"}
+	prompt := buildAgentPrompt(issue, &promptOptions{PRTargetBranch: "develop"})
+	if !strings.Contains(prompt, "create a pull request targeting `develop`") {
+		t.Fatalf("prompt missing custom PR target branch: %q", prompt)
 	}
 }
 
@@ -88,7 +99,7 @@ func TestApplyPromptConfigDefaults(t *testing.T) {
 		t.Fatalf("write template: %v", err)
 	}
 
-	configData := fmt.Sprintf("prompt_template: %s\nno_pr: true\n", tmplPath)
+	configData := fmt.Sprintf("prompt_template: %s\npr_target_branch: develop\nno_pr: true\n", tmplPath)
 	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(configData), 0644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -114,13 +125,19 @@ func TestApplyPromptConfigDefaults(t *testing.T) {
 	if !opts.NoPR {
 		t.Fatalf("NoPR = false, want true")
 	}
+	if opts.PRTargetBranch != "develop" {
+		t.Fatalf("PRTargetBranch = %q, want develop", opts.PRTargetBranch)
+	}
 
-	opts2 := &runOptions{PromptTemplate: "explicit", NoPR: true}
+	opts2 := &runOptions{PromptTemplate: "explicit", NoPR: true, PRTargetBranch: "release"}
 	if err := applyPromptConfigDefaults(opts2); err != nil {
 		t.Fatalf("applyPromptConfigDefaults explicit: %v", err)
 	}
 	if opts2.PromptTemplate != "explicit" {
 		t.Fatalf("PromptTemplate override = %q", opts2.PromptTemplate)
+	}
+	if opts2.PRTargetBranch != "release" {
+		t.Fatalf("PRTargetBranch override = %q", opts2.PRTargetBranch)
 	}
 	if !opts2.NoPR {
 		t.Fatalf("NoPR override = false, want true")

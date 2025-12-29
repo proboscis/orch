@@ -13,22 +13,24 @@ type Config struct {
 	Agent          string `yaml:"agent"`
 	WorktreeDir    string `yaml:"worktree_dir"`
 	BaseBranch     string `yaml:"base_branch"`
+	PRTargetBranch string `yaml:"pr_target_branch"`
 	LogLevel       string `yaml:"log_level"`
 	PromptTemplate string `yaml:"prompt_template"` // Path to custom prompt template
 	NoPR           bool   `yaml:"no_pr"`           // Disable PR instructions by default
 }
 
 type fileConfig struct {
-	Vault           string `yaml:"vault"`
-	VaultLegacy     string `yaml:"Vault"`
-	DefaultVault    string `yaml:"default_vault"`
-	Agent           string `yaml:"agent"`
-	WorktreeDir     string `yaml:"worktree_dir"`
+	Vault             string `yaml:"vault"`
+	VaultLegacy       string `yaml:"Vault"`
+	DefaultVault      string `yaml:"default_vault"`
+	Agent             string `yaml:"agent"`
+	WorktreeDir       string `yaml:"worktree_dir"`
 	WorktreeDirLegacy string `yaml:"worktree_root"` // Legacy name for backwards compatibility
-	BaseBranch      string `yaml:"base_branch"`
-	LogLevel        string `yaml:"log_level"`
-	PromptTemplate  string `yaml:"prompt_template"`
-	NoPR            *bool  `yaml:"no_pr"`
+	BaseBranch        string `yaml:"base_branch"`
+	PRTargetBranch    string `yaml:"pr_target_branch"`
+	LogLevel          string `yaml:"log_level"`
+	PromptTemplate    string `yaml:"prompt_template"`
+	NoPR              *bool  `yaml:"no_pr"`
 }
 
 // configFile is the name of the config file
@@ -178,6 +180,9 @@ func loadFromFile(path string, cfg *Config) error {
 	if fileCfg.BaseBranch != "" {
 		cfg.BaseBranch = fileCfg.BaseBranch
 	}
+	if fileCfg.PRTargetBranch != "" {
+		cfg.PRTargetBranch = fileCfg.PRTargetBranch
+	}
 	if fileCfg.LogLevel != "" {
 		cfg.LogLevel = fileCfg.LogLevel
 	}
@@ -229,6 +234,9 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("ORCH_BASE_BRANCH"); v != "" {
 		cfg.BaseBranch = v
+	}
+	if v := os.Getenv("ORCH_PR_TARGET_BRANCH"); v != "" {
+		cfg.PRTargetBranch = v
 	}
 	if v := os.Getenv("ORCH_LOG_LEVEL"); v != "" {
 		cfg.LogLevel = v

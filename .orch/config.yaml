@@ -3,3 +3,5 @@ vault: .
 agent: claude
 worktree_dir: .git-worktrees
 base_branch: main
+# default PR target branch for agent instructions
+pr_target_branch: main

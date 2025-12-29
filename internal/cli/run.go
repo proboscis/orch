@@ -33,6 +33,7 @@ type runOptions struct {
 	DryRun         bool
 	NoPR           bool   // Skip PR instructions in prompt
 	PromptTemplate string // Custom prompt template file
+	PRTargetBranch string // Default PR target branch for prompt
 }
 
 func newRunCmd() *cobra.Command {
@@ -204,13 +205,13 @@ func runRun(issueID string, opts *runOptions) error {
 
 	// Create worktree
 	worktreeResult, err := git.CreateWorktree(&git.WorktreeConfig{
-		RepoRoot:     repoRoot,
-		WorktreeDir:  opts.WorktreeDir,
-		IssueID:      issueID,
-		RunID:        runID,
-		Agent:        opts.Agent,
-		BaseBranch:   opts.BaseBranch,
-		Branch:       branch,
+		RepoRoot:    repoRoot,
+		WorktreeDir: opts.WorktreeDir,
+		IssueID:     issueID,
+		RunID:       runID,
+		Agent:       opts.Agent,
+		BaseBranch:  opts.BaseBranch,
+		Branch:      branch,
 	})
 	if err != nil {
 		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
@@ -248,6 +249,7 @@ func runRun(issueID string, opts *runOptions) error {
 		NoPR:           opts.NoPR,
 		PromptTemplate: opts.PromptTemplate,
 		BaseBranch:     opts.BaseBranch,
+		PRTargetBranch: opts.PRTargetBranch,
 	}
 	agentPrompt := buildAgentPrompt(issue, promptOpts)
 	promptPath := filepath.Join(worktreeResult.WorktreePath, promptFileName)
@@ -357,12 +359,14 @@ func runRun(issueID string, opts *runOptions) error {
 type promptOptions struct {
 	NoPR           bool   // Skip PR instructions
 	PromptTemplate string // Custom prompt template file path
-	BaseBranch     string // Target branch for PR creation
+	BaseBranch     string // Base branch for worktrees (template data)
+	PRTargetBranch string // Target branch for PR instructions
 }
 
 const (
 	promptFileName        = "ORCH_PROMPT.md"
 	promptFileInstruction = "ultrathink Please read '" + promptFileName + "' in the current directory and follow the instructions found there."
+	defaultPRTargetBranch = "main"
 )
 
 // defaultPromptTemplate is the built-in template for agent prompts
@@ -374,17 +378,30 @@ Instructions:
 - Implement the changes described in the issue above
 - Run tests to verify your changes work correctly
 {{- if not .NoPR}}
-- When complete, create a pull request targeting ` + "`" + `{{.BaseBranch}}` + "`" + `:
+- When complete, create a pull request targeting ` + "`" + `{{.PRTargetBranch}}` + "`" + `:
   - Title should summarize the change
   - Body should reference issue: {{.IssueID}}
   - Include a summary of changes made
 {{- end}}
 `
 
-func buildAgentPrompt(issue *model.Issue, opts *promptOptions) string {
+func applyPromptDefaults(opts *promptOptions) *promptOptions {
 	if opts == nil {
 		opts = &promptOptions{}
 	}
+	opts.BaseBranch = strings.TrimSpace(opts.BaseBranch)
+	opts.PRTargetBranch = strings.TrimSpace(opts.PRTargetBranch)
+	if opts.PRTargetBranch == "" {
+		opts.PRTargetBranch = opts.BaseBranch
+	}
+	if opts.PRTargetBranch == "" {
+		opts.PRTargetBranch = defaultPRTargetBranch
+	}
+	return opts
+}
+
+func buildAgentPrompt(issue *model.Issue, opts *promptOptions) string {
+	opts = applyPromptDefaults(opts)
 
 	// If custom template provided, try to load it
 	if opts.PromptTemplate != "" {
@@ -400,13 +417,16 @@ func buildAgentPrompt(issue *model.Issue, opts *promptOptions) string {
 
 // executeTemplate executes a prompt template with issue data
 func executeTemplate(tmplStr string, issue *model.Issue, opts *promptOptions) string {
+	opts = applyPromptDefaults(opts)
+
 	// Simple template execution - replace placeholders
 	data := map[string]interface{}{
-		"IssueID":    issue.ID,
-		"Title":      issue.Title,
-		"Body":       issue.Body,
-		"NoPR":       opts.NoPR,
-		"BaseBranch": opts.BaseBranch,
+		"IssueID":        issue.ID,
+		"Title":          issue.Title,
+		"Body":           issue.Body,
+		"NoPR":           opts.NoPR,
+		"BaseBranch":     opts.BaseBranch,
+		"PRTargetBranch": opts.PRTargetBranch,
 	}
 
 	// Use text/template for proper template execution
@@ -426,6 +446,8 @@ func executeTemplate(tmplStr string, issue *model.Issue, opts *promptOptions) st
 
 // buildSimplePrompt creates a basic prompt without template processing
 func buildSimplePrompt(issue *model.Issue, opts *promptOptions) string {
+	opts = applyPromptDefaults(opts)
+
 	prompt := fmt.Sprintf("You are working on issue: %s\n\n", issue.ID)
 	if issue.Title != "" {
 		prompt += fmt.Sprintf("Title: %s\n\n", issue.Title)
@@ -437,7 +459,7 @@ func buildSimplePrompt(issue *model.Issue, opts *promptOptions) string {
 		prompt += "\nInstructions:\n"
 		prompt += "- Implement the changes described in the issue above\n"
 		prompt += "- Run tests to verify your changes work correctly\n"
-		prompt += fmt.Sprintf("- When complete, create a pull request targeting `%s`:\n", opts.BaseBranch)
+		prompt += fmt.Sprintf("- When complete, create a pull request targeting `%s`:\n", opts.PRTargetBranch)
 		prompt += "  - Title should summarize the change\n"
 		prompt += fmt.Sprintf("  - Body should reference issue: %s\n", issue.ID)
 		prompt += "  - Include a summary of changes made\n"
@@ -488,6 +510,10 @@ func applyPromptConfigDefaults(opts *runOptions) error {
 	// PromptTemplate: use config value if flag not provided
 	if opts.PromptTemplate == "" && cfg.PromptTemplate != "" {
 		opts.PromptTemplate = cfg.PromptTemplate
+	}
+
+	if opts.PRTargetBranch == "" && cfg.PRTargetBranch != "" {
+		opts.PRTargetBranch = cfg.PRTargetBranch
 	}
 
 	// For NoPR: config sets the default, but --no-pr flag overrides

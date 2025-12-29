@@ -25,6 +25,7 @@ type continueOptions struct {
 	TmuxSession    string
 	NoPR           bool
 	PromptTemplate string
+	PRTargetBranch string
 	Branch         string
 	IssueID        string
 	WorktreeDir    string
@@ -193,6 +194,7 @@ func continueFromRun(st store.Store, refStr string, opts *continueOptions) error
 	promptOpts := &promptOptions{
 		NoPR:           opts.NoPR,
 		PromptTemplate: opts.PromptTemplate,
+		PRTargetBranch: opts.PRTargetBranch,
 	}
 	if err := ensurePromptFile(fromRun.WorktreePath, issue, promptOpts); err != nil {
 		return exitWithCode(fmt.Errorf("failed to write prompt file: %w", err), ExitInternalError)
@@ -378,6 +380,7 @@ func continueFromBranch(st store.Store, refStr string, opts *continueOptions) er
 	promptOpts := &promptOptions{
 		NoPR:           opts.NoPR,
 		PromptTemplate: opts.PromptTemplate,
+		PRTargetBranch: opts.PRTargetBranch,
 	}
 	if err := ensurePromptFile(worktreePath, issue, promptOpts); err != nil {
 		return exitWithCode(fmt.Errorf("failed to write prompt file: %w", err), ExitInternalError)
@@ -511,6 +514,10 @@ func applyPromptConfigDefaultsForContinue(opts *continueOptions) error {
 
 	if opts.PromptTemplate == "" && cfg.PromptTemplate != "" {
 		opts.PromptTemplate = cfg.PromptTemplate
+	}
+
+	if opts.PRTargetBranch == "" && cfg.PRTargetBranch != "" {
+		opts.PRTargetBranch = cfg.PRTargetBranch
 	}
 
 	if cfg.NoPR && !opts.NoPR {
