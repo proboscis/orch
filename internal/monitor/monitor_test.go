@@ -170,7 +170,7 @@ func TestFilterBranchesForIssueSorting(t *testing.T) {
 	}
 }
 
-func TestDashboardRenderCapture(t *testing.T) {
+func TestDashboardRenderContext(t *testing.T) {
 	tests := []struct {
 		name         string
 		runs         []RunRow
@@ -246,18 +246,18 @@ func TestDashboardRenderCapture(t *testing.T) {
 				styles:  DefaultStyles(),
 			}
 
-			result := d.renderCapture(tt.height)
+			result := d.renderContext(tt.height)
 
 			if tt.wantEmpty {
 				if result != "" {
-					t.Errorf("renderCapture() = %q, want empty", result)
+					t.Errorf("renderContext() = %q, want empty", result)
 				}
 				return
 			}
 
 			for _, want := range tt.wantContains {
 				if !strings.Contains(result, want) {
-					t.Errorf("renderCapture() = %q, want to contain %q", result, want)
+					t.Errorf("renderContext() = %q, want to contain %q", result, want)
 				}
 			}
 		})

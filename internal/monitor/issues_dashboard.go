@@ -25,6 +25,7 @@ const (
 	modeContinueBranch
 	modeContinueAgent
 	modeContinuePrompt
+	modeIssueHelp
 )
 
 type createIssueState struct {
@@ -260,6 +261,8 @@ func (d *IssueDashboard) View() string {
 		return d.styles.Box.Render(d.viewContinueAgent())
 	case modeContinuePrompt:
 		return d.styles.Box.Render(d.viewContinuePrompt())
+	case modeIssueHelp:
+		return d.styles.Box.Render(d.viewHelp())
 	default:
 		return d.styles.Box.Render(d.viewIssues())
 	}
@@ -285,6 +288,8 @@ func (d *IssueDashboard) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d.handleContinueAgentKey(msg)
 	case modeContinuePrompt:
 		return d.handleContinuePromptKey(msg)
+	case modeIssueHelp:
+		return d.handleHelpKey(msg)
 	default:
 		return d.handleIssuesKey(msg)
 	}
@@ -365,9 +370,15 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		d.ensureCursorVisible()
 		return d, nil
 	case "?":
-		d.message = d.keymap.HelpLine()
+		d.mode = modeIssueHelp
 		return d, nil
 	}
+	return d, nil
+}
+
+func (d *IssueDashboard) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Any key dismisses the help popup
+	d.mode = modeIssues
 	return d, nil
 }
 
@@ -768,6 +779,49 @@ func (d *IssueDashboard) viewFilter() string {
 	}
 
 	lines = append(lines, "", "[Enter/Space] toggle  [Esc/f] close")
+	return strings.Join(lines, "\n")
+}
+
+func (d *IssueDashboard) viewHelp() string {
+	header := d.styles.Title.Render("HELP - KEYBINDINGS")
+	lines := []string{header, ""}
+
+	// Navigation section
+	lines = append(lines, d.styles.Header.Render("Navigation"))
+	lines = append(lines, fmt.Sprintf("  [%s]      Switch to runs view", d.keymap.Runs))
+	lines = append(lines, fmt.Sprintf("  [%s]      Switch to issues view (current)", d.keymap.Issues))
+	lines = append(lines, fmt.Sprintf("  [%s]      Switch to chat view", d.keymap.Chat))
+	lines = append(lines, fmt.Sprintf("  [up/k]   Move cursor up"))
+	lines = append(lines, fmt.Sprintf("  [down/j] Move cursor down"))
+	lines = append(lines, "")
+
+	// Issue actions section
+	lines = append(lines, d.styles.Header.Render("Issue Actions"))
+	lines = append(lines, fmt.Sprintf("  [%s]  Edit issue in $EDITOR", d.keymap.EditIssue))
+	lines = append(lines, fmt.Sprintf("  [%s]      Open issue in browser", d.keymap.Open))
+	lines = append(lines, fmt.Sprintf("  [%s]      Resolve/close issue", d.keymap.Resolve))
+	lines = append(lines, "")
+
+	// Run actions section
+	lines = append(lines, d.styles.Header.Render("Run Actions"))
+	lines = append(lines, fmt.Sprintf("  [%s]      Open run for selected issue", d.keymap.OpenRun))
+	lines = append(lines, fmt.Sprintf("  [%s]      Start new run", d.keymap.StartRun))
+	lines = append(lines, fmt.Sprintf("  [%s]      Continue previous run", d.keymap.ContinueRun))
+	lines = append(lines, "")
+
+	// View controls section
+	lines = append(lines, d.styles.Header.Render("View Controls"))
+	lines = append(lines, fmt.Sprintf("  [%s]      Filter issues", d.keymap.Filter))
+	lines = append(lines, fmt.Sprintf("  [%s]      Cycle sort order", d.keymap.Sort))
+	lines = append(lines, "")
+
+	// General section
+	lines = append(lines, d.styles.Header.Render("General"))
+	lines = append(lines, fmt.Sprintf("  [%s]      Show this help", d.keymap.Help))
+	lines = append(lines, fmt.Sprintf("  [%s]      Quit", d.keymap.Quit))
+	lines = append(lines, "")
+
+	lines = append(lines, d.styles.Faint.Render("Press any key to close"))
 	return strings.Join(lines, "\n")
 }
 
