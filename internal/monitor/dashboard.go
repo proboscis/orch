@@ -969,10 +969,6 @@ func (d *Dashboard) renderContext(height int) string {
 	return strings.Join(lines, "\n")
 }
 
-func (d *Dashboard) renderCapture(height int) string {
-	return d.renderContext(height)
-}
-
 func (d *Dashboard) captureLines(width int) []string {
 	if d.capture.loading && d.capture.content == "" {
 		return []string{d.styles.Faint.Render("Loading capture...")}

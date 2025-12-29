@@ -61,7 +61,6 @@ Orch is a non-interactive orchestrator for managing multiple LLM CLI agents (Cla
 
 ### Maintenance
 - `orch repair`: Fix system state corruption
-- `orch tick <RUN_REF>`: Resume blocked runs
 
 ## Run Lifecycle States
 

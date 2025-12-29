@@ -150,25 +150,6 @@ tmux attach（画像コピペ等の手動対話）
 
 ---
 
-## orch tick RUN_REF | --all
-
-blocked等のrunを再開するトリガ（質問が解消されていれば次フェーズを進める）
-
-### オプション
-
-| オプション | 説明 |
-|-----------|------|
-| `--only-blocked` | default on when --all |
-| `--agent …` | 再開時のagent指定 |
-| `--max N` | --all時の最大処理件数 |
-
-### 挙動
-
-- runのeventsを読み、未回答questionが無ければ agent を再起動（新window推奨）
-- 未回答があれば何もしない
-
----
-
 ## orch open ISSUE_ID|RUN_REF
 
 Obsidian/Editorで該当ノートを開く
