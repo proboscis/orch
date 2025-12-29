@@ -548,37 +548,6 @@ orch repair --force
 - Detects orphaned worktrees/sessions (warns)
 - Corrects inconsistent state
 
-### orch tick RUN_REF|--all
-
-Resume blocked runs when questions are answered.
-
-```bash
-# Tick specific run
-orch tick orch-055#20251223-165605
-
-# Tick all blocked runs
-orch tick --all
-
-# Limit number processed
-orch tick --all --max 5
-
-# Specify agent for restart
-orch tick orch-055 --agent claude
-```
-
-**Flags:**
-| Flag | Description |
-|------|-------------|
-| `--all` | Process all blocked runs |
-| `--only-blocked` | Only blocked (default with --all) |
-| `--agent` | Agent for restart |
-| `--max N` | Max runs to process |
-
-**Behavior:**
-- Reads run events for unanswered questions
-- If no questions pending, restarts agent
-- Otherwise, does nothing
-
 ---
 
 ## Examples by Use Case

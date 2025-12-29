@@ -521,29 +521,3 @@ func TestRunWithTmux(t *testing.T) {
 		exec.Command("git", "-C", testRepo, "worktree", "remove", result.WorktreePath, "--force").Run()
 	}
 }
-
-func TestTickBlocked(t *testing.T) {
-	createTestIssue(t, "tick-test", "---\ntype: issue\nid: tick-test\ntitle: Tick Test\n---\n# Tick Test")
-
-	runDir := filepath.Join(testVault, "runs", "tick-test")
-	os.MkdirAll(runDir, 0755)
-
-	// Create a blocked run
-	runContent := `---
-issue: tick-test
-run: 20231220-100000
----
-
-# Events
-
-- 2023-12-20T10:00:00+09:00 | status | blocked
-`
-	os.WriteFile(filepath.Join(runDir, "20231220-100000.md"), []byte(runContent), 0644)
-
-	// Tick the blocked run
-	output, err := runOrch(t, "tick", "tick-test#20231220-100000", "--json")
-	if err != nil {
-		t.Logf("tick output: %s", output)
-		// tick may fail if tmux is not available, that's ok for this test
-	}
-}

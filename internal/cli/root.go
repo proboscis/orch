@@ -81,7 +81,6 @@ func init() {
 	rootCmd.AddCommand(newContinueCmd())
 	rootCmd.AddCommand(newShowCmd())
 	rootCmd.AddCommand(newAttachCmd())
-	rootCmd.AddCommand(newTickCmd())
 	rootCmd.AddCommand(newOpenCmd())
 	rootCmd.AddCommand(newStopCmd())
 	rootCmd.AddCommand(newMonitorCmd())
