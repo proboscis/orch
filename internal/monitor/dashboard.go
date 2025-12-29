@@ -637,7 +637,11 @@ func (d *Dashboard) requestMergeCmd(run *model.Run) tea.Cmd {
 }
 
 func (d *Dashboard) viewDashboard() string {
-	title := d.styles.Title.Render("ORCH MONITOR")
+	titleText := "ORCH MONITOR"
+	if repoName := d.monitor.RepoName(); repoName != "" {
+		titleText = fmt.Sprintf("ORCH MONITOR (%s)", repoName)
+	}
+	title := d.styles.Title.Render(titleText)
 	meta := d.renderMeta()
 	table := d.renderTable(d.tableMaxRows())
 	stats := d.renderStats()

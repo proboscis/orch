@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/store"
 )
 
 func TestSessionNameForVault(t *testing.T) {
@@ -91,6 +92,64 @@ func TestSessionNameForVaultUniqueness(t *testing.T) {
 
 	if result1 == result2 {
 		t.Errorf("different paths produced same session name: %q", result1)
+	}
+}
+
+type mockStore struct {
+	vaultPath string
+}
+
+func (m *mockStore) VaultPath() string                                              { return m.vaultPath }
+func (m *mockStore) ListRuns(_ *store.ListRunsFilter) ([]*model.Run, error)         { return nil, nil }
+func (m *mockStore) GetRun(_ *model.RunRef) (*model.Run, error)                     { return nil, nil }
+func (m *mockStore) GetRunByShortID(_ string) (*model.Run, error)                   { return nil, nil }
+func (m *mockStore) GetLatestRun(_ string) (*model.Run, error)                      { return nil, nil }
+func (m *mockStore) ListIssues() ([]*model.Issue, error)                            { return nil, nil }
+func (m *mockStore) ResolveIssue(_ string) (*model.Issue, error)                    { return nil, nil }
+func (m *mockStore) SetIssueStatus(_ string, _ model.IssueStatus) error             { return nil }
+func (m *mockStore) CreateRun(_ string, _ string, _ map[string]string) (*model.Run, error) {
+	return nil, nil
+}
+func (m *mockStore) AppendEvent(_ *model.RunRef, _ *model.Event) error { return nil }
+
+func TestMonitorRepoName(t *testing.T) {
+	tests := []struct {
+		name      string
+		vaultPath string
+		want      string
+	}{
+		{
+			name:      "empty vault path returns empty",
+			vaultPath: "",
+			want:      "",
+		},
+		{
+			name:      "typical vault path extracts repo name",
+			vaultPath: "/home/user/projects/myrepo/.orch/vault",
+			want:      "myrepo",
+		},
+		{
+			name:      "repo with dots",
+			vaultPath: "/home/user/my.project/.orch/vault",
+			want:      "my.project",
+		},
+		{
+			name:      "repo with hyphens",
+			vaultPath: "/home/user/my-project/.orch/vault",
+			want:      "my-project",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Monitor{
+				store: &mockStore{vaultPath: tt.vaultPath},
+			}
+			result := m.RepoName()
+			if result != tt.want {
+				t.Errorf("RepoName() = %q, want %q", result, tt.want)
+			}
+		})
 	}
 }
 

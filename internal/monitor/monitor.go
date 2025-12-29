@@ -130,6 +130,20 @@ func (m *Monitor) IssueSort() SortKey {
 	return m.issueSort
 }
 
+// RepoName returns the repository name derived from the vault path.
+func (m *Monitor) RepoName() string {
+	vaultPath := m.store.VaultPath()
+	if vaultPath == "" {
+		return ""
+	}
+	// Get parent of vault (.orch directory)
+	orchDir := filepath.Dir(vaultPath)
+	// Get parent of .orch (repository root)
+	repoRoot := filepath.Dir(orchDir)
+	// Return base name of repository
+	return filepath.Base(repoRoot)
+}
+
 // CycleRunSort advances to the next run sort key and saves the setting.
 func (m *Monitor) CycleRunSort() SortKey {
 	m.runSort = NextSortKey(m.runSort)
