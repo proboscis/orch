@@ -2,7 +2,9 @@ package monitor
 
 import (
 	"fmt"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -308,6 +310,12 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if d.cursor >= 0 && d.cursor < len(d.runs) {
 			run := d.runs[d.cursor].Run
 			return d, d.requestMergeCmd(run)
+		}
+		return d, nil
+	case d.keymap.OpenPR:
+		if d.cursor >= 0 && d.cursor < len(d.runs) {
+			run := d.runs[d.cursor].Run
+			return d, d.openPRCmd(run)
 		}
 		return d, nil
 	case "up", "k":
@@ -636,6 +644,40 @@ func (d *Dashboard) requestMergeCmd(run *model.Run) tea.Cmd {
 	}
 }
 
+func (d *Dashboard) openPRCmd(run *model.Run) tea.Cmd {
+	return func() tea.Msg {
+		if run == nil {
+			return errMsg{err: fmt.Errorf("run not found")}
+		}
+		prURL := strings.TrimSpace(run.PRUrl)
+		if prURL == "" {
+			return errMsg{err: fmt.Errorf("no PR associated with this run")}
+		}
+		if err := openURL(prURL); err != nil {
+			return errMsg{err: fmt.Errorf("failed to open PR: %w", err)}
+		}
+		return infoMsg{text: fmt.Sprintf("opened PR: %s", prURL)}
+	}
+}
+
+// openURL opens the given URL in the default system browser.
+func openURL(url string) error {
+	var cmd *exec.Cmd
+
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", url)
+	default:
+		return fmt.Errorf("unsupported OS: %s", runtime.GOOS)
+	}
+
+	return cmd.Run()
+}
+
 func (d *Dashboard) viewDashboard() string {
 	title := d.styles.Title.Render("ORCH MONITOR")
 	meta := d.renderMeta()
@@ -731,6 +773,7 @@ func (d *Dashboard) viewHelp() string {
 		"  n          New run (select issue to start)",
 		"  R          Resolve run and mark issue as resolved",
 		"  M          Request merge for run",
+		"  P          Open PR in browser",
 		"",
 		d.styles.Header.Render("Filtering & Sorting"),
 		"  f  or  /   Enter filter mode",
