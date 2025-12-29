@@ -23,6 +23,7 @@ const (
 	modeStopSelectRun
 	modeNewSelectIssue
 	modeDashboardFilter
+	modeHelp
 )
 
 type stopState struct {
@@ -234,6 +235,8 @@ func (d *Dashboard) View() string {
 		return d.styles.Box.Render(d.viewNewRun())
 	case modeDashboardFilter:
 		return d.styles.Box.Render(d.viewFilter())
+	case modeHelp:
+		return d.styles.Box.Render(d.viewHelp())
 	default:
 		return d.styles.Box.Render(d.viewDashboard())
 	}
@@ -253,6 +256,8 @@ func (d *Dashboard) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d.handleNewRunKey(msg)
 	case modeDashboardFilter:
 		return d.handleFilterKey(msg)
+	case modeHelp:
+		return d.handleHelpKey(msg)
 	default:
 		return d, nil
 	}
@@ -337,10 +342,16 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		d.message = "no run selected"
 		return d, nil
 	case "?":
-		d.message = d.keymap.HelpLine()
+		d.mode = modeHelp
 		return d, nil
 	}
 
+	return d, nil
+}
+
+func (d *Dashboard) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Any key dismisses the help popup
+	d.mode = modeDashboard
 	return d, nil
 }
 
@@ -702,6 +713,40 @@ func (d *Dashboard) viewNewRun() string {
 	return strings.Join(lines, "\n")
 }
 
+func (d *Dashboard) viewHelp() string {
+	lines := []string{
+		d.styles.Title.Render("HELP - KEYBOARD SHORTCUTS"),
+		"",
+		d.styles.Header.Render("Navigation"),
+		"  g          Switch to Runs dashboard",
+		"  i          Switch to Issues dashboard",
+		"  c          Switch to Chat pane",
+		"  up / k     Move cursor up",
+		"  down / j   Move cursor down",
+		"",
+		d.styles.Header.Render("Run Actions"),
+		"  enter      Open selected run",
+		"  e          Execute shell in run's worktree",
+		"  s          Stop run (select from active runs)",
+		"  n          New run (select issue to start)",
+		"  R          Resolve run and mark issue as resolved",
+		"  M          Request merge for run",
+		"",
+		d.styles.Header.Render("Filtering & Sorting"),
+		"  f  or  /   Enter filter mode",
+		"  F          Cycle quick filter presets",
+		"  S          Cycle sort order",
+		"",
+		d.styles.Header.Render("Other"),
+		"  r          Refresh data",
+		"  q          Quit monitor",
+		"  ?          Show this help",
+		"",
+		d.styles.Faint.Render("Press any key to close this help"),
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (d *Dashboard) selectedRun() *model.Run {
 	if d.cursor >= 0 && d.cursor < len(d.runs) {
 		return d.runs[d.cursor].Run
@@ -936,6 +981,32 @@ func (d *Dashboard) captureLines(width int) []string {
 		return []string{d.styles.Faint.Render("No capture available.")}
 	}
 	return wrapText(content, width)
+}
+
+// renderCapture renders the capture pane for testing.
+func (d *Dashboard) renderCapture(height int) string {
+	if height <= 0 {
+		return ""
+	}
+	width := d.safeWidth()
+	captureLabel := "CAPTURE"
+	if run := d.selectedRun(); run != nil {
+		captureLabel = fmt.Sprintf("CAPTURE %s", run.Ref().String())
+	}
+	captureHeader := d.styles.Header.Render(truncate(captureLabel, width))
+	if height == 1 {
+		return captureHeader
+	}
+
+	contentHeight := height - 1
+	captureContent := d.captureLines(width)
+	if len(captureContent) > contentHeight && contentHeight > 0 {
+		captureContent = captureContent[len(captureContent)-contentHeight:]
+	}
+
+	lines := []string{captureHeader}
+	lines = append(lines, captureContent...)
+	return strings.Join(lines, "\n")
 }
 
 func (d *Dashboard) issueLines(width int) []string {
