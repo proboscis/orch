@@ -23,6 +23,7 @@ const (
 	modeStopSelectRun
 	modeNewSelectIssue
 	modeDashboardFilter
+	modeRunsHelp
 )
 
 type stopState struct {
@@ -234,6 +235,8 @@ func (d *Dashboard) View() string {
 		return d.styles.Box.Render(d.viewNewRun())
 	case modeDashboardFilter:
 		return d.styles.Box.Render(d.viewFilter())
+	case modeRunsHelp:
+		return d.styles.Box.Render(d.viewHelp())
 	default:
 		return d.styles.Box.Render(d.viewDashboard())
 	}
@@ -253,6 +256,8 @@ func (d *Dashboard) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d.handleNewRunKey(msg)
 	case modeDashboardFilter:
 		return d.handleFilterKey(msg)
+	case modeRunsHelp:
+		return d.handleHelpKey(msg)
 	default:
 		return d, nil
 	}
@@ -337,10 +342,16 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		d.message = "no run selected"
 		return d, nil
 	case "?":
-		d.message = d.keymap.HelpLine()
+		d.mode = modeRunsHelp
 		return d, nil
 	}
 
+	return d, nil
+}
+
+func (d *Dashboard) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Any key dismisses the help popup
+	d.mode = modeDashboard
 	return d, nil
 }
 
@@ -699,6 +710,47 @@ func (d *Dashboard) viewNewRun() string {
 		lines = append(lines, label)
 	}
 	lines = append(lines, "", "[Enter] start  [Esc] cancel")
+	return strings.Join(lines, "\n")
+}
+
+func (d *Dashboard) viewHelp() string {
+	header := d.styles.Title.Render("HELP - KEYBINDINGS")
+	lines := []string{header, ""}
+
+	// Navigation section
+	lines = append(lines, d.styles.Header.Render("Navigation"))
+	lines = append(lines, fmt.Sprintf("  [%s]      Switch to runs view (current)", d.keymap.Runs))
+	lines = append(lines, fmt.Sprintf("  [%s]      Switch to issues view", d.keymap.Issues))
+	lines = append(lines, fmt.Sprintf("  [%s]      Switch to chat view", d.keymap.Chat))
+	lines = append(lines, "  [up/k]   Move cursor up")
+	lines = append(lines, "  [down/j] Move cursor down")
+	lines = append(lines, "")
+
+	// Run actions section
+	lines = append(lines, d.styles.Header.Render("Run Actions"))
+	lines = append(lines, fmt.Sprintf("  [%s]  Open run in tmux", d.keymap.Open))
+	lines = append(lines, fmt.Sprintf("  [%s]      Open shell in worktree", d.keymap.Exec))
+	lines = append(lines, fmt.Sprintf("  [%s]      Stop a running run", d.keymap.Stop))
+	lines = append(lines, fmt.Sprintf("  [%s]      Start new run", d.keymap.NewRun))
+	lines = append(lines, fmt.Sprintf("  [%s]      Resolve run and issue", d.keymap.Resolve))
+	lines = append(lines, fmt.Sprintf("  [%s]      Request merge for run", d.keymap.Merge))
+	lines = append(lines, "")
+
+	// View controls section
+	lines = append(lines, d.styles.Header.Render("View Controls"))
+	lines = append(lines, fmt.Sprintf("  [%s]      Refresh runs", d.keymap.Refresh))
+	lines = append(lines, fmt.Sprintf("  [%s]      Cycle sort order", d.keymap.Sort))
+	lines = append(lines, fmt.Sprintf("  [%s]      Open filter dialog", d.keymap.Filter))
+	lines = append(lines, fmt.Sprintf("  [%s]      Cycle quick filter presets", d.keymap.QuickFilter))
+	lines = append(lines, "")
+
+	// General section
+	lines = append(lines, d.styles.Header.Render("General"))
+	lines = append(lines, fmt.Sprintf("  [%s]      Show this help", d.keymap.Help))
+	lines = append(lines, fmt.Sprintf("  [%s]      Quit", d.keymap.Quit))
+	lines = append(lines, "")
+
+	lines = append(lines, d.styles.Faint.Render("Press any key to close"))
 	return strings.Join(lines, "\n")
 }
 
