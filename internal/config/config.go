@@ -16,19 +16,21 @@ type Config struct {
 	LogLevel       string `yaml:"log_level"`
 	PromptTemplate string `yaml:"prompt_template"` // Path to custom prompt template
 	NoPR           bool   `yaml:"no_pr"`           // Disable PR instructions by default
+	PRViewer       string `yaml:"pr_viewer"`       // Preferred PR diff viewer: octo, gh-diff, pager
 }
 
 type fileConfig struct {
-	Vault           string `yaml:"vault"`
-	VaultLegacy     string `yaml:"Vault"`
-	DefaultVault    string `yaml:"default_vault"`
-	Agent           string `yaml:"agent"`
-	WorktreeDir     string `yaml:"worktree_dir"`
+	Vault             string `yaml:"vault"`
+	VaultLegacy       string `yaml:"Vault"`
+	DefaultVault      string `yaml:"default_vault"`
+	Agent             string `yaml:"agent"`
+	WorktreeDir       string `yaml:"worktree_dir"`
 	WorktreeDirLegacy string `yaml:"worktree_root"` // Legacy name for backwards compatibility
-	BaseBranch      string `yaml:"base_branch"`
-	LogLevel        string `yaml:"log_level"`
-	PromptTemplate  string `yaml:"prompt_template"`
-	NoPR            *bool  `yaml:"no_pr"`
+	BaseBranch        string `yaml:"base_branch"`
+	LogLevel          string `yaml:"log_level"`
+	PromptTemplate    string `yaml:"prompt_template"`
+	NoPR              *bool  `yaml:"no_pr"`
+	PRViewer          string `yaml:"pr_viewer"`
 }
 
 // configFile is the name of the config file
@@ -187,6 +189,9 @@ func loadFromFile(path string, cfg *Config) error {
 	if fileCfg.NoPR != nil {
 		cfg.NoPR = *fileCfg.NoPR
 	}
+	if fileCfg.PRViewer != "" {
+		cfg.PRViewer = fileCfg.PRViewer
+	}
 
 	return nil
 }
@@ -238,6 +243,9 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("ORCH_NO_PR"); v != "" {
 		cfg.NoPR = v == "true" || v == "1" || v == "yes"
+	}
+	if v := os.Getenv("ORCH_PR_VIEWER"); v != "" {
+		cfg.PRViewer = v
 	}
 }
 

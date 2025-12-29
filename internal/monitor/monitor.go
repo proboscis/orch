@@ -539,6 +539,116 @@ func (m *Monitor) SetIssueStatus(issueID string, status model.IssueStatus) error
 	return m.store.SetIssueStatus(issueID, status)
 }
 
+// OpenPRDiff opens the PR diff viewer for a run.
+// It tries viewers in order: configured viewer -> octo.nvim -> $EDITOR -> pager.
+func (m *Monitor) OpenPRDiff(run *model.Run) error {
+	if run == nil {
+		return fmt.Errorf("run not found")
+	}
+
+	// Get PR info for this run
+	prInfo, err := m.getPRInfo(run)
+	if err != nil {
+		return err
+	}
+
+	// Get configured viewer preference
+	viewer := ""
+	if cfg, err := config.Load(); err == nil {
+		viewer = cfg.PRViewer
+	}
+
+	// Try configured viewer first
+	if viewer != "" {
+		switch viewer {
+		case "octo":
+			if m.tryOctoDiff(prInfo.Number) == nil {
+				return nil
+			}
+		case "gh-diff":
+			if m.tryEditorDiff(prInfo.Number) == nil {
+				return nil
+			}
+		case "pager":
+			return m.tryPagerDiff(prInfo.Number)
+		}
+	}
+
+	// Fallback chain: octo.nvim -> $EDITOR -> pager
+	if m.tryOctoDiff(prInfo.Number) == nil {
+		return nil
+	}
+	if m.tryEditorDiff(prInfo.Number) == nil {
+		return nil
+	}
+	return m.tryPagerDiff(prInfo.Number)
+}
+
+// getPRInfo retrieves PR information for a run.
+func (m *Monitor) getPRInfo(run *model.Run) (*pr.Info, error) {
+	if run.Branch == "" {
+		return nil, fmt.Errorf("run has no branch")
+	}
+
+	// Use the PR lookup functionality
+	info, err := pr.LookupInfo("", run.Branch)
+	if err != nil {
+		return nil, fmt.Errorf("failed to lookup PR: %w", err)
+	}
+	if info == nil {
+		return nil, fmt.Errorf("no PR found for branch %s", run.Branch)
+	}
+	return info, nil
+}
+
+// tryOctoDiff tries to open PR in octo.nvim.
+func (m *Monitor) tryOctoDiff(prNumber int) error {
+	// Check if nvim is available
+	if _, err := exec.LookPath("nvim"); err != nil {
+		return err
+	}
+
+	// Check if octo.nvim is configured (we'll try to run it and see if it works)
+	windowName := fmt.Sprintf("pr-diff-%d", prNumber)
+	cmd := fmt.Sprintf("nvim -c 'Octo pr edit %d'", prNumber)
+
+	return tmux.NewWindow(m.session, windowName, "", cmd)
+}
+
+// tryEditorDiff tries to open PR diff in $EDITOR with diff syntax.
+func (m *Monitor) tryEditorDiff(prNumber int) error {
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		return fmt.Errorf("EDITOR not set")
+	}
+
+	windowName := fmt.Sprintf("pr-diff-%d", prNumber)
+
+	// Use gh pr diff piped to editor with diff filetype
+	var cmd string
+	if strings.Contains(editor, "vim") || strings.Contains(editor, "nvim") {
+		cmd = fmt.Sprintf("gh pr diff %d | %s -c 'set ft=diff' -", prNumber, editor)
+	} else {
+		// For other editors, just pipe the diff
+		cmd = fmt.Sprintf("gh pr diff %d | %s -", prNumber, editor)
+	}
+
+	return tmux.NewWindow(m.session, windowName, "", cmd)
+}
+
+// tryPagerDiff opens PR diff in $PAGER or less.
+func (m *Monitor) tryPagerDiff(prNumber int) error {
+	pager := os.Getenv("PAGER")
+	if pager == "" {
+		pager = "less"
+	}
+
+	windowName := fmt.Sprintf("pr-diff-%d", prNumber)
+	cmd := fmt.Sprintf("gh pr diff %d | %s", prNumber, pager)
+
+	return tmux.NewWindow(m.session, windowName, "", cmd)
+}
+
 // ResolveRun marks the run as done and its corresponding issue as resolved.
 func (m *Monitor) ResolveRun(run *model.Run) error {
 	if run == nil {
