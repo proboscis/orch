@@ -2,6 +2,8 @@ package monitor
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -112,6 +114,10 @@ type execFinishedMsg struct {
 	err error
 }
 
+type openIssueFinishedMsg struct {
+	err error
+}
+
 // NewDashboard creates a dashboard model.
 func NewDashboard(m *Monitor) *Dashboard {
 	return &Dashboard{
@@ -210,6 +216,12 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case execFinishedMsg:
 		if msg.err != nil {
 			d.message = msg.err.Error()
+		}
+		d.refreshing = true
+		return d, d.refreshCmd()
+	case openIssueFinishedMsg:
+		if msg.err != nil {
+			d.message = fmt.Sprintf("editor error: %v", msg.err)
 		}
 		d.refreshing = true
 		return d, d.refreshCmd()
@@ -331,6 +343,24 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				d.message = err.Error()
 			}
 		}
+		return d, nil
+	case d.keymap.OpenIssue:
+		if d.cursor >= 0 && d.cursor < len(d.runs) {
+			run := d.runs[d.cursor].Run
+			if run != nil {
+				issue, err := d.monitor.store.ResolveIssue(run.IssueID)
+				if err != nil {
+					d.message = fmt.Sprintf("issue not found: %s", run.IssueID)
+					return d, nil
+				}
+				if issue.Path == "" {
+					d.message = fmt.Sprintf("issue has no file path: %s", run.IssueID)
+					return d, nil
+				}
+				return d, d.openIssueInEditorCmd(issue.Path)
+			}
+		}
+		d.message = "no run selected"
 		return d, nil
 	case d.keymap.Exec:
 		if d.cursor >= 0 && d.cursor < len(d.runs) {
@@ -615,6 +645,20 @@ func (d *Dashboard) execShellCmd(run *model.Run) tea.Cmd {
 		}
 		return execFinishedMsg{err: nil}
 	}
+}
+
+// openIssueInEditorCmd opens the issue file in $EDITOR, suspending the TUI.
+// When the editor closes, the TUI resumes and the runs list is refreshed.
+func (d *Dashboard) openIssueInEditorCmd(path string) tea.Cmd {
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vim"
+	}
+
+	c := exec.Command(editor, path)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return openIssueFinishedMsg{err: err}
+	})
 }
 
 func (d *Dashboard) requestMergeCmd(run *model.Run) tea.Cmd {
