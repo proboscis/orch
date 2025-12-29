@@ -341,6 +341,15 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		d.message = "no run selected"
 		return d, nil
+	case d.keymap.Diff:
+		if d.cursor >= 0 && d.cursor < len(d.runs) {
+			run := d.runs[d.cursor].Run
+			if run != nil {
+				return d, d.openPRDiffCmd(run)
+			}
+		}
+		d.message = "no run selected"
+		return d, nil
 	case "?":
 		d.mode = modeHelp
 		return d, nil
@@ -636,6 +645,18 @@ func (d *Dashboard) requestMergeCmd(run *model.Run) tea.Cmd {
 	}
 }
 
+func (d *Dashboard) openPRDiffCmd(run *model.Run) tea.Cmd {
+	return func() tea.Msg {
+		if run == nil {
+			return errMsg{err: fmt.Errorf("run not found")}
+		}
+		if err := d.monitor.OpenPRDiff(run); err != nil {
+			return errMsg{err: err}
+		}
+		return execFinishedMsg{err: nil}
+	}
+}
+
 func (d *Dashboard) viewDashboard() string {
 	title := d.styles.Title.Render("ORCH MONITOR")
 	meta := d.renderMeta()
@@ -727,6 +748,7 @@ func (d *Dashboard) viewHelp() string {
 		d.styles.Header.Render("Run Actions"),
 		"  enter      Open selected run",
 		"  e          Execute shell in run's worktree",
+		"  d          View PR diff in terminal",
 		"  s          Stop run (select from active runs)",
 		"  n          New run (select issue to start)",
 		"  R          Resolve run and mark issue as resolved",
