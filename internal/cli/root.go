@@ -92,6 +92,7 @@ func init() {
 	rootCmd.AddCommand(newExecCmd())
 	rootCmd.AddCommand(newSendCmd())
 	rootCmd.AddCommand(newCaptureCmd())
+	rootCmd.AddCommand(newCaptureAllCmd())
 }
 
 // Execute runs the root command
