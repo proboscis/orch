@@ -24,6 +24,7 @@ type runOptions struct {
 	Agent          string
 	AgentCmd       string
 	AgentProfile   string
+	Model          string // Model name for agents (e.g., claude-sonnet-4-5-20250929, gpt-5-codex, gemini-2.5-pro)
 	BaseBranch     string
 	Branch         string
 	WorktreeDir    string
@@ -57,6 +58,7 @@ The run will be started in a tmux session by default.`,
 	cmd.Flags().StringVar(&opts.Agent, "agent", "", "Agent type (claude|codex|gemini|custom)")
 	cmd.Flags().StringVar(&opts.AgentCmd, "agent-cmd", "", "Custom agent command (when --agent=custom)")
 	cmd.Flags().StringVar(&opts.AgentProfile, "profile", "", "Agent profile (e.g., claude --profile)")
+	cmd.Flags().StringVar(&opts.Model, "model", "", "Model name for the agent (e.g., claude-sonnet-4-5-20250929, gpt-5-codex, gemini-2.5-pro)")
 	cmd.Flags().StringVar(&opts.BaseBranch, "base-branch", "", "Base branch for worktree")
 	cmd.Flags().StringVar(&opts.Branch, "branch", "", "Branch name (default: issue/<ID>/run-<RUN_ID>)")
 	cmd.Flags().StringVar(&opts.WorktreeDir, "worktree-dir", "", "Directory for worktrees (default: ~/.orch/worktrees)")
@@ -171,6 +173,7 @@ func runRun(issueID string, opts *runOptions) error {
 			Branch:    branch,
 			Prompt:    promptFileInstruction,
 			Profile:   opts.AgentProfile,
+			Model:     opts.Model,
 		}
 		agentCmd, _ := adapter.LaunchCommand(launchCfg)
 
@@ -267,6 +270,7 @@ func runRun(issueID string, opts *runOptions) error {
 		Branch:    worktreeResult.Branch,
 		Prompt:    promptFileInstruction,
 		Profile:   opts.AgentProfile,
+		Model:     opts.Model,
 	}
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)
@@ -494,6 +498,11 @@ func applyPromptConfigDefaults(opts *runOptions) error {
 		} else {
 			opts.Agent = "claude"
 		}
+	}
+
+	// Model: use config value if flag not provided (no fallback - agent CLI uses its own default)
+	if opts.Model == "" && cfg.Model != "" {
+		opts.Model = cfg.Model
 	}
 
 	// WorktreeDir: use config value if flag not provided, fallback to "~/.orch/worktrees"

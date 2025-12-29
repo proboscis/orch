@@ -22,6 +22,12 @@ func (a *GeminiAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 
 	// gemini CLI with yolo mode
 	args = append(args, "gemini", "--yolo")
+
+	// Add model if specified
+	if cfg.Model != "" {
+		args = append(args, "--model", cfg.Model)
+	}
+
 	if cfg.Prompt != "" {
 		args = append(args, "--prompt-interactive", doubleQuote(cfg.Prompt))
 	}
