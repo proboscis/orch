@@ -428,11 +428,17 @@ func (m *Monitor) StopRun(run *model.Run) error {
 }
 
 // StartRun launches a new run by invoking the orch binary.
+// agentType can include a variant suffix (e.g., "opencode:max") which will be
+// parsed into separate --agent and --model-variant flags.
 func (m *Monitor) StartRun(issueID string, agentType string) (string, error) {
 	args := append([]string{}, m.globalFlags...)
 	args = append(args, "run", issueID)
 	if agentType != "" {
-		args = append(args, "--agent", agentType)
+		agentName, variant := parseAgentVariant(agentType)
+		args = append(args, "--agent", agentName)
+		if variant != "" {
+			args = append(args, "--model-variant", variant)
+		}
 	}
 
 	cmd := exec.Command(m.orchPath, args...)
@@ -454,12 +460,25 @@ func (m *Monitor) StartRun(issueID string, agentType string) (string, error) {
 	return output, nil
 }
 
+func parseAgentVariant(agentType string) (agent, variant string) {
+	if idx := strings.Index(agentType, ":"); idx != -1 {
+		return agentType[:idx], agentType[idx+1:]
+	}
+	return agentType, ""
+}
+
+// OpenCodeVariants defines the model variants available for opencode agent.
+// These correspond to different thinking modes (e.g., "max" for extended thinking).
+var OpenCodeVariants = []string{"max"}
+
 // GetAvailableAgents returns a list of available agent types.
+// For opencode, it also includes variants like "opencode:max".
 func (m *Monitor) GetAvailableAgents() []string {
 	agents := []string{
 		string(agent.AgentClaude),
 		string(agent.AgentCodex),
 		string(agent.AgentGemini),
+		string(agent.AgentOpenCode),
 		string(agent.AgentCustom),
 	}
 
@@ -478,6 +497,11 @@ func (m *Monitor) GetAvailableAgents() []string {
 		// For others, check if the CLI is installed
 		if adapter.IsAvailable() {
 			available = append(available, agentName)
+			if aType == agent.AgentOpenCode {
+				for _, variant := range OpenCodeVariants {
+					available = append(available, agentName+":"+variant)
+				}
+			}
 		}
 	}
 
@@ -603,7 +627,11 @@ func (m *Monitor) ContinueRun(issueID, branch, agentType, prompt string) (string
 	args := append([]string{}, m.globalFlags...)
 	args = append(args, "continue", "--issue", issueID, "--branch", branch)
 	if agentType != "" {
-		args = append(args, "--agent", agentType)
+		agentName, variant := parseAgentVariant(agentType)
+		args = append(args, "--agent", agentName)
+		if variant != "" {
+			args = append(args, "--model-variant", variant)
+		}
 	}
 
 	cmd := exec.Command(m.orchPath, args...)
