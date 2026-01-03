@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -285,16 +286,34 @@ func runRun(issueID string, opts *runOptions) error {
 			return exitWithCode(fmt.Errorf("tmux is not available"), ExitTmuxError)
 		}
 
-		// For HTTP-based agents, check if server is already running
+		// For HTTP-based agents, check if server is already running for THIS worktree
 		serverAlreadyRunning := false
 		if adapter.PromptInjection() == agent.InjectionHTTP {
 			client := agent.NewOpenCodeClient(launchCfg.Port)
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			serverAlreadyRunning = client.IsServerRunning(ctx)
-			cancel()
+			serverAlreadyRunning = client.IsServerRunningForWorktree(ctx, worktreeResult.WorktreePath)
+
 			if serverAlreadyRunning {
-				fmt.Fprintf(os.Stderr, "opencode server already running on port %d, reusing\n", launchCfg.Port)
+				fmt.Fprintf(os.Stderr, "opencode server already running on port %d for this worktree, reusing\n", launchCfg.Port)
+			} else if client.IsServerRunning(ctx) {
+				// Server running for different project, find an available port
+				fmt.Fprintf(os.Stderr, "opencode server running on port %d for different project, finding new port\n", launchCfg.Port)
+				newPort := findAvailablePort(launchCfg.Port+1, launchCfg.Port+100)
+				if newPort == 0 {
+					cancel()
+					st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+					return exitWithCode(fmt.Errorf("no available port found for opencode server"), ExitAgentError)
+				}
+				launchCfg.Port = newPort
+				// Regenerate the agent command with new port
+				agentCmd, err = adapter.LaunchCommand(launchCfg)
+				if err != nil {
+					cancel()
+					return exitWithCode(err, ExitAgentError)
+				}
+				fmt.Fprintf(os.Stderr, "using port %d for opencode server\n", newPort)
 			}
+			cancel()
 		}
 
 		// Only create tmux session if server is not already running
@@ -619,4 +638,18 @@ func injectPromptViaHTTP(st interface {
 	}
 
 	return nil
+}
+
+// findAvailablePort finds an available port in the given range
+// Returns 0 if no port is available
+func findAvailablePort(start, end int) int {
+	for port := start; port <= end; port++ {
+		addr := fmt.Sprintf("127.0.0.1:%d", port)
+		listener, err := net.Listen("tcp", addr)
+		if err == nil {
+			listener.Close()
+			return port
+		}
+	}
+	return 0
 }

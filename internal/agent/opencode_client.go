@@ -130,6 +130,52 @@ func (c *OpenCodeClient) IsServerRunning(ctx context.Context) bool {
 	return err == nil && health.Healthy
 }
 
+// ProjectInfo represents the current project info from opencode
+type ProjectInfo struct {
+	ID       string `json:"id"`
+	Worktree string `json:"worktree"`
+}
+
+// GetCurrentProject returns the current project info from the server
+func (c *OpenCodeClient) GetCurrentProject(ctx context.Context) (*ProjectInfo, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/project/current", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating project request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("getting project: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("get project returned status %d", resp.StatusCode)
+	}
+
+	var project ProjectInfo
+	if err := json.NewDecoder(resp.Body).Decode(&project); err != nil {
+		return nil, fmt.Errorf("decoding project response: %w", err)
+	}
+
+	return &project, nil
+}
+
+// IsServerRunningForWorktree checks if the server is running AND serving the specified worktree
+func (c *OpenCodeClient) IsServerRunningForWorktree(ctx context.Context, worktreePath string) bool {
+	if !c.IsServerRunning(ctx) {
+		return false
+	}
+
+	project, err := c.GetCurrentProject(ctx)
+	if err != nil {
+		return false
+	}
+
+	// Check if the server's worktree matches the expected worktree
+	return project.Worktree == worktreePath
+}
+
 // Health checks if the opencode server is healthy
 func (c *OpenCodeClient) Health(ctx context.Context) (*HealthResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/global/health", nil)
