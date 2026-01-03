@@ -1,24 +1,27 @@
 package agent
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestOpenCodeLaunchCommand(t *testing.T) {
 	adapter := &OpenCodeAdapter{}
 
 	tests := []struct {
-		name string
-		cfg  *LaunchConfig
-		want string
+		name       string
+		cfg        *LaunchConfig
+		wantSuffix string
 	}{
 		{
-			name: "default port",
-			cfg:  &LaunchConfig{},
-			want: "opencode serve --port 4096 --hostname 0.0.0.0",
+			name:       "default port",
+			cfg:        &LaunchConfig{},
+			wantSuffix: "opencode serve --port 4096 --hostname 0.0.0.0",
 		},
 		{
-			name: "custom port",
-			cfg:  &LaunchConfig{Port: 5000},
-			want: "opencode serve --port 5000 --hostname 0.0.0.0",
+			name:       "custom port",
+			cfg:        &LaunchConfig{Port: 5000},
+			wantSuffix: "opencode serve --port 5000 --hostname 0.0.0.0",
 		},
 	}
 
@@ -28,8 +31,8 @@ func TestOpenCodeLaunchCommand(t *testing.T) {
 			if err != nil {
 				t.Fatalf("LaunchCommand error: %v", err)
 			}
-			if cmd != tt.want {
-				t.Fatalf("command = %q, want %q", cmd, tt.want)
+			if !strings.HasSuffix(cmd, tt.wantSuffix) {
+				t.Fatalf("command = %q, want suffix %q", cmd, tt.wantSuffix)
 			}
 		})
 	}

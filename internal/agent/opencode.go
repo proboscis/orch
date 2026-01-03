@@ -43,9 +43,11 @@ func (a *OpenCodeAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 	}
 
 	if cfg.ContinueSession {
-		args := []string{binary, "--continue"}
+		args := []string{binary}
 		if cfg.Prompt != "" {
-			args = append(args, "--prompt", cfg.Prompt)
+			args = append(args, "--prompt", shellQuote(cfg.Prompt))
+		} else {
+			args = append(args, "--continue")
 		}
 		return strings.Join(args, " "), nil
 	}
@@ -94,3 +96,13 @@ func (a *OpenCodeAdapter) Env() []string {
 }
 
 var _ Adapter = (*OpenCodeAdapter)(nil)
+
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	if !strings.ContainsAny(s, " \t\n'\"\\$&;|<>*?[]{}()!") {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}

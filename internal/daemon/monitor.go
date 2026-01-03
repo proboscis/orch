@@ -1,33 +1,33 @@
 package daemon
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/tmux"
 )
 
-// monitorRun checks the state of a single run and updates if needed
-// Uses the same logic as claude-squad:
-//   - If output changed → Running (agent is actively working)
-//   - If output NOT changed AND has prompt → Blocked (waiting for input)
-//   - If output NOT changed AND no prompt → no change
 func (d *Daemon) monitorRun(run *model.Run) error {
 	state := d.getOrCreateState(run)
 	state.LastCheckAt = time.Now()
+
+	// For opencode runs, check HTTP API instead of tmux
+	if run.OpenCodeSessionID != "" && run.ServerPort > 0 {
+		return d.monitorOpenCodeRun(run, state)
+	}
 
 	sessionName := run.TmuxSession
 	if sessionName == "" {
 		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
 	}
 
-	// Check if tmux session exists
 	if !tmux.HasSession(sessionName) {
-		// Session is gone - mark as failed
 		d.logger.Printf("%s#%s: session gone, marking failed", run.IssueID, run.RunID)
 		return d.updateStatus(run, model.StatusFailed)
 	}
@@ -353,11 +353,38 @@ func (d *Daemon) detectPRCreation(output string) string {
 	return ""
 }
 
-// recordPRArtifact records a PR artifact event for the run
 func (d *Daemon) recordPRArtifact(run *model.Run, prURL string) error {
 	ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
 	event := model.NewArtifactEvent("pr", map[string]string{
 		"url": prURL,
 	})
 	return d.store.AppendEvent(ref, event)
+}
+
+func (d *Daemon) monitorOpenCodeRun(run *model.Run, state *RunState) error {
+	client := agent.NewOpenCodeClient(run.ServerPort)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if !client.IsServerRunning(ctx) {
+		d.logger.Printf("%s#%s: opencode server not running, marking failed", run.IssueID, run.RunID)
+		return d.updateStatus(run, model.StatusFailed)
+	}
+
+	sessions, err := client.GetSessionIDs(ctx)
+	if err != nil {
+		d.logger.Printf("%s#%s: failed to get sessions: %v", run.IssueID, run.RunID, err)
+		return nil
+	}
+
+	if !sessions[run.OpenCodeSessionID] {
+		d.logger.Printf("%s#%s: opencode session gone, marking unknown", run.IssueID, run.RunID)
+		return d.updateStatus(run, model.StatusUnknown)
+	}
+
+	if run.Status == model.StatusBooting || run.Status == model.StatusQueued {
+		return d.updateStatus(run, model.StatusRunning)
+	}
+
+	return nil
 }
