@@ -580,6 +580,13 @@ func applyPromptConfigDefaults(opts *runOptions) error {
 		opts.NoPR = cfg.NoPR
 	}
 
+	if opts.Model == "" && cfg.Model != "" {
+		opts.Model = cfg.Model
+	}
+	if opts.ModelVariant == "" && cfg.ModelVariant != "" {
+		opts.ModelVariant = cfg.ModelVariant
+	}
+
 	return nil
 }
 

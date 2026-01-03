@@ -545,3 +545,46 @@ func (c *OpenCodeClient) GetSession(ctx context.Context, sessionID, directory st
 
 	return &session, nil
 }
+
+type ProviderInfo struct {
+	ID     string      `json:"id"`
+	Name   string      `json:"name"`
+	Models []ModelInfo `json:"models"`
+}
+
+type ModelInfo struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Variants    []string `json:"variants,omitempty"`
+	Attachments bool     `json:"attachments"`
+}
+
+type ProvidersResponse struct {
+	All      []ProviderInfo `json:"all"`
+	Thinking []ProviderInfo `json:"thinking"`
+}
+
+func (c *OpenCodeClient) GetProviders(ctx context.Context) (*ProvidersResponse, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/provider", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating providers request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("listing providers: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("list providers returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var providers ProvidersResponse
+	if err := json.NewDecoder(resp.Body).Decode(&providers); err != nil {
+		return nil, fmt.Errorf("decoding providers response: %w", err)
+	}
+
+	return &providers, nil
+}
