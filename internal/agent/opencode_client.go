@@ -81,6 +81,7 @@ type HealthResponse struct {
 type Session struct {
 	ID        string    `json:"id"`
 	Title     string    `json:"title"`
+	Directory string    `json:"directory,omitempty"`
 	ParentID  string    `json:"parentID,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
