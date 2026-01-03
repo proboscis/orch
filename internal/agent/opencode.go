@@ -20,21 +20,19 @@ func (a *OpenCodeAdapter) IsAvailable() bool {
 	return cmd.Run() == nil
 }
 
-// LaunchCommand returns the command to start the opencode server.
-// The server runs headless and accepts prompts via HTTP API.
-// Port is passed via LaunchConfig and should be stored in run metadata.
 func (a *OpenCodeAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
-	var args []string
+	if cfg.ContinueSession {
+		return "opencode", nil
+	}
 
+	var args []string
 	args = append(args, "opencode", "serve")
 
-	// Use configured port, default to 4096
 	port := cfg.Port
 	if port == 0 {
-		port = 4096 // Default opencode port
+		port = 4096
 	}
 	args = append(args, "--port", fmt.Sprintf("%d", port))
-	// Use 0.0.0.0 to allow connections (required for attach)
 	args = append(args, "--hostname", "0.0.0.0")
 
 	return strings.Join(args, " "), nil

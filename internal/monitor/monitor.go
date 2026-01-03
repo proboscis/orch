@@ -1014,7 +1014,7 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 		}
 	}
 	if agentName == "" {
-		agentName = "claude"
+		agentName = "opencode"
 	}
 	aType, err := agent.ParseAgentType(agentName)
 	if err != nil {
@@ -1029,9 +1029,10 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 	}
 
 	cmd, err := adapter.LaunchCommand(&agent.LaunchConfig{
-		Type:      aType,
-		VaultPath: m.store.VaultPath(),
-		Prompt:    prompt,
+		Type:            aType,
+		VaultPath:       m.store.VaultPath(),
+		Prompt:          prompt,
+		ContinueSession: true,
 	})
 	if err != nil {
 		return agentChatLaunch{command: fallbackChatCommand(err.Error())}
