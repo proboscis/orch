@@ -292,33 +292,25 @@ func runRun(issueID string, opts *runOptions) error {
 			return exitWithCode(fmt.Errorf("tmux is not available"), ExitTmuxError)
 		}
 
-		// For HTTP-based agents, find the best available port
-		// This checks both for existing servers (to reuse) and for free ports
+		// For HTTP-based agents, check if a server is already running (reuse it)
+		// We only need one opencode server - it can handle sessions for any project
 		serverAlreadyRunning := false
 		if adapter.PromptInjection() == agent.InjectionHTTP {
-			// Find an available port, checking for existing servers on each port
-			foundPort := findAvailablePortForOpenCode(launchCfg.Port, launchCfg.Port+100, worktreeResult.WorktreePath)
-			if foundPort == 0 {
-				st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
-				return exitWithCode(fmt.Errorf("no available port found for opencode server"), ExitAgentError)
-			}
-
-			// Check if we found an existing server for our worktree
-			client := agent.NewOpenCodeClient(foundPort)
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			serverAlreadyRunning = client.IsServerRunningForWorktree(ctx, worktreeResult.WorktreePath)
-			cancel()
-
-			if serverAlreadyRunning {
-				fmt.Fprintf(os.Stderr, "opencode server already running on port %d for this worktree, reusing\n", foundPort)
-			} else if foundPort != launchCfg.Port {
-				fmt.Fprintf(os.Stderr, "using port %d for opencode server (port %d in use by different project)\n", foundPort, launchCfg.Port)
-			}
-
-			// Update port if different from default
-			if foundPort != launchCfg.Port {
+			// Check if any opencode server is already running
+			foundPort := findRunningOpenCodeServer(launchCfg.Port, launchCfg.Port+100)
+			if foundPort > 0 {
+				serverAlreadyRunning = true
 				launchCfg.Port = foundPort
-				// Regenerate the agent command with new port
+				fmt.Fprintf(os.Stderr, "reusing existing opencode server on port %d\n", foundPort)
+			} else {
+				// No server running, find a free port
+				freePort := findAvailablePort(launchCfg.Port, launchCfg.Port+100)
+				if freePort == 0 {
+					st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+					return exitWithCode(fmt.Errorf("no available port found for opencode server"), ExitAgentError)
+				}
+				launchCfg.Port = freePort
+				// Regenerate the agent command with the port
 				agentCmd, err = adapter.LaunchCommand(launchCfg)
 				if err != nil {
 					return exitWithCode(err, ExitAgentError)
@@ -631,8 +623,8 @@ func injectPromptViaHTTP(st interface {
 		"port": fmt.Sprintf("%d", port),
 	}))
 
-	// Create a new session
-	session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", run.IssueID, run.RunID))
+	// Create a new session in the worktree directory
+	session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", run.IssueID, run.RunID), cfg.WorkDir)
 	if err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
 	}
@@ -673,33 +665,15 @@ func findAvailablePort(start, end int) int {
 	return 0
 }
 
-// findAvailablePortForOpenCode finds an available port for opencode server.
-// It checks both that the port is bindable AND that no existing opencode server
-// is running on that port for a different worktree.
-// Returns 0 if no port is available
-func findAvailablePortForOpenCode(start, end int, targetWorktree string) int {
+// findRunningOpenCodeServer finds a running opencode server in the given port range.
+// Returns the port number if found, 0 if no server is running.
+func findRunningOpenCodeServer(start, end int) int {
 	for port := start; port <= end; port++ {
-		// First, check if an opencode server is already running on this port
 		client := agent.NewOpenCodeClient(port)
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-
-		if client.IsServerRunning(ctx) {
-			// Server running - check if it's for the right worktree
-			if client.IsServerRunningForWorktree(ctx, targetWorktree) {
-				cancel()
-				return port // Can reuse this server
-			}
-			// Server for different worktree, skip this port
-			cancel()
-			continue
-		}
+		running := client.IsServerRunning(ctx)
 		cancel()
-
-		// No server running, check if port is bindable
-		addr := fmt.Sprintf("127.0.0.1:%d", port)
-		listener, err := net.Listen("tcp", addr)
-		if err == nil {
-			listener.Close()
+		if running {
 			return port
 		}
 	}

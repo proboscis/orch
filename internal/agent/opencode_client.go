@@ -239,14 +239,15 @@ func (c *OpenCodeClient) WaitForHealthy(ctx context.Context, timeout time.Durati
 }
 
 // CreateSession creates a new session with retry logic
-func (c *OpenCodeClient) CreateSession(ctx context.Context, title string) (*Session, error) {
+// The directory parameter specifies the working directory for the session
+func (c *OpenCodeClient) CreateSession(ctx context.Context, title, directory string) (*Session, error) {
 	return retry(ctx, 5, 500*time.Millisecond, func() (*Session, error) {
-		return c.createSessionOnce(ctx, title)
+		return c.createSessionOnce(ctx, title, directory)
 	})
 }
 
 // createSessionOnce creates a new session (single attempt)
-func (c *OpenCodeClient) createSessionOnce(ctx context.Context, title string) (*Session, error) {
+func (c *OpenCodeClient) createSessionOnce(ctx context.Context, title, directory string) (*Session, error) {
 	body := map[string]string{}
 	if title != "" {
 		body["title"] = title
@@ -262,6 +263,10 @@ func (c *OpenCodeClient) createSessionOnce(ctx context.Context, title string) (*
 		return nil, fmt.Errorf("creating session request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// Set the working directory for this session via header
+	if directory != "" {
+		req.Header.Set("X-OpenCode-Directory", directory)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
