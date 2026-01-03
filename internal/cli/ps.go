@@ -688,21 +688,17 @@ func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
 	}
 
 	states := make(map[string]string)
+	branchToRun := make(map[string]*model.Run)
+	var unmergedBranches []string
 
 	for _, r := range runs {
 		if r.Branch == "" {
 			continue
 		}
 
-		// Check if merged (reachable from target)
 		isMerged := merged[r.Branch]
-
-		// Check commit time relative to run start
 		commitTime, hasCommitTime := commitTimes[r.Branch]
-		isNewWork := false
-		if hasCommitTime && (r.StartedAt.IsZero() || !commitTime.Before(r.StartedAt)) {
-			isNewWork = true
-		}
+		isNewWork := hasCommitTime && (r.StartedAt.IsZero() || !commitTime.Before(r.StartedAt))
 
 		if isMerged {
 			if isNewWork {
@@ -713,16 +709,35 @@ func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
 			continue
 		}
 
-		// Not merged, check if modified (ahead > 0)
-		conflict, _ := git.CheckMergeConflict(repoRoot, r.Branch, targetRef)
+		branchToRun[r.Branch] = r
+		unmergedBranches = append(unmergedBranches, r.Branch)
+	}
 
-		ahead, _ := git.GetAheadCount(repoRoot, r.Branch, targetRef)
+	if len(unmergedBranches) == 0 {
+		return states
+	}
+
+	aheadCounts := git.GetBranchesAheadCounts(repoRoot, targetRef, unmergedBranches)
+
+	var branchesWithChanges []string
+	for branch, r := range branchToRun {
+		ahead := aheadCounts[branch]
 		if ahead == 0 {
 			states[r.RunID] = "no change"
-			continue
+		} else {
+			branchesWithChanges = append(branchesWithChanges, branch)
 		}
+	}
 
-		if conflict {
+	if len(branchesWithChanges) == 0 {
+		return states
+	}
+
+	conflicts := git.CheckMergeConflicts(repoRoot, targetRef, branchesWithChanges)
+
+	for _, branch := range branchesWithChanges {
+		r := branchToRun[branch]
+		if conflicts[branch] {
 			states[r.RunID] = "conflict"
 		} else {
 			states[r.RunID] = "clean"

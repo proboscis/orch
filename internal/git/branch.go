@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -82,4 +83,35 @@ func GetAheadCount(repoRoot, branch, target string) (int, error) {
 	}
 
 	return count, nil
+}
+
+func GetBranchesAheadCounts(repoRoot, target string, branches []string) map[string]int {
+	if len(branches) == 0 {
+		return nil
+	}
+
+	results := make(map[string]int)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	sem := make(chan struct{}, 8)
+
+	for _, branch := range branches {
+		wg.Add(1)
+		go func(b string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			count, err := GetAheadCount(repoRoot, b, target)
+			if err == nil {
+				mu.Lock()
+				results[b] = count
+				mu.Unlock()
+			}
+		}(branch)
+	}
+
+	wg.Wait()
+	return results
 }

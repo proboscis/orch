@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
 )
 
 // GetMergedBranches returns a set of local branches merged into target (default: main).
@@ -139,4 +140,35 @@ func checkMergeConflictLegacy(repoRoot, branch, target string) (bool, error) {
 	}
 
 	return hasMergeTreeConflict(string(output)), nil
+}
+
+func CheckMergeConflicts(repoRoot, target string, branches []string) map[string]bool {
+	if len(branches) == 0 {
+		return nil
+	}
+
+	results := make(map[string]bool)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	sem := make(chan struct{}, 8)
+
+	for _, branch := range branches {
+		wg.Add(1)
+		go func(b string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			conflict, err := CheckMergeConflict(repoRoot, b, target)
+			mu.Lock()
+			if err == nil {
+				results[b] = conflict
+			}
+			mu.Unlock()
+		}(branch)
+	}
+
+	wg.Wait()
+	return results
 }
