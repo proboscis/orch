@@ -43,7 +43,11 @@ func (a *OpenCodeAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 	}
 
 	if cfg.ContinueSession {
-		return binary, nil
+		args := []string{binary, "--continue"}
+		if cfg.Prompt != "" {
+			args = append(args, "--prompt", cfg.Prompt)
+		}
+		return strings.Join(args, " "), nil
 	}
 
 	var args []string

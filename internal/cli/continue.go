@@ -195,6 +195,8 @@ func continueFromRun(st store.Store, refStr string, opts *continueOptions) error
 		NoPR:           opts.NoPR,
 		PromptTemplate: opts.PromptTemplate,
 		PRTargetBranch: opts.PRTargetBranch,
+		VaultPath:      st.VaultPath(),
+		IssuePath:      issue.Path,
 	}
 	if err := ensurePromptFile(fromRun.WorktreePath, issue, promptOpts); err != nil {
 		return exitWithCode(fmt.Errorf("failed to write prompt file: %w", err), ExitInternalError)
@@ -381,6 +383,8 @@ func continueFromBranch(st store.Store, refStr string, opts *continueOptions) er
 		NoPR:           opts.NoPR,
 		PromptTemplate: opts.PromptTemplate,
 		PRTargetBranch: opts.PRTargetBranch,
+		VaultPath:      st.VaultPath(),
+		IssuePath:      issue.Path,
 	}
 	if err := ensurePromptFile(worktreePath, issue, promptOpts); err != nil {
 		return exitWithCode(fmt.Errorf("failed to write prompt file: %w", err), ExitInternalError)
