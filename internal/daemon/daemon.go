@@ -35,11 +35,13 @@ type Daemon struct {
 
 // RunState tracks the monitoring state of a single run
 type RunState struct {
-	LastOutput   string
-	LastOutputAt time.Time
-	LastCheckAt  time.Time
-	OutputHash   string // Simple hash to detect changes
-	PRRecorded   bool   // Whether PR artifact has been recorded
+	LastOutput     string
+	LastOutputAt   time.Time
+	LastCheckAt    time.Time
+	OutputHash     string
+	PRRecorded     bool
+	WasAlive       bool
+	DeadCheckCount int
 }
 
 // New creates a new Daemon instance

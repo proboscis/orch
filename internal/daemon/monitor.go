@@ -11,14 +11,32 @@ import (
 	"github.com/s22625/orch/internal/model"
 )
 
+const deadChecksBeforeFailed = 3
+
 func (d *Daemon) monitorRun(run *model.Run) error {
 	state := d.getOrCreateState(run)
 	state.LastCheckAt = time.Now()
 
 	mgr := agent.GetManager(run)
 
-	if !mgr.IsAlive(run) {
-		d.logger.Printf("%s#%s: agent not alive, marking failed", run.IssueID, run.RunID)
+	if mgr.IsAlive(run) {
+		state.WasAlive = true
+		state.DeadCheckCount = 0
+	} else {
+		state.DeadCheckCount++
+		if !state.WasAlive {
+			d.logger.Printf("%s#%s: agent not alive yet (never confirmed alive), waiting", run.IssueID, run.RunID)
+			return nil
+		}
+		if state.DeadCheckCount < deadChecksBeforeFailed {
+			d.logger.Printf("%s#%s: agent not alive (%d/%d checks), waiting", run.IssueID, run.RunID, state.DeadCheckCount, deadChecksBeforeFailed)
+			return nil
+		}
+		if run.Agent == "opencode" {
+			d.logger.Printf("%s#%s: opencode session not found after %d checks, marking unknown", run.IssueID, run.RunID, state.DeadCheckCount)
+			return d.updateStatus(run, model.StatusUnknown)
+		}
+		d.logger.Printf("%s#%s: agent confirmed dead after %d checks, marking failed", run.IssueID, run.RunID, state.DeadCheckCount)
 		return d.updateStatus(run, model.StatusFailed)
 	}
 
