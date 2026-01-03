@@ -580,6 +580,16 @@ func applyPromptConfigDefaults(opts *runOptions) error {
 		opts.NoPR = cfg.NoPR
 	}
 
+	// Model: use config value if flag not provided (for opencode agent)
+	if opts.Model == "" && cfg.Model != "" {
+		opts.Model = cfg.Model
+	}
+
+	// ModelVariant: use config value if flag not provided
+	if opts.ModelVariant == "" && cfg.ModelVariant != "" {
+		opts.ModelVariant = cfg.ModelVariant
+	}
+
 	return nil
 }
 

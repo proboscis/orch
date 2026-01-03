@@ -335,10 +335,7 @@ func continueFromBranch(st store.Store, refStr string, opts *continueOptions) er
 		tmuxSession = model.GenerateTmuxSession(issueID, runID)
 	}
 
-	agentName := opts.Agent
-	if agentName == "" {
-		agentName = "claude"
-	}
+	agentName := opts.Agent // Already set via applyPromptConfigDefaultsForContinue
 
 	worktreePath, err := resolveWorktreeForBranch(repoRoot, branch, opts.WorktreeDir, issueID, runID, agentName)
 	if err != nil {
@@ -510,6 +507,15 @@ func applyPromptConfigDefaultsForContinue(opts *continueOptions) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
+	}
+
+	// Agent: use config value if flag not provided, fallback to "claude"
+	if opts.Agent == "" {
+		if cfg.Agent != "" {
+			opts.Agent = cfg.Agent
+		} else {
+			opts.Agent = "claude"
+		}
 	}
 
 	if opts.PromptTemplate == "" && cfg.PromptTemplate != "" {

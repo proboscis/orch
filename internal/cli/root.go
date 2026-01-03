@@ -44,6 +44,7 @@ var noDaemonCommands = map[string]bool{
 	"delete":     true,
 	"help":       true,
 	"completion": true,
+	"models":     true,
 }
 
 // rootCmd represents the base command
@@ -93,6 +94,7 @@ func init() {
 	rootCmd.AddCommand(newSendCmd())
 	rootCmd.AddCommand(newCaptureCmd())
 	rootCmd.AddCommand(newCaptureAllCmd())
+	rootCmd.AddCommand(newModelsCmd())
 }
 
 // Execute runs the root command

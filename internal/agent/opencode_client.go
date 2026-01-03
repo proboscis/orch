@@ -485,3 +485,50 @@ func (c *OpenCodeClient) GetSessions(ctx context.Context) ([]Session, error) {
 
 	return sessions, nil
 }
+
+// ProviderModel represents an opencode model
+type ProviderModel struct {
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	ProviderID string   `json:"providerID"`
+	Variants   []string `json:"options,omitempty"` // Thinking variants (e.g., "high", "max")
+}
+
+// Provider represents an opencode provider with its models
+type Provider struct {
+	ID     string          `json:"id"`
+	Name   string          `json:"name"`
+	Models []ProviderModel `json:"models"`
+}
+
+// ProviderResponse represents the response from /provider endpoint
+type ProviderResponse struct {
+	All     []Provider `json:"all"`
+	Default Provider   `json:"default"`
+}
+
+// GetProviders returns all available providers and their models
+func (c *OpenCodeClient) GetProviders(ctx context.Context) (*ProviderResponse, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/provider", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating providers request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("listing providers: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("list providers returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var providers ProviderResponse
+	if err := json.NewDecoder(resp.Body).Decode(&providers); err != nil {
+		return nil, fmt.Errorf("decoding providers response: %w", err)
+	}
+
+	return &providers, nil
+}
