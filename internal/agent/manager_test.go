@@ -517,3 +517,19 @@ func TestOpenCodeManagerGetStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestTmuxManagerDeadStatus(t *testing.T) {
+	manager := &TmuxManager{SessionName: "test-session"}
+	got := manager.DeadStatus()
+	if got != model.StatusFailed {
+		t.Errorf("TmuxManager.DeadStatus() = %v, want %v", got, model.StatusFailed)
+	}
+}
+
+func TestOpenCodeManagerDeadStatus(t *testing.T) {
+	manager := &OpenCodeManager{Port: 4321, SessionID: "ses_123"}
+	got := manager.DeadStatus()
+	if got != model.StatusUnknown {
+		t.Errorf("OpenCodeManager.DeadStatus() = %v, want %v", got, model.StatusUnknown)
+	}
+}
