@@ -2,7 +2,9 @@ package agent
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -16,17 +18,36 @@ func (a *OpenCodeAdapter) Type() AgentType {
 }
 
 func (a *OpenCodeAdapter) IsAvailable() bool {
-	cmd := exec.Command("opencode", "--version")
-	return cmd.Run() == nil
+	return findOpenCodeBinary() != ""
+}
+
+func findOpenCodeBinary() string {
+	if path, err := exec.LookPath("opencode"); err == nil {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	candidate := filepath.Join(home, ".opencode", "bin", "opencode")
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate
+	}
+	return ""
 }
 
 func (a *OpenCodeAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
+	binary := findOpenCodeBinary()
+	if binary == "" {
+		return "", fmt.Errorf("opencode binary not found")
+	}
+
 	if cfg.ContinueSession {
-		return "opencode", nil
+		return binary, nil
 	}
 
 	var args []string
-	args = append(args, "opencode", "serve")
+	args = append(args, binary, "serve")
 
 	port := cfg.Port
 	if port == 0 {

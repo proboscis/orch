@@ -1,6 +1,6 @@
 # orch uses itself as the vault - issues live in this repo
 vault: .
-agent: claude
+agent: opencode
 worktree_dir: .git-worktrees
 base_branch: main
 # default PR target branch for agent instructions
