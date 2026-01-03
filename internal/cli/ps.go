@@ -173,6 +173,8 @@ func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[st
 		RunID        string `json:"run_id"`
 		ShortID      string `json:"short_id"`
 		Agent        string `json:"agent,omitempty"`
+		Model        string `json:"model,omitempty"`
+		ModelVariant string `json:"model_variant,omitempty"`
 		Status       string `json:"status"`
 		AgentAlive   string `json:"agent_alive"`
 		UpdatedAt    string `json:"updated_at"`
@@ -208,6 +210,8 @@ func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[st
 			RunID:        r.RunID,
 			ShortID:      r.ShortID(),
 			Agent:        r.Agent,
+			Model:        r.Model,
+			ModelVariant: r.ModelVariant,
 			Status:       string(r.Status),
 			AgentAlive:   formatAliveText(aliveInfo),
 			UpdatedAt:    r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
@@ -242,12 +246,14 @@ func outputTSVWithIssueInfo(runs []*model.Run, issueCache map[string]psIssueInfo
 			aliveInfo = aliveByRun[r.RunID]
 		}
 
-		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			r.IssueID,
 			issueStatus,
 			r.RunID,
 			r.ShortID(),
 			r.Agent,
+			r.Model,
+			r.ModelVariant,
 			r.Status,
 			formatAliveText(aliveInfo),
 			r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
@@ -291,7 +297,7 @@ func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime boo
 	gitStates := gitStatesForRuns(runs, baseBranch)
 
 	// Collect data rows
-	headers := []string{"ID", "ISSUE", "ISSUE-ST", "AGENT", "STATUS", "ALIVE", "BRANCH", "WORKTREE", "PR", "MERGED", "UPDATED", "TOPIC"}
+	headers := []string{"ID", "ISSUE", "ISSUE-ST", "AGENT", "MODEL", "STATUS", "ALIVE", "BRANCH", "WORKTREE", "PR", "MERGED", "UPDATED", "TOPIC"}
 	var rows [][]string
 
 	for _, r := range runs {
@@ -330,6 +336,8 @@ func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime boo
 			agent = "-"
 		}
 
+		modelDisplay := formatModelDisplay(r.Model, r.ModelVariant)
+
 		branch := formatBranchDisplay(r.Branch, branchMaxLen)
 		worktree := formatWorktreeDisplay(r.WorktreePath, worktreeMaxLen)
 		aliveInfo := agentAliveInfo{}
@@ -342,6 +350,7 @@ func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime boo
 			r.IssueID,
 			issueStatus,
 			agent,
+			modelDisplay,
 			colorStatus(r.Status),
 			colorAlive(aliveInfo),
 			branch,
@@ -451,6 +460,21 @@ func truncateWithEllipsis(text string, max int) string {
 		return text[:max]
 	}
 	return text[:max-3] + "..."
+}
+
+func formatModelDisplay(model, variant string) string {
+	if model == "" {
+		return "-"
+	}
+	parts := strings.Split(model, "/")
+	display := model
+	if len(parts) == 2 {
+		display = parts[1]
+	}
+	if variant != "" {
+		display = display + ":" + variant
+	}
+	return truncateWithEllipsis(display, 20)
 }
 
 func formatBranchDisplay(branch string, max int) string {

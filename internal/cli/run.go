@@ -196,9 +196,16 @@ func runRun(issueID string, opts *runOptions) error {
 	}
 
 	// Create run document
-	run, err := st.CreateRun(issueID, runID, map[string]string{
+	metadata := map[string]string{
 		"agent": opts.Agent,
-	})
+	}
+	if opts.Model != "" {
+		metadata["model"] = opts.Model
+	}
+	if opts.ModelVariant != "" {
+		metadata["model_variant"] = opts.ModelVariant
+	}
+	run, err := st.CreateRun(issueID, runID, metadata)
 	if err != nil {
 		return exitWithCode(fmt.Errorf("failed to create run: %w", err), ExitInternalError)
 	}

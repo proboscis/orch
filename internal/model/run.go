@@ -60,6 +60,8 @@ type Run struct {
 
 	// Artifacts (from events)
 	Agent             string
+	Model             string
+	ModelVariant      string
 	Branch            string
 	WorktreePath      string
 	TmuxSession       string
