@@ -59,13 +59,14 @@ type Run struct {
 	UpdatedAt time.Time
 
 	// Artifacts (from events)
-	Agent        string
-	Branch       string
-	WorktreePath string
-	TmuxSession  string
-	TmuxWindowID string
-	PRUrl        string
-	ServerPort   int // Port for HTTP-based agents (e.g., opencode)
+	Agent             string
+	Branch            string
+	WorktreePath      string
+	TmuxSession       string
+	TmuxWindowID      string
+	PRUrl             string
+	ServerPort        int    // Port for HTTP-based agents (e.g., opencode)
+	OpenCodeSessionID string // Session ID for opencode agent
 
 	// Frontmatter metadata
 	ContinuedFrom string
@@ -159,6 +160,9 @@ func (r *Run) DeriveState() {
 				r.ServerPort = port
 			}
 		}
+	}
+	if opencodeSession, ok := artifacts["opencode_session"]; ok {
+		r.OpenCodeSessionID = opencodeSession["id"]
 	}
 
 	// Derive timestamps

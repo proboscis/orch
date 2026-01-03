@@ -285,22 +285,42 @@ func runRun(issueID string, opts *runOptions) error {
 			return exitWithCode(fmt.Errorf("tmux is not available"), ExitTmuxError)
 		}
 
-		// Build environment variables - merge adapter-specific vars with launch config vars
-		env := launchCfg.Env()
-		if opencodeAdapter, ok := adapter.(*agent.OpenCodeAdapter); ok {
-			env = append(env, opencodeAdapter.Env()...)
+		// For HTTP-based agents, check if server is already running
+		serverAlreadyRunning := false
+		if adapter.PromptInjection() == agent.InjectionHTTP {
+			client := agent.NewOpenCodeClient(launchCfg.Port)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			serverAlreadyRunning = client.IsServerRunning(ctx)
+			cancel()
+			if serverAlreadyRunning {
+				fmt.Fprintf(os.Stderr, "opencode server already running on port %d, reusing\n", launchCfg.Port)
+			}
 		}
 
-		// Create tmux session
-		err = tmux.NewSession(&tmux.SessionConfig{
-			SessionName: tmuxSession,
-			WorkDir:     worktreeResult.WorktreePath,
-			Command:     agentCmd,
-			Env:         env,
-		})
-		if err != nil {
-			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
-			return exitWithCode(fmt.Errorf("failed to create tmux session: %w", err), ExitTmuxError)
+		// Only create tmux session if server is not already running
+		if !serverAlreadyRunning {
+			// Build environment variables - merge adapter-specific vars with launch config vars
+			env := launchCfg.Env()
+			if opencodeAdapter, ok := adapter.(*agent.OpenCodeAdapter); ok {
+				env = append(env, opencodeAdapter.Env()...)
+			}
+
+			// Create tmux session
+			err = tmux.NewSession(&tmux.SessionConfig{
+				SessionName: tmuxSession,
+				WorkDir:     worktreeResult.WorktreePath,
+				Command:     agentCmd,
+				Env:         env,
+			})
+			if err != nil {
+				st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+				return exitWithCode(fmt.Errorf("failed to create tmux session: %w", err), ExitTmuxError)
+			}
+
+			// Record session artifact
+			st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", map[string]string{
+				"name": tmuxSession,
+			}))
 		}
 
 		// Handle prompt injection based on agent type
@@ -329,24 +349,22 @@ func runRun(issueID string, opts *runOptions) error {
 			}
 		}
 
-		// Record session artifact
-		st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", map[string]string{
-			"name": tmuxSession,
-		}))
-
-		windowID := ""
-		if windows, err := tmux.ListWindows(tmuxSession); err == nil {
-			for _, window := range windows {
-				if window.Index == 0 {
-					windowID = window.ID
-					break
+		// Record window ID only if we created a new tmux session
+		if !serverAlreadyRunning {
+			windowID := ""
+			if windows, err := tmux.ListWindows(tmuxSession); err == nil {
+				for _, window := range windows {
+					if window.Index == 0 {
+						windowID = window.ID
+						break
+					}
 				}
 			}
-		}
-		if windowID != "" {
-			st.AppendEvent(run.Ref(), model.NewArtifactEvent("window", map[string]string{
-				"id": windowID,
-			}))
+			if windowID != "" {
+				st.AppendEvent(run.Ref(), model.NewArtifactEvent("window", map[string]string{
+					"id": windowID,
+				}))
+			}
 		}
 	}
 
@@ -589,6 +607,11 @@ func injectPromptViaHTTP(st interface {
 	if err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
 	}
+
+	// Record session ID as artifact for resume capability
+	st.AppendEvent(run.Ref(), model.NewArtifactEvent("opencode_session", map[string]string{
+		"id": session.ID,
+	}))
 
 	// Send the prompt asynchronously (don't wait for completion)
 	if err := client.SendMessageAsync(ctx, session.ID, cfg.Prompt); err != nil {

@@ -28,6 +28,49 @@ func NewOpenCodeClient(port int) *OpenCodeClient {
 	}
 }
 
+// retry executes fn with exponential backoff
+// Returns the result of fn or the last error after maxRetries attempts
+func retry[T any](ctx context.Context, maxRetries int, initialDelay time.Duration, fn func() (T, error)) (T, error) {
+	var result T
+	var err error
+	delay := initialDelay
+
+	for i := 0; i < maxRetries; i++ {
+		result, err = fn()
+		if err == nil {
+			return result, nil
+		}
+
+		// Don't retry on context cancellation
+		if ctx.Err() != nil {
+			return result, ctx.Err()
+		}
+
+		// Wait before retry with exponential backoff
+		if i < maxRetries-1 {
+			select {
+			case <-ctx.Done():
+				return result, ctx.Err()
+			case <-time.After(delay):
+				delay = delay * 2
+				if delay > 10*time.Second {
+					delay = 10 * time.Second
+				}
+			}
+		}
+	}
+
+	return result, err
+}
+
+// retryNoResult executes fn with exponential backoff for functions that don't return a value
+func retryNoResult(ctx context.Context, maxRetries int, initialDelay time.Duration, fn func() error) error {
+	_, err := retry(ctx, maxRetries, initialDelay, func() (struct{}, error) {
+		return struct{}{}, fn()
+	})
+	return err
+}
+
 // HealthResponse represents the response from /global/health
 type HealthResponse struct {
 	Healthy bool   `json:"healthy"`
@@ -81,6 +124,12 @@ type Event struct {
 	Properties json.RawMessage `json:"properties"`
 }
 
+// IsServerRunning checks if an opencode server is running on the configured port
+func (c *OpenCodeClient) IsServerRunning(ctx context.Context) bool {
+	health, err := c.Health(ctx)
+	return err == nil && health.Healthy
+}
+
 // Health checks if the opencode server is healthy
 func (c *OpenCodeClient) Health(ctx context.Context) (*HealthResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/global/health", nil)
@@ -127,8 +176,15 @@ func (c *OpenCodeClient) WaitForHealthy(ctx context.Context, timeout time.Durati
 	}
 }
 
-// CreateSession creates a new session
+// CreateSession creates a new session with retry logic
 func (c *OpenCodeClient) CreateSession(ctx context.Context, title string) (*Session, error) {
+	return retry(ctx, 5, 500*time.Millisecond, func() (*Session, error) {
+		return c.createSessionOnce(ctx, title)
+	})
+}
+
+// createSessionOnce creates a new session (single attempt)
+func (c *OpenCodeClient) createSessionOnce(ctx context.Context, title string) (*Session, error) {
 	body := map[string]string{}
 	if title != "" {
 		body["title"] = title
@@ -204,8 +260,15 @@ func (c *OpenCodeClient) SendMessage(ctx context.Context, sessionID, text string
 	return &message, nil
 }
 
-// SendMessageAsync sends a message asynchronously (does not wait for response)
+// SendMessageAsync sends a message asynchronously with retry logic (does not wait for response)
 func (c *OpenCodeClient) SendMessageAsync(ctx context.Context, sessionID, text string) error {
+	return retryNoResult(ctx, 3, 500*time.Millisecond, func() error {
+		return c.sendMessageAsyncOnce(ctx, sessionID, text)
+	})
+}
+
+// sendMessageAsyncOnce sends a message asynchronously (single attempt)
+func (c *OpenCodeClient) sendMessageAsyncOnce(ctx context.Context, sessionID, text string) error {
 	reqBody := PromptRequest{
 		Parts: []MessagePart{
 			{Type: "text", Text: text},
