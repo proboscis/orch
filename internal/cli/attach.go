@@ -109,16 +109,27 @@ func attachOpenCode(run *model.Run) error {
 		return fmt.Errorf("no server port found")
 	}
 
-	adapter := &agent.OpenCodeAdapter{}
-	attachCmd := adapter.AttachCommand(run.ServerPort)
+	serverURL := fmt.Sprintf("http://127.0.0.1:%d", run.ServerPort)
 
-	// Parse the command and execute
-	cmd := exec.Command("opencode", "attach", fmt.Sprintf("http://127.0.0.1:%d", run.ServerPort))
+	// Build command args
+	args := []string{"attach", serverURL}
+
+	// Add session ID if available
+	if run.OpenCodeSessionID != "" {
+		args = append(args, "--session", run.OpenCodeSessionID)
+	}
+
+	// Add worktree directory for proper context
+	if run.WorktreePath != "" {
+		args = append(args, "--dir", run.WorktreePath)
+	}
+
+	cmd := exec.Command("opencode", args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	fmt.Fprintf(os.Stderr, "attaching to opencode server: %s\n", attachCmd)
+	fmt.Fprintf(os.Stderr, "attaching to opencode: %s\n", args)
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to attach to opencode: %v\n", err)
 		os.Exit(ExitTmuxError)
