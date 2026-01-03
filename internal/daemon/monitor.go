@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"regexp"
@@ -10,61 +9,42 @@ import (
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/tmux"
 )
 
 func (d *Daemon) monitorRun(run *model.Run) error {
 	state := d.getOrCreateState(run)
 	state.LastCheckAt = time.Now()
 
-	// For opencode runs, check HTTP API instead of tmux
-	if run.OpenCodeSessionID != "" && run.ServerPort > 0 {
-		return d.monitorOpenCodeRun(run, state)
-	}
+	mgr := agent.GetManager(run)
 
-	sessionName := run.TmuxSession
-	if sessionName == "" {
-		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
-	}
-
-	if !tmux.HasSession(sessionName) {
-		d.logger.Printf("%s#%s: session gone, marking failed", run.IssueID, run.RunID)
+	if !mgr.IsAlive(run) {
+		d.logger.Printf("%s#%s: agent not alive, marking failed", run.IssueID, run.RunID)
 		return d.updateStatus(run, model.StatusFailed)
 	}
 
-	// Capture pane output
-	output, err := tmux.CapturePane(sessionName, 100)
+	output, err := mgr.CaptureOutput(run)
 	if err != nil {
-		d.logger.Printf("%s#%s: failed to capture pane: %v", run.IssueID, run.RunID, err)
-		return nil // Don't fail the run just because capture failed
+		d.logger.Printf("%s#%s: failed to capture output: %v", run.IssueID, run.RunID, err)
+		return nil
 	}
 
-	// Check for output changes (same as claude-squad's HasUpdated)
-	// Hash only the content portion, excluding status bar (last 5 lines)
-	// to avoid false positives from token counter updates
 	contentHash := hashContent(output)
 	outputChanged := contentHash != state.OutputHash
-	hasPrompt := d.isWaitingForInput(output)
+	hasPrompt := mgr.DetectPrompt(output)
 
 	if outputChanged {
-		// Output changed - update tracking
 		state.OutputHash = contentHash
 		state.LastOutput = output
 		state.LastOutputAt = time.Now()
 	}
 
-	// Check for PR creation in output (before status detection)
-	// This records the PR artifact and potentially changes status to pr_open
 	if prURL := d.detectPRCreation(output); prURL != "" {
-		// Check if we already recorded this PR
 		if !state.PRRecorded {
 			d.logger.Printf("%s#%s: PR created: %s", run.IssueID, run.RunID, prURL)
-			// Record PR artifact
 			if err := d.recordPRArtifact(run, prURL); err != nil {
 				d.logger.Printf("%s#%s: failed to record PR artifact: %v", run.IssueID, run.RunID, err)
 			} else {
 				state.PRRecorded = true
-				// Update status to pr_open
 				if err := d.updateStatus(run, model.StatusPROpen); err != nil {
 					d.logger.Printf("%s#%s: failed to update status to pr_open: %v", run.IssueID, run.RunID, err)
 				}
@@ -73,11 +53,14 @@ func (d *Daemon) monitorRun(run *model.Run) error {
 		}
 	}
 
-	// Detect state using claude-squad logic:
-	// - updated=true → Running
-	// - updated=false && hasPrompt → Blocked
-	// - updated=false && !hasPrompt → no change (but check for done/failed)
-	newStatus := d.detectStatus(run, output, state, outputChanged, hasPrompt)
+	agentState := &agent.RunState{
+		LastOutput:   state.LastOutput,
+		LastOutputAt: state.LastOutputAt,
+		LastCheckAt:  state.LastCheckAt,
+		OutputHash:   state.OutputHash,
+		PRRecorded:   state.PRRecorded,
+	}
+	newStatus := mgr.GetStatus(run, output, agentState, outputChanged, hasPrompt)
 
 	if newStatus != "" && newStatus != run.Status {
 		d.logger.Printf("%s#%s: status change %s -> %s", run.IssueID, run.RunID, run.Status, newStatus)
@@ -85,225 +68,6 @@ func (d *Daemon) monitorRun(run *model.Run) error {
 	}
 
 	return nil
-}
-
-// detectStatus analyzes the output to determine the run status
-// Uses claude-squad logic:
-//  1. Agent exited (shell prompt) → Unknown
-//  2. Completion patterns → Done
-//  3. API limit patterns → BlockedAPI
-//  4. Error patterns → Failed
-//  5. Content changing → Running (agent is actively working)
-//  6. Content stable + has prompt → Blocked (waiting for input)
-//  7. Otherwise → no change
-func (d *Daemon) detectStatus(run *model.Run, output string, state *RunState, outputChanged, hasPrompt bool) model.Status {
-	// Check for agent exit first (shell prompt showing = agent died/exited)
-	if d.isAgentExited(output) {
-		return model.StatusUnknown
-	}
-
-	// Check for completion patterns (terminal states)
-	if d.isCompleted(output) {
-		return model.StatusDone
-	}
-
-	// Check for API usage limits (blocked until quota resets)
-	if d.isAPILimited(output) {
-		return model.StatusBlockedAPI
-	}
-
-	// Check for error patterns (terminal states)
-	if d.isFailed(output) {
-		return model.StatusFailed
-	}
-
-	// Claude-squad logic: output changing = Running, stable + prompt = Blocked
-	// We hash content (excluding status bar) so token counter updates don't cause oscillation
-	if outputChanged {
-		return model.StatusRunning
-	}
-
-	// Content is stable - if showing a prompt, it's blocked
-	if hasPrompt {
-		return model.StatusBlocked
-	}
-
-	// No change, no prompt - check for stalling (just log, don't change status)
-	if time.Since(state.LastOutputAt) > StallThreshold {
-		d.logger.Printf("%s#%s: stalling (no output for %v)", run.IssueID, run.RunID, time.Since(state.LastOutputAt))
-	}
-
-	// No status change
-	return ""
-}
-
-// isCompleted checks if the output indicates the agent completed successfully
-func (d *Daemon) isCompleted(output string) bool {
-	// Be very conservative about marking as done
-	// Only do so if we see very explicit completion messages
-	// AND the session appears to have ended
-
-	lines := getLastLines(output, 5)
-	lowerOutput := strings.ToLower(lines)
-
-	// Very explicit completion patterns only
-	completionPatterns := []string{
-		"task completed successfully",
-		"all tasks completed",
-		"session ended",
-		"goodbye",
-	}
-
-	for _, pattern := range completionPatterns {
-		if strings.Contains(lowerOutput, pattern) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// isAPILimited checks if the output indicates API usage limits
-func (d *Daemon) isAPILimited(output string) bool {
-	lines := getLastLines(output, 30)
-	lowerOutput := strings.ToLower(lines)
-
-	apiLimitPatterns := []string{
-		"cost limit reached",
-		"rate limit exceeded",
-		"rate limit reached",
-		"quota exceeded",
-		"insufficient quota",
-		"resource exhausted",
-		"you've hit your limit",
-		"/rate-limit-options",
-		"stop and wait for limit to reset",
-	}
-
-	for _, pattern := range apiLimitPatterns {
-		if strings.Contains(lowerOutput, pattern) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// isFailed checks if the output indicates the agent failed
-func (d *Daemon) isFailed(output string) bool {
-	lines := getLastLines(output, 10)
-	lowerOutput := strings.ToLower(lines)
-
-	// Error patterns
-	errorPatterns := []string{
-		"fatal error",
-		"unrecoverable error",
-		"agent crashed",
-		"session terminated",
-		"authentication failed",
-	}
-
-	for _, pattern := range errorPatterns {
-		if strings.Contains(lowerOutput, pattern) {
-			return true
-		}
-	}
-
-	return false
-}
-
-func (d *Daemon) isWaitingForInput(output string) bool {
-	promptPatterns := []string{
-		// Claude: Permission dialog
-		"No, and tell Claude what to do differently",
-		"tell Claude what to do differently",
-		// Claude: Input prompt
-		"↵ send",
-		"? for shortcuts",
-		"accept edits",
-		"bypass permissions",
-		"shift+tab to cycle",
-		"Esc to cancel",
-		"to show all projects",
-		// Gemini input prompt
-		"Type your message",
-		// OpenCode: Input prompt patterns
-		"ctrl+s send",
-		"enter newline",
-		"ctrl+c interrupt",
-	}
-
-	for _, pattern := range promptPatterns {
-		if strings.Contains(output, pattern) {
-			return true
-		}
-	}
-
-	return false
-}
-
-func (d *Daemon) isAgentExited(output string) bool {
-	// Claude UI patterns
-	agentPatterns := []string{
-		"↵ send",
-		"accept edits",
-		"? for shortcuts",
-		"tell Claude what to do differently",
-		"tokens",
-		"Esc to cancel",
-		"to show all projects",
-		// OpenCode UI patterns
-		"ctrl+s send",
-		"enter newline",
-		"ctrl+c interrupt",
-		"opencode",
-	}
-
-	for _, pattern := range agentPatterns {
-		if strings.Contains(output, pattern) {
-			return false
-		}
-	}
-
-	lines := strings.Split(strings.TrimSpace(output), "\n")
-	if len(lines) == 0 {
-		return false
-	}
-
-	// Get the last non-empty line
-	lastLine := ""
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := strings.TrimSpace(lines[i])
-		if line != "" {
-			lastLine = line
-			break
-		}
-	}
-
-	if lastLine == "" {
-		return false
-	}
-
-	// Shell prompt pattern: line ends with common prompt characters
-	// AND contains path or git info typical of shell prompts
-	if strings.Contains(lastLine, "git:(") && strings.Contains(lastLine, ")") {
-		// Looks like a shell prompt with git branch info
-		return true
-	}
-
-	// Check for common shell prompt endings (must be at/near end of line)
-	if strings.HasSuffix(lastLine, "$ ") ||
-		strings.HasSuffix(lastLine, "% ") ||
-		strings.HasSuffix(lastLine, "# ") ||
-		strings.HasSuffix(lastLine, "❯ ") ||
-		strings.HasSuffix(lastLine, "➜ ") ||
-		strings.HasSuffix(strings.TrimRight(lastLine, " "), "$") ||
-		strings.HasSuffix(strings.TrimRight(lastLine, " "), "%") ||
-		strings.HasSuffix(strings.TrimRight(lastLine, " "), "✗") {
-		return true
-	}
-
-	return false
 }
 
 // updateStatus appends a status event to the run
@@ -330,15 +94,6 @@ func hashContent(output string) string {
 	return hashString(strings.Join(lines, "\n"))
 }
 
-// getLastLines returns the last n lines of a string
-func getLastLines(s string, n int) string {
-	lines := strings.Split(s, "\n")
-	if len(lines) <= n {
-		return s
-	}
-	return strings.Join(lines[len(lines)-n:], "\n")
-}
-
 // prURLRegex matches GitHub/GitLab PR URLs
 var prURLRegex = regexp.MustCompile(`https://(?:github\.com|gitlab\.com)/[^\s]+/pull/\d+|https://(?:github\.com|gitlab\.com)/[^\s]+/merge_requests/\d+`)
 
@@ -359,32 +114,4 @@ func (d *Daemon) recordPRArtifact(run *model.Run, prURL string) error {
 		"url": prURL,
 	})
 	return d.store.AppendEvent(ref, event)
-}
-
-func (d *Daemon) monitorOpenCodeRun(run *model.Run, state *RunState) error {
-	client := agent.NewOpenCodeClient(run.ServerPort)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if !client.IsServerRunning(ctx) {
-		d.logger.Printf("%s#%s: opencode server not running, marking failed", run.IssueID, run.RunID)
-		return d.updateStatus(run, model.StatusFailed)
-	}
-
-	sessions, err := client.GetSessionIDs(ctx)
-	if err != nil {
-		d.logger.Printf("%s#%s: failed to get sessions: %v", run.IssueID, run.RunID, err)
-		return nil
-	}
-
-	if !sessions[run.OpenCodeSessionID] {
-		d.logger.Printf("%s#%s: opencode session gone, marking unknown", run.IssueID, run.RunID)
-		return d.updateStatus(run, model.StatusUnknown)
-	}
-
-	if run.Status == model.StatusBooting || run.Status == model.StatusQueued {
-		return d.updateStatus(run, model.StatusRunning)
-	}
-
-	return nil
 }

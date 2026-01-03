@@ -1,0 +1,272 @@
+package agent
+
+import (
+	"context"
+	"strings"
+	"time"
+
+	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/tmux"
+)
+
+type RunState struct {
+	LastOutput   string
+	LastOutputAt time.Time
+	LastCheckAt  time.Time
+	OutputHash   string
+	PRRecorded   bool
+}
+
+type AgentManager interface {
+	IsAlive(run *model.Run) bool
+	GetStatus(run *model.Run, output string, state *RunState, outputChanged, hasPrompt bool) model.Status
+	CaptureOutput(run *model.Run) (string, error)
+	DetectPrompt(output string) bool
+}
+
+func GetManager(run *model.Run) AgentManager {
+	if run.OpenCodeSessionID != "" && run.ServerPort > 0 {
+		return &OpenCodeManager{Port: run.ServerPort, SessionID: run.OpenCodeSessionID}
+	}
+	return &TmuxManager{SessionName: getSessionName(run)}
+}
+
+func getSessionName(run *model.Run) string {
+	if run.TmuxSession != "" {
+		return run.TmuxSession
+	}
+	return model.GenerateTmuxSession(run.IssueID, run.RunID)
+}
+
+type TmuxManager struct {
+	SessionName string
+}
+
+func (m *TmuxManager) IsAlive(run *model.Run) bool {
+	return tmux.HasSession(m.SessionName)
+}
+
+func (m *TmuxManager) CaptureOutput(run *model.Run) (string, error) {
+	return tmux.CapturePane(m.SessionName, 100)
+}
+
+func (m *TmuxManager) DetectPrompt(output string) bool {
+	return IsWaitingForInput(output)
+}
+
+func (m *TmuxManager) GetStatus(run *model.Run, output string, state *RunState, outputChanged, hasPrompt bool) model.Status {
+	if IsAgentExited(output) {
+		return model.StatusUnknown
+	}
+	if IsCompleted(output) {
+		return model.StatusDone
+	}
+	if IsAPILimited(output) {
+		return model.StatusBlockedAPI
+	}
+	if IsFailed(output) {
+		return model.StatusFailed
+	}
+	if outputChanged {
+		return model.StatusRunning
+	}
+	if hasPrompt {
+		return model.StatusBlocked
+	}
+	return ""
+}
+
+type OpenCodeManager struct {
+	Port      int
+	SessionID string
+}
+
+func (m *OpenCodeManager) IsAlive(run *model.Run) bool {
+	client := NewOpenCodeClient(m.Port)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if !client.IsServerRunning(ctx) {
+		return false
+	}
+
+	sessions, err := client.GetSessionIDs(ctx)
+	if err != nil {
+		return false
+	}
+
+	return sessions[m.SessionID]
+}
+
+func (m *OpenCodeManager) CaptureOutput(run *model.Run) (string, error) {
+	return "", nil
+}
+
+func (m *OpenCodeManager) DetectPrompt(output string) bool {
+	return false
+}
+
+func (m *OpenCodeManager) GetStatus(run *model.Run, output string, state *RunState, outputChanged, hasPrompt bool) model.Status {
+	if run.Status == model.StatusBooting || run.Status == model.StatusQueued {
+		return model.StatusRunning
+	}
+	return ""
+}
+
+func IsWaitingForInput(output string) bool {
+	promptPatterns := []string{
+		"No, and tell Claude what to do differently",
+		"tell Claude what to do differently",
+		"↵ send",
+		"? for shortcuts",
+		"accept edits",
+		"bypass permissions",
+		"shift+tab to cycle",
+		"Esc to cancel",
+		"to show all projects",
+		"Type your message",
+		"ctrl+s send",
+		"enter newline",
+		"ctrl+c interrupt",
+	}
+
+	for _, pattern := range promptPatterns {
+		if strings.Contains(output, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func IsAgentExited(output string) bool {
+	agentPatterns := []string{
+		"↵ send",
+		"accept edits",
+		"? for shortcuts",
+		"tell Claude what to do differently",
+		"tokens",
+		"Esc to cancel",
+		"to show all projects",
+		"ctrl+s send",
+		"enter newline",
+		"ctrl+c interrupt",
+		"opencode server listening",
+		"POST /session",
+		"POST /message",
+	}
+
+	for _, pattern := range agentPatterns {
+		if strings.Contains(output, pattern) {
+			return false
+		}
+	}
+
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	if len(lines) == 0 {
+		return false
+	}
+
+	lastLine := ""
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line != "" {
+			lastLine = line
+			break
+		}
+	}
+
+	if lastLine == "" {
+		return false
+	}
+
+	if strings.Contains(lastLine, "git:(") && strings.Contains(lastLine, ")") {
+		return true
+	}
+
+	trimmed := strings.TrimRight(lastLine, " ")
+	if strings.HasSuffix(lastLine, "$ ") ||
+		strings.HasSuffix(lastLine, "% ") ||
+		strings.HasSuffix(lastLine, "# ") ||
+		strings.HasSuffix(lastLine, "❯ ") ||
+		strings.HasSuffix(lastLine, "➜ ") ||
+		strings.HasSuffix(trimmed, "$") ||
+		strings.HasSuffix(trimmed, "%") ||
+		strings.HasSuffix(trimmed, "✗") ||
+		strings.HasSuffix(trimmed, "❯") ||
+		strings.HasSuffix(trimmed, "➜") {
+		return true
+	}
+
+	return false
+}
+
+func IsCompleted(output string) bool {
+	lines := getLastLines(output, 5)
+	lowerOutput := strings.ToLower(lines)
+
+	completionPatterns := []string{
+		"task completed successfully",
+		"all tasks completed",
+		"session ended",
+		"goodbye",
+	}
+
+	for _, pattern := range completionPatterns {
+		if strings.Contains(lowerOutput, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func IsAPILimited(output string) bool {
+	lines := getLastLines(output, 30)
+	lowerOutput := strings.ToLower(lines)
+
+	apiLimitPatterns := []string{
+		"cost limit reached",
+		"rate limit exceeded",
+		"rate limit reached",
+		"quota exceeded",
+		"insufficient quota",
+		"resource exhausted",
+		"you've hit your limit",
+		"/rate-limit-options",
+		"stop and wait for limit to reset",
+	}
+
+	for _, pattern := range apiLimitPatterns {
+		if strings.Contains(lowerOutput, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func IsFailed(output string) bool {
+	lines := getLastLines(output, 10)
+	lowerOutput := strings.ToLower(lines)
+
+	errorPatterns := []string{
+		"fatal error",
+		"unrecoverable error",
+		"agent crashed",
+		"session terminated",
+		"authentication failed",
+	}
+
+	for _, pattern := range errorPatterns {
+		if strings.Contains(lowerOutput, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func getLastLines(s string, n int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) <= n {
+		return s
+	}
+	return strings.Join(lines[len(lines)-n:], "\n")
+}
