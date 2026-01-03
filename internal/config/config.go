@@ -17,6 +17,8 @@ type Config struct {
 	LogLevel       string `yaml:"log_level"`
 	PromptTemplate string `yaml:"prompt_template"` // Path to custom prompt template
 	NoPR           bool   `yaml:"no_pr"`           // Disable PR instructions by default
+	Model          string `yaml:"model"`           // Model in provider/model format (e.g., anthropic/claude-opus-4-5)
+	ModelVariant   string `yaml:"model_variant"`   // Model variant (e.g., "max" for max thinking)
 }
 
 type fileConfig struct {
@@ -31,6 +33,8 @@ type fileConfig struct {
 	LogLevel          string `yaml:"log_level"`
 	PromptTemplate    string `yaml:"prompt_template"`
 	NoPR              *bool  `yaml:"no_pr"`
+	Model             string `yaml:"model"`
+	ModelVariant      string `yaml:"model_variant"`
 }
 
 // configFile is the name of the config file
@@ -192,6 +196,12 @@ func loadFromFile(path string, cfg *Config) error {
 	if fileCfg.NoPR != nil {
 		cfg.NoPR = *fileCfg.NoPR
 	}
+	if fileCfg.Model != "" {
+		cfg.Model = fileCfg.Model
+	}
+	if fileCfg.ModelVariant != "" {
+		cfg.ModelVariant = fileCfg.ModelVariant
+	}
 
 	return nil
 }
@@ -246,6 +256,12 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("ORCH_NO_PR"); v != "" {
 		cfg.NoPR = v == "true" || v == "1" || v == "yes"
+	}
+	if v := os.Getenv("ORCH_MODEL"); v != "" {
+		cfg.Model = v
+	}
+	if v := os.Getenv("ORCH_MODEL_VARIANT"); v != "" {
+		cfg.ModelVariant = v
 	}
 }
 
