@@ -111,29 +111,27 @@ func attachOpenCode(run *model.Run) error {
 
 	serverURL := fmt.Sprintf("http://127.0.0.1:%d", run.ServerPort)
 
-	// NOTE: opencode attach has a bug where the TUI inherits the SERVER's project
-	// context instead of respecting --dir or cwd. The workaround is to start
-	// opencode directly in the worktree directory without attaching to shared server.
-	//
-	// For now, we start a fresh opencode TUI in the worktree with --continue flag
-	// to resume the most recent session in that directory.
-	fmt.Fprintf(os.Stderr, "Starting opencode in: %s\n", run.WorktreePath)
+	// Attach to the running opencode server
+	// NOTE: The server must have been started from the worktree directory for this to work.
+	// orch run does this correctly by setting WorkDir in tmux session config.
+	fmt.Fprintf(os.Stderr, "Attaching to opencode server: %s\n", serverURL)
 	fmt.Fprintf(os.Stderr, "Session: %s\n", run.OpenCodeSessionID)
-	fmt.Fprintf(os.Stderr, "Server: %s\n\n", serverURL)
+	fmt.Fprintf(os.Stderr, "Worktree: %s\n\n", run.WorktreePath)
 
-	// Start opencode TUI directly in worktree with session continuation
-	args := []string{"--session", run.OpenCodeSessionID}
+	args := []string{"attach", serverURL}
+	if run.OpenCodeSessionID != "" {
+		args = append(args, "--session", run.OpenCodeSessionID)
+	}
 
 	cmd := exec.Command("opencode", args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Dir = run.WorktreePath
 
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to start opencode: %v\n", err)
-		fmt.Fprintf(os.Stderr, "\nManual: cd %s && opencode --session %s\n",
-			run.WorktreePath, run.OpenCodeSessionID)
+		fmt.Fprintf(os.Stderr, "failed to attach to opencode: %v\n", err)
+		fmt.Fprintf(os.Stderr, "\nManual: opencode attach %s --session %s\n",
+			serverURL, run.OpenCodeSessionID)
 		os.Exit(ExitTmuxError)
 		return err
 	}
