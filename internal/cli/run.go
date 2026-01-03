@@ -292,34 +292,38 @@ func runRun(issueID string, opts *runOptions) error {
 			return exitWithCode(fmt.Errorf("tmux is not available"), ExitTmuxError)
 		}
 
-		// For HTTP-based agents, check if server is already running for THIS worktree
+		// For HTTP-based agents, find the best available port
+		// This checks both for existing servers (to reuse) and for free ports
 		serverAlreadyRunning := false
 		if adapter.PromptInjection() == agent.InjectionHTTP {
-			client := agent.NewOpenCodeClient(launchCfg.Port)
+			// Find an available port, checking for existing servers on each port
+			foundPort := findAvailablePortForOpenCode(launchCfg.Port, launchCfg.Port+100, worktreeResult.WorktreePath)
+			if foundPort == 0 {
+				st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+				return exitWithCode(fmt.Errorf("no available port found for opencode server"), ExitAgentError)
+			}
+
+			// Check if we found an existing server for our worktree
+			client := agent.NewOpenCodeClient(foundPort)
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			serverAlreadyRunning = client.IsServerRunningForWorktree(ctx, worktreeResult.WorktreePath)
+			cancel()
 
 			if serverAlreadyRunning {
-				fmt.Fprintf(os.Stderr, "opencode server already running on port %d for this worktree, reusing\n", launchCfg.Port)
-			} else if client.IsServerRunning(ctx) {
-				// Server running for different project, find an available port
-				fmt.Fprintf(os.Stderr, "opencode server running on port %d for different project, finding new port\n", launchCfg.Port)
-				newPort := findAvailablePort(launchCfg.Port+1, launchCfg.Port+100)
-				if newPort == 0 {
-					cancel()
-					st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
-					return exitWithCode(fmt.Errorf("no available port found for opencode server"), ExitAgentError)
-				}
-				launchCfg.Port = newPort
+				fmt.Fprintf(os.Stderr, "opencode server already running on port %d for this worktree, reusing\n", foundPort)
+			} else if foundPort != launchCfg.Port {
+				fmt.Fprintf(os.Stderr, "using port %d for opencode server (port %d in use by different project)\n", foundPort, launchCfg.Port)
+			}
+
+			// Update port if different from default
+			if foundPort != launchCfg.Port {
+				launchCfg.Port = foundPort
 				// Regenerate the agent command with new port
 				agentCmd, err = adapter.LaunchCommand(launchCfg)
 				if err != nil {
-					cancel()
 					return exitWithCode(err, ExitAgentError)
 				}
-				fmt.Fprintf(os.Stderr, "using port %d for opencode server\n", newPort)
 			}
-			cancel()
 		}
 
 		// Only create tmux session if server is not already running
@@ -659,6 +663,39 @@ func injectPromptViaHTTP(st interface {
 // Returns 0 if no port is available
 func findAvailablePort(start, end int) int {
 	for port := start; port <= end; port++ {
+		addr := fmt.Sprintf("127.0.0.1:%d", port)
+		listener, err := net.Listen("tcp", addr)
+		if err == nil {
+			listener.Close()
+			return port
+		}
+	}
+	return 0
+}
+
+// findAvailablePortForOpenCode finds an available port for opencode server.
+// It checks both that the port is bindable AND that no existing opencode server
+// is running on that port for a different worktree.
+// Returns 0 if no port is available
+func findAvailablePortForOpenCode(start, end int, targetWorktree string) int {
+	for port := start; port <= end; port++ {
+		// First, check if an opencode server is already running on this port
+		client := agent.NewOpenCodeClient(port)
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+
+		if client.IsServerRunning(ctx) {
+			// Server running - check if it's for the right worktree
+			if client.IsServerRunningForWorktree(ctx, targetWorktree) {
+				cancel()
+				return port // Can reuse this server
+			}
+			// Server for different worktree, skip this port
+			cancel()
+			continue
+		}
+		cancel()
+
+		// No server running, check if port is bindable
 		addr := fmt.Sprintf("127.0.0.1:%d", port)
 		listener, err := net.Listen("tcp", addr)
 		if err == nil {
