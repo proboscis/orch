@@ -111,7 +111,8 @@ func attachOpenCode(run *model.Run) error {
 
 	serverURL := fmt.Sprintf("http://127.0.0.1:%d", run.ServerPort)
 
-	// Build command args
+	// Build command args - note: we don't pass --dir because opencode's --dir flag
+	// has a bug where it doesn't properly scope the session lookup
 	args := []string{"attach", serverURL}
 
 	// Add session ID if available
@@ -119,19 +120,22 @@ func attachOpenCode(run *model.Run) error {
 		args = append(args, "--session", run.OpenCodeSessionID)
 	}
 
-	// Add worktree directory for proper context
-	if run.WorktreePath != "" {
-		args = append(args, "--dir", run.WorktreePath)
-	}
-
 	cmd := exec.Command("opencode", args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	fmt.Fprintf(os.Stderr, "attaching to opencode: %s\n", args)
+	// Run from the worktree directory - this is the only way to get opencode
+	// to use the correct project context
+	if run.WorktreePath != "" {
+		cmd.Dir = run.WorktreePath
+	}
+
+	fmt.Fprintf(os.Stderr, "attaching to opencode session in: %s\n", run.WorktreePath)
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to attach to opencode: %v\n", err)
+		fmt.Fprintf(os.Stderr, "\nManual attach: cd %s && opencode attach %s --session %s\n",
+			run.WorktreePath, serverURL, run.OpenCodeSessionID)
 		os.Exit(ExitTmuxError)
 		return err
 	}
