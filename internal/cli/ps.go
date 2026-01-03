@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
@@ -588,18 +590,53 @@ func resolveAgentAliveInfo(runs []*model.Run) map[string]agentAliveInfo {
 	if len(runs) == 0 {
 		return nil
 	}
-	if !tmux.IsTmuxAvailable() {
-		return nil
-	}
-
-	paneCommands, err := tmux.ListPaneCommands()
-	if err != nil {
-		return nil
-	}
 
 	aliveByRun := make(map[string]agentAliveInfo, len(runs))
+
+	var paneCommands map[string][]string
+	if tmux.IsTmuxAvailable() {
+		paneCommands, _ = tmux.ListPaneCommands()
+	}
+
+	opencodeByPort := make(map[int][]*model.Run)
 	for _, r := range runs {
 		if r == nil {
+			continue
+		}
+		if r.Agent == "opencode" && r.OpenCodeSessionID != "" && r.ServerPort > 0 {
+			opencodeByPort[r.ServerPort] = append(opencodeByPort[r.ServerPort], r)
+		}
+	}
+
+	opencodeAlive := make(map[string]bool)
+	for port, portRuns := range opencodeByPort {
+		client := agent.NewOpenCodeClient(port)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		sessionIDs, err := client.GetSessionIDs(ctx)
+		cancel()
+		if err == nil {
+			for _, r := range portRuns {
+				opencodeAlive[r.RunID] = sessionIDs[r.OpenCodeSessionID]
+			}
+		}
+	}
+
+	for _, r := range runs {
+		if r == nil {
+			continue
+		}
+
+		if r.Agent == "opencode" && r.OpenCodeSessionID != "" {
+			if alive, checked := opencodeAlive[r.RunID]; checked {
+				aliveByRun[r.RunID] = agentAliveInfo{alive: alive, known: true}
+				continue
+			}
+			aliveByRun[r.RunID] = agentAliveInfo{alive: false, known: false}
+			continue
+		}
+
+		if paneCommands == nil {
+			aliveByRun[r.RunID] = agentAliveInfo{alive: false, known: false}
 			continue
 		}
 		session := r.TmuxSession

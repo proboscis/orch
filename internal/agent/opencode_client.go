@@ -564,6 +564,18 @@ type ProvidersResponse struct {
 	Thinking []ProviderInfo `json:"thinking"`
 }
 
+func (c *OpenCodeClient) GetSessionIDs(ctx context.Context) (map[string]bool, error) {
+	sessions, err := c.GetSessions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ids := make(map[string]bool, len(sessions))
+	for _, s := range sessions {
+		ids[s.ID] = true
+	}
+	return ids, nil
+}
+
 func (c *OpenCodeClient) GetProviders(ctx context.Context) (*ProvidersResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/provider", nil)
 	if err != nil {
