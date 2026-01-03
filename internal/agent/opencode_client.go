@@ -485,3 +485,63 @@ func (c *OpenCodeClient) GetSessions(ctx context.Context) ([]Session, error) {
 
 	return sessions, nil
 }
+
+// GetSessionsForDirectory lists sessions for a specific directory
+func (c *OpenCodeClient) GetSessionsForDirectory(ctx context.Context, directory string) ([]Session, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/session", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating sessions request: %w", err)
+	}
+	if directory != "" {
+		req.Header.Set("X-OpenCode-Directory", directory)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("listing sessions: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("list sessions returned status %d", resp.StatusCode)
+	}
+
+	var sessions []Session
+	if err := json.NewDecoder(resp.Body).Decode(&sessions); err != nil {
+		return nil, fmt.Errorf("decoding sessions response: %w", err)
+	}
+
+	return sessions, nil
+}
+
+// GetSession gets a specific session by ID
+func (c *OpenCodeClient) GetSession(ctx context.Context, sessionID, directory string) (*Session, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/session/"+sessionID, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating session request: %w", err)
+	}
+	if directory != "" {
+		req.Header.Set("X-OpenCode-Directory", directory)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("getting session: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("session not found: %s", sessionID)
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("get session returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var session Session
+	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil {
+		return nil, fmt.Errorf("decoding session response: %w", err)
+	}
+
+	return &session, nil
+}
