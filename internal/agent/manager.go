@@ -26,7 +26,11 @@ type AgentManager interface {
 
 func GetManager(run *model.Run) AgentManager {
 	if run.OpenCodeSessionID != "" && run.ServerPort > 0 {
-		return &OpenCodeManager{Port: run.ServerPort, SessionID: run.OpenCodeSessionID}
+		return &OpenCodeManager{
+			Port:      run.ServerPort,
+			SessionID: run.OpenCodeSessionID,
+			Directory: run.WorktreePath,
+		}
 	}
 	return &TmuxManager{SessionName: getSessionName(run)}
 }
@@ -79,6 +83,7 @@ func (m *TmuxManager) GetStatus(run *model.Run, output string, state *RunState, 
 type OpenCodeManager struct {
 	Port      int
 	SessionID string
+	Directory string
 }
 
 func (m *OpenCodeManager) IsAlive(run *model.Run) bool {
@@ -110,7 +115,24 @@ func (m *OpenCodeManager) GetStatus(run *model.Run, output string, state *RunSta
 	if run.Status == model.StatusBooting || run.Status == model.StatusQueued {
 		return model.StatusRunning
 	}
-	return ""
+
+	client := NewOpenCodeClient(m.Port)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	sessionStatus, err := client.GetSingleSessionStatus(ctx, m.SessionID, m.Directory)
+	if err != nil {
+		return ""
+	}
+
+	switch sessionStatus {
+	case SessionStatusBusy:
+		return model.StatusRunning
+	case SessionStatusIdle:
+		return model.StatusBlocked
+	default:
+		return ""
+	}
 }
 
 func IsWaitingForInput(output string) bool {

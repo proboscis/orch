@@ -1,6 +1,10 @@
 package agent
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/s22625/orch/internal/model"
@@ -476,7 +480,7 @@ func TestTmuxManagerGetStatus(t *testing.T) {
 	}
 }
 
-func TestOpenCodeManagerGetStatus(t *testing.T) {
+func TestOpenCodeManagerGetStatusBootingQueued(t *testing.T) {
 	manager := &OpenCodeManager{Port: 4321, SessionID: "ses_123"}
 
 	tests := []struct {
@@ -494,16 +498,6 @@ func TestOpenCodeManagerGetStatus(t *testing.T) {
 			runStatus:  model.StatusQueued,
 			wantStatus: model.StatusRunning,
 		},
-		{
-			name:       "running stays empty (no change)",
-			runStatus:  model.StatusRunning,
-			wantStatus: "",
-		},
-		{
-			name:       "blocked stays empty (no change)",
-			runStatus:  model.StatusBlocked,
-			wantStatus: "",
-		},
 	}
 
 	for _, tt := range tests {
@@ -516,4 +510,57 @@ func TestOpenCodeManagerGetStatus(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOpenCodeManagerGetStatusFromAPI(t *testing.T) {
+	tests := []struct {
+		name          string
+		sessionStatus SessionStatus
+		wantStatus    model.Status
+	}{
+		{
+			name:          "busy session returns running",
+			sessionStatus: SessionStatusBusy,
+			wantStatus:    model.StatusRunning,
+		},
+		{
+			name:          "idle session returns blocked",
+			sessionStatus: SessionStatusIdle,
+			wantStatus:    model.StatusBlocked,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/session/status" {
+					w.Header().Set("Content-Type", "application/json")
+					json.NewEncoder(w).Encode(map[string]SessionStatus{
+						"ses_test123": tt.sessionStatus,
+					})
+				}
+			}))
+			defer server.Close()
+
+			port := extractPort(server.URL)
+			manager := &OpenCodeManager{Port: port, SessionID: "ses_test123", Directory: "/test"}
+
+			run := &model.Run{Status: model.StatusRunning}
+			state := &RunState{}
+			got := manager.GetStatus(run, "", state, false, false)
+			if got != tt.wantStatus {
+				t.Errorf("GetStatus() = %v, want %v", got, tt.wantStatus)
+			}
+		})
+	}
+}
+
+func extractPort(url string) int {
+	for i := len(url) - 1; i >= 0; i-- {
+		if url[i] == ':' {
+			port, _ := strconv.Atoi(url[i+1:])
+			return port
+		}
+	}
+	return 0
 }
