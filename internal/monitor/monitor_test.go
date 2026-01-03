@@ -170,6 +170,33 @@ func TestFilterBranchesForIssueSorting(t *testing.T) {
 	}
 }
 
+func TestParseAgentVariant(t *testing.T) {
+	tests := []struct {
+		input       string
+		wantAgent   string
+		wantVariant string
+	}{
+		{"claude", "claude", ""},
+		{"opencode", "opencode", ""},
+		{"opencode:max", "opencode", "max"},
+		{"opencode:standard", "opencode", "standard"},
+		{"custom:myvariant", "custom", "myvariant"},
+		{"", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			agent, variant := parseAgentVariant(tt.input)
+			if agent != tt.wantAgent {
+				t.Errorf("parseAgentVariant(%q) agent = %q, want %q", tt.input, agent, tt.wantAgent)
+			}
+			if variant != tt.wantVariant {
+				t.Errorf("parseAgentVariant(%q) variant = %q, want %q", tt.input, variant, tt.wantVariant)
+			}
+		})
+	}
+}
+
 func TestDashboardRenderCapture(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -202,35 +229,35 @@ func TestDashboardRenderCapture(t *testing.T) {
 			wantContains: []string{"CAPTURE", "test-001#20231225-120000"},
 		},
 		{
-			name:    "no capture content shows message",
-			runs:    []RunRow{{Index: 0, IssueID: "test-001", Run: &model.Run{IssueID: "test-001", RunID: "20231225-120000"}}},
-			cursor:  0,
-			capture: captureState{runRef: "", content: "", message: ""},
-			height:  10,
+			name:         "no capture content shows message",
+			runs:         []RunRow{{Index: 0, IssueID: "test-001", Run: &model.Run{IssueID: "test-001", RunID: "20231225-120000"}}},
+			cursor:       0,
+			capture:      captureState{runRef: "", content: "", message: ""},
+			height:       10,
 			wantContains: []string{"CAPTURE", "No capture available"},
 		},
 		{
-			name:    "capture message is displayed",
-			runs:    []RunRow{{Index: 0, IssueID: "test-001", Run: &model.Run{IssueID: "test-001", RunID: "20231225-120000"}}},
-			cursor:  0,
-			capture: captureState{message: "Session not found"},
-			height:  10,
+			name:         "capture message is displayed",
+			runs:         []RunRow{{Index: 0, IssueID: "test-001", Run: &model.Run{IssueID: "test-001", RunID: "20231225-120000"}}},
+			cursor:       0,
+			capture:      captureState{message: "Session not found"},
+			height:       10,
 			wantContains: []string{"CAPTURE", "Session not found"},
 		},
 		{
-			name:    "capture content is displayed",
-			runs:    []RunRow{{Index: 0, IssueID: "test-001", Run: &model.Run{IssueID: "test-001", RunID: "20231225-120000"}}},
-			cursor:  0,
-			capture: captureState{runRef: "test-001#20231225-120000", content: "Hello from tmux pane"},
-			height:  10,
+			name:         "capture content is displayed",
+			runs:         []RunRow{{Index: 0, IssueID: "test-001", Run: &model.Run{IssueID: "test-001", RunID: "20231225-120000"}}},
+			cursor:       0,
+			capture:      captureState{runRef: "test-001#20231225-120000", content: "Hello from tmux pane"},
+			height:       10,
 			wantContains: []string{"CAPTURE", "Hello from tmux pane"},
 		},
 		{
-			name:    "loading state shows loading message",
-			runs:    []RunRow{{Index: 0, IssueID: "test-001", Run: &model.Run{IssueID: "test-001", RunID: "20231225-120000"}}},
-			cursor:  0,
-			capture: captureState{loading: true},
-			height:  10,
+			name:         "loading state shows loading message",
+			runs:         []RunRow{{Index: 0, IssueID: "test-001", Run: &model.Run{IssueID: "test-001", RunID: "20231225-120000"}}},
+			cursor:       0,
+			capture:      captureState{loading: true},
+			height:       10,
 			wantContains: []string{"CAPTURE", "Loading capture"},
 		},
 	}
