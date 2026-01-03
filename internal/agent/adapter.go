@@ -13,16 +13,19 @@ const (
 	InjectionArg InjectionMethod = "arg"
 	// InjectionTmux means the prompt should be sent via tmux send-keys after the session starts
 	InjectionTmux InjectionMethod = "tmux"
+	// InjectionHTTP means the prompt is sent via HTTP API after the server starts
+	InjectionHTTP InjectionMethod = "http"
 )
 
 // AgentType represents the type of agent
 type AgentType string
 
 const (
-	AgentClaude AgentType = "claude"
-	AgentCodex  AgentType = "codex"
-	AgentGemini AgentType = "gemini"
-	AgentCustom AgentType = "custom"
+	AgentClaude   AgentType = "claude"
+	AgentCodex    AgentType = "codex"
+	AgentGemini   AgentType = "gemini"
+	AgentOpenCode AgentType = "opencode"
+	AgentCustom   AgentType = "custom"
 )
 
 // ParseAgentType parses an agent type string
@@ -34,6 +37,8 @@ func ParseAgentType(s string) (AgentType, error) {
 		return AgentCodex, nil
 	case "gemini":
 		return AgentGemini, nil
+	case "opencode":
+		return AgentOpenCode, nil
 	case "custom":
 		return AgentCustom, nil
 	default:
@@ -55,6 +60,7 @@ type LaunchConfig struct {
 	Resume      bool   // Whether to resume an existing session
 	SessionName string // For agents that support session naming
 	Profile     string // Profile name for agents that support it (e.g., claude --profile)
+	Port        int    // Port for HTTP-based agents (e.g., opencode)
 }
 
 // Env returns the environment variables to pass to the agent
@@ -104,6 +110,8 @@ func GetAdapter(agentType AgentType) (Adapter, error) {
 		return &CodexAdapter{}, nil
 	case AgentGemini:
 		return &GeminiAdapter{}, nil
+	case AgentOpenCode:
+		return &OpenCodeAdapter{}, nil
 	case AgentCustom:
 		return &CustomAdapter{}, nil
 	default:

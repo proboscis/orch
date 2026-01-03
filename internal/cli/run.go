@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -54,7 +55,7 @@ The run will be started in a tmux session by default.`,
 	cmd.Flags().BoolVar(&opts.New, "new", true, "Always create a new run (default)")
 	cmd.Flags().BoolVar(&opts.Reuse, "reuse", false, "Reuse the latest run if blocked or blocked_api")
 	cmd.Flags().StringVar(&opts.RunID, "run-id", "", "Manually specify run ID")
-	cmd.Flags().StringVar(&opts.Agent, "agent", "", "Agent type (claude|codex|gemini|custom)")
+	cmd.Flags().StringVar(&opts.Agent, "agent", "", "Agent type (claude|codex|gemini|opencode|custom)")
 	cmd.Flags().StringVar(&opts.AgentCmd, "agent-cmd", "", "Custom agent command (when --agent=custom)")
 	cmd.Flags().StringVar(&opts.AgentProfile, "profile", "", "Agent profile (e.g., claude --profile)")
 	cmd.Flags().StringVar(&opts.BaseBranch, "base-branch", "", "Base branch for worktree")
@@ -267,6 +268,7 @@ func runRun(issueID string, opts *runOptions) error {
 		Branch:    worktreeResult.Branch,
 		Prompt:    promptFileInstruction,
 		Profile:   opts.AgentProfile,
+		Port:      4096, // Default port for HTTP-based agents (e.g., opencode)
 	}
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)
@@ -283,30 +285,47 @@ func runRun(issueID string, opts *runOptions) error {
 			return exitWithCode(fmt.Errorf("tmux is not available"), ExitTmuxError)
 		}
 
+		// Build environment variables - merge adapter-specific vars with launch config vars
+		env := launchCfg.Env()
+		if opencodeAdapter, ok := adapter.(*agent.OpenCodeAdapter); ok {
+			env = append(env, opencodeAdapter.Env()...)
+		}
+
 		// Create tmux session
 		err = tmux.NewSession(&tmux.SessionConfig{
 			SessionName: tmuxSession,
 			WorkDir:     worktreeResult.WorktreePath,
 			Command:     agentCmd,
-			Env:         launchCfg.Env(),
+			Env:         env,
 		})
 		if err != nil {
 			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
 			return exitWithCode(fmt.Errorf("failed to create tmux session: %w", err), ExitTmuxError)
 		}
 
-		// If the agent uses tmux send-keys for prompt injection, send the prompt now
-		if adapter.PromptInjection() == agent.InjectionTmux && launchCfg.Prompt != "" {
-			// Wait for the agent to be ready before sending the prompt
-			if pattern := adapter.ReadyPattern(); pattern != "" {
-				if err := tmux.WaitForReady(tmuxSession, pattern, 30*time.Second); err != nil {
+		// Handle prompt injection based on agent type
+		switch adapter.PromptInjection() {
+		case agent.InjectionTmux:
+			// Send prompt via tmux send-keys
+			if launchCfg.Prompt != "" {
+				// Wait for the agent to be ready before sending the prompt
+				if pattern := adapter.ReadyPattern(); pattern != "" {
+					if err := tmux.WaitForReady(tmuxSession, pattern, 30*time.Second); err != nil {
+						st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+						return exitWithCode(fmt.Errorf("agent did not become ready: %w", err), ExitAgentError)
+					}
+				}
+				if err := tmux.SendKeys(tmuxSession, launchCfg.Prompt); err != nil {
 					st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
-					return exitWithCode(fmt.Errorf("agent did not become ready: %w", err), ExitAgentError)
+					return exitWithCode(fmt.Errorf("failed to send prompt to session: %w", err), ExitTmuxError)
 				}
 			}
-			if err := tmux.SendKeys(tmuxSession, launchCfg.Prompt); err != nil {
+
+		case agent.InjectionHTTP:
+			// For HTTP-based agents (e.g., opencode), send prompt via HTTP API
+			if err := injectPromptViaHTTP(st, run, launchCfg); err != nil {
 				st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
-				return exitWithCode(fmt.Errorf("failed to send prompt to session: %w", err), ExitTmuxError)
+				return exitWithCode(fmt.Errorf("failed to send prompt via HTTP: %w", err), ExitAgentError)
 			}
 		}
 
@@ -539,4 +558,42 @@ func exitWithCode(err error, code int) error {
 	}
 	os.Exit(code)
 	return err
+}
+
+// injectPromptViaHTTP sends the prompt to an HTTP-based agent (e.g., opencode)
+func injectPromptViaHTTP(st interface {
+	AppendEvent(*model.RunRef, *model.Event) error
+}, run *model.Run, cfg *agent.LaunchConfig) error {
+	port := cfg.Port
+	if port == 0 {
+		port = 4096 // Default opencode port
+	}
+
+	client := agent.NewOpenCodeClient(port)
+
+	// Wait for server to be healthy
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	if err := client.WaitForHealthy(ctx, 60*time.Second); err != nil {
+		return fmt.Errorf("server did not become healthy: %w", err)
+	}
+
+	// Record server port as artifact
+	st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
+		"port": fmt.Sprintf("%d", port),
+	}))
+
+	// Create a new session
+	session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", run.IssueID, run.RunID))
+	if err != nil {
+		return fmt.Errorf("failed to create session: %w", err)
+	}
+
+	// Send the prompt asynchronously (don't wait for completion)
+	if err := client.SendMessageAsync(ctx, session.ID, cfg.Prompt); err != nil {
+		return fmt.Errorf("failed to send prompt: %w", err)
+	}
+
+	return nil
 }

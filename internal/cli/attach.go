@@ -3,7 +3,9 @@ package cli
 import (
 	"fmt"
 	"os"
+	"os/exec"
 
+	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/tmux"
 	"github.com/spf13/cobra"
@@ -51,6 +53,11 @@ func runAttach(refStr string, opts *attachOptions) error {
 		return err
 	}
 
+	// For opencode agents, use opencode attach instead of tmux
+	if run.Agent == string(agent.AgentOpenCode) {
+		return attachOpenCode(run)
+	}
+
 	sessionName := run.TmuxSession
 	if sessionName == "" {
 		// Generate session name if not stored
@@ -89,6 +96,33 @@ func runAttach(refStr string, opts *attachOptions) error {
 			os.Exit(ExitTmuxError)
 			return err
 		}
+	}
+
+	return nil
+}
+
+// attachOpenCode attaches to an opencode server using opencode attach command
+func attachOpenCode(run *model.Run) error {
+	if run.ServerPort == 0 {
+		fmt.Fprintf(os.Stderr, "no server port found for opencode run: %s\n", run.Ref().String())
+		os.Exit(ExitRunNotFound)
+		return fmt.Errorf("no server port found")
+	}
+
+	adapter := &agent.OpenCodeAdapter{}
+	attachCmd := adapter.AttachCommand(run.ServerPort)
+
+	// Parse the command and execute
+	cmd := exec.Command("opencode", "attach", fmt.Sprintf("http://127.0.0.1:%d", run.ServerPort))
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	fmt.Fprintf(os.Stderr, "attaching to opencode server: %s\n", attachCmd)
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to attach to opencode: %v\n", err)
+		os.Exit(ExitTmuxError)
+		return err
 	}
 
 	return nil

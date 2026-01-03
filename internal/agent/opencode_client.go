@@ -1,0 +1,348 @@
+package agent
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+)
+
+// OpenCodeClient is an HTTP client for the opencode server API
+type OpenCodeClient struct {
+	baseURL    string
+	httpClient *http.Client
+}
+
+// NewOpenCodeClient creates a new client for the opencode server
+func NewOpenCodeClient(port int) *OpenCodeClient {
+	return &OpenCodeClient{
+		baseURL: fmt.Sprintf("http://127.0.0.1:%d", port),
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
+	}
+}
+
+// HealthResponse represents the response from /global/health
+type HealthResponse struct {
+	Healthy bool   `json:"healthy"`
+	Version string `json:"version"`
+}
+
+// Session represents an opencode session
+type Session struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	ParentID  string    `json:"parentID,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// MessagePart represents a part of a message
+type MessagePart struct {
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
+}
+
+// Message represents an opencode message
+type Message struct {
+	Info  MessageInfo   `json:"info"`
+	Parts []MessagePart `json:"parts"`
+}
+
+// MessageInfo contains message metadata
+type MessageInfo struct {
+	ID        string    `json:"id"`
+	SessionID string    `json:"sessionID"`
+	Role      string    `json:"role"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// PromptRequest represents a request to send a prompt
+type PromptRequest struct {
+	Parts []MessagePart `json:"parts"`
+	Model *ModelRef     `json:"model,omitempty"`
+}
+
+// ModelRef specifies the model to use
+type ModelRef struct {
+	ProviderID string `json:"providerID"`
+	ModelID    string `json:"modelID"`
+}
+
+// Event represents an SSE event from opencode
+type Event struct {
+	Type       string          `json:"type"`
+	Properties json.RawMessage `json:"properties"`
+}
+
+// Health checks if the opencode server is healthy
+func (c *OpenCodeClient) Health(ctx context.Context) (*HealthResponse, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/global/health", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating health request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("health check failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("health check returned status %d", resp.StatusCode)
+	}
+
+	var health HealthResponse
+	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
+		return nil, fmt.Errorf("decoding health response: %w", err)
+	}
+
+	return &health, nil
+}
+
+// WaitForHealthy waits until the server is healthy or context is cancelled
+func (c *OpenCodeClient) WaitForHealthy(ctx context.Context, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout waiting for opencode server to be healthy: %w", ctx.Err())
+		case <-ticker.C:
+			health, err := c.Health(ctx)
+			if err == nil && health.Healthy {
+				return nil
+			}
+		}
+	}
+}
+
+// CreateSession creates a new session
+func (c *OpenCodeClient) CreateSession(ctx context.Context, title string) (*Session, error) {
+	body := map[string]string{}
+	if title != "" {
+		body["title"] = title
+	}
+
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling session request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/session", bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, fmt.Errorf("creating session request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("creating session: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("create session returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var session Session
+	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil {
+		return nil, fmt.Errorf("decoding session response: %w", err)
+	}
+
+	return &session, nil
+}
+
+// SendMessage sends a message to a session and waits for the response
+func (c *OpenCodeClient) SendMessage(ctx context.Context, sessionID, text string) (*Message, error) {
+	reqBody := PromptRequest{
+		Parts: []MessagePart{
+			{Type: "text", Text: text},
+		},
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling message request: %w", err)
+	}
+
+	// Use a client without timeout for potentially long-running requests
+	client := &http.Client{}
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/session/"+sessionID+"/message", bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, fmt.Errorf("creating message request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("sending message: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("send message returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var message Message
+	if err := json.NewDecoder(resp.Body).Decode(&message); err != nil {
+		return nil, fmt.Errorf("decoding message response: %w", err)
+	}
+
+	return &message, nil
+}
+
+// SendMessageAsync sends a message asynchronously (does not wait for response)
+func (c *OpenCodeClient) SendMessageAsync(ctx context.Context, sessionID, text string) error {
+	reqBody := PromptRequest{
+		Parts: []MessagePart{
+			{Type: "text", Text: text},
+		},
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("marshaling message request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/session/"+sessionID+"/prompt_async", bytes.NewReader(jsonBody))
+	if err != nil {
+		return fmt.Errorf("creating async message request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("sending async message: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("send async message returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
+// Abort aborts a running session
+func (c *OpenCodeClient) Abort(ctx context.Context, sessionID string) error {
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/session/"+sessionID+"/abort", nil)
+	if err != nil {
+		return fmt.Errorf("creating abort request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("aborting session: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("abort returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
+// SubscribeEvents subscribes to SSE events from the server
+// Returns a channel that receives events. The channel is closed when the context is cancelled.
+func (c *OpenCodeClient) SubscribeEvents(ctx context.Context) (<-chan Event, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/event", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating events request: %w", err)
+	}
+	req.Header.Set("Accept", "text/event-stream")
+
+	// Use a client without timeout for SSE
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("subscribing to events: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("events subscription returned status %d", resp.StatusCode)
+	}
+
+	events := make(chan Event, 100)
+
+	go func() {
+		defer resp.Body.Close()
+		defer close(events)
+
+		reader := bufio.NewReader(resp.Body)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				line, err := reader.ReadString('\n')
+				if err != nil {
+					return
+				}
+
+				line = strings.TrimSpace(line)
+				if line == "" {
+					continue
+				}
+
+				// Parse SSE format: "data: {...}"
+				if strings.HasPrefix(line, "data: ") {
+					data := strings.TrimPrefix(line, "data: ")
+					var event Event
+					if err := json.Unmarshal([]byte(data), &event); err != nil {
+						continue // Skip malformed events
+					}
+
+					select {
+					case events <- event:
+					case <-ctx.Done():
+						return
+					}
+				}
+			}
+		}
+	}()
+
+	return events, nil
+}
+
+// GetSessions lists all sessions
+func (c *OpenCodeClient) GetSessions(ctx context.Context) ([]Session, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/session", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating sessions request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("listing sessions: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("list sessions returned status %d", resp.StatusCode)
+	}
+
+	var sessions []Session
+	if err := json.NewDecoder(resp.Body).Decode(&sessions); err != nil {
+		return nil, fmt.Errorf("decoding sessions response: %w", err)
+	}
+
+	return sessions, nil
+}

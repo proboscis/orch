@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -64,6 +65,7 @@ type Run struct {
 	TmuxSession  string
 	TmuxWindowID string
 	PRUrl        string
+	ServerPort   int // Port for HTTP-based agents (e.g., opencode)
 
 	// Frontmatter metadata
 	ContinuedFrom string
@@ -150,6 +152,13 @@ func (r *Run) DeriveState() {
 	}
 	if pr, ok := artifacts["pr"]; ok {
 		r.PRUrl = pr["url"]
+	}
+	if server, ok := artifacts["server"]; ok {
+		if portStr, ok := server["port"]; ok {
+			if port, err := strconv.Atoi(portStr); err == nil {
+				r.ServerPort = port
+			}
+		}
 	}
 
 	// Derive timestamps
