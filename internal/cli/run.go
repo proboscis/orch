@@ -36,6 +36,8 @@ type runOptions struct {
 	NoPR           bool   // Skip PR instructions in prompt
 	PromptTemplate string // Custom prompt template file
 	PRTargetBranch string // Default PR target branch for prompt
+	Model          string // Model for opencode (provider/model format)
+	ModelVariant   string // Model variant (e.g., "max" for max thinking)
 }
 
 func newRunCmd() *cobra.Command {
@@ -68,6 +70,8 @@ The run will be started in a tmux session by default.`,
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Show what would be done without doing it")
 	cmd.Flags().BoolVar(&opts.NoPR, "no-pr", false, "Skip PR creation instructions in agent prompt")
 	cmd.Flags().StringVar(&opts.PromptTemplate, "prompt-template", "", "Custom prompt template file")
+	cmd.Flags().StringVar(&opts.Model, "model", "", "Model for opencode (provider/model format, e.g., anthropic/claude-opus-4-5)")
+	cmd.Flags().StringVar(&opts.ModelVariant, "model-variant", "", "Model variant (e.g., 'max' for max thinking)")
 
 	return cmd
 }
@@ -259,17 +263,19 @@ func runRun(issueID string, opts *runOptions) error {
 		return exitWithCode(fmt.Errorf("failed to write prompt file: %w", err), ExitInternalError)
 	}
 	launchCfg := &agent.LaunchConfig{
-		Type:      agentType,
-		CustomCmd: opts.AgentCmd,
-		WorkDir:   worktreeResult.WorktreePath,
-		IssueID:   issueID,
-		RunID:     runID,
-		RunPath:   run.Path,
-		VaultPath: st.VaultPath(),
-		Branch:    worktreeResult.Branch,
-		Prompt:    promptFileInstruction,
-		Profile:   opts.AgentProfile,
-		Port:      4096, // Default port for HTTP-based agents (e.g., opencode)
+		Type:         agentType,
+		CustomCmd:    opts.AgentCmd,
+		WorkDir:      worktreeResult.WorktreePath,
+		IssueID:      issueID,
+		RunID:        runID,
+		RunPath:      run.Path,
+		VaultPath:    st.VaultPath(),
+		Branch:       worktreeResult.Branch,
+		Prompt:       promptFileInstruction,
+		Profile:      opts.AgentProfile,
+		Port:         4096, // Default port for HTTP-based agents (e.g., opencode)
+		Model:        opts.Model,
+		ModelVariant: opts.ModelVariant,
 	}
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)
@@ -632,8 +638,17 @@ func injectPromptViaHTTP(st interface {
 		"id": session.ID,
 	}))
 
+	// Build model reference from config
+	var modelRef *agent.ModelRef
+	if cfg.Model != "" {
+		modelRef = agent.ParseModel(cfg.Model)
+		if modelRef != nil && cfg.ModelVariant != "" {
+			modelRef.Variant = cfg.ModelVariant
+		}
+	}
+
 	// Send the prompt asynchronously (don't wait for completion)
-	if err := client.SendMessageAsync(ctx, session.ID, cfg.Prompt); err != nil {
+	if err := client.SendMessageAsync(ctx, session.ID, cfg.Prompt, modelRef); err != nil {
 		return fmt.Errorf("failed to send prompt: %w", err)
 	}
 

@@ -116,6 +116,22 @@ type PromptRequest struct {
 type ModelRef struct {
 	ProviderID string `json:"providerID"`
 	ModelID    string `json:"modelID"`
+	Variant    string `json:"variant,omitempty"`
+}
+
+// ParseModel parses a model string in "provider/model" format
+func ParseModel(model string) *ModelRef {
+	if model == "" {
+		return nil
+	}
+	parts := strings.SplitN(model, "/", 2)
+	if len(parts) != 2 {
+		return nil
+	}
+	return &ModelRef{
+		ProviderID: parts[0],
+		ModelID:    parts[1],
+	}
 }
 
 // Event represents an SSE event from opencode
@@ -307,18 +323,19 @@ func (c *OpenCodeClient) SendMessage(ctx context.Context, sessionID, text string
 }
 
 // SendMessageAsync sends a message asynchronously with retry logic (does not wait for response)
-func (c *OpenCodeClient) SendMessageAsync(ctx context.Context, sessionID, text string) error {
+func (c *OpenCodeClient) SendMessageAsync(ctx context.Context, sessionID, text string, model *ModelRef) error {
 	return retryNoResult(ctx, 3, 500*time.Millisecond, func() error {
-		return c.sendMessageAsyncOnce(ctx, sessionID, text)
+		return c.sendMessageAsyncOnce(ctx, sessionID, text, model)
 	})
 }
 
 // sendMessageAsyncOnce sends a message asynchronously (single attempt)
-func (c *OpenCodeClient) sendMessageAsyncOnce(ctx context.Context, sessionID, text string) error {
+func (c *OpenCodeClient) sendMessageAsyncOnce(ctx context.Context, sessionID, text string, model *ModelRef) error {
 	reqBody := PromptRequest{
 		Parts: []MessagePart{
 			{Type: "text", Text: text},
 		},
+		Model: model,
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
