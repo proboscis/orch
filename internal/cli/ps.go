@@ -331,10 +331,7 @@ func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime boo
 			pr = "yes"
 		}
 
-		agent := r.Agent
-		if agent == "" {
-			agent = "-"
-		}
+		agentDisplay := agent.AgentDisplayName(r.Agent, r.Model, r.ModelVariant)
 
 		modelDisplay := formatModelDisplay(r.Model, r.ModelVariant)
 
@@ -349,7 +346,7 @@ func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime boo
 			displayID,
 			r.IssueID,
 			issueStatus,
-			agent,
+			agentDisplay,
 			modelDisplay,
 			colorStatus(r.Status),
 			colorAlive(aliveInfo),

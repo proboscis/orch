@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
+	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/tmux"
@@ -1079,7 +1080,7 @@ func (d *Dashboard) tableWidths() (idxW, idW, issueW, issueStatusW, agentW, stat
 	idW = 6
 	issueW = 14
 	issueStatusW = 8
-	agentW = 6
+	agentW = agent.MaxAgentDisplayWidth
 	statusW = 10
 	aliveW = 5
 	branchW = runTableBranchWidth
