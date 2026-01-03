@@ -108,15 +108,15 @@ type MessageInfo struct {
 
 // PromptRequest represents a request to send a prompt
 type PromptRequest struct {
-	Parts []MessagePart `json:"parts"`
-	Model *ModelRef     `json:"model,omitempty"`
+	Parts   []MessagePart `json:"parts"`
+	Model   *ModelRef     `json:"model,omitempty"`
+	Variant string        `json:"variant,omitempty"` // Thinking mode: "high", "max", etc.
 }
 
 // ModelRef specifies the model to use
 type ModelRef struct {
 	ProviderID string `json:"providerID"`
 	ModelID    string `json:"modelID"`
-	Variant    string `json:"variant,omitempty"`
 }
 
 // ParseModel parses a model string in "provider/model" format
@@ -328,19 +328,22 @@ func (c *OpenCodeClient) SendMessage(ctx context.Context, sessionID, text string
 }
 
 // SendMessageAsync sends a message asynchronously with retry logic (does not wait for response)
-func (c *OpenCodeClient) SendMessageAsync(ctx context.Context, sessionID, text string, model *ModelRef) error {
+// The directory parameter specifies the working directory context for the request
+// The variant parameter specifies thinking mode: "high", "max", etc.
+func (c *OpenCodeClient) SendMessageAsync(ctx context.Context, sessionID, text, directory string, model *ModelRef, variant string) error {
 	return retryNoResult(ctx, 3, 500*time.Millisecond, func() error {
-		return c.sendMessageAsyncOnce(ctx, sessionID, text, model)
+		return c.sendMessageAsyncOnce(ctx, sessionID, text, directory, model, variant)
 	})
 }
 
 // sendMessageAsyncOnce sends a message asynchronously (single attempt)
-func (c *OpenCodeClient) sendMessageAsyncOnce(ctx context.Context, sessionID, text string, model *ModelRef) error {
+func (c *OpenCodeClient) sendMessageAsyncOnce(ctx context.Context, sessionID, text, directory string, model *ModelRef, variant string) error {
 	reqBody := PromptRequest{
 		Parts: []MessagePart{
 			{Type: "text", Text: text},
 		},
-		Model: model,
+		Model:   model,
+		Variant: variant,
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -353,6 +356,10 @@ func (c *OpenCodeClient) sendMessageAsyncOnce(ctx context.Context, sessionID, te
 		return fmt.Errorf("creating async message request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// Set the working directory context via header
+	if directory != "" {
+		req.Header.Set("X-OpenCode-Directory", directory)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

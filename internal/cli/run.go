@@ -638,13 +638,11 @@ func injectPromptViaHTTP(st interface {
 	var modelRef *agent.ModelRef
 	if cfg.Model != "" {
 		modelRef = agent.ParseModel(cfg.Model)
-		if modelRef != nil && cfg.ModelVariant != "" {
-			modelRef.Variant = cfg.ModelVariant
-		}
 	}
 
 	// Send the prompt asynchronously (don't wait for completion)
-	if err := client.SendMessageAsync(ctx, session.ID, cfg.Prompt, modelRef); err != nil {
+	// Pass directory for proper project context, model for model selection, and variant for thinking mode
+	if err := client.SendMessageAsync(ctx, session.ID, cfg.Prompt, cfg.WorkDir, modelRef, cfg.ModelVariant); err != nil {
 		return fmt.Errorf("failed to send prompt: %w", err)
 	}
 
