@@ -295,6 +295,87 @@ func TestExpandPath(t *testing.T) {
 	}
 }
 
+func TestLoadModelConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_AGENT", "")
+	t.Setenv("ORCH_MODEL", "")
+	t.Setenv("ORCH_MODEL_VARIANT", "")
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	configContent := `vault: /repo
+agent: opencode
+model: anthropic/claude-opus-4-5
+model_variant: max
+`
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(configContent), 0644); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	if cfg.Agent != "opencode" {
+		t.Fatalf("Agent = %q, want opencode", cfg.Agent)
+	}
+	if cfg.Model != "anthropic/claude-opus-4-5" {
+		t.Fatalf("Model = %q, want anthropic/claude-opus-4-5", cfg.Model)
+	}
+	if cfg.ModelVariant != "max" {
+		t.Fatalf("ModelVariant = %q, want max", cfg.ModelVariant)
+	}
+}
+
+func TestLoadModelEnvOverride(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_VAULT", "/env-vault")
+	t.Setenv("ORCH_AGENT", "")
+	t.Setenv("ORCH_MODEL", "openai/gpt-4o")
+	t.Setenv("ORCH_MODEL_VARIANT", "high")
+
+	repo := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	if cfg.Model != "openai/gpt-4o" {
+		t.Fatalf("Model = %q, want openai/gpt-4o", cfg.Model)
+	}
+	if cfg.ModelVariant != "high" {
+		t.Fatalf("ModelVariant = %q, want high", cfg.ModelVariant)
+	}
+}
+
 func TestRelativeVaultPathResolution(t *testing.T) {
 	// Clear environment variables that could interfere
 	t.Setenv("ORCH_VAULT", "")
