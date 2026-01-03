@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -994,24 +995,28 @@ type agentChatLaunch struct {
 	prompt       string
 	injection    agent.InjectionMethod
 	readyPattern string
+	port         int
+	model        string
+	modelVariant string
 }
 
 func (m *Monitor) agentChatLaunch() agentChatLaunch {
-	// Write the control prompt file with dynamic repo context
 	_, err := writeControlPromptFile(m.store)
 	if err != nil {
 		return agentChatLaunch{command: fallbackChatCommand(fmt.Sprintf("failed to write prompt file: %v", err))}
 	}
 
-	// Use the instruction to read the prompt file
 	prompt := GetControlPromptInstruction()
 
 	agentName := strings.TrimSpace(m.agent)
-	if agentName == "" {
-		cfg, err := config.Load()
-		if err == nil {
+	var modelName, modelVariant string
+	cfg, cfgErr := config.Load()
+	if cfgErr == nil {
+		if agentName == "" {
 			agentName = cfg.Agent
 		}
+		modelName = cfg.Model
+		modelVariant = cfg.ModelVariant
 	}
 	if agentName == "" {
 		agentName = "opencode"
@@ -1028,11 +1033,15 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 		return agentChatLaunch{command: fallbackChatCommand(fmt.Sprintf("%s CLI not available", agentName))}
 	}
 
+	port := 4096
 	cmd, err := adapter.LaunchCommand(&agent.LaunchConfig{
 		Type:            aType,
 		VaultPath:       m.store.VaultPath(),
 		Prompt:          prompt,
 		ContinueSession: true,
+		Port:            port,
+		Model:           modelName,
+		ModelVariant:    modelVariant,
 	})
 	if err != nil {
 		return agentChatLaunch{command: fallbackChatCommand(err.Error())}
@@ -1043,22 +1052,59 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 		prompt:       prompt,
 		injection:    adapter.PromptInjection(),
 		readyPattern: adapter.ReadyPattern(),
+		port:         port,
+		model:        modelName,
+		modelVariant: modelVariant,
 	}
 }
 
 func (m *Monitor) sendAgentChatPrompt(pane string, launch agentChatLaunch) {
-	if launch.injection != agent.InjectionTmux || launch.prompt == "" {
+	if launch.prompt == "" {
 		return
 	}
-	paneID := pane
-	prompt := launch.prompt
-	pattern := launch.readyPattern
-	go func() {
-		if pattern != "" {
-			_ = tmux.WaitForReady(paneID, pattern, 30*time.Second)
-		}
-		_ = tmux.SendKeys(paneID, prompt)
-	}()
+
+	switch launch.injection {
+	case agent.InjectionTmux:
+		paneID := pane
+		prompt := launch.prompt
+		pattern := launch.readyPattern
+		go func() {
+			if pattern != "" {
+				_ = tmux.WaitForReady(paneID, pattern, 30*time.Second)
+			}
+			_ = tmux.SendKeys(paneID, prompt)
+		}()
+
+	case agent.InjectionHTTP:
+		go m.sendPromptViaHTTP(launch)
+	}
+}
+
+func (m *Monitor) sendPromptViaHTTP(launch agentChatLaunch) {
+	port := launch.port
+	if port == 0 {
+		port = 4096
+	}
+
+	client := agent.NewOpenCodeClient(port)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	if err := client.WaitForHealthy(ctx, 60*time.Second); err != nil {
+		return
+	}
+
+	session, err := client.CreateSession(ctx, "monitor-chat", m.store.VaultPath())
+	if err != nil {
+		return
+	}
+
+	var modelRef *agent.ModelRef
+	if launch.model != "" {
+		modelRef = agent.ParseModel(launch.model)
+	}
+
+	_ = client.SendMessageAsync(ctx, session.ID, launch.prompt, m.store.VaultPath(), modelRef, launch.modelVariant)
 }
 
 func defaultStatuses() []model.Status {
