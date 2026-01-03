@@ -32,12 +32,9 @@ func (d *Daemon) monitorRun(run *model.Run) error {
 			d.logger.Printf("%s#%s: agent not alive (%d/%d checks), waiting", run.IssueID, run.RunID, state.DeadCheckCount, deadChecksBeforeFailed)
 			return nil
 		}
-		if run.Agent == "opencode" {
-			d.logger.Printf("%s#%s: opencode session not found after %d checks, marking unknown", run.IssueID, run.RunID, state.DeadCheckCount)
-			return d.updateStatus(run, model.StatusUnknown)
-		}
-		d.logger.Printf("%s#%s: agent confirmed dead after %d checks, marking failed", run.IssueID, run.RunID, state.DeadCheckCount)
-		return d.updateStatus(run, model.StatusFailed)
+		deadStatus := mgr.DeadStatus()
+		d.logger.Printf("%s#%s: agent confirmed dead after %d checks, marking %s", run.IssueID, run.RunID, state.DeadCheckCount, deadStatus)
+		return d.updateStatus(run, deadStatus)
 	}
 
 	output, err := mgr.CaptureOutput(run)

@@ -22,6 +22,9 @@ type AgentManager interface {
 	GetStatus(run *model.Run, output string, state *RunState, outputChanged, hasPrompt bool) model.Status
 	CaptureOutput(run *model.Run) (string, error)
 	DetectPrompt(output string) bool
+	// DeadStatus returns the status to set when the agent is confirmed dead
+	// (i.e., after multiple consecutive failed IsAlive checks)
+	DeadStatus() model.Status
 }
 
 func GetManager(run *model.Run) AgentManager {
@@ -76,6 +79,10 @@ func (m *TmuxManager) GetStatus(run *model.Run, output string, state *RunState, 
 	return ""
 }
 
+func (m *TmuxManager) DeadStatus() model.Status {
+	return model.StatusFailed
+}
+
 type OpenCodeManager struct {
 	Port      int
 	SessionID string
@@ -111,6 +118,10 @@ func (m *OpenCodeManager) GetStatus(run *model.Run, output string, state *RunSta
 		return model.StatusRunning
 	}
 	return ""
+}
+
+func (m *OpenCodeManager) DeadStatus() model.Status {
+	return model.StatusUnknown
 }
 
 func IsWaitingForInput(output string) bool {
