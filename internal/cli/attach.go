@@ -111,31 +111,29 @@ func attachOpenCode(run *model.Run) error {
 
 	serverURL := fmt.Sprintf("http://127.0.0.1:%d", run.ServerPort)
 
-	// Build command args - note: we don't pass --dir because opencode's --dir flag
-	// has a bug where it doesn't properly scope the session lookup
-	args := []string{"attach", serverURL}
+	// NOTE: opencode attach has a bug where the TUI inherits the SERVER's project
+	// context instead of respecting --dir or cwd. The workaround is to start
+	// opencode directly in the worktree directory without attaching to shared server.
+	//
+	// For now, we start a fresh opencode TUI in the worktree with --continue flag
+	// to resume the most recent session in that directory.
+	fmt.Fprintf(os.Stderr, "Starting opencode in: %s\n", run.WorktreePath)
+	fmt.Fprintf(os.Stderr, "Session: %s\n", run.OpenCodeSessionID)
+	fmt.Fprintf(os.Stderr, "Server: %s\n\n", serverURL)
 
-	// Add session ID if available
-	if run.OpenCodeSessionID != "" {
-		args = append(args, "--session", run.OpenCodeSessionID)
-	}
+	// Start opencode TUI directly in worktree with session continuation
+	args := []string{"--session", run.OpenCodeSessionID}
 
 	cmd := exec.Command("opencode", args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	cmd.Dir = run.WorktreePath
 
-	// Run from the worktree directory - this is the only way to get opencode
-	// to use the correct project context
-	if run.WorktreePath != "" {
-		cmd.Dir = run.WorktreePath
-	}
-
-	fmt.Fprintf(os.Stderr, "attaching to opencode session in: %s\n", run.WorktreePath)
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to attach to opencode: %v\n", err)
-		fmt.Fprintf(os.Stderr, "\nManual attach: cd %s && opencode attach %s --session %s\n",
-			run.WorktreePath, serverURL, run.OpenCodeSessionID)
+		fmt.Fprintf(os.Stderr, "failed to start opencode: %v\n", err)
+		fmt.Fprintf(os.Stderr, "\nManual: cd %s && opencode --session %s\n",
+			run.WorktreePath, run.OpenCodeSessionID)
 		os.Exit(ExitTmuxError)
 		return err
 	}
