@@ -212,27 +212,25 @@ func (d *Daemon) isFailed(output string) bool {
 	return false
 }
 
-// isWaitingForInput checks if the agent is waiting for user input
-// Detects permission dialogs, input prompts, and menus
 func (d *Daemon) isWaitingForInput(output string) bool {
 	promptPatterns := []string{
-		// Permission dialog
+		// Claude: Permission dialog
 		"No, and tell Claude what to do differently",
 		"tell Claude what to do differently",
-		// Gemini input prompt
-		"Type your message",
-		// Input prompt (with text typed)
+		// Claude: Input prompt
 		"↵ send",
-		// Input prompt (empty/idle)
 		"? for shortcuts",
-		// Accept edits prompt
 		"accept edits",
-		// Bypass permissions mode (status bar indicator)
 		"bypass permissions",
 		"shift+tab to cycle",
-		// Resume/project menu
 		"Esc to cancel",
 		"to show all projects",
+		// Gemini input prompt
+		"Type your message",
+		// OpenCode: Input prompt patterns
+		"ctrl+s send",
+		"enter newline",
+		"ctrl+c interrupt",
 	}
 
 	for _, pattern := range promptPatterns {
@@ -244,23 +242,26 @@ func (d *Daemon) isWaitingForInput(output string) bool {
 	return false
 }
 
-// isAgentExited checks if the agent process has exited and shell prompt is showing
-// This happens when the user kills Claude or it crashes
 func (d *Daemon) isAgentExited(output string) bool {
-	// First, check for ANY Claude UI patterns - if present, agent is still running
-	claudePatterns := []string{
+	// Claude UI patterns
+	agentPatterns := []string{
 		"↵ send",
 		"accept edits",
 		"? for shortcuts",
 		"tell Claude what to do differently",
-		"tokens",               // token counter at bottom
-		"Esc to cancel",        // menu option
-		"to show all projects", // menu option
+		"tokens",
+		"Esc to cancel",
+		"to show all projects",
+		// OpenCode UI patterns
+		"ctrl+s send",
+		"enter newline",
+		"ctrl+c interrupt",
+		"opencode",
 	}
 
-	for _, pattern := range claudePatterns {
+	for _, pattern := range agentPatterns {
 		if strings.Contains(output, pattern) {
-			return false // Claude is still running
+			return false
 		}
 	}
 
