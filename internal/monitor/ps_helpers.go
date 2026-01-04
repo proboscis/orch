@@ -134,11 +134,6 @@ func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
 		return nil
 	}
 
-	commitTimes, err := git.GetBranchCommitTimes(repoRoot)
-	if err != nil {
-		return nil
-	}
-
 	states := make(map[string]string)
 
 	for _, r := range runs {
@@ -146,35 +141,23 @@ func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
 			continue
 		}
 
-		isMerged := merged[r.Branch]
-
-		commitTime, hasCommitTime := commitTimes[r.Branch]
-		isNewWork := false
-		if hasCommitTime && (r.StartedAt.IsZero() || !commitTime.Before(r.StartedAt)) {
-			isNewWork = true
-		}
-
-		if isMerged {
-			if isNewWork {
-				states[r.RunID] = "merged"
-			} else {
-				states[r.RunID] = "no change"
-			}
+		if merged[r.Branch] {
+			states[r.RunID] = "merged"
 			continue
 		}
 
 		conflict, _ := git.CheckMergeConflict(repoRoot, r.Branch, targetRef)
-
 		ahead, _ := git.GetAheadCount(repoRoot, r.Branch, targetRef)
+
 		if ahead == 0 {
-			states[r.RunID] = "no change"
+			states[r.RunID] = "clean"
 			continue
 		}
 
 		if conflict {
 			states[r.RunID] = "conflict"
 		} else {
-			states[r.RunID] = "clean"
+			states[r.RunID] = "dirty"
 		}
 	}
 

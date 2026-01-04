@@ -5,7 +5,6 @@ import (
 	"github.com/s22625/orch/internal/model"
 )
 
-// Styles groups lipgloss styles for the dashboard.
 type Styles struct {
 	Box      lipgloss.Style
 	Title    lipgloss.Style
@@ -16,6 +15,7 @@ type Styles struct {
 	Status   map[model.Status]lipgloss.Style
 	Alive    map[string]lipgloss.Style
 	PRState  map[string]lipgloss.Style
+	Merged   map[string]lipgloss.Style
 }
 
 // DefaultStyles returns the standard dashboard styles.
@@ -45,9 +45,16 @@ func DefaultStyles() Styles {
 			"-":   lipgloss.NewStyle().Foreground(lipgloss.Color("241")),
 		},
 		PRState: map[string]lipgloss.Style{
-			"open":   lipgloss.NewStyle().Foreground(lipgloss.Color("2")), // green - PR is open
-			"merged": lipgloss.NewStyle().Foreground(lipgloss.Color("5")), // magenta - PR was merged
-			"closed": lipgloss.NewStyle().Foreground(lipgloss.Color("1")), // red - PR was closed without merge
+			"open":   lipgloss.NewStyle().Foreground(lipgloss.Color("2")),
+			"merged": lipgloss.NewStyle().Foreground(lipgloss.Color("5")),
+			"closed": lipgloss.NewStyle().Foreground(lipgloss.Color("1")),
+		},
+		Merged: map[string]lipgloss.Style{
+			"merged":   lipgloss.NewStyle().Foreground(lipgloss.Color("2")),
+			"clean":    lipgloss.NewStyle().Foreground(lipgloss.Color("241")),
+			"dirty":    lipgloss.NewStyle().Foreground(lipgloss.Color("3")),
+			"conflict": lipgloss.NewStyle().Foreground(lipgloss.Color("1")),
+			"-":        lipgloss.NewStyle().Foreground(lipgloss.Color("241")),
 		},
 	}
 }

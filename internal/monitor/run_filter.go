@@ -17,7 +17,7 @@ const (
 	mergedFilterClean    = "clean"
 	mergedFilterConflict = "conflict"
 	mergedFilterMerged   = "merged"
-	mergedFilterNoChange = "no change"
+	mergedFilterDirty    = "dirty"
 	prFilterAll          = "all"
 	prFilterHas          = "has"
 	prFilterNone         = "none"

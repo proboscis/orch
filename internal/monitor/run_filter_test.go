@@ -81,7 +81,7 @@ func TestRunFilterRows(t *testing.T) {
 			Status:      model.StatusDone,
 			Agent:       "gemini",
 			PR:          "-",
-			Merged:      "no change",
+			Merged:      "dirty",
 			Updated:     now.Add(-2 * time.Hour),
 			IssueStatus: "open",
 			Run:         &model.Run{Agent: "gemini"},
