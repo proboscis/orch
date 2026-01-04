@@ -348,6 +348,10 @@ func (m *Monitor) OpenRun(run *model.Run) error {
 		return fmt.Errorf("run not found")
 	}
 
+	if run.Agent == string(agent.AgentOpenCode) {
+		return m.openOpenCodeRun(run)
+	}
+
 	sessionName := run.TmuxSession
 	if sessionName == "" {
 		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
@@ -396,6 +400,45 @@ func (m *Monitor) OpenRun(run *model.Run) error {
 	if err := tmux.LinkWindow(sessionName, 0, m.session, targetIndex); err != nil {
 		return err
 	}
+	return tmux.SelectWindow(m.session, targetIndex)
+}
+
+func (m *Monitor) openOpenCodeRun(run *model.Run) error {
+	if run.ServerPort == 0 {
+		return fmt.Errorf("opencode run %s missing server port", run.Ref().String())
+	}
+
+	serverURL := fmt.Sprintf("http://127.0.0.1:%d", run.ServerPort)
+	windowName := fmt.Sprintf("%s#%s", run.IssueID, run.RunID)
+
+	monitorWindows, err := tmux.ListWindows(m.session)
+	if err != nil {
+		return err
+	}
+
+	for _, w := range monitorWindows {
+		if w.Name == windowName {
+			return tmux.SelectWindow(m.session, w.Index)
+		}
+	}
+
+	targetIndex := nextAvailableWindowIndex(monitorWindows, dashboardWindowIdx+1)
+
+	args := []string{"attach", serverURL}
+	if run.OpenCodeSessionID != "" {
+		args = append(args, "--session", run.OpenCodeSessionID)
+	}
+	cmd := "opencode " + strings.Join(args, " ")
+
+	workDir := run.WorktreePath
+	if workDir == "" {
+		workDir = "."
+	}
+
+	if err := tmux.NewWindowAt(m.session, targetIndex, windowName, workDir, cmd); err != nil {
+		return fmt.Errorf("failed to create opencode window: %w", err)
+	}
+
 	return tmux.SelectWindow(m.session, targetIndex)
 }
 
