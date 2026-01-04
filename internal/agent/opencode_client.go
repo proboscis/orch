@@ -337,6 +337,48 @@ func (c *OpenCodeClient) SendMessageAsync(ctx context.Context, sessionID, text, 
 	})
 }
 
+// SendMessagePrompt sends a message via /prompt endpoint (triggers agent execution, unlike prompt_async).
+func (c *OpenCodeClient) SendMessagePrompt(ctx context.Context, sessionID, text, directory string) error {
+	return retryNoResult(ctx, 3, 500*time.Millisecond, func() error {
+		return c.sendMessagePromptOnce(ctx, sessionID, text, directory)
+	})
+}
+
+func (c *OpenCodeClient) sendMessagePromptOnce(ctx context.Context, sessionID, text, directory string) error {
+	reqBody := PromptRequest{
+		Parts: []MessagePart{
+			{Type: "text", Text: text},
+		},
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("marshaling prompt request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/session/"+sessionID+"/prompt", bytes.NewReader(jsonBody))
+	if err != nil {
+		return fmt.Errorf("creating prompt request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if directory != "" {
+		req.Header.Set("X-OpenCode-Directory", directory)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("sending prompt: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("send prompt returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
 // sendMessageAsyncOnce sends a message asynchronously (single attempt)
 func (c *OpenCodeClient) sendMessageAsyncOnce(ctx context.Context, sessionID, text, directory string, model *ModelRef, variant string) error {
 	reqBody := PromptRequest{
@@ -704,4 +746,42 @@ func (c *OpenCodeClient) GetMessages(ctx context.Context, sessionID, directory s
 	}
 
 	return messages, nil
+}
+
+type AgentConfig struct {
+	Model string `json:"model"`
+}
+
+type OpenCodeConfig struct {
+	Agent map[string]AgentConfig `json:"agent"`
+}
+
+func (c *OpenCodeClient) GetAgentModel(ctx context.Context) (model string, variant string, err error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/config", nil)
+	if err != nil {
+		return "", "", fmt.Errorf("creating config request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", "", fmt.Errorf("getting config: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("get config returned status %d", resp.StatusCode)
+	}
+
+	var config OpenCodeConfig
+	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
+		return "", "", fmt.Errorf("decoding config response: %w", err)
+	}
+
+	for _, agentCfg := range config.Agent {
+		if agentCfg.Model != "" {
+			return agentCfg.Model, "", nil
+		}
+	}
+
+	return "", "", nil
 }
