@@ -492,3 +492,198 @@ func TestRelativePathFromSubdirectory(t *testing.T) {
 		t.Fatalf("worktree_dir should end with %q: got %q", expectedSuffix, cfg.WorktreeDir)
 	}
 }
+
+func TestPresets(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_AGENT", "")
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	configContent := `vault: /repo
+presets:
+  - name: opus:high
+    backend: opencode
+    model: anthropic/claude-opus-4-5
+    variant: high
+  - name: gpt5.2-codex:xhigh
+    backend: opencode
+    model: openai/gpt-5.2-codex
+    variant: xhigh
+  - name: codex:default
+    backend: codex
+    model: gpt-5.2-codex
+  - name: claude:fast
+    backend: claude
+    profile: fast-profile
+`
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(configContent), 0644); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	if len(cfg.Presets) != 4 {
+		t.Fatalf("Presets length = %d, want 4", len(cfg.Presets))
+	}
+
+	preset := cfg.GetPreset("opus:high")
+	if preset == nil {
+		t.Fatalf("GetPreset(opus:high) returned nil")
+	}
+	if preset.Backend != "opencode" || preset.Model != "anthropic/claude-opus-4-5" || preset.Variant != "high" {
+		t.Fatalf("unexpected preset: %+v", preset)
+	}
+
+	opts := cfg.ResolvePreset("claude:fast")
+	if opts == nil {
+		t.Fatalf("ResolvePreset(claude:fast) returned nil")
+	}
+	if opts.Agent != "claude" || opts.Profile != "fast-profile" {
+		t.Fatalf("unexpected resolved preset: %+v", opts)
+	}
+
+	missingOpts := cfg.ResolvePreset("nonexistent")
+	if missingOpts != nil {
+		t.Fatalf("ResolvePreset(nonexistent) should return nil")
+	}
+}
+
+func TestLegacyOpenCodePresetsBackwardCompat(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_AGENT", "")
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	configContent := `vault: /repo
+opencode_presets:
+  - name: opus:high
+    model: anthropic/claude-opus-4-5
+    variant: high
+  - name: sonnet:max
+    model: anthropic/claude-sonnet-4-5
+    variant: max
+`
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(configContent), 0644); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	if len(cfg.OpenCodePresets) != 2 {
+		t.Fatalf("OpenCodePresets length = %d, want 2", len(cfg.OpenCodePresets))
+	}
+
+	preset := cfg.GetPreset("opus:high")
+	if preset == nil {
+		t.Fatalf("GetPreset(opus:high) returned nil for legacy preset")
+	}
+	if preset.Backend != "opencode" || preset.Model != "anthropic/claude-opus-4-5" || preset.Variant != "high" {
+		t.Fatalf("unexpected legacy preset converted: %+v", preset)
+	}
+
+	opts := cfg.ResolvePreset("sonnet:max")
+	if opts == nil {
+		t.Fatalf("ResolvePreset(sonnet:max) returned nil for legacy preset")
+	}
+	if opts.Agent != "opencode" || opts.Model != "anthropic/claude-sonnet-4-5" || opts.ModelVariant != "max" {
+		t.Fatalf("unexpected resolved legacy preset: %+v", opts)
+	}
+
+	allPresets := cfg.GetAllPresets()
+	if len(allPresets) != 2 {
+		t.Fatalf("GetAllPresets length = %d, want 2", len(allPresets))
+	}
+}
+
+func TestMixedPresetsAndLegacy(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_AGENT", "")
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	configContent := `vault: /repo
+presets:
+  - name: gpt5:xhigh
+    backend: opencode
+    model: openai/gpt-5.2-codex
+    variant: xhigh
+opencode_presets:
+  - name: opus:high
+    model: anthropic/claude-opus-4-5
+    variant: high
+`
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(configContent), 0644); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	allPresets := cfg.GetAllPresets()
+	if len(allPresets) != 2 {
+		t.Fatalf("GetAllPresets length = %d, want 2", len(allPresets))
+	}
+
+	gpt5 := cfg.GetPreset("gpt5:xhigh")
+	if gpt5 == nil || gpt5.Model != "openai/gpt-5.2-codex" {
+		t.Fatalf("GetPreset(gpt5:xhigh) failed: %+v", gpt5)
+	}
+
+	opus := cfg.GetPreset("opus:high")
+	if opus == nil || opus.Model != "anthropic/claude-opus-4-5" {
+		t.Fatalf("GetPreset(opus:high) failed: %+v", opus)
+	}
+}

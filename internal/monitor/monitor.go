@@ -58,23 +58,23 @@ type Options struct {
 
 // Monitor manages tmux windows and dashboard state.
 type Monitor struct {
-	session         string
-	runFilter       RunFilter
-	runSort         SortKey
-	issueSort       SortKey
-	store           store.Store
-	orchPath        string
-	globalFlags     []string
-	agent           string
-	attach          bool
-	forceNew        bool
-	runs            []*RunWindow
-	dashboard       *Dashboard
-	showResolved    bool
-	showClosed      bool
-	uiSettings      *UISettings
-	orchDir         string
-	opencodePresets []config.OpenCodePreset
+	session      string
+	runFilter    RunFilter
+	runSort      SortKey
+	issueSort    SortKey
+	store        store.Store
+	orchPath     string
+	globalFlags  []string
+	agent        string
+	attach       bool
+	forceNew     bool
+	runs         []*RunWindow
+	dashboard    *Dashboard
+	showResolved bool
+	showClosed   bool
+	uiSettings   *UISettings
+	orchDir      string
+	presets      []config.Preset
 }
 
 // RunWindow links a run to a dashboard index.
@@ -104,26 +104,26 @@ func New(st store.Store, opts Options) *Monitor {
 		uiSettings = DefaultUISettings()
 	}
 	orchDir := GetOrchDir(st.VaultPath())
-	var presets []config.OpenCodePreset
+	var presets []config.Preset
 	if cfg, err := config.Load(); err == nil {
-		presets = cfg.OpenCodePresets
+		presets = cfg.GetAllPresets()
 	}
 	return &Monitor{
-		session:         session,
-		runFilter:       newRunFilter(opts),
-		runSort:         runSort,
-		issueSort:       issueSort,
-		store:           st,
-		orchPath:        orchPath,
-		globalFlags:     opts.GlobalFlags,
-		agent:           opts.Agent,
-		attach:          opts.Attach,
-		forceNew:        opts.ForceNew,
-		showResolved:    opts.ShowResolved,
-		showClosed:      opts.ShowClosed,
-		uiSettings:      uiSettings,
-		orchDir:         orchDir,
-		opencodePresets: presets,
+		session:      session,
+		runFilter:    newRunFilter(opts),
+		runSort:      runSort,
+		issueSort:    issueSort,
+		store:        st,
+		orchPath:     orchPath,
+		globalFlags:  opts.GlobalFlags,
+		agent:        opts.Agent,
+		attach:       opts.Attach,
+		forceNew:     opts.ForceNew,
+		showResolved: opts.ShowResolved,
+		showClosed:   opts.ShowClosed,
+		uiSettings:   uiSettings,
+		orchDir:      orchDir,
+		presets:      presets,
 	}
 }
 
@@ -426,9 +426,15 @@ func (m *Monitor) parseAgentPreset(agentType string) (agentName, model, variant 
 	agentName = agentType[:idx]
 	presetName := agentType[idx+1:]
 
-	for _, preset := range m.opencodePresets {
+	for _, preset := range m.presets {
 		if preset.Name == presetName {
-			return agentName, preset.Model, preset.Variant
+			backend := preset.Backend
+			if backend == "" {
+				backend = "opencode"
+			}
+			if backend == agentName {
+				return agentName, preset.Model, preset.Variant
+			}
 		}
 	}
 
@@ -456,8 +462,12 @@ func (m *Monitor) GetAvailableAgents() []string {
 		}
 		if adapter.IsAvailable() {
 			available = append(available, agentName)
-			if aType == agent.AgentOpenCode {
-				for _, preset := range m.opencodePresets {
+			for _, preset := range m.presets {
+				backend := preset.Backend
+				if backend == "" {
+					backend = "opencode"
+				}
+				if backend == agentName {
 					available = append(available, agentName+":"+preset.Name)
 				}
 			}

@@ -38,6 +38,7 @@ type runOptions struct {
 	PRTargetBranch string
 	Model          string
 	ModelVariant   string
+	Preset         string
 	Verbose        bool
 }
 
@@ -80,6 +81,7 @@ Debug output can be enabled with --verbose, --log-level debug, or ORCH_DEBUG=1.`
 	cmd.Flags().StringVar(&opts.PromptTemplate, "prompt-template", "", "Custom prompt template file")
 	cmd.Flags().StringVar(&opts.Model, "model", "", "Model for opencode (provider/model format, e.g., anthropic/claude-opus-4-5)")
 	cmd.Flags().StringVar(&opts.ModelVariant, "model-variant", "", "Model variant (e.g., 'max' for max thinking)")
+	cmd.Flags().StringVar(&opts.Preset, "preset", "", "Use a named preset from config (e.g., 'opus:high', 'gpt5.2-codex:xhigh')")
 	cmd.Flags().BoolVarP(&opts.Verbose, "verbose", "v", false, "Enable debug output for troubleshooting")
 
 	return cmd
@@ -563,6 +565,28 @@ func applyPromptConfigDefaults(opts *runOptions) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
+	}
+
+	if opts.Preset != "" {
+		presetOpts := cfg.ResolvePreset(opts.Preset)
+		if presetOpts == nil {
+			return fmt.Errorf("preset not found: %s", opts.Preset)
+		}
+		if opts.Agent == "" {
+			opts.Agent = presetOpts.Agent
+		}
+		if opts.Model == "" {
+			opts.Model = presetOpts.Model
+		}
+		if opts.ModelVariant == "" {
+			opts.ModelVariant = presetOpts.ModelVariant
+		}
+		if opts.AgentProfile == "" {
+			opts.AgentProfile = presetOpts.Profile
+		}
+		if opts.AgentCmd == "" {
+			opts.AgentCmd = presetOpts.Command
+		}
 	}
 
 	// Apply config defaults for core run options

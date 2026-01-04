@@ -17,10 +17,38 @@ type MonitorConfig struct {
 
 // OpenCodePreset defines a configurable opencode model+variant preset.
 // These presets appear in the monitor agent selection as "opencode:<name>".
+// Deprecated: Use Preset with Backend="opencode" instead.
 type OpenCodePreset struct {
 	Name    string `yaml:"name"`    // Display name (e.g., "opus:high")
 	Model   string `yaml:"model"`   // Model identifier (e.g., "anthropic/claude-opus-4-5")
 	Variant string `yaml:"variant"` // Model variant (e.g., "high", "max")
+}
+
+// Preset defines a backend-agnostic preset configuration.
+// Presets allow configuring agent+model combinations with memorable names.
+type Preset struct {
+	Name    string `yaml:"name"`              // Display name (e.g., "opus:high", "codex:default")
+	Backend string `yaml:"backend,omitempty"` // Agent backend (claude, codex, gemini, opencode, custom)
+	// OpenCode-specific options
+	Model   string `yaml:"model,omitempty"`   // Model in provider/model format (e.g., "anthropic/claude-opus-4-5")
+	Variant string `yaml:"variant,omitempty"` // Model variant (e.g., "high", "max", "xhigh")
+	// Claude-specific options
+	Profile string `yaml:"profile,omitempty"` // Claude profile name
+	// Codex-specific options
+	// (Model field is reused for codex model specification)
+	// Gemini-specific options
+	// (Model field is reused for gemini model specification)
+	// Custom agent options
+	Command string `yaml:"command,omitempty"` // Custom agent command
+}
+
+// PresetOptions contains the resolved options from a preset.
+type PresetOptions struct {
+	Agent        string
+	Model        string
+	ModelVariant string
+	Profile      string
+	Command      string
 }
 
 // OpenCodeConfig holds default configuration for the opencode agent.
@@ -42,7 +70,8 @@ type Config struct {
 	PromptTemplate  string           `yaml:"prompt_template"`
 	NoPR            bool             `yaml:"no_pr"`
 	Monitor         MonitorConfig    `yaml:"monitor"`
-	OpenCodePresets []OpenCodePreset `yaml:"opencode_presets"`
+	Presets         []Preset         `yaml:"presets"`
+	OpenCodePresets []OpenCodePreset `yaml:"opencode_presets"` // Deprecated: use Presets
 	OpenCode        OpenCodeConfig   `yaml:"opencode"`
 
 	// Control agent settings (for orch monitor 'c' keybinding)
@@ -67,6 +96,7 @@ type fileConfig struct {
 	PromptTemplate      string           `yaml:"prompt_template"`
 	NoPR                *bool            `yaml:"no_pr"`
 	Monitor             MonitorConfig    `yaml:"monitor"`
+	Presets             []Preset         `yaml:"presets"`
 	OpenCodePresets     []OpenCodePreset `yaml:"opencode_presets"`
 	OpenCode            OpenCodeConfig   `yaml:"opencode"`
 	ControlAgent        string           `yaml:"control_agent"`
@@ -242,6 +272,9 @@ func loadFromFile(path string, cfg *Config) error {
 	if len(fileCfg.Monitor.PSColumns) > 0 {
 		cfg.Monitor.PSColumns = fileCfg.Monitor.PSColumns
 	}
+	if len(fileCfg.Presets) > 0 {
+		cfg.Presets = fileCfg.Presets
+	}
 	if len(fileCfg.OpenCodePresets) > 0 {
 		cfg.OpenCodePresets = fileCfg.OpenCodePresets
 	}
@@ -339,6 +372,7 @@ func applyEnv(cfg *Config) {
 }
 
 // GetOpenCodePreset returns the preset with the given name, or nil if not found.
+// Deprecated: Use GetPreset instead.
 func (c *Config) GetOpenCodePreset(name string) *OpenCodePreset {
 	for i := range c.OpenCodePresets {
 		if c.OpenCodePresets[i].Name == name {
@@ -346,6 +380,74 @@ func (c *Config) GetOpenCodePreset(name string) *OpenCodePreset {
 		}
 	}
 	return nil
+}
+
+// GetPreset returns the preset with the given name, or nil if not found.
+// It first searches the new Presets field, then falls back to OpenCodePresets
+// for backward compatibility.
+func (c *Config) GetPreset(name string) *Preset {
+	for i := range c.Presets {
+		if c.Presets[i].Name == name {
+			return &c.Presets[i]
+		}
+	}
+	for i := range c.OpenCodePresets {
+		if c.OpenCodePresets[i].Name == name {
+			return &Preset{
+				Name:    c.OpenCodePresets[i].Name,
+				Backend: "opencode",
+				Model:   c.OpenCodePresets[i].Model,
+				Variant: c.OpenCodePresets[i].Variant,
+			}
+		}
+	}
+	return nil
+}
+
+// ResolvePreset resolves a preset name to run options.
+// Returns nil if the preset is not found.
+func (c *Config) ResolvePreset(name string) *PresetOptions {
+	preset := c.GetPreset(name)
+	if preset == nil {
+		return nil
+	}
+
+	backend := preset.Backend
+	if backend == "" {
+		backend = "opencode"
+	}
+
+	return &PresetOptions{
+		Agent:        backend,
+		Model:        preset.Model,
+		ModelVariant: preset.Variant,
+		Profile:      preset.Profile,
+		Command:      preset.Command,
+	}
+}
+
+// GetAllPresets returns all presets, merging both new Presets and legacy OpenCodePresets.
+// This is useful for UI display in the monitor.
+func (c *Config) GetAllPresets() []Preset {
+	result := make([]Preset, 0, len(c.Presets)+len(c.OpenCodePresets))
+	result = append(result, c.Presets...)
+
+	seen := make(map[string]bool, len(c.Presets))
+	for _, p := range c.Presets {
+		seen[p.Name] = true
+	}
+
+	for _, ocp := range c.OpenCodePresets {
+		if !seen[ocp.Name] {
+			result = append(result, Preset{
+				Name:    ocp.Name,
+				Backend: "opencode",
+				Model:   ocp.Model,
+				Variant: ocp.Variant,
+			})
+		}
+	}
+	return result
 }
 
 // ExpandPath expands ~ and makes path absolute relative to base

@@ -195,11 +195,11 @@ func TestExtractAgentName(t *testing.T) {
 }
 
 func TestParseAgentPreset(t *testing.T) {
-	presets := []config.OpenCodePreset{
-		{Name: "opus:high", Model: "anthropic/claude-opus-4-5", Variant: "high"},
-		{Name: "gpt5.2", Model: "openai/gpt-5.2", Variant: ""},
+	presets := []config.Preset{
+		{Name: "opus:high", Backend: "opencode", Model: "anthropic/claude-opus-4-5", Variant: "high"},
+		{Name: "gpt5.2", Backend: "opencode", Model: "openai/gpt-5.2", Variant: ""},
 	}
-	m := &Monitor{opencodePresets: presets}
+	m := &Monitor{presets: presets}
 
 	tests := []struct {
 		input       string
