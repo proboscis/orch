@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -428,17 +429,12 @@ func (m *Monitor) StopRun(run *model.Run) error {
 }
 
 // StartRun launches a new run by invoking the orch binary.
-// agentType can include a variant suffix (e.g., "opencode:max") which will be
-// parsed into separate --agent and --model-variant flags.
+// agentType can be a preset name (e.g., "oc:opus4.5-max") or a raw agent type.
 func (m *Monitor) StartRun(issueID string, agentType string) (string, error) {
 	args := append([]string{}, m.globalFlags...)
 	args = append(args, "run", issueID)
 	if agentType != "" {
-		agentName, variant := parseAgentVariant(agentType)
-		args = append(args, "--agent", agentName)
-		if variant != "" {
-			args = append(args, "--model-variant", variant)
-		}
+		args = m.appendAgentFlags(args, agentType)
 	}
 
 	cmd := exec.Command(m.orchPath, args...)
@@ -460,6 +456,25 @@ func (m *Monitor) StartRun(issueID string, agentType string) (string, error) {
 	return output, nil
 }
 
+func (m *Monitor) appendAgentFlags(args []string, agentType string) []string {
+	if preset := m.GetAgentPreset(agentType); preset != nil {
+		args = append(args, "--agent", preset.Agent)
+		if preset.Model != "" {
+			args = append(args, "--model", preset.Model)
+		}
+		if preset.Variant != "" {
+			args = append(args, "--model-variant", preset.Variant)
+		}
+		return args
+	}
+	agentName, variant := parseAgentVariant(agentType)
+	args = append(args, "--agent", agentName)
+	if variant != "" {
+		args = append(args, "--model-variant", variant)
+	}
+	return args
+}
+
 func parseAgentVariant(agentType string) (agent, variant string) {
 	if idx := strings.Index(agentType, ":"); idx != -1 {
 		return agentType[:idx], agentType[idx+1:]
@@ -467,24 +482,68 @@ func parseAgentVariant(agentType string) (agent, variant string) {
 	return agentType, ""
 }
 
-// OpenCodeVariants defines the model variants available for opencode agent.
-// These correspond to different thinking modes (e.g., "max" for extended thinking).
-var OpenCodeVariants = []string{"max"}
+type AgentOption struct {
+	Name       string
+	IsFavorite bool
+	Preset     *config.AgentPreset
+}
 
-// GetAvailableAgents returns a list of available agent types.
-// For opencode, it also includes variants like "opencode:max".
-func (m *Monitor) GetAvailableAgents() []string {
-	agents := []string{
-		string(agent.AgentClaude),
-		string(agent.AgentCodex),
-		string(agent.AgentGemini),
-		string(agent.AgentOpenCode),
-		string(agent.AgentCustom),
+var hardcodedAgents = []string{
+	string(agent.AgentClaude),
+	string(agent.AgentCodex),
+	string(agent.AgentGemini),
+	string(agent.AgentOpenCode),
+	string(agent.AgentCustom),
+}
+
+func (m *Monitor) GetAgentOptions() []AgentOption {
+	cfg, _ := config.Load()
+	presetMap := make(map[string]*config.AgentPreset)
+	if cfg != nil {
+		for i := range cfg.AgentPresets {
+			p := &cfg.AgentPresets[i]
+			presetMap[p.Name] = p
+		}
 	}
 
-	// Filter to only include available agents
-	available := make([]string, 0, len(agents))
-	for _, agentName := range agents {
+	favoriteSet := make(map[string]bool)
+	if m.uiSettings != nil {
+		for _, name := range m.uiSettings.FavoriteAgents {
+			favoriteSet[name] = true
+		}
+	}
+	for name, p := range presetMap {
+		if p.Favorite {
+			favoriteSet[name] = true
+		}
+	}
+
+	var options []AgentOption
+
+	for _, p := range presetMap {
+		baseAgent, _ := parseAgentVariant(p.Agent)
+		aType, err := agent.ParseAgentType(baseAgent)
+		if err != nil {
+			continue
+		}
+		adapter, err := agent.GetAdapter(aType)
+		if err != nil {
+			continue
+		}
+		if !adapter.IsAvailable() {
+			continue
+		}
+		options = append(options, AgentOption{
+			Name:       p.Name,
+			IsFavorite: favoriteSet[p.Name],
+			Preset:     p,
+		})
+	}
+
+	for _, agentName := range hardcodedAgents {
+		if _, exists := presetMap[agentName]; exists {
+			continue
+		}
 		aType, err := agent.ParseAgentType(agentName)
 		if err != nil {
 			continue
@@ -493,19 +552,72 @@ func (m *Monitor) GetAvailableAgents() []string {
 		if err != nil {
 			continue
 		}
-		// Custom agent is always technically "available" (has no CLI check)
-		// For others, check if the CLI is installed
 		if adapter.IsAvailable() {
-			available = append(available, agentName)
-			if aType == agent.AgentOpenCode {
-				for _, variant := range OpenCodeVariants {
-					available = append(available, agentName+":"+variant)
-				}
-			}
+			options = append(options, AgentOption{
+				Name:       agentName,
+				IsFavorite: favoriteSet[agentName],
+				Preset:     nil,
+			})
 		}
 	}
 
-	return available
+	sort.Slice(options, func(i, j int) bool {
+		if options[i].IsFavorite != options[j].IsFavorite {
+			return options[i].IsFavorite
+		}
+		return options[i].Name < options[j].Name
+	})
+
+	return options
+}
+
+func (m *Monitor) GetAvailableAgents() []string {
+	options := m.GetAgentOptions()
+	names := make([]string, len(options))
+	for i, opt := range options {
+		names[i] = opt.Name
+	}
+	return names
+}
+
+func (m *Monitor) IsFavoriteAgent(name string) bool {
+	if m.uiSettings == nil {
+		return false
+	}
+	for _, fav := range m.uiSettings.FavoriteAgents {
+		if fav == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Monitor) ToggleFavoriteAgent(name string) {
+	if m.uiSettings == nil {
+		m.uiSettings = DefaultUISettings()
+	}
+	for i, fav := range m.uiSettings.FavoriteAgents {
+		if fav == name {
+			m.uiSettings.FavoriteAgents = append(m.uiSettings.FavoriteAgents[:i], m.uiSettings.FavoriteAgents[i+1:]...)
+			_ = SaveUISettings(m.orchDir, m.uiSettings)
+			return
+		}
+	}
+	m.uiSettings.FavoriteAgents = append(m.uiSettings.FavoriteAgents, name)
+	_ = SaveUISettings(m.orchDir, m.uiSettings)
+}
+
+func (m *Monitor) GetAgentPreset(name string) *config.AgentPreset {
+	cfg, _ := config.Load()
+	if cfg == nil {
+		return nil
+	}
+	for i := range cfg.AgentPresets {
+		if cfg.AgentPresets[i].Name == name {
+			return &cfg.AgentPresets[i]
+		}
+	}
+	return nil
 }
 
 // OpenIssue opens an issue via orch open.
@@ -627,11 +739,7 @@ func (m *Monitor) ContinueRun(issueID, branch, agentType, prompt string) (string
 	args := append([]string{}, m.globalFlags...)
 	args = append(args, "continue", "--issue", issueID, "--branch", branch)
 	if agentType != "" {
-		agentName, variant := parseAgentVariant(agentType)
-		args = append(args, "--agent", agentName)
-		if variant != "" {
-			args = append(args, "--model-variant", variant)
-		}
+		args = m.appendAgentFlags(args, agentType)
 	}
 
 	cmd := exec.Command(m.orchPath, args...)

@@ -7,34 +7,45 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// AgentPreset defines a named agent configuration with model and variant settings.
+type AgentPreset struct {
+	Name     string `yaml:"name"`
+	Agent    string `yaml:"agent"`
+	Model    string `yaml:"model,omitempty"`
+	Variant  string `yaml:"variant,omitempty"`
+	Favorite bool   `yaml:"favorite,omitempty"`
+}
+
 // Config holds orch configuration
 type Config struct {
-	Vault          string `yaml:"vault"`
-	Agent          string `yaml:"agent"`
-	Model          string `yaml:"model"`         // Default model (provider/model-id format)
-	ModelVariant   string `yaml:"model_variant"` // Default model variant (e.g., "max")
-	WorktreeDir    string `yaml:"worktree_dir"`
-	BaseBranch     string `yaml:"base_branch"`
-	PRTargetBranch string `yaml:"pr_target_branch"`
-	LogLevel       string `yaml:"log_level"`
-	PromptTemplate string `yaml:"prompt_template"` // Path to custom prompt template
-	NoPR           bool   `yaml:"no_pr"`           // Disable PR instructions by default
+	Vault          string        `yaml:"vault"`
+	Agent          string        `yaml:"agent"`
+	Model          string        `yaml:"model"`         // Default model (provider/model-id format)
+	ModelVariant   string        `yaml:"model_variant"` // Default model variant (e.g., "max")
+	WorktreeDir    string        `yaml:"worktree_dir"`
+	BaseBranch     string        `yaml:"base_branch"`
+	PRTargetBranch string        `yaml:"pr_target_branch"`
+	LogLevel       string        `yaml:"log_level"`
+	PromptTemplate string        `yaml:"prompt_template"` // Path to custom prompt template
+	NoPR           bool          `yaml:"no_pr"`           // Disable PR instructions by default
+	AgentPresets   []AgentPreset `yaml:"agent_presets,omitempty"`
 }
 
 type fileConfig struct {
-	Vault             string `yaml:"vault"`
-	VaultLegacy       string `yaml:"Vault"`
-	DefaultVault      string `yaml:"default_vault"`
-	Agent             string `yaml:"agent"`
-	Model             string `yaml:"model"`
-	ModelVariant      string `yaml:"model_variant"`
-	WorktreeDir       string `yaml:"worktree_dir"`
-	WorktreeDirLegacy string `yaml:"worktree_root"` // Legacy name for backwards compatibility
-	BaseBranch        string `yaml:"base_branch"`
-	PRTargetBranch    string `yaml:"pr_target_branch"`
-	LogLevel          string `yaml:"log_level"`
-	PromptTemplate    string `yaml:"prompt_template"`
-	NoPR              *bool  `yaml:"no_pr"`
+	Vault             string        `yaml:"vault"`
+	VaultLegacy       string        `yaml:"Vault"`
+	DefaultVault      string        `yaml:"default_vault"`
+	Agent             string        `yaml:"agent"`
+	Model             string        `yaml:"model"`
+	ModelVariant      string        `yaml:"model_variant"`
+	WorktreeDir       string        `yaml:"worktree_dir"`
+	WorktreeDirLegacy string        `yaml:"worktree_root"`
+	BaseBranch        string        `yaml:"base_branch"`
+	PRTargetBranch    string        `yaml:"pr_target_branch"`
+	LogLevel          string        `yaml:"log_level"`
+	PromptTemplate    string        `yaml:"prompt_template"`
+	NoPR              *bool         `yaml:"no_pr"`
+	AgentPresets      []AgentPreset `yaml:"agent_presets"`
 }
 
 // configFile is the name of the config file
@@ -202,8 +213,26 @@ func loadFromFile(path string, cfg *Config) error {
 	if fileCfg.NoPR != nil {
 		cfg.NoPR = *fileCfg.NoPR
 	}
+	if len(fileCfg.AgentPresets) > 0 {
+		cfg.AgentPresets = mergeAgentPresets(cfg.AgentPresets, fileCfg.AgentPresets)
+	}
 
 	return nil
+}
+
+func mergeAgentPresets(existing, incoming []AgentPreset) []AgentPreset {
+	byName := make(map[string]AgentPreset)
+	for _, p := range existing {
+		byName[p.Name] = p
+	}
+	for _, p := range incoming {
+		byName[p.Name] = p
+	}
+	result := make([]AgentPreset, 0, len(byName))
+	for _, p := range byName {
+		result = append(result, p)
+	}
+	return result
 }
 
 // resolvePathFromConfig resolves a path from a config file

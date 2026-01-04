@@ -44,7 +44,7 @@ type selectRunState struct {
 
 type selectAgentState struct {
 	issueID string
-	agents  []string
+	agents  []AgentOption
 	cursor  int
 }
 
@@ -340,7 +340,7 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if row := d.currentIssue(); row != nil {
 			d.selectAgent = selectAgentState{
 				issueID: row.ID,
-				agents:  d.monitor.GetAvailableAgents(),
+				agents:  d.monitor.GetAgentOptions(),
 				cursor:  0,
 			}
 			d.mode = modeSelectAgent
@@ -382,7 +382,7 @@ func (d *IssueDashboard) handleSelectRunKey(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		if strings.TrimSpace(d.selectRun.issueID) != "" {
 			d.selectAgent = selectAgentState{
 				issueID: d.selectRun.issueID,
-				agents:  d.monitor.GetAvailableAgents(),
+				agents:  d.monitor.GetAgentOptions(),
 				cursor:  0,
 			}
 			d.mode = modeSelectAgent
@@ -464,10 +464,17 @@ func (d *IssueDashboard) handleSelectAgentKey(msg tea.KeyMsg) (tea.Model, tea.Cm
 		return d.quit()
 	case "enter":
 		if d.selectAgent.cursor >= 0 && d.selectAgent.cursor < len(d.selectAgent.agents) {
-			agentType := d.selectAgent.agents[d.selectAgent.cursor]
+			agentName := d.selectAgent.agents[d.selectAgent.cursor].Name
 			issueID := d.selectAgent.issueID
 			d.mode = modeIssues
-			return d, d.startRunCmd(issueID, agentType)
+			return d, d.startRunCmd(issueID, agentName)
+		}
+		return d, nil
+	case "f":
+		if d.selectAgent.cursor >= 0 && d.selectAgent.cursor < len(d.selectAgent.agents) {
+			agentName := d.selectAgent.agents[d.selectAgent.cursor].Name
+			d.monitor.ToggleFavoriteAgent(agentName)
+			d.selectAgent.agents = d.monitor.GetAgentOptions()
 		}
 		return d, nil
 	case "up", "k":
@@ -483,10 +490,10 @@ func (d *IssueDashboard) handleSelectAgentKey(msg tea.KeyMsg) (tea.Model, tea.Cm
 	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		idx := int(msg.String()[0] - '1')
 		if idx >= 0 && idx < len(d.selectAgent.agents) {
-			agentType := d.selectAgent.agents[idx]
+			agentName := d.selectAgent.agents[idx].Name
 			issueID := d.selectAgent.issueID
 			d.mode = modeIssues
-			return d, d.startRunCmd(issueID, agentType)
+			return d, d.startRunCmd(issueID, agentName)
 		}
 		return d, nil
 	}
@@ -728,15 +735,19 @@ func (d *IssueDashboard) viewSelectAgent() string {
 	}
 
 	lines = append(lines, "Select an agent for the run:", "")
-	for i, agent := range d.selectAgent.agents {
-		label := fmt.Sprintf("  [%d] %s", i+1, agent)
+	for i, opt := range d.selectAgent.agents {
+		star := " "
+		if opt.IsFavorite {
+			star = "*"
+		}
+		label := fmt.Sprintf("  [%d] %s %s", i+1, star, opt.Name)
 		if i == d.selectAgent.cursor {
 			label = d.styles.Selected.Render(label)
 		}
 		lines = append(lines, label)
 	}
 
-	lines = append(lines, "", "[Enter/1-9] select agent  [Esc] back")
+	lines = append(lines, "", "[Enter/1-9] select  [f] toggle favorite  [Esc] back")
 	return strings.Join(lines, "\n")
 }
 
@@ -1215,7 +1226,7 @@ func (d *IssueDashboard) handleContinueBranchKey(msg tea.KeyMsg) (tea.Model, tea
 }
 
 func (d *IssueDashboard) handleContinueAgentKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	agents := d.monitor.GetAvailableAgents()
+	agents := d.monitor.GetAgentOptions()
 	switch msg.String() {
 	case "esc":
 		d.mode = modeContinueBranch
@@ -1231,10 +1242,14 @@ func (d *IssueDashboard) handleContinueAgentKey(msg tea.KeyMsg) (tea.Model, tea.
 			if idx >= len(agents) {
 				idx = len(agents) - 1
 			}
-			d.continue_.agent = agents[idx]
-			// Move to prompt input
+			d.continue_.agent = agents[idx].Name
 			d.continue_.prompt = ""
 			d.mode = modeContinuePrompt
+		}
+		return d, nil
+	case "f":
+		if d.continue_.cursor >= 0 && d.continue_.cursor < len(agents) {
+			d.monitor.ToggleFavoriteAgent(agents[d.continue_.cursor].Name)
 		}
 		return d, nil
 	case "up", "k":
@@ -1250,7 +1265,7 @@ func (d *IssueDashboard) handleContinueAgentKey(msg tea.KeyMsg) (tea.Model, tea.
 	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		idx := int(msg.String()[0] - '1')
 		if idx >= 0 && idx < len(agents) {
-			d.continue_.agent = agents[idx]
+			d.continue_.agent = agents[idx].Name
 			d.continue_.prompt = ""
 			d.mode = modeContinuePrompt
 		}
@@ -1262,10 +1277,9 @@ func (d *IssueDashboard) handleContinueAgentKey(msg tea.KeyMsg) (tea.Model, tea.
 func (d *IssueDashboard) handleContinuePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
-		// Reset cursor for agent selection
 		d.continue_.cursor = 0
-		for i, agent := range d.monitor.GetAvailableAgents() {
-			if agent == d.continue_.agent {
+		for i, opt := range d.monitor.GetAgentOptions() {
+			if opt.Name == d.continue_.agent {
 				d.continue_.cursor = i
 				break
 			}
@@ -1356,7 +1370,7 @@ func (d *IssueDashboard) viewContinueAgent() string {
 	lines = append(lines, fmt.Sprintf("Issue: %s", issueID))
 	lines = append(lines, fmt.Sprintf("Branch: %s", branch), "")
 
-	agents := d.monitor.GetAvailableAgents()
+	agents := d.monitor.GetAgentOptions()
 	if len(agents) == 0 {
 		lines = append(lines, "No agents available.")
 		lines = append(lines, "", "[Esc] back")
@@ -1364,15 +1378,19 @@ func (d *IssueDashboard) viewContinueAgent() string {
 	}
 
 	lines = append(lines, "Select an agent:", "")
-	for i, agent := range agents {
-		label := fmt.Sprintf("  [%d] %s", i+1, agent)
+	for i, opt := range agents {
+		star := " "
+		if opt.IsFavorite {
+			star = "*"
+		}
+		label := fmt.Sprintf("  [%d] %s %s", i+1, star, opt.Name)
 		if i == d.continue_.cursor {
 			label = d.styles.Selected.Render(label)
 		}
 		lines = append(lines, label)
 	}
 
-	lines = append(lines, "", "[Enter/1-9] select agent  [Esc] back")
+	lines = append(lines, "", "[Enter/1-9] select  [f] toggle favorite  [Esc] back")
 	return strings.Join(lines, "\n")
 }
 
