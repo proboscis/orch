@@ -3,7 +3,9 @@ package git
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -35,17 +37,23 @@ func FetchWithTimeout(repoRoot, target string, timeout time.Duration) error {
 	var cmd *exec.Cmd
 	if target != "" {
 		refspec := fmt.Sprintf("%s:refs/remotes/origin/%s", target, target)
-		cmd = exec.CommandContext(ctx, "git", "-C", repoRoot, "fetch", "origin", refspec)
+		cmd = exec.CommandContext(ctx, "git", "-C", repoRoot, "fetch", "--quiet", "origin", refspec)
 	} else {
-		cmd = exec.CommandContext(ctx, "git", "-C", repoRoot, "fetch", "origin")
+		cmd = exec.CommandContext(ctx, "git", "-C", repoRoot, "fetch", "--quiet", "origin")
 	}
+
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return fmt.Errorf("git fetch timed out after %v", timeout)
+		outStr := strings.TrimSpace(string(output))
+		if len(outStr) > 500 {
+			outStr = outStr[:500] + "..."
 		}
-		return fmt.Errorf("git fetch origin: %w (output: %s)", err, string(output))
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("git fetch %s timed out after %v", repoRoot, timeout)
+		}
+		return fmt.Errorf("git fetch %s: %w (output: %s)", repoRoot, err, outStr)
 	}
 
 	return nil

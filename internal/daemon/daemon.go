@@ -30,9 +30,10 @@ type Daemon struct {
 	stopCh    chan struct{}
 	wg        sync.WaitGroup
 
-	runStates   map[string]*RunState
-	lastFetchAt map[string]time.Time
-	mu          sync.Mutex
+	runStates     map[string]*RunState
+	lastFetchAt   map[string]time.Time
+	fetchInFlight map[string]bool
+	mu            sync.Mutex
 }
 
 // RunState tracks the monitoring state of a single run
@@ -49,12 +50,13 @@ type RunState struct {
 // New creates a new Daemon instance
 func New(vaultPath string, st store.Store) *Daemon {
 	return &Daemon{
-		vaultPath:   vaultPath,
-		store:       st,
-		interval:    DefaultInterval,
-		stopCh:      make(chan struct{}),
-		runStates:   make(map[string]*RunState),
-		lastFetchAt: make(map[string]time.Time),
+		vaultPath:     vaultPath,
+		store:         st,
+		interval:      DefaultInterval,
+		stopCh:        make(chan struct{}),
+		runStates:     make(map[string]*RunState),
+		lastFetchAt:   make(map[string]time.Time),
+		fetchInFlight: make(map[string]bool),
 	}
 }
 
@@ -141,7 +143,7 @@ func (d *Daemon) monitorAll() {
 }
 
 func (d *Daemon) periodicFetch(runs []*model.Run) {
-	repos := make(map[string]string)
+	repos := make(map[string]bool)
 	for _, run := range runs {
 		if run.WorktreePath == "" {
 			continue
@@ -150,26 +152,37 @@ func (d *Daemon) periodicFetch(runs []*model.Run) {
 		if err != nil {
 			continue
 		}
-		repos[repoRoot] = ""
+		repos[repoRoot] = true
 	}
 
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
+	var toFetch []string
 	now := time.Now()
+
+	d.mu.Lock()
 	for repoRoot := range repos {
+		if d.fetchInFlight[repoRoot] {
+			continue
+		}
 		if lastFetch, ok := d.lastFetchAt[repoRoot]; ok && now.Sub(lastFetch) < FetchInterval {
 			continue
 		}
-		d.mu.Unlock()
+		d.fetchInFlight[repoRoot] = true
+		toFetch = append(toFetch, repoRoot)
+	}
+	d.mu.Unlock()
+
+	for _, repoRoot := range toFetch {
 		err := git.Fetch(repoRoot, "")
+
 		d.mu.Lock()
+		delete(d.fetchInFlight, repoRoot)
 		if err != nil {
 			d.logger.Printf("git fetch failed for %s: %v", repoRoot, err)
 		} else {
 			d.logger.Printf("git fetch completed for %s", repoRoot)
+			d.lastFetchAt[repoRoot] = time.Now()
 		}
-		d.lastFetchAt[repoRoot] = now
+		d.mu.Unlock()
 	}
 }
 

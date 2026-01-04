@@ -12,9 +12,10 @@ import (
 
 func newTestDaemon() *Daemon {
 	return &Daemon{
-		logger:      log.New(io.Discard, "", 0),
-		runStates:   make(map[string]*RunState),
-		lastFetchAt: make(map[string]time.Time),
+		logger:        log.New(io.Discard, "", 0),
+		runStates:     make(map[string]*RunState),
+		lastFetchAt:   make(map[string]time.Time),
+		fetchInFlight: make(map[string]bool),
 	}
 }
 
