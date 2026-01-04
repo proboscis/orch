@@ -665,6 +665,16 @@ func injectPromptViaHTTP(st interface {
 		"port": fmt.Sprintf("%d", port),
 	}))
 
+	// If no model was explicitly specified, fetch and store the server's configured model
+	if cfg.Model == "" {
+		if fetchedModel, fetchedVariant, err := client.GetAgentModel(ctx); err == nil && fetchedModel != "" {
+			st.AppendEvent(run.Ref(), model.NewArtifactEvent("agent_model", map[string]string{
+				"model":   fetchedModel,
+				"variant": fetchedVariant,
+			}))
+		}
+	}
+
 	// Create a new session in the worktree directory
 	session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", run.IssueID, run.RunID), cfg.WorkDir)
 	if err != nil {
