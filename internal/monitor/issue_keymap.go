@@ -15,6 +15,7 @@ type IssueKeyMap struct {
 	Resolve     string
 	Filter      string
 	Sort        string
+	Attach      string
 	Quit        string
 	Help        string
 }
@@ -33,6 +34,7 @@ func DefaultIssueKeyMap() IssueKeyMap {
 		Resolve:     "x",
 		Filter:      "f",
 		Sort:        "S",
+		Attach:      "a",
 		Quit:        "q",
 		Help:        "?",
 	}
@@ -40,6 +42,6 @@ func DefaultIssueKeyMap() IssueKeyMap {
 
 // HelpLine renders the footer help text.
 func (k IssueKeyMap) HelpLine() string {
-	return fmt.Sprintf("[%s] edit  [%s] runs  [%s] issues  [%s] chat  [%s] open run  [%s] start run  [%s] continue  [%s] open  [%s] resolve  [%s] filter  [%s] sort  [%s] quit  [%s] help",
-		k.EditIssue, k.Runs, k.Issues, k.Chat, k.OpenRun, k.StartRun, k.ContinueRun, k.Open, k.Resolve, k.Filter, k.Sort, k.Quit, k.Help)
+	return fmt.Sprintf("[%s] edit  [%s] runs  [%s] issues  [%s] chat  [%s] open run  [%s] start run  [%s] continue  [%s] attach  [%s] open  [%s] resolve  [%s] filter  [%s] sort  [%s] quit  [%s] help",
+		k.EditIssue, k.Runs, k.Issues, k.Chat, k.OpenRun, k.StartRun, k.ContinueRun, k.Attach, k.Open, k.Resolve, k.Filter, k.Sort, k.Quit, k.Help)
 }
