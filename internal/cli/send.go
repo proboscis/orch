@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/s22625/orch/internal/agent"
+	"github.com/s22625/orch/internal/daemon"
 	"github.com/spf13/cobra"
 )
 
@@ -70,33 +71,54 @@ func runSend(refStr, message string, opts *sendOptions) error {
 		return err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	isOpenCode := run.Agent == string(agent.AgentOpenCode)
 
-	manager := agent.GetManager(run)
-	sendOpts := &agent.SendOptions{NoEnter: opts.NoEnter}
-
-	err = manager.SendMessage(ctx, run, message, sendOpts)
-	if err != nil {
-		exitCode := ExitAgentError
-		var sessionErr *agent.SessionNotFoundError
-		if errors.As(err, &sessionErr) {
-			exitCode = ExitTmuxError
-		}
-
-		if globalOpts.JSON {
-			result := map[string]interface{}{
-				"ok":    false,
-				"error": err.Error(),
+	if isOpenCode && daemon.IsDaemonSocketAvailable(st.VaultPath()) {
+		err = daemon.SendViaDaemon(st.VaultPath(), run, message, opts.NoEnter)
+		if err != nil {
+			if globalOpts.JSON {
+				result := map[string]interface{}{
+					"ok":    false,
+					"error": err.Error(),
+				}
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				enc.Encode(result)
+			} else {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			}
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			enc.Encode(result)
-		} else {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(ExitAgentError)
+			return err
 		}
-		os.Exit(exitCode)
-		return err
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		manager := agent.GetManager(run)
+		sendOpts := &agent.SendOptions{NoEnter: opts.NoEnter}
+
+		err = manager.SendMessage(ctx, run, message, sendOpts)
+		if err != nil {
+			exitCode := ExitAgentError
+			var sessionErr *agent.SessionNotFoundError
+			if errors.As(err, &sessionErr) {
+				exitCode = ExitTmuxError
+			}
+
+			if globalOpts.JSON {
+				result := map[string]interface{}{
+					"ok":    false,
+					"error": err.Error(),
+				}
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				enc.Encode(result)
+			} else {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			}
+			os.Exit(exitCode)
+			return err
+		}
 	}
 
 	result := &sendResult{

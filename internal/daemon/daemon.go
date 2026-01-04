@@ -23,7 +23,6 @@ const (
 	FetchInterval   = 90 * time.Second
 )
 
-// Daemon manages background monitoring of runs
 type Daemon struct {
 	vaultPath string
 	store     store.Store
@@ -40,6 +39,8 @@ type Daemon struct {
 	executablePath string
 	startupMtime   time.Time
 	staleLogged    bool
+
+	socketServer *SocketServer
 }
 
 // RunState tracks the monitoring state of a single run
@@ -99,6 +100,11 @@ func (d *Daemon) Run() error {
 
 	d.logger.Printf("daemon started (pid=%d, vault=%s, binary=%s)", os.Getpid(), d.vaultPath, d.executablePath)
 
+	d.socketServer = NewSocketServer(d.vaultPath, d.store, d.logger)
+	if err := d.socketServer.Start(); err != nil {
+		d.logger.Printf("warning: failed to start socket server: %v", err)
+	}
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
@@ -131,9 +137,11 @@ func (d *Daemon) Run() error {
 	}
 }
 
-// Stop signals the daemon to stop
 func (d *Daemon) Stop() {
 	close(d.stopCh)
+	if d.socketServer != nil {
+		d.socketServer.Stop()
+	}
 	d.wg.Wait()
 }
 
