@@ -100,6 +100,8 @@ func TestSocketServerStartStop(t *testing.T) {
 	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
 		t.Error("socket file not cleaned up")
 	}
+
+	server.Stop()
 }
 
 func TestSocketServerSendRequest(t *testing.T) {
@@ -176,7 +178,30 @@ func TestIsDaemonSocketAvailable(t *testing.T) {
 	f, _ := os.Create(socketPath)
 	f.Close()
 
+	if IsDaemonSocketAvailable(tmpDir) {
+		t.Error("expected socket not available without running daemon")
+	}
+}
+
+func TestIsDaemonSocketAvailableWithDaemon(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("/tmp", "orch-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	orchDir := filepath.Join(tmpDir, ".orch")
+	os.MkdirAll(orchDir, 0755)
+
+	if err := WritePID(tmpDir); err != nil {
+		t.Fatal(err)
+	}
+
+	socketPath := SocketFilePath(tmpDir)
+	f, _ := os.Create(socketPath)
+	f.Close()
+
 	if !IsDaemonSocketAvailable(tmpDir) {
-		t.Error("expected socket available after creation")
+		t.Error("expected socket available with running daemon and socket file")
 	}
 }

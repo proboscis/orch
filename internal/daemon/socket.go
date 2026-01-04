@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/s22625/orch/internal/agent"
@@ -42,6 +43,7 @@ type SocketServer struct {
 	listener  net.Listener
 	logger    Logger
 	stopCh    chan struct{}
+	stopOnce  sync.Once
 }
 
 type Logger interface {
@@ -80,11 +82,13 @@ func (s *SocketServer) Start() error {
 }
 
 func (s *SocketServer) Stop() {
-	close(s.stopCh)
-	if s.listener != nil {
-		s.listener.Close()
-	}
-	os.Remove(SocketFilePath(s.vaultPath))
+	s.stopOnce.Do(func() {
+		close(s.stopCh)
+		if s.listener != nil {
+			s.listener.Close()
+		}
+		os.Remove(SocketFilePath(s.vaultPath))
+	})
 }
 
 func (s *SocketServer) acceptLoop() {
@@ -212,6 +216,9 @@ func SendViaDaemon(vaultPath string, run *model.Run, message string, noEnter boo
 }
 
 func IsDaemonSocketAvailable(vaultPath string) bool {
+	if !IsRunning(vaultPath) {
+		return false
+	}
 	socketPath := SocketFilePath(vaultPath)
 	_, err := os.Stat(socketPath)
 	return err == nil
