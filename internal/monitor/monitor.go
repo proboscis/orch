@@ -901,10 +901,7 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		if topic == "" {
 			topic = "-"
 		}
-		agent := w.Run.Agent
-		if agent == "" {
-			agent = "-"
-		}
+		agentDisplay := agent.AgentDisplayName(w.Run.Agent, w.Run.Model, w.Run.ModelVariant)
 
 		// Build PR display string and state
 		prDisplay := "-"
@@ -933,7 +930,7 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 			ShortID:     shortID,
 			IssueID:     w.Run.IssueID,
 			IssueStatus: issueStatus,
-			Agent:       agent,
+			Agent:       agentDisplay,
 			Status:      w.Run.Status,
 			Alive:       runAliveLabel(w.Run, paneCommands),
 			Branch:      branch,
