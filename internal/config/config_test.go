@@ -351,8 +351,82 @@ func TestRelativeVaultPathResolution(t *testing.T) {
 	}
 }
 
+func TestOpenCodeConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_AGENT", "")
+	t.Setenv("ORCH_OPENCODE_DEFAULT_MODEL", "")
+	t.Setenv("ORCH_OPENCODE_DEFAULT_VARIANT", "")
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	configContent := `vault: /repo
+opencode:
+  default_model: anthropic/claude-sonnet-4-5
+  default_variant: max
+`
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(configContent), 0644); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.OpenCode.DefaultModel != "anthropic/claude-sonnet-4-5" {
+		t.Fatalf("OpenCode.DefaultModel = %q, want anthropic/claude-sonnet-4-5", cfg.OpenCode.DefaultModel)
+	}
+	if cfg.OpenCode.DefaultVariant != "max" {
+		t.Fatalf("OpenCode.DefaultVariant = %q, want max", cfg.OpenCode.DefaultVariant)
+	}
+}
+
+func TestOpenCodeConfigEnv(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_OPENCODE_DEFAULT_MODEL", "openai/gpt-5")
+	t.Setenv("ORCH_OPENCODE_DEFAULT_VARIANT", "high")
+
+	repo := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.OpenCode.DefaultModel != "openai/gpt-5" {
+		t.Fatalf("OpenCode.DefaultModel = %q, want openai/gpt-5", cfg.OpenCode.DefaultModel)
+	}
+	if cfg.OpenCode.DefaultVariant != "high" {
+		t.Fatalf("OpenCode.DefaultVariant = %q, want high", cfg.OpenCode.DefaultVariant)
+	}
+}
+
 func TestRelativePathFromSubdirectory(t *testing.T) {
-	// Clear environment variables
 	t.Setenv("ORCH_VAULT", "")
 	t.Setenv("ORCH_AGENT", "")
 	t.Setenv("ORCH_WORKTREE_DIR", "")

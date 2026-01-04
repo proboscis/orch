@@ -23,6 +23,12 @@ type OpenCodePreset struct {
 	Variant string `yaml:"variant"` // Model variant (e.g., "high", "max")
 }
 
+// OpenCodeConfig holds default configuration for the opencode agent.
+type OpenCodeConfig struct {
+	DefaultModel   string `yaml:"default_model,omitempty"`
+	DefaultVariant string `yaml:"default_variant,omitempty"`
+}
+
 // Config holds orch configuration
 type Config struct {
 	Vault           string           `yaml:"vault"`
@@ -37,6 +43,7 @@ type Config struct {
 	NoPR            bool             `yaml:"no_pr"`
 	Monitor         MonitorConfig    `yaml:"monitor"`
 	OpenCodePresets []OpenCodePreset `yaml:"opencode_presets"`
+	OpenCode        OpenCodeConfig   `yaml:"opencode"`
 }
 
 type fileConfig struct {
@@ -55,6 +62,7 @@ type fileConfig struct {
 	NoPR              *bool            `yaml:"no_pr"`
 	Monitor           MonitorConfig    `yaml:"monitor"`
 	OpenCodePresets   []OpenCodePreset `yaml:"opencode_presets"`
+	OpenCode          OpenCodeConfig   `yaml:"opencode"`
 }
 
 // configFile is the name of the config file
@@ -228,6 +236,12 @@ func loadFromFile(path string, cfg *Config) error {
 	if len(fileCfg.OpenCodePresets) > 0 {
 		cfg.OpenCodePresets = fileCfg.OpenCodePresets
 	}
+	if fileCfg.OpenCode.DefaultModel != "" {
+		cfg.OpenCode.DefaultModel = fileCfg.OpenCode.DefaultModel
+	}
+	if fileCfg.OpenCode.DefaultVariant != "" {
+		cfg.OpenCode.DefaultVariant = fileCfg.OpenCode.DefaultVariant
+	}
 
 	return nil
 }
@@ -288,6 +302,12 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("ORCH_NO_PR"); v != "" {
 		cfg.NoPR = v == "true" || v == "1" || v == "yes"
+	}
+	if v := os.Getenv("ORCH_OPENCODE_DEFAULT_MODEL"); v != "" {
+		cfg.OpenCode.DefaultModel = v
+	}
+	if v := os.Getenv("ORCH_OPENCODE_DEFAULT_VARIANT"); v != "" {
+		cfg.OpenCode.DefaultVariant = v
 	}
 }
 
