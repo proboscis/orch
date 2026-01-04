@@ -399,3 +399,122 @@ func TestIsServerRunningForWorktree(t *testing.T) {
 		t.Error("IsServerRunningForWorktree should return false for non-matching worktree")
 	}
 }
+
+func TestGetSessionStatus(t *testing.T) {
+	var receivedHeaders http.Header
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/session/status" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		receivedHeaders = r.Header.Clone()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]SessionStatus{
+			"ses_abc123": SessionStatusBusy,
+			"ses_def456": SessionStatusIdle,
+		})
+	}))
+	defer server.Close()
+
+	client := &OpenCodeClient{
+		baseURL:    server.URL,
+		httpClient: &http.Client{Timeout: 5 * time.Second},
+	}
+
+	ctx := context.Background()
+	statusMap, err := client.GetSessionStatus(ctx, "/path/to/worktree")
+	if err != nil {
+		t.Fatalf("GetSessionStatus error: %v", err)
+	}
+
+	if receivedHeaders.Get("X-OpenCode-Directory") != "/path/to/worktree" {
+		t.Errorf("X-OpenCode-Directory header = %q, want %q", receivedHeaders.Get("X-OpenCode-Directory"), "/path/to/worktree")
+	}
+
+	if statusMap["ses_abc123"] != SessionStatusBusy {
+		t.Errorf("statusMap[ses_abc123] = %q, want %q", statusMap["ses_abc123"], SessionStatusBusy)
+	}
+	if statusMap["ses_def456"] != SessionStatusIdle {
+		t.Errorf("statusMap[ses_def456] = %q, want %q", statusMap["ses_def456"], SessionStatusIdle)
+	}
+}
+
+func TestGetSessionStatusObjectFormat(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"ses_abc123":{"type":"busy"},"ses_def456":{"type":"idle"},"ses_ghi789":{"type":"retry"}}`))
+	}))
+	defer server.Close()
+
+	client := &OpenCodeClient{
+		baseURL:    server.URL,
+		httpClient: &http.Client{Timeout: 5 * time.Second},
+	}
+
+	ctx := context.Background()
+	statusMap, err := client.GetSessionStatus(ctx, "")
+	if err != nil {
+		t.Fatalf("GetSessionStatus error: %v", err)
+	}
+
+	if statusMap["ses_abc123"] != SessionStatusBusy {
+		t.Errorf("statusMap[ses_abc123] = %q, want %q", statusMap["ses_abc123"], SessionStatusBusy)
+	}
+	if statusMap["ses_def456"] != SessionStatusIdle {
+		t.Errorf("statusMap[ses_def456] = %q, want %q", statusMap["ses_def456"], SessionStatusIdle)
+	}
+	if statusMap["ses_ghi789"] != SessionStatusRetry {
+		t.Errorf("statusMap[ses_ghi789] = %q, want %q", statusMap["ses_ghi789"], SessionStatusRetry)
+	}
+}
+
+func TestGetSingleSessionStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]SessionStatus{
+			"ses_abc123": SessionStatusBusy,
+			"ses_def456": SessionStatusIdle,
+		})
+	}))
+	defer server.Close()
+
+	client := &OpenCodeClient{
+		baseURL:    server.URL,
+		httpClient: &http.Client{Timeout: 5 * time.Second},
+	}
+
+	ctx := context.Background()
+
+	status, found, err := client.GetSingleSessionStatus(ctx, "ses_abc123", "")
+	if err != nil {
+		t.Fatalf("GetSingleSessionStatus error: %v", err)
+	}
+	if !found {
+		t.Error("expected found=true for existing session")
+	}
+	if status != SessionStatusBusy {
+		t.Errorf("status = %q, want %q", status, SessionStatusBusy)
+	}
+
+	status, found, err = client.GetSingleSessionStatus(ctx, "ses_def456", "")
+	if err != nil {
+		t.Fatalf("GetSingleSessionStatus error: %v", err)
+	}
+	if !found {
+		t.Error("expected found=true for existing session")
+	}
+	if status != SessionStatusIdle {
+		t.Errorf("status = %q, want %q", status, SessionStatusIdle)
+	}
+
+	status, found, err = client.GetSingleSessionStatus(ctx, "ses_nonexistent", "")
+	if err != nil {
+		t.Fatalf("GetSingleSessionStatus error: %v", err)
+	}
+	if found {
+		t.Error("expected found=false for non-existent session")
+	}
+	if status != SessionStatusIdle {
+		t.Errorf("missing session should return idle, got %q", status)
+	}
+}
