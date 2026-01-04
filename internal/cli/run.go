@@ -33,11 +33,12 @@ type runOptions struct {
 	Tmux           bool
 	TmuxSession    string
 	DryRun         bool
-	NoPR           bool   // Skip PR instructions in prompt
-	PromptTemplate string // Custom prompt template file
-	PRTargetBranch string // Default PR target branch for prompt
-	Model          string // Model for opencode (provider/model format)
-	ModelVariant   string // Model variant (e.g., "max" for max thinking)
+	NoPR           bool
+	PromptTemplate string
+	PRTargetBranch string
+	Model          string
+	ModelVariant   string
+	Verbose        bool
 }
 
 func newRunCmd() *cobra.Command {
@@ -48,8 +49,15 @@ func newRunCmd() *cobra.Command {
 		Short: "Create and start a new run",
 		Long: `Create a new run for an issue, set up a git worktree, and launch an agent.
 
-The run will be started in a tmux session by default.`,
+The run will be started in a tmux session by default.
+
+Debug output can be enabled with --verbose, --log-level debug, or ORCH_DEBUG=1.`,
 		Args: cobra.ExactArgs(1),
+		PreRun: func(cmd *cobra.Command, args []string) {
+			if opts.Verbose {
+				globalOpts.LogLevel = "debug"
+			}
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runRun(args[0], opts)
 		},
@@ -72,6 +80,7 @@ The run will be started in a tmux session by default.`,
 	cmd.Flags().StringVar(&opts.PromptTemplate, "prompt-template", "", "Custom prompt template file")
 	cmd.Flags().StringVar(&opts.Model, "model", "", "Model for opencode (provider/model format, e.g., anthropic/claude-opus-4-5)")
 	cmd.Flags().StringVar(&opts.ModelVariant, "model-variant", "", "Model variant (e.g., 'max' for max thinking)")
+	cmd.Flags().BoolVarP(&opts.Verbose, "verbose", "v", false, "Enable debug output for troubleshooting")
 
 	return cmd
 }
@@ -296,18 +305,16 @@ func runRun(issueID string, opts *runOptions) error {
 	// Update status to booting
 	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusBooting))
 
+	debug := NewDebugLogger()
+
 	if opts.Tmux {
-		// Check if tmux is available
 		if !tmux.IsTmuxAvailable() {
 			return exitWithCode(fmt.Errorf("tmux is not available"), ExitTmuxError)
 		}
 
-		// For HTTP-based agents, check if a server is already running (reuse it)
-		// We only need one opencode server - it can handle sessions for any project
 		serverAlreadyRunning := false
 		if adapter.PromptInjection() == agent.InjectionHTTP {
-			// Check if any opencode server is already running
-			foundPort := findRunningOpenCodeServer(launchCfg.Port, launchCfg.Port+100)
+			foundPort := findRunningOpenCodeServer(launchCfg.Port, launchCfg.Port+100, debug)
 			if foundPort > 0 {
 				serverAlreadyRunning = true
 				launchCfg.Port = foundPort
@@ -378,8 +385,7 @@ func runRun(issueID string, opts *runOptions) error {
 			}
 
 		case agent.InjectionHTTP:
-			// For HTTP-based agents (e.g., opencode), send prompt via HTTP API
-			if err := injectPromptViaHTTP(st, run, launchCfg); err != nil {
+			if err := injectPromptViaHTTP(st, run, launchCfg, debug); err != nil {
 				err = fmt.Errorf("failed to send prompt via HTTP: %w", err)
 				setRunFailed(st, run, err)
 				return exitWithCode(err, ExitAgentError)
@@ -650,36 +656,42 @@ func setRunFailed(st storeForRunFailed, run *model.Run, err error) {
 	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
 }
 
-// injectPromptViaHTTP sends the prompt to an HTTP-based agent (e.g., opencode)
 func injectPromptViaHTTP(st interface {
 	AppendEvent(*model.RunRef, *model.Event) error
-}, run *model.Run, cfg *agent.LaunchConfig) error {
+}, run *model.Run, cfg *agent.LaunchConfig, debug *DebugLogger) error {
 	port := cfg.Port
 	if port == 0 {
-		port = 4096 // Default opencode port
+		port = 4096
 	}
 
+	debug.Printf("Connecting to opencode server on port %d...", port)
 	client := agent.NewOpenCodeClient(port)
+	client.SetDebugLogger(debug)
 
-	// Wait for server to be healthy
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
+	debug.Printf("Waiting for server to become healthy...")
 	if err := client.WaitForHealthy(ctx, 60*time.Second); err != nil {
+		debug.Printf("Server health check failed: %v", err)
 		return fmt.Errorf("server did not become healthy: %w", err)
 	}
 
+	debug.Printf("Server is healthy, recording port artifact")
 	st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
 		"port": fmt.Sprintf("%d", port),
 	}))
 
 	if cfg.Model != "" {
+		debug.Printf("Using explicitly configured model: %s (variant: %s)", cfg.Model, cfg.ModelVariant)
 		st.AppendEvent(run.Ref(), model.NewArtifactEvent("agent_model", map[string]string{
 			"model":   cfg.Model,
 			"variant": cfg.ModelVariant,
 		}))
 	} else {
+		debug.Printf("No model specified, fetching server's configured model...")
 		if fetchedModel, fetchedVariant, err := client.GetAgentModel(ctx); err == nil && fetchedModel != "" {
+			debug.Printf("Server model: %s (variant: %s)", fetchedModel, fetchedVariant)
 			st.AppendEvent(run.Ref(), model.NewArtifactEvent("agent_model", map[string]string{
 				"model":   fetchedModel,
 				"variant": fetchedVariant,
@@ -687,29 +699,34 @@ func injectPromptViaHTTP(st interface {
 		}
 	}
 
-	// Create a new session in the worktree directory
+	debug.Printf("Creating session for %s#%s in directory: %s", run.IssueID, run.RunID, cfg.WorkDir)
 	session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", run.IssueID, run.RunID), cfg.WorkDir)
 	if err != nil {
+		debug.Printf("Failed to create session: %v", err)
 		return fmt.Errorf("failed to create session: %w", err)
 	}
 
-	// Record session ID as artifact for resume capability
+	debug.Printf("Session created with ID: %s", session.ID)
 	st.AppendEvent(run.Ref(), model.NewArtifactEvent("opencode_session", map[string]string{
 		"id": session.ID,
 	}))
 
-	// Build model reference from config
 	var modelRef *agent.ModelRef
 	if cfg.Model != "" {
 		modelRef = agent.ParseModel(cfg.Model)
+		debug.Printf("Using model: %s/%s", modelRef.ProviderID, modelRef.ModelID)
+	}
+	if cfg.ModelVariant != "" {
+		debug.Printf("Using variant: %s", cfg.ModelVariant)
 	}
 
-	// Send the prompt asynchronously (don't wait for completion)
-	// Pass directory for proper project context, model for model selection, and variant for thinking mode
+	debug.Printf("Sending initial prompt to session %s...", session.ID)
 	if err := client.SendMessageAsync(ctx, session.ID, cfg.Prompt, cfg.WorkDir, modelRef, cfg.ModelVariant); err != nil {
+		debug.Printf("Failed to send prompt: %v", err)
 		return fmt.Errorf("failed to send prompt: %w", err)
 	}
 
+	debug.Printf("Prompt sent successfully")
 	return nil
 }
 
@@ -727,17 +744,19 @@ func findAvailablePort(start, end int) int {
 	return 0
 }
 
-// findRunningOpenCodeServer finds a running opencode server in the given port range.
-// Returns the port number if found, 0 if no server is running.
-func findRunningOpenCodeServer(start, end int) int {
+func findRunningOpenCodeServer(start, end int, debug *DebugLogger) int {
+	debug.Printf("Looking for opencode server in port range %d-%d...", start, end)
 	for port := start; port <= end; port++ {
 		client := agent.NewOpenCodeClient(port)
+		client.SetDebugLogger(debug)
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		running := client.IsServerRunning(ctx)
 		cancel()
 		if running {
+			debug.Printf("Found running opencode server on port %d", port)
 			return port
 		}
 	}
+	debug.Printf("No running opencode server found in port range %d-%d", start, end)
 	return 0
 }

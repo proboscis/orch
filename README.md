@@ -161,6 +161,38 @@ orch automatically runs a background daemon that monitors all running agents. Yo
 orch repair    # Fixes daemon, stale states, orphaned sessions
 ```
 
+## Troubleshooting
+
+### Debug mode for `orch run`
+
+If runs are failing silently or not connecting to the agent properly:
+
+```bash
+# Enable verbose output
+orch run --verbose my-issue
+orch run -v my-issue
+
+# Or via environment variable
+ORCH_DEBUG=1 orch run my-issue
+
+# Or via log level flag
+orch run --log-level debug my-issue
+```
+
+Debug output shows:
+- Server discovery (which ports are scanned)
+- Health check requests/responses
+- Session creation with directory context
+- Prompt delivery status
+
+### Daemon logs
+
+The background daemon logs to `.orch/daemon.log` in your vault directory:
+
+```bash
+tail -f $ORCH_VAULT/.orch/daemon.log
+```
+
 ## Configuration
 
 ```bash
