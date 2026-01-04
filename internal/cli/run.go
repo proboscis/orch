@@ -227,8 +227,9 @@ func runRun(issueID string, opts *runOptions) error {
 		Branch:      branch,
 	})
 	if err != nil {
-		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
-		return exitWithCode(fmt.Errorf("failed to create worktree: %w", err), ExitWorktreeError)
+		err = fmt.Errorf("failed to create worktree: %w", err)
+		setRunFailed(st, run, err)
+		return exitWithCode(err, ExitWorktreeError)
 	}
 
 	result.WorktreePath = worktreeResult.WorktreePath
@@ -315,13 +316,15 @@ func runRun(issueID string, opts *runOptions) error {
 				// No server running, find a free port
 				freePort := findAvailablePort(launchCfg.Port, launchCfg.Port+100)
 				if freePort == 0 {
-					st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
-					return exitWithCode(fmt.Errorf("no available port found for opencode server"), ExitAgentError)
+					err := fmt.Errorf("no available port found for opencode server")
+					setRunFailed(st, run, err)
+					return exitWithCode(err, ExitAgentError)
 				}
 				launchCfg.Port = freePort
 				// Regenerate the agent command with the port
 				agentCmd, err = adapter.LaunchCommand(launchCfg)
 				if err != nil {
+					setRunFailed(st, run, err)
 					return exitWithCode(err, ExitAgentError)
 				}
 			}
@@ -343,8 +346,9 @@ func runRun(issueID string, opts *runOptions) error {
 				Env:         env,
 			})
 			if err != nil {
-				st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
-				return exitWithCode(fmt.Errorf("failed to create tmux session: %w", err), ExitTmuxError)
+				err = fmt.Errorf("failed to create tmux session: %w", err)
+				setRunFailed(st, run, err)
+				return exitWithCode(err, ExitTmuxError)
 			}
 
 			// Record session artifact
@@ -361,21 +365,24 @@ func runRun(issueID string, opts *runOptions) error {
 				// Wait for the agent to be ready before sending the prompt
 				if pattern := adapter.ReadyPattern(); pattern != "" {
 					if err := tmux.WaitForReady(tmuxSession, pattern, 30*time.Second); err != nil {
-						st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
-						return exitWithCode(fmt.Errorf("agent did not become ready: %w", err), ExitAgentError)
+						err = fmt.Errorf("agent did not become ready: %w", err)
+						setRunFailed(st, run, err)
+						return exitWithCode(err, ExitAgentError)
 					}
 				}
 				if err := tmux.SendKeys(tmuxSession, launchCfg.Prompt); err != nil {
-					st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
-					return exitWithCode(fmt.Errorf("failed to send prompt to session: %w", err), ExitTmuxError)
+					err = fmt.Errorf("failed to send prompt to session: %w", err)
+					setRunFailed(st, run, err)
+					return exitWithCode(err, ExitTmuxError)
 				}
 			}
 
 		case agent.InjectionHTTP:
 			// For HTTP-based agents (e.g., opencode), send prompt via HTTP API
 			if err := injectPromptViaHTTP(st, run, launchCfg); err != nil {
-				st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
-				return exitWithCode(fmt.Errorf("failed to send prompt via HTTP: %w", err), ExitAgentError)
+				err = fmt.Errorf("failed to send prompt via HTTP: %w", err)
+				setRunFailed(st, run, err)
+				return exitWithCode(err, ExitAgentError)
 			}
 		}
 
@@ -623,6 +630,15 @@ func exitWithCode(err error, code int) error {
 	}
 	os.Exit(code)
 	return err
+}
+
+type storeForRunFailed interface {
+	AppendEvent(*model.RunRef, *model.Event) error
+}
+
+func setRunFailed(st storeForRunFailed, run *model.Run, err error) {
+	st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
+	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
 }
 
 // injectPromptViaHTTP sends the prompt to an HTTP-based agent (e.g., opencode)
