@@ -1,8 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"gopkg.in/yaml.v3"
 )
@@ -17,10 +19,29 @@ type MonitorConfig struct {
 
 // OpenCodePreset defines a configurable opencode model+variant preset.
 // These presets appear in the monitor agent selection as "opencode:<name>".
+// Deprecated: Use Preset with Backend="opencode" instead.
 type OpenCodePreset struct {
 	Name    string `yaml:"name"`    // Display name (e.g., "opus:high")
 	Model   string `yaml:"model"`   // Model identifier (e.g., "anthropic/claude-opus-4-5")
 	Variant string `yaml:"variant"` // Model variant (e.g., "high", "max")
+}
+
+// Preset defines a backend-agnostic preset configuration.
+// Presets can be used with --preset flag in orch run or via monitor agent selection.
+type Preset struct {
+	Name    string `yaml:"name"`              // Display name (e.g., "opus:high", "gpt5.2-codex:xhigh")
+	Backend string `yaml:"backend,omitempty"` // Backend type: opencode, claude, codex, gemini (default: opencode)
+	Model   string `yaml:"model,omitempty"`   // Model identifier (backend-specific)
+	Variant string `yaml:"variant,omitempty"` // Model variant (e.g., "high", "max", "xhigh")
+	Profile string `yaml:"profile,omitempty"` // Agent profile (e.g., for claude --profile)
+}
+
+// EffectiveBackend returns the backend for this preset, defaulting to "opencode" if not set.
+func (p *Preset) EffectiveBackend() string {
+	if p.Backend == "" {
+		return "opencode"
+	}
+	return p.Backend
 }
 
 // OpenCodeConfig holds default configuration for the opencode agent.
@@ -42,7 +63,8 @@ type Config struct {
 	PromptTemplate  string           `yaml:"prompt_template"`
 	NoPR            bool             `yaml:"no_pr"`
 	Monitor         MonitorConfig    `yaml:"monitor"`
-	OpenCodePresets []OpenCodePreset `yaml:"opencode_presets"`
+	Presets         []Preset         `yaml:"presets"`
+	OpenCodePresets []OpenCodePreset `yaml:"opencode_presets"` // Deprecated: use Presets instead
 	OpenCode        OpenCodeConfig   `yaml:"opencode"`
 
 	// Control agent settings (for orch monitor 'c' keybinding)
@@ -67,6 +89,7 @@ type fileConfig struct {
 	PromptTemplate      string           `yaml:"prompt_template"`
 	NoPR                *bool            `yaml:"no_pr"`
 	Monitor             MonitorConfig    `yaml:"monitor"`
+	Presets             []Preset         `yaml:"presets"`
 	OpenCodePresets     []OpenCodePreset `yaml:"opencode_presets"`
 	OpenCode            OpenCodeConfig   `yaml:"opencode"`
 	ControlAgent        string           `yaml:"control_agent"`
@@ -242,6 +265,9 @@ func loadFromFile(path string, cfg *Config) error {
 	if len(fileCfg.Monitor.PSColumns) > 0 {
 		cfg.Monitor.PSColumns = fileCfg.Monitor.PSColumns
 	}
+	if len(fileCfg.Presets) > 0 {
+		cfg.Presets = fileCfg.Presets
+	}
 	if len(fileCfg.OpenCodePresets) > 0 {
 		cfg.OpenCodePresets = fileCfg.OpenCodePresets
 	}
@@ -339,6 +365,7 @@ func applyEnv(cfg *Config) {
 }
 
 // GetOpenCodePreset returns the preset with the given name, or nil if not found.
+// Deprecated: Use GetPreset instead.
 func (c *Config) GetOpenCodePreset(name string) *OpenCodePreset {
 	for i := range c.OpenCodePresets {
 		if c.OpenCodePresets[i].Name == name {
@@ -346,6 +373,92 @@ func (c *Config) GetOpenCodePreset(name string) *OpenCodePreset {
 		}
 	}
 	return nil
+}
+
+// GetPreset returns the preset with the given name, searching both
+// new-style Presets and legacy OpenCodePresets (with backward compatibility).
+func (c *Config) GetPreset(name string) *Preset {
+	for i := range c.Presets {
+		if c.Presets[i].Name == name {
+			return &c.Presets[i]
+		}
+	}
+	for i := range c.OpenCodePresets {
+		if c.OpenCodePresets[i].Name == name {
+			return &Preset{
+				Name:    c.OpenCodePresets[i].Name,
+				Backend: "opencode",
+				Model:   c.OpenCodePresets[i].Model,
+				Variant: c.OpenCodePresets[i].Variant,
+			}
+		}
+	}
+	return nil
+}
+
+// GetAllPresets returns all presets, merging new-style Presets with
+// legacy OpenCodePresets (converted to Preset format). Results are sorted by name.
+func (c *Config) GetAllPresets() []Preset {
+	presetMap := make(map[string]Preset)
+	for _, p := range c.Presets {
+		presetMap[p.Name] = p
+	}
+	for _, p := range c.OpenCodePresets {
+		if _, exists := presetMap[p.Name]; !exists {
+			presetMap[p.Name] = Preset{
+				Name:    p.Name,
+				Backend: "opencode",
+				Model:   p.Model,
+				Variant: p.Variant,
+			}
+		}
+	}
+	result := make([]Preset, 0, len(presetMap))
+	for _, p := range presetMap {
+		result = append(result, p)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+	return result
+}
+
+// GetPresetsForBackend returns all presets for a specific backend.
+func (c *Config) GetPresetsForBackend(backend string) []Preset {
+	var result []Preset
+	for _, p := range c.GetAllPresets() {
+		if p.EffectiveBackend() == backend {
+			result = append(result, p)
+		}
+	}
+	return result
+}
+
+var validBackends = map[string]bool{
+	"opencode": true,
+	"claude":   true,
+	"codex":    true,
+	"gemini":   true,
+	"custom":   true,
+}
+
+// ValidatePresets checks all presets for valid backends and configuration.
+func (c *Config) ValidatePresets() []string {
+	var warnings []string
+	for _, p := range c.Presets {
+		if p.Name == "" {
+			warnings = append(warnings, "preset has empty name")
+			continue
+		}
+		backend := p.EffectiveBackend()
+		if !validBackends[backend] {
+			warnings = append(warnings, fmt.Sprintf("preset %q has invalid backend %q", p.Name, backend))
+		}
+	}
+	if len(c.OpenCodePresets) > 0 && len(c.Presets) == 0 {
+		warnings = append(warnings, "opencode_presets is deprecated, migrate to presets with backend field")
+	}
+	return warnings
 }
 
 // ExpandPath expands ~ and makes path absolute relative to base
