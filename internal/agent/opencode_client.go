@@ -337,7 +337,8 @@ func (c *OpenCodeClient) SendMessageAsync(ctx context.Context, sessionID, text, 
 	})
 }
 
-// SendMessagePrompt sends a message via /prompt endpoint (triggers agent execution, unlike prompt_async).
+// SendMessagePrompt sends a message via /message endpoint (triggers agent execution, unlike prompt_async).
+// Queues message if agent is busy. TUI clients won't auto-refresh; they need reload to see the message.
 func (c *OpenCodeClient) SendMessagePrompt(ctx context.Context, sessionID, text, directory string) error {
 	return retryNoResult(ctx, 3, 500*time.Millisecond, func() error {
 		return c.sendMessagePromptOnce(ctx, sessionID, text, directory)
@@ -356,7 +357,7 @@ func (c *OpenCodeClient) sendMessagePromptOnce(ctx context.Context, sessionID, t
 		return fmt.Errorf("marshaling prompt request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/session/"+sessionID+"/prompt", bytes.NewReader(jsonBody))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/session/"+sessionID+"/message", bytes.NewReader(jsonBody))
 	if err != nil {
 		return fmt.Errorf("creating prompt request: %w", err)
 	}

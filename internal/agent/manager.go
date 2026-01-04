@@ -225,7 +225,7 @@ func (m *OpenCodeManager) SendMessage(ctx context.Context, run *model.Run, messa
 	}
 
 	client := NewOpenCodeClient(m.Port)
-	return client.SendMessageAsync(ctx, m.SessionID, message, run.WorktreePath, nil, "")
+	return client.SendMessagePrompt(ctx, m.SessionID, message, run.WorktreePath)
 }
 
 func IsWaitingForInput(output string) bool {
