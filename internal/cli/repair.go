@@ -128,11 +128,13 @@ func repairDaemon(vaultPath string, opts *repairOptions) (bool, error) {
 				fmt.Println("  would restart daemon with new binary")
 				return true, nil
 			}
+
+			oldMeta, _ := daemon.ReadMetadata(vaultPath)
 			if err := daemon.RestartDaemon(vaultPath); err != nil {
 				return true, fmt.Errorf("failed to restart daemon: %w", err)
 			}
-			time.Sleep(300 * time.Millisecond)
-			if daemon.IsRunning(vaultPath) {
+
+			if waitForDaemonRestart(vaultPath, oldMeta, 2*time.Second) {
 				newPid := daemon.GetRunningPID(vaultPath)
 				fmt.Printf("  restarted daemon with new binary (pid=%d)\n", newPid)
 				return true, nil
@@ -247,4 +249,26 @@ func findOrphanedSessions(st store.Store) []string {
 	}
 
 	return orphaned
+}
+
+func waitForDaemonRestart(vaultPath string, oldMeta *daemon.DaemonMetadata, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if !daemon.IsRunning(vaultPath) {
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+
+		newMeta, err := daemon.ReadMetadata(vaultPath)
+		if err != nil {
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+
+		if oldMeta == nil || newMeta.StartedAt.After(oldMeta.StartedAt) {
+			return true
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return daemon.IsRunning(vaultPath)
 }

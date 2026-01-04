@@ -1,18 +1,28 @@
 package daemon
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"syscall"
+	"time"
 )
 
 const (
-	orchDir = ".orch"
-	pidFile = "daemon.pid"
-	logFile = "daemon.log"
+	orchDir      = ".orch"
+	pidFile      = "daemon.pid"
+	logFile      = "daemon.log"
+	metadataFile = "daemon.json"
 )
+
+type DaemonMetadata struct {
+	PID       int       `json:"pid"`
+	StartedAt time.Time `json:"started_at"`
+	ExecPath  string    `json:"exec_path"`
+	ExecMtime time.Time `json:"exec_mtime"`
+}
 
 // OrchDir returns the path to the .orch directory in the vault
 func OrchDir(vaultPath string) string {
@@ -27,6 +37,22 @@ func PIDFilePath(vaultPath string) string {
 // LogFilePath returns the path to the daemon log file
 func LogFilePath(vaultPath string) string {
 	return filepath.Join(OrchDir(vaultPath), logFile)
+}
+
+func MetadataFilePath(vaultPath string) string {
+	return filepath.Join(OrchDir(vaultPath), metadataFile)
+}
+
+func ReadMetadata(vaultPath string) (*DaemonMetadata, error) {
+	data, err := os.ReadFile(MetadataFilePath(vaultPath))
+	if err != nil {
+		return nil, err
+	}
+	var meta DaemonMetadata
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return nil, err
+	}
+	return &meta, nil
 }
 
 // EnsureOrchDir creates the .orch directory if it doesn't exist
@@ -114,24 +140,37 @@ func IsStaleBinary(vaultPath string) (bool, error) {
 		return false, nil
 	}
 
-	pidPath := PIDFilePath(vaultPath)
-	pidInfo, err := os.Stat(pidPath)
+	meta, err := ReadMetadata(vaultPath)
+	if err != nil {
+		pidPath := PIDFilePath(vaultPath)
+		pidInfo, err := os.Stat(pidPath)
+		if err != nil {
+			return false, err
+		}
+		daemonStartTime := pidInfo.ModTime()
+
+		execPath, err := os.Executable()
+		if err != nil {
+			return false, err
+		}
+		resolved, _ := filepath.EvalSymlinks(execPath)
+		if resolved != "" {
+			execPath = resolved
+		}
+
+		execInfo, err := os.Stat(execPath)
+		if err != nil {
+			return false, err
+		}
+		return execInfo.ModTime().After(daemonStartTime), nil
+	}
+
+	execInfo, err := os.Stat(meta.ExecPath)
 	if err != nil {
 		return false, err
 	}
-	daemonStartTime := pidInfo.ModTime()
 
-	execPath, err := os.Executable()
-	if err != nil {
-		return false, err
-	}
-
-	execInfo, err := os.Stat(execPath)
-	if err != nil {
-		return false, err
-	}
-
-	return execInfo.ModTime().After(daemonStartTime), nil
+	return execInfo.ModTime().After(meta.ExecMtime), nil
 }
 
 func RestartDaemon(vaultPath string) error {

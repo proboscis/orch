@@ -1,11 +1,13 @@
 package daemon
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -135,14 +137,34 @@ func (d *Daemon) initBinaryTracking() error {
 	if err != nil {
 		return err
 	}
-	d.executablePath = execPath
 
-	info, err := os.Stat(execPath)
+	resolved, err := filepath.EvalSymlinks(execPath)
+	if err != nil {
+		resolved = execPath
+	}
+	d.executablePath = resolved
+
+	info, err := os.Stat(resolved)
 	if err != nil {
 		return err
 	}
 	d.startupMtime = info.ModTime()
-	return nil
+
+	return d.writeMetadata()
+}
+
+func (d *Daemon) writeMetadata() error {
+	meta := DaemonMetadata{
+		PID:       os.Getpid(),
+		StartedAt: time.Now(),
+		ExecPath:  d.executablePath,
+		ExecMtime: d.startupMtime,
+	}
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(MetadataFilePath(d.vaultPath), data, 0644)
 }
 
 func (d *Daemon) isBinaryStale() bool {
@@ -167,25 +189,10 @@ func (d *Daemon) checkBinaryStaleness() {
 }
 
 func (d *Daemon) restartWithNewBinary() error {
-	d.logger.Printf("restarting daemon with new binary...")
+	d.logger.Printf("restarting daemon with new binary via exec...")
 
-	cmd := &exec.Cmd{
-		Path: d.executablePath,
-		Args: []string{d.executablePath, "daemon", "--vault", d.vaultPath},
-		SysProcAttr: &syscall.SysProcAttr{
-			Setsid: true,
-		},
-		Stdout: nil,
-		Stderr: nil,
-		Stdin:  nil,
-	}
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start new daemon: %w", err)
-	}
-
-	d.logger.Printf("started new daemon (pid=%d), exiting old instance", cmd.Process.Pid)
-	return nil
+	args := []string{d.executablePath, "daemon", "--vault", d.vaultPath}
+	return syscall.Exec(d.executablePath, args, os.Environ())
 }
 
 // monitorAll checks all active runs (running, booting, blocked, pr_open, or unknown)
