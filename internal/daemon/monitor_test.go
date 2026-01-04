@@ -5,14 +5,17 @@ import (
 	"log"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/s22625/orch/internal/model"
 )
 
 func newTestDaemon() *Daemon {
 	return &Daemon{
-		logger:    log.New(io.Discard, "", 0),
-		runStates: make(map[string]*RunState),
+		logger:        log.New(io.Discard, "", 0),
+		runStates:     make(map[string]*RunState),
+		lastFetchAt:   make(map[string]time.Time),
+		fetchInFlight: make(map[string]bool),
 	}
 }
 
@@ -64,5 +67,25 @@ func TestGetOrCreateState(t *testing.T) {
 	state2 := d.getOrCreateState(run)
 	if state2 != state {
 		t.Fatal("expected same state instance")
+	}
+}
+
+func TestPeriodicFetchSkipsWithinInterval(t *testing.T) {
+	d := newTestDaemon()
+	repoPath := "/test/repo"
+	d.lastFetchAt[repoPath] = time.Now()
+
+	runs := []*model.Run{{IssueID: "test", RunID: "1", WorktreePath: ""}}
+	d.periodicFetch(runs)
+
+	if len(d.lastFetchAt) != 1 {
+		t.Fatal("lastFetchAt should remain unchanged for runs without worktree")
+	}
+}
+
+func TestPeriodicFetchTracking(t *testing.T) {
+	d := newTestDaemon()
+	if len(d.lastFetchAt) != 0 {
+		t.Fatal("lastFetchAt should start empty")
 	}
 }
