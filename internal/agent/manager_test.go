@@ -589,3 +589,167 @@ func extractPort(url string) int {
 	}
 	return 0
 }
+
+func TestFormatOpenCodeMessages(t *testing.T) {
+	tests := []struct {
+		name     string
+		messages []Message
+		maxLines int
+		wantLen  int
+	}{
+		{
+			name:     "empty messages",
+			messages: []Message{},
+			maxLines: 10,
+			wantLen:  0,
+		},
+		{
+			name: "single message",
+			messages: []Message{
+				{
+					Info:  MessageInfo{ID: "msg1", Role: "user"},
+					Parts: []MessagePart{{Type: "text", Text: "Hello world"}},
+				},
+			},
+			maxLines: 10,
+			wantLen:  2,
+		},
+		{
+			name: "multiple messages",
+			messages: []Message{
+				{
+					Info:  MessageInfo{ID: "msg1", Role: "user"},
+					Parts: []MessagePart{{Type: "text", Text: "Hello"}},
+				},
+				{
+					Info:  MessageInfo{ID: "msg2", Role: "assistant"},
+					Parts: []MessagePart{{Type: "text", Text: "Hi there!"}},
+				},
+			},
+			maxLines: 10,
+			wantLen:  4,
+		},
+		{
+			name: "non-text parts ignored",
+			messages: []Message{
+				{
+					Info: MessageInfo{ID: "msg1", Role: "assistant"},
+					Parts: []MessagePart{
+						{Type: "image", Text: ""},
+						{Type: "text", Text: "Only this text"},
+					},
+				},
+			},
+			maxLines: 10,
+			wantLen:  2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := FormatOpenCodeMessages(tt.messages, tt.maxLines)
+
+			if len(tt.messages) == 0 {
+				if result != "" {
+					t.Errorf("expected empty string for empty messages, got %q", result)
+				}
+				return
+			}
+
+			if result == "" && tt.wantLen > 0 {
+				t.Errorf("expected non-empty result")
+			}
+		})
+	}
+}
+
+func TestFormatOpenCodeMessagesLineLimit(t *testing.T) {
+	messages := []Message{
+		{
+			Info:  MessageInfo{ID: "msg1", Role: "assistant"},
+			Parts: []MessagePart{{Type: "text", Text: "Line 1\nLine 2\nLine 3\nLine 4\nLine 5"}},
+		},
+	}
+
+	result := FormatOpenCodeMessages(messages, 3)
+	lines := countLines(result)
+
+	if lines > 3 {
+		t.Errorf("expected at most 3 lines, got %d", lines)
+	}
+}
+
+func TestFormatOpenCodeMessagesPartOrdering(t *testing.T) {
+	messages := []Message{
+		{
+			Info: MessageInfo{ID: "msg1", Role: "assistant"},
+			Parts: []MessagePart{
+				{Type: "text", Text: "First part"},
+				{Type: "text", Text: "Second part"},
+			},
+		},
+	}
+
+	result := FormatOpenCodeMessages(messages, 100)
+
+	firstIdx := findSubstringIndex(result, "First part")
+	secondIdx := findSubstringIndex(result, "Second part")
+
+	if firstIdx == -1 || secondIdx == -1 {
+		t.Errorf("expected both parts in result, got %q", result)
+		return
+	}
+
+	if firstIdx >= secondIdx {
+		t.Errorf("expected First part before Second part, got %q", result)
+	}
+}
+
+func TestFormatOpenCodeMessagesMessageOrdering(t *testing.T) {
+	messages := []Message{
+		{
+			Info:  MessageInfo{ID: "msg1", Role: "user"},
+			Parts: []MessagePart{{Type: "text", Text: "User message"}},
+		},
+		{
+			Info:  MessageInfo{ID: "msg2", Role: "assistant"},
+			Parts: []MessagePart{{Type: "text", Text: "Assistant message"}},
+		},
+	}
+
+	result := FormatOpenCodeMessages(messages, 100)
+
+	userIdx := findSubstringIndex(result, "User message")
+	assistantIdx := findSubstringIndex(result, "Assistant message")
+
+	if userIdx == -1 || assistantIdx == -1 {
+		t.Errorf("expected both messages in result, got %q", result)
+		return
+	}
+
+	if userIdx >= assistantIdx {
+		t.Errorf("expected User message before Assistant message, got %q", result)
+	}
+}
+
+func countLines(s string) int {
+	if s == "" {
+		return 0
+	}
+	count := 1
+	for _, c := range s {
+		if c == '\n' {
+			count++
+		}
+	}
+	return count
+}
+
+func findSubstringIndex(s, substr string) int {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
+}
