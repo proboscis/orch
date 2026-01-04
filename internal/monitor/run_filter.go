@@ -17,7 +17,7 @@ const (
 	mergedFilterClean    = "clean"
 	mergedFilterConflict = "conflict"
 	mergedFilterMerged   = "merged"
-	mergedFilterNoChange = "no change"
+	mergedFilterDirty    = "dirty"
 	prFilterAll          = "all"
 	prFilterHas          = "has"
 	prFilterNone         = "none"
@@ -117,6 +117,8 @@ func normalizeRunFilter(filter RunFilter) RunFilter {
 	filter.Merged = strings.ToLower(strings.TrimSpace(filter.Merged))
 	if filter.Merged == "" {
 		filter.Merged = mergedFilterAll
+	} else if filter.Merged == "no change" {
+		filter.Merged = mergedFilterClean
 	}
 	filter.PR = strings.ToLower(strings.TrimSpace(filter.PR))
 	if filter.PR == "" {

@@ -155,6 +155,10 @@ func GetColumnStyle(col ColumnID, row *RunRow, styles *Styles, isHeader bool) li
 				return style
 			}
 		}
+	case ColMerged:
+		if style, ok := styles.Merged[row.Merged]; ok {
+			return style
+		}
 	}
 	return styles.Text
 }

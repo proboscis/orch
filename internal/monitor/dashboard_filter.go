@@ -276,7 +276,7 @@ func (d *Dashboard) filterRows() []filterRow {
 
 	rows = append(rows, filterRow{label: "", selectable: false})
 	rows = append(rows, filterRow{label: "Merged:", selectable: false})
-	mergedOptions := []string{mergedFilterAll, mergedFilterConflict, mergedFilterClean, mergedFilterMerged, mergedFilterNoChange}
+	mergedOptions := []string{mergedFilterAll, mergedFilterMerged, mergedFilterClean, mergedFilterDirty, mergedFilterConflict}
 	for _, option := range mergedOptions {
 		rows = append(rows, filterRow{
 			kind:       filterRowMerged,
