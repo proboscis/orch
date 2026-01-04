@@ -342,101 +342,12 @@ func (m *Monitor) SwitchChat() error {
 	return tmux.SelectPane(pane)
 }
 
-// OpenRun links a run session into the monitor and switches to it.
 func (m *Monitor) OpenRun(run *model.Run) error {
 	if run == nil {
 		return fmt.Errorf("run not found")
 	}
-
-	// For opencode agents, create a window running opencode attach
-	if run.Agent == string(agent.AgentOpenCode) {
-		return m.openOpenCodeRun(run)
-	}
-
-	sessionName := run.TmuxSession
-	if sessionName == "" {
-		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
-	}
-	w := &RunWindow{
-		Run:          run,
-		AgentSession: sessionName,
-	}
-	if err := m.ensureRunSession(w); err != nil {
-		return err
-	}
-	if !tmux.HasSession(sessionName) {
-		return fmt.Errorf("run session not found: %s", sessionName)
-	}
-
-	if err := m.ensurePaneLayout(); err != nil {
-		return err
-	}
-	if err := m.repairSwappedRunSession(run, sessionName); err != nil {
-		return err
-	}
-	m.refreshChatPaneTitle()
-
-	windowID, err := m.resolveRunWindowID(run, sessionName)
-	if err != nil {
-		return err
-	}
-
-	monitorWindows, err := tmux.ListWindows(m.session)
-	if err != nil {
-		return err
-	}
-	if windowID != "" {
-		if _, ok := windowIndexByID(monitorWindows, windowID); ok {
-			return tmux.SelectWindowByID(windowID)
-		}
-	}
-
-	targetIndex := nextAvailableWindowIndex(monitorWindows, dashboardWindowIdx+1)
-	if windowID != "" {
-		if err := tmux.LinkWindowByID(windowID, m.session, targetIndex); err != nil {
-			return err
-		}
-		return tmux.SelectWindowByID(windowID)
-	}
-	if err := tmux.LinkWindow(sessionName, 0, m.session, targetIndex); err != nil {
-		return err
-	}
-	return tmux.SelectWindow(m.session, targetIndex)
-}
-
-func (m *Monitor) openOpenCodeRun(run *model.Run) error {
-	if run.ServerPort == 0 {
-		return fmt.Errorf("no server port found for opencode run: %s", run.Ref().String())
-	}
-
-	serverURL := fmt.Sprintf("http://127.0.0.1:%d", run.ServerPort)
-	attachCmd := fmt.Sprintf("opencode attach %s", serverURL)
-	if run.OpenCodeSessionID != "" {
-		attachCmd = fmt.Sprintf("%s --session %s", attachCmd, run.OpenCodeSessionID)
-	}
-
-	monitorWindows, err := tmux.ListWindows(m.session)
-	if err != nil {
-		return err
-	}
-
-	windowName := fmt.Sprintf("opencode-%s", run.ShortID())
-	for _, w := range monitorWindows {
-		if w.Name == windowName {
-			return tmux.SelectWindow(m.session, w.Index)
-		}
-	}
-
-	targetIndex := nextAvailableWindowIndex(monitorWindows, dashboardWindowIdx+1)
-	workDir := run.WorktreePath
-	if workDir == "" {
-		workDir, _ = os.Getwd()
-	}
-
-	if err := tmux.NewWindow(m.session, windowName, workDir, attachCmd); err != nil {
-		return fmt.Errorf("failed to create opencode window: %w", err)
-	}
-	return tmux.SelectWindow(m.session, targetIndex)
+	attacher := GetRunAttacher(run.Agent)
+	return attacher.Attach(m, run)
 }
 
 // CloseRun returns to the dashboard window.
