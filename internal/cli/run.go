@@ -682,22 +682,19 @@ func injectPromptViaHTTP(st interface {
 		"port": fmt.Sprintf("%d", port),
 	}))
 
-	if cfg.Model != "" {
-		debug.Printf("Using explicitly configured model: %s (variant: %s)", cfg.Model, cfg.ModelVariant)
-		st.AppendEvent(run.Ref(), model.NewArtifactEvent("agent_model", map[string]string{
-			"model":   cfg.Model,
-			"variant": cfg.ModelVariant,
-		}))
+	usedModel := cfg.Model
+	usedVariant := cfg.ModelVariant
+	if usedModel == "" {
+		usedModel = "anthropic/claude-sonnet-4-5"
+		usedVariant = ""
+		debug.Printf("No model specified, using hardcoded default: %s", usedModel)
 	} else {
-		debug.Printf("No model specified, fetching server's configured model...")
-		if fetchedModel, fetchedVariant, err := client.GetAgentModel(ctx); err == nil && fetchedModel != "" {
-			debug.Printf("Server model: %s (variant: %s)", fetchedModel, fetchedVariant)
-			st.AppendEvent(run.Ref(), model.NewArtifactEvent("agent_model", map[string]string{
-				"model":   fetchedModel,
-				"variant": fetchedVariant,
-			}))
-		}
+		debug.Printf("Using configured model: %s (variant: %s)", usedModel, usedVariant)
 	}
+	st.AppendEvent(run.Ref(), model.NewArtifactEvent("agent_model", map[string]string{
+		"model":   usedModel,
+		"variant": usedVariant,
+	}))
 
 	debug.Printf("Creating session for %s#%s in directory: %s", run.IssueID, run.RunID, cfg.WorkDir)
 	session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", run.IssueID, run.RunID), cfg.WorkDir)
@@ -712,16 +709,16 @@ func injectPromptViaHTTP(st interface {
 	}))
 
 	var modelRef *agent.ModelRef
-	if cfg.Model != "" {
-		modelRef = agent.ParseModel(cfg.Model)
+	if usedModel != "" {
+		modelRef = agent.ParseModel(usedModel)
 		debug.Printf("Using model: %s/%s", modelRef.ProviderID, modelRef.ModelID)
 	}
-	if cfg.ModelVariant != "" {
-		debug.Printf("Using variant: %s", cfg.ModelVariant)
+	if usedVariant != "" {
+		debug.Printf("Using variant: %s", usedVariant)
 	}
 
 	debug.Printf("Sending initial prompt to session %s...", session.ID)
-	if err := client.SendMessageAsync(ctx, session.ID, cfg.Prompt, cfg.WorkDir, modelRef, cfg.ModelVariant); err != nil {
+	if err := client.SendMessageAsync(ctx, session.ID, cfg.Prompt, cfg.WorkDir, modelRef, usedVariant); err != nil {
 		debug.Printf("Failed to send prompt: %v", err)
 		return fmt.Errorf("failed to send prompt: %w", err)
 	}

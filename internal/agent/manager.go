@@ -197,7 +197,7 @@ func (m *OpenCodeManager) GetStatus(run *model.Run, output string, state *RunSta
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	sessionStatus, found, err := client.GetSingleSessionStatus(ctx, m.SessionID, "")
+	sessionStatus, found, err := client.GetSingleSessionStatus(ctx, m.SessionID, m.Directory)
 	if err != nil {
 		return ""
 	}
@@ -223,11 +223,11 @@ func (m *OpenCodeManager) GetStatus(run *model.Run, output string, state *RunSta
 		return model.StatusRunning
 	}
 
-	return model.StatusBlocked
+	return model.StatusUnknown
 }
 
 func (m *OpenCodeManager) hasActiveBusyChildren(ctx context.Context, client *OpenCodeClient) bool {
-	statusMap, err := client.GetSessionStatus(ctx, "")
+	statusMap, err := client.GetSessionStatus(ctx, m.Directory)
 	if err != nil {
 		return false
 	}
