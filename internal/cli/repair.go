@@ -272,5 +272,5 @@ func waitForDaemonRestart(vaultPath string, oldMeta *daemon.DaemonMetadata, time
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	return daemon.IsRunning(vaultPath)
+	return false
 }
