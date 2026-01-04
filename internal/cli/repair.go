@@ -167,26 +167,30 @@ func repairStaleRuns(st store.Store, opts *repairOptions) (int, error) {
 			continue // Agent is alive, run is fine
 		}
 
-		fmt.Printf("  %s#%s: marked running but agent not alive\n", run.IssueID, run.RunID)
+		fmt.Printf("  %s#%s: marked %s but agent not alive\n", run.IssueID, run.RunID, run.Status)
 		fixed++
 
+		newStatus := model.StatusFailed
+		if run.Agent == "opencode" {
+			newStatus = model.StatusUnknown
+		}
+
 		if opts.DryRun {
-			fmt.Printf("    would mark as failed\n")
+			fmt.Printf("    would mark as %s\n", newStatus)
 			continue
 		}
 
-		// Mark as failed
 		ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
-		event := model.NewStatusEvent(model.StatusFailed)
+		event := model.NewStatusEvent(newStatus)
 		if err := st.AppendEvent(ref, event); err != nil {
 			fmt.Fprintf(os.Stderr, "    failed to update status: %v\n", err)
 		} else {
-			fmt.Printf("    marked as failed\n")
+			fmt.Printf("    marked as %s\n", newStatus)
 		}
 	}
 
 	if fixed == 0 {
-		fmt.Println("  all running runs have active sessions")
+		fmt.Println("  all running runs have active agents")
 	}
 
 	return fixed, nil
