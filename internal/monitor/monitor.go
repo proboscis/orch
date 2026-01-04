@@ -1122,8 +1122,8 @@ func (m *Monitor) sendPromptViaHTTP(launch agentChatLaunch) {
 		return
 	}
 
-	session, err := client.CreateSession(ctx, "monitor-chat", m.store.VaultPath())
-	if err != nil {
+	sessionID := m.getOrCreateControlSession(ctx, client, port)
+	if sessionID == "" {
 		return
 	}
 
@@ -1132,7 +1132,29 @@ func (m *Monitor) sendPromptViaHTTP(launch agentChatLaunch) {
 		modelRef = agent.ParseModel(launch.model)
 	}
 
-	_ = client.SendMessageAsync(ctx, session.ID, launch.prompt, m.store.VaultPath(), modelRef, launch.modelVariant)
+	_ = client.SendMessageAsync(ctx, sessionID, launch.prompt, m.store.VaultPath(), modelRef, launch.modelVariant)
+}
+
+func (m *Monitor) getOrCreateControlSession(ctx context.Context, client *agent.OpenCodeClient, port int) string {
+	stored := LoadControlSession(m.orchDir)
+	if stored != nil && stored.SessionID != "" && stored.Port == port {
+		session, err := client.GetSession(ctx, stored.SessionID, m.store.VaultPath())
+		if err == nil && session != nil {
+			return stored.SessionID
+		}
+	}
+
+	session, err := client.CreateSession(ctx, "monitor-chat", m.store.VaultPath())
+	if err != nil {
+		return ""
+	}
+
+	_ = SaveControlSession(m.orchDir, &ControlSession{
+		SessionID: session.ID,
+		Port:      port,
+	})
+
+	return session.ID
 }
 
 func defaultStatuses() []model.Status {
