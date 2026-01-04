@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-type DebugLogger interface {
+type Logger interface {
 	Printf(format string, args ...interface{})
 }
 
@@ -20,7 +20,7 @@ type OpenCodeClient struct {
 	baseURL    string
 	port       int
 	httpClient *http.Client
-	debug      DebugLogger
+	debug      Logger
 }
 
 func NewOpenCodeClient(port int) *OpenCodeClient {
@@ -33,7 +33,7 @@ func NewOpenCodeClient(port int) *OpenCodeClient {
 	}
 }
 
-func (c *OpenCodeClient) SetDebugLogger(logger DebugLogger) {
+func (c *OpenCodeClient) SetDebugLogger(logger Logger) {
 	c.debug = logger
 }
 
@@ -441,7 +441,7 @@ func (c *OpenCodeClient) sendMessageAsyncOnce(ctx context.Context, sessionID, te
 	if variant != "" {
 		c.logDebug("  Variant: %s", variant)
 	}
-	c.logDebug("  Prompt: %.100s...", text)
+	c.logDebug("  Prompt length: %d bytes", len(text))
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonBody))
 	if err != nil {

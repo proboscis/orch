@@ -22,9 +22,8 @@ func (d *DebugLogger) IsEnabled() bool {
 }
 
 func (d *DebugLogger) Printf(format string, args ...interface{}) {
-	if !d.enabled {
+	if d == nil || !d.enabled {
 		return
 	}
-	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintf(os.Stderr, "[DEBUG] %s\n", msg)
+	fmt.Fprintf(os.Stderr, "[DEBUG] %s\n", fmt.Sprintf(format, args...))
 }
