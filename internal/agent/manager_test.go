@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/s22625/orch/internal/model"
 )
@@ -778,4 +779,124 @@ func findSubstringIndex(s, substr string) int {
 		}
 	}
 	return -1
+}
+
+func TestOpenCodeManagerIsAliveServerNotRunning(t *testing.T) {
+	manager := &OpenCodeManager{Port: 59999, SessionID: "ses_test"}
+	run := &model.Run{Agent: "opencode"}
+
+	got := manager.IsAlive(run)
+	if got != false {
+		t.Errorf("IsAlive() with no server = %v, want false", got)
+	}
+}
+
+func TestOpenCodeManagerIsAliveSessionExists(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/global/health":
+			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
+		case "/session":
+			json.NewEncoder(w).Encode([]Session{{ID: "ses_test123"}})
+		}
+	}))
+	defer server.Close()
+
+	port := extractPort(server.URL)
+	manager := &OpenCodeManager{Port: port, SessionID: "ses_test123"}
+	run := &model.Run{Agent: "opencode"}
+
+	got := manager.IsAlive(run)
+	if got != true {
+		t.Errorf("IsAlive() with existing session = %v, want true", got)
+	}
+}
+
+func TestOpenCodeManagerIsAliveBusyChildren(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/global/health":
+			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
+		case "/session":
+			json.NewEncoder(w).Encode([]Session{})
+		case "/session/status":
+			json.NewEncoder(w).Encode(map[string]SessionStatus{
+				"ses_child": SessionStatusBusy,
+			})
+		case "/session/ses_child":
+			json.NewEncoder(w).Encode(Session{ID: "ses_child", ParentID: "ses_parent"})
+		}
+	}))
+	defer server.Close()
+
+	port := extractPort(server.URL)
+	manager := &OpenCodeManager{Port: port, SessionID: "ses_parent"}
+	run := &model.Run{Agent: "opencode"}
+
+	got := manager.IsAlive(run)
+	if got != true {
+		t.Errorf("IsAlive() with busy children = %v, want true", got)
+	}
+}
+
+func TestOpenCodeManagerIsAliveRecentActivity(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/global/health":
+			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
+		case "/session":
+			json.NewEncoder(w).Encode([]Session{})
+		case "/session/status":
+			json.NewEncoder(w).Encode(map[string]SessionStatus{})
+		case "/session/ses_active":
+			now := time.Now().UnixMilli()
+			json.NewEncoder(w).Encode(Session{
+				ID:   "ses_active",
+				Time: SessionTimeMillis{Updated: now},
+			})
+		}
+	}))
+	defer server.Close()
+
+	port := extractPort(server.URL)
+	manager := &OpenCodeManager{Port: port, SessionID: "ses_active"}
+	run := &model.Run{Agent: "opencode"}
+
+	got := manager.IsAlive(run)
+	if got != true {
+		t.Errorf("IsAlive() with recent activity = %v, want true", got)
+	}
+}
+
+func TestOpenCodeManagerIsAliveNoActivity(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/global/health":
+			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
+		case "/session":
+			json.NewEncoder(w).Encode([]Session{})
+		case "/session/status":
+			json.NewEncoder(w).Encode(map[string]SessionStatus{})
+		case "/session/ses_stale":
+			staleTime := time.Now().Add(-time.Hour).UnixMilli()
+			json.NewEncoder(w).Encode(Session{
+				ID:   "ses_stale",
+				Time: SessionTimeMillis{Updated: staleTime},
+			})
+		}
+	}))
+	defer server.Close()
+
+	port := extractPort(server.URL)
+	manager := &OpenCodeManager{Port: port, SessionID: "ses_stale"}
+	run := &model.Run{Agent: "opencode"}
+
+	got := manager.IsAlive(run)
+	if got != false {
+		t.Errorf("IsAlive() with no activity = %v, want false", got)
+	}
 }
