@@ -642,44 +642,49 @@ func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
 
 	states := make(map[string]string)
 	branchToRun := make(map[string]*model.Run)
-	var unmergedBranches []string
+	var allBranches []string
 
 	for _, r := range runs {
 		if r.Branch == "" {
 			continue
 		}
 
-		if merged[r.Branch] {
-			branchHead := git.GetBranchHead(repoRoot, r.Branch)
-			if branchHead != "" && branchHead == targetHead {
-				states[r.RunID] = "clean"
-			} else {
-				states[r.RunID] = "merged"
-			}
-			continue
-		}
-
 		branchToRun[r.Branch] = r
-		unmergedBranches = append(unmergedBranches, r.Branch)
+		allBranches = append(allBranches, r.Branch)
 	}
 
-	if len(unmergedBranches) == 0 {
+	if len(allBranches) == 0 {
 		return states
 	}
 
-	aheadCounts := git.GetBranchesAheadCounts(repoRoot, targetRef, unmergedBranches)
+	aheadCounts := git.GetBranchesAheadCounts(repoRoot, targetRef, allBranches)
 
 	var branchesWithChanges []string
 	for branch, r := range branchToRun {
 		ahead, ok := aheadCounts[branch]
 		if !ok {
+			if merged[branch] {
+				branchHead := git.GetBranchHead(repoRoot, branch)
+				if branchHead != "" && branchHead == targetHead {
+					states[r.RunID] = "clean"
+				} else {
+					states[r.RunID] = "merged"
+				}
+			}
 			continue
 		}
+
 		if ahead == 0 {
 			states[r.RunID] = "clean"
-		} else {
-			branchesWithChanges = append(branchesWithChanges, branch)
+			continue
 		}
+
+		if merged[branch] {
+			states[r.RunID] = "merged"
+			continue
+		}
+
+		branchesWithChanges = append(branchesWithChanges, branch)
 	}
 
 	if len(branchesWithChanges) == 0 {
