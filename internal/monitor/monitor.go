@@ -995,10 +995,10 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 	cfg, cfgErr := config.Load()
 	if cfgErr == nil {
 		if agentName == "" {
-			agentName = cfg.Agent
+			agentName = cfg.GetControlAgent()
 		}
-		modelName = cfg.Model
-		modelVariant = cfg.ModelVariant
+		modelName = cfg.GetControlModel()
+		modelVariant = cfg.GetControlModelVariant()
 	}
 	if agentName == "" {
 		agentName = "opencode"

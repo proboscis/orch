@@ -426,6 +426,142 @@ func TestOpenCodeConfigEnv(t *testing.T) {
 	}
 }
 
+func TestControlAgentConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_AGENT", "")
+	t.Setenv("ORCH_CONTROL_AGENT", "")
+	t.Setenv("ORCH_CONTROL_MODEL", "")
+	t.Setenv("ORCH_CONTROL_MODEL_VARIANT", "")
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	configContent := `vault: /repo
+agent: claude
+model: sonnet
+model_variant: default
+control_agent: opencode
+control_model: opus
+control_model_variant: high
+`
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(configContent), 0644); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	if cfg.GetControlAgent() != "opencode" {
+		t.Fatalf("GetControlAgent = %q, want opencode", cfg.GetControlAgent())
+	}
+	if cfg.GetControlModel() != "opus" {
+		t.Fatalf("GetControlModel = %q, want opus", cfg.GetControlModel())
+	}
+	if cfg.GetControlModelVariant() != "high" {
+		t.Fatalf("GetControlModelVariant = %q, want high", cfg.GetControlModelVariant())
+	}
+}
+
+func TestControlAgentConfigFallback(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_AGENT", "")
+	t.Setenv("ORCH_CONTROL_AGENT", "")
+	t.Setenv("ORCH_CONTROL_MODEL", "")
+	t.Setenv("ORCH_CONTROL_MODEL_VARIANT", "")
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	configContent := `vault: /repo
+agent: claude
+model: sonnet
+model_variant: default
+`
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(configContent), 0644); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	if cfg.GetControlAgent() != "claude" {
+		t.Fatalf("GetControlAgent fallback = %q, want claude", cfg.GetControlAgent())
+	}
+	if cfg.GetControlModel() != "sonnet" {
+		t.Fatalf("GetControlModel fallback = %q, want sonnet", cfg.GetControlModel())
+	}
+	if cfg.GetControlModelVariant() != "default" {
+		t.Fatalf("GetControlModelVariant fallback = %q, want default", cfg.GetControlModelVariant())
+	}
+}
+
+func TestControlAgentConfigEnv(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_CONTROL_AGENT", "gemini")
+	t.Setenv("ORCH_CONTROL_MODEL", "gemini-pro")
+	t.Setenv("ORCH_CONTROL_MODEL_VARIANT", "max")
+
+	repo := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.GetControlAgent() != "gemini" {
+		t.Fatalf("GetControlAgent = %q, want gemini", cfg.GetControlAgent())
+	}
+	if cfg.GetControlModel() != "gemini-pro" {
+		t.Fatalf("GetControlModel = %q, want gemini-pro", cfg.GetControlModel())
+	}
+	if cfg.GetControlModelVariant() != "max" {
+		t.Fatalf("GetControlModelVariant = %q, want max", cfg.GetControlModelVariant())
+	}
+}
+
 func TestRelativePathFromSubdirectory(t *testing.T) {
 	t.Setenv("ORCH_VAULT", "")
 	t.Setenv("ORCH_AGENT", "")

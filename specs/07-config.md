@@ -32,8 +32,12 @@ vault: ~/vault
 # または同じvault内にissueを置く場合
 vault: .
 
-# default agent
+# default agent for runs
 agent: claude
+
+# default model/variant for runs
+model: sonnet
+model_variant: default
 
 # worktree directory (default: ~/.orch/worktrees)
 worktree_dir: ~/.orch/worktrees
@@ -43,6 +47,12 @@ base_branch: main
 
 # default PR target branch
 pr_target_branch: main
+
+# control agent settings (for orch monitor 'c' keybinding)
+# falls back to agent/model/model_variant if not set
+control_agent: opencode
+control_model: opus
+control_model_variant: default
 ```
 
 ### 自動検出
@@ -78,5 +88,10 @@ log_level: info
 | `ORCH_VAULT` | Vault path |
 | `ORCH_BACKEND` | Backend type (file/github/linear) |
 | `ORCH_AGENT` | Default agent |
+| `ORCH_MODEL` | Default model |
+| `ORCH_MODEL_VARIANT` | Default model variant |
 | `ORCH_LOG_LEVEL` | Log level |
 | `ORCH_PR_TARGET_BRANCH` | Default PR target branch |
+| `ORCH_CONTROL_AGENT` | Control agent (falls back to ORCH_AGENT) |
+| `ORCH_CONTROL_MODEL` | Control model (falls back to ORCH_MODEL) |
+| `ORCH_CONTROL_MODEL_VARIANT` | Control model variant (falls back to ORCH_MODEL_VARIANT) |
