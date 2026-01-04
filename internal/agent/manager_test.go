@@ -560,11 +560,37 @@ func TestOpenCodeManagerGetStatusFromAPI(t *testing.T) {
 	}
 }
 
-func TestOpenCodeManagerGetStatusMissingSession(t *testing.T) {
+func TestOpenCodeManagerGetStatusSessionExistsButNotInStatusMap(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/session/status" {
-			w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/session/status":
 			json.NewEncoder(w).Encode(map[string]SessionStatus{})
+		case "/session":
+			json.NewEncoder(w).Encode([]Session{{ID: "ses_idle"}})
+		}
+	}))
+	defer server.Close()
+
+	port := extractPort(server.URL)
+	manager := &OpenCodeManager{Port: port, SessionID: "ses_idle", Directory: "/test"}
+
+	run := &model.Run{Status: model.StatusRunning}
+	state := &RunState{}
+	got := manager.GetStatus(run, "", state, false, false)
+	if got != model.StatusBlocked {
+		t.Errorf("GetStatus() for session not in status map but exists = %v, want %v", got, model.StatusBlocked)
+	}
+}
+
+func TestOpenCodeManagerGetStatusSessionDoesNotExist(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/session/status":
+			json.NewEncoder(w).Encode(map[string]SessionStatus{})
+		case "/session":
+			json.NewEncoder(w).Encode([]Session{})
 		}
 	}))
 	defer server.Close()
@@ -575,8 +601,8 @@ func TestOpenCodeManagerGetStatusMissingSession(t *testing.T) {
 	run := &model.Run{Status: model.StatusRunning}
 	state := &RunState{}
 	got := manager.GetStatus(run, "", state, false, false)
-	if got != model.StatusBlocked {
-		t.Errorf("GetStatus() for missing session = %v, want %v", got, model.StatusBlocked)
+	if got != model.StatusUnknown {
+		t.Errorf("GetStatus() for non-existent session = %v, want %v", got, model.StatusUnknown)
 	}
 }
 
