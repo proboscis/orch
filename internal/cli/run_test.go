@@ -261,3 +261,160 @@ func TestApplyConfigDefaultsFallbacks(t *testing.T) {
 		t.Fatalf("WorktreeDir fallback = %q, want %q", opts.WorktreeDir, wantWorktreeDir)
 	}
 }
+
+func TestApplyPresetFromConfig(t *testing.T) {
+	temp := t.TempDir()
+	home := filepath.Join(temp, "home")
+	if err := os.MkdirAll(home, 0755); err != nil {
+		t.Fatalf("mkdir home: %v", err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_AGENT", "")
+	t.Setenv("ORCH_MODEL", "")
+	t.Setenv("ORCH_MODEL_VARIANT", "")
+
+	repo := filepath.Join(temp, "repo")
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+
+	configData := `presets:
+  - name: opus:high
+    backend: opencode
+    model: anthropic/claude-opus-4-5
+    variant: high
+  - name: gpt5:xhigh
+    backend: opencode
+    model: openai/gpt-5.2-codex
+    variant: xhigh
+  - name: claude:myprofile
+    backend: claude
+    profile: myprofile
+`
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(configData), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	t.Run("preset sets agent model and variant", func(t *testing.T) {
+		opts := &runOptions{Preset: "opus:high"}
+		if err := applyPromptConfigDefaults(opts); err != nil {
+			t.Fatalf("applyPromptConfigDefaults: %v", err)
+		}
+		if opts.Agent != "opencode" {
+			t.Errorf("Agent = %q, want opencode", opts.Agent)
+		}
+		if opts.Model != "anthropic/claude-opus-4-5" {
+			t.Errorf("Model = %q, want anthropic/claude-opus-4-5", opts.Model)
+		}
+		if opts.ModelVariant != "high" {
+			t.Errorf("ModelVariant = %q, want high", opts.ModelVariant)
+		}
+	})
+
+	t.Run("preset sets claude backend and profile", func(t *testing.T) {
+		opts := &runOptions{Preset: "claude:myprofile"}
+		if err := applyPromptConfigDefaults(opts); err != nil {
+			t.Fatalf("applyPromptConfigDefaults: %v", err)
+		}
+		if opts.Agent != "claude" {
+			t.Errorf("Agent = %q, want claude", opts.Agent)
+		}
+		if opts.AgentProfile != "myprofile" {
+			t.Errorf("AgentProfile = %q, want myprofile", opts.AgentProfile)
+		}
+	})
+
+	t.Run("explicit flags override preset", func(t *testing.T) {
+		opts := &runOptions{
+			Preset:       "opus:high",
+			Agent:        "codex",
+			Model:        "explicit-model",
+			ModelVariant: "explicit-variant",
+		}
+		if err := applyPromptConfigDefaults(opts); err != nil {
+			t.Fatalf("applyPromptConfigDefaults: %v", err)
+		}
+		if opts.Agent != "codex" {
+			t.Errorf("Agent = %q, want codex (explicit override)", opts.Agent)
+		}
+		if opts.Model != "explicit-model" {
+			t.Errorf("Model = %q, want explicit-model (explicit override)", opts.Model)
+		}
+		if opts.ModelVariant != "explicit-variant" {
+			t.Errorf("ModelVariant = %q, want explicit-variant (explicit override)", opts.ModelVariant)
+		}
+	})
+
+	t.Run("nonexistent preset returns error", func(t *testing.T) {
+		opts := &runOptions{Preset: "nonexistent"}
+		err := applyPromptConfigDefaults(opts)
+		if err == nil {
+			t.Fatal("expected error for nonexistent preset")
+		}
+		if !strings.Contains(err.Error(), "preset not found") {
+			t.Errorf("error = %q, want to contain 'preset not found'", err.Error())
+		}
+	})
+}
+
+func TestApplyPresetLegacyOpenCodePresets(t *testing.T) {
+	temp := t.TempDir()
+	home := filepath.Join(temp, "home")
+	if err := os.MkdirAll(home, 0755); err != nil {
+		t.Fatalf("mkdir home: %v", err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_AGENT", "")
+	t.Setenv("ORCH_MODEL", "")
+	t.Setenv("ORCH_MODEL_VARIANT", "")
+
+	repo := filepath.Join(temp, "repo")
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+
+	configData := `opencode_presets:
+  - name: legacy:preset
+    model: anthropic/claude-sonnet-4-5
+    variant: max
+`
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(configData), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	opts := &runOptions{Preset: "legacy:preset"}
+	if err := applyPromptConfigDefaults(opts); err != nil {
+		t.Fatalf("applyPromptConfigDefaults: %v", err)
+	}
+	if opts.Agent != "opencode" {
+		t.Errorf("Agent = %q, want opencode (legacy presets default to opencode)", opts.Agent)
+	}
+	if opts.Model != "anthropic/claude-sonnet-4-5" {
+		t.Errorf("Model = %q, want anthropic/claude-sonnet-4-5", opts.Model)
+	}
+	if opts.ModelVariant != "max" {
+		t.Errorf("ModelVariant = %q, want max", opts.ModelVariant)
+	}
+}
