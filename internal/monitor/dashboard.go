@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -342,6 +343,15 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		d.message = "no run selected"
 		return d, nil
+	case d.keymap.EditIssue:
+		if d.cursor >= 0 && d.cursor < len(d.runs) {
+			run := d.runs[d.cursor].Run
+			if run != nil {
+				return d, d.openIssueInNvimCmd(run.IssueID)
+			}
+		}
+		d.message = "no run selected"
+		return d, nil
 	case "?":
 		d.mode = modeHelp
 		return d, nil
@@ -637,6 +647,30 @@ func (d *Dashboard) requestMergeCmd(run *model.Run) tea.Cmd {
 	}
 }
 
+// openIssueInNvimCmd opens the issue file in nvim, suspending the TUI.
+// When the editor closes, the TUI resumes and the run list is refreshed.
+func (d *Dashboard) openIssueInNvimCmd(issueID string) tea.Cmd {
+	issue, err := d.monitor.store.ResolveIssue(issueID)
+	if err != nil || issue == nil {
+		return func() tea.Msg {
+			return errMsg{err: fmt.Errorf("could not resolve issue %s: %v", issueID, err)}
+		}
+	}
+	if strings.TrimSpace(issue.Path) == "" {
+		return func() tea.Msg {
+			return errMsg{err: fmt.Errorf("issue %s has no file path", issueID)}
+		}
+	}
+
+	c := exec.Command("nvim", issue.Path)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		if err != nil {
+			return errMsg{err: fmt.Errorf("editor error: %v", err)}
+		}
+		return infoMsg{text: fmt.Sprintf("closed issue %s", issueID)}
+	})
+}
+
 func (d *Dashboard) viewDashboard() string {
 	title := d.styles.Title.Render("ORCH MONITOR")
 	meta := d.renderMeta()
@@ -727,6 +761,7 @@ func (d *Dashboard) viewHelp() string {
 		"",
 		d.styles.Header.Render("Run Actions"),
 		"  enter      Open selected run",
+		"  I          Open issue file in nvim",
 		"  e          Execute shell in run's worktree",
 		"  s          Stop run (select from active runs)",
 		"  n          New run (select issue to start)",
