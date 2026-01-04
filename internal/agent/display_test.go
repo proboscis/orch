@@ -13,17 +13,20 @@ func TestAgentDisplayName(t *testing.T) {
 		{"opencode", "anthropic/claude-opus-4-5", "", "oc:opus4.5"},
 		{"opencode", "anthropic/claude-opus-4-5", "high", "oc:opus4.5h"},
 		{"opencode", "anthropic/claude-sonnet-4-5", "", "oc:sonnet4.5"},
+		{"opencode", "anthropic/claude-3-5-sonnet", "", "oc:sonnet3.5"},
+		{"opencode", "anthropic/claude-3-5-haiku", "", "oc:haiku3.5"},
 		{"opencode", "openai/gpt-5-2", "", "oc:gpt5.2"},
 		{"opencode", "openai/gpt-5-2", "codex", "oc:gpt5.2c"},
 		{"opencode", "openai/o3", "", "oc:o3"},
 		{"opencode", "openai/o4-mini", "", "oc:o4-mini"},
 		{"opencode", "google/gemini-3-pro", "", "oc:gemini3-pro"},
-		{"opencode", "google/gemini-2-0-flash", "", "oc:gemini2-0-flash"},
+		{"opencode", "google/gemini-2-0-flash", "", "oc:gemini2-0-fl"},
 		{"opencode", "", "", "oc"},
 		{"claude", "", "", "claude"},
 		{"codex", "", "", "codex"},
 		{"gemini", "", "", "gemini"},
 		{"", "", "", "-"},
+		{"   ", "", "", "-"},
 		{"  opencode  ", "  anthropic/claude-opus-4-5  ", "  max  ", "oc:opus4.5"},
 	}
 
@@ -45,6 +48,8 @@ func TestShortenModelName(t *testing.T) {
 	}{
 		{"anthropic/claude-opus-4-5", "opus4.5"},
 		{"anthropic/claude-sonnet-4-5", "sonnet4.5"},
+		{"anthropic/claude-3-5-sonnet", "sonnet3.5"},
+		{"anthropic/claude-3-5-haiku", "haiku3.5"},
 		{"claude-opus-4-5", "opus4.5"},
 		{"openai/gpt-5-2", "gpt5.2"},
 		{"gpt-5-2", "gpt5.2"},
@@ -52,7 +57,8 @@ func TestShortenModelName(t *testing.T) {
 		{"openai/o4-mini", "o4-mini"},
 		{"google/gemini-3-pro", "gemini3-pro"},
 		{"google/gemini-2-0-flash", "gemini2-0-flash"},
-		{"unknown-model", "unknown-model"},
+		{"unknown-model", "unknown-mode"},
+		{"very-long-model-name-here", "very-long-mo"},
 	}
 
 	for _, tt := range tests {

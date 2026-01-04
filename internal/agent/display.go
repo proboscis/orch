@@ -38,7 +38,11 @@ func AgentDisplayName(agent, model, variant string) string {
 	variant = strings.TrimSpace(variant)
 	suffix := variantSuffix(variant)
 
-	return "oc:" + shortModel + suffix
+	result := "oc:" + shortModel + suffix
+	if len(result) > MaxAgentDisplayWidth {
+		return result[:MaxAgentDisplayWidth]
+	}
+	return result
 }
 
 func shortenModelName(model string) string {
@@ -50,7 +54,7 @@ func shortenModelName(model string) string {
 
 	if strings.HasPrefix(model, "claude-") {
 		name := strings.TrimPrefix(model, "claude-")
-		return formatModelVersion(name)
+		return formatClaudeModel(name)
 	}
 
 	if strings.HasPrefix(model, "gpt-") {
@@ -70,21 +74,39 @@ func shortenModelName(model string) string {
 		return "gemini" + formatVersion(name)
 	}
 
-	if len(model) > 15 {
-		return model[:15]
+	if len(model) > 12 {
+		return model[:12]
 	}
 	return model
 }
 
-func formatModelVersion(name string) string {
+func formatClaudeModel(name string) string {
 	parts := strings.Split(name, "-")
 	if len(parts) < 2 {
 		return name
 	}
 
+	if isNumeric(parts[0]) {
+		numericParts := []string{parts[0]}
+		modelIdx := 1
+		for i := 1; i < len(parts); i++ {
+			if isNumeric(parts[i]) {
+				numericParts = append(numericParts, parts[i])
+				modelIdx = i + 1
+			} else {
+				break
+			}
+		}
+		if modelIdx < len(parts) {
+			modelType := parts[modelIdx]
+			version := strings.Join(numericParts, ".")
+			return modelType + version
+		}
+		return strings.Join(numericParts, ".")
+	}
+
 	modelType := parts[0]
 	version := formatVersion(strings.Join(parts[1:], "-"))
-
 	return modelType + version
 }
 
