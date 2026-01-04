@@ -709,8 +709,8 @@ func injectPromptViaHTTP(st interface {
 	usedVariant := cfg.ModelVariant
 	if usedModel == "" {
 		usedModel = "anthropic/claude-sonnet-4-5"
-		usedVariant = ""
-		debug.Printf("No model specified, using hardcoded default: %s", usedModel)
+		usedVariant = "max"
+		debug.Printf("No model specified, using hardcoded default: %s (variant: %s)", usedModel, usedVariant)
 	} else {
 		debug.Printf("Using configured model: %s (variant: %s)", usedModel, usedVariant)
 	}
