@@ -212,6 +212,9 @@ func SendViaDaemon(vaultPath string, run *model.Run, message string, noEnter boo
 }
 
 func IsDaemonSocketAvailable(vaultPath string) bool {
+	if !IsRunning(vaultPath) {
+		return false
+	}
 	socketPath := SocketFilePath(vaultPath)
 	_, err := os.Stat(socketPath)
 	return err == nil
