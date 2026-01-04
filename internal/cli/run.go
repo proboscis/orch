@@ -613,6 +613,15 @@ func applyPromptConfigDefaults(opts *runOptions) error {
 		opts.ModelVariant = cfg.ModelVariant
 	}
 
+	if opts.Agent == "opencode" {
+		if opts.Model == "" && cfg.OpenCode.DefaultModel != "" {
+			opts.Model = cfg.OpenCode.DefaultModel
+		}
+		if opts.ModelVariant == "" && cfg.OpenCode.DefaultVariant != "" {
+			opts.ModelVariant = cfg.OpenCode.DefaultVariant
+		}
+	}
+
 	return nil
 }
 
@@ -660,13 +669,16 @@ func injectPromptViaHTTP(st interface {
 		return fmt.Errorf("server did not become healthy: %w", err)
 	}
 
-	// Record server port as artifact
 	st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
 		"port": fmt.Sprintf("%d", port),
 	}))
 
-	// If no model was explicitly specified, fetch and store the server's configured model
-	if cfg.Model == "" {
+	if cfg.Model != "" {
+		st.AppendEvent(run.Ref(), model.NewArtifactEvent("agent_model", map[string]string{
+			"model":   cfg.Model,
+			"variant": cfg.ModelVariant,
+		}))
+	} else {
 		if fetchedModel, fetchedVariant, err := client.GetAgentModel(ctx); err == nil && fetchedModel != "" {
 			st.AppendEvent(run.Ref(), model.NewArtifactEvent("agent_model", map[string]string{
 				"model":   fetchedModel,
