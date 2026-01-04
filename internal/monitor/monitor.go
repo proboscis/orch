@@ -751,13 +751,6 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		summary string
 	}
 
-	var paneCommands map[string][]string
-	if tmux.IsTmuxAvailable() {
-		if commands, err := tmux.ListPaneCommands(); err == nil {
-			paneCommands = commands
-		}
-	}
-
 	issueInfo := make(map[string]issueDisplay)
 	for _, w := range windows {
 		if w == nil || w.Run == nil {
@@ -850,7 +843,7 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 			IssueSummary: info.summary,
 			Agent:        agentDisplay,
 			Status:       w.Run.Status,
-			Alive:        runAliveLabel(w.Run, paneCommands),
+			Alive:        runAliveLabel(w.Run),
 			Branch:       branch,
 			Worktree:     worktree,
 			PR:           prDisplay,
@@ -866,18 +859,12 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 	return rows, nil
 }
 
-func runAliveLabel(run *model.Run, paneCommands map[string][]string) string {
+func runAliveLabel(run *model.Run) string {
 	if run == nil {
 		return "-"
 	}
-	session := run.TmuxSession
-	if session == "" {
-		session = model.GenerateTmuxSession(run.IssueID, run.RunID)
-	}
-	alive, known := tmux.AgentAlive(session, paneCommands)
-	if !known {
-		return "-"
-	}
+	manager := agent.GetManager(run)
+	alive := manager.IsAlive(run)
 	if alive {
 		return "yes"
 	}
