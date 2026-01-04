@@ -850,6 +850,7 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 			PR:           prDisplay,
 			PRState:      prState,
 			Merged:       merged,
+			Started:      w.Run.StartedAt,
 			Updated:      w.Run.UpdatedAt,
 			Topic:        topic,
 			Run:          w.Run,
