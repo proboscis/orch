@@ -1134,6 +1134,7 @@ func defaultStatuses() []model.Status {
 		model.StatusBooting,
 		model.StatusQueued,
 		model.StatusPROpen,
+		model.StatusUnknown,
 	}
 }
 
