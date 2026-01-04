@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 	"github.com/s22625/orch/internal/agent"
+	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/tmux"
@@ -56,11 +57,12 @@ type issueState struct {
 type Dashboard struct {
 	monitor *Monitor
 
-	runs   []RunRow
-	cursor int
-	offset int
-	width  int
-	height int
+	runs    []RunRow
+	columns []ColumnID
+	cursor  int
+	offset  int
+	width   int
+	height  int
 
 	mode    dashboardMode
 	message string
@@ -116,8 +118,11 @@ type execFinishedMsg struct {
 
 // NewDashboard creates a dashboard model.
 func NewDashboard(m *Monitor) *Dashboard {
+	cfg, _ := config.Load()
+	columns := LoadColumns(cfg)
 	return &Dashboard{
 		monitor:         m,
+		columns:         columns,
 		keymap:          DefaultKeyMap(),
 		styles:          DefaultStyles(),
 		mode:            modeDashboard,
@@ -804,10 +809,10 @@ func (d *Dashboard) renderTable(maxRows int) string {
 		}
 		return "No runs found."
 	}
-	idxW, idW, issueW, issueStatusW, agentW, statusW, aliveW, branchW, worktreeW, prW, mergedW, updatedW, topicW := d.tableWidths()
+	widths := d.computeColumnWidths()
+	now := time.Now()
 
-	header := d.renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, aliveW, branchW, worktreeW, prW, mergedW, updatedW, topicW,
-		"#", "ID", "ISSUE", "ISSUE-ST", "AGENT", "STATUS", "ALIVE", "BRANCH", "WORKTREE", "PR", "MERGED", "UPDATED", "TOPIC", true, nil)
+	header := d.renderDynamicRow(widths, nil, true, now)
 
 	var rows []string
 	visibleRows := d.runVisibleRows(maxRows)
@@ -822,23 +827,7 @@ func (d *Dashboard) renderTable(maxRows int) string {
 		end = start
 	}
 	for i, row := range d.runs[start:end] {
-		r := d.renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, aliveW, branchW, worktreeW, prW, mergedW, updatedW, topicW,
-			fmt.Sprintf("%d", row.Index),
-			row.ShortID,
-			row.IssueID,
-			row.IssueStatus,
-			row.Agent,
-			string(row.Status),
-			row.Alive,
-			row.Branch,
-			row.Worktree,
-			row.PR,
-			row.Merged,
-			formatRelativeTime(row.Updated, time.Now()),
-			row.Topic,
-			false,
-			&row,
-		)
+		r := d.renderDynamicRow(widths, &row, false, now)
 		if i+start == d.cursor {
 			r = d.styles.Selected.Render(r)
 		}
@@ -848,7 +837,57 @@ func (d *Dashboard) renderTable(maxRows int) string {
 	return strings.Join(append([]string{header}, rows...), "\n")
 }
 
-func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, aliveW, branchW, worktreeW, prW, mergedW, updatedW, topicW int, idx, id, issue, issueStatus, agent, status, alive, branch, worktree, pr, merged, updated, topic string, header bool, row *RunRow) string {
+func (d *Dashboard) computeColumnWidths() map[ColumnID]int {
+	widths := make(map[ColumnID]int)
+	contentWidth := d.safeWidth()
+	fixedTotal := 0
+	var flexibleCol ColumnID
+
+	for _, col := range d.columns {
+		def, ok := GetColumnDef(col)
+		if !ok {
+			continue
+		}
+		widths[col] = def.Width
+		if def.Flexible {
+			flexibleCol = col
+		} else {
+			fixedTotal += def.Width
+		}
+	}
+
+	spacing := (len(d.columns) - 1) * 2
+	if flexibleCol != "" {
+		remaining := contentWidth - fixedTotal - spacing
+		if remaining < 6 {
+			remaining = 6
+		}
+		widths[flexibleCol] = remaining
+	}
+
+	return widths
+}
+
+func (d *Dashboard) renderDynamicRow(widths map[ColumnID]int, row *RunRow, isHeader bool, now time.Time) string {
+	var parts []string
+	for _, col := range d.columns {
+		width := widths[col]
+		def, _ := GetColumnDef(col)
+
+		var value string
+		if isHeader {
+			value = def.Header
+		} else {
+			value = GetColumnValue(col, row, now)
+		}
+
+		style := GetColumnStyle(col, row, &d.styles, isHeader)
+		parts = append(parts, d.pad(value, width, style))
+	}
+	return strings.Join(parts, "  ")
+}
+
+func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, aliveW, branchW, worktreeW, prW, mergedW, updatedW, topicW int, idx, id, issue, issueStatus, agentVal, status, alive, branch, worktree, pr, merged, updated, topic string, header bool, row *RunRow) string {
 	baseStyle := d.styles.Text
 	headerStyle := d.styles.Header
 
@@ -856,7 +895,7 @@ func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, 
 	idCol := d.pad(id, idW, baseStyle)
 	issueCol := d.pad(issue, issueW, baseStyle)
 	issueStatusCol := d.pad(issueStatus, issueStatusW, baseStyle)
-	agentCol := d.pad(agent, agentW, baseStyle)
+	agentCol := d.pad(agentVal, agentW, baseStyle)
 	updatedCol := d.pad(updated, updatedW, baseStyle)
 	topicCol := d.pad(topic, topicW, baseStyle)
 	statusCol := d.pad(status, statusW, baseStyle)
@@ -871,7 +910,7 @@ func (d *Dashboard) renderRow(idxW, idW, issueW, issueStatusW, agentW, statusW, 
 		idCol = d.pad(id, idW, headerStyle)
 		issueCol = d.pad(issue, issueW, headerStyle)
 		issueStatusCol = d.pad(issueStatus, issueStatusW, headerStyle)
-		agentCol = d.pad(agent, agentW, headerStyle)
+		agentCol = d.pad(agentVal, agentW, headerStyle)
 		updatedCol = d.pad(updated, updatedW, headerStyle)
 		topicCol = d.pad(topic, topicW, headerStyle)
 		statusCol = d.pad(status, statusW, headerStyle)
