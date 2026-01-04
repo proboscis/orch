@@ -638,6 +638,8 @@ func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
 		return nil
 	}
 
+	targetHead := git.GetBranchHead(repoRoot, targetRef)
+
 	states := make(map[string]string)
 	branchToRun := make(map[string]*model.Run)
 	var unmergedBranches []string
@@ -648,7 +650,12 @@ func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
 		}
 
 		if merged[r.Branch] {
-			states[r.RunID] = "merged"
+			branchHead := git.GetBranchHead(repoRoot, r.Branch)
+			if branchHead != "" && branchHead == targetHead {
+				states[r.RunID] = "clean"
+			} else {
+				states[r.RunID] = "merged"
+			}
 			continue
 		}
 

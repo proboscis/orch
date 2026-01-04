@@ -115,3 +115,33 @@ func GetBranchesAheadCounts(repoRoot, target string, branches []string) map[stri
 	wg.Wait()
 	return results
 }
+
+// GetBranchHead returns the commit SHA that a branch points to.
+// Returns empty string if the branch doesn't exist or on error.
+func GetBranchHead(repoRoot, branch string) string {
+	if branch == "" {
+		return ""
+	}
+	if repoRoot == "" {
+		var err error
+		repoRoot, err = FindRepoRoot("")
+		if err != nil {
+			return ""
+		}
+	}
+
+	cmd := exec.Command(
+		"git",
+		"-C", repoRoot,
+		"rev-parse",
+		"--verify",
+		"--quiet",
+		branch,
+	)
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(string(output))
+}
