@@ -7,34 +7,44 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// MonitorConfig holds configuration for the monitor dashboard.
+type MonitorConfig struct {
+	// PSColumns defines which columns to show and in what order.
+	// Available columns: index, id, issue, issue_status, agent, status, alive,
+	// branch, worktree, pr, merged, updated, topic
+	PSColumns []string `yaml:"ps_columns,omitempty"`
+}
+
 // Config holds orch configuration
 type Config struct {
-	Vault          string `yaml:"vault"`
-	Agent          string `yaml:"agent"`
-	Model          string `yaml:"model"`         // Default model (provider/model-id format)
-	ModelVariant   string `yaml:"model_variant"` // Default model variant (e.g., "max")
-	WorktreeDir    string `yaml:"worktree_dir"`
-	BaseBranch     string `yaml:"base_branch"`
-	PRTargetBranch string `yaml:"pr_target_branch"`
-	LogLevel       string `yaml:"log_level"`
-	PromptTemplate string `yaml:"prompt_template"` // Path to custom prompt template
-	NoPR           bool   `yaml:"no_pr"`           // Disable PR instructions by default
+	Vault          string        `yaml:"vault"`
+	Agent          string        `yaml:"agent"`
+	Model          string        `yaml:"model"`         // Default model (provider/model-id format)
+	ModelVariant   string        `yaml:"model_variant"` // Default model variant (e.g., "max")
+	WorktreeDir    string        `yaml:"worktree_dir"`
+	BaseBranch     string        `yaml:"base_branch"`
+	PRTargetBranch string        `yaml:"pr_target_branch"`
+	LogLevel       string        `yaml:"log_level"`
+	PromptTemplate string        `yaml:"prompt_template"` // Path to custom prompt template
+	NoPR           bool          `yaml:"no_pr"`           // Disable PR instructions by default
+	Monitor        MonitorConfig `yaml:"monitor"`
 }
 
 type fileConfig struct {
-	Vault             string `yaml:"vault"`
-	VaultLegacy       string `yaml:"Vault"`
-	DefaultVault      string `yaml:"default_vault"`
-	Agent             string `yaml:"agent"`
-	Model             string `yaml:"model"`
-	ModelVariant      string `yaml:"model_variant"`
-	WorktreeDir       string `yaml:"worktree_dir"`
-	WorktreeDirLegacy string `yaml:"worktree_root"` // Legacy name for backwards compatibility
-	BaseBranch        string `yaml:"base_branch"`
-	PRTargetBranch    string `yaml:"pr_target_branch"`
-	LogLevel          string `yaml:"log_level"`
-	PromptTemplate    string `yaml:"prompt_template"`
-	NoPR              *bool  `yaml:"no_pr"`
+	Vault             string        `yaml:"vault"`
+	VaultLegacy       string        `yaml:"Vault"`
+	DefaultVault      string        `yaml:"default_vault"`
+	Agent             string        `yaml:"agent"`
+	Model             string        `yaml:"model"`
+	ModelVariant      string        `yaml:"model_variant"`
+	WorktreeDir       string        `yaml:"worktree_dir"`
+	WorktreeDirLegacy string        `yaml:"worktree_root"` // Legacy name for backwards compatibility
+	BaseBranch        string        `yaml:"base_branch"`
+	PRTargetBranch    string        `yaml:"pr_target_branch"`
+	LogLevel          string        `yaml:"log_level"`
+	PromptTemplate    string        `yaml:"prompt_template"`
+	NoPR              *bool         `yaml:"no_pr"`
+	Monitor           MonitorConfig `yaml:"monitor"`
 }
 
 // configFile is the name of the config file
@@ -201,6 +211,9 @@ func loadFromFile(path string, cfg *Config) error {
 	}
 	if fileCfg.NoPR != nil {
 		cfg.NoPR = *fileCfg.NoPR
+	}
+	if len(fileCfg.Monitor.PSColumns) > 0 {
+		cfg.Monitor.PSColumns = fileCfg.Monitor.PSColumns
 	}
 
 	return nil
