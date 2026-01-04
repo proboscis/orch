@@ -835,8 +835,9 @@ func (m *Monitor) ensureRunSession(w *RunWindow) error {
 
 func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 	type issueDisplay struct {
-		status string
-		topic  string
+		status  string
+		topic   string
+		summary string
 	}
 
 	var paneCommands map[string][]string
@@ -866,9 +867,14 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		if topic == "" {
 			topic = "-"
 		}
+		summary := issue.Summary
+		if summary == "" {
+			summary = "-"
+		}
 		issueInfo[w.Run.IssueID] = issueDisplay{
-			status: status,
-			topic:  topic,
+			status:  status,
+			topic:   topic,
+			summary: summary,
 		}
 	}
 
@@ -926,21 +932,22 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		branch := formatBranchDisplay(w.Run.Branch, runTableBranchWidth)
 		worktree := formatWorktreeDisplay(w.Run.WorktreePath, runTableWorktreeWidth)
 		rows = append(rows, RunRow{
-			Index:       w.Index,
-			ShortID:     shortID,
-			IssueID:     w.Run.IssueID,
-			IssueStatus: issueStatus,
-			Agent:       agentDisplay,
-			Status:      w.Run.Status,
-			Alive:       runAliveLabel(w.Run, paneCommands),
-			Branch:      branch,
-			Worktree:    worktree,
-			PR:          prDisplay,
-			PRState:     prState,
-			Merged:      merged,
-			Updated:     w.Run.UpdatedAt,
-			Topic:       topic,
-			Run:         w.Run,
+			Index:        w.Index,
+			ShortID:      shortID,
+			IssueID:      w.Run.IssueID,
+			IssueStatus:  issueStatus,
+			IssueSummary: info.summary,
+			Agent:        agentDisplay,
+			Status:       w.Run.Status,
+			Alive:        runAliveLabel(w.Run, paneCommands),
+			Branch:       branch,
+			Worktree:     worktree,
+			PR:           prDisplay,
+			PRState:      prState,
+			Merged:       merged,
+			Updated:      w.Run.UpdatedAt,
+			Topic:        topic,
+			Run:          w.Run,
 		})
 	}
 
