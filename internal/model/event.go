@@ -195,3 +195,9 @@ func NewArtifactEvent(name string, attrs map[string]string) *Event {
 	return NewEvent(EventTypeArtifact, name, attrs)
 }
 
+// NewErrorArtifactEvent creates an error artifact event to persist error messages in run files
+func NewErrorArtifactEvent(errMsg string) *Event {
+	return NewEvent(EventTypeArtifact, "error", map[string]string{
+		"message": errMsg,
+	})
+}
