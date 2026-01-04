@@ -104,9 +104,9 @@ func New(st store.Store, opts Options) *Monitor {
 		uiSettings = DefaultUISettings()
 	}
 	orchDir := GetOrchDir(st.VaultPath())
-	var presets []config.OpenCodePreset
-	if cfg, err := config.Load(); err == nil {
-		presets = cfg.OpenCodePresets
+	presets := defaultOpenCodePresets()
+	if cfg, err := config.Load(); err == nil && len(cfg.OpenCodePresets) > 0 {
+		presets = append(presets, cfg.OpenCodePresets...)
 	}
 	return &Monitor{
 		session:         session,
@@ -433,6 +433,17 @@ func (m *Monitor) parseAgentPreset(agentType string) (agentName, model, variant 
 	}
 
 	return agentName, "", presetName
+}
+
+func defaultOpenCodePresets() []config.OpenCodePreset {
+	return []config.OpenCodePreset{
+		{Name: "opus", Model: "anthropic/claude-opus-4-5", Variant: ""},
+		{Name: "opus:high", Model: "anthropic/claude-opus-4-5", Variant: "high"},
+		{Name: "opus:max", Model: "anthropic/claude-opus-4-5", Variant: "max"},
+		{Name: "gpt5.2", Model: "openai/gpt-5.2", Variant: ""},
+		{Name: "gpt5.2:xhigh", Model: "openai/gpt-5.2", Variant: "xhigh"},
+		{Name: "gpt5.2:codex", Model: "openai/gpt-5.2", Variant: "codex"},
+	}
 }
 
 func (m *Monitor) GetAvailableAgents() []string {
