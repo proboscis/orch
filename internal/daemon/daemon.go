@@ -1,11 +1,13 @@
 package daemon
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -34,6 +36,10 @@ type Daemon struct {
 	lastFetchAt   map[string]time.Time
 	fetchInFlight map[string]bool
 	mu            sync.Mutex
+
+	executablePath string
+	startupMtime   time.Time
+	staleLogged    bool
 }
 
 // RunState tracks the monitoring state of a single run
@@ -81,29 +87,40 @@ func (d *Daemon) Run() error {
 	defer logFile.Close()
 	d.logger = log.New(logFile, "", log.LstdFlags)
 
+	if err := d.initBinaryTracking(); err != nil {
+		d.logger.Printf("warning: failed to init binary tracking: %v", err)
+	}
+
 	// Write PID file
 	if err := WritePID(d.vaultPath); err != nil {
 		return err
 	}
 	defer RemovePID(d.vaultPath)
 
-	d.logger.Printf("daemon started (pid=%d, vault=%s)", os.Getpid(), d.vaultPath)
+	d.logger.Printf("daemon started (pid=%d, vault=%s, binary=%s)", os.Getpid(), d.vaultPath, d.executablePath)
 
-	// Handle signals for graceful shutdown
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
 	ticker := time.NewTicker(d.interval)
 	defer ticker.Stop()
 
-	// Initial check
 	d.monitorAll()
 
 	for {
 		select {
 		case <-ticker.C:
 			d.monitorAll()
+			d.checkBinaryStaleness()
 		case sig := <-sigCh:
+			if sig == syscall.SIGHUP {
+				d.logger.Printf("received SIGHUP, restarting with new binary")
+				if err := d.restartWithNewBinary(); err != nil {
+					d.logger.Printf("restart failed: %v", err)
+					continue
+				}
+				return nil
+			}
 			d.logger.Printf("received signal %v, shutting down", sig)
 			d.Stop()
 			return nil
@@ -118,6 +135,69 @@ func (d *Daemon) Run() error {
 func (d *Daemon) Stop() {
 	close(d.stopCh)
 	d.wg.Wait()
+}
+
+func (d *Daemon) initBinaryTracking() error {
+	execPath, err := os.Executable()
+	if err != nil {
+		return err
+	}
+
+	resolved, err := filepath.EvalSymlinks(execPath)
+	if err != nil {
+		resolved = execPath
+	}
+	d.executablePath = resolved
+
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return err
+	}
+	d.startupMtime = info.ModTime()
+
+	return d.writeMetadata()
+}
+
+func (d *Daemon) writeMetadata() error {
+	meta := DaemonMetadata{
+		PID:       os.Getpid(),
+		StartedAt: time.Now(),
+		ExecPath:  d.executablePath,
+		ExecMtime: d.startupMtime,
+	}
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(MetadataFilePath(d.vaultPath), data, 0644)
+}
+
+func (d *Daemon) isBinaryStale() bool {
+	if d.executablePath == "" {
+		return false
+	}
+	info, err := os.Stat(d.executablePath)
+	if err != nil {
+		return false
+	}
+	return info.ModTime().After(d.startupMtime)
+}
+
+func (d *Daemon) checkBinaryStaleness() {
+	if d.staleLogged {
+		return
+	}
+	if d.isBinaryStale() {
+		d.logger.Printf("WARNING: binary has been updated since daemon started - send SIGHUP to restart")
+		d.staleLogged = true
+	}
+}
+
+func (d *Daemon) restartWithNewBinary() error {
+	d.logger.Printf("restarting daemon with new binary via exec...")
+
+	args := []string{d.executablePath, "daemon", "--vault", d.vaultPath}
+	return syscall.Exec(d.executablePath, args, os.Environ())
 }
 
 func (d *Daemon) monitorAll() {

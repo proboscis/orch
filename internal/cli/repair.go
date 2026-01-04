@@ -115,11 +115,33 @@ func runRepair(opts *repairOptions) error {
 	return nil
 }
 
-// repairDaemon checks if daemon is running and starts it if not
 func repairDaemon(vaultPath string, opts *repairOptions) (bool, error) {
 	if daemon.IsRunning(vaultPath) {
 		pid := daemon.GetRunningPID(vaultPath)
 		fmt.Printf("  daemon running (pid=%d)\n", pid)
+
+		stale, err := daemon.IsStaleBinary(vaultPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  warning: could not check binary staleness: %v\n", err)
+		} else if stale {
+			fmt.Println("  WARNING: daemon is running stale binary (code updated since start)")
+			if opts.DryRun {
+				fmt.Println("  would restart daemon with new binary")
+				return true, nil
+			}
+
+			oldMeta, _ := daemon.ReadMetadata(vaultPath)
+			if err := daemon.RestartDaemon(vaultPath); err != nil {
+				return true, fmt.Errorf("failed to restart daemon: %w", err)
+			}
+
+			if waitForDaemonRestart(vaultPath, oldMeta, 2*time.Second) {
+				newPid := daemon.GetRunningPID(vaultPath)
+				fmt.Printf("  restarted daemon with new binary (pid=%d)\n", newPid)
+				return true, nil
+			}
+			return true, fmt.Errorf("daemon restart failed")
+		}
 		return false, nil
 	}
 
@@ -130,16 +152,13 @@ func repairDaemon(vaultPath string, opts *repairOptions) (bool, error) {
 		return true, nil
 	}
 
-	// Kill any stale PID file
 	daemon.RemovePID(vaultPath)
 
-	// Start daemon
 	pid, err := daemon.StartInBackground(vaultPath)
 	if err != nil {
 		return true, fmt.Errorf("failed to start daemon: %w", err)
 	}
 
-	// Wait a moment for it to actually start
 	time.Sleep(200 * time.Millisecond)
 
 	if daemon.IsRunning(vaultPath) {
@@ -232,4 +251,26 @@ func findOrphanedSessions(st store.Store) []string {
 	}
 
 	return orphaned
+}
+
+func waitForDaemonRestart(vaultPath string, oldMeta *daemon.DaemonMetadata, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if !daemon.IsRunning(vaultPath) {
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+
+		newMeta, err := daemon.ReadMetadata(vaultPath)
+		if err != nil {
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+
+		if oldMeta == nil || newMeta.StartedAt.After(oldMeta.StartedAt) {
+			return true
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return false
 }
