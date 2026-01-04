@@ -95,6 +95,9 @@ func (a *OpenCodeRunAttacher) Attach(m *Monitor, run *model.Run) error {
 	if run.OpenCodeSessionID != "" {
 		attachCmd = fmt.Sprintf("%s --session %s", attachCmd, run.OpenCodeSessionID)
 	}
+	if run.WorktreePath != "" {
+		attachCmd = fmt.Sprintf("%s --dir %s", attachCmd, run.WorktreePath)
+	}
 
 	monitorWindows, err := tmux.ListWindows(m.session)
 	if err != nil {
