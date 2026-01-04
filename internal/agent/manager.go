@@ -130,12 +130,9 @@ func (m *OpenCodeManager) IsAlive(run *model.Run) bool {
 		return false
 	}
 
-	sessions, err := client.GetSessionIDs(ctx)
-	if err != nil {
-		return false
-	}
-
-	return sessions[m.SessionID]
+	return m.sessionExists(ctx, client) ||
+		m.hasActiveBusyChildren(ctx, client) ||
+		m.hasRecentActivity(ctx, client)
 }
 
 func (m *OpenCodeManager) CaptureOutput(run *model.Run) (string, error) {
