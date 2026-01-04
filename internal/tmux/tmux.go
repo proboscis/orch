@@ -88,6 +88,16 @@ func SendKeys(session, keys string) error {
 	return SendText(session, enterKey)
 }
 
+func SendKeysDoubleEnter(session, keys string) error {
+	if err := SendKeysLiteral(session, keys); err != nil {
+		return err
+	}
+	if err := SendText(session, enterKey); err != nil {
+		return err
+	}
+	return SendText(session, enterKey)
+}
+
 // SendKeysLiteral sends keys to a tmux session without pressing Enter
 // Uses -l flag to send keys literally (without interpreting special keys)
 func SendKeysLiteral(session, keys string) error {

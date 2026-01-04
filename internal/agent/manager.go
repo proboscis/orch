@@ -55,7 +55,8 @@ func GetManager(run *model.Run) AgentManager {
 			RunRef:    run.Ref().String(),
 		}
 	}
-	return &TmuxManager{SessionName: getSessionName(run)}
+	agentType, _ := ParseAgentType(run.Agent)
+	return &TmuxManager{SessionName: getSessionName(run), AgentType: agentType}
 }
 
 func getSessionName(run *model.Run) string {
@@ -67,6 +68,7 @@ func getSessionName(run *model.Run) string {
 
 type TmuxManager struct {
 	SessionName string
+	AgentType   AgentType
 }
 
 func (m *TmuxManager) IsAlive(run *model.Run) bool {
@@ -110,6 +112,11 @@ func (m *TmuxManager) SendMessage(ctx context.Context, run *model.Run, message s
 
 	if opts != nil && opts.NoEnter {
 		return tmux.SendKeysLiteral(m.SessionName, message)
+	}
+
+	// Codex CLI requires double Enter to submit input
+	if m.AgentType == AgentCodex {
+		return tmux.SendKeysDoubleEnter(m.SessionName, message)
 	}
 	return tmux.SendKeys(m.SessionName, message)
 }
