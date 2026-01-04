@@ -230,7 +230,7 @@ func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[st
 }
 
 // TSV columns (fixed order per spec):
-// issue_id, issue_status, run_id, short_id, agent, status, alive, updated_at, pr_url, branch, worktree_path, tmux_session
+// issue_id, issue_status, run_id, short_id, agent, status, alive, started_at, updated_at, pr_url, branch, worktree_path, tmux_session
 func outputTSV(runs []*model.Run) error {
 	return outputTSVWithIssueInfo(runs, nil, nil)
 }
@@ -246,7 +246,7 @@ func outputTSVWithIssueInfo(runs []*model.Run, issueCache map[string]psIssueInfo
 			aliveInfo = aliveByRun[r.RunID]
 		}
 
-		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			r.IssueID,
 			issueStatus,
 			r.RunID,
@@ -256,6 +256,7 @@ func outputTSVWithIssueInfo(runs []*model.Run, issueCache map[string]psIssueInfo
 			r.ModelVariant,
 			r.Status,
 			formatAliveText(aliveInfo),
+			r.StartedAt.Format("2006-01-02T15:04:05Z07:00"),
 			r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			r.PRUrl,
 			r.Branch,
@@ -297,10 +298,14 @@ func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime boo
 	gitStates := gitStatesForRuns(runs, baseBranch)
 
 	// Collect data rows
-	headers := []string{"ID", "ISSUE", "ISSUE-ST", "AGENT", "MODEL", "STATUS", "ALIVE", "BRANCH", "WORKTREE", "PR", "MERGED", "UPDATED", "TOPIC"}
+	headers := []string{"ID", "ISSUE", "ISSUE-ST", "AGENT", "MODEL", "STATUS", "ALIVE", "BRANCH", "WORKTREE", "PR", "MERGED", "STARTED", "UPDATED", "TOPIC"}
 	var rows [][]string
 
 	for _, r := range runs {
+		started := formatRelativeTime(r.StartedAt, now)
+		if absoluteTime {
+			started = r.StartedAt.Format("01-02 15:04")
+		}
 		updated := formatRelativeTime(r.UpdatedAt, now)
 		if absoluteTime {
 			updated = r.UpdatedAt.Format("01-02 15:04")
@@ -354,6 +359,7 @@ func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime boo
 			worktree,
 			pr,
 			merged,
+			started,
 			updated,
 			display,
 		})

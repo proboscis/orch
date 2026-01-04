@@ -18,9 +18,10 @@ type RunRow struct {
 	Alive        string
 	Branch       string
 	Worktree     string
-	PR           string // PR display string (e.g., "#123" or "-")
-	PRState      string // PR state: open, merged, closed, or empty
+	PR           string
+	PRState      string
 	Merged       string
+	Started      time.Time
 	Updated      time.Time
 	Topic        string
 	Run          *model.Run
