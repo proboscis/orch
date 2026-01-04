@@ -51,6 +51,7 @@ func GetManager(run *model.Run) AgentManager {
 		return &OpenCodeManager{
 			Port:      run.ServerPort,
 			SessionID: run.OpenCodeSessionID,
+			Directory: run.WorktreePath,
 			RunRef:    run.Ref().String(),
 		}
 	}
@@ -116,6 +117,7 @@ func (m *TmuxManager) SendMessage(ctx context.Context, run *model.Run, message s
 type OpenCodeManager struct {
 	Port      int
 	SessionID string
+	Directory string
 	RunRef    string
 }
 
@@ -137,7 +139,47 @@ func (m *OpenCodeManager) IsAlive(run *model.Run) bool {
 }
 
 func (m *OpenCodeManager) CaptureOutput(run *model.Run) (string, error) {
-	return "", nil
+	client := NewOpenCodeClient(m.Port)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	messages, err := client.GetMessages(ctx, m.SessionID, m.Directory)
+	if err != nil {
+		return "", err
+	}
+
+	if len(messages) == 0 {
+		return "", nil
+	}
+
+	return FormatOpenCodeMessages(messages, 100), nil
+}
+
+func FormatOpenCodeMessages(messages []Message, maxLines int) string {
+	var allLines []string
+
+	for _, msg := range messages {
+		role := strings.ToUpper(msg.Info.Role)
+		if role == "" {
+			role = "UNKNOWN"
+		}
+
+		allLines = append(allLines, "--- ["+role+"] ---")
+
+		for _, part := range msg.Parts {
+			if part.Type != "text" || part.Text == "" {
+				continue
+			}
+			partLines := strings.Split(part.Text, "\n")
+			allLines = append(allLines, partLines...)
+		}
+	}
+
+	if len(allLines) <= maxLines {
+		return strings.Join(allLines, "\n")
+	}
+
+	return strings.Join(allLines[len(allLines)-maxLines:], "\n")
 }
 
 func (m *OpenCodeManager) DetectPrompt(output string) bool {
@@ -148,7 +190,30 @@ func (m *OpenCodeManager) GetStatus(run *model.Run, output string, state *RunSta
 	if run.Status == model.StatusBooting || run.Status == model.StatusQueued {
 		return model.StatusRunning
 	}
-	return ""
+
+	client := NewOpenCodeClient(m.Port)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	sessionStatus, found, err := client.GetSingleSessionStatus(ctx, m.SessionID, "")
+	if err != nil {
+		return ""
+	}
+
+	if !found {
+		return model.StatusBlocked
+	}
+
+	switch sessionStatus {
+	case SessionStatusBusy:
+		return model.StatusRunning
+	case SessionStatusIdle:
+		return model.StatusBlocked
+	case SessionStatusRetry:
+		return model.StatusBlockedAPI
+	default:
+		return ""
+	}
 }
 
 func (m *OpenCodeManager) SendMessage(ctx context.Context, run *model.Run, message string, opts *SendOptions) error {

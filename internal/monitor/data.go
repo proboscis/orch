@@ -8,21 +8,22 @@ import (
 
 // RunRow holds display data for a run.
 type RunRow struct {
-	Index       int
-	ShortID     string
-	IssueID     string
-	IssueStatus string
-	Agent       string
-	Status      model.Status
-	Alive       string
-	Branch      string
-	Worktree    string
-	PR          string // PR display string (e.g., "#123" or "-")
-	PRState     string // PR state: open, merged, closed, or empty
-	Merged      string
-	Updated     time.Time
-	Topic       string
-	Run         *model.Run
+	Index        int
+	ShortID      string
+	IssueID      string
+	IssueStatus  string
+	IssueSummary string // Short one-line summary from issue frontmatter
+	Agent        string
+	Status       model.Status
+	Alive        string
+	Branch       string
+	Worktree     string
+	PR           string // PR display string (e.g., "#123" or "-")
+	PRState      string // PR state: open, merged, closed, or empty
+	Merged       string
+	Updated      time.Time
+	Topic        string
+	Run          *model.Run
 }
 
 // IssueRow holds display data for an issue.

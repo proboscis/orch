@@ -600,3 +600,108 @@ func (c *OpenCodeClient) GetProviders(ctx context.Context) (*ProvidersResponse, 
 
 	return &providers, nil
 }
+
+type SessionStatus string
+
+const (
+	SessionStatusIdle  SessionStatus = "idle"
+	SessionStatusBusy  SessionStatus = "busy"
+	SessionStatusRetry SessionStatus = "retry"
+)
+
+func (c *OpenCodeClient) GetSessionStatus(ctx context.Context, directory string) (map[string]SessionStatus, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/session/status", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating session status request: %w", err)
+	}
+	if directory != "" {
+		req.Header.Set("X-OpenCode-Directory", directory)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("getting session status: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("get session status returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading session status response: %w", err)
+	}
+
+	return parseSessionStatusResponse(body)
+}
+
+func parseSessionStatusResponse(body []byte) (map[string]SessionStatus, error) {
+	var stringMap map[string]string
+	if err := json.Unmarshal(body, &stringMap); err == nil {
+		result := make(map[string]SessionStatus, len(stringMap))
+		for k, v := range stringMap {
+			result[k] = SessionStatus(v)
+		}
+		return result, nil
+	}
+
+	var objectMap map[string]struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(body, &objectMap); err == nil {
+		result := make(map[string]SessionStatus, len(objectMap))
+		for k, v := range objectMap {
+			result[k] = SessionStatus(v.Type)
+		}
+		return result, nil
+	}
+
+	return nil, fmt.Errorf("unable to parse session status response: %s", string(body))
+}
+
+func (c *OpenCodeClient) GetSingleSessionStatus(ctx context.Context, sessionID, directory string) (SessionStatus, bool, error) {
+	statusMap, err := c.GetSessionStatus(ctx, directory)
+	if err != nil {
+		return "", false, err
+	}
+
+	status, ok := statusMap[sessionID]
+	if !ok {
+		return SessionStatusIdle, false, nil
+	}
+
+	return status, true, nil
+}
+
+func (c *OpenCodeClient) GetMessages(ctx context.Context, sessionID, directory string) ([]Message, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/session/"+sessionID+"/message", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating messages request: %w", err)
+	}
+	if directory != "" {
+		req.Header.Set("X-OpenCode-Directory", directory)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("getting messages: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("session not found: %s", sessionID)
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("get messages returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var messages []Message
+	if err := json.NewDecoder(resp.Body).Decode(&messages); err != nil {
+		return nil, fmt.Errorf("decoding messages response: %w", err)
+	}
+
+	return messages, nil
+}

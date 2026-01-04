@@ -205,30 +205,6 @@ func NewWindow(session, name, workDir, command string) error {
 	return nil
 }
 
-// NewWindowAt creates a new window at a specific index with an optional command
-func NewWindowAt(session string, index int, name, workDir, command string) error {
-	target := fmt.Sprintf("%s:%d", session, index)
-	args := []string{"new-window", "-t", target}
-	if name != "" {
-		args = append(args, "-n", name)
-	}
-	if workDir != "" {
-		args = append(args, "-c", workDir)
-	}
-
-	cmd := execCommand("tmux", args...)
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return err
-	}
-
-	if command != "" {
-		return SendKeys(target, command)
-	}
-
-	return nil
-}
-
 // IsTmuxAvailable checks if tmux is installed and accessible
 func IsTmuxAvailable() bool {
 	cmd := execCommand("tmux", "-V")

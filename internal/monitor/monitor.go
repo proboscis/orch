@@ -342,104 +342,12 @@ func (m *Monitor) SwitchChat() error {
 	return tmux.SelectPane(pane)
 }
 
-// OpenRun links a run session into the monitor and switches to it.
 func (m *Monitor) OpenRun(run *model.Run) error {
 	if run == nil {
 		return fmt.Errorf("run not found")
 	}
-
-	if run.Agent == string(agent.AgentOpenCode) {
-		return m.openOpenCodeRun(run)
-	}
-
-	sessionName := run.TmuxSession
-	if sessionName == "" {
-		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
-	}
-	w := &RunWindow{
-		Run:          run,
-		AgentSession: sessionName,
-	}
-	if err := m.ensureRunSession(w); err != nil {
-		return err
-	}
-	if !tmux.HasSession(sessionName) {
-		return fmt.Errorf("run session not found: %s", sessionName)
-	}
-
-	if err := m.ensurePaneLayout(); err != nil {
-		return err
-	}
-	if err := m.repairSwappedRunSession(run, sessionName); err != nil {
-		return err
-	}
-	m.refreshChatPaneTitle()
-
-	windowID, err := m.resolveRunWindowID(run, sessionName)
-	if err != nil {
-		return err
-	}
-
-	monitorWindows, err := tmux.ListWindows(m.session)
-	if err != nil {
-		return err
-	}
-	if windowID != "" {
-		if _, ok := windowIndexByID(monitorWindows, windowID); ok {
-			return tmux.SelectWindowByID(windowID)
-		}
-	}
-
-	targetIndex := nextAvailableWindowIndex(monitorWindows, dashboardWindowIdx+1)
-	if windowID != "" {
-		if err := tmux.LinkWindowByID(windowID, m.session, targetIndex); err != nil {
-			return err
-		}
-		return tmux.SelectWindowByID(windowID)
-	}
-	if err := tmux.LinkWindow(sessionName, 0, m.session, targetIndex); err != nil {
-		return err
-	}
-	return tmux.SelectWindow(m.session, targetIndex)
-}
-
-func (m *Monitor) openOpenCodeRun(run *model.Run) error {
-	if run.ServerPort == 0 {
-		return fmt.Errorf("opencode run %s missing server port", run.Ref().String())
-	}
-
-	serverURL := fmt.Sprintf("http://127.0.0.1:%d", run.ServerPort)
-	windowName := fmt.Sprintf("%s#%s", run.IssueID, run.RunID)
-
-	monitorWindows, err := tmux.ListWindows(m.session)
-	if err != nil {
-		return err
-	}
-
-	for _, w := range monitorWindows {
-		if w.Name == windowName {
-			return tmux.SelectWindow(m.session, w.Index)
-		}
-	}
-
-	targetIndex := nextAvailableWindowIndex(monitorWindows, dashboardWindowIdx+1)
-
-	args := []string{"attach", serverURL}
-	if run.OpenCodeSessionID != "" {
-		args = append(args, "--session", run.OpenCodeSessionID)
-	}
-	cmd := "opencode " + strings.Join(args, " ")
-
-	workDir := run.WorktreePath
-	if workDir == "" {
-		workDir = "."
-	}
-
-	if err := tmux.NewWindowAt(m.session, targetIndex, windowName, workDir, cmd); err != nil {
-		return fmt.Errorf("failed to create opencode window: %w", err)
-	}
-
-	return tmux.SelectWindow(m.session, targetIndex)
+	attacher := GetRunAttacher(run.Agent)
+	return attacher.Attach(m, run)
 }
 
 // CloseRun returns to the dashboard window.
@@ -838,8 +746,9 @@ func (m *Monitor) ensureRunSession(w *RunWindow) error {
 
 func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 	type issueDisplay struct {
-		status string
-		topic  string
+		status  string
+		topic   string
+		summary string
 	}
 
 	var paneCommands map[string][]string
@@ -869,9 +778,14 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		if topic == "" {
 			topic = "-"
 		}
+		summary := issue.Summary
+		if summary == "" {
+			summary = "-"
+		}
 		issueInfo[w.Run.IssueID] = issueDisplay{
-			status: status,
-			topic:  topic,
+			status:  status,
+			topic:   topic,
+			summary: summary,
 		}
 	}
 
@@ -904,10 +818,7 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		if topic == "" {
 			topic = "-"
 		}
-		agent := w.Run.Agent
-		if agent == "" {
-			agent = "-"
-		}
+		agentDisplay := agent.AgentDisplayName(w.Run.Agent, w.Run.Model, w.Run.ModelVariant)
 
 		// Build PR display string and state
 		prDisplay := "-"
@@ -932,21 +843,22 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		branch := formatBranchDisplay(w.Run.Branch, runTableBranchWidth)
 		worktree := formatWorktreeDisplay(w.Run.WorktreePath, runTableWorktreeWidth)
 		rows = append(rows, RunRow{
-			Index:       w.Index,
-			ShortID:     shortID,
-			IssueID:     w.Run.IssueID,
-			IssueStatus: issueStatus,
-			Agent:       agent,
-			Status:      w.Run.Status,
-			Alive:       runAliveLabel(w.Run, paneCommands),
-			Branch:      branch,
-			Worktree:    worktree,
-			PR:          prDisplay,
-			PRState:     prState,
-			Merged:      merged,
-			Updated:     w.Run.UpdatedAt,
-			Topic:       topic,
-			Run:         w.Run,
+			Index:        w.Index,
+			ShortID:      shortID,
+			IssueID:      w.Run.IssueID,
+			IssueStatus:  issueStatus,
+			IssueSummary: info.summary,
+			Agent:        agentDisplay,
+			Status:       w.Run.Status,
+			Alive:        runAliveLabel(w.Run, paneCommands),
+			Branch:       branch,
+			Worktree:     worktree,
+			PR:           prDisplay,
+			PRState:      prState,
+			Merged:       merged,
+			Updated:      w.Run.UpdatedAt,
+			Topic:        topic,
+			Run:          w.Run,
 		})
 	}
 
