@@ -301,57 +301,39 @@ func runRun(issueID string, opts *runOptions) error {
 			return exitWithCode(fmt.Errorf("tmux is not available"), ExitTmuxError)
 		}
 
-		// For HTTP-based agents, check if a server is already running (reuse it)
-		// We only need one opencode server - it can handle sessions for any project
-		serverAlreadyRunning := false
+		// TODO(anomalyco/opencode#6413): Share single server once --dir flag works
 		if adapter.PromptInjection() == agent.InjectionHTTP {
-			// Check if any opencode server is already running
-			foundPort := findRunningOpenCodeServer(launchCfg.Port, launchCfg.Port+100)
-			if foundPort > 0 {
-				serverAlreadyRunning = true
-				launchCfg.Port = foundPort
-				fmt.Fprintf(os.Stderr, "reusing existing opencode server on port %d\n", foundPort)
-			} else {
-				// No server running, find a free port
-				freePort := findAvailablePort(launchCfg.Port, launchCfg.Port+100)
-				if freePort == 0 {
-					st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
-					return exitWithCode(fmt.Errorf("no available port found for opencode server"), ExitAgentError)
-				}
-				launchCfg.Port = freePort
-				// Regenerate the agent command with the port
-				agentCmd, err = adapter.LaunchCommand(launchCfg)
-				if err != nil {
-					return exitWithCode(err, ExitAgentError)
-				}
-			}
-		}
-
-		// Only create tmux session if server is not already running
-		if !serverAlreadyRunning {
-			// Build environment variables - merge adapter-specific vars with launch config vars
-			env := launchCfg.Env()
-			if opencodeAdapter, ok := adapter.(*agent.OpenCodeAdapter); ok {
-				env = append(env, opencodeAdapter.Env()...)
-			}
-
-			// Create tmux session
-			err = tmux.NewSession(&tmux.SessionConfig{
-				SessionName: tmuxSession,
-				WorkDir:     worktreeResult.WorktreePath,
-				Command:     agentCmd,
-				Env:         env,
-			})
-			if err != nil {
+			freePort := findAvailablePort(launchCfg.Port, launchCfg.Port+100)
+			if freePort == 0 {
 				st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
-				return exitWithCode(fmt.Errorf("failed to create tmux session: %w", err), ExitTmuxError)
+				return exitWithCode(fmt.Errorf("no available port found for opencode server"), ExitAgentError)
 			}
-
-			// Record session artifact
-			st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", map[string]string{
-				"name": tmuxSession,
-			}))
+			launchCfg.Port = freePort
+			agentCmd, err = adapter.LaunchCommand(launchCfg)
+			if err != nil {
+				return exitWithCode(err, ExitAgentError)
+			}
 		}
+
+		env := launchCfg.Env()
+		if opencodeAdapter, ok := adapter.(*agent.OpenCodeAdapter); ok {
+			env = append(env, opencodeAdapter.Env()...)
+		}
+
+		err = tmux.NewSession(&tmux.SessionConfig{
+			SessionName: tmuxSession,
+			WorkDir:     worktreeResult.WorktreePath,
+			Command:     agentCmd,
+			Env:         env,
+		})
+		if err != nil {
+			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+			return exitWithCode(fmt.Errorf("failed to create tmux session: %w", err), ExitTmuxError)
+		}
+
+		st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", map[string]string{
+			"name": tmuxSession,
+		}))
 
 		// Handle prompt injection based on agent type
 		switch adapter.PromptInjection() {
@@ -379,22 +361,19 @@ func runRun(issueID string, opts *runOptions) error {
 			}
 		}
 
-		// Record window ID only if we created a new tmux session
-		if !serverAlreadyRunning {
-			windowID := ""
-			if windows, err := tmux.ListWindows(tmuxSession); err == nil {
-				for _, window := range windows {
-					if window.Index == 0 {
-						windowID = window.ID
-						break
-					}
+		windowID := ""
+		if windows, err := tmux.ListWindows(tmuxSession); err == nil {
+			for _, window := range windows {
+				if window.Index == 0 {
+					windowID = window.ID
+					break
 				}
 			}
-			if windowID != "" {
-				st.AppendEvent(run.Ref(), model.NewArtifactEvent("window", map[string]string{
-					"id": windowID,
-				}))
-			}
+		}
+		if windowID != "" {
+			st.AppendEvent(run.Ref(), model.NewArtifactEvent("window", map[string]string{
+				"id": windowID,
+			}))
 		}
 	}
 
@@ -683,21 +662,6 @@ func findAvailablePort(start, end int) int {
 		listener, err := net.Listen("tcp", addr)
 		if err == nil {
 			listener.Close()
-			return port
-		}
-	}
-	return 0
-}
-
-// findRunningOpenCodeServer finds a running opencode server in the given port range.
-// Returns the port number if found, 0 if no server is running.
-func findRunningOpenCodeServer(start, end int) int {
-	for port := start; port <= end; port++ {
-		client := agent.NewOpenCodeClient(port)
-		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		running := client.IsServerRunning(ctx)
-		cancel()
-		if running {
 			return port
 		}
 	}
