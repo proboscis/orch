@@ -44,25 +44,34 @@ type Config struct {
 	Monitor         MonitorConfig    `yaml:"monitor"`
 	OpenCodePresets []OpenCodePreset `yaml:"opencode_presets"`
 	OpenCode        OpenCodeConfig   `yaml:"opencode"`
+
+	// Control agent settings (for orch monitor 'c' keybinding)
+	// Falls back to run agent defaults if not set
+	ControlAgent        string `yaml:"control_agent"`
+	ControlModel        string `yaml:"control_model"`
+	ControlModelVariant string `yaml:"control_model_variant"`
 }
 
 type fileConfig struct {
-	Vault             string           `yaml:"vault"`
-	VaultLegacy       string           `yaml:"Vault"`
-	DefaultVault      string           `yaml:"default_vault"`
-	Agent             string           `yaml:"agent"`
-	Model             string           `yaml:"model"`
-	ModelVariant      string           `yaml:"model_variant"`
-	WorktreeDir       string           `yaml:"worktree_dir"`
-	WorktreeDirLegacy string           `yaml:"worktree_root"`
-	BaseBranch        string           `yaml:"base_branch"`
-	PRTargetBranch    string           `yaml:"pr_target_branch"`
-	LogLevel          string           `yaml:"log_level"`
-	PromptTemplate    string           `yaml:"prompt_template"`
-	NoPR              *bool            `yaml:"no_pr"`
-	Monitor           MonitorConfig    `yaml:"monitor"`
-	OpenCodePresets   []OpenCodePreset `yaml:"opencode_presets"`
-	OpenCode          OpenCodeConfig   `yaml:"opencode"`
+	Vault               string           `yaml:"vault"`
+	VaultLegacy         string           `yaml:"Vault"`
+	DefaultVault        string           `yaml:"default_vault"`
+	Agent               string           `yaml:"agent"`
+	Model               string           `yaml:"model"`
+	ModelVariant        string           `yaml:"model_variant"`
+	WorktreeDir         string           `yaml:"worktree_dir"`
+	WorktreeDirLegacy   string           `yaml:"worktree_root"`
+	BaseBranch          string           `yaml:"base_branch"`
+	PRTargetBranch      string           `yaml:"pr_target_branch"`
+	LogLevel            string           `yaml:"log_level"`
+	PromptTemplate      string           `yaml:"prompt_template"`
+	NoPR                *bool            `yaml:"no_pr"`
+	Monitor             MonitorConfig    `yaml:"monitor"`
+	OpenCodePresets     []OpenCodePreset `yaml:"opencode_presets"`
+	OpenCode            OpenCodeConfig   `yaml:"opencode"`
+	ControlAgent        string           `yaml:"control_agent"`
+	ControlModel        string           `yaml:"control_model"`
+	ControlModelVariant string           `yaml:"control_model_variant"`
 }
 
 // configFile is the name of the config file
@@ -242,6 +251,15 @@ func loadFromFile(path string, cfg *Config) error {
 	if fileCfg.OpenCode.DefaultVariant != "" {
 		cfg.OpenCode.DefaultVariant = fileCfg.OpenCode.DefaultVariant
 	}
+	if fileCfg.ControlAgent != "" {
+		cfg.ControlAgent = fileCfg.ControlAgent
+	}
+	if fileCfg.ControlModel != "" {
+		cfg.ControlModel = fileCfg.ControlModel
+	}
+	if fileCfg.ControlModelVariant != "" {
+		cfg.ControlModelVariant = fileCfg.ControlModelVariant
+	}
 
 	return nil
 }
@@ -308,6 +326,15 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("ORCH_OPENCODE_DEFAULT_VARIANT"); v != "" {
 		cfg.OpenCode.DefaultVariant = v
+	}
+	if v := os.Getenv("ORCH_CONTROL_AGENT"); v != "" {
+		cfg.ControlAgent = v
+	}
+	if v := os.Getenv("ORCH_CONTROL_MODEL"); v != "" {
+		cfg.ControlModel = v
+	}
+	if v := os.Getenv("ORCH_CONTROL_MODEL_VARIANT"); v != "" {
+		cfg.ControlModelVariant = v
 	}
 }
 
