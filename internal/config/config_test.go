@@ -492,3 +492,354 @@ func TestRelativePathFromSubdirectory(t *testing.T) {
 		t.Fatalf("worktree_dir should end with %q: got %q", expectedSuffix, cfg.WorktreeDir)
 	}
 }
+
+// Preset tests
+
+func TestPresetEffectiveBackend(t *testing.T) {
+	tests := []struct {
+		name   string
+		preset Preset
+		want   string
+	}{
+		{
+			name:   "explicit opencode backend",
+			preset: Preset{Name: "test", Backend: "opencode"},
+			want:   "opencode",
+		},
+		{
+			name:   "explicit claude backend",
+			preset: Preset{Name: "test", Backend: "claude"},
+			want:   "claude",
+		},
+		{
+			name:   "empty backend defaults to opencode",
+			preset: Preset{Name: "test", Backend: ""},
+			want:   "opencode",
+		},
+		{
+			name:   "codex backend",
+			preset: Preset{Name: "test", Backend: "codex"},
+			want:   "codex",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.preset.EffectiveBackend(); got != tt.want {
+				t.Errorf("EffectiveBackend() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetPresetNewStyle(t *testing.T) {
+	cfg := &Config{
+		Presets: []Preset{
+			{Name: "opus:high", Backend: "opencode", Model: "anthropic/claude-opus-4-5", Variant: "high"},
+			{Name: "gpt5.2-codex:xhigh", Backend: "opencode", Model: "openai/gpt-5.2-codex", Variant: "xhigh"},
+			{Name: "claude:default", Backend: "claude", Profile: "default"},
+		},
+	}
+
+	// Test finding existing preset
+	preset := cfg.GetPreset("opus:high")
+	if preset == nil {
+		t.Fatal("expected to find preset 'opus:high'")
+	}
+	if preset.Model != "anthropic/claude-opus-4-5" {
+		t.Errorf("Model = %q, want anthropic/claude-opus-4-5", preset.Model)
+	}
+	if preset.Variant != "high" {
+		t.Errorf("Variant = %q, want high", preset.Variant)
+	}
+	if preset.EffectiveBackend() != "opencode" {
+		t.Errorf("Backend = %q, want opencode", preset.EffectiveBackend())
+	}
+
+	// Test finding claude preset
+	claudePreset := cfg.GetPreset("claude:default")
+	if claudePreset == nil {
+		t.Fatal("expected to find preset 'claude:default'")
+	}
+	if claudePreset.EffectiveBackend() != "claude" {
+		t.Errorf("Backend = %q, want claude", claudePreset.EffectiveBackend())
+	}
+	if claudePreset.Profile != "default" {
+		t.Errorf("Profile = %q, want default", claudePreset.Profile)
+	}
+
+	// Test non-existent preset
+	missing := cfg.GetPreset("nonexistent")
+	if missing != nil {
+		t.Errorf("expected nil for nonexistent preset, got %+v", missing)
+	}
+}
+
+func TestGetPresetLegacyFallback(t *testing.T) {
+	cfg := &Config{
+		OpenCodePresets: []OpenCodePreset{
+			{Name: "legacy:preset", Model: "anthropic/claude-sonnet-4-5", Variant: "max"},
+		},
+	}
+
+	// Test finding legacy preset
+	preset := cfg.GetPreset("legacy:preset")
+	if preset == nil {
+		t.Fatal("expected to find legacy preset")
+	}
+	if preset.Model != "anthropic/claude-sonnet-4-5" {
+		t.Errorf("Model = %q, want anthropic/claude-sonnet-4-5", preset.Model)
+	}
+	if preset.Variant != "max" {
+		t.Errorf("Variant = %q, want max", preset.Variant)
+	}
+	// Legacy presets should default to opencode backend
+	if preset.EffectiveBackend() != "opencode" {
+		t.Errorf("Backend = %q, want opencode", preset.EffectiveBackend())
+	}
+}
+
+func TestGetPresetNewStyleTakesPrecedence(t *testing.T) {
+	cfg := &Config{
+		Presets: []Preset{
+			{Name: "shared:name", Backend: "opencode", Model: "new-model", Variant: "new-variant"},
+		},
+		OpenCodePresets: []OpenCodePreset{
+			{Name: "shared:name", Model: "legacy-model", Variant: "legacy-variant"},
+		},
+	}
+
+	// New-style presets should take precedence
+	preset := cfg.GetPreset("shared:name")
+	if preset == nil {
+		t.Fatal("expected to find preset")
+	}
+	if preset.Model != "new-model" {
+		t.Errorf("Model = %q, want new-model (new-style should take precedence)", preset.Model)
+	}
+}
+
+func TestGetAllPresets(t *testing.T) {
+	cfg := &Config{
+		Presets: []Preset{
+			{Name: "new:a", Backend: "opencode", Model: "model-a"},
+			{Name: "new:b", Backend: "claude", Profile: "default"},
+		},
+		OpenCodePresets: []OpenCodePreset{
+			{Name: "legacy:c", Model: "model-c"},
+			{Name: "new:a", Model: "should-be-ignored"}, // Duplicate - new-style should win
+		},
+	}
+
+	allPresets := cfg.GetAllPresets()
+
+	// Should have 3 unique presets
+	if len(allPresets) != 3 {
+		t.Errorf("expected 3 presets, got %d", len(allPresets))
+	}
+
+	// Verify the presets are sorted by name
+	names := make([]string, len(allPresets))
+	for i, p := range allPresets {
+		names[i] = p.Name
+	}
+	if names[0] != "legacy:c" || names[1] != "new:a" || names[2] != "new:b" {
+		t.Errorf("presets not sorted correctly: %v", names)
+	}
+
+	// Verify new:a uses new-style values (not legacy)
+	for _, p := range allPresets {
+		if p.Name == "new:a" {
+			if p.Model != "model-a" {
+				t.Errorf("new:a should use new-style model, got %q", p.Model)
+			}
+		}
+	}
+}
+
+func TestGetPresetsForBackend(t *testing.T) {
+	cfg := &Config{
+		Presets: []Preset{
+			{Name: "opencode:a", Backend: "opencode", Model: "model-a"},
+			{Name: "opencode:b", Backend: "opencode", Model: "model-b"},
+			{Name: "claude:a", Backend: "claude", Profile: "default"},
+			{Name: "codex:a", Backend: "codex", Model: "codex-model"},
+			{Name: "default-backend", Backend: "", Model: "default"}, // Empty backend -> opencode
+		},
+		OpenCodePresets: []OpenCodePreset{
+			{Name: "legacy:a", Model: "legacy-model"}, // Legacy presets are opencode
+		},
+	}
+
+	// Test opencode presets
+	opencodePresets := cfg.GetPresetsForBackend("opencode")
+	if len(opencodePresets) != 4 { // opencode:a, opencode:b, default-backend, legacy:a
+		t.Errorf("expected 4 opencode presets, got %d", len(opencodePresets))
+	}
+
+	// Test claude presets
+	claudePresets := cfg.GetPresetsForBackend("claude")
+	if len(claudePresets) != 1 {
+		t.Errorf("expected 1 claude preset, got %d", len(claudePresets))
+	}
+	if claudePresets[0].Name != "claude:a" {
+		t.Errorf("expected claude:a, got %q", claudePresets[0].Name)
+	}
+
+	// Test codex presets
+	codexPresets := cfg.GetPresetsForBackend("codex")
+	if len(codexPresets) != 1 {
+		t.Errorf("expected 1 codex preset, got %d", len(codexPresets))
+	}
+
+	// Test gemini presets (should be empty)
+	geminiPresets := cfg.GetPresetsForBackend("gemini")
+	if len(geminiPresets) != 0 {
+		t.Errorf("expected 0 gemini presets, got %d", len(geminiPresets))
+	}
+}
+
+func TestValidatePresets(t *testing.T) {
+	tests := []struct {
+		name         string
+		cfg          *Config
+		wantWarnings int
+	}{
+		{
+			name: "valid presets",
+			cfg: &Config{
+				Presets: []Preset{
+					{Name: "valid:a", Backend: "opencode", Model: "model-a"},
+					{Name: "valid:b", Backend: "claude", Profile: "default"},
+				},
+			},
+			wantWarnings: 0,
+		},
+		{
+			name: "invalid backend",
+			cfg: &Config{
+				Presets: []Preset{
+					{Name: "invalid:backend", Backend: "invalid-backend", Model: "model"},
+				},
+			},
+			wantWarnings: 1,
+		},
+		{
+			name: "empty name",
+			cfg: &Config{
+				Presets: []Preset{
+					{Name: "", Backend: "opencode", Model: "model"},
+				},
+			},
+			wantWarnings: 1,
+		},
+		{
+			name: "legacy presets without new presets triggers deprecation warning",
+			cfg: &Config{
+				OpenCodePresets: []OpenCodePreset{
+					{Name: "legacy:preset", Model: "model"},
+				},
+			},
+			wantWarnings: 1,
+		},
+		{
+			name: "legacy presets with new presets does not trigger deprecation warning",
+			cfg: &Config{
+				Presets: []Preset{
+					{Name: "new:preset", Backend: "opencode", Model: "model"},
+				},
+				OpenCodePresets: []OpenCodePreset{
+					{Name: "legacy:preset", Model: "model"},
+				},
+			},
+			wantWarnings: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			warnings := tt.cfg.ValidatePresets()
+			if len(warnings) != tt.wantWarnings {
+				t.Errorf("ValidatePresets() returned %d warnings, want %d: %v", len(warnings), tt.wantWarnings, warnings)
+			}
+		})
+	}
+}
+
+func TestLoadPresetsFromConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_AGENT", "")
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+
+	configContent := `vault: /repo
+presets:
+  - name: opus:high
+    backend: opencode
+    model: anthropic/claude-opus-4-5
+    variant: high
+  - name: gpt5.2-codex:xhigh
+    backend: opencode
+    model: openai/gpt-5.2-codex
+    variant: xhigh
+  - name: claude:default
+    backend: claude
+    profile: default
+opencode_presets:
+  - name: legacy:preset
+    model: anthropic/claude-sonnet-4-5
+    variant: max
+`
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(configContent), 0644); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	// Test new-style presets loaded
+	if len(cfg.Presets) != 3 {
+		t.Errorf("expected 3 new-style presets, got %d", len(cfg.Presets))
+	}
+
+	// Test legacy presets loaded
+	if len(cfg.OpenCodePresets) != 1 {
+		t.Errorf("expected 1 legacy preset, got %d", len(cfg.OpenCodePresets))
+	}
+
+	// Test GetPreset works correctly
+	preset := cfg.GetPreset("opus:high")
+	if preset == nil {
+		t.Fatal("expected to find preset 'opus:high'")
+	}
+	if preset.Model != "anthropic/claude-opus-4-5" {
+		t.Errorf("Model = %q, want anthropic/claude-opus-4-5", preset.Model)
+	}
+	if preset.EffectiveBackend() != "opencode" {
+		t.Errorf("Backend = %q, want opencode", preset.EffectiveBackend())
+	}
+
+	// Test GetAllPresets returns all 4 presets
+	allPresets := cfg.GetAllPresets()
+	if len(allPresets) != 4 {
+		t.Errorf("expected 4 total presets, got %d", len(allPresets))
+	}
+}
