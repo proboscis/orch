@@ -160,7 +160,7 @@ func (m *OpenCodeManager) GetStatus(run *model.Run, output string, state *RunSta
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	sessionStatus, found, err := client.GetSingleSessionStatus(ctx, m.SessionID, m.Directory)
+	sessionStatus, found, err := client.GetSingleSessionStatus(ctx, m.SessionID, "")
 	if err != nil {
 		return ""
 	}
