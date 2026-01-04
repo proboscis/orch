@@ -7,5 +7,5 @@ const (
 	defaultCaptureLines    = 200
 	runTableBranchWidth    = 8
 	runTableWorktreeWidth  = 16
-	runDetailsMaxLines     = 4
+	runDetailsMaxLines     = 7
 )
