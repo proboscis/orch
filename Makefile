@@ -18,6 +18,7 @@ ifneq ($(UNAME_S),)
 		codesign --force --sign - "$(INSTALL_DIR)/$(BINARY_NAME)"; \
 	fi
 endif
+	@$(INSTALL_DIR)/$(BINARY_NAME) daemon-restart 2>/dev/null || true
 
 test:
 	go test ./...

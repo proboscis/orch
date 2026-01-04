@@ -88,6 +88,7 @@ func init() {
 	rootCmd.AddCommand(newMonitorCmd())
 	rootCmd.AddCommand(newResolveCmd())
 	rootCmd.AddCommand(newDaemonCmd())
+	rootCmd.AddCommand(newDaemonRestartCmd())
 	rootCmd.AddCommand(newRepairCmd())
 	rootCmd.AddCommand(newDeleteCmd())
 	rootCmd.AddCommand(newExecCmd())

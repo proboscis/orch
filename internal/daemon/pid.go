@@ -9,9 +9,9 @@ import (
 )
 
 const (
-	orchDir    = ".orch"
-	pidFile    = "daemon.pid"
-	logFile    = "daemon.log"
+	orchDir = ".orch"
+	pidFile = "daemon.pid"
+	logFile = "daemon.log"
 )
 
 // OrchDir returns the path to the .orch directory in the vault
@@ -107,4 +107,43 @@ func GetRunningPID(vaultPath string) int {
 	}
 
 	return pid
+}
+
+func IsStaleBinary(vaultPath string) (bool, error) {
+	if !IsRunning(vaultPath) {
+		return false, nil
+	}
+
+	pidPath := PIDFilePath(vaultPath)
+	pidInfo, err := os.Stat(pidPath)
+	if err != nil {
+		return false, err
+	}
+	daemonStartTime := pidInfo.ModTime()
+
+	execPath, err := os.Executable()
+	if err != nil {
+		return false, err
+	}
+
+	execInfo, err := os.Stat(execPath)
+	if err != nil {
+		return false, err
+	}
+
+	return execInfo.ModTime().After(daemonStartTime), nil
+}
+
+func RestartDaemon(vaultPath string) error {
+	pid := GetRunningPID(vaultPath)
+	if pid == 0 {
+		return nil
+	}
+
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+
+	return process.Signal(syscall.SIGHUP)
 }

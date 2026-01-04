@@ -12,7 +12,7 @@ func newDaemonCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:    "daemon",
 		Short:  "Run the background monitoring daemon",
-		Hidden: true, // Users shouldn't call this directly
+		Hidden: true,
 		Long: `Run the background monitoring daemon.
 
 This command is normally started automatically by other orch commands.
@@ -23,6 +23,26 @@ You should not need to run this manually.`,
 	}
 
 	return cmd
+}
+
+func newDaemonRestartCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "daemon-restart",
+		Short:  "Restart daemon with new binary",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			vaultPath, err := getVaultPath()
+			if err != nil {
+				return nil
+			}
+
+			if !daemon.IsRunning(vaultPath) {
+				return nil
+			}
+
+			return daemon.RestartDaemon(vaultPath)
+		},
+	}
 }
 
 func runDaemon() error {
