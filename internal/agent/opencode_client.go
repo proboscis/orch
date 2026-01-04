@@ -96,14 +96,21 @@ type HealthResponse struct {
 	Version string `json:"version"`
 }
 
-// Session represents an opencode session
+type SessionTimeMillis struct {
+	Created int64 `json:"created"`
+	Updated int64 `json:"updated"`
+}
+
 type Session struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Directory string    `json:"directory,omitempty"`
-	ParentID  string    `json:"parentID,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID        string            `json:"id"`
+	Title     string            `json:"title"`
+	Directory string            `json:"directory,omitempty"`
+	ParentID  string            `json:"parentID,omitempty"`
+	Time      SessionTimeMillis `json:"time"`
+}
+
+func (s *Session) UpdatedAt() time.Time {
+	return time.UnixMilli(s.Time.Updated)
 }
 
 // MessagePart represents a part of a message

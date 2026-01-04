@@ -186,6 +186,8 @@ func (m *OpenCodeManager) DetectPrompt(output string) bool {
 	return false
 }
 
+const recentActivityThreshold = 30 * time.Second
+
 func (m *OpenCodeManager) GetStatus(run *model.Run, output string, state *RunState, outputChanged, hasPrompt bool) model.Status {
 	if run.Status == model.StatusBooting || run.Status == model.StatusQueued {
 		return model.StatusRunning
@@ -200,20 +202,60 @@ func (m *OpenCodeManager) GetStatus(run *model.Run, output string, state *RunSta
 		return ""
 	}
 
-	if !found {
-		return model.StatusBlocked
+	if found {
+		switch sessionStatus {
+		case SessionStatusBusy:
+			return model.StatusRunning
+		case SessionStatusIdle:
+			return model.StatusBlocked
+		case SessionStatusRetry:
+			return model.StatusBlockedAPI
+		default:
+			return ""
+		}
 	}
 
-	switch sessionStatus {
-	case SessionStatusBusy:
+	if m.hasActiveBusyChildren(ctx, client) {
 		return model.StatusRunning
-	case SessionStatusIdle:
-		return model.StatusBlocked
-	case SessionStatusRetry:
-		return model.StatusBlockedAPI
-	default:
-		return ""
 	}
+
+	if m.hasRecentActivity(ctx, client) {
+		return model.StatusRunning
+	}
+
+	return model.StatusBlocked
+}
+
+func (m *OpenCodeManager) hasActiveBusyChildren(ctx context.Context, client *OpenCodeClient) bool {
+	statusMap, err := client.GetSessionStatus(ctx, "")
+	if err != nil {
+		return false
+	}
+
+	for sessionID, status := range statusMap {
+		if status != SessionStatusBusy {
+			continue
+		}
+		session, err := client.GetSession(ctx, sessionID, "")
+		if err != nil {
+			continue
+		}
+		if session.ParentID == m.SessionID {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (m *OpenCodeManager) hasRecentActivity(ctx context.Context, client *OpenCodeClient) bool {
+	session, err := client.GetSession(ctx, m.SessionID, m.Directory)
+	if err != nil {
+		return false
+	}
+
+	timeSinceUpdate := time.Since(session.UpdatedAt())
+	return timeSinceUpdate < recentActivityThreshold
 }
 
 func (m *OpenCodeManager) SendMessage(ctx context.Context, run *model.Run, message string, opts *SendOptions) error {
