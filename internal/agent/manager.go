@@ -223,7 +223,9 @@ func (m *OpenCodeManager) GetStatus(run *model.Run, output string, state *RunSta
 		return model.StatusRunning
 	}
 
-	return model.StatusUnknown
+	// Session not actively processing - treat as blocked (waiting for user input)
+	// This handles the double-escape (Esc Esc) case where the user stopped the agent
+	return model.StatusBlocked
 }
 
 func (m *OpenCodeManager) hasActiveBusyChildren(ctx context.Context, client *OpenCodeClient) bool {
