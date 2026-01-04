@@ -14,7 +14,8 @@ type RunAttacher interface {
 }
 
 func GetRunAttacher(agentType string) RunAttacher {
-	if agentType == string(agent.AgentOpenCode) {
+	baseAgent, _ := parseAgentVariant(agentType)
+	if baseAgent == string(agent.AgentOpenCode) {
 		return &OpenCodeRunAttacher{}
 	}
 	return &TmuxRunAttacher{}
@@ -99,14 +100,23 @@ func (a *OpenCodeRunAttacher) Attach(m *Monitor, run *model.Run) error {
 		}
 	}
 
-	targetIndex := nextAvailableWindowIndex(monitorWindows, dashboardWindowIdx+1)
 	workDir := run.WorktreePath
 	if workDir == "" {
 		workDir, _ = os.Getwd()
 	}
 
 	if err := tmux.NewWindow(m.session, windowName, workDir, attachCmd); err != nil {
-		return fmt.Errorf("failed to create opencode window: %w", err)
+		return fmt.Errorf("failed to create opencode window for %s: %w", run.Ref().String(), err)
 	}
-	return tmux.SelectWindow(m.session, targetIndex)
+
+	updatedWindows, err := tmux.ListWindows(m.session)
+	if err != nil {
+		return err
+	}
+	for _, w := range updatedWindows {
+		if w.Name == windowName {
+			return tmux.SelectWindow(m.session, w.Index)
+		}
+	}
+	return fmt.Errorf("created window %s not found", windowName)
 }
