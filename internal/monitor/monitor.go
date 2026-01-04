@@ -342,101 +342,12 @@ func (m *Monitor) SwitchChat() error {
 	return tmux.SelectPane(pane)
 }
 
-// OpenRun links a run session into the monitor and switches to it.
 func (m *Monitor) OpenRun(run *model.Run) error {
 	if run == nil {
 		return fmt.Errorf("run not found")
 	}
-
-	// For opencode agents, create a window running opencode attach
-	if run.Agent == string(agent.AgentOpenCode) {
-		return m.openOpenCodeRun(run)
-	}
-
-	sessionName := run.TmuxSession
-	if sessionName == "" {
-		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
-	}
-	w := &RunWindow{
-		Run:          run,
-		AgentSession: sessionName,
-	}
-	if err := m.ensureRunSession(w); err != nil {
-		return err
-	}
-	if !tmux.HasSession(sessionName) {
-		return fmt.Errorf("run session not found: %s", sessionName)
-	}
-
-	if err := m.ensurePaneLayout(); err != nil {
-		return err
-	}
-	if err := m.repairSwappedRunSession(run, sessionName); err != nil {
-		return err
-	}
-	m.refreshChatPaneTitle()
-
-	windowID, err := m.resolveRunWindowID(run, sessionName)
-	if err != nil {
-		return err
-	}
-
-	monitorWindows, err := tmux.ListWindows(m.session)
-	if err != nil {
-		return err
-	}
-	if windowID != "" {
-		if _, ok := windowIndexByID(monitorWindows, windowID); ok {
-			return tmux.SelectWindowByID(windowID)
-		}
-	}
-
-	targetIndex := nextAvailableWindowIndex(monitorWindows, dashboardWindowIdx+1)
-	if windowID != "" {
-		if err := tmux.LinkWindowByID(windowID, m.session, targetIndex); err != nil {
-			return err
-		}
-		return tmux.SelectWindowByID(windowID)
-	}
-	if err := tmux.LinkWindow(sessionName, 0, m.session, targetIndex); err != nil {
-		return err
-	}
-	return tmux.SelectWindow(m.session, targetIndex)
-}
-
-func (m *Monitor) openOpenCodeRun(run *model.Run) error {
-	if run.ServerPort == 0 {
-		return fmt.Errorf("no server port found for opencode run: %s", run.Ref().String())
-	}
-
-	serverURL := fmt.Sprintf("http://127.0.0.1:%d", run.ServerPort)
-	attachCmd := fmt.Sprintf("opencode attach %s", serverURL)
-	if run.OpenCodeSessionID != "" {
-		attachCmd = fmt.Sprintf("%s --session %s", attachCmd, run.OpenCodeSessionID)
-	}
-
-	monitorWindows, err := tmux.ListWindows(m.session)
-	if err != nil {
-		return err
-	}
-
-	windowName := fmt.Sprintf("opencode-%s", run.ShortID())
-	for _, w := range monitorWindows {
-		if w.Name == windowName {
-			return tmux.SelectWindow(m.session, w.Index)
-		}
-	}
-
-	targetIndex := nextAvailableWindowIndex(monitorWindows, dashboardWindowIdx+1)
-	workDir := run.WorktreePath
-	if workDir == "" {
-		workDir, _ = os.Getwd()
-	}
-
-	if err := tmux.NewWindow(m.session, windowName, workDir, attachCmd); err != nil {
-		return fmt.Errorf("failed to create opencode window: %w", err)
-	}
-	return tmux.SelectWindow(m.session, targetIndex)
+	attacher := GetRunAttacher(run.Agent)
+	return attacher.Attach(m, run)
 }
 
 // CloseRun returns to the dashboard window.
@@ -835,15 +746,9 @@ func (m *Monitor) ensureRunSession(w *RunWindow) error {
 
 func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 	type issueDisplay struct {
-		status string
-		topic  string
-	}
-
-	var paneCommands map[string][]string
-	if tmux.IsTmuxAvailable() {
-		if commands, err := tmux.ListPaneCommands(); err == nil {
-			paneCommands = commands
-		}
+		status  string
+		topic   string
+		summary string
 	}
 
 	issueInfo := make(map[string]issueDisplay)
@@ -866,9 +771,14 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		if topic == "" {
 			topic = "-"
 		}
+		summary := issue.Summary
+		if summary == "" {
+			summary = "-"
+		}
 		issueInfo[w.Run.IssueID] = issueDisplay{
-			status: status,
-			topic:  topic,
+			status:  status,
+			topic:   topic,
+			summary: summary,
 		}
 	}
 
@@ -901,10 +811,7 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		if topic == "" {
 			topic = "-"
 		}
-		agent := w.Run.Agent
-		if agent == "" {
-			agent = "-"
-		}
+		agentDisplay := agent.AgentDisplayName(w.Run.Agent, w.Run.Model, w.Run.ModelVariant)
 
 		// Build PR display string and state
 		prDisplay := "-"
@@ -929,21 +836,22 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		branch := formatBranchDisplay(w.Run.Branch, runTableBranchWidth)
 		worktree := formatWorktreeDisplay(w.Run.WorktreePath, runTableWorktreeWidth)
 		rows = append(rows, RunRow{
-			Index:       w.Index,
-			ShortID:     shortID,
-			IssueID:     w.Run.IssueID,
-			IssueStatus: issueStatus,
-			Agent:       agent,
-			Status:      w.Run.Status,
-			Alive:       runAliveLabel(w.Run, paneCommands),
-			Branch:      branch,
-			Worktree:    worktree,
-			PR:          prDisplay,
-			PRState:     prState,
-			Merged:      merged,
-			Updated:     w.Run.UpdatedAt,
-			Topic:       topic,
-			Run:         w.Run,
+			Index:        w.Index,
+			ShortID:      shortID,
+			IssueID:      w.Run.IssueID,
+			IssueStatus:  issueStatus,
+			IssueSummary: info.summary,
+			Agent:        agentDisplay,
+			Status:       w.Run.Status,
+			Alive:        runAliveLabel(w.Run),
+			Branch:       branch,
+			Worktree:     worktree,
+			PR:           prDisplay,
+			PRState:      prState,
+			Merged:       merged,
+			Updated:      w.Run.UpdatedAt,
+			Topic:        topic,
+			Run:          w.Run,
 		})
 	}
 
@@ -951,18 +859,12 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 	return rows, nil
 }
 
-func runAliveLabel(run *model.Run, paneCommands map[string][]string) string {
+func runAliveLabel(run *model.Run) string {
 	if run == nil {
 		return "-"
 	}
-	session := run.TmuxSession
-	if session == "" {
-		session = model.GenerateTmuxSession(run.IssueID, run.RunID)
-	}
-	alive, known := tmux.AgentAlive(session, paneCommands)
-	if !known {
-		return "-"
-	}
+	manager := agent.GetManager(run)
+	alive := manager.IsAlive(run)
 	if alive {
 		return "yes"
 	}

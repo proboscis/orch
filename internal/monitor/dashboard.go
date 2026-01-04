@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
+	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/tmux"
@@ -754,6 +755,13 @@ func (d *Dashboard) selectedRun() *model.Run {
 	return nil
 }
 
+func (d *Dashboard) selectedRunRow() *RunRow {
+	if d.cursor >= 0 && d.cursor < len(d.runs) {
+		return &d.runs[d.cursor]
+	}
+	return nil
+}
+
 func (d *Dashboard) renderTable(maxRows int) string {
 	if len(d.runs) == 0 {
 		if !d.monitor.RunFilter().IsDefault() {
@@ -882,10 +890,11 @@ func (d *Dashboard) renderDetails(maxLines int) string {
 	if maxLines <= 0 {
 		return ""
 	}
-	run := d.selectedRun()
-	if run == nil {
+	row := d.selectedRunRow()
+	if row == nil || row.Run == nil {
 		return "No run selected."
 	}
+	run := row.Run
 
 	branch := strings.TrimSpace(run.Branch)
 	if branch == "" {
@@ -895,12 +904,18 @@ func (d *Dashboard) renderDetails(maxLines int) string {
 	if worktree == "" {
 		worktree = "-"
 	}
+	summary := strings.TrimSpace(row.IssueSummary)
+	if summary == "" {
+		summary = "-"
+	}
 
 	contentWidth := d.safeWidth()
 	lines := []string{
 		d.styles.Header.Render("DETAILS"),
 	}
 	lines = append(lines, wrapLabelValue("Run: ", run.Ref().String(), contentWidth)...)
+	lines = append(lines, wrapLabelValue("Issue: ", run.IssueID, contentWidth)...)
+	lines = append(lines, wrapLabelValue("Summary: ", summary, contentWidth)...)
 	lines = append(lines, wrapLabelValue("Branch: ", branch, contentWidth)...)
 	lines = append(lines, wrapLabelValue("Worktree: ", worktree, contentWidth)...)
 
@@ -1079,7 +1094,7 @@ func (d *Dashboard) tableWidths() (idxW, idW, issueW, issueStatusW, agentW, stat
 	idW = 6
 	issueW = 14
 	issueStatusW = 8
-	agentW = 6
+	agentW = agent.MaxAgentDisplayWidth
 	statusW = 10
 	aliveW = 5
 	branchW = runTableBranchWidth

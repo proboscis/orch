@@ -12,13 +12,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/store"
 )
 
 const (
 	DefaultInterval = 5 * time.Second
-	StallThreshold  = 60 * time.Second // Consider stalling after 60s of no output
+	StallThreshold  = 60 * time.Second
+	FetchInterval   = 90 * time.Second
 )
 
 // Daemon manages background monitoring of runs
@@ -30,9 +32,10 @@ type Daemon struct {
 	stopCh    chan struct{}
 	wg        sync.WaitGroup
 
-	// Track state for each run
-	runStates map[string]*RunState
-	mu        sync.Mutex
+	runStates     map[string]*RunState
+	lastFetchAt   map[string]time.Time
+	fetchInFlight map[string]bool
+	mu            sync.Mutex
 
 	executablePath string
 	startupMtime   time.Time
@@ -53,11 +56,13 @@ type RunState struct {
 // New creates a new Daemon instance
 func New(vaultPath string, st store.Store) *Daemon {
 	return &Daemon{
-		vaultPath: vaultPath,
-		store:     st,
-		interval:  DefaultInterval,
-		stopCh:    make(chan struct{}),
-		runStates: make(map[string]*RunState),
+		vaultPath:     vaultPath,
+		store:         st,
+		interval:      DefaultInterval,
+		stopCh:        make(chan struct{}),
+		runStates:     make(map[string]*RunState),
+		lastFetchAt:   make(map[string]time.Time),
+		fetchInFlight: make(map[string]bool),
 	}
 }
 
@@ -195,8 +200,6 @@ func (d *Daemon) restartWithNewBinary() error {
 	return syscall.Exec(d.executablePath, args, os.Environ())
 }
 
-// monitorAll checks all active runs (running, booting, blocked, pr_open, or unknown)
-// Non-terminal runs are monitored so we can detect state transitions
 func (d *Daemon) monitorAll() {
 	runs, err := d.store.ListRuns(&store.ListRunsFilter{
 		Status: []model.Status{model.StatusRunning, model.StatusBooting, model.StatusBlocked, model.StatusBlockedAPI, model.StatusPROpen, model.StatusUnknown},
@@ -206,14 +209,61 @@ func (d *Daemon) monitorAll() {
 		return
 	}
 
+	if len(runs) > 0 {
+		d.periodicFetch(runs)
+	}
+
 	for _, run := range runs {
 		if err := d.monitorRun(run); err != nil {
 			d.logger.Printf("error monitoring %s#%s: %v", run.IssueID, run.RunID, err)
 		}
 	}
 
-	// Clean up states for runs that are no longer active
 	d.cleanupStates(runs)
+}
+
+func (d *Daemon) periodicFetch(runs []*model.Run) {
+	repos := make(map[string]bool)
+	for _, run := range runs {
+		if run.WorktreePath == "" {
+			continue
+		}
+		repoRoot, err := git.FindRepoRoot(run.WorktreePath)
+		if err != nil {
+			continue
+		}
+		repos[repoRoot] = true
+	}
+
+	var toFetch []string
+	now := time.Now()
+
+	d.mu.Lock()
+	for repoRoot := range repos {
+		if d.fetchInFlight[repoRoot] {
+			continue
+		}
+		if lastFetch, ok := d.lastFetchAt[repoRoot]; ok && now.Sub(lastFetch) < FetchInterval {
+			continue
+		}
+		d.fetchInFlight[repoRoot] = true
+		toFetch = append(toFetch, repoRoot)
+	}
+	d.mu.Unlock()
+
+	for _, repoRoot := range toFetch {
+		err := git.Fetch(repoRoot, "")
+
+		d.mu.Lock()
+		delete(d.fetchInFlight, repoRoot)
+		if err != nil {
+			d.logger.Printf("git fetch failed for %s: %v", repoRoot, err)
+		} else {
+			d.logger.Printf("git fetch completed for %s", repoRoot)
+			d.lastFetchAt[repoRoot] = time.Now()
+		}
+		d.mu.Unlock()
+	}
 }
 
 // cleanupStates removes state tracking for runs that are no longer active

@@ -17,19 +17,42 @@ type RunState struct {
 	PRRecorded   bool
 }
 
+type SessionNotFoundError struct {
+	SessionName string
+}
+
+func (e *SessionNotFoundError) Error() string {
+	return "session " + e.SessionName + " not found (run may not be active)"
+}
+
+type OpenCodeConfigError struct {
+	RunRef  string
+	Missing string
+}
+
+func (e *OpenCodeConfigError) Error() string {
+	return "opencode run " + e.RunRef + " missing " + e.Missing
+}
+
+type SendOptions struct {
+	NoEnter bool
+}
+
 type AgentManager interface {
 	IsAlive(run *model.Run) bool
 	GetStatus(run *model.Run, output string, state *RunState, outputChanged, hasPrompt bool) model.Status
 	CaptureOutput(run *model.Run) (string, error)
 	DetectPrompt(output string) bool
+	SendMessage(ctx context.Context, run *model.Run, message string, opts *SendOptions) error
 }
 
 func GetManager(run *model.Run) AgentManager {
-	if run.OpenCodeSessionID != "" && run.ServerPort > 0 {
+	if run.Agent == string(AgentOpenCode) {
 		return &OpenCodeManager{
 			Port:      run.ServerPort,
 			SessionID: run.OpenCodeSessionID,
 			Directory: run.WorktreePath,
+			RunRef:    run.Ref().String(),
 		}
 	}
 	return &TmuxManager{SessionName: getSessionName(run)}
@@ -80,10 +103,22 @@ func (m *TmuxManager) GetStatus(run *model.Run, output string, state *RunState, 
 	return ""
 }
 
+func (m *TmuxManager) SendMessage(ctx context.Context, run *model.Run, message string, opts *SendOptions) error {
+	if !tmux.HasSession(m.SessionName) {
+		return &SessionNotFoundError{SessionName: m.SessionName}
+	}
+
+	if opts != nil && opts.NoEnter {
+		return tmux.SendKeysLiteral(m.SessionName, message)
+	}
+	return tmux.SendKeys(m.SessionName, message)
+}
+
 type OpenCodeManager struct {
 	Port      int
 	SessionID string
 	Directory string
+	RunRef    string
 }
 
 func (m *OpenCodeManager) IsAlive(run *model.Run) bool {
@@ -160,7 +195,7 @@ func (m *OpenCodeManager) GetStatus(run *model.Run, output string, state *RunSta
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	sessionStatus, found, err := client.GetSingleSessionStatus(ctx, m.SessionID, m.Directory)
+	sessionStatus, found, err := client.GetSingleSessionStatus(ctx, m.SessionID, "")
 	if err != nil {
 		return ""
 	}
@@ -179,6 +214,18 @@ func (m *OpenCodeManager) GetStatus(run *model.Run, output string, state *RunSta
 	default:
 		return ""
 	}
+}
+
+func (m *OpenCodeManager) SendMessage(ctx context.Context, run *model.Run, message string, opts *SendOptions) error {
+	if m.Port <= 0 {
+		return &OpenCodeConfigError{RunRef: m.RunRef, Missing: "server port"}
+	}
+	if m.SessionID == "" {
+		return &OpenCodeConfigError{RunRef: m.RunRef, Missing: "session ID"}
+	}
+
+	client := NewOpenCodeClient(m.Port)
+	return client.SendMessageAsync(ctx, m.SessionID, message, run.WorktreePath, nil, "")
 }
 
 func IsWaitingForInput(output string) bool {
