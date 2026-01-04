@@ -604,8 +604,9 @@ func (c *OpenCodeClient) GetProviders(ctx context.Context) (*ProvidersResponse, 
 type SessionStatus string
 
 const (
-	SessionStatusIdle SessionStatus = "idle"
-	SessionStatusBusy SessionStatus = "busy"
+	SessionStatusIdle  SessionStatus = "idle"
+	SessionStatusBusy  SessionStatus = "busy"
+	SessionStatusRetry SessionStatus = "retry"
 )
 
 func (c *OpenCodeClient) GetSessionStatus(ctx context.Context, directory string) (map[string]SessionStatus, error) {
@@ -628,24 +629,48 @@ func (c *OpenCodeClient) GetSessionStatus(ctx context.Context, directory string)
 		return nil, fmt.Errorf("get session status returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var statusMap map[string]SessionStatus
-	if err := json.NewDecoder(resp.Body).Decode(&statusMap); err != nil {
-		return nil, fmt.Errorf("decoding session status response: %w", err)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading session status response: %w", err)
 	}
 
-	return statusMap, nil
+	return parseSessionStatusResponse(body)
 }
 
-func (c *OpenCodeClient) GetSingleSessionStatus(ctx context.Context, sessionID, directory string) (SessionStatus, error) {
+func parseSessionStatusResponse(body []byte) (map[string]SessionStatus, error) {
+	var stringMap map[string]string
+	if err := json.Unmarshal(body, &stringMap); err == nil {
+		result := make(map[string]SessionStatus, len(stringMap))
+		for k, v := range stringMap {
+			result[k] = SessionStatus(v)
+		}
+		return result, nil
+	}
+
+	var objectMap map[string]struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(body, &objectMap); err == nil {
+		result := make(map[string]SessionStatus, len(objectMap))
+		for k, v := range objectMap {
+			result[k] = SessionStatus(v.Type)
+		}
+		return result, nil
+	}
+
+	return nil, fmt.Errorf("unable to parse session status response: %s", string(body))
+}
+
+func (c *OpenCodeClient) GetSingleSessionStatus(ctx context.Context, sessionID, directory string) (SessionStatus, bool, error) {
 	statusMap, err := c.GetSessionStatus(ctx, directory)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 
 	status, ok := statusMap[sessionID]
 	if !ok {
-		return "", fmt.Errorf("session %s not found in status response", sessionID)
+		return SessionStatusIdle, false, nil
 	}
 
-	return status, nil
+	return status, true, nil
 }

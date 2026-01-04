@@ -120,9 +120,13 @@ func (m *OpenCodeManager) GetStatus(run *model.Run, output string, state *RunSta
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	sessionStatus, err := client.GetSingleSessionStatus(ctx, m.SessionID, m.Directory)
+	sessionStatus, found, err := client.GetSingleSessionStatus(ctx, m.SessionID, m.Directory)
 	if err != nil {
 		return ""
+	}
+
+	if !found {
+		return model.StatusBlocked
 	}
 
 	switch sessionStatus {
@@ -130,6 +134,8 @@ func (m *OpenCodeManager) GetStatus(run *model.Run, output string, state *RunSta
 		return model.StatusRunning
 	case SessionStatusIdle:
 		return model.StatusBlocked
+	case SessionStatusRetry:
+		return model.StatusBlockedAPI
 	default:
 		return ""
 	}

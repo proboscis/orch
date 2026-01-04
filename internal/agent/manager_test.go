@@ -528,6 +528,11 @@ func TestOpenCodeManagerGetStatusFromAPI(t *testing.T) {
 			sessionStatus: SessionStatusIdle,
 			wantStatus:    model.StatusBlocked,
 		},
+		{
+			name:          "retry session returns blocked_api",
+			sessionStatus: SessionStatusRetry,
+			wantStatus:    model.StatusBlockedAPI,
+		},
 	}
 
 	for _, tt := range tests {
@@ -552,6 +557,26 @@ func TestOpenCodeManagerGetStatusFromAPI(t *testing.T) {
 				t.Errorf("GetStatus() = %v, want %v", got, tt.wantStatus)
 			}
 		})
+	}
+}
+
+func TestOpenCodeManagerGetStatusMissingSession(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/session/status" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]SessionStatus{})
+		}
+	}))
+	defer server.Close()
+
+	port := extractPort(server.URL)
+	manager := &OpenCodeManager{Port: port, SessionID: "ses_missing", Directory: "/test"}
+
+	run := &model.Run{Status: model.StatusRunning}
+	state := &RunState{}
+	got := manager.GetStatus(run, "", state, false, false)
+	if got != model.StatusBlocked {
+		t.Errorf("GetStatus() for missing session = %v, want %v", got, model.StatusBlocked)
 	}
 }
 
