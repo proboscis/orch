@@ -166,6 +166,14 @@ func (r *Run) DeriveState() {
 	if opencodeSession, ok := artifacts["opencode_session"]; ok {
 		r.OpenCodeSessionID = opencodeSession["id"]
 	}
+	if agentModel, ok := artifacts["agent_model"]; ok {
+		if r.Model == "" {
+			r.Model = agentModel["model"]
+		}
+		if r.ModelVariant == "" {
+			r.ModelVariant = agentModel["variant"]
+		}
+	}
 
 	// Derive timestamps
 	if len(r.Events) > 0 {

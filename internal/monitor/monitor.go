@@ -812,18 +812,7 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 			topic = "-"
 		}
 
-		runModel := w.Run.Model
-		runVariant := w.Run.ModelVariant
-		if w.Run.Agent == "opencode" && runModel == "" && w.Run.ServerPort > 0 {
-			client := agent.NewOpenCodeClient(w.Run.ServerPort)
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			if fetchedModel, fetchedVariant, err := client.GetAgentModel(ctx); err == nil && fetchedModel != "" {
-				runModel = fetchedModel
-				runVariant = fetchedVariant
-			}
-			cancel()
-		}
-		agentDisplay := agent.AgentDisplayName(w.Run.Agent, runModel, runVariant)
+		agentDisplay := agent.AgentDisplayName(w.Run.Agent, w.Run.Model, w.Run.ModelVariant)
 
 		// Build PR display string and state
 		prDisplay := "-"
