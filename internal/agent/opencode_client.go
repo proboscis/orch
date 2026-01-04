@@ -674,3 +674,34 @@ func (c *OpenCodeClient) GetSingleSessionStatus(ctx context.Context, sessionID, 
 
 	return status, true, nil
 }
+
+func (c *OpenCodeClient) GetMessages(ctx context.Context, sessionID, directory string) ([]Message, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/session/"+sessionID+"/message", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating messages request: %w", err)
+	}
+	if directory != "" {
+		req.Header.Set("X-OpenCode-Directory", directory)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("getting messages: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("session not found: %s", sessionID)
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("get messages returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var messages []Message
+	if err := json.NewDecoder(resp.Body).Decode(&messages); err != nil {
+		return nil, fmt.Errorf("decoding messages response: %w", err)
+	}
+
+	return messages, nil
+}

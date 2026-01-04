@@ -104,7 +104,47 @@ func (m *OpenCodeManager) IsAlive(run *model.Run) bool {
 }
 
 func (m *OpenCodeManager) CaptureOutput(run *model.Run) (string, error) {
-	return "", nil
+	client := NewOpenCodeClient(m.Port)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	messages, err := client.GetMessages(ctx, m.SessionID, m.Directory)
+	if err != nil {
+		return "", err
+	}
+
+	if len(messages) == 0 {
+		return "", nil
+	}
+
+	return FormatOpenCodeMessages(messages, 100), nil
+}
+
+func FormatOpenCodeMessages(messages []Message, maxLines int) string {
+	var allLines []string
+
+	for _, msg := range messages {
+		role := strings.ToUpper(msg.Info.Role)
+		if role == "" {
+			role = "UNKNOWN"
+		}
+
+		allLines = append(allLines, "--- ["+role+"] ---")
+
+		for _, part := range msg.Parts {
+			if part.Type != "text" || part.Text == "" {
+				continue
+			}
+			partLines := strings.Split(part.Text, "\n")
+			allLines = append(allLines, partLines...)
+		}
+	}
+
+	if len(allLines) <= maxLines {
+		return strings.Join(allLines, "\n")
+	}
+
+	return strings.Join(allLines[len(allLines)-maxLines:], "\n")
 }
 
 func (m *OpenCodeManager) DetectPrompt(output string) bool {
