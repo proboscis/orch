@@ -34,22 +34,22 @@ func TestGetManager(t *testing.T) {
 			wantType: "*agent.TmuxManager",
 		},
 		{
-			name: "opencode run missing session ID falls back to TmuxManager",
+			name: "opencode run missing session ID still returns OpenCodeManager",
 			run: &model.Run{
 				Agent:             "opencode",
 				OpenCodeSessionID: "",
 				ServerPort:        4321,
 			},
-			wantType: "*agent.TmuxManager",
+			wantType: "*agent.OpenCodeManager",
 		},
 		{
-			name: "opencode run missing server port falls back to TmuxManager",
+			name: "opencode run missing server port still returns OpenCodeManager",
 			run: &model.Run{
 				Agent:             "opencode",
 				OpenCodeSessionID: "ses_123",
 				ServerPort:        0,
 			},
-			wantType: "*agent.TmuxManager",
+			wantType: "*agent.OpenCodeManager",
 		},
 	}
 

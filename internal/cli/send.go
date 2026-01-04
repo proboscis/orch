@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"time"
 
-	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/tmux"
+	"github.com/s22625/orch/internal/agent"
 	"github.com/spf13/cobra"
 )
 
@@ -20,10 +22,13 @@ func newSendCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "send <RUN_REF> <MESSAGE>",
 		Short: "Send a message to a running agent",
-		Long: `Send a message to a running agent via tmux.
+		Long: `Send a message to a running agent.
 
-The message is sent to the agent's tmux session using send-keys.
-By default, Enter is pressed after the message to submit it.
+For tmux-based agents (claude, codex, gemini), the message is sent via send-keys.
+For opencode agents, the message is sent via HTTP API.
+
+By default, Enter is pressed after the message for tmux agents.
+The --no-enter flag is ignored for opencode agents.
 
 Examples:
   # Send a message to an agent
@@ -32,7 +37,7 @@ Examples:
   # Send using short ID
   orch send a3b4c5 "Continue with the implementation"
 
-  # Send text without pressing Enter
+  # Send text without pressing Enter (tmux agents only)
   orch send orch-023 "partial input" --no-enter`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -46,11 +51,10 @@ Examples:
 }
 
 type sendResult struct {
-	OK          bool   `json:"ok"`
-	IssueID     string `json:"issue_id"`
-	RunID       string `json:"run_id"`
-	TmuxSession string `json:"tmux_session"`
-	Message     string `json:"message"`
+	OK      bool   `json:"ok"`
+	IssueID string `json:"issue_id"`
+	RunID   string `json:"run_id"`
+	Message string `json:"message"`
 }
 
 func runSend(refStr, message string, opts *sendOptions) error {
@@ -59,7 +63,6 @@ func runSend(refStr, message string, opts *sendOptions) error {
 		return err
 	}
 
-	// Resolve the run
 	run, err := resolveRun(st, refStr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -67,15 +70,20 @@ func runSend(refStr, message string, opts *sendOptions) error {
 		return err
 	}
 
-	// Get tmux session name
-	sessionName := run.TmuxSession
-	if sessionName == "" {
-		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	// Check if session exists
-	if !tmux.HasSession(sessionName) {
-		err := fmt.Errorf("tmux session %q not found (run may not be active)", sessionName)
+	manager := agent.GetManager(run)
+	sendOpts := &agent.SendOptions{NoEnter: opts.NoEnter}
+
+	err = manager.SendMessage(ctx, run, message, sendOpts)
+	if err != nil {
+		exitCode := ExitAgentError
+		var sessionErr *agent.SessionNotFoundError
+		if errors.As(err, &sessionErr) {
+			exitCode = ExitTmuxError
+		}
+
 		if globalOpts.JSON {
 			result := map[string]interface{}{
 				"ok":    false,
@@ -87,40 +95,15 @@ func runSend(refStr, message string, opts *sendOptions) error {
 		} else {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		}
-		os.Exit(ExitTmuxError)
+		os.Exit(exitCode)
 		return err
 	}
 
-	// Send the message
-	if opts.NoEnter {
-		err = tmux.SendKeysLiteral(sessionName, message)
-	} else {
-		err = tmux.SendKeys(sessionName, message)
-	}
-
-	if err != nil {
-		if globalOpts.JSON {
-			result := map[string]interface{}{
-				"ok":    false,
-				"error": err.Error(),
-			}
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			enc.Encode(result)
-		} else {
-			fmt.Fprintf(os.Stderr, "error: failed to send message: %v\n", err)
-		}
-		os.Exit(ExitTmuxError)
-		return err
-	}
-
-	// Output result
 	result := &sendResult{
-		OK:          true,
-		IssueID:     run.IssueID,
-		RunID:       run.RunID,
-		TmuxSession: sessionName,
-		Message:     message,
+		OK:      true,
+		IssueID: run.IssueID,
+		RunID:   run.RunID,
+		Message: message,
 	}
 
 	if globalOpts.JSON {
