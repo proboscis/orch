@@ -15,36 +15,46 @@ type MonitorConfig struct {
 	PSColumns []string `yaml:"ps_columns,omitempty"`
 }
 
+// OpenCodePreset defines a configurable opencode model+variant preset.
+// These presets appear in the monitor agent selection as "opencode:<name>".
+type OpenCodePreset struct {
+	Name    string `yaml:"name"`    // Display name (e.g., "opus:high")
+	Model   string `yaml:"model"`   // Model identifier (e.g., "anthropic/claude-opus-4-5")
+	Variant string `yaml:"variant"` // Model variant (e.g., "high", "max")
+}
+
 // Config holds orch configuration
 type Config struct {
-	Vault          string        `yaml:"vault"`
-	Agent          string        `yaml:"agent"`
-	Model          string        `yaml:"model"`         // Default model (provider/model-id format)
-	ModelVariant   string        `yaml:"model_variant"` // Default model variant (e.g., "max")
-	WorktreeDir    string        `yaml:"worktree_dir"`
-	BaseBranch     string        `yaml:"base_branch"`
-	PRTargetBranch string        `yaml:"pr_target_branch"`
-	LogLevel       string        `yaml:"log_level"`
-	PromptTemplate string        `yaml:"prompt_template"` // Path to custom prompt template
-	NoPR           bool          `yaml:"no_pr"`           // Disable PR instructions by default
-	Monitor        MonitorConfig `yaml:"monitor"`
+	Vault           string           `yaml:"vault"`
+	Agent           string           `yaml:"agent"`
+	Model           string           `yaml:"model"`
+	ModelVariant    string           `yaml:"model_variant"`
+	WorktreeDir     string           `yaml:"worktree_dir"`
+	BaseBranch      string           `yaml:"base_branch"`
+	PRTargetBranch  string           `yaml:"pr_target_branch"`
+	LogLevel        string           `yaml:"log_level"`
+	PromptTemplate  string           `yaml:"prompt_template"`
+	NoPR            bool             `yaml:"no_pr"`
+	Monitor         MonitorConfig    `yaml:"monitor"`
+	OpenCodePresets []OpenCodePreset `yaml:"opencode_presets"`
 }
 
 type fileConfig struct {
-	Vault             string        `yaml:"vault"`
-	VaultLegacy       string        `yaml:"Vault"`
-	DefaultVault      string        `yaml:"default_vault"`
-	Agent             string        `yaml:"agent"`
-	Model             string        `yaml:"model"`
-	ModelVariant      string        `yaml:"model_variant"`
-	WorktreeDir       string        `yaml:"worktree_dir"`
-	WorktreeDirLegacy string        `yaml:"worktree_root"` // Legacy name for backwards compatibility
-	BaseBranch        string        `yaml:"base_branch"`
-	PRTargetBranch    string        `yaml:"pr_target_branch"`
-	LogLevel          string        `yaml:"log_level"`
-	PromptTemplate    string        `yaml:"prompt_template"`
-	NoPR              *bool         `yaml:"no_pr"`
-	Monitor           MonitorConfig `yaml:"monitor"`
+	Vault             string           `yaml:"vault"`
+	VaultLegacy       string           `yaml:"Vault"`
+	DefaultVault      string           `yaml:"default_vault"`
+	Agent             string           `yaml:"agent"`
+	Model             string           `yaml:"model"`
+	ModelVariant      string           `yaml:"model_variant"`
+	WorktreeDir       string           `yaml:"worktree_dir"`
+	WorktreeDirLegacy string           `yaml:"worktree_root"`
+	BaseBranch        string           `yaml:"base_branch"`
+	PRTargetBranch    string           `yaml:"pr_target_branch"`
+	LogLevel          string           `yaml:"log_level"`
+	PromptTemplate    string           `yaml:"prompt_template"`
+	NoPR              *bool            `yaml:"no_pr"`
+	Monitor           MonitorConfig    `yaml:"monitor"`
+	OpenCodePresets   []OpenCodePreset `yaml:"opencode_presets"`
 }
 
 // configFile is the name of the config file
@@ -215,6 +225,9 @@ func loadFromFile(path string, cfg *Config) error {
 	if len(fileCfg.Monitor.PSColumns) > 0 {
 		cfg.Monitor.PSColumns = fileCfg.Monitor.PSColumns
 	}
+	if len(fileCfg.OpenCodePresets) > 0 {
+		cfg.OpenCodePresets = fileCfg.OpenCodePresets
+	}
 
 	return nil
 }
@@ -276,6 +289,16 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("ORCH_NO_PR"); v != "" {
 		cfg.NoPR = v == "true" || v == "1" || v == "yes"
 	}
+}
+
+// GetOpenCodePreset returns the preset with the given name, or nil if not found.
+func (c *Config) GetOpenCodePreset(name string) *OpenCodePreset {
+	for i := range c.OpenCodePresets {
+		if c.OpenCodePresets[i].Name == name {
+			return &c.OpenCodePresets[i]
+		}
+	}
+	return nil
 }
 
 // ExpandPath expands ~ and makes path absolute relative to base

@@ -3,6 +3,7 @@ package monitor
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/model"
@@ -14,11 +15,18 @@ type RunAttacher interface {
 }
 
 func GetRunAttacher(agentType string) RunAttacher {
-	baseAgent, _ := parseAgentVariant(agentType)
+	baseAgent := extractAgentName(agentType)
 	if baseAgent == string(agent.AgentOpenCode) {
 		return &OpenCodeRunAttacher{}
 	}
 	return &TmuxRunAttacher{}
+}
+
+func extractAgentName(agentType string) string {
+	if idx := strings.Index(agentType, ":"); idx != -1 {
+		return agentType[:idx]
+	}
+	return agentType
 }
 
 type TmuxRunAttacher struct{}
