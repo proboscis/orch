@@ -58,22 +58,23 @@ type Options struct {
 
 // Monitor manages tmux windows and dashboard state.
 type Monitor struct {
-	session      string
-	runFilter    RunFilter
-	runSort      SortKey
-	issueSort    SortKey
-	store        store.Store
-	orchPath     string
-	globalFlags  []string
-	agent        string
-	attach       bool
-	forceNew     bool
-	runs         []*RunWindow
-	dashboard    *Dashboard
-	showResolved bool
-	showClosed   bool
-	uiSettings   *UISettings
-	orchDir      string
+	session         string
+	runFilter       RunFilter
+	runSort         SortKey
+	issueSort       SortKey
+	store           store.Store
+	orchPath        string
+	globalFlags     []string
+	agent           string
+	attach          bool
+	forceNew        bool
+	runs            []*RunWindow
+	dashboard       *Dashboard
+	showResolved    bool
+	showClosed      bool
+	uiSettings      *UISettings
+	orchDir         string
+	opencodePresets []config.OpenCodePreset
 }
 
 // RunWindow links a run to a dashboard index.
@@ -103,21 +104,26 @@ func New(st store.Store, opts Options) *Monitor {
 		uiSettings = DefaultUISettings()
 	}
 	orchDir := GetOrchDir(st.VaultPath())
+	var presets []config.OpenCodePreset
+	if cfg, err := config.Load(); err == nil {
+		presets = cfg.OpenCodePresets
+	}
 	return &Monitor{
-		session:      session,
-		runFilter:    newRunFilter(opts),
-		runSort:      runSort,
-		issueSort:    issueSort,
-		store:        st,
-		orchPath:     orchPath,
-		globalFlags:  opts.GlobalFlags,
-		agent:        opts.Agent,
-		attach:       opts.Attach,
-		forceNew:     opts.ForceNew,
-		showResolved: opts.ShowResolved,
-		showClosed:   opts.ShowClosed,
-		uiSettings:   uiSettings,
-		orchDir:      orchDir,
+		session:         session,
+		runFilter:       newRunFilter(opts),
+		runSort:         runSort,
+		issueSort:       issueSort,
+		store:           st,
+		orchPath:        orchPath,
+		globalFlags:     opts.GlobalFlags,
+		agent:           opts.Agent,
+		attach:          opts.Attach,
+		forceNew:        opts.ForceNew,
+		showResolved:    opts.ShowResolved,
+		showClosed:      opts.ShowClosed,
+		uiSettings:      uiSettings,
+		orchDir:         orchDir,
+		opencodePresets: presets,
 	}
 }
 
@@ -378,15 +384,15 @@ func (m *Monitor) StopRun(run *model.Run) error {
 	return m.store.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusCanceled))
 }
 
-// StartRun launches a new run by invoking the orch binary.
-// agentType can include a variant suffix (e.g., "opencode:max") which will be
-// parsed into separate --agent and --model-variant flags.
 func (m *Monitor) StartRun(issueID string, agentType string) (string, error) {
 	args := append([]string{}, m.globalFlags...)
 	args = append(args, "run", issueID)
 	if agentType != "" {
-		agentName, variant := parseAgentVariant(agentType)
+		agentName, model, variant := m.parseAgentPreset(agentType)
 		args = append(args, "--agent", agentName)
+		if model != "" {
+			args = append(args, "--model", model)
+		}
 		if variant != "" {
 			args = append(args, "--model-variant", variant)
 		}
@@ -411,19 +417,24 @@ func (m *Monitor) StartRun(issueID string, agentType string) (string, error) {
 	return output, nil
 }
 
-func parseAgentVariant(agentType string) (agent, variant string) {
-	if idx := strings.Index(agentType, ":"); idx != -1 {
-		return agentType[:idx], agentType[idx+1:]
+func (m *Monitor) parseAgentPreset(agentType string) (agentName, model, variant string) {
+	idx := strings.Index(agentType, ":")
+	if idx == -1 {
+		return agentType, "", ""
 	}
-	return agentType, ""
+
+	agentName = agentType[:idx]
+	presetName := agentType[idx+1:]
+
+	for _, preset := range m.opencodePresets {
+		if preset.Name == presetName {
+			return agentName, preset.Model, preset.Variant
+		}
+	}
+
+	return agentName, "", presetName
 }
 
-// OpenCodeVariants defines the model variants available for opencode agent.
-// These correspond to different thinking modes (e.g., "max" for extended thinking).
-var OpenCodeVariants = []string{"max"}
-
-// GetAvailableAgents returns a list of available agent types.
-// For opencode, it also includes variants like "opencode:max".
 func (m *Monitor) GetAvailableAgents() []string {
 	agents := []string{
 		string(agent.AgentClaude),
@@ -433,7 +444,6 @@ func (m *Monitor) GetAvailableAgents() []string {
 		string(agent.AgentCustom),
 	}
 
-	// Filter to only include available agents
 	available := make([]string, 0, len(agents))
 	for _, agentName := range agents {
 		aType, err := agent.ParseAgentType(agentName)
@@ -444,13 +454,11 @@ func (m *Monitor) GetAvailableAgents() []string {
 		if err != nil {
 			continue
 		}
-		// Custom agent is always technically "available" (has no CLI check)
-		// For others, check if the CLI is installed
 		if adapter.IsAvailable() {
 			available = append(available, agentName)
 			if aType == agent.AgentOpenCode {
-				for _, variant := range OpenCodeVariants {
-					available = append(available, agentName+":"+variant)
+				for _, preset := range m.opencodePresets {
+					available = append(available, agentName+":"+preset.Name)
 				}
 			}
 		}
@@ -573,13 +581,15 @@ func (m *Monitor) ListBranchesForIssue(issueID string) ([]branchInfo, error) {
 	return filterBranchesForIssue(branches, issueID), nil
 }
 
-// ContinueRun launches a continue run by invoking the orch binary.
 func (m *Monitor) ContinueRun(issueID, branch, agentType, prompt string) (string, error) {
 	args := append([]string{}, m.globalFlags...)
 	args = append(args, "continue", "--issue", issueID, "--branch", branch)
 	if agentType != "" {
-		agentName, variant := parseAgentVariant(agentType)
+		agentName, model, variant := m.parseAgentPreset(agentType)
 		args = append(args, "--agent", agentName)
+		if model != "" {
+			args = append(args, "--model", model)
+		}
 		if variant != "" {
 			args = append(args, "--model-variant", variant)
 		}

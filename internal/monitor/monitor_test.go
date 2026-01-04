@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/model"
 )
 
@@ -170,28 +171,60 @@ func TestFilterBranchesForIssueSorting(t *testing.T) {
 	}
 }
 
-func TestParseAgentVariant(t *testing.T) {
+func TestExtractAgentName(t *testing.T) {
 	tests := []struct {
-		input       string
-		wantAgent   string
-		wantVariant string
+		input     string
+		wantAgent string
 	}{
-		{"claude", "claude", ""},
-		{"opencode", "opencode", ""},
-		{"opencode:max", "opencode", "max"},
-		{"opencode:standard", "opencode", "standard"},
-		{"custom:myvariant", "custom", "myvariant"},
-		{"", "", ""},
+		{"claude", "claude"},
+		{"opencode", "opencode"},
+		{"opencode:max", "opencode"},
+		{"opencode:opus:high", "opencode"},
+		{"custom:myvariant", "custom"},
+		{"", ""},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			agent, variant := parseAgentVariant(tt.input)
+			agent := extractAgentName(tt.input)
 			if agent != tt.wantAgent {
-				t.Errorf("parseAgentVariant(%q) agent = %q, want %q", tt.input, agent, tt.wantAgent)
+				t.Errorf("extractAgentName(%q) = %q, want %q", tt.input, agent, tt.wantAgent)
+			}
+		})
+	}
+}
+
+func TestParseAgentPreset(t *testing.T) {
+	presets := []config.OpenCodePreset{
+		{Name: "opus:high", Model: "anthropic/claude-opus-4-5", Variant: "high"},
+		{Name: "gpt5.2", Model: "openai/gpt-5.2", Variant: ""},
+	}
+	m := &Monitor{opencodePresets: presets}
+
+	tests := []struct {
+		input       string
+		wantAgent   string
+		wantModel   string
+		wantVariant string
+	}{
+		{"opencode", "opencode", "", ""},
+		{"opencode:opus:high", "opencode", "anthropic/claude-opus-4-5", "high"},
+		{"opencode:gpt5.2", "opencode", "openai/gpt-5.2", ""},
+		{"opencode:unknown", "opencode", "", "unknown"},
+		{"claude", "claude", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			agent, model, variant := m.parseAgentPreset(tt.input)
+			if agent != tt.wantAgent {
+				t.Errorf("parseAgentPreset(%q) agent = %q, want %q", tt.input, agent, tt.wantAgent)
+			}
+			if model != tt.wantModel {
+				t.Errorf("parseAgentPreset(%q) model = %q, want %q", tt.input, model, tt.wantModel)
 			}
 			if variant != tt.wantVariant {
-				t.Errorf("parseAgentVariant(%q) variant = %q, want %q", tt.input, variant, tt.wantVariant)
+				t.Errorf("parseAgentPreset(%q) variant = %q, want %q", tt.input, variant, tt.wantVariant)
 			}
 		})
 	}
