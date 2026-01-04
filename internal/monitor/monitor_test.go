@@ -195,28 +195,31 @@ func TestExtractAgentName(t *testing.T) {
 }
 
 func TestParseAgentPreset(t *testing.T) {
-	presets := []config.OpenCodePreset{
-		{Name: "opus:high", Model: "anthropic/claude-opus-4-5", Variant: "high"},
-		{Name: "gpt5.2", Model: "openai/gpt-5.2", Variant: ""},
+	presets := []config.Preset{
+		{Name: "opus:high", Backend: "opencode", Model: "anthropic/claude-opus-4-5", Variant: "high"},
+		{Name: "gpt5.2", Backend: "opencode", Model: "openai/gpt-5.2", Variant: ""},
+		{Name: "dev", Backend: "claude", Profile: "developer"},
 	}
-	m := &Monitor{opencodePresets: presets}
+	m := &Monitor{presets: presets}
 
 	tests := []struct {
 		input       string
 		wantAgent   string
 		wantModel   string
 		wantVariant string
+		wantProfile string
 	}{
-		{"opencode", "opencode", "", ""},
-		{"opencode:opus:high", "opencode", "anthropic/claude-opus-4-5", "high"},
-		{"opencode:gpt5.2", "opencode", "openai/gpt-5.2", ""},
-		{"opencode:unknown", "opencode", "", "unknown"},
-		{"claude", "claude", "", ""},
+		{"opencode", "opencode", "", "", ""},
+		{"opencode:opus:high", "opencode", "anthropic/claude-opus-4-5", "high", ""},
+		{"opencode:gpt5.2", "opencode", "openai/gpt-5.2", "", ""},
+		{"opencode:unknown", "opencode", "", "unknown", ""},
+		{"claude", "claude", "", "", ""},
+		{"claude:dev", "claude", "", "", "developer"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			agent, model, variant := m.parseAgentPreset(tt.input)
+			agent, model, variant, profile := m.parseAgentPreset(tt.input)
 			if agent != tt.wantAgent {
 				t.Errorf("parseAgentPreset(%q) agent = %q, want %q", tt.input, agent, tt.wantAgent)
 			}
@@ -225,6 +228,9 @@ func TestParseAgentPreset(t *testing.T) {
 			}
 			if variant != tt.wantVariant {
 				t.Errorf("parseAgentPreset(%q) variant = %q, want %q", tt.input, variant, tt.wantVariant)
+			}
+			if profile != tt.wantProfile {
+				t.Errorf("parseAgentPreset(%q) profile = %q, want %q", tt.input, profile, tt.wantProfile)
 			}
 		})
 	}

@@ -58,23 +58,23 @@ type Options struct {
 
 // Monitor manages tmux windows and dashboard state.
 type Monitor struct {
-	session         string
-	runFilter       RunFilter
-	runSort         SortKey
-	issueSort       SortKey
-	store           store.Store
-	orchPath        string
-	globalFlags     []string
-	agent           string
-	attach          bool
-	forceNew        bool
-	runs            []*RunWindow
-	dashboard       *Dashboard
-	showResolved    bool
-	showClosed      bool
-	uiSettings      *UISettings
-	orchDir         string
-	opencodePresets []config.OpenCodePreset
+	session      string
+	runFilter    RunFilter
+	runSort      SortKey
+	issueSort    SortKey
+	store        store.Store
+	orchPath     string
+	globalFlags  []string
+	agent        string
+	attach       bool
+	forceNew     bool
+	runs         []*RunWindow
+	dashboard    *Dashboard
+	showResolved bool
+	showClosed   bool
+	uiSettings   *UISettings
+	orchDir      string
+	presets      []config.Preset
 }
 
 // RunWindow links a run to a dashboard index.
@@ -104,26 +104,26 @@ func New(st store.Store, opts Options) *Monitor {
 		uiSettings = DefaultUISettings()
 	}
 	orchDir := GetOrchDir(st.VaultPath())
-	var presets []config.OpenCodePreset
+	var presets []config.Preset
 	if cfg, err := config.Load(); err == nil {
-		presets = cfg.OpenCodePresets
+		presets = cfg.GetAllPresets()
 	}
 	return &Monitor{
-		session:         session,
-		runFilter:       newRunFilter(opts),
-		runSort:         runSort,
-		issueSort:       issueSort,
-		store:           st,
-		orchPath:        orchPath,
-		globalFlags:     opts.GlobalFlags,
-		agent:           opts.Agent,
-		attach:          opts.Attach,
-		forceNew:        opts.ForceNew,
-		showResolved:    opts.ShowResolved,
-		showClosed:      opts.ShowClosed,
-		uiSettings:      uiSettings,
-		orchDir:         orchDir,
-		opencodePresets: presets,
+		session:      session,
+		runFilter:    newRunFilter(opts),
+		runSort:      runSort,
+		issueSort:    issueSort,
+		store:        st,
+		orchPath:     orchPath,
+		globalFlags:  opts.GlobalFlags,
+		agent:        opts.Agent,
+		attach:       opts.Attach,
+		forceNew:     opts.ForceNew,
+		showResolved: opts.ShowResolved,
+		showClosed:   opts.ShowClosed,
+		uiSettings:   uiSettings,
+		orchDir:      orchDir,
+		presets:      presets,
 	}
 }
 
@@ -388,13 +388,16 @@ func (m *Monitor) StartRun(issueID string, agentType string) (string, error) {
 	args := append([]string{}, m.globalFlags...)
 	args = append(args, "run", issueID)
 	if agentType != "" {
-		agentName, model, variant := m.parseAgentPreset(agentType)
+		agentName, model, variant, profile := m.parseAgentPreset(agentType)
 		args = append(args, "--agent", agentName)
 		if model != "" {
 			args = append(args, "--model", model)
 		}
 		if variant != "" {
 			args = append(args, "--model-variant", variant)
+		}
+		if profile != "" {
+			args = append(args, "--profile", profile)
 		}
 	}
 
@@ -417,22 +420,22 @@ func (m *Monitor) StartRun(issueID string, agentType string) (string, error) {
 	return output, nil
 }
 
-func (m *Monitor) parseAgentPreset(agentType string) (agentName, model, variant string) {
+func (m *Monitor) parseAgentPreset(agentType string) (agentName, model, variant, profile string) {
 	idx := strings.Index(agentType, ":")
 	if idx == -1 {
-		return agentType, "", ""
+		return agentType, "", "", ""
 	}
 
 	agentName = agentType[:idx]
 	presetName := agentType[idx+1:]
 
-	for _, preset := range m.opencodePresets {
-		if preset.Name == presetName {
-			return agentName, preset.Model, preset.Variant
+	for _, preset := range m.presets {
+		if preset.Name == presetName && preset.EffectiveBackend() == agentName {
+			return agentName, preset.Model, preset.Variant, preset.Profile
 		}
 	}
 
-	return agentName, "", presetName
+	return agentName, "", presetName, ""
 }
 
 func (m *Monitor) GetAvailableAgents() []string {
@@ -456,8 +459,8 @@ func (m *Monitor) GetAvailableAgents() []string {
 		}
 		if adapter.IsAvailable() {
 			available = append(available, agentName)
-			if aType == agent.AgentOpenCode {
-				for _, preset := range m.opencodePresets {
+			for _, preset := range m.presets {
+				if preset.EffectiveBackend() == agentName {
 					available = append(available, agentName+":"+preset.Name)
 				}
 			}
@@ -585,13 +588,16 @@ func (m *Monitor) ContinueRun(issueID, branch, agentType, prompt string) (string
 	args := append([]string{}, m.globalFlags...)
 	args = append(args, "continue", "--issue", issueID, "--branch", branch)
 	if agentType != "" {
-		agentName, model, variant := m.parseAgentPreset(agentType)
+		agentName, model, variant, profile := m.parseAgentPreset(agentType)
 		args = append(args, "--agent", agentName)
 		if model != "" {
 			args = append(args, "--model", model)
 		}
 		if variant != "" {
 			args = append(args, "--model-variant", variant)
+		}
+		if profile != "" {
+			args = append(args, "--profile", profile)
 		}
 	}
 

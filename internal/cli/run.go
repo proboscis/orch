@@ -38,6 +38,7 @@ type runOptions struct {
 	PRTargetBranch string
 	Model          string
 	ModelVariant   string
+	Preset         string
 	Verbose        bool
 }
 
@@ -80,6 +81,7 @@ Debug output can be enabled with --verbose, --log-level debug, or ORCH_DEBUG=1.`
 	cmd.Flags().StringVar(&opts.PromptTemplate, "prompt-template", "", "Custom prompt template file")
 	cmd.Flags().StringVar(&opts.Model, "model", "", "Model for opencode (provider/model format, e.g., anthropic/claude-opus-4-5)")
 	cmd.Flags().StringVar(&opts.ModelVariant, "model-variant", "", "Model variant (e.g., 'max' for max thinking)")
+	cmd.Flags().StringVar(&opts.Preset, "preset", "", "Named preset from config (e.g., 'opus:high', 'gpt5.2-codex:xhigh')")
 	cmd.Flags().BoolVarP(&opts.Verbose, "verbose", "v", false, "Enable debug output for troubleshooting")
 
 	return cmd
@@ -204,9 +206,11 @@ func runRun(issueID string, opts *runOptions) error {
 		return nil
 	}
 
-	// Create run document
 	metadata := map[string]string{
 		"agent": opts.Agent,
+	}
+	if opts.Preset != "" {
+		metadata["preset"] = opts.Preset
 	}
 	if opts.Model != "" {
 		metadata["model"] = opts.Model
@@ -557,16 +561,35 @@ func buildSimplePrompt(issue *model.Issue, opts *promptOptions) string {
 	return prompt
 }
 
-// applyPromptConfigDefaults applies config file defaults for prompt options
-// Command-line flags take precedence over config values
 func applyPromptConfigDefaults(opts *runOptions) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
 
-	// Apply config defaults for core run options
-	// Only apply if command-line flag wasn't explicitly set (empty string = not set)
+	agentExplicit := opts.Agent != ""
+	modelExplicit := opts.Model != ""
+	variantExplicit := opts.ModelVariant != ""
+	profileExplicit := opts.AgentProfile != ""
+
+	if opts.Preset != "" {
+		preset := cfg.GetPreset(opts.Preset)
+		if preset == nil {
+			return fmt.Errorf("preset not found: %s", opts.Preset)
+		}
+		if !agentExplicit {
+			opts.Agent = preset.EffectiveBackend()
+		}
+		if !modelExplicit && preset.Model != "" {
+			opts.Model = preset.Model
+		}
+		if !variantExplicit && preset.Variant != "" {
+			opts.ModelVariant = preset.Variant
+		}
+		if !profileExplicit && preset.Profile != "" {
+			opts.AgentProfile = preset.Profile
+		}
+	}
 
 	// BaseBranch: use config value if flag not provided, fallback to "main"
 	if opts.BaseBranch == "" {
