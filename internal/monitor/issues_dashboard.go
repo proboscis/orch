@@ -352,6 +352,11 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return d, d.loadIssueBranchesCmd(row.ID)
 		}
 		return d, nil
+	case d.keymap.Attach:
+		if row := d.currentIssue(); row != nil {
+			return d, d.attachIssueCmd(row.ID)
+		}
+		return d, nil
 	case "up", "k":
 		if d.cursor > 0 {
 			d.cursor--
@@ -1417,6 +1422,32 @@ func (d *IssueDashboard) continueRunCmd(issueID, branch, agentType, prompt strin
 		}
 		return infoMsg{text: output}
 	}
+}
+
+func (d *IssueDashboard) attachIssueCmd(issueID string) tea.Cmd {
+	return func() tea.Msg {
+		runs, err := d.monitor.ListRunsForIssue(issueID)
+		if err != nil {
+			return errMsg{err: err}
+		}
+		if len(runs) == 0 {
+			return errMsg{err: fmt.Errorf("no runs found for issue %s", issueID)}
+		}
+		targetRun := findActiveOrLatestRun(runs)
+		if err := d.monitor.OpenRun(targetRun); err != nil {
+			return errMsg{err: err}
+		}
+		return infoMsg{text: fmt.Sprintf("attached to %s#%s", targetRun.IssueID, targetRun.RunID)}
+	}
+}
+
+func findActiveOrLatestRun(runs []*model.Run) *model.Run {
+	for _, run := range runs {
+		if isActiveStatus(run.Status) {
+			return run
+		}
+	}
+	return runs[0]
 }
 
 func (d *IssueDashboard) currentContinueBranch() string {
