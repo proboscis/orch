@@ -12,20 +12,39 @@ import (
 	"time"
 )
 
-// OpenCodeClient is an HTTP client for the opencode server API
-type OpenCodeClient struct {
-	baseURL    string
-	httpClient *http.Client
+type DebugLogger interface {
+	Printf(format string, args ...interface{})
 }
 
-// NewOpenCodeClient creates a new client for the opencode server
+type OpenCodeClient struct {
+	baseURL    string
+	port       int
+	httpClient *http.Client
+	debug      DebugLogger
+}
+
 func NewOpenCodeClient(port int) *OpenCodeClient {
 	return &OpenCodeClient{
 		baseURL: fmt.Sprintf("http://127.0.0.1:%d", port),
+		port:    port,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
 	}
+}
+
+func (c *OpenCodeClient) SetDebugLogger(logger DebugLogger) {
+	c.debug = logger
+}
+
+func (c *OpenCodeClient) logDebug(format string, args ...interface{}) {
+	if c.debug != nil {
+		c.debug.Printf(format, args...)
+	}
+}
+
+func (c *OpenCodeClient) Port() int {
+	return c.port
 }
 
 // retry executes fn with exponential backoff
@@ -141,10 +160,16 @@ type Event struct {
 	Properties json.RawMessage `json:"properties"`
 }
 
-// IsServerRunning checks if an opencode server is running on the configured port
 func (c *OpenCodeClient) IsServerRunning(ctx context.Context) bool {
+	c.logDebug("Checking if server is running on port %d...", c.port)
 	health, err := c.Health(ctx)
-	return err == nil && health.Healthy
+	running := err == nil && health.Healthy
+	if running {
+		c.logDebug("Server is running on port %d", c.port)
+	} else {
+		c.logDebug("No server running on port %d", c.port)
+	}
+	return running
 }
 
 // ProjectInfo represents the current project info from opencode
@@ -193,20 +218,24 @@ func (c *OpenCodeClient) IsServerRunningForWorktree(ctx context.Context, worktre
 	return project.Worktree == worktreePath
 }
 
-// Health checks if the opencode server is healthy
 func (c *OpenCodeClient) Health(ctx context.Context) (*HealthResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/global/health", nil)
+	url := c.baseURL + "/global/health"
+	c.logDebug("Health check: GET %s", url)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating health request: %w", err)
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		c.logDebug("Health check failed: %v", err)
 		return nil, fmt.Errorf("health check failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		c.logDebug("Health check returned status %d", resp.StatusCode)
 		return nil, fmt.Errorf("health check returned status %d", resp.StatusCode)
 	}
 
@@ -215,6 +244,7 @@ func (c *OpenCodeClient) Health(ctx context.Context) (*HealthResponse, error) {
 		return nil, fmt.Errorf("decoding health response: %w", err)
 	}
 
+	c.logDebug("Health check: %d OK (healthy=%v, version=%s)", resp.StatusCode, health.Healthy, health.Version)
 	return &health, nil
 }
 
@@ -247,7 +277,6 @@ func (c *OpenCodeClient) CreateSession(ctx context.Context, title, directory str
 	})
 }
 
-// createSessionOnce creates a new session (single attempt)
 func (c *OpenCodeClient) createSessionOnce(ctx context.Context, title, directory string) (*Session, error) {
 	body := map[string]string{}
 	if title != "" {
@@ -259,24 +288,30 @@ func (c *OpenCodeClient) createSessionOnce(ctx context.Context, title, directory
 		return nil, fmt.Errorf("marshaling session request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/session", bytes.NewReader(jsonBody))
+	url := c.baseURL + "/session"
+	c.logDebug("Creating session: POST %s", url)
+	c.logDebug("  X-OpenCode-Directory: %s", directory)
+	c.logDebug("  Body: %s", string(jsonBody))
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonBody))
 	if err != nil {
 		return nil, fmt.Errorf("creating session request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	// Set the working directory for this session via header
 	if directory != "" {
 		req.Header.Set("X-OpenCode-Directory", directory)
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		c.logDebug("Create session failed: %v", err)
 		return nil, fmt.Errorf("creating session: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
+		c.logDebug("Create session returned status %d: %s", resp.StatusCode, string(body))
 		return nil, fmt.Errorf("create session returned status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -285,6 +320,9 @@ func (c *OpenCodeClient) createSessionOnce(ctx context.Context, title, directory
 		return nil, fmt.Errorf("decoding session response: %w", err)
 	}
 
+	c.logDebug("Session created: %d %s", resp.StatusCode, http.StatusText(resp.StatusCode))
+	c.logDebug("  Session ID: %s", session.ID)
+	c.logDebug("  Directory: %s", session.Directory)
 	return &session, nil
 }
 
@@ -380,7 +418,6 @@ func (c *OpenCodeClient) sendMessagePromptOnce(ctx context.Context, sessionID, t
 	return nil
 }
 
-// sendMessageAsyncOnce sends a message asynchronously (single attempt)
 func (c *OpenCodeClient) sendMessageAsyncOnce(ctx context.Context, sessionID, text, directory string, model *ModelRef, variant string) error {
 	reqBody := PromptRequest{
 		Parts: []MessagePart{
@@ -395,27 +432,40 @@ func (c *OpenCodeClient) sendMessageAsyncOnce(ctx context.Context, sessionID, te
 		return fmt.Errorf("marshaling message request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/session/"+sessionID+"/prompt_async", bytes.NewReader(jsonBody))
+	url := c.baseURL + "/session/" + sessionID + "/prompt_async"
+	c.logDebug("Sending async prompt: POST %s", url)
+	c.logDebug("  X-OpenCode-Directory: %s", directory)
+	if model != nil {
+		c.logDebug("  Model: %s/%s", model.ProviderID, model.ModelID)
+	}
+	if variant != "" {
+		c.logDebug("  Variant: %s", variant)
+	}
+	c.logDebug("  Prompt: %.100s...", text)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonBody))
 	if err != nil {
 		return fmt.Errorf("creating async message request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	// Set the working directory context via header
 	if directory != "" {
 		req.Header.Set("X-OpenCode-Directory", directory)
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		c.logDebug("Send async prompt failed: %v", err)
 		return fmt.Errorf("sending async message: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		c.logDebug("Send async prompt returned status %d: %s", resp.StatusCode, string(body))
 		return fmt.Errorf("send async message returned status %d: %s", resp.StatusCode, string(body))
 	}
 
+	c.logDebug("Prompt sent: %d %s", resp.StatusCode, http.StatusText(resp.StatusCode))
 	return nil
 }
 
