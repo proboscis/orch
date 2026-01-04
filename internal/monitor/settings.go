@@ -9,10 +9,11 @@ import (
 
 // UISettings holds persistent UI settings for the monitor.
 type UISettings struct {
-	RunSort      SortKey `yaml:"run_sort,omitempty"`
-	IssueSort    SortKey `yaml:"issue_sort,omitempty"`
-	ShowResolved bool    `yaml:"show_resolved"`
-	ShowClosed   bool    `yaml:"show_closed"`
+	RunSort        SortKey  `yaml:"run_sort,omitempty"`
+	IssueSort      SortKey  `yaml:"issue_sort,omitempty"`
+	ShowResolved   bool     `yaml:"show_resolved"`
+	ShowClosed     bool     `yaml:"show_closed"`
+	FavoriteAgents []string `yaml:"favorite_agents,omitempty"`
 }
 
 const uiSettingsFile = "monitor-settings.yaml"
