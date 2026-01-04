@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/store"
@@ -149,7 +150,7 @@ func repairDaemon(vaultPath string, opts *repairOptions) (bool, error) {
 	return true, fmt.Errorf("daemon failed to start")
 }
 
-// repairStaleRuns finds runs marked as "running" but with no tmux session
+// repairStaleRuns finds runs marked as "running" but with no active agent session
 func repairStaleRuns(st store.Store, opts *repairOptions) (int, error) {
 	runs, err := st.ListRuns(&store.ListRunsFilter{
 		Status: []model.Status{model.StatusRunning, model.StatusBooting},
@@ -160,16 +161,13 @@ func repairStaleRuns(st store.Store, opts *repairOptions) (int, error) {
 
 	fixed := 0
 	for _, run := range runs {
-		sessionName := run.TmuxSession
-		if sessionName == "" {
-			sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+		// Use AgentManager to check if agent is alive (works for both tmux and opencode)
+		mgr := agent.GetManager(run)
+		if mgr.IsAlive(run) {
+			continue // Agent is alive, run is fine
 		}
 
-		if tmux.HasSession(sessionName) {
-			continue // Session exists, run is fine
-		}
-
-		fmt.Printf("  %s#%s: marked running but no session\n", run.IssueID, run.RunID)
+		fmt.Printf("  %s#%s: marked running but agent not alive\n", run.IssueID, run.RunID)
 		fixed++
 
 		if opts.DryRun {
