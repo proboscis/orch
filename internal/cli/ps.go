@@ -664,7 +664,10 @@ func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
 
 	var branchesWithChanges []string
 	for branch, r := range branchToRun {
-		ahead := aheadCounts[branch]
+		ahead, ok := aheadCounts[branch]
+		if !ok {
+			continue
+		}
 		if ahead == 0 {
 			states[r.RunID] = "clean"
 		} else {

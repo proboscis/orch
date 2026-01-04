@@ -146,14 +146,17 @@ func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
 			continue
 		}
 
-		conflict, _ := git.CheckMergeConflict(repoRoot, r.Branch, targetRef)
-		ahead, _ := git.GetAheadCount(repoRoot, r.Branch, targetRef)
+		ahead, err := git.GetAheadCount(repoRoot, r.Branch, targetRef)
+		if err != nil {
+			continue
+		}
 
 		if ahead == 0 {
 			states[r.RunID] = "clean"
 			continue
 		}
 
+		conflict, _ := git.CheckMergeConflict(repoRoot, r.Branch, targetRef)
 		if conflict {
 			states[r.RunID] = "conflict"
 		} else {
