@@ -100,6 +100,8 @@ func TestSocketServerStartStop(t *testing.T) {
 	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
 		t.Error("socket file not cleaned up")
 	}
+
+	server.Stop()
 }
 
 func TestSocketServerSendRequest(t *testing.T) {
