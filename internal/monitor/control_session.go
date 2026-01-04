@@ -29,6 +29,10 @@ func LoadControlSession(orchDir string) *ControlSession {
 		return nil
 	}
 
+	if session.SessionID == "" {
+		return nil
+	}
+
 	return &session
 }
 
@@ -36,16 +40,24 @@ func SaveControlSession(orchDir string, session *ControlSession) error {
 	if orchDir == "" {
 		return nil
 	}
+	if session == nil || session.SessionID == "" {
+		return nil
+	}
 
 	if err := os.MkdirAll(orchDir, 0755); err != nil {
 		return err
 	}
 
-	path := filepath.Join(orchDir, controlSessionFile)
 	data, err := json.MarshalIndent(session, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0644)
+	path := filepath.Join(orchDir, controlSessionFile)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		return err
+	}
+
+	return os.Rename(tmp, path)
 }

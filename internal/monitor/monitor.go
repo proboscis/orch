@@ -1137,9 +1137,15 @@ func (m *Monitor) sendPromptViaHTTP(launch agentChatLaunch) {
 
 func (m *Monitor) getOrCreateControlSession(ctx context.Context, client *agent.OpenCodeClient, port int) string {
 	stored := LoadControlSession(m.orchDir)
-	if stored != nil && stored.SessionID != "" && stored.Port == port {
+	if stored != nil && stored.SessionID != "" {
 		session, err := client.GetSession(ctx, stored.SessionID, m.store.VaultPath())
 		if err == nil && session != nil {
+			if stored.Port != port {
+				_ = SaveControlSession(m.orchDir, &ControlSession{
+					SessionID: stored.SessionID,
+					Port:      port,
+				})
+			}
 			return stored.SessionID
 		}
 	}
