@@ -1,0 +1,22 @@
+[project]
+name = "orch-monitor"
+version = "0.1.0"
+description = "Python Textual-based TUI for orch monitor"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "textual>=0.47.0",
+    "rich>=13.7.0",
+    "pyyaml>=6.0.1",
+    "python-frontmatter>=1.1.0",
+]
+
+[project.scripts]
+orch-monitor = "orch_monitor.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = []
