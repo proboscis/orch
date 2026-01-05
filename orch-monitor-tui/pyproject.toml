@@ -1,0 +1,12 @@
+[project]
+name = "orch-monitor"
+version = "0.1.0"
+description = "Python Textual-based TUI for orch monitor"
+requires-python = ">=3.13"
+dependencies = [
+    "pyyaml>=6.0.3",
+    "textual>=7.0.0",
+]
+
+[project.scripts]
+orch-monitor = "orch_monitor.app:main"
