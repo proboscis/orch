@@ -13,31 +13,35 @@ Python Textual-based terminal user interface for `orch monitor`.
 ## Installation
 
 ```bash
-cd orch-monitor-tui
-uv sync
+uv tool install /path/to/orch/orch-monitor-tui
+```
+
+Or from git:
+
+```bash
+uv tool install "git+https://github.com/proboscis/orch#subdirectory=orch-monitor-tui"
 ```
 
 ## Usage
 
-### Run with uv
+Run from any directory (uses `ORCH_VAULT` env var or `.orch/config.yaml`):
 
 ```bash
-cd orch-monitor-tui
-uv run python -m orch_monitor
+orch-monitor
 ```
 
 Or specify vault path:
 
 ```bash
-uv run python -m orch_monitor --vault ~/my-vault
+orch-monitor --vault ~/my-vault
 ```
 
-### Install as command
+### Development
 
 ```bash
 cd orch-monitor-tui
-uv pip install -e .
-orch-monitor
+uv sync
+uv run python -m orch_monitor
 ```
 
 ## Keybindings
