@@ -166,7 +166,8 @@ class RunsDashboard(App):
         self.runs: list[Run] = []
         self.selected_run: Optional[Run] = None
         self.status_filter: set[Status] = set()
-        self.auto_refresh_enabled = auto_refresh
+        self._auto_refresh_enabled = auto_refresh
+        self.title = f"Runs [{self.config.vault_path.name}]"
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -176,10 +177,10 @@ class RunsDashboard(App):
 
     def on_mount(self) -> None:
         self.refresh_data()
-        if self.auto_refresh_enabled:
-            self.set_interval(AUTO_REFRESH_INTERVAL, self.auto_refresh)
+        if self._auto_refresh_enabled:
+            self.set_interval(AUTO_REFRESH_INTERVAL, self._do_auto_refresh)
 
-    def auto_refresh(self) -> None:
+    def _do_auto_refresh(self) -> None:
         self.refresh_data()
 
     def action_refresh(self) -> None:
@@ -258,7 +259,8 @@ class IssuesDashboard(App):
         self.vault = VaultReader(self.config.vault_path)
         self.issues: list[Issue] = []
         self.selected_issue: Optional[Issue] = None
-        self.auto_refresh_enabled = auto_refresh
+        self._auto_refresh_enabled = auto_refresh
+        self.title = f"Issues [{self.config.vault_path.name}]"
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -268,10 +270,10 @@ class IssuesDashboard(App):
 
     def on_mount(self) -> None:
         self.refresh_data()
-        if self.auto_refresh_enabled:
-            self.set_interval(AUTO_REFRESH_INTERVAL, self.auto_refresh)
+        if self._auto_refresh_enabled:
+            self.set_interval(AUTO_REFRESH_INTERVAL, self._do_auto_refresh)
 
-    def auto_refresh(self) -> None:
+    def _do_auto_refresh(self) -> None:
         self.refresh_data()
 
     def action_refresh(self) -> None:
@@ -342,7 +344,8 @@ class OrchMonitorApp(App):
         self.selected_issue: Optional[Issue] = None
         self.current_focus = "runs"
         self.status_filter: set[Status] = set()
-        self.auto_refresh_enabled = auto_refresh
+        self._auto_refresh_enabled = auto_refresh
+        self.title = f"Orch Monitor [{self.config.vault_path.name}]"
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -362,10 +365,10 @@ class OrchMonitorApp(App):
 
     def on_mount(self) -> None:
         self.refresh_data()
-        if self.auto_refresh_enabled:
-            self.set_interval(AUTO_REFRESH_INTERVAL, self.auto_refresh)
+        if self._auto_refresh_enabled:
+            self.set_interval(AUTO_REFRESH_INTERVAL, self._do_auto_refresh)
 
-    def auto_refresh(self) -> None:
+    def _do_auto_refresh(self) -> None:
         self.refresh_data()
 
     def action_refresh(self) -> None:
