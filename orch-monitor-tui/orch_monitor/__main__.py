@@ -34,7 +34,7 @@ def launch_tmux_layout(vault_path: Path | None, agent: str = "opencode"):
         return
 
     python_exec = sys.executable
-    package_dir = Path(__file__).parent.parent.resolve()
+    cwd = os.getcwd()
     env_export = f"export ORCH_VAULT='{vault_path}'; " if vault_path else ""
 
     subprocess.run(
@@ -49,13 +49,11 @@ def launch_tmux_layout(vault_path: Path | None, agent: str = "opencode"):
             "-y",
             "50",
             "-c",
-            str(package_dir),
+            cwd,
         ]
     )
 
-    subprocess.run(
-        ["tmux", "split-window", "-h", "-t", SESSION_NAME, "-c", str(package_dir)]
-    )
+    subprocess.run(["tmux", "split-window", "-h", "-t", SESSION_NAME, "-c", cwd])
     subprocess.run(
         [
             "tmux",
@@ -66,7 +64,7 @@ def launch_tmux_layout(vault_path: Path | None, agent: str = "opencode"):
             "-p",
             "70",
             "-c",
-            str(package_dir),
+            cwd,
         ]
     )
 
