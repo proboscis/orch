@@ -843,3 +843,76 @@ opencode_presets:
 		t.Errorf("expected 4 total presets, got %d", len(allPresets))
 	}
 }
+
+func TestDefaultPresetConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_AGENT", "")
+	t.Setenv("ORCH_DEFAULT_PRESET", "")
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+
+	configContent := `vault: /repo
+presets:
+  - name: opus:high
+    backend: opencode
+    model: anthropic/claude-opus-4-5
+    variant: high
+default_preset: opus:high
+`
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(configContent), 0644); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	if cfg.DefaultPreset != "opus:high" {
+		t.Errorf("DefaultPreset = %q, want opus:high", cfg.DefaultPreset)
+	}
+}
+
+func TestDefaultPresetEnv(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_DEFAULT_PRESET", "sonnet:max")
+
+	repo := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	if cfg.DefaultPreset != "sonnet:max" {
+		t.Errorf("DefaultPreset = %q, want sonnet:max", cfg.DefaultPreset)
+	}
+}

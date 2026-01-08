@@ -66,6 +66,7 @@ type Config struct {
 	Presets         []Preset         `yaml:"presets"`
 	OpenCodePresets []OpenCodePreset `yaml:"opencode_presets"` // Deprecated: use Presets instead
 	OpenCode        OpenCodeConfig   `yaml:"opencode"`
+	DefaultPreset   string           `yaml:"default_preset"` // Default preset to use when no --preset flag is provided
 
 	// Control agent settings (for orch monitor 'c' keybinding)
 	// Falls back to run agent defaults if not set
@@ -92,6 +93,7 @@ type fileConfig struct {
 	Presets             []Preset         `yaml:"presets"`
 	OpenCodePresets     []OpenCodePreset `yaml:"opencode_presets"`
 	OpenCode            OpenCodeConfig   `yaml:"opencode"`
+	DefaultPreset       string           `yaml:"default_preset"`
 	ControlAgent        string           `yaml:"control_agent"`
 	ControlModel        string           `yaml:"control_model"`
 	ControlModelVariant string           `yaml:"control_model_variant"`
@@ -277,6 +279,9 @@ func loadFromFile(path string, cfg *Config) error {
 	if fileCfg.OpenCode.DefaultVariant != "" {
 		cfg.OpenCode.DefaultVariant = fileCfg.OpenCode.DefaultVariant
 	}
+	if fileCfg.DefaultPreset != "" {
+		cfg.DefaultPreset = fileCfg.DefaultPreset
+	}
 	if fileCfg.ControlAgent != "" {
 		cfg.ControlAgent = fileCfg.ControlAgent
 	}
@@ -352,6 +357,9 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("ORCH_OPENCODE_DEFAULT_VARIANT"); v != "" {
 		cfg.OpenCode.DefaultVariant = v
+	}
+	if v := os.Getenv("ORCH_DEFAULT_PRESET"); v != "" {
+		cfg.DefaultPreset = v
 	}
 	if v := os.Getenv("ORCH_CONTROL_AGENT"); v != "" {
 		cfg.ControlAgent = v
