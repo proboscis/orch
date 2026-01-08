@@ -572,10 +572,15 @@ func applyPromptConfigDefaults(opts *runOptions) error {
 	variantExplicit := opts.ModelVariant != ""
 	profileExplicit := opts.AgentProfile != ""
 
-	if opts.Preset != "" {
-		preset := cfg.GetPreset(opts.Preset)
+	presetName := opts.Preset
+	if presetName == "" && cfg.DefaultPreset != "" {
+		presetName = cfg.DefaultPreset
+	}
+
+	if presetName != "" {
+		preset := cfg.GetPreset(presetName)
 		if preset == nil {
-			return fmt.Errorf("preset not found: %s", opts.Preset)
+			return fmt.Errorf("preset not found: %s", presetName)
 		}
 		if !agentExplicit {
 			opts.Agent = preset.EffectiveBackend()
