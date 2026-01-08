@@ -4,16 +4,117 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-from textual import on
+from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Vertical
-from textual.widgets import Footer, Header, TabbedContent, TabPane
+from textual.containers import Container, Vertical, Horizontal, Grid
+from textual.screen import ModalScreen
+from textual.widgets import (
+    Footer,
+    Header,
+    TabbedContent,
+    TabPane,
+    Button,
+    Checkbox,
+    Label,
+    Static,
+)
 
 from .config import Config
-from .models import Issue, Run
+from .models import Issue, IssueStatus, Run, Status
 from .vault import VaultReader
 from .widgets import DetailPanel, IssueTable, RunTable
+
+
+AUTO_REFRESH_INTERVAL = 5.0
+
+
+class StatusFilterScreen(ModalScreen[set[Status] | None]):
+    """Modal screen for filtering runs by status."""
+
+    CSS = """
+    StatusFilterScreen {
+        align: center middle;
+    }
+    
+    #filter-dialog {
+        width: 50;
+        height: auto;
+        padding: 1 2;
+        background: $surface;
+        border: thick $primary;
+    }
+    
+    #filter-title {
+        text-align: center;
+        width: 100%;
+        padding-bottom: 1;
+    }
+    
+    #filter-checkboxes {
+        height: auto;
+        padding: 1;
+    }
+    
+    #filter-buttons {
+        height: 3;
+        align: center middle;
+        padding-top: 1;
+    }
+    
+    #filter-buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(self, current_filter: set[Status]):
+        super().__init__()
+        self.current_filter = current_filter
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="filter-dialog"):
+            yield Label("Filter by Status", id="filter-title")
+            with Vertical(id="filter-checkboxes"):
+                for status in Status:
+                    if status != Status.UNKNOWN:
+                        checked = (
+                            status in self.current_filter or not self.current_filter
+                        )
+                        yield Checkbox(
+                            status.value, value=checked, id=f"status-{status.value}"
+                        )
+            with Horizontal(id="filter-buttons"):
+                yield Button("Apply", variant="primary", id="apply-btn")
+                yield Button("Clear All", id="clear-btn")
+                yield Button("Cancel", id="cancel-btn")
+
+    @on(Button.Pressed, "#apply-btn")
+    def apply_filter(self) -> None:
+        selected: set[Status] = set()
+        for status in Status:
+            if status != Status.UNKNOWN:
+                checkbox = self.query_one(f"#status-{status.value}", Checkbox)
+                if checkbox.value:
+                    selected.add(status)
+        self.dismiss(selected)
+
+    @on(Button.Pressed, "#clear-btn")
+    def clear_filter(self) -> None:
+        for status in Status:
+            if status != Status.UNKNOWN:
+                checkbox = self.query_one(f"#status-{status.value}", Checkbox)
+                checkbox.value = True
+
+    @on(Button.Pressed, "#cancel-btn")
+    def cancel(self) -> None:
+        self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
 
 COMMON_CSS = """
@@ -52,9 +153,10 @@ class RunsDashboard(App):
         Binding("r", "refresh", "Refresh"),
         Binding("enter", "attach", "Attach"),
         Binding("s", "stop", "Stop"),
+        Binding("f", "filter", "Filter"),
     ]
 
-    def __init__(self, vault_path: Optional[Path] = None):
+    def __init__(self, vault_path: Optional[Path] = None, auto_refresh: bool = True):
         super().__init__()
         if vault_path:
             self.config = Config.from_vault(vault_path)
@@ -63,6 +165,8 @@ class RunsDashboard(App):
         self.vault = VaultReader(self.config.vault_path)
         self.runs: list[Run] = []
         self.selected_run: Optional[Run] = None
+        self.status_filter: set[Status] = set()
+        self.auto_refresh_enabled = auto_refresh
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -72,14 +176,29 @@ class RunsDashboard(App):
 
     def on_mount(self) -> None:
         self.refresh_data()
+        if self.auto_refresh_enabled:
+            self.set_interval(AUTO_REFRESH_INTERVAL, self.auto_refresh)
+
+    def auto_refresh(self) -> None:
+        self.refresh_data()
 
     def action_refresh(self) -> None:
         self.refresh_data()
+
+    def action_filter(self) -> None:
+        self.push_screen(StatusFilterScreen(self.status_filter), self.on_filter_result)
+
+    def on_filter_result(self, result: set[Status] | None) -> None:
+        if result is not None:
+            self.status_filter = result
+            self.refresh_data()
 
     def refresh_data(self) -> None:
         from datetime import datetime
 
         self.runs = self.vault.list_runs()
+        if self.status_filter:
+            self.runs = [r for r in self.runs if r.status in self.status_filter]
         self.runs.sort(
             key=lambda r: r.updated_at or r.started_at or datetime.min, reverse=True
         )
@@ -130,7 +249,7 @@ class IssuesDashboard(App):
         Binding("enter", "new_run", "New Run"),
     ]
 
-    def __init__(self, vault_path: Optional[Path] = None):
+    def __init__(self, vault_path: Optional[Path] = None, auto_refresh: bool = True):
         super().__init__()
         if vault_path:
             self.config = Config.from_vault(vault_path)
@@ -139,6 +258,7 @@ class IssuesDashboard(App):
         self.vault = VaultReader(self.config.vault_path)
         self.issues: list[Issue] = []
         self.selected_issue: Optional[Issue] = None
+        self.auto_refresh_enabled = auto_refresh
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -147,6 +267,11 @@ class IssuesDashboard(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        self.refresh_data()
+        if self.auto_refresh_enabled:
+            self.set_interval(AUTO_REFRESH_INTERVAL, self.auto_refresh)
+
+    def auto_refresh(self) -> None:
         self.refresh_data()
 
     def action_refresh(self) -> None:
@@ -198,10 +323,11 @@ class OrchMonitorApp(App):
         Binding("a", "attach", "Attach"),
         Binding("s", "stop", "Stop"),
         Binding("n", "new_run", "New Run"),
+        Binding("f", "filter", "Filter"),
         Binding("tab", "switch_focus", "Switch Focus"),
     ]
 
-    def __init__(self, vault_path: Optional[Path] = None):
+    def __init__(self, vault_path: Optional[Path] = None, auto_refresh: bool = True):
         super().__init__()
 
         if vault_path:
@@ -215,6 +341,8 @@ class OrchMonitorApp(App):
         self.selected_run: Optional[Run] = None
         self.selected_issue: Optional[Issue] = None
         self.current_focus = "runs"
+        self.status_filter: set[Status] = set()
+        self.auto_refresh_enabled = auto_refresh
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -234,14 +362,29 @@ class OrchMonitorApp(App):
 
     def on_mount(self) -> None:
         self.refresh_data()
+        if self.auto_refresh_enabled:
+            self.set_interval(AUTO_REFRESH_INTERVAL, self.auto_refresh)
+
+    def auto_refresh(self) -> None:
+        self.refresh_data()
 
     def action_refresh(self) -> None:
         self.refresh_data()
+
+    def action_filter(self) -> None:
+        self.push_screen(StatusFilterScreen(self.status_filter), self.on_filter_result)
+
+    def on_filter_result(self, result: set[Status] | None) -> None:
+        if result is not None:
+            self.status_filter = result
+            self.refresh_data()
 
     def refresh_data(self) -> None:
         from datetime import datetime
 
         self.runs = self.vault.list_runs()
+        if self.status_filter:
+            self.runs = [r for r in self.runs if r.status in self.status_filter]
         self.runs.sort(
             key=lambda r: r.updated_at or r.started_at or datetime.min, reverse=True
         )
