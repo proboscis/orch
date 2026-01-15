@@ -11,6 +11,10 @@ dependencies = [
     "python-frontmatter>=1.1.0",
 ]
 
+[project.optional-dependencies]
+# Rust backend for faster vault scanning (matches Go implementation behavior)
+rust = ["orch_vault_rs"]
+
 [project.scripts]
 orch-monitor = "orch_monitor.__main__:main"
 
@@ -19,4 +23,4 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [dependency-groups]
-dev = []
+dev = ["maturin>=1.4,<2.0"]
