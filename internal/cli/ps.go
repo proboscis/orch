@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/s22625/orch/internal/agent"
@@ -26,6 +27,8 @@ type psOptions struct {
 	Since        string
 	AbsoluteTime bool
 	All          bool
+	NoGit        bool
+	NoAlive      bool
 }
 
 type psIssueInfo struct {
@@ -58,6 +61,8 @@ func newPsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.Since, "since", "", "Only show runs updated since (ISO8601)")
 	cmd.Flags().BoolVar(&opts.AbsoluteTime, "absolute-time", false, "Show absolute timestamps instead of relative")
 	cmd.Flags().BoolVarP(&opts.All, "all", "a", false, "Show all runs including those from resolved issues")
+	cmd.Flags().BoolVar(&opts.NoGit, "no-git", false, "Skip git merge state checks for faster listing")
+	cmd.Flags().BoolVar(&opts.NoAlive, "no-alive", false, "Skip agent alive checks for faster listing")
 
 	return cmd
 }
@@ -123,7 +128,11 @@ func runPs(opts *psOptions) error {
 	}
 
 	populatePRUrls(runs)
-	aliveByRun := resolveAgentAliveInfo(runs)
+
+	var aliveByRun map[string]agentAliveInfo
+	if !opts.NoAlive {
+		aliveByRun = resolveAgentAliveInfo(runs)
+	}
 
 	// Output based on format
 	now := time.Now()
@@ -133,7 +142,7 @@ func runPs(opts *psOptions) error {
 	if globalOpts.TSV {
 		return outputTSVWithIssueInfo(runs, issueCache, aliveByRun)
 	}
-	return outputTableWithIssueInfo(runs, now, opts.AbsoluteTime, issueCache, aliveByRun)
+	return outputTableWithIssueInfoOpts(runs, now, opts, issueCache, aliveByRun)
 }
 
 func resolveIssueInfo(st store.Store, cache map[string]psIssueInfo, issueID string) psIssueInfo {
@@ -272,6 +281,10 @@ func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
 }
 
 func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime bool, issueCache map[string]psIssueInfo, aliveByRun map[string]agentAliveInfo) error {
+	return outputTableWithIssueInfoOpts(runs, now, &psOptions{AbsoluteTime: absoluteTime}, issueCache, aliveByRun)
+}
+
+func outputTableWithIssueInfoOpts(runs []*model.Run, now time.Time, opts *psOptions, issueCache map[string]psIssueInfo, aliveByRun map[string]agentAliveInfo) error {
 	if len(runs) == 0 {
 		if !globalOpts.Quiet {
 			fmt.Println("No runs found")
@@ -290,12 +303,14 @@ func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime boo
 		}
 	}
 
-	baseBranch := ""
-	if cfg, err := config.Load(); err == nil && cfg.BaseBranch != "" {
-		baseBranch = cfg.BaseBranch
+	var gitStates map[string]string
+	if !opts.NoGit {
+		baseBranch := ""
+		if cfg, err := config.Load(); err == nil && cfg.BaseBranch != "" {
+			baseBranch = cfg.BaseBranch
+		}
+		gitStates = gitStatesForRuns(runs, baseBranch)
 	}
-
-	gitStates := gitStatesForRuns(runs, baseBranch)
 
 	// Collect data rows
 	headers := []string{"ID", "ISSUE", "ISSUE-ST", "AGENT", "MODEL", "STATUS", "ALIVE", "BRANCH", "WORKTREE", "PR", "MERGED", "STARTED", "UPDATED", "TOPIC"}
@@ -303,11 +318,11 @@ func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime boo
 
 	for _, r := range runs {
 		started := formatRelativeTime(r.StartedAt, now)
-		if absoluteTime {
+		if opts.AbsoluteTime {
 			started = r.StartedAt.Format("01-02 15:04")
 		}
 		updated := formatRelativeTime(r.UpdatedAt, now)
-		if absoluteTime {
+		if opts.AbsoluteTime {
 			updated = r.UpdatedAt.Format("01-02 15:04")
 		}
 		displayID := r.ShortID()
@@ -592,17 +607,34 @@ func resolveAgentAliveInfo(runs []*model.Run) map[string]agentAliveInfo {
 		return nil
 	}
 
+	agent.RefreshTmuxCache()
+
 	aliveByRun := make(map[string]agentAliveInfo, len(runs))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	sem := make(chan struct{}, 8)
 
 	for _, r := range runs {
 		if r == nil {
 			continue
 		}
-		manager := agent.GetManager(r)
-		alive := manager.IsAlive(r)
-		aliveByRun[r.RunID] = agentAliveInfo{alive: alive, known: true}
+		wg.Add(1)
+		go func(run *model.Run) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			manager := agent.GetManager(run)
+			alive := manager.IsAlive(run)
+
+			mu.Lock()
+			aliveByRun[run.RunID] = agentAliveInfo{alive: alive, known: true}
+			mu.Unlock()
+		}(r)
 	}
 
+	wg.Wait()
 	return aliveByRun
 }
 
@@ -639,7 +671,7 @@ func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
 		branches = append(branches, r.Branch)
 	}
 
-	branchStates := git.GetBranchMergeStates("", target, branches)
+	branchStates := git.GetCachedBranchMergeStates("", target, branches)
 	if branchStates == nil {
 		return nil
 	}
