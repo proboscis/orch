@@ -27,6 +27,16 @@ func (d *Daemon) monitorRun(run *model.Run) error {
 	} else {
 		state.DeadCheckCount++
 		if !state.WasAlive {
+			// Agent was never confirmed alive. For opencode runs, check if there are
+			// clear completion signals (merged PR, clean worktree) before giving up.
+			// This handles cases where the daemon started after the agent finished.
+			if run.Agent == "opencode" && state.DeadCheckCount >= deadChecksBeforeFailed {
+				inferredStatus := d.inferStatusFromGitState(run)
+				if inferredStatus != "" {
+					d.logger.Printf("%s#%s: agent never confirmed alive, but inferred status from git state: %s", run.IssueID, run.RunID, inferredStatus)
+					return d.updateStatus(run, inferredStatus)
+				}
+			}
 			d.logger.Printf("%s#%s: agent not alive yet (never confirmed alive), waiting", run.IssueID, run.RunID)
 			return nil
 		}
