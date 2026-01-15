@@ -133,44 +133,37 @@ func walkWithSymlinks(root string, walkFn filepath.WalkFunc) error {
 	return nil
 }
 
-// scanIssues walks the vault and finds all files with type: issue frontmatter
+// scanIssues scans the issues directory for issue files
 func (s *FileStore) scanIssues() error {
-	runsDir := filepath.Join(s.vaultPath, "runs")
+	issuesDir := filepath.Join(s.vaultPath, "issues")
 	issues := make(map[string]*model.Issue)
 
 	s.issueMu.Lock()
 	defer s.issueMu.Unlock()
 
-	err := walkWithSymlinks(s.vaultPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil // Skip files we can't access
-		}
-
-		// Skip directories and non-markdown files
-		if info.IsDir() {
-			if path == runsDir {
-				return filepath.SkipDir
-			}
+	entries, err := os.ReadDir(issuesDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			s.issueCache = issues
+			s.cacheDirty = false
 			return nil
 		}
+		s.cacheDirty = true
+		return err
+	}
 
-		if !strings.HasSuffix(path, ".md") {
-			return nil
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
 		}
 
-		// Try to parse as issue
+		path := filepath.Join(issuesDir, entry.Name())
 		issue, err := s.parseIssueFile(path)
 		if err != nil || issue == nil {
-			return nil // Not an issue file
+			continue
 		}
 
 		issues[issue.ID] = issue
-		return nil
-	})
-
-	if err != nil {
-		s.cacheDirty = true
-		return err
 	}
 
 	s.issueCache = issues
@@ -601,88 +594,7 @@ func (s *FileStore) loadRun(issueID, runID, path string) (*model.Run, error) {
 
 // ListRuns lists runs matching the filter
 func (s *FileStore) ListRuns(filter *store.ListRunsFilter) ([]*model.Run, error) {
-	var runs []*model.Run
-	runsRoot := filepath.Join(s.vaultPath, "runs")
-
-	// Get list of issue directories
-	var issueDirs []string
-	if filter != nil && filter.IssueID != "" {
-		issueDirs = []string{filter.IssueID}
-	} else {
-		entries, err := os.ReadDir(runsRoot)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return runs, nil
-			}
-			return nil, err
-		}
-		for _, e := range entries {
-			if e.IsDir() {
-				issueDirs = append(issueDirs, e.Name())
-			}
-		}
-	}
-
-	// Parse since filter
-	var sinceTime time.Time
-	if filter != nil && filter.Since != "" {
-		var err error
-		sinceTime, err = time.Parse(time.RFC3339, filter.Since)
-		if err != nil {
-			return nil, fmt.Errorf("invalid since timestamp: %w", err)
-		}
-	}
-
-	// Status filter set
-	statusSet := make(map[model.Status]bool)
-	if filter != nil {
-		for _, s := range filter.Status {
-			statusSet[s] = true
-		}
-	}
-
-	// Load runs from each issue directory
-	for _, issueID := range issueDirs {
-		issueRunsDir := filepath.Join(runsRoot, issueID)
-		entries, err := os.ReadDir(issueRunsDir)
-		if err != nil {
-			continue
-		}
-
-		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-				continue
-			}
-
-			runID := strings.TrimSuffix(e.Name(), ".md")
-			run, err := s.loadRun(issueID, runID, filepath.Join(issueRunsDir, e.Name()))
-			if err != nil {
-				continue
-			}
-
-			// Apply filters
-			if len(statusSet) > 0 && !statusSet[run.Status] {
-				continue
-			}
-			if !sinceTime.IsZero() && run.UpdatedAt.Before(sinceTime) {
-				continue
-			}
-
-			runs = append(runs, run)
-		}
-	}
-
-	// Sort by updated_at descending
-	sort.Slice(runs, func(i, j int) bool {
-		return runs[i].UpdatedAt.After(runs[j].UpdatedAt)
-	})
-
-	// Apply limit
-	if filter != nil && filter.Limit > 0 && len(runs) > filter.Limit {
-		runs = runs[:filter.Limit]
-	}
-
-	return runs, nil
+	return s.listRunsIndexed(filter)
 }
 
 // SetIssueStatus updates the status of an issue in its frontmatter
