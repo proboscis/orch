@@ -142,6 +142,90 @@ func checkMergeConflictLegacy(repoRoot, branch, target string) (bool, error) {
 	return hasMergeTreeConflict(string(output)), nil
 }
 
+const (
+	MergeStateClean    = "clean"
+	MergeStateDirty    = "dirty"
+	MergeStateMerged   = "merged"
+	MergeStateConflict = "conflict"
+)
+
+func GetBranchMergeStates(repoRoot, target string, branches []string) map[string]string {
+	if len(branches) == 0 {
+		return nil
+	}
+
+	if repoRoot == "" {
+		var err error
+		repoRoot, err = FindRepoRoot("")
+		if err != nil {
+			return nil
+		}
+	}
+
+	targetRef, merged, err := MergedBranchesForTarget(repoRoot, target)
+	if err != nil {
+		return nil
+	}
+
+	targetHead := GetBranchHead(repoRoot, targetRef)
+
+	states := make(map[string]string)
+	var unmergedBranches []string
+
+	for _, branch := range branches {
+		if branch == "" {
+			continue
+		}
+
+		if merged[branch] {
+			branchHead := GetBranchHead(repoRoot, branch)
+			if branchHead != "" && branchHead == targetHead {
+				states[branch] = MergeStateClean
+			} else {
+				states[branch] = MergeStateMerged
+			}
+			continue
+		}
+
+		unmergedBranches = append(unmergedBranches, branch)
+	}
+
+	if len(unmergedBranches) == 0 {
+		return states
+	}
+
+	aheadCounts := GetBranchesAheadCounts(repoRoot, targetRef, unmergedBranches)
+
+	var branchesWithChanges []string
+	for _, branch := range unmergedBranches {
+		ahead, ok := aheadCounts[branch]
+		if !ok {
+			continue
+		}
+		if ahead == 0 {
+			states[branch] = MergeStateClean
+		} else {
+			branchesWithChanges = append(branchesWithChanges, branch)
+		}
+	}
+
+	if len(branchesWithChanges) == 0 {
+		return states
+	}
+
+	conflicts := CheckMergeConflicts(repoRoot, targetRef, branchesWithChanges)
+
+	for _, branch := range branchesWithChanges {
+		if conflicts[branch] {
+			states[branch] = MergeStateConflict
+		} else {
+			states[branch] = MergeStateDirty
+		}
+	}
+
+	return states
+}
+
 func CheckMergeConflicts(repoRoot, target string, branches []string) map[string]bool {
 	if len(branches) == 0 {
 		return nil
