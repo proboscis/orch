@@ -50,6 +50,34 @@ type OpenCodeConfig struct {
 	DefaultVariant string `yaml:"default_variant,omitempty"`
 }
 
+// SlackConfig holds configuration for Slack notifications.
+type SlackConfig struct {
+	Enabled    bool     `yaml:"enabled"`
+	WebhookURL string   `yaml:"webhook_url,omitempty"`
+	BotToken   string   `yaml:"bot_token,omitempty"`
+	Channel    string   `yaml:"channel,omitempty"`
+	NotifyOn   []string `yaml:"notify_on,omitempty"` // Events to notify on: blocked, blocked_api, done, failed
+}
+
+func (s *SlackConfig) ShouldNotify(status string) bool {
+	if !s.Enabled {
+		return false
+	}
+	if len(s.NotifyOn) == 0 {
+		return status == "blocked" || status == "blocked_api"
+	}
+	for _, n := range s.NotifyOn {
+		if n == status {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *SlackConfig) IsConfigured() bool {
+	return s.Enabled && (s.WebhookURL != "" || (s.BotToken != "" && s.Channel != ""))
+}
+
 // Config holds orch configuration
 type Config struct {
 	Vault           string           `yaml:"vault"`
@@ -67,6 +95,7 @@ type Config struct {
 	OpenCodePresets []OpenCodePreset `yaml:"opencode_presets"` // Deprecated: use Presets instead
 	OpenCode        OpenCodeConfig   `yaml:"opencode"`
 	DefaultPreset   string           `yaml:"default_preset"` // Default preset to use when no --preset flag is provided
+	Slack           SlackConfig      `yaml:"slack"`
 
 	// Control agent settings (for orch monitor 'c' keybinding)
 	// Falls back to run agent defaults if not set
@@ -94,6 +123,7 @@ type fileConfig struct {
 	OpenCodePresets     []OpenCodePreset `yaml:"opencode_presets"`
 	OpenCode            OpenCodeConfig   `yaml:"opencode"`
 	DefaultPreset       string           `yaml:"default_preset"`
+	Slack               *SlackConfig     `yaml:"slack"`
 	ControlAgent        string           `yaml:"control_agent"`
 	ControlModel        string           `yaml:"control_model"`
 	ControlModelVariant string           `yaml:"control_model_variant"`
@@ -282,6 +312,9 @@ func loadFromFile(path string, cfg *Config) error {
 	if fileCfg.DefaultPreset != "" {
 		cfg.DefaultPreset = fileCfg.DefaultPreset
 	}
+	if fileCfg.Slack != nil {
+		cfg.Slack = *fileCfg.Slack
+	}
 	if fileCfg.ControlAgent != "" {
 		cfg.ControlAgent = fileCfg.ControlAgent
 	}
@@ -369,6 +402,18 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("ORCH_CONTROL_MODEL_VARIANT"); v != "" {
 		cfg.ControlModelVariant = v
+	}
+	if v := os.Getenv("ORCH_SLACK_WEBHOOK_URL"); v != "" {
+		cfg.Slack.WebhookURL = v
+		if !cfg.Slack.Enabled {
+			cfg.Slack.Enabled = true
+		}
+	}
+	if v := os.Getenv("ORCH_SLACK_BOT_TOKEN"); v != "" {
+		cfg.Slack.BotToken = v
+	}
+	if v := os.Getenv("ORCH_SLACK_CHANNEL"); v != "" {
+		cfg.Slack.Channel = v
 	}
 }
 

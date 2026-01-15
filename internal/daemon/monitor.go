@@ -82,7 +82,10 @@ func (d *Daemon) monitorRun(run *model.Run) error {
 
 	if newStatus != "" && newStatus != run.Status {
 		d.logger.Printf("%s#%s: status change %s -> %s", run.IssueID, run.RunID, run.Status, newStatus)
-		return d.updateStatus(run, newStatus)
+		if err := d.updateStatus(run, newStatus); err != nil {
+			return err
+		}
+		d.notifyStatusChange(run, newStatus)
 	}
 
 	return nil
@@ -132,4 +135,34 @@ func (d *Daemon) recordPRArtifact(run *model.Run, prURL string) error {
 		"url": prURL,
 	})
 	return d.store.AppendEvent(ref, event)
+}
+
+func (d *Daemon) notifyStatusChange(run *model.Run, newStatus model.Status) {
+	if d.slackNotifier == nil || d.config == nil {
+		return
+	}
+
+	if !d.config.Slack.ShouldNotify(string(newStatus)) {
+		return
+	}
+
+	issueTitle := run.IssueID
+	if issue, err := d.store.ResolveIssue(run.IssueID); err == nil && issue != nil {
+		if issue.Title != "" {
+			issueTitle = issue.Title
+		}
+	}
+
+	var err error
+	if newStatus == model.StatusBlocked || newStatus == model.StatusBlockedAPI {
+		err = d.slackNotifier.NotifyBlocked(run, issueTitle)
+	} else {
+		err = d.slackNotifier.NotifyStatusChange(run, issueTitle, newStatus)
+	}
+
+	if err != nil {
+		d.logger.Printf("%s#%s: failed to send slack notification: %v", run.IssueID, run.RunID, err)
+	} else {
+		d.logger.Printf("%s#%s: sent slack notification for status %s", run.IssueID, run.RunID, newStatus)
+	}
 }
