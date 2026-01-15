@@ -198,3 +198,37 @@ func statusDescription(status model.Status) string {
 		return string(status)
 	}
 }
+
+// SendTest sends a test notification to verify Slack is configured correctly.
+// Returns the channel name used (for success messages).
+func (s *SlackNotifier) SendTest(message string) (string, error) {
+	if message == "" {
+		message = ":white_check_mark: orch Slack integration test successful!"
+	}
+
+	msg := SlackMessage{
+		Text:        message,
+		UnfurlLinks: false,
+	}
+
+	var channelName string
+	if s.config.BotToken != "" && s.config.Channel != "" {
+		msg.Channel = s.config.Channel
+		channelName = s.config.Channel
+		if err := s.sendBotMessage(msg); err != nil {
+			return "", err
+		}
+	} else {
+		channelName = "webhook"
+		if err := s.sendWebhookMessage(msg); err != nil {
+			return "", err
+		}
+	}
+
+	return channelName, nil
+}
+
+// IsConfigured returns whether the notifier is properly configured.
+func (s *SlackNotifier) IsConfigured() bool {
+	return s.config.IsConfigured()
+}
