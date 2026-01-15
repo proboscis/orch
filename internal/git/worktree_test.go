@@ -76,11 +76,11 @@ func TestCreateWorktree(t *testing.T) {
 	worktreeRoot := filepath.Join(repo, ".git-worktrees")
 
 	result, err := CreateWorktree(&WorktreeConfig{
-		RepoRoot:     repo,
+		RepoRoot:    repo,
 		WorktreeDir: worktreeRoot,
-		IssueID:      "issue",
-		RunID:        "run",
-		Agent:        "claude",
+		IssueID:     "issue",
+		RunID:       "run",
+		Agent:       "claude",
 	})
 	if err != nil {
 		t.Fatalf("CreateWorktree error: %v", err)
@@ -139,11 +139,11 @@ func TestCreateWorktreeRelativeRootUsesRepoRoot(t *testing.T) {
 	})
 
 	result, err := CreateWorktree(&WorktreeConfig{
-		RepoRoot:     repo,
+		RepoRoot:    repo,
 		WorktreeDir: ".git-worktrees",
-		IssueID:      "issue",
-		RunID:        "run",
-		Agent:        "claude",
+		IssueID:     "issue",
+		RunID:       "run",
+		Agent:       "claude",
 	})
 	if err != nil {
 		t.Fatalf("CreateWorktree error: %v", err)
@@ -187,12 +187,12 @@ func TestCreateWorktreeFromBranch(t *testing.T) {
 
 	worktreeRoot := filepath.Join(repo, ".git-worktrees")
 	result, err := CreateWorktreeFromBranch(&WorktreeConfig{
-		RepoRoot:     repo,
+		RepoRoot:    repo,
 		WorktreeDir: worktreeRoot,
-		IssueID:      "issue",
-		RunID:        "run",
-		Agent:        "claude",
-		Branch:       "feature-branch",
+		IssueID:     "issue",
+		RunID:       "run",
+		Agent:       "claude",
+		Branch:      "feature-branch",
 	})
 	if err != nil {
 		t.Fatalf("CreateWorktreeFromBranch error: %v", err)
@@ -218,11 +218,11 @@ func TestListWorktreeInfos(t *testing.T) {
 	repo := initRepo(t)
 	worktreeRoot := filepath.Join(repo, ".git-worktrees")
 	result, err := CreateWorktree(&WorktreeConfig{
-		RepoRoot:     repo,
+		RepoRoot:    repo,
 		WorktreeDir: worktreeRoot,
-		IssueID:      "issue",
-		RunID:        "run",
-		Agent:        "claude",
+		IssueID:     "issue",
+		RunID:       "run",
+		Agent:       "claude",
 	})
 	if err != nil {
 		t.Fatalf("CreateWorktree error: %v", err)
@@ -245,11 +245,11 @@ func TestFindWorktreesByBranch(t *testing.T) {
 	repo := initRepo(t)
 	worktreeRoot := filepath.Join(repo, ".git-worktrees")
 	result, err := CreateWorktree(&WorktreeConfig{
-		RepoRoot:     repo,
+		RepoRoot:    repo,
 		WorktreeDir: worktreeRoot,
-		IssueID:      "issue",
-		RunID:        "run",
-		Agent:        "claude",
+		IssueID:     "issue",
+		RunID:       "run",
+		Agent:       "claude",
 	})
 	if err != nil {
 		t.Fatalf("CreateWorktree error: %v", err)
@@ -303,10 +303,10 @@ func containsWorktreeInfo(infos []WorktreeInfo, wantPath, wantBranch string) boo
 
 func TestParseRemoteBranch(t *testing.T) {
 	tests := []struct {
-		name         string
-		baseBranch   string
-		wantRemote   string
-		wantBranch   string
+		name       string
+		baseBranch string
+		wantRemote string
+		wantBranch string
 	}{
 		{
 			name:       "empty defaults to origin/main",
@@ -464,5 +464,82 @@ func TestCreateWorktreeFallsBackToLocalBranch(t *testing.T) {
 
 	if _, err := os.Stat(result.WorktreePath); err != nil {
 		t.Fatalf("worktree missing: %v", err)
+	}
+}
+
+func TestHasUncommittedChanges(t *testing.T) {
+	repo := initRepo(t)
+
+	if HasUncommittedChanges(repo) {
+		t.Fatal("clean repo should not have uncommitted changes")
+	}
+
+	newFile := filepath.Join(repo, "new.txt")
+	if err := os.WriteFile(newFile, []byte("new"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	if !HasUncommittedChanges(repo) {
+		t.Fatal("repo with untracked file should have uncommitted changes")
+	}
+
+	runGit(t, repo, "add", "new.txt")
+	if !HasUncommittedChanges(repo) {
+		t.Fatal("repo with staged file should have uncommitted changes")
+	}
+
+	runGit(t, repo, "commit", "-m", "add new file")
+	if HasUncommittedChanges(repo) {
+		t.Fatal("clean repo after commit should not have uncommitted changes")
+	}
+}
+
+func TestHasUncommittedChangesWithModifiedFile(t *testing.T) {
+	repo := initRepo(t)
+
+	readme := filepath.Join(repo, "README.md")
+	if err := os.WriteFile(readme, []byte("modified"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	if !HasUncommittedChanges(repo) {
+		t.Fatal("repo with modified file should have uncommitted changes")
+	}
+}
+
+func TestHasUncommittedChangesEmptyPath(t *testing.T) {
+	if HasUncommittedChanges("") {
+		t.Fatal("empty path should return false")
+	}
+}
+
+func TestHasUncommittedChangesNonExistentPath(t *testing.T) {
+	if HasUncommittedChanges("/nonexistent/path/xyz123") {
+		t.Fatal("non-existent path should return false")
+	}
+}
+
+func TestGetWorktreeDirtyStates(t *testing.T) {
+	repo := initRepo(t)
+	repo2 := initRepo(t)
+
+	newFile := filepath.Join(repo, "dirty.txt")
+	if err := os.WriteFile(newFile, []byte("dirty"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	states := GetWorktreeDirtyStates([]string{repo, repo2})
+	if !states[repo] {
+		t.Fatalf("expected repo %s to be dirty", repo)
+	}
+	if states[repo2] {
+		t.Fatalf("expected repo %s to be clean", repo2)
+	}
+}
+
+func TestGetWorktreeDirtyStatesEmptySlice(t *testing.T) {
+	states := GetWorktreeDirtyStates(nil)
+	if states != nil {
+		t.Fatal("expected nil for empty input")
 	}
 }

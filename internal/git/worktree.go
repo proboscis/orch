@@ -365,3 +365,33 @@ func GetCurrentBranch(repoPath string) (string, error) {
 	}
 	return strings.TrimSpace(string(output)), nil
 }
+
+func HasUncommittedChanges(worktreePath string) bool {
+	if worktreePath == "" {
+		return false
+	}
+	if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
+		return false
+	}
+	cmd := execCommand("git", "-C", worktreePath, "status", "--porcelain")
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(output)) != ""
+}
+
+func GetWorktreeDirtyStates(worktreePaths []string) map[string]bool {
+	if len(worktreePaths) == 0 {
+		return nil
+	}
+
+	results := make(map[string]bool)
+	for _, path := range worktreePaths {
+		if path == "" {
+			continue
+		}
+		results[path] = HasUncommittedChanges(path)
+	}
+	return results
+}
