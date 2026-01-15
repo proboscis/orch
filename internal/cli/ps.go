@@ -628,44 +628,18 @@ func colorAlive(info agentAliveInfo) string {
 }
 
 func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
-	branchToRunID := make(map[string]string)
-	runIDToWorktree := make(map[string]string)
-	var branches []string
-	var worktreePaths []string
-
+	runInfos := make([]git.RunInfo, 0, len(runs))
 	for _, r := range runs {
-		if r.Branch == "" {
+		if r == nil {
 			continue
 		}
-		branchToRunID[r.Branch] = r.RunID
-		branches = append(branches, r.Branch)
-		if r.WorktreePath != "" {
-			runIDToWorktree[r.RunID] = r.WorktreePath
-			worktreePaths = append(worktreePaths, r.WorktreePath)
-		}
+		runInfos = append(runInfos, git.RunInfo{
+			RunID:        r.RunID,
+			Branch:       r.Branch,
+			WorktreePath: r.WorktreePath,
+		})
 	}
-
-	branchStates := git.GetBranchMergeStates("", target, branches)
-	if branchStates == nil {
-		branchStates = make(map[string]string)
-	}
-
-	dirtyWorktrees := git.GetWorktreeDirtyStates(worktreePaths)
-
-	states := make(map[string]string)
-	for branch, runID := range branchToRunID {
-		if state, ok := branchStates[branch]; ok {
-			states[runID] = state
-		}
-	}
-
-	for runID, worktreePath := range runIDToWorktree {
-		if dirtyWorktrees[worktreePath] {
-			states[runID] = git.MergeStateUncommit
-		}
-	}
-
-	return states
+	return git.GetRunMergeStates(runInfos, target)
 }
 
 // parseStatusList parses a comma-separated status list

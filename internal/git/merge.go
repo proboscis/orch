@@ -257,3 +257,50 @@ func CheckMergeConflicts(repoRoot, target string, branches []string) map[string]
 	wg.Wait()
 	return results
 }
+
+type RunInfo struct {
+	RunID        string
+	Branch       string
+	WorktreePath string
+}
+
+func GetRunMergeStates(runs []RunInfo, target string) map[string]string {
+	branchToRunID := make(map[string]string)
+	runIDToWorktree := make(map[string]string)
+	var branches []string
+	var worktreePaths []string
+
+	for _, r := range runs {
+		if r.Branch == "" {
+			continue
+		}
+		branchToRunID[r.Branch] = r.RunID
+		branches = append(branches, r.Branch)
+		if r.WorktreePath != "" {
+			runIDToWorktree[r.RunID] = r.WorktreePath
+			worktreePaths = append(worktreePaths, r.WorktreePath)
+		}
+	}
+
+	branchStates := GetBranchMergeStates("", target, branches)
+	if branchStates == nil {
+		branchStates = make(map[string]string)
+	}
+
+	dirtyWorktrees := GetWorktreeDirtyStates(worktreePaths)
+
+	states := make(map[string]string)
+	for branch, runID := range branchToRunID {
+		if state, ok := branchStates[branch]; ok {
+			states[runID] = state
+		}
+	}
+
+	for runID, worktreePath := range runIDToWorktree {
+		if dirtyWorktrees[worktreePath] {
+			states[runID] = MergeStateUncommit
+		}
+	}
+
+	return states
+}
