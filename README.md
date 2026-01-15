@@ -228,6 +228,42 @@ pr_target_branch: develop
 
 `pr_target_branch` controls the default target branch in the agent PR instructions.
 
+### Slack Notifications
+
+Get notified when runs become blocked and need your attention:
+
+```yaml
+# .orch/config.yaml
+slack:
+  enabled: true
+  # Option 1: Incoming Webhook (simpler setup)
+  webhook_url: https://hooks.slack.com/services/XXX/YYY/ZZZ
+  
+  # Option 2: Bot Token (more features)
+  # bot_token: xoxb-your-bot-token
+  # channel: "#orch-notifications"
+  
+  # Which events trigger notifications (default: blocked, blocked_api)
+  notify_on:
+    - blocked
+    - blocked_api
+    # - done
+    # - failed
+```
+
+Environment variables are also supported:
+- `ORCH_SLACK_WEBHOOK_URL` - Webhook URL (auto-enables if set)
+- `ORCH_SLACK_BOT_TOKEN` - Bot token for Slack API
+- `ORCH_SLACK_CHANNEL` - Channel for bot messages
+
+Example notification:
+```
+:no_entry: Run blocked: orch-145#8cd1d7
+Issue: Implement feature X
+Status: blocked (waiting for user input)
+Attach: orch attach orch-145#20260115-161736
+```
+
 ## Vault Structure
 
 ```
