@@ -628,72 +628,26 @@ func colorAlive(info agentAliveInfo) string {
 }
 
 func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
-	repoRoot, err := git.FindRepoRoot("")
-	if err != nil {
-		return nil
-	}
-
-	targetRef, merged, err := git.MergedBranchesForTarget(repoRoot, target)
-	if err != nil {
-		return nil
-	}
-
-	targetHead := git.GetBranchHead(repoRoot, targetRef)
-
-	states := make(map[string]string)
-	branchToRun := make(map[string]*model.Run)
-	var unmergedBranches []string
+	branchToRunID := make(map[string]string)
+	var branches []string
 
 	for _, r := range runs {
 		if r.Branch == "" {
 			continue
 		}
-
-		if merged[r.Branch] {
-			branchHead := git.GetBranchHead(repoRoot, r.Branch)
-			if branchHead != "" && branchHead == targetHead {
-				states[r.RunID] = "clean"
-			} else {
-				states[r.RunID] = "merged"
-			}
-			continue
-		}
-
-		branchToRun[r.Branch] = r
-		unmergedBranches = append(unmergedBranches, r.Branch)
+		branchToRunID[r.Branch] = r.RunID
+		branches = append(branches, r.Branch)
 	}
 
-	if len(unmergedBranches) == 0 {
-		return states
+	branchStates := git.GetBranchMergeStates("", target, branches)
+	if branchStates == nil {
+		return nil
 	}
 
-	aheadCounts := git.GetBranchesAheadCounts(repoRoot, targetRef, unmergedBranches)
-
-	var branchesWithChanges []string
-	for branch, r := range branchToRun {
-		ahead, ok := aheadCounts[branch]
-		if !ok {
-			continue
-		}
-		if ahead == 0 {
-			states[r.RunID] = "clean"
-		} else {
-			branchesWithChanges = append(branchesWithChanges, branch)
-		}
-	}
-
-	if len(branchesWithChanges) == 0 {
-		return states
-	}
-
-	conflicts := git.CheckMergeConflicts(repoRoot, targetRef, branchesWithChanges)
-
-	for _, branch := range branchesWithChanges {
-		r := branchToRun[branch]
-		if conflicts[branch] {
-			states[r.RunID] = "conflict"
-		} else {
-			states[r.RunID] = "dirty"
+	states := make(map[string]string)
+	for branch, runID := range branchToRunID {
+		if state, ok := branchStates[branch]; ok {
+			states[runID] = state
 		}
 	}
 
