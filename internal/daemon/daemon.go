@@ -12,8 +12,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/notify"
 	"github.com/s22625/orch/internal/store"
 )
 
@@ -40,7 +42,9 @@ type Daemon struct {
 	startupMtime   time.Time
 	staleLogged    bool
 
-	socketServer *SocketServer
+	socketServer  *SocketServer
+	config        *config.Config
+	slackNotifier *notify.SlackNotifier
 }
 
 // RunState tracks the monitoring state of a single run
@@ -90,6 +94,17 @@ func (d *Daemon) Run() error {
 
 	if err := d.initBinaryTracking(); err != nil {
 		d.logger.Printf("warning: failed to init binary tracking: %v", err)
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		d.logger.Printf("warning: failed to load config: %v", err)
+	} else {
+		d.config = cfg
+		if cfg.Slack.IsConfigured() {
+			d.slackNotifier = notify.NewSlackNotifier(&cfg.Slack)
+			d.logger.Printf("slack notifications enabled")
+		}
 	}
 
 	// Write PID file
