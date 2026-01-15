@@ -14,35 +14,79 @@ class VaultReader:
 
     def __init__(self, vault_path: Path):
         self.vault_path = vault_path
-        self.issues_dir = vault_path / "issues"
-        self.runs_dir = vault_path / "issues" / "runs"
+        self.runs_dir = vault_path / "runs"
+        self._issue_cache: Dict[str, Issue] = {}
+
+    def _scan_issues(self) -> Dict[str, Issue]:
+        """Walk the vault directory tree to find all issue files.
+
+        Similar to Go's scanIssues(), this walks the entire vault looking for
+        .md files with `type: issue` frontmatter, skipping the runs directory.
+        This implementation follows symlinks (like Go's walkWithSymlinks).
+        """
+        issues: Dict[str, Issue] = {}
+        runs_dir = self.runs_dir
+        visited: set[str] = set()
+
+        def walk_with_symlinks(root: Path) -> None:
+            """Walk directory tree following symlinks, avoiding cycles."""
+            try:
+                # Resolve symlinks to detect cycles
+                real_path = str(root.resolve())
+                if real_path in visited:
+                    return
+                visited.add(real_path)
+
+                for entry in root.iterdir():
+                    path = entry
+
+                    # Skip the runs directory entirely
+                    if path == runs_dir:
+                        continue
+                    try:
+                        path.relative_to(runs_dir)
+                        continue  # Path is inside runs_dir, skip it
+                    except ValueError:
+                        pass
+
+                    if path.is_dir():
+                        walk_with_symlinks(path)
+                    elif path.suffix == ".md":
+                        issue = self._parse_issue(path)
+                        if issue:
+                            issues[issue.id] = issue
+            except (PermissionError, OSError):
+                pass  # Skip directories we can't access
+
+        walk_with_symlinks(self.vault_path)
+        return issues
 
     def list_issues(
         self, include_resolved: bool = False, include_closed: bool = True
     ) -> List[Issue]:
         """List all issues in the vault."""
+        # Rescan to get fresh data (matching Go behavior)
+        self._issue_cache = self._scan_issues()
+
         issues = []
-
-        if not self.issues_dir.exists():
-            return issues
-
-        for issue_file in self.issues_dir.glob("*.md"):
-            issue = self._parse_issue(issue_file)
-            if issue:
-                if issue.status == IssueStatus.RESOLVED and not include_resolved:
-                    continue
-                if issue.status == IssueStatus.CLOSED and not include_closed:
-                    continue
-                issues.append(issue)
+        for issue in self._issue_cache.values():
+            if issue.status == IssueStatus.RESOLVED and not include_resolved:
+                continue
+            if issue.status == IssueStatus.CLOSED and not include_closed:
+                continue
+            issues.append(issue)
 
         return issues
 
     def get_issue(self, issue_id: str) -> Optional[Issue]:
         """Get a specific issue by ID."""
-        issue_file = self.issues_dir / f"{issue_id}.md"
-        if not issue_file.exists():
-            return None
-        return self._parse_issue(issue_file)
+        # First check cache
+        if issue_id in self._issue_cache:
+            return self._issue_cache[issue_id]
+
+        # Rescan in case file was added
+        self._issue_cache = self._scan_issues()
+        return self._issue_cache.get(issue_id)
 
     def list_runs(self, issue_id: Optional[str] = None) -> List[Run]:
         """List all runs, optionally filtered by issue ID."""
@@ -85,9 +129,17 @@ class VaultReader:
         return run_file.read_text()
 
     def _parse_issue(self, path: Path) -> Optional[Issue]:
-        """Parse an issue markdown file."""
+        """Parse an issue markdown file.
+
+        Only returns an Issue if the file has `type: issue` in its frontmatter,
+        matching the Go implementation's behavior.
+        """
         try:
             post = frontmatter.load(path)
+
+            # Check if this is an issue file (must have type: issue)
+            if post.metadata.get("type") != "issue":
+                return None
 
             issue_id = post.metadata.get("id", path.stem)
             title = post.metadata.get("title", "")
