@@ -54,6 +54,7 @@ func DefaultStyles() Styles {
 			"clean":    lipgloss.NewStyle().Foreground(lipgloss.Color("241")),
 			"dirty":    lipgloss.NewStyle().Foreground(lipgloss.Color("3")),
 			"conflict": lipgloss.NewStyle().Foreground(lipgloss.Color("1")),
+			"uncommit": lipgloss.NewStyle().Foreground(lipgloss.Color("5")),
 			"-":        lipgloss.NewStyle().Foreground(lipgloss.Color("241")),
 		},
 	}

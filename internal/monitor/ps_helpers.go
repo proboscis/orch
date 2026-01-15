@@ -124,28 +124,16 @@ func truncateLeading(text string, max int) string {
 }
 
 func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
-	branchToRunID := make(map[string]string)
-	var branches []string
-
+	runInfos := make([]git.RunInfo, 0, len(runs))
 	for _, r := range runs {
-		if r == nil || r.Branch == "" {
+		if r == nil {
 			continue
 		}
-		branchToRunID[r.Branch] = r.RunID
-		branches = append(branches, r.Branch)
+		runInfos = append(runInfos, git.RunInfo{
+			RunID:        r.RunID,
+			Branch:       r.Branch,
+			WorktreePath: r.WorktreePath,
+		})
 	}
-
-	branchStates := git.GetBranchMergeStates("", target, branches)
-	if branchStates == nil {
-		return nil
-	}
-
-	states := make(map[string]string)
-	for branch, runID := range branchToRunID {
-		if state, ok := branchStates[branch]; ok {
-			states[runID] = state
-		}
-	}
-
-	return states
+	return git.GetRunMergeStates(runInfos, target)
 }
