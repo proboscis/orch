@@ -916,3 +916,152 @@ func TestDefaultPresetEnv(t *testing.T) {
 		t.Errorf("DefaultPreset = %q, want sonnet:max", cfg.DefaultPreset)
 	}
 }
+
+func TestGetPromptTemplate(t *testing.T) {
+	tests := []struct {
+		name  string
+		cfg   *Config
+		agent string
+		want  string
+	}{
+		{
+			name: "opencode with per-backend template",
+			cfg: &Config{
+				PromptTemplate: "global template",
+				OpenCode:       OpenCodeConfig{PromptTemplate: "opencode template"},
+			},
+			agent: "opencode",
+			want:  "opencode template",
+		},
+		{
+			name: "claude with per-backend template",
+			cfg: &Config{
+				PromptTemplate: "global template",
+				Claude:         ClaudeConfig{PromptTemplate: "claude template"},
+			},
+			agent: "claude",
+			want:  "claude template",
+		},
+		{
+			name: "codex with per-backend template",
+			cfg: &Config{
+				PromptTemplate: "global template",
+				Codex:          CodexConfig{PromptTemplate: "codex template"},
+			},
+			agent: "codex",
+			want:  "codex template",
+		},
+		{
+			name: "gemini with per-backend template",
+			cfg: &Config{
+				PromptTemplate: "global template",
+				Gemini:         GeminiConfig{PromptTemplate: "gemini template"},
+			},
+			agent: "gemini",
+			want:  "gemini template",
+		},
+		{
+			name: "opencode falls back to global template",
+			cfg: &Config{
+				PromptTemplate: "global template",
+				OpenCode:       OpenCodeConfig{},
+			},
+			agent: "opencode",
+			want:  "global template",
+		},
+		{
+			name: "unknown agent falls back to global template",
+			cfg: &Config{
+				PromptTemplate: "global template",
+			},
+			agent: "custom",
+			want:  "global template",
+		},
+		{
+			name:  "empty config returns empty string",
+			cfg:   &Config{},
+			agent: "opencode",
+			want:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.cfg.GetPromptTemplate(tt.agent)
+			if got != tt.want {
+				t.Errorf("GetPromptTemplate(%q) = %q, want %q", tt.agent, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadPerBackendPromptTemplates(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_AGENT", "")
+	t.Setenv("ORCH_PROMPT_TEMPLATE", "")
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+
+	configContent := `vault: /repo
+prompt_template: "global {{issue}}"
+opencode:
+  default_model: anthropic/claude-opus-4-5
+  prompt_template: "opencode {{issue}}"
+claude:
+  prompt_template: "claude {{issue}}"
+codex:
+  prompt_template: "codex {{issue}}"
+gemini:
+  prompt_template: "gemini {{issue}}"
+`
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(configContent), 0644); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	if cfg.PromptTemplate != "global {{issue}}" {
+		t.Errorf("PromptTemplate = %q, want global {{issue}}", cfg.PromptTemplate)
+	}
+	if cfg.OpenCode.PromptTemplate != "opencode {{issue}}" {
+		t.Errorf("OpenCode.PromptTemplate = %q, want opencode {{issue}}", cfg.OpenCode.PromptTemplate)
+	}
+	if cfg.Claude.PromptTemplate != "claude {{issue}}" {
+		t.Errorf("Claude.PromptTemplate = %q, want claude {{issue}}", cfg.Claude.PromptTemplate)
+	}
+	if cfg.Codex.PromptTemplate != "codex {{issue}}" {
+		t.Errorf("Codex.PromptTemplate = %q, want codex {{issue}}", cfg.Codex.PromptTemplate)
+	}
+	if cfg.Gemini.PromptTemplate != "gemini {{issue}}" {
+		t.Errorf("Gemini.PromptTemplate = %q, want gemini {{issue}}", cfg.Gemini.PromptTemplate)
+	}
+
+	if got := cfg.GetPromptTemplate("opencode"); got != "opencode {{issue}}" {
+		t.Errorf("GetPromptTemplate(opencode) = %q, want opencode {{issue}}", got)
+	}
+	if got := cfg.GetPromptTemplate("claude"); got != "claude {{issue}}" {
+		t.Errorf("GetPromptTemplate(claude) = %q, want claude {{issue}}", got)
+	}
+	if got := cfg.GetPromptTemplate("custom"); got != "global {{issue}}" {
+		t.Errorf("GetPromptTemplate(custom) = %q, want global {{issue}}", got)
+	}
+}

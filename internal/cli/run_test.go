@@ -116,7 +116,7 @@ func TestApplyPromptConfigDefaults(t *testing.T) {
 	})
 
 	opts := &runOptions{}
-	if err := applyPromptConfigDefaults(opts); err != nil {
+	if _, err := applyPromptConfigDefaults(opts); err != nil {
 		t.Fatalf("applyPromptConfigDefaults: %v", err)
 	}
 	if opts.PromptTemplate != tmplPath {
@@ -130,7 +130,7 @@ func TestApplyPromptConfigDefaults(t *testing.T) {
 	}
 
 	opts2 := &runOptions{PromptTemplate: "explicit", NoPR: true, PRTargetBranch: "release"}
-	if err := applyPromptConfigDefaults(opts2); err != nil {
+	if _, err := applyPromptConfigDefaults(opts2); err != nil {
 		t.Fatalf("applyPromptConfigDefaults explicit: %v", err)
 	}
 	if opts2.PromptTemplate != "explicit" {
@@ -179,7 +179,7 @@ func TestApplyConfigDefaultsBaseBranch(t *testing.T) {
 
 	// Test: config values should be applied when flags are empty
 	opts := &runOptions{}
-	if err := applyPromptConfigDefaults(opts); err != nil {
+	if _, err := applyPromptConfigDefaults(opts); err != nil {
 		t.Fatalf("applyPromptConfigDefaults: %v", err)
 	}
 	if opts.BaseBranch != "develop" {
@@ -198,7 +198,7 @@ func TestApplyConfigDefaultsBaseBranch(t *testing.T) {
 
 	// Test: explicit flags should override config values
 	opts2 := &runOptions{BaseBranch: "feature", Agent: "claude", WorktreeDir: "explicit-worktrees"}
-	if err := applyPromptConfigDefaults(opts2); err != nil {
+	if _, err := applyPromptConfigDefaults(opts2); err != nil {
 		t.Fatalf("applyPromptConfigDefaults explicit: %v", err)
 	}
 	if opts2.BaseBranch != "feature" {
@@ -246,7 +246,7 @@ func TestApplyConfigDefaultsFallbacks(t *testing.T) {
 
 	// Test: when config is empty, fallback defaults should be used
 	opts := &runOptions{}
-	if err := applyPromptConfigDefaults(opts); err != nil {
+	if _, err := applyPromptConfigDefaults(opts); err != nil {
 		t.Fatalf("applyPromptConfigDefaults: %v", err)
 	}
 	if opts.BaseBranch != "main" {
@@ -308,7 +308,7 @@ func TestApplyPresetFromConfig(t *testing.T) {
 
 	t.Run("preset sets agent model and variant", func(t *testing.T) {
 		opts := &runOptions{Preset: "opus:high"}
-		if err := applyPromptConfigDefaults(opts); err != nil {
+		if _, err := applyPromptConfigDefaults(opts); err != nil {
 			t.Fatalf("applyPromptConfigDefaults: %v", err)
 		}
 		if opts.Agent != "opencode" {
@@ -324,7 +324,7 @@ func TestApplyPresetFromConfig(t *testing.T) {
 
 	t.Run("preset sets claude backend and profile", func(t *testing.T) {
 		opts := &runOptions{Preset: "claude:myprofile"}
-		if err := applyPromptConfigDefaults(opts); err != nil {
+		if _, err := applyPromptConfigDefaults(opts); err != nil {
 			t.Fatalf("applyPromptConfigDefaults: %v", err)
 		}
 		if opts.Agent != "claude" {
@@ -342,7 +342,7 @@ func TestApplyPresetFromConfig(t *testing.T) {
 			Model:        "explicit-model",
 			ModelVariant: "explicit-variant",
 		}
-		if err := applyPromptConfigDefaults(opts); err != nil {
+		if _, err := applyPromptConfigDefaults(opts); err != nil {
 			t.Fatalf("applyPromptConfigDefaults: %v", err)
 		}
 		if opts.Agent != "codex" {
@@ -358,7 +358,7 @@ func TestApplyPresetFromConfig(t *testing.T) {
 
 	t.Run("nonexistent preset returns error", func(t *testing.T) {
 		opts := &runOptions{Preset: "nonexistent"}
-		err := applyPromptConfigDefaults(opts)
+		_, err := applyPromptConfigDefaults(opts)
 		if err == nil {
 			t.Fatal("expected error for nonexistent preset")
 		}
@@ -405,7 +405,7 @@ func TestApplyPresetLegacyOpenCodePresets(t *testing.T) {
 	})
 
 	opts := &runOptions{Preset: "legacy:preset"}
-	if err := applyPromptConfigDefaults(opts); err != nil {
+	if _, err := applyPromptConfigDefaults(opts); err != nil {
 		t.Fatalf("applyPromptConfigDefaults: %v", err)
 	}
 	if opts.Agent != "opencode" {
@@ -464,7 +464,7 @@ default_preset: opus:high
 
 	t.Run("default_preset applied when no --preset flag", func(t *testing.T) {
 		opts := &runOptions{}
-		if err := applyPromptConfigDefaults(opts); err != nil {
+		if _, err := applyPromptConfigDefaults(opts); err != nil {
 			t.Fatalf("applyPromptConfigDefaults: %v", err)
 		}
 		if opts.Agent != "opencode" {
@@ -480,7 +480,7 @@ default_preset: opus:high
 
 	t.Run("explicit --preset overrides default_preset", func(t *testing.T) {
 		opts := &runOptions{Preset: "sonnet:max"}
-		if err := applyPromptConfigDefaults(opts); err != nil {
+		if _, err := applyPromptConfigDefaults(opts); err != nil {
 			t.Fatalf("applyPromptConfigDefaults: %v", err)
 		}
 		if opts.Agent != "opencode" {
@@ -500,7 +500,7 @@ default_preset: opus:high
 			Model:        "explicit-model",
 			ModelVariant: "explicit-variant",
 		}
-		if err := applyPromptConfigDefaults(opts); err != nil {
+		if _, err := applyPromptConfigDefaults(opts); err != nil {
 			t.Fatalf("applyPromptConfigDefaults: %v", err)
 		}
 		if opts.Agent != "codex" {
@@ -548,7 +548,7 @@ func TestApplyDefaultPresetNotFound(t *testing.T) {
 	})
 
 	opts := &runOptions{}
-	err = applyPromptConfigDefaults(opts)
+	_, err = applyPromptConfigDefaults(opts)
 	if err == nil {
 		t.Fatal("expected error for nonexistent default_preset")
 	}
