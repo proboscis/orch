@@ -147,6 +147,7 @@ const (
 	MergeStateDirty    = "dirty"
 	MergeStateMerged   = "merged"
 	MergeStateConflict = "conflict"
+	MergeStateUncommit = "uncommit" // worktree has uncommitted changes
 )
 
 func GetBranchMergeStates(repoRoot, target string, branches []string) map[string]string {
