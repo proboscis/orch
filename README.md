@@ -264,6 +264,59 @@ Status: blocked (waiting for user input)
 Attach: orch attach orch-145#20260115-161736
 ```
 
+### Prompt Templates
+
+Customize the initial prompt sent to agents when starting a run. Supports per-backend configuration with global fallback.
+
+```yaml
+# .orch/config.yaml
+
+# Global default template (used when no backend-specific template is set)
+prompt_template: |
+  ultrathink Please read 'ORCH_PROMPT.md' in the current directory.
+  
+  {{issue}}
+
+# Per-backend templates (override global)
+opencode:
+  default_model: anthropic/claude-opus-4-5
+  default_variant: max
+  prompt_template: |
+    ultrawork Please read 'ORCH_PROMPT.md' in the current directory.
+    
+    {{issue}}
+
+claude:
+  prompt_template: |
+    ultrathink Be thorough and create comprehensive solutions.
+    
+    {{issue}}
+
+codex:
+  prompt_template: |
+    Think step by step. Follow best practices.
+    
+    {{issue}}
+
+gemini:
+  prompt_template: "{{issue}}"
+```
+
+**Template Variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `{{issue}}` | Full issue content (title + body) |
+| `{{issue_id}}` | Issue ID only (e.g., `orch-149`) |
+| `{{issue_title}}` | Issue title only |
+
+**Behavior:**
+1. When `orch run` starts, it checks for a backend-specific template (e.g., `opencode.prompt_template`)
+2. Falls back to global `prompt_template` if no backend-specific template exists
+3. If no template is configured, uses the default: `ultrathink Please read 'ORCH_PROMPT.md'...`
+4. Template variables are replaced with actual issue values
+5. The rendered prompt is sent as the initial message to the agent
+
 ## Vault Structure
 
 ```

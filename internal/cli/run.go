@@ -106,7 +106,8 @@ func runRun(issueID string, opts *runOptions) error {
 	}
 
 	// Apply config defaults for prompt options
-	if err := applyPromptConfigDefaults(opts); err != nil {
+	cfg, err := applyPromptConfigDefaults(opts)
+	if err != nil {
 		return exitWithCode(err, ExitInternalError)
 	}
 
@@ -175,10 +176,6 @@ func runRun(issueID string, opts *runOptions) error {
 
 	// Dry run - just output what would happen
 	if opts.DryRun {
-		cfg, err := config.Load()
-		if err != nil {
-			return exitWithCode(err, ExitInternalError)
-		}
 		initialPromptTemplate := cfg.GetPromptTemplate(opts.Agent)
 		initialPrompt := renderInitialPromptTemplate(initialPromptTemplate, issue)
 
@@ -292,10 +289,6 @@ func runRun(issueID string, opts *runOptions) error {
 		return exitWithCode(fmt.Errorf("failed to write prompt file: %w", err), ExitInternalError)
 	}
 
-	cfg, err := config.Load()
-	if err != nil {
-		return exitWithCode(err, ExitInternalError)
-	}
 	initialPromptTemplate := cfg.GetPromptTemplate(opts.Agent)
 	initialPrompt := renderInitialPromptTemplate(initialPromptTemplate, issue)
 
@@ -595,10 +588,10 @@ func buildSimplePrompt(issue *model.Issue, opts *promptOptions) string {
 	return prompt
 }
 
-func applyPromptConfigDefaults(opts *runOptions) error {
+func applyPromptConfigDefaults(opts *runOptions) (*config.Config, error) {
 	cfg, err := config.Load()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	agentExplicit := opts.Agent != ""
@@ -614,7 +607,7 @@ func applyPromptConfigDefaults(opts *runOptions) error {
 	if presetName != "" {
 		preset := cfg.GetPreset(presetName)
 		if preset == nil {
-			return fmt.Errorf("preset not found: %s", presetName)
+			return nil, fmt.Errorf("preset not found: %s", presetName)
 		}
 		if !agentExplicit {
 			opts.Agent = preset.EffectiveBackend()
@@ -690,7 +683,7 @@ func applyPromptConfigDefaults(opts *runOptions) error {
 		}
 	}
 
-	return nil
+	return cfg, nil
 }
 
 func exitWithCode(err error, code int) error {
