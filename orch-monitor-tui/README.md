@@ -44,6 +44,20 @@ uv sync
 uv run python -m orch_monitor
 ```
 
+### Rust Backend (Recommended)
+
+For improved performance and Go-compatible vault scanning behavior, build and install the Rust backend:
+
+```bash
+cd orch-monitor-tui/orch_vault_rs
+maturin develop
+```
+
+The Rust backend:
+- Walks the entire vault directory to find issues (not just `issues/` folder)
+- Handles symlinked directories correctly
+- Matches the Go implementation's vault scanning behavior exactly
+
 ## Keybindings
 
 | Key | Action |
@@ -67,11 +81,12 @@ The TUI respects the same configuration as the Go `orch` CLI:
 ## Architecture
 
 - `models.py`: Data models (Issue, Run, Event, Status)
-- `vault.py`: Vault reader for parsing markdown files
+- `vault.py`: Vault reader (uses Rust backend with Python fallback)
 - `config.py`: Configuration management
 - `widgets.py`: Custom Textual widgets (RunTable, IssueTable, DetailPanel)
 - `app.py`: Main Textual application
 - `__main__.py`: Entry point
+- `orch_vault_rs/`: Rust PyO3 library for vault reading (matches Go behavior)
 
 ## Differences from Go Monitor
 
