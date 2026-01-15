@@ -176,6 +176,7 @@ func (d *Daemon) notifyStatusChange(run *model.Run, newStatus model.Status) {
 
 func (d *Daemon) inferStatusFromGitState(run *model.Run) model.Status {
 	if run.Branch == "" || run.WorktreePath == "" {
+		d.debug("%s#%s: infer: skipping - branch=%q worktree=%q", run.IssueID, run.RunID, run.Branch, run.WorktreePath)
 		return ""
 	}
 
@@ -185,6 +186,7 @@ func (d *Daemon) inferStatusFromGitState(run *model.Run) model.Status {
 		return ""
 	}
 
+	d.debug("%s#%s: infer: checking PR for branch %s", run.IssueID, run.RunID, run.Branch)
 	prInfo, err := pr.LookupInfo(repoRoot, run.Branch)
 	if err == nil && prInfo != nil && prInfo.URL != "" {
 		d.logger.Printf("%s#%s: infer: found PR %s (state=%s)", run.IssueID, run.RunID, prInfo.URL, prInfo.State)
@@ -197,6 +199,11 @@ func (d *Daemon) inferStatusFromGitState(run *model.Run) model.Status {
 			return model.StatusDone
 		}
 		return model.StatusPROpen
+	}
+	if err != nil {
+		d.debug("%s#%s: infer: PR lookup error: %v", run.IssueID, run.RunID, err)
+	} else {
+		d.debug("%s#%s: infer: no PR found", run.IssueID, run.RunID)
 	}
 
 	baseBranch := "origin/main"

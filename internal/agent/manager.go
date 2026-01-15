@@ -259,13 +259,13 @@ func (m *OpenCodeManager) hasRecentActivity(ctx context.Context, client *OpenCod
 	return timeSinceUpdate < recentActivityThreshold
 }
 
-// sessionExists distinguishes "session doesn't exist" (unknown) from "session idle" (blocked)
 func (m *OpenCodeManager) sessionExists(ctx context.Context, client *OpenCodeClient) bool {
-	sessions, err := client.GetSessionIDs(ctx)
+	statusMap, err := client.GetSessionStatus(ctx, m.Directory)
 	if err != nil {
 		return false
 	}
-	return sessions[m.SessionID]
+	_, exists := statusMap[m.SessionID]
+	return exists
 }
 
 func (m *OpenCodeManager) SendMessage(ctx context.Context, run *model.Run, message string, opts *SendOptions) error {

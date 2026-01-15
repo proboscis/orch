@@ -100,15 +100,23 @@ func runDebug(ref string) error {
 			if serverRunning {
 				sessions, _ := client.GetSessionIDs(ctx)
 				sessionExists := sessions[run.OpenCodeSessionID]
-				fmt.Printf("Session Exists: %v\n", sessionExists)
+				fmt.Printf("Session in /session list: %v (total sessions: %d)\n", sessionExists, len(sessions))
+
+				statusMap, statusErr := client.GetSessionStatus(ctx, run.WorktreePath)
+				if statusErr == nil {
+					fmt.Printf("Sessions in /session/status: %d\n", len(statusMap))
+					if status, ok := statusMap[run.OpenCodeSessionID]; ok {
+						fmt.Printf("Session Status (from status map): %s\n", status)
+					} else {
+						fmt.Printf("Session Status (from status map): (not in map)\n")
+					}
+				} else {
+					fmt.Printf("Session Status Error: %v\n", statusErr)
+				}
 
 				if run.OpenCodeSessionID != "" {
 					status, found, _ := client.GetSingleSessionStatus(ctx, run.OpenCodeSessionID, run.WorktreePath)
-					if found {
-						fmt.Printf("Session Status: %s\n", status)
-					} else {
-						fmt.Printf("Session Status: (not found)\n")
-					}
+					fmt.Printf("GetSingleSessionStatus found=%v status=%s\n", found, status)
 				}
 			}
 		}
