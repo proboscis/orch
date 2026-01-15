@@ -916,3 +916,110 @@ func TestDefaultPresetEnv(t *testing.T) {
 		t.Errorf("DefaultPreset = %q, want sonnet:max", cfg.DefaultPreset)
 	}
 }
+
+func TestGetPromptTemplate(t *testing.T) {
+	cfg := &Config{
+		OpenCode: OpenCodeConfig{
+			DefaultModel:   "model",
+			PromptTemplate: "opencode template",
+		},
+		Claude: ClaudeConfig{
+			PromptTemplate: "claude template",
+		},
+		Codex: CodexConfig{
+			PromptTemplate: "codex template",
+		},
+		Gemini: GeminiConfig{
+			PromptTemplate: "gemini template",
+		},
+	}
+
+	tests := []struct {
+		agent string
+		want  string
+	}{
+		{"opencode", "opencode template"},
+		{"claude", "claude template"},
+		{"codex", "codex template"},
+		{"gemini", "gemini template"},
+		{"custom", ""},
+		{"unknown", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.agent, func(t *testing.T) {
+			got := cfg.GetPromptTemplate(tt.agent)
+			if got != tt.want {
+				t.Errorf("GetPromptTemplate(%q) = %q, want %q", tt.agent, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetPromptTemplateEmpty(t *testing.T) {
+	cfg := &Config{}
+
+	got := cfg.GetPromptTemplate("opencode")
+	if got != "" {
+		t.Errorf("GetPromptTemplate returned %q, want empty string", got)
+	}
+}
+
+func TestLoadPromptTemplateFromConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_AGENT", "")
+	t.Setenv("ORCH_PROMPT_TEMPLATE", "")
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+
+	configContent := `vault: /repo
+opencode:
+  prompt_template: "ultrawork {{issue}}"
+claude:
+  prompt_template: "ultrathink {{issue}}"
+codex:
+  prompt_template: "think step by step\n{{issue}}"
+gemini:
+  prompt_template: "{{issue}}"
+`
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(configContent), 0644); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	if cfg.GetPromptTemplate("opencode") != "ultrawork {{issue}}" {
+		t.Errorf("opencode prompt_template = %q", cfg.GetPromptTemplate("opencode"))
+	}
+	if cfg.GetPromptTemplate("claude") != "ultrathink {{issue}}" {
+		t.Errorf("claude prompt_template = %q", cfg.GetPromptTemplate("claude"))
+	}
+	if cfg.GetPromptTemplate("codex") != "think step by step\n{{issue}}" {
+		t.Errorf("codex prompt_template = %q", cfg.GetPromptTemplate("codex"))
+	}
+	if cfg.GetPromptTemplate("gemini") != "{{issue}}" {
+		t.Errorf("gemini prompt_template = %q", cfg.GetPromptTemplate("gemini"))
+	}
+	if cfg.GetPromptTemplate("custom") != "" {
+		t.Errorf("custom (no template) should be empty, got %q", cfg.GetPromptTemplate("custom"))
+	}
+}

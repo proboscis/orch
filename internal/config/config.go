@@ -48,6 +48,22 @@ func (p *Preset) EffectiveBackend() string {
 type OpenCodeConfig struct {
 	DefaultModel   string `yaml:"default_model,omitempty"`
 	DefaultVariant string `yaml:"default_variant,omitempty"`
+	PromptTemplate string `yaml:"prompt_template,omitempty"`
+}
+
+// ClaudeConfig holds default configuration for the claude agent.
+type ClaudeConfig struct {
+	PromptTemplate string `yaml:"prompt_template,omitempty"`
+}
+
+// CodexConfig holds default configuration for the codex agent.
+type CodexConfig struct {
+	PromptTemplate string `yaml:"prompt_template,omitempty"`
+}
+
+// GeminiConfig holds default configuration for the gemini agent.
+type GeminiConfig struct {
+	PromptTemplate string `yaml:"prompt_template,omitempty"`
 }
 
 // SlackConfig holds configuration for Slack notifications.
@@ -94,6 +110,9 @@ type Config struct {
 	Presets         []Preset         `yaml:"presets"`
 	OpenCodePresets []OpenCodePreset `yaml:"opencode_presets"` // Deprecated: use Presets instead
 	OpenCode        OpenCodeConfig   `yaml:"opencode"`
+	Claude          ClaudeConfig     `yaml:"claude"`
+	Codex           CodexConfig      `yaml:"codex"`
+	Gemini          GeminiConfig     `yaml:"gemini"`
 	DefaultPreset   string           `yaml:"default_preset"` // Default preset to use when no --preset flag is provided
 	Slack           SlackConfig      `yaml:"slack"`
 
@@ -122,6 +141,9 @@ type fileConfig struct {
 	Presets             []Preset         `yaml:"presets"`
 	OpenCodePresets     []OpenCodePreset `yaml:"opencode_presets"`
 	OpenCode            OpenCodeConfig   `yaml:"opencode"`
+	Claude              ClaudeConfig     `yaml:"claude"`
+	Codex               CodexConfig      `yaml:"codex"`
+	Gemini              GeminiConfig     `yaml:"gemini"`
 	DefaultPreset       string           `yaml:"default_preset"`
 	Slack               *SlackConfig     `yaml:"slack"`
 	ControlAgent        string           `yaml:"control_agent"`
@@ -308,6 +330,18 @@ func loadFromFile(path string, cfg *Config) error {
 	}
 	if fileCfg.OpenCode.DefaultVariant != "" {
 		cfg.OpenCode.DefaultVariant = fileCfg.OpenCode.DefaultVariant
+	}
+	if fileCfg.OpenCode.PromptTemplate != "" {
+		cfg.OpenCode.PromptTemplate = fileCfg.OpenCode.PromptTemplate
+	}
+	if fileCfg.Claude.PromptTemplate != "" {
+		cfg.Claude.PromptTemplate = fileCfg.Claude.PromptTemplate
+	}
+	if fileCfg.Codex.PromptTemplate != "" {
+		cfg.Codex.PromptTemplate = fileCfg.Codex.PromptTemplate
+	}
+	if fileCfg.Gemini.PromptTemplate != "" {
+		cfg.Gemini.PromptTemplate = fileCfg.Gemini.PromptTemplate
 	}
 	if fileCfg.DefaultPreset != "" {
 		cfg.DefaultPreset = fileCfg.DefaultPreset
@@ -512,6 +546,23 @@ func (c *Config) ValidatePresets() []string {
 		warnings = append(warnings, "opencode_presets is deprecated, migrate to presets with backend field")
 	}
 	return warnings
+}
+
+// GetPromptTemplate returns the initial prompt template for the given agent.
+// This template is used for the initial prompt sent to the agent (not the ORCH_PROMPT.md content).
+// Returns empty string if no template is configured.
+func (c *Config) GetPromptTemplate(agent string) string {
+	switch agent {
+	case "opencode":
+		return c.OpenCode.PromptTemplate
+	case "claude":
+		return c.Claude.PromptTemplate
+	case "codex":
+		return c.Codex.PromptTemplate
+	case "gemini":
+		return c.Gemini.PromptTemplate
+	}
+	return ""
 }
 
 // ExpandPath expands ~ and makes path absolute relative to base

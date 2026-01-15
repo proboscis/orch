@@ -20,26 +20,27 @@ import (
 )
 
 type runOptions struct {
-	New            bool
-	Reuse          bool
-	RunID          string
-	Agent          string
-	AgentCmd       string
-	AgentProfile   string
-	BaseBranch     string
-	Branch         string
-	WorktreeDir    string
-	RepoRoot       string
-	Tmux           bool
-	TmuxSession    string
-	DryRun         bool
-	NoPR           bool
-	PromptTemplate string
-	PRTargetBranch string
-	Model          string
-	ModelVariant   string
-	Preset         string
-	Verbose        bool
+	New                   bool
+	Reuse                 bool
+	RunID                 string
+	Agent                 string
+	AgentCmd              string
+	AgentProfile          string
+	BaseBranch            string
+	Branch                string
+	WorktreeDir           string
+	RepoRoot              string
+	Tmux                  bool
+	TmuxSession           string
+	DryRun                bool
+	NoPR                  bool
+	PromptTemplate        string
+	InitialPromptTemplate string
+	PRTargetBranch        string
+	Model                 string
+	ModelVariant          string
+	Preset                string
+	Verbose               bool
 }
 
 func newRunCmd() *cobra.Command {
@@ -178,6 +179,7 @@ func runRun(issueID string, opts *runOptions) error {
 		// Build the command that would be run (for display purposes)
 		agentType, _ := agent.ParseAgentType(opts.Agent)
 		adapter, _ := agent.GetAdapter(agentType)
+		dryRunPrompt := renderInitialPrompt(opts.InitialPromptTemplate, issue)
 		launchCfg := &agent.LaunchConfig{
 			Type:      agentType,
 			CustomCmd: opts.AgentCmd,
@@ -186,7 +188,7 @@ func runRun(issueID string, opts *runOptions) error {
 			RunID:     runID,
 			VaultPath: "",
 			Branch:    branch,
-			Prompt:    promptFileInstruction,
+			Prompt:    dryRunPrompt,
 			Profile:   opts.AgentProfile,
 		}
 		agentCmd, _ := adapter.LaunchCommand(launchCfg)
@@ -285,6 +287,9 @@ func runRun(issueID string, opts *runOptions) error {
 	if err := os.WriteFile(promptPath, []byte(agentPrompt), 0644); err != nil {
 		return exitWithCode(fmt.Errorf("failed to write prompt file: %w", err), ExitInternalError)
 	}
+
+	initialPrompt := renderInitialPrompt(opts.InitialPromptTemplate, issue)
+
 	launchCfg := &agent.LaunchConfig{
 		Type:         agentType,
 		CustomCmd:    opts.AgentCmd,
@@ -294,9 +299,9 @@ func runRun(issueID string, opts *runOptions) error {
 		RunPath:      run.Path,
 		VaultPath:    st.VaultPath(),
 		Branch:       worktreeResult.Branch,
-		Prompt:       promptFileInstruction,
+		Prompt:       initialPrompt,
 		Profile:      opts.AgentProfile,
-		Port:         4096, // Default port for HTTP-based agents (e.g., opencode)
+		Port:         4096,
 		Model:        opts.Model,
 		ModelVariant: opts.ModelVariant,
 	}
@@ -453,6 +458,21 @@ const (
 	promptFileInstruction = "ultrathink Please read '" + promptFileName + "' in the current directory and follow the instructions found there."
 	defaultPRTargetBranch = "main"
 )
+
+// renderInitialPrompt renders the initial prompt template with issue variables.
+// Template variables: {{issue}} (full content), {{issue_id}}, {{issue_title}}
+// Returns promptFileInstruction if no template is provided.
+func renderInitialPrompt(tmplStr string, issue *model.Issue) string {
+	if tmplStr == "" {
+		return promptFileInstruction
+	}
+
+	result := tmplStr
+	result = strings.ReplaceAll(result, "{{issue}}", issue.Body)
+	result = strings.ReplaceAll(result, "{{issue_id}}", issue.ID)
+	result = strings.ReplaceAll(result, "{{issue_title}}", issue.Title)
+	return result
+}
 
 const defaultPromptTemplate = `## Context
 
@@ -654,6 +674,10 @@ func applyPromptConfigDefaults(opts *runOptions) error {
 		if opts.ModelVariant == "" && cfg.OpenCode.DefaultVariant != "" {
 			opts.ModelVariant = cfg.OpenCode.DefaultVariant
 		}
+	}
+
+	if opts.InitialPromptTemplate == "" {
+		opts.InitialPromptTemplate = cfg.GetPromptTemplate(opts.Agent)
 	}
 
 	return nil

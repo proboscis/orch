@@ -556,3 +556,62 @@ func TestApplyDefaultPresetNotFound(t *testing.T) {
 		t.Errorf("error = %q, want to contain 'preset not found'", err.Error())
 	}
 }
+
+func TestRenderInitialPrompt(t *testing.T) {
+	issue := &model.Issue{
+		ID:    "orch-123",
+		Title: "Add feature X",
+		Body:  "Full issue content here",
+	}
+
+	t.Run("empty template returns default instruction", func(t *testing.T) {
+		result := renderInitialPrompt("", issue)
+		if result != promptFileInstruction {
+			t.Errorf("got %q, want %q", result, promptFileInstruction)
+		}
+	})
+
+	t.Run("replaces {{issue}} placeholder", func(t *testing.T) {
+		tmpl := "ultrathink Work on this:\n\n{{issue}}"
+		result := renderInitialPrompt(tmpl, issue)
+		expected := "ultrathink Work on this:\n\nFull issue content here"
+		if result != expected {
+			t.Errorf("got %q, want %q", result, expected)
+		}
+	})
+
+	t.Run("replaces {{issue_id}} placeholder", func(t *testing.T) {
+		tmpl := "Working on issue {{issue_id}}"
+		result := renderInitialPrompt(tmpl, issue)
+		expected := "Working on issue orch-123"
+		if result != expected {
+			t.Errorf("got %q, want %q", result, expected)
+		}
+	})
+
+	t.Run("replaces {{issue_title}} placeholder", func(t *testing.T) {
+		tmpl := "Task: {{issue_title}}"
+		result := renderInitialPrompt(tmpl, issue)
+		expected := "Task: Add feature X"
+		if result != expected {
+			t.Errorf("got %q, want %q", result, expected)
+		}
+	})
+
+	t.Run("replaces all placeholders", func(t *testing.T) {
+		tmpl := "Issue {{issue_id}}: {{issue_title}}\n\n{{issue}}"
+		result := renderInitialPrompt(tmpl, issue)
+		expected := "Issue orch-123: Add feature X\n\nFull issue content here"
+		if result != expected {
+			t.Errorf("got %q, want %q", result, expected)
+		}
+	})
+
+	t.Run("preserves template without placeholders", func(t *testing.T) {
+		tmpl := "ultrathink Please read 'ORCH_PROMPT.md'"
+		result := renderInitialPrompt(tmpl, issue)
+		if result != tmpl {
+			t.Errorf("got %q, want %q", result, tmpl)
+		}
+	})
+}
