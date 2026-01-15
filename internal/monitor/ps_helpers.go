@@ -134,7 +134,11 @@ func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
 		return nil
 	}
 
+	targetHead := git.GetBranchHead(repoRoot, targetRef)
+
 	states := make(map[string]string)
+	branchToRun := make(map[string]*model.Run)
+	var unmergedBranches []string
 
 	for _, r := range runs {
 		if r == nil || r.Branch == "" {
@@ -142,22 +146,49 @@ func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
 		}
 
 		if merged[r.Branch] {
-			states[r.RunID] = "merged"
+			// Branch is in merged set, but check if it's just a new branch with no commits
+			// (branch HEAD == target HEAD means no new commits, so it's "clean" not "merged")
+			branchHead := git.GetBranchHead(repoRoot, r.Branch)
+			if branchHead != "" && branchHead == targetHead {
+				states[r.RunID] = "clean"
+			} else {
+				states[r.RunID] = "merged"
+			}
 			continue
 		}
 
-		ahead, err := git.GetAheadCount(repoRoot, r.Branch, targetRef)
-		if err != nil {
+		branchToRun[r.Branch] = r
+		unmergedBranches = append(unmergedBranches, r.Branch)
+	}
+
+	if len(unmergedBranches) == 0 {
+		return states
+	}
+
+	aheadCounts := git.GetBranchesAheadCounts(repoRoot, targetRef, unmergedBranches)
+
+	var branchesWithChanges []string
+	for branch, r := range branchToRun {
+		ahead, ok := aheadCounts[branch]
+		if !ok {
 			continue
 		}
-
 		if ahead == 0 {
 			states[r.RunID] = "clean"
-			continue
+		} else {
+			branchesWithChanges = append(branchesWithChanges, branch)
 		}
+	}
 
-		conflict, _ := git.CheckMergeConflict(repoRoot, r.Branch, targetRef)
-		if conflict {
+	if len(branchesWithChanges) == 0 {
+		return states
+	}
+
+	conflicts := git.CheckMergeConflicts(repoRoot, targetRef, branchesWithChanges)
+
+	for _, branch := range branchesWithChanges {
+		r := branchToRun[branch]
+		if conflicts[branch] {
 			states[r.RunID] = "conflict"
 		} else {
 			states[r.RunID] = "dirty"
