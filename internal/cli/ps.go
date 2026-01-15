@@ -11,6 +11,7 @@ import (
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/config"
+	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/store"
@@ -26,6 +27,7 @@ type psOptions struct {
 	Since        string
 	AbsoluteTime bool
 	All          bool
+	Verbose      bool
 }
 
 type psIssueInfo struct {
@@ -58,6 +60,7 @@ func newPsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.Since, "since", "", "Only show runs updated since (ISO8601)")
 	cmd.Flags().BoolVar(&opts.AbsoluteTime, "absolute-time", false, "Show absolute timestamps instead of relative")
 	cmd.Flags().BoolVarP(&opts.All, "all", "a", false, "Show all runs including those from resolved issues")
+	cmd.Flags().BoolVarP(&opts.Verbose, "verbose", "v", false, "Show additional debug info (daemon log location)")
 
 	return cmd
 }
@@ -125,15 +128,31 @@ func runPs(opts *psOptions) error {
 	populatePRUrls(runs)
 	aliveByRun := resolveAgentAliveInfo(runs)
 
-	// Output based on format
 	now := time.Now()
+	var outputErr error
 	if globalOpts.JSON {
-		return outputJSONWithIssueInfo(runs, now, issueCache, aliveByRun)
+		outputErr = outputJSONWithIssueInfo(runs, now, issueCache, aliveByRun)
+	} else if globalOpts.TSV {
+		outputErr = outputTSVWithIssueInfo(runs, issueCache, aliveByRun)
+	} else {
+		outputErr = outputTableWithIssueInfo(runs, now, opts.AbsoluteTime, issueCache, aliveByRun)
 	}
-	if globalOpts.TSV {
-		return outputTSVWithIssueInfo(runs, issueCache, aliveByRun)
+
+	if outputErr != nil {
+		return outputErr
 	}
-	return outputTableWithIssueInfo(runs, now, opts.AbsoluteTime, issueCache, aliveByRun)
+
+	if opts.Verbose {
+		vaultPath, _ := getVaultPath()
+		fmt.Println()
+		fmt.Printf("Daemon running: %v\n", daemon.IsRunning(vaultPath))
+		if daemon.IsRunning(vaultPath) {
+			fmt.Printf("Daemon PID: %d\n", daemon.GetRunningPID(vaultPath))
+		}
+		fmt.Printf("Daemon log: %s\n", daemon.LogFilePath(vaultPath))
+	}
+
+	return nil
 }
 
 func resolveIssueInfo(st store.Store, cache map[string]psIssueInfo, issueID string) psIssueInfo {

@@ -8,6 +8,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var daemonDebugMode bool
+
 func newDaemonCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:    "daemon",
@@ -21,6 +23,8 @@ You should not need to run this manually.`,
 			return runDaemon()
 		},
 	}
+
+	cmd.Flags().BoolVar(&daemonDebugMode, "debug", false, "Enable verbose debug logging")
 
 	return cmd
 }
@@ -53,7 +57,6 @@ func runDaemon() error {
 
 	vaultPath := st.VaultPath()
 
-	// Check if already running
 	if daemon.IsRunning(vaultPath) {
 		pid := daemon.GetRunningPID(vaultPath)
 		fmt.Fprintf(os.Stderr, "daemon already running (pid=%d)\n", pid)
@@ -61,8 +64,10 @@ func runDaemon() error {
 		return nil
 	}
 
-	// Create and run daemon
 	d := daemon.New(vaultPath, st)
+	if daemonDebugMode {
+		d.SetDebugMode(true)
+	}
 	return d.Run()
 }
 
