@@ -23,7 +23,6 @@ def get_vault_path(args) -> Path | None:
 
 def launch_tmux_layout(vault_path: Path | None, agent: str = "opencode"):
     vault_arg = f"--vault {vault_path}" if vault_path else ""
-    vault_env = f"ORCH_VAULT={vault_path}" if vault_path else ""
 
     existing = subprocess.run(
         ["tmux", "has-session", "-t", SESSION_NAME],
@@ -33,6 +32,10 @@ def launch_tmux_layout(vault_path: Path | None, agent: str = "opencode"):
     if existing.returncode == 0:
         subprocess.run(["tmux", "attach-session", "-t", SESSION_NAME])
         return
+
+    python_exec = sys.executable
+    cwd = os.getcwd()
+    env_export = f"export ORCH_VAULT='{vault_path}'; " if vault_path else ""
 
     subprocess.run(
         [
@@ -45,16 +48,30 @@ def launch_tmux_layout(vault_path: Path | None, agent: str = "opencode"):
             "180",
             "-y",
             "50",
+            "-c",
+            cwd,
         ]
     )
 
-    subprocess.run(["tmux", "split-window", "-h", "-t", SESSION_NAME])
+    subprocess.run(["tmux", "split-window", "-h", "-t", SESSION_NAME, "-c", cwd])
     subprocess.run(
-        ["tmux", "split-window", "-v", "-t", f"{SESSION_NAME}:0.0", "-p", "70"]
+        [
+            "tmux",
+            "split-window",
+            "-v",
+            "-t",
+            f"{SESSION_NAME}:0.0",
+            "-p",
+            "70",
+            "-c",
+            cwd,
+        ]
     )
 
-    runs_cmd = f"{vault_env} python -m orch_monitor --runs {vault_arg}".strip()
-    issues_cmd = f"{vault_env} python -m orch_monitor --issues {vault_arg}".strip()
+    runs_cmd = f'{env_export}"{python_exec}" -m orch_monitor --runs {vault_arg}'.strip()
+    issues_cmd = (
+        f'{env_export}"{python_exec}" -m orch_monitor --issues {vault_arg}'.strip()
+    )
     agent_cmd = agent
 
     subprocess.run(
