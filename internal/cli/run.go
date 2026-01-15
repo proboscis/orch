@@ -175,7 +175,13 @@ func runRun(issueID string, opts *runOptions) error {
 
 	// Dry run - just output what would happen
 	if opts.DryRun {
-		// Build the command that would be run (for display purposes)
+		cfg, err := config.Load()
+		if err != nil {
+			return exitWithCode(err, ExitInternalError)
+		}
+		initialPromptTemplate := cfg.GetPromptTemplate(opts.Agent)
+		initialPrompt := renderInitialPromptTemplate(initialPromptTemplate, issue)
+
 		agentType, _ := agent.ParseAgentType(opts.Agent)
 		adapter, _ := agent.GetAdapter(agentType)
 		launchCfg := &agent.LaunchConfig{
@@ -186,7 +192,7 @@ func runRun(issueID string, opts *runOptions) error {
 			RunID:     runID,
 			VaultPath: "",
 			Branch:    branch,
-			Prompt:    promptFileInstruction,
+			Prompt:    initialPrompt,
 			Profile:   opts.AgentProfile,
 		}
 		agentCmd, _ := adapter.LaunchCommand(launchCfg)
@@ -285,6 +291,14 @@ func runRun(issueID string, opts *runOptions) error {
 	if err := os.WriteFile(promptPath, []byte(agentPrompt), 0644); err != nil {
 		return exitWithCode(fmt.Errorf("failed to write prompt file: %w", err), ExitInternalError)
 	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return exitWithCode(err, ExitInternalError)
+	}
+	initialPromptTemplate := cfg.GetPromptTemplate(opts.Agent)
+	initialPrompt := renderInitialPromptTemplate(initialPromptTemplate, issue)
+
 	launchCfg := &agent.LaunchConfig{
 		Type:         agentType,
 		CustomCmd:    opts.AgentCmd,
@@ -294,7 +308,7 @@ func runRun(issueID string, opts *runOptions) error {
 		RunPath:      run.Path,
 		VaultPath:    st.VaultPath(),
 		Branch:       worktreeResult.Branch,
-		Prompt:       promptFileInstruction,
+		Prompt:       initialPrompt,
 		Profile:      opts.AgentProfile,
 		Port:         4096, // Default port for HTTP-based agents (e.g., opencode)
 		Model:        opts.Model,
@@ -453,6 +467,26 @@ const (
 	promptFileInstruction = "ultrathink Please read '" + promptFileName + "' in the current directory and follow the instructions found there."
 	defaultPRTargetBranch = "main"
 )
+
+func renderInitialPromptTemplate(tmplStr string, issue *model.Issue) string {
+	if tmplStr == "" {
+		return promptFileInstruction
+	}
+
+	issueContent := issue.Title
+	if issue.Body != "" {
+		if issueContent != "" {
+			issueContent += "\n\n"
+		}
+		issueContent += issue.Body
+	}
+
+	result := strings.ReplaceAll(tmplStr, "{{issue}}", issueContent)
+	result = strings.ReplaceAll(result, "{{issue_id}}", issue.ID)
+	result = strings.ReplaceAll(result, "{{issue_title}}", issue.Title)
+
+	return result
+}
 
 const defaultPromptTemplate = `## Context
 
