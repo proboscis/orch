@@ -5,75 +5,98 @@ import (
 	"time"
 )
 
-type gitCache struct {
+// cache is a generic TTL cache for key-value data.
+type cache[V any] struct {
 	mu            sync.RWMutex
-	mergeStates   map[string]string
-	repoRoot      string
-	target        string
+	data          map[string]V
 	lastRefreshed time.Time
 	ttl           time.Duration
 }
 
-type worktreeDirtyCache struct {
-	mu            sync.RWMutex
-	dirtyStates   map[string]bool
-	lastRefreshed time.Time
-	ttl           time.Duration
+func newCache[V any](ttl time.Duration) *cache[V] {
+	return &cache[V]{ttl: ttl}
 }
 
-var globalGitCache = &gitCache{
-	ttl: 10 * time.Second,
+// get retrieves cached values for the given keys if the cache is valid.
+// Returns nil if cache is expired or any key is missing.
+func (c *cache[V]) get(keys []string) map[string]V {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.data == nil || time.Since(c.lastRefreshed) >= c.ttl {
+		return nil
+	}
+
+	result := make(map[string]V, len(keys))
+	for _, key := range keys {
+		if val, ok := c.data[key]; ok {
+			result[key] = val
+		} else {
+			return nil
+		}
+	}
+	return result
 }
 
-var globalWorktreeCache = &worktreeDirtyCache{
-	ttl: 10 * time.Second,
+// set stores values in the cache and updates the refresh timestamp.
+func (c *cache[V]) set(values map[string]V) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.data == nil {
+		c.data = make(map[string]V)
+	}
+	for k, v := range values {
+		c.data[k] = v
+	}
+	c.lastRefreshed = time.Now()
 }
+
+// invalidate clears the cache.
+func (c *cache[V]) invalidate() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lastRefreshed = time.Time{}
+	c.data = nil
+}
+
+// mergeStateCache extends cache with repo/target context validation.
+type mergeStateCache struct {
+	*cache[string]
+	repoRoot string
+	target   string
+}
+
+var globalMergeCache = &mergeStateCache{
+	cache: newCache[string](10 * time.Second),
+}
+
+var globalWorktreeCache = newCache[bool](10 * time.Second)
 
 func GetCachedBranchMergeStates(repoRoot, target string, branches []string) map[string]string {
-	globalGitCache.mu.RLock()
-	validCache := globalGitCache.mergeStates != nil &&
-		globalGitCache.repoRoot == repoRoot &&
-		globalGitCache.target == target &&
-		time.Since(globalGitCache.lastRefreshed) < globalGitCache.ttl
-	if validCache {
-		result := make(map[string]string, len(branches))
-		for _, b := range branches {
-			if state, ok := globalGitCache.mergeStates[b]; ok {
-				result[b] = state
-			}
-		}
-		globalGitCache.mu.RUnlock()
-		if len(result) == len(branches) {
-			return result
-		}
-	} else {
-		globalGitCache.mu.RUnlock()
+	globalMergeCache.mu.RLock()
+	contextChanged := globalMergeCache.repoRoot != repoRoot || globalMergeCache.target != target
+	globalMergeCache.mu.RUnlock()
+
+	if contextChanged {
+		globalMergeCache.mu.Lock()
+		globalMergeCache.data = nil
+		globalMergeCache.repoRoot = repoRoot
+		globalMergeCache.target = target
+		globalMergeCache.mu.Unlock()
+	}
+
+	if result := globalMergeCache.get(branches); result != nil {
+		return result
 	}
 
 	states := GetBranchMergeStates(repoRoot, target, branches)
-
-	globalGitCache.mu.Lock()
-	defer globalGitCache.mu.Unlock()
-
-	if globalGitCache.mergeStates == nil || globalGitCache.repoRoot != repoRoot || globalGitCache.target != target {
-		globalGitCache.mergeStates = make(map[string]string)
-		globalGitCache.repoRoot = repoRoot
-		globalGitCache.target = target
-	}
-
-	for branch, state := range states {
-		globalGitCache.mergeStates[branch] = state
-	}
-	globalGitCache.lastRefreshed = time.Now()
-
+	globalMergeCache.set(states)
 	return states
 }
 
 func InvalidateGitCache() {
-	globalGitCache.mu.Lock()
-	defer globalGitCache.mu.Unlock()
-	globalGitCache.lastRefreshed = time.Time{}
-	globalGitCache.mergeStates = nil
+	globalMergeCache.invalidate()
 }
 
 func GetCachedWorktreeDirtyStates(worktreePaths []string) map[string]bool {
@@ -81,48 +104,15 @@ func GetCachedWorktreeDirtyStates(worktreePaths []string) map[string]bool {
 		return nil
 	}
 
-	globalWorktreeCache.mu.RLock()
-	validCache := globalWorktreeCache.dirtyStates != nil &&
-		time.Since(globalWorktreeCache.lastRefreshed) < globalWorktreeCache.ttl
-	if validCache {
-		result := make(map[string]bool, len(worktreePaths))
-		allFound := true
-		for _, path := range worktreePaths {
-			if state, ok := globalWorktreeCache.dirtyStates[path]; ok {
-				result[path] = state
-			} else {
-				allFound = false
-				break
-			}
-		}
-		globalWorktreeCache.mu.RUnlock()
-		if allFound {
-			return result
-		}
-	} else {
-		globalWorktreeCache.mu.RUnlock()
+	if result := globalWorktreeCache.get(worktreePaths); result != nil {
+		return result
 	}
 
 	states := GetWorktreeDirtyStates(worktreePaths)
-
-	globalWorktreeCache.mu.Lock()
-	defer globalWorktreeCache.mu.Unlock()
-
-	if globalWorktreeCache.dirtyStates == nil {
-		globalWorktreeCache.dirtyStates = make(map[string]bool)
-	}
-
-	for path, dirty := range states {
-		globalWorktreeCache.dirtyStates[path] = dirty
-	}
-	globalWorktreeCache.lastRefreshed = time.Now()
-
+	globalWorktreeCache.set(states)
 	return states
 }
 
 func InvalidateWorktreeCache() {
-	globalWorktreeCache.mu.Lock()
-	defer globalWorktreeCache.mu.Unlock()
-	globalWorktreeCache.lastRefreshed = time.Time{}
-	globalWorktreeCache.dirtyStates = nil
+	globalWorktreeCache.invalidate()
 }
