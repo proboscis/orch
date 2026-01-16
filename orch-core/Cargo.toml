@@ -1,0 +1,66 @@
+[package]
+name = "orch-core"
+version = "0.1.0"
+edition = "2021"
+description = "Rust core library for orch - orchestrator for LLM CLIs"
+authors = ["orch team"]
+license = "MIT"
+
+[lib]
+name = "orch_core"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "orch"
+path = "src/main.rs"
+
+[dependencies]
+# CLI
+clap = { version = "4.5", features = ["derive", "env"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+serde_json = "1.0"
+
+# File/directory operations  
+glob = "0.3"
+
+# Python bindings (optional - only for cdylib)
+pyo3 = { version = "0.22", features = ["extension-module"], optional = true }
+
+# Time/date handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Regex for parsing
+regex = "1.11"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Hashing (for short IDs)
+sha2 = "0.10"
+hex = "0.4"
+
+# Unix-specific (for daemon, signals)
+nix = { version = "0.29", features = ["signal", "process"] }
+
+# Process execution
+which = "7.0"
+
+[dev-dependencies]
+tempfile = "3.14"
+
+[features]
+default = []
+python = ["pyo3"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
