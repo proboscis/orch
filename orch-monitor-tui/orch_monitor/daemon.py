@@ -6,13 +6,13 @@ via Unix socket and provides query and mutation APIs for runs and issues.
 The daemon is the single source of truth for all data.
 """
 
-import asyncio
 import json
 import socket
+import stat
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 from .models import Event, EventType, Issue, IssueStatus, Phase, Run, Status
 
@@ -83,8 +83,12 @@ class DaemonClient:
         self._timeout = 5.0  # seconds
 
     def is_available(self) -> bool:
-        """Check if the daemon socket is available."""
-        return self.socket_path.exists()
+        """Check if the daemon socket is available and is actually a socket."""
+        try:
+            mode = self.socket_path.stat().st_mode
+            return stat.S_ISSOCK(mode)
+        except (OSError, FileNotFoundError):
+            return False
 
     def _send_request(self, request: dict) -> dict:
         """Send a request to the daemon and return the response.
@@ -289,15 +293,11 @@ class DaemonClient:
         pass
 
     def send_message(self, issue_id: str, run_id: str, message: str) -> None:
-        """Send a message to a running agent.
+        """Send a message to a running agent (fire-and-forget).
 
-        Args:
-            issue_id: The issue ID.
-            run_id: The run ID.
-            message: The message to send.
-
-        Raises:
-            DaemonError: If there's an error from the daemon.
+        Note: The daemon queues the message asynchronously. A successful return
+        means the message was accepted for delivery, not that it was delivered.
+        Actual delivery may fail if the agent is not available.
         """
         request = {
             "type": "send",
@@ -388,7 +388,7 @@ def _json_to_run_full(data: dict) -> Run:
                 timestamp=timestamp,
                 type=event_type,
                 name=event_data.get("name", ""),
-                attrs=event_data.get("attrs", {}),
+                attrs=event_data.get("attrs") or {},
                 raw="",
             )
         )
@@ -455,5 +455,5 @@ def _json_to_issue_full(data: dict) -> Issue:
         path=Path(data.get("uri", "").replace("file://", ""))
         if data.get("uri")
         else Path(),
-        frontmatter=data.get("frontmatter", {}),
+        frontmatter=data.get("frontmatter") or {},
     )

@@ -202,6 +202,10 @@ class RunsDashboard(App):
             self.refresh_data()
 
     def refresh_data(self) -> None:
+        self._fetch_runs()
+
+    @work(thread=True)
+    def _fetch_runs(self) -> None:
         from datetime import datetime
 
         try:
@@ -211,18 +215,23 @@ class RunsDashboard(App):
                 else None
             )
             response = self.daemon.list_runs(filters)
-            self.runs = response.runs
-            self._daemon_error = None
+            runs = response.runs
+            error = None
         except DaemonNotRunningError:
-            self.runs = []
-            self._daemon_error = "Daemon not running"
+            runs = []
+            error = "Daemon not running"
         except DaemonError as e:
-            self.runs = []
-            self._daemon_error = str(e)
+            runs = []
+            error = str(e)
 
-        self.runs.sort(
+        runs.sort(
             key=lambda r: r.updated_at or r.started_at or datetime.min, reverse=True
         )
+        self.call_from_thread(self._update_runs_table, runs, error)
+
+    def _update_runs_table(self, runs: list[Run], error: Optional[str]) -> None:
+        self.runs = runs
+        self._daemon_error = error
         run_table = self.query_one("#runs-table", RunTable)
         run_table.populate(self.runs)
 
@@ -232,10 +241,18 @@ class RunsDashboard(App):
         if not run_ref:
             return
         issue_id, run_id = run_ref.split("#")
+        self._fetch_run_detail(issue_id, run_id)
+
+    @work(thread=True)
+    def _fetch_run_detail(self, issue_id: str, run_id: str) -> None:
         try:
-            self.selected_run = self.daemon.get_run(issue_id, run_id)
+            run = self.daemon.get_run(issue_id, run_id)
         except DaemonError:
-            self.selected_run = None
+            run = None
+        self.call_from_thread(self._set_selected_run, run)
+
+    def _set_selected_run(self, run: Optional[Run]) -> None:
+        self.selected_run = run
 
     def action_attach(self) -> None:
         if not self.selected_run or not self.selected_run.tmux_session:
@@ -310,18 +327,27 @@ class IssuesDashboard(App):
         self.refresh_data()
 
     def refresh_data(self) -> None:
+        self._fetch_issues()
+
+    @work(thread=True)
+    def _fetch_issues(self) -> None:
         try:
             response = self.daemon.list_issues()
-            self.issues = response.issues
-            self._daemon_error = None
+            issues = response.issues
+            error = None
         except DaemonNotRunningError:
-            self.issues = []
-            self._daemon_error = "Daemon not running"
+            issues = []
+            error = "Daemon not running"
         except DaemonError as e:
-            self.issues = []
-            self._daemon_error = str(e)
+            issues = []
+            error = str(e)
 
-        self.issues.sort(key=lambda i: i.id)
+        issues.sort(key=lambda i: i.id)
+        self.call_from_thread(self._update_issues_table, issues, error)
+
+    def _update_issues_table(self, issues: list[Issue], error: Optional[str]) -> None:
+        self.issues = issues
+        self._daemon_error = error
         issue_table = self.query_one("#issues-table", IssueTable)
         issue_table.populate(self.issues)
 
@@ -329,10 +355,18 @@ class IssuesDashboard(App):
     def on_issue_selected(self, event: IssueTable.RowSelected) -> None:
         issue_id = event.row_key.value
         if issue_id:
-            try:
-                self.selected_issue = self.daemon.get_issue(issue_id)
-            except DaemonError:
-                self.selected_issue = None
+            self._fetch_issue_detail(issue_id)
+
+    @work(thread=True)
+    def _fetch_issue_detail(self, issue_id: str) -> None:
+        try:
+            issue = self.daemon.get_issue(issue_id)
+        except DaemonError:
+            issue = None
+        self.call_from_thread(self._set_selected_issue, issue)
+
+    def _set_selected_issue(self, issue: Optional[Issue]) -> None:
+        self.selected_issue = issue
 
     def action_new_run(self) -> None:
         if not self.selected_issue:
@@ -433,6 +467,10 @@ class OrchMonitorApp(App):
             self.refresh_data()
 
     def refresh_data(self) -> None:
+        self._fetch_all_data()
+
+    @work(thread=True)
+    def _fetch_all_data(self) -> None:
         from datetime import datetime
 
         try:
@@ -442,26 +480,35 @@ class OrchMonitorApp(App):
                 else None
             )
             runs_response = self.daemon.list_runs(filters)
-            self.runs = runs_response.runs
-            self._daemon_error = None
+            runs = runs_response.runs
+            error = None
         except DaemonNotRunningError:
-            self.runs = []
-            self._daemon_error = "Daemon not running"
+            runs = []
+            error = "Daemon not running"
         except DaemonError as e:
-            self.runs = []
-            self._daemon_error = str(e)
+            runs = []
+            error = str(e)
 
-        self.runs.sort(
+        runs.sort(
             key=lambda r: r.updated_at or r.started_at or datetime.min, reverse=True
         )
 
         try:
             issues_response = self.daemon.list_issues()
-            self.issues = issues_response.issues
+            issues = issues_response.issues
         except DaemonError:
-            self.issues = []
+            issues = []
 
-        self.issues.sort(key=lambda i: i.id)
+        issues.sort(key=lambda i: i.id)
+
+        self.call_from_thread(self._update_all_tables, runs, issues, error)
+
+    def _update_all_tables(
+        self, runs: list[Run], issues: list[Issue], error: Optional[str]
+    ) -> None:
+        self.runs = runs
+        self.issues = issues
+        self._daemon_error = error
 
         run_table = self.query_one("#runs-table", RunTable)
         run_table.populate(self.runs)
@@ -483,13 +530,18 @@ class OrchMonitorApp(App):
         run_ref = event.row_key.value
         if not run_ref:
             return
-
         issue_id, run_id = run_ref.split("#")
+        self._fetch_run_for_detail(issue_id, run_id)
+
+    @work(thread=True)
+    def _fetch_run_for_detail(self, issue_id: str, run_id: str) -> None:
         try:
             run = self.daemon.get_run(issue_id, run_id)
         except DaemonError:
             run = None
+        self.call_from_thread(self._show_run_detail_callback, run)
 
+    def _show_run_detail_callback(self, run: Optional[Run]) -> None:
         if run:
             self.selected_run = run
             self.show_run_detail(run)
@@ -499,12 +551,17 @@ class OrchMonitorApp(App):
         issue_id = event.row_key.value
         if not issue_id:
             return
+        self._fetch_issue_for_detail(issue_id)
 
+    @work(thread=True)
+    def _fetch_issue_for_detail(self, issue_id: str) -> None:
         try:
             issue = self.daemon.get_issue(issue_id)
         except DaemonError:
             issue = None
+        self.call_from_thread(self._show_issue_detail_callback, issue)
 
+    def _show_issue_detail_callback(self, issue: Optional[Issue]) -> None:
         if issue:
             self.selected_issue = issue
             self.show_issue_detail(issue)
