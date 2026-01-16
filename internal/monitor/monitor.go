@@ -233,6 +233,7 @@ func (m *Monitor) Start() error {
 		if err := tmux.KillSession(m.session); err != nil {
 			return fmt.Errorf("failed to kill existing monitor session: %w", err)
 		}
+		_ = ClearControlSession(m.orchDir)
 	}
 
 	sessionExists := tmux.HasSession(m.session)
@@ -1031,6 +1032,12 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 	}
 
 	port := 4096
+	var sessionID string
+	if !m.forceNew {
+		if stored := LoadControlSession(m.orchDir); stored != nil {
+			sessionID = stored.SessionID
+		}
+	}
 	cmd, err := adapter.LaunchCommand(&agent.LaunchConfig{
 		Type:            aType,
 		VaultPath:       m.store.VaultPath(),
@@ -1039,6 +1046,7 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 		Port:            port,
 		Model:           modelName,
 		ModelVariant:    modelVariant,
+		SessionName:     sessionID,
 	})
 	if err != nil {
 		return agentChatLaunch{command: fallbackChatCommand(err.Error())}

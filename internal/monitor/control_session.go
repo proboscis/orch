@@ -61,3 +61,17 @@ func SaveControlSession(orchDir string, session *ControlSession) error {
 
 	return os.Rename(tmp, path)
 }
+
+// ClearControlSession removes the stored control session file.
+// This is used when --new flag is set to force a fresh session.
+func ClearControlSession(orchDir string) error {
+	if orchDir == "" {
+		return nil
+	}
+	path := filepath.Join(orchDir, controlSessionFile)
+	err := os.Remove(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
