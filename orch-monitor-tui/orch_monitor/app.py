@@ -21,8 +21,8 @@ from textual.widgets import (
 )
 
 from .config import Config
+from .daemon import DaemonClient, DaemonError, DaemonNotRunningError, RunFilters
 from .models import Issue, IssueStatus, Run, Status
-from .vault import VaultReader
 from .widgets import DetailPanel, IssueTable, RunTable
 
 
@@ -162,12 +162,13 @@ class RunsDashboard(App):
             self.config = Config.from_vault(vault_path)
         else:
             self.config = Config.load()
-        self.vault = VaultReader(self.config.vault_path)
+        self.daemon = DaemonClient(self.config.socket_path)
         self.runs: list[Run] = []
         self.selected_run: Optional[Run] = None
         self.status_filter: set[Status] = set()
         self._auto_refresh_enabled = auto_refresh
         self.title = f"Runs [{self.config.vault_path.name}]"
+        self._daemon_error: Optional[str] = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -176,6 +177,12 @@ class RunsDashboard(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        if not self.daemon.is_available():
+            self.notify(
+                "Daemon not running. Start with: orch ps",
+                severity="error",
+                timeout=10,
+            )
         self.refresh_data()
         if self._auto_refresh_enabled:
             self.set_interval(AUTO_REFRESH_INTERVAL, self._do_auto_refresh)
@@ -197,9 +204,22 @@ class RunsDashboard(App):
     def refresh_data(self) -> None:
         from datetime import datetime
 
-        self.runs = self.vault.list_runs()
-        if self.status_filter:
-            self.runs = [r for r in self.runs if r.status in self.status_filter]
+        try:
+            filters = (
+                RunFilters(status=list(self.status_filter))
+                if self.status_filter
+                else None
+            )
+            response = self.daemon.list_runs(filters)
+            self.runs = response.runs
+            self._daemon_error = None
+        except DaemonNotRunningError:
+            self.runs = []
+            self._daemon_error = "Daemon not running"
+        except DaemonError as e:
+            self.runs = []
+            self._daemon_error = str(e)
+
         self.runs.sort(
             key=lambda r: r.updated_at or r.started_at or datetime.min, reverse=True
         )
@@ -212,7 +232,10 @@ class RunsDashboard(App):
         if not run_ref:
             return
         issue_id, run_id = run_ref.split("#")
-        self.selected_run = self.vault.get_run(issue_id, run_id)
+        try:
+            self.selected_run = self.daemon.get_run(issue_id, run_id)
+        except DaemonError:
+            self.selected_run = None
 
     def action_attach(self) -> None:
         if not self.selected_run or not self.selected_run.tmux_session:
@@ -256,11 +279,12 @@ class IssuesDashboard(App):
             self.config = Config.from_vault(vault_path)
         else:
             self.config = Config.load()
-        self.vault = VaultReader(self.config.vault_path)
+        self.daemon = DaemonClient(self.config.socket_path)
         self.issues: list[Issue] = []
         self.selected_issue: Optional[Issue] = None
         self._auto_refresh_enabled = auto_refresh
         self.title = f"Issues [{self.config.vault_path.name}]"
+        self._daemon_error: Optional[str] = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -269,6 +293,12 @@ class IssuesDashboard(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        if not self.daemon.is_available():
+            self.notify(
+                "Daemon not running. Start with: orch ps",
+                severity="error",
+                timeout=10,
+            )
         self.refresh_data()
         if self._auto_refresh_enabled:
             self.set_interval(AUTO_REFRESH_INTERVAL, self._do_auto_refresh)
@@ -280,7 +310,17 @@ class IssuesDashboard(App):
         self.refresh_data()
 
     def refresh_data(self) -> None:
-        self.issues = self.vault.list_issues()
+        try:
+            response = self.daemon.list_issues()
+            self.issues = response.issues
+            self._daemon_error = None
+        except DaemonNotRunningError:
+            self.issues = []
+            self._daemon_error = "Daemon not running"
+        except DaemonError as e:
+            self.issues = []
+            self._daemon_error = str(e)
+
         self.issues.sort(key=lambda i: i.id)
         issue_table = self.query_one("#issues-table", IssueTable)
         issue_table.populate(self.issues)
@@ -289,7 +329,10 @@ class IssuesDashboard(App):
     def on_issue_selected(self, event: IssueTable.RowSelected) -> None:
         issue_id = event.row_key.value
         if issue_id:
-            self.selected_issue = self.vault.get_issue(issue_id)
+            try:
+                self.selected_issue = self.daemon.get_issue(issue_id)
+            except DaemonError:
+                self.selected_issue = None
 
     def action_new_run(self) -> None:
         if not self.selected_issue:
@@ -337,7 +380,7 @@ class OrchMonitorApp(App):
         else:
             self.config = Config.load()
 
-        self.vault = VaultReader(self.config.vault_path)
+        self.daemon = DaemonClient(self.config.socket_path)
         self.runs: list[Run] = []
         self.issues: list[Issue] = []
         self.selected_run: Optional[Run] = None
@@ -346,6 +389,7 @@ class OrchMonitorApp(App):
         self.status_filter: set[Status] = set()
         self._auto_refresh_enabled = auto_refresh
         self.title = f"Orch Monitor [{self.config.vault_path.name}]"
+        self._daemon_error: Optional[str] = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -364,6 +408,12 @@ class OrchMonitorApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        if not self.daemon.is_available():
+            self.notify(
+                "Daemon not running. Start with: orch ps",
+                severity="error",
+                timeout=10,
+            )
         self.refresh_data()
         if self._auto_refresh_enabled:
             self.set_interval(AUTO_REFRESH_INTERVAL, self._do_auto_refresh)
@@ -385,14 +435,32 @@ class OrchMonitorApp(App):
     def refresh_data(self) -> None:
         from datetime import datetime
 
-        self.runs = self.vault.list_runs()
-        if self.status_filter:
-            self.runs = [r for r in self.runs if r.status in self.status_filter]
+        try:
+            filters = (
+                RunFilters(status=list(self.status_filter))
+                if self.status_filter
+                else None
+            )
+            runs_response = self.daemon.list_runs(filters)
+            self.runs = runs_response.runs
+            self._daemon_error = None
+        except DaemonNotRunningError:
+            self.runs = []
+            self._daemon_error = "Daemon not running"
+        except DaemonError as e:
+            self.runs = []
+            self._daemon_error = str(e)
+
         self.runs.sort(
             key=lambda r: r.updated_at or r.started_at or datetime.min, reverse=True
         )
 
-        self.issues = self.vault.list_issues()
+        try:
+            issues_response = self.daemon.list_issues()
+            self.issues = issues_response.issues
+        except DaemonError:
+            self.issues = []
+
         self.issues.sort(key=lambda i: i.id)
 
         run_table = self.query_one("#runs-table", RunTable)
@@ -417,7 +485,10 @@ class OrchMonitorApp(App):
             return
 
         issue_id, run_id = run_ref.split("#")
-        run = self.vault.get_run(issue_id, run_id)
+        try:
+            run = self.daemon.get_run(issue_id, run_id)
+        except DaemonError:
+            run = None
 
         if run:
             self.selected_run = run
@@ -429,7 +500,10 @@ class OrchMonitorApp(App):
         if not issue_id:
             return
 
-        issue = self.vault.get_issue(issue_id)
+        try:
+            issue = self.daemon.get_issue(issue_id)
+        except DaemonError:
+            issue = None
 
         if issue:
             self.selected_issue = issue

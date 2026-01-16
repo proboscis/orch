@@ -8,6 +8,11 @@ from typing import Optional
 import yaml
 
 
+# Daemon socket filename (matches Go daemon)
+DAEMON_SOCKET_FILE = "daemon.sock"
+ORCH_DIR = ".orch"
+
+
 @dataclass
 class Config:
     """Orch configuration."""
@@ -17,6 +22,16 @@ class Config:
     worktree_dir: str = ".git-worktrees"
     base_branch: str = "main"
     pr_target_branch: str = "main"
+
+    @property
+    def orch_dir(self) -> Path:
+        """Return the .orch directory path."""
+        return self.vault_path / ORCH_DIR
+
+    @property
+    def socket_path(self) -> Path:
+        """Return the daemon socket path."""
+        return self.orch_dir / DAEMON_SOCKET_FILE
 
     @classmethod
     def load(cls, config_path: Optional[Path] = None) -> "Config":

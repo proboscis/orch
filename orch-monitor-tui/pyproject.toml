@@ -1,19 +1,14 @@
 [project]
 name = "orch-monitor"
-version = "0.1.0"
-description = "Python Textual-based TUI for orch monitor"
+version = "0.2.0"
+description = "Python Textual-based TUI for orch monitor (daemon-only architecture)"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "textual>=0.47.0",
     "rich>=13.7.0",
     "pyyaml>=6.0.1",
-    "python-frontmatter>=1.1.0",
 ]
-
-[project.optional-dependencies]
-# Rust backend for faster vault scanning (matches Go implementation behavior)
-rust = ["orch_vault_rs"]
 
 [project.scripts]
 orch-monitor = "orch_monitor.__main__:main"
@@ -21,6 +16,3 @@ orch-monitor = "orch_monitor.__main__:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-[dependency-groups]
-dev = ["maturin>=1.4,<2.0"]
