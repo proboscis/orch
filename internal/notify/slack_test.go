@@ -38,7 +38,7 @@ func TestSlackNotifier_NotifyBlocked_Webhook(t *testing.T) {
 		Status:  model.StatusBlocked,
 	}
 
-	err := notifier.NotifyBlocked(run, "Test Issue Title")
+	err := notifier.NotifyBlocked(run, "Test Issue Title", "Agent is waiting for input")
 	if err != nil {
 		t.Fatalf("NotifyBlocked failed: %v", err)
 	}
@@ -46,8 +46,9 @@ func TestSlackNotifier_NotifyBlocked_Webhook(t *testing.T) {
 	if receivedMessage.Text == "" {
 		t.Error("expected message text to be set")
 	}
-	if len(receivedMessage.Blocks) != 3 {
-		t.Errorf("expected 3 blocks, got %d", len(receivedMessage.Blocks))
+	// 3 base blocks + 1 agent message block = 4
+	if len(receivedMessage.Blocks) != 4 {
+		t.Errorf("expected 4 blocks, got %d", len(receivedMessage.Blocks))
 	}
 }
 
@@ -81,7 +82,7 @@ func TestSlackNotifier_NotifyBlocked_BotToken(t *testing.T) {
 		Status:  model.StatusBlockedAPI,
 	}
 
-	err := notifier.NotifyBlocked(run, "Another Issue")
+	err := notifier.NotifyBlocked(run, "Another Issue", "")
 	if err != nil && authHeader == "" {
 		t.Logf("Expected error when not hitting real Slack API: %v", err)
 	}

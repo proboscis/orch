@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/s22625/orch/internal/config"
@@ -41,7 +42,7 @@ type SlackBlockText struct {
 	Text string `json:"text"`
 }
 
-func (s *SlackNotifier) NotifyBlocked(run *model.Run, issueTitle string) error {
+func (s *SlackNotifier) NotifyBlocked(run *model.Run, issueTitle string, lastOutput string) error {
 	if !s.config.IsConfigured() {
 		return nil
 	}
@@ -68,14 +69,29 @@ func (s *SlackNotifier) NotifyBlocked(run *model.Run, issueTitle string) error {
 				Text: fmt.Sprintf("*Issue:* %s\n*Status:* %s (%s)", issueTitle, run.Status, statusText),
 			},
 		},
-		{
-			Type: "section",
-			Text: &SlackBlockText{
-				Type: "mrkdwn",
-				Text: fmt.Sprintf("*Attach:* `%s`", attachCmd),
-			},
-		},
 	}
+
+	// Add last agent message if available
+	if lastOutput != "" {
+		agentMessage := extractLastAgentMessage(lastOutput)
+		if agentMessage != "" {
+			blocks = append(blocks, SlackBlock{
+				Type: "section",
+				Text: &SlackBlockText{
+					Type: "mrkdwn",
+					Text: fmt.Sprintf("*Agent says:*\n```%s```", agentMessage),
+				},
+			})
+		}
+	}
+
+	blocks = append(blocks, SlackBlock{
+		Type: "section",
+		Text: &SlackBlockText{
+			Type: "mrkdwn",
+			Text: fmt.Sprintf("*Attach:* `%s`", attachCmd),
+		},
+	})
 
 	msg := SlackMessage{
 		Text:        text,
@@ -180,6 +196,76 @@ func statusEmoji(status model.Status) string {
 	default:
 		return ":information_source:"
 	}
+}
+
+// extractLastAgentMessage extracts a meaningful message from the agent output.
+// It takes the last few lines, skipping UI elements like status bars.
+func extractLastAgentMessage(output string) string {
+	if output == "" {
+		return ""
+	}
+
+	lines := strings.Split(output, "\n")
+
+	// Find meaningful content by looking for the last assistant message
+	// or the last substantive lines
+	var meaningfulLines []string
+
+	for i := len(lines) - 1; i >= 0 && len(meaningfulLines) < 15; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+
+		// Skip common UI elements
+		if isUIElement(line) {
+			continue
+		}
+
+		// Stop at assistant message marker (we have enough context)
+		if strings.HasPrefix(line, "--- [ASSISTANT]") || strings.HasPrefix(line, "--- [USER]") {
+			break
+		}
+
+		meaningfulLines = append([]string{line}, meaningfulLines...)
+	}
+
+	if len(meaningfulLines) == 0 {
+		return ""
+	}
+
+	result := strings.Join(meaningfulLines, "\n")
+
+	// Truncate if too long (Slack has limits)
+	const maxLen = 500
+	if len(result) > maxLen {
+		result = result[:maxLen] + "..."
+	}
+
+	return result
+}
+
+// isUIElement checks if a line is a UI element that should be skipped
+func isUIElement(line string) bool {
+	uiPatterns := []string{
+		"tokens",
+		"↵ send",
+		"? for shortcuts",
+		"ctrl+s send",
+		"enter newline",
+		"ctrl+c interrupt",
+		"Esc to cancel",
+		"shift+tab",
+		"───",
+		"━━━",
+	}
+	lower := strings.ToLower(line)
+	for _, pattern := range uiPatterns {
+		if strings.Contains(lower, strings.ToLower(pattern)) {
+			return true
+		}
+	}
+	return false
 }
 
 func statusDescription(status model.Status) string {

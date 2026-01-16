@@ -85,7 +85,7 @@ func (d *Daemon) monitorRun(run *model.Run) error {
 		if err := d.updateStatus(run, newStatus); err != nil {
 			return err
 		}
-		d.notifyStatusChange(run, newStatus)
+		d.notifyStatusChange(run, newStatus, output)
 	}
 
 	return nil
@@ -137,7 +137,7 @@ func (d *Daemon) recordPRArtifact(run *model.Run, prURL string) error {
 	return d.store.AppendEvent(ref, event)
 }
 
-func (d *Daemon) notifyStatusChange(run *model.Run, newStatus model.Status) {
+func (d *Daemon) notifyStatusChange(run *model.Run, newStatus model.Status, lastOutput string) {
 	if d.slackNotifier == nil || d.config == nil {
 		return
 	}
@@ -155,7 +155,7 @@ func (d *Daemon) notifyStatusChange(run *model.Run, newStatus model.Status) {
 
 	var err error
 	if newStatus == model.StatusBlocked || newStatus == model.StatusBlockedAPI {
-		err = d.slackNotifier.NotifyBlocked(run, issueTitle)
+		err = d.slackNotifier.NotifyBlocked(run, issueTitle, lastOutput)
 	} else {
 		err = d.slackNotifier.NotifyStatusChange(run, issueTitle, newStatus)
 	}
