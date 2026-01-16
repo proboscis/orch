@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/s22625/orch/internal/model"
@@ -236,4 +237,152 @@ func formatTime(t time.Time) string {
 		return ""
 	}
 	return t.Format(time.RFC3339)
+}
+
+// SummaryToRun converts a RunSummary to a model.Run for display purposes
+func SummaryToRun(summary *RunSummary) (*model.Run, error) {
+	startedAt, err := time.Parse(time.RFC3339, summary.StartedAt)
+	if err != nil {
+		return nil, fmt.Errorf("invalid started_at: %w", err)
+	}
+	updatedAt, err := time.Parse(time.RFC3339, summary.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("invalid updated_at: %w", err)
+	}
+
+	return &model.Run{
+		IssueID:      summary.IssueID,
+		RunID:        summary.RunID,
+		Status:       model.Status(summary.Status),
+		Phase:        model.Phase(summary.Phase),
+		Agent:        summary.Agent,
+		Model:        summary.Model,
+		Branch:       summary.Branch,
+		WorktreePath: summary.WorktreePath,
+		TmuxSession:  summary.TmuxSession,
+		PRUrl:        summary.PRUrl,
+		StartedAt:    startedAt,
+		UpdatedAt:    updatedAt,
+		Events:       []*model.Event{},
+	}, nil
+}
+
+// IssueSummaryToModel converts an IssueSummary to a model.Issue
+func IssueSummaryToModel(summary *IssueSummary) *model.Issue {
+	return &model.Issue{
+		ID:      summary.ID,
+		Title:   summary.Title,
+		Topic:   summary.Topic,
+		Summary: summary.Summary,
+		Status:  model.IssueStatus(summary.Status),
+		Path:    extractPathFromURI(summary.URI),
+	}
+}
+
+func extractPathFromURI(uri string) string {
+	if strings.HasPrefix(uri, "file://") {
+		return strings.TrimPrefix(uri, "file://")
+	}
+	return uri
+}
+
+type StopRunRequest struct {
+	IssueID string `json:"issue_id"`
+	RunID   string `json:"run_id"`
+	All     bool   `json:"all,omitempty"`
+	Force   bool   `json:"force,omitempty"`
+}
+
+type StopRunResponse struct {
+	OK      bool   `json:"ok"`
+	Error   string `json:"error,omitempty"`
+	Stopped int    `json:"stopped,omitempty"`
+}
+
+type ResolveIssueRequest struct {
+	IssueID string `json:"issue_id"`
+	Force   bool   `json:"force,omitempty"`
+}
+
+type ResolveIssueResponse struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+type CreateIssueRequest struct {
+	IssueID string `json:"issue_id"`
+	Title   string `json:"title"`
+	Summary string `json:"summary,omitempty"`
+	Body    string `json:"body,omitempty"`
+}
+
+type CreateIssueResponse struct {
+	OK      bool   `json:"ok"`
+	Error   string `json:"error,omitempty"`
+	IssueID string `json:"issue_id,omitempty"`
+	Path    string `json:"path,omitempty"`
+}
+
+type AttachInfoRequest struct {
+	IssueID string `json:"issue_id"`
+	RunID   string `json:"run_id"`
+}
+
+type AttachInfoResponse struct {
+	OK            bool   `json:"ok"`
+	Error         string `json:"error,omitempty"`
+	Agent         string `json:"agent,omitempty"`
+	TmuxSession   string `json:"tmux_session,omitempty"`
+	ServerPort    int    `json:"server_port,omitempty"`
+	SessionID     string `json:"session_id,omitempty"`
+	WorktreePath  string `json:"worktree_path,omitempty"`
+	SessionExists bool   `json:"session_exists"`
+	CanAutoCreate bool   `json:"can_auto_create"`
+}
+
+// FullToRun converts a RunFull to a model.Run
+func FullToRun(full *RunFull) (*model.Run, error) {
+	startedAt, err := time.Parse(time.RFC3339, full.StartedAt)
+	if err != nil {
+		return nil, fmt.Errorf("invalid started_at: %w", err)
+	}
+	updatedAt, err := time.Parse(time.RFC3339, full.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("invalid updated_at: %w", err)
+	}
+
+	events := make([]*model.Event, len(full.Events))
+	for i, e := range full.Events {
+		ts, err := time.Parse(time.RFC3339, e.Timestamp)
+		if err != nil {
+			return nil, fmt.Errorf("invalid event timestamp: %w", err)
+		}
+		events[i] = &model.Event{
+			Timestamp: ts,
+			Type:      model.EventType(e.Type),
+			Name:      e.Name,
+			Attrs:     e.Attrs,
+		}
+	}
+
+	return &model.Run{
+		IssueID:           full.IssueID,
+		RunID:             full.RunID,
+		Path:              extractPathFromURI(full.URI),
+		Status:            model.Status(full.Status),
+		Phase:             model.Phase(full.Phase),
+		Agent:             full.Agent,
+		Model:             full.Model,
+		ModelVariant:      full.ModelVariant,
+		Branch:            full.Branch,
+		WorktreePath:      full.WorktreePath,
+		TmuxSession:       full.TmuxSession,
+		PRUrl:             full.PRUrl,
+		ServerPort:        full.ServerPort,
+		OpenCodeSessionID: full.OpenCodeSessionID,
+		ContinuedFrom:     full.ContinuedFrom,
+		StartedAt:         startedAt,
+		UpdatedAt:         updatedAt,
+		Events:            events,
+	}, nil
 }

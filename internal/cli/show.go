@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
 	"github.com/spf13/cobra"
 )
@@ -42,11 +43,28 @@ func runShow(refStr string, opts *showOptions) error {
 		return err
 	}
 
-	// Resolve by short ID or run ref
-	run, err := resolveRun(st, refStr)
-	if err != nil {
-		os.Exit(ExitRunNotFound)
-		return err
+	var run *model.Run
+	client := daemon.NewClient(st.VaultPath())
+
+	if client.IsAvailable() {
+		ref, parseErr := model.ParseRunRef(refStr)
+		if parseErr == nil {
+			resp, apiErr := client.GetRun(ref.IssueID, ref.RunID)
+			if apiErr == nil && resp.Run != nil {
+				run, err = daemon.FullToRun(resp.Run)
+				if err != nil {
+					run = nil
+				}
+			}
+		}
+	}
+
+	if run == nil {
+		run, err = resolveRun(st, refStr)
+		if err != nil {
+			os.Exit(ExitRunNotFound)
+			return err
+		}
 	}
 
 	if globalOpts.JSON {

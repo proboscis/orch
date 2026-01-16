@@ -9,6 +9,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
 	"github.com/spf13/cobra"
 )
@@ -65,22 +66,6 @@ func runIssueCreate(issueID string, opts *issueCreateOptions) error {
 		return err
 	}
 
-	issuesDir, err := resolveIssuesDir(vaultPath)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(issuesDir, 0755); err != nil {
-		return fmt.Errorf("failed to create issues directory: %w", err)
-	}
-
-	issuePath := filepath.Join(issuesDir, issueID+".md")
-
-	// Check if issue already exists
-	if _, err := os.Stat(issuePath); err == nil {
-		return fmt.Errorf("issue already exists: %s", issueID)
-	}
-
-	// If no title provided, prompt for it
 	title := opts.Title
 	if title == "" && !opts.Edit {
 		fmt.Print("Title: ")
@@ -92,7 +77,52 @@ func runIssueCreate(issueID string, opts *issueCreateOptions) error {
 		title = issueID
 	}
 
-	// Build issue content
+	client := daemon.NewClient(vaultPath)
+
+	if client.IsAvailable() && !opts.Edit {
+		resp, err := client.CreateIssue(issueID, title, opts.Summary, opts.Body)
+		if err == nil {
+			if globalOpts.JSON {
+				output := struct {
+					OK      bool   `json:"ok"`
+					IssueID string `json:"issue_id"`
+					Path    string `json:"path"`
+				}{
+					OK:      true,
+					IssueID: resp.IssueID,
+					Path:    resp.Path,
+				}
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(output)
+			}
+
+			if !globalOpts.Quiet {
+				fmt.Printf("Created issue: %s\n", issueID)
+				fmt.Printf("  Path: %s\n", resp.Path)
+			}
+			return nil
+		}
+
+		if err.Error() == "daemon error: issue_exists" {
+			return fmt.Errorf("issue already exists: %s", issueID)
+		}
+	}
+
+	issuesDir, err := resolveIssuesDir(vaultPath)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		return fmt.Errorf("failed to create issues directory: %w", err)
+	}
+
+	issuePath := filepath.Join(issuesDir, issueID+".md")
+
+	if _, err := os.Stat(issuePath); err == nil {
+		return fmt.Errorf("issue already exists: %s", issueID)
+	}
+
 	var sb strings.Builder
 	sb.WriteString("---\n")
 	sb.WriteString("type: issue\n")
@@ -210,13 +240,43 @@ func runIssueList() error {
 		return err
 	}
 
-	issues, err := st.ListIssues()
-	if err != nil {
-		return err
+	vaultPath := st.VaultPath()
+	client := daemon.NewClient(vaultPath)
+
+	var issues []*model.Issue
+	var allRuns []*model.Run
+
+	if client.IsAvailable() {
+		issuesResp, issuesErr := client.ListIssues(nil, 0, "")
+		runsResp, runsErr := client.ListRuns("", nil, 0, "")
+
+		if issuesErr == nil && runsErr == nil {
+			issues = make([]*model.Issue, len(issuesResp.Issues))
+			for i, summary := range issuesResp.Issues {
+				issues[i] = daemon.IssueSummaryToModel(summary)
+			}
+
+			allRuns = make([]*model.Run, len(runsResp.Runs))
+			for i, summary := range runsResp.Runs {
+				run, convErr := daemon.SummaryToRun(summary)
+				if convErr != nil {
+					issues = nil
+					allRuns = nil
+					break
+				}
+				allRuns[i] = run
+			}
+		}
 	}
 
-	// Get all runs to match with issues
-	allRuns, _ := st.ListRuns(nil)
+	if issues == nil || allRuns == nil {
+		issues, err = st.ListIssues()
+		if err != nil {
+			return err
+		}
+		allRuns, _ = st.ListRuns(nil)
+	}
+
 	runsByIssue := make(map[string][]*model.Run)
 	for _, run := range allRuns {
 		runsByIssue[run.IssueID] = append(runsByIssue[run.IssueID], run)

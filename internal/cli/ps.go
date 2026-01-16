@@ -76,28 +76,61 @@ func runPs(opts *psOptions) error {
 		return err
 	}
 
-	// Build filter
+	vaultPath := st.VaultPath()
+	client := daemon.NewClient(vaultPath)
+
 	requestedLimit := opts.Limit
-	filter := &store.ListRunsFilter{
-		IssueID: opts.Issue,
-		Limit:   opts.Limit,
-		Since:   opts.Since,
-	}
-	if len(opts.IssueStatus) > 0 {
-		filter.Limit = 0
-	}
+	var runs []*model.Run
+	usedDaemon := false
 
-	if len(opts.Status) > 0 {
-		for _, s := range opts.Status {
-			filter.Status = append(filter.Status, model.Status(s))
+	if client.IsAvailable() && !opts.NoGit && !opts.NoAlive {
+		statusStrings := make([]string, len(opts.Status))
+		for i, s := range opts.Status {
+			statusStrings[i] = string(s)
 		}
-	} else if !opts.All {
-		filter.Limit = 0
+
+		limit := opts.Limit
+		if len(opts.IssueStatus) > 0 || (len(opts.Status) == 0 && !opts.All) {
+			limit = 0
+		}
+
+		resp, err := client.ListRuns(opts.Issue, statusStrings, limit, "")
+		if err == nil {
+			usedDaemon = true
+			runs = make([]*model.Run, len(resp.Runs))
+			for i, summary := range resp.Runs {
+				run, convErr := daemon.SummaryToRun(summary)
+				if convErr != nil {
+					usedDaemon = false
+					break
+				}
+				runs[i] = run
+			}
+		}
 	}
 
-	runs, err := st.ListRuns(filter)
-	if err != nil {
-		return err
+	if !usedDaemon {
+		filter := &store.ListRunsFilter{
+			IssueID: opts.Issue,
+			Limit:   opts.Limit,
+			Since:   opts.Since,
+		}
+		if len(opts.IssueStatus) > 0 {
+			filter.Limit = 0
+		}
+
+		if len(opts.Status) > 0 {
+			for _, s := range opts.Status {
+				filter.Status = append(filter.Status, model.Status(s))
+			}
+		} else if !opts.All {
+			filter.Limit = 0
+		}
+
+		runs, err = st.ListRuns(filter)
+		if err != nil {
+			return err
+		}
 	}
 
 	issueStatusFilter := make(map[string]bool)

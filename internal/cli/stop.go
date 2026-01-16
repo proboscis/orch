@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/store"
 	"github.com/s22625/orch/internal/tmux"
@@ -87,6 +88,24 @@ func runStop(refStr string, opts *stopOptions) error {
 }
 
 func stopIssueRuns(st store.Store, issueID string, opts *stopOptions) error {
+	client := daemon.NewClient(st.VaultPath())
+
+	if client.IsAvailable() {
+		resp, err := client.StopRun(issueID, "", false, opts.Force)
+		if err == nil {
+			if !globalOpts.Quiet {
+				if resp.Stopped == 0 {
+					fmt.Printf("No active runs for issue: %s\n", issueID)
+				} else if resp.Stopped == 1 {
+					fmt.Printf("stopped: %s\n", issueID)
+				} else {
+					fmt.Printf("stopped %d runs for %s\n", resp.Stopped, issueID)
+				}
+			}
+			return nil
+		}
+	}
+
 	runs, err := st.ListRuns(&store.ListRunsFilter{
 		IssueID: issueID,
 		Status:  []model.Status{model.StatusRunning, model.StatusBooting, model.StatusBlocked, model.StatusBlockedAPI, model.StatusQueued},
@@ -122,6 +141,22 @@ func runStopAll(opts *stopOptions) error {
 	st, err := getStore()
 	if err != nil {
 		return err
+	}
+
+	client := daemon.NewClient(st.VaultPath())
+
+	if client.IsAvailable() {
+		resp, err := client.StopRun("", "", true, opts.Force)
+		if err == nil {
+			if !globalOpts.Quiet {
+				if resp.Stopped == 0 {
+					fmt.Println("No running runs to stop")
+				} else {
+					fmt.Printf("Stopped %d run(s)\n", resp.Stopped)
+				}
+			}
+			return nil
+		}
 	}
 
 	runs, err := st.ListRuns(&store.ListRunsFilter{

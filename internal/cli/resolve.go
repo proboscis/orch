@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/store"
 	"github.com/spf13/cobra"
@@ -41,6 +42,28 @@ func runResolve(issueID string, opts *resolveOptions) error {
 		return err
 	}
 
+	client := daemon.NewClient(st.VaultPath())
+
+	if client.IsAvailable() {
+		err := client.ResolveIssue(issueID, opts.Force)
+		if err == nil {
+			if !globalOpts.Quiet {
+				fmt.Printf("resolved: %s\n", issueID)
+			}
+			return nil
+		}
+
+		if err.Error() == "daemon error: not_found" {
+			fmt.Fprintf(os.Stderr, "issue not found: %s\n", issueID)
+			os.Exit(ExitRunNotFound)
+			return err
+		}
+
+		if err.Error() == "daemon error: no_completed_runs" {
+			return fmt.Errorf("issue %s has no completed runs; use --force to resolve anyway", issueID)
+		}
+	}
+
 	issue, err := st.ResolveIssue(issueID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "issue not found: %s\n", issueID)
@@ -55,7 +78,6 @@ func runResolve(issueID string, opts *resolveOptions) error {
 		return nil
 	}
 
-	// Check if there are any completed runs (done or pr_open) unless --force is used
 	if !opts.Force {
 		filter := store.ListRunsFilter{IssueID: issueID}
 		runs, err := st.ListRuns(&filter)
