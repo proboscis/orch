@@ -1,9 +1,8 @@
-//! ps command - list runs
-
 use anyhow::{Context, Result};
 use clap::Args;
 use std::path::Path;
 
+use crate::agent::{check_alive_batch, AliveStatus};
 use crate::models::Status;
 use crate::store::{FileStore, ListRunsFilter, Store};
 
@@ -64,39 +63,64 @@ impl PsCommand {
         let runs = store.list_runs(&filter)
             .context("failed to list runs")?;
 
+        let alive_statuses = check_alive_batch(&runs);
+
         if json {
-            println!("{}", serde_json::to_string_pretty(&runs)
+            #[derive(serde::Serialize)]
+            struct RunWithAlive<'a> {
+                #[serde(flatten)]
+                run: &'a crate::models::Run,
+                alive: String,
+            }
+
+            let runs_with_alive: Vec<RunWithAlive> = runs.iter()
+                .map(|run| {
+                    let ref_key = format!("{}#{}", run.issue_id, run.run_id);
+                    let alive = alive_statuses.get(&ref_key)
+                        .unwrap_or(&AliveStatus::Unknown)
+                        .to_string();
+                    RunWithAlive { run, alive }
+                })
+                .collect();
+
+            println!("{}", serde_json::to_string_pretty(&runs_with_alive)
                 .context("failed to serialize runs")?);
         } else if tsv {
-            // TSV format for fzf
             for run in &runs {
+                let ref_key = format!("{}#{}", run.issue_id, run.run_id);
+                let alive = alive_statuses.get(&ref_key)
+                    .unwrap_or(&AliveStatus::Unknown);
                 println!(
-                    "{}\t{}\t{}\t{}\t{}",
+                    "{}\t{}\t{}\t{}\t{}\t{}",
                     run.short_id(),
                     run.issue_id,
                     run.run_id,
                     run.status,
-                    run.agent
+                    run.agent,
+                    alive
                 );
             }
         } else {
-            // Human-readable format
             if runs.is_empty() {
                 println!("No runs found.");
             } else {
                 println!(
-                    "{:<6} {:<15} {:<17} {:<10} {:<8} {:<10}",
-                    "ID", "ISSUE", "RUN", "STATUS", "ELAPSED", "AGENT"
+                    "{:<6} {:<15} {:<17} {:<10} {:<5} {:<8} {:<10}",
+                    "ID", "ISSUE", "RUN", "STATUS", "ALIVE", "ELAPSED", "AGENT"
                 );
-                println!("{}", "-".repeat(70));
+                println!("{}", "-".repeat(77));
 
                 for run in &runs {
+                    let ref_key = format!("{}#{}", run.issue_id, run.run_id);
+                    let alive = alive_statuses.get(&ref_key)
+                        .unwrap_or(&AliveStatus::Unknown);
                     println!(
-                        "{:<6} {:<15} {:<17} {:<10} {:<8} {:<10}",
+                        "{:<6} {:<15} {:<17} {:<10} {:<5} {:<8} {:<10}",
                         run.short_id(),
                         truncate(&run.issue_id, 15),
                         truncate(&run.run_id, 17),
                         run.status,
+                        alive,
                         run.elapsed_time(),
                         truncate(&run.agent, 10)
                     );
