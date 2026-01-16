@@ -186,7 +186,7 @@ func runStopAll(opts *stopOptions) error {
 
 	client := daemon.NewClient(vaultPath)
 	if client.IsAvailable() {
-		resp, err := client.ListRuns("", []string{"running", "booting"}, 0, "")
+		resp, err := client.ListRuns("", []string{"running", "booting", "blocked", "blocked_api", "queued"}, 0, "")
 		if err != nil {
 			return err
 		}

@@ -79,7 +79,7 @@ func (s *SocketServer) Start() error {
 	}
 	s.listener = listener
 
-	if err := os.Chmod(socketPath, 0660); err != nil {
+	if err := os.Chmod(socketPath, 0600); err != nil {
 		s.logger.Printf("warning: failed to chmod socket: %v", err)
 	}
 
@@ -549,6 +549,11 @@ func (s *SocketServer) handleResolveIssue(req SendRequest, encoder *json.Encoder
 func (s *SocketServer) handleCreateIssue(req SendRequest, encoder *json.Encoder) {
 	if req.IssueID == "" {
 		encoder.Encode(CreateIssueResponse{OK: false, Error: "invalid_request: issue_id required"})
+		return
+	}
+
+	if strings.Contains(req.IssueID, "/") || strings.Contains(req.IssueID, "..") || strings.Contains(req.IssueID, "\\") {
+		encoder.Encode(CreateIssueResponse{OK: false, Error: "invalid_request: issue_id contains invalid characters"})
 		return
 	}
 
