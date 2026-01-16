@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/store"
 	"github.com/s22625/orch/internal/tmux"
@@ -47,19 +48,80 @@ If the run is already stopped (done/failed/canceled), this is a no-op.`,
 }
 
 func runStop(refStr string, opts *stopOptions) error {
+	vaultPath, err := getVaultPath()
+	if err != nil {
+		return err
+	}
+
+	client := daemon.NewClient(vaultPath)
+	if client.IsAvailable() {
+		return runStopViaDaemon(client, refStr, opts)
+	}
+
+	return runStopDirect(refStr, opts)
+}
+
+func runStopViaDaemon(client *daemon.Client, refStr string, opts *stopOptions) error {
+	var issueID, runID string
+
+	if shortIDRegex.MatchString(refStr) {
+		resp, err := client.GetRunByShortID(refStr)
+		if err == nil && resp.Run != nil {
+			issueID = resp.Run.IssueID
+			runID = resp.Run.RunID
+		} else if len(refStr) == 6 {
+			fmt.Fprintf(os.Stderr, "run not found: %s\n", refStr)
+			os.Exit(ExitRunNotFound)
+			return fmt.Errorf("run not found: %s", refStr)
+		}
+	}
+
+	if issueID == "" {
+		ref, err := model.ParseRunRef(refStr)
+		if err != nil {
+			return err
+		}
+		issueID = ref.IssueID
+		if !ref.IsLatest() {
+			runID = ref.RunID
+		}
+	}
+
+	resp, err := client.StopRun(issueID, runID, opts.Force)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(ExitInternalError)
+		return err
+	}
+
+	if !globalOpts.Quiet {
+		if len(resp.StoppedRuns) == 0 {
+			if runID != "" {
+				fmt.Printf("no active run to stop: %s#%s\n", issueID, runID)
+			} else {
+				fmt.Printf("no active runs for issue: %s\n", issueID)
+			}
+		} else if len(resp.StoppedRuns) == 1 {
+			fmt.Printf("stopped: %s#%s\n", issueID, resp.StoppedRuns[0])
+		} else {
+			fmt.Printf("stopped %d runs for %s\n", resp.StoppedCount, issueID)
+		}
+	}
+
+	return nil
+}
+
+func runStopDirect(refStr string, opts *stopOptions) error {
 	st, err := getStore()
 	if err != nil {
 		return err
 	}
 
-	// Try as short ID prefix first (2-6 hex chars)
 	if shortIDRegex.MatchString(refStr) {
 		run, err := st.GetRunByShortID(refStr)
 		if err == nil {
 			return stopRun(st, run, opts)
 		}
-		// If it's a full 6-char short ID that failed, report the error
-		// For shorter prefixes, fall through to try as regular ref
 		if len(refStr) == 6 {
 			return err
 		}
@@ -70,12 +132,10 @@ func runStop(refStr string, opts *stopOptions) error {
 		return err
 	}
 
-	// If no specific run ID, stop ALL active runs for this issue
 	if ref.IsLatest() {
 		return stopIssueRuns(st, ref.IssueID, opts)
 	}
 
-	// Stop specific run
 	run, err := st.GetRun(ref)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "run not found: %s\n", refStr)
@@ -119,6 +179,41 @@ func stopIssueRuns(st store.Store, issueID string, opts *stopOptions) error {
 }
 
 func runStopAll(opts *stopOptions) error {
+	vaultPath, err := getVaultPath()
+	if err != nil {
+		return err
+	}
+
+	client := daemon.NewClient(vaultPath)
+	if client.IsAvailable() {
+		resp, err := client.ListRuns("", []string{"running", "booting"}, 0, "")
+		if err != nil {
+			return err
+		}
+
+		if len(resp.Runs) == 0 {
+			if !globalOpts.Quiet {
+				fmt.Println("No running runs to stop")
+			}
+			return nil
+		}
+
+		stoppedCount := 0
+		for _, run := range resp.Runs {
+			_, err := client.StopRun(run.IssueID, run.RunID, opts.Force)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "failed to stop %s#%s: %v\n", run.IssueID, run.RunID, err)
+			} else {
+				stoppedCount++
+				if !globalOpts.Quiet {
+					fmt.Printf("stopped: %s#%s\n", run.IssueID, run.RunID)
+				}
+			}
+		}
+
+		return nil
+	}
+
 	st, err := getStore()
 	if err != nil {
 		return err

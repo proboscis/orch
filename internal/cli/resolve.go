@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/store"
 	"github.com/spf13/cobra"
@@ -36,6 +37,40 @@ Note: This does not change run statuses - runs have their own lifecycle states.`
 }
 
 func runResolve(issueID string, opts *resolveOptions) error {
+	vaultPath, err := getVaultPath()
+	if err != nil {
+		return err
+	}
+
+	client := daemon.NewClient(vaultPath)
+	if client.IsAvailable() {
+		return runResolveViaDaemon(client, issueID, opts)
+	}
+
+	return runResolveDirect(issueID, opts)
+}
+
+func runResolveViaDaemon(client *daemon.Client, issueID string, opts *resolveOptions) error {
+	resp, err := client.ResolveIssue(issueID, opts.Force)
+	if err != nil {
+		if err.Error() == "daemon error: not_found" {
+			fmt.Fprintf(os.Stderr, "issue not found: %s\n", issueID)
+			os.Exit(ExitRunNotFound)
+		}
+		if err.Error() == "daemon error: no_completed_runs" {
+			return fmt.Errorf("issue %s has no completed runs; use --force to resolve anyway", issueID)
+		}
+		return err
+	}
+
+	if !globalOpts.Quiet {
+		fmt.Printf("resolved: %s\n", resp.IssueID)
+	}
+
+	return nil
+}
+
+func runResolveDirect(issueID string, opts *resolveOptions) error {
 	st, err := getStore()
 	if err != nil {
 		return err
@@ -55,7 +90,6 @@ func runResolve(issueID string, opts *resolveOptions) error {
 		return nil
 	}
 
-	// Check if there are any completed runs (done or pr_open) unless --force is used
 	if !opts.Force {
 		filter := store.ListRunsFilter{IssueID: issueID}
 		runs, err := st.ListRuns(&filter)

@@ -230,7 +230,6 @@ func IssueToFull(issue *model.Issue) *IssueFull {
 	}
 }
 
-// formatTime formats a time value, returning empty string for zero time
 func formatTime(t time.Time) string {
 	if t.IsZero() {
 		return ""

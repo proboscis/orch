@@ -9,6 +9,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
 	"github.com/spf13/cobra"
 )
@@ -60,27 +61,6 @@ Examples:
 }
 
 func runIssueCreate(issueID string, opts *issueCreateOptions) error {
-	vaultPath, err := getVaultPath()
-	if err != nil {
-		return err
-	}
-
-	issuesDir, err := resolveIssuesDir(vaultPath)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(issuesDir, 0755); err != nil {
-		return fmt.Errorf("failed to create issues directory: %w", err)
-	}
-
-	issuePath := filepath.Join(issuesDir, issueID+".md")
-
-	// Check if issue already exists
-	if _, err := os.Stat(issuePath); err == nil {
-		return fmt.Errorf("issue already exists: %s", issueID)
-	}
-
-	// If no title provided, prompt for it
 	title := opts.Title
 	if title == "" && !opts.Edit {
 		fmt.Print("Title: ")
@@ -92,7 +72,66 @@ func runIssueCreate(issueID string, opts *issueCreateOptions) error {
 		title = issueID
 	}
 
-	// Build issue content
+	vaultPath, err := getVaultPath()
+	if err != nil {
+		return err
+	}
+
+	client := daemon.NewClient(vaultPath)
+	if client.IsAvailable() && !opts.Edit {
+		return runIssueCreateViaDaemon(client, issueID, title, opts)
+	}
+
+	return runIssueCreateDirect(issueID, title, opts, vaultPath)
+}
+
+func runIssueCreateViaDaemon(client *daemon.Client, issueID, title string, opts *issueCreateOptions) error {
+	resp, err := client.CreateIssue(issueID, title, opts.Summary, opts.Body)
+	if err != nil {
+		if err.Error() == "daemon error: already_exists" {
+			return fmt.Errorf("issue already exists: %s", issueID)
+		}
+		return err
+	}
+
+	if globalOpts.JSON {
+		output := struct {
+			OK      bool   `json:"ok"`
+			IssueID string `json:"issue_id"`
+			Path    string `json:"path"`
+		}{
+			OK:      true,
+			IssueID: resp.IssueID,
+			Path:    resp.Path,
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(output)
+	}
+
+	if !globalOpts.Quiet {
+		fmt.Printf("Created issue: %s\n", resp.IssueID)
+		fmt.Printf("  Path: %s\n", resp.Path)
+	}
+
+	return nil
+}
+
+func runIssueCreateDirect(issueID, title string, opts *issueCreateOptions, vaultPath string) error {
+	issuesDir, err := resolveIssuesDir(vaultPath)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		return fmt.Errorf("failed to create issues directory: %w", err)
+	}
+
+	issuePath := filepath.Join(issuesDir, issueID+".md")
+
+	if _, err := os.Stat(issuePath); err == nil {
+		return fmt.Errorf("issue already exists: %s", issueID)
+	}
+
 	var sb strings.Builder
 	sb.WriteString("---\n")
 	sb.WriteString("type: issue\n")
@@ -112,19 +151,16 @@ func runIssueCreate(issueID string, opts *issueCreateOptions) error {
 		sb.WriteString("<!-- Describe the issue here -->\n")
 	}
 
-	// Write the file
 	if err := os.WriteFile(issuePath, []byte(sb.String()), 0644); err != nil {
 		return fmt.Errorf("failed to create issue: %w", err)
 	}
 
-	// Open in editor if requested
 	if opts.Edit {
 		if err := openInEditor(issuePath); err != nil {
 			return fmt.Errorf("failed to open editor: %w", err)
 		}
 	}
 
-	// Output
 	if globalOpts.JSON {
 		output := struct {
 			OK      bool   `json:"ok"`
@@ -205,6 +241,58 @@ type issueInfo struct {
 }
 
 func runIssueList() error {
+	vaultPath, err := getVaultPath()
+	if err != nil {
+		return err
+	}
+
+	client := daemon.NewClient(vaultPath)
+	if client.IsAvailable() {
+		return runIssueListViaDaemon(client)
+	}
+
+	return runIssueListDirect()
+}
+
+func runIssueListViaDaemon(client *daemon.Client) error {
+	issuesResp, err := client.ListIssues(nil, 0, "")
+	if err != nil {
+		return err
+	}
+
+	runsResp, err := client.ListRuns("", []string{"running", "blocked", "blocked_api", "booting", "queued"}, 0, "")
+	if err != nil {
+		runsResp = &daemon.ListRunsResponse{Runs: nil}
+	}
+
+	runsByIssue := make(map[string][]*daemon.RunSummary)
+	for _, run := range runsResp.Runs {
+		runsByIssue[run.IssueID] = append(runsByIssue[run.IssueID], run)
+	}
+
+	var issueInfos []issueInfo
+	for _, issue := range issuesResp.Issues {
+		info := issueInfo{
+			ID:      issue.ID,
+			Title:   issue.Title,
+			Summary: issue.Summary,
+			Status:  issue.Status,
+		}
+
+		for _, run := range runsByIssue[issue.ID] {
+			info.Runs = append(info.Runs, runSummary{
+				RunID:  run.RunID,
+				Status: run.Status,
+			})
+		}
+
+		issueInfos = append(issueInfos, info)
+	}
+
+	return outputIssueList(issueInfos)
+}
+
+func runIssueListDirect() error {
 	st, err := getStore()
 	if err != nil {
 		return err
@@ -215,7 +303,6 @@ func runIssueList() error {
 		return err
 	}
 
-	// Get all runs to match with issues
 	allRuns, _ := st.ListRuns(nil)
 	runsByIssue := make(map[string][]*model.Run)
 	for _, run := range allRuns {
@@ -232,7 +319,6 @@ func runIssueList() error {
 			Path:    issue.Path,
 		}
 
-		// Add active runs (non-terminal states)
 		for _, run := range runsByIssue[issue.ID] {
 			if run.Status == model.StatusRunning ||
 				run.Status == model.StatusBlocked ||
@@ -249,6 +335,10 @@ func runIssueList() error {
 		issueInfos = append(issueInfos, info)
 	}
 
+	return outputIssueList(issueInfos)
+}
+
+func outputIssueList(issueInfos []issueInfo) error {
 	if globalOpts.JSON {
 		output := struct {
 			OK     bool        `json:"ok"`
@@ -269,7 +359,6 @@ func runIssueList() error {
 		return nil
 	}
 
-	// Print with tabwriter for alignment
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tSTATUS\tSUMMARY\tRUNS")
 	for _, issue := range issueInfos {
