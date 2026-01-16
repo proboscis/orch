@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log"
@@ -651,4 +652,24 @@ func TestCursorEncoding(t *testing.T) {
 			t.Error("expected error for invalid cursor")
 		}
 	})
+
+	t.Run("reject negative offset cursor", func(t *testing.T) {
+		negativeCursor := base64.StdEncoding.EncodeToString([]byte(`{"offset":-1}`))
+		_, err := DecodeCursor(negativeCursor)
+		if err == nil {
+			t.Error("expected error for negative offset cursor")
+		}
+	})
+}
+
+func TestFileURIEmptyPath(t *testing.T) {
+	uri := FileURI("")
+	if uri != "" {
+		t.Errorf("expected empty string for empty path, got %s", uri)
+	}
+
+	uri = FileURI("/path/to/file")
+	if uri != "file:///path/to/file" {
+		t.Errorf("expected file:///path/to/file, got %s", uri)
+	}
 }

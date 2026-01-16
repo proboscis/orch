@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/s22625/orch/internal/agent"
@@ -124,7 +125,7 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 	var req SendRequest
 	if err := decoder.Decode(&req); err != nil {
 		s.logger.Printf("failed to decode request: %v", err)
-		encoder.Encode(SendResponse{OK: false, Error: "invalid request"})
+		encoder.Encode(SendResponse{OK: false, Error: "invalid_request"})
 		return
 	}
 
@@ -140,7 +141,7 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 	case "get_issue":
 		s.handleGetIssue(req, encoder)
 	default:
-		encoder.Encode(SendResponse{OK: false, Error: "unknown request type"})
+		encoder.Encode(SendResponse{OK: false, Error: "unknown_type"})
 	}
 }
 
@@ -272,6 +273,10 @@ func (s *SocketServer) handleListIssues(req SendRequest, encoder *json.Encoder) 
 		encoder.Encode(ListIssuesResponse{OK: false, Error: "store_error"})
 		return
 	}
+
+	sort.Slice(issues, func(i, j int) bool {
+		return issues[i].ID < issues[j].ID
+	})
 
 	if len(req.Status) > 0 {
 		statusSet := make(map[string]bool)

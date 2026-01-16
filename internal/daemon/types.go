@@ -9,31 +9,6 @@ import (
 	"github.com/s22625/orch/internal/model"
 )
 
-// Request is the common request structure for all daemon API calls
-type Request struct {
-	Type string `json:"type"`
-
-	// For list_runs
-	IssueID string   `json:"issue_id,omitempty"`
-	Status  []string `json:"status,omitempty"`
-	Limit   int      `json:"limit,omitempty"`
-	Cursor  string   `json:"cursor,omitempty"`
-
-	// For get_run
-	RunID string `json:"run_id,omitempty"`
-
-	// For send (existing)
-	Message   string `json:"message,omitempty"`
-	NoEnter   bool   `json:"no_enter,omitempty"`
-	VaultPath string `json:"vault_path,omitempty"`
-}
-
-// Response is the base response structure
-type Response struct {
-	OK    bool   `json:"ok"`
-	Error string `json:"error,omitempty"`
-}
-
 // ListRunsResponse is the response for list_runs
 type ListRunsResponse struct {
 	OK         bool          `json:"ok"`
@@ -149,24 +124,28 @@ func EncodeCursor(offset int) string {
 	return base64.StdEncoding.EncodeToString(data)
 }
 
-// DecodeCursor decodes a pagination cursor
 func DecodeCursor(s string) (int, error) {
 	if s == "" {
 		return 0, nil
 	}
 	data, err := base64.StdEncoding.DecodeString(s)
 	if err != nil {
-		return 0, fmt.Errorf("invalid cursor: %w", err)
+		return 0, fmt.Errorf("invalid_cursor")
 	}
 	var c cursor
 	if err := json.Unmarshal(data, &c); err != nil {
-		return 0, fmt.Errorf("invalid cursor: %w", err)
+		return 0, fmt.Errorf("invalid_cursor")
+	}
+	if c.Offset < 0 {
+		return 0, fmt.Errorf("invalid_cursor")
 	}
 	return c.Offset, nil
 }
 
-// FileURI returns a file:// URI for a path
 func FileURI(path string) string {
+	if path == "" {
+		return ""
+	}
 	return "file://" + path
 }
 
