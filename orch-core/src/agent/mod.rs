@@ -6,6 +6,9 @@
 
 use thiserror::Error;
 
+pub mod alive;
+pub mod opencode;
+
 #[derive(Error, Debug)]
 pub enum AgentError {
     #[error("agent not found: {0}")]
