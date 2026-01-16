@@ -45,7 +45,7 @@ func (a *OpenCodeAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 	if cfg.ContinueSession {
 		args := []string{binary}
 		if cfg.SessionName != "" {
-			args = append(args, "--session", cfg.SessionName)
+			args = append(args, "--session", shellQuote(cfg.SessionName))
 		}
 		if cfg.Prompt != "" {
 			args = append(args, "--prompt", shellQuote(cfg.Prompt))

@@ -224,16 +224,20 @@ func (m *Monitor) Start() error {
 		return fmt.Errorf("tmux is not available")
 	}
 
-	if m.forceNew && tmux.HasSession(m.session) {
-		if tmux.IsInsideTmux() {
-			if current, err := tmux.CurrentSession(); err == nil && current == m.session {
-				return fmt.Errorf("cannot use --new from inside %s; detach and rerun", m.session)
+	if m.forceNew {
+		if err := ClearControlSession(m.orchDir); err != nil {
+			return fmt.Errorf("failed to clear control session: %w", err)
+		}
+		if tmux.HasSession(m.session) {
+			if tmux.IsInsideTmux() {
+				if current, err := tmux.CurrentSession(); err == nil && current == m.session {
+					return fmt.Errorf("cannot use --new from inside %s; detach and rerun", m.session)
+				}
+			}
+			if err := tmux.KillSession(m.session); err != nil {
+				return fmt.Errorf("failed to kill existing monitor session: %w", err)
 			}
 		}
-		if err := tmux.KillSession(m.session); err != nil {
-			return fmt.Errorf("failed to kill existing monitor session: %w", err)
-		}
-		_ = ClearControlSession(m.orchDir)
 	}
 
 	sessionExists := tmux.HasSession(m.session)
@@ -1032,12 +1036,6 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 	}
 
 	port := 4096
-	var sessionID string
-	if !m.forceNew {
-		if stored := LoadControlSession(m.orchDir); stored != nil {
-			sessionID = stored.SessionID
-		}
-	}
 	cmd, err := adapter.LaunchCommand(&agent.LaunchConfig{
 		Type:            aType,
 		VaultPath:       m.store.VaultPath(),
@@ -1046,7 +1044,6 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 		Port:            port,
 		Model:           modelName,
 		ModelVariant:    modelVariant,
-		SessionName:     sessionID,
 	})
 	if err != nil {
 		return agentChatLaunch{command: fallbackChatCommand(err.Error())}
