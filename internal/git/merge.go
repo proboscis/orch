@@ -282,12 +282,12 @@ func GetRunMergeStates(runs []RunInfo, target string) map[string]string {
 		}
 	}
 
-	branchStates := GetBranchMergeStates("", target, branches)
+	branchStates := GetCachedBranchMergeStates("", target, branches)
 	if branchStates == nil {
 		branchStates = make(map[string]string)
 	}
 
-	dirtyWorktrees := GetWorktreeDirtyStates(worktreePaths)
+	dirtyWorktrees := GetCachedWorktreeDirtyStates(worktreePaths)
 
 	states := make(map[string]string)
 	for branch, runID := range branchToRunID {

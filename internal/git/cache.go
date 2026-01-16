@@ -14,7 +14,18 @@ type gitCache struct {
 	ttl           time.Duration
 }
 
+type worktreeDirtyCache struct {
+	mu            sync.RWMutex
+	dirtyStates   map[string]bool
+	lastRefreshed time.Time
+	ttl           time.Duration
+}
+
 var globalGitCache = &gitCache{
+	ttl: 10 * time.Second,
+}
+
+var globalWorktreeCache = &worktreeDirtyCache{
 	ttl: 10 * time.Second,
 }
 
@@ -63,4 +74,55 @@ func InvalidateGitCache() {
 	defer globalGitCache.mu.Unlock()
 	globalGitCache.lastRefreshed = time.Time{}
 	globalGitCache.mergeStates = nil
+}
+
+func GetCachedWorktreeDirtyStates(worktreePaths []string) map[string]bool {
+	if len(worktreePaths) == 0 {
+		return nil
+	}
+
+	globalWorktreeCache.mu.RLock()
+	validCache := globalWorktreeCache.dirtyStates != nil &&
+		time.Since(globalWorktreeCache.lastRefreshed) < globalWorktreeCache.ttl
+	if validCache {
+		result := make(map[string]bool, len(worktreePaths))
+		allFound := true
+		for _, path := range worktreePaths {
+			if state, ok := globalWorktreeCache.dirtyStates[path]; ok {
+				result[path] = state
+			} else {
+				allFound = false
+				break
+			}
+		}
+		globalWorktreeCache.mu.RUnlock()
+		if allFound {
+			return result
+		}
+	} else {
+		globalWorktreeCache.mu.RUnlock()
+	}
+
+	states := GetWorktreeDirtyStates(worktreePaths)
+
+	globalWorktreeCache.mu.Lock()
+	defer globalWorktreeCache.mu.Unlock()
+
+	if globalWorktreeCache.dirtyStates == nil {
+		globalWorktreeCache.dirtyStates = make(map[string]bool)
+	}
+
+	for path, dirty := range states {
+		globalWorktreeCache.dirtyStates[path] = dirty
+	}
+	globalWorktreeCache.lastRefreshed = time.Now()
+
+	return states
+}
+
+func InvalidateWorktreeCache() {
+	globalWorktreeCache.mu.Lock()
+	defer globalWorktreeCache.mu.Unlock()
+	globalWorktreeCache.lastRefreshed = time.Time{}
+	globalWorktreeCache.dirtyStates = nil
 }
