@@ -6,30 +6,19 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 
-/// Run operational lifecycle states.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "python", pyclass(eq, eq_int))]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
-    #[cfg_attr(feature = "python", pyo3(name = "QUEUED"))]
     Queued,
-    #[cfg_attr(feature = "python", pyo3(name = "BOOTING"))]
     Booting,
-    #[cfg_attr(feature = "python", pyo3(name = "RUNNING"))]
     Running,
-    #[cfg_attr(feature = "python", pyo3(name = "BLOCKED"))]
     Blocked,
-    #[cfg_attr(feature = "python", pyo3(name = "BLOCKED_API"))]
     BlockedApi,
-    #[cfg_attr(feature = "python", pyo3(name = "PR_OPEN"))]
     PrOpen,
-    #[cfg_attr(feature = "python", pyo3(name = "DONE"))]
     Done,
-    #[cfg_attr(feature = "python", pyo3(name = "FAILED"))]
     Failed,
-    #[cfg_attr(feature = "python", pyo3(name = "CANCELED"))]
     Canceled,
-    #[cfg_attr(feature = "python", pyo3(name = "UNKNOWN"))]
     Unknown,
 }
 
@@ -131,20 +120,14 @@ impl Status {
     }
 }
 
-/// Work phases for tracking progress.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "python", pyclass(eq, eq_int))]
 #[serde(rename_all = "snake_case")]
 pub enum Phase {
-    #[cfg_attr(feature = "python", pyo3(name = "PLAN"))]
     Plan,
-    #[cfg_attr(feature = "python", pyo3(name = "IMPLEMENT"))]
     Implement,
-    #[cfg_attr(feature = "python", pyo3(name = "TEST"))]
     Test,
-    #[cfg_attr(feature = "python", pyo3(name = "PR"))]
     Pr,
-    #[cfg_attr(feature = "python", pyo3(name = "REVIEW"))]
     Review,
 }
 

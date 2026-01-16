@@ -8,17 +8,13 @@ use std::fmt;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-/// Issue resolution states.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[cfg_attr(feature = "python", pyclass(eq, eq_int))]
 #[serde(rename_all = "snake_case")]
 pub enum IssueStatus {
     #[default]
-    #[cfg_attr(feature = "python", pyo3(name = "OPEN"))]
     Open,
-    #[cfg_attr(feature = "python", pyo3(name = "RESOLVED"))]
     Resolved,
-    #[cfg_attr(feature = "python", pyo3(name = "CLOSED"))]
     Closed,
 }
 

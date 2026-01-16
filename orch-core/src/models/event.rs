@@ -12,20 +12,14 @@ use std::sync::LazyLock;
 
 use super::status::{Phase, Status};
 
-/// Event types that can appear in run logs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "python", pyclass(eq, eq_int))]
 #[serde(rename_all = "snake_case")]
 pub enum EventType {
-    #[cfg_attr(feature = "python", pyo3(name = "STATUS"))]
     Status,
-    #[cfg_attr(feature = "python", pyo3(name = "PHASE"))]
     Phase,
-    #[cfg_attr(feature = "python", pyo3(name = "ARTIFACT"))]
     Artifact,
-    #[cfg_attr(feature = "python", pyo3(name = "TEST"))]
     Test,
-    #[cfg_attr(feature = "python", pyo3(name = "NOTE"))]
     Note,
 }
 

@@ -7,28 +7,49 @@ use anyhow::{Context, Result, bail};
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::{Command, ExitStatus};
+use tracing::warn;
 
 use crate::agent::{AgentType, get_agent_command};
+use crate::config::Config;
 use crate::git;
 use crate::models::{Event, Run, RunRef, Status};
 use crate::models::run::{generate_run_id, generate_branch_name, generate_tmux_session, generate_worktree_name};
-use crate::store::{ListRunsFilter, Store};
+use crate::store::{ListRunsFilter, Store, StoreError};
 use crate::tmux;
+
+fn log_event_error(err: StoreError, event_type: &str) {
+    warn!(%err, event_type, "failed to append event");
+}
+
+fn log_tmux_error(err: impl std::fmt::Display, session: &str) {
+    warn!(%err, session, "failed to kill tmux session");
+}
 
 /// Orchestrator for managing agent run lifecycles.
 pub struct Orchestrator<S: Store> {
     store: S,
+    config: Config,
 }
 
 impl<S: Store> Orchestrator<S> {
-    /// Create a new Orchestrator with the given store.
+    /// Create a new Orchestrator with the given store and default config.
     pub fn new(store: S) -> Self {
-        Self { store }
+        Self { store, config: Config::default() }
+    }
+
+    /// Create a new Orchestrator with explicit config.
+    pub fn with_config(store: S, config: Config) -> Self {
+        Self { store, config }
     }
 
     /// Get a reference to the underlying store.
     pub fn store(&self) -> &S {
         &self.store
+    }
+
+    /// Get a reference to the config.
+    pub fn config(&self) -> &Config {
+        &self.config
     }
 
     /// Resolve a run reference (short ID, issue#run, or issue for latest).
@@ -49,33 +70,28 @@ impl<S: Store> Orchestrator<S> {
 
     /// Start a new run for an issue.
     pub fn start_run(&self, issue_id: &str, agent: &str, _model: Option<&str>) -> Result<Run> {
-        // Verify issue exists
         let _issue = self.store.resolve_issue(issue_id)
             .context("issue not found")?;
 
-        // Generate run ID and names
         let run_id = generate_run_id();
         let branch_name = generate_branch_name(issue_id, &run_id);
         let tmux_session = generate_tmux_session(issue_id, &run_id);
         let worktree_name = generate_worktree_name(issue_id, &run_id, agent);
 
-        // Find repo root
         let repo_root = git::find_repo_root(".")
             .context("not in a git repository")?;
 
-        // Create worktree directory
-        let worktree_root = repo_root.join(".git-worktrees").join(issue_id);
+        let worktree_root = self.config.worktree_root_path(&repo_root).join(issue_id);
         std::fs::create_dir_all(&worktree_root)
             .context("failed to create worktree root")?;
         
         let worktree_path = worktree_root.join(&worktree_name);
 
-        // Fetch latest
         git::fetch(&repo_root)
             .context("failed to fetch")?;
         
-        // Create worktree with new branch from origin/main
-        git::create_worktree_with_new_branch(&repo_root, &worktree_path, &branch_name, "origin/main")
+        let base_branch = self.config.base_branch();
+        git::create_worktree_with_new_branch(&repo_root, &worktree_path, &branch_name, base_branch)
             .context("failed to create worktree")?;
 
         // Create run in store
@@ -90,26 +106,31 @@ impl<S: Store> Orchestrator<S> {
         tmux::create_session(&tmux_session, Some(&worktree_str))
             .context("failed to create tmux session")?;
 
-        // Record artifacts
-        self.store.append_event(&run.run_ref(), &Event::artifact(
+        if let Err(e) = self.store.append_event(&run.run_ref(), &Event::artifact(
             "worktree",
             [("path".to_string(), worktree_path.to_string_lossy().to_string())].into_iter().collect(),
-        )).ok();
+        )) {
+            log_event_error(e, "artifact:worktree");
+        }
 
-        self.store.append_event(&run.run_ref(), &Event::artifact(
+        if let Err(e) = self.store.append_event(&run.run_ref(), &Event::artifact(
             "branch",
             [("name".to_string(), branch_name.clone())].into_iter().collect(),
-        )).ok();
+        )) {
+            log_event_error(e, "artifact:branch");
+        }
 
-        self.store.append_event(&run.run_ref(), &Event::artifact(
+        if let Err(e) = self.store.append_event(&run.run_ref(), &Event::artifact(
             "session",
             [("name".to_string(), tmux_session.clone())].into_iter().collect(),
-        )).ok();
+        )) {
+            log_event_error(e, "artifact:session");
+        }
 
-        // Update run status
-        self.store.append_event(&run.run_ref(), &Event::status(Status::Booting)).ok();
+        if let Err(e) = self.store.append_event(&run.run_ref(), &Event::status(Status::Booting)) {
+            log_event_error(e, "status:booting");
+        }
 
-        // Get agent command and start it
         let agent_type: AgentType = agent.parse().unwrap_or(AgentType::Claude);
         let cmd_parts = get_agent_command(agent_type);
         
@@ -118,10 +139,11 @@ impl<S: Store> Orchestrator<S> {
             tmux::send_keys(&tmux_session, &cmd, true)
                 .context("failed to start agent")?;
             
-            self.store.append_event(&run.run_ref(), &Event::status(Status::Running)).ok();
+            if let Err(e) = self.store.append_event(&run.run_ref(), &Event::status(Status::Running)) {
+                log_event_error(e, "status:running");
+            }
         }
 
-        // Update run fields
         run.tmux_session = tmux_session;
         run.branch = branch_name;
         run.worktree_path = worktree_path.to_string_lossy().to_string();
@@ -166,12 +188,10 @@ impl<S: Store> Orchestrator<S> {
         let tmux_session = generate_tmux_session(issue_id, &run_id);
         let worktree_name = generate_worktree_name(issue_id, &run_id, &agent);
 
-        // Find repo root
         let repo_root = git::find_repo_root(".")
             .context("not in a git repository")?;
 
-        // Create worktree from existing branch
-        let worktree_root = repo_root.join(".git-worktrees").join(issue_id);
+        let worktree_root = self.config.worktree_root_path(&repo_root).join(issue_id);
         std::fs::create_dir_all(&worktree_root)
             .context("failed to create worktree root")?;
         
@@ -193,21 +213,24 @@ impl<S: Store> Orchestrator<S> {
         tmux::create_session(&tmux_session, Some(&worktree_str))
             .context("failed to create tmux session")?;
 
-        // Record artifacts
-        self.store.append_event(&run.run_ref(), &Event::artifact(
+        if let Err(e) = self.store.append_event(&run.run_ref(), &Event::artifact(
             "worktree",
             [("path".to_string(), worktree_path.to_string_lossy().to_string())].into_iter().collect(),
-        )).ok();
+        )) {
+            log_event_error(e, "artifact:worktree");
+        }
 
-        self.store.append_event(&run.run_ref(), &Event::artifact(
+        if let Err(e) = self.store.append_event(&run.run_ref(), &Event::artifact(
             "session",
             [("name".to_string(), tmux_session.clone())].into_iter().collect(),
-        )).ok();
+        )) {
+            log_event_error(e, "artifact:session");
+        }
 
-        // Update run status
-        self.store.append_event(&run.run_ref(), &Event::status(Status::Booting)).ok();
+        if let Err(e) = self.store.append_event(&run.run_ref(), &Event::status(Status::Booting)) {
+            log_event_error(e, "status:booting");
+        }
 
-        // Start agent
         let agent_type: AgentType = agent.parse().unwrap_or(AgentType::Claude);
         let cmd_parts = get_agent_command(agent_type);
         
@@ -216,10 +239,11 @@ impl<S: Store> Orchestrator<S> {
             tmux::send_keys(&tmux_session, &cmd, true)
                 .context("failed to start agent")?;
             
-            self.store.append_event(&run.run_ref(), &Event::status(Status::Running)).ok();
+            if let Err(e) = self.store.append_event(&run.run_ref(), &Event::status(Status::Running)) {
+                log_event_error(e, "status:running");
+            }
         }
 
-        // Update run fields
         run.tmux_session = tmux_session;
         run.branch = branch_name;
         run.worktree_path = worktree_path.to_string_lossy().to_string();
@@ -252,12 +276,12 @@ impl<S: Store> Orchestrator<S> {
     pub fn stop(&self, run_ref: &str) -> Result<()> {
         let run = self.resolve_run(run_ref)?;
         
-        // Kill tmux session if it exists
         if !run.tmux_session.is_empty() {
-            tmux::kill_session(&run.tmux_session).ok();
+            if let Err(e) = tmux::kill_session(&run.tmux_session) {
+                log_tmux_error(e, &run.tmux_session);
+            }
         }
 
-        // Record canceled event
         self.store.append_event(&run.run_ref(), &Event::status(Status::Canceled))
             .map_err(|e| anyhow::anyhow!(e))?;
 
@@ -282,9 +306,13 @@ impl<S: Store> Orchestrator<S> {
         let mut stopped = 0;
         for run in runs {
             if !run.tmux_session.is_empty() {
-                tmux::kill_session(&run.tmux_session).ok();
+                if let Err(e) = tmux::kill_session(&run.tmux_session) {
+                    log_tmux_error(e, &run.tmux_session);
+                }
             }
-            self.store.append_event(&run.run_ref(), &Event::status(Status::Canceled)).ok();
+            if let Err(e) = self.store.append_event(&run.run_ref(), &Event::status(Status::Canceled)) {
+                log_event_error(e, "status:canceled");
+            }
             stopped += 1;
         }
 
@@ -295,9 +323,10 @@ impl<S: Store> Orchestrator<S> {
     pub fn delete_run(&self, run_ref: &str, _force: bool) -> Result<()> {
         let run = self.resolve_run(run_ref)?;
         
-        // Kill tmux session if running
         if !run.tmux_session.is_empty() {
-            tmux::kill_session(&run.tmux_session).ok();
+            if let Err(e) = tmux::kill_session(&run.tmux_session) {
+                log_tmux_error(e, &run.tmux_session);
+            }
         }
 
         // Remove worktree if it exists
@@ -395,7 +424,9 @@ impl<S: Store> Orchestrator<S> {
             if let Ok(output) = tmux::capture_pane(&run.tmux_session) {
                 let filename = format!("{}_{}.txt", run.issue_id, run.run_id);
                 let path = output_dir.join(&filename);
-                std::fs::write(&path, &output).ok();
+                if let Err(e) = std::fs::write(&path, &output) {
+                    warn!(%e, ?path, "failed to write capture file");
+                }
                 captured += 1;
             }
         }

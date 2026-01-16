@@ -11,6 +11,7 @@
 
 pub mod models;
 pub mod store;
+pub mod config;
 pub mod orchestrator;
 #[cfg(feature = "python")]
 pub mod python;
@@ -23,4 +24,5 @@ pub mod cli;
 // Re-export commonly used types
 pub use models::{Event, EventType, Issue, IssueStatus, Phase, Run, RunRef, Status};
 pub use store::{FileStore, ListRunsFilter, Store, StoreError};
+pub use config::Config;
 pub use orchestrator::Orchestrator;

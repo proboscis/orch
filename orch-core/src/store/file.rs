@@ -15,7 +15,13 @@ use super::{ListRunsFilter, Store, StoreError};
 use crate::models::{Event, Issue, IssueStatus, Run, RunRef, Status};
 use crate::models::run::generate_short_id;
 
-/// Frontmatter structure for YAML parsing.
+const UTF8_BOM: &str = "\u{feff}";
+
+fn normalize_content(content: &str) -> String {
+    let content = content.strip_prefix(UTF8_BOM).unwrap_or(content);
+    content.replace("\r\n", "\n").replace('\r', "\n")
+}
+
 #[derive(Debug, Deserialize, Default)]
 struct Frontmatter {
     #[serde(rename = "type")]
@@ -120,9 +126,8 @@ impl FileStore {
         Ok(issues)
     }
 
-    /// Parse a file and return an Issue if it has type: issue frontmatter.
     fn parse_issue_file(&self, path: &Path) -> Result<Option<Issue>, StoreError> {
-        let content = fs::read_to_string(path)?;
+        let content = normalize_content(&fs::read_to_string(path)?);
         
         let Some((frontmatter, body_start)) = Self::parse_frontmatter(&content) else {
             return Ok(None);
@@ -200,9 +205,8 @@ impl FileStore {
         }))
     }
 
-    /// Load a run from its file.
     fn load_run(&self, issue_id: &str, run_id: &str, path: &Path) -> Result<Run, StoreError> {
-        let content = fs::read_to_string(path)?;
+        let content = normalize_content(&fs::read_to_string(path)?);
 
         let mut run = Run {
             issue_id: issue_id.to_string(),
@@ -317,7 +321,7 @@ impl Store for FileStore {
 
     fn set_issue_status(&self, issue_id: &str, status: IssueStatus) -> Result<(), StoreError> {
         let issue = self.resolve_issue(issue_id)?;
-        let content = fs::read_to_string(&issue.path)?;
+        let content = normalize_content(&fs::read_to_string(&issue.path)?);
 
         let lines: Vec<&str> = content.lines().collect();
         if lines.is_empty() || lines[0].trim() != "---" {
@@ -736,5 +740,21 @@ title: "Fix: something is broken"
         assert_eq!(issue.status, IssueStatus::Resolved);
         assert_eq!(issue.title, "Test Issue"); // Title should be preserved
         assert_eq!(issue.topic, "testing"); // Topic should be preserved
+    }
+
+    #[test]
+    fn test_bom_and_crlf_handling() {
+        let temp_dir = TempDir::new().unwrap();
+        let vault_path = temp_dir.path();
+
+        let issue_content = "\u{feff}---\r\ntype: issue\r\nid: bom-test\r\ntitle: BOM Test\r\n---\r\n\r\n# Test\r\n";
+        fs::write(vault_path.join("bom-test.md"), issue_content).unwrap();
+        fs::create_dir_all(vault_path.join("runs")).unwrap();
+
+        let store = FileStore::new(vault_path).unwrap();
+        let issue = store.resolve_issue("bom-test").unwrap();
+        
+        assert_eq!(issue.id, "bom-test");
+        assert_eq!(issue.title, "BOM Test");
     }
 }
