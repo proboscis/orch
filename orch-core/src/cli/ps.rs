@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use clap::Args;
 use std::path::Path;
 
+use crate::agent;
 use crate::models::Status;
 use crate::store::{FileStore, ListRunsFilter, Store};
 
@@ -64,41 +65,55 @@ impl PsCommand {
         let runs = store.list_runs(&filter)
             .context("failed to list runs")?;
 
+        let alive_status = agent::check_runs_alive_batch(&runs);
+
         if json {
             println!("{}", serde_json::to_string_pretty(&runs)
                 .context("failed to serialize runs")?);
         } else if tsv {
-            // TSV format for fzf
             for run in &runs {
+                let run_ref = format!("{}#{}", run.issue_id, run.run_id);
+                let alive = alive_status
+                    .get(&run_ref)
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+                
                 println!(
-                    "{}\t{}\t{}\t{}\t{}",
+                    "{}\t{}\t{}\t{}\t{}\t{}",
                     run.short_id(),
                     run.issue_id,
                     run.run_id,
                     run.status,
-                    run.agent
+                    run.agent,
+                    alive
                 );
             }
         } else {
-            // Human-readable format
             if runs.is_empty() {
                 println!("No runs found.");
             } else {
                 println!(
-                    "{:<6} {:<15} {:<17} {:<10} {:<8} {:<10}",
-                    "ID", "ISSUE", "RUN", "STATUS", "ELAPSED", "AGENT"
+                    "{:<6} {:<15} {:<17} {:<10} {:<8} {:<10} {:<7}",
+                    "ID", "ISSUE", "RUN", "STATUS", "ELAPSED", "AGENT", "ALIVE"
                 );
-                println!("{}", "-".repeat(70));
+                println!("{}", "-".repeat(80));
 
                 for run in &runs {
+                    let run_ref = format!("{}#{}", run.issue_id, run.run_id);
+                    let alive = alive_status
+                        .get(&run_ref)
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    
                     println!(
-                        "{:<6} {:<15} {:<17} {:<10} {:<8} {:<10}",
+                        "{:<6} {:<15} {:<17} {:<10} {:<8} {:<10} {:<7}",
                         run.short_id(),
                         truncate(&run.issue_id, 15),
                         truncate(&run.run_id, 17),
                         run.status,
                         run.elapsed_time(),
-                        truncate(&run.agent, 10)
+                        truncate(&run.agent, 10),
+                        alive
                     );
                 }
             }

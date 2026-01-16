@@ -4,6 +4,9 @@
 //! different LLM agents (claude, codex, gemini, opencode).
 //! This will be fully implemented in Phase 2/3.
 
+pub mod alive;
+pub mod opencode;
+
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -81,4 +84,105 @@ pub fn is_agent_available(agent_type: AgentType) -> bool {
     };
 
     which::which(cmd).is_ok()
+}
+
+/// Check if a run is alive based on its agent type and configuration.
+pub fn is_run_alive(
+    agent_type: AgentType,
+    tmux_session: Option<&str>,
+    server_port: Option<u16>,
+    opencode_session_id: Option<&str>,
+    worktree_path: Option<&str>,
+) -> alive::AliveStatus {
+    match agent_type {
+        AgentType::OpenCode => {
+            if let (Some(port), Some(session_id)) = (server_port, opencode_session_id) {
+                if opencode::is_session_alive(port, session_id, worktree_path) {
+                    alive::AliveStatus::Alive
+                } else {
+                    alive::AliveStatus::Dead
+                }
+            } else {
+                alive::AliveStatus::Unknown
+            }
+        }
+        AgentType::Claude | AgentType::Codex | AgentType::Gemini | AgentType::Custom => {
+            if let Some(session) = tmux_session {
+                alive::check_tmux_alive(session)
+            } else {
+                alive::AliveStatus::Unknown
+            }
+        }
+    }
+}
+
+use crate::models::Run;
+use std::collections::HashMap;
+
+/// Check alive status for multiple runs efficiently using batch operations.
+pub fn check_runs_alive_batch(runs: &[Run]) -> HashMap<String, alive::AliveStatus> {
+    let mut results = HashMap::new();
+    
+    let tmux_sessions: Vec<String> = runs
+        .iter()
+        .filter(|r| {
+            let agent_type = r.agent.parse::<AgentType>().unwrap_or(AgentType::Custom);
+            !matches!(agent_type, AgentType::OpenCode)
+        })
+        .filter_map(|r| {
+            if !r.tmux_session.is_empty() {
+                Some(r.tmux_session.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+    
+    let tmux_results = if !tmux_sessions.is_empty() {
+        alive::check_alive_batch(&tmux_sessions)
+    } else {
+        HashMap::new()
+    };
+    
+    for run in runs {
+        let run_ref = format!("{}#{}", run.issue_id, run.run_id);
+        let agent_type = run.agent.parse::<AgentType>().unwrap_or(AgentType::Custom);
+        
+        let status = match agent_type {
+            AgentType::OpenCode => {
+                if run.server_port > 0 && !run.opencode_session_id.is_empty() {
+                    let worktree = if run.worktree_path.is_empty() {
+                        None
+                    } else {
+                        Some(run.worktree_path.as_str())
+                    };
+                    
+                    if opencode::is_session_alive(
+                        run.server_port as u16,
+                        &run.opencode_session_id,
+                        worktree,
+                    ) {
+                        alive::AliveStatus::Alive
+                    } else {
+                        alive::AliveStatus::Dead
+                    }
+                } else {
+                    alive::AliveStatus::Unknown
+                }
+            }
+            _ => {
+                if !run.tmux_session.is_empty() {
+                    *tmux_results
+                        .get(&run.tmux_session)
+                        .unwrap_or(&alive::AliveStatus::Unknown)
+                } else {
+                    alive::AliveStatus::Unknown
+                }
+            }
+        };
+        
+        results.insert(run_ref, status);
+    }
+    
+    results
 }
