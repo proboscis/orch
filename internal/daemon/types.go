@@ -1,0 +1,260 @@
+package daemon
+
+import (
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/s22625/orch/internal/model"
+)
+
+// Request is the common request structure for all daemon API calls
+type Request struct {
+	Type string `json:"type"`
+
+	// For list_runs
+	IssueID string   `json:"issue_id,omitempty"`
+	Status  []string `json:"status,omitempty"`
+	Limit   int      `json:"limit,omitempty"`
+	Cursor  string   `json:"cursor,omitempty"`
+
+	// For get_run
+	RunID string `json:"run_id,omitempty"`
+
+	// For send (existing)
+	Message   string `json:"message,omitempty"`
+	NoEnter   bool   `json:"no_enter,omitempty"`
+	VaultPath string `json:"vault_path,omitempty"`
+}
+
+// Response is the base response structure
+type Response struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+// ListRunsResponse is the response for list_runs
+type ListRunsResponse struct {
+	OK         bool          `json:"ok"`
+	Error      string        `json:"error,omitempty"`
+	Runs       []*RunSummary `json:"runs,omitempty"`
+	NextCursor *string       `json:"next_cursor"`
+	Total      int           `json:"total"`
+}
+
+// RunSummary is a summary view of a run for list operations
+type RunSummary struct {
+	IssueID      string `json:"issue_id"`
+	RunID        string `json:"run_id"`
+	ShortID      string `json:"short_id"`
+	Status       string `json:"status"`
+	Phase        string `json:"phase,omitempty"`
+	Agent        string `json:"agent"`
+	Model        string `json:"model,omitempty"`
+	Branch       string `json:"branch,omitempty"`
+	WorktreePath string `json:"worktree_path,omitempty"`
+	TmuxSession  string `json:"tmux_session,omitempty"`
+	PRUrl        string `json:"pr_url,omitempty"`
+	StartedAt    string `json:"started_at"`
+	UpdatedAt    string `json:"updated_at"`
+	URI          string `json:"uri"`
+}
+
+// GetRunResponse is the response for get_run
+type GetRunResponse struct {
+	OK    bool     `json:"ok"`
+	Error string   `json:"error,omitempty"`
+	Run   *RunFull `json:"run,omitempty"`
+}
+
+// RunFull is the full view of a run including events
+type RunFull struct {
+	IssueID           string       `json:"issue_id"`
+	RunID             string       `json:"run_id"`
+	ShortID           string       `json:"short_id"`
+	Status            string       `json:"status"`
+	Phase             string       `json:"phase,omitempty"`
+	Agent             string       `json:"agent"`
+	Model             string       `json:"model,omitempty"`
+	ModelVariant      string       `json:"model_variant,omitempty"`
+	Branch            string       `json:"branch,omitempty"`
+	WorktreePath      string       `json:"worktree_path,omitempty"`
+	TmuxSession       string       `json:"tmux_session,omitempty"`
+	PRUrl             string       `json:"pr_url,omitempty"`
+	ServerPort        int          `json:"server_port,omitempty"`
+	OpenCodeSessionID string       `json:"opencode_session_id,omitempty"`
+	ContinuedFrom     string       `json:"continued_from,omitempty"`
+	StartedAt         string       `json:"started_at"`
+	UpdatedAt         string       `json:"updated_at"`
+	URI               string       `json:"uri"`
+	Events            []*EventJSON `json:"events"`
+}
+
+// EventJSON is the JSON representation of an event
+type EventJSON struct {
+	Timestamp string            `json:"timestamp"`
+	Type      string            `json:"type"`
+	Name      string            `json:"name"`
+	Attrs     map[string]string `json:"attrs,omitempty"`
+}
+
+// ListIssuesResponse is the response for list_issues
+type ListIssuesResponse struct {
+	OK         bool            `json:"ok"`
+	Error      string          `json:"error,omitempty"`
+	Issues     []*IssueSummary `json:"issues,omitempty"`
+	NextCursor *string         `json:"next_cursor"`
+	Total      int             `json:"total"`
+}
+
+// IssueSummary is a summary view of an issue for list operations
+type IssueSummary struct {
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	Topic   string `json:"topic,omitempty"`
+	Summary string `json:"summary,omitempty"`
+	Status  string `json:"status"`
+	URI     string `json:"uri"`
+}
+
+// GetIssueResponse is the response for get_issue
+type GetIssueResponse struct {
+	OK    bool       `json:"ok"`
+	Error string     `json:"error,omitempty"`
+	Issue *IssueFull `json:"issue,omitempty"`
+}
+
+// IssueFull is the full view of an issue including body
+type IssueFull struct {
+	ID          string            `json:"id"`
+	Title       string            `json:"title"`
+	Topic       string            `json:"topic,omitempty"`
+	Summary     string            `json:"summary,omitempty"`
+	Status      string            `json:"status"`
+	Body        string            `json:"body"`
+	URI         string            `json:"uri"`
+	Frontmatter map[string]string `json:"frontmatter,omitempty"`
+}
+
+// Pagination cursor structure
+type cursor struct {
+	Offset int `json:"offset"`
+}
+
+// EncodeCursor encodes a pagination cursor
+func EncodeCursor(offset int) string {
+	c := cursor{Offset: offset}
+	data, _ := json.Marshal(c)
+	return base64.StdEncoding.EncodeToString(data)
+}
+
+// DecodeCursor decodes a pagination cursor
+func DecodeCursor(s string) (int, error) {
+	if s == "" {
+		return 0, nil
+	}
+	data, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid cursor: %w", err)
+	}
+	var c cursor
+	if err := json.Unmarshal(data, &c); err != nil {
+		return 0, fmt.Errorf("invalid cursor: %w", err)
+	}
+	return c.Offset, nil
+}
+
+// FileURI returns a file:// URI for a path
+func FileURI(path string) string {
+	return "file://" + path
+}
+
+// RunToSummary converts a model.Run to a RunSummary
+func RunToSummary(run *model.Run) *RunSummary {
+	return &RunSummary{
+		IssueID:      run.IssueID,
+		RunID:        run.RunID,
+		ShortID:      run.ShortID(),
+		Status:       string(run.Status),
+		Phase:        string(run.Phase),
+		Agent:        run.Agent,
+		Model:        run.Model,
+		Branch:       run.Branch,
+		WorktreePath: run.WorktreePath,
+		TmuxSession:  run.TmuxSession,
+		PRUrl:        run.PRUrl,
+		StartedAt:    formatTime(run.StartedAt),
+		UpdatedAt:    formatTime(run.UpdatedAt),
+		URI:          FileURI(run.Path),
+	}
+}
+
+// RunToFull converts a model.Run to a RunFull
+func RunToFull(run *model.Run) *RunFull {
+	events := make([]*EventJSON, len(run.Events))
+	for i, e := range run.Events {
+		events[i] = &EventJSON{
+			Timestamp: e.Timestamp.Format(time.RFC3339),
+			Type:      string(e.Type),
+			Name:      e.Name,
+			Attrs:     e.Attrs,
+		}
+	}
+
+	return &RunFull{
+		IssueID:           run.IssueID,
+		RunID:             run.RunID,
+		ShortID:           run.ShortID(),
+		Status:            string(run.Status),
+		Phase:             string(run.Phase),
+		Agent:             run.Agent,
+		Model:             run.Model,
+		ModelVariant:      run.ModelVariant,
+		Branch:            run.Branch,
+		WorktreePath:      run.WorktreePath,
+		TmuxSession:       run.TmuxSession,
+		PRUrl:             run.PRUrl,
+		ServerPort:        run.ServerPort,
+		OpenCodeSessionID: run.OpenCodeSessionID,
+		ContinuedFrom:     run.ContinuedFrom,
+		StartedAt:         formatTime(run.StartedAt),
+		UpdatedAt:         formatTime(run.UpdatedAt),
+		URI:               FileURI(run.Path),
+		Events:            events,
+	}
+}
+
+// IssueToSummary converts a model.Issue to an IssueSummary
+func IssueToSummary(issue *model.Issue) *IssueSummary {
+	return &IssueSummary{
+		ID:      issue.ID,
+		Title:   issue.Title,
+		Topic:   issue.Topic,
+		Summary: issue.Summary,
+		Status:  string(issue.Status),
+		URI:     FileURI(issue.Path),
+	}
+}
+
+// IssueToFull converts a model.Issue to an IssueFull
+func IssueToFull(issue *model.Issue) *IssueFull {
+	return &IssueFull{
+		ID:          issue.ID,
+		Title:       issue.Title,
+		Topic:       issue.Topic,
+		Summary:     issue.Summary,
+		Status:      string(issue.Status),
+		Body:        issue.Body,
+		URI:         FileURI(issue.Path),
+		Frontmatter: issue.Frontmatter,
+	}
+}
+
+// formatTime formats a time value, returning empty string for zero time
+func formatTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format(time.RFC3339)
+}

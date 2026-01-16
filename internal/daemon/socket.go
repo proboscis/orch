@@ -23,12 +23,15 @@ func SocketFilePath(vaultPath string) string {
 }
 
 type SendRequest struct {
-	Type      string `json:"type"`
-	IssueID   string `json:"issue_id"`
-	RunID     string `json:"run_id"`
-	Message   string `json:"message"`
-	NoEnter   bool   `json:"no_enter,omitempty"`
-	VaultPath string `json:"vault_path"`
+	Type      string   `json:"type"`
+	IssueID   string   `json:"issue_id"`
+	RunID     string   `json:"run_id"`
+	Message   string   `json:"message"`
+	NoEnter   bool     `json:"no_enter,omitempty"`
+	VaultPath string   `json:"vault_path"`
+	Status    []string `json:"status,omitempty"`
+	Limit     int      `json:"limit,omitempty"`
+	Cursor    string   `json:"cursor,omitempty"`
 }
 
 type SendResponse struct {
@@ -128,6 +131,14 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 	switch req.Type {
 	case "send":
 		s.handleSend(req, encoder)
+	case "list_runs":
+		s.handleListRuns(req, encoder)
+	case "list_issues":
+		s.handleListIssues(req, encoder)
+	case "get_run":
+		s.handleGetRun(req, encoder)
+	case "get_issue":
+		s.handleGetIssue(req, encoder)
 	default:
 		encoder.Encode(SendResponse{OK: false, Error: "unknown request type"})
 	}
@@ -171,6 +182,178 @@ func (s *SocketServer) processSend(req SendRequest) {
 	}
 
 	s.logger.Printf("message sent successfully to %s#%s", req.IssueID, req.RunID)
+}
+
+func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {
+	const defaultLimit = 50
+	const maxLimit = 200
+
+	limit := req.Limit
+	if limit <= 0 {
+		limit = defaultLimit
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+	}
+
+	offset, err := DecodeCursor(req.Cursor)
+	if err != nil {
+		encoder.Encode(ListRunsResponse{OK: false, Error: err.Error()})
+		return
+	}
+
+	filter := &store.ListRunsFilter{
+		IssueID: req.IssueID,
+		Limit:   0,
+	}
+
+	for _, status := range req.Status {
+		filter.Status = append(filter.Status, model.Status(status))
+	}
+
+	runs, err := s.store.ListRuns(filter)
+	if err != nil {
+		s.logger.Printf("error listing runs: %v", err)
+		encoder.Encode(ListRunsResponse{OK: false, Error: "store_error"})
+		return
+	}
+
+	total := len(runs)
+
+	if offset > len(runs) {
+		offset = len(runs)
+	}
+	end := offset + limit
+	if end > len(runs) {
+		end = len(runs)
+	}
+	paginatedRuns := runs[offset:end]
+
+	summaries := make([]*RunSummary, len(paginatedRuns))
+	for i, run := range paginatedRuns {
+		summaries[i] = RunToSummary(run)
+	}
+
+	var nextCursor *string
+	if end < total {
+		c := EncodeCursor(end)
+		nextCursor = &c
+	}
+
+	encoder.Encode(ListRunsResponse{
+		OK:         true,
+		Runs:       summaries,
+		NextCursor: nextCursor,
+		Total:      total,
+	})
+}
+
+func (s *SocketServer) handleListIssues(req SendRequest, encoder *json.Encoder) {
+	const defaultLimit = 50
+	const maxLimit = 200
+
+	limit := req.Limit
+	if limit <= 0 {
+		limit = defaultLimit
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+	}
+
+	offset, err := DecodeCursor(req.Cursor)
+	if err != nil {
+		encoder.Encode(ListIssuesResponse{OK: false, Error: err.Error()})
+		return
+	}
+
+	issues, err := s.store.ListIssues()
+	if err != nil {
+		s.logger.Printf("error listing issues: %v", err)
+		encoder.Encode(ListIssuesResponse{OK: false, Error: "store_error"})
+		return
+	}
+
+	if len(req.Status) > 0 {
+		statusSet := make(map[string]bool)
+		for _, st := range req.Status {
+			statusSet[st] = true
+		}
+		var filtered []*model.Issue
+		for _, issue := range issues {
+			if statusSet[string(issue.Status)] {
+				filtered = append(filtered, issue)
+			}
+		}
+		issues = filtered
+	}
+
+	total := len(issues)
+
+	if offset > len(issues) {
+		offset = len(issues)
+	}
+	end := offset + limit
+	if end > len(issues) {
+		end = len(issues)
+	}
+	paginatedIssues := issues[offset:end]
+
+	summaries := make([]*IssueSummary, len(paginatedIssues))
+	for i, issue := range paginatedIssues {
+		summaries[i] = IssueToSummary(issue)
+	}
+
+	var nextCursor *string
+	if end < total {
+		c := EncodeCursor(end)
+		nextCursor = &c
+	}
+
+	encoder.Encode(ListIssuesResponse{
+		OK:         true,
+		Issues:     summaries,
+		NextCursor: nextCursor,
+		Total:      total,
+	})
+}
+
+func (s *SocketServer) handleGetRun(req SendRequest, encoder *json.Encoder) {
+	if req.IssueID == "" {
+		encoder.Encode(GetRunResponse{OK: false, Error: "invalid_request: issue_id required"})
+		return
+	}
+
+	ref := &model.RunRef{IssueID: req.IssueID, RunID: req.RunID}
+	run, err := s.store.GetRun(ref)
+	if err != nil {
+		s.logger.Printf("error getting run %s#%s: %v", req.IssueID, req.RunID, err)
+		encoder.Encode(GetRunResponse{OK: false, Error: "not_found"})
+		return
+	}
+
+	encoder.Encode(GetRunResponse{
+		OK:  true,
+		Run: RunToFull(run),
+	})
+}
+
+func (s *SocketServer) handleGetIssue(req SendRequest, encoder *json.Encoder) {
+	if req.IssueID == "" {
+		encoder.Encode(GetIssueResponse{OK: false, Error: "invalid_request: issue_id required"})
+		return
+	}
+
+	issue, err := s.store.ResolveIssue(req.IssueID)
+	if err != nil {
+		s.logger.Printf("error getting issue %s: %v", req.IssueID, err)
+		encoder.Encode(GetIssueResponse{OK: false, Error: "not_found"})
+		return
+	}
+
+	encoder.Encode(GetIssueResponse{
+		OK:    true,
+		Issue: IssueToFull(issue),
+	})
 }
 
 func SendViaDaemon(vaultPath string, run *model.Run, message string, noEnter bool) error {
