@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/s22625/orch/internal/agent"
+	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/pr"
 )
 
 const deadChecksBeforeFailed = 3
@@ -25,6 +27,16 @@ func (d *Daemon) monitorRun(run *model.Run) error {
 	} else {
 		state.DeadCheckCount++
 		if !state.WasAlive {
+			// Agent was never confirmed alive. For opencode runs, check if there are
+			// clear completion signals (merged PR, clean worktree) before giving up.
+			// This handles cases where the daemon started after the agent finished.
+			if run.Agent == "opencode" && state.DeadCheckCount >= deadChecksBeforeFailed {
+				inferredStatus := d.inferStatusFromGitState(run)
+				if inferredStatus != "" {
+					d.logger.Printf("%s#%s: agent never confirmed alive, but inferred status from git state: %s", run.IssueID, run.RunID, inferredStatus)
+					return d.updateStatus(run, inferredStatus)
+				}
+			}
 			d.logger.Printf("%s#%s: agent not alive yet (never confirmed alive), waiting", run.IssueID, run.RunID)
 			return nil
 		}
@@ -33,6 +45,11 @@ func (d *Daemon) monitorRun(run *model.Run) error {
 			return nil
 		}
 		if run.Agent == "opencode" {
+			inferredStatus := d.inferStatusFromGitState(run)
+			if inferredStatus != "" {
+				d.logger.Printf("%s#%s: opencode session gone, inferred status from git state: %s", run.IssueID, run.RunID, inferredStatus)
+				return d.updateStatus(run, inferredStatus)
+			}
 			d.logger.Printf("%s#%s: opencode session not found after %d checks, marking unknown", run.IssueID, run.RunID, state.DeadCheckCount)
 			return d.updateStatus(run, model.StatusUnknown)
 		}
@@ -165,4 +182,59 @@ func (d *Daemon) notifyStatusChange(run *model.Run, newStatus model.Status, last
 	} else {
 		d.logger.Printf("%s#%s: sent slack notification for status %s", run.IssueID, run.RunID, newStatus)
 	}
+}
+
+func (d *Daemon) inferStatusFromGitState(run *model.Run) model.Status {
+	if run.Branch == "" || run.WorktreePath == "" {
+		d.debug("%s#%s: infer: skipping - branch=%q worktree=%q", run.IssueID, run.RunID, run.Branch, run.WorktreePath)
+		return ""
+	}
+
+	repoRoot, err := git.FindMainRepoRoot(run.WorktreePath)
+	if err != nil {
+		d.logger.Printf("%s#%s: infer: cannot find repo root: %v", run.IssueID, run.RunID, err)
+		return ""
+	}
+
+	d.debug("%s#%s: infer: checking PR for branch %s", run.IssueID, run.RunID, run.Branch)
+	prInfo, err := pr.LookupInfo(repoRoot, run.Branch)
+	if err == nil && prInfo != nil && prInfo.URL != "" {
+		d.logger.Printf("%s#%s: infer: found PR %s (state=%s)", run.IssueID, run.RunID, prInfo.URL, prInfo.State)
+		if run.PRUrl == "" {
+			if err := d.recordPRArtifact(run, prInfo.URL); err != nil {
+				d.logger.Printf("%s#%s: infer: failed to record PR: %v", run.IssueID, run.RunID, err)
+			}
+		}
+		if prInfo.State == "MERGED" {
+			return model.StatusDone
+		}
+		return model.StatusPROpen
+	}
+	if err != nil {
+		d.debug("%s#%s: infer: PR lookup error: %v", run.IssueID, run.RunID, err)
+	} else {
+		d.debug("%s#%s: infer: no PR found", run.IssueID, run.RunID)
+	}
+
+	baseBranch := "origin/main"
+	if d.config != nil && d.config.BaseBranch != "" {
+		remote, branch := git.ParseRemoteBranch(d.config.BaseBranch)
+		baseBranch = git.RemoteBranchRef(remote, branch)
+	}
+
+	aheadCount, err := git.GetAheadCount(repoRoot, run.Branch, baseBranch)
+	if err != nil {
+		d.logger.Printf("%s#%s: infer: cannot get ahead count: %v", run.IssueID, run.RunID, err)
+		return ""
+	}
+
+	hasUncommitted := git.HasUncommittedChanges(run.WorktreePath)
+
+	d.logger.Printf("%s#%s: infer: commits ahead=%d, uncommitted=%v", run.IssueID, run.RunID, aheadCount, hasUncommitted)
+
+	if aheadCount > 0 || hasUncommitted {
+		return model.StatusBlocked
+	}
+
+	return model.StatusDone
 }

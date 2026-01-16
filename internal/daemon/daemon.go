@@ -45,6 +45,7 @@ type Daemon struct {
 	socketServer  *SocketServer
 	config        *config.Config
 	slackNotifier *notify.SlackNotifier
+	debugMode     bool
 }
 
 // RunState tracks the monitoring state of a single run
@@ -74,6 +75,16 @@ func New(vaultPath string, st store.Store) *Daemon {
 // SetInterval sets the monitoring interval
 func (d *Daemon) SetInterval(interval time.Duration) {
 	d.interval = interval
+}
+
+func (d *Daemon) SetDebugMode(enabled bool) {
+	d.debugMode = enabled
+}
+
+func (d *Daemon) debug(format string, v ...interface{}) {
+	if d.debugMode && d.logger != nil {
+		d.logger.Printf("[DEBUG] "+format, v...)
+	}
 }
 
 // Run starts the daemon main loop (blocking)

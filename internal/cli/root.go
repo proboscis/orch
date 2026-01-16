@@ -36,7 +36,6 @@ type GlobalOptions struct {
 
 var globalOpts = &GlobalOptions{}
 
-// Commands that should NOT auto-start the daemon
 var noDaemonCommands = map[string]bool{
 	"show":       true,
 	"daemon":     true,
@@ -46,6 +45,8 @@ var noDaemonCommands = map[string]bool{
 	"completion": true,
 	"models":     true,
 	"notify":     true,
+	"log":        true,
+	"debug":      true,
 }
 
 // rootCmd represents the base command
@@ -98,6 +99,8 @@ func init() {
 	rootCmd.AddCommand(newCaptureAllCmd())
 	rootCmd.AddCommand(newModelsCmd())
 	rootCmd.AddCommand(newNotifyCmd())
+	rootCmd.AddCommand(newLogCmd())
+	rootCmd.AddCommand(newDebugCmd())
 }
 
 // Execute runs the root command

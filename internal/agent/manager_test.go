@@ -561,14 +561,14 @@ func TestOpenCodeManagerGetStatusFromAPI(t *testing.T) {
 	}
 }
 
-func TestOpenCodeManagerGetStatusSessionExistsButNotInStatusMap(t *testing.T) {
+func TestOpenCodeManagerGetStatusSessionIdleInStatusMap(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/session/status":
-			json.NewEncoder(w).Encode(map[string]SessionStatus{})
-		case "/session":
-			json.NewEncoder(w).Encode([]Session{{ID: "ses_idle"}})
+			json.NewEncoder(w).Encode(map[string]SessionStatus{
+				"ses_idle": SessionStatusIdle,
+			})
 		}
 	}))
 	defer server.Close()
@@ -580,7 +580,7 @@ func TestOpenCodeManagerGetStatusSessionExistsButNotInStatusMap(t *testing.T) {
 	state := &RunState{}
 	got := manager.GetStatus(run, "", state, false, false)
 	if got != model.StatusBlocked {
-		t.Errorf("GetStatus() for session not in status map but exists = %v, want %v", got, model.StatusBlocked)
+		t.Errorf("GetStatus() for idle session = %v, want %v", got, model.StatusBlocked)
 	}
 }
 
@@ -797,14 +797,16 @@ func TestOpenCodeManagerIsAliveSessionExists(t *testing.T) {
 		switch r.URL.Path {
 		case "/global/health":
 			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
-		case "/session":
-			json.NewEncoder(w).Encode([]Session{{ID: "ses_test123"}})
+		case "/session/status":
+			json.NewEncoder(w).Encode(map[string]SessionStatus{
+				"ses_test123": SessionStatusIdle,
+			})
 		}
 	}))
 	defer server.Close()
 
 	port := extractPort(server.URL)
-	manager := &OpenCodeManager{Port: port, SessionID: "ses_test123"}
+	manager := &OpenCodeManager{Port: port, SessionID: "ses_test123", Directory: "/test"}
 	run := &model.Run{Agent: "opencode"}
 
 	got := manager.IsAlive(run)
