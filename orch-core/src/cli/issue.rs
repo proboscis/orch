@@ -1,9 +1,11 @@
 //! issue command - list issues
 
+use anyhow::{Context, Result};
 use clap::Args;
+use std::path::Path;
+
 use crate::models::IssueStatus;
 use crate::store::{FileStore, Store};
-use std::path::Path;
 
 #[derive(Args, Debug)]
 pub struct IssueCommand {
@@ -21,12 +23,12 @@ pub struct IssueCommand {
 }
 
 impl IssueCommand {
-    pub fn execute(&self, vault_path: &Path, json: bool, tsv: bool) -> Result<(), String> {
+    pub fn execute(&self, vault_path: &Path, json: bool, tsv: bool) -> Result<()> {
         let store = FileStore::new(vault_path)
-            .map_err(|e| e.to_string())?;
+            .context("failed to open vault")?;
 
         let issues = store.list_issues()
-            .map_err(|e| e.to_string())?;
+            .context("failed to list issues")?;
 
         // Filter issues based on flags
         let issues: Vec<_> = if self.all {
@@ -45,7 +47,7 @@ impl IssueCommand {
 
         if json {
             println!("{}", serde_json::to_string_pretty(&issues)
-                .map_err(|e| e.to_string())?);
+                .context("failed to serialize issues")?);
         } else if tsv {
             // TSV format for fzf
             for issue in &issues {

@@ -1,9 +1,11 @@
 //! ps command - list runs
 
+use anyhow::{Context, Result};
 use clap::Args;
+use std::path::Path;
+
 use crate::models::Status;
 use crate::store::{FileStore, ListRunsFilter, Store};
-use std::path::Path;
 
 #[derive(Args, Debug)]
 pub struct PsCommand {
@@ -29,9 +31,9 @@ pub struct PsCommand {
 }
 
 impl PsCommand {
-    pub fn execute(&self, vault_path: &Path, json: bool, tsv: bool) -> Result<(), String> {
+    pub fn execute(&self, vault_path: &Path, json: bool, tsv: bool) -> Result<()> {
         let store = FileStore::new(vault_path)
-            .map_err(|e| e.to_string())?;
+            .context("failed to open vault")?;
 
         let mut filter = ListRunsFilter::default();
         
@@ -60,11 +62,11 @@ impl PsCommand {
         }
 
         let runs = store.list_runs(&filter)
-            .map_err(|e| e.to_string())?;
+            .context("failed to list runs")?;
 
         if json {
             println!("{}", serde_json::to_string_pretty(&runs)
-                .map_err(|e| e.to_string())?);
+                .context("failed to serialize runs")?);
         } else if tsv {
             // TSV format for fzf
             for run in &runs {

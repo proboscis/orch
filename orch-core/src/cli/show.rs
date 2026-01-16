@@ -1,9 +1,8 @@
 //! show command - show details of a run or issue
 
+use anyhow::{Context, Result, bail};
 use clap::Args;
-use regex::Regex;
 use std::path::Path;
-use std::sync::LazyLock;
 
 use crate::models::RunRef;
 use crate::store::{FileStore, Store};
@@ -18,27 +17,30 @@ pub struct ShowCommand {
     pub events: bool,
 }
 
-// Regex for short ID (2-6 hex chars)
-static SHORT_ID_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^[0-9a-f]{2,6}$").unwrap()
-});
+/// Check if a string looks like a short ID (2-6 hex chars, case insensitive)
+fn is_short_id(s: &str) -> bool {
+    s.len() >= 2 && s.len() <= 6 && s.chars().all(|c| c.is_ascii_hexdigit())
+}
 
 impl ShowCommand {
-    pub fn execute(&self, vault_path: &Path, json: bool, _tsv: bool) -> Result<(), String> {
+    pub fn execute(&self, vault_path: &Path, json: bool, _tsv: bool) -> Result<()> {
         let store = FileStore::new(vault_path)
-            .map_err(|e| e.to_string())?;
+            .context("failed to open vault")?;
+
+        // Normalize short ID to lowercase for matching
+        let reference = self.reference.to_ascii_lowercase();
 
         // Try to determine if this is a run reference or issue ID
-        // First, try as a short ID
-        if SHORT_ID_REGEX.is_match(&self.reference) {
-            match store.get_run_by_short_id(&self.reference) {
+        // First, try as a short ID (case insensitive)
+        if is_short_id(&reference) {
+            match store.get_run_by_short_id(&reference) {
                 Ok(run) => {
                     return self.show_run(&run, json);
                 }
-                Err(_) if self.reference.len() < 6 => {
+                Err(_) if reference.len() < 6 => {
                     // Could be a prefix that didn't match, try as issue
                 }
-                Err(e) => return Err(e.to_string()),
+                Err(e) => return Err(e).context("failed to find run by short ID"),
             }
         }
 
@@ -59,7 +61,7 @@ impl ShowCommand {
             Ok(issue) => {
                 if json {
                     println!("{}", serde_json::to_string_pretty(&issue)
-                        .map_err(|e| e.to_string())?);
+                        .context("failed to serialize issue")?);
                 } else {
                     println!("Issue: {}", issue.id);
                     println!("Title: {}", issue.title);
@@ -74,14 +76,14 @@ impl ShowCommand {
                 }
                 Ok(())
             }
-            Err(e) => Err(format!("not found: {} ({})", self.reference, e)),
+            Err(e) => bail!("not found: {} ({})", self.reference, e),
         }
     }
 
-    fn show_run(&self, run: &crate::models::Run, json: bool) -> Result<(), String> {
+    fn show_run(&self, run: &crate::models::Run, json: bool) -> Result<()> {
         if json {
             println!("{}", serde_json::to_string_pretty(&run)
-                .map_err(|e| e.to_string())?);
+                .context("failed to serialize run")?);
         } else {
             println!("Run: {}#{}", run.issue_id, run.run_id);
             println!("Short ID: {}", run.short_id());

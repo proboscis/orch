@@ -32,8 +32,8 @@ pub enum StoreError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("parse error: {0}")]
-    Parse(String),
+    #[error("parse error in {path}: {message}")]
+    Parse { path: PathBuf, message: String },
 }
 
 /// Filter criteria for listing runs.

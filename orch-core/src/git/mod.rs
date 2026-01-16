@@ -41,11 +41,9 @@ pub fn find_repo_root(path: impl AsRef<Path>) -> Result<std::path::PathBuf, GitE
 }
 
 /// Fetch from a remote.
-pub fn fetch(repo_path: impl AsRef<Path>, remote: &str) -> Result<(), GitError> {
-    let remote = if remote.is_empty() { "origin" } else { remote };
-
+pub fn fetch(repo_path: impl AsRef<Path>) -> Result<(), GitError> {
     let output = Command::new("git")
-        .args(["fetch", remote])
+        .args(["fetch", "origin"])
         .current_dir(repo_path.as_ref())
         .output()?;
 
@@ -58,17 +56,23 @@ pub fn fetch(repo_path: impl AsRef<Path>, remote: &str) -> Result<(), GitError> 
     Ok(())
 }
 
-/// Create a new branch from the current HEAD.
-pub fn create_branch(repo_path: impl AsRef<Path>, branch_name: &str) -> Result<(), GitError> {
+/// Create a new branch from a starting point.
+pub fn create_branch_from(
+    repo_path: impl AsRef<Path>, 
+    branch_name: &str,
+    start_point: &str,
+) -> Result<(), GitError> {
     let output = Command::new("git")
-        .args(["checkout", "-b", branch_name])
+        .args(["branch", branch_name, start_point])
         .current_dir(repo_path.as_ref())
         .output()?;
 
     if !output.status.success() {
-        return Err(GitError::CommandFailed(
-            String::from_utf8_lossy(&output.stderr).to_string(),
-        ));
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        // Ignore "already exists" errors
+        if !stderr.contains("already exists") {
+            return Err(GitError::CommandFailed(stderr));
+        }
     }
 
     Ok(())
@@ -85,8 +89,35 @@ pub fn create_worktree(
             "worktree",
             "add",
             worktree_path.as_ref().to_str().unwrap_or_default(),
+            branch,
+        ])
+        .current_dir(repo_path.as_ref())
+        .output()?;
+
+    if !output.status.success() {
+        return Err(GitError::CommandFailed(
+            String::from_utf8_lossy(&output.stderr).to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+/// Create a git worktree with a new branch from a starting point.
+pub fn create_worktree_with_new_branch(
+    repo_path: impl AsRef<Path>,
+    worktree_path: impl AsRef<Path>,
+    branch: &str,
+    start_point: &str,
+) -> Result<(), GitError> {
+    let output = Command::new("git")
+        .args([
+            "worktree",
+            "add",
             "-b",
             branch,
+            worktree_path.as_ref().to_str().unwrap_or_default(),
+            start_point,
         ])
         .current_dir(repo_path.as_ref())
         .output()?;
