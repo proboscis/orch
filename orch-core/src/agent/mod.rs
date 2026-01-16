@@ -1,10 +1,10 @@
-//! Agent adapters for different LLM CLIs.
-//!
-//! This module provides adapters for launching and interacting with
-//! different LLM agents (claude, codex, gemini, opencode).
-//! This will be fully implemented in Phase 2/3.
+pub mod alive;
+pub mod opencode;
 
 use thiserror::Error;
+
+pub use alive::{AliveStatus, check_alive_batch, is_tmux_session_alive, refresh_tmux_cache, invalidate_tmux_cache};
+pub use opencode::{OpenCodeClient, OpenCodeSession, OpenCodeError, check_opencode_health, list_opencode_sessions};
 
 #[derive(Error, Debug)]
 pub enum AgentError {
