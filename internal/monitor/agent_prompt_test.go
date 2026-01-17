@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"os"
 	"testing"
 
 	"github.com/s22625/orch/internal/model"
@@ -148,24 +149,30 @@ func containsSubstring(s, substr string) bool {
 
 func TestGetAvailableAgents(t *testing.T) {
 	agents := getAvailableAgents()
-	if agents != "opencode, claude, codex, gemini" {
-		t.Errorf("getAvailableAgents() = %q, want %q", agents, "opencode, claude, codex, gemini")
+	if agents != "opencode, claude, codex, gemini, custom" {
+		t.Errorf("getAvailableAgents() = %q, want %q", agents, "opencode, claude, codex, gemini, custom")
 	}
 }
 
 func TestGetGitBranch(t *testing.T) {
-	branch := getGitBranch()
+	cwd, _ := os.Getwd()
+	branch := getGitBranch(cwd)
 	if branch == "" {
 		t.Skip("not in a git repository")
 	}
 }
 
-func TestHasUncommittedChanges(t *testing.T) {
-	_ = hasUncommittedChanges()
+func TestGetUncommittedChangesStatus(t *testing.T) {
+	cwd, _ := os.Getwd()
+	status := getUncommittedChangesStatus(cwd)
+	if status != "Yes" && status != "No" && status != "Unknown" {
+		t.Errorf("getUncommittedChangesStatus() = %q, want Yes/No/Unknown", status)
+	}
 }
 
 func TestGetLastCommitMessage(t *testing.T) {
-	msg := getLastCommitMessage()
+	cwd, _ := os.Getwd()
+	msg := getLastCommitMessage(cwd)
 	if msg == "" {
 		t.Skip("no commits in repository")
 	}

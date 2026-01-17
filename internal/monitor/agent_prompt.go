@@ -34,7 +34,7 @@ You can run orch commands directly via bash to manage issues and runs.
 {{if .GitBranch}}
 - Current branch: {{.GitBranch}}
 {{- end}}
-- Uncommitted changes: {{if .HasUncommittedChanges}}Yes{{else}}No{{end}}
+- Uncommitted changes: {{.UncommittedChanges}}
 {{- if .LastCommitMessage}}
 - Last commit: {{.LastCommitMessage}}
 {{- end}}
@@ -161,9 +161,9 @@ type ControlPromptData struct {
 	Issues         []IssueInfo
 	ActiveRuns     []RunInfo
 
-	GitBranch             string
-	HasUncommittedChanges bool
-	LastCommitMessage     string
+	GitBranch          string
+	UncommittedChanges string
+	LastCommitMessage  string
 
 	DefaultAgent    string
 	AvailableAgents string
@@ -249,8 +249,12 @@ func buildControlAgentPrompt(st store.Store) (string, error) {
 
 	cfg, _ := config.Load()
 	defaultAgent := "opencode"
-	if cfg != nil && cfg.Agent != "" {
-		defaultAgent = cfg.Agent
+	if cfg != nil {
+		if cfg.ControlAgent != "" {
+			defaultAgent = cfg.ControlAgent
+		} else if cfg.Agent != "" {
+			defaultAgent = cfg.Agent
+		}
 	}
 
 	data := ControlPromptData{
@@ -262,9 +266,9 @@ func buildControlAgentPrompt(st store.Store) (string, error) {
 		Issues:         issueInfos,
 		ActiveRuns:     runInfos,
 
-		GitBranch:             getGitBranch(),
-		HasUncommittedChanges: hasUncommittedChanges(),
-		LastCommitMessage:     getLastCommitMessage(),
+		GitBranch:          getGitBranch(cwd),
+		UncommittedChanges: getUncommittedChangesStatus(cwd),
+		LastCommitMessage:  getLastCommitMessage(cwd),
 
 		DefaultAgent:    defaultAgent,
 		AvailableAgents: getAvailableAgents(),
@@ -352,8 +356,8 @@ func detectIssueIDConvention(issues []*model.Issue) (pattern, example, nextID st
 	return
 }
 
-func getGitBranch() string {
-	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+func getGitBranch(workDir string) string {
+	cmd := exec.Command("git", "-C", workDir, "rev-parse", "--abbrev-ref", "HEAD")
 	output, err := cmd.Output()
 	if err != nil {
 		return ""
@@ -361,17 +365,20 @@ func getGitBranch() string {
 	return strings.TrimSpace(string(output))
 }
 
-func hasUncommittedChanges() bool {
-	cmd := exec.Command("git", "status", "--porcelain")
+func getUncommittedChangesStatus(workDir string) string {
+	cmd := exec.Command("git", "-C", workDir, "status", "--porcelain")
 	output, err := cmd.Output()
 	if err != nil {
-		return false
+		return "Unknown"
 	}
-	return len(strings.TrimSpace(string(output))) > 0
+	if len(strings.TrimSpace(string(output))) > 0 {
+		return "Yes"
+	}
+	return "No"
 }
 
-func getLastCommitMessage() string {
-	cmd := exec.Command("git", "log", "-1", "--format=%s")
+func getLastCommitMessage(workDir string) string {
+	cmd := exec.Command("git", "-C", workDir, "log", "-1", "--format=%s")
 	output, err := cmd.Output()
 	if err != nil {
 		return ""
@@ -384,8 +391,10 @@ func getLastCommitMessage() string {
 }
 
 func getAvailableAgents() string {
-	return "opencode, claude, codex, gemini"
+	return "opencode, claude, codex, gemini, custom"
 }
+
+const maxExtraPromptSize = 16 * 1024
 
 func loadExtraPrompt() string {
 	configDir := config.RepoConfigDir()
@@ -393,11 +402,18 @@ func loadExtraPrompt() string {
 		return ""
 	}
 	extraPath := filepath.Join(configDir, "control-prompt-extra.md")
-	data, err := os.ReadFile(extraPath)
+	file, err := os.Open(extraPath)
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(data))
+	defer file.Close()
+
+	data := make([]byte, maxExtraPromptSize)
+	n, err := file.Read(data)
+	if err != nil && n == 0 {
+		return ""
+	}
+	return strings.TrimSpace(string(data[:n]))
 }
 
 // buildFallbackControlPrompt creates a simple prompt when template fails
