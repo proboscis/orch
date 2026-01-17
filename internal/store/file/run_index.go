@@ -162,23 +162,8 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 			continue
 		}
 
-		cachedDirMtime := idx.DirMtimes[issueID]
 		currentDirMtime := dirInfo.ModTime()
-
-		if !cachedDirMtime.IsZero() && currentDirMtime.Unix() == cachedDirMtime.Unix() {
-			for key, entry := range idx.Entries {
-				if entry.IssueID == issueID {
-					if len(statusSet) > 0 && !statusSet[entry.Status] {
-						continue
-					}
-					if !sinceTime.IsZero() && entry.UpdatedAt.Before(sinceTime) {
-						continue
-					}
-					validEntries[key] = entry
-				}
-			}
-			continue
-		}
+		idx.DirMtimes[issueID] = currentDirMtime
 
 		entries, err := os.ReadDir(issueRunsDir)
 		if err != nil {
