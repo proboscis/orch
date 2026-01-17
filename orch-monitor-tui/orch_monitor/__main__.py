@@ -136,10 +136,10 @@ Run these commands directly using bash:
 def get_vault_path(args) -> Path | None:
     """Get vault path from args or environment."""
     if args.vault:
-        return args.vault
+        return Path(args.vault).expanduser().resolve()
     vault_env = os.getenv("ORCH_VAULT")
     if vault_env:
-        return Path(vault_env)
+        return Path(vault_env).expanduser().resolve()
     return None
 
 

@@ -180,6 +180,7 @@ class Config:
     @classmethod
     def from_vault(cls, vault_path: Path) -> "Config":
         """Load configuration from a specific vault path."""
+        vault_path = vault_path.expanduser().resolve()
         config_file = vault_path / ".orch" / "config.yaml"
         config = cls.load(config_file)
         config.vault_path = vault_path

@@ -78,11 +78,27 @@ class DaemonClient:
         self._timeout = timeout
 
     def is_available(self) -> bool:
-        """Check if the daemon socket is available and is actually a socket."""
+        """Check if the daemon is running and reachable.
+
+        Tests actual connectivity to avoid false positives from stale socket files.
+        """
+        if not self.socket_path.exists():
+            return False
+
         try:
             mode = self.socket_path.stat().st_mode
-            return stat.S_ISSOCK(mode)
+            if not stat.S_ISSOCK(mode):
+                return False
         except (OSError, FileNotFoundError):
+            return False
+
+        try:
+            test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            test_socket.settimeout(0.1)
+            test_socket.connect(str(self.socket_path))
+            test_socket.close()
+            return True
+        except (socket.error, OSError):
             return False
 
     def _send_request(self, request: dict) -> dict:
