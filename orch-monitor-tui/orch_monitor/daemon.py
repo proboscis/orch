@@ -150,9 +150,8 @@ class DaemonClient:
         cursor: Optional[str] = None
         seen_cursors: set[str] = set()
         total = 0
-        page_count = 0
 
-        while True:
+        for page_num in range(MAX_PAGES):
             request = {
                 "type": "list_runs",
                 "issue_id": filters.issue_id or "",
@@ -176,10 +175,10 @@ class DaemonClient:
             if cursor in seen_cursors:
                 raise DaemonError("Pagination cursor repeated - possible infinite loop")
             seen_cursors.add(cursor)
-
-            page_count += 1
-            if page_count >= MAX_PAGES:
-                raise DaemonError(f"Exceeded maximum pages ({MAX_PAGES})")
+        else:
+            raise DaemonError(
+                f"Exceeded maximum pages ({MAX_PAGES}) - try adding filters"
+            )
 
         return ListRunsResponse(runs=all_runs, next_cursor=None, total=total)
 
@@ -192,9 +191,8 @@ class DaemonClient:
         cursor: Optional[str] = None
         seen_cursors: set[str] = set()
         total = 0
-        page_count = 0
 
-        while True:
+        for page_num in range(MAX_PAGES):
             request = {
                 "type": "list_issues",
                 "status": [s.value for s in filters.status],
@@ -219,10 +217,10 @@ class DaemonClient:
             if cursor in seen_cursors:
                 raise DaemonError("Pagination cursor repeated - possible infinite loop")
             seen_cursors.add(cursor)
-
-            page_count += 1
-            if page_count >= MAX_PAGES:
-                raise DaemonError(f"Exceeded maximum pages ({MAX_PAGES})")
+        else:
+            raise DaemonError(
+                f"Exceeded maximum pages ({MAX_PAGES}) - try adding filters"
+            )
 
         return ListIssuesResponse(issues=all_issues, next_cursor=None, total=total)
 
