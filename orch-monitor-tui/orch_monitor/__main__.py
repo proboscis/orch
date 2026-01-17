@@ -14,6 +14,25 @@ from .daemon import DaemonClient
 SESSION_NAME = "orch-monitor-tui"
 CONTROL_PROMPT_FILE = "ORCH_CONTROL_PROMPT.md"
 CONTROL_PROMPT_INSTRUCTION = f"ultrathink Please read '{CONTROL_PROMPT_FILE}' in the current directory and follow the instructions found there."
+CONTROL_SESSION_FILE = "control-session.json"
+
+
+def load_control_session(vault_path: Path | None) -> str | None:
+    if vault_path:
+        session_file = vault_path / ".orch" / CONTROL_SESSION_FILE
+    else:
+        session_file = Path.cwd() / ".orch" / CONTROL_SESSION_FILE
+
+    if not session_file.exists():
+        return None
+
+    try:
+        import json
+
+        data = json.loads(session_file.read_text())
+        return data.get("session_id")
+    except Exception:
+        return None
 
 
 def write_control_prompt(vault_path: Path | None) -> bool:
@@ -170,9 +189,13 @@ def launch_tmux_layout(
         f'{env_export}"{python_exec}" -m orch_monitor --issues {vault_arg}'.strip()
     )
 
-    write_control_prompt(vault_path)
     if agent == "opencode":
-        agent_cmd = f'opencode --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
+        session_id = None if new else load_control_session(vault_path)
+        if session_id:
+            agent_cmd = f"opencode --session {session_id} --continue"
+        else:
+            write_control_prompt(vault_path)
+            agent_cmd = f'opencode --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
     else:
         agent_cmd = agent
 
