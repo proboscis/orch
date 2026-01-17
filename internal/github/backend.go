@@ -301,7 +301,7 @@ func (b *Backend) ghToIssue(gh *ghIssue) *model.Issue {
 
 	status := b.mapLabelsToStatus(labels)
 	if status == "" {
-		if gh.State == "open" {
+		if strings.EqualFold(gh.State, "open") {
 			status = model.IssueStatusOpen
 		} else {
 			status = model.IssueStatusClosed

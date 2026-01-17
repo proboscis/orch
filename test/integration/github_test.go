@@ -255,6 +255,64 @@ func TestGitHubBackend_CreateAndListIssue(t *testing.T) {
 	}
 }
 
+func TestGitHubBackend_CreateIssue_StatusOpen(t *testing.T) {
+	skipIfNoGH(t)
+
+	tmpDir := t.TempDir()
+	binary := buildOrch(t, tmpDir)
+	vault := setupTestVault(t, tmpDir)
+	repo := setupTestRepo(t, tmpDir)
+
+	testLabel := "orch-e2e-test"
+	writeGitHubConfig(t, vault, "proboscis", "orch", testLabel)
+
+	stopDaemon := startDaemon(t, binary, vault, repo)
+	defer stopDaemon()
+
+	testTitle := fmt.Sprintf("E2E Status Test %d", time.Now().Unix())
+
+	createCmd := exec.Command(binary, "--vault", vault, "issue", "create", "--title", testTitle, "--body", "Testing open status", "--json")
+	createOut, err := createCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("issue create failed: %v\n%s", err, createOut)
+	}
+
+	var createResult struct {
+		OK      bool   `json:"ok"`
+		IssueID string `json:"issue_id"`
+	}
+	if err := json.Unmarshal(createOut, &createResult); err != nil {
+		t.Fatalf("failed to parse create JSON: %v\nOutput: %s", err, createOut)
+	}
+
+	var issueNumber int
+	fmt.Sscanf(createResult.IssueID, "gh#%d", &issueNumber)
+	defer closeGitHubIssueViaGH(t, "proboscis", "orch", issueNumber)
+
+	showCmd := exec.Command(binary, "--vault", vault, "issue", "show", createResult.IssueID, "--json")
+	showOut, err := showCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("issue show failed: %v\n%s", err, showOut)
+	}
+
+	var showResult struct {
+		OK    bool `json:"ok"`
+		Issue struct {
+			ID          string            `json:"id"`
+			Status      string            `json:"status"`
+			Frontmatter map[string]string `json:"frontmatter"`
+		} `json:"issue"`
+	}
+	if err := json.Unmarshal(showOut, &showResult); err != nil {
+		t.Fatalf("failed to parse show JSON: %v\nOutput: %s", err, showOut)
+	}
+
+	if showResult.Issue.Status != "open" {
+		t.Errorf("newly created issue should have status 'open', got %q (frontmatter.state=%s)",
+			showResult.Issue.Status, showResult.Issue.Frontmatter["state"])
+	}
+}
+
 func TestGitHubBackend_GetIssue(t *testing.T) {
 	skipIfNoGH(t)
 
