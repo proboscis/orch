@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"os"
 	"testing"
 
 	"github.com/s22625/orch/internal/model"
@@ -144,4 +145,78 @@ func containsSubstring(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestGetAvailableAgents(t *testing.T) {
+	agents := getAvailableAgents()
+	if agents != "opencode, claude, codex, gemini, custom" {
+		t.Errorf("getAvailableAgents() = %q, want %q", agents, "opencode, claude, codex, gemini, custom")
+	}
+}
+
+func TestGetGitBranch(t *testing.T) {
+	cwd, _ := os.Getwd()
+	branch := getGitBranch(cwd)
+	if branch == "" {
+		t.Skip("not in a git repository")
+	}
+}
+
+func TestGetUncommittedChangesStatus(t *testing.T) {
+	cwd, _ := os.Getwd()
+	status := getUncommittedChangesStatus(cwd)
+	if status != "Yes" && status != "No" && status != "Unknown" {
+		t.Errorf("getUncommittedChangesStatus() = %q, want Yes/No/Unknown", status)
+	}
+}
+
+func TestGetLastCommitMessage(t *testing.T) {
+	cwd, _ := os.Getwd()
+	msg := getLastCommitMessage(cwd)
+	if msg == "" {
+		t.Skip("no commits in repository")
+	}
+	if len(msg) > 80 {
+		t.Errorf("getLastCommitMessage() should truncate to 80 chars, got %d", len(msg))
+	}
+}
+
+func TestLoadExtraPromptNoFile(t *testing.T) {
+	extra := loadExtraPrompt()
+	if extra != "" {
+		t.Log("extra prompt loaded from existing config")
+	}
+}
+
+func TestControlPromptTemplateContainsNewSections(t *testing.T) {
+	if !contains(controlPromptTemplate, "## Git Context") {
+		t.Error("template should contain Git Context section")
+	}
+	if !contains(controlPromptTemplate, "## Available Agents") {
+		t.Error("template should contain Available Agents section")
+	}
+	if !contains(controlPromptTemplate, "## Workflows") {
+		t.Error("template should contain Workflows section")
+	}
+	if !contains(controlPromptTemplate, "### Handling Blocked Runs") {
+		t.Error("template should contain Handling Blocked Runs subsection")
+	}
+	if !contains(controlPromptTemplate, "### Continuing Work") {
+		t.Error("template should contain Continuing Work subsection")
+	}
+	if !contains(controlPromptTemplate, "## Troubleshooting") {
+		t.Error("template should contain Troubleshooting section")
+	}
+	if !contains(controlPromptTemplate, "orch continue") {
+		t.Error("template should contain orch continue command")
+	}
+	if !contains(controlPromptTemplate, "orch attach") {
+		t.Error("template should contain orch attach command")
+	}
+	if !contains(controlPromptTemplate, "orch capture") {
+		t.Error("template should contain orch capture command")
+	}
+	if !contains(controlPromptTemplate, "orch repair") {
+		t.Error("template should contain orch repair command")
+	}
 }
