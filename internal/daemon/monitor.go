@@ -19,6 +19,12 @@ func (d *Daemon) monitorRun(run *model.Run) error {
 	state := d.getOrCreateState(run)
 	state.LastCheckAt = time.Now()
 
+	if run.Status == model.StatusPROpen {
+		if merged := d.checkPRMerged(run); merged {
+			return d.updateStatus(run, model.StatusDone)
+		}
+	}
+
 	mgr := agent.GetManager(run)
 
 	if mgr.IsAlive(run) {
@@ -152,6 +158,25 @@ func (d *Daemon) recordPRArtifact(run *model.Run, prURL string) error {
 		"url": prURL,
 	})
 	return d.store.AppendEvent(ref, event)
+}
+
+func (d *Daemon) checkPRMerged(run *model.Run) bool {
+	if run.Branch == "" || run.WorktreePath == "" {
+		return false
+	}
+	repoRoot, err := git.FindMainRepoRoot(run.WorktreePath)
+	if err != nil {
+		return false
+	}
+	prInfo, err := pr.LookupInfo(repoRoot, run.Branch)
+	if err != nil || prInfo == nil {
+		return false
+	}
+	if prInfo.State == "MERGED" {
+		d.logger.Printf("%s#%s: PR merged, transitioning to done", run.IssueID, run.RunID)
+		return true
+	}
+	return false
 }
 
 func (d *Daemon) notifyStatusChange(run *model.Run, newStatus model.Status, lastOutput string) {

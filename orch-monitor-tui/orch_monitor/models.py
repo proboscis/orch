@@ -143,54 +143,6 @@ class Run:
         h = hashlib.sha256(self.ref().encode()).hexdigest()
         return h[:6]
 
-    def derive_state(self) -> None:
-        """Update status and artifacts from events."""
-        for event in reversed(self.events):
-            if event.type == EventType.STATUS:
-                try:
-                    self.status = Status(event.name)
-                except ValueError:
-                    self.status = Status.UNKNOWN
-                break
-
-        for event in reversed(self.events):
-            if event.type == EventType.PHASE:
-                try:
-                    self.phase = Phase(event.name)
-                except ValueError:
-                    pass
-                break
-
-        for event in self.events:
-            if event.type == EventType.ARTIFACT:
-                if event.name == "worktree":
-                    self.worktree_path = event.attrs.get("path", "")
-                elif event.name == "branch":
-                    self.branch = event.attrs.get("name", "")
-                elif event.name == "session":
-                    self.tmux_session = event.attrs.get("name", "")
-                elif event.name == "window":
-                    self.tmux_window_id = event.attrs.get("id", "")
-                elif event.name == "pr":
-                    self.pr_url = event.attrs.get("url", "")
-                elif event.name == "server":
-                    port_str = event.attrs.get("port", "0")
-                    try:
-                        self.server_port = int(port_str)
-                    except ValueError:
-                        self.server_port = 0
-                elif event.name == "opencode_session":
-                    self.opencode_session_id = event.attrs.get("id", "")
-                elif event.name == "agent_model":
-                    if not self.model:
-                        self.model = event.attrs.get("model", "")
-                    if not self.model_variant:
-                        self.model_variant = event.attrs.get("variant", "")
-
-        if self.events:
-            self.started_at = self.events[0].timestamp
-            self.updated_at = self.events[-1].timestamp
-
     def is_active(self) -> bool:
         active_states = {
             Status.QUEUED,
