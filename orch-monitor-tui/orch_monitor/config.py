@@ -94,8 +94,6 @@ class FilterState:
         count = 0
         if self.issue_filters.statuses:
             count += 1
-        if self.issue_filters.priorities:
-            count += 1
         if self.issue_filters.text_search:
             count += 1
         return count

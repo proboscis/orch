@@ -253,9 +253,6 @@ class RunFilterScreen(ModalScreen[RunFilterResult | None]):
         self.dismiss(None)
 
 
-PRIORITIES = ["critical", "high", "medium", "low"]
-
-
 class IssueFilterScreen(ModalScreen[IssueFilterResult | None]):
     """Modal screen for filtering issues."""
 
@@ -295,20 +292,8 @@ class IssueFilterScreen(ModalScreen[IssueFilterResult | None]):
                         )
 
             with Vertical(classes="filter-section"):
-                yield Label("Priority", classes="filter-section-title")
-                with Vertical(id="priority-checkboxes"):
-                    for priority in PRIORITIES:
-                        checked = (
-                            priority in self.current_filter.priorities
-                            or not self.current_filter.priorities
-                        )
-                        yield Checkbox(
-                            priority, value=checked, id=f"priority-{priority}"
-                        )
-
-            with Vertical(classes="filter-section"):
                 yield Label(
-                    "Text Search (ID, title, body)", classes="filter-section-title"
+                    "Text Search (ID, title, summary)", classes="filter-section-title"
                 )
                 yield Input(
                     value=self.current_filter.text_search,
@@ -329,18 +314,12 @@ class IssueFilterScreen(ModalScreen[IssueFilterResult | None]):
             if checkbox.value:
                 statuses.add(status)
 
-        priorities: set[str] = set()
-        for priority in PRIORITIES:
-            checkbox = self.query_one(f"#priority-{priority}", Checkbox)
-            if checkbox.value:
-                priorities.add(priority)
-
         text_search = self.query_one("#text-search-input", Input).value
 
         self.dismiss(
             IssueFilterResult(
                 statuses=statuses,
-                priorities=priorities,
+                priorities=set(),
                 text_search=text_search,
             )
         )
@@ -349,10 +328,6 @@ class IssueFilterScreen(ModalScreen[IssueFilterResult | None]):
     def clear_filter(self) -> None:
         for status in IssueStatus:
             checkbox = self.query_one(f"#issue-status-{status.value}", Checkbox)
-            checkbox.value = True
-
-        for priority in PRIORITIES:
-            checkbox = self.query_one(f"#priority-{priority}", Checkbox)
             checkbox.value = True
 
         self.query_one("#text-search-input", Input).value = ""
@@ -394,7 +369,13 @@ def filter_runs_client_side(runs: list[Run], filter_state: RunFilterState) -> li
             cutoff = None
 
         if cutoff:
-            result = [r for r in result if r.started_at and r.started_at >= cutoff]
+
+            def compare_time(started: datetime) -> bool:
+                if started.tzinfo is not None:
+                    started = started.replace(tzinfo=None)
+                return started >= cutoff
+
+            result = [r for r in result if r.started_at and compare_time(r.started_at)]
 
     return result
 
@@ -415,7 +396,7 @@ def filter_issues_client_side(
             for i in result
             if search in i.id.lower()
             or search in (i.title or "").lower()
-            or search in (i.body or "").lower()
+            or search in (i.summary or "").lower()
         ]
 
     return result
@@ -545,7 +526,12 @@ class RunsDashboard(App):
     @work(thread=True, exclusive=True)
     def _fetch_runs(self) -> None:
         try:
-            status_filter = [Status(s) for s in self.filter_state.run_filters.statuses]
+            status_filter = []
+            for s in self.filter_state.run_filters.statuses:
+                try:
+                    status_filter.append(Status(s))
+                except ValueError:
+                    pass
             filters = RunFilters(status=status_filter) if status_filter else None
             response = self.daemon.list_runs(filters)
             runs = response.runs
@@ -695,14 +681,10 @@ class IssuesDashboard(App):
                 if result.statuses == all_statuses
                 else [s.value for s in result.statuses]
             )
-            all_priorities = set(PRIORITIES)
-            selected_priorities = (
-                [] if result.priorities == all_priorities else list(result.priorities)
-            )
 
             self.filter_state.issue_filters = IssueFilterState(
                 statuses=selected_statuses,
-                priorities=selected_priorities,
+                priorities=[],
                 text_search=result.text_search,
             )
             self.config.save_filters(self.filter_state)
@@ -915,14 +897,10 @@ class OrchMonitorApp(App):
                 if result.statuses == all_statuses
                 else [s.value for s in result.statuses]
             )
-            all_priorities = set(PRIORITIES)
-            selected_priorities = (
-                [] if result.priorities == all_priorities else list(result.priorities)
-            )
 
             self.filter_state.issue_filters = IssueFilterState(
                 statuses=selected_statuses,
-                priorities=selected_priorities,
+                priorities=[],
                 text_search=result.text_search,
             )
             self.config.save_filters(self.filter_state)
@@ -935,7 +913,12 @@ class OrchMonitorApp(App):
     @work(thread=True, exclusive=True)
     def _fetch_all_data(self) -> None:
         try:
-            status_filter = [Status(s) for s in self.filter_state.run_filters.statuses]
+            status_filter = []
+            for s in self.filter_state.run_filters.statuses:
+                try:
+                    status_filter.append(Status(s))
+                except ValueError:
+                    pass
             filters = RunFilters(status=status_filter) if status_filter else None
             runs_response = self.daemon.list_runs(filters)
             runs = runs_response.runs
