@@ -66,9 +66,10 @@ type Run struct {
 	WorktreePath      string
 	TmuxSession       string
 	TmuxWindowID      string
+	Multiplexer       string
 	PRUrl             string
-	ServerPort        int    // Port for HTTP-based agents (e.g., opencode)
-	OpenCodeSessionID string // Session ID for opencode agent
+	ServerPort        int
+	OpenCodeSessionID string
 
 	// Frontmatter metadata
 	ContinuedFrom string
@@ -149,6 +150,7 @@ func (r *Run) DeriveState() {
 	}
 	if session, ok := artifacts["session"]; ok {
 		r.TmuxSession = session["name"]
+		r.Multiplexer = session["multiplexer"]
 	}
 	if window, ok := artifacts["window"]; ok {
 		r.TmuxWindowID = window["id"]

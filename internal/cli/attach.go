@@ -6,9 +6,10 @@ import (
 	"os/exec"
 
 	"github.com/s22625/orch/internal/agent"
+	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/tmux"
+	"github.com/s22625/orch/internal/multiplexer"
 	"github.com/spf13/cobra"
 )
 
@@ -71,7 +72,29 @@ func runAttach(refStr string, opts *attachOptions) error {
 		sessionName = model.GenerateTmuxSession(resp.IssueID, resp.RunID)
 	}
 
-	if !tmux.HasSession(sessionName) {
+	cfg, _ := config.Load()
+	muxType, _ := multiplexer.ParseType(cfg.GetMultiplexer())
+	if resp.Multiplexer != "" {
+		muxType, _ = multiplexer.ParseType(resp.Multiplexer)
+	}
+
+	var mux multiplexer.Multiplexer
+	if muxType == multiplexer.TypeAuto {
+		mux, err = multiplexer.GetAuto()
+	} else {
+		var warning string
+		mux, warning, err = multiplexer.GetWithFallback(muxType)
+		if warning != "" {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
+		}
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "no multiplexer available: %v\n", err)
+		os.Exit(ExitTmuxError)
+		return err
+	}
+
+	if !mux.HasSession(sessionName) {
 		if resp.WorktreePath == "" {
 			fmt.Fprintf(os.Stderr, "session not found and no worktree path: %s\n", sessionName)
 			os.Exit(ExitRunNotFound)
@@ -79,7 +102,7 @@ func runAttach(refStr string, opts *attachOptions) error {
 		}
 
 		fmt.Fprintf(os.Stderr, "session not found, creating: %s\n", sessionName)
-		err := tmux.NewSession(&tmux.SessionConfig{
+		err := mux.NewSession(&multiplexer.SessionConfig{
 			SessionName: sessionName,
 			WorkDir:     resp.WorktreePath,
 		})
@@ -90,13 +113,13 @@ func runAttach(refStr string, opts *attachOptions) error {
 		}
 	}
 
-	if tmux.IsInsideTmux() {
-		if err := tmux.SwitchClient(sessionName); err != nil {
+	if mux.IsInsideSession() {
+		if err := mux.SwitchClient(sessionName); err != nil {
 			os.Exit(ExitTmuxError)
 			return err
 		}
 	} else {
-		if err := tmux.AttachSession(sessionName); err != nil {
+		if err := mux.AttachSession(sessionName); err != nil {
 			os.Exit(ExitTmuxError)
 			return err
 		}

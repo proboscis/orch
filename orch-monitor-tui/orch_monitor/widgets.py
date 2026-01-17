@@ -160,8 +160,9 @@ class RunTable(CursorPreservingTable):
         self.add_column("Status", width=12)
         self.add_column("Agent", width=10)
         self.add_column("Model", width=18)
+        self.add_column("Mux", width=4)
         self.add_column("Elapsed", width=10, key="elapsed")
-        self.add_column("Branch", width=25)
+        self.add_column("Branch", width=20)
 
         for run in runs:
             status_str = run.status.value
@@ -177,6 +178,8 @@ class RunTable(CursorPreservingTable):
                 status_str = f"[cyan]{status_str}[/cyan]"
 
             model_str = model_display_name(run.model, run.model_variant)
+            mux = run.multiplexer or "tmux"
+            mux_short = "zj" if mux == "zellij" else "tx"
 
             self.add_row(
                 run.short_id(),
@@ -184,6 +187,7 @@ class RunTable(CursorPreservingTable):
                 status_str,
                 run.agent or "-",
                 model_str,
+                mux_short,
                 run.elapsed_time(),
                 run.branch or "-",
                 key=run.ref(),

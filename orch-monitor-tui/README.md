@@ -9,6 +9,7 @@ Python Textual-based terminal user interface for `orch monitor`.
 - **Detail Panels**: View issue content and run events
 - **Keybindings**: Quick navigation and actions
 - **Real-time Updates**: Automatic refresh with daemon-based data
+- **Multiplexer Support**: Works with both tmux and zellij
 
 ## Prerequisites
 
@@ -53,6 +54,33 @@ Or specify vault path:
 orch-monitor --vault ~/my-vault
 ```
 
+### Terminal Multiplexer
+
+By default, orch-monitor auto-detects the multiplexer (prefers the one you're inside, or falls back to tmux):
+
+```bash
+# Use tmux (default)
+orch-monitor
+
+# Use zellij
+orch-monitor --multiplexer zellij
+orch-monitor -m zellij
+
+# Or set via environment variable
+export ORCH_MULTIPLEXER=zellij
+orch-monitor
+```
+
+### Other Options
+
+```bash
+# Start fresh (kill existing session)
+orch-monitor --new
+
+# Use a different control agent
+orch-monitor --agent claude
+```
+
 If the daemon is not running, the TUI will show an error notification. Start the daemon with:
 
 ```bash
@@ -77,7 +105,7 @@ uv run python -m orch_monitor
 | `f` | Filter runs by status |
 | `up/down` | Navigate list |
 | `enter` | Select item (attach to run / open issue in `$EDITOR`) |
-| `a` | Attach to selected run's tmux session |
+| `a` | Attach to selected run's session |
 | `s` | Stop selected run |
 | `n` | Create new run for selected issue |
 | `o` | Open issue in `$EDITOR` |
@@ -93,13 +121,14 @@ The TUI respects the same configuration as the Go `orch` CLI:
 
 ```
 orch_monitor/
-  __init__.py   - Package initialization
-  __main__.py   - Entry point
-  app.py        - Main Textual application (RunsDashboard, IssuesDashboard, OrchMonitorApp)
-  config.py     - Configuration management and socket path resolution
-  daemon.py     - DaemonClient for communicating with Go daemon via Unix socket
-  models.py     - Data models (Issue, Run, Event, Status)
-  widgets.py    - Custom Textual widgets (RunTable, IssueTable, DetailPanel)
+  __init__.py    - Package initialization
+  __main__.py    - Entry point and layout launchers
+  app.py         - Main Textual application (RunsDashboard, IssuesDashboard, OrchMonitorApp)
+  config.py      - Configuration management and socket path resolution
+  daemon.py      - DaemonClient for communicating with Go daemon via Unix socket
+  models.py      - Data models (Issue, Run, Event, Status)
+  multiplexer.py - Multiplexer abstraction (Strategy pattern for tmux/zellij)
+  widgets.py     - Custom Textual widgets (RunTable, IssueTable, DetailPanel)
 ```
 
 The TUI uses a daemon-only architecture:

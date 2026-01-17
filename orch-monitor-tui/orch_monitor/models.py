@@ -117,6 +117,7 @@ class Run:
     worktree_path: str = ""
     tmux_session: str = ""
     tmux_window_id: str = ""
+    multiplexer: str = ""
     pr_url: str = ""
     server_port: int = 0
     opencode_session_id: str = ""

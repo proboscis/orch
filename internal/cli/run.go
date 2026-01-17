@@ -15,7 +15,7 @@ import (
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/tmux"
+	"github.com/s22625/orch/internal/multiplexer"
 	"github.com/spf13/cobra"
 )
 
@@ -32,6 +32,7 @@ type runOptions struct {
 	RepoRoot       string
 	Tmux           bool
 	TmuxSession    string
+	Multiplexer    string
 	DryRun         bool
 	NoPR           bool
 	PromptTemplate string
@@ -74,8 +75,9 @@ Debug output can be enabled with --verbose, --log-level debug, or ORCH_DEBUG=1.`
 	cmd.Flags().StringVar(&opts.Branch, "branch", "", "Branch name (default: issue/<ID>/run-<RUN_ID>)")
 	cmd.Flags().StringVar(&opts.WorktreeDir, "worktree-dir", "", "Directory for worktrees (default: ~/.orch/worktrees)")
 	cmd.Flags().StringVar(&opts.RepoRoot, "repo-root", "", "Git repository root (default: auto-detect)")
-	cmd.Flags().BoolVar(&opts.Tmux, "tmux", true, "Run in tmux session")
-	cmd.Flags().StringVar(&opts.TmuxSession, "tmux-session", "", "Tmux session name (default: run-<ISSUE>-<RUN>)")
+	cmd.Flags().BoolVar(&opts.Tmux, "tmux", true, "Run in terminal multiplexer session")
+	cmd.Flags().StringVar(&opts.TmuxSession, "tmux-session", "", "Session name (default: run-<ISSUE>-<RUN>)")
+	cmd.Flags().StringVar(&opts.Multiplexer, "multiplexer", "", "Terminal multiplexer (tmux|zellij)")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Show what would be done without doing it")
 	cmd.Flags().BoolVar(&opts.NoPR, "no-pr", false, "Skip PR creation instructions in agent prompt")
 	cmd.Flags().StringVar(&opts.PromptTemplate, "prompt-template", "", "Custom prompt template file")
@@ -319,8 +321,23 @@ func runRun(issueID string, opts *runOptions) error {
 	debug := NewDebugLogger()
 
 	if opts.Tmux {
-		if !tmux.IsTmuxAvailable() {
-			return exitWithCode(fmt.Errorf("tmux is not available"), ExitTmuxError)
+		muxType, err := multiplexer.ParseType(opts.Multiplexer)
+		if err != nil {
+			return exitWithCode(err, ExitTmuxError)
+		}
+
+		var mux multiplexer.Multiplexer
+		if muxType == multiplexer.TypeAuto {
+			mux, err = multiplexer.GetAuto()
+		} else {
+			var warning string
+			mux, warning, err = multiplexer.GetWithFallback(muxType)
+			if warning != "" {
+				fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
+			}
+		}
+		if err != nil {
+			return exitWithCode(err, ExitTmuxError)
 		}
 
 		serverAlreadyRunning := false
@@ -331,7 +348,6 @@ func runRun(issueID string, opts *runOptions) error {
 				launchCfg.Port = foundPort
 				fmt.Fprintf(os.Stderr, "reusing existing opencode server on port %d\n", foundPort)
 			} else {
-				// No server running, find a free port
 				freePort := findAvailablePort(launchCfg.Port, launchCfg.Port+100)
 				if freePort == 0 {
 					err := fmt.Errorf("no available port found for opencode server")
@@ -339,7 +355,6 @@ func runRun(issueID string, opts *runOptions) error {
 					return exitWithCode(err, ExitAgentError)
 				}
 				launchCfg.Port = freePort
-				// Regenerate the agent command with the port
 				agentCmd, err = adapter.LaunchCommand(launchCfg)
 				if err != nil {
 					setRunFailed(st, run, err)
@@ -348,47 +363,41 @@ func runRun(issueID string, opts *runOptions) error {
 			}
 		}
 
-		// Only create tmux session if server is not already running
 		if !serverAlreadyRunning {
-			// Build environment variables - merge adapter-specific vars with launch config vars
 			env := launchCfg.Env()
 			if opencodeAdapter, ok := adapter.(*agent.OpenCodeAdapter); ok {
 				env = append(env, opencodeAdapter.Env()...)
 			}
 
-			// Create tmux session
-			err = tmux.NewSession(&tmux.SessionConfig{
+			err = mux.NewSession(&multiplexer.SessionConfig{
 				SessionName: tmuxSession,
 				WorkDir:     worktreeResult.WorktreePath,
 				Command:     agentCmd,
 				Env:         env,
 			})
 			if err != nil {
-				err = fmt.Errorf("failed to create tmux session: %w", err)
+				err = fmt.Errorf("failed to create %s session: %w", mux.Type(), err)
 				setRunFailed(st, run, err)
 				return exitWithCode(err, ExitTmuxError)
 			}
 
-			// Record session artifact
 			st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", map[string]string{
-				"name": tmuxSession,
+				"name":        tmuxSession,
+				"multiplexer": string(mux.Type()),
 			}))
 		}
 
-		// Handle prompt injection based on agent type
 		switch adapter.PromptInjection() {
 		case agent.InjectionTmux:
-			// Send prompt via tmux send-keys
 			if launchCfg.Prompt != "" {
-				// Wait for the agent to be ready before sending the prompt
 				if pattern := adapter.ReadyPattern(); pattern != "" {
-					if err := tmux.WaitForReady(tmuxSession, pattern, 30*time.Second); err != nil {
+					if err := mux.WaitForReady(tmuxSession, pattern, 30*time.Second); err != nil {
 						err = fmt.Errorf("agent did not become ready: %w", err)
 						setRunFailed(st, run, err)
 						return exitWithCode(err, ExitAgentError)
 					}
 				}
-				if err := tmux.SendKeys(tmuxSession, launchCfg.Prompt); err != nil {
+				if err := mux.SendKeys(tmuxSession, launchCfg.Prompt); err != nil {
 					err = fmt.Errorf("failed to send prompt to session: %w", err)
 					setRunFailed(st, run, err)
 					return exitWithCode(err, ExitTmuxError)
@@ -403,10 +412,9 @@ func runRun(issueID string, opts *runOptions) error {
 			}
 		}
 
-		// Record window ID only if we created a new tmux session
 		if !serverAlreadyRunning {
 			windowID := ""
-			if windows, err := tmux.ListWindows(tmuxSession); err == nil {
+			if windows, err := mux.ListWindows(tmuxSession); err == nil {
 				for _, window := range windows {
 					if window.Index == 0 {
 						windowID = window.ID
@@ -639,6 +647,10 @@ func applyPromptConfigDefaults(opts *runOptions) (*config.Config, error) {
 		} else {
 			opts.Agent = "claude"
 		}
+	}
+
+	if opts.Multiplexer == "" {
+		opts.Multiplexer = cfg.GetMultiplexer()
 	}
 
 	// WorktreeDir: use config value if flag not provided, fallback to "~/.orch/worktrees"

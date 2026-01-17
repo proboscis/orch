@@ -12,8 +12,8 @@ import (
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/multiplexer"
 	"github.com/s22625/orch/internal/store"
-	"github.com/s22625/orch/internal/tmux"
 	"github.com/spf13/cobra"
 )
 
@@ -23,6 +23,7 @@ type continueOptions struct {
 	AgentProfile   string
 	Tmux           bool
 	TmuxSession    string
+	Multiplexer    string
 	NoPR           bool
 	PromptTemplate string
 	PRTargetBranch string
@@ -237,11 +238,22 @@ func continueFromRun(st store.Store, refStr string, opts *continueOptions) error
 	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusBooting))
 
 	if opts.Tmux {
-		if !tmux.IsTmuxAvailable() {
-			return exitWithCode(fmt.Errorf("tmux is not available"), ExitTmuxError)
+		muxType, _ := multiplexer.ParseType(opts.Multiplexer)
+		var mux multiplexer.Multiplexer
+		if muxType == multiplexer.TypeAuto {
+			mux, err = multiplexer.GetAuto()
+		} else {
+			var warning string
+			mux, warning, err = multiplexer.GetWithFallback(muxType)
+			if warning != "" {
+				fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
+			}
+		}
+		if err != nil {
+			return exitWithCode(err, ExitTmuxError)
 		}
 
-		err = tmux.NewSession(&tmux.SessionConfig{
+		err = mux.NewSession(&multiplexer.SessionConfig{
 			SessionName: tmuxSession,
 			WorkDir:     fromRun.WorktreePath,
 			Command:     agentCmd,
@@ -249,28 +261,29 @@ func continueFromRun(st store.Store, refStr string, opts *continueOptions) error
 		})
 		if err != nil {
 			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
-			return exitWithCode(fmt.Errorf("failed to create tmux session: %w", err), ExitTmuxError)
+			return exitWithCode(fmt.Errorf("failed to create %s session: %w", mux.Type(), err), ExitTmuxError)
 		}
 
 		if adapter.PromptInjection() == agent.InjectionTmux && launchCfg.Prompt != "" {
 			if pattern := adapter.ReadyPattern(); pattern != "" {
-				if err := tmux.WaitForReady(tmuxSession, pattern, 30*time.Second); err != nil {
+				if err := mux.WaitForReady(tmuxSession, pattern, 30*time.Second); err != nil {
 					st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
 					return exitWithCode(fmt.Errorf("agent did not become ready: %w", err), ExitAgentError)
 				}
 			}
-			if err := tmux.SendKeys(tmuxSession, launchCfg.Prompt); err != nil {
+			if err := mux.SendKeys(tmuxSession, launchCfg.Prompt); err != nil {
 				st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
 				return exitWithCode(fmt.Errorf("failed to send prompt to session: %w", err), ExitTmuxError)
 			}
 		}
 
 		st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", map[string]string{
-			"name": tmuxSession,
+			"name":        tmuxSession,
+			"multiplexer": string(mux.Type()),
 		}))
 
 		windowID := ""
-		if windows, err := tmux.ListWindows(tmuxSession); err == nil {
+		if windows, err := mux.ListWindows(tmuxSession); err == nil {
 			for _, window := range windows {
 				if window.Index == 0 {
 					windowID = window.ID
@@ -423,11 +436,22 @@ func continueFromBranch(st store.Store, refStr string, opts *continueOptions) er
 	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusBooting))
 
 	if opts.Tmux {
-		if !tmux.IsTmuxAvailable() {
-			return exitWithCode(fmt.Errorf("tmux is not available"), ExitTmuxError)
+		muxType, _ := multiplexer.ParseType(opts.Multiplexer)
+		var mux multiplexer.Multiplexer
+		if muxType == multiplexer.TypeAuto {
+			mux, err = multiplexer.GetAuto()
+		} else {
+			var warning string
+			mux, warning, err = multiplexer.GetWithFallback(muxType)
+			if warning != "" {
+				fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
+			}
+		}
+		if err != nil {
+			return exitWithCode(err, ExitTmuxError)
 		}
 
-		err = tmux.NewSession(&tmux.SessionConfig{
+		err = mux.NewSession(&multiplexer.SessionConfig{
 			SessionName: tmuxSession,
 			WorkDir:     worktreePath,
 			Command:     agentCmd,
@@ -435,28 +459,29 @@ func continueFromBranch(st store.Store, refStr string, opts *continueOptions) er
 		})
 		if err != nil {
 			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
-			return exitWithCode(fmt.Errorf("failed to create tmux session: %w", err), ExitTmuxError)
+			return exitWithCode(fmt.Errorf("failed to create %s session: %w", mux.Type(), err), ExitTmuxError)
 		}
 
 		if adapter.PromptInjection() == agent.InjectionTmux && launchCfg.Prompt != "" {
 			if pattern := adapter.ReadyPattern(); pattern != "" {
-				if err := tmux.WaitForReady(tmuxSession, pattern, 30*time.Second); err != nil {
+				if err := mux.WaitForReady(tmuxSession, pattern, 30*time.Second); err != nil {
 					st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
 					return exitWithCode(fmt.Errorf("agent did not become ready: %w", err), ExitAgentError)
 				}
 			}
-			if err := tmux.SendKeys(tmuxSession, launchCfg.Prompt); err != nil {
+			if err := mux.SendKeys(tmuxSession, launchCfg.Prompt); err != nil {
 				st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
 				return exitWithCode(fmt.Errorf("failed to send prompt to session: %w", err), ExitTmuxError)
 			}
 		}
 
 		st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", map[string]string{
-			"name": tmuxSession,
+			"name":        tmuxSession,
+			"multiplexer": string(mux.Type()),
 		}))
 
 		windowID := ""
-		if windows, err := tmux.ListWindows(tmuxSession); err == nil {
+		if windows, err := mux.ListWindows(tmuxSession); err == nil {
 			for _, window := range windows {
 				if window.Index == 0 {
 					windowID = window.ID
