@@ -35,6 +35,7 @@ from .widgets import DetailPanel, IssueTable, RunTable
 
 
 AUTO_REFRESH_INTERVAL = 5.0
+ELAPSED_UPDATE_INTERVAL = 1.0
 
 AGENTS = ["claude", "codex", "opencode", "gemini"]
 TIME_RANGES = [
@@ -492,8 +493,10 @@ class RunsDashboard(App):
         self.selected_run: Optional[Run] = None
         self.filter_state = self.config.load_filters()
         self._auto_refresh_enabled = auto_refresh
-        self.title = f"Runs [{self.config.vault_path.name}]"
+        self._base_title = f"Runs [{self.config.vault_path.name}]"
+        self.title = self._base_title
         self._daemon_error: Optional[str] = None
+        self._last_update: Optional[datetime] = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -512,6 +515,18 @@ class RunsDashboard(App):
         self.refresh_data()
         if self._auto_refresh_enabled:
             self.set_interval(AUTO_REFRESH_INTERVAL, self._do_auto_refresh)
+        self.set_interval(ELAPSED_UPDATE_INTERVAL, self._update_elapsed_times)
+
+    def _update_elapsed_times(self) -> None:
+        if not self.runs:
+            return
+        run_table = self.query_one("#runs-table", RunTable)
+        for run in self.runs:
+            if run.is_active():
+                try:
+                    run_table.update_cell(run.ref(), "elapsed", run.elapsed_time())
+                except Exception:
+                    pass
 
     def _update_title(self) -> None:
         count = self.filter_state.run_filter_count()
@@ -591,6 +606,8 @@ class RunsDashboard(App):
     def _update_runs_table(self, runs: list[Run], error: Optional[str]) -> None:
         self.runs = runs
         self._daemon_error = error
+        self._last_update = datetime.now()
+        self.title = f"{self._base_title} | Last updated: {self._last_update.strftime('%H:%M:%S')}"
         run_table = self.query_one("#runs-table", RunTable)
         run_table.populate(self.runs)
 
@@ -683,8 +700,10 @@ class IssuesDashboard(App):
         self.selected_issue: Optional[Issue] = None
         self.filter_state = self.config.load_filters()
         self._auto_refresh_enabled = auto_refresh
-        self.title = f"Issues [{self.config.vault_path.name}]"
+        self._base_title = f"Issues [{self.config.vault_path.name}]"
+        self.title = self._base_title
         self._daemon_error: Optional[str] = None
+        self._last_update: Optional[datetime] = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -770,6 +789,8 @@ class IssuesDashboard(App):
     def _update_issues_table(self, issues: list[Issue], error: Optional[str]) -> None:
         self.issues = issues
         self._daemon_error = error
+        self._last_update = datetime.now()
+        self.title = f"{self._base_title} | Last updated: {self._last_update.strftime('%H:%M:%S')}"
         issue_table = self.query_one("#issues-table", IssueTable)
         issue_table.populate(self.issues)
 
@@ -858,8 +879,10 @@ class OrchMonitorApp(App):
         self.current_focus = "runs"
         self.filter_state = self.config.load_filters()
         self._auto_refresh_enabled = auto_refresh
-        self.title = f"Orch Monitor [{self.config.vault_path.name}]"
+        self._base_title = f"Orch Monitor [{self.config.vault_path.name}]"
+        self.title = self._base_title
         self._daemon_error: Optional[str] = None
+        self._last_update: Optional[datetime] = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -888,6 +911,21 @@ class OrchMonitorApp(App):
         self.refresh_data()
         if self._auto_refresh_enabled:
             self.set_interval(AUTO_REFRESH_INTERVAL, self._do_auto_refresh)
+        self.set_interval(ELAPSED_UPDATE_INTERVAL, self._update_elapsed_times)
+
+    def _update_elapsed_times(self) -> None:
+        if not self.runs:
+            return
+        try:
+            run_table = self.query_one("#runs-table", RunTable)
+            for run in self.runs:
+                if run.is_active():
+                    try:
+                        run_table.update_cell(run.ref(), "elapsed", run.elapsed_time())
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
     def _update_tab_titles(self) -> None:
         try:
@@ -1021,6 +1059,8 @@ class OrchMonitorApp(App):
         self.runs = runs
         self.issues = issues
         self._daemon_error = error
+        self._last_update = datetime.now()
+        self.title = f"{self._base_title} | Last updated: {self._last_update.strftime('%H:%M:%S')}"
 
         run_table = self.query_one("#runs-table", RunTable)
         run_table.populate(self.runs)

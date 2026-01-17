@@ -181,12 +181,18 @@ class Run:
             self.started_at = self.events[0].timestamp
             self.updated_at = self.events[-1].timestamp
 
+    def is_active(self) -> bool:
+        terminal_states = {Status.DONE, Status.FAILED, Status.CANCELED}
+        return self.status not in terminal_states
+
     def elapsed_time(self) -> str:
         """Return elapsed time since start."""
         if not self.started_at:
             return "-"
 
-        if self.updated_at:
+        if self.is_active():
+            delta = datetime.now() - self.started_at
+        elif self.updated_at:
             delta = self.updated_at - self.started_at
         else:
             delta = datetime.now() - self.started_at
