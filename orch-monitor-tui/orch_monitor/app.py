@@ -1,10 +1,13 @@
 """Main Textual app for orch monitor."""
 
+import os
+import shlex
+import shutil
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -40,6 +43,42 @@ TIME_RANGES = [
     ("week", "This week"),
     ("all", "All time"),
 ]
+
+
+def _get_editor_command(file_path: Path) -> Tuple[Optional[list[str]], Optional[str]]:
+    """Get editor command for opening a file.
+
+    Returns:
+        Tuple of (command_list, error_message).
+        If successful, command_list is set and error_message is None.
+        If failed, command_list is None and error_message describes the issue.
+    """
+    # Validate path - Path() creates "." which is truthy but invalid
+    if not file_path or str(file_path) == "." or not file_path.exists():
+        return None, "Issue file path not found"
+
+    if file_path.is_dir():
+        return None, "Issue path is a directory, not a file"
+
+    # Get editor: prefer VISUAL, then EDITOR, fallback to vim
+    editor_env = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vim"
+
+    # Parse editor command (supports "code --wait", "vim -p", etc.)
+    try:
+        editor_parts = shlex.split(editor_env)
+    except ValueError as e:
+        return None, f"Invalid editor command: {e}"
+
+    if not editor_parts:
+        return None, "Empty editor command"
+
+    # Validate executable exists
+    editor_executable = editor_parts[0]
+    if not shutil.which(editor_executable):
+        return None, f"Editor not found: {editor_executable}"
+
+    # Build full command
+    return editor_parts + [str(file_path)], None
 
 
 @dataclass
@@ -626,7 +665,9 @@ class IssuesDashboard(App):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("r", "refresh", "Refresh"),
-        Binding("enter", "new_run", "New Run"),
+        Binding("enter", "open_issue", "Open in Editor"),
+        Binding("n", "new_run", "New Run"),
+        Binding("o", "open_issue", "Open in Editor", show=False),
         Binding("f", "filter", "Filter"),
         Binding("ctrl+f", "clear_filters", "Clear Filters"),
     ]
@@ -749,6 +790,18 @@ class IssuesDashboard(App):
     def _set_selected_issue(self, issue: Optional[Issue]) -> None:
         self.selected_issue = issue
 
+    def action_open_issue(self) -> None:
+        if not self.selected_issue:
+            return
+
+        cmd, error = _get_editor_command(self.selected_issue.path)
+        if error or cmd is None:
+            self.notify(error or "Unknown error", severity="error")
+            return
+
+        self.exit()
+        subprocess.run(cmd)
+
     def action_new_run(self) -> None:
         if not self.selected_issue:
             return
@@ -783,6 +836,7 @@ class OrchMonitorApp(App):
         Binding("a", "attach", "Attach"),
         Binding("s", "stop", "Stop"),
         Binding("n", "new_run", "New Run"),
+        Binding("o", "open_issue", "Open in Editor"),
         Binding("f", "filter", "Filter"),
         Binding("ctrl+f", "clear_filters", "Clear Filters"),
         Binding("tab", "switch_focus", "Switch Focus"),
@@ -1125,8 +1179,20 @@ class OrchMonitorApp(App):
             ]
         )
 
+    def action_open_issue(self) -> None:
+        if not self.selected_issue:
+            return
+
+        cmd, error = _get_editor_command(self.selected_issue.path)
+        if error or cmd is None:
+            self.notify(error or "Unknown error", severity="error")
+            return
+
+        self.exit()
+        subprocess.run(cmd)
+
     def action_select(self) -> None:
         if self.current_focus == "runs" and self.selected_run:
             self.action_attach()
         elif self.current_focus == "issues" and self.selected_issue:
-            self.action_new_run()
+            self.action_open_issue()
