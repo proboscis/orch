@@ -298,20 +298,30 @@ class ZellijLayoutLauncher:
         else:
             agent_cmd = agent
 
-        # Create a kdl layout file for zellij
         layout_content = f'''
 layout {{
-    pane split_direction="vertical" {{
-        pane split_direction="horizontal" size="40%" {{
-            pane command="bash" {{
-                args "-c" "{runs_cmd}"
-            }}
-            pane command="bash" {{
-                args "-c" "{issues_cmd}"
-            }}
+    default_tab_template {{
+        pane size=1 borderless=true {{
+            plugin location="tab-bar"
         }}
-        pane size="60%" focus=true command="bash" {{
-            args "-c" "{agent_cmd}"
+        children
+        pane size=2 borderless=true {{
+            plugin location="status-bar"
+        }}
+    }}
+    tab name="monitor" {{
+        pane split_direction="vertical" {{
+            pane split_direction="horizontal" size="40%" {{
+                pane command="bash" {{
+                    args "-c" "{runs_cmd}"
+                }}
+                pane command="bash" {{
+                    args "-c" "{issues_cmd}"
+                }}
+            }}
+            pane size="60%" focus=true command="bash" {{
+                args "-c" "{agent_cmd}"
+            }}
         }}
     }}
 }}
