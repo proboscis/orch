@@ -78,6 +78,7 @@ func (b *Backend) List() ([]*model.Issue, error) {
 		"issue", "list",
 		"-R", b.repoArg(),
 		"--json", "number,title,body,state,url,labels,updatedAt,createdAt",
+		"--state", "all",
 		"--limit", "500",
 	}
 	if b.labelFilter != "" {
