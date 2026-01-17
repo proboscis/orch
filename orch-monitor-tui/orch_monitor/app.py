@@ -31,7 +31,15 @@ from textual.widgets import (
 from .config import Config, FilterState, RunFilterState, IssueFilterState
 from .daemon import DaemonClient, DaemonError, DaemonNotRunningError, RunFilters
 from .models import Issue, IssueStatus, Run, Status
-from .multiplexer import Multiplexer, get_multiplexer_for_run, get_session_name
+from .multiplexer import (
+    Multiplexer,
+    MultiplexerType,
+    detect_current_multiplexer,
+    get_multiplexer,
+    get_multiplexer_for_run,
+    get_multiplexer_type_from_run,
+    get_session_name,
+)
 from .widgets import DetailPanel, IssueTable, RunTable
 
 
@@ -733,7 +741,6 @@ class RunsDashboard(App):
         self.call_from_thread(self._set_selected_run, run, run_ref)
 
     def _set_selected_run(self, run: Optional[Run], run_ref: str) -> None:
-        # Only apply if this is still the highlighted run (prevents stale updates)
         if getattr(self, "_highlighted_run_ref", None) == run_ref:
             self.selected_run = run
 
@@ -743,59 +750,33 @@ class RunsDashboard(App):
             return
 
         run = self.selected_run
-        agent = run.agent or ""
-        inside_tmux = bool(os.environ.get("TMUX"))
+        run_mux_type = get_multiplexer_type_from_run(run)
+        run_mux = get_multiplexer(run_mux_type)
+        current_mux = detect_current_multiplexer()
 
-        if agent.startswith("opencode") or agent.startswith("oc"):
-            if not run.server_port:
-                self.notify(f"Run {run.ref()} has no server port", severity="warning")
-                return
-
-            oc_cmd = f"opencode attach http://127.0.0.1:{run.server_port}"
-            if run.opencode_session_id:
-                oc_cmd += f" --session {run.opencode_session_id}"
-            if run.worktree_path:
-                oc_cmd += f" --dir {run.worktree_path}"
-
-            if inside_tmux:
-                window_name = f"oc-{run.issue_id[:10]}"
-                subprocess.run(["tmux", "new-window", "-n", window_name, oc_cmd])
-                self.notify(f"Opened {window_name} window", severity="information")
-            else:
-                with self.suspend():
-                    subprocess.run(oc_cmd, shell=True)
-                self.refresh_data()
+        if not run_mux.is_available():
+            self.notify(
+                f"Cannot attach: {run_mux_type.value} is not installed",
+                severity="error",
+            )
             return
 
-        session_name = run.tmux_session
-        if not session_name:
-            session_name = f"orch-{run.issue_id}-{run.run_id[:8]}"
-
-        check = subprocess.run(
-            ["tmux", "has-session", "-t", session_name], capture_output=True
-        )
-        if check.returncode != 0:
-            if not run.worktree_path:
-                self.notify(f"Run {run.ref()} has no worktree path", severity="warning")
-                return
-            subprocess.run(
-                [
-                    "tmux",
-                    "new-session",
-                    "-d",
-                    "-s",
-                    session_name,
-                    "-c",
-                    run.worktree_path,
-                ]
+        if current_mux and current_mux != run_mux_type:
+            self.notify(
+                f"Warning: Run uses {run_mux_type.value}, you're in {current_mux.value}",
+                severity="warning",
             )
 
-        if inside_tmux:
-            subprocess.run(["tmux", "switch-client", "-t", session_name])
-        else:
-            with self.suspend():
-                subprocess.run(["tmux", "attach-session", "-t", session_name])
-            self.refresh_data()
+        self.exit()
+        subprocess.run(
+            [
+                "orch",
+                "--vault",
+                str(self.config.vault_path),
+                "attach",
+                run.ref(),
+            ]
+        )
 
     def action_stop(self) -> None:
         if not self.selected_run:
@@ -1393,7 +1374,8 @@ class OrchMonitorApp(App):
             f"Elapsed: {run.elapsed_time()}",
             f"Branch: {run.branch or '-'}",
             f"Worktree: {run.worktree_path or '-'}",
-            f"Tmux Session: {run.tmux_session or '-'}",
+            f"Session: {run.tmux_session or '-'}",
+            f"Multiplexer: {run.multiplexer or 'tmux'}",
         ]
 
         # Add recent messages section
@@ -1468,59 +1450,33 @@ class OrchMonitorApp(App):
             return
 
         run = self.selected_run
-        agent = run.agent or ""
-        inside_tmux = bool(os.environ.get("TMUX"))
+        run_mux_type = get_multiplexer_type_from_run(run)
+        run_mux = get_multiplexer(run_mux_type)
+        current_mux = detect_current_multiplexer()
 
-        if agent.startswith("opencode") or agent.startswith("oc"):
-            if not run.server_port:
-                self.notify(f"Run {run.ref()} has no server port", severity="warning")
-                return
-
-            oc_cmd = f"opencode attach http://127.0.0.1:{run.server_port}"
-            if run.opencode_session_id:
-                oc_cmd += f" --session {run.opencode_session_id}"
-            if run.worktree_path:
-                oc_cmd += f" --dir {run.worktree_path}"
-
-            if inside_tmux:
-                window_name = f"oc-{run.issue_id[:10]}"
-                subprocess.run(["tmux", "new-window", "-n", window_name, oc_cmd])
-                self.notify(f"Opened {window_name} window", severity="information")
-            else:
-                with self.suspend():
-                    subprocess.run(oc_cmd, shell=True)
-                self.refresh_data()
+        if not run_mux.is_available():
+            self.notify(
+                f"Cannot attach: {run_mux_type.value} is not installed",
+                severity="error",
+            )
             return
 
-        session_name = run.tmux_session
-        if not session_name:
-            session_name = f"orch-{run.issue_id}-{run.run_id[:8]}"
-
-        check = subprocess.run(
-            ["tmux", "has-session", "-t", session_name], capture_output=True
-        )
-        if check.returncode != 0:
-            if not run.worktree_path:
-                self.notify(f"Run {run.ref()} has no worktree path", severity="warning")
-                return
-            subprocess.run(
-                [
-                    "tmux",
-                    "new-session",
-                    "-d",
-                    "-s",
-                    session_name,
-                    "-c",
-                    run.worktree_path,
-                ]
+        if current_mux and current_mux != run_mux_type:
+            self.notify(
+                f"Warning: Run uses {run_mux_type.value}, you're in {current_mux.value}",
+                severity="warning",
             )
 
-        if inside_tmux:
-            subprocess.run(["tmux", "switch-client", "-t", session_name])
-        else:
-            with self.suspend():
-                subprocess.run(["tmux", "attach-session", "-t", session_name])
-            self.refresh_data()
+        self.exit()
+        subprocess.run(
+            [
+                "orch",
+                "--vault",
+                str(self.config.vault_path),
+                "attach",
+                run.ref(),
+            ]
+        )
 
     def action_stop(self) -> None:
         if not self.selected_run:
