@@ -235,27 +235,42 @@ class RunsDashboard(App):
         run_table = self.query_one("#runs-table", RunTable)
         run_table.populate(self.runs)
 
-    @on(RunTable.RowSelected)
-    def on_run_selected(self, event: RunTable.RowSelected) -> None:
-        run_ref = event.row_key.value
-        if not run_ref:
+    @on(RunTable.RowHighlighted)
+    def on_run_highlighted(self, event: RunTable.RowHighlighted) -> None:
+        """Track highlighted run for Enter key attach functionality."""
+        run_ref = event.row_key.value if event.row_key else None
+        if not run_ref or "#" not in run_ref:
+            self._highlighted_run_ref = None
             return
-        issue_id, run_id = run_ref.split("#")
-        self._fetch_run_detail(issue_id, run_id)
+        # Skip if already highlighted (avoids redundant fetches on rapid navigation)
+        if getattr(self, "_highlighted_run_ref", None) == run_ref:
+            return
+        self._highlighted_run_ref = run_ref
+        issue_id, run_id = run_ref.split("#", 1)
+        self._fetch_run_detail(issue_id, run_id, run_ref)
 
-    @work(thread=True)
-    def _fetch_run_detail(self, issue_id: str, run_id: str) -> None:
+    @work(thread=True, exclusive=True)
+    def _fetch_run_detail(self, issue_id: str, run_id: str, run_ref: str) -> None:
         try:
             run = self.daemon.get_run(issue_id, run_id)
         except DaemonError:
             run = None
-        self.call_from_thread(self._set_selected_run, run)
+        self.call_from_thread(self._set_selected_run, run, run_ref)
 
-    def _set_selected_run(self, run: Optional[Run]) -> None:
-        self.selected_run = run
+    def _set_selected_run(self, run: Optional[Run], run_ref: str) -> None:
+        # Only apply if this is still the highlighted run (prevents stale updates)
+        if getattr(self, "_highlighted_run_ref", None) == run_ref:
+            self.selected_run = run
 
     def action_attach(self) -> None:
-        if not self.selected_run or not self.selected_run.tmux_session:
+        if not self.selected_run:
+            self.notify("No run selected", severity="warning")
+            return
+        if not self.selected_run.tmux_session:
+            self.notify(
+                f"Run {self.selected_run.ref()} has no tmux session",
+                severity="warning",
+            )
             return
         self.exit()
         subprocess.run(["tmux", "attach-session", "-t", self.selected_run.tmux_session])
@@ -529,23 +544,32 @@ class OrchMonitorApp(App):
             tabbed.active = "runs-pane"
             self.current_focus = "runs"
 
-    @on(RunTable.RowSelected)
-    def on_run_selected(self, event: RunTable.RowSelected) -> None:
-        run_ref = event.row_key.value
-        if not run_ref:
+    @on(RunTable.RowHighlighted)
+    def on_run_highlighted(self, event: RunTable.RowHighlighted) -> None:
+        """Track highlighted run for Enter key attach functionality."""
+        run_ref = event.row_key.value if event.row_key else None
+        if not run_ref or "#" not in run_ref:
+            self._highlighted_run_ref = None
             return
-        issue_id, run_id = run_ref.split("#")
-        self._fetch_run_for_detail(issue_id, run_id)
+        # Skip if already highlighted (avoids redundant fetches on rapid navigation)
+        if getattr(self, "_highlighted_run_ref", None) == run_ref:
+            return
+        self._highlighted_run_ref = run_ref
+        issue_id, run_id = run_ref.split("#", 1)
+        self._fetch_run_for_detail(issue_id, run_id, run_ref)
 
-    @work(thread=True)
-    def _fetch_run_for_detail(self, issue_id: str, run_id: str) -> None:
+    @work(thread=True, exclusive=True)
+    def _fetch_run_for_detail(self, issue_id: str, run_id: str, run_ref: str) -> None:
         try:
             run = self.daemon.get_run(issue_id, run_id)
         except DaemonError:
             run = None
-        self.call_from_thread(self._show_run_detail_callback, run)
+        self.call_from_thread(self._show_run_detail_callback, run, run_ref)
 
-    def _show_run_detail_callback(self, run: Optional[Run]) -> None:
+    def _show_run_detail_callback(self, run: Optional[Run], run_ref: str) -> None:
+        # Only apply if this is still the highlighted run (prevents stale updates)
+        if getattr(self, "_highlighted_run_ref", None) != run_ref:
+            return
         if run:
             self.selected_run = run
             self.show_run_detail(run)
@@ -612,7 +636,14 @@ class OrchMonitorApp(App):
         detail_panel.update_content("\n".join(content_lines), f"Issue: {issue.id}")
 
     def action_attach(self) -> None:
-        if not self.selected_run or not self.selected_run.tmux_session:
+        if not self.selected_run:
+            self.notify("No run selected", severity="warning")
+            return
+        if not self.selected_run.tmux_session:
+            self.notify(
+                f"Run {self.selected_run.ref()} has no tmux session",
+                severity="warning",
+            )
             return
 
         self.exit()
