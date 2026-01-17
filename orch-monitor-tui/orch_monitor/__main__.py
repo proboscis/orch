@@ -21,7 +21,9 @@ def get_vault_path(args) -> Path | None:
     return None
 
 
-def launch_tmux_layout(vault_path: Path | None, agent: str = "opencode"):
+def launch_tmux_layout(
+    vault_path: Path | None, agent: str = "opencode", new: bool = False
+):
     vault_arg = f"--vault {vault_path}" if vault_path else ""
 
     existing = subprocess.run(
@@ -30,8 +32,11 @@ def launch_tmux_layout(vault_path: Path | None, agent: str = "opencode"):
     )
 
     if existing.returncode == 0:
-        subprocess.run(["tmux", "attach-session", "-t", SESSION_NAME])
-        return
+        if new:
+            subprocess.run(["tmux", "kill-session", "-t", SESSION_NAME])
+        else:
+            subprocess.run(["tmux", "attach-session", "-t", SESSION_NAME])
+            return
 
     python_exec = sys.executable
     cwd = os.getcwd()
@@ -111,6 +116,11 @@ def main():
         default="opencode",
         help="Control agent command (default: opencode)",
     )
+    parser.add_argument(
+        "--new",
+        action="store_true",
+        help="Kill existing session and start fresh",
+    )
 
     args = parser.parse_args()
     vault_path = get_vault_path(args)
@@ -122,7 +132,7 @@ def main():
         app = IssuesDashboard(vault_path=vault_path)
         app.run()
     else:
-        launch_tmux_layout(vault_path, args.agent)
+        launch_tmux_layout(vault_path, args.agent, args.new)
 
 
 if __name__ == "__main__":
