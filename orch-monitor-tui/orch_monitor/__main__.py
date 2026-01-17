@@ -4,6 +4,7 @@ import argparse
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Protocol
 
@@ -21,6 +22,8 @@ SESSION_NAME = "orch-monitor-tui"
 CONTROL_PROMPT_FILE = "ORCH_CONTROL_PROMPT.md"
 CONTROL_PROMPT_INSTRUCTION = f"ultrathink Please read '{CONTROL_PROMPT_FILE}' in the current directory and follow the instructions found there."
 CONTROL_SESSION_FILE = "control-session.json"
+DAEMON_STARTUP_TIMEOUT_MS = 100
+DAEMON_STARTUP_MAX_RETRIES = 10
 
 
 def load_control_session(vault_path: Path | None) -> str | None:
@@ -138,6 +141,45 @@ def get_vault_path(args) -> Path | None:
     if vault_env:
         return Path(vault_env)
     return None
+
+
+def ensure_daemon(vault_path: Path | None) -> bool:
+    """Ensure daemon is running, starting it if necessary.
+
+    Returns True if daemon was auto-started, False if it was already running.
+    Raises RuntimeError if daemon fails to start.
+    """
+    try:
+        config = Config.from_vault(vault_path) if vault_path else Config.load()
+        client = DaemonClient(config.socket_path)
+
+        if client.is_available():
+            return False
+
+        cmd = ["orch", "daemon"]
+        if vault_path:
+            cmd.extend(["--vault", str(vault_path)])
+
+        subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+        for _ in range(DAEMON_STARTUP_MAX_RETRIES):
+            time.sleep(DAEMON_STARTUP_TIMEOUT_MS / 1000)
+            if client.is_available():
+                return True
+
+        raise RuntimeError(
+            "Daemon did not become available after starting.\n"
+            "Run 'orch repair' to fix daemon issues."
+        )
+
+    except Exception as e:
+        raise RuntimeError(f"Failed to start daemon: {e}")
 
 
 class LayoutLauncher(Protocol):
@@ -428,6 +470,14 @@ def main():
 
     args = parser.parse_args()
     vault_path = get_vault_path(args)
+
+    try:
+        daemon_was_started = ensure_daemon(vault_path)
+        if daemon_was_started:
+            print("Started orch daemon", file=sys.stderr)
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
     if args.runs:
         app = RunsDashboard(vault_path=vault_path)
