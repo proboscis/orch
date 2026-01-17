@@ -1,6 +1,8 @@
 """Main Textual app for orch monitor."""
 
 import subprocess
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -18,9 +20,12 @@ from textual.widgets import (
     Checkbox,
     Label,
     Static,
+    Input,
+    RadioButton,
+    RadioSet,
 )
 
-from .config import Config
+from .config import Config, FilterState, RunFilterState, IssueFilterState
 from .daemon import DaemonClient, DaemonError, DaemonNotRunningError, RunFilters
 from .models import Issue, IssueStatus, Run, Status
 from .widgets import DetailPanel, IssueTable, RunTable
@@ -28,18 +33,39 @@ from .widgets import DetailPanel, IssueTable, RunTable
 
 AUTO_REFRESH_INTERVAL = 5.0
 
+AGENTS = ["claude", "codex", "opencode", "gemini"]
+TIME_RANGES = [
+    ("hour", "Last hour"),
+    ("today", "Today"),
+    ("week", "This week"),
+    ("all", "All time"),
+]
 
-class StatusFilterScreen(ModalScreen[set[Status] | None]):
-    """Modal screen for filtering runs by status."""
 
-    CSS = """
-    StatusFilterScreen {
-        align: center middle;
-    }
-    
+@dataclass
+class RunFilterResult:
+    """Result from run filter screen."""
+
+    statuses: set[Status]
+    agents: set[str]
+    text_search: str
+    time_range: str
+
+
+@dataclass
+class IssueFilterResult:
+    """Result from issue filter screen."""
+
+    statuses: set[IssueStatus]
+    priorities: set[str]
+    text_search: str
+
+
+FILTER_SCREEN_CSS = """
     #filter-dialog {
-        width: 50;
+        width: 60;
         height: auto;
+        max-height: 90%;
         padding: 1 2;
         background: $surface;
         border: thick $primary;
@@ -49,11 +75,36 @@ class StatusFilterScreen(ModalScreen[set[Status] | None]):
         text-align: center;
         width: 100%;
         padding-bottom: 1;
+        text-style: bold;
+    }
+    
+    .filter-section {
+        height: auto;
+        padding: 1 0;
+    }
+    
+    .filter-section-title {
+        text-style: bold;
+        padding-bottom: 1;
     }
     
     #filter-checkboxes {
         height: auto;
-        padding: 1;
+        padding: 0 1;
+    }
+    
+    .checkbox-row {
+        height: auto;
+        layout: horizontal;
+    }
+    
+    .checkbox-row Checkbox {
+        width: 50%;
+    }
+    
+    #text-search-input {
+        width: 100%;
+        margin: 0 1;
     }
     
     #filter-buttons {
@@ -65,28 +116,81 @@ class StatusFilterScreen(ModalScreen[set[Status] | None]):
     #filter-buttons Button {
         margin: 0 1;
     }
+    
+    RadioSet {
+        height: auto;
+        padding: 0 1;
+    }
+"""
+
+
+class RunFilterScreen(ModalScreen[RunFilterResult | None]):
+    """Modal screen for filtering runs."""
+
+    CSS = (
+        """
+    RunFilterScreen {
+        align: center middle;
+    }
     """
+        + FILTER_SCREEN_CSS
+    )
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel"),
     ]
 
-    def __init__(self, current_filter: set[Status]):
+    def __init__(self, current_filter: RunFilterState):
         super().__init__()
         self.current_filter = current_filter
 
     def compose(self) -> ComposeResult:
         with Vertical(id="filter-dialog"):
-            yield Label("Filter by Status", id="filter-title")
-            with Vertical(id="filter-checkboxes"):
-                for status in Status:
-                    if status != Status.UNKNOWN:
+            yield Label("Filter Runs", id="filter-title")
+
+            with Vertical(classes="filter-section"):
+                yield Label("Status", classes="filter-section-title")
+                with Vertical(id="filter-checkboxes"):
+                    for status in Status:
+                        if status != Status.UNKNOWN:
+                            checked = (
+                                status.value in self.current_filter.statuses
+                                or not self.current_filter.statuses
+                            )
+                            yield Checkbox(
+                                status.value, value=checked, id=f"status-{status.value}"
+                            )
+
+            with Vertical(classes="filter-section"):
+                yield Label("Agent", classes="filter-section-title")
+                with Vertical(id="agent-checkboxes"):
+                    for agent in AGENTS:
                         checked = (
-                            status in self.current_filter or not self.current_filter
+                            agent in self.current_filter.agents
+                            or not self.current_filter.agents
                         )
-                        yield Checkbox(
-                            status.value, value=checked, id=f"status-{status.value}"
+                        yield Checkbox(agent, value=checked, id=f"agent-{agent}")
+
+            with Vertical(classes="filter-section"):
+                yield Label("Time Range", classes="filter-section-title")
+                with RadioSet(id="time-range"):
+                    for value, label in TIME_RANGES:
+                        yield RadioButton(
+                            label,
+                            value=(self.current_filter.time_range == value),
+                            id=f"time-{value}",
                         )
+
+            with Vertical(classes="filter-section"):
+                yield Label(
+                    "Text Search (ID, branch, issue)", classes="filter-section-title"
+                )
+                yield Input(
+                    value=self.current_filter.text_search,
+                    placeholder="Search...",
+                    id="text-search-input",
+                )
+
             with Horizontal(id="filter-buttons"):
                 yield Button("Apply", variant="primary", id="apply-btn")
                 yield Button("Clear All", id="clear-btn")
@@ -94,13 +198,36 @@ class StatusFilterScreen(ModalScreen[set[Status] | None]):
 
     @on(Button.Pressed, "#apply-btn")
     def apply_filter(self) -> None:
-        selected: set[Status] = set()
+        statuses: set[Status] = set()
         for status in Status:
             if status != Status.UNKNOWN:
                 checkbox = self.query_one(f"#status-{status.value}", Checkbox)
                 if checkbox.value:
-                    selected.add(status)
-        self.dismiss(selected)
+                    statuses.add(status)
+
+        agents: set[str] = set()
+        for agent in AGENTS:
+            checkbox = self.query_one(f"#agent-{agent}", Checkbox)
+            if checkbox.value:
+                agents.add(agent)
+
+        time_range = "all"
+        for value, _ in TIME_RANGES:
+            radio = self.query_one(f"#time-{value}", RadioButton)
+            if radio.value:
+                time_range = value
+                break
+
+        text_search = self.query_one("#text-search-input", Input).value
+
+        self.dismiss(
+            RunFilterResult(
+                statuses=statuses,
+                agents=agents,
+                text_search=text_search,
+                time_range=time_range,
+            )
+        )
 
     @on(Button.Pressed, "#clear-btn")
     def clear_filter(self) -> None:
@@ -109,12 +236,189 @@ class StatusFilterScreen(ModalScreen[set[Status] | None]):
                 checkbox = self.query_one(f"#status-{status.value}", Checkbox)
                 checkbox.value = True
 
+        for agent in AGENTS:
+            checkbox = self.query_one(f"#agent-{agent}", Checkbox)
+            checkbox.value = True
+
+        all_time_radio = self.query_one("#time-all", RadioButton)
+        all_time_radio.value = True
+
+        self.query_one("#text-search-input", Input).value = ""
+
     @on(Button.Pressed, "#cancel-btn")
     def cancel(self) -> None:
         self.dismiss(None)
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+
+PRIORITIES = ["critical", "high", "medium", "low"]
+
+
+class IssueFilterScreen(ModalScreen[IssueFilterResult | None]):
+    """Modal screen for filtering issues."""
+
+    CSS = (
+        """
+    IssueFilterScreen {
+        align: center middle;
+    }
+    """
+        + FILTER_SCREEN_CSS
+    )
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(self, current_filter: IssueFilterState):
+        super().__init__()
+        self.current_filter = current_filter
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="filter-dialog"):
+            yield Label("Filter Issues", id="filter-title")
+
+            with Vertical(classes="filter-section"):
+                yield Label("Status", classes="filter-section-title")
+                with Vertical(id="filter-checkboxes"):
+                    for status in IssueStatus:
+                        checked = (
+                            status.value in self.current_filter.statuses
+                            or not self.current_filter.statuses
+                        )
+                        yield Checkbox(
+                            status.value,
+                            value=checked,
+                            id=f"issue-status-{status.value}",
+                        )
+
+            with Vertical(classes="filter-section"):
+                yield Label("Priority", classes="filter-section-title")
+                with Vertical(id="priority-checkboxes"):
+                    for priority in PRIORITIES:
+                        checked = (
+                            priority in self.current_filter.priorities
+                            or not self.current_filter.priorities
+                        )
+                        yield Checkbox(
+                            priority, value=checked, id=f"priority-{priority}"
+                        )
+
+            with Vertical(classes="filter-section"):
+                yield Label(
+                    "Text Search (ID, title, body)", classes="filter-section-title"
+                )
+                yield Input(
+                    value=self.current_filter.text_search,
+                    placeholder="Search...",
+                    id="text-search-input",
+                )
+
+            with Horizontal(id="filter-buttons"):
+                yield Button("Apply", variant="primary", id="apply-btn")
+                yield Button("Clear All", id="clear-btn")
+                yield Button("Cancel", id="cancel-btn")
+
+    @on(Button.Pressed, "#apply-btn")
+    def apply_filter(self) -> None:
+        statuses: set[IssueStatus] = set()
+        for status in IssueStatus:
+            checkbox = self.query_one(f"#issue-status-{status.value}", Checkbox)
+            if checkbox.value:
+                statuses.add(status)
+
+        priorities: set[str] = set()
+        for priority in PRIORITIES:
+            checkbox = self.query_one(f"#priority-{priority}", Checkbox)
+            if checkbox.value:
+                priorities.add(priority)
+
+        text_search = self.query_one("#text-search-input", Input).value
+
+        self.dismiss(
+            IssueFilterResult(
+                statuses=statuses,
+                priorities=priorities,
+                text_search=text_search,
+            )
+        )
+
+    @on(Button.Pressed, "#clear-btn")
+    def clear_filter(self) -> None:
+        for status in IssueStatus:
+            checkbox = self.query_one(f"#issue-status-{status.value}", Checkbox)
+            checkbox.value = True
+
+        for priority in PRIORITIES:
+            checkbox = self.query_one(f"#priority-{priority}", Checkbox)
+            checkbox.value = True
+
+        self.query_one("#text-search-input", Input).value = ""
+
+    @on(Button.Pressed, "#cancel-btn")
+    def cancel(self) -> None:
+        self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+def filter_runs_client_side(runs: list[Run], filter_state: RunFilterState) -> list[Run]:
+    """Apply client-side filtering for fields the daemon doesn't support."""
+    result = runs
+
+    if filter_state.agents:
+        result = [r for r in result if r.agent in filter_state.agents]
+
+    if filter_state.text_search:
+        search = filter_state.text_search.lower()
+        result = [
+            r
+            for r in result
+            if search in r.run_id.lower()
+            or search in r.issue_id.lower()
+            or search in (r.branch or "").lower()
+        ]
+
+    if filter_state.time_range != "all":
+        now = datetime.now()
+        if filter_state.time_range == "hour":
+            cutoff = now - timedelta(hours=1)
+        elif filter_state.time_range == "today":
+            cutoff = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif filter_state.time_range == "week":
+            cutoff = now - timedelta(days=7)
+        else:
+            cutoff = None
+
+        if cutoff:
+            result = [r for r in result if r.started_at and r.started_at >= cutoff]
+
+    return result
+
+
+def filter_issues_client_side(
+    issues: list[Issue], filter_state: IssueFilterState
+) -> list[Issue]:
+    """Apply client-side filtering for issues."""
+    result = issues
+
+    if filter_state.statuses:
+        result = [i for i in result if i.status.value in filter_state.statuses]
+
+    if filter_state.text_search:
+        search = filter_state.text_search.lower()
+        result = [
+            i
+            for i in result
+            if search in i.id.lower()
+            or search in (i.title or "").lower()
+            or search in (i.body or "").lower()
+        ]
+
+    return result
 
 
 COMMON_CSS = """
@@ -154,6 +458,7 @@ class RunsDashboard(App):
         Binding("enter", "attach", "Attach"),
         Binding("s", "stop", "Stop"),
         Binding("f", "filter", "Filter"),
+        Binding("ctrl+f", "clear_filters", "Clear Filters"),
     ]
 
     def __init__(self, vault_path: Optional[Path] = None, auto_refresh: bool = True):
@@ -165,7 +470,7 @@ class RunsDashboard(App):
         self.daemon = DaemonClient(self.config.socket_path)
         self.runs: list[Run] = []
         self.selected_run: Optional[Run] = None
-        self.status_filter: set[Status] = set()
+        self.filter_state = self.config.load_filters()
         self._auto_refresh_enabled = auto_refresh
         self.title = f"Runs [{self.config.vault_path.name}]"
         self._daemon_error: Optional[str] = None
@@ -183,9 +488,17 @@ class RunsDashboard(App):
                 severity="error",
                 timeout=10,
             )
+        self._update_title()
         self.refresh_data()
         if self._auto_refresh_enabled:
             self.set_interval(AUTO_REFRESH_INTERVAL, self._do_auto_refresh)
+
+    def _update_title(self) -> None:
+        count = self.filter_state.run_filter_count()
+        if count > 0:
+            self.title = f"Runs [{self.config.vault_path.name}] ({count} filters)"
+        else:
+            self.title = f"Runs [{self.config.vault_path.name}]"
 
     def _do_auto_refresh(self) -> None:
         self.refresh_data()
@@ -194,11 +507,36 @@ class RunsDashboard(App):
         self.refresh_data()
 
     def action_filter(self) -> None:
-        self.push_screen(StatusFilterScreen(self.status_filter), self.on_filter_result)
+        self.push_screen(
+            RunFilterScreen(self.filter_state.run_filters), self.on_filter_result
+        )
 
-    def on_filter_result(self, result: set[Status] | None) -> None:
+    def action_clear_filters(self) -> None:
+        self.filter_state.clear_run_filters()
+        self.config.save_filters(self.filter_state)
+        self._update_title()
+        self.refresh_data()
+        self.notify("Filters cleared")
+
+    def on_filter_result(self, result: RunFilterResult | None) -> None:
         if result is not None:
-            self.status_filter = result
+            all_statuses = {s for s in Status if s != Status.UNKNOWN}
+            selected_statuses = (
+                []
+                if result.statuses == all_statuses
+                else [s.value for s in result.statuses]
+            )
+            all_agents = set(AGENTS)
+            selected_agents = [] if result.agents == all_agents else list(result.agents)
+
+            self.filter_state.run_filters = RunFilterState(
+                statuses=selected_statuses,
+                agents=selected_agents,
+                text_search=result.text_search,
+                time_range=result.time_range,
+            )
+            self.config.save_filters(self.filter_state)
+            self._update_title()
             self.refresh_data()
 
     def refresh_data(self) -> None:
@@ -206,14 +544,9 @@ class RunsDashboard(App):
 
     @work(thread=True, exclusive=True)
     def _fetch_runs(self) -> None:
-        from datetime import datetime
-
         try:
-            filters = (
-                RunFilters(status=list(self.status_filter))
-                if self.status_filter
-                else None
-            )
+            status_filter = [Status(s) for s in self.filter_state.run_filters.statuses]
+            filters = RunFilters(status=status_filter) if status_filter else None
             response = self.daemon.list_runs(filters)
             runs = response.runs
             error = None
@@ -224,6 +557,7 @@ class RunsDashboard(App):
             runs = []
             error = str(e)
 
+        runs = filter_runs_client_side(runs, self.filter_state.run_filters)
         runs.sort(
             key=lambda r: r.updated_at or r.started_at or datetime.min, reverse=True
         )
@@ -292,6 +626,8 @@ class IssuesDashboard(App):
         Binding("q", "quit", "Quit"),
         Binding("r", "refresh", "Refresh"),
         Binding("enter", "new_run", "New Run"),
+        Binding("f", "filter", "Filter"),
+        Binding("ctrl+f", "clear_filters", "Clear Filters"),
     ]
 
     def __init__(self, vault_path: Optional[Path] = None, auto_refresh: bool = True):
@@ -303,6 +639,7 @@ class IssuesDashboard(App):
         self.daemon = DaemonClient(self.config.socket_path)
         self.issues: list[Issue] = []
         self.selected_issue: Optional[Issue] = None
+        self.filter_state = self.config.load_filters()
         self._auto_refresh_enabled = auto_refresh
         self.title = f"Issues [{self.config.vault_path.name}]"
         self._daemon_error: Optional[str] = None
@@ -320,15 +657,57 @@ class IssuesDashboard(App):
                 severity="error",
                 timeout=10,
             )
+        self._update_title()
         self.refresh_data()
         if self._auto_refresh_enabled:
             self.set_interval(AUTO_REFRESH_INTERVAL, self._do_auto_refresh)
+
+    def _update_title(self) -> None:
+        count = self.filter_state.issue_filter_count()
+        if count > 0:
+            self.title = f"Issues [{self.config.vault_path.name}] ({count} filters)"
+        else:
+            self.title = f"Issues [{self.config.vault_path.name}]"
 
     def _do_auto_refresh(self) -> None:
         self.refresh_data()
 
     def action_refresh(self) -> None:
         self.refresh_data()
+
+    def action_filter(self) -> None:
+        self.push_screen(
+            IssueFilterScreen(self.filter_state.issue_filters), self.on_filter_result
+        )
+
+    def action_clear_filters(self) -> None:
+        self.filter_state.clear_issue_filters()
+        self.config.save_filters(self.filter_state)
+        self._update_title()
+        self.refresh_data()
+        self.notify("Filters cleared")
+
+    def on_filter_result(self, result: IssueFilterResult | None) -> None:
+        if result is not None:
+            all_statuses = set(IssueStatus)
+            selected_statuses = (
+                []
+                if result.statuses == all_statuses
+                else [s.value for s in result.statuses]
+            )
+            all_priorities = set(PRIORITIES)
+            selected_priorities = (
+                [] if result.priorities == all_priorities else list(result.priorities)
+            )
+
+            self.filter_state.issue_filters = IssueFilterState(
+                statuses=selected_statuses,
+                priorities=selected_priorities,
+                text_search=result.text_search,
+            )
+            self.config.save_filters(self.filter_state)
+            self._update_title()
+            self.refresh_data()
 
     def refresh_data(self) -> None:
         self._fetch_issues()
@@ -346,6 +725,7 @@ class IssuesDashboard(App):
             issues = []
             error = str(e)
 
+        issues = filter_issues_client_side(issues, self.filter_state.issue_filters)
         issues.sort(key=lambda i: i.id)
         self.call_from_thread(self._update_issues_table, issues, error)
 
@@ -407,6 +787,7 @@ class OrchMonitorApp(App):
         Binding("s", "stop", "Stop"),
         Binding("n", "new_run", "New Run"),
         Binding("f", "filter", "Filter"),
+        Binding("ctrl+f", "clear_filters", "Clear Filters"),
         Binding("tab", "switch_focus", "Switch Focus"),
     ]
 
@@ -424,7 +805,7 @@ class OrchMonitorApp(App):
         self.selected_run: Optional[Run] = None
         self.selected_issue: Optional[Issue] = None
         self.current_focus = "runs"
-        self.status_filter: set[Status] = set()
+        self.filter_state = self.config.load_filters()
         self._auto_refresh_enabled = auto_refresh
         self.title = f"Orch Monitor [{self.config.vault_path.name}]"
         self._daemon_error: Optional[str] = None
@@ -452,9 +833,30 @@ class OrchMonitorApp(App):
                 severity="error",
                 timeout=10,
             )
+        self._update_tab_titles()
         self.refresh_data()
         if self._auto_refresh_enabled:
             self.set_interval(AUTO_REFRESH_INTERVAL, self._do_auto_refresh)
+
+    def _update_tab_titles(self) -> None:
+        try:
+            run_count = self.filter_state.run_filter_count()
+            issue_count = self.filter_state.issue_filter_count()
+
+            runs_pane = self.query_one("#runs-pane", TabPane)
+            issues_pane = self.query_one("#issues-pane", TabPane)
+
+            if run_count > 0:
+                runs_pane.update(f"Runs ({run_count} filters)")
+            else:
+                runs_pane.update("Runs")
+
+            if issue_count > 0:
+                issues_pane.update(f"Issues ({issue_count} filters)")
+            else:
+                issues_pane.update("Issues")
+        except Exception:
+            pass
 
     def _do_auto_refresh(self) -> None:
         self.refresh_data()
@@ -463,11 +865,68 @@ class OrchMonitorApp(App):
         self.refresh_data()
 
     def action_filter(self) -> None:
-        self.push_screen(StatusFilterScreen(self.status_filter), self.on_filter_result)
+        if self.current_focus == "runs":
+            self.push_screen(
+                RunFilterScreen(self.filter_state.run_filters),
+                self.on_run_filter_result,
+            )
+        else:
+            self.push_screen(
+                IssueFilterScreen(self.filter_state.issue_filters),
+                self.on_issue_filter_result,
+            )
 
-    def on_filter_result(self, result: set[Status] | None) -> None:
+    def action_clear_filters(self) -> None:
+        if self.current_focus == "runs":
+            self.filter_state.clear_run_filters()
+        else:
+            self.filter_state.clear_issue_filters()
+        self.config.save_filters(self.filter_state)
+        self._update_tab_titles()
+        self.refresh_data()
+        self.notify("Filters cleared")
+
+    def on_run_filter_result(self, result: RunFilterResult | None) -> None:
         if result is not None:
-            self.status_filter = result
+            all_statuses = {s for s in Status if s != Status.UNKNOWN}
+            selected_statuses = (
+                []
+                if result.statuses == all_statuses
+                else [s.value for s in result.statuses]
+            )
+            all_agents = set(AGENTS)
+            selected_agents = [] if result.agents == all_agents else list(result.agents)
+
+            self.filter_state.run_filters = RunFilterState(
+                statuses=selected_statuses,
+                agents=selected_agents,
+                text_search=result.text_search,
+                time_range=result.time_range,
+            )
+            self.config.save_filters(self.filter_state)
+            self._update_tab_titles()
+            self.refresh_data()
+
+    def on_issue_filter_result(self, result: IssueFilterResult | None) -> None:
+        if result is not None:
+            all_statuses = set(IssueStatus)
+            selected_statuses = (
+                []
+                if result.statuses == all_statuses
+                else [s.value for s in result.statuses]
+            )
+            all_priorities = set(PRIORITIES)
+            selected_priorities = (
+                [] if result.priorities == all_priorities else list(result.priorities)
+            )
+
+            self.filter_state.issue_filters = IssueFilterState(
+                statuses=selected_statuses,
+                priorities=selected_priorities,
+                text_search=result.text_search,
+            )
+            self.config.save_filters(self.filter_state)
+            self._update_tab_titles()
             self.refresh_data()
 
     def refresh_data(self) -> None:
@@ -475,14 +934,9 @@ class OrchMonitorApp(App):
 
     @work(thread=True, exclusive=True)
     def _fetch_all_data(self) -> None:
-        from datetime import datetime
-
         try:
-            filters = (
-                RunFilters(status=list(self.status_filter))
-                if self.status_filter
-                else None
-            )
+            status_filter = [Status(s) for s in self.filter_state.run_filters.statuses]
+            filters = RunFilters(status=status_filter) if status_filter else None
             runs_response = self.daemon.list_runs(filters)
             runs = runs_response.runs
             error = None
@@ -493,6 +947,7 @@ class OrchMonitorApp(App):
             runs = []
             error = str(e)
 
+        runs = filter_runs_client_side(runs, self.filter_state.run_filters)
         runs.sort(
             key=lambda r: r.updated_at or r.started_at or datetime.min, reverse=True
         )
@@ -503,6 +958,7 @@ class OrchMonitorApp(App):
         except DaemonError:
             issues = []
 
+        issues = filter_issues_client_side(issues, self.filter_state.issue_filters)
         issues.sort(key=lambda i: i.id)
 
         self.call_from_thread(self._update_all_tables, runs, issues, error)
