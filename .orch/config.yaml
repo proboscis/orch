@@ -9,3 +9,23 @@ pr_target_branch: main
 opencode:
   default_model: anthropic/claude-opus-4-5
   default_variant: max
+
+# Use GitHub Issues as the source of truth
+issues:
+  backend: github
+
+github:
+  owner: proboscis
+  repo: orch
+  poll_interval: 60
+
+monitor:
+  default_run_statuses:
+    - queued
+    - booting
+    - running
+    - blocked
+    - blocked_api
+    - pr_open
+  default_issue_statuses:
+    - open

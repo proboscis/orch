@@ -119,6 +119,16 @@ class FilterState:
 
 
 @dataclass
+class MonitorConfig:
+    """Monitor-specific configuration from config.yaml."""
+
+    default_run_statuses: list[str] = field(
+        default_factory=lambda: DEFAULT_RUN_STATUSES.copy()
+    )
+    default_issue_statuses: list[str] = field(default_factory=list)
+
+
+@dataclass
 class Config:
     """Orch configuration."""
 
@@ -127,6 +137,7 @@ class Config:
     worktree_dir: str = ".git-worktrees"
     base_branch: str = "main"
     pr_target_branch: str = "main"
+    monitor: MonitorConfig = field(default_factory=MonitorConfig)
 
     @property
     def orch_dir(self) -> Path:
@@ -144,15 +155,29 @@ class Config:
         return self.orch_dir / MONITOR_FILTERS_FILE
 
     def load_filters(self) -> FilterState:
-        """Load persisted filter state."""
+        """Load persisted filter state, using config defaults if no saved state."""
         if not self.filters_path.exists():
-            return FilterState()
+            return FilterState(
+                run_filters=RunFilterState(
+                    statuses=self.monitor.default_run_statuses.copy()
+                ),
+                issue_filters=IssueFilterState(
+                    statuses=self.monitor.default_issue_statuses.copy()
+                ),
+            )
         try:
             with open(self.filters_path) as f:
                 data = yaml.safe_load(f) or {}
             return FilterState.from_dict(data)
         except (yaml.YAMLError, OSError):
-            return FilterState()
+            return FilterState(
+                run_filters=RunFilterState(
+                    statuses=self.monitor.default_run_statuses.copy()
+                ),
+                issue_filters=IssueFilterState(
+                    statuses=self.monitor.default_issue_statuses.copy()
+                ),
+            )
 
     def save_filters(self, filters: FilterState) -> None:
         """Save filter state to file."""
@@ -162,6 +187,17 @@ class Config:
                 yaml.safe_dump(filters.to_dict(), f, default_flow_style=False)
         except OSError:
             pass
+
+    @classmethod
+    def _parse_monitor_config(cls, data: dict) -> MonitorConfig:
+        if not data:
+            return MonitorConfig()
+        return MonitorConfig(
+            default_run_statuses=data.get(
+                "default_run_statuses", DEFAULT_RUN_STATUSES.copy()
+            ),
+            default_issue_statuses=data.get("default_issue_statuses", []),
+        )
 
     @classmethod
     def _find_repo_configs(cls) -> list[Path]:
@@ -224,6 +260,7 @@ class Config:
                 worktree_dir=data.get("worktree_dir", ".git-worktrees"),
                 base_branch=data.get("base_branch", "main"),
                 pr_target_branch=data.get("pr_target_branch", "main"),
+                monitor=cls._parse_monitor_config(data.get("monitor", {})),
             )
 
         repo_configs = cls._find_repo_configs()
@@ -259,6 +296,7 @@ class Config:
             worktree_dir=data.get("worktree_dir", ".git-worktrees"),
             base_branch=data.get("base_branch", "main"),
             pr_target_branch=data.get("pr_target_branch", "main"),
+            monitor=cls._parse_monitor_config(data.get("monitor", {})),
         )
 
     @classmethod
