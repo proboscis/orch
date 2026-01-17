@@ -3,6 +3,7 @@ package monitor
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/store"
 )
@@ -27,6 +29,22 @@ You can run orch commands directly via bash to manage issues and runs.
 
 - Vault: {{.VaultPath}}
 - Working directory: {{.WorkDir}}
+
+## Git Context
+{{if .GitBranch}}
+- Current branch: {{.GitBranch}}
+{{- end}}
+- Uncommitted changes: {{if .HasUncommittedChanges}}Yes{{else}}No{{end}}
+{{- if .LastCommitMessage}}
+- Last commit: {{.LastCommitMessage}}
+{{- end}}
+
+## Available Agents
+
+- Default: {{.DefaultAgent}}
+- Configured backends: {{.AvailableAgents}}
+
+Use ` + "`--agent <name>`" + ` to specify a different agent when starting runs.
 
 ## Issue ID Convention
 
@@ -59,6 +77,23 @@ No issues found.
 No active runs.
 {{end}}
 
+## Workflows
+
+### Starting New Work
+1. Create issue: ` + "`orch issue create <id> --title \"...\" --body \"...\"`" + `
+2. Start run: ` + "`orch run <issue-id>`" + `
+3. Monitor: Watch the runs table or use ` + "`orch ps`" + `
+
+### Handling Blocked Runs
+When a run shows "blocked" status:
+1. Attach: ` + "`orch attach <run-ref>`" + ` to see what the agent needs
+2. Provide input directly in the terminal
+3. Detach: ` + "`Ctrl+B D`" + ` to return to monitor
+
+### Continuing Work
+- From a branch: ` + "`orch continue <issue> --branch <branch-name>`" + `
+- From a run: ` + "`orch continue <issue>#<run-id>`" + `
+
 ## Available Orch Commands
 
 Run these commands directly using bash (do not use any special protocol):
@@ -70,10 +105,19 @@ Run these commands directly using bash (do not use any special protocol):
 
 ### Run Management
 - Start a run: ` + "`orch run <issue-id>`" + `
+- Continue from branch: ` + "`orch continue <issue> --branch <branch>`" + `
 - List runs: ` + "`orch ps`" + ` (use ` + "`--status running,blocked`" + ` to filter)
+- Attach to run: ` + "`orch attach <run-ref>`" + `
 - Stop a run: ` + "`orch stop <issue-id>#<run-id>`" + `
 - Resolve a run: ` + "`orch resolve <issue-id>#<run-id>`" + `
 - Show run details: ` + "`orch show <issue-id>#<run-id>`" + `
+- Capture run state: ` + "`orch capture <run-ref>`" + `
+
+## Troubleshooting
+
+- Orphaned sessions: ` + "`orch repair`" + `
+- View daemon logs: Check ` + "`.orch/daemon.log`" + ` in vault
+- Force stop all: ` + "`orch stop --all`" + `
 
 ## Issue File Template
 
@@ -99,6 +143,12 @@ summary: <one-line summary>
 - Follow the issue ID naming convention when creating new issues
 - Check the existing issues list above to avoid duplicate IDs
 - Use the next available ID ({{.NextIssueID}}) for new issues unless a specific ID is requested
+{{if .ExtraPrompt}}
+
+## Custom Instructions
+
+{{.ExtraPrompt}}
+{{end}}
 `
 
 // ControlPromptData contains data for the control agent prompt template
@@ -110,6 +160,15 @@ type ControlPromptData struct {
 	NextIssueID    string
 	Issues         []IssueInfo
 	ActiveRuns     []RunInfo
+
+	GitBranch             string
+	HasUncommittedChanges bool
+	LastCommitMessage     string
+
+	DefaultAgent    string
+	AvailableAgents string
+
+	ExtraPrompt string
 }
 
 // IssueInfo contains minimal issue information for the prompt
@@ -188,6 +247,12 @@ func buildControlAgentPrompt(st store.Store) (string, error) {
 		})
 	}
 
+	cfg, _ := config.Load()
+	defaultAgent := "opencode"
+	if cfg != nil && cfg.Agent != "" {
+		defaultAgent = cfg.Agent
+	}
+
 	data := ControlPromptData{
 		VaultPath:      vaultPath,
 		WorkDir:        cwd,
@@ -196,6 +261,15 @@ func buildControlAgentPrompt(st store.Store) (string, error) {
 		NextIssueID:    nextID,
 		Issues:         issueInfos,
 		ActiveRuns:     runInfos,
+
+		GitBranch:             getGitBranch(),
+		HasUncommittedChanges: hasUncommittedChanges(),
+		LastCommitMessage:     getLastCommitMessage(),
+
+		DefaultAgent:    defaultAgent,
+		AvailableAgents: getAvailableAgents(),
+
+		ExtraPrompt: loadExtraPrompt(),
 	}
 
 	tmpl, err := template.New("control-prompt").Parse(controlPromptTemplate)
@@ -276,6 +350,54 @@ func detectIssueIDConvention(issues []*model.Issue) (pattern, example, nextID st
 	}
 
 	return
+}
+
+func getGitBranch() string {
+	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
+}
+
+func hasUncommittedChanges() bool {
+	cmd := exec.Command("git", "status", "--porcelain")
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	return len(strings.TrimSpace(string(output))) > 0
+}
+
+func getLastCommitMessage() string {
+	cmd := exec.Command("git", "log", "-1", "--format=%s")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	msg := strings.TrimSpace(string(output))
+	if len(msg) > 80 {
+		msg = msg[:77] + "..."
+	}
+	return msg
+}
+
+func getAvailableAgents() string {
+	return "opencode, claude, codex, gemini"
+}
+
+func loadExtraPrompt() string {
+	configDir := config.RepoConfigDir()
+	if configDir == "" {
+		return ""
+	}
+	extraPath := filepath.Join(configDir, "control-prompt-extra.md")
+	data, err := os.ReadFile(extraPath)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // buildFallbackControlPrompt creates a simple prompt when template fails
