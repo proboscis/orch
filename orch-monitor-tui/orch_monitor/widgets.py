@@ -1,7 +1,10 @@
 """Custom widgets for orch monitor TUI."""
 
+from typing import Optional
+
 from textual.app import ComposeResult
 from textual.widgets import DataTable, Static
+from textual.widgets.data_table import RowDoesNotExist
 from textual.containers import Container
 
 from .models import Issue, Run, Status
@@ -15,8 +18,44 @@ class RunTable(DataTable):
         self.cursor_type = "row"
         self.zebra_stripes = True
 
+    def _get_current_row_key(self) -> Optional[str]:
+        """Get the row key at current cursor position."""
+        if self.row_count == 0:
+            return None
+        try:
+            row_key, _ = self.coordinate_to_cell_key(self.cursor_coordinate)
+            return str(row_key.value) if row_key else None
+        except Exception:
+            return None
+
+    def _restore_cursor(
+        self, saved_key: Optional[str], saved_index: int, total_rows: int
+    ) -> None:
+        """Restore cursor to saved position or nearest valid position."""
+        if total_rows == 0:
+            return
+
+        # Try to restore by key first (preserves selection across reorder)
+        if saved_key:
+            try:
+                new_index = self.get_row_index(saved_key)
+                self.move_cursor(row=new_index)
+                return
+            except RowDoesNotExist:
+                pass  # Row was deleted, fall through to nearest neighbor
+
+        # Row was deleted - try to select nearest neighbor
+        if saved_index < total_rows:
+            self.move_cursor(row=saved_index)
+        elif total_rows > 0:
+            self.move_cursor(row=total_rows - 1)
+
     def populate(self, runs: list[Run]) -> None:
-        """Populate table with runs."""
+        """Populate table with runs, preserving cursor position."""
+        # Save current cursor position before clearing
+        saved_key = self._get_current_row_key()
+        saved_index = self.cursor_coordinate.row if self.row_count > 0 else 0
+
         self.clear(columns=True)
 
         self.add_column("ID", width=8)
@@ -49,6 +88,9 @@ class RunTable(DataTable):
                 key=run.ref(),
             )
 
+        # Restore cursor position
+        self._restore_cursor(saved_key, saved_index, len(runs))
+
 
 class IssueTable(DataTable):
     """Table widget for displaying issues."""
@@ -58,8 +100,44 @@ class IssueTable(DataTable):
         self.cursor_type = "row"
         self.zebra_stripes = True
 
+    def _get_current_row_key(self) -> Optional[str]:
+        """Get the row key at current cursor position."""
+        if self.row_count == 0:
+            return None
+        try:
+            row_key, _ = self.coordinate_to_cell_key(self.cursor_coordinate)
+            return str(row_key.value) if row_key else None
+        except Exception:
+            return None
+
+    def _restore_cursor(
+        self, saved_key: Optional[str], saved_index: int, total_rows: int
+    ) -> None:
+        """Restore cursor to saved position or nearest valid position."""
+        if total_rows == 0:
+            return
+
+        # Try to restore by key first (preserves selection across reorder)
+        if saved_key:
+            try:
+                new_index = self.get_row_index(saved_key)
+                self.move_cursor(row=new_index)
+                return
+            except RowDoesNotExist:
+                pass  # Row was deleted, fall through to nearest neighbor
+
+        # Row was deleted - try to select nearest neighbor
+        if saved_index < total_rows:
+            self.move_cursor(row=saved_index)
+        elif total_rows > 0:
+            self.move_cursor(row=total_rows - 1)
+
     def populate(self, issues: list[Issue]) -> None:
-        """Populate table with issues."""
+        """Populate table with issues, preserving cursor position."""
+        # Save current cursor position before clearing
+        saved_key = self._get_current_row_key()
+        saved_index = self.cursor_coordinate.row if self.row_count > 0 else 0
+
         self.clear(columns=True)
 
         self.add_column("ID", width=15)
@@ -81,6 +159,9 @@ class IssueTable(DataTable):
                 issue.title or issue.summary,
                 key=issue.id,
             )
+
+        # Restore cursor position
+        self._restore_cursor(saved_key, saved_index, len(issues))
 
 
 class DetailPanel(Container):

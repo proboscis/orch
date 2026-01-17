@@ -80,6 +80,9 @@ type Dashboard struct {
 	refreshing      bool
 	refreshInterval time.Duration
 	filterPreset    int
+
+	// savedRunRef preserves selected run across refreshes
+	savedRunRef string
 }
 
 type refreshMsg struct {
@@ -152,15 +155,13 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		d.height = msg.Height
 		return d, nil
 	case refreshMsg:
+		savedCursor := d.cursor
 		d.runs = msg.rows
 		d.refreshing = false
 		d.lastRefresh = time.Now()
-		if d.cursor >= len(d.runs) {
-			d.cursor = len(d.runs) - 1
-			if d.cursor < 0 {
-				d.cursor = 0
-			}
-		}
+
+		d.cursor = d.findRunIndex(d.savedRunRef, savedCursor)
+		d.updateSavedRunRef()
 		d.ensureCursorVisible()
 		return d, d.startRunPanels()
 	case issuesMsg:
@@ -320,6 +321,7 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "up", "k":
 		if d.cursor > 0 {
 			d.cursor--
+			d.updateSavedRunRef()
 			d.ensureCursorVisible()
 			return d, d.startRunPanels()
 		}
@@ -327,6 +329,7 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "down", "j":
 		if d.cursor < len(d.runs)-1 {
 			d.cursor++
+			d.updateSavedRunRef()
 			d.ensureCursorVisible()
 			return d, d.startRunPanels()
 		}
@@ -793,6 +796,33 @@ func (d *Dashboard) selectedRun() *model.Run {
 		return d.runs[d.cursor].Run
 	}
 	return nil
+}
+
+func (d *Dashboard) findRunIndex(runRef string, fallbackIndex int) int {
+	if len(d.runs) == 0 {
+		return 0
+	}
+
+	if runRef != "" {
+		for i, row := range d.runs {
+			if row.Run != nil && row.Run.Ref().String() == runRef {
+				return i
+			}
+		}
+	}
+
+	if fallbackIndex < len(d.runs) {
+		return fallbackIndex
+	}
+	return len(d.runs) - 1
+}
+
+func (d *Dashboard) updateSavedRunRef() {
+	if run := d.selectedRun(); run != nil {
+		d.savedRunRef = run.Ref().String()
+	} else {
+		d.savedRunRef = ""
+	}
 }
 
 func (d *Dashboard) selectedRunRow() *RunRow {
