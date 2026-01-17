@@ -1043,13 +1043,14 @@ func (m *Monitor) issuesDashboardCommand() string {
 }
 
 type agentChatLaunch struct {
-	command      string
-	prompt       string
-	injection    agent.InjectionMethod
-	readyPattern string
-	port         int
-	model        string
-	modelVariant string
+	command        string
+	prompt         string
+	promptEmbedded bool
+	injection      agent.InjectionMethod
+	readyPattern   string
+	port           int
+	model          string
+	modelVariant   string
 }
 
 func (m *Monitor) agentChatLaunch() agentChatLaunch {
@@ -1095,11 +1096,12 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 	}
 
 	port := 4096
+	continueSession := true
 	cmd, err := adapter.LaunchCommand(&agent.LaunchConfig{
 		Type:            aType,
 		VaultPath:       m.store.VaultPath(),
 		Prompt:          prompt,
-		ContinueSession: false,
+		ContinueSession: continueSession,
 		Port:            port,
 		Model:           modelName,
 		ModelVariant:    modelVariant,
@@ -1109,18 +1111,22 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 	}
 
 	return agentChatLaunch{
-		command:      cmd,
-		prompt:       prompt,
-		injection:    adapter.PromptInjection(),
-		readyPattern: adapter.ReadyPattern(),
-		port:         port,
-		model:        modelName,
-		modelVariant: modelVariant,
+		command:        cmd,
+		prompt:         prompt,
+		promptEmbedded: continueSession && prompt != "",
+		injection:      adapter.PromptInjection(),
+		readyPattern:   adapter.ReadyPattern(),
+		port:           port,
+		model:          modelName,
+		modelVariant:   modelVariant,
 	}
 }
 
 func (m *Monitor) sendAgentChatPrompt(pane string, launch agentChatLaunch) {
 	if launch.prompt == "" {
+		return
+	}
+	if launch.promptEmbedded {
 		return
 	}
 
