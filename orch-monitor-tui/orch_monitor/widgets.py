@@ -13,6 +13,14 @@ from .models import Issue, Run, Status
 class CursorPreservingTable(DataTable):
     """DataTable that preserves cursor position across repopulation."""
 
+    # Add vim-style hjkl navigation bindings
+    BINDINGS = [
+        ("j", "cursor_down", "Down"),
+        ("k", "cursor_up", "Up"),
+        ("g", "scroll_top", "Top"),
+        ("G", "scroll_bottom", "Bottom"),
+    ]
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.cursor_type = "row"
@@ -57,9 +65,6 @@ class CursorPreservingTable(DataTable):
 class RunTable(CursorPreservingTable):
     """Table widget for displaying runs."""
 
-    # Clear default DataTable bindings to let app bindings handle Enter
-    BINDINGS = []
-
     def populate(self, runs: list[Run]) -> None:
         saved_key, saved_index = self._save_cursor_state()
 
@@ -100,9 +105,6 @@ class RunTable(CursorPreservingTable):
 
 class IssueTable(CursorPreservingTable):
     """Table widget for displaying issues."""
-
-    # Clear default DataTable bindings to let app bindings handle Enter
-    BINDINGS = []
 
     def populate(self, issues: list[Issue]) -> None:
         saved_key, saved_index = self._save_cursor_state()
