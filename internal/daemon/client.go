@@ -284,6 +284,45 @@ func (c *Client) CreateIssue(issueID, title, summary, body string) (*CreateIssue
 	return &resp, nil
 }
 
+// CloseIssueRequest is the request for close_issue
+type CloseIssueRequest struct {
+	Type    string `json:"type"`
+	IssueID string `json:"issue_id"`
+	Comment string `json:"comment,omitempty"`
+}
+
+// CloseIssueResponse is the response for close_issue
+type CloseIssueResponse struct {
+	OK      bool   `json:"ok"`
+	Error   string `json:"error,omitempty"`
+	IssueID string `json:"issue_id,omitempty"`
+}
+
+// CloseIssue closes an issue via the daemon
+func (c *Client) CloseIssue(issueID, comment string) (*CloseIssueResponse, error) {
+	req := CloseIssueRequest{
+		Type:    "close_issue",
+		IssueID: issueID,
+		Comment: comment,
+	}
+
+	raw, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp CloseIssueResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !resp.OK {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	return &resp, nil
+}
+
 // GetAttachInfoRequest is the request for get_attach_info
 type GetAttachInfoRequest struct {
 	Type    string `json:"type"`

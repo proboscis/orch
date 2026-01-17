@@ -358,10 +358,12 @@ func (s *FileStore) ListIssues() ([]*model.Issue, error) {
 
 // CreateRun creates a new run for an issue
 func (s *FileStore) CreateRun(issueID, runID string, metadata map[string]string) (*model.Run, error) {
-	// Verify issue exists
-	_, err := s.ResolveIssue(issueID)
-	if err != nil {
-		return nil, err
+	// Skip verification for GitHub issues (gh#N format) - they're not local files
+	if !strings.HasPrefix(issueID, "gh#") {
+		_, err := s.ResolveIssue(issueID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Create runs directory for issue if needed

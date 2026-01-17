@@ -41,6 +41,7 @@ type SendRequest struct {
 	Body      string   `json:"body,omitempty"`
 	Force     bool     `json:"force,omitempty"`
 	ShortID   string   `json:"short_id,omitempty"`
+	Comment   string   `json:"comment,omitempty"`
 }
 
 type SendResponse struct {
@@ -161,6 +162,8 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 		s.handleResolveIssue(req, encoder)
 	case "create_issue":
 		s.handleCreateIssue(req, encoder)
+	case "close_issue":
+		s.handleCloseIssue(req, encoder)
 	case "get_attach_info":
 		s.handleGetAttachInfo(req, encoder)
 	case "get_run_by_short_id":
@@ -295,9 +298,6 @@ func (s *SocketServer) handleListIssues(req SendRequest, encoder *json.Encoder) 
 	var issues []*model.Issue
 	if s.githubBackend != nil {
 		issues, err = s.githubBackend.ListFromCache()
-		if err != nil || len(issues) == 0 {
-			issues, err = s.store.ListIssues()
-		}
 	} else {
 		issues, err = s.store.ListIssues()
 	}
@@ -386,9 +386,6 @@ func (s *SocketServer) handleGetIssue(req SendRequest, encoder *json.Encoder) {
 
 	if s.githubBackend != nil {
 		issue, err = s.githubBackend.GetByIDFromCache(req.IssueID)
-		if err != nil {
-			issue, err = s.store.ResolveIssue(req.IssueID)
-		}
 	} else {
 		issue, err = s.store.ResolveIssue(req.IssueID)
 	}
@@ -576,6 +573,27 @@ func (s *SocketServer) handleResolveIssue(req SendRequest, encoder *json.Encoder
 }
 
 func (s *SocketServer) handleCreateIssue(req SendRequest, encoder *json.Encoder) {
+	title := req.Title
+	if title == "" {
+		title = req.IssueID
+	}
+	if title == "" {
+		encoder.Encode(CreateIssueResponse{OK: false, Error: "invalid_request: title required"})
+		return
+	}
+
+	if s.githubBackend != nil {
+		issue, err := s.githubBackend.Create(title, req.Body, nil)
+		if err != nil {
+			s.logger.Printf("error creating GitHub issue: %v", err)
+			encoder.Encode(CreateIssueResponse{OK: false, Error: "github_error: " + err.Error()})
+			return
+		}
+		s.logger.Printf("created GitHub issue: %s (%s)", issue.ID, issue.Path)
+		encoder.Encode(CreateIssueResponse{OK: true, IssueID: issue.ID, Path: issue.Path})
+		return
+	}
+
 	if req.IssueID == "" {
 		encoder.Encode(CreateIssueResponse{OK: false, Error: "invalid_request: issue_id required"})
 		return
@@ -602,11 +620,6 @@ func (s *SocketServer) handleCreateIssue(req SendRequest, encoder *json.Encoder)
 		return
 	}
 
-	title := req.Title
-	if title == "" {
-		title = req.IssueID
-	}
-
 	var sb strings.Builder
 	sb.WriteString("---\n")
 	sb.WriteString("type: issue\n")
@@ -631,6 +644,38 @@ func (s *SocketServer) handleCreateIssue(req SendRequest, encoder *json.Encoder)
 
 	s.logger.Printf("created issue: %s at %s", req.IssueID, issuePath)
 	encoder.Encode(CreateIssueResponse{OK: true, IssueID: req.IssueID, Path: issuePath})
+}
+
+func (s *SocketServer) handleCloseIssue(req SendRequest, encoder *json.Encoder) {
+	if req.IssueID == "" {
+		encoder.Encode(CloseIssueResponse{OK: false, Error: "invalid_request: issue_id required"})
+		return
+	}
+
+	if s.githubBackend != nil {
+		number, err := model.ParseGitHubIssueNumber(req.IssueID)
+		if err != nil {
+			encoder.Encode(CloseIssueResponse{OK: false, Error: "invalid_issue_id: " + err.Error()})
+			return
+		}
+		if err := s.githubBackend.Close(number, req.Comment); err != nil {
+			s.logger.Printf("error closing GitHub issue %s: %v", req.IssueID, err)
+			encoder.Encode(CloseIssueResponse{OK: false, Error: "github_error: " + err.Error()})
+			return
+		}
+		s.logger.Printf("closed GitHub issue: %s", req.IssueID)
+		encoder.Encode(CloseIssueResponse{OK: true, IssueID: req.IssueID})
+		return
+	}
+
+	if err := s.store.SetIssueStatus(req.IssueID, model.IssueStatusClosed); err != nil {
+		s.logger.Printf("error closing issue %s: %v", req.IssueID, err)
+		encoder.Encode(CloseIssueResponse{OK: false, Error: "not_found"})
+		return
+	}
+
+	s.logger.Printf("closed issue: %s", req.IssueID)
+	encoder.Encode(CloseIssueResponse{OK: true, IssueID: req.IssueID})
 }
 
 func (s *SocketServer) handleGetAttachInfo(req SendRequest, encoder *json.Encoder) {

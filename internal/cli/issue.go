@@ -9,6 +9,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
 	"github.com/spf13/cobra"
@@ -43,17 +44,25 @@ func newIssueCreateCmd() *cobra.Command {
 	opts := &issueCreateOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "create ISSUE_ID",
+		Use:   "create [ISSUE_ID]",
 		Short: "Create a new issue",
-		Long: `Create a new issue in the vault.
+		Long: `Create a new issue in the vault or on GitHub.
+
+For local backend, ISSUE_ID is required.
+For GitHub backend, ISSUE_ID is optional (GitHub assigns the number).
 
 Examples:
   orch issue create fix-login-bug --title "Fix login timeout"
   orch issue create plc-123 --title "Add dark mode" --body "Users want dark mode support"
-  orch issue create my-issue --edit  # Opens in $EDITOR`,
-		Args: cobra.ExactArgs(1),
+  orch issue create my-issue --edit  # Opens in $EDITOR
+  orch issue create --title "GitHub issue"  # GitHub backend only`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runIssueCreate(args[0], opts)
+			issueID := ""
+			if len(args) > 0 {
+				issueID = args[0]
+			}
+			return runIssueCreate(issueID, opts)
 		},
 	}
 
@@ -66,6 +75,15 @@ Examples:
 }
 
 func runIssueCreate(issueID string, opts *issueCreateOptions) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	if opts.Edit && cfg.IsGitHubBackend() {
+		return fmt.Errorf("--edit flag is not supported with GitHub backend")
+	}
+
 	title := opts.Title
 	if title == "" && !opts.Edit {
 		fmt.Print("Title: ")
@@ -434,6 +452,10 @@ Examples:
 }
 
 func runIssueShow(issueID string, opts *issueShowOptions) error {
+	if model.IsGitHubIssueID(issueID) {
+		issueID = model.NormalizeGitHubIssueID(issueID)
+	}
+
 	client, err := requireDaemon()
 	if err != nil {
 		return err
@@ -508,6 +530,10 @@ Examples:
 }
 
 func runIssueEdit(issueID, title string) error {
+	if model.IsGitHubIssueID(issueID) {
+		issueID = model.NormalizeGitHubIssueID(issueID)
+	}
+
 	client, err := requireDaemon()
 	if err != nil {
 		return err
@@ -603,13 +629,25 @@ Examples:
 }
 
 func runIssueClose(issueID string, opts *issueCloseOptions) error {
-	st, err := getStore()
+	// Normalize GitHub issue IDs at CLI boundary
+	if model.IsGitHubIssueID(issueID) {
+		issueID = model.NormalizeGitHubIssueID(issueID)
+	}
+
+	client, err := requireDaemon()
 	if err != nil {
 		return err
 	}
 
-	if err := st.SetIssueStatus(issueID, model.IssueStatusClosed); err != nil {
+	resp, err := client.CloseIssue(issueID, opts.Comment)
+	if err != nil {
 		return err
+	}
+
+	if globalOpts.JSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(resp)
 	}
 
 	if !globalOpts.Quiet {
@@ -638,7 +676,7 @@ Examples:
 }
 
 func runIssueSync() error {
-	if !globalOpts.Quiet {
+	if !globalOpts.Quiet && !globalOpts.JSON {
 		fmt.Println("Syncing issues from GitHub...")
 	}
 
@@ -647,7 +685,7 @@ func runIssueSync() error {
 		return err
 	}
 
-	if !globalOpts.Quiet {
+	if !globalOpts.Quiet && !globalOpts.JSON {
 		fmt.Println("Sync complete.")
 	}
 	return nil

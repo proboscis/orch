@@ -102,21 +102,39 @@ type runResult struct {
 }
 
 func runRun(issueID string, opts *runOptions) error {
+	if model.IsGitHubIssueID(issueID) {
+		issueID = model.NormalizeGitHubIssueID(issueID)
+	}
+
 	st, err := getStore()
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)
 	}
 
-	// Apply config defaults for prompt options
 	cfg, err := applyPromptConfigDefaults(opts)
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)
 	}
-
-	// Resolve issue first
-	issue, err := st.ResolveIssue(issueID)
-	if err != nil {
-		return exitWithCode(fmt.Errorf("issue not found: %s", issueID), ExitIssueNotFound)
+	var issue *model.Issue
+	client, daemonErr := requireDaemon()
+	if daemonErr == nil {
+		resp, err := client.GetIssue(issueID)
+		if err == nil && resp.Issue != nil {
+			issue = &model.Issue{
+				ID:      resp.Issue.ID,
+				Title:   resp.Issue.Title,
+				Summary: resp.Issue.Summary,
+				Status:  model.IssueStatus(resp.Issue.Status),
+				Body:    resp.Issue.Body,
+				Path:    resp.Issue.URI,
+			}
+		}
+	}
+	if issue == nil {
+		issue, err = st.ResolveIssue(issueID)
+		if err != nil {
+			return exitWithCode(fmt.Errorf("issue not found: %s", issueID), ExitIssueNotFound)
+		}
 	}
 
 	// Determine run ID
