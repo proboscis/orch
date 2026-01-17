@@ -14,11 +14,22 @@ MONITOR_FILTERS_FILE = "monitor-filters.yaml"
 ORCH_DIR = ".orch"
 
 
+DEFAULT_RUN_STATUSES = [
+    "queued",
+    "booting",
+    "running",
+    "blocked",
+    "blocked_api",
+    "pr_open",
+    "failed",
+]
+
+
 @dataclass
 class RunFilterState:
     """Persisted run filter state."""
 
-    statuses: list[str] = field(default_factory=list)
+    statuses: list[str] = field(default_factory=lambda: DEFAULT_RUN_STATUSES.copy())
     agents: list[str] = field(default_factory=list)
     text_search: str = ""
     time_range: str = "all"
@@ -153,29 +164,102 @@ class Config:
             pass
 
     @classmethod
+    def _find_repo_configs(cls) -> list[Path]:
+        """Search upward from cwd for .orch/config.yaml files (matches Go CLI config.go)."""
+        cwd = Path.cwd()
+        paths: list[Path] = []
+
+        current = cwd
+        while True:
+            config_path = current / ORCH_DIR / "config.yaml"
+            if config_path.exists():
+                paths.append(config_path)
+
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+
+        paths.reverse()  # furthest ancestor first, closest last (highest precedence)
+        return paths
+
+    @classmethod
+    def _resolve_path_from_config(cls, path: str, base_dir: Path) -> Path:
+        if not path:
+            return Path(".")
+
+        p = Path(path)
+        if str(p).startswith("~"):
+            p = p.expanduser()
+        if not p.is_absolute():
+            p = base_dir / p
+
+        return p.resolve()
+
+    @classmethod
     def load(cls, config_path: Optional[Path] = None) -> "Config":
-        """Load configuration from .orch/config.yaml or environment."""
-        vault_path = os.getenv("ORCH_VAULT")
+        """Load config with precedence: explicit path > repo .orch/config.yaml > ORCH_VAULT env > cwd."""
+        vault_path_str = os.getenv("ORCH_VAULT")
+        data: dict = {}
 
         if config_path and config_path.exists():
             with open(config_path) as f:
                 data = yaml.safe_load(f) or {}
 
-            if not vault_path:
-                vault_path = data.get("vault", ".")
+            if not vault_path_str:
+                vault_path_str = data.get("vault")
+
+            if vault_path_str:
+                config_dir = config_path.parent
+                base_dir = (
+                    config_dir.parent if config_dir.name == ORCH_DIR else config_dir
+                )
+                vault_path = cls._resolve_path_from_config(vault_path_str, base_dir)
+            else:
+                vault_path = Path(".").resolve()
 
             return cls(
-                vault_path=Path(vault_path).expanduser().resolve(),
+                vault_path=vault_path,
                 agent=data.get("agent", "claude"),
                 worktree_dir=data.get("worktree_dir", ".git-worktrees"),
                 base_branch=data.get("base_branch", "main"),
                 pr_target_branch=data.get("pr_target_branch", "main"),
             )
 
-        if not vault_path:
-            vault_path = "."
+        repo_configs = cls._find_repo_configs()
+        for repo_config in repo_configs:
+            with open(repo_config) as f:
+                file_data = yaml.safe_load(f) or {}
 
-        return cls(vault_path=Path(vault_path).expanduser().resolve())
+            for key, value in file_data.items():
+                if value:
+                    data[key] = value
+
+            if not vault_path_str and file_data.get("vault"):
+                config_dir = repo_config.parent
+                base_dir = (
+                    config_dir.parent if config_dir.name == ORCH_DIR else config_dir
+                )
+                vault_path_str = str(
+                    cls._resolve_path_from_config(file_data["vault"], base_dir)
+                )
+
+        env_vault = os.getenv("ORCH_VAULT")
+        if env_vault:
+            vault_path_str = env_vault
+
+        if vault_path_str:
+            vault_path = Path(vault_path_str).expanduser().resolve()
+        else:
+            vault_path = Path(".").resolve()
+
+        return cls(
+            vault_path=vault_path,
+            agent=data.get("agent", "claude"),
+            worktree_dir=data.get("worktree_dir", ".git-worktrees"),
+            base_branch=data.get("base_branch", "main"),
+            pr_target_branch=data.get("pr_target_branch", "main"),
+        )
 
     @classmethod
     def from_vault(cls, vault_path: Path) -> "Config":

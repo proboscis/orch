@@ -276,6 +276,7 @@ class RunFilterScreen(ModalScreen[RunFilterResult | None]):
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel"),
+        Binding("enter", "apply", "Apply"),
     ]
 
     def __init__(self, current_filter: RunFilterState):
@@ -390,6 +391,9 @@ class RunFilterScreen(ModalScreen[RunFilterResult | None]):
     def action_cancel(self) -> None:
         self.dismiss(None)
 
+    def action_apply(self) -> None:
+        self.apply_filter()
+
 
 class IssueFilterScreen(ModalScreen[IssueFilterResult | None]):
     """Modal screen for filtering issues."""
@@ -405,6 +409,7 @@ class IssueFilterScreen(ModalScreen[IssueFilterResult | None]):
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel"),
+        Binding("enter", "apply", "Apply"),
     ]
 
     def __init__(self, current_filter: IssueFilterState):
@@ -476,6 +481,9 @@ class IssueFilterScreen(ModalScreen[IssueFilterResult | None]):
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+    def action_apply(self) -> None:
+        self.apply_filter()
 
 
 def filter_runs_client_side(runs: list[Run], filter_state: RunFilterState) -> list[Run]:
