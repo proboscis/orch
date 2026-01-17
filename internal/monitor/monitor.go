@@ -14,6 +14,7 @@ import (
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/config"
+	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/pr"
@@ -65,6 +66,7 @@ type Monitor struct {
 	issueSort    SortKey
 	issueSortDir SortDirection
 	store        store.Store
+	daemonClient *daemon.Client
 	orchPath     string
 	globalFlags  []string
 	agent        string
@@ -115,8 +117,12 @@ func New(st store.Store, opts Options) *Monitor {
 	}
 	orchDir := GetOrchDir(st.VaultPath())
 	var presets []config.Preset
+	var daemonClient *daemon.Client
 	if cfg, err := config.Load(); err == nil {
 		presets = cfg.GetAllPresets()
+		if cfg.IsGitHubBackend() {
+			daemonClient = daemon.NewClient(st.VaultPath())
+		}
 	}
 	return &Monitor{
 		session:      session,
@@ -126,6 +132,7 @@ func New(st store.Store, opts Options) *Monitor {
 		issueSort:    issueSort,
 		issueSortDir: issueSortDir,
 		store:        st,
+		daemonClient: daemonClient,
 		orchPath:     orchPath,
 		globalFlags:  opts.GlobalFlags,
 		agent:        opts.Agent,
@@ -611,8 +618,24 @@ func (m *Monitor) ResolveRun(run *model.Run) error {
 	return nil
 }
 
-// ListIssues fetches issues from the store.
+// ListIssues fetches issues from daemon (for GitHub backend) or store.
 func (m *Monitor) ListIssues() ([]*model.Issue, error) {
+	if m.daemonClient != nil && m.daemonClient.IsAvailable() {
+		resp, err := m.daemonClient.ListIssues(nil, 0, "")
+		if err != nil {
+			return nil, err
+		}
+		issues := make([]*model.Issue, len(resp.Issues))
+		for i, is := range resp.Issues {
+			issues[i] = &model.Issue{
+				ID:      is.ID,
+				Title:   is.Title,
+				Summary: is.Summary,
+				Status:  model.IssueStatus(is.Status),
+			}
+		}
+		return issues, nil
+	}
 	return m.store.ListIssues()
 }
 
