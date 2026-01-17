@@ -29,14 +29,15 @@ class DaemonNotRunningError(DaemonError):
     pass
 
 
+MAX_PAGE_SIZE = 200  # Go daemon's maxLimit
+
+
 @dataclass
 class RunFilters:
     """Filters for listing runs."""
 
     issue_id: Optional[str] = None
     status: list[Status] = field(default_factory=list)
-    limit: int = 50
-    cursor: Optional[str] = None
 
 
 @dataclass
@@ -44,8 +45,6 @@ class IssueFilters:
     """Filters for listing issues."""
 
     status: list[IssueStatus] = field(default_factory=list)
-    limit: int = 50
-    cursor: Optional[str] = None
 
 
 @dataclass
@@ -73,14 +72,9 @@ class DaemonClient:
     The daemon is the single source of truth for all run and issue data.
     """
 
-    def __init__(self, socket_path: Path):
-        """Initialize the daemon client.
-
-        Args:
-            socket_path: Path to the daemon's Unix socket.
-        """
+    def __init__(self, socket_path: Path, timeout: float = 30.0):
         self.socket_path = socket_path
-        self._timeout = 5.0  # seconds
+        self._timeout = timeout
 
     def is_available(self) -> bool:
         """Check if the daemon socket is available and is actually a socket."""
@@ -147,73 +141,69 @@ class DaemonClient:
             raise DaemonError(f"Socket error: {e}")
 
     def list_runs(self, filters: Optional[RunFilters] = None) -> ListRunsResponse:
-        """List runs from the daemon.
-
-        Args:
-            filters: Optional filters for the query.
-
-        Returns:
-            ListRunsResponse with runs, pagination cursor, and total count.
-
-        Raises:
-            DaemonError: If there's an error from the daemon.
-        """
+        """List all runs from the daemon, fetching all pages."""
         if filters is None:
             filters = RunFilters()
 
-        request = {
-            "type": "list_runs",
-            "issue_id": filters.issue_id or "",
-            "status": [s.value for s in filters.status],
-            "limit": filters.limit,
-            "cursor": filters.cursor or "",
-        }
+        all_runs: list[Run] = []
+        cursor: Optional[str] = None
+        total = 0
 
-        response = self._send_request(request)
+        while True:
+            request = {
+                "type": "list_runs",
+                "issue_id": filters.issue_id or "",
+                "status": [s.value for s in filters.status],
+                "limit": MAX_PAGE_SIZE,
+                "cursor": cursor or "",
+            }
 
-        if not response.get("ok", False):
-            raise DaemonError(response.get("error", "Unknown error"))
+            response = self._send_request(request)
 
-        runs = [_json_to_run(r) for r in response.get("runs", [])]
-        return ListRunsResponse(
-            runs=runs,
-            next_cursor=response.get("next_cursor"),
-            total=response.get("total", 0),
-        )
+            if not response.get("ok", False):
+                raise DaemonError(response.get("error", "Unknown error"))
+
+            all_runs.extend(_json_to_run(r) for r in response.get("runs", []))
+            total = response.get("total", 0)
+            cursor = response.get("next_cursor")
+
+            if not cursor:
+                break
+
+        return ListRunsResponse(runs=all_runs, next_cursor=None, total=total)
 
     def list_issues(self, filters: Optional[IssueFilters] = None) -> ListIssuesResponse:
-        """List issues from the daemon.
-
-        Args:
-            filters: Optional filters for the query.
-
-        Returns:
-            ListIssuesResponse with issues, pagination cursor, and total count.
-
-        Raises:
-            DaemonError: If there's an error from the daemon.
-        """
+        """List all issues from the daemon, fetching all pages."""
         if filters is None:
             filters = IssueFilters()
 
-        request = {
-            "type": "list_issues",
-            "status": [s.value for s in filters.status],
-            "limit": filters.limit,
-            "cursor": filters.cursor or "",
-        }
+        all_issues: list[Issue] = []
+        cursor: Optional[str] = None
+        total = 0
 
-        response = self._send_request(request)
+        while True:
+            request = {
+                "type": "list_issues",
+                "status": [s.value for s in filters.status],
+                "limit": MAX_PAGE_SIZE,
+                "cursor": cursor or "",
+            }
 
-        if not response.get("ok", False):
-            raise DaemonError(response.get("error", "Unknown error"))
+            response = self._send_request(request)
 
-        issues = [_json_to_issue_summary(i) for i in response.get("issues", [])]
-        return ListIssuesResponse(
-            issues=issues,
-            next_cursor=response.get("next_cursor"),
-            total=response.get("total", 0),
-        )
+            if not response.get("ok", False):
+                raise DaemonError(response.get("error", "Unknown error"))
+
+            all_issues.extend(
+                _json_to_issue_summary(i) for i in response.get("issues", [])
+            )
+            total = response.get("total", 0)
+            cursor = response.get("next_cursor")
+
+            if not cursor:
+                break
+
+        return ListIssuesResponse(issues=all_issues, next_cursor=None, total=total)
 
     def get_run(self, issue_id: str, run_id: str) -> Optional[Run]:
         """Get a specific run by issue ID and run ID.
