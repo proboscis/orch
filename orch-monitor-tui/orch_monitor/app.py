@@ -734,7 +734,7 @@ class RunsDashboard(App):
         if getattr(self, "_highlighted_run_ref", None) == run_ref:
             return
         self._highlighted_run_ref = run_ref
-        issue_id, run_id = run_ref.split("#", 1)
+        issue_id, run_id = run_ref.rsplit("#", 1)
         self._fetch_run_detail(issue_id, run_id, run_ref)
 
     @work(thread=True, exclusive=True)
@@ -1416,7 +1416,7 @@ class OrchMonitorApp(App):
         if getattr(self, "_highlighted_run_ref", None) == run_ref:
             return
         self._highlighted_run_ref = run_ref
-        issue_id, run_id = run_ref.split("#", 1)
+        issue_id, run_id = run_ref.rsplit("#", 1)
         self._fetch_run_for_detail(issue_id, run_id, run_ref)
 
     @work(thread=True, exclusive=True)
