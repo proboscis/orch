@@ -2,7 +2,6 @@ package monitor
 
 import "fmt"
 
-// KeyMap defines the keyboard shortcuts displayed in the footer.
 type KeyMap struct {
 	Runs        string
 	Issues      string
@@ -16,13 +15,20 @@ type KeyMap struct {
 	Merge       string
 	Refresh     string
 	Sort        string
+	SortDir     string
 	Filter      string
 	QuickFilter string
 	Quit        string
 	Help        string
+
+	SortUpdated string
+	SortStarted string
+	SortStatus  string
+	SortIssue   string
+	SortAgent   string
+	SortElapsed string
 }
 
-// DefaultKeyMap returns the default shortcut mapping.
 func DefaultKeyMap() KeyMap {
 	return KeyMap{
 		Runs:        "g",
@@ -37,10 +43,18 @@ func DefaultKeyMap() KeyMap {
 		Merge:       "M",
 		Refresh:     "r",
 		Sort:        "S",
+		SortDir:     "D",
 		Filter:      "f",
 		QuickFilter: "F",
 		Quit:        "q",
 		Help:        "?",
+
+		SortUpdated: "u",
+		SortStarted: "1",
+		SortStatus:  "t",
+		SortIssue:   "2",
+		SortAgent:   "3",
+		SortElapsed: "4",
 	}
 }
 

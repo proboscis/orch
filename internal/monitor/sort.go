@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/s22625/orch/internal/model"
 )
@@ -11,15 +12,41 @@ import (
 // SortKey defines the supported sort keys for monitor panes.
 type SortKey string
 
+// SortDirection indicates ascending or descending sort order.
+type SortDirection int
+
+const (
+	SortAsc  SortDirection = 0
+	SortDesc SortDirection = 1
+)
+
+// Run sort keys
 const (
 	SortByName    SortKey = "name"
 	SortByUpdated SortKey = "updated"
 	SortByStatus  SortKey = "status"
+	SortByStarted SortKey = "started"
+	SortByIssue   SortKey = "issue"
+	SortByAgent   SortKey = "agent"
+	SortByElapsed SortKey = "elapsed"
 )
 
+// Issue-specific sort keys
+const (
+	SortByID       SortKey = "id"       // alias for name
+	SortByTitle    SortKey = "title"    // issue title
+	SortByPriority SortKey = "priority" // issue priority
+)
+
+// runSortKeyCycle defines the cycle order for run sorting
+var runSortKeyCycle = []SortKey{SortByUpdated, SortByStarted, SortByStatus, SortByIssue, SortByAgent, SortByElapsed}
+
+// issueSortKeyCycle defines the cycle order for issue sorting
+var issueSortKeyCycle = []SortKey{SortByName, SortByStatus, SortByTitle, SortByPriority, SortByUpdated}
+
+// Legacy cycle for backward compatibility
 var sortKeyCycle = []SortKey{SortByName, SortByUpdated, SortByStatus}
 
-// ParseSortKey validates a sort key string, applying a fallback when empty.
 func ParseSortKey(value string, fallback SortKey) (SortKey, error) {
 	trimmed := strings.TrimSpace(strings.ToLower(value))
 	if trimmed == "" {
@@ -35,27 +62,58 @@ func ParseSortKey(value string, fallback SortKey) (SortKey, error) {
 		return SortByUpdated, nil
 	case string(SortByStatus):
 		return SortByStatus, nil
+	case string(SortByStarted):
+		return SortByStarted, nil
+	case string(SortByIssue):
+		return SortByIssue, nil
+	case string(SortByAgent):
+		return SortByAgent, nil
+	case string(SortByElapsed):
+		return SortByElapsed, nil
+	case string(SortByTitle):
+		return SortByTitle, nil
+	case string(SortByPriority):
+		return SortByPriority, nil
 	default:
 		return "", fmt.Errorf("invalid sort key %q (valid: %s)", value, strings.Join(ValidSortKeys(), ", "))
 	}
 }
 
-// ValidSortKeys returns the supported sort key strings.
 func ValidSortKeys() []string {
-	return []string{string(SortByName), string(SortByUpdated), string(SortByStatus)}
+	return []string{
+		string(SortByName), string(SortByUpdated), string(SortByStatus),
+		string(SortByStarted), string(SortByIssue), string(SortByAgent), string(SortByElapsed),
+		string(SortByTitle), string(SortByPriority),
+	}
 }
 
-// IsValidSortKey returns true when the key is recognized.
 func IsValidSortKey(key SortKey) bool {
 	switch key {
-	case SortByName, SortByUpdated, SortByStatus:
+	case SortByName, SortByUpdated, SortByStatus, SortByStarted, SortByIssue, SortByAgent, SortByElapsed, SortByTitle, SortByPriority:
 		return true
 	default:
 		return false
 	}
 }
 
-// NextSortKey cycles to the next sort key.
+func IsValidRunSortKey(key SortKey) bool {
+	switch key {
+	case SortByUpdated, SortByStarted, SortByStatus, SortByIssue, SortByAgent, SortByElapsed, SortByName:
+		return true
+	default:
+		return false
+	}
+}
+
+func IsValidIssueSortKey(key SortKey) bool {
+	switch key {
+	case SortByName, SortByID, SortByStatus, SortByTitle, SortByPriority, SortByUpdated:
+		return true
+	default:
+		return false
+	}
+}
+
 func NextSortKey(current SortKey) SortKey {
 	for i, key := range sortKeyCycle {
 		if key == current {
@@ -63,6 +121,40 @@ func NextSortKey(current SortKey) SortKey {
 		}
 	}
 	return sortKeyCycle[0]
+}
+
+func NextRunSortKey(current SortKey) SortKey {
+	for i, key := range runSortKeyCycle {
+		if key == current {
+			return runSortKeyCycle[(i+1)%len(runSortKeyCycle)]
+		}
+	}
+	return runSortKeyCycle[0]
+}
+
+func NextIssueSortKey(current SortKey) SortKey {
+	for i, key := range issueSortKeyCycle {
+		if key == current {
+			return issueSortKeyCycle[(i+1)%len(issueSortKeyCycle)]
+		}
+	}
+	return issueSortKeyCycle[0]
+}
+
+func DefaultSortDirection(key SortKey) SortDirection {
+	switch key {
+	case SortByUpdated, SortByStarted, SortByElapsed, SortByPriority:
+		return SortDesc
+	default:
+		return SortAsc
+	}
+}
+
+func SortIndicator(dir SortDirection) string {
+	if dir == SortDesc {
+		return "▼"
+	}
+	return "▲"
 }
 
 var runStatusOrder = map[model.Status]int{
@@ -106,6 +198,10 @@ func runRowRunID(row RunRow) string {
 }
 
 func sortRunRows(rows []RunRow, key SortKey) {
+	sortRunRowsWithDirection(rows, key, DefaultSortDirection(key))
+}
+
+func sortRunRowsWithDirection(rows []RunRow, key SortKey, dir SortDirection) {
 	if len(rows) < 2 {
 		if len(rows) == 1 {
 			rows[0].Index = 1
@@ -113,9 +209,11 @@ func sortRunRows(rows []RunRow, key SortKey) {
 		return
 	}
 
-	if !IsValidSortKey(key) {
+	if !IsValidRunSortKey(key) {
 		key = SortByUpdated
 	}
+
+	now := time.Now()
 
 	sort.SliceStable(rows, func(i, j int) bool {
 		a := rows[i]
@@ -124,15 +222,34 @@ func sortRunRows(rows []RunRow, key SortKey) {
 		switch key {
 		case SortByName:
 			if cmp := strings.Compare(a.IssueID, b.IssueID); cmp != 0 {
-				return cmp < 0
+				return (cmp < 0) == (dir == SortAsc)
 			}
 			if cmp := strings.Compare(runRowRunID(a), runRowRunID(b)); cmp != 0 {
-				return cmp < 0
+				return (cmp < 0) == (dir == SortAsc)
+			}
+			return (a.ShortID < b.ShortID) == (dir == SortAsc)
+
+		case SortByIssue:
+			if cmp := strings.Compare(a.IssueID, b.IssueID); cmp != 0 {
+				return (cmp < 0) == (dir == SortAsc)
+			}
+			if !a.Updated.Equal(b.Updated) {
+				return a.Updated.After(b.Updated) == (dir == SortDesc)
 			}
 			return a.ShortID < b.ShortID
+
+		case SortByAgent:
+			if cmp := strings.Compare(a.Agent, b.Agent); cmp != 0 {
+				return (cmp < 0) == (dir == SortAsc)
+			}
+			if !a.Updated.Equal(b.Updated) {
+				return a.Updated.After(b.Updated) == (dir == SortDesc)
+			}
+			return a.ShortID < b.ShortID
+
 		case SortByStatus:
 			if ar, br := runStatusRank(a.Status), runStatusRank(b.Status); ar != br {
-				return ar < br
+				return (ar < br) == (dir == SortAsc)
 			}
 			if !a.Updated.Equal(b.Updated) {
 				return a.Updated.After(b.Updated)
@@ -140,20 +257,35 @@ func sortRunRows(rows []RunRow, key SortKey) {
 			if cmp := strings.Compare(a.IssueID, b.IssueID); cmp != 0 {
 				return cmp < 0
 			}
-			if cmp := strings.Compare(runRowRunID(a), runRowRunID(b)); cmp != 0 {
+			return a.ShortID < b.ShortID
+
+		case SortByStarted:
+			if !a.Started.Equal(b.Started) {
+				return a.Started.After(b.Started) == (dir == SortDesc)
+			}
+			if cmp := strings.Compare(a.IssueID, b.IssueID); cmp != 0 {
 				return cmp < 0
 			}
 			return a.ShortID < b.ShortID
+
+		case SortByElapsed:
+			aElapsed := now.Sub(a.Started)
+			bElapsed := now.Sub(b.Started)
+			if aElapsed != bElapsed {
+				return (aElapsed > bElapsed) == (dir == SortDesc)
+			}
+			if cmp := strings.Compare(a.IssueID, b.IssueID); cmp != 0 {
+				return cmp < 0
+			}
+			return a.ShortID < b.ShortID
+
 		case SortByUpdated:
 			fallthrough
 		default:
 			if !a.Updated.Equal(b.Updated) {
-				return a.Updated.After(b.Updated)
+				return a.Updated.After(b.Updated) == (dir == SortDesc)
 			}
 			if cmp := strings.Compare(a.IssueID, b.IssueID); cmp != 0 {
-				return cmp < 0
-			}
-			if cmp := strings.Compare(runRowRunID(a), runRowRunID(b)); cmp != 0 {
 				return cmp < 0
 			}
 			return a.ShortID < b.ShortID
@@ -165,7 +297,44 @@ func sortRunRows(rows []RunRow, key SortKey) {
 	}
 }
 
+var priorityOrder = map[string]int{
+	"critical": 0,
+	"high":     1,
+	"medium":   2,
+	"low":      3,
+	"":         4,
+}
+
+func issuePriorityRank(priority string) int {
+	priority = strings.ToLower(strings.TrimSpace(priority))
+	if rank, ok := priorityOrder[priority]; ok {
+		return rank
+	}
+	return len(priorityOrder)
+}
+
+func getIssuePriority(row *IssueRow) string {
+	if row == nil || row.Issue == nil || row.Issue.Frontmatter == nil {
+		return ""
+	}
+	return row.Issue.Frontmatter["priority"]
+}
+
+func getIssueTitle(row *IssueRow) string {
+	if row == nil || row.Issue == nil {
+		return row.Summary
+	}
+	if row.Issue.Title != "" {
+		return row.Issue.Title
+	}
+	return row.Summary
+}
+
 func sortIssueRows(rows []IssueRow, key SortKey) {
+	sortIssueRowsWithDirection(rows, key, DefaultSortDirection(key))
+}
+
+func sortIssueRowsWithDirection(rows []IssueRow, key SortKey, dir SortDirection) {
 	if len(rows) < 2 {
 		if len(rows) == 1 {
 			rows[0].Index = 1
@@ -173,7 +342,7 @@ func sortIssueRows(rows []IssueRow, key SortKey) {
 		return
 	}
 
-	if !IsValidSortKey(key) {
+	if !IsValidIssueSortKey(key) {
 		key = SortByName
 	}
 
@@ -186,7 +355,7 @@ func sortIssueRows(rows []IssueRow, key SortKey) {
 			aStatus := model.ParseIssueStatus(a.Status)
 			bStatus := model.ParseIssueStatus(b.Status)
 			if ar, br := issueStatusRank(aStatus), issueStatusRank(bStatus); ar != br {
-				return ar < br
+				return (ar < br) == (dir == SortAsc)
 			}
 			if a.LatestUpdated.IsZero() != b.LatestUpdated.IsZero() {
 				return !a.LatestUpdated.IsZero()
@@ -195,19 +364,43 @@ func sortIssueRows(rows []IssueRow, key SortKey) {
 				return a.LatestUpdated.After(b.LatestUpdated)
 			}
 			return a.ID < b.ID
+
 		case SortByUpdated:
 			if a.LatestUpdated.IsZero() != b.LatestUpdated.IsZero() {
 				return !a.LatestUpdated.IsZero()
 			}
 			if !a.LatestUpdated.Equal(b.LatestUpdated) {
+				return a.LatestUpdated.After(b.LatestUpdated) == (dir == SortDesc)
+			}
+			return a.ID < b.ID
+
+		case SortByTitle:
+			aTitle := strings.ToLower(getIssueTitle(&a))
+			bTitle := strings.ToLower(getIssueTitle(&b))
+			if cmp := strings.Compare(aTitle, bTitle); cmp != 0 {
+				return (cmp < 0) == (dir == SortAsc)
+			}
+			return a.ID < b.ID
+
+		case SortByPriority:
+			aPriority := issuePriorityRank(getIssuePriority(&a))
+			bPriority := issuePriorityRank(getIssuePriority(&b))
+			if aPriority != bPriority {
+				return (aPriority < bPriority) == (dir == SortDesc)
+			}
+			if a.LatestUpdated.IsZero() != b.LatestUpdated.IsZero() {
+				return !a.LatestUpdated.IsZero()
+			}
+			if !a.LatestUpdated.Equal(b.LatestUpdated) {
 				return a.LatestUpdated.After(b.LatestUpdated)
 			}
 			return a.ID < b.ID
-		case SortByName:
+
+		case SortByName, SortByID:
 			fallthrough
 		default:
 			if cmp := strings.Compare(a.ID, b.ID); cmp != 0 {
-				return cmp < 0
+				return (cmp < 0) == (dir == SortAsc)
 			}
 			if a.LatestUpdated.IsZero() != b.LatestUpdated.IsZero() {
 				return !a.LatestUpdated.IsZero()
@@ -226,9 +419,11 @@ func sortRuns(runs []*model.Run, key SortKey) {
 		return
 	}
 
-	if !IsValidSortKey(key) {
+	if !IsValidRunSortKey(key) {
 		key = SortByUpdated
 	}
+
+	now := time.Now()
 
 	sort.SliceStable(runs, func(i, j int) bool {
 		a := runs[i]
@@ -246,6 +441,25 @@ func sortRuns(runs []*model.Run, key SortKey) {
 				return cmp < 0
 			}
 			return a.ShortID() < b.ShortID()
+
+		case SortByIssue:
+			if cmp := strings.Compare(a.IssueID, b.IssueID); cmp != 0 {
+				return cmp < 0
+			}
+			if !a.UpdatedAt.Equal(b.UpdatedAt) {
+				return a.UpdatedAt.After(b.UpdatedAt)
+			}
+			return a.ShortID() < b.ShortID()
+
+		case SortByAgent:
+			if cmp := strings.Compare(a.Agent, b.Agent); cmp != 0 {
+				return cmp < 0
+			}
+			if !a.UpdatedAt.Equal(b.UpdatedAt) {
+				return a.UpdatedAt.After(b.UpdatedAt)
+			}
+			return a.ShortID() < b.ShortID()
+
 		case SortByStatus:
 			if ar, br := runStatusRank(a.Status), runStatusRank(b.Status); ar != br {
 				return ar < br
@@ -256,10 +470,28 @@ func sortRuns(runs []*model.Run, key SortKey) {
 			if cmp := strings.Compare(a.IssueID, b.IssueID); cmp != 0 {
 				return cmp < 0
 			}
-			if cmp := strings.Compare(a.RunID, b.RunID); cmp != 0 {
+			return a.ShortID() < b.ShortID()
+
+		case SortByStarted:
+			if !a.StartedAt.Equal(b.StartedAt) {
+				return a.StartedAt.After(b.StartedAt)
+			}
+			if cmp := strings.Compare(a.IssueID, b.IssueID); cmp != 0 {
 				return cmp < 0
 			}
 			return a.ShortID() < b.ShortID()
+
+		case SortByElapsed:
+			aElapsed := now.Sub(a.StartedAt)
+			bElapsed := now.Sub(b.StartedAt)
+			if aElapsed != bElapsed {
+				return aElapsed > bElapsed
+			}
+			if cmp := strings.Compare(a.IssueID, b.IssueID); cmp != 0 {
+				return cmp < 0
+			}
+			return a.ShortID() < b.ShortID()
+
 		case SortByUpdated:
 			fallthrough
 		default:
@@ -267,9 +499,6 @@ func sortRuns(runs []*model.Run, key SortKey) {
 				return a.UpdatedAt.After(b.UpdatedAt)
 			}
 			if cmp := strings.Compare(a.IssueID, b.IssueID); cmp != 0 {
-				return cmp < 0
-			}
-			if cmp := strings.Compare(a.RunID, b.RunID); cmp != 0 {
 				return cmp < 0
 			}
 			return a.ShortID() < b.ShortID()

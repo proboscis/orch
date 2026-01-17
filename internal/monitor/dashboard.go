@@ -306,6 +306,45 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		d.message = fmt.Sprintf("sort: %s", sortKey)
 		d.refreshing = true
 		return d, d.refreshCmd()
+	case d.keymap.SortDir:
+		sortDir := d.monitor.ToggleRunSortDir()
+		dirLabel := "asc"
+		if sortDir == SortDesc {
+			dirLabel = "desc"
+		}
+		d.message = fmt.Sprintf("sort direction: %s", dirLabel)
+		d.refreshing = true
+		return d, d.refreshCmd()
+	case d.keymap.SortUpdated:
+		d.monitor.SetRunSort(SortByUpdated)
+		d.message = fmt.Sprintf("sort: %s", SortByUpdated)
+		d.refreshing = true
+		return d, d.refreshCmd()
+	case d.keymap.SortStarted:
+		d.monitor.SetRunSort(SortByStarted)
+		d.message = fmt.Sprintf("sort: %s", SortByStarted)
+		d.refreshing = true
+		return d, d.refreshCmd()
+	case d.keymap.SortStatus:
+		d.monitor.SetRunSort(SortByStatus)
+		d.message = fmt.Sprintf("sort: %s", SortByStatus)
+		d.refreshing = true
+		return d, d.refreshCmd()
+	case d.keymap.SortIssue:
+		d.monitor.SetRunSort(SortByIssue)
+		d.message = fmt.Sprintf("sort: %s", SortByIssue)
+		d.refreshing = true
+		return d, d.refreshCmd()
+	case d.keymap.SortAgent:
+		d.monitor.SetRunSort(SortByAgent)
+		d.message = fmt.Sprintf("sort: %s", SortByAgent)
+		d.refreshing = true
+		return d, d.refreshCmd()
+	case d.keymap.SortElapsed:
+		d.monitor.SetRunSort(SortByElapsed)
+		d.message = fmt.Sprintf("sort: %s", SortByElapsed)
+		d.refreshing = true
+		return d, d.refreshCmd()
 	case d.keymap.Resolve:
 		if d.cursor >= 0 && d.cursor < len(d.runs) {
 			run := d.runs[d.cursor].Run
@@ -780,6 +819,12 @@ func (d *Dashboard) viewHelp() string {
 		"  f  or  /   Enter filter mode",
 		"  F          Cycle quick filter presets",
 		"  S          Cycle sort order",
+		"  u          Sort by updated time",
+		"  1          Sort by started time",
+		"  t          Sort by status",
+		"  2          Sort by issue ID",
+		"  3          Sort by agent",
+		"  4          Sort by elapsed time",
 		"",
 		d.styles.Header.Render("Other"),
 		"  r          Refresh data",
@@ -903,13 +948,14 @@ func (d *Dashboard) computeColumnWidths() map[ColumnID]int {
 
 func (d *Dashboard) renderDynamicRow(widths map[ColumnID]int, row *RunRow, isHeader bool, now time.Time) string {
 	var parts []string
+	sortKey := d.monitor.RunSort()
+	sortDir := d.monitor.RunSortDir()
 	for _, col := range d.columns {
 		width := widths[col]
-		def, _ := GetColumnDef(col)
 
 		var value string
 		if isHeader {
-			value = def.Header
+			value = GetColumnHeader(col, sortKey, sortDir)
 		} else {
 			value = GetColumnValue(col, row, now)
 		}
