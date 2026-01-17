@@ -327,12 +327,14 @@ layout {{
                 env["ORCH_VAULT"] = str(vault_path)
 
             # Launch zellij with layout
+            # Use --new-session-with-layout to force new session creation
+            # (--layout alone would try to add tabs to current session if inside zellij)
             subprocess.run(
                 [
                     "zellij",
                     "--session",
                     session_name,
-                    "--layout",
+                    "--new-session-with-layout",
                     str(layout_path),
                 ],
                 cwd=cwd,
