@@ -300,6 +300,7 @@ type GetAttachInfoResponse struct {
 	RunID             string `json:"run_id,omitempty"`
 	Agent             string `json:"agent,omitempty"`
 	TmuxSession       string `json:"tmux_session,omitempty"`
+	Multiplexer       string `json:"multiplexer,omitempty"`
 	WorktreePath      string `json:"worktree_path,omitempty"`
 	ServerPort        int    `json:"server_port,omitempty"`
 	OpenCodeSessionID string `json:"opencode_session_id,omitempty"`

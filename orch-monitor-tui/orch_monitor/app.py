@@ -742,13 +742,11 @@ class RunsDashboard(App):
         agent = run.agent or ""
         inside_tmux = bool(os.environ.get("TMUX"))
 
-        # OpenCode uses HTTP API, not tmux
         if agent.startswith("opencode") or agent.startswith("oc"):
             if not run.server_port:
                 self.notify(f"Run {run.ref()} has no server port", severity="warning")
                 return
 
-            # Build opencode attach command
             oc_cmd = f"opencode attach http://127.0.0.1:{run.server_port}"
             if run.opencode_session_id:
                 oc_cmd += f" --session {run.opencode_session_id}"
@@ -756,23 +754,19 @@ class RunsDashboard(App):
                 oc_cmd += f" --dir {run.worktree_path}"
 
             if inside_tmux:
-                # Create new tmux window with opencode attach
                 window_name = f"oc-{run.issue_id[:10]}"
                 subprocess.run(["tmux", "new-window", "-n", window_name, oc_cmd])
                 self.notify(f"Opened {window_name} window", severity="information")
             else:
-                # Outside tmux: suspend TUI, run opencode, resume
                 with self.suspend():
                     subprocess.run(oc_cmd, shell=True)
                 self.refresh_data()
             return
 
-        # Other agents use tmux sessions
         session_name = run.tmux_session
         if not session_name:
             session_name = f"orch-{run.issue_id}-{run.run_id[:8]}"
 
-        # Check if session exists, create if not
         check = subprocess.run(
             ["tmux", "has-session", "-t", session_name], capture_output=True
         )
@@ -1474,13 +1468,11 @@ class OrchMonitorApp(App):
         agent = run.agent or ""
         inside_tmux = bool(os.environ.get("TMUX"))
 
-        # OpenCode uses HTTP API, not tmux
         if agent.startswith("opencode") or agent.startswith("oc"):
             if not run.server_port:
                 self.notify(f"Run {run.ref()} has no server port", severity="warning")
                 return
 
-            # Build opencode attach command
             oc_cmd = f"opencode attach http://127.0.0.1:{run.server_port}"
             if run.opencode_session_id:
                 oc_cmd += f" --session {run.opencode_session_id}"
@@ -1488,23 +1480,19 @@ class OrchMonitorApp(App):
                 oc_cmd += f" --dir {run.worktree_path}"
 
             if inside_tmux:
-                # Create new tmux window with opencode attach
                 window_name = f"oc-{run.issue_id[:10]}"
                 subprocess.run(["tmux", "new-window", "-n", window_name, oc_cmd])
                 self.notify(f"Opened {window_name} window", severity="information")
             else:
-                # Outside tmux: suspend TUI, run opencode, resume
                 with self.suspend():
                     subprocess.run(oc_cmd, shell=True)
                 self.refresh_data()
             return
 
-        # Other agents use tmux sessions
         session_name = run.tmux_session
         if not session_name:
             session_name = f"orch-{run.issue_id}-{run.run_id[:8]}"
 
-        # Check if session exists, create if not
         check = subprocess.run(
             ["tmux", "has-session", "-t", session_name], capture_output=True
         )

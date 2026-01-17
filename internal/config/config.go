@@ -105,6 +105,7 @@ type Config struct {
 	PRTargetBranch  string           `yaml:"pr_target_branch"`
 	LogLevel        string           `yaml:"log_level"`
 	PromptTemplate  string           `yaml:"prompt_template"`
+	Multiplexer     string           `yaml:"multiplexer"` // Terminal multiplexer: "tmux" (default) or "zellij"
 	NoPR            bool             `yaml:"no_pr"`
 	Monitor         MonitorConfig    `yaml:"monitor"`
 	Presets         []Preset         `yaml:"presets"`
@@ -136,6 +137,7 @@ type fileConfig struct {
 	PRTargetBranch      string           `yaml:"pr_target_branch"`
 	LogLevel            string           `yaml:"log_level"`
 	PromptTemplate      string           `yaml:"prompt_template"`
+	Multiplexer         string           `yaml:"multiplexer"`
 	NoPR                *bool            `yaml:"no_pr"`
 	Monitor             MonitorConfig    `yaml:"monitor"`
 	Presets             []Preset         `yaml:"presets"`
@@ -313,6 +315,9 @@ func loadFromFile(path string, cfg *Config) error {
 	if fileCfg.PromptTemplate != "" {
 		cfg.PromptTemplate = fileCfg.PromptTemplate
 	}
+	if fileCfg.Multiplexer != "" {
+		cfg.Multiplexer = fileCfg.Multiplexer
+	}
 	if fileCfg.NoPR != nil {
 		cfg.NoPR = *fileCfg.NoPR
 	}
@@ -423,6 +428,9 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("ORCH_PROMPT_TEMPLATE"); v != "" {
 		cfg.PromptTemplate = v
+	}
+	if v := os.Getenv("ORCH_MULTIPLEXER"); v != "" {
+		cfg.Multiplexer = v
 	}
 	if v := os.Getenv("ORCH_NO_PR"); v != "" {
 		cfg.NoPR = v == "true" || v == "1" || v == "yes"
@@ -576,6 +584,13 @@ func (c *Config) GetPromptTemplate(agent string) string {
 		}
 	}
 	return c.PromptTemplate
+}
+
+func (c *Config) GetMultiplexer() string {
+	if c.Multiplexer != "" {
+		return c.Multiplexer
+	}
+	return "tmux"
 }
 
 // ExpandPath expands ~ and makes path absolute relative to base

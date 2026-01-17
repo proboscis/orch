@@ -13,8 +13,8 @@ import (
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/multiplexer"
 	"github.com/s22625/orch/internal/store"
-	"github.com/s22625/orch/internal/tmux"
 )
 
 const (
@@ -482,8 +482,10 @@ func (s *SocketServer) stopSingleRun(run *model.Run) error {
 		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
 	}
 
-	if tmux.HasSession(sessionName) {
-		if err := tmux.KillSession(sessionName); err != nil {
+	muxType, _ := multiplexer.ParseType(run.Multiplexer)
+	mux, _ := multiplexer.GetMultiplexer(muxType)
+	if mux != nil && mux.HasSession(sessionName) {
+		if err := mux.KillSession(sessionName); err != nil {
 			s.logger.Printf("warning: failed to kill session %s: %v", sessionName, err)
 		}
 	}
@@ -639,6 +641,7 @@ func (s *SocketServer) handleGetAttachInfo(req SendRequest, encoder *json.Encode
 		RunID:             run.RunID,
 		Agent:             run.Agent,
 		TmuxSession:       tmuxSession,
+		Multiplexer:       run.Multiplexer,
 		WorktreePath:      run.WorktreePath,
 		ServerPort:        run.ServerPort,
 		OpenCodeSessionID: run.OpenCodeSessionID,
