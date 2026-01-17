@@ -916,6 +916,15 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		}
 		branch := formatBranchDisplay(w.Run.Branch, runTableBranchWidth)
 		worktree := formatWorktreeDisplay(w.Run.WorktreePath, runTableWorktreeWidth)
+
+		modelDisplay := "-"
+		if w.Run.Model != "" {
+			modelDisplay = w.Run.Model
+			if w.Run.ModelVariant != "" {
+				modelDisplay = w.Run.Model + "/" + w.Run.ModelVariant
+			}
+		}
+
 		rows = append(rows, RunRow{
 			Index:        w.Index,
 			ShortID:      shortID,
@@ -923,6 +932,7 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 			IssueStatus:  issueStatus,
 			IssueSummary: info.summary,
 			Agent:        agentDisplay,
+			Model:        modelDisplay,
 			Status:       w.Run.Status,
 			Alive:        runAliveLabel(w.Run),
 			Branch:       branch,
