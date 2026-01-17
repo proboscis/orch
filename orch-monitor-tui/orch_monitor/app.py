@@ -609,12 +609,6 @@ class RunsDashboard(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        if not self.daemon.is_available():
-            self.notify(
-                "Daemon not running. Start with: orch ps",
-                severity="error",
-                timeout=10,
-            )
         self._update_title()
         self.refresh_data()
         if self._auto_refresh_enabled:
@@ -1010,12 +1004,6 @@ class IssuesDashboard(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        if not self.daemon.is_available():
-            self.notify(
-                "Daemon not running. Start with: orch ps",
-                severity="error",
-                timeout=10,
-            )
         self._update_title()
         self.refresh_data()
         if self._auto_refresh_enabled:
@@ -1218,17 +1206,10 @@ class OrchMonitorApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        if not self.daemon.is_available():
-            self.notify(
-                "Daemon not running. Start with: orch ps",
-                severity="error",
-                timeout=10,
-            )
         self._update_tab_titles()
         self.refresh_data()
         if self._auto_refresh_enabled:
             self.set_interval(AUTO_REFRESH_INTERVAL, self._do_auto_refresh)
-            # Separate faster refresh for messages only (for active runs)
             self.set_interval(MESSAGE_REFRESH_INTERVAL, self._do_message_refresh)
         self.set_interval(ELAPSED_UPDATE_INTERVAL, self._update_elapsed_times)
 
