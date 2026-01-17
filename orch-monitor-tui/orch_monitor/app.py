@@ -26,6 +26,7 @@ from textual.widgets import (
     Input,
     RadioButton,
     RadioSet,
+    SelectionList,
 )
 
 from .config import Config, FilterState, RunFilterState, IssueFilterState
@@ -201,9 +202,9 @@ class IssueFilterResult:
 
 FILTER_SCREEN_CSS = """
     #filter-dialog {
-        width: 60;
+        width: 50;
         height: auto;
-        max-height: 90%;
+        max-height: 80%;
         padding: 1 2;
         background: $surface;
         border: thick $primary;
@@ -212,52 +213,44 @@ FILTER_SCREEN_CSS = """
     #filter-title {
         text-align: center;
         width: 100%;
-        padding-bottom: 1;
         text-style: bold;
-    }
-    
-    .filter-section {
-        height: auto;
-        padding: 1 0;
-    }
-    
-    .filter-section-title {
-        text-style: bold;
-        padding-bottom: 1;
-    }
-    
-    #filter-checkboxes {
-        height: auto;
-        padding: 0 1;
-    }
-    
-    .checkbox-row {
-        height: auto;
-        layout: horizontal;
-    }
-    
-    .checkbox-row Checkbox {
-        width: 50%;
-    }
-    
-    #text-search-input {
-        width: 100%;
-        margin: 0 1;
     }
     
     #filter-buttons {
         height: 3;
         align: center middle;
-        padding-top: 1;
     }
     
     #filter-buttons Button {
         margin: 0 1;
     }
     
-    RadioSet {
+    .filter-section-title {
+        text-style: bold;
+        margin-top: 1;
+    }
+    
+    SelectionList {
+        height: 6;
+        margin: 0 1;
+    }
+    
+    #status-list {
+        height: 5;
+    }
+    
+    #agent-list {
+        height: 4;
+    }
+    
+    #time-range {
         height: auto;
         padding: 0 1;
+    }
+    
+    #text-search-input {
+        width: 100%;
+        margin: 0 1;
     }
 """
 
@@ -287,68 +280,59 @@ class RunFilterScreen(ModalScreen[RunFilterResult | None]):
         with Vertical(id="filter-dialog"):
             yield Label("Filter Runs", id="filter-title")
 
-            with Vertical(classes="filter-section"):
-                yield Label("Status", classes="filter-section-title")
-                with Vertical(id="filter-checkboxes"):
-                    for status in Status:
-                        if status != Status.UNKNOWN:
-                            checked = (
-                                status.value in self.current_filter.statuses
-                                or not self.current_filter.statuses
-                            )
-                            yield Checkbox(
-                                status.value, value=checked, id=f"status-{status.value}"
-                            )
-
-            with Vertical(classes="filter-section"):
-                yield Label("Agent", classes="filter-section-title")
-                with Vertical(id="agent-checkboxes"):
-                    for agent in AGENTS:
-                        checked = (
-                            agent in self.current_filter.agents
-                            or not self.current_filter.agents
-                        )
-                        yield Checkbox(agent, value=checked, id=f"agent-{agent}")
-
-            with Vertical(classes="filter-section"):
-                yield Label("Time Range", classes="filter-section-title")
-                with RadioSet(id="time-range"):
-                    for value, label in TIME_RANGES:
-                        yield RadioButton(
-                            label,
-                            value=(self.current_filter.time_range == value),
-                            id=f"time-{value}",
-                        )
-
-            with Vertical(classes="filter-section"):
-                yield Label(
-                    "Text Search (ID, branch, issue)", classes="filter-section-title"
-                )
-                yield Input(
-                    value=self.current_filter.text_search,
-                    placeholder="Search...",
-                    id="text-search-input",
-                )
-
             with Horizontal(id="filter-buttons"):
                 yield Button("Apply", variant="primary", id="apply-btn")
-                yield Button("Clear All", id="clear-btn")
+                yield Button("Clear", id="clear-btn")
                 yield Button("Cancel", id="cancel-btn")
+
+            yield Label("Status", classes="filter-section-title")
+            status_items = [
+                (
+                    status.value,
+                    status.value,
+                    status.value in self.current_filter.statuses
+                    or not self.current_filter.statuses,
+                )
+                for status in Status
+                if status != Status.UNKNOWN
+            ]
+            yield SelectionList[str](*status_items, id="status-list")
+
+            yield Label("Agent", classes="filter-section-title")
+            agent_items = [
+                (
+                    agent,
+                    agent,
+                    agent in self.current_filter.agents
+                    or not self.current_filter.agents,
+                )
+                for agent in AGENTS
+            ]
+            yield SelectionList[str](*agent_items, id="agent-list")
+
+            yield Label("Time Range", classes="filter-section-title")
+            with RadioSet(id="time-range"):
+                for value, label in TIME_RANGES:
+                    yield RadioButton(
+                        label,
+                        value=(self.current_filter.time_range == value),
+                        id=f"time-{value}",
+                    )
+
+            yield Label("Search", classes="filter-section-title")
+            yield Input(
+                value=self.current_filter.text_search,
+                placeholder="ID, branch, issue...",
+                id="text-search-input",
+            )
 
     @on(Button.Pressed, "#apply-btn")
     def apply_filter(self) -> None:
-        statuses: set[Status] = set()
-        for status in Status:
-            if status != Status.UNKNOWN:
-                checkbox = self.query_one(f"#status-{status.value}", Checkbox)
-                if checkbox.value:
-                    statuses.add(status)
+        status_list = self.query_one("#status-list", SelectionList)
+        statuses = {Status(v) for v in status_list.selected}
 
-        agents: set[str] = set()
-        for agent in AGENTS:
-            checkbox = self.query_one(f"#agent-{agent}", Checkbox)
-            if checkbox.value:
-                agents.add(agent)
+        agent_list = self.query_one("#agent-list", SelectionList)
+        agents = set(agent_list.selected)
 
         time_range = "all"
         for value, _ in TIME_RANGES:
@@ -370,14 +354,11 @@ class RunFilterScreen(ModalScreen[RunFilterResult | None]):
 
     @on(Button.Pressed, "#clear-btn")
     def clear_filter(self) -> None:
-        for status in Status:
-            if status != Status.UNKNOWN:
-                checkbox = self.query_one(f"#status-{status.value}", Checkbox)
-                checkbox.value = True
+        status_list = self.query_one("#status-list", SelectionList)
+        status_list.select_all()
 
-        for agent in AGENTS:
-            checkbox = self.query_one(f"#agent-{agent}", Checkbox)
-            checkbox.value = True
+        agent_list = self.query_one("#agent-list", SelectionList)
+        agent_list.select_all()
 
         all_time_radio = self.query_one("#time-all", RadioButton)
         all_time_radio.value = True
@@ -420,43 +401,34 @@ class IssueFilterScreen(ModalScreen[IssueFilterResult | None]):
         with Vertical(id="filter-dialog"):
             yield Label("Filter Issues", id="filter-title")
 
-            with Vertical(classes="filter-section"):
-                yield Label("Status", classes="filter-section-title")
-                with Vertical(id="filter-checkboxes"):
-                    for status in IssueStatus:
-                        checked = (
-                            status.value in self.current_filter.statuses
-                            or not self.current_filter.statuses
-                        )
-                        yield Checkbox(
-                            status.value,
-                            value=checked,
-                            id=f"issue-status-{status.value}",
-                        )
-
-            with Vertical(classes="filter-section"):
-                yield Label(
-                    "Text Search (ID, title, summary)", classes="filter-section-title"
-                )
-                yield Input(
-                    value=self.current_filter.text_search,
-                    placeholder="Search...",
-                    id="text-search-input",
-                )
-
             with Horizontal(id="filter-buttons"):
                 yield Button("Apply", variant="primary", id="apply-btn")
-                yield Button("Clear All", id="clear-btn")
+                yield Button("Clear", id="clear-btn")
                 yield Button("Cancel", id="cancel-btn")
+
+            yield Label("Status", classes="filter-section-title")
+            status_items = [
+                (
+                    status.value,
+                    status.value,
+                    status.value in self.current_filter.statuses
+                    or not self.current_filter.statuses,
+                )
+                for status in IssueStatus
+            ]
+            yield SelectionList[str](*status_items, id="issue-status-list")
+
+            yield Label("Search", classes="filter-section-title")
+            yield Input(
+                value=self.current_filter.text_search,
+                placeholder="ID, title, summary...",
+                id="text-search-input",
+            )
 
     @on(Button.Pressed, "#apply-btn")
     def apply_filter(self) -> None:
-        statuses: set[IssueStatus] = set()
-        for status in IssueStatus:
-            checkbox = self.query_one(f"#issue-status-{status.value}", Checkbox)
-            if checkbox.value:
-                statuses.add(status)
-
+        status_list = self.query_one("#issue-status-list", SelectionList)
+        statuses = {IssueStatus(v) for v in status_list.selected}
         text_search = self.query_one("#text-search-input", Input).value
 
         self.dismiss(
@@ -469,10 +441,8 @@ class IssueFilterScreen(ModalScreen[IssueFilterResult | None]):
 
     @on(Button.Pressed, "#clear-btn")
     def clear_filter(self) -> None:
-        for status in IssueStatus:
-            checkbox = self.query_one(f"#issue-status-{status.value}", Checkbox)
-            checkbox.value = True
-
+        status_list = self.query_one("#issue-status-list", SelectionList)
+        status_list.select_all()
         self.query_one("#text-search-input", Input).value = ""
 
     @on(Button.Pressed, "#cancel-btn")
