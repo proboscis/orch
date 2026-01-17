@@ -593,4 +593,104 @@ mod tests {
         let branch = generate_branch_name("my-issue", "20240115-103000");
         assert_eq!(branch, "issue/my-issue/run-20240115-103000");
     }
+
+    #[test]
+    fn test_run_ref_json_serialization() {
+        let run_ref = RunRef {
+            issue_id: "test-issue".to_string(),
+            run_id: "20240115-103000".to_string(),
+        };
+
+        let json = serde_json::to_string(&run_ref).unwrap();
+        assert!(json.contains("test-issue"));
+        assert!(json.contains("20240115-103000"));
+
+        let deserialized: RunRef = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.issue_id, "test-issue");
+        assert_eq!(deserialized.run_id, "20240115-103000");
+    }
+
+    #[test]
+    fn test_run_ref_yaml_serialization() {
+        let run_ref = RunRef {
+            issue_id: "yaml-issue".to_string(),
+            run_id: "20240120-120000".to_string(),
+        };
+
+        let yaml = serde_yaml::to_string(&run_ref).unwrap();
+        assert!(yaml.contains("yaml-issue"));
+        assert!(yaml.contains("20240120-120000"));
+
+        let deserialized: RunRef = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(deserialized.issue_id, "yaml-issue");
+        assert_eq!(deserialized.run_id, "20240120-120000");
+    }
+
+    #[test]
+    fn test_run_json_serialization() {
+        let run = Run::new("test-issue", "20240115-103000");
+
+        let json = serde_json::to_string(&run).unwrap();
+        assert!(json.contains("test-issue"));
+        assert!(json.contains("20240115-103000"));
+
+        let deserialized: Run = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.issue_id, "test-issue");
+        assert_eq!(deserialized.run_id, "20240115-103000");
+        assert_eq!(deserialized.status, Status::Queued);
+    }
+
+    #[test]
+    fn test_run_yaml_serialization() {
+        let mut run = Run::new("yaml-issue", "20240120-120000");
+        run.agent = "claude".to_string();
+        run.branch = "feature/test".to_string();
+
+        let yaml = serde_yaml::to_string(&run).unwrap();
+        assert!(yaml.contains("yaml-issue"));
+        assert!(yaml.contains("claude"));
+
+        let deserialized: Run = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(deserialized.issue_id, "yaml-issue");
+        assert_eq!(deserialized.agent, "claude");
+        assert_eq!(deserialized.branch, "feature/test");
+    }
+
+    #[test]
+    fn test_run_ref_display() {
+        let ref1 = RunRef {
+            issue_id: "my-issue".to_string(),
+            run_id: "20240115-103000".to_string(),
+        };
+        assert_eq!(ref1.to_string(), "my-issue#20240115-103000");
+
+        let ref2 = RunRef {
+            issue_id: "my-issue".to_string(),
+            run_id: "".to_string(),
+        };
+        assert_eq!(ref2.to_string(), "my-issue");
+    }
+
+    #[test]
+    fn test_run_ref_parse_empty_error() {
+        let result = RunRef::parse("");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "empty run reference");
+    }
+
+    #[test]
+    fn test_generate_worktree_name() {
+        let name = generate_worktree_name("my-issue", "20240115-103000", "claude");
+        assert!(name.contains("claude"));
+        assert!(name.contains("20240115-103000"));
+
+        let name_empty = generate_worktree_name("my-issue", "20240115-103000", "");
+        assert!(name_empty.contains("unknown"));
+    }
+
+    #[test]
+    fn test_generate_tmux_session() {
+        let session = generate_tmux_session("my-issue", "20240115-103000");
+        assert_eq!(session, "run-my-issue-20240115-103000");
+    }
 }

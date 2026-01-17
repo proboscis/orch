@@ -241,4 +241,82 @@ mod tests {
         assert_eq!(issue.id, "my-issue");
         assert_eq!(issue.status, IssueStatus::Open);
     }
+
+    #[test]
+    fn test_issue_status_json_serialization() {
+        let statuses = [IssueStatus::Open, IssueStatus::Resolved, IssueStatus::Closed];
+        
+        for status in statuses {
+            let json = serde_json::to_string(&status).unwrap();
+            let deserialized: IssueStatus = serde_json::from_str(&json).unwrap();
+            assert_eq!(deserialized, status);
+        }
+    }
+
+    #[test]
+    fn test_issue_status_yaml_serialization() {
+        let statuses = [IssueStatus::Open, IssueStatus::Resolved, IssueStatus::Closed];
+        
+        for status in statuses {
+            let yaml = serde_yaml::to_string(&status).unwrap();
+            let deserialized: IssueStatus = serde_yaml::from_str(&yaml).unwrap();
+            assert_eq!(deserialized, status);
+        }
+    }
+
+    #[test]
+    fn test_issue_json_serialization() {
+        let mut issue = Issue::new("test-issue");
+        issue.title = "Test Title".to_string();
+        issue.summary = "A brief summary".to_string();
+        issue.status = IssueStatus::Open;
+
+        let json = serde_json::to_string(&issue).unwrap();
+        assert!(json.contains("test-issue"));
+        assert!(json.contains("Test Title"));
+
+        let deserialized: Issue = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.id, "test-issue");
+        assert_eq!(deserialized.title, "Test Title");
+        assert_eq!(deserialized.status, IssueStatus::Open);
+    }
+
+    #[test]
+    fn test_issue_yaml_serialization() {
+        let mut issue = Issue::new("yaml-issue");
+        issue.title = "YAML Test".to_string();
+        issue.body = "Issue body content".to_string();
+
+        let yaml = serde_yaml::to_string(&issue).unwrap();
+        assert!(yaml.contains("yaml-issue"));
+        assert!(yaml.contains("YAML Test"));
+
+        let deserialized: Issue = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(deserialized.id, "yaml-issue");
+        assert_eq!(deserialized.title, "YAML Test");
+        assert_eq!(deserialized.body, "Issue body content");
+    }
+
+    #[test]
+    fn test_issue_status_display() {
+        assert_eq!(IssueStatus::Open.to_string(), "open");
+        assert_eq!(IssueStatus::Resolved.to_string(), "resolved");
+        assert_eq!(IssueStatus::Closed.to_string(), "closed");
+    }
+
+    #[test]
+    fn test_issue_status_value() {
+        assert_eq!(IssueStatus::Open.value(), "open");
+        assert_eq!(IssueStatus::Resolved.value(), "resolved");
+        assert_eq!(IssueStatus::Closed.value(), "closed");
+    }
+
+    #[test]
+    fn test_is_valid_status() {
+        assert!(Issue::is_valid_status("open"));
+        assert!(Issue::is_valid_status("resolved"));
+        assert!(Issue::is_valid_status("closed"));
+        assert!(!Issue::is_valid_status("invalid"));
+        assert!(!Issue::is_valid_status(""));
+    }
 }

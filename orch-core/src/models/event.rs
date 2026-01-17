@@ -305,4 +305,116 @@ mod tests {
         let line = event.to_line();
         assert!(line.contains("| status | running"));
     }
+
+    #[test]
+    fn test_event_type_json_serialization() {
+        let types = [
+            EventType::Status,
+            EventType::Phase,
+            EventType::Artifact,
+            EventType::Test,
+            EventType::Note,
+        ];
+        
+        for event_type in types {
+            let json = serde_json::to_string(&event_type).unwrap();
+            let deserialized: EventType = serde_json::from_str(&json).unwrap();
+            assert_eq!(deserialized, event_type);
+        }
+    }
+
+    #[test]
+    fn test_event_type_yaml_serialization() {
+        let types = [
+            EventType::Status,
+            EventType::Phase,
+            EventType::Artifact,
+            EventType::Test,
+            EventType::Note,
+        ];
+        
+        for event_type in types {
+            let yaml = serde_yaml::to_string(&event_type).unwrap();
+            let deserialized: EventType = serde_yaml::from_str(&yaml).unwrap();
+            assert_eq!(deserialized, event_type);
+        }
+    }
+
+    #[test]
+    fn test_event_json_serialization() {
+        let mut attrs = HashMap::new();
+        attrs.insert("path".to_string(), "/tmp/worktree".to_string());
+        let event = Event::artifact("worktree", attrs);
+
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("worktree"));
+        assert!(json.contains("artifact"));
+
+        let deserialized: Event = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.event_type, EventType::Artifact);
+        assert_eq!(deserialized.name, "worktree");
+        assert_eq!(deserialized.attrs.get("path"), Some(&"/tmp/worktree".to_string()));
+    }
+
+    #[test]
+    fn test_event_yaml_serialization() {
+        let event = Event::status(Status::Running);
+
+        let yaml = serde_yaml::to_string(&event).unwrap();
+        assert!(yaml.contains("running"));
+
+        let deserialized: Event = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(deserialized.event_type, EventType::Status);
+        assert_eq!(deserialized.name, "running");
+    }
+
+    #[test]
+    fn test_event_type_from_str() {
+        assert_eq!(EventType::from_str("status").unwrap(), EventType::Status);
+        assert_eq!(EventType::from_str("phase").unwrap(), EventType::Phase);
+        assert_eq!(EventType::from_str("artifact").unwrap(), EventType::Artifact);
+        assert_eq!(EventType::from_str("test").unwrap(), EventType::Test);
+        assert_eq!(EventType::from_str("note").unwrap(), EventType::Note);
+        assert!(EventType::from_str("invalid").is_err());
+    }
+
+    #[test]
+    fn test_event_type_display() {
+        assert_eq!(EventType::Status.to_string(), "status");
+        assert_eq!(EventType::Phase.to_string(), "phase");
+        assert_eq!(EventType::Artifact.to_string(), "artifact");
+        assert_eq!(EventType::Test.to_string(), "test");
+        assert_eq!(EventType::Note.to_string(), "note");
+    }
+
+    #[test]
+    fn test_event_type_value() {
+        assert_eq!(EventType::Status.value(), "status");
+        assert_eq!(EventType::Phase.value(), "phase");
+        assert_eq!(EventType::Artifact.value(), "artifact");
+        assert_eq!(EventType::Test.value(), "test");
+        assert_eq!(EventType::Note.value(), "note");
+    }
+
+    #[test]
+    fn test_event_error_creation() {
+        let event = Event::error("something went wrong");
+        assert_eq!(event.event_type, EventType::Artifact);
+        assert_eq!(event.name, "error");
+        assert_eq!(event.attrs.get("message"), Some(&"something went wrong".to_string()));
+    }
+
+    #[test]
+    fn test_event_phase_creation() {
+        let event = Event::phase(Phase::Implement);
+        assert_eq!(event.event_type, EventType::Phase);
+        assert_eq!(event.name, "implement");
+    }
+
+    #[test]
+    fn test_parse_event_invalid_format() {
+        assert!(Event::parse("invalid line").is_none());
+        assert!(Event::parse("not starting with dash").is_none());
+        assert!(Event::parse("").is_none());
+    }
 }
