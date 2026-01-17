@@ -80,7 +80,9 @@ func (s *SocketServer) Start() error {
 	s.listener = listener
 
 	if err := os.Chmod(socketPath, 0600); err != nil {
-		s.logger.Printf("warning: failed to chmod socket: %v", err)
+		s.listener.Close()
+		os.Remove(socketPath)
+		return fmt.Errorf("failed to secure socket permissions: %w", err)
 	}
 
 	s.logger.Printf("socket server listening on %s", socketPath)

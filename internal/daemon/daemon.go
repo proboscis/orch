@@ -46,6 +46,7 @@ type Daemon struct {
 	config        *config.Config
 	slackNotifier *notify.SlackNotifier
 	debugMode     bool
+	lockFile      *os.File
 }
 
 // RunState tracks the monitoring state of a single run
@@ -89,12 +90,12 @@ func (d *Daemon) debug(format string, v ...interface{}) {
 
 // Run starts the daemon main loop (blocking)
 func (d *Daemon) Run() error {
-	// Ensure .orch directory exists
-	if err := EnsureOrchDir(d.vaultPath); err != nil {
-		return fmt.Errorf("failed to create .orch directory: %w", err)
+	lockFile, err := AcquireLock(d.vaultPath)
+	if err != nil {
+		return err
 	}
+	d.lockFile = lockFile
 
-	// Set up logging
 	logPath := LogFilePath(d.vaultPath)
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
@@ -118,11 +119,15 @@ func (d *Daemon) Run() error {
 		}
 	}
 
-	// Write PID file
 	if err := WritePID(d.vaultPath); err != nil {
 		return err
 	}
-	defer RemovePID(d.vaultPath)
+	defer func() {
+		RemovePID(d.vaultPath)
+		if d.lockFile != nil {
+			d.lockFile.Close()
+		}
+	}()
 
 	d.logger.Printf("daemon started (pid=%d, vault=%s, binary=%s)", os.Getpid(), d.vaultPath, d.executablePath)
 
