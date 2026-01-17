@@ -30,6 +30,7 @@ class DaemonNotRunningError(DaemonError):
 
 
 MAX_PAGE_SIZE = 200  # Go daemon's maxLimit
+MAX_PAGES = 100  # Safety cap to prevent infinite pagination loops
 
 
 @dataclass
@@ -147,7 +148,9 @@ class DaemonClient:
 
         all_runs: list[Run] = []
         cursor: Optional[str] = None
+        seen_cursors: set[str] = set()
         total = 0
+        page_count = 0
 
         while True:
             request = {
@@ -170,6 +173,14 @@ class DaemonClient:
             if not cursor:
                 break
 
+            if cursor in seen_cursors:
+                raise DaemonError("Pagination cursor repeated - possible infinite loop")
+            seen_cursors.add(cursor)
+
+            page_count += 1
+            if page_count >= MAX_PAGES:
+                raise DaemonError(f"Exceeded maximum pages ({MAX_PAGES})")
+
         return ListRunsResponse(runs=all_runs, next_cursor=None, total=total)
 
     def list_issues(self, filters: Optional[IssueFilters] = None) -> ListIssuesResponse:
@@ -179,7 +190,9 @@ class DaemonClient:
 
         all_issues: list[Issue] = []
         cursor: Optional[str] = None
+        seen_cursors: set[str] = set()
         total = 0
+        page_count = 0
 
         while True:
             request = {
@@ -202,6 +215,14 @@ class DaemonClient:
 
             if not cursor:
                 break
+
+            if cursor in seen_cursors:
+                raise DaemonError("Pagination cursor repeated - possible infinite loop")
+            seen_cursors.add(cursor)
+
+            page_count += 1
+            if page_count >= MAX_PAGES:
+                raise DaemonError(f"Exceeded maximum pages ({MAX_PAGES})")
 
         return ListIssuesResponse(issues=all_issues, next_cursor=None, total=total)
 

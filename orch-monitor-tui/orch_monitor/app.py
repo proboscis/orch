@@ -204,7 +204,7 @@ class RunsDashboard(App):
     def refresh_data(self) -> None:
         self._fetch_runs()
 
-    @work(thread=True)
+    @work(thread=True, exclusive=True)
     def _fetch_runs(self) -> None:
         from datetime import datetime
 
@@ -263,6 +263,10 @@ class RunsDashboard(App):
     def action_stop(self) -> None:
         if not self.selected_run:
             return
+        self._do_stop(self.selected_run.ref())
+
+    @work(thread=True)
+    def _do_stop(self, run_ref: str) -> None:
         try:
             subprocess.run(
                 [
@@ -270,11 +274,11 @@ class RunsDashboard(App):
                     "--vault",
                     str(self.config.vault_path),
                     "stop",
-                    self.selected_run.ref(),
+                    run_ref,
                 ],
                 check=True,
             )
-            self.refresh_data()
+            self.call_from_thread(self.refresh_data)
         except subprocess.CalledProcessError:
             pass
 
@@ -329,7 +333,7 @@ class IssuesDashboard(App):
     def refresh_data(self) -> None:
         self._fetch_issues()
 
-    @work(thread=True)
+    @work(thread=True, exclusive=True)
     def _fetch_issues(self) -> None:
         try:
             response = self.daemon.list_issues()
@@ -469,7 +473,7 @@ class OrchMonitorApp(App):
     def refresh_data(self) -> None:
         self._fetch_all_data()
 
-    @work(thread=True)
+    @work(thread=True, exclusive=True)
     def _fetch_all_data(self) -> None:
         from datetime import datetime
 
@@ -617,7 +621,10 @@ class OrchMonitorApp(App):
     def action_stop(self) -> None:
         if not self.selected_run:
             return
+        self._do_stop(self.selected_run.ref())
 
+    @work(thread=True)
+    def _do_stop(self, run_ref: str) -> None:
         try:
             subprocess.run(
                 [
@@ -625,11 +632,11 @@ class OrchMonitorApp(App):
                     "--vault",
                     str(self.config.vault_path),
                     "stop",
-                    self.selected_run.ref(),
+                    run_ref,
                 ],
                 check=True,
             )
-            self.refresh_data()
+            self.call_from_thread(self.refresh_data)
         except subprocess.CalledProcessError:
             pass
 
