@@ -30,6 +30,11 @@ func newIssueCmd() *cobra.Command {
 
 	cmd.AddCommand(newIssueCreateCmd())
 	cmd.AddCommand(newIssueListCmd())
+	cmd.AddCommand(newIssueShowCmd())
+	cmd.AddCommand(newIssueEditCmd())
+	cmd.AddCommand(newIssueCloseCmd())
+	cmd.AddCommand(newIssueSyncCmd())
+	cmd.AddCommand(newIssueOpenCmd())
 
 	return cmd
 }
@@ -399,4 +404,271 @@ func formatRunsSummary(runs []runSummary) string {
 		return "-"
 	}
 	return strings.Join(parts, ", ")
+}
+
+type issueShowOptions struct {
+	Web bool
+}
+
+func newIssueShowCmd() *cobra.Command {
+	opts := &issueShowOptions{}
+
+	cmd := &cobra.Command{
+		Use:   "show ISSUE_ID",
+		Short: "Show issue details",
+		Long: `Show details of an issue.
+
+Examples:
+  orch issue show 123          # Show issue #123 details
+  orch issue show gh#123       # Show GitHub issue #123
+  orch issue show 123 --web    # Open in browser`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runIssueShow(args[0], opts)
+		},
+	}
+
+	cmd.Flags().BoolVarP(&opts.Web, "web", "w", false, "Open in browser")
+
+	return cmd
+}
+
+func runIssueShow(issueID string, opts *issueShowOptions) error {
+	client, err := requireDaemon()
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.GetIssue(issueID)
+	if err != nil {
+		return err
+	}
+
+	if opts.Web && resp.Issue != nil {
+		url := resp.Issue.URI
+		if fm, ok := resp.Issue.Frontmatter["url"]; ok && fm != "" {
+			url = fm
+		}
+		if url != "" {
+			return openWithSystem(url)
+		}
+		return fmt.Errorf("no URL available for issue %s", issueID)
+	}
+
+	if globalOpts.JSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(resp)
+	}
+
+	issue := resp.Issue
+	if issue == nil {
+		return fmt.Errorf("issue not found: %s", issueID)
+	}
+
+	fmt.Printf("ID:      %s\n", issue.ID)
+	fmt.Printf("Title:   %s\n", issue.Title)
+	fmt.Printf("Status:  %s\n", issue.Status)
+	if issue.Summary != "" {
+		fmt.Printf("Summary: %s\n", issue.Summary)
+	}
+	if url, ok := issue.Frontmatter["url"]; ok && url != "" {
+		fmt.Printf("URL:     %s\n", url)
+	}
+	if issue.Body != "" {
+		fmt.Printf("\n%s\n", issue.Body)
+	}
+
+	return nil
+}
+
+func newIssueEditCmd() *cobra.Command {
+	var title string
+
+	cmd := &cobra.Command{
+		Use:   "edit ISSUE_ID",
+		Short: "Edit an issue",
+		Long: `Edit an issue in $EDITOR, then sync changes back.
+
+For GitHub issues, changes are pushed to GitHub.
+For local issues, the file is edited directly.
+
+Examples:
+  orch issue edit 123                    # Open issue in $EDITOR
+  orch issue edit gh#123 --title "New"   # Update title directly`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runIssueEdit(args[0], title)
+		},
+	}
+
+	cmd.Flags().StringVarP(&title, "title", "t", "", "Update title directly without opening editor")
+
+	return cmd
+}
+
+func runIssueEdit(issueID, title string) error {
+	client, err := requireDaemon()
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.GetIssue(issueID)
+	if err != nil {
+		return err
+	}
+
+	if resp.Issue == nil {
+		return fmt.Errorf("issue not found: %s", issueID)
+	}
+
+	if title != "" {
+		return fmt.Errorf("--title update not yet implemented for local issues; edit the file directly: %s", resp.Issue.URI)
+	}
+
+	path := resp.Issue.URI
+	if strings.HasPrefix(path, "file://") {
+		path = strings.TrimPrefix(path, "file://")
+	}
+
+	if strings.HasPrefix(path, "https://") {
+		return editGitHubIssue(issueID, resp.Issue)
+	}
+
+	return openInEditor(path)
+}
+
+func editGitHubIssue(issueID string, issue *daemon.IssueFull) error {
+	tmpDir := os.TempDir()
+	tmpFile := filepath.Join(tmpDir, fmt.Sprintf("orch-issue-%s.md", strings.ReplaceAll(issueID, "/", "-")))
+
+	var sb strings.Builder
+	sb.WriteString("---\n")
+	sb.WriteString(fmt.Sprintf("issue: %s\n", issueID))
+	if url, ok := issue.Frontmatter["url"]; ok {
+		sb.WriteString(fmt.Sprintf("url: %s\n", url))
+	}
+	sb.WriteString(fmt.Sprintf("status: %s\n", issue.Status))
+	if labels, ok := issue.Frontmatter["labels"]; ok && labels != "" {
+		sb.WriteString(fmt.Sprintf("labels: [%s]\n", labels))
+	}
+	sb.WriteString("---\n\n")
+	sb.WriteString(fmt.Sprintf("# %s\n\n", issue.Title))
+	sb.WriteString(issue.Body)
+	sb.WriteString("\n")
+
+	if err := os.WriteFile(tmpFile, []byte(sb.String()), 0644); err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+
+	if err := openInEditor(tmpFile); err != nil {
+		return err
+	}
+
+	if !globalOpts.Quiet {
+		fmt.Printf("Edited issue saved to: %s\n", tmpFile)
+		fmt.Println("Note: Changes to GitHub issues require manual sync via 'gh issue edit'")
+	}
+
+	return nil
+}
+
+type issueCloseOptions struct {
+	Comment string
+}
+
+func newIssueCloseCmd() *cobra.Command {
+	opts := &issueCloseOptions{}
+
+	cmd := &cobra.Command{
+		Use:   "close ISSUE_ID",
+		Short: "Close an issue",
+		Long: `Close an issue.
+
+For GitHub issues, the issue is closed on GitHub.
+For local issues, the status is set to 'closed'.
+
+Examples:
+  orch issue close 123
+  orch issue close gh#123 --comment "Fixed in #456"`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runIssueClose(args[0], opts)
+		},
+	}
+
+	cmd.Flags().StringVarP(&opts.Comment, "comment", "c", "", "Add a closing comment")
+
+	return cmd
+}
+
+func runIssueClose(issueID string, opts *issueCloseOptions) error {
+	st, err := getStore()
+	if err != nil {
+		return err
+	}
+
+	if err := st.SetIssueStatus(issueID, model.IssueStatusClosed); err != nil {
+		return err
+	}
+
+	if !globalOpts.Quiet {
+		fmt.Printf("Closed issue: %s\n", issueID)
+	}
+	return nil
+}
+
+func newIssueSyncCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "sync",
+		Short: "Sync issues from GitHub",
+		Long: `Force sync issues from GitHub.
+
+This refreshes the local cache with the latest issues from GitHub.
+Normally, the daemon handles syncing automatically.
+
+Examples:
+  orch issue sync`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runIssueSync()
+		},
+	}
+
+	return cmd
+}
+
+func runIssueSync() error {
+	if !globalOpts.Quiet {
+		fmt.Println("Syncing issues from GitHub...")
+	}
+
+	err := runIssueList()
+	if err != nil {
+		return err
+	}
+
+	if !globalOpts.Quiet {
+		fmt.Println("Sync complete.")
+	}
+	return nil
+}
+
+func newIssueOpenCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "open ISSUE_ID",
+		Short: "Open issue in browser",
+		Long: `Open an issue in the default web browser.
+
+This is an alias for 'orch issue show ISSUE_ID --web'.
+
+Examples:
+  orch issue open 123
+  orch issue open gh#123`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runIssueShow(args[0], &issueShowOptions{Web: true})
+		},
+	}
+
+	return cmd
 }

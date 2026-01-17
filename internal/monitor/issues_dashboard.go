@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -309,6 +310,16 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case d.keymap.EditIssue:
 		if row := d.currentIssue(); row != nil && row.Issue != nil {
 			return d, d.editIssueInEditorCmd(row.Issue.Path)
+		}
+		return d, nil
+	case d.keymap.OpenBrowser:
+		if row := d.currentIssue(); row != nil {
+			return d, d.openIssueInBrowserCmd(row)
+		}
+		return d, nil
+	case d.keymap.ViewIssue:
+		if row := d.currentIssue(); row != nil && row.Issue != nil {
+			return d, d.viewIssueInEditorCmd(row.Issue.Path)
 		}
 		return d, nil
 	case d.keymap.Open:
@@ -649,18 +660,72 @@ func (d *IssueDashboard) createIssueCmd(issueID, title string) tea.Cmd {
 	}
 }
 
-// editIssueInEditorCmd opens the issue file in $EDITOR, suspending the TUI.
-// When the editor closes, the TUI resumes and the issue list is refreshed.
 func (d *IssueDashboard) editIssueInEditorCmd(path string) tea.Cmd {
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
 		editor = "vim"
 	}
 
+	if strings.HasPrefix(path, "file://") {
+		path = strings.TrimPrefix(path, "file://")
+	}
+
 	c := exec.Command(editor, path)
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return editorFinishedMsg{err: err}
 	})
+}
+
+func (d *IssueDashboard) viewIssueInEditorCmd(path string) tea.Cmd {
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vim"
+	}
+
+	if strings.HasPrefix(path, "file://") {
+		path = strings.TrimPrefix(path, "file://")
+	}
+
+	c := exec.Command(editor, "-R", path)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return editorFinishedMsg{err: err}
+	})
+}
+
+func (d *IssueDashboard) openIssueInBrowserCmd(row *IssueRow) tea.Cmd {
+	return func() tea.Msg {
+		if row == nil || row.Issue == nil {
+			return errMsg{err: fmt.Errorf("no issue selected")}
+		}
+
+		url := ""
+		if fm, ok := row.Issue.Frontmatter["url"]; ok && fm != "" {
+			url = fm
+		} else if row.Issue.Path != "" && strings.HasPrefix(row.Issue.Path, "https://") {
+			url = row.Issue.Path
+		}
+
+		if url == "" {
+			return errMsg{err: fmt.Errorf("no URL available for issue %s", row.ID)}
+		}
+
+		var cmd *exec.Cmd
+		switch runtime.GOOS {
+		case "darwin":
+			cmd = exec.Command("open", url)
+		case "linux":
+			cmd = exec.Command("xdg-open", url)
+		case "windows":
+			cmd = exec.Command("cmd", "/c", "start", url)
+		default:
+			return errMsg{err: fmt.Errorf("unsupported OS: %s", runtime.GOOS)}
+		}
+
+		if err := cmd.Run(); err != nil {
+			return errMsg{err: err}
+		}
+		return infoMsg{text: fmt.Sprintf("opened %s in browser", row.ID)}
+	}
 }
 
 func (d *IssueDashboard) viewIssues() string {

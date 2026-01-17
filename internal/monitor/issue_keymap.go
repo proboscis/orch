@@ -24,6 +24,9 @@ type IssueKeyMap struct {
 	SortTitle    string
 	SortPriority string
 	SortUpdated  string
+
+	OpenBrowser string
+	ViewIssue   string
 }
 
 func DefaultIssueKeyMap() IssueKeyMap {
@@ -31,7 +34,7 @@ func DefaultIssueKeyMap() IssueKeyMap {
 		Runs:        "g",
 		Issues:      "i",
 		Chat:        "c",
-		EditIssue:   "enter",
+		EditIssue:   "e",
 		OpenRun:     "O",
 		StartRun:    "r",
 		ContinueRun: "C",
@@ -49,11 +52,13 @@ func DefaultIssueKeyMap() IssueKeyMap {
 		SortTitle:    "n",
 		SortPriority: "p",
 		SortUpdated:  "u",
+
+		OpenBrowser: "enter",
+		ViewIssue:   "I",
 	}
 }
 
-// HelpLine renders the footer help text.
 func (k IssueKeyMap) HelpLine() string {
-	return fmt.Sprintf("[%s] edit  [%s] runs  [%s] issues  [%s] chat  [%s] open run  [%s] start run  [%s] continue  [%s] attach  [%s] open  [%s] resolve  [%s] filter  [%s] sort  [%s] quit  [%s] help",
-		k.EditIssue, k.Runs, k.Issues, k.Chat, k.OpenRun, k.StartRun, k.ContinueRun, k.Attach, k.Open, k.Resolve, k.Filter, k.Sort, k.Quit, k.Help)
+	return fmt.Sprintf("[%s] browser  [%s] edit  [%s] view  [%s] open run  [%s] start  [%s] continue  [%s] attach  [%s] resolve  [%s] filter  [%s] sort  [%s] quit  [%s] help",
+		k.OpenBrowser, k.EditIssue, k.ViewIssue, k.OpenRun, k.StartRun, k.ContinueRun, k.Attach, k.Resolve, k.Filter, k.Sort, k.Quit, k.Help)
 }

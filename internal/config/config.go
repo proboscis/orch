@@ -75,6 +75,33 @@ type SlackConfig struct {
 	NotifyOn   []string `yaml:"notify_on,omitempty"` // Events to notify on: blocked, blocked_api, done, failed
 }
 
+// GitHubConfig holds configuration for GitHub Issues backend.
+type GitHubConfig struct {
+	Owner        string            `yaml:"owner,omitempty"`         // GitHub repository owner
+	Repo         string            `yaml:"repo,omitempty"`          // GitHub repository name
+	LabelFilter  string            `yaml:"label_filter,omitempty"`  // Only sync issues with this label (e.g., "orch")
+	PollInterval int               `yaml:"poll_interval,omitempty"` // Polling interval in seconds (default: 60)
+	StatusLabels map[string]string `yaml:"status_labels,omitempty"` // Map GitHub labels to status (e.g., "status:resolved" -> "resolved")
+}
+
+// IsConfigured returns true if GitHub backend has minimal required config.
+func (g *GitHubConfig) IsConfigured() bool {
+	return g.Owner != "" && g.Repo != ""
+}
+
+// GetPollInterval returns the poll interval with a sensible default.
+func (g *GitHubConfig) GetPollInterval() int {
+	if g.PollInterval <= 0 {
+		return 60 // Default: 60 seconds
+	}
+	return g.PollInterval
+}
+
+// IssuesConfig holds configuration for the issues backend.
+type IssuesConfig struct {
+	Backend string `yaml:"backend,omitempty"` // "local" (default) or "github"
+}
+
 func (s *SlackConfig) ShouldNotify(status string) bool {
 	if !s.Enabled {
 		return false
@@ -116,6 +143,8 @@ type Config struct {
 	Gemini          GeminiConfig     `yaml:"gemini"`
 	DefaultPreset   string           `yaml:"default_preset"` // Default preset to use when no --preset flag is provided
 	Slack           SlackConfig      `yaml:"slack"`
+	Issues          IssuesConfig     `yaml:"issues"`
+	GitHub          GitHubConfig     `yaml:"github"`
 
 	// Control agent settings (for orch monitor 'c' keybinding)
 	// Falls back to run agent defaults if not set
@@ -148,6 +177,8 @@ type fileConfig struct {
 	Gemini              *GeminiConfig    `yaml:"gemini"`
 	DefaultPreset       string           `yaml:"default_preset"`
 	Slack               *SlackConfig     `yaml:"slack"`
+	Issues              *IssuesConfig    `yaml:"issues"`
+	GitHub              *GitHubConfig    `yaml:"github"`
 	ControlAgent        string           `yaml:"control_agent"`
 	ControlModel        string           `yaml:"control_model"`
 	ControlModelVariant string           `yaml:"control_model_variant"`
@@ -362,6 +393,28 @@ func loadFromFile(path string, cfg *Config) error {
 	if fileCfg.Slack != nil {
 		cfg.Slack = *fileCfg.Slack
 	}
+	if fileCfg.Issues != nil {
+		if fileCfg.Issues.Backend != "" {
+			cfg.Issues.Backend = fileCfg.Issues.Backend
+		}
+	}
+	if fileCfg.GitHub != nil {
+		if fileCfg.GitHub.Owner != "" {
+			cfg.GitHub.Owner = fileCfg.GitHub.Owner
+		}
+		if fileCfg.GitHub.Repo != "" {
+			cfg.GitHub.Repo = fileCfg.GitHub.Repo
+		}
+		if fileCfg.GitHub.LabelFilter != "" {
+			cfg.GitHub.LabelFilter = fileCfg.GitHub.LabelFilter
+		}
+		if fileCfg.GitHub.PollInterval > 0 {
+			cfg.GitHub.PollInterval = fileCfg.GitHub.PollInterval
+		}
+		if len(fileCfg.GitHub.StatusLabels) > 0 {
+			cfg.GitHub.StatusLabels = fileCfg.GitHub.StatusLabels
+		}
+	}
 	if fileCfg.ControlAgent != "" {
 		cfg.ControlAgent = fileCfg.ControlAgent
 	}
@@ -464,6 +517,18 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("ORCH_SLACK_CHANNEL"); v != "" {
 		cfg.Slack.Channel = v
+	}
+	if v := os.Getenv("ORCH_ISSUES_BACKEND"); v != "" {
+		cfg.Issues.Backend = v
+	}
+	if v := os.Getenv("ORCH_GITHUB_OWNER"); v != "" {
+		cfg.GitHub.Owner = v
+	}
+	if v := os.Getenv("ORCH_GITHUB_REPO"); v != "" {
+		cfg.GitHub.Repo = v
+	}
+	if v := os.Getenv("ORCH_GITHUB_LABEL_FILTER"); v != "" {
+		cfg.GitHub.LabelFilter = v
 	}
 }
 
@@ -611,4 +676,15 @@ func ExpandPath(path, base string) string {
 	}
 
 	return path
+}
+
+func (c *Config) IsGitHubBackend() bool {
+	return c.Issues.Backend == "github" && c.GitHub.IsConfigured()
+}
+
+func (c *Config) GetIssuesBackend() string {
+	if c.Issues.Backend == "" {
+		return "local"
+	}
+	return c.Issues.Backend
 }
