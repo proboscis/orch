@@ -359,6 +359,7 @@ def _json_to_run(data: dict) -> Run:
         phase=phase,
         agent=data.get("agent", ""),
         model=data.get("model", ""),
+        model_variant=data.get("model_variant", ""),
         branch=data.get("branch", ""),
         worktree_path=data.get("worktree_path", ""),
         tmux_session=data.get("tmux_session", ""),

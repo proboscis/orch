@@ -14,6 +14,7 @@ type RunRow struct {
 	IssueStatus  string
 	IssueSummary string // Short one-line summary from issue frontmatter
 	Agent        string
+	Model        string
 	Status       model.Status
 	Alive        string
 	Branch       string

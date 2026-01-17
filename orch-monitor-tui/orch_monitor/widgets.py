@@ -9,6 +9,91 @@ from textual.containers import Container
 
 from .models import Issue, Run, Status
 
+MAX_MODEL_DISPLAY_WIDTH = 18
+
+
+def shorten_model_name(model: str) -> str:
+    if not model:
+        return ""
+
+    if "/" in model:
+        model = model.rsplit("/", 1)[-1]
+
+    model = model.lower()
+
+    if model.startswith("claude-"):
+        name = model[7:]
+        return _format_claude_model(name)
+
+    if model.startswith("gpt-"):
+        name = model[4:]
+        return "gpt" + _format_version(name)
+
+    if model.startswith("o") and len(model) >= 2 and model[1].isdigit():
+        return model
+
+    if model.startswith("gemini-"):
+        name = model[7:]
+        return "gemini" + _format_version(name)
+
+    return model[:12] if len(model) > 12 else model
+
+
+def _format_claude_model(name: str) -> str:
+    parts = name.split("-")
+    if len(parts) < 2:
+        return name
+
+    if parts[0].isdigit():
+        numeric_parts = [parts[0]]
+        model_idx = 1
+        for i in range(1, len(parts)):
+            if parts[i].isdigit():
+                numeric_parts.append(parts[i])
+                model_idx = i + 1
+            else:
+                break
+        if model_idx < len(parts):
+            model_type = parts[model_idx]
+            version = ".".join(numeric_parts)
+            return model_type + version
+        return ".".join(numeric_parts)
+
+    model_type = parts[0]
+    version = _format_version("-".join(parts[1:]))
+    return model_type + version
+
+
+def _format_version(version: str) -> str:
+    if not version:
+        return ""
+
+    parts = version.split("-")
+    if len(parts) == 1:
+        return version
+
+    if all(p.isdigit() for p in parts):
+        return ".".join(parts)
+
+    return version
+
+
+def model_display_name(model: str, variant: str) -> str:
+    if not model:
+        return "-"
+
+    short_model = shorten_model_name(model)
+    if not short_model:
+        return "-"
+
+    if not variant:
+        return short_model
+
+    result = f"{short_model}/{variant}"
+    if len(result) > MAX_MODEL_DISPLAY_WIDTH:
+        return result[:MAX_MODEL_DISPLAY_WIDTH]
+    return result
+
 
 class CursorPreservingTable(DataTable):
     """DataTable that preserves cursor position across repopulation."""
@@ -74,6 +159,7 @@ class RunTable(CursorPreservingTable):
         self.add_column("Issue", width=15)
         self.add_column("Status", width=12)
         self.add_column("Agent", width=10)
+        self.add_column("Model", width=18)
         self.add_column("Elapsed", width=10, key="elapsed")
         self.add_column("Branch", width=25)
 
@@ -90,11 +176,14 @@ class RunTable(CursorPreservingTable):
             elif run.status == Status.PR_OPEN:
                 status_str = f"[cyan]{status_str}[/cyan]"
 
+            model_str = model_display_name(run.model, run.model_variant)
+
             self.add_row(
                 run.short_id(),
                 run.issue_id,
                 status_str,
                 run.agent or "-",
+                model_str,
                 run.elapsed_time(),
                 run.branch or "-",
                 key=run.ref(),
