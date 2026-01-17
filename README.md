@@ -246,6 +246,7 @@ multiplexer: zellij  # or "tmux" (default)
 - The multiplexer used for a run is recorded in the run metadata
 - `orch attach` automatically uses the correct multiplexer for each run
 - Some advanced features (window linking, pane inspection) have limited support in zellij
+- **`orch monitor` requires tmux** - it uses tmux's multi-pane layout. For zellij users, use `orch-monitor-tui` (Python TUI) or the basic `orch run/attach/ps` workflow
 
 ### Repo config
 
