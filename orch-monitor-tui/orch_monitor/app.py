@@ -561,7 +561,7 @@ class RunsDashboard(App):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("r", "refresh", "Refresh"),
-        Binding("enter", "attach", "Attach"),
+        Binding("enter", "attach", "Attach", priority=True),
         Binding("s", "stop", "Stop"),
         Binding("X", "kill_session", "Kill"),
         Binding("f", "filter", "Filter"),
@@ -700,6 +700,11 @@ class RunsDashboard(App):
         run_table = self.query_one("#runs-table", RunTable)
         run_table.populate(self.runs)
 
+    @on(RunTable.RowSelected)
+    def on_run_selected(self, event: RunTable.RowSelected) -> None:
+        """Handle Enter key on run - trigger attach."""
+        self.action_attach()
+
     @on(RunTable.RowHighlighted)
     def on_run_highlighted(self, event: RunTable.RowHighlighted) -> None:
         """Track highlighted run for Enter key attach functionality."""
@@ -731,14 +736,67 @@ class RunsDashboard(App):
         if not self.selected_run:
             self.notify("No run selected", severity="warning")
             return
-        if not self.selected_run.tmux_session:
-            self.notify(
-                f"Run {self.selected_run.ref()} has no tmux session",
-                severity="warning",
-            )
+
+        run = self.selected_run
+        agent = run.agent or ""
+        inside_tmux = bool(os.environ.get("TMUX"))
+
+        # OpenCode uses HTTP API, not tmux
+        if agent.startswith("opencode") or agent.startswith("oc"):
+            if not run.server_port:
+                self.notify(f"Run {run.ref()} has no server port", severity="warning")
+                return
+
+            # Build opencode attach command
+            oc_cmd = f"opencode attach http://127.0.0.1:{run.server_port}"
+            if run.opencode_session_id:
+                oc_cmd += f" --session {run.opencode_session_id}"
+            if run.worktree_path:
+                oc_cmd += f" --dir {run.worktree_path}"
+
+            if inside_tmux:
+                # Create new tmux window with opencode attach
+                window_name = f"oc-{run.issue_id[:10]}"
+                subprocess.run(["tmux", "new-window", "-n", window_name, oc_cmd])
+                self.notify(f"Opened {window_name} window", severity="information")
+            else:
+                # Outside tmux: suspend TUI, run opencode, resume
+                with self.suspend():
+                    subprocess.run(oc_cmd, shell=True)
+                self.refresh_data()
             return
-        self.exit()
-        subprocess.run(["tmux", "attach-session", "-t", self.selected_run.tmux_session])
+
+        # Other agents use tmux sessions
+        session_name = run.tmux_session
+        if not session_name:
+            session_name = f"orch-{run.issue_id}-{run.run_id[:8]}"
+
+        # Check if session exists, create if not
+        check = subprocess.run(
+            ["tmux", "has-session", "-t", session_name], capture_output=True
+        )
+        if check.returncode != 0:
+            if not run.worktree_path:
+                self.notify(f"Run {run.ref()} has no worktree path", severity="warning")
+                return
+            subprocess.run(
+                [
+                    "tmux",
+                    "new-session",
+                    "-d",
+                    "-s",
+                    session_name,
+                    "-c",
+                    run.worktree_path,
+                ]
+            )
+
+        if inside_tmux:
+            subprocess.run(["tmux", "switch-client", "-t", session_name])
+        else:
+            with self.suspend():
+                subprocess.run(["tmux", "attach-session", "-t", session_name])
+            self.refresh_data()
 
     def action_stop(self) -> None:
         if not self.selected_run:
@@ -1323,15 +1381,67 @@ class OrchMonitorApp(App):
         if not self.selected_run:
             self.notify("No run selected", severity="warning")
             return
-        if not self.selected_run.tmux_session:
-            self.notify(
-                f"Run {self.selected_run.ref()} has no tmux session",
-                severity="warning",
-            )
+
+        run = self.selected_run
+        agent = run.agent or ""
+        inside_tmux = bool(os.environ.get("TMUX"))
+
+        # OpenCode uses HTTP API, not tmux
+        if agent.startswith("opencode") or agent.startswith("oc"):
+            if not run.server_port:
+                self.notify(f"Run {run.ref()} has no server port", severity="warning")
+                return
+
+            # Build opencode attach command
+            oc_cmd = f"opencode attach http://127.0.0.1:{run.server_port}"
+            if run.opencode_session_id:
+                oc_cmd += f" --session {run.opencode_session_id}"
+            if run.worktree_path:
+                oc_cmd += f" --dir {run.worktree_path}"
+
+            if inside_tmux:
+                # Create new tmux window with opencode attach
+                window_name = f"oc-{run.issue_id[:10]}"
+                subprocess.run(["tmux", "new-window", "-n", window_name, oc_cmd])
+                self.notify(f"Opened {window_name} window", severity="information")
+            else:
+                # Outside tmux: suspend TUI, run opencode, resume
+                with self.suspend():
+                    subprocess.run(oc_cmd, shell=True)
+                self.refresh_data()
             return
 
-        self.exit()
-        subprocess.run(["tmux", "attach-session", "-t", self.selected_run.tmux_session])
+        # Other agents use tmux sessions
+        session_name = run.tmux_session
+        if not session_name:
+            session_name = f"orch-{run.issue_id}-{run.run_id[:8]}"
+
+        # Check if session exists, create if not
+        check = subprocess.run(
+            ["tmux", "has-session", "-t", session_name], capture_output=True
+        )
+        if check.returncode != 0:
+            if not run.worktree_path:
+                self.notify(f"Run {run.ref()} has no worktree path", severity="warning")
+                return
+            subprocess.run(
+                [
+                    "tmux",
+                    "new-session",
+                    "-d",
+                    "-s",
+                    session_name,
+                    "-c",
+                    run.worktree_path,
+                ]
+            )
+
+        if inside_tmux:
+            subprocess.run(["tmux", "switch-client", "-t", session_name])
+        else:
+            with self.suspend():
+                subprocess.run(["tmux", "attach-session", "-t", session_name])
+            self.refresh_data()
 
     def action_stop(self) -> None:
         if not self.selected_run:

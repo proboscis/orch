@@ -57,6 +57,9 @@ class CursorPreservingTable(DataTable):
 class RunTable(CursorPreservingTable):
     """Table widget for displaying runs."""
 
+    # Clear default DataTable bindings to let app bindings handle Enter
+    BINDINGS = []
+
     def populate(self, runs: list[Run]) -> None:
         saved_key, saved_index = self._save_cursor_state()
 
@@ -97,6 +100,9 @@ class RunTable(CursorPreservingTable):
 
 class IssueTable(CursorPreservingTable):
     """Table widget for displaying issues."""
+
+    # Clear default DataTable bindings to let app bindings handle Enter
+    BINDINGS = []
 
     def populate(self, issues: list[Issue]) -> None:
         saved_key, saved_index = self._save_cursor_state()

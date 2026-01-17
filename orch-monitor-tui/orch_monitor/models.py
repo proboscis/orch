@@ -126,6 +126,16 @@ class Run:
         """Return the run reference (ISSUE_ID#RUN_ID)."""
         return f"{self.issue_id}#{self.run_id}"
 
+    def __repr__(self) -> str:
+        """Safe repr that doesn't include full event list."""
+        return (
+            f"Run({self.ref()}, status={self.status.value}, events={len(self.events)})"
+        )
+
+    def __str__(self) -> str:
+        """Safe string representation."""
+        return self.ref()
+
     def short_id(self) -> str:
         """Return a 6-character hex identifier for the run (git-style)."""
         import hashlib
