@@ -306,6 +306,15 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		d.message = fmt.Sprintf("sort: %s", sortKey)
 		d.refreshing = true
 		return d, d.refreshCmd()
+	case d.keymap.SortDir:
+		sortDir := d.monitor.ToggleRunSortDir()
+		dirLabel := "asc"
+		if sortDir == SortDesc {
+			dirLabel = "desc"
+		}
+		d.message = fmt.Sprintf("sort direction: %s", dirLabel)
+		d.refreshing = true
+		return d, d.refreshCmd()
 	case d.keymap.SortUpdated:
 		d.monitor.SetRunSort(SortByUpdated)
 		d.message = fmt.Sprintf("sort: %s", SortByUpdated)
@@ -940,7 +949,7 @@ func (d *Dashboard) computeColumnWidths() map[ColumnID]int {
 func (d *Dashboard) renderDynamicRow(widths map[ColumnID]int, row *RunRow, isHeader bool, now time.Time) string {
 	var parts []string
 	sortKey := d.monitor.RunSort()
-	sortDir := DefaultSortDirection(sortKey)
+	sortDir := d.monitor.RunSortDir()
 	for _, col := range d.columns {
 		width := widths[col]
 

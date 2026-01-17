@@ -61,7 +61,9 @@ type Monitor struct {
 	session      string
 	runFilter    RunFilter
 	runSort      SortKey
+	runSortDir   SortDirection
 	issueSort    SortKey
+	issueSortDir SortDirection
 	store        store.Store
 	orchPath     string
 	globalFlags  []string
@@ -103,6 +105,14 @@ func New(st store.Store, opts Options) *Monitor {
 	if uiSettings == nil {
 		uiSettings = DefaultUISettings()
 	}
+	runSortDir := uiSettings.RunSortDir
+	if runSort != uiSettings.RunSort {
+		runSortDir = DefaultSortDirection(runSort)
+	}
+	issueSortDir := uiSettings.IssueSortDir
+	if issueSort != uiSettings.IssueSort {
+		issueSortDir = DefaultSortDirection(issueSort)
+	}
 	orchDir := GetOrchDir(st.VaultPath())
 	var presets []config.Preset
 	if cfg, err := config.Load(); err == nil {
@@ -112,7 +122,9 @@ func New(st store.Store, opts Options) *Monitor {
 		session:      session,
 		runFilter:    newRunFilter(opts),
 		runSort:      runSort,
+		runSortDir:   runSortDir,
 		issueSort:    issueSort,
+		issueSortDir: issueSortDir,
 		store:        st,
 		orchPath:     orchPath,
 		globalFlags:  opts.GlobalFlags,
@@ -127,40 +139,74 @@ func New(st store.Store, opts Options) *Monitor {
 	}
 }
 
-// RunSort returns the current run sort key.
 func (m *Monitor) RunSort() SortKey {
 	return m.runSort
 }
 
-// IssueSort returns the current issue sort key.
+func (m *Monitor) RunSortDir() SortDirection {
+	return m.runSortDir
+}
+
 func (m *Monitor) IssueSort() SortKey {
 	return m.issueSort
 }
 
+func (m *Monitor) IssueSortDir() SortDirection {
+	return m.issueSortDir
+}
+
 func (m *Monitor) CycleRunSort() SortKey {
 	m.runSort = NextRunSortKey(m.runSort)
+	m.runSortDir = DefaultSortDirection(m.runSort)
 	m.saveUISettings()
 	return m.runSort
 }
 
 func (m *Monitor) CycleIssueSort() SortKey {
 	m.issueSort = NextIssueSortKey(m.issueSort)
+	m.issueSortDir = DefaultSortDirection(m.issueSort)
 	m.saveUISettings()
 	return m.issueSort
 }
 
 func (m *Monitor) SetRunSort(key SortKey) {
 	if IsValidRunSortKey(key) {
-		m.runSort = key
+		if m.runSort != key {
+			m.runSort = key
+			m.runSortDir = DefaultSortDirection(key)
+		}
 		m.saveUISettings()
 	}
 }
 
 func (m *Monitor) SetIssueSort(key SortKey) {
 	if IsValidIssueSortKey(key) {
-		m.issueSort = key
+		if m.issueSort != key {
+			m.issueSort = key
+			m.issueSortDir = DefaultSortDirection(key)
+		}
 		m.saveUISettings()
 	}
+}
+
+func (m *Monitor) ToggleRunSortDir() SortDirection {
+	if m.runSortDir == SortAsc {
+		m.runSortDir = SortDesc
+	} else {
+		m.runSortDir = SortAsc
+	}
+	m.saveUISettings()
+	return m.runSortDir
+}
+
+func (m *Monitor) ToggleIssueSortDir() SortDirection {
+	if m.issueSortDir == SortAsc {
+		m.issueSortDir = SortDesc
+	} else {
+		m.issueSortDir = SortAsc
+	}
+	m.saveUISettings()
+	return m.issueSortDir
 }
 
 // ShowResolved returns whether resolved issues should be shown.
@@ -185,14 +231,15 @@ func (m *Monitor) SetShowClosed(show bool) {
 	m.saveUISettings()
 }
 
-// saveUISettings persists the current UI settings to disk.
 func (m *Monitor) saveUISettings() {
 	if m.orchDir == "" {
 		return
 	}
 	settings := &UISettings{
 		RunSort:      m.runSort,
+		RunSortDir:   m.runSortDir,
 		IssueSort:    m.issueSort,
+		IssueSortDir: m.issueSortDir,
 		ShowResolved: m.showResolved,
 		ShowClosed:   m.showClosed,
 	}
@@ -890,7 +937,7 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		})
 	}
 
-	sortRunRows(rows, m.runSort)
+	sortRunRowsWithDirection(rows, m.runSort, m.runSortDir)
 	return rows, nil
 }
 
@@ -954,7 +1001,7 @@ func (m *Monitor) buildIssueRows(issues []*model.Issue, runs []*model.Run) []Iss
 		rows = append(rows, row)
 	}
 
-	sortIssueRows(rows, m.issueSort)
+	sortIssueRowsWithDirection(rows, m.issueSort, m.issueSortDir)
 	return rows
 }
 

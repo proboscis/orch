@@ -14,6 +14,7 @@ type IssueKeyMap struct {
 	Resolve     string
 	Filter      string
 	Sort        string
+	SortDir     string
 	Attach      string
 	Quit        string
 	Help        string
@@ -38,6 +39,7 @@ func DefaultIssueKeyMap() IssueKeyMap {
 		Resolve:     "x",
 		Filter:      "f",
 		Sort:        "S",
+		SortDir:     "D",
 		Attach:      "a",
 		Quit:        "q",
 		Help:        "?",

@@ -9,10 +9,12 @@ import (
 
 // UISettings holds persistent UI settings for the monitor.
 type UISettings struct {
-	RunSort      SortKey `yaml:"run_sort,omitempty"`
-	IssueSort    SortKey `yaml:"issue_sort,omitempty"`
-	ShowResolved bool    `yaml:"show_resolved"`
-	ShowClosed   bool    `yaml:"show_closed"`
+	RunSort      SortKey       `yaml:"run_sort,omitempty"`
+	RunSortDir   SortDirection `yaml:"run_sort_dir,omitempty"`
+	IssueSort    SortKey       `yaml:"issue_sort,omitempty"`
+	IssueSortDir SortDirection `yaml:"issue_sort_dir,omitempty"`
+	ShowResolved bool          `yaml:"show_resolved"`
+	ShowClosed   bool          `yaml:"show_closed"`
 }
 
 const uiSettingsFile = "monitor-settings.yaml"
@@ -21,7 +23,9 @@ const uiSettingsFile = "monitor-settings.yaml"
 func DefaultUISettings() *UISettings {
 	return &UISettings{
 		RunSort:      SortByUpdated,
+		RunSortDir:   DefaultSortDirection(SortByUpdated),
 		IssueSort:    SortByName,
+		IssueSortDir: DefaultSortDirection(SortByName),
 		ShowResolved: false,
 		ShowClosed:   true,
 	}
@@ -49,9 +53,11 @@ func LoadUISettings(orchDir string) *UISettings {
 	// Merge loaded settings (only override if valid)
 	if IsValidSortKey(loaded.RunSort) {
 		settings.RunSort = loaded.RunSort
+		settings.RunSortDir = loaded.RunSortDir
 	}
 	if IsValidSortKey(loaded.IssueSort) {
 		settings.IssueSort = loaded.IssueSort
+		settings.IssueSortDir = loaded.IssueSortDir
 	}
 	settings.ShowResolved = loaded.ShowResolved
 	settings.ShowClosed = loaded.ShowClosed

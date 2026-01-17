@@ -15,6 +15,7 @@ type KeyMap struct {
 	Merge       string
 	Refresh     string
 	Sort        string
+	SortDir     string
 	Filter      string
 	QuickFilter string
 	Quit        string
@@ -42,6 +43,7 @@ func DefaultKeyMap() KeyMap {
 		Merge:       "M",
 		Refresh:     "r",
 		Sort:        "S",
+		SortDir:     "D",
 		Filter:      "f",
 		QuickFilter: "F",
 		Quit:        "q",

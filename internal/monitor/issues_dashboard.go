@@ -329,6 +329,15 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		d.message = fmt.Sprintf("sort: %s", sortKey)
 		d.refreshing = true
 		return d, d.refreshCmd()
+	case d.keymap.SortDir:
+		sortDir := d.monitor.ToggleIssueSortDir()
+		dirLabel := "asc"
+		if sortDir == SortDesc {
+			dirLabel = "desc"
+		}
+		d.message = fmt.Sprintf("sort direction: %s", dirLabel)
+		d.refreshing = true
+		return d, d.refreshCmd()
 	case d.keymap.SortID:
 		d.monitor.SetIssueSort(SortByName)
 		d.message = fmt.Sprintf("sort: %s", SortByName)
@@ -900,7 +909,7 @@ func (d *IssueDashboard) renderTable(maxRows int) string {
 	idxW, idW, statusW, latestW, activeW, summaryW := d.tableWidths()
 
 	sortKey := d.monitor.IssueSort()
-	sortDir := DefaultSortDirection(sortKey)
+	sortDir := d.monitor.IssueSortDir()
 	indicator := SortIndicator(sortDir)
 
 	idHeader := "ID"

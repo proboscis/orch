@@ -35,8 +35,8 @@ func newMonitorCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&opts.Issue, "issue", "", "Filter to specific issue")
 	cmd.Flags().StringSliceVar(&opts.Status, "status", nil, "Filter by status")
-	cmd.Flags().StringVar(&opts.SortRuns, "sort-runs", string(monitor.SortByUpdated), "Sort runs by (name|updated|status)")
-	cmd.Flags().StringVar(&opts.SortIssues, "sort-issues", string(monitor.SortByName), "Sort issues by (name|updated|status)")
+	cmd.Flags().StringVar(&opts.SortRuns, "sort-runs", string(monitor.SortByUpdated), "Sort runs by (updated|started|status|issue|agent|elapsed|name)")
+	cmd.Flags().StringVar(&opts.SortIssues, "sort-issues", string(monitor.SortByName), "Sort issues by (name|status|title|priority|updated)")
 	cmd.Flags().StringVarP(&opts.Agent, "agent", "a", "", "Control agent to launch in monitor chat pane")
 	cmd.Flags().BoolVar(&opts.Attach, "attach", false, "Attach to existing monitor session if present")
 	cmd.Flags().BoolVar(&opts.ForceNew, "new", false, "Force create a new monitor session")
