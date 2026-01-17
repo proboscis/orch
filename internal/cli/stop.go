@@ -3,11 +3,8 @@ package cli
 import (
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/store"
-	"github.com/s22625/orch/internal/tmux"
 	"github.com/spf13/cobra"
 )
 
@@ -47,145 +44,89 @@ If the run is already stopped (done/failed/canceled), this is a no-op.`,
 }
 
 func runStop(refStr string, opts *stopOptions) error {
-	st, err := getStore()
+	client, err := requireDaemon()
 	if err != nil {
 		return err
 	}
 
-	// Try as short ID prefix first (2-6 hex chars)
+	var issueID, runID string
+
 	if shortIDRegex.MatchString(refStr) {
-		run, err := st.GetRunByShortID(refStr)
-		if err == nil {
-			return stopRun(st, run, opts)
+		resp, err := client.GetRunByShortID(refStr)
+		if err == nil && resp.Run != nil {
+			issueID = resp.Run.IssueID
+			runID = resp.Run.RunID
+		} else if len(refStr) == 6 {
+			fmt.Fprintf(os.Stderr, "run not found: %s\n", refStr)
+			os.Exit(ExitRunNotFound)
+			return fmt.Errorf("run not found: %s", refStr)
 		}
-		// If it's a full 6-char short ID that failed, report the error
-		// For shorter prefixes, fall through to try as regular ref
-		if len(refStr) == 6 {
+	}
+
+	if issueID == "" {
+		ref, err := model.ParseRunRef(refStr)
+		if err != nil {
 			return err
 		}
-	}
-
-	ref, err := model.ParseRunRef(refStr)
-	if err != nil {
-		return err
-	}
-
-	// If no specific run ID, stop ALL active runs for this issue
-	if ref.IsLatest() {
-		return stopIssueRuns(st, ref.IssueID, opts)
-	}
-
-	// Stop specific run
-	run, err := st.GetRun(ref)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "run not found: %s\n", refStr)
-		os.Exit(ExitRunNotFound)
-		return err
-	}
-
-	return stopRun(st, run, opts)
-}
-
-func stopIssueRuns(st store.Store, issueID string, opts *stopOptions) error {
-	runs, err := st.ListRuns(&store.ListRunsFilter{
-		IssueID: issueID,
-		Status:  []model.Status{model.StatusRunning, model.StatusBooting, model.StatusBlocked, model.StatusBlockedAPI, model.StatusQueued},
-	})
-	if err != nil {
-		return err
-	}
-
-	if len(runs) == 0 {
-		if !globalOpts.Quiet {
-			fmt.Printf("No active runs for issue: %s\n", issueID)
+		issueID = ref.IssueID
+		if !ref.IsLatest() {
+			runID = ref.RunID
 		}
-		return nil
 	}
 
-	var stopped int
-	for _, run := range runs {
-		if err := stopRun(st, run, opts); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to stop %s#%s: %v\n", run.IssueID, run.RunID, err)
+	resp, err := client.StopRun(issueID, runID, opts.Force)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(ExitInternalError)
+		return err
+	}
+
+	if !globalOpts.Quiet {
+		if len(resp.StoppedRuns) == 0 {
+			if runID != "" {
+				fmt.Printf("no active run to stop: %s#%s\n", issueID, runID)
+			} else {
+				fmt.Printf("no active runs for issue: %s\n", issueID)
+			}
+		} else if len(resp.StoppedRuns) == 1 {
+			fmt.Printf("stopped: %s#%s\n", issueID, resp.StoppedRuns[0])
 		} else {
-			stopped++
+			fmt.Printf("stopped %d runs for %s\n", resp.StoppedCount, issueID)
 		}
-	}
-
-	if !globalOpts.Quiet && stopped > 1 {
-		fmt.Printf("stopped %d runs for %s\n", stopped, issueID)
 	}
 
 	return nil
 }
 
 func runStopAll(opts *stopOptions) error {
-	st, err := getStore()
+	client, err := requireDaemon()
 	if err != nil {
 		return err
 	}
 
-	runs, err := st.ListRuns(&store.ListRunsFilter{
-		Status: []model.Status{model.StatusRunning, model.StatusBooting},
-	})
+	resp, err := client.ListRuns("", []string{"running", "booting", "blocked", "blocked_api", "queued"}, 0, "")
 	if err != nil {
 		return err
 	}
 
-	if len(runs) == 0 {
+	if len(resp.Runs) == 0 {
 		if !globalOpts.Quiet {
 			fmt.Println("No running runs to stop")
 		}
 		return nil
 	}
 
-	for _, run := range runs {
-		if err := stopRun(st, run, opts); err != nil {
+	stoppedCount := 0
+	for _, run := range resp.Runs {
+		_, err := client.StopRun(run.IssueID, run.RunID, opts.Force)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to stop %s#%s: %v\n", run.IssueID, run.RunID, err)
+		} else {
+			stoppedCount++
+			if !globalOpts.Quiet {
+				fmt.Printf("stopped: %s#%s\n", run.IssueID, run.RunID)
+			}
 		}
-	}
-
-	return nil
-}
-
-func stopRun(st interface {
-	AppendEvent(ref *model.RunRef, event *model.Event) error
-}, run *model.Run, opts *stopOptions) error {
-	// Skip if already terminal
-	if run.Status == model.StatusDone || run.Status == model.StatusFailed || run.Status == model.StatusCanceled {
-		if !globalOpts.Quiet {
-			fmt.Printf("%s#%s already %s\n", run.IssueID, run.RunID, run.Status)
-		}
-		return nil
-	}
-
-	sessionName := run.TmuxSession
-	if sessionName == "" {
-		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
-	}
-
-	// Kill tmux session if it exists
-	if tmux.HasSession(sessionName) {
-		if err := tmux.KillSession(sessionName); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to kill session %s: %v\n", sessionName, err)
-		} else if !globalOpts.Quiet {
-			fmt.Printf("killed session: %s\n", sessionName)
-		}
-	}
-
-	// Append canceled event
-	ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
-	event := &model.Event{
-		Timestamp: time.Now(),
-		Type:      "status",
-		Name:      string(model.StatusCanceled),
-	}
-
-	if err := st.AppendEvent(ref, event); err != nil {
-		return fmt.Errorf("failed to append canceled event: %w", err)
-	}
-
-	if !globalOpts.Quiet {
-		fmt.Printf("stopped: %s#%s\n", run.IssueID, run.RunID)
 	}
 
 	return nil

@@ -16,6 +16,8 @@ func TestRunResolveMarksIssueResolved(t *testing.T) {
 	globalOpts.VaultPath = vault
 	globalOpts.Backend = "file"
 	globalOpts.Quiet = true
+	testBypassDaemon = true
+	t.Cleanup(func() { testBypassDaemon = false })
 
 	writeIssue(t, vault, "issue-1")
 
@@ -61,6 +63,8 @@ func TestRunResolveRequiresForceWithoutCompletedRuns(t *testing.T) {
 	globalOpts.VaultPath = vault
 	globalOpts.Backend = "file"
 	globalOpts.Quiet = true
+	testBypassDaemon = true
+	t.Cleanup(func() { testBypassDaemon = false })
 
 	writeIssue(t, vault, "issue-2")
 
@@ -111,6 +115,8 @@ func TestRunResolveAlreadyResolved(t *testing.T) {
 	globalOpts.VaultPath = vault
 	globalOpts.Backend = "file"
 	globalOpts.Quiet = true
+	testBypassDaemon = true
+	t.Cleanup(func() { testBypassDaemon = false })
 
 	writeIssueWithStatus(t, vault, "issue-3", "resolved")
 

@@ -6,12 +6,11 @@ import (
 	"os/exec"
 
 	"github.com/s22625/orch/internal/agent"
+	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/tmux"
 	"github.com/spf13/cobra"
 )
-
-// attach accepts short ID or run ref
 
 type attachOptions struct {
 	Pane   string
@@ -40,43 +39,49 @@ This allows manual interaction with the agent, including image paste support.`,
 }
 
 func runAttach(refStr string, opts *attachOptions) error {
-	st, err := getStore()
+	client, err := requireDaemon()
 	if err != nil {
 		return err
 	}
 
-	// Resolve by short ID or run ref
-	run, err := resolveRun(st, refStr)
+	var resp *daemon.GetAttachInfoResponse
+
+	if shortIDRegex.MatchString(refStr) {
+		resp, err = client.GetAttachInfo("", "", refStr)
+	} else {
+		ref, parseErr := model.ParseRunRef(refStr)
+		if parseErr != nil {
+			return parseErr
+		}
+		resp, err = client.GetAttachInfo(ref.IssueID, ref.RunID, "")
+	}
+
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "run not found: %s\n", refStr)
 		os.Exit(ExitRunNotFound)
 		return err
 	}
 
-	// For opencode agents, use opencode attach instead of tmux
-	if run.Agent == string(agent.AgentOpenCode) {
-		return attachOpenCode(run)
+	if resp.Agent == string(agent.AgentOpenCode) {
+		return attachOpenCodeFromInfo(resp)
 	}
 
-	sessionName := run.TmuxSession
+	sessionName := resp.TmuxSession
 	if sessionName == "" {
-		// Generate session name if not stored
-		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+		sessionName = model.GenerateTmuxSession(resp.IssueID, resp.RunID)
 	}
 
-	// Check if session exists, auto-create if missing
 	if !tmux.HasSession(sessionName) {
-		if run.WorktreePath == "" {
+		if resp.WorktreePath == "" {
 			fmt.Fprintf(os.Stderr, "session not found and no worktree path: %s\n", sessionName)
 			os.Exit(ExitRunNotFound)
 			return fmt.Errorf("session not found: %s", sessionName)
 		}
 
-		// Auto-create the session in the run's worktree
 		fmt.Fprintf(os.Stderr, "session not found, creating: %s\n", sessionName)
 		err := tmux.NewSession(&tmux.SessionConfig{
 			SessionName: sessionName,
-			WorkDir:     run.WorktreePath,
+			WorkDir:     resp.WorktreePath,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to create session: %v\n", err)
@@ -85,7 +90,6 @@ func runAttach(refStr string, opts *attachOptions) error {
 		}
 	}
 
-	// Attach to session - use switch-client if already inside tmux
 	if tmux.IsInsideTmux() {
 		if err := tmux.SwitchClient(sessionName); err != nil {
 			os.Exit(ExitTmuxError)
@@ -101,27 +105,25 @@ func runAttach(refStr string, opts *attachOptions) error {
 	return nil
 }
 
-// attachOpenCode attaches to an opencode server using opencode attach command
-func attachOpenCode(run *model.Run) error {
-	if run.ServerPort == 0 {
-		fmt.Fprintf(os.Stderr, "no server port found for opencode run: %s\n", run.Ref().String())
+func attachOpenCodeFromInfo(info *daemon.GetAttachInfoResponse) error {
+	if info.ServerPort == 0 {
+		fmt.Fprintf(os.Stderr, "no server port found for opencode run: %s#%s\n", info.IssueID, info.RunID)
 		os.Exit(ExitRunNotFound)
 		return fmt.Errorf("no server port found")
 	}
 
-	serverURL := fmt.Sprintf("http://127.0.0.1:%d", run.ServerPort)
+	serverURL := fmt.Sprintf("http://127.0.0.1:%d", info.ServerPort)
 
-	// Attach to the running opencode server with the correct directory context
 	fmt.Fprintf(os.Stderr, "Attaching to opencode server: %s\n", serverURL)
-	fmt.Fprintf(os.Stderr, "Session: %s\n", run.OpenCodeSessionID)
-	fmt.Fprintf(os.Stderr, "Worktree: %s\n\n", run.WorktreePath)
+	fmt.Fprintf(os.Stderr, "Session: %s\n", info.OpenCodeSessionID)
+	fmt.Fprintf(os.Stderr, "Worktree: %s\n\n", info.WorktreePath)
 
 	args := []string{"attach", serverURL}
-	if run.OpenCodeSessionID != "" {
-		args = append(args, "--session", run.OpenCodeSessionID)
+	if info.OpenCodeSessionID != "" {
+		args = append(args, "--session", info.OpenCodeSessionID)
 	}
-	if run.WorktreePath != "" {
-		args = append(args, "--dir", run.WorktreePath)
+	if info.WorktreePath != "" {
+		args = append(args, "--dir", info.WorktreePath)
 	}
 
 	cmd := exec.Command("opencode", args...)
@@ -132,7 +134,7 @@ func attachOpenCode(run *model.Run) error {
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to attach to opencode: %v\n", err)
 		fmt.Fprintf(os.Stderr, "\nManual: opencode attach %s --session %s --dir %s\n",
-			serverURL, run.OpenCodeSessionID, run.WorktreePath)
+			serverURL, info.OpenCodeSessionID, info.WorktreePath)
 		os.Exit(ExitTmuxError)
 		return err
 	}

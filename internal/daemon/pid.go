@@ -15,6 +15,7 @@ const (
 	pidFile      = "daemon.pid"
 	logFile      = "daemon.log"
 	metadataFile = "daemon.json"
+	lockFile     = "daemon.lock"
 )
 
 type DaemonMetadata struct {
@@ -43,6 +44,10 @@ func MetadataFilePath(vaultPath string) string {
 	return filepath.Join(OrchDir(vaultPath), metadataFile)
 }
 
+func LockFilePath(vaultPath string) string {
+	return filepath.Join(OrchDir(vaultPath), lockFile)
+}
+
 func ReadMetadata(vaultPath string) (*DaemonMetadata, error) {
 	data, err := os.ReadFile(MetadataFilePath(vaultPath))
 	if err != nil {
@@ -58,7 +63,32 @@ func ReadMetadata(vaultPath string) (*DaemonMetadata, error) {
 // EnsureOrchDir creates the .orch directory if it doesn't exist
 func EnsureOrchDir(vaultPath string) error {
 	dir := OrchDir(vaultPath)
-	return os.MkdirAll(dir, 0755)
+	return os.MkdirAll(dir, 0700)
+}
+
+// AcquireLock attempts to acquire an exclusive lock on the daemon lock file.
+// Returns the lock file handle (caller must keep it open) or error if lock is held.
+func AcquireLock(vaultPath string) (*os.File, error) {
+	if err := EnsureOrchDir(vaultPath); err != nil {
+		return nil, fmt.Errorf("failed to create .orch directory: %w", err)
+	}
+
+	lockPath := LockFilePath(vaultPath)
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open lock file: %w", err)
+	}
+
+	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	if err != nil {
+		f.Close()
+		if err == syscall.EWOULDBLOCK {
+			return nil, fmt.Errorf("another daemon instance is already running")
+		}
+		return nil, fmt.Errorf("failed to acquire lock: %w", err)
+	}
+
+	return f, nil
 }
 
 // WritePID writes the current process PID to the PID file
