@@ -1099,7 +1099,7 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 		Type:            aType,
 		VaultPath:       m.store.VaultPath(),
 		Prompt:          prompt,
-		ContinueSession: true,
+		ContinueSession: false,
 		Port:            port,
 		Model:           modelName,
 		ModelVariant:    modelVariant,
