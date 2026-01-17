@@ -1,9 +1,11 @@
 """Main Textual app for orch monitor."""
 
 import os
+import shlex
+import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -28,6 +30,42 @@ from .widgets import DetailPanel, IssueTable, RunTable
 
 
 AUTO_REFRESH_INTERVAL = 5.0
+
+
+def _get_editor_command(file_path: Path) -> Tuple[Optional[list[str]], Optional[str]]:
+    """Get editor command for opening a file.
+
+    Returns:
+        Tuple of (command_list, error_message).
+        If successful, command_list is set and error_message is None.
+        If failed, command_list is None and error_message describes the issue.
+    """
+    # Validate path - Path() creates "." which is truthy but invalid
+    if not file_path or str(file_path) == "." or not file_path.exists():
+        return None, "Issue file path not found"
+
+    if file_path.is_dir():
+        return None, "Issue path is a directory, not a file"
+
+    # Get editor: prefer VISUAL, then EDITOR, fallback to vim
+    editor_env = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vim"
+
+    # Parse editor command (supports "code --wait", "vim -p", etc.)
+    try:
+        editor_parts = shlex.split(editor_env)
+    except ValueError as e:
+        return None, f"Invalid editor command: {e}"
+
+    if not editor_parts:
+        return None, "Empty editor command"
+
+    # Validate executable exists
+    editor_executable = editor_parts[0]
+    if not shutil.which(editor_executable):
+        return None, f"Editor not found: {editor_executable}"
+
+    # Build full command
+    return editor_parts + [str(file_path)], None
 
 
 class StatusFilterScreen(ModalScreen[set[Status] | None]):
@@ -376,11 +414,16 @@ class IssuesDashboard(App):
         self.selected_issue = issue
 
     def action_open_issue(self) -> None:
-        if not self.selected_issue or not self.selected_issue.path:
+        if not self.selected_issue:
             return
-        editor = os.environ.get("EDITOR", "vim")
+
+        cmd, error = _get_editor_command(self.selected_issue.path)
+        if error or cmd is None:
+            self.notify(error or "Unknown error", severity="error")
+            return
+
         self.exit()
-        subprocess.run([editor, str(self.selected_issue.path)])
+        subprocess.run(cmd)
 
     def action_new_run(self) -> None:
         if not self.selected_issue:
@@ -667,11 +710,16 @@ class OrchMonitorApp(App):
         )
 
     def action_open_issue(self) -> None:
-        if not self.selected_issue or not self.selected_issue.path:
+        if not self.selected_issue:
             return
-        editor = os.environ.get("EDITOR", "vim")
+
+        cmd, error = _get_editor_command(self.selected_issue.path)
+        if error or cmd is None:
+            self.notify(error or "Unknown error", severity="error")
+            return
+
         self.exit()
-        subprocess.run([editor, str(self.selected_issue.path)])
+        subprocess.run(cmd)
 
     def action_select(self) -> None:
         if self.current_focus == "runs" and self.selected_run:
