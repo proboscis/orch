@@ -1,5 +1,6 @@
 """Main Textual app for orch monitor."""
 
+import os
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -291,7 +292,9 @@ class IssuesDashboard(App):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("r", "refresh", "Refresh"),
-        Binding("enter", "new_run", "New Run"),
+        Binding("enter", "open_issue", "Open in Editor"),
+        Binding("n", "new_run", "New Run"),
+        Binding("o", "open_issue", "Open in Editor", show=False),
     ]
 
     def __init__(self, vault_path: Optional[Path] = None, auto_refresh: bool = True):
@@ -372,6 +375,13 @@ class IssuesDashboard(App):
     def _set_selected_issue(self, issue: Optional[Issue]) -> None:
         self.selected_issue = issue
 
+    def action_open_issue(self) -> None:
+        if not self.selected_issue or not self.selected_issue.path:
+            return
+        editor = os.environ.get("EDITOR", "vim")
+        self.exit()
+        subprocess.run([editor, str(self.selected_issue.path)])
+
     def action_new_run(self) -> None:
         if not self.selected_issue:
             return
@@ -406,6 +416,7 @@ class OrchMonitorApp(App):
         Binding("a", "attach", "Attach"),
         Binding("s", "stop", "Stop"),
         Binding("n", "new_run", "New Run"),
+        Binding("o", "open_issue", "Open in Editor"),
         Binding("f", "filter", "Filter"),
         Binding("tab", "switch_focus", "Switch Focus"),
     ]
@@ -655,8 +666,15 @@ class OrchMonitorApp(App):
             ]
         )
 
+    def action_open_issue(self) -> None:
+        if not self.selected_issue or not self.selected_issue.path:
+            return
+        editor = os.environ.get("EDITOR", "vim")
+        self.exit()
+        subprocess.run([editor, str(self.selected_issue.path)])
+
     def action_select(self) -> None:
         if self.current_focus == "runs" and self.selected_run:
             self.action_attach()
         elif self.current_focus == "issues" and self.selected_issue:
-            self.action_new_run()
+            self.action_open_issue()
