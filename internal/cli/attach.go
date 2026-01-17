@@ -78,7 +78,16 @@ func runAttach(refStr string, opts *attachOptions) error {
 		muxType, _ = multiplexer.ParseType(resp.Multiplexer)
 	}
 
-	mux, err := multiplexer.GetWithFallback(muxType)
+	var mux multiplexer.Multiplexer
+	if muxType == multiplexer.TypeAuto {
+		mux, err = multiplexer.GetAuto()
+	} else {
+		var warning string
+		mux, warning, err = multiplexer.GetWithFallback(muxType)
+		if warning != "" {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
+		}
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "no multiplexer available: %v\n", err)
 		os.Exit(ExitTmuxError)

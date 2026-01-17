@@ -12,7 +12,8 @@ func TestParseType(t *testing.T) {
 		wantErr bool
 	}{
 		{"tmux", TypeTmux, false},
-		{"", TypeTmux, false}, // empty defaults to tmux
+		{"", TypeAuto, false}, // empty defaults to auto
+		{"auto", TypeAuto, false},
 		{"zellij", TypeZellij, false},
 		{"invalid", "", true},
 		{"TMUX", "", true}, // case sensitive

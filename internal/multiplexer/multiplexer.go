@@ -20,13 +20,16 @@ const (
 	TypeZellij Type = "zellij"
 )
 
-// ParseType parses a string into a Type.
+const TypeAuto Type = "auto"
+
 func ParseType(s string) (Type, error) {
 	switch s {
-	case "tmux", "":
+	case "tmux":
 		return TypeTmux, nil
 	case "zellij":
 		return TypeZellij, nil
+	case "auto", "":
+		return TypeAuto, nil
 	default:
 		return "", fmt.Errorf("unknown multiplexer type: %s", s)
 	}
@@ -147,17 +150,18 @@ func GetDefault() Multiplexer {
 }
 
 // GetWithFallback returns a multiplexer of the given type, or falls back to an available one.
-func GetWithFallback(preferred Type) (Multiplexer, error) {
+// Returns (mux, warning, nil) on success, where warning is non-empty if fallback occurred.
+// Returns (nil, "", error) only if no multiplexer is available.
+func GetWithFallback(preferred Type) (Multiplexer, string, error) {
 	mux, err := GetMultiplexer(preferred)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	if mux.IsAvailable() {
-		return mux, nil
+		return mux, "", nil
 	}
 
-	// Try fallback
 	alternatives := []Type{TypeTmux, TypeZellij}
 	for _, alt := range alternatives {
 		if alt == preferred {
@@ -165,9 +169,33 @@ func GetWithFallback(preferred Type) (Multiplexer, error) {
 		}
 		altMux, err := GetMultiplexer(alt)
 		if err == nil && altMux.IsAvailable() {
-			return altMux, fmt.Errorf("%s not available, falling back to %s", preferred, alt)
+			warning := fmt.Sprintf("%s not available, using %s", preferred, alt)
+			return altMux, warning, nil
 		}
 	}
 
-	return nil, fmt.Errorf("%s is not available and no fallback multiplexer found", preferred)
+	return nil, "", fmt.Errorf("%s is not available and no fallback multiplexer found", preferred)
+}
+
+// GetAuto returns the best available multiplexer based on environment.
+// Priority: current session > zellij (if available) > tmux (if available).
+func GetAuto() (Multiplexer, error) {
+	tmux, _ := GetMultiplexer(TypeTmux)
+	zellij, _ := GetMultiplexer(TypeZellij)
+
+	if tmux != nil && tmux.IsInsideSession() {
+		return tmux, nil
+	}
+	if zellij != nil && zellij.IsInsideSession() {
+		return zellij, nil
+	}
+
+	if zellij != nil && zellij.IsAvailable() {
+		return zellij, nil
+	}
+	if tmux != nil && tmux.IsAvailable() {
+		return tmux, nil
+	}
+
+	return nil, fmt.Errorf("no terminal multiplexer available (install tmux or zellij)")
 }

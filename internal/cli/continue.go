@@ -239,9 +239,18 @@ func continueFromRun(st store.Store, refStr string, opts *continueOptions) error
 
 	if opts.Tmux {
 		muxType, _ := multiplexer.ParseType(opts.Multiplexer)
-		mux, err := multiplexer.GetWithFallback(muxType)
+		var mux multiplexer.Multiplexer
+		if muxType == multiplexer.TypeAuto {
+			mux, err = multiplexer.GetAuto()
+		} else {
+			var warning string
+			mux, warning, err = multiplexer.GetWithFallback(muxType)
+			if warning != "" {
+				fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
+			}
+		}
 		if err != nil {
-			return exitWithCode(fmt.Errorf("%s is not available", muxType), ExitTmuxError)
+			return exitWithCode(err, ExitTmuxError)
 		}
 
 		err = mux.NewSession(&multiplexer.SessionConfig{
@@ -428,9 +437,18 @@ func continueFromBranch(st store.Store, refStr string, opts *continueOptions) er
 
 	if opts.Tmux {
 		muxType, _ := multiplexer.ParseType(opts.Multiplexer)
-		mux, err := multiplexer.GetWithFallback(muxType)
+		var mux multiplexer.Multiplexer
+		if muxType == multiplexer.TypeAuto {
+			mux, err = multiplexer.GetAuto()
+		} else {
+			var warning string
+			mux, warning, err = multiplexer.GetWithFallback(muxType)
+			if warning != "" {
+				fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
+			}
+		}
 		if err != nil {
-			return exitWithCode(fmt.Errorf("%s is not available", muxType), ExitTmuxError)
+			return exitWithCode(err, ExitTmuxError)
 		}
 
 		err = mux.NewSession(&multiplexer.SessionConfig{

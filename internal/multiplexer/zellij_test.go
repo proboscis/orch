@@ -364,11 +364,12 @@ func TestZellijMultiplexer_CurrentSession_NotInSession(t *testing.T) {
 	}
 }
 
-func TestZellijMultiplexer_SetOption_NoOp(t *testing.T) {
+func TestZellijMultiplexer_SetOption_Unsupported(t *testing.T) {
 	zm := NewZellijMultiplexer()
-	// SetOption is a no-op for zellij, should not error
-	if err := zm.SetOption("sess", "option", "value"); err != nil {
-		t.Fatalf("SetOption error: %v", err)
+	// SetOption returns ErrUnsupported for zellij (no equivalent)
+	err := zm.SetOption("sess", "option", "value")
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("expected ErrUnsupported, got: %v", err)
 	}
 }
 
@@ -428,15 +429,12 @@ func TestZellijMultiplexer_SelectWindowByID_Unsupported(t *testing.T) {
 	}
 }
 
-func TestZellijMultiplexer_ListPaneCommands(t *testing.T) {
+func TestZellijMultiplexer_ListPaneCommands_Unsupported(t *testing.T) {
 	zm := NewZellijMultiplexer()
-	// ListPaneCommands should return empty map for zellij
-	commands, err := zm.ListPaneCommands()
-	if err != nil {
-		t.Fatalf("ListPaneCommands error: %v", err)
-	}
-	if len(commands) != 0 {
-		t.Fatalf("expected empty commands, got %v", commands)
+	// ListPaneCommands returns ErrUnsupported for zellij (no equivalent)
+	_, err := zm.ListPaneCommands()
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("expected ErrUnsupported, got: %v", err)
 	}
 }
 
@@ -457,30 +455,19 @@ func TestZellijMultiplexer_ListPanes_Unsupported(t *testing.T) {
 }
 
 func TestZellijMultiplexer_AgentAlive(t *testing.T) {
-	// Test when session exists
-	exec := &fakeExecutor{calls: []fakeCall{{output: "test-session\n"}}}
-	orig := execCommand
-	execCommand = exec.Command
-	t.Cleanup(func() { execCommand = orig })
-
+	// Zellij cannot reliably detect agent liveness, so always returns (false, false) = unknown
 	zm := NewZellijMultiplexer()
 	alive, known := zm.AgentAlive("test-session", nil)
-	if !alive || !known {
-		t.Fatalf("AgentAlive = (%v, %v), want (true, true)", alive, known)
+	if alive || known {
+		t.Fatalf("AgentAlive = (%v, %v), want (false, false) for unknown", alive, known)
 	}
 }
 
 func TestZellijMultiplexer_AgentAlive_Missing(t *testing.T) {
-	exec := &fakeExecutor{calls: []fakeCall{{output: "other-session\n"}}}
-	orig := execCommand
-	execCommand = exec.Command
-	t.Cleanup(func() { execCommand = orig })
-
+	// Zellij always returns unknown, regardless of session existence
 	zm := NewZellijMultiplexer()
-	alive, known := zm.AgentAlive("test-session", nil)
-	// Zellij cannot determine pane commands, so when session doesn't exist,
-	// both alive and known are false (we don't have enough info)
+	alive, known := zm.AgentAlive("nonexistent-session", nil)
 	if alive || known {
-		t.Fatalf("AgentAlive = (%v, %v), want (false, false)", alive, known)
+		t.Fatalf("AgentAlive = (%v, %v), want (false, false) for unknown", alive, known)
 	}
 }

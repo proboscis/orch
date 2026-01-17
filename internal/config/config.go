@@ -590,7 +590,7 @@ func (c *Config) GetMultiplexer() string {
 	if c.Multiplexer != "" {
 		return c.Multiplexer
 	}
-	return "zellij"
+	return "auto"
 }
 
 // ExpandPath expands ~ and makes path absolute relative to base

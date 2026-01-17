@@ -296,26 +296,23 @@ def detect_current_multiplexer() -> Optional[MultiplexerType]:
 
 
 def get_default_multiplexer_type() -> MultiplexerType:
-    """Get the default multiplexer based on environment and availability."""
-    # Prefer the one we're inside of
+    """Get the best available multiplexer (auto mode)."""
     inside = detect_current_multiplexer()
     if inside:
         return inside
 
-    # Check ORCH_MULTIPLEXER environment variable
     env_mux = os.environ.get("ORCH_MULTIPLEXER", "").lower()
     if env_mux == "tmux" and _MULTIPLEXERS[MultiplexerType.TMUX].is_available():
         return MultiplexerType.TMUX
+    if env_mux == "zellij" and _MULTIPLEXERS[MultiplexerType.ZELLIJ].is_available():
+        return MultiplexerType.ZELLIJ
 
-    # Default to zellij if available
     if _MULTIPLEXERS[MultiplexerType.ZELLIJ].is_available():
         return MultiplexerType.ZELLIJ
 
-    # Fall back to tmux
     if _MULTIPLEXERS[MultiplexerType.TMUX].is_available():
         return MultiplexerType.TMUX
 
-    # Default to zellij even if not available (will fail later with clear error)
     return MultiplexerType.ZELLIJ
 
 

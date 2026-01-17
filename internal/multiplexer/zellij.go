@@ -333,7 +333,7 @@ func (z *ZellijMultiplexer) CurrentSession() (string, error) {
 }
 
 func (z *ZellijMultiplexer) SetOption(session, option, value string) error {
-	return nil
+	return unsupportedErr("runtime options")
 }
 
 func (z *ZellijMultiplexer) GetOption(session, option string) (string, error) {
@@ -353,12 +353,9 @@ func (z *ZellijMultiplexer) UnlinkWindow(session string, index int) error {
 }
 
 func (z *ZellijMultiplexer) ListPaneCommands() (map[string][]string, error) {
-	return map[string][]string{}, nil
+	return nil, unsupportedErr("pane command inspection")
 }
 
 func (z *ZellijMultiplexer) AgentAlive(session string, paneCommands map[string][]string) (bool, bool) {
-	if z.HasSession(session) {
-		return true, true
-	}
 	return false, false
 }
