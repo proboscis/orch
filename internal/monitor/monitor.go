@@ -137,18 +137,30 @@ func (m *Monitor) IssueSort() SortKey {
 	return m.issueSort
 }
 
-// CycleRunSort advances to the next run sort key and saves the setting.
 func (m *Monitor) CycleRunSort() SortKey {
-	m.runSort = NextSortKey(m.runSort)
+	m.runSort = NextRunSortKey(m.runSort)
 	m.saveUISettings()
 	return m.runSort
 }
 
-// CycleIssueSort advances to the next issue sort key and saves the setting.
 func (m *Monitor) CycleIssueSort() SortKey {
-	m.issueSort = NextSortKey(m.issueSort)
+	m.issueSort = NextIssueSortKey(m.issueSort)
 	m.saveUISettings()
 	return m.issueSort
+}
+
+func (m *Monitor) SetRunSort(key SortKey) {
+	if IsValidRunSortKey(key) {
+		m.runSort = key
+		m.saveUISettings()
+	}
+}
+
+func (m *Monitor) SetIssueSort(key SortKey) {
+	if IsValidIssueSortKey(key) {
+		m.issueSort = key
+		m.saveUISettings()
+	}
 }
 
 // ShowResolved returns whether resolved issues should be shown.

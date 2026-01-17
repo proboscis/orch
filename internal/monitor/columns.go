@@ -74,6 +74,46 @@ func GetColumnDef(id ColumnID) (ColumnDef, bool) {
 	return def, ok
 }
 
+func SortKeyToColumnID(key SortKey) ColumnID {
+	switch key {
+	case SortByUpdated:
+		return ColUpdated
+	case SortByStarted:
+		return ColStarted
+	case SortByStatus:
+		return ColStatus
+	case SortByIssue:
+		return ColIssue
+	case SortByAgent:
+		return ColAgent
+	case SortByElapsed:
+		return ColStarted
+	case SortByName:
+		return ColID
+	default:
+		return ""
+	}
+}
+
+func ColumnIDToSortKey(col ColumnID) SortKey {
+	switch col {
+	case ColUpdated:
+		return SortByUpdated
+	case ColStarted:
+		return SortByStarted
+	case ColStatus:
+		return SortByStatus
+	case ColIssue:
+		return SortByIssue
+	case ColAgent:
+		return SortByAgent
+	case ColID:
+		return SortByName
+	default:
+		return ""
+	}
+}
+
 func DefaultColumns() []ColumnID {
 	return defaultColumns
 }
@@ -93,6 +133,19 @@ func LoadColumns(cfg *config.Config) []ColumnID {
 		return defaultColumns
 	}
 	return cols
+}
+
+func GetColumnHeader(col ColumnID, sortKey SortKey, sortDir SortDirection) string {
+	def, ok := columnRegistry[col]
+	if !ok {
+		return ""
+	}
+	header := def.Header
+	sortCol := SortKeyToColumnID(sortKey)
+	if sortCol == col || (sortKey == SortByElapsed && col == ColStarted) {
+		header += " " + SortIndicator(sortDir)
+	}
+	return header
 }
 
 func GetColumnValue(col ColumnID, row *RunRow, now time.Time) string {

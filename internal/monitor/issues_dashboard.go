@@ -329,6 +329,31 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		d.message = fmt.Sprintf("sort: %s", sortKey)
 		d.refreshing = true
 		return d, d.refreshCmd()
+	case d.keymap.SortID:
+		d.monitor.SetIssueSort(SortByName)
+		d.message = fmt.Sprintf("sort: %s", SortByName)
+		d.refreshing = true
+		return d, d.refreshCmd()
+	case d.keymap.SortStatus:
+		d.monitor.SetIssueSort(SortByStatus)
+		d.message = fmt.Sprintf("sort: %s", SortByStatus)
+		d.refreshing = true
+		return d, d.refreshCmd()
+	case d.keymap.SortTitle:
+		d.monitor.SetIssueSort(SortByTitle)
+		d.message = fmt.Sprintf("sort: %s", SortByTitle)
+		d.refreshing = true
+		return d, d.refreshCmd()
+	case d.keymap.SortPriority:
+		d.monitor.SetIssueSort(SortByPriority)
+		d.message = fmt.Sprintf("sort: %s", SortByPriority)
+		d.refreshing = true
+		return d, d.refreshCmd()
+	case d.keymap.SortUpdated:
+		d.monitor.SetIssueSort(SortByUpdated)
+		d.message = fmt.Sprintf("sort: %s", SortByUpdated)
+		d.refreshing = true
+		return d, d.refreshCmd()
 	case d.keymap.OpenRun:
 		if row := d.currentIssue(); row != nil {
 			d.mode = modeSelectRun
@@ -872,8 +897,25 @@ func (d *IssueDashboard) renderTable(maxRows int) string {
 
 	idxW, idW, statusW, latestW, activeW, summaryW := d.tableWidths()
 
+	sortKey := d.monitor.IssueSort()
+	sortDir := DefaultSortDirection(sortKey)
+	indicator := SortIndicator(sortDir)
+
+	idHeader := "ID"
+	statusHeader := "STATUS"
+	summaryHeader := "SUMMARY"
+
+	switch sortKey {
+	case SortByName, SortByID:
+		idHeader += " " + indicator
+	case SortByStatus:
+		statusHeader += " " + indicator
+	case SortByTitle:
+		summaryHeader += " " + indicator
+	}
+
 	header := d.renderRow(idxW, idW, statusW, latestW, activeW, summaryW,
-		"#", "ID", "STATUS", "LATEST", "ACTIVE", "SUMMARY", true, nil)
+		"#", idHeader, statusHeader, "LATEST", "ACTIVE", summaryHeader, true, nil)
 
 	var rows []string
 	visibleRows := d.issueVisibleRows(maxRows)

@@ -2,7 +2,6 @@ package monitor
 
 import "fmt"
 
-// IssueKeyMap defines shortcuts for the issues dashboard.
 type IssueKeyMap struct {
 	Runs        string
 	Issues      string
@@ -18,9 +17,14 @@ type IssueKeyMap struct {
 	Attach      string
 	Quit        string
 	Help        string
+
+	SortID       string
+	SortStatus   string
+	SortTitle    string
+	SortPriority string
+	SortUpdated  string
 }
 
-// DefaultIssueKeyMap returns the default issue dashboard shortcut mapping.
 func DefaultIssueKeyMap() IssueKeyMap {
 	return IssueKeyMap{
 		Runs:        "g",
@@ -37,6 +41,12 @@ func DefaultIssueKeyMap() IssueKeyMap {
 		Attach:      "a",
 		Quit:        "q",
 		Help:        "?",
+
+		SortID:       "1",
+		SortStatus:   "t",
+		SortTitle:    "n",
+		SortPriority: "p",
+		SortUpdated:  "u",
 	}
 }
 
