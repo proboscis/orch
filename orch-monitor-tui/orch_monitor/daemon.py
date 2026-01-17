@@ -7,8 +7,12 @@ The daemon is the single source of truth for all data.
 """
 
 import json
+import shutil
 import socket
 import stat
+import subprocess
+import sys
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -323,6 +327,49 @@ class DaemonClient:
     def close(self) -> None:
         """Close the client (no-op for socket-based client)."""
         pass
+
+
+def ensure_daemon_running(socket_path: Path, vault_path: Path) -> bool:
+    """Ensure daemon is running, starting it if necessary.
+
+    Args:
+        socket_path: Path to the daemon socket
+        vault_path: Path to the orch vault
+
+    Returns:
+        True if daemon is available, False if failed to start
+    """
+    client = DaemonClient(socket_path)
+
+    if client.is_available():
+        return True
+
+    orch_cmd = shutil.which("orch")
+    if not orch_cmd:
+        print("Error: 'orch' command not found in PATH", file=sys.stderr)
+        return False
+
+    print("Starting orch daemon...", file=sys.stderr)
+
+    try:
+        subprocess.Popen(
+            [orch_cmd, "daemon", "--vault", str(vault_path)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except subprocess.SubprocessError as e:
+        print(f"Error: Failed to start daemon: {e}", file=sys.stderr)
+        return False
+
+    for _ in range(10):
+        time.sleep(0.2)
+        if client.is_available():
+            print("Daemon started", file=sys.stderr)
+            return True
+
+    print("Error: Daemon did not become available after starting", file=sys.stderr)
+    return False
 
 
 def _parse_timestamp(ts_str: str) -> Optional[datetime]:

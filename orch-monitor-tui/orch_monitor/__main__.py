@@ -9,7 +9,7 @@ from typing import Protocol
 
 from .app import IssuesDashboard, OrchMonitorApp, RunsDashboard
 from .config import Config
-from .daemon import DaemonClient
+from .daemon import DaemonClient, ensure_daemon_running
 from .multiplexer import (
     MultiplexerType,
     get_default_multiplexer_type,
@@ -428,6 +428,17 @@ def main():
 
     args = parser.parse_args()
     vault_path = get_vault_path(args)
+
+    try:
+        config = Config.from_vault(vault_path) if vault_path else Config.load()
+    except Exception as e:
+        print(f"Error: Failed to load config: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if not ensure_daemon_running(config.socket_path, config.vault_path):
+        print("Error: Daemon is not available and failed to start", file=sys.stderr)
+        print("Run 'orch repair' to fix daemon issues", file=sys.stderr)
+        sys.exit(1)
 
     if args.runs:
         app = RunsDashboard(vault_path=vault_path)

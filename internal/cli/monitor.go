@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"fmt"
 	"os"
+	"time"
 
+	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/monitor"
 	"github.com/spf13/cobra"
@@ -56,6 +59,19 @@ func runMonitor(opts *monitorOptions) error {
 	st, err := getStore()
 	if err != nil {
 		return err
+	}
+
+	// Auto-start daemon if not running
+	vaultPath := st.VaultPath()
+	if !daemon.IsRunning(vaultPath) {
+		fmt.Fprintf(os.Stderr, "Starting orch daemon...\n")
+		_, err := daemon.StartInBackground(vaultPath)
+		if err != nil {
+			return fmt.Errorf("failed to start daemon: %w", err)
+		}
+		// Give daemon a moment to initialize
+		time.Sleep(200 * time.Millisecond)
+		fmt.Fprintf(os.Stderr, "Daemon started\n")
 	}
 
 	// Load UI settings from .orch directory
