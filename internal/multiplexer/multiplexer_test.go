@@ -1,6 +1,7 @@
 package multiplexer
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -143,5 +144,15 @@ func TestPaneStruct(t *testing.T) {
 	}
 	if p.Command != "bash" {
 		t.Fatal("Command mismatch")
+	}
+}
+
+func TestErrUnsupported(t *testing.T) {
+	err := unsupportedErr("test feature")
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("expected errors.Is(err, ErrUnsupported) to be true")
+	}
+	if err.Error() != "multiplexer: operation not supported: test feature" {
+		t.Fatalf("unexpected error message: %v", err)
 	}
 }

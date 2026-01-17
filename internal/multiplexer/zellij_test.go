@@ -1,6 +1,7 @@
 package multiplexer
 
 import (
+	"errors"
 	"os"
 	"testing"
 )
@@ -251,14 +252,13 @@ func TestZellijMultiplexer_SplitWindow(t *testing.T) {
 	t.Cleanup(func() { execCommand = orig })
 
 	zm := NewZellijMultiplexer()
-	// Vertical split
 	_, err := zm.SplitWindow("sess:0", true, 25)
 	if err != nil {
 		t.Fatalf("SplitWindow error: %v", err)
 	}
 
 	call := exec.recorded[0]
-	if !equalArgs(call.args, []string{"action", "new-pane", "--direction", "down"}) {
+	if !equalArgs(call.args, []string{"--session", "sess", "action", "new-pane", "--direction", "down"}) {
 		t.Fatalf("new-pane args = %v", call.args)
 	}
 }
@@ -270,15 +270,22 @@ func TestZellijMultiplexer_SplitWindow_Horizontal(t *testing.T) {
 	t.Cleanup(func() { execCommand = orig })
 
 	zm := NewZellijMultiplexer()
-	// Horizontal split
 	_, err := zm.SplitWindow("sess:0", false, 25)
 	if err != nil {
 		t.Fatalf("SplitWindow error: %v", err)
 	}
 
 	call := exec.recorded[0]
-	if !equalArgs(call.args, []string{"action", "new-pane", "--direction", "right"}) {
+	if !equalArgs(call.args, []string{"--session", "sess", "action", "new-pane", "--direction", "right"}) {
 		t.Fatalf("new-pane args = %v", call.args)
+	}
+}
+
+func TestZellijMultiplexer_SplitWindow_NoSession(t *testing.T) {
+	zm := NewZellijMultiplexer()
+	_, err := zm.SplitWindow("", true, 25)
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("expected ErrUnsupported, got: %v", err)
 	}
 }
 
@@ -289,13 +296,21 @@ func TestZellijMultiplexer_SetPaneTitle(t *testing.T) {
 	t.Cleanup(func() { execCommand = orig })
 
 	zm := NewZellijMultiplexer()
-	if err := zm.SetPaneTitle("%1", "mytitle"); err != nil {
+	if err := zm.SetPaneTitle("sess:0.1", "mytitle"); err != nil {
 		t.Fatalf("SetPaneTitle error: %v", err)
 	}
 
 	call := exec.recorded[0]
-	if !equalArgs(call.args, []string{"action", "rename-pane", "mytitle"}) {
+	if !equalArgs(call.args, []string{"--session", "sess", "action", "rename-pane", "mytitle"}) {
 		t.Fatalf("rename-pane args = %v", call.args)
+	}
+}
+
+func TestZellijMultiplexer_SetPaneTitle_NoSession(t *testing.T) {
+	zm := NewZellijMultiplexer()
+	err := zm.SetPaneTitle("", "mytitle")
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("expected ErrUnsupported, got: %v", err)
 	}
 }
 
@@ -306,13 +321,21 @@ func TestZellijMultiplexer_KillPane(t *testing.T) {
 	t.Cleanup(func() { execCommand = orig })
 
 	zm := NewZellijMultiplexer()
-	if err := zm.KillPane("%1"); err != nil {
+	if err := zm.KillPane("sess:0.1"); err != nil {
 		t.Fatalf("KillPane error: %v", err)
 	}
 
 	call := exec.recorded[0]
-	if !equalArgs(call.args, []string{"action", "close-pane"}) {
+	if !equalArgs(call.args, []string{"--session", "sess", "action", "close-pane"}) {
 		t.Fatalf("close-pane args = %v", call.args)
+	}
+}
+
+func TestZellijMultiplexer_KillPane_NoSession(t *testing.T) {
+	zm := NewZellijMultiplexer()
+	err := zm.KillPane("")
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("expected ErrUnsupported, got: %v", err)
 	}
 }
 
@@ -349,57 +372,59 @@ func TestZellijMultiplexer_SetOption_NoOp(t *testing.T) {
 	}
 }
 
-func TestZellijMultiplexer_GetOption_Error(t *testing.T) {
+func TestZellijMultiplexer_GetOption_Unsupported(t *testing.T) {
 	zm := NewZellijMultiplexer()
-	// GetOption should return an error for zellij
 	_, err := zm.GetOption("sess", "option")
-	if err == nil {
-		t.Fatal("expected error for GetOption")
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("expected ErrUnsupported, got: %v", err)
 	}
 }
 
-func TestZellijMultiplexer_SelectPane_Error(t *testing.T) {
+func TestZellijMultiplexer_SelectPane_Unsupported(t *testing.T) {
 	zm := NewZellijMultiplexer()
-	// SelectPane should return an error for zellij
 	err := zm.SelectPane("%1")
-	if err == nil {
-		t.Fatal("expected error for SelectPane")
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("expected ErrUnsupported, got: %v", err)
 	}
 }
 
-func TestZellijMultiplexer_SwapPane_Error(t *testing.T) {
+func TestZellijMultiplexer_SwapPane_Unsupported(t *testing.T) {
 	zm := NewZellijMultiplexer()
-	// SwapPane should return an error for zellij
 	err := zm.SwapPane("%1", "%2")
-	if err == nil {
-		t.Fatal("expected error for SwapPane")
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("expected ErrUnsupported, got: %v", err)
 	}
 }
 
-func TestZellijMultiplexer_LinkWindow_Error(t *testing.T) {
+func TestZellijMultiplexer_LinkWindow_Unsupported(t *testing.T) {
 	zm := NewZellijMultiplexer()
-	// LinkWindow should return an error for zellij
 	err := zm.LinkWindow("source", 1, "target", 2)
-	if err == nil {
-		t.Fatal("expected error for LinkWindow")
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("expected ErrUnsupported, got: %v", err)
 	}
 }
 
-func TestZellijMultiplexer_LinkWindowByID_Error(t *testing.T) {
+func TestZellijMultiplexer_LinkWindowByID_Unsupported(t *testing.T) {
 	zm := NewZellijMultiplexer()
-	// LinkWindowByID should return an error for zellij
 	err := zm.LinkWindowByID("@1", "sess", 2)
-	if err == nil {
-		t.Fatal("expected error for LinkWindowByID")
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("expected ErrUnsupported, got: %v", err)
 	}
 }
 
-func TestZellijMultiplexer_UnlinkWindow_Error(t *testing.T) {
+func TestZellijMultiplexer_UnlinkWindow_Unsupported(t *testing.T) {
 	zm := NewZellijMultiplexer()
-	// UnlinkWindow should return an error for zellij
 	err := zm.UnlinkWindow("sess", 1)
-	if err == nil {
-		t.Fatal("expected error for UnlinkWindow")
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("expected ErrUnsupported, got: %v", err)
+	}
+}
+
+func TestZellijMultiplexer_SelectWindowByID_Unsupported(t *testing.T) {
+	zm := NewZellijMultiplexer()
+	err := zm.SelectWindowByID("@1")
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("expected ErrUnsupported, got: %v", err)
 	}
 }
 
@@ -415,27 +440,19 @@ func TestZellijMultiplexer_ListPaneCommands(t *testing.T) {
 	}
 }
 
-func TestZellijMultiplexer_ListWindows(t *testing.T) {
+func TestZellijMultiplexer_ListWindows_Unsupported(t *testing.T) {
 	zm := NewZellijMultiplexer()
-	// ListWindows should return nil for zellij (not supported via CLI)
-	windows, err := zm.ListWindows("sess")
-	if err != nil {
-		t.Fatalf("ListWindows error: %v", err)
-	}
-	if windows != nil {
-		t.Fatalf("expected nil windows, got %v", windows)
+	_, err := zm.ListWindows("sess")
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("expected ErrUnsupported, got: %v", err)
 	}
 }
 
-func TestZellijMultiplexer_ListPanes(t *testing.T) {
+func TestZellijMultiplexer_ListPanes_Unsupported(t *testing.T) {
 	zm := NewZellijMultiplexer()
-	// ListPanes should return nil for zellij (not supported via CLI)
-	panes, err := zm.ListPanes("sess:0")
-	if err != nil {
-		t.Fatalf("ListPanes error: %v", err)
-	}
-	if panes != nil {
-		t.Fatalf("expected nil panes, got %v", panes)
+	_, err := zm.ListPanes("sess:0")
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("expected ErrUnsupported, got: %v", err)
 	}
 }
 

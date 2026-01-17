@@ -2,10 +2,15 @@
 package multiplexer
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"time"
 )
+
+// ErrUnsupported is returned when an operation is not supported by a multiplexer.
+// Callers can use errors.Is(err, ErrUnsupported) to check for this condition.
+var ErrUnsupported = errors.New("multiplexer: operation not supported")
 
 // Type represents the type of terminal multiplexer.
 type Type string
