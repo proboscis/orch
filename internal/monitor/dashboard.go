@@ -811,6 +811,9 @@ func (d *Dashboard) findRunIndex(runRef string, fallbackIndex int) int {
 		}
 	}
 
+	if fallbackIndex < 0 {
+		return 0
+	}
 	if fallbackIndex < len(d.runs) {
 		return fallbackIndex
 	}

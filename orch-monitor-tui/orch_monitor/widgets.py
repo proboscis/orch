@@ -24,8 +24,10 @@ class RunTable(DataTable):
             return None
         try:
             row_key, _ = self.coordinate_to_cell_key(self.cursor_coordinate)
-            return str(row_key.value) if row_key else None
-        except Exception:
+            if row_key is None or row_key.value is None:
+                return None
+            return str(row_key.value)
+        except (KeyError, IndexError):
             return None
 
     def _restore_cursor(
@@ -106,8 +108,10 @@ class IssueTable(DataTable):
             return None
         try:
             row_key, _ = self.coordinate_to_cell_key(self.cursor_coordinate)
-            return str(row_key.value) if row_key else None
-        except Exception:
+            if row_key is None or row_key.value is None:
+                return None
+            return str(row_key.value)
+        except (KeyError, IndexError):
             return None
 
     def _restore_cursor(
