@@ -288,13 +288,13 @@ class ZellijLayoutLauncher:
         python_exec = sys.executable
         vault_arg = f"--vault {vault_path}" if vault_path else ""
 
-        # Build commands
-        runs_cmd = f'"{python_exec}" -m orch_monitor --runs {vault_arg}'.strip()
-        issues_cmd = f'"{python_exec}" -m orch_monitor --issues {vault_arg}'.strip()
+        runs_cmd = f"{python_exec} -m orch_monitor --runs {vault_arg}".strip()
+        issues_cmd = f"{python_exec} -m orch_monitor --issues {vault_arg}".strip()
 
         write_control_prompt(vault_path)
         if agent == "opencode":
-            agent_cmd = f'opencode --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
+            prompt_escaped = CONTROL_PROMPT_INSTRUCTION.replace('"', '\\"')
+            agent_cmd = f'opencode --prompt \\"{prompt_escaped}\\"'
         else:
             agent_cmd = agent
 
