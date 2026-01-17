@@ -66,7 +66,7 @@ class RunTable(CursorPreservingTable):
         self.add_column("Issue", width=15)
         self.add_column("Status", width=12)
         self.add_column("Agent", width=10)
-        self.add_column("Elapsed", width=10)
+        self.add_column("Elapsed", width=10, key="elapsed")
         self.add_column("Branch", width=25)
 
         for run in runs:
