@@ -917,13 +917,7 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		branch := formatBranchDisplay(w.Run.Branch, runTableBranchWidth)
 		worktree := formatWorktreeDisplay(w.Run.WorktreePath, runTableWorktreeWidth)
 
-		modelDisplay := "-"
-		if w.Run.Model != "" {
-			modelDisplay = w.Run.Model
-			if w.Run.ModelVariant != "" {
-				modelDisplay = w.Run.Model + "/" + w.Run.ModelVariant
-			}
-		}
+		modelDisplay := agent.ModelDisplayName(w.Run.Model, w.Run.ModelVariant)
 
 		rows = append(rows, RunRow{
 			Index:        w.Index,

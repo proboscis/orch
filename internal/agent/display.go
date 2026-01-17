@@ -169,3 +169,27 @@ func variantSuffix(variant string) string {
 }
 
 const MaxAgentDisplayWidth = 15
+const MaxModelDisplayWidth = 18
+
+func ModelDisplayName(model, variant string) string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return "-"
+	}
+
+	shortModel := shortenModelName(model)
+	if shortModel == "" {
+		return "-"
+	}
+
+	variant = strings.TrimSpace(variant)
+	if variant == "" {
+		return shortModel
+	}
+
+	result := shortModel + "/" + variant
+	if len(result) > MaxModelDisplayWidth {
+		return result[:MaxModelDisplayWidth]
+	}
+	return result
+}
