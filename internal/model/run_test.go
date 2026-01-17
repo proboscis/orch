@@ -39,6 +39,20 @@ func TestParseRunRef(t *testing.T) {
 			issueID: "plc124",
 			runID:   "20231220",
 		},
+		{
+			name:    "github issue with hash",
+			input:   "gh#267#20260118-041509",
+			wantErr: false,
+			issueID: "gh#267",
+			runID:   "20260118-041509",
+		},
+		{
+			name:    "github issue only",
+			input:   "gh#267",
+			wantErr: false,
+			issueID: "gh#267",
+			runID:   "",
+		},
 	}
 
 	for _, tt := range tests {

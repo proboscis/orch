@@ -705,6 +705,11 @@ func (s *SocketServer) handleGetAttachInfo(req SendRequest, encoder *json.Encode
 		tmuxSession = model.GenerateTmuxSession(run.IssueID, run.RunID)
 	}
 
+	serverPort := run.ServerPort
+	if run.Agent == "opencode" && serverPort == 0 {
+		serverPort = agent.FindRunningOpenCodeServer(4096, 4105)
+	}
+
 	encoder.Encode(GetAttachInfoResponse{
 		OK:                true,
 		IssueID:           run.IssueID,
@@ -713,7 +718,7 @@ func (s *SocketServer) handleGetAttachInfo(req SendRequest, encoder *json.Encode
 		TmuxSession:       tmuxSession,
 		Multiplexer:       run.Multiplexer,
 		WorktreePath:      run.WorktreePath,
-		ServerPort:        run.ServerPort,
+		ServerPort:        serverPort,
 		OpenCodeSessionID: run.OpenCodeSessionID,
 	})
 }

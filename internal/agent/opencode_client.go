@@ -179,6 +179,19 @@ func (c *OpenCodeClient) IsServerRunning(ctx context.Context) bool {
 	return running
 }
 
+func FindRunningOpenCodeServer(startPort, endPort int) int {
+	for port := startPort; port <= endPort; port++ {
+		client := NewOpenCodeClient(port)
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		running := client.IsServerRunning(ctx)
+		cancel()
+		if running {
+			return port
+		}
+	}
+	return 0
+}
+
 // ProjectInfo represents the current project info from opencode
 type ProjectInfo struct {
 	ID       string `json:"id"`

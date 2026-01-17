@@ -22,14 +22,31 @@ func ParseRunRef(ref string) (*RunRef, error) {
 		return nil, fmt.Errorf("empty run reference")
 	}
 
-	parts := strings.SplitN(ref, "#", 2)
-	r := &RunRef{
-		IssueID: parts[0],
+	lastHash := strings.LastIndex(ref, "#")
+	if lastHash == -1 {
+		return &RunRef{IssueID: ref}, nil
 	}
-	if len(parts) > 1 {
-		r.RunID = parts[1]
+
+	candidate := ref[lastHash+1:]
+	if looksLikeRunID(candidate) {
+		return &RunRef{
+			IssueID: ref[:lastHash],
+			RunID:   candidate,
+		}, nil
 	}
-	return r, nil
+	return &RunRef{IssueID: ref}, nil
+}
+
+func looksLikeRunID(s string) bool {
+	if len(s) < 8 {
+		return false
+	}
+	for i := 0; i < 8; i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // String returns the canonical RUN_REF format

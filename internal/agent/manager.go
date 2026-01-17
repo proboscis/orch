@@ -108,8 +108,12 @@ type AgentManager interface {
 
 func GetManager(run *model.Run) AgentManager {
 	if run.Agent == string(AgentOpenCode) {
+		port := run.ServerPort
+		if port == 0 {
+			port = FindRunningOpenCodeServer(4096, 4105)
+		}
 		return &OpenCodeManager{
-			Port:      run.ServerPort,
+			Port:      port,
 			SessionID: run.OpenCodeSessionID,
 			Directory: run.WorktreePath,
 			RunRef:    run.Ref().String(),

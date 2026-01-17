@@ -4,6 +4,7 @@ import argparse
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Protocol
 
@@ -147,6 +148,29 @@ def get_vault_path(args) -> Path | None:
     if vault_env:
         return Path(vault_env)
     return None
+
+
+def ensure_daemon(vault_path: Path | None) -> bool:
+    config = Config.from_vault(vault_path) if vault_path else Config.load()
+    daemon = DaemonClient(config.socket_path)
+
+    if daemon.is_available():
+        return True
+
+    vault_arg = ["--vault", str(vault_path)] if vault_path else []
+    try:
+        subprocess.run(
+            ["orch"] + vault_arg + ["daemon", "start"],
+            capture_output=True,
+            timeout=10,
+        )
+        for _ in range(10):
+            time.sleep(0.2)
+            if daemon.is_available():
+                return True
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    return False
 
 
 class LayoutLauncher(Protocol):
@@ -447,6 +471,10 @@ def main():
 
     args = parser.parse_args()
     vault_path = get_vault_path(args)
+
+    if not ensure_daemon(vault_path):
+        print("Failed to start orch daemon. Run 'orch repair' to fix.", file=sys.stderr)
+        sys.exit(1)
 
     if args.runs:
         app = RunsDashboard(vault_path=vault_path)
