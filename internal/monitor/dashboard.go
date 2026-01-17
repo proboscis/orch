@@ -26,11 +26,17 @@ const (
 	modeStopSelectRun
 	modeNewSelectIssue
 	modeDashboardFilter
+	modeKillConfirm
 	modeHelp
 )
 
 type stopState struct {
 	runs []RunRow
+}
+
+type killState struct {
+	run         *model.Run
+	tmuxSession string
 }
 
 type newRunState struct {
@@ -70,6 +76,7 @@ type Dashboard struct {
 	issue   issueState
 
 	stop   stopState
+	kill   killState
 	newRun newRunState
 	filter runFilterState
 
@@ -243,6 +250,8 @@ func (d *Dashboard) View() string {
 		return d.styles.Box.Render(d.viewNewRun())
 	case modeDashboardFilter:
 		return d.styles.Box.Render(d.viewFilter())
+	case modeKillConfirm:
+		return d.styles.Box.Render(d.viewKillConfirm())
 	case modeHelp:
 		return d.styles.Box.Render(d.viewHelp())
 	default:
@@ -264,6 +273,8 @@ func (d *Dashboard) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d.handleNewRunKey(msg)
 	case modeDashboardFilter:
 		return d.handleFilterKey(msg)
+	case modeKillConfirm:
+		return d.handleKillKey(msg)
 	case modeHelp:
 		return d.handleHelpKey(msg)
 	default:
@@ -295,6 +306,8 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return d, d.refreshCmd()
 	case "s":
 		return d.enterStopMode()
+	case d.keymap.KillSession:
+		return d.enterKillMode()
 	case "n":
 		return d.enterNewRunMode()
 	case d.keymap.Filter, "/":
@@ -494,6 +507,60 @@ func (d *Dashboard) enterStopMode() (tea.Model, tea.Cmd) {
 	d.stop = stopState{runs: runs}
 	d.mode = modeStopSelectRun
 	return d, nil
+}
+
+func (d *Dashboard) enterKillMode() (tea.Model, tea.Cmd) {
+	run := d.selectedRun()
+	if run == nil {
+		d.message = "no run selected"
+		return d, nil
+	}
+	sessionName := run.TmuxSession
+	if sessionName == "" {
+		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+	}
+	d.kill = killState{
+		run:         run,
+		tmuxSession: sessionName,
+	}
+	d.mode = modeKillConfirm
+	return d, nil
+}
+
+func (d *Dashboard) handleKillKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "n":
+		d.mode = modeDashboard
+		return d, nil
+	case "q":
+		return d.quit()
+	case "y", "Y":
+		cmd := d.killSessionCmd(d.kill.run, d.kill.tmuxSession)
+		d.mode = modeDashboard
+		return d, cmd
+	}
+	return d, nil
+}
+
+func (d *Dashboard) killSessionCmd(run *model.Run, sessionName string) tea.Cmd {
+	return func() tea.Msg {
+		if run == nil {
+			return errMsg{err: fmt.Errorf("run not found")}
+		}
+		sessionExisted := tmux.HasSession(sessionName)
+		if sessionExisted {
+			if err := tmux.KillSession(sessionName); err != nil {
+				return errMsg{err: fmt.Errorf("failed to kill session: %w", err)}
+			}
+		}
+		if err := d.monitor.StopRun(run); err != nil {
+			return errMsg{err: fmt.Errorf("failed to stop run: %w", err)}
+		}
+		if sessionExisted {
+			return infoMsg{text: fmt.Sprintf("killed session %s", sessionName)}
+		}
+		return infoMsg{text: fmt.Sprintf("session already dead; run %s marked canceled", run.Ref().String())}
+	}
 }
 
 func (d *Dashboard) enterNewRunMode() (tea.Model, tea.Cmd) {
@@ -768,6 +835,27 @@ func (d *Dashboard) viewStopRuns() string {
 	return strings.Join(lines, "\n")
 }
 
+func (d *Dashboard) viewKillConfirm() string {
+	run := d.kill.run
+	if run == nil {
+		return "No run selected."
+	}
+	lines := []string{
+		d.styles.Title.Render("KILL TMUX SESSION"),
+		"",
+		fmt.Sprintf("Run: %s#%s", run.IssueID, run.RunID),
+		fmt.Sprintf("Session: %s", d.kill.tmuxSession),
+		"",
+		"This will:",
+		"  • Kill the tmux session",
+		"  • Mark the run as canceled",
+		"  • Stop any running agent",
+		"",
+		"[Y] Yes, kill    [N] No, cancel",
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (d *Dashboard) viewNewRun() string {
 	lines := []string{
 		d.styles.Title.Render("NEW RUN"),
@@ -811,6 +899,7 @@ func (d *Dashboard) viewHelp() string {
 		"  I          Open issue file in nvim",
 		"  e          Execute shell in run's worktree",
 		"  s          Stop run (select from active runs)",
+		"  X          Kill tmux session (forceful, with confirmation)",
 		"  n          New run (select issue to start)",
 		"  R          Resolve run and mark issue as resolved",
 		"  M          Request merge for run",

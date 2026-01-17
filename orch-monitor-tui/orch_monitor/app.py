@@ -45,6 +45,91 @@ TIME_RANGES = [
 ]
 
 
+class KillConfirmScreen(ModalScreen[bool]):
+    """Confirmation dialog for killing tmux session."""
+
+    CSS = """
+    KillConfirmScreen {
+        align: center middle;
+    }
+
+    #kill-dialog {
+        width: 50;
+        height: auto;
+        padding: 1 2;
+        background: $surface;
+        border: thick $error;
+    }
+
+    #kill-title {
+        text-align: center;
+        width: 100%;
+        padding-bottom: 1;
+        color: $error;
+    }
+
+    #kill-details {
+        height: auto;
+        padding: 1;
+    }
+
+    #kill-consequences {
+        height: auto;
+        padding: 1;
+        color: $warning;
+    }
+
+    #kill-buttons {
+        height: 3;
+        align: center middle;
+        padding-top: 1;
+    }
+
+    #kill-buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("y", "confirm", "Yes, kill"),
+        Binding("n", "cancel", "No, cancel"),
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(self, run: Run):
+        super().__init__()
+        self.run = run
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="kill-dialog"):
+            yield Label("Kill tmux session?", id="kill-title")
+            with Vertical(id="kill-details"):
+                yield Static(f"Run: {self.run.ref()}")
+                yield Static(f"Session: {self.run.tmux_session or 'N/A'}")
+            with Vertical(id="kill-consequences"):
+                yield Static("This will:")
+                yield Static("  • Kill the tmux session")
+                yield Static("  • Mark the run as canceled")
+                yield Static("  • Stop any running agent")
+            with Horizontal(id="kill-buttons"):
+                yield Button("Yes, kill", variant="error", id="confirm-btn")
+                yield Button("No, cancel", id="cancel-btn")
+
+    @on(Button.Pressed, "#confirm-btn")
+    def confirm(self) -> None:
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#cancel-btn")
+    def cancel(self) -> None:
+        self.dismiss(False)
+
+    def action_confirm(self) -> None:
+        self.dismiss(True)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+
 def _get_editor_command(file_path: Path) -> Tuple[Optional[list[str]], Optional[str]]:
     """Get editor command for opening a file.
 
@@ -477,6 +562,7 @@ class RunsDashboard(App):
         Binding("r", "refresh", "Refresh"),
         Binding("enter", "attach", "Attach"),
         Binding("s", "stop", "Stop"),
+        Binding("X", "kill_session", "Kill"),
         Binding("f", "filter", "Filter"),
         Binding("ctrl+f", "clear_filters", "Clear Filters"),
     ]
@@ -655,6 +741,67 @@ class RunsDashboard(App):
             self.call_from_thread(self.refresh_data)
         except subprocess.CalledProcessError:
             pass
+
+    def action_kill_session(self) -> None:
+        """Show kill confirmation dialog for selected run."""
+        if not self.selected_run:
+            self.notify("No run selected", severity="warning")
+            return
+        if not self.selected_run.tmux_session:
+            self.notify("Run has no tmux session", severity="warning")
+            return
+        run = self.selected_run
+        tmux_session = run.tmux_session
+        run_ref = run.ref()
+
+        def on_confirm(confirmed: bool) -> None:
+            if confirmed:
+                self._do_kill_session(tmux_session, run_ref)
+
+        self.push_screen(KillConfirmScreen(run), on_confirm)
+
+    @work(thread=True)
+    def _do_kill_session(self, tmux_session: str, run_ref: str) -> None:
+        """Kill tmux session and mark run as canceled."""
+        try:
+            kill_result = subprocess.run(
+                ["tmux", "kill-session", "-t", tmux_session],
+                capture_output=True,
+            )
+            session_existed = kill_result.returncode == 0
+
+            stop_result = subprocess.run(
+                [
+                    "orch",
+                    "--vault",
+                    str(self.config.vault_path),
+                    "stop",
+                    run_ref,
+                ],
+                capture_output=True,
+            )
+
+            if stop_result.returncode != 0:
+                stderr = stop_result.stderr.decode().strip()
+                self.call_from_thread(
+                    self.notify,
+                    f"Failed to stop run: {stderr or 'unknown error'}",
+                    severity="error",
+                )
+                return
+
+            if session_existed:
+                msg = f"Killed session for {run_ref}"
+            else:
+                msg = f"Session already dead; run {run_ref} marked canceled"
+            self.call_from_thread(self.notify, msg, severity="information")
+            self.call_from_thread(self.refresh_data)
+        except Exception as e:
+            self.call_from_thread(
+                self.notify,
+                f"Failed to kill session: {e}",
+                severity="error",
+            )
 
 
 class IssuesDashboard(App):
@@ -835,6 +982,7 @@ class OrchMonitorApp(App):
         Binding("enter", "select", "Select"),
         Binding("a", "attach", "Attach"),
         Binding("s", "stop", "Stop"),
+        Binding("X", "kill_session", "Kill"),
         Binding("n", "new_run", "New Run"),
         Binding("o", "open_issue", "Open in Editor"),
         Binding("f", "filter", "Filter"),
@@ -1163,6 +1311,67 @@ class OrchMonitorApp(App):
             self.call_from_thread(self.refresh_data)
         except subprocess.CalledProcessError:
             pass
+
+    def action_kill_session(self) -> None:
+        """Show kill confirmation dialog for selected run."""
+        if not self.selected_run:
+            self.notify("No run selected", severity="warning")
+            return
+        if not self.selected_run.tmux_session:
+            self.notify("Run has no tmux session", severity="warning")
+            return
+        run = self.selected_run
+        tmux_session = run.tmux_session
+        run_ref = run.ref()
+
+        def on_confirm(confirmed: bool) -> None:
+            if confirmed:
+                self._do_kill_session(tmux_session, run_ref)
+
+        self.push_screen(KillConfirmScreen(run), on_confirm)
+
+    @work(thread=True)
+    def _do_kill_session(self, tmux_session: str, run_ref: str) -> None:
+        """Kill tmux session and mark run as canceled."""
+        try:
+            kill_result = subprocess.run(
+                ["tmux", "kill-session", "-t", tmux_session],
+                capture_output=True,
+            )
+            session_existed = kill_result.returncode == 0
+
+            stop_result = subprocess.run(
+                [
+                    "orch",
+                    "--vault",
+                    str(self.config.vault_path),
+                    "stop",
+                    run_ref,
+                ],
+                capture_output=True,
+            )
+
+            if stop_result.returncode != 0:
+                stderr = stop_result.stderr.decode().strip()
+                self.call_from_thread(
+                    self.notify,
+                    f"Failed to stop run: {stderr or 'unknown error'}",
+                    severity="error",
+                )
+                return
+
+            if session_existed:
+                msg = f"Killed session for {run_ref}"
+            else:
+                msg = f"Session already dead; run {run_ref} marked canceled"
+            self.call_from_thread(self.notify, msg, severity="information")
+            self.call_from_thread(self.refresh_data)
+        except Exception as e:
+            self.call_from_thread(
+                self.notify,
+                f"Failed to kill session: {e}",
+                severity="error",
+            )
 
     def action_new_run(self) -> None:
         if not self.selected_issue:
