@@ -17,6 +17,7 @@ const (
 	ColIssue       ColumnID = "issue"
 	ColIssueStatus ColumnID = "issue_status"
 	ColAgent       ColumnID = "agent"
+	ColModel       ColumnID = "model"
 	ColStatus      ColumnID = "status"
 	ColAlive       ColumnID = "alive"
 	ColBranch      ColumnID = "branch"
@@ -41,6 +42,7 @@ var columnRegistry = map[ColumnID]ColumnDef{
 	ColIssue:       {ID: ColIssue, Header: "ISSUE", Width: 14},
 	ColIssueStatus: {ID: ColIssueStatus, Header: "ISSUE-ST", Width: 8},
 	ColAgent:       {ID: ColAgent, Header: "AGENT", Width: agent.MaxAgentDisplayWidth},
+	ColModel:       {ID: ColModel, Header: "MODEL", Width: 18},
 	ColStatus:      {ID: ColStatus, Header: "STATUS", Width: 10},
 	ColAlive:       {ID: ColAlive, Header: "ALIVE", Width: 5},
 	ColBranch:      {ID: ColBranch, Header: "BRANCH", Width: runTableBranchWidth},
@@ -57,6 +59,7 @@ var defaultColumns = []ColumnID{
 	ColID,
 	ColIssue,
 	ColAgent,
+	ColModel,
 	ColStatus,
 	ColPR,
 	ColMerged,
@@ -110,6 +113,8 @@ func GetColumnValue(col ColumnID, row *RunRow, now time.Time) string {
 		return row.IssueStatus
 	case ColAgent:
 		return row.Agent
+	case ColModel:
+		return row.Model
 	case ColStatus:
 		return string(row.Status)
 	case ColAlive:

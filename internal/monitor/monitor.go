@@ -833,7 +833,17 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 			topic = "-"
 		}
 
-		agentDisplay := agent.AgentDisplayName(w.Run.Agent, w.Run.Model, w.Run.ModelVariant)
+		agentDisplay := w.Run.Agent
+		if agentDisplay == "" {
+			agentDisplay = "-"
+		}
+
+		modelDisplay := w.Run.Model
+		if modelDisplay == "" {
+			modelDisplay = "-"
+		} else if w.Run.ModelVariant != "" {
+			modelDisplay = fmt.Sprintf("%s/%s", w.Run.Model, w.Run.ModelVariant)
+		}
 
 		// Build PR display string and state
 		prDisplay := "-"
@@ -864,6 +874,7 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 			IssueStatus:  issueStatus,
 			IssueSummary: info.summary,
 			Agent:        agentDisplay,
+			Model:        modelDisplay,
 			Status:       w.Run.Status,
 			Alive:        runAliveLabel(w.Run),
 			Branch:       branch,

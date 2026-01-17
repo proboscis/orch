@@ -66,6 +66,7 @@ class RunTable(CursorPreservingTable):
         self.add_column("Issue", width=15)
         self.add_column("Status", width=12)
         self.add_column("Agent", width=10)
+        self.add_column("Model", width=18)
         self.add_column("Elapsed", width=10)
         self.add_column("Branch", width=25)
 
@@ -82,11 +83,16 @@ class RunTable(CursorPreservingTable):
             elif run.status == Status.PR_OPEN:
                 status_str = f"[cyan]{status_str}[/cyan]"
 
+            model_str = run.model or "-"
+            if run.model_variant:
+                model_str = f"{run.model}/{run.model_variant}"
+
             self.add_row(
                 run.short_id(),
                 run.issue_id,
                 status_str,
                 run.agent or "-",
+                model_str,
                 run.elapsed_time(),
                 run.branch or "-",
                 key=run.ref(),
