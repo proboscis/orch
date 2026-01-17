@@ -155,16 +155,18 @@ class Run:
         return self.status in active_states
 
     def elapsed_time(self) -> str:
-        """Return elapsed time since start."""
-        if not self.started_at:
+        if not self.started_at or not isinstance(self.started_at, datetime):
             return "-"
 
-        if self.is_active():
-            delta = datetime.now() - self.started_at
-        elif self.updated_at:
-            delta = self.updated_at - self.started_at
-        else:
-            delta = datetime.now() - self.started_at
+        try:
+            if self.is_active():
+                delta = datetime.now() - self.started_at
+            elif self.updated_at:
+                delta = self.updated_at - self.started_at
+            else:
+                delta = datetime.now() - self.started_at
+        except (TypeError, ValueError):
+            return "-"
 
         total_seconds = int(delta.total_seconds())
         hours, remainder = divmod(total_seconds, 3600)

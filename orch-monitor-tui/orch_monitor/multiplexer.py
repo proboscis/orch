@@ -75,6 +75,12 @@ class Multiplexer(Protocol):
         """Select/focus a pane."""
         ...
 
+    def new_tab_with_command(
+        self, name: str, command: list[str], cwd: str | None = None
+    ) -> bool:
+        """Create a new tab/window and run a command in it."""
+        ...
+
 
 class TmuxMultiplexer:
     """Tmux implementation of Multiplexer."""
@@ -167,6 +173,16 @@ class TmuxMultiplexer:
 
     def select_pane(self, target: str) -> bool:
         result = subprocess.run(["tmux", "select-pane", "-t", target])
+        return result.returncode == 0
+
+    def new_tab_with_command(
+        self, name: str, command: list[str], cwd: str | None = None
+    ) -> bool:
+        args = ["tmux", "new-window", "-n", name]
+        if cwd:
+            args.extend(["-c", cwd])
+        args.extend(command)
+        result = subprocess.run(args, capture_output=True)
         return result.returncode == 0
 
 
@@ -270,9 +286,24 @@ class ZellijMultiplexer:
         return result.returncode == 0
 
     def select_pane(self, target: str) -> bool:
-        # Zellij doesn't support direct pane selection by ID
-        # Would need focus-next-pane or similar
         return False
+
+    def new_tab_with_command(
+        self, name: str, command: list[str], cwd: str | None = None
+    ) -> bool:
+        args = ["zellij", "action", "new-tab", "--name", name]
+        if cwd:
+            args.extend(["--cwd", cwd])
+        result = subprocess.run(args, capture_output=True)
+        if result.returncode != 0:
+            return False
+
+        subprocess.run(
+            ["zellij", "action", "write-chars", " ".join(command)],
+            capture_output=True,
+        )
+        subprocess.run(["zellij", "action", "write", "10"], capture_output=True)
+        return True
 
 
 # Registry of multiplexer implementations

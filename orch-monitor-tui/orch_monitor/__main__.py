@@ -17,8 +17,17 @@ from .multiplexer import (
 )
 
 
-SESSION_NAME = "orch-monitor-tui"
+SESSION_NAME_PREFIX = "orch-monitor"
 CONTROL_PROMPT_FILE = "ORCH_CONTROL_PROMPT.md"
+
+
+def get_session_name(vault_path: Path | None = None) -> str:
+    base_path = vault_path if vault_path else Path.cwd()
+    repo_name = base_path.resolve().name
+    safe_name = "".join(c if c.isalnum() or c in "-_" else "-" for c in repo_name)
+    return f"{SESSION_NAME_PREFIX}-{safe_name}"
+
+
 CONTROL_PROMPT_INSTRUCTION = f"ultrathink Please read '{CONTROL_PROMPT_FILE}' in the current directory and follow the instructions found there."
 CONTROL_SESSION_FILE = "control-session.json"
 
@@ -193,7 +202,6 @@ class TmuxLayoutLauncher:
         vault_arg = f"--vault {vault_path}" if vault_path else ""
         env_export = f"export ORCH_VAULT='{vault_path}'; " if vault_path else ""
 
-        # Create new session
         subprocess.run(
             [
                 "tmux",
@@ -210,23 +218,37 @@ class TmuxLayoutLauncher:
             ]
         )
 
-        # Split into 3 panes: left (runs/issues stacked), right (agent)
-        subprocess.run(["tmux", "split-window", "-h", "-t", session_name, "-c", cwd])
+        subprocess.run(
+            ["tmux", "split-window", "-v", "-t", session_name, "-p", "65", "-c", cwd]
+        )
         subprocess.run(
             [
                 "tmux",
                 "split-window",
-                "-v",
+                "-h",
                 "-t",
-                f"{session_name}:0.0",
+                f"{session_name}:0.1",
                 "-p",
-                "70",
+                "65",
+                "-c",
+                cwd,
+            ]
+        )
+        # Split bottom pane vertically: pane 1 = issues (left), pane 2 = agent (right)
+        subprocess.run(
+            [
+                "tmux",
+                "split-window",
+                "-h",
+                "-t",
+                f"{session_name}:0.1",
+                "-p",
+                "65",
                 "-c",
                 cwd,
             ]
         )
 
-        # Build commands
         runs_cmd = (
             f'{env_export}"{python_exec}" -m orch_monitor --runs {vault_arg}'.strip()
         )
@@ -240,7 +262,6 @@ class TmuxLayoutLauncher:
         else:
             agent_cmd = agent
 
-        # Send commands to panes
         subprocess.run(
             ["tmux", "send-keys", "-t", f"{session_name}:0.0", runs_cmd, "Enter"]
         )
@@ -251,7 +272,6 @@ class TmuxLayoutLauncher:
             ["tmux", "send-keys", "-t", f"{session_name}:0.2", agent_cmd, "Enter"]
         )
 
-        # Focus agent pane
         subprocess.run(["tmux", "select-pane", "-t", f"{session_name}:0.2"])
 
         # Attach to session
@@ -263,17 +283,17 @@ class ZellijLayoutLauncher:
 
     def has_session(self, session_name: str) -> bool:
         result = subprocess.run(
-            ["zellij", "list-sessions"],
+            ["zellij", "list-sessions", "--short"],
             capture_output=True,
             text=True,
         )
         if result.returncode != 0:
             return False
         sessions = result.stdout.strip().split("\n")
-        return any(s.startswith(session_name) for s in sessions)
+        return session_name in sessions
 
     def kill_session(self, session_name: str) -> None:
-        subprocess.run(["zellij", "delete-session", session_name, "--force"])
+        subprocess.run(["zellij", "delete-session", "--force", session_name])
 
     def attach_session(self, session_name: str) -> None:
         subprocess.run(["zellij", "attach", session_name])
@@ -310,17 +330,17 @@ layout {{
         }}
     }}
     tab name="monitor" {{
-        pane split_direction="vertical" {{
-            pane split_direction="horizontal" size="40%" {{
-                pane command="bash" {{
-                    args "-c" "{runs_cmd}"
-                }}
-                pane command="bash" {{
+        pane split_direction="horizontal" {{
+            pane size="35%" command="bash" {{
+                args "-c" "{runs_cmd}"
+            }}
+            pane split_direction="vertical" size="65%" {{
+                pane size="35%" command="bash" {{
                     args "-c" "{issues_cmd}"
                 }}
-            }}
-            pane size="60%" focus=true command="bash" {{
-                args "-c" "{agent_cmd}"
+                pane size="65%" focus=true command="bash" {{
+                    args "-c" "{agent_cmd}"
+                }}
             }}
         }}
     }}
@@ -374,22 +394,21 @@ def launch_monitor_layout(
     new: bool = False,
     multiplexer: MultiplexerType | None = None,
 ) -> None:
-    """Launch the monitor layout using the specified multiplexer."""
     if multiplexer is None:
         multiplexer = get_default_multiplexer_type()
 
     launcher = get_layout_launcher(multiplexer)
     cwd = os.getcwd()
+    session_name = get_session_name(vault_path)
 
-    # Check for existing session
-    if launcher.has_session(SESSION_NAME):
+    if launcher.has_session(session_name):
         if new:
-            launcher.kill_session(SESSION_NAME)
+            launcher.kill_session(session_name)
         else:
-            launcher.attach_session(SESSION_NAME)
+            launcher.attach_session(session_name)
             return
 
-    launcher.launch_layout(SESSION_NAME, vault_path, agent, cwd)
+    launcher.launch_layout(session_name, vault_path, agent, cwd)
 
 
 def main():

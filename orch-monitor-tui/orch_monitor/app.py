@@ -565,11 +565,35 @@ DataTable {
 }
 """
 
+RUNS_DASHBOARD_CSS = (
+    COMMON_CSS
+    + """
+#main-container {
+    layout: horizontal;
+}
+
+#runs-table {
+    width: 55%;
+}
+
+#run-detail-container {
+    width: 45%;
+    border-left: solid $accent;
+}
+
+#run-detail-content {
+    padding: 1;
+    height: 1fr;
+    overflow-y: auto;
+}
+"""
+)
+
 
 class RunsDashboard(App):
     """Runs-only dashboard for tmux pane."""
 
-    CSS = COMMON_CSS
+    CSS = RUNS_DASHBOARD_CSS
 
     BINDINGS = [
         Binding("q", "quit", "Quit"),
@@ -596,11 +620,14 @@ class RunsDashboard(App):
         self.title = self._base_title
         self._daemon_error: Optional[str] = None
         self._last_update: Optional[datetime] = None
+        self._highlighted_run_ref: Optional[str] = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
         with Container(id="main-container"):
             yield RunTable(id="runs-table")
+            with Vertical(id="run-detail-container"):
+                yield Static("", id="run-detail-content")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -743,6 +770,114 @@ class RunsDashboard(App):
     def _set_selected_run(self, run: Optional[Run], run_ref: str) -> None:
         if getattr(self, "_highlighted_run_ref", None) == run_ref:
             self.selected_run = run
+            self._update_run_detail_panel(run)
+
+    def _update_run_detail_panel(self, run: Optional[Run]) -> None:
+        try:
+            detail = self.query_one("#run-detail-content", Static)
+        except Exception:
+            return
+
+        if not run:
+            detail.update("")
+            return
+
+        lines = [f"[bold]{run.ref()}[/bold]"]
+
+        if run.pr_url:
+            lines.append(f"PR: {run.pr_url}")
+
+        issue = self._get_issue_for_run(run)
+        if issue:
+            lines.append("")
+            lines.append(f"[bold]{issue.title or issue.id}[/bold]")
+            if issue.body:
+                summary = issue.body[:300].replace("\n", " ")
+                lines.append(f"[dim]{summary}[/dim]")
+
+        if run.agent == "opencode" and run.server_port and run.opencode_session_id:
+            lines.append("")
+            lines.append("[bold]Chat Messages:[/bold]")
+            messages = self._fetch_opencode_messages(run)
+            if messages:
+                for msg in messages[-8:]:
+                    role = msg.get("role", "?")
+                    text = msg.get("text", "")[:150]
+                    if text:
+                        color = "cyan" if role == "assistant" else "green"
+                        lines.append(f"[{color}]{role}:[/{color}] {text}")
+            else:
+                lines.append("[dim]No messages yet[/dim]")
+        elif run.tmux_session:
+            lines.append("")
+            lines.append("[bold]Session Output:[/bold]")
+            output = self._capture_session_output(run)
+            if output:
+                for line in output[-12:]:
+                    lines.append(f"[dim]{line}[/dim]")
+            else:
+                lines.append("[dim]No output captured[/dim]")
+
+        detail.update("\n".join(lines))
+
+    def _fetch_opencode_messages(self, run: Run) -> list[dict]:
+        if not run.server_port or not run.opencode_session_id:
+            return []
+        try:
+            import urllib.request
+            import json
+
+            url = f"http://127.0.0.1:{run.server_port}/session/{run.opencode_session_id}/message"
+            req = urllib.request.Request(
+                url, headers={"X-OpenCode-Directory": run.worktree_path or ""}
+            )
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                data = json.loads(resp.read().decode())
+                result = []
+                for msg in data:
+                    role = msg.get("info", {}).get("role", "")
+                    parts = msg.get("parts", [])
+                    text = " ".join(
+                        p.get("text", "") for p in parts if p.get("type") == "text"
+                    )
+                    if text:
+                        result.append({"role": role, "text": text})
+                return result
+        except Exception:
+            return []
+
+    def _get_issue_for_run(self, run: Run) -> Optional[Issue]:
+        try:
+            return self.daemon.get_issue(run.issue_id)
+        except Exception:
+            return None
+
+    def _capture_session_output(self, run: Run) -> list[str]:
+        if not run.tmux_session:
+            return []
+        try:
+            mux_type = get_multiplexer_type_from_run(run)
+            if mux_type == MultiplexerType.ZELLIJ:
+                result = subprocess.run(
+                    ["zellij", "action", "dump-screen", "/dev/stdout"],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                    env={**os.environ, "ZELLIJ_SESSION_NAME": run.tmux_session},
+                )
+            else:
+                result = subprocess.run(
+                    ["tmux", "capture-pane", "-t", run.tmux_session, "-p", "-S", "-30"],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                )
+            if result.returncode != 0:
+                return []
+            lines = [line.rstrip() for line in result.stdout.split("\n")]
+            return [line for line in lines if line.strip()]
+        except Exception:
+            return []
 
     def action_attach(self) -> None:
         if not self.selected_run:
@@ -750,38 +885,36 @@ class RunsDashboard(App):
             return
 
         run = self.selected_run
-        run_mux_type = get_multiplexer_type_from_run(run)
-        run_mux = get_multiplexer(run_mux_type)
-        current_mux = detect_current_multiplexer()
+        current_mux_type = detect_current_multiplexer()
 
-        if not run_mux.is_available():
-            self.notify(
-                f"Cannot attach: {run_mux_type.value} is not installed",
-                severity="error",
-            )
-            return
+        attach_cmd = [
+            "orch",
+            "--vault",
+            str(self.config.vault_path),
+            "attach",
+            run.ref(),
+        ]
 
-        if current_mux and current_mux != run_mux_type:
+        if current_mux_type:
+            current_mux = get_multiplexer(current_mux_type)
+            tab_name = f"attach-{run.short_id()}"
+            if current_mux.new_tab_with_command(tab_name, attach_cmd):
+                self.notify(f"Opened tab: {tab_name}")
+                return
             self.notify(
-                f"Warning: Run uses {run_mux_type.value}, you're in {current_mux.value}",
-                severity="warning",
+                "Failed to create tab, falling back to exit", severity="warning"
             )
 
         self.exit()
-        subprocess.run(
-            [
-                "orch",
-                "--vault",
-                str(self.config.vault_path),
-                "attach",
-                run.ref(),
-            ]
-        )
+        subprocess.run(attach_cmd)
 
     def action_stop(self) -> None:
-        if not self.selected_run:
+        run_ref = getattr(self, "_highlighted_run_ref", None)
+        if not run_ref:
+            self.notify("No run selected", severity="warning")
             return
-        self._do_stop(self.selected_run.ref())
+        self._do_stop(run_ref)
+        self.notify(f"Stopping {run_ref}")
 
     @work(thread=True)
     def _do_stop(self, run_ref: str) -> None:
@@ -1450,38 +1583,36 @@ class OrchMonitorApp(App):
             return
 
         run = self.selected_run
-        run_mux_type = get_multiplexer_type_from_run(run)
-        run_mux = get_multiplexer(run_mux_type)
-        current_mux = detect_current_multiplexer()
+        current_mux_type = detect_current_multiplexer()
 
-        if not run_mux.is_available():
-            self.notify(
-                f"Cannot attach: {run_mux_type.value} is not installed",
-                severity="error",
-            )
-            return
+        attach_cmd = [
+            "orch",
+            "--vault",
+            str(self.config.vault_path),
+            "attach",
+            run.ref(),
+        ]
 
-        if current_mux and current_mux != run_mux_type:
+        if current_mux_type:
+            current_mux = get_multiplexer(current_mux_type)
+            tab_name = f"attach-{run.short_id()}"
+            if current_mux.new_tab_with_command(tab_name, attach_cmd):
+                self.notify(f"Opened tab: {tab_name}")
+                return
             self.notify(
-                f"Warning: Run uses {run_mux_type.value}, you're in {current_mux.value}",
-                severity="warning",
+                "Failed to create tab, falling back to exit", severity="warning"
             )
 
         self.exit()
-        subprocess.run(
-            [
-                "orch",
-                "--vault",
-                str(self.config.vault_path),
-                "attach",
-                run.ref(),
-            ]
-        )
+        subprocess.run(attach_cmd)
 
     def action_stop(self) -> None:
-        if not self.selected_run:
+        run_ref = getattr(self, "_highlighted_run_ref", None)
+        if not run_ref:
+            self.notify("No run selected", severity="warning")
             return
-        self._do_stop(self.selected_run.ref())
+        self._do_stop(run_ref)
+        self.notify(f"Stopping {run_ref}")
 
     @work(thread=True)
     def _do_stop(self, run_ref: str) -> None:
