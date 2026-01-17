@@ -4,7 +4,7 @@ Orchestrator for managing multiple LLM CLIs (claude/codex/gemini) using a unifie
 
 ## Overview
 
-orch operates **non-interactively** by default. When human input is needed, use `orch attach` to connect to the tmux session and interact directly with the agent.
+orch operates **non-interactively** by default. When human input is needed, use `orch attach` to connect to the terminal session (tmux or zellij) and interact directly with the agent.
 
 ## User Interaction Flow
 
@@ -214,6 +214,38 @@ pr_target_branch: develop
 ```
 
 `pr_target_branch` controls the target branch mentioned in agent PR instructions.
+
+### Terminal Multiplexer
+
+orch supports both **tmux** (default) and **zellij** as terminal multiplexers for running agent sessions.
+
+```bash
+# Use tmux (default)
+orch run my-issue
+
+# Use zellij
+orch run --multiplexer zellij my-issue
+
+# Or set via environment variable
+export ORCH_MULTIPLEXER=zellij
+orch run my-issue
+```
+
+**Configuration:**
+
+```yaml
+# .orch/config.yaml
+multiplexer: zellij  # or "tmux" (default)
+```
+
+**Detach keys:**
+- tmux: `Ctrl+B D`
+- zellij: `Ctrl+O D` (or your configured detach keybind)
+
+**Notes:**
+- The multiplexer used for a run is recorded in the run metadata
+- `orch attach` automatically uses the correct multiplexer for each run
+- Some advanced features (window linking, pane inspection) have limited support in zellij
 
 ### Repo config
 
