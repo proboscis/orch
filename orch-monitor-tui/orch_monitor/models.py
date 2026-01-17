@@ -182,8 +182,14 @@ class Run:
             self.updated_at = self.events[-1].timestamp
 
     def is_active(self) -> bool:
-        terminal_states = {Status.DONE, Status.FAILED, Status.CANCELED}
-        return self.status not in terminal_states
+        active_states = {
+            Status.QUEUED,
+            Status.BOOTING,
+            Status.RUNNING,
+            Status.BLOCKED,
+            Status.BLOCKED_API,
+        }
+        return self.status in active_states
 
     def elapsed_time(self) -> str:
         """Return elapsed time since start."""

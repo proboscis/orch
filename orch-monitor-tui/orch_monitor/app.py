@@ -520,12 +520,15 @@ class RunsDashboard(App):
     def _update_elapsed_times(self) -> None:
         if not self.runs:
             return
-        run_table = self.query_one("#runs-table", RunTable)
+        try:
+            run_table = self.query_one("#runs-table", RunTable)
+        except Exception:
+            return
         for run in self.runs:
             if run.is_active():
                 try:
                     run_table.update_cell(run.ref(), "elapsed", run.elapsed_time())
-                except Exception:
+                except KeyError:
                     pass
 
     def _update_title(self) -> None:
@@ -918,14 +921,14 @@ class OrchMonitorApp(App):
             return
         try:
             run_table = self.query_one("#runs-table", RunTable)
-            for run in self.runs:
-                if run.is_active():
-                    try:
-                        run_table.update_cell(run.ref(), "elapsed", run.elapsed_time())
-                    except Exception:
-                        pass
         except Exception:
-            pass
+            return
+        for run in self.runs:
+            if run.is_active():
+                try:
+                    run_table.update_cell(run.ref(), "elapsed", run.elapsed_time())
+                except KeyError:
+                    pass
 
     def _update_tab_titles(self) -> None:
         try:
