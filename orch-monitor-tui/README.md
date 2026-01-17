@@ -76,10 +76,11 @@ uv run python -m orch_monitor
 | `tab` | Switch between Runs/Issues tabs |
 | `f` | Filter runs by status |
 | `up/down` | Navigate list |
-| `enter` | Select item (attach to run / start issue) |
+| `enter` | Select item (attach to run / open issue in `$EDITOR`) |
 | `a` | Attach to selected run's tmux session |
 | `s` | Stop selected run |
 | `n` | Create new run for selected issue |
+| `o` | Open issue in `$EDITOR` |
 
 ## Configuration
 

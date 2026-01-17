@@ -1,22 +1,65 @@
 """Custom widgets for orch monitor TUI."""
 
+from typing import Optional
+
 from textual.app import ComposeResult
 from textual.widgets import DataTable, Static
+from textual.widgets.data_table import RowDoesNotExist
 from textual.containers import Container
 
 from .models import Issue, Run, Status
 
 
-class RunTable(DataTable):
-    """Table widget for displaying runs."""
+class CursorPreservingTable(DataTable):
+    """DataTable that preserves cursor position across repopulation."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.cursor_type = "row"
         self.zebra_stripes = True
 
+    def _get_current_row_key(self) -> Optional[str]:
+        if self.row_count == 0:
+            return None
+        try:
+            row_key, _ = self.coordinate_to_cell_key(self.cursor_coordinate)
+            if row_key is None or row_key.value is None:
+                return None
+            return str(row_key.value)
+        except (KeyError, IndexError):
+            return None
+
+    def _restore_cursor(
+        self, saved_key: Optional[str], saved_index: int, total_rows: int
+    ) -> None:
+        if total_rows == 0:
+            return
+
+        if saved_key:
+            try:
+                new_index = self.get_row_index(saved_key)
+                self.move_cursor(row=new_index)
+                return
+            except RowDoesNotExist:
+                pass
+
+        if saved_index < total_rows:
+            self.move_cursor(row=saved_index)
+        elif total_rows > 0:
+            self.move_cursor(row=total_rows - 1)
+
+    def _save_cursor_state(self) -> tuple[Optional[str], int]:
+        saved_key = self._get_current_row_key()
+        saved_index = self.cursor_coordinate.row if self.row_count > 0 else 0
+        return saved_key, saved_index
+
+
+class RunTable(CursorPreservingTable):
+    """Table widget for displaying runs."""
+
     def populate(self, runs: list[Run]) -> None:
-        """Populate table with runs."""
+        saved_key, saved_index = self._save_cursor_state()
+
         self.clear(columns=True)
 
         self.add_column("ID", width=8)
@@ -49,17 +92,15 @@ class RunTable(DataTable):
                 key=run.ref(),
             )
 
+        self._restore_cursor(saved_key, saved_index, len(runs))
 
-class IssueTable(DataTable):
+
+class IssueTable(CursorPreservingTable):
     """Table widget for displaying issues."""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.cursor_type = "row"
-        self.zebra_stripes = True
-
     def populate(self, issues: list[Issue]) -> None:
-        """Populate table with issues."""
+        saved_key, saved_index = self._save_cursor_state()
+
         self.clear(columns=True)
 
         self.add_column("ID", width=15)
@@ -82,6 +123,8 @@ class IssueTable(DataTable):
                 key=issue.id,
             )
 
+        self._restore_cursor(saved_key, saved_index, len(issues))
+
 
 class DetailPanel(Container):
     """Panel for displaying detailed content."""
@@ -94,7 +137,6 @@ class DetailPanel(Container):
         yield self.content_widget
 
     def update_content(self, content: str, title: str = "") -> None:
-        """Update the panel content."""
         if title:
             markup = f"[bold]{title}[/bold]\n\n{content}"
         else:
@@ -102,5 +144,4 @@ class DetailPanel(Container):
         self.content_widget.update(markup)
 
     def clear(self) -> None:
-        """Clear the panel content."""
         self.content_widget.update("")

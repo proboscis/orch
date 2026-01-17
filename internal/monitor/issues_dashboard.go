@@ -106,6 +106,8 @@ type IssueDashboard struct {
 	lastRefresh     time.Time
 	refreshing      bool
 	refreshInterval time.Duration
+
+	savedIssueID string
 }
 
 type issuesRefreshMsg struct {
@@ -167,16 +169,14 @@ func (d *IssueDashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		d.height = msg.Height
 		return d, nil
 	case issuesRefreshMsg:
+		savedCursor := d.cursor
 		d.issues = msg.rows
 		d.applyFilter()
 		d.refreshing = false
 		d.lastRefresh = time.Now()
-		if d.cursor >= len(d.filteredIssues) {
-			d.cursor = len(d.filteredIssues) - 1
-			if d.cursor < 0 {
-				d.cursor = 0
-			}
-		}
+
+		d.cursor = d.findIssueIndex(d.savedIssueID, savedCursor)
+		d.updateSavedIssueID()
 		d.ensureCursorVisible()
 		return d, nil
 	case issueRunsMsg:
@@ -385,12 +385,14 @@ func (d *IssueDashboard) handleIssuesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "up", "k":
 		if d.cursor > 0 {
 			d.cursor--
+			d.updateSavedIssueID()
 		}
 		d.ensureCursorVisible()
 		return d, nil
 	case "down", "j":
 		if d.cursor < len(d.filteredIssues)-1 {
 			d.cursor++
+			d.updateSavedIssueID()
 		}
 		d.ensureCursorVisible()
 		return d, nil
@@ -1094,6 +1096,36 @@ func (d *IssueDashboard) currentIssue() *IssueRow {
 		return nil
 	}
 	return &d.filteredIssues[d.cursor]
+}
+
+func (d *IssueDashboard) findIssueIndex(issueID string, fallbackIndex int) int {
+	if len(d.filteredIssues) == 0 {
+		return 0
+	}
+
+	if issueID != "" {
+		for i, row := range d.filteredIssues {
+			if row.ID == issueID {
+				return i
+			}
+		}
+	}
+
+	if fallbackIndex < 0 {
+		return 0
+	}
+	if fallbackIndex < len(d.filteredIssues) {
+		return fallbackIndex
+	}
+	return len(d.filteredIssues) - 1
+}
+
+func (d *IssueDashboard) updateSavedIssueID() {
+	if issue := d.currentIssue(); issue != nil {
+		d.savedIssueID = issue.ID
+	} else {
+		d.savedIssueID = ""
+	}
 }
 
 func (d *IssueDashboard) currentSelectRun() *model.Run {
