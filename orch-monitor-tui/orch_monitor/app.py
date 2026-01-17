@@ -36,6 +36,7 @@ from .widgets import DetailPanel, IssueTable, RunTable
 
 AUTO_REFRESH_INTERVAL = 5.0
 ELAPSED_UPDATE_INTERVAL = 1.0
+MESSAGE_REFRESH_INTERVAL = 2.5
 
 AGENTS = ["claude", "codex", "opencode", "gemini"]
 TIME_RANGES = [
@@ -1138,6 +1139,8 @@ class OrchMonitorApp(App):
         self.refresh_data()
         if self._auto_refresh_enabled:
             self.set_interval(AUTO_REFRESH_INTERVAL, self._do_auto_refresh)
+            # Separate faster refresh for messages only (for active runs)
+            self.set_interval(MESSAGE_REFRESH_INTERVAL, self._do_message_refresh)
         self.set_interval(ELAPSED_UPDATE_INTERVAL, self._update_elapsed_times)
 
     def _update_elapsed_times(self) -> None:
@@ -1176,6 +1179,15 @@ class OrchMonitorApp(App):
 
     def _do_auto_refresh(self) -> None:
         self.refresh_data()
+
+    def _do_message_refresh(self) -> None:
+        """Refresh only the messages for the selected run (lightweight update)."""
+        if self.selected_run and self.selected_run.status in (
+            Status.RUNNING,
+            Status.BOOTING,
+            Status.BLOCKED,
+        ):
+            self.show_run_detail(self.selected_run)
 
     def action_refresh(self) -> None:
         self.refresh_data()
@@ -1385,18 +1397,58 @@ class OrchMonitorApp(App):
             f"Branch: {run.branch or '-'}",
             f"Worktree: {run.worktree_path or '-'}",
             f"Tmux Session: {run.tmux_session or '-'}",
-            "",
-            "Recent Events:",
-            "",
         ]
 
-        for event in run.events[-10:]:
-            timestamp = event.timestamp.strftime("%H:%M:%S")
-            content_lines.append(f"  {timestamp} | {event.type.value} | {event.name}")
+        # Add recent messages section
+        content_lines.append("")
+        content_lines.append("[bold]" + "-" * 50 + "[/bold]")
+        content_lines.append("[bold]Recent Messages:[/bold]")
+        content_lines.append("")
+
+        if run.tmux_session:
+            messages = self._fetch_tmux_pane_output(run.tmux_session)
+            if messages:
+                for line in messages[-15:]:  # Last 15 lines
+                    # Truncate long lines for display
+                    display_line = line[:100] + "..." if len(line) > 100 else line
+                    content_lines.append(f"  {display_line}")
+                if run.status in (Status.RUNNING, Status.BOOTING):
+                    content_lines.append("")
+                    content_lines.append("[dim]--- Streaming... ---[/dim]")
+            else:
+                content_lines.append("  [dim](No output captured)[/dim]")
+        else:
+            content_lines.append("  [dim](No tmux session available)[/dim]")
 
         detail_panel.update_content(
             "\n".join(content_lines), f"Run Details: {run.ref()}"
         )
+
+    def _fetch_tmux_pane_output(self, tmux_session: str) -> list[str]:
+        """Capture recent output from a tmux pane.
+
+        Returns list of non-empty lines from the pane.
+        """
+        try:
+            result = subprocess.run(
+                ["tmux", "capture-pane", "-t", tmux_session, "-p", "-S", "-50"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            if result.returncode != 0:
+                return []
+
+            # Filter empty lines and clean up output
+            lines = [line.rstrip() for line in result.stdout.split("\n")]
+            # Remove trailing empty lines but keep internal structure
+            while lines and not lines[-1]:
+                lines.pop()
+            # Filter out mostly empty lines
+            lines = [line for line in lines if line.strip()]
+            return lines
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+            return []
 
     def show_issue_detail(self, issue: Issue) -> None:
         detail_panel = self.query_one("#detail-panel", DetailPanel)
