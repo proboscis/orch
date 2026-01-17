@@ -71,12 +71,14 @@ func (b *Backend) runGH(args ...string) ([]byte, error) {
 	return stdout.Bytes(), nil
 }
 
+// List fetches issues from GitHub and updates the cache.
+// Returns an error if GitHub is unreachable - use ListFromCache for cached data.
 func (b *Backend) List() ([]*model.Issue, error) {
 	args := []string{
 		"issue", "list",
 		"-R", b.repoArg(),
 		"--json", "number,title,body,state,url,labels,updatedAt,createdAt",
-		"--limit", "100",
+		"--limit", "500",
 	}
 	if b.labelFilter != "" {
 		args = append(args, "--label", b.labelFilter)
@@ -84,7 +86,8 @@ func (b *Backend) List() ([]*model.Issue, error) {
 
 	output, err := b.runGH(args...)
 	if err != nil {
-		return b.cache.ListAll()
+		// Return error - caller should decide whether to use cache
+		return nil, fmt.Errorf("failed to fetch from GitHub: %w", err)
 	}
 
 	var ghIssues []ghIssue
@@ -102,6 +105,11 @@ func (b *Backend) List() ([]*model.Issue, error) {
 	return issues, nil
 }
 
+// ListFromCache returns issues from the local cache without hitting GitHub.
+func (b *Backend) ListFromCache() ([]*model.Issue, error) {
+	return b.cache.ListAll()
+}
+
 func (b *Backend) Get(issueNumber int) (*model.Issue, error) {
 	args := []string{
 		"issue", "view",
@@ -112,7 +120,7 @@ func (b *Backend) Get(issueNumber int) (*model.Issue, error) {
 
 	output, err := b.runGH(args...)
 	if err != nil {
-		return b.cache.Get(issueNumber)
+		return nil, fmt.Errorf("failed to fetch issue #%d from GitHub: %w", issueNumber, err)
 	}
 
 	var gh ghIssue
@@ -125,12 +133,20 @@ func (b *Backend) Get(issueNumber int) (*model.Issue, error) {
 	return issue, nil
 }
 
+func (b *Backend) GetFromCache(issueNumber int) (*model.Issue, error) {
+	return b.cache.Get(issueNumber)
+}
+
 func (b *Backend) GetByID(issueID string) (*model.Issue, error) {
 	number, err := b.parseIssueNumber(issueID)
 	if err != nil {
-		return b.cache.GetByID(issueID)
+		return nil, fmt.Errorf("invalid issue ID format: %s", issueID)
 	}
 	return b.Get(number)
+}
+
+func (b *Backend) GetByIDFromCache(issueID string) (*model.Issue, error) {
+	return b.cache.GetByID(issueID)
 }
 
 func (b *Backend) Create(title, body string, labels []string) (*model.Issue, error) {

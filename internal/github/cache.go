@@ -26,6 +26,15 @@ func NewIssueCache(dbPath string) (*IssueCache, error) {
 		return nil, fmt.Errorf("failed to open cache database: %w", err)
 	}
 
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
+	}
+	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to set busy_timeout: %w", err)
+	}
+
 	cache := &IssueCache{db: db}
 	if err := cache.migrate(); err != nil {
 		db.Close()

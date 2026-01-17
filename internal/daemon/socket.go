@@ -294,9 +294,8 @@ func (s *SocketServer) handleListIssues(req SendRequest, encoder *json.Encoder) 
 
 	var issues []*model.Issue
 	if s.githubBackend != nil {
-		issues, err = s.githubBackend.List()
-		if err != nil {
-			s.logger.Printf("GitHub list issues failed, falling back to store: %v", err)
+		issues, err = s.githubBackend.ListFromCache()
+		if err != nil || len(issues) == 0 {
 			issues, err = s.store.ListIssues()
 		}
 	} else {
@@ -386,9 +385,8 @@ func (s *SocketServer) handleGetIssue(req SendRequest, encoder *json.Encoder) {
 	var err error
 
 	if s.githubBackend != nil {
-		issue, err = s.githubBackend.GetByID(req.IssueID)
+		issue, err = s.githubBackend.GetByIDFromCache(req.IssueID)
 		if err != nil {
-			s.logger.Printf("GitHub get issue %s failed, trying store: %v", req.IssueID, err)
 			issue, err = s.store.ResolveIssue(req.IssueID)
 		}
 	} else {

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/s22625/orch/internal/model"
@@ -145,6 +146,9 @@ func DecodeCursor(s string) (int, error) {
 func FileURI(path string) string {
 	if path == "" {
 		return ""
+	}
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return path
 	}
 	return "file://" + path
 }
