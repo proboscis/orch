@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/s22625/orch/internal/daemon"
 	"github.com/spf13/cobra"
@@ -74,23 +75,53 @@ func runDaemon() error {
 // ensureDaemon starts the daemon if it's not already running
 // This is called from PersistentPreRun
 func ensureDaemon() {
-	// Only start daemon if we have a valid vault path
 	vaultPath, err := getVaultPath()
 	if err != nil {
-		return // No vault configured, skip daemon
+		return
 	}
 
-	// Check if daemon is already running
 	if daemon.IsRunning(vaultPath) {
 		return
 	}
 
-	// Start daemon in background
 	_, err = daemon.StartInBackground(vaultPath)
 	if err != nil {
-		// Log but don't fail - daemon is optional
 		if globalOpts.LogLevel == "debug" {
 			fmt.Fprintf(os.Stderr, "warning: failed to start daemon: %v\n", err)
 		}
 	}
+}
+
+// testBypassDaemon allows unit tests to bypass daemon requirement
+// Set this to true in tests along with a testStore for direct file operations
+var testBypassDaemon bool
+
+func requireDaemon() (*daemon.Client, error) {
+	vaultPath, err := getVaultPath()
+	if err != nil {
+		return nil, err
+	}
+
+	client := daemon.NewClient(vaultPath)
+	if client.IsAvailable() {
+		return client, nil
+	}
+
+	_, err = daemon.StartInBackground(vaultPath)
+	if err != nil {
+		return nil, fmt.Errorf("daemon not running and failed to start: %w\nRun 'orch repair' to fix daemon issues", err)
+	}
+
+	for i := 0; i < 10; i++ {
+		time.Sleep(100 * time.Millisecond)
+		if client.IsAvailable() {
+			return client, nil
+		}
+	}
+
+	if !client.IsAvailable() {
+		return nil, fmt.Errorf("daemon did not become available after starting\nRun 'orch repair' to fix daemon issues")
+	}
+
+	return client, nil
 }

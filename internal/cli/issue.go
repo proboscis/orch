@@ -72,24 +72,22 @@ func runIssueCreate(issueID string, opts *issueCreateOptions) error {
 		title = issueID
 	}
 
-	vaultPath, err := getVaultPath()
+	if opts.Edit || testBypassDaemon {
+		return runIssueCreateWithEditor(issueID, title, opts)
+	}
+
+	client, err := requireDaemon()
 	if err != nil {
 		return err
 	}
 
-	client := daemon.NewClient(vaultPath)
-	if client.IsAvailable() && !opts.Edit {
-		return runIssueCreateViaDaemon(client, issueID, title, opts)
-	}
-
-	return runIssueCreateDirect(issueID, title, opts, vaultPath)
-}
-
-func runIssueCreateViaDaemon(client *daemon.Client, issueID, title string, opts *issueCreateOptions) error {
 	resp, err := client.CreateIssue(issueID, title, opts.Summary, opts.Body)
 	if err != nil {
 		if err.Error() == "daemon error: already_exists" {
 			return fmt.Errorf("issue already exists: %s", issueID)
+		}
+		if err.Error() == "daemon error: invalid_request: issue_id contains invalid characters" {
+			return fmt.Errorf("invalid issue ID: %s (cannot contain / or ..)", issueID)
 		}
 		return err
 	}
@@ -117,7 +115,12 @@ func runIssueCreateViaDaemon(client *daemon.Client, issueID, title string, opts 
 	return nil
 }
 
-func runIssueCreateDirect(issueID, title string, opts *issueCreateOptions, vaultPath string) error {
+func runIssueCreateWithEditor(issueID, title string, opts *issueCreateOptions) error {
+	vaultPath, err := getVaultPath()
+	if err != nil {
+		return err
+	}
+
 	issuesDir, err := resolveIssuesDir(vaultPath)
 	if err != nil {
 		return err
@@ -147,15 +150,13 @@ func runIssueCreateDirect(issueID, title string, opts *issueCreateOptions, vault
 	if opts.Body != "" {
 		sb.WriteString(opts.Body)
 		sb.WriteString("\n")
-	} else if !opts.Edit {
-		sb.WriteString("<!-- Describe the issue here -->\n")
 	}
 
 	if err := os.WriteFile(issuePath, []byte(sb.String()), 0644); err != nil {
 		return fmt.Errorf("failed to create issue: %w", err)
 	}
 
-	if opts.Edit {
+	if opts.Edit && !testBypassDaemon {
 		if err := openInEditor(issuePath); err != nil {
 			return fmt.Errorf("failed to open editor: %w", err)
 		}
@@ -383,7 +384,6 @@ func outputIssueList(issueInfos []issueInfo) error {
 	return nil
 }
 
-// formatRunsSummary formats runs into a summary like "1 running, 1 blocked"
 func formatRunsSummary(runs []runSummary) string {
 	counts := make(map[string]int)
 	for _, r := range runs {

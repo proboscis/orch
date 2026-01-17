@@ -17,8 +17,10 @@ func TestRunIssueCreatePrefersExistingIssuesDir(t *testing.T) {
 	globalOpts.VaultPath = vault
 	globalOpts.JSON = false
 	globalOpts.Quiet = true
+	testBypassDaemon = true
 	t.Cleanup(func() {
 		*globalOpts = prev
+		testBypassDaemon = false
 	})
 
 	issueID := "issue-123"
@@ -44,8 +46,10 @@ func TestRunIssueCreateUsesVaultIssuesDir(t *testing.T) {
 	globalOpts.VaultPath = issuesDir
 	globalOpts.JSON = false
 	globalOpts.Quiet = true
+	testBypassDaemon = true
 	t.Cleanup(func() {
 		*globalOpts = prev
+		testBypassDaemon = false
 	})
 
 	issueID := "issue-456"
