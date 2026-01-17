@@ -8,7 +8,24 @@ Python Textual-based terminal user interface for `orch monitor`.
 - **Run Dashboard**: Monitor active and completed runs with real-time status
 - **Detail Panels**: View issue content and run events
 - **Keybindings**: Quick navigation and actions
-- **Real-time Updates**: Refresh data on demand
+- **Real-time Updates**: Automatic refresh with daemon-based data
+
+## Prerequisites
+
+The TUI requires the orch daemon to be running. The daemon starts automatically when you run any `orch` command (e.g., `orch ps`).
+
+```
++-----------------------------+
+|     Python Textual TUI      |
+|        DaemonClient         |
++-----------+-----------------+
+            | Unix socket (JSON)
+            v
++-----------------------------+
+|         Go Daemon           |
+|   (single source of truth)  |
++-----------------------------+
+```
 
 ## Installation
 
@@ -36,6 +53,12 @@ Or specify vault path:
 orch-monitor --vault ~/my-vault
 ```
 
+If the daemon is not running, the TUI will show an error notification. Start the daemon with:
+
+```bash
+orch ps
+```
+
 ### Development
 
 ```bash
@@ -44,20 +67,6 @@ uv sync
 uv run python -m orch_monitor
 ```
 
-### Rust Backend (Recommended)
-
-For improved performance and Go-compatible vault scanning behavior, build and install the Rust backend:
-
-```bash
-cd orch-monitor-tui/orch_vault_rs
-maturin develop
-```
-
-The Rust backend:
-- Walks the entire vault directory to find issues (not just `issues/` folder)
-- Handles symlinked directories correctly
-- Matches the Go implementation's vault scanning behavior exactly
-
 ## Keybindings
 
 | Key | Action |
@@ -65,7 +74,8 @@ The Rust backend:
 | `q` | Quit |
 | `r` | Refresh data |
 | `tab` | Switch between Runs/Issues tabs |
-| `↑/↓` | Navigate list |
+| `f` | Filter runs by status |
+| `up/down` | Navigate list |
 | `enter` | Select item (attach to run / start issue) |
 | `a` | Attach to selected run's tmux session |
 | `s` | Stop selected run |
@@ -80,13 +90,31 @@ The TUI respects the same configuration as the Go `orch` CLI:
 
 ## Architecture
 
-- `models.py`: Data models (Issue, Run, Event, Status)
-- `vault.py`: Vault reader (uses Rust backend with Python fallback)
-- `config.py`: Configuration management
-- `widgets.py`: Custom Textual widgets (RunTable, IssueTable, DetailPanel)
-- `app.py`: Main Textual application
-- `__main__.py`: Entry point
-- `orch_vault_rs/`: Rust PyO3 library for vault reading (matches Go behavior)
+```
+orch_monitor/
+  __init__.py   - Package initialization
+  __main__.py   - Entry point
+  app.py        - Main Textual application (RunsDashboard, IssuesDashboard, OrchMonitorApp)
+  config.py     - Configuration management and socket path resolution
+  daemon.py     - DaemonClient for communicating with Go daemon via Unix socket
+  models.py     - Data models (Issue, Run, Event, Status)
+  widgets.py    - Custom Textual widgets (RunTable, IssueTable, DetailPanel)
+```
+
+The TUI uses a daemon-only architecture:
+- All data comes from the Go daemon via Unix socket
+- No direct file/vault access
+- Automatic refresh via polling (configurable interval)
+
+## Daemon Communication
+
+The TUI communicates with the orch daemon via Unix socket at `$VAULT/.orch/daemon.sock`:
+
+- `list_runs` - List all runs with optional status filter
+- `list_issues` - List all issues
+- `get_run` - Get details for a specific run
+- `get_issue` - Get details for a specific issue
+- `send` - Send a message to a running agent
 
 ## Differences from Go Monitor
 
