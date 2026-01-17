@@ -304,19 +304,19 @@ def get_default_multiplexer_type() -> MultiplexerType:
 
     # Check ORCH_MULTIPLEXER environment variable
     env_mux = os.environ.get("ORCH_MULTIPLEXER", "").lower()
-    if env_mux == "zellij" and _MULTIPLEXERS[MultiplexerType.ZELLIJ].is_available():
-        return MultiplexerType.ZELLIJ
-
-    # Default to tmux if available
-    if _MULTIPLEXERS[MultiplexerType.TMUX].is_available():
+    if env_mux == "tmux" and _MULTIPLEXERS[MultiplexerType.TMUX].is_available():
         return MultiplexerType.TMUX
 
-    # Fall back to zellij
+    # Default to zellij if available
     if _MULTIPLEXERS[MultiplexerType.ZELLIJ].is_available():
         return MultiplexerType.ZELLIJ
 
-    # Default to tmux even if not available (will fail later with clear error)
-    return MultiplexerType.TMUX
+    # Fall back to tmux
+    if _MULTIPLEXERS[MultiplexerType.TMUX].is_available():
+        return MultiplexerType.TMUX
+
+    # Default to zellij even if not available (will fail later with clear error)
+    return MultiplexerType.ZELLIJ
 
 
 # Convenience functions for working with Run objects
