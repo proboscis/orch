@@ -14,6 +14,7 @@ import (
 
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/git"
+	"github.com/s22625/orch/internal/github"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/notify"
 	"github.com/s22625/orch/internal/store"
@@ -47,6 +48,10 @@ type Daemon struct {
 	slackNotifier *notify.SlackNotifier
 	debugMode     bool
 	lockFile      *os.File
+
+	githubBackend  *github.Backend
+	lastGitHubSync time.Time
+	gitHubSyncMu   sync.Mutex
 }
 
 // RunState tracks the monitoring state of a single run
@@ -117,6 +122,16 @@ func (d *Daemon) Run() error {
 			d.slackNotifier = notify.NewSlackNotifier(&cfg.Slack)
 			d.logger.Printf("slack notifications enabled")
 		}
+		if cfg.IsGitHubBackend() {
+			cachePath := filepath.Join(OrchDir(d.vaultPath), "github-cache.db")
+			ghBackend, err := github.NewBackend(&cfg.GitHub, cachePath)
+			if err != nil {
+				d.logger.Printf("warning: failed to initialize GitHub backend: %v", err)
+			} else {
+				d.githubBackend = ghBackend
+				d.logger.Printf("GitHub Issues backend enabled (owner=%s, repo=%s)", cfg.GitHub.Owner, cfg.GitHub.Repo)
+			}
+		}
 	}
 
 	if err := WritePID(d.vaultPath); err != nil {
@@ -132,8 +147,14 @@ func (d *Daemon) Run() error {
 	d.logger.Printf("daemon started (pid=%d, vault=%s, binary=%s)", os.Getpid(), d.vaultPath, d.executablePath)
 
 	d.socketServer = NewSocketServer(d.vaultPath, d.store, d.logger)
+	d.socketServer.SetGitHubBackend(d.githubBackend)
 	if err := d.socketServer.Start(); err != nil {
 		d.logger.Printf("warning: failed to start socket server: %v", err)
+	}
+
+	if d.githubBackend != nil {
+		d.wg.Add(1)
+		go d.gitHubPollingLoop()
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -405,4 +426,61 @@ func Kill(vaultPath string) error {
 	RemovePID(vaultPath)
 
 	return nil
+}
+
+func (d *Daemon) gitHubPollingLoop() {
+	defer d.wg.Done()
+
+	pollInterval := 60 * time.Second
+	if d.config != nil && d.config.GitHub.PollInterval > 0 {
+		pollInterval = time.Duration(d.config.GitHub.PollInterval) * time.Second
+	}
+
+	d.logger.Printf("GitHub polling loop started (interval=%s)", pollInterval)
+
+	if err := d.syncGitHubIssues(); err != nil {
+		d.logger.Printf("initial GitHub sync failed: %v", err)
+	}
+
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			if err := d.syncGitHubIssues(); err != nil {
+				d.logger.Printf("GitHub sync failed: %v", err)
+			}
+		case <-d.stopCh:
+			d.logger.Printf("GitHub polling loop stopped")
+			return
+		}
+	}
+}
+
+func (d *Daemon) syncGitHubIssues() error {
+	d.gitHubSyncMu.Lock()
+	defer d.gitHubSyncMu.Unlock()
+
+	if d.githubBackend == nil {
+		return nil
+	}
+
+	d.debug("syncing GitHub issues...")
+
+	issues, err := d.githubBackend.SyncUpdatedSince(d.lastGitHubSync)
+	if err != nil {
+		return err
+	}
+
+	if len(issues) > 0 {
+		d.logger.Printf("GitHub sync: %d issues updated", len(issues))
+	}
+
+	d.lastGitHubSync = time.Now()
+	return nil
+}
+
+func (d *Daemon) GetGitHubBackend() *github.Backend {
+	return d.githubBackend
 }

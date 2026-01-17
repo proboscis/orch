@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/s22625/orch/internal/agent"
+	"github.com/s22625/orch/internal/github"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
 	"github.com/s22625/orch/internal/store"
@@ -48,11 +49,12 @@ type SendResponse struct {
 }
 
 type SocketServer struct {
-	vaultPath string
-	store     store.Store
-	listener  net.Listener
-	logger    Logger
-	stopCh    chan struct{}
+	vaultPath     string
+	store         store.Store
+	listener      net.Listener
+	logger        Logger
+	stopCh        chan struct{}
+	githubBackend *github.Backend
 }
 
 type Logger interface {
@@ -66,6 +68,10 @@ func NewSocketServer(vaultPath string, st store.Store, logger Logger) *SocketSer
 		logger:    logger,
 		stopCh:    make(chan struct{}),
 	}
+}
+
+func (s *SocketServer) SetGitHubBackend(backend *github.Backend) {
+	s.githubBackend = backend
 }
 
 func (s *SocketServer) Start() error {
@@ -286,7 +292,15 @@ func (s *SocketServer) handleListIssues(req SendRequest, encoder *json.Encoder) 
 		return
 	}
 
-	issues, err := s.store.ListIssues()
+	var issues []*model.Issue
+	if s.githubBackend != nil {
+		issues, err = s.githubBackend.ListFromCache()
+		if err != nil || len(issues) == 0 {
+			issues, err = s.store.ListIssues()
+		}
+	} else {
+		issues, err = s.store.ListIssues()
+	}
 	if err != nil {
 		s.logger.Printf("error listing issues: %v", err)
 		encoder.Encode(ListIssuesResponse{OK: false, Error: "store_error"})
@@ -367,7 +381,18 @@ func (s *SocketServer) handleGetIssue(req SendRequest, encoder *json.Encoder) {
 		return
 	}
 
-	issue, err := s.store.ResolveIssue(req.IssueID)
+	var issue *model.Issue
+	var err error
+
+	if s.githubBackend != nil {
+		issue, err = s.githubBackend.GetByIDFromCache(req.IssueID)
+		if err != nil {
+			issue, err = s.store.ResolveIssue(req.IssueID)
+		}
+	} else {
+		issue, err = s.store.ResolveIssue(req.IssueID)
+	}
+
 	if err != nil {
 		s.logger.Printf("error getting issue %s: %v", req.IssueID, err)
 		encoder.Encode(GetIssueResponse{OK: false, Error: "not_found"})
