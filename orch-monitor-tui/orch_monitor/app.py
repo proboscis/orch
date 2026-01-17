@@ -31,6 +31,7 @@ from textual.widgets import (
 from .config import Config, FilterState, RunFilterState, IssueFilterState
 from .daemon import DaemonClient, DaemonError, DaemonNotRunningError, RunFilters
 from .models import Issue, IssueStatus, Run, Status
+from .multiplexer import Multiplexer, get_multiplexer_for_run, get_session_name
 from .widgets import DetailPanel, IssueTable, RunTable
 
 
@@ -48,7 +49,7 @@ TIME_RANGES = [
 
 
 class KillConfirmScreen(ModalScreen[bool]):
-    """Confirmation dialog for killing tmux session."""
+    """Confirmation dialog for killing terminal session."""
 
     CSS = """
     KillConfirmScreen {
@@ -101,18 +102,21 @@ class KillConfirmScreen(ModalScreen[bool]):
     def __init__(self, run: Run):
         super().__init__()
         self.run = run
+        self.multiplexer = get_multiplexer_for_run(run)
 
     def compose(self) -> ComposeResult:
+        mux_name = self.multiplexer.name
+        session_name = get_session_name(self.run) or "N/A"
         with Vertical(id="kill-dialog"):
-            yield Label("Kill tmux session?", id="kill-title")
+            yield Label(f"Kill {mux_name} session?", id="kill-title")
             with Vertical(id="kill-details"):
                 yield Static(f"Run: {self.run.ref()}")
-                yield Static(f"Session: {self.run.tmux_session or 'N/A'}")
+                yield Static(f"Session: {session_name}")
             with Vertical(id="kill-consequences"):
                 yield Static("This will:")
-                yield Static("  • Kill the tmux session")
-                yield Static("  • Mark the run as canceled")
-                yield Static("  • Stop any running agent")
+                yield Static(f"  - Kill the {mux_name} session")
+                yield Static("  - Mark the run as canceled")
+                yield Static("  - Stop any running agent")
             with Horizontal(id="kill-buttons"):
                 yield Button("Yes, kill", variant="error", id="confirm-btn")
                 yield Button("No, cancel", id="cancel-btn")
@@ -820,28 +824,27 @@ class RunsDashboard(App):
         if not self.selected_run:
             self.notify("No run selected", severity="warning")
             return
-        if not self.selected_run.tmux_session:
-            self.notify("Run has no tmux session", severity="warning")
+        session_name = get_session_name(self.selected_run)
+        if not session_name:
+            self.notify("Run has no session", severity="warning")
             return
         run = self.selected_run
-        tmux_session = run.tmux_session
+        multiplexer = get_multiplexer_for_run(run)
         run_ref = run.ref()
 
         def on_confirm(confirmed: bool) -> None:
             if confirmed:
-                self._do_kill_session(tmux_session, run_ref)
+                self._do_kill_session(session_name, multiplexer, run_ref)
 
         self.push_screen(KillConfirmScreen(run), on_confirm)
 
     @work(thread=True)
-    def _do_kill_session(self, tmux_session: str, run_ref: str) -> None:
-        """Kill tmux session and mark run as canceled."""
+    def _do_kill_session(
+        self, session_name: str, multiplexer: Multiplexer, run_ref: str
+    ) -> None:
+        """Kill terminal session and mark run as canceled."""
         try:
-            kill_result = subprocess.run(
-                ["tmux", "kill-session", "-t", tmux_session],
-                capture_output=True,
-            )
-            session_existed = kill_result.returncode == 0
+            session_existed = multiplexer.kill_session(session_name)
 
             stop_result = subprocess.run(
                 [
@@ -1546,28 +1549,27 @@ class OrchMonitorApp(App):
         if not self.selected_run:
             self.notify("No run selected", severity="warning")
             return
-        if not self.selected_run.tmux_session:
-            self.notify("Run has no tmux session", severity="warning")
+        session_name = get_session_name(self.selected_run)
+        if not session_name:
+            self.notify("Run has no session", severity="warning")
             return
         run = self.selected_run
-        tmux_session = run.tmux_session
+        multiplexer = get_multiplexer_for_run(run)
         run_ref = run.ref()
 
         def on_confirm(confirmed: bool) -> None:
             if confirmed:
-                self._do_kill_session(tmux_session, run_ref)
+                self._do_kill_session(session_name, multiplexer, run_ref)
 
         self.push_screen(KillConfirmScreen(run), on_confirm)
 
     @work(thread=True)
-    def _do_kill_session(self, tmux_session: str, run_ref: str) -> None:
-        """Kill tmux session and mark run as canceled."""
+    def _do_kill_session(
+        self, session_name: str, multiplexer: Multiplexer, run_ref: str
+    ) -> None:
+        """Kill terminal session and mark run as canceled."""
         try:
-            kill_result = subprocess.run(
-                ["tmux", "kill-session", "-t", tmux_session],
-                capture_output=True,
-            )
-            session_existed = kill_result.returncode == 0
+            session_existed = multiplexer.kill_session(session_name)
 
             stop_result = subprocess.run(
                 [

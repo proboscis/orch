@@ -5,10 +5,16 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Protocol
 
 from .app import IssuesDashboard, OrchMonitorApp, RunsDashboard
 from .config import Config
 from .daemon import DaemonClient
+from .multiplexer import (
+    MultiplexerType,
+    get_default_multiplexer_type,
+    get_multiplexer,
+)
 
 
 SESSION_NAME = "orch-monitor-tui"
@@ -36,6 +42,7 @@ def load_control_session(vault_path: Path | None) -> str | None:
 
 
 def write_control_prompt(vault_path: Path | None) -> bool:
+    """Write control prompt file for the agent."""
     try:
         config = Config.from_vault(vault_path) if vault_path else Config.load()
         daemon = DaemonClient(config.socket_path)
@@ -124,6 +131,7 @@ Run these commands directly using bash:
 
 
 def get_vault_path(args) -> Path | None:
+    """Get vault path from args or environment."""
     if args.vault:
         return args.vault
     vault_env = os.getenv("ORCH_VAULT")
@@ -132,86 +140,244 @@ def get_vault_path(args) -> Path | None:
     return None
 
 
-def launch_tmux_layout(
-    vault_path: Path | None, agent: str = "opencode", new: bool = False
-):
-    vault_arg = f"--vault {vault_path}" if vault_path else ""
+class LayoutLauncher(Protocol):
+    """Protocol for launching multiplexer layouts."""
 
-    existing = subprocess.run(
-        ["tmux", "has-session", "-t", SESSION_NAME],
-        capture_output=True,
-    )
+    def has_session(self, session_name: str) -> bool:
+        """Check if session exists."""
+        ...
 
-    if existing.returncode == 0:
-        if new:
-            subprocess.run(["tmux", "kill-session", "-t", SESSION_NAME])
+    def kill_session(self, session_name: str) -> None:
+        """Kill existing session."""
+        ...
+
+    def attach_session(self, session_name: str) -> None:
+        """Attach to existing session."""
+        ...
+
+    def launch_layout(
+        self,
+        session_name: str,
+        vault_path: Path | None,
+        agent: str,
+        cwd: str,
+    ) -> None:
+        """Launch a new layout with runs, issues, and agent panes."""
+        ...
+
+
+class TmuxLayoutLauncher:
+    """Tmux implementation of layout launcher."""
+
+    def has_session(self, session_name: str) -> bool:
+        result = subprocess.run(
+            ["tmux", "has-session", "-t", session_name],
+            capture_output=True,
+        )
+        return result.returncode == 0
+
+    def kill_session(self, session_name: str) -> None:
+        subprocess.run(["tmux", "kill-session", "-t", session_name])
+
+    def attach_session(self, session_name: str) -> None:
+        subprocess.run(["tmux", "attach-session", "-t", session_name])
+
+    def launch_layout(
+        self,
+        session_name: str,
+        vault_path: Path | None,
+        agent: str,
+        cwd: str,
+    ) -> None:
+        python_exec = sys.executable
+        vault_arg = f"--vault {vault_path}" if vault_path else ""
+        env_export = f"export ORCH_VAULT='{vault_path}'; " if vault_path else ""
+
+        # Create new session
+        subprocess.run(
+            [
+                "tmux",
+                "new-session",
+                "-d",
+                "-s",
+                session_name,
+                "-x",
+                "180",
+                "-y",
+                "50",
+                "-c",
+                cwd,
+            ]
+        )
+
+        # Split into 3 panes: left (runs/issues stacked), right (agent)
+        subprocess.run(["tmux", "split-window", "-h", "-t", session_name, "-c", cwd])
+        subprocess.run(
+            [
+                "tmux",
+                "split-window",
+                "-v",
+                "-t",
+                f"{session_name}:0.0",
+                "-p",
+                "70",
+                "-c",
+                cwd,
+            ]
+        )
+
+        # Build commands
+        runs_cmd = (
+            f'{env_export}"{python_exec}" -m orch_monitor --runs {vault_arg}'.strip()
+        )
+        issues_cmd = (
+            f'{env_export}"{python_exec}" -m orch_monitor --issues {vault_arg}'.strip()
+        )
+
+        write_control_prompt(vault_path)
+        if agent == "opencode":
+            agent_cmd = f'opencode --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
         else:
-            subprocess.run(["tmux", "attach-session", "-t", SESSION_NAME])
+            agent_cmd = agent
+
+        # Send commands to panes
+        subprocess.run(
+            ["tmux", "send-keys", "-t", f"{session_name}:0.0", runs_cmd, "Enter"]
+        )
+        subprocess.run(
+            ["tmux", "send-keys", "-t", f"{session_name}:0.1", issues_cmd, "Enter"]
+        )
+        subprocess.run(
+            ["tmux", "send-keys", "-t", f"{session_name}:0.2", agent_cmd, "Enter"]
+        )
+
+        # Focus agent pane
+        subprocess.run(["tmux", "select-pane", "-t", f"{session_name}:0.2"])
+
+        # Attach to session
+        subprocess.run(["tmux", "attach-session", "-t", session_name])
+
+
+class ZellijLayoutLauncher:
+    """Zellij implementation of layout launcher."""
+
+    def has_session(self, session_name: str) -> bool:
+        result = subprocess.run(
+            ["zellij", "list-sessions"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return False
+        sessions = result.stdout.strip().split("\n")
+        return any(s.startswith(session_name) for s in sessions)
+
+    def kill_session(self, session_name: str) -> None:
+        subprocess.run(["zellij", "delete-session", session_name, "--force"])
+
+    def attach_session(self, session_name: str) -> None:
+        subprocess.run(["zellij", "attach", session_name])
+
+    def launch_layout(
+        self,
+        session_name: str,
+        vault_path: Path | None,
+        agent: str,
+        cwd: str,
+    ) -> None:
+        python_exec = sys.executable
+        vault_arg = f"--vault {vault_path}" if vault_path else ""
+
+        # Build commands
+        runs_cmd = f'"{python_exec}" -m orch_monitor --runs {vault_arg}'.strip()
+        issues_cmd = f'"{python_exec}" -m orch_monitor --issues {vault_arg}'.strip()
+
+        write_control_prompt(vault_path)
+        if agent == "opencode":
+            agent_cmd = f'opencode --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
+        else:
+            agent_cmd = agent
+
+        # Create a kdl layout file for zellij
+        layout_content = f'''
+layout {{
+    pane split_direction="vertical" {{
+        pane split_direction="horizontal" size="40%" {{
+            pane command="bash" {{
+                args "-c" "{runs_cmd}"
+            }}
+            pane command="bash" {{
+                args "-c" "{issues_cmd}"
+            }}
+        }}
+        pane size="60%" focus=true command="bash" {{
+            args "-c" "{agent_cmd}"
+        }}
+    }}
+}}
+'''
+        # Write temporary layout file
+        layout_path = Path(cwd) / ".orch-monitor-layout.kdl"
+        layout_path.write_text(layout_content)
+
+        try:
+            # Set ORCH_VAULT for child processes
+            env = os.environ.copy()
+            if vault_path:
+                env["ORCH_VAULT"] = str(vault_path)
+
+            # Launch zellij with layout
+            subprocess.run(
+                [
+                    "zellij",
+                    "--session",
+                    session_name,
+                    "--layout",
+                    str(layout_path),
+                ],
+                cwd=cwd,
+                env=env,
+            )
+        finally:
+            # Clean up layout file
+            if layout_path.exists():
+                layout_path.unlink()
+
+
+# Registry of layout launchers
+_LAUNCHERS: dict[MultiplexerType, LayoutLauncher] = {
+    MultiplexerType.TMUX: TmuxLayoutLauncher(),
+    MultiplexerType.ZELLIJ: ZellijLayoutLauncher(),
+}
+
+
+def get_layout_launcher(mux_type: MultiplexerType) -> LayoutLauncher:
+    """Get layout launcher by multiplexer type (DI factory)."""
+    return _LAUNCHERS[mux_type]
+
+
+def launch_monitor_layout(
+    vault_path: Path | None,
+    agent: str = "opencode",
+    new: bool = False,
+    multiplexer: MultiplexerType | None = None,
+) -> None:
+    """Launch the monitor layout using the specified multiplexer."""
+    if multiplexer is None:
+        multiplexer = get_default_multiplexer_type()
+
+    launcher = get_layout_launcher(multiplexer)
+    cwd = os.getcwd()
+
+    # Check for existing session
+    if launcher.has_session(SESSION_NAME):
+        if new:
+            launcher.kill_session(SESSION_NAME)
+        else:
+            launcher.attach_session(SESSION_NAME)
             return
 
-    python_exec = sys.executable
-    cwd = os.getcwd()
-    env_export = f"export ORCH_VAULT='{vault_path}'; " if vault_path else ""
-
-    subprocess.run(
-        [
-            "tmux",
-            "new-session",
-            "-d",
-            "-s",
-            SESSION_NAME,
-            "-x",
-            "180",
-            "-y",
-            "50",
-            "-c",
-            cwd,
-        ]
-    )
-
-    subprocess.run(["tmux", "split-window", "-h", "-t", SESSION_NAME, "-c", cwd])
-    subprocess.run(
-        [
-            "tmux",
-            "split-window",
-            "-v",
-            "-t",
-            f"{SESSION_NAME}:0.0",
-            "-p",
-            "70",
-            "-c",
-            cwd,
-        ]
-    )
-
-    runs_cmd = f'{env_export}"{python_exec}" -m orch_monitor --runs {vault_arg}'.strip()
-    issues_cmd = (
-        f'{env_export}"{python_exec}" -m orch_monitor --issues {vault_arg}'.strip()
-    )
-
-    if agent == "opencode":
-        session_id = None if new else load_control_session(vault_path)
-        if session_id:
-            agent_cmd = f"opencode --session {session_id} --continue"
-        else:
-            write_control_prompt(vault_path)
-            agent_cmd = f'opencode --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
-    else:
-        agent_cmd = agent
-
-    subprocess.run(
-        ["tmux", "send-keys", "-t", f"{SESSION_NAME}:0.0", runs_cmd, "Enter"]
-    )
-    subprocess.run(
-        ["tmux", "send-keys", "-t", f"{SESSION_NAME}:0.1", issues_cmd, "Enter"]
-    )
-    subprocess.run(
-        ["tmux", "send-keys", "-t", f"{SESSION_NAME}:0.2", agent_cmd, "Enter"]
-    )
-
-    subprocess.run(["tmux", "select-pane", "-t", f"{SESSION_NAME}:0.2"])
-
-    subprocess.run(["tmux", "attach-session", "-t", SESSION_NAME])
+    launcher.launch_layout(SESSION_NAME, vault_path, agent, cwd)
 
 
 def main():
@@ -224,12 +390,12 @@ def main():
     parser.add_argument(
         "--runs",
         action="store_true",
-        help="Show runs dashboard only (for tmux pane)",
+        help="Show runs dashboard only (for multiplexer pane)",
     )
     parser.add_argument(
         "--issues",
         action="store_true",
-        help="Show issues dashboard only (for tmux pane)",
+        help="Show issues dashboard only (for multiplexer pane)",
     )
     parser.add_argument(
         "--agent",
@@ -240,6 +406,12 @@ def main():
         "--new",
         action="store_true",
         help="Kill existing session and start fresh",
+    )
+    parser.add_argument(
+        "--multiplexer",
+        "-m",
+        choices=["tmux", "zellij"],
+        help="Terminal multiplexer to use (default: auto-detect or tmux)",
     )
 
     args = parser.parse_args()
@@ -252,7 +424,10 @@ def main():
         app = IssuesDashboard(vault_path=vault_path)
         app.run()
     else:
-        launch_tmux_layout(vault_path, args.agent, args.new)
+        mux_type = None
+        if args.multiplexer:
+            mux_type = MultiplexerType(args.multiplexer)
+        launch_monitor_layout(vault_path, args.agent, args.new, mux_type)
 
 
 if __name__ == "__main__":
