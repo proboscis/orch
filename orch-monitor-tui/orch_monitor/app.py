@@ -1002,25 +1002,40 @@ class IssuesDashboard(App):
         issue_table = self.query_one("#issues-table", IssueTable)
         issue_table.populate(self.issues)
 
+    @on(IssueTable.RowHighlighted)
+    def on_issue_highlighted(self, event: IssueTable.RowHighlighted) -> None:
+        """Track highlighted issue for Enter key open functionality."""
+        issue_id = event.row_key.value if event.row_key else None
+        if not issue_id:
+            self._highlighted_issue_id = None
+            return
+        # Skip if already highlighted (avoids redundant fetches on rapid navigation)
+        if getattr(self, "_highlighted_issue_id", None) == issue_id:
+            return
+        self._highlighted_issue_id = issue_id
+        self._fetch_issue_detail(issue_id)
+
     @on(IssueTable.RowSelected)
     def on_issue_selected(self, event: IssueTable.RowSelected) -> None:
-        issue_id = event.row_key.value
-        if issue_id:
-            self._fetch_issue_detail(issue_id)
+        """Handle Enter key on issue - open in editor."""
+        self.action_open_issue()
 
-    @work(thread=True)
+    @work(thread=True, exclusive=True)
     def _fetch_issue_detail(self, issue_id: str) -> None:
         try:
             issue = self.daemon.get_issue(issue_id)
         except DaemonError:
             issue = None
-        self.call_from_thread(self._set_selected_issue, issue)
+        self.call_from_thread(self._set_selected_issue, issue, issue_id)
 
-    def _set_selected_issue(self, issue: Optional[Issue]) -> None:
-        self.selected_issue = issue
+    def _set_selected_issue(self, issue: Optional[Issue], issue_id: str) -> None:
+        # Only apply if this is still the highlighted issue (prevents stale updates)
+        if getattr(self, "_highlighted_issue_id", None) == issue_id:
+            self.selected_issue = issue
 
     def action_open_issue(self) -> None:
         if not self.selected_issue:
+            self.notify("No issue selected", severity="warning")
             return
 
         cmd, error = _get_editor_command(self.selected_issue.path)
@@ -1028,11 +1043,14 @@ class IssuesDashboard(App):
             self.notify(error or "Unknown error", severity="error")
             return
 
-        self.exit()
-        subprocess.run(cmd)
+        # Suspend TUI, open editor, resume on exit
+        with self.suspend():
+            subprocess.run(cmd)
+        self.refresh_data()
 
     def action_new_run(self) -> None:
         if not self.selected_issue:
+            self.notify("No issue selected", severity="warning")
             return
         self.exit()
         subprocess.run(
@@ -1316,22 +1334,40 @@ class OrchMonitorApp(App):
             self.selected_run = run
             self.show_run_detail(run)
 
-    @on(IssueTable.RowSelected)
-    def on_issue_selected(self, event: IssueTable.RowSelected) -> None:
-        issue_id = event.row_key.value
+    @on(IssueTable.RowHighlighted)
+    def on_issue_highlighted(self, event: IssueTable.RowHighlighted) -> None:
+        """Track highlighted issue for Enter key open functionality."""
+        issue_id = event.row_key.value if event.row_key else None
         if not issue_id:
+            self._highlighted_issue_id = None
             return
+        # Skip if already highlighted (avoids redundant fetches on rapid navigation)
+        if getattr(self, "_highlighted_issue_id", None) == issue_id:
+            return
+        self._highlighted_issue_id = issue_id
         self._fetch_issue_for_detail(issue_id)
 
-    @work(thread=True)
+    @on(IssueTable.RowSelected)
+    def on_issue_selected(self, event: IssueTable.RowSelected) -> None:
+        """Handle Enter key on issue - show detail and open in editor."""
+        # Show detail in panel first
+        if self.selected_issue:
+            self.show_issue_detail(self.selected_issue)
+
+    @work(thread=True, exclusive=True)
     def _fetch_issue_for_detail(self, issue_id: str) -> None:
         try:
             issue = self.daemon.get_issue(issue_id)
         except DaemonError:
             issue = None
-        self.call_from_thread(self._show_issue_detail_callback, issue)
+        self.call_from_thread(self._show_issue_detail_callback, issue, issue_id)
 
-    def _show_issue_detail_callback(self, issue: Optional[Issue]) -> None:
+    def _show_issue_detail_callback(
+        self, issue: Optional[Issue], issue_id: str
+    ) -> None:
+        # Only apply if this is still the highlighted issue (prevents stale updates)
+        if getattr(self, "_highlighted_issue_id", None) != issue_id:
+            return
         if issue:
             self.selected_issue = issue
             self.show_issue_detail(issue)
@@ -1543,6 +1579,7 @@ class OrchMonitorApp(App):
 
     def action_open_issue(self) -> None:
         if not self.selected_issue:
+            self.notify("No issue selected", severity="warning")
             return
 
         cmd, error = _get_editor_command(self.selected_issue.path)
@@ -1550,8 +1587,10 @@ class OrchMonitorApp(App):
             self.notify(error or "Unknown error", severity="error")
             return
 
-        self.exit()
-        subprocess.run(cmd)
+        # Suspend TUI, open editor, resume on exit
+        with self.suspend():
+            subprocess.run(cmd)
+        self.refresh_data()
 
     def action_select(self) -> None:
         if self.current_focus == "runs" and self.selected_run:
