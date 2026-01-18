@@ -137,11 +137,16 @@ func (d *Daemon) Run() error {
 		return err
 	}
 	defer func() {
+		UnregisterDaemon(d.projectRoot)
 		RemovePID(d.projectRoot)
 		if d.lockFile != nil {
 			d.lockFile.Close()
 		}
 	}()
+
+	if err := RegisterDaemon(d.projectRoot); err != nil {
+		d.logger.Printf("warning: failed to register daemon: %v", err)
+	}
 
 	d.logger.Printf("daemon started (pid=%d, vault=%s, binary=%s)", os.Getpid(), d.projectRoot, d.executablePath)
 
@@ -255,7 +260,7 @@ func (d *Daemon) checkBinaryStaleness() {
 func (d *Daemon) restartWithNewBinary() error {
 	d.logger.Printf("restarting daemon with new binary via exec...")
 
-	args := []string{d.executablePath, "daemon", "--project-root", d.projectRoot}
+	args := []string{d.executablePath, "daemon", "run", "--project-root", d.projectRoot}
 	return syscall.Exec(d.executablePath, args, os.Environ())
 }
 
@@ -371,7 +376,7 @@ func StartInBackground(projectRoot string) (int, error) {
 
 	cmd := &exec.Cmd{
 		Path: executable,
-		Args: []string{executable, "daemon", "--project-root", projectRoot},
+		Args: []string{executable, "daemon", "run", "--project-root", projectRoot},
 		SysProcAttr: &syscall.SysProcAttr{
 			Setsid: true,
 		},

@@ -54,6 +54,18 @@ func runRepair(opts *repairOptions) error {
 	problemsFound := 0
 	problemsFixed := 0
 
+	fmt.Println("Checking daemon registry...")
+	registryFixed, err := repairDaemonRegistry(opts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  error: %v\n", err)
+	}
+	if registryFixed > 0 {
+		problemsFound += registryFixed
+		if !opts.DryRun {
+			problemsFixed += registryFixed
+		}
+	}
+
 	fmt.Println("Checking daemon...")
 	daemonFixed, err := repairDaemon(projectRoot, opts)
 	if err != nil {
@@ -275,4 +287,50 @@ func waitForDaemonRestart(vaultPath string, oldMeta *daemon.DaemonMetadata, time
 		time.Sleep(50 * time.Millisecond)
 	}
 	return false
+}
+
+func repairDaemonRegistry(opts *repairOptions) (int, error) {
+	if err := daemon.CleanupStaleRegistrations(); err != nil {
+		return 0, err
+	}
+
+	infos, err := daemon.ListAllDaemons()
+	if err != nil {
+		return 0, err
+	}
+
+	fixed := 0
+	var unhealthy []*daemon.DaemonInfo
+
+	for _, info := range infos {
+		if !info.IsHealthy {
+			unhealthy = append(unhealthy, info)
+		}
+	}
+
+	if len(unhealthy) > 0 {
+		fmt.Printf("  found %d unhealthy daemon(s) (running but socket unavailable):\n", len(unhealthy))
+		for _, info := range unhealthy {
+			fmt.Printf("    - pid=%d project=%s\n", info.PID, info.ProjectRoot)
+			fixed++
+			if !opts.DryRun && opts.Force {
+				if err := daemon.KillDaemon(info.ProjectRoot); err != nil {
+					fmt.Fprintf(os.Stderr, "      failed to kill: %v\n", err)
+				} else {
+					fmt.Printf("      killed unhealthy daemon\n")
+				}
+			}
+		}
+		if !opts.DryRun && !opts.Force && len(unhealthy) > 0 {
+			fmt.Println("  use --force to kill unhealthy daemons")
+		}
+	}
+
+	if len(infos) > 0 && len(unhealthy) == 0 {
+		fmt.Printf("  %d daemon(s) registered, all healthy\n", len(infos))
+	} else if len(infos) == 0 {
+		fmt.Println("  no daemons registered")
+	}
+
+	return fixed, nil
 }
