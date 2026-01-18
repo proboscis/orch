@@ -3,8 +3,10 @@ package config
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -242,6 +244,7 @@ func findRepoConfig() (string, error) {
 }
 
 // findRepoConfigs searches upward from cwd for .orch/config.yaml files.
+// If running from a git worktree, it also includes the main repo's config.
 // Returned paths are ordered from furthest ancestor to closest (highest precedence last).
 func findRepoConfigs() ([]string, error) {
 	cwd, err := os.Getwd()
@@ -251,18 +254,26 @@ func findRepoConfigs() ([]string, error) {
 
 	dir := cwd
 	var paths []string
+	visitedDirs := make(map[string]bool)
 	for {
 		configPath := filepath.Join(dir, ".orch", configFile)
 		if _, err := os.Stat(configPath); err == nil {
 			paths = append(paths, configPath)
+			visitedDirs[dir] = true
 		}
 
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			// Reached root
 			break
 		}
 		dir = parent
+	}
+
+	if mainRepo := findMainRepoRoot(cwd); mainRepo != "" && !visitedDirs[mainRepo] {
+		configPath := filepath.Join(mainRepo, ".orch", configFile)
+		if _, err := os.Stat(configPath); err == nil {
+			paths = append([]string{configPath}, paths...)
+		}
 	}
 
 	for i, j := 0, len(paths)-1; i < j; i, j = i+1, j-1 {
@@ -270,6 +281,46 @@ func findRepoConfigs() ([]string, error) {
 	}
 
 	return paths, nil
+}
+
+// findMainRepoRoot returns the main git repository root when running from a worktree.
+// Returns empty string if not in a git repo or not in a worktree.
+func findMainRepoRoot(startDir string) string {
+	commonGitDir := getGitOutput(startDir, "--git-common-dir")
+	if commonGitDir == "" {
+		return ""
+	}
+
+	if !filepath.IsAbs(commonGitDir) {
+		commonGitDir = filepath.Join(startDir, commonGitDir)
+	}
+
+	worktreeGitDir := getGitOutput(startDir, "--git-dir")
+	if worktreeGitDir == "" {
+		return ""
+	}
+
+	if !filepath.IsAbs(worktreeGitDir) {
+		worktreeGitDir = filepath.Join(startDir, worktreeGitDir)
+	}
+
+	commonGitDir = filepath.Clean(commonGitDir)
+	worktreeGitDir = filepath.Clean(worktreeGitDir)
+
+	if commonGitDir == worktreeGitDir {
+		return ""
+	}
+
+	return filepath.Dir(commonGitDir)
+}
+
+func getGitOutput(dir, flag string) string {
+	cmd := exec.Command("git", "-C", dir, "rev-parse", flag)
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
 }
 
 // globalConfigPath returns the path to global config
