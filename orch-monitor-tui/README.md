@@ -42,7 +42,7 @@ uv tool install "git+https://github.com/proboscis/orch#subdirectory=orch-monitor
 
 ## Usage
 
-Run from any directory (uses `ORCH_VAULT` env var or `.orch/config.yaml`):
+Run from any directory (uses `ORCH_PROJECT_ROOT` or `ORCH_VAULT` env var, or `.orch/config.yaml`):
 
 ```bash
 orch-monitor
@@ -116,8 +116,9 @@ uv run python -m orch_monitor
 
 The TUI respects the same configuration as the Go `orch` CLI:
 
-- `ORCH_VAULT` environment variable
-- `.orch/config.yaml` in the vault directory
+- `ORCH_PROJECT_ROOT` environment variable (must contain `.orch/` directory)
+- `.orch/config.yaml` found by searching upward from current directory
+- `ORCH_VAULT` environment variable (legacy fallback)
 
 ## Architecture
 
@@ -140,7 +141,7 @@ The TUI uses a daemon-only architecture:
 
 ## Daemon Communication
 
-The TUI communicates with the orch daemon via Unix socket at `$VAULT/.orch/daemon.sock`:
+The TUI communicates with the orch daemon via Unix socket at `$PROJECT_ROOT/.orch/daemon.sock`:
 
 - `list_runs` - List all runs with optional status filter
 - `list_issues` - List all issues

@@ -605,9 +605,11 @@ func (s *SocketServer) handleCreateIssue(req SendRequest, encoder *json.Encoder)
 		return
 	}
 
-	issuesDir := filepath.Join(s.projectRoot, "issues")
-	if _, err := os.Stat(filepath.Join(s.projectRoot, "Issues")); err == nil {
-		issuesDir = filepath.Join(s.projectRoot, "Issues")
+	// Use vault path for file-based issues (not project root)
+	vaultPath := s.store.VaultPath()
+	issuesDir := filepath.Join(vaultPath, "issues")
+	if _, err := os.Stat(filepath.Join(vaultPath, "Issues")); err == nil {
+		issuesDir = filepath.Join(vaultPath, "Issues")
 	}
 	if err := os.MkdirAll(issuesDir, 0755); err != nil {
 		s.logger.Printf("error creating issues directory: %v", err)

@@ -250,17 +250,30 @@ class Config:
     def load(cls, config_path: Optional[Path] = None) -> "Config":
         vault_path_str = os.getenv("ORCH_VAULT")
         data: dict = {}
-        project_root = Path(".").resolve()
+        project_root: Optional[Path] = None
+
+        env_project_root = os.getenv("ORCH_PROJECT_ROOT")
+        if env_project_root:
+            candidate = Path(env_project_root).expanduser().resolve()
+            if (candidate / ORCH_DIR).is_dir():
+                project_root = candidate
+                config_file = candidate / ORCH_DIR / "config.yaml"
+                if config_file.exists():
+                    with open(config_file) as f:
+                        data = yaml.safe_load(f) or {}
+                    if not vault_path_str:
+                        vault_path_str = data.get("vault")
 
         if config_path and config_path.exists():
             with open(config_path) as f:
                 data = yaml.safe_load(f) or {}
-            project_root = cls._get_project_root(config_path)
+            if project_root is None:
+                project_root = cls._get_project_root(config_path)
 
             if not vault_path_str:
                 vault_path_str = data.get("vault")
 
-        else:
+        elif project_root is None:
             repo_configs = cls._find_repo_configs()
             if repo_configs:
                 project_root = cls._get_project_root(repo_configs[-1])
@@ -278,6 +291,9 @@ class Config:
                     vault_path_str = str(
                         cls._resolve_path_from_config(file_data["vault"], base_dir)
                     )
+
+        if project_root is None:
+            project_root = Path(".").resolve()
 
         env_vault = os.getenv("ORCH_VAULT")
         if env_vault:
