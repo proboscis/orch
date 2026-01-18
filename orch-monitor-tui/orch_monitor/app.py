@@ -53,6 +53,17 @@ from textual.widgets import (
     SelectionList,
 )
 
+INPUT_BLOCKING_ACTIONS = frozenset({
+    "quit",
+    "refresh",
+    "attach",
+    "stop",
+    "filter",
+    "new_run",
+    "open_issue",
+    "switch_focus",
+})
+
 from .config import Config, FilterState, RunFilterState, IssueFilterState
 from .daemon import DaemonClient, DaemonError, DaemonNotRunningError, RunFilters
 from .models import Issue, IssueStatus, Run, Status
@@ -702,6 +713,11 @@ class RunsDashboard(App):
         Binding("ctrl+f", "clear_filters", "Clear Filters"),
     ]
 
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action in INPUT_BLOCKING_ACTIONS and isinstance(self.focused, Input):
+            return False
+        return True
+
     def __init__(self, vault_path: Optional[Path] = None, auto_refresh: bool = True):
         super().__init__()
         if vault_path:
@@ -1119,6 +1135,11 @@ class IssuesDashboard(App):
         Binding("ctrl+f", "clear_filters", "Clear Filters"),
     ]
 
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action in INPUT_BLOCKING_ACTIONS and isinstance(self.focused, Input):
+            return False
+        return True
+
     def __init__(self, vault_path: Optional[Path] = None, auto_refresh: bool = True):
         super().__init__()
         if vault_path:
@@ -1371,6 +1392,11 @@ class OrchMonitorApp(App):
         Binding("ctrl+f", "clear_filters", "Clear Filters"),
         Binding("tab", "switch_focus", "Switch Focus"),
     ]
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action in INPUT_BLOCKING_ACTIONS and isinstance(self.focused, Input):
+            return False
+        return True
 
     def __init__(self, vault_path: Optional[Path] = None, auto_refresh: bool = True):
         super().__init__()

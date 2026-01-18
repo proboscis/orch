@@ -3,9 +3,11 @@
 from typing import Optional
 
 from textual.app import ComposeResult
-from textual.widgets import DataTable, Static
+from textual.widgets import DataTable, Static, Input
 from textual.widgets.data_table import RowDoesNotExist
 from textual.containers import Container
+
+TABLE_VIM_ACTIONS = frozenset({"cursor_down", "cursor_up", "scroll_top", "scroll_bottom"})
 
 from .models import Issue, Run, Status
 
@@ -98,7 +100,6 @@ def model_display_name(model: str, variant: str) -> str:
 class CursorPreservingTable(DataTable):
     """DataTable that preserves cursor position across repopulation."""
 
-    # Add vim-style hjkl navigation bindings
     BINDINGS = [
         ("j", "cursor_down", "Down"),
         ("k", "cursor_up", "Up"),
@@ -110,6 +111,11 @@ class CursorPreservingTable(DataTable):
         super().__init__(*args, **kwargs)
         self.cursor_type = "row"
         self.zebra_stripes = True
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action in TABLE_VIM_ACTIONS and isinstance(self.app.focused, Input):
+            return False
+        return True
 
     def _get_current_row_key(self) -> Optional[str]:
         if self.row_count == 0:
