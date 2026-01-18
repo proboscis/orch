@@ -2,18 +2,23 @@ package daemon
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
+
+	"github.com/s22625/orch/internal/xdg"
 )
 
 func TestPIDFileOperations(t *testing.T) {
-	dir := t.TempDir()
+	// Use a temp XDG runtime dir for testing
+	tmpDir := t.TempDir()
+	oldXDG := os.Getenv("XDG_RUNTIME_DIR")
+	os.Setenv("XDG_RUNTIME_DIR", tmpDir)
+	defer os.Setenv("XDG_RUNTIME_DIR", oldXDG)
 
-	if err := WritePID(dir); err != nil {
+	if err := WritePID(""); err != nil {
 		t.Fatalf("WritePID error: %v", err)
 	}
 
-	pid, err := ReadPID(dir)
+	pid, err := ReadPID("")
 	if err != nil {
 		t.Fatalf("ReadPID error: %v", err)
 	}
@@ -21,32 +26,37 @@ func TestPIDFileOperations(t *testing.T) {
 		t.Fatalf("pid = %d, want %d", pid, os.Getpid())
 	}
 
-	if !IsRunning(dir) {
+	if !IsRunning("") {
 		t.Fatal("expected daemon to be running")
 	}
-	if got := GetRunningPID(dir); got != os.Getpid() {
+	if got := GetRunningPID(""); got != os.Getpid() {
 		t.Fatalf("GetRunningPID = %d, want %d", got, os.Getpid())
 	}
 
-	if err := RemovePID(dir); err != nil {
+	if err := RemovePID(""); err != nil {
 		t.Fatalf("RemovePID error: %v", err)
 	}
-	if err := RemovePID(dir); err != nil {
+	if err := RemovePID(""); err != nil {
 		t.Fatalf("RemovePID idempotent error: %v", err)
 	}
 }
 
 func TestReadPIDInvalid(t *testing.T) {
-	dir := t.TempDir()
-	if err := EnsureOrchDir(dir); err != nil {
-		t.Fatalf("EnsureOrchDir error: %v", err)
+	// Use a temp XDG runtime dir for testing
+	tmpDir := t.TempDir()
+	oldXDG := os.Getenv("XDG_RUNTIME_DIR")
+	os.Setenv("XDG_RUNTIME_DIR", tmpDir)
+	defer os.Setenv("XDG_RUNTIME_DIR", oldXDG)
+
+	if err := xdg.EnsureRuntimeDir(); err != nil {
+		t.Fatalf("EnsureRuntimeDir error: %v", err)
 	}
-	pidPath := filepath.Join(OrchDir(dir), pidFile)
+	pidPath := xdg.PIDPath()
 	if err := os.WriteFile(pidPath, []byte("bad"), 0644); err != nil {
 		t.Fatalf("write pid: %v", err)
 	}
 
-	if _, err := ReadPID(dir); err == nil {
+	if _, err := ReadPID(""); err == nil {
 		t.Fatal("expected error for invalid pid")
 	}
 }
