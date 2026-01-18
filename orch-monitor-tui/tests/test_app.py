@@ -372,3 +372,169 @@ class TestDataPopulation:
 
             run_table = app.query_one("#runs-table", RunTable)
             assert run_table.row_count == 0
+
+
+# ============================================================================
+# Agent Select Screen Tests
+# ============================================================================
+
+
+class TestAgentSelectScreen:
+    """Tests for the agent selection modal screen."""
+
+    async def test_agent_select_screen_composition(self, issues_dashboard_with_mock, sample_issues):
+        """Test that agent select screen has expected widgets."""
+        from orch_monitor.app import AgentSelectScreen
+
+        app = issues_dashboard_with_mock(auto_refresh=False)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Push agent select screen
+            agents = ["claude", "codex", "opencode"]
+            result = []
+
+            def on_result(agent):
+                result.append(agent)
+
+            app.push_screen(AgentSelectScreen("test-issue", agents), on_result)
+            await pilot.pause()
+
+            # Verify the screen is pushed
+            assert any(
+                isinstance(screen, AgentSelectScreen) for screen in app.screen_stack
+            )
+
+    async def test_agent_select_enter_confirms(self, issues_dashboard_with_mock, sample_issues):
+        """Test that Enter key confirms the selection and starts the run."""
+        from orch_monitor.app import AgentSelectScreen
+
+        app = issues_dashboard_with_mock(auto_refresh=False)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            agents = ["claude", "codex", "opencode"]
+            result = []
+
+            def on_result(agent):
+                result.append(agent)
+
+            app.push_screen(AgentSelectScreen("test-issue", agents), on_result)
+            await pilot.pause()
+
+            # Press Enter to confirm (first agent is highlighted by default)
+            await pilot.press("enter")
+            await pilot.pause()
+
+            # Should have dismissed with the first agent
+            assert len(result) == 1
+            assert result[0] == "claude"
+
+    async def test_agent_select_escape_cancels(self, issues_dashboard_with_mock, sample_issues):
+        """Test that Escape key cancels the selection."""
+        from orch_monitor.app import AgentSelectScreen
+
+        app = issues_dashboard_with_mock(auto_refresh=False)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            agents = ["claude", "codex", "opencode"]
+            result = []
+
+            def on_result(agent):
+                result.append(agent)
+
+            app.push_screen(AgentSelectScreen("test-issue", agents), on_result)
+            await pilot.pause()
+
+            # Press Escape to cancel
+            await pilot.press("escape")
+            await pilot.pause()
+
+            # Should have dismissed with None
+            assert len(result) == 1
+            assert result[0] is None
+
+    async def test_agent_select_quick_number(self, issues_dashboard_with_mock, sample_issues):
+        """Test that number keys quickly select an agent."""
+        from orch_monitor.app import AgentSelectScreen
+
+        app = issues_dashboard_with_mock(auto_refresh=False)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            agents = ["claude", "codex", "opencode"]
+            result = []
+
+            def on_result(agent):
+                result.append(agent)
+
+            app.push_screen(AgentSelectScreen("test-issue", agents), on_result)
+            await pilot.pause()
+
+            # Press "2" to select the second agent
+            await pilot.press("2")
+            await pilot.pause()
+
+            # Should have dismissed with codex
+            assert len(result) == 1
+            assert result[0] == "codex"
+
+    async def test_agent_select_navigation_then_enter(self, issues_dashboard_with_mock, sample_issues):
+        """Test navigating with j/k then pressing Enter."""
+        from orch_monitor.app import AgentSelectScreen
+
+        app = issues_dashboard_with_mock(auto_refresh=False)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            agents = ["claude", "codex", "opencode"]
+            result = []
+
+            def on_result(agent):
+                result.append(agent)
+
+            app.push_screen(AgentSelectScreen("test-issue", agents), on_result)
+            await pilot.pause()
+
+            # Navigate down with j
+            await pilot.press("j")
+            await pilot.pause()
+
+            # Press Enter to confirm
+            await pilot.press("enter")
+            await pilot.pause()
+
+            # Should have dismissed with codex (second item)
+            assert len(result) == 1
+            assert result[0] == "codex"
+
+    async def test_agent_select_no_agents(self, issues_dashboard_with_mock):
+        """Test agent select screen with no agents available."""
+        from orch_monitor.app import AgentSelectScreen
+
+        app = issues_dashboard_with_mock(auto_refresh=False)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Empty agents list
+            result = []
+
+            def on_result(agent):
+                result.append(agent)
+
+            app.push_screen(AgentSelectScreen("test-issue", []), on_result)
+            await pilot.pause()
+
+            # Press Enter - should dismiss with None without crashing
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert len(result) == 1
+            assert result[0] is None

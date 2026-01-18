@@ -145,7 +145,8 @@ type IssueSummary struct {
 	Title   string `json:"title"`
 	Topic   string `json:"topic,omitempty"`
 	Summary string `json:"summary,omitempty"`
-	Status  string `json:"status"`
+	Status  string   `json:"status"`
+	Tags    []string `json:"tags,omitempty"`
 	URI     string `json:"uri"`
 }
 
@@ -164,6 +165,7 @@ type IssueFull struct {
 	Summary     string            `json:"summary,omitempty"`
 	Status      string            `json:"status"`
 	Body        string            `json:"body"`
+	Tags        []string          `json:"tags,omitempty"`
 	URI         string            `json:"uri"`
 	Frontmatter map[string]string `json:"frontmatter,omitempty"`
 }
@@ -271,6 +273,7 @@ func IssueToSummary(issue *model.Issue) *IssueSummary {
 		Topic:   issue.Topic,
 		Summary: issue.Summary,
 		Status:  string(issue.Status),
+		Tags:    issue.Tags,
 		URI:     FileURI(issue.Path),
 	}
 }
@@ -284,6 +287,7 @@ func IssueToFull(issue *model.Issue) *IssueFull {
 		Summary:     issue.Summary,
 		Status:      string(issue.Status),
 		Body:        issue.Body,
+		Tags:        issue.Tags,
 		URI:         FileURI(issue.Path),
 		Frontmatter: issue.Frontmatter,
 	}

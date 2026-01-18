@@ -561,6 +561,7 @@ def _json_to_issue_summary(data: dict) -> Issue:
         topic=data.get("topic", ""),
         summary=data.get("summary", ""),
         status=status,
+        tags=data.get("tags") or [],
         body="",  # Summary doesn't include body
         path=Path(data.get("uri", "").replace("file://", ""))
         if data.get("uri")
@@ -581,6 +582,7 @@ def _json_to_issue_full(data: dict) -> Issue:
         topic=data.get("topic", ""),
         summary=data.get("summary", ""),
         status=status,
+        tags=data.get("tags") or [],
         body=data.get("body", ""),
         path=Path(data.get("uri", "").replace("file://", ""))
         if data.get("uri")
