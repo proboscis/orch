@@ -182,6 +182,94 @@ class KillConfirmScreen(ModalScreen[bool]):
         self.dismiss(False)
 
 
+class CloseIssueConfirmScreen(ModalScreen[bool]):
+    """Confirmation dialog for closing an issue."""
+
+    CSS = """
+    CloseIssueConfirmScreen {
+        align: center middle;
+    }
+
+    #close-dialog {
+        width: 50;
+        height: auto;
+        padding: 1 2;
+        background: $surface;
+        border: thick $warning;
+    }
+
+    #close-title {
+        text-align: center;
+        width: 100%;
+        padding-bottom: 1;
+        color: $warning;
+    }
+
+    #close-details {
+        height: auto;
+        padding: 1;
+    }
+
+    #close-info {
+        height: auto;
+        padding: 1;
+        color: $text-muted;
+    }
+
+    #close-buttons {
+        height: 3;
+        align: center middle;
+        padding-top: 1;
+    }
+
+    #close-buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("y", "confirm", "Yes, close"),
+        Binding("n", "cancel", "No, cancel"),
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(self, issue_id: str, issue_title: Optional[str] = None):
+        super().__init__()
+        self.issue_id = issue_id
+        self.issue_title = issue_title
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="close-dialog"):
+            yield Label("Close issue?", id="close-title")
+            with Vertical(id="close-details"):
+                yield Static(f"Issue: {self.issue_id}")
+                if self.issue_title:
+                    yield Static(
+                        f"Title: {self.issue_title[:50]}{'...' if len(self.issue_title or '') > 50 else ''}"
+                    )
+            with Vertical(id="close-info"):
+                yield Static("This will:")
+                yield Static("  - For GitHub issues: close on GitHub")
+                yield Static("  - For local issues: set status to 'closed'")
+            with Horizontal(id="close-buttons"):
+                yield Button("Yes, close", variant="warning", id="confirm-btn")
+                yield Button("No, cancel", id="cancel-btn")
+
+    @on(Button.Pressed, "#confirm-btn")
+    def confirm(self) -> None:
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#cancel-btn")
+    def cancel(self) -> None:
+        self.dismiss(False)
+
+    def action_confirm(self) -> None:
+        self.dismiss(True)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+
 def _get_editor_command(file_path: Path) -> Tuple[Optional[list[str]], Optional[str]]:
     """Get editor command for opening a file.
 
@@ -1320,6 +1408,7 @@ class IssuesDashboard(App):
         Binding("enter", "open_issue", "Open in Editor"),
         Binding("n", "new_run", "New Run"),
         Binding("o", "open_issue", "Open in Editor", show=False),
+        Binding("x", "close_issue", "Close Issue"),
         Binding("f", "filter", "Filter"),
         Binding("ctrl+f", "clear_filters", "Clear Filters"),
     ]
@@ -1333,6 +1422,7 @@ class IssuesDashboard(App):
         self.daemon = DaemonClient(self.config.socket_path)
         self.issues: list[Issue] = []
         self.selected_issue: Optional[Issue] = None
+        self._highlighted_issue_id: Optional[str] = None
         self.filter_state = self.config.load_filters()
         self._auto_refresh_enabled = auto_refresh
         self._base_title = f"Issues [{self.config.project_root.name}]"
@@ -1567,6 +1657,68 @@ class IssuesDashboard(App):
                 self.notify, f"Failed to start run: {e}", severity="error"
             )
 
+    def action_close_issue(self) -> None:
+        if _input_has_focus(self):
+            return
+        if not self.selected_issue:
+            self.notify("No issue selected", severity="warning")
+            return
+
+        def on_confirm(confirmed: bool | None) -> None:
+            if confirmed and self.selected_issue:
+                self._do_close_issue(self.selected_issue.id)
+
+        self.push_screen(
+            CloseIssueConfirmScreen(
+                self.selected_issue.id,
+                self.selected_issue.title,
+            ),
+            on_confirm,
+        )
+
+    @work(thread=True, exclusive=True)
+    def _do_close_issue(self, issue_id: str) -> None:
+        log = get_logger()
+        try:
+            cmd = ["orch"]
+            if self.config.vault_path:
+                cmd.extend(["--vault", str(self.config.vault_path)])
+            elif self.config.project_root:
+                cmd.extend(["--project-root", str(self.config.project_root)])
+            cmd.extend(["issue", "close", issue_id])
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if result.returncode == 0:
+                self.call_from_thread(
+                    self.notify, f"Closed issue {issue_id}", severity="information"
+                )
+            else:
+                error_msg = (
+                    result.stderr.strip() or result.stdout.strip() or "Unknown error"
+                )
+                if len(error_msg) > 200:
+                    error_msg = error_msg[:200] + "..."
+                log.error(
+                    f"Failed to close issue {issue_id}: exit={result.returncode}, "
+                    f"stderr={result.stderr!r}, stdout={result.stdout!r}"
+                )
+                self.call_from_thread(
+                    self.notify,
+                    f"Failed to close issue: {error_msg}",
+                    severity="error",
+                )
+            self.call_from_thread(self.refresh_data)
+        except subprocess.TimeoutExpired:
+            log.error(f"Timeout closing issue {issue_id}")
+            self.call_from_thread(
+                self.notify, "Timeout closing issue", severity="error"
+            )
+        except Exception as e:
+            log.exception(f"Exception closing issue {issue_id}")
+            self.call_from_thread(
+                self.notify, f"Failed to close issue: {e}", severity="error"
+            )
+
 
 class OrchMonitorApp(App):
     """Orch monitor TUI application (tabbed view)."""
@@ -1589,6 +1741,7 @@ class OrchMonitorApp(App):
         Binding("X", "kill_session", "Kill"),
         Binding("n", "new_run", "New Run"),
         Binding("o", "open_issue", "Open in Editor"),
+        Binding("x", "close_issue", "Close Issue"),
         Binding("f", "filter", "Filter"),
         Binding("ctrl+f", "clear_filters", "Clear Filters"),
         Binding("tab", "switch_focus", "Switch Focus"),
@@ -1608,6 +1761,7 @@ class OrchMonitorApp(App):
         self.selected_run: Optional[Run] = None
         self.selected_issue: Optional[Issue] = None
         self.current_focus = "runs"
+        self._highlighted_issue_id: Optional[str] = None
         self.filter_state = self.config.load_filters()
         self._auto_refresh_enabled = auto_refresh
         self._base_title = f"Orch Monitor [{self.config.project_root.name}]"
@@ -2210,3 +2364,65 @@ class OrchMonitorApp(App):
             self.action_attach()
         elif self.current_focus == "issues" and self.selected_issue:
             self.action_open_issue()
+
+    def action_close_issue(self) -> None:
+        if _input_has_focus(self):
+            return
+        if not self.selected_issue:
+            self.notify("No issue selected", severity="warning")
+            return
+
+        def on_confirm(confirmed: bool | None) -> None:
+            if confirmed and self.selected_issue:
+                self._do_close_issue(self.selected_issue.id)
+
+        self.push_screen(
+            CloseIssueConfirmScreen(
+                self.selected_issue.id,
+                self.selected_issue.title,
+            ),
+            on_confirm,
+        )
+
+    @work(thread=True, exclusive=True)
+    def _do_close_issue(self, issue_id: str) -> None:
+        log = get_logger()
+        try:
+            cmd = ["orch"]
+            if self.config.vault_path:
+                cmd.extend(["--vault", str(self.config.vault_path)])
+            elif self.config.project_root:
+                cmd.extend(["--project-root", str(self.config.project_root)])
+            cmd.extend(["issue", "close", issue_id])
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if result.returncode == 0:
+                self.call_from_thread(
+                    self.notify, f"Closed issue {issue_id}", severity="information"
+                )
+            else:
+                error_msg = (
+                    result.stderr.strip() or result.stdout.strip() or "Unknown error"
+                )
+                if len(error_msg) > 200:
+                    error_msg = error_msg[:200] + "..."
+                log.error(
+                    f"Failed to close issue {issue_id}: exit={result.returncode}, "
+                    f"stderr={result.stderr!r}, stdout={result.stdout!r}"
+                )
+                self.call_from_thread(
+                    self.notify,
+                    f"Failed to close issue: {error_msg}",
+                    severity="error",
+                )
+            self.call_from_thread(self.refresh_data)
+        except subprocess.TimeoutExpired:
+            log.error(f"Timeout closing issue {issue_id}")
+            self.call_from_thread(
+                self.notify, "Timeout closing issue", severity="error"
+            )
+        except Exception as e:
+            log.exception(f"Exception closing issue {issue_id}")
+            self.call_from_thread(
+                self.notify, f"Failed to close issue: {e}", severity="error"
+            )
