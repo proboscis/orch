@@ -1121,7 +1121,20 @@ class IssuesDashboard(App):
             self.notify(error or "Unknown error", severity="error")
             return
 
-        # Suspend TUI, open editor, resume on exit
+        current_mux_type = detect_current_multiplexer()
+
+        if current_mux_type:
+            # Open in new multiplexer tab/window
+            current_mux = get_multiplexer(current_mux_type)
+            tab_name = f"edit-{self.selected_issue.id}"
+            if current_mux.new_tab_with_command(tab_name, cmd):
+                self.notify(f"Opened tab: {tab_name}")
+                return
+            self.notify(
+                "Failed to create tab, falling back to suspend", severity="warning"
+            )
+
+        # Fallback: Suspend TUI, open editor, resume on exit
         with self.suspend():
             subprocess.run(cmd)
         self.refresh_data()
@@ -1675,7 +1688,20 @@ class OrchMonitorApp(App):
             self.notify(error or "Unknown error", severity="error")
             return
 
-        # Suspend TUI, open editor, resume on exit
+        current_mux_type = detect_current_multiplexer()
+
+        if current_mux_type:
+            # Open in new multiplexer tab/window
+            current_mux = get_multiplexer(current_mux_type)
+            tab_name = f"edit-{self.selected_issue.id}"
+            if current_mux.new_tab_with_command(tab_name, cmd):
+                self.notify(f"Opened tab: {tab_name}")
+                return
+            self.notify(
+                "Failed to create tab, falling back to suspend", severity="warning"
+            )
+
+        # Fallback: Suspend TUI, open editor, resume on exit
         with self.suspend():
             subprocess.run(cmd)
         self.refresh_data()

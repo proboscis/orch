@@ -104,11 +104,13 @@ uv run python -m orch_monitor
 | `tab` | Switch between Runs/Issues tabs |
 | `f` | Filter runs by status |
 | `up/down` | Navigate list |
-| `enter` | Select item (attach to run / open issue in `$EDITOR`) |
+| `enter` | Select item (attach to run / open issue in `$EDITOR`*) |
 | `a` | Attach to selected run's session |
 | `s` | Stop selected run |
 | `n` | Create new run for selected issue |
-| `o` | Open issue in `$EDITOR` |
+| `o` | Open issue in `$EDITOR`* |
+
+*When running inside a multiplexer (tmux/zellij), opening issues in `$EDITOR` creates a new multiplexer tab/window, allowing you to edit without leaving the monitor. Outside a multiplexer, the TUI suspends while the editor is open.
 
 ## Configuration
 
