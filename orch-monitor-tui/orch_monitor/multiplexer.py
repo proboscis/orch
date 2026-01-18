@@ -221,6 +221,9 @@ class TmuxMultiplexer:
         return result.returncode == 0
 
 
+ZELLIJ_TIMEOUT_SEC = 5
+
+
 class ZellijMultiplexer:
     """Zellij implementation of Multiplexer."""
 
@@ -235,24 +238,30 @@ class ZellijMultiplexer:
         return bool(os.environ.get("ZELLIJ"))
 
     def has_session(self, session_name: str) -> bool:
-        result = subprocess.run(
-            ["zellij", "list-sessions"],
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(
+                ["zellij", "list-sessions"],
+                capture_output=True,
+                text=True,
+                timeout=ZELLIJ_TIMEOUT_SEC,
+            )
+        except subprocess.TimeoutExpired:
+            return False
         if result.returncode != 0:
             return False
-        # zellij list-sessions outputs one session per line
         sessions = result.stdout.strip().split("\n")
-        # Session names may have additional info after them
         return any(s.startswith(session_name) for s in sessions)
 
     def kill_session(self, session_name: str) -> bool:
-        result = subprocess.run(
-            ["zellij", "delete-session", session_name, "--force"],
-            capture_output=True,
-        )
-        return result.returncode == 0
+        try:
+            result = subprocess.run(
+                ["zellij", "delete-session", session_name, "--force"],
+                capture_output=True,
+                timeout=ZELLIJ_TIMEOUT_SEC,
+            )
+            return result.returncode == 0
+        except subprocess.TimeoutExpired:
+            return False
 
     def attach_session(self, session_name: str) -> None:
         subprocess.run(["zellij", "attach", session_name])
@@ -324,11 +333,15 @@ class ZellijMultiplexer:
         return False
 
     def list_windows(self) -> list[str]:
-        result = subprocess.run(
-            ["zellij", "action", "query-tab-names"],
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(
+                ["zellij", "action", "query-tab-names"],
+                capture_output=True,
+                text=True,
+                timeout=ZELLIJ_TIMEOUT_SEC,
+            )
+        except subprocess.TimeoutExpired:
+            return []
         if result.returncode != 0:
             return []
         return [
