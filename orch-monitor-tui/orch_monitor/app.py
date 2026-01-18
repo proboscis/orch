@@ -181,6 +181,58 @@ def _get_editor_command(file_path: Path) -> Tuple[Optional[list[str]], Optional[
     return editor_parts + [str(file_path)], None
 
 
+def _get_issue_file_path(issue: "Issue") -> Tuple[Optional[Path], Optional[str]]:
+    """Get the file path for an issue, creating a temp file for GitHub issues.
+
+    For local issues, returns the existing path.
+    For GitHub issues (where path is a URL), creates a temp file with the issue body.
+
+    Returns:
+        Tuple of (file_path, error_message).
+        If successful, file_path is set and error_message is None.
+        If failed, file_path is None and error_message describes the issue.
+    """
+    import tempfile
+
+    path_str = str(issue.path) if issue.path else ""
+
+    # Check if it's a GitHub issue (path is a URL)
+    if path_str.startswith("http://") or path_str.startswith("https://"):
+        # Create temp file with issue content
+        if not issue.body:
+            return None, "GitHub issue has no body content"
+
+        try:
+            # Create temp file that persists until explicitly deleted
+            # Use issue ID in filename for clarity
+            safe_id = "".join(c if c.isalnum() or c in "-_" else "_" for c in issue.id)
+            fd, temp_path = tempfile.mkstemp(
+                suffix=".md", prefix=f"orch-issue-{safe_id}-"
+            )
+            with os.fdopen(fd, "w") as f:
+                # Write issue header and body
+                f.write(f"# {issue.title or issue.id}\n\n")
+                f.write(f"<!-- GitHub Issue: {path_str} -->\n")
+                f.write(f"<!-- Note: Changes here are NOT synced to GitHub -->\n\n")
+                f.write(issue.body)
+            return Path(temp_path), None
+        except OSError as e:
+            return None, f"Failed to create temp file: {e}"
+
+    # Local issue - validate the path exists
+    if not path_str or path_str == ".":
+        return None, "Issue file path not found"
+
+    file_path = issue.path
+    if not file_path.exists():
+        return None, "Issue file path not found"
+
+    if file_path.is_dir():
+        return None, "Issue path is a directory, not a file"
+
+    return file_path, None
+
+
 @dataclass
 class RunFilterResult:
     """Result from run filter screen."""
@@ -1116,7 +1168,13 @@ class IssuesDashboard(App):
             self.notify("No issue selected", severity="warning")
             return
 
-        cmd, error = _get_editor_command(self.selected_issue.path)
+        # Get file path (creates temp file for GitHub issues)
+        file_path, error = _get_issue_file_path(self.selected_issue)
+        if error or file_path is None:
+            self.notify(error or "Unknown error", severity="error")
+            return
+
+        cmd, error = _get_editor_command(file_path)
         if error or cmd is None:
             self.notify(error or "Unknown error", severity="error")
             return
@@ -1683,7 +1741,13 @@ class OrchMonitorApp(App):
             self.notify("No issue selected", severity="warning")
             return
 
-        cmd, error = _get_editor_command(self.selected_issue.path)
+        # Get file path (creates temp file for GitHub issues)
+        file_path, error = _get_issue_file_path(self.selected_issue)
+        if error or file_path is None:
+            self.notify(error or "Unknown error", severity="error")
+            return
+
+        cmd, error = _get_editor_command(file_path)
         if error or cmd is None:
             self.notify(error or "Unknown error", severity="error")
             return
