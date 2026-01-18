@@ -49,3 +49,11 @@ func ParseGitHubIssueNumber(id string) (int, error) {
 	}
 	return n, nil
 }
+
+// PathSafeIssueID converts an issue ID to a format safe for use in file paths.
+// The '#' character in GitHub issue IDs (e.g., "gh#285") is interpreted as a URL
+// fragment delimiter by tools like uv, causing path resolution failures.
+// This function replaces '#' with '-' (e.g., "gh#285" becomes "gh-285").
+func PathSafeIssueID(id string) string {
+	return strings.ReplaceAll(id, "#", "-")
+}

@@ -40,7 +40,7 @@ type WorktreeInfo struct {
 func normalizeWorktreePath(cfg *WorktreeConfig) error {
 	if cfg.WorktreePath == "" {
 		worktreeName := model.GenerateWorktreeName(cfg.IssueID, cfg.RunID, cfg.Agent)
-		cfg.WorktreePath = filepath.Join(cfg.WorktreeDir, cfg.IssueID, worktreeName)
+		cfg.WorktreePath = filepath.Join(cfg.WorktreeDir, model.PathSafeIssueID(cfg.IssueID), worktreeName)
 	}
 
 	if filepath.IsAbs(cfg.WorktreePath) {

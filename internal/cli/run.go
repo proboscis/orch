@@ -175,13 +175,14 @@ func runRun(issueID string, opts *runOptions) error {
 
 	// Compute worktree path (absolute to ensure correct directory regardless of cwd)
 	worktreeName := model.GenerateWorktreeName(issueID, runID, opts.Agent)
+	pathSafeIssueID := model.PathSafeIssueID(issueID)
 	var worktreePath string
 	if filepath.IsAbs(opts.WorktreeDir) {
 		// Absolute path: use directly without joining with repoRoot
-		worktreePath = filepath.Join(opts.WorktreeDir, issueID, worktreeName)
+		worktreePath = filepath.Join(opts.WorktreeDir, pathSafeIssueID, worktreeName)
 	} else {
 		// Relative path: join with repoRoot
-		worktreePath = filepath.Join(repoRoot, opts.WorktreeDir, issueID, worktreeName)
+		worktreePath = filepath.Join(repoRoot, opts.WorktreeDir, pathSafeIssueID, worktreeName)
 	}
 
 	result := &runResult{
