@@ -111,6 +111,22 @@ class CursorPreservingTable(DataTable):
         self.cursor_type = "row"
         self.zebra_stripes = True
 
+    def action_cursor_down(self) -> None:
+        if self.has_focus:
+            super().action_cursor_down()
+
+    def action_cursor_up(self) -> None:
+        if self.has_focus:
+            super().action_cursor_up()
+
+    def action_scroll_top(self) -> None:
+        if self.has_focus:
+            super().action_scroll_top()
+
+    def action_scroll_bottom(self) -> None:
+        if self.has_focus:
+            super().action_scroll_bottom()
+
     def _get_current_row_key(self) -> Optional[str]:
         if self.row_count == 0:
             return None

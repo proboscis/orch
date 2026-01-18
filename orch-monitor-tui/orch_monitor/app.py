@@ -395,6 +395,9 @@ class RunFilterScreen(ModalScreen[RunFilterResult | None]):
         super().__init__()
         self.current_filter = current_filter
 
+    def on_mount(self) -> None:
+        self.query_one("#text-search-input", Input).focus()
+
     def compose(self) -> ComposeResult:
         with Vertical(id="filter-dialog"):
             yield Label("Filter Runs", id="filter-title")
@@ -515,6 +518,9 @@ class IssueFilterScreen(ModalScreen[IssueFilterResult | None]):
     def __init__(self, current_filter: IssueFilterState):
         super().__init__()
         self.current_filter = current_filter
+
+    def on_mount(self) -> None:
+        self.query_one("#text-search-input", Input).focus()
 
     def compose(self) -> ComposeResult:
         with Vertical(id="filter-dialog"):
@@ -687,6 +693,11 @@ RUNS_DASHBOARD_CSS = (
 )
 
 
+def _input_has_focus(app: App) -> bool:
+    focused = app.focused
+    return focused is not None and isinstance(focused, Input)
+
+
 class RunsDashboard(App):
     """Runs-only dashboard for tmux pane."""
 
@@ -759,14 +770,20 @@ class RunsDashboard(App):
         self.refresh_data()
 
     def action_refresh(self) -> None:
+        if _input_has_focus(self):
+            return
         self.refresh_data()
 
     def action_filter(self) -> None:
+        if _input_has_focus(self):
+            return
         self.push_screen(
             RunFilterScreen(self.filter_state.run_filters), self.on_filter_result
         )
 
     def action_clear_filters(self) -> None:
+        if _input_has_focus(self):
+            return
         self.filter_state.clear_run_filters()
         self.config.save_filters(self.filter_state)
         self._update_title()
@@ -824,16 +841,18 @@ class RunsDashboard(App):
             )
         self.call_from_thread(self._update_runs_table, runs, error)
 
-    def _update_runs_table(self, runs: Optional[list[Run]], error: Optional[str]) -> None:
+    def _update_runs_table(
+        self, runs: Optional[list[Run]], error: Optional[str]
+    ) -> None:
         self._last_update = datetime.now()
-        
+
         if error:
             self._daemon_error = error
             self.title = f"{self._base_title} | ERROR: {error}"
             self.notify(f"Refresh failed: {error}", severity="error", timeout=5)
             _log_error("list_runs", error, self.config.vault_path)
             return
-        
+
         self._daemon_error = None
         if runs is not None:
             self.runs = runs
@@ -1019,6 +1038,8 @@ class RunsDashboard(App):
         subprocess.run(attach_cmd)
 
     def action_stop(self) -> None:
+        if _input_has_focus(self):
+            return
         run_ref = getattr(self, "_highlighted_run_ref", None)
         if not run_ref:
             self.notify("No run selected", severity="warning")
@@ -1158,14 +1179,20 @@ class IssuesDashboard(App):
         self.refresh_data()
 
     def action_refresh(self) -> None:
+        if _input_has_focus(self):
+            return
         self.refresh_data()
 
     def action_filter(self) -> None:
+        if _input_has_focus(self):
+            return
         self.push_screen(
             IssueFilterScreen(self.filter_state.issue_filters), self.on_filter_result
         )
 
     def action_clear_filters(self) -> None:
+        if _input_has_focus(self):
+            return
         self.filter_state.clear_issue_filters()
         self.config.save_filters(self.filter_state)
         self._update_title()
@@ -1211,16 +1238,18 @@ class IssuesDashboard(App):
             issues.sort(key=lambda i: i.id)
         self.call_from_thread(self._update_issues_table, issues, error)
 
-    def _update_issues_table(self, issues: Optional[list[Issue]], error: Optional[str]) -> None:
+    def _update_issues_table(
+        self, issues: Optional[list[Issue]], error: Optional[str]
+    ) -> None:
         self._last_update = datetime.now()
-        
+
         if error:
             self._daemon_error = error
             self.title = f"{self._base_title} | ERROR: {error}"
             self.notify(f"Refresh failed: {error}", severity="error", timeout=5)
             _log_error("list_issues", error, self.config.vault_path)
             return
-        
+
         self._daemon_error = None
         if issues is not None:
             self.issues = issues
@@ -1260,6 +1289,8 @@ class IssuesDashboard(App):
             self.selected_issue = issue
 
     def action_open_issue(self) -> None:
+        if _input_has_focus(self):
+            return
         if not self.selected_issue:
             self.notify("No issue selected", severity="warning")
             return
@@ -1294,6 +1325,8 @@ class IssuesDashboard(App):
         self.refresh_data()
 
     def action_new_run(self) -> None:
+        if _input_has_focus(self):
+            return
         if not self.selected_issue:
             self.notify("No issue selected", severity="warning")
             return
@@ -1464,9 +1497,13 @@ class OrchMonitorApp(App):
             self.show_run_detail(self.selected_run)
 
     def action_refresh(self) -> None:
+        if _input_has_focus(self):
+            return
         self.refresh_data()
 
     def action_filter(self) -> None:
+        if _input_has_focus(self):
+            return
         if self.current_focus == "runs":
             self.push_screen(
                 RunFilterScreen(self.filter_state.run_filters),
@@ -1479,6 +1516,8 @@ class OrchMonitorApp(App):
             )
 
     def action_clear_filters(self) -> None:
+        if _input_has_focus(self):
+            return
         if self.current_focus == "runs":
             self.filter_state.clear_run_filters()
         else:
@@ -1535,7 +1574,7 @@ class OrchMonitorApp(App):
         runs: Optional[list[Run]] = None
         issues: Optional[list[Issue]] = None
         error: Optional[str] = None
-        
+
         try:
             status_filter = []
             for s in self.filter_state.run_filters.statuses:
@@ -1571,17 +1610,20 @@ class OrchMonitorApp(App):
         self.call_from_thread(self._update_all_tables, runs, issues, error)
 
     def _update_all_tables(
-        self, runs: Optional[list[Run]], issues: Optional[list[Issue]], error: Optional[str]
+        self,
+        runs: Optional[list[Run]],
+        issues: Optional[list[Issue]],
+        error: Optional[str],
     ) -> None:
         self._last_update = datetime.now()
-        
+
         if error:
             self._daemon_error = error
             self.title = f"{self._base_title} | ERROR: {error}"
             self.notify(f"Refresh failed: {error}", severity="error", timeout=5)
             _log_error("fetch_all", error, self.config.vault_path)
             return
-        
+
         self._daemon_error = None
         if runs is not None:
             self.runs = runs
@@ -1755,6 +1797,8 @@ class OrchMonitorApp(App):
         detail_panel.update_content("\n".join(content_lines), f"Issue: {issue.id}")
 
     def action_attach(self) -> None:
+        if _input_has_focus(self):
+            return
         if not self.selected_run:
             self.notify("No run selected", severity="warning")
             return
@@ -1791,6 +1835,8 @@ class OrchMonitorApp(App):
         subprocess.run(attach_cmd)
 
     def action_stop(self) -> None:
+        if _input_has_focus(self):
+            return
         run_ref = getattr(self, "_highlighted_run_ref", None)
         if not run_ref:
             self.notify("No run selected", severity="warning")
@@ -1876,6 +1922,8 @@ class OrchMonitorApp(App):
             )
 
     def action_new_run(self) -> None:
+        if _input_has_focus(self):
+            return
         if not self.selected_issue:
             self.notify("No issue selected", severity="warning")
             return
@@ -1928,6 +1976,8 @@ class OrchMonitorApp(App):
             )
 
     def action_open_issue(self) -> None:
+        if _input_has_focus(self):
+            return
         if not self.selected_issue:
             self.notify("No issue selected", severity="warning")
             return
