@@ -79,6 +79,9 @@ type Monitor struct {
 	orchDir      string
 	presets      []config.Preset
 	projectRoot  string
+
+	monitorID     string
+	heartbeatStop chan struct{}
 }
 
 // RunWindow links a run to a dashboard index.
@@ -122,12 +125,9 @@ func New(st store.Store, opts Options) *Monitor {
 	}
 	orchDir := GetOrchDir(projectRoot)
 	var presets []config.Preset
-	var daemonClient *daemon.Client
+	daemonClient := daemon.NewClient(projectRoot)
 	if cfg, err := config.Load(); err == nil {
 		presets = cfg.GetAllPresets()
-		if cfg.IsGitHubBackend() {
-			daemonClient = daemon.NewClient(projectRoot)
-		}
 	}
 	return &Monitor{
 		session:      session,
@@ -337,6 +337,8 @@ func (m *Monitor) Start() error {
 	}
 	m.runs = runs
 
+	m.registerWithDaemon()
+
 	return m.attachSession()
 }
 
@@ -438,8 +440,8 @@ func (m *Monitor) CloseRun() error {
 	return tmux.SelectWindow(m.session, dashboardWindowIdx)
 }
 
-// Quit terminates the monitor tmux session.
 func (m *Monitor) Quit() error {
+	m.unregisterFromDaemon()
 	return tmux.KillSession(m.session)
 }
 
@@ -1606,4 +1608,61 @@ func nextAvailableWindowIndex(windows []tmux.Window, start int) int {
 			return idx
 		}
 	}
+}
+
+func (m *Monitor) registerWithDaemon() {
+	if m.daemonClient == nil || !m.daemonClient.IsAvailable() {
+		return
+	}
+
+	resp, err := m.daemonClient.RegisterMonitor(
+		os.Getpid(),
+		"go",
+		"dashboard",
+		m.projectRoot,
+		m.session,
+	)
+	if err != nil {
+		return
+	}
+
+	m.monitorID = resp.MonitorID
+	m.startHeartbeat()
+}
+
+func (m *Monitor) startHeartbeat() {
+	if m.monitorID == "" {
+		return
+	}
+
+	m.heartbeatStop = make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-m.heartbeatStop:
+				return
+			case <-ticker.C:
+				if m.daemonClient != nil && m.monitorID != "" {
+					_ = m.daemonClient.MonitorHeartbeat(m.monitorID)
+				}
+			}
+		}
+	}()
+}
+
+func (m *Monitor) unregisterFromDaemon() {
+	if m.heartbeatStop != nil {
+		close(m.heartbeatStop)
+		m.heartbeatStop = nil
+	}
+
+	if m.daemonClient == nil || m.monitorID == "" {
+		return
+	}
+
+	_ = m.daemonClient.UnregisterMonitor(m.monitorID)
+	m.monitorID = ""
 }

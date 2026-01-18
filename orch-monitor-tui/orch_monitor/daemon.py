@@ -1,14 +1,11 @@
-"""Daemon client for communicating with the orch daemon.
-
-This module provides a DaemonClient class that connects to the orch daemon
-via Unix socket and provides query and mutation APIs for runs and issues.
-
-The daemon is the single source of truth for all data.
-"""
+"""Daemon client for communicating with the orch daemon."""
 
 import json
+import os
 import socket
 import stat
+import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -321,8 +318,113 @@ class DaemonClient:
             raise DaemonError(response.get("error", "Unknown error"))
 
     def close(self) -> None:
-        """Close the client (no-op for socket-based client)."""
         pass
+
+    def register_monitor(
+        self,
+        pid: int,
+        monitor_type: str,
+        view: str,
+        project: str,
+        tmux_session: str = "",
+    ) -> Optional[str]:
+        request = {
+            "type": "register_monitor",
+            "limit": pid,
+            "title": monitor_type,
+            "summary": view,
+            "project_root": project,
+            "body": tmux_session,
+        }
+
+        try:
+            response = self._send_request(request)
+            if response.get("ok", False):
+                return response.get("monitor_id")
+        except DaemonError:
+            pass
+        return None
+
+    def unregister_monitor(self, monitor_id: str) -> bool:
+        request = {
+            "type": "unregister_monitor",
+            "short_id": monitor_id,
+        }
+
+        try:
+            response = self._send_request(request)
+            return response.get("ok", False)
+        except DaemonError:
+            return False
+
+    def monitor_heartbeat(self, monitor_id: str) -> bool:
+        request = {
+            "type": "monitor_heartbeat",
+            "short_id": monitor_id,
+        }
+
+        try:
+            response = self._send_request(request)
+            return response.get("ok", False)
+        except DaemonError:
+            return False
+
+
+class MonitorRegistration:
+    def __init__(self, client: DaemonClient, project: str, view: str = "dashboard"):
+        self._client = client
+        self._project = project
+        self._view = view
+        self._monitor_id: Optional[str] = None
+        self._heartbeat_thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+
+    def register(self, tmux_session: str = "") -> Optional[str]:
+        if not self._client.is_available():
+            return None
+
+        self._monitor_id = self._client.register_monitor(
+            pid=os.getpid(),
+            monitor_type="python",
+            view=self._view,
+            project=self._project,
+            tmux_session=tmux_session,
+        )
+
+        if self._monitor_id:
+            self._start_heartbeat()
+
+        return self._monitor_id
+
+    def unregister(self) -> None:
+        self._stop_heartbeat()
+
+        if self._monitor_id and self._client.is_available():
+            self._client.unregister_monitor(self._monitor_id)
+            self._monitor_id = None
+
+    def _start_heartbeat(self) -> None:
+        if self._heartbeat_thread is not None:
+            return
+
+        self._stop_event.clear()
+        self._heartbeat_thread = threading.Thread(
+            target=self._heartbeat_loop, daemon=True
+        )
+        self._heartbeat_thread.start()
+
+    def _stop_heartbeat(self) -> None:
+        if self._heartbeat_thread is None:
+            return
+
+        self._stop_event.set()
+        self._heartbeat_thread.join(timeout=2.0)
+        self._heartbeat_thread = None
+
+    def _heartbeat_loop(self) -> None:
+        while not self._stop_event.wait(timeout=30.0):
+            if self._monitor_id and self._client.is_available():
+                self._client.monitor_heartbeat(self._monitor_id)
 
 
 def _parse_timestamp(ts_str: str) -> Optional[datetime]:

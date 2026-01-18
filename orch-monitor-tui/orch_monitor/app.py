@@ -56,7 +56,13 @@ from textual.widgets import (
 )
 
 from .config import Config, FilterState, RunFilterState, IssueFilterState
-from .daemon import DaemonClient, DaemonError, DaemonNotRunningError, RunFilters
+from .daemon import (
+    DaemonClient,
+    DaemonError,
+    DaemonNotRunningError,
+    MonitorRegistration,
+    RunFilters,
+)
 from .models import Issue, IssueStatus, Run, Status
 from .multiplexer import (
     Multiplexer,
@@ -988,8 +994,6 @@ def _input_has_focus(app: App) -> bool:
 
 
 class RunsDashboard(App):
-    """Runs-only dashboard for tmux pane."""
-
     CSS = RUNS_DASHBOARD_CSS
 
     BINDINGS = [
@@ -1018,6 +1022,9 @@ class RunsDashboard(App):
         self._daemon_error: Optional[str] = None
         self._last_update: Optional[datetime] = None
         self._highlighted_run_ref: Optional[str] = None
+        self._monitor_registration = MonitorRegistration(
+            self.daemon, str(self.config.project_root), "runs"
+        )
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -1028,11 +1035,15 @@ class RunsDashboard(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        self._monitor_registration.register()
         self._update_title()
         self.refresh_data()
         if self._auto_refresh_enabled:
             self.set_interval(AUTO_REFRESH_INTERVAL, self._do_auto_refresh)
         self.set_interval(ELAPSED_UPDATE_INTERVAL, self._update_elapsed_times)
+
+    def on_unmount(self) -> None:
+        self._monitor_registration.unregister()
 
     def _update_elapsed_times(self) -> None:
         if not self.runs:
@@ -1424,6 +1435,9 @@ class IssuesDashboard(App):
         self.title = self._base_title
         self._daemon_error: Optional[str] = None
         self._last_update: Optional[datetime] = None
+        self._monitor_registration = MonitorRegistration(
+            self.daemon, str(self.config.project_root), "issues"
+        )
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -1432,10 +1446,14 @@ class IssuesDashboard(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        self._monitor_registration.register()
         self._update_title()
         self.refresh_data()
         if self._auto_refresh_enabled:
             self.set_interval(AUTO_REFRESH_INTERVAL, self._do_auto_refresh)
+
+    def on_unmount(self) -> None:
+        self._monitor_registration.unregister()
 
     def _update_title(self) -> None:
         count = self.filter_state.issue_filter_count()
@@ -1753,6 +1771,9 @@ class OrchMonitorApp(App):
         self.title = self._base_title
         self._daemon_error: Optional[str] = None
         self._last_update: Optional[datetime] = None
+        self._monitor_registration = MonitorRegistration(
+            self.daemon, str(self.config.project_root), "combined"
+        )
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -1771,12 +1792,16 @@ class OrchMonitorApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        self._monitor_registration.register()
         self._update_tab_titles()
         self.refresh_data()
         if self._auto_refresh_enabled:
             self.set_interval(AUTO_REFRESH_INTERVAL, self._do_auto_refresh)
             self.set_interval(MESSAGE_REFRESH_INTERVAL, self._do_message_refresh)
         self.set_interval(ELAPSED_UPDATE_INTERVAL, self._update_elapsed_times)
+
+    def on_unmount(self) -> None:
+        self._monitor_registration.unregister()
 
     def _update_elapsed_times(self) -> None:
         if not self.runs:
