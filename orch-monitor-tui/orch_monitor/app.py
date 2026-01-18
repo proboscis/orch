@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Tuple
 
+import yaml
+
 _logger: Optional[logging.Logger] = None
 
 
@@ -163,6 +165,94 @@ class KillConfirmScreen(ModalScreen[bool]):
                 yield Static("  - Stop any running agent")
             with Horizontal(id="kill-buttons"):
                 yield Button("Yes, kill", variant="error", id="confirm-btn")
+                yield Button("No, cancel", id="cancel-btn")
+
+    @on(Button.Pressed, "#confirm-btn")
+    def confirm(self) -> None:
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#cancel-btn")
+    def cancel(self) -> None:
+        self.dismiss(False)
+
+    def action_confirm(self) -> None:
+        self.dismiss(True)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+
+class CloseIssueConfirmScreen(ModalScreen[bool]):
+    """Confirmation dialog for closing an issue."""
+
+    CSS = """
+    CloseIssueConfirmScreen {
+        align: center middle;
+    }
+
+    #close-dialog {
+        width: 50;
+        height: auto;
+        padding: 1 2;
+        background: $surface;
+        border: thick $warning;
+    }
+
+    #close-title {
+        text-align: center;
+        width: 100%;
+        padding-bottom: 1;
+        color: $warning;
+    }
+
+    #close-details {
+        height: auto;
+        padding: 1;
+    }
+
+    #close-info {
+        height: auto;
+        padding: 1;
+        color: $text-muted;
+    }
+
+    #close-buttons {
+        height: 3;
+        align: center middle;
+        padding-top: 1;
+    }
+
+    #close-buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("y", "confirm", "Yes, close"),
+        Binding("n", "cancel", "No, cancel"),
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(self, issue_id: str, issue_title: Optional[str] = None):
+        super().__init__()
+        self.issue_id = issue_id
+        self.issue_title = issue_title
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="close-dialog"):
+            yield Label("Close issue?", id="close-title")
+            with Vertical(id="close-details"):
+                yield Static(f"Issue: {self.issue_id}")
+                if self.issue_title:
+                    yield Static(
+                        f"Title: {self.issue_title[:50]}{'...' if len(self.issue_title or '') > 50 else ''}"
+                    )
+            with Vertical(id="close-info"):
+                yield Static("This will:")
+                yield Static("  - For GitHub issues: close on GitHub")
+                yield Static("  - For local issues: set status to 'closed'")
+            with Horizontal(id="close-buttons"):
+                yield Button("Yes, close", variant="warning", id="confirm-btn")
                 yield Button("No, cancel", id="cancel-btn")
 
     @on(Button.Pressed, "#confirm-btn")
@@ -372,6 +462,188 @@ FILTER_SCREEN_CSS = """
         margin: 0 1;
     }
 """
+
+
+def _get_available_agents(config: "Config") -> list[str]:
+    """Get list of available agents and presets from config."""
+    agents = list(AGENTS)
+    seen = set(agents)
+
+    config_path = config.project_root / ".orch" / "config.yaml"
+    if config_path.exists():
+        try:
+            with open(config_path) as f:
+                data = yaml.safe_load(f)
+
+            if not isinstance(data, dict):
+                return agents
+
+            presets = data.get("presets", [])
+            for preset in presets:
+                if isinstance(preset, dict):
+                    name = preset.get("name", "")
+                    if name:
+                        backend = preset.get("backend") or "opencode"
+                        preset_str = f"{backend}:{name}"
+                        if preset_str not in seen:
+                            agents.append(preset_str)
+                            seen.add(preset_str)
+        except yaml.YAMLError as e:
+            get_logger().debug(f"Failed to parse config for agents: {e}")
+        except OSError as e:
+            get_logger().debug(f"Failed to read config for agents: {e}")
+
+    return agents
+
+
+class AgentSelectScreen(ModalScreen[str | None]):
+    """Modal screen for selecting agent/preset before starting a run."""
+
+    CSS = """
+    AgentSelectScreen {
+        align: center middle;
+    }
+
+    #agent-dialog {
+        width: 50;
+        height: auto;
+        max-height: 80%;
+        padding: 1 2;
+        background: $surface;
+        border: thick $primary;
+    }
+
+    #agent-title {
+        text-align: center;
+        width: 100%;
+        text-style: bold;
+        padding-bottom: 1;
+    }
+
+    #agent-issue {
+        text-align: center;
+        width: 100%;
+        color: $text-muted;
+        padding-bottom: 1;
+    }
+
+    #agent-selection-list {
+        height: auto;
+        max-height: 12;
+        margin: 0 1;
+    }
+
+    #agent-empty {
+        text-align: center;
+        width: 100%;
+        color: $text-muted;
+        padding: 1;
+    }
+
+    #agent-footer {
+        text-align: center;
+        width: 100%;
+        color: $text-muted;
+        padding-top: 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        Binding("enter", "confirm", "Confirm"),
+        Binding("k", "cursor_up", "Up", show=False),
+        Binding("j", "cursor_down", "Down", show=False),
+        Binding("1", "quick_select_1", "1", show=False),
+        Binding("2", "quick_select_2", "2", show=False),
+        Binding("3", "quick_select_3", "3", show=False),
+        Binding("4", "quick_select_4", "4", show=False),
+        Binding("5", "quick_select_5", "5", show=False),
+        Binding("6", "quick_select_6", "6", show=False),
+        Binding("7", "quick_select_7", "7", show=False),
+        Binding("8", "quick_select_8", "8", show=False),
+        Binding("9", "quick_select_9", "9", show=False),
+    ]
+
+    def __init__(self, issue_id: str, agents: list[str]):
+        super().__init__()
+        self.issue_id = issue_id
+        self.agents = agents
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="agent-dialog"):
+            yield Label("Select Agent", id="agent-title")
+            yield Label(f"Issue: {self.issue_id}", id="agent-issue")
+            if self.agents:
+                items = [
+                    (f"[{i + 1}] {agent}", agent, i == 0)
+                    for i, agent in enumerate(self.agents)
+                ]
+                yield SelectionList[str](*items, id="agent-selection-list")
+                yield Label("[Enter/1-9] select  [Esc] cancel", id="agent-footer")
+            else:
+                yield Label("No agents available", id="agent-empty")
+                yield Label("[Esc] cancel", id="agent-footer")
+
+    def on_mount(self) -> None:
+        if self.agents:
+            self.query_one("#agent-selection-list", SelectionList).focus()
+
+    def action_cursor_up(self) -> None:
+        if self.agents:
+            sel = self.query_one("#agent-selection-list", SelectionList)
+            sel.action_cursor_up()
+
+    def action_cursor_down(self) -> None:
+        if self.agents:
+            sel = self.query_one("#agent-selection-list", SelectionList)
+            sel.action_cursor_down()
+
+    def action_confirm(self) -> None:
+        if not self.agents:
+            self.dismiss(None)
+            return
+        sel = self.query_one("#agent-selection-list", SelectionList)
+        selected = list(sel.selected)
+        if selected:
+            self.dismiss(selected[0])
+        elif sel.highlighted is not None:
+            self.dismiss(self.agents[sel.highlighted])
+        else:
+            self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def _quick_select(self, index: int) -> None:
+        if 0 <= index < len(self.agents):
+            self.dismiss(self.agents[index])
+
+    def action_quick_select_1(self) -> None:
+        self._quick_select(0)
+
+    def action_quick_select_2(self) -> None:
+        self._quick_select(1)
+
+    def action_quick_select_3(self) -> None:
+        self._quick_select(2)
+
+    def action_quick_select_4(self) -> None:
+        self._quick_select(3)
+
+    def action_quick_select_5(self) -> None:
+        self._quick_select(4)
+
+    def action_quick_select_6(self) -> None:
+        self._quick_select(5)
+
+    def action_quick_select_7(self) -> None:
+        self._quick_select(6)
+
+    def action_quick_select_8(self) -> None:
+        self._quick_select(7)
+
+    def action_quick_select_9(self) -> None:
+        self._quick_select(8)
 
 
 class RunFilterScreen(ModalScreen[RunFilterResult | None]):
@@ -1136,6 +1408,7 @@ class IssuesDashboard(App):
         Binding("enter", "open_issue", "Open in Editor"),
         Binding("n", "new_run", "New Run"),
         Binding("o", "open_issue", "Open in Editor", show=False),
+        Binding("x", "close_issue", "Close Issue"),
         Binding("f", "filter", "Filter"),
         Binding("ctrl+f", "clear_filters", "Clear Filters"),
     ]
@@ -1149,6 +1422,7 @@ class IssuesDashboard(App):
         self.daemon = DaemonClient(self.config.socket_path)
         self.issues: list[Issue] = []
         self.selected_issue: Optional[Issue] = None
+        self._highlighted_issue_id: Optional[str] = None
         self.filter_state = self.config.load_filters()
         self._auto_refresh_enabled = auto_refresh
         self._base_title = f"Issues [{self.config.project_root.name}]"
@@ -1330,36 +1604,38 @@ class IssuesDashboard(App):
         if not self.selected_issue:
             self.notify("No issue selected", severity="warning")
             return
-        issue_id = self.selected_issue.id
-        self.notify(f"Starting run for {issue_id}...")
-        self._do_new_run(issue_id)
+        agents = _get_available_agents(self.config)
+        self.push_screen(
+            AgentSelectScreen(self.selected_issue.id, agents),
+            self._on_agent_selected,
+        )
+
+    def _on_agent_selected(self, agent: str | None) -> None:
+        if agent and self.selected_issue:
+            issue_id = self.selected_issue.id
+            self.notify(f"Starting run for {issue_id} with {agent}...")
+            self._do_new_run(issue_id, agent)
 
     @work(thread=True, exclusive=True)
-    def _do_new_run(self, issue_id: str) -> None:
-        """Start a new run in background thread to avoid blocking TUI."""
+    def _do_new_run(self, issue_id: str, agent: str) -> None:
         log = get_logger()
         try:
-            result = subprocess.run(
-                [
-                    "orch",
-                    "--vault",
-                    str(self.config.vault_path),
-                    "run",
-                    issue_id,
-                ],
-                capture_output=True,
-                text=True,
-            )
+            cmd = ["orch"]
+            if self.config.vault_path:
+                cmd.extend(["--vault", str(self.config.vault_path)])
+            elif self.config.project_root:
+                cmd.extend(["--project-root", str(self.config.project_root)])
+            cmd.extend(["run", issue_id, "--agent", agent])
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             if result.returncode == 0:
                 self.call_from_thread(
                     self.notify, f"Run started for {issue_id}", severity="information"
                 )
             else:
-                # Prefer stderr, fallback to stdout, include returncode
                 error_msg = (
                     result.stderr.strip() or result.stdout.strip() or "Unknown error"
                 )
-                # Truncate long messages for notification display
                 if len(error_msg) > 200:
                     error_msg = error_msg[:200] + "..."
                 log.error(
@@ -1372,10 +1648,76 @@ class IssuesDashboard(App):
                     severity="error",
                 )
             self.call_from_thread(self.refresh_data)
+        except subprocess.TimeoutExpired:
+            log.error(f"Timeout starting run for {issue_id}")
+            self.call_from_thread(self.notify, "Timeout starting run", severity="error")
         except Exception as e:
             log.exception(f"Exception starting run for {issue_id}")
             self.call_from_thread(
                 self.notify, f"Failed to start run: {e}", severity="error"
+            )
+
+    def action_close_issue(self) -> None:
+        if _input_has_focus(self):
+            return
+        if not self.selected_issue:
+            self.notify("No issue selected", severity="warning")
+            return
+
+        # Capture issue_id before modal to prevent race condition if user navigates
+        issue_id = self.selected_issue.id
+        issue_title = self.selected_issue.title
+
+        def on_confirm(confirmed: bool | None) -> None:
+            if confirmed:
+                self._do_close_issue(issue_id)
+
+        self.push_screen(
+            CloseIssueConfirmScreen(issue_id, issue_title),
+            on_confirm,
+        )
+
+    @work(thread=True, exclusive=True)
+    def _do_close_issue(self, issue_id: str) -> None:
+        log = get_logger()
+        try:
+            cmd = ["orch"]
+            if self.config.vault_path:
+                cmd.extend(["--vault", str(self.config.vault_path)])
+            elif self.config.project_root:
+                cmd.extend(["--project-root", str(self.config.project_root)])
+            cmd.extend(["issue", "close", issue_id])
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if result.returncode == 0:
+                self.call_from_thread(
+                    self.notify, f"Closed issue {issue_id}", severity="information"
+                )
+            else:
+                error_msg = (
+                    result.stderr.strip() or result.stdout.strip() or "Unknown error"
+                )
+                if len(error_msg) > 200:
+                    error_msg = error_msg[:200] + "..."
+                log.error(
+                    f"Failed to close issue {issue_id}: exit={result.returncode}, "
+                    f"stderr={result.stderr!r}, stdout={result.stdout!r}"
+                )
+                self.call_from_thread(
+                    self.notify,
+                    f"Failed to close issue: {error_msg}",
+                    severity="error",
+                )
+            self.call_from_thread(self.refresh_data)
+        except subprocess.TimeoutExpired:
+            log.error(f"Timeout closing issue {issue_id}")
+            self.call_from_thread(
+                self.notify, "Timeout closing issue", severity="error"
+            )
+        except Exception as e:
+            log.exception(f"Exception closing issue {issue_id}")
+            self.call_from_thread(
+                self.notify, f"Failed to close issue: {e}", severity="error"
             )
 
 
@@ -1400,6 +1742,7 @@ class OrchMonitorApp(App):
         Binding("X", "kill_session", "Kill"),
         Binding("n", "new_run", "New Run"),
         Binding("o", "open_issue", "Open in Editor"),
+        Binding("x", "close_issue", "Close Issue"),
         Binding("f", "filter", "Filter"),
         Binding("ctrl+f", "clear_filters", "Clear Filters"),
         Binding("tab", "switch_focus", "Switch Focus"),
@@ -1419,6 +1762,7 @@ class OrchMonitorApp(App):
         self.selected_run: Optional[Run] = None
         self.selected_issue: Optional[Issue] = None
         self.current_focus = "runs"
+        self._highlighted_issue_id: Optional[str] = None
         self.filter_state = self.config.load_filters()
         self._auto_refresh_enabled = auto_refresh
         self._base_title = f"Orch Monitor [{self.config.project_root.name}]"
@@ -1927,36 +2271,38 @@ class OrchMonitorApp(App):
         if not self.selected_issue:
             self.notify("No issue selected", severity="warning")
             return
-        issue_id = self.selected_issue.id
-        self.notify(f"Starting run for {issue_id}...")
-        self._do_new_run(issue_id)
+        agents = _get_available_agents(self.config)
+        self.push_screen(
+            AgentSelectScreen(self.selected_issue.id, agents),
+            self._on_agent_selected,
+        )
+
+    def _on_agent_selected(self, agent: str | None) -> None:
+        if agent and self.selected_issue:
+            issue_id = self.selected_issue.id
+            self.notify(f"Starting run for {issue_id} with {agent}...")
+            self._do_new_run(issue_id, agent)
 
     @work(thread=True, exclusive=True)
-    def _do_new_run(self, issue_id: str) -> None:
-        """Start a new run in background thread to avoid blocking TUI."""
+    def _do_new_run(self, issue_id: str, agent: str) -> None:
         log = get_logger()
         try:
-            result = subprocess.run(
-                [
-                    "orch",
-                    "--vault",
-                    str(self.config.vault_path),
-                    "run",
-                    issue_id,
-                ],
-                capture_output=True,
-                text=True,
-            )
+            cmd = ["orch"]
+            if self.config.vault_path:
+                cmd.extend(["--vault", str(self.config.vault_path)])
+            elif self.config.project_root:
+                cmd.extend(["--project-root", str(self.config.project_root)])
+            cmd.extend(["run", issue_id, "--agent", agent])
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             if result.returncode == 0:
                 self.call_from_thread(
                     self.notify, f"Run started for {issue_id}", severity="information"
                 )
             else:
-                # Prefer stderr, fallback to stdout, include returncode
                 error_msg = (
                     result.stderr.strip() or result.stdout.strip() or "Unknown error"
                 )
-                # Truncate long messages for notification display
                 if len(error_msg) > 200:
                     error_msg = error_msg[:200] + "..."
                 log.error(
@@ -1969,6 +2315,9 @@ class OrchMonitorApp(App):
                     severity="error",
                 )
             self.call_from_thread(self.refresh_data)
+        except subprocess.TimeoutExpired:
+            log.error(f"Timeout starting run for {issue_id}")
+            self.call_from_thread(self.notify, "Timeout starting run", severity="error")
         except Exception as e:
             log.exception(f"Exception starting run for {issue_id}")
             self.call_from_thread(
@@ -2016,3 +2365,66 @@ class OrchMonitorApp(App):
             self.action_attach()
         elif self.current_focus == "issues" and self.selected_issue:
             self.action_open_issue()
+
+    def action_close_issue(self) -> None:
+        if _input_has_focus(self):
+            return
+        if not self.selected_issue:
+            self.notify("No issue selected", severity="warning")
+            return
+
+        # Capture issue_id before modal to prevent race condition if user navigates
+        issue_id = self.selected_issue.id
+        issue_title = self.selected_issue.title
+
+        def on_confirm(confirmed: bool | None) -> None:
+            if confirmed:
+                self._do_close_issue(issue_id)
+
+        self.push_screen(
+            CloseIssueConfirmScreen(issue_id, issue_title),
+            on_confirm,
+        )
+
+    @work(thread=True, exclusive=True)
+    def _do_close_issue(self, issue_id: str) -> None:
+        log = get_logger()
+        try:
+            cmd = ["orch"]
+            if self.config.vault_path:
+                cmd.extend(["--vault", str(self.config.vault_path)])
+            elif self.config.project_root:
+                cmd.extend(["--project-root", str(self.config.project_root)])
+            cmd.extend(["issue", "close", issue_id])
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if result.returncode == 0:
+                self.call_from_thread(
+                    self.notify, f"Closed issue {issue_id}", severity="information"
+                )
+            else:
+                error_msg = (
+                    result.stderr.strip() or result.stdout.strip() or "Unknown error"
+                )
+                if len(error_msg) > 200:
+                    error_msg = error_msg[:200] + "..."
+                log.error(
+                    f"Failed to close issue {issue_id}: exit={result.returncode}, "
+                    f"stderr={result.stderr!r}, stdout={result.stdout!r}"
+                )
+                self.call_from_thread(
+                    self.notify,
+                    f"Failed to close issue: {error_msg}",
+                    severity="error",
+                )
+            self.call_from_thread(self.refresh_data)
+        except subprocess.TimeoutExpired:
+            log.error(f"Timeout closing issue {issue_id}")
+            self.call_from_thread(
+                self.notify, "Timeout closing issue", severity="error"
+            )
+        except Exception as e:
+            log.exception(f"Exception closing issue {issue_id}")
+            self.call_from_thread(
+                self.notify, f"Failed to close issue: {e}", severity="error"
+            )
