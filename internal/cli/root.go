@@ -116,28 +116,31 @@ func Execute() {
 	}
 }
 
-// getVaultPath returns the vault path from flags, environment, or config files
-// Precedence: --vault flag > local .orch/config.yaml > parent .orch/config.yaml > ORCH_VAULT env > ~/.config/orch/config.yaml
+// getVaultPath returns the vault path from flags, environment, or config files.
+// For local backend, defaults to ~/.local/share/orch/<repo>/ if not explicitly configured.
+// Precedence: --vault flag > config.vault > config.issues.path > default (~/.local/share/orch/<repo>)
 func getVaultPath() (string, error) {
-	// 1. Command-line flag (highest precedence)
 	if globalOpts.VaultPath != "" {
 		return config.ExpandPath(globalOpts.VaultPath, ""), nil
 	}
 
-	// 2. Load from config (handles env vars and config files)
-	// Note: config.Load() resolves relative paths from config files at load time
 	cfg, err := config.Load()
 	if err != nil {
 		return "", err
 	}
 
 	if cfg.Vault != "" {
-		// Path is already resolved if it came from a config file
-		// For env vars, ExpandPath will handle ~ but relative paths stay relative to cwd
 		return config.ExpandPath(cfg.Vault, ""), nil
 	}
 
-	return "", fmt.Errorf("vault path not specified (use --vault, set ORCH_VAULT, or create .orch/config.yaml)")
+	if cfg.GetIssuesBackend() == "local" {
+		issuesPath := cfg.GetIssuesPath()
+		if issuesPath != "" {
+			return issuesPath, nil
+		}
+	}
+
+	return "", fmt.Errorf("vault path not specified (use --vault, set ORCH_VAULT, or configure issues.path)")
 }
 
 // getProjectRoot returns the project root directory (where .orch/ lives).

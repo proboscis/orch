@@ -101,6 +101,7 @@ func (g *GitHubConfig) GetPollInterval() int {
 // IssuesConfig holds configuration for the issues backend.
 type IssuesConfig struct {
 	Backend string `yaml:"backend,omitempty"` // "local" (default) or "github"
+	Path    string `yaml:"path,omitempty"`    // Path to issues storage (default: ~/.local/share/orch/<repo>)
 }
 
 func (s *SlackConfig) ShouldNotify(status string) bool {
@@ -406,6 +407,9 @@ func loadFromFile(path string, cfg *Config) error {
 	if fileCfg.Issues != nil {
 		if fileCfg.Issues.Backend != "" {
 			cfg.Issues.Backend = fileCfg.Issues.Backend
+		}
+		if fileCfg.Issues.Path != "" {
+			cfg.Issues.Path = fileCfg.Issues.Path
 		}
 	}
 	if fileCfg.GitHub != nil {
@@ -739,4 +743,34 @@ func (c *Config) GetIssuesBackend() string {
 		return "local"
 	}
 	return c.Issues.Backend
+}
+
+func (c *Config) GetIssuesPath() string {
+	if c.Issues.Path != "" {
+		return ExpandPath(c.Issues.Path, "")
+	}
+
+	repoID := c.getRepoID()
+	if repoID == "" {
+		repoID = "default"
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+
+	return filepath.Join(home, ".local", "share", "orch", repoID)
+}
+
+func (c *Config) getRepoID() string {
+	if c.GitHub.Owner != "" && c.GitHub.Repo != "" {
+		return c.GitHub.Owner + "-" + c.GitHub.Repo
+	}
+
+	info, err := git.GetRepoInfo("")
+	if err != nil {
+		return ""
+	}
+	return info.ID()
 }

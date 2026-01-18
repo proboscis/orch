@@ -1,23 +1,22 @@
 # orch uses itself as the vault - issues live in this repo
-vault: .
 agent: opencode
 worktree_dir: .git-worktrees
 base_branch: main
-# default PR target branch for agent instructions
 pr_target_branch: main
 
 opencode:
   default_model: anthropic/claude-opus-4-5
   default_variant: max
 
-# Use GitHub Issues as the source of truth
 issues:
-  backend: github
+  backend: local
+  path: ~/repos/orch-issues
 
+# Keep GitHub config for future use or hybrid mode
 github:
   owner: proboscis
   repo: orch
-  poll_interval: 60
+  poll_interval: 300
 
 monitor:
   default_run_statuses:

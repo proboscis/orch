@@ -22,11 +22,14 @@ type FileStore struct {
 	cacheDirty bool
 }
 
-// New creates a new FileStore
 func New(vaultPath string) (*FileStore, error) {
 	absPath, err := filepath.Abs(vaultPath)
 	if err != nil {
 		return nil, fmt.Errorf("invalid vault path: %w", err)
+	}
+
+	if err := os.MkdirAll(absPath, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create vault directory: %w", err)
 	}
 
 	info, err := os.Stat(absPath)
