@@ -1664,15 +1664,16 @@ class IssuesDashboard(App):
             self.notify("No issue selected", severity="warning")
             return
 
+        # Capture issue_id before modal to prevent race condition if user navigates
+        issue_id = self.selected_issue.id
+        issue_title = self.selected_issue.title
+
         def on_confirm(confirmed: bool | None) -> None:
-            if confirmed and self.selected_issue:
-                self._do_close_issue(self.selected_issue.id)
+            if confirmed:
+                self._do_close_issue(issue_id)
 
         self.push_screen(
-            CloseIssueConfirmScreen(
-                self.selected_issue.id,
-                self.selected_issue.title,
-            ),
+            CloseIssueConfirmScreen(issue_id, issue_title),
             on_confirm,
         )
 
@@ -2372,15 +2373,16 @@ class OrchMonitorApp(App):
             self.notify("No issue selected", severity="warning")
             return
 
+        # Capture issue_id before modal to prevent race condition if user navigates
+        issue_id = self.selected_issue.id
+        issue_title = self.selected_issue.title
+
         def on_confirm(confirmed: bool | None) -> None:
-            if confirmed and self.selected_issue:
-                self._do_close_issue(self.selected_issue.id)
+            if confirmed:
+                self._do_close_issue(issue_id)
 
         self.push_screen(
-            CloseIssueConfirmScreen(
-                self.selected_issue.id,
-                self.selected_issue.title,
-            ),
+            CloseIssueConfirmScreen(issue_id, issue_title),
             on_confirm,
         )
 
