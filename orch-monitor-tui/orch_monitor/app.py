@@ -310,7 +310,7 @@ def _get_issue_file_path(issue: "Issue") -> Tuple[Optional[Path], Optional[str]]
     """Get the file path for an issue, creating a temp file for GitHub issues.
 
     For local issues, returns the existing path.
-    For GitHub issues (identified by 'gh#' prefix or URL path), creates a temp file
+    For GitHub issues (identified by 'gh-' or 'gh#' prefix or URL path), creates a temp file
     with the issue body.
 
     Returns:
@@ -322,8 +322,6 @@ def _get_issue_file_path(issue: "Issue") -> Tuple[Optional[Path], Optional[str]]
 
     path_str = str(issue.path) if issue.path else ""
 
-    # Check if it's a GitHub issue by ID prefix (gh#xxx) or path (URL)
-    # Note: Path() normalizes "https://" to "https:/" on POSIX, so check both formats
     def is_url_path(s: str) -> bool:
         return (
             s.startswith("http://")
@@ -332,7 +330,11 @@ def _get_issue_file_path(issue: "Issue") -> Tuple[Optional[Path], Optional[str]]
             or s.startswith("https:/")
         )
 
-    is_github_issue = issue.id.startswith("gh#") or is_url_path(path_str)
+    is_github_issue = (
+        issue.id.startswith("gh-")
+        or issue.id.startswith("gh#")
+        or is_url_path(path_str)
+    )
 
     log = get_logger()
 

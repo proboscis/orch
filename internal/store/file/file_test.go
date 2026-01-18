@@ -556,3 +556,49 @@ id: test123
 		t.Errorf("expected status resolved, got %s", issue.Status)
 	}
 }
+
+func TestGitHubIssueIDAliasing(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	s, _ := New(vault)
+
+	legacyIssueID := "gh#123"
+	canonicalIssueID := "gh-123"
+	runID := "20231220-100000"
+
+	legacyRunDir := filepath.Join(vault, "runs", legacyIssueID)
+	if err := os.MkdirAll(legacyRunDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	runContent := fmt.Sprintf("---\nissue: %s\nrun: %s\n---\n", legacyIssueID, runID)
+	runPath := filepath.Join(legacyRunDir, runID+".md")
+	if err := os.WriteFile(runPath, []byte(runContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	run, err := s.GetLatestRun(canonicalIssueID)
+	if err != nil {
+		t.Fatalf("GetLatestRun(%q) should find run in legacy dir %q: %v", canonicalIssueID, legacyIssueID, err)
+	}
+	if run.RunID != runID {
+		t.Errorf("expected run ID %s, got %s", runID, run.RunID)
+	}
+
+	runs, err := s.ListRuns(&store.ListRunsFilter{IssueID: canonicalIssueID})
+	if err != nil {
+		t.Fatalf("ListRuns(%q) error: %v", canonicalIssueID, err)
+	}
+	if len(runs) != 1 {
+		t.Errorf("expected 1 run, got %d", len(runs))
+	}
+
+	ref := &model.RunRef{IssueID: canonicalIssueID, RunID: runID}
+	run, err = s.GetRun(ref)
+	if err != nil {
+		t.Fatalf("GetRun(%q#%s) error: %v", canonicalIssueID, runID, err)
+	}
+	if run.RunID != runID {
+		t.Errorf("expected run ID %s, got %s", runID, run.RunID)
+	}
+}

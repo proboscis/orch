@@ -18,7 +18,7 @@ type Issue struct {
 }
 
 func IsGitHubIssueID(id string) bool {
-	if strings.HasPrefix(id, "gh#") {
+	if strings.HasPrefix(id, "gh-") || strings.HasPrefix(id, "gh#") {
 		return true
 	}
 	if strings.HasPrefix(id, "#") {
@@ -30,17 +30,21 @@ func IsGitHubIssueID(id string) bool {
 }
 
 func NormalizeGitHubIssueID(id string) string {
-	if strings.HasPrefix(id, "gh#") {
+	if strings.HasPrefix(id, "gh-") {
 		return id
+	}
+	if strings.HasPrefix(id, "gh#") {
+		return "gh-" + strings.TrimPrefix(id, "gh#")
 	}
 	id = strings.TrimPrefix(id, "#")
 	if _, err := strconv.Atoi(id); err == nil {
-		return "gh#" + id
+		return "gh-" + id
 	}
 	return id
 }
 
 func ParseGitHubIssueNumber(id string) (int, error) {
+	id = strings.TrimPrefix(id, "gh-")
 	id = strings.TrimPrefix(id, "gh#")
 	id = strings.TrimPrefix(id, "#")
 	n, err := strconv.Atoi(id)

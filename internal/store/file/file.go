@@ -312,12 +312,45 @@ func cloneIssue(issue *model.Issue) *model.Issue {
 
 // runPath returns the path to a run document
 func (s *FileStore) runPath(issueID, runID string) string {
-	return filepath.Join(s.vaultPath, "runs", issueID, runID+".md")
+	return filepath.Join(s.resolveRunsDir(issueID), runID+".md")
 }
 
 // runsDir returns the path to the runs directory for an issue
 func (s *FileStore) runsDir(issueID string) string {
-	return filepath.Join(s.vaultPath, "runs", issueID)
+	return s.resolveRunsDir(issueID)
+}
+
+// resolveRunsDir resolves the runs directory, checking both gh- and gh# formats for backward compat.
+func (s *FileStore) resolveRunsDir(issueID string) string {
+	runsRoot := filepath.Join(s.vaultPath, "runs")
+
+	if strings.HasPrefix(issueID, "gh-") {
+		canonicalDir := filepath.Join(runsRoot, issueID)
+		if _, err := os.Stat(canonicalDir); err == nil {
+			return canonicalDir
+		}
+		legacyID := "gh#" + strings.TrimPrefix(issueID, "gh-")
+		legacyDir := filepath.Join(runsRoot, legacyID)
+		if _, err := os.Stat(legacyDir); err == nil {
+			return legacyDir
+		}
+		return canonicalDir
+	}
+
+	if strings.HasPrefix(issueID, "gh#") {
+		legacyDir := filepath.Join(runsRoot, issueID)
+		if _, err := os.Stat(legacyDir); err == nil {
+			return legacyDir
+		}
+		canonicalID := "gh-" + strings.TrimPrefix(issueID, "gh#")
+		canonicalDir := filepath.Join(runsRoot, canonicalID)
+		if _, err := os.Stat(canonicalDir); err == nil {
+			return canonicalDir
+		}
+		return legacyDir
+	}
+
+	return filepath.Join(runsRoot, issueID)
 }
 
 // ResolveIssue retrieves an issue by ID
@@ -358,8 +391,8 @@ func (s *FileStore) ListIssues() ([]*model.Issue, error) {
 
 // CreateRun creates a new run for an issue
 func (s *FileStore) CreateRun(issueID, runID string, metadata map[string]string) (*model.Run, error) {
-	// Skip verification for GitHub issues (gh#N format) - they're not local files
-	if !strings.HasPrefix(issueID, "gh#") {
+	// Skip verification for GitHub issues - they're not local files
+	if !strings.HasPrefix(issueID, "gh-") && !strings.HasPrefix(issueID, "gh#") {
 		_, err := s.ResolveIssue(issueID)
 		if err != nil {
 			return nil, err
