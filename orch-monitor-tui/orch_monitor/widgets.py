@@ -2,6 +2,7 @@
 
 from typing import Optional
 
+from rich.markup import escape
 from textual.app import ComposeResult
 from textual.widgets import DataTable, Static
 from textual.widgets.data_table import RowDoesNotExist
@@ -254,29 +255,28 @@ class IssueTable(CursorPreservingTable):
 
         formatted = []
         for tag in tags:
+            # Escape tag to prevent markup injection
+            safe_tag = escape(tag)
             # Color-code common tag types
             tag_lower = tag.lower()
             if tag_lower in ("bug", "bugfix", "fix"):
-                formatted.append(f"[red][{tag}][/red]")
+                formatted.append(f"[red][{safe_tag}][/red]")
             elif tag_lower in ("urgent", "critical", "high"):
-                formatted.append(f"[bold red][{tag}][/bold red]")
+                formatted.append(f"[bold red][{safe_tag}][/bold red]")
             elif tag_lower in ("enhancement", "feature", "new"):
-                formatted.append(f"[green][{tag}][/green]")
+                formatted.append(f"[green][{safe_tag}][/green]")
             elif tag_lower in ("refactor", "cleanup", "chore"):
-                formatted.append(f"[cyan][{tag}][/cyan]")
+                formatted.append(f"[cyan][{safe_tag}][/cyan]")
             elif tag_lower in ("docs", "documentation"):
-                formatted.append(f"[yellow][{tag}][/yellow]")
+                formatted.append(f"[yellow][{safe_tag}][/yellow]")
             elif tag_lower in ("test", "testing"):
-                formatted.append(f"[magenta][{tag}][/magenta]")
+                formatted.append(f"[magenta][{safe_tag}][/magenta]")
             else:
-                formatted.append(f"[{tag}]")
+                formatted.append(f"[{safe_tag}]")
 
-        result = " ".join(formatted)
-        # Truncate if too long (accounting for markup)
-        if len("".join(f"[{t}]" for t in tags)) > 18:
-            # Return first few tags with ellipsis
+        if len(tags) > 2:
             return " ".join(formatted[:2]) + "..."
-        return result
+        return " ".join(formatted)
 
 
 class DetailPanel(Container):

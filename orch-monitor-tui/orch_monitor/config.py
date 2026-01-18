@@ -132,8 +132,7 @@ class IssueDefaultFilter:
     """Default filter configuration for issues."""
 
     tags: list[str] = field(default_factory=list)
-    tag_mode: str = "any"  # "all" (AND) or "any" (OR)
-    status: list[str] = field(default_factory=list)
+    tag_mode: str = "any"
 
 
 @dataclass
@@ -225,7 +224,6 @@ class Config:
         return IssueDefaultFilter(
             tags=data.get("tags", []),
             tag_mode=data.get("tag_mode", "any"),
-            status=data.get("status", []),
         )
 
     @classmethod

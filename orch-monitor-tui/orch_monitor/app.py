@@ -842,15 +842,25 @@ class IssueFilterScreen(ModalScreen[IssueFilterResult | None]):
 
             yield Label("Tags (comma-separated)", classes="filter-section-title")
             yield Input(
-                value=", ".join(self.current_filter.tags) if self.current_filter.tags else "",
+                value=", ".join(self.current_filter.tags)
+                if self.current_filter.tags
+                else "",
                 placeholder="bug, urgent, feature...",
                 id="tag-filter-input",
             )
-            
+
             yield Label("Tag Mode", classes="filter-section-title")
             with RadioSet(id="tag-mode-set"):
-                yield RadioButton("Any (OR)", value=self.current_filter.tag_mode != "all", id="tag-mode-any")
-                yield RadioButton("All (AND)", value=self.current_filter.tag_mode == "all", id="tag-mode-all")
+                yield RadioButton(
+                    "Any (OR)",
+                    value=self.current_filter.tag_mode != "all",
+                    id="tag-mode-any",
+                )
+                yield RadioButton(
+                    "All (AND)",
+                    value=self.current_filter.tag_mode == "all",
+                    id="tag-mode-all",
+                )
 
             yield Label("Search", classes="filter-section-title")
             yield Input(
@@ -864,11 +874,11 @@ class IssueFilterScreen(ModalScreen[IssueFilterResult | None]):
         status_list = self.query_one("#issue-status-list", SelectionList)
         statuses = {IssueStatus(v) for v in status_list.selected}
         text_search = self.query_one("#text-search-input", Input).value
-        
+
         # Parse tags from input
         tag_input = self.query_one("#tag-filter-input", Input).value
         tags = {t.strip() for t in tag_input.split(",") if t.strip()}
-        
+
         # Get tag mode from radio set
         tag_mode_all = self.query_one("#tag-mode-all", RadioButton)
         tag_mode = "all" if tag_mode_all.value else "any"
@@ -957,13 +967,13 @@ def filter_issues_client_side(
         if filter_state.tag_mode == "all":
             # AND mode: issue must have all filter tags
             result = [
-                i for i in result
-                if filter_tags.issubset({t.lower() for t in i.tags})
+                i for i in result if filter_tags.issubset({t.lower() for t in i.tags})
             ]
         else:
             # OR mode (any): issue must have at least one filter tag
             result = [
-                i for i in result
+                i
+                for i in result
                 if filter_tags.intersection({t.lower() for t in i.tags})
             ]
 
@@ -1540,7 +1550,7 @@ class IssuesDashboard(App):
             self.filter_state.issue_filters = IssueFilterState(
                 statuses=selected_statuses,
                 priorities=[],
-                tags=list(result.tags),
+                tags=sorted(result.tags),
                 tag_mode=result.tag_mode,
                 text_search=result.text_search,
             )
@@ -1957,7 +1967,7 @@ class OrchMonitorApp(App):
             self.filter_state.issue_filters = IssueFilterState(
                 statuses=selected_statuses,
                 priorities=[],
-                tags=list(result.tags),
+                tags=sorted(result.tags),
                 tag_mode=result.tag_mode,
                 text_search=result.text_search,
             )
