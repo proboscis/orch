@@ -332,6 +332,23 @@ class ZellijLayoutLauncher:
 
     ZELLIJ_TIMEOUT_SEC = 5
 
+    def __init__(self):
+        self._healthy: bool | None = None
+
+    def is_healthy(self) -> bool:
+        if self._healthy is not None:
+            return self._healthy
+        try:
+            subprocess.run(
+                ["zellij", "list-sessions", "--short"],
+                capture_output=True,
+                timeout=self.ZELLIJ_TIMEOUT_SEC,
+            )
+            self._healthy = True
+        except subprocess.TimeoutExpired:
+            self._healthy = False
+        return self._healthy
+
     def has_session(self, session_name: str) -> bool:
         try:
             result = subprocess.run(
@@ -341,7 +358,7 @@ class ZellijLayoutLauncher:
                 timeout=self.ZELLIJ_TIMEOUT_SEC,
             )
         except subprocess.TimeoutExpired:
-            print(f"Warning: zellij list-sessions timed out", file=sys.stderr)
+            self._healthy = False
             return False
         if result.returncode != 0:
             return False
@@ -355,7 +372,7 @@ class ZellijLayoutLauncher:
                 timeout=self.ZELLIJ_TIMEOUT_SEC,
             )
         except subprocess.TimeoutExpired:
-            print(f"Warning: zellij delete-session timed out", file=sys.stderr)
+            self._healthy = False
 
     def attach_session(self, session_name: str) -> None:
         subprocess.run(["zellij", "attach", session_name])
@@ -469,6 +486,11 @@ def launch_monitor_layout(
         else:
             launcher.attach_session(session_name)
             return
+
+    if multiplexer == MultiplexerType.ZELLIJ and hasattr(launcher, '_healthy') and launcher._healthy is False:
+        print("Zellij unresponsive, falling back to tmux", file=sys.stderr)
+        launcher = get_layout_launcher(MultiplexerType.TMUX)
+        session_name = get_session_name(vault_path)
 
     launcher.launch_layout(session_name, vault_path, agent, cwd)
 
