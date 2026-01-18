@@ -472,27 +472,40 @@ def launch_monitor_layout(
     agent: str = "opencode",
     new: bool = False,
     multiplexer: MultiplexerType | None = None,
+    log: callable = lambda msg: None,
 ) -> None:
+    log("launch_monitor_layout: start")
     if multiplexer is None:
+        log("detecting multiplexer...")
         multiplexer = get_default_multiplexer_type()
+        log(f"detected multiplexer: {multiplexer.value}")
 
     launcher = get_layout_launcher(multiplexer)
     cwd = os.getcwd()
     session_name = get_session_name(vault_path)
+    log(f"session_name: {session_name}")
 
+    log(f"checking has_session...")
     if launcher.has_session(session_name):
+        log(f"session exists")
         if new:
+            log("killing existing session...")
             launcher.kill_session(session_name)
+            log("session killed")
         else:
+            log("attaching to existing session...")
             launcher.attach_session(session_name)
             return
 
     if multiplexer == MultiplexerType.ZELLIJ and hasattr(launcher, '_healthy') and launcher._healthy is False:
-        print("Zellij unresponsive, falling back to tmux", file=sys.stderr)
-        launcher = get_layout_launcher(MultiplexerType.TMUX)
-        session_name = get_session_name(vault_path)
+        print("Error: Zellij is unresponsive (likely stale processes)", file=sys.stderr)
+        print("Fix: Run 'pkill -9 zellij' to kill stale processes", file=sys.stderr)
+        print("Or use: orch-monitor --new -m tmux", file=sys.stderr)
+        sys.exit(1)
 
+    log("launching layout...")
     launcher.launch_layout(session_name, vault_path, agent, cwd)
+    log("launch complete")
 
 
 def main():
@@ -528,18 +541,38 @@ def main():
         choices=["tmux", "zellij"],
         help="Terminal multiplexer to use (default: auto-detect or tmux)",
     )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Enable verbose logging to stderr",
+    )
 
     args = parser.parse_args()
+    
+    if args.verbose:
+        import time as _time
+        _start = _time.time()
+        def _log(msg: str) -> None:
+            elapsed = _time.time() - _start
+            print(f"[{elapsed:.2f}s] {msg}", file=sys.stderr)
+    else:
+        def _log(msg: str) -> None:
+            pass
     vault_path = get_vault_path(args)
 
+    _log("ensuring daemon...")
     success, error_msg = ensure_daemon(vault_path)
     if not success:
         print(f"Error: {error_msg}", file=sys.stderr)
         print("Try running 'orch repair' to fix.", file=sys.stderr)
         sys.exit(1)
+    _log("daemon ready")
 
+    _log("loading config...")
     config = Config.from_vault(vault_path) if vault_path else Config.load()
     setup_logging(config.log_path)
+    _log("config loaded")
 
     if args.runs:
         app = RunsDashboard(vault_path=vault_path)
@@ -551,7 +584,8 @@ def main():
         mux_type = None
         if args.multiplexer:
             mux_type = MultiplexerType(args.multiplexer)
-        launch_monitor_layout(vault_path, args.agent, args.new, mux_type)
+        _log("starting launch_monitor_layout")
+        launch_monitor_layout(vault_path, args.agent, args.new, mux_type, log=_log)
 
 
 if __name__ == "__main__":
