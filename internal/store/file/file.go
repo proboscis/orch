@@ -136,37 +136,42 @@ func walkWithSymlinks(root string, walkFn filepath.WalkFunc) error {
 	return nil
 }
 
-// scanIssues scans the issues directory for issue files
 func (s *FileStore) scanIssues() error {
 	issuesDir := filepath.Join(s.vaultPath, "issues")
+	if _, err := os.Stat(issuesDir); os.IsNotExist(err) {
+		issuesDir = filepath.Join(s.vaultPath, "Issues")
+	}
 	issues := make(map[string]*model.Issue)
 
 	s.issueMu.Lock()
 	defer s.issueMu.Unlock()
 
-	entries, err := os.ReadDir(issuesDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			s.issueCache = issues
-			s.cacheDirty = false
-			return nil
-		}
-		s.cacheDirty = true
-		return err
+	if _, err := os.Stat(issuesDir); os.IsNotExist(err) {
+		s.issueCache = issues
+		s.cacheDirty = false
+		return nil
 	}
 
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
-			continue
+	err := filepath.WalkDir(issuesDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() || !strings.HasSuffix(d.Name(), ".md") {
+			return nil
 		}
 
-		path := filepath.Join(issuesDir, entry.Name())
 		issue, err := s.parseIssueFile(path)
 		if err != nil || issue == nil {
-			continue
+			return nil
 		}
 
 		issues[issue.ID] = issue
+		return nil
+	})
+
+	if err != nil {
+		s.cacheDirty = true
+		return err
 	}
 
 	s.issueCache = issues
