@@ -167,30 +167,30 @@ show_closed: false
 
 func TestGetOrchDir(t *testing.T) {
 	tests := []struct {
-		name      string
-		vaultPath string
-		expected  string
+		name        string
+		projectRoot string
+		expected    string
 	}{
 		{
-			name:      "empty path",
-			vaultPath: "",
-			expected:  "",
+			name:        "empty path",
+			projectRoot: "",
+			expected:    "",
 		},
 		{
-			name:      "typical vault path",
-			vaultPath: "/project/.orch/vault",
-			expected:  "/project/.orch",
+			name:        "project root",
+			projectRoot: "/project",
+			expected:    "/project/.orch",
 		},
 		{
-			name:      "nested path",
-			vaultPath: "/home/user/projects/myapp/.orch/vault",
-			expected:  "/home/user/projects/myapp/.orch",
+			name:        "nested project root",
+			projectRoot: "/home/user/projects/myapp",
+			expected:    "/home/user/projects/myapp/.orch",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := GetOrchDir(tt.vaultPath)
+			result := GetOrchDir(tt.projectRoot)
 			if result != tt.expected {
 				t.Errorf("expected %q, got %q", tt.expected, result)
 			}

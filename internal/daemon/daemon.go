@@ -27,12 +27,12 @@ const (
 )
 
 type Daemon struct {
-	vaultPath string
-	store     store.Store
-	interval  time.Duration
-	logger    *log.Logger
-	stopCh    chan struct{}
-	wg        sync.WaitGroup
+	projectRoot string
+	store       store.Store
+	interval    time.Duration
+	logger      *log.Logger
+	stopCh      chan struct{}
+	wg          sync.WaitGroup
 
 	runStates     map[string]*RunState
 	lastFetchAt   map[string]time.Time
@@ -65,10 +65,9 @@ type RunState struct {
 	DeadCheckCount int
 }
 
-// New creates a new Daemon instance
-func New(vaultPath string, st store.Store) *Daemon {
+func New(projectRoot string, st store.Store) *Daemon {
 	return &Daemon{
-		vaultPath:     vaultPath,
+		projectRoot:   projectRoot,
 		store:         st,
 		interval:      DefaultInterval,
 		stopCh:        make(chan struct{}),
@@ -95,13 +94,13 @@ func (d *Daemon) debug(format string, v ...interface{}) {
 
 // Run starts the daemon main loop (blocking)
 func (d *Daemon) Run() error {
-	lockFile, err := AcquireLock(d.vaultPath)
+	lockFile, err := AcquireLock(d.projectRoot)
 	if err != nil {
 		return err
 	}
 	d.lockFile = lockFile
 
-	logPath := LogFilePath(d.vaultPath)
+	logPath := LogFilePath(d.projectRoot)
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %w", err)
@@ -123,7 +122,7 @@ func (d *Daemon) Run() error {
 			d.logger.Printf("slack notifications enabled")
 		}
 		if cfg.IsGitHubBackend() {
-			cachePath := filepath.Join(OrchDir(d.vaultPath), "github-cache.db")
+			cachePath := filepath.Join(OrchDir(d.projectRoot), "github-cache.db")
 			ghBackend, err := github.NewBackend(&cfg.GitHub, cachePath)
 			if err != nil {
 				d.logger.Printf("warning: failed to initialize GitHub backend: %v", err)
@@ -134,19 +133,19 @@ func (d *Daemon) Run() error {
 		}
 	}
 
-	if err := WritePID(d.vaultPath); err != nil {
+	if err := WritePID(d.projectRoot); err != nil {
 		return err
 	}
 	defer func() {
-		RemovePID(d.vaultPath)
+		RemovePID(d.projectRoot)
 		if d.lockFile != nil {
 			d.lockFile.Close()
 		}
 	}()
 
-	d.logger.Printf("daemon started (pid=%d, vault=%s, binary=%s)", os.Getpid(), d.vaultPath, d.executablePath)
+	d.logger.Printf("daemon started (pid=%d, vault=%s, binary=%s)", os.Getpid(), d.projectRoot, d.executablePath)
 
-	d.socketServer = NewSocketServer(d.vaultPath, d.store, d.logger)
+	d.socketServer = NewSocketServer(d.projectRoot, d.store, d.logger)
 	d.socketServer.SetGitHubBackend(d.githubBackend)
 	if err := d.socketServer.Start(); err != nil {
 		d.logger.Printf("warning: failed to start socket server: %v", err)
@@ -229,7 +228,7 @@ func (d *Daemon) writeMetadata() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(MetadataFilePath(d.vaultPath), data, 0644)
+	return os.WriteFile(MetadataFilePath(d.projectRoot), data, 0644)
 }
 
 func (d *Daemon) isBinaryStale() bool {
@@ -256,7 +255,7 @@ func (d *Daemon) checkBinaryStaleness() {
 func (d *Daemon) restartWithNewBinary() error {
 	d.logger.Printf("restarting daemon with new binary via exec...")
 
-	args := []string{d.executablePath, "daemon", "--vault", d.vaultPath}
+	args := []string{d.executablePath, "daemon", "--project-root", d.projectRoot}
 	return syscall.Exec(d.executablePath, args, os.Environ())
 }
 
@@ -360,30 +359,22 @@ func (d *Daemon) getOrCreateState(run *model.Run) *RunState {
 	return state
 }
 
-// StartInBackground launches the daemon as a background process
-// Returns the PID of the spawned process, or error
-func StartInBackground(vaultPath string) (int, error) {
-	// Check if already running
-	if IsRunning(vaultPath) {
-		return GetRunningPID(vaultPath), nil
+func StartInBackground(projectRoot string) (int, error) {
+	if IsRunning(projectRoot) {
+		return GetRunningPID(projectRoot), nil
 	}
 
-	// Find the current executable
 	executable, err := os.Executable()
 	if err != nil {
 		return 0, fmt.Errorf("failed to find executable: %w", err)
 	}
 
-	// Start daemon process
-	// Use "daemon" subcommand which will be handled by CLI
 	cmd := &exec.Cmd{
 		Path: executable,
-		Args: []string{executable, "daemon", "--vault", vaultPath},
-		// Detach from parent process group
+		Args: []string{executable, "daemon", "--project-root", projectRoot},
 		SysProcAttr: &syscall.SysProcAttr{
 			Setsid: true,
 		},
-		// Redirect stdout/stderr to null (daemon logs to file)
 		Stdout: nil,
 		Stderr: nil,
 		Stdin:  nil,
@@ -393,18 +384,13 @@ func StartInBackground(vaultPath string) (int, error) {
 		return 0, fmt.Errorf("failed to start daemon: %w", err)
 	}
 
-	// Don't wait for the process - let it run in background
-	// The daemon will write its own PID file
-
-	// Give it a moment to start and write PID
 	time.Sleep(100 * time.Millisecond)
 
 	return cmd.Process.Pid, nil
 }
 
-// Kill stops the daemon for the given vault
-func Kill(vaultPath string) error {
-	pid := GetRunningPID(vaultPath)
+func Kill(projectRoot string) error {
+	pid := GetRunningPID(projectRoot)
 	if pid == 0 {
 		return nil // Not running
 	}
@@ -414,16 +400,13 @@ func Kill(vaultPath string) error {
 		return err
 	}
 
-	// Send SIGTERM for graceful shutdown
 	if err := process.Signal(syscall.SIGTERM); err != nil {
 		return err
 	}
 
-	// Wait a bit for graceful shutdown
 	time.Sleep(500 * time.Millisecond)
 
-	// Clean up PID file if process didn't
-	RemovePID(vaultPath)
+	RemovePID(projectRoot)
 
 	return nil
 }

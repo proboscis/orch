@@ -47,13 +47,15 @@ func runRepair(opts *repairOptions) error {
 		return err
 	}
 
-	vaultPath := st.VaultPath()
+	projectRoot, err := getProjectRoot()
+	if err != nil {
+		projectRoot = st.VaultPath()
+	}
 	problemsFound := 0
 	problemsFixed := 0
 
-	// 1. Check and repair daemon
 	fmt.Println("Checking daemon...")
-	daemonFixed, err := repairDaemon(vaultPath, opts)
+	daemonFixed, err := repairDaemon(projectRoot, opts)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  error: %v\n", err)
 	}

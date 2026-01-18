@@ -85,11 +85,10 @@ func SaveUISettings(orchDir string, settings *UISettings) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-// GetOrchDir returns the .orch directory path from a vault path.
-func GetOrchDir(vaultPath string) string {
-	if vaultPath == "" {
+// GetOrchDir returns the .orch directory path from a project root.
+func GetOrchDir(projectRoot string) string {
+	if projectRoot == "" {
 		return ""
 	}
-	// The vault path is typically .orch/vault, so we get the parent
-	return filepath.Dir(vaultPath)
+	return filepath.Join(projectRoot, ".orch")
 }

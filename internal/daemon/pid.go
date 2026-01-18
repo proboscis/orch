@@ -25,31 +25,28 @@ type DaemonMetadata struct {
 	ExecMtime time.Time `json:"exec_mtime"`
 }
 
-// OrchDir returns the path to the .orch directory in the vault
-func OrchDir(vaultPath string) string {
-	return filepath.Join(vaultPath, orchDir)
+func OrchDir(projectRoot string) string {
+	return filepath.Join(projectRoot, orchDir)
 }
 
-// PIDFilePath returns the path to the PID file
-func PIDFilePath(vaultPath string) string {
-	return filepath.Join(OrchDir(vaultPath), pidFile)
+func PIDFilePath(projectRoot string) string {
+	return filepath.Join(OrchDir(projectRoot), pidFile)
 }
 
-// LogFilePath returns the path to the daemon log file
-func LogFilePath(vaultPath string) string {
-	return filepath.Join(OrchDir(vaultPath), logFile)
+func LogFilePath(projectRoot string) string {
+	return filepath.Join(OrchDir(projectRoot), logFile)
 }
 
-func MetadataFilePath(vaultPath string) string {
-	return filepath.Join(OrchDir(vaultPath), metadataFile)
+func MetadataFilePath(projectRoot string) string {
+	return filepath.Join(OrchDir(projectRoot), metadataFile)
 }
 
-func LockFilePath(vaultPath string) string {
-	return filepath.Join(OrchDir(vaultPath), lockFile)
+func LockFilePath(projectRoot string) string {
+	return filepath.Join(OrchDir(projectRoot), lockFile)
 }
 
-func ReadMetadata(vaultPath string) (*DaemonMetadata, error) {
-	data, err := os.ReadFile(MetadataFilePath(vaultPath))
+func ReadMetadata(projectRoot string) (*DaemonMetadata, error) {
+	data, err := os.ReadFile(MetadataFilePath(projectRoot))
 	if err != nil {
 		return nil, err
 	}
@@ -60,20 +57,17 @@ func ReadMetadata(vaultPath string) (*DaemonMetadata, error) {
 	return &meta, nil
 }
 
-// EnsureOrchDir creates the .orch directory if it doesn't exist
-func EnsureOrchDir(vaultPath string) error {
-	dir := OrchDir(vaultPath)
+func EnsureOrchDir(projectRoot string) error {
+	dir := OrchDir(projectRoot)
 	return os.MkdirAll(dir, 0700)
 }
 
-// AcquireLock attempts to acquire an exclusive lock on the daemon lock file.
-// Returns the lock file handle (caller must keep it open) or error if lock is held.
-func AcquireLock(vaultPath string) (*os.File, error) {
-	if err := EnsureOrchDir(vaultPath); err != nil {
+func AcquireLock(projectRoot string) (*os.File, error) {
+	if err := EnsureOrchDir(projectRoot); err != nil {
 		return nil, fmt.Errorf("failed to create .orch directory: %w", err)
 	}
 
-	lockPath := LockFilePath(vaultPath)
+	lockPath := LockFilePath(projectRoot)
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open lock file: %w", err)
@@ -91,20 +85,18 @@ func AcquireLock(vaultPath string) (*os.File, error) {
 	return f, nil
 }
 
-// WritePID writes the current process PID to the PID file
-func WritePID(vaultPath string) error {
-	if err := EnsureOrchDir(vaultPath); err != nil {
+func WritePID(projectRoot string) error {
+	if err := EnsureOrchDir(projectRoot); err != nil {
 		return fmt.Errorf("failed to create .orch directory: %w", err)
 	}
 
-	pidPath := PIDFilePath(vaultPath)
+	pidPath := PIDFilePath(projectRoot)
 	pid := os.Getpid()
 	return os.WriteFile(pidPath, []byte(strconv.Itoa(pid)), 0644)
 }
 
-// ReadPID reads the PID from the PID file
-func ReadPID(vaultPath string) (int, error) {
-	pidPath := PIDFilePath(vaultPath)
+func ReadPID(projectRoot string) (int, error) {
+	pidPath := PIDFilePath(projectRoot)
 	data, err := os.ReadFile(pidPath)
 	if err != nil {
 		return 0, err
@@ -118,9 +110,8 @@ func ReadPID(vaultPath string) (int, error) {
 	return pid, nil
 }
 
-// RemovePID removes the PID file
-func RemovePID(vaultPath string) error {
-	pidPath := PIDFilePath(vaultPath)
+func RemovePID(projectRoot string) error {
+	pidPath := PIDFilePath(projectRoot)
 	err := os.Remove(pidPath)
 	if os.IsNotExist(err) {
 		return nil
@@ -128,22 +119,18 @@ func RemovePID(vaultPath string) error {
 	return err
 }
 
-// IsProcessRunning checks if a process with the given PID is running
 func IsProcessRunning(pid int) bool {
 	process, err := os.FindProcess(pid)
 	if err != nil {
 		return false
 	}
 
-	// On Unix, FindProcess always succeeds, so we need to send signal 0
-	// to check if the process actually exists
 	err = process.Signal(syscall.Signal(0))
 	return err == nil
 }
 
-// IsRunning checks if the daemon is currently running for this vault
-func IsRunning(vaultPath string) bool {
-	pid, err := ReadPID(vaultPath)
+func IsRunning(projectRoot string) bool {
+	pid, err := ReadPID(projectRoot)
 	if err != nil {
 		return false
 	}
@@ -151,9 +138,8 @@ func IsRunning(vaultPath string) bool {
 	return IsProcessRunning(pid)
 }
 
-// GetRunningPID returns the PID of the running daemon, or 0 if not running
-func GetRunningPID(vaultPath string) int {
-	pid, err := ReadPID(vaultPath)
+func GetRunningPID(projectRoot string) int {
+	pid, err := ReadPID(projectRoot)
 	if err != nil {
 		return 0
 	}
@@ -165,14 +151,14 @@ func GetRunningPID(vaultPath string) int {
 	return pid
 }
 
-func IsStaleBinary(vaultPath string) (bool, error) {
-	if !IsRunning(vaultPath) {
+func IsStaleBinary(projectRoot string) (bool, error) {
+	if !IsRunning(projectRoot) {
 		return false, nil
 	}
 
-	meta, err := ReadMetadata(vaultPath)
+	meta, err := ReadMetadata(projectRoot)
 	if err != nil {
-		pidPath := PIDFilePath(vaultPath)
+		pidPath := PIDFilePath(projectRoot)
 		pidInfo, err := os.Stat(pidPath)
 		if err != nil {
 			return false, err
@@ -203,8 +189,8 @@ func IsStaleBinary(vaultPath string) (bool, error) {
 	return execInfo.ModTime().After(meta.ExecMtime), nil
 }
 
-func RestartDaemon(vaultPath string) error {
-	pid := GetRunningPID(vaultPath)
+func RestartDaemon(projectRoot string) error {
+	pid := GetRunningPID(projectRoot)
 	if pid == 0 {
 		return nil
 	}

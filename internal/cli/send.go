@@ -73,8 +73,13 @@ func runSend(refStr, message string, opts *sendOptions) error {
 
 	isOpenCode := run.Agent == string(agent.AgentOpenCode)
 
-	if isOpenCode && daemon.IsDaemonSocketAvailable(st.VaultPath()) {
-		err = daemon.SendViaDaemon(st.VaultPath(), run, message, opts.NoEnter)
+	projectRoot, err := getProjectRoot()
+	if err != nil {
+		projectRoot = st.VaultPath()
+	}
+
+	if isOpenCode && daemon.IsDaemonSocketAvailable(projectRoot) {
+		err = daemon.SendViaDaemon(projectRoot, run, message, opts.NoEnter)
 		if err != nil {
 			if globalOpts.JSON {
 				result := map[string]interface{}{
