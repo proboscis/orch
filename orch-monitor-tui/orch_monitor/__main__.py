@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Protocol
 
-from .app import IssuesDashboard, OrchMonitorApp, RunsDashboard
+from .app import IssuesDashboard, OrchMonitorApp, RunsDashboard, setup_logging
 from .config import Config
 from .daemon import DaemonClient
 from .multiplexer import (
@@ -475,6 +475,9 @@ def main():
     if not ensure_daemon(vault_path):
         print("Failed to start orch daemon. Run 'orch repair' to fix.", file=sys.stderr)
         sys.exit(1)
+
+    config = Config.from_vault(vault_path) if vault_path else Config.load()
+    setup_logging(config.log_path)
 
     if args.runs:
         app = RunsDashboard(vault_path=vault_path)
