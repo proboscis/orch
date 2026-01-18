@@ -395,3 +395,130 @@ func (c *Client) GetRunByShortID(shortID string) (*GetRunResponse, error) {
 
 	return &resp, nil
 }
+
+func (c *Client) RegisterMonitor(pid int, monitorType, view, project, tmuxSession string) (*RegisterMonitorResponse, error) {
+	req := SendRequest{
+		Type:        "register_monitor",
+		Limit:       pid,
+		Title:       monitorType,
+		Summary:     view,
+		ProjectRoot: project,
+		Body:        tmuxSession,
+	}
+
+	raw, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp RegisterMonitorResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !resp.OK {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	return &resp, nil
+}
+
+func (c *Client) UnregisterMonitor(monitorID string) error {
+	req := SendRequest{
+		Type:    "unregister_monitor",
+		ShortID: monitorID,
+	}
+
+	raw, err := c.sendRequest(req)
+	if err != nil {
+		return err
+	}
+
+	var resp SendResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !resp.OK {
+		return fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	return nil
+}
+
+func (c *Client) MonitorHeartbeat(monitorID string) error {
+	req := SendRequest{
+		Type:    "monitor_heartbeat",
+		ShortID: monitorID,
+	}
+
+	raw, err := c.sendRequest(req)
+	if err != nil {
+		return err
+	}
+
+	var resp HeartbeatResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !resp.OK {
+		return fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	return nil
+}
+
+func (c *Client) ListMonitors(projectRoot string, all bool) (*ListMonitorsResponse, error) {
+	req := SendRequest{
+		Type:        "list_monitors",
+		ProjectRoot: projectRoot,
+		Force:       all,
+	}
+
+	raw, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp ListMonitorsResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !resp.OK {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	return &resp, nil
+}
+
+func (c *Client) KillMonitor(monitorID string, killAll bool, global bool, projectRoot string) (*KillMonitorResponse, error) {
+	cursorVal := ""
+	if global {
+		cursorVal = "global"
+	}
+	req := SendRequest{
+		Type:        "kill_monitor",
+		ShortID:     monitorID,
+		Force:       killAll,
+		Cursor:      cursorVal,
+		ProjectRoot: projectRoot,
+	}
+
+	raw, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp KillMonitorResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !resp.OK {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	return &resp, nil
+}

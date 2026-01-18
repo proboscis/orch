@@ -3,12 +3,15 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/s22625/orch/internal/agent"
@@ -57,6 +60,9 @@ type SocketServer struct {
 	logger        Logger
 	stopCh        chan struct{}
 	githubBackend *github.Backend
+
+	monitors   map[string]*MonitorConnection
+	monitorsMu sync.RWMutex
 }
 
 type Logger interface {
@@ -69,6 +75,7 @@ func NewSocketServer(projectRoot string, st store.Store, logger Logger) *SocketS
 		store:       st,
 		logger:      logger,
 		stopCh:      make(chan struct{}),
+		monitors:    make(map[string]*MonitorConnection),
 	}
 }
 
@@ -96,6 +103,7 @@ func (s *SocketServer) Start() error {
 	s.logger.Printf("socket server listening on %s", socketPath)
 
 	go s.acceptLoop()
+	s.StartStaleMonitorCleanup()
 
 	return nil
 }
@@ -169,6 +177,16 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 		s.handleGetAttachInfo(req, encoder)
 	case "get_run_by_short_id":
 		s.handleGetRunByShortID(req, encoder)
+	case "register_monitor":
+		s.handleRegisterMonitor(req, encoder)
+	case "unregister_monitor":
+		s.handleUnregisterMonitor(req, encoder)
+	case "monitor_heartbeat":
+		s.handleMonitorHeartbeat(req, encoder)
+	case "list_monitors":
+		s.handleListMonitors(req, encoder)
+	case "kill_monitor":
+		s.handleKillMonitor(req, encoder)
 	default:
 		encoder.Encode(SendResponse{OK: false, Error: "unknown_type"})
 	}
@@ -744,4 +762,220 @@ func (s *SocketServer) handleGetRunByShortID(req SendRequest, encoder *json.Enco
 		OK:  true,
 		Run: RunToFull(run),
 	})
+}
+
+func (s *SocketServer) handleRegisterMonitor(req SendRequest, encoder *json.Encoder) {
+	if req.ProjectRoot == "" {
+		req.ProjectRoot = s.projectRoot
+	}
+
+	monitorID := fmt.Sprintf("mon-%d-%d", req.Limit, time.Now().UnixNano()%100000)
+	if req.ShortID != "" {
+		monitorID = req.ShortID
+	}
+
+	monitorType := "go"
+	if req.Title != "" {
+		monitorType = req.Title
+	}
+
+	view := "dashboard"
+	if req.Summary != "" {
+		view = req.Summary
+	}
+
+	conn := &MonitorConnection{
+		ID:          monitorID,
+		PID:         req.Limit,
+		Type:        monitorType,
+		View:        view,
+		StartedAt:   time.Now(),
+		LastSeen:    time.Now(),
+		Project:     req.ProjectRoot,
+		TmuxSession: req.Body,
+	}
+
+	s.monitorsMu.Lock()
+	s.monitors[monitorID] = conn
+	s.monitorsMu.Unlock()
+
+	s.logger.Printf("monitor registered: %s (pid=%d, type=%s, view=%s)", monitorID, conn.PID, conn.Type, conn.View)
+
+	encoder.Encode(RegisterMonitorResponse{
+		OK:        true,
+		MonitorID: monitorID,
+	})
+}
+
+func (s *SocketServer) handleUnregisterMonitor(req SendRequest, encoder *json.Encoder) {
+	monitorID := req.ShortID
+	if monitorID == "" {
+		encoder.Encode(SendResponse{OK: false, Error: "invalid_request: monitor_id required"})
+		return
+	}
+
+	s.monitorsMu.Lock()
+	conn, exists := s.monitors[monitorID]
+	if exists {
+		delete(s.monitors, monitorID)
+	}
+	s.monitorsMu.Unlock()
+
+	if !exists {
+		encoder.Encode(SendResponse{OK: false, Error: "not_found"})
+		return
+	}
+
+	s.logger.Printf("monitor unregistered: %s (pid=%d)", monitorID, conn.PID)
+	encoder.Encode(SendResponse{OK: true})
+}
+
+func (s *SocketServer) handleMonitorHeartbeat(req SendRequest, encoder *json.Encoder) {
+	monitorID := req.ShortID
+	if monitorID == "" {
+		encoder.Encode(HeartbeatResponse{OK: false, Error: "invalid_request: monitor_id required"})
+		return
+	}
+
+	s.monitorsMu.Lock()
+	conn, exists := s.monitors[monitorID]
+	if exists {
+		conn.LastSeen = time.Now()
+	}
+	s.monitorsMu.Unlock()
+
+	if !exists {
+		encoder.Encode(HeartbeatResponse{OK: false, Error: "not_found"})
+		return
+	}
+
+	encoder.Encode(HeartbeatResponse{OK: true})
+}
+
+func (s *SocketServer) handleListMonitors(req SendRequest, encoder *json.Encoder) {
+	s.monitorsMu.RLock()
+	// Copy values while holding lock to avoid race with heartbeat updates
+	monitors := make([]*MonitorConnection, 0, len(s.monitors))
+	for _, conn := range s.monitors {
+		if req.ProjectRoot != "" && !req.Force && conn.Project != req.ProjectRoot {
+			continue
+		}
+		// Copy the struct to avoid race conditions
+		snapshot := *conn
+		monitors = append(monitors, &snapshot)
+	}
+	s.monitorsMu.RUnlock()
+
+	sort.Slice(monitors, func(i, j int) bool {
+		return monitors[i].StartedAt.Before(monitors[j].StartedAt)
+	})
+
+	encoder.Encode(ListMonitorsResponse{
+		OK:       true,
+		Monitors: monitors,
+	})
+}
+
+func (s *SocketServer) handleKillMonitor(req SendRequest, encoder *json.Encoder) {
+	killAll := req.Force
+	global := req.Cursor != ""
+	monitorID := req.ShortID
+
+	if !killAll && monitorID == "" {
+		encoder.Encode(KillMonitorResponse{OK: false, Error: "invalid_request: monitor_id required or use --all"})
+		return
+	}
+
+	s.monitorsMu.Lock()
+	var toKill []MonitorConnection
+	var toKillIDs []string
+	if killAll {
+		for id, conn := range s.monitors {
+			if global || conn.Project == s.projectRoot || conn.Project == req.ProjectRoot {
+				toKill = append(toKill, *conn)
+				toKillIDs = append(toKillIDs, id)
+			}
+		}
+	} else if conn, exists := s.monitors[monitorID]; exists {
+		toKill = append(toKill, *conn)
+		toKillIDs = append(toKillIDs, monitorID)
+	}
+	s.monitorsMu.Unlock()
+
+	if len(toKill) == 0 && !killAll {
+		encoder.Encode(KillMonitorResponse{OK: false, Error: "not_found"})
+		return
+	}
+
+	var killedIDs, failedIDs []string
+	for i, conn := range toKill {
+		if err := s.killMonitorProcess(&conn); err != nil {
+			s.logger.Printf("failed to kill monitor %s (pid=%d): %v", conn.ID, conn.PID, err)
+			failedIDs = append(failedIDs, conn.ID)
+		} else {
+			s.logger.Printf("killed monitor %s (pid=%d)", conn.ID, conn.PID)
+			killedIDs = append(killedIDs, conn.ID)
+			s.monitorsMu.Lock()
+			delete(s.monitors, toKillIDs[i])
+			s.monitorsMu.Unlock()
+		}
+	}
+
+	encoder.Encode(KillMonitorResponse{
+		OK:          true,
+		KilledIDs:   killedIDs,
+		KilledCount: len(killedIDs),
+		FailedIDs:   failedIDs,
+		FailedCount: len(failedIDs),
+	})
+}
+
+func (s *SocketServer) killMonitorProcess(conn *MonitorConnection) error {
+	if conn.PID <= 0 {
+		return fmt.Errorf("invalid pid")
+	}
+
+	process, err := os.FindProcess(conn.PID)
+	if err != nil {
+		return err
+	}
+
+	err = process.Signal(syscall.SIGTERM)
+	if err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *SocketServer) StartStaleMonitorCleanup() {
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-s.stopCh:
+				return
+			case <-ticker.C:
+				s.cleanupStaleMonitors()
+			}
+		}
+	}()
+}
+
+func (s *SocketServer) cleanupStaleMonitors() {
+	threshold := time.Now().Add(-60 * time.Second)
+
+	s.monitorsMu.Lock()
+	defer s.monitorsMu.Unlock()
+
+	for id, conn := range s.monitors {
+		if conn.LastSeen.Before(threshold) {
+			s.logger.Printf("cleaning up stale monitor %s (pid=%d, last_seen=%s)", id, conn.PID, conn.LastSeen.Format(time.RFC3339))
+			delete(s.monitors, id)
+		}
+	}
 }
