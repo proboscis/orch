@@ -154,16 +154,64 @@ class TestTmuxCommands:
                 ["tmux", "send-keys", "-t", "session:0.0", "partial-text"]
             )
 
-    def test_new_tab_with_command(self, tmux):
-        """Test new_tab_with_command generates correct tmux command."""
+    def test_list_windows_command(self, tmux):
+        """Test list_windows generates correct tmux command."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout="window1\nwindow2\nedit-issue\n"
+            )
+
+            result = tmux.list_windows()
+
+            mock_run.assert_called_once_with(
+                ["tmux", "list-windows", "-F", "#{window_name}"],
+                capture_output=True,
+                text=True,
+            )
+            assert result == ["window1", "window2", "edit-issue"]
+
+    def test_list_windows_empty(self, tmux):
+        """Test list_windows returns empty list when no windows."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stdout="")
+
+            result = tmux.list_windows()
+
+            assert result == []
+
+    def test_select_window_command(self, tmux):
+        """Test select_window generates correct tmux command."""
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
+
+            result = tmux.select_window("edit-issue")
+
+            mock_run.assert_called_once_with(
+                ["tmux", "select-window", "-t", ":edit-issue"],
+                capture_output=True,
+            )
+            assert result is True
+
+    def test_new_tab_with_command_creates_new(self, tmux):
+        """Test new_tab_with_command creates new window when not exists."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout="window1\nwindow2\n"),
+                MagicMock(returncode=0),
+            ]
 
             result = tmux.new_tab_with_command(
                 "edit-issue", ["vim", "/path/to/file.md"], cwd="/project/root"
             )
 
-            mock_run.assert_called_once_with(
+            assert mock_run.call_count == 2
+            calls = mock_run.call_args_list
+            assert calls[0] == call(
+                ["tmux", "list-windows", "-F", "#{window_name}"],
+                capture_output=True,
+                text=True,
+            )
+            assert calls[1] == call(
                 [
                     "tmux",
                     "new-window",
@@ -174,6 +222,31 @@ class TestTmuxCommands:
                     "vim",
                     "/path/to/file.md",
                 ],
+                capture_output=True,
+            )
+            assert result is True
+
+    def test_new_tab_with_command_selects_existing(self, tmux):
+        """Test new_tab_with_command selects existing window instead of creating."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout="window1\nedit-issue\n"),
+                MagicMock(returncode=0),
+            ]
+
+            result = tmux.new_tab_with_command(
+                "edit-issue", ["vim", "/path/to/file.md"], cwd="/project/root"
+            )
+
+            assert mock_run.call_count == 2
+            calls = mock_run.call_args_list
+            assert calls[0] == call(
+                ["tmux", "list-windows", "-F", "#{window_name}"],
+                capture_output=True,
+                text=True,
+            )
+            assert calls[1] == call(
+                ["tmux", "select-window", "-t", ":edit-issue"],
                 capture_output=True,
             )
             assert result is True
@@ -309,21 +382,67 @@ class TestZellijCommands:
                 ]
             )
 
-    def test_new_tab_with_command(self, zellij):
-        """Test new_tab_with_command generates correct zellij commands."""
+    def test_list_windows_command(self, zellij):
+        """Test list_windows generates correct zellij command."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout="tab1\ntab2\nedit-tab\n"
+            )
+
+            result = zellij.list_windows()
+
+            mock_run.assert_called_once_with(
+                ["zellij", "action", "query-tab-names"],
+                capture_output=True,
+                text=True,
+            )
+            assert result == ["tab1", "tab2", "edit-tab"]
+
+    def test_list_windows_empty(self, zellij):
+        """Test list_windows returns empty list when no tabs."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stdout="")
+
+            result = zellij.list_windows()
+
+            assert result == []
+
+    def test_select_window_command(self, zellij):
+        """Test select_window generates correct zellij command."""
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
+
+            result = zellij.select_window("edit-tab")
+
+            mock_run.assert_called_once_with(
+                ["zellij", "action", "go-to-tab-name", "edit-tab"],
+                capture_output=True,
+            )
+            assert result is True
+
+    def test_new_tab_with_command_creates_new(self, zellij):
+        """Test new_tab_with_command creates new tab when not exists."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout="tab1\ntab2\n"),
+                MagicMock(returncode=0),
+                MagicMock(returncode=0),
+                MagicMock(returncode=0),
+            ]
 
             result = zellij.new_tab_with_command(
                 "edit-tab", ["vim", "/path/to/file.md"], cwd="/project"
             )
 
-            # Should call new-tab, then write-chars, then write Enter
-            assert mock_run.call_count == 3
+            assert mock_run.call_count == 4
             calls = mock_run.call_args_list
 
-            # First call: create new tab
             assert calls[0] == call(
+                ["zellij", "action", "query-tab-names"],
+                capture_output=True,
+                text=True,
+            )
+            assert calls[1] == call(
                 [
                     "zellij",
                     "action",
@@ -335,19 +454,41 @@ class TestZellijCommands:
                 ],
                 capture_output=True,
             )
-
-            # Second call: write the command
-            assert calls[1] == call(
+            assert calls[2] == call(
                 ["zellij", "action", "write-chars", "vim /path/to/file.md"],
                 capture_output=True,
             )
-
-            # Third call: write Enter (byte code 10)
-            assert calls[2] == call(
+            assert calls[3] == call(
                 ["zellij", "action", "write", "10"],
                 capture_output=True,
             )
 
+            assert result is True
+
+    def test_new_tab_with_command_selects_existing(self, zellij):
+        """Test new_tab_with_command selects existing tab instead of creating."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout="tab1\nedit-tab\n"),
+                MagicMock(returncode=0),
+            ]
+
+            result = zellij.new_tab_with_command(
+                "edit-tab", ["vim", "/path/to/file.md"], cwd="/project"
+            )
+
+            assert mock_run.call_count == 2
+            calls = mock_run.call_args_list
+
+            assert calls[0] == call(
+                ["zellij", "action", "query-tab-names"],
+                capture_output=True,
+                text=True,
+            )
+            assert calls[1] == call(
+                ["zellij", "action", "go-to-tab-name", "edit-tab"],
+                capture_output=True,
+            )
             assert result is True
 
 
