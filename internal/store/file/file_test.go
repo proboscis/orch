@@ -602,3 +602,124 @@ func TestGitHubIssueIDAliasing(t *testing.T) {
 		t.Errorf("expected run ID %s, got %s", runID, run.RunID)
 	}
 }
+
+func TestParseTags(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  []string
+	}{
+		{"empty", "", nil},
+		{"single tag", "bug", []string{"bug"}},
+		{"comma separated", "bug, feature", []string{"bug", "feature"}},
+		{"no space", "bug,feature", []string{"bug", "feature"}},
+		{"yaml list", "[bug, feature]", []string{"bug", "feature"}},
+		{"yaml list no space", "[bug,feature]", []string{"bug", "feature"}},
+		{"with whitespace", "  bug ,  feature  ", []string{"bug", "feature"}},
+		{"empty items", "bug,,feature", []string{"bug", "feature"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseTags(tt.value)
+			if len(got) != len(tt.want) {
+				t.Errorf("parseTags(%q) = %v, want %v", tt.value, got, tt.want)
+				return
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("parseTags(%q)[%d] = %q, want %q", tt.value, i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestListIssuesWithTags(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	// Create issues with tags
+	createTestIssue(t, vault, "issue-1", `---
+type: issue
+id: issue-1
+title: Bug issue
+status: open
+tags: bug, urgent
+---
+
+# Bug issue
+`)
+	createTestIssue(t, vault, "issue-2", `---
+type: issue
+id: issue-2
+title: Feature issue
+status: open
+tags: [feature, enhancement]
+---
+
+# Feature issue
+`)
+	createTestIssue(t, vault, "issue-3", `---
+type: issue
+id: issue-3
+title: No tags issue
+status: open
+---
+
+# No tags issue
+`)
+
+	s, err := New(vault)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	issues, err := s.ListIssues()
+	if err != nil {
+		t.Fatalf("ListIssues() error = %v", err)
+	}
+
+	if len(issues) != 3 {
+		t.Fatalf("ListIssues() returned %d issues, want 3", len(issues))
+	}
+
+	// Check tags were parsed correctly
+	issueMap := make(map[string]*model.Issue)
+	for _, issue := range issues {
+		issueMap[issue.ID] = issue
+	}
+
+	// Check issue-1 tags
+	if issue, ok := issueMap["issue-1"]; ok {
+		if len(issue.Tags) != 2 {
+			t.Errorf("issue-1 has %d tags, want 2", len(issue.Tags))
+		}
+		if issue.Tags[0] != "bug" || issue.Tags[1] != "urgent" {
+			t.Errorf("issue-1 tags = %v, want [bug, urgent]", issue.Tags)
+		}
+	} else {
+		t.Error("issue-1 not found")
+	}
+
+	// Check issue-2 tags (YAML list format)
+	if issue, ok := issueMap["issue-2"]; ok {
+		if len(issue.Tags) != 2 {
+			t.Errorf("issue-2 has %d tags, want 2", len(issue.Tags))
+		}
+		if issue.Tags[0] != "feature" || issue.Tags[1] != "enhancement" {
+			t.Errorf("issue-2 tags = %v, want [feature, enhancement]", issue.Tags)
+		}
+	} else {
+		t.Error("issue-2 not found")
+	}
+
+	// Check issue-3 has no tags
+	if issue, ok := issueMap["issue-3"]; ok {
+		if len(issue.Tags) != 0 {
+			t.Errorf("issue-3 has %d tags, want 0", len(issue.Tags))
+		}
+	} else {
+		t.Error("issue-3 not found")
+	}
+}

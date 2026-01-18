@@ -13,6 +13,7 @@ type Issue struct {
 	Summary     string
 	Status      IssueStatus
 	Body        string
+	Tags        []string
 	Path        string
 	Frontmatter map[string]string
 }
