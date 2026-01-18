@@ -91,7 +91,9 @@ type RunWindow struct {
 func New(st store.Store, opts Options) *Monitor {
 	projectRoot := opts.ProjectRoot
 	if projectRoot == "" {
-		projectRoot = st.VaultPath()
+		if pr, err := config.GetProjectRoot(); err == nil {
+			projectRoot = pr
+		}
 	}
 	session := opts.Session
 	if session == "" {
@@ -723,12 +725,10 @@ func (m *Monitor) ContinueRun(issueID, branch, agentType, prompt string) (string
 }
 
 func (m *Monitor) getRepoRoot() (string, error) {
-	// Try to find the repo root from the store vault path
-	vaultPath := m.store.VaultPath()
-	if vaultPath == "" {
-		return "", fmt.Errorf("vault path not set")
+	if m.projectRoot == "" {
+		return "", fmt.Errorf("project root not set")
 	}
-	return git.FindMainRepoRoot(vaultPath)
+	return git.FindMainRepoRoot(m.projectRoot)
 }
 
 func (m *Monitor) createSession() error {

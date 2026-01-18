@@ -81,8 +81,8 @@ TIME_RANGES = [
 ]
 
 
-def _log_error(operation: str, error: str, vault_path: Path) -> None:
-    log_path = vault_path / ".orch" / "monitor-tui.log"
+def _log_error(operation: str, error: str, project_root: Path) -> None:
+    log_path = project_root / ".orch" / "monitor-tui.log"
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -850,7 +850,7 @@ class RunsDashboard(App):
             self._daemon_error = error
             self.title = f"{self._base_title} | ERROR: {error}"
             self.notify(f"Refresh failed: {error}", severity="error", timeout=5)
-            _log_error("list_runs", error, self.config.vault_path)
+            _log_error("list_runs", error, self.config.project_root)
             return
 
         self._daemon_error = None
@@ -1247,7 +1247,7 @@ class IssuesDashboard(App):
             self._daemon_error = error
             self.title = f"{self._base_title} | ERROR: {error}"
             self.notify(f"Refresh failed: {error}", severity="error", timeout=5)
-            _log_error("list_issues", error, self.config.vault_path)
+            _log_error("list_issues", error, self.config.project_root)
             return
 
         self._daemon_error = None
@@ -1621,7 +1621,7 @@ class OrchMonitorApp(App):
             self._daemon_error = error
             self.title = f"{self._base_title} | ERROR: {error}"
             self.notify(f"Refresh failed: {error}", severity="error", timeout=5)
-            _log_error("fetch_all", error, self.config.vault_path)
+            _log_error("fetch_all", error, self.config.project_root)
             return
 
         self._daemon_error = None

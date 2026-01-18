@@ -137,20 +137,13 @@ func getVaultPath() (string, error) {
 }
 
 // getProjectRoot returns the project root directory (where .orch/ lives).
-// Precedence: --project-root flag > ORCH_PROJECT_ROOT > .orch/config.yaml location > ORCH_VAULT
+// Precedence: --project-root flag > ORCH_PROJECT_ROOT > .orch/config.yaml location
 func getProjectRoot() (string, error) {
 	if globalOpts.ProjectRoot != "" {
 		return config.ExpandPath(globalOpts.ProjectRoot, ""), nil
 	}
 
-	projectRoot, err := config.GetProjectRoot()
-	if err != nil {
-		if globalOpts.VaultPath != "" {
-			return config.ExpandPath(globalOpts.VaultPath, ""), nil
-		}
-		return "", err
-	}
-	return projectRoot, nil
+	return config.GetProjectRoot()
 }
 
 // getStore returns a store instance based on configuration

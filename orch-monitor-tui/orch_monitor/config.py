@@ -304,8 +304,7 @@ class Config:
 
     @classmethod
     def from_vault(cls, vault_path: Path) -> "Config":
-        config_file = vault_path / ORCH_DIR / "config.yaml"
-        config = cls.load(config_file)
+        config = cls.load()
         if config.vault_path is None:
             config.vault_path = vault_path
         return config
