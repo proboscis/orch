@@ -75,10 +75,22 @@ class Multiplexer(Protocol):
         """Select/focus a pane."""
         ...
 
+    def list_windows(self) -> list[str]:
+        """List all window/tab names in current session."""
+        ...
+
+    def select_window(self, name: str) -> bool:
+        """Select/focus a window by name. Returns True if successful."""
+        ...
+
     def new_tab_with_command(
         self, name: str, command: list[str], cwd: str | None = None
     ) -> bool:
-        """Create a new tab/window and run a command in it."""
+        """Create a new tab/window and run a command in it.
+
+        If a window with the same name already exists, selects that window
+        instead of creating a new one (idempotent behavior).
+        """
         ...
 
 
@@ -175,9 +187,32 @@ class TmuxMultiplexer:
         result = subprocess.run(["tmux", "select-pane", "-t", target])
         return result.returncode == 0
 
+    def list_windows(self) -> list[str]:
+        result = subprocess.run(
+            ["tmux", "list-windows", "-F", "#{window_name}"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return []
+        return [
+            line.strip() for line in result.stdout.strip().split("\n") if line.strip()
+        ]
+
+    def select_window(self, name: str) -> bool:
+        result = subprocess.run(
+            ["tmux", "select-window", "-t", f":{name}"],
+            capture_output=True,
+        )
+        return result.returncode == 0
+
     def new_tab_with_command(
         self, name: str, command: list[str], cwd: str | None = None
     ) -> bool:
+        existing_windows = self.list_windows()
+        if name in existing_windows:
+            return self.select_window(name)
+
         args = ["tmux", "new-window", "-n", name]
         if cwd:
             args.extend(["-c", cwd])
@@ -288,9 +323,32 @@ class ZellijMultiplexer:
     def select_pane(self, target: str) -> bool:
         return False
 
+    def list_windows(self) -> list[str]:
+        result = subprocess.run(
+            ["zellij", "action", "query-tab-names"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return []
+        return [
+            line.strip() for line in result.stdout.strip().split("\n") if line.strip()
+        ]
+
+    def select_window(self, name: str) -> bool:
+        result = subprocess.run(
+            ["zellij", "action", "go-to-tab-name", name],
+            capture_output=True,
+        )
+        return result.returncode == 0
+
     def new_tab_with_command(
         self, name: str, command: list[str], cwd: str | None = None
     ) -> bool:
+        existing_tabs = self.list_windows()
+        if name in existing_tabs:
+            return self.select_window(name)
+
         args = ["zellij", "action", "new-tab", "--name", name]
         if cwd:
             args.extend(["--cwd", cwd])
