@@ -63,7 +63,7 @@ from .daemon import (
     MonitorRegistration,
     RunFilters,
 )
-from .models import Issue, IssueStatus, Run, Status
+from .models import DiffStats, FileChange, Issue, IssueStatus, Run, Status
 from .multiplexer import (
     Multiplexer,
     MultiplexerType,
@@ -98,6 +98,89 @@ def _log_error(operation: str, error: str, project_root: Path) -> None:
             f.write(f"{timestamp} [{operation}] {error}\n")
     except OSError:
         pass
+
+
+
+# Cache for git diff stats to avoid repeated git calls
+_diff_stats_cache: dict[str, Optional[DiffStats]] = {}
+
+
+def _get_git_diff_stats(
+    worktree_path: str, branch: str, base_branch: str = "main"
+) -> Optional[DiffStats]:
+    """Get git diff statistics for a branch compared to base branch.
+
+    Args:
+        worktree_path: Path to the git worktree
+        branch: The branch to compare
+        base_branch: The base branch to compare against (default: main)
+
+    Returns:
+        DiffStats object or None if unable to get stats
+    """
+    if not worktree_path or not branch:
+        return None
+
+    # Check cache
+    cache_key = f"{worktree_path}:{branch}:{base_branch}"
+    if cache_key in _diff_stats_cache:
+        return _diff_stats_cache[cache_key]
+
+    try:
+        # Use git diff --numstat for machine-readable output
+        result = subprocess.run(
+            ["git", "diff", "--numstat", f"{base_branch}...{branch}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=worktree_path,
+        )
+
+        if result.returncode != 0:
+            # Try without the merge-base (three dots) syntax
+            result = subprocess.run(
+                ["git", "diff", "--numstat", f"{base_branch}..{branch}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                cwd=worktree_path,
+            )
+
+        if result.returncode != 0:
+            _diff_stats_cache[cache_key] = None
+            return None
+
+        files: list[FileChange] = []
+        total_additions = 0
+        total_deletions = 0
+
+        for line in result.stdout.strip().split("\n"):
+            if not line:
+                continue
+            parts = line.split("\t")
+            if len(parts) != 3:
+                continue
+
+            add_str, del_str, path = parts
+            # Handle binary files (shown as - -)
+            additions = int(add_str) if add_str != "-" else 0
+            deletions = int(del_str) if del_str != "-" else 0
+
+            files.append(FileChange(path=path, additions=additions, deletions=deletions))
+            total_additions += additions
+            total_deletions += deletions
+
+        stats = DiffStats(
+            files=files,
+            total_additions=total_additions,
+            total_deletions=total_deletions,
+        )
+        _diff_stats_cache[cache_key] = stats
+        return stats
+
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError, ValueError):
+        _diff_stats_cache[cache_key] = None
+        return None
 
 
 def _build_orch_cmd(config: "Config") -> list[str]:
@@ -1270,6 +1353,24 @@ class RunsDashboard(App):
             if issue.body:
                 summary = issue.body[:300].replace("\n", " ")
                 lines.append(f"[dim]{summary}[/dim]")
+        # Add changed files section
+        if run.worktree_path and run.branch:
+            diff_stats = _get_git_diff_stats(
+                run.worktree_path, run.branch, self.config.base_branch
+            )
+            if diff_stats and diff_stats.files:
+                lines.append("")
+                lines.append(f"[bold]Changed Files ({diff_stats.file_count}):[/bold]")
+                for fc in diff_stats.files[:10]:  # Show max 10 files
+                    add_str = f"[green]+{fc.additions}[/green]" if fc.additions else ""
+                    del_str = f"[red]-{fc.deletions}[/red]" if fc.deletions else ""
+                    # Truncate long paths
+                    path = fc.path if len(fc.path) <= 35 else "..." + fc.path[-32:]
+                    lines.append(f"  {path:<35} {add_str:>12} {del_str:>12}")
+                if len(diff_stats.files) > 10:
+                    lines.append(f"  [dim]... and {len(diff_stats.files) - 10} more files[/dim]")
+                lines.append(f"  [bold]{'─' * 35}[/bold]")
+                lines.append(f"  [bold]Total: +{diff_stats.total_additions} -{diff_stats.total_deletions}[/bold]")
 
         if run.agent == "opencode" and run.server_port and run.opencode_session_id:
             lines.append("")
@@ -2142,6 +2243,26 @@ class OrchMonitorApp(App):
             f"Session: {run.tmux_session or '-'}",
             f"Multiplexer: {run.multiplexer or 'tmux'}",
         ]
+        # Add changed files section
+        if run.worktree_path and run.branch:
+            diff_stats = _get_git_diff_stats(
+                run.worktree_path, run.branch, self.config.base_branch
+            )
+            if diff_stats and diff_stats.files:
+                content_lines.append("")
+                content_lines.append("[bold]" + "-" * 50 + "[/bold]")
+                content_lines.append(f"[bold]Changed Files ({diff_stats.file_count}):[/bold]")
+                content_lines.append("")
+                for fc in diff_stats.files[:15]:  # Show max 15 files in detail view
+                    add_str = f"[green]+{fc.additions}[/green]" if fc.additions else ""
+                    del_str = f"[red]-{fc.deletions}[/red]" if fc.deletions else ""
+                    # Truncate long paths
+                    path = fc.path if len(fc.path) <= 40 else "..." + fc.path[-37:]
+                    content_lines.append(f"  {path:<40} {add_str:>12} {del_str:>12}")
+                if len(diff_stats.files) > 15:
+                    content_lines.append(f"  [dim]... and {len(diff_stats.files) - 15} more files[/dim]")
+                content_lines.append(f"  [bold]{'─' * 40}[/bold]")
+                content_lines.append(f"  [bold]Total: +{diff_stats.total_additions} -{diff_stats.total_deletions}[/bold]")
 
         # Add recent messages section
         content_lines.append("")

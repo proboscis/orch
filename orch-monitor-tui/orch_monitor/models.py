@@ -220,3 +220,42 @@ def parse_tags(s: str) -> List[str]:
     # Split by comma
     tags = [tag.strip() for tag in s.split(",") if tag.strip()]
     return tags
+
+
+@dataclass
+class FileChange:
+    """A single file change with addition/deletion counts."""
+
+    path: str
+    additions: int
+    deletions: int
+
+    def display_str(self, max_path_width: int = 40) -> str:
+        """Return a formatted display string for the file change."""
+        # Truncate path if needed
+        path = self.path
+        if len(path) > max_path_width:
+            path = "..." + path[-(max_path_width - 3) :]
+
+        # Format additions/deletions
+        add_str = f"+{self.additions}" if self.additions > 0 else ""
+        del_str = f"-{self.deletions}" if self.deletions > 0 else ""
+
+        return f"  {path:<{max_path_width}}  {add_str:>5}  {del_str:>5}"
+
+
+@dataclass
+class DiffStats:
+    """Git diff statistics for a run."""
+
+    files: List[FileChange] = field(default_factory=list)
+    total_additions: int = 0
+    total_deletions: int = 0
+
+    @property
+    def file_count(self) -> int:
+        return len(self.files)
+
+    def summary_str(self) -> str:
+        """Return a summary string like '5 files, +99 -18'."""
+        return f"{self.file_count} file(s), +{self.total_additions} -{self.total_deletions}"
