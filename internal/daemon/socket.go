@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -853,12 +854,15 @@ func (s *SocketServer) handleMonitorHeartbeat(req SendRequest, encoder *json.Enc
 
 func (s *SocketServer) handleListMonitors(req SendRequest, encoder *json.Encoder) {
 	s.monitorsMu.RLock()
+	// Copy values while holding lock to avoid race with heartbeat updates
 	monitors := make([]*MonitorConnection, 0, len(s.monitors))
 	for _, conn := range s.monitors {
 		if req.ProjectRoot != "" && !req.Force && conn.Project != req.ProjectRoot {
 			continue
 		}
-		monitors = append(monitors, conn)
+		// Copy the struct to avoid race conditions
+		snapshot := *conn
+		monitors = append(monitors, &snapshot)
 	}
 	s.monitorsMu.RUnlock()
 
@@ -883,15 +887,18 @@ func (s *SocketServer) handleKillMonitor(req SendRequest, encoder *json.Encoder)
 	}
 
 	s.monitorsMu.Lock()
-	var toKill []*MonitorConnection
+	var toKill []MonitorConnection
+	var toKillIDs []string
 	if killAll {
-		for _, conn := range s.monitors {
+		for id, conn := range s.monitors {
 			if global || conn.Project == s.projectRoot || conn.Project == req.ProjectRoot {
-				toKill = append(toKill, conn)
+				toKill = append(toKill, *conn)
+				toKillIDs = append(toKillIDs, id)
 			}
 		}
 	} else if conn, exists := s.monitors[monitorID]; exists {
-		toKill = append(toKill, conn)
+		toKill = append(toKill, *conn)
+		toKillIDs = append(toKillIDs, monitorID)
 	}
 	s.monitorsMu.Unlock()
 
@@ -901,15 +908,15 @@ func (s *SocketServer) handleKillMonitor(req SendRequest, encoder *json.Encoder)
 	}
 
 	var killedIDs, failedIDs []string
-	for _, conn := range toKill {
-		if err := s.killMonitorProcess(conn); err != nil {
+	for i, conn := range toKill {
+		if err := s.killMonitorProcess(&conn); err != nil {
 			s.logger.Printf("failed to kill monitor %s (pid=%d): %v", conn.ID, conn.PID, err)
 			failedIDs = append(failedIDs, conn.ID)
 		} else {
 			s.logger.Printf("killed monitor %s (pid=%d)", conn.ID, conn.PID)
 			killedIDs = append(killedIDs, conn.ID)
 			s.monitorsMu.Lock()
-			delete(s.monitors, conn.ID)
+			delete(s.monitors, toKillIDs[i])
 			s.monitorsMu.Unlock()
 		}
 	}
@@ -933,7 +940,14 @@ func (s *SocketServer) killMonitorProcess(conn *MonitorConnection) error {
 		return err
 	}
 
-	return process.Signal(syscall.SIGTERM)
+	err = process.Signal(syscall.SIGTERM)
+	if err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *SocketServer) StartStaleMonitorCleanup() {

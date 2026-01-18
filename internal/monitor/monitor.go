@@ -314,6 +314,7 @@ func (m *Monitor) Start() error {
 
 	sessionExists := tmux.HasSession(m.session)
 	if sessionExists && m.attach {
+		m.registerWithDaemon()
 		return m.attachSession()
 	}
 
@@ -1646,11 +1647,33 @@ func (m *Monitor) startHeartbeat() {
 				return
 			case <-ticker.C:
 				if m.daemonClient != nil && m.monitorID != "" {
-					_ = m.daemonClient.MonitorHeartbeat(m.monitorID)
+					err := m.daemonClient.MonitorHeartbeat(m.monitorID)
+					if err != nil && strings.Contains(err.Error(), "not_found") {
+						m.reregisterWithDaemon()
+					}
 				}
 			}
 		}
 	}()
+}
+
+func (m *Monitor) reregisterWithDaemon() {
+	if m.daemonClient == nil || !m.daemonClient.IsAvailable() {
+		return
+	}
+
+	resp, err := m.daemonClient.RegisterMonitor(
+		os.Getpid(),
+		"go",
+		"dashboard",
+		m.projectRoot,
+		m.session,
+	)
+	if err != nil {
+		return
+	}
+
+	m.monitorID = resp.MonitorID
 }
 
 func (m *Monitor) unregisterFromDaemon() {

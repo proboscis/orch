@@ -376,6 +376,7 @@ class MonitorRegistration:
         self._project = project
         self._view = view
         self._monitor_id: Optional[str] = None
+        self._tmux_session: str = ""
         self._heartbeat_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
@@ -383,6 +384,7 @@ class MonitorRegistration:
         if not self._client.is_available():
             return None
 
+        self._tmux_session = tmux_session
         self._monitor_id = self._client.register_monitor(
             pid=os.getpid(),
             monitor_type="python",
@@ -424,7 +426,23 @@ class MonitorRegistration:
     def _heartbeat_loop(self) -> None:
         while not self._stop_event.wait(timeout=30.0):
             if self._monitor_id and self._client.is_available():
-                self._client.monitor_heartbeat(self._monitor_id)
+                success = self._client.monitor_heartbeat(self._monitor_id)
+                if not success:
+                    self._reregister()
+
+    def _reregister(self) -> None:
+        if not self._client.is_available():
+            return
+
+        new_id = self._client.register_monitor(
+            pid=os.getpid(),
+            monitor_type="python",
+            view=self._view,
+            project=self._project,
+            tmux_session=self._tmux_session,
+        )
+        if new_id:
+            self._monitor_id = new_id
 
 
 def _parse_timestamp(ts_str: str) -> Optional[datetime]:
