@@ -238,6 +238,12 @@ func dirExists(path string) bool {
 	return info.IsDir()
 }
 
+type issueListOptions struct {
+	NoPath bool
+}
+
+var issueListOpts = &issueListOptions{}
+
 func newIssueListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -246,6 +252,8 @@ func newIssueListCmd() *cobra.Command {
 			return runIssueList()
 		},
 	}
+
+	cmd.Flags().BoolVar(&issueListOpts.NoPath, "no-path", false, "Hide the PATH column")
 
 	return cmd
 }
@@ -301,6 +309,7 @@ func runIssueListViaDaemon(client *daemon.Client) error {
 			Title:   issue.Title,
 			Summary: issue.Summary,
 			Status:  issue.Status,
+			Path:    issue.URI,
 		}
 
 		for _, run := range runsByIssue[issue.ID] {
@@ -384,7 +393,11 @@ func outputIssueList(issueInfos []issueInfo) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tSTATUS\tSUMMARY\tRUNS")
+	if issueListOpts.NoPath {
+		fmt.Fprintln(w, "ID\tSTATUS\tSUMMARY\tRUNS")
+	} else {
+		fmt.Fprintln(w, "ID\tSTATUS\tSUMMARY\tRUNS\tPATH")
+	}
 	for _, issue := range issueInfos {
 		runsSummary := "-"
 		if len(issue.Runs) > 0 {
@@ -400,7 +413,15 @@ func outputIssueList(issueInfos []issueInfo) error {
 		} else if len(summary) > 40 {
 			summary = summary[:37] + "..."
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", issue.ID, status, summary, runsSummary)
+		if issueListOpts.NoPath {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", issue.ID, status, summary, runsSummary)
+		} else {
+			path := issue.Path
+			if path == "" {
+				path = "-"
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", issue.ID, status, summary, runsSummary, path)
+		}
 	}
 	w.Flush()
 
