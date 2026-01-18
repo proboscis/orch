@@ -161,13 +161,30 @@ func (d *Daemon) recordPRArtifact(run *model.Run, prURL string) error {
 }
 
 func (d *Daemon) checkPRMerged(run *model.Run) bool {
-	if run.Branch == "" || run.WorktreePath == "" {
+	if run.PRUrl != "" {
+		prInfo, err := pr.LookupInfoByURL(run.PRUrl)
+		if err == nil && prInfo != nil && prInfo.State == "MERGED" {
+			d.logger.Printf("%s#%s: PR merged (via URL), transitioning to done", run.IssueID, run.RunID)
+			return true
+		}
+	}
+
+	if run.Branch == "" {
 		return false
 	}
-	repoRoot, err := git.FindMainRepoRoot(run.WorktreePath)
-	if err != nil {
-		return false
+
+	var repoRoot string
+	var err error
+	if run.WorktreePath != "" {
+		repoRoot, err = git.FindMainRepoRoot(run.WorktreePath)
 	}
+	if repoRoot == "" || err != nil {
+		repoRoot, err = git.FindMainRepoRoot("")
+		if err != nil {
+			return false
+		}
+	}
+
 	prInfo, err := pr.LookupInfo(repoRoot, run.Branch)
 	if err != nil || prInfo == nil {
 		return false
