@@ -438,7 +438,7 @@ func newIssueShowCmd() *cobra.Command {
 
 Examples:
   orch issue show 123          # Show issue #123 details
-  orch issue show gh#123       # Show GitHub issue #123
+  orch issue show gh-123       # Show GitHub issue #123
   orch issue show 123 --web    # Open in browser`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -517,7 +517,7 @@ For local issues, the file is edited directly.
 
 Examples:
   orch issue edit 123                    # Open issue in $EDITOR
-  orch issue edit gh#123 --title "New"   # Update title directly`,
+  orch issue edit gh-123 --title "New"   # Update title directly`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runIssueEdit(args[0], title)
@@ -616,7 +616,7 @@ For local issues, the status is set to 'closed'.
 
 Examples:
   orch issue close 123
-  orch issue close gh#123 --comment "Fixed in #456"`,
+  orch issue close gh-123 --comment "Fixed in #456"`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runIssueClose(args[0], opts)
@@ -701,7 +701,7 @@ This is an alias for 'orch issue show ISSUE_ID --web'.
 
 Examples:
   orch issue open 123
-  orch issue open gh#123`,
+  orch issue open gh-123`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runIssueShow(args[0], &issueShowOptions{Web: true})

@@ -47,8 +47,8 @@ func TestBackendListFromCache(t *testing.T) {
 	backend := newTestBackend(t)
 
 	issues := []*model.Issue{
-		{ID: "gh#1", Title: "First", Status: model.IssueStatusOpen, Frontmatter: map[string]string{"number": "1"}},
-		{ID: "gh#2", Title: "Second", Status: model.IssueStatusOpen, Frontmatter: map[string]string{"number": "2"}},
+		{ID: "gh-1", Title: "First", Status: model.IssueStatusOpen, Frontmatter: map[string]string{"number": "1"}},
+		{ID: "gh-2", Title: "Second", Status: model.IssueStatusOpen, Frontmatter: map[string]string{"number": "2"}},
 	}
 
 	for _, issue := range issues {
@@ -71,7 +71,7 @@ func TestBackendGetFromCache(t *testing.T) {
 	backend := newTestBackend(t)
 
 	issue := &model.Issue{
-		ID:     "gh#42",
+		ID:     "gh-42",
 		Title:  "Cached Issue",
 		Status: model.IssueStatusOpen,
 		Frontmatter: map[string]string{
@@ -88,8 +88,8 @@ func TestBackendGetFromCache(t *testing.T) {
 		t.Fatalf("GetFromCache failed: %v", err)
 	}
 
-	if got.ID != "gh#42" {
-		t.Errorf("ID = %q, want %q", got.ID, "gh#42")
+	if got.ID != "gh-42" {
+		t.Errorf("ID = %q, want %q", got.ID, "gh-42")
 	}
 	if got.Title != "Cached Issue" {
 		t.Errorf("Title = %q, want %q", got.Title, "Cached Issue")
@@ -100,7 +100,7 @@ func TestBackendGetByIDFromCache(t *testing.T) {
 	backend := newTestBackend(t)
 
 	issue := &model.Issue{
-		ID:     "gh#99",
+		ID:     "gh-99",
 		Title:  "Issue 99",
 		Status: model.IssueStatusOpen,
 		Frontmatter: map[string]string{
@@ -112,13 +112,13 @@ func TestBackendGetByIDFromCache(t *testing.T) {
 		t.Fatalf("cache.Upsert failed: %v", err)
 	}
 
-	got, err := backend.GetByIDFromCache("gh#99")
+	got, err := backend.GetByIDFromCache("gh-99")
 	if err != nil {
 		t.Fatalf("GetByIDFromCache failed: %v", err)
 	}
 
-	if got.ID != "gh#99" {
-		t.Errorf("ID = %q, want %q", got.ID, "gh#99")
+	if got.ID != "gh-99" {
+		t.Errorf("ID = %q, want %q", got.ID, "gh-99")
 	}
 }
 
@@ -140,11 +140,11 @@ func TestBackendParseIssueNumber(t *testing.T) {
 		want    int
 		wantErr bool
 	}{
-		{"gh#123", 123, false},
+		{"gh-123", 123, false},
 		{"#456", 456, false},
 		{"789", 789, false},
 		{"abc", 0, true},
-		{"gh#abc", 0, true},
+		{"gh-abc", 0, true},
 	}
 
 	for _, tt := range tests {

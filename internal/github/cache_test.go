@@ -29,7 +29,7 @@ func TestCacheUpsertAndGet(t *testing.T) {
 	defer cache.Close()
 
 	issue := &model.Issue{
-		ID:      "gh#123",
+		ID:      "gh-123",
 		Title:   "Test Issue",
 		Summary: "Test summary",
 		Status:  model.IssueStatusOpen,
@@ -68,7 +68,7 @@ func TestCacheGetByID(t *testing.T) {
 	defer cache.Close()
 
 	issue := &model.Issue{
-		ID:     "gh#456",
+		ID:     "gh-456",
 		Title:  "Another Issue",
 		Status: model.IssueStatusOpen,
 		Frontmatter: map[string]string{
@@ -80,13 +80,13 @@ func TestCacheGetByID(t *testing.T) {
 		t.Fatalf("Upsert failed: %v", err)
 	}
 
-	got, err := cache.GetByID("gh#456")
+	got, err := cache.GetByID("gh-456")
 	if err != nil {
 		t.Fatalf("GetByID failed: %v", err)
 	}
 
-	if got.ID != "gh#456" {
-		t.Errorf("ID = %q, want %q", got.ID, "gh#456")
+	if got.ID != "gh-456" {
+		t.Errorf("ID = %q, want %q", got.ID, "gh-456")
 	}
 }
 
@@ -95,9 +95,9 @@ func TestCacheListAll(t *testing.T) {
 	defer cache.Close()
 
 	issues := []*model.Issue{
-		{ID: "gh#1", Title: "First", Status: model.IssueStatusOpen, Frontmatter: map[string]string{"number": "1"}},
-		{ID: "gh#2", Title: "Second", Status: model.IssueStatusClosed, Frontmatter: map[string]string{"number": "2"}},
-		{ID: "gh#3", Title: "Third", Status: model.IssueStatusOpen, Frontmatter: map[string]string{"number": "3"}},
+		{ID: "gh-1", Title: "First", Status: model.IssueStatusOpen, Frontmatter: map[string]string{"number": "1"}},
+		{ID: "gh-2", Title: "Second", Status: model.IssueStatusClosed, Frontmatter: map[string]string{"number": "2"}},
+		{ID: "gh-3", Title: "Third", Status: model.IssueStatusOpen, Frontmatter: map[string]string{"number": "3"}},
 	}
 
 	for _, issue := range issues {
@@ -121,9 +121,9 @@ func TestCacheListByStatus(t *testing.T) {
 	defer cache.Close()
 
 	issues := []*model.Issue{
-		{ID: "gh#1", Title: "Open 1", Status: model.IssueStatusOpen, Frontmatter: map[string]string{"number": "1"}},
-		{ID: "gh#2", Title: "Closed", Status: model.IssueStatusClosed, Frontmatter: map[string]string{"number": "2"}},
-		{ID: "gh#3", Title: "Open 2", Status: model.IssueStatusOpen, Frontmatter: map[string]string{"number": "3"}},
+		{ID: "gh-1", Title: "Open 1", Status: model.IssueStatusOpen, Frontmatter: map[string]string{"number": "1"}},
+		{ID: "gh-2", Title: "Closed", Status: model.IssueStatusClosed, Frontmatter: map[string]string{"number": "2"}},
+		{ID: "gh-3", Title: "Open 2", Status: model.IssueStatusOpen, Frontmatter: map[string]string{"number": "3"}},
 	}
 
 	for _, issue := range issues {
@@ -156,7 +156,7 @@ func TestCacheUpsertUpdatesExisting(t *testing.T) {
 	defer cache.Close()
 
 	issue := &model.Issue{
-		ID:     "gh#100",
+		ID:     "gh-100",
 		Title:  "Original Title",
 		Status: model.IssueStatusOpen,
 		Frontmatter: map[string]string{
@@ -193,7 +193,7 @@ func TestCacheDelete(t *testing.T) {
 	defer cache.Close()
 
 	issue := &model.Issue{
-		ID:     "gh#200",
+		ID:     "gh-200",
 		Title:  "To Delete",
 		Status: model.IssueStatusOpen,
 		Frontmatter: map[string]string{
@@ -205,11 +205,11 @@ func TestCacheDelete(t *testing.T) {
 		t.Fatalf("Upsert failed: %v", err)
 	}
 
-	if err := cache.Delete("gh#200"); err != nil {
+	if err := cache.Delete("gh-200"); err != nil {
 		t.Fatalf("Delete failed: %v", err)
 	}
 
-	_, err := cache.GetByID("gh#200")
+	_, err := cache.GetByID("gh-200")
 	if err == nil {
 		t.Error("GetByID should fail after delete")
 	}
@@ -221,7 +221,7 @@ func TestCacheClear(t *testing.T) {
 
 	for i := 1; i <= 5; i++ {
 		issue := &model.Issue{
-			ID:     "gh#" + string(rune('0'+i)),
+			ID:     "gh-" + string(rune('0'+i)),
 			Title:  "Issue",
 			Status: model.IssueStatusOpen,
 			Frontmatter: map[string]string{

@@ -14,7 +14,7 @@
 | Backend | Vault Required | Issue Source |
 |---------|----------------|--------------|
 | **File-based** | Yes | Local `.md` files in `vault/issues/` |
-| **GitHub** | No | GitHub Issues API (`gh#123` format) |
+| **GitHub** | No | GitHub Issues API (`gh-123` format) |
 
 ### Directory Structure
 
@@ -41,7 +41,7 @@ vault/
 ### GitHub Issues Backend
 
 When using GitHub as the issue backend:
-- Issues are identified by `gh#<number>` (e.g., `gh#123`)
+- Issues are identified by `gh-<number>` (e.g., `gh-123`)
 - No local vault directory needed
 - Issue content fetched from GitHub API
 - Runs stored in project root's `.orch/runs/`

@@ -210,15 +210,15 @@ func TestGitHubBackend_CreateAndListIssue(t *testing.T) {
 	if !createResult.OK {
 		t.Fatalf("issue create not OK: %s", createOut)
 	}
-	if !strings.HasPrefix(createResult.IssueID, "gh#") {
-		t.Errorf("issue ID should start with 'gh#', got: %s", createResult.IssueID)
+	if !strings.HasPrefix(createResult.IssueID, "gh-") {
+		t.Errorf("issue ID should start with 'gh-', got: %s", createResult.IssueID)
 	}
 	if !strings.Contains(createResult.Path, "github.com") {
 		t.Errorf("path should be a GitHub URL, got: %s", createResult.Path)
 	}
 
 	var issueNumber int
-	fmt.Sscanf(createResult.IssueID, "gh#%d", &issueNumber)
+	fmt.Sscanf(createResult.IssueID, "gh-%d", &issueNumber)
 	defer closeGitHubIssueViaGH(t, "proboscis", "orch", issueNumber)
 
 	time.Sleep(2 * time.Second)
@@ -286,7 +286,7 @@ func TestGitHubBackend_CreateIssue_StatusOpen(t *testing.T) {
 	}
 
 	var issueNumber int
-	fmt.Sscanf(createResult.IssueID, "gh#%d", &issueNumber)
+	fmt.Sscanf(createResult.IssueID, "gh-%d", &issueNumber)
 	defer closeGitHubIssueViaGH(t, "proboscis", "orch", issueNumber)
 
 	showCmd := exec.Command(binary, "--vault", vault, "issue", "show", createResult.IssueID, "--json")
@@ -336,7 +336,7 @@ func TestGitHubBackend_GetIssue(t *testing.T) {
 	daemonLog, _ := os.ReadFile(filepath.Join(vault, ".orch", "daemon.log"))
 	t.Logf("Daemon log after start:\n%s", string(daemonLog))
 
-	showCmd := exec.Command(binary, "--vault", vault, "issue", "show", fmt.Sprintf("gh#%d", issueNumber), "--json")
+	showCmd := exec.Command(binary, "--vault", vault, "issue", "show", fmt.Sprintf("gh-%d", issueNumber), "--json")
 	showOut, err := showCmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("issue show failed: %v\n%s", err, showOut)
@@ -356,8 +356,8 @@ func TestGitHubBackend_GetIssue(t *testing.T) {
 	if !showResult.OK {
 		t.Fatalf("issue show not OK: %s", showOut)
 	}
-	if showResult.Issue.ID != fmt.Sprintf("gh#%d", issueNumber) {
-		t.Errorf("issue ID mismatch: got %s, want gh#%d", showResult.Issue.ID, issueNumber)
+	if showResult.Issue.ID != fmt.Sprintf("gh-%d", issueNumber) {
+		t.Errorf("issue ID mismatch: got %s, want gh-%d", showResult.Issue.ID, issueNumber)
 	}
 }
 
@@ -380,7 +380,7 @@ func TestGitHubBackend_CloseIssue(t *testing.T) {
 	stopDaemon := startDaemon(t, binary, vault, repo)
 	defer stopDaemon()
 
-	closeCmd := exec.Command(binary, "--vault", vault, "issue", "close", fmt.Sprintf("gh#%d", issueNumber), "--json")
+	closeCmd := exec.Command(binary, "--vault", vault, "issue", "close", fmt.Sprintf("gh-%d", issueNumber), "--json")
 	closeOut, err := closeCmd.CombinedOutput()
 	if err != nil {
 		closeGitHubIssueViaGH(t, "proboscis", "orch", issueNumber)
@@ -515,7 +515,7 @@ github:
 	stopDaemon := startDaemon(t, binary, vault, repo)
 	defer stopDaemon()
 
-	issueID := fmt.Sprintf("gh#%d", issueNumber)
+	issueID := fmt.Sprintf("gh-%d", issueNumber)
 	runCmd := exec.Command(binary, "--vault", vault, "run", issueID,
 		"--agent", "custom",
 		"--agent-cmd", "echo 'test'; sleep 1",
