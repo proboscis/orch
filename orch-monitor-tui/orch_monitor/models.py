@@ -189,6 +189,7 @@ class Issue:
     topic: str = ""
     summary: str = ""
     status: IssueStatus = IssueStatus.OPEN
+    tags: List[str] = field(default_factory=list)
     body: str = ""
     path: Path = Path()
     frontmatter: Dict[str, str] = field(default_factory=dict)
@@ -196,3 +197,26 @@ class Issue:
     def status_display(self) -> str:
         """Return a display string for status."""
         return self.status.value
+
+    def tags_display(self) -> str:
+        """Return a formatted string for tags display."""
+        if not self.tags:
+            return ""
+        return " ".join(f"[{tag}]" for tag in self.tags)
+
+
+def parse_tags(s: str) -> List[str]:
+    """Parse a tags string from JSON/frontmatter.
+
+    Supports formats: "[tag1, tag2]", "tag1, tag2", "tag1,tag2"
+    """
+    if not s:
+        return []
+
+    # Remove brackets if present
+    s = s.strip()
+    s = s.lstrip("[").rstrip("]")
+
+    # Split by comma
+    tags = [tag.strip() for tag in s.split(",") if tag.strip()]
+    return tags
