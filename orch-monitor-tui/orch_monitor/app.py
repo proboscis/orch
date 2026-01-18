@@ -1,5 +1,6 @@
 """Main Textual app for orch monitor."""
 
+import logging
 import os
 import shlex
 import shutil
@@ -8,6 +9,29 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Tuple
+
+_logger: Optional[logging.Logger] = None
+
+
+def get_logger() -> logging.Logger:
+    global _logger
+    if _logger is None:
+        _logger = logging.getLogger("orch_monitor")
+    return _logger
+
+
+def setup_logging(log_path: Path) -> None:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(log_path, encoding="utf-8")
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(levelname)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+        )
+    )
+    logger = get_logger()
+    logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)
+
 
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -185,7 +209,8 @@ def _get_issue_file_path(issue: "Issue") -> Tuple[Optional[Path], Optional[str]]
     """Get the file path for an issue, creating a temp file for GitHub issues.
 
     For local issues, returns the existing path.
-    For GitHub issues (where path is a URL), creates a temp file with the issue body.
+    For GitHub issues (identified by 'gh#' prefix or URL path), creates a temp file
+    with the issue body.
 
     Returns:
         Tuple of (file_path, error_message).
@@ -196,39 +221,70 @@ def _get_issue_file_path(issue: "Issue") -> Tuple[Optional[Path], Optional[str]]
 
     path_str = str(issue.path) if issue.path else ""
 
-    # Check if it's a GitHub issue (path is a URL)
-    if path_str.startswith("http://") or path_str.startswith("https://"):
-        # Create temp file with issue content
+    # Check if it's a GitHub issue by ID prefix (gh#xxx) or path (URL)
+    # Note: Path() normalizes "https://" to "https:/" on POSIX, so check both formats
+    def is_url_path(s: str) -> bool:
+        return (
+            s.startswith("http://")
+            or s.startswith("https://")
+            or s.startswith("http:/")
+            or s.startswith("https:/")
+        )
+
+    is_github_issue = issue.id.startswith("gh#") or is_url_path(path_str)
+
+    log = get_logger()
+
+    if is_github_issue:
         if not issue.body:
-            return None, "GitHub issue has no body content"
+            err = f"GitHub issue {issue.id} has no body content"
+            log.error(err)
+            return None, err
+
+        github_url = ""
+        if issue.frontmatter.get("url"):
+            github_url = issue.frontmatter["url"]
+        elif is_url_path(path_str):
+            github_url = path_str.replace("https:/", "https://").replace(
+                "http:/", "http://"
+            )
+        else:
+            err = f"GitHub issue {issue.id} has no URL (path={path_str!r}, frontmatter.url missing)"
+            log.error(err)
+            return None, err
 
         try:
-            # Create temp file that persists until explicitly deleted
-            # Use issue ID in filename for clarity
             safe_id = "".join(c if c.isalnum() or c in "-_" else "_" for c in issue.id)
             fd, temp_path = tempfile.mkstemp(
                 suffix=".md", prefix=f"orch-issue-{safe_id}-"
             )
             with os.fdopen(fd, "w") as f:
-                # Write issue header and body
                 f.write(f"# {issue.title or issue.id}\n\n")
-                f.write(f"<!-- GitHub Issue: {path_str} -->\n")
+                f.write(f"<!-- GitHub Issue: {github_url} -->\n")
                 f.write(f"<!-- Note: Changes here are NOT synced to GitHub -->\n\n")
                 f.write(issue.body)
+            log.debug(f"Created temp file for {issue.id}: {temp_path}")
             return Path(temp_path), None
         except OSError as e:
-            return None, f"Failed to create temp file: {e}"
+            err = f"Failed to create temp file for {issue.id}: {e}"
+            log.error(err)
+            return None, err
 
-    # Local issue - validate the path exists
     if not path_str or path_str == ".":
-        return None, "Issue file path not found"
+        err = f"Local issue {issue.id} has no file path"
+        log.error(err)
+        return None, err
 
     file_path = issue.path
     if not file_path.exists():
-        return None, "Issue file path not found"
+        err = f"Local issue {issue.id} file not found: {file_path}"
+        log.error(err)
+        return None, err
 
     if file_path.is_dir():
-        return None, "Issue path is a directory, not a file"
+        err = f"Local issue {issue.id} path is a directory: {file_path}"
+        log.error(err)
+        return None, err
 
     return file_path, None
 
@@ -646,7 +702,7 @@ class RunsDashboard(App):
         self.selected_run: Optional[Run] = None
         self.filter_state = self.config.load_filters()
         self._auto_refresh_enabled = auto_refresh
-        self._base_title = f"Runs [{self.config.vault_path.name}]"
+        self._base_title = f"Runs [{self.config.project_root.name}]"
         self.title = self._base_title
         self._daemon_error: Optional[str] = None
         self._last_update: Optional[datetime] = None
@@ -684,9 +740,9 @@ class RunsDashboard(App):
     def _update_title(self) -> None:
         count = self.filter_state.run_filter_count()
         if count > 0:
-            self.title = f"Runs [{self.config.vault_path.name}] ({count} filters)"
+            self.title = f"Runs [{self.config.project_root.name}] ({count} filters)"
         else:
-            self.title = f"Runs [{self.config.vault_path.name}]"
+            self.title = f"Runs [{self.config.project_root.name}]"
 
     def _do_auto_refresh(self) -> None:
         self.refresh_data()
@@ -1044,7 +1100,7 @@ class IssuesDashboard(App):
         self.selected_issue: Optional[Issue] = None
         self.filter_state = self.config.load_filters()
         self._auto_refresh_enabled = auto_refresh
-        self._base_title = f"Issues [{self.config.vault_path.name}]"
+        self._base_title = f"Issues [{self.config.project_root.name}]"
         self.title = self._base_title
         self._daemon_error: Optional[str] = None
         self._last_update: Optional[datetime] = None
@@ -1064,9 +1120,9 @@ class IssuesDashboard(App):
     def _update_title(self) -> None:
         count = self.filter_state.issue_filter_count()
         if count > 0:
-            self.title = f"Issues [{self.config.vault_path.name}] ({count} filters)"
+            self.title = f"Issues [{self.config.project_root.name}] ({count} filters)"
         else:
-            self.title = f"Issues [{self.config.vault_path.name}]"
+            self.title = f"Issues [{self.config.project_root.name}]"
 
     def _do_auto_refresh(self) -> None:
         self.refresh_data()
@@ -1255,7 +1311,7 @@ class OrchMonitorApp(App):
         self.current_focus = "runs"
         self.filter_state = self.config.load_filters()
         self._auto_refresh_enabled = auto_refresh
-        self._base_title = f"Orch Monitor [{self.config.vault_path.name}]"
+        self._base_title = f"Orch Monitor [{self.config.project_root.name}]"
         self.title = self._base_title
         self._daemon_error: Optional[str] = None
         self._last_update: Optional[datetime] = None
