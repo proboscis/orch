@@ -977,7 +977,7 @@ class RunsDashboard(App):
 
         if current_mux_type:
             current_mux = get_multiplexer(current_mux_type)
-            tab_name = f"attach-{run.short_id()}"
+            tab_name = f"{run.issue_id}[{run.short_id()}]"
             if current_mux.new_tab_with_command(tab_name, attach_cmd):
                 self.notify(f"Opened tab: {tab_name}")
                 return
@@ -1718,7 +1718,7 @@ class OrchMonitorApp(App):
 
         if current_mux_type:
             current_mux = get_multiplexer(current_mux_type)
-            tab_name = f"attach-{run.short_id()}"
+            tab_name = f"{run.issue_id}[{run.short_id()}]"
             if current_mux.new_tab_with_command(tab_name, attach_cmd):
                 self.notify(f"Opened tab: {tab_name}")
                 return
