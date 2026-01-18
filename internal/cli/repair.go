@@ -47,8 +47,8 @@ func runRepair(opts *repairOptions) error {
 		return err
 	}
 
-	projectRoot, _ := getProjectRoot()
-	if projectRoot == "" {
+	projectRoot, err := getProjectRoot()
+	if err != nil {
 		projectRoot = st.VaultPath()
 	}
 	problemsFound := 0

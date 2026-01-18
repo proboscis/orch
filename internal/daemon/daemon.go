@@ -255,7 +255,7 @@ func (d *Daemon) checkBinaryStaleness() {
 func (d *Daemon) restartWithNewBinary() error {
 	d.logger.Printf("restarting daemon with new binary via exec...")
 
-	args := []string{d.executablePath, "daemon", "--vault", d.projectRoot}
+	args := []string{d.executablePath, "daemon", "--project-root", d.projectRoot}
 	return syscall.Exec(d.executablePath, args, os.Environ())
 }
 
@@ -359,30 +359,22 @@ func (d *Daemon) getOrCreateState(run *model.Run) *RunState {
 	return state
 }
 
-// StartInBackground launches the daemon as a background process
-// Returns the PID of the spawned process, or error
-func StartInBackground(vaultPath string) (int, error) {
-	// Check if already running
-	if IsRunning(vaultPath) {
-		return GetRunningPID(vaultPath), nil
+func StartInBackground(projectRoot string) (int, error) {
+	if IsRunning(projectRoot) {
+		return GetRunningPID(projectRoot), nil
 	}
 
-	// Find the current executable
 	executable, err := os.Executable()
 	if err != nil {
 		return 0, fmt.Errorf("failed to find executable: %w", err)
 	}
 
-	// Start daemon process
-	// Use "daemon" subcommand which will be handled by CLI
 	cmd := &exec.Cmd{
 		Path: executable,
-		Args: []string{executable, "daemon", "--vault", vaultPath},
-		// Detach from parent process group
+		Args: []string{executable, "daemon", "--project-root", projectRoot},
 		SysProcAttr: &syscall.SysProcAttr{
 			Setsid: true,
 		},
-		// Redirect stdout/stderr to null (daemon logs to file)
 		Stdout: nil,
 		Stderr: nil,
 		Stdin:  nil,
@@ -392,18 +384,13 @@ func StartInBackground(vaultPath string) (int, error) {
 		return 0, fmt.Errorf("failed to start daemon: %w", err)
 	}
 
-	// Don't wait for the process - let it run in background
-	// The daemon will write its own PID file
-
-	// Give it a moment to start and write PID
 	time.Sleep(100 * time.Millisecond)
 
 	return cmd.Process.Pid, nil
 }
 
-// Kill stops the daemon for the given vault
-func Kill(vaultPath string) error {
-	pid := GetRunningPID(vaultPath)
+func Kill(projectRoot string) error {
+	pid := GetRunningPID(projectRoot)
 	if pid == 0 {
 		return nil // Not running
 	}
@@ -413,16 +400,13 @@ func Kill(vaultPath string) error {
 		return err
 	}
 
-	// Send SIGTERM for graceful shutdown
 	if err := process.Signal(syscall.SIGTERM); err != nil {
 		return err
 	}
 
-	// Wait a bit for graceful shutdown
 	time.Sleep(500 * time.Millisecond)
 
-	// Clean up PID file if process didn't
-	RemovePID(vaultPath)
+	RemovePID(projectRoot)
 
 	return nil
 }

@@ -73,8 +73,8 @@ func runSend(refStr, message string, opts *sendOptions) error {
 
 	isOpenCode := run.Agent == string(agent.AgentOpenCode)
 
-	projectRoot, _ := getProjectRoot()
-	if projectRoot == "" {
+	projectRoot, err := getProjectRoot()
+	if err != nil {
 		projectRoot = st.VaultPath()
 	}
 

@@ -466,28 +466,41 @@ func resolvePathFromConfig(path, baseDir string) string {
 // Returns the directory containing .orch/, or an error if not found.
 //
 // Precedence:
-// 1. ORCH_PROJECT_ROOT environment variable (if set)
+// 1. ORCH_PROJECT_ROOT environment variable (must contain .orch/ directory)
 // 2. Directory containing .orch/config.yaml (searched upward from cwd)
-// 3. For worktrees, also checks main repo
+// 3. ORCH_VAULT as legacy fallback (only if it contains .orch/ directory)
 func GetProjectRoot() (string, error) {
 	if v := os.Getenv("ORCH_PROJECT_ROOT"); v != "" {
-		return ExpandPath(v, ""), nil
-	}
-
-	if v := os.Getenv("ORCH_VAULT"); v != "" {
-		return ExpandPath(v, ""), nil
+		resolved := ExpandPath(v, "")
+		if hasOrchDir(resolved) {
+			return resolved, nil
+		}
+		return "", fmt.Errorf("ORCH_PROJECT_ROOT (%s) does not contain .orch/ directory", resolved)
 	}
 
 	configPath, err := findRepoConfig()
 	if err != nil {
 		return "", err
 	}
-	if configPath == "" {
-		return "", fmt.Errorf("project root not found (no .orch/config.yaml in current or parent directories)")
+	if configPath != "" {
+		orchDir := filepath.Dir(configPath)
+		return filepath.Dir(orchDir), nil
 	}
 
-	orchDir := filepath.Dir(configPath)
-	return filepath.Dir(orchDir), nil
+	if v := os.Getenv("ORCH_VAULT"); v != "" {
+		resolved := ExpandPath(v, "")
+		if hasOrchDir(resolved) {
+			return resolved, nil
+		}
+	}
+
+	return "", fmt.Errorf("project root not found (no .orch/config.yaml in current or parent directories)")
+}
+
+func hasOrchDir(path string) bool {
+	orchPath := filepath.Join(path, ".orch")
+	info, err := os.Stat(orchPath)
+	return err == nil && info.IsDir()
 }
 
 // applyEnv applies environment variables to config
