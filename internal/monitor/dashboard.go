@@ -389,9 +389,7 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		if d.cursor >= 0 && d.cursor < len(d.runs) {
 			run := d.runs[d.cursor].Run
-			if err := d.monitor.OpenRun(run); err != nil {
-				d.message = err.Error()
-			}
+			return d, d.openRunCmd(run)
 		}
 		return d, nil
 	case d.keymap.Exec:
@@ -697,6 +695,18 @@ func (d *Dashboard) resolveRunCmd(run *model.Run) tea.Cmd {
 			return errMsg{err: err}
 		}
 		return infoMsg{text: fmt.Sprintf("resolved %s#%s and issue %s", run.IssueID, run.RunID, run.IssueID)}
+	}
+}
+
+func (d *Dashboard) openRunCmd(run *model.Run) tea.Cmd {
+	return func() tea.Msg {
+		if run == nil {
+			return errMsg{err: fmt.Errorf("run not found")}
+		}
+		if err := d.monitor.OpenRun(run); err != nil {
+			return errMsg{err: err}
+		}
+		return nil
 	}
 }
 

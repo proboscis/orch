@@ -984,8 +984,11 @@ class RunsDashboard(App):
         if not self.selected_run:
             self.notify("No run selected", severity="warning")
             return
+        self._do_attach(self.selected_run)
 
-        run = self.selected_run
+    @work(thread=True)
+    def _do_attach(self, run: Run) -> None:
+        """Attach to run in background thread to avoid blocking TUI."""
         current_mux_type = detect_current_multiplexer()
 
         attach_cmd = [
@@ -1000,12 +1003,18 @@ class RunsDashboard(App):
             current_mux = get_multiplexer(current_mux_type)
             tab_name = f"{run.issue_id}[{run.short_id()}]"
             if current_mux.new_tab_with_command(tab_name, attach_cmd):
-                self.notify(f"Opened tab: {tab_name}")
+                self.call_from_thread(self.notify, f"Opened tab: {tab_name}")
                 return
-            self.notify(
-                "Failed to create tab, falling back to exit", severity="warning"
+            self.call_from_thread(
+                self.notify,
+                "Failed to create tab, falling back to exit",
+                severity="warning",
             )
 
+        self.call_from_thread(self._exit_and_attach, attach_cmd)
+
+    def _exit_and_attach(self, attach_cmd: list[str]) -> None:
+        """Exit TUI and run attach command (must be called from main thread)."""
         self.exit()
         subprocess.run(attach_cmd)
 
@@ -1749,8 +1758,10 @@ class OrchMonitorApp(App):
         if not self.selected_run:
             self.notify("No run selected", severity="warning")
             return
+        self._do_attach(self.selected_run)
 
-        run = self.selected_run
+    @work(thread=True)
+    def _do_attach(self, run: Run) -> None:
         current_mux_type = detect_current_multiplexer()
 
         attach_cmd = [
@@ -1765,12 +1776,17 @@ class OrchMonitorApp(App):
             current_mux = get_multiplexer(current_mux_type)
             tab_name = f"{run.issue_id}[{run.short_id()}]"
             if current_mux.new_tab_with_command(tab_name, attach_cmd):
-                self.notify(f"Opened tab: {tab_name}")
+                self.call_from_thread(self.notify, f"Opened tab: {tab_name}")
                 return
-            self.notify(
-                "Failed to create tab, falling back to exit", severity="warning"
+            self.call_from_thread(
+                self.notify,
+                "Failed to create tab, falling back to exit",
+                severity="warning",
             )
 
+        self.call_from_thread(self._exit_and_attach, attach_cmd)
+
+    def _exit_and_attach(self, attach_cmd: list[str]) -> None:
         self.exit()
         subprocess.run(attach_cmd)
 
