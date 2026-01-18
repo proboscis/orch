@@ -573,7 +573,7 @@ class AgentSelectScreen(ModalScreen[str | None]):
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel"),
-        Binding("enter", "confirm", "Confirm"),
+        Binding("enter", "confirm", "Start", priority=True),
         Binding("k", "cursor_up", "Up", show=False),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("1", "quick_select_1", "1", show=False),
@@ -602,7 +602,7 @@ class AgentSelectScreen(ModalScreen[str | None]):
                     for i, agent in enumerate(self.agents)
                 ]
                 yield SelectionList[str](*items, id="agent-selection-list")
-                yield Label("[Enter/1-9] select  [Esc] cancel", id="agent-footer")
+                yield Label("[Enter] Start  [1-9] Quick select  [Esc] Cancel", id="agent-footer")
             else:
                 yield Label("No agents available", id="agent-empty")
                 yield Label("[Esc] cancel", id="agent-footer")
@@ -626,12 +626,16 @@ class AgentSelectScreen(ModalScreen[str | None]):
             self.dismiss(None)
             return
         sel = self.query_one("#agent-selection-list", SelectionList)
-        selected = list(sel.selected)
-        if selected:
-            self.dismiss(selected[0])
-        elif sel.highlighted is not None:
+        # Prioritize highlighted item (cursor position) over checkbox selections
+        if sel.highlighted is not None:
             self.dismiss(self.agents[sel.highlighted])
         else:
+            # Fallback: find first agent in list order that is selected (deterministic)
+            selected = sel.selected
+            for agent in self.agents:
+                if agent in selected:
+                    self.dismiss(agent)
+                    return
             self.dismiss(None)
 
     def action_cancel(self) -> None:
