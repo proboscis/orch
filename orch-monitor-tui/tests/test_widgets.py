@@ -300,3 +300,243 @@ class TestDetailPanelWidget:
             panel.update_content("Some content")
             panel.clear()
             await pilot.pause()
+
+
+# ============================================================================
+# FileChange and DiffStats Model Tests
+# ============================================================================
+
+
+class TestFileChangeModel:
+    """Tests for FileChange model."""
+
+    def test_display_str_basic(self):
+        """Test basic display string formatting."""
+        from orch_monitor.models import FileChange
+
+        fc = FileChange(path="src/main.py", additions=10, deletions=5)
+        display = fc.display_str(max_path_width=30)
+        assert "src/main.py" in display
+        assert "+10" in display
+        assert "-5" in display
+
+    def test_display_str_long_path(self):
+        """Test display string with path truncation."""
+        from orch_monitor.models import FileChange
+
+        fc = FileChange(
+            path="very/long/path/to/deeply/nested/file.py", additions=1, deletions=0
+        )
+        display = fc.display_str(max_path_width=20)
+        assert "..." in display
+        assert len(display.split()[0]) <= 20
+
+    def test_display_str_zero_changes(self):
+        """Test display when additions or deletions are zero."""
+        from orch_monitor.models import FileChange
+
+        fc = FileChange(path="file.py", additions=0, deletions=5)
+        display = fc.display_str()
+        # Zero additions should not show +0
+        assert "+0" not in display
+        assert "-5" in display
+
+
+class TestDiffStatsModel:
+    """Tests for DiffStats model."""
+
+    def test_file_count(self):
+        """Test file count property."""
+        from orch_monitor.models import DiffStats, FileChange
+
+        stats = DiffStats(
+            files=[
+                FileChange(path="a.py", additions=10, deletions=2),
+                FileChange(path="b.py", additions=5, deletions=1),
+            ],
+            total_additions=15,
+            total_deletions=3,
+        )
+        assert stats.file_count == 2
+
+    def test_summary_str(self):
+        """Test summary string formatting."""
+        from orch_monitor.models import DiffStats, FileChange
+
+        stats = DiffStats(
+            files=[
+                FileChange(path="a.py", additions=50, deletions=10),
+                FileChange(path="b.py", additions=30, deletions=5),
+            ],
+            total_additions=80,
+            total_deletions=15,
+        )
+        summary = stats.summary_str()
+        assert "2 file(s)" in summary
+        assert "+80" in summary
+        assert "-15" in summary
+
+    def test_empty_stats(self):
+        """Test empty diff stats."""
+        from orch_monitor.models import DiffStats
+
+        stats = DiffStats()
+        assert stats.file_count == 0
+        assert stats.total_additions == 0
+        assert stats.total_deletions == 0
+
+
+# ============================================================================
+# Git Diff Stats Function Tests
+# ============================================================================
+
+
+class TestGetGitDiffStats:
+    """Tests for _get_git_diff_stats function."""
+
+    def test_returns_none_without_worktree(self):
+        """Test returns None when worktree_path is empty."""
+        from orch_monitor.app import _get_git_diff_stats
+
+        result = _get_git_diff_stats("", "feature-branch", "main")
+        assert result is None
+
+    def test_returns_none_without_branch(self):
+        """Test returns None when branch is empty."""
+        from orch_monitor.app import _get_git_diff_stats
+
+        result = _get_git_diff_stats("/tmp/test", "", "main")
+        assert result is None
+
+    def test_parses_numstat_output(self):
+        """Test parsing of git diff --numstat output."""
+        from unittest.mock import patch, MagicMock
+        from orch_monitor.app import (
+            _get_git_diff_stats,
+            _get_git_diff_stats_cached,
+            _diff_stats_cache_time,
+        )
+
+        # Clear cache
+        _get_git_diff_stats_cached.cache_clear()
+        _diff_stats_cache_time.clear()
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "10\t5\tsrc/main.py\n20\t3\tsrc/utils.py\n"
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = _get_git_diff_stats("/tmp/test", "feature", "main")
+
+        assert result is not None
+        assert result.file_count == 2
+        assert result.total_additions == 30
+        assert result.total_deletions == 8
+        assert result.files[0].path == "src/main.py"
+        assert result.files[0].additions == 10
+        assert result.files[0].deletions == 5
+
+    def test_handles_binary_files(self):
+        """Test handling of binary files (shown as - -)."""
+        from unittest.mock import patch, MagicMock
+        from orch_monitor.app import (
+            _get_git_diff_stats,
+            _get_git_diff_stats_cached,
+            _diff_stats_cache_time,
+        )
+
+        # Clear cache
+        _get_git_diff_stats_cached.cache_clear()
+        _diff_stats_cache_time.clear()
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "-\t-\timage.png\n5\t2\tcode.py\n"
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = _get_git_diff_stats("/tmp/test2", "feature", "main")
+
+        assert result is not None
+        assert result.file_count == 2
+        assert result.total_additions == 5
+        assert result.total_deletions == 2
+        # Binary file should have 0 additions/deletions
+        assert result.files[0].additions == 0
+        assert result.files[0].deletions == 0
+
+    def test_caches_results(self):
+        """Test that results are cached via LRU cache."""
+        from unittest.mock import patch, MagicMock
+        from orch_monitor.app import (
+            _get_git_diff_stats,
+            _get_git_diff_stats_cached,
+            _diff_stats_cache_time,
+        )
+
+        # Clear cache
+        _get_git_diff_stats_cached.cache_clear()
+        _diff_stats_cache_time.clear()
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "1\t1\tfile.py\n"
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            # First call
+            result1 = _get_git_diff_stats("/tmp/cache_test", "feature", "main")
+            # Second call should use cache
+            result2 = _get_git_diff_stats("/tmp/cache_test", "feature", "main")
+
+        # Should only call subprocess once due to LRU cache
+        assert mock_run.call_count == 1
+        assert result1 == result2
+
+
+class TestFormatChangedFilesLines:
+    """Tests for _format_changed_files_lines helper function."""
+
+    def test_returns_empty_for_none(self):
+        """Test returns empty list when diff_stats is None."""
+        from orch_monitor.app import _format_changed_files_lines
+
+        result = _format_changed_files_lines(None)
+        assert result == []
+
+    def test_returns_empty_for_no_files(self):
+        """Test returns empty list when no files changed."""
+        from orch_monitor.app import _format_changed_files_lines
+        from orch_monitor.models import DiffStats
+
+        stats = DiffStats(files=[], total_additions=0, total_deletions=0)
+        result = _format_changed_files_lines(stats)
+        assert result == []
+
+    def test_formats_files_with_markup(self):
+        """Test proper formatting with Rich markup."""
+        from orch_monitor.app import _format_changed_files_lines
+        from orch_monitor.models import DiffStats, FileChange
+
+        stats = DiffStats(
+            files=[FileChange(path="src/main.py", additions=10, deletions=5)],
+            total_additions=10,
+            total_deletions=5,
+        )
+        result = _format_changed_files_lines(stats, max_files=10, path_width=20)
+
+        # Should have header, file line, separator, and total
+        assert len(result) >= 4
+        assert "Changed Files (1)" in result[1]
+        assert "[green]" in result[2]  # Has green markup for additions
+        assert "[red]" in result[2]    # Has red markup for deletions
+
+    def test_respects_max_files(self):
+        """Test that max_files limit is respected."""
+        from orch_monitor.app import _format_changed_files_lines
+        from orch_monitor.models import DiffStats, FileChange
+
+        files = [FileChange(path=f"file{i}.py", additions=i, deletions=0) for i in range(20)]
+        stats = DiffStats(files=files, total_additions=sum(range(20)), total_deletions=0)
+        result = _format_changed_files_lines(stats, max_files=5, path_width=20)
+
+        # Should show "... and N more file(s)" message
+        assert any("more file(s)" in line for line in result)

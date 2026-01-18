@@ -7,9 +7,10 @@ from typing import Optional
 
 import yaml
 
+from . import xdg
 
-# Daemon socket filename (matches Go daemon)
-DAEMON_SOCKET_FILE = "daemon.sock"
+
+# Monitor-specific files (stored in project's .orch/ directory)
 MONITOR_FILTERS_FILE = "monitor-filters.yaml"
 MONITOR_LOG_FILE = "monitor.log"
 ORCH_DIR = ".orch"
@@ -42,6 +43,8 @@ class IssueFilterState:
 
     statuses: list[str] = field(default_factory=list)
     priorities: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    tag_mode: str = "any"  # "all" (AND) or "any" (OR)
     text_search: str = ""
 
 
@@ -64,6 +67,8 @@ class FilterState:
             "issue_filters": {
                 "statuses": self.issue_filters.statuses,
                 "priorities": self.issue_filters.priorities,
+                "tags": self.issue_filters.tags,
+                "tag_mode": self.issue_filters.tag_mode,
                 "text_search": self.issue_filters.text_search,
             },
         }
@@ -84,6 +89,8 @@ class FilterState:
             issue_filters=IssueFilterState(
                 statuses=issue_data.get("statuses", []),
                 priorities=issue_data.get("priorities", []),
+                tags=issue_data.get("tags", []),
+                tag_mode=issue_data.get("tag_mode", "any"),
                 text_search=issue_data.get("text_search", ""),
             ),
         )
@@ -106,6 +113,8 @@ class FilterState:
         count = 0
         if self.issue_filters.statuses:
             count += 1
+        if self.issue_filters.tags:
+            count += 1
         if self.issue_filters.text_search:
             count += 1
         return count
@@ -120,6 +129,14 @@ class FilterState:
 
 
 @dataclass
+class IssueDefaultFilter:
+    """Default filter configuration for issues."""
+
+    tags: list[str] = field(default_factory=list)
+    tag_mode: str = "any"
+
+
+@dataclass
 class MonitorConfig:
     """Monitor-specific configuration from config.yaml."""
 
@@ -127,6 +144,7 @@ class MonitorConfig:
         default_factory=lambda: DEFAULT_RUN_STATUSES.copy()
     )
     default_issue_statuses: list[str] = field(default_factory=list)
+    default_issue_filter: IssueDefaultFilter = field(default_factory=IssueDefaultFilter)
 
 
 @dataclass
@@ -147,18 +165,22 @@ class Config:
 
     @property
     def orch_dir(self) -> Path:
+        """Return the project's .orch directory (for project-specific files)."""
         return self.project_root / ORCH_DIR
 
     @property
     def socket_path(self) -> Path:
-        return self.orch_dir / DAEMON_SOCKET_FILE
+        """Return the global daemon socket path (XDG-compliant)."""
+        return xdg.socket_path()
 
     @property
     def filters_path(self) -> Path:
+        """Return the path to monitor filters file (project-specific)."""
         return self.orch_dir / MONITOR_FILTERS_FILE
 
     @property
     def log_path(self) -> Path:
+        """Return the path to monitor log file (project-specific)."""
         return self.orch_dir / MONITOR_LOG_FILE
 
     def load_filters(self) -> FilterState:
@@ -169,7 +191,9 @@ class Config:
                     statuses=self.monitor.default_run_statuses.copy()
                 ),
                 issue_filters=IssueFilterState(
-                    statuses=self.monitor.default_issue_statuses.copy()
+                    statuses=self.monitor.default_issue_statuses.copy(),
+                    tags=self.monitor.default_issue_filter.tags.copy(),
+                    tag_mode=self.monitor.default_issue_filter.tag_mode,
                 ),
             )
         try:
@@ -182,7 +206,9 @@ class Config:
                     statuses=self.monitor.default_run_statuses.copy()
                 ),
                 issue_filters=IssueFilterState(
-                    statuses=self.monitor.default_issue_statuses.copy()
+                    statuses=self.monitor.default_issue_statuses.copy(),
+                    tags=self.monitor.default_issue_filter.tags.copy(),
+                    tag_mode=self.monitor.default_issue_filter.tag_mode,
                 ),
             )
 
@@ -196,6 +222,16 @@ class Config:
             pass
 
     @classmethod
+    def _parse_issue_default_filter(cls, data: dict) -> IssueDefaultFilter:
+        """Parse issue default_filter from config."""
+        if not data:
+            return IssueDefaultFilter()
+        return IssueDefaultFilter(
+            tags=data.get("tags", []),
+            tag_mode=data.get("tag_mode", "any"),
+        )
+
+    @classmethod
     def _parse_monitor_config(cls, data: dict) -> MonitorConfig:
         if not data:
             return MonitorConfig()
@@ -204,6 +240,9 @@ class Config:
                 "default_run_statuses", DEFAULT_RUN_STATUSES.copy()
             ),
             default_issue_statuses=data.get("default_issue_statuses", []),
+            default_issue_filter=cls._parse_issue_default_filter(
+                data.get("default_issue_filter", {})
+            ),
         )
 
     @classmethod

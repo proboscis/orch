@@ -56,8 +56,14 @@ from textual.widgets import (
 )
 
 from .config import Config, FilterState, RunFilterState, IssueFilterState
-from .daemon import DaemonClient, DaemonError, DaemonNotRunningError, RunFilters
-from .models import Issue, IssueStatus, Run, Status
+from .daemon import (
+    DaemonClient,
+    DaemonError,
+    DaemonNotRunningError,
+    MonitorRegistration,
+    RunFilters,
+)
+from .models import DiffStats, FileChange, Issue, IssueStatus, Run, Status
 from .multiplexer import (
     Multiplexer,
     MultiplexerType,
@@ -92,6 +98,168 @@ def _log_error(operation: str, error: str, project_root: Path) -> None:
             f.write(f"{timestamp} [{operation}] {error}\n")
     except OSError:
         pass
+
+
+
+from functools import lru_cache
+from time import time as _time
+
+
+# TTL cache wrapper for git diff stats (30 second TTL)
+_diff_stats_cache_time: dict[str, float] = {}
+_DIFF_STATS_TTL = 30.0  # seconds
+
+
+@lru_cache(maxsize=256)
+def _get_git_diff_stats_cached(
+    worktree_path: str, branch: str, base_branch: str
+) -> Optional[DiffStats]:
+    """Internal cached implementation of git diff stats retrieval."""
+    try:
+        # Use git diff --numstat for machine-readable output
+        result = subprocess.run(
+            ["git", "diff", "--numstat", f"{base_branch}...{branch}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=worktree_path,
+            encoding="utf-8",
+            errors="replace",  # Handle non-UTF8 filenames
+        )
+
+        if result.returncode != 0:
+            # Try without the merge-base (three dots) syntax
+            result = subprocess.run(
+                ["git", "diff", "--numstat", f"{base_branch}..{branch}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                cwd=worktree_path,
+                encoding="utf-8",
+                errors="replace",
+            )
+
+        if result.returncode != 0:
+            # Log failure for debugging (only once due to cache)
+            get_logger().debug(
+                f"git diff failed for {branch} vs {base_branch}: {result.stderr}"
+            )
+            return None
+
+        files: list[FileChange] = []
+        total_additions = 0
+        total_deletions = 0
+
+        for line in result.stdout.strip().split("\n"):
+            if not line:
+                continue
+            parts = line.split("\t")
+            if len(parts) != 3:
+                continue
+
+            add_str, del_str, path = parts
+            # Handle binary files (shown as - -)
+            additions = int(add_str) if add_str != "-" else 0
+            deletions = int(del_str) if del_str != "-" else 0
+
+            files.append(FileChange(path=path, additions=additions, deletions=deletions))
+            total_additions += additions
+            total_deletions += deletions
+
+        return DiffStats(
+            files=files,
+            total_additions=total_additions,
+            total_deletions=total_deletions,
+        )
+
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError, ValueError) as e:
+        get_logger().debug(f"git diff exception for {branch}: {e}")
+        return None
+
+
+def _get_git_diff_stats(
+    worktree_path: str, branch: str, base_branch: str = "main"
+) -> Optional[DiffStats]:
+    """Get git diff statistics for a branch compared to base branch.
+
+    Uses LRU cache with TTL to avoid repeated git calls while allowing
+    updates when branches change.
+
+    Args:
+        worktree_path: Path to the git worktree
+        branch: The branch to compare
+        base_branch: The base branch to compare against (default: main)
+
+    Returns:
+        DiffStats object or None if unable to get stats
+    """
+    if not worktree_path or not branch:
+        return None
+
+    cache_key = f"{worktree_path}:{branch}:{base_branch}"
+    now = _time()
+
+    # Check if cached entry is stale
+    if cache_key in _diff_stats_cache_time:
+        if now - _diff_stats_cache_time[cache_key] > _DIFF_STATS_TTL:
+            # Clear stale entry from LRU cache
+            _get_git_diff_stats_cached.cache_clear()
+            _diff_stats_cache_time.clear()
+
+    result = _get_git_diff_stats_cached(worktree_path, branch, base_branch)
+    _diff_stats_cache_time[cache_key] = now
+    return result
+
+
+def _format_changed_files_lines(
+    diff_stats: Optional[DiffStats],
+    max_files: int = 10,
+    path_width: int = 35,
+) -> list[str]:
+    """Format changed files for display in detail panel.
+
+    Args:
+        diff_stats: DiffStats object or None
+        max_files: Maximum number of files to show
+        path_width: Width for path column
+
+    Returns:
+        List of formatted lines with Rich markup
+    """
+    if not diff_stats or not diff_stats.files:
+        return []
+
+    lines = []
+    lines.append("")
+    lines.append(f"[bold]Changed Files ({diff_stats.file_count}):[/bold]")
+
+    for fc in diff_stats.files[:max_files]:
+        # Truncate long paths
+        path = fc.path
+        if len(path) > path_width:
+            path = "..." + path[-(path_width - 3):]
+
+        # Pad plain strings FIRST, then add markup (fixes alignment issue)
+        add_plain = f"+{fc.additions}" if fc.additions else ""
+        del_plain = f"-{fc.deletions}" if fc.deletions else ""
+
+        # Apply color after padding
+        add_str = f"[green]{add_plain:>6}[/green]" if add_plain else " " * 6
+        del_str = f"[red]{del_plain:>6}[/red]" if del_plain else " " * 6
+
+        lines.append(f"  {path:<{path_width}}  {add_str}  {del_str}")
+
+    if len(diff_stats.files) > max_files:
+        remaining = len(diff_stats.files) - max_files
+        lines.append(f"  [dim]... and {remaining} more file(s)[/dim]")
+
+    lines.append(f"  [bold]{'─' * path_width}[/bold]")
+    lines.append(
+        f"  [bold]Total: [green]+{diff_stats.total_additions}[/green] "
+        f"[red]-{diff_stats.total_deletions}[/red][/bold]"
+    )
+
+    return lines
 
 
 def _build_orch_cmd(config: "Config") -> list[str]:
@@ -423,6 +591,8 @@ class IssueFilterResult:
 
     statuses: set[IssueStatus]
     priorities: set[str]
+    tags: set[str]
+    tag_mode: str  # "all" (AND) or "any" (OR)
     text_search: str
 
 
@@ -567,7 +737,7 @@ class AgentSelectScreen(ModalScreen[str | None]):
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel"),
-        Binding("enter", "confirm", "Confirm"),
+        Binding("enter", "confirm", "Start", priority=True),
         Binding("k", "cursor_up", "Up", show=False),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("1", "quick_select_1", "1", show=False),
@@ -596,7 +766,7 @@ class AgentSelectScreen(ModalScreen[str | None]):
                     for i, agent in enumerate(self.agents)
                 ]
                 yield SelectionList[str](*items, id="agent-selection-list")
-                yield Label("[Enter/1-9] select  [Esc] cancel", id="agent-footer")
+                yield Label("[Enter] Start  [1-9] Quick select  [Esc] Cancel", id="agent-footer")
             else:
                 yield Label("No agents available", id="agent-empty")
                 yield Label("[Esc] cancel", id="agent-footer")
@@ -620,12 +790,16 @@ class AgentSelectScreen(ModalScreen[str | None]):
             self.dismiss(None)
             return
         sel = self.query_one("#agent-selection-list", SelectionList)
-        selected = list(sel.selected)
-        if selected:
-            self.dismiss(selected[0])
-        elif sel.highlighted is not None:
+        # Prioritize highlighted item (cursor position) over checkbox selections
+        if sel.highlighted is not None:
             self.dismiss(self.agents[sel.highlighted])
         else:
+            # Fallback: find first agent in list order that is selected (deterministic)
+            selected = sel.selected
+            for agent in self.agents:
+                if agent in selected:
+                    self.dismiss(agent)
+                    return
             self.dismiss(None)
 
     def action_cancel(self) -> None:
@@ -832,6 +1006,28 @@ class IssueFilterScreen(ModalScreen[IssueFilterResult | None]):
             ]
             yield SelectionList[str](*status_items, id="issue-status-list")
 
+            yield Label("Tags (comma-separated)", classes="filter-section-title")
+            yield Input(
+                value=", ".join(self.current_filter.tags)
+                if self.current_filter.tags
+                else "",
+                placeholder="bug, urgent, feature...",
+                id="tag-filter-input",
+            )
+
+            yield Label("Tag Mode", classes="filter-section-title")
+            with RadioSet(id="tag-mode-set"):
+                yield RadioButton(
+                    "Any (OR)",
+                    value=self.current_filter.tag_mode != "all",
+                    id="tag-mode-any",
+                )
+                yield RadioButton(
+                    "All (AND)",
+                    value=self.current_filter.tag_mode == "all",
+                    id="tag-mode-all",
+                )
+
             yield Label("Search", classes="filter-section-title")
             yield Input(
                 value=self.current_filter.text_search,
@@ -845,10 +1041,20 @@ class IssueFilterScreen(ModalScreen[IssueFilterResult | None]):
         statuses = {IssueStatus(v) for v in status_list.selected}
         text_search = self.query_one("#text-search-input", Input).value
 
+        # Parse tags from input
+        tag_input = self.query_one("#tag-filter-input", Input).value
+        tags = {t.strip() for t in tag_input.split(",") if t.strip()}
+
+        # Get tag mode from radio set
+        tag_mode_all = self.query_one("#tag-mode-all", RadioButton)
+        tag_mode = "all" if tag_mode_all.value else "any"
+
         self.dismiss(
             IssueFilterResult(
                 statuses=statuses,
                 priorities=set(),
+                tags=tags,
+                tag_mode=tag_mode,
                 text_search=text_search,
             )
         )
@@ -857,6 +1063,8 @@ class IssueFilterScreen(ModalScreen[IssueFilterResult | None]):
     def clear_filter(self) -> None:
         status_list = self.query_one("#issue-status-list", SelectionList)
         status_list.select_all()
+        self.query_one("#tag-filter-input", Input).value = ""
+        self.query_one("#tag-mode-any", RadioButton).value = True
         self.query_one("#text-search-input", Input).value = ""
 
     @on(Button.Pressed, "#cancel-btn")
@@ -918,6 +1126,22 @@ def filter_issues_client_side(
 
     if filter_state.statuses:
         result = [i for i in result if i.status.value in filter_state.statuses]
+
+    # Tag filtering
+    if filter_state.tags:
+        filter_tags = {t.lower() for t in filter_state.tags}
+        if filter_state.tag_mode == "all":
+            # AND mode: issue must have all filter tags
+            result = [
+                i for i in result if filter_tags.issubset({t.lower() for t in i.tags})
+            ]
+        else:
+            # OR mode (any): issue must have at least one filter tag
+            result = [
+                i
+                for i in result
+                if filter_tags.intersection({t.lower() for t in i.tags})
+            ]
 
     if filter_state.text_search:
         search = filter_state.text_search.lower()
@@ -988,8 +1212,6 @@ def _input_has_focus(app: App) -> bool:
 
 
 class RunsDashboard(App):
-    """Runs-only dashboard for tmux pane."""
-
     CSS = RUNS_DASHBOARD_CSS
 
     BINDINGS = [
@@ -1018,6 +1240,9 @@ class RunsDashboard(App):
         self._daemon_error: Optional[str] = None
         self._last_update: Optional[datetime] = None
         self._highlighted_run_ref: Optional[str] = None
+        self._monitor_registration = MonitorRegistration(
+            self.daemon, str(self.config.project_root), "runs"
+        )
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -1028,11 +1253,15 @@ class RunsDashboard(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        self._monitor_registration.register()
         self._update_title()
         self.refresh_data()
         if self._auto_refresh_enabled:
             self.set_interval(AUTO_REFRESH_INTERVAL, self._do_auto_refresh)
         self.set_interval(ELAPSED_UPDATE_INTERVAL, self._update_elapsed_times)
+
+    def on_unmount(self) -> None:
+        self._monitor_registration.unregister()
 
     def _update_elapsed_times(self) -> None:
         if not self.runs:
@@ -1203,6 +1432,12 @@ class RunsDashboard(App):
             if issue.body:
                 summary = issue.body[:300].replace("\n", " ")
                 lines.append(f"[dim]{summary}[/dim]")
+        # Add changed files section (uses helper for consistent formatting)
+        if run.worktree_path and run.branch:
+            diff_stats = _get_git_diff_stats(
+                run.worktree_path, run.branch, self.config.base_branch
+            )
+            lines.extend(_format_changed_files_lines(diff_stats, max_files=10, path_width=35))
 
         if run.agent == "opencode" and run.server_port and run.opencode_session_id:
             lines.append("")
@@ -1424,6 +1659,9 @@ class IssuesDashboard(App):
         self.title = self._base_title
         self._daemon_error: Optional[str] = None
         self._last_update: Optional[datetime] = None
+        self._monitor_registration = MonitorRegistration(
+            self.daemon, str(self.config.project_root), "issues"
+        )
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -1432,10 +1670,14 @@ class IssuesDashboard(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        self._monitor_registration.register()
         self._update_title()
         self.refresh_data()
         if self._auto_refresh_enabled:
             self.set_interval(AUTO_REFRESH_INTERVAL, self._do_auto_refresh)
+
+    def on_unmount(self) -> None:
+        self._monitor_registration.unregister()
 
     def _update_title(self) -> None:
         count = self.filter_state.issue_filter_count()
@@ -1480,6 +1722,8 @@ class IssuesDashboard(App):
             self.filter_state.issue_filters = IssueFilterState(
                 statuses=selected_statuses,
                 priorities=[],
+                tags=sorted(result.tags),
+                tag_mode=result.tag_mode,
                 text_search=result.text_search,
             )
             self.config.save_filters(self.filter_state)
@@ -1753,6 +1997,9 @@ class OrchMonitorApp(App):
         self.title = self._base_title
         self._daemon_error: Optional[str] = None
         self._last_update: Optional[datetime] = None
+        self._monitor_registration = MonitorRegistration(
+            self.daemon, str(self.config.project_root), "combined"
+        )
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -1771,12 +2018,16 @@ class OrchMonitorApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        self._monitor_registration.register()
         self._update_tab_titles()
         self.refresh_data()
         if self._auto_refresh_enabled:
             self.set_interval(AUTO_REFRESH_INTERVAL, self._do_auto_refresh)
             self.set_interval(MESSAGE_REFRESH_INTERVAL, self._do_message_refresh)
         self.set_interval(ELAPSED_UPDATE_INTERVAL, self._update_elapsed_times)
+
+    def on_unmount(self) -> None:
+        self._monitor_registration.unregister()
 
     def _update_elapsed_times(self) -> None:
         if not self.runs:
@@ -1888,6 +2139,8 @@ class OrchMonitorApp(App):
             self.filter_state.issue_filters = IssueFilterState(
                 statuses=selected_statuses,
                 priorities=[],
+                tags=sorted(result.tags),
+                tag_mode=result.tag_mode,
                 text_search=result.text_search,
             )
             self.config.save_filters(self.filter_state)
@@ -2057,6 +2310,16 @@ class OrchMonitorApp(App):
             f"Session: {run.tmux_session or '-'}",
             f"Multiplexer: {run.multiplexer or 'tmux'}",
         ]
+        # Add changed files section (uses helper for consistent formatting)
+        if run.worktree_path and run.branch:
+            diff_stats = _get_git_diff_stats(
+                run.worktree_path, run.branch, self.config.base_branch
+            )
+            changed_lines = _format_changed_files_lines(diff_stats, max_files=15, path_width=40)
+            if changed_lines:
+                content_lines.append("")
+                content_lines.append("[bold]" + "-" * 50 + "[/bold]")
+                content_lines.extend(changed_lines)
 
         # Add recent messages section
         content_lines.append("")

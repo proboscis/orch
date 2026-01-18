@@ -80,3 +80,56 @@ func TestParseGitHubIssueNumber(t *testing.T) {
 		})
 	}
 }
+
+func TestParseTags(t *testing.T) {
+	tests := []struct {
+		input string
+		want  []string
+	}{
+		{"", nil},
+		{"bug", []string{"bug"}},
+		{"bug, urgent", []string{"bug", "urgent"}},
+		{"bug,urgent", []string{"bug", "urgent"}},
+		{"[bug, urgent]", []string{"bug", "urgent"}},
+		{"[bug,urgent]", []string{"bug", "urgent"}},
+		{" bug , urgent ", []string{"bug", "urgent"}},
+		{"[enhancement, tui, ux]", []string{"enhancement", "tui", "ux"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := ParseTags(tt.input)
+			if len(got) != len(tt.want) {
+				t.Errorf("ParseTags(%q) = %v, want %v", tt.input, got, tt.want)
+				return
+			}
+			for i, v := range got {
+				if v != tt.want[i] {
+					t.Errorf("ParseTags(%q)[%d] = %q, want %q", tt.input, i, v, tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestFormatTags(t *testing.T) {
+	tests := []struct {
+		input []string
+		want  string
+	}{
+		{nil, ""},
+		{[]string{}, ""},
+		{[]string{"bug"}, "[bug]"},
+		{[]string{"bug", "urgent"}, "[bug, urgent]"},
+		{[]string{"enhancement", "tui", "ux"}, "[enhancement, tui, ux]"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			got := FormatTags(tt.input)
+			if got != tt.want {
+				t.Errorf("FormatTags(%v) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}

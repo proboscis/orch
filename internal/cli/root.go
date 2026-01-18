@@ -26,7 +26,7 @@ const (
 
 // GlobalOptions holds options shared across all commands
 type GlobalOptions struct {
-	VaultPath   string
+	IssuesRoot  string
 	ProjectRoot string
 	Backend     string
 	JSON        bool
@@ -75,7 +75,8 @@ and questions to handle human input requirements.`,
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&globalOpts.ProjectRoot, "project-root", "", "Path to project root where .orch/ lives (or set ORCH_PROJECT_ROOT)")
-	rootCmd.PersistentFlags().StringVar(&globalOpts.VaultPath, "vault", "", "Path to vault for file-based issues (or set ORCH_VAULT)")
+	rootCmd.PersistentFlags().StringVar(&globalOpts.IssuesRoot, "issues-root", "", "Path to issues root for file-based issues (or set ORCH_ISSUES_ROOT)")
+	rootCmd.PersistentFlags().StringVar(&globalOpts.IssuesRoot, "vault", "", "[DEPRECATED] Alias for --issues-root")
 	rootCmd.PersistentFlags().StringVar(&globalOpts.Backend, "backend", "file", "Backend type (file|github|linear)")
 	rootCmd.PersistentFlags().BoolVar(&globalOpts.JSON, "json", false, "Output in JSON format")
 	rootCmd.PersistentFlags().BoolVar(&globalOpts.TSV, "tsv", false, "Output in TSV format (for fzf)")
@@ -116,12 +117,12 @@ func Execute() {
 	}
 }
 
-// getVaultPath returns the vault path from flags, environment, or config files.
-// For local backend, defaults to ~/.local/share/orch/<repo>/ if not explicitly configured.
-// Precedence: --vault flag > config.vault > config.issues.path > default (~/.local/share/orch/<repo>)
-func getVaultPath() (string, error) {
-	if globalOpts.VaultPath != "" {
-		return config.ExpandPath(globalOpts.VaultPath, ""), nil
+// getIssuesRoot returns the issues root path from flags, environment, or config files
+// Precedence: --issues-root flag (or --vault) > local .orch/config.yaml > parent .orch/config.yaml > ORCH_VAULT env > ~/.config/orch/config.yaml
+func getIssuesRoot() (string, error) {
+	// 1. Command-line flag (highest precedence)
+	if globalOpts.IssuesRoot != "" {
+		return config.ExpandPath(globalOpts.IssuesRoot, ""), nil
 	}
 
 	cfg, err := config.Load()
@@ -133,14 +134,7 @@ func getVaultPath() (string, error) {
 		return config.ExpandPath(cfg.Vault, ""), nil
 	}
 
-	if cfg.GetIssuesBackend() == "local" {
-		issuesPath := cfg.GetIssuesPath()
-		if issuesPath != "" {
-			return issuesPath, nil
-		}
-	}
-
-	return "", fmt.Errorf("vault path not specified (use --vault, set ORCH_VAULT, or configure issues.path)")
+	return "", fmt.Errorf("issues root not specified (use --issues-root, set ORCH_ISSUES_ROOT, or create .orch/config.yaml)")
 }
 
 // getProjectRoot returns the project root directory (where .orch/ lives).
@@ -155,14 +149,14 @@ func getProjectRoot() (string, error) {
 
 // getStore returns a store instance based on configuration
 func getStore() (store.Store, error) {
-	vaultPath, err := getVaultPath()
+	issuesRoot, err := getIssuesRoot()
 	if err != nil {
 		return nil, err
 	}
 
 	switch globalOpts.Backend {
 	case "file":
-		return file.New(vaultPath)
+		return file.New(issuesRoot)
 	default:
 		return nil, fmt.Errorf("unsupported backend: %s", globalOpts.Backend)
 	}

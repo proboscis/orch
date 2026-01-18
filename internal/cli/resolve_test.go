@@ -13,7 +13,7 @@ func TestRunResolveMarksIssueResolved(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
-	globalOpts.VaultPath = vault
+	globalOpts.IssuesRoot = vault
 	globalOpts.Backend = "file"
 	globalOpts.Quiet = true
 	testBypassDaemon = true
@@ -60,7 +60,7 @@ func TestRunResolveRequiresForceWithoutCompletedRuns(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
-	globalOpts.VaultPath = vault
+	globalOpts.IssuesRoot = vault
 	globalOpts.Backend = "file"
 	globalOpts.Quiet = true
 	testBypassDaemon = true
@@ -112,7 +112,7 @@ func TestRunResolveAlreadyResolved(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
-	globalOpts.VaultPath = vault
+	globalOpts.IssuesRoot = vault
 	globalOpts.Backend = "file"
 	globalOpts.Quiet = true
 	testBypassDaemon = true

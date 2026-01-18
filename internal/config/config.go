@@ -509,7 +509,9 @@ func hasOrchDir(path string) bool {
 
 // applyEnv applies environment variables to config
 func applyEnv(cfg *Config) {
-	if v := os.Getenv("ORCH_VAULT"); v != "" {
+	if v := os.Getenv("ORCH_ISSUES_ROOT"); v != "" {
+		cfg.Vault = v
+	} else if v := os.Getenv("ORCH_VAULT"); v != "" {
 		cfg.Vault = v
 	}
 	if v := os.Getenv("ORCH_AGENT"); v != "" {

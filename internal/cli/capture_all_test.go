@@ -41,7 +41,7 @@ func TestRunCaptureAllJSON(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
-	globalOpts.VaultPath = vault
+	globalOpts.IssuesRoot = vault
 	globalOpts.Backend = "file"
 	globalOpts.JSON = true
 	globalOpts.Quiet = true
@@ -173,7 +173,7 @@ func TestRunCaptureAllPlain(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
-	globalOpts.VaultPath = vault
+	globalOpts.IssuesRoot = vault
 	globalOpts.Backend = "file"
 
 	writeIssue(t, vault, "issue-1")

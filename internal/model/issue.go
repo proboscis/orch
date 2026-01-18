@@ -12,6 +12,7 @@ type Issue struct {
 	Topic       string
 	Summary     string
 	Status      IssueStatus
+	Tags        []string
 	Body        string
 	Path        string
 	Frontmatter map[string]string
@@ -52,4 +53,36 @@ func ParseGitHubIssueNumber(id string) (int, error) {
 		return 0, fmt.Errorf("invalid GitHub issue ID: %s", id)
 	}
 	return n, nil
+}
+
+// ParseTags parses a tags string from frontmatter.
+// Supports formats: "[tag1, tag2]", "tag1, tag2", "tag1,tag2"
+func ParseTags(s string) []string {
+	if s == "" {
+		return nil
+	}
+
+	// Remove brackets if present: [tag1, tag2] -> tag1, tag2
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "[")
+	s = strings.TrimSuffix(s, "]")
+
+	// Split by comma
+	parts := strings.Split(s, ",")
+	var tags []string
+	for _, part := range parts {
+		tag := strings.TrimSpace(part)
+		if tag != "" {
+			tags = append(tags, tag)
+		}
+	}
+	return tags
+}
+
+// FormatTags formats tags for frontmatter output.
+func FormatTags(tags []string) string {
+	if len(tags) == 0 {
+		return ""
+	}
+	return "[" + strings.Join(tags, ", ") + "]"
 }

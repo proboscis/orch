@@ -10,6 +10,61 @@ import (
 	"github.com/s22625/orch/internal/model"
 )
 
+// MonitorConnection tracks a connected monitor instance
+type MonitorConnection struct {
+	ID          string    `json:"id"`
+	PID         int       `json:"pid"`
+	Type        string    `json:"type"` // "go" or "python"
+	View        string    `json:"view"` // "runs", "issues", "dashboard"
+	StartedAt   time.Time `json:"started_at"`
+	LastSeen    time.Time `json:"last_seen"`
+	Project     string    `json:"project"`
+	TmuxSession string    `json:"tmux_session,omitempty"`
+}
+
+// MonitorRequest is the base request for monitor operations
+type MonitorRequest struct {
+	Type        string `json:"type"`
+	MonitorID   string `json:"monitor_id,omitempty"`
+	PID         int    `json:"pid,omitempty"`
+	MonitorType string `json:"monitor_type,omitempty"` // "go" or "python"
+	View        string `json:"view,omitempty"`
+	Project     string `json:"project,omitempty"`
+	TmuxSession string `json:"tmux_session,omitempty"`
+	All         bool   `json:"all,omitempty"`
+	Global      bool   `json:"global,omitempty"`
+}
+
+// RegisterMonitorResponse is the response for register_monitor
+type RegisterMonitorResponse struct {
+	OK        bool   `json:"ok"`
+	Error     string `json:"error,omitempty"`
+	MonitorID string `json:"monitor_id,omitempty"`
+}
+
+// ListMonitorsResponse is the response for list_monitors
+type ListMonitorsResponse struct {
+	OK       bool                 `json:"ok"`
+	Error    string               `json:"error,omitempty"`
+	Monitors []*MonitorConnection `json:"monitors,omitempty"`
+}
+
+// KillMonitorResponse is the response for kill_monitor
+type KillMonitorResponse struct {
+	OK          bool     `json:"ok"`
+	Error       string   `json:"error,omitempty"`
+	KilledIDs   []string `json:"killed_ids,omitempty"`
+	KilledCount int      `json:"killed_count"`
+	FailedIDs   []string `json:"failed_ids,omitempty"`
+	FailedCount int      `json:"failed_count"`
+}
+
+// HeartbeatResponse is the response for monitor_heartbeat
+type HeartbeatResponse struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
 // ListRunsResponse is the response for list_runs
 type ListRunsResponse struct {
 	OK         bool          `json:"ok"`
@@ -90,7 +145,8 @@ type IssueSummary struct {
 	Title   string `json:"title"`
 	Topic   string `json:"topic,omitempty"`
 	Summary string `json:"summary,omitempty"`
-	Status  string `json:"status"`
+	Status  string   `json:"status"`
+	Tags    []string `json:"tags,omitempty"`
 	URI     string `json:"uri"`
 }
 
@@ -109,6 +165,7 @@ type IssueFull struct {
 	Summary     string            `json:"summary,omitempty"`
 	Status      string            `json:"status"`
 	Body        string            `json:"body"`
+	Tags        []string          `json:"tags,omitempty"`
 	URI         string            `json:"uri"`
 	Frontmatter map[string]string `json:"frontmatter,omitempty"`
 }
@@ -216,6 +273,7 @@ func IssueToSummary(issue *model.Issue) *IssueSummary {
 		Topic:   issue.Topic,
 		Summary: issue.Summary,
 		Status:  string(issue.Status),
+		Tags:    issue.Tags,
 		URI:     FileURI(issue.Path),
 	}
 }
@@ -229,6 +287,7 @@ func IssueToFull(issue *model.Issue) *IssueFull {
 		Summary:     issue.Summary,
 		Status:      string(issue.Status),
 		Body:        issue.Body,
+		Tags:        issue.Tags,
 		URI:         FileURI(issue.Path),
 		Frontmatter: issue.Frontmatter,
 	}

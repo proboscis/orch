@@ -27,7 +27,7 @@ You can run orch commands directly via bash to manage issues and runs.
 
 ## Repository Context
 
-- Vault: {{.VaultPath}}
+- IssuesRoot: {{.IssuesRoot}}
 - Working directory: {{.WorkDir}}
 
 ## Git Context
@@ -153,7 +153,7 @@ summary: <one-line summary>
 
 // ControlPromptData contains data for the control agent prompt template
 type ControlPromptData struct {
-	VaultPath      string
+	IssuesRoot      string
 	WorkDir        string
 	IssueIDPattern string
 	IssueIDExample string
@@ -188,7 +188,7 @@ type RunInfo struct {
 // buildControlAgentPrompt builds the control agent prompt with dynamic repo context
 func buildControlAgentPrompt(st store.Store) (string, error) {
 	cwd, _ := os.Getwd()
-	vaultPath := st.VaultPath()
+	issuesRoot := st.RootPath()
 
 	// Get existing issues
 	issues, err := st.ListIssues()
@@ -258,7 +258,7 @@ func buildControlAgentPrompt(st store.Store) (string, error) {
 	}
 
 	data := ControlPromptData{
-		VaultPath:      vaultPath,
+		IssuesRoot:      issuesRoot,
 		WorkDir:        cwd,
 		IssueIDPattern: pattern,
 		IssueIDExample: example,
@@ -278,12 +278,12 @@ func buildControlAgentPrompt(st store.Store) (string, error) {
 
 	tmpl, err := template.New("control-prompt").Parse(controlPromptTemplate)
 	if err != nil {
-		return buildFallbackControlPrompt(vaultPath, cwd), nil
+		return buildFallbackControlPrompt(issuesRoot, cwd), nil
 	}
 
 	var buf strings.Builder
 	if err := tmpl.Execute(&buf, data); err != nil {
-		return buildFallbackControlPrompt(vaultPath, cwd), nil
+		return buildFallbackControlPrompt(issuesRoot, cwd), nil
 	}
 
 	return buf.String(), nil
@@ -417,7 +417,7 @@ func loadExtraPrompt() string {
 }
 
 // buildFallbackControlPrompt creates a simple prompt when template fails
-func buildFallbackControlPrompt(vaultPath, cwd string) string {
+func buildFallbackControlPrompt(issuesRoot, cwd string) string {
 	return fmt.Sprintf(`You are the orch control agent for this repository.
 You can run orch commands directly via bash to manage issues and runs.
 
@@ -433,7 +433,7 @@ Available commands (run directly via bash):
 - orch stop <issue-id>#<run-id>
 - orch resolve <issue-id>#<run-id>
 - orch open <issue-id>
-`, vaultPath, cwd)
+`, issuesRoot, cwd)
 }
 
 // writeControlPromptFile writes the control agent prompt to a temp file
@@ -486,9 +486,9 @@ func sortIssuesByID(issues []*model.Issue) {
 
 // buildAgentChatPrompt is kept for backwards compatibility but now generates dynamic content
 // Deprecated: use buildControlAgentPrompt with store access instead
-func buildAgentChatPrompt(vaultPath string) string {
+func buildAgentChatPrompt(issuesRoot string) string {
 	cwd, _ := os.Getwd()
-	return buildFallbackControlPrompt(vaultPath, cwd)
+	return buildFallbackControlPrompt(issuesRoot, cwd)
 }
 
 func fallbackChatCommand(reason string) string {

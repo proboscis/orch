@@ -115,7 +115,7 @@ func runExec(refStr string, cmdArgs []string, opts *execOptions) error {
 	}
 
 	// Get vault path for environment
-	vaultPath, err := getVaultPath()
+	issuesRoot, err := getIssuesRoot()
 	if err != nil {
 		return err
 	}
@@ -131,7 +131,7 @@ func runExec(refStr string, cmdArgs []string, opts *execOptions) error {
 			fmt.Sprintf("ORCH_RUN_PATH=%s", run.Path),
 			fmt.Sprintf("ORCH_WORKTREE_PATH=%s", worktreePath),
 			fmt.Sprintf("ORCH_BRANCH=%s", run.Branch),
-			fmt.Sprintf("ORCH_VAULT=%s", vaultPath),
+			fmt.Sprintf("ORCH_VAULT=%s", issuesRoot),
 		}
 		env = append(env, orchEnv...)
 	}

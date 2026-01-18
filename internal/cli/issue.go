@@ -139,12 +139,12 @@ func runIssueCreate(issueID string, opts *issueCreateOptions) error {
 }
 
 func runIssueCreateWithEditor(issueID, title string, opts *issueCreateOptions) error {
-	vaultPath, err := getVaultPath()
+	issuesRoot, err := getIssuesRoot()
 	if err != nil {
 		return err
 	}
 
-	issuesDir, err := resolveIssuesDir(vaultPath)
+	issuesDir, err := resolveIssuesDir(issuesRoot)
 	if err != nil {
 		return err
 	}
@@ -208,26 +208,26 @@ func runIssueCreateWithEditor(issueID, title string, opts *issueCreateOptions) e
 	return nil
 }
 
-func resolveIssuesDir(vaultPath string) (string, error) {
-	if strings.TrimSpace(vaultPath) == "" {
+func resolveIssuesDir(issuesRoot string) (string, error) {
+	if strings.TrimSpace(issuesRoot) == "" {
 		return "", fmt.Errorf("vault path is required")
 	}
 
-	if strings.EqualFold(filepath.Base(vaultPath), "issues") {
-		return vaultPath, nil
+	if strings.EqualFold(filepath.Base(issuesRoot), "issues") {
+		return issuesRoot, nil
 	}
 
-	issuesDir := filepath.Join(vaultPath, "issues")
+	issuesDir := filepath.Join(issuesRoot, "issues")
 	if dirExists(issuesDir) {
 		return issuesDir, nil
 	}
 
-	issuesDir = filepath.Join(vaultPath, "Issues")
+	issuesDir = filepath.Join(issuesRoot, "Issues")
 	if dirExists(issuesDir) {
 		return issuesDir, nil
 	}
 
-	return filepath.Join(vaultPath, "issues"), nil
+	return filepath.Join(issuesRoot, "issues"), nil
 }
 
 func dirExists(path string) bool {
@@ -238,14 +238,36 @@ func dirExists(path string) bool {
 	return info.IsDir()
 }
 
+type issueListOptions struct {
+	NoPath  bool
+	Status  string
+	Tags    []string // AND logic - must have all tags
+	TagsAny []string // OR logic - must have any tag
+}
+
 func newIssueListCmd() *cobra.Command {
+	opts := &issueListOptions{}
+
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all issues",
+		Long: `List all issues, optionally filtered by status or tags.
+
+Examples:
+  orch issue list                           # List all issues
+  orch issue list --status open             # List open issues only
+  orch issue list --tag bug                 # List issues tagged with 'bug'
+  orch issue list --tag bug --tag urgent    # AND: must have both tags
+  orch issue list --tag-any bug,enhancement # OR: has any of the tags`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runIssueList()
+			return runIssueList(opts)
 		},
 	}
+
+	cmd.Flags().BoolVar(&opts.NoPath, "no-path", false, "Hide the PATH column")
+	cmd.Flags().StringVarP(&opts.Status, "status", "s", "", "Filter by status (open, closed, resolved)")
+	cmd.Flags().StringSliceVar(&opts.Tags, "tag", nil, "Filter by tag (AND logic, repeatable)")
+	cmd.Flags().StringSliceVar(&opts.TagsAny, "tag-any", nil, "Filter by any tag (OR logic, comma-separated)")
 
 	return cmd
 }
@@ -260,28 +282,44 @@ type issueInfo struct {
 	Title   string       `json:"title"`
 	Summary string       `json:"summary,omitempty"`
 	Status  string       `json:"status"`
+	Tags    []string     `json:"tags,omitempty"`
 	Path    string       `json:"path"`
 	Runs    []runSummary `json:"runs,omitempty"`
 }
 
-func runIssueList() error {
-	vaultPath, err := getVaultPath()
-	if err != nil {
-		return err
-	}
+func runIssueList(opts *issueListOptions) error {
+	projectRoot, _ := getProjectRoot()
 
-	client := daemon.NewClient(vaultPath)
+	client := daemon.NewClient(projectRoot)
 	if client.IsAvailable() {
-		return runIssueListViaDaemon(client)
+		return runIssueListViaDaemon(client, opts)
 	}
 
-	return runIssueListDirect()
+	return runIssueListDirect(opts)
 }
 
-func runIssueListViaDaemon(client *daemon.Client) error {
-	issuesResp, err := client.ListIssues(nil, 0, "")
-	if err != nil {
-		return err
+func runIssueListViaDaemon(client *daemon.Client, opts *issueListOptions) error {
+	// Collect all issues, handling pagination
+	// Pass status filter to daemon if set (daemon supports this)
+	var statusFilter []string
+	if opts.Status != "" {
+		statusFilter = []string{opts.Status}
+	}
+
+	var allIssues []*daemon.IssueSummary
+	cursor := ""
+	for {
+		issuesResp, err := client.ListIssues(statusFilter, 200, cursor) // Use max limit
+		if err != nil {
+			return err
+		}
+		allIssues = append(allIssues, issuesResp.Issues...)
+
+		// Check if there are more pages
+		if issuesResp.NextCursor == nil || *issuesResp.NextCursor == "" {
+			break
+		}
+		cursor = *issuesResp.NextCursor
 	}
 
 	runsResp, err := client.ListRuns("", []string{"running", "blocked", "blocked_api", "booting", "queued"}, 0, "")
@@ -295,12 +333,22 @@ func runIssueListViaDaemon(client *daemon.Client) error {
 	}
 
 	var issueInfos []issueInfo
-	for _, issue := range issuesResp.Issues {
+	for _, issue := range allIssues {
+		// Apply tag filters (status already filtered by daemon)
+		if !matchTagsAnd(issue.Tags, opts.Tags) {
+			continue
+		}
+		if !matchTagsOr(issue.Tags, opts.TagsAny) {
+			continue
+		}
+
 		info := issueInfo{
 			ID:      issue.ID,
 			Title:   issue.Title,
 			Summary: issue.Summary,
 			Status:  issue.Status,
+			Tags:    issue.Tags,
+			Path:    issue.URI,
 		}
 
 		for _, run := range runsByIssue[issue.ID] {
@@ -313,10 +361,10 @@ func runIssueListViaDaemon(client *daemon.Client) error {
 		issueInfos = append(issueInfos, info)
 	}
 
-	return outputIssueList(issueInfos)
+	return outputIssueList(issueInfos, opts)
 }
 
-func runIssueListDirect() error {
+func runIssueListDirect(opts *issueListOptions) error {
 	st, err := getStore()
 	if err != nil {
 		return err
@@ -341,6 +389,7 @@ func runIssueListDirect() error {
 			Summary: issue.Summary,
 			Status:  string(issue.Status),
 			Path:    issue.Path,
+			Tags:    issue.Tags,
 		}
 
 		for _, run := range runsByIssue[issue.ID] {
@@ -356,13 +405,18 @@ func runIssueListDirect() error {
 			}
 		}
 
+		// Apply filters
+		if !matchIssueFilters(string(issue.Status), issue.Tags, opts) {
+			continue
+		}
+
 		issueInfos = append(issueInfos, info)
 	}
 
-	return outputIssueList(issueInfos)
+	return outputIssueList(issueInfos, opts)
 }
 
-func outputIssueList(issueInfos []issueInfo) error {
+func outputIssueList(issueInfos []issueInfo, opts *issueListOptions) error {
 	if globalOpts.JSON {
 		output := struct {
 			OK     bool        `json:"ok"`
@@ -384,7 +438,11 @@ func outputIssueList(issueInfos []issueInfo) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tSTATUS\tSUMMARY\tRUNS")
+	if opts.NoPath {
+		fmt.Fprintln(w, "ID\tSTATUS\tSUMMARY\tRUNS")
+	} else {
+		fmt.Fprintln(w, "ID\tSTATUS\tSUMMARY\tRUNS\tPATH")
+	}
 	for _, issue := range issueInfos {
 		runsSummary := "-"
 		if len(issue.Runs) > 0 {
@@ -400,7 +458,15 @@ func outputIssueList(issueInfos []issueInfo) error {
 		} else if len(summary) > 40 {
 			summary = summary[:37] + "..."
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", issue.ID, status, summary, runsSummary)
+		if opts.NoPath {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", issue.ID, status, summary, runsSummary)
+		} else {
+			path := issue.Path
+			if path == "" {
+				path = "-"
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", issue.ID, status, summary, runsSummary, path)
+		}
 	}
 	w.Flush()
 
@@ -422,6 +488,57 @@ func formatRunsSummary(runs []runSummary) string {
 		return "-"
 	}
 	return strings.Join(parts, ", ")
+}
+
+// matchTagsAnd returns true if the issue has ALL of the specified tags (case-insensitive)
+func matchTagsAnd(issueTags []string, filterTags []string) bool {
+	if len(filterTags) == 0 {
+		return true
+	}
+	tagSet := make(map[string]bool)
+	for _, t := range issueTags {
+		tagSet[strings.ToLower(t)] = true
+	}
+	for _, t := range filterTags {
+		if !tagSet[strings.ToLower(t)] {
+			return false
+		}
+	}
+	return true
+}
+
+// matchTagsOr returns true if the issue has ANY of the specified tags (case-insensitive)
+func matchTagsOr(issueTags []string, filterTags []string) bool {
+	if len(filterTags) == 0 {
+		return true
+	}
+	tagSet := make(map[string]bool)
+	for _, t := range issueTags {
+		tagSet[strings.ToLower(t)] = true
+	}
+	for _, t := range filterTags {
+		if tagSet[strings.ToLower(t)] {
+			return true
+		}
+	}
+	return false
+}
+
+// matchIssueFilters checks if an issue matches all filter criteria
+func matchIssueFilters(status string, tags []string, opts *issueListOptions) bool {
+	// Status filter
+	if opts.Status != "" && !strings.EqualFold(status, opts.Status) {
+		return false
+	}
+	// Tag AND filter
+	if !matchTagsAnd(tags, opts.Tags) {
+		return false
+	}
+	// Tag OR filter
+	if !matchTagsOr(tags, opts.TagsAny) {
+		return false
+	}
+	return true
 }
 
 type issueShowOptions struct {
@@ -680,7 +797,7 @@ func runIssueSync() error {
 		fmt.Println("Syncing issues from GitHub...")
 	}
 
-	err := runIssueList()
+	err := runIssueList(&issueListOptions{})
 	if err != nil {
 		return err
 	}

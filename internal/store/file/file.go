@@ -16,16 +16,17 @@ import (
 
 // FileStore implements store.Store using the filesystem
 type FileStore struct {
-	vaultPath  string
+	rootPath   string
 	issueMu    sync.RWMutex
 	issueCache map[string]*model.Issue // id -> issue
 	cacheDirty bool
 }
 
-func New(vaultPath string) (*FileStore, error) {
-	absPath, err := filepath.Abs(vaultPath)
+// New creates a new FileStore
+func New(rootPath string) (*FileStore, error) {
+	absPath, err := filepath.Abs(rootPath)
 	if err != nil {
-		return nil, fmt.Errorf("invalid vault path: %w", err)
+		return nil, fmt.Errorf("invalid root path: %w", err)
 	}
 
 	if err := os.MkdirAll(absPath, 0755); err != nil {
@@ -34,22 +35,23 @@ func New(vaultPath string) (*FileStore, error) {
 
 	info, err := os.Stat(absPath)
 	if err != nil {
-		return nil, fmt.Errorf("vault path does not exist: %w", err)
+		return nil, fmt.Errorf("root path does not exist: %w", err)
 	}
+
 	if !info.IsDir() {
-		return nil, fmt.Errorf("vault path is not a directory: %s", absPath)
+		return nil, fmt.Errorf("root path is not a directory: %s", absPath)
 	}
 
 	return &FileStore{
-		vaultPath:  absPath,
+		rootPath:   absPath,
 		issueCache: make(map[string]*model.Issue),
 		cacheDirty: true,
 	}, nil
 }
 
-// VaultPath returns the vault root path
-func (s *FileStore) VaultPath() string {
-	return s.vaultPath
+// RootPath returns the issues root path
+func (s *FileStore) RootPath() string {
+	return s.rootPath
 }
 
 func walkWithSymlinks(root string, walkFn filepath.WalkFunc) error {
@@ -70,14 +72,19 @@ func walkWithSymlinks(root string, walkFn filepath.WalkFunc) error {
 					skipChildren = true
 				} else {
 					visited[realPath] = struct{}{}
+
 				}
+
 			} else if absPath, absErr := filepath.Abs(path); absErr == nil {
 				if _, ok := visited[absPath]; ok {
 					skipChildren = true
 				} else {
 					visited[absPath] = struct{}{}
+
 				}
+
 			}
+
 		}
 
 		switch err := walkFn(path, info, nil); err {
@@ -86,6 +93,7 @@ func walkWithSymlinks(root string, walkFn filepath.WalkFunc) error {
 			if info.IsDir() {
 				return nil
 			}
+
 			return filepath.SkipDir
 		case filepath.SkipAll:
 			return filepath.SkipAll
@@ -107,6 +115,7 @@ func walkWithSymlinks(root string, walkFn filepath.WalkFunc) error {
 			default:
 				return err
 			}
+
 		}
 
 		sort.Slice(entries, func(i, j int) bool {
@@ -119,11 +128,14 @@ func walkWithSymlinks(root string, walkFn filepath.WalkFunc) error {
 				if err == filepath.SkipDir {
 					return nil
 				}
+
 				if err == filepath.SkipAll {
 					return filepath.SkipAll
 				}
+
 				return err
 			}
+
 		}
 
 		return nil
@@ -137,10 +149,7 @@ func walkWithSymlinks(root string, walkFn filepath.WalkFunc) error {
 }
 
 func (s *FileStore) scanIssues() error {
-	issuesDir := filepath.Join(s.vaultPath, "issues")
-	if _, err := os.Stat(issuesDir); os.IsNotExist(err) {
-		issuesDir = filepath.Join(s.vaultPath, "Issues")
-	}
+	issuesDir := filepath.Join(s.rootPath, "issues")
 	issues := make(map[string]*model.Issue)
 
 	s.issueMu.Lock()
@@ -203,6 +212,7 @@ func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
 			bodyStart = i + 1
 			break
 		}
+
 		if inFrontmatter {
 			parts := strings.SplitN(line, ":", 2)
 			if len(parts) == 2 {
@@ -210,7 +220,9 @@ func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
 				value := strings.TrimSpace(parts[1])
 				frontmatter[key] = value
 			}
+
 		}
+
 	}
 
 	// Check if this is an issue file
@@ -232,7 +244,9 @@ func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
 				title = strings.TrimPrefix(line, "# ")
 				break
 			}
+
 		}
+
 	}
 
 	// Get body
@@ -251,9 +265,13 @@ func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
 		if len(summary) > 50 {
 			summary = summary[:47] + "..."
 		}
+
 	}
 
 	// Get status (defaults to open if not set)
+
+	// Get tags (parse from YAML list or comma-separated string)
+	tags := parseTags(frontmatter["tags"])
 	status := model.ParseIssueStatus(frontmatter["status"])
 
 	return &model.Issue{
@@ -263,9 +281,43 @@ func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
 		Summary:     summary,
 		Status:      status,
 		Body:        body,
+		Tags:        tags,
 		Path:        path,
 		Frontmatter: frontmatter,
 	}, nil
+}
+
+// parseTags parses tags from frontmatter value.
+// Supports formats: "tag1, tag2", "[tag1, tag2]", "tag1,tag2"
+// parseTags parses tags from frontmatter value.
+// Supports formats: "tag1, tag2", "[tag1, tag2]", '["tag1", "tag2"]'
+func parseTags(value string) []string {
+	if value == "" {
+		return nil
+	}
+
+	// Remove YAML list brackets if present
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
+		value = value[1 : len(value)-1]
+	}
+
+	// Split by comma and clean up
+	var tags []string
+	for _, tag := range strings.Split(value, ",") {
+		tag = strings.TrimSpace(tag)
+		// Strip surrounding quotes (single or double)
+		if len(tag) >= 2 {
+			if (tag[0] == '"' && tag[len(tag)-1] == '"') ||
+				(tag[0] == '\'' && tag[len(tag)-1] == '\'') {
+				tag = tag[1 : len(tag)-1]
+			}
+		}
+		if tag != "" {
+			tags = append(tags, tag)
+		}
+	}
+	return tags
 }
 
 func (s *FileStore) isCacheDirty() bool {
@@ -288,6 +340,7 @@ func (s *FileStore) issueFromCache(issueID string) (*model.Issue, bool) {
 		s.issueMu.RUnlock()
 		return nil, false
 	}
+
 	clone := cloneIssue(issue)
 	s.issueMu.RUnlock()
 	return clone, true
@@ -299,6 +352,7 @@ func (s *FileStore) issuesFromCache() []*model.Issue {
 	for _, issue := range s.issueCache {
 		issues = append(issues, cloneIssue(issue))
 	}
+
 	s.issueMu.RUnlock()
 	return issues
 }
@@ -314,7 +368,9 @@ func cloneIssue(issue *model.Issue) *model.Issue {
 		for k, v := range issue.Frontmatter {
 			clone.Frontmatter[k] = v
 		}
+
 	}
+
 	return &clone
 }
 
@@ -330,18 +386,20 @@ func (s *FileStore) runsDir(issueID string) string {
 
 // resolveRunsDir resolves the runs directory, checking both gh- and gh# formats for backward compat.
 func (s *FileStore) resolveRunsDir(issueID string) string {
-	runsRoot := filepath.Join(s.vaultPath, "runs")
+	runsRoot := filepath.Join(s.rootPath, "runs")
 
 	if strings.HasPrefix(issueID, "gh-") {
 		canonicalDir := filepath.Join(runsRoot, issueID)
 		if _, err := os.Stat(canonicalDir); err == nil {
 			return canonicalDir
 		}
+
 		legacyID := "gh#" + strings.TrimPrefix(issueID, "gh-")
 		legacyDir := filepath.Join(runsRoot, legacyID)
 		if _, err := os.Stat(legacyDir); err == nil {
 			return legacyDir
 		}
+
 		return canonicalDir
 	}
 
@@ -350,11 +408,13 @@ func (s *FileStore) resolveRunsDir(issueID string) string {
 		if _, err := os.Stat(legacyDir); err == nil {
 			return legacyDir
 		}
+
 		canonicalID := "gh-" + strings.TrimPrefix(issueID, "gh#")
 		canonicalDir := filepath.Join(runsRoot, canonicalID)
 		if _, err := os.Stat(canonicalDir); err == nil {
 			return canonicalDir
 		}
+
 		return legacyDir
 	}
 
@@ -368,6 +428,7 @@ func (s *FileStore) ResolveIssue(issueID string) (*model.Issue, error) {
 		if err := s.scanIssues(); err != nil {
 			return nil, err
 		}
+
 	}
 
 	issue, ok := s.issueFromCache(issueID)
@@ -377,10 +438,12 @@ func (s *FileStore) ResolveIssue(issueID string) (*model.Issue, error) {
 		if err := s.scanIssues(); err != nil {
 			return nil, err
 		}
+
 		issue, ok = s.issueFromCache(issueID)
 		if !ok {
 			return nil, fmt.Errorf("issue not found: %s", issueID)
 		}
+
 	}
 
 	return issue, nil
@@ -405,6 +468,7 @@ func (s *FileStore) CreateRun(issueID, runID string, metadata map[string]string)
 		if err != nil {
 			return nil, err
 		}
+
 	}
 
 	// Create runs directory for issue if needed
@@ -428,6 +492,7 @@ func (s *FileStore) CreateRun(issueID, runID string, metadata map[string]string)
 	for k, v := range metadata {
 		sb.WriteString(fmt.Sprintf("%s: %s\n", k, v))
 	}
+
 	sb.WriteString("---\n\n")
 	sb.WriteString("# Events\n\n")
 
@@ -460,6 +525,7 @@ func (s *FileStore) AppendEvent(ref *model.RunRef, event *model.Event) error {
 	if err != nil {
 		return fmt.Errorf("failed to open run file: %w", err)
 	}
+
 	defer f.Close()
 
 	line := event.String() + "\n"
@@ -493,6 +559,7 @@ func (s *FileStore) GetLatestRun(issueID string) (*model.Run, error) {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("no runs found for issue: %s", issueID)
 		}
+
 		return nil, err
 	}
 
@@ -502,10 +569,12 @@ func (s *FileStore) GetLatestRun(issueID string) (*model.Run, error) {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
 			continue
 		}
+
 		name := strings.TrimSuffix(e.Name(), ".md")
 		if name > latestName {
 			latestName = name
 		}
+
 	}
 
 	if latestName == "" {
@@ -529,11 +598,13 @@ func (s *FileStore) GetRunByShortID(shortID string) (*model.Run, error) {
 		if strings.HasPrefix(run.ShortID(), shortID) {
 			matches = append(matches, run)
 		}
+
 	}
 
 	if len(matches) == 0 {
 		return nil, fmt.Errorf("run not found: %s", shortID)
 	}
+
 	if len(matches) > 1 {
 		return nil, formatAmbiguousError(shortID, matches)
 	}
@@ -551,13 +622,16 @@ func formatAmbiguousError(shortID string, matches []*model.Run) error {
 	if len(matches) < limit {
 		limit = len(matches)
 	}
+
 	for i := 0; i < limit; i++ {
 		run := matches[i]
 		sb.WriteString(fmt.Sprintf("  %s  %s#%s\n", run.ShortID(), run.IssueID, run.RunID))
 	}
+
 	if len(matches) > 5 {
 		sb.WriteString(fmt.Sprintf("  ... and %d more\n", len(matches)-5))
 	}
+
 	sb.WriteString("Hint: use more characters to disambiguate")
 
 	return fmt.Errorf("%s", sb.String())
@@ -570,6 +644,7 @@ func (s *FileStore) loadRun(issueID, runID, path string) (*model.Run, error) {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("run not found: %s#%s", issueID, runID)
 		}
+
 		return nil, err
 	}
 
@@ -592,6 +667,7 @@ func (s *FileStore) loadRun(issueID, runID, path string) (*model.Run, error) {
 				bodyStart = i + 1
 				break
 			}
+
 			if inFrontmatter {
 				parts := strings.SplitN(line, ":", 2)
 				if len(parts) == 2 {
@@ -607,9 +683,13 @@ func (s *FileStore) loadRun(issueID, runID, path string) (*model.Run, error) {
 					case "continued_from":
 						run.ContinuedFrom = value
 					}
+
 				}
+
 			}
+
 		}
+
 	}
 
 	// Parse events from body
@@ -621,7 +701,9 @@ func (s *FileStore) loadRun(issueID, runID, path string) (*model.Run, error) {
 			if err == nil {
 				run.Events = append(run.Events, event)
 			}
+
 		}
+
 	}
 
 	run.DeriveState()
@@ -629,7 +711,7 @@ func (s *FileStore) loadRun(issueID, runID, path string) (*model.Run, error) {
 	// Resolve relative worktree paths against the vault path
 	// This handles runs created before worktree paths were made absolute
 	if run.WorktreePath != "" && !filepath.IsAbs(run.WorktreePath) {
-		run.WorktreePath = filepath.Join(s.vaultPath, run.WorktreePath)
+		run.WorktreePath = filepath.Join(s.rootPath, run.WorktreePath)
 	}
 
 	return run, nil
@@ -671,6 +753,7 @@ func (s *FileStore) SetIssueStatus(issueID string, status model.IssueStatus) err
 					// Add status if not found in frontmatter
 					newLines = append(newLines, fmt.Sprintf("status: %s", statusStr))
 				}
+
 				newLines = append(newLines, line)
 				inFrontmatter = false
 				continue
@@ -683,9 +766,11 @@ func (s *FileStore) SetIssueStatus(issueID string, status model.IssueStatus) err
 			} else {
 				newLines = append(newLines, line)
 			}
+
 		} else {
 			newLines = append(newLines, line)
 		}
+
 	}
 
 	if err := os.WriteFile(issue.Path, []byte(strings.Join(newLines, "\n")), 0644); err != nil {

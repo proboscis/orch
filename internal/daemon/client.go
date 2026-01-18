@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"time"
+
+	"github.com/s22625/orch/internal/xdg"
 )
 
 type Client struct {
@@ -24,11 +26,12 @@ func (c *Client) SetTimeout(timeout time.Duration) {
 }
 
 func (c *Client) IsAvailable() bool {
-	return IsDaemonSocketAvailable(c.projectRoot) && IsRunning(c.projectRoot)
+	return IsDaemonSocketAvailable("") && IsRunning("")
 }
 
 func (c *Client) sendRequest(req interface{}) (json.RawMessage, error) {
-	socketPath := SocketFilePath(c.projectRoot)
+	// Use global socket path
+	socketPath := xdg.SocketPath()
 
 	conn, err := net.DialTimeout("unix", socketPath, c.timeout)
 	if err != nil {
@@ -52,14 +55,50 @@ func (c *Client) sendRequest(req interface{}) (json.RawMessage, error) {
 	return raw, nil
 }
 
+// sendRequestWithProjectRoot wraps the request to include project_root context.
+func (c *Client) sendRequestWithProjectRoot(req SendRequest) (json.RawMessage, error) {
+	if req.ProjectRoot == "" {
+		req.ProjectRoot = c.projectRoot
+	}
+	return c.sendRequest(req)
+}
+
 // ListRuns lists runs from the daemon
 func (c *Client) ListRuns(issueID string, status []string, limit int, cursor string) (*ListRunsResponse, error) {
 	req := SendRequest{
-		Type:    "list_runs",
-		IssueID: issueID,
-		Status:  status,
-		Limit:   limit,
-		Cursor:  cursor,
+		Type:        "list_runs",
+		IssueID:     issueID,
+		Status:      status,
+		Limit:       limit,
+		Cursor:      cursor,
+		ProjectRoot: c.projectRoot,
+	}
+
+	raw, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp ListRunsResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !resp.OK {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	return &resp, nil
+}
+
+// ListRunsAll lists runs from all repos (cross-repo view).
+func (c *Client) ListRunsAll(status []string, limit int, cursor string) (*ListRunsResponse, error) {
+	req := SendRequest{
+		Type:   "list_runs",
+		Status: status,
+		Limit:  limit,
+		Cursor: cursor,
+		All:    true,
 	}
 
 	raw, err := c.sendRequest(req)
@@ -82,10 +121,11 @@ func (c *Client) ListRuns(issueID string, status []string, limit int, cursor str
 // ListIssues lists issues from the daemon
 func (c *Client) ListIssues(status []string, limit int, cursor string) (*ListIssuesResponse, error) {
 	req := SendRequest{
-		Type:   "list_issues",
-		Status: status,
-		Limit:  limit,
-		Cursor: cursor,
+		Type:        "list_issues",
+		Status:      status,
+		Limit:       limit,
+		Cursor:      cursor,
+		ProjectRoot: c.projectRoot,
 	}
 
 	raw, err := c.sendRequest(req)
@@ -108,9 +148,10 @@ func (c *Client) ListIssues(status []string, limit int, cursor string) (*ListIss
 // GetRun gets a run from the daemon
 func (c *Client) GetRun(issueID, runID string) (*GetRunResponse, error) {
 	req := SendRequest{
-		Type:    "get_run",
-		IssueID: issueID,
-		RunID:   runID,
+		Type:        "get_run",
+		IssueID:     issueID,
+		RunID:       runID,
+		ProjectRoot: c.projectRoot,
 	}
 
 	raw, err := c.sendRequest(req)
@@ -133,8 +174,9 @@ func (c *Client) GetRun(issueID, runID string) (*GetRunResponse, error) {
 // GetIssue gets an issue from the daemon
 func (c *Client) GetIssue(issueID string) (*GetIssueResponse, error) {
 	req := SendRequest{
-		Type:    "get_issue",
-		IssueID: issueID,
+		Type:        "get_issue",
+		IssueID:     issueID,
+		ProjectRoot: c.projectRoot,
 	}
 
 	raw, err := c.sendRequest(req)
@@ -156,10 +198,11 @@ func (c *Client) GetIssue(issueID string) (*GetIssueResponse, error) {
 
 // StopRunRequest is the request for stop_run
 type StopRunRequest struct {
-	Type    string `json:"type"`
-	IssueID string `json:"issue_id"`
-	RunID   string `json:"run_id,omitempty"`
-	Force   bool   `json:"force,omitempty"`
+	Type        string `json:"type"`
+	IssueID     string `json:"issue_id"`
+	RunID       string `json:"run_id,omitempty"`
+	Force       bool   `json:"force,omitempty"`
+	ProjectRoot string `json:"project_root,omitempty"`
 }
 
 // StopRunResponse is the response for stop_run
@@ -173,10 +216,11 @@ type StopRunResponse struct {
 // StopRun stops a run via the daemon
 func (c *Client) StopRun(issueID, runID string, force bool) (*StopRunResponse, error) {
 	req := StopRunRequest{
-		Type:    "stop_run",
-		IssueID: issueID,
-		RunID:   runID,
-		Force:   force,
+		Type:        "stop_run",
+		IssueID:     issueID,
+		RunID:       runID,
+		Force:       force,
+		ProjectRoot: c.projectRoot,
 	}
 
 	raw, err := c.sendRequest(req)
@@ -198,9 +242,10 @@ func (c *Client) StopRun(issueID, runID string, force bool) (*StopRunResponse, e
 
 // ResolveIssueRequest is the request for resolve_issue
 type ResolveIssueRequest struct {
-	Type    string `json:"type"`
-	IssueID string `json:"issue_id"`
-	Force   bool   `json:"force,omitempty"`
+	Type        string `json:"type"`
+	IssueID     string `json:"issue_id"`
+	Force       bool   `json:"force,omitempty"`
+	ProjectRoot string `json:"project_root,omitempty"`
 }
 
 // ResolveIssueResponse is the response for resolve_issue
@@ -213,9 +258,10 @@ type ResolveIssueResponse struct {
 // ResolveIssue marks an issue as resolved via the daemon
 func (c *Client) ResolveIssue(issueID string, force bool) (*ResolveIssueResponse, error) {
 	req := ResolveIssueRequest{
-		Type:    "resolve_issue",
-		IssueID: issueID,
-		Force:   force,
+		Type:        "resolve_issue",
+		IssueID:     issueID,
+		Force:       force,
+		ProjectRoot: c.projectRoot,
 	}
 
 	raw, err := c.sendRequest(req)
@@ -237,11 +283,12 @@ func (c *Client) ResolveIssue(issueID string, force bool) (*ResolveIssueResponse
 
 // CreateIssueRequest is the request for create_issue
 type CreateIssueRequest struct {
-	Type    string `json:"type"`
-	IssueID string `json:"issue_id"`
-	Title   string `json:"title,omitempty"`
-	Summary string `json:"summary,omitempty"`
-	Body    string `json:"body,omitempty"`
+	Type        string `json:"type"`
+	IssueID     string `json:"issue_id"`
+	Title       string `json:"title,omitempty"`
+	Summary     string `json:"summary,omitempty"`
+	Body        string `json:"body,omitempty"`
+	ProjectRoot string `json:"project_root,omitempty"`
 }
 
 // CreateIssueResponse is the response for create_issue
@@ -255,11 +302,12 @@ type CreateIssueResponse struct {
 // CreateIssue creates an issue via the daemon
 func (c *Client) CreateIssue(issueID, title, summary, body string) (*CreateIssueResponse, error) {
 	req := CreateIssueRequest{
-		Type:    "create_issue",
-		IssueID: issueID,
-		Title:   title,
-		Summary: summary,
-		Body:    body,
+		Type:        "create_issue",
+		IssueID:     issueID,
+		Title:       title,
+		Summary:     summary,
+		Body:        body,
+		ProjectRoot: c.projectRoot,
 	}
 
 	raw, err := c.sendRequest(req)
@@ -281,9 +329,10 @@ func (c *Client) CreateIssue(issueID, title, summary, body string) (*CreateIssue
 
 // CloseIssueRequest is the request for close_issue
 type CloseIssueRequest struct {
-	Type    string `json:"type"`
-	IssueID string `json:"issue_id"`
-	Comment string `json:"comment,omitempty"`
+	Type        string `json:"type"`
+	IssueID     string `json:"issue_id"`
+	Comment     string `json:"comment,omitempty"`
+	ProjectRoot string `json:"project_root,omitempty"`
 }
 
 // CloseIssueResponse is the response for close_issue
@@ -296,9 +345,10 @@ type CloseIssueResponse struct {
 // CloseIssue closes an issue via the daemon
 func (c *Client) CloseIssue(issueID, comment string) (*CloseIssueResponse, error) {
 	req := CloseIssueRequest{
-		Type:    "close_issue",
-		IssueID: issueID,
-		Comment: comment,
+		Type:        "close_issue",
+		IssueID:     issueID,
+		Comment:     comment,
+		ProjectRoot: c.projectRoot,
 	}
 
 	raw, err := c.sendRequest(req)
@@ -320,10 +370,11 @@ func (c *Client) CloseIssue(issueID, comment string) (*CloseIssueResponse, error
 
 // GetAttachInfoRequest is the request for get_attach_info
 type GetAttachInfoRequest struct {
-	Type    string `json:"type"`
-	IssueID string `json:"issue_id"`
-	RunID   string `json:"run_id,omitempty"`
-	ShortID string `json:"short_id,omitempty"`
+	Type        string `json:"type"`
+	IssueID     string `json:"issue_id"`
+	RunID       string `json:"run_id,omitempty"`
+	ShortID     string `json:"short_id,omitempty"`
+	ProjectRoot string `json:"project_root,omitempty"`
 }
 
 // GetAttachInfoResponse is the response for get_attach_info
@@ -343,10 +394,11 @@ type GetAttachInfoResponse struct {
 // GetAttachInfo gets attach information for a run
 func (c *Client) GetAttachInfo(issueID, runID, shortID string) (*GetAttachInfoResponse, error) {
 	req := GetAttachInfoRequest{
-		Type:    "get_attach_info",
-		IssueID: issueID,
-		RunID:   runID,
-		ShortID: shortID,
+		Type:        "get_attach_info",
+		IssueID:     issueID,
+		RunID:       runID,
+		ShortID:     shortID,
+		ProjectRoot: c.projectRoot,
 	}
 
 	raw, err := c.sendRequest(req)
@@ -368,15 +420,17 @@ func (c *Client) GetAttachInfo(issueID, runID, shortID string) (*GetAttachInfoRe
 
 // GetRunByShortIDRequest is the request for get_run_by_short_id
 type GetRunByShortIDRequest struct {
-	Type    string `json:"type"`
-	ShortID string `json:"short_id"`
+	Type        string `json:"type"`
+	ShortID     string `json:"short_id"`
+	ProjectRoot string `json:"project_root,omitempty"`
 }
 
 // GetRunByShortID gets a run by short ID via the daemon
 func (c *Client) GetRunByShortID(shortID string) (*GetRunResponse, error) {
 	req := GetRunByShortIDRequest{
-		Type:    "get_run_by_short_id",
-		ShortID: shortID,
+		Type:        "get_run_by_short_id",
+		ShortID:     shortID,
+		ProjectRoot: c.projectRoot,
 	}
 
 	raw, err := c.sendRequest(req)
@@ -394,4 +448,186 @@ func (c *Client) GetRunByShortID(shortID string) (*GetRunResponse, error) {
 	}
 
 	return &resp, nil
+}
+
+func (c *Client) RegisterMonitor(pid int, monitorType, view, project, tmuxSession string) (*RegisterMonitorResponse, error) {
+	req := SendRequest{
+		Type:        "register_monitor",
+		Limit:       pid,
+		Title:       monitorType,
+		Summary:     view,
+		ProjectRoot: project,
+		Body:        tmuxSession,
+	}
+
+	raw, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp RegisterMonitorResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !resp.OK {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	return &resp, nil
+}
+
+func (c *Client) UnregisterMonitor(monitorID string) error {
+	req := SendRequest{
+		Type:    "unregister_monitor",
+		ShortID: monitorID,
+	}
+
+	raw, err := c.sendRequest(req)
+	if err != nil {
+		return err
+	}
+
+	var resp SendResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !resp.OK {
+		return fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	return nil
+}
+
+func (c *Client) MonitorHeartbeat(monitorID string) error {
+	req := SendRequest{
+		Type:    "monitor_heartbeat",
+		ShortID: monitorID,
+	}
+
+	raw, err := c.sendRequest(req)
+	if err != nil {
+		return err
+	}
+
+	var resp HeartbeatResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !resp.OK {
+		return fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	return nil
+}
+
+func (c *Client) ListMonitors(projectRoot string, all bool) (*ListMonitorsResponse, error) {
+	req := SendRequest{
+		Type:        "list_monitors",
+		ProjectRoot: projectRoot,
+		Force:       all,
+	}
+
+	raw, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp ListMonitorsResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !resp.OK {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	return &resp, nil
+}
+
+func (c *Client) KillMonitor(monitorID string, killAll bool, global bool, projectRoot string) (*KillMonitorResponse, error) {
+	cursorVal := ""
+	if global {
+		cursorVal = "global"
+	}
+	req := SendRequest{
+		Type:        "kill_monitor",
+		ShortID:     monitorID,
+		Force:       killAll,
+		Cursor:      cursorVal,
+		ProjectRoot: projectRoot,
+	}
+
+	raw, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp KillMonitorResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !resp.OK {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	return &resp, nil
+}
+
+// RegisterRepo registers a project with the daemon.
+func (c *Client) RegisterRepo(projectRoot string) (string, error) {
+	req := SendRequest{
+		Type:        "register_repo",
+		ProjectRoot: projectRoot,
+	}
+
+	raw, err := c.sendRequest(req)
+	if err != nil {
+		return "", err
+	}
+
+	var resp struct {
+		OK     bool   `json:"ok"`
+		Error  string `json:"error,omitempty"`
+		RepoID string `json:"repo_id,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return "", fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !resp.OK {
+		return "", fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	return resp.RepoID, nil
+}
+
+// ListRepos returns list of registered repos from the daemon.
+func (c *Client) ListRepos() ([]map[string]string, error) {
+	req := SendRequest{
+		Type: "list_repos",
+	}
+
+	raw, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp struct {
+		OK    bool                `json:"ok"`
+		Error string              `json:"error,omitempty"`
+		Repos []map[string]string `json:"repos,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !resp.OK {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	return resp.Repos, nil
 }

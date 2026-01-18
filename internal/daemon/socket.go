@@ -3,12 +3,15 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/s22625/orch/internal/agent"
@@ -16,13 +19,20 @@ import (
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
 	"github.com/s22625/orch/internal/store"
+	"github.com/s22625/orch/internal/xdg"
 )
 
 const (
 	socketFile = "daemon.sock"
 )
 
-func SocketFilePath(projectRoot string) string {
+// SocketFilePath returns the global daemon socket path.
+func SocketFilePath(_ string) string {
+	return xdg.SocketPath()
+}
+
+// LegacySocketFilePath returns the legacy per-project socket path.
+func LegacySocketFilePath(projectRoot string) string {
 	return filepath.Join(OrchDir(projectRoot), socketFile)
 }
 
@@ -32,8 +42,9 @@ type SendRequest struct {
 	RunID       string   `json:"run_id"`
 	Message     string   `json:"message"`
 	NoEnter     bool     `json:"no_enter,omitempty"`
-	VaultPath   string   `json:"vault_path,omitempty"`
-	ProjectRoot string   `json:"project_root,omitempty"`
+	IssuesRoot  string   `json:"vault_path,omitempty"`   // Deprecated: JSON field kept for backward compat
+	ProjectRoot string   `json:"project_root,omitempty"` // Required for repo context
+	RepoID      string   `json:"repo_id,omitempty"`      // Optional: explicit repo ID
 	Status      []string `json:"status,omitempty"`
 	Limit       int      `json:"limit,omitempty"`
 	Cursor      string   `json:"cursor,omitempty"`
@@ -43,6 +54,7 @@ type SendRequest struct {
 	Force       bool     `json:"force,omitempty"`
 	ShortID     string   `json:"short_id,omitempty"`
 	Comment     string   `json:"comment,omitempty"`
+	All         bool     `json:"all,omitempty"` // For cross-repo operations
 }
 
 type SendResponse struct {
@@ -50,13 +62,33 @@ type SendResponse struct {
 	Error string `json:"error,omitempty"`
 }
 
+// RepoContext holds per-repo state in the daemon
+type RepoContext struct {
+	ProjectRoot   string
+	RepoID        string
+	Store         store.Store
+	GitHubBackend *github.Backend
+	Config        interface{} // *config.Config, but avoiding import cycle
+}
+
 type SocketServer struct {
-	projectRoot   string
-	store         store.Store
-	listener      net.Listener
-	logger        Logger
-	stopCh        chan struct{}
+	// For backward compatibility, projectRoot is the "default" project
+	// but the daemon can now serve multiple repos
+	projectRoot string
+	store       store.Store // Default store for backward compat
+	listener    net.Listener
+	logger      Logger
+	stopCh      chan struct{}
+
+	// Global daemon state
+	repos   map[string]*RepoContext // repoID -> context
+	reposMu sync.RWMutex
+
+	// Legacy single-repo fields (for backward compat)
 	githubBackend *github.Backend
+
+	monitors   map[string]*MonitorConnection
+	monitorsMu sync.RWMutex
 }
 
 type Logger interface {
@@ -64,12 +96,97 @@ type Logger interface {
 }
 
 func NewSocketServer(projectRoot string, st store.Store, logger Logger) *SocketServer {
-	return &SocketServer{
+	s := &SocketServer{
 		projectRoot: projectRoot,
 		store:       st,
 		logger:      logger,
 		stopCh:      make(chan struct{}),
+		monitors:    make(map[string]*MonitorConnection),
+		repos:       make(map[string]*RepoContext),
 	}
+
+	// Register the initial project root as a repo context
+	if projectRoot != "" {
+		repoID, _ := xdg.RepoID(projectRoot)
+		if repoID == "" {
+			repoID = filepath.Base(projectRoot)
+		}
+		s.repos[repoID] = &RepoContext{
+			ProjectRoot: projectRoot,
+			RepoID:      repoID,
+			Store:       st,
+		}
+	}
+
+	return s
+}
+
+// RegisterRepo adds a new repo context to the daemon.
+func (s *SocketServer) RegisterRepo(projectRoot string, st store.Store) (string, error) {
+	repoID, err := xdg.RepoID(projectRoot)
+	if err != nil {
+		repoID = filepath.Base(projectRoot)
+	}
+
+	s.reposMu.Lock()
+	defer s.reposMu.Unlock()
+
+	s.repos[repoID] = &RepoContext{
+		ProjectRoot: projectRoot,
+		RepoID:      repoID,
+		Store:       st,
+	}
+
+	return repoID, nil
+}
+
+// GetRepoContext returns the context for a repo by ID or project root.
+func (s *SocketServer) GetRepoContext(repoIDOrPath string) *RepoContext {
+	s.reposMu.RLock()
+	defer s.reposMu.RUnlock()
+
+	// Try direct repoID lookup
+	if ctx, ok := s.repos[repoIDOrPath]; ok {
+		return ctx
+	}
+
+	// Try to find by project root path
+	for _, ctx := range s.repos {
+		if ctx.ProjectRoot == repoIDOrPath {
+			return ctx
+		}
+	}
+
+	return nil
+}
+
+// resolveStore returns the appropriate store for a request.
+// Falls back to default store if no specific repo context is found.
+func (s *SocketServer) resolveStore(req SendRequest) store.Store {
+	// Try explicit repo_id first
+	if req.RepoID != "" {
+		if ctx := s.GetRepoContext(req.RepoID); ctx != nil {
+			return ctx.Store
+		}
+	}
+
+	// Try project_root
+	if req.ProjectRoot != "" {
+		// First, try to derive repoID from project root
+		repoID, _ := xdg.RepoID(req.ProjectRoot)
+		if repoID != "" {
+			if ctx := s.GetRepoContext(repoID); ctx != nil {
+				return ctx.Store
+			}
+		}
+		// Also try direct path lookup
+		if ctx := s.GetRepoContext(req.ProjectRoot); ctx != nil {
+			return ctx.Store
+		}
+	}
+
+	// Fall back to default store
+	return s.store
 }
 
 func (s *SocketServer) SetGitHubBackend(backend *github.Backend) {
@@ -77,7 +194,12 @@ func (s *SocketServer) SetGitHubBackend(backend *github.Backend) {
 }
 
 func (s *SocketServer) Start() error {
-	socketPath := SocketFilePath(s.projectRoot)
+	socketPath := xdg.SocketPath()
+
+	// Ensure runtime directory exists
+	if err := xdg.EnsureRuntimeDir(); err != nil {
+		return fmt.Errorf("failed to create runtime directory: %w", err)
+	}
 
 	os.Remove(socketPath)
 
@@ -96,6 +218,7 @@ func (s *SocketServer) Start() error {
 	s.logger.Printf("socket server listening on %s", socketPath)
 
 	go s.acceptLoop()
+	s.StartStaleMonitorCleanup()
 
 	return nil
 }
@@ -105,7 +228,7 @@ func (s *SocketServer) Stop() {
 	if s.listener != nil {
 		s.listener.Close()
 	}
-	os.Remove(SocketFilePath(s.projectRoot))
+	os.Remove(xdg.SocketPath())
 }
 
 func (s *SocketServer) acceptLoop() {
@@ -169,9 +292,72 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 		s.handleGetAttachInfo(req, encoder)
 	case "get_run_by_short_id":
 		s.handleGetRunByShortID(req, encoder)
+	case "register_monitor":
+		s.handleRegisterMonitor(req, encoder)
+	case "unregister_monitor":
+		s.handleUnregisterMonitor(req, encoder)
+	case "monitor_heartbeat":
+		s.handleMonitorHeartbeat(req, encoder)
+	case "list_monitors":
+		s.handleListMonitors(req, encoder)
+	case "kill_monitor":
+		s.handleKillMonitor(req, encoder)
+	case "register_repo":
+		s.handleRegisterRepo(req, encoder)
+	case "list_repos":
+		s.handleListRepos(req, encoder)
 	default:
 		encoder.Encode(SendResponse{OK: false, Error: "unknown_type"})
 	}
+}
+
+// handleRegisterRepo handles repo registration requests from clients.
+func (s *SocketServer) handleRegisterRepo(req SendRequest, encoder *json.Encoder) {
+	if req.ProjectRoot == "" {
+		encoder.Encode(SendResponse{OK: false, Error: "project_root required"})
+		return
+	}
+
+	// For now, we don't create a new store dynamically since that requires
+	// knowing the issues root. The client should include it.
+	repoID, _ := xdg.RepoID(req.ProjectRoot)
+	if repoID == "" {
+		repoID = filepath.Base(req.ProjectRoot)
+	}
+
+	s.reposMu.Lock()
+	if _, exists := s.repos[repoID]; !exists {
+		s.repos[repoID] = &RepoContext{
+			ProjectRoot: req.ProjectRoot,
+			RepoID:      repoID,
+			// Store will be nil until properly configured
+		}
+	}
+	s.reposMu.Unlock()
+
+	s.logger.Printf("registered repo: %s (%s)", repoID, req.ProjectRoot)
+	encoder.Encode(map[string]interface{}{
+		"ok":      true,
+		"repo_id": repoID,
+	})
+}
+
+// handleListRepos returns list of registered repos.
+func (s *SocketServer) handleListRepos(req SendRequest, encoder *json.Encoder) {
+	s.reposMu.RLock()
+	repos := make([]map[string]string, 0, len(s.repos))
+	for _, ctx := range s.repos {
+		repos = append(repos, map[string]string{
+			"repo_id":      ctx.RepoID,
+			"project_root": ctx.ProjectRoot,
+		})
+	}
+	s.reposMu.RUnlock()
+
+	encoder.Encode(map[string]interface{}{
+		"ok":    true,
+		"repos": repos,
+	})
 }
 
 func (s *SocketServer) handleSend(req SendRequest, encoder *json.Encoder) {
@@ -182,8 +368,14 @@ func (s *SocketServer) handleSend(req SendRequest, encoder *json.Encoder) {
 func (s *SocketServer) processSend(req SendRequest) {
 	s.logger.Printf("processing send for %s#%s", req.IssueID, req.RunID)
 
+	st := s.resolveStore(req)
+	if st == nil {
+		s.logger.Printf("no store available for request")
+		return
+	}
+
 	ref := &model.RunRef{IssueID: req.IssueID, RunID: req.RunID}
-	run, err := s.store.GetRun(ref)
+	run, err := st.GetRun(ref)
 	if err != nil {
 		s.logger.Printf("failed to get run %s#%s: %v", req.IssueID, req.RunID, err)
 		return
@@ -232,16 +424,26 @@ func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {
 		return
 	}
 
-	filter := &store.ListRunsFilter{
-		IssueID: req.IssueID,
-		Limit:   0,
+	// If --all flag is set, aggregate runs from all repos
+	var runs []*model.Run
+	if req.All {
+		runs, err = s.listAllRepoRuns(req)
+	} else {
+		st := s.resolveStore(req)
+		if st == nil {
+			encoder.Encode(ListRunsResponse{OK: false, Error: "no store available"})
+			return
+		}
+		filter := &store.ListRunsFilter{
+			IssueID: req.IssueID,
+			Limit:   0,
+		}
+		for _, status := range req.Status {
+			filter.Status = append(filter.Status, model.Status(status))
+		}
+		runs, err = st.ListRuns(filter)
 	}
 
-	for _, status := range req.Status {
-		filter.Status = append(filter.Status, model.Status(status))
-	}
-
-	runs, err := s.store.ListRuns(filter)
 	if err != nil {
 		s.logger.Printf("error listing runs: %v", err)
 		encoder.Encode(ListRunsResponse{OK: false, Error: "store_error"})
@@ -278,6 +480,42 @@ func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {
 	})
 }
 
+// listAllRepoRuns aggregates runs from all registered repos.
+func (s *SocketServer) listAllRepoRuns(req SendRequest) ([]*model.Run, error) {
+	// Copy store pointers under lock, then release before I/O
+	s.reposMu.RLock()
+	stores := make([]store.Store, 0, len(s.repos))
+	for _, ctx := range s.repos {
+		if ctx.Store != nil {
+			stores = append(stores, ctx.Store)
+		}
+	}
+	s.reposMu.RUnlock()
+
+	// Now do I/O without holding the lock
+	var allRuns []*model.Run
+	for _, st := range stores {
+		filter := &store.ListRunsFilter{
+			IssueID: req.IssueID,
+		}
+		for _, status := range req.Status {
+			filter.Status = append(filter.Status, model.Status(status))
+		}
+		runs, err := st.ListRuns(filter)
+		if err != nil {
+			continue // Skip errors, aggregate what we can
+		}
+		allRuns = append(allRuns, runs...)
+	}
+
+	// Sort by updated time, most recent first
+	sort.Slice(allRuns, func(i, j int) bool {
+		return allRuns[i].UpdatedAt.After(allRuns[j].UpdatedAt)
+	})
+
+	return allRuns, nil
+}
+
 func (s *SocketServer) handleListIssues(req SendRequest, encoder *json.Encoder) {
 	const defaultLimit = 50
 	const maxLimit = 200
@@ -300,7 +538,12 @@ func (s *SocketServer) handleListIssues(req SendRequest, encoder *json.Encoder) 
 	if s.githubBackend != nil {
 		issues, err = s.githubBackend.ListFromCache()
 	} else {
-		issues, err = s.store.ListIssues()
+		st := s.resolveStore(req)
+		if st == nil {
+			encoder.Encode(ListIssuesResponse{OK: false, Error: "no store available"})
+			return
+		}
+		issues, err = st.ListIssues()
 	}
 	if err != nil {
 		s.logger.Printf("error listing issues: %v", err)
@@ -362,8 +605,14 @@ func (s *SocketServer) handleGetRun(req SendRequest, encoder *json.Encoder) {
 		return
 	}
 
+	st := s.resolveStore(req)
+	if st == nil {
+		encoder.Encode(GetRunResponse{OK: false, Error: "no store available"})
+		return
+	}
+
 	ref := &model.RunRef{IssueID: req.IssueID, RunID: req.RunID}
-	run, err := s.store.GetRun(ref)
+	run, err := st.GetRun(ref)
 	if err != nil {
 		s.logger.Printf("error getting run %s#%s: %v", req.IssueID, req.RunID, err)
 		encoder.Encode(GetRunResponse{OK: false, Error: "not_found"})
@@ -388,7 +637,12 @@ func (s *SocketServer) handleGetIssue(req SendRequest, encoder *json.Encoder) {
 	if s.githubBackend != nil {
 		issue, err = s.githubBackend.GetByIDFromCache(req.IssueID)
 	} else {
-		issue, err = s.store.ResolveIssue(req.IssueID)
+		st := s.resolveStore(req)
+		if st == nil {
+			encoder.Encode(GetIssueResponse{OK: false, Error: "no store available"})
+			return
+		}
+		issue, err = st.ResolveIssue(req.IssueID)
 	}
 
 	if err != nil {
@@ -404,7 +658,7 @@ func (s *SocketServer) handleGetIssue(req SendRequest, encoder *json.Encoder) {
 }
 
 func SendViaDaemon(projectRoot string, run *model.Run, message string, noEnter bool) error {
-	socketPath := SocketFilePath(projectRoot)
+	socketPath := xdg.SocketPath()
 
 	conn, err := net.DialTimeout("unix", socketPath, 5*time.Second)
 	if err != nil {
@@ -441,8 +695,9 @@ func SendViaDaemon(projectRoot string, run *model.Run, message string, noEnter b
 	return nil
 }
 
-func IsDaemonSocketAvailable(projectRoot string) bool {
-	socketPath := SocketFilePath(projectRoot)
+// IsDaemonSocketAvailable checks if the global daemon socket exists.
+func IsDaemonSocketAvailable(_ string) bool {
+	socketPath := xdg.SocketPath()
 	_, err := os.Stat(socketPath)
 	return err == nil
 }
@@ -453,24 +708,30 @@ func (s *SocketServer) handleStopRun(req SendRequest, encoder *json.Encoder) {
 		return
 	}
 
+	st := s.resolveStore(req)
+	if st == nil {
+		encoder.Encode(StopRunResponse{OK: false, Error: "no store available"})
+		return
+	}
+
 	var stoppedRuns []string
 
 	if req.RunID != "" {
 		ref := &model.RunRef{IssueID: req.IssueID, RunID: req.RunID}
-		run, err := s.store.GetRun(ref)
+		run, err := st.GetRun(ref)
 		if err != nil {
 			s.logger.Printf("error getting run %s#%s: %v", req.IssueID, req.RunID, err)
 			encoder.Encode(StopRunResponse{OK: false, Error: "not_found"})
 			return
 		}
-		if err := s.stopSingleRun(run); err != nil {
+		if err := s.stopSingleRun(run, st); err != nil {
 			s.logger.Printf("error stopping run %s#%s: %v", req.IssueID, req.RunID, err)
 			encoder.Encode(StopRunResponse{OK: false, Error: err.Error()})
 			return
 		}
 		stoppedRuns = append(stoppedRuns, run.RunID)
 	} else {
-		runs, err := s.store.ListRuns(&store.ListRunsFilter{
+		runs, err := st.ListRuns(&store.ListRunsFilter{
 			IssueID: req.IssueID,
 			Status:  []model.Status{model.StatusRunning, model.StatusBooting, model.StatusBlocked, model.StatusBlockedAPI, model.StatusQueued},
 		})
@@ -480,7 +741,7 @@ func (s *SocketServer) handleStopRun(req SendRequest, encoder *json.Encoder) {
 			return
 		}
 		for _, run := range runs {
-			if err := s.stopSingleRun(run); err != nil {
+			if err := s.stopSingleRun(run, st); err != nil {
 				s.logger.Printf("error stopping run %s#%s: %v", run.IssueID, run.RunID, err)
 			} else {
 				stoppedRuns = append(stoppedRuns, run.RunID)
@@ -495,7 +756,7 @@ func (s *SocketServer) handleStopRun(req SendRequest, encoder *json.Encoder) {
 	})
 }
 
-func (s *SocketServer) stopSingleRun(run *model.Run) error {
+func (s *SocketServer) stopSingleRun(run *model.Run, st store.Store) error {
 	if run.Status == model.StatusDone || run.Status == model.StatusFailed || run.Status == model.StatusCanceled {
 		return nil
 	}
@@ -519,7 +780,7 @@ func (s *SocketServer) stopSingleRun(run *model.Run) error {
 		Type:      "status",
 		Name:      string(model.StatusCanceled),
 	}
-	return s.store.AppendEvent(ref, event)
+	return st.AppendEvent(ref, event)
 }
 
 func (s *SocketServer) handleResolveIssue(req SendRequest, encoder *json.Encoder) {
@@ -528,7 +789,13 @@ func (s *SocketServer) handleResolveIssue(req SendRequest, encoder *json.Encoder
 		return
 	}
 
-	issue, err := s.store.ResolveIssue(req.IssueID)
+	st := s.resolveStore(req)
+	if st == nil {
+		encoder.Encode(ResolveIssueResponse{OK: false, Error: "no store available"})
+		return
+	}
+
+	issue, err := st.ResolveIssue(req.IssueID)
 	if err != nil {
 		s.logger.Printf("error getting issue %s: %v", req.IssueID, err)
 		encoder.Encode(ResolveIssueResponse{OK: false, Error: "not_found"})
@@ -542,7 +809,7 @@ func (s *SocketServer) handleResolveIssue(req SendRequest, encoder *json.Encoder
 
 	forceResolve := req.Force
 	if !forceResolve {
-		runs, err := s.store.ListRuns(&store.ListRunsFilter{IssueID: req.IssueID})
+		runs, err := st.ListRuns(&store.ListRunsFilter{IssueID: req.IssueID})
 		if err != nil {
 			s.logger.Printf("error listing runs for %s: %v", req.IssueID, err)
 			encoder.Encode(ResolveIssueResponse{OK: false, Error: "store_error"})
@@ -563,7 +830,7 @@ func (s *SocketServer) handleResolveIssue(req SendRequest, encoder *json.Encoder
 		}
 	}
 
-	if err := s.store.SetIssueStatus(req.IssueID, model.IssueStatusResolved); err != nil {
+	if err := st.SetIssueStatus(req.IssueID, model.IssueStatusResolved); err != nil {
 		s.logger.Printf("error resolving issue %s: %v", req.IssueID, err)
 		encoder.Encode(ResolveIssueResponse{OK: false, Error: "store_error"})
 		return
@@ -605,11 +872,17 @@ func (s *SocketServer) handleCreateIssue(req SendRequest, encoder *json.Encoder)
 		return
 	}
 
+	st := s.resolveStore(req)
+	if st == nil {
+		encoder.Encode(CreateIssueResponse{OK: false, Error: "no store available"})
+		return
+	}
+
 	// Use vault path for file-based issues (not project root)
-	vaultPath := s.store.VaultPath()
-	issuesDir := filepath.Join(vaultPath, "issues")
-	if _, err := os.Stat(filepath.Join(vaultPath, "Issues")); err == nil {
-		issuesDir = filepath.Join(vaultPath, "Issues")
+	issuesRoot := st.RootPath()
+	issuesDir := filepath.Join(issuesRoot, "issues")
+	if _, err := os.Stat(filepath.Join(issuesRoot, "Issues")); err == nil {
+		issuesDir = filepath.Join(issuesRoot, "Issues")
 	}
 	if err := os.MkdirAll(issuesDir, 0755); err != nil {
 		s.logger.Printf("error creating issues directory: %v", err)
@@ -671,7 +944,13 @@ func (s *SocketServer) handleCloseIssue(req SendRequest, encoder *json.Encoder) 
 		return
 	}
 
-	if err := s.store.SetIssueStatus(req.IssueID, model.IssueStatusClosed); err != nil {
+	st := s.resolveStore(req)
+	if st == nil {
+		encoder.Encode(CloseIssueResponse{OK: false, Error: "no store available"})
+		return
+	}
+
+	if err := st.SetIssueStatus(req.IssueID, model.IssueStatusClosed); err != nil {
 		s.logger.Printf("error closing issue %s: %v", req.IssueID, err)
 		encoder.Encode(CloseIssueResponse{OK: false, Error: "not_found"})
 		return
@@ -682,16 +961,22 @@ func (s *SocketServer) handleCloseIssue(req SendRequest, encoder *json.Encoder) 
 }
 
 func (s *SocketServer) handleGetAttachInfo(req SendRequest, encoder *json.Encoder) {
+	st := s.resolveStore(req)
+	if st == nil {
+		encoder.Encode(GetAttachInfoResponse{OK: false, Error: "no store available"})
+		return
+	}
+
 	var run *model.Run
 	var err error
 
 	if req.RunID != "" {
 		ref := &model.RunRef{IssueID: req.IssueID, RunID: req.RunID}
-		run, err = s.store.GetRun(ref)
+		run, err = st.GetRun(ref)
 	} else if req.ShortID != "" {
-		run, err = s.store.GetRunByShortID(req.ShortID)
+		run, err = st.GetRunByShortID(req.ShortID)
 	} else if req.IssueID != "" {
-		run, err = s.store.GetLatestRun(req.IssueID)
+		run, err = st.GetLatestRun(req.IssueID)
 	} else {
 		encoder.Encode(GetAttachInfoResponse{OK: false, Error: "invalid_request: issue_id, run_id, or short_id required"})
 		return
@@ -733,7 +1018,13 @@ func (s *SocketServer) handleGetRunByShortID(req SendRequest, encoder *json.Enco
 		return
 	}
 
-	run, err := s.store.GetRunByShortID(shortID)
+	st := s.resolveStore(req)
+	if st == nil {
+		encoder.Encode(GetRunResponse{OK: false, Error: "no store available"})
+		return
+	}
+
+	run, err := st.GetRunByShortID(shortID)
 	if err != nil {
 		s.logger.Printf("error getting run by short id %s: %v", shortID, err)
 		encoder.Encode(GetRunResponse{OK: false, Error: "not_found"})
@@ -744,4 +1035,220 @@ func (s *SocketServer) handleGetRunByShortID(req SendRequest, encoder *json.Enco
 		OK:  true,
 		Run: RunToFull(run),
 	})
+}
+
+func (s *SocketServer) handleRegisterMonitor(req SendRequest, encoder *json.Encoder) {
+	if req.ProjectRoot == "" {
+		req.ProjectRoot = s.projectRoot
+	}
+
+	monitorID := fmt.Sprintf("mon-%d-%d", req.Limit, time.Now().UnixNano()%100000)
+	if req.ShortID != "" {
+		monitorID = req.ShortID
+	}
+
+	monitorType := "go"
+	if req.Title != "" {
+		monitorType = req.Title
+	}
+
+	view := "dashboard"
+	if req.Summary != "" {
+		view = req.Summary
+	}
+
+	conn := &MonitorConnection{
+		ID:          monitorID,
+		PID:         req.Limit,
+		Type:        monitorType,
+		View:        view,
+		StartedAt:   time.Now(),
+		LastSeen:    time.Now(),
+		Project:     req.ProjectRoot,
+		TmuxSession: req.Body,
+	}
+
+	s.monitorsMu.Lock()
+	s.monitors[monitorID] = conn
+	s.monitorsMu.Unlock()
+
+	s.logger.Printf("monitor registered: %s (pid=%d, type=%s, view=%s)", monitorID, conn.PID, conn.Type, conn.View)
+
+	encoder.Encode(RegisterMonitorResponse{
+		OK:        true,
+		MonitorID: monitorID,
+	})
+}
+
+func (s *SocketServer) handleUnregisterMonitor(req SendRequest, encoder *json.Encoder) {
+	monitorID := req.ShortID
+	if monitorID == "" {
+		encoder.Encode(SendResponse{OK: false, Error: "invalid_request: monitor_id required"})
+		return
+	}
+
+	s.monitorsMu.Lock()
+	conn, exists := s.monitors[monitorID]
+	if exists {
+		delete(s.monitors, monitorID)
+	}
+	s.monitorsMu.Unlock()
+
+	if !exists {
+		encoder.Encode(SendResponse{OK: false, Error: "not_found"})
+		return
+	}
+
+	s.logger.Printf("monitor unregistered: %s (pid=%d)", monitorID, conn.PID)
+	encoder.Encode(SendResponse{OK: true})
+}
+
+func (s *SocketServer) handleMonitorHeartbeat(req SendRequest, encoder *json.Encoder) {
+	monitorID := req.ShortID
+	if monitorID == "" {
+		encoder.Encode(HeartbeatResponse{OK: false, Error: "invalid_request: monitor_id required"})
+		return
+	}
+
+	s.monitorsMu.Lock()
+	conn, exists := s.monitors[monitorID]
+	if exists {
+		conn.LastSeen = time.Now()
+	}
+	s.monitorsMu.Unlock()
+
+	if !exists {
+		encoder.Encode(HeartbeatResponse{OK: false, Error: "not_found"})
+		return
+	}
+
+	encoder.Encode(HeartbeatResponse{OK: true})
+}
+
+func (s *SocketServer) handleListMonitors(req SendRequest, encoder *json.Encoder) {
+	s.monitorsMu.RLock()
+	// Copy values while holding lock to avoid race with heartbeat updates
+	monitors := make([]*MonitorConnection, 0, len(s.monitors))
+	for _, conn := range s.monitors {
+		if req.ProjectRoot != "" && !req.Force && conn.Project != req.ProjectRoot {
+			continue
+		}
+		// Copy the struct to avoid race conditions
+		snapshot := *conn
+		monitors = append(monitors, &snapshot)
+	}
+	s.monitorsMu.RUnlock()
+
+	sort.Slice(monitors, func(i, j int) bool {
+		return monitors[i].StartedAt.Before(monitors[j].StartedAt)
+	})
+
+	encoder.Encode(ListMonitorsResponse{
+		OK:       true,
+		Monitors: monitors,
+	})
+}
+
+func (s *SocketServer) handleKillMonitor(req SendRequest, encoder *json.Encoder) {
+	killAll := req.Force
+	global := req.Cursor != ""
+	monitorID := req.ShortID
+
+	if !killAll && monitorID == "" {
+		encoder.Encode(KillMonitorResponse{OK: false, Error: "invalid_request: monitor_id required or use --all"})
+		return
+	}
+
+	s.monitorsMu.Lock()
+	var toKill []MonitorConnection
+	var toKillIDs []string
+	if killAll {
+		for id, conn := range s.monitors {
+			if global || conn.Project == s.projectRoot || conn.Project == req.ProjectRoot {
+				toKill = append(toKill, *conn)
+				toKillIDs = append(toKillIDs, id)
+			}
+		}
+	} else if conn, exists := s.monitors[monitorID]; exists {
+		toKill = append(toKill, *conn)
+		toKillIDs = append(toKillIDs, monitorID)
+	}
+	s.monitorsMu.Unlock()
+
+	if len(toKill) == 0 && !killAll {
+		encoder.Encode(KillMonitorResponse{OK: false, Error: "not_found"})
+		return
+	}
+
+	var killedIDs, failedIDs []string
+	for i, conn := range toKill {
+		if err := s.killMonitorProcess(&conn); err != nil {
+			s.logger.Printf("failed to kill monitor %s (pid=%d): %v", conn.ID, conn.PID, err)
+			failedIDs = append(failedIDs, conn.ID)
+		} else {
+			s.logger.Printf("killed monitor %s (pid=%d)", conn.ID, conn.PID)
+			killedIDs = append(killedIDs, conn.ID)
+			s.monitorsMu.Lock()
+			delete(s.monitors, toKillIDs[i])
+			s.monitorsMu.Unlock()
+		}
+	}
+
+	encoder.Encode(KillMonitorResponse{
+		OK:          true,
+		KilledIDs:   killedIDs,
+		KilledCount: len(killedIDs),
+		FailedIDs:   failedIDs,
+		FailedCount: len(failedIDs),
+	})
+}
+
+func (s *SocketServer) killMonitorProcess(conn *MonitorConnection) error {
+	if conn.PID <= 0 {
+		return fmt.Errorf("invalid pid")
+	}
+
+	process, err := os.FindProcess(conn.PID)
+	if err != nil {
+		return err
+	}
+
+	err = process.Signal(syscall.SIGTERM)
+	if err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *SocketServer) StartStaleMonitorCleanup() {
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-s.stopCh:
+				return
+			case <-ticker.C:
+				s.cleanupStaleMonitors()
+			}
+		}
+	}()
+}
+
+func (s *SocketServer) cleanupStaleMonitors() {
+	threshold := time.Now().Add(-60 * time.Second)
+
+	s.monitorsMu.Lock()
+	defer s.monitorsMu.Unlock()
+
+	for id, conn := range s.monitors {
+		if conn.LastSeen.Before(threshold) {
+			s.logger.Printf("cleaning up stale monitor %s (pid=%d, last_seen=%s)", id, conn.PID, conn.LastSeen.Format(time.RFC3339))
+			delete(s.monitors, id)
+		}
+	}
 }

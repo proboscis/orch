@@ -18,6 +18,7 @@ import (
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/notify"
 	"github.com/s22625/orch/internal/store"
+	"github.com/s22625/orch/internal/xdg"
 )
 
 const (
@@ -26,7 +27,9 @@ const (
 	FetchInterval   = 90 * time.Second
 )
 
+// Daemon is now a global daemon that can serve multiple repos
 type Daemon struct {
+	// For backward compatibility, keep a default project root
 	projectRoot string
 	store       store.Store
 	interval    time.Duration
@@ -94,13 +97,19 @@ func (d *Daemon) debug(format string, v ...interface{}) {
 
 // Run starts the daemon main loop (blocking)
 func (d *Daemon) Run() error {
-	lockFile, err := AcquireLock(d.projectRoot)
+	// Acquire global lock (XDG-compliant)
+	lockFile, err := AcquireLock("")
 	if err != nil {
 		return err
 	}
 	d.lockFile = lockFile
 
-	logPath := LogFilePath(d.projectRoot)
+	// Ensure state directory exists and open log file
+	if err := xdg.EnsureStateDir(); err != nil {
+		return fmt.Errorf("failed to create state directory: %w", err)
+	}
+
+	logPath := xdg.LogPath()
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %w", err)
@@ -122,7 +131,7 @@ func (d *Daemon) Run() error {
 			d.logger.Printf("slack notifications enabled")
 		}
 		if cfg.IsGitHubBackend() {
-			cachePath := filepath.Join(OrchDir(d.projectRoot), "github-cache.db")
+			cachePath := filepath.Join(xdg.DataDir(), "github-cache.db")
 			ghBackend, err := github.NewBackend(&cfg.GitHub, cachePath)
 			if err != nil {
 				d.logger.Printf("warning: failed to initialize GitHub backend: %v", err)
@@ -133,22 +142,26 @@ func (d *Daemon) Run() error {
 		}
 	}
 
-	if err := WritePID(d.projectRoot); err != nil {
+	if err := WritePID(""); err != nil {
 		return err
 	}
 	defer func() {
-		UnregisterDaemon(d.projectRoot)
-		RemovePID(d.projectRoot)
+		UnregisterDaemon("")
+		RemovePID("")
 		if d.lockFile != nil {
 			d.lockFile.Close()
 		}
 	}()
 
-	if err := RegisterDaemon(d.projectRoot); err != nil {
+	if err := RegisterDaemon(""); err != nil {
 		d.logger.Printf("warning: failed to register daemon: %v", err)
 	}
 
-	d.logger.Printf("daemon started (pid=%d, project_root=%s, binary=%s)", os.Getpid(), d.projectRoot, d.executablePath)
+	d.logger.Printf("global daemon started (pid=%d, binary=%s)", os.Getpid(), d.executablePath)
+	if d.projectRoot != "" {
+		repoID, _ := xdg.RepoID(d.projectRoot)
+		d.logger.Printf("default project: %s (repo_id=%s)", d.projectRoot, repoID)
+	}
 
 	d.socketServer = NewSocketServer(d.projectRoot, d.store, d.logger)
 	d.socketServer.SetGitHubBackend(d.githubBackend)
@@ -228,12 +241,13 @@ func (d *Daemon) writeMetadata() error {
 		StartedAt: time.Now(),
 		ExecPath:  d.executablePath,
 		ExecMtime: d.startupMtime,
+		Version:   2, // XDG global daemon version
 	}
 	data, err := json.Marshal(meta)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(MetadataFilePath(d.projectRoot), data, 0644)
+	return os.WriteFile(xdg.MetadataPath(), data, 0644)
 }
 
 func (d *Daemon) isBinaryStale() bool {
@@ -260,7 +274,12 @@ func (d *Daemon) checkBinaryStaleness() {
 func (d *Daemon) restartWithNewBinary() error {
 	d.logger.Printf("restarting daemon with new binary via exec...")
 
-	args := []string{d.executablePath, "daemon", "run", "--project-root", d.projectRoot}
+	// For global daemon, we don't need --project-root anymore
+	// but keep it for backward compatibility if one was specified
+	args := []string{d.executablePath, "daemon", "run"}
+	if d.projectRoot != "" {
+		args = append(args, "--project-root", d.projectRoot)
+	}
 	return syscall.Exec(d.executablePath, args, os.Environ())
 }
 
@@ -364,9 +383,11 @@ func (d *Daemon) getOrCreateState(run *model.Run) *RunState {
 	return state
 }
 
+// StartInBackground starts the global daemon in the background.
+// The projectRoot parameter is optional; if empty, the daemon runs without a default project.
 func StartInBackground(projectRoot string) (int, error) {
-	if IsRunning(projectRoot) {
-		return GetRunningPID(projectRoot), nil
+	if IsRunning("") {
+		return GetRunningPID(""), nil
 	}
 
 	executable, err := os.Executable()
@@ -374,9 +395,14 @@ func StartInBackground(projectRoot string) (int, error) {
 		return 0, fmt.Errorf("failed to find executable: %w", err)
 	}
 
+	args := []string{executable, "daemon", "run"}
+	if projectRoot != "" {
+		args = append(args, "--project-root", projectRoot)
+	}
+
 	cmd := &exec.Cmd{
 		Path: executable,
-		Args: []string{executable, "daemon", "run", "--project-root", projectRoot},
+		Args: args,
 		SysProcAttr: &syscall.SysProcAttr{
 			Setsid: true,
 		},
@@ -394,8 +420,9 @@ func StartInBackground(projectRoot string) (int, error) {
 	return cmd.Process.Pid, nil
 }
 
-func Kill(projectRoot string) error {
-	pid := GetRunningPID(projectRoot)
+// Kill stops the global daemon.
+func Kill(_ string) error {
+	pid := GetRunningPID("")
 	if pid == 0 {
 		return nil // Not running
 	}
@@ -411,7 +438,7 @@ func Kill(projectRoot string) error {
 
 	time.Sleep(500 * time.Millisecond)
 
-	RemovePID(projectRoot)
+	RemovePID("")
 
 	return nil
 }

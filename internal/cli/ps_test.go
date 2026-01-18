@@ -44,7 +44,7 @@ func TestOutputTableTruncatesSummary(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
-	globalOpts.VaultPath = vault
+	globalOpts.IssuesRoot = vault
 
 	issuesDir := filepath.Join(vault, "issues")
 	if err := os.MkdirAll(issuesDir, 0755); err != nil {
@@ -81,7 +81,7 @@ func TestOutputTableUsesTopic(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
-	globalOpts.VaultPath = vault
+	globalOpts.IssuesRoot = vault
 
 	issuesDir := filepath.Join(vault, "issues")
 	if err := os.MkdirAll(issuesDir, 0755); err != nil {
@@ -122,7 +122,7 @@ func TestOutputTableTruncatesTopicChars(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
-	globalOpts.VaultPath = vault
+	globalOpts.IssuesRoot = vault
 
 	issuesDir := filepath.Join(vault, "issues")
 	if err := os.MkdirAll(issuesDir, 0755); err != nil {
@@ -173,7 +173,7 @@ func TestOutputTableShowsPRColumn(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
-	globalOpts.VaultPath = vault
+	globalOpts.IssuesRoot = vault
 
 	updatedAt := time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC)
 	run := &model.Run{
@@ -218,7 +218,7 @@ func TestOutputTableShowsPRColumnForPROpenStatus(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
-	globalOpts.VaultPath = vault
+	globalOpts.IssuesRoot = vault
 
 	updatedAt := time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC)
 	run := &model.Run{
@@ -329,7 +329,7 @@ func TestRunPsExcludesResolvedIssuesByDefault(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
-	globalOpts.VaultPath = vault
+	globalOpts.IssuesRoot = vault
 	globalOpts.Backend = "file"
 	globalOpts.JSON = true
 
@@ -387,7 +387,7 @@ func TestRunPsAllIncludesResolvedIssues(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
-	globalOpts.VaultPath = vault
+	globalOpts.IssuesRoot = vault
 	globalOpts.Backend = "file"
 	globalOpts.JSON = true
 

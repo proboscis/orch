@@ -152,13 +152,13 @@ func runPs(opts *psOptions) error {
 	}
 
 	if opts.Verbose {
-		vaultPath, _ := getVaultPath()
+		projectRoot, _ := getProjectRoot()
 		fmt.Println()
-		fmt.Printf("Daemon running: %v\n", daemon.IsRunning(vaultPath))
-		if daemon.IsRunning(vaultPath) {
-			fmt.Printf("Daemon PID: %d\n", daemon.GetRunningPID(vaultPath))
+		fmt.Printf("Daemon running: %v\n", daemon.IsRunning(projectRoot))
+		if daemon.IsRunning(projectRoot) {
+			fmt.Printf("Daemon PID: %d\n", daemon.GetRunningPID(projectRoot))
 		}
-		fmt.Printf("Daemon log: %s\n", daemon.LogFilePath(vaultPath))
+		fmt.Printf("Daemon log: %s\n", daemon.LogFilePath(projectRoot))
 	}
 
 	return nil

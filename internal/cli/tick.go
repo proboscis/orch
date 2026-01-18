@@ -188,7 +188,7 @@ func resumeRun(st store.Store, run *model.Run, agentType string) error {
 		IssueID:     run.IssueID,
 		RunID:       run.RunID,
 		RunPath:     run.Path,
-		VaultPath:   st.VaultPath(),
+		IssuesRoot:   st.RootPath(),
 		Branch:      run.Branch,
 		Prompt:      buildResumePrompt(issue, run),
 		Resume:      true,
