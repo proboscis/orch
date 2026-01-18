@@ -2,7 +2,9 @@ package config
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -1063,5 +1065,129 @@ gemini:
 	}
 	if got := cfg.GetPromptTemplate("custom"); got != "global {{issue}}" {
 		t.Errorf("GetPromptTemplate(custom) = %q, want global {{issue}}", got)
+	}
+}
+
+func TestGetProjectRootFromWorktree(t *testing.T) {
+	t.Setenv("ORCH_PROJECT_ROOT", "")
+	t.Setenv("ORCH_VAULT", "")
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.email", "test@example.com")
+	runGit(t, repo, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("test"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "init")
+
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("vault: .\n"), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	worktreeDir := filepath.Join(repo, ".git-worktrees", "test-worktree")
+	runGit(t, repo, "worktree", "add", "-b", "test-branch", worktreeDir)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(worktreeDir); err != nil {
+		t.Fatalf("chdir to worktree: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	projectRoot, err := GetProjectRoot()
+	if err != nil {
+		t.Fatalf("GetProjectRoot error: %v", err)
+	}
+
+	expectedRoot, err := filepath.EvalSymlinks(repo)
+	if err != nil {
+		t.Fatalf("EvalSymlinks repo: %v", err)
+	}
+	gotRoot, err := filepath.EvalSymlinks(projectRoot)
+	if err != nil {
+		t.Fatalf("EvalSymlinks projectRoot: %v", err)
+	}
+
+	if gotRoot != expectedRoot {
+		t.Fatalf("GetProjectRoot from worktree = %q, want main repo %q", gotRoot, expectedRoot)
+	}
+}
+
+func TestGetProjectRootFromWorktreeOutsideRepo(t *testing.T) {
+	t.Setenv("ORCH_PROJECT_ROOT", "")
+	t.Setenv("ORCH_VAULT", "")
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.email", "test@example.com")
+	runGit(t, repo, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("test"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "init")
+
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("vault: .\n"), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	worktreeBase := t.TempDir()
+	worktreeDir := filepath.Join(worktreeBase, "worktrees", "test-worktree")
+	runGit(t, repo, "worktree", "add", "-b", "test-branch-outside", worktreeDir)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(worktreeDir); err != nil {
+		t.Fatalf("chdir to worktree: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	projectRoot, err := GetProjectRoot()
+	if err != nil {
+		t.Fatalf("GetProjectRoot error: %v", err)
+	}
+
+	expectedRoot, err := filepath.EvalSymlinks(repo)
+	if err != nil {
+		t.Fatalf("EvalSymlinks repo: %v", err)
+	}
+	gotRoot, err := filepath.EvalSymlinks(projectRoot)
+	if err != nil {
+		t.Fatalf("EvalSymlinks projectRoot: %v", err)
+	}
+
+	if gotRoot != expectedRoot {
+		t.Fatalf("GetProjectRoot from worktree outside repo = %q, want main repo %q", gotRoot, expectedRoot)
+	}
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v error: %v (%s)", args, err, strings.TrimSpace(string(out)))
 	}
 }

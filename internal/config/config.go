@@ -461,14 +461,17 @@ func resolvePathFromConfig(path, baseDir string) string {
 	return path
 }
 
+// getMainRepoOrchDir returns the main repository's root if we're in a worktree
+// and that main repo has a .orch directory. Returns empty string otherwise.
+func getMainRepoOrchDir(startDir string) string {
+	if mainRepo, isWorktree := git.IsWorktree(startDir); isWorktree && hasOrchDir(mainRepo) {
+		return mainRepo
+	}
+	return ""
+}
+
 // GetProjectRoot returns the project root directory (where .orch/ lives).
-// It searches for .orch/config.yaml in the current directory and parent directories.
-// Returns the directory containing .orch/, or an error if not found.
-//
-// Precedence:
-// 1. ORCH_PROJECT_ROOT environment variable (must contain .orch/ directory)
-// 2. Directory containing .orch/config.yaml (searched upward from cwd)
-// 3. ORCH_VAULT as legacy fallback (only if it contains .orch/ directory)
+// When in a worktree, prefers the main repo's .orch to centralize all state.
 func GetProjectRoot() (string, error) {
 	if v := os.Getenv("ORCH_PROJECT_ROOT"); v != "" {
 		resolved := ExpandPath(v, "")
@@ -478,13 +481,23 @@ func GetProjectRoot() (string, error) {
 		return "", fmt.Errorf("ORCH_PROJECT_ROOT (%s) does not contain .orch/ directory", resolved)
 	}
 
+	if mainRepo := getMainRepoOrchDir(""); mainRepo != "" {
+		return mainRepo, nil
+	}
+
 	configPath, err := findRepoConfig()
 	if err != nil {
 		return "", err
 	}
 	if configPath != "" {
 		orchDir := filepath.Dir(configPath)
-		return filepath.Dir(orchDir), nil
+		projectRoot := filepath.Dir(orchDir)
+
+		if mainRepo := getMainRepoOrchDir(projectRoot); mainRepo != "" {
+			return mainRepo, nil
+		}
+
+		return projectRoot, nil
 	}
 
 	if v := os.Getenv("ORCH_VAULT"); v != "" {
