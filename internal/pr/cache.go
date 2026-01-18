@@ -207,6 +207,42 @@ func LookupInfo(repoRoot, branch string) (*Info, error) {
 	return lookupInfo(repoRoot, branch)
 }
 
+// LookupInfoByURL returns PR info by URL using the GitHub CLI.
+// This works even if the local worktree has been deleted.
+// Only GitHub URLs are supported (gh CLI requirement).
+func LookupInfoByURL(prURL string) (*Info, error) {
+	if strings.TrimSpace(prURL) == "" {
+		return nil, fmt.Errorf("PR URL is required")
+	}
+	if !strings.HasPrefix(prURL, "https://github.com/") {
+		return nil, fmt.Errorf("only GitHub URLs are supported: %s", prURL)
+	}
+	if _, err := exec.LookPath("gh"); err != nil {
+		return nil, err
+	}
+
+	cmd := exec.Command("gh", "pr", "view", prURL, "--json", "url,number,state")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	var pr struct {
+		URL    string `json:"url"`
+		Number int    `json:"number"`
+		State  string `json:"state"`
+	}
+	if err := json.Unmarshal(output, &pr); err != nil {
+		return nil, err
+	}
+
+	return &Info{
+		URL:    pr.URL,
+		Number: pr.Number,
+		State:  pr.State,
+	}, nil
+}
+
 func getCachePath(repoRoot string) (string, error) {
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {

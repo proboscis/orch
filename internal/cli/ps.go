@@ -361,7 +361,9 @@ func outputTableWithIssueInfoOpts(runs []*model.Run, now time.Time, opts *psOpti
 		}
 
 		merged := "-"
-		if state, ok := gitStates[r.RunID]; ok {
+		if r.Status == model.StatusDone && r.PRUrl != "" {
+			merged = "merged"
+		} else if state, ok := gitStates[r.RunID]; ok {
 			merged = state
 		}
 

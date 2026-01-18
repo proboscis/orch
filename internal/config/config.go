@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/s22625/orch/internal/git"
 	"gopkg.in/yaml.v3"
 )
 
@@ -242,6 +243,7 @@ func findRepoConfig() (string, error) {
 }
 
 // findRepoConfigs searches upward from cwd for .orch/config.yaml files.
+// If running from a git worktree, it also includes the main repo's config.
 // Returned paths are ordered from furthest ancestor to closest (highest precedence last).
 func findRepoConfigs() ([]string, error) {
 	cwd, err := os.Getwd()
@@ -251,18 +253,26 @@ func findRepoConfigs() ([]string, error) {
 
 	dir := cwd
 	var paths []string
+	visitedDirs := make(map[string]bool)
 	for {
 		configPath := filepath.Join(dir, ".orch", configFile)
 		if _, err := os.Stat(configPath); err == nil {
 			paths = append(paths, configPath)
+			visitedDirs[dir] = true
 		}
 
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			// Reached root
 			break
 		}
 		dir = parent
+	}
+
+	if mainRepo, isWorktree := git.IsWorktree(cwd); isWorktree && !visitedDirs[mainRepo] {
+		configPath := filepath.Join(mainRepo, ".orch", configFile)
+		if _, err := os.Stat(configPath); err == nil {
+			paths = append(paths, configPath)
+		}
 	}
 
 	for i, j := 0, len(paths)-1; i < j; i, j = i+1, j-1 {
