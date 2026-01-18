@@ -419,7 +419,7 @@ func Kill(projectRoot string) error {
 func (d *Daemon) gitHubPollingLoop() {
 	defer d.wg.Done()
 
-	pollInterval := 60 * time.Second
+	pollInterval := 300 * time.Second
 	if d.config != nil && d.config.GitHub.PollInterval > 0 {
 		pollInterval = time.Duration(d.config.GitHub.PollInterval) * time.Second
 	}

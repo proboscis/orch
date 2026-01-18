@@ -78,10 +78,10 @@ type SlackConfig struct {
 
 // GitHubConfig holds configuration for GitHub Issues backend.
 type GitHubConfig struct {
-	Owner        string            `yaml:"owner,omitempty"`         // GitHub repository owner
-	Repo         string            `yaml:"repo,omitempty"`          // GitHub repository name
-	LabelFilter  string            `yaml:"label_filter,omitempty"`  // Only sync issues with this label (e.g., "orch")
-	PollInterval int               `yaml:"poll_interval,omitempty"` // Polling interval in seconds (default: 60)
+	Owner        string            `yaml:"owner,omitempty"`        // GitHub repository owner
+	Repo         string            `yaml:"repo,omitempty"`         // GitHub repository name
+	LabelFilter  string            `yaml:"label_filter,omitempty"` // Only sync issues with this label (e.g., "orch")
+	PollInterval int               `yaml:"poll_interval,omitempty"`
 	StatusLabels map[string]string `yaml:"status_labels,omitempty"` // Map GitHub labels to status (e.g., "status:resolved" -> "resolved")
 }
 
@@ -93,7 +93,7 @@ func (g *GitHubConfig) IsConfigured() bool {
 // GetPollInterval returns the poll interval with a sensible default.
 func (g *GitHubConfig) GetPollInterval() int {
 	if g.PollInterval <= 0 {
-		return 60 // Default: 60 seconds
+		return 300
 	}
 	return g.PollInterval
 }
