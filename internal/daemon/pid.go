@@ -8,8 +8,11 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+
+	"github.com/s22625/orch/internal/xdg"
 )
 
+// Legacy constants for backward compatibility
 const (
 	orchDir      = ".orch"
 	pidFile      = "daemon.pid"
@@ -23,41 +26,68 @@ type DaemonMetadata struct {
 	StartedAt   time.Time `json:"started_at"`
 	ExecPath    string    `json:"exec_path"`
 	ExecMtime   time.Time `json:"exec_mtime"`
-	ProjectRoot string    `json:"project_root,omitempty"`
+	ProjectRoot string    `json:"project_root,omitempty"` // Deprecated: for legacy compat
+	Version     int       `json:"version,omitempty"`      // Schema version (2 = XDG global daemon)
 }
 
 // DaemonInfo contains information about a running daemon for listing
 type DaemonInfo struct {
 	PID         int
-	ProjectRoot string
+	ProjectRoot string // Empty for global daemon
 	SocketPath  string
 	StartedAt   time.Time
 	Uptime      time.Duration
 	IsHealthy   bool
+	IsGlobal    bool // True if this is the XDG global daemon
 }
 
+// OrchDir returns the .orch directory for a project (legacy, for backward compat).
 func OrchDir(projectRoot string) string {
 	return filepath.Join(projectRoot, orchDir)
 }
 
-func PIDFilePath(projectRoot string) string {
+// PIDFilePath returns the global daemon PID file path.
+func PIDFilePath(_ string) string {
+	return xdg.PIDPath()
+}
+
+// LogFilePath returns the global daemon log file path.
+func LogFilePath(_ string) string {
+	return xdg.LogPath()
+}
+
+// MetadataFilePath returns the global daemon metadata file path.
+func MetadataFilePath(_ string) string {
+	return xdg.MetadataPath()
+}
+
+// LockFilePath returns the global daemon lock file path.
+func LockFilePath(_ string) string {
+	return xdg.LockPath()
+}
+
+// LegacyPIDFilePath returns the legacy per-project PID file path.
+func LegacyPIDFilePath(projectRoot string) string {
 	return filepath.Join(OrchDir(projectRoot), pidFile)
 }
 
-func LogFilePath(projectRoot string) string {
+// LegacyLogFilePath returns the legacy per-project log file path.
+func LegacyLogFilePath(projectRoot string) string {
 	return filepath.Join(OrchDir(projectRoot), logFile)
 }
 
-func MetadataFilePath(projectRoot string) string {
+// LegacyMetadataFilePath returns the legacy per-project metadata file path.
+func LegacyMetadataFilePath(projectRoot string) string {
 	return filepath.Join(OrchDir(projectRoot), metadataFile)
 }
 
-func LockFilePath(projectRoot string) string {
+// LegacyLockFilePath returns the legacy per-project lock file path.
+func LegacyLockFilePath(projectRoot string) string {
 	return filepath.Join(OrchDir(projectRoot), lockFile)
 }
 
-func ReadMetadata(projectRoot string) (*DaemonMetadata, error) {
-	data, err := os.ReadFile(MetadataFilePath(projectRoot))
+func ReadMetadata(_ string) (*DaemonMetadata, error) {
+	data, err := os.ReadFile(xdg.MetadataPath())
 	if err != nil {
 		return nil, err
 	}
@@ -68,17 +98,24 @@ func ReadMetadata(projectRoot string) (*DaemonMetadata, error) {
 	return &meta, nil
 }
 
-func EnsureOrchDir(projectRoot string) error {
-	dir := OrchDir(projectRoot)
-	return os.MkdirAll(dir, 0700)
+// EnsureOrchDir is kept for backward compatibility but now ensures XDG dirs.
+func EnsureOrchDir(_ string) error {
+	if err := xdg.EnsureRuntimeDir(); err != nil {
+		return fmt.Errorf("failed to create runtime directory: %w", err)
+	}
+	if err := xdg.EnsureStateDir(); err != nil {
+		return fmt.Errorf("failed to create state directory: %w", err)
+	}
+	return nil
 }
 
-func AcquireLock(projectRoot string) (*os.File, error) {
-	if err := EnsureOrchDir(projectRoot); err != nil {
-		return nil, fmt.Errorf("failed to create .orch directory: %w", err)
+// AcquireLock acquires the global daemon lock.
+func AcquireLock(_ string) (*os.File, error) {
+	if err := EnsureOrchDir(""); err != nil {
+		return nil, err
 	}
 
-	lockPath := LockFilePath(projectRoot)
+	lockPath := xdg.LockPath()
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open lock file: %w", err)
@@ -96,18 +133,20 @@ func AcquireLock(projectRoot string) (*os.File, error) {
 	return f, nil
 }
 
-func WritePID(projectRoot string) error {
-	if err := EnsureOrchDir(projectRoot); err != nil {
-		return fmt.Errorf("failed to create .orch directory: %w", err)
+// WritePID writes the daemon PID to the global PID file.
+func WritePID(_ string) error {
+	if err := EnsureOrchDir(""); err != nil {
+		return err
 	}
 
-	pidPath := PIDFilePath(projectRoot)
+	pidPath := xdg.PIDPath()
 	pid := os.Getpid()
 	return os.WriteFile(pidPath, []byte(strconv.Itoa(pid)), 0644)
 }
 
-func ReadPID(projectRoot string) (int, error) {
-	pidPath := PIDFilePath(projectRoot)
+// ReadPID reads the daemon PID from the global PID file.
+func ReadPID(_ string) (int, error) {
+	pidPath := xdg.PIDPath()
 	data, err := os.ReadFile(pidPath)
 	if err != nil {
 		return 0, err
@@ -121,8 +160,9 @@ func ReadPID(projectRoot string) (int, error) {
 	return pid, nil
 }
 
-func RemovePID(projectRoot string) error {
-	pidPath := PIDFilePath(projectRoot)
+// RemovePID removes the global PID file.
+func RemovePID(_ string) error {
+	pidPath := xdg.PIDPath()
 	err := os.Remove(pidPath)
 	if os.IsNotExist(err) {
 		return nil
@@ -140,8 +180,9 @@ func IsProcessRunning(pid int) bool {
 	return err == nil
 }
 
-func IsRunning(projectRoot string) bool {
-	pid, err := ReadPID(projectRoot)
+// IsRunning checks if the global daemon is running.
+func IsRunning(_ string) bool {
+	pid, err := ReadPID("")
 	if err != nil {
 		return false
 	}
@@ -149,8 +190,9 @@ func IsRunning(projectRoot string) bool {
 	return IsProcessRunning(pid)
 }
 
-func GetRunningPID(projectRoot string) int {
-	pid, err := ReadPID(projectRoot)
+// GetRunningPID returns the PID of the running global daemon, or 0 if not running.
+func GetRunningPID(_ string) int {
+	pid, err := ReadPID("")
 	if err != nil {
 		return 0
 	}
@@ -162,14 +204,14 @@ func GetRunningPID(projectRoot string) int {
 	return pid
 }
 
-func IsStaleBinary(projectRoot string) (bool, error) {
-	if !IsRunning(projectRoot) {
+func IsStaleBinary(_ string) (bool, error) {
+	if !IsRunning("") {
 		return false, nil
 	}
 
-	meta, err := ReadMetadata(projectRoot)
+	meta, err := ReadMetadata("")
 	if err != nil {
-		pidPath := PIDFilePath(projectRoot)
+		pidPath := xdg.PIDPath()
 		pidInfo, err := os.Stat(pidPath)
 		if err != nil {
 			return false, err
@@ -200,8 +242,8 @@ func IsStaleBinary(projectRoot string) (bool, error) {
 	return execInfo.ModTime().After(meta.ExecMtime), nil
 }
 
-func RestartDaemon(projectRoot string) error {
-	pid := GetRunningPID(projectRoot)
+func RestartDaemon(_ string) error {
+	pid := GetRunningPID("")
 	if pid == 0 {
 		return nil
 	}
@@ -214,20 +256,13 @@ func RestartDaemon(projectRoot string) error {
 	return process.Signal(syscall.SIGHUP)
 }
 
+// globalOrchDir returns the global orch directory (legacy, now uses XDG).
 func globalOrchDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".orch")
+	return xdg.DataDir()
 }
 
 func globalRegistryPath() string {
-	dir := globalOrchDir()
-	if dir == "" {
-		return ""
-	}
-	return filepath.Join(dir, "daemons.json")
+	return filepath.Join(xdg.DataDir(), "daemons.json")
 }
 
 type daemonRegistry struct {
@@ -242,9 +277,6 @@ type registryEntry struct {
 
 func loadRegistry() (*daemonRegistry, error) {
 	path := globalRegistryPath()
-	if path == "" {
-		return &daemonRegistry{Daemons: make(map[string]registryEntry)}, nil
-	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -266,9 +298,6 @@ func loadRegistry() (*daemonRegistry, error) {
 
 func saveRegistry(reg *daemonRegistry) error {
 	path := globalRegistryPath()
-	if path == "" {
-		return nil
-	}
 
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -282,60 +311,53 @@ func saveRegistry(reg *daemonRegistry) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-func RegisterDaemon(projectRoot string) error {
+// RegisterDaemon registers the global daemon (the projectRoot param is ignored now).
+func RegisterDaemon(_ string) error {
 	reg, err := loadRegistry()
 	if err != nil {
 		return err
 	}
 
-	absPath, err := filepath.Abs(projectRoot)
-	if err != nil {
-		absPath = projectRoot
-	}
-
-	reg.Daemons[absPath] = registryEntry{
+	// For global daemon, we use "global" as the key
+	reg.Daemons["global"] = registryEntry{
 		PID:        os.Getpid(),
 		StartedAt:  time.Now(),
-		SocketPath: SocketFilePath(absPath),
+		SocketPath: xdg.SocketPath(),
 	}
 
 	return saveRegistry(reg)
 }
 
-func UnregisterDaemon(projectRoot string) error {
+// UnregisterDaemon unregisters the global daemon.
+func UnregisterDaemon(_ string) error {
 	reg, err := loadRegistry()
 	if err != nil {
 		return err
 	}
 
-	absPath, err := filepath.Abs(projectRoot)
-	if err != nil {
-		absPath = projectRoot
-	}
-
-	delete(reg.Daemons, absPath)
+	delete(reg.Daemons, "global")
 	return saveRegistry(reg)
 }
 
+// ListAllDaemons returns info about the global daemon if running.
 func ListAllDaemons() ([]*DaemonInfo, error) {
-	reg, err := loadRegistry()
-	if err != nil {
-		return nil, err
-	}
-
 	var infos []*DaemonInfo
-	for projectRoot, entry := range reg.Daemons {
-		if !IsProcessRunning(entry.PID) {
-			continue
-		}
 
+	// Check if global daemon is running
+	pid := GetRunningPID("")
+	if pid != 0 {
+		meta, _ := ReadMetadata("")
+		startedAt := time.Time{}
+		if meta != nil {
+			startedAt = meta.StartedAt
+		}
 		info := &DaemonInfo{
-			PID:         entry.PID,
-			ProjectRoot: projectRoot,
-			SocketPath:  entry.SocketPath,
-			StartedAt:   entry.StartedAt,
-			Uptime:      time.Since(entry.StartedAt),
-			IsHealthy:   IsDaemonSocketAvailable(projectRoot),
+			PID:        pid,
+			SocketPath: xdg.SocketPath(),
+			StartedAt:  startedAt,
+			Uptime:     time.Since(startedAt),
+			IsHealthy:  IsDaemonSocketAvailable(""),
+			IsGlobal:   true,
 		}
 		infos = append(infos, info)
 	}
@@ -350,9 +372,9 @@ func CleanupStaleRegistrations() error {
 	}
 
 	changed := false
-	for projectRoot, entry := range reg.Daemons {
+	for key, entry := range reg.Daemons {
 		if !IsProcessRunning(entry.PID) {
-			delete(reg.Daemons, projectRoot)
+			delete(reg.Daemons, key)
 			changed = true
 		}
 	}
@@ -363,8 +385,9 @@ func CleanupStaleRegistrations() error {
 	return nil
 }
 
-func KillDaemon(projectRoot string) error {
-	pid := GetRunningPID(projectRoot)
+// KillDaemon kills the global daemon.
+func KillDaemon(_ string) error {
+	pid := GetRunningPID("")
 	if pid == 0 {
 		return nil
 	}
@@ -391,24 +414,79 @@ func KillDaemon(projectRoot string) error {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	RemovePID(projectRoot)
-	UnregisterDaemon(projectRoot)
+	RemovePID("")
+	UnregisterDaemon("")
+
+	// Clean up socket file
+	os.Remove(xdg.SocketPath())
 
 	return nil
 }
 
+// KillAllDaemons kills the global daemon (now only one daemon).
 func KillAllDaemons() (int, error) {
-	infos, err := ListAllDaemons()
-	if err != nil {
-		return 0, err
-	}
-
-	killed := 0
-	for _, info := range infos {
-		if err := KillDaemon(info.ProjectRoot); err == nil {
-			killed++
+	if IsRunning("") {
+		if err := KillDaemon(""); err != nil {
+			return 0, err
 		}
+		return 1, nil
+	}
+	return 0, nil
+}
+
+// KillLegacyDaemon kills a legacy per-project daemon if running.
+func KillLegacyDaemon(projectRoot string) error {
+	// Check if legacy daemon is running
+	legacyPIDPath := LegacyPIDFilePath(projectRoot)
+	data, err := os.ReadFile(legacyPIDPath)
+	if err != nil {
+		return nil // No legacy daemon
 	}
 
-	return killed, nil
+	pid, err := strconv.Atoi(string(data))
+	if err != nil {
+		// Clean up invalid PID file
+		os.Remove(legacyPIDPath)
+		return nil
+	}
+
+	if !IsProcessRunning(pid) {
+		// Clean up stale PID file
+		os.Remove(legacyPIDPath)
+		return nil
+	}
+
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+
+	if err := process.Signal(syscall.SIGTERM); err != nil {
+		return err
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if !IsProcessRunning(pid) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if IsProcessRunning(pid) {
+		process.Signal(syscall.SIGKILL)
+	}
+
+	// Clean up legacy files
+	os.Remove(legacyPIDPath)
+	os.Remove(xdg.LegacySocketPath(projectRoot))
+	os.Remove(LegacyLockFilePath(projectRoot))
+	os.Remove(LegacyMetadataFilePath(projectRoot))
+
+	return nil
+}
+
+// HasLegacyDaemon checks if a legacy per-project daemon exists.
+func HasLegacyDaemon(projectRoot string) bool {
+	return xdg.HasLegacyDaemon(projectRoot)
 }

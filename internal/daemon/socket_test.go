@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"math/rand"
 	"net"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/store"
+	"github.com/s22625/orch/internal/xdg"
 )
 
 type mockStore struct {
@@ -91,34 +93,73 @@ func (m *mockStore) RootPath() string {
 }
 
 func TestSocketFilePath(t *testing.T) {
-	path := SocketFilePath("/vault")
-	expected := filepath.Join("/vault", ".orch", "daemon.sock")
+	// Set up temp XDG runtime dir with short path (Unix socket limit is 104 chars)
+	tmpDir := filepath.Join("/tmp", "orch-test-"+randomID())
+	os.MkdirAll(tmpDir, 0755)
+	defer os.RemoveAll(tmpDir)
+
+	oldXDG := os.Getenv("XDG_RUNTIME_DIR")
+	os.Setenv("XDG_RUNTIME_DIR", tmpDir)
+	defer os.Setenv("XDG_RUNTIME_DIR", oldXDG)
+
+	// SocketFilePath now returns global XDG path
+	path := SocketFilePath("")
+	expected := xdg.SocketPath()
 	if path != expected {
 		t.Errorf("expected %s, got %s", expected, path)
 	}
 }
 
-func TestSocketServerStartStop(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("/tmp", "orch-test-")
-	if err != nil {
-		t.Fatal(err)
+func TestLegacySocketFilePath(t *testing.T) {
+	// Legacy path should still return per-project path
+	path := LegacySocketFilePath("/vault")
+	expected := "/vault/.orch/daemon.sock"
+	if path != expected {
+		t.Errorf("expected %s, got %s", expected, path)
 	}
-	defer os.RemoveAll(tmpDir)
+}
 
-	orchDir := filepath.Join(tmpDir, ".orch")
-	if err := os.MkdirAll(orchDir, 0755); err != nil {
-		t.Fatal(err)
+func randomID() string {
+	return time.Now().Format("150405") + "-" + randomString(4)
+}
+
+func randomString(n int) string {
+	const letters = "abcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letters[rand.Intn(len(letters))]
 	}
+	return string(b)
+}
+
+func setupXDGTestEnv(t *testing.T) func() {
+	// Use /tmp for short paths (Unix socket limit is 104 chars on macOS)
+	tmpDir := filepath.Join("/tmp", "orch-test-"+randomID())
+	if err := os.MkdirAll(tmpDir, 0755); err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+
+	oldXDG := os.Getenv("XDG_RUNTIME_DIR")
+	os.Setenv("XDG_RUNTIME_DIR", tmpDir)
+	return func() {
+		os.Setenv("XDG_RUNTIME_DIR", oldXDG)
+		os.RemoveAll(tmpDir)
+	}
+}
+
+func TestSocketServerStartStop(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
 
 	st := &mockStore{runs: make(map[string]*model.Run)}
 	logger := log.New(io.Discard, "", 0)
 
-	server := NewSocketServer(tmpDir, st, logger)
+	server := NewSocketServer("", st, logger)
 	if err := server.Start(); err != nil {
 		t.Fatalf("failed to start server: %v", err)
 	}
 
-	socketPath := SocketFilePath(tmpDir)
+	socketPath := xdg.SocketPath()
 	if _, err := os.Stat(socketPath); err != nil {
 		t.Errorf("socket file not created: %v", err)
 	}
@@ -131,16 +172,8 @@ func TestSocketServerStartStop(t *testing.T) {
 }
 
 func TestSocketServerSendRequest(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("/tmp", "orch-test-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	orchDir := filepath.Join(tmpDir, ".orch")
-	if err := os.MkdirAll(orchDir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
 
 	st := &mockStore{
 		runs: map[string]*model.Run{
@@ -155,13 +188,13 @@ func TestSocketServerSendRequest(t *testing.T) {
 	}
 	logger := log.New(io.Discard, "", 0)
 
-	server := NewSocketServer(tmpDir, st, logger)
+	server := NewSocketServer("", st, logger)
 	if err := server.Start(); err != nil {
 		t.Fatalf("failed to start server: %v", err)
 	}
 	defer server.Stop()
 
-	conn, err := net.DialTimeout("unix", SocketFilePath(tmpDir), 5*time.Second)
+	conn, err := net.DialTimeout("unix", xdg.SocketPath(), 5*time.Second)
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
@@ -191,52 +224,45 @@ func TestSocketServerSendRequest(t *testing.T) {
 }
 
 func TestIsDaemonSocketAvailable(t *testing.T) {
-	tmpDir := t.TempDir()
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
 
-	if IsDaemonSocketAvailable(tmpDir) {
+	if IsDaemonSocketAvailable("") {
 		t.Error("expected socket not available initially")
 	}
 
-	orchDir := filepath.Join(tmpDir, ".orch")
-	os.MkdirAll(orchDir, 0755)
+	// Create the runtime dir and socket file
+	if err := xdg.EnsureRuntimeDir(); err != nil {
+		t.Fatalf("failed to create runtime dir: %v", err)
+	}
 
-	socketPath := SocketFilePath(tmpDir)
+	socketPath := xdg.SocketPath()
 	f, _ := os.Create(socketPath)
 	f.Close()
 
-	if !IsDaemonSocketAvailable(tmpDir) {
+	if !IsDaemonSocketAvailable("") {
 		t.Error("expected socket available after creation")
 	}
 }
 
-func setupTestServer(t *testing.T, st *mockStore) (*SocketServer, string, func()) {
-	tmpDir, err := os.MkdirTemp("/tmp", "orch-test-")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	orchDir := filepath.Join(tmpDir, ".orch")
-	if err := os.MkdirAll(orchDir, 0755); err != nil {
-		t.Fatal(err)
-	}
+func setupTestServer(t *testing.T, st *mockStore) (*SocketServer, func()) {
+	cleanup := setupXDGTestEnv(t)
 
 	logger := log.New(io.Discard, "", 0)
-	server := NewSocketServer(tmpDir, st, logger)
+	server := NewSocketServer("", st, logger)
 	if err := server.Start(); err != nil {
-		os.RemoveAll(tmpDir)
+		cleanup()
 		t.Fatalf("failed to start server: %v", err)
 	}
 
-	cleanup := func() {
+	return server, func() {
 		server.Stop()
-		os.RemoveAll(tmpDir)
+		cleanup()
 	}
-
-	return server, tmpDir, cleanup
 }
 
-func sendRequest(t *testing.T, tmpDir string, req interface{}) *json.Decoder {
-	conn, err := net.DialTimeout("unix", SocketFilePath(tmpDir), 5*time.Second)
+func sendRequest(t *testing.T, req interface{}) *json.Decoder {
+	conn, err := net.DialTimeout("unix", xdg.SocketPath(), 5*time.Second)
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
@@ -284,11 +310,11 @@ func TestListRunsAPI(t *testing.T) {
 		issues: make(map[string]*model.Issue),
 	}
 
-	_, tmpDir, cleanup := setupTestServer(t, st)
+	_, cleanup := setupTestServer(t, st)
 	defer cleanup()
 
 	t.Run("list all runs", func(t *testing.T) {
-		decoder := sendRequest(t, tmpDir, SendRequest{Type: "list_runs"})
+		decoder := sendRequest(t, SendRequest{Type: "list_runs"})
 		var resp ListRunsResponse
 		if err := decoder.Decode(&resp); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
@@ -302,7 +328,7 @@ func TestListRunsAPI(t *testing.T) {
 	})
 
 	t.Run("filter by issue_id", func(t *testing.T) {
-		decoder := sendRequest(t, tmpDir, SendRequest{Type: "list_runs", IssueID: "orch-001"})
+		decoder := sendRequest(t, SendRequest{Type: "list_runs", IssueID: "orch-001"})
 		var resp ListRunsResponse
 		if err := decoder.Decode(&resp); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
@@ -316,7 +342,7 @@ func TestListRunsAPI(t *testing.T) {
 	})
 
 	t.Run("filter by status", func(t *testing.T) {
-		decoder := sendRequest(t, tmpDir, SendRequest{Type: "list_runs", Status: []string{"running"}})
+		decoder := sendRequest(t, SendRequest{Type: "list_runs", Status: []string{"running"}})
 		var resp ListRunsResponse
 		if err := decoder.Decode(&resp); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
@@ -330,7 +356,7 @@ func TestListRunsAPI(t *testing.T) {
 	})
 
 	t.Run("pagination", func(t *testing.T) {
-		decoder := sendRequest(t, tmpDir, SendRequest{Type: "list_runs", Limit: 1})
+		decoder := sendRequest(t, SendRequest{Type: "list_runs", Limit: 1})
 		var resp ListRunsResponse
 		if err := decoder.Decode(&resp); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
@@ -350,7 +376,7 @@ func TestListRunsAPI(t *testing.T) {
 	})
 
 	t.Run("run summary has URI", func(t *testing.T) {
-		decoder := sendRequest(t, tmpDir, SendRequest{Type: "list_runs", Limit: 1})
+		decoder := sendRequest(t, SendRequest{Type: "list_runs", Limit: 1})
 		var resp ListRunsResponse
 		if err := decoder.Decode(&resp); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
@@ -393,11 +419,11 @@ func TestGetRunAPI(t *testing.T) {
 		issues: make(map[string]*model.Issue),
 	}
 
-	_, tmpDir, cleanup := setupTestServer(t, st)
+	_, cleanup := setupTestServer(t, st)
 	defer cleanup()
 
 	t.Run("get existing run", func(t *testing.T) {
-		decoder := sendRequest(t, tmpDir, SendRequest{Type: "get_run", IssueID: "orch-001", RunID: "20250117-010000"})
+		decoder := sendRequest(t, SendRequest{Type: "get_run", IssueID: "orch-001", RunID: "20250117-010000"})
 		var resp GetRunResponse
 		if err := decoder.Decode(&resp); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
@@ -423,7 +449,7 @@ func TestGetRunAPI(t *testing.T) {
 	})
 
 	t.Run("get non-existent run", func(t *testing.T) {
-		decoder := sendRequest(t, tmpDir, SendRequest{Type: "get_run", IssueID: "orch-999", RunID: "20250117-010000"})
+		decoder := sendRequest(t, SendRequest{Type: "get_run", IssueID: "orch-999", RunID: "20250117-010000"})
 		var resp GetRunResponse
 		if err := decoder.Decode(&resp); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
@@ -437,7 +463,7 @@ func TestGetRunAPI(t *testing.T) {
 	})
 
 	t.Run("get run without issue_id", func(t *testing.T) {
-		decoder := sendRequest(t, tmpDir, SendRequest{Type: "get_run", RunID: "20250117-010000"})
+		decoder := sendRequest(t, SendRequest{Type: "get_run", RunID: "20250117-010000"})
 		var resp GetRunResponse
 		if err := decoder.Decode(&resp); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
@@ -482,11 +508,11 @@ func TestListIssuesAPI(t *testing.T) {
 		},
 	}
 
-	_, tmpDir, cleanup := setupTestServer(t, st)
+	_, cleanup := setupTestServer(t, st)
 	defer cleanup()
 
 	t.Run("list all issues", func(t *testing.T) {
-		decoder := sendRequest(t, tmpDir, SendRequest{Type: "list_issues"})
+		decoder := sendRequest(t, SendRequest{Type: "list_issues"})
 		var resp ListIssuesResponse
 		if err := decoder.Decode(&resp); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
@@ -500,7 +526,7 @@ func TestListIssuesAPI(t *testing.T) {
 	})
 
 	t.Run("filter by status", func(t *testing.T) {
-		decoder := sendRequest(t, tmpDir, SendRequest{Type: "list_issues", Status: []string{"open"}})
+		decoder := sendRequest(t, SendRequest{Type: "list_issues", Status: []string{"open"}})
 		var resp ListIssuesResponse
 		if err := decoder.Decode(&resp); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
@@ -514,7 +540,7 @@ func TestListIssuesAPI(t *testing.T) {
 	})
 
 	t.Run("pagination", func(t *testing.T) {
-		decoder := sendRequest(t, tmpDir, SendRequest{Type: "list_issues", Limit: 2})
+		decoder := sendRequest(t, SendRequest{Type: "list_issues", Limit: 2})
 		var resp ListIssuesResponse
 		if err := decoder.Decode(&resp); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
@@ -531,7 +557,7 @@ func TestListIssuesAPI(t *testing.T) {
 	})
 
 	t.Run("issue summary has URI", func(t *testing.T) {
-		decoder := sendRequest(t, tmpDir, SendRequest{Type: "list_issues", Limit: 1})
+		decoder := sendRequest(t, SendRequest{Type: "list_issues", Limit: 1})
 		var resp ListIssuesResponse
 		if err := decoder.Decode(&resp); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
@@ -566,11 +592,11 @@ func TestGetIssueAPI(t *testing.T) {
 		},
 	}
 
-	_, tmpDir, cleanup := setupTestServer(t, st)
+	_, cleanup := setupTestServer(t, st)
 	defer cleanup()
 
 	t.Run("get existing issue", func(t *testing.T) {
-		decoder := sendRequest(t, tmpDir, SendRequest{Type: "get_issue", IssueID: "orch-001"})
+		decoder := sendRequest(t, SendRequest{Type: "get_issue", IssueID: "orch-001"})
 		var resp GetIssueResponse
 		if err := decoder.Decode(&resp); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
@@ -596,7 +622,7 @@ func TestGetIssueAPI(t *testing.T) {
 	})
 
 	t.Run("get non-existent issue", func(t *testing.T) {
-		decoder := sendRequest(t, tmpDir, SendRequest{Type: "get_issue", IssueID: "orch-999"})
+		decoder := sendRequest(t, SendRequest{Type: "get_issue", IssueID: "orch-999"})
 		var resp GetIssueResponse
 		if err := decoder.Decode(&resp); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
@@ -610,7 +636,7 @@ func TestGetIssueAPI(t *testing.T) {
 	})
 
 	t.Run("get issue without issue_id", func(t *testing.T) {
-		decoder := sendRequest(t, tmpDir, SendRequest{Type: "get_issue"})
+		decoder := sendRequest(t, SendRequest{Type: "get_issue"})
 		var resp GetIssueResponse
 		if err := decoder.Decode(&resp); err != nil {
 			t.Fatalf("failed to decode response: %v", err)

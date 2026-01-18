@@ -7,9 +7,10 @@ from typing import Optional
 
 import yaml
 
+from . import xdg
 
-# Daemon socket filename (matches Go daemon)
-DAEMON_SOCKET_FILE = "daemon.sock"
+
+# Monitor-specific files (stored in project's .orch/ directory)
 MONITOR_FILTERS_FILE = "monitor-filters.yaml"
 MONITOR_LOG_FILE = "monitor.log"
 ORCH_DIR = ".orch"
@@ -164,18 +165,22 @@ class Config:
 
     @property
     def orch_dir(self) -> Path:
+        """Return the project's .orch directory (for project-specific files)."""
         return self.project_root / ORCH_DIR
 
     @property
     def socket_path(self) -> Path:
-        return self.orch_dir / DAEMON_SOCKET_FILE
+        """Return the global daemon socket path (XDG-compliant)."""
+        return xdg.socket_path()
 
     @property
     def filters_path(self) -> Path:
+        """Return the path to monitor filters file (project-specific)."""
         return self.orch_dir / MONITOR_FILTERS_FILE
 
     @property
     def log_path(self) -> Path:
+        """Return the path to monitor log file (project-specific)."""
         return self.orch_dir / MONITOR_LOG_FILE
 
     def load_filters(self) -> FilterState:
