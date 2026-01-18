@@ -57,11 +57,17 @@ github:
 
 ### Configuration Precedence
 
-1. Command-line flags (highest)
-2. Environment variables (`ORCH_VAULT`, etc.)
-3. `.orch/config.yaml` in current directory
-4. `.orch/config.yaml` in parent directories
-5. `~/.config/orch/config.yaml` (lowest)
+**For project root:**
+1. `--project-root` flag (highest)
+2. `ORCH_PROJECT_ROOT` environment variable
+3. Directory containing `.orch/config.yaml` (searched upward from cwd)
+4. `ORCH_VAULT` (backward compatibility fallback)
+
+**For vault path (file-based issues only):**
+1. `--vault` flag (highest)
+2. `vault:` in `.orch/config.yaml`
+3. `ORCH_VAULT` environment variable
+4. `~/.config/orch/config.yaml` (lowest)
 
 ### Log Files
 

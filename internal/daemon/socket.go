@@ -22,8 +22,8 @@ const (
 	socketFile = "daemon.sock"
 )
 
-func SocketFilePath(vaultPath string) string {
-	return filepath.Join(OrchDir(vaultPath), socketFile)
+func SocketFilePath(projectRoot string) string {
+	return filepath.Join(OrchDir(projectRoot), socketFile)
 }
 
 type SendRequest struct {
@@ -50,7 +50,7 @@ type SendResponse struct {
 }
 
 type SocketServer struct {
-	vaultPath     string
+	projectRoot   string
 	store         store.Store
 	listener      net.Listener
 	logger        Logger
@@ -62,12 +62,12 @@ type Logger interface {
 	Printf(format string, v ...interface{})
 }
 
-func NewSocketServer(vaultPath string, st store.Store, logger Logger) *SocketServer {
+func NewSocketServer(projectRoot string, st store.Store, logger Logger) *SocketServer {
 	return &SocketServer{
-		vaultPath: vaultPath,
-		store:     st,
-		logger:    logger,
-		stopCh:    make(chan struct{}),
+		projectRoot: projectRoot,
+		store:       st,
+		logger:      logger,
+		stopCh:      make(chan struct{}),
 	}
 }
 
@@ -76,7 +76,7 @@ func (s *SocketServer) SetGitHubBackend(backend *github.Backend) {
 }
 
 func (s *SocketServer) Start() error {
-	socketPath := SocketFilePath(s.vaultPath)
+	socketPath := SocketFilePath(s.projectRoot)
 
 	os.Remove(socketPath)
 
@@ -104,7 +104,7 @@ func (s *SocketServer) Stop() {
 	if s.listener != nil {
 		s.listener.Close()
 	}
-	os.Remove(SocketFilePath(s.vaultPath))
+	os.Remove(SocketFilePath(s.projectRoot))
 }
 
 func (s *SocketServer) acceptLoop() {
@@ -402,8 +402,8 @@ func (s *SocketServer) handleGetIssue(req SendRequest, encoder *json.Encoder) {
 	})
 }
 
-func SendViaDaemon(vaultPath string, run *model.Run, message string, noEnter bool) error {
-	socketPath := SocketFilePath(vaultPath)
+func SendViaDaemon(projectRoot string, run *model.Run, message string, noEnter bool) error {
+	socketPath := SocketFilePath(projectRoot)
 
 	conn, err := net.DialTimeout("unix", socketPath, 5*time.Second)
 	if err != nil {
@@ -419,7 +419,7 @@ func SendViaDaemon(vaultPath string, run *model.Run, message string, noEnter boo
 		RunID:     run.RunID,
 		Message:   message,
 		NoEnter:   noEnter,
-		VaultPath: vaultPath,
+		VaultPath: projectRoot,
 	}
 
 	encoder := json.NewEncoder(conn)
@@ -440,8 +440,8 @@ func SendViaDaemon(vaultPath string, run *model.Run, message string, noEnter boo
 	return nil
 }
 
-func IsDaemonSocketAvailable(vaultPath string) bool {
-	socketPath := SocketFilePath(vaultPath)
+func IsDaemonSocketAvailable(projectRoot string) bool {
+	socketPath := SocketFilePath(projectRoot)
 	_, err := os.Stat(socketPath)
 	return err == nil
 }
@@ -604,9 +604,9 @@ func (s *SocketServer) handleCreateIssue(req SendRequest, encoder *json.Encoder)
 		return
 	}
 
-	issuesDir := filepath.Join(s.vaultPath, "issues")
-	if _, err := os.Stat(filepath.Join(s.vaultPath, "Issues")); err == nil {
-		issuesDir = filepath.Join(s.vaultPath, "Issues")
+	issuesDir := filepath.Join(s.projectRoot, "issues")
+	if _, err := os.Stat(filepath.Join(s.projectRoot, "Issues")); err == nil {
+		issuesDir = filepath.Join(s.projectRoot, "Issues")
 	}
 	if err := os.MkdirAll(issuesDir, 0755); err != nil {
 		s.logger.Printf("error creating issues directory: %v", err)

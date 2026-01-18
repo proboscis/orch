@@ -7,33 +7,28 @@ import (
 	"time"
 )
 
-// Client is a client for the daemon socket API
 type Client struct {
-	vaultPath string
-	timeout   time.Duration
+	projectRoot string
+	timeout     time.Duration
 }
 
-// NewClient creates a new daemon client
-func NewClient(vaultPath string) *Client {
+func NewClient(projectRoot string) *Client {
 	return &Client{
-		vaultPath: vaultPath,
-		timeout:   10 * time.Second,
+		projectRoot: projectRoot,
+		timeout:     10 * time.Second,
 	}
 }
 
-// SetTimeout sets the request timeout
 func (c *Client) SetTimeout(timeout time.Duration) {
 	c.timeout = timeout
 }
 
-// IsAvailable checks if the daemon is reachable
 func (c *Client) IsAvailable() bool {
-	return IsDaemonSocketAvailable(c.vaultPath) && IsRunning(c.vaultPath)
+	return IsDaemonSocketAvailable(c.projectRoot) && IsRunning(c.projectRoot)
 }
 
-// sendRequest sends a request to the daemon and returns the raw response
 func (c *Client) sendRequest(req interface{}) (json.RawMessage, error) {
-	socketPath := SocketFilePath(c.vaultPath)
+	socketPath := SocketFilePath(c.projectRoot)
 
 	conn, err := net.DialTimeout("unix", socketPath, c.timeout)
 	if err != nil {

@@ -26,12 +26,13 @@ const (
 
 // GlobalOptions holds options shared across all commands
 type GlobalOptions struct {
-	VaultPath string
-	Backend   string
-	JSON      bool
-	TSV       bool
-	Quiet     bool
-	LogLevel  string
+	VaultPath   string
+	ProjectRoot string
+	Backend     string
+	JSON        bool
+	TSV         bool
+	Quiet       bool
+	LogLevel    string
 }
 
 var globalOpts = &GlobalOptions{}
@@ -69,8 +70,8 @@ and questions to handle human input requirements.`,
 }
 
 func init() {
-	// Global flags
-	rootCmd.PersistentFlags().StringVar(&globalOpts.VaultPath, "vault", "", "Path to vault (or set ORCH_VAULT)")
+	rootCmd.PersistentFlags().StringVar(&globalOpts.ProjectRoot, "project-root", "", "Path to project root where .orch/ lives (or set ORCH_PROJECT_ROOT)")
+	rootCmd.PersistentFlags().StringVar(&globalOpts.VaultPath, "vault", "", "Path to vault for file-based issues (or set ORCH_VAULT)")
 	rootCmd.PersistentFlags().StringVar(&globalOpts.Backend, "backend", "file", "Backend type (file|github|linear)")
 	rootCmd.PersistentFlags().BoolVar(&globalOpts.JSON, "json", false, "Output in JSON format")
 	rootCmd.PersistentFlags().BoolVar(&globalOpts.TSV, "tsv", false, "Output in TSV format (for fzf)")
@@ -133,6 +134,23 @@ func getVaultPath() (string, error) {
 	}
 
 	return "", fmt.Errorf("vault path not specified (use --vault, set ORCH_VAULT, or create .orch/config.yaml)")
+}
+
+// getProjectRoot returns the project root directory (where .orch/ lives).
+// Precedence: --project-root flag > ORCH_PROJECT_ROOT > .orch/config.yaml location > ORCH_VAULT
+func getProjectRoot() (string, error) {
+	if globalOpts.ProjectRoot != "" {
+		return config.ExpandPath(globalOpts.ProjectRoot, ""), nil
+	}
+
+	projectRoot, err := config.GetProjectRoot()
+	if err != nil {
+		if globalOpts.VaultPath != "" {
+			return config.ExpandPath(globalOpts.VaultPath, ""), nil
+		}
+		return "", err
+	}
+	return projectRoot, nil
 }
 
 // getStore returns a store instance based on configuration

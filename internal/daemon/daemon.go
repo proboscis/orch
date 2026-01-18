@@ -27,12 +27,12 @@ const (
 )
 
 type Daemon struct {
-	vaultPath string
-	store     store.Store
-	interval  time.Duration
-	logger    *log.Logger
-	stopCh    chan struct{}
-	wg        sync.WaitGroup
+	projectRoot string
+	store       store.Store
+	interval    time.Duration
+	logger      *log.Logger
+	stopCh      chan struct{}
+	wg          sync.WaitGroup
 
 	runStates     map[string]*RunState
 	lastFetchAt   map[string]time.Time
@@ -65,10 +65,9 @@ type RunState struct {
 	DeadCheckCount int
 }
 
-// New creates a new Daemon instance
-func New(vaultPath string, st store.Store) *Daemon {
+func New(projectRoot string, st store.Store) *Daemon {
 	return &Daemon{
-		vaultPath:     vaultPath,
+		projectRoot:   projectRoot,
 		store:         st,
 		interval:      DefaultInterval,
 		stopCh:        make(chan struct{}),
@@ -95,13 +94,13 @@ func (d *Daemon) debug(format string, v ...interface{}) {
 
 // Run starts the daemon main loop (blocking)
 func (d *Daemon) Run() error {
-	lockFile, err := AcquireLock(d.vaultPath)
+	lockFile, err := AcquireLock(d.projectRoot)
 	if err != nil {
 		return err
 	}
 	d.lockFile = lockFile
 
-	logPath := LogFilePath(d.vaultPath)
+	logPath := LogFilePath(d.projectRoot)
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %w", err)
@@ -123,7 +122,7 @@ func (d *Daemon) Run() error {
 			d.logger.Printf("slack notifications enabled")
 		}
 		if cfg.IsGitHubBackend() {
-			cachePath := filepath.Join(OrchDir(d.vaultPath), "github-cache.db")
+			cachePath := filepath.Join(OrchDir(d.projectRoot), "github-cache.db")
 			ghBackend, err := github.NewBackend(&cfg.GitHub, cachePath)
 			if err != nil {
 				d.logger.Printf("warning: failed to initialize GitHub backend: %v", err)
@@ -134,19 +133,19 @@ func (d *Daemon) Run() error {
 		}
 	}
 
-	if err := WritePID(d.vaultPath); err != nil {
+	if err := WritePID(d.projectRoot); err != nil {
 		return err
 	}
 	defer func() {
-		RemovePID(d.vaultPath)
+		RemovePID(d.projectRoot)
 		if d.lockFile != nil {
 			d.lockFile.Close()
 		}
 	}()
 
-	d.logger.Printf("daemon started (pid=%d, vault=%s, binary=%s)", os.Getpid(), d.vaultPath, d.executablePath)
+	d.logger.Printf("daemon started (pid=%d, vault=%s, binary=%s)", os.Getpid(), d.projectRoot, d.executablePath)
 
-	d.socketServer = NewSocketServer(d.vaultPath, d.store, d.logger)
+	d.socketServer = NewSocketServer(d.projectRoot, d.store, d.logger)
 	d.socketServer.SetGitHubBackend(d.githubBackend)
 	if err := d.socketServer.Start(); err != nil {
 		d.logger.Printf("warning: failed to start socket server: %v", err)
@@ -229,7 +228,7 @@ func (d *Daemon) writeMetadata() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(MetadataFilePath(d.vaultPath), data, 0644)
+	return os.WriteFile(MetadataFilePath(d.projectRoot), data, 0644)
 }
 
 func (d *Daemon) isBinaryStale() bool {
@@ -256,7 +255,7 @@ func (d *Daemon) checkBinaryStaleness() {
 func (d *Daemon) restartWithNewBinary() error {
 	d.logger.Printf("restarting daemon with new binary via exec...")
 
-	args := []string{d.executablePath, "daemon", "--vault", d.vaultPath}
+	args := []string{d.executablePath, "daemon", "--vault", d.projectRoot}
 	return syscall.Exec(d.executablePath, args, os.Environ())
 }
 

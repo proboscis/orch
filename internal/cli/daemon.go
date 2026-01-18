@@ -36,16 +36,16 @@ func newDaemonRestartCmd() *cobra.Command {
 		Short:  "Restart daemon with new binary",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			vaultPath, err := getVaultPath()
+			projectRoot, err := getProjectRoot()
 			if err != nil {
 				return nil
 			}
 
-			if !daemon.IsRunning(vaultPath) {
+			if !daemon.IsRunning(projectRoot) {
 				return nil
 			}
 
-			return daemon.RestartDaemon(vaultPath)
+			return daemon.RestartDaemon(projectRoot)
 		},
 	}
 }
@@ -56,35 +56,36 @@ func runDaemon() error {
 		return err
 	}
 
-	vaultPath := st.VaultPath()
+	projectRoot, err := getProjectRoot()
+	if err != nil {
+		projectRoot = st.VaultPath()
+	}
 
-	if daemon.IsRunning(vaultPath) {
-		pid := daemon.GetRunningPID(vaultPath)
+	if daemon.IsRunning(projectRoot) {
+		pid := daemon.GetRunningPID(projectRoot)
 		fmt.Fprintf(os.Stderr, "daemon already running (pid=%d)\n", pid)
 		os.Exit(1)
 		return nil
 	}
 
-	d := daemon.New(vaultPath, st)
+	d := daemon.New(projectRoot, st)
 	if daemonDebugMode {
 		d.SetDebugMode(true)
 	}
 	return d.Run()
 }
 
-// ensureDaemon starts the daemon if it's not already running
-// This is called from PersistentPreRun
 func ensureDaemon() {
-	vaultPath, err := getVaultPath()
+	projectRoot, err := getProjectRoot()
 	if err != nil {
 		return
 	}
 
-	if daemon.IsRunning(vaultPath) {
+	if daemon.IsRunning(projectRoot) {
 		return
 	}
 
-	_, err = daemon.StartInBackground(vaultPath)
+	_, err = daemon.StartInBackground(projectRoot)
 	if err != nil {
 		if globalOpts.LogLevel == "debug" {
 			fmt.Fprintf(os.Stderr, "warning: failed to start daemon: %v\n", err)
@@ -97,17 +98,17 @@ func ensureDaemon() {
 var testBypassDaemon bool
 
 func requireDaemon() (*daemon.Client, error) {
-	vaultPath, err := getVaultPath()
+	projectRoot, err := getProjectRoot()
 	if err != nil {
 		return nil, err
 	}
 
-	client := daemon.NewClient(vaultPath)
+	client := daemon.NewClient(projectRoot)
 	if client.IsAvailable() {
 		return client, nil
 	}
 
-	_, err = daemon.StartInBackground(vaultPath)
+	_, err = daemon.StartInBackground(projectRoot)
 	if err != nil {
 		return nil, fmt.Errorf("daemon not running and failed to start: %w\nRun 'orch repair' to fix daemon issues", err)
 	}

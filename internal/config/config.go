@@ -461,6 +461,35 @@ func resolvePathFromConfig(path, baseDir string) string {
 	return path
 }
 
+// GetProjectRoot returns the project root directory (where .orch/ lives).
+// It searches for .orch/config.yaml in the current directory and parent directories.
+// Returns the directory containing .orch/, or an error if not found.
+//
+// Precedence:
+// 1. ORCH_PROJECT_ROOT environment variable (if set)
+// 2. Directory containing .orch/config.yaml (searched upward from cwd)
+// 3. For worktrees, also checks main repo
+func GetProjectRoot() (string, error) {
+	if v := os.Getenv("ORCH_PROJECT_ROOT"); v != "" {
+		return ExpandPath(v, ""), nil
+	}
+
+	if v := os.Getenv("ORCH_VAULT"); v != "" {
+		return ExpandPath(v, ""), nil
+	}
+
+	configPath, err := findRepoConfig()
+	if err != nil {
+		return "", err
+	}
+	if configPath == "" {
+		return "", fmt.Errorf("project root not found (no .orch/config.yaml in current or parent directories)")
+	}
+
+	orchDir := filepath.Dir(configPath)
+	return filepath.Dir(orchDir), nil
+}
+
 // applyEnv applies environment variables to config
 func applyEnv(cfg *Config) {
 	if v := os.Getenv("ORCH_VAULT"); v != "" {
