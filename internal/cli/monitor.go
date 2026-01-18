@@ -58,8 +58,12 @@ func runMonitor(opts *monitorOptions) error {
 		return err
 	}
 
-	// Load UI settings from .orch directory
-	orchDir := monitor.GetOrchDir(st.VaultPath())
+	projectRoot, err := getProjectRoot()
+	if err != nil {
+		projectRoot = st.VaultPath()
+	}
+
+	orchDir := monitor.GetOrchDir(projectRoot)
 	settings := monitor.LoadUISettings(orchDir)
 
 	var statuses []model.Status
@@ -98,10 +102,11 @@ func runMonitor(opts *monitorOptions) error {
 		Attach:       opts.Attach,
 		ForceNew:     opts.ForceNew,
 		OrchPath:     os.Args[0],
-		GlobalFlags:  monitorGlobalFlagsWithVault(st.VaultPath()),
+		GlobalFlags:  monitorGlobalFlags(projectRoot, st.VaultPath()),
 		ShowResolved: opts.ShowResolved,
 		ShowClosed:   opts.ShowClosed,
 		UISettings:   settings,
+		ProjectRoot:  projectRoot,
 	})
 
 	if opts.Dashboard {
@@ -114,26 +119,13 @@ func runMonitor(opts *monitorOptions) error {
 	return m.Start()
 }
 
-func monitorGlobalFlags() []string {
+func monitorGlobalFlags(projectRoot, vaultPath string) []string {
 	var flags []string
-	if globalOpts.VaultPath != "" {
-		flags = append(flags, "--vault", globalOpts.VaultPath)
+	if projectRoot != "" {
+		flags = append(flags, "--project-root", projectRoot)
+	} else if globalOpts.ProjectRoot != "" {
+		flags = append(flags, "--project-root", globalOpts.ProjectRoot)
 	}
-	if globalOpts.Backend != "" {
-		flags = append(flags, "--backend", globalOpts.Backend)
-	}
-	if globalOpts.LogLevel != "" {
-		flags = append(flags, "--log-level", globalOpts.LogLevel)
-	}
-	return flags
-}
-
-// monitorGlobalFlagsWithVault returns global flags for child processes,
-// ensuring the vault path is always included (even when loaded from config).
-func monitorGlobalFlagsWithVault(vaultPath string) []string {
-	var flags []string
-	// Use the resolved vault path (from store) to ensure child processes
-	// use the same vault, even when it was loaded from config file
 	if vaultPath != "" {
 		flags = append(flags, "--vault", vaultPath)
 	} else if globalOpts.VaultPath != "" {

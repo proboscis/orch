@@ -27,21 +27,22 @@ func SocketFilePath(projectRoot string) string {
 }
 
 type SendRequest struct {
-	Type      string   `json:"type"`
-	IssueID   string   `json:"issue_id"`
-	RunID     string   `json:"run_id"`
-	Message   string   `json:"message"`
-	NoEnter   bool     `json:"no_enter,omitempty"`
-	VaultPath string   `json:"vault_path"`
-	Status    []string `json:"status,omitempty"`
-	Limit     int      `json:"limit,omitempty"`
-	Cursor    string   `json:"cursor,omitempty"`
-	Title     string   `json:"title,omitempty"`
-	Summary   string   `json:"summary,omitempty"`
-	Body      string   `json:"body,omitempty"`
-	Force     bool     `json:"force,omitempty"`
-	ShortID   string   `json:"short_id,omitempty"`
-	Comment   string   `json:"comment,omitempty"`
+	Type        string   `json:"type"`
+	IssueID     string   `json:"issue_id"`
+	RunID       string   `json:"run_id"`
+	Message     string   `json:"message"`
+	NoEnter     bool     `json:"no_enter,omitempty"`
+	VaultPath   string   `json:"vault_path,omitempty"`
+	ProjectRoot string   `json:"project_root,omitempty"`
+	Status      []string `json:"status,omitempty"`
+	Limit       int      `json:"limit,omitempty"`
+	Cursor      string   `json:"cursor,omitempty"`
+	Title       string   `json:"title,omitempty"`
+	Summary     string   `json:"summary,omitempty"`
+	Body        string   `json:"body,omitempty"`
+	Force       bool     `json:"force,omitempty"`
+	ShortID     string   `json:"short_id,omitempty"`
+	Comment     string   `json:"comment,omitempty"`
 }
 
 type SendResponse struct {
@@ -414,12 +415,12 @@ func SendViaDaemon(projectRoot string, run *model.Run, message string, noEnter b
 	conn.SetDeadline(time.Now().Add(10 * time.Second))
 
 	req := SendRequest{
-		Type:      "send",
-		IssueID:   run.IssueID,
-		RunID:     run.RunID,
-		Message:   message,
-		NoEnter:   noEnter,
-		VaultPath: projectRoot,
+		Type:        "send",
+		IssueID:     run.IssueID,
+		RunID:       run.RunID,
+		Message:     message,
+		NoEnter:     noEnter,
+		ProjectRoot: projectRoot,
 	}
 
 	encoder := json.NewEncoder(conn)

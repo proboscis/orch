@@ -40,7 +40,6 @@ const (
 	chatPaneOption   = "@orch_chat_pane"
 )
 
-// Options configures the monitor behavior.
 type Options struct {
 	Session      string
 	Issue        string
@@ -55,9 +54,9 @@ type Options struct {
 	ShowResolved bool
 	ShowClosed   bool
 	UISettings   *UISettings
+	ProjectRoot  string
 }
 
-// Monitor manages tmux windows and dashboard state.
 type Monitor struct {
 	session      string
 	runFilter    RunFilter
@@ -79,6 +78,7 @@ type Monitor struct {
 	uiSettings   *UISettings
 	orchDir      string
 	presets      []config.Preset
+	projectRoot  string
 }
 
 // RunWindow links a run to a dashboard index.
@@ -88,11 +88,14 @@ type RunWindow struct {
 	AgentSession string
 }
 
-// New creates a monitor with the provided options.
 func New(st store.Store, opts Options) *Monitor {
+	projectRoot := opts.ProjectRoot
+	if projectRoot == "" {
+		projectRoot = st.VaultPath()
+	}
 	session := opts.Session
 	if session == "" {
-		session = sessionNameForVault(st.VaultPath())
+		session = sessionNameForVault(projectRoot)
 	}
 	orchPath := resolveOrchPath(opts.OrchPath)
 	runSort := opts.RunSort
@@ -115,13 +118,13 @@ func New(st store.Store, opts Options) *Monitor {
 	if issueSort != uiSettings.IssueSort {
 		issueSortDir = DefaultSortDirection(issueSort)
 	}
-	orchDir := GetOrchDir(st.VaultPath())
+	orchDir := GetOrchDir(projectRoot)
 	var presets []config.Preset
 	var daemonClient *daemon.Client
 	if cfg, err := config.Load(); err == nil {
 		presets = cfg.GetAllPresets()
 		if cfg.IsGitHubBackend() {
-			daemonClient = daemon.NewClient(st.VaultPath())
+			daemonClient = daemon.NewClient(projectRoot)
 		}
 	}
 	return &Monitor{
@@ -143,6 +146,7 @@ func New(st store.Store, opts Options) *Monitor {
 		uiSettings:   uiSettings,
 		orchDir:      orchDir,
 		presets:      presets,
+		projectRoot:  projectRoot,
 	}
 }
 
