@@ -330,19 +330,32 @@ class TmuxLayoutLauncher:
 class ZellijLayoutLauncher:
     """Zellij implementation of layout launcher."""
 
+    ZELLIJ_TIMEOUT_SEC = 5
+
     def has_session(self, session_name: str) -> bool:
-        result = subprocess.run(
-            ["zellij", "list-sessions", "--short"],
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(
+                ["zellij", "list-sessions", "--short"],
+                capture_output=True,
+                text=True,
+                timeout=self.ZELLIJ_TIMEOUT_SEC,
+            )
+        except subprocess.TimeoutExpired:
+            print(f"Warning: zellij list-sessions timed out", file=sys.stderr)
+            return False
         if result.returncode != 0:
             return False
         sessions = result.stdout.strip().split("\n")
         return session_name in sessions
 
     def kill_session(self, session_name: str) -> None:
-        subprocess.run(["zellij", "delete-session", "--force", session_name])
+        try:
+            subprocess.run(
+                ["zellij", "delete-session", "--force", session_name],
+                timeout=self.ZELLIJ_TIMEOUT_SEC,
+            )
+        except subprocess.TimeoutExpired:
+            print(f"Warning: zellij delete-session timed out", file=sys.stderr)
 
     def attach_session(self, session_name: str) -> None:
         subprocess.run(["zellij", "attach", session_name])
