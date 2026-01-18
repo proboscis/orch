@@ -723,3 +723,31 @@ status: open
 		t.Error("issue-3 not found")
 	}
 }
+
+func TestParseTagsWithQuotes(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  []string
+	}{
+		{"double quoted", `["bug", "feature"]`, []string{"bug", "feature"}},
+		{"single quoted", `['bug', 'feature']`, []string{"bug", "feature"}},
+		{"mixed quotes", `["bug", 'feature']`, []string{"bug", "feature"}},
+		{"partial quoted", `[bug, "feature"]`, []string{"bug", "feature"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseTags(tt.value)
+			if len(got) != len(tt.want) {
+				t.Errorf("parseTags(%q) = %v, want %v", tt.value, got, tt.want)
+				return
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("parseTags(%q)[%d] = %q, want %q", tt.value, i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
