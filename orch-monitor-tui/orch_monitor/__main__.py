@@ -150,13 +150,32 @@ def get_vault_path(args) -> Path | None:
     return None
 
 
+def get_project_root(args) -> Path | None:
+    """Get project root from args or environment."""
+    if hasattr(args, "project_root") and args.project_root:
+        return args.project_root
+    project_root_env = os.getenv("ORCH_PROJECT_ROOT")
+    if project_root_env:
+        return Path(project_root_env)
+    return None
+
+
 DAEMON_STARTUP_TIMEOUT_SEC = 15
 DAEMON_POLL_INTERVAL_SEC = 0.2
 
 
-def ensure_daemon(vault_path: Path | None) -> tuple[bool, str]:
+def ensure_daemon(
+    project_root: Path | None, vault_path: Path | None
+) -> tuple[bool, str]:
     """Ensure daemon is running. Returns (success, message)."""
-    config = Config.from_vault(vault_path) if vault_path else Config.load()
+    if project_root:
+        config = Config.from_project_root(project_root)
+        if vault_path:
+            config.vault_path = vault_path
+    elif vault_path:
+        config = Config.from_vault(vault_path)
+    else:
+        config = Config.load()
     daemon = DaemonClient(config.socket_path)
     socket_path = config.socket_path
 
@@ -166,10 +185,11 @@ def ensure_daemon(vault_path: Path | None) -> tuple[bool, str]:
     print(f"Daemon socket not found at {socket_path}", file=sys.stderr)
     print("Starting orch daemon...", file=sys.stderr)
 
+    project_root_arg = ["--project-root", str(project_root)] if project_root else []
     vault_arg = ["--vault", str(vault_path)] if vault_path else []
     try:
         result = subprocess.run(
-            ["orch"] + vault_arg + ["daemon", "start"],
+            ["orch"] + project_root_arg + vault_arg + ["daemon", "start"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -497,7 +517,11 @@ def launch_monitor_layout(
             launcher.attach_session(session_name)
             return
 
-    if multiplexer == MultiplexerType.ZELLIJ and hasattr(launcher, '_healthy') and launcher._healthy is False:
+    if (
+        multiplexer == MultiplexerType.ZELLIJ
+        and hasattr(launcher, "_healthy")
+        and launcher._healthy is False
+    ):
         print("Error: Zellij is unresponsive (likely stale processes)", file=sys.stderr)
         print("Fix: Run 'pkill -9 zellij' to kill stale processes", file=sys.stderr)
         print("Or use: orch-monitor --new -m tmux", file=sys.stderr)
@@ -513,7 +537,12 @@ def main():
     parser.add_argument(
         "--vault",
         type=Path,
-        help="Path to orch vault directory",
+        help="Path to vault directory for file-based issues",
+    )
+    parser.add_argument(
+        "--project-root",
+        type=Path,
+        help="Path to project root (where .orch/ lives)",
     )
     parser.add_argument(
         "--runs",
@@ -549,20 +578,25 @@ def main():
     )
 
     args = parser.parse_args()
-    
+
     if args.verbose:
         import time as _time
+
         _start = _time.time()
+
         def _log(msg: str) -> None:
             elapsed = _time.time() - _start
             print(f"[{elapsed:.2f}s] {msg}", file=sys.stderr)
     else:
+
         def _log(msg: str) -> None:
             pass
+
     vault_path = get_vault_path(args)
+    project_root = get_project_root(args)
 
     _log("ensuring daemon...")
-    success, error_msg = ensure_daemon(vault_path)
+    success, error_msg = ensure_daemon(project_root, vault_path)
     if not success:
         print(f"Error: {error_msg}", file=sys.stderr)
         print("Try running 'orch repair' to fix.", file=sys.stderr)
@@ -570,7 +604,14 @@ def main():
     _log("daemon ready")
 
     _log("loading config...")
-    config = Config.from_vault(vault_path) if vault_path else Config.load()
+    if project_root:
+        config = Config.from_project_root(project_root)
+        if vault_path:
+            config.vault_path = vault_path
+    elif vault_path:
+        config = Config.from_vault(vault_path)
+    else:
+        config = Config.load()
     setup_logging(config.log_path)
     _log("config loaded")
 

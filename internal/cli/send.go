@@ -75,7 +75,7 @@ func runSend(refStr, message string, opts *sendOptions) error {
 
 	projectRoot, err := getProjectRoot()
 	if err != nil {
-		projectRoot = st.VaultPath()
+		return fmt.Errorf("project root required for send: %w", err)
 	}
 
 	if isOpenCode && daemon.IsDaemonSocketAvailable(projectRoot) {

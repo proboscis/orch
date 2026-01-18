@@ -49,7 +49,7 @@ func runRepair(opts *repairOptions) error {
 
 	projectRoot, err := getProjectRoot()
 	if err != nil {
-		projectRoot = st.VaultPath()
+		return fmt.Errorf("project root required for repair: %w", err)
 	}
 	problemsFound := 0
 	problemsFixed := 0

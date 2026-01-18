@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/s22625/orch/internal/model"
@@ -60,7 +61,7 @@ func runMonitor(opts *monitorOptions) error {
 
 	projectRoot, err := getProjectRoot()
 	if err != nil {
-		projectRoot = st.VaultPath()
+		return fmt.Errorf("project root required for monitor: %w", err)
 	}
 
 	orchDir := monitor.GetOrchDir(projectRoot)

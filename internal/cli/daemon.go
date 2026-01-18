@@ -58,7 +58,7 @@ func runDaemon() error {
 
 	projectRoot, err := getProjectRoot()
 	if err != nil {
-		projectRoot = st.VaultPath()
+		return fmt.Errorf("project root required for daemon: %w", err)
 	}
 
 	if daemon.IsRunning(projectRoot) {
