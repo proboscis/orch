@@ -168,13 +168,13 @@ func runDebug(ref string) error {
 	}
 	fmt.Println()
 
-	issuesRoot, _ := getIssuesRoot()
+	projectRoot, _ := getProjectRoot()
 	fmt.Printf("--- Daemon Info ---\n")
-	fmt.Printf("Daemon Running: %v\n", daemon.IsRunning(issuesRoot))
-	if daemon.IsRunning(issuesRoot) {
-		fmt.Printf("Daemon PID: %d\n", daemon.GetRunningPID(issuesRoot))
+	fmt.Printf("Daemon Running: %v\n", daemon.IsRunning(projectRoot))
+	if daemon.IsRunning(projectRoot) {
+		fmt.Printf("Daemon PID: %d\n", daemon.GetRunningPID(projectRoot))
 	}
-	fmt.Printf("Daemon Log: %s\n", daemon.LogFilePath(issuesRoot))
+	fmt.Printf("Daemon Log: %s\n", daemon.LogFilePath(projectRoot))
 
 	return nil
 }

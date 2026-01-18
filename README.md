@@ -215,7 +215,7 @@ orch distinguishes between two directories:
 export ORCH_PROJECT_ROOT=/path/to/repo
 
 # Issues root for file-based issues (optional, --vault is deprecated)
-# Deprecated: use ORCH_ISSUES_ROOT instead
+# Preferred: ORCH_ISSUES_ROOT (ORCH_VAULT is deprecated)
 export ORCH_VAULT=~/vault
 
 # Or pass per-command
@@ -231,7 +231,7 @@ If `ORCH_PROJECT_ROOT` is not set, orch will:
 Per-repo defaults can live in `.orch/config.yaml`:
 
 ```yaml
-# Deprecated: vault field, use issues.path instead
+# Deprecated: use ORCH_ISSUES_ROOT env var or --issues-root flag instead
 vault: ~/vault
 agent: claude
 worktree_root: .git-worktrees
@@ -280,7 +280,7 @@ multiplexer: zellij  # or "tmux" (default)
 Create `.orch/config.yaml` in the repo root to set defaults:
 
 ```yaml
-# Deprecated: vault field, use issues.path instead
+# Deprecated: use ORCH_ISSUES_ROOT env var or --issues-root flag instead
 vault: ~/vault
 agent: claude
 base_branch: main

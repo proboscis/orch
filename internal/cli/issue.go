@@ -265,12 +265,9 @@ type issueInfo struct {
 }
 
 func runIssueList() error {
-	issuesRoot, err := getIssuesRoot()
-	if err != nil {
-		return err
-	}
+	projectRoot, _ := getProjectRoot()
 
-	client := daemon.NewClient(issuesRoot)
+	client := daemon.NewClient(projectRoot)
 	if client.IsAvailable() {
 		return runIssueListViaDaemon(client)
 	}

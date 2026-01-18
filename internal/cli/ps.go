@@ -152,13 +152,13 @@ func runPs(opts *psOptions) error {
 	}
 
 	if opts.Verbose {
-		issuesRoot, _ := getIssuesRoot()
+		projectRoot, _ := getProjectRoot()
 		fmt.Println()
-		fmt.Printf("Daemon running: %v\n", daemon.IsRunning(issuesRoot))
-		if daemon.IsRunning(issuesRoot) {
-			fmt.Printf("Daemon PID: %d\n", daemon.GetRunningPID(issuesRoot))
+		fmt.Printf("Daemon running: %v\n", daemon.IsRunning(projectRoot))
+		if daemon.IsRunning(projectRoot) {
+			fmt.Printf("Daemon PID: %d\n", daemon.GetRunningPID(projectRoot))
 		}
-		fmt.Printf("Daemon log: %s\n", daemon.LogFilePath(issuesRoot))
+		fmt.Printf("Daemon log: %s\n", daemon.LogFilePath(projectRoot))
 	}
 
 	return nil
