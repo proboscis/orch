@@ -482,21 +482,26 @@ func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {
 
 // listAllRepoRuns aggregates runs from all registered repos.
 func (s *SocketServer) listAllRepoRuns(req SendRequest) ([]*model.Run, error) {
+	// Copy store pointers under lock, then release before I/O
 	s.reposMu.RLock()
-	defer s.reposMu.RUnlock()
-
-	var allRuns []*model.Run
+	stores := make([]store.Store, 0, len(s.repos))
 	for _, ctx := range s.repos {
-		if ctx.Store == nil {
-			continue
+		if ctx.Store != nil {
+			stores = append(stores, ctx.Store)
 		}
+	}
+	s.reposMu.RUnlock()
+
+	// Now do I/O without holding the lock
+	var allRuns []*model.Run
+	for _, st := range stores {
 		filter := &store.ListRunsFilter{
 			IssueID: req.IssueID,
 		}
 		for _, status := range req.Status {
 			filter.Status = append(filter.Status, model.Status(status))
 		}
-		runs, err := ctx.Store.ListRuns(filter)
+		runs, err := st.ListRuns(filter)
 		if err != nil {
 			continue // Skip errors, aggregate what we can
 		}
