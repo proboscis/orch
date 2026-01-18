@@ -104,7 +104,7 @@ func (a *OpenCodeRunAttacher) Attach(m *Monitor, run *model.Run) error {
 		return err
 	}
 
-	windowName := fmt.Sprintf("opencode-%s", run.ShortID())
+	windowName := fmt.Sprintf("%s[%s]", run.IssueID, run.ShortID())
 	for _, w := range monitorWindows {
 		if w.Name == windowName {
 			return tmux.SelectWindow(m.session, w.Index)
