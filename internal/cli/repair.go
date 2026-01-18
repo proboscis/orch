@@ -129,12 +129,12 @@ func runRepair(opts *repairOptions) error {
 	return nil
 }
 
-func repairDaemon(vaultPath string, opts *repairOptions) (bool, error) {
-	if daemon.IsRunning(vaultPath) {
-		pid := daemon.GetRunningPID(vaultPath)
+func repairDaemon(projectRoot string, opts *repairOptions) (bool, error) {
+	if daemon.IsRunning(projectRoot) {
+		pid := daemon.GetRunningPID(projectRoot)
 		fmt.Printf("  daemon running (pid=%d)\n", pid)
 
-		stale, err := daemon.IsStaleBinary(vaultPath)
+		stale, err := daemon.IsStaleBinary(projectRoot)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  warning: could not check binary staleness: %v\n", err)
 		} else if stale {
@@ -144,13 +144,13 @@ func repairDaemon(vaultPath string, opts *repairOptions) (bool, error) {
 				return true, nil
 			}
 
-			oldMeta, _ := daemon.ReadMetadata(vaultPath)
-			if err := daemon.RestartDaemon(vaultPath); err != nil {
+			oldMeta, _ := daemon.ReadMetadata(projectRoot)
+			if err := daemon.RestartDaemon(projectRoot); err != nil {
 				return true, fmt.Errorf("failed to restart daemon: %w", err)
 			}
 
-			if waitForDaemonRestart(vaultPath, oldMeta, 2*time.Second) {
-				newPid := daemon.GetRunningPID(vaultPath)
+			if waitForDaemonRestart(projectRoot, oldMeta, 2*time.Second) {
+				newPid := daemon.GetRunningPID(projectRoot)
 				fmt.Printf("  restarted daemon with new binary (pid=%d)\n", newPid)
 				return true, nil
 			}
@@ -166,16 +166,16 @@ func repairDaemon(vaultPath string, opts *repairOptions) (bool, error) {
 		return true, nil
 	}
 
-	daemon.RemovePID(vaultPath)
+	daemon.RemovePID(projectRoot)
 
-	pid, err := daemon.StartInBackground(vaultPath)
+	pid, err := daemon.StartInBackground(projectRoot)
 	if err != nil {
 		return true, fmt.Errorf("failed to start daemon: %w", err)
 	}
 
 	time.Sleep(200 * time.Millisecond)
 
-	if daemon.IsRunning(vaultPath) {
+	if daemon.IsRunning(projectRoot) {
 		fmt.Printf("  started daemon (pid=%d)\n", pid)
 		return true, nil
 	}
@@ -267,15 +267,15 @@ func findOrphanedSessions(st store.Store) []string {
 	return orphaned
 }
 
-func waitForDaemonRestart(vaultPath string, oldMeta *daemon.DaemonMetadata, timeout time.Duration) bool {
+func waitForDaemonRestart(projectRoot string, oldMeta *daemon.DaemonMetadata, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if !daemon.IsRunning(vaultPath) {
+		if !daemon.IsRunning(projectRoot) {
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
 
-		newMeta, err := daemon.ReadMetadata(vaultPath)
+		newMeta, err := daemon.ReadMetadata(projectRoot)
 		if err != nil {
 			time.Sleep(50 * time.Millisecond)
 			continue

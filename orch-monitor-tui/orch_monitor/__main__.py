@@ -236,6 +236,7 @@ class LayoutLauncher(Protocol):
     def launch_layout(
         self,
         session_name: str,
+        project_root: Path | None,
         vault_path: Path | None,
         agent: str,
         cwd: str,
@@ -263,13 +264,24 @@ class TmuxLayoutLauncher:
     def launch_layout(
         self,
         session_name: str,
+        project_root: Path | None,
         vault_path: Path | None,
         agent: str,
         cwd: str,
     ) -> None:
         python_exec = sys.executable
-        vault_arg = f"--vault {vault_path}" if vault_path else ""
-        env_export = f"export ORCH_VAULT='{vault_path}'; " if vault_path else ""
+        orch_args = ""
+        if project_root:
+            orch_args += f"--project-root {project_root} "
+        if vault_path:
+            orch_args += f"--vault {vault_path} "
+        orch_args = orch_args.strip()
+
+        env_export = ""
+        if project_root:
+            env_export += f"export ORCH_PROJECT_ROOT='{project_root}'; "
+        if vault_path:
+            env_export += f"export ORCH_VAULT='{vault_path}'; "
 
         subprocess.run(
             [
@@ -303,7 +315,6 @@ class TmuxLayoutLauncher:
                 cwd,
             ]
         )
-        # Split bottom pane vertically: pane 1 = issues (left), pane 2 = agent (right)
         subprocess.run(
             [
                 "tmux",
@@ -319,10 +330,10 @@ class TmuxLayoutLauncher:
         )
 
         runs_cmd = (
-            f'{env_export}"{python_exec}" -m orch_monitor --runs {vault_arg}'.strip()
+            f'{env_export}"{python_exec}" -m orch_monitor --runs {orch_args}'.strip()
         )
         issues_cmd = (
-            f'{env_export}"{python_exec}" -m orch_monitor --issues {vault_arg}'.strip()
+            f'{env_export}"{python_exec}" -m orch_monitor --issues {orch_args}'.strip()
         )
 
         write_control_prompt(vault_path)
@@ -343,7 +354,6 @@ class TmuxLayoutLauncher:
 
         subprocess.run(["tmux", "select-pane", "-t", f"{session_name}:0.2"])
 
-        # Attach to session
         subprocess.run(["tmux", "attach-session", "-t", session_name])
 
 
@@ -400,15 +410,21 @@ class ZellijLayoutLauncher:
     def launch_layout(
         self,
         session_name: str,
+        project_root: Path | None,
         vault_path: Path | None,
         agent: str,
         cwd: str,
     ) -> None:
         python_exec = sys.executable
-        vault_arg = f"--vault {vault_path}" if vault_path else ""
+        orch_args = ""
+        if project_root:
+            orch_args += f"--project-root {project_root} "
+        if vault_path:
+            orch_args += f"--vault {vault_path} "
+        orch_args = orch_args.strip()
 
-        runs_cmd = f"{python_exec} -m orch_monitor --runs {vault_arg}".strip()
-        issues_cmd = f"{python_exec} -m orch_monitor --issues {vault_arg}".strip()
+        runs_cmd = f"{python_exec} -m orch_monitor --runs {orch_args}".strip()
+        issues_cmd = f"{python_exec} -m orch_monitor --issues {orch_args}".strip()
 
         write_control_prompt(vault_path)
         if agent == "opencode":
@@ -445,19 +461,16 @@ layout {{
     }}
 }}
 '''
-        # Write temporary layout file
         layout_path = Path(cwd) / ".orch-monitor-layout.kdl"
         layout_path.write_text(layout_content)
 
         try:
-            # Set ORCH_VAULT for child processes
             env = os.environ.copy()
+            if project_root:
+                env["ORCH_PROJECT_ROOT"] = str(project_root)
             if vault_path:
                 env["ORCH_VAULT"] = str(vault_path)
 
-            # Launch zellij with layout
-            # Use --new-session-with-layout to force new session creation
-            # (--layout alone would try to add tabs to current session if inside zellij)
             subprocess.run(
                 [
                     "zellij",
@@ -470,7 +483,6 @@ layout {{
                 env=env,
             )
         finally:
-            # Clean up layout file
             if layout_path.exists():
                 layout_path.unlink()
 
@@ -488,6 +500,7 @@ def get_layout_launcher(mux_type: MultiplexerType) -> LayoutLauncher:
 
 
 def launch_monitor_layout(
+    project_root: Path | None,
     vault_path: Path | None,
     agent: str = "opencode",
     new: bool = False,
@@ -502,7 +515,7 @@ def launch_monitor_layout(
 
     launcher = get_layout_launcher(multiplexer)
     cwd = os.getcwd()
-    session_name = get_session_name(vault_path)
+    session_name = get_session_name(project_root or vault_path)
     log(f"session_name: {session_name}")
 
     log(f"checking has_session...")
@@ -528,7 +541,7 @@ def launch_monitor_layout(
         sys.exit(1)
 
     log("launching layout...")
-    launcher.launch_layout(session_name, vault_path, agent, cwd)
+    launcher.launch_layout(session_name, project_root, vault_path, agent, cwd)
     log("launch complete")
 
 
@@ -626,7 +639,9 @@ def main():
         if args.multiplexer:
             mux_type = MultiplexerType(args.multiplexer)
         _log("starting launch_monitor_layout")
-        launch_monitor_layout(vault_path, args.agent, args.new, mux_type, log=_log)
+        launch_monitor_layout(
+            project_root, vault_path, args.agent, args.new, mux_type, log=_log
+        )
 
 
 if __name__ == "__main__":

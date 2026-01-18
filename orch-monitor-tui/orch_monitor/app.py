@@ -94,6 +94,21 @@ def _log_error(operation: str, error: str, project_root: Path) -> None:
         pass
 
 
+def _build_orch_cmd(config: "Config") -> list[str]:
+    """Build base orch command with project-root and vault flags.
+
+    In split-root scenarios, both flags are needed:
+    - --project-root for daemon socket location (.orch/)
+    - --vault for file-based issue storage
+    """
+    cmd = ["orch"]
+    if config.project_root:
+        cmd.extend(["--project-root", str(config.project_root)])
+    if config.vault_path:
+        cmd.extend(["--vault", str(config.vault_path)])
+    return cmd
+
+
 class KillConfirmScreen(ModalScreen[bool]):
     """Confirmation dialog for killing terminal session."""
 
@@ -1282,13 +1297,7 @@ class RunsDashboard(App):
         """Attach to run in background thread to avoid blocking TUI."""
         current_mux_type = detect_current_multiplexer()
 
-        attach_cmd = [
-            "orch",
-            "--vault",
-            str(self.config.vault_path),
-            "attach",
-            run.ref(),
-        ]
+        attach_cmd = _build_orch_cmd(self.config) + ["attach", run.ref()]
 
         if current_mux_type:
             current_mux = get_multiplexer(current_mux_type)
@@ -1322,16 +1331,8 @@ class RunsDashboard(App):
     @work(thread=True)
     def _do_stop(self, run_ref: str) -> None:
         try:
-            subprocess.run(
-                [
-                    "orch",
-                    "--vault",
-                    str(self.config.vault_path),
-                    "stop",
-                    run_ref,
-                ],
-                check=True,
-            )
+            cmd = _build_orch_cmd(self.config) + ["stop", run_ref]
+            subprocess.run(cmd, check=True)
             self.call_from_thread(self.refresh_data)
         except subprocess.CalledProcessError:
             pass
@@ -1363,16 +1364,8 @@ class RunsDashboard(App):
         try:
             session_existed = multiplexer.kill_session(session_name)
 
-            stop_result = subprocess.run(
-                [
-                    "orch",
-                    "--vault",
-                    str(self.config.vault_path),
-                    "stop",
-                    run_ref,
-                ],
-                capture_output=True,
-            )
+            stop_cmd = _build_orch_cmd(self.config) + ["stop", run_ref]
+            stop_result = subprocess.run(stop_cmd, capture_output=True)
 
             if stop_result.returncode != 0:
                 stderr = stop_result.stderr.decode().strip()
@@ -1620,12 +1613,7 @@ class IssuesDashboard(App):
     def _do_new_run(self, issue_id: str, agent: str) -> None:
         log = get_logger()
         try:
-            cmd = ["orch"]
-            if self.config.vault_path:
-                cmd.extend(["--vault", str(self.config.vault_path)])
-            elif self.config.project_root:
-                cmd.extend(["--project-root", str(self.config.project_root)])
-            cmd.extend(["run", issue_id, "--agent", agent])
+            cmd = _build_orch_cmd(self.config) + ["run", issue_id, "--agent", agent]
 
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             if result.returncode == 0:
@@ -1664,7 +1652,6 @@ class IssuesDashboard(App):
             self.notify("No issue selected", severity="warning")
             return
 
-        # Capture issue_id before modal to prevent race condition if user navigates
         issue_id = self.selected_issue.id
         issue_title = self.selected_issue.title
 
@@ -1681,12 +1668,7 @@ class IssuesDashboard(App):
     def _do_close_issue(self, issue_id: str) -> None:
         log = get_logger()
         try:
-            cmd = ["orch"]
-            if self.config.vault_path:
-                cmd.extend(["--vault", str(self.config.vault_path)])
-            elif self.config.project_root:
-                cmd.extend(["--project-root", str(self.config.project_root)])
-            cmd.extend(["issue", "close", issue_id])
+            cmd = _build_orch_cmd(self.config) + ["issue", "close", issue_id]
 
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             if result.returncode == 0:
@@ -2152,13 +2134,7 @@ class OrchMonitorApp(App):
     def _do_attach(self, run: Run) -> None:
         current_mux_type = detect_current_multiplexer()
 
-        attach_cmd = [
-            "orch",
-            "--vault",
-            str(self.config.vault_path),
-            "attach",
-            run.ref(),
-        ]
+        attach_cmd = _build_orch_cmd(self.config) + ["attach", run.ref()]
 
         if current_mux_type:
             current_mux = get_multiplexer(current_mux_type)
@@ -2191,16 +2167,8 @@ class OrchMonitorApp(App):
     @work(thread=True)
     def _do_stop(self, run_ref: str) -> None:
         try:
-            subprocess.run(
-                [
-                    "orch",
-                    "--vault",
-                    str(self.config.vault_path),
-                    "stop",
-                    run_ref,
-                ],
-                check=True,
-            )
+            cmd = _build_orch_cmd(self.config) + ["stop", run_ref]
+            subprocess.run(cmd, check=True)
             self.call_from_thread(self.refresh_data)
         except subprocess.CalledProcessError:
             pass
@@ -2232,16 +2200,8 @@ class OrchMonitorApp(App):
         try:
             session_existed = multiplexer.kill_session(session_name)
 
-            stop_result = subprocess.run(
-                [
-                    "orch",
-                    "--vault",
-                    str(self.config.vault_path),
-                    "stop",
-                    run_ref,
-                ],
-                capture_output=True,
-            )
+            stop_cmd = _build_orch_cmd(self.config) + ["stop", run_ref]
+            stop_result = subprocess.run(stop_cmd, capture_output=True)
 
             if stop_result.returncode != 0:
                 stderr = stop_result.stderr.decode().strip()
@@ -2287,12 +2247,7 @@ class OrchMonitorApp(App):
     def _do_new_run(self, issue_id: str, agent: str) -> None:
         log = get_logger()
         try:
-            cmd = ["orch"]
-            if self.config.vault_path:
-                cmd.extend(["--vault", str(self.config.vault_path)])
-            elif self.config.project_root:
-                cmd.extend(["--project-root", str(self.config.project_root)])
-            cmd.extend(["run", issue_id, "--agent", agent])
+            cmd = _build_orch_cmd(self.config) + ["run", issue_id, "--agent", agent]
 
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             if result.returncode == 0:
@@ -2390,12 +2345,7 @@ class OrchMonitorApp(App):
     def _do_close_issue(self, issue_id: str) -> None:
         log = get_logger()
         try:
-            cmd = ["orch"]
-            if self.config.vault_path:
-                cmd.extend(["--vault", str(self.config.vault_path)])
-            elif self.config.project_root:
-                cmd.extend(["--project-root", str(self.config.project_root)])
-            cmd.extend(["issue", "close", issue_id])
+            cmd = _build_orch_cmd(self.config) + ["issue", "close", issue_id]
 
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             if result.returncode == 0:

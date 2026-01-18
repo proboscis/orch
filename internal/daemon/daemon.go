@@ -148,7 +148,7 @@ func (d *Daemon) Run() error {
 		d.logger.Printf("warning: failed to register daemon: %v", err)
 	}
 
-	d.logger.Printf("daemon started (pid=%d, vault=%s, binary=%s)", os.Getpid(), d.projectRoot, d.executablePath)
+	d.logger.Printf("daemon started (pid=%d, project_root=%s, binary=%s)", os.Getpid(), d.projectRoot, d.executablePath)
 
 	d.socketServer = NewSocketServer(d.projectRoot, d.store, d.logger)
 	d.socketServer.SetGitHubBackend(d.githubBackend)

@@ -97,7 +97,7 @@ func New(st store.Store, opts Options) *Monitor {
 	}
 	session := opts.Session
 	if session == "" {
-		session = sessionNameForVault(projectRoot)
+		session = sessionNameForProject(projectRoot)
 	}
 	orchPath := resolveOrchPath(opts.OrchPath)
 	runSort := opts.RunSort
@@ -260,17 +260,17 @@ func (m *Monitor) saveUISettings() {
 	_ = SaveUISettings(m.orchDir, settings)
 }
 
-// sessionNameForVault generates a unique monitor session name based on the vault path.
+// sessionNameForProject generates a unique monitor session name based on the project root path.
 // This ensures each project has its own monitor session.
-func sessionNameForVault(vaultPath string) string {
-	if vaultPath == "" {
+func sessionNameForProject(projectRoot string) string {
+	if projectRoot == "" {
 		return defaultSessionName
 	}
 
 	// Normalize the path to handle symlinks and relative paths
-	absPath, err := filepath.Abs(vaultPath)
+	absPath, err := filepath.Abs(projectRoot)
 	if err != nil {
-		absPath = vaultPath
+		absPath = projectRoot
 	}
 	// Try to resolve symlinks for consistent naming
 	if resolved, err := filepath.EvalSymlinks(absPath); err == nil {

@@ -116,7 +116,7 @@ Run these commands directly using bash (do not use any special protocol):
 ## Troubleshooting
 
 - Orphaned sessions: ` + "`orch repair`" + `
-- View daemon logs: Check ` + "`.orch/daemon.log`" + ` in vault
+- View daemon logs: Check ` + "`.orch/daemon.log`" + ` in project root
 - Force stop all: ` + "`orch stop --all`" + `
 
 ## Issue File Template
