@@ -3,11 +3,10 @@ package config
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
-	"strings"
 
+	"github.com/s22625/orch/internal/git"
 	"gopkg.in/yaml.v3"
 )
 
@@ -269,10 +268,10 @@ func findRepoConfigs() ([]string, error) {
 		dir = parent
 	}
 
-	if mainRepo := findMainRepoRoot(cwd); mainRepo != "" && !visitedDirs[mainRepo] {
+	if mainRepo, isWorktree := git.IsWorktree(cwd); isWorktree && !visitedDirs[mainRepo] {
 		configPath := filepath.Join(mainRepo, ".orch", configFile)
 		if _, err := os.Stat(configPath); err == nil {
-			paths = append([]string{configPath}, paths...)
+			paths = append(paths, configPath)
 		}
 	}
 
@@ -281,46 +280,6 @@ func findRepoConfigs() ([]string, error) {
 	}
 
 	return paths, nil
-}
-
-// findMainRepoRoot returns the main git repository root when running from a worktree.
-// Returns empty string if not in a git repo or not in a worktree.
-func findMainRepoRoot(startDir string) string {
-	commonGitDir := getGitOutput(startDir, "--git-common-dir")
-	if commonGitDir == "" {
-		return ""
-	}
-
-	if !filepath.IsAbs(commonGitDir) {
-		commonGitDir = filepath.Join(startDir, commonGitDir)
-	}
-
-	worktreeGitDir := getGitOutput(startDir, "--git-dir")
-	if worktreeGitDir == "" {
-		return ""
-	}
-
-	if !filepath.IsAbs(worktreeGitDir) {
-		worktreeGitDir = filepath.Join(startDir, worktreeGitDir)
-	}
-
-	commonGitDir = filepath.Clean(commonGitDir)
-	worktreeGitDir = filepath.Clean(worktreeGitDir)
-
-	if commonGitDir == worktreeGitDir {
-		return ""
-	}
-
-	return filepath.Dir(commonGitDir)
-}
-
-func getGitOutput(dir, flag string) string {
-	cmd := exec.Command("git", "-C", dir, "rev-parse", flag)
-	output, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(output))
 }
 
 // globalConfigPath returns the path to global config

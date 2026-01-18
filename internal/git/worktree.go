@@ -118,6 +118,53 @@ func FindMainRepoRoot(startDir string) (string, error) {
 	return filepath.Dir(gitDir), nil
 }
 
+// IsWorktree checks if startDir is inside a git worktree (not the main repo).
+// Returns the main repo root if it's a worktree, empty string otherwise.
+func IsWorktree(startDir string) (mainRepoRoot string, isWorktree bool) {
+	if startDir == "" {
+		var err error
+		startDir, err = os.Getwd()
+		if err != nil {
+			return "", false
+		}
+	}
+
+	commonDir := getGitRevParseOutput(startDir, "--git-common-dir")
+	if commonDir == "" {
+		return "", false
+	}
+
+	gitDir := getGitRevParseOutput(startDir, "--git-dir")
+	if gitDir == "" {
+		return "", false
+	}
+
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(startDir, commonDir)
+	}
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(startDir, gitDir)
+	}
+
+	commonDir = filepath.Clean(commonDir)
+	gitDir = filepath.Clean(gitDir)
+
+	if commonDir == gitDir {
+		return "", false
+	}
+
+	return filepath.Dir(commonDir), true
+}
+
+func getGitRevParseOutput(dir, flag string) string {
+	cmd := exec.Command("git", "-C", dir, "rev-parse", flag)
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
+}
+
 // ParseRemoteBranch parses a base branch specification into remote and branch components.
 // Supports formats like "origin/main", "upstream/develop", or just "main" (defaults to origin).
 func ParseRemoteBranch(baseBranch string) (remote, branch string) {

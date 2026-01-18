@@ -209,9 +209,13 @@ func LookupInfo(repoRoot, branch string) (*Info, error) {
 
 // LookupInfoByURL returns PR info by URL using the GitHub CLI.
 // This works even if the local worktree has been deleted.
+// Only GitHub URLs are supported (gh CLI requirement).
 func LookupInfoByURL(prURL string) (*Info, error) {
 	if strings.TrimSpace(prURL) == "" {
 		return nil, fmt.Errorf("PR URL is required")
+	}
+	if !strings.HasPrefix(prURL, "https://github.com/") {
+		return nil, fmt.Errorf("only GitHub URLs are supported: %s", prURL)
 	}
 	if _, err := exec.LookPath("gh"); err != nil {
 		return nil, err
