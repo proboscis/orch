@@ -196,7 +196,7 @@ func continueFromRun(st store.Store, refStr string, opts *continueOptions) error
 		NoPR:           opts.NoPR,
 		PromptTemplate: opts.PromptTemplate,
 		PRTargetBranch: opts.PRTargetBranch,
-		VaultPath:      st.VaultPath(),
+		IssuesRoot:      st.RootPath(),
 		IssuePath:      issue.Path,
 	}
 	if err := ensurePromptFile(fromRun.WorktreePath, issue, promptOpts); err != nil {
@@ -224,7 +224,7 @@ func continueFromRun(st store.Store, refStr string, opts *continueOptions) error
 		IssueID:   fromRun.IssueID,
 		RunID:     runID,
 		RunPath:   run.Path,
-		VaultPath: st.VaultPath(),
+		IssuesRoot: st.RootPath(),
 		Branch:    fromRun.Branch,
 		Prompt:    buildContinuePrompt(continuedFrom),
 		Profile:   opts.AgentProfile,
@@ -396,7 +396,7 @@ func continueFromBranch(st store.Store, refStr string, opts *continueOptions) er
 		NoPR:           opts.NoPR,
 		PromptTemplate: opts.PromptTemplate,
 		PRTargetBranch: opts.PRTargetBranch,
-		VaultPath:      st.VaultPath(),
+		IssuesRoot:      st.RootPath(),
 		IssuePath:      issue.Path,
 	}
 	if err := ensurePromptFile(worktreePath, issue, promptOpts); err != nil {
@@ -422,7 +422,7 @@ func continueFromBranch(st store.Store, refStr string, opts *continueOptions) er
 		IssueID:   issueID,
 		RunID:     runID,
 		RunPath:   run.Path,
-		VaultPath: st.VaultPath(),
+		IssuesRoot: st.RootPath(),
 		Branch:    branch,
 		Prompt:    buildContinuePrompt(continuedFrom),
 		Profile:   opts.AgentProfile,

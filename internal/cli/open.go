@@ -113,18 +113,18 @@ func runOpen(refStr string, opts *openOptions) error {
 	}
 
 	// Open the file
-	return openFile(path, opts.App, st.VaultPath())
+	return openFile(path, opts.App, st.RootPath())
 }
 
-func openFile(path, app, vaultPath string) error {
+func openFile(path, app, issuesRoot string) error {
 	switch app {
 	case "obsidian":
-		return openInObsidian(path, vaultPath)
+		return openInObsidian(path, issuesRoot)
 	case "editor":
 		return openInEditor(path)
 	case "default":
 		// Try Obsidian first, fall back to system open
-		if err := openInObsidian(path, vaultPath); err != nil {
+		if err := openInObsidian(path, issuesRoot); err != nil {
 			return openWithSystem(path)
 		}
 		return nil
@@ -133,14 +133,14 @@ func openFile(path, app, vaultPath string) error {
 	}
 }
 
-func openInObsidian(path, vaultPath string) error {
+func openInObsidian(path, issuesRoot string) error {
 	// Obsidian URI format: obsidian://open?vault=NAME&file=PATH
 	// The path should be relative to the vault
-	relPath := strings.TrimPrefix(path, vaultPath)
+	relPath := strings.TrimPrefix(path, issuesRoot)
 	relPath = strings.TrimPrefix(relPath, "/")
 
 	// Get vault name from path
-	vaultName := filepath.Base(vaultPath)
+	vaultName := filepath.Base(issuesRoot)
 
 	uri := fmt.Sprintf("obsidian://open?vault=%s&file=%s", vaultName, relPath)
 	return openWithSystem(uri)

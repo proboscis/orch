@@ -202,11 +202,11 @@ orch distinguishes between two directories:
 | Concept | Description | Contains |
 |---------|-------------|----------|
 | **Project Root** | Git repository where orch is configured | `.orch/config.yaml`, `.orch/daemon.sock`, `.orch/daemon.log` |
-| **Vault** | Optional Obsidian vault for local markdown issues | `issues/*.md`, `runs/**/*.md` |
+| **Issues Root** | Directory for local markdown issues (formerly "vault") | `issues/*.md`, `runs/**/*.md` |
 
 **For GitHub Issues backend:** Only project root is needed. No vault directory required.
 
-**For file-based issues:** Vault path specifies where local issue markdown files are stored.
+**For file-based issues:** Issues root specifies where local issue markdown files are stored.
 
 ### Environment Variables
 
@@ -214,11 +214,13 @@ orch distinguishes between two directories:
 # Project root (where .orch/ lives) - preferred for daemon/socket operations
 export ORCH_PROJECT_ROOT=/path/to/repo
 
-# Vault path for file-based issues (optional)
+# Issues root for file-based issues (optional, --vault is deprecated)
+# Preferred: ORCH_ISSUES_ROOT (ORCH_VAULT is deprecated)
 export ORCH_VAULT=~/vault
 
 # Or pass per-command
 orch --project-root /path/to/repo ps
+# Deprecated: --vault flag, use --issues-root instead
 orch --vault ~/vault run my-issue
 ```
 
@@ -229,6 +231,7 @@ If `ORCH_PROJECT_ROOT` is not set, orch will:
 Per-repo defaults can live in `.orch/config.yaml`:
 
 ```yaml
+# Deprecated: use ORCH_ISSUES_ROOT env var or --issues-root flag instead
 vault: ~/vault
 agent: claude
 worktree_root: .git-worktrees
@@ -277,6 +280,7 @@ multiplexer: zellij  # or "tmux" (default)
 Create `.orch/config.yaml` in the repo root to set defaults:
 
 ```yaml
+# Deprecated: use ORCH_ISSUES_ROOT env var or --issues-root flag instead
 vault: ~/vault
 agent: claude
 base_branch: main

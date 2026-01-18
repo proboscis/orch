@@ -16,37 +16,37 @@ import (
 
 // FileStore implements store.Store using the filesystem
 type FileStore struct {
-	vaultPath  string
+	rootPath  string
 	issueMu    sync.RWMutex
 	issueCache map[string]*model.Issue // id -> issue
 	cacheDirty bool
 }
 
 // New creates a new FileStore
-func New(vaultPath string) (*FileStore, error) {
-	absPath, err := filepath.Abs(vaultPath)
+func New(rootPath string) (*FileStore, error) {
+	absPath, err := filepath.Abs(rootPath)
 	if err != nil {
-		return nil, fmt.Errorf("invalid vault path: %w", err)
+		return nil, fmt.Errorf("invalid root path: %w", err)
 	}
 
 	info, err := os.Stat(absPath)
 	if err != nil {
-		return nil, fmt.Errorf("vault path does not exist: %w", err)
+		return nil, fmt.Errorf("root path does not exist: %w", err)
 	}
 	if !info.IsDir() {
-		return nil, fmt.Errorf("vault path is not a directory: %s", absPath)
+		return nil, fmt.Errorf("root path is not a directory: %s", absPath)
 	}
 
 	return &FileStore{
-		vaultPath:  absPath,
+		rootPath:  absPath,
 		issueCache: make(map[string]*model.Issue),
 		cacheDirty: true,
 	}, nil
 }
 
-// VaultPath returns the vault root path
-func (s *FileStore) VaultPath() string {
-	return s.vaultPath
+// RootPath returns the issues root path
+func (s *FileStore) RootPath() string {
+	return s.rootPath
 }
 
 func walkWithSymlinks(root string, walkFn filepath.WalkFunc) error {
@@ -135,7 +135,7 @@ func walkWithSymlinks(root string, walkFn filepath.WalkFunc) error {
 
 // scanIssues scans the issues directory for issue files
 func (s *FileStore) scanIssues() error {
-	issuesDir := filepath.Join(s.vaultPath, "issues")
+	issuesDir := filepath.Join(s.rootPath, "issues")
 	issues := make(map[string]*model.Issue)
 
 	s.issueMu.Lock()
@@ -322,7 +322,7 @@ func (s *FileStore) runsDir(issueID string) string {
 
 // resolveRunsDir resolves the runs directory, checking both gh- and gh# formats for backward compat.
 func (s *FileStore) resolveRunsDir(issueID string) string {
-	runsRoot := filepath.Join(s.vaultPath, "runs")
+	runsRoot := filepath.Join(s.rootPath, "runs")
 
 	if strings.HasPrefix(issueID, "gh-") {
 		canonicalDir := filepath.Join(runsRoot, issueID)
@@ -621,7 +621,7 @@ func (s *FileStore) loadRun(issueID, runID, path string) (*model.Run, error) {
 	// Resolve relative worktree paths against the vault path
 	// This handles runs created before worktree paths were made absolute
 	if run.WorktreePath != "" && !filepath.IsAbs(run.WorktreePath) {
-		run.WorktreePath = filepath.Join(s.vaultPath, run.WorktreePath)
+		run.WorktreePath = filepath.Join(s.rootPath, run.WorktreePath)
 	}
 
 	return run, nil

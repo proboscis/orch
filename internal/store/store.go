@@ -17,7 +17,7 @@ type Store interface {
 	// ResolveIssue retrieves an issue by ID (looks for type: issue frontmatter)
 	ResolveIssue(issueID string) (*model.Issue, error)
 
-	// ListIssues returns all issues in the vault
+	// ListIssues returns all issues in the issues root
 	ListIssues() ([]*model.Issue, error)
 
 	// SetIssueStatus updates an issue's status in frontmatter
@@ -42,6 +42,6 @@ type Store interface {
 	// GetLatestRun retrieves the latest run for an issue
 	GetLatestRun(issueID string) (*model.Run, error)
 
-	// VaultPath returns the vault root path
-	VaultPath() string
+	// RootPath returns the issues root path (where issues and runs are stored)
+	RootPath() string
 }

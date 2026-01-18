@@ -86,7 +86,7 @@ func (m *mockStore) GetLatestRun(issueID string) (*model.Run, error) {
 	return nil, nil
 }
 
-func (m *mockStore) VaultPath() string {
+func (m *mockStore) RootPath() string {
 	return ""
 }
 

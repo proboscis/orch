@@ -287,7 +287,7 @@ func runMonitor(opts *monitorOptions) error {
 		Attach:       opts.Attach,
 		ForceNew:     opts.ForceNew,
 		OrchPath:     os.Args[0],
-		GlobalFlags:  monitorGlobalFlags(projectRoot, st.VaultPath()),
+		GlobalFlags:  monitorGlobalFlags(projectRoot, st.RootPath()),
 		ShowResolved: opts.ShowResolved,
 		ShowClosed:   opts.ShowClosed,
 		UISettings:   settings,
@@ -304,17 +304,17 @@ func runMonitor(opts *monitorOptions) error {
 	return m.Start()
 }
 
-func monitorGlobalFlags(projectRoot, vaultPath string) []string {
+func monitorGlobalFlags(projectRoot, issuesRoot string) []string {
 	var flags []string
 	if projectRoot != "" {
 		flags = append(flags, "--project-root", projectRoot)
 	} else if globalOpts.ProjectRoot != "" {
 		flags = append(flags, "--project-root", globalOpts.ProjectRoot)
 	}
-	if vaultPath != "" {
-		flags = append(flags, "--vault", vaultPath)
-	} else if globalOpts.VaultPath != "" {
-		flags = append(flags, "--vault", globalOpts.VaultPath)
+	if issuesRoot != "" {
+		flags = append(flags, "--vault", issuesRoot)
+	} else if globalOpts.IssuesRoot != "" {
+		flags = append(flags, "--vault", globalOpts.IssuesRoot)
 	}
 	if globalOpts.Backend != "" {
 		flags = append(flags, "--backend", globalOpts.Backend)

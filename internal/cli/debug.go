@@ -168,13 +168,13 @@ func runDebug(ref string) error {
 	}
 	fmt.Println()
 
-	vaultPath, _ := getVaultPath()
+	projectRoot, _ := getProjectRoot()
 	fmt.Printf("--- Daemon Info ---\n")
-	fmt.Printf("Daemon Running: %v\n", daemon.IsRunning(vaultPath))
-	if daemon.IsRunning(vaultPath) {
-		fmt.Printf("Daemon PID: %d\n", daemon.GetRunningPID(vaultPath))
+	fmt.Printf("Daemon Running: %v\n", daemon.IsRunning(projectRoot))
+	if daemon.IsRunning(projectRoot) {
+		fmt.Printf("Daemon PID: %d\n", daemon.GetRunningPID(projectRoot))
 	}
-	fmt.Printf("Daemon Log: %s\n", daemon.LogFilePath(vaultPath))
+	fmt.Printf("Daemon Log: %s\n", daemon.LogFilePath(projectRoot))
 
 	return nil
 }

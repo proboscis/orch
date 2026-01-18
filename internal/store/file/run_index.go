@@ -46,14 +46,14 @@ const (
 type runIndexCache struct {
 	mu       sync.RWMutex
 	index    *runIndex
-	vaultDir string
+	rootDir string
 }
 
 var globalRunIndex = &runIndexCache{}
 
 func (s *FileStore) getRunIndex() *runIndex {
 	globalRunIndex.mu.RLock()
-	if globalRunIndex.index != nil && globalRunIndex.vaultDir == s.vaultPath {
+	if globalRunIndex.index != nil && globalRunIndex.rootDir == s.rootPath {
 		idx := globalRunIndex.index
 		globalRunIndex.mu.RUnlock()
 		return idx
@@ -63,18 +63,18 @@ func (s *FileStore) getRunIndex() *runIndex {
 	globalRunIndex.mu.Lock()
 	defer globalRunIndex.mu.Unlock()
 
-	if globalRunIndex.index != nil && globalRunIndex.vaultDir == s.vaultPath {
+	if globalRunIndex.index != nil && globalRunIndex.rootDir == s.rootPath {
 		return globalRunIndex.index
 	}
 
 	idx := s.loadRunIndex()
 	globalRunIndex.index = idx
-	globalRunIndex.vaultDir = s.vaultPath
+	globalRunIndex.rootDir = s.rootPath
 	return idx
 }
 
 func (s *FileStore) loadRunIndex() *runIndex {
-	indexPath := filepath.Join(s.vaultPath, runIndexFileName)
+	indexPath := filepath.Join(s.rootPath, runIndexFileName)
 	data, err := os.ReadFile(indexPath)
 	if err != nil {
 		return &runIndex{
@@ -110,7 +110,7 @@ func (s *FileStore) saveRunIndex(idx *runIndex) {
 		return
 	}
 
-	indexPath := filepath.Join(s.vaultPath, runIndexFileName)
+	indexPath := filepath.Join(s.rootPath, runIndexFileName)
 	tmp := indexPath + ".tmp"
 	if err := os.WriteFile(tmp, data, 0644); err != nil {
 		return
@@ -120,7 +120,7 @@ func (s *FileStore) saveRunIndex(idx *runIndex) {
 
 func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run, error) {
 	idx := s.getRunIndex()
-	runsRoot := filepath.Join(s.vaultPath, "runs")
+	runsRoot := filepath.Join(s.rootPath, "runs")
 
 	var issueDirs []string
 	if filter != nil && filter.IssueID != "" {

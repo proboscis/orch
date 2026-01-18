@@ -14,7 +14,7 @@ func TestRunIssueCreatePrefersExistingIssuesDir(t *testing.T) {
 	}
 
 	prev := *globalOpts
-	globalOpts.VaultPath = vault
+	globalOpts.IssuesRoot = vault
 	globalOpts.JSON = false
 	globalOpts.Quiet = true
 	testBypassDaemon = true
@@ -43,7 +43,7 @@ func TestRunIssueCreateUsesVaultIssuesDir(t *testing.T) {
 	}
 
 	prev := *globalOpts
-	globalOpts.VaultPath = issuesDir
+	globalOpts.IssuesRoot = issuesDir
 	globalOpts.JSON = false
 	globalOpts.Quiet = true
 	testBypassDaemon = true

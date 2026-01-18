@@ -54,7 +54,7 @@ type LaunchConfig struct {
 	IssueID         string
 	RunID           string
 	RunPath         string
-	VaultPath       string
+	IssuesRoot       string
 	Branch          string
 	Prompt          string // Initial prompt/instruction for the agent
 	Resume          bool   // Whether to resume an existing session
@@ -74,7 +74,7 @@ func (c *LaunchConfig) Env() []string {
 		fmt.Sprintf("ORCH_RUN_PATH=%s", c.RunPath),
 		fmt.Sprintf("ORCH_WORKTREE_PATH=%s", c.WorkDir),
 		fmt.Sprintf("ORCH_BRANCH=%s", c.Branch),
-		fmt.Sprintf("ORCH_VAULT=%s", c.VaultPath),
+		fmt.Sprintf("ORCH_VAULT=%s", c.IssuesRoot),
 	}
 	// Ensure HOME is passed for OAuth credentials in ~/.claude.json
 	if home := os.Getenv("HOME"); home != "" {

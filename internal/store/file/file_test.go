@@ -42,8 +42,8 @@ func TestNew(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	if s.VaultPath() != vault {
-		t.Errorf("VaultPath() = %v, want %v", s.VaultPath(), vault)
+	if s.RootPath() != vault {
+		t.Errorf("RootPath() = %v, want %v", s.RootPath(), vault)
 	}
 }
 
