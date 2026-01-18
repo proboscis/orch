@@ -1257,16 +1257,39 @@ class IssuesDashboard(App):
         if not self.selected_issue:
             self.notify("No issue selected", severity="warning")
             return
-        self.exit()
-        subprocess.run(
-            [
-                "orch",
-                "--vault",
-                str(self.config.vault_path),
-                "run",
-                self.selected_issue.id,
-            ]
-        )
+        issue_id = self.selected_issue.id
+        self.notify(f"Starting run for {issue_id}...")
+        self._do_new_run(issue_id)
+
+    @work(thread=True)
+    def _do_new_run(self, issue_id: str) -> None:
+        """Start a new run in background thread to avoid blocking TUI."""
+        try:
+            result = subprocess.run(
+                [
+                    "orch",
+                    "--vault",
+                    str(self.config.vault_path),
+                    "run",
+                    issue_id,
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                self.call_from_thread(
+                    self.notify, f"Run started for {issue_id}", severity="information"
+                )
+            else:
+                error_msg = result.stderr.strip() or "Unknown error"
+                self.call_from_thread(
+                    self.notify, f"Failed to start run: {error_msg}", severity="error"
+                )
+            self.call_from_thread(self.refresh_data)
+        except Exception as e:
+            self.call_from_thread(
+                self.notify, f"Failed to start run: {e}", severity="error"
+            )
 
 
 class OrchMonitorApp(App):
@@ -1779,18 +1802,41 @@ class OrchMonitorApp(App):
 
     def action_new_run(self) -> None:
         if not self.selected_issue:
+            self.notify("No issue selected", severity="warning")
             return
+        issue_id = self.selected_issue.id
+        self.notify(f"Starting run for {issue_id}...")
+        self._do_new_run(issue_id)
 
-        self.exit()
-        subprocess.run(
-            [
-                "orch",
-                "--vault",
-                str(self.config.vault_path),
-                "run",
-                self.selected_issue.id,
-            ]
-        )
+    @work(thread=True)
+    def _do_new_run(self, issue_id: str) -> None:
+        """Start a new run in background thread to avoid blocking TUI."""
+        try:
+            result = subprocess.run(
+                [
+                    "orch",
+                    "--vault",
+                    str(self.config.vault_path),
+                    "run",
+                    issue_id,
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                self.call_from_thread(
+                    self.notify, f"Run started for {issue_id}", severity="information"
+                )
+            else:
+                error_msg = result.stderr.strip() or "Unknown error"
+                self.call_from_thread(
+                    self.notify, f"Failed to start run: {error_msg}", severity="error"
+                )
+            self.call_from_thread(self.refresh_data)
+        except Exception as e:
+            self.call_from_thread(
+                self.notify, f"Failed to start run: {e}", severity="error"
+            )
 
     def action_open_issue(self) -> None:
         if not self.selected_issue:
