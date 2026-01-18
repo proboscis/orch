@@ -35,7 +35,7 @@ type SendRequest struct {
 	RunID       string   `json:"run_id"`
 	Message     string   `json:"message"`
 	NoEnter     bool     `json:"no_enter,omitempty"`
-	VaultPath   string   `json:"vault_path,omitempty"`
+	IssuesRoot   string   `json:"vault_path,omitempty"` // Deprecated: JSON field kept for backward compat
 	ProjectRoot string   `json:"project_root,omitempty"`
 	Status      []string `json:"status,omitempty"`
 	Limit       int      `json:"limit,omitempty"`
@@ -624,10 +624,10 @@ func (s *SocketServer) handleCreateIssue(req SendRequest, encoder *json.Encoder)
 	}
 
 	// Use vault path for file-based issues (not project root)
-	vaultPath := s.store.VaultPath()
-	issuesDir := filepath.Join(vaultPath, "issues")
-	if _, err := os.Stat(filepath.Join(vaultPath, "Issues")); err == nil {
-		issuesDir = filepath.Join(vaultPath, "Issues")
+	issuesRoot := s.store.RootPath()
+	issuesDir := filepath.Join(issuesRoot, "issues")
+	if _, err := os.Stat(filepath.Join(issuesRoot, "Issues")); err == nil {
+		issuesDir = filepath.Join(issuesRoot, "Issues")
 	}
 	if err := os.MkdirAll(issuesDir, 0755); err != nil {
 		s.logger.Printf("error creating issues directory: %v", err)

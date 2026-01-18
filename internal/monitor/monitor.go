@@ -1135,7 +1135,7 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 	continueSession := true
 	cmd, err := adapter.LaunchCommand(&agent.LaunchConfig{
 		Type:            aType,
-		VaultPath:       m.store.VaultPath(),
+		IssuesRoot:       m.store.RootPath(),
 		Prompt:          prompt,
 		ContinueSession: continueSession,
 		Port:            port,
@@ -1207,13 +1207,13 @@ func (m *Monitor) sendPromptViaHTTP(launch agentChatLaunch) {
 		modelRef = agent.ParseModel(launch.model)
 	}
 
-	_ = client.SendMessageAsync(ctx, sessionID, launch.prompt, m.store.VaultPath(), modelRef, launch.modelVariant)
+	_ = client.SendMessageAsync(ctx, sessionID, launch.prompt, m.store.RootPath(), modelRef, launch.modelVariant)
 }
 
 func (m *Monitor) getOrCreateControlSession(ctx context.Context, client *agent.OpenCodeClient, port int) string {
 	stored := LoadControlSession(m.orchDir)
 	if stored != nil && stored.SessionID != "" {
-		session, err := client.GetSession(ctx, stored.SessionID, m.store.VaultPath())
+		session, err := client.GetSession(ctx, stored.SessionID, m.store.RootPath())
 		if err == nil && session != nil {
 			if stored.Port != port {
 				_ = SaveControlSession(m.orchDir, &ControlSession{
@@ -1225,7 +1225,7 @@ func (m *Monitor) getOrCreateControlSession(ctx context.Context, client *agent.O
 		}
 	}
 
-	session, err := client.CreateSession(ctx, "monitor-chat", m.store.VaultPath())
+	session, err := client.CreateSession(ctx, "monitor-chat", m.store.RootPath())
 	if err != nil {
 		return ""
 	}

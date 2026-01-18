@@ -139,12 +139,12 @@ func runIssueCreate(issueID string, opts *issueCreateOptions) error {
 }
 
 func runIssueCreateWithEditor(issueID, title string, opts *issueCreateOptions) error {
-	vaultPath, err := getVaultPath()
+	issuesRoot, err := getIssuesRoot()
 	if err != nil {
 		return err
 	}
 
-	issuesDir, err := resolveIssuesDir(vaultPath)
+	issuesDir, err := resolveIssuesDir(issuesRoot)
 	if err != nil {
 		return err
 	}
@@ -208,26 +208,26 @@ func runIssueCreateWithEditor(issueID, title string, opts *issueCreateOptions) e
 	return nil
 }
 
-func resolveIssuesDir(vaultPath string) (string, error) {
-	if strings.TrimSpace(vaultPath) == "" {
+func resolveIssuesDir(issuesRoot string) (string, error) {
+	if strings.TrimSpace(issuesRoot) == "" {
 		return "", fmt.Errorf("vault path is required")
 	}
 
-	if strings.EqualFold(filepath.Base(vaultPath), "issues") {
-		return vaultPath, nil
+	if strings.EqualFold(filepath.Base(issuesRoot), "issues") {
+		return issuesRoot, nil
 	}
 
-	issuesDir := filepath.Join(vaultPath, "issues")
+	issuesDir := filepath.Join(issuesRoot, "issues")
 	if dirExists(issuesDir) {
 		return issuesDir, nil
 	}
 
-	issuesDir = filepath.Join(vaultPath, "Issues")
+	issuesDir = filepath.Join(issuesRoot, "Issues")
 	if dirExists(issuesDir) {
 		return issuesDir, nil
 	}
 
-	return filepath.Join(vaultPath, "issues"), nil
+	return filepath.Join(issuesRoot, "issues"), nil
 }
 
 func dirExists(path string) bool {
@@ -265,12 +265,12 @@ type issueInfo struct {
 }
 
 func runIssueList() error {
-	vaultPath, err := getVaultPath()
+	issuesRoot, err := getIssuesRoot()
 	if err != nil {
 		return err
 	}
 
-	client := daemon.NewClient(vaultPath)
+	client := daemon.NewClient(issuesRoot)
 	if client.IsAvailable() {
 		return runIssueListViaDaemon(client)
 	}

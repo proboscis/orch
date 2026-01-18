@@ -32,12 +32,12 @@ func newLogDaemonCmd() *cobra.Command {
 The daemon monitors all running agent sessions and updates their status.
 Use this command to debug monitoring issues.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			vaultPath, err := getVaultPath()
+			issuesRoot, err := getIssuesRoot()
 			if err != nil {
 				return err
 			}
 
-			logPath := daemon.LogFilePath(vaultPath)
+			logPath := daemon.LogFilePath(issuesRoot)
 			if _, err := os.Stat(logPath); os.IsNotExist(err) {
 				fmt.Fprintf(os.Stderr, "No daemon log found at: %s\n", logPath)
 				return nil

@@ -39,7 +39,7 @@ func TestLaunchConfigEnv(t *testing.T) {
 		RunPath:   "/vault/run.md",
 		WorkDir:   "/work",
 		Branch:    "branch",
-		VaultPath: "/vault",
+		IssuesRoot: "/vault",
 	}
 
 	env := cfg.Env()
