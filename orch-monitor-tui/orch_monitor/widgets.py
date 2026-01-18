@@ -222,7 +222,8 @@ class IssueTable(CursorPreservingTable):
 
         self.add_column("ID", width=15)
         self.add_column("Status", width=10)
-        self.add_column("Title", width=60)
+        self.add_column("Tags", width=20)
+        self.add_column("Title", width=50)
 
         for issue in issues:
             status_str = issue.status.value
@@ -233,14 +234,49 @@ class IssueTable(CursorPreservingTable):
             elif issue.status.value == "closed":
                 status_str = f"[dim]{status_str}[/dim]"
 
+            # Format tags with color
+            tags_str = self._format_tags_display(issue.tags)
+
             self.add_row(
                 issue.id,
                 status_str,
+                tags_str,
                 issue.title or issue.summary,
                 key=issue.id,
             )
 
         self._restore_cursor(saved_key, saved_index, len(issues))
+
+    def _format_tags_display(self, tags: list[str]) -> str:
+        """Format tags for display with color coding."""
+        if not tags:
+            return "-"
+
+        formatted = []
+        for tag in tags:
+            # Color-code common tag types
+            tag_lower = tag.lower()
+            if tag_lower in ("bug", "bugfix", "fix"):
+                formatted.append(f"[red][{tag}][/red]")
+            elif tag_lower in ("urgent", "critical", "high"):
+                formatted.append(f"[bold red][{tag}][/bold red]")
+            elif tag_lower in ("enhancement", "feature", "new"):
+                formatted.append(f"[green][{tag}][/green]")
+            elif tag_lower in ("refactor", "cleanup", "chore"):
+                formatted.append(f"[cyan][{tag}][/cyan]")
+            elif tag_lower in ("docs", "documentation"):
+                formatted.append(f"[yellow][{tag}][/yellow]")
+            elif tag_lower in ("test", "testing"):
+                formatted.append(f"[magenta][{tag}][/magenta]")
+            else:
+                formatted.append(f"[{tag}]")
+
+        result = " ".join(formatted)
+        # Truncate if too long (accounting for markup)
+        if len("".join(f"[{t}]" for t in tags)) > 18:
+            # Return first few tags with ellipsis
+            return " ".join(formatted[:2]) + "..."
+        return result
 
 
 class DetailPanel(Container):
