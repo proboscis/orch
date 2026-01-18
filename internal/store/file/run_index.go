@@ -124,7 +124,8 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 
 	var issueDirs []string
 	if filter != nil && filter.IssueID != "" {
-		issueDirs = []string{filter.IssueID}
+		resolvedDir := s.resolveRunsDir(filter.IssueID)
+		issueDirs = []string{filepath.Base(resolvedDir)}
 	} else {
 		entries, err := os.ReadDir(runsRoot)
 		if err != nil {

@@ -309,7 +309,7 @@ func (b *Backend) ghToIssue(gh *ghIssue) *model.Issue {
 		}
 	}
 
-	issueID := fmt.Sprintf("gh#%d", gh.Number)
+	issueID := fmt.Sprintf("gh-%d", gh.Number)
 
 	return &model.Issue{
 		ID:      issueID,
@@ -348,7 +348,8 @@ func (b *Backend) mapLabelsToStatus(labels []string) model.IssueStatus {
 }
 
 func (b *Backend) parseIssueNumber(issueID string) (int, error) {
-	issueID = strings.TrimPrefix(issueID, "gh#")
+	issueID = strings.TrimPrefix(issueID, "gh-")
+	issueID = strings.TrimPrefix(issueID, "gh#") // backward compat
 	issueID = strings.TrimPrefix(issueID, "#")
 	return strconv.Atoi(issueID)
 }
