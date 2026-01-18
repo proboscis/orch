@@ -411,10 +411,15 @@ class TestGetGitDiffStats:
     def test_parses_numstat_output(self):
         """Test parsing of git diff --numstat output."""
         from unittest.mock import patch, MagicMock
-        from orch_monitor.app import _get_git_diff_stats, _diff_stats_cache
+        from orch_monitor.app import (
+            _get_git_diff_stats,
+            _get_git_diff_stats_cached,
+            _diff_stats_cache_time,
+        )
 
         # Clear cache
-        _diff_stats_cache.clear()
+        _get_git_diff_stats_cached.cache_clear()
+        _diff_stats_cache_time.clear()
 
         mock_result = MagicMock()
         mock_result.returncode = 0
@@ -434,10 +439,15 @@ class TestGetGitDiffStats:
     def test_handles_binary_files(self):
         """Test handling of binary files (shown as - -)."""
         from unittest.mock import patch, MagicMock
-        from orch_monitor.app import _get_git_diff_stats, _diff_stats_cache
+        from orch_monitor.app import (
+            _get_git_diff_stats,
+            _get_git_diff_stats_cached,
+            _diff_stats_cache_time,
+        )
 
         # Clear cache
-        _diff_stats_cache.clear()
+        _get_git_diff_stats_cached.cache_clear()
+        _diff_stats_cache_time.clear()
 
         mock_result = MagicMock()
         mock_result.returncode = 0
@@ -455,12 +465,17 @@ class TestGetGitDiffStats:
         assert result.files[0].deletions == 0
 
     def test_caches_results(self):
-        """Test that results are cached."""
+        """Test that results are cached via LRU cache."""
         from unittest.mock import patch, MagicMock
-        from orch_monitor.app import _get_git_diff_stats, _diff_stats_cache
+        from orch_monitor.app import (
+            _get_git_diff_stats,
+            _get_git_diff_stats_cached,
+            _diff_stats_cache_time,
+        )
 
         # Clear cache
-        _diff_stats_cache.clear()
+        _get_git_diff_stats_cached.cache_clear()
+        _diff_stats_cache_time.clear()
 
         mock_result = MagicMock()
         mock_result.returncode = 0
@@ -472,6 +487,56 @@ class TestGetGitDiffStats:
             # Second call should use cache
             result2 = _get_git_diff_stats("/tmp/cache_test", "feature", "main")
 
-        # Should only call subprocess once
+        # Should only call subprocess once due to LRU cache
         assert mock_run.call_count == 1
-        assert result1 is result2
+        assert result1 == result2
+
+
+class TestFormatChangedFilesLines:
+    """Tests for _format_changed_files_lines helper function."""
+
+    def test_returns_empty_for_none(self):
+        """Test returns empty list when diff_stats is None."""
+        from orch_monitor.app import _format_changed_files_lines
+
+        result = _format_changed_files_lines(None)
+        assert result == []
+
+    def test_returns_empty_for_no_files(self):
+        """Test returns empty list when no files changed."""
+        from orch_monitor.app import _format_changed_files_lines
+        from orch_monitor.models import DiffStats
+
+        stats = DiffStats(files=[], total_additions=0, total_deletions=0)
+        result = _format_changed_files_lines(stats)
+        assert result == []
+
+    def test_formats_files_with_markup(self):
+        """Test proper formatting with Rich markup."""
+        from orch_monitor.app import _format_changed_files_lines
+        from orch_monitor.models import DiffStats, FileChange
+
+        stats = DiffStats(
+            files=[FileChange(path="src/main.py", additions=10, deletions=5)],
+            total_additions=10,
+            total_deletions=5,
+        )
+        result = _format_changed_files_lines(stats, max_files=10, path_width=20)
+
+        # Should have header, file line, separator, and total
+        assert len(result) >= 4
+        assert "Changed Files (1)" in result[1]
+        assert "[green]" in result[2]  # Has green markup for additions
+        assert "[red]" in result[2]    # Has red markup for deletions
+
+    def test_respects_max_files(self):
+        """Test that max_files limit is respected."""
+        from orch_monitor.app import _format_changed_files_lines
+        from orch_monitor.models import DiffStats, FileChange
+
+        files = [FileChange(path=f"file{i}.py", additions=i, deletions=0) for i in range(20)]
+        stats = DiffStats(files=files, total_additions=sum(range(20)), total_deletions=0)
+        result = _format_changed_files_lines(stats, max_files=5, path_width=20)
+
+        # Should show "... and N more file(s)" message
+        assert any("more file(s)" in line for line in result)

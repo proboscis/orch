@@ -101,31 +101,20 @@ def _log_error(operation: str, error: str, project_root: Path) -> None:
 
 
 
-# Cache for git diff stats to avoid repeated git calls
-_diff_stats_cache: dict[str, Optional[DiffStats]] = {}
+from functools import lru_cache
+from time import time as _time
 
 
-def _get_git_diff_stats(
-    worktree_path: str, branch: str, base_branch: str = "main"
+# TTL cache wrapper for git diff stats (30 second TTL)
+_diff_stats_cache_time: dict[str, float] = {}
+_DIFF_STATS_TTL = 30.0  # seconds
+
+
+@lru_cache(maxsize=256)
+def _get_git_diff_stats_cached(
+    worktree_path: str, branch: str, base_branch: str
 ) -> Optional[DiffStats]:
-    """Get git diff statistics for a branch compared to base branch.
-
-    Args:
-        worktree_path: Path to the git worktree
-        branch: The branch to compare
-        base_branch: The base branch to compare against (default: main)
-
-    Returns:
-        DiffStats object or None if unable to get stats
-    """
-    if not worktree_path or not branch:
-        return None
-
-    # Check cache
-    cache_key = f"{worktree_path}:{branch}:{base_branch}"
-    if cache_key in _diff_stats_cache:
-        return _diff_stats_cache[cache_key]
-
+    """Internal cached implementation of git diff stats retrieval."""
     try:
         # Use git diff --numstat for machine-readable output
         result = subprocess.run(
@@ -134,6 +123,8 @@ def _get_git_diff_stats(
             text=True,
             timeout=5,
             cwd=worktree_path,
+            encoding="utf-8",
+            errors="replace",  # Handle non-UTF8 filenames
         )
 
         if result.returncode != 0:
@@ -144,10 +135,15 @@ def _get_git_diff_stats(
                 text=True,
                 timeout=5,
                 cwd=worktree_path,
+                encoding="utf-8",
+                errors="replace",
             )
 
         if result.returncode != 0:
-            _diff_stats_cache[cache_key] = None
+            # Log failure for debugging (only once due to cache)
+            get_logger().debug(
+                f"git diff failed for {branch} vs {base_branch}: {result.stderr}"
+            )
             return None
 
         files: list[FileChange] = []
@@ -170,17 +166,100 @@ def _get_git_diff_stats(
             total_additions += additions
             total_deletions += deletions
 
-        stats = DiffStats(
+        return DiffStats(
             files=files,
             total_additions=total_additions,
             total_deletions=total_deletions,
         )
-        _diff_stats_cache[cache_key] = stats
-        return stats
 
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError, ValueError):
-        _diff_stats_cache[cache_key] = None
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError, ValueError) as e:
+        get_logger().debug(f"git diff exception for {branch}: {e}")
         return None
+
+
+def _get_git_diff_stats(
+    worktree_path: str, branch: str, base_branch: str = "main"
+) -> Optional[DiffStats]:
+    """Get git diff statistics for a branch compared to base branch.
+
+    Uses LRU cache with TTL to avoid repeated git calls while allowing
+    updates when branches change.
+
+    Args:
+        worktree_path: Path to the git worktree
+        branch: The branch to compare
+        base_branch: The base branch to compare against (default: main)
+
+    Returns:
+        DiffStats object or None if unable to get stats
+    """
+    if not worktree_path or not branch:
+        return None
+
+    cache_key = f"{worktree_path}:{branch}:{base_branch}"
+    now = _time()
+
+    # Check if cached entry is stale
+    if cache_key in _diff_stats_cache_time:
+        if now - _diff_stats_cache_time[cache_key] > _DIFF_STATS_TTL:
+            # Clear stale entry from LRU cache
+            _get_git_diff_stats_cached.cache_clear()
+            _diff_stats_cache_time.clear()
+
+    result = _get_git_diff_stats_cached(worktree_path, branch, base_branch)
+    _diff_stats_cache_time[cache_key] = now
+    return result
+
+
+def _format_changed_files_lines(
+    diff_stats: Optional[DiffStats],
+    max_files: int = 10,
+    path_width: int = 35,
+) -> list[str]:
+    """Format changed files for display in detail panel.
+
+    Args:
+        diff_stats: DiffStats object or None
+        max_files: Maximum number of files to show
+        path_width: Width for path column
+
+    Returns:
+        List of formatted lines with Rich markup
+    """
+    if not diff_stats or not diff_stats.files:
+        return []
+
+    lines = []
+    lines.append("")
+    lines.append(f"[bold]Changed Files ({diff_stats.file_count}):[/bold]")
+
+    for fc in diff_stats.files[:max_files]:
+        # Truncate long paths
+        path = fc.path
+        if len(path) > path_width:
+            path = "..." + path[-(path_width - 3):]
+
+        # Pad plain strings FIRST, then add markup (fixes alignment issue)
+        add_plain = f"+{fc.additions}" if fc.additions else ""
+        del_plain = f"-{fc.deletions}" if fc.deletions else ""
+
+        # Apply color after padding
+        add_str = f"[green]{add_plain:>6}[/green]" if add_plain else " " * 6
+        del_str = f"[red]{del_plain:>6}[/red]" if del_plain else " " * 6
+
+        lines.append(f"  {path:<{path_width}}  {add_str}  {del_str}")
+
+    if len(diff_stats.files) > max_files:
+        remaining = len(diff_stats.files) - max_files
+        lines.append(f"  [dim]... and {remaining} more file(s)[/dim]")
+
+    lines.append(f"  [bold]{'─' * path_width}[/bold]")
+    lines.append(
+        f"  [bold]Total: [green]+{diff_stats.total_additions}[/green] "
+        f"[red]-{diff_stats.total_deletions}[/red][/bold]"
+    )
+
+    return lines
 
 
 def _build_orch_cmd(config: "Config") -> list[str]:
@@ -1353,24 +1432,12 @@ class RunsDashboard(App):
             if issue.body:
                 summary = issue.body[:300].replace("\n", " ")
                 lines.append(f"[dim]{summary}[/dim]")
-        # Add changed files section
+        # Add changed files section (uses helper for consistent formatting)
         if run.worktree_path and run.branch:
             diff_stats = _get_git_diff_stats(
                 run.worktree_path, run.branch, self.config.base_branch
             )
-            if diff_stats and diff_stats.files:
-                lines.append("")
-                lines.append(f"[bold]Changed Files ({diff_stats.file_count}):[/bold]")
-                for fc in diff_stats.files[:10]:  # Show max 10 files
-                    add_str = f"[green]+{fc.additions}[/green]" if fc.additions else ""
-                    del_str = f"[red]-{fc.deletions}[/red]" if fc.deletions else ""
-                    # Truncate long paths
-                    path = fc.path if len(fc.path) <= 35 else "..." + fc.path[-32:]
-                    lines.append(f"  {path:<35} {add_str:>12} {del_str:>12}")
-                if len(diff_stats.files) > 10:
-                    lines.append(f"  [dim]... and {len(diff_stats.files) - 10} more files[/dim]")
-                lines.append(f"  [bold]{'─' * 35}[/bold]")
-                lines.append(f"  [bold]Total: +{diff_stats.total_additions} -{diff_stats.total_deletions}[/bold]")
+            lines.extend(_format_changed_files_lines(diff_stats, max_files=10, path_width=35))
 
         if run.agent == "opencode" and run.server_port and run.opencode_session_id:
             lines.append("")
@@ -2243,26 +2310,16 @@ class OrchMonitorApp(App):
             f"Session: {run.tmux_session or '-'}",
             f"Multiplexer: {run.multiplexer or 'tmux'}",
         ]
-        # Add changed files section
+        # Add changed files section (uses helper for consistent formatting)
         if run.worktree_path and run.branch:
             diff_stats = _get_git_diff_stats(
                 run.worktree_path, run.branch, self.config.base_branch
             )
-            if diff_stats and diff_stats.files:
+            changed_lines = _format_changed_files_lines(diff_stats, max_files=15, path_width=40)
+            if changed_lines:
                 content_lines.append("")
                 content_lines.append("[bold]" + "-" * 50 + "[/bold]")
-                content_lines.append(f"[bold]Changed Files ({diff_stats.file_count}):[/bold]")
-                content_lines.append("")
-                for fc in diff_stats.files[:15]:  # Show max 15 files in detail view
-                    add_str = f"[green]+{fc.additions}[/green]" if fc.additions else ""
-                    del_str = f"[red]-{fc.deletions}[/red]" if fc.deletions else ""
-                    # Truncate long paths
-                    path = fc.path if len(fc.path) <= 40 else "..." + fc.path[-37:]
-                    content_lines.append(f"  {path:<40} {add_str:>12} {del_str:>12}")
-                if len(diff_stats.files) > 15:
-                    content_lines.append(f"  [dim]... and {len(diff_stats.files) - 15} more files[/dim]")
-                content_lines.append(f"  [bold]{'─' * 40}[/bold]")
-                content_lines.append(f"  [bold]Total: +{diff_stats.total_additions} -{diff_stats.total_deletions}[/bold]")
+                content_lines.extend(changed_lines)
 
         # Add recent messages section
         content_lines.append("")
