@@ -623,22 +623,24 @@ func (m *Monitor) ResolveRun(run *model.Run) error {
 }
 
 // ListIssues fetches issues from daemon (for GitHub backend) or store.
+// Falls back to store if daemon request fails to ensure dashboard stability.
 func (m *Monitor) ListIssues() ([]*model.Issue, error) {
 	if m.daemonClient != nil && m.daemonClient.IsAvailable() {
 		resp, err := m.daemonClient.ListIssues(nil, 0, "")
-		if err != nil {
-			return nil, err
-		}
-		issues := make([]*model.Issue, len(resp.Issues))
-		for i, is := range resp.Issues {
-			issues[i] = &model.Issue{
-				ID:      is.ID,
-				Title:   is.Title,
-				Summary: is.Summary,
-				Status:  model.IssueStatus(is.Status),
+		if err == nil {
+			issues := make([]*model.Issue, len(resp.Issues))
+			for i, is := range resp.Issues {
+				issues[i] = &model.Issue{
+					ID:      is.ID,
+					Title:   is.Title,
+					Summary: is.Summary,
+					Status:  model.IssueStatus(is.Status),
+				}
 			}
+			return issues, nil
 		}
-		return issues, nil
+		// Daemon request failed - fall back to store instead of returning error
+		// This prevents empty dashboard when daemon has transient issues
 	}
 	return m.store.ListIssues()
 }

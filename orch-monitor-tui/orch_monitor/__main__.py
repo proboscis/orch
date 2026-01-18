@@ -150,27 +150,52 @@ def get_vault_path(args) -> Path | None:
     return None
 
 
-def ensure_daemon(vault_path: Path | None) -> bool:
+DAEMON_STARTUP_TIMEOUT_SEC = 15
+DAEMON_POLL_INTERVAL_SEC = 0.2
+
+
+def ensure_daemon(vault_path: Path | None) -> tuple[bool, str]:
+    """Ensure daemon is running. Returns (success, message)."""
     config = Config.from_vault(vault_path) if vault_path else Config.load()
     daemon = DaemonClient(config.socket_path)
+    socket_path = config.socket_path
 
     if daemon.is_available():
-        return True
+        return True, ""
+
+    print(f"Daemon socket not found at {socket_path}", file=sys.stderr)
+    print("Starting orch daemon...", file=sys.stderr)
 
     vault_arg = ["--vault", str(vault_path)] if vault_path else []
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["orch"] + vault_arg + ["daemon", "start"],
             capture_output=True,
+            text=True,
             timeout=10,
         )
-        for _ in range(10):
-            time.sleep(0.2)
-            if daemon.is_available():
-                return True
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
-    return False
+        if result.returncode != 0:
+            return False, f"Failed to start daemon: {result.stderr.strip()}"
+    except subprocess.TimeoutExpired:
+        return False, "Daemon start command timed out"
+    except FileNotFoundError:
+        return False, "'orch' command not found. Is it installed?"
+
+    polls_per_second = int(1 / DAEMON_POLL_INTERVAL_SEC)
+    total_polls = DAEMON_STARTUP_TIMEOUT_SEC * polls_per_second
+    for poll_count in range(total_polls):
+        time.sleep(DAEMON_POLL_INTERVAL_SEC)
+        if daemon.is_available():
+            print("Daemon started.", file=sys.stderr)
+            return True, ""
+        elapsed_seconds = (poll_count + 1) // polls_per_second
+        if (poll_count + 1) % polls_per_second == 0:
+            print(f"  Waiting for daemon... ({elapsed_seconds}s)", file=sys.stderr)
+
+    return (
+        False,
+        f"Daemon did not become available within {DAEMON_STARTUP_TIMEOUT_SEC}s. Socket: {socket_path}",
+    )
 
 
 class LayoutLauncher(Protocol):
@@ -472,8 +497,10 @@ def main():
     args = parser.parse_args()
     vault_path = get_vault_path(args)
 
-    if not ensure_daemon(vault_path):
-        print("Failed to start orch daemon. Run 'orch repair' to fix.", file=sys.stderr)
+    success, error_msg = ensure_daemon(vault_path)
+    if not success:
+        print(f"Error: {error_msg}", file=sys.stderr)
+        print("Try running 'orch repair' to fix.", file=sys.stderr)
         sys.exit(1)
 
     config = Config.from_vault(vault_path) if vault_path else Config.load()

@@ -81,6 +81,17 @@ TIME_RANGES = [
 ]
 
 
+def _log_error(operation: str, error: str, vault_path: Path) -> None:
+    log_path = vault_path / ".orch" / "monitor-tui.log"
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(log_path, "a") as f:
+            f.write(f"{timestamp} [{operation}] {error}\n")
+    except OSError:
+        pass
+
+
 class KillConfirmScreen(ModalScreen[bool]):
     """Confirmation dialog for killing terminal session."""
 
@@ -800,22 +811,32 @@ class RunsDashboard(App):
             runs = response.runs
             error = None
         except DaemonNotRunningError:
-            runs = []
+            runs = None
             error = "Daemon not running"
         except DaemonError as e:
-            runs = []
+            runs = None
             error = str(e)
 
-        runs = filter_runs_client_side(runs, self.filter_state.run_filters)
-        runs.sort(
-            key=lambda r: r.updated_at or r.started_at or datetime.min, reverse=True
-        )
+        if runs is not None:
+            runs = filter_runs_client_side(runs, self.filter_state.run_filters)
+            runs.sort(
+                key=lambda r: r.updated_at or r.started_at or datetime.min, reverse=True
+            )
         self.call_from_thread(self._update_runs_table, runs, error)
 
-    def _update_runs_table(self, runs: list[Run], error: Optional[str]) -> None:
-        self.runs = runs
-        self._daemon_error = error
+    def _update_runs_table(self, runs: Optional[list[Run]], error: Optional[str]) -> None:
         self._last_update = datetime.now()
+        
+        if error:
+            self._daemon_error = error
+            self.title = f"{self._base_title} | ERROR: {error}"
+            self.notify(f"Refresh failed: {error}", severity="error", timeout=5)
+            _log_error("list_runs", error, self.config.vault_path)
+            return
+        
+        self._daemon_error = None
+        if runs is not None:
+            self.runs = runs
         self.title = f"{self._base_title} | Last updated: {self._last_update.strftime('%H:%M:%S')}"
         run_table = self.query_one("#runs-table", RunTable)
         run_table.populate(self.runs)
@@ -1170,20 +1191,30 @@ class IssuesDashboard(App):
             issues = response.issues
             error = None
         except DaemonNotRunningError:
-            issues = []
+            issues = None
             error = "Daemon not running"
         except DaemonError as e:
-            issues = []
+            issues = None
             error = str(e)
 
-        issues = filter_issues_client_side(issues, self.filter_state.issue_filters)
-        issues.sort(key=lambda i: i.id)
+        if issues is not None:
+            issues = filter_issues_client_side(issues, self.filter_state.issue_filters)
+            issues.sort(key=lambda i: i.id)
         self.call_from_thread(self._update_issues_table, issues, error)
 
-    def _update_issues_table(self, issues: list[Issue], error: Optional[str]) -> None:
-        self.issues = issues
-        self._daemon_error = error
+    def _update_issues_table(self, issues: Optional[list[Issue]], error: Optional[str]) -> None:
         self._last_update = datetime.now()
+        
+        if error:
+            self._daemon_error = error
+            self.title = f"{self._base_title} | ERROR: {error}"
+            self.notify(f"Refresh failed: {error}", severity="error", timeout=5)
+            _log_error("list_issues", error, self.config.vault_path)
+            return
+        
+        self._daemon_error = None
+        if issues is not None:
+            self.issues = issues
         self.title = f"{self._base_title} | Last updated: {self._last_update.strftime('%H:%M:%S')}"
         issue_table = self.query_one("#issues-table", IssueTable)
         issue_table.populate(self.issues)
@@ -1492,6 +1523,10 @@ class OrchMonitorApp(App):
 
     @work(thread=True, exclusive=True)
     def _fetch_all_data(self) -> None:
+        runs: Optional[list[Run]] = None
+        issues: Optional[list[Issue]] = None
+        error: Optional[str] = None
+        
         try:
             status_filter = []
             for s in self.filter_state.run_filters.statuses:
@@ -1502,37 +1537,47 @@ class OrchMonitorApp(App):
             filters = RunFilters(status=status_filter) if status_filter else None
             runs_response = self.daemon.list_runs(filters)
             runs = runs_response.runs
-            error = None
         except DaemonNotRunningError:
-            runs = []
             error = "Daemon not running"
         except DaemonError as e:
-            runs = []
             error = str(e)
 
-        runs = filter_runs_client_side(runs, self.filter_state.run_filters)
-        runs.sort(
-            key=lambda r: r.updated_at or r.started_at or datetime.min, reverse=True
-        )
+        if runs is not None:
+            runs = filter_runs_client_side(runs, self.filter_state.run_filters)
+            runs.sort(
+                key=lambda r: r.updated_at or r.started_at or datetime.min, reverse=True
+            )
 
         try:
             issues_response = self.daemon.list_issues()
             issues = issues_response.issues
-        except DaemonError:
-            issues = []
+        except DaemonError as e:
+            if error is None:
+                error = str(e)
 
-        issues = filter_issues_client_side(issues, self.filter_state.issue_filters)
-        issues.sort(key=lambda i: i.id)
+        if issues is not None:
+            issues = filter_issues_client_side(issues, self.filter_state.issue_filters)
+            issues.sort(key=lambda i: i.id)
 
         self.call_from_thread(self._update_all_tables, runs, issues, error)
 
     def _update_all_tables(
-        self, runs: list[Run], issues: list[Issue], error: Optional[str]
+        self, runs: Optional[list[Run]], issues: Optional[list[Issue]], error: Optional[str]
     ) -> None:
-        self.runs = runs
-        self.issues = issues
-        self._daemon_error = error
         self._last_update = datetime.now()
+        
+        if error:
+            self._daemon_error = error
+            self.title = f"{self._base_title} | ERROR: {error}"
+            self.notify(f"Refresh failed: {error}", severity="error", timeout=5)
+            _log_error("fetch_all", error, self.config.vault_path)
+            return
+        
+        self._daemon_error = None
+        if runs is not None:
+            self.runs = runs
+        if issues is not None:
+            self.issues = issues
         self.title = f"{self._base_title} | Last updated: {self._last_update.strftime('%H:%M:%S')}"
 
         run_table = self.query_one("#runs-table", RunTable)
