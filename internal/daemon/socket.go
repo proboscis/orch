@@ -424,7 +424,7 @@ func (s *SocketServer) processSend(req SendRequest) error {
 
 	client := agent.NewOpenCodeClient(run.ServerPort)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	err = client.SendMessagePrompt(ctx, run.OpenCodeSessionID, req.Message, run.WorktreePath)
@@ -696,7 +696,7 @@ func SendViaDaemon(projectRoot, issuesRoot string, run *model.Run, message strin
 	}
 	defer conn.Close()
 
-	conn.SetDeadline(time.Now().Add(10 * time.Second))
+	conn.SetDeadline(time.Now().Add(35 * time.Second))
 
 	req := SendRequest{
 		Type:        "send",
