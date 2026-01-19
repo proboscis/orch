@@ -52,8 +52,10 @@ var noDaemonCommands = map[string]bool{
 	"notify":     true,
 	"log":        true,
 	"debug":      true,
+	"query":      true,
+	"q":          true,
+	"schema":     true,
 }
-
 // rootCmd represents the base command
 var rootCmd = &cobra.Command{
 	Use:   "orch",
@@ -107,6 +109,8 @@ func init() {
 	rootCmd.AddCommand(newNotifyCmd())
 	rootCmd.AddCommand(newLogCmd())
 	rootCmd.AddCommand(newDebugCmd())
+	rootCmd.AddCommand(newQueryCmd())
+	rootCmd.AddCommand(newSchemaCmd())
 }
 
 // Execute runs the root command
