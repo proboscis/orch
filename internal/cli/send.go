@@ -90,7 +90,7 @@ func runSend(refStr, message string, opts *sendOptions) error {
 	}
 
 	if isOpenCode && daemon.IsDaemonSocketAvailable(projectRoot) {
-		err = daemon.SendViaDaemon(projectRoot, run, message, opts.NoEnter)
+		err = daemon.SendViaDaemon(projectRoot, st.RootPath(), run, message, opts.NoEnter)
 		if err != nil {
 			if globalOpts.JSON {
 				result := map[string]interface{}{

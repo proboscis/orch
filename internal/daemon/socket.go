@@ -687,7 +687,7 @@ func (s *SocketServer) handleGetIssue(req SendRequest, encoder *json.Encoder) {
 	})
 }
 
-func SendViaDaemon(projectRoot string, run *model.Run, message string, noEnter bool) error {
+func SendViaDaemon(projectRoot, issuesRoot string, run *model.Run, message string, noEnter bool) error {
 	socketPath := xdg.SocketPath()
 
 	conn, err := net.DialTimeout("unix", socketPath, 5*time.Second)
@@ -705,6 +705,7 @@ func SendViaDaemon(projectRoot string, run *model.Run, message string, noEnter b
 		Message:     message,
 		NoEnter:     noEnter,
 		ProjectRoot: projectRoot,
+		IssuesRoot:  issuesRoot,
 	}
 
 	encoder := json.NewEncoder(conn)
