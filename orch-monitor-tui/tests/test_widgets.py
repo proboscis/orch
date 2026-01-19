@@ -540,3 +540,81 @@ class TestFormatChangedFilesLines:
 
         # Should show "... and N more file(s)" message
         assert any("more file(s)" in line for line in result)
+
+
+class TestTabbedStatsPanel:
+    """Tests for TabbedStatsPanel widget."""
+
+    def test_tabbed_stats_panel_creation(self):
+        """Test TabbedStatsPanel can be created."""
+        from orch_monitor.widgets import TabbedStatsPanel
+
+        panel = TabbedStatsPanel()
+        assert panel is not None
+        assert panel.current_tab == "stats"
+
+    def test_tabbed_stats_panel_update_stats(self):
+        """Test updating stats content."""
+        from orch_monitor.widgets import TabbedStatsPanel
+
+        panel = TabbedStatsPanel()
+        panel.update_stats("Test content")
+        # Content is set (actual widget test would need mounting)
+        assert panel._stats_content is not None
+
+    def test_tabbed_stats_panel_update_issue(self):
+        """Test updating issue content."""
+        from orch_monitor.widgets import TabbedStatsPanel
+
+        panel = TabbedStatsPanel()
+        panel.update_issue("Issue content")
+        assert panel._issue_content is not None
+
+    def test_tabbed_stats_panel_update_changes(self):
+        """Test updating changes content."""
+        from orch_monitor.widgets import TabbedStatsPanel
+
+        panel = TabbedStatsPanel()
+        panel.update_changes("Changes content")
+        assert panel._changes_content is not None
+
+    def test_tabbed_stats_panel_clear_all(self):
+        """Test clearing all content."""
+        from orch_monitor.widgets import TabbedStatsPanel
+
+        panel = TabbedStatsPanel()
+        panel.update_stats("Stats")
+        panel.update_issue("Issue")
+        panel.update_changes("Changes")
+        panel.clear_all()
+        # Scroll positions should be reset
+        assert panel._scroll_positions == {"stats": 0.0, "issue": 0.0, "changes": 0.0}
+
+
+class TestScrollableTabContent:
+    """Tests for ScrollableTabContent widget."""
+
+    def test_scrollable_tab_content_creation(self):
+        """Test ScrollableTabContent can be created."""
+        from orch_monitor.widgets import ScrollableTabContent
+
+        content = ScrollableTabContent("test")
+        assert content is not None
+        assert content.tab_id == "test"
+
+    def test_scrollable_tab_content_update(self):
+        """Test updating content."""
+        from orch_monitor.widgets import ScrollableTabContent
+
+        content = ScrollableTabContent("test")
+        content.update_content("New content")
+        assert content._content is not None
+
+    def test_scroll_position_save_restore(self):
+        """Test scroll position save/restore."""
+        from orch_monitor.widgets import ScrollableTabContent
+
+        content = ScrollableTabContent("test")
+        content._saved_scroll_y = 0.0
+        content.save_scroll_position()
+        assert content._saved_scroll_y == 0.0

@@ -73,7 +73,7 @@ from .multiplexer import (
     get_multiplexer_type_from_run,
     get_session_name,
 )
-from .widgets import DetailPanel, IssueTable, RunTable
+from .widgets import DetailPanel, IssueTable, RunTable, TabbedStatsPanel
 
 
 AUTO_REFRESH_INTERVAL = 5.0
@@ -1199,10 +1199,21 @@ RUNS_DASHBOARD_CSS = (
     border-left: solid $accent;
 }
 
-#run-detail-content {
-    padding: 1;
+#run-tabs {
     height: 1fr;
-    overflow-y: auto;
+}
+
+#run-tabs > ContentSwitcher {
+    height: 1fr;
+}
+
+#stats-scroll, #issue-scroll, #changes-scroll {
+    height: 1fr;
+    padding: 1;
+}
+
+#stats-content, #issue-content, #changes-content {
+    width: 100%;
 }
 """
 )
@@ -1251,7 +1262,7 @@ class RunsDashboard(App):
         with Container(id="main-container"):
             yield RunTable(id="runs-table")
             with Vertical(id="run-detail-container"):
-                yield Static("", id="run-detail-content")
+                yield TabbedStatsPanel(id="run-detail-tabs")
         yield Footer()
 
     def on_mount(self) -> None:

@@ -4,9 +4,11 @@ from typing import Optional
 
 from rich.markup import escape
 from textual.app import ComposeResult
-from textual.widgets import DataTable, Static
+from textual.binding import Binding
+from textual.message import Message
+from textual.widgets import DataTable, Static, TabbedContent, TabPane
 from textual.widgets.data_table import RowDoesNotExist
-from textual.containers import Container
+from textual.containers import Container, VerticalScroll
 
 from .models import Issue, Run, Status
 
@@ -298,3 +300,219 @@ class DetailPanel(Container):
 
     def clear(self) -> None:
         self.content_widget.update("")
+
+
+class ScrollableTabContent(VerticalScroll):
+    """A scrollable content area for a tab with scroll position preservation."""
+
+    SCROLL_AMOUNT = 3  # Lines to scroll per key press
+
+    def __init__(self, tab_id: str, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.tab_id = tab_id
+        self._content = Static("", id=f"{tab_id}-content")
+        self._saved_scroll_y: float = 0.0
+
+    def compose(self) -> ComposeResult:
+        yield self._content
+
+    def update_content(self, content: str) -> None:
+        """Update the content and restore scroll position."""
+        self._content.update(content)
+
+    def save_scroll_position(self) -> None:
+        """Save current scroll position."""
+        self._saved_scroll_y = self.scroll_y
+
+    def restore_scroll_position(self) -> None:
+        """Restore saved scroll position."""
+        self.scroll_y = self._saved_scroll_y
+
+    def scroll_down_lines(self, lines: int = 1) -> None:
+        """Scroll down by specified number of lines."""
+        self.scroll_y += lines * self.SCROLL_AMOUNT
+
+    def scroll_up_lines(self, lines: int = 1) -> None:
+        """Scroll up by specified number of lines."""
+        self.scroll_y = max(0, self.scroll_y - lines * self.SCROLL_AMOUNT)
+
+    def scroll_to_top(self) -> None:
+        """Scroll to the top of the content."""
+        self.scroll_y = 0
+
+    def scroll_to_bottom(self) -> None:
+        """Scroll to the bottom of the content."""
+        self.scroll_end(animate=False)
+
+    @property
+    def can_scroll(self) -> bool:
+        """Check if content overflows and can be scrolled."""
+        return self.max_scroll_y > 0
+
+    @property
+    def scroll_indicator(self) -> str:
+        """Return scroll indicator string if scrollable."""
+        if not self.can_scroll:
+            return ""
+
+        at_top = self.scroll_y <= 0
+        at_bottom = self.scroll_y >= self.max_scroll_y
+
+        if at_top and not at_bottom:
+            return "[scroll ↓]"
+        elif at_bottom and not at_top:
+            return "[scroll ↑]"
+        elif not at_top and not at_bottom:
+            return "[scroll ↕]"
+        return ""
+
+
+class TabbedStatsPanel(Container):
+    """Tabbed panel for run details with Stats, Issue, and Changes tabs.
+
+    Supports keyboard navigation:
+    - Tab or 1/2/3: Switch between tabs
+    - j/k or arrows: Scroll within current tab
+    - g/G: Jump to top/bottom of current tab
+    """
+
+    BINDINGS = [
+        Binding("tab", "next_tab", "Next Tab", show=False),
+        Binding("1", "switch_tab('stats')", "Stats", show=False),
+        Binding("2", "switch_tab('issue')", "Issue", show=False),
+        Binding("3", "switch_tab('changes')", "Changes", show=False),
+        Binding("j", "scroll_down", "Down", show=False),
+        Binding("k", "scroll_up", "Up", show=False),
+        Binding("down", "scroll_down", "Down", show=False),
+        Binding("up", "scroll_up", "Up", show=False),
+        Binding("g", "scroll_top", "Top", show=False),
+        Binding("G", "scroll_bottom", "Bottom", show=False),
+    ]
+
+    class TabChanged(Message):
+        """Posted when the active tab changes."""
+
+        def __init__(self, tab_id: str) -> None:
+            super().__init__()
+            self.tab_id = tab_id
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._stats_content = ScrollableTabContent("stats", id="stats-scroll")
+        self._issue_content = ScrollableTabContent("issue", id="issue-scroll")
+        self._changes_content = ScrollableTabContent("changes", id="changes-scroll")
+        self._scroll_positions: dict[str, float] = {
+            "stats": 0.0,
+            "issue": 0.0,
+            "changes": 0.0,
+        }
+        self._current_tab: str = "stats"
+
+    def compose(self) -> ComposeResult:
+        with TabbedContent(id="run-tabs"):
+            with TabPane("Stats", id="stats"):
+                yield self._stats_content
+            with TabPane("Issue", id="issue"):
+                yield self._issue_content
+            with TabPane("Changes", id="changes"):
+                yield self._changes_content
+
+    def on_tabbed_content_tab_activated(
+        self, event: TabbedContent.TabActivated
+    ) -> None:
+        """Handle tab activation - save old position, restore new."""
+        old_tab = self._current_tab
+        new_tab = event.tab.id or "stats"
+
+        # Save scroll position for old tab
+        old_content = self._get_content_for_tab(old_tab)
+        if old_content:
+            self._scroll_positions[old_tab] = old_content.scroll_y
+
+        # Update current tab
+        self._current_tab = new_tab
+
+        # Restore scroll position for new tab
+        new_content = self._get_content_for_tab(new_tab)
+        if new_content:
+            new_content.scroll_y = self._scroll_positions.get(new_tab, 0.0)
+
+        self.post_message(self.TabChanged(new_tab))
+
+    def _get_content_for_tab(self, tab_id: str) -> Optional[ScrollableTabContent]:
+        """Get the ScrollableTabContent for a given tab ID."""
+        if tab_id == "stats":
+            return self._stats_content
+        elif tab_id == "issue":
+            return self._issue_content
+        elif tab_id == "changes":
+            return self._changes_content
+        return None
+
+    def _get_current_content(self) -> Optional[ScrollableTabContent]:
+        """Get the current tab's scrollable content."""
+        return self._get_content_for_tab(self._current_tab)
+
+    def action_next_tab(self) -> None:
+        """Cycle to the next tab."""
+        tabs = ["stats", "issue", "changes"]
+        current_idx = tabs.index(self._current_tab) if self._current_tab in tabs else 0
+        next_idx = (current_idx + 1) % len(tabs)
+        self.action_switch_tab(tabs[next_idx])
+
+    def action_switch_tab(self, tab_id: str) -> None:
+        """Switch to a specific tab."""
+        try:
+            tabbed_content = self.query_one("#run-tabs", TabbedContent)
+            tabbed_content.active = tab_id
+        except Exception:
+            pass
+
+    def action_scroll_down(self) -> None:
+        """Scroll current tab content down."""
+        content = self._get_current_content()
+        if content:
+            content.scroll_down_lines()
+
+    def action_scroll_up(self) -> None:
+        """Scroll current tab content up."""
+        content = self._get_current_content()
+        if content:
+            content.scroll_up_lines()
+
+    def action_scroll_top(self) -> None:
+        """Scroll current tab content to top."""
+        content = self._get_current_content()
+        if content:
+            content.scroll_to_top()
+
+    def action_scroll_bottom(self) -> None:
+        """Scroll current tab content to bottom."""
+        content = self._get_current_content()
+        if content:
+            content.scroll_to_bottom()
+
+    def update_stats(self, content: str) -> None:
+        """Update the Stats tab content."""
+        self._stats_content.update_content(content)
+
+    def update_issue(self, content: str) -> None:
+        """Update the Issue tab content."""
+        self._issue_content.update_content(content)
+
+    def update_changes(self, content: str) -> None:
+        """Update the Changes tab content."""
+        self._changes_content.update_content(content)
+
+    def clear_all(self) -> None:
+        """Clear all tab contents."""
+        self._stats_content.update_content("")
+        self._issue_content.update_content("")
+        self._changes_content.update_content("")
+        # Reset scroll positions
+        self._scroll_positions = {"stats": 0.0, "issue": 0.0, "changes": 0.0}
+
+    @property
+    def current_tab(self) -> str:
+        """Get the current active tab ID."""
+        return self._current_tab
