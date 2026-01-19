@@ -1,6 +1,7 @@
 """Entry point for orch monitor TUI."""
 
 import argparse
+import logging
 import os
 import subprocess
 import sys
@@ -16,17 +17,44 @@ from .multiplexer import (
     get_default_multiplexer_type,
     get_multiplexer,
 )
+from .xdg import state_dir
+
+_launcher_logger = logging.getLogger("orch_monitor.launcher")
+
+
+def _setup_launcher_logging() -> None:
+    log_dir = state_dir()
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / "launcher.log"
+
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s")
+    )
+    _launcher_logger.addHandler(file_handler)
+    _launcher_logger.setLevel(logging.DEBUG)
 
 
 SESSION_NAME_PREFIX = "orch-monitor"
 CONTROL_PROMPT_FILE = "ORCH_CONTROL_PROMPT.md"
 
 
+MAX_SESSION_NAME_LEN = 28
+
+
 def get_session_name(vault_path: Path | None = None) -> str:
     base_path = vault_path if vault_path else Path.cwd()
     repo_name = base_path.resolve().name
     safe_name = "".join(c if c.isalnum() or c in "-_" else "-" for c in repo_name)
-    return f"{SESSION_NAME_PREFIX}-{safe_name}"
+    full_name = f"{SESSION_NAME_PREFIX}-{safe_name}"
+    if len(full_name) > MAX_SESSION_NAME_LEN:
+        import hashlib
+
+        hash_suffix = hashlib.md5(safe_name.encode()).hexdigest()[:6]
+        prefix_len = MAX_SESSION_NAME_LEN - len(SESSION_NAME_PREFIX) - 1 - 7
+        truncated = safe_name[:prefix_len]
+        full_name = f"{SESSION_NAME_PREFIX}-{truncated}-{hash_suffix}"
+    return full_name
 
 
 CONTROL_PROMPT_INSTRUCTION = f"ultrathink Please read '{CONTROL_PROMPT_FILE}' in the current directory and follow the instructions found there."
@@ -460,17 +488,77 @@ layout {{
     }}
 }}
 '''
-        layout_path = Path(cwd) / ".orch-monitor-layout.kdl"
-        layout_path.write_text(layout_content)
+        import atexit
+        import tempfile
 
-        try:
-            env = os.environ.copy()
-            if project_root:
-                env["ORCH_PROJECT_ROOT"] = str(project_root)
-            if vault_path:
-                env["ORCH_VAULT"] = str(vault_path)
+        layout_fd, layout_path_str = tempfile.mkstemp(
+            suffix=".kdl", prefix="orch-monitor-layout-"
+        )
+        layout_path = Path(layout_path_str)
+        os.write(layout_fd, layout_content.encode())
+        os.close(layout_fd)
+        _launcher_logger.info(f"wrote layout to {layout_path}")
 
-            subprocess.run(
+        atexit.register(lambda: layout_path.unlink(missing_ok=True))
+
+        env = os.environ.copy()
+        if project_root:
+            env["ORCH_PROJECT_ROOT"] = str(project_root)
+        if vault_path:
+            env["ORCH_VAULT"] = str(vault_path)
+
+        inside_zellij = os.environ.get("ZELLIJ_SESSION_NAME") is not None
+        for var in ("ZELLIJ", "ZELLIJ_SESSION_NAME", "ZELLIJ_PANE_ID"):
+            removed = env.pop(var, None)
+            if removed is not None:
+                _launcher_logger.info(f"cleared env var {var}={removed}")
+
+        cmd_str = (
+            f"zellij --session {session_name} --new-session-with-layout {layout_path}"
+        )
+        _launcher_logger.info(f"launching: {cmd_str}, inside_zellij={inside_zellij}")
+
+        for handler in _launcher_logger.handlers[:]:
+            handler.flush()
+            handler.close()
+            _launcher_logger.removeHandler(handler)
+
+        sys.stdout.flush()
+        sys.stderr.flush()
+
+        os.chdir(cwd)
+        os.environ.clear()
+        os.environ.update(env)
+
+        if inside_zellij:
+            devnull_r = open("/dev/null", "r")
+            devnull_w = open("/dev/null", "w")
+            subprocess.Popen(
+                [
+                    "nohup",
+                    "zellij",
+                    "--session",
+                    session_name,
+                    "--new-session-with-layout",
+                    str(layout_path),
+                ],
+                stdin=devnull_r,
+                stdout=devnull_w,
+                stderr=devnull_w,
+            )
+            for _ in range(20):
+                time.sleep(0.25)
+                result = subprocess.run(
+                    ["zellij", "list-sessions", "--short"],
+                    capture_output=True,
+                    text=True,
+                )
+                if session_name in result.stdout.split("\n"):
+                    break
+            os.execvp("zellij", ["zellij", "attach", session_name])
+        else:
+            os.execvp(
+                "zellij",
                 [
                     "zellij",
                     "--session",
@@ -478,12 +566,7 @@ layout {{
                     "--new-session-with-layout",
                     str(layout_path),
                 ],
-                cwd=cwd,
-                env=env,
             )
-        finally:
-            if layout_path.exists():
-                layout_path.unlink()
 
 
 # Registry of layout launchers
@@ -506,26 +589,30 @@ def launch_monitor_layout(
     multiplexer: MultiplexerType | None = None,
     log: callable = lambda msg: None,
 ) -> None:
-    log("launch_monitor_layout: start")
+    _setup_launcher_logging()
+    _launcher_logger.info(
+        f"launch_monitor_layout: project_root={project_root}, vault_path={vault_path}"
+    )
+
     if multiplexer is None:
-        log("detecting multiplexer...")
+        _launcher_logger.info("detecting multiplexer...")
         multiplexer = get_default_multiplexer_type()
-        log(f"detected multiplexer: {multiplexer.value}")
+        _launcher_logger.info(f"detected multiplexer: {multiplexer.value}")
 
     launcher = get_layout_launcher(multiplexer)
     cwd = os.getcwd()
     session_name = get_session_name(project_root or vault_path)
-    log(f"session_name: {session_name}")
+    _launcher_logger.info(f"session_name={session_name}, cwd={cwd}")
 
-    log(f"checking has_session...")
+    _launcher_logger.info("checking has_session...")
     if launcher.has_session(session_name):
-        log(f"session exists")
+        _launcher_logger.info("session exists")
         if new:
-            log("killing existing session...")
+            _launcher_logger.info("killing existing session...")
             launcher.kill_session(session_name)
-            log("session killed")
+            _launcher_logger.info("session killed")
         else:
-            log("attaching to existing session...")
+            _launcher_logger.info("attaching to existing session...")
             launcher.attach_session(session_name)
             return
 
@@ -534,14 +621,14 @@ def launch_monitor_layout(
         and hasattr(launcher, "_healthy")
         and launcher._healthy is False
     ):
-        print("Error: Zellij is unresponsive (likely stale processes)", file=sys.stderr)
-        print("Fix: Run 'pkill -9 zellij' to kill stale processes", file=sys.stderr)
-        print("Or use: orch-monitor --new -m tmux", file=sys.stderr)
+        _launcher_logger.error("Zellij is unresponsive (likely stale processes)")
+        _launcher_logger.error("Fix: Run 'pkill -9 zellij' to kill stale processes")
+        _launcher_logger.error("Or use: orch-monitor --new -m tmux")
         sys.exit(1)
 
-    log("launching layout...")
+    _launcher_logger.info("launching layout...")
     launcher.launch_layout(session_name, project_root, vault_path, agent, cwd)
-    log("launch complete")
+    _launcher_logger.info("launch complete")
 
 
 def main():
