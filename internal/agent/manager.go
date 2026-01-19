@@ -209,16 +209,23 @@ type OpenCodeManager struct {
 
 func (m *OpenCodeManager) IsAlive(run *model.Run) bool {
 	client := NewOpenCodeClient(m.Port)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	if !client.IsServerRunning(ctx) {
-		return false
+	// For OpenCode: ALIVE = session exists on server
+	// Don't check server health separately - GetSessions will fail if server is down
+	sessions, err := client.GetSessions(ctx)
+	if err != nil {
+		return false // Server not reachable
 	}
 
-	return m.sessionExists(ctx, client) ||
-		m.hasActiveBusyChildren(ctx, client) ||
-		m.hasRecentActivity(ctx, client)
+	// Session exists = alive
+	for _, s := range sessions {
+		if s.ID == m.SessionID {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *OpenCodeManager) CaptureOutput(run *model.Run) (string, error) {
