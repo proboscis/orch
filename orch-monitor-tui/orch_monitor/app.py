@@ -1377,8 +1377,19 @@ class RunsDashboard(App):
         if runs is not None:
             self.runs = runs
         self.title = f"{self._base_title} | Last updated: {self._last_update.strftime('%H:%M:%S')}"
+        
+        # Collect diff stats for all runs with worktrees
+        diff_stats: dict[str, DiffStats] = {}
+        for run in self.runs:
+            if run.worktree_path and run.branch:
+                stats = _get_git_diff_stats(
+                    run.worktree_path, run.branch, self.config.base_branch
+                )
+                if stats:
+                    diff_stats[run.ref()] = stats
+        
         run_table = self.query_one("#runs-table", RunTable)
-        run_table.populate(self.runs)
+        run_table.populate(self.runs, diff_stats=diff_stats)
 
     @on(RunTable.RowSelected)
     def on_run_selected(self, event: RunTable.RowSelected) -> None:

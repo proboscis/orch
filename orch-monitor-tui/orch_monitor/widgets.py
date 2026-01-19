@@ -8,7 +8,7 @@ from textual.widgets import DataTable, Static
 from textual.widgets.data_table import RowDoesNotExist
 from textual.containers import Container
 
-from .models import Issue, Run, Status
+from .models import DiffStats, Issue, Run, Status
 
 MAX_MODEL_DISPLAY_WIDTH = 18
 
@@ -96,6 +96,24 @@ def model_display_name(model: str, variant: str) -> str:
     return result
 
 
+
+
+def format_diff_number(value: int) -> str:
+    """Format a diff number, abbreviating large values.
+    
+    Examples:
+        0 -> "0"
+        99 -> "99"
+        1234 -> "1.2k"
+        12345 -> "12.3k"
+    """
+    if value < 1000:
+        return str(value)
+    elif value < 10000:
+        return f"{value / 1000:.1f}k"
+    else:
+        return f"{value // 1000}k"
+
 class CursorPreservingTable(DataTable):
     """DataTable that preserves cursor position across repopulation."""
 
@@ -167,7 +185,17 @@ class CursorPreservingTable(DataTable):
 class RunTable(CursorPreservingTable):
     """Table widget for displaying runs."""
 
-    def populate(self, runs: list[Run]) -> None:
+    def populate(
+        self,
+        runs: list[Run],
+        diff_stats: Optional[dict[str, DiffStats]] = None,
+    ) -> None:
+        """Populate the run table with run data.
+        
+        Args:
+            runs: List of runs to display.
+            diff_stats: Optional dict mapping run.ref() to DiffStats for diff columns.
+        """
         saved_key, saved_index = self._save_cursor_state()
 
         self.clear(columns=True)
@@ -177,9 +205,13 @@ class RunTable(CursorPreservingTable):
         self.add_column("Status", width=12)
         self.add_column("Agent", width=10)
         self.add_column("Model", width=18)
+        self.add_column("+", width=6)
+        self.add_column("-", width=6)
         self.add_column("Mux", width=4)
         self.add_column("Elapsed", width=10, key="elapsed")
         self.add_column("Branch", width=20)
+
+        diff_stats = diff_stats or {}
 
         for run in runs:
             status_str = run.status.value
@@ -198,12 +230,23 @@ class RunTable(CursorPreservingTable):
             mux = run.multiplexer or "tmux"
             mux_short = "zj" if mux == "zellij" else "tx"
 
+            # Format diff stats with color coding
+            stats = diff_stats.get(run.ref())
+            if stats:
+                add_str = f"[green]+{format_diff_number(stats.total_additions)}[/green]"
+                del_str = f"[red]-{format_diff_number(stats.total_deletions)}[/red]"
+            else:
+                add_str = "-"
+                del_str = "-"
+
             self.add_row(
                 run.short_id(),
                 run.issue_id,
                 status_str,
                 run.agent or "-",
                 model_str,
+                add_str,
+                del_str,
                 mux_short,
                 run.elapsed_time(),
                 run.branch or "-",
