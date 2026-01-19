@@ -389,35 +389,37 @@ func (s *SocketServer) handleListRepos(req SendRequest, encoder *json.Encoder) {
 }
 
 func (s *SocketServer) handleSend(req SendRequest, encoder *json.Encoder) {
+	err := s.processSend(req)
+	if err != nil {
+		encoder.Encode(SendResponse{OK: false, Error: err.Error()})
+		return
+	}
 	encoder.Encode(SendResponse{OK: true})
-	go s.processSend(req)
 }
 
-func (s *SocketServer) processSend(req SendRequest) {
+func (s *SocketServer) processSend(req SendRequest) error {
 	s.logger.Printf("processing send for %s#%s", req.IssueID, req.RunID)
 
 	st := s.resolveStore(req)
 	if st == nil {
-		s.logger.Printf("no store available for request")
-		return
+		return fmt.Errorf("no store available for project")
 	}
 
 	ref := &model.RunRef{IssueID: req.IssueID, RunID: req.RunID}
 	run, err := st.GetRun(ref)
 	if err != nil {
-		s.logger.Printf("failed to get run %s#%s: %v", req.IssueID, req.RunID, err)
-		return
+		return fmt.Errorf("run %s#%s not found: %w", req.IssueID, req.RunID, err)
 	}
 
 	if run.Agent != string(agent.AgentOpenCode) {
-		s.logger.Printf("run %s#%s is not opencode agent, skipping", req.IssueID, req.RunID)
-		return
+		return fmt.Errorf("run %s#%s is not an opencode agent (agent=%s)", req.IssueID, req.RunID, run.Agent)
 	}
 
-	if run.ServerPort <= 0 || run.OpenCodeSessionID == "" {
-		s.logger.Printf("run %s#%s missing server config (port=%d, session=%s)",
-			req.IssueID, req.RunID, run.ServerPort, run.OpenCodeSessionID)
-		return
+	if run.ServerPort <= 0 {
+		return fmt.Errorf("run %s#%s missing server port (not running or server not started)", req.IssueID, req.RunID)
+	}
+	if run.OpenCodeSessionID == "" {
+		return fmt.Errorf("run %s#%s missing session ID (agent may still be booting)", req.IssueID, req.RunID)
 	}
 
 	client := agent.NewOpenCodeClient(run.ServerPort)
@@ -427,11 +429,11 @@ func (s *SocketServer) processSend(req SendRequest) {
 
 	err = client.SendMessagePrompt(ctx, run.OpenCodeSessionID, req.Message, run.WorktreePath)
 	if err != nil {
-		s.logger.Printf("failed to send message to %s#%s: %v", req.IssueID, req.RunID, err)
-		return
+		return fmt.Errorf("failed to send message: %w", err)
 	}
 
 	s.logger.Printf("message sent successfully to %s#%s", req.IssueID, req.RunID)
+	return nil
 }
 
 func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {
