@@ -70,8 +70,8 @@ Create .orch/config.yaml:
     agent: opencode
 
     opencode:
-      default_model: anthropic/claude-sonnet-4-20250514
-      default_variant: default
+      default_model: anthropic/claude-opus-4-5
+      default_variant: max
 
 Available model format: <provider>/<model-id>
 
