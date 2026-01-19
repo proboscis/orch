@@ -1436,38 +1436,33 @@ class RunsDashboard(App):
 
     def _update_run_detail_panel(self, run: Optional[Run]) -> None:
         try:
-            detail = self.query_one("#run-detail-content", Static)
+            tabs_panel = self.query_one("#run-detail-tabs", TabbedStatsPanel)
         except Exception:
             return
 
         if not run:
-            detail.update("")
+            tabs_panel.clear_all()
             return
 
-        lines = [f"[bold]{run.ref()}[/bold]"]
-
+        # === Stats Tab ===
+        stats_lines = [f"[bold]{run.ref()}[/bold]"]
+        stats_lines.append("")
+        stats_lines.append(f"[bold]Status:[/bold] {run.status.value}")
+        stats_lines.append(f"[bold]Elapsed:[/bold] {run.elapsed_time()}")
+        stats_lines.append(f"[bold]Agent:[/bold] {run.agent or '-'}")
+        if run.model:
+            from .widgets import model_display_name
+            model_str = model_display_name(run.model, run.model_variant)
+            stats_lines.append(f"[bold]Model:[/bold] {model_str}")
+        if run.branch:
+            stats_lines.append(f"[bold]Branch:[/bold] {run.branch}")
         if run.pr_url:
-            lines.append(f"PR: {run.pr_url}")
+            stats_lines.append(f"[bold]PR:[/bold] {run.pr_url}")
 
-        issue = self._get_issue_for_run(run)
-        if issue:
-            lines.append("")
-            lines.append(f"[bold]{issue.title or issue.id}[/bold]")
-            if issue.body:
-                summary = issue.body[:300].replace("\n", " ")
-                lines.append(f"[dim]{summary}[/dim]")
-        # Add changed files section (uses helper for consistent formatting)
-        if run.worktree_path and run.branch:
-            diff_stats = _get_git_diff_stats(
-                run.worktree_path, run.branch, self.config.base_branch
-            )
-            lines.extend(
-                _format_changed_files_lines(diff_stats, max_files=10, path_width=35)
-            )
-
+        # Add chat messages or session output to stats
         if run.agent == "opencode" and run.server_port and run.opencode_session_id:
-            lines.append("")
-            lines.append("[bold]Chat Messages:[/bold]")
+            stats_lines.append("")
+            stats_lines.append("[bold]Chat Messages:[/bold]")
             messages = self._fetch_opencode_messages(run)
             if messages:
                 for msg in messages[-8:]:
@@ -1475,20 +1470,59 @@ class RunsDashboard(App):
                     text = msg.get("text", "")[:150]
                     if text:
                         color = "cyan" if role == "assistant" else "green"
-                        lines.append(f"[{color}]{role}:[/{color}] {text}")
+                        stats_lines.append(f"[{color}]{role}:[/{color}] {text}")
             else:
-                lines.append("[dim]No messages yet[/dim]")
+                stats_lines.append("[dim]No messages yet[/dim]")
         elif run.tmux_session:
-            lines.append("")
-            lines.append("[bold]Session Output:[/bold]")
+            stats_lines.append("")
+            stats_lines.append("[bold]Session Output:[/bold]")
             output = self._capture_session_output(run)
             if output:
                 for line in output[-12:]:
-                    lines.append(f"[dim]{line}[/dim]")
+                    stats_lines.append(f"[dim]{line}[/dim]")
             else:
-                lines.append("[dim]No output captured[/dim]")
+                stats_lines.append("[dim]No output captured[/dim]")
 
-        detail.update("\n".join(lines))
+        tabs_panel.update_stats("\n".join(stats_lines))
+
+        # === Issue Tab ===
+        issue = self._get_issue_for_run(run)
+        if issue:
+            issue_lines = [f"[bold]{issue.title or issue.id}[/bold]"]
+            if issue.tags:
+                issue_lines.append(f"[dim]Tags: {', '.join(issue.tags)}[/dim]")
+            if issue.status:
+                issue_lines.append(f"[dim]Status: {issue.status.value}[/dim]")
+            issue_lines.append("")
+            if issue.body:
+                issue_lines.append(issue.body)
+            elif issue.summary:
+                issue_lines.append(issue.summary)
+            tabs_panel.update_issue("\n".join(issue_lines))
+        else:
+            tabs_panel.update_issue(f"[dim]Issue not found: {run.issue_id}[/dim]")
+
+        # === Changes Tab ===
+        if run.worktree_path and run.branch:
+            diff_stats = _get_git_diff_stats(
+                run.worktree_path, run.branch, self.config.base_branch
+            )
+            if diff_stats and diff_stats.files:
+                changes_lines = [f"[bold]Changed Files ({diff_stats.file_count}):[/bold]"]
+                changes_lines.append(
+                    f"[bold]Total: [green]+{diff_stats.total_additions}[/green] "
+                    f"[red]-{diff_stats.total_deletions}[/red][/bold]"
+                )
+                changes_lines.append("")
+                for fc in diff_stats.files:
+                    add_str = f"[green]+{fc.additions}[/green]" if fc.additions else ""
+                    del_str = f"[red]-{fc.deletions}[/red]" if fc.deletions else ""
+                    changes_lines.append(f"  {fc.path}  {add_str} {del_str}")
+                tabs_panel.update_changes("\n".join(changes_lines))
+            else:
+                tabs_panel.update_changes("[dim]No changes detected[/dim]")
+        else:
+            tabs_panel.update_changes("[dim]No worktree or branch information[/dim]")
 
     def _fetch_opencode_messages(self, run: Run) -> list[dict]:
         if not run.server_port or not run.opencode_session_id:
