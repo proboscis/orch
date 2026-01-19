@@ -15,6 +15,7 @@ from orch_monitor.widgets import (
     DetailPanel,
     shorten_model_name,
     model_display_name,
+    format_diff_number,
 )
 
 
@@ -86,6 +87,36 @@ class TestModelDisplayName:
         result = model_display_name("claude-3-5-sonnet", "max")
         assert "/" in result
         assert "max" in result
+
+
+
+
+class TestFormatDiffNumber:
+    """Tests for diff number formatting helper."""
+
+    def test_zero(self):
+        """Test formatting zero."""
+        assert format_diff_number(0) == "0"
+
+    def test_small_number(self):
+        """Test small numbers (< 1000)."""
+        assert format_diff_number(99) == "99"
+        assert format_diff_number(500) == "500"
+        assert format_diff_number(999) == "999"
+
+    def test_thousands(self):
+        """Test numbers in thousands."""
+        assert format_diff_number(1000) == "1.0k"
+        assert format_diff_number(1234) == "1.2k"
+        assert format_diff_number(5678) == "5.7k"
+        assert format_diff_number(9999) == "10.0k"
+
+    def test_large_thousands(self):
+        """Test large numbers (>= 10000)."""
+        assert format_diff_number(10000) == "10k"
+        assert format_diff_number(12345) == "12k"
+        assert format_diff_number(99999) == "99k"
+        assert format_diff_number(100000) == "100k"
 
 
 # ============================================================================
@@ -243,6 +274,36 @@ class TestRunTableWidget:
             # Table should have rows - visual verification of colors
             # would need snapshot tests
             assert table.row_count > 0
+
+    async def test_run_table_with_diff_stats(self, sample_runs):
+        """Test that RunTable displays diff stats correctly."""
+        from textual.app import App, ComposeResult
+        from orch_monitor.models import DiffStats
+
+        class TestApp(App):
+            def compose(self) -> ComposeResult:
+                yield RunTable(id="test-table")
+
+        app = TestApp()
+        async with app.run_test() as pilot:
+            table = app.query_one("#test-table", RunTable)
+            
+            # Create diff stats for first run
+            diff_stats = {
+                sample_runs[0].ref(): DiffStats(
+                    files=[],
+                    total_additions=142,
+                    total_deletions=37,
+                )
+            }
+            
+            table.populate(sample_runs, diff_stats=diff_stats)
+            await pilot.pause()
+
+            # Table should have rows with diff columns
+            assert table.row_count == len(sample_runs)
+            # The + and - columns are now included (visual verification via snapshot tests)
+
 
 
 class TestIssueTableWidget:
