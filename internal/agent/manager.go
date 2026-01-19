@@ -280,7 +280,7 @@ func (m *OpenCodeManager) GetStatus(run *model.Run, output string, state *RunSta
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	sessionStatus, found, err := client.GetSingleSessionStatus(ctx, m.SessionID, m.Directory)
+	sessionStatus, found, err := client.GetSingleSessionStatus(ctx, m.SessionID, "")
 	if err != nil {
 		return ""
 	}
@@ -314,7 +314,7 @@ func (m *OpenCodeManager) GetStatus(run *model.Run, output string, state *RunSta
 }
 
 func (m *OpenCodeManager) hasActiveBusyChildren(ctx context.Context, client *OpenCodeClient) bool {
-	statusMap, err := client.GetSessionStatus(ctx, m.Directory)
+	statusMap, err := client.GetSessionStatus(ctx, "")
 	if err != nil {
 		return false
 	}
@@ -336,7 +336,7 @@ func (m *OpenCodeManager) hasActiveBusyChildren(ctx context.Context, client *Ope
 }
 
 func (m *OpenCodeManager) hasRecentActivity(ctx context.Context, client *OpenCodeClient) bool {
-	session, err := client.GetSession(ctx, m.SessionID, m.Directory)
+	session, err := client.GetSession(ctx, m.SessionID, "")
 	if err != nil {
 		return false
 	}
@@ -346,7 +346,12 @@ func (m *OpenCodeManager) hasRecentActivity(ctx context.Context, client *OpenCod
 }
 
 func (m *OpenCodeManager) sessionExists(ctx context.Context, client *OpenCodeClient) bool {
-	statusMap, err := client.GetSessionStatus(ctx, m.Directory)
+	// Query without directory filter to get all sessions across projects.
+	// OpenCode scopes sessions by git root commit hash, not by exact directory path.
+	// When worktree path does not match OpenCode internal project resolution,
+	// the session will not be found if we filter by directory.
+	// Instead, we query all sessions and match by session ID which is unique.
+	statusMap, err := client.GetSessionStatus(ctx, "")
 	if err != nil {
 		return false
 	}

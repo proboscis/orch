@@ -902,3 +902,234 @@ func TestOpenCodeManagerIsAliveNoActivity(t *testing.T) {
 		t.Errorf("IsAlive() with no activity = %v, want false", got)
 	}
 }
+
+// Tests for orch-308: Session detection should work regardless of directory mismatch
+// OpenCode scopes sessions by git root, not exact worktree path.
+// These tests verify that sessions are found by ID alone, not by directory filter.
+
+func TestOpenCodeManagerSessionExistsIgnoresDirectory(t *testing.T) {
+	// Scenario: Session was created with directory "/repo" but daemon queries with "/repo/worktree"
+	// The session should still be found because we query without directory filter
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/global/health":
+			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
+		case "/session/status":
+			// Verify no X-OpenCode-Directory header is sent (empty = all sessions)
+			dir := r.Header.Get("X-OpenCode-Directory")
+			if dir != "" {
+				t.Errorf("Expected no X-OpenCode-Directory header, got %q", dir)
+			}
+			// Return session that exists in a different directory scope
+			json.NewEncoder(w).Encode(map[string]SessionStatus{
+				"ses_target": SessionStatusIdle,
+			})
+		}
+	}))
+	defer server.Close()
+
+	port := extractPort(server.URL)
+	// Manager has worktree path, but session was created with different directory
+	manager := &OpenCodeManager{
+		Port:      port,
+		SessionID: "ses_target",
+		Directory: "/repo/.git-worktrees/issue-123/abc123_run",  // Worktree path
+	}
+	run := &model.Run{Agent: "opencode"}
+
+	got := manager.IsAlive(run)
+	if got != true {
+		t.Errorf("IsAlive() should find session regardless of directory mismatch, got %v", got)
+	}
+}
+
+func TestOpenCodeManagerGetStatusIgnoresDirectory(t *testing.T) {
+	// Verify GetStatus correctly detects idle/busy status despite directory mismatch
+	tests := []struct {
+		name          string
+		sessionStatus SessionStatus
+		wantStatus    model.Status
+	}{
+		{
+			name:          "detects idle status (blocked) with directory mismatch",
+			sessionStatus: SessionStatusIdle,
+			wantStatus:    model.StatusBlocked,
+		},
+		{
+			name:          "detects busy status (running) with directory mismatch",
+			sessionStatus: SessionStatusBusy,
+			wantStatus:    model.StatusRunning,
+		},
+		{
+			name:          "detects retry status (blocked_api) with directory mismatch",
+			sessionStatus: SessionStatusRetry,
+			wantStatus:    model.StatusBlockedAPI,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/session/status":
+					// Verify no directory filter is applied
+					dir := r.Header.Get("X-OpenCode-Directory")
+					if dir != "" {
+						t.Errorf("Expected no X-OpenCode-Directory header, got %q", dir)
+					}
+					json.NewEncoder(w).Encode(map[string]SessionStatus{
+						"ses_mismatched": tt.sessionStatus,
+					})
+				}
+			}))
+			defer server.Close()
+
+			port := extractPort(server.URL)
+			manager := &OpenCodeManager{
+				Port:      port,
+				SessionID: "ses_mismatched",
+				Directory: "/different/worktree/path",  // Different from session's actual directory
+			}
+
+			run := &model.Run{Status: model.StatusRunning}
+			state := &RunState{}
+			got := manager.GetStatus(run, "", state, false, false)
+			if got != tt.wantStatus {
+				t.Errorf("GetStatus() = %v, want %v", got, tt.wantStatus)
+			}
+		})
+	}
+}
+
+func TestOpenCodeManagerHasActiveBusyChildrenIgnoresDirectory(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/global/health":
+			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
+		case "/session/status":
+			// Verify no directory filter
+			dir := r.Header.Get("X-OpenCode-Directory")
+			if dir != "" {
+				t.Errorf("Expected no X-OpenCode-Directory header for /session/status, got %q", dir)
+			}
+			json.NewEncoder(w).Encode(map[string]SessionStatus{
+				"ses_busy_child": SessionStatusBusy,
+			})
+		case "/session/ses_busy_child":
+			json.NewEncoder(w).Encode(Session{ID: "ses_busy_child", ParentID: "ses_parent"})
+		}
+	}))
+	defer server.Close()
+
+	port := extractPort(server.URL)
+	manager := &OpenCodeManager{
+		Port:      port,
+		SessionID: "ses_parent",
+		Directory: "/mismatched/worktree/path",
+	}
+	run := &model.Run{Agent: "opencode"}
+
+	got := manager.IsAlive(run)
+	if got != true {
+		t.Errorf("IsAlive() should detect busy children regardless of directory, got %v", got)
+	}
+}
+
+func TestOpenCodeManagerHasRecentActivityIgnoresDirectory(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/global/health":
+			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
+		case "/session/status":
+			json.NewEncoder(w).Encode(map[string]SessionStatus{})
+		case "/session/ses_recent":
+			// Verify no directory filter on session fetch
+			dir := r.Header.Get("X-OpenCode-Directory")
+			if dir != "" {
+				t.Errorf("Expected no X-OpenCode-Directory header for /session/:id, got %q", dir)
+			}
+			now := time.Now().UnixMilli()
+			json.NewEncoder(w).Encode(Session{
+				ID:   "ses_recent",
+				Time: SessionTimeMillis{Updated: now},
+			})
+		}
+	}))
+	defer server.Close()
+
+	port := extractPort(server.URL)
+	manager := &OpenCodeManager{
+		Port:      port,
+		SessionID: "ses_recent",
+		Directory: "/wrong/directory/path",
+	}
+	run := &model.Run{Agent: "opencode"}
+
+	got := manager.IsAlive(run)
+	if got != true {
+		t.Errorf("IsAlive() should detect recent activity regardless of directory, got %v", got)
+	}
+}
+
+// TestOpenCodeManagerDirectoryMismatchScenario simulates the exact bug from orch-308
+// where daemon couldn't detect blocked status because worktree path didn't match OpenCode's project scope
+func TestOpenCodeManagerDirectoryMismatchScenario(t *testing.T) {
+	// This test simulates:
+	// 1. Session created with git root directory
+	// 2. Daemon queries with worktree path (different from git root)
+	// 3. Session should still be found and status correctly detected as "blocked" when idle
+	
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		
+		// Verify that directory filter is NOT applied (fix for orch-308)
+		dir := r.Header.Get("X-OpenCode-Directory")
+		if dir != "" {
+			t.Errorf("Request to %s should not have X-OpenCode-Directory header, got %q", r.URL.Path, dir)
+		}
+		
+		switch r.URL.Path {
+		case "/global/health":
+			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
+		case "/session/status":
+			// Agent finished work, session is now idle
+			json.NewEncoder(w).Encode(map[string]SessionStatus{
+				"ses_orch305": SessionStatusIdle,
+			})
+		case "/session/ses_orch305":
+			json.NewEncoder(w).Encode(Session{
+				ID:        "ses_orch305",
+				Directory: "/Users/dev/repos/orch",  // Git root (how OpenCode stores it)
+			})
+		}
+	}))
+	defer server.Close()
+
+	port := extractPort(server.URL)
+	
+	// Daemon uses worktree path (different from session's stored directory)
+	manager := &OpenCodeManager{
+		Port:      port,
+		SessionID: "ses_orch305",
+		Directory: "/Users/dev/repos/orch/.git-worktrees/orch-305/5f7fe7_run",  // Worktree path
+		RunRef:    "orch-305#20260119-002608",
+	}
+
+	// Test IsAlive - should find the session
+	run := &model.Run{Agent: "opencode", Status: model.StatusRunning}
+	alive := manager.IsAlive(run)
+	if !alive {
+		t.Error("IsAlive() should return true - session exists despite directory mismatch")
+	}
+
+	// Test GetStatus - should detect idle status as blocked
+	state := &RunState{}
+	status := manager.GetStatus(run, "", state, false, false)
+	if status != model.StatusBlocked {
+		t.Errorf("GetStatus() = %v, want %v (blocked when agent is idle)", status, model.StatusBlocked)
+	}
+}
