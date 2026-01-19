@@ -118,7 +118,19 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
 func (d *Daemon) updateStatus(run *model.Run, status model.Status, st store.Store) error {
 	ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
 	event := model.NewStatusEvent(status)
-	return st.AppendEvent(ref, event)
+	if err := st.AppendEvent(ref, event); err != nil {
+		return err
+	}
+
+	// Auto-resolve issue when run is done
+	if status == model.StatusDone {
+		if err := st.SetIssueStatus(run.IssueID, model.IssueStatusResolved); err != nil {
+			d.logger.Printf("%s#%s: failed to auto-resolve issue: %v", run.IssueID, run.RunID, err)
+			// Don't fail the status update if issue update fails
+		}
+	}
+
+	return nil
 }
 
 // hashString returns a simple hash of a string
