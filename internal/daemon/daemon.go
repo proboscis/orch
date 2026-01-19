@@ -27,15 +27,12 @@ const (
 	FetchInterval   = 90 * time.Second
 )
 
-// Daemon is now a global daemon that can serve multiple repos
 type Daemon struct {
-	// For backward compatibility, keep a default project root
-	projectRoot string
-	store       store.Store
-	interval    time.Duration
-	logger      *log.Logger
-	stopCh      chan struct{}
-	wg          sync.WaitGroup
+	storeFactory StoreFactory
+	interval     time.Duration
+	logger       *log.Logger
+	stopCh       chan struct{}
+	wg           sync.WaitGroup
 
 	runStates     map[string]*RunState
 	lastFetchAt   map[string]time.Time
@@ -68,10 +65,9 @@ type RunState struct {
 	DeadCheckCount int
 }
 
-func New(projectRoot string, st store.Store) *Daemon {
+func New(factory StoreFactory) *Daemon {
 	return &Daemon{
-		projectRoot:   projectRoot,
-		store:         st,
+		storeFactory:  factory,
 		interval:      DefaultInterval,
 		stopCh:        make(chan struct{}),
 		runStates:     make(map[string]*RunState),
@@ -158,12 +154,8 @@ func (d *Daemon) Run() error {
 	}
 
 	d.logger.Printf("global daemon started (pid=%d, binary=%s)", os.Getpid(), d.executablePath)
-	if d.projectRoot != "" {
-		repoID, _ := xdg.RepoID(d.projectRoot)
-		d.logger.Printf("default project: %s (repo_id=%s)", d.projectRoot, repoID)
-	}
 
-	d.socketServer = NewSocketServer(d.projectRoot, d.store, d.logger)
+	d.socketServer = NewSocketServer(d.storeFactory, d.logger)
 	d.socketServer.SetGitHubBackend(d.githubBackend)
 	if err := d.socketServer.Start(); err != nil {
 		d.logger.Printf("warning: failed to start socket server: %v", err)
@@ -273,36 +265,51 @@ func (d *Daemon) checkBinaryStaleness() {
 
 func (d *Daemon) restartWithNewBinary() error {
 	d.logger.Printf("restarting daemon with new binary via exec...")
-
-	// For global daemon, we don't need --project-root anymore
-	// but keep it for backward compatibility if one was specified
 	args := []string{d.executablePath, "daemon", "run"}
-	if d.projectRoot != "" {
-		args = append(args, "--project-root", d.projectRoot)
-	}
 	return syscall.Exec(d.executablePath, args, os.Environ())
 }
 
 func (d *Daemon) monitorAll() {
-	runs, err := d.store.ListRuns(&store.ListRunsFilter{
-		Status: []model.Status{model.StatusRunning, model.StatusBooting, model.StatusBlocked, model.StatusBlockedAPI, model.StatusPROpen, model.StatusUnknown},
-	})
-	if err != nil {
-		d.logger.Printf("error listing runs: %v", err)
+	if d.socketServer == nil {
 		return
 	}
 
-	if len(runs) > 0 {
-		d.periodicFetch(runs)
+	type runWithStore struct {
+		run *model.Run
+		st  store.Store
 	}
 
-	for _, run := range runs {
-		if err := d.monitorRun(run); err != nil {
-			d.logger.Printf("error monitoring %s#%s: %v", run.IssueID, run.RunID, err)
+	var allRuns []*model.Run
+	var runsWithStores []runWithStore
+
+	for _, ctx := range d.socketServer.GetAllRepoContexts() {
+		if ctx.Store == nil {
+			continue
+		}
+		runs, err := ctx.Store.ListRuns(&store.ListRunsFilter{
+			Status: []model.Status{model.StatusRunning, model.StatusBooting, model.StatusBlocked, model.StatusBlockedAPI, model.StatusPROpen, model.StatusUnknown},
+		})
+		if err != nil {
+			d.logger.Printf("error listing runs for %s: %v", ctx.RepoID, err)
+			continue
+		}
+		for _, run := range runs {
+			allRuns = append(allRuns, run)
+			runsWithStores = append(runsWithStores, runWithStore{run: run, st: ctx.Store})
 		}
 	}
 
-	d.cleanupStates(runs)
+	if len(allRuns) > 0 {
+		d.periodicFetch(allRuns)
+	}
+
+	for _, rws := range runsWithStores {
+		if err := d.monitorRun(rws.run, rws.st); err != nil {
+			d.logger.Printf("error monitoring %s#%s: %v", rws.run.IssueID, rws.run.RunID, err)
+		}
+	}
+
+	d.cleanupStates(allRuns)
 }
 
 func (d *Daemon) periodicFetch(runs []*model.Run) {
@@ -383,9 +390,7 @@ func (d *Daemon) getOrCreateState(run *model.Run) *RunState {
 	return state
 }
 
-// StartInBackground starts the global daemon in the background.
-// The projectRoot parameter is optional; if empty, the daemon runs without a default project.
-func StartInBackground(projectRoot string) (int, error) {
+func StartInBackground() (int, error) {
 	if IsRunning("") {
 		return GetRunningPID(""), nil
 	}
@@ -396,9 +401,6 @@ func StartInBackground(projectRoot string) (int, error) {
 	}
 
 	args := []string{executable, "daemon", "run"}
-	if projectRoot != "" {
-		args = append(args, "--project-root", projectRoot)
-	}
 
 	cmd := &exec.Cmd{
 		Path: executable,

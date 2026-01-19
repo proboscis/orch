@@ -125,7 +125,6 @@ func (s *SlackConfig) IsConfigured() bool {
 
 // Config holds orch configuration
 type Config struct {
-	Vault           string           `yaml:"vault"`
 	Agent           string           `yaml:"agent"`
 	Model           string           `yaml:"model"`
 	ModelVariant    string           `yaml:"model_variant"`
@@ -317,17 +316,8 @@ func loadFromFile(path string, cfg *Config) error {
 		baseDir = filepath.Dir(configDir)
 	}
 
-	// Merge: only override if value is non-empty
-	// Resolve relative paths at load time
-	vault := fileCfg.Vault
-	if vault == "" {
-		vault = fileCfg.VaultLegacy
-	}
-	if vault == "" {
-		vault = fileCfg.DefaultVault
-	}
-	if vault != "" {
-		cfg.Vault = resolvePathFromConfig(vault, baseDir)
+	if fileCfg.Vault != "" || fileCfg.VaultLegacy != "" || fileCfg.DefaultVault != "" {
+		return fmt.Errorf("'vault' config is deprecated in %s. Use 'issues.path' instead:\n\nissues:\n  path: /path/to/issues", path)
 	}
 	if fileCfg.Agent != "" {
 		cfg.Agent = fileCfg.Agent
@@ -409,7 +399,7 @@ func loadFromFile(path string, cfg *Config) error {
 			cfg.Issues.Backend = fileCfg.Issues.Backend
 		}
 		if fileCfg.Issues.Path != "" {
-			cfg.Issues.Path = fileCfg.Issues.Path
+			cfg.Issues.Path = resolvePathFromConfig(fileCfg.Issues.Path, baseDir)
 		}
 	}
 	if fileCfg.GitHub != nil {
@@ -510,9 +500,7 @@ func hasOrchDir(path string) bool {
 // applyEnv applies environment variables to config
 func applyEnv(cfg *Config) {
 	if v := os.Getenv("ORCH_ISSUES_ROOT"); v != "" {
-		cfg.Vault = v
-	} else if v := os.Getenv("ORCH_VAULT"); v != "" {
-		cfg.Vault = v
+		cfg.Issues.Path = v
 	}
 	if v := os.Getenv("ORCH_AGENT"); v != "" {
 		cfg.Agent = v

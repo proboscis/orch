@@ -289,13 +289,16 @@ type issueInfo struct {
 
 func runIssueList(opts *issueListOptions) error {
 	projectRoot, _ := getProjectRoot()
-
-	client := daemon.NewClient(projectRoot)
-	if client.IsAvailable() {
-		return runIssueListViaDaemon(client, opts)
+	issuesRoot, err := getIssuesRoot()
+	if err != nil {
+		return err
 	}
 
-	return runIssueListDirect(opts)
+	client := daemon.NewClientWithIssuesRoot(projectRoot, issuesRoot)
+	if !client.IsAvailable() {
+		return fmt.Errorf("daemon not available (run 'orch daemon run' or ensure daemon is started)")
+	}
+	return runIssueListViaDaemon(client, opts)
 }
 
 func runIssueListViaDaemon(client *daemon.Client, opts *issueListOptions) error {
@@ -356,58 +359,6 @@ func runIssueListViaDaemon(client *daemon.Client, opts *issueListOptions) error 
 				RunID:  run.RunID,
 				Status: run.Status,
 			})
-		}
-
-		issueInfos = append(issueInfos, info)
-	}
-
-	return outputIssueList(issueInfos, opts)
-}
-
-func runIssueListDirect(opts *issueListOptions) error {
-	st, err := getStore()
-	if err != nil {
-		return err
-	}
-
-	issues, err := st.ListIssues()
-	if err != nil {
-		return err
-	}
-
-	allRuns, _ := st.ListRuns(nil)
-	runsByIssue := make(map[string][]*model.Run)
-	for _, run := range allRuns {
-		runsByIssue[run.IssueID] = append(runsByIssue[run.IssueID], run)
-	}
-
-	var issueInfos []issueInfo
-	for _, issue := range issues {
-		info := issueInfo{
-			ID:      issue.ID,
-			Title:   issue.Title,
-			Summary: issue.Summary,
-			Status:  string(issue.Status),
-			Path:    issue.Path,
-			Tags:    issue.Tags,
-		}
-
-		for _, run := range runsByIssue[issue.ID] {
-			if run.Status == model.StatusRunning ||
-				run.Status == model.StatusBlocked ||
-				run.Status == model.StatusBlockedAPI ||
-				run.Status == model.StatusBooting ||
-				run.Status == model.StatusQueued {
-				info.Runs = append(info.Runs, runSummary{
-					RunID:  run.RunID,
-					Status: string(run.Status),
-				})
-			}
-		}
-
-		// Apply filters
-		if !matchIssueFilters(string(issue.Status), issue.Tags, opts) {
-			continue
 		}
 
 		issueInfos = append(issueInfos, info)

@@ -11,17 +11,18 @@ import (
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/pr"
+	"github.com/s22625/orch/internal/store"
 )
 
 const deadChecksBeforeFailed = 3
 
-func (d *Daemon) monitorRun(run *model.Run) error {
+func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
 	state := d.getOrCreateState(run)
 	state.LastCheckAt = time.Now()
 
 	if run.Status == model.StatusPROpen {
 		if merged := d.checkPRMerged(run); merged {
-			return d.updateStatus(run, model.StatusDone)
+			return d.updateStatus(run, model.StatusDone, st)
 		}
 	}
 
@@ -37,10 +38,10 @@ func (d *Daemon) monitorRun(run *model.Run) error {
 			// clear completion signals (merged PR, clean worktree) before giving up.
 			// This handles cases where the daemon started after the agent finished.
 			if run.Agent == "opencode" && state.DeadCheckCount >= deadChecksBeforeFailed {
-				inferredStatus := d.inferStatusFromGitState(run)
+				inferredStatus := d.inferStatusFromGitState(run, st)
 				if inferredStatus != "" {
 					d.logger.Printf("%s#%s: agent never confirmed alive, but inferred status from git state: %s", run.IssueID, run.RunID, inferredStatus)
-					return d.updateStatus(run, inferredStatus)
+					return d.updateStatus(run, inferredStatus, st)
 				}
 			}
 			d.logger.Printf("%s#%s: agent not alive yet (never confirmed alive), waiting", run.IssueID, run.RunID)
@@ -51,16 +52,16 @@ func (d *Daemon) monitorRun(run *model.Run) error {
 			return nil
 		}
 		if run.Agent == "opencode" {
-			inferredStatus := d.inferStatusFromGitState(run)
+			inferredStatus := d.inferStatusFromGitState(run, st)
 			if inferredStatus != "" {
 				d.logger.Printf("%s#%s: opencode session gone, inferred status from git state: %s", run.IssueID, run.RunID, inferredStatus)
-				return d.updateStatus(run, inferredStatus)
+				return d.updateStatus(run, inferredStatus, st)
 			}
 			d.logger.Printf("%s#%s: opencode session not found after %d checks, marking unknown", run.IssueID, run.RunID, state.DeadCheckCount)
-			return d.updateStatus(run, model.StatusUnknown)
+			return d.updateStatus(run, model.StatusUnknown, st)
 		}
 		d.logger.Printf("%s#%s: agent confirmed dead after %d checks, marking failed", run.IssueID, run.RunID, state.DeadCheckCount)
-		return d.updateStatus(run, model.StatusFailed)
+		return d.updateStatus(run, model.StatusFailed, st)
 	}
 
 	output, err := mgr.CaptureOutput(run)
@@ -82,11 +83,11 @@ func (d *Daemon) monitorRun(run *model.Run) error {
 	if prURL := d.detectPRCreation(output); prURL != "" {
 		if !state.PRRecorded {
 			d.logger.Printf("%s#%s: PR created: %s", run.IssueID, run.RunID, prURL)
-			if err := d.recordPRArtifact(run, prURL); err != nil {
+			if err := d.recordPRArtifact(run, prURL, st); err != nil {
 				d.logger.Printf("%s#%s: failed to record PR artifact: %v", run.IssueID, run.RunID, err)
 			} else {
 				state.PRRecorded = true
-				if err := d.updateStatus(run, model.StatusPROpen); err != nil {
+				if err := d.updateStatus(run, model.StatusPROpen, st); err != nil {
 					d.logger.Printf("%s#%s: failed to update status to pr_open: %v", run.IssueID, run.RunID, err)
 				}
 				return nil
@@ -105,20 +106,19 @@ func (d *Daemon) monitorRun(run *model.Run) error {
 
 	if newStatus != "" && newStatus != run.Status {
 		d.logger.Printf("%s#%s: status change %s -> %s", run.IssueID, run.RunID, run.Status, newStatus)
-		if err := d.updateStatus(run, newStatus); err != nil {
+		if err := d.updateStatus(run, newStatus, st); err != nil {
 			return err
 		}
-		d.notifyStatusChange(run, newStatus, output)
+		d.notifyStatusChange(run, newStatus, output, st)
 	}
 
 	return nil
 }
 
-// updateStatus appends a status event to the run
-func (d *Daemon) updateStatus(run *model.Run, status model.Status) error {
+func (d *Daemon) updateStatus(run *model.Run, status model.Status, st store.Store) error {
 	ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
 	event := model.NewStatusEvent(status)
-	return d.store.AppendEvent(ref, event)
+	return st.AppendEvent(ref, event)
 }
 
 // hashString returns a simple hash of a string
@@ -152,12 +152,12 @@ func (d *Daemon) detectPRCreation(output string) string {
 	return ""
 }
 
-func (d *Daemon) recordPRArtifact(run *model.Run, prURL string) error {
+func (d *Daemon) recordPRArtifact(run *model.Run, prURL string, st store.Store) error {
 	ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
 	event := model.NewArtifactEvent("pr", map[string]string{
 		"url": prURL,
 	})
-	return d.store.AppendEvent(ref, event)
+	return st.AppendEvent(ref, event)
 }
 
 func (d *Daemon) checkPRMerged(run *model.Run) bool {
@@ -196,7 +196,7 @@ func (d *Daemon) checkPRMerged(run *model.Run) bool {
 	return false
 }
 
-func (d *Daemon) notifyStatusChange(run *model.Run, newStatus model.Status, lastOutput string) {
+func (d *Daemon) notifyStatusChange(run *model.Run, newStatus model.Status, lastOutput string, st store.Store) {
 	if d.slackNotifier == nil || d.config == nil {
 		return
 	}
@@ -206,9 +206,11 @@ func (d *Daemon) notifyStatusChange(run *model.Run, newStatus model.Status, last
 	}
 
 	issueTitle := run.IssueID
-	if issue, err := d.store.ResolveIssue(run.IssueID); err == nil && issue != nil {
-		if issue.Title != "" {
-			issueTitle = issue.Title
+	if st != nil {
+		if issue, err := st.ResolveIssue(run.IssueID); err == nil && issue != nil {
+			if issue.Title != "" {
+				issueTitle = issue.Title
+			}
 		}
 	}
 
@@ -226,7 +228,7 @@ func (d *Daemon) notifyStatusChange(run *model.Run, newStatus model.Status, last
 	}
 }
 
-func (d *Daemon) inferStatusFromGitState(run *model.Run) model.Status {
+func (d *Daemon) inferStatusFromGitState(run *model.Run, st store.Store) model.Status {
 	if run.Branch == "" || run.WorktreePath == "" {
 		d.debug("%s#%s: infer: skipping - branch=%q worktree=%q", run.IssueID, run.RunID, run.Branch, run.WorktreePath)
 		return ""
@@ -243,7 +245,7 @@ func (d *Daemon) inferStatusFromGitState(run *model.Run) model.Status {
 	if err == nil && prInfo != nil && prInfo.URL != "" {
 		d.logger.Printf("%s#%s: infer: found PR %s (state=%s)", run.IssueID, run.RunID, prInfo.URL, prInfo.State)
 		if run.PRUrl == "" {
-			if err := d.recordPRArtifact(run, prInfo.URL); err != nil {
+			if err := d.recordPRArtifact(run, prInfo.URL, st); err != nil {
 				d.logger.Printf("%s#%s: infer: failed to record PR: %v", run.IssueID, run.RunID, err)
 			}
 		}

@@ -152,11 +152,11 @@ class Config:
     """Orch configuration.
 
     project_root: Directory containing .orch/ (always required)
-    vault_path: Obsidian vault for file-based issues (optional, only for file backend)
+    issues_root: Directory for file-based issues (optional, only for file backend)
     """
 
     project_root: Path
-    vault_path: Optional[Path] = None
+    issues_root: Optional[Path] = None
     agent: str = "claude"
     worktree_dir: str = ".git-worktrees"
     base_branch: str = "main"
@@ -180,8 +180,7 @@ class Config:
 
     @property
     def log_path(self) -> Path:
-        """Return the path to monitor log file (project-specific)."""
-        return self.orch_dir / MONITOR_LOG_FILE
+        return xdg.state_dir() / "orch-monitor.log"
 
     def load_filters(self) -> FilterState:
         """Load persisted filter state, using config defaults if no saved state."""
@@ -286,8 +285,17 @@ class Config:
         return config_dir
 
     @classmethod
+    def _get_issues_path_from_data(cls, data: dict, base_dir: Path) -> Optional[str]:
+        issues_config = data.get("issues", {})
+        if isinstance(issues_config, dict) and issues_config.get("path"):
+            return str(cls._resolve_path_from_config(issues_config["path"], base_dir))
+        if data.get("vault"):
+            return str(cls._resolve_path_from_config(data["vault"], base_dir))
+        return None
+
+    @classmethod
     def load(cls, config_path: Optional[Path] = None) -> "Config":
-        vault_path_str = os.getenv("ORCH_VAULT")
+        issues_root_str = os.getenv("ORCH_ISSUES_ROOT") or os.getenv("ORCH_VAULT")
         data: dict = {}
         project_root: Optional[Path] = None
 
@@ -300,8 +308,10 @@ class Config:
                 if config_file.exists():
                     with open(config_file) as f:
                         data = yaml.safe_load(f) or {}
-                    if not vault_path_str:
-                        vault_path_str = data.get("vault")
+                    if not issues_root_str:
+                        issues_root_str = cls._get_issues_path_from_data(
+                            data, candidate
+                        )
 
         if config_path and config_path.exists():
             with open(config_path) as f:
@@ -309,8 +319,10 @@ class Config:
             if project_root is None:
                 project_root = cls._get_project_root(config_path)
 
-            if not vault_path_str:
-                vault_path_str = data.get("vault")
+            if not issues_root_str:
+                issues_root_str = cls._get_issues_path_from_data(
+                    data, cls._get_project_root(config_path)
+                )
 
         elif project_root is None:
             repo_configs = cls._find_repo_configs()
@@ -325,26 +337,26 @@ class Config:
                     if value:
                         data[key] = value
 
-                if not vault_path_str and file_data.get("vault"):
+                if not issues_root_str:
                     base_dir = cls._get_project_root(repo_config)
-                    vault_path_str = str(
-                        cls._resolve_path_from_config(file_data["vault"], base_dir)
+                    issues_root_str = cls._get_issues_path_from_data(
+                        file_data, base_dir
                     )
 
         if project_root is None:
             project_root = Path(".").resolve()
 
-        env_vault = os.getenv("ORCH_VAULT")
-        if env_vault:
-            vault_path_str = env_vault
+        env_issues_root = os.getenv("ORCH_ISSUES_ROOT") or os.getenv("ORCH_VAULT")
+        if env_issues_root:
+            issues_root_str = env_issues_root
 
-        vault_path: Optional[Path] = None
-        if vault_path_str:
-            vault_path = Path(vault_path_str).expanduser().resolve()
+        issues_root: Optional[Path] = None
+        if issues_root_str:
+            issues_root = Path(issues_root_str).expanduser().resolve()
 
         return cls(
             project_root=project_root,
-            vault_path=vault_path,
+            issues_root=issues_root,
             agent=data.get("agent", "claude"),
             worktree_dir=data.get("worktree_dir", ".git-worktrees"),
             base_branch=data.get("base_branch", "main"),
@@ -358,8 +370,12 @@ class Config:
         return cls.load(config_file)
 
     @classmethod
-    def from_vault(cls, vault_path: Path) -> "Config":
+    def from_issues_root(cls, issues_root: Path) -> "Config":
         config = cls.load()
-        if config.vault_path is None:
-            config.vault_path = vault_path
+        if config.issues_root is None:
+            config.issues_root = issues_root
         return config
+
+    @classmethod
+    def from_vault(cls, vault_path: Path) -> "Config":
+        return cls.from_issues_root(vault_path)

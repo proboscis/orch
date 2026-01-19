@@ -100,7 +100,6 @@ def _log_error(operation: str, error: str, project_root: Path) -> None:
         pass
 
 
-
 from functools import lru_cache
 from time import time as _time
 
@@ -162,7 +161,9 @@ def _get_git_diff_stats_cached(
             additions = int(add_str) if add_str != "-" else 0
             deletions = int(del_str) if del_str != "-" else 0
 
-            files.append(FileChange(path=path, additions=additions, deletions=deletions))
+            files.append(
+                FileChange(path=path, additions=additions, deletions=deletions)
+            )
             total_additions += additions
             total_deletions += deletions
 
@@ -172,7 +173,12 @@ def _get_git_diff_stats_cached(
             total_deletions=total_deletions,
         )
 
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError, ValueError) as e:
+    except (
+        subprocess.TimeoutExpired,
+        subprocess.SubprocessError,
+        OSError,
+        ValueError,
+    ) as e:
         get_logger().debug(f"git diff exception for {branch}: {e}")
         return None
 
@@ -237,7 +243,7 @@ def _format_changed_files_lines(
         # Truncate long paths
         path = fc.path
         if len(path) > path_width:
-            path = "..." + path[-(path_width - 3):]
+            path = "..." + path[-(path_width - 3) :]
 
         # Pad plain strings FIRST, then add markup (fixes alignment issue)
         add_plain = f"+{fc.additions}" if fc.additions else ""
@@ -263,17 +269,11 @@ def _format_changed_files_lines(
 
 
 def _build_orch_cmd(config: "Config") -> list[str]:
-    """Build base orch command with project-root and vault flags.
-
-    In split-root scenarios, both flags are needed:
-    - --project-root for daemon socket location (.orch/)
-    - --vault for file-based issue storage
-    """
     cmd = ["orch"]
     if config.project_root:
         cmd.extend(["--project-root", str(config.project_root)])
-    if config.vault_path:
-        cmd.extend(["--vault", str(config.vault_path)])
+    if config.issues_root:
+        cmd.extend(["--issues-root", str(config.issues_root)])
     return cmd
 
 
@@ -766,7 +766,9 @@ class AgentSelectScreen(ModalScreen[str | None]):
                     for i, agent in enumerate(self.agents)
                 ]
                 yield SelectionList[str](*items, id="agent-selection-list")
-                yield Label("[Enter] Start  [1-9] Quick select  [Esc] Cancel", id="agent-footer")
+                yield Label(
+                    "[Enter] Start  [1-9] Quick select  [Esc] Cancel", id="agent-footer"
+                )
             else:
                 yield Label("No agents available", id="agent-empty")
                 yield Label("[Esc] cancel", id="agent-footer")
@@ -1224,13 +1226,13 @@ class RunsDashboard(App):
         Binding("ctrl+f", "clear_filters", "Clear Filters"),
     ]
 
-    def __init__(self, vault_path: Optional[Path] = None, auto_refresh: bool = True):
+    def __init__(self, issues_root: Optional[Path] = None, auto_refresh: bool = True):
         super().__init__()
-        if vault_path:
-            self.config = Config.from_vault(vault_path)
+        if issues_root:
+            self.config = Config.from_issues_root(issues_root)
         else:
             self.config = Config.load()
-        self.daemon = DaemonClient(self.config.socket_path)
+        self.daemon = DaemonClient(self.config.socket_path, self.config.issues_root)
         self.runs: list[Run] = []
         self.selected_run: Optional[Run] = None
         self.filter_state = self.config.load_filters()
@@ -1437,7 +1439,9 @@ class RunsDashboard(App):
             diff_stats = _get_git_diff_stats(
                 run.worktree_path, run.branch, self.config.base_branch
             )
-            lines.extend(_format_changed_files_lines(diff_stats, max_files=10, path_width=35))
+            lines.extend(
+                _format_changed_files_lines(diff_stats, max_files=10, path_width=35)
+            )
 
         if run.agent == "opencode" and run.server_port and run.opencode_session_id:
             lines.append("")
@@ -1628,8 +1632,6 @@ class RunsDashboard(App):
 
 
 class IssuesDashboard(App):
-    """Issues-only dashboard for tmux pane."""
-
     CSS = COMMON_CSS
 
     BINDINGS = [
@@ -1643,13 +1645,13 @@ class IssuesDashboard(App):
         Binding("ctrl+f", "clear_filters", "Clear Filters"),
     ]
 
-    def __init__(self, vault_path: Optional[Path] = None, auto_refresh: bool = True):
+    def __init__(self, issues_root: Optional[Path] = None, auto_refresh: bool = True):
         super().__init__()
-        if vault_path:
-            self.config = Config.from_vault(vault_path)
+        if issues_root:
+            self.config = Config.from_issues_root(issues_root)
         else:
             self.config = Config.load()
-        self.daemon = DaemonClient(self.config.socket_path)
+        self.daemon = DaemonClient(self.config.socket_path, self.config.issues_root)
         self.issues: list[Issue] = []
         self.selected_issue: Optional[Issue] = None
         self._highlighted_issue_id: Optional[str] = None
@@ -1950,8 +1952,6 @@ class IssuesDashboard(App):
 
 
 class OrchMonitorApp(App):
-    """Orch monitor TUI application (tabbed view)."""
-
     CSS = (
         COMMON_CSS
         + """
@@ -1976,15 +1976,15 @@ class OrchMonitorApp(App):
         Binding("tab", "switch_focus", "Switch Focus"),
     ]
 
-    def __init__(self, vault_path: Optional[Path] = None, auto_refresh: bool = True):
+    def __init__(self, issues_root: Optional[Path] = None, auto_refresh: bool = True):
         super().__init__()
 
-        if vault_path:
-            self.config = Config.from_vault(vault_path)
+        if issues_root:
+            self.config = Config.from_issues_root(issues_root)
         else:
             self.config = Config.load()
 
-        self.daemon = DaemonClient(self.config.socket_path)
+        self.daemon = DaemonClient(self.config.socket_path, self.config.issues_root)
         self.runs: list[Run] = []
         self.issues: list[Issue] = []
         self.selected_run: Optional[Run] = None
@@ -2315,7 +2315,9 @@ class OrchMonitorApp(App):
             diff_stats = _get_git_diff_stats(
                 run.worktree_path, run.branch, self.config.base_branch
             )
-            changed_lines = _format_changed_files_lines(diff_stats, max_files=15, path_width=40)
+            changed_lines = _format_changed_files_lines(
+                diff_stats, max_files=15, path_width=40
+            )
             if changed_lines:
                 content_lines.append("")
                 content_lines.append("[bold]" + "-" * 50 + "[/bold]")

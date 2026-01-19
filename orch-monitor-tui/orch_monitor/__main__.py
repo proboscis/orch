@@ -52,10 +52,9 @@ def load_control_session(vault_path: Path | None) -> str | None:
 
 
 def write_control_prompt(vault_path: Path | None) -> bool:
-    """Write control prompt file for the agent."""
     try:
         config = Config.from_vault(vault_path) if vault_path else Config.load()
-        daemon = DaemonClient(config.socket_path)
+        daemon = DaemonClient(config.socket_path, config.issues_root)
 
         if not daemon.is_available():
             return False
@@ -99,7 +98,7 @@ You can run orch commands directly via bash to manage issues and runs.
 
 ## Repository Context
 
-- Vault: {config.vault_path}
+- Issues Root: {config.issues_root}
 - Working directory: {cwd}
 
 ## Existing Issues
@@ -140,13 +139,14 @@ Run these commands directly using bash:
         return False
 
 
-def get_vault_path(args) -> Path | None:
-    """Get vault path from args or environment."""
-    if args.vault:
+def get_issues_root(args) -> Path | None:
+    if getattr(args, "issues_root", None):
+        return args.issues_root
+    if getattr(args, "vault", None):
         return args.vault
-    vault_env = os.getenv("ORCH_VAULT")
-    if vault_env:
-        return Path(vault_env)
+    env_issues_root = os.getenv("ORCH_ISSUES_ROOT") or os.getenv("ORCH_VAULT")
+    if env_issues_root:
+        return Path(env_issues_root)
     return None
 
 
@@ -165,18 +165,17 @@ DAEMON_POLL_INTERVAL_SEC = 0.2
 
 
 def ensure_daemon(
-    project_root: Path | None, vault_path: Path | None
+    project_root: Path | None, issues_root: Path | None
 ) -> tuple[bool, str]:
-    """Ensure daemon is running. Returns (success, message)."""
     if project_root:
         config = Config.from_project_root(project_root)
-        if vault_path:
-            config.vault_path = vault_path
-    elif vault_path:
-        config = Config.from_vault(vault_path)
+        if issues_root:
+            config.issues_root = issues_root
+    elif issues_root:
+        config = Config.from_issues_root(issues_root)
     else:
         config = Config.load()
-    daemon = DaemonClient(config.socket_path)
+    daemon = DaemonClient(config.socket_path, config.issues_root)
     socket_path = config.socket_path
 
     if daemon.is_available():
@@ -186,10 +185,10 @@ def ensure_daemon(
     print("Starting orch daemon...", file=sys.stderr)
 
     project_root_arg = ["--project-root", str(project_root)] if project_root else []
-    vault_arg = ["--vault", str(vault_path)] if vault_path else []
+    issues_root_arg = ["--issues-root", str(issues_root)] if issues_root else []
     try:
         result = subprocess.run(
-            ["orch"] + project_root_arg + vault_arg + ["daemon", "start"],
+            ["orch"] + project_root_arg + issues_root_arg + ["daemon", "start"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -548,9 +547,15 @@ def launch_monitor_layout(
 def main():
     parser = argparse.ArgumentParser(description="Orch monitor TUI")
     parser.add_argument(
+        "--issues-root",
+        type=Path,
+        dest="issues_root",
+        help="Path to issues root directory for file-based issues",
+    )
+    parser.add_argument(
         "--vault",
         type=Path,
-        help="Path to vault directory for file-based issues",
+        help="(Deprecated, use --issues-root) Path to issues root directory",
     )
     parser.add_argument(
         "--project-root",
@@ -605,7 +610,7 @@ def main():
         def _log(msg: str) -> None:
             pass
 
-    vault_path = get_vault_path(args)
+    vault_path = get_issues_root(args)
     project_root = get_project_root(args)
 
     _log("ensuring daemon...")
@@ -620,19 +625,19 @@ def main():
     if project_root:
         config = Config.from_project_root(project_root)
         if vault_path:
-            config.vault_path = vault_path
+            config.issues_root = vault_path
     elif vault_path:
-        config = Config.from_vault(vault_path)
+        config = Config.from_issues_root(vault_path)
     else:
         config = Config.load()
     setup_logging(config.log_path)
     _log("config loaded")
 
     if args.runs:
-        app = RunsDashboard(vault_path=vault_path)
+        app = RunsDashboard(issues_root=vault_path)
         app.run()
     elif args.issues:
-        app = IssuesDashboard(vault_path=vault_path)
+        app = IssuesDashboard(issues_root=vault_path)
         app.run()
     else:
         mux_type = None

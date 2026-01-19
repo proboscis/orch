@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	"github.com/s22625/orch/internal/pr"
 	"github.com/s22625/orch/internal/store"
 	"github.com/s22625/orch/internal/tmux"
+	"github.com/s22625/orch/internal/xdg"
 )
 
 const (
@@ -79,6 +81,7 @@ type Monitor struct {
 	orchDir      string
 	presets      []config.Preset
 	projectRoot  string
+	logger       *log.Logger
 
 	monitorID     string
 	heartbeatStop chan struct{}
@@ -125,10 +128,24 @@ func New(st store.Store, opts Options) *Monitor {
 	}
 	orchDir := GetOrchDir(projectRoot)
 	var presets []config.Preset
-	daemonClient := daemon.NewClient(projectRoot)
+	issuesRoot := st.RootPath()
+	daemonClient := daemon.NewClientWithIssuesRoot(projectRoot, issuesRoot)
 	if cfg, err := config.Load(); err == nil {
 		presets = cfg.GetAllPresets()
 	}
+
+	var logger *log.Logger
+	if err := xdg.EnsureStateDir(); err == nil {
+		logPath := filepath.Join(xdg.StateDir(), "monitor.log")
+		if logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644); err == nil {
+			logger = log.New(logFile, "", log.LstdFlags)
+			logger.Printf("monitor starting: projectRoot=%q issuesRoot=%q", projectRoot, issuesRoot)
+		}
+	}
+	if logger == nil {
+		logger = log.New(os.Stderr, "[monitor] ", log.LstdFlags)
+	}
+
 	return &Monitor{
 		session:      session,
 		runFilter:    newRunFilter(opts),
@@ -149,6 +166,7 @@ func New(st store.Store, opts Options) *Monitor {
 		orchDir:      orchDir,
 		presets:      presets,
 		projectRoot:  projectRoot,
+		logger:       logger,
 	}
 }
 
@@ -1135,7 +1153,7 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 	continueSession := true
 	cmd, err := adapter.LaunchCommand(&agent.LaunchConfig{
 		Type:            aType,
-		IssuesRoot:       m.store.RootPath(),
+		IssuesRoot:      m.store.RootPath(),
 		Prompt:          prompt,
 		ContinueSession: continueSession,
 		Port:            port,

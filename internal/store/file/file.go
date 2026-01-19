@@ -161,11 +161,12 @@ func (s *FileStore) scanIssues() error {
 		return nil
 	}
 
-	err := filepath.WalkDir(issuesDir, func(path string, d os.DirEntry, err error) error {
+	// Use walkWithSymlinks to support symlinked issues directories
+	err := walkWithSymlinks(issuesDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
-		if d.IsDir() || !strings.HasSuffix(d.Name(), ".md") {
+		if info.IsDir() || !strings.HasSuffix(info.Name(), ".md") {
 			return nil
 		}
 

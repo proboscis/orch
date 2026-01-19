@@ -52,7 +52,7 @@ func TestMain(m *testing.M) {
 
 func runOrch(t *testing.T, args ...string) (string, error) {
 	t.Helper()
-	fullArgs := append([]string{"--vault", testVault}, args...)
+	fullArgs := append([]string{"--issues-root", testVault}, args...)
 	cmd := exec.Command(orchBinary, fullArgs...)
 	cmd.Dir = testRepo
 	var stdout, stderr bytes.Buffer

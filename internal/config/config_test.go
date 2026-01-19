@@ -9,14 +9,14 @@ import (
 func TestLoadPrecedence(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 
 	globalDir := filepath.Join(home, ".config", "orch")
 	if err := os.MkdirAll(globalDir, 0755); err != nil {
 		t.Fatalf("mkdir global: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(globalDir, "config.yaml"), []byte("vault: /global\nagent: claude\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(globalDir, "config.yaml"), []byte("issues:\n  path: /global\nagent: claude\n"), 0644); err != nil {
 		t.Fatalf("write global config: %v", err)
 	}
 
@@ -24,7 +24,7 @@ func TestLoadPrecedence(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
 		t.Fatalf("mkdir repo: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("vault: /repo\nagent: codex\npr_target_branch: develop\nno_pr: true\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("issues:\n  path: /repo\nagent: codex\npr_target_branch: develop\nno_pr: true\n"), 0644); err != nil {
 		t.Fatalf("write repo config: %v", err)
 	}
 
@@ -43,17 +43,18 @@ func TestLoadPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load error: %v", err)
 	}
-	if cfg.Vault != "/repo" || cfg.Agent != "codex" || !cfg.NoPR || cfg.PRTargetBranch != "develop" {
+	if cfg.Issues.Path != "/repo" || cfg.Agent != "codex" || !cfg.NoPR || cfg.PRTargetBranch != "develop" {
 		t.Fatalf("unexpected config: %+v", cfg)
 	}
 
-	t.Setenv("ORCH_VAULT", "/env")
+	t.Setenv("ORCH_ISSUES_ROOT", "/env")
 	t.Setenv("ORCH_AGENT", "gemini")
 	cfgEnv, err := Load()
 	if err != nil {
 		t.Fatalf("Load env error: %v", err)
 	}
-	if cfgEnv.Vault != "/repo" || cfgEnv.Agent != "codex" {
+	// Repo config takes precedence over env for issues.path
+	if cfgEnv.Issues.Path != "/repo" || cfgEnv.Agent != "codex" {
 		t.Fatalf("unexpected env config: %+v", cfgEnv)
 	}
 
@@ -65,7 +66,7 @@ func TestLoadPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load env-only error: %v", err)
 	}
-	if cfgEnvOnly.Vault != "/env" || cfgEnvOnly.Agent != "gemini" {
+	if cfgEnvOnly.Issues.Path != "/env" || cfgEnvOnly.Agent != "gemini" {
 		t.Fatalf("unexpected env-only config: %+v", cfgEnvOnly)
 	}
 }
@@ -73,7 +74,7 @@ func TestLoadPrecedence(t *testing.T) {
 func TestParentConfigPrecedence(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_VAULT", "/env")
+	t.Setenv("ORCH_ISSUES_ROOT", "/env")
 	t.Setenv("ORCH_AGENT", "gemini")
 	t.Setenv("ORCH_WORKTREE_DIR", "/env-worktrees")
 
@@ -81,7 +82,7 @@ func TestParentConfigPrecedence(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
 		t.Fatalf("mkdir repo: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("vault: /parent\nagent: claude\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("issues:\n  path: /parent\nagent: claude\n"), 0644); err != nil {
 		t.Fatalf("write repo config: %v", err)
 	}
 
@@ -105,7 +106,7 @@ func TestParentConfigPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load error: %v", err)
 	}
-	if cfg.Vault != "/parent" || cfg.Agent != "claude" {
+	if cfg.Issues.Path != "/parent" || cfg.Agent != "claude" {
 		t.Fatalf("unexpected parent config: %+v", cfg)
 	}
 	if cfg.WorktreeDir != "/env-worktrees" {
@@ -115,7 +116,7 @@ func TestParentConfigPrecedence(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(child, ".orch"), 0755); err != nil {
 		t.Fatalf("mkdir child .orch: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(child, ".orch", "config.yaml"), []byte("vault: /local\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(child, ".orch", "config.yaml"), []byte("issues:\n  path: /local\n"), 0644); err != nil {
 		t.Fatalf("write child config: %v", err)
 	}
 
@@ -123,7 +124,7 @@ func TestParentConfigPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load local error: %v", err)
 	}
-	if cfgLocal.Vault != "/local" || cfgLocal.Agent != "claude" {
+	if cfgLocal.Issues.Path != "/local" || cfgLocal.Agent != "claude" {
 		t.Fatalf("unexpected local config: %+v", cfgLocal)
 	}
 	if cfgLocal.WorktreeDir != "/env-worktrees" {
@@ -131,21 +132,21 @@ func TestParentConfigPrecedence(t *testing.T) {
 	}
 }
 
-func TestLoadVaultCaseInsensitive(t *testing.T) {
+func TestLoadIssuesPathCaseInsensitive(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
 		t.Fatalf("mkdir repo: %v", err)
 	}
-	repoVault := filepath.Join(repo, "VAULT")
-	if err := os.MkdirAll(repoVault, 0755); err != nil {
-		t.Fatalf("mkdir VAULT: %v", err)
+	repoIssues := filepath.Join(repo, "ISSUES")
+	if err := os.MkdirAll(repoIssues, 0755); err != nil {
+		t.Fatalf("mkdir ISSUES: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("Vault: "+repoVault+"\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("issues:\n  path: "+repoIssues+"\n"), 0644); err != nil {
 		t.Fatalf("write repo config: %v", err)
 	}
 
@@ -164,26 +165,18 @@ func TestLoadVaultCaseInsensitive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load error: %v", err)
 	}
-	if cfg.Vault != repoVault {
-		t.Fatalf("Vault = %q, want %q", cfg.Vault, repoVault)
+	if cfg.Issues.Path != repoIssues {
+		t.Fatalf("Issues.Path = %q, want %q", cfg.Issues.Path, repoIssues)
 	}
 }
 
-func TestLoadDefaultVault(t *testing.T) {
+func TestLoadDefaultIssuesPath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 
-	globalDir := filepath.Join(home, ".config", "orch")
-	if err := os.MkdirAll(globalDir, 0755); err != nil {
-		t.Fatalf("mkdir global: %v", err)
-	}
-	defaultVault := filepath.Join(home, "vault")
-	if err := os.WriteFile(filepath.Join(globalDir, "config.yaml"), []byte("default_vault: "+defaultVault+"\n"), 0644); err != nil {
-		t.Fatalf("write global config: %v", err)
-	}
-
+	// No config at all - should use default path
 	repo := t.TempDir()
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -200,24 +193,23 @@ func TestLoadDefaultVault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load error: %v", err)
 	}
-	if cfg.Vault != defaultVault {
-		t.Fatalf("Vault = %q, want %q", cfg.Vault, defaultVault)
+	// When no issues.path is configured, GetIssuesPath() returns XDG default
+	issuesPath := cfg.GetIssuesPath()
+	if issuesPath == "" {
+		t.Fatalf("GetIssuesPath() should return a default path, got empty")
+	}
+	// Should be in ~/.local/share/orch/
+	expectedPrefix := filepath.Join(home, ".local", "share", "orch")
+	if len(issuesPath) < len(expectedPrefix) || issuesPath[:len(expectedPrefix)] != expectedPrefix {
+		t.Fatalf("GetIssuesPath() = %q, want prefix %q", issuesPath, expectedPrefix)
 	}
 }
 
-func TestRepoConfigWithoutVaultUsesGlobal(t *testing.T) {
+func TestRepoConfigWithoutIssuesPathUsesDefault(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
-
-	globalDir := filepath.Join(home, ".config", "orch")
-	if err := os.MkdirAll(globalDir, 0755); err != nil {
-		t.Fatalf("mkdir global: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(globalDir, "config.yaml"), []byte("default_vault: /global\n"), 0644); err != nil {
-		t.Fatalf("write global config: %v", err)
-	}
 
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
@@ -242,8 +234,9 @@ func TestRepoConfigWithoutVaultUsesGlobal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load error: %v", err)
 	}
-	if cfg.Vault != "/global" {
-		t.Fatalf("Vault = %q, want /global", cfg.Vault)
+	// Issues.Path should be empty in config (default will be computed by GetIssuesPath)
+	if cfg.Issues.Path != "" {
+		t.Fatalf("Issues.Path = %q, want empty (uses default)", cfg.Issues.Path)
 	}
 	if cfg.Agent != "codex" {
 		t.Fatalf("Agent = %q, want codex", cfg.Agent)
@@ -255,7 +248,7 @@ func TestRepoConfigDir(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
 		t.Fatalf("mkdir repo: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("vault: /repo\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("agent: opencode\n"), 0644); err != nil {
 		t.Fatalf("write repo config: %v", err)
 	}
 
@@ -287,7 +280,7 @@ func TestRepoConfigDir(t *testing.T) {
 func TestExpandPath(t *testing.T) {
 	t.Setenv("HOME", "/home/test")
 
-	if got := ExpandPath("~/vault", ""); got != filepath.Join("/home/test", "vault") {
+	if got := ExpandPath("~/issues", ""); got != filepath.Join("/home/test", "issues") {
 		t.Fatalf("ExpandPath home = %q", got)
 	}
 	if got := ExpandPath("relative/path", "/base"); got != filepath.Join("/base", "relative/path") {
@@ -295,9 +288,9 @@ func TestExpandPath(t *testing.T) {
 	}
 }
 
-func TestRelativeVaultPathResolution(t *testing.T) {
+func TestRelativeIssuesPathResolution(t *testing.T) {
 	// Clear environment variables that could interfere
-	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 	t.Setenv("ORCH_WORKTREE_DIR", "")
 	t.Setenv("ORCH_PROMPT_TEMPLATE", "")
@@ -306,17 +299,17 @@ func TestRelativeVaultPathResolution(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	// Create a repo with relative vault path
+	// Create a repo with relative issues path
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
 		t.Fatalf("mkdir .orch: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(repo, "VAULT"), 0755); err != nil {
-		t.Fatalf("mkdir VAULT: %v", err)
+	if err := os.MkdirAll(filepath.Join(repo, "ISSUES"), 0755); err != nil {
+		t.Fatalf("mkdir ISSUES: %v", err)
 	}
 
-	// Test with ./VAULT relative path
-	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("vault: ./VAULT\n"), 0644); err != nil {
+	// Test with ./ISSUES relative path
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("issues:\n  path: ./ISSUES\n"), 0644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -336,25 +329,25 @@ func TestRelativeVaultPathResolution(t *testing.T) {
 		t.Fatalf("Load error: %v", err)
 	}
 
-	// Vault should be resolved to absolute path
-	expectedVault, err := filepath.EvalSymlinks(filepath.Join(repo, "VAULT"))
+	// Issues.Path should be resolved to absolute path
+	expectedIssues, err := filepath.EvalSymlinks(filepath.Join(repo, "ISSUES"))
 	if err != nil {
 		t.Fatalf("EvalSymlinks: %v", err)
 	}
-	gotVault, err := filepath.EvalSymlinks(cfg.Vault)
+	gotIssues, err := filepath.EvalSymlinks(cfg.Issues.Path)
 	if err != nil {
-		t.Fatalf("EvalSymlinks vault: %v", err)
+		t.Fatalf("EvalSymlinks issues: %v", err)
 	}
 
-	if gotVault != expectedVault {
-		t.Fatalf("vault path not resolved correctly: got %q, want %q", gotVault, expectedVault)
+	if gotIssues != expectedIssues {
+		t.Fatalf("issues path not resolved correctly: got %q, want %q", gotIssues, expectedIssues)
 	}
 }
 
 func TestOpenCodeConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 	t.Setenv("ORCH_OPENCODE_DEFAULT_MODEL", "")
 	t.Setenv("ORCH_OPENCODE_DEFAULT_VARIANT", "")
@@ -363,7 +356,8 @@ func TestOpenCodeConfig(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
 		t.Fatalf("mkdir repo: %v", err)
 	}
-	configContent := `vault: /repo
+	configContent := `issues:
+  path: /repo
 opencode:
   default_model: anthropic/claude-sonnet-4-5
   default_variant: max
@@ -398,7 +392,7 @@ opencode:
 func TestOpenCodeConfigEnv(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_OPENCODE_DEFAULT_MODEL", "openai/gpt-5")
 	t.Setenv("ORCH_OPENCODE_DEFAULT_VARIANT", "high")
 
@@ -427,7 +421,7 @@ func TestOpenCodeConfigEnv(t *testing.T) {
 }
 
 func TestRelativePathFromSubdirectory(t *testing.T) {
-	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 	t.Setenv("ORCH_WORKTREE_DIR", "")
 
@@ -439,14 +433,14 @@ func TestRelativePathFromSubdirectory(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
 		t.Fatalf("mkdir .orch: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(repo, "VAULT"), 0755); err != nil {
-		t.Fatalf("mkdir VAULT: %v", err)
+	if err := os.MkdirAll(filepath.Join(repo, "ISSUES"), 0755); err != nil {
+		t.Fatalf("mkdir ISSUES: %v", err)
 	}
 	if err := os.MkdirAll(filepath.Join(repo, "src", "subdir"), 0755); err != nil {
 		t.Fatalf("mkdir subdir: %v", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("vault: ./VAULT\nworktree_dir: .git-worktrees\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("issues:\n  path: ./ISSUES\nworktree_dir: .git-worktrees\n"), 0644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -468,17 +462,17 @@ func TestRelativePathFromSubdirectory(t *testing.T) {
 		t.Fatalf("Load error: %v", err)
 	}
 
-	expectedVault, err := filepath.EvalSymlinks(filepath.Join(repo, "VAULT"))
+	expectedIssues, err := filepath.EvalSymlinks(filepath.Join(repo, "ISSUES"))
 	if err != nil {
 		t.Fatalf("EvalSymlinks: %v", err)
 	}
-	gotVault, err := filepath.EvalSymlinks(cfg.Vault)
+	gotIssues, err := filepath.EvalSymlinks(cfg.Issues.Path)
 	if err != nil {
-		t.Fatalf("EvalSymlinks vault: %v", err)
+		t.Fatalf("EvalSymlinks issues: %v", err)
 	}
 
-	if gotVault != expectedVault {
-		t.Fatalf("vault not resolved relative to repo root: got %q, want %q", gotVault, expectedVault)
+	if gotIssues != expectedIssues {
+		t.Fatalf("issues not resolved relative to repo root: got %q, want %q", gotIssues, expectedIssues)
 	}
 
 	// WorktreeDir directory doesn't exist, so we can't use EvalSymlinks
@@ -491,6 +485,55 @@ func TestRelativePathFromSubdirectory(t *testing.T) {
 	if filepath.Base(cfg.WorktreeDir) != expectedSuffix {
 		t.Fatalf("worktree_dir should end with %q: got %q", expectedSuffix, cfg.WorktreeDir)
 	}
+}
+
+func TestVaultConfigErrorsWithHelpfulMessage(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_ISSUES_ROOT", "")
+	t.Setenv("ORCH_AGENT", "")
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	// Use deprecated vault config
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("vault: /old-path\nagent: codex\n"), 0644); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	_, err = Load()
+	if err == nil {
+		t.Fatal("expected error when using deprecated vault config")
+	}
+	// Check error message contains helpful migration info
+	if !contains(err.Error(), "deprecated") || !contains(err.Error(), "issues.path") {
+		t.Fatalf("error should mention deprecation and migration: %v", err)
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsAt(s, substr, 0))
+}
+
+func containsAt(s, substr string, start int) bool {
+	for i := start; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 // Preset tests
@@ -769,7 +812,7 @@ func TestValidatePresets(t *testing.T) {
 func TestLoadPresetsFromConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 
 	repo := t.TempDir()
@@ -777,7 +820,8 @@ func TestLoadPresetsFromConfig(t *testing.T) {
 		t.Fatalf("mkdir repo: %v", err)
 	}
 
-	configContent := `vault: /repo
+	configContent := `issues:
+  path: /repo
 presets:
   - name: opus:high
     backend: opencode
@@ -847,7 +891,7 @@ opencode_presets:
 func TestDefaultPresetConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 	t.Setenv("ORCH_DEFAULT_PRESET", "")
 
@@ -856,7 +900,8 @@ func TestDefaultPresetConfig(t *testing.T) {
 		t.Fatalf("mkdir repo: %v", err)
 	}
 
-	configContent := `vault: /repo
+	configContent := `issues:
+  path: /repo
 presets:
   - name: opus:high
     backend: opencode
@@ -892,7 +937,7 @@ default_preset: opus:high
 func TestDefaultPresetEnv(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_DEFAULT_PRESET", "sonnet:max")
 
 	repo := t.TempDir()
@@ -998,7 +1043,7 @@ func TestGetPromptTemplate(t *testing.T) {
 func TestLoadPerBackendPromptTemplates(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_VAULT", "")
+	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 	t.Setenv("ORCH_PROMPT_TEMPLATE", "")
 
@@ -1007,7 +1052,8 @@ func TestLoadPerBackendPromptTemplates(t *testing.T) {
 		t.Fatalf("mkdir repo: %v", err)
 	}
 
-	configContent := `vault: /repo
+	configContent := `issues:
+  path: /repo
 prompt_template: "global {{issue}}"
 opencode:
   default_model: anthropic/claude-opus-4-5
@@ -1063,5 +1109,51 @@ gemini:
 	}
 	if got := cfg.GetPromptTemplate("custom"); got != "global {{issue}}" {
 		t.Errorf("GetPromptTemplate(custom) = %q, want global {{issue}}", got)
+	}
+}
+
+func TestGetIssuesPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	tests := []struct {
+		name     string
+		cfg      *Config
+		wantPath string
+	}{
+		{
+			name: "explicit path returns as-is",
+			cfg: &Config{
+				Issues: IssuesConfig{Path: "/explicit/path"},
+			},
+			wantPath: "/explicit/path",
+		},
+		{
+			name: "tilde expansion",
+			cfg: &Config{
+				Issues: IssuesConfig{Path: "~/issues"},
+			},
+			wantPath: filepath.Join(home, "issues"),
+		},
+		{
+			name:     "empty path returns default",
+			cfg:      &Config{},
+			wantPath: "", // Will check for prefix
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.cfg.GetIssuesPath()
+			if tt.wantPath == "" {
+				// For default case, verify it uses XDG path
+				expectedPrefix := filepath.Join(home, ".local", "share", "orch")
+				if len(got) < len(expectedPrefix) || got[:len(expectedPrefix)] != expectedPrefix {
+					t.Errorf("GetIssuesPath() = %q, want prefix %q", got, expectedPrefix)
+				}
+			} else if got != tt.wantPath {
+				t.Errorf("GetIssuesPath() = %q, want %q", got, tt.wantPath)
+			}
+		})
 	}
 }

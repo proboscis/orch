@@ -42,7 +42,7 @@ type SendRequest struct {
 	RunID       string   `json:"run_id"`
 	Message     string   `json:"message"`
 	NoEnter     bool     `json:"no_enter,omitempty"`
-	IssuesRoot  string   `json:"vault_path,omitempty"`   // Deprecated: JSON field kept for backward compat
+	IssuesRoot  string   `json:"issues_root,omitempty"`
 	ProjectRoot string   `json:"project_root,omitempty"` // Required for repo context
 	RepoID      string   `json:"repo_id,omitempty"`      // Optional: explicit repo ID
 	Status      []string `json:"status,omitempty"`
@@ -71,20 +71,17 @@ type RepoContext struct {
 	Config        interface{} // *config.Config, but avoiding import cycle
 }
 
-type SocketServer struct {
-	// For backward compatibility, projectRoot is the "default" project
-	// but the daemon can now serve multiple repos
-	projectRoot string
-	store       store.Store // Default store for backward compat
-	listener    net.Listener
-	logger      Logger
-	stopCh      chan struct{}
+type StoreFactory func(issuesRoot string) (store.Store, error)
 
-	// Global daemon state
-	repos   map[string]*RepoContext // repoID -> context
+type SocketServer struct {
+	storeFactory StoreFactory
+	listener     net.Listener
+	logger       Logger
+	stopCh       chan struct{}
+
+	repos   map[string]*RepoContext
 	reposMu sync.RWMutex
 
-	// Legacy single-repo fields (for backward compat)
 	githubBackend *github.Backend
 
 	monitors   map[string]*MonitorConnection
@@ -95,30 +92,14 @@ type Logger interface {
 	Printf(format string, v ...interface{})
 }
 
-func NewSocketServer(projectRoot string, st store.Store, logger Logger) *SocketServer {
-	s := &SocketServer{
-		projectRoot: projectRoot,
-		store:       st,
-		logger:      logger,
-		stopCh:      make(chan struct{}),
-		monitors:    make(map[string]*MonitorConnection),
-		repos:       make(map[string]*RepoContext),
+func NewSocketServer(factory StoreFactory, logger Logger) *SocketServer {
+	return &SocketServer{
+		storeFactory: factory,
+		logger:       logger,
+		stopCh:       make(chan struct{}),
+		monitors:     make(map[string]*MonitorConnection),
+		repos:        make(map[string]*RepoContext),
 	}
-
-	// Register the initial project root as a repo context
-	if projectRoot != "" {
-		repoID, _ := xdg.RepoID(projectRoot)
-		if repoID == "" {
-			repoID = filepath.Base(projectRoot)
-		}
-		s.repos[repoID] = &RepoContext{
-			ProjectRoot: projectRoot,
-			RepoID:      repoID,
-			Store:       st,
-		}
-	}
-
-	return s
 }
 
 // RegisterRepo adds a new repo context to the daemon.
@@ -160,33 +141,80 @@ func (s *SocketServer) GetRepoContext(repoIDOrPath string) *RepoContext {
 	return nil
 }
 
-// resolveStore returns the appropriate store for a request.
-// Falls back to default store if no specific repo context is found.
+func (s *SocketServer) GetAllRepoContexts() []*RepoContext {
+	s.reposMu.RLock()
+	defer s.reposMu.RUnlock()
+
+	contexts := make([]*RepoContext, 0, len(s.repos))
+	for _, ctx := range s.repos {
+		contexts = append(contexts, ctx)
+	}
+	return contexts
+}
+
 func (s *SocketServer) resolveStore(req SendRequest) store.Store {
-	// Try explicit repo_id first
+	s.logger.Printf("resolveStore: type=%s repoID=%q projectRoot=%q issuesRoot=%q",
+		req.Type, req.RepoID, req.ProjectRoot, req.IssuesRoot)
+
 	if req.RepoID != "" {
 		if ctx := s.GetRepoContext(req.RepoID); ctx != nil {
+			s.logger.Printf("resolveStore: found by repoID=%q", req.RepoID)
 			return ctx.Store
 		}
 	}
 
-	// Try project_root
 	if req.ProjectRoot != "" {
-		// First, try to derive repoID from project root
 		repoID, _ := xdg.RepoID(req.ProjectRoot)
 		if repoID != "" {
 			if ctx := s.GetRepoContext(repoID); ctx != nil {
+				s.logger.Printf("resolveStore: found by projectRoot repoID=%q", repoID)
 				return ctx.Store
 			}
 		}
-		// Also try direct path lookup
 		if ctx := s.GetRepoContext(req.ProjectRoot); ctx != nil {
+			s.logger.Printf("resolveStore: found by projectRoot path=%q", req.ProjectRoot)
 			return ctx.Store
 		}
 	}
 
-	// Fall back to default store
-	return s.store
+	if req.IssuesRoot != "" {
+		s.logger.Printf("resolveStore: creating store for issuesRoot=%q", req.IssuesRoot)
+		return s.getOrCreateStore(req.IssuesRoot, req.ProjectRoot)
+	}
+
+	s.logger.Printf("resolveStore: no store found (all fields empty or no match)")
+	return nil
+}
+
+func (s *SocketServer) getOrCreateStore(issuesRoot, projectRoot string) store.Store {
+	s.reposMu.Lock()
+	defer s.reposMu.Unlock()
+
+	cacheKey := issuesRoot
+	if ctx, ok := s.repos[cacheKey]; ok {
+		return ctx.Store
+	}
+
+	st, err := s.storeFactory(issuesRoot)
+	if err != nil {
+		s.logger.Printf("failed to create store for %s: %v", issuesRoot, err)
+		return nil
+	}
+
+	repoID := cacheKey
+	if projectRoot != "" {
+		if id, err := xdg.RepoID(projectRoot); err == nil && id != "" {
+			repoID = id
+		}
+	}
+
+	s.repos[cacheKey] = &RepoContext{
+		ProjectRoot: projectRoot,
+		RepoID:      repoID,
+		Store:       st,
+	}
+
+	return st
 }
 
 func (s *SocketServer) SetGitHubBackend(backend *github.Backend) {
@@ -1038,10 +1066,6 @@ func (s *SocketServer) handleGetRunByShortID(req SendRequest, encoder *json.Enco
 }
 
 func (s *SocketServer) handleRegisterMonitor(req SendRequest, encoder *json.Encoder) {
-	if req.ProjectRoot == "" {
-		req.ProjectRoot = s.projectRoot
-	}
-
 	monitorID := fmt.Sprintf("mon-%d-%d", req.Limit, time.Now().UnixNano()%100000)
 	if req.ShortID != "" {
 		monitorID = req.ShortID
@@ -1164,7 +1188,7 @@ func (s *SocketServer) handleKillMonitor(req SendRequest, encoder *json.Encoder)
 	var toKillIDs []string
 	if killAll {
 		for id, conn := range s.monitors {
-			if global || conn.Project == s.projectRoot || conn.Project == req.ProjectRoot {
+			if global || conn.Project == req.ProjectRoot {
 				toKill = append(toKill, *conn)
 				toKillIDs = append(toKillIDs, id)
 			}

@@ -312,9 +312,9 @@ func monitorGlobalFlags(projectRoot, issuesRoot string) []string {
 		flags = append(flags, "--project-root", globalOpts.ProjectRoot)
 	}
 	if issuesRoot != "" {
-		flags = append(flags, "--vault", issuesRoot)
+		flags = append(flags, "--issues-root", issuesRoot)
 	} else if globalOpts.IssuesRoot != "" {
-		flags = append(flags, "--vault", globalOpts.IssuesRoot)
+		flags = append(flags, "--issues-root", globalOpts.IssuesRoot)
 	}
 	if globalOpts.Backend != "" {
 		flags = append(flags, "--backend", globalOpts.Backend)

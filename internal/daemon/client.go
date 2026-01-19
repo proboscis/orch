@@ -11,12 +11,21 @@ import (
 
 type Client struct {
 	projectRoot string
+	issuesRoot  string
 	timeout     time.Duration
 }
 
 func NewClient(projectRoot string) *Client {
 	return &Client{
 		projectRoot: projectRoot,
+		timeout:     10 * time.Second,
+	}
+}
+
+func NewClientWithIssuesRoot(projectRoot, issuesRoot string) *Client {
+	return &Client{
+		projectRoot: projectRoot,
+		issuesRoot:  issuesRoot,
 		timeout:     10 * time.Second,
 	}
 }
@@ -55,10 +64,12 @@ func (c *Client) sendRequest(req interface{}) (json.RawMessage, error) {
 	return raw, nil
 }
 
-// sendRequestWithProjectRoot wraps the request to include project_root context.
 func (c *Client) sendRequestWithProjectRoot(req SendRequest) (json.RawMessage, error) {
 	if req.ProjectRoot == "" {
 		req.ProjectRoot = c.projectRoot
+	}
+	if req.IssuesRoot == "" && c.issuesRoot != "" {
+		req.IssuesRoot = c.issuesRoot
 	}
 	return c.sendRequest(req)
 }
@@ -66,15 +77,14 @@ func (c *Client) sendRequestWithProjectRoot(req SendRequest) (json.RawMessage, e
 // ListRuns lists runs from the daemon
 func (c *Client) ListRuns(issueID string, status []string, limit int, cursor string) (*ListRunsResponse, error) {
 	req := SendRequest{
-		Type:        "list_runs",
-		IssueID:     issueID,
-		Status:      status,
-		Limit:       limit,
-		Cursor:      cursor,
-		ProjectRoot: c.projectRoot,
+		Type:    "list_runs",
+		IssueID: issueID,
+		Status:  status,
+		Limit:   limit,
+		Cursor:  cursor,
 	}
 
-	raw, err := c.sendRequest(req)
+	raw, err := c.sendRequestWithProjectRoot(req)
 	if err != nil {
 		return nil, err
 	}
@@ -121,14 +131,13 @@ func (c *Client) ListRunsAll(status []string, limit int, cursor string) (*ListRu
 // ListIssues lists issues from the daemon
 func (c *Client) ListIssues(status []string, limit int, cursor string) (*ListIssuesResponse, error) {
 	req := SendRequest{
-		Type:        "list_issues",
-		Status:      status,
-		Limit:       limit,
-		Cursor:      cursor,
-		ProjectRoot: c.projectRoot,
+		Type:   "list_issues",
+		Status: status,
+		Limit:  limit,
+		Cursor: cursor,
 	}
 
-	raw, err := c.sendRequest(req)
+	raw, err := c.sendRequestWithProjectRoot(req)
 	if err != nil {
 		return nil, err
 	}
@@ -148,13 +157,12 @@ func (c *Client) ListIssues(status []string, limit int, cursor string) (*ListIss
 // GetRun gets a run from the daemon
 func (c *Client) GetRun(issueID, runID string) (*GetRunResponse, error) {
 	req := SendRequest{
-		Type:        "get_run",
-		IssueID:     issueID,
-		RunID:       runID,
-		ProjectRoot: c.projectRoot,
+		Type:    "get_run",
+		IssueID: issueID,
+		RunID:   runID,
 	}
 
-	raw, err := c.sendRequest(req)
+	raw, err := c.sendRequestWithProjectRoot(req)
 	if err != nil {
 		return nil, err
 	}
@@ -174,12 +182,11 @@ func (c *Client) GetRun(issueID, runID string) (*GetRunResponse, error) {
 // GetIssue gets an issue from the daemon
 func (c *Client) GetIssue(issueID string) (*GetIssueResponse, error) {
 	req := SendRequest{
-		Type:        "get_issue",
-		IssueID:     issueID,
-		ProjectRoot: c.projectRoot,
+		Type:    "get_issue",
+		IssueID: issueID,
 	}
 
-	raw, err := c.sendRequest(req)
+	raw, err := c.sendRequestWithProjectRoot(req)
 	if err != nil {
 		return nil, err
 	}
@@ -203,6 +210,7 @@ type StopRunRequest struct {
 	RunID       string `json:"run_id,omitempty"`
 	Force       bool   `json:"force,omitempty"`
 	ProjectRoot string `json:"project_root,omitempty"`
+	IssuesRoot  string `json:"issues_root,omitempty"`
 }
 
 // StopRunResponse is the response for stop_run
@@ -221,6 +229,7 @@ func (c *Client) StopRun(issueID, runID string, force bool) (*StopRunResponse, e
 		RunID:       runID,
 		Force:       force,
 		ProjectRoot: c.projectRoot,
+		IssuesRoot:  c.issuesRoot,
 	}
 
 	raw, err := c.sendRequest(req)
@@ -246,6 +255,7 @@ type ResolveIssueRequest struct {
 	IssueID     string `json:"issue_id"`
 	Force       bool   `json:"force,omitempty"`
 	ProjectRoot string `json:"project_root,omitempty"`
+	IssuesRoot  string `json:"issues_root,omitempty"`
 }
 
 // ResolveIssueResponse is the response for resolve_issue
@@ -262,6 +272,7 @@ func (c *Client) ResolveIssue(issueID string, force bool) (*ResolveIssueResponse
 		IssueID:     issueID,
 		Force:       force,
 		ProjectRoot: c.projectRoot,
+		IssuesRoot:  c.issuesRoot,
 	}
 
 	raw, err := c.sendRequest(req)
@@ -289,6 +300,7 @@ type CreateIssueRequest struct {
 	Summary     string `json:"summary,omitempty"`
 	Body        string `json:"body,omitempty"`
 	ProjectRoot string `json:"project_root,omitempty"`
+	IssuesRoot  string `json:"issues_root,omitempty"`
 }
 
 // CreateIssueResponse is the response for create_issue
@@ -308,6 +320,7 @@ func (c *Client) CreateIssue(issueID, title, summary, body string) (*CreateIssue
 		Summary:     summary,
 		Body:        body,
 		ProjectRoot: c.projectRoot,
+		IssuesRoot:  c.issuesRoot,
 	}
 
 	raw, err := c.sendRequest(req)
@@ -333,6 +346,7 @@ type CloseIssueRequest struct {
 	IssueID     string `json:"issue_id"`
 	Comment     string `json:"comment,omitempty"`
 	ProjectRoot string `json:"project_root,omitempty"`
+	IssuesRoot  string `json:"issues_root,omitempty"`
 }
 
 // CloseIssueResponse is the response for close_issue
@@ -349,6 +363,7 @@ func (c *Client) CloseIssue(issueID, comment string) (*CloseIssueResponse, error
 		IssueID:     issueID,
 		Comment:     comment,
 		ProjectRoot: c.projectRoot,
+		IssuesRoot:  c.issuesRoot,
 	}
 
 	raw, err := c.sendRequest(req)
@@ -375,6 +390,7 @@ type GetAttachInfoRequest struct {
 	RunID       string `json:"run_id,omitempty"`
 	ShortID     string `json:"short_id,omitempty"`
 	ProjectRoot string `json:"project_root,omitempty"`
+	IssuesRoot  string `json:"issues_root,omitempty"`
 }
 
 // GetAttachInfoResponse is the response for get_attach_info
@@ -399,6 +415,7 @@ func (c *Client) GetAttachInfo(issueID, runID, shortID string) (*GetAttachInfoRe
 		RunID:       runID,
 		ShortID:     shortID,
 		ProjectRoot: c.projectRoot,
+		IssuesRoot:  c.issuesRoot,
 	}
 
 	raw, err := c.sendRequest(req)
@@ -423,6 +440,7 @@ type GetRunByShortIDRequest struct {
 	Type        string `json:"type"`
 	ShortID     string `json:"short_id"`
 	ProjectRoot string `json:"project_root,omitempty"`
+	IssuesRoot  string `json:"issues_root,omitempty"`
 }
 
 // GetRunByShortID gets a run by short ID via the daemon
@@ -431,6 +449,7 @@ func (c *Client) GetRunByShortID(shortID string) (*GetRunResponse, error) {
 		Type:        "get_run_by_short_id",
 		ShortID:     shortID,
 		ProjectRoot: c.projectRoot,
+		IssuesRoot:  c.issuesRoot,
 	}
 
 	raw, err := c.sendRequest(req)

@@ -64,15 +64,18 @@ class ListIssuesResponse:
 
 
 class DaemonClient:
-    """Client for communicating with the orch daemon.
-
-    Connects to the daemon's Unix socket and provides query/mutation APIs.
-    The daemon is the single source of truth for all run and issue data.
-    """
-
-    def __init__(self, socket_path: Path, timeout: float = 30.0):
+    def __init__(
+        self,
+        socket_path: Path,
+        issues_root: Optional[Path] = None,
+        timeout: float = 30.0,
+    ):
         self.socket_path = socket_path
+        self.issues_root = issues_root
         self._timeout = timeout
+
+    def _issues_root_str(self) -> str:
+        return str(self.issues_root) if self.issues_root else ""
 
     def is_available(self) -> bool:
         """Check if the daemon socket is available and is actually a socket."""
@@ -155,6 +158,7 @@ class DaemonClient:
                 "status": [s.value for s in filters.status],
                 "limit": MAX_PAGE_SIZE,
                 "cursor": cursor or "",
+                "issues_root": self._issues_root_str(),
             }
 
             response = self._send_request(request)
@@ -195,6 +199,7 @@ class DaemonClient:
                 "status": [s.value for s in filters.status],
                 "limit": MAX_PAGE_SIZE,
                 "cursor": cursor or "",
+                "issues_root": self._issues_root_str(),
             }
 
             response = self._send_request(request)
@@ -238,6 +243,7 @@ class DaemonClient:
             "type": "get_run",
             "issue_id": issue_id,
             "run_id": run_id,
+            "issues_root": self._issues_root_str(),
         }
 
         response = self._send_request(request)
@@ -269,6 +275,7 @@ class DaemonClient:
         request = {
             "type": "get_issue",
             "issue_id": issue_id,
+            "issues_root": self._issues_root_str(),
         }
 
         response = self._send_request(request)
@@ -310,6 +317,7 @@ class DaemonClient:
             "issue_id": issue_id,
             "run_id": run_id,
             "message": message,
+            "issues_root": self._issues_root_str(),
         }
 
         response = self._send_request(request)

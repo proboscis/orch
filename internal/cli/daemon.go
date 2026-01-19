@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/s22625/orch/internal/daemon"
+	"github.com/s22625/orch/internal/store"
+	"github.com/s22625/orch/internal/store/file"
 	"github.com/spf13/cobra"
 )
 
@@ -252,24 +254,18 @@ func newDaemonRestartCmd() *cobra.Command {
 }
 
 func runDaemon() error {
-	st, err := getStore()
-	if err != nil {
-		return err
-	}
-
-	projectRoot, err := getProjectRoot()
-	if err != nil {
-		return fmt.Errorf("project root required for daemon: %w", err)
-	}
-
-	if daemon.IsRunning(projectRoot) {
-		pid := daemon.GetRunningPID(projectRoot)
+	if daemon.IsRunning("") {
+		pid := daemon.GetRunningPID("")
 		fmt.Fprintf(os.Stderr, "daemon already running (pid=%d)\n", pid)
 		os.Exit(1)
 		return nil
 	}
 
-	d := daemon.New(projectRoot, st)
+	storeFactory := func(issuesRoot string) (store.Store, error) {
+		return file.New(issuesRoot)
+	}
+
+	d := daemon.New(storeFactory)
 	if daemonDebugMode {
 		d.SetDebugMode(true)
 	}
@@ -277,16 +273,11 @@ func runDaemon() error {
 }
 
 func ensureDaemon() {
-	projectRoot, err := getProjectRoot()
-	if err != nil {
+	if daemon.IsRunning("") {
 		return
 	}
 
-	if daemon.IsRunning(projectRoot) {
-		return
-	}
-
-	_, err = daemon.StartInBackground(projectRoot)
+	_, err := daemon.StartInBackground()
 	if err != nil {
 		if globalOpts.LogLevel == "debug" {
 			fmt.Fprintf(os.Stderr, "warning: failed to start daemon: %v\n", err)
@@ -309,7 +300,7 @@ func requireDaemon() (*daemon.Client, error) {
 		return client, nil
 	}
 
-	_, err = daemon.StartInBackground(projectRoot)
+	_, err = daemon.StartInBackground()
 	if err != nil {
 		return nil, fmt.Errorf("daemon not running and failed to start: %w\nRun 'orch repair' to fix daemon issues", err)
 	}

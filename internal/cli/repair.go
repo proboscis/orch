@@ -168,14 +168,14 @@ func repairDaemon(projectRoot string, opts *repairOptions) (bool, error) {
 
 	daemon.RemovePID(projectRoot)
 
-	pid, err := daemon.StartInBackground(projectRoot)
+	pid, err := daemon.StartInBackground()
 	if err != nil {
 		return true, fmt.Errorf("failed to start daemon: %w", err)
 	}
 
 	time.Sleep(200 * time.Millisecond)
 
-	if daemon.IsRunning(projectRoot) {
+	if daemon.IsRunning("") {
 		fmt.Printf("  started daemon (pid=%d)\n", pid)
 		return true, nil
 	}
