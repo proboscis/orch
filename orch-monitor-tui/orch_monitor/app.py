@@ -1235,6 +1235,11 @@ class RunsDashboard(App):
         Binding("X", "kill_session", "Kill"),
         Binding("f", "filter", "Filter"),
         Binding("ctrl+f", "clear_filters", "Clear Filters"),
+        # Tab panel navigation
+        Binding("tab", "next_detail_tab", "Next Tab", show=False),
+        Binding("1", "detail_tab_stats", "Stats", show=False),
+        Binding("2", "detail_tab_issue", "Issue", show=False),
+        Binding("3", "detail_tab_changes", "Changes", show=False),
     ]
 
     def __init__(self, issues_root: Optional[Path] = None, auto_refresh: bool = True):
@@ -1320,6 +1325,46 @@ class RunsDashboard(App):
         self._update_title()
         self.refresh_data()
         self.notify("Filters cleared")
+
+    def action_next_detail_tab(self) -> None:
+        """Cycle to the next detail tab."""
+        if _input_has_focus(self):
+            return
+        try:
+            panel = self.query_one("#run-detail-tabs", TabbedStatsPanel)
+            panel.action_next_tab()
+        except Exception:
+            pass
+
+    def action_detail_tab_stats(self) -> None:
+        """Switch to Stats tab."""
+        if _input_has_focus(self):
+            return
+        try:
+            panel = self.query_one("#run-detail-tabs", TabbedStatsPanel)
+            panel.action_switch_tab("stats")
+        except Exception:
+            pass
+
+    def action_detail_tab_issue(self) -> None:
+        """Switch to Issue tab."""
+        if _input_has_focus(self):
+            return
+        try:
+            panel = self.query_one("#run-detail-tabs", TabbedStatsPanel)
+            panel.action_switch_tab("issue")
+        except Exception:
+            pass
+
+    def action_detail_tab_changes(self) -> None:
+        """Switch to Changes tab."""
+        if _input_has_focus(self):
+            return
+        try:
+            panel = self.query_one("#run-detail-tabs", TabbedStatsPanel)
+            panel.action_switch_tab("changes")
+        except Exception:
+            pass
 
     def on_filter_result(self, result: RunFilterResult | None) -> None:
         if result is not None:
