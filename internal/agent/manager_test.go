@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"testing"
-	"time"
 
 	"github.com/s22625/orch/internal/model"
 )
@@ -795,11 +794,10 @@ func TestOpenCodeManagerIsAliveSessionExists(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/global/health":
-			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
-		case "/session/status":
-			json.NewEncoder(w).Encode(map[string]SessionStatus{
-				"ses_test123": SessionStatusIdle,
+		case "/session":
+			// Return list of sessions including our target session
+			json.NewEncoder(w).Encode([]Session{
+				{ID: "ses_test123"},
 			})
 		}
 	}))
@@ -816,19 +814,17 @@ func TestOpenCodeManagerIsAliveSessionExists(t *testing.T) {
 }
 
 func TestOpenCodeManagerIsAliveBusyChildren(t *testing.T) {
+	// Note: With orch-315, IsAlive only checks session existence.
+	// Busy children are no longer considered for IsAlive (only for GetStatus).
+	// Parent session must exist in session list to be considered alive.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/global/health":
-			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
 		case "/session":
-			json.NewEncoder(w).Encode([]Session{})
-		case "/session/status":
-			json.NewEncoder(w).Encode(map[string]SessionStatus{
-				"ses_child": SessionStatusBusy,
+			// Parent session not in list, only child
+			json.NewEncoder(w).Encode([]Session{
+				{ID: "ses_child"},
 			})
-		case "/session/ses_child":
-			json.NewEncoder(w).Encode(Session{ID: "ses_child", ParentID: "ses_parent"})
 		}
 	}))
 	defer server.Close()
@@ -838,26 +834,22 @@ func TestOpenCodeManagerIsAliveBusyChildren(t *testing.T) {
 	run := &model.Run{Agent: "opencode"}
 
 	got := manager.IsAlive(run)
-	if got != true {
-		t.Errorf("IsAlive() with busy children = %v, want true", got)
+	// Now expects false: parent session must exist to be alive
+	if got != false {
+		t.Errorf("IsAlive() with only busy children (no parent session) = %v, want false", got)
 	}
 }
 
 func TestOpenCodeManagerIsAliveRecentActivity(t *testing.T) {
+	// Note: With orch-315, IsAlive only checks session existence.
+	// Recent activity alone is no longer sufficient - session must exist in list.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/global/health":
-			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
 		case "/session":
-			json.NewEncoder(w).Encode([]Session{})
-		case "/session/status":
-			json.NewEncoder(w).Encode(map[string]SessionStatus{})
-		case "/session/ses_active":
-			now := time.Now().UnixMilli()
-			json.NewEncoder(w).Encode(Session{
-				ID:   "ses_active",
-				Time: SessionTimeMillis{Updated: now},
+			// Session exists in list
+			json.NewEncoder(w).Encode([]Session{
+				{ID: "ses_active"},
 			})
 		}
 	}))
@@ -868,27 +860,20 @@ func TestOpenCodeManagerIsAliveRecentActivity(t *testing.T) {
 	run := &model.Run{Agent: "opencode"}
 
 	got := manager.IsAlive(run)
+	// Now expects true because session exists in list
 	if got != true {
-		t.Errorf("IsAlive() with recent activity = %v, want true", got)
+		t.Errorf("IsAlive() with session in list = %v, want true", got)
 	}
 }
 
 func TestOpenCodeManagerIsAliveNoActivity(t *testing.T) {
+	// Session not in list = not alive
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/global/health":
-			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
 		case "/session":
+			// Empty session list - our session doesn't exist
 			json.NewEncoder(w).Encode([]Session{})
-		case "/session/status":
-			json.NewEncoder(w).Encode(map[string]SessionStatus{})
-		case "/session/ses_stale":
-			staleTime := time.Now().Add(-time.Hour).UnixMilli()
-			json.NewEncoder(w).Encode(Session{
-				ID:   "ses_stale",
-				Time: SessionTimeMillis{Updated: staleTime},
-			})
 		}
 	}))
 	defer server.Close()
@@ -899,7 +884,7 @@ func TestOpenCodeManagerIsAliveNoActivity(t *testing.T) {
 
 	got := manager.IsAlive(run)
 	if got != false {
-		t.Errorf("IsAlive() with no activity = %v, want false", got)
+		t.Errorf("IsAlive() with session not in list = %v, want false", got)
 	}
 }
 
@@ -909,21 +894,14 @@ func TestOpenCodeManagerIsAliveNoActivity(t *testing.T) {
 
 func TestOpenCodeManagerSessionExistsIgnoresDirectory(t *testing.T) {
 	// Scenario: Session was created with directory "/repo" but daemon queries with "/repo/worktree"
-	// The session should still be found because we query without directory filter
+	// The session should still be found because we query all sessions
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/global/health":
-			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
-		case "/session/status":
-			// Verify no X-OpenCode-Directory header is sent (empty = all sessions)
-			dir := r.Header.Get("X-OpenCode-Directory")
-			if dir != "" {
-				t.Errorf("Expected no X-OpenCode-Directory header, got %q", dir)
-			}
-			// Return session that exists in a different directory scope
-			json.NewEncoder(w).Encode(map[string]SessionStatus{
-				"ses_target": SessionStatusIdle,
+		case "/session":
+			// Return session list including our target session
+			json.NewEncoder(w).Encode([]Session{
+				{ID: "ses_target", Directory: "/repo"},
 			})
 		}
 	}))
@@ -1004,22 +982,16 @@ func TestOpenCodeManagerGetStatusIgnoresDirectory(t *testing.T) {
 }
 
 func TestOpenCodeManagerHasActiveBusyChildrenIgnoresDirectory(t *testing.T) {
+	// Note: With orch-315, IsAlive no longer checks for busy children.
+	// This test now verifies that parent session must exist to be alive.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/global/health":
-			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
-		case "/session/status":
-			// Verify no directory filter
-			dir := r.Header.Get("X-OpenCode-Directory")
-			if dir != "" {
-				t.Errorf("Expected no X-OpenCode-Directory header for /session/status, got %q", dir)
-			}
-			json.NewEncoder(w).Encode(map[string]SessionStatus{
-				"ses_busy_child": SessionStatusBusy,
+		case "/session":
+			// Only child session exists, not parent
+			json.NewEncoder(w).Encode([]Session{
+				{ID: "ses_busy_child"},
 			})
-		case "/session/ses_busy_child":
-			json.NewEncoder(w).Encode(Session{ID: "ses_busy_child", ParentID: "ses_parent"})
 		}
 	}))
 	defer server.Close()
@@ -1033,29 +1005,22 @@ func TestOpenCodeManagerHasActiveBusyChildrenIgnoresDirectory(t *testing.T) {
 	run := &model.Run{Agent: "opencode"}
 
 	got := manager.IsAlive(run)
-	if got != true {
-		t.Errorf("IsAlive() should detect busy children regardless of directory, got %v", got)
+	// Now expects false: parent session must exist in list to be alive
+	if got != false {
+		t.Errorf("IsAlive() without parent session in list = %v, want false", got)
 	}
 }
 
 func TestOpenCodeManagerHasRecentActivityIgnoresDirectory(t *testing.T) {
+	// Note: With orch-315, IsAlive no longer checks for recent activity.
+	// This test now verifies session existence works regardless of directory.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/global/health":
-			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
-		case "/session/status":
-			json.NewEncoder(w).Encode(map[string]SessionStatus{})
-		case "/session/ses_recent":
-			// Verify no directory filter on session fetch
-			dir := r.Header.Get("X-OpenCode-Directory")
-			if dir != "" {
-				t.Errorf("Expected no X-OpenCode-Directory header for /session/:id, got %q", dir)
-			}
-			now := time.Now().UnixMilli()
-			json.NewEncoder(w).Encode(Session{
-				ID:   "ses_recent",
-				Time: SessionTimeMillis{Updated: now},
+		case "/session":
+			// Session exists in list
+			json.NewEncoder(w).Encode([]Session{
+				{ID: "ses_recent", Directory: "/different/path"},
 			})
 		}
 	}))
@@ -1071,7 +1036,7 @@ func TestOpenCodeManagerHasRecentActivityIgnoresDirectory(t *testing.T) {
 
 	got := manager.IsAlive(run)
 	if got != true {
-		t.Errorf("IsAlive() should detect recent activity regardless of directory, got %v", got)
+		t.Errorf("IsAlive() should find session regardless of directory mismatch, got %v", got)
 	}
 }
 
@@ -1086,16 +1051,18 @@ func TestOpenCodeManagerDirectoryMismatchScenario(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		
-		// Verify that directory filter is NOT applied (fix for orch-308)
-		dir := r.Header.Get("X-OpenCode-Directory")
-		if dir != "" {
-			t.Errorf("Request to %s should not have X-OpenCode-Directory header, got %q", r.URL.Path, dir)
-		}
-		
 		switch r.URL.Path {
-		case "/global/health":
-			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
+		case "/session":
+			// Return session list for IsAlive check
+			json.NewEncoder(w).Encode([]Session{
+				{ID: "ses_orch305", Directory: "/Users/dev/repos/orch"},
+			})
 		case "/session/status":
+			// Verify no directory filter on status check
+			dir := r.Header.Get("X-OpenCode-Directory")
+			if dir != "" {
+				t.Errorf("Request to /session/status should not have X-OpenCode-Directory header, got %q", dir)
+			}
 			// Agent finished work, session is now idle
 			json.NewEncoder(w).Encode(map[string]SessionStatus{
 				"ses_orch305": SessionStatusIdle,
