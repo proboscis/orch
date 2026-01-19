@@ -189,7 +189,7 @@ func TestSocketServerSendRequest(t *testing.T) {
 			"issue#run": {
 				IssueID:           "issue",
 				RunID:             "run",
-				Agent:             "claude",
+				Agent:             "claude", // Non-opencode agent
 				ServerPort:        4096,
 				OpenCodeSessionID: "session",
 			},
@@ -225,8 +225,108 @@ func TestSocketServerSendRequest(t *testing.T) {
 		t.Fatalf("failed to read response: %v", err)
 	}
 
-	if !resp.OK {
-		t.Errorf("expected OK=true, got error: %s", resp.Error)
+	// Non-opencode agents should return an error (they should use tmux directly)
+	if resp.OK {
+		t.Error("expected error for non-opencode agent")
+	}
+	if resp.Error == "" {
+		t.Error("expected error message for non-opencode agent")
+	}
+}
+
+func TestSocketServerSendRequestMissingRun(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	st := &mockStore{runs: make(map[string]*model.Run)}
+	server := newTestServer(t, st)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	conn, err := net.DialTimeout("unix", xdg.SocketPath(), 5*time.Second)
+	if err != nil {
+		t.Fatalf("failed to connect: %v", err)
+	}
+	defer conn.Close()
+
+	req := SendRequest{
+		Type:    "send",
+		IssueID: "missing",
+		RunID:   "run",
+		Message: "test message",
+	}
+
+	encoder := json.NewEncoder(conn)
+	if err := encoder.Encode(req); err != nil {
+		t.Fatalf("failed to send request: %v", err)
+	}
+
+	decoder := json.NewDecoder(conn)
+	var resp SendResponse
+	if err := decoder.Decode(&resp); err != nil {
+		t.Fatalf("failed to read response: %v", err)
+	}
+
+	if resp.OK {
+		t.Error("expected error for missing run")
+	}
+	if resp.Error == "" {
+		t.Error("expected error message for missing run")
+	}
+}
+
+func TestSocketServerSendRequestMissingConfig(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			"issue#run": {
+				IssueID:           "issue",
+				RunID:             "run",
+				Agent:             "opencode",
+				ServerPort:        0,             // Missing port
+				OpenCodeSessionID: "",            // Missing session
+			},
+		},
+	}
+	server := newTestServer(t, st)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	conn, err := net.DialTimeout("unix", xdg.SocketPath(), 5*time.Second)
+	if err != nil {
+		t.Fatalf("failed to connect: %v", err)
+	}
+	defer conn.Close()
+
+	req := SendRequest{
+		Type:    "send",
+		IssueID: "issue",
+		RunID:   "run",
+		Message: "test message",
+	}
+
+	encoder := json.NewEncoder(conn)
+	if err := encoder.Encode(req); err != nil {
+		t.Fatalf("failed to send request: %v", err)
+	}
+
+	decoder := json.NewDecoder(conn)
+	var resp SendResponse
+	if err := decoder.Decode(&resp); err != nil {
+		t.Fatalf("failed to read response: %v", err)
+	}
+
+	if resp.OK {
+		t.Error("expected error for missing server config")
+	}
+	if resp.Error == "" {
+		t.Error("expected error message explaining what config is missing")
 	}
 }
 

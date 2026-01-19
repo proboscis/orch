@@ -42,3 +42,17 @@ func TestSendCmdRequiresArgs(t *testing.T) {
 		t.Error("expected error with 3 args")
 	}
 }
+
+func TestSendCmdDryRunFlag(t *testing.T) {
+	cmd := newSendCmd()
+
+	// Verify --dry-run flag exists
+	dryRunFlag := cmd.Flags().Lookup("dry-run")
+	if dryRunFlag == nil {
+		t.Error("missing --dry-run flag")
+	}
+
+	if dryRunFlag.DefValue != "false" {
+		t.Errorf("expected --dry-run default to be false, got %s", dryRunFlag.DefValue)
+	}
+}
