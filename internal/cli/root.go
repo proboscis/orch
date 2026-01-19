@@ -55,6 +55,7 @@ var noDaemonCommands = map[string]bool{
 	"query":      true,
 	"q":          true,
 	"schema":     true,
+	"skill":     true,
 	"tutorial":   true,
 }
 // rootCmd represents the base command
@@ -112,6 +113,7 @@ func init() {
 	rootCmd.AddCommand(newDebugCmd())
 	rootCmd.AddCommand(newQueryCmd())
 	rootCmd.AddCommand(newSchemaCmd())
+	rootCmd.AddCommand(newSkillCmd())
 	rootCmd.AddCommand(newTutorialCmd())
 }
 

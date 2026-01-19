@@ -17,7 +17,8 @@ This tutorial covers:
   - Agent and model configuration
   - Basic workflow commands
   - Run statuses and what they mean
-  - Troubleshooting tips`,
+  - Troubleshooting tips
+  - LLM agent skill installation`,
 		Run: func(cmd *cobra.Command, args []string) {
 			printTutorial()
 		},
@@ -177,6 +178,61 @@ Query runs with SQL:
 Capture all completed runs:
 
     orch capture-all
+
+--------------------------------------------------------------------------------
+8. LLM AGENT SKILL INSTALLATION
+--------------------------------------------------------------------------------
+
+Export orch skill package so your LLM agents know how to use orch:
+
+    orch skill export <directory>
+
+OPENCODE INSTALLATION:
+
+    Global:  orch skill export ~/.config/opencode/skills/orch/
+    Project: orch skill export .opencode/skills/orch/
+
+    Discovery paths (searched upward from cwd):
+    - .opencode/skills/<name>/SKILL.md
+    - .claude/skills/<name>/SKILL.md (Claude-compat)
+    - ~/.config/opencode/skills/<name>/SKILL.md
+    - ~/.claude/skills/<name>/SKILL.md (Claude-compat)
+
+CLAUDE CODE INSTALLATION:
+
+    Global:  orch skill export ~/.claude/skills/orch/
+    Project: orch skill export .claude/skills/orch/
+
+    Discovery paths:
+    - .claude/skills/<name>/SKILL.md
+    - ~/.claude/skills/<name>/SKILL.md
+
+    Also auto-loads CLAUDE.md from project root.
+
+CODEX (OPENAI) INSTALLATION:
+
+    Global:  orch skill export ~/.codex/skills/orch/
+    Project: orch skill export .codex/skills/orch/
+
+    Discovery paths:
+    - .codex/skills/<name>/SKILL.md
+    - ~/.codex/skills/<name>/SKILL.md
+
+    Also auto-loads AGENTS.md from project root.
+
+EXPORTED FILES:
+
+    orch/
+    ├── SKILL.md              # Main entry (frontmatter + overview)
+    ├── commands.md           # All orch commands reference
+    ├── workflows.md          # Common workflow patterns
+    ├── troubleshooting.md    # Repair, debugging, common issues
+    └── config.md             # Configuration options (includes current repo config)
+
+EXPORT TO STDOUT:
+
+    orch skill export --stdout | pbcopy  # Copy to clipboard
+    orch skill export --stdout > orch-skill.md  # Save to file
 
 ================================================================================
 For more information, see: https://github.com/s22625/orch
