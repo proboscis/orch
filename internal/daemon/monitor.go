@@ -124,9 +124,20 @@ func (d *Daemon) updateStatus(run *model.Run, status model.Status, st store.Stor
 
 	// Auto-resolve issue when run is done
 	if status == model.StatusDone {
-		if err := st.SetIssueStatus(run.IssueID, model.IssueStatusResolved); err != nil {
-			d.logger.Printf("%s#%s: failed to auto-resolve issue: %v", run.IssueID, run.RunID, err)
-			// Don't fail the status update if issue update fails
+		// Check current issue status to avoid overwriting closed issues
+		issue, err := st.ResolveIssue(run.IssueID)
+		if err != nil {
+			d.logger.Printf("%s#%s: failed to resolve issue for auto-resolve: %v", run.IssueID, run.RunID, err)
+		} else if issue.Status == model.IssueStatusClosed {
+			d.debug("%s#%s: skipping auto-resolve, issue already closed", run.IssueID, run.RunID)
+		} else if issue.Status == model.IssueStatusResolved {
+			d.debug("%s#%s: skipping auto-resolve, issue already resolved", run.IssueID, run.RunID)
+		} else {
+			if err := st.SetIssueStatus(run.IssueID, model.IssueStatusResolved); err != nil {
+				d.logger.Printf("%s#%s: failed to auto-resolve issue: %v", run.IssueID, run.RunID, err)
+			} else {
+				d.debug("%s#%s: auto-resolved issue", run.IssueID, run.RunID)
+			}
 		}
 	}
 
