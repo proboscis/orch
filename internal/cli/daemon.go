@@ -295,7 +295,12 @@ func requireDaemon() (*daemon.Client, error) {
 		return nil, err
 	}
 
-	client := daemon.NewClient(projectRoot)
+	issuesRoot, err := getIssuesRoot()
+	if err != nil {
+		return nil, err
+	}
+
+	client := daemon.NewClientWithIssuesRoot(projectRoot, issuesRoot)
 	if client.IsAvailable() {
 		return client, nil
 	}
