@@ -1151,6 +1151,7 @@ class HelpScreen(ModalScreen[None]):
                 yield Label("  n         New run for selected issue")
                 yield Label("  o         Open issue in editor")
                 yield Label("  x         Close issue")
+                yield Label("  d         View diff for selected run")
 
                 yield Label("Quick Workflow", classes="help-section-title")
                 yield Label("  1. Select issue in Issues tab")
@@ -1335,6 +1336,7 @@ class RunsDashboard(App):
         Binding("X", "kill_session", "Kill"),
         Binding("f", "filter", "Filter"),
         Binding("ctrl+f", "clear_filters", "Clear Filters"),
+        Binding("d", "diff", "Diff"),
     ]
 
     def __init__(self, issues_root: Optional[Path] = None, auto_refresh: bool = True):
@@ -1738,6 +1740,45 @@ class RunsDashboard(App):
         except subprocess.CalledProcessError:
             pass
 
+
+    def action_diff(self) -> None:
+        """Show git diff for selected run."""
+        if _input_has_focus(self):
+            return
+        if not self.selected_run:
+            self.notify("No run selected", severity="warning")
+            return
+        if not self.selected_run.worktree_path:
+            self.notify("Run has no worktree", severity="warning")
+            return
+        self._do_diff_runs(self.selected_run)
+
+    @work(thread=True)
+    def _do_diff_runs(self, run: Run) -> None:
+        """Open diff in a new terminal tab."""
+        current_mux_type = detect_current_multiplexer()
+
+        diff_cmd = _build_orch_cmd(self.config) + ["diff", run.ref()]
+
+        if current_mux_type:
+            current_mux = get_multiplexer(current_mux_type)
+            tab_name = f"diff:{run.short_id()}"
+            if current_mux.new_tab_with_command(tab_name, diff_cmd):
+                self.call_from_thread(self.notify, f"Opened diff: {tab_name}")
+                return
+            self.call_from_thread(
+                self.notify,
+                "Failed to create tab, falling back to exit",
+                severity="warning",
+            )
+
+        self.call_from_thread(self._exit_and_diff_runs, diff_cmd)
+
+    def _exit_and_diff_runs(self, diff_cmd: list[str]) -> None:
+        """Exit TUI and run diff command."""
+        self.exit()
+        subprocess.run(diff_cmd)
+
     def action_kill_session(self) -> None:
         """Show kill confirmation dialog for selected run."""
         if not self.selected_run:
@@ -2139,6 +2180,7 @@ class OrchMonitorApp(App):
         Binding("x", "close_issue", "Close Issue"),
         Binding("f", "filter", "Filter"),
         Binding("ctrl+f", "clear_filters", "Clear Filters"),
+        Binding("d", "diff", "Diff"),
         Binding("tab", "switch_focus", "Switch Focus"),
     ]
 
@@ -2609,6 +2651,45 @@ class OrchMonitorApp(App):
             self.call_from_thread(self.refresh_data)
         except subprocess.CalledProcessError:
             pass
+
+
+    def action_diff(self) -> None:
+        """Show git diff for selected run."""
+        if _input_has_focus(self):
+            return
+        if not self.selected_run:
+            self.notify("No run selected", severity="warning")
+            return
+        if not self.selected_run.worktree_path:
+            self.notify("Run has no worktree", severity="warning")
+            return
+        self._do_diff(self.selected_run)
+
+    @work(thread=True)
+    def _do_diff(self, run: Run) -> None:
+        """Open diff in a new terminal tab."""
+        current_mux_type = detect_current_multiplexer()
+
+        diff_cmd = _build_orch_cmd(self.config) + ["diff", run.ref()]
+
+        if current_mux_type:
+            current_mux = get_multiplexer(current_mux_type)
+            tab_name = f"diff:{run.short_id()}"
+            if current_mux.new_tab_with_command(tab_name, diff_cmd):
+                self.call_from_thread(self.notify, f"Opened diff: {tab_name}")
+                return
+            self.call_from_thread(
+                self.notify,
+                "Failed to create tab, falling back to exit",
+                severity="warning",
+            )
+
+        self.call_from_thread(self._exit_and_diff, diff_cmd)
+
+    def _exit_and_diff(self, diff_cmd: list[str]) -> None:
+        """Exit TUI and run diff command."""
+        self.exit()
+        subprocess.run(diff_cmd)
 
     def action_kill_session(self) -> None:
         """Show kill confirmation dialog for selected run."""

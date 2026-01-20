@@ -1039,6 +1039,7 @@ func (s *SocketServer) handleGetAttachInfo(req SendRequest, encoder *json.Encode
 		WorktreePath:      run.WorktreePath,
 		ServerPort:        serverPort,
 		OpenCodeSessionID: run.OpenCodeSessionID,
+		Branch:            run.Branch,
 	})
 }
 
