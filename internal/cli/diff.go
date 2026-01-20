@@ -121,8 +121,8 @@ func getDiffTool(cfg *config.Config) string {
 	}
 
 	// 2. diff_tool in config
-	if cfg.DiffTool != "" {
-		return cfg.DiffTool
+	if cfg.GetDiffTool() != "" {
+		return cfg.GetDiffTool()
 	}
 
 	// 3. delta (if installed)

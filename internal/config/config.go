@@ -720,6 +720,11 @@ func (c *Config) GetBaseBranch() string {
 }
 
 // ExpandPath expands ~ and makes path absolute relative to base
+
+// GetDiffTool returns the configured diff tool
+func (c *Config) GetDiffTool() string {
+	return c.DiffTool
+}
 func ExpandPath(path, base string) string {
 	if path == "" {
 		return ""
