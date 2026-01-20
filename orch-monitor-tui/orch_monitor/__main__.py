@@ -267,8 +267,19 @@ class LayoutLauncher(Protocol):
         vault_path: Path | None,
         agent: str,
         cwd: str,
+        new_control_agent: bool = False,
     ) -> None:
-        """Launch a new layout with runs, issues, and agent panes."""
+        """Launch a new layout with runs, issues, and agent panes.
+        
+        Args:
+            session_name: Name of the multiplexer session
+            project_root: Path to project root
+            vault_path: Path to issues root
+            agent: Agent command to use
+            cwd: Working directory
+            new_control_agent: If True, start fresh control agent session.
+                              If False, continue existing session (use --continue).
+        """
         ...
 
 
@@ -295,6 +306,7 @@ class TmuxLayoutLauncher:
         vault_path: Path | None,
         agent: str,
         cwd: str,
+        new_control_agent: bool = False,
     ) -> None:
         python_exec = sys.executable
         orch_args = ""
@@ -365,7 +377,12 @@ class TmuxLayoutLauncher:
 
         write_control_prompt(vault_path)
         if agent == "opencode":
-            agent_cmd = f'opencode --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
+            # Use --continue to preserve session on layout restart,
+            # unless explicitly starting fresh with new_control_agent
+            if new_control_agent:
+                agent_cmd = f'opencode --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
+            else:
+                agent_cmd = f'opencode --continue --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
         else:
             agent_cmd = agent
 
@@ -586,12 +603,25 @@ def launch_monitor_layout(
     vault_path: Path | None,
     agent: str = "opencode",
     new: bool = False,
+    new_control_agent: bool = False,
     multiplexer: MultiplexerType | None = None,
     log: callable = lambda msg: None,
 ) -> None:
+    """Launch the orch-monitor layout in a terminal multiplexer.
+    
+    Args:
+        project_root: Path to project root
+        vault_path: Path to issues root
+        agent: Agent command to use (default: opencode)
+        new: If True, restart the layout (kill existing session)
+        new_control_agent: If True, also restart the control agent session.
+                          If False, preserve control agent session on layout restart.
+        multiplexer: Which multiplexer to use (auto-detected if None)
+        log: Logging function
+    """
     _setup_launcher_logging()
     _launcher_logger.info(
-        f"launch_monitor_layout: project_root={project_root}, vault_path={vault_path}"
+        f"launch_monitor_layout: project_root={project_root}, vault_path={vault_path}, new={new}, new_control_agent={new_control_agent}"
     )
 
     if multiplexer is None:
@@ -607,7 +637,7 @@ def launch_monitor_layout(
     _launcher_logger.info("checking has_session...")
     if launcher.has_session(session_name):
         _launcher_logger.info("session exists")
-        if new:
+        if new or new_control_agent:
             _launcher_logger.info("killing existing session...")
             launcher.kill_session(session_name)
             _launcher_logger.info("session killed")
@@ -627,7 +657,7 @@ def launch_monitor_layout(
         sys.exit(1)
 
     _launcher_logger.info("launching layout...")
-    launcher.launch_layout(session_name, project_root, vault_path, agent, cwd)
+    launcher.launch_layout(session_name, project_root, vault_path, agent, cwd, new_control_agent)
     _launcher_logger.info("launch complete")
 
 
@@ -667,7 +697,13 @@ def main():
     parser.add_argument(
         "--new",
         action="store_true",
-        help="Kill existing session and start fresh",
+        help="Restart layout only, preserving control agent session",
+    )
+    parser.add_argument(
+        "--new-control-agent",
+        action="store_true",
+        dest="new_control_agent",
+        help="Also restart control agent session (implies --new for layout)",
     )
     parser.add_argument(
         "--multiplexer",
@@ -731,8 +767,10 @@ def main():
         if args.multiplexer:
             mux_type = MultiplexerType(args.multiplexer)
         _log("starting launch_monitor_layout")
+        # --new-control-agent implies --new for layout restart
+        new = args.new or args.new_control_agent
         launch_monitor_layout(
-            project_root, vault_path, args.agent, args.new, mux_type, log=_log
+            project_root, vault_path, args.agent, new, args.new_control_agent, mux_type, log=_log
         )
 
 

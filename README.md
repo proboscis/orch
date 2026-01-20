@@ -7,8 +7,11 @@ orch runs AI coding agents non-interactively in the background, creating isolate
 ## Quick Start
 
 ```bash
-# Install
-go install github.com/proboscis/orch/cmd/orch@latest
+# Install (recommended)
+curl -sSL https://raw.githubusercontent.com/proboscis/orch/main/install.sh | bash
+
+# Or with Go
+# go install github.com/proboscis/orch/cmd/orch@latest
 
 # Create an issue
 mkdir -p issues && cat > issues/my-task.md << 'EOF'
@@ -100,6 +103,14 @@ User interacts: orch attach my-issue
 | `pr_open` | PR created | Review the PR |
 | `done` | Completed | Celebrate! |
 | `failed` | Error occurred | Check logs, retry |
+
+## Contributing
+
+See the **[Development Guide](./docs/development.md)** for:
+- Versioning philosophy (Semver)
+- Trunk-based development workflow
+- Branch naming conventions
+- PR guidelines
 
 ## Releasing
 

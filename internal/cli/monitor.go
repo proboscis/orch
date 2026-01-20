@@ -21,6 +21,7 @@ type monitorOptions struct {
 	Agent           string
 	Attach          bool
 	ForceNew        bool
+	NewControlAgent bool
 	Dashboard       bool
 	IssuesDashboard bool
 	ShowResolved    bool
@@ -44,7 +45,8 @@ func newMonitorCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.SortIssues, "sort-issues", string(monitor.SortByName), "Sort issues by (name|status|title|priority|updated)")
 	cmd.Flags().StringVarP(&opts.Agent, "agent", "a", "", "Control agent to launch in monitor chat pane")
 	cmd.Flags().BoolVar(&opts.Attach, "attach", false, "Attach to existing monitor session if present")
-	cmd.Flags().BoolVar(&opts.ForceNew, "new", false, "Force create a new monitor session")
+	cmd.Flags().BoolVar(&opts.ForceNew, "new", false, "Restart layout only, preserving control agent session")
+	cmd.Flags().BoolVar(&opts.NewControlAgent, "new-control-agent", false, "Also restart control agent session (implies --new for layout)")
 	cmd.Flags().BoolVar(&opts.Dashboard, "dashboard", false, "Run dashboard UI (internal)")
 	cmd.Flags().BoolVar(&opts.IssuesDashboard, "issues-dashboard", false, "Run issues dashboard UI (internal)")
 	cmd.Flags().BoolVar(&opts.ShowResolved, "show-resolved", false, "Show resolved issues (internal)")
@@ -278,20 +280,24 @@ func runMonitor(opts *monitorOptions) error {
 		return err
 	}
 
+	// --new-control-agent implies --new for layout restart
+	forceNew := opts.ForceNew || opts.NewControlAgent
+
 	m := monitor.New(st, monitor.Options{
-		Issue:        opts.Issue,
-		Statuses:     statuses,
-		RunSort:      runSort,
-		IssueSort:    issueSort,
-		Agent:        opts.Agent,
-		Attach:       opts.Attach,
-		ForceNew:     opts.ForceNew,
-		OrchPath:     os.Args[0],
-		GlobalFlags:  monitorGlobalFlags(projectRoot, st.RootPath()),
-		ShowResolved: opts.ShowResolved,
-		ShowClosed:   opts.ShowClosed,
-		UISettings:   settings,
-		ProjectRoot:  projectRoot,
+		Issue:           opts.Issue,
+		Statuses:        statuses,
+		RunSort:         runSort,
+		IssueSort:       issueSort,
+		Agent:           opts.Agent,
+		Attach:          opts.Attach,
+		ForceNew:        forceNew,
+		NewControlAgent: opts.NewControlAgent,
+		OrchPath:        os.Args[0],
+		GlobalFlags:     monitorGlobalFlags(projectRoot, st.RootPath()),
+		ShowResolved:    opts.ShowResolved,
+		ShowClosed:      opts.ShowClosed,
+		UISettings:      settings,
+		ProjectRoot:     projectRoot,
 	})
 
 	if opts.Dashboard {

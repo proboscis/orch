@@ -16,7 +16,7 @@ Python Textual-based terminal user interface for `orch monitor`.
 New to orch-monitor? Here's how to get started:
 
 1. **Install orch-monitor**: `uv tool install /path/to/orch/orch-monitor-tui`
-2. **Launch the TUI**: `orch-monitor --new`
+2. **Launch the TUI**: `orch-monitor` (or `orch-monitor --new-control-agent` for fresh start)
 3. **Press `?`** to see all keybindings and workflow tips
 4. **Navigate** with arrow keys, **Tab** to switch panels
 5. **Start a run** on an issue with `n`, select an agent
@@ -175,12 +175,28 @@ export ORCH_MULTIPLEXER=zellij
 orch-monitor
 ```
 
+### Session Management
+
+```bash
+# Restart layout only (preserves control agent session/conversation)
+orch-monitor --new
+
+# Restart both layout AND control agent (fresh start)
+orch-monitor --new-control-agent
+
+# Or explicitly combine flags
+orch-monitor --new --new-control-agent
+```
+
+The `--new` flag restarts the multiplexer layout while preserving your control agent's conversation context. This is useful when:
+- Layout gets corrupted or panes are misaligned
+- You want to refresh the TUI panels without losing your chat history
+
+Use `--new-control-agent` when you want a completely fresh start, including a new control agent session.
+
 ### Other Options
 
 ```bash
-# Start fresh (kill existing session)
-orch-monitor --new
-
 # Use a different control agent
 orch-monitor --agent claude
 ```
