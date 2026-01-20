@@ -152,6 +152,9 @@ type Config struct {
 	ControlAgent        string `yaml:"control_agent"`
 	ControlModel        string `yaml:"control_model"`
 	ControlModelVariant string `yaml:"control_model_variant"`
+
+	// Diff tool configuration
+	DiffTool string `yaml:"diff_tool"`
 }
 
 type fileConfig struct {
@@ -183,6 +186,7 @@ type fileConfig struct {
 	ControlAgent        string           `yaml:"control_agent"`
 	ControlModel        string           `yaml:"control_model"`
 	ControlModelVariant string           `yaml:"control_model_variant"`
+	DiffTool            string           `yaml:"diff_tool"`
 }
 
 // configFile is the name of the config file
@@ -426,6 +430,9 @@ func loadFromFile(path string, cfg *Config) error {
 		cfg.ControlModel = fileCfg.ControlModel
 	}
 	if fileCfg.ControlModelVariant != "" {
+	if fileCfg.DiffTool != "" {
+		cfg.DiffTool = fileCfg.DiffTool
+	}
 		cfg.ControlModelVariant = fileCfg.ControlModelVariant
 	}
 
@@ -704,7 +711,20 @@ func (c *Config) GetMultiplexer() string {
 	return "auto"
 }
 
+// GetBaseBranch returns the base branch with a default of "main"
+func (c *Config) GetBaseBranch() string {
+	if c.BaseBranch != "" {
+		return c.BaseBranch
+	}
+	return "main"
+}
+
 // ExpandPath expands ~ and makes path absolute relative to base
+
+// GetDiffTool returns the configured diff tool
+func (c *Config) GetDiffTool() string {
+	return c.DiffTool
+}
 func ExpandPath(path, base string) string {
 	if path == "" {
 		return ""
