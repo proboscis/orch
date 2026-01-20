@@ -43,8 +43,8 @@ type SendRequest struct {
 	Message     string   `json:"message"`
 	NoEnter     bool     `json:"no_enter,omitempty"`
 	IssuesRoot  string   `json:"issues_root,omitempty"`
-	ProjectRoot string   `json:"project_root,omitempty"` // Required for repo context
-	RepoID      string   `json:"repo_id,omitempty"`      // Optional: explicit repo ID
+	ProjectRoot string   `json:"project_root,omitempty"`
+	RepoID      string   `json:"repo_id,omitempty"`
 	Status      []string `json:"status,omitempty"`
 	Limit       int      `json:"limit,omitempty"`
 	Cursor      string   `json:"cursor,omitempty"`
@@ -54,7 +54,8 @@ type SendRequest struct {
 	Force       bool     `json:"force,omitempty"`
 	ShortID     string   `json:"short_id,omitempty"`
 	Comment     string   `json:"comment,omitempty"`
-	All         bool     `json:"all,omitempty"` // For cross-repo operations
+	All         bool     `json:"all,omitempty"`
+	SessionID   string   `json:"session_id,omitempty"`
 }
 
 type SendResponse struct {
@@ -68,7 +69,7 @@ type RepoContext struct {
 	RepoID        string
 	Store         store.Store
 	GitHubBackend *github.Backend
-	Config        interface{} // *config.Config, but avoiding import cycle
+	Config        interface{}
 }
 
 type StoreFactory func(issuesRoot string) (store.Store, error)
@@ -334,6 +335,12 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 		s.handleRegisterRepo(req, encoder)
 	case "list_repos":
 		s.handleListRepos(req, encoder)
+	case "get_control_session":
+		s.handleGetControlSession(req, encoder)
+	case "set_control_session":
+		s.handleSetControlSession(req, encoder)
+	case "clear_control_session":
+		s.handleClearControlSession(req, encoder)
 	default:
 		encoder.Encode(SendResponse{OK: false, Error: "unknown_type"})
 	}
@@ -385,6 +392,112 @@ func (s *SocketServer) handleListRepos(req SendRequest, encoder *json.Encoder) {
 	encoder.Encode(map[string]interface{}{
 		"ok":    true,
 		"repos": repos,
+	})
+}
+
+func (s *SocketServer) controlSessionPath(projectRoot string) string {
+	return filepath.Join(projectRoot, ".orch", "control-session.json")
+}
+
+func (s *SocketServer) handleGetControlSession(req SendRequest, encoder *json.Encoder) {
+	if req.ProjectRoot == "" {
+		encoder.Encode(map[string]interface{}{
+			"ok":    false,
+			"error": "project_root required",
+		})
+		return
+	}
+
+	sessionPath := s.controlSessionPath(req.ProjectRoot)
+	data, err := os.ReadFile(sessionPath)
+	if err != nil {
+		encoder.Encode(map[string]interface{}{
+			"ok":         true,
+			"session_id": "",
+		})
+		return
+	}
+
+	var session struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal(data, &session); err != nil {
+		encoder.Encode(map[string]interface{}{
+			"ok":         true,
+			"session_id": "",
+		})
+		return
+	}
+
+	encoder.Encode(map[string]interface{}{
+		"ok":         true,
+		"session_id": session.SessionID,
+	})
+}
+
+func (s *SocketServer) handleSetControlSession(req SendRequest, encoder *json.Encoder) {
+	if req.ProjectRoot == "" {
+		encoder.Encode(map[string]interface{}{
+			"ok":    false,
+			"error": "project_root required",
+		})
+		return
+	}
+
+	if req.SessionID == "" {
+		encoder.Encode(map[string]interface{}{
+			"ok":    false,
+			"error": "session_id required",
+		})
+		return
+	}
+
+	orchDir := filepath.Join(req.ProjectRoot, ".orch")
+	if err := os.MkdirAll(orchDir, 0755); err != nil {
+		encoder.Encode(map[string]interface{}{
+			"ok":    false,
+			"error": fmt.Sprintf("failed to create .orch dir: %v", err),
+		})
+		return
+	}
+
+	sessionPath := s.controlSessionPath(req.ProjectRoot)
+	data, _ := json.MarshalIndent(map[string]string{"session_id": req.SessionID}, "", "  ")
+	if err := os.WriteFile(sessionPath, data, 0644); err != nil {
+		encoder.Encode(map[string]interface{}{
+			"ok":    false,
+			"error": fmt.Sprintf("failed to write session file: %v", err),
+		})
+		return
+	}
+
+	s.logger.Printf("set control session for %s: %s", req.ProjectRoot, req.SessionID)
+	encoder.Encode(map[string]interface{}{
+		"ok": true,
+	})
+}
+
+func (s *SocketServer) handleClearControlSession(req SendRequest, encoder *json.Encoder) {
+	if req.ProjectRoot == "" {
+		encoder.Encode(map[string]interface{}{
+			"ok":    false,
+			"error": "project_root required",
+		})
+		return
+	}
+
+	sessionPath := s.controlSessionPath(req.ProjectRoot)
+	if err := os.Remove(sessionPath); err != nil && !os.IsNotExist(err) {
+		encoder.Encode(map[string]interface{}{
+			"ok":    false,
+			"error": fmt.Sprintf("failed to remove session file: %v", err),
+		})
+		return
+	}
+
+	s.logger.Printf("cleared control session for %s", req.ProjectRoot)
+	encoder.Encode(map[string]interface{}{
+		"ok": true,
 	})
 }
 

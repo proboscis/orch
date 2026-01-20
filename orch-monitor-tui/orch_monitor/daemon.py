@@ -328,6 +328,45 @@ class DaemonClient:
     def close(self) -> None:
         pass
 
+    def get_control_session(self, project_root: str) -> Optional[str]:
+        request = {
+            "type": "get_control_session",
+            "project_root": project_root,
+        }
+
+        try:
+            response = self._send_request(request)
+            if response.get("ok", False):
+                return response.get("session_id") or None
+        except DaemonError:
+            pass
+        return None
+
+    def set_control_session(self, project_root: str, session_id: str) -> bool:
+        request = {
+            "type": "set_control_session",
+            "project_root": project_root,
+            "session_id": session_id,
+        }
+
+        try:
+            response = self._send_request(request)
+            return response.get("ok", False)
+        except DaemonError:
+            return False
+
+    def clear_control_session(self, project_root: str) -> bool:
+        request = {
+            "type": "clear_control_session",
+            "project_root": project_root,
+        }
+
+        try:
+            response = self._send_request(request)
+            return response.get("ok", False)
+        except DaemonError:
+            return False
+
     def register_monitor(
         self,
         pid: int,

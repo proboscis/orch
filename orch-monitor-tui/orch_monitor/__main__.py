@@ -58,61 +58,50 @@ def get_session_name(vault_path: Path | None = None) -> str:
 
 
 CONTROL_PROMPT_INSTRUCTION = f"ultrathink Please read '{CONTROL_PROMPT_FILE}' in the current directory and follow the instructions found there."
-CONTROL_SESSION_FILE = "control-session.json"
+
+
+def _get_daemon_client(project_root: Path | None) -> "DaemonClient | None":
+    try:
+        config = Config.from_vault(project_root) if project_root else Config.load()
+        daemon = DaemonClient(config.socket_path, config.issues_root)
+        if daemon.is_available():
+            return daemon
+    except Exception as e:
+        _launcher_logger.warning(f"Failed to get daemon client: {e}")
+    return None
 
 
 def load_control_session(project_root: Path | None) -> str | None:
-    if project_root:
-        session_file = project_root / ".orch" / CONTROL_SESSION_FILE
-    else:
-        session_file = Path.cwd() / ".orch" / CONTROL_SESSION_FILE
-
-    if not session_file.exists():
-        return None
-
-    try:
-        import json
-
-        data = json.loads(session_file.read_text())
-        return data.get("session_id")
-    except Exception:
-        return None
+    daemon = _get_daemon_client(project_root)
+    if daemon:
+        project_str = str(project_root) if project_root else str(Path.cwd())
+        session_id = daemon.get_control_session(project_str)
+        if session_id:
+            _launcher_logger.info(f"Loaded control session from daemon: {session_id}")
+            return session_id
+    return None
 
 
 def save_control_session(project_root: Path | None, session_id: str) -> bool:
-    import json
-
-    if project_root:
-        orch_dir = project_root / ".orch"
-    else:
-        orch_dir = Path.cwd() / ".orch"
-
-    orch_dir.mkdir(parents=True, exist_ok=True)
-    session_file = orch_dir / CONTROL_SESSION_FILE
-
-    try:
-        session_file.write_text(json.dumps({"session_id": session_id}, indent=2))
-        _launcher_logger.info(f"Saved control session ID: {session_id}")
-        return True
-    except Exception as e:
-        _launcher_logger.error(f"Failed to save control session: {e}")
-        return False
+    daemon = _get_daemon_client(project_root)
+    if daemon:
+        project_str = str(project_root) if project_root else str(Path.cwd())
+        if daemon.set_control_session(project_str, session_id):
+            _launcher_logger.info(f"Saved control session via daemon: {session_id}")
+            return True
+    _launcher_logger.error("Failed to save control session: daemon not available")
+    return False
 
 
 def clear_control_session(project_root: Path | None) -> bool:
-    if project_root:
-        session_file = project_root / ".orch" / CONTROL_SESSION_FILE
-    else:
-        session_file = Path.cwd() / ".orch" / CONTROL_SESSION_FILE
-
-    try:
-        if session_file.exists():
-            session_file.unlink()
-            _launcher_logger.info(f"Cleared control session file: {session_file}")
-        return True
-    except Exception as e:
-        _launcher_logger.error(f"Failed to clear control session: {e}")
-        return False
+    daemon = _get_daemon_client(project_root)
+    if daemon:
+        project_str = str(project_root) if project_root else str(Path.cwd())
+        if daemon.clear_control_session(project_str):
+            _launcher_logger.info("Cleared control session via daemon")
+            return True
+    _launcher_logger.error("Failed to clear control session: daemon not available")
+    return False
 
 
 def query_latest_opencode_session(
