@@ -56,6 +56,7 @@ var noDaemonCommands = map[string]bool{
 	"q":          true,
 	"schema":     true,
 	"tutorial":   true,
+	"agent":      true,
 }
 // rootCmd represents the base command
 var rootCmd = &cobra.Command{
@@ -113,6 +114,7 @@ func init() {
 	rootCmd.AddCommand(newQueryCmd())
 	rootCmd.AddCommand(newSchemaCmd())
 	rootCmd.AddCommand(newTutorialCmd())
+	rootCmd.AddCommand(newAgentCmd())
 }
 
 // Execute runs the root command
