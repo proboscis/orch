@@ -397,3 +397,19 @@ vault/
 | **Run** | A single execution attempt for an issue |
 | **Event** | A single append-only record in a run |
 | **RUN_REF** | Reference format: `ISSUE_ID#RUN_ID` or just `ISSUE_ID` (latest) |
+
+## Releasing
+
+Releases are automated via GitHub Actions. To create a new release:
+
+```bash
+git tag v0.1.0
+git push --tags
+```
+
+This triggers the release workflow which:
+- Builds binaries for all platforms (darwin/linux, amd64/arm64)
+- Generates SHA256 checksums
+- Publishes to [GitHub Releases](https://github.com/proboscis/orch/releases)
+
+**Version format:** `v<major>.<minor>.<patch>` (e.g., `v1.0.0`, `v0.2.1-beta`)
