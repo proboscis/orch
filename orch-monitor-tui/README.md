@@ -11,6 +11,110 @@ Python Textual-based terminal user interface for `orch monitor`.
 - **Real-time Updates**: Automatic refresh with daemon-based data
 - **Multiplexer Support**: Works with both tmux and zellij
 
+## Quick Start (Onboarding)
+
+New to orch-monitor? Here's how to get started:
+
+1. **Install orch-monitor**: `uv tool install /path/to/orch/orch-monitor-tui`
+2. **Launch the TUI**: `orch-monitor --new`
+3. **Press `?`** to see all keybindings and workflow tips
+4. **Navigate** with arrow keys, **Tab** to switch panels
+5. **Start a run** on an issue with `n`, select an agent
+6. **Monitor progress** in the Runs panel
+7. **Attach** to a running agent with `a` or Enter
+
+> **Tip**: Press `?` anytime within the TUI for a quick reference of keybindings and workflow.
+
+## Workflow Guide
+
+This section describes the end-to-end workflow for using orch-monitor TUI with the control agent to manage issue-driven development.
+
+### 1. Setup Repository with Orch
+
+```bash
+cd your-repo
+mkdir -p .orch
+# Configure .orch/config.yaml with issues_root, agent preferences, etc.
+```
+
+### 2. Launch orch-monitor
+
+```bash
+orch-monitor --new  # Start fresh session
+```
+
+### 3. Meet the Control Agent
+
+The control agent runs in the bottom pane. You can:
+- Ask how to use orch-monitor
+- Get help with commands
+- Discuss project plans
+
+### 4. Create Issues via Discussion
+
+Talk with the control agent to create issue files:
+- Describe what you want to build
+- Control agent creates the issue markdown file
+- Issue appears in the **Issues Panel** (left side)
+
+### 5. Start a Run
+
+Multiple ways to start a run on an issue:
+- **Click** on an issue in the Issues panel
+- **Arrow keys + `n`** to select issue and start new run
+- **Ask control agent**: "run orch-123"
+
+Select your agent: claude / opencode / codex
+
+### 6. Monitor the Run
+
+The run appears in the **Runs Panel** (top):
+- Watch status: queued → booting → running → pr_open → done
+- See elapsed time, agent, branch info
+
+### 7. Interact with Running Agents
+
+While a run is active:
+- **Select run + Enter** or **click**: Attach to see agent output
+- **`a`**: Attach to selected run's terminal session
+- Ask control agent to send messages via `orch send`
+
+### 8. Review and Merge
+
+When run creates a PR:
+- Status shows `pr_open`
+- Review the PR on GitHub
+- Ask control agent to review the work
+- Merge when satisfied
+
+### 9. Control Agent Commands
+
+The control agent can:
+- `orch run <issue>` - Start a run
+- `orch send <run> "message"` - Send message to running agent
+- `orch capture <run>` - Capture agent's last output
+- `orch stop <run>` - Stop a run
+- `orch ps` - List all runs
+- Review work and provide feedback
+
+### 10. Parallel Development
+
+Run multiple issues in parallel:
+- Each run gets its own git worktree
+- Agents work independently
+- Monitor all runs from single TUI
+- Merge PRs as they complete
+
+### The Development Loop
+
+```
+Create Issue → Start Run → Monitor → Review PR → Merge → Repeat
+     ↑                                                    |
+     └────────────────────────────────────────────────────┘
+```
+
+Enjoy making as many issue files with control agent and running them in parallel on worktrees!
+
 ## Prerequisites
 
 The TUI requires the orch daemon to be running. The daemon starts automatically when you run any `orch` command (e.g., `orch ps`).
@@ -99,16 +203,20 @@ uv run python -m orch_monitor
 
 | Key | Action |
 |-----|--------|
+| `?` | Show help screen with keybindings and workflow tips |
 | `q` | Quit |
 | `r` | Refresh data |
 | `tab` | Switch between Runs/Issues tabs |
 | `f` | Filter runs by status |
+| `ctrl+f` | Clear all filters |
 | `up/down` | Navigate list |
 | `enter` | Select item (attach to run / open issue in `$EDITOR`*) |
 | `a` | Attach to selected run's session |
 | `s` | Stop selected run |
+| `X` | Kill session (force terminate) |
 | `n` | Create new run for selected issue |
 | `o` | Open issue in `$EDITOR`* |
+| `x` | Close issue |
 
 *When running inside a multiplexer (tmux/zellij), opening issues in `$EDITOR` creates a new multiplexer tab/window, allowing you to edit without leaving the monitor. Outside a multiplexer, the TUI suspends while the editor is open.
 
