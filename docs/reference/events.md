@@ -1,0 +1,232 @@
+# Event Reference
+
+Events are append-only records that track everything that happens during a run. They form the complete history and are the source of truth for run state.
+
+## Event Format
+
+Events are stored as markdown list items in run files:
+
+```
+- <timestamp> | <type> | <name> | key=value | key=value ...
+```
+
+### Components
+
+| Component | Description | Example |
+|-----------|-------------|---------|
+| timestamp | ISO8601 datetime | `2026-01-20T16:30:45+09:00` |
+| type | Event category | `status`, `artifact`, `phase` |
+| name | Specific event | `running`, `branch`, `implement` |
+| key=value | Additional data | `agent=claude`, `url=...` |
+
+## Event Types
+
+### status
+
+Tracks run state changes. These events determine the current status of a run.
+
+| Name | Description | Example |
+|------|-------------|---------|
+| `queued` | Run created, waiting to start | `status \| queued \|` |
+| `booting` | Agent is starting | `status \| booting \| agent=claude` |
+| `running` | Agent is working | `status \| running \|` |
+| `blocked` | Needs human input | `status \| blocked \| reason=question` |
+| `blocked_api` | API/rate limit issue | `status \| blocked_api \| error=rate_limit` |
+| `pr_open` | PR created | `status \| pr_open \|` |
+| `done` | Completed successfully | `status \| done \|` |
+| `failed` | Error occurred | `status \| failed \| error=...` |
+| `canceled` | Manually stopped | `status \| canceled \|` |
+| `unknown` | Agent exited unexpectedly | `status \| unknown \|` |
+
+### artifact
+
+Records outputs and resources created during the run.
+
+| Name | Description | Example |
+|------|-------------|---------|
+| `worktree` | Git worktree path | `artifact \| worktree \| path=/path/to/worktree` |
+| `branch` | Git branch name | `artifact \| branch \| name=issue/x/run-y` |
+| `pr` | Pull request URL | `artifact \| pr \| url=https://github.com/.../pull/42` |
+| `commit` | Commit hash | `artifact \| commit \| sha=abc123` |
+| `file` | File created/modified | `artifact \| file \| path=src/foo.ts` |
+
+### phase
+
+Tracks workflow stages within a run.
+
+| Name | Description |
+|------|-------------|
+| `plan` | Agent is analyzing and planning |
+| `implement` | Writing code |
+| `test` | Running tests |
+| `pr` | Creating pull request |
+| `review` | Addressing review feedback |
+
+Example:
+```
+- 2026-01-20T16:30:00+09:00 | phase | plan |
+- 2026-01-20T16:35:00+09:00 | phase | implement |
+- 2026-01-20T16:50:00+09:00 | phase | test |
+- 2026-01-20T16:55:00+09:00 | phase | pr |
+```
+
+### test
+
+Records test execution results.
+
+```
+- <ts> | test | <test_name> | result=PASS|FAIL | log=...
+```
+
+Examples:
+```
+- 2026-01-20T16:50:00+09:00 | test | unit | result=PASS | count=42
+- 2026-01-20T16:51:00+09:00 | test | integration | result=FAIL | error="timeout"
+```
+
+### note
+
+Human-added notes or comments.
+
+```
+- <ts> | note | <title> | text="..."
+```
+
+Example:
+```
+- 2026-01-20T17:00:00+09:00 | note | manual_fix | text="Fixed import manually"
+```
+
+### monitor
+
+Daemon-generated observations about agent activity.
+
+| Name | Description |
+|------|-------------|
+| `working` | Output is actively flowing |
+| `stalling` | No output for N seconds |
+| `idle` | Agent appears idle |
+
+These are informational and don't affect run status directly.
+
+## Event Flow Example
+
+A typical run produces events like this:
+
+```markdown
+## Events
+
+- 2026-01-20T16:30:00+09:00 | status | queued |
+- 2026-01-20T16:30:01+09:00 | status | booting | agent=claude
+- 2026-01-20T16:30:05+09:00 | artifact | worktree | path=/Users/me/.orch/worktrees/my-issue/abc123
+- 2026-01-20T16:30:06+09:00 | artifact | branch | name=issue/my-issue/run-20260120-163000
+- 2026-01-20T16:30:10+09:00 | status | running |
+- 2026-01-20T16:30:15+09:00 | phase | plan |
+- 2026-01-20T16:32:00+09:00 | phase | implement |
+- 2026-01-20T16:45:00+09:00 | phase | test |
+- 2026-01-20T16:46:00+09:00 | test | unit | result=PASS | count=15
+- 2026-01-20T16:47:00+09:00 | phase | pr |
+- 2026-01-20T16:48:00+09:00 | artifact | pr | url=https://github.com/org/repo/pull/42
+- 2026-01-20T16:48:01+09:00 | status | pr_open |
+```
+
+## Reading Events
+
+### CLI
+
+```bash
+# Show all events
+orch show my-issue --events-only
+
+# Show recent events
+orch show my-issue --tail 20
+```
+
+### SQL Query
+
+```sql
+-- Requires --with-events flag
+SELECT * FROM events 
+WHERE run_id = '20260120-163000'
+ORDER BY timestamp;
+```
+
+### Direct file access
+
+Events are stored in the run file at `runs/<issue>/<run>.md`:
+
+```bash
+cat ~/orch-issues/runs/my-issue/20260120-163000.md
+```
+
+## Creating Events
+
+Events are typically created automatically by:
+- orch commands (`run`, `stop`, etc.)
+- The monitoring daemon
+- Agent completion detection
+
+### Manual event (future)
+
+```bash
+# Planned but not yet implemented
+orch event append my-issue#20260120-163000 --type note --name comment --text "..."
+```
+
+## Event Storage
+
+Events are stored as part of the run markdown file:
+
+```
+runs/
+└── my-issue/
+    └── 20260120-163000.md
+```
+
+The file structure:
+```yaml
+---
+issue_id: my-issue
+run_id: 20260120-163000
+agent: claude
+status: running
+# ... other frontmatter
+---
+
+# Run: my-issue#20260120-163000
+
+## Events
+
+- 2026-01-20T16:30:00+09:00 | status | queued |
+- 2026-01-20T16:30:01+09:00 | status | booting | agent=claude
+# ... more events
+```
+
+## Best Practices
+
+### For custom agents
+
+If building custom tooling:
+1. Append events chronologically
+2. Never modify existing events
+3. Use ISO8601 timestamps with timezone
+4. Include relevant key=value pairs
+
+### For analysis
+
+Events enable powerful queries:
+```sql
+-- Average time from start to PR
+SELECT AVG(
+  julianday(pr_time) - julianday(start_time)
+) * 24 * 60 as avg_minutes
+FROM (
+  SELECT 
+    run_id,
+    MIN(CASE WHEN name = 'booting' THEN timestamp END) as start_time,
+    MAX(CASE WHEN name = 'pr_open' THEN timestamp END) as pr_time
+  FROM events
+  GROUP BY run_id
+)
+WHERE pr_time IS NOT NULL;
+```

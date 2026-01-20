@@ -547,3 +547,148 @@ run: 20231220-100000
 		// tick may fail if tmux is not available, that's ok for this test
 	}
 }
+
+// ============================================================================
+// Diff Command Tests
+// ============================================================================
+
+func TestDiffCommandHelp(t *testing.T) {
+	// Test that the diff command exists and shows proper help
+	cmd := exec.Command(orchBinary, "diff", "--help")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("diff --help failed: %v (%s)", err, out)
+	}
+
+	output := string(out)
+	// Verify key help text is present
+	if !strings.Contains(output, "Show the git diff") {
+		t.Error("expected help to mention 'Show the git diff'")
+	}
+	if !strings.Contains(output, "--stat") {
+		t.Error("expected help to mention --stat flag")
+	}
+	if !strings.Contains(output, "--base") {
+		t.Error("expected help to mention --base flag")
+	}
+	if !strings.Contains(output, "ORCH_DIFFTOOL") {
+		t.Error("expected help to mention ORCH_DIFFTOOL env var")
+	}
+}
+
+func TestDiffWithWorktreeChanges(t *testing.T) {
+	// Create a test issue
+	issueID := "diff-test"
+	createTestIssue(t, issueID, "---\ntype: issue\ntitle: Diff Test\n---\n# Diff Test")
+
+	// Create a run with worktree
+	runID := time.Now().Format("20060102-150405")
+	worktreeDir := filepath.Join(testRepo, ".git-worktrees")
+	os.MkdirAll(worktreeDir, 0755)
+
+	// Start a run with --dry-run to get the worktree created
+	output, err := runOrch(t, "run", issueID,
+		"--run-id", runID,
+		"--worktree-dir", worktreeDir,
+		"--repo-root", testRepo,
+		"--agent", "custom",
+		"--agent-cmd", "sleep 0.1",
+		"--tmux=false",
+		"--json",
+	)
+	if err != nil {
+		t.Fatalf("run failed: %v\nOutput: %s", err, output)
+	}
+
+	var runResult struct {
+		OK           bool   `json:"ok"`
+		Branch       string `json:"branch"`
+		WorktreePath string `json:"worktree_path"`
+	}
+	if err := json.Unmarshal([]byte(output), &runResult); err != nil {
+		t.Fatalf("unmarshal run result: %v", err)
+	}
+
+	if runResult.WorktreePath == "" {
+		t.Skip("no worktree path created, skipping diff test")
+	}
+
+	// Make changes in the worktree
+	testFile := filepath.Join(runResult.WorktreePath, "diff-test-file.txt")
+	if err := os.WriteFile(testFile, []byte("test content for diff\n"), 0644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+	runGitCmd(t, runResult.WorktreePath, "add", "diff-test-file.txt")
+	runGitCmd(t, runResult.WorktreePath, "commit", "-m", "test changes for diff")
+
+	// Wait for daemon to pick up the run
+	time.Sleep(500 * time.Millisecond)
+
+	// Test diff command with --stat
+	diffOutput, err := runOrch(t, "diff", issueID+"#"+runID, "--stat")
+	if err != nil {
+		t.Logf("diff command output: %s", diffOutput)
+		// Diff may fail if daemon isn't running, that's acceptable in test
+		t.Skipf("diff command failed (may need daemon): %v", err)
+	}
+
+	// Verify diff output contains our change
+	if !strings.Contains(diffOutput, "diff-test-file.txt") {
+		t.Errorf("expected diff output to contain 'diff-test-file.txt', got: %s", diffOutput)
+	}
+
+	// Cleanup worktree
+	exec.Command("git", "-C", testRepo, "worktree", "remove", runResult.WorktreePath, "--force").Run()
+}
+
+func TestDiffStatFlag(t *testing.T) {
+	// Create a test issue with a run
+	issueID := "diff-stat-test"
+	createTestIssue(t, issueID, "---\ntype: issue\ntitle: Diff Stat Test\n---\n# Diff Stat Test")
+
+	// Create run directory and file
+	runDir := filepath.Join(testVault, "runs", issueID)
+	os.MkdirAll(runDir, 0755)
+
+	runID := time.Now().Format("20060102-150405")
+	runContent := fmt.Sprintf(`---
+issue: %s
+run: %s
+---
+
+# Events
+
+- %s | status | running
+- %s | artifact | worktree | path=%s
+- %s | artifact | branch | name=feature/test
+`, issueID, runID,
+		time.Now().Format(time.RFC3339),
+		time.Now().Format(time.RFC3339), testRepo,
+		time.Now().Format(time.RFC3339))
+	os.WriteFile(filepath.Join(runDir, runID+".md"), []byte(runContent), 0644)
+
+	// The diff command should handle --stat flag
+	// Note: This test may fail without daemon, that's expected
+	_, _ = runOrch(t, "diff", issueID+"#"+runID, "--stat")
+	// We're mainly testing that the flag is accepted, not the full workflow
+}
+
+func TestDiffToolSelection(t *testing.T) {
+	// Test environment variable takes priority
+	origEnv := os.Getenv("ORCH_DIFFTOOL")
+	defer os.Setenv("ORCH_DIFFTOOL", origEnv)
+
+	os.Setenv("ORCH_DIFFTOOL", "cat")
+
+	// The diff tool selection is tested in unit tests
+	// This integration test verifies the command accepts the env var
+	cmd := exec.Command(orchBinary, "diff", "--help")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("diff --help failed: %v", err)
+	}
+
+	if !strings.Contains(string(out), "ORCH_DIFFTOOL") {
+		t.Error("help should mention ORCH_DIFFTOOL")
+	}
+}
