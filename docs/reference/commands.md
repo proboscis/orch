@@ -31,6 +31,87 @@ These flags work with all commands:
 | 10 | Internal error |
 
 ---
+## orch agent
+
+Manage the standalone control agent for interactive issue management.
+
+```bash
+orch agent [flags]
+```
+
+The control agent is a persistent AI agent that helps you manage issues and runs through conversation. It can create issues, start runs, check status, and coordinate multiple agents.
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--new` | Force start a new control agent session |
+| `--kill` | Terminate the running control agent |
+| `--backend <type>` | Agent type: `claude`, `opencode`, etc. |
+
+### Examples
+
+```bash
+# Attach to existing or create new control agent
+orch agent
+
+# Force a new session (terminate existing if any)
+orch agent --new
+
+# Terminate the control agent
+orch agent --kill
+
+# Use a specific agent backend
+orch agent --backend opencode
+```
+
+### How it works
+
+The control agent runs in a persistent tmux session and can:
+- Create and manage issues through natural language
+- Start runs for issues
+- Monitor run progress
+- Help coordinate parallel work
+
+---
+
+## orch diff
+
+Show git diff for a run's worktree changes.
+
+```bash
+orch diff RUN_REF [flags]
+```
+
+View what changes an agent has made in a run's worktree compared to the base branch. Useful for reviewing agent work before merging or creating a PR.
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--stat` | Show diffstat summary only |
+| `--base <branch>` | Compare against specific base branch (default: run's base branch) |
+
+### Examples
+
+```bash
+# Show full diff for latest run of an issue
+orch diff my-issue
+
+# Show diff for specific run
+orch diff my-issue#20260120-163045
+
+# Show just the diffstat summary
+orch diff --stat my-issue
+
+# Compare against specific base branch
+orch diff --base main my-issue
+
+# Combine flags
+orch diff --stat --base develop my-issue
+```
+
+---
 
 ## orch run
 

@@ -41,6 +41,8 @@ orch attach my-task
 | Guide | Description |
 |-------|-------------|
 | **[Getting Started](./docs/getting-started.md)** | Install → First issue → First run → See it work |
+| **[Daily Workflow](./docs/daily-workflow.md)** | Morning routine, parallel runs, reviewing PRs |
+| **[orch-monitor TUI](./docs/orch-monitor.md)** | Visual dashboard for managing issues and runs |
 | **[Core Concepts](./docs/concepts.md)** | Issue, Run, Event, Status, Worktree explained |
 | **[Configuration](./docs/configuration.md)** | All config options with examples |
 

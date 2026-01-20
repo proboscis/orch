@@ -229,6 +229,66 @@ orch stop my-first-issue#20260120-163045
 - Explore all [CLI commands](./reference/commands.md)
 - Use [SQL queries](./reference/query.md) to analyze your runs
 
+## Next Level
+
+Once you're comfortable with the basics, explore these power-user features:
+
+### orch-monitor TUI
+
+A visual dashboard for managing issues and runs:
+
+```bash
+# Install the TUI
+uv tool install ./orch-monitor-tui
+
+# Launch it
+orch-monitor --new
+```
+
+Features:
+- See all issues and runs at a glance
+- Start runs with a keypress
+- Attach to agents directly from the UI
+- Chat with a control agent to manage tasks
+
+See the [orch-monitor guide](./orch-monitor.md) for details.
+
+### Control Agent
+
+Use a persistent AI agent to manage your orch workflow through conversation:
+
+```bash
+# Start or attach to control agent
+orch agent
+
+# Force a new session
+orch agent --new
+```
+
+Ask it to create issues, start runs, check status—all through natural language.
+
+### Daily Workflow Patterns
+
+Learn efficient patterns for working with orch day-to-day:
+- Morning routines for checking overnight progress
+- How to handle blocked agents
+- Running multiple agents in parallel
+- Reviewing and merging agent PRs
+
+See the [Daily Workflow guide](./daily-workflow.md).
+
+### View Agent Changes
+
+Quickly see what an agent has changed:
+
+```bash
+# Show full diff
+orch diff my-issue
+
+# Show just the stats
+orch diff --stat my-issue
+```
+
 ## Troubleshooting
 
 ### Run fails immediately
