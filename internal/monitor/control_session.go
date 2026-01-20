@@ -63,7 +63,8 @@ func SaveControlSession(orchDir string, session *ControlSession) error {
 }
 
 // ClearControlSession removes the stored control session file.
-// This is used when --new flag is set to force a fresh session.
+// This is used when --new-control-agent flag is set to force a fresh control agent session.
+// Note: --new alone (layout restart) does NOT clear the control session.
 func ClearControlSession(orchDir string) error {
 	if orchDir == "" {
 		return nil

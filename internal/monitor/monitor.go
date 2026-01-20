@@ -43,45 +43,47 @@ const (
 )
 
 type Options struct {
-	Session      string
-	Issue        string
-	Statuses     []model.Status
-	RunSort      SortKey
-	IssueSort    SortKey
-	Agent        string
-	Attach       bool
-	ForceNew     bool
-	OrchPath     string
-	GlobalFlags  []string
-	ShowResolved bool
-	ShowClosed   bool
-	UISettings   *UISettings
-	ProjectRoot  string
+	Session         string
+	Issue           string
+	Statuses        []model.Status
+	RunSort         SortKey
+	IssueSort       SortKey
+	Agent           string
+	Attach          bool
+	ForceNew        bool
+	NewControlAgent bool  // If true, also restart the control agent session
+	OrchPath        string
+	GlobalFlags     []string
+	ShowResolved    bool
+	ShowClosed      bool
+	UISettings      *UISettings
+	ProjectRoot     string
 }
 
 type Monitor struct {
-	session      string
-	runFilter    RunFilter
-	runSort      SortKey
-	runSortDir   SortDirection
-	issueSort    SortKey
-	issueSortDir SortDirection
-	store        store.Store
-	daemonClient *daemon.Client
-	orchPath     string
-	globalFlags  []string
-	agent        string
-	attach       bool
-	forceNew     bool
-	runs         []*RunWindow
-	dashboard    *Dashboard
-	showResolved bool
-	showClosed   bool
-	uiSettings   *UISettings
-	orchDir      string
-	presets      []config.Preset
-	projectRoot  string
-	logger       *log.Logger
+	session         string
+	runFilter       RunFilter
+	runSort         SortKey
+	runSortDir      SortDirection
+	issueSort       SortKey
+	issueSortDir    SortDirection
+	store           store.Store
+	daemonClient    *daemon.Client
+	orchPath        string
+	globalFlags     []string
+	agent           string
+	attach          bool
+	forceNew        bool
+	newControlAgent bool
+	runs            []*RunWindow
+	dashboard       *Dashboard
+	showResolved    bool
+	showClosed      bool
+	uiSettings      *UISettings
+	orchDir         string
+	presets         []config.Preset
+	projectRoot     string
+	logger          *log.Logger
 
 	monitorID     string
 	heartbeatStop chan struct{}
@@ -147,26 +149,27 @@ func New(st store.Store, opts Options) *Monitor {
 	}
 
 	return &Monitor{
-		session:      session,
-		runFilter:    newRunFilter(opts),
-		runSort:      runSort,
-		runSortDir:   runSortDir,
-		issueSort:    issueSort,
-		issueSortDir: issueSortDir,
-		store:        st,
-		daemonClient: daemonClient,
-		orchPath:     orchPath,
-		globalFlags:  opts.GlobalFlags,
-		agent:        opts.Agent,
-		attach:       opts.Attach,
-		forceNew:     opts.ForceNew,
-		showResolved: opts.ShowResolved,
-		showClosed:   opts.ShowClosed,
-		uiSettings:   uiSettings,
-		orchDir:      orchDir,
-		presets:      presets,
-		projectRoot:  projectRoot,
-		logger:       logger,
+		session:         session,
+		runFilter:       newRunFilter(opts),
+		runSort:         runSort,
+		runSortDir:      runSortDir,
+		issueSort:       issueSort,
+		issueSortDir:    issueSortDir,
+		store:           st,
+		daemonClient:    daemonClient,
+		orchPath:        orchPath,
+		globalFlags:     opts.GlobalFlags,
+		agent:           opts.Agent,
+		attach:          opts.Attach,
+		forceNew:        opts.ForceNew,
+		newControlAgent: opts.NewControlAgent,
+		showResolved:    opts.ShowResolved,
+		showClosed:      opts.ShowClosed,
+		uiSettings:      uiSettings,
+		orchDir:         orchDir,
+		presets:         presets,
+		projectRoot:     projectRoot,
+		logger:          logger,
 	}
 }
 
@@ -314,9 +317,14 @@ func (m *Monitor) Start() error {
 		return fmt.Errorf("tmux is not available")
 	}
 
-	if m.forceNew {
-		if err := ClearControlSession(m.orchDir); err != nil {
-			return fmt.Errorf("failed to clear control session: %w", err)
+	// forceNew restarts the layout (kills tmux session)
+	// newControlAgent additionally restarts the control agent (clears session file)
+	if m.forceNew || m.newControlAgent {
+		// Only clear control session if explicitly requested
+		if m.newControlAgent {
+			if err := ClearControlSession(m.orchDir); err != nil {
+				return fmt.Errorf("failed to clear control session: %w", err)
+			}
 		}
 		if tmux.HasSession(m.session) {
 			if tmux.IsInsideTmux() {
