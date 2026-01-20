@@ -1,0 +1,63 @@
+# Release workflow - builds cross-platform binaries on tag push
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build-go:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Build binary
+        run: |
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+          go build -o orch-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/orch
+      - uses: actions/upload-artifact@v4
+        with:
+          name: orch-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: orch-${{ matrix.goos }}-${{ matrix.goarch }}
+
+  release:
+    needs: [build-go]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Prepare release files
+        run: |
+          cd artifacts
+          sha256sum */orch-* > ../checksums.txt
+          for dir in */; do
+            mv "$dir"orch-* ../ 2>/dev/null || true
+          done
+          cd ..
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            orch-*
+            checksums.txt
+          generate_release_notes: true
