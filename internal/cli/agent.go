@@ -1,10 +1,10 @@
 package cli
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -23,11 +23,11 @@ const (
 
 // ControlAgentState persists state about the control agent session.
 type ControlAgentState struct {
-	SessionID   string    `json:"session_id"`
-	Backend     string    `json:"backend"`
-	CreatedAt   time.Time `json:"created_at"`
-	TmuxSession string    `json:"tmux_session"`
-	Port        int       `json:"port,omitempty"`
+	Backend            string    `json:"backend"`                        // Agent backend (opencode, claude, etc.)
+	CreatedAt          time.Time `json:"created_at"`                     // When the session was created
+	SessionID          string    `json:"session_id,omitempty"`           // For opencode: native session ID
+	MultiplexerSession string    `json:"multiplexer_session,omitempty"`  // For claude/codex: tmux/zellij session name
+	Multiplexer        string    `json:"multiplexer,omitempty"`          // For claude/codex: "tmux" or "zellij"
 }
 
 type agentOptions struct {
@@ -47,10 +47,13 @@ func newAgentCmd() *cobra.Command {
 By default, attaches to an existing control agent session if one exists,
 otherwise creates a new one.
 
+For opencode backend: Uses native --session flag for persistence (no multiplexer).
+For claude/codex/gemini: Uses tmux or zellij based on multiplexer config.
+
 Examples:
   orch agent                    # Attach to existing or create new
   orch agent --new              # Force create a new session
-  orch agent --backend claude   # Use claude backend
+  orch agent --backend claude   # Use claude backend (with multiplexer)
   orch agent --kill             # Terminate control agent session`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runAgent(opts)
@@ -71,52 +74,22 @@ func runAgent(opts *agentOptions) error {
 	}
 
 	orchDir := monitor.GetOrchDir(projectRoot)
-	mux := multiplexer.GetDefault()
 
 	// Handle --kill flag
 	if opts.Kill {
-		return killControlAgent(orchDir, mux)
+		return killControlAgent(orchDir)
 	}
 
-	// If --new flag, clear existing session state first
-	if opts.New {
-		if err := clearControlAgentState(orchDir); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to clear existing state: %v\n", err)
-		}
-		// Also kill existing tmux session if present
-		if mux.HasSession(controlAgentSessionName) {
-			_ = mux.KillSession(controlAgentSessionName)
-		}
-	}
-
-	// Load existing state
-	state := loadControlAgentState(orchDir)
-
-	// Check if existing session is still alive
-	if state != nil && mux.HasSession(state.TmuxSession) {
-		fmt.Fprintf(os.Stderr, "Attaching to existing control agent (session: %s)\n", state.TmuxSession)
-		return attachToSession(mux, state.TmuxSession)
-	}
-
-	// Create new session
-	return createControlAgent(orchDir, opts, mux, projectRoot)
-}
-
-func createControlAgent(orchDir string, opts *agentOptions, mux multiplexer.Multiplexer, projectRoot string) error {
-	// Determine backend
+	// Determine backend from flag or config
 	backend := opts.Backend
 	if backend == "" {
 		cfg, err := config.Load()
-		if err == nil {
-			if cfg.ControlAgent != "" {
-				backend = cfg.ControlAgent
-			} else if cfg.Agent != "" {
-				backend = cfg.Agent
-			}
+		if err == nil && cfg.Agent != "" {
+			backend = cfg.Agent
 		}
 	}
 	if backend == "" {
-		backend = "opencode"
+		return fmt.Errorf("no agent configured: set 'agent' in .orch/config.yaml or use --backend flag")
 	}
 
 	// Validate backend
@@ -125,13 +98,32 @@ func createControlAgent(orchDir string, opts *agentOptions, mux multiplexer.Mult
 		return fmt.Errorf("invalid backend: %w", err)
 	}
 
-	adapter, err := agent.GetAdapter(agentType)
-	if err != nil {
-		return fmt.Errorf("failed to get adapter for %s: %w", backend, err)
+	// Route to appropriate handler based on backend
+	if agentType == agent.AgentOpenCode {
+		return runOpenCodeAgent(orchDir, opts)
+	}
+	return runMultiplexerAgent(orchDir, opts, agentType)
+}
+
+// runOpenCodeAgent handles opencode backend using native --session flag (no tmux)
+func runOpenCodeAgent(orchDir string, opts *agentOptions) error {
+	// Load existing state
+	state := loadControlAgentState(orchDir)
+
+	// If --new flag, clear existing session state
+	if opts.New {
+		if err := clearControlAgentState(orchDir); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to clear existing state: %v\n", err)
+		}
+		state = nil
 	}
 
-	if !adapter.IsAvailable() {
-		return fmt.Errorf("%s CLI is not available", backend)
+	// Check if existing session is alive via opencode's session mechanism
+	var sessionID string
+	if state != nil && state.SessionID != "" && state.Backend == "opencode" {
+		// opencode handles session liveness internally via --session flag
+		sessionID = state.SessionID
+		fmt.Fprintf(os.Stderr, "Resuming opencode session: %s\n", sessionID)
 	}
 
 	// Get store for control prompt
@@ -140,14 +132,143 @@ func createControlAgent(orchDir string, opts *agentOptions, mux multiplexer.Mult
 		return fmt.Errorf("failed to get store: %w", err)
 	}
 
-	// Write control prompt file using monitor's function
+	// Write control prompt file
 	promptPath, err := writeControlPromptForAgent(st)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: failed to write control prompt: %v\n", err)
 	}
 
-	// Determine model settings from config
-	var modelName, modelVariant string
+	// Build opencode command
+	binary, err := exec.LookPath("opencode")
+	if err != nil {
+		return fmt.Errorf("opencode not found in PATH")
+	}
+
+	args := []string{}
+
+	// Resume existing session or start fresh
+	if sessionID != "" {
+		args = append(args, "--session", sessionID)
+	}
+
+	// Add prompt instruction
+	args = append(args, "--prompt", monitor.GetControlPromptInstruction())
+
+	if promptPath != "" {
+		fmt.Fprintf(os.Stderr, "Control prompt: %s\n", promptPath)
+	}
+
+	// Create new state before running (opencode will use/create session)
+	if state == nil || opts.New {
+		// Generate a session ID for opencode to use
+		newSessionID := fmt.Sprintf("orch-control-%d", time.Now().Unix())
+		args = []string{"--session", newSessionID, "--prompt", monitor.GetControlPromptInstruction()}
+		
+		newState := &ControlAgentState{
+			Backend:   "opencode",
+			CreatedAt: time.Now(),
+			SessionID: newSessionID,
+		}
+		if err := saveControlAgentState(orchDir, newState); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to save state: %v\n", err)
+		}
+		fmt.Fprintf(os.Stderr, "Creating opencode session: %s\n", newSessionID)
+	}
+
+	// Run opencode interactively (no tmux wrapper)
+	cmd := exec.Command(binary, args...)
+	cmd.Dir, _ = os.Getwd()
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	return cmd.Run()
+}
+
+// runMultiplexerAgent handles claude/codex/gemini using tmux or zellij
+func runMultiplexerAgent(orchDir string, opts *agentOptions, agentType agent.AgentType) error {
+	// Get multiplexer from config
+	cfg, _ := config.Load()
+	muxType := multiplexer.TypeTmux
+	if cfg != nil && cfg.GetMultiplexer() != "" {
+		parsed, err := multiplexer.ParseType(cfg.GetMultiplexer())
+		if err == nil && parsed != multiplexer.TypeAuto {
+			muxType = parsed
+		}
+	}
+
+	// Get multiplexer instance
+	var mux multiplexer.Multiplexer
+	var err error
+	if muxType == multiplexer.TypeAuto {
+		mux, err = multiplexer.GetAuto()
+	} else {
+		mux, _, err = multiplexer.GetWithFallback(muxType)
+	}
+	if err != nil {
+		return fmt.Errorf("no multiplexer available: %w", err)
+	}
+
+	// Load existing state
+	state := loadControlAgentState(orchDir)
+
+	// If --new flag, kill existing session
+	if opts.New {
+		if mux.HasSession(controlAgentSessionName) {
+			_ = mux.KillSession(controlAgentSessionName)
+		}
+		if err := clearControlAgentState(orchDir); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to clear existing state: %v\n", err)
+		}
+		state = nil
+	}
+
+	// Liveness check: use multiplexer's has-session
+	sessionExists := mux.HasSession(controlAgentSessionName)
+
+	// Also verify state matches
+	if state != nil && state.MultiplexerSession != "" {
+		if !mux.HasSession(state.MultiplexerSession) {
+			// Stale state, clear it
+			_ = clearControlAgentState(orchDir)
+			state = nil
+			sessionExists = false
+		}
+	}
+
+	if sessionExists {
+		fmt.Fprintf(os.Stderr, "Attaching to existing control agent session (%s)\n", mux.Type())
+		return attachToMuxSession(mux, controlAgentSessionName)
+	}
+
+	// Create new session
+	return createMultiplexerSession(orchDir, agentType, mux)
+}
+
+func createMultiplexerSession(orchDir string, agentType agent.AgentType, mux multiplexer.Multiplexer) error {
+	adapter, err := agent.GetAdapter(agentType)
+	if err != nil {
+		return fmt.Errorf("failed to get adapter: %w", err)
+	}
+
+	if !adapter.IsAvailable() {
+		return fmt.Errorf("%s CLI is not available", agentType)
+	}
+
+	// Get store for control prompt
+	st, err := getStore()
+	if err != nil {
+		return fmt.Errorf("failed to get store: %w", err)
+	}
+
+	// Write control prompt file
+	promptPath, err := writeControlPromptForAgent(st)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to write control prompt: %v\n", err)
+	}
+
+	// Get model settings from config
+	var modelName, modelVariant, profile string
 	cfg, cfgErr := config.Load()
 	if cfgErr == nil {
 		modelName = cfg.ControlModel
@@ -158,18 +279,17 @@ func createControlAgent(orchDir string, opts *agentOptions, mux multiplexer.Mult
 		if modelVariant == "" {
 			modelVariant = cfg.ModelVariant
 		}
+		// profile not in global config, only in presets
 	}
 
 	// Prepare launch config
-	port := 4096
 	launchCfg := &agent.LaunchConfig{
-		Type:            agentType,
-		IssuesRoot:      st.RootPath(),
-		Prompt:          monitor.GetControlPromptInstruction(),
-		ContinueSession: true,
-		Port:            port,
-		Model:           modelName,
-		ModelVariant:    modelVariant,
+		Type:         agentType,
+		IssuesRoot:   st.RootPath(),
+		Prompt:       monitor.GetControlPromptInstruction(),
+		Model:        modelName,
+		ModelVariant: modelVariant,
+		Profile:      profile,
 	}
 
 	// Get launch command
@@ -178,13 +298,13 @@ func createControlAgent(orchDir string, opts *agentOptions, mux multiplexer.Mult
 		return fmt.Errorf("failed to create launch command: %w", err)
 	}
 
-	// Get working directory (project root)
+	// Get working directory
 	workDir, err := os.Getwd()
 	if err != nil {
-		workDir = projectRoot
+		workDir, _ = getProjectRoot()
 	}
 
-	// Create tmux session
+	// Create multiplexer session
 	sessionCfg := &multiplexer.SessionConfig{
 		SessionName: controlAgentSessionName,
 		WorkDir:     workDir,
@@ -192,49 +312,45 @@ func createControlAgent(orchDir string, opts *agentOptions, mux multiplexer.Mult
 		WindowName:  "agent",
 	}
 
-	fmt.Fprintf(os.Stderr, "Creating control agent session (%s)...\n", backend)
+	fmt.Fprintf(os.Stderr, "Creating control agent session (%s, %s)...\n", agentType, mux.Type())
 
 	if err := mux.NewSession(sessionCfg); err != nil {
-		return fmt.Errorf("failed to create tmux session: %w", err)
+		return fmt.Errorf("failed to create session: %w", err)
 	}
 
 	// Save state
 	state := &ControlAgentState{
-		Backend:     backend,
-		CreatedAt:   time.Now(),
-		TmuxSession: controlAgentSessionName,
-		Port:        port,
-	}
-
-	// For opencode, we need to get/create the session via HTTP
-	if agentType == agent.AgentOpenCode {
-		state.SessionID = getOrCreateOpenCodeSession(orchDir, port)
+		Backend:            string(agentType),
+		CreatedAt:          time.Now(),
+		MultiplexerSession: controlAgentSessionName,
+		Multiplexer:        string(mux.Type()),
 	}
 
 	if err := saveControlAgentState(orchDir, state); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: failed to save state: %v\n", err)
 	}
 
-	// Attach to session
 	if promptPath != "" {
 		fmt.Fprintf(os.Stderr, "Control prompt: %s\n", promptPath)
 	}
 	fmt.Fprintf(os.Stderr, "Attaching to control agent...\n")
 
-	return attachToSession(mux, controlAgentSessionName)
+	return attachToMuxSession(mux, controlAgentSessionName)
 }
 
-func attachToSession(mux multiplexer.Multiplexer, session string) error {
+func attachToMuxSession(mux multiplexer.Multiplexer, session string) error {
 	if mux.IsInsideSession() {
 		return mux.SwitchClient(session)
 	}
 	return mux.AttachSession(session)
 }
 
-func killControlAgent(orchDir string, mux multiplexer.Multiplexer) error {
+func killControlAgent(orchDir string) error {
 	state := loadControlAgentState(orchDir)
+
 	if state == nil {
-		// Still try to kill session by name
+		// Try to kill session by name anyway (for tmux/zellij)
+		mux := multiplexer.GetDefault()
 		if mux.HasSession(controlAgentSessionName) {
 			if err := mux.KillSession(controlAgentSessionName); err != nil {
 				return fmt.Errorf("failed to kill session: %w", err)
@@ -246,17 +362,34 @@ func killControlAgent(orchDir string, mux multiplexer.Multiplexer) error {
 		return nil
 	}
 
-	sessionName := state.TmuxSession
-	if sessionName == "" {
-		sessionName = controlAgentSessionName
+	// For opencode, just clear the state (opencode manages its own sessions)
+	if state.Backend == "opencode" {
+		if err := clearControlAgentState(orchDir); err != nil {
+			return fmt.Errorf("failed to clear state: %w", err)
+		}
+		fmt.Println("Control agent session cleared")
+		return nil
 	}
 
-	if mux.HasSession(sessionName) {
-		if err := mux.KillSession(sessionName); err != nil {
-			return fmt.Errorf("failed to kill session: %w", err)
+	// For multiplexer-based sessions
+	if state.MultiplexerSession != "" {
+		muxType := multiplexer.TypeTmux
+		if state.Multiplexer != "" {
+			parsed, _ := multiplexer.ParseType(state.Multiplexer)
+			if parsed != "" && parsed != multiplexer.TypeAuto {
+				muxType = parsed
+			}
+		}
+
+		mux, err := multiplexer.GetMultiplexer(muxType)
+		if err == nil && mux.HasSession(state.MultiplexerSession) {
+			if err := mux.KillSession(state.MultiplexerSession); err != nil {
+				return fmt.Errorf("failed to kill session: %w", err)
+			}
 		}
 	}
 
+	// Clear state file
 	if err := clearControlAgentState(orchDir); err != nil {
 		return fmt.Errorf("failed to clear state: %w", err)
 	}
@@ -317,43 +450,6 @@ func clearControlAgentState(orchDir string) error {
 		return nil
 	}
 	return err
-}
-
-func getOrCreateOpenCodeSession(orchDir string, port int) string {
-	client := agent.NewOpenCodeClient(port)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// Wait for server to be healthy
-	if err := client.WaitForHealthy(ctx, 30*time.Second); err != nil {
-		return ""
-	}
-
-	// Check if we have an existing stored session for this opencode instance
-	stored := monitor.LoadControlSession(orchDir)
-	if stored != nil && stored.SessionID != "" {
-		// Verify session still exists
-		cwd, _ := os.Getwd()
-		session, err := client.GetSession(ctx, stored.SessionID, cwd)
-		if err == nil && session != nil {
-			return stored.SessionID
-		}
-	}
-
-	// Create new session
-	cwd, _ := os.Getwd()
-	session, err := client.CreateSession(ctx, "control-agent", cwd)
-	if err != nil {
-		return ""
-	}
-
-	// Also save to the monitor-compatible file for compatibility
-	_ = monitor.SaveControlSession(orchDir, &monitor.ControlSession{
-		SessionID: session.ID,
-		Port:      port,
-	})
-
-	return session.ID
 }
 
 // writeControlPromptForAgent writes the control prompt file using the monitor package

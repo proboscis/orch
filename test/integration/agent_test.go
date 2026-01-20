@@ -2,6 +2,7 @@ package integration
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,11 +50,9 @@ func setupAgentTest(t *testing.T) (orchDir string, cleanup func()) {
 }
 
 // runAgentCommand runs orch agent and waits for session creation
-// Returns any error from the command (attach errors are expected)
 func runAgentCommand(t *testing.T, args ...string) error {
 	t.Helper()
 
-	// Build full args with project root
 	fullArgs := append([]string{
 		"--project-root", testRepo,
 		"--issues-root", testVault,
@@ -62,10 +61,8 @@ func runAgentCommand(t *testing.T, args ...string) error {
 
 	cmd := exec.Command(orchBinary, fullArgs...)
 	cmd.Dir = testRepo
-	// Ensure we're not inside tmux so attach will fail quickly
 	cmd.Env = append(os.Environ(), "TMUX=")
 
-	// Run with timeout - the command will fail on attach since there's no TTY
 	done := make(chan error, 1)
 	go func() {
 		done <- cmd.Run()
@@ -80,33 +77,34 @@ func runAgentCommand(t *testing.T, args ...string) error {
 	}
 }
 
-func TestAgentCreatesNewSession(t *testing.T) {
-	if !hasTmux() {
-		t.Skip("tmux not available")
+// writeAgentConfig writes a minimal config file for agent tests
+func writeAgentConfig(t *testing.T, orchDir string, agent string, mux string) {
+	t.Helper()
+	configPath := filepath.Join(orchDir, "config.yaml")
+	content := fmt.Sprintf("agent: %s\n", agent)
+	if mux != "" {
+		content += fmt.Sprintf("multiplexer: %s\n", mux)
 	}
-
-	orchDir, cleanup := setupAgentTest(t)
-	defer cleanup()
-
-	// Run agent command - will create session then fail on attach (no TTY)
-	_ = runAgentCommand(t)
-
-	// Give session time to be created
-	time.Sleep(500 * time.Millisecond)
-
-	// Verify session was created
-	if !hasTmuxSession(controlAgentSessionName) {
-		t.Error("expected control agent session to be created")
-	}
-
-	// Verify state file was created
-	stateFile := filepath.Join(orchDir, "control-agent.json")
-	if _, err := os.Stat(stateFile); os.IsNotExist(err) {
-		t.Error("expected state file to be created at .orch/control-agent.json")
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
 	}
 }
 
-func TestAgentStateFilePersistence(t *testing.T) {
+// TestAgentRequiresConfig verifies agent fails without config
+func TestAgentRequiresConfig(t *testing.T) {
+	orchDir, cleanup := setupAgentTest(t)
+	defer cleanup()
+
+	os.Remove(filepath.Join(orchDir, "config.yaml"))
+
+	_, err := runOrch(t, "--project-root", testRepo, "agent")
+	if err == nil {
+		t.Error("expected error when no agent configured")
+	}
+}
+
+// TestAgentClaudeCreatesMultiplexerSession tests claude backend with tmux
+func TestAgentClaudeCreatesMultiplexerSession(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not available")
 	}
@@ -114,13 +112,16 @@ func TestAgentStateFilePersistence(t *testing.T) {
 	orchDir, cleanup := setupAgentTest(t)
 	defer cleanup()
 
-	// Run agent command
-	_ = runAgentCommand(t)
+	writeAgentConfig(t, orchDir, "claude", "tmux")
 
-	// Give time for file to be written
+	_ = runAgentCommand(t, "--backend", "claude")
+
 	time.Sleep(500 * time.Millisecond)
 
-	// Read and verify state file
+	if !hasTmuxSession(controlAgentSessionName) {
+		t.Error("expected tmux session to be created for claude backend")
+	}
+
 	stateFile := filepath.Join(orchDir, "control-agent.json")
 	data, err := os.ReadFile(stateFile)
 	if err != nil {
@@ -128,126 +129,78 @@ func TestAgentStateFilePersistence(t *testing.T) {
 	}
 
 	var state struct {
-		Backend     string `json:"backend"`
-		CreatedAt   string `json:"created_at"`
-		TmuxSession string `json:"tmux_session"`
-		Port        int    `json:"port,omitempty"`
-	}
-	if err := json.Unmarshal(data, &state); err != nil {
-		t.Fatalf("failed to parse state file: %v", err)
-	}
-
-	// Verify state contents
-	if state.Backend == "" {
-		t.Error("expected backend to be set")
-	}
-	if state.TmuxSession != controlAgentSessionName {
-		t.Errorf("expected tmux_session=%s, got %s", controlAgentSessionName, state.TmuxSession)
-	}
-	if state.CreatedAt == "" {
-		t.Error("expected created_at to be set")
-	}
-}
-
-func TestAgentAttachesToExistingSession(t *testing.T) {
-	if !hasTmux() {
-		t.Skip("tmux not available")
-	}
-
-	orchDir, cleanup := setupAgentTest(t)
-	defer cleanup()
-
-	// First, create a session manually
-	cmd := exec.Command("tmux", "new-session", "-d", "-s", controlAgentSessionName)
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("failed to create initial session: %v", err)
-	}
-
-	// Create a state file pointing to it with a known timestamp
-	stateFile := filepath.Join(orchDir, "control-agent.json")
-	initialState := `{
-		"backend": "opencode",
-		"created_at": "2026-01-01T00:00:00Z",
-		"tmux_session": "orch-control-agent"
-	}`
-	if err := os.WriteFile(stateFile, []byte(initialState), 0644); err != nil {
-		t.Fatalf("failed to write state file: %v", err)
-	}
-
-	// Run agent command - should try to attach to existing
-	_ = runAgentCommand(t)
-
-	// Session should still exist
-	if !hasTmuxSession(controlAgentSessionName) {
-		t.Error("expected existing session to still exist")
-	}
-
-	// State file should not be overwritten (check created_at is unchanged)
-	data, err := os.ReadFile(stateFile)
-	if err != nil {
-		t.Fatalf("failed to read state file: %v", err)
-	}
-	if !strings.Contains(string(data), "2026-01-01T00:00:00Z") {
-		t.Error("expected state file to not be overwritten when attaching to existing session")
-	}
-}
-
-func TestAgentNewForcesNewSession(t *testing.T) {
-	if !hasTmux() {
-		t.Skip("tmux not available")
-	}
-
-	orchDir, cleanup := setupAgentTest(t)
-	defer cleanup()
-
-	// First, create a session manually
-	cmd := exec.Command("tmux", "new-session", "-d", "-s", controlAgentSessionName)
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("failed to create initial session: %v", err)
-	}
-
-	// Create a state file with old timestamp
-	stateFile := filepath.Join(orchDir, "control-agent.json")
-	initialState := `{
-		"backend": "claude",
-		"created_at": "2025-01-01T00:00:00Z",
-		"tmux_session": "orch-control-agent"
-	}`
-	if err := os.WriteFile(stateFile, []byte(initialState), 0644); err != nil {
-		t.Fatalf("failed to write state file: %v", err)
-	}
-
-	// Run agent with --new flag
-	_ = runAgentCommand(t, "--new")
-
-	// Give time for session to be recreated
-	time.Sleep(500 * time.Millisecond)
-
-	// Session should exist (recreated)
-	if !hasTmuxSession(controlAgentSessionName) {
-		t.Error("expected new session to be created")
-	}
-
-	// State file should be updated with new timestamp
-	data, err := os.ReadFile(stateFile)
-	if err != nil {
-		t.Fatalf("failed to read state file: %v", err)
-	}
-
-	var state struct {
-		CreatedAt string `json:"created_at"`
+		Backend            string `json:"backend"`
+		MultiplexerSession string `json:"multiplexer_session"`
+		Multiplexer        string `json:"multiplexer"`
 	}
 	if err := json.Unmarshal(data, &state); err != nil {
 		t.Fatalf("failed to parse state: %v", err)
 	}
 
-	// Timestamp should be updated (not the old 2025 one)
-	if strings.HasPrefix(state.CreatedAt, "2025-") {
-		t.Error("expected state file to be updated with new timestamp when --new flag used")
+	if state.Backend != "claude" {
+		t.Errorf("expected backend=claude, got %s", state.Backend)
+	}
+	if state.MultiplexerSession != controlAgentSessionName {
+		t.Errorf("expected multiplexer_session=%s, got %s", controlAgentSessionName, state.MultiplexerSession)
+	}
+	if state.Multiplexer != "tmux" {
+		t.Errorf("expected multiplexer=tmux, got %s", state.Multiplexer)
 	}
 }
 
-func TestAgentKillTerminatesSession(t *testing.T) {
+// TestAgentOpenCodeNoMultiplexer tests opencode uses native session (no tmux)
+func TestAgentOpenCodeNoMultiplexer(t *testing.T) {
+	if _, err := exec.LookPath("opencode"); err != nil {
+		t.Skip("opencode not available")
+	}
+
+	orchDir, cleanup := setupAgentTest(t)
+	defer cleanup()
+
+	writeAgentConfig(t, orchDir, "opencode", "tmux")
+
+	cmd := exec.Command(orchBinary,
+		"--project-root", testRepo,
+		"--issues-root", testVault,
+		"agent", "--backend", "opencode")
+	cmd.Dir = testRepo
+
+	cmd.Start()
+	time.Sleep(1 * time.Second)
+	cmd.Process.Kill()
+
+	if hasTmuxSession(controlAgentSessionName) {
+		t.Error("opencode backend should NOT create tmux session")
+	}
+
+	stateFile := filepath.Join(orchDir, "control-agent.json")
+	data, err := os.ReadFile(stateFile)
+	if err != nil {
+		t.Fatalf("failed to read state file: %v", err)
+	}
+
+	var state struct {
+		Backend            string `json:"backend"`
+		SessionID          string `json:"session_id"`
+		MultiplexerSession string `json:"multiplexer_session"`
+	}
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatalf("failed to parse state: %v", err)
+	}
+
+	if state.Backend != "opencode" {
+		t.Errorf("expected backend=opencode, got %s", state.Backend)
+	}
+	if state.SessionID == "" {
+		t.Error("expected session_id to be set for opencode")
+	}
+	if state.MultiplexerSession != "" {
+		t.Error("opencode should not have multiplexer_session")
+	}
+}
+
+// TestAgentAttachesToExistingMultiplexerSession tests reattach to existing tmux session
+func TestAgentAttachesToExistingMultiplexerSession(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not available")
 	}
@@ -255,36 +208,155 @@ func TestAgentKillTerminatesSession(t *testing.T) {
 	orchDir, cleanup := setupAgentTest(t)
 	defer cleanup()
 
-	// Create a session
+	writeAgentConfig(t, orchDir, "claude", "tmux")
+
 	cmd := exec.Command("tmux", "new-session", "-d", "-s", controlAgentSessionName)
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("failed to create session: %v", err)
+		t.Fatalf("failed to create initial session: %v", err)
 	}
 
-	// Create state file
 	stateFile := filepath.Join(orchDir, "control-agent.json")
-	state := `{
-		"backend": "opencode",
-		"created_at": "2026-01-20T16:00:00Z",
-		"tmux_session": "orch-control-agent"
+	initialState := `{
+		"backend": "claude",
+		"created_at": "2026-01-01T00:00:00Z",
+		"multiplexer_session": "orch-control-agent",
+		"multiplexer": "tmux"
 	}`
-	if err := os.WriteFile(stateFile, []byte(state), 0644); err != nil {
+	if err := os.WriteFile(stateFile, []byte(initialState), 0644); err != nil {
 		t.Fatalf("failed to write state: %v", err)
 	}
 
-	// Run agent --kill
+	_ = runAgentCommand(t, "--backend", "claude")
+
+	if !hasTmuxSession(controlAgentSessionName) {
+		t.Error("expected session to still exist")
+	}
+
+	data, _ := os.ReadFile(stateFile)
+	if !strings.Contains(string(data), "2026-01-01T00:00:00Z") {
+		t.Error("state file should not be overwritten when attaching to existing session")
+	}
+}
+
+// TestAgentNewForcesNewMultiplexerSession tests --new flag recreates session
+func TestAgentNewForcesNewMultiplexerSession(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not available")
+	}
+
+	orchDir, cleanup := setupAgentTest(t)
+	defer cleanup()
+
+	writeAgentConfig(t, orchDir, "claude", "tmux")
+
+	exec.Command("tmux", "new-session", "-d", "-s", controlAgentSessionName).Run()
+
+	stateFile := filepath.Join(orchDir, "control-agent.json")
+	oldState := `{
+		"backend": "claude",
+		"created_at": "2025-01-01T00:00:00Z",
+		"multiplexer_session": "orch-control-agent",
+		"multiplexer": "tmux"
+	}`
+	os.WriteFile(stateFile, []byte(oldState), 0644)
+
+	_ = runAgentCommand(t, "--backend", "claude", "--new")
+
+	time.Sleep(500 * time.Millisecond)
+
+	if !hasTmuxSession(controlAgentSessionName) {
+		t.Error("expected new session to be created")
+	}
+
+	data, _ := os.ReadFile(stateFile)
+	var state struct {
+		CreatedAt string `json:"created_at"`
+	}
+	json.Unmarshal(data, &state)
+
+	if strings.HasPrefix(state.CreatedAt, "2025-") {
+		t.Error("state should be updated with new timestamp")
+	}
+}
+
+// TestAgentKillTerminatesMultiplexerSession tests --kill flag
+func TestAgentKillTerminatesMultiplexerSession(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not available")
+	}
+
+	orchDir, cleanup := setupAgentTest(t)
+	defer cleanup()
+
+	writeAgentConfig(t, orchDir, "claude", "tmux")
+
+	exec.Command("tmux", "new-session", "-d", "-s", controlAgentSessionName).Run()
+
+	stateFile := filepath.Join(orchDir, "control-agent.json")
+	state := `{
+		"backend": "claude",
+		"created_at": "2026-01-20T16:00:00Z",
+		"multiplexer_session": "orch-control-agent",
+		"multiplexer": "tmux"
+	}`
+	os.WriteFile(stateFile, []byte(state), 0644)
+
 	output, err := runOrch(t, "--project-root", testRepo, "agent", "--kill")
 	if err != nil {
 		t.Fatalf("agent --kill failed: %v\nOutput: %s", err, output)
 	}
 
-	// Session should be gone
 	if hasTmuxSession(controlAgentSessionName) {
-		t.Error("expected session to be terminated after --kill")
+		t.Error("expected session to be terminated")
 	}
 
-	// State file should be removed
 	if _, err := os.Stat(stateFile); !os.IsNotExist(err) {
-		t.Error("expected state file to be removed after --kill")
+		t.Error("expected state file to be removed")
+	}
+}
+
+// TestAgentStatePersistence tests state file schema
+func TestAgentStatePersistence(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not available")
+	}
+
+	orchDir, cleanup := setupAgentTest(t)
+	defer cleanup()
+
+	writeAgentConfig(t, orchDir, "claude", "tmux")
+
+	_ = runAgentCommand(t, "--backend", "claude")
+
+	time.Sleep(500 * time.Millisecond)
+
+	stateFile := filepath.Join(orchDir, "control-agent.json")
+	data, err := os.ReadFile(stateFile)
+	if err != nil {
+		t.Fatalf("failed to read state: %v", err)
+	}
+
+	var state struct {
+		Backend            string `json:"backend"`
+		CreatedAt          string `json:"created_at"`
+		SessionID          string `json:"session_id"`
+		MultiplexerSession string `json:"multiplexer_session"`
+		Multiplexer        string `json:"multiplexer"`
+	}
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatalf("failed to parse state: %v", err)
+	}
+
+	if state.Backend != "claude" {
+		t.Errorf("expected backend=claude, got %s", state.Backend)
+	}
+	if state.CreatedAt == "" {
+		t.Error("expected created_at to be set")
+	}
+	if state.MultiplexerSession == "" {
+		t.Error("expected multiplexer_session to be set for claude")
+	}
+	if state.Multiplexer == "" {
+		t.Error("expected multiplexer to be set for claude")
 	}
 }
