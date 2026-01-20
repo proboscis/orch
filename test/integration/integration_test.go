@@ -547,3 +547,107 @@ run: 20231220-100000
 		// tick may fail if tmux is not available, that's ok for this test
 	}
 }
+
+// TestDuplicateFrontmatterE2E tests that duplicate frontmatter is detected
+// and a warning is emitted via stderr.
+func TestDuplicateFrontmatterE2E(t *testing.T) {
+	// Create a project root with .orch config
+	projectRoot, err := os.MkdirTemp("", "orch-e2e-project-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(projectRoot)
+	
+	orchDir := filepath.Join(projectRoot, ".orch")
+	os.MkdirAll(orchDir, 0755)
+	os.WriteFile(filepath.Join(orchDir, "config.yaml"), []byte("# orch config\n"), 0644)
+
+	// Test 1: Issue with duplicate frontmatter should trigger warning
+	duplicateContent := `---
+type: issue
+id: dup-test-001
+title: Test Issue With Duplicate Frontmatter
+status: open
+---
+
+# Test Issue With Duplicate Frontmatter
+
+---
+type: issue
+id: dup-test-001
+title: Test Issue With Duplicate Frontmatter
+status: open
+tags: [lost-tag1, lost-tag2]
+---
+
+# Test Issue With Duplicate Frontmatter
+
+This issue has duplicate frontmatter. Tags are in the second block and should be lost.
+`
+	path := filepath.Join(testVault, "issues", "dup-test-001.md")
+	if err := os.WriteFile(path, []byte(duplicateContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Run orch query which uses FileStore directly and emits warnings to stderr
+	cmd := exec.Command(orchBinary, "--issues-root", testVault, "--project-root", projectRoot, "query", "SELECT id, title FROM issues WHERE id = 'dup-test-001'")
+	cmd.Dir = projectRoot
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	if err != nil {
+		t.Fatalf("orch query failed: %v (stderr: %s)", err, stderr.String())
+	}
+
+	// Warning should be emitted to stderr
+	if !strings.Contains(stderr.String(), "duplicate frontmatter") {
+		t.Errorf("expected duplicate frontmatter warning in stderr, got: %q", stderr.String())
+	}
+
+	// Verify issue was found
+	if !strings.Contains(stdout.String(), "dup-test-001") {
+		t.Errorf("expected to find issue in output, got: %s", stdout.String())
+	}
+
+	// Clean up the duplicate file before testing proper file (so it doesn't trigger warning)
+	os.Remove(path)
+
+	// Test 2: Properly formatted issue should NOT trigger warning
+	properContent := `---
+type: issue
+id: proper-test-001
+title: Test Issue With Proper Frontmatter
+status: open
+tags: [tag1, tag2, tag3]
+---
+
+# Test Issue With Proper Frontmatter
+
+This issue has proper single frontmatter with tags.
+`
+	path2 := filepath.Join(testVault, "issues", "proper-test-001.md")
+	if err := os.WriteFile(path2, []byte(properContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(path2)
+
+	cmd2 := exec.Command(orchBinary, "--issues-root", testVault, "--project-root", projectRoot, "query", "SELECT id, title FROM issues WHERE id = 'proper-test-001'")
+	cmd2.Dir = projectRoot
+	var stdout2, stderr2 bytes.Buffer
+	cmd2.Stdout = &stdout2
+	cmd2.Stderr = &stderr2
+	err = cmd2.Run()
+	if err != nil {
+		t.Fatalf("orch query failed: %v (stderr: %s)", err, stderr2.String())
+	}
+
+	// No warning should be emitted for proper frontmatter
+	if strings.Contains(stderr2.String(), "duplicate frontmatter") {
+		t.Errorf("unexpected duplicate frontmatter warning for proper issue: %q", stderr2.String())
+	}
+
+	// Verify issue was found
+	if !strings.Contains(stdout2.String(), "proper-test-001") {
+		t.Errorf("expected to find issue in output, got: %s", stdout2.String())
+	}
+}

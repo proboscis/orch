@@ -262,7 +262,16 @@ func runDaemon() error {
 	}
 
 	storeFactory := func(issuesRoot string) (store.Store, error) {
-		return file.New(issuesRoot)
+		s, err := file.New(issuesRoot)
+		if err != nil {
+			return nil, err
+		}
+		// Daemon will log warnings - but they're only emitted once per file
+		// so this won't spam the logs
+		s.SetWarnFunc(func(format string, args ...any) {
+			fmt.Fprintf(os.Stderr, format, args...)
+		})
+		return s, nil
 	}
 
 	d := daemon.New(storeFactory)

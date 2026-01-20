@@ -161,7 +161,15 @@ func getStore() (store.Store, error) {
 
 	switch globalOpts.Backend {
 	case "file":
-		return file.New(issuesRoot)
+		s, err := file.New(issuesRoot)
+		if err != nil {
+			return nil, err
+		}
+		// Enable duplicate frontmatter warnings to stderr
+		s.SetWarnFunc(func(format string, args ...any) {
+			fmt.Fprintf(os.Stderr, format, args...)
+		})
+		return s, nil
 	default:
 		return nil, fmt.Errorf("unsupported backend: %s", globalOpts.Backend)
 	}
