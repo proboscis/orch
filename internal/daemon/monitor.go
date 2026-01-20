@@ -283,6 +283,26 @@ func (d *Daemon) inferStatusFromGitState(run *model.Run, st store.Store) model.S
 		d.debug("%s#%s: infer: no PR found", run.IssueID, run.RunID)
 	}
 
+	// If branch-based lookup failed but run already has a PR URL, check PR status by URL
+	// This handles cases where the local branch was deleted/rebased but PR still exists
+	if run.PRUrl != "" {
+		d.debug("%s#%s: infer: branch lookup failed, checking existing PR URL: %s", run.IssueID, run.RunID, run.PRUrl)
+		prInfo, err := pr.LookupInfoByURL(run.PRUrl)
+		if err == nil && prInfo != nil {
+			d.logger.Printf("%s#%s: infer: PR %s state=%s (via URL lookup)", run.IssueID, run.RunID, prInfo.URL, prInfo.State)
+			if prInfo.State == "MERGED" {
+				return model.StatusDone
+			}
+			return model.StatusPROpen
+		}
+		if err != nil {
+			d.debug("%s#%s: infer: PR URL lookup error: %v", run.IssueID, run.RunID, err)
+		}
+		// If URL lookup also fails, preserve PR_OPEN status since we know a PR exists
+		d.debug("%s#%s: infer: preserving pr_open status (PR URL exists but lookup failed)", run.IssueID, run.RunID)
+		return model.StatusPROpen
+	}
+
 	baseBranch := "origin/main"
 	if d.config != nil && d.config.BaseBranch != "" {
 		remote, branch := git.ParseRemoteBranch(d.config.BaseBranch)
