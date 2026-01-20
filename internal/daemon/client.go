@@ -405,6 +405,7 @@ type GetAttachInfoResponse struct {
 	WorktreePath      string `json:"worktree_path,omitempty"`
 	ServerPort        int    `json:"server_port,omitempty"`
 	OpenCodeSessionID string `json:"opencode_session_id,omitempty"`
+	Branch            string `json:"branch,omitempty"`
 }
 
 // GetAttachInfo gets attach information for a run

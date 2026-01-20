@@ -92,6 +92,7 @@ func init() {
 	rootCmd.AddCommand(newRunCmd())
 	rootCmd.AddCommand(newContinueCmd())
 	rootCmd.AddCommand(newShowCmd())
+	rootCmd.AddCommand(newDiffCmd())
 	rootCmd.AddCommand(newAttachCmd())
 	rootCmd.AddCommand(newTickCmd())
 	rootCmd.AddCommand(newOpenCmd())
