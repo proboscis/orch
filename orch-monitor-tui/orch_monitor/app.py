@@ -77,7 +77,7 @@ from .widgets import DetailPanel, IssueTable, RunTable, TabbedStatsPanel
 
 
 AUTO_REFRESH_INTERVAL = 5.0
-ELAPSED_UPDATE_INTERVAL = 1.0
+ELAPSED_UPDATE_INTERVAL = 2.0
 MESSAGE_REFRESH_INTERVAL = 2.5
 
 AGENTS = ["claude", "codex", "opencode", "gemini"]
@@ -1080,7 +1080,6 @@ class IssueFilterScreen(ModalScreen[IssueFilterResult | None]):
         self.apply_filter()
 
 
-
 class HelpScreen(ModalScreen[None]):
     """Modal screen showing keybindings and workflow tips."""
 
@@ -1177,7 +1176,6 @@ class HelpScreen(ModalScreen[None]):
 
     def action_close(self) -> None:
         self.dismiss(None)
-
 
 
 def filter_runs_client_side(runs: list[Run], filter_state: RunFilterState) -> list[Run]:
@@ -1494,7 +1492,7 @@ class RunsDashboard(App):
         if runs is not None:
             self.runs = runs
         self.title = f"{self._base_title} | Last updated: {self._last_update.strftime('%H:%M:%S')}"
-        
+
         # Collect diff stats for all runs with worktrees
         diff_stats: dict[str, DiffStats] = {}
         for run in self.runs:
@@ -1504,7 +1502,7 @@ class RunsDashboard(App):
                 )
                 if stats:
                     diff_stats[run.ref()] = stats
-        
+
         run_table = self.query_one("#runs-table", RunTable)
         run_table.populate(self.runs, diff_stats=diff_stats)
 
@@ -1558,6 +1556,7 @@ class RunsDashboard(App):
         stats_lines.append(f"[bold]Agent:[/bold] {run.agent or '-'}")
         if run.model:
             from .widgets import model_display_name
+
             model_str = model_display_name(run.model, run.model_variant)
             stats_lines.append(f"[bold]Model:[/bold] {model_str}")
         if run.branch:
@@ -1614,7 +1613,9 @@ class RunsDashboard(App):
                 run.worktree_path, run.branch, self.config.base_branch
             )
             if diff_stats and diff_stats.files:
-                changes_lines = [f"[bold]Changed Files ({diff_stats.file_count}):[/bold]"]
+                changes_lines = [
+                    f"[bold]Changed Files ({diff_stats.file_count}):[/bold]"
+                ]
                 changes_lines.append(
                     f"[bold]Total: [green]+{diff_stats.total_additions}[/green] "
                     f"[red]-{diff_stats.total_deletions}[/red][/bold]"
@@ -1739,7 +1740,6 @@ class RunsDashboard(App):
             self.call_from_thread(self.refresh_data)
         except subprocess.CalledProcessError:
             pass
-
 
     def action_diff(self) -> None:
         """Show git diff for selected run."""
@@ -2651,7 +2651,6 @@ class OrchMonitorApp(App):
             self.call_from_thread(self.refresh_data)
         except subprocess.CalledProcessError:
             pass
-
 
     def action_diff(self) -> None:
         """Show git diff for selected run."""

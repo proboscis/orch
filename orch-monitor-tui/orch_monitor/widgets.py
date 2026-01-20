@@ -5,7 +5,6 @@ from typing import Optional
 from rich.markup import escape
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.events import MouseMove
 from textual.message import Message
 from textual.widgets import DataTable, Static, TabbedContent, TabPane
 from textual.widgets.data_table import RowDoesNotExist
@@ -99,11 +98,9 @@ def model_display_name(model: str, variant: str) -> str:
     return result
 
 
-
-
 def format_diff_number(value: int) -> str:
     """Format a diff number, abbreviating large values.
-    
+
     Examples:
         0 -> "0"
         99 -> "99"
@@ -117,10 +114,10 @@ def format_diff_number(value: int) -> str:
     else:
         return f"{value // 1000}k"
 
+
 class CursorPreservingTable(DataTable):
     """DataTable that preserves cursor position across repopulation."""
 
-    # Add vim-style hjkl navigation bindings
     BINDINGS = [
         ("j", "cursor_down", "Down"),
         ("k", "cursor_up", "Up"),
@@ -132,25 +129,6 @@ class CursorPreservingTable(DataTable):
         super().__init__(*args, **kwargs)
         self.cursor_type = "row"
         self.zebra_stripes = True
-
-    def on_mouse_move(self, event: MouseMove) -> None:
-        """Select row under mouse cursor on hover for mouse-driven navigation."""
-        if self.row_count == 0:
-            return
-        
-        # Skip if mouse is in header area
-        header_height = 1 if self.show_header else 0
-        if event.y < header_height:
-            return
-        
-        # Calculate row index from mouse y position
-        # Subtract header row and add scroll offset
-        row_index = int(event.y - header_height + self.scroll_y)
-        
-        # Move cursor if valid row and different from current
-        if 0 <= row_index < self.row_count:
-            if row_index != self.cursor_coordinate.row:
-                self.move_cursor(row=row_index)
 
     def action_cursor_down(self) -> None:
         if self.has_focus:
@@ -213,7 +191,7 @@ class RunTable(CursorPreservingTable):
         diff_stats: Optional[dict[str, DiffStats]] = None,
     ) -> None:
         """Populate the run table with run data.
-        
+
         Args:
             runs: List of runs to display.
             diff_stats: Optional dict mapping run.ref() to DiffStats for diff columns.
