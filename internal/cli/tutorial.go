@@ -17,7 +17,8 @@ This tutorial covers:
   - Agent and model configuration
   - Basic workflow commands
   - Run statuses and what they mean
-  - Troubleshooting tips`,
+  - Troubleshooting tips
+  - orch-monitor TUI workflow and keybindings`,
 		Run: func(cmd *cobra.Command, args []string) {
 			printTutorial()
 		},
@@ -177,6 +178,62 @@ Query runs with SQL:
 Capture all completed runs:
 
     orch capture-all
+
+--------------------------------------------------------------------------------
+8. ORCH-MONITOR TUI
+--------------------------------------------------------------------------------
+
+orch-monitor is a terminal UI for managing issue-driven development.
+
+Launch the TUI:
+
+    orch-monitor --new      # Start fresh session
+
+Quick Start:
+  1. Navigate with arrow keys, Tab to switch panels
+  2. Press 'n' on an issue to start a new run
+  3. Select agent (claude/opencode/codex)
+  4. Monitor progress in the Runs panel
+  5. Press 'a' or Enter to attach to a run
+  6. Press '?' for help anytime
+
+Keybindings:
+
+    Key     Action
+    ---     ------
+    ?       Show help screen
+    q       Quit
+    r       Refresh data
+    Tab     Switch between Runs/Issues tabs
+    f       Filter runs/issues
+    n       New run for selected issue
+    a       Attach to selected run
+    s       Stop selected run
+    o       Open issue in editor
+
+Workflow with Control Agent:
+  1. Talk to control agent (bottom pane) to create issues
+  2. Select issue and press 'n' to start a run
+  3. Monitor status: queued → booting → running → pr_open → done
+  4. Attach with 'a' when status is 'blocked'
+  5. Review PR when status is 'pr_open'
+
+Status Legend:
+
+    Status      Meaning
+    ------      -------
+    queued      Run waiting to start
+    booting     Agent starting up
+    running     Agent actively working
+    blocked     Agent needs input - attach!
+    pr_open     PR created - review it
+    done        Work completed
+
+The Development Loop:
+
+    Create Issue → Start Run → Monitor → Review PR → Merge → Repeat
+
+Run multiple issues in parallel - each gets its own git worktree!
 
 ================================================================================
 For more information, see: https://github.com/s22625/orch

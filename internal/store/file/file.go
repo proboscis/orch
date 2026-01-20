@@ -16,10 +16,12 @@ import (
 
 // FileStore implements store.Store using the filesystem
 type FileStore struct {
-	rootPath   string
-	issueMu    sync.RWMutex
-	issueCache map[string]*model.Issue // id -> issue
-	cacheDirty bool
+	rootPath    string
+	issueMu     sync.RWMutex
+	issueCache  map[string]*model.Issue // id -> issue
+	cacheDirty  bool
+	warnFunc    func(format string, args ...any) // optional warning function
+	warnedFiles sync.Map                         // dedup warnings per file
 }
 
 // New creates a new FileStore
@@ -46,12 +48,111 @@ func New(rootPath string) (*FileStore, error) {
 		rootPath:   absPath,
 		issueCache: make(map[string]*model.Issue),
 		cacheDirty: true,
+		// warnFunc defaults to nil (no warnings); set via SetWarnFunc
 	}, nil
 }
 
 // RootPath returns the issues root path
 func (s *FileStore) RootPath() string {
 	return s.rootPath
+}
+
+// SetWarnFunc sets a function to receive warnings (e.g., for duplicate frontmatter).
+// If nil, warnings are suppressed. CLI can set this to print to stderr,
+// daemon can route to its logger.
+func (s *FileStore) SetWarnFunc(fn func(format string, args ...any)) {
+	s.warnFunc = fn
+}
+
+// warnOnce emits a warning via warnFunc, but only once per file path per process.
+func (s *FileStore) warnOnce(path, format string, args ...any) {
+	if s.warnFunc == nil {
+		return
+	}
+	if _, loaded := s.warnedFiles.LoadOrStore(path, struct{}{}); loaded {
+		return // Already warned about this file
+	}
+	s.warnFunc(format, args...)
+}
+
+// frontmatterKeys are known keys that strongly indicate real frontmatter
+var frontmatterKeys = map[string]bool{
+	"type": true, "id": true, "title": true, "status": true,
+	"tags": true, "summary": true, "topic": true,
+}
+
+// hasDuplicateFrontmatter checks if the body contains what looks like a second
+// frontmatter block. Returns true only with strong evidence to minimize false positives.
+func hasDuplicateFrontmatter(lines []string, bodyStart int) bool {
+	if bodyStart <= 0 || bodyStart >= len(lines) {
+		return false // No valid body to scan
+	}
+
+	inCodeFence := false
+	var fencePrefix string
+
+	for i := bodyStart; i < len(lines); i++ {
+		line := lines[i]
+		trimmed := strings.TrimSpace(line)
+
+		// Track code fence state (handle both ``` and ~~~)
+		if !inCodeFence {
+			if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+				inCodeFence = true
+				fencePrefix = trimmed[:3]
+				continue
+			}
+		} else {
+			if strings.HasPrefix(trimmed, fencePrefix) {
+				inCodeFence = false
+				fencePrefix = ""
+			}
+			continue
+		}
+
+		// Look for potential duplicate frontmatter start
+		if trimmed == "---" && i+1 < len(lines) {
+			// Scan following lines for frontmatter-like content
+			keyCount := 0
+			hasKnownKey := false
+
+			for j := i + 1; j < len(lines) && j < i+10; j++ {
+				nextLine := strings.TrimSpace(lines[j])
+				if nextLine == "" {
+					continue
+				}
+				if nextLine == "---" {
+					// Found closing delimiter - this looks like real frontmatter
+					if keyCount >= 2 || hasKnownKey {
+						return true
+					}
+					break
+				}
+				if strings.HasPrefix(nextLine, "#") {
+					break // Hit a heading, stop scanning
+				}
+
+				// Check for key: value pattern
+				parts := strings.SplitN(nextLine, ":", 2)
+				if len(parts) == 2 {
+					key := strings.TrimSpace(parts[0])
+					if key != "" && !strings.Contains(key, " ") {
+						keyCount++
+						if frontmatterKeys[key] {
+							hasKnownKey = true
+						}
+					}
+				}
+			}
+
+			// Require strong evidence: known key OR multiple key-value pairs
+			if hasKnownKey || keyCount >= 3 {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func walkWithSymlinks(root string, walkFn filepath.WalkFunc) error {
@@ -224,6 +325,11 @@ func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
 
 		}
 
+	}
+
+	// Check for duplicate frontmatter blocks (causes data loss - tags in second block are ignored)
+	if hasDuplicateFrontmatter(lines, bodyStart) {
+		s.warnOnce(path, "orch: warning: %s has duplicate frontmatter blocks, tags may be lost\n", filepath.Base(path))
 	}
 
 	// Check if this is an issue file

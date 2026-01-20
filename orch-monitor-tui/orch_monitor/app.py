@@ -1080,6 +1080,105 @@ class IssueFilterScreen(ModalScreen[IssueFilterResult | None]):
         self.apply_filter()
 
 
+
+class HelpScreen(ModalScreen[None]):
+    """Modal screen showing keybindings and workflow tips."""
+
+    CSS = """
+    HelpScreen {
+        align: center middle;
+    }
+
+    #help-dialog {
+        width: 70;
+        height: auto;
+        max-height: 85%;
+        padding: 1 2;
+        background: $surface;
+        border: thick $primary;
+    }
+
+    #help-title {
+        text-align: center;
+        width: 100%;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    .help-section-title {
+        text-style: bold;
+        margin-top: 1;
+        color: $primary;
+    }
+
+    #help-content {
+        height: auto;
+        overflow-y: auto;
+    }
+
+    .help-key {
+        color: $accent;
+    }
+
+    #close-btn {
+        margin-top: 1;
+        width: 100%;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "close", "Close"),
+        Binding("q", "close", "Close"),
+        Binding("?", "close", "Close"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="help-dialog"):
+            yield Label("Orch Monitor Help", id="help-title")
+
+            with Vertical(id="help-content"):
+                yield Label("Keybindings", classes="help-section-title")
+                yield Label("  ?         Show this help screen")
+                yield Label("  q         Quit")
+                yield Label("  r         Refresh data")
+                yield Label("  Tab       Switch between Runs/Issues tabs")
+                yield Label("  f         Filter runs/issues")
+                yield Label("  Ctrl+f    Clear all filters")
+                yield Label("  Enter     Attach to run / Open issue")
+                yield Label("  a         Attach to selected run")
+                yield Label("  s         Stop selected run")
+                yield Label("  X         Kill session (force)")
+                yield Label("  n         New run for selected issue")
+                yield Label("  o         Open issue in editor")
+                yield Label("  x         Close issue")
+
+                yield Label("Quick Workflow", classes="help-section-title")
+                yield Label("  1. Select issue in Issues tab")
+                yield Label("  2. Press n to start a new run")
+                yield Label("  3. Select agent (claude/opencode/codex)")
+                yield Label("  4. Monitor progress in Runs tab")
+                yield Label("  5. Press a or Enter to attach")
+                yield Label("  6. Review PR when status is pr_open")
+
+                yield Label("Status Legend", classes="help-section-title")
+                yield Label("  queued    -> Run waiting to start")
+                yield Label("  booting   -> Agent starting up")
+                yield Label("  running   -> Agent actively working")
+                yield Label("  blocked   -> Agent needs input (attach!)")
+                yield Label("  pr_open   -> PR created, review it")
+                yield Label("  done      -> Work completed")
+
+            yield Button("Close (Esc/?/q)", id="close-btn", variant="primary")
+
+    @on(Button.Pressed, "#close-btn")
+    def close_help(self) -> None:
+        self.dismiss(None)
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+
+
 def filter_runs_client_side(runs: list[Run], filter_state: RunFilterState) -> list[Run]:
     """Apply client-side filtering for fields the daemon doesn't support."""
     result = runs
@@ -1228,6 +1327,7 @@ class RunsDashboard(App):
     CSS = RUNS_DASHBOARD_CSS
 
     BINDINGS = [
+        Binding("question_mark", "help", "Help", key_display="?"),
         Binding("q", "quit", "Quit"),
         Binding("r", "refresh", "Refresh"),
         Binding("enter", "attach", "Attach", priority=True),
@@ -1304,6 +1404,10 @@ class RunsDashboard(App):
         if _input_has_focus(self):
             return
         self.refresh_data()
+
+    def action_help(self) -> None:
+        """Show help screen with keybindings and workflow tips."""
+        self.push_screen(HelpScreen())
 
     def action_filter(self) -> None:
         if _input_has_focus(self):
@@ -1691,6 +1795,7 @@ class IssuesDashboard(App):
     CSS = COMMON_CSS
 
     BINDINGS = [
+        Binding("question_mark", "help", "Help", key_display="?"),
         Binding("q", "quit", "Quit"),
         Binding("r", "refresh", "Refresh"),
         Binding("enter", "open_issue", "Open in Editor"),
@@ -1751,6 +1856,10 @@ class IssuesDashboard(App):
         if _input_has_focus(self):
             return
         self.refresh_data()
+
+    def action_help(self) -> None:
+        """Show help screen with keybindings and workflow tips."""
+        self.push_screen(HelpScreen())
 
     def action_filter(self) -> None:
         if _input_has_focus(self):
@@ -2018,6 +2127,7 @@ class OrchMonitorApp(App):
     )
 
     BINDINGS = [
+        Binding("question_mark", "help", "Help", key_display="?"),
         Binding("q", "quit", "Quit"),
         Binding("r", "refresh", "Refresh"),
         Binding("enter", "select", "Select"),
@@ -2135,6 +2245,10 @@ class OrchMonitorApp(App):
         if _input_has_focus(self):
             return
         self.refresh_data()
+
+    def action_help(self) -> None:
+        """Show help screen with keybindings and workflow tips."""
+        self.push_screen(HelpScreen())
 
     def action_filter(self) -> None:
         if _input_has_focus(self):

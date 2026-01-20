@@ -723,3 +723,179 @@ status: open
 		t.Error("issue-3 not found")
 	}
 }
+
+
+func TestDuplicateFrontmatterDetection(t *testing.T) {
+	tests := []struct {
+		name          string
+		content       string
+		wantTags      []string
+		expectWarning bool
+	}{
+		{
+			name: "single frontmatter with tags",
+			content: `---
+type: issue
+id: test-single
+title: Test Issue
+status: open
+tags: [tag1, tag2]
+---
+
+# Test Issue
+
+Content here.
+`,
+			wantTags:      []string{"tag1", "tag2"},
+			expectWarning: false,
+		},
+		{
+			name: "duplicate frontmatter - tags in second block are lost",
+			content: `---
+type: issue
+id: test-dup
+title: Test Issue
+status: open
+---
+
+# Test Issue
+
+---
+type: issue
+id: test-dup
+title: Test Issue
+status: open
+tags: [lost-tag1, lost-tag2]
+---
+
+# Test Issue
+
+Content here.
+`,
+			wantTags:      nil, // Tags from second block are ignored
+			expectWarning: true,
+		},
+		{
+			name: "yaml code block should not trigger false positive",
+			content: `---
+type: issue
+id: test-codeblock
+title: Test Issue
+status: open
+tags: [real-tag]
+---
+
+# Test Issue
+
+Here is some YAML:
+
+` + "```yaml" + `
+---
+type: example
+id: fake
+title: Not Real
+---
+` + "```" + `
+
+More content.
+`,
+			wantTags:      []string{"real-tag"},
+			expectWarning: false,
+		},
+		{
+			name: "horizontal rule should not trigger warning",
+			content: `---
+type: issue
+id: test-hr
+title: Test Issue
+status: open
+tags: [tag1]
+---
+
+# Test Issue
+
+Some content.
+
+---
+
+More content after horizontal rule.
+`,
+			wantTags:      []string{"tag1"},
+			expectWarning: false,
+		},
+		{
+			name: "prose with colon should not trigger warning",
+			content: `---
+type: issue
+id: test-prose
+title: Test Issue
+status: open
+tags: [tag1]
+---
+
+# Test Issue
+
+Some content.
+
+---
+
+Note: This is just a note, not frontmatter.
+`,
+			wantTags:      []string{"tag1"},
+			expectWarning: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create fresh vault for each test to avoid cross-contamination
+			vault, cleanup := setupTestVault(t)
+			defer cleanup()
+
+			// Extract issue ID from content
+			lines := strings.Split(tt.content, "\n")
+			var issueID string
+			for _, line := range lines {
+				if strings.HasPrefix(line, "id: ") {
+					issueID = strings.TrimPrefix(line, "id: ")
+					break
+				}
+			}
+			createTestIssue(t, vault, issueID, tt.content)
+
+			// Use injected warn function instead of capturing stderr
+			var warnings []string
+			s, _ := New(vault)
+			s.SetWarnFunc(func(format string, args ...any) {
+				warnings = append(warnings, fmt.Sprintf(format, args...))
+			})
+
+			issue, err := s.ResolveIssue(issueID)
+			if err != nil {
+				t.Fatalf("ResolveIssue() error = %v", err)
+			}
+
+			// Check tags
+			if len(tt.wantTags) == 0 && len(issue.Tags) != 0 {
+				t.Errorf("Tags = %v, want empty", issue.Tags)
+			}
+			if len(tt.wantTags) > 0 {
+				if len(issue.Tags) != len(tt.wantTags) {
+					t.Errorf("Tags = %v, want %v", issue.Tags, tt.wantTags)
+				} else {
+					for i, tag := range tt.wantTags {
+						if issue.Tags[i] != tag {
+							t.Errorf("Tags[%d] = %v, want %v", i, issue.Tags[i], tag)
+						}
+					}
+				}
+			}
+
+			// Check warning
+			gotWarning := len(warnings) > 0
+			if gotWarning != tt.expectWarning {
+				t.Errorf("warning emitted = %v, want %v (warnings: %v)", gotWarning, tt.expectWarning, warnings)
+			}
+		})
+	}
+}

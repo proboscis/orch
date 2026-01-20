@@ -353,17 +353,21 @@ func (m *OpenCodeManager) hasRecentActivity(ctx context.Context, client *OpenCod
 }
 
 func (m *OpenCodeManager) sessionExists(ctx context.Context, client *OpenCodeClient) bool {
-	// Query without directory filter to get all sessions across projects.
-	// OpenCode scopes sessions by git root commit hash, not by exact directory path.
-	// When worktree path does not match OpenCode internal project resolution,
-	// the session will not be found if we filter by directory.
-	// Instead, we query all sessions and match by session ID which is unique.
-	statusMap, err := client.GetSessionStatus(ctx, "")
+	// Use GetSessions (same as IsAlive) to ensure consistent session detection.
+	// Previously used GetSessionStatus which queries a different endpoint (/session/status)
+	// that may return different results than /session, causing status to show "unknown"
+	// even when the session exists.
+	// See: https://github.com/s22625/orch/issues/323
+	sessions, err := client.GetSessions(ctx)
 	if err != nil {
 		return false
 	}
-	_, exists := statusMap[m.SessionID]
-	return exists
+	for _, s := range sessions {
+		if s.ID == m.SessionID {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *OpenCodeManager) SendMessage(ctx context.Context, run *model.Run, message string, opts *SendOptions) error {
