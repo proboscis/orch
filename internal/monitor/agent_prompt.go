@@ -436,8 +436,8 @@ Available commands (run directly via bash):
 `, issuesRoot, cwd)
 }
 
-// writeControlPromptFile writes the control agent prompt to a temp file
-func writeControlPromptFile(st store.Store) (string, error) {
+// WriteControlPromptFile writes the control agent prompt to a temp file
+func WriteControlPromptFile(st store.Store) (string, error) {
 	prompt, err := buildControlAgentPrompt(st)
 	if err != nil {
 		return "", err

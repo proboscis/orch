@@ -1108,7 +1108,7 @@ type agentChatLaunch struct {
 }
 
 func (m *Monitor) agentChatLaunch() agentChatLaunch {
-	_, err := writeControlPromptFile(m.store)
+	_, err := WriteControlPromptFile(m.store)
 	if err != nil {
 		return agentChatLaunch{command: fallbackChatCommand(fmt.Sprintf("failed to write prompt file: %v", err))}
 	}
