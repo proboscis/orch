@@ -1,415 +1,113 @@
 # orch
 
-Orchestrator for managing multiple LLM CLIs (claude/codex/gemini) using a unified vocabulary of **issue/run/event**.
+Orchestrator for managing multiple LLM CLIs (Claude, Codex, Gemini, OpenCode) using a unified vocabulary of **Issue**, **Run**, and **Event**.
 
-## Overview
+orch runs AI coding agents non-interactively in the background, creating isolated git worktrees for each task. Check status with `orch ps`, interact when needed with `orch attach`.
 
-orch operates **non-interactively** by default. When human input is needed, use `orch attach` to connect to the terminal session (tmux or zellij) and interact directly with the agent.
+## Quick Start
 
-## User Interaction Flow
+```bash
+# Install
+go install github.com/proboscis/orch/cmd/orch@latest
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant O as orch
-    participant A as Agent (claude/codex)
-    participant T as tmux
+# Create an issue
+mkdir -p issues && cat > issues/my-task.md << 'EOF'
+---
+type: issue
+id: my-task
+title: Add hello world function
+status: open
+---
+Add a hello world function to the project.
+EOF
 
-    Note over U: Start working on an issue
-    U->>O: orch run my-issue
-    O->>T: create session
-    O->>A: start agent
-    O-->>U: returns immediately
+# Run an agent
+orch run my-task
 
-    Note over U: Check progress anytime
-    U->>O: orch ps
-    O-->>U: shows status (running/blocked/done)
+# Check status
+orch ps
 
-    alt Agent needs help
-        A->>A: stops or shows prompt
-        Note over U: See status or attach
-        U->>O: orch ps
-        O-->>U: status: blocked or running
-        U->>O: orch attach my-issue
-        O->>T: attach session
-        Note over U,T: Direct terminal interaction
-        U->>T: (provide input to agent)
-        U->>T: Ctrl+B D (detach)
-    end
-
-    alt Want to interact directly
-        U->>O: orch attach my-issue
-        O->>T: attach session
-        Note over U,T: Direct terminal interaction
-        U->>T: (type commands, paste images)
-        U->>T: Ctrl+B D (detach)
-    end
-
-    alt Want to stop
-        U->>O: orch stop my-issue
-        O->>T: kill all sessions for issue
-        O->>O: mark all runs canceled
-    end
-
-    alt Agent finishes
-        A->>O: emits done/pr_open event
-        U->>O: orch ps
-        O-->>U: status: done or pr_open
-    end
+# Interact when needed
+orch attach my-task
 ```
 
-## State Machine
+**[Read the full Getting Started guide](./docs/getting-started.md)**
 
-```mermaid
-stateDiagram-v2
-    [*] --> queued: orch run
+## Documentation
 
-    queued --> booting: agent starting
-    booting --> running: agent ready
+| Guide | Description |
+|-------|-------------|
+| **[Getting Started](./docs/getting-started.md)** | Install → First issue → First run → See it work |
+| **[Core Concepts](./docs/concepts.md)** | Issue, Run, Event, Status, Worktree explained |
+| **[Configuration](./docs/configuration.md)** | All config options with examples |
 
-    running --> blocked: needs human input
-    running --> pr_open: PR created
-    running --> done: task complete
-    running --> failed: error occurred
-    running --> canceled: orch stop
+### Backends
 
-    blocked --> running: orch attach (provide input)
-    blocked --> canceled: orch stop
+| Backend | Description |
+|---------|-------------|
+| [File](./docs/backends/file.md) | Local markdown files (default) |
+| [GitHub](./docs/backends/github.md) | GitHub Issues integration |
+| [Linear](./docs/backends/linear.md) | Linear integration |
 
-    pr_open --> done: PR merged
+### Agents
 
-    done --> [*]
-    failed --> [*]
-    canceled --> [*]
+| Agent | Description |
+|-------|-------------|
+| [Claude](./docs/agents/claude.md) | Anthropic's Claude Code |
+| [OpenCode](./docs/agents/opencode.md) | Multi-provider open-source agent |
+| [Codex](./docs/agents/codex.md) | OpenAI's Codex |
+| [Gemini](./docs/agents/gemini.md) | Google's Gemini |
+| [Custom](./docs/agents/custom.md) | Bring your own agent |
+
+### Reference
+
+| Reference | Description |
+|-----------|-------------|
+| [Commands](./docs/reference/commands.md) | Full CLI reference |
+| [Events](./docs/reference/events.md) | Event types and format |
+| [Statuses](./docs/reference/statuses.md) | Status state machine |
+| [SQL Queries](./docs/reference/query.md) | Query examples and schema |
+
+## Key Concepts
+
+- **Issue**: A task specification (markdown file or external ticket)
+- **Run**: One execution attempt for an issue (isolated worktree + branch)
+- **Event**: Append-only log entry tracking run progress
+- **Status**: Current state derived from events (running, blocked, done, etc.)
+
+```
+User runs: orch run my-issue
+  → Creates worktree + branch
+  → Starts agent in tmux session
+  → Returns immediately (non-blocking)
+
+User checks: orch ps
+  → Shows all runs with status
+
+User interacts: orch attach my-issue
+  → Connects to tmux session
+  → Ctrl+B D to detach
 ```
 
-## When to Use Each Command
-
-```mermaid
-flowchart TD
-    START([Want to work on an issue?]) --> RUN[orch run ISSUE]
-
-    RUN --> WAIT([Wait for agent...])
-    WAIT --> CHECK{Check status}
-    CHECK --> PS[orch ps]
-
-    PS --> |running| DECIDE{Need to interact?}
-    PS --> |blocked| BLOCKED([Agent needs help])
-    PS --> |done/pr_open| DONE([Finished!])
-    PS --> |failed| FAILED([Something went wrong])
-
-    DECIDE --> |yes| ATTACH[orch attach]
-    DECIDE --> |no| WAIT
-    ATTACH --> |done interacting| WAIT
-
-    BLOCKED --> ATTACH2[orch attach]
-    ATTACH2 --> |provide input| WAIT
-
-    FAILED --> RETRY{Retry?}
-    RETRY --> |yes| RUN
-    RETRY --> |no| END([End])
-
-    DONE --> END
-
-    style RUN fill:#4CAF50,color:#fff
-    style PS fill:#2196F3,color:#fff
-    style ATTACH fill:#FF9800,color:#fff
-    style ATTACH2 fill:#FF9800,color:#fff
-```
-
-## Quick Reference
-
-| Situation | Command |
-|-----------|---------|
-| Start working on an issue | `orch run ISSUE` |
-| Continue from an existing run | `orch continue ISSUE#RUN_ID` |
-| Continue from a branch | `orch continue ISSUE --branch BRANCH` |
-| Check what's running | `orch ps` |
-| Watch agent work / interact | `orch attach RUN` |
-| See run details | `orch show RUN` |
-| Agent is blocked - interact | `orch attach RUN` |
-| Stop all runs for an issue | `orch stop ISSUE` |
-| Stop a specific run | `orch stop ISSUE#RUN_ID` |
-| Stop all runs globally | `orch stop --all` |
-| Fix problems | `orch repair` |
-
-## Statuses
+## Status Quick Reference
 
 | Status | Meaning | User Action |
 |--------|---------|-------------|
-| `queued` | Run created, waiting to start | Wait |
-| `booting` | Agent is starting up | Wait |
-| `running` | Agent is actively working | Wait, or `attach` to watch |
-| `blocked` | Agent needs input | `attach` to interact |
-| `pr_open` | PR created, awaiting review | Review the PR |
-| `done` | Work completed | Nothing - celebrate! |
-| `failed` | Run failed | Check logs, maybe retry |
-| `canceled` | Manually stopped | Nothing |
-
-## Background Monitoring
-
-orch automatically runs a background daemon that monitors all running agents. You don't need to manage it manually.
-
-**What the daemon does:**
-- Monitors tmux sessions for all running runs
-- Detects when agents finish (done/failed)
-- Detects when agents are stuck or need input (blocked)
-- Updates run status automatically
-
-**If something goes wrong:**
-```bash
-orch repair    # Fixes daemon, stale states, orphaned sessions
-```
-
-## Troubleshooting
-
-### Debug mode for `orch run`
-
-If runs are failing silently or not connecting to the agent properly:
-
-```bash
-# Enable verbose output
-orch run --verbose my-issue
-orch run -v my-issue
-
-# Or via environment variable
-ORCH_DEBUG=1 orch run my-issue
-
-# Or via log level flag
-orch run --log-level debug my-issue
-```
-
-Debug output shows:
-- Server discovery (which ports are scanned)
-- Health check requests/responses
-- Session creation with directory context
-- Prompt delivery status
-
-### Daemon logs
-
-The background daemon logs to `.orch/daemon.log` in your project root:
-
-```bash
-tail -f .orch/daemon.log
-```
-
-## Configuration
-
-### Project Root vs Vault
-
-orch distinguishes between two directories:
-
-| Concept | Description | Contains |
-|---------|-------------|----------|
-| **Project Root** | Git repository where orch is configured | `.orch/config.yaml`, `.orch/daemon.sock`, `.orch/daemon.log` |
-| **Issues Root** | Directory for local markdown issues (formerly "vault") | `issues/*.md`, `runs/**/*.md` |
-
-**For GitHub Issues backend:** Only project root is needed. No vault directory required.
-
-**For file-based issues:** Issues root specifies where local issue markdown files are stored.
-
-### Environment Variables
-
-```bash
-# Project root (where .orch/ lives) - preferred for daemon/socket operations
-export ORCH_PROJECT_ROOT=/path/to/repo
-
-# Issues root for file-based issues (optional, --vault is deprecated)
-# Preferred: ORCH_ISSUES_ROOT (ORCH_VAULT is deprecated)
-export ORCH_VAULT=~/vault
-
-# Or pass per-command
-orch --project-root /path/to/repo ps
-# Deprecated: --vault flag, use --issues-root instead
-orch --vault ~/vault run my-issue
-```
-
-If `ORCH_PROJECT_ROOT` is not set, orch will:
-1. Search upward from current directory for `.orch/config.yaml`
-2. Fall back to `ORCH_VAULT` for backward compatibility
-
-Per-repo defaults can live in `.orch/config.yaml`:
-
-```yaml
-# Deprecated: use ORCH_ISSUES_ROOT env var or --issues-root flag instead
-vault: ~/vault
-agent: claude
-worktree_root: .git-worktrees
-base_branch: main
-pr_target_branch: develop
-```
-
-`pr_target_branch` controls the target branch mentioned in agent PR instructions.
-
-### Terminal Multiplexer
-
-orch supports both **tmux** (default) and **zellij** as terminal multiplexers for running agent sessions.
-
-```bash
-# Use tmux (default)
-orch run my-issue
-
-# Use zellij
-orch run --multiplexer zellij my-issue
-
-# Or set via environment variable
-export ORCH_MULTIPLEXER=zellij
-orch run my-issue
-```
-
-**Configuration:**
-
-```yaml
-# .orch/config.yaml
-multiplexer: zellij  # or "tmux" (default)
-```
-
-**Detach keys:**
-- tmux: `Ctrl+B D`
-- zellij: `Ctrl+O D` (or your configured detach keybind)
-
-**Notes:**
-- The multiplexer used for a run is recorded in the run metadata
-- `orch attach` automatically uses the correct multiplexer for each run
-- Some advanced features (window linking, pane inspection) have limited support in zellij
-- **`orch monitor` (Go)** requires tmux - it uses tmux's multi-pane layout
-- **`orch-monitor-tui` (Python)** supports both tmux and zellij via `--multiplexer` flag
-
-### Repo config
-
-Create `.orch/config.yaml` in the repo root to set defaults:
-
-```yaml
-# Deprecated: use ORCH_ISSUES_ROOT env var or --issues-root flag instead
-vault: ~/vault
-agent: claude
-base_branch: main
-pr_target_branch: develop
-```
-
-`pr_target_branch` controls the default target branch in the agent PR instructions.
-
-### Slack Notifications
-
-Get notified when runs become blocked and need your attention:
-
-```yaml
-# .orch/config.yaml
-slack:
-  enabled: true
-  # Option 1: Incoming Webhook (simpler setup)
-  webhook_url: https://hooks.slack.com/services/XXX/YYY/ZZZ
-  
-  # Option 2: Bot Token (more features)
-  # bot_token: xoxb-your-bot-token
-  # channel: "#orch-notifications"
-  
-  # Which events trigger notifications (default: blocked, blocked_api)
-  notify_on:
-    - blocked
-    - blocked_api
-    # - done
-    # - failed
-```
-
-Environment variables are also supported:
-- `ORCH_SLACK_WEBHOOK_URL` - Webhook URL (auto-enables if set)
-- `ORCH_SLACK_BOT_TOKEN` - Bot token for Slack API
-- `ORCH_SLACK_CHANNEL` - Channel for bot messages
-
-Example notification:
-```
-:no_entry: Run blocked: orch-145#8cd1d7
-Issue: Implement feature X
-Status: blocked (waiting for user input)
-Attach: orch attach orch-145#20260115-161736
-```
-
-### Prompt Templates
-
-Customize the initial prompt sent to agents when starting a run. Supports per-backend configuration with global fallback.
-
-```yaml
-# .orch/config.yaml
-
-# Global default template (used when no backend-specific template is set)
-prompt_template: |
-  ultrathink Please read 'ORCH_PROMPT.md' in the current directory.
-  
-  {{issue}}
-
-# Per-backend templates (override global)
-opencode:
-  default_model: anthropic/claude-opus-4-5
-  default_variant: max
-  prompt_template: |
-    ultrawork Please read 'ORCH_PROMPT.md' in the current directory.
-    
-    {{issue}}
-
-claude:
-  prompt_template: |
-    ultrathink Be thorough and create comprehensive solutions.
-    
-    {{issue}}
-
-codex:
-  prompt_template: |
-    Think step by step. Follow best practices.
-    
-    {{issue}}
-
-gemini:
-  prompt_template: "{{issue}}"
-```
-
-**Template Variables:**
-
-| Variable | Description |
-|----------|-------------|
-| `{{issue}}` | Full issue content (title + body) |
-| `{{issue_id}}` | Issue ID only (e.g., `orch-149`) |
-| `{{issue_title}}` | Issue title only |
-
-**Behavior:**
-1. When `orch run` starts, it checks for a backend-specific template (e.g., `opencode.prompt_template`)
-2. Falls back to global `prompt_template` if no backend-specific template exists
-3. If no template is configured, uses the default: `ultrathink Please read 'ORCH_PROMPT.md'...`
-4. Template variables are replaced with actual issue values
-5. The rendered prompt is sent as the initial message to the agent
-
-## Vault Structure
-
-```
-vault/
-├── issues/
-│   └── <ISSUE_ID>.md      # Issue specification
-└── runs/
-    └── <ISSUE_ID>/
-        └── <RUN_ID>.md    # Run log with events
-```
-
-## Vocabulary
-
-| Term | Description |
-|------|-------------|
-| **Issue** | A unit of work/specification (e.g., `plc124`) |
-| **Run** | A single execution attempt for an issue |
-| **Event** | A single append-only record in a run |
-| **RUN_REF** | Reference format: `ISSUE_ID#RUN_ID` or just `ISSUE_ID` (latest) |
+| `running` | Agent is working | Wait, or attach to watch |
+| `blocked` | Agent needs input | `orch attach` to help |
+| `pr_open` | PR created | Review the PR |
+| `done` | Completed | Celebrate! |
+| `failed` | Error occurred | Check logs, retry |
 
 ## Releasing
-
-Releases are automated via GitHub Actions. To create a new release:
 
 ```bash
 git tag v0.1.0
 git push --tags
 ```
 
-This triggers the release workflow which:
-- Builds binaries for all platforms (darwin/linux, amd64/arm64)
-- Generates SHA256 checksums
-- Publishes to [GitHub Releases](https://github.com/proboscis/orch/releases)
+See [GitHub Releases](https://github.com/proboscis/orch/releases) for binaries.
 
-**Version format:** `v<major>.<minor>.<patch>` (e.g., `v1.0.0`, `v0.2.1-beta`)
+## License
+
+MIT
