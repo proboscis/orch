@@ -61,9 +61,9 @@ CONTROL_PROMPT_INSTRUCTION = f"ultrathink Please read '{CONTROL_PROMPT_FILE}' in
 CONTROL_SESSION_FILE = "control-session.json"
 
 
-def load_control_session(vault_path: Path | None) -> str | None:
-    if vault_path:
-        session_file = vault_path / ".orch" / CONTROL_SESSION_FILE
+def load_control_session(project_root: Path | None) -> str | None:
+    if project_root:
+        session_file = project_root / ".orch" / CONTROL_SESSION_FILE
     else:
         session_file = Path.cwd() / ".orch" / CONTROL_SESSION_FILE
 
@@ -76,6 +76,77 @@ def load_control_session(vault_path: Path | None) -> str | None:
         data = json.loads(session_file.read_text())
         return data.get("session_id")
     except Exception:
+        return None
+
+
+def save_control_session(project_root: Path | None, session_id: str) -> bool:
+    import json
+
+    if project_root:
+        orch_dir = project_root / ".orch"
+    else:
+        orch_dir = Path.cwd() / ".orch"
+
+    orch_dir.mkdir(parents=True, exist_ok=True)
+    session_file = orch_dir / CONTROL_SESSION_FILE
+
+    try:
+        session_file.write_text(json.dumps({"session_id": session_id}, indent=2))
+        _launcher_logger.info(f"Saved control session ID: {session_id}")
+        return True
+    except Exception as e:
+        _launcher_logger.error(f"Failed to save control session: {e}")
+        return False
+
+
+def clear_control_session(project_root: Path | None) -> bool:
+    if project_root:
+        session_file = project_root / ".orch" / CONTROL_SESSION_FILE
+    else:
+        session_file = Path.cwd() / ".orch" / CONTROL_SESSION_FILE
+
+    try:
+        if session_file.exists():
+            session_file.unlink()
+            _launcher_logger.info(f"Cleared control session file: {session_file}")
+        return True
+    except Exception as e:
+        _launcher_logger.error(f"Failed to clear control session: {e}")
+        return False
+
+
+def query_latest_opencode_session(
+    project_root: Path | None, server_url: str = "http://localhost:4096"
+) -> str | None:
+    import json
+    import urllib.request
+
+    directory = (
+        str(project_root.resolve()) if project_root else str(Path.cwd().resolve())
+    )
+    one_day_ago_ms = int((time.time() - 86400) * 1000)
+
+    try:
+        url = f"{server_url}/session?start={one_day_ago_ms}"
+        with urllib.request.urlopen(url, timeout=5) as response:
+            sessions = json.loads(response.read().decode())
+
+        matching = [
+            s
+            for s in sessions
+            if s.get("directory") == directory and s.get("parentID") is None
+        ]
+
+        if not matching:
+            _launcher_logger.warning(f"No sessions found for directory: {directory}")
+            return None
+
+        matching.sort(key=lambda s: s.get("time", {}).get("updated", 0), reverse=True)
+        session_id = matching[0]["id"]
+        _launcher_logger.info(f"Found latest session for {directory}: {session_id}")
+        return session_id
+    except Exception as e:
+        _launcher_logger.error(f"Failed to query opencode sessions: {e}")
         return None
 
 
@@ -270,7 +341,7 @@ class LayoutLauncher(Protocol):
         new_control_agent: bool = False,
     ) -> None:
         """Launch a new layout with runs, issues, and agent panes.
-        
+
         Args:
             session_name: Name of the multiplexer session
             project_root: Path to project root
@@ -376,13 +447,23 @@ class TmuxLayoutLauncher:
         )
 
         write_control_prompt(vault_path)
+        need_capture_session = False
         if agent == "opencode":
-            # Use --continue to preserve session on layout restart,
-            # unless explicitly starting fresh with new_control_agent
             if new_control_agent:
+                clear_control_session(project_root)
                 agent_cmd = f'opencode --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
+                need_capture_session = True
             else:
-                agent_cmd = f'opencode --continue --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
+                stored_session = load_control_session(project_root)
+                if stored_session:
+                    _launcher_logger.info(f"Using stored session: {stored_session}")
+                    agent_cmd = f'opencode --session {stored_session} --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
+                else:
+                    _launcher_logger.info("No stored session, using --continue")
+                    agent_cmd = (
+                        f'opencode --continue --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
+                    )
+                    need_capture_session = True
         else:
             agent_cmd = agent
 
@@ -395,6 +476,13 @@ class TmuxLayoutLauncher:
         subprocess.run(
             ["tmux", "send-keys", "-t", f"{session_name}:0.2", agent_cmd, "Enter"]
         )
+
+        if need_capture_session and agent == "opencode":
+            _launcher_logger.info("Waiting to capture opencode session ID...")
+            time.sleep(3)
+            session_id = query_latest_opencode_session(project_root)
+            if session_id:
+                save_control_session(project_root, session_id)
 
         subprocess.run(["tmux", "select-pane", "-t", f"{session_name}:0.2"])
 
@@ -458,6 +546,7 @@ class ZellijLayoutLauncher:
         vault_path: Path | None,
         agent: str,
         cwd: str,
+        new_control_agent: bool = False,
     ) -> None:
         python_exec = sys.executable
         orch_args = ""
@@ -471,9 +560,22 @@ class ZellijLayoutLauncher:
         issues_cmd = f"{python_exec} -m orch_monitor --issues {orch_args}".strip()
 
         write_control_prompt(vault_path)
+        need_capture_session = False
         if agent == "opencode":
             prompt_escaped = CONTROL_PROMPT_INSTRUCTION.replace('"', '\\"')
-            agent_cmd = f'opencode --prompt \\"{prompt_escaped}\\"'
+            if new_control_agent:
+                clear_control_session(project_root)
+                agent_cmd = f'opencode --prompt \\"{prompt_escaped}\\"'
+                need_capture_session = True
+            else:
+                stored_session = load_control_session(project_root)
+                if stored_session:
+                    _launcher_logger.info(f"Using stored session: {stored_session}")
+                    agent_cmd = f'opencode --session {stored_session} --prompt \\"{prompt_escaped}\\"'
+                else:
+                    _launcher_logger.info("No stored session, using --continue")
+                    agent_cmd = f'opencode --continue --prompt \\"{prompt_escaped}\\"'
+                    need_capture_session = True
         else:
             agent_cmd = agent
 
@@ -572,6 +674,13 @@ layout {{
                 )
                 if session_name in result.stdout.split("\n"):
                     break
+
+            if need_capture_session and agent == "opencode":
+                time.sleep(2)
+                session_id = query_latest_opencode_session(project_root)
+                if session_id:
+                    save_control_session(project_root, session_id)
+
             os.execvp("zellij", ["zellij", "attach", session_name])
         else:
             os.execvp(
@@ -608,7 +717,7 @@ def launch_monitor_layout(
     log: callable = lambda msg: None,
 ) -> None:
     """Launch the orch-monitor layout in a terminal multiplexer.
-    
+
     Args:
         project_root: Path to project root
         vault_path: Path to issues root
@@ -657,7 +766,9 @@ def launch_monitor_layout(
         sys.exit(1)
 
     _launcher_logger.info("launching layout...")
-    launcher.launch_layout(session_name, project_root, vault_path, agent, cwd, new_control_agent)
+    launcher.launch_layout(
+        session_name, project_root, vault_path, agent, cwd, new_control_agent
+    )
     _launcher_logger.info("launch complete")
 
 
@@ -770,7 +881,13 @@ def main():
         # --new-control-agent implies --new for layout restart
         new = args.new or args.new_control_agent
         launch_monitor_layout(
-            project_root, vault_path, args.agent, new, args.new_control_agent, mux_type, log=_log
+            project_root,
+            vault_path,
+            args.agent,
+            new,
+            args.new_control_agent,
+            mux_type,
+            log=_log,
         )
 
 
