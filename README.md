@@ -99,6 +99,14 @@ User interacts: orch attach my-issue
 | `done` | Completed | Celebrate! |
 | `failed` | Error occurred | Check logs, retry |
 
+## Contributing
+
+See the **[Development Guide](./docs/development.md)** for:
+- Versioning philosophy (Semver)
+- Trunk-based development workflow
+- Branch naming conventions
+- PR guidelines
+
 ## Releasing
 
 ```bash
