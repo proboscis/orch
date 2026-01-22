@@ -55,7 +55,13 @@ from textual.widgets import (
     SelectionList,
 )
 
-from .config import Config, FilterState, RunFilterState, IssueFilterState
+from .config import (
+    Config,
+    ConfigurationState,
+    FilterState,
+    IssueFilterState,
+    RunFilterState,
+)
 from .daemon import (
     DaemonClient,
     DaemonError,
@@ -1176,6 +1182,142 @@ class HelpScreen(ModalScreen[None]):
 
     def action_close(self) -> None:
         self.dismiss(None)
+
+
+class OnboardingScreen(ModalScreen[bool]):
+    """Screen shown when orch is not configured for this project."""
+
+    CSS = """
+    OnboardingScreen {
+        align: center middle;
+    }
+    #onboarding-dialog {
+        width: 75;
+        height: auto;
+        max-height: 90%;
+        padding: 1 2;
+        background: $surface;
+        border: thick $accent;
+    }
+    #onboarding-title {
+        text-align: center;
+        width: 100%;
+        text-style: bold;
+        color: $warning;
+        margin-bottom: 1;
+    }
+    .setup-section {
+        margin-top: 1;
+        padding: 1;
+        background: $surface-darken-1;
+    }
+    .code-line {
+        color: $success;
+        margin-left: 4;
+    }
+    #status-line {
+        margin-top: 1;
+        text-align: center;
+        color: $text-muted;
+    }
+    """
+
+    BINDINGS = [
+        Binding("r", "retry", "Retry"),
+        Binding("q", "quit_app", "Quit"),
+        Binding("escape", "quit_app", "Quit"),
+    ]
+
+    def __init__(self, config_state: "ConfigurationState"):
+        super().__init__()
+        self.config_state = config_state
+        self._polling = True
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="onboarding-dialog"):
+            yield Label("Orch Not Configured", id="onboarding-title")
+            yield Static(f"Directory: {self.config_state.project_root}")
+            yield Static("")
+
+            # Show what's missing
+            if not self.config_state.has_orch_dir:
+                yield Static("[yellow]Missing:[/] .orch/ directory")
+            if not self.config_state.has_issues_path:
+                yield Static("[yellow]Missing:[/] Issues path not set")
+
+            with Vertical(classes="setup-section"):
+                yield Static("[bold]Quick Setup[/]")
+                yield Static("")
+                yield Static("1. Create config directory:")
+                yield Static("mkdir -p .orch", classes="code-line")
+                yield Static("")
+                yield Static("2. Set issues path (one of):")
+                yield Static("export ORCH_ISSUES_ROOT=~/my-issues", classes="code-line")
+                yield Static("# Or in .orch/config.yaml:", classes="code-line")
+                yield Static("#   issues:", classes="code-line")
+                yield Static("#     path: ~/my-issues", classes="code-line")
+                yield Static("")
+                yield Static("3. For full guided setup:")
+                yield Static("orch tutorial", classes="code-line")
+
+            yield Static("")
+            yield Static(
+                "[dim]Watching for setup... (auto-continues when ready)[/]",
+                id="status-line",
+            )
+            yield Static("")
+            yield Button("[R]etry", id="retry-btn", variant="primary")
+            yield Button("[Q]uit", id="quit-btn")
+
+    def on_mount(self) -> None:
+        self.set_interval(2.0, self._check_configuration)
+
+    def _check_configuration(self) -> None:
+        if not self._polling:
+            return
+        from .config import detect_configuration_state
+
+        state = detect_configuration_state()
+        if state.has_orch_dir and state.has_issues_path:
+            self._polling = False
+            self.notify("Configuration detected!", severity="information")
+            self.dismiss(True)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "retry-btn":
+            self._check_configuration()
+        elif event.button.id == "quit-btn":
+            self.action_quit_app()
+
+    def action_retry(self) -> None:
+        self._check_configuration()
+
+    def action_quit_app(self) -> None:
+        self._polling = False
+        self.dismiss(False)
+
+
+class OnboardingApp(App):
+    """Minimal app for onboarding when orch is not configured."""
+
+    CSS = """
+    Screen {
+        align: center middle;
+        background: $surface;
+    }
+    """
+
+    def __init__(self, config_state: "ConfigurationState"):
+        super().__init__()
+        self.config_state = config_state
+        self.result = False
+
+    def on_mount(self) -> None:
+        self.push_screen(OnboardingScreen(self.config_state), self._on_result)
+
+    def _on_result(self, result: bool) -> None:
+        self.result = result
+        self.exit(result)
 
 
 def filter_runs_client_side(runs: list[Run], filter_state: RunFilterState) -> list[Run]:

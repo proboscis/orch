@@ -379,7 +379,9 @@ func (m *OpenCodeManager) SendMessage(ctx context.Context, run *model.Run, messa
 	}
 
 	client := NewOpenCodeClient(m.Port)
-	return client.SendMessagePrompt(ctx, m.SessionID, message, run.WorktreePath)
+	// Use async endpoint to return immediately after queuing the message
+	// (SendMessagePrompt blocks until the agent finishes processing)
+	return client.SendMessageAsync(ctx, m.SessionID, message, run.WorktreePath, nil, "")
 }
 
 func IsWaitingForInput(output string) bool {

@@ -71,23 +71,32 @@ def _get_daemon_client(project_root: Path | None) -> "DaemonClient | None":
     return None
 
 
-def load_control_session(project_root: Path | None) -> str | None:
+def load_control_session(project_root: Path | None, agent_type: str = "") -> str | None:
+    """Load control session for the given agent type.
+
+    The daemon handles:
+    - Returning stored session if agent_type matches
+    - Clearing stored session if agent_type changed
+    - Discovering session automatically for 'claude' agent type
+
+    Returns session_id or None.
+    """
     daemon = _get_daemon_client(project_root)
     if daemon:
         project_str = str(project_root) if project_root else str(Path.cwd())
-        session_id = daemon.get_control_session(project_str)
+        session_id, _ = daemon.get_control_session(project_str, agent_type)
         if session_id:
-            _launcher_logger.info(f"Loaded control session from daemon: {session_id}")
+            _launcher_logger.info(f"Loaded control session from daemon: {session_id} (agent: {agent_type})")
             return session_id
     return None
 
 
-def save_control_session(project_root: Path | None, session_id: str) -> bool:
+def save_control_session(project_root: Path | None, session_id: str, agent_type: str = "") -> bool:
     daemon = _get_daemon_client(project_root)
     if daemon:
         project_str = str(project_root) if project_root else str(Path.cwd())
-        if daemon.set_control_session(project_str, session_id):
-            _launcher_logger.info(f"Saved control session via daemon: {session_id}")
+        if daemon.set_control_session(project_str, session_id, agent_type):
+            _launcher_logger.info(f"Saved control session via daemon: {session_id} (agent: {agent_type})")
             return True
     _launcher_logger.error("Failed to save control session: daemon not available")
     return False
@@ -102,6 +111,7 @@ def clear_control_session(project_root: Path | None) -> bool:
             return True
     _launcher_logger.error("Failed to clear control session: daemon not available")
     return False
+
 
 
 def query_latest_opencode_session(
@@ -437,21 +447,37 @@ class TmuxLayoutLauncher:
 
         write_control_prompt(vault_path)
         need_capture_session = False
+
         if agent == "opencode":
             if new_control_agent:
                 clear_control_session(project_root)
                 agent_cmd = f'opencode --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
                 need_capture_session = True
             else:
-                stored_session = load_control_session(project_root)
-                if stored_session:
-                    _launcher_logger.info(f"Using stored session: {stored_session}")
-                    agent_cmd = f'opencode --session {stored_session} --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
+                # Daemon handles agent type change detection
+                session_id = load_control_session(project_root, agent_type="opencode")
+                if session_id:
+                    _launcher_logger.info(f"Using session: {session_id}")
+                    agent_cmd = f'opencode --session {session_id} --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
                 else:
                     _launcher_logger.info("No stored session, using --continue")
-                    agent_cmd = (
-                        f'opencode --continue --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
-                    )
+                    agent_cmd = f'opencode --continue --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
+                    need_capture_session = True
+
+        elif agent == "claude":
+            if new_control_agent:
+                clear_control_session(project_root)
+                agent_cmd = "claude"
+                need_capture_session = True
+            else:
+                # Daemon handles agent type change detection and session discovery
+                session_id = load_control_session(project_root, agent_type="claude")
+                if session_id:
+                    _launcher_logger.info(f"Using Claude session: {session_id}")
+                    agent_cmd = f"claude --resume {session_id}"
+                else:
+                    _launcher_logger.info("No Claude session found, starting fresh")
+                    agent_cmd = "claude"
                     need_capture_session = True
         else:
             agent_cmd = agent
@@ -471,7 +497,15 @@ class TmuxLayoutLauncher:
             time.sleep(3)
             session_id = query_latest_opencode_session(project_root)
             if session_id:
-                save_control_session(project_root, session_id)
+                save_control_session(project_root, session_id, agent_type="opencode")
+
+        if need_capture_session and agent == "claude":
+            _launcher_logger.info("Waiting to capture Claude session ID...")
+            time.sleep(3)
+            # Ask daemon to discover the new session
+            session_id = load_control_session(project_root, agent_type="claude")
+            if session_id:
+                _launcher_logger.info(f"Captured Claude session: {session_id}")
 
         subprocess.run(["tmux", "select-pane", "-t", f"{session_name}:0.2"])
 
@@ -550,6 +584,7 @@ class ZellijLayoutLauncher:
 
         write_control_prompt(vault_path)
         need_capture_session = False
+
         if agent == "opencode":
             prompt_escaped = CONTROL_PROMPT_INSTRUCTION.replace('"', '\\"')
             if new_control_agent:
@@ -557,13 +592,30 @@ class ZellijLayoutLauncher:
                 agent_cmd = f'opencode --prompt \\"{prompt_escaped}\\"'
                 need_capture_session = True
             else:
-                stored_session = load_control_session(project_root)
-                if stored_session:
-                    _launcher_logger.info(f"Using stored session: {stored_session}")
-                    agent_cmd = f'opencode --session {stored_session} --prompt \\"{prompt_escaped}\\"'
+                # Daemon handles agent type change detection
+                session_id = load_control_session(project_root, agent_type="opencode")
+                if session_id:
+                    _launcher_logger.info(f"Using session: {session_id}")
+                    agent_cmd = f'opencode --session {session_id} --prompt \\"{prompt_escaped}\\"'
                 else:
                     _launcher_logger.info("No stored session, using --continue")
                     agent_cmd = f'opencode --continue --prompt \\"{prompt_escaped}\\"'
+                    need_capture_session = True
+
+        elif agent == "claude":
+            if new_control_agent:
+                clear_control_session(project_root)
+                agent_cmd = "claude"
+                need_capture_session = True
+            else:
+                # Daemon handles agent type change detection and session discovery
+                session_id = load_control_session(project_root, agent_type="claude")
+                if session_id:
+                    _launcher_logger.info(f"Using Claude session: {session_id}")
+                    agent_cmd = f"claude --resume {session_id}"
+                else:
+                    _launcher_logger.info("No Claude session found, starting fresh")
+                    agent_cmd = "claude"
                     need_capture_session = True
         else:
             agent_cmd = agent
@@ -668,7 +720,14 @@ layout {{
                 time.sleep(2)
                 session_id = query_latest_opencode_session(project_root)
                 if session_id:
-                    save_control_session(project_root, session_id)
+                    save_control_session(project_root, session_id, agent_type="opencode")
+
+            if need_capture_session and agent == "claude":
+                time.sleep(2)
+                # Ask daemon to discover the new session
+                session_id = load_control_session(project_root, agent_type="claude")
+                if session_id:
+                    _launcher_logger.info(f"Captured Claude session: {session_id}")
 
             os.execvp("zellij", ["zellij", "attach", session_name])
         else:
@@ -791,8 +850,8 @@ def main():
     )
     parser.add_argument(
         "--agent",
-        default="opencode",
-        help="Control agent command (default: opencode)",
+        default=None,
+        help="Control agent command (default: from config, or 'claude')",
     )
     parser.add_argument(
         "--new",
@@ -836,6 +895,29 @@ def main():
     vault_path = get_issues_root(args)
     project_root = get_project_root(args)
 
+    # Check configuration state before daemon - show onboarding if unconfigured
+    from .config import detect_configuration_state
+
+    config_state = detect_configuration_state()
+
+    # Show onboarding if unconfigured (only for full layout mode, not single panes)
+    if not args.runs and not args.issues:
+        if not config_state.has_orch_dir or not config_state.has_issues_path:
+            from .app import OnboardingApp
+
+            _log("showing onboarding screen - config not found")
+            app = OnboardingApp(config_state)
+            result = app.run()
+            if not result:
+                print(
+                    "Setup cancelled. Run 'orch tutorial' for help.", file=sys.stderr
+                )
+                sys.exit(0)
+            # Refresh paths after onboarding
+            config_state = detect_configuration_state()
+            if config_state.issues_path:
+                vault_path = config_state.issues_path
+
     _log("ensuring daemon...")
     success, error_msg = ensure_daemon(project_root, vault_path)
     if not success:
@@ -869,10 +951,13 @@ def main():
         _log("starting launch_monitor_layout")
         # --new-control-agent implies --new for layout restart
         new = args.new or args.new_control_agent
+        # Use config.agent as default if --agent not specified
+        agent = args.agent if args.agent is not None else config.agent
+        _log(f"using agent: {agent}")
         launch_monitor_layout(
             project_root,
             vault_path,
-            args.agent,
+            agent,
             new,
             args.new_control_agent,
             mux_type,

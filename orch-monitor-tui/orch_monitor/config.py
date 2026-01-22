@@ -129,6 +129,63 @@ class FilterState:
 
 
 @dataclass
+class ConfigurationState:
+    """State of orch configuration for onboarding detection."""
+
+    has_orch_dir: bool  # .orch directory exists
+    has_config_file: bool  # .orch/config.yaml exists
+    has_issues_path: bool  # issues path configured (env or config)
+    orch_dir_path: Optional[Path]  # Where .orch was found
+    issues_path: Optional[Path]  # Configured issues path
+    project_root: Path  # Current working directory
+
+
+def detect_configuration_state() -> ConfigurationState:
+    """Detect current orch configuration state for onboarding."""
+    cwd = Path.cwd()
+
+    # Search upward for .orch directory
+    orch_dir_path = None
+    current = cwd
+    while True:
+        candidate = current / ORCH_DIR
+        if candidate.is_dir():
+            orch_dir_path = candidate
+            break
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+
+    has_orch_dir = orch_dir_path is not None
+    has_config_file = has_orch_dir and (orch_dir_path / "config.yaml").exists()
+
+    # Check for issues path from environment
+    issues_path_str = os.getenv("ORCH_ISSUES_ROOT") or os.getenv("ORCH_VAULT")
+    issues_path = Path(issues_path_str).expanduser() if issues_path_str else None
+
+    # Also check config file for issues.path
+    if has_config_file and not issues_path:
+        try:
+            with open(orch_dir_path / "config.yaml") as f:
+                data = yaml.safe_load(f) or {}
+            path_val = data.get("issues", {}).get("path") or data.get("vault")
+            if path_val:
+                issues_path = Path(path_val).expanduser()
+        except Exception:
+            pass
+
+    return ConfigurationState(
+        has_orch_dir=has_orch_dir,
+        has_config_file=has_config_file,
+        has_issues_path=issues_path is not None,
+        orch_dir_path=orch_dir_path,
+        issues_path=issues_path,
+        project_root=cwd,
+    )
+
+
+@dataclass
 class IssueDefaultFilter:
     """Default filter configuration for issues."""
 

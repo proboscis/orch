@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -56,6 +57,7 @@ type SendRequest struct {
 	Comment     string   `json:"comment,omitempty"`
 	All         bool     `json:"all,omitempty"`
 	SessionID   string   `json:"session_id,omitempty"`
+	AgentType   string   `json:"agent_type,omitempty"`
 }
 
 type SendResponse struct {
@@ -87,6 +89,11 @@ type SocketServer struct {
 
 	monitors   map[string]*MonitorConnection
 	monitorsMu sync.RWMutex
+
+	// Per-project locks for control session operations to prevent race conditions
+	// when multiple orch-monitor instances start in quick succession
+	controlSessionLocks   map[string]*sync.Mutex
+	controlSessionLocksMu sync.Mutex
 }
 
 type Logger interface {
@@ -95,11 +102,12 @@ type Logger interface {
 
 func NewSocketServer(factory StoreFactory, logger Logger) *SocketServer {
 	return &SocketServer{
-		storeFactory: factory,
-		logger:       logger,
-		stopCh:       make(chan struct{}),
-		monitors:     make(map[string]*MonitorConnection),
-		repos:        make(map[string]*RepoContext),
+		storeFactory:        factory,
+		logger:              logger,
+		stopCh:              make(chan struct{}),
+		monitors:            make(map[string]*MonitorConnection),
+		repos:               make(map[string]*RepoContext),
+		controlSessionLocks: make(map[string]*sync.Mutex),
 	}
 }
 
@@ -399,6 +407,96 @@ func (s *SocketServer) controlSessionPath(projectRoot string) string {
 	return filepath.Join(projectRoot, ".orch", "control-session.json")
 }
 
+// getControlSessionLock returns a per-project mutex for control session operations.
+// This prevents race conditions when multiple orch-monitor instances start in quick succession.
+func (s *SocketServer) getControlSessionLock(projectRoot string) *sync.Mutex {
+	s.controlSessionLocksMu.Lock()
+	defer s.controlSessionLocksMu.Unlock()
+
+	if lock, ok := s.controlSessionLocks[projectRoot]; ok {
+		return lock
+	}
+	lock := &sync.Mutex{}
+	s.controlSessionLocks[projectRoot] = lock
+	return lock
+}
+
+// discoverClaudeSession finds the most recent Claude Code session for a project directory.
+// It scans ~/.claude/projects/{project-dir}/*.jsonl for UUID-named session files.
+func (s *SocketServer) discoverClaudeSession(projectRoot string) string {
+	// Claude stores projects with path converted: /Users/foo/bar -> -Users-foo-bar
+	claudeDirName := strings.ReplaceAll(projectRoot, "/", "-")
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		s.logger.Printf("failed to get home dir: %v", err)
+		return ""
+	}
+
+	claudeProjectsDir := filepath.Join(homeDir, ".claude", "projects", claudeDirName)
+	entries, err := os.ReadDir(claudeProjectsDir)
+	if err != nil {
+		s.logger.Printf("no Claude project dir found: %s", claudeProjectsDir)
+		return ""
+	}
+
+	// UUID pattern: 8-4-4-4-12 hex chars
+	uuidPattern := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$`)
+
+	type sessionFile struct {
+		name    string
+		modTime time.Time
+	}
+	var sessions []sessionFile
+
+	for _, entry := range entries {
+		if entry.IsDir() || !uuidPattern.MatchString(entry.Name()) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		sessions = append(sessions, sessionFile{
+			name:    entry.Name(),
+			modTime: info.ModTime(),
+		})
+	}
+
+	if len(sessions) == 0 {
+		s.logger.Printf("no Claude sessions found in: %s", claudeProjectsDir)
+		return ""
+	}
+
+	// Sort by modification time, newest first
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].modTime.After(sessions[j].modTime)
+	})
+
+	// Return UUID without .jsonl extension
+	sessionID := strings.TrimSuffix(sessions[0].name, ".jsonl")
+	s.logger.Printf("discovered Claude session for %s: %s", projectRoot, sessionID)
+	return sessionID
+}
+
+// saveControlSession persists the control session to disk.
+func (s *SocketServer) saveControlSession(projectRoot, sessionID, agentType string) error {
+	orchDir := filepath.Join(projectRoot, ".orch")
+	if err := os.MkdirAll(orchDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .orch dir: %w", err)
+	}
+
+	sessionPath := s.controlSessionPath(projectRoot)
+	sessionData := map[string]string{
+		"session_id": sessionID,
+		"agent_type": agentType,
+	}
+	data, _ := json.MarshalIndent(sessionData, "", "  ")
+	if err := os.WriteFile(sessionPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write session file: %w", err)
+	}
+	return nil
+}
+
 func (s *SocketServer) handleGetControlSession(req SendRequest, encoder *json.Encoder) {
 	if req.ProjectRoot == "" {
 		encoder.Encode(map[string]interface{}{
@@ -408,30 +506,62 @@ func (s *SocketServer) handleGetControlSession(req SendRequest, encoder *json.En
 		return
 	}
 
+	// Acquire per-project lock to prevent race conditions
+	lock := s.getControlSessionLock(req.ProjectRoot)
+	lock.Lock()
+	defer lock.Unlock()
+
+	requestedAgent := req.AgentType // The agent type the client wants to use
+
+	// Load stored session
 	sessionPath := s.controlSessionPath(req.ProjectRoot)
+	var storedSession struct {
+		SessionID string `json:"session_id"`
+		AgentType string `json:"agent_type"`
+	}
+
 	data, err := os.ReadFile(sessionPath)
-	if err != nil {
+	if err == nil {
+		json.Unmarshal(data, &storedSession)
+	}
+
+	// If agent type changed, clear the stored session
+	if storedSession.SessionID != "" && storedSession.AgentType != "" && requestedAgent != "" {
+		if storedSession.AgentType != requestedAgent {
+			s.logger.Printf("agent changed from %s to %s, clearing stored session", storedSession.AgentType, requestedAgent)
+			os.Remove(sessionPath)
+			storedSession.SessionID = ""
+			storedSession.AgentType = ""
+		}
+	}
+
+	// If we have a valid stored session, return it
+	if storedSession.SessionID != "" {
 		encoder.Encode(map[string]interface{}{
 			"ok":         true,
-			"session_id": "",
+			"session_id": storedSession.SessionID,
+			"agent_type": storedSession.AgentType,
 		})
 		return
 	}
 
-	var session struct {
-		SessionID string `json:"session_id"`
+	// No stored session - try to discover one based on agent type
+	var discoveredSession string
+	if requestedAgent == "claude" {
+		discoveredSession = s.discoverClaudeSession(req.ProjectRoot)
+		if discoveredSession != "" {
+			// Save the discovered session
+			if err := s.saveControlSession(req.ProjectRoot, discoveredSession, "claude"); err != nil {
+				s.logger.Printf("failed to save discovered session: %v", err)
+			}
+		}
 	}
-	if err := json.Unmarshal(data, &session); err != nil {
-		encoder.Encode(map[string]interface{}{
-			"ok":         true,
-			"session_id": "",
-		})
-		return
-	}
+	// For opencode, discovery is handled via its HTTP API (client-side for now)
 
 	encoder.Encode(map[string]interface{}{
 		"ok":         true,
-		"session_id": session.SessionID,
+		"session_id": discoveredSession,
+		"agent_type": requestedAgent,
 	})
 }
 
@@ -452,6 +582,11 @@ func (s *SocketServer) handleSetControlSession(req SendRequest, encoder *json.En
 		return
 	}
 
+	// Acquire per-project lock to prevent race conditions
+	lock := s.getControlSessionLock(req.ProjectRoot)
+	lock.Lock()
+	defer lock.Unlock()
+
 	orchDir := filepath.Join(req.ProjectRoot, ".orch")
 	if err := os.MkdirAll(orchDir, 0755); err != nil {
 		encoder.Encode(map[string]interface{}{
@@ -462,7 +597,11 @@ func (s *SocketServer) handleSetControlSession(req SendRequest, encoder *json.En
 	}
 
 	sessionPath := s.controlSessionPath(req.ProjectRoot)
-	data, _ := json.MarshalIndent(map[string]string{"session_id": req.SessionID}, "", "  ")
+	sessionData := map[string]string{"session_id": req.SessionID}
+	if req.AgentType != "" {
+		sessionData["agent_type"] = req.AgentType
+	}
+	data, _ := json.MarshalIndent(sessionData, "", "  ")
 	if err := os.WriteFile(sessionPath, data, 0644); err != nil {
 		encoder.Encode(map[string]interface{}{
 			"ok":    false,
@@ -471,7 +610,7 @@ func (s *SocketServer) handleSetControlSession(req SendRequest, encoder *json.En
 		return
 	}
 
-	s.logger.Printf("set control session for %s: %s", req.ProjectRoot, req.SessionID)
+	s.logger.Printf("set control session for %s: %s (agent: %s)", req.ProjectRoot, req.SessionID, req.AgentType)
 	encoder.Encode(map[string]interface{}{
 		"ok": true,
 	})
@@ -485,6 +624,11 @@ func (s *SocketServer) handleClearControlSession(req SendRequest, encoder *json.
 		})
 		return
 	}
+
+	// Acquire per-project lock to prevent race conditions
+	lock := s.getControlSessionLock(req.ProjectRoot)
+	lock.Lock()
+	defer lock.Unlock()
 
 	sessionPath := s.controlSessionPath(req.ProjectRoot)
 	if err := os.Remove(sessionPath); err != nil && !os.IsNotExist(err) {
@@ -540,7 +684,9 @@ func (s *SocketServer) processSend(req SendRequest) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	err = client.SendMessagePrompt(ctx, run.OpenCodeSessionID, req.Message, run.WorktreePath)
+	// Use async endpoint to return immediately after queuing the message
+	// (SendMessagePrompt blocks until the agent finishes processing)
+	err = client.SendMessageAsync(ctx, run.OpenCodeSessionID, req.Message, run.WorktreePath, nil, "")
 	if err != nil {
 		return fmt.Errorf("failed to send message: %w", err)
 	}
