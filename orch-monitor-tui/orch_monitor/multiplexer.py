@@ -93,6 +93,10 @@ class Multiplexer(Protocol):
         """
         ...
 
+    def get_current_session(self) -> Optional[str]:
+        """Get the name of the current session if inside one, None otherwise."""
+        ...
+
 
 class TmuxMultiplexer:
     """Tmux implementation of Multiplexer."""
@@ -219,6 +223,22 @@ class TmuxMultiplexer:
         args.extend(command)
         result = subprocess.run(args, capture_output=True)
         return result.returncode == 0
+
+    def get_current_session(self) -> Optional[str]:
+        """Get the current tmux session name if inside one."""
+        tmux_env = os.environ.get("TMUX")
+        if not tmux_env:
+            return None
+        # Parse TMUX env var format: /path/to/socket,pid,session_index
+        # We need to query tmux for the actual session name
+        result = subprocess.run(
+            ["tmux", "display-message", "-p", "#{session_name}"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+        return None
 
 
 ZELLIJ_TIMEOUT_SEC = 5
@@ -375,6 +395,10 @@ class ZellijMultiplexer:
         )
         subprocess.run(["zellij", "action", "write", "10"], capture_output=True)
         return True
+
+    def get_current_session(self) -> Optional[str]:
+        """Get the current Zellij session name if inside one."""
+        return os.environ.get("ZELLIJ_SESSION_NAME")
 
 
 # Registry of multiplexer implementations

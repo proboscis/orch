@@ -346,8 +346,34 @@ func (z *ZellijMultiplexer) WaitForReady(session, pattern string, timeout time.D
 	return fmt.Errorf("timeout waiting for agent to be ready (pattern: %q)", pattern)
 }
 
+// ErrCrossSessionAttach is returned when attempting to attach to a different
+// Zellij session from inside an existing Zellij session.
+var ErrCrossSessionAttach = fmt.Errorf("cannot attach to a different Zellij session from inside Zellij")
+
 func (z *ZellijMultiplexer) SwitchClient(session string) error {
-	return z.AttachSession(session)
+	session = shortenSessionName(session)
+
+	// Check if we're inside a Zellij session
+	if !z.IsInsideSession() {
+		// Not inside Zellij, just attach normally
+		return z.AttachSession(session)
+	}
+
+	// Get current session name
+	currentSession, err := z.CurrentSession()
+	if err != nil {
+		// Can't determine current session, try attach anyway
+		return z.AttachSession(session)
+	}
+
+	// If target is the same session, nothing to do
+	if currentSession == session {
+		return nil
+	}
+
+	// Inside Zellij trying to attach to a different session - this doesn't work
+	// Return a helpful error message
+	return fmt.Errorf("%w: run 'orch attach' from outside Zellij, or open a new terminal", ErrCrossSessionAttach)
 }
 
 func (z *ZellijMultiplexer) CurrentSession() (string, error) {
