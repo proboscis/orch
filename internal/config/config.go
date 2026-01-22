@@ -741,13 +741,11 @@ func (c *Config) GetMonitorMultiplexer() string {
 }
 
 // GetAgentMultiplexer returns the multiplexer for agent sessions (default: tmux)
+// Note: Does NOT fall back to legacy Multiplexer field - agents must use tmux
+// by default to allow attach from Zellij monitor (cross-session Zellij doesn't work)
 func (c *Config) GetAgentMultiplexer() string {
 	if c.AgentMultiplexer != "" {
 		return c.AgentMultiplexer
-	}
-	// Fall back to legacy Multiplexer if set
-	if c.Multiplexer != "" {
-		return c.Multiplexer
 	}
 	return "tmux"
 }
