@@ -227,8 +227,13 @@ class RunTable(CursorPreservingTable):
                 status_str = f"[cyan]{status_str}[/cyan]"
 
             model_str = model_display_name(run.model, run.model_variant)
-            mux = run.multiplexer or "tmux"
-            mux_short = "zj" if mux == "zellij" else "tx"
+            mux = run.multiplexer
+            if mux == "zellij":
+                mux_short = "zj"
+            elif mux == "tmux":
+                mux_short = "tx"
+            else:
+                mux_short = "-"
 
             # Format diff stats with color coding
             stats = diff_stats.get(run.ref())
