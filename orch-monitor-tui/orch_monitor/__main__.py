@@ -13,9 +13,11 @@ from .app import IssuesDashboard, OrchMonitorApp, RunsDashboard, setup_logging
 from .config import Config
 from .daemon import DaemonClient
 from .multiplexer import (
+    InvalidMultiplexerConfigError,
     MultiplexerType,
     get_default_multiplexer_type,
     get_multiplexer,
+    validate_multiplexer_config,
 )
 from .xdg import state_dir
 
@@ -785,6 +787,14 @@ def launch_monitor_layout(
         _launcher_logger.info("detecting multiplexer...")
         multiplexer = get_default_multiplexer_type()
         _launcher_logger.info(f"detected multiplexer: {multiplexer.value}")
+
+    # Validate multiplexer config - reject zellij monitor + zellij agents
+    try:
+        validate_multiplexer_config(multiplexer)
+    except InvalidMultiplexerConfigError as e:
+        _launcher_logger.error(str(e))
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
     launcher = get_layout_launcher(multiplexer)
     cwd = os.getcwd()
