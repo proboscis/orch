@@ -668,7 +668,7 @@ func applyPromptConfigDefaults(opts *runOptions) (*config.Config, error) {
 	}
 
 	if opts.Multiplexer == "" {
-		opts.Multiplexer = cfg.GetMultiplexer()
+		opts.Multiplexer = cfg.GetAgentMultiplexer()
 	}
 
 	// WorktreeDir: use config value if flag not provided, fallback to "~/.orch/worktrees"

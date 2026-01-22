@@ -1847,6 +1847,25 @@ class RunsDashboard(App):
 
         if current_mux_type:
             current_mux = get_multiplexer(current_mux_type)
+
+            # Check for cross-session Zellij attach (which doesn't work)
+            if current_mux_type == MultiplexerType.ZELLIJ:
+                run_mux_type = get_multiplexer_type_from_run(run)
+                if run_mux_type == MultiplexerType.ZELLIJ:
+                    current_session = current_mux.get_current_session()
+                    run_session = get_session_name(run)
+                    if current_session and run_session and current_session != run_session:
+                        # Can't attach to different Zellij session from inside Zellij
+                        cmd_str = " ".join(attach_cmd)
+                        self.call_from_thread(
+                            self.notify,
+                            f"Cannot attach to different Zellij session from inside Zellij.\n"
+                            f"Run in a separate terminal: {cmd_str}",
+                            severity="warning",
+                            timeout=15,
+                        )
+                        return
+
             tab_name = f"{run.issue_id}[{run.short_id()}]"
             if current_mux.new_tab_with_command(tab_name, attach_cmd):
                 self.call_from_thread(self.notify, f"Opened tab: {tab_name}")
@@ -2759,6 +2778,25 @@ class OrchMonitorApp(App):
 
         if current_mux_type:
             current_mux = get_multiplexer(current_mux_type)
+
+            # Check for cross-session Zellij attach (which doesn't work)
+            if current_mux_type == MultiplexerType.ZELLIJ:
+                run_mux_type = get_multiplexer_type_from_run(run)
+                if run_mux_type == MultiplexerType.ZELLIJ:
+                    current_session = current_mux.get_current_session()
+                    run_session = get_session_name(run)
+                    if current_session and run_session and current_session != run_session:
+                        # Can't attach to different Zellij session from inside Zellij
+                        cmd_str = " ".join(attach_cmd)
+                        self.call_from_thread(
+                            self.notify,
+                            f"Cannot attach to different Zellij session from inside Zellij.\n"
+                            f"Run in a separate terminal: {cmd_str}",
+                            severity="warning",
+                            timeout=15,
+                        )
+                        return
+
             tab_name = f"{run.issue_id}[{run.short_id()}]"
             if current_mux.new_tab_with_command(tab_name, attach_cmd):
                 self.call_from_thread(self.notify, f"Opened tab: {tab_name}")

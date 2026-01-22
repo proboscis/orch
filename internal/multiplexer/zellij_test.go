@@ -364,6 +364,71 @@ func TestZellijMultiplexer_CurrentSession_NotInSession(t *testing.T) {
 	}
 }
 
+func TestZellijMultiplexer_SwitchClient_SameSession(t *testing.T) {
+	// When inside a Zellij session and switching to the same session
+	os.Setenv("ZELLIJ", "1")
+	os.Setenv("ZELLIJ_SESSION_NAME", "my-session")
+	t.Cleanup(func() {
+		os.Unsetenv("ZELLIJ")
+		os.Unsetenv("ZELLIJ_SESSION_NAME")
+	})
+
+	zm := NewZellijMultiplexer()
+	// Switching to the same session should be a no-op
+	err := zm.SwitchClient("my-session")
+	if err != nil {
+		t.Fatalf("SwitchClient same session: unexpected error: %v", err)
+	}
+}
+
+func TestZellijMultiplexer_SwitchClient_CrossSession(t *testing.T) {
+	// When inside a Zellij session and trying to switch to a different session
+	os.Setenv("ZELLIJ", "1")
+	os.Setenv("ZELLIJ_SESSION_NAME", "current-session")
+	t.Cleanup(func() {
+		os.Unsetenv("ZELLIJ")
+		os.Unsetenv("ZELLIJ_SESSION_NAME")
+	})
+
+	zm := NewZellijMultiplexer()
+	// Switching to a different session should return ErrCrossSessionAttach
+	err := zm.SwitchClient("other-session")
+	if err == nil {
+		t.Fatal("expected error when switching to different session from inside Zellij")
+	}
+	if !errors.Is(err, ErrCrossSessionAttach) {
+		t.Fatalf("expected ErrCrossSessionAttach, got: %v", err)
+	}
+}
+
+func TestZellijMultiplexer_SwitchClient_NotInSession(t *testing.T) {
+	// When not inside a Zellij session, should try to attach normally
+	os.Unsetenv("ZELLIJ")
+	os.Unsetenv("ZELLIJ_SESSION_NAME")
+
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	zm := NewZellijMultiplexer()
+	err := zm.SwitchClient("target-session")
+	if err != nil {
+		t.Fatalf("SwitchClient not in session: unexpected error: %v", err)
+	}
+
+	if len(exec.recorded) != 1 {
+		t.Fatalf("expected 1 command, got %d", len(exec.recorded))
+	}
+	call := exec.recorded[0]
+	if call.name != "zellij" {
+		t.Fatalf("expected command 'zellij', got: %s", call.name)
+	}
+	if len(call.args) < 1 || call.args[0] != "attach" {
+		t.Fatalf("expected 'zellij attach', got args: %v", call.args)
+	}
+}
+
 func TestZellijMultiplexer_SetOption_Unsupported(t *testing.T) {
 	zm := NewZellijMultiplexer()
 	// SetOption returns ErrUnsupported for zellij (no equivalent)

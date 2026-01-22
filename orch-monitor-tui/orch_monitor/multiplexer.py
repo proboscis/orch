@@ -93,6 +93,10 @@ class Multiplexer(Protocol):
         """
         ...
 
+    def get_current_session(self) -> Optional[str]:
+        """Get the name of the current session if inside one, None otherwise."""
+        ...
+
 
 class TmuxMultiplexer:
     """Tmux implementation of Multiplexer."""
@@ -219,6 +223,22 @@ class TmuxMultiplexer:
         args.extend(command)
         result = subprocess.run(args, capture_output=True)
         return result.returncode == 0
+
+    def get_current_session(self) -> Optional[str]:
+        """Get the current tmux session name if inside one."""
+        tmux_env = os.environ.get("TMUX")
+        if not tmux_env:
+            return None
+        # Parse TMUX env var format: /path/to/socket,pid,session_index
+        # We need to query tmux for the actual session name
+        result = subprocess.run(
+            ["tmux", "display-message", "-p", "#{session_name}"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+        return None
 
 
 ZELLIJ_TIMEOUT_SEC = 5
@@ -376,6 +396,10 @@ class ZellijMultiplexer:
         subprocess.run(["zellij", "action", "write", "10"], capture_output=True)
         return True
 
+    def get_current_session(self) -> Optional[str]:
+        """Get the current Zellij session name if inside one."""
+        return os.environ.get("ZELLIJ_SESSION_NAME")
+
 
 # Registry of multiplexer implementations
 _MULTIPLEXERS: dict[MultiplexerType, Multiplexer] = {
@@ -398,17 +422,22 @@ def detect_current_multiplexer() -> Optional[MultiplexerType]:
 
 
 def get_default_multiplexer_type() -> MultiplexerType:
-    """Get the best available multiplexer (auto mode)."""
+    """Get the best available multiplexer for orch-monitor (default: zellij)."""
     inside = detect_current_multiplexer()
     if inside:
         return inside
 
-    env_mux = os.environ.get("ORCH_MULTIPLEXER", "").lower()
+    # Check monitor-specific env var first, then legacy env var
+    env_mux = os.environ.get("ORCH_MONITOR_MULTIPLEXER", "").lower()
+    if not env_mux:
+        env_mux = os.environ.get("ORCH_MULTIPLEXER", "").lower()
+
     if env_mux == "tmux" and _MULTIPLEXERS[MultiplexerType.TMUX].is_available():
         return MultiplexerType.TMUX
     if env_mux == "zellij" and _MULTIPLEXERS[MultiplexerType.ZELLIJ].is_available():
         return MultiplexerType.ZELLIJ
 
+    # Default to Zellij for monitor
     if _MULTIPLEXERS[MultiplexerType.ZELLIJ].is_available():
         return MultiplexerType.ZELLIJ
 
@@ -416,6 +445,37 @@ def get_default_multiplexer_type() -> MultiplexerType:
         return MultiplexerType.TMUX
 
     return MultiplexerType.ZELLIJ
+
+
+def get_agent_multiplexer_type() -> MultiplexerType:
+    """Get the configured multiplexer for agents (default: tmux)."""
+    env_mux = os.environ.get("ORCH_AGENT_MULTIPLEXER", "").lower()
+    if env_mux == "zellij":
+        return MultiplexerType.ZELLIJ
+    # Default to tmux for agents (cross-session Zellij attach doesn't work)
+    return MultiplexerType.TMUX
+
+
+class InvalidMultiplexerConfigError(Exception):
+    """Raised when multiplexer configuration is invalid."""
+
+    pass
+
+
+def validate_multiplexer_config(monitor_mux: MultiplexerType) -> None:
+    """Validate multiplexer configuration.
+
+    Raises InvalidMultiplexerConfigError if monitor=zellij and agent=zellij
+    (cross-session Zellij attach doesn't work).
+    """
+    agent_mux = get_agent_multiplexer_type()
+    if monitor_mux == MultiplexerType.ZELLIJ and agent_mux == MultiplexerType.ZELLIJ:
+        raise InvalidMultiplexerConfigError(
+            "Invalid multiplexer configuration: monitor_multiplexer=zellij with "
+            "agent_multiplexer=zellij is not supported (cross-session Zellij attach "
+            "doesn't work).\n"
+            "Fix: Set ORCH_AGENT_MULTIPLEXER=tmux or use --multiplexer tmux for monitor"
+        )
 
 
 # Convenience functions for working with Run objects
