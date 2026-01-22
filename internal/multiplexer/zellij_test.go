@@ -471,3 +471,78 @@ func TestZellijMultiplexer_AgentAlive_Missing(t *testing.T) {
 		t.Fatalf("AgentAlive = (%v, %v), want (false, false) for unknown", alive, known)
 	}
 }
+
+func TestShortenSessionName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantLen  int
+		wantSame bool
+	}{
+		{
+			name:     "short name unchanged",
+			input:    "short",
+			wantLen:  5,
+			wantSame: true,
+		},
+		{
+			name:     "exactly at limit unchanged",
+			input:    "1234567890123456789012345",
+			wantLen:  25,
+			wantSame: true,
+		},
+		{
+			name:     "one over limit gets shortened",
+			input:    "12345678901234567890123456",
+			wantLen:  25,
+			wantSame: false,
+		},
+		{
+			name:     "long name shortened to limit",
+			input:    "run-dummy-test-001-20260123-022021",
+			wantLen:  25,
+			wantSame: false,
+		},
+		{
+			name:     "very long name shortened to limit",
+			input:    "this-is-a-very-very-very-long-session-name-that-exceeds-the-limit",
+			wantLen:  25,
+			wantSame: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := shortenSessionName(tt.input)
+			if len(result) != tt.wantLen {
+				t.Errorf("shortenSessionName(%q) len = %d, want %d; result = %q",
+					tt.input, len(result), tt.wantLen, result)
+			}
+			if tt.wantSame && result != tt.input {
+				t.Errorf("shortenSessionName(%q) = %q, want unchanged", tt.input, result)
+			}
+			if !tt.wantSame && result == tt.input {
+				t.Errorf("shortenSessionName(%q) unchanged, want shortened", tt.input)
+			}
+		})
+	}
+}
+
+func TestShortenSessionName_Deterministic(t *testing.T) {
+	input := "run-dummy-test-001-20260123-022021"
+	result1 := shortenSessionName(input)
+	result2 := shortenSessionName(input)
+	if result1 != result2 {
+		t.Errorf("shortenSessionName not deterministic: %q != %q", result1, result2)
+	}
+}
+
+func TestShortenSessionName_UniqueForDifferentInputs(t *testing.T) {
+	input1 := "run-dummy-test-001-20260123-022021"
+	input2 := "run-dummy-test-001-20260123-022022"
+	result1 := shortenSessionName(input1)
+	result2 := shortenSessionName(input2)
+	if result1 == result2 {
+		t.Errorf("different inputs produced same output: %q", result1)
+	}
+}

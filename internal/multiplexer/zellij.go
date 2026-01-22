@@ -1,6 +1,8 @@
 package multiplexer
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,6 +10,8 @@ import (
 	"strings"
 	"time"
 )
+
+const zellijMaxSessionNameLen = 25
 
 func unsupportedErr(feature string) error {
 	return fmt.Errorf("%w: %s", ErrUnsupported, feature)
@@ -21,6 +25,16 @@ func extractSession(target string) string {
 		return target[:idx]
 	}
 	return target
+}
+
+func shortenSessionName(name string) string {
+	if len(name) <= zellijMaxSessionNameLen {
+		return name
+	}
+	hash := sha256.Sum256([]byte(name))
+	suffix := hex.EncodeToString(hash[:])[:6]
+	prefix := name[:zellijMaxSessionNameLen-7]
+	return prefix + "-" + suffix
 }
 
 type ZellijMultiplexer struct{}
@@ -43,6 +57,7 @@ func (z *ZellijMultiplexer) IsInsideSession() bool {
 }
 
 func (z *ZellijMultiplexer) HasSession(name string) bool {
+	name = shortenSessionName(name)
 	sessions, err := z.ListSessions()
 	if err != nil {
 		return false
@@ -56,6 +71,8 @@ func (z *ZellijMultiplexer) HasSession(name string) bool {
 }
 
 func (z *ZellijMultiplexer) NewSession(cfg *SessionConfig) error {
+	sessionName := shortenSessionName(cfg.SessionName)
+
 	env := os.Environ()
 	env = append(env, cfg.Env...)
 
@@ -66,7 +83,7 @@ func (z *ZellijMultiplexer) NewSession(cfg *SessionConfig) error {
 
 	startScript := fmt.Sprintf(
 		`cd %q && nohup zellij --session %q </dev/null >/dev/null 2>&1 &`,
-		workDir, cfg.SessionName)
+		workDir, sessionName)
 
 	startCmd := exec.Command("sh", "-c", startScript)
 	startCmd.Env = env
@@ -74,12 +91,12 @@ func (z *ZellijMultiplexer) NewSession(cfg *SessionConfig) error {
 		return err
 	}
 
-	if err := z.waitForSession(cfg.SessionName, 5*time.Second); err != nil {
+	if err := z.waitForSession(sessionName, 5*time.Second); err != nil {
 		return err
 	}
 
 	if cfg.Command != "" {
-		return z.SendKeys(cfg.SessionName, cfg.Command)
+		return z.SendKeys(sessionName, cfg.Command)
 	}
 	return nil
 }
@@ -96,6 +113,7 @@ func (z *ZellijMultiplexer) waitForSession(name string, timeout time.Duration) e
 }
 
 func (z *ZellijMultiplexer) AttachSession(session string) error {
+	session = shortenSessionName(session)
 	cmd := execCommand("zellij", "attach", session)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -104,6 +122,7 @@ func (z *ZellijMultiplexer) AttachSession(session string) error {
 }
 
 func (z *ZellijMultiplexer) KillSession(session string) error {
+	session = shortenSessionName(session)
 	cmd := execCommand("zellij", "kill-session", session)
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
@@ -146,6 +165,7 @@ func (z *ZellijMultiplexer) ListWindows(session string) ([]Window, error) {
 }
 
 func (z *ZellijMultiplexer) NewWindow(session, name, workDir, command string) error {
+	session = shortenSessionName(session)
 	args := []string{"--session", session, "action", "new-tab"}
 	if workDir != "" {
 		args = append(args, "--cwd", workDir)
@@ -167,6 +187,7 @@ func (z *ZellijMultiplexer) NewWindow(session, name, workDir, command string) er
 }
 
 func (z *ZellijMultiplexer) SelectWindow(session string, index int) error {
+	session = shortenSessionName(session)
 	args := []string{"--session", session, "action", "go-to-tab", strconv.Itoa(index + 1)}
 	cmd := execCommand("zellij", args...)
 	cmd.Stderr = os.Stderr
@@ -178,6 +199,7 @@ func (z *ZellijMultiplexer) SelectWindowByID(windowID string) error {
 }
 
 func (z *ZellijMultiplexer) RenameWindow(session string, index int, name string) error {
+	session = shortenSessionName(session)
 	if err := z.SelectWindow(session, index); err != nil {
 		return err
 	}
@@ -192,7 +214,7 @@ func (z *ZellijMultiplexer) ListPanes(target string) ([]Pane, error) {
 }
 
 func (z *ZellijMultiplexer) SplitWindow(target string, vertical bool, percent int) (string, error) {
-	session := extractSession(target)
+	session := shortenSessionName(extractSession(target))
 	if session == "" {
 		return "", unsupportedErr("split window without session")
 	}
@@ -216,7 +238,7 @@ func (z *ZellijMultiplexer) SelectPane(target string) error {
 }
 
 func (z *ZellijMultiplexer) SetPaneTitle(target, title string) error {
-	session := extractSession(target)
+	session := shortenSessionName(extractSession(target))
 	if session == "" {
 		return unsupportedErr("set pane title without session")
 	}
@@ -227,7 +249,7 @@ func (z *ZellijMultiplexer) SetPaneTitle(target, title string) error {
 }
 
 func (z *ZellijMultiplexer) KillPane(target string) error {
-	session := extractSession(target)
+	session := shortenSessionName(extractSession(target))
 	if session == "" {
 		return unsupportedErr("kill pane without session")
 	}
@@ -242,14 +264,15 @@ func (z *ZellijMultiplexer) SwapPane(source, target string) error {
 }
 
 func (z *ZellijMultiplexer) SendKeys(session, keys string) error {
+	session = shortenSessionName(session)
 	if err := z.SendKeysLiteral(session, keys); err != nil {
 		return err
 	}
-	// Send Enter key (ASCII 10 = newline)
 	return z.sendKey(session, 10)
 }
 
 func (z *ZellijMultiplexer) SendKeysLiteral(session, keys string) error {
+	session = shortenSessionName(session)
 	args := []string{"--session", session, "action", "write-chars", "--", keys}
 	cmd := execCommand("zellij", args...)
 	cmd.Stderr = os.Stderr
@@ -261,6 +284,7 @@ func (z *ZellijMultiplexer) SendText(session, text string) error {
 }
 
 func (z *ZellijMultiplexer) sendKey(session string, keyCode int) error {
+	session = shortenSessionName(session)
 	args := []string{"--session", session, "action", "write", strconv.Itoa(keyCode)}
 	cmd := execCommand("zellij", args...)
 	cmd.Stderr = os.Stderr
@@ -268,6 +292,7 @@ func (z *ZellijMultiplexer) sendKey(session string, keyCode int) error {
 }
 
 func (z *ZellijMultiplexer) CapturePane(session string, lines int) (string, error) {
+	session = shortenSessionName(session)
 	tmpFile, err := os.CreateTemp("", "zellij-capture-*")
 	if err != nil {
 		return "", err
@@ -296,6 +321,7 @@ func (z *ZellijMultiplexer) CapturePane(session string, lines int) (string, erro
 }
 
 func (z *ZellijMultiplexer) WaitForReady(session, pattern string, timeout time.Duration) error {
+	session = shortenSessionName(session)
 	if pattern == "" {
 		return nil
 	}
@@ -306,7 +332,6 @@ func (z *ZellijMultiplexer) WaitForReady(session, pattern string, timeout time.D
 	for time.Now().Before(deadline) {
 		content, err := z.CapturePane(session, 50)
 		if err != nil {
-			// Session might not be ready yet, keep trying
 			time.Sleep(pollInterval)
 			continue
 		}

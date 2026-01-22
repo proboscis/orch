@@ -9,7 +9,7 @@ import (
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/tmux"
+	"github.com/s22625/orch/internal/multiplexer"
 	"github.com/spf13/cobra"
 )
 
@@ -190,15 +190,18 @@ func outputCaptureError(err error) error {
 }
 
 func captureTmux(run *model.Run, opts *captureOptions) error {
-	// Get tmux session name
+	mux, err := multiplexer.GetAuto()
+	if err != nil {
+		return fmt.Errorf("no multiplexer available: %w", err)
+	}
+
 	sessionName := run.TmuxSession
 	if sessionName == "" {
 		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
 	}
 
-	// Check if session exists
-	if !tmux.HasSession(sessionName) {
-		err := fmt.Errorf("tmux session %q not found (run may not be active)", sessionName)
+	if !mux.HasSession(sessionName) {
+		err := fmt.Errorf("session %q not found (run may not be active)", sessionName)
 		if globalOpts.JSON {
 			result := map[string]interface{}{
 				"ok":    false,
@@ -214,8 +217,7 @@ func captureTmux(run *model.Run, opts *captureOptions) error {
 		return err
 	}
 
-	// Capture the pane content
-	content, err := tmux.CapturePane(sessionName, opts.Lines)
+	content, err := mux.CapturePane(sessionName, opts.Lines)
 	if err != nil {
 		if globalOpts.JSON {
 			result := map[string]interface{}{
