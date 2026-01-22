@@ -101,3 +101,66 @@ func TestGetAdapterOpenCode(t *testing.T) {
 		t.Fatalf("adapter is not *OpenCodeAdapter")
 	}
 }
+
+func TestOpenCodeContinueSession(t *testing.T) {
+	adapter := &OpenCodeAdapter{}
+
+	tests := []struct {
+		name           string
+		cfg            *LaunchConfig
+		wantContains   []string
+		wantNotContain []string
+	}{
+		{
+			name: "with session name uses explicit --session flag",
+			cfg: &LaunchConfig{
+				ContinueSession: true,
+				SessionName:     "test-session-123",
+				Prompt:          "hello",
+			},
+			wantContains:   []string{"--session", "test-session-123", "--prompt", "hello"},
+			wantNotContain: []string{"--continue"},
+		},
+		{
+			name: "without session name but with prompt starts fresh",
+			cfg: &LaunchConfig{
+				ContinueSession: true,
+				SessionName:     "",
+				Prompt:          "hello",
+			},
+			wantContains:   []string{"--prompt", "hello"},
+			wantNotContain: []string{"--continue", "--session"},
+		},
+		{
+			name: "without session name and without prompt does not use --continue",
+			cfg: &LaunchConfig{
+				ContinueSession: true,
+				SessionName:     "",
+				Prompt:          "",
+			},
+			wantContains:   []string{"opencode"},
+			wantNotContain: []string{"--continue", "--session", "--prompt"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd, err := adapter.LaunchCommand(tt.cfg)
+			if err != nil {
+				t.Fatalf("LaunchCommand error: %v", err)
+			}
+
+			for _, want := range tt.wantContains {
+				if !strings.Contains(cmd, want) {
+					t.Errorf("command %q should contain %q", cmd, want)
+				}
+			}
+
+			for _, notWant := range tt.wantNotContain {
+				if strings.Contains(cmd, notWant) {
+					t.Errorf("command %q should NOT contain %q", cmd, notWant)
+				}
+			}
+		})
+	}
+}
