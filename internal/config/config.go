@@ -750,6 +750,22 @@ func (c *Config) GetAgentMultiplexer() string {
 	return "tmux"
 }
 
+// ErrInvalidMultiplexerConfig is returned when monitor and agent multiplexer
+// configuration is invalid (e.g., both set to zellij)
+var ErrInvalidMultiplexerConfig = fmt.Errorf("invalid multiplexer configuration")
+
+// ValidateMultiplexerConfig checks if the multiplexer configuration is valid.
+// Returns an error if monitor=zellij and agent=zellij (cross-session attach doesn't work).
+func (c *Config) ValidateMultiplexerConfig() error {
+	monitorMux := c.GetMonitorMultiplexer()
+	agentMux := c.GetAgentMultiplexer()
+
+	if monitorMux == "zellij" && agentMux == "zellij" {
+		return fmt.Errorf("%w: monitor_multiplexer=zellij with agent_multiplexer=zellij is not supported (cross-session Zellij attach doesn't work). Use agent_multiplexer=tmux instead", ErrInvalidMultiplexerConfig)
+	}
+	return nil
+}
+
 // GetBaseBranch returns the base branch with a default of "main"
 func (c *Config) GetBaseBranch() string {
 	if c.BaseBranch != "" {
