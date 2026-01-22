@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -81,14 +80,15 @@ func (z *ZellijMultiplexer) NewSession(cfg *SessionConfig) error {
 		workDir = "."
 	}
 
-	startScript := fmt.Sprintf(
-		`cd %q && nohup zellij --session %q </dev/null >/dev/null 2>&1 &`,
-		workDir, sessionName)
-
-	startCmd := exec.Command("sh", "-c", startScript)
+	// Use zellij attach --create-background to create a detached session.
+	// The old nohup approach caused sessions to exit immediately because
+	// zellij doesn't persist properly when started with stdin from /dev/null.
+	args := []string{"attach", "--create-background", sessionName}
+	startCmd := execCommand("zellij", args...)
+	startCmd.Dir = workDir
 	startCmd.Env = env
 	if err := startCmd.Run(); err != nil {
-		return err
+		return fmt.Errorf("failed to create zellij session: %w", err)
 	}
 
 	if err := z.waitForSession(sessionName, 5*time.Second); err != nil {
