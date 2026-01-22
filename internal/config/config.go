@@ -131,10 +131,12 @@ type Config struct {
 	WorktreeDir     string           `yaml:"worktree_dir"`
 	BaseBranch      string           `yaml:"base_branch"`
 	PRTargetBranch  string           `yaml:"pr_target_branch"`
-	LogLevel        string           `yaml:"log_level"`
-	PromptTemplate  string           `yaml:"prompt_template"`
-	Multiplexer     string           `yaml:"multiplexer"` // Terminal multiplexer: "tmux" (default) or "zellij"
-	NoPR            bool             `yaml:"no_pr"`
+	LogLevel           string           `yaml:"log_level"`
+	PromptTemplate     string           `yaml:"prompt_template"`
+	Multiplexer        string           `yaml:"multiplexer"`         // Deprecated: use MonitorMultiplexer/AgentMultiplexer
+	MonitorMultiplexer string           `yaml:"monitor_multiplexer"` // Multiplexer for orch-monitor: "zellij" (default) or "tmux"
+	AgentMultiplexer   string           `yaml:"agent_multiplexer"`   // Multiplexer for agent sessions: "tmux" (default) or "zellij"
+	NoPR               bool             `yaml:"no_pr"`
 	Monitor         MonitorConfig    `yaml:"monitor"`
 	Presets         []Preset         `yaml:"presets"`
 	OpenCodePresets []OpenCodePreset `yaml:"opencode_presets"` // Deprecated: use Presets instead
@@ -171,6 +173,8 @@ type fileConfig struct {
 	LogLevel            string           `yaml:"log_level"`
 	PromptTemplate      string           `yaml:"prompt_template"`
 	Multiplexer         string           `yaml:"multiplexer"`
+	MonitorMultiplexer  string           `yaml:"monitor_multiplexer"`
+	AgentMultiplexer    string           `yaml:"agent_multiplexer"`
 	NoPR                *bool            `yaml:"no_pr"`
 	Monitor             MonitorConfig    `yaml:"monitor"`
 	Presets             []Preset         `yaml:"presets"`
@@ -353,6 +357,12 @@ func loadFromFile(path string, cfg *Config) error {
 	}
 	if fileCfg.Multiplexer != "" {
 		cfg.Multiplexer = fileCfg.Multiplexer
+	}
+	if fileCfg.MonitorMultiplexer != "" {
+		cfg.MonitorMultiplexer = fileCfg.MonitorMultiplexer
+	}
+	if fileCfg.AgentMultiplexer != "" {
+		cfg.AgentMultiplexer = fileCfg.AgentMultiplexer
 	}
 	if fileCfg.NoPR != nil {
 		cfg.NoPR = *fileCfg.NoPR
@@ -538,6 +548,12 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("ORCH_MULTIPLEXER"); v != "" {
 		cfg.Multiplexer = v
 	}
+	if v := os.Getenv("ORCH_MONITOR_MULTIPLEXER"); v != "" {
+		cfg.MonitorMultiplexer = v
+	}
+	if v := os.Getenv("ORCH_AGENT_MULTIPLEXER"); v != "" {
+		cfg.AgentMultiplexer = v
+	}
 	if v := os.Getenv("ORCH_NO_PR"); v != "" {
 		cfg.NoPR = v == "true" || v == "1" || v == "yes"
 	}
@@ -704,11 +720,36 @@ func (c *Config) GetPromptTemplate(agent string) string {
 	return c.PromptTemplate
 }
 
+// GetMultiplexer returns the legacy multiplexer setting (deprecated)
 func (c *Config) GetMultiplexer() string {
 	if c.Multiplexer != "" {
 		return c.Multiplexer
 	}
 	return "auto"
+}
+
+// GetMonitorMultiplexer returns the multiplexer for orch-monitor (default: zellij)
+func (c *Config) GetMonitorMultiplexer() string {
+	if c.MonitorMultiplexer != "" {
+		return c.MonitorMultiplexer
+	}
+	// Fall back to legacy Multiplexer if set
+	if c.Multiplexer != "" {
+		return c.Multiplexer
+	}
+	return "zellij"
+}
+
+// GetAgentMultiplexer returns the multiplexer for agent sessions (default: tmux)
+func (c *Config) GetAgentMultiplexer() string {
+	if c.AgentMultiplexer != "" {
+		return c.AgentMultiplexer
+	}
+	// Fall back to legacy Multiplexer if set
+	if c.Multiplexer != "" {
+		return c.Multiplexer
+	}
+	return "tmux"
 }
 
 // GetBaseBranch returns the base branch with a default of "main"

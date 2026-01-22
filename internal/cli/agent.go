@@ -187,11 +187,11 @@ func runOpenCodeAgent(orchDir string, opts *agentOptions) error {
 
 // runMultiplexerAgent handles claude/codex/gemini using tmux or zellij
 func runMultiplexerAgent(orchDir string, opts *agentOptions, agentType agent.AgentType) error {
-	// Get multiplexer from config
+	// Get multiplexer from config (use agent multiplexer, default: tmux)
 	cfg, _ := config.Load()
 	muxType := multiplexer.TypeTmux
-	if cfg != nil && cfg.GetMultiplexer() != "" {
-		parsed, err := multiplexer.ParseType(cfg.GetMultiplexer())
+	if cfg != nil {
+		parsed, err := multiplexer.ParseType(cfg.GetAgentMultiplexer())
 		if err == nil && parsed != multiplexer.TypeAuto {
 			muxType = parsed
 		}

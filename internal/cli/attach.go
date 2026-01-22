@@ -73,7 +73,8 @@ func runAttach(refStr string, opts *attachOptions) error {
 	}
 
 	cfg, _ := config.Load()
-	muxType, _ := multiplexer.ParseType(cfg.GetMultiplexer())
+	// Default to agent multiplexer, but use run's actual multiplexer if available
+	muxType, _ := multiplexer.ParseType(cfg.GetAgentMultiplexer())
 	if resp.Multiplexer != "" {
 		muxType, _ = multiplexer.ParseType(resp.Multiplexer)
 	}

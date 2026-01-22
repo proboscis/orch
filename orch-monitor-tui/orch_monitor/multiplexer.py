@@ -422,17 +422,22 @@ def detect_current_multiplexer() -> Optional[MultiplexerType]:
 
 
 def get_default_multiplexer_type() -> MultiplexerType:
-    """Get the best available multiplexer (auto mode)."""
+    """Get the best available multiplexer for orch-monitor (default: zellij)."""
     inside = detect_current_multiplexer()
     if inside:
         return inside
 
-    env_mux = os.environ.get("ORCH_MULTIPLEXER", "").lower()
+    # Check monitor-specific env var first, then legacy env var
+    env_mux = os.environ.get("ORCH_MONITOR_MULTIPLEXER", "").lower()
+    if not env_mux:
+        env_mux = os.environ.get("ORCH_MULTIPLEXER", "").lower()
+
     if env_mux == "tmux" and _MULTIPLEXERS[MultiplexerType.TMUX].is_available():
         return MultiplexerType.TMUX
     if env_mux == "zellij" and _MULTIPLEXERS[MultiplexerType.ZELLIJ].is_available():
         return MultiplexerType.ZELLIJ
 
+    # Default to Zellij for monitor
     if _MULTIPLEXERS[MultiplexerType.ZELLIJ].is_available():
         return MultiplexerType.ZELLIJ
 
