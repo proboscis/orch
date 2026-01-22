@@ -188,14 +188,18 @@ func TestSanitizeRepoID(t *testing.T) {
 		{"owner", "repo", "owner-repo"},
 		{"my-org", "my-repo", "my-org-my-repo"},
 		{"owner_name", "repo_name", "owner_name-repo_name"},
-		{"owner/bad", "repo", "ownerbad-repo"},  // slashes removed
-		{"owner", "repo.git", "repogit-"},       // wait this is wrong
+		{"owner/bad", "repo", "ownerbad-repo"},   // slashes removed
+		{"owner", "repo.git", "owner-repogit"},   // dots removed
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.owner+"/"+tt.repo, func(t *testing.T) {
 			got := sanitizeRepoID(tt.owner, tt.repo)
-			// Just check it doesn't have unsafe chars
+			// Verify expected output
+			if got != tt.want {
+				t.Errorf("sanitizeRepoID(%q, %q) = %q, want %q", tt.owner, tt.repo, got, tt.want)
+			}
+			// Also check it doesn't have unsafe chars
 			if strings.ContainsAny(got, "/\\:*?\"<>|") {
 				t.Errorf("sanitizeRepoID(%q, %q) = %q contains unsafe characters", tt.owner, tt.repo, got)
 			}
