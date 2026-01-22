@@ -45,13 +45,16 @@ func (a *OpenCodeAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 	if cfg.ContinueSession {
 		args := []string{binary}
 		if cfg.SessionName != "" {
+			// Use explicit session ID to resume the exact session
 			args = append(args, "--session", shellQuote(cfg.SessionName))
 		}
 		if cfg.Prompt != "" {
 			args = append(args, "--prompt", shellQuote(cfg.Prompt))
-		} else {
-			args = append(args, "--continue")
 		}
+		// Note: We intentionally don't use --continue flag as it can attach
+		// to any running session instead of the intended one. If no session
+		// name is provided, we start fresh.
+
 		// Add any extra args from config
 		if len(cfg.ExtraArgs) > 0 {
 			args = append(args, cfg.ExtraArgs...)
