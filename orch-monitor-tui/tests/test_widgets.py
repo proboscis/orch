@@ -16,6 +16,11 @@ from orch_monitor.widgets import (
     shorten_model_name,
     model_display_name,
     format_diff_number,
+    short_agent_status,
+    color_agent_status,
+    color_branch_status,
+    color_pr_status,
+    derive_pr_status,
 )
 
 
@@ -87,8 +92,6 @@ class TestModelDisplayName:
         result = model_display_name("claude-3-5-sonnet", "max")
         assert "/" in result
         assert "max" in result
-
-
 
 
 class TestFormatDiffNumber:
@@ -287,7 +290,7 @@ class TestRunTableWidget:
         app = TestApp()
         async with app.run_test() as pilot:
             table = app.query_one("#test-table", RunTable)
-            
+
             # Create diff stats for first run
             diff_stats = {
                 sample_runs[0].ref(): DiffStats(
@@ -296,14 +299,13 @@ class TestRunTableWidget:
                     total_deletions=37,
                 )
             }
-            
+
             table.populate(sample_runs, diff_stats=diff_stats)
             await pilot.pause()
 
             # Table should have rows with diff columns
             assert table.row_count == len(sample_runs)
             # The + and - columns are now included (visual verification via snapshot tests)
-
 
 
 class TestIssueTableWidget:
@@ -588,15 +590,19 @@ class TestFormatChangedFilesLines:
         assert len(result) >= 4
         assert "Changed Files (1)" in result[1]
         assert "[green]" in result[2]  # Has green markup for additions
-        assert "[red]" in result[2]    # Has red markup for deletions
+        assert "[red]" in result[2]  # Has red markup for deletions
 
     def test_respects_max_files(self):
         """Test that max_files limit is respected."""
         from orch_monitor.app import _format_changed_files_lines
         from orch_monitor.models import DiffStats, FileChange
 
-        files = [FileChange(path=f"file{i}.py", additions=i, deletions=0) for i in range(20)]
-        stats = DiffStats(files=files, total_additions=sum(range(20)), total_deletions=0)
+        files = [
+            FileChange(path=f"file{i}.py", additions=i, deletions=0) for i in range(20)
+        ]
+        stats = DiffStats(
+            files=files, total_additions=sum(range(20)), total_deletions=0
+        )
         result = _format_changed_files_lines(stats, max_files=5, path_width=20)
 
         # Should show "... and N more file(s)" message
@@ -679,3 +685,178 @@ class TestScrollableTabContent:
         content._saved_scroll_y = 0.0
         content.save_scroll_position()
         assert content._saved_scroll_y == 0.0
+
+
+class TestShortAgentStatus:
+    def test_queued(self):
+        assert short_agent_status(Status.QUEUED) == "queue"
+
+    def test_booting(self):
+        assert short_agent_status(Status.BOOTING) == "boot"
+
+    def test_running(self):
+        assert short_agent_status(Status.RUNNING) == "run"
+
+    def test_blocked(self):
+        assert short_agent_status(Status.BLOCKED) == "block"
+
+    def test_blocked_api(self):
+        assert short_agent_status(Status.BLOCKED_API) == "block"
+
+    def test_pr_open(self):
+        assert short_agent_status(Status.PR_OPEN) == "pr"
+
+    def test_done(self):
+        assert short_agent_status(Status.DONE) == "done"
+
+    def test_failed(self):
+        assert short_agent_status(Status.FAILED) == "fail"
+
+    def test_canceled(self):
+        assert short_agent_status(Status.CANCELED) == "cancel"
+
+    def test_unknown(self):
+        assert short_agent_status(Status.UNKNOWN) == "?"
+
+
+class TestColorAgentStatus:
+    def test_running_is_green(self):
+        result = color_agent_status(Status.RUNNING)
+        assert "[green]" in result
+        assert "run" in result
+
+    def test_blocked_is_yellow(self):
+        result = color_agent_status(Status.BLOCKED)
+        assert "[yellow]" in result
+        assert "block" in result
+
+    def test_failed_is_red(self):
+        result = color_agent_status(Status.FAILED)
+        assert "[red]" in result
+        assert "fail" in result
+
+    def test_done_is_blue(self):
+        result = color_agent_status(Status.DONE)
+        assert "[blue]" in result
+        assert "done" in result
+
+
+class TestColorBranchStatus:
+    def test_clean_is_green(self):
+        result = color_branch_status("clean")
+        assert "[green]" in result
+        assert "clean" in result
+
+    def test_dirty_is_yellow(self):
+        result = color_branch_status("dirty")
+        assert "[yellow]" in result
+        assert "dirty" in result
+
+    def test_merged_is_blue(self):
+        result = color_branch_status("merged")
+        assert "[blue]" in result
+        assert "merged" in result
+
+    def test_conflict_is_red(self):
+        result = color_branch_status("conflict")
+        assert "[red]" in result
+        assert "conflict" in result
+
+    def test_unknown_no_color(self):
+        result = color_branch_status("-")
+        assert "[" not in result or result == "-"
+
+
+class TestColorPrStatus:
+    def test_open_is_cyan(self):
+        result = color_pr_status("open")
+        assert "[cyan]" in result
+        assert "open" in result
+
+    def test_merged_is_green(self):
+        result = color_pr_status("merged")
+        assert "[green]" in result
+        assert "merged" in result
+
+    def test_closed_is_dim(self):
+        result = color_pr_status("closed")
+        assert "[dim]" in result
+        assert "closed" in result
+
+    def test_dash_no_color(self):
+        result = color_pr_status("-")
+        assert result == "-"
+
+
+class TestDerivePrStatus:
+    def test_done_with_pr_returns_merged(self):
+        run = Run(
+            issue_id="test",
+            run_id="123",
+            path=Path(),
+            status=Status.DONE,
+            pr_url="https://github.com/test/pr/1",
+        )
+        assert derive_pr_status(run) == "merged"
+
+    def test_running_with_pr_returns_open(self):
+        run = Run(
+            issue_id="test",
+            run_id="123",
+            path=Path(),
+            status=Status.RUNNING,
+            pr_url="https://github.com/test/pr/1",
+        )
+        assert derive_pr_status(run) == "open"
+
+    def test_pr_open_status_returns_open(self):
+        run = Run(
+            issue_id="test",
+            run_id="123",
+            path=Path(),
+            status=Status.PR_OPEN,
+        )
+        assert derive_pr_status(run) == "open"
+
+    def test_running_no_pr_returns_dash(self):
+        run = Run(
+            issue_id="test",
+            run_id="123",
+            path=Path(),
+            status=Status.RUNNING,
+        )
+        assert derive_pr_status(run) == "-"
+
+    def test_merged_branch_with_pr_returns_merged(self):
+        run = Run(
+            issue_id="test",
+            run_id="123",
+            path=Path(),
+            status=Status.RUNNING,
+            pr_url="https://github.com/test/pr/1",
+        )
+        assert derive_pr_status(run, "merged") == "merged"
+
+
+class TestRunTableWithBranchStates:
+    async def test_run_table_with_branch_states(self, sample_runs):
+        from textual.app import App, ComposeResult
+
+        class TestApp(App):
+            def compose(self) -> ComposeResult:
+                yield RunTable(id="test-table")
+
+        app = TestApp()
+        async with app.run_test() as pilot:
+            table = app.query_one("#test-table", RunTable)
+
+            branch_states = {
+                sample_runs[0].ref(): "clean",
+                sample_runs[1].ref(): "dirty",
+                sample_runs[2].ref(): "merged",
+            }
+
+            table.populate(sample_runs, branch_states=branch_states)
+            await pilot.pause()
+
+            assert table.row_count == len(sample_runs)

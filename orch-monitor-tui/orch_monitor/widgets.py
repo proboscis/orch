@@ -182,49 +182,111 @@ class CursorPreservingTable(DataTable):
         return saved_key, saved_index
 
 
-class RunTable(CursorPreservingTable):
-    """Table widget for displaying runs."""
+def short_agent_status(status: Status) -> str:
+    mapping = {
+        Status.QUEUED: "queue",
+        Status.BOOTING: "boot",
+        Status.RUNNING: "run",
+        Status.BLOCKED: "block",
+        Status.BLOCKED_API: "block",
+        Status.PR_OPEN: "pr",
+        Status.DONE: "done",
+        Status.FAILED: "fail",
+        Status.CANCELED: "cancel",
+        Status.UNKNOWN: "?",
+    }
+    return mapping.get(status, "?")
 
+
+def color_agent_status(status: Status) -> str:
+    short = short_agent_status(status)
+    colors = {
+        Status.RUNNING: "green",
+        Status.BOOTING: "green",
+        Status.BLOCKED: "yellow",
+        Status.BLOCKED_API: "yellow",
+        Status.FAILED: "red",
+        Status.DONE: "blue",
+        Status.PR_OPEN: "cyan",
+        Status.QUEUED: "white",
+        Status.CANCELED: "dim",
+        Status.UNKNOWN: "magenta",
+    }
+    color = colors.get(status, "")
+    if color:
+        return f"[{color}]{short}[/{color}]"
+    return short
+
+
+def color_branch_status(branch_status: str) -> str:
+    colors = {
+        "clean": "green",
+        "dirty": "yellow",
+        "merged": "blue",
+        "conflict": "red",
+    }
+    color = colors.get(branch_status, "")
+    if color:
+        return f"[{color}]{branch_status}[/{color}]"
+    return branch_status
+
+
+def color_pr_status(pr_status: str) -> str:
+    colors = {
+        "open": "cyan",
+        "merged": "green",
+        "closed": "dim",
+    }
+    color = colors.get(pr_status, "")
+    if color:
+        return f"[{color}]{pr_status}[/{color}]"
+    return pr_status
+
+
+def derive_pr_status(run: Run, branch_status: str = "") -> str:
+    if run.status == Status.DONE and run.pr_url:
+        return "merged"
+    if branch_status == "merged" and run.pr_url:
+        return "merged"
+    if run.pr_url or run.status == Status.PR_OPEN:
+        return "open"
+    return "-"
+
+
+class RunTable(CursorPreservingTable):
     def populate(
         self,
         runs: list[Run],
         diff_stats: Optional[dict[str, DiffStats]] = None,
+        branch_states: Optional[dict[str, str]] = None,
     ) -> None:
-        """Populate the run table with run data.
-
-        Args:
-            runs: List of runs to display.
-            diff_stats: Optional dict mapping run.ref() to DiffStats for diff columns.
-        """
         saved_key, saved_index = self._save_cursor_state()
 
         self.clear(columns=True)
 
         self.add_column("ID", width=8)
         self.add_column("Issue", width=15)
-        self.add_column("Status", width=12)
-        self.add_column("Agent", width=10)
+        self.add_column("Agent", width=7)
+        self.add_column("Branch", width=8)
+        self.add_column("PR", width=7)
+        self.add_column("CLI", width=10)
         self.add_column("Model", width=18)
         self.add_column("+", width=6)
         self.add_column("-", width=6)
         self.add_column("Mux", width=4)
         self.add_column("Elapsed", width=10, key="elapsed")
-        self.add_column("Branch", width=20)
 
         diff_stats = diff_stats or {}
+        branch_states = branch_states or {}
 
         for run in runs:
-            status_str = run.status.value
-            if run.status == Status.RUNNING:
-                status_str = f"[green]{status_str}[/green]"
-            elif run.status == Status.BLOCKED:
-                status_str = f"[yellow]{status_str}[/yellow]"
-            elif run.status == Status.FAILED:
-                status_str = f"[red]{status_str}[/red]"
-            elif run.status == Status.DONE:
-                status_str = f"[blue]{status_str}[/blue]"
-            elif run.status == Status.PR_OPEN:
-                status_str = f"[cyan]{status_str}[/cyan]"
+            agent_str = color_agent_status(run.status)
+
+            branch_status = branch_states.get(run.ref(), "-")
+            branch_str = color_branch_status(branch_status)
+
+            pr_status = derive_pr_status(run, branch_status)
+            pr_str = color_pr_status(pr_status)
 
             model_str = model_display_name(run.model, run.model_variant)
             mux = run.multiplexer
@@ -235,7 +297,6 @@ class RunTable(CursorPreservingTable):
             else:
                 mux_short = "-"
 
-            # Format diff stats with color coding
             stats = diff_stats.get(run.ref())
             if stats:
                 add_str = f"[green]+{format_diff_number(stats.total_additions)}[/green]"
@@ -247,14 +308,15 @@ class RunTable(CursorPreservingTable):
             self.add_row(
                 run.short_id(),
                 run.issue_id,
-                status_str,
+                agent_str,
+                branch_str,
+                pr_str,
                 run.agent or "-",
                 model_str,
                 add_str,
                 del_str,
                 mux_short,
                 run.elapsed_time(),
-                run.branch or "-",
                 key=run.ref(),
             )
 

@@ -169,7 +169,7 @@ func TestOutputTableNoRuns(t *testing.T) {
 	}
 }
 
-func TestOutputTableShowsPRColumn(t *testing.T) {
+func TestOutputTableShowsNewColumns(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
@@ -196,25 +196,24 @@ func TestOutputTableShowsPRColumn(t *testing.T) {
 	}
 
 	header := lines[0]
-	statusIdx := strings.Index(header, "STATUS")
+	agentIdx := strings.Index(header, "AGENT")
 	aliveIdx := strings.Index(header, "ALIVE")
 	branchIdx := strings.Index(header, "BRANCH")
 	worktreeIdx := strings.Index(header, "WORKTREE")
 	prIdx := strings.Index(header, "PR")
-	mergedIdx := strings.Index(header, "MERGED")
-	if statusIdx == -1 || aliveIdx == -1 || branchIdx == -1 || worktreeIdx == -1 || prIdx == -1 || mergedIdx == -1 {
+	if agentIdx == -1 || aliveIdx == -1 || branchIdx == -1 || worktreeIdx == -1 || prIdx == -1 {
 		t.Fatalf("missing columns in header: %q", header)
 	}
-	if !(statusIdx < aliveIdx && aliveIdx < branchIdx && branchIdx < worktreeIdx && worktreeIdx < prIdx && prIdx < mergedIdx) {
+	if !(agentIdx < aliveIdx && aliveIdx < branchIdx && branchIdx < worktreeIdx && worktreeIdx < prIdx) {
 		t.Fatalf("unexpected header order: %q", header)
 	}
 
-	if !strings.Contains(lines[1], "yes") {
-		t.Fatalf("missing PR value in row: %q", lines[1])
+	if !strings.Contains(lines[1], "open") {
+		t.Fatalf("missing PR 'open' value in row: %q", lines[1])
 	}
 }
 
-func TestOutputTableShowsPRColumnForPROpenStatus(t *testing.T) {
+func TestOutputTableShowsPROpenForPROpenStatus(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
@@ -234,8 +233,8 @@ func TestOutputTableShowsPRColumnForPROpenStatus(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(out, "yes") {
-		t.Fatalf("missing PR value for pr_open status: %q", out)
+	if !strings.Contains(out, "open") {
+		t.Fatalf("missing PR 'open' value for pr_open status: %q", out)
 	}
 }
 
@@ -263,18 +262,22 @@ func TestOutputJSON(t *testing.T) {
 	var got struct {
 		OK    bool `json:"ok"`
 		Items []struct {
-			IssueID     string `json:"issue_id"`
-			IssueStatus string `json:"issue_status"`
-			RunID       string `json:"run_id"`
-			ShortID     string `json:"short_id"`
-			Status      string `json:"status"`
-			UpdatedAt   string `json:"updated_at"`
-			UpdatedAgo  string `json:"updated_ago"`
-			StartedAt   string `json:"started_at"`
-			PRUrl       string `json:"pr_url"`
-			Branch      string `json:"branch"`
-			Worktree    string `json:"worktree_path"`
-			TmuxSession string `json:"tmux_session"`
+			IssueID      string `json:"issue_id"`
+			IssueStatus  string `json:"issue_status"`
+			RunID        string `json:"run_id"`
+			ShortID      string `json:"short_id"`
+			CLI          string `json:"cli"`
+			Status       string `json:"status"`
+			AgentStatus  string `json:"agent_status"`
+			BranchStatus string `json:"branch_status"`
+			PRStatus     string `json:"pr_status"`
+			UpdatedAt    string `json:"updated_at"`
+			UpdatedAgo   string `json:"updated_ago"`
+			StartedAt    string `json:"started_at"`
+			PRUrl        string `json:"pr_url"`
+			Branch       string `json:"branch"`
+			Worktree     string `json:"worktree_path"`
+			TmuxSession  string `json:"tmux_session"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
@@ -295,6 +298,12 @@ func TestOutputJSON(t *testing.T) {
 	}
 	if item.UpdatedAgo != "2m ago" {
 		t.Fatalf("updated_ago = %q, want %q", item.UpdatedAgo, "2m ago")
+	}
+	if item.AgentStatus != "run" {
+		t.Fatalf("agent_status = %q, want %q", item.AgentStatus, "run")
+	}
+	if item.PRStatus != "open" {
+		t.Fatalf("pr_status = %q, want %q", item.PRStatus, "open")
 	}
 }
 
@@ -443,5 +452,209 @@ func TestRunPsAllIncludesResolvedIssues(t *testing.T) {
 	}
 	if !found["issue-resolved"] || !found["issue-open"] {
 		t.Fatalf("missing issues in output: %#v", found)
+	}
+}
+
+func TestShortAgentStatus(t *testing.T) {
+	tests := []struct {
+		status model.Status
+		want   string
+	}{
+		{model.StatusQueued, "queue"},
+		{model.StatusBooting, "boot"},
+		{model.StatusRunning, "run"},
+		{model.StatusBlocked, "block"},
+		{model.StatusBlockedAPI, "block"},
+		{model.StatusPROpen, "pr"},
+		{model.StatusDone, "done"},
+		{model.StatusFailed, "fail"},
+		{model.StatusCanceled, "cancel"},
+		{model.StatusUnknown, "?"},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.status), func(t *testing.T) {
+			got := shortAgentStatus(tt.status)
+			if got != tt.want {
+				t.Fatalf("shortAgentStatus(%q) = %q, want %q", tt.status, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPrStatusFromRun(t *testing.T) {
+	tests := []struct {
+		name     string
+		run      *model.Run
+		gitState string
+		want     string
+	}{
+		{
+			name: "done with PR URL",
+			run: &model.Run{
+				Status: model.StatusDone,
+				PRUrl:  "http://example.com/pr/1",
+			},
+			gitState: "",
+			want:     "merged",
+		},
+		{
+			name: "running with PR URL",
+			run: &model.Run{
+				Status: model.StatusRunning,
+				PRUrl:  "http://example.com/pr/1",
+			},
+			gitState: "",
+			want:     "open",
+		},
+		{
+			name: "pr_open status",
+			run: &model.Run{
+				Status: model.StatusPROpen,
+			},
+			gitState: "",
+			want:     "open",
+		},
+		{
+			name: "running no PR",
+			run: &model.Run{
+				Status: model.StatusRunning,
+			},
+			gitState: "",
+			want:     "-",
+		},
+		{
+			name: "merged gitState with PR",
+			run: &model.Run{
+				Status: model.StatusRunning,
+				PRUrl:  "http://example.com/pr/1",
+			},
+			gitState: "merged",
+			want:     "merged",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := prStatusFromRun(tt.run, tt.gitState)
+			if got != tt.want {
+				t.Fatalf("prStatusFromRun() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBranchStatusFromGitState(t *testing.T) {
+	tests := []struct {
+		gitState string
+		want     string
+	}{
+		{"clean", "clean"},
+		{"dirty", "dirty"},
+		{"merged", "merged"},
+		{"conflict", "conflict"},
+		{"uncommit", "dirty"},
+		{"unknown", "-"},
+		{"", "-"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.gitState, func(t *testing.T) {
+			got := branchStatusFromGitState(tt.gitState)
+			if got != tt.want {
+				t.Fatalf("branchStatusFromGitState(%q) = %q, want %q", tt.gitState, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestOutputTableAgentColumn(t *testing.T) {
+	resetGlobalOpts(t)
+
+	vault := t.TempDir()
+	globalOpts.IssuesRoot = vault
+
+	updatedAt := time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC)
+
+	tests := []struct {
+		status    model.Status
+		wantShort string
+	}{
+		{model.StatusRunning, "run"},
+		{model.StatusBlocked, "block"},
+		{model.StatusDone, "done"},
+		{model.StatusFailed, "fail"},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.status), func(t *testing.T) {
+			run := &model.Run{
+				IssueID:   "issue-1",
+				RunID:     "run-1",
+				Status:    tt.status,
+				UpdatedAt: updatedAt,
+			}
+
+			out := captureStdout(t, func() {
+				if err := outputTable([]*model.Run{run}, updatedAt, false); err != nil {
+					t.Fatalf("outputTable: %v", err)
+				}
+			})
+
+			if !strings.Contains(out, tt.wantShort) {
+				t.Fatalf("output missing short status %q: %q", tt.wantShort, out)
+			}
+		})
+	}
+}
+
+func TestColorShortStatus(t *testing.T) {
+	colored := colorShortStatus(model.StatusRunning)
+	if !strings.HasPrefix(colored, "\033[32m") || !strings.HasSuffix(colored, "\033[0m") {
+		t.Fatalf("unexpected color format: %q", colored)
+	}
+	if !strings.Contains(colored, "run") {
+		t.Fatalf("missing short status text: %q", colored)
+	}
+}
+
+func TestColorBranchStatus(t *testing.T) {
+	tests := []struct {
+		status    string
+		wantColor string
+	}{
+		{"clean", "\033[32m"},
+		{"dirty", "\033[33m"},
+		{"merged", "\033[34m"},
+		{"conflict", "\033[31m"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.status, func(t *testing.T) {
+			colored := colorBranchStatus(tt.status)
+			if !strings.HasPrefix(colored, tt.wantColor) {
+				t.Fatalf("colorBranchStatus(%q) = %q, want prefix %q", tt.status, colored, tt.wantColor)
+			}
+		})
+	}
+}
+
+func TestColorPrStatus(t *testing.T) {
+	tests := []struct {
+		status    string
+		wantColor string
+	}{
+		{"open", "\033[36m"},
+		{"merged", "\033[32m"},
+		{"closed", "\033[90m"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.status, func(t *testing.T) {
+			colored := colorPrStatus(tt.status)
+			if !strings.HasPrefix(colored, tt.wantColor) {
+				t.Fatalf("colorPrStatus(%q) = %q, want prefix %q", tt.status, colored, tt.wantColor)
+			}
+		})
 	}
 }

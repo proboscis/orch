@@ -223,6 +223,71 @@ def _get_git_diff_stats(
     return result
 
 
+_branch_state_cache: dict[str, tuple[str, float]] = {}
+_BRANCH_STATE_TTL = 30.0
+
+
+def _get_branch_state(
+    worktree_path: str, branch: str, base_branch: str = "main"
+) -> str:
+    if not worktree_path or not branch:
+        return "-"
+
+    cache_key = f"{worktree_path}:{branch}:{base_branch}"
+    now = _time()
+
+    if cache_key in _branch_state_cache:
+        cached_state, cached_time = _branch_state_cache[cache_key]
+        if now - cached_time < _BRANCH_STATE_TTL:
+            return cached_state
+
+    state = _compute_branch_state(worktree_path, branch, base_branch)
+    _branch_state_cache[cache_key] = (state, now)
+    return state
+
+
+def _compute_branch_state(worktree_path: str, branch: str, base_branch: str) -> str:
+    try:
+        dirty_result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=worktree_path,
+        )
+        if dirty_result.returncode == 0 and dirty_result.stdout.strip():
+            return "dirty"
+
+        merged_result = subprocess.run(
+            ["git", "branch", "--merged", base_branch, "--format=%(refname:short)"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=worktree_path,
+        )
+        if merged_result.returncode == 0:
+            merged_branches = set(merged_result.stdout.strip().split("\n"))
+            if branch in merged_branches:
+                return "merged"
+
+        conflict_result = subprocess.run(
+            ["git", "merge-tree", "--write-tree", "--messages", branch, base_branch],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            cwd=worktree_path,
+        )
+        if conflict_result.returncode != 0:
+            output = conflict_result.stdout + conflict_result.stderr
+            if "CONFLICT" in output or "<<<<<<<" in output:
+                return "conflict"
+
+        return "clean"
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError) as e:
+        get_logger().debug(f"git state check failed for {branch}: {e}")
+        return "-"
+
+
 def _format_changed_files_lines(
     diff_stats: Optional[DiffStats],
     max_files: int = 10,
@@ -1635,8 +1700,8 @@ class RunsDashboard(App):
             self.runs = runs
         self.title = f"{self._base_title} | Last updated: {self._last_update.strftime('%H:%M:%S')}"
 
-        # Collect diff stats for all runs with worktrees
         diff_stats: dict[str, DiffStats] = {}
+        branch_states: dict[str, str] = {}
         for run in self.runs:
             if run.worktree_path and run.branch:
                 stats = _get_git_diff_stats(
@@ -1644,9 +1709,15 @@ class RunsDashboard(App):
                 )
                 if stats:
                     diff_stats[run.ref()] = stats
+                state = _get_branch_state(
+                    run.worktree_path, run.branch, self.config.base_branch
+                )
+                branch_states[run.ref()] = state
 
         run_table = self.query_one("#runs-table", RunTable)
-        run_table.populate(self.runs, diff_stats=diff_stats)
+        run_table.populate(
+            self.runs, diff_stats=diff_stats, branch_states=branch_states
+        )
 
     @on(RunTable.RowSelected)
     def on_run_selected(self, event: RunTable.RowSelected) -> None:
@@ -1854,7 +1925,11 @@ class RunsDashboard(App):
                 if run_mux_type == MultiplexerType.ZELLIJ:
                     current_session = current_mux.get_current_session()
                     run_session = get_session_name(run)
-                    if current_session and run_session and current_session != run_session:
+                    if (
+                        current_session
+                        and run_session
+                        and current_session != run_session
+                    ):
                         # Can't attach to different Zellij session from inside Zellij
                         cmd_str = " ".join(attach_cmd)
                         self.call_from_thread(
@@ -2585,8 +2660,24 @@ class OrchMonitorApp(App):
             self.issues = issues
         self.title = f"{self._base_title} | Last updated: {self._last_update.strftime('%H:%M:%S')}"
 
+        diff_stats: dict[str, DiffStats] = {}
+        branch_states: dict[str, str] = {}
+        for run in self.runs:
+            if run.worktree_path and run.branch:
+                stats = _get_git_diff_stats(
+                    run.worktree_path, run.branch, self.config.base_branch
+                )
+                if stats:
+                    diff_stats[run.ref()] = stats
+                state = _get_branch_state(
+                    run.worktree_path, run.branch, self.config.base_branch
+                )
+                branch_states[run.ref()] = state
+
         run_table = self.query_one("#runs-table", RunTable)
-        run_table.populate(self.runs)
+        run_table.populate(
+            self.runs, diff_stats=diff_stats, branch_states=branch_states
+        )
 
         issue_table = self.query_one("#issues-table", IssueTable)
         issue_table.populate(self.issues)
@@ -2785,7 +2876,11 @@ class OrchMonitorApp(App):
                 if run_mux_type == MultiplexerType.ZELLIJ:
                     current_session = current_mux.get_current_session()
                     run_session = get_session_name(run)
-                    if current_session and run_session and current_session != run_session:
+                    if (
+                        current_session
+                        and run_session
+                        and current_session != run_session
+                    ):
                         # Can't attach to different Zellij session from inside Zellij
                         cmd_str = " ".join(attach_cmd)
                         self.call_from_thread(
