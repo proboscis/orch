@@ -12,6 +12,11 @@ import (
 	"time"
 )
 
+const (
+	OpenCodeServerPortStart = 4096
+	OpenCodeServerPortEnd   = 4196
+)
+
 type Logger interface {
 	Printf(format string, args ...interface{})
 }
@@ -184,6 +189,19 @@ func FindRunningOpenCodeServer(startPort, endPort int) int {
 		client := NewOpenCodeClient(port)
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		running := client.IsServerRunning(ctx)
+		cancel()
+		if running {
+			return port
+		}
+	}
+	return 0
+}
+
+func FindRunningOpenCodeServerForWorktree(worktreePath string, startPort, endPort int) int {
+	for port := startPort; port <= endPort; port++ {
+		client := NewOpenCodeClient(port)
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		running := client.IsServerRunningForWorktree(ctx, worktreePath)
 		cancel()
 		if running {
 			return port

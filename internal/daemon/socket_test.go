@@ -287,8 +287,8 @@ func TestSocketServerSendRequestMissingConfig(t *testing.T) {
 				IssueID:           "issue",
 				RunID:             "run",
 				Agent:             "opencode",
-				ServerPort:        0,             // Missing port
-				OpenCodeSessionID: "",            // Missing session
+				ServerPort:        0,  // Missing port
+				OpenCodeSessionID: "", // Missing session
 			},
 		},
 	}
@@ -978,6 +978,102 @@ func TestRegisterRepoAPI(t *testing.T) {
 	if resp["repo_id"] == nil || resp["repo_id"] == "" {
 		t.Error("expected repo_id to be set")
 	}
+}
+
+func TestDeriveRepoID(t *testing.T) {
+	t.Run("fallback to basename for non-git path", func(t *testing.T) {
+		got := deriveRepoID("/tmp/not-a-git-repo/my-project")
+		if got != "my-project" {
+			t.Errorf("deriveRepoID for non-git path = %q, want %q", got, "my-project")
+		}
+	})
+
+	t.Run("never returns empty string", func(t *testing.T) {
+		testPaths := []string{
+			"/Users/test/repos/my-project",
+			"/tmp/some-path",
+			"/single",
+		}
+		for _, path := range testPaths {
+			got := deriveRepoID(path)
+			if got == "" {
+				t.Errorf("deriveRepoID(%q) returned empty string", path)
+			}
+		}
+	})
+
+	t.Run("handles path with trailing slash", func(t *testing.T) {
+		got := deriveRepoID("/tmp/not-a-git-repo/another-project/")
+		if got != "another-project" {
+			t.Errorf("deriveRepoID for path with trailing slash = %q, want %q", got, "another-project")
+		}
+	})
+
+	t.Run("different paths produce different IDs", func(t *testing.T) {
+		id1 := deriveRepoID("/path/to/project-a")
+		id2 := deriveRepoID("/path/to/project-b")
+		if id1 == id2 {
+			t.Errorf("different paths should produce different IDs: %q == %q", id1, id2)
+		}
+	})
+
+	t.Run("same path produces same ID", func(t *testing.T) {
+		id1 := deriveRepoID("/path/to/my-project")
+		id2 := deriveRepoID("/path/to/my-project")
+		if id1 != id2 {
+			t.Errorf("same path should produce same ID: %q != %q", id1, id2)
+		}
+	})
+}
+
+func TestOpenCodeServerSessionName(t *testing.T) {
+	tests := []struct {
+		name        string
+		projectRoot string
+		wantPrefix  string
+	}{
+		{
+			name:        "generates session name with project basename",
+			projectRoot: "/Users/test/repos/my-project",
+			wantPrefix:  "orch-opencode-server-",
+		},
+		{
+			name:        "handles empty path",
+			projectRoot: "",
+			wantPrefix:  "orch-opencode-server-",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := openCodeServerSessionName(tt.projectRoot)
+			if got == "" {
+				t.Error("openCodeServerSessionName should never return empty string")
+			}
+			if len(got) <= len(tt.wantPrefix) {
+				t.Errorf("openCodeServerSessionName(%q) = %q, too short", tt.projectRoot, got)
+			}
+			if got[:len(tt.wantPrefix)] != tt.wantPrefix {
+				t.Errorf("openCodeServerSessionName(%q) = %q, want prefix %q", tt.projectRoot, got, tt.wantPrefix)
+			}
+		})
+	}
+
+	t.Run("different projects get different session names", func(t *testing.T) {
+		name1 := openCodeServerSessionName("/path/to/project-a")
+		name2 := openCodeServerSessionName("/path/to/project-b")
+		if name1 == name2 {
+			t.Errorf("different projects should get different session names: %q == %q", name1, name2)
+		}
+	})
+
+	t.Run("same project gets same session name", func(t *testing.T) {
+		name1 := openCodeServerSessionName("/path/to/my-project")
+		name2 := openCodeServerSessionName("/path/to/my-project")
+		if name1 != name2 {
+			t.Errorf("same project should get same session name: %q != %q", name1, name2)
+		}
+	})
 }
 
 func TestListReposAPI(t *testing.T) {

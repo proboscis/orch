@@ -32,7 +32,7 @@ Requires a running opencode server. If no server is running, start one with:
 		},
 	}
 
-	cmd.Flags().IntVar(&opts.Port, "port", 4096, "OpenCode server port")
+	cmd.Flags().IntVar(&opts.Port, "port", agent.OpenCodeServerPortStart, "OpenCode server port")
 	cmd.Flags().IntVar(&opts.Timeout, "timeout", 5, "Timeout in seconds")
 
 	return cmd

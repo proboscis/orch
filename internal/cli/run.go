@@ -323,7 +323,7 @@ func runRun(issueID string, opts *runOptions) error {
 		Branch:       worktreeResult.Branch,
 		Prompt:       initialPrompt,
 		Profile:      opts.AgentProfile,
-		Port:         4096, // Default port for HTTP-based agents (e.g., opencode)
+		Port:         agent.OpenCodeServerPortStart,
 		Model:        opts.Model,
 		ModelVariant: opts.ModelVariant,
 		ExtraArgs:    cfg.GetExtraArgs(opts.Agent),
@@ -755,7 +755,7 @@ func injectPromptViaHTTP(st interface {
 }, run *model.Run, cfg *agent.LaunchConfig, debug *DebugLogger) error {
 	port := cfg.Port
 	if port == 0 {
-		port = 4096
+		port = agent.OpenCodeServerPortStart
 	}
 
 	debug.Printf("Connecting to opencode server on port %d...", port)
