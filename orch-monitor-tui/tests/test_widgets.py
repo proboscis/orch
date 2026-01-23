@@ -860,3 +860,115 @@ class TestRunTableWithBranchStates:
             await pilot.pause()
 
             assert table.row_count == len(sample_runs)
+
+
+class TestRunTableColumnsE2E:
+    async def test_run_table_has_separate_agent_branch_pr_columns(self, sample_runs):
+        from textual.app import App, ComposeResult
+
+        class TestApp(App):
+            def compose(self) -> ComposeResult:
+                yield RunTable(id="test-table")
+
+        app = TestApp()
+        async with app.run_test() as pilot:
+            table = app.query_one("#test-table", RunTable)
+
+            branch_states = {
+                sample_runs[0].ref(): "clean",
+                sample_runs[1].ref(): "dirty",
+                sample_runs[2].ref(): "merged",
+            }
+
+            table.populate(sample_runs, branch_states=branch_states)
+            await pilot.pause()
+
+            columns = [col.label.plain for col in table.columns.values()]
+            assert "Agent" in columns, f"Agent column missing from {columns}"
+            assert "Branch" in columns, f"Branch column missing from {columns}"
+            assert "PR" in columns, f"PR column missing from {columns}"
+            assert "Status" not in columns, (
+                f"Deprecated Status column found in {columns}"
+            )
+
+    async def test_run_table_agent_column_shows_short_status(self, sample_runs):
+        from textual.app import App, ComposeResult
+
+        class TestApp(App):
+            def compose(self) -> ComposeResult:
+                yield RunTable(id="test-table")
+
+        app = TestApp()
+        async with app.run_test() as pilot:
+            table = app.query_one("#test-table", RunTable)
+            table.populate(sample_runs)
+            await pilot.pause()
+
+            assert table.row_count > 0
+            assert short_agent_status(Status.RUNNING) == "run"
+            assert short_agent_status(Status.BLOCKED) == "block"
+            assert short_agent_status(Status.DONE) == "done"
+
+    async def test_run_table_pr_column_derives_status_correctly(self):
+        from textual.app import App, ComposeResult
+
+        run_with_pr = Run(
+            issue_id="test",
+            run_id="123",
+            path=Path(),
+            status=Status.RUNNING,
+            pr_url="https://github.com/test/pr/1",
+        )
+        run_done_with_pr = Run(
+            issue_id="test",
+            run_id="124",
+            path=Path(),
+            status=Status.DONE,
+            pr_url="https://github.com/test/pr/2",
+        )
+        run_no_pr = Run(
+            issue_id="test",
+            run_id="125",
+            path=Path(),
+            status=Status.RUNNING,
+        )
+
+        class TestApp(App):
+            def compose(self) -> ComposeResult:
+                yield RunTable(id="test-table")
+
+        app = TestApp()
+        async with app.run_test() as pilot:
+            table = app.query_one("#test-table", RunTable)
+            table.populate([run_with_pr, run_done_with_pr, run_no_pr])
+            await pilot.pause()
+
+            assert derive_pr_status(run_with_pr) == "open"
+            assert derive_pr_status(run_done_with_pr) == "merged"
+            assert derive_pr_status(run_no_pr) == "-"
+
+    async def test_run_table_branch_column_shows_worktree_state(self, sample_runs):
+        from textual.app import App, ComposeResult
+
+        class TestApp(App):
+            def compose(self) -> ComposeResult:
+                yield RunTable(id="test-table")
+
+        app = TestApp()
+        async with app.run_test() as pilot:
+            table = app.query_one("#test-table", RunTable)
+
+            branch_states = {
+                sample_runs[0].ref(): "clean",
+                sample_runs[1].ref(): "dirty",
+                sample_runs[2].ref(): "merged",
+                sample_runs[3].ref(): "conflict",
+            }
+
+            table.populate(sample_runs, branch_states=branch_states)
+            await pilot.pause()
+
+            assert color_branch_status("clean") == "[green]clean[/green]"
+            assert color_branch_status("dirty") == "[yellow]dirty[/yellow]"
+            assert color_branch_status("merged") == "[blue]merged[/blue]"
+            assert color_branch_status("conflict") == "[red]conflict[/red]"
