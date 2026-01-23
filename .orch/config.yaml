@@ -7,7 +7,9 @@ pr_target_branch: main
 
 # Agent-specific configuration with extra CLI arguments
 claude:
-  extra_args:
+  # extra_args: for run agents (orch run)
+  # control_extra_args: for control agent (orch agent)
+  control_extra_args:
     - "--dangerously-skip-permissions"
 
 opencode:

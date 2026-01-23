@@ -47,28 +47,32 @@ func (p *Preset) EffectiveBackend() string {
 
 // OpenCodeConfig holds default configuration for the opencode agent.
 type OpenCodeConfig struct {
-	DefaultModel   string   `yaml:"default_model,omitempty"`
-	DefaultVariant string   `yaml:"default_variant,omitempty"`
-	PromptTemplate string   `yaml:"prompt_template,omitempty"`
-	ExtraArgs      []string `yaml:"extra_args,omitempty"` // Additional CLI args for launches
+	DefaultModel     string   `yaml:"default_model,omitempty"`
+	DefaultVariant   string   `yaml:"default_variant,omitempty"`
+	PromptTemplate   string   `yaml:"prompt_template,omitempty"`
+	ExtraArgs        []string `yaml:"extra_args,omitempty"`         // Additional CLI args for run agents
+	ControlExtraArgs []string `yaml:"control_extra_args,omitempty"` // Additional CLI args for control agent
 }
 
 // ClaudeConfig holds default configuration for the claude agent.
 type ClaudeConfig struct {
-	PromptTemplate string   `yaml:"prompt_template,omitempty"`
-	ExtraArgs      []string `yaml:"extra_args,omitempty"` // Additional CLI args (e.g., "--dangerously-skip-permissions")
+	PromptTemplate   string   `yaml:"prompt_template,omitempty"`
+	ExtraArgs        []string `yaml:"extra_args,omitempty"`         // Additional CLI args for run agents
+	ControlExtraArgs []string `yaml:"control_extra_args,omitempty"` // Additional CLI args for control agent
 }
 
 // CodexConfig holds default configuration for the codex agent.
 type CodexConfig struct {
-	PromptTemplate string   `yaml:"prompt_template,omitempty"`
-	ExtraArgs      []string `yaml:"extra_args,omitempty"` // Additional CLI args for launches
+	PromptTemplate   string   `yaml:"prompt_template,omitempty"`
+	ExtraArgs        []string `yaml:"extra_args,omitempty"`         // Additional CLI args for run agents
+	ControlExtraArgs []string `yaml:"control_extra_args,omitempty"` // Additional CLI args for control agent
 }
 
 // GeminiConfig holds default configuration for the gemini agent.
 type GeminiConfig struct {
-	PromptTemplate string   `yaml:"prompt_template,omitempty"`
-	ExtraArgs      []string `yaml:"extra_args,omitempty"` // Additional CLI args for launches
+	PromptTemplate   string   `yaml:"prompt_template,omitempty"`
+	ExtraArgs        []string `yaml:"extra_args,omitempty"`         // Additional CLI args for run agents
+	ControlExtraArgs []string `yaml:"control_extra_args,omitempty"` // Additional CLI args for control agent
 }
 
 // SlackConfig holds configuration for Slack notifications.
@@ -393,6 +397,9 @@ func loadFromFile(path string, cfg *Config) error {
 		if len(fileCfg.OpenCode.ExtraArgs) > 0 {
 			cfg.OpenCode.ExtraArgs = fileCfg.OpenCode.ExtraArgs
 		}
+		if len(fileCfg.OpenCode.ControlExtraArgs) > 0 {
+			cfg.OpenCode.ControlExtraArgs = fileCfg.OpenCode.ControlExtraArgs
+		}
 	}
 	if fileCfg.Claude != nil {
 		if fileCfg.Claude.PromptTemplate != "" {
@@ -400,6 +407,9 @@ func loadFromFile(path string, cfg *Config) error {
 		}
 		if len(fileCfg.Claude.ExtraArgs) > 0 {
 			cfg.Claude.ExtraArgs = fileCfg.Claude.ExtraArgs
+		}
+		if len(fileCfg.Claude.ControlExtraArgs) > 0 {
+			cfg.Claude.ControlExtraArgs = fileCfg.Claude.ControlExtraArgs
 		}
 	}
 	if fileCfg.Codex != nil {
@@ -409,6 +419,9 @@ func loadFromFile(path string, cfg *Config) error {
 		if len(fileCfg.Codex.ExtraArgs) > 0 {
 			cfg.Codex.ExtraArgs = fileCfg.Codex.ExtraArgs
 		}
+		if len(fileCfg.Codex.ControlExtraArgs) > 0 {
+			cfg.Codex.ControlExtraArgs = fileCfg.Codex.ControlExtraArgs
+		}
 	}
 	if fileCfg.Gemini != nil {
 		if fileCfg.Gemini.PromptTemplate != "" {
@@ -416,6 +429,9 @@ func loadFromFile(path string, cfg *Config) error {
 		}
 		if len(fileCfg.Gemini.ExtraArgs) > 0 {
 			cfg.Gemini.ExtraArgs = fileCfg.Gemini.ExtraArgs
+		}
+		if len(fileCfg.Gemini.ControlExtraArgs) > 0 {
+			cfg.Gemini.ControlExtraArgs = fileCfg.Gemini.ControlExtraArgs
 		}
 	}
 	if fileCfg.DefaultPreset != "" {
@@ -736,7 +752,7 @@ func (c *Config) GetPromptTemplate(agent string) string {
 	return c.PromptTemplate
 }
 
-// GetExtraArgs returns the extra CLI arguments for the given agent type.
+// GetExtraArgs returns the extra CLI arguments for run agents of the given type.
 // Returns nil if no extra args are configured.
 func (c *Config) GetExtraArgs(agent string) []string {
 	switch agent {
@@ -748,6 +764,22 @@ func (c *Config) GetExtraArgs(agent string) []string {
 		return c.Codex.ExtraArgs
 	case "gemini":
 		return c.Gemini.ExtraArgs
+	}
+	return nil
+}
+
+// GetControlExtraArgs returns the extra CLI arguments for the control agent.
+// Returns nil if no control-specific extra args are configured.
+func (c *Config) GetControlExtraArgs(agent string) []string {
+	switch agent {
+	case "opencode":
+		return c.OpenCode.ControlExtraArgs
+	case "claude":
+		return c.Claude.ControlExtraArgs
+	case "codex":
+		return c.Codex.ControlExtraArgs
+	case "gemini":
+		return c.Gemini.ControlExtraArgs
 	}
 	return nil
 }

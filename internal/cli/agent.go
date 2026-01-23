@@ -280,8 +280,8 @@ func createMultiplexerSession(orchDir string, agentType agent.AgentType, mux mul
 		if modelVariant == "" {
 			modelVariant = cfg.ModelVariant
 		}
-		// Get extra args for this agent type
-		extraArgs = cfg.GetExtraArgs(string(agentType))
+		// Get extra args for control agent (use control-specific args)
+		extraArgs = cfg.GetControlExtraArgs(string(agentType))
 		// profile not in global config, only in presets
 	}
 
