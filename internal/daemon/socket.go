@@ -658,7 +658,12 @@ func (s *SocketServer) handleEnsureOpenCodeServer(req SendRequest, encoder *json
 
 	startPort := 4096
 	endPort := 4196
-	tmuxSessionName := "orch-opencode-server"
+
+	repoID, _ := xdg.RepoID(req.ProjectRoot)
+	if repoID == "" {
+		repoID = filepath.Base(req.ProjectRoot)
+	}
+	tmuxSessionName := fmt.Sprintf("orch-opencode-server-%s", repoID)
 
 	port, err := s.ensureOpenCodeServerRunning(req.ProjectRoot, startPort, endPort, tmuxSessionName)
 	if err != nil {
@@ -687,29 +692,24 @@ func (s *SocketServer) handleEnsureOpenCodeServer(req SendRequest, encoder *json
 }
 
 func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string, startPort, endPort int, tmuxSessionName string) (int, error) {
-	port := agent.FindRunningOpenCodeServer(startPort, endPort)
-	if port > 0 {
-		s.logger.Printf("opencode server already running on port %d", port)
-		return port, nil
-	}
-
-	port = findAvailablePort(startPort, endPort)
-	if port == 0 {
-		return 0, fmt.Errorf("no available port found for opencode server")
-	}
-
 	mux := multiplexer.NewTmuxMultiplexer()
 
 	if mux.HasSession(tmuxSessionName) {
 		for i := 0; i < 10; i++ {
-			time.Sleep(500 * time.Millisecond)
 			foundPort := agent.FindRunningOpenCodeServer(startPort, endPort)
 			if foundPort > 0 {
-				s.logger.Printf("opencode server became healthy on port %d", foundPort)
+				s.logger.Printf("opencode server healthy on port %d (session: %s)", foundPort, tmuxSessionName)
 				return foundPort, nil
 			}
+			time.Sleep(500 * time.Millisecond)
 		}
-		return 0, fmt.Errorf("opencode server session exists but server not healthy")
+		s.logger.Printf("session %s exists but server not healthy, killing and restarting", tmuxSessionName)
+		mux.KillSession(tmuxSessionName)
+	}
+
+	port := findAvailablePort(startPort, endPort)
+	if port == 0 {
+		return 0, fmt.Errorf("no available port found for opencode server")
 	}
 
 	adapter := &agent.OpenCodeAdapter{}
