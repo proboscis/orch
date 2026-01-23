@@ -49,21 +49,22 @@ func ParseAgentType(s string) (AgentType, error) {
 // LaunchConfig holds configuration for launching an agent
 type LaunchConfig struct {
 	Type            AgentType
-	CustomCmd       string // Used when Type is AgentCustom
+	CustomCmd       string   // Used when Type is AgentCustom
 	WorkDir         string
 	IssueID         string
 	RunID           string
 	RunPath         string
-	IssuesRoot       string
+	IssuesRoot      string
 	Branch          string
-	Prompt          string // Initial prompt/instruction for the agent
-	Resume          bool   // Whether to resume an existing session
-	SessionName     string // For agents that support session naming
-	Profile         string // Profile name for agents that support it (e.g., claude --profile)
-	Port            int    // Port for HTTP-based agents (e.g., opencode)
-	Model           string // Model in provider/model format (e.g., anthropic/claude-opus-4-5)
-	ModelVariant    string // Model variant (e.g., "max" for max thinking)
+	Prompt          string   // Initial prompt/instruction for the agent
+	Resume          bool     // Whether to resume an existing session
+	SessionName     string   // For agents that support session naming
+	Profile         string   // Profile name for agents that support it (e.g., claude --profile)
+	Port            int      // Port for HTTP-based agents (e.g., opencode)
+	Model           string   // Model in provider/model format (e.g., anthropic/claude-opus-4-5)
+	ModelVariant    string   // Model variant (e.g., "max" for max thinking)
 	ContinueSession bool
+	ExtraArgs       []string // Additional CLI arguments from config
 }
 
 // Env returns the environment variables to pass to the agent

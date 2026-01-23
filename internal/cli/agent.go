@@ -269,6 +269,7 @@ func createMultiplexerSession(orchDir string, agentType agent.AgentType, mux mul
 
 	// Get model settings from config
 	var modelName, modelVariant, profile string
+	var extraArgs []string
 	cfg, cfgErr := config.Load()
 	if cfgErr == nil {
 		modelName = cfg.ControlModel
@@ -279,6 +280,8 @@ func createMultiplexerSession(orchDir string, agentType agent.AgentType, mux mul
 		if modelVariant == "" {
 			modelVariant = cfg.ModelVariant
 		}
+		// Get extra args for this agent type
+		extraArgs = cfg.GetExtraArgs(string(agentType))
 		// profile not in global config, only in presets
 	}
 
@@ -290,6 +293,7 @@ func createMultiplexerSession(orchDir string, agentType agent.AgentType, mux mul
 		Model:        modelName,
 		ModelVariant: modelVariant,
 		Profile:      profile,
+		ExtraArgs:    extraArgs,
 	}
 
 	// Get launch command

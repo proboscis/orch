@@ -319,13 +319,14 @@ func runRun(issueID string, opts *runOptions) error {
 		IssueID:      issueID,
 		RunID:        runID,
 		RunPath:      run.Path,
-		IssuesRoot:    st.RootPath(),
+		IssuesRoot:   st.RootPath(),
 		Branch:       worktreeResult.Branch,
 		Prompt:       initialPrompt,
 		Profile:      opts.AgentProfile,
 		Port:         4096, // Default port for HTTP-based agents (e.g., opencode)
 		Model:        opts.Model,
 		ModelVariant: opts.ModelVariant,
+		ExtraArgs:    cfg.GetExtraArgs(opts.Agent),
 	}
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)

@@ -21,8 +21,15 @@ func (a *CodexAdapter) IsAvailable() bool {
 func (a *CodexAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 	var args []string
 
-	// codex CLI with yolo mode
-	args = append(args, "codex", "--yolo")
+	args = append(args, "codex")
+
+	// Add extra args from config, or use default if not specified
+	if len(cfg.ExtraArgs) > 0 {
+		args = append(args, cfg.ExtraArgs...)
+	} else {
+		// Default: yolo mode for autonomous operation
+		args = append(args, "--yolo")
+	}
 
 	// Add the prompt
 	if cfg.Prompt != "" {

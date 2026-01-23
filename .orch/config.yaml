@@ -1,8 +1,14 @@
 # orch uses itself as the vault - issues live in this repo
-agent: opencode
+#agent: opencode
+agent: claude
 worktree_dir: .git-worktrees
 base_branch: main
 pr_target_branch: main
+
+# Agent-specific configuration with extra CLI arguments
+claude:
+  extra_args:
+    - "--dangerously-skip-permissions"
 
 opencode:
   default_model: anthropic/claude-opus-4-5

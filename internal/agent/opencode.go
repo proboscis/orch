@@ -52,6 +52,10 @@ func (a *OpenCodeAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 		} else {
 			args = append(args, "--continue")
 		}
+		// Add any extra args from config
+		if len(cfg.ExtraArgs) > 0 {
+			args = append(args, cfg.ExtraArgs...)
+		}
 		return strings.Join(args, " "), nil
 	}
 
@@ -64,6 +68,11 @@ func (a *OpenCodeAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 	}
 	args = append(args, "--port", fmt.Sprintf("%d", port))
 	args = append(args, "--hostname", "0.0.0.0")
+
+	// Add any extra args from config (for serve command)
+	if len(cfg.ExtraArgs) > 0 {
+		args = append(args, cfg.ExtraArgs...)
+	}
 
 	return strings.Join(args, " "), nil
 }
