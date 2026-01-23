@@ -58,6 +58,35 @@ func TestBuildAgentPromptTargetBranch(t *testing.T) {
 	}
 }
 
+func TestBuildAgentPromptRespectsConfiguredTargetBranch(t *testing.T) {
+	issue := &model.Issue{ID: "test-issue", Body: "Test body"}
+
+	testCases := []struct {
+		name         string
+		targetBranch string
+	}{
+		{"develop branch", "develop"},
+		{"release branch", "release/v1.0"},
+		{"feature branch", "feature/my-feature"},
+		{"custom branch", "my-custom-branch"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			prompt := buildAgentPrompt(issue, &promptOptions{PRTargetBranch: tc.targetBranch})
+
+			expected := fmt.Sprintf("create a pull request targeting `%s`", tc.targetBranch)
+			if !strings.Contains(prompt, expected) {
+				t.Errorf("prompt should contain %q but got: %q", expected, prompt)
+			}
+
+			if tc.targetBranch != "main" && strings.Contains(prompt, "targeting `main`") {
+				t.Errorf("prompt should not contain hardcoded 'main' when target branch is %q", tc.targetBranch)
+			}
+		})
+	}
+}
+
 func TestBuildAgentPromptCustomTemplate(t *testing.T) {
 	dir := t.TempDir()
 	tmplPath := filepath.Join(dir, "prompt.tmpl")
