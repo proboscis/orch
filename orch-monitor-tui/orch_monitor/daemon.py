@@ -651,6 +651,7 @@ def _json_to_issue_summary(data: dict) -> Issue:
         path=Path(data.get("uri", "").replace("file://", ""))
         if data.get("uri")
         else Path(),
+        modified_at=_parse_timestamp(data.get("modified_at", "")),
     )
 
 
@@ -673,4 +674,5 @@ def _json_to_issue_full(data: dict) -> Issue:
         if data.get("uri")
         else Path(),
         frontmatter=data.get("frontmatter") or {},
+        modified_at=_parse_timestamp(data.get("modified_at", "")),
     )

@@ -922,6 +922,75 @@ run: %s
 	}
 }
 
+func TestIssuesSortedByModificationTime(t *testing.T) {
+	oldIssueID := "sort-test-old"
+	newIssueID := "sort-test-new"
+
+	createTestIssue(t, oldIssueID, "---\ntype: issue\ntitle: Old Issue\nstatus: open\n---\n# Old Issue")
+
+	time.Sleep(1100 * time.Millisecond)
+
+	createTestIssue(t, newIssueID, "---\ntype: issue\ntitle: New Issue\nstatus: open\n---\n# New Issue")
+
+	output, err := runOrch(t, "issue", "list", "--json")
+	if err != nil {
+		t.Fatalf("issue list failed: %v", err)
+	}
+
+	var result struct {
+		OK     bool `json:"ok"`
+		Issues []struct {
+			ID         string `json:"id"`
+			ModifiedAt string `json:"modified_at"`
+		} `json:"issues"`
+	}
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v\nOutput: %s", err, output)
+	}
+
+	if !result.OK {
+		t.Error("expected ok=true")
+	}
+
+	oldIdx := -1
+	newIdx := -1
+	for i, issue := range result.Issues {
+		if issue.ID == oldIssueID {
+			oldIdx = i
+		}
+		if issue.ID == newIssueID {
+			newIdx = i
+		}
+	}
+
+	if oldIdx == -1 {
+		t.Errorf("old issue not found in list")
+	}
+	if newIdx == -1 {
+		t.Errorf("new issue not found in list")
+	}
+
+	if newIdx > oldIdx {
+		t.Errorf("expected new issue (idx=%d) to appear before old issue (idx=%d) - issues should be sorted newest first", newIdx, oldIdx)
+	}
+
+	var newModified, oldModified time.Time
+	for _, issue := range result.Issues {
+		if issue.ID == newIssueID && issue.ModifiedAt != "" {
+			newModified, _ = time.Parse(time.RFC3339, issue.ModifiedAt)
+		}
+		if issue.ID == oldIssueID && issue.ModifiedAt != "" {
+			oldModified, _ = time.Parse(time.RFC3339, issue.ModifiedAt)
+		}
+	}
+
+	if !newModified.IsZero() && !oldModified.IsZero() {
+		if !newModified.After(oldModified) {
+			t.Errorf("expected new issue modified_at (%v) to be after old issue modified_at (%v)", newModified, oldModified)
+		}
+	}
+}
+
 func TestPsPrStatusValues(t *testing.T) {
 	testCases := []struct {
 		name       string

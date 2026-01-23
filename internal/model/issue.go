@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Issue struct {
@@ -16,6 +17,7 @@ type Issue struct {
 	Body        string
 	Path        string
 	Frontmatter map[string]string
+	ModifiedAt  time.Time // File modification time for sorting
 }
 
 func IsGitHubIssueID(id string) bool {
