@@ -143,13 +143,13 @@ type ListIssuesResponse struct {
 
 // IssueSummary is a summary view of an issue for list operations
 type IssueSummary struct {
-	ID      string `json:"id"`
-	Title   string `json:"title"`
-	Topic   string `json:"topic,omitempty"`
-	Summary string `json:"summary,omitempty"`
+	ID      string   `json:"id"`
+	Title   string   `json:"title"`
+	Topic   string   `json:"topic,omitempty"`
+	Summary string   `json:"summary,omitempty"`
 	Status  string   `json:"status"`
 	Tags    []string `json:"tags,omitempty"`
-	URI     string `json:"uri"`
+	URI     string   `json:"uri"`
 }
 
 // GetIssueResponse is the response for get_issue
@@ -302,4 +302,31 @@ func formatTime(t time.Time) string {
 		return ""
 	}
 	return t.Format(time.RFC3339)
+}
+
+// SummaryToRun converts a RunSummary back to a model.Run
+// This is used by orch ps to convert daemon API responses to model.Run for display
+func SummaryToRun(s *RunSummary) *model.Run {
+	if s == nil {
+		return nil
+	}
+
+	startedAt, _ := time.Parse(time.RFC3339, s.StartedAt)
+	updatedAt, _ := time.Parse(time.RFC3339, s.UpdatedAt)
+
+	return &model.Run{
+		IssueID:      s.IssueID,
+		RunID:        s.RunID,
+		Status:       model.Status(s.Status),
+		Phase:        model.Phase(s.Phase),
+		Agent:        s.Agent,
+		Model:        s.Model,
+		Branch:       s.Branch,
+		WorktreePath: s.WorktreePath,
+		TmuxSession:  s.TmuxSession,
+		Multiplexer:  s.Multiplexer,
+		PRUrl:        s.PRUrl,
+		StartedAt:    startedAt,
+		UpdatedAt:    updatedAt,
+	}
 }
