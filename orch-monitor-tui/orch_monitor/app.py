@@ -1703,12 +1703,13 @@ class RunsDashboard(App):
         diff_stats: dict[str, DiffStats] = {}
         branch_states: dict[str, str] = {}
         for run in self.runs:
-            if run.worktree_path and run.branch:
-                stats = _get_git_diff_stats(
-                    run.worktree_path, run.branch, self.config.base_branch
+            if run.additions > 0 or run.deletions > 0:
+                diff_stats[run.ref()] = DiffStats(
+                    files=[],
+                    total_additions=run.additions,
+                    total_deletions=run.deletions,
                 )
-                if stats:
-                    diff_stats[run.ref()] = stats
+            if run.worktree_path and run.branch:
                 state = _get_branch_state(
                     run.worktree_path, run.branch, self.config.base_branch
                 )
@@ -1721,7 +1722,6 @@ class RunsDashboard(App):
 
     @on(RunTable.RowSelected)
     def on_run_selected(self, event: RunTable.RowSelected) -> None:
-        """Handle Enter key on run - trigger attach."""
         self.action_attach()
 
     @on(RunTable.RowHighlighted)
@@ -1820,29 +1820,14 @@ class RunsDashboard(App):
         else:
             tabs_panel.update_issue(f"[dim]Issue not found: {run.issue_id}[/dim]")
 
-        # === Changes Tab ===
-        if run.worktree_path and run.branch:
-            diff_stats = _get_git_diff_stats(
-                run.worktree_path, run.branch, self.config.base_branch
-            )
-            if diff_stats and diff_stats.files:
-                changes_lines = [
-                    f"[bold]Changed Files ({diff_stats.file_count}):[/bold]"
-                ]
-                changes_lines.append(
-                    f"[bold]Total: [green]+{diff_stats.total_additions}[/green] "
-                    f"[red]-{diff_stats.total_deletions}[/red][/bold]"
-                )
-                changes_lines.append("")
-                for fc in diff_stats.files:
-                    add_str = f"[green]+{fc.additions}[/green]" if fc.additions else ""
-                    del_str = f"[red]-{fc.deletions}[/red]" if fc.deletions else ""
-                    changes_lines.append(f"  {fc.path}  {add_str} {del_str}")
-                tabs_panel.update_changes("\n".join(changes_lines))
-            else:
-                tabs_panel.update_changes("[dim]No changes detected[/dim]")
+        if run.additions > 0 or run.deletions > 0:
+            changes_lines = [
+                f"[bold]Total: [green]+{run.additions}[/green] "
+                f"[red]-{run.deletions}[/red][/bold]"
+            ]
+            tabs_panel.update_changes("\n".join(changes_lines))
         else:
-            tabs_panel.update_changes("[dim]No worktree or branch information[/dim]")
+            tabs_panel.update_changes("[dim]No changes detected[/dim]")
 
     def _fetch_opencode_messages(self, run: Run) -> list[dict]:
         if not run.server_port or not run.opencode_session_id:
@@ -2663,12 +2648,13 @@ class OrchMonitorApp(App):
         diff_stats: dict[str, DiffStats] = {}
         branch_states: dict[str, str] = {}
         for run in self.runs:
-            if run.worktree_path and run.branch:
-                stats = _get_git_diff_stats(
-                    run.worktree_path, run.branch, self.config.base_branch
+            if run.additions > 0 or run.deletions > 0:
+                diff_stats[run.ref()] = DiffStats(
+                    files=[],
+                    total_additions=run.additions,
+                    total_deletions=run.deletions,
                 )
-                if stats:
-                    diff_stats[run.ref()] = stats
+            if run.worktree_path and run.branch:
                 state = _get_branch_state(
                     run.worktree_path, run.branch, self.config.base_branch
                 )
@@ -2774,20 +2760,15 @@ class OrchMonitorApp(App):
             f"Session: {run.tmux_session or '-'}",
             f"Multiplexer: {run.multiplexer or '-'}",
         ]
-        # Add changed files section (uses helper for consistent formatting)
-        if run.worktree_path and run.branch:
-            diff_stats = _get_git_diff_stats(
-                run.worktree_path, run.branch, self.config.base_branch
+        if run.additions > 0 or run.deletions > 0:
+            content_lines.append("")
+            content_lines.append("[bold]" + "-" * 50 + "[/bold]")
+            content_lines.append(
+                f"[bold]Changes: [green]+{run.additions}[/green] "
+                f"[red]-{run.deletions}[/red][/bold]"
             )
-            changed_lines = _format_changed_files_lines(
-                diff_stats, max_files=15, path_width=40
-            )
-            if changed_lines:
-                content_lines.append("")
-                content_lines.append("[bold]" + "-" * 50 + "[/bold]")
-                content_lines.extend(changed_lines)
 
-        # Add recent messages section
+        content_lines.append("")
         content_lines.append("")
         content_lines.append("[bold]" + "-" * 50 + "[/bold]")
         content_lines.append("[bold]Recent Messages:[/bold]")
