@@ -214,7 +214,15 @@ func (m *OpenCodeManager) IsAlive(run *model.Run) bool {
 
 	// For OpenCode: ALIVE = session exists on server
 	// Don't check server health separately - GetSessions will fail if server is down
-	sessions, err := client.GetSessions(ctx)
+	//
+	// CRITICAL: Must use GetSessionsForDirectory with the run's worktree path.
+	// OpenCode scopes sessions by "project" (directory). Sessions created with
+	// worktree paths are in a different project scope than the main repo.
+	// Without the directory header, OpenCode returns only sessions for the
+	// server's default project (main repo), causing worktree sessions to appear
+	// "not found" even when they exist.
+	// See: https://github.com/s22625/orch/issues/347
+	sessions, err := client.GetSessionsForDirectory(ctx, m.Directory)
 	if err != nil {
 		return false // Server not reachable
 	}
@@ -287,7 +295,7 @@ func (m *OpenCodeManager) GetStatus(run *model.Run, output string, state *RunSta
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	sessionStatus, found, err := client.GetSingleSessionStatus(ctx, m.SessionID, "")
+	sessionStatus, found, err := client.GetSingleSessionStatus(ctx, m.SessionID, m.Directory)
 	if err != nil {
 		return ""
 	}
@@ -321,7 +329,7 @@ func (m *OpenCodeManager) GetStatus(run *model.Run, output string, state *RunSta
 }
 
 func (m *OpenCodeManager) hasActiveBusyChildren(ctx context.Context, client *OpenCodeClient) bool {
-	statusMap, err := client.GetSessionStatus(ctx, "")
+	statusMap, err := client.GetSessionStatus(ctx, m.Directory)
 	if err != nil {
 		return false
 	}
@@ -330,7 +338,7 @@ func (m *OpenCodeManager) hasActiveBusyChildren(ctx context.Context, client *Ope
 		if status != SessionStatusBusy {
 			continue
 		}
-		session, err := client.GetSession(ctx, sessionID, "")
+		session, err := client.GetSession(ctx, sessionID, m.Directory)
 		if err != nil {
 			continue
 		}
@@ -343,7 +351,7 @@ func (m *OpenCodeManager) hasActiveBusyChildren(ctx context.Context, client *Ope
 }
 
 func (m *OpenCodeManager) hasRecentActivity(ctx context.Context, client *OpenCodeClient) bool {
-	session, err := client.GetSession(ctx, m.SessionID, "")
+	session, err := client.GetSession(ctx, m.SessionID, m.Directory)
 	if err != nil {
 		return false
 	}
@@ -353,12 +361,11 @@ func (m *OpenCodeManager) hasRecentActivity(ctx context.Context, client *OpenCod
 }
 
 func (m *OpenCodeManager) sessionExists(ctx context.Context, client *OpenCodeClient) bool {
-	// Use GetSessions (same as IsAlive) to ensure consistent session detection.
-	// Previously used GetSessionStatus which queries a different endpoint (/session/status)
-	// that may return different results than /session, causing status to show "unknown"
-	// even when the session exists.
-	// See: https://github.com/s22625/orch/issues/323
-	sessions, err := client.GetSessions(ctx)
+	// Use GetSessionsForDirectory with the run's worktree path for consistent session detection.
+	// OpenCode scopes sessions by project (directory). Without the directory header,
+	// sessions created with worktree paths won't be found.
+	// See: https://github.com/s22625/orch/issues/347
+	sessions, err := client.GetSessionsForDirectory(ctx, m.Directory)
 	if err != nil {
 		return false
 	}
