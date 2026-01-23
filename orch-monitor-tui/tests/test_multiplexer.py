@@ -491,6 +491,114 @@ class TestZellijCommands:
             )
             assert result is True
 
+    def test_new_tab_with_command_escapes_spaces(self, zellij):
+        """Test new_tab_with_command properly escapes paths with spaces."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout="tab1\n"),
+                MagicMock(returncode=0),
+                MagicMock(returncode=0),
+                MagicMock(returncode=0),
+            ]
+
+            result = zellij.new_tab_with_command(
+                "edit-tab", ["vim", "/path/with spaces/file.md"], cwd="/project"
+            )
+
+            assert result is True
+            calls = mock_run.call_args_list
+            # The write-chars call should have properly quoted path
+            write_chars_call = calls[2]
+            assert write_chars_call == call(
+                ["zellij", "action", "write-chars", "vim '/path/with spaces/file.md'"],
+                capture_output=True,
+            )
+
+    def test_new_tab_with_command_escapes_special_characters(self, zellij):
+        """Test new_tab_with_command properly escapes paths with special characters."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout="tab1\n"),
+                MagicMock(returncode=0),
+                MagicMock(returncode=0),
+                MagicMock(returncode=0),
+            ]
+
+            # Test with dollar sign, exclamation, and ampersand
+            result = zellij.new_tab_with_command(
+                "edit-tab",
+                ["vim", "/path/with$special!chars&here/file.md"],
+                cwd="/project",
+            )
+
+            assert result is True
+            calls = mock_run.call_args_list
+            write_chars_call = calls[2]
+            # shlex.join quotes the path to protect special characters
+            assert write_chars_call == call(
+                [
+                    "zellij",
+                    "action",
+                    "write-chars",
+                    "vim '/path/with$special!chars&here/file.md'",
+                ],
+                capture_output=True,
+            )
+
+    def test_new_tab_with_command_escapes_quotes(self, zellij):
+        """Test new_tab_with_command properly escapes paths with quotes."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout="tab1\n"),
+                MagicMock(returncode=0),
+                MagicMock(returncode=0),
+                MagicMock(returncode=0),
+            ]
+
+            # Test with double quotes in path
+            result = zellij.new_tab_with_command(
+                "edit-tab",
+                ["code", "--wait", '/path/with "quotes"/file.md'],
+                cwd="/project",
+            )
+
+            assert result is True
+            calls = mock_run.call_args_list
+            write_chars_call = calls[2]
+            # shlex.join escapes the quotes properly
+            assert write_chars_call == call(
+                [
+                    "zellij",
+                    "action",
+                    "write-chars",
+                    "code --wait '/path/with \"quotes\"/file.md'",
+                ],
+                capture_output=True,
+            )
+
+    def test_new_tab_with_command_no_escaping_needed(self, zellij):
+        """Test new_tab_with_command doesn't add unnecessary quotes for simple paths."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout="tab1\n"),
+                MagicMock(returncode=0),
+                MagicMock(returncode=0),
+                MagicMock(returncode=0),
+            ]
+
+            result = zellij.new_tab_with_command(
+                "edit-tab", ["vim", "/simple/path/file.md"], cwd="/project"
+            )
+
+            assert result is True
+            calls = mock_run.call_args_list
+            write_chars_call = calls[2]
+            # No quoting needed for simple paths
+            assert write_chars_call == call(
+                ["zellij", "action", "write-chars", "vim /simple/path/file.md"],
+                capture_output=True,
+            )
+
 
 # ============================================================================
 # Multiplexer Detection Tests
