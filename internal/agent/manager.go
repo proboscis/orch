@@ -110,7 +110,7 @@ func GetManager(run *model.Run) AgentManager {
 	if run.Agent == string(AgentOpenCode) {
 		port := run.ServerPort
 		if port == 0 {
-			port = FindRunningOpenCodeServer(4096, 4105)
+			port = FindRunningOpenCodeServerForWorktree(run.WorktreePath, OpenCodeServerPortStart, OpenCodeServerPortEnd)
 		}
 		return &OpenCodeManager{
 			Port:      port,

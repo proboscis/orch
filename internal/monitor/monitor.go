@@ -51,7 +51,7 @@ type Options struct {
 	Agent           string
 	Attach          bool
 	ForceNew        bool
-	NewControlAgent bool  // If true, also restart the control agent session
+	NewControlAgent bool // If true, also restart the control agent session
 	OrchPath        string
 	GlobalFlags     []string
 	ShowResolved    bool
@@ -1157,7 +1157,7 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 		return agentChatLaunch{command: fallbackChatCommand(fmt.Sprintf("%s CLI not available", agentName))}
 	}
 
-	port := 4096
+	port := agent.OpenCodeServerPortStart
 	continueSession := true
 	cmd, err := adapter.LaunchCommand(&agent.LaunchConfig{
 		Type:            aType,
@@ -1212,7 +1212,7 @@ func (m *Monitor) sendAgentChatPrompt(pane string, launch agentChatLaunch) {
 func (m *Monitor) sendPromptViaHTTP(launch agentChatLaunch) {
 	port := launch.port
 	if port == 0 {
-		port = 4096
+		port = agent.OpenCodeServerPortStart
 	}
 
 	client := agent.NewOpenCodeClient(port)

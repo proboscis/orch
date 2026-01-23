@@ -111,12 +111,21 @@ func NewSocketServer(factory StoreFactory, logger Logger) *SocketServer {
 	}
 }
 
-// RegisterRepo adds a new repo context to the daemon.
-func (s *SocketServer) RegisterRepo(projectRoot string, st store.Store) (string, error) {
+func deriveRepoID(projectRoot string) string {
 	repoID, err := xdg.RepoID(projectRoot)
-	if err != nil {
+	if err != nil || repoID == "" {
 		repoID = filepath.Base(projectRoot)
 	}
+	return repoID
+}
+
+func openCodeServerSessionName(projectRoot string) string {
+	return fmt.Sprintf("orch-opencode-server-%s", deriveRepoID(projectRoot))
+}
+
+// RegisterRepo adds a new repo context to the daemon.
+func (s *SocketServer) RegisterRepo(projectRoot string, st store.Store) (string, error) {
+	repoID := deriveRepoID(projectRoot)
 
 	s.reposMu.Lock()
 	defer s.reposMu.Unlock()
@@ -363,19 +372,13 @@ func (s *SocketServer) handleRegisterRepo(req SendRequest, encoder *json.Encoder
 		return
 	}
 
-	// For now, we don't create a new store dynamically since that requires
-	// knowing the issues root. The client should include it.
-	repoID, _ := xdg.RepoID(req.ProjectRoot)
-	if repoID == "" {
-		repoID = filepath.Base(req.ProjectRoot)
-	}
+	repoID := deriveRepoID(req.ProjectRoot)
 
 	s.reposMu.Lock()
 	if _, exists := s.repos[repoID]; !exists {
 		s.repos[repoID] = &RepoContext{
 			ProjectRoot: req.ProjectRoot,
 			RepoID:      repoID,
-			// Store will be nil until properly configured
 		}
 	}
 	s.reposMu.Unlock()
@@ -656,16 +659,9 @@ func (s *SocketServer) handleEnsureOpenCodeServer(req SendRequest, encoder *json
 		return
 	}
 
-	startPort := 4096
-	endPort := 4196
+	tmuxSessionName := openCodeServerSessionName(req.ProjectRoot)
 
-	repoID, _ := xdg.RepoID(req.ProjectRoot)
-	if repoID == "" {
-		repoID = filepath.Base(req.ProjectRoot)
-	}
-	tmuxSessionName := fmt.Sprintf("orch-opencode-server-%s", repoID)
-
-	port, err := s.ensureOpenCodeServerRunning(req.ProjectRoot, startPort, endPort, tmuxSessionName)
+	port, err := s.ensureOpenCodeServerRunning(req.ProjectRoot, tmuxSessionName)
 	if err != nil {
 		encoder.Encode(map[string]interface{}{
 			"ok":    false,
@@ -691,12 +687,12 @@ func (s *SocketServer) handleEnsureOpenCodeServer(req SendRequest, encoder *json
 	})
 }
 
-func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string, startPort, endPort int, tmuxSessionName string) (int, error) {
+func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string, tmuxSessionName string) (int, error) {
 	mux := multiplexer.NewTmuxMultiplexer()
 
 	if mux.HasSession(tmuxSessionName) {
 		for i := 0; i < 10; i++ {
-			foundPort := agent.FindRunningOpenCodeServer(startPort, endPort)
+			foundPort := agent.FindRunningOpenCodeServerForWorktree(projectRoot, agent.OpenCodeServerPortStart, agent.OpenCodeServerPortEnd)
 			if foundPort > 0 {
 				s.logger.Printf("opencode server healthy on port %d (session: %s)", foundPort, tmuxSessionName)
 				return foundPort, nil
@@ -704,10 +700,12 @@ func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string, startPort
 			time.Sleep(500 * time.Millisecond)
 		}
 		s.logger.Printf("session %s exists but server not healthy, killing and restarting", tmuxSessionName)
-		mux.KillSession(tmuxSessionName)
+		if err := mux.KillSession(tmuxSessionName); err != nil {
+			s.logger.Printf("warning: failed to kill stale session %s: %v", tmuxSessionName, err)
+		}
 	}
 
-	port := findAvailablePort(startPort, endPort)
+	port := findAvailablePort(agent.OpenCodeServerPortStart, agent.OpenCodeServerPortEnd)
 	if port == 0 {
 		return 0, fmt.Errorf("no available port found for opencode server")
 	}
@@ -1457,7 +1455,7 @@ func (s *SocketServer) handleGetAttachInfo(req SendRequest, encoder *json.Encode
 
 	serverPort := run.ServerPort
 	if run.Agent == "opencode" && serverPort == 0 {
-		serverPort = agent.FindRunningOpenCodeServer(4096, 4105)
+		serverPort = agent.FindRunningOpenCodeServerForWorktree(run.WorktreePath, agent.OpenCodeServerPortStart, agent.OpenCodeServerPortEnd)
 	}
 
 	encoder.Encode(GetAttachInfoResponse{
