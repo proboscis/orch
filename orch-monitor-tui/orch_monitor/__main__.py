@@ -350,7 +350,7 @@ class LayoutLauncher(Protocol):
             agent: Agent command to use
             cwd: Working directory
             new_control_agent: If True, start fresh control agent session.
-                              If False, continue existing session (use --continue).
+                              If False, resume existing session using explicit session ID.
         """
         ...
 
@@ -462,8 +462,8 @@ class TmuxLayoutLauncher:
                     _launcher_logger.info(f"Using session: {session_id}")
                     agent_cmd = f'opencode --session {session_id} --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
                 else:
-                    _launcher_logger.info("No stored session, using --continue")
-                    agent_cmd = f'opencode --continue --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
+                    _launcher_logger.info("No stored session, starting fresh")
+                    agent_cmd = f'opencode --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
                     need_capture_session = True
 
         elif agent == "claude":
@@ -600,8 +600,8 @@ class ZellijLayoutLauncher:
                     _launcher_logger.info(f"Using session: {session_id}")
                     agent_cmd = f'opencode --session {session_id} --prompt \\"{prompt_escaped}\\"'
                 else:
-                    _launcher_logger.info("No stored session, using --continue")
-                    agent_cmd = f'opencode --continue --prompt \\"{prompt_escaped}\\"'
+                    _launcher_logger.info("No stored session, starting fresh")
+                    agent_cmd = f'opencode --prompt \\"{prompt_escaped}\\"'
                     need_capture_session = True
 
         elif agent == "claude":
