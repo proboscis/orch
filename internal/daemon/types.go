@@ -86,6 +86,7 @@ type RunSummary struct {
 	Branch       string `json:"branch,omitempty"`
 	WorktreePath string `json:"worktree_path,omitempty"`
 	TmuxSession  string `json:"tmux_session,omitempty"`
+	Multiplexer  string `json:"multiplexer,omitempty"`
 	PRUrl        string `json:"pr_url,omitempty"`
 	StartedAt    string `json:"started_at"`
 	UpdatedAt    string `json:"updated_at"`
@@ -112,6 +113,7 @@ type RunFull struct {
 	Branch            string       `json:"branch,omitempty"`
 	WorktreePath      string       `json:"worktree_path,omitempty"`
 	TmuxSession       string       `json:"tmux_session,omitempty"`
+	Multiplexer       string       `json:"multiplexer,omitempty"`
 	PRUrl             string       `json:"pr_url,omitempty"`
 	ServerPort        int          `json:"server_port,omitempty"`
 	OpenCodeSessionID string       `json:"opencode_session_id,omitempty"`
@@ -223,6 +225,7 @@ func RunToSummary(run *model.Run) *RunSummary {
 		Branch:       run.Branch,
 		WorktreePath: run.WorktreePath,
 		TmuxSession:  run.TmuxSession,
+		Multiplexer:  run.Multiplexer,
 		PRUrl:        run.PRUrl,
 		StartedAt:    formatTime(run.StartedAt),
 		UpdatedAt:    formatTime(run.UpdatedAt),
@@ -254,6 +257,7 @@ func RunToFull(run *model.Run) *RunFull {
 		Branch:            run.Branch,
 		WorktreePath:      run.WorktreePath,
 		TmuxSession:       run.TmuxSession,
+		Multiplexer:       run.Multiplexer,
 		PRUrl:             run.PRUrl,
 		ServerPort:        run.ServerPort,
 		OpenCodeSessionID: run.OpenCodeSessionID,

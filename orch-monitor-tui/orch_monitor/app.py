@@ -2681,7 +2681,7 @@ class OrchMonitorApp(App):
             f"Branch: {run.branch or '-'}",
             f"Worktree: {run.worktree_path or '-'}",
             f"Session: {run.tmux_session or '-'}",
-            f"Multiplexer: {run.multiplexer or 'tmux'}",
+            f"Multiplexer: {run.multiplexer or '-'}",
         ]
         # Add changed files section (uses helper for consistent formatting)
         if run.worktree_path and run.branch:
