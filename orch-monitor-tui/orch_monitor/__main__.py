@@ -88,17 +88,23 @@ def load_control_session(project_root: Path | None, agent_type: str = "") -> str
         project_str = str(project_root) if project_root else str(Path.cwd())
         session_id, _ = daemon.get_control_session(project_str, agent_type)
         if session_id:
-            _launcher_logger.info(f"Loaded control session from daemon: {session_id} (agent: {agent_type})")
+            _launcher_logger.info(
+                f"Loaded control session from daemon: {session_id} (agent: {agent_type})"
+            )
             return session_id
     return None
 
 
-def save_control_session(project_root: Path | None, session_id: str, agent_type: str = "") -> bool:
+def save_control_session(
+    project_root: Path | None, session_id: str, agent_type: str = ""
+) -> bool:
     daemon = _get_daemon_client(project_root)
     if daemon:
         project_str = str(project_root) if project_root else str(Path.cwd())
         if daemon.set_control_session(project_str, session_id, agent_type):
-            _launcher_logger.info(f"Saved control session via daemon: {session_id} (agent: {agent_type})")
+            _launcher_logger.info(
+                f"Saved control session via daemon: {session_id} (agent: {agent_type})"
+            )
             return True
     _launcher_logger.error("Failed to save control session: daemon not available")
     return False
@@ -113,7 +119,6 @@ def clear_control_session(project_root: Path | None) -> bool:
             return True
     _launcher_logger.error("Failed to clear control session: daemon not available")
     return False
-
 
 
 def query_latest_opencode_session(
@@ -449,22 +454,43 @@ class TmuxLayoutLauncher:
 
         write_control_prompt(vault_path)
         need_capture_session = False
+        opencode_server_port = 0
 
         if agent == "opencode":
             if new_control_agent:
                 clear_control_session(project_root)
-                agent_cmd = f'opencode --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
-                need_capture_session = True
-            else:
-                # Daemon handles agent type change detection
-                session_id = load_control_session(project_root, agent_type="opencode")
-                if session_id:
-                    _launcher_logger.info(f"Using session: {session_id}")
-                    agent_cmd = f'opencode --session {session_id} --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
+
+            daemon = _get_daemon_client(project_root)
+            if daemon:
+                project_str = str(project_root) if project_root else str(Path.cwd())
+                ok, port, session_id, err = daemon.ensure_opencode_server(project_str)
+                if ok and port > 0:
+                    opencode_server_port = port
+                    server_url = f"http://127.0.0.1:{port}"
+                    if session_id:
+                        _launcher_logger.info(
+                            f"Using opencode server on port {port}, session: {session_id}"
+                        )
+                        agent_cmd = (
+                            f"opencode attach {server_url} --session {session_id}"
+                        )
+                    else:
+                        _launcher_logger.info(
+                            f"Using opencode server on port {port}, no session yet"
+                        )
+                        agent_cmd = f"opencode attach {server_url}"
                 else:
-                    _launcher_logger.info("No stored session, starting fresh")
+                    _launcher_logger.warning(
+                        f"Failed to ensure opencode server: {err}, falling back to interactive mode"
+                    )
                     agent_cmd = f'opencode --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
                     need_capture_session = True
+            else:
+                _launcher_logger.warning(
+                    "Daemon not available, falling back to interactive mode"
+                )
+                agent_cmd = f'opencode --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
+                need_capture_session = True
 
         elif agent == "claude":
             if new_control_agent:
@@ -591,18 +617,37 @@ class ZellijLayoutLauncher:
             prompt_escaped = CONTROL_PROMPT_INSTRUCTION.replace('"', '\\"')
             if new_control_agent:
                 clear_control_session(project_root)
-                agent_cmd = f'opencode --prompt \\"{prompt_escaped}\\"'
-                need_capture_session = True
-            else:
-                # Daemon handles agent type change detection
-                session_id = load_control_session(project_root, agent_type="opencode")
-                if session_id:
-                    _launcher_logger.info(f"Using session: {session_id}")
-                    agent_cmd = f'opencode --session {session_id} --prompt \\"{prompt_escaped}\\"'
+
+            daemon = _get_daemon_client(project_root)
+            if daemon:
+                project_str = str(project_root) if project_root else str(Path.cwd())
+                ok, port, session_id, err = daemon.ensure_opencode_server(project_str)
+                if ok and port > 0:
+                    server_url = f"http://127.0.0.1:{port}"
+                    if session_id:
+                        _launcher_logger.info(
+                            f"Using opencode server on port {port}, session: {session_id}"
+                        )
+                        agent_cmd = (
+                            f"opencode attach {server_url} --session {session_id}"
+                        )
+                    else:
+                        _launcher_logger.info(
+                            f"Using opencode server on port {port}, no session yet"
+                        )
+                        agent_cmd = f"opencode attach {server_url}"
                 else:
-                    _launcher_logger.info("No stored session, starting fresh")
+                    _launcher_logger.warning(
+                        f"Failed to ensure opencode server: {err}, falling back to interactive mode"
+                    )
                     agent_cmd = f'opencode --prompt \\"{prompt_escaped}\\"'
                     need_capture_session = True
+            else:
+                _launcher_logger.warning(
+                    "Daemon not available, falling back to interactive mode"
+                )
+                agent_cmd = f'opencode --prompt \\"{prompt_escaped}\\"'
+                need_capture_session = True
 
         elif agent == "claude":
             if new_control_agent:
@@ -722,7 +767,9 @@ layout {{
                 time.sleep(2)
                 session_id = query_latest_opencode_session(project_root)
                 if session_id:
-                    save_control_session(project_root, session_id, agent_type="opencode")
+                    save_control_session(
+                        project_root, session_id, agent_type="opencode"
+                    )
 
             if need_capture_session and agent == "claude":
                 time.sleep(2)
@@ -919,9 +966,7 @@ def main():
             app = OnboardingApp(config_state)
             result = app.run()
             if not result:
-                print(
-                    "Setup cancelled. Run 'orch tutorial' for help.", file=sys.stderr
-                )
+                print("Setup cancelled. Run 'orch tutorial' for help.", file=sys.stderr)
                 sys.exit(0)
             # Refresh paths after onboarding
             config_state = detect_configuration_state()

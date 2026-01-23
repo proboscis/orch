@@ -328,25 +328,42 @@ class DaemonClient:
     def close(self) -> None:
         pass
 
-    def get_control_session(self, project_root: str) -> Optional[str]:
+    def get_control_session(
+        self, project_root: str, agent_type: str = ""
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Get control session info for the given agent type.
+
+        The daemon will:
+        - Return stored session if agent_type matches
+        - Clear stored session and discover new one if agent_type changed
+        - Discover session automatically for 'claude' agent type
+
+        Returns (session_id, agent_type).
+        """
         request = {
             "type": "get_control_session",
             "project_root": project_root,
+            "agent_type": agent_type,
         }
 
         try:
             response = self._send_request(request)
             if response.get("ok", False):
-                return response.get("session_id") or None
+                session_id = response.get("session_id") or None
+                resp_agent_type = response.get("agent_type") or None
+                return session_id, resp_agent_type
         except DaemonError:
             pass
-        return None
+        return None, None
 
-    def set_control_session(self, project_root: str, session_id: str) -> bool:
+    def set_control_session(
+        self, project_root: str, session_id: str, agent_type: str = ""
+    ) -> bool:
         request = {
             "type": "set_control_session",
             "project_root": project_root,
             "session_id": session_id,
+            "agent_type": agent_type,
         }
 
         try:
@@ -366,6 +383,27 @@ class DaemonClient:
             return response.get("ok", False)
         except DaemonError:
             return False
+
+    def ensure_opencode_server(
+        self, project_root: str
+    ) -> tuple[bool, int, Optional[str], Optional[str]]:
+        request = {
+            "type": "ensure_opencode_server",
+            "project_root": project_root,
+        }
+
+        try:
+            response = self._send_request(request)
+            if response.get("ok", False):
+                return (
+                    True,
+                    response.get("port", 0),
+                    response.get("session_id"),
+                    None,
+                )
+            return False, 0, None, response.get("error", "Unknown error")
+        except DaemonError as e:
+            return False, 0, None, str(e)
 
     def register_monitor(
         self,

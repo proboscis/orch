@@ -349,6 +349,8 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 		s.handleSetControlSession(req, encoder)
 	case "clear_control_session":
 		s.handleClearControlSession(req, encoder)
+	case "ensure_opencode_server":
+		s.handleEnsureOpenCodeServer(req, encoder)
 	default:
 		encoder.Encode(SendResponse{OK: false, Error: "unknown_type"})
 	}
@@ -643,6 +645,176 @@ func (s *SocketServer) handleClearControlSession(req SendRequest, encoder *json.
 	encoder.Encode(map[string]interface{}{
 		"ok": true,
 	})
+}
+
+func (s *SocketServer) handleEnsureOpenCodeServer(req SendRequest, encoder *json.Encoder) {
+	if req.ProjectRoot == "" {
+		encoder.Encode(map[string]interface{}{
+			"ok":    false,
+			"error": "project_root required",
+		})
+		return
+	}
+
+	startPort := 4096
+	endPort := 4196
+	tmuxSessionName := "orch-opencode-server"
+
+	port, err := s.ensureOpenCodeServerRunning(req.ProjectRoot, startPort, endPort, tmuxSessionName)
+	if err != nil {
+		encoder.Encode(map[string]interface{}{
+			"ok":    false,
+			"error": err.Error(),
+		})
+		return
+	}
+
+	sessionID, err := s.getOrCreateOpenCodeControlSession(req.ProjectRoot, port)
+	if err != nil {
+		s.logger.Printf("warning: server running but failed to get session: %v", err)
+		encoder.Encode(map[string]interface{}{
+			"ok":   true,
+			"port": port,
+		})
+		return
+	}
+
+	encoder.Encode(map[string]interface{}{
+		"ok":         true,
+		"port":       port,
+		"session_id": sessionID,
+	})
+}
+
+func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string, startPort, endPort int, tmuxSessionName string) (int, error) {
+	port := agent.FindRunningOpenCodeServer(startPort, endPort)
+	if port > 0 {
+		s.logger.Printf("opencode server already running on port %d", port)
+		return port, nil
+	}
+
+	port = findAvailablePort(startPort, endPort)
+	if port == 0 {
+		return 0, fmt.Errorf("no available port found for opencode server")
+	}
+
+	mux := multiplexer.NewTmuxMultiplexer()
+
+	if mux.HasSession(tmuxSessionName) {
+		for i := 0; i < 10; i++ {
+			time.Sleep(500 * time.Millisecond)
+			foundPort := agent.FindRunningOpenCodeServer(startPort, endPort)
+			if foundPort > 0 {
+				s.logger.Printf("opencode server became healthy on port %d", foundPort)
+				return foundPort, nil
+			}
+		}
+		return 0, fmt.Errorf("opencode server session exists but server not healthy")
+	}
+
+	adapter := &agent.OpenCodeAdapter{}
+	launchCmd, err := adapter.LaunchCommand(&agent.LaunchConfig{
+		Type: agent.AgentOpenCode,
+		Port: port,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to get launch command: %w", err)
+	}
+
+	err = mux.NewSession(&multiplexer.SessionConfig{
+		SessionName: tmuxSessionName,
+		WorkDir:     projectRoot,
+		Command:     launchCmd,
+		Env:         adapter.Env(),
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to start opencode server: %w", err)
+	}
+
+	client := agent.NewOpenCodeClient(port)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := client.WaitForHealthy(ctx, 30*time.Second); err != nil {
+		s.logger.Printf("opencode server failed to become healthy: %v", err)
+		return 0, fmt.Errorf("server started but failed health check: %w", err)
+	}
+
+	s.logger.Printf("started opencode server on port %d (session: %s)", port, tmuxSessionName)
+	return port, nil
+}
+
+func (s *SocketServer) getOrCreateOpenCodeControlSession(projectRoot string, port int) (string, error) {
+	lock := s.getControlSessionLock(projectRoot)
+	lock.Lock()
+	defer lock.Unlock()
+
+	sessionPath := s.controlSessionPath(projectRoot)
+	if data, err := os.ReadFile(sessionPath); err == nil {
+		var stored struct {
+			SessionID string `json:"session_id"`
+			AgentType string `json:"agent_type"`
+			Port      int    `json:"port"`
+		}
+		if json.Unmarshal(data, &stored) == nil && stored.SessionID != "" && stored.AgentType == "opencode" {
+			client := agent.NewOpenCodeClient(port)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			if session, err := client.GetSession(ctx, stored.SessionID, projectRoot); err == nil && session != nil {
+				s.logger.Printf("reusing existing opencode control session: %s", stored.SessionID)
+				if stored.Port != port {
+					s.saveControlSession(projectRoot, stored.SessionID, "opencode")
+				}
+				return stored.SessionID, nil
+			}
+		}
+	}
+
+	client := agent.NewOpenCodeClient(port)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	session, err := client.CreateSession(ctx, "orch-control", projectRoot)
+	if err != nil {
+		return "", fmt.Errorf("failed to create session: %w", err)
+	}
+
+	if err := s.saveControlSession(projectRoot, session.ID, "opencode"); err != nil {
+		s.logger.Printf("warning: failed to save control session: %v", err)
+	}
+
+	prompt := getControlPromptInstruction()
+	if prompt != "" {
+		go func() {
+			sendCtx, sendCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer sendCancel()
+			if err := client.SendMessageAsync(sendCtx, session.ID, prompt, projectRoot, nil, ""); err != nil {
+				s.logger.Printf("warning: failed to send initial prompt to control session: %v", err)
+			} else {
+				s.logger.Printf("sent initial prompt to control session %s", session.ID)
+			}
+		}()
+	}
+
+	s.logger.Printf("created new opencode control session: %s", session.ID)
+	return session.ID, nil
+}
+
+func getControlPromptInstruction() string {
+	return "ultrathink Please read 'ORCH_CONTROL_PROMPT.md' in the current directory and follow the instructions found there."
+}
+
+func findAvailablePort(start, end int) int {
+	for port := start; port <= end; port++ {
+		addr := fmt.Sprintf("127.0.0.1:%d", port)
+		listener, err := net.Listen("tcp", addr)
+		if err == nil {
+			listener.Close()
+			return port
+		}
+	}
+	return 0
 }
 
 func (s *SocketServer) handleSend(req SendRequest, encoder *json.Encoder) {
