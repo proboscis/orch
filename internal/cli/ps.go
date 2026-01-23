@@ -228,10 +228,13 @@ func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[st
 		IssueStatus  string `json:"issue_status"`
 		RunID        string `json:"run_id"`
 		ShortID      string `json:"short_id"`
-		Agent        string `json:"agent,omitempty"`
+		CLI          string `json:"cli,omitempty"`
 		Model        string `json:"model,omitempty"`
 		ModelVariant string `json:"model_variant,omitempty"`
 		Status       string `json:"status"`
+		AgentStatus  string `json:"agent_status"`
+		BranchStatus string `json:"branch_status"`
+		PRStatus     string `json:"pr_status"`
 		AgentAlive   string `json:"agent_alive"`
 		UpdatedAt    string `json:"updated_at"`
 		UpdatedAgo   string `json:"updated_ago"`
@@ -265,10 +268,13 @@ func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[st
 			IssueStatus:  issueStatus,
 			RunID:        r.RunID,
 			ShortID:      r.ShortID(),
-			Agent:        r.Agent,
+			CLI:          r.Agent,
 			Model:        r.Model,
 			ModelVariant: r.ModelVariant,
 			Status:       string(r.Status),
+			AgentStatus:  shortAgentStatus(r.Status),
+			BranchStatus: "-",
+			PRStatus:     prStatusFromRun(r, ""),
 			AgentAlive:   formatAliveText(aliveInfo),
 			UpdatedAt:    r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			UpdatedAgo:   formatRelativeTime(r.UpdatedAt, now),
@@ -285,8 +291,6 @@ func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[st
 	return enc.Encode(output)
 }
 
-// TSV columns (fixed order per spec):
-// issue_id, issue_status, run_id, short_id, agent, status, alive, started_at, updated_at, pr_url, branch, worktree_path, tmux_session
 func outputTSV(runs []*model.Run) error {
 	return outputTSVWithIssueInfo(runs, nil, nil)
 }
@@ -302,7 +306,7 @@ func outputTSVWithIssueInfo(runs []*model.Run, issueCache map[string]psIssueInfo
 			aliveInfo = aliveByRun[r.RunID]
 		}
 
-		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			r.IssueID,
 			issueStatus,
 			r.RunID,
@@ -311,6 +315,9 @@ func outputTSVWithIssueInfo(runs []*model.Run, issueCache map[string]psIssueInfo
 			r.Model,
 			r.ModelVariant,
 			r.Status,
+			shortAgentStatus(r.Status),
+			"-",
+			prStatusFromRun(r, ""),
 			formatAliveText(aliveInfo),
 			r.StartedAt.Format("2006-01-02T15:04:05Z07:00"),
 			r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
@@ -359,8 +366,7 @@ func outputTableWithIssueInfoOpts(runs []*model.Run, now time.Time, opts *psOpti
 		gitStates = gitStatesForRuns(runs, baseBranch)
 	}
 
-	// Collect data rows
-	headers := []string{"ID", "ISSUE", "ISSUE-ST", "AGENT", "MODEL", "STATUS", "ALIVE", "BRANCH", "WORKTREE", "PR", "MERGED", "STARTED", "UPDATED", "TOPIC"}
+	headers := []string{"ID", "ISSUE", "ISSUE-ST", "CLI", "MODEL", "AGENT", "ALIVE", "BRANCH", "WORKTREE", "PR", "STARTED", "UPDATED", "TOPIC"}
 	var rows [][]string
 
 	for _, r := range runs {
@@ -388,23 +394,16 @@ func outputTableWithIssueInfoOpts(runs []*model.Run, now time.Time, opts *psOpti
 			issueStatus = "-"
 		}
 
-		merged := "-"
-		if r.Status == model.StatusDone && r.PRUrl != "" {
-			merged = "merged"
-		} else if state, ok := gitStates[r.RunID]; ok {
-			merged = state
+		gitState := "-"
+		if state, ok := gitStates[r.RunID]; ok {
+			gitState = state
 		}
 
-		pr := "-"
-		if r.PRUrl != "" || r.Status == model.StatusPROpen {
-			pr = "yes"
-		}
+		branchStatus := branchStatusFromGitState(gitState)
+		prStatus := prStatusFromRun(r, gitState)
 
-		agentDisplay := agent.AgentDisplayName(r.Agent, r.Model, r.ModelVariant)
-
+		cliDisplay := agent.AgentDisplayName(r.Agent, r.Model, r.ModelVariant)
 		modelDisplay := formatModelDisplay(r.Model, r.ModelVariant)
-
-		branch := formatBranchDisplay(r.Branch, branchMaxLen)
 		worktree := formatWorktreeDisplay(r.WorktreePath, worktreeMaxLen)
 		aliveInfo := agentAliveInfo{}
 		if aliveByRun != nil {
@@ -415,14 +414,13 @@ func outputTableWithIssueInfoOpts(runs []*model.Run, now time.Time, opts *psOpti
 			displayID,
 			r.IssueID,
 			issueStatus,
-			agentDisplay,
+			cliDisplay,
 			modelDisplay,
-			colorStatus(r.Status),
+			colorShortStatus(r.Status),
 			colorAlive(aliveInfo),
-			branch,
+			colorBranchStatus(branchStatus),
 			worktree,
-			pr,
-			merged,
+			colorPrStatus(prStatus),
 			started,
 			updated,
 			display,
@@ -483,6 +481,63 @@ const (
 	branchMaxLen   = 24
 	worktreeMaxLen = 40
 )
+
+func shortAgentStatus(status model.Status) string {
+	switch status {
+	case model.StatusQueued:
+		return "queue"
+	case model.StatusBooting:
+		return "boot"
+	case model.StatusRunning:
+		return "run"
+	case model.StatusBlocked:
+		return "block"
+	case model.StatusBlockedAPI:
+		return "block"
+	case model.StatusPROpen:
+		return "pr"
+	case model.StatusDone:
+		return "done"
+	case model.StatusFailed:
+		return "fail"
+	case model.StatusCanceled:
+		return "cancel"
+	case model.StatusUnknown:
+		return "?"
+	default:
+		return "?"
+	}
+}
+
+func prStatusFromRun(r *model.Run, gitState string) string {
+	if r.Status == model.StatusDone && r.PRUrl != "" {
+		return "merged"
+	}
+	if gitState == "merged" && r.PRUrl != "" {
+		return "merged"
+	}
+	if r.PRUrl != "" || r.Status == model.StatusPROpen {
+		return "open"
+	}
+	return "-"
+}
+
+func branchStatusFromGitState(gitState string) string {
+	switch gitState {
+	case "clean":
+		return "clean"
+	case "dirty":
+		return "dirty"
+	case "merged":
+		return "merged"
+	case "conflict":
+		return "conflict"
+	case "uncommit":
+		return "dirty"
+	default:
+		return "-"
+	}
+}
 
 func formatIssueTopic(issue *model.Issue) string {
 	if issue == nil {
@@ -630,18 +685,17 @@ func formatRelativeTime(when time.Time, now time.Time) string {
 }
 
 func colorStatus(status model.Status) string {
-	// ANSI color codes for terminal
 	colors := map[model.Status]string{
-		model.StatusRunning:    "\033[32m", // green
-		model.StatusBlocked:    "\033[33m", // yellow
-		model.StatusBlockedAPI: "\033[33m", // yellow
-		model.StatusFailed:     "\033[31m", // red
-		model.StatusDone:       "\033[34m", // blue
-		model.StatusPROpen:     "\033[36m", // cyan
-		model.StatusQueued:     "\033[37m", // white
-		model.StatusBooting:    "\033[32m", // green
-		model.StatusCanceled:   "\033[90m", // gray
-		model.StatusUnknown:    "\033[35m", // magenta - agent exited unexpectedly
+		model.StatusRunning:    "\033[32m",
+		model.StatusBlocked:    "\033[33m",
+		model.StatusBlockedAPI: "\033[33m",
+		model.StatusFailed:     "\033[31m",
+		model.StatusDone:       "\033[34m",
+		model.StatusPROpen:     "\033[36m",
+		model.StatusQueued:     "\033[37m",
+		model.StatusBooting:    "\033[32m",
+		model.StatusCanceled:   "\033[90m",
+		model.StatusUnknown:    "\033[35m",
 	}
 
 	reset := "\033[0m"
@@ -649,6 +703,57 @@ func colorStatus(status model.Status) string {
 		return color + string(status) + reset
 	}
 	return string(status)
+}
+
+func colorShortStatus(status model.Status) string {
+	colors := map[model.Status]string{
+		model.StatusRunning:    "\033[32m",
+		model.StatusBlocked:    "\033[33m",
+		model.StatusBlockedAPI: "\033[33m",
+		model.StatusFailed:     "\033[31m",
+		model.StatusDone:       "\033[34m",
+		model.StatusPROpen:     "\033[36m",
+		model.StatusQueued:     "\033[37m",
+		model.StatusBooting:    "\033[32m",
+		model.StatusCanceled:   "\033[90m",
+		model.StatusUnknown:    "\033[35m",
+	}
+
+	short := shortAgentStatus(status)
+	reset := "\033[0m"
+	if color, ok := colors[status]; ok {
+		return color + short + reset
+	}
+	return short
+}
+
+func colorBranchStatus(status string) string {
+	colors := map[string]string{
+		"clean":    "\033[32m",
+		"dirty":    "\033[33m",
+		"merged":   "\033[34m",
+		"conflict": "\033[31m",
+	}
+
+	reset := "\033[0m"
+	if color, ok := colors[status]; ok {
+		return color + status + reset
+	}
+	return status
+}
+
+func colorPrStatus(status string) string {
+	colors := map[string]string{
+		"open":   "\033[36m",
+		"merged": "\033[32m",
+		"closed": "\033[90m",
+	}
+
+	reset := "\033[0m"
+	if color, ok := colors[status]; ok {
+		return color + status + reset
+	}
+	return status
 }
 
 func resolveAgentAliveInfo(runs []*model.Run) map[string]agentAliveInfo {
