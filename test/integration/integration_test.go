@@ -692,3 +692,296 @@ func TestDiffToolSelection(t *testing.T) {
 		t.Error("help should mention ORCH_DIFFTOOL")
 	}
 }
+
+func TestPsOutputColumns(t *testing.T) {
+	issueID := "ps-columns-test"
+	createTestIssue(t, issueID, "---\ntype: issue\ntitle: Ps Columns Test\nstatus: open\n---\n# Ps Columns Test")
+
+	runDir := filepath.Join(testVault, "runs", issueID)
+	os.MkdirAll(runDir, 0755)
+
+	runID := time.Now().Format("20060102-150405")
+	runContent := fmt.Sprintf(`---
+issue: %s
+run: %s
+---
+
+# Events
+
+- %s | status | running
+- %s | artifact | pr | url=https://github.com/test/repo/pull/42
+- %s | artifact | branch | name=feature/test
+`, issueID, runID,
+		time.Now().Add(-5*time.Minute).Format(time.RFC3339),
+		time.Now().Add(-2*time.Minute).Format(time.RFC3339),
+		time.Now().Add(-3*time.Minute).Format(time.RFC3339))
+	os.WriteFile(filepath.Join(runDir, runID+".md"), []byte(runContent), 0644)
+
+	output, err := runOrch(t, "ps", "--issue", issueID)
+	if err != nil {
+		t.Fatalf("ps failed: %v", err)
+	}
+
+	if !strings.Contains(output, "AGENT") {
+		t.Errorf("expected output to contain AGENT column header, got: %s", output)
+	}
+	if !strings.Contains(output, "BRANCH") {
+		t.Errorf("expected output to contain BRANCH column header, got: %s", output)
+	}
+	if !strings.Contains(output, "PR") {
+		t.Errorf("expected output to contain PR column header, got: %s", output)
+	}
+
+	lines := strings.Split(output, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected at least 2 lines (header + data), got: %d", len(lines))
+	}
+
+	header := lines[0]
+	headerFields := strings.Fields(header)
+
+	agentIdx := -1
+	branchIdx := -1
+	prIdx := -1
+	for i, f := range headerFields {
+		if f == "AGENT" {
+			agentIdx = i
+		}
+		if f == "BRANCH" {
+			branchIdx = i
+		}
+		if f == "PR" {
+			prIdx = i
+		}
+	}
+
+	if agentIdx == -1 {
+		t.Errorf("AGENT column not found in header: %v", headerFields)
+	}
+	if branchIdx == -1 {
+		t.Errorf("BRANCH column not found in header: %v", headerFields)
+	}
+	if prIdx == -1 {
+		t.Errorf("PR column not found in header: %v", headerFields)
+	}
+
+	for _, f := range headerFields {
+		if f == "STATUS" {
+			t.Errorf("found deprecated STATUS column, should be split into AGENT/BRANCH/PR: %v", headerFields)
+		}
+	}
+}
+
+func TestPsJSONOutputColumns(t *testing.T) {
+	issueID := "ps-json-columns-test"
+	createTestIssue(t, issueID, "---\ntype: issue\ntitle: Ps JSON Columns Test\nstatus: open\n---\n# Ps JSON Columns Test")
+
+	runDir := filepath.Join(testVault, "runs", issueID)
+	os.MkdirAll(runDir, 0755)
+
+	runID := time.Now().Format("20060102-150405")
+	runContent := fmt.Sprintf(`---
+issue: %s
+run: %s
+---
+
+# Events
+
+- %s | status | running
+- %s | artifact | pr | url=https://github.com/test/repo/pull/99
+`, issueID, runID,
+		time.Now().Add(-5*time.Minute).Format(time.RFC3339),
+		time.Now().Add(-2*time.Minute).Format(time.RFC3339))
+	os.WriteFile(filepath.Join(runDir, runID+".md"), []byte(runContent), 0644)
+
+	output, err := runOrch(t, "ps", "--issue", issueID, "--json")
+	if err != nil {
+		t.Fatalf("ps --json failed: %v", err)
+	}
+
+	var result struct {
+		OK    bool `json:"ok"`
+		Items []struct {
+			IssueID      string `json:"issue_id"`
+			RunID        string `json:"run_id"`
+			Status       string `json:"status"`
+			AgentStatus  string `json:"agent_status"`
+			BranchStatus string `json:"branch_status"`
+			PRStatus     string `json:"pr_status"`
+			PRUrl        string `json:"pr_url"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v\nOutput: %s", err, output)
+	}
+
+	if !result.OK {
+		t.Error("expected ok=true")
+	}
+
+	var foundRun *struct {
+		IssueID      string `json:"issue_id"`
+		RunID        string `json:"run_id"`
+		Status       string `json:"status"`
+		AgentStatus  string `json:"agent_status"`
+		BranchStatus string `json:"branch_status"`
+		PRStatus     string `json:"pr_status"`
+		PRUrl        string `json:"pr_url"`
+	}
+	for i := range result.Items {
+		if result.Items[i].IssueID == issueID {
+			foundRun = &result.Items[i]
+			break
+		}
+	}
+	if foundRun == nil {
+		t.Fatalf("run not found in output: %s", output)
+	}
+
+	if foundRun.AgentStatus == "" {
+		t.Error("expected agent_status to be set")
+	}
+	if foundRun.AgentStatus == "running" {
+		t.Errorf("agent_status should be short form 'run', got: %s", foundRun.AgentStatus)
+	}
+	if foundRun.AgentStatus != "run" {
+		t.Errorf("expected agent_status='run' for running status, got: %s", foundRun.AgentStatus)
+	}
+
+	if foundRun.BranchStatus == "" {
+		t.Error("expected branch_status to be set")
+	}
+
+	if foundRun.PRStatus == "" {
+		t.Error("expected pr_status to be set")
+	}
+	if foundRun.PRStatus != "open" {
+		t.Errorf("expected pr_status='open' for running with PR, got: %s", foundRun.PRStatus)
+	}
+}
+
+func TestPsAgentStatusValues(t *testing.T) {
+	testCases := []struct {
+		status        string
+		expectedShort string
+	}{
+		{"queued", "queue"},
+		{"booting", "boot"},
+		{"running", "run"},
+		{"blocked", "block"},
+		{"blocked_api", "block"},
+		{"pr_open", "pr"},
+		{"done", "done"},
+		{"failed", "fail"},
+		{"canceled", "cancel"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.status, func(t *testing.T) {
+			issueID := fmt.Sprintf("agent-status-%s-test", tc.status)
+			createTestIssue(t, issueID, fmt.Sprintf("---\ntype: issue\ntitle: Agent Status %s Test\nstatus: open\n---\n# Test", tc.status))
+
+			runDir := filepath.Join(testVault, "runs", issueID)
+			os.MkdirAll(runDir, 0755)
+
+			runID := time.Now().Format("20060102-150405")
+			runContent := fmt.Sprintf(`---
+issue: %s
+run: %s
+---
+
+# Events
+
+- %s | status | %s
+`, issueID, runID, time.Now().Format(time.RFC3339), tc.status)
+			os.WriteFile(filepath.Join(runDir, runID+".md"), []byte(runContent), 0644)
+
+			output, err := runOrch(t, "ps", "--issue", issueID, "--json")
+			if err != nil {
+				t.Fatalf("ps --json failed: %v", err)
+			}
+
+			var result struct {
+				Items []struct {
+					AgentStatus string `json:"agent_status"`
+				} `json:"items"`
+			}
+			if err := json.Unmarshal([]byte(output), &result); err != nil {
+				t.Fatalf("failed to parse JSON: %v", err)
+			}
+
+			if len(result.Items) == 0 {
+				t.Fatal("no items in result")
+			}
+
+			if result.Items[0].AgentStatus != tc.expectedShort {
+				t.Errorf("expected agent_status=%q for status=%q, got: %q",
+					tc.expectedShort, tc.status, result.Items[0].AgentStatus)
+			}
+		})
+	}
+}
+
+func TestPsPrStatusValues(t *testing.T) {
+	testCases := []struct {
+		name       string
+		status     string
+		hasPR      bool
+		expectedPR string
+	}{
+		{"running_no_pr", "running", false, "-"},
+		{"running_with_pr", "running", true, "open"},
+		{"pr_open_status", "pr_open", false, "open"},
+		{"done_with_pr", "done", true, "merged"},
+		{"done_no_pr", "done", false, "-"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			issueID := fmt.Sprintf("pr-status-%s-test", tc.name)
+			createTestIssue(t, issueID, fmt.Sprintf("---\ntype: issue\ntitle: PR Status %s Test\nstatus: open\n---\n# Test", tc.name))
+
+			runDir := filepath.Join(testVault, "runs", issueID)
+			os.MkdirAll(runDir, 0755)
+
+			runID := time.Now().Format("20060102-150405")
+			prEvent := ""
+			if tc.hasPR {
+				prEvent = fmt.Sprintf("- %s | artifact | pr | url=https://github.com/test/pr/1\n",
+					time.Now().Format(time.RFC3339))
+			}
+			runContent := fmt.Sprintf(`---
+issue: %s
+run: %s
+---
+
+# Events
+
+- %s | status | %s
+%s`, issueID, runID, time.Now().Format(time.RFC3339), tc.status, prEvent)
+			os.WriteFile(filepath.Join(runDir, runID+".md"), []byte(runContent), 0644)
+
+			output, err := runOrch(t, "ps", "--issue", issueID, "--json")
+			if err != nil {
+				t.Fatalf("ps --json failed: %v", err)
+			}
+
+			var result struct {
+				Items []struct {
+					PRStatus string `json:"pr_status"`
+				} `json:"items"`
+			}
+			if err := json.Unmarshal([]byte(output), &result); err != nil {
+				t.Fatalf("failed to parse JSON: %v", err)
+			}
+
+			if len(result.Items) == 0 {
+				t.Fatal("no items in result")
+			}
+
+			if result.Items[0].PRStatus != tc.expectedPR {
+				t.Errorf("expected pr_status=%q, got: %q", tc.expectedPR, result.Items[0].PRStatus)
+			}
+		})
+	}
+}
