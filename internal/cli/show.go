@@ -74,6 +74,7 @@ func showJSON(run *model.Run, opts *showOptions) error {
 		Branch        string        `json:"branch,omitempty"`
 		WorktreePath  string        `json:"worktree_path,omitempty"`
 		TmuxSession   string        `json:"tmux_session,omitempty"`
+		Multiplexer   string        `json:"multiplexer,omitempty"`
 		PRUrl         string        `json:"pr_url,omitempty"`
 		Events        []eventOutput `json:"events,omitempty"`
 	}{
@@ -86,6 +87,7 @@ func showJSON(run *model.Run, opts *showOptions) error {
 		Branch:        run.Branch,
 		WorktreePath:  run.WorktreePath,
 		TmuxSession:   run.TmuxSession,
+		Multiplexer:   run.Multiplexer,
 		PRUrl:         run.PRUrl,
 	}
 

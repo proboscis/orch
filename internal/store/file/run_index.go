@@ -23,6 +23,7 @@ type runIndexEntry struct {
 	Branch            string       `json:"branch,omitempty"`
 	WorktreePath      string       `json:"worktree_path,omitempty"`
 	TmuxSession       string       `json:"tmux_session,omitempty"`
+	Multiplexer       string       `json:"multiplexer,omitempty"`
 	PRUrl             string       `json:"pr_url,omitempty"`
 	ServerPort        int          `json:"server_port,omitempty"`
 	OpenCodeSessionID string       `json:"opencode_session_id,omitempty"`
@@ -213,6 +214,7 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 				Branch:            run.Branch,
 				WorktreePath:      run.WorktreePath,
 				TmuxSession:       run.TmuxSession,
+\t\t\tMultiplexer:       run.Multiplexer,
 				PRUrl:             run.PRUrl,
 				ServerPort:        run.ServerPort,
 				OpenCodeSessionID: run.OpenCodeSessionID,
@@ -263,6 +265,7 @@ func entryToRun(e *runIndexEntry) *model.Run {
 		Branch:            e.Branch,
 		WorktreePath:      e.WorktreePath,
 		TmuxSession:       e.TmuxSession,
+		Multiplexer:       e.Multiplexer,
 		PRUrl:             e.PRUrl,
 		ServerPort:        e.ServerPort,
 		OpenCodeSessionID: e.OpenCodeSessionID,

@@ -190,7 +190,20 @@ func outputCaptureError(err error) error {
 }
 
 func captureTmux(run *model.Run, opts *captureOptions) error {
-	mux, err := multiplexer.GetAuto()
+	var mux multiplexer.Multiplexer
+	var err error
+
+	// Use the run's stored multiplexer type if available
+	if run.Multiplexer != "" {
+		muxType, parseErr := multiplexer.ParseType(run.Multiplexer)
+		if parseErr == nil && muxType != multiplexer.TypeAuto {
+			mux, err = multiplexer.GetMultiplexer(muxType)
+		}
+	}
+	// Fall back to auto-detection if run doesn't specify or parsing failed
+	if mux == nil {
+		mux, err = multiplexer.GetAuto()
+	}
 	if err != nil {
 		return fmt.Errorf("no multiplexer available: %w", err)
 	}
