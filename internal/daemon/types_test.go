@@ -1,6 +1,10 @@
 package daemon
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/s22625/orch/internal/model"
+)
 
 func TestFileURI(t *testing.T) {
 	tests := []struct {
@@ -60,5 +64,162 @@ func TestDecodeCursorNegative(t *testing.T) {
 	_, err := DecodeCursor(cursor)
 	if err == nil {
 		t.Error("DecodeCursor should fail for negative offset")
+	}
+}
+
+func TestSummaryToRun(t *testing.T) {
+	tests := []struct {
+		name    string
+		summary *RunSummary
+		check   func(t *testing.T, run *model.Run)
+	}{
+		{
+			name:    "nil summary returns nil",
+			summary: nil,
+			check: func(t *testing.T, run *model.Run) {
+				if run != nil {
+					t.Error("expected nil run for nil summary")
+				}
+			},
+		},
+		{
+			name: "converts all fields correctly",
+			summary: &RunSummary{
+				IssueID:      "issue-123",
+				RunID:        "run-456",
+				ShortID:      "r456",
+				Status:       "running",
+				Phase:        "implement",
+				Agent:        "claude",
+				Model:        "claude-3-opus",
+				Branch:       "feature/test",
+				WorktreePath: "/tmp/worktree",
+				TmuxSession:  "orch-issue-123",
+				Multiplexer:  "tmux",
+				PRUrl:        "https://github.com/test/repo/pull/1",
+				StartedAt:    "2024-01-15T10:30:00Z",
+				UpdatedAt:    "2024-01-15T11:00:00Z",
+				URI:          "file:///path/to/run.json",
+			},
+			check: func(t *testing.T, run *model.Run) {
+				if run == nil {
+					t.Fatal("expected non-nil run")
+				}
+				if run.IssueID != "issue-123" {
+					t.Errorf("IssueID = %q, want %q", run.IssueID, "issue-123")
+				}
+				if run.RunID != "run-456" {
+					t.Errorf("RunID = %q, want %q", run.RunID, "run-456")
+				}
+				if run.Status != model.StatusRunning {
+					t.Errorf("Status = %q, want %q", run.Status, model.StatusRunning)
+				}
+				if run.Phase != model.PhaseImplement {
+					t.Errorf("Phase = %q, want %q", run.Phase, model.PhaseImplement)
+				}
+				if run.Agent != "claude" {
+					t.Errorf("Agent = %q, want %q", run.Agent, "claude")
+				}
+				if run.Model != "claude-3-opus" {
+					t.Errorf("Model = %q, want %q", run.Model, "claude-3-opus")
+				}
+				if run.Branch != "feature/test" {
+					t.Errorf("Branch = %q, want %q", run.Branch, "feature/test")
+				}
+				if run.WorktreePath != "/tmp/worktree" {
+					t.Errorf("WorktreePath = %q, want %q", run.WorktreePath, "/tmp/worktree")
+				}
+				if run.TmuxSession != "orch-issue-123" {
+					t.Errorf("TmuxSession = %q, want %q", run.TmuxSession, "orch-issue-123")
+				}
+				if run.Multiplexer != "tmux" {
+					t.Errorf("Multiplexer = %q, want %q", run.Multiplexer, "tmux")
+				}
+				if run.PRUrl != "https://github.com/test/repo/pull/1" {
+					t.Errorf("PRUrl = %q, want %q", run.PRUrl, "https://github.com/test/repo/pull/1")
+				}
+				if run.StartedAt.IsZero() {
+					t.Error("StartedAt should not be zero")
+				}
+				if run.UpdatedAt.IsZero() {
+					t.Error("UpdatedAt should not be zero")
+				}
+			},
+		},
+		{
+			name: "handles empty timestamps gracefully",
+			summary: &RunSummary{
+				IssueID:   "issue-789",
+				RunID:     "run-xyz",
+				Status:    "done",
+				StartedAt: "",
+				UpdatedAt: "",
+			},
+			check: func(t *testing.T, run *model.Run) {
+				if run == nil {
+					t.Fatal("expected non-nil run")
+				}
+				if !run.StartedAt.IsZero() {
+					t.Error("StartedAt should be zero for empty string")
+				}
+				if !run.UpdatedAt.IsZero() {
+					t.Error("UpdatedAt should be zero for empty string")
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			run := SummaryToRun(tt.summary)
+			tt.check(t, run)
+		})
+	}
+}
+
+func TestRunToSummaryRoundTrip(t *testing.T) {
+	original := &model.Run{
+		IssueID:      "issue-roundtrip",
+		RunID:        "run-roundtrip-123",
+		Status:       model.StatusBlocked,
+		Phase:        model.PhasePlan,
+		Agent:        "opencode",
+		Model:        "gpt-4",
+		Branch:       "fix/bug-123",
+		WorktreePath: "/home/user/worktrees/fix-bug",
+		TmuxSession:  "orch-roundtrip",
+		Multiplexer:  "tmux",
+		PRUrl:        "",
+	}
+
+	summary := RunToSummary(original)
+	roundTripped := SummaryToRun(summary)
+
+	if roundTripped.IssueID != original.IssueID {
+		t.Errorf("IssueID mismatch: got %q, want %q", roundTripped.IssueID, original.IssueID)
+	}
+	if roundTripped.RunID != original.RunID {
+		t.Errorf("RunID mismatch: got %q, want %q", roundTripped.RunID, original.RunID)
+	}
+	if roundTripped.Status != original.Status {
+		t.Errorf("Status mismatch: got %q, want %q", roundTripped.Status, original.Status)
+	}
+	if roundTripped.Phase != original.Phase {
+		t.Errorf("Phase mismatch: got %q, want %q", roundTripped.Phase, original.Phase)
+	}
+	if roundTripped.Agent != original.Agent {
+		t.Errorf("Agent mismatch: got %q, want %q", roundTripped.Agent, original.Agent)
+	}
+	if roundTripped.Model != original.Model {
+		t.Errorf("Model mismatch: got %q, want %q", roundTripped.Model, original.Model)
+	}
+	if roundTripped.Branch != original.Branch {
+		t.Errorf("Branch mismatch: got %q, want %q", roundTripped.Branch, original.Branch)
+	}
+	if roundTripped.WorktreePath != original.WorktreePath {
+		t.Errorf("WorktreePath mismatch: got %q, want %q", roundTripped.WorktreePath, original.WorktreePath)
+	}
+	if roundTripped.TmuxSession != original.TmuxSession {
+		t.Errorf("TmuxSession mismatch: got %q, want %q", roundTripped.TmuxSession, original.TmuxSession)
 	}
 }

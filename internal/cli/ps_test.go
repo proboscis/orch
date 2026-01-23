@@ -327,6 +327,8 @@ func TestFormatRelativeTime(t *testing.T) {
 
 func TestRunPsExcludesResolvedIssuesByDefault(t *testing.T) {
 	resetGlobalOpts(t)
+	testBypassDaemon = true
+	t.Cleanup(func() { testBypassDaemon = false })
 
 	vault := t.TempDir()
 	globalOpts.IssuesRoot = vault
@@ -385,6 +387,8 @@ func TestRunPsExcludesResolvedIssuesByDefault(t *testing.T) {
 
 func TestRunPsAllIncludesResolvedIssues(t *testing.T) {
 	resetGlobalOpts(t)
+	testBypassDaemon = true
+	t.Cleanup(func() { testBypassDaemon = false })
 
 	vault := t.TempDir()
 	globalOpts.IssuesRoot = vault
