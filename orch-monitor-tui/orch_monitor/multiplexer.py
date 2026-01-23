@@ -1,6 +1,7 @@
 """Multiplexer abstraction for terminal session management using Strategy pattern."""
 
 import os
+import shlex
 import shutil
 import subprocess
 from abc import ABC, abstractmethod
@@ -390,7 +391,7 @@ class ZellijMultiplexer:
             return False
 
         subprocess.run(
-            ["zellij", "action", "write-chars", " ".join(command)],
+            ["zellij", "action", "write-chars", shlex.join(command)],
             capture_output=True,
         )
         subprocess.run(["zellij", "action", "write", "10"], capture_output=True)
