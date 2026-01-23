@@ -400,6 +400,53 @@ func TestIsServerRunningForWorktree(t *testing.T) {
 	}
 }
 
+func TestFindRunningOpenCodeServerForWorktree(t *testing.T) {
+	t.Run("returns 0 when no server running", func(t *testing.T) {
+		port := FindRunningOpenCodeServerForWorktree("/nonexistent/path", 19000, 19005)
+		if port != 0 {
+			t.Errorf("expected 0 for no running server, got %d", port)
+		}
+	})
+
+	t.Run("returns 0 when server running but wrong worktree", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if r.URL.Path == "/global/health" {
+				json.NewEncoder(w).Encode(HealthResponse{Healthy: true, Version: "1.0.0"})
+			} else if r.URL.Path == "/project/current" {
+				json.NewEncoder(w).Encode(ProjectInfo{
+					ID:       "proj123",
+					Worktree: "/path/to/different-project",
+				})
+			}
+		}))
+		defer server.Close()
+
+		client := &OpenCodeClient{
+			baseURL:    server.URL,
+			httpClient: &http.Client{Timeout: 5 * time.Second},
+		}
+
+		ctx := context.Background()
+		if client.IsServerRunningForWorktree(ctx, "/path/to/my-project") {
+			t.Error("should return false for non-matching worktree")
+		}
+	})
+}
+
+func TestOpenCodeServerPortConstants(t *testing.T) {
+	if OpenCodeServerPortStart <= 0 {
+		t.Errorf("OpenCodeServerPortStart should be positive, got %d", OpenCodeServerPortStart)
+	}
+	if OpenCodeServerPortEnd <= OpenCodeServerPortStart {
+		t.Errorf("OpenCodeServerPortEnd (%d) should be greater than OpenCodeServerPortStart (%d)",
+			OpenCodeServerPortEnd, OpenCodeServerPortStart)
+	}
+	if OpenCodeServerPortStart != 4096 {
+		t.Errorf("OpenCodeServerPortStart should be 4096, got %d", OpenCodeServerPortStart)
+	}
+}
+
 func TestGetSessionStatus(t *testing.T) {
 	var receivedHeaders http.Header
 
