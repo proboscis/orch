@@ -365,24 +365,22 @@ class IssueTable(CursorPreservingTable):
 
         formatted = []
         for tag in tags:
-            # Escape tag to prevent markup injection
             safe_tag = escape(tag)
-            # Color-code common tag types
             tag_lower = tag.lower()
             if tag_lower in ("bug", "bugfix", "fix"):
-                formatted.append(f"[red][{safe_tag}][/red]")
+                formatted.append(f"[red]\\[{safe_tag}][/red]")
             elif tag_lower in ("urgent", "critical", "high"):
-                formatted.append(f"[bold red][{safe_tag}][/bold red]")
+                formatted.append(f"[bold red]\\[{safe_tag}][/bold red]")
             elif tag_lower in ("enhancement", "feature", "new"):
-                formatted.append(f"[green][{safe_tag}][/green]")
+                formatted.append(f"[green]\\[{safe_tag}][/green]")
             elif tag_lower in ("refactor", "cleanup", "chore"):
-                formatted.append(f"[cyan][{safe_tag}][/cyan]")
+                formatted.append(f"[cyan]\\[{safe_tag}][/cyan]")
             elif tag_lower in ("docs", "documentation"):
-                formatted.append(f"[yellow][{safe_tag}][/yellow]")
+                formatted.append(f"[yellow]\\[{safe_tag}][/yellow]")
             elif tag_lower in ("test", "testing"):
-                formatted.append(f"[magenta][{safe_tag}][/magenta]")
+                formatted.append(f"[magenta]\\[{safe_tag}][/magenta]")
             else:
-                formatted.append(f"[{safe_tag}]")
+                formatted.append(f"[dim]\\[{safe_tag}][/dim]")
 
         if len(tags) > 2:
             return " ".join(formatted[:2]) + "..."

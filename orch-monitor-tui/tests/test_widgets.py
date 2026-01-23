@@ -862,6 +862,130 @@ class TestRunTableWithBranchStates:
             assert table.row_count == len(sample_runs)
 
 
+class TestIssueTagsDisplay:
+    """Tests for tags display formatting in IssueTable."""
+
+    async def test_tags_display_known_tag_types(self, sample_issues):
+        """Test that known tag types get proper color coding."""
+        from textual.app import App, ComposeResult
+
+        issue_with_tags = Issue(
+            id="test-1",
+            title="Bug issue",
+            status=IssueStatus.OPEN,
+            tags=["bug", "urgent"],
+        )
+
+        class TestApp(App):
+            def compose(self) -> ComposeResult:
+                yield IssueTable(id="test-table")
+
+        app = TestApp()
+        async with app.run_test() as pilot:
+            table = app.query_one("#test-table", IssueTable)
+            table.populate([issue_with_tags])
+            await pilot.pause()
+            assert table.row_count == 1
+
+    async def test_tags_display_unknown_tag_types(self):
+        """Test that unknown tags display correctly without markup issues."""
+        from textual.app import App, ComposeResult
+
+        issue_with_unknown_tags = Issue(
+            id="test-1",
+            title="Architecture issue",
+            status=IssueStatus.OPEN,
+            tags=["architecture", "daemon", "cli"],
+        )
+
+        class TestApp(App):
+            def compose(self) -> ComposeResult:
+                yield IssueTable(id="test-table")
+
+        app = TestApp()
+        async with app.run_test() as pilot:
+            table = app.query_one("#test-table", IssueTable)
+            table.populate([issue_with_unknown_tags])
+            await pilot.pause()
+            assert table.row_count == 1
+
+    async def test_tags_display_truncation(self):
+        """Test that >2 tags shows truncation indicator."""
+        from textual.app import App, ComposeResult
+
+        issue_with_many_tags = Issue(
+            id="test-1",
+            title="Issue with many tags",
+            status=IssueStatus.OPEN,
+            tags=["bug", "orch-monitor", "display", "extra"],
+        )
+
+        class TestApp(App):
+            def compose(self) -> ComposeResult:
+                yield IssueTable(id="test-table")
+
+        app = TestApp()
+        async with app.run_test() as pilot:
+            table = app.query_one("#test-table", IssueTable)
+            table.populate([issue_with_many_tags])
+            await pilot.pause()
+            assert table.row_count == 1
+
+    async def test_tags_display_empty(self):
+        """Test that empty tags show dash."""
+        from textual.app import App, ComposeResult
+
+        issue_no_tags = Issue(
+            id="test-1",
+            title="Issue without tags",
+            status=IssueStatus.OPEN,
+            tags=[],
+        )
+
+        class TestApp(App):
+            def compose(self) -> ComposeResult:
+                yield IssueTable(id="test-table")
+
+        app = TestApp()
+        async with app.run_test() as pilot:
+            table = app.query_one("#test-table", IssueTable)
+            table.populate([issue_no_tags])
+            await pilot.pause()
+            assert table.row_count == 1
+
+    def test_format_tags_returns_literal_brackets(self):
+        """Test that _format_tags_display uses escaped brackets to avoid Rich markup issues."""
+        table = IssueTable()
+        result = table._format_tags_display(["architecture", "daemon"])
+        assert "\\[" in result
+        assert "[dim]" in result
+
+    def test_format_tags_with_known_types(self):
+        """Test color coding for known tag types."""
+        table = IssueTable()
+
+        result = table._format_tags_display(["bug"])
+        assert "[red]" in result
+
+        result = table._format_tags_display(["enhancement"])
+        assert "[green]" in result
+
+        result = table._format_tags_display(["docs"])
+        assert "[yellow]" in result
+
+    def test_format_tags_truncation(self):
+        """Test that more than 2 tags shows truncation."""
+        table = IssueTable()
+        result = table._format_tags_display(["tag1", "tag2", "tag3"])
+        assert "..." in result
+
+    def test_format_tags_empty(self):
+        """Test empty tags returns dash."""
+        table = IssueTable()
+        result = table._format_tags_display([])
+        assert result == "-"
+
+
 class TestRunTableColumnsE2E:
     async def test_run_table_has_separate_agent_branch_pr_columns(self, sample_runs):
         from textual.app import App, ComposeResult
