@@ -805,7 +805,11 @@ func injectPromptViaHTTP(st interface {
 	var modelRef *agent.ModelRef
 	if usedModel != "" {
 		modelRef = agent.ParseModel(usedModel)
-		debug.Printf("Using model: %s/%s", modelRef.ProviderID, modelRef.ModelID)
+		if modelRef != nil {
+			debug.Printf("Using model: %s/%s", modelRef.ProviderID, modelRef.ModelID)
+		} else {
+			debug.Printf("Using model (raw): %s", usedModel)
+		}
 	}
 	if usedVariant != "" {
 		debug.Printf("Using variant: %s", usedVariant)
