@@ -883,8 +883,35 @@ func TestOpenCodeManagerIsAliveServerUnhealthy(t *testing.T) {
 // Tests for orch-354: IsAlive checks if server is running for this worktree.
 // This replaces the old session-existence checks from orch-308/315.
 
-func TestOpenCodeManagerIsAliveWithDifferentWorktree(t *testing.T) {
-	// With orch-354: Server must be running for the EXACT worktree, not just any worktree
+func TestOpenCodeManagerIsAliveWithDifferentGitRoot(t *testing.T) {
+	// Server running for a completely different git repo should return false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/global/health":
+			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
+		case "/project/current":
+			json.NewEncoder(w).Encode(ProjectInfo{Worktree: "/different-repo"})
+		}
+	}))
+	defer server.Close()
+
+	port := extractPort(server.URL)
+	manager := &OpenCodeManager{
+		Port:      port,
+		SessionID: "ses_target",
+		Directory: "/my-repo/.git-worktrees/issue-123/abc123_run",
+	}
+	run := &model.Run{Agent: "opencode"}
+
+	got := manager.IsAlive(run)
+	if got != false {
+		t.Errorf("IsAlive() should return false when server is for different git root, got %v", got)
+	}
+}
+
+func TestOpenCodeManagerIsAliveWorktreeUnderGitRoot(t *testing.T) {
+	// Worktree under the server's git root should return true
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
@@ -905,8 +932,8 @@ func TestOpenCodeManagerIsAliveWithDifferentWorktree(t *testing.T) {
 	run := &model.Run{Agent: "opencode"}
 
 	got := manager.IsAlive(run)
-	if got != false {
-		t.Errorf("IsAlive() should return false when server worktree doesn't match, got %v", got)
+	if got != true {
+		t.Errorf("IsAlive() should return true for worktree under git root, got %v", got)
 	}
 }
 
