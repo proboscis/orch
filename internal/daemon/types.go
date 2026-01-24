@@ -313,6 +313,30 @@ func formatTime(t time.Time) string {
 	return t.Format(time.RFC3339)
 }
 
+// GetOpenCodeServerRequest is the request for get_opencode_server
+type GetOpenCodeServerRequest struct {
+	Type        string `json:"type"`
+	ProjectRoot string `json:"project_root"`
+}
+
+// GetOpenCodeServerResponse is the response for get_opencode_server
+type GetOpenCodeServerResponse struct {
+	OK        bool   `json:"ok"`
+	Error     string `json:"error,omitempty"`
+	Port      int    `json:"port"`
+	SessionID string `json:"session_id,omitempty"`
+	Healthy   bool   `json:"healthy"`
+}
+
+// OpenCodeServerInfo tracks a managed opencode server
+type OpenCodeServerInfo struct {
+	ProjectRoot string    `json:"project_root"`
+	Port        int       `json:"port"`
+	PID         int       `json:"pid"`
+	StartTime   time.Time `json:"start_time"`
+	LastHealthy time.Time `json:"last_healthy"`
+}
+
 // SummaryToRun converts a RunSummary back to a model.Run
 // This is used by orch ps to convert daemon API responses to model.Run for display
 func SummaryToRun(s *RunSummary) *model.Run {

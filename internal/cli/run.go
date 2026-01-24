@@ -13,6 +13,7 @@ import (
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/config"
+	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
@@ -361,23 +362,37 @@ func runRun(issueID string, opts *runOptions) error {
 
 		serverAlreadyRunning := false
 		if adapter.PromptInjection() == agent.InjectionHTTP {
-			foundPort := findRunningOpenCodeServer(launchCfg.Port, launchCfg.Port+100, debug)
-			if foundPort > 0 {
-				serverAlreadyRunning = true
-				launchCfg.Port = foundPort
-				fmt.Fprintf(os.Stderr, "reusing existing opencode server on port %d\n", foundPort)
-			} else {
-				freePort := findAvailablePort(launchCfg.Port, launchCfg.Port+100)
-				if freePort == 0 {
-					err := fmt.Errorf("no available port found for opencode server")
-					setRunFailed(st, run, err)
-					return exitWithCode(err, ExitAgentError)
-				}
-				launchCfg.Port = freePort
-				agentCmd, err = adapter.LaunchCommand(launchCfg)
+			daemonClient := daemon.NewClient(repoRoot)
+			if daemonClient.IsAvailable() {
+				resp, err := daemonClient.GetOpenCodeServer(worktreeResult.WorktreePath)
 				if err != nil {
-					setRunFailed(st, run, err)
-					return exitWithCode(err, ExitAgentError)
+					debug.Printf("Daemon server request failed: %v, falling back to direct server", err)
+				} else {
+					serverAlreadyRunning = true
+					launchCfg.Port = resp.Port
+					fmt.Fprintf(os.Stderr, "using daemon-managed opencode server on port %d\n", resp.Port)
+				}
+			}
+
+			if !serverAlreadyRunning {
+				foundPort := findRunningOpenCodeServer(launchCfg.Port, launchCfg.Port+100, debug)
+				if foundPort > 0 {
+					serverAlreadyRunning = true
+					launchCfg.Port = foundPort
+					fmt.Fprintf(os.Stderr, "reusing existing opencode server on port %d\n", foundPort)
+				} else {
+					freePort := findAvailablePort(launchCfg.Port, launchCfg.Port+100)
+					if freePort == 0 {
+						err := fmt.Errorf("no available port found for opencode server")
+						setRunFailed(st, run, err)
+						return exitWithCode(err, ExitAgentError)
+					}
+					launchCfg.Port = freePort
+					agentCmd, err = adapter.LaunchCommand(launchCfg)
+					if err != nil {
+						setRunFailed(st, run, err)
+						return exitWithCode(err, ExitAgentError)
+					}
 				}
 			}
 		}

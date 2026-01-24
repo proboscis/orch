@@ -597,6 +597,30 @@ func (c *Client) KillMonitor(monitorID string, killAll bool, global bool, projec
 	return &resp, nil
 }
 
+// GetOpenCodeServer requests or retrieves an opencode server for a project.
+func (c *Client) GetOpenCodeServer(projectRoot string) (*GetOpenCodeServerResponse, error) {
+	req := SendRequest{
+		Type:        "ensure_opencode_server",
+		ProjectRoot: projectRoot,
+	}
+
+	raw, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp GetOpenCodeServerResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !resp.OK {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	return &resp, nil
+}
+
 // RegisterRepo registers a project with the daemon.
 func (c *Client) RegisterRepo(projectRoot string) (string, error) {
 	req := SendRequest{

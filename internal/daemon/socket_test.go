@@ -1026,56 +1026,6 @@ func TestDeriveRepoID(t *testing.T) {
 	})
 }
 
-func TestOpenCodeServerSessionName(t *testing.T) {
-	tests := []struct {
-		name        string
-		projectRoot string
-		wantPrefix  string
-	}{
-		{
-			name:        "generates session name with project basename",
-			projectRoot: "/Users/test/repos/my-project",
-			wantPrefix:  "orch-opencode-server-",
-		},
-		{
-			name:        "handles empty path",
-			projectRoot: "",
-			wantPrefix:  "orch-opencode-server-",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := openCodeServerSessionName(tt.projectRoot)
-			if got == "" {
-				t.Error("openCodeServerSessionName should never return empty string")
-			}
-			if len(got) <= len(tt.wantPrefix) {
-				t.Errorf("openCodeServerSessionName(%q) = %q, too short", tt.projectRoot, got)
-			}
-			if got[:len(tt.wantPrefix)] != tt.wantPrefix {
-				t.Errorf("openCodeServerSessionName(%q) = %q, want prefix %q", tt.projectRoot, got, tt.wantPrefix)
-			}
-		})
-	}
-
-	t.Run("different projects get different session names", func(t *testing.T) {
-		name1 := openCodeServerSessionName("/path/to/project-a")
-		name2 := openCodeServerSessionName("/path/to/project-b")
-		if name1 == name2 {
-			t.Errorf("different projects should get different session names: %q == %q", name1, name2)
-		}
-	})
-
-	t.Run("same project gets same session name", func(t *testing.T) {
-		name1 := openCodeServerSessionName("/path/to/my-project")
-		name2 := openCodeServerSessionName("/path/to/my-project")
-		if name1 != name2 {
-			t.Errorf("same project should get same session name: %q != %q", name1, name2)
-		}
-	})
-}
-
 func TestListReposAPI(t *testing.T) {
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()

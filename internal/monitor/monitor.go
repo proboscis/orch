@@ -1159,6 +1159,27 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 
 	port := agent.OpenCodeServerPortStart
 	continueSession := true
+
+	if adapter.PromptInjection() == agent.InjectionHTTP && m.daemonClient != nil && m.daemonClient.IsAvailable() {
+		resp, err := m.daemonClient.GetOpenCodeServer(m.projectRoot)
+		if err == nil && resp.Port > 0 {
+			port = resp.Port
+			m.logger.Printf("using daemon-managed opencode server on port %d", port)
+			attachCmd := fmt.Sprintf("opencode attach http://127.0.0.1:%d", port)
+			return agentChatLaunch{
+				command:        attachCmd,
+				prompt:         prompt,
+				promptEmbedded: false,
+				injection:      agent.InjectionHTTP,
+				readyPattern:   "",
+				port:           port,
+				model:          modelName,
+				modelVariant:   modelVariant,
+			}
+		}
+		m.logger.Printf("daemon server request failed (%v), falling back to direct launch", err)
+	}
+
 	cmd, err := adapter.LaunchCommand(&agent.LaunchConfig{
 		Type:            aType,
 		IssuesRoot:      m.store.RootPath(),

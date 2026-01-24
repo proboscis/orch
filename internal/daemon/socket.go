@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -90,10 +91,20 @@ type SocketServer struct {
 	monitors   map[string]*MonitorConnection
 	monitorsMu sync.RWMutex
 
-	// Per-project locks for control session operations to prevent race conditions
-	// when multiple orch-monitor instances start in quick succession
 	controlSessionLocks   map[string]*sync.Mutex
 	controlSessionLocksMu sync.Mutex
+
+	openCodeServers   map[string]*managedServer
+	openCodeServersMu sync.RWMutex
+}
+
+type managedServer struct {
+	ProjectRoot string
+	Port        int
+	Cmd         *exec.Cmd
+	StartTime   time.Time
+	LastHealthy time.Time
+	LogFile     *os.File
 }
 
 type Logger interface {
@@ -108,6 +119,7 @@ func NewSocketServer(factory StoreFactory, logger Logger) *SocketServer {
 		monitors:            make(map[string]*MonitorConnection),
 		repos:               make(map[string]*RepoContext),
 		controlSessionLocks: make(map[string]*sync.Mutex),
+		openCodeServers:     make(map[string]*managedServer),
 	}
 }
 
@@ -117,10 +129,6 @@ func deriveRepoID(projectRoot string) string {
 		repoID = filepath.Base(projectRoot)
 	}
 	return repoID
-}
-
-func openCodeServerSessionName(projectRoot string) string {
-	return fmt.Sprintf("orch-opencode-server-%s", deriveRepoID(projectRoot))
 }
 
 // RegisterRepo adds a new repo context to the daemon.
@@ -265,12 +273,14 @@ func (s *SocketServer) Start() error {
 
 	go s.acceptLoop()
 	s.StartStaleMonitorCleanup()
+	s.StartOpenCodeServerHealthCheck()
 
 	return nil
 }
 
 func (s *SocketServer) Stop() {
 	close(s.stopCh)
+	s.StopAllOpenCodeServers()
 	if s.listener != nil {
 		s.listener.Close()
 	}
@@ -659,9 +669,7 @@ func (s *SocketServer) handleEnsureOpenCodeServer(req SendRequest, encoder *json
 		return
 	}
 
-	tmuxSessionName := openCodeServerSessionName(req.ProjectRoot)
-
-	port, err := s.ensureOpenCodeServerRunning(req.ProjectRoot, tmuxSessionName)
+	port, err := s.ensureOpenCodeServerRunning(req.ProjectRoot)
 	if err != nil {
 		encoder.Encode(map[string]interface{}{
 			"ok":    false,
@@ -687,22 +695,24 @@ func (s *SocketServer) handleEnsureOpenCodeServer(req SendRequest, encoder *json
 	})
 }
 
-func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string, tmuxSessionName string) (int, error) {
-	mux := multiplexer.NewTmuxMultiplexer()
+func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string) (int, error) {
+	s.openCodeServersMu.Lock()
+	defer s.openCodeServersMu.Unlock()
 
-	if mux.HasSession(tmuxSessionName) {
-		for i := 0; i < 10; i++ {
-			foundPort := agent.FindRunningOpenCodeServerForWorktree(projectRoot, agent.OpenCodeServerPortStart, agent.OpenCodeServerPortEnd)
-			if foundPort > 0 {
-				s.logger.Printf("opencode server healthy on port %d (session: %s)", foundPort, tmuxSessionName)
-				return foundPort, nil
+	if srv, ok := s.openCodeServers[projectRoot]; ok {
+		if s.isServerProcessAlive(srv) {
+			client := agent.NewOpenCodeClient(srv.Port)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			if client.IsServerRunning(ctx) {
+				srv.LastHealthy = time.Now()
+				s.logger.Printf("opencode server healthy on port %d for %s", srv.Port, projectRoot)
+				return srv.Port, nil
 			}
-			time.Sleep(500 * time.Millisecond)
 		}
-		s.logger.Printf("session %s exists but server not healthy, killing and restarting", tmuxSessionName)
-		if err := mux.KillSession(tmuxSessionName); err != nil {
-			s.logger.Printf("warning: failed to kill stale session %s: %v", tmuxSessionName, err)
-		}
+		s.logger.Printf("existing server for %s not healthy, stopping and restarting", projectRoot)
+		s.stopServerLocked(srv)
+		delete(s.openCodeServers, projectRoot)
 	}
 
 	port := findAvailablePort(agent.OpenCodeServerPortStart, agent.OpenCodeServerPortEnd)
@@ -710,21 +720,7 @@ func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string, tmuxSessi
 		return 0, fmt.Errorf("no available port found for opencode server")
 	}
 
-	adapter := &agent.OpenCodeAdapter{}
-	launchCmd, err := adapter.LaunchCommand(&agent.LaunchConfig{
-		Type: agent.AgentOpenCode,
-		Port: port,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("failed to get launch command: %w", err)
-	}
-
-	err = mux.NewSession(&multiplexer.SessionConfig{
-		SessionName: tmuxSessionName,
-		WorkDir:     projectRoot,
-		Command:     launchCmd,
-		Env:         adapter.Env(),
-	})
+	srv, err := s.startServerProcess(projectRoot, port)
 	if err != nil {
 		return 0, fmt.Errorf("failed to start opencode server: %w", err)
 	}
@@ -734,12 +730,139 @@ func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string, tmuxSessi
 	defer cancel()
 
 	if err := client.WaitForHealthy(ctx, 30*time.Second); err != nil {
-		s.logger.Printf("opencode server failed to become healthy: %v", err)
+		s.stopServerLocked(srv)
 		return 0, fmt.Errorf("server started but failed health check: %w", err)
 	}
 
-	s.logger.Printf("started opencode server on port %d (session: %s)", port, tmuxSessionName)
+	srv.LastHealthy = time.Now()
+	s.openCodeServers[projectRoot] = srv
+	s.logger.Printf("started opencode server on port %d (pid: %d) for %s", port, srv.Cmd.Process.Pid, projectRoot)
 	return port, nil
+}
+
+func (s *SocketServer) startServerProcess(projectRoot string, port int) (*managedServer, error) {
+	opencodeBin, err := exec.LookPath("opencode")
+	if err != nil {
+		home, _ := os.UserHomeDir()
+		opencodeBin = filepath.Join(home, ".opencode", "bin", "opencode")
+		if _, err := os.Stat(opencodeBin); err != nil {
+			return nil, fmt.Errorf("opencode binary not found")
+		}
+	}
+
+	logDir := xdg.StateDir()
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create log directory: %w", err)
+	}
+	repoID := deriveRepoID(projectRoot)
+	logPath := filepath.Join(logDir, fmt.Sprintf("opencode-server-%s.log", repoID))
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create log file: %w", err)
+	}
+
+	cmd := exec.Command(opencodeBin, "serve", "--port", fmt.Sprintf("%d", port), "--hostname", "0.0.0.0")
+	cmd.Dir = projectRoot
+	cmd.Env = append(os.Environ(),
+		`OPENCODE_PERMISSION={"edit":"allow","bash":"allow","skill":"allow","webfetch":"allow","doom_loop":"allow","external_directory":"allow"}`,
+	)
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	if err := cmd.Start(); err != nil {
+		logFile.Close()
+		return nil, fmt.Errorf("failed to start process: %w", err)
+	}
+
+	return &managedServer{
+		ProjectRoot: projectRoot,
+		Port:        port,
+		Cmd:         cmd,
+		StartTime:   time.Now(),
+		LogFile:     logFile,
+	}, nil
+}
+
+func (s *SocketServer) isServerProcessAlive(srv *managedServer) bool {
+	if srv == nil || srv.Cmd == nil || srv.Cmd.Process == nil {
+		return false
+	}
+	err := srv.Cmd.Process.Signal(syscall.Signal(0))
+	return err == nil
+}
+
+func (s *SocketServer) stopServerLocked(srv *managedServer) {
+	if srv == nil {
+		return
+	}
+	if srv.Cmd != nil && srv.Cmd.Process != nil {
+		srv.Cmd.Process.Signal(syscall.SIGTERM)
+		done := make(chan error, 1)
+		go func() { done <- srv.Cmd.Wait() }()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			srv.Cmd.Process.Kill()
+		}
+	}
+	if srv.LogFile != nil {
+		srv.LogFile.Close()
+	}
+}
+
+func (s *SocketServer) StartOpenCodeServerHealthCheck() {
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-s.stopCh:
+				return
+			case <-ticker.C:
+				s.checkOpenCodeServerHealth()
+			}
+		}
+	}()
+}
+
+func (s *SocketServer) checkOpenCodeServerHealth() {
+	s.openCodeServersMu.Lock()
+	defer s.openCodeServersMu.Unlock()
+
+	for projectRoot, srv := range s.openCodeServers {
+		if !s.isServerProcessAlive(srv) {
+			s.logger.Printf("opencode server for %s died (pid: %d), will restart on next request", projectRoot, srv.Cmd.Process.Pid)
+			s.stopServerLocked(srv)
+			delete(s.openCodeServers, projectRoot)
+			continue
+		}
+
+		client := agent.NewOpenCodeClient(srv.Port)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if client.IsServerRunning(ctx) {
+			srv.LastHealthy = time.Now()
+		} else {
+			if time.Since(srv.LastHealthy) > 2*time.Minute {
+				s.logger.Printf("opencode server for %s unhealthy for 2+ minutes, restarting", projectRoot)
+				s.stopServerLocked(srv)
+				delete(s.openCodeServers, projectRoot)
+			}
+		}
+		cancel()
+	}
+}
+
+func (s *SocketServer) StopAllOpenCodeServers() {
+	s.openCodeServersMu.Lock()
+	defer s.openCodeServersMu.Unlock()
+
+	for projectRoot, srv := range s.openCodeServers {
+		s.logger.Printf("stopping opencode server for %s (pid: %d)", projectRoot, srv.Cmd.Process.Pid)
+		s.stopServerLocked(srv)
+	}
+	s.openCodeServers = make(map[string]*managedServer)
 }
 
 func (s *SocketServer) getOrCreateOpenCodeControlSession(projectRoot string, port int) (string, error) {
