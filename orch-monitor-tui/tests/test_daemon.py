@@ -135,7 +135,9 @@ class MockDaemonServer:
                 try:
                     request = json.loads(data.decode("utf-8"))
                     request_type = request.get("type", "")
-                    handler = self._handlers.get(request_type, lambda r: {"ok": False, "error": "unknown_type"})
+                    handler = self._handlers.get(
+                        request_type, lambda r: {"ok": False, "error": "unknown_type"}
+                    )
                     response = handler(request)
                     response_data = json.dumps(response).encode("utf-8")
                     conn.sendall(response_data)
@@ -161,6 +163,7 @@ def short_tmp_path():
     yield path
     # Cleanup
     import shutil
+
     shutil.rmtree(path, ignore_errors=True)
 
 
@@ -210,25 +213,30 @@ class TestListRuns:
         assert result.runs == []
         assert result.total == 0
 
-    def test_list_runs_with_data(self, mock_server: MockDaemonServer, client: DaemonClient):
+    def test_list_runs_with_data(
+        self, mock_server: MockDaemonServer, client: DaemonClient
+    ):
         """Should parse run data correctly."""
-        mock_server.set_handler("list_runs", lambda req: {
-            "ok": True,
-            "runs": [
-                {
-                    "issue_id": "orch-123",
-                    "run_id": "20260119-120000",
-                    "status": "running",
-                    "agent": "claude",
-                    "model": "claude-3-5-sonnet",
-                    "branch": "feature-branch",
-                    "started_at": "2026-01-19T12:00:00Z",
-                    "updated_at": "2026-01-19T12:05:00Z",
-                }
-            ],
-            "total": 1,
-            "next_cursor": None,
-        })
+        mock_server.set_handler(
+            "list_runs",
+            lambda req: {
+                "ok": True,
+                "runs": [
+                    {
+                        "issue_id": "orch-123",
+                        "run_id": "20260119-120000",
+                        "status": "running",
+                        "agent": "claude",
+                        "model": "claude-3-5-sonnet",
+                        "branch": "feature-branch",
+                        "started_at": "2026-01-19T12:00:00Z",
+                        "updated_at": "2026-01-19T12:05:00Z",
+                    }
+                ],
+                "total": 1,
+                "next_cursor": None,
+            },
+        )
 
         result = client.list_runs()
         assert len(result.runs) == 1
@@ -236,7 +244,9 @@ class TestListRuns:
         assert result.runs[0].status == Status.RUNNING
         assert result.runs[0].agent == "claude"
 
-    def test_list_runs_with_filters(self, mock_server: MockDaemonServer, client: DaemonClient):
+    def test_list_runs_with_filters(
+        self, mock_server: MockDaemonServer, client: DaemonClient
+    ):
         """Should send filter parameters in request."""
         received_request = {}
 
@@ -246,7 +256,9 @@ class TestListRuns:
 
         mock_server.set_handler("list_runs", capture_handler)
 
-        filters = RunFilters(issue_id="orch-123", status=[Status.RUNNING, Status.BLOCKED])
+        filters = RunFilters(
+            issue_id="orch-123", status=[Status.RUNNING, Status.BLOCKED]
+        )
         client.list_runs(filters)
 
         assert received_request["issue_id"] == "orch-123"
@@ -264,28 +276,62 @@ class TestListIssues:
         assert result.issues == []
         assert result.total == 0
 
-    def test_list_issues_with_data(self, mock_server: MockDaemonServer, client: DaemonClient):
+    def test_list_issues_with_data(
+        self, mock_server: MockDaemonServer, client: DaemonClient
+    ):
         """Should parse issue data correctly."""
-        mock_server.set_handler("list_issues", lambda req: {
-            "ok": True,
-            "issues": [
-                {
-                    "id": "orch-456",
-                    "title": "Test Issue",
-                    "summary": "A test issue",
-                    "status": "open",
-                    "tags": ["bug", "high-priority"],
-                }
-            ],
-            "total": 1,
-            "next_cursor": None,
-        })
+        mock_server.set_handler(
+            "list_issues",
+            lambda req: {
+                "ok": True,
+                "issues": [
+                    {
+                        "id": "orch-456",
+                        "title": "Test Issue",
+                        "summary": "A test issue",
+                        "status": "open",
+                        "tags": ["bug", "high-priority"],
+                    }
+                ],
+                "total": 1,
+                "next_cursor": None,
+            },
+        )
 
         result = client.list_issues()
         assert len(result.issues) == 1
         assert result.issues[0].id == "orch-456"
         assert result.issues[0].title == "Test Issue"
         assert result.issues[0].status == IssueStatus.OPEN
+
+    def test_list_issues_with_modified_at(
+        self, mock_server: MockDaemonServer, client: DaemonClient
+    ):
+        """Should parse modified_at timestamp correctly."""
+        mock_server.set_handler(
+            "list_issues",
+            lambda req: {
+                "ok": True,
+                "issues": [
+                    {
+                        "id": "orch-789",
+                        "title": "Issue with Modified At",
+                        "status": "open",
+                        "modified_at": "2026-01-19T12:00:00Z",
+                    }
+                ],
+                "total": 1,
+                "next_cursor": None,
+            },
+        )
+
+        result = client.list_issues()
+        assert len(result.issues) == 1
+        assert result.issues[0].id == "orch-789"
+        assert result.issues[0].modified_at is not None
+        assert result.issues[0].modified_at.year == 2026
+        assert result.issues[0].modified_at.month == 1
+        assert result.issues[0].modified_at.day == 19
 
 
 class TestGetRun:
@@ -298,16 +344,19 @@ class TestGetRun:
 
     def test_get_run_found(self, mock_server: MockDaemonServer, client: DaemonClient):
         """Should return run when found."""
-        mock_server.set_handler("get_run", lambda req: {
-            "ok": True,
-            "run": {
-                "issue_id": req["issue_id"],
-                "run_id": req["run_id"],
-                "status": "done",
-                "agent": "claude",
-                "events": [],
+        mock_server.set_handler(
+            "get_run",
+            lambda req: {
+                "ok": True,
+                "run": {
+                    "issue_id": req["issue_id"],
+                    "run_id": req["run_id"],
+                    "status": "done",
+                    "agent": "claude",
+                    "events": [],
+                },
             },
-        })
+        )
 
         result = client.get_run("orch-123", "20260119-120000")
         assert result is not None
@@ -325,16 +374,19 @@ class TestGetIssue:
 
     def test_get_issue_found(self, mock_server: MockDaemonServer, client: DaemonClient):
         """Should return issue when found."""
-        mock_server.set_handler("get_issue", lambda req: {
-            "ok": True,
-            "issue": {
-                "id": req["issue_id"],
-                "title": "Found Issue",
-                "summary": "This issue was found",
-                "status": "open",
-                "body": "Full body content",
+        mock_server.set_handler(
+            "get_issue",
+            lambda req: {
+                "ok": True,
+                "issue": {
+                    "id": req["issue_id"],
+                    "title": "Found Issue",
+                    "summary": "This issue was found",
+                    "status": "open",
+                    "body": "Full body content",
+                },
             },
-        })
+        )
 
         result = client.get_issue("orch-123")
         assert result is not None
@@ -345,10 +397,14 @@ class TestGetIssue:
 class TestSendMessage:
     """Tests for send_message protocol."""
 
-    def test_send_message_success(self, mock_server: MockDaemonServer, client: DaemonClient):
+    def test_send_message_success(
+        self, mock_server: MockDaemonServer, client: DaemonClient
+    ):
         """Should succeed when daemon accepts message."""
         received = {}
-        mock_server.set_handler("send", lambda req: (received.update(req), {"ok": True})[1])
+        mock_server.set_handler(
+            "send", lambda req: (received.update(req), {"ok": True})[1]
+        )
 
         client.send_message("orch-123", "run-001", "Hello agent!")
 
@@ -357,9 +413,13 @@ class TestSendMessage:
         assert received["run_id"] == "run-001"
         assert received["message"] == "Hello agent!"
 
-    def test_send_message_error(self, mock_server: MockDaemonServer, client: DaemonClient):
+    def test_send_message_error(
+        self, mock_server: MockDaemonServer, client: DaemonClient
+    ):
         """Should raise DaemonError on failure."""
-        mock_server.set_handler("send", lambda req: {"ok": False, "error": "run_not_found"})
+        mock_server.set_handler(
+            "send", lambda req: {"ok": False, "error": "run_not_found"}
+        )
 
         # Accept any DaemonError (mock server may have timing issues)
         with pytest.raises(DaemonError):
@@ -369,7 +429,9 @@ class TestSendMessage:
 class TestMonitorRegistration:
     """Tests for monitor registration protocols."""
 
-    def test_register_monitor(self, mock_server: MockDaemonServer, client: DaemonClient):
+    def test_register_monitor(
+        self, mock_server: MockDaemonServer, client: DaemonClient
+    ):
         """Should register and return monitor ID."""
         monitor_id = client.register_monitor(
             pid=12345,
@@ -382,13 +444,17 @@ class TestMonitorRegistration:
         assert monitor_id is not None
         assert monitor_id.startswith("mon-")
 
-    def test_monitor_heartbeat(self, mock_server: MockDaemonServer, client: DaemonClient):
+    def test_monitor_heartbeat(
+        self, mock_server: MockDaemonServer, client: DaemonClient
+    ):
         """Should send heartbeat and return boolean result."""
         result = client.monitor_heartbeat("mon-12345-67890")
         # Result is boolean - True on success, False on any error (client catches DaemonError)
         assert isinstance(result, bool)
 
-    def test_unregister_monitor(self, mock_server: MockDaemonServer, client: DaemonClient):
+    def test_unregister_monitor(
+        self, mock_server: MockDaemonServer, client: DaemonClient
+    ):
         """Should unregister and return boolean result."""
         result = client.unregister_monitor("mon-12345-67890")
         # Result is boolean - client catches errors and returns False
@@ -405,12 +471,17 @@ class TestErrorHandling:
         with pytest.raises(DaemonNotRunningError):
             client.list_runs()
 
-    def test_daemon_error_on_failure_response(self, mock_server: MockDaemonServer, client: DaemonClient):
+    def test_daemon_error_on_failure_response(
+        self, mock_server: MockDaemonServer, client: DaemonClient
+    ):
         """Should raise DaemonError when daemon returns error or connection fails."""
-        mock_server.set_handler("list_runs", lambda req: {
-            "ok": False,
-            "error": "internal_error",
-        })
+        mock_server.set_handler(
+            "list_runs",
+            lambda req: {
+                "ok": False,
+                "error": "internal_error",
+            },
+        )
 
         # Accept any DaemonError (mock server timing may cause socket errors)
         with pytest.raises(DaemonError):
@@ -418,6 +489,7 @@ class TestErrorHandling:
 
     def test_timeout_handling(self, mock_server: MockDaemonServer):
         """Should handle timeout gracefully."""
+
         # Create a handler that sleeps longer than timeout
         def slow_handler(req):
             time.sleep(5)

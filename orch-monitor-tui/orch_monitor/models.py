@@ -195,6 +195,7 @@ class Issue:
     body: str = ""
     path: Path = Path()
     frontmatter: Dict[str, str] = field(default_factory=dict)
+    modified_at: Optional[datetime] = None
 
     def status_display(self) -> str:
         """Return a display string for status."""

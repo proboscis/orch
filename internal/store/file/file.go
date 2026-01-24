@@ -276,6 +276,7 @@ func (s *FileStore) scanIssues() error {
 			return nil
 		}
 
+		issue.ModifiedAt = info.ModTime()
 		issues[issue.ID] = issue
 		return nil
 	})

@@ -278,13 +278,14 @@ type runSummary struct {
 }
 
 type issueInfo struct {
-	ID      string       `json:"id"`
-	Title   string       `json:"title"`
-	Summary string       `json:"summary,omitempty"`
-	Status  string       `json:"status"`
-	Tags    []string     `json:"tags,omitempty"`
-	Path    string       `json:"path"`
-	Runs    []runSummary `json:"runs,omitempty"`
+	ID         string       `json:"id"`
+	Title      string       `json:"title"`
+	Summary    string       `json:"summary,omitempty"`
+	Status     string       `json:"status"`
+	Tags       []string     `json:"tags,omitempty"`
+	Path       string       `json:"path"`
+	Runs       []runSummary `json:"runs,omitempty"`
+	ModifiedAt string       `json:"modified_at,omitempty"`
 }
 
 func runIssueList(opts *issueListOptions) error {
@@ -346,12 +347,13 @@ func runIssueListViaDaemon(client *daemon.Client, opts *issueListOptions) error 
 		}
 
 		info := issueInfo{
-			ID:      issue.ID,
-			Title:   issue.Title,
-			Summary: issue.Summary,
-			Status:  issue.Status,
-			Tags:    issue.Tags,
-			Path:    issue.URI,
+			ID:         issue.ID,
+			Title:      issue.Title,
+			Summary:    issue.Summary,
+			Status:     issue.Status,
+			Tags:       issue.Tags,
+			Path:       issue.URI,
+			ModifiedAt: issue.ModifiedAt,
 		}
 
 		for _, run := range runsByIssue[issue.ID] {
