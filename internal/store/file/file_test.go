@@ -724,6 +724,210 @@ status: open
 	}
 }
 
+func TestMultilineYAMLTags(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	createTestIssue(t, vault, "multiline-tags", `---
+type: issue
+id: multiline-tags
+title: Issue with multi-line tags
+status: open
+tags:
+  - bug
+  - orch-monitor
+  - display
+---
+
+# Issue with multi-line tags
+`)
+
+	s, err := New(vault)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	issue, err := s.ResolveIssue("multiline-tags")
+	if err != nil {
+		t.Fatalf("ResolveIssue() error = %v", err)
+	}
+
+	if len(issue.Tags) != 3 {
+		t.Fatalf("expected 3 tags, got %d: %v", len(issue.Tags), issue.Tags)
+	}
+
+	expected := []string{"bug", "orch-monitor", "display"}
+	for i, want := range expected {
+		if issue.Tags[i] != want {
+			t.Errorf("Tags[%d] = %q, want %q", i, issue.Tags[i], want)
+		}
+	}
+}
+
+func TestAllTagFormats(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		wantTags []string
+	}{
+		{
+			name: "inline array with brackets",
+			content: `---
+type: issue
+id: test
+title: Test
+status: open
+tags: [bug, ui]
+---
+`,
+			wantTags: []string{"bug", "ui"},
+		},
+		{
+			name: "comma separated without brackets",
+			content: `---
+type: issue
+id: test
+title: Test
+status: open
+tags: bug, ui
+---
+`,
+			wantTags: []string{"bug", "ui"},
+		},
+		{
+			name: "multi-line YAML list",
+			content: `---
+type: issue
+id: test
+title: Test
+status: open
+tags:
+  - bug
+  - ui
+---
+`,
+			wantTags: []string{"bug", "ui"},
+		},
+		{
+			name: "multi-line YAML list with three tags",
+			content: `---
+type: issue
+id: test
+title: Test
+status: open
+tags:
+  - architecture
+  - daemon
+  - cli
+---
+`,
+			wantTags: []string{"architecture", "daemon", "cli"},
+		},
+		{
+			name: "single tag inline",
+			content: `---
+type: issue
+id: test
+title: Test
+status: open
+tags: bug
+---
+`,
+			wantTags: []string{"bug"},
+		},
+		{
+			name: "single tag in brackets",
+			content: `---
+type: issue
+id: test
+title: Test
+status: open
+tags: [bug]
+---
+`,
+			wantTags: []string{"bug"},
+		},
+		{
+			name: "empty tags field",
+			content: `---
+type: issue
+id: test
+title: Test
+status: open
+tags:
+---
+`,
+			wantTags: nil,
+		},
+		{
+			name: "no tags field",
+			content: `---
+type: issue
+id: test
+title: Test
+status: open
+---
+`,
+			wantTags: nil,
+		},
+		{
+			name: "inline array with quotes",
+			content: `---
+type: issue
+id: test
+title: Test
+status: open
+tags: ["bug", "ui"]
+---
+`,
+			wantTags: []string{"bug", "ui"},
+		},
+		{
+			name: "tags with spaces in values",
+			content: `---
+type: issue
+id: test
+title: Test
+status: open
+tags:
+  - "bug fix"
+  - ui
+---
+`,
+			wantTags: []string{"bug fix", "ui"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vault, cleanup := setupTestVault(t)
+			defer cleanup()
+
+			createTestIssue(t, vault, "test", tt.content)
+
+			s, err := New(vault)
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+
+			issue, err := s.ResolveIssue("test")
+			if err != nil {
+				t.Fatalf("ResolveIssue() error = %v", err)
+			}
+
+			if len(issue.Tags) != len(tt.wantTags) {
+				t.Errorf("got %d tags %v, want %d tags %v", len(issue.Tags), issue.Tags, len(tt.wantTags), tt.wantTags)
+				return
+			}
+
+			for i, want := range tt.wantTags {
+				if issue.Tags[i] != want {
+					t.Errorf("Tags[%d] = %q, want %q", i, issue.Tags[i], want)
+				}
+			}
+		})
+	}
+}
 
 func TestDuplicateFrontmatterDetection(t *testing.T) {
 	tests := []struct {

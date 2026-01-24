@@ -12,6 +12,7 @@ import (
 
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/store"
+	"gopkg.in/yaml.v3"
 )
 
 // FileStore implements store.Store using the filesystem
@@ -291,6 +292,102 @@ func (s *FileStore) scanIssues() error {
 	return nil
 }
 
+// extractFrontmatter extracts the frontmatter block from content and returns:
+// - yamlFM: the YAML-parsed frontmatter as map[string]interface{}
+// - stringFM: a string version of simple values for backward compatibility
+// - bodyStart: the line index where the body starts
+// - error: any parsing error
+func extractFrontmatter(content []byte) (map[string]interface{}, map[string]string, int, error) {
+	lines := strings.Split(string(content), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return nil, nil, 0, nil // No frontmatter
+	}
+
+	// Find the closing ---
+	endIdx := -1
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			endIdx = i
+			break
+		}
+	}
+
+	if endIdx == -1 {
+		return nil, nil, 0, nil // No closing delimiter
+	}
+
+	// Extract frontmatter content
+	fmContent := strings.Join(lines[1:endIdx], "\n")
+	bodyStart := endIdx + 1
+
+	// Parse with yaml.v3 to properly handle multi-line YAML lists
+	var yamlFM map[string]interface{}
+	if err := yaml.Unmarshal([]byte(fmContent), &yamlFM); err != nil {
+		// Fall back to simple parsing if YAML fails
+		yamlFM = make(map[string]interface{})
+	}
+
+	// Also create string map for backward compatibility
+	stringFM := make(map[string]string)
+	for key, value := range yamlFM {
+		switch v := value.(type) {
+		case string:
+			stringFM[key] = v
+		case []interface{}:
+			// Convert YAML list to comma-separated string for backward compat
+			// This is primarily for display in Frontmatter map
+			var parts []string
+			for _, item := range v {
+				if s, ok := item.(string); ok {
+					parts = append(parts, s)
+				}
+			}
+			stringFM[key] = strings.Join(parts, ", ")
+		case int, int64, float64:
+			stringFM[key] = fmt.Sprintf("%v", v)
+		case bool:
+			stringFM[key] = fmt.Sprintf("%v", v)
+		default:
+			// For other types, try to stringify
+			if v != nil {
+				stringFM[key] = fmt.Sprintf("%v", v)
+			}
+		}
+	}
+
+	return yamlFM, stringFM, bodyStart, nil
+}
+
+// parseTagsFromYAML extracts tags from YAML-parsed frontmatter.
+// Handles both multi-line YAML lists ([]interface{}) and inline formats (string).
+func parseTagsFromYAML(yamlFM map[string]interface{}) []string {
+	if yamlFM == nil {
+		return nil
+	}
+
+	tagsValue, ok := yamlFM["tags"]
+	if !ok || tagsValue == nil {
+		return nil
+	}
+
+	switch v := tagsValue.(type) {
+	case []interface{}:
+		// Multi-line YAML list: tags:\n  - bug\n  - feature
+		var tags []string
+		for _, item := range v {
+			if tag, ok := item.(string); ok && tag != "" {
+				tags = append(tags, tag)
+			}
+		}
+		return tags
+	case string:
+		// Inline format: "tag1, tag2" or "[tag1, tag2]"
+		return parseTags(v)
+	default:
+		return nil
+	}
+}
+
 // parseIssueFile reads a file and returns an Issue if it has type: issue frontmatter
 func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
 	content, err := os.ReadFile(path)
@@ -298,35 +395,16 @@ func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
 		return nil, err
 	}
 
-	// Parse frontmatter
-	lines := strings.Split(string(content), "\n")
-	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+	// Parse frontmatter using YAML parser for proper multi-line support
+	yamlFM, stringFM, bodyStart, err := extractFrontmatter(content)
+	if err != nil {
+		return nil, err
+	}
+	if yamlFM == nil {
 		return nil, nil // No frontmatter
 	}
 
-	frontmatter := make(map[string]string)
-	bodyStart := 0
-	inFrontmatter := true
-
-	for i := 1; i < len(lines); i++ {
-		line := lines[i]
-		if strings.TrimSpace(line) == "---" {
-			inFrontmatter = false
-			bodyStart = i + 1
-			break
-		}
-
-		if inFrontmatter {
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 {
-				key := strings.TrimSpace(parts[0])
-				value := strings.TrimSpace(parts[1])
-				frontmatter[key] = value
-			}
-
-		}
-
-	}
+	lines := strings.Split(string(content), "\n")
 
 	// Check for duplicate frontmatter blocks (causes data loss - tags in second block are ignored)
 	if hasDuplicateFrontmatter(lines, bodyStart) {
@@ -334,18 +412,18 @@ func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
 	}
 
 	// Check if this is an issue file
-	if frontmatter["type"] != "issue" {
+	if stringFM["type"] != "issue" {
 		return nil, nil
 	}
 
 	// Get issue ID from frontmatter or filename
-	issueID := frontmatter["id"]
+	issueID := stringFM["id"]
 	if issueID == "" {
 		issueID = strings.TrimSuffix(filepath.Base(path), ".md")
 	}
 
 	// Get title
-	title := frontmatter["title"]
+	title := stringFM["title"]
 	if title == "" && bodyStart < len(lines) {
 		for _, line := range lines[bodyStart:] {
 			if strings.HasPrefix(line, "# ") {
@@ -364,10 +442,10 @@ func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
 	}
 
 	// Get topic
-	topic := frontmatter["topic"]
+	topic := stringFM["topic"]
 
 	// Get summary (fall back to truncated title if not set)
-	summary := frontmatter["summary"]
+	summary := stringFM["summary"]
 	if summary == "" && title != "" {
 		summary = title
 		if len(summary) > 50 {
@@ -376,11 +454,9 @@ func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
 
 	}
 
-	// Get status (defaults to open if not set)
-
-	// Get tags (parse from YAML list or comma-separated string)
-	tags := parseTags(frontmatter["tags"])
-	status := model.ParseIssueStatus(frontmatter["status"])
+	// Get tags using YAML-aware parsing (handles multi-line YAML lists)
+	tags := parseTagsFromYAML(yamlFM)
+	status := model.ParseIssueStatus(stringFM["status"])
 
 	return &model.Issue{
 		ID:          issueID,
@@ -391,7 +467,7 @@ func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
 		Body:        body,
 		Tags:        tags,
 		Path:        path,
-		Frontmatter: frontmatter,
+		Frontmatter: stringFM,
 	}, nil
 }
 
