@@ -1,4 +1,4 @@
-.PHONY: all build install install-cli install-tui test clean restart-daemons update
+.PHONY: all build install install-cli install-tui test clean kill-daemons update
 .DEFAULT_GOAL := install
 
 BINARY_NAME := orch
@@ -25,20 +25,16 @@ endif
 install-tui:
 	uv tool install --force --reinstall ./orch-monitor-tui
 
-# Install everything and restart daemons
-install: install-cli install-tui restart-daemons
+# Install everything, then kill daemons (they restart on demand)
+install: install-cli install-tui kill-daemons
 
-# Restart all orch daemons
-restart-daemons:
-	@echo "Restarting orch daemons..."
-	@for pid in $$(pgrep -f "orch daemon" 2>/dev/null); do \
-		vault=$$(ps -p $$pid -o args= | sed -n 's/.*--vault \([^ ]*\).*/\1/p'); \
-		if [ -n "$$vault" ]; then \
-			echo "Restarting daemon for vault: $$vault"; \
-			$(INSTALL_DIR)/$(BINARY_NAME) --vault "$$vault" daemon-restart 2>/dev/null || true; \
-		fi; \
-	done
-	@echo "Done."
+# Kill all orch daemons and opencode servers (clean slate)
+kill-daemons:
+	@echo "Killing all orch daemons and opencode servers..."
+	@pkill -9 -f "orch daemon" 2>/dev/null || true
+	@pkill -9 -f "opencode serve" 2>/dev/null || true
+	@sleep 1
+	@echo "Done. Daemons will restart automatically on next orch command."
 
 # Pull from main and reinstall everything
 update:
