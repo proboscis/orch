@@ -146,13 +146,14 @@ type ListIssuesResponse struct {
 
 // IssueSummary is a summary view of an issue for list operations
 type IssueSummary struct {
-	ID      string   `json:"id"`
-	Title   string   `json:"title"`
-	Topic   string   `json:"topic,omitempty"`
-	Summary string   `json:"summary,omitempty"`
-	Status  string   `json:"status"`
-	Tags    []string `json:"tags,omitempty"`
-	URI     string   `json:"uri"`
+	ID         string   `json:"id"`
+	Title      string   `json:"title"`
+	Topic      string   `json:"topic,omitempty"`
+	Summary    string   `json:"summary,omitempty"`
+	Status     string   `json:"status"`
+	Tags       []string `json:"tags,omitempty"`
+	URI        string   `json:"uri"`
+	ModifiedAt string   `json:"modified_at,omitempty"`
 }
 
 // GetIssueResponse is the response for get_issue
@@ -279,13 +280,14 @@ func RunToFull(run *model.Run) *RunFull {
 // IssueToSummary converts a model.Issue to an IssueSummary
 func IssueToSummary(issue *model.Issue) *IssueSummary {
 	return &IssueSummary{
-		ID:      issue.ID,
-		Title:   issue.Title,
-		Topic:   issue.Topic,
-		Summary: issue.Summary,
-		Status:  string(issue.Status),
-		Tags:    issue.Tags,
-		URI:     FileURI(issue.Path),
+		ID:         issue.ID,
+		Title:      issue.Title,
+		Topic:      issue.Topic,
+		Summary:    issue.Summary,
+		Status:     string(issue.Status),
+		Tags:       issue.Tags,
+		URI:        FileURI(issue.Path),
+		ModifiedAt: formatTime(issue.ModifiedAt),
 	}
 }
 

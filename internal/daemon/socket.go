@@ -1010,8 +1010,9 @@ func (s *SocketServer) handleListIssues(req SendRequest, encoder *json.Encoder) 
 		return
 	}
 
+	// Sort by modification time, newest first
 	sort.Slice(issues, func(i, j int) bool {
-		return issues[i].ID < issues[j].ID
+		return issues[i].ModifiedAt.After(issues[j].ModifiedAt)
 	})
 
 	if len(req.Status) > 0 {
