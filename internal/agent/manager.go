@@ -208,32 +208,32 @@ type OpenCodeManager struct {
 }
 
 func (m *OpenCodeManager) IsAlive(run *model.Run) bool {
-	client := NewOpenCodeClient(m.Port)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	// For OpenCode: ALIVE = session exists on server
-	// Don't check server health separately - GetSessions will fail if server is down
+	// For OpenCode: ALIVE = server is running for this project
 	//
-	// CRITICAL: Must use GetSessionsForDirectory with the run's worktree path.
-	// OpenCode scopes sessions by "project" (directory). Sessions created with
-	// worktree paths are in a different project scope than the main repo.
-	// Without the directory header, OpenCode returns only sessions for the
-	// server's default project (main repo), causing worktree sessions to appear
-	// "not found" even when they exist.
-	// See: https://github.com/s22625/orch/issues/347
-	sessions, err := client.GetSessionsForDirectory(ctx, m.Directory)
-	if err != nil {
-		return false // Server not reachable
-	}
+	// Unlike tmux agents where "alive" means "process is running",
+	// opencode sessions persist in the server indefinitely. The meaningful
+	// question is: "Is there a server running that can handle this run?"
+	//
+	// We dynamically find the server if m.Port is 0 or unreachable because:
+	// 1. Server might have restarted on a different port
+	// 2. The stored port may be stale
+	//
+	// See: https://github.com/s22625/orch/issues/354
 
-	// Session exists = alive
-	for _, s := range sessions {
-		if s.ID == m.SessionID {
+	// First, try the stored port if available
+	if m.Port > 0 {
+		client := NewOpenCodeClient(m.Port)
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		running := client.IsServerRunningForWorktree(ctx, m.Directory)
+		cancel()
+		if running {
 			return true
 		}
 	}
-	return false
+
+	// Stored port didn't work - scan for a running server on this worktree
+	port := FindRunningOpenCodeServerForWorktree(m.Directory, OpenCodeServerPortStart, OpenCodeServerPortEnd)
+	return port != 0
 }
 
 func (m *OpenCodeManager) CaptureOutput(run *model.Run) (string, error) {

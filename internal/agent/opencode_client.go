@@ -228,7 +228,9 @@ func (c *OpenCodeClient) GetCurrentProject(ctx context.Context) (*ProjectInfo, e
 	return &project, nil
 }
 
-// IsServerRunningForWorktree checks if the server is running AND serving the specified worktree
+// IsServerRunningForWorktree checks if the server is running AND serving the specified worktree.
+// OpenCode's /project/current returns the git root, not the worktree subdirectory.
+// So we check if the worktreePath is either the git root OR under .git-worktrees/.
 func (c *OpenCodeClient) IsServerRunningForWorktree(ctx context.Context, worktreePath string) bool {
 	if !c.IsServerRunning(ctx) {
 		return false
@@ -239,8 +241,11 @@ func (c *OpenCodeClient) IsServerRunningForWorktree(ctx context.Context, worktre
 		return false
 	}
 
-	// Check if the server's worktree matches the expected worktree
-	return project.Worktree == worktreePath
+	gitRoot := project.Worktree
+	if worktreePath == gitRoot {
+		return true
+	}
+	return strings.HasPrefix(worktreePath, gitRoot+"/.git-worktrees/")
 }
 
 func (c *OpenCodeClient) Health(ctx context.Context) (*HealthResponse, error) {
