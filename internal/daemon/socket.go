@@ -874,6 +874,16 @@ func (s *SocketServer) StopAllOpenCodeServers() {
 	s.openCodeServers = make(map[string]*managedServer)
 }
 
+func (s *SocketServer) getOpenCodeServerPort(projectRoot string) int {
+	s.openCodeServersMu.RLock()
+	defer s.openCodeServersMu.RUnlock()
+
+	if srv, ok := s.openCodeServers[projectRoot]; ok {
+		return srv.Port
+	}
+	return 0
+}
+
 func (s *SocketServer) getOrCreateOpenCodeControlSession(projectRoot string, port int) (string, error) {
 	lock := s.getControlSessionLock(projectRoot)
 	lock.Lock()
@@ -1595,7 +1605,7 @@ func (s *SocketServer) handleGetAttachInfo(req SendRequest, encoder *json.Encode
 
 	serverPort := run.ServerPort
 	if run.Agent == "opencode" && serverPort == 0 {
-		serverPort = agent.FindRunningOpenCodeServerForWorktree(run.WorktreePath, agent.OpenCodeServerPortStart, agent.OpenCodeServerPortEnd)
+		serverPort = s.getOpenCodeServerPort(run.WorktreePath)
 	}
 
 	encoder.Encode(GetAttachInfoResponse{

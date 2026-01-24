@@ -362,39 +362,24 @@ func runRun(issueID string, opts *runOptions) error {
 
 		serverAlreadyRunning := false
 		if adapter.PromptInjection() == agent.InjectionHTTP {
+			// OpenCode servers are managed exclusively by the daemon
 			daemonClient := daemon.NewClient(repoRoot)
-			if daemonClient.IsAvailable() {
-				resp, err := daemonClient.GetOpenCodeServer(worktreeResult.WorktreePath)
-				if err != nil {
-					debug.Printf("Daemon server request failed: %v, falling back to direct server", err)
-				} else {
-					serverAlreadyRunning = true
-					launchCfg.Port = resp.Port
-					fmt.Fprintf(os.Stderr, "using daemon-managed opencode server on port %d\n", resp.Port)
-				}
+			if !daemonClient.IsAvailable() {
+				err := fmt.Errorf("daemon not running; opencode agent requires daemon for server management (run 'orch daemon start')")
+				setRunFailed(st, run, err)
+				return exitWithCode(err, ExitAgentError)
 			}
 
-			if !serverAlreadyRunning {
-				foundPort := findRunningOpenCodeServer(launchCfg.Port, launchCfg.Port+100, debug)
-				if foundPort > 0 {
-					serverAlreadyRunning = true
-					launchCfg.Port = foundPort
-					fmt.Fprintf(os.Stderr, "reusing existing opencode server on port %d\n", foundPort)
-				} else {
-					freePort := findAvailablePort(launchCfg.Port, launchCfg.Port+100)
-					if freePort == 0 {
-						err := fmt.Errorf("no available port found for opencode server")
-						setRunFailed(st, run, err)
-						return exitWithCode(err, ExitAgentError)
-					}
-					launchCfg.Port = freePort
-					agentCmd, err = adapter.LaunchCommand(launchCfg)
-					if err != nil {
-						setRunFailed(st, run, err)
-						return exitWithCode(err, ExitAgentError)
-					}
-				}
+			resp, err := daemonClient.GetOpenCodeServer(worktreeResult.WorktreePath)
+			if err != nil {
+				err = fmt.Errorf("failed to get opencode server from daemon: %w", err)
+				setRunFailed(st, run, err)
+				return exitWithCode(err, ExitAgentError)
 			}
+
+			serverAlreadyRunning = true
+			launchCfg.Port = resp.Port
+			debug.Printf("using daemon-managed opencode server on port %d", resp.Port)
 		}
 
 		if !serverAlreadyRunning {
@@ -851,22 +836,5 @@ func findAvailablePort(start, end int) int {
 			return port
 		}
 	}
-	return 0
-}
-
-func findRunningOpenCodeServer(start, end int, debug *DebugLogger) int {
-	debug.Printf("Looking for opencode server in port range %d-%d...", start, end)
-	for port := start; port <= end; port++ {
-		client := agent.NewOpenCodeClient(port)
-		client.SetDebugLogger(debug)
-		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		running := client.IsServerRunning(ctx)
-		cancel()
-		if running {
-			debug.Printf("Found running opencode server on port %d", port)
-			return port
-		}
-	}
-	debug.Printf("No running opencode server found in port range %d-%d", start, end)
 	return 0
 }
