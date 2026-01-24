@@ -122,6 +122,8 @@ class Run:
     server_port: int = 0
     opencode_session_id: str = ""
     continued_from: str = ""
+    additions: int = 0
+    deletions: int = 0
 
     def ref(self) -> str:
         """Return the run reference (ISSUE_ID#RUN_ID)."""

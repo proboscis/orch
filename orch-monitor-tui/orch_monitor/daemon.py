@@ -571,6 +571,8 @@ def _json_to_run(data: dict) -> Run:
         pr_url=data.get("pr_url", ""),
         started_at=_parse_timestamp(data.get("started_at", "")),
         updated_at=_parse_timestamp(data.get("updated_at", "")),
+        additions=data.get("additions", 0),
+        deletions=data.get("deletions", 0),
     )
 
 
