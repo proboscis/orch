@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 )
 
@@ -88,6 +89,8 @@ type RunSummary struct {
 	TmuxSession  string `json:"tmux_session,omitempty"`
 	Multiplexer  string `json:"multiplexer,omitempty"`
 	PRUrl        string `json:"pr_url,omitempty"`
+	Additions    int    `json:"additions"`
+	Deletions    int    `json:"deletions"`
 	StartedAt    string `json:"started_at"`
 	UpdatedAt    string `json:"updated_at"`
 	URI          string `json:"uri"`
@@ -214,6 +217,8 @@ func FileURI(path string) string {
 
 // RunToSummary converts a model.Run to a RunSummary
 func RunToSummary(run *model.Run) *RunSummary {
+	diffStats := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
+
 	return &RunSummary{
 		IssueID:      run.IssueID,
 		RunID:        run.RunID,
@@ -227,6 +232,8 @@ func RunToSummary(run *model.Run) *RunSummary {
 		TmuxSession:  run.TmuxSession,
 		Multiplexer:  run.Multiplexer,
 		PRUrl:        run.PRUrl,
+		Additions:    diffStats.Additions,
+		Deletions:    diffStats.Deletions,
 		StartedAt:    formatTime(run.StartedAt),
 		UpdatedAt:    formatTime(run.UpdatedAt),
 		URI:          FileURI(run.Path),
