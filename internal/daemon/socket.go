@@ -715,7 +715,16 @@ func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string) (int, err
 		delete(s.openCodeServers, projectRoot)
 	}
 
-	port := findAvailablePort(agent.OpenCodeServerPortStart, agent.OpenCodeServerPortEnd)
+	// Collect ports already in use by the registry to exclude from allocation.
+	// This prevents race conditions when starting servers for different projects
+	// in quick succession - a new server process may not have bound to its port
+	// yet, so TCP check alone would see it as "available".
+	usedPorts := make(map[int]bool, len(s.openCodeServers))
+	for _, srv := range s.openCodeServers {
+		usedPorts[srv.Port] = true
+	}
+
+	port := findAvailablePortExcluding(agent.OpenCodeServerPortStart, agent.OpenCodeServerPortEnd, usedPorts)
 	if port == 0 {
 		return 0, fmt.Errorf("no available port found for opencode server")
 	}
@@ -927,7 +936,14 @@ func getControlPromptInstruction() string {
 }
 
 func findAvailablePort(start, end int) int {
+	return findAvailablePortExcluding(start, end, nil)
+}
+
+func findAvailablePortExcluding(start, end int, exclude map[int]bool) int {
 	for port := start; port <= end; port++ {
+		if exclude != nil && exclude[port] {
+			continue
+		}
 		addr := fmt.Sprintf("127.0.0.1:%d", port)
 		listener, err := net.Listen("tcp", addr)
 		if err == nil {
