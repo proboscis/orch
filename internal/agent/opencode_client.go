@@ -184,19 +184,6 @@ func (c *OpenCodeClient) IsServerRunning(ctx context.Context) bool {
 	return running
 }
 
-func FindRunningOpenCodeServer(startPort, endPort int) int {
-	for port := startPort; port <= endPort; port++ {
-		client := NewOpenCodeClient(port)
-		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		running := client.IsServerRunning(ctx)
-		cancel()
-		if running {
-			return port
-		}
-	}
-	return 0
-}
-
 func FindRunningOpenCodeServerForWorktree(worktreePath string, startPort, endPort int) int {
 	for port := startPort; port <= endPort; port++ {
 		client := NewOpenCodeClient(port)

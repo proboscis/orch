@@ -1157,14 +1157,36 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 		return agentChatLaunch{command: fallbackChatCommand(fmt.Sprintf("%s CLI not available", agentName))}
 	}
 
-	port := agent.OpenCodeServerPortStart
-	continueSession := true
+	if adapter.PromptInjection() == agent.InjectionHTTP {
+		if m.daemonClient == nil || !m.daemonClient.IsAvailable() {
+			return agentChatLaunch{command: fallbackChatCommand("daemon not running; opencode requires daemon")}
+		}
+		resp, err := m.daemonClient.GetOpenCodeServer(m.projectRoot)
+		if err != nil {
+			m.logger.Printf("daemon server request failed: %v", err)
+			return agentChatLaunch{command: fallbackChatCommand(fmt.Sprintf("daemon server error: %v", err))}
+		}
+
+		m.logger.Printf("using daemon-managed opencode server on port %d", resp.Port)
+		attachCmd := fmt.Sprintf("opencode attach http://127.0.0.1:%d", resp.Port)
+		return agentChatLaunch{
+			command:        attachCmd,
+			prompt:         prompt,
+			promptEmbedded: false,
+			injection:      agent.InjectionHTTP,
+			readyPattern:   "",
+			port:           resp.Port,
+			model:          modelName,
+			modelVariant:   modelVariant,
+		}
+	}
+
 	cmd, err := adapter.LaunchCommand(&agent.LaunchConfig{
 		Type:            aType,
 		IssuesRoot:      m.store.RootPath(),
 		Prompt:          prompt,
-		ContinueSession: continueSession,
-		Port:            port,
+		ContinueSession: true,
+		Port:            agent.OpenCodeServerPortStart,
 		Model:           modelName,
 		ModelVariant:    modelVariant,
 	})
@@ -1175,10 +1197,10 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 	return agentChatLaunch{
 		command:        cmd,
 		prompt:         prompt,
-		promptEmbedded: continueSession && prompt != "",
+		promptEmbedded: true && prompt != "",
 		injection:      adapter.PromptInjection(),
 		readyPattern:   adapter.ReadyPattern(),
-		port:           port,
+		port:           agent.OpenCodeServerPortStart,
 		model:          modelName,
 		modelVariant:   modelVariant,
 	}
