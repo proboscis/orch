@@ -7,8 +7,13 @@ import (
 	"log"
 	"math/rand"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -1068,4 +1073,193 @@ func TestListReposAPI(t *testing.T) {
 	if len(repos) == 0 {
 		t.Error("expected at least one registered repo")
 	}
+}
+
+type mockStoreWithEvents struct {
+	mockStore
+	appendedEvents []*model.Event
+}
+
+func (m *mockStoreWithEvents) AppendEvent(ref *model.RunRef, event *model.Event) error {
+	m.appendedEvents = append(m.appendedEvents, event)
+	return nil
+}
+
+func TestStopSingleRunOpencode(t *testing.T) {
+	st := &mockStoreWithEvents{
+		mockStore: mockStore{
+			runs:   make(map[string]*model.Run),
+			issues: make(map[string]*model.Issue),
+		},
+	}
+
+	t.Run("opencode run calls abort API", func(t *testing.T) {
+		st.appendedEvents = nil
+		abortCalled := false
+		sessionIDReceived := ""
+
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/abort") {
+				abortCalled = true
+				parts := strings.Split(r.URL.Path, "/")
+				if len(parts) >= 3 {
+					sessionIDReceived = parts[len(parts)-2]
+				}
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer ts.Close()
+
+		port := getPortFromURL(t, ts.URL)
+		logger := log.New(io.Discard, "", 0)
+		server := NewSocketServer(nil, logger)
+
+		run := &model.Run{
+			IssueID:           "test-issue",
+			RunID:             "run-1",
+			Status:            model.StatusRunning,
+			Agent:             "opencode",
+			ServerPort:        port,
+			OpenCodeSessionID: "sess_123",
+		}
+
+		err := server.stopSingleRun(run, st)
+		if err != nil {
+			t.Fatalf("stopSingleRun() error = %v", err)
+		}
+
+		if !abortCalled {
+			t.Error("expected abort API to be called")
+		}
+		if sessionIDReceived != "sess_123" {
+			t.Errorf("expected session ID 'sess_123', got %q", sessionIDReceived)
+		}
+
+		if len(st.appendedEvents) != 1 {
+			t.Fatalf("expected 1 event appended, got %d", len(st.appendedEvents))
+		}
+		if st.appendedEvents[0].Name != string(model.StatusCanceled) {
+			t.Errorf("expected canceled event, got %q", st.appendedEvents[0].Name)
+		}
+	})
+
+	t.Run("opencode run without session falls back to multiplexer", func(t *testing.T) {
+		st.appendedEvents = nil
+
+		logger := log.New(io.Discard, "", 0)
+		server := NewSocketServer(nil, logger)
+
+		run := &model.Run{
+			IssueID:           "test-issue",
+			RunID:             "run-2",
+			Status:            model.StatusRunning,
+			Agent:             "opencode",
+			ServerPort:        0,
+			OpenCodeSessionID: "",
+		}
+
+		err := server.stopSingleRun(run, st)
+		if err != nil {
+			t.Fatalf("stopSingleRun() error = %v", err)
+		}
+
+		if len(st.appendedEvents) != 1 {
+			t.Fatalf("expected 1 event appended, got %d", len(st.appendedEvents))
+		}
+	})
+
+	t.Run("abort error still appends canceled event", func(t *testing.T) {
+		st.appendedEvents = nil
+
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer ts.Close()
+
+		port := getPortFromURL(t, ts.URL)
+		logger := log.New(io.Discard, "", 0)
+		server := NewSocketServer(nil, logger)
+
+		run := &model.Run{
+			IssueID:           "test-issue",
+			RunID:             "run-3",
+			Status:            model.StatusRunning,
+			Agent:             "opencode",
+			ServerPort:        port,
+			OpenCodeSessionID: "sess_456",
+		}
+
+		err := server.stopSingleRun(run, st)
+		if err != nil {
+			t.Fatalf("stopSingleRun() error = %v", err)
+		}
+
+		if len(st.appendedEvents) != 1 {
+			t.Fatalf("expected 1 event appended even on abort error, got %d", len(st.appendedEvents))
+		}
+	})
+
+	t.Run("non-opencode run uses multiplexer kill", func(t *testing.T) {
+		st.appendedEvents = nil
+
+		logger := log.New(io.Discard, "", 0)
+		server := NewSocketServer(nil, logger)
+
+		run := &model.Run{
+			IssueID:     "test-issue",
+			RunID:       "run-4",
+			Status:      model.StatusRunning,
+			Agent:       "claude",
+			TmuxSession: "test-session",
+		}
+
+		err := server.stopSingleRun(run, st)
+		if err != nil {
+			t.Fatalf("stopSingleRun() error = %v", err)
+		}
+
+		if len(st.appendedEvents) != 1 {
+			t.Fatalf("expected 1 event appended, got %d", len(st.appendedEvents))
+		}
+	})
+
+	t.Run("terminal status skips stop", func(t *testing.T) {
+		st.appendedEvents = nil
+
+		logger := log.New(io.Discard, "", 0)
+		server := NewSocketServer(nil, logger)
+
+		for _, status := range []model.Status{model.StatusDone, model.StatusFailed, model.StatusCanceled} {
+			run := &model.Run{
+				IssueID: "test-issue",
+				RunID:   "run-terminal",
+				Status:  status,
+				Agent:   "opencode",
+			}
+
+			err := server.stopSingleRun(run, st)
+			if err != nil {
+				t.Fatalf("stopSingleRun() error = %v for status %s", err, status)
+			}
+		}
+
+		if len(st.appendedEvents) != 0 {
+			t.Errorf("expected no events for terminal statuses, got %d", len(st.appendedEvents))
+		}
+	})
+}
+
+func getPortFromURL(t *testing.T, rawURL string) int {
+	t.Helper()
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("failed to parse URL: %v", err)
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		t.Fatalf("failed to parse port: %v", err)
+	}
+	return port
 }

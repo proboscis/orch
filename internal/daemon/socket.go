@@ -1371,16 +1371,31 @@ func (s *SocketServer) stopSingleRun(run *model.Run, st store.Store) error {
 		return nil
 	}
 
-	sessionName := run.TmuxSession
-	if sessionName == "" {
-		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
-	}
+	if run.Agent == string(agent.AgentOpenCode) && run.ServerPort > 0 && run.OpenCodeSessionID != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		client := agent.NewOpenCodeClient(run.ServerPort)
+		if err := client.Abort(ctx, run.OpenCodeSessionID); err != nil {
+			s.logger.Printf("warning: failed to cancel opencode session %s: %v", run.OpenCodeSessionID, err)
+		} else {
+			s.logger.Printf("canceled opencode session %s for %s#%s", run.OpenCodeSessionID, run.IssueID, run.RunID)
+		}
+	} else {
+		if run.Agent == string(agent.AgentOpenCode) {
+			s.logger.Printf("debug: skipping opencode API cancel (port=%d, session=%q), falling back to multiplexer",
+				run.ServerPort, run.OpenCodeSessionID)
+		}
+		sessionName := run.TmuxSession
+		if sessionName == "" {
+			sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+		}
 
-	muxType, _ := multiplexer.ParseType(run.Multiplexer)
-	mux, _ := multiplexer.GetMultiplexer(muxType)
-	if mux != nil && mux.HasSession(sessionName) {
-		if err := mux.KillSession(sessionName); err != nil {
-			s.logger.Printf("warning: failed to kill session %s: %v", sessionName, err)
+		muxType, _ := multiplexer.ParseType(run.Multiplexer)
+		mux, _ := multiplexer.GetMultiplexer(muxType)
+		if mux != nil && mux.HasSession(sessionName) {
+			if err := mux.KillSession(sessionName); err != nil {
+				s.logger.Printf("warning: failed to kill session %s: %v", sessionName, err)
+			}
 		}
 	}
 

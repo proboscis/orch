@@ -93,10 +93,10 @@ func TestPeriodicFetchTracking(t *testing.T) {
 
 // mockStoreForUpdate is a mock store for testing updateStatus
 type mockStoreForUpdate struct {
-	issue              *model.Issue
-	resolveIssueErr    error
-	setIssueStatusErr  error
-	appendEventErr     error
+	issue               *model.Issue
+	resolveIssueErr     error
+	setIssueStatusErr   error
+	appendEventErr      error
 	setIssueStatusCalls []struct {
 		issueID string
 		status  model.IssueStatus
@@ -124,13 +124,15 @@ func (m *mockStoreForUpdate) AppendEvent(ref *model.RunRef, event *model.Event) 
 	return m.appendEventErr
 }
 
-func (m *mockStoreForUpdate) ListIssues() ([]*model.Issue, error)                        { return nil, nil }
-func (m *mockStoreForUpdate) CreateRun(string, string, map[string]string) (*model.Run, error) { return nil, nil }
-func (m *mockStoreForUpdate) ListRuns(*store.ListRunsFilter) ([]*model.Run, error)       { return nil, nil }
-func (m *mockStoreForUpdate) GetRun(*model.RunRef) (*model.Run, error)                   { return nil, nil }
-func (m *mockStoreForUpdate) GetRunByShortID(string) (*model.Run, error)                  { return nil, nil }
-func (m *mockStoreForUpdate) GetLatestRun(string) (*model.Run, error)                     { return nil, nil }
-func (m *mockStoreForUpdate) RootPath() string                                            { return "" }
+func (m *mockStoreForUpdate) ListIssues() ([]*model.Issue, error) { return nil, nil }
+func (m *mockStoreForUpdate) CreateRun(string, string, map[string]string) (*model.Run, error) {
+	return nil, nil
+}
+func (m *mockStoreForUpdate) ListRuns(*store.ListRunsFilter) ([]*model.Run, error) { return nil, nil }
+func (m *mockStoreForUpdate) GetRun(*model.RunRef) (*model.Run, error)             { return nil, nil }
+func (m *mockStoreForUpdate) GetRunByShortID(string) (*model.Run, error)           { return nil, nil }
+func (m *mockStoreForUpdate) GetLatestRun(string) (*model.Run, error)              { return nil, nil }
+func (m *mockStoreForUpdate) RootPath() string                                     { return "" }
 
 func TestUpdateStatusAutoResolve(t *testing.T) {
 	tests := []struct {
@@ -233,5 +235,32 @@ func TestUpdateStatusAppendEventError(t *testing.T) {
 	// SetIssueStatus should not be called if AppendEvent fails
 	if len(st.setIssueStatusCalls) != 0 {
 		t.Errorf("expected SetIssueStatus not to be called when AppendEvent fails, got %d calls", len(st.setIssueStatusCalls))
+	}
+}
+
+func TestMonitorRunSkipsCanceledStatus(t *testing.T) {
+	d := newTestDaemon()
+	st := &mockStoreForUpdate{
+		issue: &model.Issue{ID: "test-issue", Status: model.IssueStatusOpen},
+	}
+	run := &model.Run{
+		IssueID: "test-issue",
+		RunID:   "run-1",
+		Status:  model.StatusCanceled,
+		PRUrl:   "https://github.com/org/repo/pull/123",
+	}
+
+	err := d.monitorRun(run, st)
+	if err != nil {
+		t.Fatalf("monitorRun() error = %v", err)
+	}
+
+	if st.appendEventCalls != 0 {
+		t.Errorf("expected no AppendEvent calls for canceled run, got %d", st.appendEventCalls)
+	}
+
+	state := d.runStates[run.IssueID+"#"+run.RunID]
+	if state != nil {
+		t.Error("expected no state to be created for canceled run")
 	}
 }
