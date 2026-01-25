@@ -86,9 +86,9 @@ No active runs.
 
 ### Handling Blocked Runs
 When a run shows "blocked" status:
-1. Attach: ` + "`orch attach <run-ref>`" + ` to see what the agent needs
-2. Provide input directly in the terminal
-3. Detach: ` + "`Ctrl+B D`" + ` to return to monitor
+1. Capture: ` + "`orch capture <run-ref>`" + ` to see what the agent needs
+2. Send feedback: ` + "`orch send <issue-id> \"<message>\"`" + ` to provide input
+3. The agent will resume automatically after receiving input
 
 ### Continuing Work
 - From a branch: ` + "`orch continue <issue> --branch <branch-name>`" + `
@@ -107,11 +107,16 @@ Run these commands directly using bash (do not use any special protocol):
 - Start a run: ` + "`orch run <issue-id>`" + `
 - Continue from branch: ` + "`orch continue <issue> --branch <branch>`" + `
 - List runs: ` + "`orch ps`" + ` (use ` + "`--status running,blocked`" + ` to filter)
-- Attach to run: ` + "`orch attach <run-ref>`" + `
 - Stop a run: ` + "`orch stop <issue-id>#<run-id>`" + `
 - Resolve a run: ` + "`orch resolve <issue-id>#<run-id>`" + `
 - Show run details: ` + "`orch show <issue-id>#<run-id>`" + `
-- Capture run state: ` + "`orch capture <run-ref>`" + `
+- Capture run state: ` + "`orch capture <run-ref>`" + ` - see agent's last message
+- Send feedback: ` + "`orch send <issue-id> \"<message>\"`" + ` - provide input to blocked agent
+
+### Interactive Commands (DO NOT USE)
+The following commands are interactive and will hang if called by an AI agent:
+- ` + "`orch attach`" + ` - interactive tmux session (for humans only)
+- ` + "`orch monitor`" + ` - interactive TUI (for humans only)
 
 ## Troubleshooting
 
@@ -153,7 +158,7 @@ summary: <one-line summary>
 
 // ControlPromptData contains data for the control agent prompt template
 type ControlPromptData struct {
-	IssuesRoot      string
+	IssuesRoot     string
 	WorkDir        string
 	IssueIDPattern string
 	IssueIDExample string
@@ -258,7 +263,7 @@ func buildControlAgentPrompt(st store.Store) (string, error) {
 	}
 
 	data := ControlPromptData{
-		IssuesRoot:      issuesRoot,
+		IssuesRoot:     issuesRoot,
 		WorkDir:        cwd,
 		IssueIDPattern: pattern,
 		IssueIDExample: example,
