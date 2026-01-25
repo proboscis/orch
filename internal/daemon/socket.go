@@ -1371,16 +1371,20 @@ func (s *SocketServer) stopSingleRun(run *model.Run, st store.Store) error {
 		return nil
 	}
 
-	if run.Agent == "opencode" {
-		if run.ServerPort > 0 && run.OpenCodeSessionID != "" {
-			client := agent.NewOpenCodeClient(run.ServerPort)
-			if err := client.CancelSession(run.OpenCodeSessionID); err != nil {
-				s.logger.Printf("warning: failed to cancel opencode session %s: %v", run.OpenCodeSessionID, err)
-			} else {
-				s.logger.Printf("canceled opencode session %s for %s#%s", run.OpenCodeSessionID, run.IssueID, run.RunID)
-			}
+	if run.Agent == string(agent.AgentOpenCode) && run.ServerPort > 0 && run.OpenCodeSessionID != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		client := agent.NewOpenCodeClient(run.ServerPort)
+		if err := client.Abort(ctx, run.OpenCodeSessionID); err != nil {
+			s.logger.Printf("warning: failed to cancel opencode session %s: %v", run.OpenCodeSessionID, err)
+		} else {
+			s.logger.Printf("canceled opencode session %s for %s#%s", run.OpenCodeSessionID, run.IssueID, run.RunID)
 		}
 	} else {
+		if run.Agent == string(agent.AgentOpenCode) {
+			s.logger.Printf("debug: skipping opencode API cancel (port=%d, session=%q), falling back to multiplexer",
+				run.ServerPort, run.OpenCodeSessionID)
+		}
 		sessionName := run.TmuxSession
 		if sessionName == "" {
 			sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)

@@ -520,12 +520,6 @@ func (c *OpenCodeClient) Abort(ctx context.Context, sessionID string) error {
 	return nil
 }
 
-func (c *OpenCodeClient) CancelSession(sessionID string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	return c.Abort(ctx, sessionID)
-}
-
 // SubscribeEvents subscribes to SSE events from the server
 // Returns a channel that receives events. The channel is closed when the context is cancelled.
 func (c *OpenCodeClient) SubscribeEvents(ctx context.Context) (<-chan Event, error) {
