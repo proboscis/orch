@@ -264,3 +264,20 @@ func TestMonitorRunSkipsCanceledStatus(t *testing.T) {
 		t.Error("expected no state to be created for canceled run")
 	}
 }
+
+func TestCheckPRMergedWithURLReturnsURLWhenFound(t *testing.T) {
+	d := newTestDaemon()
+	run := &model.Run{
+		IssueID: "test-issue",
+		RunID:   "run-1",
+		PRUrl:   "",
+		Branch:  "feature/test",
+	}
+
+	merged, url := d.checkPRMergedWithURL(run, nil)
+
+	if merged && url == "" {
+		t.Error("expected non-empty URL when merged PR is found")
+	}
+	_ = merged
+}

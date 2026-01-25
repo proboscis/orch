@@ -26,8 +26,14 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
 	state := d.getOrCreateState(run)
 	state.LastCheckAt = time.Now()
 
-	if run.Status == model.StatusPROpen {
-		if merged := d.checkPRMerged(run); merged {
+	// orch-358: check for merged PR before dead checks
+	if run.Branch != "" {
+		if merged, prURL := d.checkPRMergedWithURL(run, st); merged {
+			if prURL != "" {
+				d.logger.Printf("%s#%s: detected merged PR (%s), transitioning to done", run.IssueID, run.RunID, prURL)
+			} else {
+				d.logger.Printf("%s#%s: detected merged PR, transitioning to done", run.IssueID, run.RunID)
+			}
 			return d.updateStatus(run, model.StatusDone, st)
 		}
 	}
@@ -190,16 +196,20 @@ func (d *Daemon) recordPRArtifact(run *model.Run, prURL string, st store.Store) 
 }
 
 func (d *Daemon) checkPRMerged(run *model.Run) bool {
+	merged, _ := d.checkPRMergedWithURL(run, nil)
+	return merged
+}
+
+func (d *Daemon) checkPRMergedWithURL(run *model.Run, st store.Store) (merged bool, prURL string) {
 	if run.PRUrl != "" {
 		prInfo, err := pr.LookupInfoByURL(run.PRUrl)
 		if err == nil && prInfo != nil && prInfo.State == "MERGED" {
-			d.logger.Printf("%s#%s: PR merged (via URL), transitioning to done", run.IssueID, run.RunID)
-			return true
+			return true, run.PRUrl
 		}
 	}
 
 	if run.Branch == "" {
-		return false
+		return false, ""
 	}
 
 	var repoRoot string
@@ -210,19 +220,25 @@ func (d *Daemon) checkPRMerged(run *model.Run) bool {
 	if repoRoot == "" || err != nil {
 		repoRoot, err = git.FindMainRepoRoot("")
 		if err != nil {
-			return false
+			return false, ""
 		}
 	}
 
 	prInfo, err := pr.LookupInfo(repoRoot, run.Branch)
 	if err != nil || prInfo == nil {
-		return false
+		return false, ""
 	}
+
+	if prInfo.URL != "" && run.PRUrl == "" && st != nil {
+		if err := d.recordPRArtifact(run, prInfo.URL, st); err != nil {
+			d.logger.Printf("%s#%s: failed to record discovered PR: %v", run.IssueID, run.RunID, err)
+		}
+	}
+
 	if prInfo.State == "MERGED" {
-		d.logger.Printf("%s#%s: PR merged, transitioning to done", run.IssueID, run.RunID)
-		return true
+		return true, prInfo.URL
 	}
-	return false
+	return false, ""
 }
 
 func (d *Daemon) notifyStatusChange(run *model.Run, newStatus model.Status, lastOutput string, st store.Store) {
