@@ -17,8 +17,11 @@ import (
 const deadChecksBeforeFailed = 3
 
 func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
-	// canceled is a terminal state - daemon must not override it
-	// This prevents resurrecting canceled runs even if a PR exists
+	// Re-read current status from store to avoid race with stop command
+	if currentRun, err := st.GetRun(run.Ref()); err == nil && currentRun != nil {
+		run.Status = currentRun.Status
+	}
+
 	if run.Status == model.StatusCanceled {
 		return nil
 	}
