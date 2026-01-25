@@ -1371,16 +1371,25 @@ func (s *SocketServer) stopSingleRun(run *model.Run, st store.Store) error {
 		return nil
 	}
 
-	sessionName := run.TmuxSession
-	if sessionName == "" {
-		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
-	}
+	if run.Agent == "opencode" {
+		if run.ServerPort > 0 && run.OpenCodeSessionID != "" {
+			client := agent.NewOpenCodeClient(run.ServerPort)
+			if err := client.CancelSession(run.OpenCodeSessionID); err != nil {
+				s.logger.Printf("warning: failed to cancel opencode session %s: %v", run.OpenCodeSessionID, err)
+			}
+		}
+	} else {
+		sessionName := run.TmuxSession
+		if sessionName == "" {
+			sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+		}
 
-	muxType, _ := multiplexer.ParseType(run.Multiplexer)
-	mux, _ := multiplexer.GetMultiplexer(muxType)
-	if mux != nil && mux.HasSession(sessionName) {
-		if err := mux.KillSession(sessionName); err != nil {
-			s.logger.Printf("warning: failed to kill session %s: %v", sessionName, err)
+		muxType, _ := multiplexer.ParseType(run.Multiplexer)
+		mux, _ := multiplexer.GetMultiplexer(muxType)
+		if mux != nil && mux.HasSession(sessionName) {
+			if err := mux.KillSession(sessionName); err != nil {
+				s.logger.Printf("warning: failed to kill session %s: %v", sessionName, err)
+			}
 		}
 	}
 
