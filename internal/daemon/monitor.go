@@ -17,11 +17,6 @@ import (
 const deadChecksBeforeFailed = 3
 
 func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
-	// Re-read current status from store to avoid race with stop command
-	if currentRun, err := st.GetRun(run.Ref()); err == nil && currentRun != nil {
-		run.Status = currentRun.Status
-	}
-
 	if run.Status == model.StatusCanceled {
 		return nil
 	}
@@ -132,6 +127,15 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
 
 func (d *Daemon) updateStatus(run *model.Run, status model.Status, st store.Store) error {
 	ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
+
+	// Check current status - daemon cannot overwrite terminal states
+	if currentRun, err := st.GetRun(ref); err == nil && currentRun != nil {
+		if !model.CanTransitionStatus(currentRun.Status, status, model.EventSourceDaemon) {
+			d.debug("%s#%s: daemon cannot transition from %s to %s", run.IssueID, run.RunID, currentRun.Status, status)
+			return nil
+		}
+	}
+
 	event := model.NewStatusEvent(status)
 	if err := st.AppendEvent(ref, event); err != nil {
 		return err

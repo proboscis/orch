@@ -35,6 +35,26 @@ const (
 	StatusUnknown    Status = "unknown" // Agent exited unexpectedly, shell prompt showing
 )
 
+func (s Status) IsTerminal() bool {
+	return s == StatusDone || s == StatusCanceled || s == StatusFailed
+}
+
+// EventSource distinguishes user commands from daemon observations
+type EventSource string
+
+const (
+	EventSourceUser   EventSource = "user"   // CLI commands (stop, continue, resolve)
+	EventSourceDaemon EventSource = "daemon" // Daemon inferences (PR merged, agent dead)
+	EventSourceAgent  EventSource = "agent"  // Agent self-reported status
+)
+
+func CanTransitionStatus(from, to Status, source EventSource) bool {
+	if from.IsTerminal() && source != EventSourceUser {
+		return false
+	}
+	return true
+}
+
 // IssueStatus represents issue resolution states
 type IssueStatus string
 
