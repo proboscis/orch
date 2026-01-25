@@ -1376,6 +1376,8 @@ func (s *SocketServer) stopSingleRun(run *model.Run, st store.Store) error {
 			client := agent.NewOpenCodeClient(run.ServerPort)
 			if err := client.CancelSession(run.OpenCodeSessionID); err != nil {
 				s.logger.Printf("warning: failed to cancel opencode session %s: %v", run.OpenCodeSessionID, err)
+			} else {
+				s.logger.Printf("canceled opencode session %s for %s#%s", run.OpenCodeSessionID, run.IssueID, run.RunID)
 			}
 		}
 	} else {

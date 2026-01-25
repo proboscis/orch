@@ -1069,3 +1069,118 @@ func TestListReposAPI(t *testing.T) {
 		t.Error("expected at least one registered repo")
 	}
 }
+
+type mockStoreWithEvents struct {
+	mockStore
+	appendedEvents []*model.Event
+}
+
+func (m *mockStoreWithEvents) AppendEvent(ref *model.RunRef, event *model.Event) error {
+	m.appendedEvents = append(m.appendedEvents, event)
+	return nil
+}
+
+func TestStopSingleRunOpencode(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	st := &mockStoreWithEvents{
+		mockStore: mockStore{
+			runs:   make(map[string]*model.Run),
+			issues: make(map[string]*model.Issue),
+		},
+	}
+
+	t.Run("opencode run calls CancelSession", func(t *testing.T) {
+		run := &model.Run{
+			IssueID:           "test-issue",
+			RunID:             "run-1",
+			Status:            model.StatusRunning,
+			Agent:             "opencode",
+			ServerPort:        4096,
+			OpenCodeSessionID: "sess_123",
+		}
+
+		err := server.stopSingleRun(run, st)
+		if err != nil {
+			t.Fatalf("stopSingleRun() error = %v", err)
+		}
+
+		if len(st.appendedEvents) != 1 {
+			t.Fatalf("expected 1 event appended, got %d", len(st.appendedEvents))
+		}
+
+		event := st.appendedEvents[0]
+		if event.Type != "status" {
+			t.Errorf("expected event type 'status', got %q", event.Type)
+		}
+		if event.Name != string(model.StatusCanceled) {
+			t.Errorf("expected event name 'canceled', got %q", event.Name)
+		}
+	})
+
+	t.Run("opencode run without session skips CancelSession", func(t *testing.T) {
+		st.appendedEvents = nil
+
+		run := &model.Run{
+			IssueID:           "test-issue",
+			RunID:             "run-2",
+			Status:            model.StatusRunning,
+			Agent:             "opencode",
+			ServerPort:        0,
+			OpenCodeSessionID: "",
+		}
+
+		err := server.stopSingleRun(run, st)
+		if err != nil {
+			t.Fatalf("stopSingleRun() error = %v", err)
+		}
+
+		if len(st.appendedEvents) != 1 {
+			t.Fatalf("expected 1 event appended, got %d", len(st.appendedEvents))
+		}
+	})
+
+	t.Run("non-opencode run uses tmux kill", func(t *testing.T) {
+		st.appendedEvents = nil
+
+		run := &model.Run{
+			IssueID:     "test-issue",
+			RunID:       "run-3",
+			Status:      model.StatusRunning,
+			Agent:       "claude",
+			TmuxSession: "test-session",
+		}
+
+		err := server.stopSingleRun(run, st)
+		if err != nil {
+			t.Fatalf("stopSingleRun() error = %v", err)
+		}
+
+		if len(st.appendedEvents) != 1 {
+			t.Fatalf("expected 1 event appended, got %d", len(st.appendedEvents))
+		}
+	})
+
+	t.Run("terminal status skips stop", func(t *testing.T) {
+		st.appendedEvents = nil
+
+		for _, status := range []model.Status{model.StatusDone, model.StatusFailed, model.StatusCanceled} {
+			run := &model.Run{
+				IssueID: "test-issue",
+				RunID:   "run-terminal",
+				Status:  status,
+				Agent:   "opencode",
+			}
+
+			err := server.stopSingleRun(run, st)
+			if err != nil {
+				t.Fatalf("stopSingleRun() error = %v for status %s", err, status)
+			}
+		}
+
+		if len(st.appendedEvents) != 0 {
+			t.Errorf("expected no events for terminal statuses, got %d", len(st.appendedEvents))
+		}
+	})
+}
