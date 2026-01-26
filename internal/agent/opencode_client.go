@@ -118,10 +118,15 @@ func (s *Session) UpdatedAt() time.Time {
 	return time.UnixMilli(s.Time.Updated)
 }
 
-// MessagePart represents a part of a message
+// MessagePart represents a part of a message.
+// Types: "text", "tool_use", "tool_result", "thinking", "redacted_thinking"
 type MessagePart struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
+	Type      string `json:"type"`
+	Text      string `json:"text,omitempty"`
+	ToolName  string `json:"name,omitempty"`        // tool_use only
+	ToolID    string `json:"id,omitempty"`          // tool_use only
+	ToolInput any    `json:"input,omitempty"`       // tool_use only
+	ToolUseID string `json:"tool_use_id,omitempty"` // tool_result only
 }
 
 // Message represents an opencode message

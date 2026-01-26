@@ -70,8 +70,9 @@ type openCodeCaptureResult struct {
 }
 
 type openCodeCaptureMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string              `json:"role"`
+	Content string              `json:"content"`
+	Parts   []agent.MessagePart `json:"parts"`
 }
 
 func runCapture(refStr string, opts *captureOptions) error {
@@ -145,6 +146,7 @@ func captureOpenCode(run *model.Run, opts *captureOptions) error {
 			result.Messages[i] = openCodeCaptureMessage{
 				Role:    msg.Info.Role,
 				Content: formatMessageParts(msg.Parts),
+				Parts:   msg.Parts,
 			}
 		}
 		enc := json.NewEncoder(os.Stdout)
@@ -161,15 +163,38 @@ func captureOpenCode(run *model.Run, opts *captureOptions) error {
 	return nil
 }
 
-// formatMessageParts concatenates text parts of a message
 func formatMessageParts(parts []agent.MessagePart) string {
 	var texts []string
 	for _, part := range parts {
-		if part.Type == "text" && part.Text != "" {
-			texts = append(texts, part.Text)
+		switch part.Type {
+		case "text":
+			if part.Text != "" {
+				texts = append(texts, part.Text)
+			}
+		case "tool_use":
+			toolName := part.ToolName
+			if toolName == "" {
+				toolName = "unknown"
+			}
+			texts = append(texts, fmt.Sprintf("<tool: %s>", toolName))
+		case "tool_result":
+			resultText := truncateText(part.Text, 100)
+			if resultText == "" {
+				resultText = "..."
+			}
+			texts = append(texts, fmt.Sprintf("<result: %s>", resultText))
+		case "thinking", "redacted_thinking":
+			texts = append(texts, "<thinking...>")
 		}
 	}
 	return strings.Join(texts, "\n")
+}
+
+func truncateText(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // outputCaptureError outputs an error in the appropriate format
