@@ -292,6 +292,73 @@ func (c *Client) ResolveIssue(issueID string, force bool) (*ResolveIssueResponse
 	return &resp, nil
 }
 
+type AppendEventRequest struct {
+	Type        string            `json:"type"`
+	IssueID     string            `json:"issue_id"`
+	RunID       string            `json:"run_id"`
+	EventType   string            `json:"event_type"`
+	EventName   string            `json:"event_name"`
+	EventAttrs  map[string]string `json:"event_attrs,omitempty"`
+	EventSource string            `json:"event_source"`
+	ProjectRoot string            `json:"project_root,omitempty"`
+	IssuesRoot  string            `json:"issues_root,omitempty"`
+}
+
+type AppendEventResponse struct {
+	OK      bool   `json:"ok"`
+	Error   string `json:"error,omitempty"`
+	Skipped bool   `json:"skipped,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+func (c *Client) AppendEvent(issueID, runID, eventType, eventName string, attrs map[string]string, source string) (*AppendEventResponse, error) {
+	req := AppendEventRequest{
+		Type:        "append_event",
+		IssueID:     issueID,
+		RunID:       runID,
+		EventType:   eventType,
+		EventName:   eventName,
+		EventAttrs:  attrs,
+		EventSource: source,
+		ProjectRoot: c.projectRoot,
+		IssuesRoot:  c.issuesRoot,
+	}
+
+	raw, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp AppendEventResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &resp, nil
+}
+
+func (c *Client) AppendStatusEvent(issueID, runID string, status string, source string) error {
+	resp, err := c.AppendEvent(issueID, runID, "status", status, nil, source)
+	if err != nil {
+		return err
+	}
+	if !resp.OK {
+		return fmt.Errorf("daemon error: %s", resp.Error)
+	}
+	return nil
+}
+
+func (c *Client) AppendArtifactEvent(issueID, runID, artifactName string, attrs map[string]string, source string) error {
+	resp, err := c.AppendEvent(issueID, runID, "artifact", artifactName, attrs, source)
+	if err != nil {
+		return err
+	}
+	if !resp.OK {
+		return fmt.Errorf("daemon error: %s", resp.Error)
+	}
+	return nil
+}
+
 // CreateIssueRequest is the request for create_issue
 type CreateIssueRequest struct {
 	Type        string `json:"type"`

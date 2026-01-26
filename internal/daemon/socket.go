@@ -59,6 +59,11 @@ type SendRequest struct {
 	All         bool     `json:"all,omitempty"`
 	SessionID   string   `json:"session_id,omitempty"`
 	AgentType   string   `json:"agent_type,omitempty"`
+
+	EventType   string            `json:"event_type,omitempty"`
+	EventName   string            `json:"event_name,omitempty"`
+	EventAttrs  map[string]string `json:"event_attrs,omitempty"`
+	EventSource string            `json:"event_source,omitempty"`
 }
 
 type SendResponse struct {
@@ -370,6 +375,8 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 		s.handleClearControlSession(req, encoder)
 	case "ensure_opencode_server":
 		s.handleEnsureOpenCodeServer(req, encoder)
+	case "append_event":
+		s.handleAppendEvent(req, encoder)
 	default:
 		encoder.Encode(SendResponse{OK: false, Error: "unknown_type"})
 	}
@@ -1859,6 +1866,53 @@ func (s *SocketServer) StartStaleMonitorCleanup() {
 			}
 		}
 	}()
+}
+
+func (s *SocketServer) handleAppendEvent(req SendRequest, encoder *json.Encoder) {
+	if req.IssueID == "" || req.RunID == "" {
+		encoder.Encode(AppendEventResponse{OK: false, Error: "invalid_request: issue_id and run_id required"})
+		return
+	}
+	if req.EventType == "" || req.EventName == "" {
+		encoder.Encode(AppendEventResponse{OK: false, Error: "invalid_request: event_type and event_name required"})
+		return
+	}
+	if req.EventSource == "" {
+		encoder.Encode(AppendEventResponse{OK: false, Error: "invalid_request: event_source required"})
+		return
+	}
+
+	st := s.resolveStore(req)
+	if st == nil {
+		encoder.Encode(AppendEventResponse{OK: false, Error: "no store available"})
+		return
+	}
+
+	ref := &model.RunRef{IssueID: req.IssueID, RunID: req.RunID}
+	run, err := st.GetRun(ref)
+	if err != nil {
+		encoder.Encode(AppendEventResponse{OK: false, Error: "run not found"})
+		return
+	}
+
+	source := model.EventSource(req.EventSource)
+	if req.EventType == "status" {
+		newStatus := model.Status(req.EventName)
+		if !model.CanTransitionStatus(run.Status, newStatus, source) {
+			reason := fmt.Sprintf("cannot transition from %s to %s (source=%s)", run.Status, newStatus, source)
+			s.logger.Printf("%s#%s: %s", req.IssueID, req.RunID, reason)
+			encoder.Encode(AppendEventResponse{OK: true, Skipped: true, Reason: reason})
+			return
+		}
+	}
+
+	event := model.NewEvent(model.EventType(req.EventType), req.EventName, req.EventAttrs)
+	if err := st.AppendEvent(ref, event); err != nil {
+		encoder.Encode(AppendEventResponse{OK: false, Error: "failed to append event: " + err.Error()})
+		return
+	}
+
+	encoder.Encode(AppendEventResponse{OK: true})
 }
 
 func (s *SocketServer) cleanupStaleMonitors() {
