@@ -133,29 +133,29 @@ func (s *SlackConfig) IsConfigured() bool {
 
 // Config holds orch configuration
 type Config struct {
-	Agent           string           `yaml:"agent"`
-	Model           string           `yaml:"model"`
-	ModelVariant    string           `yaml:"model_variant"`
-	WorktreeDir     string           `yaml:"worktree_dir"`
-	BaseBranch      string           `yaml:"base_branch"`
-	PRTargetBranch  string           `yaml:"pr_target_branch"`
+	Agent              string           `yaml:"agent"`
+	Model              string           `yaml:"model"`
+	ModelVariant       string           `yaml:"model_variant"`
+	WorktreeDir        string           `yaml:"worktree_dir"`
+	BaseBranch         string           `yaml:"base_branch"`
+	PRTargetBranch     string           `yaml:"pr_target_branch"`
 	LogLevel           string           `yaml:"log_level"`
 	PromptTemplate     string           `yaml:"prompt_template"`
 	Multiplexer        string           `yaml:"multiplexer"`         // Deprecated: use MonitorMultiplexer/AgentMultiplexer
 	MonitorMultiplexer string           `yaml:"monitor_multiplexer"` // Multiplexer for orch-monitor: "zellij" (default) or "tmux"
 	AgentMultiplexer   string           `yaml:"agent_multiplexer"`   // Multiplexer for agent sessions: "tmux" (default) or "zellij"
 	NoPR               bool             `yaml:"no_pr"`
-	Monitor         MonitorConfig    `yaml:"monitor"`
-	Presets         []Preset         `yaml:"presets"`
-	OpenCodePresets []OpenCodePreset `yaml:"opencode_presets"` // Deprecated: use Presets instead
-	OpenCode        OpenCodeConfig   `yaml:"opencode"`
-	Claude          ClaudeConfig     `yaml:"claude"`
-	Codex           CodexConfig      `yaml:"codex"`
-	Gemini          GeminiConfig     `yaml:"gemini"`
-	DefaultPreset   string           `yaml:"default_preset"` // Default preset to use when no --preset flag is provided
-	Slack           SlackConfig      `yaml:"slack"`
-	Issues          IssuesConfig     `yaml:"issues"`
-	GitHub          GitHubConfig     `yaml:"github"`
+	Monitor            MonitorConfig    `yaml:"monitor"`
+	Presets            []Preset         `yaml:"presets"`
+	OpenCodePresets    []OpenCodePreset `yaml:"opencode_presets"` // Deprecated: use Presets instead
+	OpenCode           OpenCodeConfig   `yaml:"opencode"`
+	Claude             ClaudeConfig     `yaml:"claude"`
+	Codex              CodexConfig      `yaml:"codex"`
+	Gemini             GeminiConfig     `yaml:"gemini"`
+	DefaultPreset      string           `yaml:"default_preset"` // Default preset to use when no --preset flag is provided
+	Slack              SlackConfig      `yaml:"slack"`
+	Issues             IssuesConfig     `yaml:"issues"`
+	GitHub             GitHubConfig     `yaml:"github"`
 
 	// Control agent settings (for orch monitor 'c' keybinding)
 	// Falls back to run agent defaults if not set
@@ -230,6 +230,28 @@ func Load() (*Config, error) {
 	}
 	for _, repoPath := range repoPaths {
 		if err := loadFromFile(repoPath, cfg); err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+	}
+
+	return cfg, nil
+}
+
+func LoadFromProjectRoot(projectRoot string) (*Config, error) {
+	cfg := &Config{}
+
+	globalPath := globalConfigPath()
+	if globalPath != "" {
+		if err := loadFromFile(globalPath, cfg); err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+	}
+
+	applyEnv(cfg)
+
+	configPath := filepath.Join(projectRoot, ".orch", configFile)
+	if _, err := os.Stat(configPath); err == nil {
+		if err := loadFromFile(configPath, cfg); err != nil {
 			return nil, err
 		}
 	}
@@ -472,9 +494,9 @@ func loadFromFile(path string, cfg *Config) error {
 		cfg.ControlModel = fileCfg.ControlModel
 	}
 	if fileCfg.ControlModelVariant != "" {
-	if fileCfg.DiffTool != "" {
-		cfg.DiffTool = fileCfg.DiffTool
-	}
+		if fileCfg.DiffTool != "" {
+			cfg.DiffTool = fileCfg.DiffTool
+		}
 		cfg.ControlModelVariant = fileCfg.ControlModelVariant
 	}
 

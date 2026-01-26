@@ -923,20 +923,25 @@ func getControlPromptInstruction() string {
 
 const controlPromptFileName = "ORCH_CONTROL_PROMPT.md"
 
-// writeControlPromptFile writes the control agent prompt to a file in the current working directory.
+// writeControlPromptFile writes the control agent prompt to a file in the specified project directory.
 // This is the daemon's implementation to avoid circular imports with the monitor package.
-func (s *SocketServer) writeControlPromptFile(st store.Store) (string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("failed to get working directory: %w", err)
+func (s *SocketServer) writeControlPromptFile(st store.Store, projectRoot string) (string, error) {
+	// Use project root if provided, otherwise fall back to cwd
+	targetDir := projectRoot
+	if targetDir == "" {
+		var err error
+		targetDir, err = os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("failed to get working directory: %w", err)
+		}
 	}
 
-	prompt, err := s.buildControlAgentPrompt(st)
+	prompt, err := s.buildControlAgentPrompt(st, projectRoot)
 	if err != nil {
 		return "", err
 	}
 
-	promptPath := filepath.Join(cwd, controlPromptFileName)
+	promptPath := filepath.Join(targetDir, controlPromptFileName)
 	if err := os.WriteFile(promptPath, []byte(prompt), 0644); err != nil {
 		return "", fmt.Errorf("failed to write control prompt file: %w", err)
 	}
@@ -945,8 +950,11 @@ func (s *SocketServer) writeControlPromptFile(st store.Store) (string, error) {
 }
 
 // buildControlAgentPrompt builds the control agent prompt with dynamic repo context.
-func (s *SocketServer) buildControlAgentPrompt(st store.Store) (string, error) {
-	cwd, _ := os.Getwd()
+func (s *SocketServer) buildControlAgentPrompt(st store.Store, projectRoot string) (string, error) {
+	workDir := projectRoot
+	if workDir == "" {
+		workDir, _ = os.Getwd()
+	}
 	issuesRoot := st.RootPath()
 
 	// Get existing issues
@@ -1010,9 +1018,8 @@ func (s *SocketServer) buildControlAgentPrompt(st store.Store) (string, error) {
 		runsText = "No active runs."
 	}
 
-	// Get git info
-	gitBranch := s.getGitBranch(cwd)
-	uncommittedChanges := s.getUncommittedChangesStatus(cwd)
+	gitBranch := s.getGitBranch(workDir)
+	uncommittedChanges := s.getUncommittedChangesStatus(workDir)
 
 	// Get agent config
 	cfg, _ := config.Load()
@@ -1105,7 +1112,7 @@ The following commands are interactive and will hang if called by an AI agent:
 
 - Execute orch commands directly via bash - no special protocol needed
 - Follow the issue ID naming convention when creating new issues
-`, issuesRoot, cwd, gitBranch, uncommittedChanges, defaultAgent, issuesText, runsText)
+`, issuesRoot, workDir, gitBranch, uncommittedChanges, defaultAgent, issuesText, runsText)
 
 	return prompt, nil
 }
@@ -1149,7 +1156,13 @@ func (s *SocketServer) handleGetControlAgentLaunch(req SendRequest, encoder *jso
 		return
 	}
 
-	// Resolve the store for the project
+	if req.IssuesRoot == "" {
+		if cfg, err := config.LoadFromProjectRoot(req.ProjectRoot); err == nil && cfg != nil {
+			req.IssuesRoot = cfg.GetIssuesPath()
+			s.logger.Printf("derived issues_root=%q from project config", req.IssuesRoot)
+		}
+	}
+
 	st := s.resolveStore(req)
 	if st == nil {
 		encoder.Encode(map[string]interface{}{
@@ -1159,8 +1172,7 @@ func (s *SocketServer) handleGetControlAgentLaunch(req SendRequest, encoder *jso
 		return
 	}
 
-	// Write the control prompt file
-	promptPath, err := s.writeControlPromptFile(st)
+	promptPath, err := s.writeControlPromptFile(st, req.ProjectRoot)
 	if err != nil {
 		s.logger.Printf("failed to write control prompt file: %v", err)
 		encoder.Encode(map[string]interface{}{
