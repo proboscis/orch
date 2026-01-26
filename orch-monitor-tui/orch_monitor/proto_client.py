@@ -491,3 +491,98 @@ class ProtoDaemonClient:
 
     def close(self) -> None:
         pass
+
+    def get_diff_stats(
+        self, issue_id: str, run_id: str
+    ) -> Optional[tuple[int, int, int, list[str]]]:
+        """Get diff stats for a run. Returns (additions, deletions, files_changed, files) or None."""
+        req = pb.Request()
+        req.get_diff_stats.issues_root = self._issues_root_str()
+        req.get_diff_stats.issue_id = issue_id
+        req.get_diff_stats.run_id = run_id
+
+        try:
+            response = self._send_request(req)
+            if response.ok and response.HasField("get_diff_stats"):
+                ds = response.get_diff_stats.diff_stats
+                return (ds.additions, ds.deletions, ds.files_changed, list(ds.files))
+        except ProtoDaemonError:
+            pass
+        return None
+
+    def get_branch_state(self, issue_id: str, run_id: str) -> str:
+        """Get branch state for a run. Returns 'clean', 'dirty', 'merged', 'conflict', or ''."""
+        req = pb.Request()
+        req.get_branch_state.issues_root = self._issues_root_str()
+        req.get_branch_state.issue_id = issue_id
+        req.get_branch_state.run_id = run_id
+
+        try:
+            response = self._send_request(req)
+            if response.ok and response.HasField("get_branch_state"):
+                return _proto_branch_state_to_str(response.get_branch_state.state)
+        except ProtoDaemonError:
+            pass
+        return ""
+
+    def get_diff(self, issue_id: str, run_id: str) -> Optional[str]:
+        """Get diff for a run. Returns the diff string or None."""
+        req = pb.Request()
+        req.get_diff.issues_root = self._issues_root_str()
+        req.get_diff.issue_id = issue_id
+        req.get_diff.run_id = run_id
+
+        try:
+            response = self._send_request(req)
+            if response.ok and response.HasField("get_diff"):
+                return response.get_diff.diff
+        except ProtoDaemonError:
+            pass
+        return None
+
+    def capture_session(
+        self, issue_id: str, run_id: str
+    ) -> Optional[tuple[str, int, str]]:
+        """Capture session output. Returns (content, timestamp_unix, source) or None."""
+        req = pb.Request()
+        req.capture_session.issues_root = self._issues_root_str()
+        req.capture_session.issue_id = issue_id
+        req.capture_session.run_id = run_id
+
+        try:
+            response = self._send_request(req)
+            if response.ok and response.HasField("capture_session"):
+                cs = response.capture_session
+                return (cs.content, cs.timestamp_unix, cs.source)
+        except ProtoDaemonError:
+            pass
+        return None
+
+    def create_issue(self, issue_id: str, title: str, body: str) -> Optional[str]:
+        """Create a new issue. Returns the path or None on failure."""
+        req = pb.Request()
+        req.create_issue.issues_root = self._issues_root_str()
+        req.create_issue.issue_id = issue_id
+        req.create_issue.title = title
+        req.create_issue.body = body
+
+        try:
+            response = self._send_request(req)
+            if response.ok and response.HasField("create_issue"):
+                return response.create_issue.path
+            raise ProtoDaemonError(response.error or "Failed to create issue")
+        except ProtoDaemonError:
+            raise
+
+    def resolve_issue(self, issue_id: str, force: bool = False) -> bool:
+        """Resolve an issue. Returns True on success."""
+        req = pb.Request()
+        req.resolve_issue.issues_root = self._issues_root_str()
+        req.resolve_issue.issue_id = issue_id
+        req.resolve_issue.force = force
+
+        try:
+            response = self._send_request(req)
+            return response.ok
+        except ProtoDaemonError:
+            return False

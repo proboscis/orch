@@ -183,188 +183,6 @@ def _log_error(operation: str, error: str, project_root: Path) -> None:
         pass
 
 
-from functools import lru_cache
-from time import time as _time
-
-
-# TTL cache wrapper for git diff stats (30 second TTL)
-_diff_stats_cache_time: dict[str, float] = {}
-_DIFF_STATS_TTL = 30.0  # seconds
-
-
-@lru_cache(maxsize=256)
-def _get_git_diff_stats_cached(
-    worktree_path: str, branch: str, base_branch: str
-) -> Optional[DiffStats]:
-    """Internal cached implementation of git diff stats retrieval."""
-    try:
-        # Use git diff --numstat for machine-readable output
-        result = subprocess.run(
-            ["git", "diff", "--numstat", f"{base_branch}...{branch}"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            cwd=worktree_path,
-            encoding="utf-8",
-            errors="replace",  # Handle non-UTF8 filenames
-        )
-
-        if result.returncode != 0:
-            # Try without the merge-base (three dots) syntax
-            result = subprocess.run(
-                ["git", "diff", "--numstat", f"{base_branch}..{branch}"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                cwd=worktree_path,
-                encoding="utf-8",
-                errors="replace",
-            )
-
-        if result.returncode != 0:
-            # Log failure for debugging (only once due to cache)
-            get_logger().debug(
-                f"git diff failed for {branch} vs {base_branch}: {result.stderr}"
-            )
-            return None
-
-        files: list[FileChange] = []
-        total_additions = 0
-        total_deletions = 0
-
-        for line in result.stdout.strip().split("\n"):
-            if not line:
-                continue
-            parts = line.split("\t")
-            if len(parts) != 3:
-                continue
-
-            add_str, del_str, path = parts
-            # Handle binary files (shown as - -)
-            additions = int(add_str) if add_str != "-" else 0
-            deletions = int(del_str) if del_str != "-" else 0
-
-            files.append(
-                FileChange(path=path, additions=additions, deletions=deletions)
-            )
-            total_additions += additions
-            total_deletions += deletions
-
-        return DiffStats(
-            files=files,
-            total_additions=total_additions,
-            total_deletions=total_deletions,
-        )
-
-    except (
-        subprocess.TimeoutExpired,
-        subprocess.SubprocessError,
-        OSError,
-        ValueError,
-    ) as e:
-        get_logger().debug(f"git diff exception for {branch}: {e}")
-        return None
-
-
-def _get_git_diff_stats(
-    worktree_path: str, branch: str, base_branch: str = "main"
-) -> Optional[DiffStats]:
-    """Get git diff statistics for a branch compared to base branch.
-
-    Uses LRU cache with TTL to avoid repeated git calls while allowing
-    updates when branches change.
-
-    Args:
-        worktree_path: Path to the git worktree
-        branch: The branch to compare
-        base_branch: The base branch to compare against (default: main)
-
-    Returns:
-        DiffStats object or None if unable to get stats
-    """
-    if not worktree_path or not branch:
-        return None
-
-    cache_key = f"{worktree_path}:{branch}:{base_branch}"
-    now = _time()
-
-    # Check if cached entry is stale
-    if cache_key in _diff_stats_cache_time:
-        if now - _diff_stats_cache_time[cache_key] > _DIFF_STATS_TTL:
-            # Clear stale entry from LRU cache
-            _get_git_diff_stats_cached.cache_clear()
-            _diff_stats_cache_time.clear()
-
-    result = _get_git_diff_stats_cached(worktree_path, branch, base_branch)
-    _diff_stats_cache_time[cache_key] = now
-    return result
-
-
-_branch_state_cache: dict[str, tuple[str, float]] = {}
-_BRANCH_STATE_TTL = 30.0
-
-
-def _get_branch_state(
-    worktree_path: str, branch: str, base_branch: str = "main"
-) -> str:
-    if not worktree_path or not branch:
-        return "-"
-
-    cache_key = f"{worktree_path}:{branch}:{base_branch}"
-    now = _time()
-
-    if cache_key in _branch_state_cache:
-        cached_state, cached_time = _branch_state_cache[cache_key]
-        if now - cached_time < _BRANCH_STATE_TTL:
-            return cached_state
-
-    state = _compute_branch_state(worktree_path, branch, base_branch)
-    _branch_state_cache[cache_key] = (state, now)
-    return state
-
-
-def _compute_branch_state(worktree_path: str, branch: str, base_branch: str) -> str:
-    try:
-        dirty_result = subprocess.run(
-            ["git", "status", "--porcelain"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            cwd=worktree_path,
-        )
-        if dirty_result.returncode == 0 and dirty_result.stdout.strip():
-            return "dirty"
-
-        merged_result = subprocess.run(
-            ["git", "branch", "--merged", base_branch, "--format=%(refname:short)"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            cwd=worktree_path,
-        )
-        if merged_result.returncode == 0:
-            merged_branches = set(merged_result.stdout.strip().split("\n"))
-            if branch in merged_branches:
-                return "merged"
-
-        conflict_result = subprocess.run(
-            ["git", "merge-tree", "--write-tree", "--messages", branch, base_branch],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            cwd=worktree_path,
-        )
-        if conflict_result.returncode != 0:
-            output = conflict_result.stdout + conflict_result.stderr
-            if "CONFLICT" in output or "<<<<<<<" in output:
-                return "conflict"
-
-        return "clean"
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError) as e:
-        get_logger().debug(f"git state check failed for {branch}: {e}")
-        return "-"
-
-
 def _format_changed_files_lines(
     diff_stats: Optional[DiffStats],
     max_files: int = 10,
@@ -1749,11 +1567,8 @@ class RunsDashboard(App):
                     total_additions=run.additions,
                     total_deletions=run.deletions,
                 )
-            if run.worktree_path and run.branch:
-                state = _get_branch_state(
-                    run.worktree_path, run.branch, self.config.base_branch
-                )
-                branch_states[run.ref()] = state
+            if run.branch_state:
+                branch_states[run.ref()] = run.branch_state
 
         run_table = self.query_one("#runs-table", RunTable)
         run_table.populate(
@@ -2735,11 +2550,8 @@ class OrchMonitorApp(App):
                     total_additions=run.additions,
                     total_deletions=run.deletions,
                 )
-            if run.worktree_path and run.branch:
-                state = _get_branch_state(
-                    run.worktree_path, run.branch, self.config.base_branch
-                )
-                branch_states[run.ref()] = state
+            if run.branch_state:
+                branch_states[run.ref()] = run.branch_state
 
         run_table = self.query_one("#runs-table", RunTable)
         run_table.populate(

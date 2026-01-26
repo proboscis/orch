@@ -1,12 +1,10 @@
-"""DaemonOrchAPI implementation using ProtoDaemonClient and subprocess fallbacks."""
+"""DaemonOrchAPI implementation using ProtoDaemonClient."""
 
 import logging
 import subprocess
 import threading
 from datetime import datetime
-from functools import lru_cache
 from pathlib import Path
-from time import time as _time
 from typing import Optional
 
 from returns.result import Failure, Result, Success
@@ -139,129 +137,6 @@ def _model_issue_to_api(issue: ModelIssue) -> Issue:
         path=issue.path,
         modified_at=issue.modified_at,
     )
-
-
-# TTL cache for git diff stats (30 second TTL)
-_diff_stats_cache_time: dict[str, float] = {}
-_DIFF_STATS_TTL = 30.0
-
-# TTL cache for branch state
-_branch_state_cache: dict[str, tuple[str, float]] = {}
-_BRANCH_STATE_TTL = 30.0
-
-
-@lru_cache(maxsize=256)
-def _get_git_diff_stats_cached(
-    worktree_path: str, branch: str, base_branch: str
-) -> Optional[DiffStats]:
-    """Internal cached implementation of git diff stats retrieval."""
-    try:
-        result = subprocess.run(
-            ["git", "diff", "--numstat", f"{base_branch}...{branch}"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            cwd=worktree_path,
-            encoding="utf-8",
-            errors="replace",
-        )
-
-        if result.returncode != 0:
-            result = subprocess.run(
-                ["git", "diff", "--numstat", f"{base_branch}..{branch}"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                cwd=worktree_path,
-                encoding="utf-8",
-                errors="replace",
-            )
-
-        if result.returncode != 0:
-            _logger.debug(
-                f"git diff failed for {branch} vs {base_branch}: {result.stderr}"
-            )
-            return None
-
-        file_list: list[str] = []
-        total_additions = 0
-        total_deletions = 0
-
-        for line in result.stdout.strip().split("\n"):
-            if not line:
-                continue
-            parts = line.split("\t")
-            if len(parts) != 3:
-                continue
-
-            add_str, del_str, path = parts
-            additions = int(add_str) if add_str != "-" else 0
-            deletions = int(del_str) if del_str != "-" else 0
-
-            file_list.append(path)
-            total_additions += additions
-            total_deletions += deletions
-
-        return DiffStats(
-            additions=total_additions,
-            deletions=total_deletions,
-            files_changed=len(file_list),
-            file_list=file_list,
-        )
-
-    except (
-        subprocess.TimeoutExpired,
-        subprocess.SubprocessError,
-        OSError,
-        ValueError,
-    ) as e:
-        _logger.debug(f"git diff exception for {branch}: {e}")
-        return None
-
-
-def _compute_branch_state(
-    worktree_path: str, branch: str, base_branch: str
-) -> BranchState:
-    """Compute the branch state by running git commands."""
-    try:
-        dirty_result = subprocess.run(
-            ["git", "status", "--porcelain"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            cwd=worktree_path,
-        )
-        if dirty_result.returncode == 0 and dirty_result.stdout.strip():
-            return BranchState.DIRTY
-
-        merged_result = subprocess.run(
-            ["git", "branch", "--merged", base_branch, "--format=%(refname:short)"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            cwd=worktree_path,
-        )
-        if merged_result.returncode == 0:
-            merged_branches = set(merged_result.stdout.strip().split("\n"))
-            if branch in merged_branches:
-                return BranchState.MERGED
-
-        conflict_result = subprocess.run(
-            ["git", "merge-tree", "--write-tree", "--messages", branch, base_branch],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            cwd=worktree_path,
-        )
-        if conflict_result.returncode != 0:
-            output = conflict_result.stdout + conflict_result.stderr
-            if "CONFLICT" in output or "<<<<<<<" in output:
-                return BranchState.CONFLICT
-
-        return BranchState.CLEAN
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError) as e:
-        _logger.debug(f"git state check failed for {branch}: {e}")
-        return BranchState.UNKNOWN
 
 
 class MonitorHeartbeat:
@@ -475,18 +350,13 @@ class DaemonOrchAPI:
 
     def resolve_run(self, issue_id: str, run_id: str) -> Result[None, OrchError]:
         try:
-            run_ref = f"{issue_id}#{run_id}" if run_id else issue_id
-            cmd = self._build_orch_cmd() + ["resolve", run_ref]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            if result.returncode != 0:
-                error_msg = (
-                    result.stderr.strip() or result.stdout.strip() or "Unknown error"
-                )
-                return Failure(OrchError(f"Failed to resolve run: {error_msg}"))
+            success = self._daemon.resolve_issue(issue_id)
+            if not success:
+                return Failure(OrchError("Failed to resolve issue"))
             return Success(None)
-        except subprocess.TimeoutExpired:
-            return Failure(OrchError("Timeout resolving run"))
-        except Exception as e:
+        except ProtoDaemonNotRunningError:
+            return Failure(ApiDaemonNotRunningError("Daemon not running"))
+        except ProtoDaemonError as e:
             return Failure(OrchError(str(e)))
 
     # === Issues ===
@@ -530,25 +400,13 @@ class DaemonOrchAPI:
         body: str,
     ) -> Result[None, OrchError]:
         try:
-            cmd = self._build_orch_cmd() + [
-                "issue",
-                "create",
-                issue_id,
-                "--title",
-                title,
-            ]
-            result = subprocess.run(
-                cmd, input=body, capture_output=True, text=True, timeout=30
-            )
-            if result.returncode != 0:
-                error_msg = (
-                    result.stderr.strip() or result.stdout.strip() or "Unknown error"
-                )
-                return Failure(OrchError(f"Failed to create issue: {error_msg}"))
+            path = self._daemon.create_issue(issue_id, title, body)
+            if path is None:
+                return Failure(OrchError("Failed to create issue"))
             return Success(None)
-        except subprocess.TimeoutExpired:
-            return Failure(OrchError("Timeout creating issue"))
-        except Exception as e:
+        except ProtoDaemonNotRunningError:
+            return Failure(ApiDaemonNotRunningError("Daemon not running"))
+        except ProtoDaemonError as e:
             return Failure(OrchError(str(e)))
 
     def close_issue(self, issue_id: str) -> Result[None, OrchError]:
@@ -612,47 +470,23 @@ class DaemonOrchAPI:
     def capture_session(
         self, issue_id: str, run_id: str
     ) -> Result[SessionCapture, OrchError]:
-        run_result = self.get_run(issue_id, run_id)
-        if isinstance(run_result, Failure):
-            return run_result
-
-        run = run_result.unwrap()
-        if not run.tmux_session:
-            return Failure(OrchError("Run has no session"))
-
         try:
-            # Detect multiplexer type from run
-            if run.multiplexer == "zellij":
-                import os
-
-                result = subprocess.run(
-                    ["zellij", "action", "dump-screen", "/dev/stdout"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                    env={**os.environ, "ZELLIJ_SESSION_NAME": run.tmux_session},
-                )
-            else:
-                result = subprocess.run(
-                    ["tmux", "capture-pane", "-t", run.tmux_session, "-p", "-S", "-50"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-
-            if result.returncode != 0:
+            result = self._daemon.capture_session(issue_id, run_id)
+            if result is None:
                 return Failure(OrchError("Failed to capture session"))
-
+            content, timestamp_unix, source = result
             return Success(
                 SessionCapture(
-                    content=result.stdout,
-                    timestamp=datetime.now(),
-                    source=run.multiplexer or "tmux",
+                    content=content,
+                    timestamp=datetime.fromtimestamp(timestamp_unix)
+                    if timestamp_unix
+                    else datetime.now(),
+                    source=source or "tmux",
                 )
             )
-        except subprocess.TimeoutExpired:
-            return Failure(OrchError("Timeout capturing session"))
-        except Exception as e:
+        except ProtoDaemonNotRunningError:
+            return Failure(ApiDaemonNotRunningError("Daemon not running"))
+        except ProtoDaemonError as e:
             return Failure(OrchError(str(e)))
 
     def send_message(
@@ -674,84 +508,48 @@ class DaemonOrchAPI:
     def get_diff_stats(
         self, issue_id: str, run_id: str
     ) -> Result[DiffStats, OrchError]:
-        run_result = self.get_run(issue_id, run_id)
-        if isinstance(run_result, Failure):
-            return run_result
-
-        run = run_result.unwrap()
-        if not run.worktree_path or not run.branch:
-            return Failure(OrchError("Run has no worktree or branch"))
-
-        cache_key = f"{run.worktree_path}:{run.branch}:{self._base_branch}"
-        now = _time()
-
-        if cache_key in _diff_stats_cache_time:
-            if now - _diff_stats_cache_time[cache_key] > _DIFF_STATS_TTL:
-                _get_git_diff_stats_cached.cache_clear()
-                _diff_stats_cache_time.clear()
-
-        stats = _get_git_diff_stats_cached(
-            run.worktree_path, run.branch, self._base_branch
-        )
-        _diff_stats_cache_time[cache_key] = now
-
-        if stats is None:
-            return Failure(OrchError("Failed to get diff stats"))
-        return Success(stats)
+        try:
+            result = self._daemon.get_diff_stats(issue_id, run_id)
+            if result is None:
+                return Failure(OrchError("Failed to get diff stats"))
+            additions, deletions, files_changed, files = result
+            return Success(
+                DiffStats(
+                    additions=additions,
+                    deletions=deletions,
+                    files_changed=files_changed,
+                    file_list=files,
+                )
+            )
+        except ProtoDaemonNotRunningError:
+            return Failure(ApiDaemonNotRunningError("Daemon not running"))
+        except ProtoDaemonError as e:
+            return Failure(OrchError(str(e)))
 
     def get_branch_state(
         self, issue_id: str, run_id: str
     ) -> Result[BranchState, OrchError]:
-        run_result = self.get_run(issue_id, run_id)
-        if isinstance(run_result, Failure):
-            return run_result
-
-        run = run_result.unwrap()
-        if not run.worktree_path or not run.branch:
-            return Failure(OrchError("Run has no worktree or branch"))
-
-        cache_key = f"{run.worktree_path}:{run.branch}:{self._base_branch}"
-        now = _time()
-
-        if cache_key in _branch_state_cache:
-            cached_state, cached_time = _branch_state_cache[cache_key]
-            if now - cached_time < _BRANCH_STATE_TTL:
-                return Success(BranchState(cached_state))
-
-        state = _compute_branch_state(run.worktree_path, run.branch, self._base_branch)
-        _branch_state_cache[cache_key] = (state.value, now)
-        return Success(state)
+        try:
+            state_str = self._daemon.get_branch_state(issue_id, run_id)
+            if not state_str:
+                return Failure(OrchError("Failed to get branch state"))
+            return Success(BranchState(state_str))
+        except ProtoDaemonNotRunningError:
+            return Failure(ApiDaemonNotRunningError("Daemon not running"))
+        except ProtoDaemonError as e:
+            return Failure(OrchError(str(e)))
+        except ValueError:
+            return Success(BranchState.UNKNOWN)
 
     def get_diff(self, issue_id: str, run_id: str) -> Result[str, OrchError]:
-        run_result = self.get_run(issue_id, run_id)
-        if isinstance(run_result, Failure):
-            return run_result
-
-        run = run_result.unwrap()
-        if not run.worktree_path or not run.branch:
-            return Failure(OrchError("Run has no worktree or branch"))
-
         try:
-            result = subprocess.run(
-                ["git", "diff", f"{self._base_branch}...{run.branch}"],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                cwd=run.worktree_path,
-            )
-            if result.returncode != 0:
-                # Try without merge-base syntax
-                result = subprocess.run(
-                    ["git", "diff", f"{self._base_branch}..{run.branch}"],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                    cwd=run.worktree_path,
-                )
-            return Success(result.stdout)
-        except subprocess.TimeoutExpired:
-            return Failure(OrchError("Timeout getting diff"))
-        except Exception as e:
+            diff = self._daemon.get_diff(issue_id, run_id)
+            if diff is None:
+                return Failure(OrchError("Failed to get diff"))
+            return Success(diff)
+        except ProtoDaemonNotRunningError:
+            return Failure(ApiDaemonNotRunningError("Daemon not running"))
+        except ProtoDaemonError as e:
             return Failure(OrchError(str(e)))
 
     # === Monitor ===

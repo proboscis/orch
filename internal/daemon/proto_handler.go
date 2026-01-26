@@ -200,7 +200,11 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 	protoRuns := make([]*orchpb.Run, len(runs))
 	for i, run := range runs {
 		pr := modelRunToProto(run)
-		pr.BranchState = orchpb.BranchState_BRANCH_STATE_UNSPECIFIED
+		if run.WorktreePath != "" && run.Branch != "" {
+			pr.BranchState = computeBranchState(run.WorktreePath, run.Branch, "main")
+		} else {
+			pr.BranchState = orchpb.BranchState_BRANCH_STATE_UNSPECIFIED
+		}
 		if computeAlive(run) {
 			pr.ElapsedDisplay = formatElapsedTime(run.StartedAt, run.UpdatedAt, run.Status)
 		}
