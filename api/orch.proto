@@ -1,0 +1,379 @@
+syntax = "proto3";
+
+package orch.v1;
+
+option go_package = "github.com/s22625/orch/api/orchpb";
+
+// =============================================================================
+// Enums
+// =============================================================================
+
+enum RunStatus {
+  RUN_STATUS_UNSPECIFIED = 0;
+  RUN_STATUS_QUEUED = 1;
+  RUN_STATUS_BOOTING = 2;
+  RUN_STATUS_RUNNING = 3;
+  RUN_STATUS_BLOCKED = 4;
+  RUN_STATUS_BLOCKED_API = 5;
+  RUN_STATUS_PR_OPEN = 6;
+  RUN_STATUS_DONE = 7;
+  RUN_STATUS_FAILED = 8;
+  RUN_STATUS_CANCELED = 9;
+}
+
+enum IssueStatus {
+  ISSUE_STATUS_UNSPECIFIED = 0;
+  ISSUE_STATUS_OPEN = 1;
+  ISSUE_STATUS_RESOLVED = 2;
+  ISSUE_STATUS_CLOSED = 3;
+}
+
+enum BranchState {
+  BRANCH_STATE_UNSPECIFIED = 0;
+  BRANCH_STATE_CLEAN = 1;
+  BRANCH_STATE_DIRTY = 2;
+  BRANCH_STATE_MERGED = 3;
+  BRANCH_STATE_CONFLICT = 4;
+}
+
+enum Multiplexer {
+  MULTIPLEXER_UNSPECIFIED = 0;
+  MULTIPLEXER_TMUX = 1;
+  MULTIPLEXER_ZELLIJ = 2;
+}
+
+// =============================================================================
+// Domain Models
+// =============================================================================
+
+message DiffStats {
+  int32 additions = 1;
+  int32 deletions = 2;
+  int32 files_changed = 3;
+  repeated string files = 4;
+}
+
+message Run {
+  string issue_id = 1;
+  string run_id = 2;
+  RunStatus status = 3;
+  string agent = 4;
+  string model = 5;
+  string branch = 6;
+  string worktree_path = 7;
+  string pr_url = 8;
+  int64 started_at_unix = 9;
+  int64 updated_at_unix = 10;
+  int32 elapsed_seconds = 11;
+  string elapsed_display = 12;
+  DiffStats diff_stats = 13;
+  BranchState branch_state = 14;
+  string tmux_session = 15;
+  Multiplexer multiplexer = 16;
+  int32 server_port = 17;
+  string opencode_session_id = 18;
+  string continued_from = 19;
+}
+
+message Issue {
+  string id = 1;
+  string title = 2;
+  string summary = 3;
+  IssueStatus status = 4;
+  repeated string tags = 5;
+  string body = 6;
+  string path = 7;
+  int64 modified_at_unix = 8;
+}
+
+message Event {
+  int64 timestamp_unix = 1;
+  string type = 2;
+  string name = 3;
+  map<string, string> attrs = 4;
+}
+
+// =============================================================================
+// Requests & Responses
+// =============================================================================
+
+// --- Lifecycle ---
+
+message PingRequest {}
+message PingResponse {
+  bool ok = 1;
+  string version = 2;
+}
+
+// --- Runs ---
+
+message ListRunsRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+  repeated RunStatus status = 3;
+  string agent = 4;
+  string text_search = 5;
+  string time_range = 6;  // "hour", "today", "week"
+  int32 limit = 7;
+  string cursor = 8;
+}
+
+message ListRunsResponse {
+  repeated Run runs = 1;
+  int32 total = 2;
+  string next_cursor = 3;
+}
+
+message GetRunRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+  string run_id = 3;
+}
+
+message GetRunResponse {
+  Run run = 1;
+  repeated Event events = 2;
+}
+
+message StartRunRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+  string agent = 3;
+  string model = 4;
+  string model_variant = 5;
+  string base_branch = 6;
+}
+
+message StartRunResponse {
+  string run_id = 1;
+  string branch = 2;
+  string worktree_path = 3;
+  string tmux_session = 4;
+}
+
+message StopRunRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+  string run_id = 3;
+}
+
+message StopRunResponse {}
+
+message ResolveRunRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+  string run_id = 3;
+}
+
+message ResolveRunResponse {}
+
+// --- Issues ---
+
+message ListIssuesRequest {
+  string issues_root = 1;
+  repeated IssueStatus status = 2;
+  repeated string tags = 3;
+  string tags_mode = 4;  // "and" or "or"
+  string text_search = 5;
+  int32 limit = 6;
+  string cursor = 7;
+}
+
+message ListIssuesResponse {
+  repeated Issue issues = 1;
+  int32 total = 2;
+  string next_cursor = 3;
+}
+
+message GetIssueRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+}
+
+message GetIssueResponse {
+  Issue issue = 1;
+}
+
+message CreateIssueRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+  string title = 3;
+  string body = 4;
+}
+
+message CreateIssueResponse {
+  string path = 1;
+}
+
+message CloseIssueRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+}
+
+message CloseIssueResponse {}
+
+// --- Control Agent ---
+
+message GetControlAgentLaunchRequest {
+  string project_root = 1;
+  string agent = 2;
+  bool new_session = 3;
+}
+
+message GetControlAgentLaunchResponse {
+  string command = 1;
+  string prompt_file = 2;
+  int32 port = 3;
+  string session_id = 4;
+}
+
+// --- Session Operations ---
+
+message GetAttachInfoRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+  string run_id = 3;
+}
+
+message GetAttachInfoResponse {
+  repeated string command = 1;
+  Multiplexer multiplexer = 2;
+  string session_name = 3;
+  string worktree_path = 4;
+}
+
+message CaptureSessionRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+  string run_id = 3;
+}
+
+message CaptureSessionResponse {
+  string content = 1;
+  int64 timestamp_unix = 2;
+  string source = 3;
+}
+
+message SendMessageRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+  string run_id = 3;
+  string message = 4;
+}
+
+message SendMessageResponse {}
+
+// --- Git Operations ---
+
+message GetDiffStatsRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+  string run_id = 3;
+}
+
+message GetDiffStatsResponse {
+  DiffStats diff_stats = 1;
+}
+
+message GetBranchStateRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+  string run_id = 3;
+}
+
+message GetBranchStateResponse {
+  BranchState state = 1;
+}
+
+message GetDiffRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+  string run_id = 3;
+}
+
+message GetDiffResponse {
+  string diff = 1;
+}
+
+// --- Monitor Registration ---
+
+message RegisterMonitorRequest {
+  int32 pid = 1;
+  string monitor_type = 2;
+  string view = 3;
+  string project = 4;
+  string session_name = 5;
+}
+
+message RegisterMonitorResponse {
+  string monitor_id = 1;
+}
+
+message UnregisterMonitorRequest {
+  string monitor_id = 1;
+}
+
+message UnregisterMonitorResponse {}
+
+message HeartbeatRequest {
+  string monitor_id = 1;
+}
+
+message HeartbeatResponse {}
+
+// =============================================================================
+// Unified Request/Response (for Unix socket dispatch)
+// =============================================================================
+
+message Request {
+  oneof request {
+    PingRequest ping = 1;
+    ListRunsRequest list_runs = 2;
+    GetRunRequest get_run = 3;
+    StartRunRequest start_run = 4;
+    StopRunRequest stop_run = 5;
+    ResolveRunRequest resolve_run = 6;
+    ListIssuesRequest list_issues = 7;
+    GetIssueRequest get_issue = 8;
+    CreateIssueRequest create_issue = 9;
+    CloseIssueRequest close_issue = 10;
+    GetControlAgentLaunchRequest get_control_agent_launch = 11;
+    GetAttachInfoRequest get_attach_info = 12;
+    CaptureSessionRequest capture_session = 13;
+    SendMessageRequest send_message = 14;
+    GetDiffStatsRequest get_diff_stats = 15;
+    GetBranchStateRequest get_branch_state = 16;
+    GetDiffRequest get_diff = 17;
+    RegisterMonitorRequest register_monitor = 18;
+    UnregisterMonitorRequest unregister_monitor = 19;
+    HeartbeatRequest heartbeat = 20;
+  }
+}
+
+message Response {
+  bool ok = 1;
+  string error = 2;
+  
+  oneof response {
+    PingResponse ping = 3;
+    ListRunsResponse list_runs = 4;
+    GetRunResponse get_run = 5;
+    StartRunResponse start_run = 6;
+    StopRunResponse stop_run = 7;
+    ResolveRunResponse resolve_run = 8;
+    ListIssuesResponse list_issues = 9;
+    GetIssueResponse get_issue = 10;
+    CreateIssueResponse create_issue = 11;
+    CloseIssueResponse close_issue = 12;
+    GetControlAgentLaunchResponse get_control_agent_launch = 13;
+    GetAttachInfoResponse get_attach_info = 14;
+    CaptureSessionResponse capture_session = 15;
+    SendMessageResponse send_message = 16;
+    GetDiffStatsResponse get_diff_stats = 17;
+    GetBranchStateResponse get_branch_state = 18;
+    GetDiffResponse get_diff = 19;
+    RegisterMonitorResponse register_monitor = 20;
+    UnregisterMonitorResponse unregister_monitor = 21;
+    HeartbeatResponse heartbeat = 22;
+  }
+}
