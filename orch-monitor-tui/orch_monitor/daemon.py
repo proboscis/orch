@@ -454,6 +454,49 @@ class DaemonClient:
         except DaemonError:
             return False
 
+    def get_control_agent_launch(
+        self, project_root: str, agent_type: str = "", new_session: bool = False
+    ) -> tuple[bool, Optional[str], Optional[str], int, Optional[str], Optional[str], Optional[str]]:
+        """Get control agent launch command and configuration.
+
+        This API:
+        - Writes the ORCH_CONTROL_PROMPT.md file to cwd
+        - Resolves agent type from config if not specified
+        - Builds full command via agent.LaunchCommand()
+        - Handles session continuity
+
+        Args:
+            project_root: The project root directory.
+            agent_type: Optional agent type (e.g., "opencode", "claude"). Defaults to config.
+            new_session: If True, clear existing session and start fresh.
+
+        Returns:
+            Tuple of (ok, command, prompt_file, port, session_id, agent, error)
+        """
+        request = {
+            "type": "get_control_agent_launch",
+            "project_root": project_root,
+            "agent_type": agent_type,
+            "force": new_session,  # Using 'force' field for new_session
+            "issues_root": self._issues_root_str(),
+        }
+
+        try:
+            response = self._send_request(request)
+            if response.get("ok", False):
+                return (
+                    True,
+                    response.get("command"),
+                    response.get("prompt_file"),
+                    response.get("port", 0),
+                    response.get("session_id"),
+                    response.get("agent"),
+                    None,
+                )
+            return (False, None, None, 0, None, None, response.get("error", "Unknown error"))
+        except DaemonError as e:
+            return (False, None, None, 0, None, None, str(e))
+
 
 class MonitorRegistration:
     def __init__(self, client: DaemonClient, project: str, view: str = "dashboard"):

@@ -156,94 +156,6 @@ def query_latest_opencode_session(
         return None
 
 
-def write_control_prompt(vault_path: Path | None) -> bool:
-    try:
-        config = Config.from_vault(vault_path) if vault_path else Config.load()
-        daemon = DaemonClient(config.socket_path, config.issues_root)
-
-        if not daemon.is_available():
-            return False
-
-        cwd = os.getcwd()
-
-        issues_text = "No issues found."
-        runs_text = "No active runs."
-
-        try:
-            issues_resp = daemon.list_issues()
-            if issues_resp.issues:
-                lines = ["| ID | Status | Title |", "|----|--------|-------|"]
-                for issue in issues_resp.issues[:20]:
-                    title = (issue.title or issue.summary or "-")[:50]
-                    lines.append(f"| {issue.id} | {issue.status.value} | {title} |")
-                issues_text = "\n".join(lines)
-        except Exception:
-            pass
-
-        try:
-            runs_resp = daemon.list_runs()
-            active = [
-                r
-                for r in runs_resp.runs
-                if r.status.value
-                in ("running", "blocked", "blocked_api", "booting", "queued")
-            ]
-            if active:
-                lines = ["| Issue | Run ID | Status |", "|-------|--------|--------|"]
-                for run in active[:10]:
-                    lines.append(
-                        f"| {run.issue_id} | {run.short_id()} | {run.status.value} |"
-                    )
-                runs_text = "\n".join(lines)
-        except Exception:
-            pass
-
-        prompt = f"""You are the orch control agent for this repository.
-You can run orch commands directly via bash to manage issues and runs.
-
-## Repository Context
-
-- Issues Root: {config.issues_root}
-- Working directory: {cwd}
-
-## Existing Issues
-
-{issues_text}
-
-## Active Runs
-
-{runs_text}
-
-## Available Orch Commands
-
-Run these commands directly using bash:
-
-### Issue Management
-- Create issue: `orch issue create <id> --title "<title>" --body "<body>"`
-- List issues: `orch issue list`
-- Open issue in editor: `orch open <issue-id>`
-
-### Run Management
-- Start a run: `orch run <issue-id>`
-- List runs: `orch ps`
-- Attach to run: `orch attach <run-ref>`
-- Stop a run: `orch stop <issue-id>#<run-id>`
-- Resolve a run: `orch resolve <issue-id>#<run-id>`
-
-## Instructions
-
-- Execute orch commands directly via bash
-- Use `orch ps` to check run status
-- Use `orch attach` to interact with blocked runs
-"""
-
-        prompt_path = Path(cwd) / CONTROL_PROMPT_FILE
-        prompt_path.write_text(prompt)
-        return True
-    except Exception:
-        return False
-
-
 def get_issues_root(args) -> Path | None:
     if getattr(args, "issues_root", None):
         return args.issues_root
@@ -452,63 +364,41 @@ class TmuxLayoutLauncher:
             f'{env_export}"{python_exec}" -m orch_monitor --issues {orch_args}'.strip()
         )
 
-        write_control_prompt(vault_path)
+        # Use daemon API to get control agent launch command
+        # The daemon handles: writing control prompt file, resolving agent config,
+        # session management, and building the command
+        agent_cmd = agent  # fallback to raw agent command
         need_capture_session = False
-        opencode_server_port = 0
 
-        if agent == "opencode":
-            if new_control_agent:
-                clear_control_session(project_root)
-
-            daemon = _get_daemon_client(project_root)
-            if daemon:
-                project_str = str(project_root) if project_root else str(Path.cwd())
-                ok, port, session_id, err = daemon.ensure_opencode_server(project_str)
-                if ok and port > 0:
-                    opencode_server_port = port
-                    server_url = f"http://127.0.0.1:{port}"
-                    if session_id:
-                        _launcher_logger.info(
-                            f"Using opencode server on port {port}, session: {session_id}"
-                        )
-                        agent_cmd = (
-                            f"opencode attach {server_url} --session {session_id}"
-                        )
-                    else:
-                        _launcher_logger.info(
-                            f"Using opencode server on port {port}, no session yet"
-                        )
-                        agent_cmd = f"opencode attach {server_url}"
-                else:
-                    _launcher_logger.warning(
-                        f"Failed to ensure opencode server: {err}, falling back to interactive mode"
-                    )
-                    agent_cmd = f'opencode --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
-                    need_capture_session = True
+        daemon = _get_daemon_client(project_root)
+        if daemon:
+            project_str = str(project_root) if project_root else str(Path.cwd())
+            ok, command, prompt_file, port, session_id, resolved_agent, err = (
+                daemon.get_control_agent_launch(
+                    project_str, agent_type=agent, new_session=new_control_agent
+                )
+            )
+            if ok and command:
+                agent_cmd = command
+                _launcher_logger.info(
+                    f"Using daemon launch: agent={resolved_agent}, command={command}, "
+                    f"port={port}, session={session_id}"
+                )
             else:
                 _launcher_logger.warning(
-                    "Daemon not available, falling back to interactive mode"
+                    f"Failed to get control agent launch from daemon: {err}"
                 )
-                agent_cmd = f'opencode --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
-                need_capture_session = True
-
-        elif agent == "claude":
-            if new_control_agent:
-                clear_control_session(project_root)
-                agent_cmd = "claude"
-                need_capture_session = True
-            else:
-                # Daemon handles agent type change detection and session discovery
-                session_id = load_control_session(project_root, agent_type="claude")
-                if session_id:
-                    _launcher_logger.info(f"Using Claude session: {session_id}")
-                    agent_cmd = f"claude --resume {session_id}"
-                else:
-                    _launcher_logger.info("No Claude session found, starting fresh")
-                    agent_cmd = "claude"
+                # Fall back to simple command
+                if agent in ("opencode", "claude", "codex", "gemini"):
+                    agent_cmd = f'{agent} --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
                     need_capture_session = True
         else:
-            agent_cmd = agent
+            _launcher_logger.warning(
+                "Daemon not available, using fallback agent command"
+            )
+            if agent in ("opencode", "claude", "codex", "gemini"):
+                agent_cmd = f'{agent} --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
+                need_capture_session = True
 
         subprocess.run(
             ["tmux", "send-keys", "-t", f"{session_name}:0.0", runs_cmd, "Enter"]
@@ -520,20 +410,18 @@ class TmuxLayoutLauncher:
             ["tmux", "send-keys", "-t", f"{session_name}:0.2", agent_cmd, "Enter"]
         )
 
-        if need_capture_session and agent == "opencode":
-            _launcher_logger.info("Waiting to capture opencode session ID...")
+        # Capture session for fallback cases
+        if need_capture_session:
+            _launcher_logger.info(f"Waiting to capture {agent} session ID...")
             time.sleep(3)
-            session_id = query_latest_opencode_session(project_root)
-            if session_id:
-                save_control_session(project_root, session_id, agent_type="opencode")
-
-        if need_capture_session and agent == "claude":
-            _launcher_logger.info("Waiting to capture Claude session ID...")
-            time.sleep(3)
-            # Ask daemon to discover the new session
-            session_id = load_control_session(project_root, agent_type="claude")
-            if session_id:
-                _launcher_logger.info(f"Captured Claude session: {session_id}")
+            if agent == "opencode":
+                session_id = query_latest_opencode_session(project_root)
+                if session_id:
+                    save_control_session(project_root, session_id, agent_type="opencode")
+            elif agent == "claude":
+                session_id = load_control_session(project_root, agent_type="claude")
+                if session_id:
+                    _launcher_logger.info(f"Captured Claude session: {session_id}")
 
         subprocess.run(["tmux", "select-pane", "-t", f"{session_name}:0.2"])
 
@@ -610,62 +498,43 @@ class ZellijLayoutLauncher:
         runs_cmd = f"{python_exec} -m orch_monitor --runs {orch_args}".strip()
         issues_cmd = f"{python_exec} -m orch_monitor --issues {orch_args}".strip()
 
-        write_control_prompt(vault_path)
+        # Use daemon API to get control agent launch command
+        # The daemon handles: writing control prompt file, resolving agent config,
+        # session management, and building the command
+        agent_cmd = agent  # fallback to raw agent command
         need_capture_session = False
 
-        if agent == "opencode":
-            prompt_escaped = CONTROL_PROMPT_INSTRUCTION.replace('"', '\\"')
-            if new_control_agent:
-                clear_control_session(project_root)
-
-            daemon = _get_daemon_client(project_root)
-            if daemon:
-                project_str = str(project_root) if project_root else str(Path.cwd())
-                ok, port, session_id, err = daemon.ensure_opencode_server(project_str)
-                if ok and port > 0:
-                    server_url = f"http://127.0.0.1:{port}"
-                    if session_id:
-                        _launcher_logger.info(
-                            f"Using opencode server on port {port}, session: {session_id}"
-                        )
-                        agent_cmd = (
-                            f"opencode attach {server_url} --session {session_id}"
-                        )
-                    else:
-                        _launcher_logger.info(
-                            f"Using opencode server on port {port}, no session yet"
-                        )
-                        agent_cmd = f"opencode attach {server_url}"
-                else:
-                    _launcher_logger.warning(
-                        f"Failed to ensure opencode server: {err}, falling back to interactive mode"
-                    )
-                    agent_cmd = f'opencode --prompt \\"{prompt_escaped}\\"'
-                    need_capture_session = True
+        daemon = _get_daemon_client(project_root)
+        if daemon:
+            project_str = str(project_root) if project_root else str(Path.cwd())
+            ok, command, prompt_file, port, session_id, resolved_agent, err = (
+                daemon.get_control_agent_launch(
+                    project_str, agent_type=agent, new_session=new_control_agent
+                )
+            )
+            if ok and command:
+                agent_cmd = command
+                _launcher_logger.info(
+                    f"Using daemon launch: agent={resolved_agent}, command={command}, "
+                    f"port={port}, session={session_id}"
+                )
             else:
                 _launcher_logger.warning(
-                    "Daemon not available, falling back to interactive mode"
+                    f"Failed to get control agent launch from daemon: {err}"
                 )
-                agent_cmd = f'opencode --prompt \\"{prompt_escaped}\\"'
-                need_capture_session = True
-
-        elif agent == "claude":
-            if new_control_agent:
-                clear_control_session(project_root)
-                agent_cmd = "claude"
-                need_capture_session = True
-            else:
-                # Daemon handles agent type change detection and session discovery
-                session_id = load_control_session(project_root, agent_type="claude")
-                if session_id:
-                    _launcher_logger.info(f"Using Claude session: {session_id}")
-                    agent_cmd = f"claude --resume {session_id}"
-                else:
-                    _launcher_logger.info("No Claude session found, starting fresh")
-                    agent_cmd = "claude"
+                # Fall back to simple command with escaped prompt for zellij
+                prompt_escaped = CONTROL_PROMPT_INSTRUCTION.replace('"', '\\"')
+                if agent in ("opencode", "claude", "codex", "gemini"):
+                    agent_cmd = f'{agent} --prompt \\"{prompt_escaped}\\"'
                     need_capture_session = True
         else:
-            agent_cmd = agent
+            _launcher_logger.warning(
+                "Daemon not available, using fallback agent command"
+            )
+            prompt_escaped = CONTROL_PROMPT_INSTRUCTION.replace('"', '\\"')
+            if agent in ("opencode", "claude", "codex", "gemini"):
+                agent_cmd = f'{agent} --prompt \\"{prompt_escaped}\\"'
+                need_capture_session = True
 
         layout_content = f'''
 layout {{
@@ -763,20 +632,19 @@ layout {{
                 if session_name in result.stdout.split("\n"):
                     break
 
-            if need_capture_session and agent == "opencode":
+            # Capture session for fallback cases
+            if need_capture_session:
                 time.sleep(2)
-                session_id = query_latest_opencode_session(project_root)
-                if session_id:
-                    save_control_session(
-                        project_root, session_id, agent_type="opencode"
-                    )
-
-            if need_capture_session and agent == "claude":
-                time.sleep(2)
-                # Ask daemon to discover the new session
-                session_id = load_control_session(project_root, agent_type="claude")
-                if session_id:
-                    _launcher_logger.info(f"Captured Claude session: {session_id}")
+                if agent == "opencode":
+                    session_id = query_latest_opencode_session(project_root)
+                    if session_id:
+                        save_control_session(
+                            project_root, session_id, agent_type="opencode"
+                        )
+                elif agent == "claude":
+                    session_id = load_control_session(project_root, agent_type="claude")
+                    if session_id:
+                        _launcher_logger.info(f"Captured Claude session: {session_id}")
 
             os.execvp("zellij", ["zellij", "attach", session_name])
         else:
