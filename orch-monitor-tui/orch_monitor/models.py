@@ -1,10 +1,25 @@
-"""Data models for orch issues, runs, and events."""
+"""Data models for orch issues, runs, and events.
 
+DEPRECATED: This module is maintained for backward compatibility during migration.
+New code should use the generated protobuf classes from orch_monitor.api.orch_pb2
+and the ProtoDaemonClient from orch_monitor.proto_client instead.
+
+See orch-365 for migration details.
+"""
+
+import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional
+
+warnings.warn(
+    "orch_monitor.models is deprecated. Use orch_monitor.api.orch_pb2 for protobuf types "
+    "or orch_monitor.proto_client.ProtoDaemonClient for daemon communication.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
 class Status(str, Enum):
