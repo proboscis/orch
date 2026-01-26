@@ -110,7 +110,27 @@ def _proto_multiplexer_to_str(m: pb.Multiplexer) -> str:
     return ""
 
 
+def _proto_branch_state_to_str(s: pb.BranchState) -> str:
+    mapping = {
+        pb.BRANCH_STATE_CLEAN: "clean",
+        pb.BRANCH_STATE_DIRTY: "dirty",
+        pb.BRANCH_STATE_MERGED: "merged",
+        pb.BRANCH_STATE_CONFLICT: "conflict",
+    }
+    return mapping.get(s, "")
+
+
 def _proto_run_to_model(r: pb.Run) -> Run:
+    additions = 0
+    deletions = 0
+    files_changed = 0
+    files: list[str] = []
+    if r.HasField("diff_stats"):
+        additions = r.diff_stats.additions
+        deletions = r.diff_stats.deletions
+        files_changed = r.diff_stats.files_changed
+        files = list(r.diff_stats.files)
+
     return Run(
         issue_id=r.issue_id,
         run_id=r.run_id,
@@ -132,6 +152,13 @@ def _proto_run_to_model(r: pb.Run) -> Run:
         updated_at=datetime.fromtimestamp(r.updated_at_unix)
         if r.updated_at_unix
         else None,
+        elapsed_seconds=r.elapsed_seconds,
+        elapsed_display=r.elapsed_display,
+        additions=additions,
+        deletions=deletions,
+        files_changed=files_changed,
+        files=files,
+        branch_state=_proto_branch_state_to_str(r.branch_state),
     )
 
 
