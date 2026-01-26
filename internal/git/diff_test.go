@@ -9,46 +9,60 @@ import (
 
 func TestParseDiffNumstat(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   string
-		wantAdd int
-		wantDel int
+		name           string
+		input          string
+		wantAdd        int
+		wantDel        int
+		wantFilesCount int
+		wantFiles      []string
 	}{
 		{
-			name:    "empty",
-			input:   "",
-			wantAdd: 0,
-			wantDel: 0,
+			name:           "empty",
+			input:          "",
+			wantAdd:        0,
+			wantDel:        0,
+			wantFilesCount: 0,
+			wantFiles:      nil,
 		},
 		{
-			name:    "single file",
-			input:   "10\t5\tfile.go\n",
-			wantAdd: 10,
-			wantDel: 5,
+			name:           "single file",
+			input:          "10\t5\tfile.go\n",
+			wantAdd:        10,
+			wantDel:        5,
+			wantFilesCount: 1,
+			wantFiles:      []string{"file.go"},
 		},
 		{
-			name:    "multiple files",
-			input:   "10\t5\tfile1.go\n20\t3\tfile2.go\n",
-			wantAdd: 30,
-			wantDel: 8,
+			name:           "multiple files",
+			input:          "10\t5\tfile1.go\n20\t3\tfile2.go\n",
+			wantAdd:        30,
+			wantDel:        8,
+			wantFilesCount: 2,
+			wantFiles:      []string{"file1.go", "file2.go"},
 		},
 		{
-			name:    "binary file",
-			input:   "-\t-\timage.png\n5\t2\tfile.go\n",
-			wantAdd: 5,
-			wantDel: 2,
+			name:           "binary file",
+			input:          "-\t-\timage.png\n5\t2\tfile.go\n",
+			wantAdd:        5,
+			wantDel:        2,
+			wantFilesCount: 2,
+			wantFiles:      []string{"image.png", "file.go"},
 		},
 		{
-			name:    "only additions",
-			input:   "100\t0\tnew_file.go\n",
-			wantAdd: 100,
-			wantDel: 0,
+			name:           "only additions",
+			input:          "100\t0\tnew_file.go\n",
+			wantAdd:        100,
+			wantDel:        0,
+			wantFilesCount: 1,
+			wantFiles:      []string{"new_file.go"},
 		},
 		{
-			name:    "only deletions",
-			input:   "0\t50\tdeleted_content.go\n",
-			wantAdd: 0,
-			wantDel: 50,
+			name:           "only deletions",
+			input:          "0\t50\tdeleted_content.go\n",
+			wantAdd:        0,
+			wantDel:        50,
+			wantFilesCount: 1,
+			wantFiles:      []string{"deleted_content.go"},
 		},
 	}
 
@@ -60,6 +74,17 @@ func TestParseDiffNumstat(t *testing.T) {
 			}
 			if stats.Deletions != tt.wantDel {
 				t.Errorf("Deletions = %d, want %d", stats.Deletions, tt.wantDel)
+			}
+			if stats.FilesChanged != tt.wantFilesCount {
+				t.Errorf("FilesChanged = %d, want %d", stats.FilesChanged, tt.wantFilesCount)
+			}
+			if len(stats.Files) != len(tt.wantFiles) {
+				t.Errorf("Files count = %d, want %d", len(stats.Files), len(tt.wantFiles))
+			}
+			for i, f := range tt.wantFiles {
+				if i >= len(stats.Files) || stats.Files[i] != f {
+					t.Errorf("Files[%d] = %q, want %q", i, stats.Files[i], f)
+				}
 			}
 		})
 	}
