@@ -19,6 +19,7 @@ from .multiplexer import (
     get_multiplexer,
     validate_multiplexer_config,
 )
+from .orch_api import OrchAPI, create_orch_api
 from .xdg import state_dir
 
 _launcher_logger = logging.getLogger("orch_monitor.launcher")
@@ -70,6 +71,17 @@ def _get_daemon_client(project_root: Path | None) -> "DaemonClient | None":
             return daemon
     except Exception as e:
         _launcher_logger.warning(f"Failed to get daemon client: {e}")
+    return None
+
+
+def _get_orch_api(project_root: Path | None) -> OrchAPI | None:
+    try:
+        config = Config.from_vault(project_root) if project_root else Config.load()
+        api = create_orch_api(config.socket_path, config.issues_root)
+        if api.is_available():
+            return api
+    except Exception as e:
+        _launcher_logger.warning(f"Failed to create OrchAPI: {e}")
     return None
 
 
@@ -417,7 +429,9 @@ class TmuxLayoutLauncher:
             if agent == "opencode":
                 session_id = query_latest_opencode_session(project_root)
                 if session_id:
-                    save_control_session(project_root, session_id, agent_type="opencode")
+                    save_control_session(
+                        project_root, session_id, agent_type="opencode"
+                    )
             elif agent == "claude":
                 session_id = load_control_session(project_root, agent_type="claude")
                 if session_id:

@@ -230,11 +230,18 @@ class OrchAPI(Protocol):
 def create_orch_api(
     socket_path: Optional[Path] = None,
     issues_root: Optional[Path] = None,
+    project_root: Optional[Path] = None,
+    base_branch: str = "main",
     fallback_to_cli: bool = True,
 ) -> OrchAPI:
     from .daemon_api import DaemonOrchAPI
 
-    api = DaemonOrchAPI(socket_path, issues_root)
+    api = DaemonOrchAPI(
+        socket_path=socket_path,
+        issues_root=issues_root,
+        project_root=project_root,
+        base_branch=base_branch,
+    )
 
     if api.is_available():
         return api
