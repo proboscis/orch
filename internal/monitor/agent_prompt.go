@@ -120,6 +120,8 @@ The following commands are interactive and will hang if called by an AI agent:
 
 ## Troubleshooting
 
+- Issue not showing in list: ` + "`orch validate-issue-files <issue-id>`" + ` to check for formatting errors
+- Validate all issue files: ` + "`orch validate-issue-files`" + ` to find malformed issues
 - Orphaned sessions: ` + "`orch repair`" + `
 - View daemon logs: Check ` + "`.orch/daemon.log`" + ` in project root
 - Force stop all: ` + "`orch stop --all`" + `
