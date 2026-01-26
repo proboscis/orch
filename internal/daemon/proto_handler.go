@@ -1,0 +1,722 @@
+package daemon
+
+import (
+	"crypto/rand"
+	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"os/exec"
+	"time"
+
+	"github.com/s22625/orch/api/orchpb"
+	"github.com/s22625/orch/internal/agent"
+	"github.com/s22625/orch/internal/git"
+	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/multiplexer"
+	"github.com/s22625/orch/internal/store"
+	"google.golang.org/protobuf/proto"
+)
+
+func generateMonitorID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+const (
+	maxProtoMessageSize = 10 * 1024 * 1024
+)
+
+func (s *SocketServer) handleProtoConnection(conn net.Conn, data []byte) {
+	defer conn.Close()
+
+	msgLen := binary.BigEndian.Uint32(data[:4])
+	if msgLen > maxProtoMessageSize {
+		s.sendProtoError(conn, "message too large")
+		return
+	}
+
+	msgData := make([]byte, msgLen)
+	if len(data) > 4 {
+		copy(msgData, data[4:])
+	}
+
+	remaining := int(msgLen) - (len(data) - 4)
+	if remaining > 0 {
+		_, err := io.ReadFull(conn, msgData[len(data)-4:])
+		if err != nil {
+			s.logger.Printf("failed to read proto message: %v", err)
+			return
+		}
+	}
+
+	var req orchpb.Request
+	if err := proto.Unmarshal(msgData, &req); err != nil {
+		s.logger.Printf("failed to unmarshal proto request: %v", err)
+		s.sendProtoError(conn, "invalid request")
+		return
+	}
+
+	resp := s.handleProtoRequest(&req)
+	s.sendProtoResponse(conn, resp)
+}
+
+func (s *SocketServer) handleProtoRequest(req *orchpb.Request) *orchpb.Response {
+	switch r := req.Request.(type) {
+	case *orchpb.Request_Ping:
+		return s.handleProtoPing(r.Ping)
+	case *orchpb.Request_ListRuns:
+		return s.handleProtoListRuns(r.ListRuns)
+	case *orchpb.Request_GetRun:
+		return s.handleProtoGetRun(r.GetRun)
+	case *orchpb.Request_StartRun:
+		return s.handleProtoStartRun(r.StartRun)
+	case *orchpb.Request_StopRun:
+		return s.handleProtoStopRun(r.StopRun)
+	case *orchpb.Request_ResolveRun:
+		return s.handleProtoResolveRun(r.ResolveRun)
+	case *orchpb.Request_ListIssues:
+		return s.handleProtoListIssues(r.ListIssues)
+	case *orchpb.Request_GetIssue:
+		return s.handleProtoGetIssue(r.GetIssue)
+	case *orchpb.Request_CreateIssue:
+		return s.handleProtoCreateIssue(r.CreateIssue)
+	case *orchpb.Request_CloseIssue:
+		return s.handleProtoCloseIssue(r.CloseIssue)
+	case *orchpb.Request_GetControlAgentLaunch:
+		return s.handleProtoGetControlAgentLaunch(r.GetControlAgentLaunch)
+	case *orchpb.Request_GetAttachInfo:
+		return s.handleProtoGetAttachInfo(r.GetAttachInfo)
+	case *orchpb.Request_CaptureSession:
+		return s.handleProtoCaptureSession(r.CaptureSession)
+	case *orchpb.Request_SendMessage:
+		return s.handleProtoSendMessage(r.SendMessage)
+	case *orchpb.Request_GetDiffStats:
+		return s.handleProtoGetDiffStats(r.GetDiffStats)
+	case *orchpb.Request_GetBranchState:
+		return s.handleProtoGetBranchState(r.GetBranchState)
+	case *orchpb.Request_GetDiff:
+		return s.handleProtoGetDiff(r.GetDiff)
+	case *orchpb.Request_RegisterMonitor:
+		return s.handleProtoRegisterMonitor(r.RegisterMonitor)
+	case *orchpb.Request_UnregisterMonitor:
+		return s.handleProtoUnregisterMonitor(r.UnregisterMonitor)
+	case *orchpb.Request_Heartbeat:
+		return s.handleProtoHeartbeat(r.Heartbeat)
+	default:
+		return errorResponse("unknown request type")
+	}
+}
+
+func (s *SocketServer) sendProtoResponse(conn net.Conn, resp *orchpb.Response) {
+	data, err := proto.Marshal(resp)
+	if err != nil {
+		s.logger.Printf("failed to marshal proto response: %v", err)
+		return
+	}
+
+	lenBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(lenBuf, uint32(len(data)))
+
+	conn.Write(lenBuf)
+	conn.Write(data)
+}
+
+func (s *SocketServer) sendProtoError(conn net.Conn, errMsg string) {
+	s.sendProtoResponse(conn, errorResponse(errMsg))
+}
+
+func errorResponse(errMsg string) *orchpb.Response {
+	return &orchpb.Response{Ok: false, Error: errMsg}
+}
+
+func (s *SocketServer) resolveStoreFromProto(issuesRoot string) store.Store {
+	if issuesRoot != "" {
+		return s.getOrCreateStore(issuesRoot, "")
+	}
+	return nil
+}
+
+func (s *SocketServer) handleProtoPing(_ *orchpb.PingRequest) *orchpb.Response {
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_Ping{
+			Ping: &orchpb.PingResponse{Ok: true, Version: "1.0.0"},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	filter := &store.ListRunsFilter{
+		IssueID:    req.IssueId,
+		Status:     protoRunStatusSliceToModel(req.Status),
+		Agent:      req.Agent,
+		TextSearch: req.TextSearch,
+		TimeRange:  req.TimeRange,
+		Limit:      int(req.Limit),
+	}
+
+	runs, err := st.ListRuns(filter)
+	if err != nil {
+		return errorResponse("store_error")
+	}
+
+	computeAlive := func(run *model.Run) bool {
+		manager := agent.GetManager(run)
+		return manager.IsAlive(run)
+	}
+
+	protoRuns := make([]*orchpb.Run, len(runs))
+	for i, run := range runs {
+		pr := modelRunToProto(run)
+		pr.BranchState = orchpb.BranchState_BRANCH_STATE_UNSPECIFIED
+		if computeAlive(run) {
+			pr.ElapsedDisplay = formatElapsedTime(run.StartedAt, run.UpdatedAt, run.Status)
+		}
+		protoRuns[i] = pr
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_ListRuns{
+			ListRuns: &orchpb.ListRunsResponse{
+				Runs:  protoRuns,
+				Total: int32(len(runs)),
+			},
+		},
+	}
+}
+
+func formatElapsedTime(startedAt, updatedAt time.Time, status model.Status) string {
+	if startedAt.IsZero() {
+		return "-"
+	}
+
+	var elapsed time.Duration
+	if status == model.StatusRunning || status == model.StatusBlocked || status == model.StatusBlockedAPI {
+		elapsed = time.Since(startedAt)
+	} else if !updatedAt.IsZero() {
+		elapsed = updatedAt.Sub(startedAt)
+	} else {
+		elapsed = time.Since(startedAt)
+	}
+
+	hours := int(elapsed.Hours())
+	minutes := int(elapsed.Minutes()) % 60
+	seconds := int(elapsed.Seconds()) % 60
+
+	if hours > 0 {
+		return fmt.Sprintf("%dh%dm", hours, minutes)
+	} else if minutes > 0 {
+		return fmt.Sprintf("%dm%ds", minutes, seconds)
+	}
+	return fmt.Sprintf("%ds", seconds)
+}
+
+func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+	run, err := st.GetRun(ref)
+	if err != nil {
+		return errorResponse("not_found")
+	}
+
+	protoEvents := make([]*orchpb.Event, len(run.Events))
+	for i, e := range run.Events {
+		protoEvents[i] = modelEventToProto(e)
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_GetRun{
+			GetRun: &orchpb.GetRunResponse{
+				Run:    modelRunToProto(run),
+				Events: protoEvents,
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.Response {
+	jsonReq := SendRequest{
+		Type:       "start_run",
+		IssueID:    req.IssueId,
+		AgentType:  req.Agent,
+		Message:    req.Model,
+		IssuesRoot: req.IssuesRoot,
+	}
+
+	var buf jsonCapture
+	encoder := json.NewEncoder(&buf)
+	s.handleStartRun(jsonReq, encoder)
+
+	var result StartRunResponse
+	if err := json.Unmarshal(buf.data, &result); err != nil {
+		return errorResponse("internal error")
+	}
+
+	if !result.OK {
+		return errorResponse(result.Error)
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_StartRun{
+			StartRun: &orchpb.StartRunResponse{
+				RunId:        result.RunID,
+				Branch:       result.Branch,
+				WorktreePath: result.WorktreePath,
+				TmuxSession:  result.TmuxSession,
+			},
+		},
+	}
+}
+
+type jsonCapture struct {
+	data []byte
+}
+
+func (j *jsonCapture) Write(p []byte) (n int, err error) {
+	j.data = append(j.data, p...)
+	return len(p), nil
+}
+
+func (s *SocketServer) handleProtoStopRun(req *orchpb.StopRunRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+	run, err := st.GetRun(ref)
+	if err != nil {
+		return errorResponse("not_found")
+	}
+
+	if err := s.stopSingleRun(run, st); err != nil {
+		return errorResponse(err.Error())
+	}
+
+	return &orchpb.Response{
+		Ok:       true,
+		Response: &orchpb.Response_StopRun{StopRun: &orchpb.StopRunResponse{}},
+	}
+}
+
+func (s *SocketServer) handleProtoResolveRun(req *orchpb.ResolveRunRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	if err := st.SetIssueStatus(req.IssueId, model.IssueStatusResolved); err != nil {
+		return errorResponse("store_error")
+	}
+
+	return &orchpb.Response{
+		Ok:       true,
+		Response: &orchpb.Response_ResolveRun{ResolveRun: &orchpb.ResolveRunResponse{}},
+	}
+}
+
+func (s *SocketServer) handleProtoListIssues(req *orchpb.ListIssuesRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	issues, err := st.ListIssues()
+	if err != nil {
+		return errorResponse("store_error")
+	}
+
+	protoIssues := make([]*orchpb.Issue, len(issues))
+	for i, issue := range issues {
+		protoIssues[i] = modelIssueToProto(issue)
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_ListIssues{
+			ListIssues: &orchpb.ListIssuesResponse{
+				Issues: protoIssues,
+				Total:  int32(len(issues)),
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoGetIssue(req *orchpb.GetIssueRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	issue, err := st.ResolveIssue(req.IssueId)
+	if err != nil {
+		return errorResponse("not_found")
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_GetIssue{
+			GetIssue: &orchpb.GetIssueResponse{
+				Issue: modelIssueToProto(issue),
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoCreateIssue(req *orchpb.CreateIssueRequest) *orchpb.Response {
+	jsonReq := SendRequest{
+		Type:       "create_issue",
+		IssueID:    req.IssueId,
+		Title:      req.Title,
+		Body:       req.Body,
+		IssuesRoot: req.IssuesRoot,
+	}
+
+	var buf jsonCapture
+	encoder := json.NewEncoder(&buf)
+	s.handleCreateIssue(jsonReq, encoder)
+
+	var result CreateIssueResponse
+	if err := json.Unmarshal(buf.data, &result); err != nil {
+		return errorResponse("internal error")
+	}
+
+	if !result.OK {
+		return errorResponse(result.Error)
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_CreateIssue{
+			CreateIssue: &orchpb.CreateIssueResponse{
+				Path: result.Path,
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoCloseIssue(req *orchpb.CloseIssueRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	if err := st.SetIssueStatus(req.IssueId, model.IssueStatusClosed); err != nil {
+		return errorResponse("not_found")
+	}
+
+	return &orchpb.Response{
+		Ok:       true,
+		Response: &orchpb.Response_CloseIssue{CloseIssue: &orchpb.CloseIssueResponse{}},
+	}
+}
+
+func (s *SocketServer) handleProtoGetControlAgentLaunch(req *orchpb.GetControlAgentLaunchRequest) *orchpb.Response {
+	jsonReq := SendRequest{
+		Type:        "get_control_agent_launch",
+		ProjectRoot: req.ProjectRoot,
+		AgentType:   req.Agent,
+		Force:       req.NewSession,
+	}
+
+	var buf jsonCapture
+	encoder := json.NewEncoder(&buf)
+	s.handleGetControlAgentLaunch(jsonReq, encoder)
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(buf.data, &result); err != nil {
+		return errorResponse("internal error")
+	}
+
+	if ok, _ := result["ok"].(bool); !ok {
+		errMsg, _ := result["error"].(string)
+		return errorResponse(errMsg)
+	}
+
+	command, _ := result["command"].(string)
+	promptFile, _ := result["prompt_file"].(string)
+	port, _ := result["port"].(float64)
+	sessionID, _ := result["session_id"].(string)
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_GetControlAgentLaunch{
+			GetControlAgentLaunch: &orchpb.GetControlAgentLaunchResponse{
+				Command:    command,
+				PromptFile: promptFile,
+				Port:       int32(port),
+				SessionId:  sessionID,
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+	run, err := st.GetRun(ref)
+	if err != nil {
+		return errorResponse("not_found")
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_GetAttachInfo{
+			GetAttachInfo: &orchpb.GetAttachInfoResponse{
+				Command:      []string{"orch", "attach", fmt.Sprintf("%s#%s", run.IssueID, run.RunID)},
+				Multiplexer:  multiplexerToProto(run.Multiplexer),
+				SessionName:  run.TmuxSession,
+				WorktreePath: run.WorktreePath,
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoCaptureSession(req *orchpb.CaptureSessionRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+	run, err := st.GetRun(ref)
+	if err != nil {
+		return errorResponse("not_found")
+	}
+
+	var content string
+	muxType, _ := multiplexer.ParseType(run.Multiplexer)
+	mux, _ := multiplexer.GetMultiplexer(muxType)
+	if mux != nil && run.TmuxSession != "" {
+		content, _ = mux.CapturePane(run.TmuxSession, 100)
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_CaptureSession{
+			CaptureSession: &orchpb.CaptureSessionResponse{
+				Content:       content,
+				TimestampUnix: time.Now().Unix(),
+				Source:        run.Multiplexer,
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoSendMessage(req *orchpb.SendMessageRequest) *orchpb.Response {
+	jsonReq := SendRequest{
+		Type:       "send",
+		IssueID:    req.IssueId,
+		RunID:      req.RunId,
+		Message:    req.Message,
+		IssuesRoot: req.IssuesRoot,
+	}
+
+	if err := s.processSend(jsonReq); err != nil {
+		return errorResponse(err.Error())
+	}
+
+	return &orchpb.Response{
+		Ok:       true,
+		Response: &orchpb.Response_SendMessage{SendMessage: &orchpb.SendMessageResponse{}},
+	}
+}
+
+func (s *SocketServer) handleProtoGetDiffStats(req *orchpb.GetDiffStatsRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+	run, err := st.GetRun(ref)
+	if err != nil {
+		return errorResponse("not_found")
+	}
+
+	stats := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_GetDiffStats{
+			GetDiffStats: &orchpb.GetDiffStatsResponse{
+				DiffStats: &orchpb.DiffStats{
+					Additions:    int32(stats.Additions),
+					Deletions:    int32(stats.Deletions),
+					FilesChanged: 0,
+					Files:        nil,
+				},
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoGetBranchState(req *orchpb.GetBranchStateRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+	run, err := st.GetRun(ref)
+	if err != nil {
+		return errorResponse("not_found")
+	}
+
+	state := computeBranchState(run.WorktreePath, run.Branch, "main")
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_GetBranchState{
+			GetBranchState: &orchpb.GetBranchStateResponse{
+				State: state,
+			},
+		},
+	}
+}
+
+func computeBranchState(worktreePath, branch, baseBranch string) orchpb.BranchState {
+	if worktreePath == "" {
+		return orchpb.BranchState_BRANCH_STATE_UNSPECIFIED
+	}
+
+	cmd := exec.Command("git", "-C", worktreePath, "status", "--porcelain")
+	output, err := cmd.Output()
+	if err != nil {
+		return orchpb.BranchState_BRANCH_STATE_UNSPECIFIED
+	}
+	if len(output) > 0 {
+		return orchpb.BranchState_BRANCH_STATE_DIRTY
+	}
+
+	cmd = exec.Command("git", "-C", worktreePath, "branch", "--merged", baseBranch, "--format=%(refname:short)")
+	output, err = cmd.Output()
+	if err == nil {
+		lines := string(output)
+		for _, line := range splitLines(lines) {
+			if line == branch {
+				return orchpb.BranchState_BRANCH_STATE_MERGED
+			}
+		}
+	}
+
+	return orchpb.BranchState_BRANCH_STATE_CLEAN
+}
+
+func splitLines(s string) []string {
+	var lines []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			if i > start {
+				lines = append(lines, s[start:i])
+			}
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		lines = append(lines, s[start:])
+	}
+	return lines
+}
+
+func (s *SocketServer) handleProtoGetDiff(req *orchpb.GetDiffRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+	run, err := st.GetRun(ref)
+	if err != nil {
+		return errorResponse("not_found")
+	}
+
+	var diff string
+	if run.WorktreePath != "" && run.Branch != "" {
+		cmd := exec.Command("git", "-C", run.WorktreePath, "diff", "main..."+run.Branch)
+		output, err := cmd.Output()
+		if err == nil {
+			diff = string(output)
+		}
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_GetDiff{
+			GetDiff: &orchpb.GetDiffResponse{
+				Diff: diff,
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoRegisterMonitor(req *orchpb.RegisterMonitorRequest) *orchpb.Response {
+	conn := &MonitorConnection{
+		ID:          generateMonitorID(),
+		PID:         int(req.Pid),
+		Type:        req.MonitorType,
+		View:        req.View,
+		StartedAt:   time.Now(),
+		LastSeen:    time.Now(),
+		Project:     req.Project,
+		TmuxSession: req.SessionName,
+	}
+
+	s.monitorsMu.Lock()
+	s.monitors[conn.ID] = conn
+	s.monitorsMu.Unlock()
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_RegisterMonitor{
+			RegisterMonitor: &orchpb.RegisterMonitorResponse{
+				MonitorId: conn.ID,
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoUnregisterMonitor(req *orchpb.UnregisterMonitorRequest) *orchpb.Response {
+	s.monitorsMu.Lock()
+	delete(s.monitors, req.MonitorId)
+	s.monitorsMu.Unlock()
+
+	return &orchpb.Response{
+		Ok:       true,
+		Response: &orchpb.Response_UnregisterMonitor{UnregisterMonitor: &orchpb.UnregisterMonitorResponse{}},
+	}
+}
+
+func (s *SocketServer) handleProtoHeartbeat(req *orchpb.HeartbeatRequest) *orchpb.Response {
+	s.monitorsMu.Lock()
+	if conn, ok := s.monitors[req.MonitorId]; ok {
+		conn.LastSeen = time.Now()
+	}
+	s.monitorsMu.Unlock()
+
+	return &orchpb.Response{
+		Ok:       true,
+		Response: &orchpb.Response_Heartbeat{Heartbeat: &orchpb.HeartbeatResponse{}},
+	}
+}

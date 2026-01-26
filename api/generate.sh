@@ -4,10 +4,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 
+# Ensure GOPATH/bin is in PATH for protoc-gen-go
+export PATH="${GOPATH:-$HOME/go}/bin:$PATH"
+
+# Create output directories
+mkdir -p "$ROOT_DIR/api/orchpb"
+mkdir -p "$ROOT_DIR/orch-monitor-tui/orch_monitor/api"
+
 # Generate Go code
+# Using module mode to place output at api/orchpb/orch.pb.go
 protoc \
   --go_out="$ROOT_DIR" \
-  --go_opt=paths=source_relative \
+  --go_opt=module=github.com/s22625/orch \
   -I "$SCRIPT_DIR" \
   "$SCRIPT_DIR/orch.proto"
 
@@ -18,7 +26,11 @@ protoc \
   -I "$SCRIPT_DIR" \
   "$SCRIPT_DIR/orch.proto"
 
+# Create __init__.py for Python package
+touch "$ROOT_DIR/orch-monitor-tui/orch_monitor/api/__init__.py"
+
 echo "Generated:"
 echo "  - api/orchpb/orch.pb.go"
 echo "  - orch-monitor-tui/orch_monitor/api/orch_pb2.py"
 echo "  - orch-monitor-tui/orch_monitor/api/orch_pb2.pyi"
+echo "  - orch-monitor-tui/orch_monitor/api/__init__.py"

@@ -30,6 +30,21 @@ const (
 	socketFile = "daemon.sock"
 )
 
+func readAll(conn net.Conn) ([]byte, error) {
+	var data []byte
+	buf := make([]byte, 4096)
+	for {
+		n, err := conn.Read(buf)
+		if n > 0 {
+			data = append(data, buf[:n]...)
+		}
+		if err != nil {
+			break
+		}
+	}
+	return data, nil
+}
+
 // SocketFilePath returns the global daemon socket path.
 func SocketFilePath(_ string) string {
 	return xdg.SocketPath()
@@ -324,19 +339,37 @@ func (s *SocketServer) acceptLoop() {
 }
 
 func (s *SocketServer) handleConnection(conn net.Conn) {
-	defer conn.Close()
-
 	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 
-	decoder := json.NewDecoder(conn)
-	encoder := json.NewEncoder(conn)
+	peek := make([]byte, 4)
+	n, err := conn.Read(peek)
+	if err != nil || n == 0 {
+		conn.Close()
+		return
+	}
+
+	if n > 0 && peek[0] != '{' {
+		s.handleProtoConnection(conn, peek[:n])
+		return
+	}
+
+	defer conn.Close()
+
+	fullData := make([]byte, 0, 4096)
+	fullData = append(fullData, peek[:n]...)
+
+	remaining, _ := readAll(conn)
+	fullData = append(fullData, remaining...)
 
 	var req SendRequest
-	if err := decoder.Decode(&req); err != nil {
+	if err := json.Unmarshal(fullData, &req); err != nil {
 		s.logger.Printf("failed to decode request: %v", err)
+		encoder := json.NewEncoder(conn)
 		encoder.Encode(SendResponse{OK: false, Error: "invalid_request"})
 		return
 	}
+
+	encoder := json.NewEncoder(conn)
 
 	switch req.Type {
 	case "send":
