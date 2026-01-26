@@ -292,18 +292,92 @@ class DaemonClient:
 
         return _json_to_issue_full(issue_data)
 
-    def stop_run(self, issue_id: str, run_id: str) -> None:
-        """Stop a running run.
-
-        Note: This uses the orch CLI as the daemon doesn't have a stop API.
-        The app.py will call orch stop directly via subprocess.
+    def start_run(self, issue_id: str, agent: str = "", model: str = "") -> dict:
+        """Start a new run for an issue via the daemon.
 
         Args:
             issue_id: The issue ID.
-            run_id: The run ID.
+            agent: Agent type (e.g., "opencode", "claude"). Defaults to config value.
+            model: Model name (optional).
+
+        Returns:
+            Dict with run_id, branch, worktree, tmux_session, status.
+
+        Raises:
+            DaemonError: If there's an error from the daemon.
         """
-        # The daemon doesn't have a stop API - app.py calls orch stop directly
-        pass
+        request = {
+            "type": "start_run",
+            "issue_id": issue_id,
+            "agent_type": agent,
+            "message": model,
+            "issues_root": self._issues_root_str(),
+        }
+
+        response = self._send_request(request)
+
+        if not response.get("ok", False):
+            raise DaemonError(response.get("error", "Unknown error"))
+
+        return {
+            "run_id": response.get("run_id", ""),
+            "branch": response.get("branch", ""),
+            "worktree": response.get("worktree", ""),
+            "tmux_session": response.get("tmux_session", ""),
+            "status": response.get("status", ""),
+        }
+
+    def stop_run(self, issue_id: str, run_id: str = "") -> dict:
+        """Stop a running run via the daemon.
+
+        Args:
+            issue_id: The issue ID.
+            run_id: The run ID (optional, stops all active runs for issue if empty).
+
+        Returns:
+            Dict with stopped_runs list and stopped_count.
+
+        Raises:
+            DaemonError: If there's an error from the daemon.
+        """
+        request = {
+            "type": "stop_run",
+            "issue_id": issue_id,
+            "run_id": run_id,
+            "issues_root": self._issues_root_str(),
+        }
+
+        response = self._send_request(request)
+
+        if not response.get("ok", False):
+            raise DaemonError(response.get("error", "Unknown error"))
+
+        return {
+            "stopped_runs": response.get("stopped_runs", []),
+            "stopped_count": response.get("stopped_count", 0),
+        }
+
+    def close_issue(self, issue_id: str, comment: str = "") -> None:
+        """Close an issue via the daemon.
+
+        Args:
+            issue_id: The issue ID.
+            comment: Optional comment (for GitHub issues).
+
+        Raises:
+            DaemonError: If there's an error from the daemon.
+        """
+        request = {
+            "type": "close_issue",
+            "issue_id": issue_id,
+            "comment": comment,
+            "issues_root": self._issues_root_str(),
+        }
+
+        response = self._send_request(request)
+
+        if not response.get("ok", False):
+            raise DaemonError(response.get("error", "Unknown error"))
 
     def send_message(self, issue_id: str, run_id: str, message: str) -> None:
         """Send a message to a running agent (fire-and-forget).

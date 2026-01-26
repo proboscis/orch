@@ -203,7 +203,42 @@ func (c *Client) GetIssue(issueID string) (*GetIssueResponse, error) {
 	return &resp, nil
 }
 
-// StopRunRequest is the request for stop_run
+type StartRunRequest struct {
+	Type        string `json:"type"`
+	IssueID     string `json:"issue_id"`
+	Agent       string `json:"agent,omitempty"`
+	Model       string `json:"model,omitempty"`
+	ProjectRoot string `json:"project_root,omitempty"`
+	IssuesRoot  string `json:"issues_root,omitempty"`
+}
+
+func (c *Client) StartRun(issueID, agent, model string) (*StartRunResponse, error) {
+	req := StartRunRequest{
+		Type:        "start_run",
+		IssueID:     issueID,
+		Agent:       agent,
+		Model:       model,
+		ProjectRoot: c.projectRoot,
+		IssuesRoot:  c.issuesRoot,
+	}
+
+	raw, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp StartRunResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !resp.OK {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	return &resp, nil
+}
+
 type StopRunRequest struct {
 	Type        string `json:"type"`
 	IssueID     string `json:"issue_id"`

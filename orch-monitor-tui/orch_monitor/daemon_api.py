@@ -432,43 +432,26 @@ class DaemonOrchAPI:
         model: Optional[str] = None,
     ) -> Result[StartRunResult, OrchError]:
         try:
-            cmd = self._build_orch_cmd() + ["run", issue_id]
-            if agent:
-                cmd.extend(["--agent", agent])
-            if model:
-                cmd.extend(["--model", model])
-
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if result.returncode != 0:
-                error_msg = (
-                    result.stderr.strip() or result.stdout.strip() or "Unknown error"
+            result = self._daemon.start_run(issue_id, agent or "", model or "")
+            return Success(
+                StartRunResult(
+                    run_id=result.get("run_id", ""),
+                    branch=result.get("branch", ""),
+                    worktree_path=result.get("worktree", ""),
                 )
-                return Failure(OrchError(f"Failed to start run: {error_msg}"))
-
-            # Parse output for run_id, branch, worktree_path
-            # For now, return minimal info since orch run output format varies
-            return Success(StartRunResult(run_id="", branch="", worktree_path=""))
-        except subprocess.TimeoutExpired:
-            return Failure(OrchError("Timeout starting run"))
-        except FileNotFoundError:
-            return Failure(OrchError("'orch' command not found"))
-        except Exception as e:
+            )
+        except DaemonNotRunningError:
+            return Failure(ApiDaemonNotRunningError("Daemon not running"))
+        except DaemonError as e:
             return Failure(OrchError(str(e)))
 
     def stop_run(self, issue_id: str, run_id: str) -> Result[None, OrchError]:
         try:
-            run_ref = f"{issue_id}#{run_id}" if run_id else issue_id
-            cmd = self._build_orch_cmd() + ["stop", run_ref]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            if result.returncode != 0:
-                error_msg = (
-                    result.stderr.strip() or result.stdout.strip() or "Unknown error"
-                )
-                return Failure(OrchError(f"Failed to stop run: {error_msg}"))
+            self._daemon.stop_run(issue_id, run_id)
             return Success(None)
-        except subprocess.TimeoutExpired:
-            return Failure(OrchError("Timeout stopping run"))
-        except Exception as e:
+        except DaemonNotRunningError:
+            return Failure(ApiDaemonNotRunningError("Daemon not running"))
+        except DaemonError as e:
             return Failure(OrchError(str(e)))
 
     def resolve_run(self, issue_id: str, run_id: str) -> Result[None, OrchError]:
@@ -542,17 +525,11 @@ class DaemonOrchAPI:
 
     def close_issue(self, issue_id: str) -> Result[None, OrchError]:
         try:
-            cmd = self._build_orch_cmd() + ["issue", "close", issue_id]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if result.returncode != 0:
-                error_msg = (
-                    result.stderr.strip() or result.stdout.strip() or "Unknown error"
-                )
-                return Failure(OrchError(f"Failed to close issue: {error_msg}"))
+            self._daemon.close_issue(issue_id)
             return Success(None)
-        except subprocess.TimeoutExpired:
-            return Failure(OrchError("Timeout closing issue"))
-        except Exception as e:
+        except DaemonNotRunningError:
+            return Failure(ApiDaemonNotRunningError("Daemon not running"))
+        except DaemonError as e:
             return Failure(OrchError(str(e)))
 
     # === Control Agent ===
