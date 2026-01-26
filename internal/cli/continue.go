@@ -107,7 +107,7 @@ func runContinue(refStr string, opts *continueOptions) error {
 }
 
 func appendStatusViaDaemon(repoRoot string, st store.Store, run *model.Run, status model.Status) error {
-	daemonClient := daemon.NewClient(repoRoot)
+	daemonClient := daemon.NewProtoClient(repoRoot)
 	if daemonClient.IsAvailable() {
 		err := daemonClient.AppendStatusEvent(run.IssueID, run.RunID, string(status), string(model.EventSourceUser))
 		if err == nil {

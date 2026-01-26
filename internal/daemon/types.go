@@ -505,3 +505,60 @@ type StartRunResponse struct {
 	TmuxSession  string `json:"tmux_session,omitempty"`
 	Status       string `json:"status,omitempty"`
 }
+
+type StopRunResponse struct {
+	OK           bool     `json:"ok"`
+	Error        string   `json:"error,omitempty"`
+	StoppedRuns  []string `json:"stopped_runs,omitempty"`
+	StoppedCount int      `json:"stopped_count"`
+}
+
+type ResolveIssueResponse struct {
+	OK      bool   `json:"ok"`
+	Error   string `json:"error,omitempty"`
+	IssueID string `json:"issue_id,omitempty"`
+}
+
+type AppendEventResponse struct {
+	OK      bool   `json:"ok"`
+	Error   string `json:"error,omitempty"`
+	Skipped bool   `json:"skipped,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+type CreateIssueResponse struct {
+	OK      bool   `json:"ok"`
+	Error   string `json:"error,omitempty"`
+	IssueID string `json:"issue_id,omitempty"`
+	Path    string `json:"path,omitempty"`
+}
+
+type CloseIssueResponse struct {
+	OK      bool   `json:"ok"`
+	Error   string `json:"error,omitempty"`
+	IssueID string `json:"issue_id,omitempty"`
+}
+
+type GetAttachInfoResponse struct {
+	OK                bool   `json:"ok"`
+	Error             string `json:"error,omitempty"`
+	IssueID           string `json:"issue_id,omitempty"`
+	RunID             string `json:"run_id,omitempty"`
+	Agent             string `json:"agent,omitempty"`
+	TmuxSession       string `json:"tmux_session,omitempty"`
+	Multiplexer       string `json:"multiplexer,omitempty"`
+	WorktreePath      string `json:"worktree_path,omitempty"`
+	ServerPort        int    `json:"server_port,omitempty"`
+	OpenCodeSessionID string `json:"opencode_session_id,omitempty"`
+	Branch            string `json:"branch,omitempty"`
+}
+
+type GetControlAgentLaunchResponse struct {
+	OK         bool   `json:"ok"`
+	Error      string `json:"error,omitempty"`
+	Command    string `json:"command,omitempty"`
+	PromptFile string `json:"prompt_file,omitempty"`
+	Port       int    `json:"port,omitempty"`
+	SessionID  string `json:"session_id,omitempty"`
+	Agent      string `json:"agent,omitempty"`
+}

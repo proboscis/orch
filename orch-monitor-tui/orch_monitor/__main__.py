@@ -11,7 +11,7 @@ from typing import Protocol
 
 from .app import IssuesDashboard, OrchMonitorApp, RunsDashboard, setup_logging
 from .config import Config
-from .daemon import DaemonClient
+from .proto_client import ProtoDaemonClient
 from .multiplexer import (
     InvalidMultiplexerConfigError,
     MultiplexerType,
@@ -63,10 +63,10 @@ def get_session_name(vault_path: Path | None = None) -> str:
 CONTROL_PROMPT_INSTRUCTION = f"ultrathink Please read '{CONTROL_PROMPT_FILE}' in the current directory and follow the instructions found there."
 
 
-def _get_daemon_client(project_root: Path | None) -> "DaemonClient | None":
+def _get_daemon_client(project_root: Path | None) -> "ProtoDaemonClient | None":
     try:
         config = Config.from_vault(project_root) if project_root else Config.load()
-        daemon = DaemonClient(config.socket_path, config.issues_root)
+        daemon = ProtoDaemonClient(config.socket_path, config.issues_root)
         if daemon.is_available():
             return daemon
     except Exception as e:
@@ -88,48 +88,41 @@ def _get_orch_api(project_root: Path | None) -> OrchAPI | None:
 def load_control_session(project_root: Path | None, agent_type: str = "") -> str | None:
     """Load control session for the given agent type.
 
-    The daemon handles:
-    - Returning stored session if agent_type matches
-    - Clearing stored session if agent_type changed
-    - Discovering session automatically for 'claude' agent type
-
-    Returns session_id or None.
+    Note: After protobuf migration (orch-368), session management is handled
+    internally by get_control_agent_launch. This function is kept for API
+    compatibility but always returns None.
     """
-    daemon = _get_daemon_client(project_root)
-    if daemon:
-        project_str = str(project_root) if project_root else str(Path.cwd())
-        session_id, _ = daemon.get_control_session(project_str, agent_type)
-        if session_id:
-            _launcher_logger.info(
-                f"Loaded control session from daemon: {session_id} (agent: {agent_type})"
-            )
-            return session_id
+    _launcher_logger.debug(
+        f"load_control_session called but session management is now internal to daemon"
+    )
     return None
 
 
 def save_control_session(
     project_root: Path | None, session_id: str, agent_type: str = ""
 ) -> bool:
-    daemon = _get_daemon_client(project_root)
-    if daemon:
-        project_str = str(project_root) if project_root else str(Path.cwd())
-        if daemon.set_control_session(project_str, session_id, agent_type):
-            _launcher_logger.info(
-                f"Saved control session via daemon: {session_id} (agent: {agent_type})"
-            )
-            return True
-    _launcher_logger.error("Failed to save control session: daemon not available")
+    """Save control session.
+
+    Note: After protobuf migration (orch-368), session management is handled
+    internally by get_control_agent_launch. This function is kept for API
+    compatibility but always returns False.
+    """
+    _launcher_logger.debug(
+        f"save_control_session called but session management is now internal to daemon"
+    )
     return False
 
 
 def clear_control_session(project_root: Path | None) -> bool:
-    daemon = _get_daemon_client(project_root)
-    if daemon:
-        project_str = str(project_root) if project_root else str(Path.cwd())
-        if daemon.clear_control_session(project_str):
-            _launcher_logger.info("Cleared control session via daemon")
-            return True
-    _launcher_logger.error("Failed to clear control session: daemon not available")
+    """Clear control session.
+
+    Note: After protobuf migration (orch-368), session management is handled
+    internally by get_control_agent_launch. This function is kept for API
+    compatibility but always returns False.
+    """
+    _launcher_logger.debug(
+        f"clear_control_session called but session management is now internal to daemon"
+    )
     return False
 
 
@@ -204,7 +197,7 @@ def ensure_daemon(
         config = Config.from_issues_root(issues_root)
     else:
         config = Config.load()
-    daemon = DaemonClient(config.socket_path, config.issues_root)
+    daemon = ProtoDaemonClient(config.socket_path, config.issues_root)
     socket_path = config.socket_path
 
     if daemon.is_available():

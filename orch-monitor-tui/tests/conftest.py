@@ -8,8 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from orch_monitor.config import Config, FilterState, MonitorConfig
-from orch_monitor.daemon import (
-    DaemonClient,
+from orch_monitor.proto_client import (
     ListIssuesResponse,
     ListRunsResponse,
 )

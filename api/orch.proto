@@ -321,6 +321,105 @@ message HeartbeatRequest {
 
 message HeartbeatResponse {}
 
+message ListMonitorsRequest {
+  string project = 1;
+  bool all = 2;
+}
+
+message MonitorInfo {
+  string id = 1;
+  int32 pid = 2;
+  string type = 3;
+  string view = 4;
+  string project = 5;
+  string session_name = 6;
+  int64 started_at_unix = 7;
+  int64 last_heartbeat_unix = 8;
+}
+
+message ListMonitorsResponse {
+  repeated MonitorInfo monitors = 1;
+}
+
+message KillMonitorRequest {
+  string monitor_id = 1;
+  bool all = 2;
+  bool global = 3;
+  string project = 4;
+}
+
+message KillMonitorResponse {
+  int32 killed_count = 1;
+}
+
+// --- Short ID Resolution ---
+
+message GetRunByShortIDRequest {
+  string issues_root = 1;
+  string short_id = 2;
+}
+
+message GetRunByShortIDResponse {
+  Run run = 1;
+  repeated Event events = 2;
+}
+
+// --- Issue Resolution ---
+
+message ResolveIssueRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+  bool force = 3;
+}
+
+message ResolveIssueResponse {
+  string issue_id = 1;
+}
+
+message AppendEventRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+  string run_id = 3;
+  string event_type = 4;
+  string event_name = 5;
+  map<string, string> event_attrs = 6;
+  string event_source = 7;
+}
+
+message AppendEventResponse {
+  bool skipped = 1;
+  string reason = 2;
+}
+
+message EnsureOpenCodeServerRequest {
+  string project_root = 1;
+}
+
+message EnsureOpenCodeServerResponse {
+  int32 port = 1;
+  bool already_running = 2;
+}
+
+message RegisterRepoRequest {
+  string project_root = 1;
+}
+
+message RegisterRepoResponse {
+  string repo_id = 1;
+}
+
+message ListReposRequest {}
+
+message RepoInfo {
+  string id = 1;
+  string project_root = 2;
+  string issues_root = 3;
+}
+
+message ListReposResponse {
+  repeated RepoInfo repos = 1;
+}
+
 // =============================================================================
 // Unified Request/Response (for Unix socket dispatch)
 // =============================================================================
@@ -347,6 +446,14 @@ message Request {
     RegisterMonitorRequest register_monitor = 18;
     UnregisterMonitorRequest unregister_monitor = 19;
     HeartbeatRequest heartbeat = 20;
+    ListMonitorsRequest list_monitors = 21;
+    KillMonitorRequest kill_monitor = 22;
+    GetRunByShortIDRequest get_run_by_short_id = 23;
+    ResolveIssueRequest resolve_issue = 24;
+    AppendEventRequest append_event = 25;
+    EnsureOpenCodeServerRequest ensure_opencode_server = 26;
+    RegisterRepoRequest register_repo = 27;
+    ListReposRequest list_repos = 28;
   }
 }
 
@@ -375,5 +482,13 @@ message Response {
     RegisterMonitorResponse register_monitor = 20;
     UnregisterMonitorResponse unregister_monitor = 21;
     HeartbeatResponse heartbeat = 22;
+    ListMonitorsResponse list_monitors = 23;
+    KillMonitorResponse kill_monitor = 24;
+    GetRunByShortIDResponse get_run_by_short_id = 25;
+    ResolveIssueResponse resolve_issue = 26;
+    AppendEventResponse append_event = 27;
+    EnsureOpenCodeServerResponse ensure_opencode_server = 28;
+    RegisterRepoResponse register_repo = 29;
+    ListReposResponse list_repos = 30;
   }
 }

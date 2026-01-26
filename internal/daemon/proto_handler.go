@@ -106,6 +106,22 @@ func (s *SocketServer) handleProtoRequest(req *orchpb.Request) *orchpb.Response 
 		return s.handleProtoUnregisterMonitor(r.UnregisterMonitor)
 	case *orchpb.Request_Heartbeat:
 		return s.handleProtoHeartbeat(r.Heartbeat)
+	case *orchpb.Request_ListMonitors:
+		return s.handleProtoListMonitors(r.ListMonitors)
+	case *orchpb.Request_KillMonitor:
+		return s.handleProtoKillMonitor(r.KillMonitor)
+	case *orchpb.Request_GetRunByShortId:
+		return s.handleProtoGetRunByShortID(r.GetRunByShortId)
+	case *orchpb.Request_ResolveIssue:
+		return s.handleProtoResolveIssue(r.ResolveIssue)
+	case *orchpb.Request_AppendEvent:
+		return s.handleProtoAppendEvent(r.AppendEvent)
+	case *orchpb.Request_EnsureOpencodeServer:
+		return s.handleProtoEnsureOpenCodeServer(r.EnsureOpencodeServer)
+	case *orchpb.Request_RegisterRepo:
+		return s.handleProtoRegisterRepo(r.RegisterRepo)
+	case *orchpb.Request_ListRepos:
+		return s.handleProtoListRepos(r.ListRepos)
 	default:
 		return errorResponse("unknown request type")
 	}
@@ -136,6 +152,13 @@ func errorResponse(errMsg string) *orchpb.Response {
 func (s *SocketServer) resolveStoreFromProto(issuesRoot string) store.Store {
 	if issuesRoot != "" {
 		return s.getOrCreateStore(issuesRoot, "")
+	}
+	s.reposMu.RLock()
+	defer s.reposMu.RUnlock()
+	for _, ctx := range s.repos {
+		if ctx.Store != nil {
+			return ctx.Store
+		}
 	}
 	return nil
 }
@@ -177,7 +200,11 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 	protoRuns := make([]*orchpb.Run, len(runs))
 	for i, run := range runs {
 		pr := modelRunToProto(run)
-		pr.BranchState = orchpb.BranchState_BRANCH_STATE_UNSPECIFIED
+		if run.WorktreePath != "" && run.Branch != "" {
+			pr.BranchState = computeBranchState(run.WorktreePath, run.Branch, "main")
+		} else {
+			pr.BranchState = orchpb.BranchState_BRANCH_STATE_UNSPECIFIED
+		}
 		if computeAlive(run) {
 			pr.ElapsedDisplay = formatElapsedTime(run.StartedAt, run.UpdatedAt, run.Status)
 		}
@@ -718,5 +745,216 @@ func (s *SocketServer) handleProtoHeartbeat(req *orchpb.HeartbeatRequest) *orchp
 	return &orchpb.Response{
 		Ok:       true,
 		Response: &orchpb.Response_Heartbeat{Heartbeat: &orchpb.HeartbeatResponse{}},
+	}
+}
+
+func (s *SocketServer) handleProtoListMonitors(req *orchpb.ListMonitorsRequest) *orchpb.Response {
+	s.monitorsMu.RLock()
+	defer s.monitorsMu.RUnlock()
+
+	var monitors []*orchpb.MonitorInfo
+	for _, conn := range s.monitors {
+		if !req.All && req.Project != "" && conn.Project != req.Project {
+			continue
+		}
+		monitors = append(monitors, &orchpb.MonitorInfo{
+			Id:                conn.ID,
+			Pid:               int32(conn.PID),
+			Type:              conn.Type,
+			View:              conn.View,
+			Project:           conn.Project,
+			SessionName:       conn.TmuxSession,
+			StartedAtUnix:     conn.StartedAt.Unix(),
+			LastHeartbeatUnix: conn.LastSeen.Unix(),
+		})
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_ListMonitors{
+			ListMonitors: &orchpb.ListMonitorsResponse{
+				Monitors: monitors,
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoKillMonitor(req *orchpb.KillMonitorRequest) *orchpb.Response {
+	s.monitorsMu.Lock()
+	defer s.monitorsMu.Unlock()
+
+	var killedCount int32
+
+	if req.MonitorId != "" {
+		if _, ok := s.monitors[req.MonitorId]; ok {
+			delete(s.monitors, req.MonitorId)
+			killedCount = 1
+		}
+	} else if req.All {
+		for id, conn := range s.monitors {
+			if req.Global || (req.Project != "" && conn.Project == req.Project) || req.Project == "" {
+				delete(s.monitors, id)
+				killedCount++
+			}
+		}
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_KillMonitor{
+			KillMonitor: &orchpb.KillMonitorResponse{
+				KilledCount: killedCount,
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoGetRunByShortID(req *orchpb.GetRunByShortIDRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	run, err := st.GetRunByShortID(req.ShortId)
+	if err != nil {
+		return errorResponse("not_found")
+	}
+
+	protoRun := modelRunToProto(run)
+	protoEvents := make([]*orchpb.Event, len(run.Events))
+	for i, e := range run.Events {
+		protoEvents[i] = modelEventToProto(e)
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_GetRunByShortId{
+			GetRunByShortId: &orchpb.GetRunByShortIDResponse{
+				Run:    protoRun,
+				Events: protoEvents,
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoResolveIssue(req *orchpb.ResolveIssueRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	if err := st.SetIssueStatus(req.IssueId, model.IssueStatusResolved); err != nil {
+		return errorResponse(err.Error())
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_ResolveIssue{
+			ResolveIssue: &orchpb.ResolveIssueResponse{
+				IssueId: req.IssueId,
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoAppendEvent(req *orchpb.AppendEventRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+	event := &model.Event{
+		Type:  model.EventType(req.EventType),
+		Name:  req.EventName,
+		Attrs: req.EventAttrs,
+	}
+
+	if err := st.AppendEvent(ref, event); err != nil {
+		return errorResponse(err.Error())
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_AppendEvent{
+			AppendEvent: &orchpb.AppendEventResponse{},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoEnsureOpenCodeServer(req *orchpb.EnsureOpenCodeServerRequest) *orchpb.Response {
+	port, err := s.ensureOpenCodeServerRunning(req.ProjectRoot)
+	if err != nil {
+		return errorResponse(fmt.Sprintf("failed to ensure opencode server: %v", err))
+	}
+
+	s.openCodeServersMu.RLock()
+	srv, exists := s.openCodeServers[req.ProjectRoot]
+	alreadyRunning := exists && srv != nil
+	s.openCodeServersMu.RUnlock()
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_EnsureOpencodeServer{
+			EnsureOpencodeServer: &orchpb.EnsureOpenCodeServerResponse{
+				Port:           int32(port),
+				AlreadyRunning: alreadyRunning,
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoRegisterRepo(req *orchpb.RegisterRepoRequest) *orchpb.Response {
+	if req.ProjectRoot == "" {
+		return errorResponse("project_root required")
+	}
+
+	repoID := deriveRepoID(req.ProjectRoot)
+
+	s.reposMu.Lock()
+	if _, exists := s.repos[repoID]; !exists {
+		s.repos[repoID] = &RepoContext{
+			ProjectRoot: req.ProjectRoot,
+			RepoID:      repoID,
+		}
+	}
+	s.reposMu.Unlock()
+
+	s.logger.Printf("registered repo: %s (%s)", repoID, req.ProjectRoot)
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_RegisterRepo{
+			RegisterRepo: &orchpb.RegisterRepoResponse{
+				RepoId: repoID,
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoListRepos(_ *orchpb.ListReposRequest) *orchpb.Response {
+	s.reposMu.RLock()
+	defer s.reposMu.RUnlock()
+
+	repos := make([]*orchpb.RepoInfo, 0, len(s.repos))
+	for id, info := range s.repos {
+		issuesRoot := ""
+		if info.Store != nil {
+			issuesRoot = info.Store.RootPath()
+		}
+		repos = append(repos, &orchpb.RepoInfo{
+			Id:          id,
+			ProjectRoot: info.ProjectRoot,
+			IssuesRoot:  issuesRoot,
+		})
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_ListRepos{
+			ListRepos: &orchpb.ListReposResponse{
+				Repos: repos,
+			},
+		},
 	}
 }

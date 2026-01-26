@@ -84,7 +84,7 @@ func runPs(opts *psOptions) error {
 
 	if !testBypassDaemon {
 		projectRoot, _ := getProjectRoot()
-		client := daemon.NewClientWithIssuesRoot(projectRoot, st.RootPath())
+		client := daemon.NewProtoClientWithIssuesRoot(projectRoot, st.RootPath())
 		if client.IsAvailable() {
 			statusFilter := make([]string, len(opts.Status))
 			for i, s := range opts.Status {

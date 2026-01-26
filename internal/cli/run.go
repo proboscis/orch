@@ -361,7 +361,7 @@ func runRun(issueID string, opts *runOptions) error {
 		serverAlreadyRunning := false
 		if adapter.PromptInjection() == agent.InjectionHTTP {
 			// OpenCode servers are managed exclusively by the daemon
-			daemonClient := daemon.NewClient(repoRoot)
+			daemonClient := daemon.NewProtoClient(repoRoot)
 			if !daemonClient.IsAvailable() {
 				err := fmt.Errorf("daemon not running; opencode agent requires daemon for server management (run 'orch daemon start')")
 				setRunFailed(repoRoot, st, run, err)
@@ -742,7 +742,7 @@ func exitWithCode(err error, code int) error {
 // If the daemon is unavailable, it falls back to direct store write.
 // This ensures status transitions are validated by the daemon when available.
 func appendStatusEventViaDaemon(repoRoot string, st storeForRunFailed, run *model.Run, status model.Status) error {
-	daemonClient := daemon.NewClient(repoRoot)
+	daemonClient := daemon.NewProtoClient(repoRoot)
 	if daemonClient.IsAvailable() {
 		err := daemonClient.AppendStatusEvent(run.IssueID, run.RunID, string(status), string(model.EventSourceUser))
 		if err == nil {

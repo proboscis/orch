@@ -289,7 +289,7 @@ func ensureDaemon() {
 // Set this to true in tests along with a testStore for direct file operations
 var testBypassDaemon bool
 
-func requireDaemon() (*daemon.Client, error) {
+func requireDaemon() (*daemon.ProtoClient, error) {
 	projectRoot, err := getProjectRoot()
 	if err != nil {
 		return nil, err
@@ -300,7 +300,7 @@ func requireDaemon() (*daemon.Client, error) {
 		return nil, err
 	}
 
-	client := daemon.NewClientWithIssuesRoot(projectRoot, issuesRoot)
+	client := daemon.NewProtoClientWithIssuesRoot(projectRoot, issuesRoot)
 	if client.IsAvailable() {
 		return client, nil
 	}
