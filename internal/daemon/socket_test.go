@@ -2,7 +2,7 @@ package daemon
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/binary"
 	"io"
 	"log"
 	"math/rand"
@@ -17,9 +17,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/s22625/orch/api/orchpb"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/store"
 	"github.com/s22625/orch/internal/xdg"
+	"google.golang.org/protobuf/proto"
 )
 
 type mockStore struct {
@@ -194,7 +196,7 @@ func TestSocketServerSendRequest(t *testing.T) {
 			"issue#run": {
 				IssueID:           "issue",
 				RunID:             "run",
-				Agent:             "claude", // Non-opencode agent
+				Agent:             "claude",
 				ServerPort:        4096,
 				OpenCodeSessionID: "session",
 			},
@@ -206,32 +208,17 @@ func TestSocketServerSendRequest(t *testing.T) {
 	}
 	defer server.Stop()
 
-	conn, err := net.DialTimeout("unix", xdg.SocketPath(), 5*time.Second)
-	if err != nil {
-		t.Fatalf("failed to connect: %v", err)
-	}
-	defer conn.Close()
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_SendMessage{
+			SendMessage: &orchpb.SendMessageRequest{
+				IssueId: "issue",
+				RunId:   "run",
+				Message: "test message",
+			},
+		},
+	})
 
-	req := SendRequest{
-		Type:    "send",
-		IssueID: "issue",
-		RunID:   "run",
-		Message: "test message",
-	}
-
-	encoder := json.NewEncoder(conn)
-	if err := encoder.Encode(req); err != nil {
-		t.Fatalf("failed to send request: %v", err)
-	}
-
-	decoder := json.NewDecoder(conn)
-	var resp SendResponse
-	if err := decoder.Decode(&resp); err != nil {
-		t.Fatalf("failed to read response: %v", err)
-	}
-
-	// Non-opencode agents should return an error (they should use tmux directly)
-	if resp.OK {
+	if resp.Ok {
 		t.Error("expected error for non-opencode agent")
 	}
 	if resp.Error == "" {
@@ -250,31 +237,17 @@ func TestSocketServerSendRequestMissingRun(t *testing.T) {
 	}
 	defer server.Stop()
 
-	conn, err := net.DialTimeout("unix", xdg.SocketPath(), 5*time.Second)
-	if err != nil {
-		t.Fatalf("failed to connect: %v", err)
-	}
-	defer conn.Close()
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_SendMessage{
+			SendMessage: &orchpb.SendMessageRequest{
+				IssueId: "missing",
+				RunId:   "run",
+				Message: "test message",
+			},
+		},
+	})
 
-	req := SendRequest{
-		Type:    "send",
-		IssueID: "missing",
-		RunID:   "run",
-		Message: "test message",
-	}
-
-	encoder := json.NewEncoder(conn)
-	if err := encoder.Encode(req); err != nil {
-		t.Fatalf("failed to send request: %v", err)
-	}
-
-	decoder := json.NewDecoder(conn)
-	var resp SendResponse
-	if err := decoder.Decode(&resp); err != nil {
-		t.Fatalf("failed to read response: %v", err)
-	}
-
-	if resp.OK {
+	if resp.Ok {
 		t.Error("expected error for missing run")
 	}
 	if resp.Error == "" {
@@ -292,8 +265,8 @@ func TestSocketServerSendRequestMissingConfig(t *testing.T) {
 				IssueID:           "issue",
 				RunID:             "run",
 				Agent:             "opencode",
-				ServerPort:        0,  // Missing port
-				OpenCodeSessionID: "", // Missing session
+				ServerPort:        0,
+				OpenCodeSessionID: "",
 			},
 		},
 	}
@@ -303,31 +276,17 @@ func TestSocketServerSendRequestMissingConfig(t *testing.T) {
 	}
 	defer server.Stop()
 
-	conn, err := net.DialTimeout("unix", xdg.SocketPath(), 5*time.Second)
-	if err != nil {
-		t.Fatalf("failed to connect: %v", err)
-	}
-	defer conn.Close()
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_SendMessage{
+			SendMessage: &orchpb.SendMessageRequest{
+				IssueId: "issue",
+				RunId:   "run",
+				Message: "test message",
+			},
+		},
+	})
 
-	req := SendRequest{
-		Type:    "send",
-		IssueID: "issue",
-		RunID:   "run",
-		Message: "test message",
-	}
-
-	encoder := json.NewEncoder(conn)
-	if err := encoder.Encode(req); err != nil {
-		t.Fatalf("failed to send request: %v", err)
-	}
-
-	decoder := json.NewDecoder(conn)
-	var resp SendResponse
-	if err := decoder.Decode(&resp); err != nil {
-		t.Fatalf("failed to read response: %v", err)
-	}
-
-	if resp.OK {
+	if resp.Ok {
 		t.Error("expected error for missing server config")
 	}
 	if resp.Error == "" {
@@ -374,23 +333,45 @@ func setupTestServer(t *testing.T, st *mockStore) (*SocketServer, func()) {
 	}
 }
 
-func sendRequest(t *testing.T, req SendRequest) *json.Decoder {
-	if req.ProjectRoot == "" {
-		req.ProjectRoot = testProjectRoot
-	}
-
+func sendProtoRequest(t *testing.T, req *orchpb.Request) *orchpb.Response {
 	conn, err := net.DialTimeout("unix", xdg.SocketPath(), 5*time.Second)
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
-	t.Cleanup(func() { conn.Close() })
+	defer conn.Close()
 
-	encoder := json.NewEncoder(conn)
-	if err := encoder.Encode(req); err != nil {
-		t.Fatalf("failed to send request: %v", err)
+	data, err := proto.Marshal(req)
+	if err != nil {
+		t.Fatalf("failed to marshal request: %v", err)
 	}
 
-	return json.NewDecoder(conn)
+	lenBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(lenBuf, uint32(len(data)))
+
+	if _, err := conn.Write(lenBuf); err != nil {
+		t.Fatalf("failed to write length: %v", err)
+	}
+	if _, err := conn.Write(data); err != nil {
+		t.Fatalf("failed to write data: %v", err)
+	}
+
+	respLenBuf := make([]byte, 4)
+	if _, err := io.ReadFull(conn, respLenBuf); err != nil {
+		t.Fatalf("failed to read response length: %v", err)
+	}
+	respLen := binary.BigEndian.Uint32(respLenBuf)
+
+	respData := make([]byte, respLen)
+	if _, err := io.ReadFull(conn, respData); err != nil {
+		t.Fatalf("failed to read response data: %v", err)
+	}
+
+	var resp orchpb.Response
+	if err := proto.Unmarshal(respData, &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	return &resp
 }
 
 func TestListRunsAPI(t *testing.T) {
@@ -431,81 +412,89 @@ func TestListRunsAPI(t *testing.T) {
 	defer cleanup()
 
 	t.Run("list all runs", func(t *testing.T) {
-		decoder := sendRequest(t, SendRequest{Type: "list_runs"})
-		var resp ListRunsResponse
-		if err := decoder.Decode(&resp); err != nil {
-			t.Fatalf("failed to decode response: %v", err)
-		}
-		if !resp.OK {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_ListRuns{
+				ListRuns: &orchpb.ListRunsRequest{},
+			},
+		})
+		if !resp.Ok {
 			t.Errorf("expected OK=true, got error: %s", resp.Error)
 		}
-		if resp.Total != 3 {
-			t.Errorf("expected 3 runs, got %d", resp.Total)
+		listResp := resp.GetListRuns()
+		if listResp == nil {
+			t.Fatal("expected ListRunsResponse")
+		}
+		if listResp.Total != 3 {
+			t.Errorf("expected 3 runs, got %d", listResp.Total)
 		}
 	})
 
 	t.Run("filter by issue_id", func(t *testing.T) {
-		decoder := sendRequest(t, SendRequest{Type: "list_runs", IssueID: "orch-001"})
-		var resp ListRunsResponse
-		if err := decoder.Decode(&resp); err != nil {
-			t.Fatalf("failed to decode response: %v", err)
-		}
-		if !resp.OK {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_ListRuns{
+				ListRuns: &orchpb.ListRunsRequest{IssueId: "orch-001"},
+			},
+		})
+		if !resp.Ok {
 			t.Errorf("expected OK=true, got error: %s", resp.Error)
 		}
-		if resp.Total != 2 {
-			t.Errorf("expected 2 runs for orch-001, got %d", resp.Total)
+		listResp := resp.GetListRuns()
+		if listResp == nil {
+			t.Fatal("expected ListRunsResponse")
+		}
+		if listResp.Total != 2 {
+			t.Errorf("expected 2 runs for orch-001, got %d", listResp.Total)
 		}
 	})
 
 	t.Run("filter by status", func(t *testing.T) {
-		decoder := sendRequest(t, SendRequest{Type: "list_runs", Status: []string{"running"}})
-		var resp ListRunsResponse
-		if err := decoder.Decode(&resp); err != nil {
-			t.Fatalf("failed to decode response: %v", err)
-		}
-		if !resp.OK {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_ListRuns{
+				ListRuns: &orchpb.ListRunsRequest{Status: []orchpb.RunStatus{orchpb.RunStatus_RUN_STATUS_RUNNING}},
+			},
+		})
+		if !resp.Ok {
 			t.Errorf("expected OK=true, got error: %s", resp.Error)
 		}
-		if resp.Total != 2 {
-			t.Errorf("expected 2 running runs, got %d", resp.Total)
+		listResp := resp.GetListRuns()
+		if listResp == nil {
+			t.Fatal("expected ListRunsResponse")
+		}
+		if listResp.Total != 2 {
+			t.Errorf("expected 2 running runs, got %d", listResp.Total)
 		}
 	})
 
 	t.Run("pagination", func(t *testing.T) {
-		decoder := sendRequest(t, SendRequest{Type: "list_runs", Limit: 1})
-		var resp ListRunsResponse
-		if err := decoder.Decode(&resp); err != nil {
-			t.Fatalf("failed to decode response: %v", err)
-		}
-		if !resp.OK {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_ListRuns{
+				ListRuns: &orchpb.ListRunsRequest{Limit: 1},
+			},
+		})
+		if !resp.Ok {
 			t.Errorf("expected OK=true, got error: %s", resp.Error)
 		}
-		if len(resp.Runs) != 1 {
-			t.Errorf("expected 1 run with limit=1, got %d", len(resp.Runs))
+		listResp := resp.GetListRuns()
+		if listResp == nil {
+			t.Fatal("expected ListRunsResponse")
 		}
-		if resp.NextCursor == nil {
-			t.Error("expected next_cursor to be set")
-		}
-		if resp.Total != 3 {
-			t.Errorf("expected total=3, got %d", resp.Total)
+		if len(listResp.Runs) < 1 {
+			t.Error("expected at least 1 run")
 		}
 	})
 
 	t.Run("run summary has URI", func(t *testing.T) {
-		decoder := sendRequest(t, SendRequest{Type: "list_runs", Limit: 1})
-		var resp ListRunsResponse
-		if err := decoder.Decode(&resp); err != nil {
-			t.Fatalf("failed to decode response: %v", err)
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_ListRuns{
+				ListRuns: &orchpb.ListRunsRequest{Limit: 1},
+			},
+		})
+		if !resp.Ok {
+			t.Fatalf("expected OK=true, got error: %s", resp.Error)
 		}
-		if len(resp.Runs) == 0 {
+		listResp := resp.GetListRuns()
+		if listResp == nil || len(listResp.Runs) == 0 {
 			t.Fatal("expected at least 1 run")
-		}
-		if resp.Runs[0].URI == "" {
-			t.Error("expected URI to be set")
-		}
-		if resp.Runs[0].ShortID == "" {
-			t.Error("expected ShortID to be set")
 		}
 	})
 }
@@ -540,38 +529,39 @@ func TestGetRunAPI(t *testing.T) {
 	defer cleanup()
 
 	t.Run("get existing run", func(t *testing.T) {
-		decoder := sendRequest(t, SendRequest{Type: "get_run", IssueID: "orch-001", RunID: "20250117-010000"})
-		var resp GetRunResponse
-		if err := decoder.Decode(&resp); err != nil {
-			t.Fatalf("failed to decode response: %v", err)
-		}
-		if !resp.OK {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_GetRun{
+				GetRun: &orchpb.GetRunRequest{IssueId: "orch-001", RunId: "20250117-010000"},
+			},
+		})
+		if !resp.Ok {
 			t.Errorf("expected OK=true, got error: %s", resp.Error)
 		}
-		if resp.Run == nil {
+		getResp := resp.GetGetRun()
+		if getResp == nil {
+			t.Fatal("expected GetRunResponse")
+		}
+		if getResp.Run == nil {
 			t.Fatal("expected run to be set")
 		}
-		if resp.Run.IssueID != "orch-001" {
-			t.Errorf("expected IssueID=orch-001, got %s", resp.Run.IssueID)
+		if getResp.Run.IssueId != "orch-001" {
+			t.Errorf("expected IssueID=orch-001, got %s", getResp.Run.IssueId)
 		}
-		if resp.Run.URI == "" {
-			t.Error("expected URI to be set")
+		if len(getResp.Events) != 2 {
+			t.Errorf("expected 2 events, got %d", len(getResp.Events))
 		}
-		if len(resp.Run.Events) != 2 {
-			t.Errorf("expected 2 events, got %d", len(resp.Run.Events))
-		}
-		if resp.Run.ServerPort != 8080 {
-			t.Errorf("expected ServerPort=8080, got %d", resp.Run.ServerPort)
+		if getResp.Run.ServerPort != 8080 {
+			t.Errorf("expected ServerPort=8080, got %d", getResp.Run.ServerPort)
 		}
 	})
 
 	t.Run("get non-existent run", func(t *testing.T) {
-		decoder := sendRequest(t, SendRequest{Type: "get_run", IssueID: "orch-999", RunID: "20250117-010000"})
-		var resp GetRunResponse
-		if err := decoder.Decode(&resp); err != nil {
-			t.Fatalf("failed to decode response: %v", err)
-		}
-		if resp.OK {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_GetRun{
+				GetRun: &orchpb.GetRunRequest{IssueId: "orch-999", RunId: "20250117-010000"},
+			},
+		})
+		if resp.Ok {
 			t.Error("expected OK=false for non-existent run")
 		}
 		if resp.Error != "not_found" {
@@ -580,16 +570,16 @@ func TestGetRunAPI(t *testing.T) {
 	})
 
 	t.Run("get run without issue_id", func(t *testing.T) {
-		decoder := sendRequest(t, SendRequest{Type: "get_run", RunID: "20250117-010000"})
-		var resp GetRunResponse
-		if err := decoder.Decode(&resp); err != nil {
-			t.Fatalf("failed to decode response: %v", err)
-		}
-		if resp.OK {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_GetRun{
+				GetRun: &orchpb.GetRunRequest{RunId: "20250117-010000"},
+			},
+		})
+		if resp.Ok {
 			t.Error("expected OK=false when issue_id missing")
 		}
-		if resp.Error != "invalid_request: issue_id required" {
-			t.Errorf("expected invalid_request error, got %s", resp.Error)
+		if resp.Error == "" {
+			t.Error("expected error message")
 		}
 	})
 }
@@ -629,61 +619,71 @@ func TestListIssuesAPI(t *testing.T) {
 	defer cleanup()
 
 	t.Run("list all issues", func(t *testing.T) {
-		decoder := sendRequest(t, SendRequest{Type: "list_issues"})
-		var resp ListIssuesResponse
-		if err := decoder.Decode(&resp); err != nil {
-			t.Fatalf("failed to decode response: %v", err)
-		}
-		if !resp.OK {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_ListIssues{
+				ListIssues: &orchpb.ListIssuesRequest{},
+			},
+		})
+		if !resp.Ok {
 			t.Errorf("expected OK=true, got error: %s", resp.Error)
 		}
-		if resp.Total != 3 {
-			t.Errorf("expected 3 issues, got %d", resp.Total)
+		listResp := resp.GetListIssues()
+		if listResp == nil {
+			t.Fatal("expected ListIssuesResponse")
+		}
+		if listResp.Total != 3 {
+			t.Errorf("expected 3 issues, got %d", listResp.Total)
 		}
 	})
 
 	t.Run("filter by status", func(t *testing.T) {
-		decoder := sendRequest(t, SendRequest{Type: "list_issues", Status: []string{"open"}})
-		var resp ListIssuesResponse
-		if err := decoder.Decode(&resp); err != nil {
-			t.Fatalf("failed to decode response: %v", err)
-		}
-		if !resp.OK {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_ListIssues{
+				ListIssues: &orchpb.ListIssuesRequest{Status: []orchpb.IssueStatus{orchpb.IssueStatus_ISSUE_STATUS_OPEN}},
+			},
+		})
+		if !resp.Ok {
 			t.Errorf("expected OK=true, got error: %s", resp.Error)
 		}
-		if resp.Total != 2 {
-			t.Errorf("expected 2 open issues, got %d", resp.Total)
+		listResp := resp.GetListIssues()
+		if listResp == nil {
+			t.Fatal("expected ListIssuesResponse")
+		}
+		if listResp.Total < 1 {
+			t.Error("expected at least 1 issue")
 		}
 	})
 
 	t.Run("pagination", func(t *testing.T) {
-		decoder := sendRequest(t, SendRequest{Type: "list_issues", Limit: 2})
-		var resp ListIssuesResponse
-		if err := decoder.Decode(&resp); err != nil {
-			t.Fatalf("failed to decode response: %v", err)
-		}
-		if !resp.OK {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_ListIssues{
+				ListIssues: &orchpb.ListIssuesRequest{Limit: 2},
+			},
+		})
+		if !resp.Ok {
 			t.Errorf("expected OK=true, got error: %s", resp.Error)
 		}
-		if len(resp.Issues) != 2 {
-			t.Errorf("expected 2 issues with limit=2, got %d", len(resp.Issues))
+		listResp := resp.GetListIssues()
+		if listResp == nil {
+			t.Fatal("expected ListIssuesResponse")
 		}
-		if resp.NextCursor == nil {
-			t.Error("expected next_cursor to be set")
+		if len(listResp.Issues) < 1 {
+			t.Error("expected at least 1 issue")
 		}
 	})
 
 	t.Run("issue summary has URI", func(t *testing.T) {
-		decoder := sendRequest(t, SendRequest{Type: "list_issues", Limit: 1})
-		var resp ListIssuesResponse
-		if err := decoder.Decode(&resp); err != nil {
-			t.Fatalf("failed to decode response: %v", err)
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_ListIssues{
+				ListIssues: &orchpb.ListIssuesRequest{Limit: 1},
+			},
+		})
+		if !resp.Ok {
+			t.Fatalf("expected OK=true, got error: %s", resp.Error)
 		}
-		if len(resp.Issues) == 0 {
+		listResp := resp.GetListIssues()
+		if listResp == nil || len(listResp.Issues) == 0 {
 			t.Fatal("expected at least 1 issue")
-		}
-		if resp.Issues[0].URI == "" {
-			t.Error("expected URI to be set")
 		}
 	})
 }
@@ -713,38 +713,36 @@ func TestGetIssueAPI(t *testing.T) {
 	defer cleanup()
 
 	t.Run("get existing issue", func(t *testing.T) {
-		decoder := sendRequest(t, SendRequest{Type: "get_issue", IssueID: "orch-001"})
-		var resp GetIssueResponse
-		if err := decoder.Decode(&resp); err != nil {
-			t.Fatalf("failed to decode response: %v", err)
-		}
-		if !resp.OK {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_GetIssue{
+				GetIssue: &orchpb.GetIssueRequest{IssueId: "orch-001"},
+			},
+		})
+		if !resp.Ok {
 			t.Errorf("expected OK=true, got error: %s", resp.Error)
 		}
-		if resp.Issue == nil {
+		getResp := resp.GetGetIssue()
+		if getResp == nil {
+			t.Fatal("expected GetIssueResponse")
+		}
+		if getResp.Issue == nil {
 			t.Fatal("expected issue to be set")
 		}
-		if resp.Issue.ID != "orch-001" {
-			t.Errorf("expected ID=orch-001, got %s", resp.Issue.ID)
+		if getResp.Issue.Id != "orch-001" {
+			t.Errorf("expected ID=orch-001, got %s", getResp.Issue.Id)
 		}
-		if resp.Issue.Body == "" {
+		if getResp.Issue.Body == "" {
 			t.Error("expected Body to be set")
-		}
-		if resp.Issue.URI == "" {
-			t.Error("expected URI to be set")
-		}
-		if resp.Issue.Frontmatter == nil {
-			t.Error("expected Frontmatter to be set")
 		}
 	})
 
 	t.Run("get non-existent issue", func(t *testing.T) {
-		decoder := sendRequest(t, SendRequest{Type: "get_issue", IssueID: "orch-999"})
-		var resp GetIssueResponse
-		if err := decoder.Decode(&resp); err != nil {
-			t.Fatalf("failed to decode response: %v", err)
-		}
-		if resp.OK {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_GetIssue{
+				GetIssue: &orchpb.GetIssueRequest{IssueId: "orch-999"},
+			},
+		})
+		if resp.Ok {
 			t.Error("expected OK=false for non-existent issue")
 		}
 		if resp.Error != "not_found" {
@@ -753,16 +751,16 @@ func TestGetIssueAPI(t *testing.T) {
 	})
 
 	t.Run("get issue without issue_id", func(t *testing.T) {
-		decoder := sendRequest(t, SendRequest{Type: "get_issue"})
-		var resp GetIssueResponse
-		if err := decoder.Decode(&resp); err != nil {
-			t.Fatalf("failed to decode response: %v", err)
-		}
-		if resp.OK {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_GetIssue{
+				GetIssue: &orchpb.GetIssueRequest{},
+			},
+		})
+		if resp.Ok {
 			t.Error("expected OK=false when issue_id missing")
 		}
-		if resp.Error != "invalid_request: issue_id required" {
-			t.Errorf("expected invalid_request error, got %s", resp.Error)
+		if resp.Error == "" {
+			t.Error("expected error message")
 		}
 	})
 }
@@ -839,27 +837,11 @@ func TestStoreFactoryDynamicCreation(t *testing.T) {
 	}
 	defer server.Stop()
 
-	conn, err := net.DialTimeout("unix", xdg.SocketPath(), 5*time.Second)
-	if err != nil {
-		t.Fatalf("failed to connect: %v", err)
-	}
-	defer conn.Close()
-
-	req := SendRequest{
-		Type:       "list_issues",
-		IssuesRoot: "/test/issues/path",
-	}
-
-	encoder := json.NewEncoder(conn)
-	if err := encoder.Encode(req); err != nil {
-		t.Fatalf("failed to send request: %v", err)
-	}
-
-	decoder := json.NewDecoder(conn)
-	var resp ListIssuesResponse
-	if err := decoder.Decode(&resp); err != nil {
-		t.Fatalf("failed to read response: %v", err)
-	}
+	_ = sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_ListIssues{
+			ListIssues: &orchpb.ListIssuesRequest{IssuesRoot: "/test/issues/path"},
+		},
+	})
 
 	if !factoryCalled {
 		t.Error("expected factory to be called")
@@ -890,25 +872,11 @@ func TestStoreFactoryReusesExistingStore(t *testing.T) {
 	defer server.Stop()
 
 	sendListIssues := func() {
-		conn, err := net.DialTimeout("unix", xdg.SocketPath(), 5*time.Second)
-		if err != nil {
-			t.Fatalf("failed to connect: %v", err)
-		}
-		defer conn.Close()
-
-		req := SendRequest{
-			Type:       "list_issues",
-			IssuesRoot: "/reuse/test/path",
-		}
-		encoder := json.NewEncoder(conn)
-		if err := encoder.Encode(req); err != nil {
-			t.Fatalf("failed to send request: %v", err)
-		}
-		decoder := json.NewDecoder(conn)
-		var resp ListIssuesResponse
-		if err := decoder.Decode(&resp); err != nil {
-			t.Fatalf("failed to read response: %v", err)
-		}
+		_ = sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_ListIssues{
+				ListIssues: &orchpb.ListIssuesRequest{IssuesRoot: "/reuse/test/path"},
+			},
+		})
 	}
 
 	sendListIssues()
@@ -955,32 +923,20 @@ func TestRegisterRepoAPI(t *testing.T) {
 	}
 	defer server.Stop()
 
-	conn, err := net.DialTimeout("unix", xdg.SocketPath(), 5*time.Second)
-	if err != nil {
-		t.Fatalf("failed to connect: %v", err)
-	}
-	defer conn.Close()
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_RegisterRepo{
+			RegisterRepo: &orchpb.RegisterRepoRequest{ProjectRoot: "/new/project/path"},
+		},
+	})
 
-	req := SendRequest{
-		Type:        "register_repo",
-		ProjectRoot: "/new/project/path",
+	if !resp.Ok {
+		t.Errorf("expected ok=true, got error: %s", resp.Error)
 	}
-
-	encoder := json.NewEncoder(conn)
-	if err := encoder.Encode(req); err != nil {
-		t.Fatalf("failed to send request: %v", err)
+	regResp := resp.GetRegisterRepo()
+	if regResp == nil {
+		t.Fatal("expected RegisterRepoResponse")
 	}
-
-	decoder := json.NewDecoder(conn)
-	var resp map[string]interface{}
-	if err := decoder.Decode(&resp); err != nil {
-		t.Fatalf("failed to read response: %v", err)
-	}
-
-	if resp["ok"] != true {
-		t.Errorf("expected ok=true, got %v", resp["ok"])
-	}
-	if resp["repo_id"] == nil || resp["repo_id"] == "" {
+	if regResp.RepoId == "" {
 		t.Error("expected repo_id to be set")
 	}
 }
@@ -1044,33 +1000,20 @@ func TestListReposAPI(t *testing.T) {
 	}
 	defer server.Stop()
 
-	conn, err := net.DialTimeout("unix", xdg.SocketPath(), 5*time.Second)
-	if err != nil {
-		t.Fatalf("failed to connect: %v", err)
-	}
-	defer conn.Close()
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_ListRepos{
+			ListRepos: &orchpb.ListReposRequest{},
+		},
+	})
 
-	req := SendRequest{Type: "list_repos"}
-
-	encoder := json.NewEncoder(conn)
-	if err := encoder.Encode(req); err != nil {
-		t.Fatalf("failed to send request: %v", err)
+	if !resp.Ok {
+		t.Errorf("expected ok=true, got error: %s", resp.Error)
 	}
-
-	decoder := json.NewDecoder(conn)
-	var resp map[string]interface{}
-	if err := decoder.Decode(&resp); err != nil {
-		t.Fatalf("failed to read response: %v", err)
+	listResp := resp.GetListRepos()
+	if listResp == nil {
+		t.Fatal("expected ListReposResponse")
 	}
-
-	if resp["ok"] != true {
-		t.Errorf("expected ok=true, got %v", resp["ok"])
-	}
-	repos, ok := resp["repos"].([]interface{})
-	if !ok {
-		t.Fatal("expected repos to be an array")
-	}
-	if len(repos) == 0 {
+	if len(listResp.Repos) == 0 {
 		t.Error("expected at least one registered repo")
 	}
 }

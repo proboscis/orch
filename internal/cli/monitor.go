@@ -239,8 +239,8 @@ func runMonitorKill(monitorID string, opts *monitorKillOptions) error {
 	return nil
 }
 
-func ensureDaemonReady(projectRoot string) (*daemon.Client, error) {
-	client := daemon.NewClient(projectRoot)
+func ensureDaemonReady(projectRoot string) (*daemon.ProtoClient, error) {
+	client := daemon.NewProtoClient(projectRoot)
 	if client.IsAvailable() {
 		return client, nil
 	}

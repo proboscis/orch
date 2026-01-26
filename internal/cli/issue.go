@@ -295,14 +295,14 @@ func runIssueList(opts *issueListOptions) error {
 		return err
 	}
 
-	client := daemon.NewClientWithIssuesRoot(projectRoot, issuesRoot)
+	client := daemon.NewProtoClientWithIssuesRoot(projectRoot, issuesRoot)
 	if !client.IsAvailable() {
 		return fmt.Errorf("daemon not available (run 'orch daemon run' or ensure daemon is started)")
 	}
 	return runIssueListViaDaemon(client, opts)
 }
 
-func runIssueListViaDaemon(client *daemon.Client, opts *issueListOptions) error {
+func runIssueListViaDaemon(client *daemon.ProtoClient, opts *issueListOptions) error {
 	// Collect all issues, handling pagination
 	// Pass status filter to daemon if set (daemon supports this)
 	var statusFilter []string

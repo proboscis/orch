@@ -68,7 +68,7 @@ type Monitor struct {
 	issueSort       SortKey
 	issueSortDir    SortDirection
 	store           store.Store
-	daemonClient    *daemon.Client
+	daemonClient    *daemon.ProtoClient
 	orchPath        string
 	globalFlags     []string
 	agent           string
@@ -131,7 +131,7 @@ func New(st store.Store, opts Options) *Monitor {
 	orchDir := GetOrchDir(projectRoot)
 	var presets []config.Preset
 	issuesRoot := st.RootPath()
-	daemonClient := daemon.NewClientWithIssuesRoot(projectRoot, issuesRoot)
+	daemonClient := daemon.NewProtoClientWithIssuesRoot(projectRoot, issuesRoot)
 	if cfg, err := config.Load(); err == nil {
 		presets = cfg.GetAllPresets()
 	}
