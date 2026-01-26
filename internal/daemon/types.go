@@ -400,3 +400,14 @@ func SummaryAliveInfo(s *RunSummary) (alive bool, known bool) {
 	}
 	return s.Alive, s.AliveKnown
 }
+
+// StartRunResponse is the response for start_run
+type StartRunResponse struct {
+	OK           bool   `json:"ok"`
+	Error        string `json:"error,omitempty"`
+	RunID        string `json:"run_id,omitempty"`
+	Branch       string `json:"branch,omitempty"`
+	WorktreePath string `json:"worktree,omitempty"`
+	TmuxSession  string `json:"tmux_session,omitempty"`
+	Status       string `json:"status,omitempty"`
+}

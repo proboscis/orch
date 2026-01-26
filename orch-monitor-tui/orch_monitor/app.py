@@ -1996,15 +1996,17 @@ class RunsDashboard(App):
 
     @work(thread=True)
     def _do_stop(self, run_ref: str) -> None:
-        try:
-            cmd = _build_orch_cmd(self.config) + ["stop", run_ref]
-            subprocess.run(cmd, check=True)
-            self.call_from_thread(self.refresh_data)
-        except subprocess.CalledProcessError:
-            pass
+        parts = run_ref.split("#", 1)
+        issue_id = parts[0]
+        run_id = parts[1] if len(parts) > 1 else ""
+        result = self.api.stop_run(issue_id, run_id)
+        if isinstance(result, Failure):
+            self.call_from_thread(
+                self.notify, f"Failed to stop run: {result.failure()}", severity="error"
+            )
+        self.call_from_thread(self.refresh_data)
 
     def action_diff(self) -> None:
-        """Show git diff for selected run."""
         if _input_has_focus(self):
             return
         if not self.selected_run:
@@ -2359,38 +2361,20 @@ class IssuesDashboard(App):
     @work(thread=True, exclusive=True)
     def _do_new_run(self, issue_id: str, agent: str) -> None:
         log = get_logger()
-        try:
-            cmd = _build_orch_cmd(self.config) + ["run", issue_id, "--agent", agent]
-
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if result.returncode == 0:
-                self.call_from_thread(
-                    self.notify, f"Run started for {issue_id}", severity="information"
-                )
-            else:
-                error_msg = (
-                    result.stderr.strip() or result.stdout.strip() or "Unknown error"
-                )
-                if len(error_msg) > 200:
-                    error_msg = error_msg[:200] + "..."
-                log.error(
-                    f"Failed to start run for {issue_id}: exit={result.returncode}, "
-                    f"stderr={result.stderr!r}, stdout={result.stdout!r}"
-                )
-                self.call_from_thread(
-                    self.notify,
-                    f"Failed to start run (exit {result.returncode}): {error_msg}",
-                    severity="error",
-                )
-            self.call_from_thread(self.refresh_data)
-        except subprocess.TimeoutExpired:
-            log.error(f"Timeout starting run for {issue_id}")
-            self.call_from_thread(self.notify, "Timeout starting run", severity="error")
-        except Exception as e:
-            log.exception(f"Exception starting run for {issue_id}")
+        result = self.api.start_run(issue_id, agent)
+        if isinstance(result, Failure):
+            error_msg = str(result.failure())
+            if len(error_msg) > 200:
+                error_msg = error_msg[:200] + "..."
+            log.error(f"Failed to start run for {issue_id}: {error_msg}")
             self.call_from_thread(
-                self.notify, f"Failed to start run: {e}", severity="error"
+                self.notify, f"Failed to start run: {error_msg}", severity="error"
             )
+        else:
+            self.call_from_thread(
+                self.notify, f"Run started for {issue_id}", severity="information"
+            )
+        self.call_from_thread(self.refresh_data)
 
     def action_close_issue(self) -> None:
         if _input_has_focus(self):
@@ -2414,40 +2398,20 @@ class IssuesDashboard(App):
     @work(thread=True, exclusive=True)
     def _do_close_issue(self, issue_id: str) -> None:
         log = get_logger()
-        try:
-            cmd = _build_orch_cmd(self.config) + ["issue", "close", issue_id]
-
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if result.returncode == 0:
-                self.call_from_thread(
-                    self.notify, f"Closed issue {issue_id}", severity="information"
-                )
-            else:
-                error_msg = (
-                    result.stderr.strip() or result.stdout.strip() or "Unknown error"
-                )
-                if len(error_msg) > 200:
-                    error_msg = error_msg[:200] + "..."
-                log.error(
-                    f"Failed to close issue {issue_id}: exit={result.returncode}, "
-                    f"stderr={result.stderr!r}, stdout={result.stdout!r}"
-                )
-                self.call_from_thread(
-                    self.notify,
-                    f"Failed to close issue: {error_msg}",
-                    severity="error",
-                )
-            self.call_from_thread(self.refresh_data)
-        except subprocess.TimeoutExpired:
-            log.error(f"Timeout closing issue {issue_id}")
+        result = self.api.close_issue(issue_id)
+        if isinstance(result, Failure):
+            error_msg = str(result.failure())
+            if len(error_msg) > 200:
+                error_msg = error_msg[:200] + "..."
+            log.error(f"Failed to close issue {issue_id}: {error_msg}")
             self.call_from_thread(
-                self.notify, "Timeout closing issue", severity="error"
+                self.notify, f"Failed to close issue: {error_msg}", severity="error"
             )
-        except Exception as e:
-            log.exception(f"Exception closing issue {issue_id}")
+        else:
             self.call_from_thread(
-                self.notify, f"Failed to close issue: {e}", severity="error"
+                self.notify, f"Closed issue {issue_id}", severity="information"
             )
+        self.call_from_thread(self.refresh_data)
 
 
 class OrchMonitorApp(App):
@@ -3020,15 +2984,17 @@ class OrchMonitorApp(App):
 
     @work(thread=True)
     def _do_stop(self, run_ref: str) -> None:
-        try:
-            cmd = _build_orch_cmd(self.config) + ["stop", run_ref]
-            subprocess.run(cmd, check=True)
-            self.call_from_thread(self.refresh_data)
-        except subprocess.CalledProcessError:
-            pass
+        parts = run_ref.split("#", 1)
+        issue_id = parts[0]
+        run_id = parts[1] if len(parts) > 1 else ""
+        result = self.api.stop_run(issue_id, run_id)
+        if isinstance(result, Failure):
+            self.call_from_thread(
+                self.notify, f"Failed to stop run: {result.failure()}", severity="error"
+            )
+        self.call_from_thread(self.refresh_data)
 
     def action_diff(self) -> None:
-        """Show git diff for selected run."""
         if _input_has_focus(self):
             return
         if not self.selected_run:
@@ -3138,38 +3104,20 @@ class OrchMonitorApp(App):
     @work(thread=True, exclusive=True)
     def _do_new_run(self, issue_id: str, agent: str) -> None:
         log = get_logger()
-        try:
-            cmd = _build_orch_cmd(self.config) + ["run", issue_id, "--agent", agent]
-
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if result.returncode == 0:
-                self.call_from_thread(
-                    self.notify, f"Run started for {issue_id}", severity="information"
-                )
-            else:
-                error_msg = (
-                    result.stderr.strip() or result.stdout.strip() or "Unknown error"
-                )
-                if len(error_msg) > 200:
-                    error_msg = error_msg[:200] + "..."
-                log.error(
-                    f"Failed to start run for {issue_id}: exit={result.returncode}, "
-                    f"stderr={result.stderr!r}, stdout={result.stdout!r}"
-                )
-                self.call_from_thread(
-                    self.notify,
-                    f"Failed to start run (exit {result.returncode}): {error_msg}",
-                    severity="error",
-                )
-            self.call_from_thread(self.refresh_data)
-        except subprocess.TimeoutExpired:
-            log.error(f"Timeout starting run for {issue_id}")
-            self.call_from_thread(self.notify, "Timeout starting run", severity="error")
-        except Exception as e:
-            log.exception(f"Exception starting run for {issue_id}")
+        result = self.api.start_run(issue_id, agent)
+        if isinstance(result, Failure):
+            error_msg = str(result.failure())
+            if len(error_msg) > 200:
+                error_msg = error_msg[:200] + "..."
+            log.error(f"Failed to start run for {issue_id}: {error_msg}")
             self.call_from_thread(
-                self.notify, f"Failed to start run: {e}", severity="error"
+                self.notify, f"Failed to start run: {error_msg}", severity="error"
             )
+        else:
+            self.call_from_thread(
+                self.notify, f"Run started for {issue_id}", severity="information"
+            )
+        self.call_from_thread(self.refresh_data)
 
     def action_open_issue(self) -> None:
         if _input_has_focus(self):
@@ -3236,37 +3184,17 @@ class OrchMonitorApp(App):
     @work(thread=True, exclusive=True)
     def _do_close_issue(self, issue_id: str) -> None:
         log = get_logger()
-        try:
-            cmd = _build_orch_cmd(self.config) + ["issue", "close", issue_id]
-
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if result.returncode == 0:
-                self.call_from_thread(
-                    self.notify, f"Closed issue {issue_id}", severity="information"
-                )
-            else:
-                error_msg = (
-                    result.stderr.strip() or result.stdout.strip() or "Unknown error"
-                )
-                if len(error_msg) > 200:
-                    error_msg = error_msg[:200] + "..."
-                log.error(
-                    f"Failed to close issue {issue_id}: exit={result.returncode}, "
-                    f"stderr={result.stderr!r}, stdout={result.stdout!r}"
-                )
-                self.call_from_thread(
-                    self.notify,
-                    f"Failed to close issue: {error_msg}",
-                    severity="error",
-                )
-            self.call_from_thread(self.refresh_data)
-        except subprocess.TimeoutExpired:
-            log.error(f"Timeout closing issue {issue_id}")
+        result = self.api.close_issue(issue_id)
+        if isinstance(result, Failure):
+            error_msg = str(result.failure())
+            if len(error_msg) > 200:
+                error_msg = error_msg[:200] + "..."
+            log.error(f"Failed to close issue {issue_id}: {error_msg}")
             self.call_from_thread(
-                self.notify, "Timeout closing issue", severity="error"
+                self.notify, f"Failed to close issue: {error_msg}", severity="error"
             )
-        except Exception as e:
-            log.exception(f"Exception closing issue {issue_id}")
+        else:
             self.call_from_thread(
-                self.notify, f"Failed to close issue: {e}", severity="error"
+                self.notify, f"Closed issue {issue_id}", severity="information"
             )
+        self.call_from_thread(self.refresh_data)
