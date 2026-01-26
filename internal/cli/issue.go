@@ -239,10 +239,11 @@ func dirExists(path string) bool {
 }
 
 type issueListOptions struct {
-	NoPath  bool
-	Status  string
-	Tags    []string // AND logic - must have all tags
-	TagsAny []string // OR logic - must have any tag
+	NoPath   bool
+	Status   string
+	Tags     []string // AND logic - must have all tags
+	TagsAny  []string // OR logic - must have any tag
+	WithRuns bool     // Show detailed run information
 }
 
 func newIssueListCmd() *cobra.Command {
@@ -268,6 +269,7 @@ Examples:
 	cmd.Flags().StringVarP(&opts.Status, "status", "s", "", "Filter by status (open, closed, resolved)")
 	cmd.Flags().StringSliceVar(&opts.Tags, "tag", nil, "Filter by tag (AND logic, repeatable)")
 	cmd.Flags().StringSliceVar(&opts.TagsAny, "tag-any", nil, "Filter by any tag (OR logic, comma-separated)")
+	cmd.Flags().BoolVar(&opts.WithRuns, "with-runs", false, "Include detailed run information")
 
 	return cmd
 }
@@ -390,6 +392,10 @@ func outputIssueList(issueInfos []issueInfo, opts *issueListOptions) error {
 		return nil
 	}
 
+	if opts.WithRuns {
+		return outputIssueListWithRuns(issueInfos, opts)
+	}
+
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	if opts.NoPath {
 		fmt.Fprintln(w, "ID\tSTATUS\tSUMMARY\tRUNS")
@@ -423,6 +429,58 @@ func outputIssueList(issueInfos []issueInfo, opts *issueListOptions) error {
 	}
 	w.Flush()
 
+	return nil
+}
+
+func outputIssueListWithRuns(issueInfos []issueInfo, opts *issueListOptions) error {
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	if opts.NoPath {
+		fmt.Fprintln(w, "ID\tSTATUS\tSUMMARY\tRUN_ID\tRUN_STATUS")
+	} else {
+		fmt.Fprintln(w, "ID\tSTATUS\tSUMMARY\tRUN_ID\tRUN_STATUS\tPATH")
+	}
+
+	for _, issue := range issueInfos {
+		status := issue.Status
+		if status == "" {
+			status = "-"
+		}
+		summary := issue.Summary
+		if summary == "" {
+			summary = "-"
+		} else if len(summary) > 40 {
+			summary = summary[:37] + "..."
+		}
+		path := issue.Path
+		if path == "" {
+			path = "-"
+		}
+
+		if len(issue.Runs) == 0 {
+			if opts.NoPath {
+				fmt.Fprintf(w, "%s\t%s\t%s\t-\t-\n", issue.ID, status, summary)
+			} else {
+				fmt.Fprintf(w, "%s\t%s\t%s\t-\t-\t%s\n", issue.ID, status, summary, path)
+			}
+		} else {
+			for i, run := range issue.Runs {
+				if i == 0 {
+					if opts.NoPath {
+						fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", issue.ID, status, summary, run.RunID, run.Status)
+					} else {
+						fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", issue.ID, status, summary, run.RunID, run.Status, path)
+					}
+				} else {
+					if opts.NoPath {
+						fmt.Fprintf(w, "\t\t\t%s\t%s\n", run.RunID, run.Status)
+					} else {
+						fmt.Fprintf(w, "\t\t\t%s\t%s\t\n", run.RunID, run.Status)
+					}
+				}
+			}
+		}
+	}
+	w.Flush()
 	return nil
 }
 

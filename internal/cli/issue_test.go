@@ -137,3 +137,57 @@ func TestMatchIssueFilters(t *testing.T) {
 		})
 	}
 }
+
+func TestIssueListOptionsWithRuns(t *testing.T) {
+	opts := &issueListOptions{WithRuns: true}
+	if !opts.WithRuns {
+		t.Error("WithRuns should be true")
+	}
+
+	opts = &issueListOptions{WithRuns: false}
+	if opts.WithRuns {
+		t.Error("WithRuns should be false")
+	}
+}
+
+func TestFormatRunsSummary(t *testing.T) {
+	tests := []struct {
+		name string
+		runs []runSummary
+		want string
+	}{
+		{
+			name: "empty runs",
+			runs: []runSummary{},
+			want: "-",
+		},
+		{
+			name: "single running",
+			runs: []runSummary{{RunID: "run1", Status: "running"}},
+			want: "1 running",
+		},
+		{
+			name: "multiple same status",
+			runs: []runSummary{
+				{RunID: "run1", Status: "running"},
+				{RunID: "run2", Status: "running"},
+			},
+			want: "2 running",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatRunsSummary(tt.runs)
+			if tt.name == "empty runs" && got != "-" {
+				t.Errorf("formatRunsSummary() = %v, want %v", got, tt.want)
+			}
+			if tt.name == "single running" && got != "1 running" {
+				t.Errorf("formatRunsSummary() = %v, want %v", got, tt.want)
+			}
+			if tt.name == "multiple same status" && got != "2 running" {
+				t.Errorf("formatRunsSummary() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
