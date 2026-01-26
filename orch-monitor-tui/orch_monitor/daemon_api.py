@@ -1,4 +1,4 @@
-"""DaemonOrchAPI implementation using DaemonClient and subprocess fallbacks."""
+"""DaemonOrchAPI implementation using ProtoDaemonClient and subprocess fallbacks."""
 
 import logging
 import subprocess
@@ -11,11 +11,15 @@ from typing import Optional
 
 from returns.result import Failure, Result, Success
 
-from .daemon import DaemonClient, DaemonError, DaemonNotRunningError
-from .daemon import IssueFilters as DaemonIssueFilters
-from .daemon import ListIssuesResponse as DaemonListIssuesResponse
-from .daemon import ListRunsResponse as DaemonListRunsResponse
-from .daemon import RunFilters as DaemonRunFilters
+from .proto_client import (
+    IssueFilters as ProtoIssueFilters,
+    ListIssuesResponse as ProtoListIssuesResponse,
+    ListRunsResponse as ProtoListRunsResponse,
+    ProtoDaemonClient,
+    ProtoDaemonError,
+    ProtoDaemonNotRunningError,
+    RunFilters as ProtoRunFilters,
+)
 from .models import Issue as ModelIssue
 from .models import IssueStatus as ModelIssueStatus
 from .models import Run as ModelRun
@@ -263,7 +267,9 @@ def _compute_branch_state(
 class MonitorHeartbeat:
     """Handles periodic heartbeat for monitor registration."""
 
-    def __init__(self, client: DaemonClient, project: str, view: str = "dashboard"):
+    def __init__(
+        self, client: ProtoDaemonClient, project: str, view: str = "dashboard"
+    ):
         self._client = client
         self._project = project
         self._view = view
@@ -359,7 +365,7 @@ class DaemonOrchAPI:
         self._issues_root = issues_root
         self._project_root = project_root or Path.cwd()
         self._base_branch = base_branch
-        self._daemon = DaemonClient(socket_path, issues_root)
+        self._daemon = ProtoDaemonClient(socket_path, issues_root)
         self._monitor_heartbeat: Optional[MonitorHeartbeat] = None
 
     def _build_orch_cmd(self) -> list[str]:
@@ -412,19 +418,19 @@ class DaemonOrchAPI:
             daemon_filters = None
             if filters:
                 status_list = [_api_run_status_to_model(s) for s in filters.status]
-                daemon_filters = DaemonRunFilters(
+                daemon_filters = ProtoRunFilters(
                     issue_id=filters.issue_id,
                     status=status_list,
                     agent=filters.agent,
                     text_search=filters.text_search,
                     time_range=filters.time_range,
                 )
-            response: DaemonListRunsResponse = self._daemon.list_runs(daemon_filters)
+            response: ProtoListRunsResponse = self._daemon.list_runs(daemon_filters)
             runs = [_model_run_to_api(r) for r in response.runs]
             return Success(ListRunsResponse(runs=runs, total=response.total))
-        except DaemonNotRunningError:
+        except ProtoDaemonNotRunningError:
             return Failure(ApiDaemonNotRunningError("Daemon not running"))
-        except DaemonError as e:
+        except ProtoDaemonError as e:
             return Failure(OrchError(str(e)))
 
     def get_run(self, issue_id: str, run_id: str) -> Result[Run, OrchError]:
@@ -433,9 +439,9 @@ class DaemonOrchAPI:
             if run is None:
                 return Failure(NotFoundError(f"Run {issue_id}#{run_id} not found"))
             return Success(_model_run_to_api(run))
-        except DaemonNotRunningError:
+        except ProtoDaemonNotRunningError:
             return Failure(ApiDaemonNotRunningError("Daemon not running"))
-        except DaemonError as e:
+        except ProtoDaemonError as e:
             return Failure(OrchError(str(e)))
 
     def start_run(
@@ -453,18 +459,18 @@ class DaemonOrchAPI:
                     worktree_path=result.get("worktree", ""),
                 )
             )
-        except DaemonNotRunningError:
+        except ProtoDaemonNotRunningError:
             return Failure(ApiDaemonNotRunningError("Daemon not running"))
-        except DaemonError as e:
+        except ProtoDaemonError as e:
             return Failure(OrchError(str(e)))
 
     def stop_run(self, issue_id: str, run_id: str) -> Result[None, OrchError]:
         try:
             self._daemon.stop_run(issue_id, run_id)
             return Success(None)
-        except DaemonNotRunningError:
+        except ProtoDaemonNotRunningError:
             return Failure(ApiDaemonNotRunningError("Daemon not running"))
-        except DaemonError as e:
+        except ProtoDaemonError as e:
             return Failure(OrchError(str(e)))
 
     def resolve_run(self, issue_id: str, run_id: str) -> Result[None, OrchError]:
@@ -492,20 +498,18 @@ class DaemonOrchAPI:
             daemon_filters = None
             if filters:
                 status_list = [_api_issue_status_to_model(s) for s in filters.status]
-                daemon_filters = DaemonIssueFilters(
+                daemon_filters = ProtoIssueFilters(
                     status=status_list,
                     tags=filters.tags,
                     tags_mode=filters.tags_mode,
                     text_search=filters.text_search,
                 )
-            response: DaemonListIssuesResponse = self._daemon.list_issues(
-                daemon_filters
-            )
+            response: ProtoListIssuesResponse = self._daemon.list_issues(daemon_filters)
             issues = [_model_issue_to_api(i) for i in response.issues]
             return Success(ListIssuesResponse(issues=issues, total=response.total))
-        except DaemonNotRunningError:
+        except ProtoDaemonNotRunningError:
             return Failure(ApiDaemonNotRunningError("Daemon not running"))
-        except DaemonError as e:
+        except ProtoDaemonError as e:
             return Failure(OrchError(str(e)))
 
     def get_issue(self, issue_id: str) -> Result[Issue, OrchError]:
@@ -514,9 +518,9 @@ class DaemonOrchAPI:
             if issue is None:
                 return Failure(NotFoundError(f"Issue {issue_id} not found"))
             return Success(_model_issue_to_api(issue))
-        except DaemonNotRunningError:
+        except ProtoDaemonNotRunningError:
             return Failure(ApiDaemonNotRunningError("Daemon not running"))
-        except DaemonError as e:
+        except ProtoDaemonError as e:
             return Failure(OrchError(str(e)))
 
     def create_issue(
@@ -551,9 +555,9 @@ class DaemonOrchAPI:
         try:
             self._daemon.close_issue(issue_id)
             return Success(None)
-        except DaemonNotRunningError:
+        except ProtoDaemonNotRunningError:
             return Failure(ApiDaemonNotRunningError("Daemon not running"))
-        except DaemonError as e:
+        except ProtoDaemonError as e:
             return Failure(OrchError(str(e)))
 
     # === Control Agent ===
@@ -578,9 +582,9 @@ class DaemonOrchAPI:
                     session_id=session_id,
                 )
             )
-        except DaemonNotRunningError:
+        except ProtoDaemonNotRunningError:
             return Failure(ApiDaemonNotRunningError("Daemon not running"))
-        except DaemonError as e:
+        except ProtoDaemonError as e:
             return Failure(OrchError(str(e)))
 
     # === Sessions ===
@@ -660,9 +664,9 @@ class DaemonOrchAPI:
         try:
             self._daemon.send_message(issue_id, run_id, message)
             return Success(None)
-        except DaemonNotRunningError:
+        except ProtoDaemonNotRunningError:
             return Failure(ApiDaemonNotRunningError("Daemon not running"))
-        except DaemonError as e:
+        except ProtoDaemonError as e:
             return Failure(OrchError(str(e)))
 
     # === Git ===
@@ -776,9 +780,9 @@ class DaemonOrchAPI:
             self._monitor_heartbeat.start(session_name)
 
             return Success(monitor_id)
-        except DaemonNotRunningError:
+        except ProtoDaemonNotRunningError:
             return Failure(ApiDaemonNotRunningError("Daemon not running"))
-        except DaemonError as e:
+        except ProtoDaemonError as e:
             return Failure(OrchError(str(e)))
 
     def unregister_monitor(self, monitor_id: str) -> Result[None, OrchError]:
@@ -791,9 +795,9 @@ class DaemonOrchAPI:
             if not success:
                 return Failure(OrchError("Failed to unregister monitor"))
             return Success(None)
-        except DaemonNotRunningError:
+        except ProtoDaemonNotRunningError:
             return Failure(ApiDaemonNotRunningError("Daemon not running"))
-        except DaemonError as e:
+        except ProtoDaemonError as e:
             return Failure(OrchError(str(e)))
 
     def heartbeat(self, monitor_id: str) -> Result[None, OrchError]:
@@ -802,31 +806,7 @@ class DaemonOrchAPI:
             if not success:
                 return Failure(OrchError("Heartbeat failed"))
             return Success(None)
-        except DaemonNotRunningError:
+        except ProtoDaemonNotRunningError:
             return Failure(ApiDaemonNotRunningError("Daemon not running"))
-        except DaemonError as e:
+        except ProtoDaemonError as e:
             return Failure(OrchError(str(e)))
-
-    # === Additional methods for backward compatibility ===
-
-    def get_control_session(
-        self, project_root: str, agent_type: str = ""
-    ) -> tuple[Optional[str], Optional[str]]:
-        """Get control session info (backward compatibility)."""
-        return self._daemon.get_control_session(project_root, agent_type)
-
-    def set_control_session(
-        self, project_root: str, session_id: str, agent_type: str = ""
-    ) -> bool:
-        """Set control session (backward compatibility)."""
-        return self._daemon.set_control_session(project_root, session_id, agent_type)
-
-    def clear_control_session(self, project_root: str) -> bool:
-        """Clear control session (backward compatibility)."""
-        return self._daemon.clear_control_session(project_root)
-
-    def ensure_opencode_server(
-        self, project_root: str
-    ) -> tuple[bool, int, Optional[str], Optional[str]]:
-        """Ensure opencode server is running (backward compatibility)."""
-        return self._daemon.ensure_opencode_server(project_root)
