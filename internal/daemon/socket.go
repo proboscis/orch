@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/s22625/orch/internal/agent"
+	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/github"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
@@ -377,6 +378,8 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 		s.handleEnsureOpenCodeServer(req, encoder)
 	case "append_event":
 		s.handleAppendEvent(req, encoder)
+	case "get_control_agent_launch":
+		s.handleGetControlAgentLaunch(req, encoder)
 	default:
 		encoder.Encode(SendResponse{OK: false, Error: "unknown_type"})
 	}
@@ -950,6 +953,427 @@ func (s *SocketServer) getOrCreateOpenCodeControlSession(projectRoot string, por
 
 func getControlPromptInstruction() string {
 	return "ultrathink Please read 'ORCH_CONTROL_PROMPT.md' in the current directory and follow the instructions found there."
+}
+
+const controlPromptFileName = "ORCH_CONTROL_PROMPT.md"
+
+// writeControlPromptFile writes the control agent prompt to a file in the current working directory.
+// This is the daemon's implementation to avoid circular imports with the monitor package.
+func (s *SocketServer) writeControlPromptFile(st store.Store) (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	prompt, err := s.buildControlAgentPrompt(st)
+	if err != nil {
+		return "", err
+	}
+
+	promptPath := filepath.Join(cwd, controlPromptFileName)
+	if err := os.WriteFile(promptPath, []byte(prompt), 0644); err != nil {
+		return "", fmt.Errorf("failed to write control prompt file: %w", err)
+	}
+
+	return promptPath, nil
+}
+
+// buildControlAgentPrompt builds the control agent prompt with dynamic repo context.
+func (s *SocketServer) buildControlAgentPrompt(st store.Store) (string, error) {
+	cwd, _ := os.Getwd()
+	issuesRoot := st.RootPath()
+
+	// Get existing issues
+	issues, _ := st.ListIssues()
+
+	// Get active runs
+	runs, _ := st.ListRuns(&store.ListRunsFilter{
+		Status: []model.Status{
+			model.StatusRunning,
+			model.StatusBlocked,
+			model.StatusBlockedAPI,
+			model.StatusBooting,
+			model.StatusQueued,
+			model.StatusPROpen,
+		},
+		Limit: 20,
+	})
+
+	// Build issues table
+	var issuesText string
+	if len(issues) > 0 {
+		var sb strings.Builder
+		sb.WriteString("| ID | Status | Title |\n")
+		sb.WriteString("|----|--------|-------|\n")
+		for i, issue := range issues {
+			if i >= 20 {
+				break
+			}
+			status := string(issue.Status)
+			if status == "" {
+				status = string(model.IssueStatusOpen)
+			}
+			title := issue.Title
+			if title == "" {
+				title = "-"
+			}
+			if len(title) > 50 {
+				title = title[:47] + "..."
+			}
+			sb.WriteString(fmt.Sprintf("| %s | %s | %s |\n", issue.ID, status, title))
+		}
+		issuesText = sb.String()
+	} else {
+		issuesText = "No issues found."
+	}
+
+	// Build runs table
+	var runsText string
+	if len(runs) > 0 {
+		var sb strings.Builder
+		sb.WriteString("| Issue | Run ID | Status |\n")
+		sb.WriteString("|-------|--------|--------|\n")
+		for i, run := range runs {
+			if i >= 10 {
+				break
+			}
+			sb.WriteString(fmt.Sprintf("| %s | %s | %s |\n", run.IssueID, run.ShortID(), string(run.Status)))
+		}
+		runsText = sb.String()
+	} else {
+		runsText = "No active runs."
+	}
+
+	// Get git info
+	gitBranch := s.getGitBranch(cwd)
+	uncommittedChanges := s.getUncommittedChangesStatus(cwd)
+
+	// Get agent config
+	cfg, _ := config.Load()
+	defaultAgent := "opencode"
+	if cfg != nil {
+		if cfg.ControlAgent != "" {
+			defaultAgent = cfg.ControlAgent
+		} else if cfg.Agent != "" {
+			defaultAgent = cfg.Agent
+		}
+	}
+
+	prompt := fmt.Sprintf(`You are the orch control agent for this repository.
+You can run orch commands directly via bash to manage issues and runs.
+
+## Repository Context
+
+- IssuesRoot: %s
+- Working directory: %s
+
+## Git Context
+%s
+- Uncommitted changes: %s
+
+## Available Agents
+
+- Default: %s
+- Configured backends: opencode, claude, codex, gemini, custom
+
+Use `+"`--agent <name>`"+` to specify a different agent when starting runs.
+
+## Existing Issues
+
+%s
+
+## Active Runs
+
+%s
+
+## Workflows
+
+### Starting New Work
+1. Create issue: `+"`orch issue create <id> --title \"...\" --body \"...\"`"+`
+2. Start run: `+"`orch run <issue-id>`"+`
+3. Monitor: Watch the runs table or use `+"`orch ps`"+`
+
+### Handling Blocked Runs
+When a run shows "blocked" status:
+1. Capture: `+"`orch capture <run-ref>`"+` to see what the agent needs
+2. Send feedback: `+"`orch send <issue-id> \"<message>\"`"+` to provide input
+3. The agent will resume automatically after receiving input
+
+### Continuing Work
+- From a branch: `+"`orch continue <issue> --branch <branch-name>`"+`
+- From a run: `+"`orch continue <issue>#<run-id>`"+`
+
+## Available Orch Commands
+
+Run these commands directly using bash (do not use any special protocol):
+
+### Issue Management
+- Create issue: `+"`orch issue create <id> --title \"<title>\" --body \"<body>\"`"+`
+- List issues: `+"`orch issue list`"+`
+- Open issue in editor: `+"`orch open <issue-id>`"+`
+
+### Run Management
+- Start a run: `+"`orch run <issue-id>`"+`
+- Continue from branch: `+"`orch continue <issue> --branch <branch>`"+`
+- List runs: `+"`orch ps`"+` (use `+"`--status running,blocked`"+` to filter)
+- Stop a run: `+"`orch stop <issue-id>#<run-id>`"+`
+- Resolve a run: `+"`orch resolve <issue-id>#<run-id>`"+`
+- Show run details: `+"`orch show <issue-id>#<run-id>`"+`
+- Capture run state: `+"`orch capture <run-ref>`"+` - see agent's last message
+- Send feedback: `+"`orch send <issue-id> \"<message>\"`"+` - provide input to blocked agent
+
+### Interactive Commands (DO NOT USE)
+The following commands are interactive and will hang if called by an AI agent:
+- `+"`orch attach`"+` - interactive tmux session (for humans only)
+- `+"`orch monitor`"+` - interactive TUI (for humans only)
+
+## Troubleshooting
+
+- Orphaned sessions: `+"`orch repair`"+`
+- View daemon logs: Check `+"`.orch/daemon.log`"+` in project root
+- Force stop all: `+"`orch stop --all`"+`
+
+## Instructions
+
+- Execute orch commands directly via bash - no special protocol needed
+- Follow the issue ID naming convention when creating new issues
+`, issuesRoot, cwd, gitBranch, uncommittedChanges, defaultAgent, issuesText, runsText)
+
+	return prompt, nil
+}
+
+// getGitBranch returns the current git branch name.
+func (s *SocketServer) getGitBranch(workDir string) string {
+	cmd := exec.Command("git", "-C", workDir, "rev-parse", "--abbrev-ref", "HEAD")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	branch := strings.TrimSpace(string(output))
+	if branch != "" {
+		return "- Current branch: " + branch
+	}
+	return ""
+}
+
+// getUncommittedChangesStatus returns "Yes" or "No" based on git status.
+func (s *SocketServer) getUncommittedChangesStatus(workDir string) string {
+	cmd := exec.Command("git", "-C", workDir, "status", "--porcelain")
+	output, err := cmd.Output()
+	if err != nil {
+		return "Unknown"
+	}
+	if len(strings.TrimSpace(string(output))) > 0 {
+		return "Yes"
+	}
+	return "No"
+}
+
+// handleGetControlAgentLaunch handles the get_control_agent_launch API request.
+// It writes the control prompt file, resolves agent configuration, and returns
+// a ready-to-execute command for launching the control agent.
+func (s *SocketServer) handleGetControlAgentLaunch(req SendRequest, encoder *json.Encoder) {
+	if req.ProjectRoot == "" {
+		encoder.Encode(map[string]interface{}{
+			"ok":    false,
+			"error": "project_root required",
+		})
+		return
+	}
+
+	// Resolve the store for the project
+	st := s.resolveStore(req)
+	if st == nil {
+		encoder.Encode(map[string]interface{}{
+			"ok":    false,
+			"error": "no store available for project",
+		})
+		return
+	}
+
+	// Write the control prompt file
+	promptPath, err := s.writeControlPromptFile(st)
+	if err != nil {
+		s.logger.Printf("failed to write control prompt file: %v", err)
+		encoder.Encode(map[string]interface{}{
+			"ok":    false,
+			"error": fmt.Sprintf("failed to write control prompt file: %v", err),
+		})
+		return
+	}
+
+	// Load configuration
+	cfg, cfgErr := config.Load()
+
+	// Resolve agent type
+	agentName := req.AgentType
+	if agentName == "" && cfgErr == nil {
+		agentName = cfg.ControlAgent
+		if agentName == "" {
+			agentName = cfg.Agent
+		}
+	}
+	if agentName == "" {
+		agentName = "opencode"
+	}
+
+	// Get model configuration
+	var modelName, modelVariant string
+	if cfgErr == nil {
+		modelName = cfg.ControlModel
+		if modelName == "" {
+			modelName = cfg.Model
+		}
+		modelVariant = cfg.ControlModelVariant
+		if modelVariant == "" {
+			modelVariant = cfg.ModelVariant
+		}
+	}
+
+	// Parse and validate agent type
+	aType, err := agent.ParseAgentType(agentName)
+	if err != nil {
+		encoder.Encode(map[string]interface{}{
+			"ok":    false,
+			"error": fmt.Sprintf("invalid agent type: %v", err),
+		})
+		return
+	}
+
+	adapter, err := agent.GetAdapter(aType)
+	if err != nil {
+		encoder.Encode(map[string]interface{}{
+			"ok":    false,
+			"error": fmt.Sprintf("failed to get adapter: %v", err),
+		})
+		return
+	}
+
+	if !adapter.IsAvailable() {
+		encoder.Encode(map[string]interface{}{
+			"ok":    false,
+			"error": fmt.Sprintf("%s CLI not available", agentName),
+		})
+		return
+	}
+
+	prompt := getControlPromptInstruction()
+	var command string
+	var port int
+	var sessionID string
+	var newSession bool
+
+	// Handle session clearing for new_session request
+	if req.Force { // Using Force as the "new_session" flag
+		lock := s.getControlSessionLock(req.ProjectRoot)
+		lock.Lock()
+		sessionPath := s.controlSessionPath(req.ProjectRoot)
+		os.Remove(sessionPath)
+		lock.Unlock()
+		newSession = true
+	}
+
+	// Handle based on injection method
+	if adapter.PromptInjection() == agent.InjectionHTTP {
+		// OpenCode uses HTTP injection via a managed server
+		serverPort, err := s.ensureOpenCodeServerRunning(req.ProjectRoot)
+		if err != nil {
+			encoder.Encode(map[string]interface{}{
+				"ok":    false,
+				"error": fmt.Sprintf("failed to ensure opencode server: %v", err),
+			})
+			return
+		}
+		port = serverPort
+
+		// Get or create session
+		session, err := s.getOrCreateOpenCodeControlSession(req.ProjectRoot, port)
+		if err != nil {
+			s.logger.Printf("warning: server running but failed to get session: %v", err)
+			// Still return the command, but without session
+			command = fmt.Sprintf("opencode attach http://127.0.0.1:%d", port)
+		} else {
+			sessionID = session
+			command = fmt.Sprintf("opencode attach http://127.0.0.1:%d --session %s", port, sessionID)
+		}
+	} else {
+		// CLI-based agents (claude, codex, gemini, custom)
+		// Get extra args for control agent
+		var extraArgs []string
+		if cfgErr == nil {
+			extraArgs = cfg.GetControlExtraArgs(agentName)
+		}
+
+		// Build launch config
+		launchCfg := &agent.LaunchConfig{
+			Type:            aType,
+			IssuesRoot:      st.RootPath(),
+			Prompt:          prompt,
+			ContinueSession: !newSession,
+			Model:           modelName,
+			ModelVariant:    modelVariant,
+			ExtraArgs:       extraArgs,
+		}
+
+		// For claude, try to get existing session
+		if agentName == "claude" && !newSession {
+			stored := s.getStoredControlSession(req.ProjectRoot)
+			if stored != "" {
+				launchCfg.Resume = true
+				launchCfg.SessionName = stored
+				sessionID = stored
+			} else {
+				// Try to discover Claude session
+				discovered := s.discoverClaudeSession(req.ProjectRoot)
+				if discovered != "" {
+					launchCfg.Resume = true
+					launchCfg.SessionName = discovered
+					sessionID = discovered
+					// Save discovered session
+					s.saveControlSession(req.ProjectRoot, discovered, "claude")
+				}
+			}
+		}
+
+		cmd, err := adapter.LaunchCommand(launchCfg)
+		if err != nil {
+			encoder.Encode(map[string]interface{}{
+				"ok":    false,
+				"error": fmt.Sprintf("failed to build launch command: %v", err),
+			})
+			return
+		}
+		command = cmd
+	}
+
+	s.logger.Printf("get_control_agent_launch: agent=%s, command=%s, port=%d, session=%s",
+		agentName, command, port, sessionID)
+
+	encoder.Encode(map[string]interface{}{
+		"ok":          true,
+		"command":     command,
+		"prompt_file": promptPath,
+		"port":        port,
+		"session_id":  sessionID,
+		"agent":       agentName,
+	})
+}
+
+// getStoredControlSession returns the stored session ID for a project, or empty string if none.
+func (s *SocketServer) getStoredControlSession(projectRoot string) string {
+	sessionPath := s.controlSessionPath(projectRoot)
+	data, err := os.ReadFile(sessionPath)
+	if err != nil {
+		return ""
+	}
+	var stored struct {
+		SessionID string `json:"session_id"`
+		AgentType string `json:"agent_type"`
+	}
+	if json.Unmarshal(data, &stored) != nil {
+		return ""
+	}
+	return stored.SessionID
 }
 
 func findAvailablePort(start, end int) int {

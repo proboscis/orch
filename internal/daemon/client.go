@@ -742,3 +742,52 @@ func (c *Client) ListRepos() ([]map[string]string, error) {
 
 	return resp.Repos, nil
 }
+
+// GetControlAgentLaunchRequest is the request for get_control_agent_launch
+type GetControlAgentLaunchRequest struct {
+	Type        string `json:"type"`
+	ProjectRoot string `json:"project_root"`
+	AgentType   string `json:"agent_type,omitempty"`
+	NewSession  bool   `json:"force,omitempty"` // Using "force" to match SendRequest.Force field
+	IssuesRoot  string `json:"issues_root,omitempty"`
+}
+
+// GetControlAgentLaunchResponse is the response for get_control_agent_launch
+type GetControlAgentLaunchResponse struct {
+	OK         bool   `json:"ok"`
+	Error      string `json:"error,omitempty"`
+	Command    string `json:"command,omitempty"`
+	PromptFile string `json:"prompt_file,omitempty"`
+	Port       int    `json:"port,omitempty"`
+	SessionID  string `json:"session_id,omitempty"`
+	Agent      string `json:"agent,omitempty"`
+}
+
+// GetControlAgentLaunch gets the launch command and configuration for the control agent.
+// It writes the control prompt file, resolves agent configuration, and returns
+// a ready-to-execute command.
+func (c *Client) GetControlAgentLaunch(projectRoot, agentType string, newSession bool) (*GetControlAgentLaunchResponse, error) {
+	req := GetControlAgentLaunchRequest{
+		Type:        "get_control_agent_launch",
+		ProjectRoot: projectRoot,
+		AgentType:   agentType,
+		NewSession:  newSession,
+		IssuesRoot:  c.issuesRoot,
+	}
+
+	raw, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp GetControlAgentLaunchResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !resp.OK {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	return &resp, nil
+}
