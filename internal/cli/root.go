@@ -38,26 +38,28 @@ type GlobalOptions struct {
 var globalOpts = &GlobalOptions{}
 
 var noDaemonCommands = map[string]bool{
-	"show":       true,
-	"daemon":     true,
-	"run":        true,
-	"list":       true,
-	"kill":       true,
-	"status":     true,
-	"repair":     true,
-	"delete":     true,
-	"help":       true,
-	"completion": true,
-	"models":     true,
-	"notify":     true,
-	"log":        true,
-	"debug":      true,
-	"query":      true,
-	"q":          true,
-	"schema":     true,
-	"tutorial":   true,
-	"agent":      true,
+	"show":                 true,
+	"daemon":               true,
+	"run":                  true,
+	"list":                 true,
+	"kill":                 true,
+	"status":               true,
+	"repair":               true,
+	"delete":               true,
+	"help":                 true,
+	"completion":           true,
+	"models":               true,
+	"notify":               true,
+	"log":                  true,
+	"debug":                true,
+	"query":                true,
+	"q":                    true,
+	"schema":               true,
+	"tutorial":             true,
+	"agent":                true,
+	"validate-issue-files": true,
 }
+
 // rootCmd represents the base command
 var rootCmd = &cobra.Command{
 	Use:   "orch",
@@ -116,6 +118,7 @@ func init() {
 	rootCmd.AddCommand(newSchemaCmd())
 	rootCmd.AddCommand(newTutorialCmd())
 	rootCmd.AddCommand(newAgentCmd())
+	rootCmd.AddCommand(newValidateIssueFilesCmd())
 }
 
 // Execute runs the root command
