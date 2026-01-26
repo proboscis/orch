@@ -55,6 +55,8 @@ from textual.widgets import (
     SelectionList,
 )
 
+from returns.result import Failure
+
 from .config import (
     Config,
     ConfigurationState,
@@ -62,14 +64,88 @@ from .config import (
     IssueFilterState,
     RunFilterState,
 )
-from .daemon import (
-    DaemonClient,
-    DaemonError,
-    DaemonNotRunningError,
-    MonitorRegistration,
-    RunFilters,
-)
 from .models import DiffStats, FileChange, Issue, IssueStatus, Run, Status
+from .orch_api import (
+    Issue as ApiIssue,
+    IssueStatus as ApiIssueStatus,
+    OrchAPI,
+    OrchError,
+    Run as ApiRun,
+    RunFilters as ApiRunFilters,
+    RunStatus as ApiRunStatus,
+    create_orch_api,
+)
+from .orch_api import DaemonNotRunningError as ApiDaemonNotRunningError
+
+
+def _api_run_status_to_model(status: ApiRunStatus) -> Status:
+    mapping = {
+        ApiRunStatus.QUEUED: Status.QUEUED,
+        ApiRunStatus.BOOTING: Status.BOOTING,
+        ApiRunStatus.RUNNING: Status.RUNNING,
+        ApiRunStatus.BLOCKED: Status.BLOCKED,
+        ApiRunStatus.BLOCKED_API: Status.BLOCKED_API,
+        ApiRunStatus.PR_OPEN: Status.PR_OPEN,
+        ApiRunStatus.DONE: Status.DONE,
+        ApiRunStatus.FAILED: Status.FAILED,
+        ApiRunStatus.CANCELED: Status.CANCELED,
+        ApiRunStatus.UNKNOWN: Status.UNKNOWN,
+    }
+    return mapping.get(status, Status.UNKNOWN)
+
+
+def _api_issue_status_to_model(status: ApiIssueStatus) -> IssueStatus:
+    mapping = {
+        ApiIssueStatus.OPEN: IssueStatus.OPEN,
+        ApiIssueStatus.RESOLVED: IssueStatus.RESOLVED,
+        ApiIssueStatus.CLOSED: IssueStatus.CLOSED,
+    }
+    return mapping.get(status, IssueStatus.OPEN)
+
+
+def _api_run_to_model(api_run: ApiRun) -> Run:
+    return Run(
+        issue_id=api_run.issue_id,
+        run_id=api_run.run_id,
+        path=Path(),
+        status=_api_run_status_to_model(api_run.status),
+        agent=api_run.agent,
+        model=api_run.model,
+        branch=api_run.branch,
+        worktree_path=api_run.worktree_path,
+        pr_url=api_run.pr_url,
+        started_at=api_run.started_at,
+        updated_at=api_run.updated_at,
+        tmux_session=api_run.tmux_session,
+        multiplexer=api_run.multiplexer,
+        server_port=api_run.server_port,
+        opencode_session_id=api_run.opencode_session_id,
+        additions=api_run.diff_stats.additions if api_run.diff_stats else 0,
+        deletions=api_run.diff_stats.deletions if api_run.diff_stats else 0,
+    )
+
+
+def _api_runs_to_model_runs(api_runs: list[ApiRun]) -> list[Run]:
+    return [_api_run_to_model(r) for r in api_runs]
+
+
+def _api_issue_to_model(api_issue: ApiIssue) -> Issue:
+    return Issue(
+        id=api_issue.id,
+        title=api_issue.title,
+        summary=api_issue.summary,
+        status=_api_issue_status_to_model(api_issue.status),
+        tags=api_issue.tags,
+        body=api_issue.body,
+        path=api_issue.path,
+        modified_at=api_issue.modified_at,
+    )
+
+
+def _api_issues_to_model_issues(api_issues: list[ApiIssue]) -> list[Issue]:
+    return [_api_issue_to_model(i) for i in api_issues]
+
+
 from .multiplexer import (
     Multiplexer,
     MultiplexerType,
@@ -1544,13 +1620,21 @@ class RunsDashboard(App):
         Binding("d", "diff", "Diff"),
     ]
 
-    def __init__(self, issues_root: Optional[Path] = None, auto_refresh: bool = True):
+    def __init__(
+        self,
+        issues_root: Optional[Path] = None,
+        auto_refresh: bool = True,
+        api: Optional[OrchAPI] = None,
+    ):
         super().__init__()
         if issues_root:
             self.config = Config.from_issues_root(issues_root)
         else:
             self.config = Config.load()
-        self.daemon = DaemonClient(self.config.socket_path, self.config.issues_root)
+        self.api: OrchAPI = api or create_orch_api(
+            self.config.socket_path,
+            self.config.issues_root,
+        )
         self.runs: list[Run] = []
         self.selected_run: Optional[Run] = None
         self.filter_state = self.config.load_filters()
@@ -1560,9 +1644,7 @@ class RunsDashboard(App):
         self._daemon_error: Optional[str] = None
         self._last_update: Optional[datetime] = None
         self._highlighted_run_ref: Optional[str] = None
-        self._monitor_registration = MonitorRegistration(
-            self.daemon, str(self.config.project_root), "runs"
-        )
+        self._monitor_id: Optional[str] = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -1573,7 +1655,16 @@ class RunsDashboard(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        self._monitor_registration.register()
+        import os
+
+        result = self.api.register_monitor(
+            pid=os.getpid(),
+            monitor_type="python",
+            view="runs",
+            project=str(self.config.project_root),
+        )
+        if not isinstance(result, Failure):
+            self._monitor_id = result.unwrap()
         self._update_title()
         self.refresh_data()
         if self._auto_refresh_enabled:
@@ -1581,7 +1672,8 @@ class RunsDashboard(App):
         self.set_interval(ELAPSED_UPDATE_INTERVAL, self._update_elapsed_times)
 
     def on_unmount(self) -> None:
-        self._monitor_registration.unregister()
+        if self._monitor_id:
+            self.api.unregister_monitor(self._monitor_id)
 
     def _update_elapsed_times(self) -> None:
         if not self.runs:
@@ -1658,30 +1750,31 @@ class RunsDashboard(App):
 
     @work(thread=True, exclusive=True)
     def _fetch_runs(self) -> None:
-        try:
-            status_filter = []
-            for s in self.filter_state.run_filters.statuses:
-                try:
-                    status_filter.append(Status(s))
-                except ValueError:
-                    pass
-            filters = RunFilters(status=status_filter) if status_filter else None
-            response = self.daemon.list_runs(filters)
-            runs = response.runs
-            error = None
-        except DaemonNotRunningError:
-            runs = None
-            error = "Daemon not running"
-        except DaemonError as e:
-            runs = None
-            error = str(e)
+        status_filter: list[ApiRunStatus] = []
+        for s in self.filter_state.run_filters.statuses:
+            try:
+                status_filter.append(ApiRunStatus(s))
+            except ValueError:
+                pass
+        filters = ApiRunFilters(status=status_filter) if status_filter else None
+        result = self.api.list_runs(filters)
 
-        if runs is not None:
-            runs = filter_runs_client_side(runs, self.filter_state.run_filters)
-            runs.sort(
-                key=lambda r: r.updated_at or r.started_at or datetime.min, reverse=True
-            )
-        self.call_from_thread(self._update_runs_table, runs, error)
+        if isinstance(result, Failure):
+            error_obj = result.failure()
+            if isinstance(error_obj, ApiDaemonNotRunningError):
+                error = "Daemon not running"
+            else:
+                error = str(error_obj)
+            self.call_from_thread(self._update_runs_table, None, error)
+            return
+
+        response = result.unwrap()
+        runs = _api_runs_to_model_runs(response.runs)
+        runs = filter_runs_client_side(runs, self.filter_state.run_filters)
+        runs.sort(
+            key=lambda r: r.updated_at or r.started_at or datetime.min, reverse=True
+        )
+        self.call_from_thread(self._update_runs_table, runs, None)
 
     def _update_runs_table(
         self, runs: Optional[list[Run]], error: Optional[str]
@@ -1740,10 +1833,11 @@ class RunsDashboard(App):
 
     @work(thread=True, exclusive=True)
     def _fetch_run_detail(self, issue_id: str, run_id: str, run_ref: str) -> None:
-        try:
-            run = self.daemon.get_run(issue_id, run_id)
-        except DaemonError:
+        result = self.api.get_run(issue_id, run_id)
+        if isinstance(result, Failure):
             run = None
+        else:
+            run = _api_run_to_model(result.unwrap())
         self.call_from_thread(self._set_selected_run, run, run_ref)
 
     def _set_selected_run(self, run: Optional[Run], run_ref: str) -> None:
@@ -1856,10 +1950,10 @@ class RunsDashboard(App):
             return []
 
     def _get_issue_for_run(self, run: Run) -> Optional[Issue]:
-        try:
-            return self.daemon.get_issue(run.issue_id)
-        except Exception:
+        result = self.api.get_issue(run.issue_id)
+        if isinstance(result, Failure):
             return None
+        return _api_issue_to_model(result.unwrap())
 
     def _capture_session_output(self, run: Run) -> list[str]:
         if not run.tmux_session:
@@ -2068,13 +2162,21 @@ class IssuesDashboard(App):
         Binding("ctrl+f", "clear_filters", "Clear Filters"),
     ]
 
-    def __init__(self, issues_root: Optional[Path] = None, auto_refresh: bool = True):
+    def __init__(
+        self,
+        issues_root: Optional[Path] = None,
+        auto_refresh: bool = True,
+        api: Optional[OrchAPI] = None,
+    ):
         super().__init__()
         if issues_root:
             self.config = Config.from_issues_root(issues_root)
         else:
             self.config = Config.load()
-        self.daemon = DaemonClient(self.config.socket_path, self.config.issues_root)
+        self.api: OrchAPI = api or create_orch_api(
+            self.config.socket_path,
+            self.config.issues_root,
+        )
         self.issues: list[Issue] = []
         self.selected_issue: Optional[Issue] = None
         self._highlighted_issue_id: Optional[str] = None
@@ -2084,9 +2186,7 @@ class IssuesDashboard(App):
         self.title = self._base_title
         self._daemon_error: Optional[str] = None
         self._last_update: Optional[datetime] = None
-        self._monitor_registration = MonitorRegistration(
-            self.daemon, str(self.config.project_root), "issues"
-        )
+        self._monitor_id: Optional[str] = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -2095,14 +2195,24 @@ class IssuesDashboard(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        self._monitor_registration.register()
+        import os
+
+        result = self.api.register_monitor(
+            pid=os.getpid(),
+            monitor_type="python",
+            view="issues",
+            project=str(self.config.project_root),
+        )
+        if not isinstance(result, Failure):
+            self._monitor_id = result.unwrap()
         self._update_title()
         self.refresh_data()
         if self._auto_refresh_enabled:
             self.set_interval(AUTO_REFRESH_INTERVAL, self._do_auto_refresh)
 
     def on_unmount(self) -> None:
-        self._monitor_registration.unregister()
+        if self._monitor_id:
+            self.api.unregister_monitor(self._monitor_id)
 
     def _update_title(self) -> None:
         count = self.filter_state.issue_filter_count()
@@ -2164,21 +2274,22 @@ class IssuesDashboard(App):
 
     @work(thread=True, exclusive=True)
     def _fetch_issues(self) -> None:
-        try:
-            response = self.daemon.list_issues()
-            issues = response.issues
-            error = None
-        except DaemonNotRunningError:
-            issues = None
-            error = "Daemon not running"
-        except DaemonError as e:
-            issues = None
-            error = str(e)
+        result = self.api.list_issues()
 
-        if issues is not None:
-            issues = filter_issues_client_side(issues, self.filter_state.issue_filters)
-            issues.sort(key=lambda i: i.id)
-        self.call_from_thread(self._update_issues_table, issues, error)
+        if isinstance(result, Failure):
+            error_obj = result.failure()
+            if isinstance(error_obj, ApiDaemonNotRunningError):
+                error = "Daemon not running"
+            else:
+                error = str(error_obj)
+            self.call_from_thread(self._update_issues_table, None, error)
+            return
+
+        response = result.unwrap()
+        issues = _api_issues_to_model_issues(response.issues)
+        issues = filter_issues_client_side(issues, self.filter_state.issue_filters)
+        issues.sort(key=lambda i: i.id)
+        self.call_from_thread(self._update_issues_table, issues, None)
 
     def _update_issues_table(
         self, issues: Optional[list[Issue]], error: Optional[str]
@@ -2219,10 +2330,11 @@ class IssuesDashboard(App):
 
     @work(thread=True, exclusive=True)
     def _fetch_issue_detail(self, issue_id: str) -> None:
-        try:
-            issue = self.daemon.get_issue(issue_id)
-        except DaemonError:
+        result = self.api.get_issue(issue_id)
+        if isinstance(result, Failure):
             issue = None
+        else:
+            issue = _api_issue_to_model(result.unwrap())
         self.call_from_thread(self._set_selected_issue, issue, issue_id)
 
     def _set_selected_issue(self, issue: Optional[Issue], issue_id: str) -> None:
@@ -2405,7 +2517,12 @@ class OrchMonitorApp(App):
         Binding("tab", "switch_focus", "Switch Focus"),
     ]
 
-    def __init__(self, issues_root: Optional[Path] = None, auto_refresh: bool = True):
+    def __init__(
+        self,
+        issues_root: Optional[Path] = None,
+        auto_refresh: bool = True,
+        api: Optional[OrchAPI] = None,
+    ):
         super().__init__()
 
         if issues_root:
@@ -2413,7 +2530,10 @@ class OrchMonitorApp(App):
         else:
             self.config = Config.load()
 
-        self.daemon = DaemonClient(self.config.socket_path, self.config.issues_root)
+        self.api: OrchAPI = api or create_orch_api(
+            self.config.socket_path,
+            self.config.issues_root,
+        )
         self.runs: list[Run] = []
         self.issues: list[Issue] = []
         self.selected_run: Optional[Run] = None
@@ -2426,9 +2546,7 @@ class OrchMonitorApp(App):
         self.title = self._base_title
         self._daemon_error: Optional[str] = None
         self._last_update: Optional[datetime] = None
-        self._monitor_registration = MonitorRegistration(
-            self.daemon, str(self.config.project_root), "combined"
-        )
+        self._monitor_id: Optional[str] = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -2447,7 +2565,16 @@ class OrchMonitorApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        self._monitor_registration.register()
+        import os
+
+        result = self.api.register_monitor(
+            pid=os.getpid(),
+            monitor_type="python",
+            view="combined",
+            project=str(self.config.project_root),
+        )
+        if not isinstance(result, Failure):
+            self._monitor_id = result.unwrap()
         self._update_tab_titles()
         self.refresh_data()
         if self._auto_refresh_enabled:
@@ -2456,7 +2583,8 @@ class OrchMonitorApp(App):
         self.set_interval(ELAPSED_UPDATE_INTERVAL, self._update_elapsed_times)
 
     def on_unmount(self) -> None:
-        self._monitor_registration.unregister()
+        if self._monitor_id:
+            self.api.unregister_monitor(self._monitor_id)
 
     def _update_elapsed_times(self) -> None:
         if not self.runs:
@@ -2589,20 +2717,24 @@ class OrchMonitorApp(App):
         issues: Optional[list[Issue]] = None
         error: Optional[str] = None
 
-        try:
-            status_filter = []
-            for s in self.filter_state.run_filters.statuses:
-                try:
-                    status_filter.append(Status(s))
-                except ValueError:
-                    pass
-            filters = RunFilters(status=status_filter) if status_filter else None
-            runs_response = self.daemon.list_runs(filters)
-            runs = runs_response.runs
-        except DaemonNotRunningError:
-            error = "Daemon not running"
-        except DaemonError as e:
-            error = str(e)
+        status_filter: list[ApiRunStatus] = []
+        for s in self.filter_state.run_filters.statuses:
+            try:
+                status_filter.append(ApiRunStatus(s))
+            except ValueError:
+                pass
+        filters = ApiRunFilters(status=status_filter) if status_filter else None
+        runs_result = self.api.list_runs(filters)
+
+        if isinstance(runs_result, Failure):
+            error_obj = runs_result.failure()
+            if isinstance(error_obj, ApiDaemonNotRunningError):
+                error = "Daemon not running"
+            else:
+                error = str(error_obj)
+        else:
+            runs_response = runs_result.unwrap()
+            runs = _api_runs_to_model_runs(runs_response.runs)
 
         if runs is not None:
             runs = filter_runs_client_side(runs, self.filter_state.run_filters)
@@ -2610,12 +2742,13 @@ class OrchMonitorApp(App):
                 key=lambda r: r.updated_at or r.started_at or datetime.min, reverse=True
             )
 
-        try:
-            issues_response = self.daemon.list_issues()
-            issues = issues_response.issues
-        except DaemonError as e:
+        issues_result = self.api.list_issues()
+        if isinstance(issues_result, Failure):
             if error is None:
-                error = str(e)
+                error = str(issues_result.failure())
+        else:
+            issues_response = issues_result.unwrap()
+            issues = _api_issues_to_model_issues(issues_response.issues)
 
         if issues is not None:
             issues = filter_issues_client_side(issues, self.filter_state.issue_filters)
@@ -2693,10 +2826,11 @@ class OrchMonitorApp(App):
 
     @work(thread=True, exclusive=True)
     def _fetch_run_for_detail(self, issue_id: str, run_id: str, run_ref: str) -> None:
-        try:
-            run = self.daemon.get_run(issue_id, run_id)
-        except DaemonError:
+        result = self.api.get_run(issue_id, run_id)
+        if isinstance(result, Failure):
             run = None
+        else:
+            run = _api_run_to_model(result.unwrap())
         self.call_from_thread(self._show_run_detail_callback, run, run_ref)
 
     def _show_run_detail_callback(self, run: Optional[Run], run_ref: str) -> None:
@@ -2729,10 +2863,11 @@ class OrchMonitorApp(App):
 
     @work(thread=True, exclusive=True)
     def _fetch_issue_for_detail(self, issue_id: str) -> None:
-        try:
-            issue = self.daemon.get_issue(issue_id)
-        except DaemonError:
+        result = self.api.get_issue(issue_id)
+        if isinstance(result, Failure):
             issue = None
+        else:
+            issue = _api_issue_to_model(result.unwrap())
         self.call_from_thread(self._show_issue_detail_callback, issue, issue_id)
 
     def _show_issue_detail_callback(
