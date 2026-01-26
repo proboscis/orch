@@ -456,7 +456,15 @@ class DaemonClient:
 
     def get_control_agent_launch(
         self, project_root: str, agent_type: str = "", new_session: bool = False
-    ) -> tuple[bool, Optional[str], Optional[str], int, Optional[str], Optional[str], Optional[str]]:
+    ) -> tuple[
+        bool,
+        Optional[str],
+        Optional[str],
+        int,
+        Optional[str],
+        Optional[str],
+        Optional[str],
+    ]:
         """Get control agent launch command and configuration.
 
         This API:
@@ -493,7 +501,15 @@ class DaemonClient:
                     response.get("agent"),
                     None,
                 )
-            return (False, None, None, 0, None, None, response.get("error", "Unknown error"))
+            return (
+                False,
+                None,
+                None,
+                0,
+                None,
+                None,
+                response.get("error", "Unknown error"),
+            )
         except DaemonError as e:
             return (False, None, None, 0, None, None, str(e))
 
@@ -616,6 +632,8 @@ def _json_to_run(data: dict) -> Run:
         updated_at=_parse_timestamp(data.get("updated_at", "")),
         additions=data.get("additions", 0),
         deletions=data.get("deletions", 0),
+        alive=data.get("alive", False),
+        alive_known=data.get("alive_known", False),
     )
 
 
@@ -675,6 +693,8 @@ def _json_to_run_full(data: dict) -> Run:
         continued_from=data.get("continued_from", ""),
         started_at=_parse_timestamp(data.get("started_at", "")),
         updated_at=_parse_timestamp(data.get("updated_at", "")),
+        alive=data.get("alive", False),
+        alive_known=data.get("alive_known", False),
     )
 
 

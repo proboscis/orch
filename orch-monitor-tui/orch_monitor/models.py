@@ -124,6 +124,8 @@ class Run:
     continued_from: str = ""
     additions: int = 0
     deletions: int = 0
+    alive: bool = False
+    alive_known: bool = False
 
     def ref(self) -> str:
         """Return the run reference (ISSUE_ID#RUN_ID)."""

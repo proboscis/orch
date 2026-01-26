@@ -91,6 +91,8 @@ type RunSummary struct {
 	PRUrl        string `json:"pr_url,omitempty"`
 	Additions    int    `json:"additions"`
 	Deletions    int    `json:"deletions"`
+	Alive        bool   `json:"alive"`
+	AliveKnown   bool   `json:"alive_known"`
 	StartedAt    string `json:"started_at"`
 	UpdatedAt    string `json:"updated_at"`
 	URI          string `json:"uri"`
@@ -121,6 +123,8 @@ type RunFull struct {
 	ServerPort        int          `json:"server_port,omitempty"`
 	OpenCodeSessionID string       `json:"opencode_session_id,omitempty"`
 	ContinuedFrom     string       `json:"continued_from,omitempty"`
+	Alive             bool         `json:"alive"`
+	AliveKnown        bool         `json:"alive_known"`
 	StartedAt         string       `json:"started_at"`
 	UpdatedAt         string       `json:"updated_at"`
 	URI               string       `json:"uri"`
@@ -235,10 +239,23 @@ func RunToSummary(run *model.Run) *RunSummary {
 		PRUrl:        run.PRUrl,
 		Additions:    diffStats.Additions,
 		Deletions:    diffStats.Deletions,
+		Alive:        false,
+		AliveKnown:   false,
 		StartedAt:    formatTime(run.StartedAt),
 		UpdatedAt:    formatTime(run.UpdatedAt),
 		URI:          FileURI(run.Path),
 	}
+}
+
+// RunToSummaryWithAlive converts a model.Run to a RunSummary with alive status computed.
+// This function requires the agent package and should be called when alive status is needed.
+func RunToSummaryWithAlive(run *model.Run, computeAlive func(*model.Run) bool) *RunSummary {
+	summary := RunToSummary(run)
+	if computeAlive != nil {
+		summary.Alive = computeAlive(run)
+		summary.AliveKnown = true
+	}
+	return summary
 }
 
 // RunToFull converts a model.Run to a RunFull
@@ -270,11 +287,23 @@ func RunToFull(run *model.Run) *RunFull {
 		ServerPort:        run.ServerPort,
 		OpenCodeSessionID: run.OpenCodeSessionID,
 		ContinuedFrom:     run.ContinuedFrom,
+		Alive:             false,
+		AliveKnown:        false,
 		StartedAt:         formatTime(run.StartedAt),
 		UpdatedAt:         formatTime(run.UpdatedAt),
 		URI:               FileURI(run.Path),
 		Events:            events,
 	}
+}
+
+// RunToFullWithAlive converts a model.Run to a RunFull with alive status computed.
+func RunToFullWithAlive(run *model.Run, computeAlive func(*model.Run) bool) *RunFull {
+	full := RunToFull(run)
+	if computeAlive != nil {
+		full.Alive = computeAlive(run)
+		full.AliveKnown = true
+	}
+	return full
 }
 
 // IssueToSummary converts a model.Issue to an IssueSummary
@@ -362,4 +391,12 @@ func SummaryToRun(s *RunSummary) *model.Run {
 		StartedAt:    startedAt,
 		UpdatedAt:    updatedAt,
 	}
+}
+
+// SummaryAliveInfo extracts alive info from a RunSummary
+func SummaryAliveInfo(s *RunSummary) (alive bool, known bool) {
+	if s == nil {
+		return false, false
+	}
+	return s.Alive, s.AliveKnown
 }

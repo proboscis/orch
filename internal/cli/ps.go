@@ -80,6 +80,7 @@ func runPs(opts *psOptions) error {
 
 	var runs []*model.Run
 	var usedDaemon bool
+	var daemonAliveInfo map[string]agentAliveInfo
 
 	if !testBypassDaemon {
 		projectRoot, _ := getProjectRoot()
@@ -96,8 +97,11 @@ func runPs(opts *psOptions) error {
 			resp, err := client.ListRuns(opts.Issue, statusFilter, limit, "")
 			if err == nil && resp != nil {
 				runs = make([]*model.Run, len(resp.Runs))
+				daemonAliveInfo = make(map[string]agentAliveInfo, len(resp.Runs))
 				for i, summary := range resp.Runs {
 					runs[i] = daemon.SummaryToRun(summary)
+					alive, known := daemon.SummaryAliveInfo(summary)
+					daemonAliveInfo[summary.RunID] = agentAliveInfo{alive: alive, known: known}
 				}
 				usedDaemon = true
 			}
@@ -162,7 +166,11 @@ func runPs(opts *psOptions) error {
 
 	var aliveByRun map[string]agentAliveInfo
 	if !opts.NoAlive {
-		aliveByRun = resolveAgentAliveInfo(runs)
+		if usedDaemon && daemonAliveInfo != nil {
+			aliveByRun = daemonAliveInfo
+		} else {
+			aliveByRun = resolveAgentAliveInfo(runs)
+		}
 	}
 
 	now := time.Now()

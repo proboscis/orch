@@ -1500,9 +1500,14 @@ func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {
 	}
 	paginatedRuns := runs[offset:end]
 
+	computeAlive := func(run *model.Run) bool {
+		manager := agent.GetManager(run)
+		return manager.IsAlive(run)
+	}
+
 	summaries := make([]*RunSummary, len(paginatedRuns))
 	for i, run := range paginatedRuns {
-		summaries[i] = RunToSummary(run)
+		summaries[i] = RunToSummaryWithAlive(run, computeAlive)
 	}
 
 	var nextCursor *string
@@ -1659,9 +1664,14 @@ func (s *SocketServer) handleGetRun(req SendRequest, encoder *json.Encoder) {
 		return
 	}
 
+	computeAlive := func(r *model.Run) bool {
+		manager := agent.GetManager(r)
+		return manager.IsAlive(r)
+	}
+
 	encoder.Encode(GetRunResponse{
 		OK:  true,
-		Run: RunToFull(run),
+		Run: RunToFullWithAlive(run, computeAlive),
 	})
 }
 
