@@ -931,8 +931,8 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		baseBranch = cfg.BaseBranch
 	}
 	gitStates := gitStatesForRuns(runList, baseBranch)
+	diffStats := diffStatsForRuns(runList, baseBranch)
 
-	// Populate PR info
 	prInfoMap := pr.PopulateRunInfo(runList)
 
 	rows := make([]RunRow, 0, len(windows))
@@ -977,6 +977,8 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 
 		modelDisplay := agent.ModelDisplayName(w.Run.Model, w.Run.ModelVariant)
 
+		runDiffStats := diffStats[w.Run.RunID]
+
 		rows = append(rows, RunRow{
 			Index:        w.Index,
 			ShortID:      shortID,
@@ -992,6 +994,8 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 			PR:           prDisplay,
 			PRState:      prState,
 			Merged:       merged,
+			Insertions:   runDiffStats.Additions,
+			Deletions:    runDiffStats.Deletions,
 			Started:      w.Run.StartedAt,
 			Updated:      w.Run.UpdatedAt,
 			Topic:        topic,

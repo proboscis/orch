@@ -24,6 +24,8 @@ const (
 	ColWorktree    ColumnID = "worktree"
 	ColPR          ColumnID = "pr"
 	ColMerged      ColumnID = "merged"
+	ColInsertions  ColumnID = "insertions"
+	ColDeletions   ColumnID = "deletions"
 	ColStarted     ColumnID = "started"
 	ColUpdated     ColumnID = "updated"
 	ColTopic       ColumnID = "topic"
@@ -49,6 +51,8 @@ var columnRegistry = map[ColumnID]ColumnDef{
 	ColWorktree:    {ID: ColWorktree, Header: "WORKTREE", Width: runTableWorktreeWidth},
 	ColPR:          {ID: ColPR, Header: "PR", Width: 6},
 	ColMerged:      {ID: ColMerged, Header: "MERGED", Width: 8},
+	ColInsertions:  {ID: ColInsertions, Header: "+", Width: 6},
+	ColDeletions:   {ID: ColDeletions, Header: "-", Width: 6},
 	ColStarted:     {ID: ColStarted, Header: "STARTED", Width: 7},
 	ColUpdated:     {ID: ColUpdated, Header: "UPDATED", Width: 7},
 	ColTopic:       {ID: ColTopic, Header: "TOPIC", Width: 6, Flexible: true},
@@ -67,6 +71,8 @@ var defaultColumns = []ColumnID{
 	ColWorktree,
 	ColPR,
 	ColMerged,
+	ColInsertions,
+	ColDeletions,
 	ColStarted,
 	ColUpdated,
 	ColTopic,
@@ -180,6 +186,10 @@ func GetColumnValue(col ColumnID, row *RunRow, now time.Time) string {
 		return row.PR
 	case ColMerged:
 		return row.Merged
+	case ColInsertions:
+		return formatDiffCount(row.Insertions, "+")
+	case ColDeletions:
+		return formatDiffCount(row.Deletions, "-")
 	case ColStarted:
 		return formatRelativeTime(row.Started, now)
 	case ColUpdated:
@@ -189,6 +199,16 @@ func GetColumnValue(col ColumnID, row *RunRow, now time.Time) string {
 	default:
 		return "-"
 	}
+}
+
+func formatDiffCount(count int, prefix string) string {
+	if count == 0 {
+		return "-"
+	}
+	if count >= 1000 {
+		return fmt.Sprintf("%s%.1fk", prefix, float64(count)/1000)
+	}
+	return fmt.Sprintf("%s%d", prefix, count)
 }
 
 func GetColumnStyle(col ColumnID, row *RunRow, styles *Styles, isHeader bool) lipgloss.Style {
@@ -216,6 +236,14 @@ func GetColumnStyle(col ColumnID, row *RunRow, styles *Styles, isHeader bool) li
 	case ColMerged:
 		if style, ok := styles.Merged[row.Merged]; ok {
 			return style
+		}
+	case ColInsertions:
+		if row.Insertions > 0 {
+			return styles.DiffAdd
+		}
+	case ColDeletions:
+		if row.Deletions > 0 {
+			return styles.DiffDel
 		}
 	}
 	return styles.Text

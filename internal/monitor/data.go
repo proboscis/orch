@@ -22,6 +22,8 @@ type RunRow struct {
 	PR           string
 	PRState      string
 	Merged       string
+	Insertions   int // Lines added (git diff stats)
+	Deletions    int // Lines deleted (git diff stats)
 	Started      time.Time
 	Updated      time.Time
 	Topic        string

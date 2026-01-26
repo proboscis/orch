@@ -137,3 +137,14 @@ func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
 	}
 	return git.GetRunMergeStates(runInfos, target)
 }
+
+func diffStatsForRuns(runs []*model.Run, baseBranch string) map[string]git.DiffStats {
+	results := make(map[string]git.DiffStats)
+	for _, r := range runs {
+		if r == nil || r.WorktreePath == "" || r.Branch == "" {
+			continue
+		}
+		results[r.RunID] = git.GetDiffStats(r.WorktreePath, r.Branch, baseBranch)
+	}
+	return results
+}

@@ -12,6 +12,8 @@ type Styles struct {
 	Text     lipgloss.Style
 	Selected lipgloss.Style
 	Faint    lipgloss.Style
+	DiffAdd  lipgloss.Style
+	DiffDel  lipgloss.Style
 	Status   map[model.Status]lipgloss.Style
 	Alive    map[string]lipgloss.Style
 	PRState  map[string]lipgloss.Style
@@ -27,6 +29,8 @@ func DefaultStyles() Styles {
 		Text:     lipgloss.NewStyle(),
 		Selected: lipgloss.NewStyle().Foreground(lipgloss.Color("230")).Background(lipgloss.Color("237")),
 		Faint:    lipgloss.NewStyle().Foreground(lipgloss.Color("241")),
+		DiffAdd:  lipgloss.NewStyle().Foreground(lipgloss.Color("2")),
+		DiffDel:  lipgloss.NewStyle().Foreground(lipgloss.Color("1")),
 		Status: map[model.Status]lipgloss.Style{
 			model.StatusRunning:    lipgloss.NewStyle().Foreground(lipgloss.Color("2")),
 			model.StatusBlocked:    lipgloss.NewStyle().Foreground(lipgloss.Color("3")),
