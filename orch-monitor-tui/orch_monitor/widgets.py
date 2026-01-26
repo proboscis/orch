@@ -253,6 +253,21 @@ def derive_pr_status(run: Run, branch_status: str = "") -> str:
     return "-"
 
 
+def format_alive_status(run: Run) -> str:
+    if not run.alive_known:
+        return "-"
+    return "yes" if run.alive else "no"
+
+
+def color_alive_status(run: Run) -> str:
+    text = format_alive_status(run)
+    if not run.alive_known:
+        return f"[dim]{text}[/dim]"
+    if run.alive:
+        return f"[green]{text}[/green]"
+    return f"[red]{text}[/red]"
+
+
 class RunTable(CursorPreservingTable):
     def populate(
         self,
@@ -267,6 +282,7 @@ class RunTable(CursorPreservingTable):
         self.add_column("ID", width=8)
         self.add_column("Issue", width=15)
         self.add_column("Agent", width=7)
+        self.add_column("Alive", width=6)
         self.add_column("Branch", width=8)
         self.add_column("PR", width=7)
         self.add_column("CLI", width=10)
@@ -281,6 +297,7 @@ class RunTable(CursorPreservingTable):
 
         for run in runs:
             agent_str = color_agent_status(run.status)
+            alive_str = color_alive_status(run)
 
             branch_status = branch_states.get(run.ref(), "-")
             branch_str = color_branch_status(branch_status)
@@ -309,6 +326,7 @@ class RunTable(CursorPreservingTable):
                 run.short_id(),
                 run.issue_id,
                 agent_str,
+                alive_str,
                 branch_str,
                 pr_str,
                 run.agent or "-",
