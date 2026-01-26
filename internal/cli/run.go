@@ -248,8 +248,7 @@ func runRun(issueID string, opts *runOptions) error {
 	}
 	result.RunPath = run.Path
 
-	// Append initial status event
-	if err := st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusQueued)); err != nil {
+	if err := appendStatusEventViaDaemon(repoRoot, st, run, model.StatusQueued); err != nil {
 		return exitWithCode(err, ExitInternalError)
 	}
 
@@ -265,7 +264,7 @@ func runRun(issueID string, opts *runOptions) error {
 	})
 	if err != nil {
 		err = fmt.Errorf("failed to create worktree: %w", err)
-		setRunFailed(st, run, err)
+		setRunFailed(repoRoot, st, run, err)
 		return exitWithCode(err, ExitWorktreeError)
 	}
 
@@ -335,8 +334,7 @@ func runRun(issueID string, opts *runOptions) error {
 		return exitWithCode(err, ExitAgentError)
 	}
 
-	// Update status to booting
-	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusBooting))
+	appendStatusEventViaDaemon(repoRoot, st, run, model.StatusBooting)
 
 	debug := NewDebugLogger()
 
@@ -366,14 +364,14 @@ func runRun(issueID string, opts *runOptions) error {
 			daemonClient := daemon.NewClient(repoRoot)
 			if !daemonClient.IsAvailable() {
 				err := fmt.Errorf("daemon not running; opencode agent requires daemon for server management (run 'orch daemon start')")
-				setRunFailed(st, run, err)
+				setRunFailed(repoRoot, st, run, err)
 				return exitWithCode(err, ExitAgentError)
 			}
 
 			resp, err := daemonClient.GetOpenCodeServer(worktreeResult.WorktreePath)
 			if err != nil {
 				err = fmt.Errorf("failed to get opencode server from daemon: %w", err)
-				setRunFailed(st, run, err)
+				setRunFailed(repoRoot, st, run, err)
 				return exitWithCode(err, ExitAgentError)
 			}
 
@@ -396,7 +394,7 @@ func runRun(issueID string, opts *runOptions) error {
 			})
 			if err != nil {
 				err = fmt.Errorf("failed to create %s session: %w", mux.Type(), err)
-				setRunFailed(st, run, err)
+				setRunFailed(repoRoot, st, run, err)
 				return exitWithCode(err, ExitTmuxError)
 			}
 
@@ -412,13 +410,13 @@ func runRun(issueID string, opts *runOptions) error {
 				if pattern := adapter.ReadyPattern(); pattern != "" {
 					if err := mux.WaitForReady(tmuxSession, pattern, 30*time.Second); err != nil {
 						err = fmt.Errorf("agent did not become ready: %w", err)
-						setRunFailed(st, run, err)
+						setRunFailed(repoRoot, st, run, err)
 						return exitWithCode(err, ExitAgentError)
 					}
 				}
 				if err := mux.SendKeys(tmuxSession, launchCfg.Prompt); err != nil {
 					err = fmt.Errorf("failed to send prompt to session: %w", err)
-					setRunFailed(st, run, err)
+					setRunFailed(repoRoot, st, run, err)
 					return exitWithCode(err, ExitTmuxError)
 				}
 			}
@@ -426,7 +424,7 @@ func runRun(issueID string, opts *runOptions) error {
 		case agent.InjectionHTTP:
 			if err := injectPromptViaHTTP(st, run, launchCfg, debug); err != nil {
 				err = fmt.Errorf("failed to send prompt via HTTP: %w", err)
-				setRunFailed(st, run, err)
+				setRunFailed(repoRoot, st, run, err)
 				return exitWithCode(err, ExitAgentError)
 			}
 		}
@@ -449,8 +447,7 @@ func runRun(issueID string, opts *runOptions) error {
 		}
 	}
 
-	// Update status to running
-	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusRunning))
+	appendStatusEventViaDaemon(repoRoot, st, run, model.StatusRunning)
 	result.Status = string(model.StatusRunning)
 
 	// Output result
@@ -741,13 +738,30 @@ func exitWithCode(err error, code int) error {
 	return err
 }
 
+// appendStatusEventViaDaemon attempts to append a status event through the daemon API.
+// If the daemon is unavailable, it falls back to direct store write.
+// This ensures status transitions are validated by the daemon when available.
+func appendStatusEventViaDaemon(repoRoot string, st storeForRunFailed, run *model.Run, status model.Status) error {
+	daemonClient := daemon.NewClient(repoRoot)
+	if daemonClient.IsAvailable() {
+		err := daemonClient.AppendStatusEvent(run.IssueID, run.RunID, string(status), string(model.EventSourceUser))
+		if err == nil {
+			return nil
+		}
+		// Fall through to direct store write on daemon error
+	}
+	// Fallback: direct store write (store layer will validate transitions)
+	return st.AppendEvent(run.Ref(), model.NewStatusEvent(status))
+}
+
 type storeForRunFailed interface {
 	AppendEvent(*model.RunRef, *model.Event) error
 }
 
-func setRunFailed(st storeForRunFailed, run *model.Run, err error) {
+func setRunFailed(repoRoot string, st storeForRunFailed, run *model.Run, err error) {
 	st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
-	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+	// Route status change through daemon API
+	appendStatusEventViaDaemon(repoRoot, st, run, model.StatusFailed)
 }
 
 func injectPromptViaHTTP(st interface {

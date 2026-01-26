@@ -10,6 +10,7 @@ import (
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/config"
+	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
@@ -105,6 +106,17 @@ func runContinue(refStr string, opts *continueOptions) error {
 	return continueFromRun(st, refStr, opts)
 }
 
+func appendStatusViaDaemon(repoRoot string, st store.Store, run *model.Run, status model.Status) error {
+	daemonClient := daemon.NewClient(repoRoot)
+	if daemonClient.IsAvailable() {
+		err := daemonClient.AppendStatusEvent(run.IssueID, run.RunID, string(status), string(model.EventSourceUser))
+		if err == nil {
+			return nil
+		}
+	}
+	return st.AppendEvent(run.Ref(), model.NewStatusEvent(status))
+}
+
 func continueFromRun(st store.Store, refStr string, opts *continueOptions) error {
 	fromRun, err := resolveRun(st, refStr)
 	if err != nil {
@@ -138,6 +150,11 @@ func continueFromRun(st store.Store, refStr string, opts *continueOptions) error
 	}
 	if currentBranch != fromRun.Branch {
 		return exitWithCode(fmt.Errorf("worktree %s is on branch %s; expected %s", fromRun.WorktreePath, currentBranch, fromRun.Branch), ExitWorktreeError)
+	}
+
+	repoRoot, err := git.FindMainRepoRoot(fromRun.WorktreePath)
+	if err != nil {
+		return exitWithCode(fmt.Errorf("could not find git repository: %w", err), ExitWorktreeError)
 	}
 
 	issue, err := st.ResolveIssue(fromRun.IssueID)
@@ -181,7 +198,7 @@ func continueFromRun(st store.Store, refStr string, opts *continueOptions) error
 	}
 	result.RunPath = run.Path
 
-	if err := st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusQueued)); err != nil {
+	if err := appendStatusViaDaemon(repoRoot, st, run, model.StatusQueued); err != nil {
 		return exitWithCode(err, ExitInternalError)
 	}
 
@@ -196,7 +213,7 @@ func continueFromRun(st store.Store, refStr string, opts *continueOptions) error
 		NoPR:           opts.NoPR,
 		PromptTemplate: opts.PromptTemplate,
 		PRTargetBranch: opts.PRTargetBranch,
-		IssuesRoot:      st.RootPath(),
+		IssuesRoot:     st.RootPath(),
 		IssuePath:      issue.Path,
 	}
 	if err := ensurePromptFile(fromRun.WorktreePath, issue, promptOpts); err != nil {
@@ -218,16 +235,16 @@ func continueFromRun(st store.Store, refStr string, opts *continueOptions) error
 	}
 
 	launchCfg := &agent.LaunchConfig{
-		Type:      agentType,
-		CustomCmd: opts.AgentCmd,
-		WorkDir:   fromRun.WorktreePath,
-		IssueID:   fromRun.IssueID,
-		RunID:     runID,
-		RunPath:   run.Path,
+		Type:       agentType,
+		CustomCmd:  opts.AgentCmd,
+		WorkDir:    fromRun.WorktreePath,
+		IssueID:    fromRun.IssueID,
+		RunID:      runID,
+		RunPath:    run.Path,
 		IssuesRoot: st.RootPath(),
-		Branch:    fromRun.Branch,
-		Prompt:    buildContinuePrompt(continuedFrom),
-		Profile:   opts.AgentProfile,
+		Branch:     fromRun.Branch,
+		Prompt:     buildContinuePrompt(continuedFrom),
+		Profile:    opts.AgentProfile,
 	}
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)
@@ -235,7 +252,7 @@ func continueFromRun(st store.Store, refStr string, opts *continueOptions) error
 		return exitWithCode(err, ExitAgentError)
 	}
 
-	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusBooting))
+	appendStatusViaDaemon(repoRoot, st, run, model.StatusBooting)
 
 	if opts.Tmux {
 		muxType, _ := multiplexer.ParseType(opts.Multiplexer)
@@ -260,19 +277,19 @@ func continueFromRun(st store.Store, refStr string, opts *continueOptions) error
 			Env:         launchCfg.Env(),
 		})
 		if err != nil {
-			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+			appendStatusViaDaemon(repoRoot, st, run, model.StatusFailed)
 			return exitWithCode(fmt.Errorf("failed to create %s session: %w", mux.Type(), err), ExitTmuxError)
 		}
 
 		if adapter.PromptInjection() == agent.InjectionTmux && launchCfg.Prompt != "" {
 			if pattern := adapter.ReadyPattern(); pattern != "" {
 				if err := mux.WaitForReady(tmuxSession, pattern, 30*time.Second); err != nil {
-					st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+					appendStatusViaDaemon(repoRoot, st, run, model.StatusFailed)
 					return exitWithCode(fmt.Errorf("agent did not become ready: %w", err), ExitAgentError)
 				}
 			}
 			if err := mux.SendKeys(tmuxSession, launchCfg.Prompt); err != nil {
-				st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+				appendStatusViaDaemon(repoRoot, st, run, model.StatusFailed)
 				return exitWithCode(fmt.Errorf("failed to send prompt to session: %w", err), ExitTmuxError)
 			}
 		}
@@ -298,7 +315,7 @@ func continueFromRun(st store.Store, refStr string, opts *continueOptions) error
 		}
 	}
 
-	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusRunning))
+	appendStatusViaDaemon(repoRoot, st, run, model.StatusRunning)
 	result.Status = string(model.StatusRunning)
 
 	if globalOpts.JSON {
@@ -381,7 +398,7 @@ func continueFromBranch(st store.Store, refStr string, opts *continueOptions) er
 	}
 	result.RunPath = run.Path
 
-	if err := st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusQueued)); err != nil {
+	if err := appendStatusViaDaemon(repoRoot, st, run, model.StatusQueued); err != nil {
 		return exitWithCode(err, ExitInternalError)
 	}
 
@@ -396,7 +413,7 @@ func continueFromBranch(st store.Store, refStr string, opts *continueOptions) er
 		NoPR:           opts.NoPR,
 		PromptTemplate: opts.PromptTemplate,
 		PRTargetBranch: opts.PRTargetBranch,
-		IssuesRoot:      st.RootPath(),
+		IssuesRoot:     st.RootPath(),
 		IssuePath:      issue.Path,
 	}
 	if err := ensurePromptFile(worktreePath, issue, promptOpts); err != nil {
@@ -416,16 +433,16 @@ func continueFromBranch(st store.Store, refStr string, opts *continueOptions) er
 	}
 
 	launchCfg := &agent.LaunchConfig{
-		Type:      agentType,
-		CustomCmd: opts.AgentCmd,
-		WorkDir:   worktreePath,
-		IssueID:   issueID,
-		RunID:     runID,
-		RunPath:   run.Path,
+		Type:       agentType,
+		CustomCmd:  opts.AgentCmd,
+		WorkDir:    worktreePath,
+		IssueID:    issueID,
+		RunID:      runID,
+		RunPath:    run.Path,
 		IssuesRoot: st.RootPath(),
-		Branch:    branch,
-		Prompt:    buildContinuePrompt(continuedFrom),
-		Profile:   opts.AgentProfile,
+		Branch:     branch,
+		Prompt:     buildContinuePrompt(continuedFrom),
+		Profile:    opts.AgentProfile,
 	}
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)
@@ -433,7 +450,7 @@ func continueFromBranch(st store.Store, refStr string, opts *continueOptions) er
 		return exitWithCode(err, ExitAgentError)
 	}
 
-	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusBooting))
+	appendStatusViaDaemon(repoRoot, st, run, model.StatusBooting)
 
 	if opts.Tmux {
 		muxType, _ := multiplexer.ParseType(opts.Multiplexer)
@@ -458,19 +475,19 @@ func continueFromBranch(st store.Store, refStr string, opts *continueOptions) er
 			Env:         launchCfg.Env(),
 		})
 		if err != nil {
-			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+			appendStatusViaDaemon(repoRoot, st, run, model.StatusFailed)
 			return exitWithCode(fmt.Errorf("failed to create %s session: %w", mux.Type(), err), ExitTmuxError)
 		}
 
 		if adapter.PromptInjection() == agent.InjectionTmux && launchCfg.Prompt != "" {
 			if pattern := adapter.ReadyPattern(); pattern != "" {
 				if err := mux.WaitForReady(tmuxSession, pattern, 30*time.Second); err != nil {
-					st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+					appendStatusViaDaemon(repoRoot, st, run, model.StatusFailed)
 					return exitWithCode(fmt.Errorf("agent did not become ready: %w", err), ExitAgentError)
 				}
 			}
 			if err := mux.SendKeys(tmuxSession, launchCfg.Prompt); err != nil {
-				st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+				appendStatusViaDaemon(repoRoot, st, run, model.StatusFailed)
 				return exitWithCode(fmt.Errorf("failed to send prompt to session: %w", err), ExitTmuxError)
 			}
 		}
@@ -496,7 +513,7 @@ func continueFromBranch(st store.Store, refStr string, opts *continueOptions) er
 		}
 	}
 
-	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusRunning))
+	appendStatusViaDaemon(repoRoot, st, run, model.StatusRunning)
 	result.Status = string(model.StatusRunning)
 
 	if globalOpts.JSON {

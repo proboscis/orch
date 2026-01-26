@@ -278,7 +278,7 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%ds", seconds)
 }
 
-func computeBranchState(run *model.Run) string {
+func computeBranchStateString(run *model.Run) string {
 	if run.WorktreePath == "" || run.Branch == "" {
 		return ""
 	}
@@ -295,7 +295,7 @@ func RunToSummary(run *model.Run) *RunSummary {
 	diffStats := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
 
 	elapsedSeconds, elapsedDisplay := computeElapsed(run)
-	branchState := computeBranchState(run)
+	branchState := computeBranchStateString(run)
 
 	return &RunSummary{
 		IssueID:      run.IssueID,
@@ -353,7 +353,7 @@ func RunToFull(run *model.Run) *RunFull {
 
 	diffStats := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
 	elapsedSeconds, elapsedDisplay := computeElapsed(run)
-	branchState := computeBranchState(run)
+	branchState := computeBranchStateString(run)
 
 	return &RunFull{
 		IssueID:           run.IssueID,

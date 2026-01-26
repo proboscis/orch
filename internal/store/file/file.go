@@ -704,7 +704,17 @@ func (s *FileStore) AppendEvent(ref *model.RunRef, event *model.Event) error {
 		return err
 	}
 
-	// Append event line to file
+	if event.Type == model.EventTypeStatus {
+		newStatus := model.Status(event.Name)
+		source := model.EventSource(event.Attrs["source"])
+		if source == "" {
+			source = model.EventSourceDaemon
+		}
+		if !model.CanTransitionStatus(run.Status, newStatus, source) {
+			return fmt.Errorf("cannot transition from %s to %s (source: %s)", run.Status, newStatus, source)
+		}
+	}
+
 	f, err := os.OpenFile(run.Path, os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open run file: %w", err)
@@ -717,7 +727,6 @@ func (s *FileStore) AppendEvent(ref *model.RunRef, event *model.Event) error {
 		return fmt.Errorf("failed to append event: %w", err)
 	}
 
-	// Sync ensures daemon writes are immediately visible to monitor (fixes orch-127)
 	if err := f.Sync(); err != nil {
 		return fmt.Errorf("failed to sync run file: %w", err)
 	}
