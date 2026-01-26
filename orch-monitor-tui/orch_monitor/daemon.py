@@ -693,6 +693,16 @@ def _json_to_run(data: dict) -> Run:
     except ValueError:
         phase = None
 
+    diff_stats = data.get("diff_stats") or {}
+    additions = (
+        diff_stats.get("additions", 0) if diff_stats else data.get("additions", 0)
+    )
+    deletions = (
+        diff_stats.get("deletions", 0) if diff_stats else data.get("deletions", 0)
+    )
+    files_changed = diff_stats.get("files_changed", 0) if diff_stats else 0
+    files = diff_stats.get("files") or []
+
     return Run(
         issue_id=data.get("issue_id", ""),
         run_id=data.get("run_id", ""),
@@ -710,8 +720,13 @@ def _json_to_run(data: dict) -> Run:
         pr_url=data.get("pr_url", ""),
         started_at=_parse_timestamp(data.get("started_at", "")),
         updated_at=_parse_timestamp(data.get("updated_at", "")),
-        additions=data.get("additions", 0),
-        deletions=data.get("deletions", 0),
+        additions=additions,
+        deletions=deletions,
+        files_changed=files_changed,
+        files=files,
+        branch_state=data.get("branch_state", ""),
+        elapsed_seconds=data.get("elapsed_seconds", 0),
+        elapsed_display=data.get("elapsed_display", ""),
         alive=data.get("alive", False),
         alive_known=data.get("alive_known", False),
     )
@@ -729,7 +744,6 @@ def _json_to_run_full(data: dict) -> Run:
     except ValueError:
         phase = None
 
-    # Parse events
     events = []
     for event_data in data.get("events", []):
         try:
@@ -750,6 +764,12 @@ def _json_to_run_full(data: dict) -> Run:
                 raw="",
             )
         )
+
+    diff_stats = data.get("diff_stats") or {}
+    additions = diff_stats.get("additions", 0) if diff_stats else 0
+    deletions = diff_stats.get("deletions", 0) if diff_stats else 0
+    files_changed = diff_stats.get("files_changed", 0) if diff_stats else 0
+    files = diff_stats.get("files") or []
 
     return Run(
         issue_id=data.get("issue_id", ""),
@@ -773,6 +793,13 @@ def _json_to_run_full(data: dict) -> Run:
         continued_from=data.get("continued_from", ""),
         started_at=_parse_timestamp(data.get("started_at", "")),
         updated_at=_parse_timestamp(data.get("updated_at", "")),
+        additions=additions,
+        deletions=deletions,
+        files_changed=files_changed,
+        files=files,
+        branch_state=data.get("branch_state", ""),
+        elapsed_seconds=data.get("elapsed_seconds", 0),
+        elapsed_display=data.get("elapsed_display", ""),
         alive=data.get("alive", False),
         alive_known=data.get("alive_known", False),
     )

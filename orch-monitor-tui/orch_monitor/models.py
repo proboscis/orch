@@ -124,6 +124,11 @@ class Run:
     continued_from: str = ""
     additions: int = 0
     deletions: int = 0
+    files_changed: int = 0
+    files: List[str] = field(default_factory=list)
+    branch_state: str = ""
+    elapsed_seconds: int = 0
+    elapsed_display: str = ""
     alive: bool = False
     alive_known: bool = False
 

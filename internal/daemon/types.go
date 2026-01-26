@@ -75,27 +75,39 @@ type ListRunsResponse struct {
 	Total      int           `json:"total"`
 }
 
+// DiffStatsJSON is the JSON representation of diff statistics
+type DiffStatsJSON struct {
+	Additions    int      `json:"additions"`
+	Deletions    int      `json:"deletions"`
+	FilesChanged int      `json:"files_changed"`
+	Files        []string `json:"files,omitempty"`
+}
+
 // RunSummary is a summary view of a run for list operations
 type RunSummary struct {
-	IssueID      string `json:"issue_id"`
-	RunID        string `json:"run_id"`
-	ShortID      string `json:"short_id"`
-	Status       string `json:"status"`
-	Phase        string `json:"phase,omitempty"`
-	Agent        string `json:"agent"`
-	Model        string `json:"model,omitempty"`
-	Branch       string `json:"branch,omitempty"`
-	WorktreePath string `json:"worktree_path,omitempty"`
-	TmuxSession  string `json:"tmux_session,omitempty"`
-	Multiplexer  string `json:"multiplexer,omitempty"`
-	PRUrl        string `json:"pr_url,omitempty"`
-	Additions    int    `json:"additions"`
-	Deletions    int    `json:"deletions"`
-	Alive        bool   `json:"alive"`
-	AliveKnown   bool   `json:"alive_known"`
-	StartedAt    string `json:"started_at"`
-	UpdatedAt    string `json:"updated_at"`
-	URI          string `json:"uri"`
+	IssueID        string         `json:"issue_id"`
+	RunID          string         `json:"run_id"`
+	ShortID        string         `json:"short_id"`
+	Status         string         `json:"status"`
+	Phase          string         `json:"phase,omitempty"`
+	Agent          string         `json:"agent"`
+	Model          string         `json:"model,omitempty"`
+	Branch         string         `json:"branch,omitempty"`
+	WorktreePath   string         `json:"worktree_path,omitempty"`
+	TmuxSession    string         `json:"tmux_session,omitempty"`
+	Multiplexer    string         `json:"multiplexer,omitempty"`
+	PRUrl          string         `json:"pr_url,omitempty"`
+	Additions      int            `json:"additions"`
+	Deletions      int            `json:"deletions"`
+	DiffStats      *DiffStatsJSON `json:"diff_stats,omitempty"`
+	BranchState    string         `json:"branch_state,omitempty"`
+	ElapsedSeconds int            `json:"elapsed_seconds,omitempty"`
+	ElapsedDisplay string         `json:"elapsed_display,omitempty"`
+	Alive          bool           `json:"alive"`
+	AliveKnown     bool           `json:"alive_known"`
+	StartedAt      string         `json:"started_at"`
+	UpdatedAt      string         `json:"updated_at"`
+	URI            string         `json:"uri"`
 }
 
 // GetRunResponse is the response for get_run
@@ -107,28 +119,32 @@ type GetRunResponse struct {
 
 // RunFull is the full view of a run including events
 type RunFull struct {
-	IssueID           string       `json:"issue_id"`
-	RunID             string       `json:"run_id"`
-	ShortID           string       `json:"short_id"`
-	Status            string       `json:"status"`
-	Phase             string       `json:"phase,omitempty"`
-	Agent             string       `json:"agent"`
-	Model             string       `json:"model,omitempty"`
-	ModelVariant      string       `json:"model_variant,omitempty"`
-	Branch            string       `json:"branch,omitempty"`
-	WorktreePath      string       `json:"worktree_path,omitempty"`
-	TmuxSession       string       `json:"tmux_session,omitempty"`
-	Multiplexer       string       `json:"multiplexer,omitempty"`
-	PRUrl             string       `json:"pr_url,omitempty"`
-	ServerPort        int          `json:"server_port,omitempty"`
-	OpenCodeSessionID string       `json:"opencode_session_id,omitempty"`
-	ContinuedFrom     string       `json:"continued_from,omitempty"`
-	Alive             bool         `json:"alive"`
-	AliveKnown        bool         `json:"alive_known"`
-	StartedAt         string       `json:"started_at"`
-	UpdatedAt         string       `json:"updated_at"`
-	URI               string       `json:"uri"`
-	Events            []*EventJSON `json:"events"`
+	IssueID           string         `json:"issue_id"`
+	RunID             string         `json:"run_id"`
+	ShortID           string         `json:"short_id"`
+	Status            string         `json:"status"`
+	Phase             string         `json:"phase,omitempty"`
+	Agent             string         `json:"agent"`
+	Model             string         `json:"model,omitempty"`
+	ModelVariant      string         `json:"model_variant,omitempty"`
+	Branch            string         `json:"branch,omitempty"`
+	WorktreePath      string         `json:"worktree_path,omitempty"`
+	TmuxSession       string         `json:"tmux_session,omitempty"`
+	Multiplexer       string         `json:"multiplexer,omitempty"`
+	PRUrl             string         `json:"pr_url,omitempty"`
+	ServerPort        int            `json:"server_port,omitempty"`
+	OpenCodeSessionID string         `json:"opencode_session_id,omitempty"`
+	ContinuedFrom     string         `json:"continued_from,omitempty"`
+	DiffStats         *DiffStatsJSON `json:"diff_stats,omitempty"`
+	BranchState       string         `json:"branch_state,omitempty"`
+	ElapsedSeconds    int            `json:"elapsed_seconds,omitempty"`
+	ElapsedDisplay    string         `json:"elapsed_display,omitempty"`
+	Alive             bool           `json:"alive"`
+	AliveKnown        bool           `json:"alive_known"`
+	StartedAt         string         `json:"started_at"`
+	UpdatedAt         string         `json:"updated_at"`
+	URI               string         `json:"uri"`
+	Events            []*EventJSON   `json:"events"`
 }
 
 // EventJSON is the JSON representation of an event
@@ -220,9 +236,66 @@ func FileURI(path string) string {
 	return "file://" + path
 }
 
+func computeElapsed(run *model.Run) (int, string) {
+	if run.StartedAt.IsZero() {
+		return 0, ""
+	}
+
+	var elapsed time.Duration
+	if isActiveStatus(run.Status) {
+		elapsed = time.Since(run.StartedAt)
+	} else if !run.UpdatedAt.IsZero() {
+		elapsed = run.UpdatedAt.Sub(run.StartedAt)
+	} else {
+		elapsed = time.Since(run.StartedAt)
+	}
+
+	seconds := int(elapsed.Seconds())
+	return seconds, formatDuration(elapsed)
+}
+
+func isActiveStatus(status model.Status) bool {
+	switch status {
+	case model.StatusQueued, model.StatusBooting, model.StatusRunning, model.StatusBlocked, model.StatusBlockedAPI:
+		return true
+	default:
+		return false
+	}
+}
+
+func formatDuration(d time.Duration) string {
+	totalSeconds := int(d.Seconds())
+	hours := totalSeconds / 3600
+	minutes := (totalSeconds % 3600) / 60
+	seconds := totalSeconds % 60
+
+	if hours > 0 {
+		return fmt.Sprintf("%dh%dm", hours, minutes)
+	}
+	if minutes > 0 {
+		return fmt.Sprintf("%dm%ds", minutes, seconds)
+	}
+	return fmt.Sprintf("%ds", seconds)
+}
+
+func computeBranchState(run *model.Run) string {
+	if run.WorktreePath == "" || run.Branch == "" {
+		return ""
+	}
+
+	states := git.GetBranchMergeStates("", "main", []string{run.Branch})
+	if state, ok := states[run.Branch]; ok {
+		return state
+	}
+	return ""
+}
+
 // RunToSummary converts a model.Run to a RunSummary
 func RunToSummary(run *model.Run) *RunSummary {
 	diffStats := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
+
+	elapsedSeconds, elapsedDisplay := computeElapsed(run)
+	branchState := computeBranchState(run)
 
 	return &RunSummary{
 		IssueID:      run.IssueID,
@@ -239,11 +312,19 @@ func RunToSummary(run *model.Run) *RunSummary {
 		PRUrl:        run.PRUrl,
 		Additions:    diffStats.Additions,
 		Deletions:    diffStats.Deletions,
-		Alive:        false,
-		AliveKnown:   false,
-		StartedAt:    formatTime(run.StartedAt),
-		UpdatedAt:    formatTime(run.UpdatedAt),
-		URI:          FileURI(run.Path),
+		DiffStats: &DiffStatsJSON{
+			Additions:    diffStats.Additions,
+			Deletions:    diffStats.Deletions,
+			FilesChanged: diffStats.FilesChanged,
+		},
+		BranchState:    branchState,
+		ElapsedSeconds: elapsedSeconds,
+		ElapsedDisplay: elapsedDisplay,
+		Alive:          false,
+		AliveKnown:     false,
+		StartedAt:      formatTime(run.StartedAt),
+		UpdatedAt:      formatTime(run.UpdatedAt),
+		URI:            FileURI(run.Path),
 	}
 }
 
@@ -270,6 +351,10 @@ func RunToFull(run *model.Run) *RunFull {
 		}
 	}
 
+	diffStats := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
+	elapsedSeconds, elapsedDisplay := computeElapsed(run)
+	branchState := computeBranchState(run)
+
 	return &RunFull{
 		IssueID:           run.IssueID,
 		RunID:             run.RunID,
@@ -287,12 +372,21 @@ func RunToFull(run *model.Run) *RunFull {
 		ServerPort:        run.ServerPort,
 		OpenCodeSessionID: run.OpenCodeSessionID,
 		ContinuedFrom:     run.ContinuedFrom,
-		Alive:             false,
-		AliveKnown:        false,
-		StartedAt:         formatTime(run.StartedAt),
-		UpdatedAt:         formatTime(run.UpdatedAt),
-		URI:               FileURI(run.Path),
-		Events:            events,
+		DiffStats: &DiffStatsJSON{
+			Additions:    diffStats.Additions,
+			Deletions:    diffStats.Deletions,
+			FilesChanged: diffStats.FilesChanged,
+			Files:        diffStats.Files,
+		},
+		BranchState:    branchState,
+		ElapsedSeconds: elapsedSeconds,
+		ElapsedDisplay: elapsedDisplay,
+		Alive:          false,
+		AliveKnown:     false,
+		StartedAt:      formatTime(run.StartedAt),
+		UpdatedAt:      formatTime(run.UpdatedAt),
+		URI:            FileURI(run.Path),
+		Events:         events,
 	}
 }
 

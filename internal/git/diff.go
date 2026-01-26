@@ -9,8 +9,10 @@ import (
 
 // DiffStats represents git diff statistics for a worktree.
 type DiffStats struct {
-	Additions int
-	Deletions int
+	Additions    int
+	Deletions    int
+	FilesChanged int
+	Files        []string // List of changed file paths
 }
 
 // GetDiffStats calculates the diff stats for a worktree compared to its base branch.
@@ -81,9 +83,6 @@ func getUncommittedDiffStats(worktreePath string) DiffStats {
 	return parseDiffNumstat(string(output))
 }
 
-// parseDiffNumstat parses the output of git diff --numstat.
-// Format: <additions>\t<deletions>\t<filename>
-// Binary files show as "-\t-\t<filename>"
 func parseDiffNumstat(output string) DiffStats {
 	var stats DiffStats
 
@@ -98,7 +97,10 @@ func parseDiffNumstat(output string) DiffStats {
 			continue
 		}
 
-		// Handle binary files (shown as "-")
+		fileName := parts[2]
+		stats.Files = append(stats.Files, fileName)
+		stats.FilesChanged++
+
 		if parts[0] != "-" {
 			if add, err := strconv.Atoi(parts[0]); err == nil {
 				stats.Additions += add
