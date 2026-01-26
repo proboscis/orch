@@ -939,26 +939,27 @@ func TestOpenCodeManagerIsAliveWorktreeUnderGitRoot(t *testing.T) {
 	}
 }
 
-func TestOpenCodeManagerGetStatusUsesDirectory(t *testing.T) {
-	// Verify GetStatus sends directory header for proper project scoping
-	// Fix for orch-347: OpenCode scopes sessions by directory, so we must send the header
+func TestOpenCodeManagerGetStatusWithoutDirectoryFilter(t *testing.T) {
+	// Verify GetStatus queries without directory filter for proper session detection
+	// Fix for orch-308: OpenCode scopes sessions by project (git root), not worktree path.
+	// Using directory filter causes sessions to not be found when worktree path differs.
 	tests := []struct {
 		name          string
 		sessionStatus SessionStatus
 		wantStatus    model.Status
 	}{
 		{
-			name:          "detects idle status (blocked) with directory scoping",
+			name:          "detects idle status (blocked) without directory filter",
 			sessionStatus: SessionStatusIdle,
 			wantStatus:    model.StatusBlocked,
 		},
 		{
-			name:          "detects busy status (running) with directory scoping",
+			name:          "detects busy status (running) without directory filter",
 			sessionStatus: SessionStatusBusy,
 			wantStatus:    model.StatusRunning,
 		},
 		{
-			name:          "detects retry status (blocked_api) with directory scoping",
+			name:          "detects retry status (blocked_api) without directory filter",
 			sessionStatus: SessionStatusRetry,
 			wantStatus:    model.StatusBlockedAPI,
 		},
@@ -970,10 +971,10 @@ func TestOpenCodeManagerGetStatusUsesDirectory(t *testing.T) {
 				w.Header().Set("Content-Type", "application/json")
 				switch r.URL.Path {
 				case "/session/status":
-					// Verify directory header IS sent (orch-347 fix)
+					// Verify directory header is NOT sent (orch-308 fix)
 					dir := r.Header.Get("X-OpenCode-Directory")
-					if dir != "/worktree/path" {
-						t.Errorf("Expected X-OpenCode-Directory header %q, got %q", "/worktree/path", dir)
+					if dir != "" {
+						t.Errorf("Expected no X-OpenCode-Directory header, got %q", dir)
 					}
 					json.NewEncoder(w).Encode(map[string]SessionStatus{
 						"ses_test": tt.sessionStatus,
@@ -1057,10 +1058,10 @@ func TestOpenCodeManagerIsAliveRequiresMatchingWorktree(t *testing.T) {
 	}
 }
 
-// TestOpenCodeManagerDirectoryScoping verifies GetStatus uses proper directory scoping.
-// With orch-354, IsAlive only checks server health/worktree - session scoping is for GetStatus.
-func TestOpenCodeManagerDirectoryScoping(t *testing.T) {
-	worktreePath := "/Users/dev/repos/orch/.git-worktrees/orch-347/run"
+// TestOpenCodeManagerSessionDetectionWithoutDirectoryFilter verifies GetStatus finds sessions
+// without directory filter. Fix for orch-308: OpenCode scopes by project, not worktree path.
+func TestOpenCodeManagerSessionDetectionWithoutDirectoryFilter(t *testing.T) {
+	worktreePath := "/Users/dev/repos/orch/.git-worktrees/orch-308/run"
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -1071,17 +1072,19 @@ func TestOpenCodeManagerDirectoryScoping(t *testing.T) {
 		case "/project/current":
 			json.NewEncoder(w).Encode(ProjectInfo{Worktree: worktreePath})
 		case "/session":
+			// Verify directory header is NOT sent (orch-308 fix)
 			dir := r.Header.Get("X-OpenCode-Directory")
-			if dir != worktreePath {
-				t.Errorf("Expected X-OpenCode-Directory %q, got %q", worktreePath, dir)
+			if dir != "" {
+				t.Errorf("Expected no X-OpenCode-Directory header, got %q", dir)
 			}
 			json.NewEncoder(w).Encode([]Session{
 				{ID: "ses_test", Directory: worktreePath},
 			})
 		case "/session/status":
+			// Verify directory header is NOT sent (orch-308 fix)
 			dir := r.Header.Get("X-OpenCode-Directory")
-			if dir != worktreePath {
-				t.Errorf("Expected X-OpenCode-Directory %q, got %q", worktreePath, dir)
+			if dir != "" {
+				t.Errorf("Expected no X-OpenCode-Directory header, got %q", dir)
 			}
 			json.NewEncoder(w).Encode(map[string]SessionStatus{
 				"ses_test": SessionStatusIdle,
@@ -1101,7 +1104,7 @@ func TestOpenCodeManagerDirectoryScoping(t *testing.T) {
 		Port:      port,
 		SessionID: "ses_test",
 		Directory: worktreePath,
-		RunRef:    "orch-347#test",
+		RunRef:    "orch-308#test",
 	}
 
 	run := &model.Run{Agent: "opencode", Status: model.StatusRunning}

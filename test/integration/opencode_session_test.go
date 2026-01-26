@@ -15,18 +15,14 @@ import (
 )
 
 // TestOpenCodeSessionLookupWithWorktreePath verifies that session lookup works
-// correctly when the run uses a worktree path (orch-347 fix).
+// correctly when the run uses a worktree path.
 //
-// This test simulates the exact bug scenario:
-// 1. OpenCode server is running
-// 2. Session is created with a worktree directory
-// 3. Daemon queries for session status
-// 4. Session should be found (not return "done" prematurely)
+// Fix for orch-308: Queries without directory filter because OpenCode scopes
+// sessions by project (git root), not by exact worktree path.
 func TestOpenCodeSessionLookupWithWorktreePath(t *testing.T) {
 	worktreePath := "/test/repo/.git-worktrees/issue-123/abc123_run"
 	sessionID := "ses_test_worktree"
 
-	var receivedDirHeader string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
@@ -42,12 +38,12 @@ func TestOpenCodeSessionLookupWithWorktreePath(t *testing.T) {
 				"worktree": worktreePath,
 			})
 		case "/session":
-			receivedDirHeader = r.Header.Get("X-OpenCode-Directory")
+			// Return sessions regardless of directory header (orch-308 fix)
 			json.NewEncoder(w).Encode([]agent.Session{
 				{ID: sessionID, Directory: worktreePath},
 			})
 		case "/session/status":
-			receivedDirHeader = r.Header.Get("X-OpenCode-Directory")
+			// Return status regardless of directory header (orch-308 fix)
 			json.NewEncoder(w).Encode(map[string]string{
 				sessionID: "busy",
 			})
@@ -81,7 +77,7 @@ func TestOpenCodeSessionLookupWithWorktreePath(t *testing.T) {
 		ServerPort:        port,
 	}
 
-	// Test 1: IsAlive should return true when server is running for this worktree (orch-354)
+	// Test 1: IsAlive should return true when server is running for this worktree
 	alive := manager.IsAlive(run)
 	if !alive {
 		t.Error("IsAlive() returned false - server should be alive for matching worktree")
@@ -93,24 +89,18 @@ func TestOpenCodeSessionLookupWithWorktreePath(t *testing.T) {
 	if status != model.StatusRunning {
 		t.Errorf("GetStatus() = %v, want %v (running when agent is busy)", status, model.StatusRunning)
 	}
-
-	// Verify the directory header was sent for status query
-	if receivedDirHeader != worktreePath {
-		t.Errorf("Expected X-OpenCode-Directory header %q for status query, got %q", worktreePath, receivedDirHeader)
-	}
 }
 
-// TestOpenCodeSessionNotFoundWithoutDirectory verifies that without proper
-// directory scoping, the session might not be found (the bug we fixed).
+// TestOpenCodeSessionDirectoryMismatchDetection verifies that session detection
+// works correctly when manager directory differs from server worktree.
+// With orch-308 fix, sessions are queried without directory filter.
 func TestOpenCodeSessionDirectoryMismatchDetection(t *testing.T) {
 	mainRepoPath := "/test/repo"
 	worktreePath := "/test/repo/.git-worktrees/issue-123/abc123_run"
 	sessionID := "ses_worktree_session"
 
-	// Server serves the worktree path - manager with matching path will find it alive
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		dir := r.Header.Get("X-OpenCode-Directory")
 
 		switch r.URL.Path {
 		case "/global/health":
@@ -119,29 +109,20 @@ func TestOpenCodeSessionDirectoryMismatchDetection(t *testing.T) {
 				"version": "test",
 			})
 		case "/project/current":
-			// Server is running for worktreePath
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"id":       "test-project",
 				"worktree": worktreePath,
 			})
 		case "/session":
-			if dir == worktreePath {
-				json.NewEncoder(w).Encode([]agent.Session{
-					{ID: sessionID, Directory: worktreePath},
-				})
-			} else if dir == mainRepoPath || dir == "" {
-				json.NewEncoder(w).Encode([]agent.Session{})
-			} else {
-				json.NewEncoder(w).Encode([]agent.Session{})
-			}
+			// Return all sessions without directory filtering (orch-308 fix)
+			json.NewEncoder(w).Encode([]agent.Session{
+				{ID: sessionID, Directory: worktreePath},
+			})
 		case "/session/status":
-			if dir == worktreePath {
-				json.NewEncoder(w).Encode(map[string]string{
-					sessionID: "idle",
-				})
-			} else {
-				json.NewEncoder(w).Encode(map[string]string{})
-			}
+			// Return status for all sessions without directory filtering (orch-308 fix)
+			json.NewEncoder(w).Encode(map[string]string{
+				sessionID: "idle",
+			})
 		default:
 			http.NotFound(w, r)
 		}
@@ -150,7 +131,7 @@ func TestOpenCodeSessionDirectoryMismatchDetection(t *testing.T) {
 
 	port := extractTestPort(server.URL)
 
-	// Manager with CORRECT directory (worktree path)
+	// Manager with worktree path
 	correctManager := &agent.OpenCodeManager{
 		Port:      port,
 		SessionID: sessionID,
@@ -168,12 +149,12 @@ func TestOpenCodeSessionDirectoryMismatchDetection(t *testing.T) {
 		ServerPort:        port,
 	}
 
-	// With correct directory, server is running for this worktree (orch-354)
+	// Server is running for this worktree
 	if !correctManager.IsAlive(run) {
-		t.Error("With correct directory, IsAlive() should return true")
+		t.Error("IsAlive() should return true when server is running for worktree")
 	}
 
-	// Manager with WRONG directory (main repo instead of worktree)
+	// Manager with main repo path (different from server worktree)
 	wrongManager := &agent.OpenCodeManager{
 		Port:      port,
 		SessionID: sessionID,
@@ -181,16 +162,17 @@ func TestOpenCodeSessionDirectoryMismatchDetection(t *testing.T) {
 		RunRef:    "issue-123#run-001",
 	}
 
-	// With wrong directory, IsAlive returns false because server worktree doesn't match
+	// IsAlive checks server worktree, not session directory
 	if wrongManager.IsAlive(run) {
-		t.Error("With wrong directory, IsAlive() should return false (server worktree doesn't match)")
+		t.Error("IsAlive() should return false when manager directory doesn't match server worktree")
 	}
 }
 
 // TestNewRunStatusNotImmediatelyDone verifies that a new run doesn't
-// immediately show "done" status (the main symptom of orch-347).
+// immediately show "done" status. With orch-308 fix, sessions are queried
+// without directory filter to ensure they are always found.
 func TestNewRunStatusNotImmediatelyDone(t *testing.T) {
-	worktreePath := filepath.Join(testRepo, ".git-worktrees", "orch-347-test", "worktree")
+	worktreePath := filepath.Join(testRepo, ".git-worktrees", "orch-308-test", "worktree")
 	sessionID := "ses_new_run"
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -208,23 +190,15 @@ func TestNewRunStatusNotImmediatelyDone(t *testing.T) {
 				"worktree": worktreePath,
 			})
 		case "/session":
-			dir := r.Header.Get("X-OpenCode-Directory")
-			if dir == worktreePath {
-				json.NewEncoder(w).Encode([]agent.Session{
-					{ID: sessionID, Directory: worktreePath},
-				})
-			} else {
-				json.NewEncoder(w).Encode([]agent.Session{})
-			}
+			// Return sessions without directory filtering (orch-308 fix)
+			json.NewEncoder(w).Encode([]agent.Session{
+				{ID: sessionID, Directory: worktreePath},
+			})
 		case "/session/status":
-			dir := r.Header.Get("X-OpenCode-Directory")
-			if dir == worktreePath {
-				json.NewEncoder(w).Encode(map[string]string{
-					sessionID: "busy",
-				})
-			} else {
-				json.NewEncoder(w).Encode(map[string]string{})
-			}
+			// Return status without directory filtering (orch-308 fix)
+			json.NewEncoder(w).Encode(map[string]string{
+				sessionID: "busy",
+			})
 		case "/session/" + sessionID:
 			json.NewEncoder(w).Encode(agent.Session{
 				ID:        sessionID,
@@ -242,7 +216,7 @@ func TestNewRunStatusNotImmediatelyDone(t *testing.T) {
 	port := extractTestPort(server.URL)
 
 	run := &model.Run{
-		IssueID:           "orch-347-test",
+		IssueID:           "orch-308-test",
 		RunID:             time.Now().Format("20060102-150405"),
 		Agent:             "opencode",
 		Status:            model.StatusBooting,
@@ -258,7 +232,6 @@ func TestNewRunStatusNotImmediatelyDone(t *testing.T) {
 		RunRef:    run.Ref().String(),
 	}
 
-	// Verify IsAlive returns true when server is running for this worktree (orch-354)
 	if !manager.IsAlive(run) {
 		t.Fatal("IsAlive() should return true for server running on matching worktree")
 	}
