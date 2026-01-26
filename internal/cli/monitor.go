@@ -99,9 +99,9 @@ func runMonitorList(opts *monitorListOptions) error {
 		return err
 	}
 
-	client := daemon.NewClient(projectRoot)
-	if !client.IsAvailable() {
-		return fmt.Errorf("daemon not running; start it with 'orch ps'")
+	client, err := ensureDaemonReady(projectRoot)
+	if err != nil {
+		return err
 	}
 
 	resp, err := client.ListMonitors(projectRoot, opts.All)
@@ -198,9 +198,9 @@ func runMonitorKill(monitorID string, opts *monitorKillOptions) error {
 		return err
 	}
 
-	client := daemon.NewClient(projectRoot)
-	if !client.IsAvailable() {
-		return fmt.Errorf("daemon not running; start it with 'orch ps'")
+	client, err := ensureDaemonReady(projectRoot)
+	if err != nil {
+		return err
 	}
 
 	resp, err := client.KillMonitor(monitorID, opts.All, opts.Global, projectRoot)
@@ -239,6 +239,30 @@ func runMonitorKill(monitorID string, opts *monitorKillOptions) error {
 	return nil
 }
 
+func ensureDaemonReady(projectRoot string) (*daemon.Client, error) {
+	client := daemon.NewClient(projectRoot)
+	if client.IsAvailable() {
+		return client, nil
+	}
+
+	_, err := daemon.StartInBackground()
+	if err != nil {
+		return nil, fmt.Errorf("daemon not running and failed to start: %w\nRun 'orch repair' to fix daemon issues", err)
+	}
+
+	for i := 0; i < 20; i++ {
+		time.Sleep(100 * time.Millisecond)
+		if client.IsAvailable() {
+			if !globalOpts.Quiet {
+				fmt.Fprintln(os.Stderr, "daemon auto-started")
+			}
+			return client, nil
+		}
+	}
+
+	return nil, fmt.Errorf("daemon did not become available after starting\nRun 'orch repair' to fix daemon issues")
+}
+
 func runMonitor(opts *monitorOptions) error {
 	st, err := getStore()
 	if err != nil {
@@ -248,6 +272,10 @@ func runMonitor(opts *monitorOptions) error {
 	projectRoot, err := getProjectRoot()
 	if err != nil {
 		return fmt.Errorf("project root required for monitor: %w", err)
+	}
+
+	if _, err := ensureDaemonReady(projectRoot); err != nil {
+		return err
 	}
 
 	orchDir := monitor.GetOrchDir(projectRoot)
