@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -1112,5 +1114,107 @@ func TestOpenCodeManagerDirectoryScoping(t *testing.T) {
 	status := manager.GetStatus(run, "", state, false, false)
 	if status != model.StatusBlocked {
 		t.Errorf("GetStatus() = %v, want %v (blocked when agent is idle)", status, model.StatusBlocked)
+	}
+}
+
+func TestOpenCodeManagerSendMessageMissingPort(t *testing.T) {
+	manager := &OpenCodeManager{
+		Port:      0,
+		SessionID: "ses_test",
+		Directory: "/test",
+		RunRef:    "orch-310#test",
+	}
+
+	run := &model.Run{
+		IssueID:           "orch-310",
+		RunID:             "test",
+		Agent:             "opencode",
+		WorktreePath:      "/test",
+		OpenCodeSessionID: "ses_test",
+	}
+
+	ctx := context.Background()
+	err := manager.SendMessage(ctx, run, "test message", nil)
+
+	if err == nil {
+		t.Fatal("expected error for missing port, got nil")
+	}
+
+	var configErr *OpenCodeConfigError
+	if !errors.As(err, &configErr) {
+		t.Fatalf("expected OpenCodeConfigError, got %T: %v", err, err)
+	}
+
+	if configErr.RunRef != "orch-310#test" {
+		t.Errorf("error.RunRef = %q, want %q", configErr.RunRef, "orch-310#test")
+	}
+
+	if configErr.Missing != "server port" {
+		t.Errorf("error.Missing = %q, want %q", configErr.Missing, "server port")
+	}
+}
+
+func TestOpenCodeManagerSendMessageMissingSessionID(t *testing.T) {
+	manager := &OpenCodeManager{
+		Port:      4096,
+		SessionID: "",
+		Directory: "/test",
+		RunRef:    "orch-310#test",
+	}
+
+	run := &model.Run{
+		IssueID:      "orch-310",
+		RunID:        "test",
+		Agent:        "opencode",
+		WorktreePath: "/test",
+		ServerPort:   4096,
+	}
+
+	ctx := context.Background()
+	err := manager.SendMessage(ctx, run, "test message", nil)
+
+	if err == nil {
+		t.Fatal("expected error for missing session ID, got nil")
+	}
+
+	var configErr *OpenCodeConfigError
+	if !errors.As(err, &configErr) {
+		t.Fatalf("expected OpenCodeConfigError, got %T: %v", err, err)
+	}
+
+	if configErr.RunRef != "orch-310#test" {
+		t.Errorf("error.RunRef = %q, want %q", configErr.RunRef, "orch-310#test")
+	}
+
+	if configErr.Missing != "session ID" {
+		t.Errorf("error.Missing = %q, want %q", configErr.Missing, "session ID")
+	}
+}
+
+func TestOpenCodeConfigErrorMessage(t *testing.T) {
+	tests := []struct {
+		name    string
+		err     *OpenCodeConfigError
+		wantMsg string
+	}{
+		{
+			name:    "missing port",
+			err:     &OpenCodeConfigError{RunRef: "orch-310#abc", Missing: "server port"},
+			wantMsg: "opencode run orch-310#abc missing server port",
+		},
+		{
+			name:    "missing session",
+			err:     &OpenCodeConfigError{RunRef: "issue-1#run-2", Missing: "session ID"},
+			wantMsg: "opencode run issue-1#run-2 missing session ID",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.err.Error()
+			if got != tt.wantMsg {
+				t.Errorf("Error() = %q, want %q", got, tt.wantMsg)
+			}
+		})
 	}
 }
