@@ -32,17 +32,19 @@ MAX_PAGES = 100  # Safety cap to prevent infinite pagination loops
 
 @dataclass
 class RunFilters:
-    """Filters for listing runs."""
-
     issue_id: Optional[str] = None
     status: list[Status] = field(default_factory=list)
+    agent: Optional[str] = None
+    text_search: Optional[str] = None
+    time_range: Optional[str] = None
 
 
 @dataclass
 class IssueFilters:
-    """Filters for listing issues."""
-
     status: list[IssueStatus] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    tags_mode: Optional[str] = None
+    text_search: Optional[str] = None
 
 
 @dataclass
@@ -142,7 +144,6 @@ class DaemonClient:
             raise DaemonError(f"Socket error: {e}")
 
     def list_runs(self, filters: Optional[RunFilters] = None) -> ListRunsResponse:
-        """List all runs from the daemon, fetching all pages."""
         if filters is None:
             filters = RunFilters()
 
@@ -156,6 +157,9 @@ class DaemonClient:
                 "type": "list_runs",
                 "issue_id": filters.issue_id or "",
                 "status": [s.value for s in filters.status],
+                "agent": filters.agent or "",
+                "text_search": filters.text_search or "",
+                "time_range": filters.time_range or "",
                 "limit": MAX_PAGE_SIZE,
                 "cursor": cursor or "",
                 "issues_root": self._issues_root_str(),
@@ -184,7 +188,6 @@ class DaemonClient:
         return ListRunsResponse(runs=all_runs, next_cursor=None, total=total)
 
     def list_issues(self, filters: Optional[IssueFilters] = None) -> ListIssuesResponse:
-        """List all issues from the daemon, fetching all pages."""
         if filters is None:
             filters = IssueFilters()
 
@@ -197,6 +200,9 @@ class DaemonClient:
             request = {
                 "type": "list_issues",
                 "status": [s.value for s in filters.status],
+                "tags": filters.tags or [],
+                "tags_mode": filters.tags_mode or "",
+                "text_search": filters.text_search or "",
                 "limit": MAX_PAGE_SIZE,
                 "cursor": cursor or "",
                 "issues_root": self._issues_root_str(),

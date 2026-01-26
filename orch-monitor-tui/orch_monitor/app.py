@@ -67,6 +67,7 @@ from .config import (
 from .models import DiffStats, FileChange, Issue, IssueStatus, Run, Status
 from .orch_api import (
     Issue as ApiIssue,
+    IssueFilters as ApiIssueFilters,
     IssueStatus as ApiIssueStatus,
     OrchAPI,
     OrchError,
@@ -1462,81 +1463,16 @@ class OnboardingApp(App):
 
 
 def filter_runs_client_side(runs: list[Run], filter_state: RunFilterState) -> list[Run]:
-    """Apply client-side filtering for fields the daemon doesn't support."""
     result = runs
-
     if filter_state.agents:
         result = [r for r in result if r.agent in filter_state.agents]
-
-    if filter_state.text_search:
-        search = filter_state.text_search.lower()
-        result = [
-            r
-            for r in result
-            if search in r.run_id.lower()
-            or search in r.issue_id.lower()
-            or search in (r.branch or "").lower()
-        ]
-
-    if filter_state.time_range != "all":
-        now = datetime.now()
-        if filter_state.time_range == "hour":
-            cutoff = now - timedelta(hours=1)
-        elif filter_state.time_range == "today":
-            cutoff = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        elif filter_state.time_range == "week":
-            cutoff = now - timedelta(days=7)
-        else:
-            cutoff = None
-
-        if cutoff:
-
-            def compare_time(started: datetime) -> bool:
-                if started.tzinfo is not None:
-                    started = started.replace(tzinfo=None)
-                return started >= cutoff
-
-            result = [r for r in result if r.started_at and compare_time(r.started_at)]
-
     return result
 
 
 def filter_issues_client_side(
     issues: list[Issue], filter_state: IssueFilterState
 ) -> list[Issue]:
-    """Apply client-side filtering for issues."""
-    result = issues
-
-    if filter_state.statuses:
-        result = [i for i in result if i.status.value in filter_state.statuses]
-
-    # Tag filtering
-    if filter_state.tags:
-        filter_tags = {t.lower() for t in filter_state.tags}
-        if filter_state.tag_mode == "all":
-            # AND mode: issue must have all filter tags
-            result = [
-                i for i in result if filter_tags.issubset({t.lower() for t in i.tags})
-            ]
-        else:
-            # OR mode (any): issue must have at least one filter tag
-            result = [
-                i
-                for i in result
-                if filter_tags.intersection({t.lower() for t in i.tags})
-            ]
-
-    if filter_state.text_search:
-        search = filter_state.text_search.lower()
-        result = [
-            i
-            for i in result
-            if search in i.id.lower()
-            or search in (i.title or "").lower()
-            or search in (i.summary or "").lower()
-        ]
-
-    return result
+    return issues
 
 
 COMMON_CSS = """
@@ -1750,13 +1686,23 @@ class RunsDashboard(App):
 
     @work(thread=True, exclusive=True)
     def _fetch_runs(self) -> None:
+        run_filters = self.filter_state.run_filters
         status_filter: list[ApiRunStatus] = []
-        for s in self.filter_state.run_filters.statuses:
+        for s in run_filters.statuses:
             try:
                 status_filter.append(ApiRunStatus(s))
             except ValueError:
                 pass
-        filters = ApiRunFilters(status=status_filter) if status_filter else None
+
+        agent_filter = run_filters.agents[0] if len(run_filters.agents) == 1 else None
+        filters = ApiRunFilters(
+            status=status_filter,
+            agent=agent_filter,
+            text_search=run_filters.text_search or None,
+            time_range=run_filters.time_range
+            if run_filters.time_range != "all"
+            else None,
+        )
         result = self.api.list_runs(filters)
 
         if isinstance(result, Failure):
@@ -1770,7 +1716,8 @@ class RunsDashboard(App):
 
         response = result.unwrap()
         runs = _api_runs_to_model_runs(response.runs)
-        runs = filter_runs_client_side(runs, self.filter_state.run_filters)
+        if len(run_filters.agents) > 1:
+            runs = [r for r in runs if r.agent in run_filters.agents]
         runs.sort(
             key=lambda r: r.updated_at or r.started_at or datetime.min, reverse=True
         )
@@ -2274,7 +2221,21 @@ class IssuesDashboard(App):
 
     @work(thread=True, exclusive=True)
     def _fetch_issues(self) -> None:
-        result = self.api.list_issues()
+        issue_filters = self.filter_state.issue_filters
+        status_filter: list[ApiIssueStatus] = []
+        for s in issue_filters.statuses:
+            try:
+                status_filter.append(ApiIssueStatus(s))
+            except ValueError:
+                pass
+
+        filters = ApiIssueFilters(
+            status=status_filter,
+            tags=list(issue_filters.tags) if issue_filters.tags else [],
+            tags_mode=issue_filters.tag_mode or "or",
+            text_search=issue_filters.text_search or None,
+        )
+        result = self.api.list_issues(filters)
 
         if isinstance(result, Failure):
             error_obj = result.failure()
@@ -2287,7 +2248,6 @@ class IssuesDashboard(App):
 
         response = result.unwrap()
         issues = _api_issues_to_model_issues(response.issues)
-        issues = filter_issues_client_side(issues, self.filter_state.issue_filters)
         issues.sort(key=lambda i: i.id)
         self.call_from_thread(self._update_issues_table, issues, None)
 
@@ -2717,14 +2677,24 @@ class OrchMonitorApp(App):
         issues: Optional[list[Issue]] = None
         error: Optional[str] = None
 
+        run_filters = self.filter_state.run_filters
         status_filter: list[ApiRunStatus] = []
-        for s in self.filter_state.run_filters.statuses:
+        for s in run_filters.statuses:
             try:
                 status_filter.append(ApiRunStatus(s))
             except ValueError:
                 pass
-        filters = ApiRunFilters(status=status_filter) if status_filter else None
-        runs_result = self.api.list_runs(filters)
+
+        agent_filter = run_filters.agents[0] if len(run_filters.agents) == 1 else None
+        run_api_filters = ApiRunFilters(
+            status=status_filter,
+            agent=agent_filter,
+            text_search=run_filters.text_search or None,
+            time_range=run_filters.time_range
+            if run_filters.time_range != "all"
+            else None,
+        )
+        runs_result = self.api.list_runs(run_api_filters)
 
         if isinstance(runs_result, Failure):
             error_obj = runs_result.failure()
@@ -2737,12 +2707,27 @@ class OrchMonitorApp(App):
             runs = _api_runs_to_model_runs(runs_response.runs)
 
         if runs is not None:
-            runs = filter_runs_client_side(runs, self.filter_state.run_filters)
+            if len(run_filters.agents) > 1:
+                runs = [r for r in runs if r.agent in run_filters.agents]
             runs.sort(
                 key=lambda r: r.updated_at or r.started_at or datetime.min, reverse=True
             )
 
-        issues_result = self.api.list_issues()
+        issue_filters = self.filter_state.issue_filters
+        issue_status_filter: list[ApiIssueStatus] = []
+        for s in issue_filters.statuses:
+            try:
+                issue_status_filter.append(ApiIssueStatus(s))
+            except ValueError:
+                pass
+
+        issue_api_filters = ApiIssueFilters(
+            status=issue_status_filter,
+            tags=list(issue_filters.tags) if issue_filters.tags else [],
+            tags_mode=issue_filters.tag_mode or "or",
+            text_search=issue_filters.text_search or None,
+        )
+        issues_result = self.api.list_issues(issue_api_filters)
         if isinstance(issues_result, Failure):
             if error is None:
                 error = str(issues_result.failure())
@@ -2751,7 +2736,6 @@ class OrchMonitorApp(App):
             issues = _api_issues_to_model_issues(issues_response.issues)
 
         if issues is not None:
-            issues = filter_issues_client_side(issues, self.filter_state.issue_filters)
             issues.sort(key=lambda i: i.id)
 
         self.call_from_thread(self._update_all_tables, runs, issues, error)

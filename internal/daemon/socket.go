@@ -61,6 +61,12 @@ type SendRequest struct {
 	SessionID   string   `json:"session_id,omitempty"`
 	AgentType   string   `json:"agent_type,omitempty"`
 
+	Agent      string   `json:"agent,omitempty"`
+	TextSearch string   `json:"text_search,omitempty"`
+	TimeRange  string   `json:"time_range,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
+	TagsMode   string   `json:"tags_mode,omitempty"`
+
 	EventType   string            `json:"event_type,omitempty"`
 	EventName   string            `json:"event_name,omitempty"`
 	EventAttrs  map[string]string `json:"event_attrs,omitempty"`
@@ -1474,8 +1480,11 @@ func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {
 			return
 		}
 		filter := &store.ListRunsFilter{
-			IssueID: req.IssueID,
-			Limit:   0,
+			IssueID:    req.IssueID,
+			Agent:      req.Agent,
+			TextSearch: req.TextSearch,
+			TimeRange:  req.TimeRange,
+			Limit:      0,
 		}
 		for _, status := range req.Status {
 			filter.Status = append(filter.Status, model.Status(status))
@@ -1524,9 +1533,7 @@ func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {
 	})
 }
 
-// listAllRepoRuns aggregates runs from all registered repos.
 func (s *SocketServer) listAllRepoRuns(req SendRequest) ([]*model.Run, error) {
-	// Copy store pointers under lock, then release before I/O
 	s.reposMu.RLock()
 	stores := make([]store.Store, 0, len(s.repos))
 	for _, ctx := range s.repos {
@@ -1536,23 +1543,24 @@ func (s *SocketServer) listAllRepoRuns(req SendRequest) ([]*model.Run, error) {
 	}
 	s.reposMu.RUnlock()
 
-	// Now do I/O without holding the lock
 	var allRuns []*model.Run
 	for _, st := range stores {
 		filter := &store.ListRunsFilter{
-			IssueID: req.IssueID,
+			IssueID:    req.IssueID,
+			Agent:      req.Agent,
+			TextSearch: req.TextSearch,
+			TimeRange:  req.TimeRange,
 		}
 		for _, status := range req.Status {
 			filter.Status = append(filter.Status, model.Status(status))
 		}
 		runs, err := st.ListRuns(filter)
 		if err != nil {
-			continue // Skip errors, aggregate what we can
+			continue
 		}
 		allRuns = append(allRuns, runs...)
 	}
 
-	// Sort by updated time, most recent first
 	sort.Slice(allRuns, func(i, j int) bool {
 		return allRuns[i].UpdatedAt.After(allRuns[j].UpdatedAt)
 	})
@@ -1595,7 +1603,6 @@ func (s *SocketServer) handleListIssues(req SendRequest, encoder *json.Encoder) 
 		return
 	}
 
-	// Sort by modification time, newest first
 	sort.Slice(issues, func(i, j int) bool {
 		return issues[i].ModifiedAt.After(issues[j].ModifiedAt)
 	})
@@ -1608,6 +1615,33 @@ func (s *SocketServer) handleListIssues(req SendRequest, encoder *json.Encoder) 
 		var filtered []*model.Issue
 		for _, issue := range issues {
 			if statusSet[string(issue.Status)] {
+				filtered = append(filtered, issue)
+			}
+		}
+		issues = filtered
+	}
+
+	if len(req.Tags) > 0 {
+		tagSet := make(map[string]bool)
+		for _, t := range req.Tags {
+			tagSet[strings.ToLower(t)] = true
+		}
+		var filtered []*model.Issue
+		for _, issue := range issues {
+			if matchesTags(issue.Tags, tagSet, req.TagsMode) {
+				filtered = append(filtered, issue)
+			}
+		}
+		issues = filtered
+	}
+
+	if req.TextSearch != "" {
+		search := strings.ToLower(req.TextSearch)
+		var filtered []*model.Issue
+		for _, issue := range issues {
+			if strings.Contains(strings.ToLower(issue.ID), search) ||
+				strings.Contains(strings.ToLower(issue.Title), search) ||
+				strings.Contains(strings.ToLower(issue.Summary), search) {
 				filtered = append(filtered, issue)
 			}
 		}
@@ -1642,6 +1676,33 @@ func (s *SocketServer) handleListIssues(req SendRequest, encoder *json.Encoder) 
 		NextCursor: nextCursor,
 		Total:      total,
 	})
+}
+
+func matchesTags(issueTags []string, filterTags map[string]bool, mode string) bool {
+	if len(filterTags) == 0 {
+		return true
+	}
+
+	issueTagSet := make(map[string]bool)
+	for _, t := range issueTags {
+		issueTagSet[strings.ToLower(t)] = true
+	}
+
+	if mode == "and" {
+		for tag := range filterTags {
+			if !issueTagSet[tag] {
+				return false
+			}
+		}
+		return true
+	}
+
+	for tag := range filterTags {
+		if issueTagSet[tag] {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *SocketServer) handleGetRun(req SendRequest, encoder *json.Encoder) {

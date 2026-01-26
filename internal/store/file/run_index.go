@@ -45,8 +45,8 @@ const (
 )
 
 type runIndexCache struct {
-	mu       sync.RWMutex
-	index    *runIndex
+	mu      sync.RWMutex
+	index   *runIndex
 	rootDir string
 }
 
@@ -154,6 +154,29 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 		sinceTime, _ = time.Parse(time.RFC3339, filter.Since)
 	}
 
+	var timeRangeCutoff time.Time
+	if filter != nil && filter.TimeRange != "" && filter.TimeRange != "all" {
+		now := time.Now()
+		switch filter.TimeRange {
+		case "hour":
+			timeRangeCutoff = now.Add(-1 * time.Hour)
+		case "today":
+			timeRangeCutoff = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		case "week":
+			timeRangeCutoff = now.Add(-7 * 24 * time.Hour)
+		}
+	}
+
+	textSearch := ""
+	if filter != nil && filter.TextSearch != "" {
+		textSearch = strings.ToLower(filter.TextSearch)
+	}
+
+	agentFilter := ""
+	if filter != nil && filter.Agent != "" {
+		agentFilter = strings.ToLower(filter.Agent)
+	}
+
 	needsFullLoad := make(map[string]bool)
 	validEntries := make(map[string]*runIndexEntry)
 
@@ -189,10 +212,7 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 			fileMtime := info.ModTime()
 
 			if cached, ok := idx.Entries[key]; ok && cached.FileMtime.Unix() == fileMtime.Unix() {
-				if len(statusSet) > 0 && !statusSet[cached.Status] {
-					continue
-				}
-				if !sinceTime.IsZero() && cached.UpdatedAt.Before(sinceTime) {
+				if !matchesRunFilters(cached, statusSet, sinceTime, timeRangeCutoff, textSearch, agentFilter) {
 					continue
 				}
 				validEntries[key] = cached
@@ -214,7 +234,7 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 				Branch:            run.Branch,
 				WorktreePath:      run.WorktreePath,
 				TmuxSession:       run.TmuxSession,
-			Multiplexer:       run.Multiplexer,
+				Multiplexer:       run.Multiplexer,
 				PRUrl:             run.PRUrl,
 				ServerPort:        run.ServerPort,
 				OpenCodeSessionID: run.OpenCodeSessionID,
@@ -224,10 +244,7 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 			}
 			idx.Entries[key] = entry
 
-			if len(statusSet) > 0 && !statusSet[entry.Status] {
-				continue
-			}
-			if !sinceTime.IsZero() && entry.UpdatedAt.Before(sinceTime) {
+			if !matchesRunFilters(entry, statusSet, sinceTime, timeRangeCutoff, textSearch, agentFilter) {
 				continue
 			}
 			validEntries[key] = entry
@@ -252,6 +269,29 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 	}
 
 	return runs, nil
+}
+
+func matchesRunFilters(entry *runIndexEntry, statusSet map[model.Status]bool, sinceTime, timeRangeCutoff time.Time, textSearch, agentFilter string) bool {
+	if len(statusSet) > 0 && !statusSet[entry.Status] {
+		return false
+	}
+	if !sinceTime.IsZero() && entry.UpdatedAt.Before(sinceTime) {
+		return false
+	}
+	if !timeRangeCutoff.IsZero() && entry.StartedAt.Before(timeRangeCutoff) {
+		return false
+	}
+	if agentFilter != "" && strings.ToLower(entry.Agent) != agentFilter {
+		return false
+	}
+	if textSearch != "" {
+		if !strings.Contains(strings.ToLower(entry.RunID), textSearch) &&
+			!strings.Contains(strings.ToLower(entry.IssueID), textSearch) &&
+			!strings.Contains(strings.ToLower(entry.Branch), textSearch) {
+			return false
+		}
+	}
+	return true
 }
 
 func entryToRun(e *runIndexEntry) *model.Run {
