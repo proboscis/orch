@@ -1395,6 +1395,11 @@ func findAvailablePortExcluding(start, end int, exclude map[int]bool) int {
 	return 0
 }
 
+func computeRunAlive(run *model.Run) bool {
+	manager := agent.GetManager(run)
+	return manager.IsAlive(run)
+}
+
 func (s *SocketServer) handleSend(req SendRequest, encoder *json.Encoder) {
 	err := s.processSend(req)
 	if err != nil {
@@ -1500,14 +1505,9 @@ func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {
 	}
 	paginatedRuns := runs[offset:end]
 
-	computeAlive := func(run *model.Run) bool {
-		manager := agent.GetManager(run)
-		return manager.IsAlive(run)
-	}
-
 	summaries := make([]*RunSummary, len(paginatedRuns))
 	for i, run := range paginatedRuns {
-		summaries[i] = RunToSummaryWithAlive(run, computeAlive)
+		summaries[i] = RunToSummaryWithAlive(run, computeRunAlive)
 	}
 
 	var nextCursor *string
@@ -1664,14 +1664,9 @@ func (s *SocketServer) handleGetRun(req SendRequest, encoder *json.Encoder) {
 		return
 	}
 
-	computeAlive := func(r *model.Run) bool {
-		manager := agent.GetManager(r)
-		return manager.IsAlive(r)
-	}
-
 	encoder.Encode(GetRunResponse{
 		OK:  true,
-		Run: RunToFullWithAlive(run, computeAlive),
+		Run: RunToFullWithAlive(run, computeRunAlive),
 	})
 }
 

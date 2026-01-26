@@ -223,3 +223,123 @@ func TestRunToSummaryRoundTrip(t *testing.T) {
 		t.Errorf("TmuxSession mismatch: got %q, want %q", roundTripped.TmuxSession, original.TmuxSession)
 	}
 }
+
+func TestRunToSummaryWithAlive(t *testing.T) {
+	run := &model.Run{
+		IssueID: "issue-alive",
+		RunID:   "run-alive-123",
+		Status:  model.StatusRunning,
+	}
+
+	t.Run("nil callback keeps AliveKnown false", func(t *testing.T) {
+		summary := RunToSummaryWithAlive(run, nil)
+		if summary.AliveKnown {
+			t.Error("AliveKnown should be false when callback is nil")
+		}
+		if summary.Alive {
+			t.Error("Alive should be false when callback is nil")
+		}
+	})
+
+	t.Run("callback returning true sets Alive true", func(t *testing.T) {
+		summary := RunToSummaryWithAlive(run, func(*model.Run) bool { return true })
+		if !summary.AliveKnown {
+			t.Error("AliveKnown should be true when callback provided")
+		}
+		if !summary.Alive {
+			t.Error("Alive should be true when callback returns true")
+		}
+	})
+
+	t.Run("callback returning false sets Alive false", func(t *testing.T) {
+		summary := RunToSummaryWithAlive(run, func(*model.Run) bool { return false })
+		if !summary.AliveKnown {
+			t.Error("AliveKnown should be true when callback provided")
+		}
+		if summary.Alive {
+			t.Error("Alive should be false when callback returns false")
+		}
+	})
+}
+
+func TestRunToFullWithAlive(t *testing.T) {
+	run := &model.Run{
+		IssueID: "issue-full-alive",
+		RunID:   "run-full-alive-123",
+		Status:  model.StatusRunning,
+	}
+
+	t.Run("nil callback keeps AliveKnown false", func(t *testing.T) {
+		full := RunToFullWithAlive(run, nil)
+		if full.AliveKnown {
+			t.Error("AliveKnown should be false when callback is nil")
+		}
+		if full.Alive {
+			t.Error("Alive should be false when callback is nil")
+		}
+	})
+
+	t.Run("callback returning true sets Alive true", func(t *testing.T) {
+		full := RunToFullWithAlive(run, func(*model.Run) bool { return true })
+		if !full.AliveKnown {
+			t.Error("AliveKnown should be true when callback provided")
+		}
+		if !full.Alive {
+			t.Error("Alive should be true when callback returns true")
+		}
+	})
+
+	t.Run("callback returning false sets Alive false", func(t *testing.T) {
+		full := RunToFullWithAlive(run, func(*model.Run) bool { return false })
+		if !full.AliveKnown {
+			t.Error("AliveKnown should be true when callback provided")
+		}
+		if full.Alive {
+			t.Error("Alive should be false when callback returns false")
+		}
+	})
+}
+
+func TestSummaryAliveInfo(t *testing.T) {
+	t.Run("nil summary returns false, false", func(t *testing.T) {
+		alive, known := SummaryAliveInfo(nil)
+		if alive {
+			t.Error("alive should be false for nil summary")
+		}
+		if known {
+			t.Error("known should be false for nil summary")
+		}
+	})
+
+	t.Run("returns correct values from summary", func(t *testing.T) {
+		summary := &RunSummary{
+			IssueID:    "test",
+			RunID:      "test-run",
+			Alive:      true,
+			AliveKnown: true,
+		}
+		alive, known := SummaryAliveInfo(summary)
+		if !alive {
+			t.Error("alive should be true")
+		}
+		if !known {
+			t.Error("known should be true")
+		}
+	})
+
+	t.Run("returns false alive when not alive", func(t *testing.T) {
+		summary := &RunSummary{
+			IssueID:    "test",
+			RunID:      "test-run",
+			Alive:      false,
+			AliveKnown: true,
+		}
+		alive, known := SummaryAliveInfo(summary)
+		if alive {
+			t.Error("alive should be false")
+		}
+		if !known {
+			t.Error("known should be true")
+		}
+	})
+}

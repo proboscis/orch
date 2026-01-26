@@ -99,6 +99,9 @@ func runPs(opts *psOptions) error {
 				runs = make([]*model.Run, len(resp.Runs))
 				daemonAliveInfo = make(map[string]agentAliveInfo, len(resp.Runs))
 				for i, summary := range resp.Runs {
+					if summary == nil {
+						continue
+					}
 					runs[i] = daemon.SummaryToRun(summary)
 					alive, known := daemon.SummaryAliveInfo(summary)
 					daemonAliveInfo[summary.RunID] = agentAliveInfo{alive: alive, known: known}
