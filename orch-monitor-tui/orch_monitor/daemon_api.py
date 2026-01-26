@@ -12,6 +12,7 @@ from typing import Optional
 from returns.result import Failure, Result, Success
 
 from .daemon import DaemonClient, DaemonError, DaemonNotRunningError
+from .daemon import IssueFilters as DaemonIssueFilters
 from .daemon import ListIssuesResponse as DaemonListIssuesResponse
 from .daemon import ListRunsResponse as DaemonListRunsResponse
 from .daemon import RunFilters as DaemonRunFilters
@@ -70,7 +71,6 @@ def _model_issue_status_to_api(status: ModelIssueStatus) -> IssueStatus:
 
 
 def _api_run_status_to_model(status: RunStatus) -> ModelStatus:
-    """Convert orch_api.RunStatus to models.Status."""
     mapping = {
         RunStatus.QUEUED: ModelStatus.QUEUED,
         RunStatus.BOOTING: ModelStatus.BOOTING,
@@ -84,6 +84,15 @@ def _api_run_status_to_model(status: RunStatus) -> ModelStatus:
         RunStatus.UNKNOWN: ModelStatus.UNKNOWN,
     }
     return mapping.get(status, ModelStatus.UNKNOWN)
+
+
+def _api_issue_status_to_model(status: IssueStatus) -> ModelIssueStatus:
+    mapping = {
+        IssueStatus.OPEN: ModelIssueStatus.OPEN,
+        IssueStatus.RESOLVED: ModelIssueStatus.RESOLVED,
+        IssueStatus.CLOSED: ModelIssueStatus.CLOSED,
+    }
+    return mapping.get(status, ModelIssueStatus.OPEN)
 
 
 def _model_run_to_api(run: ModelRun) -> Run:
@@ -404,7 +413,11 @@ class DaemonOrchAPI:
             if filters:
                 status_list = [_api_run_status_to_model(s) for s in filters.status]
                 daemon_filters = DaemonRunFilters(
-                    issue_id=filters.issue_id, status=status_list
+                    issue_id=filters.issue_id,
+                    status=status_list,
+                    agent=filters.agent,
+                    text_search=filters.text_search,
+                    time_range=filters.time_range,
                 )
             response: DaemonListRunsResponse = self._daemon.list_runs(daemon_filters)
             runs = [_model_run_to_api(r) for r in response.runs]
@@ -493,7 +506,18 @@ class DaemonOrchAPI:
         self, filters: Optional[IssueFilters] = None
     ) -> Result[ListIssuesResponse, OrchError]:
         try:
-            response: DaemonListIssuesResponse = self._daemon.list_issues()
+            daemon_filters = None
+            if filters:
+                status_list = [_api_issue_status_to_model(s) for s in filters.status]
+                daemon_filters = DaemonIssueFilters(
+                    status=status_list,
+                    tags=filters.tags,
+                    tags_mode=filters.tags_mode,
+                    text_search=filters.text_search,
+                )
+            response: DaemonListIssuesResponse = self._daemon.list_issues(
+                daemon_filters
+            )
             issues = [_model_issue_to_api(i) for i in response.issues]
             return Success(ListIssuesResponse(issues=issues, total=response.total))
         except DaemonNotRunningError:

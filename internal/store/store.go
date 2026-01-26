@@ -6,10 +6,22 @@ import (
 
 // ListRunsFilter specifies criteria for filtering runs
 type ListRunsFilter struct {
-	IssueID string
-	Status  []model.Status
-	Limit   int
-	Since   string // ISO8601 timestamp
+	IssueID    string
+	Status     []model.Status
+	Agent      string // Filter by agent name (e.g., "opencode", "claude")
+	TextSearch string // Search in run_id, issue_id, branch
+	TimeRange  string // "hour", "today", "week", "all"
+	Limit      int
+	Since      string // ISO8601 timestamp
+}
+
+// ListIssuesFilter specifies criteria for filtering issues
+type ListIssuesFilter struct {
+	Status     []model.IssueStatus
+	Tags       []string // Filter by tags
+	TagsMode   string   // "or" (any tag matches) or "and" (all tags must match)
+	TextSearch string   // Search in id, title, summary
+	Limit      int
 }
 
 // Store defines the interface for knowledge store backends
