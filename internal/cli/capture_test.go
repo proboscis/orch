@@ -77,13 +77,13 @@ func TestFormatMessageParts(t *testing.T) {
 			expected: "First\nSecond",
 		},
 		{
-			name: "mixed parts with non-text",
+			name: "mixed parts with tool_use",
 			parts: []agent.MessagePart{
 				{Type: "text", Text: "Hello"},
-				{Type: "tool_use", Text: ""},
+				{Type: "tool_use", ToolName: "read_file"},
 				{Type: "text", Text: "World"},
 			},
-			expected: "Hello\nWorld",
+			expected: "Hello\n<tool: read_file>\nWorld",
 		},
 		{
 			name: "text parts with empty text",
@@ -95,16 +95,46 @@ func TestFormatMessageParts(t *testing.T) {
 			expected: "Hello\nWorld",
 		},
 		{
-			name: "only non-text parts",
+			name: "tool_use and tool_result",
 			parts: []agent.MessagePart{
-				{Type: "tool_use", Text: "ignored"},
-				{Type: "tool_result", Text: "also ignored"},
+				{Type: "tool_use", ToolName: "bash"},
+				{Type: "tool_result", Text: "success"},
 			},
-			expected: "",
+			expected: "<tool: bash>\n<result: success>",
+		},
+		{
+			name:     "tool_use without name",
+			parts:    []agent.MessagePart{{Type: "tool_use"}},
+			expected: "<tool: unknown>",
+		},
+		{
+			name:     "tool_result with long text truncated",
+			parts:    []agent.MessagePart{{Type: "tool_result", Text: "This is a very long result text that should be truncated at some point to keep the output readable and not overwhelming"}},
+			expected: "<result: This is a very long result text that should be truncated at some point to keep the output readable a...>",
+		},
+		{
+			name:     "tool_result with empty text",
+			parts:    []agent.MessagePart{{Type: "tool_result", Text: ""}},
+			expected: "<result: ...>",
+		},
+		{
+			name:     "thinking part",
+			parts:    []agent.MessagePart{{Type: "thinking", Text: "internal thoughts"}},
+			expected: "<thinking...>",
+		},
+		{
+			name:     "redacted_thinking part",
+			parts:    []agent.MessagePart{{Type: "redacted_thinking"}},
+			expected: "<thinking...>",
 		},
 		{
 			name:     "nil parts",
 			parts:    nil,
+			expected: "",
+		},
+		{
+			name:     "unknown type is ignored",
+			parts:    []agent.MessagePart{{Type: "unknown_type", Text: "ignored"}},
 			expected: "",
 		},
 	}
@@ -114,6 +144,49 @@ func TestFormatMessageParts(t *testing.T) {
 			result := formatMessageParts(tt.parts)
 			if result != tt.expected {
 				t.Errorf("formatMessageParts() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestTruncateText(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		maxLen   int
+		expected string
+	}{
+		{
+			name:     "short text unchanged",
+			input:    "hello",
+			maxLen:   10,
+			expected: "hello",
+		},
+		{
+			name:     "exact length unchanged",
+			input:    "hello",
+			maxLen:   5,
+			expected: "hello",
+		},
+		{
+			name:     "long text truncated",
+			input:    "hello world",
+			maxLen:   5,
+			expected: "hello...",
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			maxLen:   10,
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := truncateText(tt.input, tt.maxLen)
+			if result != tt.expected {
+				t.Errorf("truncateText(%q, %d) = %q, want %q", tt.input, tt.maxLen, result, tt.expected)
 			}
 		})
 	}
@@ -288,8 +361,16 @@ func TestOpenCodeCaptureResultJSON(t *testing.T) {
 		RunID:     "20240101-120000",
 		SessionID: "ses_abc123",
 		Messages: []openCodeCaptureMessage{
-			{Role: "user", Content: "Hello"},
-			{Role: "assistant", Content: "Hi there!"},
+			{
+				Role:    "user",
+				Content: "Hello",
+				Parts:   []agent.MessagePart{{Type: "text", Text: "Hello"}},
+			},
+			{
+				Role:    "assistant",
+				Content: "<tool: read_file>",
+				Parts:   []agent.MessagePart{{Type: "tool_use", ToolName: "read_file"}},
+			},
 		},
 	}
 
@@ -334,6 +415,41 @@ func TestOpenCodeCaptureResultJSON(t *testing.T) {
 	}
 	if msg0["content"] != "Hello" {
 		t.Errorf("message[0].content = %v, want %q", msg0["content"], "Hello")
+	}
+	parts0, ok := msg0["parts"].([]interface{})
+	if !ok {
+		t.Fatal("message[0].parts should be an array")
+	}
+	if len(parts0) != 1 {
+		t.Errorf("message[0].parts length = %d, want 1", len(parts0))
+	}
+
+	msg1, ok := messages[1].(map[string]interface{})
+	if !ok {
+		t.Fatal("message[1] should be an object")
+	}
+	if msg1["role"] != "assistant" {
+		t.Errorf("message[1].role = %v, want %q", msg1["role"], "assistant")
+	}
+	if msg1["content"] != "<tool: read_file>" {
+		t.Errorf("message[1].content = %v, want %q", msg1["content"], "<tool: read_file>")
+	}
+	parts1, ok := msg1["parts"].([]interface{})
+	if !ok {
+		t.Fatal("message[1].parts should be an array")
+	}
+	if len(parts1) != 1 {
+		t.Errorf("message[1].parts length = %d, want 1", len(parts1))
+	}
+	part1, ok := parts1[0].(map[string]interface{})
+	if !ok {
+		t.Fatal("message[1].parts[0] should be an object")
+	}
+	if part1["type"] != "tool_use" {
+		t.Errorf("message[1].parts[0].type = %v, want %q", part1["type"], "tool_use")
+	}
+	if part1["name"] != "read_file" {
+		t.Errorf("message[1].parts[0].name = %v, want %q", part1["name"], "read_file")
 	}
 }
 
