@@ -6,17 +6,16 @@
 ;; ============================================================================
 
 (defmacro deflogger [name]
-  "Define a module-level logger function that writes to the standard log file."
+  "Define a module-level logger function that writes to the standard log file.
+   Logging is critical infrastructure — OSError crashes the app (by design)."
   `(defn ~name [operation error project-root]
      (import pathlib [Path])
      (import datetime [datetime])
      (setv log-path (/ project-root ".orch" "monitor-tui.log"))
-     (try
-       (.mkdir (. log-path parent) :parents True :exist_ok True)
-       (setv timestamp (.strftime (.now datetime) "%Y-%m-%d %H:%M:%S"))
-       (with [f (open log-path "a")]
-         (.write f f"{timestamp} [{operation}] {error}\n"))
-       (except [OSError]))
+     (.mkdir (. log-path parent) :parents True :exist_ok True)
+     (setv timestamp (.strftime (.now datetime) "%Y-%m-%d %H:%M:%S"))
+     (with [f (open log-path "a")]
+       (.write f f"{timestamp} [{operation}] {error}\n"))
      log-path))
 
 ;; ============================================================================
@@ -372,8 +371,159 @@
          (.unwrap __r__))))
 
 ;; ============================================================================
+;; Result Control Flow — Idiomatic branching on Result[T, E]
+;; ============================================================================
+
+(defmacro when-ok [binding #* body]
+  "Execute body only on Success, binding unwrapped value.
+   
+   Usage:
+     (when-ok [monitor-id (register-monitor api)]
+       (setv self._monitor_id monitor-id))
+   
+   Expands to: check result, unwrap into var, run body. Skip on Failure.
+  "
+  (setv var (get binding 0))
+  (setv result (get binding 1))
+  `(do
+     (import returns.result [Failure])
+     (setv __r__ ~result)
+     (when (not (isinstance __r__ Failure))
+       (setv ~var (.unwrap __r__))
+       ~@body)))
+
+(defmacro when-err [binding #* body]
+  "Execute body only on Failure, binding the error.
+   
+   Usage:
+     (when-err [err (.stop_run api issue-id run-id)]
+       (notify self f\"Failed: {err}\" :severity \"error\"))
+   
+   Expands to: check result, bind failure value, run body. Skip on Success.
+  "
+  (setv var (get binding 0))
+  (setv result (get binding 1))
+  `(do
+     (import returns.result [Failure])
+     (setv __r__ ~result)
+     (when (isinstance __r__ Failure)
+       (setv ~var (.failure __r__))
+       ~@body)))
+
+(defmacro if-ok [binding ok-body err-body]
+  "Branch on Result: bind unwrapped value on Success, bind error on Failure.
+   
+   Usage:
+     (if-ok [response (.list_runs api filters)]
+       ;; Success: response is the unwrapped value
+       (process response)
+       ;; Failure: response is the error
+       (notify-error response))
+   
+   In ok-body, var is the unwrapped success value.
+   In err-body, var is the failure error value.
+  "
+  (setv var (get binding 0))
+  (setv result (get binding 1))
+  `(do
+     (import returns.result [Failure])
+     (setv __r__ ~result)
+     (if (isinstance __r__ Failure)
+         (do
+           (setv ~var (.failure __r__))
+           ~err-body)
+         (do
+           (setv ~var (.unwrap __r__))
+           ~ok-body))))
+
+(defmacro ok-or [result default]
+  "Unwrap Result on Success, return default on Failure. Alias for result-unwrap-or.
+   
+   Usage:
+     (setv run (ok-or (.get_run api id) None))
+  "
+  `(result-unwrap-or ~result ~default))
+
+;; ============================================================================
+;; Optional Control Flow — Idiomatic branching on None
+;; ============================================================================
+
+(defmacro when-some [binding #* body]
+  "Execute body only if expr is not None, binding value to var.
+   
+   Usage:
+     (when-some [session (get-session run)]
+       (attach session))
+   
+   Skip body entirely if expr is None.
+  "
+  (setv var (get binding 0))
+  (setv expr (get binding 1))
+  `(do
+     (setv __v__ ~expr)
+     (when (is-not __v__ None)
+       (setv ~var __v__)
+       ~@body)))
+
+(defmacro when-none [expr #* body]
+  "Execute body only if expr is None.
+   
+   Usage:
+     (when-none (get-session run)
+       (notify \"No session available\"))
+  "
+  `(when (is ~expr None)
+     ~@body))
+
+(defmacro some-or [expr default]
+  "Return expr if not None, otherwise default.
+   
+   Usage:
+     (setv name (some-or user.name \"anonymous\"))
+  "
+  `(do
+     (setv __v__ ~expr)
+     (if (is __v__ None) ~default __v__)))
+
+;; ============================================================================
 ;; Proto Client Specific Macros
 ;; ============================================================================
+
+(defmacro socket-send [socket-path #* body]
+  "Execute socket operations, normalizing errors to typed ProtoDaemonError.
+   
+   Usage:
+     (socket-send self.socket-path
+       (setv sock (socket.socket ...))
+       (.connect sock path)
+       (send-and-receive sock))
+   
+   Catches:
+     socket.timeout       -> ProtoDaemonError
+     ConnectionRefusedError -> ProtoDaemonNotRunningError
+     FileNotFoundError    -> ProtoDaemonNotRunningError
+     Exception            -> ProtoDaemonError
+   
+   All errors are ALWAYS re-raised as typed exceptions (never swallowed).
+  "
+  `(do
+     (import socket)
+     (import orch_monitor.types [ProtoDaemonError ProtoDaemonNotRunningError])
+     (import logging)
+     (try
+       ~@body
+       (except [e socket.timeout]
+         (raise (ProtoDaemonError "Timeout communicating with daemon")))
+       (except [e ConnectionRefusedError]
+         (raise (ProtoDaemonNotRunningError "Daemon is not running")))
+       (except [e FileNotFoundError]
+         (raise (ProtoDaemonNotRunningError
+                  f"Daemon socket not found at {~socket-path}")))
+       (except [e Exception]
+         (setv logger (logging.getLogger "orch_monitor.proto_client"))
+         (setv __err_type__ (. (type e) __name__))
+         (.error logger f"[socket_send] Unexpected: {__err_type__}: {e}")
+         (raise (ProtoDaemonError f"Socket error: {e}"))))))
 
 (defn _contains-return? [form]
   "Check if form contains a (return ...) statement."
@@ -488,6 +638,186 @@
        (except [e Exception]
          (_log_config_error ~operation (str e) ~project-root)
          ~default))))
+
+;; ============================================================================
+;; Fallback with Notification Macro
+;; ============================================================================
+
+(defmacro with-fallback [context default app #* body]
+  "Execute body with fallback value. Logs error and shows notification on failure.
+   
+   Usage:
+     (with-fallback \"fetch_runs\" [] self
+       (expensive-api-call))
+   
+   On exception:
+     1. Logs to monitor-tui.log with traceback
+     2. Shows notification via app.notify()
+     3. Returns default value
+   
+   The 'app' parameter must be a Textual App instance with notify() method.
+   "
+  `(do
+     (import logging)
+     (import traceback)
+     (try
+       ~@body
+       (except [e Exception]
+         (setv logger (logging.getLogger "orch_monitor"))
+         (setv err-type (. (type e) __name__))
+         (setv err-msg f"[{~context}] {err-type}: {e}")
+         (.warning logger err-msg)
+         (.debug logger (traceback.format_exc))
+         (when (hasattr ~app "notify")
+           (.notify ~app err-msg :severity "error" :timeout 5))
+         ~default))))
+
+(defmacro with-fallback-silent [context default #* body]
+  "Execute body with fallback value. Logs error but NO notification.
+   
+   Usage:
+     (with-fallback-silent \"update_cell\" None
+       (table.update_cell key col val))
+   
+   Use for non-critical operations where notification would be noisy.
+   "
+  `(do
+     (import logging)
+     (try
+       ~@body
+       (except [e Exception]
+         (setv logger (logging.getLogger "orch_monitor"))
+         (setv err-type (. (type e) __name__))
+         (.debug logger f"[{~context}] {err-type}: {e}")
+         ~default))))
+
+(defmacro must-succeed [context #* body]
+  "Execute body. On error, log with full traceback and re-raise.
+   
+   Usage:
+     (must-succeed \"critical_init\"
+       (initialize-components))
+   
+   Use for operations that MUST NOT silently fail.
+   "
+  `(do
+     (import logging)
+     (import traceback)
+     (try
+       ~@body
+       (except [e Exception]
+         (setv logger (logging.getLogger "orch_monitor"))
+         (setv err-type (. (type e) __name__))
+         (.error logger f"[{~context}] CRITICAL: {err-type}: {e}")
+         (.error logger (traceback.format_exc))
+         (raise)))))
+
+;; ============================================================================
+;; UI Component Macros
+;; ============================================================================
+
+(defmacro defconfirm-screen [class-name dialog-id color confirm-label confirm-variant
+                             init-params init-body details-body info-body]
+  "Generate a confirmation dialog screen class with standard boilerplate.
+   
+   Args:
+     class-name: Symbol for the class name (e.g., KillConfirmScreen)
+     dialog-id: String for CSS ID prefix (e.g., \"kill\")
+     color: String for border/title color (e.g., \"error\", \"warning\")
+     confirm-label: String for confirm button text
+     confirm-variant: String for confirm button variant
+     init-params: List of init parameters after self (e.g., [run])
+     init-body: Body of __init__ after super().__init__()
+     details-body: Body yielding widgets for details section
+     info-body: Body yielding widgets for info section
+   
+   Example:
+     (defconfirm-screen KillConfirmScreen \"kill\" \"error\" \"Yes, kill\" \"error\"
+       [run]
+       (do
+         (setv self.run run)
+         (setv self.multiplexer (get_multiplexer_for_run run)))
+       (do
+         (yield (Static f\"Run: {(self.run.ref)}\"))
+         (yield (Static f\"Session: {(or (get_session_name self.run) \"N/A\")}\"))
+       (do
+         (yield (Static \"This will:\"))
+         (yield (Static f\"  - Kill the {self.multiplexer.name} session\"))))
+   "
+  (setv css-str f"
+    {class-name} {{
+        align: center middle;
+    }}
+    #{dialog-id}-dialog {{
+        width: 50;
+        height: auto;
+        padding: 1 2;
+        background: $surface;
+        border: thick ${color};
+    }}
+    #{dialog-id}-title {{
+        text-align: center;
+        width: 100%;
+        padding-bottom: 1;
+        color: ${color};
+    }}
+    #{dialog-id}-details {{
+        height: auto;
+        padding: 1;
+    }}
+    #{dialog-id}-info {{
+        height: auto;
+        padding: 1;
+        color: $text-muted;
+    }}
+    #{dialog-id}-buttons {{
+        height: 3;
+        align: center middle;
+        padding-top: 1;
+    }}
+    #{dialog-id}-buttons Button {{
+        margin: 0 1;
+    }}
+  ")
+  `(do
+     (import textual.screen [ModalScreen])
+     (import textual.binding [Binding])
+     (import textual.containers [Vertical Horizontal])
+     (import textual.widgets [Button Label Static])
+     (import textual [on])
+     
+     (defclass ~class-name [#^ bool ModalScreen]
+       (setv CSS ~css-str)
+       (setv BINDINGS [(Binding "y" "confirm" "Yes")
+                       (Binding "n" "cancel" "No")
+                       (Binding "escape" "cancel" "Cancel")])
+       
+       (defn __init__ [self #* ~init-params]
+         (.__init__ (super))
+         ~init-body)
+       
+       (defn compose [self]
+         (with [(Vertical :id f"{~dialog-id}-dialog")]
+           (yield (Label self._title :id f"{~dialog-id}-title"))
+           (with [(Vertical :id f"{~dialog-id}-details")]
+             ~details-body)
+           (with [(Vertical :id f"{~dialog-id}-info")]
+             ~info-body)
+           (with [(Horizontal :id f"{~dialog-id}-buttons")]
+             (yield (Button ~confirm-label :variant ~confirm-variant :id "confirm-btn"))
+             (yield (Button "No, cancel" :id "cancel-btn")))))
+       
+       (defn [(on Button.Pressed "#confirm-btn")] _on_confirm [self]
+         (.dismiss self True))
+       
+       (defn [(on Button.Pressed "#cancel-btn")] _on_cancel [self]
+         (.dismiss self False))
+       
+       (defn action_confirm [self]
+         (.dismiss self True))
+       
+       (defn action_cancel [self]
+         (.dismiss self False)))))
 
 ;; ============================================================================
 ;; Assignment Macros
