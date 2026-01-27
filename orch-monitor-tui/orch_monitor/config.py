@@ -2,6 +2,7 @@
 
 import os
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -12,8 +13,21 @@ from . import xdg
 
 # Monitor-specific files (stored in project's .orch/ directory)
 MONITOR_FILTERS_FILE = "monitor-filters.yaml"
-MONITOR_LOG_FILE = "monitor.log"
+MONITOR_LOG_FILE = "monitor-tui.log"
 ORCH_DIR = ".orch"
+
+
+def _log_config_error(operation: str, error: str, orch_dir: Optional[Path]) -> None:
+    if orch_dir is None:
+        return
+    log_path = orch_dir / MONITOR_LOG_FILE
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(log_path, "a") as f:
+            f.write(f"{timestamp} [config:{operation}] {error}\n")
+    except OSError:
+        pass
 
 
 DEFAULT_RUN_STATUSES = [
@@ -165,15 +179,15 @@ def detect_configuration_state() -> ConfigurationState:
     issues_path = Path(issues_path_str).expanduser() if issues_path_str else None
 
     # Also check config file for issues.path
-    if has_config_file and not issues_path:
+    if has_config_file and not issues_path and orch_dir_path:
         try:
             with open(orch_dir_path / "config.yaml") as f:
                 data = yaml.safe_load(f) or {}
             path_val = data.get("issues", {}).get("path") or data.get("vault")
             if path_val:
                 issues_path = Path(path_val).expanduser()
-        except Exception:
-            pass
+        except Exception as e:
+            _log_config_error("load_issues_path", str(e), orch_dir_path)
 
     return ConfigurationState(
         has_orch_dir=has_orch_dir,
@@ -256,7 +270,8 @@ class Config:
             with open(self.filters_path) as f:
                 data = yaml.safe_load(f) or {}
             return FilterState.from_dict(data)
-        except (yaml.YAMLError, OSError):
+        except (yaml.YAMLError, OSError) as e:
+            _log_config_error("load_filters", str(e), self.orch_dir)
             return FilterState(
                 run_filters=RunFilterState(
                     statuses=self.monitor.default_run_statuses.copy()
@@ -269,13 +284,12 @@ class Config:
             )
 
     def save_filters(self, filters: FilterState) -> None:
-        """Save filter state to file."""
         try:
             self.orch_dir.mkdir(parents=True, exist_ok=True)
             with open(self.filters_path, "w") as f:
                 yaml.safe_dump(filters.to_dict(), f, default_flow_style=False)
-        except OSError:
-            pass
+        except OSError as e:
+            _log_config_error("save_filters", str(e), self.orch_dir)
 
     @classmethod
     def _parse_issue_default_filter(cls, data: dict) -> IssueDefaultFilter:

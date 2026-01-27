@@ -10,6 +10,7 @@ dependencies = [
     "pyyaml>=6.0.1",
     "returns>=0.23.0",
     "protobuf>=5.27.0",
+    "hy>=1.0.0",
 ]
 
 [project.optional-dependencies]

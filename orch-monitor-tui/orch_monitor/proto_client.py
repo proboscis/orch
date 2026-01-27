@@ -1,4 +1,12 @@
-"""Protobuf-based daemon client for orch daemon communication."""
+"""Protobuf-based daemon client for orch daemon communication.
+
+DEPRECATED: The ProtoDaemonClient class in this module is deprecated.
+Use proto_client_hy.ProtoDaemonClient instead, which returns Result types.
+
+This module is kept for:
+- Exception classes (ProtoDaemonError, ProtoDaemonNotRunningError)
+- Dataclass definitions (RunFilters, IssueFilters, ListRunsResponse, etc.)
+"""
 
 import socket
 import struct
@@ -461,33 +469,28 @@ class ProtoDaemonClient:
         req.register_monitor.project = project
         req.register_monitor.session_name = tmux_session
 
-        try:
-            response = self._send_request(req)
-            if response.ok:
-                return response.register_monitor.monitor_id
-        except ProtoDaemonError:
-            pass
-        return None
+        response = self._send_request(req)
+        if response.ok:
+            return response.register_monitor.monitor_id
+        raise ProtoDaemonError(response.error or "Failed to register monitor")
 
     def unregister_monitor(self, monitor_id: str) -> bool:
         req = pb.Request()
         req.unregister_monitor.monitor_id = monitor_id
 
-        try:
-            response = self._send_request(req)
-            return response.ok
-        except ProtoDaemonError:
-            return False
+        response = self._send_request(req)
+        if not response.ok:
+            raise ProtoDaemonError(response.error or "Failed to unregister monitor")
+        return True
 
     def monitor_heartbeat(self, monitor_id: str) -> bool:
         req = pb.Request()
         req.heartbeat.monitor_id = monitor_id
 
-        try:
-            response = self._send_request(req)
-            return response.ok
-        except ProtoDaemonError:
-            return False
+        response = self._send_request(req)
+        if not response.ok:
+            raise ProtoDaemonError(response.error or "Heartbeat failed")
+        return True
 
     def close(self) -> None:
         pass
@@ -501,13 +504,12 @@ class ProtoDaemonClient:
         req.get_diff_stats.issue_id = issue_id
         req.get_diff_stats.run_id = run_id
 
-        try:
-            response = self._send_request(req)
-            if response.ok and response.HasField("get_diff_stats"):
-                ds = response.get_diff_stats.diff_stats
-                return (ds.additions, ds.deletions, ds.files_changed, list(ds.files))
-        except ProtoDaemonError:
-            pass
+        response = self._send_request(req)
+        if response.ok and response.HasField("get_diff_stats"):
+            ds = response.get_diff_stats.diff_stats
+            return (ds.additions, ds.deletions, ds.files_changed, list(ds.files))
+        if not response.ok:
+            raise ProtoDaemonError(response.error or "Failed to get diff stats")
         return None
 
     def get_branch_state(self, issue_id: str, run_id: str) -> str:
@@ -517,12 +519,11 @@ class ProtoDaemonClient:
         req.get_branch_state.issue_id = issue_id
         req.get_branch_state.run_id = run_id
 
-        try:
-            response = self._send_request(req)
-            if response.ok and response.HasField("get_branch_state"):
-                return _proto_branch_state_to_str(response.get_branch_state.state)
-        except ProtoDaemonError:
-            pass
+        response = self._send_request(req)
+        if response.ok and response.HasField("get_branch_state"):
+            return _proto_branch_state_to_str(response.get_branch_state.state)
+        if not response.ok:
+            raise ProtoDaemonError(response.error or "Failed to get branch state")
         return ""
 
     def get_diff(self, issue_id: str, run_id: str) -> Optional[str]:
@@ -532,12 +533,11 @@ class ProtoDaemonClient:
         req.get_diff.issue_id = issue_id
         req.get_diff.run_id = run_id
 
-        try:
-            response = self._send_request(req)
-            if response.ok and response.HasField("get_diff"):
-                return response.get_diff.diff
-        except ProtoDaemonError:
-            pass
+        response = self._send_request(req)
+        if response.ok and response.HasField("get_diff"):
+            return response.get_diff.diff
+        if not response.ok:
+            raise ProtoDaemonError(response.error or "Failed to get diff")
         return None
 
     def capture_session(
@@ -549,13 +549,12 @@ class ProtoDaemonClient:
         req.capture_session.issue_id = issue_id
         req.capture_session.run_id = run_id
 
-        try:
-            response = self._send_request(req)
-            if response.ok and response.HasField("capture_session"):
-                cs = response.capture_session
-                return (cs.content, cs.timestamp_unix, cs.source)
-        except ProtoDaemonError:
-            pass
+        response = self._send_request(req)
+        if response.ok and response.HasField("capture_session"):
+            cs = response.capture_session
+            return (cs.content, cs.timestamp_unix, cs.source)
+        if not response.ok:
+            raise ProtoDaemonError(response.error or "Failed to capture session")
         return None
 
     def create_issue(self, issue_id: str, title: str, body: str) -> Optional[str]:
@@ -581,8 +580,7 @@ class ProtoDaemonClient:
         req.resolve_issue.issue_id = issue_id
         req.resolve_issue.force = force
 
-        try:
-            response = self._send_request(req)
-            return response.ok
-        except ProtoDaemonError:
-            return False
+        response = self._send_request(req)
+        if not response.ok:
+            raise ProtoDaemonError(response.error or "Failed to resolve issue")
+        return True

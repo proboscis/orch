@@ -172,7 +172,17 @@ TIME_RANGES = [
 ]
 
 
-def _log_error(operation: str, error: str, project_root: Path) -> None:
+def _log_error(operation: str, error: str, project_root: Path) -> Path:
+    """Log error to file and return the log file path.
+
+    Args:
+        operation: Name of the operation that failed
+        error: Error message to log
+        project_root: Project root path
+
+    Returns:
+        Path to the log file (useful for including in user notifications)
+    """
     log_path = project_root / ".orch" / "monitor-tui.log"
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -181,6 +191,11 @@ def _log_error(operation: str, error: str, project_root: Path) -> None:
             f.write(f"{timestamp} [{operation}] {error}\n")
     except OSError:
         pass
+    return log_path
+
+
+def _get_log_path(project_root: Path) -> Path:
+    return project_root / ".orch" / "monitor-tui.log"
 
 
 def _format_changed_files_lines(
@@ -1549,8 +1564,12 @@ class RunsDashboard(App):
         if error:
             self._daemon_error = error
             self.title = f"{self._base_title} | ERROR: {error}"
-            self.notify(f"Refresh failed: {error}", severity="error", timeout=5)
-            _log_error("list_runs", error, self.config.project_root)
+            log_path = _log_error("list_runs", error, self.config.project_root)
+            self.notify(
+                f"Refresh failed: {error}\nSee {log_path}",
+                severity="error",
+                timeout=8,
+            )
             return
 
         self._daemon_error = None
@@ -2076,8 +2095,12 @@ class IssuesDashboard(App):
         if error:
             self._daemon_error = error
             self.title = f"{self._base_title} | ERROR: {error}"
-            self.notify(f"Refresh failed: {error}", severity="error", timeout=5)
-            _log_error("list_issues", error, self.config.project_root)
+            log_path = _log_error("list_issues", error, self.config.project_root)
+            self.notify(
+                f"Refresh failed: {error}\nSee {log_path}",
+                severity="error",
+                timeout=8,
+            )
             return
 
         self._daemon_error = None
@@ -2530,8 +2553,12 @@ class OrchMonitorApp(App):
         if error:
             self._daemon_error = error
             self.title = f"{self._base_title} | ERROR: {error}"
-            self.notify(f"Refresh failed: {error}", severity="error", timeout=5)
-            _log_error("fetch_all", error, self.config.project_root)
+            log_path = _log_error("fetch_all", error, self.config.project_root)
+            self.notify(
+                f"Refresh failed: {error}\nSee {log_path}",
+                severity="error",
+                timeout=8,
+            )
             return
 
         self._daemon_error = None
