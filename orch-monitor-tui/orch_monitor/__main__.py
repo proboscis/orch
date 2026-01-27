@@ -9,6 +9,8 @@ import time
 from pathlib import Path
 from typing import Protocol
 
+import hy  # noqa: F401 - Enable Hy imports
+
 from .app import IssuesDashboard, OrchMonitorApp, RunsDashboard, setup_logging
 from .config import Config
 from .proto_client import ProtoDaemonClient

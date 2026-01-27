@@ -16,10 +16,10 @@ import hy  # noqa: F401 - Enable Hy imports
 from returns.result import Failure, Result, Success
 
 # Import client from Hy module (returns Result types)
-from .proto_client_hy import ProtoDaemonClient
+from .proto_client import ProtoDaemonClient
 
-# Import types/exceptions from Python module (kept for dataclasses)
-from .proto_client import (
+# Import types/exceptions from types module
+from .types import (
     IssueFilters as ProtoIssueFilters,
     ListIssuesResponse as ProtoListIssuesResponse,
     ListRunsResponse as ProtoListRunsResponse,
@@ -54,8 +54,22 @@ from .orch_api import DaemonNotRunningError as ApiDaemonNotRunningError
 _logger = logging.getLogger("orch_monitor.daemon_api")
 
 
+def _log_and_map_error(operation: str, err: Exception) -> Failure:
+    """Log error with full context and map to appropriate API error type."""
+    import traceback
+
+    err_type = type(err).__name__
+    _logger.error(f"{operation}: {err_type}: {err}\n{traceback.format_exc()}")
+
+    if isinstance(err, ProtoDaemonNotRunningError):
+        return Failure(ApiDaemonNotRunningError("Daemon not running"))
+    if isinstance(err, ProtoDaemonError):
+        return Failure(OrchError(str(err)))
+    return Failure(OrchError(f"{err_type}: {err}"))
+
+
 def _map_daemon_error(err: ProtoDaemonError) -> Failure:
-    """Map ProtoDaemonError to appropriate API error type."""
+    """Map ProtoDaemonError to appropriate API error type (legacy, use _log_and_map_error)."""
     if isinstance(err, ProtoDaemonNotRunningError):
         return Failure(ApiDaemonNotRunningError("Daemon not running"))
     return Failure(OrchError(str(err)))
@@ -310,22 +324,25 @@ class DaemonOrchAPI:
     def list_runs(
         self, filters: Optional[RunFilters] = None
     ) -> Result[ListRunsResponse, OrchError]:
-        daemon_filters = None
-        if filters:
-            status_list = [_api_run_status_to_model(s) for s in filters.status]
-            daemon_filters = ProtoRunFilters(
-                issue_id=filters.issue_id,
-                status=status_list,
-                agent=filters.agent,
-                text_search=filters.text_search,
-                time_range=filters.time_range,
-            )
-        result = self._daemon.list_runs(daemon_filters)
-        if isinstance(result, Failure):
-            return _map_daemon_error(result.failure())
-        response: ProtoListRunsResponse = result.unwrap()
-        runs = [_model_run_to_api(r) for r in response.runs]
-        return Success(ListRunsResponse(runs=runs, total=response.total))
+        try:
+            daemon_filters = None
+            if filters:
+                status_list = [_api_run_status_to_model(s) for s in filters.status]
+                daemon_filters = ProtoRunFilters(
+                    issue_id=filters.issue_id,
+                    status=status_list,
+                    agent=filters.agent,
+                    text_search=filters.text_search,
+                    time_range=filters.time_range,
+                )
+            result = self._daemon.list_runs(daemon_filters)
+            if isinstance(result, Failure):
+                return _log_and_map_error("list_runs", result.failure())
+            response: ProtoListRunsResponse = result.unwrap()
+            runs = [_model_run_to_api(r) for r in response.runs]
+            return Success(ListRunsResponse(runs=runs, total=response.total))
+        except Exception as e:
+            return _log_and_map_error("list_runs", e)
 
     def get_run(self, issue_id: str, run_id: str) -> Result[Run, OrchError]:
         result = self._daemon.get_run(issue_id, run_id)
@@ -374,21 +391,24 @@ class DaemonOrchAPI:
     def list_issues(
         self, filters: Optional[IssueFilters] = None
     ) -> Result[ListIssuesResponse, OrchError]:
-        daemon_filters = None
-        if filters:
-            status_list = [_api_issue_status_to_model(s) for s in filters.status]
-            daemon_filters = ProtoIssueFilters(
-                status=status_list,
-                tags=filters.tags,
-                tags_mode=filters.tags_mode,
-                text_search=filters.text_search,
-            )
-        result = self._daemon.list_issues(daemon_filters)
-        if isinstance(result, Failure):
-            return _map_daemon_error(result.failure())
-        response: ProtoListIssuesResponse = result.unwrap()
-        issues = [_model_issue_to_api(i) for i in response.issues]
-        return Success(ListIssuesResponse(issues=issues, total=response.total))
+        try:
+            daemon_filters = None
+            if filters:
+                status_list = [_api_issue_status_to_model(s) for s in filters.status]
+                daemon_filters = ProtoIssueFilters(
+                    status=status_list,
+                    tags=filters.tags,
+                    tags_mode=filters.tags_mode,
+                    text_search=filters.text_search,
+                )
+            result = self._daemon.list_issues(daemon_filters)
+            if isinstance(result, Failure):
+                return _log_and_map_error("list_issues", result.failure())
+            response: ProtoListIssuesResponse = result.unwrap()
+            issues = [_model_issue_to_api(i) for i in response.issues]
+            return Success(ListIssuesResponse(issues=issues, total=response.total))
+        except Exception as e:
+            return _log_and_map_error("list_issues", e)
 
     def get_issue(self, issue_id: str) -> Result[Issue, OrchError]:
         result = self._daemon.get_issue(issue_id)

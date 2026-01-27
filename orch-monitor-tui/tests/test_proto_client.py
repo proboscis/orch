@@ -2,12 +2,14 @@
 
 import pytest
 
+import hy  # noqa: F401 - Enable Hy imports
+
 from orch_monitor.api import orch_pb2 as pb
 from orch_monitor.proto_client import (
-    _proto_branch_state_to_str,
-    _proto_multiplexer_to_str,
-    _proto_run_to_model,
-    _proto_status_to_model,
+    proto_branch_state_to_str as _proto_branch_state_to_str,
+    proto_multiplexer_to_str as _proto_multiplexer_to_str,
+    proto_run_to_model as _proto_run_to_model,
+    proto_status_to_model as _proto_status_to_model,
 )
 from orch_monitor.models import Status
 

@@ -17,24 +17,17 @@
 ;; Exceptions - Import from Python module for consistency
 ;; ============================================================================
 
-(import orch_monitor.proto_client [ProtoDaemonError ProtoDaemonNotRunningError])
+(import orch_monitor.types [ProtoDaemonError ProtoDaemonNotRunningError])
 
 
 ;; ============================================================================
-;; Constants
+;; Types and Constants - Import from types module
 ;; ============================================================================
 
-(setv MAX_PAGE_SIZE 200)
-(setv MAX_PAGES 100)
-
-
-;; ============================================================================
-;; Data Classes - Import from Python module to avoid Hy annotation issues
-;; ============================================================================
-
-;; Reuse existing dataclasses from Python proto_client
-(import orch_monitor.proto_client [RunFilters IssueFilters 
-                                   ListRunsResponse ListIssuesResponse])
+;; Reuse existing dataclasses from types module
+(import orch_monitor.types [RunFilters IssueFilters 
+                            ListRunsResponse ListIssuesResponse
+                            MAX_PAGE_SIZE MAX_PAGES])
 
 
 ;; ============================================================================
@@ -90,6 +83,17 @@
                  pb.BRANCH_STATE_CONFLICT "conflict"})
   (.get mapping s ""))
 
+;; Go's time.Time{} zero value serializes to this Unix timestamp (year 0001 AD)
+(setv GO_ZERO_TIME -62135596800)
+
+(defn _safe-timestamp [unix-ts]
+  "Convert unix timestamp to datetime. Returns None for Go zero time or invalid values."
+  (when (and unix-ts (!= unix-ts 0) (!= unix-ts GO_ZERO_TIME))
+    (try
+      (datetime.fromtimestamp unix-ts)
+      (except [e Exception]
+        None))))
+
 (defn proto-run->model [r]
   (setv additions 0)
   (setv deletions 0)
@@ -115,10 +119,8 @@
        :server_port r.server_port
        :opencode_session_id r.opencode_session_id
        :continued_from r.continued_from
-       :started_at (when r.started_at_unix 
-                     (datetime.fromtimestamp r.started_at_unix))
-       :updated_at (when r.updated_at_unix
-                     (datetime.fromtimestamp r.updated_at_unix))
+       :started_at (_safe-timestamp r.started_at_unix)
+       :updated_at (_safe-timestamp r.updated_at_unix)
        :elapsed_seconds r.elapsed_seconds
        :elapsed_display r.elapsed_display
        :additions additions
@@ -135,14 +137,11 @@
          :tags (list i.tags)
          :body i.body
          :path (if i.path (Path i.path) (Path))
-         :modified_at (when i.modified_at_unix
-                        (datetime.fromtimestamp i.modified_at_unix))))
+         :modified_at (_safe-timestamp i.modified_at_unix)))
 
 (defn proto-event->model [e]
   (setv event-type (try-or EventType.NOTE (EventType e.type)))
-  (Event :timestamp (if e.timestamp_unix
-                        (datetime.fromtimestamp e.timestamp_unix)
-                        (datetime.now))
+  (Event :timestamp (or (_safe-timestamp e.timestamp_unix) (datetime.now))
          :type event-type
          :name e.name
          :attrs (dict e.attrs)))
@@ -168,8 +167,12 @@
       (setv mode (. (.stat self.socket-path) st_mode))
       (stat.S_ISSOCK mode)))
   
-  ;; Low-level send - raises exceptions (not Result)
-  (defn _send_request [self request]
+  ;; =========================================================================
+  ;; Low-level helpers
+  ;; =========================================================================
+  
+  (defn _send [self request]
+    "Send request, return response. Raises on socket/connection errors."
     (when (not (.is-available self))
       (raise (ProtoDaemonNotRunningError 
                f"Daemon socket not found at {self.socket-path}")))
@@ -219,6 +222,16 @@
       (except [e Exception]
         (raise (ProtoDaemonError f"Socket error: {e}")))))
   
+  (defn _check [self response [error-msg "Unknown error"]]
+    "Check response.ok, raise ProtoDaemonError if not. Returns response."
+    (when (not response.ok)
+      (raise (ProtoDaemonError (or response.error error-msg))))
+    response)
+  
+  (defn _send-ok [self request [error-msg "Unknown error"]]
+    "Send request and check response.ok. Returns response."
+    (._check self (._send self request) error-msg))
+  
   ;; =========================================================================
   ;; Result-returning methods (high-level API)
   ;; =========================================================================
@@ -228,125 +241,98 @@
     (setv filters (or filters (RunFilters)))
     (daemon-result "list_runs"
       (setv req (pb.Request))
-      (setv req.list_runs.issues_root (._issues-root-str self))
-      (setv req.list_runs.issue_id (or filters.issue_id ""))
+      (set-> req.list_runs.issues_root (._issues-root-str self)
+             req.list_runs.issue_id (or filters.issue_id "")
+             req.list_runs.agent (or filters.agent "")
+             req.list_runs.text_search (or filters.text_search "")
+             req.list_runs.time_range (or filters.time_range "")
+             req.list_runs.limit MAX_PAGE_SIZE)
       (for [s filters.status]
         (.append req.list_runs.status (model-status->proto s)))
-      (setv req.list_runs.agent (or filters.agent ""))
-      (setv req.list_runs.text_search (or filters.text_search ""))
-      (setv req.list_runs.time_range (or filters.time_range ""))
-      (setv req.list_runs.limit MAX_PAGE_SIZE)
-      
-      (setv response (._send_request self req))
-      (when (not response.ok)
-        (raise (ProtoDaemonError (or response.error "Unknown error"))))
-      
-      (setv runs (lfor r response.list_runs.runs (proto-run->model r)))
-      (ListRunsResponse :runs runs 
-                        :next_cursor None 
-                        :total response.list_runs.total)))
+      (setv resp (._send-ok self req))
+      (ListRunsResponse 
+        :runs (lfor r resp.list_runs.runs (proto-run->model r))
+        :next_cursor None 
+        :total resp.list_runs.total)))
   
   (defn list-issues [self [filters None]]
     "List issues. Returns Result[ListIssuesResponse, ProtoDaemonError]."
     (setv filters (or filters (IssueFilters)))
     (daemon-result "list_issues"
       (setv req (pb.Request))
-      (setv req.list_issues.issues_root (._issues-root-str self))
+      (set-> req.list_issues.issues_root (._issues-root-str self)
+             req.list_issues.tags_mode (or filters.tags_mode "")
+             req.list_issues.text_search (or filters.text_search "")
+             req.list_issues.limit MAX_PAGE_SIZE)
       (for [s filters.status]
         (.append req.list_issues.status (model-issue-status->proto s)))
       (for [tag filters.tags]
         (.append req.list_issues.tags tag))
-      (setv req.list_issues.tags_mode (or filters.tags_mode ""))
-      (setv req.list_issues.text_search (or filters.text_search ""))
-      (setv req.list_issues.limit MAX_PAGE_SIZE)
-      
-      (setv response (._send_request self req))
-      (when (not response.ok)
-        (raise (ProtoDaemonError (or response.error "Unknown error"))))
-      
-      (setv issues (lfor i response.list_issues.issues (proto-issue->model i)))
-      (ListIssuesResponse :issues issues
-                          :next_cursor None
-                          :total response.list_issues.total)))
+      (setv resp (._send-ok self req))
+      (ListIssuesResponse 
+        :issues (lfor i resp.list_issues.issues (proto-issue->model i))
+        :next_cursor None
+        :total resp.list_issues.total)))
   
   (defn get-run [self issue-id run-id]
     "Get a run. Returns Result[Run | None, ProtoDaemonError]."
     (daemon-result "get_run"
       (setv req (pb.Request))
-      (setv req.get_run.issues_root (._issues-root-str self))
-      (setv req.get_run.issue_id issue-id)
-      (setv req.get_run.run_id run-id)
-      
-      (setv response (._send_request self req))
-      (when (not response.ok)
-        (if (= response.error "not_found")
-            (return None)
-            (raise (ProtoDaemonError (or response.error "Unknown error")))))
-      
-      (setv run (proto-run->model response.get_run.run))
-      (setv run.events (lfor e response.get_run.events (proto-event->model e)))
-      run))
+      (set-> req.get_run.issues_root (._issues-root-str self)
+             req.get_run.issue_id issue-id
+             req.get_run.run_id run-id)
+      (setv resp (._send self req))
+      (cond
+        (and (not resp.ok) (= resp.error "not_found")) None
+        (not resp.ok) (raise (ProtoDaemonError (or resp.error "Unknown error")))
+        True (do
+          (setv run (proto-run->model resp.get_run.run))
+          (setv run.events (lfor e resp.get_run.events (proto-event->model e)))
+          run))))
   
   (defn get-issue [self issue-id]
     "Get an issue. Returns Result[Issue | None, ProtoDaemonError]."
     (daemon-result "get_issue"
       (setv req (pb.Request))
-      (setv req.get_issue.issues_root (._issues-root-str self))
-      (setv req.get_issue.issue_id issue-id)
-      
-      (setv response (._send_request self req))
-      (when (not response.ok)
-        (if (= response.error "not_found")
-            (return None)
-            (raise (ProtoDaemonError (or response.error "Unknown error")))))
-      
-      (proto-issue->model response.get_issue.issue)))
+      (set-> req.get_issue.issues_root (._issues-root-str self)
+             req.get_issue.issue_id issue-id)
+      (setv resp (._send self req))
+      (cond
+        (and (not resp.ok) (= resp.error "not_found")) None
+        (not resp.ok) (raise (ProtoDaemonError (or resp.error "Unknown error")))
+        True (proto-issue->model resp.get_issue.issue))))
   
   (defn start-run [self issue-id [agent ""] [model ""]]
     "Start a run. Returns Result[dict, ProtoDaemonError]."
     (daemon-result "start_run"
       (setv req (pb.Request))
-      (setv req.start_run.issues_root (._issues-root-str self))
-      (setv req.start_run.issue_id issue-id)
-      (setv req.start_run.agent agent)
-      (setv req.start_run.model model)
-      
-      (setv response (._send_request self req))
-      (when (not response.ok)
-        (raise (ProtoDaemonError (or response.error "Unknown error"))))
-      
-      (setv sr response.start_run)
-      {"run_id" sr.run_id
-       "branch" sr.branch
-       "worktree" sr.worktree_path
-       "tmux_session" sr.tmux_session}))
+      (set-> req.start_run.issues_root (._issues-root-str self)
+             req.start_run.issue_id issue-id
+             req.start_run.agent agent
+             req.start_run.model model)
+      (setv sr (. (._send-ok self req) start_run))
+      {"run_id" sr.run_id "branch" sr.branch 
+       "worktree" sr.worktree_path "tmux_session" sr.tmux_session}))
   
   (defn stop-run [self issue-id [run-id ""]]
     "Stop a run. Returns Result[dict, ProtoDaemonError]."
     (daemon-result "stop_run"
       (setv req (pb.Request))
-      (setv req.stop_run.issues_root (._issues-root-str self))
-      (setv req.stop_run.issue_id issue-id)
-      (setv req.stop_run.run_id run-id)
-      
-      (setv response (._send_request self req))
-      (when (not response.ok)
-        (raise (ProtoDaemonError (or response.error "Unknown error"))))
-      
+      (set-> req.stop_run.issues_root (._issues-root-str self)
+             req.stop_run.issue_id issue-id
+             req.stop_run.run_id run-id)
+      (._send-ok self req)
       {"stopped" True}))
   
   (defn send-message [self issue-id run-id message]
     "Send message to run. Returns Result[None, ProtoDaemonError]."
     (daemon-result "send_message"
       (setv req (pb.Request))
-      (setv req.send_message.issues_root (._issues-root-str self))
-      (setv req.send_message.issue_id issue-id)
-      (setv req.send_message.run_id run-id)
-      (setv req.send_message.message message)
-      
-      (setv response (._send_request self req))
-      (when (not response.ok)
-        (raise (ProtoDaemonError (or response.error "Unknown error"))))
+      (set-> req.send_message.issues_root (._issues-root-str self)
+             req.send_message.issue_id issue-id
+             req.send_message.run_id run-id
+             req.send_message.message message)
+      (._send-ok self req)
       None))
   
   (defn ping [self]
@@ -354,149 +340,127 @@
     (daemon-result "ping"
       (setv req (pb.Request))
       (.CopyFrom req.ping (pb.PingRequest))
-      (setv response (._send_request self req))
-      (and response.ok response.ping.ok)))
+      (setv resp (._send self req))
+      (and resp.ok resp.ping.ok)))
   
   (defn get-diff-stats [self issue-id run-id]
     "Get diff stats. Returns Result[tuple | None, ProtoDaemonError]."
     (daemon-result "get_diff_stats"
       (setv req (pb.Request))
-      (setv req.get_diff_stats.issues_root (._issues-root-str self))
-      (setv req.get_diff_stats.issue_id issue-id)
-      (setv req.get_diff_stats.run_id run-id)
-      
-      (setv response (._send_request self req))
-      (when (and response.ok (.HasField response "get_diff_stats"))
-        (setv ds response.get_diff_stats.diff_stats)
-        (return #(ds.additions ds.deletions ds.files_changed (list ds.files))))
-      (when (not response.ok)
-        (raise (ProtoDaemonError (or response.error "Failed to get diff stats"))))
-      None))
+      (set-> req.get_diff_stats.issues_root (._issues-root-str self)
+             req.get_diff_stats.issue_id issue-id
+             req.get_diff_stats.run_id run-id)
+      (setv resp (._send self req))
+      (cond
+        (and resp.ok (.HasField resp "get_diff_stats"))
+        (do (setv ds resp.get_diff_stats.diff_stats)
+            #(ds.additions ds.deletions ds.files_changed (list ds.files)))
+        (not resp.ok) (raise (ProtoDaemonError (or resp.error "Failed to get diff stats")))
+        True None)))
   
   (defn get-branch-state [self issue-id run-id]
     "Get branch state. Returns Result[str, ProtoDaemonError]."
     (daemon-result "get_branch_state"
       (setv req (pb.Request))
-      (setv req.get_branch_state.issues_root (._issues-root-str self))
-      (setv req.get_branch_state.issue_id issue-id)
-      (setv req.get_branch_state.run_id run-id)
-      
-      (setv response (._send_request self req))
-      (when (and response.ok (.HasField response "get_branch_state"))
-        (return (proto-branch-state->str response.get_branch_state.state)))
-      (when (not response.ok)
-        (raise (ProtoDaemonError (or response.error "Failed to get branch state"))))
-      ""))
+      (set-> req.get_branch_state.issues_root (._issues-root-str self)
+             req.get_branch_state.issue_id issue-id
+             req.get_branch_state.run_id run-id)
+      (setv resp (._send self req))
+      (cond
+        (and resp.ok (.HasField resp "get_branch_state"))
+        (proto-branch-state->str resp.get_branch_state.state)
+        (not resp.ok) (raise (ProtoDaemonError (or resp.error "Failed to get branch state")))
+        True "")))
   
   (defn get-diff [self issue-id run-id]
     "Get diff. Returns Result[str | None, ProtoDaemonError]."
     (daemon-result "get_diff"
       (setv req (pb.Request))
-      (setv req.get_diff.issues_root (._issues-root-str self))
-      (setv req.get_diff.issue_id issue-id)
-      (setv req.get_diff.run_id run-id)
-      
-      (setv response (._send_request self req))
-      (when (and response.ok (.HasField response "get_diff"))
-        (return response.get_diff.diff))
-      (when (not response.ok)
-        (raise (ProtoDaemonError (or response.error "Failed to get diff"))))
-      None))
+      (set-> req.get_diff.issues_root (._issues-root-str self)
+             req.get_diff.issue_id issue-id
+             req.get_diff.run_id run-id)
+      (setv resp (._send self req))
+      (cond
+        (and resp.ok (.HasField resp "get_diff")) resp.get_diff.diff
+        (not resp.ok) (raise (ProtoDaemonError (or resp.error "Failed to get diff")))
+        True None)))
   
   (defn capture-session [self issue-id run-id]
     "Capture session. Returns Result[tuple | None, ProtoDaemonError]."
     (daemon-result "capture_session"
       (setv req (pb.Request))
-      (setv req.capture_session.issues_root (._issues-root-str self))
-      (setv req.capture_session.issue_id issue-id)
-      (setv req.capture_session.run_id run-id)
-      
-      (setv response (._send_request self req))
-      (when (and response.ok (.HasField response "capture_session"))
-        (setv cs response.capture_session)
-        (return #(cs.content cs.timestamp_unix cs.source)))
-      (when (not response.ok)
-        (raise (ProtoDaemonError (or response.error "Failed to capture session"))))
-      None))
+      (set-> req.capture_session.issues_root (._issues-root-str self)
+             req.capture_session.issue_id issue-id
+             req.capture_session.run_id run-id)
+      (setv resp (._send self req))
+      (cond
+        (and resp.ok (.HasField resp "capture_session"))
+        (do (setv cs resp.capture_session) #(cs.content cs.timestamp_unix cs.source))
+        (not resp.ok) (raise (ProtoDaemonError (or resp.error "Failed to capture session")))
+        True None)))
   
   (defn create-issue [self issue-id title body]
     "Create issue. Returns Result[str | None, ProtoDaemonError]."
     (daemon-result "create_issue"
       (setv req (pb.Request))
-      (setv req.create_issue.issues_root (._issues-root-str self))
-      (setv req.create_issue.issue_id issue-id)
-      (setv req.create_issue.title title)
-      (setv req.create_issue.body body)
-      
-      (setv response (._send_request self req))
-      (when (and response.ok (.HasField response "create_issue"))
-        (return response.create_issue.path))
-      (raise (ProtoDaemonError (or response.error "Failed to create issue")))))
+      (set-> req.create_issue.issues_root (._issues-root-str self)
+             req.create_issue.issue_id issue-id
+             req.create_issue.title title
+             req.create_issue.body body)
+      (setv resp (._send self req))
+      (if (and resp.ok (.HasField resp "create_issue"))
+          resp.create_issue.path
+          (raise (ProtoDaemonError (or resp.error "Failed to create issue"))))))
   
   (defn close-issue [self issue-id]
     "Close issue. Returns Result[None, ProtoDaemonError]."
     (daemon-result "close_issue"
       (setv req (pb.Request))
-      (setv req.close_issue.issues_root (._issues-root-str self))
-      (setv req.close_issue.issue_id issue-id)
-      
-      (setv response (._send_request self req))
-      (when (not response.ok)
-        (raise (ProtoDaemonError (or response.error "Failed to close issue"))))
+      (set-> req.close_issue.issues_root (._issues-root-str self)
+             req.close_issue.issue_id issue-id)
+      (._send-ok self req "Failed to close issue")
       None))
   
   (defn resolve-issue [self issue-id [force False]]
     "Resolve an issue. Returns Result[bool, ProtoDaemonError]."
     (daemon-result "resolve_issue"
       (setv req (pb.Request))
-      (setv req.resolve_issue.issues_root (._issues-root-str self))
-      (setv req.resolve_issue.issue_id issue-id)
-      (setv req.resolve_issue.force force)
-      
-      (setv response (._send_request self req))
-      (when (not response.ok)
-        (raise (ProtoDaemonError (or response.error "Failed to resolve issue"))))
+      (set-> req.resolve_issue.issues_root (._issues-root-str self)
+             req.resolve_issue.issue_id issue-id
+             req.resolve_issue.force force)
+      (._send-ok self req "Failed to resolve issue")
       True))
   
   (defn get-control-agent-launch [self project-root [agent-type ""] [new-session False]]
     "Get control agent launch info. Returns Result[tuple, ProtoDaemonError]."
     (daemon-result "get_control_agent_launch"
       (setv req (pb.Request))
-      (setv req.get_control_agent_launch.project_root project-root)
-      (setv req.get_control_agent_launch.agent agent-type)
-      (setv req.get_control_agent_launch.new_session new-session)
-      
-      (setv response (._send_request self req))
-      (if response.ok
-          (do
-            (setv r response.get_control_agent_launch)
-            #(True r.command r.prompt_file r.port r.session_id agent-type None))
-          #(False None None 0 None None response.error))))
+      (set-> req.get_control_agent_launch.project_root project-root
+             req.get_control_agent_launch.agent agent-type
+             req.get_control_agent_launch.new_session new-session)
+      (setv resp (._send self req))
+      (if resp.ok
+          (do (setv r resp.get_control_agent_launch)
+              #(True r.command r.prompt_file r.port r.session_id agent-type None))
+          #(False None None 0 None None resp.error))))
   
   (defn register-monitor [self pid monitor-type view project [tmux-session ""]]
     "Register monitor. Returns Result[str | None, ProtoDaemonError]."
     (daemon-result "register_monitor"
       (setv req (pb.Request))
-      (setv req.register_monitor.pid pid)
-      (setv req.register_monitor.monitor_type monitor-type)
-      (setv req.register_monitor.view view)
-      (setv req.register_monitor.project project)
-      (setv req.register_monitor.session_name tmux-session)
-      
-      (setv response (._send_request self req))
-      (when response.ok
-        (return response.register_monitor.monitor_id))
-      (raise (ProtoDaemonError (or response.error "Failed to register monitor")))))
+      (set-> req.register_monitor.pid pid
+             req.register_monitor.monitor_type monitor-type
+             req.register_monitor.view view
+             req.register_monitor.project project
+             req.register_monitor.session_name tmux-session)
+      (. (._send-ok self req "Failed to register monitor") register_monitor monitor_id)))
   
   (defn unregister-monitor [self monitor-id]
     "Unregister monitor. Returns Result[bool, ProtoDaemonError]."
     (daemon-result "unregister_monitor"
       (setv req (pb.Request))
       (setv req.unregister_monitor.monitor_id monitor-id)
-      
-      (setv response (._send_request self req))
-      (when (not response.ok)
-        (raise (ProtoDaemonError (or response.error "Failed to unregister monitor"))))
+      (._send-ok self req "Failed to unregister monitor")
       True))
   
   (defn monitor-heartbeat [self monitor-id]
@@ -504,10 +468,7 @@
     (daemon-result "monitor_heartbeat"
       (setv req (pb.Request))
       (setv req.heartbeat.monitor_id monitor-id)
-      
-      (setv response (._send_request self req))
-      (when (not response.ok)
-        (raise (ProtoDaemonError (or response.error "Heartbeat failed"))))
+      (._send-ok self req "Heartbeat failed")
       True))
   
   (defn close [self]
@@ -521,3 +482,19 @@
 (defn create-client [socket-path [issues-root None] [timeout 30.0]]
   "Create a ProtoDaemonClient instance."
   (ProtoDaemonClient socket-path issues-root timeout))
+
+
+;; ============================================================================
+;; Python-friendly aliases for converter functions
+;; ============================================================================
+
+(setv proto_status_to_model proto-status->model)
+(setv proto_issue_status_to_model proto-issue-status->model)
+(setv proto_multiplexer_to_str proto-multiplexer->str)
+(setv proto_branch_state_to_str proto-branch-state->str)
+(setv proto_run_to_model proto-run->model)
+(setv proto_issue_to_model proto-issue->model)
+(setv proto_event_to_model proto-event->model)
+(setv model_status_to_proto model-status->proto)
+(setv model_issue_status_to_proto model-issue-status->proto)
+(setv safe_timestamp _safe-timestamp)

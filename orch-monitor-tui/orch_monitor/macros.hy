@@ -36,7 +36,7 @@
   - Always re-raises (no silent failures)
   "
   `(do
-     (import orch_monitor.proto_client [ProtoDaemonError ProtoDaemonNotRunningError])
+     (import orch_monitor.types [ProtoDaemonError ProtoDaemonNotRunningError])
      (import orch_monitor.config [_log_config_error])
      (try
        ~@body
@@ -375,28 +375,49 @@
 ;; Proto Client Specific Macros
 ;; ============================================================================
 
+(defn _contains-return? [form]
+  "Check if form contains a (return ...) statement."
+  (cond
+    (not (_is-collection? form)) False
+    (and (>= (len form) 1) (= (str (get form 0)) "return")) True
+    True (any (map _contains-return? form))))
+
 (defmacro daemon-result [operation #* body]
   "Execute daemon operation, return Result[T, DaemonError].
-  
-  Usage:
-    (daemon-result \"list_runs\"
-      (setv response (self._send_request req))
-      (when (not response.ok)
-        (raise (ProtoDaemonError response.error)))
-      (parse-runs response))
-  
-  Catches ProtoDaemonError/ProtoDaemonNotRunningError -> Failure
-  Success path -> Success(last-expr)
-  "
+   
+   Usage:
+     (daemon-result \"list_runs\"
+       (setv response (self._send_request req))
+       (when (not response.ok)
+         (raise (ProtoDaemonError response.error)))
+       (parse-runs response))
+   
+   Catches ALL exceptions -> Failure (preserves exception type in message)
+   Success path -> Success(last-expr)
+   
+   WARNING: Do NOT use (return ...) inside body - it bypasses Success wrapper.
+   Use cond/if to select return value, or raise exceptions for errors.
+   "
+  (for [form body]
+    (when (_contains-return? form)
+      (raise (SyntaxError f"daemon-result: (return) forbidden - bypasses Success wrapper. Use cond/raise instead. Found in: {form}"))))
   `(do
      (import returns.result [Success Failure])
-     (import orch_monitor.proto_client [ProtoDaemonError ProtoDaemonNotRunningError])
+     (import orch_monitor.types [ProtoDaemonError ProtoDaemonNotRunningError])
+     (import traceback)
+     (import logging)
      (try
        (Success (do ~@body))
        (except [e ProtoDaemonNotRunningError]
          (Failure e))
        (except [e ProtoDaemonError]
-         (Failure e)))))
+         (Failure e))
+       (except [e Exception]
+         (setv err-type (. (type e) __name__))
+         (setv tb (traceback.format_exc))
+         (setv logger (logging.getLogger "orch_monitor.proto_client"))
+         (.error logger (+ "Unexpected error in " ~operation ": " err-type ": " (str e) "\n" tb))
+         (Failure (ProtoDaemonError (+ err-type ": " (str e))))))))
 
 (defmacro send-daemon-request [client req operation parse-fn]
   "Standard pattern for sending daemon request and parsing response.
@@ -410,7 +431,7 @@
   `(daemon-result ~operation
      (setv response (._send_request ~client ~req))
      (when (not response.ok)
-       (import orch_monitor.proto_client [ProtoDaemonError])
+       (import orch_monitor.types [ProtoDaemonError])
        (raise (ProtoDaemonError (or response.error "Unknown error"))))
      (~parse-fn response)))
 
