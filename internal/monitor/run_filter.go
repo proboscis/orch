@@ -107,7 +107,7 @@ func newRunFilter(opts Options) RunFilter {
 }
 
 func normalizeRunFilter(filter RunFilter) RunFilter {
-	if filter.Statuses == nil {
+	if filter.Statuses == nil || len(filter.Statuses) == 0 {
 		filter.Statuses = defaultStatusSet()
 	}
 	filter.Agent = strings.ToLower(strings.TrimSpace(filter.Agent))

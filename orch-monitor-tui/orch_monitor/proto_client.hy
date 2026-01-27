@@ -27,6 +27,7 @@
 ;; Reuse existing dataclasses from types module
 (import orch_monitor.types [RunFilters IssueFilters 
                             ListRunsResponse ListIssuesResponse
+                            ControlAgentLaunch
                             MAX_PAGE_SIZE MAX_PAGES])
 
 
@@ -89,10 +90,8 @@
 (defn _safe-timestamp [unix-ts]
   "Convert unix timestamp to datetime. Returns None for Go zero time or invalid values."
   (when (and unix-ts (!= unix-ts 0) (!= unix-ts GO_ZERO_TIME))
-    (try
-      (datetime.fromtimestamp unix-ts)
-      (except [e Exception]
-        None))))
+    (with-fallback-silent "safe_timestamp" None
+      (datetime.fromtimestamp unix-ts))))
 
 (defn proto-run->model [r]
   (setv additions 0)
@@ -172,12 +171,12 @@
   ;; =========================================================================
   
   (defn _send [self request]
-    "Send request, return response. Raises on socket/connection errors."
+    "Send request, return response. Raises typed ProtoDaemonError on failure."
     (when (not (.is-available self))
       (raise (ProtoDaemonNotRunningError 
                f"Daemon socket not found at {self.socket-path}")))
     
-    (try
+    (socket-send self.socket-path
       (setv sock (socket.socket socket.AF_UNIX socket.SOCK_STREAM))
       (.settimeout sock self._timeout)
       (.connect sock (str self.socket-path))
@@ -210,17 +209,7 @@
         (.ParseFromString response resp-data)
         response
         
-        (finally (.close sock)))
-      
-      (except [e socket.timeout]
-        (raise (ProtoDaemonError "Timeout communicating with daemon")))
-      (except [e ConnectionRefusedError]
-        (raise (ProtoDaemonNotRunningError "Daemon is not running")))
-      (except [e FileNotFoundError]
-        (raise (ProtoDaemonNotRunningError 
-                 f"Daemon socket not found at {self.socket-path}")))
-      (except [e Exception]
-        (raise (ProtoDaemonError f"Socket error: {e}")))))
+        (finally (.close sock)))))
   
   (defn _check [self response [error-msg "Unknown error"]]
     "Check response.ok, raise ProtoDaemonError if not. Returns response."
@@ -432,17 +421,21 @@
       True))
   
   (defn get-control-agent-launch [self project-root [agent-type ""] [new-session False]]
-    "Get control agent launch info. Returns Result[tuple, ProtoDaemonError]."
+    "Returns Result[ControlAgentLaunch | None, ProtoDaemonError]."
     (daemon-result "get_control_agent_launch"
       (setv req (pb.Request))
       (set-> req.get_control_agent_launch.project_root project-root
              req.get_control_agent_launch.agent agent-type
              req.get_control_agent_launch.new_session new-session)
       (setv resp (._send self req))
-      (if resp.ok
-          (do (setv r resp.get_control_agent_launch)
-              #(True r.command r.prompt_file r.port r.session_id agent-type None))
-          #(False None None 0 None None resp.error))))
+      (when (not resp.ok)
+        (raise (ProtoDaemonError (or resp.error "Failed to get control agent launch"))))
+      (setv r resp.get_control_agent_launch)
+      (ControlAgentLaunch :command r.command
+                          :prompt_file r.prompt_file
+                          :port r.port
+                          :session_id r.session_id
+                          :agent (or agent-type r.agent ""))))
   
   (defn register-monitor [self pid monitor-type view project [tmux-session ""]]
     "Register monitor. Returns Result[str | None, ProtoDaemonError]."

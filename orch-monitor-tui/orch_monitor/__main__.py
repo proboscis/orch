@@ -379,12 +379,27 @@ class TmuxLayoutLauncher:
 
         daemon = _get_daemon_client(project_root)
         if daemon:
+            from returns.result import Failure
+
             project_str = str(project_root) if project_root else str(Path.cwd())
-            ok, command, prompt_file, port, session_id, resolved_agent, err = (
-                daemon.get_control_agent_launch(
-                    project_str, agent_type=agent, new_session=new_control_agent
-                )
+            result = daemon.get_control_agent_launch(
+                project_str, agent_type=agent, new_session=new_control_agent
             )
+            # Handle Result type
+            if isinstance(result, Failure):
+                ok, command, prompt_file, port, session_id, resolved_agent, err = (
+                    False,
+                    None,
+                    None,
+                    0,
+                    None,
+                    None,
+                    str(result.failure()),
+                )
+            else:
+                ok, command, prompt_file, port, session_id, resolved_agent, err = (
+                    result.unwrap()
+                )
             if ok and command:
                 agent_cmd = command
                 _launcher_logger.info(
@@ -438,8 +453,6 @@ class TmuxLayoutLauncher:
 
 
 class ZellijLayoutLauncher:
-    """Zellij implementation of layout launcher."""
-
     ZELLIJ_TIMEOUT_SEC = 5
 
     def __init__(self):
@@ -507,35 +520,32 @@ class ZellijLayoutLauncher:
         runs_cmd = f"{python_exec} -m orch_monitor --runs {orch_args}".strip()
         issues_cmd = f"{python_exec} -m orch_monitor --issues {orch_args}".strip()
 
-        # Use daemon API to get control agent launch command
-        # The daemon handles: writing control prompt file, resolving agent config,
-        # session management, and building the command
-        agent_cmd = agent  # fallback to raw agent command
+        agent_cmd = agent
         need_capture_session = False
 
         daemon = _get_daemon_client(project_root)
         if daemon:
+            from returns.result import Failure
+
             project_str = str(project_root) if project_root else str(Path.cwd())
-            ok, command, prompt_file, port, session_id, resolved_agent, err = (
-                daemon.get_control_agent_launch(
-                    project_str, agent_type=agent, new_session=new_control_agent
-                )
+            launch_result = daemon.get_control_agent_launch(
+                project_str, agent_type=agent, new_session=new_control_agent
             )
-            if ok and command:
-                agent_cmd = command
-                _launcher_logger.info(
-                    f"Using daemon launch: agent={resolved_agent}, command={command}, "
-                    f"port={port}, session={session_id}"
-                )
-            else:
+            if isinstance(launch_result, Failure):
                 _launcher_logger.warning(
-                    f"Failed to get control agent launch from daemon: {err}"
+                    f"Failed to get control agent launch from daemon: {launch_result.failure()}"
                 )
-                # Fall back to simple command with escaped prompt for zellij
                 prompt_escaped = CONTROL_PROMPT_INSTRUCTION.replace('"', '\\"')
                 if agent in ("opencode", "claude", "codex", "gemini"):
                     agent_cmd = f'{agent} --prompt \\"{prompt_escaped}\\"'
                     need_capture_session = True
+            else:
+                launch = launch_result.unwrap()
+                agent_cmd = launch.command
+                _launcher_logger.info(
+                    f"Using daemon launch: agent={launch.agent}, command={launch.command}, "
+                    f"port={launch.port}, session={launch.session_id}"
+                )
         else:
             _launcher_logger.warning(
                 "Daemon not available, using fallback agent command"

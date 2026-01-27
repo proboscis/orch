@@ -84,3 +84,38 @@ class ListIssuesResponse:
     issues: list[Issue]
     next_cursor: Optional[str]
     total: int
+
+
+@dataclass
+class ControlAgentLaunch:
+    command: str
+    prompt_file: str
+    port: int
+    session_id: str
+    agent: str
+
+
+# ============================================================================
+# UI Filter Result Dataclasses
+# ============================================================================
+
+
+@dataclass
+class RunFilterResult:
+    """Result from run filter screen."""
+
+    statuses: set[Status] = field(default_factory=set)
+    agents: set[str] = field(default_factory=set)
+    text_search: str = ""
+    time_range: str = "all"
+
+
+@dataclass
+class IssueFilterResult:
+    """Result from issue filter screen."""
+
+    statuses: set[IssueStatus] = field(default_factory=set)
+    priorities: set[str] = field(default_factory=set)
+    tags: set[str] = field(default_factory=set)
+    tag_mode: str = "all"  # "all" (AND) or "any" (OR)
+    text_search: str = ""
