@@ -1,6 +1,6 @@
 ;; Filter screens for runs and issues
 
-(require orch_monitor.macros [with-fallback-silent])
+(require orch_monitor.macros [with-fallback-silent safe-dismiss defon])
 
 (import textual [on])
 (import textual.screen [ModalScreen])
@@ -78,7 +78,7 @@
                     :placeholder "ID, branch, issue..."
                     :id "text-search-input"))))
   
-  (defn [(on Button.Pressed "#apply-btn")] apply_filter [self]
+  (defon (Button.Pressed "#apply-btn") apply_filter [self]
     (setv status-list (.query_one self "#status-list" SelectionList))
     (setv statuses (sfor v status-list.selected (Status v)))
     
@@ -94,12 +94,12 @@
     
     (setv text-search (. (.query_one self "#text-search-input" Input) value))
     
-    (.dismiss self (RunFilterResult :statuses statuses
-                                    :agents agents
-                                    :text_search text-search
-                                    :time_range time-range)))
+    (safe-dismiss self (RunFilterResult :statuses statuses
+                                       :agents agents
+                                       :text_search text-search
+                                       :time_range time-range)))
   
-  (defn [(on Button.Pressed "#clear-btn")] clear_filter [self]
+  (defon (Button.Pressed "#clear-btn") clear_filter [self]
     (setv status-list (.query_one self "#status-list" SelectionList))
     (.select_all status-list)
     
@@ -111,8 +111,8 @@
     
     (setv (. (.query_one self "#text-search-input" Input) value) ""))
   
-  (defn [(on Button.Pressed "#cancel-btn")] cancel [self]
-    (.dismiss self None))
+  (defon (Button.Pressed "#cancel-btn") cancel [self]
+    (safe-dismiss self None))
   
   (defn action_cancel [self]
     (.dismiss self None))
@@ -184,7 +184,7 @@
                     :placeholder "ID, title, summary..."
                     :id "text-search-input"))))
   
-  (defn [(on Button.Pressed "#apply-btn")] apply_filter [self]
+  (defon (Button.Pressed "#apply-btn") apply_filter [self]
     (setv status-list (.query_one self "#issue-status-list" SelectionList))
     (setv statuses (sfor v status-list.selected (IssueStatus v)))
     (setv text-search (. (.query_one self "#text-search-input" Input) value))
@@ -195,21 +195,21 @@
     (setv tag-mode-all (.query_one self "#tag-mode-all" RadioButton))
     (setv tag-mode (if tag-mode-all.value "all" "any"))
     
-    (.dismiss self (IssueFilterResult :statuses statuses
-                                      :priorities (set)
-                                      :tags tags
-                                      :tag_mode tag-mode
-                                      :text_search text-search)))
+    (safe-dismiss self (IssueFilterResult :statuses statuses
+                                         :priorities (set)
+                                         :tags tags
+                                         :tag_mode tag-mode
+                                         :text_search text-search)))
   
-  (defn [(on Button.Pressed "#clear-btn")] clear_filter [self]
+  (defon (Button.Pressed "#clear-btn") clear_filter [self]
     (setv status-list (.query_one self "#issue-status-list" SelectionList))
     (.select_all status-list)
     (setv (. (.query_one self "#tag-filter-input" Input) value) "")
     (setv (. (.query_one self "#tag-mode-any" RadioButton) value) True)
     (setv (. (.query_one self "#text-search-input" Input) value) ""))
   
-  (defn [(on Button.Pressed "#cancel-btn")] cancel [self]
-    (.dismiss self None))
+  (defon (Button.Pressed "#cancel-btn") cancel [self]
+    (safe-dismiss self None))
   
   (defn action_cancel [self]
     (.dismiss self None))

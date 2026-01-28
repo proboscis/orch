@@ -1,7 +1,6 @@
 ;; Confirm dialog screens for orch-monitor TUI
-;; Generated using defconfirm-screen macro to eliminate boilerplate
 
-(require orch_monitor.macros [defconfirm-screen])
+(require orch_monitor.macros [safe-dismiss defon])
 
 (import textual.screen [ModalScreen])
 (import textual.binding [Binding])
@@ -81,11 +80,11 @@
         (yield (Button "Yes, kill" :variant "error" :id "confirm-btn"))
         (yield (Button "No, cancel" :id "cancel-btn")))))
   
-  (defn [(on Button.Pressed "#confirm-btn")] confirm [self]
-    (.dismiss self True))
+  (defon (Button.Pressed "#confirm-btn") confirm [self]
+    (safe-dismiss self True))
   
-  (defn [(on Button.Pressed "#cancel-btn")] cancel [self]
-    (.dismiss self False))
+  (defon (Button.Pressed "#cancel-btn") cancel [self]
+    (safe-dismiss self False))
   
   (defn action_confirm [self]
     (.dismiss self True))
@@ -163,11 +162,11 @@
         (yield (Button "Yes, close" :variant "warning" :id "confirm-btn"))
         (yield (Button "No, cancel" :id "cancel-btn")))))
   
-  (defn [(on Button.Pressed "#confirm-btn")] confirm [self]
-    (.dismiss self True))
+  (defon (Button.Pressed "#confirm-btn") confirm [self]
+    (safe-dismiss self True))
   
-  (defn [(on Button.Pressed "#cancel-btn")] cancel [self]
-    (.dismiss self False))
+  (defon (Button.Pressed "#cancel-btn") cancel [self]
+    (safe-dismiss self False))
   
   (defn action_confirm [self]
     (.dismiss self True))

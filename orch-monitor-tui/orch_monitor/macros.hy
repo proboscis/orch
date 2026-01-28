@@ -716,108 +716,7 @@
 ;; UI Component Macros
 ;; ============================================================================
 
-(defmacro defconfirm-screen [class-name dialog-id color confirm-label confirm-variant
-                             init-params init-body details-body info-body]
-  "Generate a confirmation dialog screen class with standard boilerplate.
-   
-   Args:
-     class-name: Symbol for the class name (e.g., KillConfirmScreen)
-     dialog-id: String for CSS ID prefix (e.g., \"kill\")
-     color: String for border/title color (e.g., \"error\", \"warning\")
-     confirm-label: String for confirm button text
-     confirm-variant: String for confirm button variant
-     init-params: List of init parameters after self (e.g., [run])
-     init-body: Body of __init__ after super().__init__()
-     details-body: Body yielding widgets for details section
-     info-body: Body yielding widgets for info section
-   
-   Example:
-     (defconfirm-screen KillConfirmScreen \"kill\" \"error\" \"Yes, kill\" \"error\"
-       [run]
-       (do
-         (setv self.run run)
-         (setv self.multiplexer (get_multiplexer_for_run run)))
-       (do
-         (yield (Static f\"Run: {(self.run.ref)}\"))
-         (yield (Static f\"Session: {(or (get_session_name self.run) \"N/A\")}\"))
-       (do
-         (yield (Static \"This will:\"))
-         (yield (Static f\"  - Kill the {self.multiplexer.name} session\"))))
-   "
-  (setv css-str f"
-    {class-name} {{
-        align: center middle;
-    }}
-    #{dialog-id}-dialog {{
-        width: 50;
-        height: auto;
-        padding: 1 2;
-        background: $surface;
-        border: thick ${color};
-    }}
-    #{dialog-id}-title {{
-        text-align: center;
-        width: 100%;
-        padding-bottom: 1;
-        color: ${color};
-    }}
-    #{dialog-id}-details {{
-        height: auto;
-        padding: 1;
-    }}
-    #{dialog-id}-info {{
-        height: auto;
-        padding: 1;
-        color: $text-muted;
-    }}
-    #{dialog-id}-buttons {{
-        height: 3;
-        align: center middle;
-        padding-top: 1;
-    }}
-    #{dialog-id}-buttons Button {{
-        margin: 0 1;
-    }}
-  ")
-  `(do
-     (import textual.screen [ModalScreen])
-     (import textual.binding [Binding])
-     (import textual.containers [Vertical Horizontal])
-     (import textual.widgets [Button Label Static])
-     (import textual [on])
-     
-     (defclass ~class-name [#^ bool ModalScreen]
-       (setv CSS ~css-str)
-       (setv BINDINGS [(Binding "y" "confirm" "Yes")
-                       (Binding "n" "cancel" "No")
-                       (Binding "escape" "cancel" "Cancel")])
-       
-       (defn __init__ [self #* ~init-params]
-         (.__init__ (super))
-         ~init-body)
-       
-       (defn compose [self]
-         (with [(Vertical :id f"{~dialog-id}-dialog")]
-           (yield (Label self._title :id f"{~dialog-id}-title"))
-           (with [(Vertical :id f"{~dialog-id}-details")]
-             ~details-body)
-           (with [(Vertical :id f"{~dialog-id}-info")]
-             ~info-body)
-           (with [(Horizontal :id f"{~dialog-id}-buttons")]
-             (yield (Button ~confirm-label :variant ~confirm-variant :id "confirm-btn"))
-             (yield (Button "No, cancel" :id "cancel-btn")))))
-       
-       (defn [(on Button.Pressed "#confirm-btn")] _on_confirm [self]
-         (.dismiss self True))
-       
-       (defn [(on Button.Pressed "#cancel-btn")] _on_cancel [self]
-         (.dismiss self False))
-       
-       (defn action_confirm [self]
-         (.dismiss self True))
-       
-       (defn action_cancel [self]
-         (.dismiss self False)))))
+
 
 ;; ============================================================================
 ;; Assignment Macros
@@ -1291,6 +1190,56 @@
           (+= i 2))))
   
   `(do ~@assignments))
+
+;; ============================================================================
+;; Screen Dismissal
+;; ============================================================================
+
+(defmacro safe-dismiss [self result]
+  "Dismiss a ModalScreen safely from any context (including message handlers).
+   Textual's push_screen(screen, callback) internally awaits dismiss().
+   Calling dismiss() directly from an @on handler deadlocks — call_later defers
+   it past the handler boundary."
+  `(.call_later ~self (. ~self dismiss) ~result))
+
+(defmacro defon [event-spec name params #* body]
+  "Define a Textual @on message handler with compile-time safety.
+   Rejects raw .dismiss calls — forces safe-dismiss to prevent
+   the push_screen(callback) + dismiss-from-handler deadlock.
+
+   Usage:
+     (defon (Button.Pressed \"#apply-btn\") apply_filter [self]
+       (safe-dismiss self result))
+
+   Equivalent to:
+     (defn [(on Button.Pressed \"#apply-btn\")] apply_filter [self]
+       (safe-dismiss self result))
+
+   But compile-fails if body contains (.dismiss ...)."
+  (import hy.models [Expression Symbol])
+  (defn _is-dot-dismiss [form]
+    "Check if form is (.dismiss ...) — Hy represents this as
+     (Expression[(. None dismiss)] self args...)."
+    (and (isinstance form Expression)
+         (>= (len form) 1)
+         (do (setv head (get form 0))
+             (and (isinstance head Expression)
+                  (= (len head) 3)
+                  (isinstance (get head 0) Symbol)
+                  (= (str (get head 0)) ".")
+                  (isinstance (get head 2) Symbol)
+                  (= (str (get head 2)) "dismiss")))))
+  (setv stack (list body))
+  (while stack
+    (setv form (.pop stack))
+    (when (isinstance form Expression)
+      (when (_is-dot-dismiss form)
+        (raise (SyntaxError
+          f"defon {name}: raw .dismiss inside message handler — use (safe-dismiss self ...) instead")))
+      (for [child form]
+        (.append stack child))))
+  `(defn [(on ~@event-spec)] ~name ~params
+     ~@body))
 
 ;; ============================================================================
 ;; Dashboard Action Macros — Compile-time behavior injection

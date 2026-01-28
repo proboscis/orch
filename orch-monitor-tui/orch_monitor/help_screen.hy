@@ -1,6 +1,6 @@
 ;; Help and Onboarding screens
 
-(require orch_monitor.macros [with-fallback-silent])
+(require orch_monitor.macros [with-fallback-silent safe-dismiss defon])
 
 (import textual [on])
 (import textual.screen [ModalScreen])
@@ -103,8 +103,8 @@
       
       (yield (Button "Close (Esc/?/q)" :id "close-btn" :variant "primary"))))
   
-  (defn [(on Button.Pressed "#close-btn")] close_help [self]
-    (.dismiss self None))
+  (defon (Button.Pressed "#close-btn") close_help [self]
+    (safe-dismiss self None))
   
   (defn action_close [self]
     (.dismiss self None)))
@@ -206,7 +206,7 @@
     (when (and state.has_orch_dir state.has_issues_path)
       (setv self._polling False)
       (.notify self "Configuration detected!" :severity "information")
-      (.dismiss self True)))
+      (safe-dismiss self True)))
   
   (defn on_button_pressed [self event]
     (cond
