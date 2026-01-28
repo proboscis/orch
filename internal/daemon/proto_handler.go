@@ -9,6 +9,8 @@ import (
 	"io"
 	"net"
 	"os/exec"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/s22625/orch/api/orchpb"
@@ -375,17 +377,88 @@ func (s *SocketServer) handleProtoListIssues(req *orchpb.ListIssuesRequest) *orc
 		return errorResponse("store_error")
 	}
 
-	protoIssues := make([]*orchpb.Issue, len(issues))
-	for i, issue := range issues {
+	sort.Slice(issues, func(i, j int) bool {
+		return issues[i].ModifiedAt.After(issues[j].ModifiedAt)
+	})
+
+	if len(req.Status) > 0 {
+		statusSet := make(map[model.IssueStatus]bool)
+		for _, st := range req.Status {
+			statusSet[protoIssueStatusToModel(st)] = true
+		}
+		var filtered []*model.Issue
+		for _, issue := range issues {
+			if statusSet[issue.Status] {
+				filtered = append(filtered, issue)
+			}
+		}
+		issues = filtered
+	}
+
+	if len(req.Tags) > 0 {
+		tagSet := make(map[string]bool)
+		for _, t := range req.Tags {
+			tagSet[strings.ToLower(t)] = true
+		}
+		var filtered []*model.Issue
+		for _, issue := range issues {
+			if matchesTags(issue.Tags, tagSet, req.TagsMode) {
+				filtered = append(filtered, issue)
+			}
+		}
+		issues = filtered
+	}
+
+	if req.TextSearch != "" {
+		search := strings.ToLower(req.TextSearch)
+		var filtered []*model.Issue
+		for _, issue := range issues {
+			if strings.Contains(strings.ToLower(issue.ID), search) ||
+				strings.Contains(strings.ToLower(issue.Title), search) ||
+				strings.Contains(strings.ToLower(issue.Summary), search) {
+				filtered = append(filtered, issue)
+			}
+		}
+		issues = filtered
+	}
+
+	total := len(issues)
+
+	limit := int(req.Limit)
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	offset, _ := DecodeCursor(req.Cursor)
+	if offset > len(issues) {
+		offset = len(issues)
+	}
+	end := offset + limit
+	if end > len(issues) {
+		end = len(issues)
+	}
+	paginatedIssues := issues[offset:end]
+
+	protoIssues := make([]*orchpb.Issue, len(paginatedIssues))
+	for i, issue := range paginatedIssues {
 		protoIssues[i] = modelIssueToProto(issue)
+	}
+
+	var nextCursor string
+	if end < total {
+		nextCursor = EncodeCursor(end)
 	}
 
 	return &orchpb.Response{
 		Ok: true,
 		Response: &orchpb.Response_ListIssues{
 			ListIssues: &orchpb.ListIssuesResponse{
-				Issues: protoIssues,
-				Total:  int32(len(issues)),
+				Issues:     protoIssues,
+				Total:      int32(total),
+				NextCursor: nextCursor,
 			},
 		},
 	}
