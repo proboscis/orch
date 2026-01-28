@@ -3,9 +3,18 @@
 # orch run logs (when using repo as vault)
 /runs/
 /.orch/daemon.*
+/.orch/config.yaml
+/.orch/control-session.json
+/.orch/github-cache.db*
+/.orch/monitor-filters.yaml
+/.orch_run_index.json
 ORCH_PROMPT.md
 orch
 ORCH_CONTROL_PROMPT.md
 vscode-orch/node_modules/
 vscode-orch/package-lock.json
 notes/
+
+# Build artifacts
+orch-core/target/
+orch-monitor-tui/orch_vault_rs/
