@@ -3,7 +3,8 @@
 
 (require orch_monitor.macros [with-fallback with-fallback-silent must-succeed
                               daemon-result result-unwrap-or set->
-                              when-ok when-err if-ok ok-or when-some when-none])
+                              when-ok when-err if-ok ok-or when-some when-none
+                              defaction with-issue-actions])
 
 ;; ============================================================================
 ;; Standard library imports
@@ -138,27 +139,27 @@
     (.refresh_data self))
   
   ;; =========================================================================
-  ;; Actions
+  ;; Injected actions — new-run, open-issue, close-issue (shared with OrchMonitorApp)
   ;; =========================================================================
   
-  (defn action_refresh [self]
-    (when (_input-has-focus self)
-      (return))
+  (with-issue-actions)
+  
+  ;; =========================================================================
+  ;; Dashboard-specific actions
+  ;; =========================================================================
+  
+  (defaction action_refresh [self] [:guard-input]
     (.refresh_data self))
   
   (defn action_help [self]
     (.push_screen self (HelpScreen)))
   
-  (defn action_filter [self]
-    (when (_input-has-focus self)
-      (return))
+  (defaction action_filter [self] [:guard-input]
     (.push_screen self
       (IssueFilterScreen self.filter_state.issue_filters)
       self.on_filter_result))
   
-  (defn action_clear_filters [self]
-    (when (_input-has-focus self)
-      (return))
+  (defaction action_clear_filters [self] [:guard-input]
     (.clear_issue_filters self.filter_state)
     (.save_filters self.config self.filter_state)
     (._update_title self)
@@ -263,114 +264,8 @@
     (when (= (getattr self "_highlighted_issue_id" None) issue-id)
       (setv self.selected_issue issue)))
   
-  ;; =========================================================================
-  ;; Open issue action
-  ;; =========================================================================
-  
-  (defn action_open_issue [self]
-    (when (_input-has-focus self)
-      (return))
-    (when (not self.selected_issue)
-      (.notify self "No issue selected" :severity "warning")
-      (return))
-    ;; Get file path (creates temp file for GitHub issues)
-    (setv #(file-path error) (_get-issue-file-path self.selected_issue))
-    (when (or error (is file-path None))
-      (.notify self (or error "Unknown error") :severity "error")
-      (return))
-    (setv #(cmd error) (_get-editor-command file-path))
-    (when (or error (is cmd None))
-      (.notify self (or error "Unknown error") :severity "error")
-      (return))
-    (setv current-mux-type (detect_current_multiplexer))
-    (when current-mux-type
-      ;; Open in new multiplexer tab/window
-      (setv current-mux (get_multiplexer current-mux-type))
-      (setv tab-name f"edit-{self.selected_issue.id}")
-      (when (.new_tab_with_command current-mux tab-name cmd)
-        (.notify self f"Opened tab: {tab-name}")
-        (return))
-      (.notify self "Failed to create tab, falling back to suspend" :severity "warning"))
-    ;; Fallback: Suspend TUI, open editor, resume on exit
-    (with [(.suspend self)]
-      (subprocess.run cmd))
-    (.refresh_data self))
-  
-  ;; =========================================================================
-  ;; New run action
-  ;; =========================================================================
-  
-  (defn action_new_run [self]
-    (when (_input-has-focus self)
-      (return))
-    (when (not self.selected_issue)
-      (.notify self "No issue selected" :severity "warning")
-      (return))
-    (setv agents (_get-available-agents self.config))
-    (.push_screen self
-      (AgentSelectScreen self.selected_issue.id agents)
-      self._on_agent_selected))
-  
-  (defn _on_agent_selected [self agent]
-    (when (and agent self.selected_issue)
-      (setv issue-id self.selected_issue.id)
-      (.notify self f"Starting run for {issue-id} with {agent}...")
-      (._do_new_run self issue-id agent)))
-  
-  (defn [(work :thread True :exclusive True)] _do_new_run [self issue-id agent]
-    "Start a new run for an issue. Logs errors properly."
-    (setv log (get-logger))
-    (if-ok [_response (.start_run self.api issue-id agent)]
-      (.call_from_thread self self.notify
-        f"Run started for {issue-id}"
-        :severity "information")
-      (do
-        (setv error-msg (str _response))
-        (when (> (len error-msg) 200)
-          (setv error-msg (+ (cut error-msg 0 200) "...")))
-        ;; ALWAYS log on error - enforced pattern
-        (.error log f"Failed to start run for {issue-id}: {error-msg}")
-        (.call_from_thread self self.notify
-          f"Failed to start run: {error-msg}"
-          :severity "error")))
-    (.call_from_thread self self.refresh_data))
-  
-  ;; =========================================================================
-  ;; Close issue action
-  ;; =========================================================================
-  
-  (defn action_close_issue [self]
-    (when (_input-has-focus self)
-      (return))
-    (when (not self.selected_issue)
-      (.notify self "No issue selected" :severity "warning")
-      (return))
-    (setv issue-id self.selected_issue.id)
-    (setv issue-title self.selected_issue.title)
-    (defn on-confirm [confirmed]
-      (when confirmed
-        (._do_close_issue self issue-id)))
-    (.push_screen self
-      (CloseIssueConfirmScreen issue-id issue-title)
-      on-confirm))
-  
-  (defn [(work :thread True :exclusive True)] _do_close_issue [self issue-id]
-    "Close an issue. Logs errors properly."
-    (setv log (get-logger))
-    (if-ok [_response (.close_issue self.api issue-id)]
-      (.call_from_thread self self.notify
-        f"Closed issue {issue-id}"
-        :severity "information")
-      (do
-        (setv error-msg (str _response))
-        (when (> (len error-msg) 200)
-          (setv error-msg (+ (cut error-msg 0 200) "...")))
-        ;; ALWAYS log on error - enforced pattern
-        (.error log f"Failed to close issue {issue-id}: {error-msg}")
-        (.call_from_thread self self.notify
-          f"Failed to close issue: {error-msg}"
-          :severity "error")))
-    (.call_from_thread self self.refresh_data)))
+  ;; NOTE: open_issue, new_run, close_issue actions are injected by (with-issue-actions) above
+  )
 
 
 ;; ============================================================================

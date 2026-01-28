@@ -303,34 +303,28 @@
       {"run_id" sr.run_id "branch" sr.branch 
        "worktree" sr.worktree_path "tmux_session" sr.tmux_session}))
   
-  (defn stop-run [self issue-id [run-id ""]]
-    "Stop a run. Returns Result[dict, ProtoDaemonError]."
-    (daemon-result "stop_run"
-      (setv req (pb.Request))
-      (set-> req.stop_run.issues_root (._issues-root-str self)
-             req.stop_run.issue_id issue-id
-             req.stop_run.run_id run-id)
-      (._send-ok self req)
-      {"stopped" True}))
+  (defrpc stop-run [issue-id [run-id ""]] "stop_run"
+    (setv req (pb.Request))
+    (set-> req.stop_run.issues_root (._issues-root-str self)
+           req.stop_run.issue_id issue-id
+           req.stop_run.run_id run-id)
+    (._send-ok self req)
+    {"stopped" True})
   
-  (defn send-message [self issue-id run-id message]
-    "Send message to run. Returns Result[None, ProtoDaemonError]."
-    (daemon-result "send_message"
-      (setv req (pb.Request))
-      (set-> req.send_message.issues_root (._issues-root-str self)
-             req.send_message.issue_id issue-id
-             req.send_message.run_id run-id
-             req.send_message.message message)
-      (._send-ok self req)
-      None))
+  (defrpc send-message [issue-id run-id message] "send_message"
+    (setv req (pb.Request))
+    (set-> req.send_message.issues_root (._issues-root-str self)
+           req.send_message.issue_id issue-id
+           req.send_message.run_id run-id
+           req.send_message.message message)
+    (._send-ok self req)
+    None)
   
-  (defn ping [self]
-    "Ping daemon. Returns Result[bool, ProtoDaemonError]."
-    (daemon-result "ping"
-      (setv req (pb.Request))
-      (.CopyFrom req.ping (pb.PingRequest))
-      (setv resp (._send self req))
-      (and resp.ok resp.ping.ok)))
+  (defrpc ping [] "ping"
+    (setv req (pb.Request))
+    (.CopyFrom req.ping (pb.PingRequest))
+    (setv resp (._send self req))
+    (and resp.ok resp.ping.ok))
   
   (defn get-diff-stats [self issue-id run-id]
     "Get diff stats. Returns Result[tuple | None, ProtoDaemonError]."
@@ -401,24 +395,20 @@
           resp.create_issue.path
           (raise (ProtoDaemonError (or resp.error "Failed to create issue"))))))
   
-  (defn close-issue [self issue-id]
-    "Close issue. Returns Result[None, ProtoDaemonError]."
-    (daemon-result "close_issue"
-      (setv req (pb.Request))
-      (set-> req.close_issue.issues_root (._issues-root-str self)
-             req.close_issue.issue_id issue-id)
-      (._send-ok self req "Failed to close issue")
-      None))
+  (defrpc close-issue [issue-id] "close_issue"
+    (setv req (pb.Request))
+    (set-> req.close_issue.issues_root (._issues-root-str self)
+           req.close_issue.issue_id issue-id)
+    (._send-ok self req "Failed to close issue")
+    None)
   
-  (defn resolve-issue [self issue-id [force False]]
-    "Resolve an issue. Returns Result[bool, ProtoDaemonError]."
-    (daemon-result "resolve_issue"
-      (setv req (pb.Request))
-      (set-> req.resolve_issue.issues_root (._issues-root-str self)
-             req.resolve_issue.issue_id issue-id
-             req.resolve_issue.force force)
-      (._send-ok self req "Failed to resolve issue")
-      True))
+  (defrpc resolve-issue [issue-id [force False]] "resolve_issue"
+    (setv req (pb.Request))
+    (set-> req.resolve_issue.issues_root (._issues-root-str self)
+           req.resolve_issue.issue_id issue-id
+           req.resolve_issue.force force)
+    (._send-ok self req "Failed to resolve issue")
+    True)
   
   (defn get-control-agent-launch [self project-root [agent-type ""] [new-session False]]
     "Returns Result[ControlAgentLaunch | None, ProtoDaemonError]."
@@ -448,21 +438,17 @@
              req.register_monitor.session_name tmux-session)
       (. (._send-ok self req "Failed to register monitor") register_monitor monitor_id)))
   
-  (defn unregister-monitor [self monitor-id]
-    "Unregister monitor. Returns Result[bool, ProtoDaemonError]."
-    (daemon-result "unregister_monitor"
-      (setv req (pb.Request))
-      (setv req.unregister_monitor.monitor_id monitor-id)
-      (._send-ok self req "Failed to unregister monitor")
-      True))
+  (defrpc unregister-monitor [monitor-id] "unregister_monitor"
+    (setv req (pb.Request))
+    (setv req.unregister_monitor.monitor_id monitor-id)
+    (._send-ok self req "Failed to unregister monitor")
+    True)
   
-  (defn monitor-heartbeat [self monitor-id]
-    "Send heartbeat. Returns Result[bool, ProtoDaemonError]."
-    (daemon-result "monitor_heartbeat"
-      (setv req (pb.Request))
-      (setv req.heartbeat.monitor_id monitor-id)
-      (._send-ok self req "Heartbeat failed")
-      True))
+  (defrpc monitor-heartbeat [monitor-id] "monitor_heartbeat"
+    (setv req (pb.Request))
+    (setv req.heartbeat.monitor_id monitor-id)
+    (._send-ok self req "Heartbeat failed")
+    True)
   
   (defn close [self]
     None))

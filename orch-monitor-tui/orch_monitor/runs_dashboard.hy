@@ -3,7 +3,8 @@
 
 (require orch_monitor.macros [with-fallback with-fallback-silent must-succeed
                               daemon-result result-unwrap-or set-> nav
-                              when-ok when-err if-ok ok-or when-some when-none])
+                              when-ok when-err if-ok ok-or when-some when-none
+                              defaction with-run-actions])
 
 ;; ============================================================================
 ;; Standard library imports
@@ -219,27 +220,27 @@ DataTable {
     (.refresh_data self))
   
   ;; =========================================================================
-  ;; Actions
+  ;; Injected actions — attach, stop, kill, diff (shared with OrchMonitorApp)
   ;; =========================================================================
   
-  (defn action_refresh [self]
-    (when (_input-has-focus self)
-      (return))
+  (with-run-actions)
+  
+  ;; =========================================================================
+  ;; Dashboard-specific actions
+  ;; =========================================================================
+  
+  (defaction action_refresh [self] [:guard-input]
     (.refresh_data self))
   
   (defn action_help [self]
     (.push_screen self (HelpScreen)))
   
-  (defn action_filter [self]
-    (when (_input-has-focus self)
-      (return))
+  (defaction action_filter [self] [:guard-input]
     (.push_screen self
       (RunFilterScreen self.filter_state.run_filters)
       self.on_filter_result))
   
-  (defn action_clear_filters [self]
-    (when (_input-has-focus self)
-      (return))
+  (defaction action_clear_filters [self] [:guard-input]
     (.clear_run_filters self.filter_state)
     (.save_filters self.config self.filter_state)
     (._update_title self)
@@ -490,147 +491,8 @@ DataTable {
       (setv lines (lfor line (.split result.stdout "\n") (.rstrip line)))
       (lfor line lines :if (.strip line) line)))
   
-  ;; =========================================================================
-  ;; Attach action
-  ;; =========================================================================
-  
-  (defn action_attach [self]
-    (when (not self.selected_run)
-      (.notify self "No run selected" :severity "warning")
-      (return))
-    (._do_attach self self.selected_run))
-  
-  (defn [(work :thread True)] _do_attach [self run]
-    "Attach to run in background thread to avoid blocking TUI."
-    (setv current-mux-type (detect_current_multiplexer))
-    (setv attach-cmd (+ (_build-orch-cmd self.config) ["attach" (.ref run)]))
-    (when current-mux-type
-      (setv current-mux (get_multiplexer current-mux-type))
-      ;; Check for cross-session Zellij attach
-      (when (= current-mux-type MultiplexerType.ZELLIJ)
-        (setv run-mux-type (get_multiplexer_type_from_run run))
-        (when (= run-mux-type MultiplexerType.ZELLIJ)
-          (setv current-session (.get_current_session current-mux))
-          (setv run-session (get_session_name run))
-          (when (and current-session run-session (!= current-session run-session))
-            (setv cmd-str (.join " " attach-cmd))
-            (.call_from_thread self self.notify
-              (+ "Cannot attach to different Zellij session from inside Zellij.\n"
-                 f"Run in a separate terminal: {cmd-str}")
-              :severity "warning" :timeout 15)
-            (return))))
-      (setv tab-name f"{run.issue_id}[{(.short_id run)}]")
-      (when (.new_tab_with_command current-mux tab-name attach-cmd)
-        (.call_from_thread self self.notify f"Opened tab: {tab-name}")
-        (return))
-      (.call_from_thread self self.notify
-        "Failed to create tab, falling back to exit"
-        :severity "warning"))
-    (.call_from_thread self self._exit_and_attach attach-cmd))
-  
-  (defn _exit_and_attach [self attach-cmd]
-    "Exit TUI and run attach command (must be called from main thread)."
-    (.exit self)
-    (subprocess.run attach-cmd))
-  
-  ;; =========================================================================
-  ;; Stop action
-  ;; =========================================================================
-  
-  (defn action_stop [self]
-    (when (_input-has-focus self)
-      (return))
-    (setv run-ref (getattr self "_highlighted_run_ref" None))
-    (when (not run-ref)
-      (.notify self "No run selected" :severity "warning")
-      (return))
-    (._do_stop self run-ref)
-    (.notify self f"Stopping {run-ref}"))
-  
-  (defn [(work :thread True)] _do_stop [self run-ref]
-    (setv parts (.split run-ref "#" 1))
-    (setv issue-id (get parts 0))
-    (setv run-id (if (> (len parts) 1) (get parts 1) ""))
-    (when-err [err (.stop_run self.api issue-id run-id)]
-      (.call_from_thread self self.notify
-        f"Failed to stop run: {err}"
-        :severity "error"))
-    (.call_from_thread self self.refresh_data))
-  
-  ;; =========================================================================
-  ;; Diff action
-  ;; =========================================================================
-  
-  (defn action_diff [self]
-    (when (_input-has-focus self)
-      (return))
-    (when (not self.selected_run)
-      (.notify self "No run selected" :severity "warning")
-      (return))
-    (when (not self.selected_run.worktree_path)
-      (.notify self "Run has no worktree" :severity "warning")
-      (return))
-    (._do_diff_runs self self.selected_run))
-  
-  (defn [(work :thread True)] _do_diff_runs [self run]
-    "Open diff in a new terminal tab."
-    (setv current-mux-type (detect_current_multiplexer))
-    (setv diff-cmd (+ (_build-orch-cmd self.config) ["diff" (.ref run)]))
-    (when current-mux-type
-      (setv current-mux (get_multiplexer current-mux-type))
-      (setv tab-name f"diff:{(.short_id run)}")
-      (when (.new_tab_with_command current-mux tab-name diff-cmd)
-        (.call_from_thread self self.notify f"Opened diff: {tab-name}")
-        (return))
-      (.call_from_thread self self.notify
-        "Failed to create tab, falling back to exit"
-        :severity "warning"))
-    (.call_from_thread self self._exit_and_diff_runs diff-cmd))
-  
-  (defn _exit_and_diff_runs [self diff-cmd]
-    "Exit TUI and run diff command."
-    (.exit self)
-    (subprocess.run diff-cmd))
-  
-  ;; =========================================================================
-  ;; Kill session action - Uses with-fallback for error notification
-  ;; =========================================================================
-  
-  (defn action_kill_session [self]
-    "Show kill confirmation dialog for selected run."
-    (when (not self.selected_run)
-      (.notify self "No run selected" :severity "warning")
-      (return))
-    (setv session-name (get_session_name self.selected_run))
-    (when (not session-name)
-      (.notify self "Run has no session" :severity "warning")
-      (return))
-    (setv run self.selected_run)
-    (setv multiplexer (get_multiplexer_for_run run))
-    (setv run-ref (.ref run))
-    (defn on-confirm [confirmed]
-      (when confirmed
-        (._do_kill_session self session-name multiplexer run-ref)))
-    (.push_screen self (KillConfirmScreen run) on-confirm))
-  
-  (defn [(work :thread True)] _do_kill_session [self session-name multiplexer run-ref]
-    "Kill terminal session and mark run as canceled."
-    ;; Use with-fallback for critical operation - needs user notification on error
-    (with-fallback "kill_session" None self
-      (setv session-existed (.kill_session multiplexer session-name))
-      (setv stop-cmd (+ (_build-orch-cmd self.config) ["stop" run-ref]))
-      (setv stop-result (subprocess.run stop-cmd :capture_output True))
-      (when (!= stop-result.returncode 0)
-        (setv stderr (.strip (.decode stop-result.stderr)))
-        (.call_from_thread self self.notify
-          (do (setv err-msg (or stderr "unknown error")) f"Failed to stop run: {err-msg}")
-          :severity "error")
-        (return))
-      (setv msg (if session-existed
-                    f"Killed session for {run-ref}"
-                    f"Session already dead; run {run-ref} marked canceled"))
-      (.call_from_thread self self.notify msg :severity "information")
-      (.call_from_thread self self.refresh_data))))
+  ;; NOTE: attach, stop, diff, kill_session actions are injected by (with-run-actions) above
+  )
 
 
 ;; ============================================================================

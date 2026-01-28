@@ -3,7 +3,8 @@
 
 (require orch_monitor.macros [with-fallback with-fallback-silent must-succeed
                               daemon-result result-unwrap-or set->
-                              when-ok when-err if-ok ok-or when-some when-none])
+                              when-ok when-err if-ok ok-or when-some when-none
+                              defaction with-run-actions with-issue-actions])
 
 ;; ============================================================================
 ;; Standard library imports
@@ -207,20 +208,23 @@
       (.show_run_detail self self.selected_run)))
   
   ;; =========================================================================
-  ;; Actions
+  ;; Injected actions — shared behavior via compile-time macros
   ;; =========================================================================
   
-  (defn action_refresh [self]
-    (when (_input-has-focus self)
-      (return))
+  (with-run-actions)    ;; attach, stop, kill, diff
+  (with-issue-actions)  ;; new-run, open-issue, close-issue
+  
+  ;; =========================================================================
+  ;; Dashboard-specific actions
+  ;; =========================================================================
+  
+  (defaction action_refresh [self] [:guard-input]
     (.refresh_data self))
   
   (defn action_help [self]
     (.push_screen self (HelpScreen)))
   
-  (defn action_filter [self]
-    (when (_input-has-focus self)
-      (return))
+  (defaction action_filter [self] [:guard-input]
     (if (= self.current_focus "runs")
         (.push_screen self
           (RunFilterScreen self.filter_state.run_filters)
@@ -229,9 +233,7 @@
           (IssueFilterScreen self.filter_state.issue_filters)
           self.on_issue_filter_result)))
   
-  (defn action_clear_filters [self]
-    (when (_input-has-focus self)
-      (return))
+  (defaction action_clear_filters [self] [:guard-input]
     (if (= self.current_focus "runs")
         (.clear_run_filters self.filter_state)
         (.clear_issue_filters self.filter_state))
@@ -514,210 +516,11 @@
        (cut issue.body 0 1000)])
     (.update_content detail-panel (.join "\n" content-lines) f"Issue: {issue.id}"))
   
-  ;; =========================================================================
-  ;; Attach action
-  ;; =========================================================================
-  
-  (defn action_attach [self]
-    (when (_input-has-focus self)
-      (return))
-    (when (not self.selected_run)
-      (.notify self "No run selected" :severity "warning")
-      (return))
-    (._do_attach self self.selected_run))
-  
-  (defn [(work :thread True)] _do_attach [self run]
-    (setv current-mux-type (detect_current_multiplexer))
-    (setv attach-cmd (+ (_build-orch-cmd self.config) ["attach" (.ref run)]))
-    (when current-mux-type
-      (setv current-mux (get_multiplexer current-mux-type))
-      (when (= current-mux-type MultiplexerType.ZELLIJ)
-        (setv run-mux-type (get_multiplexer_type_from_run run))
-        (when (= run-mux-type MultiplexerType.ZELLIJ)
-          (setv current-session (.get_current_session current-mux))
-          (setv run-session (get_session_name run))
-          (when (and current-session run-session (!= current-session run-session))
-            (setv cmd-str (.join " " attach-cmd))
-            (.call_from_thread self self.notify
-              (+ "Cannot attach to different Zellij session from inside Zellij.\n"
-                 f"Run in a separate terminal: {cmd-str}")
-              :severity "warning" :timeout 15)
-            (return))))
-      (setv tab-name f"{run.issue_id}[{(.short_id run)}]")
-      (when (.new_tab_with_command current-mux tab-name attach-cmd)
-        (.call_from_thread self self.notify f"Opened tab: {tab-name}")
-        (return))
-      (.call_from_thread self self.notify
-        "Failed to create tab, falling back to exit" :severity "warning"))
-    (.call_from_thread self self._exit_and_attach attach-cmd))
-  
-  (defn _exit_and_attach [self attach-cmd]
-    (.exit self)
-    (subprocess.run attach-cmd))
+  ;; NOTE: attach, stop, diff, kill, new_run, open_issue, close_issue
+  ;; are all injected by (with-run-actions) and (with-issue-actions) above
   
   ;; =========================================================================
-  ;; Stop action
-  ;; =========================================================================
-  
-  (defn action_stop [self]
-    (when (_input-has-focus self)
-      (return))
-    (setv run-ref (getattr self "_highlighted_run_ref" None))
-    (when (not run-ref)
-      (.notify self "No run selected" :severity "warning")
-      (return))
-    (._do_stop self run-ref)
-    (.notify self f"Stopping {run-ref}"))
-  
-  (defn [(work :thread True)] _do_stop [self run-ref]
-    (setv parts (.split run-ref "#" 1))
-    (setv issue-id (get parts 0))
-    (setv run-id (if (> (len parts) 1) (get parts 1) ""))
-    (when-err [err (.stop_run self.api issue-id run-id)]
-      (.call_from_thread self self.notify
-        f"Failed to stop run: {err}" :severity "error"))
-    (.call_from_thread self self.refresh_data))
-  
-  ;; =========================================================================
-  ;; Diff action
-  ;; =========================================================================
-  
-  (defn action_diff [self]
-    (when (_input-has-focus self)
-      (return))
-    (when (not self.selected_run)
-      (.notify self "No run selected" :severity "warning")
-      (return))
-    (when (not self.selected_run.worktree_path)
-      (.notify self "Run has no worktree" :severity "warning")
-      (return))
-    (._do_diff self self.selected_run))
-  
-  (defn [(work :thread True)] _do_diff [self run]
-    (setv current-mux-type (detect_current_multiplexer))
-    (setv diff-cmd (+ (_build-orch-cmd self.config) ["diff" (.ref run)]))
-    (when current-mux-type
-      (setv current-mux (get_multiplexer current-mux-type))
-      (setv tab-name f"diff:{(.short_id run)}")
-      (when (.new_tab_with_command current-mux tab-name diff-cmd)
-        (.call_from_thread self self.notify f"Opened diff: {tab-name}")
-        (return))
-      (.call_from_thread self self.notify
-        "Failed to create tab, falling back to exit" :severity "warning"))
-    (.call_from_thread self self._exit_and_diff diff-cmd))
-  
-  (defn _exit_and_diff [self diff-cmd]
-    (.exit self)
-    (subprocess.run diff-cmd))
-  
-  ;; =========================================================================
-  ;; Kill session action - Uses with-fallback for error notification
-  ;; =========================================================================
-  
-  (defn action_kill_session [self]
-    (when (not self.selected_run)
-      (.notify self "No run selected" :severity "warning")
-      (return))
-    (setv session-name (get_session_name self.selected_run))
-    (when (not session-name)
-      (.notify self "Run has no session" :severity "warning")
-      (return))
-    (setv run self.selected_run)
-    (setv multiplexer (get_multiplexer_for_run run))
-    (setv run-ref (.ref run))
-    (defn on-confirm [confirmed]
-      (when confirmed
-        (._do_kill_session self session-name multiplexer run-ref)))
-    (.push_screen self (KillConfirmScreen run) on-confirm))
-  
-  (defn [(work :thread True)] _do_kill_session [self session-name multiplexer run-ref]
-    "Kill terminal session and mark run as canceled."
-    ;; Use with-fallback - critical operation needs user notification
-    (with-fallback "kill_session" None self
-      (setv session-existed (.kill_session multiplexer session-name))
-      (setv stop-cmd (+ (_build-orch-cmd self.config) ["stop" run-ref]))
-      (setv stop-result (subprocess.run stop-cmd :capture_output True))
-      (when (!= stop-result.returncode 0)
-        (setv stderr (.strip (.decode stop-result.stderr)))
-        (.call_from_thread self self.notify
-          (do (setv err-msg (or stderr "unknown error")) f"Failed to stop run: {err-msg}")
-          :severity "error")
-        (return))
-      (setv msg (if session-existed
-                    f"Killed session for {run-ref}"
-                    f"Session already dead; run {run-ref} marked canceled"))
-      (.call_from_thread self self.notify msg :severity "information")
-      (.call_from_thread self self.refresh_data)))
-  
-  ;; =========================================================================
-  ;; New run action
-  ;; =========================================================================
-  
-  (defn action_new_run [self]
-    (when (_input-has-focus self)
-      (return))
-    (when (not self.selected_issue)
-      (.notify self "No issue selected" :severity "warning")
-      (return))
-    (setv agents (_get-available-agents self.config))
-    (.push_screen self
-      (AgentSelectScreen self.selected_issue.id agents)
-      self._on_agent_selected))
-  
-  (defn _on_agent_selected [self agent]
-    (when (and agent self.selected_issue)
-      (setv issue-id self.selected_issue.id)
-      (.notify self f"Starting run for {issue-id} with {agent}...")
-      (._do_new_run self issue-id agent)))
-  
-  (defn [(work :thread True :exclusive True)] _do_new_run [self issue-id agent]
-    "Start a new run. Always logs on error."
-    (setv log (get-logger))
-    (if-ok [_response (.start_run self.api issue-id agent)]
-      (.call_from_thread self self.notify
-        f"Run started for {issue-id}" :severity "information")
-      (do
-        (setv error-msg (str _response))
-        (when (> (len error-msg) 200)
-          (setv error-msg (+ (cut error-msg 0 200) "...")))
-        ;; ALWAYS log on error
-        (.error log f"Failed to start run for {issue-id}: {error-msg}")
-        (.call_from_thread self self.notify
-          f"Failed to start run: {error-msg}" :severity "error")))
-    (.call_from_thread self self.refresh_data))
-  
-  ;; =========================================================================
-  ;; Open issue action
-  ;; =========================================================================
-  
-  (defn action_open_issue [self]
-    (when (_input-has-focus self)
-      (return))
-    (when (not self.selected_issue)
-      (.notify self "No issue selected" :severity "warning")
-      (return))
-    (setv #(file-path error) (_get-issue-file-path self.selected_issue))
-    (when (or error (is file-path None))
-      (.notify self (or error "Unknown error") :severity "error")
-      (return))
-    (setv #(cmd error) (_get-editor-command file-path))
-    (when (or error (is cmd None))
-      (.notify self (or error "Unknown error") :severity "error")
-      (return))
-    (setv current-mux-type (detect_current_multiplexer))
-    (when current-mux-type
-      (setv current-mux (get_multiplexer current-mux-type))
-      (setv tab-name f"edit-{self.selected_issue.id}")
-      (when (.new_tab_with_command current-mux tab-name cmd)
-        (.notify self f"Opened tab: {tab-name}")
-        (return))
-      (.notify self "Failed to create tab, falling back to suspend" :severity "warning"))
-    (with [(.suspend self)]
-      (subprocess.run cmd))
-    (.refresh_data self))
-  
-  ;; =========================================================================
-  ;; Select action (Enter key)
+  ;; Select action (Enter key) — dispatches to injected actions
   ;; =========================================================================
   
   (defn action_select [self]
@@ -725,42 +528,7 @@
       (and (= self.current_focus "runs") self.selected_run)
         (.action_attach self)
       (and (= self.current_focus "issues") self.selected_issue)
-        (.action_open_issue self)))
-  
-  ;; =========================================================================
-  ;; Close issue action
-  ;; =========================================================================
-  
-  (defn action_close_issue [self]
-    (when (_input-has-focus self)
-      (return))
-    (when (not self.selected_issue)
-      (.notify self "No issue selected" :severity "warning")
-      (return))
-    (setv issue-id self.selected_issue.id)
-    (setv issue-title self.selected_issue.title)
-    (defn on-confirm [confirmed]
-      (when confirmed
-        (._do_close_issue self issue-id)))
-    (.push_screen self
-      (CloseIssueConfirmScreen issue-id issue-title)
-      on-confirm))
-  
-  (defn [(work :thread True :exclusive True)] _do_close_issue [self issue-id]
-    "Close an issue. Always logs on error."
-    (setv log (get-logger))
-    (if-ok [_response (.close_issue self.api issue-id)]
-      (.call_from_thread self self.notify
-        f"Closed issue {issue-id}" :severity "information")
-      (do
-        (setv error-msg (str _response))
-        (when (> (len error-msg) 200)
-          (setv error-msg (+ (cut error-msg 0 200) "...")))
-        ;; ALWAYS log on error
-        (.error log f"Failed to close issue {issue-id}: {error-msg}")
-        (.call_from_thread self self.notify
-          f"Failed to close issue: {error-msg}" :severity "error")))
-    (.call_from_thread self self.refresh_data)))
+        (.action_open_issue self))))
 
 
 ;; ============================================================================

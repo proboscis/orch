@@ -75,7 +75,7 @@
   (print "\n=== strict-block demo ===")
   (print "Running critical operation:")
   (setv result (try-or "fallback-on-error"
-    (critical-operation {"key" "value"})))
+                (critical-operation {"key" "value"})))
   (print f"Result: {result}")
   
   (print "\n=== error-context demo ===")
