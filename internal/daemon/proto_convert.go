@@ -109,7 +109,8 @@ func modelRunToProto(run *model.Run) *orchpb.Run {
 	if run == nil {
 		return nil
 	}
-	return &orchpb.Run{
+
+	protoRun := &orchpb.Run{
 		IssueId:           run.IssueID,
 		RunId:             run.RunID,
 		Status:            modelStatusToProto(run.Status),
@@ -127,6 +128,8 @@ func modelRunToProto(run *model.Run) *orchpb.Run {
 		OpencodeSessionId: run.OpenCodeSessionID,
 		ContinuedFrom:     run.ContinuedFrom,
 	}
+
+	return protoRun
 }
 
 func protoRunToModel(run *orchpb.Run) *model.Run {
