@@ -1039,6 +1039,7 @@ type StartRunRequest struct {
 	Model         string                 `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
 	ModelVariant  string                 `protobuf:"bytes,5,opt,name=model_variant,json=modelVariant,proto3" json:"model_variant,omitempty"`
 	BaseBranch    string                 `protobuf:"bytes,6,opt,name=base_branch,json=baseBranch,proto3" json:"base_branch,omitempty"`
+	ProjectRoot   string                 `protobuf:"bytes,7,opt,name=project_root,json=projectRoot,proto3" json:"project_root,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1111,6 +1112,13 @@ func (x *StartRunRequest) GetModelVariant() string {
 func (x *StartRunRequest) GetBaseBranch() string {
 	if x != nil {
 		return x.BaseBranch
+	}
+	return ""
+}
+
+func (x *StartRunRequest) GetProjectRoot() string {
+	if x != nil {
+		return x.ProjectRoot
 	}
 	return ""
 }
@@ -4971,7 +4979,7 @@ const file_orch_proto_rawDesc = "" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\"X\n" +
 	"\x0eGetRunResponse\x12\x1e\n" +
 	"\x03run\x18\x01 \x01(\v2\f.orch.v1.RunR\x03run\x12&\n" +
-	"\x06events\x18\x02 \x03(\v2\x0e.orch.v1.EventR\x06events\"\xbf\x01\n" +
+	"\x06events\x18\x02 \x03(\v2\x0e.orch.v1.EventR\x06events\"\xe2\x01\n" +
 	"\x0fStartRunRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +
@@ -4980,7 +4988,8 @@ const file_orch_proto_rawDesc = "" +
 	"\x05model\x18\x04 \x01(\tR\x05model\x12#\n" +
 	"\rmodel_variant\x18\x05 \x01(\tR\fmodelVariant\x12\x1f\n" +
 	"\vbase_branch\x18\x06 \x01(\tR\n" +
-	"baseBranch\"\x89\x01\n" +
+	"baseBranch\x12!\n" +
+	"\fproject_root\x18\a \x01(\tR\vprojectRoot\"\x89\x01\n" +
 	"\x10StartRunResponse\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
 	"\x06branch\x18\x02 \x01(\tR\x06branch\x12#\n" +

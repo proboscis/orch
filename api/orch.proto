@@ -142,6 +142,7 @@ message StartRunRequest {
   string model = 4;
   string model_variant = 5;
   string base_branch = 6;
+  string project_root = 7;
 }
 
 message StartRunResponse {

@@ -95,7 +95,9 @@ CONTROL_PROMPT_INSTRUCTION = f"ultrathink Please read '{CONTROL_PROMPT_FILE}' in
 def _get_daemon_client(project_root: Path | None) -> "ProtoDaemonClient | None":
     try:
         config = Config.from_vault(project_root) if project_root else Config.load()
-        daemon = ProtoDaemonClient(config.socket_path, config.issues_root)
+        daemon = ProtoDaemonClient(
+            config.socket_path, config.issues_root, config.project_root
+        )
         if daemon.is_available():
             return daemon
     except Exception as e:

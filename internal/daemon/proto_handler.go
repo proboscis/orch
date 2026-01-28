@@ -286,11 +286,12 @@ func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Resp
 
 func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.Response {
 	jsonReq := SendRequest{
-		Type:       "start_run",
-		IssueID:    req.IssueId,
-		AgentType:  req.Agent,
-		Message:    req.Model,
-		IssuesRoot: req.IssuesRoot,
+		Type:        "start_run",
+		IssueID:     req.IssueId,
+		AgentType:   req.Agent,
+		Message:     req.Model,
+		IssuesRoot:  req.IssuesRoot,
+		ProjectRoot: req.ProjectRoot,
 	}
 
 	var buf jsonCapture

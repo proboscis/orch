@@ -152,13 +152,17 @@
 
 (defclass ProtoDaemonClient []
   
-  (defn __init__ [self socket-path [issues-root None] [timeout 30.0]]
+  (defn __init__ [self socket-path [issues-root None] [project-root None] [timeout 30.0]]
     (setv self.socket-path socket-path)
     (setv self.issues-root issues-root)
+    (setv self.project-root project-root)
     (setv self._timeout timeout))
   
   (defn _issues-root-str [self]
     (if self.issues-root (str self.issues-root) ""))
+  
+  (defn _project-root-str [self]
+    (if self.project-root (str self.project-root) ""))
   
   (defn is-available [self]
     (try-or False
@@ -298,7 +302,8 @@
       (set-> req.start_run.issues_root (._issues-root-str self)
              req.start_run.issue_id issue-id
              req.start_run.agent agent
-             req.start_run.model model)
+             req.start_run.model model
+             req.start_run.project_root (._project-root-str self))
       (setv sr (. (._send-ok self req) start_run))
       {"run_id" sr.run_id "branch" sr.branch 
        "worktree" sr.worktree_path "tmux_session" sr.tmux_session}))

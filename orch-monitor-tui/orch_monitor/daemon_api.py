@@ -275,7 +275,7 @@ class DaemonOrchAPI:
         self._issues_root = issues_root
         self._project_root = project_root or Path.cwd()
         self._base_branch = base_branch
-        self._daemon = ProtoDaemonClient(socket_path, issues_root)
+        self._daemon = ProtoDaemonClient(socket_path, issues_root, self._project_root)
         self._monitor_heartbeat: Optional[MonitorHeartbeat] = None
 
     def _build_orch_cmd(self) -> list[str]:
