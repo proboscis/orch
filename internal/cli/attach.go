@@ -63,6 +63,13 @@ func runAttach(refStr string, opts *attachOptions) error {
 		return err
 	}
 
+	if !resp.OK {
+		fmt.Fprintf(os.Stderr, "cannot attach: %s (session: %s, worktree: %s)\n",
+			resp.Error, resp.TmuxSession, resp.WorktreePath)
+		os.Exit(ExitRunNotFound)
+		return fmt.Errorf("cannot attach: %s", resp.Error)
+	}
+
 	if resp.Agent == string(agent.AgentOpenCode) {
 		return attachOpenCodeFromInfo(resp)
 	}
@@ -73,7 +80,6 @@ func runAttach(refStr string, opts *attachOptions) error {
 	}
 
 	cfg, _ := config.Load()
-	// Default to agent multiplexer, but use run's actual multiplexer if available
 	muxType, _ := multiplexer.ParseType(cfg.GetAgentMultiplexer())
 	if resp.Multiplexer != "" {
 		muxType, _ = multiplexer.ParseType(resp.Multiplexer)
@@ -93,25 +99,6 @@ func runAttach(refStr string, opts *attachOptions) error {
 		fmt.Fprintf(os.Stderr, "no multiplexer available: %v\n", err)
 		os.Exit(ExitTmuxError)
 		return err
-	}
-
-	if !mux.HasSession(sessionName) {
-		if resp.WorktreePath == "" {
-			fmt.Fprintf(os.Stderr, "session not found and no worktree path: %s\n", sessionName)
-			os.Exit(ExitRunNotFound)
-			return fmt.Errorf("session not found: %s", sessionName)
-		}
-
-		fmt.Fprintf(os.Stderr, "session not found, creating: %s\n", sessionName)
-		err := mux.NewSession(&multiplexer.SessionConfig{
-			SessionName: sessionName,
-			WorkDir:     resp.WorktreePath,
-		})
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to create session: %v\n", err)
-			os.Exit(ExitTmuxError)
-			return err
-		}
 	}
 
 	if mux.IsInsideSession() {

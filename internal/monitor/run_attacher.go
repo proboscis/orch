@@ -43,9 +43,6 @@ func (a *TmuxRunAttacher) Attach(m *Monitor, run *model.Run) error {
 	if err := m.ensureRunSession(w); err != nil {
 		return err
 	}
-	if !tmux.HasSession(sessionName) {
-		return fmt.Errorf("run session not found: %s", sessionName)
-	}
 
 	if err := m.ensurePaneLayout(); err != nil {
 		return err

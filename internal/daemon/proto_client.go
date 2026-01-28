@@ -463,17 +463,17 @@ func (c *ProtoClient) GetAttachInfo(issueID, runID, shortID string) (*GetAttachI
 		return nil, err
 	}
 
-	if !resp.Ok {
+	attachResp := resp.GetGetAttachInfo()
+	if !resp.Ok && attachResp == nil {
 		return nil, fmt.Errorf("daemon error: %s", resp.Error)
 	}
-
-	attachResp := resp.GetGetAttachInfo()
 	if attachResp == nil {
 		return nil, fmt.Errorf("unexpected response type")
 	}
 
 	return &GetAttachInfoResponse{
-		OK:           true,
+		OK:           resp.Ok,
+		Error:        resp.Error,
 		IssueID:      issueID,
 		RunID:        runID,
 		TmuxSession:  attachResp.SessionName,

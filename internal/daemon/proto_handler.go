@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/s22625/orch/api/orchpb"
-	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
@@ -192,22 +191,10 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 		return errorResponse("store_error")
 	}
 
-	computeAlive := func(run *model.Run) bool {
-		manager := agent.GetManager(run)
-		return manager.IsAlive(run)
-	}
-
 	protoRuns := make([]*orchpb.Run, len(runs))
 	for i, run := range runs {
 		pr := modelRunToProto(run)
-		if run.WorktreePath != "" && run.Branch != "" {
-			pr.BranchState = computeBranchState(run.WorktreePath, run.Branch, "main")
-		} else {
-			pr.BranchState = orchpb.BranchState_BRANCH_STATE_UNSPECIFIED
-		}
-		if computeAlive(run) {
-			pr.ElapsedDisplay = formatElapsedTime(run.StartedAt, run.UpdatedAt, run.Status)
-		}
+		enrichRunProto(pr, run)
 		protoRuns[i] = pr
 	}
 
@@ -220,6 +207,22 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 			},
 		},
 	}
+}
+
+func enrichRunProto(pr *orchpb.Run, run *model.Run) {
+	if run.WorktreePath != "" && run.Branch != "" {
+		pr.BranchState = computeBranchState(run.WorktreePath, run.Branch, "main")
+		stats := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
+		if stats.Additions > 0 || stats.Deletions > 0 || stats.FilesChanged > 0 {
+			pr.DiffStats = &orchpb.DiffStats{
+				Additions:    int32(stats.Additions),
+				Deletions:    int32(stats.Deletions),
+				FilesChanged: int32(stats.FilesChanged),
+				Files:        stats.Files,
+			}
+		}
+	}
+	pr.ElapsedDisplay = formatElapsedTime(run.StartedAt, run.UpdatedAt, run.Status)
 }
 
 func formatElapsedTime(startedAt, updatedAt time.Time, status model.Status) string {
@@ -265,11 +268,14 @@ func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Resp
 		protoEvents[i] = modelEventToProto(e)
 	}
 
+	pr := modelRunToProto(run)
+	enrichRunProto(pr, run)
+
 	return &orchpb.Response{
 		Ok: true,
 		Response: &orchpb.Response_GetRun{
 			GetRun: &orchpb.GetRunResponse{
-				Run:    modelRunToProto(run),
+				Run:    pr,
 				Events: protoEvents,
 			},
 		},
@@ -506,15 +512,35 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 		return errorResponse("not_found")
 	}
 
+	attachInfo := &orchpb.GetAttachInfoResponse{
+		Command:      []string{"orch", "attach", fmt.Sprintf("%s#%s", run.IssueID, run.RunID)},
+		Multiplexer:  multiplexerToProto(run.Multiplexer),
+		SessionName:  run.TmuxSession,
+		WorktreePath: run.WorktreePath,
+	}
+
+	sessionName := run.TmuxSession
+	if sessionName == "" {
+		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+		attachInfo.SessionName = sessionName
+	}
+
+	muxType, _ := multiplexer.ParseType(run.Multiplexer)
+	mux, _ := multiplexer.GetMultiplexer(muxType)
+	if mux != nil && !mux.HasSession(sessionName) {
+		return &orchpb.Response{
+			Ok:    false,
+			Error: "session_not_found",
+			Response: &orchpb.Response_GetAttachInfo{
+				GetAttachInfo: attachInfo,
+			},
+		}
+	}
+
 	return &orchpb.Response{
 		Ok: true,
 		Response: &orchpb.Response_GetAttachInfo{
-			GetAttachInfo: &orchpb.GetAttachInfoResponse{
-				Command:      []string{"orch", "attach", fmt.Sprintf("%s#%s", run.IssueID, run.RunID)},
-				Multiplexer:  multiplexerToProto(run.Multiplexer),
-				SessionName:  run.TmuxSession,
-				WorktreePath: run.WorktreePath,
-			},
+			GetAttachInfo: attachInfo,
 		},
 	}
 }
@@ -590,8 +616,8 @@ func (s *SocketServer) handleProtoGetDiffStats(req *orchpb.GetDiffStatsRequest) 
 				DiffStats: &orchpb.DiffStats{
 					Additions:    int32(stats.Additions),
 					Deletions:    int32(stats.Deletions),
-					FilesChanged: 0,
-					Files:        nil,
+					FilesChanged: int32(stats.FilesChanged),
+					Files:        stats.Files,
 				},
 			},
 		},
@@ -820,7 +846,9 @@ func (s *SocketServer) handleProtoGetRunByShortID(req *orchpb.GetRunByShortIDReq
 		return errorResponse("not_found")
 	}
 
-	protoRun := modelRunToProto(run)
+	pr := modelRunToProto(run)
+	enrichRunProto(pr, run)
+
 	protoEvents := make([]*orchpb.Event, len(run.Events))
 	for i, e := range run.Events {
 		protoEvents[i] = modelEventToProto(e)
@@ -830,7 +858,7 @@ func (s *SocketServer) handleProtoGetRunByShortID(req *orchpb.GetRunByShortIDReq
 		Ok: true,
 		Response: &orchpb.Response_GetRunByShortId{
 			GetRunByShortId: &orchpb.GetRunByShortIDResponse{
-				Run:    protoRun,
+				Run:    pr,
 				Events: protoEvents,
 			},
 		},
