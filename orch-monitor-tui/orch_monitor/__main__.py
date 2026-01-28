@@ -6,10 +6,37 @@ import os
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Protocol
 
 import hy  # noqa: F401 - Enable Hy imports
+from rich.console import Console
+
+# Shared console for startup output
+_console = Console(stderr=True)
+
+
+@contextmanager
+def _spinner_context(message: str, enabled: bool = True):
+    """Create a Rich spinner context if enabled, otherwise a no-op context.
+
+    Usage:
+        with _spinner_context("Loading...", enabled=True) as status:
+            do_slow_thing()
+            status.update("Still loading...")
+    """
+    if enabled:
+        with _console.status(message, spinner="dots") as status:
+            yield status
+    else:
+
+        class NoOpStatus:
+            def update(self, msg: str, spinner: str | None = None) -> None:
+                pass
+
+        yield NoOpStatus()
+
 
 from .app import IssuesDashboard, OrchMonitorApp, RunsDashboard, setup_logging
 from .config import Config
@@ -699,6 +726,7 @@ def launch_monitor_layout(
     new_control_agent: bool = False,
     multiplexer: MultiplexerType | None = None,
     log: callable = lambda msg: None,
+    show_spinner: bool = True,
 ) -> None:
     """Launch the orch-monitor layout in a terminal multiplexer.
 
@@ -711,52 +739,74 @@ def launch_monitor_layout(
                           If False, preserve control agent session on layout restart.
         multiplexer: Which multiplexer to use (auto-detected if None)
         log: Logging function
+        show_spinner: Whether to show visual spinner during slow operations
     """
     _setup_launcher_logging()
     _launcher_logger.info(
         f"launch_monitor_layout: project_root={project_root}, vault_path={vault_path}, new={new}, new_control_agent={new_control_agent}"
     )
 
-    if multiplexer is None:
-        _launcher_logger.info("detecting multiplexer...")
-        multiplexer = get_default_multiplexer_type()
-        _launcher_logger.info(f"detected multiplexer: {multiplexer.value}")
+    # Phase 1: Detect and validate multiplexer
+    with _spinner_context(
+        "Detecting terminal multiplexer...", enabled=show_spinner
+    ) as status:
+        if multiplexer is None:
+            _launcher_logger.info("detecting multiplexer...")
+            multiplexer = get_default_multiplexer_type()
+            _launcher_logger.info(f"detected multiplexer: {multiplexer.value}")
 
-    # Validate multiplexer config - reject zellij monitor + zellij agents
-    try:
-        validate_multiplexer_config(multiplexer)
-    except InvalidMultiplexerConfigError as e:
-        _launcher_logger.error(str(e))
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        # Validate multiplexer config - reject zellij monitor + zellij agents
+        try:
+            validate_multiplexer_config(multiplexer)
+        except InvalidMultiplexerConfigError as e:
+            _launcher_logger.error(str(e))
+            _console.print(f"[red]Error:[/red] {e}")
+            sys.exit(1)
 
-    launcher = get_layout_launcher(multiplexer)
-    cwd = os.getcwd()
-    session_name = get_session_name(project_root or vault_path)
-    _launcher_logger.info(f"session_name={session_name}, cwd={cwd}")
+        launcher = get_layout_launcher(multiplexer)
+        cwd = os.getcwd()
+        session_name = get_session_name(project_root or vault_path)
+        _launcher_logger.info(f"session_name={session_name}, cwd={cwd}")
 
-    _launcher_logger.info("checking has_session...")
-    if launcher.has_session(session_name):
+        # Phase 2: Check for existing session
+        status.update(f"Checking for existing {multiplexer.value} session...")
+        _launcher_logger.info("checking has_session...")
+        session_exists = launcher.has_session(session_name)
+
+    # Handle existing session (outside spinner context for clean output)
+    if session_exists:
         _launcher_logger.info("session exists")
         if new or new_control_agent:
-            _launcher_logger.info("killing existing session...")
-            launcher.kill_session(session_name)
-            _launcher_logger.info("session killed")
+            with _spinner_context("Restarting session...", enabled=show_spinner):
+                _launcher_logger.info("killing existing session...")
+                launcher.kill_session(session_name)
+                _launcher_logger.info("session killed")
         else:
+            if show_spinner:
+                _console.print(
+                    f"[dim]Attaching to existing session:[/dim] {session_name}"
+                )
             _launcher_logger.info("attaching to existing session...")
             launcher.attach_session(session_name)
             return
 
+    # Check for unhealthy Zellij
     if (
         multiplexer == MultiplexerType.ZELLIJ
         and hasattr(launcher, "_healthy")
         and launcher._healthy is False
     ):
         _launcher_logger.error("Zellij is unresponsive (likely stale processes)")
-        _launcher_logger.error("Fix: Run 'pkill -9 zellij' to kill stale processes")
-        _launcher_logger.error("Or use: orch-monitor --new -m tmux")
+        _console.print(
+            "[red]Error:[/red] Zellij is unresponsive (likely stale processes)"
+        )
+        _console.print("[dim]Fix: Run 'pkill -9 zellij' to kill stale processes[/dim]")
+        _console.print("[dim]Or use: orch-monitor --new -m tmux[/dim]")
         sys.exit(1)
 
+    # Phase 3: Launch layout
+    if show_spinner:
+        _console.print(f"[dim]Starting orch-monitor in {multiplexer.value}...[/dim]")
     _launcher_logger.info("launching layout...")
     launcher.launch_layout(
         session_name, project_root, vault_path, agent, cwd, new_control_agent
@@ -839,13 +889,17 @@ def main():
     vault_path = get_issues_root(args)
     project_root = get_project_root(args)
 
+    # Determine if we should show spinners (only for layout mode, not single panes)
+    show_spinner = not args.runs and not args.issues
+
     # Check configuration state before daemon - show onboarding if unconfigured
     from .config import detect_configuration_state
 
-    config_state = detect_configuration_state()
+    with _spinner_context("Checking configuration...", enabled=show_spinner):
+        config_state = detect_configuration_state()
 
     # Show onboarding if unconfigured (only for full layout mode, not single panes)
-    if not args.runs and not args.issues:
+    if show_spinner:
         if not config_state.has_orch_dir or not config_state.has_issues_path:
             from .app import OnboardingApp
 
@@ -861,7 +915,8 @@ def main():
                 vault_path = config_state.issues_path
 
     _log("ensuring daemon...")
-    success, error_msg = ensure_daemon(project_root, vault_path)
+    with _spinner_context("Connecting to daemon...", enabled=show_spinner):
+        success, error_msg = ensure_daemon(project_root, vault_path)
     if not success:
         print(f"Error: {error_msg}", file=sys.stderr)
         print("Try running 'orch repair' to fix.", file=sys.stderr)
