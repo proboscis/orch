@@ -428,33 +428,19 @@ class TmuxLayoutLauncher:
             )
             # Handle Result type
             if isinstance(result, Failure):
-                ok, command, prompt_file, port, session_id, resolved_agent, err = (
-                    False,
-                    None,
-                    None,
-                    0,
-                    None,
-                    None,
-                    str(result.failure()),
-                )
-            else:
-                ok, command, prompt_file, port, session_id, resolved_agent, err = (
-                    result.unwrap()
-                )
-            if ok and command:
-                agent_cmd = command
-                _launcher_logger.info(
-                    f"Using daemon launch: agent={resolved_agent}, command={command}, "
-                    f"port={port}, session={session_id}"
-                )
-            else:
                 _launcher_logger.warning(
-                    f"Failed to get control agent launch from daemon: {err}"
+                    f"Failed to get control agent launch from daemon: {result.failure()}"
                 )
-                # Fall back to simple command
                 if agent in ("opencode", "claude", "codex", "gemini"):
                     agent_cmd = f'{agent} --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
                     need_capture_session = True
+            else:
+                launch = result.unwrap()
+                agent_cmd = launch.command
+                _launcher_logger.info(
+                    f"Using daemon launch: agent={launch.agent}, command={launch.command}, "
+                    f"port={launch.port}, session={launch.session_id}"
+                )
         else:
             _launcher_logger.warning(
                 "Daemon not available, using fallback agent command"

@@ -11,20 +11,23 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from returns.result import Success, Failure
+
+from orch_monitor.types import ControlAgentLaunch
 
 
 def mock_daemon_client_with_launch(command, port=0, session_id=None, agent="opencode"):
     """Create a mock daemon client that returns a specific launch command."""
     mock_daemon = MagicMock()
     mock_daemon.is_available.return_value = True
-    mock_daemon.get_control_agent_launch.return_value = (
-        True,  # ok
-        command,  # command
-        "/tmp/ORCH_CONTROL_PROMPT.md",  # prompt_file
-        port,  # port
-        session_id,  # session_id
-        agent,  # agent
-        None,  # error
+    mock_daemon.get_control_agent_launch.return_value = Success(
+        ControlAgentLaunch(
+            command=command,
+            prompt_file="/tmp/ORCH_CONTROL_PROMPT.md",
+            port=port,
+            session_id=session_id or "",
+            agent=agent,
+        )
     )
     return mock_daemon
 
@@ -60,9 +63,10 @@ class TestOpenCodeSessionContinuation:
             agent="opencode",
         )
 
-        with patch("subprocess.run", side_effect=mock_run), \
-             patch("orch_monitor.__main__._get_daemon_client", return_value=mock_daemon):
-
+        with (
+            patch("subprocess.run", side_effect=mock_run),
+            patch("orch_monitor.__main__._get_daemon_client", return_value=mock_daemon),
+        ):
             launcher.launch_layout(
                 session_name="test-session",
                 project_root=Path("/tmp/test"),
@@ -81,8 +85,12 @@ class TestOpenCodeSessionContinuation:
 
         assert agent_cmd is not None, "Should have sent opencode command"
         cmd_str = " ".join(str(c) for c in agent_cmd)
-        assert "--session session-123" in cmd_str, f"Should use explicit --session flag, got: {cmd_str}"
-        assert "--continue" not in cmd_str, f"Should NOT use --continue flag, got: {cmd_str}"
+        assert "--session session-123" in cmd_str, (
+            f"Should use explicit --session flag, got: {cmd_str}"
+        )
+        assert "--continue" not in cmd_str, (
+            f"Should NOT use --continue flag, got: {cmd_str}"
+        )
 
     def test_tmux_launcher_uses_daemon_command_without_session(self):
         """When daemon returns a command without session ID, it should be used."""
@@ -105,9 +113,10 @@ class TestOpenCodeSessionContinuation:
             agent="opencode",
         )
 
-        with patch("subprocess.run", side_effect=mock_run), \
-             patch("orch_monitor.__main__._get_daemon_client", return_value=mock_daemon):
-
+        with (
+            patch("subprocess.run", side_effect=mock_run),
+            patch("orch_monitor.__main__._get_daemon_client", return_value=mock_daemon),
+        ):
             launcher.launch_layout(
                 session_name="test-session",
                 project_root=Path("/tmp/test"),
@@ -126,8 +135,12 @@ class TestOpenCodeSessionContinuation:
 
         assert agent_cmd is not None, "Should have sent opencode command"
         cmd_str = " ".join(str(c) for c in agent_cmd)
-        assert "opencode attach" in cmd_str, f"Should use attach command, got: {cmd_str}"
-        assert "--continue" not in cmd_str, f"Should NOT use --continue flag, got: {cmd_str}"
+        assert "opencode attach" in cmd_str, (
+            f"Should use attach command, got: {cmd_str}"
+        )
+        assert "--continue" not in cmd_str, (
+            f"Should NOT use --continue flag, got: {cmd_str}"
+        )
 
 
 class TestClaudeSessionContinuation:
@@ -154,9 +167,10 @@ class TestClaudeSessionContinuation:
             agent="claude",
         )
 
-        with patch("subprocess.run", side_effect=mock_run), \
-             patch("orch_monitor.__main__._get_daemon_client", return_value=mock_daemon):
-
+        with (
+            patch("subprocess.run", side_effect=mock_run),
+            patch("orch_monitor.__main__._get_daemon_client", return_value=mock_daemon),
+        ):
             launcher.launch_layout(
                 session_name="test-session",
                 project_root=Path("/tmp/test"),
@@ -175,8 +189,12 @@ class TestClaudeSessionContinuation:
 
         assert agent_cmd is not None, "Should have sent claude command"
         cmd_str = " ".join(str(c) for c in agent_cmd)
-        assert "--resume claude-session-456" in cmd_str, f"Should use --resume with session ID, got: {cmd_str}"
-        assert "--continue" not in cmd_str, f"Should NOT use --continue flag, got: {cmd_str}"
+        assert "--resume claude-session-456" in cmd_str, (
+            f"Should use --resume with session ID, got: {cmd_str}"
+        )
+        assert "--continue" not in cmd_str, (
+            f"Should NOT use --continue flag, got: {cmd_str}"
+        )
 
     def test_tmux_launcher_uses_daemon_fresh_claude_command(self):
         """When daemon returns a fresh claude command, it should be used."""
@@ -193,15 +211,16 @@ class TestClaudeSessionContinuation:
 
         # Daemon returns fresh claude command (no session)
         mock_daemon = mock_daemon_client_with_launch(
-            command='claude --dangerously-skip-permissions "ultrathink Please read \'ORCH_CONTROL_PROMPT.md\'"',
+            command="claude --dangerously-skip-permissions \"ultrathink Please read 'ORCH_CONTROL_PROMPT.md'\"",
             port=0,
             session_id=None,
             agent="claude",
         )
 
-        with patch("subprocess.run", side_effect=mock_run), \
-             patch("orch_monitor.__main__._get_daemon_client", return_value=mock_daemon):
-
+        with (
+            patch("subprocess.run", side_effect=mock_run),
+            patch("orch_monitor.__main__._get_daemon_client", return_value=mock_daemon),
+        ):
             launcher.launch_layout(
                 session_name="test-session",
                 project_root=Path("/tmp/test"),
@@ -220,7 +239,9 @@ class TestClaudeSessionContinuation:
 
         assert agent_cmd is not None, "Should have sent claude command"
         cmd_str = " ".join(str(c) for c in agent_cmd)
-        assert "--continue" not in cmd_str, f"Should NOT use --continue flag, got: {cmd_str}"
+        assert "--continue" not in cmd_str, (
+            f"Should NOT use --continue flag, got: {cmd_str}"
+        )
 
 
 class TestNewControlAgentFlag:
@@ -244,23 +265,28 @@ class TestNewControlAgentFlag:
         mock_daemon.is_available.return_value = True
         new_session_values = []
 
-        def capture_get_control_agent_launch(project_str, agent_type="", new_session=False):
+        def capture_get_control_agent_launch(
+            project_str, agent_type="", new_session=False
+        ):
             new_session_values.append(new_session)
-            return (
-                True,
-                "opencode attach http://127.0.0.1:4096",
-                "/tmp/ORCH_CONTROL_PROMPT.md",
-                4096,
-                None,
-                "opencode",
-                None,
+            return Success(
+                ControlAgentLaunch(
+                    command="opencode attach http://127.0.0.1:4096",
+                    prompt_file="/tmp/ORCH_CONTROL_PROMPT.md",
+                    port=4096,
+                    session_id="",
+                    agent="opencode",
+                )
             )
 
-        mock_daemon.get_control_agent_launch.side_effect = capture_get_control_agent_launch
+        mock_daemon.get_control_agent_launch.side_effect = (
+            capture_get_control_agent_launch
+        )
 
-        with patch("subprocess.run", side_effect=mock_run), \
-             patch("orch_monitor.__main__._get_daemon_client", return_value=mock_daemon):
-
+        with (
+            patch("subprocess.run", side_effect=mock_run),
+            patch("orch_monitor.__main__._get_daemon_client", return_value=mock_daemon),
+        ):
             launcher.launch_layout(
                 session_name="test-session",
                 project_root=Path("/tmp/test"),
@@ -270,8 +296,12 @@ class TestNewControlAgentFlag:
                 new_control_agent=True,  # Force new session
             )
 
-        assert len(new_session_values) == 1, "Should have called get_control_agent_launch once"
-        assert new_session_values[0] is True, "Should have passed new_session=True to daemon"
+        assert len(new_session_values) == 1, (
+            "Should have called get_control_agent_launch once"
+        )
+        assert new_session_values[0] is True, (
+            "Should have passed new_session=True to daemon"
+        )
 
         # Find the send-keys command for the agent pane
         agent_cmd = None
@@ -282,4 +312,6 @@ class TestNewControlAgentFlag:
 
         assert agent_cmd is not None, "Should have sent opencode command"
         cmd_str = " ".join(str(c) for c in agent_cmd)
-        assert "--continue" not in cmd_str, f"Should NOT use --continue flag, got: {cmd_str}"
+        assert "--continue" not in cmd_str, (
+            f"Should NOT use --continue flag, got: {cmd_str}"
+        )
