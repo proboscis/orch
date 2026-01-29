@@ -10,7 +10,7 @@ import (
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/daemon"
-	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
 
@@ -65,12 +65,14 @@ type sendResult struct {
 }
 
 func runSend(refStr, message string, opts *sendOptions) error {
-	st, err := getStore()
+	ctx := context.Background()
+
+	api, err := getAPI()
 	if err != nil {
 		return err
 	}
 
-	run, err := resolveRun(st, refStr)
+	run, err := resolveRunAPI(ctx, api, refStr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(ExitRunNotFound)
@@ -79,7 +81,6 @@ func runSend(refStr, message string, opts *sendOptions) error {
 
 	isOpenCode := run.Agent == string(agent.AgentOpenCode)
 
-	// Handle --dry-run validation
 	if opts.DryRun {
 		return validateSendConfig(run, isOpenCode)
 	}
@@ -89,8 +90,15 @@ func runSend(refStr, message string, opts *sendOptions) error {
 		return fmt.Errorf("project root required for send: %w", err)
 	}
 
+	issuesRoot, err := getIssuesRoot()
+	if err != nil {
+		return fmt.Errorf("issues root required for send: %w", err)
+	}
+
+	modelRun := apiRunToModelRun(run)
+
 	if isOpenCode && daemon.IsDaemonSocketAvailable(projectRoot) {
-		err = daemon.SendViaDaemon(projectRoot, st.RootPath(), run, message, opts.NoEnter)
+		err = daemon.SendViaDaemon(projectRoot, issuesRoot, modelRun, message, opts.NoEnter)
 		if err != nil {
 			if globalOpts.JSON {
 				result := map[string]interface{}{
@@ -107,13 +115,13 @@ func runSend(refStr, message string, opts *sendOptions) error {
 			return err
 		}
 	} else {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		sendCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
-		manager := agent.GetManager(run)
+		manager := agent.GetManager(modelRun)
 		sendOpts := &agent.SendOptions{NoEnter: opts.NoEnter}
 
-		err = manager.SendMessage(ctx, run, message, sendOpts)
+		err = manager.SendMessage(sendCtx, modelRun, message, sendOpts)
 		if err != nil {
 			exitCode := ExitAgentError
 			var sessionErr *agent.SessionNotFoundError
@@ -156,8 +164,8 @@ func runSend(refStr, message string, opts *sendOptions) error {
 
 	return nil
 }
-// validateSendConfig validates the run configuration for sending messages.
-func validateSendConfig(run *model.Run, isOpenCode bool) error {
+
+func validateSendConfig(run *orchapi.Run, isOpenCode bool) error {
 	if isOpenCode {
 		var issues []string
 

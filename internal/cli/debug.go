@@ -59,15 +59,18 @@ It shows:
 }
 
 func runDebug(ref string) error {
-	st, err := getStore()
+	ctx := context.Background()
+	api, err := getAPI()
 	if err != nil {
 		return err
 	}
 
-	run, err := resolveRun(st, ref)
+	apiRun, err := resolveRunAPI(ctx, api, ref)
 	if err != nil {
 		return fmt.Errorf("run not found: %w", err)
 	}
+
+	run := apiRunToModelRun(apiRun)
 
 	fmt.Printf("=== Debug Info for %s#%s ===\n\n", run.IssueID, run.RunID)
 

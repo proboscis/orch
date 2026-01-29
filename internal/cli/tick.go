@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,7 +9,7 @@ import (
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
-	"github.com/s22625/orch/internal/store"
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
 
@@ -65,35 +66,36 @@ type skippedRun struct {
 }
 
 func runTick(refStr string, opts *tickOptions) error {
-	st, err := getStore()
+	ctx := context.Background()
+
+	api, err := getAPI()
 	if err != nil {
 		return err
 	}
 
-	var runs []*model.Run
+	var runs []*orchapi.Run
 
 	if opts.All {
-		// Get all blocked runs
-		filter := &store.ListRunsFilter{
-			Status: []model.Status{model.StatusBlocked, model.StatusBlockedAPI},
+		filter := &orchapi.ListRunsFilter{
+			Status: []orchapi.RunStatus{orchapi.RunStatusBlocked, orchapi.RunStatusBlockedAPI},
 			Limit:  opts.Max,
 		}
-		runs, err = st.ListRuns(filter)
+		listResult, err := api.ListRuns(ctx, filter)
 		if err != nil {
 			return err
 		}
+		runs = listResult.Runs
 	} else {
 		if refStr == "" {
 			return fmt.Errorf("RUN_REF required (or use --all)")
 		}
 
-		// Resolve by short ID or run ref
-		run, err := resolveRun(st, refStr)
+		run, err := resolveRunAPI(ctx, api, refStr)
 		if err != nil {
 			os.Exit(ExitRunNotFound)
 			return err
 		}
-		runs = []*model.Run{run}
+		runs = []*orchapi.Run{run}
 	}
 
 	result := &tickResult{
@@ -103,8 +105,7 @@ func runTick(refStr string, opts *tickOptions) error {
 	}
 
 	for _, run := range runs {
-		// Check if run is blocked (when processing single run)
-		if opts.OnlyBlocked && run.Status != model.StatusBlocked && run.Status != model.StatusBlockedAPI {
+		if opts.OnlyBlocked && run.Status != orchapi.RunStatusBlocked && run.Status != orchapi.RunStatusBlockedAPI {
 			result.Skipped = append(result.Skipped, skippedRun{
 				IssueID: run.IssueID,
 				RunID:   run.RunID,
@@ -113,8 +114,7 @@ func runTick(refStr string, opts *tickOptions) error {
 			continue
 		}
 
-		// Resume the run
-		if err := resumeRun(st, run, opts.Agent); err != nil {
+		if err := resumeRun(ctx, api, run, opts.Agent); err != nil {
 			result.Skipped = append(result.Skipped, skippedRun{
 				IssueID: run.IssueID,
 				RunID:   run.RunID,
@@ -126,11 +126,10 @@ func runTick(refStr string, opts *tickOptions) error {
 		result.Processed = append(result.Processed, tickedRun{
 			IssueID: run.IssueID,
 			RunID:   run.RunID,
-			Status:  string(model.StatusRunning),
+			Status:  string(orchapi.RunStatusRunning),
 		})
 	}
 
-	// Output
 	if globalOpts.JSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -160,10 +159,9 @@ func runTick(refStr string, opts *tickOptions) error {
 	return nil
 }
 
-func resumeRun(st store.Store, run *model.Run, agentType string) error {
-	// Determine agent type
+func resumeRun(ctx context.Context, api orchapi.OrchAPI, run *orchapi.Run, agentType string) error {
 	if agentType == "" {
-		agentType = "claude" // default
+		agentType = "claude"
 	}
 
 	aType, err := agent.ParseAgentType(agentType)
@@ -176,19 +174,25 @@ func resumeRun(st store.Store, run *model.Run, agentType string) error {
 		return err
 	}
 
-	// Build launch config for resumption
-	issue, err := st.ResolveIssue(run.IssueID)
+	issue, err := api.GetIssue(ctx, run.IssueID)
 	if err != nil {
 		return err
 	}
+
+	issuesRoot, err := getIssuesRoot()
+	if err != nil {
+		return err
+	}
+
+	runPath := fmt.Sprintf("%s/runs/%s/%s.md", issuesRoot, run.IssueID, run.RunID)
 
 	launchCfg := &agent.LaunchConfig{
 		Type:        aType,
 		WorkDir:     run.WorktreePath,
 		IssueID:     run.IssueID,
 		RunID:       run.RunID,
-		RunPath:     run.Path,
-		IssuesRoot:  st.RootPath(),
+		RunPath:     runPath,
+		IssuesRoot:  issuesRoot,
 		Branch:      run.Branch,
 		Prompt:      buildResumePrompt(issue, run),
 		Resume:      true,
@@ -221,18 +225,20 @@ func resumeRun(st store.Store, run *model.Run, agentType string) error {
 		return fmt.Errorf("failed to resume agent: %w", err)
 	}
 
-	// Update status
-	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusRunning))
+	api.AppendEvent(ctx, run.Ref(), &orchapi.Event{
+		Type: "status",
+		Name: string(orchapi.RunStatusRunning),
+	})
 
 	return nil
 }
 
-func buildResumePrompt(issue *model.Issue, run *model.Run) string {
+func buildResumePrompt(issue *orchapi.Issue, run *orchapi.Run) string {
 	prompt := fmt.Sprintf("Resuming work on issue: %s\n\n", issue.ID)
 	if issue.Title != "" {
 		prompt += fmt.Sprintf("Title: %s\n\n", issue.Title)
 	}
-	if run.Status == model.StatusBlockedAPI {
+	if run.Status == orchapi.RunStatusBlockedAPI {
 		prompt += "The previous session was blocked by API usage limits.\n"
 	} else {
 		prompt += "The previous session was blocked.\n"

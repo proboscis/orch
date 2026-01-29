@@ -39,6 +39,8 @@ func TestNewCaptureAllCmd(t *testing.T) {
 
 func TestRunCaptureAllJSON(t *testing.T) {
 	resetGlobalOpts(t)
+	testBypassDaemon = true
+	t.Cleanup(func() { testBypassDaemon = false })
 
 	vault := t.TempDir()
 	globalOpts.IssuesRoot = vault
@@ -171,6 +173,8 @@ func TestRunCaptureAllJSON(t *testing.T) {
 
 func TestRunCaptureAllPlain(t *testing.T) {
 	resetGlobalOpts(t)
+	testBypassDaemon = true
+	t.Cleanup(func() { testBypassDaemon = false })
 
 	vault := t.TempDir()
 	globalOpts.IssuesRoot = vault

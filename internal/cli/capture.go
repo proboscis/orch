@@ -10,6 +10,7 @@ import (
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
 
@@ -76,13 +77,14 @@ type openCodeCaptureMessage struct {
 }
 
 func runCapture(refStr string, opts *captureOptions) error {
-	st, err := getStore()
+	ctx := context.Background()
+
+	api, err := getAPI()
 	if err != nil {
 		return err
 	}
 
-	// Resolve the run
-	run, err := resolveRun(st, refStr)
+	run, err := resolveRunAPI(ctx, api, refStr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(ExitRunNotFound)
@@ -98,7 +100,7 @@ func runCapture(refStr string, opts *captureOptions) error {
 	return captureTmux(run, opts)
 }
 
-func captureOpenCode(run *model.Run, opts *captureOptions) error {
+func captureOpenCode(run *orchapi.Run, opts *captureOptions) error {
 	ctx := context.Background()
 
 	// Check if we have required OpenCode fields
@@ -214,13 +216,12 @@ func outputCaptureError(err error) error {
 	return err
 }
 
-func captureTmux(run *model.Run, opts *captureOptions) error {
+func captureTmux(run *orchapi.Run, opts *captureOptions) error {
 	var mux multiplexer.Multiplexer
 	var err error
 
-	// Use the run's stored multiplexer type if available
 	if run.Multiplexer != "" {
-		muxType, parseErr := multiplexer.ParseType(run.Multiplexer)
+		muxType, parseErr := multiplexer.ParseType(string(run.Multiplexer))
 		if parseErr == nil && muxType != multiplexer.TypeAuto {
 			mux, err = multiplexer.GetMultiplexer(muxType)
 		}

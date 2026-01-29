@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/s22625/orch/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -63,6 +65,52 @@ type captureAllItem struct {
 }
 
 func runCaptureAll(opts *captureAllOptions) error {
+	if testBypassDaemon {
+		return runCaptureAllDirect(opts)
+	}
+
+	ctx := context.Background()
+	api, err := getAPI()
+	if err != nil {
+		return err
+	}
+
+	result, err := api.ListRuns(ctx, &orchapi.ListRunsFilter{
+		Status: captureAllStatusesAPI(),
+	})
+	if err != nil {
+		return err
+	}
+
+	if len(result.Runs) == 0 {
+		if globalOpts.JSON {
+			return outputCaptureAllJSON([]captureAllItem{}, true)
+		}
+		if !globalOpts.Quiet {
+			fmt.Println("No running agents found")
+		}
+		return nil
+	}
+
+	items := make([]captureAllItem, 0, len(result.Runs))
+	overallOK := true
+	for _, run := range result.Runs {
+		item := captureAllItemForRun(run, opts.Lines)
+		if !item.OK {
+			overallOK = false
+		}
+		items = append(items, item)
+	}
+
+	if globalOpts.JSON {
+		return outputCaptureAllJSON(items, overallOK)
+	}
+
+	outputCaptureAllPlain(items)
+	return nil
+}
+
+func runCaptureAllDirect(opts *captureAllOptions) error {
 	st, err := getStore()
 	if err != nil {
 		return err
@@ -88,7 +136,7 @@ func runCaptureAll(opts *captureAllOptions) error {
 	items := make([]captureAllItem, 0, len(runs))
 	overallOK := true
 	for _, run := range runs {
-		item := captureAllItemForRun(run, opts.Lines)
+		item := captureAllItemForRunModel(run, opts.Lines)
 		if !item.OK {
 			overallOK = false
 		}
@@ -114,7 +162,47 @@ func captureAllStatuses() []model.Status {
 	}
 }
 
-func captureAllItemForRun(run *model.Run, lines int) captureAllItem {
+func captureAllStatusesAPI() []orchapi.RunStatus {
+	return []orchapi.RunStatus{
+		orchapi.RunStatusRunning,
+		orchapi.RunStatusBooting,
+		orchapi.RunStatusBlocked,
+		orchapi.RunStatusBlockedAPI,
+		orchapi.RunStatusPROpen,
+	}
+}
+
+func captureAllItemForRun(run *orchapi.Run, lines int) captureAllItem {
+	sessionName := run.TmuxSession
+	if sessionName == "" {
+		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+	}
+
+	item := captureAllItem{
+		IssueID:     run.IssueID,
+		RunID:       run.RunID,
+		Status:      string(run.Status),
+		TmuxSession: sessionName,
+		Lines:       lines,
+	}
+
+	if !captureAllHasSession(sessionName) {
+		item.Error = fmt.Sprintf("tmux session %q not found (run may not be active)", sessionName)
+		return item
+	}
+
+	content, err := captureAllCapturePane(sessionName, lines)
+	if err != nil {
+		item.Error = fmt.Sprintf("failed to capture pane: %v", err)
+		return item
+	}
+
+	item.OK = true
+	item.Content = content
+	return item
+}
+
+func captureAllItemForRunModel(run *model.Run, lines int) captureAllItem {
 	sessionName := run.TmuxSession
 	if sessionName == "" {
 		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)

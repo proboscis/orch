@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -77,13 +78,14 @@ Examples:
 }
 
 func runExec(refStr string, cmdArgs []string, opts *execOptions) error {
-	st, err := getStore()
+	ctx := context.Background()
+
+	api, err := getAPI()
 	if err != nil {
 		return err
 	}
 
-	// Resolve run by short ID or run ref
-	run, err := resolveRun(st, refStr)
+	run, err := resolveRunAPI(ctx, api, refStr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "run not found: %s\n", refStr)
 		os.Exit(ExitRunNotFound)
@@ -123,12 +125,12 @@ func runExec(refStr string, cmdArgs []string, opts *execOptions) error {
 	// Build environment
 	env := os.Environ()
 
-	// Add ORCH_* variables unless disabled
 	if !opts.NoOrchEnv {
+		runPath := filepath.Join(issuesRoot, "runs", run.IssueID, run.RunID+".md")
 		orchEnv := []string{
 			fmt.Sprintf("ORCH_ISSUE_ID=%s", run.IssueID),
 			fmt.Sprintf("ORCH_RUN_ID=%s", run.RunID),
-			fmt.Sprintf("ORCH_RUN_PATH=%s", run.Path),
+			fmt.Sprintf("ORCH_RUN_PATH=%s", runPath),
 			fmt.Sprintf("ORCH_WORKTREE_PATH=%s", worktreePath),
 			fmt.Sprintf("ORCH_BRANCH=%s", run.Branch),
 			fmt.Sprintf("ORCH_VAULT=%s", issuesRoot),

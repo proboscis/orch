@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,7 +10,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
 
@@ -42,58 +43,58 @@ Examples:
 }
 
 func runOpen(refStr string, opts *openOptions) error {
-	st, err := getStore()
+	ctx := context.Background()
+
+	api, err := getAPI()
+	if err != nil {
+		return err
+	}
+
+	issuesRoot, err := getIssuesRoot()
 	if err != nil {
 		return err
 	}
 
 	var path string
 
-	// Try as short ID prefix first (2-6 hex chars)
-	if shortIDRegex.MatchString(refStr) {
-		run, err := st.GetRunByShortID(refStr)
+	ref, err := orchapi.ParseRunRef(refStr)
+	if err != nil {
+		return err
+	}
+
+	if ref.IsShortID() {
+		run, err := api.ResolveRun(ctx, ref)
 		if err == nil {
-			path = run.Path
+			path = filepath.Join(issuesRoot, "runs", run.IssueID, run.RunID+".md")
 		} else if len(refStr) == 6 {
-			// For full 6-char short ID that failed, report the error
 			return err
 		}
-		// For shorter prefixes, fall through to try as regular ref
 	}
 
 	if path == "" {
-		// Try to parse as run ref
-		ref, err := model.ParseRunRef(refStr)
-		if err != nil {
-			return err
-		}
-
 		if ref.IsLatest() {
-			// Could be either issue or latest run
-			// First try issue
-			issue, err := st.ResolveIssue(ref.IssueID)
-			if err == nil {
+			issue, err := api.GetIssue(ctx, ref.IssueID)
+			if err == nil && issue.Path != "" {
 				path = issue.Path
+			} else if err == nil {
+				path = filepath.Join(issuesRoot, issue.ID+".md")
 			} else {
-				// Try as latest run
-				run, err := st.GetLatestRun(ref.IssueID)
+				run, err := api.GetLatestRun(ctx, ref.IssueID)
 				if err != nil {
 					return fmt.Errorf("not found: %s", refStr)
 				}
-				path = run.Path
+				path = filepath.Join(issuesRoot, "runs", run.IssueID, run.RunID+".md")
 			}
 		} else {
-			// Specific run
-			run, err := st.GetRun(ref)
+			run, err := api.GetRun(ctx, ref.IssueID, ref.RunID)
 			if err != nil {
 				os.Exit(ExitRunNotFound)
 				return err
 			}
-			path = run.Path
+			path = filepath.Join(issuesRoot, "runs", run.IssueID, run.RunID+".md")
 		}
 	}
 
-	// Output
 	if globalOpts.JSON {
 		output := struct {
 			OK   bool   `json:"ok"`
@@ -112,8 +113,7 @@ func runOpen(refStr string, opts *openOptions) error {
 		return nil
 	}
 
-	// Open the file
-	return openFile(path, opts.App, st.RootPath())
+	return openFile(path, opts.App, issuesRoot)
 }
 
 func openFile(path, app, issuesRoot string) error {

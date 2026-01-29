@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
 
@@ -37,14 +39,15 @@ RUN_REF can be ISSUE_ID#RUN_ID or just ISSUE_ID (for latest run).`,
 }
 
 func runShow(refStr string, opts *showOptions) error {
-	st, err := getStore()
+	api, err := getAPI()
 	if err != nil {
 		return err
 	}
 
-	// Resolve by short ID or run ref
-	run, err := resolveRun(st, refStr)
+	ctx := context.Background()
+	run, err := resolveRunAPI(ctx, api, refStr)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "run not found: %s\n", refStr)
 		os.Exit(ExitRunNotFound)
 		return err
 	}
@@ -56,7 +59,7 @@ func runShow(refStr string, opts *showOptions) error {
 	return showHuman(run, opts)
 }
 
-func showJSON(run *model.Run, opts *showOptions) error {
+func showJSON(run *orchapi.Run, opts *showOptions) error {
 	type eventOutput struct {
 		Timestamp string            `json:"timestamp"`
 		Type      string            `json:"type"`
@@ -87,7 +90,7 @@ func showJSON(run *model.Run, opts *showOptions) error {
 		Branch:        run.Branch,
 		WorktreePath:  run.WorktreePath,
 		TmuxSession:   run.TmuxSession,
-		Multiplexer:   run.Multiplexer,
+		Multiplexer:   string(run.Multiplexer),
 		PRUrl:         run.PRUrl,
 	}
 
@@ -111,10 +114,10 @@ func showJSON(run *model.Run, opts *showOptions) error {
 	return enc.Encode(output)
 }
 
-func showHuman(run *model.Run, opts *showOptions) error {
+func showHuman(run *orchapi.Run, opts *showOptions) error {
 	// Header
 	fmt.Printf("Run: %s#%s\n", run.IssueID, run.RunID)
-	fmt.Printf("Status: %s", colorStatus(run.Status))
+	fmt.Printf("Status: %s", colorStatus(model.Status(run.Status)))
 	fmt.Println()
 	fmt.Println(strings.Repeat("-", 60))
 

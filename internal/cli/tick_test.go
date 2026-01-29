@@ -4,12 +4,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/orchapi"
 )
 
 func TestBuildResumePrompt(t *testing.T) {
-	issue := &model.Issue{ID: "orch-5", Title: "Resume"}
-	run := &model.Run{IssueID: "orch-5", RunID: "run-1"}
+	issue := &orchapi.Issue{ID: "orch-5", Title: "Resume"}
+	run := &orchapi.Run{IssueID: "orch-5", RunID: "run-1"}
 
 	prompt := buildResumePrompt(issue, run)
 	if !strings.Contains(prompt, "Resuming work on issue: orch-5") {

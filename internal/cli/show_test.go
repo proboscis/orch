@@ -5,29 +5,29 @@ import (
 	"testing"
 	"time"
 
-	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/orchapi"
 )
 
 func TestShowJSONIncludesEvents(t *testing.T) {
-	run := &model.Run{
+	run := &orchapi.Run{
 		IssueID:      "issue-1",
 		RunID:        "run-1",
-		Status:       model.StatusRunning,
+		Status:       orchapi.RunStatusRunning,
 		Branch:       "branch",
 		WorktreePath: "/tmp/worktree",
 		TmuxSession:  "session",
 		PRUrl:        "http://example.com/pr/1",
 	}
 
-	run.Events = []*model.Event{
+	run.Events = []*orchapi.Event{
 		{
 			Timestamp: time.Date(2025, 1, 1, 1, 0, 0, 0, time.UTC),
-			Type:      model.EventTypeStatus,
-			Name:      string(model.StatusRunning),
+			Type:      "status",
+			Name:      "running",
 		},
 		{
 			Timestamp: time.Date(2025, 1, 1, 1, 1, 0, 0, time.UTC),
-			Type:      model.EventTypePhase,
+			Type:      "phase",
 			Name:      "implement",
 		},
 	}

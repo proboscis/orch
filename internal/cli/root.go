@@ -232,3 +232,27 @@ func resolveRunAPI(ctx context.Context, api orchapi.OrchAPI, refStr string) (*or
 	}
 	return api.ResolveRun(ctx, ref)
 }
+
+func apiRunToModelRun(r *orchapi.Run) *model.Run {
+	if r == nil {
+		return nil
+	}
+	return &model.Run{
+		IssueID:           r.IssueID,
+		RunID:             r.RunID,
+		Status:            model.Status(r.Status),
+		Agent:             r.Agent,
+		Model:             r.Model,
+		ModelVariant:      r.ModelVariant,
+		Branch:            r.Branch,
+		WorktreePath:      r.WorktreePath,
+		TmuxSession:       r.TmuxSession,
+		Multiplexer:       string(r.Multiplexer),
+		PRUrl:             r.PRUrl,
+		ServerPort:        r.ServerPort,
+		OpenCodeSessionID: r.OpenCodeSessionID,
+		ContinuedFrom:     r.ContinuedFrom,
+		StartedAt:         r.StartedAt,
+		UpdatedAt:         r.UpdatedAt,
+	}
+}
