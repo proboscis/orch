@@ -17,6 +17,7 @@ import (
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
 
@@ -107,7 +108,13 @@ func runRun(issueID string, opts *runOptions) error {
 		issueID = model.NormalizeGitHubIssueID(issueID)
 	}
 
-	st, err := getStore()
+	ctx := context.Background()
+	api, err := getAPI()
+	if err != nil {
+		return exitWithCode(err, ExitInternalError)
+	}
+
+	issuesRoot, err := getIssuesRoot()
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)
 	}
@@ -116,35 +123,26 @@ func runRun(issueID string, opts *runOptions) error {
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)
 	}
-	var issue *model.Issue
-	client, daemonErr := requireDaemon()
-	if daemonErr == nil {
-		resp, err := client.GetIssue(issueID)
-		if err == nil && resp.Issue != nil {
-			issue = &model.Issue{
-				ID:      resp.Issue.ID,
-				Title:   resp.Issue.Title,
-				Summary: resp.Issue.Summary,
-				Status:  model.IssueStatus(resp.Issue.Status),
-				Body:    resp.Issue.Body,
-				Path:    resp.Issue.URI,
-			}
-		}
+
+	apiIssue, err := api.GetIssue(ctx, issueID)
+	if err != nil {
+		return exitWithCode(fmt.Errorf("issue not found: %s", issueID), ExitIssueNotFound)
 	}
-	if issue == nil {
-		issue, err = st.ResolveIssue(issueID)
-		if err != nil {
-			return exitWithCode(fmt.Errorf("issue not found: %s", issueID), ExitIssueNotFound)
-		}
+	issue := &model.Issue{
+		ID:      apiIssue.ID,
+		Title:   apiIssue.Title,
+		Summary: apiIssue.Summary,
+		Status:  model.IssueStatus(apiIssue.Status),
+		Body:    apiIssue.Body,
+		Path:    apiIssue.Path,
 	}
 
 	// Determine run ID
 	runID := opts.RunID
 	if runID == "" {
 		if opts.Reuse {
-			// Try to get latest run
-			latestRun, err := st.GetLatestRun(issueID)
-			if err == nil && (latestRun.Status == model.StatusBlocked || latestRun.Status == model.StatusBlockedAPI) {
+			latestRun, err := api.GetLatestRun(ctx, issueID)
+			if err == nil && (latestRun.Status == orchapi.RunStatusBlocked || latestRun.Status == orchapi.RunStatusBlockedAPI) {
 				runID = latestRun.RunID
 			}
 		}
@@ -242,17 +240,25 @@ func runRun(issueID string, opts *runOptions) error {
 	if opts.ModelVariant != "" {
 		metadata["model_variant"] = opts.ModelVariant
 	}
-	run, err := st.CreateRun(issueID, runID, metadata)
+	createResult, err := api.CreateRun(ctx, &orchapi.CreateRunRequest{
+		IssueID:  issueID,
+		RunID:    runID,
+		Metadata: metadata,
+	})
 	if err != nil {
 		return exitWithCode(fmt.Errorf("failed to create run: %w", err), ExitInternalError)
 	}
-	result.RunPath = run.Path
+	result.RunPath = createResult.Path
 
-	if err := appendStatusEventViaDaemon(repoRoot, st, run, model.StatusQueued); err != nil {
+	// Create a Run object for status events
+	run := &model.Run{
+		IssueID: issueID,
+		RunID:   runID,
+	}
+	if err := appendStatusEventViaDaemon(ctx, api, run, model.StatusQueued); err != nil {
 		return exitWithCode(err, ExitInternalError)
 	}
 
-	// Create worktree
 	worktreeResult, err := git.CreateWorktree(&git.WorktreeConfig{
 		RepoRoot:    repoRoot,
 		WorktreeDir: opts.WorktreeDir,
@@ -264,20 +270,24 @@ func runRun(issueID string, opts *runOptions) error {
 	})
 	if err != nil {
 		err = fmt.Errorf("failed to create worktree: %w", err)
-		setRunFailed(repoRoot, st, run, err)
+		setRunFailed(ctx, api, run, err)
 		return exitWithCode(err, ExitWorktreeError)
 	}
 
 	result.WorktreePath = worktreeResult.WorktreePath
 	result.Branch = worktreeResult.Branch
 
-	// Record artifacts
-	st.AppendEvent(run.Ref(), model.NewArtifactEvent("worktree", map[string]string{
-		"path": worktreeResult.WorktreePath,
-	}))
-	st.AppendEvent(run.Ref(), model.NewArtifactEvent("branch", map[string]string{
-		"name": worktreeResult.Branch,
-	}))
+	ref := orchapi.RunRef{IssueID: issueID, RunID: runID}
+	api.AppendEvent(ctx, ref, &orchapi.Event{
+		Type:  "artifact",
+		Name:  "worktree",
+		Attrs: map[string]string{"path": worktreeResult.WorktreePath},
+	})
+	api.AppendEvent(ctx, ref, &orchapi.Event{
+		Type:  "artifact",
+		Name:  "branch",
+		Attrs: map[string]string{"name": worktreeResult.Branch},
+	})
 
 	// Get agent adapter
 	agentType, err := agent.ParseAgentType(opts.Agent)
@@ -294,18 +304,17 @@ func runRun(issueID string, opts *runOptions) error {
 		return exitWithCode(fmt.Errorf("agent %s is not available", opts.Agent), ExitAgentError)
 	}
 
-	// Build agent launch config
 	promptOpts := &promptOptions{
 		NoPR:           opts.NoPR,
 		PromptTemplate: opts.PromptTemplate,
 		BaseBranch:     opts.BaseBranch,
 		PRTargetBranch: opts.PRTargetBranch,
-		IssuesRoot:     st.RootPath(),
+		IssuesRoot:     issuesRoot,
 		IssuePath:      issue.Path,
 	}
 	agentPrompt := buildAgentPrompt(issue, promptOpts)
 	promptPath := filepath.Join(worktreeResult.WorktreePath, promptFileName)
-	if err := os.WriteFile(promptPath, []byte(agentPrompt), 0644); err != nil {
+	if err := api.WriteFile(ctx, promptPath, []byte(agentPrompt), 0644); err != nil {
 		return exitWithCode(fmt.Errorf("failed to write prompt file: %w", err), ExitInternalError)
 	}
 
@@ -318,8 +327,8 @@ func runRun(issueID string, opts *runOptions) error {
 		WorkDir:      worktreeResult.WorktreePath,
 		IssueID:      issueID,
 		RunID:        runID,
-		RunPath:      run.Path,
-		IssuesRoot:   st.RootPath(),
+		RunPath:      createResult.Path,
+		IssuesRoot:   issuesRoot,
 		Branch:       worktreeResult.Branch,
 		Prompt:       initialPrompt,
 		Profile:      opts.AgentProfile,
@@ -334,7 +343,7 @@ func runRun(issueID string, opts *runOptions) error {
 		return exitWithCode(err, ExitAgentError)
 	}
 
-	appendStatusEventViaDaemon(repoRoot, st, run, model.StatusBooting)
+	appendStatusEventViaDaemon(ctx, api, run, model.StatusBooting)
 
 	debug := NewDebugLogger()
 
@@ -360,18 +369,17 @@ func runRun(issueID string, opts *runOptions) error {
 
 		serverAlreadyRunning := false
 		if adapter.PromptInjection() == agent.InjectionHTTP {
-			// OpenCode servers are managed exclusively by the daemon
 			daemonClient := daemon.NewProtoClient(repoRoot)
 			if !daemonClient.IsAvailable() {
 				err := fmt.Errorf("daemon not running; opencode agent requires daemon for server management (run 'orch daemon start')")
-				setRunFailed(repoRoot, st, run, err)
+				setRunFailed(ctx, api, run, err)
 				return exitWithCode(err, ExitAgentError)
 			}
 
 			resp, err := daemonClient.GetOpenCodeServer(worktreeResult.WorktreePath)
 			if err != nil {
 				err = fmt.Errorf("failed to get opencode server from daemon: %w", err)
-				setRunFailed(repoRoot, st, run, err)
+				setRunFailed(ctx, api, run, err)
 				return exitWithCode(err, ExitAgentError)
 			}
 
@@ -394,14 +402,15 @@ func runRun(issueID string, opts *runOptions) error {
 			})
 			if err != nil {
 				err = fmt.Errorf("failed to create %s session: %w", mux.Type(), err)
-				setRunFailed(repoRoot, st, run, err)
+				setRunFailed(ctx, api, run, err)
 				return exitWithCode(err, ExitTmuxError)
 			}
 
-			st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", map[string]string{
-				"name":        tmuxSession,
-				"multiplexer": string(mux.Type()),
-			}))
+			api.AppendEvent(ctx, ref, &orchapi.Event{
+				Type:  "artifact",
+				Name:  "session",
+				Attrs: map[string]string{"name": tmuxSession, "multiplexer": string(mux.Type())},
+			})
 		}
 
 		switch adapter.PromptInjection() {
@@ -410,21 +419,21 @@ func runRun(issueID string, opts *runOptions) error {
 				if pattern := adapter.ReadyPattern(); pattern != "" {
 					if err := mux.WaitForReady(tmuxSession, pattern, 30*time.Second); err != nil {
 						err = fmt.Errorf("agent did not become ready: %w", err)
-						setRunFailed(repoRoot, st, run, err)
+						setRunFailed(ctx, api, run, err)
 						return exitWithCode(err, ExitAgentError)
 					}
 				}
 				if err := mux.SendKeys(tmuxSession, launchCfg.Prompt); err != nil {
 					err = fmt.Errorf("failed to send prompt to session: %w", err)
-					setRunFailed(repoRoot, st, run, err)
+					setRunFailed(ctx, api, run, err)
 					return exitWithCode(err, ExitTmuxError)
 				}
 			}
 
 		case agent.InjectionHTTP:
-			if err := injectPromptViaHTTP(st, run, launchCfg, debug); err != nil {
+			if err := injectPromptViaHTTP(ctx, api, run, launchCfg, debug); err != nil {
 				err = fmt.Errorf("failed to send prompt via HTTP: %w", err)
-				setRunFailed(repoRoot, st, run, err)
+				setRunFailed(ctx, api, run, err)
 				return exitWithCode(err, ExitAgentError)
 			}
 		}
@@ -440,14 +449,16 @@ func runRun(issueID string, opts *runOptions) error {
 				}
 			}
 			if windowID != "" {
-				st.AppendEvent(run.Ref(), model.NewArtifactEvent("window", map[string]string{
-					"id": windowID,
-				}))
+				api.AppendEvent(ctx, ref, &orchapi.Event{
+					Type:  "artifact",
+					Name:  "window",
+					Attrs: map[string]string{"id": windowID},
+				})
 			}
 		}
 	}
 
-	appendStatusEventViaDaemon(repoRoot, st, run, model.StatusRunning)
+	appendStatusEventViaDaemon(ctx, api, run, model.StatusRunning)
 	result.Status = string(model.StatusRunning)
 
 	// Output result
@@ -551,13 +562,13 @@ func applyPromptDefaults(opts *promptOptions) *promptOptions {
 func buildAgentPrompt(issue *model.Issue, opts *promptOptions) string {
 	opts = applyPromptDefaults(opts)
 
-	// If custom template provided, try to load it
 	if opts.PromptTemplate != "" {
-		content, err := os.ReadFile(opts.PromptTemplate)
-		if err == nil {
-			return executeTemplate(string(content), issue, opts)
+		if api, err := getAPI(); err == nil {
+			ctx := context.Background()
+			if content, err := api.ReadFile(ctx, opts.PromptTemplate); err == nil {
+				return executeTemplate(string(content), issue, opts)
+			}
 		}
-		// Fall back to default if template file not found
 	}
 
 	return executeTemplate(defaultPromptTemplate, issue, opts)
@@ -738,57 +749,54 @@ func exitWithCode(err error, code int) error {
 	return err
 }
 
-// appendStatusEventViaDaemon attempts to append a status event through the daemon API.
-// If the daemon is unavailable, it falls back to direct store write.
-// This ensures status transitions are validated by the daemon when available.
-func appendStatusEventViaDaemon(repoRoot string, st storeForRunFailed, run *model.Run, status model.Status) error {
-	daemonClient := daemon.NewProtoClient(repoRoot)
-	if daemonClient.IsAvailable() {
-		err := daemonClient.AppendStatusEvent(run.IssueID, run.RunID, string(status), string(model.EventSourceUser))
-		if err == nil {
-			return nil
-		}
-		// Fall through to direct store write on daemon error
+func appendStatusEventViaDaemon(ctx context.Context, api orchapi.OrchAPI, run *model.Run, status model.Status) error {
+	ref := orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}
+	event := &orchapi.Event{
+		Type: "status",
+		Name: string(status),
 	}
-	// Fallback: direct store write (store layer will validate transitions)
-	return st.AppendEvent(run.Ref(), model.NewStatusEvent(status))
+	_, err := api.AppendEvent(ctx, ref, event)
+	return err
 }
 
-type storeForRunFailed interface {
-	AppendEvent(*model.RunRef, *model.Event) error
+func setRunFailed(ctx context.Context, api orchapi.OrchAPI, run *model.Run, err error) {
+	ref := orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}
+	errorEvent := &orchapi.Event{
+		Type:  "artifact",
+		Name:  "error",
+		Attrs: map[string]string{"message": err.Error()},
+	}
+	api.AppendEvent(ctx, ref, errorEvent)
+	appendStatusEventViaDaemon(ctx, api, run, model.StatusFailed)
 }
 
-func setRunFailed(repoRoot string, st storeForRunFailed, run *model.Run, err error) {
-	st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
-	// Route status change through daemon API
-	appendStatusEventViaDaemon(repoRoot, st, run, model.StatusFailed)
-}
-
-func injectPromptViaHTTP(st interface {
-	AppendEvent(*model.RunRef, *model.Event) error
-}, run *model.Run, cfg *agent.LaunchConfig, debug *DebugLogger) error {
+func injectPromptViaHTTP(ctx context.Context, api orchapi.OrchAPI, run *model.Run, cfg *agent.LaunchConfig, debug *DebugLogger) error {
 	port := cfg.Port
 	if port == 0 {
 		port = agent.OpenCodeServerPortStart
 	}
 
+	ref := orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}
+
 	debug.Printf("Connecting to opencode server on port %d...", port)
 	client := agent.NewOpenCodeClient(port)
 	client.SetDebugLogger(debug)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	httpCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
 	debug.Printf("Waiting for server to become healthy...")
-	if err := client.WaitForHealthy(ctx, 60*time.Second); err != nil {
+	if err := client.WaitForHealthy(httpCtx, 60*time.Second); err != nil {
 		debug.Printf("Server health check failed: %v", err)
 		return fmt.Errorf("server did not become healthy: %w", err)
 	}
 
 	debug.Printf("Server is healthy, recording port artifact")
-	st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
-		"port": fmt.Sprintf("%d", port),
-	}))
+	api.AppendEvent(ctx, ref, &orchapi.Event{
+		Type:  "artifact",
+		Name:  "server",
+		Attrs: map[string]string{"port": fmt.Sprintf("%d", port)},
+	})
 
 	usedModel := cfg.Model
 	usedVariant := cfg.ModelVariant
@@ -799,22 +807,25 @@ func injectPromptViaHTTP(st interface {
 	} else {
 		debug.Printf("Using configured model: %s (variant: %s)", usedModel, usedVariant)
 	}
-	st.AppendEvent(run.Ref(), model.NewArtifactEvent("agent_model", map[string]string{
-		"model":   usedModel,
-		"variant": usedVariant,
-	}))
+	api.AppendEvent(ctx, ref, &orchapi.Event{
+		Type:  "artifact",
+		Name:  "agent_model",
+		Attrs: map[string]string{"model": usedModel, "variant": usedVariant},
+	})
 
 	debug.Printf("Creating session for %s#%s in directory: %s", run.IssueID, run.RunID, cfg.WorkDir)
-	session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", run.IssueID, run.RunID), cfg.WorkDir)
+	session, err := client.CreateSession(httpCtx, fmt.Sprintf("%s#%s", run.IssueID, run.RunID), cfg.WorkDir)
 	if err != nil {
 		debug.Printf("Failed to create session: %v", err)
 		return fmt.Errorf("failed to create session: %w", err)
 	}
 
 	debug.Printf("Session created with ID: %s", session.ID)
-	st.AppendEvent(run.Ref(), model.NewArtifactEvent("opencode_session", map[string]string{
-		"id": session.ID,
-	}))
+	api.AppendEvent(ctx, ref, &orchapi.Event{
+		Type:  "artifact",
+		Name:  "opencode_session",
+		Attrs: map[string]string{"id": session.ID},
+	})
 
 	var modelRef *agent.ModelRef
 	if usedModel != "" {
@@ -830,7 +841,7 @@ func injectPromptViaHTTP(st interface {
 	}
 
 	debug.Printf("Sending initial prompt to session %s...", session.ID)
-	if err := client.SendMessageAsync(ctx, session.ID, cfg.Prompt, cfg.WorkDir, modelRef, usedVariant); err != nil {
+	if err := client.SendMessageAsync(httpCtx, session.ID, cfg.Prompt, cfg.WorkDir, modelRef, usedVariant); err != nil {
 		debug.Printf("Failed to send prompt: %v", err)
 		return fmt.Errorf("failed to send prompt: %w", err)
 	}

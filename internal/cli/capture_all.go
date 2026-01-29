@@ -10,7 +10,6 @@ import (
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
 	"github.com/s22625/orch/internal/orchapi"
-	"github.com/s22625/orch/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -65,10 +64,6 @@ type captureAllItem struct {
 }
 
 func runCaptureAll(opts *captureAllOptions) error {
-	if testBypassDaemon {
-		return runCaptureAllDirect(opts)
-	}
-
 	ctx := context.Background()
 	api, err := getAPI()
 	if err != nil {
@@ -110,58 +105,6 @@ func runCaptureAll(opts *captureAllOptions) error {
 	return nil
 }
 
-func runCaptureAllDirect(opts *captureAllOptions) error {
-	st, err := getStore()
-	if err != nil {
-		return err
-	}
-
-	runs, err := st.ListRuns(&store.ListRunsFilter{
-		Status: captureAllStatuses(),
-	})
-	if err != nil {
-		return err
-	}
-
-	if len(runs) == 0 {
-		if globalOpts.JSON {
-			return outputCaptureAllJSON([]captureAllItem{}, true)
-		}
-		if !globalOpts.Quiet {
-			fmt.Println("No running agents found")
-		}
-		return nil
-	}
-
-	items := make([]captureAllItem, 0, len(runs))
-	overallOK := true
-	for _, run := range runs {
-		item := captureAllItemForRunModel(run, opts.Lines)
-		if !item.OK {
-			overallOK = false
-		}
-		items = append(items, item)
-	}
-
-	if globalOpts.JSON {
-		return outputCaptureAllJSON(items, overallOK)
-	}
-
-	outputCaptureAllPlain(items)
-	return nil
-}
-
-func captureAllStatuses() []model.Status {
-	return []model.Status{
-		model.StatusRunning,
-		model.StatusBooting,
-		model.StatusBlocked,
-		model.StatusBlockedAPI,
-		model.StatusPROpen,
-		model.StatusUnknown,
-	}
-}
-
 func captureAllStatusesAPI() []orchapi.RunStatus {
 	return []orchapi.RunStatus{
 		orchapi.RunStatusRunning,
@@ -173,36 +116,6 @@ func captureAllStatusesAPI() []orchapi.RunStatus {
 }
 
 func captureAllItemForRun(run *orchapi.Run, lines int) captureAllItem {
-	sessionName := run.TmuxSession
-	if sessionName == "" {
-		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
-	}
-
-	item := captureAllItem{
-		IssueID:     run.IssueID,
-		RunID:       run.RunID,
-		Status:      string(run.Status),
-		TmuxSession: sessionName,
-		Lines:       lines,
-	}
-
-	if !captureAllHasSession(sessionName) {
-		item.Error = fmt.Sprintf("tmux session %q not found (run may not be active)", sessionName)
-		return item
-	}
-
-	content, err := captureAllCapturePane(sessionName, lines)
-	if err != nil {
-		item.Error = fmt.Sprintf("failed to capture pane: %v", err)
-		return item
-	}
-
-	item.OK = true
-	item.Content = content
-	return item
-}
-
-func captureAllItemForRunModel(run *model.Run, lines int) captureAllItem {
 	sessionName := run.TmuxSession
 	if sessionName == "" {
 		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)

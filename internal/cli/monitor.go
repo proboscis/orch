@@ -264,17 +264,22 @@ func ensureDaemonReady(projectRoot string) (*daemon.ProtoClient, error) {
 }
 
 func runMonitor(opts *monitorOptions) error {
-	st, err := getStore()
-	if err != nil {
-		return err
-	}
-
 	projectRoot, err := getProjectRoot()
 	if err != nil {
 		return fmt.Errorf("project root required for monitor: %w", err)
 	}
 
 	if _, err := ensureDaemonReady(projectRoot); err != nil {
+		return err
+	}
+
+	issuesRoot, err := getIssuesRoot()
+	if err != nil {
+		return err
+	}
+
+	api, err := getAPI()
+	if err != nil {
 		return err
 	}
 
@@ -289,7 +294,6 @@ func runMonitor(opts *monitorOptions) error {
 		statuses = append(statuses, model.Status(s))
 	}
 
-	// Use saved settings as fallbacks when flags aren't explicitly set
 	runSortFallback := settings.RunSort
 	if !monitor.IsValidSortKey(runSortFallback) {
 		runSortFallback = monitor.SortByUpdated
@@ -308,10 +312,9 @@ func runMonitor(opts *monitorOptions) error {
 		return err
 	}
 
-	// --new-control-agent implies --new for layout restart
 	forceNew := opts.ForceNew || opts.NewControlAgent
 
-	m := monitor.New(st, monitor.Options{
+	m := monitor.New(api, issuesRoot, monitor.Options{
 		Issue:           opts.Issue,
 		Statuses:        statuses,
 		RunSort:         runSort,
@@ -321,7 +324,7 @@ func runMonitor(opts *monitorOptions) error {
 		ForceNew:        forceNew,
 		NewControlAgent: opts.NewControlAgent,
 		OrchPath:        os.Args[0],
-		GlobalFlags:     monitorGlobalFlags(projectRoot, st.RootPath()),
+		GlobalFlags:     monitorGlobalFlags(projectRoot, issuesRoot),
 		ShowResolved:    opts.ShowResolved,
 		ShowClosed:      opts.ShowClosed,
 		UISettings:      settings,

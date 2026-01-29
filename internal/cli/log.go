@@ -1,8 +1,8 @@
 package cli
 
 import (
+	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 
@@ -37,27 +37,27 @@ Use this command to debug monitoring issues.`,
 				return err
 			}
 
-			logPath := daemon.LogFilePath(projectRoot)
-			if _, err := os.Stat(logPath); os.IsNotExist(err) {
-				fmt.Fprintf(os.Stderr, "No daemon log found at: %s\n", logPath)
-				return nil
-			}
-
 			if follow {
+				logPath := daemon.LogFilePath(projectRoot)
 				tailCmd := exec.Command("tail", "-f", "-n", fmt.Sprintf("%d", lines), logPath)
 				tailCmd.Stdout = os.Stdout
 				tailCmd.Stderr = os.Stderr
 				return tailCmd.Run()
 			}
 
-			f, err := os.Open(logPath)
+			ctx := context.Background()
+			api, err := getAPI()
 			if err != nil {
 				return err
 			}
-			defer f.Close()
 
-			_, err = io.Copy(os.Stdout, f)
-			return err
+			content, err := api.GetDaemonLog(ctx, lines)
+			if err != nil {
+				return err
+			}
+
+			fmt.Print(content)
+			return nil
 		},
 	}
 

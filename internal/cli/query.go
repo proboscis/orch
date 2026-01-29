@@ -53,20 +53,17 @@ Examples:
 }
 
 func runQuery(sql string, opts *queryOptions) error {
-	// Parse format
 	format, err := query.ParseFormat(opts.Format)
 	if err != nil {
 		return err
 	}
 
-	// Get store
-	st, err := getStore()
+	api, err := getAPI()
 	if err != nil {
 		return err
 	}
 
-	// Create query engine
-	engine, err := query.NewEngine(st, &query.LoadOptions{
+	engine, err := query.NewEngine(api, &query.LoadOptions{
 		WithEvents: opts.WithEvents,
 	})
 	if err != nil {

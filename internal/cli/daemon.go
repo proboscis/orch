@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"github.com/s22625/orch/internal/daemon"
-	"github.com/s22625/orch/internal/store"
-	"github.com/s22625/orch/internal/store/file"
 	"github.com/spf13/cobra"
 )
 
@@ -254,22 +252,11 @@ func newDaemonRestartCmd() *cobra.Command {
 }
 
 func runDaemon() error {
-	if daemon.IsRunning("") {
-		pid := daemon.GetRunningPID("")
-		fmt.Fprintf(os.Stderr, "daemon already running (pid=%d)\n", pid)
+	if err := daemon.RunWithFileStore(daemonDebugMode); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
-		return nil
 	}
-
-	storeFactory := func(issuesRoot string) (store.Store, error) {
-		return file.New(issuesRoot)
-	}
-
-	d := daemon.New(storeFactory)
-	if daemonDebugMode {
-		d.SetDebugMode(true)
-	}
-	return d.Run()
+	return nil
 }
 
 func ensureDaemon() {

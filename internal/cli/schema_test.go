@@ -9,9 +9,9 @@ import (
 )
 
 func TestSchemaCommand_ListAll(t *testing.T) {
-	st := &mockQueryStore{}
+	api := &mockQueryAPI{}
 
-	engine, err := query.NewEngine(st, &query.LoadOptions{WithEvents: true})
+	engine, err := query.NewEngine(api, &query.LoadOptions{WithEvents: true})
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -64,9 +64,9 @@ func TestSchemaCommand_ListAll(t *testing.T) {
 }
 
 func TestSchemaCommand_TableDetail(t *testing.T) {
-	st := &mockQueryStore{}
+	api := &mockQueryAPI{}
 
-	engine, err := query.NewEngine(st, nil)
+	engine, err := query.NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -101,9 +101,9 @@ func TestSchemaCommand_TableDetail(t *testing.T) {
 }
 
 func TestSchemaCommand_RunsTable(t *testing.T) {
-	st := &mockQueryStore{}
+	api := &mockQueryAPI{}
 
-	engine, err := query.NewEngine(st, nil)
+	engine, err := query.NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -129,9 +129,9 @@ func TestSchemaCommand_RunsTable(t *testing.T) {
 }
 
 func TestSchemaCommand_ViewDetail(t *testing.T) {
-	st := &mockQueryStore{}
+	api := &mockQueryAPI{}
 
-	engine, err := query.NewEngine(st, nil)
+	engine, err := query.NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -163,9 +163,9 @@ func TestSchemaCommand_ViewDetail(t *testing.T) {
 }
 
 func TestSchemaCommand_NonexistentTable(t *testing.T) {
-	st := &mockQueryStore{}
+	api := &mockQueryAPI{}
 
-	engine, err := query.NewEngine(st, nil)
+	engine, err := query.NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -181,9 +181,9 @@ func TestSchemaCommand_NonexistentTable(t *testing.T) {
 }
 
 func TestSchemaCommand_JSONOutput(t *testing.T) {
-	st := &mockQueryStore{}
+	api := &mockQueryAPI{}
 
-	engine, err := query.NewEngine(st, nil)
+	engine, err := query.NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -221,9 +221,9 @@ func TestSchemaCommand_JSONOutput(t *testing.T) {
 }
 
 func TestSchemaCommand_TableOutput(t *testing.T) {
-	st := &mockQueryStore{}
+	api := &mockQueryAPI{}
 
-	engine, err := query.NewEngine(st, nil)
+	engine, err := query.NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -259,9 +259,9 @@ func TestSchemaCommand_TableOutput(t *testing.T) {
 }
 
 func TestSchemaCommand_TableDetailOutput(t *testing.T) {
-	st := &mockQueryStore{}
+	api := &mockQueryAPI{}
 
-	engine, err := query.NewEngine(st, nil)
+	engine, err := query.NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -299,9 +299,9 @@ func TestSchemaCommand_TableDetailOutput(t *testing.T) {
 }
 
 func TestSchemaCommand_TSVOutput(t *testing.T) {
-	st := &mockQueryStore{}
+	api := &mockQueryAPI{}
 
-	engine, err := query.NewEngine(st, nil)
+	engine, err := query.NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}

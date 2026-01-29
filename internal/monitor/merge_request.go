@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/s22625/orch/internal/pr"
 )
 
@@ -108,7 +110,8 @@ func (m *Monitor) buildPRMetadata(run *model.Run) (string, string) {
 	}
 
 	if issueID != "" {
-		if issue, err := m.store.ResolveIssue(issueID); err == nil && issue != nil {
+		ctx := context.Background()
+		if issue, err := m.api.GetIssue(ctx, issueID); err == nil && issue != nil {
 			summary := strings.TrimSpace(issue.Summary)
 			if summary == "" {
 				summary = strings.TrimSpace(issue.Title)
@@ -149,13 +152,17 @@ func (m *Monitor) recordPRStatus(run *model.Run, url, state string) error {
 	if run == nil {
 		return fmt.Errorf("run not found")
 	}
+	ctx := context.Background()
+	ref := orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}
 	if url != "" && run.PRUrl != url {
-		if err := m.store.AppendEvent(run.Ref(), model.NewArtifactEvent("pr", map[string]string{"url": url})); err != nil {
+		event := &orchapi.Event{Type: "artifact", Name: "pr", Attrs: map[string]string{"url": url}}
+		if _, err := m.api.AppendEvent(ctx, ref, event); err != nil {
 			return fmt.Errorf("failed to record PR artifact: %w", err)
 		}
 	}
 	if strings.EqualFold(state, "OPEN") && run.Status != model.StatusPROpen {
-		if err := m.store.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusPROpen)); err != nil {
+		event := &orchapi.Event{Type: "status", Name: string(model.StatusPROpen)}
+		if _, err := m.api.AppendEvent(ctx, ref, event); err != nil {
 			return fmt.Errorf("failed to update status: %w", err)
 		}
 	}

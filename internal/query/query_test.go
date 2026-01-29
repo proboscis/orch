@@ -2,66 +2,139 @@ package query
 
 import (
 	"bytes"
+	"context"
 	"testing"
 	"time"
 
 	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/store"
+	"github.com/s22625/orch/internal/orchapi"
 )
 
-// mockStore implements store.Store for testing
-type mockStore struct {
+// mockAPI implements orchapi.OrchAPI for testing (minimal implementation)
+type mockAPI struct {
 	issues []*model.Issue
 	runs   []*model.Run
 }
 
-func (m *mockStore) ResolveIssue(issueID string) (*model.Issue, error) {
-	for _, issue := range m.issues {
-		if issue.ID == issueID {
-			return issue, nil
-		}
+func (m *mockAPI) GetIssue(ctx context.Context, issueID string) (*orchapi.Issue, error) {
+	return nil, nil
+}
+
+func (m *mockAPI) ListIssues(ctx context.Context, filter *orchapi.ListIssuesFilter) (*orchapi.ListIssuesResult, error) {
+	var issues []*orchapi.Issue
+	for _, i := range m.issues {
+		issues = append(issues, &orchapi.Issue{
+			ID:     i.ID,
+			Title:  i.Title,
+			Status: orchapi.IssueStatus(i.Status),
+			Tags:   i.Tags,
+		})
 	}
+	return &orchapi.ListIssuesResult{Issues: issues}, nil
+}
+
+func (m *mockAPI) CreateIssue(ctx context.Context, req *orchapi.CreateIssueRequest) (*orchapi.Issue, error) {
 	return nil, nil
 }
-
-func (m *mockStore) ListIssues() ([]*model.Issue, error) {
-	return m.issues, nil
-}
-
-func (m *mockStore) SetIssueStatus(issueID string, status model.IssueStatus) error {
+func (m *mockAPI) SetIssueStatus(ctx context.Context, issueID string, status orchapi.IssueStatus) error {
 	return nil
 }
-
-func (m *mockStore) CreateRun(issueID, runID string, metadata map[string]string) (*model.Run, error) {
+func (m *mockAPI) CloseIssue(ctx context.Context, issueID string) error { return nil }
+func (m *mockAPI) ResolveRun(ctx context.Context, ref orchapi.RunRef) (*orchapi.Run, error) {
+	return nil, nil
+}
+func (m *mockAPI) GetRun(ctx context.Context, issueID, runID string) (*orchapi.Run, error) {
+	return nil, nil
+}
+func (m *mockAPI) GetLatestRun(ctx context.Context, issueID string) (*orchapi.Run, error) {
 	return nil, nil
 }
 
-func (m *mockStore) AppendEvent(ref *model.RunRef, event *model.Event) error {
+func (m *mockAPI) ListRuns(ctx context.Context, filter *orchapi.ListRunsFilter) (*orchapi.ListRunsResult, error) {
+	var runs []*orchapi.Run
+	for _, r := range m.runs {
+		var events []*orchapi.Event
+		for _, e := range r.Events {
+			events = append(events, &orchapi.Event{
+				Timestamp: e.Timestamp,
+				Type:      string(e.Type),
+				Name:      e.Name,
+				Attrs:     e.Attrs,
+			})
+		}
+		runs = append(runs, &orchapi.Run{
+			IssueID:   r.IssueID,
+			RunID:     r.RunID,
+			Status:    orchapi.RunStatus(r.Status),
+			Phase:     string(r.Phase),
+			Agent:     r.Agent,
+			StartedAt: r.StartedAt,
+			UpdatedAt: r.UpdatedAt,
+			Events:    events,
+		})
+	}
+	return &orchapi.ListRunsResult{Runs: runs}, nil
+}
+
+func (m *mockAPI) StartRun(ctx context.Context, req *orchapi.StartRunRequest) (*orchapi.StartRunResult, error) {
+	return nil, nil
+}
+func (m *mockAPI) CreateRun(ctx context.Context, req *orchapi.CreateRunRequest) (*orchapi.CreateRunResult, error) {
+	return nil, nil
+}
+func (m *mockAPI) StopRun(ctx context.Context, ref orchapi.RunRef) error { return nil }
+func (m *mockAPI) AppendEvent(ctx context.Context, ref orchapi.RunRef, event *orchapi.Event) (*orchapi.AppendEventResult, error) {
+	return nil, nil
+}
+func (m *mockAPI) GetAttachInfo(ctx context.Context, ref orchapi.RunRef) (*orchapi.AttachInfo, error) {
+	return nil, nil
+}
+func (m *mockAPI) CaptureSession(ctx context.Context, ref orchapi.RunRef, lines int) (*orchapi.CaptureResult, error) {
+	return nil, nil
+}
+func (m *mockAPI) SendMessage(ctx context.Context, ref orchapi.RunRef, message string) error {
 	return nil
 }
-
-func (m *mockStore) ListRuns(filter *store.ListRunsFilter) ([]*model.Run, error) {
-	return m.runs, nil
-}
-
-func (m *mockStore) GetRun(ref *model.RunRef) (*model.Run, error) {
+func (m *mockAPI) GetDiffStats(ctx context.Context, ref orchapi.RunRef) (*orchapi.DiffStats, error) {
 	return nil, nil
 }
-
-func (m *mockStore) GetRunByShortID(shortID string) (*model.Run, error) {
+func (m *mockAPI) GetBranchState(ctx context.Context, ref orchapi.RunRef) (orchapi.BranchState, error) {
+	return "", nil
+}
+func (m *mockAPI) GetDiff(ctx context.Context, ref orchapi.RunRef) (string, error) { return "", nil }
+func (m *mockAPI) ResolveIssue(ctx context.Context, issueID string, force bool) error {
+	return nil
+}
+func (m *mockAPI) DeleteRun(ctx context.Context, ref orchapi.RunRef, opts *orchapi.DeleteRunOptions) (*orchapi.DeleteRunResult, error) {
 	return nil, nil
 }
-
-func (m *mockStore) GetLatestRun(issueID string) (*model.Run, error) {
+func (m *mockAPI) UpdateIssue(ctx context.Context, issueID string, req *orchapi.UpdateIssueRequest) (*orchapi.Issue, error) {
 	return nil, nil
 }
-
-func (m *mockStore) RootPath() string {
-	return "/test"
+func (m *mockAPI) ValidateIssueFiles(ctx context.Context, issueID string) (*orchapi.ValidateIssueFilesResult, error) {
+	return nil, nil
+}
+func (m *mockAPI) WriteAgentPrompt(ctx context.Context, ref orchapi.RunRef, content string) error {
+	return nil
+}
+func (m *mockAPI) ReadAgentPrompt(ctx context.Context, ref orchapi.RunRef) (string, error) {
+	return "", nil
+}
+func (m *mockAPI) RepairState(ctx context.Context, opts *orchapi.RepairOptions) (*orchapi.RepairResult, error) {
+	return nil, nil
+}
+func (m *mockAPI) GetDaemonLog(ctx context.Context, lines int) (string, error) { return "", nil }
+func (m *mockAPI) ReadFile(ctx context.Context, path string) ([]byte, error)   { return nil, nil }
+func (m *mockAPI) WriteFile(ctx context.Context, path string, content []byte, perm uint32) error {
+	return nil
+}
+func (m *mockAPI) Ping(ctx context.Context) error { return nil }
+func (m *mockAPI) EnsureOpenCodeServer(ctx context.Context, projectRoot string) (*orchapi.OpenCodeServerInfo, error) {
+	return nil, nil
 }
 
 func TestNewEngine(t *testing.T) {
-	st := &mockStore{
+	api := &mockAPI{
 		issues: []*model.Issue{
 			{ID: "test-1", Title: "Test Issue 1", Status: model.IssueStatusOpen, Tags: []string{"cli", "sql"}},
 			{ID: "test-2", Title: "Test Issue 2", Status: model.IssueStatusResolved},
@@ -78,7 +151,7 @@ func TestNewEngine(t *testing.T) {
 		},
 	}
 
-	engine, err := NewEngine(st, nil)
+	engine, err := NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine failed: %v", err)
 	}
@@ -100,7 +173,7 @@ func TestNewEngine(t *testing.T) {
 }
 
 func TestQueryIssues(t *testing.T) {
-	st := &mockStore{
+	api := &mockAPI{
 		issues: []*model.Issue{
 			{ID: "issue-1", Title: "First Issue", Status: model.IssueStatusOpen},
 			{ID: "issue-2", Title: "Second Issue", Status: model.IssueStatusOpen},
@@ -108,7 +181,7 @@ func TestQueryIssues(t *testing.T) {
 		},
 	}
 
-	engine, err := NewEngine(st, nil)
+	engine, err := NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine failed: %v", err)
 	}
@@ -127,7 +200,7 @@ func TestQueryIssues(t *testing.T) {
 
 func TestQueryRuns(t *testing.T) {
 	now := time.Now()
-	st := &mockStore{
+	api := &mockAPI{
 		issues: []*model.Issue{
 			{ID: "issue-1", Title: "Test Issue", Status: model.IssueStatusOpen},
 		},
@@ -138,7 +211,7 @@ func TestQueryRuns(t *testing.T) {
 		},
 	}
 
-	engine, err := NewEngine(st, nil)
+	engine, err := NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine failed: %v", err)
 	}
@@ -156,14 +229,14 @@ func TestQueryRuns(t *testing.T) {
 }
 
 func TestQueryIssueTags(t *testing.T) {
-	st := &mockStore{
+	api := &mockAPI{
 		issues: []*model.Issue{
 			{ID: "issue-1", Title: "CLI Issue", Tags: []string{"cli", "ux"}},
 			{ID: "issue-2", Title: "Query Issue", Tags: []string{"sql", "query"}},
 		},
 	}
 
-	engine, err := NewEngine(st, nil)
+	engine, err := NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine failed: %v", err)
 	}
@@ -187,7 +260,7 @@ func TestQueryIssueTags(t *testing.T) {
 
 func TestQueryViews(t *testing.T) {
 	now := time.Now()
-	st := &mockStore{
+	api := &mockAPI{
 		issues: []*model.Issue{
 			{ID: "issue-1", Title: "Test Issue", Status: model.IssueStatusOpen, Tags: []string{"tag1", "tag2"}},
 		},
@@ -197,7 +270,7 @@ func TestQueryViews(t *testing.T) {
 		},
 	}
 
-	engine, err := NewEngine(st, nil)
+	engine, err := NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine failed: %v", err)
 	}
@@ -297,9 +370,9 @@ func TestFormatTSV(t *testing.T) {
 }
 
 func TestGetSchema(t *testing.T) {
-	st := &mockStore{}
+	api := &mockAPI{}
 
-	engine, err := NewEngine(st, &LoadOptions{WithEvents: true})
+	engine, err := NewEngine(api, &LoadOptions{WithEvents: true})
 	if err != nil {
 		t.Fatalf("NewEngine failed: %v", err)
 	}
@@ -331,9 +404,9 @@ func TestGetSchema(t *testing.T) {
 }
 
 func TestGetTableSchema(t *testing.T) {
-	st := &mockStore{}
+	api := &mockAPI{}
 
-	engine, err := NewEngine(st, nil)
+	engine, err := NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine failed: %v", err)
 	}
@@ -368,13 +441,13 @@ func TestGetTableSchema(t *testing.T) {
 }
 
 func TestQueryReadOnly(t *testing.T) {
-	st := &mockStore{
+	api := &mockAPI{
 		issues: []*model.Issue{
 			{ID: "test-1", Title: "Test", Status: model.IssueStatusOpen},
 		},
 	}
 
-	engine, err := NewEngine(st, nil)
+	engine, err := NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine failed: %v", err)
 	}

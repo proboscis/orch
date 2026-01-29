@@ -9,10 +9,10 @@ import (
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/orchapi"
-	"github.com/s22625/orch/internal/store"
-	"github.com/s22625/orch/internal/store/file"
 	"github.com/spf13/cobra"
 )
+
+var shortIDRegex = regexp.MustCompile(`^[0-9a-f]{2,6}$`)
 
 // Exit codes as per spec
 const (
@@ -160,53 +160,13 @@ func getProjectRoot() (string, error) {
 	return config.GetProjectRoot()
 }
 
-// getStore returns a store instance based on configuration
-func getStore() (store.Store, error) {
-	issuesRoot, err := getIssuesRoot()
-	if err != nil {
-		return nil, err
-	}
-
-	switch globalOpts.Backend {
-	case "file":
-		return file.New(issuesRoot)
-	default:
-		return nil, fmt.Errorf("unsupported backend: %s", globalOpts.Backend)
-	}
-}
-
-// shortIDRegex matches a 2-6 char hex string (git-style short ID prefix)
-var shortIDRegex = regexp.MustCompile(`^[0-9a-f]{2,6}$`)
-
-// resolveRun resolves a run by short ID or run reference (issue#run or issue)
-// Accepts:
-//   - 2-6 char hex short ID prefix (e.g., "a3", "a3b4", "a3b4c5")
-//   - Full run ref (e.g., "my-task#20231220-100000")
-//   - Issue ID for latest run (e.g., "my-task")
-func resolveRun(st store.Store, refStr string) (*model.Run, error) {
-	// First, try as a short ID prefix (2-6 hex chars)
-	if shortIDRegex.MatchString(refStr) {
-		run, err := st.GetRunByShortID(refStr)
-		if err == nil {
-			return run, nil
-		}
-		// If it's exactly 6 chars and failed, report the short ID error
-		// For shorter prefixes, fall through to try as regular ref
-		if len(refStr) == 6 {
-			return nil, err
-		}
-	}
-
-	// Try as a regular run reference
-	ref, err := model.ParseRunRef(refStr)
-	if err != nil {
-		return nil, err
-	}
-
-	return st.GetRun(ref)
-}
+var testAPIOverride orchapi.OrchAPI
 
 func getAPI() (orchapi.OrchAPI, error) {
+	if testAPIOverride != nil {
+		return testAPIOverride, nil
+	}
+
 	projectRoot, err := getProjectRoot()
 	if err != nil {
 		return nil, err

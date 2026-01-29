@@ -2,19 +2,18 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
-	"github.com/s22625/orch/internal/store"
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
 
@@ -140,116 +139,102 @@ func parseStatus(s string) ([]model.Status, error) {
 }
 
 func runDelete(refStr string, opts *deleteOptions) error {
-	st, err := getStore()
+	ctx := context.Background()
+	api, err := getAPI()
 	if err != nil {
 		return err
 	}
 
-	// Try as short ID first
-	if shortIDRegex.MatchString(refStr) {
-		run, err := st.GetRunByShortID(refStr)
-		if err == nil {
-			return deleteRuns(st, []*model.Run{run}, opts)
-		}
-		// Fall through to try as regular ref
-	}
-
-	ref, err := model.ParseRunRef(refStr)
+	ref, err := orchapi.ParseRunRef(refStr)
 	if err != nil {
 		return err
 	}
 
-	// If --all flag is set or no specific run ID, delete all runs for issue
 	if ref.IsLatest() || opts.All {
-		return deleteIssueRuns(st, ref.IssueID, opts)
+		return deleteIssueRuns(ctx, api, ref.IssueID, opts)
 	}
 
-	// Delete specific run
-	run, err := st.GetRun(ref)
+	run, err := api.ResolveRun(ctx, ref)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "run not found: %s\n", refStr)
 		os.Exit(ExitRunNotFound)
 		return err
 	}
 
-	return deleteRuns(st, []*model.Run{run}, opts)
+	return deleteRuns(ctx, api, []*orchapi.Run{run}, opts)
 }
 
-func deleteIssueRuns(st store.Store, issueID string, opts *deleteOptions) error {
-	// Build filter
-	filter := &store.ListRunsFilter{
+func deleteIssueRuns(ctx context.Context, api orchapi.OrchAPI, issueID string, opts *deleteOptions) error {
+	filter := &orchapi.ListRunsFilter{
 		IssueID: issueID,
 	}
 
-	// Apply status filter
 	if opts.Status != "" {
-		statuses, err := parseStatus(opts.Status)
+		statuses, err := parseStatusAPI(opts.Status)
 		if err != nil {
 			return err
 		}
 		filter.Status = statuses
 	}
 
-	runs, err := st.ListRuns(filter)
+	result, err := api.ListRuns(ctx, filter)
 	if err != nil {
 		return err
 	}
 
-	if len(runs) == 0 {
+	if len(result.Runs) == 0 {
 		if !globalOpts.Quiet {
 			fmt.Printf("No runs found for issue: %s\n", issueID)
 		}
 		return nil
 	}
 
-	// Apply age filter if specified
+	runs := result.Runs
 	if opts.OlderThan != "" {
-		runs, err = filterByAge(runs, opts.OlderThan)
+		runs, err = filterByAgeAPI(runs, opts.OlderThan)
 		if err != nil {
 			return err
 		}
 	}
 
-	return deleteRuns(st, runs, opts)
+	return deleteRuns(ctx, api, runs, opts)
 }
 
 func runDeleteByAge(opts *deleteOptions) error {
-	st, err := getStore()
+	ctx := context.Background()
+	api, err := getAPI()
 	if err != nil {
 		return err
 	}
 
-	// Build filter
-	filter := &store.ListRunsFilter{}
+	filter := &orchapi.ListRunsFilter{}
 
-	// Apply status filter
 	if opts.Status != "" {
-		statuses, err := parseStatus(opts.Status)
+		statuses, err := parseStatusAPI(opts.Status)
 		if err != nil {
 			return err
 		}
 		filter.Status = statuses
 	}
 
-	runs, err := st.ListRuns(filter)
+	result, err := api.ListRuns(ctx, filter)
 	if err != nil {
 		return err
 	}
 
-	if len(runs) == 0 {
+	if len(result.Runs) == 0 {
 		if !globalOpts.Quiet {
 			fmt.Println("No runs found")
 		}
 		return nil
 	}
 
-	// Filter by age
-	runs, err = filterByAge(runs, opts.OlderThan)
+	runs, err := filterByAgeAPI(result.Runs, opts.OlderThan)
 	if err != nil {
 		return err
 	}
 
-	return deleteRuns(st, runs, opts)
+	return deleteRuns(ctx, api, runs, opts)
 }
 
 func filterByAge(runs []*model.Run, olderThan string) ([]*model.Run, error) {
@@ -268,7 +253,39 @@ func filterByAge(runs []*model.Run, olderThan string) ([]*model.Run, error) {
 	return filtered, nil
 }
 
-func deleteRuns(st store.Store, runs []*model.Run, opts *deleteOptions) error {
+func filterByAgeAPI(runs []*orchapi.Run, olderThan string) ([]*orchapi.Run, error) {
+	duration, err := parseDuration(olderThan)
+	if err != nil {
+		return nil, err
+	}
+
+	cutoff := time.Now().Add(-duration)
+	var filtered []*orchapi.Run
+	for _, run := range runs {
+		if run.UpdatedAt.Before(cutoff) {
+			filtered = append(filtered, run)
+		}
+	}
+	return filtered, nil
+}
+
+func parseStatusAPI(s string) ([]orchapi.RunStatus, error) {
+	if s == "" {
+		return nil, nil
+	}
+
+	status := orchapi.RunStatus(s)
+	switch status {
+	case orchapi.RunStatusDone, orchapi.RunStatusFailed, orchapi.RunStatusCanceled:
+		return []orchapi.RunStatus{status}, nil
+	case orchapi.RunStatusRunning, orchapi.RunStatusBooting, orchapi.RunStatusBlocked, orchapi.RunStatusBlockedAPI, orchapi.RunStatusQueued:
+		return nil, fmt.Errorf("cannot delete %s runs (use 'orch stop' first)", status)
+	default:
+		return nil, fmt.Errorf("unknown status: %s", s)
+	}
+}
+
+func deleteRuns(ctx context.Context, api orchapi.OrchAPI, runs []*orchapi.Run, opts *deleteOptions) error {
 	if len(runs) == 0 {
 		if !globalOpts.Quiet {
 			fmt.Println("No matching runs to delete")
@@ -276,11 +293,10 @@ func deleteRuns(st store.Store, runs []*model.Run, opts *deleteOptions) error {
 		return nil
 	}
 
-	// Check for active runs that shouldn't be deleted
-	var activeRuns []*model.Run
-	var deletableRuns []*model.Run
+	var activeRuns []*orchapi.Run
+	var deletableRuns []*orchapi.Run
 	for _, run := range runs {
-		if run.Status == model.StatusRunning || run.Status == model.StatusBooting || run.Status == model.StatusBlocked || run.Status == model.StatusBlockedAPI {
+		if run.Status == orchapi.RunStatusRunning || run.Status == orchapi.RunStatusBooting || run.Status == orchapi.RunStatusBlocked || run.Status == orchapi.RunStatusBlockedAPI {
 			activeRuns = append(activeRuns, run)
 		} else {
 			deletableRuns = append(deletableRuns, run)
@@ -297,13 +313,11 @@ func deleteRuns(st store.Store, runs []*model.Run, opts *deleteOptions) error {
 			return nil
 		}
 	} else if opts.Force {
-		// Force includes active runs
 		runs = append(deletableRuns, activeRuns...)
 	} else {
 		runs = deletableRuns
 	}
 
-	// Show what will be deleted
 	if !globalOpts.Quiet || opts.DryRun {
 		action := "Deleting"
 		if opts.DryRun {
@@ -326,42 +340,52 @@ func deleteRuns(st store.Store, runs []*model.Run, opts *deleteOptions) error {
 			if len(extras) > 0 {
 				extraStr = fmt.Sprintf(" (+%s)", strings.Join(extras, ", "))
 			}
-			fmt.Printf("  %s#%s [%s] %s%s\n", run.IssueID, run.RunID, run.ShortID(), run.Status, extraStr)
+			fmt.Printf("  %s#%s [%s] %s%s\n", run.IssueID, run.RunID, run.ShortID, run.Status, extraStr)
 		}
 	}
 
-	// Dry run stops here
 	if opts.DryRun {
 		return nil
 	}
 
-	// Confirmation prompt
 	if !opts.Force && !confirmDelete(len(runs)) {
 		fmt.Println("Aborted")
 		return nil
 	}
 
-	// Perform deletion
 	result := &deleteResult{
 		Deleted: make([]deletedRun, 0, len(runs)),
 	}
 
+	deleteOpts := &orchapi.DeleteRunOptions{
+		WithWorktree: opts.WithWorktree,
+		WithBranch:   opts.WithBranch,
+		Force:        opts.Force,
+	}
+
 	for _, run := range runs {
-		deleted, err := performDelete(st, run, opts)
+		ref := orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}
+		deleteResult, err := api.DeleteRun(ctx, ref, deleteOpts)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("%s#%s: %v", run.IssueID, run.RunID, err))
 			if !globalOpts.Quiet {
 				fmt.Fprintf(os.Stderr, "error deleting %s#%s: %v\n", run.IssueID, run.RunID, err)
 			}
 		} else {
-			result.Deleted = append(result.Deleted, *deleted)
+			result.Deleted = append(result.Deleted, deletedRun{
+				IssueID:         deleteResult.IssueID,
+				RunID:           deleteResult.RunID,
+				ShortID:         deleteResult.ShortID,
+				WorktreeRemoved: deleteResult.WorktreeRemoved,
+				BranchRemoved:   deleteResult.BranchRemoved,
+				SessionKilled:   deleteResult.SessionKilled,
+			})
 			if !globalOpts.Quiet && !globalOpts.JSON {
 				fmt.Printf("deleted: %s#%s\n", run.IssueID, run.RunID)
 			}
 		}
 	}
 
-	// Output
 	if globalOpts.JSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -384,68 +408,4 @@ func confirmDelete(count int) bool {
 	}
 	response = strings.TrimSpace(strings.ToLower(response))
 	return response == "y" || response == "yes"
-}
-
-func performDelete(st store.Store, run *model.Run, opts *deleteOptions) (*deletedRun, error) {
-	result := &deletedRun{
-		IssueID: run.IssueID,
-		RunID:   run.RunID,
-		ShortID: run.ShortID(),
-	}
-
-	sessionName := run.TmuxSession
-	if sessionName == "" {
-		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
-	}
-	mux := multiplexer.GetDefault()
-	if mux.HasSession(sessionName) {
-		if err := mux.KillSession(sessionName); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to kill session %s: %v\n", sessionName, err)
-		} else {
-			result.SessionKilled = true
-		}
-	}
-
-	// 2. Remove worktree if requested
-	if opts.WithWorktree && run.WorktreePath != "" {
-		repoRoot, err := git.FindRepoRoot("")
-		if err == nil {
-			if err := git.RemoveWorktree(repoRoot, run.WorktreePath); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: failed to remove worktree %s: %v\n", run.WorktreePath, err)
-			} else {
-				result.WorktreeRemoved = true
-			}
-		}
-	}
-
-	// 3. Remove branch if requested
-	if opts.WithBranch && run.Branch != "" {
-		repoRoot, err := git.FindRepoRoot("")
-		if err == nil {
-			// Delete branch (force delete in case it's not fully merged)
-			cmd := exec.Command("git", "-C", repoRoot, "branch", "-D", run.Branch)
-			if err := cmd.Run(); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: failed to delete branch %s: %v\n", run.Branch, err)
-			} else {
-				result.BranchRemoved = true
-			}
-		}
-	}
-
-	// 4. Remove run document
-	if err := os.Remove(run.Path); err != nil {
-		if !os.IsNotExist(err) {
-			return nil, fmt.Errorf("failed to remove run document: %w", err)
-		}
-	}
-
-	// 5. Remove log directory if exists
-	logDir := strings.TrimSuffix(run.Path, ".md") + ".log"
-	if info, err := os.Stat(logDir); err == nil && info.IsDir() {
-		if err := os.RemoveAll(logDir); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to remove log directory %s: %v\n", logDir, err)
-		}
-	}
-
-	return result, nil
 }

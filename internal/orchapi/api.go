@@ -91,6 +91,10 @@ type OrchAPI interface {
 	// Creates worktree, branch, and starts agent in tmux session.
 	StartRun(ctx context.Context, req *StartRunRequest) (*StartRunResult, error)
 
+	// CreateRun creates a new run record without starting the agent.
+	// Used by continue command to create runs that reuse existing worktrees.
+	CreateRun(ctx context.Context, req *CreateRunRequest) (*CreateRunResult, error)
+
 	// StopRun stops a running run.
 	// Sends interrupt to the agent and records cancel status.
 	StopRun(ctx context.Context, ref RunRef) error
@@ -135,6 +139,49 @@ type OrchAPI interface {
 	// ResolveIssue marks an issue as resolved and merges the latest run's branch.
 	// If force is true, skips confirmation checks.
 	ResolveIssue(ctx context.Context, issueID string, force bool) error
+
+	// =========================================================================
+	// Run Deletion
+	// =========================================================================
+
+	// DeleteRun deletes a run and its associated resources.
+	DeleteRun(ctx context.Context, ref RunRef, opts *DeleteRunOptions) (*DeleteRunResult, error)
+
+	// =========================================================================
+	// Issue File Operations
+	// =========================================================================
+
+	// UpdateIssue updates an existing issue's content.
+	UpdateIssue(ctx context.Context, issueID string, req *UpdateIssueRequest) (*Issue, error)
+
+	// ValidateIssueFiles validates issue files for proper formatting.
+	ValidateIssueFiles(ctx context.Context, issueID string) (*ValidateIssueFilesResult, error)
+
+	// =========================================================================
+	// Agent Prompt Operations
+	// =========================================================================
+
+	// WriteAgentPrompt writes the agent control prompt for a run.
+	WriteAgentPrompt(ctx context.Context, ref RunRef, content string) error
+
+	// ReadAgentPrompt reads the agent control prompt for a run.
+	ReadAgentPrompt(ctx context.Context, ref RunRef) (string, error)
+
+	// =========================================================================
+	// System Operations
+	// =========================================================================
+
+	// RepairState repairs system state inconsistencies.
+	RepairState(ctx context.Context, opts *RepairOptions) (*RepairResult, error)
+
+	// GetDaemonLog returns the daemon log content.
+	GetDaemonLog(ctx context.Context, lines int) (string, error)
+
+	// ReadFile reads a file's content via daemon.
+	ReadFile(ctx context.Context, path string) ([]byte, error)
+
+	// WriteFile writes content to a file via daemon.
+	WriteFile(ctx context.Context, path string, content []byte, perm uint32) error
 
 	// =========================================================================
 	// Daemon/Server

@@ -8,18 +8,21 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
+
+	"github.com/s22625/orch/internal/daemon"
 )
 
 var (
-	orchBinary string
-	testVault  string
-	testRepo   string
+	orchBinary    string
+	testVault     string
+	testRepo      string
+	daemonProcess *os.Process
 )
 
 func TestMain(m *testing.M) {
-	// Build the orch binary
 	tmpDir, err := os.MkdirTemp("", "orch-integration-*")
 	if err != nil {
 		panic(err)
@@ -32,12 +35,10 @@ func TestMain(m *testing.M) {
 		panic("failed to build orch: " + err.Error())
 	}
 
-	// Create test vault
 	testVault = filepath.Join(tmpDir, "vault")
 	os.MkdirAll(filepath.Join(testVault, "issues"), 0755)
 	os.MkdirAll(filepath.Join(testVault, "runs"), 0755)
 
-	// Create test git repo
 	testRepo = filepath.Join(tmpDir, "repo")
 	os.MkdirAll(testRepo, 0755)
 	exec.Command("git", "-C", testRepo, "init").Run()
@@ -47,7 +48,34 @@ func TestMain(m *testing.M) {
 	exec.Command("git", "-C", testRepo, "add", ".").Run()
 	exec.Command("git", "-C", testRepo, "commit", "-m", "initial").Run()
 
+	startTestDaemon()
+	defer stopTestDaemon()
+
 	os.Exit(m.Run())
+}
+
+func startTestDaemon() {
+	cmd := exec.Command(orchBinary, "daemon", "run")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		panic("failed to start daemon: " + err.Error())
+	}
+	daemonProcess = cmd.Process
+
+	for i := 0; i < 30; i++ {
+		time.Sleep(100 * time.Millisecond)
+		if daemon.IsRunning("") {
+			return
+		}
+	}
+	panic("daemon did not start in time")
+}
+
+func stopTestDaemon() {
+	if daemonProcess != nil {
+		daemonProcess.Signal(syscall.SIGTERM)
+		daemonProcess.Wait()
+	}
 }
 
 func runOrch(t *testing.T, args ...string) (string, error) {

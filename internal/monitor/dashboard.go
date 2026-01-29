@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -770,15 +771,15 @@ func (d *Dashboard) requestMergeCmd(run *model.Run) tea.Cmd {
 	}
 }
 
-// openIssueInNvimCmd opens the issue file in nvim, suspending the TUI.
-// When the editor closes, the TUI resumes and the run list is refreshed.
 func (d *Dashboard) openIssueInNvimCmd(issueID string) tea.Cmd {
-	issue, err := d.monitor.store.ResolveIssue(issueID)
-	if err != nil || issue == nil {
+	ctx := context.Background()
+	apiIssue, err := d.monitor.api.GetIssue(ctx, issueID)
+	if err != nil || apiIssue == nil {
 		return func() tea.Msg {
 			return errMsg{err: fmt.Errorf("could not resolve issue %s: %v", issueID, err)}
 		}
 	}
+	issue := apiIssueToModel(apiIssue)
 	if strings.TrimSpace(issue.Path) == "" {
 		return func() tea.Msg {
 			return errMsg{err: fmt.Errorf("issue %s has no file path", issueID)}

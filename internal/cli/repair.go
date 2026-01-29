@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -9,7 +10,7 @@ import (
 	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
-	"github.com/s22625/orch/internal/store"
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
 
@@ -42,7 +43,8 @@ This command will:
 }
 
 func runRepair(opts *repairOptions) error {
-	st, err := getStore()
+	ctx := context.Background()
+	api, err := getAPI()
 	if err != nil {
 		return err
 	}
@@ -78,9 +80,8 @@ func runRepair(opts *repairOptions) error {
 		}
 	}
 
-	// 2. Check and repair stale runs
 	fmt.Println("Checking runs...")
-	staleFixed, err := repairStaleRuns(st, opts)
+	staleFixed, err := repairStaleRunsAPI(ctx, api, opts)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  error: %v\n", err)
 	}
@@ -89,9 +90,8 @@ func runRepair(opts *repairOptions) error {
 		problemsFixed += staleFixed
 	}
 
-	// 3. Report orphaned sessions
 	fmt.Println("Checking for orphaned sessions...")
-	orphanedSessions := findOrphanedSessions(st)
+	orphanedSessions := findOrphanedSessionsAPI(ctx, api)
 	if len(orphanedSessions) > 0 {
 		problemsFound += len(orphanedSessions)
 		fmt.Printf("  found %d orphaned sessions:\n", len(orphanedSessions))
@@ -113,7 +113,6 @@ func runRepair(opts *repairOptions) error {
 		}
 	}
 
-	// Summary
 	fmt.Println()
 	if problemsFound == 0 {
 		fmt.Println("No problems found.")
@@ -124,7 +123,7 @@ func runRepair(opts *repairOptions) error {
 	}
 
 	if problemsFound > 0 && !opts.DryRun {
-		os.Exit(1) // Exit code 1 = repairs were made
+		os.Exit(1)
 	}
 
 	return nil
@@ -184,21 +183,21 @@ func repairDaemon(projectRoot string, opts *repairOptions) (bool, error) {
 	return true, fmt.Errorf("daemon failed to start")
 }
 
-// repairStaleRuns finds runs marked as "running" but with no active agent session
-func repairStaleRuns(st store.Store, opts *repairOptions) (int, error) {
-	runs, err := st.ListRuns(&store.ListRunsFilter{
-		Status: []model.Status{model.StatusRunning, model.StatusBooting},
-	})
+func repairStaleRunsAPI(ctx context.Context, api orchapi.OrchAPI, opts *repairOptions) (int, error) {
+	filter := &orchapi.ListRunsFilter{
+		Status: []orchapi.RunStatus{orchapi.RunStatusRunning, orchapi.RunStatusBooting},
+	}
+	result, err := api.ListRuns(ctx, filter)
 	if err != nil {
 		return 0, err
 	}
 
 	fixed := 0
-	for _, run := range runs {
-		// Use AgentManager to check if agent is alive (works for both tmux and opencode)
-		mgr := agent.GetManager(run)
-		if mgr.IsAlive(run) {
-			continue // Agent is alive, run is fine
+	for _, run := range result.Runs {
+		modelRun := apiRunToModelRun(run)
+		mgr := agent.GetManager(modelRun)
+		if mgr.IsAlive(modelRun) {
+			continue
 		}
 
 		fmt.Printf("  %s#%s: marked %s but agent not alive\n", run.IssueID, run.RunID, run.Status)
@@ -214,9 +213,12 @@ func repairStaleRuns(st store.Store, opts *repairOptions) (int, error) {
 			continue
 		}
 
-		ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
-		event := model.NewStatusEvent(newStatus)
-		if err := st.AppendEvent(ref, event); err != nil {
+		ref := orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}
+		event := &orchapi.Event{
+			Type: "status",
+			Name: string(newStatus),
+		}
+		if _, err := api.AppendEvent(ctx, ref, event); err != nil {
 			fmt.Fprintf(os.Stderr, "    failed to update status: %v\n", err)
 		} else {
 			fmt.Printf("    marked as %s\n", newStatus)
@@ -230,21 +232,20 @@ func repairStaleRuns(st store.Store, opts *repairOptions) (int, error) {
 	return fixed, nil
 }
 
-// findOrphanedSessions finds multiplexer sessions that don't correspond to any run
-func findOrphanedSessions(st store.Store) []string {
+func findOrphanedSessionsAPI(ctx context.Context, api orchapi.OrchAPI) []string {
 	mux := multiplexer.GetDefault()
 	sessions, err := mux.ListSessions()
 	if err != nil || len(sessions) == 0 {
 		return nil
 	}
 
-	runs, err := st.ListRuns(&store.ListRunsFilter{})
+	result, err := api.ListRuns(ctx, &orchapi.ListRunsFilter{})
 	if err != nil {
 		return nil
 	}
 
 	expectedSessions := make(map[string]bool)
-	for _, run := range runs {
+	for _, run := range result.Runs {
 		sessionName := run.TmuxSession
 		if sessionName == "" {
 			sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)

@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/orchapi"
 )
 
 func TestNewCaptureAllCmd(t *testing.T) {
@@ -37,48 +39,41 @@ func TestNewCaptureAllCmd(t *testing.T) {
 	}
 }
 
+type mockCaptureAllAPI struct {
+	orchapi.OrchAPI
+	runs []*orchapi.Run
+}
+
+func (m *mockCaptureAllAPI) ListRuns(ctx context.Context, filter *orchapi.ListRunsFilter) (*orchapi.ListRunsResult, error) {
+	var filtered []*orchapi.Run
+	for _, run := range m.runs {
+		if filter != nil && len(filter.Status) > 0 {
+			for _, s := range filter.Status {
+				if run.Status == s {
+					filtered = append(filtered, run)
+					break
+				}
+			}
+		} else {
+			filtered = append(filtered, run)
+		}
+	}
+	return &orchapi.ListRunsResult{Runs: filtered}, nil
+}
+
 func TestRunCaptureAllJSON(t *testing.T) {
 	resetGlobalOpts(t)
-	testBypassDaemon = true
-	t.Cleanup(func() { testBypassDaemon = false })
-
-	vault := t.TempDir()
-	globalOpts.IssuesRoot = vault
-	globalOpts.Backend = "file"
 	globalOpts.JSON = true
 	globalOpts.Quiet = true
 
-	writeIssue(t, vault, "issue-1")
-	writeIssue(t, vault, "issue-2")
-	writeIssue(t, vault, "issue-3")
-
-	st, err := getStore()
-	if err != nil {
-		t.Fatalf("getStore: %v", err)
+	mockAPI := &mockCaptureAllAPI{
+		runs: []*orchapi.Run{
+			{IssueID: "issue-1", RunID: "run-1", Status: orchapi.RunStatusRunning},
+			{IssueID: "issue-2", RunID: "run-2", Status: orchapi.RunStatusBlocked},
+		},
 	}
-
-	run1, err := st.CreateRun("issue-1", "run-1", nil)
-	if err != nil {
-		t.Fatalf("create run1: %v", err)
-	}
-	run2, err := st.CreateRun("issue-2", "run-2", nil)
-	if err != nil {
-		t.Fatalf("create run2: %v", err)
-	}
-	run3, err := st.CreateRun("issue-3", "run-3", nil)
-	if err != nil {
-		t.Fatalf("create run3: %v", err)
-	}
-
-	if err := st.AppendEvent(run1.Ref(), model.NewStatusEvent(model.StatusRunning)); err != nil {
-		t.Fatalf("status run1: %v", err)
-	}
-	if err := st.AppendEvent(run2.Ref(), model.NewStatusEvent(model.StatusBlocked)); err != nil {
-		t.Fatalf("status run2: %v", err)
-	}
-	if err := st.AppendEvent(run3.Ref(), model.NewStatusEvent(model.StatusDone)); err != nil {
-		t.Fatalf("status run3: %v", err)
-	}
+	testAPIOverride = mockAPI
+	t.Cleanup(func() { testAPIOverride = nil })
 
 	outputs := map[string]string{
 		model.GenerateTmuxSession("issue-1", "run-1"): "run-1 output\n",
@@ -140,8 +135,8 @@ func TestRunCaptureAllJSON(t *testing.T) {
 	if item1.RunID != "run-1" {
 		t.Fatalf("issue-1 run_id = %q, want run-1", item1.RunID)
 	}
-	if item1.Status != string(model.StatusRunning) {
-		t.Fatalf("issue-1 status = %q, want %q", item1.Status, model.StatusRunning)
+	if item1.Status != string(orchapi.RunStatusRunning) {
+		t.Fatalf("issue-1 status = %q, want %q", item1.Status, orchapi.RunStatusRunning)
 	}
 	if item1.Content != "run-1 output\n" {
 		t.Fatalf("issue-1 content = %q", item1.Content)
@@ -163,8 +158,8 @@ func TestRunCaptureAllJSON(t *testing.T) {
 	if item2.RunID != "run-2" {
 		t.Fatalf("issue-2 run_id = %q, want run-2", item2.RunID)
 	}
-	if item2.Status != string(model.StatusBlocked) {
-		t.Fatalf("issue-2 status = %q, want %q", item2.Status, model.StatusBlocked)
+	if item2.Status != string(orchapi.RunStatusBlocked) {
+		t.Fatalf("issue-2 status = %q, want %q", item2.Status, orchapi.RunStatusBlocked)
 	}
 	if !strings.Contains(item2.Error, "tmux session") {
 		t.Fatalf("issue-2 error = %q", item2.Error)
@@ -173,36 +168,15 @@ func TestRunCaptureAllJSON(t *testing.T) {
 
 func TestRunCaptureAllPlain(t *testing.T) {
 	resetGlobalOpts(t)
-	testBypassDaemon = true
-	t.Cleanup(func() { testBypassDaemon = false })
 
-	vault := t.TempDir()
-	globalOpts.IssuesRoot = vault
-	globalOpts.Backend = "file"
-
-	writeIssue(t, vault, "issue-1")
-	writeIssue(t, vault, "issue-2")
-
-	st, err := getStore()
-	if err != nil {
-		t.Fatalf("getStore: %v", err)
+	mockAPI := &mockCaptureAllAPI{
+		runs: []*orchapi.Run{
+			{IssueID: "issue-1", RunID: "run-1", Status: orchapi.RunStatusRunning},
+			{IssueID: "issue-2", RunID: "run-2", Status: orchapi.RunStatusBlocked},
+		},
 	}
-
-	run1, err := st.CreateRun("issue-1", "run-1", nil)
-	if err != nil {
-		t.Fatalf("create run1: %v", err)
-	}
-	run2, err := st.CreateRun("issue-2", "run-2", nil)
-	if err != nil {
-		t.Fatalf("create run2: %v", err)
-	}
-
-	if err := st.AppendEvent(run1.Ref(), model.NewStatusEvent(model.StatusRunning)); err != nil {
-		t.Fatalf("status run1: %v", err)
-	}
-	if err := st.AppendEvent(run2.Ref(), model.NewStatusEvent(model.StatusBlocked)); err != nil {
-		t.Fatalf("status run2: %v", err)
-	}
+	testAPIOverride = mockAPI
+	t.Cleanup(func() { testAPIOverride = nil })
 
 	outputs := map[string]string{
 		model.GenerateTmuxSession("issue-1", "run-1"): "run-1 output\n",

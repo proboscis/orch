@@ -18,6 +18,7 @@ import (
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/notify"
 	"github.com/s22625/orch/internal/store"
+	"github.com/s22625/orch/internal/store/file"
 	"github.com/s22625/orch/internal/xdg"
 )
 
@@ -500,4 +501,21 @@ func (d *Daemon) syncGitHubIssues() error {
 
 func (d *Daemon) GetGitHubBackend() *github.Backend {
 	return d.githubBackend
+}
+
+func RunWithFileStore(debug bool) error {
+	if IsRunning("") {
+		pid := GetRunningPID("")
+		return fmt.Errorf("daemon already running (pid=%d)", pid)
+	}
+
+	factory := func(issuesRoot string) (store.Store, error) {
+		return file.New(issuesRoot)
+	}
+
+	d := New(factory)
+	if debug {
+		d.SetDebugMode(true)
+	}
+	return d.Run()
 }

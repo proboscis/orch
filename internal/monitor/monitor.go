@@ -19,8 +19,8 @@ import (
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/s22625/orch/internal/pr"
-	"github.com/s22625/orch/internal/store"
 	"github.com/s22625/orch/internal/xdg"
 )
 
@@ -67,7 +67,8 @@ type Monitor struct {
 	runSortDir      SortDirection
 	issueSort       SortKey
 	issueSortDir    SortDirection
-	store           store.Store
+	api             orchapi.OrchAPI
+	issuesRoot      string
 	daemonClient    *daemon.ProtoClient
 	orchPath        string
 	globalFlags     []string
@@ -97,7 +98,7 @@ type RunWindow struct {
 	AgentSession string
 }
 
-func New(st store.Store, opts Options) *Monitor {
+func New(api orchapi.OrchAPI, issuesRoot string, opts Options) *Monitor {
 	projectRoot := opts.ProjectRoot
 	if projectRoot == "" {
 		if pr, err := config.GetProjectRoot(); err == nil {
@@ -131,7 +132,6 @@ func New(st store.Store, opts Options) *Monitor {
 	}
 	orchDir := GetOrchDir(projectRoot)
 	var presets []config.Preset
-	issuesRoot := st.RootPath()
 	daemonClient := daemon.NewProtoClientWithIssuesRoot(projectRoot, issuesRoot)
 	if cfg, err := config.Load(); err == nil {
 		presets = cfg.GetAllPresets()
@@ -158,7 +158,8 @@ func New(st store.Store, opts Options) *Monitor {
 		runSortDir:      runSortDir,
 		issueSort:       issueSort,
 		issueSortDir:    issueSortDir,
-		store:           st,
+		api:             api,
+		issuesRoot:      issuesRoot,
 		daemonClient:    daemonClient,
 		orchPath:        orchPath,
 		globalFlags:     opts.GlobalFlags,
@@ -412,16 +413,18 @@ func (m *Monitor) SetRunFilter(filter RunFilter) {
 	m.runFilter = normalizeRunFilter(filter)
 }
 
-// RefreshIssues reloads issue data for the issues dashboard.
 func (m *Monitor) RefreshIssues() ([]IssueRow, error) {
-	issues, err := m.store.ListIssues()
+	ctx := context.Background()
+	issuesResult, err := m.api.ListIssues(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
-	runs, err := m.store.ListRuns(nil)
+	runsResult, err := m.api.ListRuns(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
+	issues := apiIssuesToModel(issuesResult.Issues)
+	runs := apiRunsToModel(runsResult.Runs)
 	return m.buildIssueRows(issues, runs), nil
 }
 
@@ -491,7 +494,10 @@ func (m *Monitor) StopRun(run *model.Run) error {
 		_ = m.mux.KillSession(sessionName)
 	}
 
-	return m.store.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusCanceled))
+	ctx := context.Background()
+	ref := orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}
+	_, err := m.api.AppendEvent(ctx, ref, &orchapi.Event{Type: "status", Name: string(model.StatusCanceled)})
+	return err
 }
 
 func (m *Monitor) StartRun(issueID string, agentType string) (string, error) {
@@ -631,64 +637,51 @@ func (m *Monitor) CreateIssue(issueID, title string) (string, error) {
 	return output, nil
 }
 
-// SetIssueStatus updates the issue status in the store.
 func (m *Monitor) SetIssueStatus(issueID string, status model.IssueStatus) error {
-	return m.store.SetIssueStatus(issueID, status)
+	ctx := context.Background()
+	return m.api.SetIssueStatus(ctx, issueID, orchapi.IssueStatus(status))
 }
 
-// ResolveRun marks the run as done and its corresponding issue as resolved.
 func (m *Monitor) ResolveRun(run *model.Run) error {
 	if run == nil {
 		return fmt.Errorf("run not found")
 	}
 
-	// Mark the run as done if not already in a terminal state
+	ctx := context.Background()
+	ref := orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}
+
 	if !isTerminalStatus(run.Status) {
-		if err := m.store.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusDone)); err != nil {
+		if _, err := m.api.AppendEvent(ctx, ref, &orchapi.Event{Type: "status", Name: string(model.StatusDone)}); err != nil {
 			return fmt.Errorf("failed to mark run as done: %w", err)
 		}
 	}
 
-	// Mark the corresponding issue as resolved
-	if err := m.store.SetIssueStatus(run.IssueID, model.IssueStatusResolved); err != nil {
+	if err := m.api.SetIssueStatus(ctx, run.IssueID, orchapi.IssueStatusResolved); err != nil {
 		return fmt.Errorf("failed to resolve issue: %w", err)
 	}
 
 	return nil
 }
 
-// ListIssues fetches issues from daemon (for GitHub backend) or store.
-// Falls back to store if daemon request fails to ensure dashboard stability.
 func (m *Monitor) ListIssues() ([]*model.Issue, error) {
-	if m.daemonClient != nil && m.daemonClient.IsAvailable() {
-		resp, err := m.daemonClient.ListIssues(nil, 0, "")
-		if err == nil {
-			issues := make([]*model.Issue, len(resp.Issues))
-			for i, is := range resp.Issues {
-				issues[i] = &model.Issue{
-					ID:      is.ID,
-					Title:   is.Title,
-					Summary: is.Summary,
-					Status:  model.IssueStatus(is.Status),
-				}
-			}
-			return issues, nil
-		}
-		// Daemon request failed - fall back to store instead of returning error
-		// This prevents empty dashboard when daemon has transient issues
+	ctx := context.Background()
+	result, err := m.api.ListIssues(ctx, nil)
+	if err != nil {
+		return nil, err
 	}
-	return m.store.ListIssues()
+	return apiIssuesToModel(result.Issues), nil
 }
 
-// ListRunsForIssue fetches runs for a specific issue.
 func (m *Monitor) ListRunsForIssue(issueID string) ([]*model.Run, error) {
 	if strings.TrimSpace(issueID) == "" {
 		return nil, fmt.Errorf("issue id is required")
 	}
-	runs, err := m.store.ListRuns(&store.ListRunsFilter{IssueID: issueID})
+	ctx := context.Background()
+	result, err := m.api.ListRuns(ctx, &orchapi.ListRunsFilter{IssueID: issueID})
 	if err != nil {
 		return nil, err
 	}
+	runs := apiRunsToModel(result.Runs)
 	sortRuns(runs, m.runSort)
 	return runs, nil
 }
@@ -837,25 +830,24 @@ func (m *Monitor) ensurePaneLayout() error {
 }
 
 func (m *Monitor) loadRuns() ([]*RunWindow, error) {
-	filter := &store.ListRunsFilter{
-		Limit: 100,
-	}
-
 	if len(m.runFilter.Statuses) == 0 {
 		return []*RunWindow{}, nil
 	}
-	filter.Status = statusSlice(m.runFilter.Statuses)
-	if m.runFilter.UpdatedWithin > 0 {
-		filter.Since = time.Now().Add(-m.runFilter.UpdatedWithin).Format(time.RFC3339)
+
+	filter := &orchapi.ListRunsFilter{
+		Limit: 100,
 	}
+	filter.Status = statusSliceAPI(m.runFilter.Statuses)
 	if !m.runFilter.IsDefault() {
 		filter.Limit = 0
 	}
 
-	runs, err := m.store.ListRuns(filter)
+	ctx := context.Background()
+	result, err := m.api.ListRuns(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
+	runs := apiRunsToModel(result.Runs)
 
 	runWindows := make([]*RunWindow, 0, len(runs))
 	for i, run := range runs {
@@ -901,13 +893,15 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		if _, ok := issueInfo[w.Run.IssueID]; ok {
 			continue
 		}
-		issue, err := m.store.ResolveIssue(w.Run.IssueID)
+		ctx := context.Background()
+		apiIssue, err := m.api.GetIssue(ctx, w.Run.IssueID)
 		if err != nil {
 			continue
 		}
-		status := "-"
-		if issue.Frontmatter != nil && issue.Frontmatter["status"] != "" {
-			status = issue.Frontmatter["status"]
+		issue := apiIssueToModel(apiIssue)
+		status := string(issue.Status)
+		if status == "" {
+			status = "-"
 		}
 		topic := formatIssueTopic(issue)
 		if topic == "" {
@@ -1120,7 +1114,8 @@ type agentChatLaunch struct {
 }
 
 func (m *Monitor) agentChatLaunch() agentChatLaunch {
-	_, err := WriteControlPromptFile(m.store)
+	ctx := context.Background()
+	_, err := WriteControlPromptFileViaAPI(ctx, m.api, m.issuesRoot)
 	if err != nil {
 		return agentChatLaunch{command: fallbackChatCommand(fmt.Sprintf("failed to write prompt file: %v", err))}
 	}
@@ -1187,7 +1182,7 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 
 	cmd, err := adapter.LaunchCommand(&agent.LaunchConfig{
 		Type:            aType,
-		IssuesRoot:      m.store.RootPath(),
+		IssuesRoot:      m.issuesRoot,
 		Prompt:          prompt,
 		ContinueSession: true,
 		Port:            agent.OpenCodeServerPortStart,
@@ -1260,13 +1255,13 @@ func (m *Monitor) sendPromptViaHTTP(launch agentChatLaunch) {
 		modelRef = agent.ParseModel(launch.model)
 	}
 
-	_ = client.SendMessageAsync(ctx, sessionID, launch.prompt, m.store.RootPath(), modelRef, launch.modelVariant)
+	_ = client.SendMessageAsync(ctx, sessionID, launch.prompt, m.issuesRoot, modelRef, launch.modelVariant)
 }
 
 func (m *Monitor) getOrCreateControlSession(ctx context.Context, client *agent.OpenCodeClient, port int) string {
 	stored := LoadControlSession(m.orchDir)
 	if stored != nil && stored.SessionID != "" {
-		session, err := client.GetSession(ctx, stored.SessionID, m.store.RootPath())
+		session, err := client.GetSession(ctx, stored.SessionID, m.issuesRoot)
 		if err == nil && session != nil {
 			if stored.Port != port {
 				_ = SaveControlSession(m.orchDir, &ControlSession{
@@ -1278,7 +1273,7 @@ func (m *Monitor) getOrCreateControlSession(ctx context.Context, client *agent.O
 		}
 	}
 
-	session, err := client.CreateSession(ctx, "monitor-chat", m.store.RootPath())
+	session, err := client.CreateSession(ctx, "monitor-chat", m.issuesRoot)
 	if err != nil {
 		return ""
 	}
@@ -1559,11 +1554,13 @@ func (m *Monitor) repairSwappedMonitorChat() error {
 		_ = m.mux.SetPaneTitle(chatPane.ID, chatPaneTitle)
 		return nil
 	}
-	run, err := m.store.GetRun(ref)
+	ctx := context.Background()
+	apiRun, err := m.api.GetRun(ctx, ref.IssueID, ref.RunID)
 	if err != nil {
 		_ = m.mux.SetPaneTitle(chatPane.ID, chatPaneTitle)
 		return nil
 	}
+	run := apiRunToModel(apiRun)
 	sessionName := run.TmuxSession
 	if sessionName == "" {
 		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
@@ -1741,4 +1738,75 @@ func (m *Monitor) unregisterFromDaemon() {
 
 	_ = m.daemonClient.UnregisterMonitor(m.monitorID)
 	m.monitorID = ""
+}
+
+func apiIssuesToModel(issues []*orchapi.Issue) []*model.Issue {
+	result := make([]*model.Issue, 0, len(issues))
+	for _, i := range issues {
+		result = append(result, &model.Issue{
+			ID:      i.ID,
+			Title:   i.Title,
+			Summary: i.Summary,
+			Status:  model.IssueStatus(i.Status),
+			Tags:    i.Tags,
+			Body:    i.Body,
+			Path:    i.Path,
+		})
+	}
+	return result
+}
+
+func apiRunsToModel(runs []*orchapi.Run) []*model.Run {
+	result := make([]*model.Run, 0, len(runs))
+	for _, r := range runs {
+		result = append(result, apiRunToModel(r))
+	}
+	return result
+}
+
+func apiRunToModel(r *orchapi.Run) *model.Run {
+	if r == nil {
+		return nil
+	}
+	return &model.Run{
+		IssueID:           r.IssueID,
+		RunID:             r.RunID,
+		Status:            model.Status(r.Status),
+		Agent:             r.Agent,
+		Model:             r.Model,
+		ModelVariant:      r.ModelVariant,
+		Branch:            r.Branch,
+		WorktreePath:      r.WorktreePath,
+		TmuxSession:       r.TmuxSession,
+		Multiplexer:       string(r.Multiplexer),
+		PRUrl:             r.PRUrl,
+		ServerPort:        r.ServerPort,
+		OpenCodeSessionID: r.OpenCodeSessionID,
+		ContinuedFrom:     r.ContinuedFrom,
+		StartedAt:         r.StartedAt,
+		UpdatedAt:         r.UpdatedAt,
+	}
+}
+
+func apiIssueToModel(i *orchapi.Issue) *model.Issue {
+	if i == nil {
+		return nil
+	}
+	return &model.Issue{
+		ID:      i.ID,
+		Title:   i.Title,
+		Summary: i.Summary,
+		Status:  model.IssueStatus(i.Status),
+		Tags:    i.Tags,
+		Body:    i.Body,
+		Path:    i.Path,
+	}
+}
+
+func statusSliceAPI(set map[model.Status]bool) []orchapi.RunStatus {
+	result := make([]orchapi.RunStatus, 0, len(set))
+	for s := range set {
+		result = append(result, orchapi.RunStatus(s))
+	}
+	return result
 }

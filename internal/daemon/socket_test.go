@@ -99,6 +99,30 @@ func (m *mockStore) RootPath() string {
 	return ""
 }
 
+func (m *mockStore) DeleteRun(ref *model.RunRef) error {
+	return nil
+}
+
+func (m *mockStore) UpdateIssue(issue *model.Issue) error {
+	return nil
+}
+
+func (m *mockStore) ValidateIssueFiles(issueID string) (*store.ValidationResult, error) {
+	return &store.ValidationResult{}, nil
+}
+
+func (m *mockStore) WriteAgentPrompt(ref *model.RunRef, content string) error {
+	return nil
+}
+
+func (m *mockStore) ReadAgentPrompt(ref *model.RunRef) (string, error) {
+	return "", nil
+}
+
+func (m *mockStore) CreateIssue(issue *model.Issue) error {
+	return nil
+}
+
 func TestSocketFilePath(t *testing.T) {
 	// Set up temp XDG runtime dir with short path (Unix socket limit is 104 chars)
 	tmpDir := filepath.Join("/tmp", "orch-test-"+randomID())

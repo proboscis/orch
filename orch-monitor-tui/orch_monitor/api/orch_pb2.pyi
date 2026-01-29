@@ -118,7 +118,7 @@ class Run(_message.Message):
     def __init__(self, issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., status: _Optional[_Union[RunStatus, str]] = ..., agent: _Optional[str] = ..., model: _Optional[str] = ..., branch: _Optional[str] = ..., worktree_path: _Optional[str] = ..., pr_url: _Optional[str] = ..., started_at_unix: _Optional[int] = ..., updated_at_unix: _Optional[int] = ..., elapsed_seconds: _Optional[int] = ..., elapsed_display: _Optional[str] = ..., diff_stats: _Optional[_Union[DiffStats, _Mapping]] = ..., branch_state: _Optional[_Union[BranchState, str]] = ..., tmux_session: _Optional[str] = ..., multiplexer: _Optional[_Union[Multiplexer, str]] = ..., server_port: _Optional[int] = ..., opencode_session_id: _Optional[str] = ..., continued_from: _Optional[str] = ...) -> None: ...
 
 class Issue(_message.Message):
-    __slots__ = ("id", "title", "summary", "status", "tags", "body", "path", "modified_at_unix")
+    __slots__ = ("id", "title", "summary", "status", "tags", "body", "path", "modified_at_unix", "topic")
     ID_FIELD_NUMBER: _ClassVar[int]
     TITLE_FIELD_NUMBER: _ClassVar[int]
     SUMMARY_FIELD_NUMBER: _ClassVar[int]
@@ -127,6 +127,7 @@ class Issue(_message.Message):
     BODY_FIELD_NUMBER: _ClassVar[int]
     PATH_FIELD_NUMBER: _ClassVar[int]
     MODIFIED_AT_UNIX_FIELD_NUMBER: _ClassVar[int]
+    TOPIC_FIELD_NUMBER: _ClassVar[int]
     id: str
     title: str
     summary: str
@@ -135,7 +136,8 @@ class Issue(_message.Message):
     body: str
     path: str
     modified_at_unix: int
-    def __init__(self, id: _Optional[str] = ..., title: _Optional[str] = ..., summary: _Optional[str] = ..., status: _Optional[_Union[IssueStatus, str]] = ..., tags: _Optional[_Iterable[str]] = ..., body: _Optional[str] = ..., path: _Optional[str] = ..., modified_at_unix: _Optional[int] = ...) -> None: ...
+    topic: str
+    def __init__(self, id: _Optional[str] = ..., title: _Optional[str] = ..., summary: _Optional[str] = ..., status: _Optional[_Union[IssueStatus, str]] = ..., tags: _Optional[_Iterable[str]] = ..., body: _Optional[str] = ..., path: _Optional[str] = ..., modified_at_unix: _Optional[int] = ..., topic: _Optional[str] = ...) -> None: ...
 
 class Event(_message.Message):
     __slots__ = ("timestamp_unix", "type", "name", "attrs")
@@ -245,6 +247,35 @@ class StartRunResponse(_message.Message):
     worktree_path: str
     tmux_session: str
     def __init__(self, run_id: _Optional[str] = ..., branch: _Optional[str] = ..., worktree_path: _Optional[str] = ..., tmux_session: _Optional[str] = ...) -> None: ...
+
+class CreateRunRequest(_message.Message):
+    __slots__ = ("issues_root", "issue_id", "run_id", "metadata")
+    class MetadataEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    ISSUES_ROOT_FIELD_NUMBER: _ClassVar[int]
+    ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
+    RUN_ID_FIELD_NUMBER: _ClassVar[int]
+    METADATA_FIELD_NUMBER: _ClassVar[int]
+    issues_root: str
+    issue_id: str
+    run_id: str
+    metadata: _containers.ScalarMap[str, str]
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ...) -> None: ...
+
+class CreateRunResponse(_message.Message):
+    __slots__ = ("issue_id", "run_id", "path")
+    ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
+    RUN_ID_FIELD_NUMBER: _ClassVar[int]
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    issue_id: str
+    run_id: str
+    path: str
+    def __init__(self, issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., path: _Optional[str] = ...) -> None: ...
 
 class StopRunRequest(_message.Message):
     __slots__ = ("issues_root", "issue_id", "run_id")
@@ -678,8 +709,210 @@ class ListReposResponse(_message.Message):
     repos: _containers.RepeatedCompositeFieldContainer[RepoInfo]
     def __init__(self, repos: _Optional[_Iterable[_Union[RepoInfo, _Mapping]]] = ...) -> None: ...
 
+class DeleteRunRequest(_message.Message):
+    __slots__ = ("issues_root", "issue_id", "run_id", "short_id", "with_worktree", "with_branch", "force")
+    ISSUES_ROOT_FIELD_NUMBER: _ClassVar[int]
+    ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
+    RUN_ID_FIELD_NUMBER: _ClassVar[int]
+    SHORT_ID_FIELD_NUMBER: _ClassVar[int]
+    WITH_WORKTREE_FIELD_NUMBER: _ClassVar[int]
+    WITH_BRANCH_FIELD_NUMBER: _ClassVar[int]
+    FORCE_FIELD_NUMBER: _ClassVar[int]
+    issues_root: str
+    issue_id: str
+    run_id: str
+    short_id: str
+    with_worktree: bool
+    with_branch: bool
+    force: bool
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., short_id: _Optional[str] = ..., with_worktree: _Optional[bool] = ..., with_branch: _Optional[bool] = ..., force: _Optional[bool] = ...) -> None: ...
+
+class DeleteRunResponse(_message.Message):
+    __slots__ = ("issue_id", "run_id", "short_id", "worktree_removed", "branch_removed", "session_killed")
+    ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
+    RUN_ID_FIELD_NUMBER: _ClassVar[int]
+    SHORT_ID_FIELD_NUMBER: _ClassVar[int]
+    WORKTREE_REMOVED_FIELD_NUMBER: _ClassVar[int]
+    BRANCH_REMOVED_FIELD_NUMBER: _ClassVar[int]
+    SESSION_KILLED_FIELD_NUMBER: _ClassVar[int]
+    issue_id: str
+    run_id: str
+    short_id: str
+    worktree_removed: bool
+    branch_removed: bool
+    session_killed: bool
+    def __init__(self, issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., short_id: _Optional[str] = ..., worktree_removed: _Optional[bool] = ..., branch_removed: _Optional[bool] = ..., session_killed: _Optional[bool] = ...) -> None: ...
+
+class UpdateIssueRequest(_message.Message):
+    __slots__ = ("issues_root", "issue_id", "title", "summary", "body", "status")
+    ISSUES_ROOT_FIELD_NUMBER: _ClassVar[int]
+    ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
+    TITLE_FIELD_NUMBER: _ClassVar[int]
+    SUMMARY_FIELD_NUMBER: _ClassVar[int]
+    BODY_FIELD_NUMBER: _ClassVar[int]
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    issues_root: str
+    issue_id: str
+    title: str
+    summary: str
+    body: str
+    status: str
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., title: _Optional[str] = ..., summary: _Optional[str] = ..., body: _Optional[str] = ..., status: _Optional[str] = ...) -> None: ...
+
+class UpdateIssueResponse(_message.Message):
+    __slots__ = ("issue",)
+    ISSUE_FIELD_NUMBER: _ClassVar[int]
+    issue: Issue
+    def __init__(self, issue: _Optional[_Union[Issue, _Mapping]] = ...) -> None: ...
+
+class ValidateIssueFilesRequest(_message.Message):
+    __slots__ = ("issues_root", "issue_id")
+    ISSUES_ROOT_FIELD_NUMBER: _ClassVar[int]
+    ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
+    issues_root: str
+    issue_id: str
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ...) -> None: ...
+
+class ValidationIssue(_message.Message):
+    __slots__ = ("code", "message", "line", "level")
+    CODE_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    LINE_FIELD_NUMBER: _ClassVar[int]
+    LEVEL_FIELD_NUMBER: _ClassVar[int]
+    code: str
+    message: str
+    line: int
+    level: str
+    def __init__(self, code: _Optional[str] = ..., message: _Optional[str] = ..., line: _Optional[int] = ..., level: _Optional[str] = ...) -> None: ...
+
+class ValidationResultItem(_message.Message):
+    __slots__ = ("file", "issue_id", "errors", "warnings")
+    FILE_FIELD_NUMBER: _ClassVar[int]
+    ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
+    ERRORS_FIELD_NUMBER: _ClassVar[int]
+    WARNINGS_FIELD_NUMBER: _ClassVar[int]
+    file: str
+    issue_id: str
+    errors: _containers.RepeatedCompositeFieldContainer[ValidationIssue]
+    warnings: _containers.RepeatedCompositeFieldContainer[ValidationIssue]
+    def __init__(self, file: _Optional[str] = ..., issue_id: _Optional[str] = ..., errors: _Optional[_Iterable[_Union[ValidationIssue, _Mapping]]] = ..., warnings: _Optional[_Iterable[_Union[ValidationIssue, _Mapping]]] = ...) -> None: ...
+
+class DuplicateIDItem(_message.Message):
+    __slots__ = ("id", "files")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    FILES_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    files: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, id: _Optional[str] = ..., files: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class ValidateIssueFilesResponse(_message.Message):
+    __slots__ = ("total", "valid", "errors", "warnings", "duplicates")
+    TOTAL_FIELD_NUMBER: _ClassVar[int]
+    VALID_FIELD_NUMBER: _ClassVar[int]
+    ERRORS_FIELD_NUMBER: _ClassVar[int]
+    WARNINGS_FIELD_NUMBER: _ClassVar[int]
+    DUPLICATES_FIELD_NUMBER: _ClassVar[int]
+    total: int
+    valid: int
+    errors: _containers.RepeatedCompositeFieldContainer[ValidationResultItem]
+    warnings: _containers.RepeatedCompositeFieldContainer[ValidationResultItem]
+    duplicates: _containers.RepeatedCompositeFieldContainer[DuplicateIDItem]
+    def __init__(self, total: _Optional[int] = ..., valid: _Optional[int] = ..., errors: _Optional[_Iterable[_Union[ValidationResultItem, _Mapping]]] = ..., warnings: _Optional[_Iterable[_Union[ValidationResultItem, _Mapping]]] = ..., duplicates: _Optional[_Iterable[_Union[DuplicateIDItem, _Mapping]]] = ...) -> None: ...
+
+class WriteAgentPromptRequest(_message.Message):
+    __slots__ = ("issues_root", "issue_id", "run_id", "short_id", "content")
+    ISSUES_ROOT_FIELD_NUMBER: _ClassVar[int]
+    ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
+    RUN_ID_FIELD_NUMBER: _ClassVar[int]
+    SHORT_ID_FIELD_NUMBER: _ClassVar[int]
+    CONTENT_FIELD_NUMBER: _ClassVar[int]
+    issues_root: str
+    issue_id: str
+    run_id: str
+    short_id: str
+    content: str
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., short_id: _Optional[str] = ..., content: _Optional[str] = ...) -> None: ...
+
+class WriteAgentPromptResponse(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class ReadAgentPromptRequest(_message.Message):
+    __slots__ = ("issues_root", "issue_id", "run_id", "short_id")
+    ISSUES_ROOT_FIELD_NUMBER: _ClassVar[int]
+    ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
+    RUN_ID_FIELD_NUMBER: _ClassVar[int]
+    SHORT_ID_FIELD_NUMBER: _ClassVar[int]
+    issues_root: str
+    issue_id: str
+    run_id: str
+    short_id: str
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., short_id: _Optional[str] = ...) -> None: ...
+
+class ReadAgentPromptResponse(_message.Message):
+    __slots__ = ("content",)
+    CONTENT_FIELD_NUMBER: _ClassVar[int]
+    content: str
+    def __init__(self, content: _Optional[str] = ...) -> None: ...
+
+class RepairStateRequest(_message.Message):
+    __slots__ = ("dry_run", "force")
+    DRY_RUN_FIELD_NUMBER: _ClassVar[int]
+    FORCE_FIELD_NUMBER: _ClassVar[int]
+    dry_run: bool
+    force: bool
+    def __init__(self, dry_run: _Optional[bool] = ..., force: _Optional[bool] = ...) -> None: ...
+
+class RepairStateResponse(_message.Message):
+    __slots__ = ("problems_found", "problems_fixed", "details")
+    PROBLEMS_FOUND_FIELD_NUMBER: _ClassVar[int]
+    PROBLEMS_FIXED_FIELD_NUMBER: _ClassVar[int]
+    DETAILS_FIELD_NUMBER: _ClassVar[int]
+    problems_found: int
+    problems_fixed: int
+    details: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, problems_found: _Optional[int] = ..., problems_fixed: _Optional[int] = ..., details: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class GetDaemonLogRequest(_message.Message):
+    __slots__ = ("lines",)
+    LINES_FIELD_NUMBER: _ClassVar[int]
+    lines: int
+    def __init__(self, lines: _Optional[int] = ...) -> None: ...
+
+class GetDaemonLogResponse(_message.Message):
+    __slots__ = ("content",)
+    CONTENT_FIELD_NUMBER: _ClassVar[int]
+    content: str
+    def __init__(self, content: _Optional[str] = ...) -> None: ...
+
+class ReadFileRequest(_message.Message):
+    __slots__ = ("path",)
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    path: str
+    def __init__(self, path: _Optional[str] = ...) -> None: ...
+
+class ReadFileResponse(_message.Message):
+    __slots__ = ("content",)
+    CONTENT_FIELD_NUMBER: _ClassVar[int]
+    content: bytes
+    def __init__(self, content: _Optional[bytes] = ...) -> None: ...
+
+class WriteFileRequest(_message.Message):
+    __slots__ = ("path", "content", "perm")
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    CONTENT_FIELD_NUMBER: _ClassVar[int]
+    PERM_FIELD_NUMBER: _ClassVar[int]
+    path: str
+    content: bytes
+    perm: int
+    def __init__(self, path: _Optional[str] = ..., content: _Optional[bytes] = ..., perm: _Optional[int] = ...) -> None: ...
+
+class WriteFileResponse(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
 class Request(_message.Message):
-    __slots__ = ("ping", "list_runs", "get_run", "start_run", "stop_run", "resolve_run", "list_issues", "get_issue", "create_issue", "close_issue", "get_control_agent_launch", "get_attach_info", "capture_session", "send_message", "get_diff_stats", "get_branch_state", "get_diff", "register_monitor", "unregister_monitor", "heartbeat", "list_monitors", "kill_monitor", "get_run_by_short_id", "resolve_issue", "append_event", "ensure_opencode_server", "register_repo", "list_repos")
+    __slots__ = ("ping", "list_runs", "get_run", "start_run", "stop_run", "resolve_run", "list_issues", "get_issue", "create_issue", "close_issue", "get_control_agent_launch", "get_attach_info", "capture_session", "send_message", "get_diff_stats", "get_branch_state", "get_diff", "register_monitor", "unregister_monitor", "heartbeat", "list_monitors", "kill_monitor", "get_run_by_short_id", "resolve_issue", "append_event", "ensure_opencode_server", "register_repo", "list_repos", "delete_run", "update_issue", "validate_issue_files", "write_agent_prompt", "read_agent_prompt", "repair_state", "get_daemon_log", "read_file", "write_file", "create_run")
     PING_FIELD_NUMBER: _ClassVar[int]
     LIST_RUNS_FIELD_NUMBER: _ClassVar[int]
     GET_RUN_FIELD_NUMBER: _ClassVar[int]
@@ -708,6 +941,16 @@ class Request(_message.Message):
     ENSURE_OPENCODE_SERVER_FIELD_NUMBER: _ClassVar[int]
     REGISTER_REPO_FIELD_NUMBER: _ClassVar[int]
     LIST_REPOS_FIELD_NUMBER: _ClassVar[int]
+    DELETE_RUN_FIELD_NUMBER: _ClassVar[int]
+    UPDATE_ISSUE_FIELD_NUMBER: _ClassVar[int]
+    VALIDATE_ISSUE_FILES_FIELD_NUMBER: _ClassVar[int]
+    WRITE_AGENT_PROMPT_FIELD_NUMBER: _ClassVar[int]
+    READ_AGENT_PROMPT_FIELD_NUMBER: _ClassVar[int]
+    REPAIR_STATE_FIELD_NUMBER: _ClassVar[int]
+    GET_DAEMON_LOG_FIELD_NUMBER: _ClassVar[int]
+    READ_FILE_FIELD_NUMBER: _ClassVar[int]
+    WRITE_FILE_FIELD_NUMBER: _ClassVar[int]
+    CREATE_RUN_FIELD_NUMBER: _ClassVar[int]
     ping: PingRequest
     list_runs: ListRunsRequest
     get_run: GetRunRequest
@@ -736,10 +979,20 @@ class Request(_message.Message):
     ensure_opencode_server: EnsureOpenCodeServerRequest
     register_repo: RegisterRepoRequest
     list_repos: ListReposRequest
-    def __init__(self, ping: _Optional[_Union[PingRequest, _Mapping]] = ..., list_runs: _Optional[_Union[ListRunsRequest, _Mapping]] = ..., get_run: _Optional[_Union[GetRunRequest, _Mapping]] = ..., start_run: _Optional[_Union[StartRunRequest, _Mapping]] = ..., stop_run: _Optional[_Union[StopRunRequest, _Mapping]] = ..., resolve_run: _Optional[_Union[ResolveRunRequest, _Mapping]] = ..., list_issues: _Optional[_Union[ListIssuesRequest, _Mapping]] = ..., get_issue: _Optional[_Union[GetIssueRequest, _Mapping]] = ..., create_issue: _Optional[_Union[CreateIssueRequest, _Mapping]] = ..., close_issue: _Optional[_Union[CloseIssueRequest, _Mapping]] = ..., get_control_agent_launch: _Optional[_Union[GetControlAgentLaunchRequest, _Mapping]] = ..., get_attach_info: _Optional[_Union[GetAttachInfoRequest, _Mapping]] = ..., capture_session: _Optional[_Union[CaptureSessionRequest, _Mapping]] = ..., send_message: _Optional[_Union[SendMessageRequest, _Mapping]] = ..., get_diff_stats: _Optional[_Union[GetDiffStatsRequest, _Mapping]] = ..., get_branch_state: _Optional[_Union[GetBranchStateRequest, _Mapping]] = ..., get_diff: _Optional[_Union[GetDiffRequest, _Mapping]] = ..., register_monitor: _Optional[_Union[RegisterMonitorRequest, _Mapping]] = ..., unregister_monitor: _Optional[_Union[UnregisterMonitorRequest, _Mapping]] = ..., heartbeat: _Optional[_Union[HeartbeatRequest, _Mapping]] = ..., list_monitors: _Optional[_Union[ListMonitorsRequest, _Mapping]] = ..., kill_monitor: _Optional[_Union[KillMonitorRequest, _Mapping]] = ..., get_run_by_short_id: _Optional[_Union[GetRunByShortIDRequest, _Mapping]] = ..., resolve_issue: _Optional[_Union[ResolveIssueRequest, _Mapping]] = ..., append_event: _Optional[_Union[AppendEventRequest, _Mapping]] = ..., ensure_opencode_server: _Optional[_Union[EnsureOpenCodeServerRequest, _Mapping]] = ..., register_repo: _Optional[_Union[RegisterRepoRequest, _Mapping]] = ..., list_repos: _Optional[_Union[ListReposRequest, _Mapping]] = ...) -> None: ...
+    delete_run: DeleteRunRequest
+    update_issue: UpdateIssueRequest
+    validate_issue_files: ValidateIssueFilesRequest
+    write_agent_prompt: WriteAgentPromptRequest
+    read_agent_prompt: ReadAgentPromptRequest
+    repair_state: RepairStateRequest
+    get_daemon_log: GetDaemonLogRequest
+    read_file: ReadFileRequest
+    write_file: WriteFileRequest
+    create_run: CreateRunRequest
+    def __init__(self, ping: _Optional[_Union[PingRequest, _Mapping]] = ..., list_runs: _Optional[_Union[ListRunsRequest, _Mapping]] = ..., get_run: _Optional[_Union[GetRunRequest, _Mapping]] = ..., start_run: _Optional[_Union[StartRunRequest, _Mapping]] = ..., stop_run: _Optional[_Union[StopRunRequest, _Mapping]] = ..., resolve_run: _Optional[_Union[ResolveRunRequest, _Mapping]] = ..., list_issues: _Optional[_Union[ListIssuesRequest, _Mapping]] = ..., get_issue: _Optional[_Union[GetIssueRequest, _Mapping]] = ..., create_issue: _Optional[_Union[CreateIssueRequest, _Mapping]] = ..., close_issue: _Optional[_Union[CloseIssueRequest, _Mapping]] = ..., get_control_agent_launch: _Optional[_Union[GetControlAgentLaunchRequest, _Mapping]] = ..., get_attach_info: _Optional[_Union[GetAttachInfoRequest, _Mapping]] = ..., capture_session: _Optional[_Union[CaptureSessionRequest, _Mapping]] = ..., send_message: _Optional[_Union[SendMessageRequest, _Mapping]] = ..., get_diff_stats: _Optional[_Union[GetDiffStatsRequest, _Mapping]] = ..., get_branch_state: _Optional[_Union[GetBranchStateRequest, _Mapping]] = ..., get_diff: _Optional[_Union[GetDiffRequest, _Mapping]] = ..., register_monitor: _Optional[_Union[RegisterMonitorRequest, _Mapping]] = ..., unregister_monitor: _Optional[_Union[UnregisterMonitorRequest, _Mapping]] = ..., heartbeat: _Optional[_Union[HeartbeatRequest, _Mapping]] = ..., list_monitors: _Optional[_Union[ListMonitorsRequest, _Mapping]] = ..., kill_monitor: _Optional[_Union[KillMonitorRequest, _Mapping]] = ..., get_run_by_short_id: _Optional[_Union[GetRunByShortIDRequest, _Mapping]] = ..., resolve_issue: _Optional[_Union[ResolveIssueRequest, _Mapping]] = ..., append_event: _Optional[_Union[AppendEventRequest, _Mapping]] = ..., ensure_opencode_server: _Optional[_Union[EnsureOpenCodeServerRequest, _Mapping]] = ..., register_repo: _Optional[_Union[RegisterRepoRequest, _Mapping]] = ..., list_repos: _Optional[_Union[ListReposRequest, _Mapping]] = ..., delete_run: _Optional[_Union[DeleteRunRequest, _Mapping]] = ..., update_issue: _Optional[_Union[UpdateIssueRequest, _Mapping]] = ..., validate_issue_files: _Optional[_Union[ValidateIssueFilesRequest, _Mapping]] = ..., write_agent_prompt: _Optional[_Union[WriteAgentPromptRequest, _Mapping]] = ..., read_agent_prompt: _Optional[_Union[ReadAgentPromptRequest, _Mapping]] = ..., repair_state: _Optional[_Union[RepairStateRequest, _Mapping]] = ..., get_daemon_log: _Optional[_Union[GetDaemonLogRequest, _Mapping]] = ..., read_file: _Optional[_Union[ReadFileRequest, _Mapping]] = ..., write_file: _Optional[_Union[WriteFileRequest, _Mapping]] = ..., create_run: _Optional[_Union[CreateRunRequest, _Mapping]] = ...) -> None: ...
 
 class Response(_message.Message):
-    __slots__ = ("ok", "error", "ping", "list_runs", "get_run", "start_run", "stop_run", "resolve_run", "list_issues", "get_issue", "create_issue", "close_issue", "get_control_agent_launch", "get_attach_info", "capture_session", "send_message", "get_diff_stats", "get_branch_state", "get_diff", "register_monitor", "unregister_monitor", "heartbeat", "list_monitors", "kill_monitor", "get_run_by_short_id", "resolve_issue", "append_event", "ensure_opencode_server", "register_repo", "list_repos")
+    __slots__ = ("ok", "error", "ping", "list_runs", "get_run", "start_run", "stop_run", "resolve_run", "list_issues", "get_issue", "create_issue", "close_issue", "get_control_agent_launch", "get_attach_info", "capture_session", "send_message", "get_diff_stats", "get_branch_state", "get_diff", "register_monitor", "unregister_monitor", "heartbeat", "list_monitors", "kill_monitor", "get_run_by_short_id", "resolve_issue", "append_event", "ensure_opencode_server", "register_repo", "list_repos", "delete_run", "update_issue", "validate_issue_files", "write_agent_prompt", "read_agent_prompt", "repair_state", "get_daemon_log", "read_file", "write_file", "create_run")
     OK_FIELD_NUMBER: _ClassVar[int]
     ERROR_FIELD_NUMBER: _ClassVar[int]
     PING_FIELD_NUMBER: _ClassVar[int]
@@ -770,6 +1023,16 @@ class Response(_message.Message):
     ENSURE_OPENCODE_SERVER_FIELD_NUMBER: _ClassVar[int]
     REGISTER_REPO_FIELD_NUMBER: _ClassVar[int]
     LIST_REPOS_FIELD_NUMBER: _ClassVar[int]
+    DELETE_RUN_FIELD_NUMBER: _ClassVar[int]
+    UPDATE_ISSUE_FIELD_NUMBER: _ClassVar[int]
+    VALIDATE_ISSUE_FILES_FIELD_NUMBER: _ClassVar[int]
+    WRITE_AGENT_PROMPT_FIELD_NUMBER: _ClassVar[int]
+    READ_AGENT_PROMPT_FIELD_NUMBER: _ClassVar[int]
+    REPAIR_STATE_FIELD_NUMBER: _ClassVar[int]
+    GET_DAEMON_LOG_FIELD_NUMBER: _ClassVar[int]
+    READ_FILE_FIELD_NUMBER: _ClassVar[int]
+    WRITE_FILE_FIELD_NUMBER: _ClassVar[int]
+    CREATE_RUN_FIELD_NUMBER: _ClassVar[int]
     ok: bool
     error: str
     ping: PingResponse
@@ -800,4 +1063,14 @@ class Response(_message.Message):
     ensure_opencode_server: EnsureOpenCodeServerResponse
     register_repo: RegisterRepoResponse
     list_repos: ListReposResponse
-    def __init__(self, ok: _Optional[bool] = ..., error: _Optional[str] = ..., ping: _Optional[_Union[PingResponse, _Mapping]] = ..., list_runs: _Optional[_Union[ListRunsResponse, _Mapping]] = ..., get_run: _Optional[_Union[GetRunResponse, _Mapping]] = ..., start_run: _Optional[_Union[StartRunResponse, _Mapping]] = ..., stop_run: _Optional[_Union[StopRunResponse, _Mapping]] = ..., resolve_run: _Optional[_Union[ResolveRunResponse, _Mapping]] = ..., list_issues: _Optional[_Union[ListIssuesResponse, _Mapping]] = ..., get_issue: _Optional[_Union[GetIssueResponse, _Mapping]] = ..., create_issue: _Optional[_Union[CreateIssueResponse, _Mapping]] = ..., close_issue: _Optional[_Union[CloseIssueResponse, _Mapping]] = ..., get_control_agent_launch: _Optional[_Union[GetControlAgentLaunchResponse, _Mapping]] = ..., get_attach_info: _Optional[_Union[GetAttachInfoResponse, _Mapping]] = ..., capture_session: _Optional[_Union[CaptureSessionResponse, _Mapping]] = ..., send_message: _Optional[_Union[SendMessageResponse, _Mapping]] = ..., get_diff_stats: _Optional[_Union[GetDiffStatsResponse, _Mapping]] = ..., get_branch_state: _Optional[_Union[GetBranchStateResponse, _Mapping]] = ..., get_diff: _Optional[_Union[GetDiffResponse, _Mapping]] = ..., register_monitor: _Optional[_Union[RegisterMonitorResponse, _Mapping]] = ..., unregister_monitor: _Optional[_Union[UnregisterMonitorResponse, _Mapping]] = ..., heartbeat: _Optional[_Union[HeartbeatResponse, _Mapping]] = ..., list_monitors: _Optional[_Union[ListMonitorsResponse, _Mapping]] = ..., kill_monitor: _Optional[_Union[KillMonitorResponse, _Mapping]] = ..., get_run_by_short_id: _Optional[_Union[GetRunByShortIDResponse, _Mapping]] = ..., resolve_issue: _Optional[_Union[ResolveIssueResponse, _Mapping]] = ..., append_event: _Optional[_Union[AppendEventResponse, _Mapping]] = ..., ensure_opencode_server: _Optional[_Union[EnsureOpenCodeServerResponse, _Mapping]] = ..., register_repo: _Optional[_Union[RegisterRepoResponse, _Mapping]] = ..., list_repos: _Optional[_Union[ListReposResponse, _Mapping]] = ...) -> None: ...
+    delete_run: DeleteRunResponse
+    update_issue: UpdateIssueResponse
+    validate_issue_files: ValidateIssueFilesResponse
+    write_agent_prompt: WriteAgentPromptResponse
+    read_agent_prompt: ReadAgentPromptResponse
+    repair_state: RepairStateResponse
+    get_daemon_log: GetDaemonLogResponse
+    read_file: ReadFileResponse
+    write_file: WriteFileResponse
+    create_run: CreateRunResponse
+    def __init__(self, ok: _Optional[bool] = ..., error: _Optional[str] = ..., ping: _Optional[_Union[PingResponse, _Mapping]] = ..., list_runs: _Optional[_Union[ListRunsResponse, _Mapping]] = ..., get_run: _Optional[_Union[GetRunResponse, _Mapping]] = ..., start_run: _Optional[_Union[StartRunResponse, _Mapping]] = ..., stop_run: _Optional[_Union[StopRunResponse, _Mapping]] = ..., resolve_run: _Optional[_Union[ResolveRunResponse, _Mapping]] = ..., list_issues: _Optional[_Union[ListIssuesResponse, _Mapping]] = ..., get_issue: _Optional[_Union[GetIssueResponse, _Mapping]] = ..., create_issue: _Optional[_Union[CreateIssueResponse, _Mapping]] = ..., close_issue: _Optional[_Union[CloseIssueResponse, _Mapping]] = ..., get_control_agent_launch: _Optional[_Union[GetControlAgentLaunchResponse, _Mapping]] = ..., get_attach_info: _Optional[_Union[GetAttachInfoResponse, _Mapping]] = ..., capture_session: _Optional[_Union[CaptureSessionResponse, _Mapping]] = ..., send_message: _Optional[_Union[SendMessageResponse, _Mapping]] = ..., get_diff_stats: _Optional[_Union[GetDiffStatsResponse, _Mapping]] = ..., get_branch_state: _Optional[_Union[GetBranchStateResponse, _Mapping]] = ..., get_diff: _Optional[_Union[GetDiffResponse, _Mapping]] = ..., register_monitor: _Optional[_Union[RegisterMonitorResponse, _Mapping]] = ..., unregister_monitor: _Optional[_Union[UnregisterMonitorResponse, _Mapping]] = ..., heartbeat: _Optional[_Union[HeartbeatResponse, _Mapping]] = ..., list_monitors: _Optional[_Union[ListMonitorsResponse, _Mapping]] = ..., kill_monitor: _Optional[_Union[KillMonitorResponse, _Mapping]] = ..., get_run_by_short_id: _Optional[_Union[GetRunByShortIDResponse, _Mapping]] = ..., resolve_issue: _Optional[_Union[ResolveIssueResponse, _Mapping]] = ..., append_event: _Optional[_Union[AppendEventResponse, _Mapping]] = ..., ensure_opencode_server: _Optional[_Union[EnsureOpenCodeServerResponse, _Mapping]] = ..., register_repo: _Optional[_Union[RegisterRepoResponse, _Mapping]] = ..., list_repos: _Optional[_Union[ListReposResponse, _Mapping]] = ..., delete_run: _Optional[_Union[DeleteRunResponse, _Mapping]] = ..., update_issue: _Optional[_Union[UpdateIssueResponse, _Mapping]] = ..., validate_issue_files: _Optional[_Union[ValidateIssueFilesResponse, _Mapping]] = ..., write_agent_prompt: _Optional[_Union[WriteAgentPromptResponse, _Mapping]] = ..., read_agent_prompt: _Optional[_Union[ReadAgentPromptResponse, _Mapping]] = ..., repair_state: _Optional[_Union[RepairStateResponse, _Mapping]] = ..., get_daemon_log: _Optional[_Union[GetDaemonLogResponse, _Mapping]] = ..., read_file: _Optional[_Union[ReadFileResponse, _Mapping]] = ..., write_file: _Optional[_Union[WriteFileResponse, _Mapping]] = ..., create_run: _Optional[_Union[CreateRunResponse, _Mapping]] = ...) -> None: ...

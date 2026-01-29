@@ -1,22 +1,24 @@
 package query
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 
 	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/store"
+	"github.com/s22625/orch/internal/orchapi"
 )
 
 // LoadIssues loads all issues into the database
-func LoadIssues(db *DB, st store.Store) error {
-	issues, err := st.ListIssues()
+func LoadIssues(db *DB, api orchapi.OrchAPI) error {
+	ctx := context.Background()
+	result, err := api.ListIssues(ctx, nil)
 	if err != nil {
 		return err
 	}
 
-	for _, issue := range issues {
-		if err := insertIssue(db, issue); err != nil {
+	for _, issue := range result.Issues {
+		if err := insertIssue(db, apiIssueToModel(issue)); err != nil {
 			return err
 		}
 	}
@@ -52,14 +54,15 @@ func insertIssue(db *DB, issue *model.Issue) error {
 }
 
 // LoadRuns loads all runs into the database
-func LoadRuns(db *DB, st store.Store) error {
-	runs, err := st.ListRuns(&store.ListRunsFilter{})
+func LoadRuns(db *DB, api orchapi.OrchAPI) error {
+	ctx := context.Background()
+	result, err := api.ListRuns(ctx, nil)
 	if err != nil {
 		return err
 	}
 
-	for _, run := range runs {
-		if err := insertRun(db, run); err != nil {
+	for _, run := range result.Runs {
+		if err := insertRun(db, apiRunToModel(run)); err != nil {
 			return err
 		}
 	}
@@ -100,15 +103,22 @@ func insertRun(db *DB, run *model.Run) error {
 }
 
 // LoadEvents loads events for all runs into the database (opt-in)
-func LoadEvents(db *DB, st store.Store) error {
-	runs, err := st.ListRuns(&store.ListRunsFilter{})
+func LoadEvents(db *DB, api orchapi.OrchAPI) error {
+	ctx := context.Background()
+	result, err := api.ListRuns(ctx, nil)
 	if err != nil {
 		return err
 	}
 
-	for _, run := range runs {
+	for _, run := range result.Runs {
 		for _, event := range run.Events {
-			if err := insertEvent(db, run.IssueID, run.RunID, event); err != nil {
+			modelEvent := &model.Event{
+				Timestamp: event.Timestamp,
+				Type:      model.EventType(event.Type),
+				Name:      event.Name,
+				Attrs:     event.Attrs,
+			}
+			if err := insertEvent(db, run.IssueID, run.RunID, modelEvent); err != nil {
 				return err
 			}
 		}
@@ -145,20 +155,63 @@ type LoadOptions struct {
 }
 
 // LoadAll loads issues, runs, and optionally events
-func LoadAll(db *DB, st store.Store, opts *LoadOptions) error {
-	if err := LoadIssues(db, st); err != nil {
+func LoadAll(db *DB, api orchapi.OrchAPI, opts *LoadOptions) error {
+	if err := LoadIssues(db, api); err != nil {
 		return err
 	}
 
-	if err := LoadRuns(db, st); err != nil {
+	if err := LoadRuns(db, api); err != nil {
 		return err
 	}
 
 	if opts != nil && opts.WithEvents {
-		if err := LoadEvents(db, st); err != nil {
+		if err := LoadEvents(db, api); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+// apiIssueToModel converts orchapi.Issue to model.Issue
+func apiIssueToModel(i *orchapi.Issue) *model.Issue {
+	return &model.Issue{
+		ID:      i.ID,
+		Title:   i.Title,
+		Topic:   i.Topic,
+		Summary: i.Summary,
+		Status:  model.IssueStatus(i.Status),
+		Tags:    i.Tags,
+		Body:    i.Body,
+		Path:    i.Path,
+	}
+}
+
+// apiRunToModel converts orchapi.Run to model.Run
+func apiRunToModel(r *orchapi.Run) *model.Run {
+	run := &model.Run{
+		IssueID:       r.IssueID,
+		RunID:         r.RunID,
+		Status:        model.Status(r.Status),
+		Phase:         model.Phase(r.Phase),
+		Agent:         r.Agent,
+		Model:         r.Model,
+		ModelVariant:  r.ModelVariant,
+		Branch:        r.Branch,
+		WorktreePath:  r.WorktreePath,
+		TmuxSession:   r.TmuxSession,
+		PRUrl:         r.PRUrl,
+		ContinuedFrom: r.ContinuedFrom,
+		StartedAt:     r.StartedAt,
+		UpdatedAt:     r.UpdatedAt,
+	}
+	for _, e := range r.Events {
+		run.Events = append(run.Events, &model.Event{
+			Timestamp: e.Timestamp,
+			Type:      model.EventType(e.Type),
+			Name:      e.Name,
+			Attrs:     e.Attrs,
+		})
+	}
+	return run
 }

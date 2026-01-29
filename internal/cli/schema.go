@@ -43,21 +43,18 @@ Examples:
 }
 
 func runSchema(tableName string, opts *schemaOptions) error {
-	// Parse format
 	format, err := query.ParseFormat(opts.Format)
 	if err != nil {
 		return err
 	}
 
-	// Get store
-	st, err := getStore()
+	api, err := getAPI()
 	if err != nil {
 		return err
 	}
 
-	// Create query engine
-	engine, err := query.NewEngine(st, &query.LoadOptions{
-		WithEvents: true, // Include events table in schema
+	engine, err := query.NewEngine(api, &query.LoadOptions{
+		WithEvents: true,
 	})
 	if err != nil {
 		return err

@@ -56,4 +56,47 @@ type Store interface {
 
 	// RootPath returns the issues root path (where issues and runs are stored)
 	RootPath() string
+
+	// DeleteRun removes a run and its associated files
+	DeleteRun(ref *model.RunRef) error
+
+	// UpdateIssue updates an existing issue
+	UpdateIssue(issue *model.Issue) error
+
+	// ValidateIssueFiles validates issue files and returns results
+	ValidateIssueFiles(issueID string) (*ValidationResult, error)
+
+	// WriteAgentPrompt writes the agent control prompt for a run
+	WriteAgentPrompt(ref *model.RunRef, content string) error
+
+	// ReadAgentPrompt reads the agent control prompt for a run
+	ReadAgentPrompt(ref *model.RunRef) (string, error)
+
+	// CreateIssue creates a new issue
+	CreateIssue(issue *model.Issue) error
+}
+
+type ValidationResult struct {
+	Total      int
+	Valid      int
+	Errors     []*ValidationResultItem
+	Duplicates []*DuplicateID
+}
+
+type ValidationResultItem struct {
+	File    string
+	IssueID string
+	Errors  []ValidationIssue
+}
+
+type ValidationIssue struct {
+	Code    string
+	Message string
+	Line    int
+	Level   string
+}
+
+type DuplicateID struct {
+	ID    string
+	Files []string
 }

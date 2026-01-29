@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -175,7 +176,12 @@ func runIssueCreateWithEditor(issueID, title string, opts *issueCreateOptions) e
 		sb.WriteString("\n")
 	}
 
-	if err := os.WriteFile(issuePath, []byte(sb.String()), 0644); err != nil {
+	api, err := getAPI()
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	if err := api.WriteFile(ctx, issuePath, []byte(sb.String()), 0644); err != nil {
 		return fmt.Errorf("failed to create issue: %w", err)
 	}
 
@@ -653,7 +659,12 @@ func editGitHubIssue(issueID string, issue *daemon.IssueFull) error {
 	sb.WriteString(issue.Body)
 	sb.WriteString("\n")
 
-	if err := os.WriteFile(tmpFile, []byte(sb.String()), 0644); err != nil {
+	api, err := getAPI()
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	if err := api.WriteFile(ctx, tmpFile, []byte(sb.String()), 0644); err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
 

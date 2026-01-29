@@ -133,6 +133,14 @@ func (m *mockStoreForUpdate) GetRun(*model.RunRef) (*model.Run, error)          
 func (m *mockStoreForUpdate) GetRunByShortID(string) (*model.Run, error)           { return nil, nil }
 func (m *mockStoreForUpdate) GetLatestRun(string) (*model.Run, error)              { return nil, nil }
 func (m *mockStoreForUpdate) RootPath() string                                     { return "" }
+func (m *mockStoreForUpdate) DeleteRun(ref *model.RunRef) error                    { return nil }
+func (m *mockStoreForUpdate) UpdateIssue(issue *model.Issue) error                 { return nil }
+func (m *mockStoreForUpdate) ValidateIssueFiles(issueID string) (*store.ValidationResult, error) {
+	return nil, nil
+}
+func (m *mockStoreForUpdate) WriteAgentPrompt(ref *model.RunRef, content string) error { return nil }
+func (m *mockStoreForUpdate) ReadAgentPrompt(ref *model.RunRef) (string, error)        { return "", nil }
+func (m *mockStoreForUpdate) CreateIssue(issue *model.Issue) error                     { return nil }
 
 func TestUpdateStatusAutoResolve(t *testing.T) {
 	tests := []struct {

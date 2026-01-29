@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,7 +11,40 @@ import (
 	"time"
 
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/orchapi"
+	filestore "github.com/s22625/orch/internal/store/file"
 )
+
+type mockPsAPI struct {
+	orchapi.OrchAPI
+	issuesRoot string
+}
+
+func (m *mockPsAPI) GetIssue(ctx context.Context, issueID string) (*orchapi.Issue, error) {
+	st, err := filestore.New(m.issuesRoot)
+	if err != nil {
+		return nil, err
+	}
+	issue, err := st.ResolveIssue(issueID)
+	if err != nil {
+		return nil, err
+	}
+	return &orchapi.Issue{
+		ID:      issue.ID,
+		Title:   issue.Title,
+		Topic:   issue.Topic,
+		Summary: issue.Summary,
+		Status:  orchapi.IssueStatus(issue.Status),
+		Tags:    issue.Tags,
+		Body:    issue.Body,
+		Path:    issue.Path,
+	}, nil
+}
+
+func setupMockPsAPI(t *testing.T, issuesRoot string) {
+	testAPIOverride = &mockPsAPI{issuesRoot: issuesRoot}
+	t.Cleanup(func() { testAPIOverride = nil })
+}
 
 func TestParseStatusList(t *testing.T) {
 	statuses := parseStatusList("running, blocked ,done")
@@ -45,6 +79,7 @@ func TestOutputTableTruncatesSummary(t *testing.T) {
 
 	vault := t.TempDir()
 	globalOpts.IssuesRoot = vault
+	setupMockPsAPI(t, vault)
 
 	issuesDir := filepath.Join(vault, "issues")
 	if err := os.MkdirAll(issuesDir, 0755); err != nil {
@@ -82,6 +117,7 @@ func TestOutputTableUsesTopic(t *testing.T) {
 
 	vault := t.TempDir()
 	globalOpts.IssuesRoot = vault
+	setupMockPsAPI(t, vault)
 
 	issuesDir := filepath.Join(vault, "issues")
 	if err := os.MkdirAll(issuesDir, 0755); err != nil {
@@ -123,6 +159,7 @@ func TestOutputTableTruncatesTopicChars(t *testing.T) {
 
 	vault := t.TempDir()
 	globalOpts.IssuesRoot = vault
+	setupMockPsAPI(t, vault)
 
 	issuesDir := filepath.Join(vault, "issues")
 	if err := os.MkdirAll(issuesDir, 0755); err != nil {
@@ -349,9 +386,9 @@ func TestRunPsExcludesResolvedIssuesByDefault(t *testing.T) {
 	// Create an open issue
 	writeIssue(t, vault, "issue-open")
 
-	st, err := getStore()
+	st, err := filestore.New(vault)
 	if err != nil {
-		t.Fatalf("getStore: %v", err)
+		t.Fatalf("filestore.New: %v", err)
 	}
 
 	// Create run for resolved issue
@@ -409,9 +446,9 @@ func TestRunPsAllIncludesResolvedIssues(t *testing.T) {
 	// Create an open issue
 	writeIssue(t, vault, "issue-open")
 
-	st, err := getStore()
+	st, err := filestore.New(vault)
 	if err != nil {
-		t.Fatalf("getStore: %v", err)
+		t.Fatalf("filestore.New: %v", err)
 	}
 
 	// Create run for resolved issue

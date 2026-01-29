@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -225,7 +226,12 @@ func validateAllIssues(issuesDir string) ([]*ValidationResult, map[string][]stri
 }
 
 func validateIssueFile(path, issuesDir string) (*ValidationResult, error) {
-	content, err := os.ReadFile(path)
+	api, err := getAPI()
+	if err != nil {
+		return nil, err
+	}
+	ctx := context.Background()
+	content, err := api.ReadFile(ctx, path)
 	if err != nil {
 		return nil, err
 	}

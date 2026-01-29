@@ -84,6 +84,7 @@ message Issue {
   string body = 6;
   string path = 7;
   int64 modified_at_unix = 8;
+  string topic = 9;
 }
 
 message Event {
@@ -150,6 +151,19 @@ message StartRunResponse {
   string branch = 2;
   string worktree_path = 3;
   string tmux_session = 4;
+}
+
+message CreateRunRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+  string run_id = 3;
+  map<string, string> metadata = 4;
+}
+
+message CreateRunResponse {
+  string issue_id = 1;
+  string run_id = 2;
+  string path = 3;
 }
 
 message StopRunRequest {
@@ -422,6 +436,126 @@ message ListReposResponse {
   repeated RepoInfo repos = 1;
 }
 
+message DeleteRunRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+  string run_id = 3;
+  string short_id = 4;
+  bool with_worktree = 5;
+  bool with_branch = 6;
+  bool force = 7;
+}
+
+message DeleteRunResponse {
+  string issue_id = 1;
+  string run_id = 2;
+  string short_id = 3;
+  bool worktree_removed = 4;
+  bool branch_removed = 5;
+  bool session_killed = 6;
+}
+
+message UpdateIssueRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+  string title = 3;
+  string summary = 4;
+  string body = 5;
+  string status = 6;
+}
+
+message UpdateIssueResponse {
+  Issue issue = 1;
+}
+
+message ValidateIssueFilesRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+}
+
+message ValidationIssue {
+  string code = 1;
+  string message = 2;
+  int32 line = 3;
+  string level = 4;
+}
+
+message ValidationResultItem {
+  string file = 1;
+  string issue_id = 2;
+  repeated ValidationIssue errors = 3;
+  repeated ValidationIssue warnings = 4;
+}
+
+message DuplicateIDItem {
+  string id = 1;
+  repeated string files = 2;
+}
+
+message ValidateIssueFilesResponse {
+  int32 total = 1;
+  int32 valid = 2;
+  repeated ValidationResultItem errors = 3;
+  repeated ValidationResultItem warnings = 4;
+  repeated DuplicateIDItem duplicates = 5;
+}
+
+message WriteAgentPromptRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+  string run_id = 3;
+  string short_id = 4;
+  string content = 5;
+}
+
+message WriteAgentPromptResponse {}
+
+message ReadAgentPromptRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+  string run_id = 3;
+  string short_id = 4;
+}
+
+message ReadAgentPromptResponse {
+  string content = 1;
+}
+
+message RepairStateRequest {
+  bool dry_run = 1;
+  bool force = 2;
+}
+
+message RepairStateResponse {
+  int32 problems_found = 1;
+  int32 problems_fixed = 2;
+  repeated string details = 3;
+}
+
+message GetDaemonLogRequest {
+  int32 lines = 1;
+}
+
+message GetDaemonLogResponse {
+  string content = 1;
+}
+
+message ReadFileRequest {
+  string path = 1;
+}
+
+message ReadFileResponse {
+  bytes content = 1;
+}
+
+message WriteFileRequest {
+  string path = 1;
+  bytes content = 2;
+  uint32 perm = 3;
+}
+
+message WriteFileResponse {}
+
 // =============================================================================
 // Unified Request/Response (for Unix socket dispatch)
 // =============================================================================
@@ -456,6 +590,16 @@ message Request {
     EnsureOpenCodeServerRequest ensure_opencode_server = 26;
     RegisterRepoRequest register_repo = 27;
     ListReposRequest list_repos = 28;
+    DeleteRunRequest delete_run = 29;
+    UpdateIssueRequest update_issue = 30;
+    ValidateIssueFilesRequest validate_issue_files = 31;
+    WriteAgentPromptRequest write_agent_prompt = 32;
+    ReadAgentPromptRequest read_agent_prompt = 33;
+    RepairStateRequest repair_state = 34;
+    GetDaemonLogRequest get_daemon_log = 35;
+    ReadFileRequest read_file = 36;
+    WriteFileRequest write_file = 37;
+    CreateRunRequest create_run = 38;
   }
 }
 
@@ -492,5 +636,15 @@ message Response {
     EnsureOpenCodeServerResponse ensure_opencode_server = 28;
     RegisterRepoResponse register_repo = 29;
     ListReposResponse list_repos = 30;
+    DeleteRunResponse delete_run = 31;
+    UpdateIssueResponse update_issue = 32;
+    ValidateIssueFilesResponse validate_issue_files = 33;
+    WriteAgentPromptResponse write_agent_prompt = 34;
+    ReadAgentPromptResponse read_agent_prompt = 35;
+    RepairStateResponse repair_state = 36;
+    GetDaemonLogResponse get_daemon_log = 37;
+    ReadFileResponse read_file = 38;
+    WriteFileResponse write_file = 39;
+    CreateRunResponse create_run = 40;
   }
 }

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -15,7 +16,7 @@ import (
 	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/store"
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
 
@@ -71,65 +72,40 @@ func newPsCmd() *cobra.Command {
 }
 
 func runPs(opts *psOptions) error {
-	st, err := getStore()
+	ctx := context.Background()
+	api, err := getAPI()
 	if err != nil {
 		return err
 	}
 
 	requestedLimit := opts.Limit
 
-	var runs []*model.Run
-	var usedDaemon bool
-	var daemonAliveInfo map[string]agentAliveInfo
-
-	if !testBypassDaemon {
-		projectRoot, _ := getProjectRoot()
-		client := daemon.NewProtoClientWithIssuesRoot(projectRoot, st.RootPath())
-		if client.IsAvailable() {
-			statusFilter := make([]string, len(opts.Status))
-			for i, s := range opts.Status {
-				statusFilter[i] = s
-			}
-			limit := opts.Limit
-			if len(opts.IssueStatus) > 0 || (!opts.All && len(opts.Status) == 0) {
-				limit = 0
-			}
-			resp, err := client.ListRuns(opts.Issue, statusFilter, limit, "")
-			if err == nil && resp != nil {
-				runs = make([]*model.Run, len(resp.Runs))
-				daemonAliveInfo = make(map[string]agentAliveInfo, len(resp.Runs))
-				for i, summary := range resp.Runs {
-					runs[i] = daemon.SummaryToRun(summary)
-					alive, known := daemon.SummaryAliveInfo(summary)
-					daemonAliveInfo[summary.RunID] = agentAliveInfo{alive: alive, known: known}
-				}
-				usedDaemon = true
-			}
-		}
+	statusFilter := make([]orchapi.RunStatus, len(opts.Status))
+	for i, s := range opts.Status {
+		statusFilter[i] = orchapi.RunStatus(s)
 	}
 
-	if !usedDaemon {
-		filter := &store.ListRunsFilter{
-			IssueID: opts.Issue,
-			Limit:   opts.Limit,
-			Since:   opts.Since,
-		}
-		if len(opts.IssueStatus) > 0 {
-			filter.Limit = 0
-		}
+	limit := opts.Limit
+	if len(opts.IssueStatus) > 0 || (!opts.All && len(opts.Status) == 0) {
+		limit = 0
+	}
 
-		if len(opts.Status) > 0 {
-			for _, s := range opts.Status {
-				filter.Status = append(filter.Status, model.Status(s))
-			}
-		} else if !opts.All {
-			filter.Limit = 0
-		}
+	filter := &orchapi.ListRunsFilter{
+		IssueID: opts.Issue,
+		Status:  statusFilter,
+		Limit:   limit,
+	}
 
-		runs, err = st.ListRuns(filter)
-		if err != nil {
-			return err
-		}
+	result, err := api.ListRuns(ctx, filter)
+	if err != nil {
+		return err
+	}
+
+	runs := make([]*model.Run, len(result.Runs))
+	aliveByRun := make(map[string]agentAliveInfo, len(result.Runs))
+	for i, r := range result.Runs {
+		runs[i] = apiRunToModelRun(r)
+		aliveByRun[r.RunID] = agentAliveInfo{alive: r.Alive, known: r.AliveKnown}
 	}
 
 	issueStatusFilter := make(map[string]bool)
@@ -140,17 +116,15 @@ func runPs(opts *psOptions) error {
 		}
 	}
 
-	// By default, exclude runs from resolved issues unless --all is set or specific issue status is requested
 	excludeResolvedIssues := !opts.All && len(issueStatusFilter) == 0
 
 	issueCache := make(map[string]psIssueInfo)
 	filteredRuns := make([]*model.Run, 0, len(runs))
 	for _, r := range runs {
-		info := resolveIssueInfo(st, issueCache, r.IssueID)
+		info := resolveIssueInfoAPI(ctx, api, issueCache, r.IssueID)
 		if len(issueStatusFilter) > 0 && !issueStatusFilter[info.status] {
 			continue
 		}
-		// Filter out runs from resolved issues by default
 		if excludeResolvedIssues && info.status == string(model.IssueStatusResolved) {
 			continue
 		}
@@ -164,13 +138,8 @@ func runPs(opts *psOptions) error {
 
 	populatePRUrls(runs)
 
-	var aliveByRun map[string]agentAliveInfo
-	if !opts.NoAlive {
-		if usedDaemon && daemonAliveInfo != nil {
-			aliveByRun = daemonAliveInfo
-		} else {
-			aliveByRun = resolveAgentAliveInfo(runs)
-		}
+	if opts.NoAlive {
+		aliveByRun = nil
 	}
 
 	now := time.Now()
@@ -200,19 +169,19 @@ func runPs(opts *psOptions) error {
 	return nil
 }
 
-func resolveIssueInfo(st store.Store, cache map[string]psIssueInfo, issueID string) psIssueInfo {
+func resolveIssueInfoAPI(ctx context.Context, api orchapi.OrchAPI, cache map[string]psIssueInfo, issueID string) psIssueInfo {
 	if info, ok := cache[issueID]; ok {
 		return info
 	}
 
-	if st == nil {
+	if api == nil {
 		info := psIssueInfo{}
 		cache[issueID] = info
 		return info
 	}
 
-	issue, err := st.ResolveIssue(issueID)
-	if err != nil {
+	issue, err := api.GetIssue(ctx, issueID)
+	if err != nil || issue == nil {
 		info := psIssueInfo{}
 		cache[issueID] = info
 		return info
@@ -220,10 +189,27 @@ func resolveIssueInfo(st store.Store, cache map[string]psIssueInfo, issueID stri
 
 	info := psIssueInfo{
 		status:  string(issue.Status),
-		display: formatIssueTopic(issue),
+		display: formatIssueTopicAPI(issue),
 	}
 	cache[issueID] = info
 	return info
+}
+
+func formatIssueTopicAPI(issue *orchapi.Issue) string {
+	if issue == nil {
+		return ""
+	}
+
+	topic := formatTopic(issue.Topic)
+	if topic != "" {
+		return topic
+	}
+
+	summary := strings.TrimSpace(issue.Summary)
+	if summary == "" {
+		return ""
+	}
+	return truncateWithEllipsis(summary, summaryMaxLen)
 }
 
 func outputJSON(runs []*model.Run, now time.Time) error {
@@ -355,13 +341,14 @@ func outputTableWithIssueInfoOpts(runs []*model.Run, now time.Time, opts *psOpti
 	}
 
 	if issueCache == nil {
-		st, err := getStore()
+		ctx := context.Background()
+		api, err := getAPI()
 		if err != nil {
 			return err
 		}
 		issueCache = make(map[string]psIssueInfo)
 		for _, r := range runs {
-			resolveIssueInfo(st, issueCache, r.IssueID)
+			resolveIssueInfoAPI(ctx, api, issueCache, r.IssueID)
 		}
 	}
 

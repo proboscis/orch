@@ -1,126 +1,100 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/orchapi"
 )
+
+type mockResolveAPI struct {
+	orchapi.OrchAPI
+	resolved        map[string]bool
+	hasCompletedRun map[string]bool
+}
+
+func (m *mockResolveAPI) ResolveIssue(ctx context.Context, issueID string, force bool) error {
+	if m.resolved == nil {
+		m.resolved = make(map[string]bool)
+	}
+	if m.hasCompletedRun == nil {
+		m.hasCompletedRun = make(map[string]bool)
+	}
+
+	if !m.hasCompletedRun[issueID] && !force {
+		return errors.New("no completed runs")
+	}
+
+	m.resolved[issueID] = true
+	return nil
+}
+
+func (m *mockResolveAPI) GetIssue(ctx context.Context, issueID string) (*orchapi.Issue, error) {
+	status := orchapi.IssueStatusOpen
+	if m.resolved != nil && m.resolved[issueID] {
+		status = orchapi.IssueStatusResolved
+	}
+	return &orchapi.Issue{ID: issueID, Status: status}, nil
+}
 
 func TestRunResolveMarksIssueResolved(t *testing.T) {
 	resetGlobalOpts(t)
-
-	vault := t.TempDir()
-	globalOpts.IssuesRoot = vault
-	globalOpts.Backend = "file"
 	globalOpts.Quiet = true
-	testBypassDaemon = true
-	t.Cleanup(func() { testBypassDaemon = false })
 
-	writeIssue(t, vault, "issue-1")
-
-	st, err := getStore()
-	if err != nil {
-		t.Fatalf("getStore: %v", err)
+	mock := &mockResolveAPI{
+		hasCompletedRun: map[string]bool{"issue-1": true},
 	}
+	testAPIOverride = mock
+	t.Cleanup(func() { testAPIOverride = nil })
 
-	// Create a completed run
-	run, err := st.CreateRun("issue-1", "run-1", nil)
-	if err != nil {
-		t.Fatalf("CreateRun: %v", err)
-	}
-	if err := st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusDone)); err != nil {
-		t.Fatalf("AppendEvent: %v", err)
-	}
-
-	// Resolve the issue
 	if err := runResolve("issue-1", &resolveOptions{}); err != nil {
 		t.Fatalf("runResolve: %v", err)
 	}
 
-	// Get a fresh store to check the updated issue status
-	st2, err := getStore()
-	if err != nil {
-		t.Fatalf("getStore for check: %v", err)
-	}
-
-	// Check that issue status is resolved
-	issue, err := st2.ResolveIssue("issue-1")
-	if err != nil {
-		t.Fatalf("ResolveIssue: %v", err)
-	}
-	if issue.Status != model.IssueStatusResolved {
-		t.Fatalf("issue status = %q, want %q", issue.Status, model.IssueStatusResolved)
+	if !mock.resolved["issue-1"] {
+		t.Fatal("issue-1 should be marked as resolved")
 	}
 }
 
 func TestRunResolveRequiresForceWithoutCompletedRuns(t *testing.T) {
 	resetGlobalOpts(t)
-
-	vault := t.TempDir()
-	globalOpts.IssuesRoot = vault
-	globalOpts.Backend = "file"
 	globalOpts.Quiet = true
-	testBypassDaemon = true
-	t.Cleanup(func() { testBypassDaemon = false })
 
-	writeIssue(t, vault, "issue-2")
-
-	st, err := getStore()
-	if err != nil {
-		t.Fatalf("getStore: %v", err)
+	mock := &mockResolveAPI{
+		hasCompletedRun: map[string]bool{"issue-2": false},
 	}
+	testAPIOverride = mock
+	t.Cleanup(func() { testAPIOverride = nil })
 
-	// Create a running (not completed) run
-	run, err := st.CreateRun("issue-2", "run-1", nil)
-	if err != nil {
-		t.Fatalf("CreateRun: %v", err)
-	}
-	if err := st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusRunning)); err != nil {
-		t.Fatalf("AppendEvent: %v", err)
-	}
-
-	// Resolve should fail without --force since no completed runs
-	if err := runResolve("issue-2", &resolveOptions{}); err == nil {
+	err := runResolve("issue-2", &resolveOptions{})
+	if err == nil {
 		t.Fatal("expected error without --force when no completed runs")
 	}
 
-	// Resolve should succeed with --force
 	if err := runResolve("issue-2", &resolveOptions{Force: true}); err != nil {
 		t.Fatalf("runResolve --force: %v", err)
 	}
 
-	// Get a fresh store to check the updated issue status
-	st2, err := getStore()
-	if err != nil {
-		t.Fatalf("getStore for check: %v", err)
-	}
-
-	// Check that issue status is resolved
-	issue, err := st2.ResolveIssue("issue-2")
-	if err != nil {
-		t.Fatalf("ResolveIssue: %v", err)
-	}
-	if issue.Status != model.IssueStatusResolved {
-		t.Fatalf("issue status = %q, want %q", issue.Status, model.IssueStatusResolved)
+	if !mock.resolved["issue-2"] {
+		t.Fatal("issue-2 should be marked as resolved with --force")
 	}
 }
 
 func TestRunResolveAlreadyResolved(t *testing.T) {
 	resetGlobalOpts(t)
-
-	vault := t.TempDir()
-	globalOpts.IssuesRoot = vault
-	globalOpts.Backend = "file"
 	globalOpts.Quiet = true
-	testBypassDaemon = true
-	t.Cleanup(func() { testBypassDaemon = false })
 
-	writeIssueWithStatus(t, vault, "issue-3", "resolved")
+	mock := &mockResolveAPI{
+		resolved:        map[string]bool{"issue-3": true},
+		hasCompletedRun: map[string]bool{"issue-3": true},
+	}
+	testAPIOverride = mock
+	t.Cleanup(func() { testAPIOverride = nil })
 
-	// Resolve should succeed (no-op) for already resolved issue
 	if err := runResolve("issue-3", &resolveOptions{}); err != nil {
 		t.Fatalf("runResolve already resolved: %v", err)
 	}

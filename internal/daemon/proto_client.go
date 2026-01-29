@@ -1062,3 +1062,383 @@ func (c *ProtoClient) ListRepos() ([]map[string]string, error) {
 
 	return repos, nil
 }
+
+type DeleteRunResponse struct {
+	IssueID         string
+	RunID           string
+	ShortID         string
+	WorktreeRemoved bool
+	BranchRemoved   bool
+	SessionKilled   bool
+}
+
+func (c *ProtoClient) DeleteRun(issueID, runID, shortID string, withWorktree, withBranch, force bool) (*DeleteRunResponse, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_DeleteRun{
+			DeleteRun: &orchpb.DeleteRunRequest{
+				IssuesRoot:   c.issuesRoot,
+				IssueId:      issueID,
+				RunId:        runID,
+				ShortId:      shortID,
+				WithWorktree: withWorktree,
+				WithBranch:   withBranch,
+				Force:        force,
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	delResp := resp.GetDeleteRun()
+	if delResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	return &DeleteRunResponse{
+		IssueID:         delResp.IssueId,
+		RunID:           delResp.RunId,
+		ShortID:         delResp.ShortId,
+		WorktreeRemoved: delResp.WorktreeRemoved,
+		BranchRemoved:   delResp.BranchRemoved,
+		SessionKilled:   delResp.SessionKilled,
+	}, nil
+}
+
+func (c *ProtoClient) UpdateIssue(issueID, title, summary, body, status string) (*IssueFull, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_UpdateIssue{
+			UpdateIssue: &orchpb.UpdateIssueRequest{
+				IssuesRoot: c.issuesRoot,
+				IssueId:    issueID,
+				Title:      title,
+				Summary:    summary,
+				Body:       body,
+				Status:     status,
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	updateResp := resp.GetUpdateIssue()
+	if updateResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	return protoIssueToFull(updateResp.Issue), nil
+}
+
+type ValidateIssueFilesResponse struct {
+	Total      int
+	Valid      int
+	Errors     []*ValidationResultItem
+	Warnings   []*ValidationResultItem
+	Duplicates []*DuplicateIDItem
+}
+
+type ValidationResultItem struct {
+	File     string
+	IssueID  string
+	Errors   []*ValidationIssueItem
+	Warnings []*ValidationIssueItem
+}
+
+type ValidationIssueItem struct {
+	Code    string
+	Message string
+	Line    int
+	Level   string
+}
+
+type DuplicateIDItem struct {
+	ID    string
+	Files []string
+}
+
+func (c *ProtoClient) ValidateIssueFiles(issueID string) (*ValidateIssueFilesResponse, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_ValidateIssueFiles{
+			ValidateIssueFiles: &orchpb.ValidateIssueFilesRequest{
+				IssuesRoot: c.issuesRoot,
+				IssueId:    issueID,
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	valResp := resp.GetValidateIssueFiles()
+	if valResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	result := &ValidateIssueFilesResponse{
+		Total: int(valResp.Total),
+		Valid: int(valResp.Valid),
+	}
+
+	for _, e := range valResp.Errors {
+		item := &ValidationResultItem{
+			File:    e.File,
+			IssueID: e.IssueId,
+		}
+		for _, issue := range e.Errors {
+			item.Errors = append(item.Errors, &ValidationIssueItem{
+				Code:    issue.Code,
+				Message: issue.Message,
+				Line:    int(issue.Line),
+				Level:   issue.Level,
+			})
+		}
+		for _, issue := range e.Warnings {
+			item.Warnings = append(item.Warnings, &ValidationIssueItem{
+				Code:    issue.Code,
+				Message: issue.Message,
+				Line:    int(issue.Line),
+				Level:   issue.Level,
+			})
+		}
+		result.Errors = append(result.Errors, item)
+	}
+
+	for _, w := range valResp.Warnings {
+		item := &ValidationResultItem{
+			File:    w.File,
+			IssueID: w.IssueId,
+		}
+		for _, issue := range w.Warnings {
+			item.Warnings = append(item.Warnings, &ValidationIssueItem{
+				Code:    issue.Code,
+				Message: issue.Message,
+				Line:    int(issue.Line),
+				Level:   issue.Level,
+			})
+		}
+		result.Warnings = append(result.Warnings, item)
+	}
+
+	for _, d := range valResp.Duplicates {
+		result.Duplicates = append(result.Duplicates, &DuplicateIDItem{
+			ID:    d.Id,
+			Files: d.Files,
+		})
+	}
+
+	return result, nil
+}
+
+func (c *ProtoClient) WriteAgentPrompt(issueID, runID, shortID, content string) error {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_WriteAgentPrompt{
+			WriteAgentPrompt: &orchpb.WriteAgentPromptRequest{
+				IssuesRoot: c.issuesRoot,
+				IssueId:    issueID,
+				RunId:      runID,
+				ShortId:    shortID,
+				Content:    content,
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return err
+	}
+
+	if !resp.Ok {
+		return fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	return nil
+}
+
+func (c *ProtoClient) ReadAgentPrompt(issueID, runID, shortID string) (string, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_ReadAgentPrompt{
+			ReadAgentPrompt: &orchpb.ReadAgentPromptRequest{
+				IssuesRoot: c.issuesRoot,
+				IssueId:    issueID,
+				RunId:      runID,
+				ShortId:    shortID,
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return "", err
+	}
+
+	if !resp.Ok {
+		return "", fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	readResp := resp.GetReadAgentPrompt()
+	if readResp == nil {
+		return "", fmt.Errorf("unexpected response type")
+	}
+
+	return readResp.Content, nil
+}
+
+type RepairStateResponse struct {
+	ProblemsFound int
+	ProblemsFixed int
+	Details       []string
+}
+
+func (c *ProtoClient) RepairState(dryRun, force bool) (*RepairStateResponse, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_RepairState{
+			RepairState: &orchpb.RepairStateRequest{
+				DryRun: dryRun,
+				Force:  force,
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	repairResp := resp.GetRepairState()
+	if repairResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	return &RepairStateResponse{
+		ProblemsFound: int(repairResp.ProblemsFound),
+		ProblemsFixed: int(repairResp.ProblemsFixed),
+		Details:       repairResp.Details,
+	}, nil
+}
+
+func (c *ProtoClient) GetDaemonLog(lines int) (string, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_GetDaemonLog{
+			GetDaemonLog: &orchpb.GetDaemonLogRequest{
+				Lines: int32(lines),
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return "", err
+	}
+
+	if !resp.Ok {
+		return "", fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	logResp := resp.GetGetDaemonLog()
+	if logResp == nil {
+		return "", fmt.Errorf("unexpected response type")
+	}
+
+	return logResp.Content, nil
+}
+
+func (c *ProtoClient) ReadFile(path string) ([]byte, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_ReadFile{
+			ReadFile: &orchpb.ReadFileRequest{
+				Path: path,
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	readResp := resp.GetReadFile()
+	if readResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	return readResp.Content, nil
+}
+
+func (c *ProtoClient) WriteFile(path string, content []byte, perm uint32) error {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_WriteFile{
+			WriteFile: &orchpb.WriteFileRequest{
+				Path:    path,
+				Content: content,
+				Perm:    perm,
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return err
+	}
+
+	if !resp.Ok {
+		return fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	return nil
+}
+
+func (c *ProtoClient) CreateRun(issueID, runID string, metadata map[string]string) (*orchpb.CreateRunResponse, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_CreateRun{
+			CreateRun: &orchpb.CreateRunRequest{
+				IssuesRoot: c.issuesRoot,
+				IssueId:    issueID,
+				RunId:      runID,
+				Metadata:   metadata,
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	createResp := resp.GetCreateRun()
+	if createResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	return createResp, nil
+}

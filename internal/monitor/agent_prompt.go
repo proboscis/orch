@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/s22625/orch/internal/store"
 )
 
@@ -461,6 +463,185 @@ func WriteControlPromptFile(st store.Store) (string, error) {
 	}
 
 	return promptPath, nil
+}
+
+// WriteControlPromptFileViaAPI writes the control agent prompt using the daemon API
+func WriteControlPromptFileViaAPI(ctx context.Context, api orchapi.OrchAPI, issuesRoot string) (string, error) {
+	prompt, err := buildControlAgentPromptViaAPI(ctx, api, issuesRoot)
+	if err != nil {
+		return "", err
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	promptPath := filepath.Join(cwd, controlPromptFileName)
+	if err := os.WriteFile(promptPath, []byte(prompt), 0644); err != nil {
+		return "", fmt.Errorf("failed to write control prompt file: %w", err)
+	}
+
+	return promptPath, nil
+}
+
+func buildControlAgentPromptViaAPI(ctx context.Context, api orchapi.OrchAPI, issuesRoot string) (string, error) {
+	cwd, _ := os.Getwd()
+
+	issuesResult, _ := api.ListIssues(ctx, nil)
+	runsResult, _ := api.ListRuns(ctx, &orchapi.ListRunsFilter{
+		Status: []orchapi.RunStatus{
+			orchapi.RunStatusRunning,
+			orchapi.RunStatusBlocked,
+			orchapi.RunStatusBlockedAPI,
+			orchapi.RunStatusBooting,
+			orchapi.RunStatusQueued,
+			orchapi.RunStatusPROpen,
+		},
+		Limit: 20,
+	})
+
+	var issues []*orchapi.Issue
+	if issuesResult != nil {
+		issues = issuesResult.Issues
+	}
+	var runs []*orchapi.Run
+	if runsResult != nil {
+		runs = runsResult.Runs
+	}
+
+	pattern, example, nextID := detectIssueIDConventionFromAPI(issues)
+
+	issueInfos := make([]IssueInfo, 0, len(issues))
+	for _, issue := range issues {
+		status := string(issue.Status)
+		if status == "" {
+			status = "open"
+		}
+		title := issue.Title
+		if title == "" {
+			title = "-"
+		}
+		if len(title) > 50 {
+			title = title[:47] + "..."
+		}
+		issueInfos = append(issueInfos, IssueInfo{
+			ID:     issue.ID,
+			Status: status,
+			Title:  title,
+		})
+	}
+
+	runInfos := make([]RunInfo, 0, len(runs))
+	for _, run := range runs {
+		runInfos = append(runInfos, RunInfo{
+			IssueID: run.IssueID,
+			ShortID: run.ShortID,
+			Status:  string(run.Status),
+		})
+	}
+
+	cfg, _ := config.Load()
+	defaultAgent := "opencode"
+	if cfg != nil {
+		if cfg.ControlAgent != "" {
+			defaultAgent = cfg.ControlAgent
+		} else if cfg.Agent != "" {
+			defaultAgent = cfg.Agent
+		}
+	}
+
+	data := ControlPromptData{
+		IssuesRoot:     issuesRoot,
+		WorkDir:        cwd,
+		IssueIDPattern: pattern,
+		IssueIDExample: example,
+		NextIssueID:    nextID,
+		Issues:         issueInfos,
+		ActiveRuns:     runInfos,
+
+		GitBranch:          getGitBranch(cwd),
+		UncommittedChanges: getUncommittedChangesStatus(cwd),
+		LastCommitMessage:  getLastCommitMessage(cwd),
+
+		DefaultAgent:    defaultAgent,
+		AvailableAgents: getAvailableAgents(),
+
+		ExtraPrompt: loadExtraPrompt(),
+	}
+
+	tmpl, err := template.New("control-prompt").Parse(controlPromptTemplate)
+	if err != nil {
+		return buildFallbackControlPrompt(issuesRoot, cwd), nil
+	}
+
+	var buf strings.Builder
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return buildFallbackControlPrompt(issuesRoot, cwd), nil
+	}
+
+	return buf.String(), nil
+}
+
+func detectIssueIDConventionFromAPI(issues []*orchapi.Issue) (pattern, example, nextID string) {
+	pattern = "<prefix>-<number> (e.g., proj-001, issue-42)"
+	example = "orch-001"
+	nextID = "orch-001"
+
+	if len(issues) == 0 {
+		return
+	}
+
+	ids := make([]string, 0, len(issues))
+	for _, issue := range issues {
+		ids = append(ids, issue.ID)
+	}
+
+	prefixNumRegex := regexp.MustCompile(`^([a-zA-Z][\w-]*)-(\d+)$`)
+
+	prefixCounts := make(map[string]int)
+	maxNums := make(map[string]int)
+
+	for _, id := range ids {
+		matches := prefixNumRegex.FindStringSubmatch(id)
+		if matches != nil {
+			prefix := matches[1]
+			num, _ := strconv.Atoi(matches[2])
+			prefixCounts[prefix]++
+			if num > maxNums[prefix] {
+				maxNums[prefix] = num
+			}
+		}
+	}
+
+	var mostCommonPrefix string
+	maxCount := 0
+	for prefix, count := range prefixCounts {
+		if count > maxCount {
+			maxCount = count
+			mostCommonPrefix = prefix
+		}
+	}
+
+	if mostCommonPrefix != "" {
+		padWidth := 3
+		for _, id := range ids {
+			matches := prefixNumRegex.FindStringSubmatch(id)
+			if matches != nil && matches[1] == mostCommonPrefix {
+				numStr := matches[2]
+				if len(numStr) > padWidth {
+					padWidth = len(numStr)
+				}
+			}
+		}
+
+		pattern = fmt.Sprintf("%s-<number> (zero-padded to %d digits)", mostCommonPrefix, padWidth)
+		example = fmt.Sprintf("%s-%0*d", mostCommonPrefix, padWidth, 1)
+		nextNum := maxNums[mostCommonPrefix] + 1
+		nextID = fmt.Sprintf("%s-%0*d", mostCommonPrefix, padWidth, nextNum)
+	}
+
+	return
 }
 
 // GetControlPromptInstruction returns the instruction for reading the prompt file

@@ -1,7 +1,7 @@
 package query
 
 import (
-	"github.com/s22625/orch/internal/store"
+	"github.com/s22625/orch/internal/orchapi"
 )
 
 // Engine provides the main query interface
@@ -9,8 +9,8 @@ type Engine struct {
 	db *DB
 }
 
-// NewEngine creates a new query engine with data loaded from the store
-func NewEngine(st store.Store, opts *LoadOptions) (*Engine, error) {
+// NewEngine creates a new query engine with data loaded via API
+func NewEngine(api orchapi.OrchAPI, opts *LoadOptions) (*Engine, error) {
 	// Create database in read-write mode for setup
 	db, err := openDBReadWrite()
 	if err != nil {
@@ -29,7 +29,7 @@ func NewEngine(st store.Store, opts *LoadOptions) (*Engine, error) {
 	}
 
 	// Load data
-	if err := LoadAll(db, st, opts); err != nil {
+	if err := LoadAll(db, api, opts); err != nil {
 		db.Close()
 		return nil, err
 	}

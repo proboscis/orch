@@ -1,70 +1,145 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/s22625/orch/internal/query"
-	"github.com/s22625/orch/internal/store"
 )
 
-// mockQueryStore implements store.Store for query testing
-type mockQueryStore struct {
+// mockQueryAPI implements orchapi.OrchAPI for query testing (minimal implementation)
+type mockQueryAPI struct {
 	issues []*model.Issue
 	runs   []*model.Run
 }
 
-func (m *mockQueryStore) ResolveIssue(issueID string) (*model.Issue, error) {
-	for _, issue := range m.issues {
-		if issue.ID == issueID {
-			return issue, nil
-		}
+func (m *mockQueryAPI) GetIssue(ctx context.Context, issueID string) (*orchapi.Issue, error) {
+	return nil, nil
+}
+
+func (m *mockQueryAPI) ListIssues(ctx context.Context, filter *orchapi.ListIssuesFilter) (*orchapi.ListIssuesResult, error) {
+	var issues []*orchapi.Issue
+	for _, i := range m.issues {
+		issues = append(issues, &orchapi.Issue{
+			ID:     i.ID,
+			Title:  i.Title,
+			Status: orchapi.IssueStatus(i.Status),
+			Tags:   i.Tags,
+		})
 	}
+	return &orchapi.ListIssuesResult{Issues: issues}, nil
+}
+
+func (m *mockQueryAPI) CreateIssue(ctx context.Context, req *orchapi.CreateIssueRequest) (*orchapi.Issue, error) {
 	return nil, nil
 }
-
-func (m *mockQueryStore) ListIssues() ([]*model.Issue, error) {
-	return m.issues, nil
-}
-
-func (m *mockQueryStore) SetIssueStatus(issueID string, status model.IssueStatus) error {
+func (m *mockQueryAPI) SetIssueStatus(ctx context.Context, issueID string, status orchapi.IssueStatus) error {
 	return nil
 }
-
-func (m *mockQueryStore) CreateRun(issueID, runID string, metadata map[string]string) (*model.Run, error) {
+func (m *mockQueryAPI) CloseIssue(ctx context.Context, issueID string) error { return nil }
+func (m *mockQueryAPI) ResolveRun(ctx context.Context, ref orchapi.RunRef) (*orchapi.Run, error) {
+	return nil, nil
+}
+func (m *mockQueryAPI) GetRun(ctx context.Context, issueID, runID string) (*orchapi.Run, error) {
+	return nil, nil
+}
+func (m *mockQueryAPI) GetLatestRun(ctx context.Context, issueID string) (*orchapi.Run, error) {
 	return nil, nil
 }
 
-func (m *mockQueryStore) AppendEvent(ref *model.RunRef, event *model.Event) error {
+func (m *mockQueryAPI) ListRuns(ctx context.Context, filter *orchapi.ListRunsFilter) (*orchapi.ListRunsResult, error) {
+	var runs []*orchapi.Run
+	for _, r := range m.runs {
+		var events []*orchapi.Event
+		for _, e := range r.Events {
+			events = append(events, &orchapi.Event{
+				Timestamp: e.Timestamp,
+				Type:      string(e.Type),
+				Name:      e.Name,
+				Attrs:     e.Attrs,
+			})
+		}
+		runs = append(runs, &orchapi.Run{
+			IssueID:   r.IssueID,
+			RunID:     r.RunID,
+			Status:    orchapi.RunStatus(r.Status),
+			Phase:     string(r.Phase),
+			Agent:     r.Agent,
+			StartedAt: r.StartedAt,
+			UpdatedAt: r.UpdatedAt,
+			Events:    events,
+		})
+	}
+	return &orchapi.ListRunsResult{Runs: runs}, nil
+}
+
+func (m *mockQueryAPI) StartRun(ctx context.Context, req *orchapi.StartRunRequest) (*orchapi.StartRunResult, error) {
+	return nil, nil
+}
+func (m *mockQueryAPI) CreateRun(ctx context.Context, req *orchapi.CreateRunRequest) (*orchapi.CreateRunResult, error) {
+	return nil, nil
+}
+func (m *mockQueryAPI) StopRun(ctx context.Context, ref orchapi.RunRef) error { return nil }
+func (m *mockQueryAPI) AppendEvent(ctx context.Context, ref orchapi.RunRef, event *orchapi.Event) (*orchapi.AppendEventResult, error) {
+	return nil, nil
+}
+func (m *mockQueryAPI) GetAttachInfo(ctx context.Context, ref orchapi.RunRef) (*orchapi.AttachInfo, error) {
+	return nil, nil
+}
+func (m *mockQueryAPI) CaptureSession(ctx context.Context, ref orchapi.RunRef, lines int) (*orchapi.CaptureResult, error) {
+	return nil, nil
+}
+func (m *mockQueryAPI) SendMessage(ctx context.Context, ref orchapi.RunRef, message string) error {
 	return nil
 }
-
-func (m *mockQueryStore) ListRuns(filter *store.ListRunsFilter) ([]*model.Run, error) {
-	return m.runs, nil
-}
-
-func (m *mockQueryStore) GetRun(ref *model.RunRef) (*model.Run, error) {
+func (m *mockQueryAPI) GetDiffStats(ctx context.Context, ref orchapi.RunRef) (*orchapi.DiffStats, error) {
 	return nil, nil
 }
-
-func (m *mockQueryStore) GetRunByShortID(shortID string) (*model.Run, error) {
+func (m *mockQueryAPI) GetBranchState(ctx context.Context, ref orchapi.RunRef) (orchapi.BranchState, error) {
+	return "", nil
+}
+func (m *mockQueryAPI) GetDiff(ctx context.Context, ref orchapi.RunRef) (string, error) {
+	return "", nil
+}
+func (m *mockQueryAPI) ResolveIssue(ctx context.Context, issueID string, force bool) error {
+	return nil
+}
+func (m *mockQueryAPI) DeleteRun(ctx context.Context, ref orchapi.RunRef, opts *orchapi.DeleteRunOptions) (*orchapi.DeleteRunResult, error) {
 	return nil, nil
 }
-
-func (m *mockQueryStore) GetLatestRun(issueID string) (*model.Run, error) {
+func (m *mockQueryAPI) UpdateIssue(ctx context.Context, issueID string, req *orchapi.UpdateIssueRequest) (*orchapi.Issue, error) {
 	return nil, nil
 }
-
-func (m *mockQueryStore) RootPath() string {
-	return "/test"
+func (m *mockQueryAPI) ValidateIssueFiles(ctx context.Context, issueID string) (*orchapi.ValidateIssueFilesResult, error) {
+	return nil, nil
+}
+func (m *mockQueryAPI) WriteAgentPrompt(ctx context.Context, ref orchapi.RunRef, content string) error {
+	return nil
+}
+func (m *mockQueryAPI) ReadAgentPrompt(ctx context.Context, ref orchapi.RunRef) (string, error) {
+	return "", nil
+}
+func (m *mockQueryAPI) RepairState(ctx context.Context, opts *orchapi.RepairOptions) (*orchapi.RepairResult, error) {
+	return nil, nil
+}
+func (m *mockQueryAPI) GetDaemonLog(ctx context.Context, lines int) (string, error) { return "", nil }
+func (m *mockQueryAPI) ReadFile(ctx context.Context, path string) ([]byte, error)   { return nil, nil }
+func (m *mockQueryAPI) WriteFile(ctx context.Context, path string, content []byte, perm uint32) error {
+	return nil
+}
+func (m *mockQueryAPI) Ping(ctx context.Context) error { return nil }
+func (m *mockQueryAPI) EnsureOpenCodeServer(ctx context.Context, projectRoot string) (*orchapi.OpenCodeServerInfo, error) {
+	return nil, nil
 }
 
 func TestQueryCommand_BasicQuery(t *testing.T) {
 	now := time.Now()
-	st := &mockQueryStore{
+	api := &mockQueryAPI{
 		issues: []*model.Issue{
 			{ID: "test-issue-1", Title: "Test Issue 1", Status: model.IssueStatusOpen},
 			{ID: "test-issue-2", Title: "Test Issue 2", Status: model.IssueStatusResolved},
@@ -74,7 +149,7 @@ func TestQueryCommand_BasicQuery(t *testing.T) {
 		},
 	}
 
-	engine, err := query.NewEngine(st, nil)
+	engine, err := query.NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -92,13 +167,13 @@ func TestQueryCommand_BasicQuery(t *testing.T) {
 }
 
 func TestQueryCommand_JSONOutput(t *testing.T) {
-	st := &mockQueryStore{
+	api := &mockQueryAPI{
 		issues: []*model.Issue{
 			{ID: "issue-1", Title: "Test", Status: model.IssueStatusOpen},
 		},
 	}
 
-	engine, err := query.NewEngine(st, nil)
+	engine, err := query.NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -138,14 +213,14 @@ func TestQueryCommand_JSONOutput(t *testing.T) {
 }
 
 func TestQueryCommand_TSVOutput(t *testing.T) {
-	st := &mockQueryStore{
+	api := &mockQueryAPI{
 		issues: []*model.Issue{
 			{ID: "issue-1", Title: "First", Status: model.IssueStatusOpen},
 			{ID: "issue-2", Title: "Second", Status: model.IssueStatusOpen},
 		},
 	}
 
-	engine, err := query.NewEngine(st, nil)
+	engine, err := query.NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -175,13 +250,13 @@ func TestQueryCommand_TSVOutput(t *testing.T) {
 }
 
 func TestQueryCommand_TableOutput(t *testing.T) {
-	st := &mockQueryStore{
+	api := &mockQueryAPI{
 		issues: []*model.Issue{
 			{ID: "issue-1", Title: "Test Issue", Status: model.IssueStatusOpen},
 		},
 	}
 
-	engine, err := query.NewEngine(st, nil)
+	engine, err := query.NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -215,7 +290,7 @@ func TestQueryCommand_TableOutput(t *testing.T) {
 
 func TestQueryCommand_JoinQuery(t *testing.T) {
 	now := time.Now()
-	st := &mockQueryStore{
+	api := &mockQueryAPI{
 		issues: []*model.Issue{
 			{ID: "issue-1", Title: "Test Issue", Status: model.IssueStatusOpen},
 		},
@@ -225,7 +300,7 @@ func TestQueryCommand_JoinQuery(t *testing.T) {
 		},
 	}
 
-	engine, err := query.NewEngine(st, nil)
+	engine, err := query.NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -249,7 +324,7 @@ func TestQueryCommand_JoinQuery(t *testing.T) {
 
 func TestQueryCommand_Aggregation(t *testing.T) {
 	now := time.Now()
-	st := &mockQueryStore{
+	api := &mockQueryAPI{
 		runs: []*model.Run{
 			{IssueID: "issue-1", RunID: "run-1", Status: model.StatusRunning, StartedAt: now, UpdatedAt: now},
 			{IssueID: "issue-1", RunID: "run-2", Status: model.StatusRunning, StartedAt: now, UpdatedAt: now},
@@ -257,7 +332,7 @@ func TestQueryCommand_Aggregation(t *testing.T) {
 		},
 	}
 
-	engine, err := query.NewEngine(st, nil)
+	engine, err := query.NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -285,7 +360,7 @@ func TestQueryCommand_Aggregation(t *testing.T) {
 
 func TestQueryCommand_ViewsQuery(t *testing.T) {
 	now := time.Now()
-	st := &mockQueryStore{
+	api := &mockQueryAPI{
 		issues: []*model.Issue{
 			{ID: "issue-1", Title: "Test", Status: model.IssueStatusOpen, Tags: []string{"cli", "sql"}},
 		},
@@ -294,7 +369,7 @@ func TestQueryCommand_ViewsQuery(t *testing.T) {
 		},
 	}
 
-	engine, err := query.NewEngine(st, nil)
+	engine, err := query.NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -332,9 +407,9 @@ func TestQueryCommand_ViewsQuery(t *testing.T) {
 }
 
 func TestQueryCommand_InvalidSQL(t *testing.T) {
-	st := &mockQueryStore{}
+	api := &mockQueryAPI{}
 
-	engine, err := query.NewEngine(st, nil)
+	engine, err := query.NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -364,7 +439,7 @@ func TestQueryCommand_InvalidSQL(t *testing.T) {
 
 func TestQueryCommand_WithEvents(t *testing.T) {
 	now := time.Now()
-	st := &mockQueryStore{
+	api := &mockQueryAPI{
 		issues: []*model.Issue{
 			{ID: "issue-1", Title: "Test", Status: model.IssueStatusOpen},
 		},
@@ -384,7 +459,7 @@ func TestQueryCommand_WithEvents(t *testing.T) {
 	}
 
 	// Without events
-	engine, err := query.NewEngine(st, nil)
+	engine, err := query.NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -399,7 +474,7 @@ func TestQueryCommand_WithEvents(t *testing.T) {
 	engine.Close()
 
 	// With events
-	engine, err = query.NewEngine(st, &query.LoadOptions{WithEvents: true})
+	engine, err = query.NewEngine(api, &query.LoadOptions{WithEvents: true})
 	if err != nil {
 		t.Fatalf("NewEngine with events: %v", err)
 	}
@@ -415,7 +490,7 @@ func TestQueryCommand_WithEvents(t *testing.T) {
 }
 
 func TestQueryCommand_TagsQuery(t *testing.T) {
-	st := &mockQueryStore{
+	api := &mockQueryAPI{
 		issues: []*model.Issue{
 			{ID: "issue-1", Title: "CLI Issue", Status: model.IssueStatusOpen, Tags: []string{"cli", "ux"}},
 			{ID: "issue-2", Title: "Query Issue", Status: model.IssueStatusOpen, Tags: []string{"sql", "query"}},
@@ -423,7 +498,7 @@ func TestQueryCommand_TagsQuery(t *testing.T) {
 		},
 	}
 
-	engine, err := query.NewEngine(st, nil)
+	engine, err := query.NewEngine(api, nil)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}

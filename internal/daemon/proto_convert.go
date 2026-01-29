@@ -162,6 +162,7 @@ func modelIssueToProto(issue *model.Issue) *orchpb.Issue {
 	return &orchpb.Issue{
 		Id:             issue.ID,
 		Title:          issue.Title,
+		Topic:          issue.Topic,
 		Summary:        issue.Summary,
 		Status:         modelIssueStatusToProto(issue.Status),
 		Tags:           issue.Tags,
@@ -178,6 +179,7 @@ func protoIssueToModel(issue *orchpb.Issue) *model.Issue {
 	return &model.Issue{
 		ID:         issue.Id,
 		Title:      issue.Title,
+		Topic:      issue.Topic,
 		Summary:    issue.Summary,
 		Status:     protoIssueStatusToModel(issue.Status),
 		Tags:       issue.Tags,

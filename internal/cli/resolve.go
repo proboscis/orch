@@ -1,10 +1,11 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"strings"
 
-	"github.com/s22625/orch/internal/model"
 	"github.com/spf13/cobra"
 )
 
@@ -35,71 +36,22 @@ Note: This does not change run statuses - runs have their own lifecycle states.`
 }
 
 func runResolve(issueID string, opts *resolveOptions) error {
-	if testBypassDaemon {
-		return runResolveDirect(issueID, opts)
-	}
-
-	client, err := requireDaemon()
+	api, err := getAPI()
 	if err != nil {
 		return err
 	}
 
-	resp, err := client.ResolveIssue(issueID, opts.Force)
+	ctx := context.Background()
+	err = api.ResolveIssue(ctx, issueID, opts.Force)
 	if err != nil {
-		if err.Error() == "daemon error: not_found" {
+		errStr := err.Error()
+		if strings.Contains(errStr, "not_found") || strings.Contains(errStr, "not found") {
 			fmt.Fprintf(os.Stderr, "issue not found: %s\n", issueID)
 			os.Exit(ExitRunNotFound)
 		}
-		if err.Error() == "daemon error: no_completed_runs" {
+		if strings.Contains(errStr, "no_completed_runs") || strings.Contains(errStr, "no completed runs") {
 			return fmt.Errorf("issue %s has no completed runs; use --force to resolve anyway", issueID)
 		}
-		return err
-	}
-
-	if !globalOpts.Quiet {
-		fmt.Printf("resolved: %s\n", resp.IssueID)
-	}
-
-	return nil
-}
-
-func runResolveDirect(issueID string, opts *resolveOptions) error {
-	st, err := getStore()
-	if err != nil {
-		return err
-	}
-
-	issue, err := st.ResolveIssue(issueID)
-	if err != nil {
-		if err.Error() == "issue not found: "+issueID {
-			fmt.Fprintf(os.Stderr, "issue not found: %s\n", issueID)
-			os.Exit(ExitRunNotFound)
-		}
-		return err
-	}
-
-	if issue.Status == model.IssueStatusResolved {
-		if !globalOpts.Quiet {
-			fmt.Printf("resolved: %s\n", issueID)
-		}
-		return nil
-	}
-
-	if !opts.Force {
-		runs, _ := st.ListRuns(nil)
-		hasCompletedRun := false
-		for _, run := range runs {
-			if run.IssueID == issueID && (run.Status == model.StatusDone || run.Status == model.StatusPROpen) {
-				hasCompletedRun = true
-				break
-			}
-		}
-		if !hasCompletedRun {
-			return fmt.Errorf("issue %s has no completed runs; use --force to resolve anyway", issueID)
-		}
-	}
-
-	if err := st.SetIssueStatus(issueID, model.IssueStatusResolved); err != nil {
 		return err
 	}
 

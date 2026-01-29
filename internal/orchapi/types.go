@@ -253,7 +253,79 @@ type StartRunResult struct {
 	TmuxSession  string
 }
 
+type CreateRunRequest struct {
+	IssueID  string
+	RunID    string
+	Metadata map[string]string
+}
+
+type CreateRunResult struct {
+	IssueID string
+	RunID   string
+	Path    string
+}
+
 type AppendEventResult struct {
 	Skipped bool
 	Reason  string
+}
+
+type DeleteRunOptions struct {
+	WithWorktree bool
+	WithBranch   bool
+	Force        bool
+}
+
+type DeleteRunResult struct {
+	IssueID         string
+	RunID           string
+	ShortID         string
+	WorktreeRemoved bool
+	BranchRemoved   bool
+	SessionKilled   bool
+}
+
+type UpdateIssueRequest struct {
+	Title   string
+	Summary string
+	Body    string
+	Status  IssueStatus
+}
+
+type ValidateIssueFilesResult struct {
+	Total      int
+	Valid      int
+	Errors     []*ValidationResult
+	Warnings   []*ValidationResult
+	Duplicates []DuplicateID
+}
+
+type ValidationResult struct {
+	File     string
+	IssueID  string
+	Errors   []ValidationIssue
+	Warnings []ValidationIssue
+}
+
+type ValidationIssue struct {
+	Code    string
+	Message string
+	Line    int
+	Level   string
+}
+
+type DuplicateID struct {
+	ID    string
+	Files []string
+}
+
+type RepairOptions struct {
+	DryRun bool
+	Force  bool
+}
+
+type RepairResult struct {
+	ProblemsFound int
+	ProblemsFixed int
+	Details       []string
 }

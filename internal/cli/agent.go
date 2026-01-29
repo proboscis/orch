@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,7 +13,6 @@ import (
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/monitor"
 	"github.com/s22625/orch/internal/multiplexer"
-	"github.com/s22625/orch/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -23,11 +23,11 @@ const (
 
 // ControlAgentState persists state about the control agent session.
 type ControlAgentState struct {
-	Backend            string    `json:"backend"`                        // Agent backend (opencode, claude, etc.)
-	CreatedAt          time.Time `json:"created_at"`                     // When the session was created
-	SessionID          string    `json:"session_id,omitempty"`           // For opencode: native session ID
-	MultiplexerSession string    `json:"multiplexer_session,omitempty"`  // For claude/codex: tmux/zellij session name
-	Multiplexer        string    `json:"multiplexer,omitempty"`          // For claude/codex: "tmux" or "zellij"
+	Backend            string    `json:"backend"`                       // Agent backend (opencode, claude, etc.)
+	CreatedAt          time.Time `json:"created_at"`                    // When the session was created
+	SessionID          string    `json:"session_id,omitempty"`          // For opencode: native session ID
+	MultiplexerSession string    `json:"multiplexer_session,omitempty"` // For claude/codex: tmux/zellij session name
+	Multiplexer        string    `json:"multiplexer,omitempty"`         // For claude/codex: "tmux" or "zellij"
 }
 
 type agentOptions struct {
@@ -126,19 +126,16 @@ func runOpenCodeAgent(orchDir string, opts *agentOptions) error {
 		fmt.Fprintf(os.Stderr, "Resuming opencode session: %s\n", sessionID)
 	}
 
-	// Get store for control prompt
-	st, err := getStore()
+	issuesRoot, err := getIssuesRoot()
 	if err != nil {
-		return fmt.Errorf("failed to get store: %w", err)
+		return fmt.Errorf("failed to get issues root: %w", err)
 	}
 
-	// Write control prompt file
-	promptPath, err := writeControlPromptForAgent(st)
+	promptPath, err := writeControlPromptViaAPI(issuesRoot)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: failed to write control prompt: %v\n", err)
 	}
 
-	// Build opencode command
 	binary, err := exec.LookPath("opencode")
 	if err != nil {
 		return fmt.Errorf("opencode not found in PATH")
@@ -163,7 +160,7 @@ func runOpenCodeAgent(orchDir string, opts *agentOptions) error {
 		// Generate a session ID for opencode to use
 		newSessionID := fmt.Sprintf("orch-control-%d", time.Now().Unix())
 		args = []string{"--session", newSessionID, "--prompt", monitor.GetControlPromptInstruction()}
-		
+
 		newState := &ControlAgentState{
 			Backend:   "opencode",
 			CreatedAt: time.Now(),
@@ -255,14 +252,12 @@ func createMultiplexerSession(orchDir string, agentType agent.AgentType, mux mul
 		return fmt.Errorf("%s CLI is not available", agentType)
 	}
 
-	// Get store for control prompt
-	st, err := getStore()
+	issuesRoot, err := getIssuesRoot()
 	if err != nil {
-		return fmt.Errorf("failed to get store: %w", err)
+		return fmt.Errorf("failed to get issues root: %w", err)
 	}
 
-	// Write control prompt file
-	promptPath, err := writeControlPromptForAgent(st)
+	promptPath, err := writeControlPromptViaAPI(issuesRoot)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: failed to write control prompt: %v\n", err)
 	}
@@ -285,10 +280,9 @@ func createMultiplexerSession(orchDir string, agentType agent.AgentType, mux mul
 		// profile not in global config, only in presets
 	}
 
-	// Prepare launch config
 	launchCfg := &agent.LaunchConfig{
 		Type:         agentType,
-		IssuesRoot:   st.RootPath(),
+		IssuesRoot:   issuesRoot,
 		Prompt:       monitor.GetControlPromptInstruction(),
 		Model:        modelName,
 		ModelVariant: modelVariant,
@@ -407,8 +401,14 @@ func loadControlAgentState(orchDir string) *ControlAgentState {
 		return nil
 	}
 
+	api, err := getAPI()
+	if err != nil {
+		return nil
+	}
+
 	path := filepath.Join(orchDir, controlAgentFileName)
-	data, err := os.ReadFile(path)
+	ctx := context.Background()
+	data, err := api.ReadFile(ctx, path)
 	if err != nil {
 		return nil
 	}
@@ -426,7 +426,8 @@ func saveControlAgentState(orchDir string, state *ControlAgentState) error {
 		return nil
 	}
 
-	if err := os.MkdirAll(orchDir, 0755); err != nil {
+	api, err := getAPI()
+	if err != nil {
 		return err
 	}
 
@@ -436,12 +437,8 @@ func saveControlAgentState(orchDir string, state *ControlAgentState) error {
 	}
 
 	path := filepath.Join(orchDir, controlAgentFileName)
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
-		return err
-	}
-
-	return os.Rename(tmp, path)
+	ctx := context.Background()
+	return api.WriteFile(ctx, path, data, 0600)
 }
 
 func clearControlAgentState(orchDir string) error {
@@ -456,7 +453,11 @@ func clearControlAgentState(orchDir string) error {
 	return err
 }
 
-// writeControlPromptForAgent writes the control prompt file using the monitor package
-func writeControlPromptForAgent(st store.Store) (string, error) {
-	return monitor.WriteControlPromptFile(st)
+func writeControlPromptViaAPI(issuesRoot string) (string, error) {
+	ctx := context.Background()
+	api, err := getAPI()
+	if err != nil {
+		return "", fmt.Errorf("failed to get API: %w", err)
+	}
+	return monitor.WriteControlPromptFileViaAPI(ctx, api, issuesRoot)
 }

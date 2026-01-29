@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -123,6 +124,26 @@ func (s *SocketServer) handleProtoRequest(req *orchpb.Request) *orchpb.Response 
 		return s.handleProtoRegisterRepo(r.RegisterRepo)
 	case *orchpb.Request_ListRepos:
 		return s.handleProtoListRepos(r.ListRepos)
+	case *orchpb.Request_DeleteRun:
+		return s.handleProtoDeleteRun(r.DeleteRun)
+	case *orchpb.Request_UpdateIssue:
+		return s.handleProtoUpdateIssue(r.UpdateIssue)
+	case *orchpb.Request_ValidateIssueFiles:
+		return s.handleProtoValidateIssueFiles(r.ValidateIssueFiles)
+	case *orchpb.Request_WriteAgentPrompt:
+		return s.handleProtoWriteAgentPrompt(r.WriteAgentPrompt)
+	case *orchpb.Request_ReadAgentPrompt:
+		return s.handleProtoReadAgentPrompt(r.ReadAgentPrompt)
+	case *orchpb.Request_RepairState:
+		return s.handleProtoRepairState(r.RepairState)
+	case *orchpb.Request_GetDaemonLog:
+		return s.handleProtoGetDaemonLog(r.GetDaemonLog)
+	case *orchpb.Request_ReadFile:
+		return s.handleProtoReadFile(r.ReadFile)
+	case *orchpb.Request_WriteFile:
+		return s.handleProtoWriteFile(r.WriteFile)
+	case *orchpb.Request_CreateRun:
+		return s.handleProtoCreateRun(r.CreateRun)
 	default:
 		return errorResponse("unknown request type")
 	}
@@ -1066,4 +1087,359 @@ func (s *SocketServer) handleProtoListRepos(_ *orchpb.ListReposRequest) *orchpb.
 			},
 		},
 	}
+}
+
+func (s *SocketServer) handleProtoDeleteRun(req *orchpb.DeleteRunRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	var run *model.Run
+	var err error
+
+	if req.ShortId != "" {
+		run, err = st.GetRunByShortID(req.ShortId)
+	} else {
+		ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+		run, err = st.GetRun(ref)
+	}
+	if err != nil {
+		return errorResponse(fmt.Sprintf("run not found: %v", err))
+	}
+
+	result := &orchpb.DeleteRunResponse{
+		IssueId: run.IssueID,
+		RunId:   run.RunID,
+		ShortId: run.ShortID(),
+	}
+
+	mux := multiplexer.GetDefault()
+	sessionName := run.TmuxSession
+	if sessionName == "" {
+		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+	}
+	if mux.HasSession(sessionName) {
+		if err := mux.KillSession(sessionName); err == nil {
+			result.SessionKilled = true
+		}
+	}
+
+	if req.WithWorktree && run.WorktreePath != "" {
+		repoRoot, err := git.FindRepoRoot("")
+		if err == nil {
+			if git.RemoveWorktree(repoRoot, run.WorktreePath) == nil {
+				result.WorktreeRemoved = true
+			}
+		}
+	}
+
+	if req.WithBranch && run.Branch != "" {
+		repoRoot, err := git.FindRepoRoot("")
+		if err == nil {
+			cmd := exec.Command("git", "-C", repoRoot, "branch", "-D", run.Branch)
+			if cmd.Run() == nil {
+				result.BranchRemoved = true
+			}
+		}
+	}
+
+	if err := st.DeleteRun(&model.RunRef{IssueID: run.IssueID, RunID: run.RunID}); err != nil {
+		return errorResponse(fmt.Sprintf("failed to delete run: %v", err))
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_DeleteRun{
+			DeleteRun: result,
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoUpdateIssue(req *orchpb.UpdateIssueRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	issue, err := st.ResolveIssue(req.IssueId)
+	if err != nil {
+		return errorResponse(fmt.Sprintf("issue not found: %v", err))
+	}
+
+	if req.Title != "" {
+		issue.Title = req.Title
+	}
+	if req.Summary != "" {
+		issue.Summary = req.Summary
+	}
+	if req.Body != "" {
+		issue.Body = req.Body
+	}
+	if req.Status != "" {
+		issue.Status = model.IssueStatus(req.Status)
+	}
+
+	if err := st.UpdateIssue(issue); err != nil {
+		return errorResponse(fmt.Sprintf("failed to update issue: %v", err))
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_UpdateIssue{
+			UpdateIssue: &orchpb.UpdateIssueResponse{
+				Issue: modelIssueToProto(issue),
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoValidateIssueFiles(req *orchpb.ValidateIssueFilesRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	result, err := st.ValidateIssueFiles(req.IssueId)
+	if err != nil {
+		return errorResponse(fmt.Sprintf("validation failed: %v", err))
+	}
+
+	protoResult := &orchpb.ValidateIssueFilesResponse{
+		Total: int32(result.Total),
+		Valid: int32(result.Valid),
+	}
+
+	for _, e := range result.Errors {
+		item := &orchpb.ValidationResultItem{
+			File:    e.File,
+			IssueId: e.IssueID,
+		}
+		for _, issue := range e.Errors {
+			item.Errors = append(item.Errors, &orchpb.ValidationIssue{
+				Code:    issue.Code,
+				Message: issue.Message,
+				Line:    int32(issue.Line),
+				Level:   string(issue.Level),
+			})
+		}
+		protoResult.Errors = append(protoResult.Errors, item)
+	}
+
+	for _, d := range result.Duplicates {
+		protoResult.Duplicates = append(protoResult.Duplicates, &orchpb.DuplicateIDItem{
+			Id:    d.ID,
+			Files: d.Files,
+		})
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_ValidateIssueFiles{
+			ValidateIssueFiles: protoResult,
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoWriteAgentPrompt(req *orchpb.WriteAgentPromptRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	var run *model.Run
+	var err error
+
+	if req.ShortId != "" {
+		run, err = st.GetRunByShortID(req.ShortId)
+	} else {
+		ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+		run, err = st.GetRun(ref)
+	}
+	if err != nil {
+		return errorResponse(fmt.Sprintf("run not found: %v", err))
+	}
+
+	if err := st.WriteAgentPrompt(&model.RunRef{IssueID: run.IssueID, RunID: run.RunID}, req.Content); err != nil {
+		return errorResponse(fmt.Sprintf("failed to write agent prompt: %v", err))
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_WriteAgentPrompt{
+			WriteAgentPrompt: &orchpb.WriteAgentPromptResponse{},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoReadAgentPrompt(req *orchpb.ReadAgentPromptRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	var run *model.Run
+	var err error
+
+	if req.ShortId != "" {
+		run, err = st.GetRunByShortID(req.ShortId)
+	} else {
+		ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+		run, err = st.GetRun(ref)
+	}
+	if err != nil {
+		return errorResponse(fmt.Sprintf("run not found: %v", err))
+	}
+
+	content, err := st.ReadAgentPrompt(&model.RunRef{IssueID: run.IssueID, RunID: run.RunID})
+	if err != nil {
+		return errorResponse(fmt.Sprintf("failed to read agent prompt: %v", err))
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_ReadAgentPrompt{
+			ReadAgentPrompt: &orchpb.ReadAgentPromptResponse{
+				Content: content,
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoRepairState(req *orchpb.RepairStateRequest) *orchpb.Response {
+	result := &orchpb.RepairStateResponse{}
+
+	if err := CleanupStaleRegistrations(); err != nil {
+		result.Details = append(result.Details, fmt.Sprintf("registry cleanup error: %v", err))
+	}
+
+	infos, _ := ListAllDaemons()
+	for _, info := range infos {
+		if !info.IsHealthy {
+			result.ProblemsFound++
+			result.Details = append(result.Details, fmt.Sprintf("unhealthy daemon: pid=%d project=%s", info.PID, info.ProjectRoot))
+			if !req.DryRun && req.Force {
+				if err := KillDaemon(info.ProjectRoot); err == nil {
+					result.ProblemsFixed++
+					result.Details = append(result.Details, fmt.Sprintf("killed unhealthy daemon: %s", info.ProjectRoot))
+				}
+			}
+		}
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_RepairState{
+			RepairState: result,
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoGetDaemonLog(req *orchpb.GetDaemonLogRequest) *orchpb.Response {
+	projectRoot := s.getFirstProjectRoot()
+	logPath := LogFilePath(projectRoot)
+	content, err := readLastNLines(logPath, int(req.Lines))
+	if err != nil {
+		return errorResponse(fmt.Sprintf("failed to read daemon log: %v", err))
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_GetDaemonLog{
+			GetDaemonLog: &orchpb.GetDaemonLogResponse{
+				Content: content,
+			},
+		},
+	}
+}
+
+func (s *SocketServer) getFirstProjectRoot() string {
+	s.reposMu.RLock()
+	defer s.reposMu.RUnlock()
+	for _, ctx := range s.repos {
+		if ctx.ProjectRoot != "" {
+			return ctx.ProjectRoot
+		}
+	}
+	return ""
+}
+
+func (s *SocketServer) handleProtoReadFile(req *orchpb.ReadFileRequest) *orchpb.Response {
+	content, err := readFileContent(req.Path)
+	if err != nil {
+		return errorResponse(fmt.Sprintf("failed to read file: %v", err))
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_ReadFile{
+			ReadFile: &orchpb.ReadFileResponse{
+				Content: content,
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoWriteFile(req *orchpb.WriteFileRequest) *orchpb.Response {
+	if err := writeFileContent(req.Path, req.Content, req.Perm); err != nil {
+		return errorResponse(fmt.Sprintf("failed to write file: %v", err))
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_WriteFile{
+			WriteFile: &orchpb.WriteFileResponse{},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoCreateRun(req *orchpb.CreateRunRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	run, err := st.CreateRun(req.IssueId, req.RunId, req.Metadata)
+	if err != nil {
+		return errorResponse(fmt.Sprintf("failed to create run: %v", err))
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_CreateRun{
+			CreateRun: &orchpb.CreateRunResponse{
+				IssueId: run.IssueID,
+				RunId:   run.RunID,
+				Path:    run.Path,
+			},
+		},
+	}
+}
+
+func readLastNLines(path string, n int) (string, error) {
+	if n <= 0 {
+		n = 100
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+
+	lines := strings.Split(string(content), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n"), nil
+}
+
+func readFileContent(path string) ([]byte, error) {
+	return os.ReadFile(path)
+}
+
+func writeFileContent(path string, content []byte, perm uint32) error {
+	if perm == 0 {
+		perm = 0644
+	}
+	return os.WriteFile(path, content, os.FileMode(perm))
 }

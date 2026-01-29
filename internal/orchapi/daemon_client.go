@@ -454,4 +454,133 @@ func runFromDaemonSummary(r *daemon.RunSummary) *Run {
 	}
 }
 
+func (c *DaemonClient) DeleteRun(ctx context.Context, ref RunRef, opts *DeleteRunOptions) (*DeleteRunResult, error) {
+	if opts == nil {
+		opts = &DeleteRunOptions{}
+	}
+	resp, err := c.proto.DeleteRun(ref.IssueID, ref.RunID, ref.ShortID, opts.WithWorktree, opts.WithBranch, opts.Force)
+	if err != nil {
+		return nil, err
+	}
+	return &DeleteRunResult{
+		IssueID:         resp.IssueID,
+		RunID:           resp.RunID,
+		ShortID:         resp.ShortID,
+		WorktreeRemoved: resp.WorktreeRemoved,
+		BranchRemoved:   resp.BranchRemoved,
+		SessionKilled:   resp.SessionKilled,
+	}, nil
+}
+
+func (c *DaemonClient) UpdateIssue(ctx context.Context, issueID string, req *UpdateIssueRequest) (*Issue, error) {
+	resp, err := c.proto.UpdateIssue(issueID, req.Title, req.Summary, req.Body, string(req.Status))
+	if err != nil {
+		return nil, err
+	}
+	return issueFromDaemon(resp), nil
+}
+
+func (c *DaemonClient) ValidateIssueFiles(ctx context.Context, issueID string) (*ValidateIssueFilesResult, error) {
+	resp, err := c.proto.ValidateIssueFiles(issueID)
+	if err != nil {
+		return nil, err
+	}
+	result := &ValidateIssueFilesResult{
+		Total: resp.Total,
+		Valid: resp.Valid,
+	}
+	for _, e := range resp.Errors {
+		vr := &ValidationResult{
+			File:    e.File,
+			IssueID: e.IssueID,
+		}
+		for _, issue := range e.Errors {
+			vr.Errors = append(vr.Errors, ValidationIssue{
+				Code:    issue.Code,
+				Message: issue.Message,
+				Line:    issue.Line,
+				Level:   issue.Level,
+			})
+		}
+		for _, issue := range e.Warnings {
+			vr.Warnings = append(vr.Warnings, ValidationIssue{
+				Code:    issue.Code,
+				Message: issue.Message,
+				Line:    issue.Line,
+				Level:   issue.Level,
+			})
+		}
+		result.Errors = append(result.Errors, vr)
+	}
+	for _, w := range resp.Warnings {
+		vr := &ValidationResult{
+			File:    w.File,
+			IssueID: w.IssueID,
+		}
+		for _, issue := range w.Warnings {
+			vr.Warnings = append(vr.Warnings, ValidationIssue{
+				Code:    issue.Code,
+				Message: issue.Message,
+				Line:    issue.Line,
+				Level:   issue.Level,
+			})
+		}
+		result.Warnings = append(result.Warnings, vr)
+	}
+	for _, d := range resp.Duplicates {
+		result.Duplicates = append(result.Duplicates, DuplicateID{
+			ID:    d.ID,
+			Files: d.Files,
+		})
+	}
+	return result, nil
+}
+
+func (c *DaemonClient) WriteAgentPrompt(ctx context.Context, ref RunRef, content string) error {
+	return c.proto.WriteAgentPrompt(ref.IssueID, ref.RunID, ref.ShortID, content)
+}
+
+func (c *DaemonClient) ReadAgentPrompt(ctx context.Context, ref RunRef) (string, error) {
+	return c.proto.ReadAgentPrompt(ref.IssueID, ref.RunID, ref.ShortID)
+}
+
+func (c *DaemonClient) RepairState(ctx context.Context, opts *RepairOptions) (*RepairResult, error) {
+	if opts == nil {
+		opts = &RepairOptions{}
+	}
+	resp, err := c.proto.RepairState(opts.DryRun, opts.Force)
+	if err != nil {
+		return nil, err
+	}
+	return &RepairResult{
+		ProblemsFound: resp.ProblemsFound,
+		ProblemsFixed: resp.ProblemsFixed,
+		Details:       resp.Details,
+	}, nil
+}
+
+func (c *DaemonClient) GetDaemonLog(ctx context.Context, lines int) (string, error) {
+	return c.proto.GetDaemonLog(lines)
+}
+
+func (c *DaemonClient) ReadFile(ctx context.Context, path string) ([]byte, error) {
+	return c.proto.ReadFile(path)
+}
+
+func (c *DaemonClient) WriteFile(ctx context.Context, path string, content []byte, perm uint32) error {
+	return c.proto.WriteFile(path, content, perm)
+}
+
+func (c *DaemonClient) CreateRun(ctx context.Context, req *CreateRunRequest) (*CreateRunResult, error) {
+	resp, err := c.proto.CreateRun(req.IssueID, req.RunID, req.Metadata)
+	if err != nil {
+		return nil, err
+	}
+	return &CreateRunResult{
+		IssueID: resp.IssueId,
+		RunID:   resp.RunId,
+		Path:    resp.Path,
+	}, nil
+}
+
 var _ OrchAPI = (*DaemonClient)(nil)

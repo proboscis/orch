@@ -1,16 +1,17 @@
 package monitor
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
 
-// IssueContent returns the issue body content for display in the run dashboard.
 func (m *Monitor) IssueContent(issueID string) (string, error) {
 	if strings.TrimSpace(issueID) == "" {
 		return "", fmt.Errorf("issue id is required")
 	}
-	issue, err := m.store.ResolveIssue(issueID)
+	ctx := context.Background()
+	issue, err := m.api.GetIssue(ctx, issueID)
 	if err != nil {
 		return "", err
 	}

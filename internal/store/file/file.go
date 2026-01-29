@@ -975,5 +975,223 @@ func (s *FileStore) SetIssueStatus(issueID string, status model.IssueStatus) err
 	return nil
 }
 
-// Ensure FileStore implements Store
+func (s *FileStore) DeleteRun(ref *model.RunRef) error {
+	runPath := s.runPath(ref.IssueID, ref.RunID)
+	if _, err := os.Stat(runPath); os.IsNotExist(err) {
+		return fmt.Errorf("run not found: %s#%s", ref.IssueID, ref.RunID)
+	}
+
+	if err := os.Remove(runPath); err != nil {
+		return fmt.Errorf("failed to delete run: %w", err)
+	}
+
+	logDir := strings.TrimSuffix(runPath, ".md") + ".log"
+	if info, err := os.Stat(logDir); err == nil && info.IsDir() {
+		os.RemoveAll(logDir)
+	}
+
+	s.markCacheDirty()
+	return nil
+}
+
+func (s *FileStore) UpdateIssue(issue *model.Issue) error {
+	if issue.Path == "" {
+		return fmt.Errorf("issue path is empty")
+	}
+
+	content, err := os.ReadFile(issue.Path)
+	if err != nil {
+		return fmt.Errorf("failed to read issue file: %w", err)
+	}
+
+	lines := strings.Split(string(content), "\n")
+	var newLines []string
+	inFrontmatter := false
+	foundTitle := false
+	foundSummary := false
+	foundStatus := false
+
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "---" {
+			if !inFrontmatter {
+				inFrontmatter = true
+				newLines = append(newLines, line)
+				continue
+			} else {
+				if issue.Title != "" && !foundTitle {
+					newLines = append(newLines, fmt.Sprintf("title: %s", issue.Title))
+				}
+				if issue.Summary != "" && !foundSummary {
+					newLines = append(newLines, fmt.Sprintf("summary: %s", issue.Summary))
+				}
+				if issue.Status != "" && !foundStatus {
+					newLines = append(newLines, fmt.Sprintf("status: %s", issue.Status))
+				}
+				newLines = append(newLines, line)
+				inFrontmatter = false
+				continue
+			}
+		}
+
+		if inFrontmatter {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				key := strings.TrimSpace(parts[0])
+				if key == "title" && issue.Title != "" {
+					newLines = append(newLines, fmt.Sprintf("title: %s", issue.Title))
+					foundTitle = true
+					continue
+				}
+				if key == "summary" && issue.Summary != "" {
+					newLines = append(newLines, fmt.Sprintf("summary: %s", issue.Summary))
+					foundSummary = true
+					continue
+				}
+				if key == "status" && issue.Status != "" {
+					newLines = append(newLines, fmt.Sprintf("status: %s", issue.Status))
+					foundStatus = true
+					continue
+				}
+			}
+		}
+		newLines = append(newLines, line)
+	}
+
+	if err := os.WriteFile(issue.Path, []byte(strings.Join(newLines, "\n")), 0644); err != nil {
+		return fmt.Errorf("failed to write issue file: %w", err)
+	}
+
+	s.markCacheDirty()
+	return nil
+}
+
+func (s *FileStore) ValidateIssueFiles(issueID string) (*store.ValidationResult, error) {
+	result := &store.ValidationResult{}
+
+	var issues []*model.Issue
+	var err error
+
+	if issueID != "" {
+		issue, err := s.ResolveIssue(issueID)
+		if err != nil {
+			return nil, err
+		}
+		issues = []*model.Issue{issue}
+	} else {
+		issues, err = s.ListIssues()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	result.Total = len(issues)
+	idMap := make(map[string][]string)
+
+	for _, issue := range issues {
+		idMap[issue.ID] = append(idMap[issue.ID], issue.Path)
+
+		item := &store.ValidationResultItem{
+			File:    issue.Path,
+			IssueID: issue.ID,
+		}
+
+		if issue.ID == "" {
+			item.Errors = append(item.Errors, store.ValidationIssue{
+				Code:    "missing_id",
+				Message: "Missing required field: id",
+				Level:   "error",
+			})
+		}
+
+		if issue.Title == "" {
+			item.Errors = append(item.Errors, store.ValidationIssue{
+				Code:    "missing_title",
+				Message: "Missing required field: title",
+				Level:   "error",
+			})
+		}
+
+		if len(item.Errors) > 0 {
+			result.Errors = append(result.Errors, item)
+		} else {
+			result.Valid++
+		}
+	}
+
+	for id, files := range idMap {
+		if len(files) > 1 {
+			result.Duplicates = append(result.Duplicates, &store.DuplicateID{
+				ID:    id,
+				Files: files,
+			})
+		}
+	}
+
+	return result, nil
+}
+
+func (s *FileStore) WriteAgentPrompt(ref *model.RunRef, content string) error {
+	run, err := s.GetRun(ref)
+	if err != nil {
+		return err
+	}
+
+	promptPath := filepath.Join(filepath.Dir(run.Path), fmt.Sprintf("%s.prompt.md", ref.RunID))
+	return os.WriteFile(promptPath, []byte(content), 0644)
+}
+
+func (s *FileStore) ReadAgentPrompt(ref *model.RunRef) (string, error) {
+	run, err := s.GetRun(ref)
+	if err != nil {
+		return "", err
+	}
+
+	promptPath := filepath.Join(filepath.Dir(run.Path), fmt.Sprintf("%s.prompt.md", ref.RunID))
+	content, err := os.ReadFile(promptPath)
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
+}
+
+func (s *FileStore) CreateIssue(issue *model.Issue) error {
+	if issue.ID == "" {
+		return fmt.Errorf("issue ID is required")
+	}
+
+	issuePath := filepath.Join(s.rootPath, "issues", issue.ID+".md")
+	if _, err := os.Stat(issuePath); err == nil {
+		return fmt.Errorf("issue already exists: %s", issue.ID)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(issuePath), 0755); err != nil {
+		return fmt.Errorf("failed to create issues directory: %w", err)
+	}
+
+	var sb strings.Builder
+	sb.WriteString("---\n")
+	sb.WriteString(fmt.Sprintf("type: issue\n"))
+	sb.WriteString(fmt.Sprintf("id: %s\n", issue.ID))
+	sb.WriteString(fmt.Sprintf("title: %s\n", issue.Title))
+	if issue.Summary != "" {
+		sb.WriteString(fmt.Sprintf("summary: %s\n", issue.Summary))
+	}
+	sb.WriteString(fmt.Sprintf("status: %s\n", issue.Status))
+	if len(issue.Tags) > 0 {
+		sb.WriteString(fmt.Sprintf("tags: [%s]\n", strings.Join(issue.Tags, ", ")))
+	}
+	sb.WriteString("---\n\n")
+	if issue.Body != "" {
+		sb.WriteString(issue.Body)
+	}
+
+	if err := os.WriteFile(issuePath, []byte(sb.String()), 0644); err != nil {
+		return fmt.Errorf("failed to write issue file: %w", err)
+	}
+
+	issue.Path = issuePath
+	s.markCacheDirty()
+	return nil
+}
+
 var _ store.Store = (*FileStore)(nil)
