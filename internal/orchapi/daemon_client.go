@@ -1,0 +1,457 @@
+package orchapi
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/s22625/orch/internal/daemon"
+)
+
+type DaemonClient struct {
+	proto *daemon.ProtoClient
+}
+
+func NewDaemonClient(projectRoot, issuesRoot string) *DaemonClient {
+	return &DaemonClient{
+		proto: daemon.NewProtoClientWithIssuesRoot(projectRoot, issuesRoot),
+	}
+}
+
+func (c *DaemonClient) IsAvailable() bool {
+	return c.proto.IsAvailable()
+}
+
+func (c *DaemonClient) Ping(ctx context.Context) error {
+	return c.proto.Ping()
+}
+
+func (c *DaemonClient) GetIssue(ctx context.Context, issueID string) (*Issue, error) {
+	resp, err := c.proto.GetIssue(issueID)
+	if err != nil {
+		if isNotFoundError(err) {
+			return nil, IssueNotFound(issueID)
+		}
+		return nil, err
+	}
+	return issueFromDaemon(resp.Issue), nil
+}
+
+func (c *DaemonClient) ListIssues(ctx context.Context, filter *ListIssuesFilter) (*ListIssuesResult, error) {
+	var statuses []string
+	var limit int
+	var cursor string
+
+	if filter != nil {
+		for _, s := range filter.Status {
+			statuses = append(statuses, string(s))
+		}
+		limit = filter.Limit
+		cursor = filter.Cursor
+	}
+
+	resp, err := c.proto.ListIssues(statuses, limit, cursor)
+	if err != nil {
+		return nil, err
+	}
+
+	issues := make([]*Issue, len(resp.Issues))
+	for i, iss := range resp.Issues {
+		issues[i] = issueSummaryToIssue(iss)
+	}
+
+	var next string
+	if resp.NextCursor != nil {
+		next = *resp.NextCursor
+	}
+
+	return &ListIssuesResult{
+		Issues:     issues,
+		Total:      resp.Total,
+		NextCursor: next,
+	}, nil
+}
+
+func (c *DaemonClient) CreateIssue(ctx context.Context, req *CreateIssueRequest) (*Issue, error) {
+	resp, err := c.proto.CreateIssue(req.ID, req.Title, "", req.Body)
+	if err != nil {
+		return nil, err
+	}
+	return &Issue{
+		ID:    resp.IssueID,
+		Path:  resp.Path,
+		Title: req.Title,
+		Body:  req.Body,
+	}, nil
+}
+
+func (c *DaemonClient) SetIssueStatus(ctx context.Context, issueID string, status IssueStatus) error {
+	if status == IssueStatusClosed || status == IssueStatusResolved {
+		_, err := c.proto.CloseIssue(issueID, "")
+		return err
+	}
+	return errors.New("only close/resolved status supported via daemon")
+}
+
+func (c *DaemonClient) CloseIssue(ctx context.Context, issueID string) error {
+	_, err := c.proto.CloseIssue(issueID, "")
+	return err
+}
+
+func (c *DaemonClient) ResolveRun(ctx context.Context, ref RunRef) (*Run, error) {
+	if ref.ShortID != "" {
+		resp, err := c.proto.GetRunByShortID(ref.ShortID)
+		if err != nil {
+			if isNotFoundError(err) {
+				return nil, RunNotFound(ref.ShortID)
+			}
+			return nil, err
+		}
+		return runFromDaemonFull(resp.Run), nil
+	}
+
+	if ref.RunID != "" {
+		resp, err := c.proto.GetRun(ref.IssueID, ref.RunID)
+		if err != nil {
+			if isNotFoundError(err) {
+				return nil, RunNotFound(ref.String())
+			}
+			return nil, err
+		}
+		return runFromDaemonFull(resp.Run), nil
+	}
+
+	runs, err := c.proto.ListRuns(ref.IssueID, nil, 1, "")
+	if err != nil {
+		return nil, err
+	}
+	if len(runs.Runs) == 0 {
+		return nil, RunNotFound(ref.IssueID)
+	}
+	resp, err := c.proto.GetRun(runs.Runs[0].IssueID, runs.Runs[0].RunID)
+	if err != nil {
+		return nil, err
+	}
+	return runFromDaemonFull(resp.Run), nil
+}
+
+func (c *DaemonClient) GetRun(ctx context.Context, issueID, runID string) (*Run, error) {
+	resp, err := c.proto.GetRun(issueID, runID)
+	if err != nil {
+		if isNotFoundError(err) {
+			return nil, RunNotFound(issueID + "#" + runID)
+		}
+		return nil, err
+	}
+	return runFromDaemonFull(resp.Run), nil
+}
+
+func (c *DaemonClient) GetLatestRun(ctx context.Context, issueID string) (*Run, error) {
+	runs, err := c.proto.ListRuns(issueID, nil, 1, "")
+	if err != nil {
+		return nil, err
+	}
+	if len(runs.Runs) == 0 {
+		return nil, RunNotFound(issueID)
+	}
+	resp, err := c.proto.GetRun(runs.Runs[0].IssueID, runs.Runs[0].RunID)
+	if err != nil {
+		return nil, err
+	}
+	return runFromDaemonFull(resp.Run), nil
+}
+
+func (c *DaemonClient) ListRuns(ctx context.Context, filter *ListRunsFilter) (*ListRunsResult, error) {
+	var issueID string
+	var statuses []string
+	var limit int
+	var cursor string
+
+	if filter != nil {
+		issueID = filter.IssueID
+		for _, s := range filter.Status {
+			statuses = append(statuses, string(s))
+		}
+		limit = filter.Limit
+		cursor = filter.Cursor
+	}
+
+	resp, err := c.proto.ListRuns(issueID, statuses, limit, cursor)
+	if err != nil {
+		return nil, err
+	}
+
+	runs := make([]*Run, len(resp.Runs))
+	for i, r := range resp.Runs {
+		runs[i] = runFromDaemonSummary(r)
+	}
+
+	var next string
+	if resp.NextCursor != nil {
+		next = *resp.NextCursor
+	}
+
+	return &ListRunsResult{
+		Runs:       runs,
+		Total:      resp.Total,
+		NextCursor: next,
+	}, nil
+}
+
+func (c *DaemonClient) StartRun(ctx context.Context, req *StartRunRequest) (*StartRunResult, error) {
+	resp, err := c.proto.StartRun(req.IssueID, req.Agent, req.Model)
+	if err != nil {
+		return nil, err
+	}
+	return &StartRunResult{
+		RunID:        resp.RunID,
+		Branch:       resp.Branch,
+		WorktreePath: resp.WorktreePath,
+		TmuxSession:  resp.TmuxSession,
+	}, nil
+}
+
+func (c *DaemonClient) StopRun(ctx context.Context, ref RunRef) error {
+	run, err := c.ResolveRun(ctx, ref)
+	if err != nil {
+		return err
+	}
+	_, err = c.proto.StopRun(run.IssueID, run.RunID, false)
+	return err
+}
+
+func (c *DaemonClient) AppendEvent(ctx context.Context, ref RunRef, event *Event) (*AppendEventResult, error) {
+	run, err := c.ResolveRun(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.proto.AppendEvent(run.IssueID, run.RunID, event.Type, event.Name, event.Attrs, "cli")
+	if err != nil {
+		return nil, err
+	}
+	return &AppendEventResult{
+		Skipped: resp.Skipped,
+		Reason:  resp.Reason,
+	}, nil
+}
+
+func (c *DaemonClient) GetAttachInfo(ctx context.Context, ref RunRef) (*AttachInfo, error) {
+	resp, err := c.proto.GetAttachInfo(ref.IssueID, ref.RunID, ref.ShortID)
+	if err != nil {
+		if isNotFoundError(err) {
+			return nil, RunNotFound(ref.String())
+		}
+		return nil, err
+	}
+	if !resp.OK {
+		if resp.Error == "session_not_found" || resp.Error == "no sessions" {
+			return &AttachInfo{
+				IssueID:       resp.IssueID,
+				RunID:         resp.RunID,
+				TmuxSession:   resp.TmuxSession,
+				Multiplexer:   Multiplexer(resp.Multiplexer),
+				WorktreePath:  resp.WorktreePath,
+				SessionExists: false,
+			}, nil
+		}
+		return nil, errors.New(resp.Error)
+	}
+	return &AttachInfo{
+		IssueID:           resp.IssueID,
+		RunID:             resp.RunID,
+		Agent:             resp.Agent,
+		TmuxSession:       resp.TmuxSession,
+		Multiplexer:       Multiplexer(resp.Multiplexer),
+		WorktreePath:      resp.WorktreePath,
+		ServerPort:        resp.ServerPort,
+		OpenCodeSessionID: resp.OpenCodeSessionID,
+		Branch:            resp.Branch,
+		SessionExists:     true,
+	}, nil
+}
+
+func (c *DaemonClient) CaptureSession(ctx context.Context, ref RunRef, lines int) (*CaptureResult, error) {
+	return nil, errors.New("CaptureSession not implemented via daemon proto")
+}
+
+func (c *DaemonClient) SendMessage(ctx context.Context, ref RunRef, message string) error {
+	return errors.New("SendMessage not implemented via daemon proto")
+}
+
+func (c *DaemonClient) GetDiffStats(ctx context.Context, ref RunRef) (*DiffStats, error) {
+	return nil, errors.New("GetDiffStats not implemented via daemon proto")
+}
+
+func (c *DaemonClient) GetBranchState(ctx context.Context, ref RunRef) (BranchState, error) {
+	return "", errors.New("GetBranchState not implemented via daemon proto")
+}
+
+func (c *DaemonClient) GetDiff(ctx context.Context, ref RunRef) (string, error) {
+	return "", errors.New("GetDiff not implemented via daemon proto")
+}
+
+func (c *DaemonClient) ResolveIssue(ctx context.Context, issueID string, force bool) error {
+	_, err := c.proto.ResolveIssue(issueID, force)
+	return err
+}
+
+func (c *DaemonClient) EnsureOpenCodeServer(ctx context.Context, projectRoot string) (*OpenCodeServerInfo, error) {
+	resp, err := c.proto.GetOpenCodeServer(projectRoot)
+	if err != nil {
+		return nil, err
+	}
+	return &OpenCodeServerInfo{
+		Port:    resp.Port,
+		Healthy: resp.Healthy,
+	}, nil
+}
+
+func isNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return s == "daemon error: not_found" || s == "daemon error: issue_not_found" || s == "daemon error: run_not_found"
+}
+
+func issueFromDaemon(iss *daemon.IssueFull) *Issue {
+	if iss == nil {
+		return nil
+	}
+	return &Issue{
+		ID:          iss.ID,
+		Title:       iss.Title,
+		Topic:       iss.Topic,
+		Summary:     iss.Summary,
+		Status:      IssueStatus(iss.Status),
+		Tags:        iss.Tags,
+		Body:        iss.Body,
+		Frontmatter: iss.Frontmatter,
+	}
+}
+
+func issueSummaryToIssue(iss *daemon.IssueSummary) *Issue {
+	if iss == nil {
+		return nil
+	}
+	var modTime time.Time
+	if iss.ModifiedAt != "" {
+		modTime, _ = time.Parse(time.RFC3339, iss.ModifiedAt)
+	}
+	return &Issue{
+		ID:         iss.ID,
+		Title:      iss.Title,
+		Topic:      iss.Topic,
+		Summary:    iss.Summary,
+		Status:     IssueStatus(iss.Status),
+		Tags:       iss.Tags,
+		ModifiedAt: modTime,
+	}
+}
+
+func runFromDaemonFull(r *daemon.RunFull) *Run {
+	if r == nil {
+		return nil
+	}
+	var startedAt, updatedAt time.Time
+	if r.StartedAt != "" {
+		startedAt, _ = time.Parse(time.RFC3339, r.StartedAt)
+	}
+	if r.UpdatedAt != "" {
+		updatedAt, _ = time.Parse(time.RFC3339, r.UpdatedAt)
+	}
+	var diffStats *DiffStats
+	if r.DiffStats != nil {
+		diffStats = &DiffStats{
+			Additions:    r.DiffStats.Additions,
+			Deletions:    r.DiffStats.Deletions,
+			FilesChanged: r.DiffStats.FilesChanged,
+			Files:        r.DiffStats.Files,
+		}
+	}
+	events := make([]*Event, len(r.Events))
+	for i, e := range r.Events {
+		var ts time.Time
+		if e.Timestamp != "" {
+			ts, _ = time.Parse(time.RFC3339, e.Timestamp)
+		}
+		events[i] = &Event{
+			Timestamp: ts,
+			Type:      e.Type,
+			Name:      e.Name,
+			Attrs:     e.Attrs,
+		}
+	}
+	return &Run{
+		IssueID:           r.IssueID,
+		RunID:             r.RunID,
+		ShortID:           r.ShortID,
+		Status:            RunStatus(r.Status),
+		Phase:             r.Phase,
+		Agent:             r.Agent,
+		Model:             r.Model,
+		ModelVariant:      r.ModelVariant,
+		Branch:            r.Branch,
+		WorktreePath:      r.WorktreePath,
+		TmuxSession:       r.TmuxSession,
+		Multiplexer:       Multiplexer(r.Multiplexer),
+		PRUrl:             r.PRUrl,
+		ServerPort:        r.ServerPort,
+		OpenCodeSessionID: r.OpenCodeSessionID,
+		ContinuedFrom:     r.ContinuedFrom,
+		DiffStats:         diffStats,
+		BranchState:       BranchState(r.BranchState),
+		ElapsedSeconds:    r.ElapsedSeconds,
+		ElapsedDisplay:    r.ElapsedDisplay,
+		Alive:             r.Alive,
+		AliveKnown:        r.AliveKnown,
+		StartedAt:         startedAt,
+		UpdatedAt:         updatedAt,
+		Events:            events,
+	}
+}
+
+func runFromDaemonSummary(r *daemon.RunSummary) *Run {
+	if r == nil {
+		return nil
+	}
+	var startedAt, updatedAt time.Time
+	if r.StartedAt != "" {
+		startedAt, _ = time.Parse(time.RFC3339, r.StartedAt)
+	}
+	if r.UpdatedAt != "" {
+		updatedAt, _ = time.Parse(time.RFC3339, r.UpdatedAt)
+	}
+	var diffStats *DiffStats
+	if r.DiffStats != nil {
+		diffStats = &DiffStats{
+			Additions:    r.DiffStats.Additions,
+			Deletions:    r.DiffStats.Deletions,
+			FilesChanged: r.DiffStats.FilesChanged,
+		}
+	}
+	return &Run{
+		IssueID:        r.IssueID,
+		RunID:          r.RunID,
+		ShortID:        r.ShortID,
+		Status:         RunStatus(r.Status),
+		Phase:          r.Phase,
+		Agent:          r.Agent,
+		Model:          r.Model,
+		Branch:         r.Branch,
+		WorktreePath:   r.WorktreePath,
+		TmuxSession:    r.TmuxSession,
+		Multiplexer:    Multiplexer(r.Multiplexer),
+		PRUrl:          r.PRUrl,
+		DiffStats:      diffStats,
+		BranchState:    BranchState(r.BranchState),
+		ElapsedSeconds: r.ElapsedSeconds,
+		ElapsedDisplay: r.ElapsedDisplay,
+		Alive:          r.Alive,
+		AliveKnown:     r.AliveKnown,
+		StartedAt:      startedAt,
+		UpdatedAt:      updatedAt,
+	}
+}
+
+var _ OrchAPI = (*DaemonClient)(nil)

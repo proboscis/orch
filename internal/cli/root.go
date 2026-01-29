@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"regexp"
 
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/s22625/orch/internal/store"
 	"github.com/s22625/orch/internal/store/file"
 	"github.com/spf13/cobra"
@@ -202,4 +204,31 @@ func resolveRun(st store.Store, refStr string) (*model.Run, error) {
 	}
 
 	return st.GetRun(ref)
+}
+
+func getAPI() (orchapi.OrchAPI, error) {
+	projectRoot, err := getProjectRoot()
+	if err != nil {
+		return nil, err
+	}
+
+	issuesRoot, err := getIssuesRoot()
+	if err != nil {
+		return nil, err
+	}
+
+	client := orchapi.NewDaemonClient(projectRoot, issuesRoot)
+	if !client.IsAvailable() {
+		ensureDaemon()
+	}
+
+	return client, nil
+}
+
+func resolveRunAPI(ctx context.Context, api orchapi.OrchAPI, refStr string) (*orchapi.Run, error) {
+	ref, err := orchapi.ParseRunRef(refStr)
+	if err != nil {
+		return nil, err
+	}
+	return api.ResolveRun(ctx, ref)
 }
