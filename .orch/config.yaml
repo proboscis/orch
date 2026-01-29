@@ -1,6 +1,6 @@
 # orch uses itself as the vault - issues live in this repo
-#agent: opencode
-agent: claude
+agent: opencode
+#agent: claude
 worktree_dir: .git-worktrees
 base_branch: main
 pr_target_branch: main

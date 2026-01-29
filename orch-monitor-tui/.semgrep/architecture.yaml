@@ -1,0 +1,180 @@
+rules:
+  # =============================================================================
+  # Python TUI Architecture Rules
+  # =============================================================================
+  # These rules enforce that TUI components use the OrchAPI interface instead of
+  # direct file I/O for accessing issue/run data. Config and launcher code are
+  # excluded as they handle local configuration, not issue/run data.
+  #
+  # Run with: make lint (or: semgrep --config .semgrep/architecture.yaml orch_monitor/)
+
+  - id: tui-no-direct-file-read
+    patterns:
+      - pattern-either:
+          - pattern: open($PATH, ...)
+          - pattern: open($PATH)
+          - pattern: $X.read_text(...)
+          - pattern: $X.read_bytes(...)
+          - pattern: Path($PATH).read_text(...)
+          - pattern: Path($PATH).read_bytes(...)
+    paths:
+      include:
+        - "*.py"
+      exclude:
+        - "__main__.py"      # Launcher - handles layout generation
+        - "config.py"        # Config - legitimate local TUI config
+        - "proto_client.py"  # Low-level client (if exists)
+    message: |
+      TUI components should not read files directly.
+      Use OrchAPI methods (e.g., api.get_issue(), api.get_run()) instead.
+      
+      Direct file I/O bypasses the daemon and breaks the architecture.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      category: architecture
+      layer: tui
+
+  - id: tui-no-direct-file-write
+    patterns:
+      - pattern-either:
+          - pattern: open($PATH, "w", ...)
+          - pattern: open($PATH, "w")
+          - pattern: open($PATH, "a", ...)
+          - pattern: open($PATH, "a")
+          - pattern: $X.write_text(...)
+          - pattern: $X.write_bytes(...)
+          - pattern: Path($PATH).write_text(...)
+          - pattern: Path($PATH).write_bytes(...)
+    paths:
+      include:
+        - "*.py"
+      exclude:
+        - "__main__.py"  # Launcher - handles layout generation
+        - "config.py"    # Config - legitimate local TUI config
+    message: |
+      TUI components should not write files directly.
+      Use OrchAPI methods (e.g., api.create_issue(), api.stop_run()) instead.
+      
+      Direct file I/O bypasses the daemon and breaks the architecture.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      category: architecture
+      layer: tui
+
+  - id: tui-no-os-file-operations
+    patterns:
+      - pattern-either:
+          - pattern: os.open(...)
+          - pattern: os.read(...)
+          - pattern: os.write(...)
+          - pattern: os.remove(...)
+          - pattern: os.unlink(...)
+          - pattern: os.rename(...)
+          - pattern: os.makedirs(...)
+          - pattern: os.mkdir(...)
+    paths:
+      include:
+        - "*.py"
+      exclude:
+        - "__main__.py"
+        - "config.py"
+    message: |
+      TUI components should not use os module for file operations.
+      Use OrchAPI methods to access data through the daemon instead.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      category: architecture
+      layer: tui
+
+  - id: tui-no-shutil-operations
+    patterns:
+      - pattern-either:
+          - pattern: shutil.copy(...)
+          - pattern: shutil.copy2(...)
+          - pattern: shutil.move(...)
+          - pattern: shutil.rmtree(...)
+          - pattern: shutil.copytree(...)
+    paths:
+      include:
+        - "*.py"
+      exclude:
+        - "__main__.py"
+        - "config.py"
+    message: |
+      TUI components should not use shutil for file operations.
+      Use OrchAPI methods to access data through the daemon instead.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      category: architecture
+      layer: tui
+
+  # =============================================================================
+  # Hy TUI Architecture Rules (using generic patterns)
+  # =============================================================================
+  # Hy is a Lisp that compiles to Python. These rules use generic pattern
+  # matching to catch direct file I/O in Hy source files.
+
+  - id: hy-tui-no-direct-file-read
+    patterns:
+      - pattern-regex: '\(\.read-text\s+'
+      - pattern-regex: '\(\.read-bytes\s+'
+      - pattern-regex: '\(with\s+\[\s*\w+\s+\(open\s+'
+    paths:
+      include:
+        - "*.hy"
+      exclude:
+        - "proto_client.hy"  # Low-level daemon client
+    message: |
+      Hy TUI components should not read files directly.
+      Use OrchAPI methods instead of (.read-text ...) or (open ...).
+    severity: ERROR
+    languages: [generic]
+    metadata:
+      category: architecture
+      layer: tui
+
+  - id: hy-tui-no-direct-file-write
+    patterns:
+      - pattern-regex: '\(\.write-text\s+'
+      - pattern-regex: '\(\.write-bytes\s+'
+      - pattern-regex: '\(\.write\s+\w+\s+"'
+    paths:
+      include:
+        - "*.hy"
+      exclude:
+        - "proto_client.hy"
+    message: |
+      Hy TUI components should not write files directly.
+      Use OrchAPI methods instead of (.write-text ...) or (.write ...).
+    severity: ERROR
+    languages: [generic]
+    metadata:
+      category: architecture
+      layer: tui
+
+  # =============================================================================
+  # Import Rules - Prevent bypassing OrchAPI
+  # =============================================================================
+
+  - id: tui-no-models-file-import
+    patterns:
+      - pattern: from .models import $X
+    paths:
+      include:
+        - "runs_dashboard.hy"
+        - "issues_dashboard.hy"
+        - "orch_monitor_app.hy"
+    message: |
+      Dashboard components should use orch_api types, not models directly.
+      Import from .orch_api instead of .models for data types.
+      
+      The models module is for internal use by daemon_api.py.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      category: architecture
+      layer: tui

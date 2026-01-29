@@ -49,6 +49,18 @@ from .multiplexer import (
     validate_multiplexer_config,
 )
 from .orch_api import OrchAPI, create_orch_api
+
+
+def _escape_kdl_string(s: str) -> str:
+    """Escape a string for use inside KDL double-quoted string literals.
+
+    KDL strings require escaping of backslashes and double quotes.
+    See: https://kdl.dev/#string
+    """
+    # First escape backslashes, then double quotes
+    return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
 from .xdg import state_dir
 
 _launcher_logger = logging.getLogger("orch_monitor.launcher")
@@ -564,9 +576,9 @@ class ZellijLayoutLauncher:
                 _launcher_logger.warning(
                     f"Failed to get control agent launch from daemon: {launch_result.failure()}"
                 )
-                prompt_escaped = CONTROL_PROMPT_INSTRUCTION.replace('"', '\\"')
                 if agent in ("opencode", "claude", "codex", "gemini"):
-                    agent_cmd = f'{agent} --prompt \\"{prompt_escaped}\\"'
+                    # Build command with proper shell quoting (quotes will be escaped for KDL later)
+                    agent_cmd = f'{agent} --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
                     need_capture_session = True
             else:
                 launch = launch_result.unwrap()
@@ -579,10 +591,15 @@ class ZellijLayoutLauncher:
             _launcher_logger.warning(
                 "Daemon not available, using fallback agent command"
             )
-            prompt_escaped = CONTROL_PROMPT_INSTRUCTION.replace('"', '\\"')
             if agent in ("opencode", "claude", "codex", "gemini"):
-                agent_cmd = f'{agent} --prompt \\"{prompt_escaped}\\"'
+                # Build command with proper shell quoting (quotes will be escaped for KDL later)
+                agent_cmd = f'{agent} --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
                 need_capture_session = True
+
+        # Escape commands for KDL string literals (backslashes and double quotes)
+        runs_cmd_escaped = _escape_kdl_string(runs_cmd)
+        issues_cmd_escaped = _escape_kdl_string(issues_cmd)
+        agent_cmd_escaped = _escape_kdl_string(agent_cmd)
 
         layout_content = f'''
 layout {{
@@ -598,14 +615,14 @@ layout {{
     tab name="monitor" {{
         pane split_direction="horizontal" {{
             pane size="35%" command="bash" {{
-                args "-c" "{runs_cmd}"
+                args "-c" "{runs_cmd_escaped}"
             }}
             pane split_direction="vertical" size="65%" {{
                 pane size="35%" command="bash" {{
-                    args "-c" "{issues_cmd}"
+                    args "-c" "{issues_cmd_escaped}"
                 }}
                 pane size="65%" focus=true command="bash" {{
-                    args "-c" "{agent_cmd}"
+                    args "-c" "{agent_cmd_escaped}"
                 }}
             }}
         }}
