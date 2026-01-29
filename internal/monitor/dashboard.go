@@ -16,7 +16,6 @@ import (
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/tmux"
 )
 
 type dashboardMode int
@@ -545,9 +544,9 @@ func (d *Dashboard) killSessionCmd(run *model.Run, sessionName string) tea.Cmd {
 		if run == nil {
 			return errMsg{err: fmt.Errorf("run not found")}
 		}
-		sessionExisted := tmux.HasSession(sessionName)
+		sessionExisted := d.monitor.mux.HasSession(sessionName)
 		if sessionExisted {
-			if err := tmux.KillSession(sessionName); err != nil {
+			if err := d.monitor.mux.KillSession(sessionName); err != nil {
 				return errMsg{err: fmt.Errorf("failed to kill session: %w", err)}
 			}
 		}
@@ -745,7 +744,7 @@ func (d *Dashboard) execShellCmd(run *model.Run) tea.Cmd {
 	shellCmd := strings.Join(env, " ") + " exec zsh"
 
 	return func() tea.Msg {
-		if err := tmux.NewWindow(d.monitor.session, windowName, worktreePath, shellCmd); err != nil {
+		if err := d.monitor.mux.NewWindow(d.monitor.session, windowName, worktreePath, shellCmd); err != nil {
 			return execFinishedMsg{err: fmt.Errorf("failed to open exec window: %w", err)}
 		}
 		return execFinishedMsg{err: nil}

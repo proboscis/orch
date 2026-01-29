@@ -476,7 +476,7 @@
     (.extend content-lines ["" "" (+ "[bold]" (* "-" 50) "[/bold]")
                             "[bold]Recent Messages:[/bold]" ""])
     (when run.tmux_session
-      (setv messages (._fetch_tmux_pane_output self run.tmux_session))
+      (setv messages (._fetch_session_output self run))
       (if messages
           (do
             (for [line (cut messages -15 None)]
@@ -489,20 +489,13 @@
       (.append content-lines "  [dim](No tmux session available)[/dim]"))
     (.update_content detail-panel (.join "\n" content-lines) f"Run Details: {(.ref run)}"))
   
-  (defn _fetch_tmux_pane_output [self tmux-session]
-    "Capture recent output from a tmux pane. Returns [] on any error."
-    ;; Use with-fallback-silent - cosmetic operation
-    (with-fallback-silent "fetch_tmux_output" []
-      (setv result (subprocess.run
-                     ["tmux" "capture-pane" "-t" tmux-session "-p" "-S" "-50"]
-                     :capture_output True :text True :timeout 2))
-      (when (!= result.returncode 0)
-        (return []))
-      (setv lines (lfor line (.split result.stdout "\n") (.rstrip line)))
-      ;; Remove trailing empty lines
-      (while (and lines (not (get lines -1)))
-        (.pop lines))
-      (lfor line lines :if (.strip line) line)))
+  (defn _fetch_session_output [self run]
+    "Capture recent output from a session using the appropriate multiplexer."
+    (when (not run.tmux_session)
+      (return []))
+    (with-fallback-silent "fetch_session_output" []
+      (setv mux (get_multiplexer_for_run run))
+      (.capture_pane mux run.tmux_session 50)))
   
   (defn show_issue_detail [self issue]
     (setv detail-panel (.query_one self "#detail-panel" DetailPanel))

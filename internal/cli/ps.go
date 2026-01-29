@@ -769,7 +769,7 @@ func resolveAgentAliveInfo(runs []*model.Run) map[string]agentAliveInfo {
 		return nil
 	}
 
-	agent.RefreshTmuxCache()
+	agent.RefreshMuxCache()
 
 	aliveByRun := make(map[string]agentAliveInfo, len(runs))
 	var mu sync.Mutex

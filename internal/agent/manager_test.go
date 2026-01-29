@@ -28,12 +28,12 @@ func TestGetManager(t *testing.T) {
 			wantType: "*agent.OpenCodeManager",
 		},
 		{
-			name: "claude run returns TmuxManager",
+			name: "claude run returns MuxManager",
 			run: &model.Run{
 				Agent:       "claude",
 				TmuxSession: "orch-test-001",
 			},
-			wantType: "*agent.TmuxManager",
+			wantType: "*agent.MuxManager",
 		},
 		{
 			name: "opencode run missing session ID still returns OpenCodeManager",
@@ -68,8 +68,8 @@ func TestGetManager(t *testing.T) {
 
 func typeName(v interface{}) string {
 	switch v.(type) {
-	case *TmuxManager:
-		return "TmuxManager"
+	case *MuxManager:
+		return "MuxManager"
 	case *OpenCodeManager:
 		return "OpenCodeManager"
 	default:
@@ -409,8 +409,8 @@ func TestIsFailed(t *testing.T) {
 	}
 }
 
-func TestTmuxManagerGetStatus(t *testing.T) {
-	manager := &TmuxManager{SessionName: "test-session"}
+func TestMuxManagerGetStatus(t *testing.T) {
+	manager := &MuxManager{SessionName: "test-session"}
 	run := &model.Run{RunID: "test-run"}
 
 	tests := []struct {

@@ -473,23 +473,12 @@ DataTable {
       (_api_issue_to_model issue)))
   
   (defn _capture_session_output [self run]
-    "Capture terminal session output. Returns [] on any error."
+    "Capture terminal session output using the appropriate multiplexer."
     (when (not run.tmux_session)
       (return []))
-    ;; Use with-fallback-silent - cosmetic operation
     (with-fallback-silent "capture_session_output" []
-      (setv mux-type (get_multiplexer_type_from_run run))
-      (setv result
-        (if (= mux-type MultiplexerType.ZELLIJ)
-            (subprocess.run ["zellij" "action" "dump-screen" "/dev/stdout"]
-                            :capture_output True :text True :timeout 2
-                            :env (| (dict os.environ) {"ZELLIJ_SESSION_NAME" run.tmux_session}))
-            (subprocess.run ["tmux" "capture-pane" "-t" run.tmux_session "-p" "-S" "-30"]
-                            :capture_output True :text True :timeout 2)))
-      (when (!= result.returncode 0)
-        (return []))
-      (setv lines (lfor line (.split result.stdout "\n") (.rstrip line)))
-      (lfor line lines :if (.strip line) line)))
+      (setv mux (get_multiplexer_for_run run))
+      (.capture_pane mux run.tmux_session 30)))
   
   ;; NOTE: attach, stop, diff, kill_session actions are injected by (with-run-actions) above
   )

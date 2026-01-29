@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/multiplexer"
 	"github.com/s22625/orch/internal/store"
-	"github.com/s22625/orch/internal/tmux"
 	"github.com/spf13/cobra"
 )
 
@@ -16,8 +16,9 @@ type captureAllOptions struct {
 	Lines int
 }
 
-var captureAllHasSession = tmux.HasSession
-var captureAllCapturePane = tmux.CapturePane
+var captureAllMux = multiplexer.GetDefault()
+var captureAllHasSession = captureAllMux.HasSession
+var captureAllCapturePane = captureAllMux.CapturePane
 
 func newCaptureAllCmd() *cobra.Command {
 	opts := &captureAllOptions{}

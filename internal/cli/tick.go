@@ -7,8 +7,8 @@ import (
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/multiplexer"
 	"github.com/s22625/orch/internal/store"
-	"github.com/s22625/orch/internal/tmux"
 	"github.com/spf13/cobra"
 )
 
@@ -188,7 +188,7 @@ func resumeRun(st store.Store, run *model.Run, agentType string) error {
 		IssueID:     run.IssueID,
 		RunID:       run.RunID,
 		RunPath:     run.Path,
-		IssuesRoot:   st.RootPath(),
+		IssuesRoot:  st.RootPath(),
 		Branch:      run.Branch,
 		Prompt:      buildResumePrompt(issue, run),
 		Resume:      true,
@@ -200,18 +200,16 @@ func resumeRun(st store.Store, run *model.Run, agentType string) error {
 		return err
 	}
 
-	// Check if session exists, create new window for resume
 	sessionName := run.TmuxSession
 	if sessionName == "" {
 		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
 	}
 
-	if tmux.HasSession(sessionName) {
-		// Create new window in existing session
-		err = tmux.NewWindow(sessionName, "resume", run.WorktreePath, agentCmd)
+	mux := multiplexer.GetDefault()
+	if mux.HasSession(sessionName) {
+		err = mux.NewWindow(sessionName, "resume", run.WorktreePath, agentCmd)
 	} else {
-		// Create new session
-		err = tmux.NewSession(&tmux.SessionConfig{
+		err = mux.NewSession(&multiplexer.SessionConfig{
 			SessionName: sessionName,
 			WorkDir:     run.WorktreePath,
 			Command:     agentCmd,

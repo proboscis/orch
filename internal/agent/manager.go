@@ -7,11 +7,10 @@ import (
 	"time"
 
 	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/tmux"
+	"github.com/s22625/orch/internal/multiplexer"
 )
 
-// tmuxCache holds cached tmux session data for batch operations
-type tmuxCache struct {
+type muxCache struct {
 	mu            sync.RWMutex
 	sessions      map[string]bool
 	paneCommands  map[string][]string
@@ -19,54 +18,52 @@ type tmuxCache struct {
 	ttl           time.Duration
 }
 
-var globalTmuxCache = &tmuxCache{
+var globalMuxCache = &muxCache{
 	ttl: 5 * time.Second,
 }
 
-// RefreshTmuxCache updates the cache with current tmux state
-func RefreshTmuxCache() {
-	globalTmuxCache.mu.Lock()
-	defer globalTmuxCache.mu.Unlock()
+func RefreshMuxCache() {
+	globalMuxCache.mu.Lock()
+	defer globalMuxCache.mu.Unlock()
 
-	sessions, err := tmux.ListSessions()
+	mux := multiplexer.GetDefault()
+	sessions, err := mux.ListSessions()
 	if err == nil {
-		globalTmuxCache.sessions = make(map[string]bool)
+		globalMuxCache.sessions = make(map[string]bool)
 		for _, s := range sessions {
-			globalTmuxCache.sessions[s] = true
+			globalMuxCache.sessions[s] = true
 		}
 	}
 
-	paneCommands, err := tmux.ListPaneCommands()
+	paneCommands, err := mux.ListPaneCommands()
 	if err == nil {
-		globalTmuxCache.paneCommands = paneCommands
+		globalMuxCache.paneCommands = paneCommands
 	}
 
-	globalTmuxCache.lastRefreshed = time.Now()
+	globalMuxCache.lastRefreshed = time.Now()
 }
 
-// GetTmuxCache returns cached session and pane data, refreshing if stale
-func GetTmuxCache() (map[string]bool, map[string][]string) {
-	globalTmuxCache.mu.RLock()
-	if time.Since(globalTmuxCache.lastRefreshed) < globalTmuxCache.ttl {
-		sessions := globalTmuxCache.sessions
-		paneCommands := globalTmuxCache.paneCommands
-		globalTmuxCache.mu.RUnlock()
+func GetMuxCache() (map[string]bool, map[string][]string) {
+	globalMuxCache.mu.RLock()
+	if time.Since(globalMuxCache.lastRefreshed) < globalMuxCache.ttl {
+		sessions := globalMuxCache.sessions
+		paneCommands := globalMuxCache.paneCommands
+		globalMuxCache.mu.RUnlock()
 		return sessions, paneCommands
 	}
-	globalTmuxCache.mu.RUnlock()
+	globalMuxCache.mu.RUnlock()
 
-	RefreshTmuxCache()
+	RefreshMuxCache()
 
-	globalTmuxCache.mu.RLock()
-	defer globalTmuxCache.mu.RUnlock()
-	return globalTmuxCache.sessions, globalTmuxCache.paneCommands
+	globalMuxCache.mu.RLock()
+	defer globalMuxCache.mu.RUnlock()
+	return globalMuxCache.sessions, globalMuxCache.paneCommands
 }
 
-// InvalidateTmuxCache forces the next GetTmuxCache call to refresh
-func InvalidateTmuxCache() {
-	globalTmuxCache.mu.Lock()
-	defer globalTmuxCache.mu.Unlock()
-	globalTmuxCache.lastRefreshed = time.Time{}
+func InvalidateMuxCache() {
+	globalMuxCache.mu.Lock()
+	defer globalMuxCache.mu.Unlock()
+	globalMuxCache.lastRefreshed = time.Time{}
 }
 
 type RunState struct {
@@ -119,7 +116,7 @@ func GetManager(run *model.Run) AgentManager {
 			RunRef:    run.Ref().String(),
 		}
 	}
-	return &TmuxManager{SessionName: getSessionName(run)}
+	return &MuxManager{SessionName: getSessionName(run)}
 }
 
 func getSessionName(run *model.Run) string {
@@ -129,28 +126,29 @@ func getSessionName(run *model.Run) string {
 	return model.GenerateTmuxSession(run.IssueID, run.RunID)
 }
 
-type TmuxManager struct {
+type MuxManager struct {
 	SessionName string
 }
 
-func (m *TmuxManager) IsAlive(run *model.Run) bool {
-	sessions, paneCommands := GetTmuxCache()
+func (m *MuxManager) IsAlive(run *model.Run) bool {
+	sessions, paneCommands := GetMuxCache()
 	return m.isAliveFromCache(sessions, paneCommands)
 }
 
-func (m *TmuxManager) isAliveFromCache(sessions map[string]bool, paneCommands map[string][]string) bool {
+func (m *MuxManager) isAliveFromCache(sessions map[string]bool, paneCommands map[string][]string) bool {
+	mux := multiplexer.GetDefault()
 	if sessions != nil {
 		if !sessions[m.SessionName] {
 			return false
 		}
 	} else {
-		if !tmux.HasSession(m.SessionName) {
+		if !mux.HasSession(m.SessionName) {
 			return false
 		}
 	}
 
 	if paneCommands != nil {
-		alive, known := tmux.AgentAlive(m.SessionName, paneCommands)
+		alive, known := mux.AgentAlive(m.SessionName, paneCommands)
 		if known {
 			return alive
 		}
@@ -159,15 +157,16 @@ func (m *TmuxManager) isAliveFromCache(sessions map[string]bool, paneCommands ma
 	return true
 }
 
-func (m *TmuxManager) CaptureOutput(run *model.Run) (string, error) {
-	return tmux.CapturePane(m.SessionName, 100)
+func (m *MuxManager) CaptureOutput(run *model.Run) (string, error) {
+	mux := multiplexer.GetDefault()
+	return mux.CapturePane(m.SessionName, 100)
 }
 
-func (m *TmuxManager) DetectPrompt(output string) bool {
+func (m *MuxManager) DetectPrompt(output string) bool {
 	return IsWaitingForInput(output)
 }
 
-func (m *TmuxManager) GetStatus(run *model.Run, output string, state *RunState, outputChanged, hasPrompt bool) model.Status {
+func (m *MuxManager) GetStatus(run *model.Run, output string, state *RunState, outputChanged, hasPrompt bool) model.Status {
 	if IsAgentExited(output) {
 		return model.StatusUnknown
 	}
@@ -189,15 +188,16 @@ func (m *TmuxManager) GetStatus(run *model.Run, output string, state *RunState, 
 	return ""
 }
 
-func (m *TmuxManager) SendMessage(ctx context.Context, run *model.Run, message string, opts *SendOptions) error {
-	if !tmux.HasSession(m.SessionName) {
+func (m *MuxManager) SendMessage(ctx context.Context, run *model.Run, message string, opts *SendOptions) error {
+	mux := multiplexer.GetDefault()
+	if !mux.HasSession(m.SessionName) {
 		return &SessionNotFoundError{SessionName: m.SessionName}
 	}
 
 	if opts != nil && opts.NoEnter {
-		return tmux.SendKeysLiteral(m.SessionName, message)
+		return mux.SendKeysLiteral(m.SessionName, message)
 	}
-	return tmux.SendKeys(m.SessionName, message)
+	return mux.SendKeys(m.SessionName, message)
 }
 
 type OpenCodeManager struct {

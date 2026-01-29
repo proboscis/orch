@@ -8,8 +8,8 @@ import (
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/multiplexer"
 	"github.com/s22625/orch/internal/store"
-	"github.com/s22625/orch/internal/tmux"
 	"github.com/spf13/cobra"
 )
 
@@ -94,13 +94,14 @@ func runRepair(opts *repairOptions) error {
 	orphanedSessions := findOrphanedSessions(st)
 	if len(orphanedSessions) > 0 {
 		problemsFound += len(orphanedSessions)
-		fmt.Printf("  found %d orphaned tmux sessions:\n", len(orphanedSessions))
+		fmt.Printf("  found %d orphaned sessions:\n", len(orphanedSessions))
 		for _, s := range orphanedSessions {
 			fmt.Printf("    - %s\n", s)
 		}
 		if !opts.DryRun && opts.Force {
+			mux := multiplexer.GetDefault()
 			for _, s := range orphanedSessions {
-				if err := tmux.KillSession(s); err != nil {
+				if err := mux.KillSession(s); err != nil {
 					fmt.Fprintf(os.Stderr, "    failed to kill %s: %v\n", s, err)
 				} else {
 					problemsFixed++
@@ -229,21 +230,19 @@ func repairStaleRuns(st store.Store, opts *repairOptions) (int, error) {
 	return fixed, nil
 }
 
-// findOrphanedSessions finds tmux sessions that don't correspond to any run
+// findOrphanedSessions finds multiplexer sessions that don't correspond to any run
 func findOrphanedSessions(st store.Store) []string {
-	// Get all tmux sessions
-	sessions, err := tmux.ListSessions()
+	mux := multiplexer.GetDefault()
+	sessions, err := mux.ListSessions()
 	if err != nil || len(sessions) == 0 {
 		return nil
 	}
 
-	// Get all runs
 	runs, err := st.ListRuns(&store.ListRunsFilter{})
 	if err != nil {
 		return nil
 	}
 
-	// Build set of expected session names
 	expectedSessions := make(map[string]bool)
 	for _, run := range runs {
 		sessionName := run.TmuxSession
@@ -253,10 +252,8 @@ func findOrphanedSessions(st store.Store) []string {
 		expectedSessions[sessionName] = true
 	}
 
-	// Find orphaned sessions (orch sessions that don't match any run)
 	var orphaned []string
 	for _, s := range sessions {
-		// Only consider sessions that look like orch sessions
 		if len(s) > 4 && s[:4] == "run-" {
 			if !expectedSessions[s] {
 				orphaned = append(orphaned, s)
