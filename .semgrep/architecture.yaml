@@ -1,0 +1,136 @@
+rules:
+  # =============================================================================
+  # CLI LAYER RULES - CLI should be a thin client to daemon API
+  # =============================================================================
+
+  - id: cli-no-store-import
+    patterns:
+      - pattern: |
+          import (
+            ...
+            "github.com/s22625/orch/internal/store"
+            ...
+          )
+      - pattern-not-inside: |
+          // semgrep-ignore: cli-no-store-import
+          ...
+    paths:
+      include:
+        - /internal/cli/*.go
+      exclude:
+        - /internal/cli/root.go
+        - /internal/cli/daemon.go
+        - /internal/cli/*_test.go
+    message: |
+      CLI commands should not import internal/store directly.
+      Use getAPI() to access data through the daemon instead.
+      
+      Migration guide:
+      - Replace: st, err := getStore()
+      - With:    api, err := getAPI()
+      
+      See: issues/orch-374.md for architecture details.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      issue: orch-374
+
+  - id: cli-no-store-file-import
+    patterns:
+      - pattern: |
+          import (
+            ...
+            "github.com/s22625/orch/internal/store/file"
+            ...
+          )
+    paths:
+      include:
+        - /internal/cli/*.go
+    message: |
+      CLI commands should not import internal/store/file directly.
+      Use getAPI() to access data through the daemon instead.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      issue: orch-374
+
+  - id: cli-no-file-open
+    patterns:
+      - pattern-either:
+          - pattern: os.Open(...)
+          - pattern: os.OpenFile(...)
+          - pattern: os.Create(...)
+    paths:
+      include:
+        - /internal/cli/*.go
+      exclude:
+        - /internal/cli/*_test.go
+    message: |
+      CLI commands should not use os.Open/OpenFile/Create directly.
+      File operations should go through the daemon API.
+      
+      If you need to read run/issue data, use getAPI() methods.
+      If you need user-facing file operations (like opening editor),
+      add a comment: // semgrep-ignore: cli-no-file-open
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+
+  - id: cli-no-file-readwrite
+    patterns:
+      - pattern-either:
+          - pattern: os.ReadFile(...)
+          - pattern: os.WriteFile(...)
+          - pattern: ioutil.ReadFile(...)
+          - pattern: ioutil.WriteFile(...)
+    paths:
+      include:
+        - /internal/cli/*.go
+      exclude:
+        - /internal/cli/*_test.go
+    message: |
+      CLI commands should not use os.ReadFile/WriteFile directly.
+      File operations should go through the daemon API.
+      
+      If you need to read run/issue data, use getAPI() methods.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+
+  # =============================================================================
+  # DAEMON OWNERSHIP RULES (warnings for now - future enforcement)
+  # =============================================================================
+
+  - id: store-daemon-only
+    patterns:
+      - pattern: |
+          import (
+            ...
+            "github.com/s22625/orch/internal/store"
+            ...
+          )
+    paths:
+      include:
+        - /internal/**/*.go
+      exclude:
+        - /internal/store/**/*.go
+        - /internal/daemon/**/*.go
+        - /internal/cli/root.go
+        - /internal/cli/daemon.go
+        - /internal/cli/*_test.go
+        - /internal/query/**/*.go
+        - /internal/monitor/**/*.go
+    message: |
+      Only daemon should import internal/store directly.
+      Other packages should use orchapi.OrchAPI interface.
+      
+      This is currently a WARNING - will become ERROR after full migration.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      category: architecture
+      issue: orch-374

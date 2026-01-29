@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: architecture-lint
+        name: Architecture Lint (semgrep)
+        entry: make lint
+        language: system
+        pass_filenames: false
+        files: ^internal/cli/.*\.go$

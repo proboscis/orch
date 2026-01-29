@@ -1,4 +1,4 @@
-.PHONY: all build install install-cli install-tui test clean kill-daemons update
+.PHONY: all build install install-cli install-tui test lint lint-install clean kill-daemons update
 .DEFAULT_GOAL := install
 
 BINARY_NAME := orch
@@ -43,6 +43,15 @@ update:
 
 test:
 	go test ./...
+
+lint:
+	@command -v semgrep >/dev/null 2>&1 || uv tool install semgrep
+	semgrep --config .semgrep/ ./internal/cli/
+
+lint-install:
+	uv tool install semgrep
+	uv tool install pre-commit
+	pre-commit install
 
 clean:
 	rm -f $(BINARY_NAME)
