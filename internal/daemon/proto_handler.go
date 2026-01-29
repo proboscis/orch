@@ -580,8 +580,15 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 		return errorResponse("no store available")
 	}
 
-	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
-	run, err := st.GetRun(ref)
+	var run *model.Run
+	var err error
+
+	if req.ShortId != "" {
+		run, err = st.GetRunByShortID(req.ShortId)
+	} else {
+		ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+		run, err = st.GetRun(ref)
+	}
 	if err != nil {
 		return errorResponse("not_found")
 	}

@@ -369,14 +369,16 @@ class GetControlAgentLaunchResponse(_message.Message):
     def __init__(self, command: _Optional[str] = ..., prompt_file: _Optional[str] = ..., port: _Optional[int] = ..., session_id: _Optional[str] = ...) -> None: ...
 
 class GetAttachInfoRequest(_message.Message):
-    __slots__ = ("issues_root", "issue_id", "run_id")
+    __slots__ = ("issues_root", "issue_id", "run_id", "short_id")
     ISSUES_ROOT_FIELD_NUMBER: _ClassVar[int]
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
+    SHORT_ID_FIELD_NUMBER: _ClassVar[int]
     issues_root: str
     issue_id: str
     run_id: str
-    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ...) -> None: ...
+    short_id: str
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., short_id: _Optional[str] = ...) -> None: ...
 
 class GetAttachInfoResponse(_message.Message):
     __slots__ = ("command", "multiplexer", "session_name", "worktree_path")

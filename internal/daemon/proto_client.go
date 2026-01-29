@@ -454,6 +454,7 @@ func (c *ProtoClient) GetAttachInfo(issueID, runID, shortID string) (*GetAttachI
 				IssuesRoot: c.issuesRoot,
 				IssueId:    issueID,
 				RunId:      runID,
+				ShortId:    shortID,
 			},
 		},
 	}

@@ -234,6 +234,7 @@ message GetAttachInfoRequest {
   string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
+  string short_id = 4;
 }
 
 message GetAttachInfoResponse {
