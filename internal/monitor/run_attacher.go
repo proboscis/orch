@@ -7,7 +7,6 @@ import (
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/tmux"
 )
 
 type RunAttacher interface {
@@ -19,7 +18,7 @@ func GetRunAttacher(agentType string) RunAttacher {
 	if baseAgent == string(agent.AgentOpenCode) {
 		return &OpenCodeRunAttacher{}
 	}
-	return &TmuxRunAttacher{}
+	return &MuxRunAttacher{}
 }
 
 func extractAgentName(agentType string) string {
@@ -29,9 +28,9 @@ func extractAgentName(agentType string) string {
 	return agentType
 }
 
-type TmuxRunAttacher struct{}
+type MuxRunAttacher struct{}
 
-func (a *TmuxRunAttacher) Attach(m *Monitor, run *model.Run) error {
+func (a *MuxRunAttacher) Attach(m *Monitor, run *model.Run) error {
 	sessionName := run.TmuxSession
 	if sessionName == "" {
 		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
@@ -57,27 +56,27 @@ func (a *TmuxRunAttacher) Attach(m *Monitor, run *model.Run) error {
 		return err
 	}
 
-	monitorWindows, err := tmux.ListWindows(m.session)
+	monitorWindows, err := m.mux.ListWindows(m.session)
 	if err != nil {
 		return err
 	}
 	if windowID != "" {
 		if _, ok := windowIndexByID(monitorWindows, windowID); ok {
-			return tmux.SelectWindowByID(windowID)
+			return m.mux.SelectWindowByID(windowID)
 		}
 	}
 
 	targetIndex := nextAvailableWindowIndex(monitorWindows, dashboardWindowIdx+1)
 	if windowID != "" {
-		if err := tmux.LinkWindowByID(windowID, m.session, targetIndex); err != nil {
+		if err := m.mux.LinkWindowByID(windowID, m.session, targetIndex); err != nil {
 			return err
 		}
-		return tmux.SelectWindowByID(windowID)
+		return m.mux.SelectWindowByID(windowID)
 	}
-	if err := tmux.LinkWindow(sessionName, 0, m.session, targetIndex); err != nil {
+	if err := m.mux.LinkWindow(sessionName, 0, m.session, targetIndex); err != nil {
 		return err
 	}
-	return tmux.SelectWindow(m.session, targetIndex)
+	return m.mux.SelectWindow(m.session, targetIndex)
 }
 
 type OpenCodeRunAttacher struct{}
@@ -96,7 +95,7 @@ func (a *OpenCodeRunAttacher) Attach(m *Monitor, run *model.Run) error {
 		attachCmd = fmt.Sprintf("%s --dir %s", attachCmd, run.WorktreePath)
 	}
 
-	monitorWindows, err := tmux.ListWindows(m.session)
+	monitorWindows, err := m.mux.ListWindows(m.session)
 	if err != nil {
 		return err
 	}
@@ -104,7 +103,7 @@ func (a *OpenCodeRunAttacher) Attach(m *Monitor, run *model.Run) error {
 	windowName := fmt.Sprintf("%s[%s]", run.IssueID, run.ShortID())
 	for _, w := range monitorWindows {
 		if w.Name == windowName {
-			return tmux.SelectWindow(m.session, w.Index)
+			return m.mux.SelectWindow(m.session, w.Index)
 		}
 	}
 
@@ -113,17 +112,17 @@ func (a *OpenCodeRunAttacher) Attach(m *Monitor, run *model.Run) error {
 		workDir, _ = os.Getwd()
 	}
 
-	if err := tmux.NewWindow(m.session, windowName, workDir, attachCmd); err != nil {
+	if err := m.mux.NewWindow(m.session, windowName, workDir, attachCmd); err != nil {
 		return fmt.Errorf("failed to create opencode window for %s: %w", run.Ref().String(), err)
 	}
 
-	updatedWindows, err := tmux.ListWindows(m.session)
+	updatedWindows, err := m.mux.ListWindows(m.session)
 	if err != nil {
 		return err
 	}
 	for _, w := range updatedWindows {
 		if w.Name == windowName {
-			return tmux.SelectWindow(m.session, w.Index)
+			return m.mux.SelectWindow(m.session, w.Index)
 		}
 	}
 	return fmt.Errorf("created window %s not found", windowName)

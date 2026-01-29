@@ -13,8 +13,8 @@ import (
 
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/multiplexer"
 	"github.com/s22625/orch/internal/store"
-	"github.com/s22625/orch/internal/tmux"
 	"github.com/spf13/cobra"
 )
 
@@ -318,7 +318,8 @@ func deleteRuns(st store.Store, runs []*model.Run, opts *deleteOptions) error {
 			if opts.WithBranch && run.Branch != "" {
 				extras = append(extras, "branch")
 			}
-			if run.TmuxSession != "" && tmux.HasSession(run.TmuxSession) {
+			mux := multiplexer.GetDefault()
+			if run.TmuxSession != "" && mux.HasSession(run.TmuxSession) {
 				extras = append(extras, "session")
 			}
 			extraStr := ""
@@ -392,14 +393,13 @@ func performDelete(st store.Store, run *model.Run, opts *deleteOptions) (*delete
 		ShortID: run.ShortID(),
 	}
 
-	// 1. Kill tmux session if running
 	sessionName := run.TmuxSession
 	if sessionName == "" {
 		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
 	}
-	if tmux.HasSession(sessionName) {
-		if err := tmux.KillSession(sessionName); err != nil {
-			// Log warning but continue
+	mux := multiplexer.GetDefault()
+	if mux.HasSession(sessionName) {
+		if err := mux.KillSession(sessionName); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to kill session %s: %v\n", sessionName, err)
 		} else {
 			result.SessionKilled = true

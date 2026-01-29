@@ -98,6 +98,18 @@ class Multiplexer(Protocol):
         """Get the name of the current session if inside one, None otherwise."""
         ...
 
+    def capture_pane(self, session: str, lines: int = 50) -> list[str]:
+        """Capture recent output from a pane/session.
+
+        Args:
+            session: Session name (or pane target for tmux)
+            lines: Number of lines to capture (default 50)
+
+        Returns:
+            List of output lines, empty list on error
+        """
+        ...
+
 
 class TmuxMultiplexer:
     """Tmux implementation of Multiplexer."""
@@ -240,6 +252,23 @@ class TmuxMultiplexer:
         if result.returncode == 0:
             return result.stdout.strip()
         return None
+
+    def capture_pane(self, session: str, lines: int = 50) -> list[str]:
+        try:
+            result = subprocess.run(
+                ["tmux", "capture-pane", "-t", session, "-p", "-S", f"-{lines}"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            if result.returncode != 0:
+                return []
+            output_lines = [line.rstrip() for line in result.stdout.split("\n")]
+            while output_lines and not output_lines[-1]:
+                output_lines.pop()
+            return [line for line in output_lines if line.strip()]
+        except (subprocess.TimeoutExpired, OSError):
+            return []
 
 
 ZELLIJ_TIMEOUT_SEC = 5
@@ -400,6 +429,22 @@ class ZellijMultiplexer:
     def get_current_session(self) -> Optional[str]:
         """Get the current Zellij session name if inside one."""
         return os.environ.get("ZELLIJ_SESSION_NAME")
+
+    def capture_pane(self, session: str, lines: int = 50) -> list[str]:
+        try:
+            result = subprocess.run(
+                ["zellij", "action", "dump-screen", "/dev/stdout"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                env={**os.environ, "ZELLIJ_SESSION_NAME": session},
+            )
+            if result.returncode != 0:
+                return []
+            output_lines = [line.rstrip() for line in result.stdout.split("\n")]
+            return [line for line in output_lines[-lines:] if line.strip()]
+        except (subprocess.TimeoutExpired, OSError):
+            return []
 
 
 # Registry of multiplexer implementations
