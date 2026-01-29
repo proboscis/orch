@@ -5,9 +5,14 @@
 
 (import socket)
 (import struct)
+(import threading)
 (import datetime [datetime])
 (import pathlib [Path])
+(import logging)
 (import returns.result [Success Failure Result])
+
+;; Logger for connection management
+(setv _conn_logger (logging.getLogger "orch_monitor.proto_client.connection"))
 
 (import orch_monitor.api.orch_pb2 :as pb)
 (import orch_monitor.models [Event EventType Issue IssueStatus Phase Run Status])
@@ -156,7 +161,11 @@
     (setv self.socket-path socket-path)
     (setv self.issues-root issues-root)
     (setv self.project-root project-root)
-    (setv self._timeout timeout))
+    (setv self._timeout timeout)
+    ;; Persistent connection state
+    (setv self._socket None)
+    (setv self._lock (threading.RLock))
+    (setv self._connected False))
   
   (defn _issues-root-str [self]
     (if self.issues-root (str self.issues-root) ""))
@@ -171,49 +180,117 @@
       (stat.S_ISSOCK mode)))
   
   ;; =========================================================================
+  ;; Connection Management (persistent connection to reduce socket churn)
+  ;; =========================================================================
+  
+  (defn _connect [self]
+    "Establish persistent socket connection. Called with lock held."
+    (when self._socket
+      (try
+        (.close self._socket)
+        (except [e Exception] None))
+      (setv self._socket None))
+    
+    (setv sock (socket.socket socket.AF_UNIX socket.SOCK_STREAM))
+    (.settimeout sock self._timeout)
+    (.connect sock (str self.socket-path))
+    (setv self._socket sock)
+    (setv self._connected True)
+    (.debug _conn_logger "Established persistent connection to daemon"))
+  
+  (defn _disconnect [self]
+    "Close persistent connection. Called with lock held."
+    (when self._socket
+      (try
+        (.close self._socket)
+        (except [e Exception] None))
+      (setv self._socket None)
+      (setv self._connected False)
+      (.debug _conn_logger "Closed persistent connection")))
+  
+  (defn _ensure-connected [self]
+    "Ensure we have a valid connection. Called with lock held."
+    (when (not self._connected)
+      (._connect self)
+      (return))
+    ;; Check if socket is still alive by peeking
+    (try
+      ;; Set non-blocking temporarily to check socket state
+      (.setblocking self._socket False)
+      (try
+        (setv data (.recv self._socket 1 socket.MSG_PEEK))
+        ;; If recv returns empty bytes, server closed connection
+        (when (= data b"")
+          (.debug _conn_logger "Server closed connection, reconnecting...")
+          (._connect self))
+        (finally
+          (.setblocking self._socket True)
+          (.settimeout self._socket self._timeout)))
+      (except [e BlockingIOError]
+        ;; No data available = connection is fine
+        (.setblocking self._socket True)
+        (.settimeout self._socket self._timeout))
+      (except [e #(OSError BrokenPipeError ConnectionResetError)]
+        (.debug _conn_logger (+ "Connection broken (" (. (type e) __name__) "), reconnecting..."))
+        (._connect self))))
+  
+  ;; =========================================================================
   ;; Low-level helpers
   ;; =========================================================================
   
   (defn _send [self request]
-    "Send request, return response. Raises typed ProtoDaemonError on failure."
+    "Send request using persistent connection. Raises typed ProtoDaemonError on failure."
     (when (not (.is-available self))
       (raise (ProtoDaemonNotRunningError 
                f"Daemon socket not found at {self.socket-path}")))
     
-    (socket-send self.socket-path
-      (setv sock (socket.socket socket.AF_UNIX socket.SOCK_STREAM))
-      (.settimeout sock self._timeout)
-      (.connect sock (str self.socket-path))
-      
-      (try
-        (setv data (.SerializeToString request))
-        (setv length (struct.pack ">I" (len data)))
-        (.sendall sock (+ length data))
-        (.shutdown sock socket.SHUT_WR)
+    (with [_ self._lock]
+      (socket-send self.socket-path
+        ;; Ensure we have a valid connection
+        (._ensure-connected self)
         
-        ;; Read response length
-        (setv len-data b"")
-        (while (< (len len-data) 4)
-          (setv chunk (.recv sock (- 4 (len len-data))))
-          (when (not chunk) (break))
-          (+= len-data chunk))
+        (setv max-retries 2)
+        (setv retry 0)
+        (setv response None)
         
-        (when (< (len len-data) 4)
-          (raise (ProtoDaemonError "Incomplete response length")))
+        (while (and (< retry max-retries) (is response None))
+          (try
+            (setv data (.SerializeToString request))
+            (setv length (struct.pack ">I" (len data)))
+            (.sendall self._socket (+ length data))
+            
+            ;; Read response length
+            (setv len-data b"")
+            (while (< (len len-data) 4)
+              (setv chunk (.recv self._socket (- 4 (len len-data))))
+              (when (not chunk) (break))
+              (+= len-data chunk))
+            
+            (when (< (len len-data) 4)
+              (raise (ProtoDaemonError "Incomplete response length")))
+            
+            ;; Read response
+            (setv resp-len (get (struct.unpack ">I" len-data) 0))
+            (setv resp-data b"")
+            (while (< (len resp-data) resp-len)
+              (setv chunk (.recv self._socket (- resp-len (len resp-data))))
+              (when (not chunk) (break))
+              (+= resp-data chunk))
+            
+            (setv response (pb.Response))
+            (.ParseFromString response resp-data)
+            
+            (except [e #(BrokenPipeError ConnectionResetError OSError)]
+              ;; Connection lost, try to reconnect
+              (+= retry 1)
+              (when (< retry max-retries)
+                (.debug _conn_logger (+ "Connection error (" (. (type e) __name__) "), reconnecting (attempt " (str retry) ")..."))
+                (._connect self))
+              (when (>= retry max-retries)
+                (.warning _conn_logger (+ "Failed after " (str max-retries) " retries: " (str e)))
+                (raise (ProtoDaemonError f"Connection failed: {e}"))))))
         
-        ;; Read response
-        (setv resp-len (get (struct.unpack ">I" len-data) 0))
-        (setv resp-data b"")
-        (while (< (len resp-data) resp-len)
-          (setv chunk (.recv sock (- resp-len (len resp-data))))
-          (when (not chunk) (break))
-          (+= resp-data chunk))
-        
-        (setv response (pb.Response))
-        (.ParseFromString response resp-data)
-        response
-        
-        (finally (.close sock)))))
+        response)))
   
   (defn _check [self response [error-msg "Unknown error"]]
     "Check response.ok, raise ProtoDaemonError if not. Returns response."
@@ -456,7 +533,15 @@
     True)
   
   (defn close [self]
-    None))
+    "Close the persistent connection."
+    (with [_ self._lock]
+      (._disconnect self)))
+  
+  (defn __del__ [self]
+    "Cleanup on garbage collection."
+    (try
+      (.close self)
+      (except [e Exception] None))))
 
 
 ;; ============================================================================
