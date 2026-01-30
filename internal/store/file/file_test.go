@@ -929,6 +929,236 @@ tags:
 	}
 }
 
+func TestRunIndexCleanupWhenFileDeleted(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	createTestIssue(t, vault, "test123", "---\ntype: issue\ntitle: Test\n---\n# Test")
+
+	s, _ := New(vault)
+
+	run, err := s.CreateRun("test123", "20231220-100000", nil)
+	if err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	runs, err := s.ListRuns(nil)
+	if err != nil {
+		t.Fatalf("ListRuns() error = %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(runs))
+	}
+
+	runPath := run.Path
+	if err := os.Remove(runPath); err != nil {
+		t.Fatalf("failed to delete run file: %v", err)
+	}
+
+	InvalidateRunIndex()
+
+	runs, err = s.ListRuns(nil)
+	if err != nil {
+		t.Fatalf("ListRuns() error = %v", err)
+	}
+	if len(runs) != 0 {
+		t.Errorf("expected 0 runs after file deletion, got %d", len(runs))
+	}
+
+	indexPath := filepath.Join(vault, ".orch_run_index.json")
+	data, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatalf("failed to read index file: %v", err)
+	}
+	if strings.Contains(string(data), "test123/20231220-100000") {
+		t.Error("index still contains stale entry after cleanup")
+	}
+}
+
+func TestRunIndexCleanupWhenDirectoryDeleted(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	createTestIssue(t, vault, "issue1", "---\ntype: issue\ntitle: Issue 1\n---\n# Issue 1")
+	createTestIssue(t, vault, "issue2", "---\ntype: issue\ntitle: Issue 2\n---\n# Issue 2")
+
+	s, _ := New(vault)
+
+	s.CreateRun("issue1", "20231220-100000", nil)
+	s.CreateRun("issue2", "20231220-110000", nil)
+
+	runs, _ := s.ListRuns(nil)
+	if len(runs) != 2 {
+		t.Fatalf("expected 2 runs, got %d", len(runs))
+	}
+
+	issue1RunsDir := filepath.Join(vault, "runs", "issue1")
+	if err := os.RemoveAll(issue1RunsDir); err != nil {
+		t.Fatalf("failed to delete issue1 runs directory: %v", err)
+	}
+
+	InvalidateRunIndex()
+
+	runs, _ = s.ListRuns(nil)
+	if len(runs) != 1 {
+		t.Errorf("expected 1 run after directory deletion, got %d", len(runs))
+	}
+	if len(runs) == 1 && runs[0].IssueID != "issue2" {
+		t.Errorf("expected issue2 run, got %s", runs[0].IssueID)
+	}
+
+	indexPath := filepath.Join(vault, ".orch_run_index.json")
+	data, _ := os.ReadFile(indexPath)
+	if strings.Contains(string(data), "issue1/") {
+		t.Error("index still contains stale entries for deleted directory")
+	}
+	if !strings.Contains(string(data), "issue2/") {
+		t.Error("index missing valid entry for issue2")
+	}
+}
+
+func TestRunIndexFilterDoesNotDeleteOtherIssues(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	createTestIssue(t, vault, "issue1", "---\ntype: issue\ntitle: Issue 1\n---\n# Issue 1")
+	createTestIssue(t, vault, "issue2", "---\ntype: issue\ntitle: Issue 2\n---\n# Issue 2")
+
+	s, _ := New(vault)
+
+	s.CreateRun("issue1", "20231220-100000", nil)
+	s.CreateRun("issue2", "20231220-110000", nil)
+
+	runs, err := s.ListRuns(nil)
+	if err != nil {
+		t.Fatalf("ListRuns() error = %v", err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("expected 2 runs, got %d", len(runs))
+	}
+
+	runs, err = s.ListRuns(&store.ListRunsFilter{IssueID: "issue1"})
+	if err != nil {
+		t.Fatalf("ListRuns(issue1) error = %v", err)
+	}
+	if len(runs) != 1 {
+		t.Errorf("expected 1 run for issue1, got %d", len(runs))
+	}
+
+	indexPath := filepath.Join(vault, ".orch_run_index.json")
+	data, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatalf("failed to read index file: %v", err)
+	}
+	if !strings.Contains(string(data), "issue2/20231220-110000") {
+		t.Error("index missing issue2 entry immediately after filtering by issue1 - filtered query corrupted index")
+	}
+
+	runs, err = s.ListRuns(&store.ListRunsFilter{IssueID: "issue2"})
+	if err != nil {
+		t.Fatalf("ListRuns(issue2) error = %v", err)
+	}
+	if len(runs) != 1 {
+		t.Errorf("expected 1 run for issue2, got %d", len(runs))
+	}
+
+	runs, err = s.ListRuns(nil)
+	if err != nil {
+		t.Fatalf("ListRuns(nil) error = %v", err)
+	}
+	if len(runs) != 2 {
+		t.Errorf("expected 2 runs total (filtering should not delete other issues), got %d", len(runs))
+	}
+}
+
+func TestRunIndexFilterByNonExistentIssue(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	createTestIssue(t, vault, "real-issue", "---\ntype: issue\ntitle: Real Issue\n---\n# Real Issue")
+
+	s, _ := New(vault)
+
+	s.CreateRun("real-issue", "20231220-100000", nil)
+
+	runs, err := s.ListRuns(nil)
+	if err != nil {
+		t.Fatalf("ListRuns() error = %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(runs))
+	}
+
+	runs, err = s.ListRuns(&store.ListRunsFilter{IssueID: "non-existent-issue"})
+	if err != nil {
+		t.Fatalf("ListRuns(non-existent) error = %v", err)
+	}
+	if len(runs) != 0 {
+		t.Errorf("expected 0 runs for non-existent issue, got %d", len(runs))
+	}
+
+	indexPath := filepath.Join(vault, ".orch_run_index.json")
+	data, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatalf("failed to read index file: %v", err)
+	}
+	if !strings.Contains(string(data), "real-issue/20231220-100000") {
+		t.Error("index missing real-issue entry after filtering by non-existent issue - query corrupted index")
+	}
+
+	runs, err = s.ListRuns(nil)
+	if err != nil {
+		t.Fatalf("ListRuns(nil) error = %v", err)
+	}
+	if len(runs) != 1 {
+		t.Errorf("expected 1 run after querying non-existent issue (should not delete real runs), got %d", len(runs))
+	}
+}
+
+func TestRunIndexFilteredCleanupOnlyAffectsFilteredIssue(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	createTestIssue(t, vault, "issue1", "---\ntype: issue\ntitle: Issue 1\n---\n# Issue 1")
+	createTestIssue(t, vault, "issue2", "---\ntype: issue\ntitle: Issue 2\n---\n# Issue 2")
+
+	s, _ := New(vault)
+
+	run1, _ := s.CreateRun("issue1", "20231220-100000", nil)
+	s.CreateRun("issue2", "20231220-110000", nil)
+
+	runs, _ := s.ListRuns(nil)
+	if len(runs) != 2 {
+		t.Fatalf("expected 2 runs, got %d", len(runs))
+	}
+
+	if err := os.Remove(run1.Path); err != nil {
+		t.Fatalf("failed to delete run file: %v", err)
+	}
+
+	InvalidateRunIndex()
+
+	runs, err := s.ListRuns(&store.ListRunsFilter{IssueID: "issue1"})
+	if err != nil {
+		t.Fatalf("ListRuns(issue1) error = %v", err)
+	}
+	if len(runs) != 0 {
+		t.Errorf("expected 0 runs for issue1 after file deletion, got %d", len(runs))
+	}
+
+	indexPath := filepath.Join(vault, ".orch_run_index.json")
+	data, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatalf("failed to read index file: %v", err)
+	}
+	if strings.Contains(string(data), "issue1/20231220-100000") {
+		t.Error("index still contains stale issue1 entry after filtered cleanup")
+	}
+	if !strings.Contains(string(data), "issue2/20231220-110000") {
+		t.Error("index missing issue2 entry - filtered cleanup incorrectly removed it")
+	}
+}
+
 func TestDuplicateFrontmatterDetection(t *testing.T) {
 	tests := []struct {
 		name          string
