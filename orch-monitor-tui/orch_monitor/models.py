@@ -168,6 +168,9 @@ class Run:
         return self.status in active_states
 
     def elapsed_time(self) -> str:
+        if self.elapsed_display:
+            return self.elapsed_display
+
         if not self.started_at or not isinstance(self.started_at, datetime):
             return "-"
 
