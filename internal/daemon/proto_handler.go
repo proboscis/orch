@@ -267,7 +267,7 @@ func enrichRunsParallel(runs []*model.Run, protoRuns []*orchpb.Run) []*orchpb.Ru
 		})
 	}
 
-	statusMap := git.GetWorktreeStatusBatch(worktrees)
+	statusMap := git.GetCachedWorktreeStatusBatch(worktrees)
 
 	for i, run := range runs {
 		pr := modelRunToProto(run)

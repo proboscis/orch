@@ -179,6 +179,8 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 
 	needsFullLoad := make(map[string]bool)
 	validEntries := make(map[string]*runIndexEntry)
+	indexDirty := false
+	seenKeys := make(map[string]bool)
 
 	for _, issueID := range issueDirs {
 		issueRunsDir := filepath.Join(runsRoot, issueID)
@@ -211,6 +213,7 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 			}
 			fileMtime := info.ModTime()
 
+			seenKeys[key] = true
 			if cached, ok := idx.Entries[key]; ok && cached.FileMtime.Unix() == fileMtime.Unix() {
 				if !matchesRunFilters(cached, statusSet, sinceTime, timeRangeCutoff, textSearch, agentFilter) {
 					continue
@@ -242,6 +245,9 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 				UpdatedAt:         run.UpdatedAt,
 				FileMtime:         fileMtime,
 			}
+			if old, exists := idx.Entries[key]; !exists || !runEntryEqual(old, entry) || old.FileMtime.Unix() != fileMtime.Unix() {
+				indexDirty = true
+			}
 			idx.Entries[key] = entry
 
 			if !matchesRunFilters(entry, statusSet, sinceTime, timeRangeCutoff, textSearch, agentFilter) {
@@ -253,7 +259,16 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 		idx.DirMtimes[issueID] = currentDirMtime
 	}
 
-	s.saveRunIndex(idx)
+	for key := range idx.Entries {
+		if !seenKeys[key] {
+			delete(idx.Entries, key)
+			indexDirty = true
+		}
+	}
+
+	if indexDirty {
+		s.saveRunIndex(idx)
+	}
 
 	runs := make([]*model.Run, 0, len(validEntries))
 	for _, entry := range validEntries {
@@ -269,6 +284,24 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 	}
 
 	return runs, nil
+}
+
+func runEntryEqual(a, b *runIndexEntry) bool {
+	return a.IssueID == b.IssueID &&
+		a.RunID == b.RunID &&
+		a.Status == b.Status &&
+		a.Agent == b.Agent &&
+		a.Model == b.Model &&
+		a.ModelVariant == b.ModelVariant &&
+		a.Branch == b.Branch &&
+		a.WorktreePath == b.WorktreePath &&
+		a.TmuxSession == b.TmuxSession &&
+		a.Multiplexer == b.Multiplexer &&
+		a.PRUrl == b.PRUrl &&
+		a.ServerPort == b.ServerPort &&
+		a.OpenCodeSessionID == b.OpenCodeSessionID &&
+		a.StartedAt.Equal(b.StartedAt) &&
+		a.UpdatedAt.Equal(b.UpdatedAt)
 }
 
 func matchesRunFilters(entry *runIndexEntry, statusSet map[model.Status]bool, sinceTime, timeRangeCutoff time.Time, textSearch, agentFilter string) bool {

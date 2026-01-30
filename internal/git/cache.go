@@ -72,6 +72,7 @@ var globalMergeCache = &mergeStateCache{
 }
 
 var globalWorktreeCache = newCache[bool](10 * time.Second)
+var globalWorktreeStatusCache = newCache[WorktreeStatus](10 * time.Second)
 
 func GetCachedBranchMergeStates(repoRoot, target string, branches []string) map[string]string {
 	globalMergeCache.mu.RLock()
@@ -115,4 +116,30 @@ func GetCachedWorktreeDirtyStates(worktreePaths []string) map[string]bool {
 
 func InvalidateWorktreeCache() {
 	globalWorktreeCache.invalidate()
+	globalWorktreeStatusCache.invalidate()
+}
+
+func GetCachedWorktreeStatusBatch(worktrees []struct {
+	Path       string
+	Branch     string
+	BaseBranch string
+}) map[string]WorktreeStatus {
+	if len(worktrees) == 0 {
+		return nil
+	}
+
+	paths := make([]string, 0, len(worktrees))
+	for _, wt := range worktrees {
+		if wt.Path != "" {
+			paths = append(paths, wt.Path)
+		}
+	}
+
+	if result := globalWorktreeStatusCache.get(paths); result != nil {
+		return result
+	}
+
+	results := GetWorktreeStatusBatch(worktrees)
+	globalWorktreeStatusCache.set(results)
+	return results
 }
