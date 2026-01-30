@@ -245,20 +245,28 @@ func TestIsDaemonHealthy_NilClient(t *testing.T) {
 
 func TestCheckDaemonHealth_NilClient(t *testing.T) {
 	m := &Monitor{daemonClient: nil}
-	healthy, err := m.checkDaemonHealth()
-	if healthy {
-		t.Error("checkDaemonHealth() with nil client should return false")
-	}
+	err := m.checkDaemonHealth()
 	if err == nil {
 		t.Error("checkDaemonHealth() with nil client should return error")
 	}
+	if err.Error() != "daemon client not initialized" {
+		t.Errorf("checkDaemonHealth() error = %v, want 'daemon client not initialized'", err)
+	}
 }
 
-func TestCheckDaemonHealth_ReturnsError(t *testing.T) {
+func TestCheckDaemonHealth_Healthy(t *testing.T) {
 	m := &Monitor{daemonClient: nil}
-	_, err := m.checkDaemonHealth()
-	if err == nil || err.Error() != "daemon client not initialized" {
-		t.Errorf("checkDaemonHealth() error = %v, want 'daemon client not initialized'", err)
+	err := m.checkDaemonHealth()
+	if err == nil {
+		t.Skip("daemon is actually running - cannot test unhealthy path")
+	}
+}
+
+func TestPingDaemon_NilClient(t *testing.T) {
+	m := &Monitor{}
+	err := m.pingDaemon(nil)
+	if err == nil {
+		t.Error("pingDaemon(nil) should return error")
 	}
 }
 

@@ -29,9 +29,9 @@ const (
 	dashboardWindowName = "dashboard"
 	dashboardWindowIdx  = 0
 
-	daemonHealthCheckTimeout = 2 * time.Second
-	daemonPingTimeout        = 500 * time.Millisecond
-	daemonRetryInterval      = 100 * time.Millisecond
+	daemonRepairTimeout = 2 * time.Second
+	daemonPingTimeout   = 500 * time.Millisecond
+	daemonRetryInterval = 100 * time.Millisecond
 )
 
 const (
@@ -321,7 +321,7 @@ func sessionNameForProject(projectRoot string) string {
 }
 
 func (m *Monitor) ensureDaemonHealthy() error {
-	if healthy, _ := m.checkDaemonHealth(); healthy {
+	if m.checkDaemonHealth() == nil {
 		return nil
 	}
 
@@ -340,44 +340,53 @@ func (m *Monitor) ensureDaemonHealthy() error {
 		return fmt.Errorf("failed to start daemon: %w", err)
 	}
 
+	pingClient := daemon.NewProtoClient(m.projectRoot)
+	pingClient.SetTimeout(daemonPingTimeout)
+
 	startTime := time.Now()
-	deadline := startTime.Add(daemonHealthCheckTimeout)
+	deadline := startTime.Add(daemonRepairTimeout)
 	var lastErr error
 	for time.Now().Before(deadline) {
 		time.Sleep(daemonRetryInterval)
-		healthy, err := m.checkDaemonHealth()
-		if healthy {
+		if err := m.pingDaemon(pingClient); err == nil {
 			m.logger.Printf("daemon healthy after repair (took %v)", time.Since(startTime))
 			return nil
+		} else {
+			lastErr = err
 		}
-		lastErr = err
 	}
 
 	if lastErr != nil {
-		return fmt.Errorf("daemon did not become healthy within %v: %w\nRun 'orch repair' to diagnose further", daemonHealthCheckTimeout, lastErr)
+		return fmt.Errorf("daemon did not become healthy within %v: %w\nRun 'orch repair' to diagnose further", daemonRepairTimeout, lastErr)
 	}
-	return fmt.Errorf("daemon did not become healthy within %v\nRun 'orch repair' to diagnose further", daemonHealthCheckTimeout)
+	return fmt.Errorf("daemon did not become healthy within %v\nRun 'orch repair' to diagnose further", daemonRepairTimeout)
 }
 
-func (m *Monitor) checkDaemonHealth() (bool, error) {
+func (m *Monitor) checkDaemonHealth() error {
 	if m.daemonClient == nil {
-		return false, fmt.Errorf("daemon client not initialized")
+		return fmt.Errorf("daemon client not initialized")
 	}
 	if !m.daemonClient.IsAvailable() {
-		return false, fmt.Errorf("daemon not available")
+		return fmt.Errorf("daemon not available")
 	}
 
 	pingClient := daemon.NewProtoClient(m.projectRoot)
 	pingClient.SetTimeout(daemonPingTimeout)
-	if err := pingClient.Ping(); err != nil {
-		return false, fmt.Errorf("daemon ping failed: %w", err)
+	return m.pingDaemon(pingClient)
+}
+
+func (m *Monitor) pingDaemon(client *daemon.ProtoClient) error {
+	if client == nil {
+		return fmt.Errorf("ping client is nil")
 	}
-	return true, nil
+	if err := client.Ping(); err != nil {
+		return fmt.Errorf("daemon ping failed: %w", err)
+	}
+	return nil
 }
 
 func (m *Monitor) isDaemonHealthy() bool {
-	healthy, _ := m.checkDaemonHealth()
-	return healthy
+	return m.checkDaemonHealth() == nil
 }
 
 func (m *Monitor) Start() error {
