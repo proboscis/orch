@@ -768,6 +768,14 @@ func protoBranchStateToString(s orchpb.BranchState) string {
 		return "merged"
 	case orchpb.BranchState_BRANCH_STATE_CONFLICT:
 		return "conflict"
+	case orchpb.BranchState_BRANCH_STATE_AHEAD:
+		return "ahead"
+	case orchpb.BranchState_BRANCH_STATE_BEHIND:
+		return "behind"
+	case orchpb.BranchState_BRANCH_STATE_DIVERGED:
+		return "diverged"
+	case orchpb.BranchState_BRANCH_STATE_SYNCED:
+		return "synced"
 	default:
 		return ""
 	}

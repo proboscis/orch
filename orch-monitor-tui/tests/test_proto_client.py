@@ -27,6 +27,18 @@ class TestProtoBranchStateToStr:
     def test_conflict_state(self):
         assert _proto_branch_state_to_str(pb.BRANCH_STATE_CONFLICT) == "conflict"
 
+    def test_ahead_state(self):
+        assert _proto_branch_state_to_str(pb.BRANCH_STATE_AHEAD) == "ahead"
+
+    def test_behind_state(self):
+        assert _proto_branch_state_to_str(pb.BRANCH_STATE_BEHIND) == "behind"
+
+    def test_diverged_state(self):
+        assert _proto_branch_state_to_str(pb.BRANCH_STATE_DIVERGED) == "diverged"
+
+    def test_synced_state(self):
+        assert _proto_branch_state_to_str(pb.BRANCH_STATE_SYNCED) == "synced"
+
     def test_unspecified_returns_empty(self):
         assert _proto_branch_state_to_str(pb.BRANCH_STATE_UNSPECIFIED) == ""
 

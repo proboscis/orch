@@ -45,6 +45,10 @@ class BranchState(str, Enum):
     DIRTY = "dirty"
     MERGED = "merged"
     CONFLICT = "conflict"
+    AHEAD = "ahead"
+    BEHIND = "behind"
+    DIVERGED = "diverged"
+    SYNCED = "synced"
     UNKNOWN = "unknown"
 
 

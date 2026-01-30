@@ -224,6 +224,10 @@ def color_branch_status(branch_status: str) -> str:
         "dirty": "yellow",
         "merged": "blue",
         "conflict": "red",
+        "ahead": "cyan",
+        "behind": "yellow",
+        "diverged": "magenta",
+        "synced": "dim",
     }
     color = colors.get(branch_status, "")
     if color:

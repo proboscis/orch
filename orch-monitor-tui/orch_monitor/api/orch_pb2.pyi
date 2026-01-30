@@ -34,6 +34,10 @@ class BranchState(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     BRANCH_STATE_DIRTY: _ClassVar[BranchState]
     BRANCH_STATE_MERGED: _ClassVar[BranchState]
     BRANCH_STATE_CONFLICT: _ClassVar[BranchState]
+    BRANCH_STATE_AHEAD: _ClassVar[BranchState]
+    BRANCH_STATE_BEHIND: _ClassVar[BranchState]
+    BRANCH_STATE_DIVERGED: _ClassVar[BranchState]
+    BRANCH_STATE_SYNCED: _ClassVar[BranchState]
 
 class Multiplexer(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -59,6 +63,10 @@ BRANCH_STATE_CLEAN: BranchState
 BRANCH_STATE_DIRTY: BranchState
 BRANCH_STATE_MERGED: BranchState
 BRANCH_STATE_CONFLICT: BranchState
+BRANCH_STATE_AHEAD: BranchState
+BRANCH_STATE_BEHIND: BranchState
+BRANCH_STATE_DIVERGED: BranchState
+BRANCH_STATE_SYNCED: BranchState
 MULTIPLEXER_UNSPECIFIED: Multiplexer
 MULTIPLEXER_TMUX: Multiplexer
 MULTIPLEXER_ZELLIJ: Multiplexer

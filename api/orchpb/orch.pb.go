@@ -151,6 +151,10 @@ const (
 	BranchState_BRANCH_STATE_DIRTY       BranchState = 2
 	BranchState_BRANCH_STATE_MERGED      BranchState = 3
 	BranchState_BRANCH_STATE_CONFLICT    BranchState = 4
+	BranchState_BRANCH_STATE_AHEAD       BranchState = 5
+	BranchState_BRANCH_STATE_BEHIND      BranchState = 6
+	BranchState_BRANCH_STATE_DIVERGED    BranchState = 7
+	BranchState_BRANCH_STATE_SYNCED      BranchState = 8
 )
 
 // Enum value maps for BranchState.
@@ -161,6 +165,10 @@ var (
 		2: "BRANCH_STATE_DIRTY",
 		3: "BRANCH_STATE_MERGED",
 		4: "BRANCH_STATE_CONFLICT",
+		5: "BRANCH_STATE_AHEAD",
+		6: "BRANCH_STATE_BEHIND",
+		7: "BRANCH_STATE_DIVERGED",
+		8: "BRANCH_STATE_SYNCED",
 	}
 	BranchState_value = map[string]int32{
 		"BRANCH_STATE_UNSPECIFIED": 0,
@@ -168,6 +176,10 @@ var (
 		"BRANCH_STATE_DIRTY":       2,
 		"BRANCH_STATE_MERGED":      3,
 		"BRANCH_STATE_CONFLICT":    4,
+		"BRANCH_STATE_AHEAD":       5,
+		"BRANCH_STATE_BEHIND":      6,
+		"BRANCH_STATE_DIVERGED":    7,
+		"BRANCH_STATE_SYNCED":      8,
 	}
 )
 
@@ -7144,13 +7156,17 @@ const file_orch_proto_rawDesc = "" +
 	"\x18ISSUE_STATUS_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11ISSUE_STATUS_OPEN\x10\x01\x12\x19\n" +
 	"\x15ISSUE_STATUS_RESOLVED\x10\x02\x12\x17\n" +
-	"\x13ISSUE_STATUS_CLOSED\x10\x03*\x8f\x01\n" +
+	"\x13ISSUE_STATUS_CLOSED\x10\x03*\xf4\x01\n" +
 	"\vBranchState\x12\x1c\n" +
 	"\x18BRANCH_STATE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12BRANCH_STATE_CLEAN\x10\x01\x12\x16\n" +
 	"\x12BRANCH_STATE_DIRTY\x10\x02\x12\x17\n" +
 	"\x13BRANCH_STATE_MERGED\x10\x03\x12\x19\n" +
-	"\x15BRANCH_STATE_CONFLICT\x10\x04*X\n" +
+	"\x15BRANCH_STATE_CONFLICT\x10\x04\x12\x16\n" +
+	"\x12BRANCH_STATE_AHEAD\x10\x05\x12\x17\n" +
+	"\x13BRANCH_STATE_BEHIND\x10\x06\x12\x19\n" +
+	"\x15BRANCH_STATE_DIVERGED\x10\a\x12\x17\n" +
+	"\x13BRANCH_STATE_SYNCED\x10\b*X\n" +
 	"\vMultiplexer\x12\x1b\n" +
 	"\x17MULTIPLEXER_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10MULTIPLEXER_TMUX\x10\x01\x12\x16\n" +

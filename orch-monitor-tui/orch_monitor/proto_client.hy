@@ -86,7 +86,11 @@
   (setv mapping {pb.BRANCH_STATE_CLEAN "clean"
                  pb.BRANCH_STATE_DIRTY "dirty"
                  pb.BRANCH_STATE_MERGED "merged"
-                 pb.BRANCH_STATE_CONFLICT "conflict"})
+                 pb.BRANCH_STATE_CONFLICT "conflict"
+                 pb.BRANCH_STATE_AHEAD "ahead"
+                 pb.BRANCH_STATE_BEHIND "behind"
+                 pb.BRANCH_STATE_DIVERGED "diverged"
+                 pb.BRANCH_STATE_SYNCED "synced"})
   (.get mapping s ""))
 
 ;; Go's time.Time{} zero value serializes to this Unix timestamp (year 0001 AD)

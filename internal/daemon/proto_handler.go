@@ -281,6 +281,16 @@ func enrichRunsParallel(runs []*model.Run, protoRuns []*orchpb.Run) []*orchpb.Ru
 				pr.BranchState = orchpb.BranchState_BRANCH_STATE_MERGED
 			case git.BranchStateClean:
 				pr.BranchState = orchpb.BranchState_BRANCH_STATE_CLEAN
+			case git.BranchStateAhead:
+				pr.BranchState = orchpb.BranchState_BRANCH_STATE_AHEAD
+			case git.BranchStateBehind:
+				pr.BranchState = orchpb.BranchState_BRANCH_STATE_BEHIND
+			case git.BranchStateDiverged:
+				pr.BranchState = orchpb.BranchState_BRANCH_STATE_DIVERGED
+			case git.BranchStateConflict:
+				pr.BranchState = orchpb.BranchState_BRANCH_STATE_CONFLICT
+			case git.BranchStateSynced:
+				pr.BranchState = orchpb.BranchState_BRANCH_STATE_SYNCED
 			default:
 				pr.BranchState = orchpb.BranchState_BRANCH_STATE_UNSPECIFIED
 			}

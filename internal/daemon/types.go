@@ -279,15 +279,31 @@ func formatDuration(d time.Duration) string {
 }
 
 func computeBranchStateString(run *model.Run) string {
-	if run.WorktreePath == "" || run.Branch == "" {
+	if run.WorktreePath == "" {
 		return ""
 	}
 
-	states := git.GetBranchMergeStates("", "main", []string{run.Branch})
-	if state, ok := states[run.Branch]; ok {
-		return state
+	status := git.GetWorktreeStatus(run.WorktreePath, run.Branch, "main")
+	switch status.State {
+	case git.BranchStateDirty:
+		return "dirty"
+	case git.BranchStateMerged:
+		return "merged"
+	case git.BranchStateClean:
+		return "clean"
+	case git.BranchStateAhead:
+		return "ahead"
+	case git.BranchStateBehind:
+		return "behind"
+	case git.BranchStateDiverged:
+		return "diverged"
+	case git.BranchStateConflict:
+		return "conflict"
+	case git.BranchStateSynced:
+		return "synced"
+	default:
+		return ""
 	}
-	return ""
 }
 
 // RunToSummary converts a model.Run to a RunSummary

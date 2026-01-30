@@ -3,6 +3,8 @@ package git
 import (
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -13,6 +15,11 @@ const (
 	BranchStateDirty
 	BranchStateMerged
 	BranchStateClean
+	BranchStateAhead
+	BranchStateBehind
+	BranchStateDiverged
+	BranchStateConflict
+	BranchStateSynced
 )
 
 type WorktreeStatus struct {
@@ -56,21 +63,41 @@ func GetWorktreeStatus(worktreePath, branch, baseBranch string) WorktreeStatus {
 		return WorktreeStatus{State: BranchStateUnspecified}
 	}
 
-	status := WorktreeStatus{State: BranchStateClean}
-
 	if isDirtyFast(worktreePath) {
-		status.State = BranchStateDirty
-		status.DiffStats = getDiffStatsFast(worktreePath, baseBranch)
-		return status
+		return WorktreeStatus{
+			State:     BranchStateDirty,
+			DiffStats: getDiffStatsFast(worktreePath, baseBranch),
+		}
 	}
 
 	if isMergedFast(worktreePath, branch, baseBranch) {
-		status.State = BranchStateMerged
-		return status
+		return WorktreeStatus{State: BranchStateMerged}
 	}
 
-	status.DiffStats = getDiffStatsFast(worktreePath, baseBranch)
-	return status
+	ahead, behind := getAheadBehind(worktreePath, baseBranch)
+
+	if ahead == 0 && behind == 0 {
+		return WorktreeStatus{State: BranchStateSynced}
+	}
+
+	if ahead == 0 && behind > 0 {
+		return WorktreeStatus{State: BranchStateBehind}
+	}
+
+	diffStats := getDiffStatsFast(worktreePath, baseBranch)
+
+	if ahead > 0 && behind > 0 {
+		if hasConflicts(worktreePath, baseBranch) {
+			return WorktreeStatus{State: BranchStateConflict, DiffStats: diffStats}
+		}
+		return WorktreeStatus{State: BranchStateDiverged, DiffStats: diffStats}
+	}
+
+	if hasConflicts(worktreePath, baseBranch) {
+		return WorktreeStatus{State: BranchStateConflict, DiffStats: diffStats}
+	}
+
+	return WorktreeStatus{State: BranchStateAhead, DiffStats: diffStats}
 }
 
 func isMergedFast(worktreePath, branch, baseBranch string) bool {
@@ -131,4 +158,81 @@ func isDirtyFast(worktreePath string) bool {
 	cmd := exec.Command("git", "-C", worktreePath, "diff-index", "--quiet", "HEAD", "--")
 	err := cmd.Run()
 	return err != nil
+}
+
+func getAheadBehind(worktreePath, baseBranch string) (ahead, behind int) {
+	if baseBranch == "" {
+		baseBranch = "main"
+	}
+
+	target := "origin/" + baseBranch
+	cmd := exec.Command("git", "-C", worktreePath, "rev-list", "--left-right", "--count", target+"...HEAD")
+	output, err := cmd.Output()
+	if err != nil {
+		cmd = exec.Command("git", "-C", worktreePath, "rev-list", "--left-right", "--count", baseBranch+"...HEAD")
+		output, err = cmd.Output()
+		if err != nil {
+			return 0, 0
+		}
+	}
+
+	parts := strings.Fields(strings.TrimSpace(string(output)))
+	if len(parts) != 2 {
+		return 0, 0
+	}
+
+	behind, _ = strconv.Atoi(parts[0])
+	ahead, _ = strconv.Atoi(parts[1])
+	return ahead, behind
+}
+
+func hasConflicts(worktreePath, baseBranch string) bool {
+	if baseBranch == "" {
+		baseBranch = "main"
+	}
+
+	target := "origin/" + baseBranch
+	targetCommit := getCommitHash(worktreePath, target)
+	if targetCommit == "" {
+		targetCommit = getCommitHash(worktreePath, baseBranch)
+	}
+	if targetCommit == "" {
+		return false
+	}
+
+	headCommit := getCommitHash(worktreePath, "HEAD")
+	if headCommit == "" {
+		return false
+	}
+
+	baseCommit := getMergeBase(worktreePath, targetCommit, headCommit)
+	if baseCommit == "" {
+		return false
+	}
+
+	cmd := exec.Command("git", "-C", worktreePath, "merge-tree", baseCommit, targetCommit, headCommit)
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+
+	return strings.Contains(string(output), "<<<<<<")
+}
+
+func getCommitHash(worktreePath, ref string) string {
+	cmd := exec.Command("git", "-C", worktreePath, "rev-parse", "--verify", ref)
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
+}
+
+func getMergeBase(worktreePath, commit1, commit2 string) string {
+	cmd := exec.Command("git", "-C", worktreePath, "merge-base", commit1, commit2)
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
 }
