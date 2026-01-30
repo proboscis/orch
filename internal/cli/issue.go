@@ -162,10 +162,10 @@ func runIssueCreateWithEditor(issueID, title string, opts *issueCreateOptions) e
 	var sb strings.Builder
 	sb.WriteString("---\n")
 	sb.WriteString("type: issue\n")
-	sb.WriteString(fmt.Sprintf("id: %s\n", issueID))
-	sb.WriteString(fmt.Sprintf("title: %s\n", title))
+	sb.WriteString(fmt.Sprintf("id: %s\n", model.QuoteYAMLValue(issueID)))
+	sb.WriteString(fmt.Sprintf("title: %s\n", model.QuoteYAMLValue(title)))
 	if opts.Summary != "" {
-		sb.WriteString(fmt.Sprintf("summary: %s\n", opts.Summary))
+		sb.WriteString(fmt.Sprintf("summary: %s\n", model.QuoteYAMLValue(opts.Summary)))
 	}
 	sb.WriteString("status: open\n")
 	sb.WriteString("---\n\n")
