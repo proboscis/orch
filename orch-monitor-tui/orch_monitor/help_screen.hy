@@ -213,7 +213,9 @@
       (= event.button.id "retry-btn")
         (._check_configuration self)
       (= event.button.id "quit-btn")
-        (.action_quit_app self)))
+        (do
+          (setv self._polling False)
+          (safe-dismiss self False))))
   
   (defn action_retry [self]
     (._check_configuration self))
