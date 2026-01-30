@@ -185,6 +185,25 @@ rules:
       category: safety
       layer: tui
 
+  - id: hy-no-raw-dismiss
+    patterns:
+      - pattern-regex: '\(\.dismiss\s+self'
+    paths:
+      include:
+        - "*.hy"
+      exclude:
+        - "macros.hy"
+    message: |
+      Use (safe-dismiss self result) instead of (.dismiss self result).
+      
+      Raw .dismiss calls can cause "Can't await screen.dismiss() from message
+      handler" errors. safe-dismiss uses call_later to defer the dismiss.
+    severity: ERROR
+    languages: [generic]
+    metadata:
+      category: safety
+      layer: tui
+
   # =============================================================================
   # Import Rules - Prevent bypassing OrchAPI
   # =============================================================================

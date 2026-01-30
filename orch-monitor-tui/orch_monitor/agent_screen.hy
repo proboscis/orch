@@ -1,6 +1,6 @@
 ;; AgentSelectScreen - Modal for selecting agent/preset before starting a run
 
-(require orch_monitor.macros [with-fallback-silent])
+(require orch_monitor.macros [with-fallback-silent safe-dismiss])
 
 (import textual.screen [ModalScreen])
 (import textual.binding [Binding])
@@ -113,26 +113,26 @@
   
   (defn action_confirm [self]
     (when (not self.agents)
-      (.dismiss self None)
+      (safe-dismiss self None)
       (return))
     (with-fallback-silent "confirm_agent" None
       (setv sel (.query_one self "#agent-selection-list" SelectionList))
       (if (is-not sel.highlighted None)
-          (.dismiss self (get self.agents sel.highlighted))
+          (safe-dismiss self (get self.agents sel.highlighted))
           (do
             (setv selected sel.selected)
             (for [agent self.agents]
               (when (in agent selected)
-                (.dismiss self agent)
+                (safe-dismiss self agent)
                 (return)))
-            (.dismiss self None)))))
+            (safe-dismiss self None)))))
   
   (defn action_cancel [self]
-    (.dismiss self None))
+    (safe-dismiss self None))
   
   (defn _quick_select [self index]
     (when (and (>= index 0) (< index (len self.agents)))
-      (.dismiss self (get self.agents index))))
+      (safe-dismiss self (get self.agents index))))
   
   ;; Quick select actions (1-9)
   (defn action_quick_select_1 [self] (._quick_select self 0))

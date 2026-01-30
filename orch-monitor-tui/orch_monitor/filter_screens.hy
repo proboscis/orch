@@ -115,7 +115,7 @@
     (safe-dismiss self None))
   
   (defn action_cancel [self]
-    (.dismiss self None))
+    (safe-dismiss self None))
   
   (defn action_apply [self]
     (.apply_filter self)))
@@ -212,7 +212,7 @@
     (safe-dismiss self None))
   
   (defn action_cancel [self]
-    (.dismiss self None))
+    (safe-dismiss self None))
   
   (defn action_apply [self]
     (.apply_filter self)))

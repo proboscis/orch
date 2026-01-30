@@ -87,10 +87,10 @@
     (safe-dismiss self False))
   
   (defn action_confirm [self]
-    (.dismiss self True))
+    (safe-dismiss self True))
   
   (defn action_cancel [self]
-    (.dismiss self False)))
+    (safe-dismiss self False)))
 
 ;; ============================================================================
 ;; CloseIssueConfirmScreen - Confirm closing an issue
@@ -169,7 +169,7 @@
     (safe-dismiss self False))
   
   (defn action_confirm [self]
-    (.dismiss self True))
+    (safe-dismiss self True))
   
   (defn action_cancel [self]
-    (.dismiss self False)))
+    (safe-dismiss self False)))

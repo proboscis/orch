@@ -107,7 +107,7 @@
     (safe-dismiss self None))
   
   (defn action_close [self]
-    (.dismiss self None)))
+    (safe-dismiss self None)))
 
 ;; ============================================================================
 ;; OnboardingScreen
@@ -220,7 +220,7 @@
   
   (defn action_quit_app [self]
     (setv self._polling False)
-    (.dismiss self False)))
+    (safe-dismiss self False)))
 
 ;; ============================================================================
 ;; OnboardingApp
