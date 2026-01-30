@@ -9,10 +9,23 @@ var yamlSpecialChars = []string{
 
 var yamlSpecialPrefixes = []string{"-", "?", " "}
 
+var yamlImplicitScalars = map[string]bool{
+	"true": true, "false": true, "null": true, "~": true,
+	"True": true, "False": true, "Null": true,
+	"TRUE": true, "FALSE": true, "NULL": true,
+	"yes": true, "no": true, "on": true, "off": true,
+	"Yes": true, "No": true, "On": true, "Off": true,
+	"YES": true, "NO": true, "ON": true, "OFF": true,
+}
+
 // NeedsYAMLQuoting returns true if s contains YAML special characters.
 func NeedsYAMLQuoting(s string) bool {
 	if s == "" {
-		return false
+		return true
+	}
+
+	if yamlImplicitScalars[s] {
+		return true
 	}
 
 	for _, prefix := range yamlSpecialPrefixes {

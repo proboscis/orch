@@ -1171,10 +1171,10 @@ func (s *FileStore) CreateIssue(issue *model.Issue) error {
 	var sb strings.Builder
 	sb.WriteString("---\n")
 	sb.WriteString(fmt.Sprintf("type: issue\n"))
-	sb.WriteString(fmt.Sprintf("id: %s\n", issue.ID))
-	sb.WriteString(fmt.Sprintf("title: %s\n", issue.Title))
+	sb.WriteString(fmt.Sprintf("id: %s\n", model.QuoteYAMLValue(issue.ID)))
+	sb.WriteString(fmt.Sprintf("title: %s\n", model.QuoteYAMLValue(issue.Title)))
 	if issue.Summary != "" {
-		sb.WriteString(fmt.Sprintf("summary: %s\n", issue.Summary))
+		sb.WriteString(fmt.Sprintf("summary: %s\n", model.QuoteYAMLValue(issue.Summary)))
 	}
 	sb.WriteString(fmt.Sprintf("status: %s\n", issue.Status))
 	if len(issue.Tags) > 0 {
