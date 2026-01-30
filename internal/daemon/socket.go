@@ -2257,10 +2257,10 @@ func (s *SocketServer) handleCreateIssue(req SendRequest, encoder *json.Encoder)
 	var sb strings.Builder
 	sb.WriteString("---\n")
 	sb.WriteString("type: issue\n")
-	sb.WriteString("id: " + req.IssueID + "\n")
-	sb.WriteString("title: " + title + "\n")
+	sb.WriteString("id: " + model.QuoteYAMLValue(req.IssueID) + "\n")
+	sb.WriteString("title: " + model.QuoteYAMLValue(title) + "\n")
 	if req.Summary != "" {
-		sb.WriteString("summary: " + req.Summary + "\n")
+		sb.WriteString("summary: " + model.QuoteYAMLValue(req.Summary) + "\n")
 	}
 	sb.WriteString("status: open\n")
 	sb.WriteString("---\n\n")
