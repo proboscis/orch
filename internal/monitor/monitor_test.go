@@ -236,6 +236,13 @@ func TestParseAgentPreset(t *testing.T) {
 	}
 }
 
+func TestIsDaemonHealthy_NilClient(t *testing.T) {
+	m := &Monitor{daemonClient: nil}
+	if m.isDaemonHealthy() {
+		t.Error("isDaemonHealthy() with nil client should return false")
+	}
+}
+
 func TestDashboardRenderCapture(t *testing.T) {
 	tests := []struct {
 		name         string

@@ -28,6 +28,10 @@ const (
 	defaultSessionName  = "orch-monitor"
 	dashboardWindowName = "dashboard"
 	dashboardWindowIdx  = 0
+
+	daemonHealthCheckTimeout = 2 * time.Second
+	daemonPingTimeout        = 500 * time.Millisecond
+	daemonRetryInterval      = 100 * time.Millisecond
 )
 
 const (
@@ -316,8 +320,59 @@ func sessionNameForProject(projectRoot string) string {
 	return fmt.Sprintf("orch-%s-%s", baseName, shortHash)
 }
 
-// Start creates or attaches to the monitor session.
+func (m *Monitor) ensureDaemonHealthy() error {
+	startTime := time.Now()
+
+	if m.isDaemonHealthy() {
+		return nil
+	}
+
+	m.logger.Printf("daemon unhealthy, attempting repair...")
+
+	if daemon.IsRunning("") {
+		m.logger.Printf("killing stale daemon...")
+		if err := daemon.KillDaemon(""); err != nil {
+			m.logger.Printf("warning: failed to kill daemon: %v", err)
+		}
+		time.Sleep(daemonRetryInterval)
+	}
+
+	m.logger.Printf("starting fresh daemon...")
+	if _, err := daemon.StartInBackground(); err != nil {
+		return fmt.Errorf("failed to start daemon: %w", err)
+	}
+
+	deadline := startTime.Add(daemonHealthCheckTimeout)
+	for time.Now().Before(deadline) {
+		time.Sleep(daemonRetryInterval)
+		if m.isDaemonHealthy() {
+			m.logger.Printf("daemon healthy after repair (took %v)", time.Since(startTime))
+			return nil
+		}
+	}
+
+	return fmt.Errorf("daemon health check failed: daemon did not become healthy within %v\nRun 'orch repair' to diagnose further", daemonHealthCheckTimeout)
+}
+
+func (m *Monitor) isDaemonHealthy() bool {
+	if m.daemonClient == nil {
+		return false
+	}
+	if !m.daemonClient.IsAvailable() {
+		return false
+	}
+
+	m.daemonClient.SetTimeout(daemonPingTimeout)
+	defer m.daemonClient.SetTimeout(10 * time.Second)
+
+	return m.daemonClient.Ping() == nil
+}
+
 func (m *Monitor) Start() error {
+	if err := m.ensureDaemonHealthy(); err != nil {
+		return fmt.Errorf("daemon health check failed: %w", err)
+	}
+
 	if !m.mux.IsAvailable() {
 		return fmt.Errorf("%s is not available", m.mux.Type())
 	}
