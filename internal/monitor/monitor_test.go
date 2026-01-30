@@ -243,6 +243,25 @@ func TestIsDaemonHealthy_NilClient(t *testing.T) {
 	}
 }
 
+func TestCheckDaemonHealth_NilClient(t *testing.T) {
+	m := &Monitor{daemonClient: nil}
+	healthy, err := m.checkDaemonHealth()
+	if healthy {
+		t.Error("checkDaemonHealth() with nil client should return false")
+	}
+	if err == nil {
+		t.Error("checkDaemonHealth() with nil client should return error")
+	}
+}
+
+func TestCheckDaemonHealth_ReturnsError(t *testing.T) {
+	m := &Monitor{daemonClient: nil}
+	_, err := m.checkDaemonHealth()
+	if err == nil || err.Error() != "daemon client not initialized" {
+		t.Errorf("checkDaemonHealth() error = %v, want 'daemon client not initialized'", err)
+	}
+}
+
 func TestDashboardRenderCapture(t *testing.T) {
 	tests := []struct {
 		name         string

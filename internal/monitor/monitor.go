@@ -321,9 +321,7 @@ func sessionNameForProject(projectRoot string) string {
 }
 
 func (m *Monitor) ensureDaemonHealthy() error {
-	startTime := time.Now()
-
-	if m.isDaemonHealthy() {
+	if healthy, _ := m.checkDaemonHealth(); healthy {
 		return nil
 	}
 
@@ -342,30 +340,44 @@ func (m *Monitor) ensureDaemonHealthy() error {
 		return fmt.Errorf("failed to start daemon: %w", err)
 	}
 
+	startTime := time.Now()
 	deadline := startTime.Add(daemonHealthCheckTimeout)
+	var lastErr error
 	for time.Now().Before(deadline) {
 		time.Sleep(daemonRetryInterval)
-		if m.isDaemonHealthy() {
+		healthy, err := m.checkDaemonHealth()
+		if healthy {
 			m.logger.Printf("daemon healthy after repair (took %v)", time.Since(startTime))
 			return nil
 		}
+		lastErr = err
 	}
 
-	return fmt.Errorf("daemon health check failed: daemon did not become healthy within %v\nRun 'orch repair' to diagnose further", daemonHealthCheckTimeout)
+	if lastErr != nil {
+		return fmt.Errorf("daemon did not become healthy within %v: %w\nRun 'orch repair' to diagnose further", daemonHealthCheckTimeout, lastErr)
+	}
+	return fmt.Errorf("daemon did not become healthy within %v\nRun 'orch repair' to diagnose further", daemonHealthCheckTimeout)
+}
+
+func (m *Monitor) checkDaemonHealth() (bool, error) {
+	if m.daemonClient == nil {
+		return false, fmt.Errorf("daemon client not initialized")
+	}
+	if !m.daemonClient.IsAvailable() {
+		return false, fmt.Errorf("daemon not available")
+	}
+
+	pingClient := daemon.NewProtoClient(m.projectRoot)
+	pingClient.SetTimeout(daemonPingTimeout)
+	if err := pingClient.Ping(); err != nil {
+		return false, fmt.Errorf("daemon ping failed: %w", err)
+	}
+	return true, nil
 }
 
 func (m *Monitor) isDaemonHealthy() bool {
-	if m.daemonClient == nil {
-		return false
-	}
-	if !m.daemonClient.IsAvailable() {
-		return false
-	}
-
-	m.daemonClient.SetTimeout(daemonPingTimeout)
-	defer m.daemonClient.SetTimeout(10 * time.Second)
-
-	return m.daemonClient.Ping() == nil
+	healthy, _ := m.checkDaemonHealth()
+	return healthy
 }
 
 func (m *Monitor) Start() error {
