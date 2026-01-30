@@ -1271,10 +1271,11 @@ func (s *SocketServer) handleGetControlAgentLaunch(req SendRequest, encoder *jso
 		if err != nil {
 			s.logger.Printf("warning: server running but failed to get session: %v", err)
 			// Still return the command, but without session
-			command = fmt.Sprintf("opencode attach http://127.0.0.1:%d", port)
+			command = fmt.Sprintf("opencode attach http://127.0.0.1:%d --dir %s", port, req.ProjectRoot)
 		} else {
 			sessionID = session
-			command = fmt.Sprintf("opencode attach http://127.0.0.1:%d --session %s", port, sessionID)
+			// Include --dir to match the directory the session was created with
+			command = fmt.Sprintf("opencode attach http://127.0.0.1:%d --session %s --dir %s", port, sessionID, req.ProjectRoot)
 		}
 	} else {
 		// CLI-based agents (claude, codex, gemini, custom)
