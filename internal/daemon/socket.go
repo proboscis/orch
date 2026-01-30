@@ -1744,42 +1744,9 @@ func (s *SocketServer) handleGetIssue(req SendRequest, encoder *json.Encoder) {
 }
 
 func SendViaDaemon(projectRoot, issuesRoot string, run *model.Run, message string, noEnter bool) error {
-	socketPath := xdg.SocketPath()
-
-	conn, err := net.DialTimeout("unix", socketPath, 5*time.Second)
-	if err != nil {
-		return fmt.Errorf("failed to connect to daemon: %w", err)
-	}
-	defer conn.Close()
-
-	conn.SetDeadline(time.Now().Add(35 * time.Second))
-
-	req := SendRequest{
-		Type:        "send",
-		IssueID:     run.IssueID,
-		RunID:       run.RunID,
-		Message:     message,
-		NoEnter:     noEnter,
-		ProjectRoot: projectRoot,
-		IssuesRoot:  issuesRoot,
-	}
-
-	encoder := json.NewEncoder(conn)
-	if err := encoder.Encode(req); err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
-	}
-
-	decoder := json.NewDecoder(conn)
-	var resp SendResponse
-	if err := decoder.Decode(&resp); err != nil {
-		return fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if !resp.OK {
-		return fmt.Errorf("daemon error: %s", resp.Error)
-	}
-
-	return nil
+	client := NewProtoClientWithIssuesRoot(projectRoot, issuesRoot)
+	client.SetTimeout(35 * time.Second)
+	return client.SendMessage(run.IssueID, run.RunID, message)
 }
 
 // IsDaemonSocketAvailable checks if the global daemon socket exists.
