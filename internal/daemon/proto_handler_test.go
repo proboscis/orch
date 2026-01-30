@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"testing"
+	"time"
 
 	orchpb "github.com/s22625/orch/api/orchpb"
 	"github.com/s22625/orch/internal/model"
@@ -226,5 +227,55 @@ func TestComputeBranchState(t *testing.T) {
 				t.Errorf("computeBranchState(%q, ...) = %v, want %v", tt.worktreePath, got, tt.wantState)
 			}
 		})
+	}
+}
+
+func TestNewEventSetsTimestamp(t *testing.T) {
+	before := time.Now()
+	event := model.NewEvent(model.EventTypeStatus, "running", nil)
+	after := time.Now()
+
+	if event.Timestamp.IsZero() {
+		t.Error("NewEvent should set a non-zero timestamp")
+	}
+	if event.Timestamp.Before(before) || event.Timestamp.After(after) {
+		t.Errorf("NewEvent timestamp %v should be between %v and %v", event.Timestamp, before, after)
+	}
+	if event.Type != model.EventTypeStatus {
+		t.Errorf("event.Type = %v, want %v", event.Type, model.EventTypeStatus)
+	}
+	if event.Name != "running" {
+		t.Errorf("event.Name = %q, want %q", event.Name, "running")
+	}
+}
+
+func TestProtoAppendEventUsesNewEvent(t *testing.T) {
+	req := &orchpb.AppendEventRequest{
+		IssuesRoot: "/tmp/test",
+		IssueId:    "test-001",
+		RunId:      "20260130-120000",
+		EventType:  "status",
+		EventName:  "running",
+		EventAttrs: map[string]string{"source": "agent"},
+	}
+
+	before := time.Now()
+	event := model.NewEvent(model.EventType(req.EventType), req.EventName, req.EventAttrs)
+	after := time.Now()
+
+	if event.Timestamp.IsZero() {
+		t.Error("event created for proto AppendEvent should have non-zero timestamp")
+	}
+	if event.Timestamp.Before(before) || event.Timestamp.After(after) {
+		t.Errorf("event timestamp %v should be between %v and %v", event.Timestamp, before, after)
+	}
+	if event.Type != model.EventTypeStatus {
+		t.Errorf("event.Type = %v, want %v", event.Type, model.EventTypeStatus)
+	}
+	if event.Name != "running" {
+		t.Errorf("event.Name = %q, want %q", event.Name, "running")
+	}
+	if event.Attrs["source"] != "agent" {
+		t.Errorf("event.Attrs[source] = %q, want %q", event.Attrs["source"], "agent")
 	}
 }

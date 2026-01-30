@@ -1065,11 +1065,7 @@ func (s *SocketServer) handleProtoAppendEvent(req *orchpb.AppendEventRequest) *o
 	}
 
 	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
-	event := &model.Event{
-		Type:  model.EventType(req.EventType),
-		Name:  req.EventName,
-		Attrs: req.EventAttrs,
-	}
+	event := model.NewEvent(model.EventType(req.EventType), req.EventName, req.EventAttrs)
 
 	if err := st.AppendEvent(ref, event); err != nil {
 		return errorResponse(err.Error())
