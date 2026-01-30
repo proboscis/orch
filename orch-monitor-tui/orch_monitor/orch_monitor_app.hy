@@ -338,7 +338,7 @@
       (when-none error
         (setv error (str issues-response))))
     (when-some [i issues]
-      (.sort issues :key (fn [i] i.id)))
+      (.sort issues :key (fn [i] i.id) :reverse True))
     
     (.call_from_thread self self._update_all_tables runs issues error))
   

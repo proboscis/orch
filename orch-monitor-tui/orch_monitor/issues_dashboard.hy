@@ -211,7 +211,7 @@
     (if-ok [response (.list_issues self.api filters)]
       (do
         (setv issues (_api_issues_to_model_issues response.issues))
-        (.sort issues :key (fn [i] i.id))
+        (.sort issues :key (fn [i] i.id) :reverse True)
         (.call_from_thread self self._update_issues_table issues None))
       (.call_from_thread self self._update_issues_table None (str response))))
   
