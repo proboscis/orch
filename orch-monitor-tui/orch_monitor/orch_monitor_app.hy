@@ -417,7 +417,10 @@
       (return))
     (when run
       (setv self.selected_run run)
-      (.show_run_detail self run)))
+      ;; Show immediate data first (non-blocking)
+      (._show_run_detail_immediate self run)
+      ;; Fetch session output asynchronously
+      (._fetch_run_session_output self run run-ref)))
   
   (defn [(on IssueTable.RowHighlighted)] on_issue_highlighted [self event]
     (setv issue-id (if event.row_key event.row_key.value None))
@@ -446,10 +449,94 @@
       (.show_issue_detail self issue)))
   
   ;; =========================================================================
-  ;; Detail panel display
+  ;; Detail panel display - Split into immediate and async parts
   ;; =========================================================================
   
+  (defn _show_run_detail_immediate [self run]
+    "Show run detail with immediate data and loading indicator for session output."
+    (setv detail-panel (.query_one self "#detail-panel" DetailPanel))
+    (setv date-fmt "%Y-%m-%d %H:%M:%S")
+    (setv started-str (if run.started_at (.strftime run.started_at date-fmt) "-"))
+    (setv updated-str (if run.updated_at (.strftime run.updated_at date-fmt) "-"))
+    (setv agent-str (or run.agent "-"))
+    (setv branch-str (or run.branch "-"))
+    (setv worktree-str (or run.worktree_path "-"))
+    (setv session-str (or run.tmux_session "-"))
+    (setv mux-str (or run.multiplexer "-"))
+    (setv content-lines
+      [f"Run: {(.ref run)}"
+       f"Status: {run.status.value}"
+       f"Agent: {agent-str}"
+       f"Started: {started-str}"
+       f"Updated: {updated-str}"
+       f"Elapsed: {(.elapsed_time run)}"
+       f"Branch: {branch-str}"
+       f"Worktree: {worktree-str}"
+       f"Session: {session-str}"
+       f"Multiplexer: {mux-str}"])
+    (when (or (> run.additions 0) (> run.deletions 0))
+      (.extend content-lines ["" (+ "[bold]" (* "-" 50) "[/bold]")
+                              f"[bold]Changes: [green]+{run.additions}[/green] [red]-{run.deletions}[/red][/bold]"]))
+    (.extend content-lines ["" "" (+ "[bold]" (* "-" 50) "[/bold]")
+                            "[bold]Recent Messages:[/bold]" ""])
+    (if run.tmux_session
+        (.append content-lines "  [dim italic]Loading...[/dim italic]")
+        (.append content-lines "  [dim](No tmux session available)[/dim]"))
+    (.update_content detail-panel (.join "\n" content-lines) f"Run Details: {(.ref run)}"))
+  
+  (defn [(work :thread True :exclusive True :group "run-detail")] _fetch_run_session_output [self run run-ref]
+    "Fetch session output asynchronously and update the detail panel."
+    (setv messages (when run.tmux_session (._fetch_session_output self run)))
+    (.call_from_thread self self._apply_run_session_output run run-ref messages))
+  
+  (defn _apply_run_session_output [self run run-ref messages]
+    "Apply fetched session output to detail panel. Called from main thread."
+    ;; Only update if this is still the highlighted run
+    (when (!= (getattr self "_highlighted_run_ref" None) run-ref)
+      (return))
+    (setv detail-panel (with-fallback-silent "query_detail_panel" None
+                         (.query_one self "#detail-panel" DetailPanel)))
+    (when (is detail-panel None)
+      (return))
+    ;; Rebuild content with session output
+    (setv date-fmt "%Y-%m-%d %H:%M:%S")
+    (setv started-str (if run.started_at (.strftime run.started_at date-fmt) "-"))
+    (setv updated-str (if run.updated_at (.strftime run.updated_at date-fmt) "-"))
+    (setv agent-str (or run.agent "-"))
+    (setv branch-str (or run.branch "-"))
+    (setv worktree-str (or run.worktree_path "-"))
+    (setv session-str (or run.tmux_session "-"))
+    (setv mux-str (or run.multiplexer "-"))
+    (setv content-lines
+      [f"Run: {(.ref run)}"
+       f"Status: {run.status.value}"
+       f"Agent: {agent-str}"
+       f"Started: {started-str}"
+       f"Updated: {updated-str}"
+       f"Elapsed: {(.elapsed_time run)}"
+       f"Branch: {branch-str}"
+       f"Worktree: {worktree-str}"
+       f"Session: {session-str}"
+       f"Multiplexer: {mux-str}"])
+    (when (or (> run.additions 0) (> run.deletions 0))
+      (.extend content-lines ["" (+ "[bold]" (* "-" 50) "[/bold]")
+                              f"[bold]Changes: [green]+{run.additions}[/green] [red]-{run.deletions}[/red][/bold]"]))
+    (.extend content-lines ["" "" (+ "[bold]" (* "-" 50) "[/bold]")
+                            "[bold]Recent Messages:[/bold]" ""])
+    (if messages
+        (do
+          (for [line (cut messages -15 None)]
+            (setv display-line (if (> (len line) 100) (+ (cut line 0 100) "...") line))
+            (.append content-lines f"  {display-line}"))
+          (when (in run.status [Status.RUNNING Status.BOOTING])
+            (.extend content-lines ["" "[dim]--- Streaming... ---[/dim]"])))
+        (if run.tmux_session
+            (.append content-lines "  [dim](No output captured)[/dim]")
+            (.append content-lines "  [dim](No tmux session available)[/dim]")))
+    (.update_content detail-panel (.join "\n" content-lines) f"Run Details: {(.ref run)}"))
+  
   (defn show_run_detail [self run]
+    "Show run detail with session output. Used by _do_message_refresh."
     (setv detail-panel (.query_one self "#detail-panel" DetailPanel))
     (setv date-fmt "%Y-%m-%d %H:%M:%S")
     (setv started-str (if run.started_at (.strftime run.started_at date-fmt) "-"))

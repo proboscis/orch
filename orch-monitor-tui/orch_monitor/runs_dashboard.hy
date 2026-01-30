@@ -366,14 +366,18 @@ DataTable {
   (defn _set_selected_run [self run run-ref]
     (when (= (getattr self "_highlighted_run_ref" None) run-ref)
       (setv self.selected_run run)
-      (._update_run_detail_panel self run)))
+      ;; Update panel immediately with available data (non-blocking)
+      (._update_run_detail_panel_immediate self run)
+      ;; Fetch additional data asynchronously
+      (when run
+        (._fetch_additional_detail_data self run run-ref))))
   
   ;; =========================================================================
-  ;; Detail panel - Uses with-fallback-silent for UI queries
+  ;; Detail panel - Split into immediate (non-blocking) and async parts
   ;; =========================================================================
   
-  (defn _update_run_detail_panel [self run]
-    "Update the detail panel with run info. Silent fallback for UI queries."
+  (defn _update_run_detail_panel_immediate [self run]
+    "Update the detail panel with immediately available data. No blocking calls."
     (setv tabs-panel (with-fallback-silent "query_run_detail_tabs" None
                        (.query_one self "#run-detail-tabs" TabbedStatsPanel)))
     (when (is tabs-panel None)
@@ -381,7 +385,7 @@ DataTable {
     (when (not run)
       (.clear_all tabs-panel)
       (return))
-    ;; === Stats Tab ===
+    ;; === Stats Tab - Show immediate data with loading indicator for async content ===
     (setv agent-str (or run.agent "-"))
     (setv stats-lines [f"[bold]{(.ref run)}[/bold]"
                        ""
@@ -395,13 +399,79 @@ DataTable {
       (.append stats-lines f"[bold]Branch:[/bold] {run.branch}"))
     (when run.pr_url
       (.append stats-lines f"[bold]PR:[/bold] {run.pr_url}"))
-    ;; Add chat messages or session output
+    ;; Show loading indicator for chat/session output
     (cond
       (and (= run.agent "opencode") run.server_port run.opencode_session_id)
       (do
         (.append stats-lines "")
         (.append stats-lines "[bold]Chat Messages:[/bold]")
-        (setv messages (._fetch_opencode_messages self run))
+        (.append stats-lines "[dim italic]Loading...[/dim italic]"))
+      run.tmux_session
+      (do
+        (.append stats-lines "")
+        (.append stats-lines "[bold]Session Output:[/bold]")
+        (.append stats-lines "[dim italic]Loading...[/dim italic]")))
+    (.update_stats tabs-panel (.join "\n" stats-lines))
+    ;; === Issue Tab - Show loading indicator ===
+    (.update_issue tabs-panel f"[dim italic]Loading issue {run.issue_id}...[/dim italic]")
+    ;; === Changes Tab - This data is already in run object, show immediately ===
+    (if (or (> run.additions 0) (> run.deletions 0))
+        (.update_changes tabs-panel
+          f"[bold]Total: [green]+{run.additions}[/green] [red]-{run.deletions}[/red][/bold]")
+        (.update_changes tabs-panel "[dim]No changes detected[/dim]")))
+  
+  (defn [(work :thread True :exclusive True :group "detail")] _fetch_additional_detail_data [self run run-ref]
+    "Fetch additional detail data asynchronously (chat messages, issue, session output)."
+    ;; Fetch all data in the background thread
+    (setv messages None)
+    (setv session-output None)
+    (setv issue None)
+    
+    ;; Fetch chat messages or session output
+    (cond
+      (and (= run.agent "opencode") run.server_port run.opencode_session_id)
+      (setv messages (._fetch_opencode_messages self run))
+      run.tmux_session
+      (setv session-output (._capture_session_output self run)))
+    
+    ;; Fetch issue data
+    (setv issue (._get_issue_for_run self run))
+    
+    ;; Update UI from main thread
+    (.call_from_thread self self._apply_additional_detail_data 
+                       run run-ref messages session-output issue))
+  
+  (defn _apply_additional_detail_data [self run run-ref messages session-output issue]
+    "Apply fetched additional data to the detail panel. Called from main thread."
+    ;; Only update if this is still the highlighted run
+    (when (!= (getattr self "_highlighted_run_ref" None) run-ref)
+      (return))
+    
+    (setv tabs-panel (with-fallback-silent "query_run_detail_tabs" None
+                       (.query_one self "#run-detail-tabs" TabbedStatsPanel)))
+    (when (is tabs-panel None)
+      (return))
+    
+    ;; === Update Stats Tab with chat messages or session output ===
+    (setv agent-str (or run.agent "-"))
+    (setv stats-lines [f"[bold]{(.ref run)}[/bold]"
+                       ""
+                       f"[bold]Status:[/bold] {run.status.value}"
+                       f"[bold]Elapsed:[/bold] {(.elapsed_time run)}"
+                       f"[bold]Agent:[/bold] {agent-str}"])
+    (when run.model
+      (setv model-str (model_display_name run.model run.model_variant))
+      (.append stats-lines f"[bold]Model:[/bold] {model-str}"))
+    (when run.branch
+      (.append stats-lines f"[bold]Branch:[/bold] {run.branch}"))
+    (when run.pr_url
+      (.append stats-lines f"[bold]PR:[/bold] {run.pr_url}"))
+    
+    (cond
+      (is-not messages None)
+      (do
+        (.append stats-lines "")
+        (.append stats-lines "[bold]Chat Messages:[/bold]")
         (if messages
             (for [msg (cut messages -8 None)]
               (setv role (.get msg "role" "?"))
@@ -410,18 +480,18 @@ DataTable {
                 (setv color (if (= role "assistant") "cyan" "green"))
                 (.append stats-lines f"[{color}]{role}:[/{color}] {text}")))
             (.append stats-lines "[dim]No messages yet[/dim]")))
-      run.tmux_session
+      (is-not session-output None)
       (do
         (.append stats-lines "")
         (.append stats-lines "[bold]Session Output:[/bold]")
-        (setv output (._capture_session_output self run))
-        (if output
-            (for [line (cut output -12 None)]
+        (if session-output
+            (for [line (cut session-output -12 None)]
               (.append stats-lines f"[dim]{line}[/dim]"))
             (.append stats-lines "[dim]No output captured[/dim]"))))
+    
     (.update_stats tabs-panel (.join "\n" stats-lines))
-    ;; === Issue Tab ===
-    (setv issue (._get_issue_for_run self run))
+    
+    ;; === Update Issue Tab ===
     (if issue
         (do
           (setv issue-title (or issue.title issue.id))
@@ -436,12 +506,7 @@ DataTable {
             issue.body (.append issue-lines issue.body)
             issue.summary (.append issue-lines issue.summary))
           (.update_issue tabs-panel (.join "\n" issue-lines)))
-        (.update_issue tabs-panel f"[dim]Issue not found: {run.issue_id}[/dim]"))
-    ;; === Changes Tab ===
-    (if (or (> run.additions 0) (> run.deletions 0))
-        (.update_changes tabs-panel
-          f"[bold]Total: [green]+{run.additions}[/green] [red]-{run.deletions}[/red][/bold]")
-        (.update_changes tabs-panel "[dim]No changes detected[/dim]")))
+        (.update_issue tabs-panel f"[dim]Issue not found: {run.issue_id}[/dim]")))
   
   ;; =========================================================================
   ;; Helper methods - All use with-fallback-silent for non-critical ops
