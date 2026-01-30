@@ -2,8 +2,10 @@ package cli
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
+	"time"
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/config"
@@ -117,12 +119,35 @@ func runAttach(refStr string, opts *attachOptions) error {
 }
 
 func attachOpenCodeFromInfo(info *daemon.GetAttachInfoResponse) error {
-	if info.ServerPort == 0 {
-		fmt.Fprintf(os.Stderr, "no server port found for opencode run: %s#%s\n", info.IssueID, info.RunID)
+	if info.ServerPort == 0 && info.OpenCodeSessionID == "" {
+		fmt.Fprintf(os.Stderr, "no server port or session found for opencode run: %s#%s\n", info.IssueID, info.RunID)
 		os.Exit(ExitRunNotFound)
-		return fmt.Errorf("no server port found")
+		return fmt.Errorf("no server port or session found")
 	}
 
+	if info.ServerPort > 0 && isPortOpen(info.ServerPort) {
+		return attachToRunningOpenCode(info)
+	}
+
+	if info.OpenCodeSessionID != "" && info.WorktreePath != "" {
+		return resumeOpenCodeSession(info)
+	}
+
+	fmt.Fprintf(os.Stderr, "opencode server not running and no session to resume\n")
+	os.Exit(ExitRunNotFound)
+	return fmt.Errorf("cannot attach")
+}
+
+func isPortOpen(port int) bool {
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 500*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
+func attachToRunningOpenCode(info *daemon.GetAttachInfoResponse) error {
 	serverURL := fmt.Sprintf("http://127.0.0.1:%d", info.ServerPort)
 
 	fmt.Fprintf(os.Stderr, "Attaching to opencode server: %s\n", serverURL)
@@ -146,6 +171,30 @@ func attachOpenCodeFromInfo(info *daemon.GetAttachInfoResponse) error {
 		fmt.Fprintf(os.Stderr, "failed to attach to opencode: %v\n", err)
 		fmt.Fprintf(os.Stderr, "\nManual: opencode attach %s --session %s --dir %s\n",
 			serverURL, info.OpenCodeSessionID, info.WorktreePath)
+		os.Exit(ExitTmuxError)
+		return err
+	}
+
+	return nil
+}
+
+func resumeOpenCodeSession(info *daemon.GetAttachInfoResponse) error {
+	fmt.Fprintf(os.Stderr, "Server not running, resuming session in worktree\n")
+	fmt.Fprintf(os.Stderr, "Session: %s\n", info.OpenCodeSessionID)
+	fmt.Fprintf(os.Stderr, "Worktree: %s\n\n", info.WorktreePath)
+
+	args := []string{"--session", info.OpenCodeSessionID, info.WorktreePath}
+
+	cmd := exec.Command("opencode", args...)
+	cmd.Dir = info.WorktreePath
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to resume opencode session: %v\n", err)
+		fmt.Fprintf(os.Stderr, "\nManual: cd %s && opencode --session %s\n",
+			info.WorktreePath, info.OpenCodeSessionID)
 		os.Exit(ExitTmuxError)
 		return err
 	}
