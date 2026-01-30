@@ -259,10 +259,32 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 		idx.DirMtimes[issueID] = currentDirMtime
 	}
 
+	// Build set of directories we intended to iterate
+	intendedDirs := make(map[string]bool)
+	for _, dir := range issueDirs {
+		intendedDirs[dir] = true
+	}
+
 	for key := range idx.Entries {
 		if !seenKeys[key] {
-			delete(idx.Entries, key)
-			indexDirty = true
+			parts := strings.SplitN(key, "/", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			keyIssueID := parts[0]
+
+			// When filtering by issue, only clean up entries for that specific issue
+			// This prevents accidentally deleting entries for other issues
+			if filter != nil && filter.IssueID != "" {
+				if intendedDirs[keyIssueID] {
+					delete(idx.Entries, key)
+					indexDirty = true
+				}
+			} else {
+				// Not filtering: clean up all stale entries
+				delete(idx.Entries, key)
+				indexDirty = true
+			}
 		}
 	}
 
