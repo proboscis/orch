@@ -208,14 +208,12 @@
       (.notify self "Configuration detected!" :severity "information")
       (safe-dismiss self True)))
   
-  (defn on_button_pressed [self event]
-    (cond
-      (= event.button.id "retry-btn")
-        (._check_configuration self)
-      (= event.button.id "quit-btn")
-        (do
-          (setv self._polling False)
-          (safe-dismiss self False))))
+  (defon (Button.Pressed "#retry-btn") retry_pressed [self]
+    (._check_configuration self))
+  
+  (defon (Button.Pressed "#quit-btn") quit_pressed [self]
+    (setv self._polling False)
+    (safe-dismiss self False))
   
   (defn action_retry [self]
     (._check_configuration self))

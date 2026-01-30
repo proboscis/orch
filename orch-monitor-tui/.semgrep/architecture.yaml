@@ -157,6 +157,35 @@ rules:
       layer: tui
 
   # =============================================================================
+  # Textual Message Handler Safety Rules
+  # =============================================================================
+  # Message handlers (on_* methods) that call .dismiss() directly cause
+  # "Can't await screen.dismiss() from message handler" errors.
+  # Use defon macro with safe-dismiss instead.
+
+  - id: hy-use-defon-for-message-handlers
+    patterns:
+      - pattern-regex: '\(defn\s+on_(button_pressed|key|click|input_changed|selection_changed)\s+\[self'
+    paths:
+      include:
+        - "*.hy"
+      exclude:
+        - "macros.hy"
+    message: |
+      Use (defon ...) macro instead of (defn on_*) for Textual message handlers.
+      
+      Message handlers that call .dismiss() directly cause ScreenError.
+      The defon macro enforces safe-dismiss usage at compile time.
+      
+      Change: (defn on_button_pressed [self event] ...)
+      To:     (defon (Button.Pressed) handler [self event] ...)
+    severity: ERROR
+    languages: [generic]
+    metadata:
+      category: safety
+      layer: tui
+
+  # =============================================================================
   # Import Rules - Prevent bypassing OrchAPI
   # =============================================================================
 
