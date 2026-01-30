@@ -215,11 +215,7 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 	}
 
 	protoRuns := make([]*orchpb.Run, len(runs))
-	for i, run := range runs {
-		pr := modelRunToProto(run)
-		enrichRunProto(pr, run)
-		protoRuns[i] = pr
-	}
+	protoRuns = enrichRunsParallel(runs, protoRuns)
 
 	return &orchpb.Response{
 		Ok: true,
@@ -246,6 +242,63 @@ func enrichRunProto(pr *orchpb.Run, run *model.Run) {
 		}
 	}
 	pr.ElapsedDisplay = formatElapsedTime(run.StartedAt, run.UpdatedAt, run.Status)
+}
+
+func enrichRunsParallel(runs []*model.Run, protoRuns []*orchpb.Run) []*orchpb.Run {
+	if len(runs) == 0 {
+		return protoRuns
+	}
+
+	worktrees := make([]struct {
+		Path       string
+		Branch     string
+		BaseBranch string
+	}, 0, len(runs))
+
+	for _, run := range runs {
+		worktrees = append(worktrees, struct {
+			Path       string
+			Branch     string
+			BaseBranch string
+		}{
+			Path:       run.WorktreePath,
+			Branch:     run.Branch,
+			BaseBranch: "main",
+		})
+	}
+
+	statusMap := git.GetWorktreeStatusBatch(worktrees)
+
+	for i, run := range runs {
+		pr := modelRunToProto(run)
+		pr.ElapsedDisplay = formatElapsedTime(run.StartedAt, run.UpdatedAt, run.Status)
+
+		if status, ok := statusMap[run.WorktreePath]; ok {
+			switch status.State {
+			case git.BranchStateDirty:
+				pr.BranchState = orchpb.BranchState_BRANCH_STATE_DIRTY
+			case git.BranchStateMerged:
+				pr.BranchState = orchpb.BranchState_BRANCH_STATE_MERGED
+			case git.BranchStateClean:
+				pr.BranchState = orchpb.BranchState_BRANCH_STATE_CLEAN
+			default:
+				pr.BranchState = orchpb.BranchState_BRANCH_STATE_UNSPECIFIED
+			}
+
+			if status.DiffStats.Additions > 0 || status.DiffStats.Deletions > 0 || status.DiffStats.FilesChanged > 0 {
+				pr.DiffStats = &orchpb.DiffStats{
+					Additions:    int32(status.DiffStats.Additions),
+					Deletions:    int32(status.DiffStats.Deletions),
+					FilesChanged: int32(status.DiffStats.FilesChanged),
+					Files:        status.DiffStats.Files,
+				}
+			}
+		}
+
+		protoRuns[i] = pr
+	}
+
+	return protoRuns
 }
 
 func formatElapsedTime(startedAt, updatedAt time.Time, status model.Status) string {
