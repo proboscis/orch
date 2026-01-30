@@ -1196,11 +1196,14 @@
 ;; ============================================================================
 
 (defmacro safe-dismiss [self result]
-  "Dismiss a ModalScreen safely from any context (including message handlers).
-   Textual's push_screen(screen, callback) internally awaits dismiss().
-   Calling dismiss() directly from an @on handler deadlocks — call_later defers
-   it past the handler boundary."
-  `(.call_later ~self (. ~self dismiss) ~result))
+  "Dismiss a ModalScreen safely from message handlers.
+   
+   dismiss() returns AwaitComplete. If a message handler returns an awaitable,
+   Textual automatically awaits it - which triggers ScreenError. We must
+   discard the return value so the handler returns None instead."
+  `(do
+     (.dismiss ~self ~result)
+     None))
 
 (defmacro defon [event-spec name params #* body]
   "Define a Textual @on message handler with compile-time safety.
