@@ -220,25 +220,27 @@ func outputJSON(runs []*model.Run, now time.Time) error {
 
 func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[string]psIssueInfo, aliveByRun map[string]agentAliveInfo, branchStateByRun map[string]string) error {
 	type runOutput struct {
-		IssueID      string `json:"issue_id"`
-		IssueStatus  string `json:"issue_status"`
-		RunID        string `json:"run_id"`
-		ShortID      string `json:"short_id"`
-		CLI          string `json:"cli,omitempty"`
-		Model        string `json:"model,omitempty"`
-		ModelVariant string `json:"model_variant,omitempty"`
-		Status       string `json:"status"`
-		AgentStatus  string `json:"agent_status"`
-		BranchStatus string `json:"branch_status"`
-		PRStatus     string `json:"pr_status"`
-		AgentAlive   string `json:"agent_alive"`
-		UpdatedAt    string `json:"updated_at"`
-		UpdatedAgo   string `json:"updated_ago"`
-		StartedAt    string `json:"started_at"`
-		PRUrl        string `json:"pr_url,omitempty"`
-		Branch       string `json:"branch,omitempty"`
-		WorktreePath string `json:"worktree_path,omitempty"`
-		TmuxSession  string `json:"tmux_session,omitempty"`
+		IssueID           string `json:"issue_id"`
+		IssueStatus       string `json:"issue_status"`
+		RunID             string `json:"run_id"`
+		ShortID           string `json:"short_id"`
+		CLI               string `json:"cli,omitempty"`
+		Model             string `json:"model,omitempty"`
+		ModelVariant      string `json:"model_variant,omitempty"`
+		Status            string `json:"status"`
+		AgentStatus       string `json:"agent_status"`
+		BranchStatus      string `json:"branch_status"`
+		PRStatus          string `json:"pr_status"`
+		AgentAlive        string `json:"agent_alive"`
+		UpdatedAt         string `json:"updated_at"`
+		UpdatedAgo        string `json:"updated_ago"`
+		StartedAt         string `json:"started_at"`
+		PRUrl             string `json:"pr_url,omitempty"`
+		Branch            string `json:"branch,omitempty"`
+		WorktreePath      string `json:"worktree_path,omitempty"`
+		TmuxSession       string `json:"tmux_session,omitempty"`
+		ServerPort        int    `json:"server_port,omitempty"`
+		OpenCodeSessionID string `json:"opencode_session_id,omitempty"`
 	}
 
 	output := struct {
@@ -266,25 +268,27 @@ func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[st
 		}
 
 		output.Items[i] = runOutput{
-			IssueID:      r.IssueID,
-			IssueStatus:  issueStatus,
-			RunID:        r.RunID,
-			ShortID:      r.ShortID(),
-			CLI:          r.Agent,
-			Model:        r.Model,
-			ModelVariant: r.ModelVariant,
-			Status:       string(r.Status),
-			AgentStatus:  shortAgentStatus(r.Status),
-			BranchStatus: branchStatus,
-			PRStatus:     prStatusFromRun(r, branchStateByRun[r.RunID]),
-			AgentAlive:   formatAliveText(aliveInfo),
-			UpdatedAt:    r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
-			UpdatedAgo:   formatRelativeTime(r.UpdatedAt, now),
-			StartedAt:    r.StartedAt.Format("2006-01-02T15:04:05Z07:00"),
-			PRUrl:        r.PRUrl,
-			Branch:       r.Branch,
-			WorktreePath: r.WorktreePath,
-			TmuxSession:  r.TmuxSession,
+			IssueID:           r.IssueID,
+			IssueStatus:       issueStatus,
+			RunID:             r.RunID,
+			ShortID:           r.ShortID(),
+			CLI:               r.Agent,
+			Model:             r.Model,
+			ModelVariant:      r.ModelVariant,
+			Status:            string(r.Status),
+			AgentStatus:       shortAgentStatus(r.Status),
+			BranchStatus:      branchStatus,
+			PRStatus:          prStatusFromRun(r, branchStateByRun[r.RunID]),
+			AgentAlive:        formatAliveText(aliveInfo),
+			UpdatedAt:         r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			UpdatedAgo:        formatRelativeTime(r.UpdatedAt, now),
+			StartedAt:         r.StartedAt.Format("2006-01-02T15:04:05Z07:00"),
+			PRUrl:             r.PRUrl,
+			Branch:            r.Branch,
+			WorktreePath:      r.WorktreePath,
+			TmuxSession:       r.TmuxSession,
+			ServerPort:        r.ServerPort,
+			OpenCodeSessionID: r.OpenCodeSessionID,
 		}
 	}
 

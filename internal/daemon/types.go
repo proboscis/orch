@@ -85,29 +85,31 @@ type DiffStatsJSON struct {
 
 // RunSummary is a summary view of a run for list operations
 type RunSummary struct {
-	IssueID        string         `json:"issue_id"`
-	RunID          string         `json:"run_id"`
-	ShortID        string         `json:"short_id"`
-	Status         string         `json:"status"`
-	Phase          string         `json:"phase,omitempty"`
-	Agent          string         `json:"agent"`
-	Model          string         `json:"model,omitempty"`
-	Branch         string         `json:"branch,omitempty"`
-	WorktreePath   string         `json:"worktree_path,omitempty"`
-	TmuxSession    string         `json:"tmux_session,omitempty"`
-	Multiplexer    string         `json:"multiplexer,omitempty"`
-	PRUrl          string         `json:"pr_url,omitempty"`
-	Additions      int            `json:"additions"`
-	Deletions      int            `json:"deletions"`
-	DiffStats      *DiffStatsJSON `json:"diff_stats,omitempty"`
-	BranchState    string         `json:"branch_state,omitempty"`
-	ElapsedSeconds int            `json:"elapsed_seconds,omitempty"`
-	ElapsedDisplay string         `json:"elapsed_display,omitempty"`
-	Alive          bool           `json:"alive"`
-	AliveKnown     bool           `json:"alive_known"`
-	StartedAt      string         `json:"started_at"`
-	UpdatedAt      string         `json:"updated_at"`
-	URI            string         `json:"uri"`
+	IssueID           string         `json:"issue_id"`
+	RunID             string         `json:"run_id"`
+	ShortID           string         `json:"short_id"`
+	Status            string         `json:"status"`
+	Phase             string         `json:"phase,omitempty"`
+	Agent             string         `json:"agent"`
+	Model             string         `json:"model,omitempty"`
+	Branch            string         `json:"branch,omitempty"`
+	WorktreePath      string         `json:"worktree_path,omitempty"`
+	TmuxSession       string         `json:"tmux_session,omitempty"`
+	Multiplexer       string         `json:"multiplexer,omitempty"`
+	PRUrl             string         `json:"pr_url,omitempty"`
+	ServerPort        int            `json:"server_port,omitempty"`
+	OpenCodeSessionID string         `json:"opencode_session_id,omitempty"`
+	Additions         int            `json:"additions"`
+	Deletions         int            `json:"deletions"`
+	DiffStats         *DiffStatsJSON `json:"diff_stats,omitempty"`
+	BranchState       string         `json:"branch_state,omitempty"`
+	ElapsedSeconds    int            `json:"elapsed_seconds,omitempty"`
+	ElapsedDisplay    string         `json:"elapsed_display,omitempty"`
+	Alive             bool           `json:"alive"`
+	AliveKnown        bool           `json:"alive_known"`
+	StartedAt         string         `json:"started_at"`
+	UpdatedAt         string         `json:"updated_at"`
+	URI               string         `json:"uri"`
 }
 
 // GetRunResponse is the response for get_run
@@ -314,20 +316,22 @@ func RunToSummary(run *model.Run) *RunSummary {
 	branchState := computeBranchStateString(run)
 
 	return &RunSummary{
-		IssueID:      run.IssueID,
-		RunID:        run.RunID,
-		ShortID:      run.ShortID(),
-		Status:       string(run.Status),
-		Phase:        string(run.Phase),
-		Agent:        run.Agent,
-		Model:        run.Model,
-		Branch:       run.Branch,
-		WorktreePath: run.WorktreePath,
-		TmuxSession:  run.TmuxSession,
-		Multiplexer:  run.Multiplexer,
-		PRUrl:        run.PRUrl,
-		Additions:    diffStats.Additions,
-		Deletions:    diffStats.Deletions,
+		IssueID:           run.IssueID,
+		RunID:             run.RunID,
+		ShortID:           run.ShortID(),
+		Status:            string(run.Status),
+		Phase:             string(run.Phase),
+		Agent:             run.Agent,
+		Model:             run.Model,
+		Branch:            run.Branch,
+		WorktreePath:      run.WorktreePath,
+		TmuxSession:       run.TmuxSession,
+		Multiplexer:       run.Multiplexer,
+		PRUrl:             run.PRUrl,
+		ServerPort:        run.ServerPort,
+		OpenCodeSessionID: run.OpenCodeSessionID,
+		Additions:         diffStats.Additions,
+		Deletions:         diffStats.Deletions,
 		DiffStats: &DiffStatsJSON{
 			Additions:    diffStats.Additions,
 			Deletions:    diffStats.Deletions,
