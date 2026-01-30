@@ -668,10 +668,15 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 	}
 
 	attachInfo := &orchpb.GetAttachInfoResponse{
-		Command:      []string{"orch", "attach", fmt.Sprintf("%s#%s", run.IssueID, run.RunID)},
-		Multiplexer:  multiplexerToProto(run.Multiplexer),
-		SessionName:  run.TmuxSession,
-		WorktreePath: run.WorktreePath,
+		Command:           []string{"orch", "attach", fmt.Sprintf("%s#%s", run.IssueID, run.RunID)},
+		Multiplexer:       multiplexerToProto(run.Multiplexer),
+		SessionName:       run.TmuxSession,
+		WorktreePath:      run.WorktreePath,
+		Agent:             run.Agent,
+		ServerPort:        int32(run.ServerPort),
+		OpencodeSessionId: run.OpenCodeSessionID,
+		IssueId:           run.IssueID,
+		RunId:             run.RunID,
 	}
 
 	sessionName := run.TmuxSession
@@ -680,15 +685,28 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 		attachInfo.SessionName = sessionName
 	}
 
-	muxType, _ := multiplexer.ParseType(run.Multiplexer)
-	mux, _ := multiplexer.GetMultiplexer(muxType)
-	if mux != nil && !mux.HasSession(sessionName) {
-		return &orchpb.Response{
-			Ok:    false,
-			Error: "session_not_found",
-			Response: &orchpb.Response_GetAttachInfo{
-				GetAttachInfo: attachInfo,
-			},
+	isOpenCode := run.Agent == "opencode"
+	if isOpenCode {
+		if run.ServerPort == 0 {
+			return &orchpb.Response{
+				Ok:    false,
+				Error: "opencode_server_not_found",
+				Response: &orchpb.Response_GetAttachInfo{
+					GetAttachInfo: attachInfo,
+				},
+			}
+		}
+	} else {
+		muxType, _ := multiplexer.ParseType(run.Multiplexer)
+		mux, _ := multiplexer.GetMultiplexer(muxType)
+		if mux != nil && !mux.HasSession(sessionName) {
+			return &orchpb.Response{
+				Ok:    false,
+				Error: "session_not_found",
+				Response: &orchpb.Response_GetAttachInfo{
+					GetAttachInfo: attachInfo,
+				},
+			}
 		}
 	}
 

@@ -2164,13 +2164,18 @@ func (x *GetAttachInfoRequest) GetShortId() string {
 }
 
 type GetAttachInfoResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Command       []string               `protobuf:"bytes,1,rep,name=command,proto3" json:"command,omitempty"`
-	Multiplexer   Multiplexer            `protobuf:"varint,2,opt,name=multiplexer,proto3,enum=orch.v1.Multiplexer" json:"multiplexer,omitempty"`
-	SessionName   string                 `protobuf:"bytes,3,opt,name=session_name,json=sessionName,proto3" json:"session_name,omitempty"`
-	WorktreePath  string                 `protobuf:"bytes,4,opt,name=worktree_path,json=worktreePath,proto3" json:"worktree_path,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Command           []string               `protobuf:"bytes,1,rep,name=command,proto3" json:"command,omitempty"`
+	Multiplexer       Multiplexer            `protobuf:"varint,2,opt,name=multiplexer,proto3,enum=orch.v1.Multiplexer" json:"multiplexer,omitempty"`
+	SessionName       string                 `protobuf:"bytes,3,opt,name=session_name,json=sessionName,proto3" json:"session_name,omitempty"`
+	WorktreePath      string                 `protobuf:"bytes,4,opt,name=worktree_path,json=worktreePath,proto3" json:"worktree_path,omitempty"`
+	Agent             string                 `protobuf:"bytes,5,opt,name=agent,proto3" json:"agent,omitempty"`
+	ServerPort        int32                  `protobuf:"varint,6,opt,name=server_port,json=serverPort,proto3" json:"server_port,omitempty"`
+	OpencodeSessionId string                 `protobuf:"bytes,7,opt,name=opencode_session_id,json=opencodeSessionId,proto3" json:"opencode_session_id,omitempty"`
+	IssueId           string                 `protobuf:"bytes,8,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"`
+	RunId             string                 `protobuf:"bytes,9,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *GetAttachInfoResponse) Reset() {
@@ -2227,6 +2232,41 @@ func (x *GetAttachInfoResponse) GetSessionName() string {
 func (x *GetAttachInfoResponse) GetWorktreePath() string {
 	if x != nil {
 		return x.WorktreePath
+	}
+	return ""
+}
+
+func (x *GetAttachInfoResponse) GetAgent() string {
+	if x != nil {
+		return x.Agent
+	}
+	return ""
+}
+
+func (x *GetAttachInfoResponse) GetServerPort() int32 {
+	if x != nil {
+		return x.ServerPort
+	}
+	return 0
+}
+
+func (x *GetAttachInfoResponse) GetOpencodeSessionId() string {
+	if x != nil {
+		return x.OpencodeSessionId
+	}
+	return ""
+}
+
+func (x *GetAttachInfoResponse) GetIssueId() string {
+	if x != nil {
+		return x.IssueId
+	}
+	return ""
+}
+
+func (x *GetAttachInfoResponse) GetRunId() string {
+	if x != nil {
+		return x.RunId
 	}
 	return ""
 }
@@ -6764,12 +6804,18 @@ const file_orch_proto_rawDesc = "" +
 	"issuesRoot\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\x12\x19\n" +
-	"\bshort_id\x18\x04 \x01(\tR\ashortId\"\xb1\x01\n" +
+	"\bshort_id\x18\x04 \x01(\tR\ashortId\"\xca\x02\n" +
 	"\x15GetAttachInfoResponse\x12\x18\n" +
 	"\acommand\x18\x01 \x03(\tR\acommand\x126\n" +
 	"\vmultiplexer\x18\x02 \x01(\x0e2\x14.orch.v1.MultiplexerR\vmultiplexer\x12!\n" +
 	"\fsession_name\x18\x03 \x01(\tR\vsessionName\x12#\n" +
-	"\rworktree_path\x18\x04 \x01(\tR\fworktreePath\"j\n" +
+	"\rworktree_path\x18\x04 \x01(\tR\fworktreePath\x12\x14\n" +
+	"\x05agent\x18\x05 \x01(\tR\x05agent\x12\x1f\n" +
+	"\vserver_port\x18\x06 \x01(\x05R\n" +
+	"serverPort\x12.\n" +
+	"\x13opencode_session_id\x18\a \x01(\tR\x11opencodeSessionId\x12\x19\n" +
+	"\bissue_id\x18\b \x01(\tR\aissueId\x12\x15\n" +
+	"\x06run_id\x18\t \x01(\tR\x05runId\"j\n" +
 	"\x15CaptureSessionRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +

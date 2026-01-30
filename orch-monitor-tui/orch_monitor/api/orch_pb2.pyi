@@ -412,16 +412,26 @@ class GetAttachInfoRequest(_message.Message):
     def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., short_id: _Optional[str] = ...) -> None: ...
 
 class GetAttachInfoResponse(_message.Message):
-    __slots__ = ("command", "multiplexer", "session_name", "worktree_path")
+    __slots__ = ("command", "multiplexer", "session_name", "worktree_path", "agent", "server_port", "opencode_session_id", "issue_id", "run_id")
     COMMAND_FIELD_NUMBER: _ClassVar[int]
     MULTIPLEXER_FIELD_NUMBER: _ClassVar[int]
     SESSION_NAME_FIELD_NUMBER: _ClassVar[int]
     WORKTREE_PATH_FIELD_NUMBER: _ClassVar[int]
+    AGENT_FIELD_NUMBER: _ClassVar[int]
+    SERVER_PORT_FIELD_NUMBER: _ClassVar[int]
+    OPENCODE_SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
+    RUN_ID_FIELD_NUMBER: _ClassVar[int]
     command: _containers.RepeatedScalarFieldContainer[str]
     multiplexer: Multiplexer
     session_name: str
     worktree_path: str
-    def __init__(self, command: _Optional[_Iterable[str]] = ..., multiplexer: _Optional[_Union[Multiplexer, str]] = ..., session_name: _Optional[str] = ..., worktree_path: _Optional[str] = ...) -> None: ...
+    agent: str
+    server_port: int
+    opencode_session_id: str
+    issue_id: str
+    run_id: str
+    def __init__(self, command: _Optional[_Iterable[str]] = ..., multiplexer: _Optional[_Union[Multiplexer, str]] = ..., session_name: _Optional[str] = ..., worktree_path: _Optional[str] = ..., agent: _Optional[str] = ..., server_port: _Optional[int] = ..., opencode_session_id: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ...) -> None: ...
 
 class CaptureSessionRequest(_message.Message):
     __slots__ = ("issues_root", "issue_id", "run_id")

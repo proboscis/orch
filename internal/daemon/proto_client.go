@@ -473,13 +473,16 @@ func (c *ProtoClient) GetAttachInfo(issueID, runID, shortID string) (*GetAttachI
 	}
 
 	return &GetAttachInfoResponse{
-		OK:           resp.Ok,
-		Error:        resp.Error,
-		IssueID:      issueID,
-		RunID:        runID,
-		TmuxSession:  attachResp.SessionName,
-		Multiplexer:  protoMultiplexerToString(attachResp.Multiplexer),
-		WorktreePath: attachResp.WorktreePath,
+		OK:                resp.Ok,
+		Error:             resp.Error,
+		IssueID:           attachResp.IssueId,
+		RunID:             attachResp.RunId,
+		Agent:             attachResp.Agent,
+		TmuxSession:       attachResp.SessionName,
+		Multiplexer:       protoMultiplexerToString(attachResp.Multiplexer),
+		WorktreePath:      attachResp.WorktreePath,
+		ServerPort:        int(attachResp.ServerPort),
+		OpenCodeSessionID: attachResp.OpencodeSessionId,
 	}, nil
 }
 
@@ -1441,4 +1444,149 @@ func (c *ProtoClient) CreateRun(issueID, runID string, metadata map[string]strin
 	}
 
 	return createResp, nil
+}
+
+func (c *ProtoClient) CaptureSession(issueID, runID string) (*CaptureSessionResponse, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_CaptureSession{
+			CaptureSession: &orchpb.CaptureSessionRequest{
+				IssuesRoot: c.issuesRoot,
+				IssueId:    issueID,
+				RunId:      runID,
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	captureResp := resp.GetCaptureSession()
+	if captureResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	return &CaptureSessionResponse{
+		Content:   captureResp.Content,
+		Timestamp: captureResp.TimestampUnix,
+		Source:    captureResp.Source,
+	}, nil
+}
+
+func (c *ProtoClient) SendMessage(issueID, runID, message string) error {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_SendMessage{
+			SendMessage: &orchpb.SendMessageRequest{
+				IssuesRoot: c.issuesRoot,
+				IssueId:    issueID,
+				RunId:      runID,
+				Message:    message,
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return err
+	}
+
+	if !resp.Ok {
+		return fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	return nil
+}
+
+func (c *ProtoClient) GetDiffStats(issueID, runID string) (*GetDiffStatsResponse, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_GetDiffStats{
+			GetDiffStats: &orchpb.GetDiffStatsRequest{
+				IssuesRoot: c.issuesRoot,
+				IssueId:    issueID,
+				RunId:      runID,
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	statsResp := resp.GetGetDiffStats()
+	if statsResp == nil || statsResp.DiffStats == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	return &GetDiffStatsResponse{
+		Additions:    int(statsResp.DiffStats.Additions),
+		Deletions:    int(statsResp.DiffStats.Deletions),
+		FilesChanged: int(statsResp.DiffStats.FilesChanged),
+		Files:        statsResp.DiffStats.Files,
+	}, nil
+}
+
+func (c *ProtoClient) GetBranchState(issueID, runID string) (string, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_GetBranchState{
+			GetBranchState: &orchpb.GetBranchStateRequest{
+				IssuesRoot: c.issuesRoot,
+				IssueId:    issueID,
+				RunId:      runID,
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return "", err
+	}
+
+	if !resp.Ok {
+		return "", fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	branchResp := resp.GetGetBranchState()
+	if branchResp == nil {
+		return "", fmt.Errorf("unexpected response type")
+	}
+
+	return protoBranchStateToString(branchResp.State), nil
+}
+
+func (c *ProtoClient) GetDiff(issueID, runID string) (string, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_GetDiff{
+			GetDiff: &orchpb.GetDiffRequest{
+				IssuesRoot: c.issuesRoot,
+				IssueId:    issueID,
+				RunId:      runID,
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return "", err
+	}
+
+	if !resp.Ok {
+		return "", fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	diffResp := resp.GetGetDiff()
+	if diffResp == nil {
+		return "", fmt.Errorf("unexpected response type")
+	}
+
+	return diffResp.Diff, nil
 }

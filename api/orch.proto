@@ -256,6 +256,11 @@ message GetAttachInfoResponse {
   Multiplexer multiplexer = 2;
   string session_name = 3;
   string worktree_path = 4;
+  string agent = 5;
+  int32 server_port = 6;
+  string opencode_session_id = 7;
+  string issue_id = 8;
+  string run_id = 9;
 }
 
 message CaptureSessionRequest {

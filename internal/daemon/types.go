@@ -562,3 +562,16 @@ type GetControlAgentLaunchResponse struct {
 	SessionID  string `json:"session_id,omitempty"`
 	Agent      string `json:"agent,omitempty"`
 }
+
+type CaptureSessionResponse struct {
+	Content   string `json:"content"`
+	Timestamp int64  `json:"timestamp"`
+	Source    string `json:"source"`
+}
+
+type GetDiffStatsResponse struct {
+	Additions    int      `json:"additions"`
+	Deletions    int      `json:"deletions"`
+	FilesChanged int      `json:"files_changed"`
+	Files        []string `json:"files"`
+}

@@ -271,23 +271,72 @@ func (c *DaemonClient) GetAttachInfo(ctx context.Context, ref RunRef) (*AttachIn
 }
 
 func (c *DaemonClient) CaptureSession(ctx context.Context, ref RunRef, lines int) (*CaptureResult, error) {
-	return nil, errors.New("CaptureSession not implemented via daemon proto")
+	run, err := c.ResolveRun(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.proto.CaptureSession(run.IssueID, run.RunID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &CaptureResult{
+		Content:   resp.Content,
+		Timestamp: time.Unix(resp.Timestamp, 0),
+		Source:    resp.Source,
+	}, nil
 }
 
 func (c *DaemonClient) SendMessage(ctx context.Context, ref RunRef, message string) error {
-	return errors.New("SendMessage not implemented via daemon proto")
+	run, err := c.ResolveRun(ctx, ref)
+	if err != nil {
+		return err
+	}
+
+	return c.proto.SendMessage(run.IssueID, run.RunID, message)
 }
 
 func (c *DaemonClient) GetDiffStats(ctx context.Context, ref RunRef) (*DiffStats, error) {
-	return nil, errors.New("GetDiffStats not implemented via daemon proto")
+	run, err := c.ResolveRun(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.proto.GetDiffStats(run.IssueID, run.RunID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &DiffStats{
+		Additions:    resp.Additions,
+		Deletions:    resp.Deletions,
+		FilesChanged: resp.FilesChanged,
+		Files:        resp.Files,
+	}, nil
 }
 
 func (c *DaemonClient) GetBranchState(ctx context.Context, ref RunRef) (BranchState, error) {
-	return "", errors.New("GetBranchState not implemented via daemon proto")
+	run, err := c.ResolveRun(ctx, ref)
+	if err != nil {
+		return "", err
+	}
+
+	state, err := c.proto.GetBranchState(run.IssueID, run.RunID)
+	if err != nil {
+		return "", err
+	}
+
+	return BranchState(state), nil
 }
 
 func (c *DaemonClient) GetDiff(ctx context.Context, ref RunRef) (string, error) {
-	return "", errors.New("GetDiff not implemented via daemon proto")
+	run, err := c.ResolveRun(ctx, ref)
+	if err != nil {
+		return "", err
+	}
+
+	return c.proto.GetDiff(run.IssueID, run.RunID)
 }
 
 func (c *DaemonClient) ResolveIssue(ctx context.Context, issueID string, force bool) error {
