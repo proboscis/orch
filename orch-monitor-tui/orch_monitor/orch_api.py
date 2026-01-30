@@ -71,7 +71,7 @@ class Run:
     elapsed_seconds: Optional[int] = None
     elapsed_display: str = ""
     diff_stats: Optional[DiffStats] = None
-    branch_state: BranchState = BranchState.UNKNOWN
+    branch_state: str = ""
     tmux_session: str = ""
     multiplexer: str = ""
     server_port: int = 0

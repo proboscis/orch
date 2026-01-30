@@ -846,17 +846,14 @@ class TestRunTableWithBranchStates:
             def compose(self) -> ComposeResult:
                 yield RunTable(id="test-table")
 
+        sample_runs[0].branch_state = "clean"
+        sample_runs[1].branch_state = "dirty"
+        sample_runs[2].branch_state = "merged"
+
         app = TestApp()
         async with app.run_test() as pilot:
             table = app.query_one("#test-table", RunTable)
-
-            branch_states = {
-                sample_runs[0].ref(): "clean",
-                sample_runs[1].ref(): "dirty",
-                sample_runs[2].ref(): "merged",
-            }
-
-            table.populate(sample_runs, branch_states=branch_states)
+            table.populate(sample_runs)
             await pilot.pause()
 
             assert table.row_count == len(sample_runs)
@@ -994,17 +991,14 @@ class TestRunTableColumnsE2E:
             def compose(self) -> ComposeResult:
                 yield RunTable(id="test-table")
 
+        sample_runs[0].branch_state = "clean"
+        sample_runs[1].branch_state = "dirty"
+        sample_runs[2].branch_state = "merged"
+
         app = TestApp()
         async with app.run_test() as pilot:
             table = app.query_one("#test-table", RunTable)
-
-            branch_states = {
-                sample_runs[0].ref(): "clean",
-                sample_runs[1].ref(): "dirty",
-                sample_runs[2].ref(): "merged",
-            }
-
-            table.populate(sample_runs, branch_states=branch_states)
+            table.populate(sample_runs)
             await pilot.pause()
 
             columns = [col.label.plain for col in table.columns.values()]
@@ -1078,18 +1072,15 @@ class TestRunTableColumnsE2E:
             def compose(self) -> ComposeResult:
                 yield RunTable(id="test-table")
 
+        sample_runs[0].branch_state = "clean"
+        sample_runs[1].branch_state = "dirty"
+        sample_runs[2].branch_state = "merged"
+        sample_runs[3].branch_state = "conflict"
+
         app = TestApp()
         async with app.run_test() as pilot:
             table = app.query_one("#test-table", RunTable)
-
-            branch_states = {
-                sample_runs[0].ref(): "clean",
-                sample_runs[1].ref(): "dirty",
-                sample_runs[2].ref(): "merged",
-                sample_runs[3].ref(): "conflict",
-            }
-
-            table.populate(sample_runs, branch_states=branch_states)
+            table.populate(sample_runs)
             await pilot.pause()
 
             assert color_branch_status("clean") == "[green]clean[/green]"

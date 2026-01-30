@@ -273,7 +273,6 @@ class RunTable(CursorPreservingTable):
         self,
         runs: list[Run],
         diff_stats: Optional[dict[str, DiffStats]] = None,
-        branch_states: Optional[dict[str, str]] = None,
     ) -> None:
         saved_key, saved_index = self._save_cursor_state()
 
@@ -293,13 +292,12 @@ class RunTable(CursorPreservingTable):
         self.add_column("Elapsed", width=10, key="elapsed")
 
         diff_stats = diff_stats or {}
-        branch_states = branch_states or {}
 
         for run in runs:
             agent_str = color_agent_status(run.status)
             alive_str = color_alive_status(run)
 
-            branch_status = branch_states.get(run.ref(), "-")
+            branch_status = run.branch_state
             branch_str = color_branch_status(branch_status)
 
             pr_status = derive_pr_status(run, branch_status)

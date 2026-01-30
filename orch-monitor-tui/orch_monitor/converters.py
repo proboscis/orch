@@ -53,6 +53,9 @@ def api_run_to_model(api_run: ApiRun) -> Run:
         opencode_session_id=api_run.opencode_session_id,
         additions=api_run.diff_stats.additions if api_run.diff_stats else 0,
         deletions=api_run.diff_stats.deletions if api_run.diff_stats else 0,
+        branch_state=api_run.branch_state,
+        elapsed_seconds=api_run.elapsed_seconds or 0,
+        elapsed_display=api_run.elapsed_display,
     )
 
 

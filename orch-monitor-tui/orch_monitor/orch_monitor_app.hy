@@ -361,20 +361,16 @@
     (setv time-str (.strftime self._last_update "%H:%M:%S"))
     (setv self.title f"{self._base_title} | {time-str}")
     
-    ;; Build diff stats and branch states
     (setv diff-stats {})
-    (setv branch-states {})
     (for [run self.runs]
       (when (or (> run.additions 0) (> run.deletions 0))
         (setv (get diff-stats (.ref run))
           (DiffStats :files []
                      :total_additions run.additions
-                     :total_deletions run.deletions)))
-      (when run.branch_state
-        (setv (get branch-states (.ref run)) run.branch_state)))
+                     :total_deletions run.deletions))))
     
     (setv run-table (.query_one self "#runs-table" RunTable))
-    (.populate run-table self.runs :diff_stats diff-stats :branch_states branch-states)
+    (.populate run-table self.runs :diff_stats diff-stats)
     (setv issue-table (.query_one self "#issues-table" IssueTable))
     (.populate issue-table self.issues))
   

@@ -136,10 +136,13 @@ def _model_run_to_api(run: ModelRun) -> Run:
         agent=run.agent,
         model=run.model,
         branch=run.branch,
+        branch_state=run.branch_state,
         worktree_path=run.worktree_path,
         pr_url=run.pr_url,
         started_at=run.started_at,
         updated_at=run.updated_at,
+        elapsed_seconds=run.elapsed_seconds,
+        elapsed_display=run.elapsed_display,
         tmux_session=run.tmux_session,
         multiplexer=run.multiplexer,
         server_port=run.server_port,
@@ -147,8 +150,8 @@ def _model_run_to_api(run: ModelRun) -> Run:
         diff_stats=DiffStats(
             additions=run.additions,
             deletions=run.deletions,
-            files_changed=0,
-            file_list=[],
+            files_changed=run.files_changed,
+            file_list=run.files,
         )
         if run.additions > 0 or run.deletions > 0
         else None,
