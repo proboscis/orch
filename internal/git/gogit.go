@@ -104,21 +104,36 @@ func isMergedFast(worktreePath, branch, baseBranch string) bool {
 	if baseBranch == "" {
 		baseBranch = "main"
 	}
-	cmd := exec.Command("git", "-C", worktreePath, "branch", "--merged", "origin/"+baseBranch, "--format=%(refname:short)")
+
+	targetRef := "origin/" + baseBranch
+	cmd := exec.Command("git", "-C", worktreePath, "branch", "--merged", targetRef, "--format=%(refname:short)")
 	output, err := cmd.Output()
 	if err != nil {
-		cmd = exec.Command("git", "-C", worktreePath, "branch", "--merged", baseBranch, "--format=%(refname:short)")
+		targetRef = baseBranch
+		cmd = exec.Command("git", "-C", worktreePath, "branch", "--merged", targetRef, "--format=%(refname:short)")
 		output, err = cmd.Output()
 		if err != nil {
 			return false
 		}
 	}
+
+	inMergedList := false
 	for _, line := range splitLinesBytes(output) {
 		if line == branch {
-			return true
+			inMergedList = true
+			break
 		}
 	}
-	return false
+	if !inMergedList {
+		return false
+	}
+
+	branchHead := GetBranchHead(worktreePath, branch)
+	targetHead := GetBranchHead(worktreePath, targetRef)
+	if branchHead != "" && branchHead == targetHead {
+		return false
+	}
+	return true
 }
 
 func getDiffStatsFast(worktreePath, baseBranch string) DiffStats {
