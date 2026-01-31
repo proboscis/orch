@@ -214,7 +214,7 @@
   
   (defn _ensure-connected [self]
     "Ensure we have a valid connection. Called with lock held."
-    (when (not self._connected)
+    (when (or (not self._connected) (is self._socket None))
       (._connect self)
       (return))
     ;; Check if socket is still alive by peeking
