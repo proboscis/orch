@@ -204,8 +204,9 @@ func FindRunningOpenCodeServerForWorktree(worktreePath string, startPort, endPor
 
 // ProjectInfo represents the current project info from opencode
 type ProjectInfo struct {
-	ID       string `json:"id"`
-	Worktree string `json:"worktree"`
+	ID        string   `json:"id"`
+	Worktree  string   `json:"worktree"`
+	Sandboxes []string `json:"sandboxes,omitempty"`
 }
 
 // GetCurrentProject returns the current project info from the server
@@ -234,8 +235,8 @@ func (c *OpenCodeClient) GetCurrentProject(ctx context.Context) (*ProjectInfo, e
 }
 
 // IsServerRunningForWorktree checks if the server is running AND serving the specified worktree.
-// OpenCode's /project/current returns the git root, not the worktree subdirectory.
-// So we check if the worktreePath is either the git root OR under .git-worktrees/.
+// OpenCode's /project/current returns the git root and a list of sandboxes (worktrees).
+// We check if worktreePath is: the git root, under .git-worktrees/, or in the sandboxes list.
 func (c *OpenCodeClient) IsServerRunningForWorktree(ctx context.Context, worktreePath string) bool {
 	if !c.IsServerRunning(ctx) {
 		return false
@@ -250,7 +251,17 @@ func (c *OpenCodeClient) IsServerRunningForWorktree(ctx context.Context, worktre
 	if worktreePath == gitRoot {
 		return true
 	}
-	return strings.HasPrefix(worktreePath, gitRoot+"/.git-worktrees/")
+	// Check repo-local worktrees
+	if strings.HasPrefix(worktreePath, gitRoot+"/.git-worktrees/") {
+		return true
+	}
+	// Check global worktrees reported in sandboxes list
+	for _, sandbox := range project.Sandboxes {
+		if worktreePath == sandbox {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *OpenCodeClient) Health(ctx context.Context) (*HealthResponse, error) {
