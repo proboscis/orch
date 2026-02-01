@@ -232,3 +232,29 @@ func protoIssueStatusSliceToModel(statuses []orchpb.IssueStatus) []model.IssueSt
 	}
 	return result
 }
+
+func prStatusStringToProto(s string) orchpb.PRStatus {
+	switch s {
+	case "open":
+		return orchpb.PRStatus_PR_STATUS_OPEN
+	case "merged":
+		return orchpb.PRStatus_PR_STATUS_MERGED
+	case "closed":
+		return orchpb.PRStatus_PR_STATUS_CLOSED
+	default:
+		return orchpb.PRStatus_PR_STATUS_UNSPECIFIED
+	}
+}
+
+func protoPRStatusToString(s orchpb.PRStatus) string {
+	switch s {
+	case orchpb.PRStatus_PR_STATUS_OPEN:
+		return "open"
+	case orchpb.PRStatus_PR_STATUS_MERGED:
+		return "merged"
+	case orchpb.PRStatus_PR_STATUS_CLOSED:
+		return "closed"
+	default:
+		return "-"
+	}
+}

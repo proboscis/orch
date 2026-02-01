@@ -44,6 +44,13 @@ class Multiplexer(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     MULTIPLEXER_UNSPECIFIED: _ClassVar[Multiplexer]
     MULTIPLEXER_TMUX: _ClassVar[Multiplexer]
     MULTIPLEXER_ZELLIJ: _ClassVar[Multiplexer]
+
+class PRStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    PR_STATUS_UNSPECIFIED: _ClassVar[PRStatus]
+    PR_STATUS_OPEN: _ClassVar[PRStatus]
+    PR_STATUS_MERGED: _ClassVar[PRStatus]
+    PR_STATUS_CLOSED: _ClassVar[PRStatus]
 RUN_STATUS_UNSPECIFIED: RunStatus
 RUN_STATUS_QUEUED: RunStatus
 RUN_STATUS_BOOTING: RunStatus
@@ -70,6 +77,10 @@ BRANCH_STATE_SYNCED: BranchState
 MULTIPLEXER_UNSPECIFIED: Multiplexer
 MULTIPLEXER_TMUX: Multiplexer
 MULTIPLEXER_ZELLIJ: Multiplexer
+PR_STATUS_UNSPECIFIED: PRStatus
+PR_STATUS_OPEN: PRStatus
+PR_STATUS_MERGED: PRStatus
+PR_STATUS_CLOSED: PRStatus
 
 class DiffStats(_message.Message):
     __slots__ = ("additions", "deletions", "files_changed", "files")
@@ -84,7 +95,7 @@ class DiffStats(_message.Message):
     def __init__(self, additions: _Optional[int] = ..., deletions: _Optional[int] = ..., files_changed: _Optional[int] = ..., files: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class Run(_message.Message):
-    __slots__ = ("issue_id", "run_id", "status", "agent", "model", "branch", "worktree_path", "pr_url", "started_at_unix", "updated_at_unix", "elapsed_seconds", "elapsed_display", "diff_stats", "branch_state", "tmux_session", "multiplexer", "server_port", "opencode_session_id", "continued_from")
+    __slots__ = ("issue_id", "run_id", "status", "agent", "model", "branch", "worktree_path", "pr_url", "started_at_unix", "updated_at_unix", "elapsed_seconds", "elapsed_display", "diff_stats", "branch_state", "tmux_session", "multiplexer", "server_port", "opencode_session_id", "continued_from", "pr_number", "pr_state", "pr_status", "is_active", "worktree_exists")
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
@@ -104,6 +115,11 @@ class Run(_message.Message):
     SERVER_PORT_FIELD_NUMBER: _ClassVar[int]
     OPENCODE_SESSION_ID_FIELD_NUMBER: _ClassVar[int]
     CONTINUED_FROM_FIELD_NUMBER: _ClassVar[int]
+    PR_NUMBER_FIELD_NUMBER: _ClassVar[int]
+    PR_STATE_FIELD_NUMBER: _ClassVar[int]
+    PR_STATUS_FIELD_NUMBER: _ClassVar[int]
+    IS_ACTIVE_FIELD_NUMBER: _ClassVar[int]
+    WORKTREE_EXISTS_FIELD_NUMBER: _ClassVar[int]
     issue_id: str
     run_id: str
     status: RunStatus
@@ -123,7 +139,12 @@ class Run(_message.Message):
     server_port: int
     opencode_session_id: str
     continued_from: str
-    def __init__(self, issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., status: _Optional[_Union[RunStatus, str]] = ..., agent: _Optional[str] = ..., model: _Optional[str] = ..., branch: _Optional[str] = ..., worktree_path: _Optional[str] = ..., pr_url: _Optional[str] = ..., started_at_unix: _Optional[int] = ..., updated_at_unix: _Optional[int] = ..., elapsed_seconds: _Optional[int] = ..., elapsed_display: _Optional[str] = ..., diff_stats: _Optional[_Union[DiffStats, _Mapping]] = ..., branch_state: _Optional[_Union[BranchState, str]] = ..., tmux_session: _Optional[str] = ..., multiplexer: _Optional[_Union[Multiplexer, str]] = ..., server_port: _Optional[int] = ..., opencode_session_id: _Optional[str] = ..., continued_from: _Optional[str] = ...) -> None: ...
+    pr_number: int
+    pr_state: str
+    pr_status: PRStatus
+    is_active: bool
+    worktree_exists: bool
+    def __init__(self, issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., status: _Optional[_Union[RunStatus, str]] = ..., agent: _Optional[str] = ..., model: _Optional[str] = ..., branch: _Optional[str] = ..., worktree_path: _Optional[str] = ..., pr_url: _Optional[str] = ..., started_at_unix: _Optional[int] = ..., updated_at_unix: _Optional[int] = ..., elapsed_seconds: _Optional[int] = ..., elapsed_display: _Optional[str] = ..., diff_stats: _Optional[_Union[DiffStats, _Mapping]] = ..., branch_state: _Optional[_Union[BranchState, str]] = ..., tmux_session: _Optional[str] = ..., multiplexer: _Optional[_Union[Multiplexer, str]] = ..., server_port: _Optional[int] = ..., opencode_session_id: _Optional[str] = ..., continued_from: _Optional[str] = ..., pr_number: _Optional[int] = ..., pr_state: _Optional[str] = ..., pr_status: _Optional[_Union[PRStatus, str]] = ..., is_active: _Optional[bool] = ..., worktree_exists: _Optional[bool] = ...) -> None: ...
 
 class Issue(_message.Message):
     __slots__ = ("id", "title", "summary", "status", "tags", "body", "path", "modified_at_unix", "topic")

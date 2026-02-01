@@ -243,8 +243,10 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 }
 
 func enrichRunProto(pr *orchpb.Run, run *model.Run) {
+	branchStateStr := ""
 	if run.WorktreePath != "" && run.Branch != "" {
 		pr.BranchState = computeBranchState(run.WorktreePath, run.Branch, "main")
+		branchStateStr = branchStateToString(pr.BranchState)
 		stats := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
 		if stats.Additions > 0 || stats.Deletions > 0 || stats.FilesChanged > 0 {
 			pr.DiffStats = &orchpb.DiffStats{
@@ -256,6 +258,9 @@ func enrichRunProto(pr *orchpb.Run, run *model.Run) {
 		}
 	}
 	pr.ElapsedDisplay = formatElapsedTime(run.StartedAt, run.UpdatedAt, run.Status)
+	pr.PrStatus = prStatusStringToProto(computePRStatus(run, branchStateStr))
+	pr.IsActive = isActiveStatus(run.Status)
+	pr.WorktreeExists = computeWorktreeExists(run.WorktreePath)
 }
 
 func enrichRunsParallel(runs []*model.Run, protoRuns []*orchpb.Run) []*orchpb.Run {
@@ -288,25 +293,36 @@ func enrichRunsParallel(runs []*model.Run, protoRuns []*orchpb.Run) []*orchpb.Ru
 	for i, run := range runs {
 		proto := modelRunToProto(run)
 		proto.ElapsedDisplay = formatElapsedTime(run.StartedAt, run.UpdatedAt, run.Status)
+		proto.IsActive = isActiveStatus(run.Status)
+		proto.WorktreeExists = computeWorktreeExists(run.WorktreePath)
 
+		branchStateStr := ""
 		if status, ok := statusMap[run.WorktreePath]; ok {
 			switch status.State {
 			case git.BranchStateDirty:
 				proto.BranchState = orchpb.BranchState_BRANCH_STATE_DIRTY
+				branchStateStr = "dirty"
 			case git.BranchStateMerged:
 				proto.BranchState = orchpb.BranchState_BRANCH_STATE_MERGED
+				branchStateStr = "merged"
 			case git.BranchStateClean:
 				proto.BranchState = orchpb.BranchState_BRANCH_STATE_CLEAN
+				branchStateStr = "clean"
 			case git.BranchStateAhead:
 				proto.BranchState = orchpb.BranchState_BRANCH_STATE_AHEAD
+				branchStateStr = "ahead"
 			case git.BranchStateBehind:
 				proto.BranchState = orchpb.BranchState_BRANCH_STATE_BEHIND
+				branchStateStr = "behind"
 			case git.BranchStateDiverged:
 				proto.BranchState = orchpb.BranchState_BRANCH_STATE_DIVERGED
+				branchStateStr = "diverged"
 			case git.BranchStateConflict:
 				proto.BranchState = orchpb.BranchState_BRANCH_STATE_CONFLICT
+				branchStateStr = "conflict"
 			case git.BranchStateSynced:
 				proto.BranchState = orchpb.BranchState_BRANCH_STATE_SYNCED
+				branchStateStr = "synced"
 			default:
 				proto.BranchState = orchpb.BranchState_BRANCH_STATE_UNSPECIFIED
 			}
@@ -325,6 +341,7 @@ func enrichRunsParallel(runs []*model.Run, protoRuns []*orchpb.Run) []*orchpb.Ru
 			proto.PrNumber = int32(prInfo.Number)
 			proto.PrState = strings.ToLower(prInfo.State)
 		}
+		proto.PrStatus = prStatusStringToProto(computePRStatus(run, branchStateStr))
 
 		protoRuns[i] = proto
 	}
@@ -945,6 +962,29 @@ func computeBranchState(worktreePath, branch, baseBranch string) orchpb.BranchSt
 	}
 
 	return orchpb.BranchState_BRANCH_STATE_CLEAN
+}
+
+func branchStateToString(state orchpb.BranchState) string {
+	switch state {
+	case orchpb.BranchState_BRANCH_STATE_DIRTY:
+		return "dirty"
+	case orchpb.BranchState_BRANCH_STATE_MERGED:
+		return "merged"
+	case orchpb.BranchState_BRANCH_STATE_CLEAN:
+		return "clean"
+	case orchpb.BranchState_BRANCH_STATE_AHEAD:
+		return "ahead"
+	case orchpb.BranchState_BRANCH_STATE_BEHIND:
+		return "behind"
+	case orchpb.BranchState_BRANCH_STATE_DIVERGED:
+		return "diverged"
+	case orchpb.BranchState_BRANCH_STATE_CONFLICT:
+		return "conflict"
+	case orchpb.BranchState_BRANCH_STATE_SYNCED:
+		return "synced"
+	default:
+		return ""
+	}
 }
 
 func splitLines(s string) []string {

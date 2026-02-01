@@ -112,6 +112,7 @@ type RunSummary struct {
 	PRUrl             string         `json:"pr_url,omitempty"`
 	PRNumber          int            `json:"pr_number,omitempty"`
 	PRState           string         `json:"pr_state,omitempty"`
+	PRStatus          string         `json:"pr_status"`
 	ServerPort        int            `json:"server_port,omitempty"`
 	OpenCodeSessionID string         `json:"opencode_session_id,omitempty"`
 	Additions         int            `json:"additions"`
@@ -120,9 +121,9 @@ type RunSummary struct {
 	BranchState       string         `json:"branch_state,omitempty"`
 	ElapsedSeconds    int            `json:"elapsed_seconds,omitempty"`
 	ElapsedDisplay    string         `json:"elapsed_display,omitempty"`
+	WorktreeExists    bool           `json:"worktree_exists"`
 	Alive             bool           `json:"alive"`
 	AliveKnown        bool           `json:"alive_known"`
-	WorktreeExists    bool           `json:"worktree_exists"`
 	StartedAt         string         `json:"started_at"`
 	UpdatedAt         string         `json:"updated_at"`
 	URI               string         `json:"uri"`
@@ -154,6 +155,7 @@ type RunFull struct {
 	PRUrl             string         `json:"pr_url,omitempty"`
 	PRNumber          int            `json:"pr_number,omitempty"`
 	PRState           string         `json:"pr_state,omitempty"`
+	PRStatus          string         `json:"pr_status"`
 	ServerPort        int            `json:"server_port,omitempty"`
 	OpenCodeSessionID string         `json:"opencode_session_id,omitempty"`
 	ContinuedFrom     string         `json:"continued_from,omitempty"`
@@ -161,9 +163,9 @@ type RunFull struct {
 	BranchState       string         `json:"branch_state,omitempty"`
 	ElapsedSeconds    int            `json:"elapsed_seconds,omitempty"`
 	ElapsedDisplay    string         `json:"elapsed_display,omitempty"`
+	WorktreeExists    bool           `json:"worktree_exists"`
 	Alive             bool           `json:"alive"`
 	AliveKnown        bool           `json:"alive_known"`
-	WorktreeExists    bool           `json:"worktree_exists"`
 	StartedAt         string         `json:"started_at"`
 	UpdatedAt         string         `json:"updated_at"`
 	URI               string         `json:"uri"`
@@ -332,6 +334,19 @@ func computeWorktreeExists(path string) bool {
 	return err == nil
 }
 
+func computePRStatus(run *model.Run, branchState string) string {
+	if run.Status == model.StatusDone && run.PRUrl != "" {
+		return "merged"
+	}
+	if branchState == "merged" && run.PRUrl != "" {
+		return "merged"
+	}
+	if run.PRUrl != "" || run.Status == model.StatusPROpen {
+		return "open"
+	}
+	return "-"
+}
+
 // RunToSummary converts a model.Run to a RunSummary
 func RunToSummary(run *model.Run) *RunSummary {
 	diffStats := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
@@ -339,6 +354,7 @@ func RunToSummary(run *model.Run) *RunSummary {
 	elapsedSeconds, elapsedDisplay := computeElapsed(run)
 	branchState := computeBranchStateString(run)
 	prNumber, prState := lookupPRInfo(run)
+	prStatus := computePRStatus(run, branchState)
 
 	return &RunSummary{
 		IssueID:           run.IssueID,
@@ -357,6 +373,7 @@ func RunToSummary(run *model.Run) *RunSummary {
 		PRUrl:             run.PRUrl,
 		PRNumber:          prNumber,
 		PRState:           prState,
+		PRStatus:          prStatus,
 		ServerPort:        run.ServerPort,
 		OpenCodeSessionID: run.OpenCodeSessionID,
 		Additions:         diffStats.Additions,
@@ -369,9 +386,9 @@ func RunToSummary(run *model.Run) *RunSummary {
 		BranchState:    branchState,
 		ElapsedSeconds: elapsedSeconds,
 		ElapsedDisplay: elapsedDisplay,
+		WorktreeExists: computeWorktreeExists(run.WorktreePath),
 		Alive:          false,
 		AliveKnown:     false,
-		WorktreeExists: computeWorktreeExists(run.WorktreePath),
 		StartedAt:      formatTime(run.StartedAt),
 		UpdatedAt:      formatTime(run.UpdatedAt),
 		URI:            FileURI(run.Path),
@@ -404,6 +421,7 @@ func RunToFull(run *model.Run) *RunFull {
 	elapsedSeconds, elapsedDisplay := computeElapsed(run)
 	branchState := computeBranchStateString(run)
 	prNumber, prState := lookupPRInfo(run)
+	prStatus := computePRStatus(run, branchState)
 
 	return &RunFull{
 		IssueID:           run.IssueID,
@@ -423,6 +441,7 @@ func RunToFull(run *model.Run) *RunFull {
 		PRUrl:             run.PRUrl,
 		PRNumber:          prNumber,
 		PRState:           prState,
+		PRStatus:          prStatus,
 		ServerPort:        run.ServerPort,
 		OpenCodeSessionID: run.OpenCodeSessionID,
 		ContinuedFrom:     run.ContinuedFrom,
@@ -435,9 +454,9 @@ func RunToFull(run *model.Run) *RunFull {
 		BranchState:    branchState,
 		ElapsedSeconds: elapsedSeconds,
 		ElapsedDisplay: elapsedDisplay,
+		WorktreeExists: computeWorktreeExists(run.WorktreePath),
 		Alive:          false,
 		AliveKnown:     false,
-		WorktreeExists: computeWorktreeExists(run.WorktreePath),
 		StartedAt:      formatTime(run.StartedAt),
 		UpdatedAt:      formatTime(run.UpdatedAt),
 		URI:            FileURI(run.Path),

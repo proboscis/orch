@@ -46,6 +46,13 @@ enum Multiplexer {
   MULTIPLEXER_ZELLIJ = 2;
 }
 
+enum PRStatus {
+  PR_STATUS_UNSPECIFIED = 0;  // "-" / no PR
+  PR_STATUS_OPEN = 1;         // PR is open
+  PR_STATUS_MERGED = 2;       // PR is merged
+  PR_STATUS_CLOSED = 3;       // PR is closed
+}
+
 // =============================================================================
 // Domain Models
 // =============================================================================
@@ -79,6 +86,9 @@ message Run {
   string continued_from = 19;
   int32 pr_number = 20;
   string pr_state = 21;
+  PRStatus pr_status = 22;
+  bool is_active = 23;
+  bool worktree_exists = 24;
 }
 
 message Issue {
