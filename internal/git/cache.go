@@ -17,8 +17,9 @@ func newCache[V any](ttl time.Duration) *cache[V] {
 	return &cache[V]{ttl: ttl}
 }
 
-// get retrieves cached values for the given keys if the cache is valid.
-// Returns nil if cache is expired or any key is missing.
+// get retrieves cached values for the given keys.
+// Returns partial results for keys that exist in cache (does not require all keys).
+// Returns nil only if cache is completely expired or empty.
 func (c *cache[V]) get(keys []string) map[string]V {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -31,9 +32,10 @@ func (c *cache[V]) get(keys []string) map[string]V {
 	for _, key := range keys {
 		if val, ok := c.data[key]; ok {
 			result[key] = val
-		} else {
-			return nil
 		}
+	}
+	if len(result) == 0 {
+		return nil
 	}
 	return result
 }
@@ -135,11 +137,39 @@ func GetCachedWorktreeStatusBatch(worktrees []struct {
 		}
 	}
 
-	if result := globalWorktreeStatusCache.get(paths); result != nil {
-		return result
+	cached := globalWorktreeStatusCache.get(paths)
+	if cached != nil && len(cached) == len(paths) {
+		return cached
 	}
 
-	results := GetWorktreeStatusBatch(worktrees)
-	globalWorktreeStatusCache.set(results)
-	return results
+	var missing []struct {
+		Path       string
+		Branch     string
+		BaseBranch string
+	}
+	for _, wt := range worktrees {
+		if wt.Path == "" {
+			continue
+		}
+		if cached == nil {
+			missing = append(missing, wt)
+		} else if _, ok := cached[wt.Path]; !ok {
+			missing = append(missing, wt)
+		}
+	}
+
+	if len(missing) == 0 {
+		return cached
+	}
+
+	computed := GetWorktreeStatusBatch(missing)
+	globalWorktreeStatusCache.set(computed)
+
+	if cached == nil {
+		return computed
+	}
+	for k, v := range computed {
+		cached[k] = v
+	}
+	return cached
 }

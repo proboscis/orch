@@ -36,6 +36,8 @@ func GetWorktreeStatusBatch(worktrees []struct {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
+	sem := make(chan struct{}, 8)
+
 	for _, wt := range worktrees {
 		if wt.Path == "" {
 			continue
@@ -43,6 +45,8 @@ func GetWorktreeStatusBatch(worktrees []struct {
 		wg.Add(1)
 		go func(path, branch, baseBranch string) {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 			info := GetWorktreeStatus(path, branch, baseBranch)
 			mu.Lock()
 			results[path] = info

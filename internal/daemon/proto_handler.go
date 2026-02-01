@@ -229,10 +229,7 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 	}
 
 	protoRuns := make([]*orchpb.Run, len(runs))
-	for i, run := range runs {
-		protoRuns[i] = modelRunToProto(run)
-		protoRuns[i].ElapsedDisplay = formatElapsedTime(run.StartedAt, run.UpdatedAt, run.Status)
-	}
+	protoRuns = enrichRunsParallel(runs, protoRuns)
 
 	return &orchpb.Response{
 		Ok: true,

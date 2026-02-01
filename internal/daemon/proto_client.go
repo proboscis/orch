@@ -21,7 +21,7 @@ type ProtoClient struct {
 func NewProtoClient(projectRoot string) *ProtoClient {
 	return &ProtoClient{
 		projectRoot: projectRoot,
-		timeout:     10 * time.Second,
+		timeout:     30 * time.Second,
 	}
 }
 
@@ -29,7 +29,7 @@ func NewProtoClientWithIssuesRoot(projectRoot, issuesRoot string) *ProtoClient {
 	return &ProtoClient{
 		projectRoot: projectRoot,
 		issuesRoot:  issuesRoot,
-		timeout:     10 * time.Second,
+		timeout:     30 * time.Second,
 	}
 }
 
