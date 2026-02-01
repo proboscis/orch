@@ -299,19 +299,22 @@ func continueFromRun(ctx context.Context, api orchapi.OrchAPI, refStr string, op
 			}
 		}
 
-		api.AppendEvent(ctx, runRef, &orchapi.Event{Type: "artifact", Name: "session", Attrs: map[string]string{"name": tmuxSession, "multiplexer": string(mux.Type())}})
+		// Only create session artifact for non-HTTP agents (opencode uses HTTP, no tmux session)
+		if adapter.PromptInjection() != agent.InjectionHTTP {
+			api.AppendEvent(ctx, runRef, &orchapi.Event{Type: "artifact", Name: "session", Attrs: map[string]string{"name": tmuxSession, "multiplexer": string(mux.Type())}})
 
-		windowID := ""
-		if windows, err := mux.ListWindows(tmuxSession); err == nil {
-			for _, window := range windows {
-				if window.Index == 0 {
-					windowID = window.ID
-					break
+			windowID := ""
+			if windows, err := mux.ListWindows(tmuxSession); err == nil {
+				for _, window := range windows {
+					if window.Index == 0 {
+						windowID = window.ID
+						break
+					}
 				}
 			}
-		}
-		if windowID != "" {
-			api.AppendEvent(ctx, runRef, &orchapi.Event{Type: "artifact", Name: "window", Attrs: map[string]string{"id": windowID}})
+			if windowID != "" {
+				api.AppendEvent(ctx, runRef, &orchapi.Event{Type: "artifact", Name: "window", Attrs: map[string]string{"id": windowID}})
+			}
 		}
 	}
 
@@ -495,19 +498,22 @@ func continueFromBranch(ctx context.Context, api orchapi.OrchAPI, refStr string,
 			}
 		}
 
-		api.AppendEvent(ctx, runRef, &orchapi.Event{Type: "artifact", Name: "session", Attrs: map[string]string{"name": tmuxSession, "multiplexer": string(mux.Type())}})
+		// Only create session artifact for non-HTTP agents (opencode uses HTTP, no tmux session)
+		if adapter.PromptInjection() != agent.InjectionHTTP {
+			api.AppendEvent(ctx, runRef, &orchapi.Event{Type: "artifact", Name: "session", Attrs: map[string]string{"name": tmuxSession, "multiplexer": string(mux.Type())}})
 
-		windowID := ""
-		if windows, err := mux.ListWindows(tmuxSession); err == nil {
-			for _, window := range windows {
-				if window.Index == 0 {
-					windowID = window.ID
-					break
+			windowID := ""
+			if windows, err := mux.ListWindows(tmuxSession); err == nil {
+				for _, window := range windows {
+					if window.Index == 0 {
+						windowID = window.ID
+						break
+					}
 				}
 			}
-		}
-		if windowID != "" {
-			api.AppendEvent(ctx, runRef, &orchapi.Event{Type: "artifact", Name: "window", Attrs: map[string]string{"id": windowID}})
+			if windowID != "" {
+				api.AppendEvent(ctx, runRef, &orchapi.Event{Type: "artifact", Name: "window", Attrs: map[string]string{"id": windowID}})
+			}
 		}
 	}
 
