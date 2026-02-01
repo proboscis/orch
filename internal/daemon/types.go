@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -116,6 +117,7 @@ type RunSummary struct {
 	ElapsedDisplay    string         `json:"elapsed_display,omitempty"`
 	Alive             bool           `json:"alive"`
 	AliveKnown        bool           `json:"alive_known"`
+	WorktreeExists    bool           `json:"worktree_exists"`
 	StartedAt         string         `json:"started_at"`
 	UpdatedAt         string         `json:"updated_at"`
 	URI               string         `json:"uri"`
@@ -152,6 +154,7 @@ type RunFull struct {
 	ElapsedDisplay    string         `json:"elapsed_display,omitempty"`
 	Alive             bool           `json:"alive"`
 	AliveKnown        bool           `json:"alive_known"`
+	WorktreeExists    bool           `json:"worktree_exists"`
 	StartedAt         string         `json:"started_at"`
 	UpdatedAt         string         `json:"updated_at"`
 	URI               string         `json:"uri"`
@@ -317,6 +320,14 @@ func computeBranchStateString(run *model.Run) string {
 	}
 }
 
+func computeWorktreeExists(path string) bool {
+	if path == "" {
+		return false
+	}
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 // RunToSummary converts a model.Run to a RunSummary
 func RunToSummary(run *model.Run) *RunSummary {
 	diffStats := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
@@ -351,6 +362,7 @@ func RunToSummary(run *model.Run) *RunSummary {
 		ElapsedDisplay: elapsedDisplay,
 		Alive:          false,
 		AliveKnown:     false,
+		WorktreeExists: computeWorktreeExists(run.WorktreePath),
 		StartedAt:      formatTime(run.StartedAt),
 		UpdatedAt:      formatTime(run.UpdatedAt),
 		URI:            FileURI(run.Path),
@@ -412,6 +424,7 @@ func RunToFull(run *model.Run) *RunFull {
 		ElapsedDisplay: elapsedDisplay,
 		Alive:          false,
 		AliveKnown:     false,
+		WorktreeExists: computeWorktreeExists(run.WorktreePath),
 		StartedAt:      formatTime(run.StartedAt),
 		UpdatedAt:      formatTime(run.UpdatedAt),
 		URI:            FileURI(run.Path),

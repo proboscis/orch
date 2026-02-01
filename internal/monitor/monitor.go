@@ -1035,10 +1035,8 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 			merged = "-"
 		}
 		shortID := w.Run.ShortID()
-		if w.Run.WorktreePath != "" {
-			if _, err := os.Stat(w.Run.WorktreePath); os.IsNotExist(err) {
-				shortID += "*"
-			}
+		if w.Run.WorktreePath != "" && !w.Run.WorktreeExists {
+			shortID += "*"
 		}
 		branch := formatBranchDisplay(w.Run.Branch, runTableBranchWidth)
 		worktree := formatWorktreeDisplay(w.Run.WorktreePath, runTableWorktreeWidth)
@@ -1075,9 +1073,10 @@ func runAliveLabel(run *model.Run) string {
 	if run == nil {
 		return "-"
 	}
-	manager := agent.GetManager(run)
-	alive := manager.IsAlive(run)
-	if alive {
+	if !run.AliveKnown {
+		return "-"
+	}
+	if run.Alive {
 		return "yes"
 	}
 	return "no"
@@ -1856,6 +1855,9 @@ func apiRunToModel(r *orchapi.Run) *model.Run {
 		StartedAt:         r.StartedAt,
 		UpdatedAt:         r.UpdatedAt,
 		BranchState:       string(r.BranchState),
+		Alive:             r.Alive,
+		AliveKnown:        r.AliveKnown,
+		WorktreeExists:    r.WorktreeExists,
 	}
 }
 

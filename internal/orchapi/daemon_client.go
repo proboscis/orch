@@ -455,6 +455,7 @@ func runFromDaemonFull(r *daemon.RunFull) *Run {
 		ElapsedDisplay:    r.ElapsedDisplay,
 		Alive:             r.Alive,
 		AliveKnown:        r.AliveKnown,
+		WorktreeExists:    r.WorktreeExists,
 		StartedAt:         startedAt,
 		UpdatedAt:         updatedAt,
 		Events:            events,
@@ -501,6 +502,7 @@ func runFromDaemonSummary(r *daemon.RunSummary) *Run {
 		ElapsedDisplay:    r.ElapsedDisplay,
 		Alive:             r.Alive,
 		AliveKnown:        r.AliveKnown,
+		WorktreeExists:    r.WorktreeExists,
 		StartedAt:         startedAt,
 		UpdatedAt:         updatedAt,
 	}
