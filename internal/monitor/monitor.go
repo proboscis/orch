@@ -557,7 +557,7 @@ func (m *Monitor) Quit() error {
 
 // StopRun kills the run session and marks the run canceled.
 func (m *Monitor) StopRun(run *model.Run) error {
-	if isTerminalStatus(run.Status) {
+	if run.Status.IsTerminal() {
 		return nil
 	}
 
@@ -726,7 +726,7 @@ func (m *Monitor) ResolveRun(run *model.Run) error {
 	ctx := context.Background()
 	ref := orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}
 
-	if !isTerminalStatus(run.Status) {
+	if !run.Status.IsTerminal() {
 		if _, err := m.api.AppendEvent(ctx, ref, &orchapi.Event{Type: "status", Name: string(model.StatusDone)}); err != nil {
 			return fmt.Errorf("failed to mark run as done: %w", err)
 		}
@@ -1110,7 +1110,7 @@ func (m *Monitor) buildIssueRows(issues []*model.Issue, runs []*model.Run) []Iss
 			if latest == nil || run.UpdatedAt.After(latest.UpdatedAt) {
 				latest = run
 			}
-			if isActiveStatus(run.Status) {
+			if run.Status.IsActive() {
 				activeCount++
 			}
 		}
@@ -1365,24 +1365,6 @@ func defaultStatuses() []model.Status {
 		model.StatusQueued,
 		model.StatusPROpen,
 		model.StatusUnknown,
-	}
-}
-
-func isTerminalStatus(status model.Status) bool {
-	switch status {
-	case model.StatusDone, model.StatusFailed, model.StatusCanceled:
-		return true
-	default:
-		return false
-	}
-}
-
-func isActiveStatus(status model.Status) bool {
-	switch status {
-	case model.StatusRunning, model.StatusBlocked, model.StatusBlockedAPI, model.StatusBooting, model.StatusQueued, model.StatusPROpen:
-		return true
-	default:
-		return false
 	}
 }
 

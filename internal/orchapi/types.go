@@ -134,6 +134,8 @@ type Run struct {
 	RunID             string
 	ShortID           string
 	Status            RunStatus
+	IsActive          bool
+	IsTerminal        bool
 	Phase             string
 	Agent             string
 	Model             string
