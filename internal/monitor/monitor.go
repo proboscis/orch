@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -491,7 +492,8 @@ func (m *Monitor) SetRunFilter(filter RunFilter) {
 
 func (m *Monitor) RefreshIssues() ([]IssueRow, error) {
 	ctx := context.Background()
-	issuesResult, err := m.api.ListIssues(ctx, nil)
+	filter := m.buildIssueStatusFilter()
+	issuesResult, err := m.api.ListIssues(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -502,6 +504,17 @@ func (m *Monitor) RefreshIssues() ([]IssueRow, error) {
 	issues := apiIssuesToModel(issuesResult.Issues)
 	runs := apiRunsToModel(runsResult.Runs)
 	return m.buildIssueRows(issues, runs), nil
+}
+
+func (m *Monitor) buildIssueStatusFilter() *orchapi.ListIssuesFilter {
+	statuses := []orchapi.IssueStatus{orchapi.IssueStatusOpen}
+	if m.showResolved {
+		statuses = append(statuses, orchapi.IssueStatusResolved)
+	}
+	if m.showClosed {
+		statuses = append(statuses, orchapi.IssueStatusClosed)
+	}
+	return &orchapi.ListIssuesFilter{Status: statuses}
 }
 
 // SwitchWindow selects a window by index.
@@ -779,6 +792,24 @@ func (m *Monitor) ListBranchesForIssue(issueID string) ([]branchInfo, error) {
 	}
 
 	return filterBranchesForIssue(branches, issueID), nil
+}
+
+func filterBranchesForIssue(branches map[string]time.Time, issueID string) []branchInfo {
+	var result []branchInfo
+	issueIDLower := strings.ToLower(issueID)
+	for name, commitTime := range branches {
+		nameLower := strings.ToLower(name)
+		if strings.Contains(nameLower, issueIDLower) {
+			result = append(result, branchInfo{
+				name:       name,
+				commitTime: commitTime,
+			})
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].commitTime.After(result[j].commitTime)
+	})
+	return result
 }
 
 func (m *Monitor) ContinueRun(issueID, branch, agentType, prompt string) (string, error) {

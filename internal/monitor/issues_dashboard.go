@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
-	"sort"
 	"strings"
 	"time"
 
@@ -172,11 +171,17 @@ func (d *IssueDashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case issuesRefreshMsg:
 		savedCursor := d.cursor
 		d.issues = msg.rows
-		d.applyFilter()
+		d.filteredIssues = msg.rows
 		d.refreshing = false
 		d.lastRefresh = time.Now()
 
 		d.cursor = d.findIssueIndex(d.savedIssueID, savedCursor)
+		if d.cursor >= len(d.filteredIssues) {
+			d.cursor = len(d.filteredIssues) - 1
+			if d.cursor < 0 {
+				d.cursor = 0
+			}
+		}
 		d.updateSavedIssueID()
 		d.ensureCursorVisible()
 		return d, nil
@@ -563,7 +568,6 @@ func (d *IssueDashboard) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return d, nil
 	case "enter", " ":
-		// Toggle the selected filter option and persist the setting
 		switch d.filter.cursor {
 		case 0:
 			d.filter.showResolved = !d.filter.showResolved
@@ -572,8 +576,8 @@ func (d *IssueDashboard) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			d.filter.showClosed = !d.filter.showClosed
 			d.monitor.SetShowClosed(d.filter.showClosed)
 		}
-		d.applyFilter()
-		return d, nil
+		d.refreshing = true
+		return d, d.refreshCmd()
 	}
 	return d, nil
 }
@@ -877,37 +881,6 @@ func (d *IssueDashboard) viewFilter() string {
 	return strings.Join(lines, "\n")
 }
 
-// applyFilter filters the issues list based on current filter settings
-func (d *IssueDashboard) applyFilter() {
-	if d.filter.showResolved && d.filter.showClosed {
-		// No filtering needed, show all issues
-		d.filteredIssues = d.issues
-		return
-	}
-
-	filtered := make([]IssueRow, 0, len(d.issues))
-	for _, issue := range d.issues {
-		status := model.ParseIssueStatus(issue.Status)
-		if status == model.IssueStatusResolved && !d.filter.showResolved {
-			continue
-		}
-		if status == model.IssueStatusClosed && !d.filter.showClosed {
-			continue
-		}
-		filtered = append(filtered, issue)
-	}
-	d.filteredIssues = filtered
-
-	// Reset cursor if it's out of bounds
-	if d.cursor >= len(d.filteredIssues) {
-		d.cursor = len(d.filteredIssues) - 1
-		if d.cursor < 0 {
-			d.cursor = 0
-		}
-	}
-	d.ensureCursorVisible()
-}
-
 // hasActiveFilters returns true if any filters are hiding issues
 func (d *IssueDashboard) hasActiveFilters() bool {
 	return !d.filter.showResolved || !d.filter.showClosed
@@ -917,7 +890,7 @@ func (d *IssueDashboard) renderMeta() string {
 	sync := d.renderSyncStatus()
 	total := fmt.Sprintf("issues: %d", len(d.filteredIssues))
 	if d.hasActiveFilters() {
-		total = fmt.Sprintf("issues: %d/%d (filtered)", len(d.filteredIssues), len(d.issues))
+		total = fmt.Sprintf("issues: %d (filtered)", len(d.filteredIssues))
 	}
 	sortLabel := fmt.Sprintf("sort: %s", d.monitor.IssueSort())
 	nav := d.renderNav()
@@ -1650,24 +1623,4 @@ func (d *IssueDashboard) ensureContinueBranchVisible() {
 	if d.continue_.offset < 0 {
 		d.continue_.offset = 0
 	}
-}
-
-// filterBranchesForIssue filters branches that contain the issue ID in their name
-func filterBranchesForIssue(branches map[string]time.Time, issueID string) []branchInfo {
-	var result []branchInfo
-	issueIDLower := strings.ToLower(issueID)
-	for name, commitTime := range branches {
-		nameLower := strings.ToLower(name)
-		if strings.Contains(nameLower, issueIDLower) {
-			result = append(result, branchInfo{
-				name:       name,
-				commitTime: commitTime,
-			})
-		}
-	}
-	// Sort by commit time descending (most recent first)
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].commitTime.After(result[j].commitTime)
-	})
-	return result
 }
