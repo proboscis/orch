@@ -77,6 +77,8 @@ message Run {
   int32 server_port = 17;
   string opencode_session_id = 18;
   string continued_from = 19;
+  int32 pr_number = 20;
+  string pr_state = 21;
 }
 
 message Issue {

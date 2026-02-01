@@ -133,8 +133,6 @@ func runPs(opts *psOptions) error {
 		runs = runs[:requestedLimit]
 	}
 
-	populatePRUrls(runs)
-
 	if opts.NoAlive {
 		aliveByRun = nil
 	}

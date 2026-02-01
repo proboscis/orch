@@ -85,6 +85,8 @@ type Run struct {
 	TmuxWindowID      string
 	Multiplexer       string
 	PRUrl             string
+	PRNumber          int
+	PRState           string
 	ServerPort        int
 	OpenCodeSessionID string
 
