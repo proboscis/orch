@@ -12,9 +12,7 @@ import (
 	"time"
 
 	"github.com/s22625/orch/internal/agent"
-	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/daemon"
-	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
@@ -343,11 +341,7 @@ func outputTSVWithIssueInfo(runs []*model.Run, issueCache map[string]psIssueInfo
 }
 
 func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
-	return outputTableWithIssueInfo(runs, now, absoluteTime, nil, nil)
-}
-
-func outputTableWithIssueInfo(runs []*model.Run, now time.Time, absoluteTime bool, issueCache map[string]psIssueInfo, aliveByRun map[string]agentAliveInfo) error {
-	return outputTableWithIssueInfoOpts(runs, now, &psOptions{AbsoluteTime: absoluteTime}, issueCache, aliveByRun)
+	return outputTableWithIssueInfoAndBranchState(runs, now, &psOptions{AbsoluteTime: absoluteTime}, nil, nil, nil)
 }
 
 func outputTableWithIssueInfoAndBranchState(runs []*model.Run, now time.Time, opts *psOptions, issueCache map[string]psIssueInfo, aliveByRun map[string]agentAliveInfo, branchStateByRun map[string]string) error {
@@ -371,38 +365,6 @@ func outputTableWithIssueInfoAndBranchState(runs []*model.Run, now time.Time, op
 	}
 
 	return outputTableWithGitStates(runs, now, opts, issueCache, aliveByRun, branchStateByRun)
-}
-
-func outputTableWithIssueInfoOpts(runs []*model.Run, now time.Time, opts *psOptions, issueCache map[string]psIssueInfo, aliveByRun map[string]agentAliveInfo) error {
-	if len(runs) == 0 {
-		if !globalOpts.Quiet {
-			fmt.Println("No runs found")
-		}
-		return nil
-	}
-
-	if issueCache == nil {
-		ctx := context.Background()
-		api, err := getAPI()
-		if err != nil {
-			return err
-		}
-		issueCache = make(map[string]psIssueInfo)
-		for _, r := range runs {
-			resolveIssueInfoAPI(ctx, api, issueCache, r.IssueID)
-		}
-	}
-
-	var gitStates map[string]string
-	if !opts.NoGit {
-		baseBranch := ""
-		if cfg, err := config.Load(); err == nil && cfg.BaseBranch != "" {
-			baseBranch = cfg.BaseBranch
-		}
-		gitStates = gitStatesForRuns(runs, baseBranch)
-	}
-
-	return outputTableWithGitStates(runs, now, opts, issueCache, aliveByRun, gitStates)
 }
 
 func outputTableWithGitStates(runs []*model.Run, now time.Time, opts *psOptions, issueCache map[string]psIssueInfo, aliveByRun map[string]agentAliveInfo, gitStates map[string]string) error {
@@ -864,21 +826,6 @@ func colorAlive(info agentAliveInfo) string {
 		return "\033[32m" + text + "\033[0m"
 	}
 	return "\033[31m" + text + "\033[0m"
-}
-
-func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
-	runInfos := make([]git.RunInfo, 0, len(runs))
-	for _, r := range runs {
-		if r == nil {
-			continue
-		}
-		runInfos = append(runInfos, git.RunInfo{
-			RunID:        r.RunID,
-			Branch:       r.Branch,
-			WorktreePath: r.WorktreePath,
-		})
-	}
-	return git.GetRunMergeStates(runInfos, target)
 }
 
 // parseStatusList parses a comma-separated status list

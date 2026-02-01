@@ -90,6 +90,8 @@ type Run struct {
 
 	// Frontmatter metadata
 	ContinuedFrom string
+
+	BranchState string
 }
 
 // Ref returns the RunRef for this run

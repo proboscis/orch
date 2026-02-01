@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 )
 
@@ -121,19 +120,4 @@ func truncateLeading(text string, max int) string {
 		return text[:max]
 	}
 	return "..." + text[len(text)-(max-3):]
-}
-
-func gitStatesForRuns(runs []*model.Run, target string) map[string]string {
-	runInfos := make([]git.RunInfo, 0, len(runs))
-	for _, r := range runs {
-		if r == nil {
-			continue
-		}
-		runInfos = append(runInfos, git.RunInfo{
-			RunID:        r.RunID,
-			Branch:       r.Branch,
-			WorktreePath: r.WorktreePath,
-		})
-	}
-	return git.GetRunMergeStates(runInfos, target)
 }

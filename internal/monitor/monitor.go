@@ -1000,13 +1000,7 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 			runList = append(runList, w.Run)
 		}
 	}
-	baseBranch := ""
-	if cfg, err := config.Load(); err == nil && cfg.BaseBranch != "" {
-		baseBranch = cfg.BaseBranch
-	}
-	gitStates := gitStatesForRuns(runList, baseBranch)
 
-	// Populate PR info
 	prInfoMap := pr.PopulateRunInfo(runList)
 
 	rows := make([]RunRow, 0, len(windows))
@@ -1036,9 +1030,9 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 			prDisplay = "yes"
 		}
 
-		merged := "-"
-		if state, ok := gitStates[w.Run.RunID]; ok {
-			merged = state
+		merged := w.Run.BranchState
+		if merged == "" {
+			merged = "-"
 		}
 		shortID := w.Run.ShortID()
 		if w.Run.WorktreePath != "" {
@@ -1861,6 +1855,7 @@ func apiRunToModel(r *orchapi.Run) *model.Run {
 		ContinuedFrom:     r.ContinuedFrom,
 		StartedAt:         r.StartedAt,
 		UpdatedAt:         r.UpdatedAt,
+		BranchState:       string(r.BranchState),
 	}
 }
 
