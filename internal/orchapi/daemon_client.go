@@ -39,6 +39,8 @@ func (c *DaemonClient) GetIssue(ctx context.Context, issueID string) (*Issue, er
 
 func (c *DaemonClient) ListIssues(ctx context.Context, filter *ListIssuesFilter) (*ListIssuesResult, error) {
 	var statuses []string
+	var tags []string
+	var tagsMode string
 	var limit int
 	var cursor string
 
@@ -46,11 +48,13 @@ func (c *DaemonClient) ListIssues(ctx context.Context, filter *ListIssuesFilter)
 		for _, s := range filter.Status {
 			statuses = append(statuses, string(s))
 		}
+		tags = filter.Tags
+		tagsMode = filter.TagsMode
 		limit = filter.Limit
 		cursor = filter.Cursor
 	}
 
-	resp, err := c.proto.ListIssues(statuses, limit, cursor)
+	resp, err := c.proto.ListIssues(statuses, tags, tagsMode, limit, cursor)
 	if err != nil {
 		return nil, err
 	}

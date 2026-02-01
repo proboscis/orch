@@ -218,7 +218,7 @@ func (c *ProtoClient) GetRunByShortID(shortID string) (*GetRunResponse, error) {
 	}, nil
 }
 
-func (c *ProtoClient) ListIssues(status []string, limit int, cursor string) (*ListIssuesResponse, error) {
+func (c *ProtoClient) ListIssues(status []string, tags []string, tagsMode string, limit int, cursor string) (*ListIssuesResponse, error) {
 	protoStatuses := make([]orchpb.IssueStatus, 0, len(status))
 	for _, s := range status {
 		protoStatuses = append(protoStatuses, stringToProtoIssueStatus(s))
@@ -229,6 +229,8 @@ func (c *ProtoClient) ListIssues(status []string, limit int, cursor string) (*Li
 			ListIssues: &orchpb.ListIssuesRequest{
 				IssuesRoot: c.issuesRoot,
 				Status:     protoStatuses,
+				Tags:       tags,
+				TagsMode:   tagsMode,
 				Limit:      int32(limit),
 				Cursor:     cursor,
 			},

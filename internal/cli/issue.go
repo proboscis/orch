@@ -309,27 +309,45 @@ func runIssueList(opts *issueListOptions) error {
 }
 
 func runIssueListViaDaemon(client *daemon.ProtoClient, opts *issueListOptions) error {
-	// Collect all issues, handling pagination
-	// Pass status filter to daemon if set (daemon supports this)
 	var statusFilter []string
 	if opts.Status != "" {
 		statusFilter = []string{opts.Status}
 	}
 
+	var tags []string
+	var tagsMode string
+	if len(opts.Tags) > 0 {
+		tags = opts.Tags
+		tagsMode = "and"
+	} else if len(opts.TagsAny) > 0 {
+		tags = opts.TagsAny
+		tagsMode = "or"
+	}
+
 	var allIssues []*daemon.IssueSummary
 	cursor := ""
 	for {
-		issuesResp, err := client.ListIssues(statusFilter, 200, cursor) // Use max limit
+		issuesResp, err := client.ListIssues(statusFilter, tags, tagsMode, 200, cursor)
 		if err != nil {
 			return err
 		}
 		allIssues = append(allIssues, issuesResp.Issues...)
 
-		// Check if there are more pages
 		if issuesResp.NextCursor == nil || *issuesResp.NextCursor == "" {
 			break
 		}
 		cursor = *issuesResp.NextCursor
+	}
+
+	// Secondary filter when both --tag (AND) and --tag-any (OR) are specified
+	if len(opts.Tags) > 0 && len(opts.TagsAny) > 0 {
+		var filtered []*daemon.IssueSummary
+		for _, issue := range allIssues {
+			if matchTagsOr(issue.Tags, opts.TagsAny) {
+				filtered = append(filtered, issue)
+			}
+		}
+		allIssues = filtered
 	}
 
 	runsResp, err := client.ListRuns("", []string{"running", "blocked", "blocked_api", "booting", "queued"}, 0, "")
@@ -344,14 +362,6 @@ func runIssueListViaDaemon(client *daemon.ProtoClient, opts *issueListOptions) e
 
 	var issueInfos []issueInfo
 	for _, issue := range allIssues {
-		// Apply tag filters (status already filtered by daemon)
-		if !matchTagsAnd(issue.Tags, opts.Tags) {
-			continue
-		}
-		if !matchTagsOr(issue.Tags, opts.TagsAny) {
-			continue
-		}
-
 		info := issueInfo{
 			ID:         issue.ID,
 			Title:      issue.Title,
@@ -449,23 +459,6 @@ func formatRunsSummary(runs []runSummary) string {
 	return strings.Join(parts, ", ")
 }
 
-// matchTagsAnd returns true if the issue has ALL of the specified tags (case-insensitive)
-func matchTagsAnd(issueTags []string, filterTags []string) bool {
-	if len(filterTags) == 0 {
-		return true
-	}
-	tagSet := make(map[string]bool)
-	for _, t := range issueTags {
-		tagSet[strings.ToLower(t)] = true
-	}
-	for _, t := range filterTags {
-		if !tagSet[strings.ToLower(t)] {
-			return false
-		}
-	}
-	return true
-}
-
 // matchTagsOr returns true if the issue has ANY of the specified tags (case-insensitive)
 func matchTagsOr(issueTags []string, filterTags []string) bool {
 	if len(filterTags) == 0 {
@@ -481,23 +474,6 @@ func matchTagsOr(issueTags []string, filterTags []string) bool {
 		}
 	}
 	return false
-}
-
-// matchIssueFilters checks if an issue matches all filter criteria
-func matchIssueFilters(status string, tags []string, opts *issueListOptions) bool {
-	// Status filter
-	if opts.Status != "" && !strings.EqualFold(status, opts.Status) {
-		return false
-	}
-	// Tag AND filter
-	if !matchTagsAnd(tags, opts.Tags) {
-		return false
-	}
-	// Tag OR filter
-	if !matchTagsOr(tags, opts.TagsAny) {
-		return false
-	}
-	return true
 }
 
 type issueShowOptions struct {
