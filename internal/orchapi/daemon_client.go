@@ -121,7 +121,7 @@ func (c *DaemonClient) ResolveRun(ctx context.Context, ref RunRef) (*Run, error)
 		return runFromDaemonFull(resp.Run), nil
 	}
 
-	runs, err := c.proto.ListRuns(ref.IssueID, nil, 1, "")
+	runs, err := c.proto.ListRuns(ref.IssueID, nil, 1, "", "")
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +147,7 @@ func (c *DaemonClient) GetRun(ctx context.Context, issueID, runID string) (*Run,
 }
 
 func (c *DaemonClient) GetLatestRun(ctx context.Context, issueID string) (*Run, error) {
-	runs, err := c.proto.ListRuns(issueID, nil, 1, "")
+	runs, err := c.proto.ListRuns(issueID, nil, 1, "", "")
 	if err != nil {
 		return nil, err
 	}
@@ -166,6 +166,7 @@ func (c *DaemonClient) ListRuns(ctx context.Context, filter *ListRunsFilter) (*L
 	var statuses []string
 	var limit int
 	var cursor string
+	var olderThan string
 
 	if filter != nil {
 		issueID = filter.IssueID
@@ -174,9 +175,10 @@ func (c *DaemonClient) ListRuns(ctx context.Context, filter *ListRunsFilter) (*L
 		}
 		limit = filter.Limit
 		cursor = filter.Cursor
+		olderThan = filter.OlderThan
 	}
 
-	resp, err := c.proto.ListRuns(issueID, statuses, limit, cursor)
+	resp, err := c.proto.ListRuns(issueID, statuses, limit, cursor, olderThan)
 	if err != nil {
 		return nil, err
 	}

@@ -207,6 +207,7 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 		TextSearch: req.TextSearch,
 		TimeRange:  req.TimeRange,
 		Limit:      int(req.Limit),
+		OlderThan:  req.OlderThan,
 	}
 
 	runs, err := st.ListRuns(filter)

@@ -93,32 +93,37 @@ Use --dry-run to see what would be deleted without actually deleting.`,
 	return cmd
 }
 
-// parseDuration parses a duration string like "7d", "2w", "1m" into a time.Duration
-func parseDuration(s string) (time.Duration, error) {
+// durationToOlderThan parses a duration string like "7d", "2w", "1m" and returns
+// an ISO8601 timestamp representing the cutoff time (now - duration).
+// Runs updated before this time are considered "older than" the duration.
+func durationToOlderThan(s string) (string, error) {
 	if s == "" {
-		return 0, fmt.Errorf("empty duration")
+		return "", fmt.Errorf("empty duration")
 	}
 
-	// Match number followed by unit
 	re := regexp.MustCompile(`^(\d+)([dwmDWM])$`)
 	matches := re.FindStringSubmatch(s)
 	if matches == nil {
-		return 0, fmt.Errorf("invalid duration format: %s (use 7d, 2w, or 1m)", s)
+		return "", fmt.Errorf("invalid duration format: %s (use 7d, 2w, or 1m)", s)
 	}
 
 	value, _ := strconv.Atoi(matches[1])
 	unit := strings.ToLower(matches[2])
 
+	var duration time.Duration
 	switch unit {
 	case "d":
-		return time.Duration(value) * 24 * time.Hour, nil
+		duration = time.Duration(value) * 24 * time.Hour
 	case "w":
-		return time.Duration(value) * 7 * 24 * time.Hour, nil
+		duration = time.Duration(value) * 7 * 24 * time.Hour
 	case "m":
-		return time.Duration(value) * 30 * 24 * time.Hour, nil
+		duration = time.Duration(value) * 30 * 24 * time.Hour
 	default:
-		return 0, fmt.Errorf("unknown duration unit: %s", unit)
+		return "", fmt.Errorf("unknown duration unit: %s", unit)
 	}
+
+	cutoff := time.Now().Add(-duration)
+	return cutoff.Format(time.RFC3339), nil
 }
 
 // parseStatus parses a status string into a model.Status slice
@@ -177,6 +182,14 @@ func deleteIssueRuns(ctx context.Context, api orchapi.OrchAPI, issueID string, o
 		filter.Status = statuses
 	}
 
+	if opts.OlderThan != "" {
+		olderThan, err := durationToOlderThan(opts.OlderThan)
+		if err != nil {
+			return err
+		}
+		filter.OlderThan = olderThan
+	}
+
 	result, err := api.ListRuns(ctx, filter)
 	if err != nil {
 		return err
@@ -189,15 +202,7 @@ func deleteIssueRuns(ctx context.Context, api orchapi.OrchAPI, issueID string, o
 		return nil
 	}
 
-	runs := result.Runs
-	if opts.OlderThan != "" {
-		runs, err = filterByAgeAPI(runs, opts.OlderThan)
-		if err != nil {
-			return err
-		}
-	}
-
-	return deleteRuns(ctx, api, runs, opts)
+	return deleteRuns(ctx, api, result.Runs, opts)
 }
 
 func runDeleteByAge(opts *deleteOptions) error {
@@ -207,7 +212,14 @@ func runDeleteByAge(opts *deleteOptions) error {
 		return err
 	}
 
-	filter := &orchapi.ListRunsFilter{}
+	olderThan, err := durationToOlderThan(opts.OlderThan)
+	if err != nil {
+		return err
+	}
+
+	filter := &orchapi.ListRunsFilter{
+		OlderThan: olderThan,
+	}
 
 	if opts.Status != "" {
 		statuses, err := parseStatusAPI(opts.Status)
@@ -229,44 +241,7 @@ func runDeleteByAge(opts *deleteOptions) error {
 		return nil
 	}
 
-	runs, err := filterByAgeAPI(result.Runs, opts.OlderThan)
-	if err != nil {
-		return err
-	}
-
-	return deleteRuns(ctx, api, runs, opts)
-}
-
-func filterByAge(runs []*model.Run, olderThan string) ([]*model.Run, error) {
-	duration, err := parseDuration(olderThan)
-	if err != nil {
-		return nil, err
-	}
-
-	cutoff := time.Now().Add(-duration)
-	var filtered []*model.Run
-	for _, run := range runs {
-		if run.UpdatedAt.Before(cutoff) {
-			filtered = append(filtered, run)
-		}
-	}
-	return filtered, nil
-}
-
-func filterByAgeAPI(runs []*orchapi.Run, olderThan string) ([]*orchapi.Run, error) {
-	duration, err := parseDuration(olderThan)
-	if err != nil {
-		return nil, err
-	}
-
-	cutoff := time.Now().Add(-duration)
-	var filtered []*orchapi.Run
-	for _, run := range runs {
-		if run.UpdatedAt.Before(cutoff) {
-			filtered = append(filtered, run)
-		}
-	}
-	return filtered, nil
+	return deleteRuns(ctx, api, result.Runs, opts)
 }
 
 func parseStatusAPI(s string) ([]orchapi.RunStatus, error) {

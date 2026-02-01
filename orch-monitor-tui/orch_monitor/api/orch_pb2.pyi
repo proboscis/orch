@@ -179,7 +179,7 @@ class PingResponse(_message.Message):
     def __init__(self, ok: _Optional[bool] = ..., version: _Optional[str] = ...) -> None: ...
 
 class ListRunsRequest(_message.Message):
-    __slots__ = ("issues_root", "issue_id", "status", "agent", "text_search", "time_range", "limit", "cursor")
+    __slots__ = ("issues_root", "issue_id", "status", "agent", "text_search", "time_range", "limit", "cursor", "older_than")
     ISSUES_ROOT_FIELD_NUMBER: _ClassVar[int]
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
@@ -188,6 +188,7 @@ class ListRunsRequest(_message.Message):
     TIME_RANGE_FIELD_NUMBER: _ClassVar[int]
     LIMIT_FIELD_NUMBER: _ClassVar[int]
     CURSOR_FIELD_NUMBER: _ClassVar[int]
+    OLDER_THAN_FIELD_NUMBER: _ClassVar[int]
     issues_root: str
     issue_id: str
     status: _containers.RepeatedScalarFieldContainer[RunStatus]
@@ -196,7 +197,8 @@ class ListRunsRequest(_message.Message):
     time_range: str
     limit: int
     cursor: str
-    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., status: _Optional[_Iterable[_Union[RunStatus, str]]] = ..., agent: _Optional[str] = ..., text_search: _Optional[str] = ..., time_range: _Optional[str] = ..., limit: _Optional[int] = ..., cursor: _Optional[str] = ...) -> None: ...
+    older_than: str
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., status: _Optional[_Iterable[_Union[RunStatus, str]]] = ..., agent: _Optional[str] = ..., text_search: _Optional[str] = ..., time_range: _Optional[str] = ..., limit: _Optional[int] = ..., cursor: _Optional[str] = ..., older_than: _Optional[str] = ...) -> None: ...
 
 class ListRunsResponse(_message.Message):
     __slots__ = ("runs", "total", "next_cursor")

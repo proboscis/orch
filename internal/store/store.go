@@ -12,7 +12,8 @@ type ListRunsFilter struct {
 	TextSearch string // Search in run_id, issue_id, branch
 	TimeRange  string // "hour", "today", "week", "all"
 	Limit      int
-	Since      string // ISO8601 timestamp
+	Since      string // ISO8601 timestamp - keep runs NEWER than this time
+	OlderThan  string // ISO8601 timestamp - keep runs OLDER than this time
 }
 
 // ListIssuesFilter specifies criteria for filtering issues

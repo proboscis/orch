@@ -789,6 +789,7 @@ type ListRunsRequest struct {
 	TimeRange     string                 `protobuf:"bytes,6,opt,name=time_range,json=timeRange,proto3" json:"time_range,omitempty"` // "hour", "today", "week"
 	Limit         int32                  `protobuf:"varint,7,opt,name=limit,proto3" json:"limit,omitempty"`
 	Cursor        string                 `protobuf:"bytes,8,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	OlderThan     string                 `protobuf:"bytes,9,opt,name=older_than,json=olderThan,proto3" json:"older_than,omitempty"` // ISO8601 timestamp - filter runs older than this time
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -875,6 +876,13 @@ func (x *ListRunsRequest) GetLimit() int32 {
 func (x *ListRunsRequest) GetCursor() string {
 	if x != nil {
 		return x.Cursor
+	}
+	return ""
+}
+
+func (x *ListRunsRequest) GetOlderThan() string {
+	if x != nil {
+		return x.OlderThan
 	}
 	return ""
 }
@@ -6699,7 +6707,7 @@ const file_orch_proto_rawDesc = "" +
 	"\vPingRequest\"8\n" +
 	"\fPingResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x18\n" +
-	"\aversion\x18\x02 \x01(\tR\aversion\"\xfd\x01\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\"\x9c\x02\n" +
 	"\x0fListRunsRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +
@@ -6711,7 +6719,9 @@ const file_orch_proto_rawDesc = "" +
 	"\n" +
 	"time_range\x18\x06 \x01(\tR\ttimeRange\x12\x14\n" +
 	"\x05limit\x18\a \x01(\x05R\x05limit\x12\x16\n" +
-	"\x06cursor\x18\b \x01(\tR\x06cursor\"k\n" +
+	"\x06cursor\x18\b \x01(\tR\x06cursor\x12\x1d\n" +
+	"\n" +
+	"older_than\x18\t \x01(\tR\tolderThan\"k\n" +
 	"\x10ListRunsResponse\x12 \n" +
 	"\x04runs\x18\x01 \x03(\v2\f.orch.v1.RunR\x04runs\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x05R\x05total\x12\x1f\n" +
