@@ -121,7 +121,7 @@ func (c *DaemonClient) ResolveRun(ctx context.Context, ref RunRef) (*Run, error)
 		return runFromDaemonFull(resp.Run), nil
 	}
 
-	runs, err := c.proto.ListRuns(&daemon.ListRunsFilter{IssueID: ref.IssueID, Limit: 1})
+	runs, err := c.proto.ListRunsWithOptions(&daemon.ListRunsOptions{IssueID: ref.IssueID, Limit: 1})
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +147,7 @@ func (c *DaemonClient) GetRun(ctx context.Context, issueID, runID string) (*Run,
 }
 
 func (c *DaemonClient) GetLatestRun(ctx context.Context, issueID string) (*Run, error) {
-	runs, err := c.proto.ListRuns(&daemon.ListRunsFilter{IssueID: issueID, Limit: 1})
+	runs, err := c.proto.ListRunsWithOptions(&daemon.ListRunsOptions{IssueID: issueID, Limit: 1})
 	if err != nil {
 		return nil, err
 	}
@@ -162,22 +162,28 @@ func (c *DaemonClient) GetLatestRun(ctx context.Context, issueID string) (*Run, 
 }
 
 func (c *DaemonClient) ListRuns(ctx context.Context, filter *ListRunsFilter) (*ListRunsResult, error) {
-	var protoFilter *daemon.ListRunsFilter
+	opts := &daemon.ListRunsOptions{}
+
 	if filter != nil {
-		statuses := make([]string, len(filter.Status))
-		for i, s := range filter.Status {
-			statuses[i] = string(s)
+		opts.IssueID = filter.IssueID
+		for _, s := range filter.Status {
+			opts.Status = append(opts.Status, string(s))
 		}
-		protoFilter = &daemon.ListRunsFilter{
-			IssueID:   filter.IssueID,
-			Status:    statuses,
-			Limit:     filter.Limit,
-			Cursor:    filter.Cursor,
-			OlderThan: filter.OlderThan,
+		opts.Agent = filter.Agent
+		opts.Agents = filter.Agents
+		opts.TextSearch = filter.TextSearch
+		opts.TimeRange = filter.TimeRange
+		opts.OlderThan = filter.OlderThan
+		for _, s := range filter.IssueStatus {
+			opts.IssueStatus = append(opts.IssueStatus, string(s))
 		}
+		opts.Tags = filter.Tags
+		opts.TagsMode = filter.TagsMode
+		opts.Limit = filter.Limit
+		opts.Cursor = filter.Cursor
 	}
 
-	resp, err := c.proto.ListRuns(protoFilter)
+	resp, err := c.proto.ListRunsWithOptions(opts)
 	if err != nil {
 		return nil, err
 	}

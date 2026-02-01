@@ -154,11 +154,6 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 		sinceTime, _ = time.Parse(time.RFC3339, filter.Since)
 	}
 
-	var olderThanTime time.Time
-	if filter != nil && filter.OlderThan != "" {
-		olderThanTime, _ = time.Parse(time.RFC3339, filter.OlderThan)
-	}
-
 	var timeRangeCutoff time.Time
 	if filter != nil && filter.TimeRange != "" && filter.TimeRange != "all" {
 		now := time.Now()
@@ -180,6 +175,18 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 	agentFilter := ""
 	if filter != nil && filter.Agent != "" {
 		agentFilter = strings.ToLower(filter.Agent)
+	}
+
+	agentsFilter := make(map[string]bool)
+	if filter != nil && len(filter.Agents) > 0 {
+		for _, a := range filter.Agents {
+			agentsFilter[strings.ToLower(a)] = true
+		}
+	}
+
+	var olderThanCutoff time.Time
+	if filter != nil && filter.OlderThan != "" {
+		olderThanCutoff = parseOlderThan(filter.OlderThan)
 	}
 
 	needsFullLoad := make(map[string]bool)
@@ -220,7 +227,7 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 
 			seenKeys[key] = true
 			if cached, ok := idx.Entries[key]; ok && cached.FileMtime.Unix() == fileMtime.Unix() {
-				if !matchesRunFilters(cached, statusSet, sinceTime, olderThanTime, timeRangeCutoff, textSearch, agentFilter) {
+				if !matchesRunFilters(cached, statusSet, sinceTime, timeRangeCutoff, olderThanCutoff, textSearch, agentFilter, agentsFilter) {
 					continue
 				}
 				validEntries[key] = cached
@@ -255,7 +262,7 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 			}
 			idx.Entries[key] = entry
 
-			if !matchesRunFilters(entry, statusSet, sinceTime, olderThanTime, timeRangeCutoff, textSearch, agentFilter) {
+			if !matchesRunFilters(entry, statusSet, sinceTime, timeRangeCutoff, olderThanCutoff, textSearch, agentFilter, agentsFilter) {
 				continue
 			}
 			validEntries[key] = entry
@@ -301,6 +308,10 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 		runs = append(runs, entryToRun(entry))
 	}
 
+	if filter != nil && (len(filter.IssueStatus) > 0 || len(filter.Tags) > 0) {
+		runs = s.filterRunsByIssue(runs, filter)
+	}
+
 	sort.Slice(runs, func(i, j int) bool {
 		return runs[i].UpdatedAt.After(runs[j].UpdatedAt)
 	})
@@ -310,6 +321,86 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 	}
 
 	return runs, nil
+}
+
+func (s *FileStore) filterRunsByIssue(runs []*model.Run, filter *store.ListRunsFilter) []*model.Run {
+	if len(filter.IssueStatus) == 0 && len(filter.Tags) == 0 {
+		return runs
+	}
+
+	issueStatusSet := make(map[model.IssueStatus]bool)
+	for _, st := range filter.IssueStatus {
+		issueStatusSet[st] = true
+	}
+
+	tagsSet := make(map[string]bool)
+	for _, t := range filter.Tags {
+		tagsSet[strings.ToLower(t)] = true
+	}
+
+	tagsMode := strings.ToLower(filter.TagsMode)
+	if tagsMode == "" {
+		tagsMode = "and"
+	}
+
+	issueCache := make(map[string]*model.Issue)
+	var filtered []*model.Run
+
+	for _, run := range runs {
+		issue, ok := issueCache[run.IssueID]
+		if !ok {
+			var err error
+			issue, err = s.ResolveIssue(run.IssueID)
+			if err != nil {
+				continue
+			}
+			issueCache[run.IssueID] = issue
+		}
+
+		if len(issueStatusSet) > 0 && !issueStatusSet[issue.Status] {
+			continue
+		}
+
+		if len(tagsSet) > 0 {
+			if !matchesTags(issue.Tags, tagsSet, tagsMode) {
+				continue
+			}
+		}
+
+		filtered = append(filtered, run)
+	}
+
+	return filtered
+}
+
+func matchesTags(issueTags []string, tagsSet map[string]bool, mode string) bool {
+	if len(tagsSet) == 0 {
+		return true
+	}
+	if len(issueTags) == 0 {
+		return false
+	}
+
+	issueTagsLower := make(map[string]bool)
+	for _, t := range issueTags {
+		issueTagsLower[strings.ToLower(t)] = true
+	}
+
+	if mode == "or" {
+		for tag := range tagsSet {
+			if issueTagsLower[tag] {
+				return true
+			}
+		}
+		return false
+	}
+
+	for tag := range tagsSet {
+		if !issueTagsLower[tag] {
+			return false
+		}
+	}
+	return true
 }
 
 func runEntryEqual(a, b *runIndexEntry) bool {
@@ -330,20 +421,24 @@ func runEntryEqual(a, b *runIndexEntry) bool {
 		a.UpdatedAt.Equal(b.UpdatedAt)
 }
 
-func matchesRunFilters(entry *runIndexEntry, statusSet map[model.Status]bool, sinceTime, olderThanTime, timeRangeCutoff time.Time, textSearch, agentFilter string) bool {
+func matchesRunFilters(entry *runIndexEntry, statusSet map[model.Status]bool, sinceTime, timeRangeCutoff, olderThanCutoff time.Time, textSearch, agentFilter string, agentsFilter map[string]bool) bool {
 	if len(statusSet) > 0 && !statusSet[entry.Status] {
 		return false
 	}
 	if !sinceTime.IsZero() && entry.UpdatedAt.Before(sinceTime) {
 		return false
 	}
-	if !olderThanTime.IsZero() && !entry.UpdatedAt.Before(olderThanTime) {
-		return false
-	}
 	if !timeRangeCutoff.IsZero() && entry.StartedAt.Before(timeRangeCutoff) {
 		return false
 	}
-	if agentFilter != "" && strings.ToLower(entry.Agent) != agentFilter {
+	if !olderThanCutoff.IsZero() && entry.StartedAt.After(olderThanCutoff) {
+		return false
+	}
+	if len(agentsFilter) > 0 {
+		if !agentsFilter[strings.ToLower(entry.Agent)] {
+			return false
+		}
+	} else if agentFilter != "" && strings.ToLower(entry.Agent) != agentFilter {
 		return false
 	}
 	if textSearch != "" {
@@ -354,6 +449,40 @@ func matchesRunFilters(entry *runIndexEntry, statusSet map[model.Status]bool, si
 		}
 	}
 	return true
+}
+
+func parseOlderThan(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	now := time.Now()
+	s = strings.ToLower(strings.TrimSpace(s))
+	if len(s) < 2 {
+		return time.Time{}
+	}
+	numPart := s[:len(s)-1]
+	unit := s[len(s)-1]
+	var num int
+	for _, c := range numPart {
+		if c >= '0' && c <= '9' {
+			num = num*10 + int(c-'0')
+		}
+	}
+	if num == 0 {
+		return time.Time{}
+	}
+	switch unit {
+	case 'd':
+		return now.Add(-time.Duration(num) * 24 * time.Hour)
+	case 'w':
+		return now.Add(-time.Duration(num) * 7 * 24 * time.Hour)
+	case 'm':
+		return now.AddDate(0, -num, 0)
+	case 'y':
+		return now.AddDate(-num, 0, 0)
+	default:
+		return time.Time{}
+	}
 }
 
 func entryToRun(e *runIndexEntry) *model.Run {

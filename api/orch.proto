@@ -120,10 +120,14 @@ message ListRunsRequest {
   repeated RunStatus status = 3;
   string agent = 4;
   string text_search = 5;
-  string time_range = 6;  // "hour", "today", "week"
+  string time_range = 6;
   int32 limit = 7;
   string cursor = 8;
-  string older_than = 9;  // ISO8601 timestamp - filter runs older than this time
+  string older_than = 9;
+  repeated string agents = 10;
+  repeated IssueStatus issue_status = 11;
+  repeated string tags = 12;
+  string tags_mode = 13;
 }
 
 message ListRunsResponse {

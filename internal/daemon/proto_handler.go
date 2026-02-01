@@ -214,13 +214,17 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 	}
 
 	filter := &store.ListRunsFilter{
-		IssueID:    req.IssueId,
-		Status:     protoRunStatusSliceToModel(req.Status),
-		Agent:      req.Agent,
-		TextSearch: req.TextSearch,
-		TimeRange:  req.TimeRange,
-		Limit:      int(req.Limit),
-		OlderThan:  req.OlderThan,
+		IssueID:     req.IssueId,
+		Status:      protoRunStatusSliceToModel(req.Status),
+		Agent:       req.Agent,
+		Agents:      req.Agents,
+		TextSearch:  req.TextSearch,
+		TimeRange:   req.TimeRange,
+		OlderThan:   req.OlderThan,
+		IssueStatus: protoIssueStatusSliceToModel(req.IssueStatus),
+		Tags:        req.Tags,
+		TagsMode:    req.TagsMode,
+		Limit:       int(req.Limit),
 	}
 
 	runs, err := st.ListRuns(filter)

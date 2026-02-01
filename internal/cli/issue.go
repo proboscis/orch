@@ -332,7 +332,7 @@ func runIssueListViaDaemon(client *daemon.ProtoClient, opts *issueListOptions) e
 		cursor = *issuesResp.NextCursor
 	}
 
-	runsResp, err := client.ListRuns(&daemon.ListRunsFilter{
+	runsResp, err := client.ListRunsWithOptions(&daemon.ListRunsOptions{
 		Status: []string{"running", "blocked", "blocked_api", "booting", "queued"},
 	})
 	if err != nil {

@@ -103,35 +103,61 @@ func (c *ProtoClient) Ping() error {
 	return nil
 }
 
-func (c *ProtoClient) ListRuns(filter *ListRunsFilter) (*ListRunsResponse, error) {
-	var issueID string
-	var status []string
-	var limit int
-	var cursor string
-	var olderThan string
+type ListRunsOptions struct {
+	IssueID     string
+	Status      []string
+	Agent       string
+	Agents      []string
+	TextSearch  string
+	TimeRange   string
+	OlderThan   string
+	IssueStatus []string
+	Tags        []string
+	TagsMode    string
+	Limit       int
+	Cursor      string
+}
 
-	if filter != nil {
-		issueID = filter.IssueID
-		status = filter.Status
-		limit = filter.Limit
-		cursor = filter.Cursor
-		olderThan = filter.OlderThan
+func (c *ProtoClient) ListRuns(issueID string, status []string, limit int, cursor string) (*ListRunsResponse, error) {
+	return c.ListRunsWithOptions(&ListRunsOptions{
+		IssueID: issueID,
+		Status:  status,
+		Limit:   limit,
+		Cursor:  cursor,
+	})
+}
+
+func (c *ProtoClient) ListRunsWithOptions(opts *ListRunsOptions) (*ListRunsResponse, error) {
+	if opts == nil {
+		opts = &ListRunsOptions{}
 	}
 
-	protoStatuses := make([]orchpb.RunStatus, 0, len(status))
-	for _, s := range status {
+	protoStatuses := make([]orchpb.RunStatus, 0, len(opts.Status))
+	for _, s := range opts.Status {
 		protoStatuses = append(protoStatuses, stringToProtoRunStatus(s))
+	}
+
+	protoIssueStatuses := make([]orchpb.IssueStatus, 0, len(opts.IssueStatus))
+	for _, s := range opts.IssueStatus {
+		protoIssueStatuses = append(protoIssueStatuses, stringToProtoIssueStatus(s))
 	}
 
 	req := &orchpb.Request{
 		Request: &orchpb.Request_ListRuns{
 			ListRuns: &orchpb.ListRunsRequest{
-				IssuesRoot: c.issuesRoot,
-				IssueId:    issueID,
-				Status:     protoStatuses,
-				Limit:      int32(limit),
-				Cursor:     cursor,
-				OlderThan:  olderThan,
+				IssuesRoot:  c.issuesRoot,
+				IssueId:     opts.IssueID,
+				Status:      protoStatuses,
+				Agent:       opts.Agent,
+				Agents:      opts.Agents,
+				TextSearch:  opts.TextSearch,
+				TimeRange:   opts.TimeRange,
+				OlderThan:   opts.OlderThan,
+				IssueStatus: protoIssueStatuses,
+				Tags:        opts.Tags,
+				TagsMode:    opts.TagsMode,
+				Limit:       int32(opts.Limit),
+				Cursor:      opts.Cursor,
 			},
 		},
 	}

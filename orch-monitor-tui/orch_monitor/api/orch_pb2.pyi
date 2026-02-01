@@ -84,7 +84,7 @@ class DiffStats(_message.Message):
     def __init__(self, additions: _Optional[int] = ..., deletions: _Optional[int] = ..., files_changed: _Optional[int] = ..., files: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class Run(_message.Message):
-    __slots__ = ("issue_id", "run_id", "status", "agent", "model", "branch", "worktree_path", "pr_url", "started_at_unix", "updated_at_unix", "elapsed_seconds", "elapsed_display", "diff_stats", "branch_state", "tmux_session", "multiplexer", "server_port", "opencode_session_id", "continued_from")
+    __slots__ = ("issue_id", "run_id", "status", "agent", "model", "branch", "worktree_path", "pr_url", "started_at_unix", "updated_at_unix", "elapsed_seconds", "elapsed_display", "diff_stats", "branch_state", "tmux_session", "multiplexer", "server_port", "opencode_session_id", "continued_from", "pr_number", "pr_state")
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
@@ -104,6 +104,8 @@ class Run(_message.Message):
     SERVER_PORT_FIELD_NUMBER: _ClassVar[int]
     OPENCODE_SESSION_ID_FIELD_NUMBER: _ClassVar[int]
     CONTINUED_FROM_FIELD_NUMBER: _ClassVar[int]
+    PR_NUMBER_FIELD_NUMBER: _ClassVar[int]
+    PR_STATE_FIELD_NUMBER: _ClassVar[int]
     issue_id: str
     run_id: str
     status: RunStatus
@@ -123,7 +125,9 @@ class Run(_message.Message):
     server_port: int
     opencode_session_id: str
     continued_from: str
-    def __init__(self, issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., status: _Optional[_Union[RunStatus, str]] = ..., agent: _Optional[str] = ..., model: _Optional[str] = ..., branch: _Optional[str] = ..., worktree_path: _Optional[str] = ..., pr_url: _Optional[str] = ..., started_at_unix: _Optional[int] = ..., updated_at_unix: _Optional[int] = ..., elapsed_seconds: _Optional[int] = ..., elapsed_display: _Optional[str] = ..., diff_stats: _Optional[_Union[DiffStats, _Mapping]] = ..., branch_state: _Optional[_Union[BranchState, str]] = ..., tmux_session: _Optional[str] = ..., multiplexer: _Optional[_Union[Multiplexer, str]] = ..., server_port: _Optional[int] = ..., opencode_session_id: _Optional[str] = ..., continued_from: _Optional[str] = ...) -> None: ...
+    pr_number: int
+    pr_state: str
+    def __init__(self, issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., status: _Optional[_Union[RunStatus, str]] = ..., agent: _Optional[str] = ..., model: _Optional[str] = ..., branch: _Optional[str] = ..., worktree_path: _Optional[str] = ..., pr_url: _Optional[str] = ..., started_at_unix: _Optional[int] = ..., updated_at_unix: _Optional[int] = ..., elapsed_seconds: _Optional[int] = ..., elapsed_display: _Optional[str] = ..., diff_stats: _Optional[_Union[DiffStats, _Mapping]] = ..., branch_state: _Optional[_Union[BranchState, str]] = ..., tmux_session: _Optional[str] = ..., multiplexer: _Optional[_Union[Multiplexer, str]] = ..., server_port: _Optional[int] = ..., opencode_session_id: _Optional[str] = ..., continued_from: _Optional[str] = ..., pr_number: _Optional[int] = ..., pr_state: _Optional[str] = ...) -> None: ...
 
 class Issue(_message.Message):
     __slots__ = ("id", "title", "summary", "status", "tags", "body", "path", "modified_at_unix", "topic")
@@ -179,7 +183,7 @@ class PingResponse(_message.Message):
     def __init__(self, ok: _Optional[bool] = ..., version: _Optional[str] = ...) -> None: ...
 
 class ListRunsRequest(_message.Message):
-    __slots__ = ("issues_root", "issue_id", "status", "agent", "text_search", "time_range", "limit", "cursor", "older_than")
+    __slots__ = ("issues_root", "issue_id", "status", "agent", "text_search", "time_range", "limit", "cursor", "older_than", "agents", "issue_status", "tags", "tags_mode")
     ISSUES_ROOT_FIELD_NUMBER: _ClassVar[int]
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
@@ -189,6 +193,10 @@ class ListRunsRequest(_message.Message):
     LIMIT_FIELD_NUMBER: _ClassVar[int]
     CURSOR_FIELD_NUMBER: _ClassVar[int]
     OLDER_THAN_FIELD_NUMBER: _ClassVar[int]
+    AGENTS_FIELD_NUMBER: _ClassVar[int]
+    ISSUE_STATUS_FIELD_NUMBER: _ClassVar[int]
+    TAGS_FIELD_NUMBER: _ClassVar[int]
+    TAGS_MODE_FIELD_NUMBER: _ClassVar[int]
     issues_root: str
     issue_id: str
     status: _containers.RepeatedScalarFieldContainer[RunStatus]
@@ -198,7 +206,11 @@ class ListRunsRequest(_message.Message):
     limit: int
     cursor: str
     older_than: str
-    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., status: _Optional[_Iterable[_Union[RunStatus, str]]] = ..., agent: _Optional[str] = ..., text_search: _Optional[str] = ..., time_range: _Optional[str] = ..., limit: _Optional[int] = ..., cursor: _Optional[str] = ..., older_than: _Optional[str] = ...) -> None: ...
+    agents: _containers.RepeatedScalarFieldContainer[str]
+    issue_status: _containers.RepeatedScalarFieldContainer[IssueStatus]
+    tags: _containers.RepeatedScalarFieldContainer[str]
+    tags_mode: str
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., status: _Optional[_Iterable[_Union[RunStatus, str]]] = ..., agent: _Optional[str] = ..., text_search: _Optional[str] = ..., time_range: _Optional[str] = ..., limit: _Optional[int] = ..., cursor: _Optional[str] = ..., older_than: _Optional[str] = ..., agents: _Optional[_Iterable[str]] = ..., issue_status: _Optional[_Iterable[_Union[IssueStatus, str]]] = ..., tags: _Optional[_Iterable[str]] = ..., tags_mode: _Optional[str] = ...) -> None: ...
 
 class ListRunsResponse(_message.Message):
     __slots__ = ("runs", "total", "next_cursor")

@@ -6,14 +6,18 @@ import (
 
 // ListRunsFilter specifies criteria for filtering runs
 type ListRunsFilter struct {
-	IssueID    string
-	Status     []model.Status
-	Agent      string // Filter by agent name (e.g., "opencode", "claude")
-	TextSearch string // Search in run_id, issue_id, branch
-	TimeRange  string // "hour", "today", "week", "all"
-	Limit      int
-	Since      string // ISO8601 timestamp - keep runs NEWER than this time
-	OlderThan  string // ISO8601 timestamp - keep runs OLDER than this time
+	IssueID     string
+	Status      []model.Status
+	Agent       string
+	Agents      []string
+	TextSearch  string
+	TimeRange   string
+	OlderThan   string
+	IssueStatus []model.IssueStatus
+	Tags        []string
+	TagsMode    string
+	Limit       int
+	Since       string
 }
 
 // ListIssuesFilter specifies criteria for filtering issues

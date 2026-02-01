@@ -105,7 +105,7 @@ func runStopAll(opts *stopOptions) error {
 		return err
 	}
 
-	resp, err := client.ListRuns(&daemon.ListRunsFilter{
+	resp, err := client.ListRunsWithOptions(&daemon.ListRunsOptions{
 		Status: []string{"running", "booting", "blocked", "blocked_api", "queued"},
 	})
 	if err != nil {

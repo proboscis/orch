@@ -227,14 +227,18 @@ type CreateIssueRequest struct {
 }
 
 type ListRunsFilter struct {
-	IssueID    string
-	Status     []RunStatus
-	Agent      string
-	TextSearch string
-	TimeRange  string
-	Limit      int
-	Cursor     string
-	OlderThan  string
+	IssueID     string
+	Status      []RunStatus
+	Agent       string
+	Agents      []string
+	TextSearch  string
+	TimeRange   string
+	OlderThan   string
+	IssueStatus []IssueStatus
+	Tags        []string
+	TagsMode    string
+	Limit       int
+	Cursor      string
 }
 
 type ListRunsResult struct {
