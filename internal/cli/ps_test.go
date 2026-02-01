@@ -371,7 +371,7 @@ func TestFormatRelativeTime(t *testing.T) {
 	}
 }
 
-func TestRunPsExcludesResolvedIssuesByDefault(t *testing.T) {
+func TestRunPsShowsAllIssuesByDefault(t *testing.T) {
 	resetGlobalOpts(t)
 	testBypassDaemon = true
 	t.Cleanup(func() { testBypassDaemon = false })
@@ -425,9 +425,9 @@ func TestRunPsExcludesResolvedIssuesByDefault(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	// Should only see run from open issue (runs from resolved issues are hidden by default)
-	if len(got.Items) != 1 || got.Items[0].IssueID != "issue-open" {
-		t.Fatalf("unexpected items: %#v", got.Items)
+	// Should see runs from both open and resolved issues (no default filtering)
+	if len(got.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d: %#v", len(got.Items), got.Items)
 	}
 }
 

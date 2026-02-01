@@ -116,21 +116,18 @@ func runPs(opts *psOptions) error {
 		}
 	}
 
-	excludeResolvedIssues := !opts.All && len(issueStatusFilter) == 0
-
 	issueCache := make(map[string]psIssueInfo)
-	filteredRuns := make([]*model.Run, 0, len(runs))
-	for _, r := range runs {
-		info := resolveIssueInfoAPI(ctx, api, issueCache, r.IssueID)
-		if len(issueStatusFilter) > 0 && !issueStatusFilter[info.status] {
-			continue
+	if len(issueStatusFilter) > 0 {
+		filteredRuns := make([]*model.Run, 0, len(runs))
+		for _, r := range runs {
+			info := resolveIssueInfoAPI(ctx, api, issueCache, r.IssueID)
+			if !issueStatusFilter[info.status] {
+				continue
+			}
+			filteredRuns = append(filteredRuns, r)
 		}
-		if excludeResolvedIssues && info.status == string(model.IssueStatusResolved) {
-			continue
-		}
-		filteredRuns = append(filteredRuns, r)
+		runs = filteredRuns
 	}
-	runs = filteredRuns
 
 	if requestedLimit > 0 && len(runs) > requestedLimit {
 		runs = runs[:requestedLimit]
