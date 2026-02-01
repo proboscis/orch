@@ -228,6 +228,8 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 		return errorResponse("store_error")
 	}
 
+	sortRuns(runs, req.GetSortBy(), req.GetSortOrder())
+
 	protoRuns := make([]*orchpb.Run, len(runs))
 	protoRuns = enrichRunsParallel(runs, protoRuns)
 
@@ -239,6 +241,86 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 				Total: int32(len(runs)),
 			},
 		},
+	}
+}
+
+func sortRuns(runs []*model.Run, sortBy string, sortOrder orchpb.SortOrder) {
+	if len(runs) == 0 {
+		return
+	}
+
+	isDesc := sortOrder == orchpb.SortOrder_SORT_ORDER_DESC ||
+		sortOrder == orchpb.SortOrder_SORT_ORDER_UNSPECIFIED
+
+	switch sortBy {
+	case "started_at":
+		sort.Slice(runs, func(i, j int) bool {
+			if isDesc {
+				return runs[i].StartedAt.After(runs[j].StartedAt)
+			}
+			return runs[i].StartedAt.Before(runs[j].StartedAt)
+		})
+	case "issue_id":
+		sort.Slice(runs, func(i, j int) bool {
+			if isDesc {
+				return runs[i].IssueID > runs[j].IssueID
+			}
+			return runs[i].IssueID < runs[j].IssueID
+		})
+	case "status":
+		sort.Slice(runs, func(i, j int) bool {
+			if isDesc {
+				return string(runs[i].Status) > string(runs[j].Status)
+			}
+			return string(runs[i].Status) < string(runs[j].Status)
+		})
+	default:
+		sort.Slice(runs, func(i, j int) bool {
+			if isDesc {
+				return runs[i].UpdatedAt.After(runs[j].UpdatedAt)
+			}
+			return runs[i].UpdatedAt.Before(runs[j].UpdatedAt)
+		})
+	}
+}
+
+func sortIssues(issues []*model.Issue, sortBy string, sortOrder orchpb.SortOrder) {
+	if len(issues) == 0 {
+		return
+	}
+
+	isDesc := sortOrder == orchpb.SortOrder_SORT_ORDER_DESC ||
+		sortOrder == orchpb.SortOrder_SORT_ORDER_UNSPECIFIED
+
+	switch sortBy {
+	case "id":
+		sort.Slice(issues, func(i, j int) bool {
+			if isDesc {
+				return issues[i].ID > issues[j].ID
+			}
+			return issues[i].ID < issues[j].ID
+		})
+	case "title":
+		sort.Slice(issues, func(i, j int) bool {
+			if isDesc {
+				return issues[i].Title > issues[j].Title
+			}
+			return issues[i].Title < issues[j].Title
+		})
+	case "status":
+		sort.Slice(issues, func(i, j int) bool {
+			if isDesc {
+				return string(issues[i].Status) > string(issues[j].Status)
+			}
+			return string(issues[i].Status) < string(issues[j].Status)
+		})
+	default:
+		sort.Slice(issues, func(i, j int) bool {
+			if isDesc {
+				return issues[i].ModifiedAt.After(issues[j].ModifiedAt)
+			}
+			return issues[i].ModifiedAt.Before(issues[j].ModifiedAt)
+		})
 	}
 }
 
@@ -515,9 +597,7 @@ func (s *SocketServer) handleProtoListIssues(req *orchpb.ListIssuesRequest) *orc
 		return errorResponse("store_error")
 	}
 
-	sort.Slice(issues, func(i, j int) bool {
-		return issues[i].ModifiedAt.After(issues[j].ModifiedAt)
-	})
+	sortIssues(issues, req.GetSortBy(), req.GetSortOrder())
 
 	if len(req.Status) > 0 {
 		statusSet := make(map[model.IssueStatus]bool)

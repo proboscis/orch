@@ -46,6 +46,12 @@ enum Multiplexer {
   MULTIPLEXER_ZELLIJ = 2;
 }
 
+enum SortOrder {
+  SORT_ORDER_UNSPECIFIED = 0;
+  SORT_ORDER_ASC = 1;
+  SORT_ORDER_DESC = 2;
+}
+
 // =============================================================================
 // Domain Models
 // =============================================================================
@@ -124,6 +130,8 @@ message ListRunsRequest {
   int32 limit = 7;
   string cursor = 8;
   string older_than = 9;  // ISO8601 timestamp - filter runs older than this time
+  string sort_by = 10;    // "updated_at", "started_at", "issue_id", "status"
+  SortOrder sort_order = 11;
 }
 
 message ListRunsResponse {
@@ -199,6 +207,8 @@ message ListIssuesRequest {
   string text_search = 5;
   int32 limit = 6;
   string cursor = 7;
+  string sort_by = 8;     // "id", "modified_at", "title", "status"
+  SortOrder sort_order = 9;
 }
 
 message ListIssuesResponse {

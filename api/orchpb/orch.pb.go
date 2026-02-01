@@ -259,6 +259,55 @@ func (Multiplexer) EnumDescriptor() ([]byte, []int) {
 	return file_orch_proto_rawDescGZIP(), []int{3}
 }
 
+type SortOrder int32
+
+const (
+	SortOrder_SORT_ORDER_UNSPECIFIED SortOrder = 0
+	SortOrder_SORT_ORDER_ASC         SortOrder = 1
+	SortOrder_SORT_ORDER_DESC        SortOrder = 2
+)
+
+// Enum value maps for SortOrder.
+var (
+	SortOrder_name = map[int32]string{
+		0: "SORT_ORDER_UNSPECIFIED",
+		1: "SORT_ORDER_ASC",
+		2: "SORT_ORDER_DESC",
+	}
+	SortOrder_value = map[string]int32{
+		"SORT_ORDER_UNSPECIFIED": 0,
+		"SORT_ORDER_ASC":         1,
+		"SORT_ORDER_DESC":        2,
+	}
+)
+
+func (x SortOrder) Enum() *SortOrder {
+	p := new(SortOrder)
+	*p = x
+	return p
+}
+
+func (x SortOrder) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SortOrder) Descriptor() protoreflect.EnumDescriptor {
+	return file_orch_proto_enumTypes[4].Descriptor()
+}
+
+func (SortOrder) Type() protoreflect.EnumType {
+	return &file_orch_proto_enumTypes[4]
+}
+
+func (x SortOrder) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SortOrder.Descriptor instead.
+func (SortOrder) EnumDescriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{4}
+}
+
 type DiffStats struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Additions     int32                  `protobuf:"varint,1,opt,name=additions,proto3" json:"additions,omitempty"`
@@ -806,6 +855,8 @@ type ListRunsRequest struct {
 	Limit         int32                  `protobuf:"varint,7,opt,name=limit,proto3" json:"limit,omitempty"`
 	Cursor        string                 `protobuf:"bytes,8,opt,name=cursor,proto3" json:"cursor,omitempty"`
 	OlderThan     string                 `protobuf:"bytes,9,opt,name=older_than,json=olderThan,proto3" json:"older_than,omitempty"` // ISO8601 timestamp - filter runs older than this time
+	SortBy        string                 `protobuf:"bytes,10,opt,name=sort_by,json=sortBy,proto3" json:"sort_by,omitempty"`         // "updated_at", "started_at", "issue_id", "status"
+	SortOrder     SortOrder              `protobuf:"varint,11,opt,name=sort_order,json=sortOrder,proto3,enum=orch.v1.SortOrder" json:"sort_order,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -901,6 +952,20 @@ func (x *ListRunsRequest) GetOlderThan() string {
 		return x.OlderThan
 	}
 	return ""
+}
+
+func (x *ListRunsRequest) GetSortBy() string {
+	if x != nil {
+		return x.SortBy
+	}
+	return ""
+}
+
+func (x *ListRunsRequest) GetSortOrder() SortOrder {
+	if x != nil {
+		return x.SortOrder
+	}
+	return SortOrder_SORT_ORDER_UNSPECIFIED
 }
 
 type ListRunsResponse struct {
@@ -1564,6 +1629,8 @@ type ListIssuesRequest struct {
 	TextSearch    string                 `protobuf:"bytes,5,opt,name=text_search,json=textSearch,proto3" json:"text_search,omitempty"`
 	Limit         int32                  `protobuf:"varint,6,opt,name=limit,proto3" json:"limit,omitempty"`
 	Cursor        string                 `protobuf:"bytes,7,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	SortBy        string                 `protobuf:"bytes,8,opt,name=sort_by,json=sortBy,proto3" json:"sort_by,omitempty"` // "id", "modified_at", "title", "status"
+	SortOrder     SortOrder              `protobuf:"varint,9,opt,name=sort_order,json=sortOrder,proto3,enum=orch.v1.SortOrder" json:"sort_order,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1645,6 +1712,20 @@ func (x *ListIssuesRequest) GetCursor() string {
 		return x.Cursor
 	}
 	return ""
+}
+
+func (x *ListIssuesRequest) GetSortBy() string {
+	if x != nil {
+		return x.SortBy
+	}
+	return ""
+}
+
+func (x *ListIssuesRequest) GetSortOrder() SortOrder {
+	if x != nil {
+		return x.SortOrder
+	}
+	return SortOrder_SORT_ORDER_UNSPECIFIED
 }
 
 type ListIssuesResponse struct {
@@ -7517,7 +7598,7 @@ const file_orch_proto_rawDesc = "" +
 	"\tadditions\x18\x01 \x01(\x05R\tadditions\x12\x1c\n" +
 	"\tdeletions\x18\x02 \x01(\x05R\tdeletions\x12#\n" +
 	"\rfiles_changed\x18\x03 \x01(\x05R\ffilesChanged\x12\x14\n" +
-	"\x05files\x18\x04 \x03(\tR\x05files\"\xc4\x05\n" +
+	"\x05files\x18\x04 \x03(\tR\x05files\"\xfc\x05\n" +
 	"\x03Run\x12\x19\n" +
 	"\bissue_id\x18\x01 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12*\n" +
@@ -7540,7 +7621,9 @@ const file_orch_proto_rawDesc = "" +
 	"\vserver_port\x18\x11 \x01(\x05R\n" +
 	"serverPort\x12.\n" +
 	"\x13opencode_session_id\x18\x12 \x01(\tR\x11opencodeSessionId\x12%\n" +
-	"\x0econtinued_from\x18\x13 \x01(\tR\rcontinuedFrom\"\xf1\x01\n" +
+	"\x0econtinued_from\x18\x13 \x01(\tR\rcontinuedFrom\x12\x1b\n" +
+	"\tpr_number\x18\x14 \x01(\x05R\bprNumber\x12\x19\n" +
+	"\bpr_state\x18\x15 \x01(\tR\aprState\"\xf1\x01\n" +
 	"\x05Issue\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x18\n" +
@@ -7563,7 +7646,7 @@ const file_orch_proto_rawDesc = "" +
 	"\vPingRequest\"8\n" +
 	"\fPingResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x18\n" +
-	"\aversion\x18\x02 \x01(\tR\aversion\"\x9c\x02\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\"\xe8\x02\n" +
 	"\x0fListRunsRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +
@@ -7577,7 +7660,11 @@ const file_orch_proto_rawDesc = "" +
 	"\x05limit\x18\a \x01(\x05R\x05limit\x12\x16\n" +
 	"\x06cursor\x18\b \x01(\tR\x06cursor\x12\x1d\n" +
 	"\n" +
-	"older_than\x18\t \x01(\tR\tolderThan\"k\n" +
+	"older_than\x18\t \x01(\tR\tolderThan\x12\x17\n" +
+	"\asort_by\x18\n" +
+	" \x01(\tR\x06sortBy\x121\n" +
+	"\n" +
+	"sort_order\x18\v \x01(\x0e2\x12.orch.v1.SortOrderR\tsortOrder\"k\n" +
 	"\x10ListRunsResponse\x12 \n" +
 	"\x04runs\x18\x01 \x03(\v2\f.orch.v1.RunR\x04runs\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x05R\x05total\x12\x1f\n" +
@@ -7630,7 +7717,7 @@ const file_orch_proto_rawDesc = "" +
 	"issuesRoot\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\"\x14\n" +
-	"\x12ResolveRunResponse\"\xe2\x01\n" +
+	"\x12ResolveRunResponse\"\xae\x02\n" +
 	"\x11ListIssuesRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12,\n" +
@@ -7640,7 +7727,10 @@ const file_orch_proto_rawDesc = "" +
 	"\vtext_search\x18\x05 \x01(\tR\n" +
 	"textSearch\x12\x14\n" +
 	"\x05limit\x18\x06 \x01(\x05R\x05limit\x12\x16\n" +
-	"\x06cursor\x18\a \x01(\tR\x06cursor\"s\n" +
+	"\x06cursor\x18\a \x01(\tR\x06cursor\x12\x17\n" +
+	"\asort_by\x18\b \x01(\tR\x06sortBy\x121\n" +
+	"\n" +
+	"sort_order\x18\t \x01(\x0e2\x12.orch.v1.SortOrderR\tsortOrder\"s\n" +
 	"\x12ListIssuesResponse\x12&\n" +
 	"\x06issues\x18\x01 \x03(\v2\x0e.orch.v1.IssueR\x06issues\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x05R\x05total\x12\x1f\n" +
@@ -8097,7 +8187,11 @@ const file_orch_proto_rawDesc = "" +
 	"\vMultiplexer\x12\x1b\n" +
 	"\x17MULTIPLEXER_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10MULTIPLEXER_TMUX\x10\x01\x12\x16\n" +
-	"\x12MULTIPLEXER_ZELLIJ\x10\x02B#Z!github.com/s22625/orch/api/orchpbb\x06proto3"
+	"\x12MULTIPLEXER_ZELLIJ\x10\x02*P\n" +
+	"\tSortOrder\x12\x1a\n" +
+	"\x16SORT_ORDER_UNSPECIFIED\x10\x00\x12\x12\n" +
+	"\x0eSORT_ORDER_ASC\x10\x01\x12\x13\n" +
+	"\x0fSORT_ORDER_DESC\x10\x02B#Z!github.com/s22625/orch/api/orchpbb\x06proto3"
 
 var (
 	file_orch_proto_rawDescOnce sync.Once
@@ -8111,242 +8205,245 @@ func file_orch_proto_rawDescGZIP() []byte {
 	return file_orch_proto_rawDescData
 }
 
-var file_orch_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_orch_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
 var file_orch_proto_msgTypes = make([]protoimpl.MessageInfo, 103)
 var file_orch_proto_goTypes = []any{
 	(RunStatus)(0),                        // 0: orch.v1.RunStatus
 	(IssueStatus)(0),                      // 1: orch.v1.IssueStatus
 	(BranchState)(0),                      // 2: orch.v1.BranchState
 	(Multiplexer)(0),                      // 3: orch.v1.Multiplexer
-	(*DiffStats)(nil),                     // 4: orch.v1.DiffStats
-	(*Run)(nil),                           // 5: orch.v1.Run
-	(*Issue)(nil),                         // 6: orch.v1.Issue
-	(*Event)(nil),                         // 7: orch.v1.Event
-	(*PingRequest)(nil),                   // 8: orch.v1.PingRequest
-	(*PingResponse)(nil),                  // 9: orch.v1.PingResponse
-	(*ListRunsRequest)(nil),               // 10: orch.v1.ListRunsRequest
-	(*ListRunsResponse)(nil),              // 11: orch.v1.ListRunsResponse
-	(*GetRunRequest)(nil),                 // 12: orch.v1.GetRunRequest
-	(*GetRunResponse)(nil),                // 13: orch.v1.GetRunResponse
-	(*StartRunRequest)(nil),               // 14: orch.v1.StartRunRequest
-	(*StartRunResponse)(nil),              // 15: orch.v1.StartRunResponse
-	(*CreateRunRequest)(nil),              // 16: orch.v1.CreateRunRequest
-	(*CreateRunResponse)(nil),             // 17: orch.v1.CreateRunResponse
-	(*StopRunRequest)(nil),                // 18: orch.v1.StopRunRequest
-	(*StopRunResponse)(nil),               // 19: orch.v1.StopRunResponse
-	(*ResolveRunRequest)(nil),             // 20: orch.v1.ResolveRunRequest
-	(*ResolveRunResponse)(nil),            // 21: orch.v1.ResolveRunResponse
-	(*ListIssuesRequest)(nil),             // 22: orch.v1.ListIssuesRequest
-	(*ListIssuesResponse)(nil),            // 23: orch.v1.ListIssuesResponse
-	(*GetIssueRequest)(nil),               // 24: orch.v1.GetIssueRequest
-	(*GetIssueResponse)(nil),              // 25: orch.v1.GetIssueResponse
-	(*CreateIssueRequest)(nil),            // 26: orch.v1.CreateIssueRequest
-	(*CreateIssueResponse)(nil),           // 27: orch.v1.CreateIssueResponse
-	(*CloseIssueRequest)(nil),             // 28: orch.v1.CloseIssueRequest
-	(*CloseIssueResponse)(nil),            // 29: orch.v1.CloseIssueResponse
-	(*GetControlAgentLaunchRequest)(nil),  // 30: orch.v1.GetControlAgentLaunchRequest
-	(*GetControlAgentLaunchResponse)(nil), // 31: orch.v1.GetControlAgentLaunchResponse
-	(*GetAttachInfoRequest)(nil),          // 32: orch.v1.GetAttachInfoRequest
-	(*GetAttachInfoResponse)(nil),         // 33: orch.v1.GetAttachInfoResponse
-	(*CaptureSessionRequest)(nil),         // 34: orch.v1.CaptureSessionRequest
-	(*CaptureSessionResponse)(nil),        // 35: orch.v1.CaptureSessionResponse
-	(*SendMessageRequest)(nil),            // 36: orch.v1.SendMessageRequest
-	(*SendMessageResponse)(nil),           // 37: orch.v1.SendMessageResponse
-	(*GetDiffStatsRequest)(nil),           // 38: orch.v1.GetDiffStatsRequest
-	(*GetDiffStatsResponse)(nil),          // 39: orch.v1.GetDiffStatsResponse
-	(*GetBranchStateRequest)(nil),         // 40: orch.v1.GetBranchStateRequest
-	(*GetBranchStateResponse)(nil),        // 41: orch.v1.GetBranchStateResponse
-	(*GetDiffRequest)(nil),                // 42: orch.v1.GetDiffRequest
-	(*GetDiffResponse)(nil),               // 43: orch.v1.GetDiffResponse
-	(*RegisterMonitorRequest)(nil),        // 44: orch.v1.RegisterMonitorRequest
-	(*RegisterMonitorResponse)(nil),       // 45: orch.v1.RegisterMonitorResponse
-	(*UnregisterMonitorRequest)(nil),      // 46: orch.v1.UnregisterMonitorRequest
-	(*UnregisterMonitorResponse)(nil),     // 47: orch.v1.UnregisterMonitorResponse
-	(*HeartbeatRequest)(nil),              // 48: orch.v1.HeartbeatRequest
-	(*HeartbeatResponse)(nil),             // 49: orch.v1.HeartbeatResponse
-	(*ListMonitorsRequest)(nil),           // 50: orch.v1.ListMonitorsRequest
-	(*MonitorInfo)(nil),                   // 51: orch.v1.MonitorInfo
-	(*ListMonitorsResponse)(nil),          // 52: orch.v1.ListMonitorsResponse
-	(*KillMonitorRequest)(nil),            // 53: orch.v1.KillMonitorRequest
-	(*KillMonitorResponse)(nil),           // 54: orch.v1.KillMonitorResponse
-	(*GetRunByShortIDRequest)(nil),        // 55: orch.v1.GetRunByShortIDRequest
-	(*GetRunByShortIDResponse)(nil),       // 56: orch.v1.GetRunByShortIDResponse
-	(*ResolveIssueRequest)(nil),           // 57: orch.v1.ResolveIssueRequest
-	(*ResolveIssueResponse)(nil),          // 58: orch.v1.ResolveIssueResponse
-	(*AppendEventRequest)(nil),            // 59: orch.v1.AppendEventRequest
-	(*AppendEventResponse)(nil),           // 60: orch.v1.AppendEventResponse
-	(*EnsureOpenCodeServerRequest)(nil),   // 61: orch.v1.EnsureOpenCodeServerRequest
-	(*EnsureOpenCodeServerResponse)(nil),  // 62: orch.v1.EnsureOpenCodeServerResponse
-	(*RegisterRepoRequest)(nil),           // 63: orch.v1.RegisterRepoRequest
-	(*RegisterRepoResponse)(nil),          // 64: orch.v1.RegisterRepoResponse
-	(*ListReposRequest)(nil),              // 65: orch.v1.ListReposRequest
-	(*RepoInfo)(nil),                      // 66: orch.v1.RepoInfo
-	(*ListReposResponse)(nil),             // 67: orch.v1.ListReposResponse
-	(*DeleteRunRequest)(nil),              // 68: orch.v1.DeleteRunRequest
-	(*DeleteRunResponse)(nil),             // 69: orch.v1.DeleteRunResponse
-	(*UpdateIssueRequest)(nil),            // 70: orch.v1.UpdateIssueRequest
-	(*UpdateIssueResponse)(nil),           // 71: orch.v1.UpdateIssueResponse
-	(*ValidateIssueFilesRequest)(nil),     // 72: orch.v1.ValidateIssueFilesRequest
-	(*ValidationIssue)(nil),               // 73: orch.v1.ValidationIssue
-	(*ValidationResultItem)(nil),          // 74: orch.v1.ValidationResultItem
-	(*DuplicateIDItem)(nil),               // 75: orch.v1.DuplicateIDItem
-	(*ValidateIssueFilesResponse)(nil),    // 76: orch.v1.ValidateIssueFilesResponse
-	(*WriteAgentPromptRequest)(nil),       // 77: orch.v1.WriteAgentPromptRequest
-	(*WriteAgentPromptResponse)(nil),      // 78: orch.v1.WriteAgentPromptResponse
-	(*ReadAgentPromptRequest)(nil),        // 79: orch.v1.ReadAgentPromptRequest
-	(*ReadAgentPromptResponse)(nil),       // 80: orch.v1.ReadAgentPromptResponse
-	(*RepairStateRequest)(nil),            // 81: orch.v1.RepairStateRequest
-	(*RepairStateResponse)(nil),           // 82: orch.v1.RepairStateResponse
-	(*GetDaemonLogRequest)(nil),           // 83: orch.v1.GetDaemonLogRequest
-	(*GetDaemonLogResponse)(nil),          // 84: orch.v1.GetDaemonLogResponse
-	(*ReadFileRequest)(nil),               // 85: orch.v1.ReadFileRequest
-	(*ReadFileResponse)(nil),              // 86: orch.v1.ReadFileResponse
-	(*WriteFileRequest)(nil),              // 87: orch.v1.WriteFileRequest
-	(*WriteFileResponse)(nil),             // 88: orch.v1.WriteFileResponse
-	(*KillSessionRequest)(nil),            // 89: orch.v1.KillSessionRequest
-	(*KillSessionResponse)(nil),           // 90: orch.v1.KillSessionResponse
-	(*ListSessionsRequest)(nil),           // 91: orch.v1.ListSessionsRequest
-	(*ListSessionsResponse)(nil),          // 92: orch.v1.ListSessionsResponse
-	(*ResumeRunRequest)(nil),              // 93: orch.v1.ResumeRunRequest
-	(*ResumeRunResponse)(nil),             // 94: orch.v1.ResumeRunResponse
-	(*QueryOpenCodeServerRequest)(nil),    // 95: orch.v1.QueryOpenCodeServerRequest
-	(*OpenCodeProviderInfo)(nil),          // 96: orch.v1.OpenCodeProviderInfo
-	(*OpenCodeModelInfo)(nil),             // 97: orch.v1.OpenCodeModelInfo
-	(*QueryOpenCodeServerResponse)(nil),   // 98: orch.v1.QueryOpenCodeServerResponse
-	(*InjectInitialPromptRequest)(nil),    // 99: orch.v1.InjectInitialPromptRequest
-	(*InjectInitialPromptResponse)(nil),   // 100: orch.v1.InjectInitialPromptResponse
-	(*Request)(nil),                       // 101: orch.v1.Request
-	(*Response)(nil),                      // 102: orch.v1.Response
-	nil,                                   // 103: orch.v1.Event.AttrsEntry
-	nil,                                   // 104: orch.v1.CreateRunRequest.MetadataEntry
-	nil,                                   // 105: orch.v1.AppendEventRequest.EventAttrsEntry
-	nil,                                   // 106: orch.v1.QueryOpenCodeServerResponse.SessionStatusEntry
+	(SortOrder)(0),                        // 4: orch.v1.SortOrder
+	(*DiffStats)(nil),                     // 5: orch.v1.DiffStats
+	(*Run)(nil),                           // 6: orch.v1.Run
+	(*Issue)(nil),                         // 7: orch.v1.Issue
+	(*Event)(nil),                         // 8: orch.v1.Event
+	(*PingRequest)(nil),                   // 9: orch.v1.PingRequest
+	(*PingResponse)(nil),                  // 10: orch.v1.PingResponse
+	(*ListRunsRequest)(nil),               // 11: orch.v1.ListRunsRequest
+	(*ListRunsResponse)(nil),              // 12: orch.v1.ListRunsResponse
+	(*GetRunRequest)(nil),                 // 13: orch.v1.GetRunRequest
+	(*GetRunResponse)(nil),                // 14: orch.v1.GetRunResponse
+	(*StartRunRequest)(nil),               // 15: orch.v1.StartRunRequest
+	(*StartRunResponse)(nil),              // 16: orch.v1.StartRunResponse
+	(*CreateRunRequest)(nil),              // 17: orch.v1.CreateRunRequest
+	(*CreateRunResponse)(nil),             // 18: orch.v1.CreateRunResponse
+	(*StopRunRequest)(nil),                // 19: orch.v1.StopRunRequest
+	(*StopRunResponse)(nil),               // 20: orch.v1.StopRunResponse
+	(*ResolveRunRequest)(nil),             // 21: orch.v1.ResolveRunRequest
+	(*ResolveRunResponse)(nil),            // 22: orch.v1.ResolveRunResponse
+	(*ListIssuesRequest)(nil),             // 23: orch.v1.ListIssuesRequest
+	(*ListIssuesResponse)(nil),            // 24: orch.v1.ListIssuesResponse
+	(*GetIssueRequest)(nil),               // 25: orch.v1.GetIssueRequest
+	(*GetIssueResponse)(nil),              // 26: orch.v1.GetIssueResponse
+	(*CreateIssueRequest)(nil),            // 27: orch.v1.CreateIssueRequest
+	(*CreateIssueResponse)(nil),           // 28: orch.v1.CreateIssueResponse
+	(*CloseIssueRequest)(nil),             // 29: orch.v1.CloseIssueRequest
+	(*CloseIssueResponse)(nil),            // 30: orch.v1.CloseIssueResponse
+	(*GetControlAgentLaunchRequest)(nil),  // 31: orch.v1.GetControlAgentLaunchRequest
+	(*GetControlAgentLaunchResponse)(nil), // 32: orch.v1.GetControlAgentLaunchResponse
+	(*GetAttachInfoRequest)(nil),          // 33: orch.v1.GetAttachInfoRequest
+	(*GetAttachInfoResponse)(nil),         // 34: orch.v1.GetAttachInfoResponse
+	(*CaptureSessionRequest)(nil),         // 35: orch.v1.CaptureSessionRequest
+	(*CaptureSessionResponse)(nil),        // 36: orch.v1.CaptureSessionResponse
+	(*SendMessageRequest)(nil),            // 37: orch.v1.SendMessageRequest
+	(*SendMessageResponse)(nil),           // 38: orch.v1.SendMessageResponse
+	(*GetDiffStatsRequest)(nil),           // 39: orch.v1.GetDiffStatsRequest
+	(*GetDiffStatsResponse)(nil),          // 40: orch.v1.GetDiffStatsResponse
+	(*GetBranchStateRequest)(nil),         // 41: orch.v1.GetBranchStateRequest
+	(*GetBranchStateResponse)(nil),        // 42: orch.v1.GetBranchStateResponse
+	(*GetDiffRequest)(nil),                // 43: orch.v1.GetDiffRequest
+	(*GetDiffResponse)(nil),               // 44: orch.v1.GetDiffResponse
+	(*RegisterMonitorRequest)(nil),        // 45: orch.v1.RegisterMonitorRequest
+	(*RegisterMonitorResponse)(nil),       // 46: orch.v1.RegisterMonitorResponse
+	(*UnregisterMonitorRequest)(nil),      // 47: orch.v1.UnregisterMonitorRequest
+	(*UnregisterMonitorResponse)(nil),     // 48: orch.v1.UnregisterMonitorResponse
+	(*HeartbeatRequest)(nil),              // 49: orch.v1.HeartbeatRequest
+	(*HeartbeatResponse)(nil),             // 50: orch.v1.HeartbeatResponse
+	(*ListMonitorsRequest)(nil),           // 51: orch.v1.ListMonitorsRequest
+	(*MonitorInfo)(nil),                   // 52: orch.v1.MonitorInfo
+	(*ListMonitorsResponse)(nil),          // 53: orch.v1.ListMonitorsResponse
+	(*KillMonitorRequest)(nil),            // 54: orch.v1.KillMonitorRequest
+	(*KillMonitorResponse)(nil),           // 55: orch.v1.KillMonitorResponse
+	(*GetRunByShortIDRequest)(nil),        // 56: orch.v1.GetRunByShortIDRequest
+	(*GetRunByShortIDResponse)(nil),       // 57: orch.v1.GetRunByShortIDResponse
+	(*ResolveIssueRequest)(nil),           // 58: orch.v1.ResolveIssueRequest
+	(*ResolveIssueResponse)(nil),          // 59: orch.v1.ResolveIssueResponse
+	(*AppendEventRequest)(nil),            // 60: orch.v1.AppendEventRequest
+	(*AppendEventResponse)(nil),           // 61: orch.v1.AppendEventResponse
+	(*EnsureOpenCodeServerRequest)(nil),   // 62: orch.v1.EnsureOpenCodeServerRequest
+	(*EnsureOpenCodeServerResponse)(nil),  // 63: orch.v1.EnsureOpenCodeServerResponse
+	(*RegisterRepoRequest)(nil),           // 64: orch.v1.RegisterRepoRequest
+	(*RegisterRepoResponse)(nil),          // 65: orch.v1.RegisterRepoResponse
+	(*ListReposRequest)(nil),              // 66: orch.v1.ListReposRequest
+	(*RepoInfo)(nil),                      // 67: orch.v1.RepoInfo
+	(*ListReposResponse)(nil),             // 68: orch.v1.ListReposResponse
+	(*DeleteRunRequest)(nil),              // 69: orch.v1.DeleteRunRequest
+	(*DeleteRunResponse)(nil),             // 70: orch.v1.DeleteRunResponse
+	(*UpdateIssueRequest)(nil),            // 71: orch.v1.UpdateIssueRequest
+	(*UpdateIssueResponse)(nil),           // 72: orch.v1.UpdateIssueResponse
+	(*ValidateIssueFilesRequest)(nil),     // 73: orch.v1.ValidateIssueFilesRequest
+	(*ValidationIssue)(nil),               // 74: orch.v1.ValidationIssue
+	(*ValidationResultItem)(nil),          // 75: orch.v1.ValidationResultItem
+	(*DuplicateIDItem)(nil),               // 76: orch.v1.DuplicateIDItem
+	(*ValidateIssueFilesResponse)(nil),    // 77: orch.v1.ValidateIssueFilesResponse
+	(*WriteAgentPromptRequest)(nil),       // 78: orch.v1.WriteAgentPromptRequest
+	(*WriteAgentPromptResponse)(nil),      // 79: orch.v1.WriteAgentPromptResponse
+	(*ReadAgentPromptRequest)(nil),        // 80: orch.v1.ReadAgentPromptRequest
+	(*ReadAgentPromptResponse)(nil),       // 81: orch.v1.ReadAgentPromptResponse
+	(*RepairStateRequest)(nil),            // 82: orch.v1.RepairStateRequest
+	(*RepairStateResponse)(nil),           // 83: orch.v1.RepairStateResponse
+	(*GetDaemonLogRequest)(nil),           // 84: orch.v1.GetDaemonLogRequest
+	(*GetDaemonLogResponse)(nil),          // 85: orch.v1.GetDaemonLogResponse
+	(*ReadFileRequest)(nil),               // 86: orch.v1.ReadFileRequest
+	(*ReadFileResponse)(nil),              // 87: orch.v1.ReadFileResponse
+	(*WriteFileRequest)(nil),              // 88: orch.v1.WriteFileRequest
+	(*WriteFileResponse)(nil),             // 89: orch.v1.WriteFileResponse
+	(*KillSessionRequest)(nil),            // 90: orch.v1.KillSessionRequest
+	(*KillSessionResponse)(nil),           // 91: orch.v1.KillSessionResponse
+	(*ListSessionsRequest)(nil),           // 92: orch.v1.ListSessionsRequest
+	(*ListSessionsResponse)(nil),          // 93: orch.v1.ListSessionsResponse
+	(*ResumeRunRequest)(nil),              // 94: orch.v1.ResumeRunRequest
+	(*ResumeRunResponse)(nil),             // 95: orch.v1.ResumeRunResponse
+	(*QueryOpenCodeServerRequest)(nil),    // 96: orch.v1.QueryOpenCodeServerRequest
+	(*OpenCodeProviderInfo)(nil),          // 97: orch.v1.OpenCodeProviderInfo
+	(*OpenCodeModelInfo)(nil),             // 98: orch.v1.OpenCodeModelInfo
+	(*QueryOpenCodeServerResponse)(nil),   // 99: orch.v1.QueryOpenCodeServerResponse
+	(*InjectInitialPromptRequest)(nil),    // 100: orch.v1.InjectInitialPromptRequest
+	(*InjectInitialPromptResponse)(nil),   // 101: orch.v1.InjectInitialPromptResponse
+	(*Request)(nil),                       // 102: orch.v1.Request
+	(*Response)(nil),                      // 103: orch.v1.Response
+	nil,                                   // 104: orch.v1.Event.AttrsEntry
+	nil,                                   // 105: orch.v1.CreateRunRequest.MetadataEntry
+	nil,                                   // 106: orch.v1.AppendEventRequest.EventAttrsEntry
+	nil,                                   // 107: orch.v1.QueryOpenCodeServerResponse.SessionStatusEntry
 }
 var file_orch_proto_depIdxs = []int32{
 	0,   // 0: orch.v1.Run.status:type_name -> orch.v1.RunStatus
-	4,   // 1: orch.v1.Run.diff_stats:type_name -> orch.v1.DiffStats
+	5,   // 1: orch.v1.Run.diff_stats:type_name -> orch.v1.DiffStats
 	2,   // 2: orch.v1.Run.branch_state:type_name -> orch.v1.BranchState
 	3,   // 3: orch.v1.Run.multiplexer:type_name -> orch.v1.Multiplexer
 	1,   // 4: orch.v1.Issue.status:type_name -> orch.v1.IssueStatus
-	103, // 5: orch.v1.Event.attrs:type_name -> orch.v1.Event.AttrsEntry
+	104, // 5: orch.v1.Event.attrs:type_name -> orch.v1.Event.AttrsEntry
 	0,   // 6: orch.v1.ListRunsRequest.status:type_name -> orch.v1.RunStatus
-	5,   // 7: orch.v1.ListRunsResponse.runs:type_name -> orch.v1.Run
-	5,   // 8: orch.v1.GetRunResponse.run:type_name -> orch.v1.Run
-	7,   // 9: orch.v1.GetRunResponse.events:type_name -> orch.v1.Event
-	104, // 10: orch.v1.CreateRunRequest.metadata:type_name -> orch.v1.CreateRunRequest.MetadataEntry
-	1,   // 11: orch.v1.ListIssuesRequest.status:type_name -> orch.v1.IssueStatus
-	6,   // 12: orch.v1.ListIssuesResponse.issues:type_name -> orch.v1.Issue
-	6,   // 13: orch.v1.GetIssueResponse.issue:type_name -> orch.v1.Issue
-	3,   // 14: orch.v1.GetAttachInfoResponse.multiplexer:type_name -> orch.v1.Multiplexer
-	4,   // 15: orch.v1.GetDiffStatsResponse.diff_stats:type_name -> orch.v1.DiffStats
-	2,   // 16: orch.v1.GetBranchStateResponse.state:type_name -> orch.v1.BranchState
-	51,  // 17: orch.v1.ListMonitorsResponse.monitors:type_name -> orch.v1.MonitorInfo
-	5,   // 18: orch.v1.GetRunByShortIDResponse.run:type_name -> orch.v1.Run
-	7,   // 19: orch.v1.GetRunByShortIDResponse.events:type_name -> orch.v1.Event
-	105, // 20: orch.v1.AppendEventRequest.event_attrs:type_name -> orch.v1.AppendEventRequest.EventAttrsEntry
-	66,  // 21: orch.v1.ListReposResponse.repos:type_name -> orch.v1.RepoInfo
-	6,   // 22: orch.v1.UpdateIssueResponse.issue:type_name -> orch.v1.Issue
-	73,  // 23: orch.v1.ValidationResultItem.errors:type_name -> orch.v1.ValidationIssue
-	73,  // 24: orch.v1.ValidationResultItem.warnings:type_name -> orch.v1.ValidationIssue
-	74,  // 25: orch.v1.ValidateIssueFilesResponse.errors:type_name -> orch.v1.ValidationResultItem
-	74,  // 26: orch.v1.ValidateIssueFilesResponse.warnings:type_name -> orch.v1.ValidationResultItem
-	75,  // 27: orch.v1.ValidateIssueFilesResponse.duplicates:type_name -> orch.v1.DuplicateIDItem
-	3,   // 28: orch.v1.KillSessionRequest.multiplexer:type_name -> orch.v1.Multiplexer
-	3,   // 29: orch.v1.ListSessionsRequest.multiplexer:type_name -> orch.v1.Multiplexer
-	97,  // 30: orch.v1.OpenCodeProviderInfo.models:type_name -> orch.v1.OpenCodeModelInfo
-	96,  // 31: orch.v1.QueryOpenCodeServerResponse.providers:type_name -> orch.v1.OpenCodeProviderInfo
-	106, // 32: orch.v1.QueryOpenCodeServerResponse.session_status:type_name -> orch.v1.QueryOpenCodeServerResponse.SessionStatusEntry
-	8,   // 33: orch.v1.Request.ping:type_name -> orch.v1.PingRequest
-	10,  // 34: orch.v1.Request.list_runs:type_name -> orch.v1.ListRunsRequest
-	12,  // 35: orch.v1.Request.get_run:type_name -> orch.v1.GetRunRequest
-	14,  // 36: orch.v1.Request.start_run:type_name -> orch.v1.StartRunRequest
-	18,  // 37: orch.v1.Request.stop_run:type_name -> orch.v1.StopRunRequest
-	20,  // 38: orch.v1.Request.resolve_run:type_name -> orch.v1.ResolveRunRequest
-	22,  // 39: orch.v1.Request.list_issues:type_name -> orch.v1.ListIssuesRequest
-	24,  // 40: orch.v1.Request.get_issue:type_name -> orch.v1.GetIssueRequest
-	26,  // 41: orch.v1.Request.create_issue:type_name -> orch.v1.CreateIssueRequest
-	28,  // 42: orch.v1.Request.close_issue:type_name -> orch.v1.CloseIssueRequest
-	30,  // 43: orch.v1.Request.get_control_agent_launch:type_name -> orch.v1.GetControlAgentLaunchRequest
-	32,  // 44: orch.v1.Request.get_attach_info:type_name -> orch.v1.GetAttachInfoRequest
-	34,  // 45: orch.v1.Request.capture_session:type_name -> orch.v1.CaptureSessionRequest
-	36,  // 46: orch.v1.Request.send_message:type_name -> orch.v1.SendMessageRequest
-	38,  // 47: orch.v1.Request.get_diff_stats:type_name -> orch.v1.GetDiffStatsRequest
-	40,  // 48: orch.v1.Request.get_branch_state:type_name -> orch.v1.GetBranchStateRequest
-	42,  // 49: orch.v1.Request.get_diff:type_name -> orch.v1.GetDiffRequest
-	44,  // 50: orch.v1.Request.register_monitor:type_name -> orch.v1.RegisterMonitorRequest
-	46,  // 51: orch.v1.Request.unregister_monitor:type_name -> orch.v1.UnregisterMonitorRequest
-	48,  // 52: orch.v1.Request.heartbeat:type_name -> orch.v1.HeartbeatRequest
-	50,  // 53: orch.v1.Request.list_monitors:type_name -> orch.v1.ListMonitorsRequest
-	53,  // 54: orch.v1.Request.kill_monitor:type_name -> orch.v1.KillMonitorRequest
-	55,  // 55: orch.v1.Request.get_run_by_short_id:type_name -> orch.v1.GetRunByShortIDRequest
-	57,  // 56: orch.v1.Request.resolve_issue:type_name -> orch.v1.ResolveIssueRequest
-	59,  // 57: orch.v1.Request.append_event:type_name -> orch.v1.AppendEventRequest
-	61,  // 58: orch.v1.Request.ensure_opencode_server:type_name -> orch.v1.EnsureOpenCodeServerRequest
-	63,  // 59: orch.v1.Request.register_repo:type_name -> orch.v1.RegisterRepoRequest
-	65,  // 60: orch.v1.Request.list_repos:type_name -> orch.v1.ListReposRequest
-	68,  // 61: orch.v1.Request.delete_run:type_name -> orch.v1.DeleteRunRequest
-	70,  // 62: orch.v1.Request.update_issue:type_name -> orch.v1.UpdateIssueRequest
-	72,  // 63: orch.v1.Request.validate_issue_files:type_name -> orch.v1.ValidateIssueFilesRequest
-	77,  // 64: orch.v1.Request.write_agent_prompt:type_name -> orch.v1.WriteAgentPromptRequest
-	79,  // 65: orch.v1.Request.read_agent_prompt:type_name -> orch.v1.ReadAgentPromptRequest
-	81,  // 66: orch.v1.Request.repair_state:type_name -> orch.v1.RepairStateRequest
-	83,  // 67: orch.v1.Request.get_daemon_log:type_name -> orch.v1.GetDaemonLogRequest
-	85,  // 68: orch.v1.Request.read_file:type_name -> orch.v1.ReadFileRequest
-	87,  // 69: orch.v1.Request.write_file:type_name -> orch.v1.WriteFileRequest
-	16,  // 70: orch.v1.Request.create_run:type_name -> orch.v1.CreateRunRequest
-	89,  // 71: orch.v1.Request.kill_session:type_name -> orch.v1.KillSessionRequest
-	91,  // 72: orch.v1.Request.list_sessions:type_name -> orch.v1.ListSessionsRequest
-	93,  // 73: orch.v1.Request.resume_run:type_name -> orch.v1.ResumeRunRequest
-	95,  // 74: orch.v1.Request.query_opencode_server:type_name -> orch.v1.QueryOpenCodeServerRequest
-	99,  // 75: orch.v1.Request.inject_initial_prompt:type_name -> orch.v1.InjectInitialPromptRequest
-	9,   // 76: orch.v1.Response.ping:type_name -> orch.v1.PingResponse
-	11,  // 77: orch.v1.Response.list_runs:type_name -> orch.v1.ListRunsResponse
-	13,  // 78: orch.v1.Response.get_run:type_name -> orch.v1.GetRunResponse
-	15,  // 79: orch.v1.Response.start_run:type_name -> orch.v1.StartRunResponse
-	19,  // 80: orch.v1.Response.stop_run:type_name -> orch.v1.StopRunResponse
-	21,  // 81: orch.v1.Response.resolve_run:type_name -> orch.v1.ResolveRunResponse
-	23,  // 82: orch.v1.Response.list_issues:type_name -> orch.v1.ListIssuesResponse
-	25,  // 83: orch.v1.Response.get_issue:type_name -> orch.v1.GetIssueResponse
-	27,  // 84: orch.v1.Response.create_issue:type_name -> orch.v1.CreateIssueResponse
-	29,  // 85: orch.v1.Response.close_issue:type_name -> orch.v1.CloseIssueResponse
-	31,  // 86: orch.v1.Response.get_control_agent_launch:type_name -> orch.v1.GetControlAgentLaunchResponse
-	33,  // 87: orch.v1.Response.get_attach_info:type_name -> orch.v1.GetAttachInfoResponse
-	35,  // 88: orch.v1.Response.capture_session:type_name -> orch.v1.CaptureSessionResponse
-	37,  // 89: orch.v1.Response.send_message:type_name -> orch.v1.SendMessageResponse
-	39,  // 90: orch.v1.Response.get_diff_stats:type_name -> orch.v1.GetDiffStatsResponse
-	41,  // 91: orch.v1.Response.get_branch_state:type_name -> orch.v1.GetBranchStateResponse
-	43,  // 92: orch.v1.Response.get_diff:type_name -> orch.v1.GetDiffResponse
-	45,  // 93: orch.v1.Response.register_monitor:type_name -> orch.v1.RegisterMonitorResponse
-	47,  // 94: orch.v1.Response.unregister_monitor:type_name -> orch.v1.UnregisterMonitorResponse
-	49,  // 95: orch.v1.Response.heartbeat:type_name -> orch.v1.HeartbeatResponse
-	52,  // 96: orch.v1.Response.list_monitors:type_name -> orch.v1.ListMonitorsResponse
-	54,  // 97: orch.v1.Response.kill_monitor:type_name -> orch.v1.KillMonitorResponse
-	56,  // 98: orch.v1.Response.get_run_by_short_id:type_name -> orch.v1.GetRunByShortIDResponse
-	58,  // 99: orch.v1.Response.resolve_issue:type_name -> orch.v1.ResolveIssueResponse
-	60,  // 100: orch.v1.Response.append_event:type_name -> orch.v1.AppendEventResponse
-	62,  // 101: orch.v1.Response.ensure_opencode_server:type_name -> orch.v1.EnsureOpenCodeServerResponse
-	64,  // 102: orch.v1.Response.register_repo:type_name -> orch.v1.RegisterRepoResponse
-	67,  // 103: orch.v1.Response.list_repos:type_name -> orch.v1.ListReposResponse
-	69,  // 104: orch.v1.Response.delete_run:type_name -> orch.v1.DeleteRunResponse
-	71,  // 105: orch.v1.Response.update_issue:type_name -> orch.v1.UpdateIssueResponse
-	76,  // 106: orch.v1.Response.validate_issue_files:type_name -> orch.v1.ValidateIssueFilesResponse
-	78,  // 107: orch.v1.Response.write_agent_prompt:type_name -> orch.v1.WriteAgentPromptResponse
-	80,  // 108: orch.v1.Response.read_agent_prompt:type_name -> orch.v1.ReadAgentPromptResponse
-	82,  // 109: orch.v1.Response.repair_state:type_name -> orch.v1.RepairStateResponse
-	84,  // 110: orch.v1.Response.get_daemon_log:type_name -> orch.v1.GetDaemonLogResponse
-	86,  // 111: orch.v1.Response.read_file:type_name -> orch.v1.ReadFileResponse
-	88,  // 112: orch.v1.Response.write_file:type_name -> orch.v1.WriteFileResponse
-	17,  // 113: orch.v1.Response.create_run:type_name -> orch.v1.CreateRunResponse
-	90,  // 114: orch.v1.Response.kill_session:type_name -> orch.v1.KillSessionResponse
-	92,  // 115: orch.v1.Response.list_sessions:type_name -> orch.v1.ListSessionsResponse
-	94,  // 116: orch.v1.Response.resume_run:type_name -> orch.v1.ResumeRunResponse
-	98,  // 117: orch.v1.Response.query_opencode_server:type_name -> orch.v1.QueryOpenCodeServerResponse
-	100, // 118: orch.v1.Response.inject_initial_prompt:type_name -> orch.v1.InjectInitialPromptResponse
-	119, // [119:119] is the sub-list for method output_type
-	119, // [119:119] is the sub-list for method input_type
-	119, // [119:119] is the sub-list for extension type_name
-	119, // [119:119] is the sub-list for extension extendee
-	0,   // [0:119] is the sub-list for field type_name
+	4,   // 7: orch.v1.ListRunsRequest.sort_order:type_name -> orch.v1.SortOrder
+	6,   // 8: orch.v1.ListRunsResponse.runs:type_name -> orch.v1.Run
+	6,   // 9: orch.v1.GetRunResponse.run:type_name -> orch.v1.Run
+	8,   // 10: orch.v1.GetRunResponse.events:type_name -> orch.v1.Event
+	105, // 11: orch.v1.CreateRunRequest.metadata:type_name -> orch.v1.CreateRunRequest.MetadataEntry
+	1,   // 12: orch.v1.ListIssuesRequest.status:type_name -> orch.v1.IssueStatus
+	4,   // 13: orch.v1.ListIssuesRequest.sort_order:type_name -> orch.v1.SortOrder
+	7,   // 14: orch.v1.ListIssuesResponse.issues:type_name -> orch.v1.Issue
+	7,   // 15: orch.v1.GetIssueResponse.issue:type_name -> orch.v1.Issue
+	3,   // 16: orch.v1.GetAttachInfoResponse.multiplexer:type_name -> orch.v1.Multiplexer
+	5,   // 17: orch.v1.GetDiffStatsResponse.diff_stats:type_name -> orch.v1.DiffStats
+	2,   // 18: orch.v1.GetBranchStateResponse.state:type_name -> orch.v1.BranchState
+	52,  // 19: orch.v1.ListMonitorsResponse.monitors:type_name -> orch.v1.MonitorInfo
+	6,   // 20: orch.v1.GetRunByShortIDResponse.run:type_name -> orch.v1.Run
+	8,   // 21: orch.v1.GetRunByShortIDResponse.events:type_name -> orch.v1.Event
+	106, // 22: orch.v1.AppendEventRequest.event_attrs:type_name -> orch.v1.AppendEventRequest.EventAttrsEntry
+	67,  // 23: orch.v1.ListReposResponse.repos:type_name -> orch.v1.RepoInfo
+	7,   // 24: orch.v1.UpdateIssueResponse.issue:type_name -> orch.v1.Issue
+	74,  // 25: orch.v1.ValidationResultItem.errors:type_name -> orch.v1.ValidationIssue
+	74,  // 26: orch.v1.ValidationResultItem.warnings:type_name -> orch.v1.ValidationIssue
+	75,  // 27: orch.v1.ValidateIssueFilesResponse.errors:type_name -> orch.v1.ValidationResultItem
+	75,  // 28: orch.v1.ValidateIssueFilesResponse.warnings:type_name -> orch.v1.ValidationResultItem
+	76,  // 29: orch.v1.ValidateIssueFilesResponse.duplicates:type_name -> orch.v1.DuplicateIDItem
+	3,   // 30: orch.v1.KillSessionRequest.multiplexer:type_name -> orch.v1.Multiplexer
+	3,   // 31: orch.v1.ListSessionsRequest.multiplexer:type_name -> orch.v1.Multiplexer
+	98,  // 32: orch.v1.OpenCodeProviderInfo.models:type_name -> orch.v1.OpenCodeModelInfo
+	97,  // 33: orch.v1.QueryOpenCodeServerResponse.providers:type_name -> orch.v1.OpenCodeProviderInfo
+	107, // 34: orch.v1.QueryOpenCodeServerResponse.session_status:type_name -> orch.v1.QueryOpenCodeServerResponse.SessionStatusEntry
+	9,   // 35: orch.v1.Request.ping:type_name -> orch.v1.PingRequest
+	11,  // 36: orch.v1.Request.list_runs:type_name -> orch.v1.ListRunsRequest
+	13,  // 37: orch.v1.Request.get_run:type_name -> orch.v1.GetRunRequest
+	15,  // 38: orch.v1.Request.start_run:type_name -> orch.v1.StartRunRequest
+	19,  // 39: orch.v1.Request.stop_run:type_name -> orch.v1.StopRunRequest
+	21,  // 40: orch.v1.Request.resolve_run:type_name -> orch.v1.ResolveRunRequest
+	23,  // 41: orch.v1.Request.list_issues:type_name -> orch.v1.ListIssuesRequest
+	25,  // 42: orch.v1.Request.get_issue:type_name -> orch.v1.GetIssueRequest
+	27,  // 43: orch.v1.Request.create_issue:type_name -> orch.v1.CreateIssueRequest
+	29,  // 44: orch.v1.Request.close_issue:type_name -> orch.v1.CloseIssueRequest
+	31,  // 45: orch.v1.Request.get_control_agent_launch:type_name -> orch.v1.GetControlAgentLaunchRequest
+	33,  // 46: orch.v1.Request.get_attach_info:type_name -> orch.v1.GetAttachInfoRequest
+	35,  // 47: orch.v1.Request.capture_session:type_name -> orch.v1.CaptureSessionRequest
+	37,  // 48: orch.v1.Request.send_message:type_name -> orch.v1.SendMessageRequest
+	39,  // 49: orch.v1.Request.get_diff_stats:type_name -> orch.v1.GetDiffStatsRequest
+	41,  // 50: orch.v1.Request.get_branch_state:type_name -> orch.v1.GetBranchStateRequest
+	43,  // 51: orch.v1.Request.get_diff:type_name -> orch.v1.GetDiffRequest
+	45,  // 52: orch.v1.Request.register_monitor:type_name -> orch.v1.RegisterMonitorRequest
+	47,  // 53: orch.v1.Request.unregister_monitor:type_name -> orch.v1.UnregisterMonitorRequest
+	49,  // 54: orch.v1.Request.heartbeat:type_name -> orch.v1.HeartbeatRequest
+	51,  // 55: orch.v1.Request.list_monitors:type_name -> orch.v1.ListMonitorsRequest
+	54,  // 56: orch.v1.Request.kill_monitor:type_name -> orch.v1.KillMonitorRequest
+	56,  // 57: orch.v1.Request.get_run_by_short_id:type_name -> orch.v1.GetRunByShortIDRequest
+	58,  // 58: orch.v1.Request.resolve_issue:type_name -> orch.v1.ResolveIssueRequest
+	60,  // 59: orch.v1.Request.append_event:type_name -> orch.v1.AppendEventRequest
+	62,  // 60: orch.v1.Request.ensure_opencode_server:type_name -> orch.v1.EnsureOpenCodeServerRequest
+	64,  // 61: orch.v1.Request.register_repo:type_name -> orch.v1.RegisterRepoRequest
+	66,  // 62: orch.v1.Request.list_repos:type_name -> orch.v1.ListReposRequest
+	69,  // 63: orch.v1.Request.delete_run:type_name -> orch.v1.DeleteRunRequest
+	71,  // 64: orch.v1.Request.update_issue:type_name -> orch.v1.UpdateIssueRequest
+	73,  // 65: orch.v1.Request.validate_issue_files:type_name -> orch.v1.ValidateIssueFilesRequest
+	78,  // 66: orch.v1.Request.write_agent_prompt:type_name -> orch.v1.WriteAgentPromptRequest
+	80,  // 67: orch.v1.Request.read_agent_prompt:type_name -> orch.v1.ReadAgentPromptRequest
+	82,  // 68: orch.v1.Request.repair_state:type_name -> orch.v1.RepairStateRequest
+	84,  // 69: orch.v1.Request.get_daemon_log:type_name -> orch.v1.GetDaemonLogRequest
+	86,  // 70: orch.v1.Request.read_file:type_name -> orch.v1.ReadFileRequest
+	88,  // 71: orch.v1.Request.write_file:type_name -> orch.v1.WriteFileRequest
+	17,  // 72: orch.v1.Request.create_run:type_name -> orch.v1.CreateRunRequest
+	90,  // 73: orch.v1.Request.kill_session:type_name -> orch.v1.KillSessionRequest
+	92,  // 74: orch.v1.Request.list_sessions:type_name -> orch.v1.ListSessionsRequest
+	94,  // 75: orch.v1.Request.resume_run:type_name -> orch.v1.ResumeRunRequest
+	96,  // 76: orch.v1.Request.query_opencode_server:type_name -> orch.v1.QueryOpenCodeServerRequest
+	100, // 77: orch.v1.Request.inject_initial_prompt:type_name -> orch.v1.InjectInitialPromptRequest
+	10,  // 78: orch.v1.Response.ping:type_name -> orch.v1.PingResponse
+	12,  // 79: orch.v1.Response.list_runs:type_name -> orch.v1.ListRunsResponse
+	14,  // 80: orch.v1.Response.get_run:type_name -> orch.v1.GetRunResponse
+	16,  // 81: orch.v1.Response.start_run:type_name -> orch.v1.StartRunResponse
+	20,  // 82: orch.v1.Response.stop_run:type_name -> orch.v1.StopRunResponse
+	22,  // 83: orch.v1.Response.resolve_run:type_name -> orch.v1.ResolveRunResponse
+	24,  // 84: orch.v1.Response.list_issues:type_name -> orch.v1.ListIssuesResponse
+	26,  // 85: orch.v1.Response.get_issue:type_name -> orch.v1.GetIssueResponse
+	28,  // 86: orch.v1.Response.create_issue:type_name -> orch.v1.CreateIssueResponse
+	30,  // 87: orch.v1.Response.close_issue:type_name -> orch.v1.CloseIssueResponse
+	32,  // 88: orch.v1.Response.get_control_agent_launch:type_name -> orch.v1.GetControlAgentLaunchResponse
+	34,  // 89: orch.v1.Response.get_attach_info:type_name -> orch.v1.GetAttachInfoResponse
+	36,  // 90: orch.v1.Response.capture_session:type_name -> orch.v1.CaptureSessionResponse
+	38,  // 91: orch.v1.Response.send_message:type_name -> orch.v1.SendMessageResponse
+	40,  // 92: orch.v1.Response.get_diff_stats:type_name -> orch.v1.GetDiffStatsResponse
+	42,  // 93: orch.v1.Response.get_branch_state:type_name -> orch.v1.GetBranchStateResponse
+	44,  // 94: orch.v1.Response.get_diff:type_name -> orch.v1.GetDiffResponse
+	46,  // 95: orch.v1.Response.register_monitor:type_name -> orch.v1.RegisterMonitorResponse
+	48,  // 96: orch.v1.Response.unregister_monitor:type_name -> orch.v1.UnregisterMonitorResponse
+	50,  // 97: orch.v1.Response.heartbeat:type_name -> orch.v1.HeartbeatResponse
+	53,  // 98: orch.v1.Response.list_monitors:type_name -> orch.v1.ListMonitorsResponse
+	55,  // 99: orch.v1.Response.kill_monitor:type_name -> orch.v1.KillMonitorResponse
+	57,  // 100: orch.v1.Response.get_run_by_short_id:type_name -> orch.v1.GetRunByShortIDResponse
+	59,  // 101: orch.v1.Response.resolve_issue:type_name -> orch.v1.ResolveIssueResponse
+	61,  // 102: orch.v1.Response.append_event:type_name -> orch.v1.AppendEventResponse
+	63,  // 103: orch.v1.Response.ensure_opencode_server:type_name -> orch.v1.EnsureOpenCodeServerResponse
+	65,  // 104: orch.v1.Response.register_repo:type_name -> orch.v1.RegisterRepoResponse
+	68,  // 105: orch.v1.Response.list_repos:type_name -> orch.v1.ListReposResponse
+	70,  // 106: orch.v1.Response.delete_run:type_name -> orch.v1.DeleteRunResponse
+	72,  // 107: orch.v1.Response.update_issue:type_name -> orch.v1.UpdateIssueResponse
+	77,  // 108: orch.v1.Response.validate_issue_files:type_name -> orch.v1.ValidateIssueFilesResponse
+	79,  // 109: orch.v1.Response.write_agent_prompt:type_name -> orch.v1.WriteAgentPromptResponse
+	81,  // 110: orch.v1.Response.read_agent_prompt:type_name -> orch.v1.ReadAgentPromptResponse
+	83,  // 111: orch.v1.Response.repair_state:type_name -> orch.v1.RepairStateResponse
+	85,  // 112: orch.v1.Response.get_daemon_log:type_name -> orch.v1.GetDaemonLogResponse
+	87,  // 113: orch.v1.Response.read_file:type_name -> orch.v1.ReadFileResponse
+	89,  // 114: orch.v1.Response.write_file:type_name -> orch.v1.WriteFileResponse
+	18,  // 115: orch.v1.Response.create_run:type_name -> orch.v1.CreateRunResponse
+	91,  // 116: orch.v1.Response.kill_session:type_name -> orch.v1.KillSessionResponse
+	93,  // 117: orch.v1.Response.list_sessions:type_name -> orch.v1.ListSessionsResponse
+	95,  // 118: orch.v1.Response.resume_run:type_name -> orch.v1.ResumeRunResponse
+	99,  // 119: orch.v1.Response.query_opencode_server:type_name -> orch.v1.QueryOpenCodeServerResponse
+	101, // 120: orch.v1.Response.inject_initial_prompt:type_name -> orch.v1.InjectInitialPromptResponse
+	121, // [121:121] is the sub-list for method output_type
+	121, // [121:121] is the sub-list for method input_type
+	121, // [121:121] is the sub-list for extension type_name
+	121, // [121:121] is the sub-list for extension extendee
+	0,   // [0:121] is the sub-list for field type_name
 }
 
 func init() { file_orch_proto_init() }
@@ -8449,7 +8546,7 @@ func file_orch_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orch_proto_rawDesc), len(file_orch_proto_rawDesc)),
-			NumEnums:      4,
+			NumEnums:      5,
 			NumMessages:   103,
 			NumExtensions: 0,
 			NumServices:   0,
