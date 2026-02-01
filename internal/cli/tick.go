@@ -105,7 +105,8 @@ func runTick(refStr string, opts *tickOptions) error {
 	}
 
 	for _, run := range runs {
-		if opts.OnlyBlocked && run.Status != orchapi.RunStatusBlocked && run.Status != orchapi.RunStatusBlockedAPI {
+		// Only check blocked status for single-run case; --all already filters at daemon level
+		if !opts.All && opts.OnlyBlocked && run.Status != orchapi.RunStatusBlocked && run.Status != orchapi.RunStatusBlockedAPI {
 			result.Skipped = append(result.Skipped, skippedRun{
 				IssueID: run.IssueID,
 				RunID:   run.RunID,

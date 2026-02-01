@@ -175,6 +175,13 @@ func deleteIssueRuns(ctx context.Context, api orchapi.OrchAPI, issueID string, o
 			return err
 		}
 		filter.Status = statuses
+	} else if !opts.Force {
+		// When no explicit status filter and not forcing, only fetch deletable statuses
+		filter.Status = []orchapi.RunStatus{
+			orchapi.RunStatusDone,
+			orchapi.RunStatusFailed,
+			orchapi.RunStatusCanceled,
+		}
 	}
 
 	result, err := api.ListRuns(ctx, filter)
@@ -215,6 +222,12 @@ func runDeleteByAge(opts *deleteOptions) error {
 			return err
 		}
 		filter.Status = statuses
+	} else if !opts.Force {
+		filter.Status = []orchapi.RunStatus{
+			orchapi.RunStatusDone,
+			orchapi.RunStatusFailed,
+			orchapi.RunStatusCanceled,
+		}
 	}
 
 	result, err := api.ListRuns(ctx, filter)
@@ -291,31 +304,6 @@ func deleteRuns(ctx context.Context, api orchapi.OrchAPI, runs []*orchapi.Run, o
 			fmt.Println("No matching runs to delete")
 		}
 		return nil
-	}
-
-	var activeRuns []*orchapi.Run
-	var deletableRuns []*orchapi.Run
-	for _, run := range runs {
-		if run.Status == orchapi.RunStatusRunning || run.Status == orchapi.RunStatusBooting || run.Status == orchapi.RunStatusBlocked || run.Status == orchapi.RunStatusBlockedAPI {
-			activeRuns = append(activeRuns, run)
-		} else {
-			deletableRuns = append(deletableRuns, run)
-		}
-	}
-
-	if len(activeRuns) > 0 && !opts.Force {
-		fmt.Fprintf(os.Stderr, "Skipping %d active run(s) (use 'orch stop' first or --force to delete anyway):\n", len(activeRuns))
-		for _, run := range activeRuns {
-			fmt.Fprintf(os.Stderr, "  %s#%s (%s)\n", run.IssueID, run.RunID, run.Status)
-		}
-		runs = deletableRuns
-		if len(runs) == 0 {
-			return nil
-		}
-	} else if opts.Force {
-		runs = append(deletableRuns, activeRuns...)
-	} else {
-		runs = deletableRuns
 	}
 
 	if !globalOpts.Quiet || opts.DryRun {
