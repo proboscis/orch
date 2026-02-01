@@ -544,3 +544,35 @@ def get_multiplexer_for_run(run) -> Multiplexer:
     """Get the appropriate multiplexer implementation for a run."""
     mux_type = get_multiplexer_type_from_run(run)
     return get_multiplexer(mux_type)
+
+
+def copy_to_clipboard(text: str) -> bool:
+    """Copy text to system clipboard.
+
+    Attempts to use platform-specific clipboard tools:
+    - macOS: pbcopy
+    - Linux/Wayland: wl-copy
+    - Linux/X11: xclip
+
+    Returns True if successful, False otherwise.
+    """
+    clipboard_commands = [
+        ["pbcopy"],
+        ["wl-copy"],
+        ["xclip", "-selection", "clipboard"],
+    ]
+
+    for cmd in clipboard_commands:
+        if shutil.which(cmd[0]) is not None:
+            try:
+                result = subprocess.run(
+                    cmd,
+                    input=text.encode("utf-8"),
+                    capture_output=True,
+                    timeout=5,
+                )
+                if result.returncode == 0:
+                    return True
+            except (subprocess.TimeoutExpired, OSError):
+                continue
+    return False

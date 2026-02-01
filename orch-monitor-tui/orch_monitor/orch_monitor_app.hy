@@ -51,7 +51,7 @@
 (import orch_monitor.multiplexer [Multiplexer MultiplexerType
                                   detect_current_multiplexer get_multiplexer
                                   get_multiplexer_for_run get_multiplexer_type_from_run
-                                  get_session_name])
+                                  get_session_name copy_to_clipboard])
 (import orch_monitor.widgets [DetailPanel IssueTable RunTable])
 (import orch_monitor.app_base [get-logger _log-error _build-orch-cmd
                                _get-editor-command _get-issue-file-path

@@ -758,3 +758,127 @@ class TestZellijCommandContracts:
         assert expected_cmd[0] == "zellij"
         assert expected_cmd[1] == "--session"
         assert "action" in expected_cmd
+
+
+# ============================================================================
+# Clipboard Copy Tests
+# ============================================================================
+
+
+class TestClipboardCopy:
+    """Tests for copy_to_clipboard utility function."""
+
+    def test_copy_to_clipboard_with_pbcopy(self):
+        """Test clipboard copy using pbcopy (macOS)."""
+        from orch_monitor.multiplexer import copy_to_clipboard
+
+        with patch("shutil.which") as mock_which:
+            mock_which.side_effect = (
+                lambda cmd: "/usr/bin/pbcopy" if cmd == "pbcopy" else None
+            )
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(returncode=0)
+
+                result = copy_to_clipboard("test command")
+
+                assert result is True
+                mock_run.assert_called_once()
+                call_args = mock_run.call_args
+                assert call_args[0][0] == ["pbcopy"]
+                assert call_args[1]["input"] == b"test command"
+
+    def test_copy_to_clipboard_with_wl_copy(self):
+        """Test clipboard copy using wl-copy (Wayland)."""
+        from orch_monitor.multiplexer import copy_to_clipboard
+
+        with patch("shutil.which") as mock_which:
+            mock_which.side_effect = (
+                lambda cmd: "/usr/bin/wl-copy" if cmd == "wl-copy" else None
+            )
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(returncode=0)
+
+                result = copy_to_clipboard("test command")
+
+                assert result is True
+                mock_run.assert_called_once()
+                call_args = mock_run.call_args
+                assert call_args[0][0] == ["wl-copy"]
+
+    def test_copy_to_clipboard_with_xclip(self):
+        """Test clipboard copy using xclip (X11)."""
+        from orch_monitor.multiplexer import copy_to_clipboard
+
+        with patch("shutil.which") as mock_which:
+            mock_which.side_effect = (
+                lambda cmd: "/usr/bin/xclip" if cmd == "xclip" else None
+            )
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(returncode=0)
+
+                result = copy_to_clipboard("test command")
+
+                assert result is True
+                mock_run.assert_called_once()
+                call_args = mock_run.call_args
+                assert call_args[0][0] == ["xclip", "-selection", "clipboard"]
+
+    def test_copy_to_clipboard_no_tool_available(self):
+        """Test clipboard copy returns False when no tool is available."""
+        from orch_monitor.multiplexer import copy_to_clipboard
+
+        with patch("shutil.which", return_value=None):
+            result = copy_to_clipboard("test command")
+            assert result is False
+
+    def test_copy_to_clipboard_handles_failure(self):
+        """Test clipboard copy returns False on subprocess failure."""
+        from orch_monitor.multiplexer import copy_to_clipboard
+
+        with patch("shutil.which", return_value="/usr/bin/pbcopy"):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(returncode=1)
+
+                result = copy_to_clipboard("test command")
+
+                assert result is False
+
+    def test_copy_to_clipboard_handles_timeout(self):
+        """Test clipboard copy returns False on timeout."""
+        from orch_monitor.multiplexer import copy_to_clipboard
+
+        with patch("shutil.which", return_value="/usr/bin/pbcopy"):
+            with patch("subprocess.run") as mock_run:
+                mock_run.side_effect = subprocess.TimeoutExpired(
+                    cmd="pbcopy", timeout=5
+                )
+
+                result = copy_to_clipboard("test command")
+
+                assert result is False
+
+    def test_copy_to_clipboard_tries_fallback(self):
+        """Test clipboard copy tries next tool when first fails."""
+        from orch_monitor.multiplexer import copy_to_clipboard
+
+        call_count = [0]
+
+        def which_side_effect(cmd):
+            if cmd == "pbcopy":
+                return "/usr/bin/pbcopy"
+            if cmd == "wl-copy":
+                return "/usr/bin/wl-copy"
+            return None
+
+        def run_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return MagicMock(returncode=1)
+            return MagicMock(returncode=0)
+
+        with patch("shutil.which", side_effect=which_side_effect):
+            with patch("subprocess.run", side_effect=run_side_effect):
+                result = copy_to_clipboard("test command")
+
+                assert result is True
+                assert call_count[0] == 2

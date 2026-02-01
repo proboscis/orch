@@ -1317,7 +1317,8 @@
    Requires in file:
      - Imports: subprocess, detect_current_multiplexer, get_multiplexer,
        MultiplexerType, get_multiplexer_type_from_run, get_session_name,
-       get_multiplexer_for_run, KillConfirmScreen, _build-orch-cmd, _input-has-focus
+       get_multiplexer_for_run, copy_to_clipboard, KillConfirmScreen,
+       _build-orch-cmd, _input-has-focus
      - Macros: with-fallback, when-err
      - Instance attrs: self.selected_run, self._highlighted_run_ref,
        self.config, self.api
@@ -1347,13 +1348,18 @@
            (when (= run-mux-type MultiplexerType.ZELLIJ)
              (setv current-session (.get_current_session current-mux))
              (setv run-session (get_session_name run))
-             (when (and current-session run-session (!= current-session run-session))
-               (setv cmd-str (.join " " attach-cmd))
-               (.call_from_thread self self.notify
-                 (+ "Cannot attach to different Zellij session from inside Zellij.\n"
-                    f"Run in a separate terminal: {cmd-str}")
-                 :severity "warning" :timeout 15)
-               (return))))
+              (when (and current-session run-session (!= current-session run-session))
+                (setv cmd-str (.join " " attach-cmd))
+                (setv copied (copy_to_clipboard cmd-str))
+                (setv msg (if copied
+                            (+ "Command copied to clipboard!\n"
+                               "Open a new terminal outside Zellij and paste to attach.\n"
+                               f"Command: {cmd-str}")
+                            (+ "Cannot attach from inside Zellij.\n"
+                               f"Run in a new terminal: {cmd-str}")))
+                (.call_from_thread self self.notify msg
+                  :severity "information" :timeout 20)
+                (return))))
          (setv tab-name f"{run.issue_id}[{(.short_id run)}]")
          (when (.new_tab_with_command current-mux tab-name attach-cmd)
            (.call_from_thread self self.notify f"Opened tab: {tab-name}")
