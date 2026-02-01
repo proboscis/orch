@@ -20,7 +20,6 @@ from orch_monitor.widgets import (
     color_agent_status,
     color_branch_status,
     color_pr_status,
-    derive_pr_status,
 )
 
 
@@ -142,70 +141,57 @@ class TestRunModel:
         assert len(short) == 6
         assert all(c in "0123456789abcdef" for c in short)
 
-    def test_is_active_running(self):
-        """Test is_active for running status."""
+    def test_is_active_field_true(self):
+        """Test is_active field when daemon provides True."""
         run = Run(
             issue_id="test",
             run_id="123",
             path=Path(),
             status=Status.RUNNING,
+            is_active=True,
         )
-        assert run.is_active() is True
+        assert run.is_active is True
 
-    def test_is_active_blocked(self):
-        """Test is_active for blocked status."""
-        run = Run(
-            issue_id="test",
-            run_id="123",
-            path=Path(),
-            status=Status.BLOCKED,
-        )
-        assert run.is_active() is True
-
-    def test_is_active_done(self):
-        """Test is_active for done status."""
+    def test_is_active_field_false(self):
+        """Test is_active field when daemon provides False."""
         run = Run(
             issue_id="test",
             run_id="123",
             path=Path(),
             status=Status.DONE,
+            is_active=False,
         )
-        assert run.is_active() is False
+        assert run.is_active is False
 
-    def test_elapsed_time_no_start(self):
-        """Test elapsed time when not started."""
+    def test_elapsed_time_no_display(self):
+        """Test elapsed_time returns '-' when elapsed_display is empty."""
         run = Run(
             issue_id="test",
             run_id="123",
             path=Path(),
-            started_at=None,
+            elapsed_display="",
         )
         assert run.elapsed_time() == "-"
 
-    def test_elapsed_time_running(self):
-        """Test elapsed time for running task."""
+    def test_elapsed_time_with_display(self):
+        """Test elapsed_time returns daemon-provided elapsed_display."""
         run = Run(
             issue_id="test",
             run_id="123",
             path=Path(),
-            status=Status.RUNNING,
-            started_at=datetime.now() - timedelta(minutes=5, seconds=30),
+            elapsed_display="5m30s",
         )
-        elapsed = run.elapsed_time()
-        assert "m" in elapsed
-        assert "s" in elapsed
+        assert run.elapsed_time() == "5m30s"
 
-    def test_elapsed_time_hours(self):
-        """Test elapsed time display for hours."""
+    def test_elapsed_time_hours_display(self):
+        """Test elapsed_time returns daemon-provided hours display."""
         run = Run(
             issue_id="test",
             run_id="123",
             path=Path(),
-            status=Status.RUNNING,
-            started_at=datetime.now() - timedelta(hours=2, minutes=15),
+            elapsed_display="2h15m",
         )
-        elapsed = run.elapsed_time()
-        assert "h" in elapsed
+        assert run.elapsed_time() == "2h15m"
 
 
 # ============================================================================
@@ -788,54 +774,37 @@ class TestColorPrStatus:
         assert result == "-"
 
 
-class TestDerivePrStatus:
-    def test_done_with_pr_returns_merged(self):
+class TestPrStatusField:
+    def test_pr_status_uses_daemon_value(self):
         run = Run(
             issue_id="test",
             run_id="123",
             path=Path(),
             status=Status.DONE,
             pr_url="https://github.com/test/pr/1",
+            pr_status="merged",
         )
-        assert derive_pr_status(run) == "merged"
+        assert run.pr_status == "merged"
 
-    def test_running_with_pr_returns_open(self):
+    def test_pr_status_open(self):
         run = Run(
             issue_id="test",
             run_id="123",
             path=Path(),
             status=Status.RUNNING,
             pr_url="https://github.com/test/pr/1",
+            pr_status="open",
         )
-        assert derive_pr_status(run) == "open"
+        assert run.pr_status == "open"
 
-    def test_pr_open_status_returns_open(self):
-        run = Run(
-            issue_id="test",
-            run_id="123",
-            path=Path(),
-            status=Status.PR_OPEN,
-        )
-        assert derive_pr_status(run) == "open"
-
-    def test_running_no_pr_returns_dash(self):
+    def test_pr_status_default(self):
         run = Run(
             issue_id="test",
             run_id="123",
             path=Path(),
             status=Status.RUNNING,
         )
-        assert derive_pr_status(run) == "-"
-
-    def test_merged_branch_with_pr_returns_merged(self):
-        run = Run(
-            issue_id="test",
-            run_id="123",
-            path=Path(),
-            status=Status.RUNNING,
-            pr_url="https://github.com/test/pr/1",
-        )
-        assert derive_pr_status(run, "merged") == "merged"
+        assert run.pr_status == "-"
 
 
 class TestRunTableWithBranchStates:
@@ -1036,6 +1005,7 @@ class TestRunTableColumnsE2E:
             path=Path(),
             status=Status.RUNNING,
             pr_url="https://github.com/test/pr/1",
+            pr_status="open",
         )
         run_done_with_pr = Run(
             issue_id="test",
@@ -1043,12 +1013,14 @@ class TestRunTableColumnsE2E:
             path=Path(),
             status=Status.DONE,
             pr_url="https://github.com/test/pr/2",
+            pr_status="merged",
         )
         run_no_pr = Run(
             issue_id="test",
             run_id="125",
             path=Path(),
             status=Status.RUNNING,
+            pr_status="-",
         )
 
         class TestApp(App):
@@ -1061,9 +1033,9 @@ class TestRunTableColumnsE2E:
             table.populate([run_with_pr, run_done_with_pr, run_no_pr])
             await pilot.pause()
 
-            assert derive_pr_status(run_with_pr) == "open"
-            assert derive_pr_status(run_done_with_pr) == "merged"
-            assert derive_pr_status(run_no_pr) == "-"
+            assert run_with_pr.pr_status == "open"
+            assert run_done_with_pr.pr_status == "merged"
+            assert run_no_pr.pr_status == "-"
 
     async def test_run_table_branch_column_shows_worktree_state(self, sample_runs):
         from textual.app import App, ComposeResult

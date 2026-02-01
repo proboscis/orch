@@ -247,16 +247,6 @@ def color_pr_status(pr_status: str) -> str:
     return pr_status
 
 
-def derive_pr_status(run: Run, branch_status: str = "") -> str:
-    if run.status == Status.DONE and run.pr_url:
-        return "merged"
-    if branch_status == "merged" and run.pr_url:
-        return "merged"
-    if run.pr_url or run.status == Status.PR_OPEN:
-        return "open"
-    return "-"
-
-
 def format_alive_status(run: Run) -> str:
     if not run.alive_known:
         return "-"
@@ -304,8 +294,7 @@ class RunTable(CursorPreservingTable):
             branch_status = run.branch_state
             branch_str = color_branch_status(branch_status)
 
-            pr_status = derive_pr_status(run, branch_status)
-            pr_str = color_pr_status(pr_status)
+            pr_str = color_pr_status(run.pr_status)
 
             model_str = model_display_name(run.model, run.model_variant)
             mux = run.multiplexer

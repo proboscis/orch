@@ -135,7 +135,11 @@
        :deletions deletions
        :files_changed files-changed
        :files files
-       :branch_state (proto-branch-state->str r.branch_state)))
+       :branch_state (proto-branch-state->str r.branch_state)
+       :alive r.alive
+       :alive_known r.alive_known
+       :is_active r.is_active
+       :pr_status r.pr_status))
 
 (defn proto-issue->model [i]
   (Issue :id i.id

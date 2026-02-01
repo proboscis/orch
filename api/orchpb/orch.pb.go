@@ -348,8 +348,13 @@ type Run struct {
 	ServerPort        int32                  `protobuf:"varint,17,opt,name=server_port,json=serverPort,proto3" json:"server_port,omitempty"`
 	OpencodeSessionId string                 `protobuf:"bytes,18,opt,name=opencode_session_id,json=opencodeSessionId,proto3" json:"opencode_session_id,omitempty"`
 	ContinuedFrom     string                 `protobuf:"bytes,19,opt,name=continued_from,json=continuedFrom,proto3" json:"continued_from,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Computed fields - provided by daemon instead of client computation
+	Alive         bool   `protobuf:"varint,20,opt,name=alive,proto3" json:"alive,omitempty"`                             // Agent process is running
+	AliveKnown    bool   `protobuf:"varint,21,opt,name=alive_known,json=aliveKnown,proto3" json:"alive_known,omitempty"` // Whether alive status has been determined
+	IsActive      bool   `protobuf:"varint,22,opt,name=is_active,json=isActive,proto3" json:"is_active,omitempty"`       // Run is in an active state (queued/booting/running/blocked)
+	PrStatus      string `protobuf:"bytes,23,opt,name=pr_status,json=prStatus,proto3" json:"pr_status,omitempty"`        // PR status: "open", "merged", "closed", or "-"
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Run) Reset() {
@@ -511,6 +516,34 @@ func (x *Run) GetOpencodeSessionId() string {
 func (x *Run) GetContinuedFrom() string {
 	if x != nil {
 		return x.ContinuedFrom
+	}
+	return ""
+}
+
+func (x *Run) GetAlive() bool {
+	if x != nil {
+		return x.Alive
+	}
+	return false
+}
+
+func (x *Run) GetAliveKnown() bool {
+	if x != nil {
+		return x.AliveKnown
+	}
+	return false
+}
+
+func (x *Run) GetIsActive() bool {
+	if x != nil {
+		return x.IsActive
+	}
+	return false
+}
+
+func (x *Run) GetPrStatus() string {
+	if x != nil {
+		return x.PrStatus
 	}
 	return ""
 }
@@ -6653,7 +6686,7 @@ const file_orch_proto_rawDesc = "" +
 	"\tadditions\x18\x01 \x01(\x05R\tadditions\x12\x1c\n" +
 	"\tdeletions\x18\x02 \x01(\x05R\tdeletions\x12#\n" +
 	"\rfiles_changed\x18\x03 \x01(\x05R\ffilesChanged\x12\x14\n" +
-	"\x05files\x18\x04 \x03(\tR\x05files\"\xc4\x05\n" +
+	"\x05files\x18\x04 \x03(\tR\x05files\"\xb5\x06\n" +
 	"\x03Run\x12\x19\n" +
 	"\bissue_id\x18\x01 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12*\n" +
@@ -6676,7 +6709,12 @@ const file_orch_proto_rawDesc = "" +
 	"\vserver_port\x18\x11 \x01(\x05R\n" +
 	"serverPort\x12.\n" +
 	"\x13opencode_session_id\x18\x12 \x01(\tR\x11opencodeSessionId\x12%\n" +
-	"\x0econtinued_from\x18\x13 \x01(\tR\rcontinuedFrom\"\xf1\x01\n" +
+	"\x0econtinued_from\x18\x13 \x01(\tR\rcontinuedFrom\x12\x14\n" +
+	"\x05alive\x18\x14 \x01(\bR\x05alive\x12\x1f\n" +
+	"\valive_known\x18\x15 \x01(\bR\n" +
+	"aliveKnown\x12\x1b\n" +
+	"\tis_active\x18\x16 \x01(\bR\bisActive\x12\x1b\n" +
+	"\tpr_status\x18\x17 \x01(\tR\bprStatus\"\xf1\x01\n" +
 	"\x05Issue\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x18\n" +

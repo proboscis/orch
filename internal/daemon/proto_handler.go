@@ -242,6 +242,53 @@ func enrichRunProto(pr *orchpb.Run, run *model.Run) {
 		}
 	}
 	pr.ElapsedDisplay = formatElapsedTime(run.StartedAt, run.UpdatedAt, run.Status)
+
+	pr.IsActive = protoIsActiveStatus(run.Status)
+	pr.PrStatus = computePRStatus(run, pr.BranchState)
+	pr.Alive, pr.AliveKnown = computeAliveStatus(run)
+}
+
+func protoIsActiveStatus(status model.Status) bool {
+	switch status {
+	case model.StatusQueued, model.StatusBooting, model.StatusRunning, model.StatusBlocked, model.StatusBlockedAPI:
+		return true
+	default:
+		return false
+	}
+}
+
+func computePRStatus(run *model.Run, branchState orchpb.BranchState) string {
+	if run.Status == model.StatusDone && run.PRUrl != "" {
+		return "merged"
+	}
+	if branchState == orchpb.BranchState_BRANCH_STATE_MERGED && run.PRUrl != "" {
+		return "merged"
+	}
+	if run.PRUrl != "" || run.Status == model.StatusPROpen {
+		return "open"
+	}
+	return "-"
+}
+
+func computeAliveStatus(run *model.Run) (alive bool, known bool) {
+	if run.TmuxSession == "" && run.OpenCodeSessionID == "" {
+		return false, false
+	}
+
+	mux := multiplexer.GetDefault()
+	if mux == nil {
+		return false, false
+	}
+
+	if run.Multiplexer == "zellij" {
+		zm, ok := mux.(*multiplexer.ZellijMultiplexer)
+		if !ok {
+			return false, false
+		}
+		return zm.AgentAlive(run.TmuxSession, nil)
+	}
+
+	return mux.AgentAlive(run.TmuxSession, nil)
 }
 
 func enrichRunsParallel(runs []*model.Run, protoRuns []*orchpb.Run) []*orchpb.Run {
@@ -304,6 +351,10 @@ func enrichRunsParallel(runs []*model.Run, protoRuns []*orchpb.Run) []*orchpb.Ru
 				}
 			}
 		}
+
+		pr.IsActive = protoIsActiveStatus(run.Status)
+		pr.PrStatus = computePRStatus(run, pr.BranchState)
+		pr.Alive, pr.AliveKnown = computeAliveStatus(run)
 
 		protoRuns[i] = pr
 	}

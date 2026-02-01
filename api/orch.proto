@@ -77,6 +77,11 @@ message Run {
   int32 server_port = 17;
   string opencode_session_id = 18;
   string continued_from = 19;
+  // Computed fields - provided by daemon instead of client computation
+  bool alive = 20;           // Agent process is running
+  bool alive_known = 21;     // Whether alive status has been determined
+  bool is_active = 22;       // Run is in an active state (queued/booting/running/blocked)
+  string pr_status = 23;     // PR status: "open", "merged", "closed", or "-"
 }
 
 message Issue {

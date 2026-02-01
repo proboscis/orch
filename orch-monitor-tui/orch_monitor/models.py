@@ -135,6 +135,8 @@ class Run:
     elapsed_display: str = ""
     alive: bool = False
     alive_known: bool = False
+    is_active: bool = False
+    pr_status: str = "-"
 
     def ref(self) -> str:
         """Return the run reference (ISSUE_ID#RUN_ID)."""
@@ -157,43 +159,8 @@ class Run:
         h = hashlib.sha256(self.ref().encode()).hexdigest()
         return h[:6]
 
-    def is_active(self) -> bool:
-        active_states = {
-            Status.QUEUED,
-            Status.BOOTING,
-            Status.RUNNING,
-            Status.BLOCKED,
-            Status.BLOCKED_API,
-        }
-        return self.status in active_states
-
     def elapsed_time(self) -> str:
-        if self.elapsed_display:
-            return self.elapsed_display
-
-        if not self.started_at or not isinstance(self.started_at, datetime):
-            return "-"
-
-        try:
-            if self.is_active():
-                delta = datetime.now() - self.started_at
-            elif self.updated_at:
-                delta = self.updated_at - self.started_at
-            else:
-                delta = datetime.now() - self.started_at
-        except (TypeError, ValueError):
-            return "-"
-
-        total_seconds = int(delta.total_seconds())
-        hours, remainder = divmod(total_seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-
-        if hours > 0:
-            return f"{hours}h{minutes}m"
-        elif minutes > 0:
-            return f"{minutes}m{seconds}s"
-        else:
-            return f"{seconds}s"
+        return self.elapsed_display if self.elapsed_display else "-"
 
 
 @dataclass
