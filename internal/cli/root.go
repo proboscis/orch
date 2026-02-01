@@ -23,6 +23,7 @@ const (
 	ExitAgentError       = 5
 	ExitRunNotFound      = 6
 	ExitQuestionNotFound = 7
+	ExitRunEnded         = 8
 	ExitInternalError    = 10
 )
 
