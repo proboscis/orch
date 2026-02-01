@@ -329,3 +329,9 @@ type RepairResult struct {
 	ProblemsFixed int
 	Details       []string
 }
+
+type GitContext struct {
+	Branch             string
+	UncommittedChanges string
+	LastCommitMessage  string
+}

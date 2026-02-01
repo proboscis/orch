@@ -339,6 +339,18 @@ func (c *DaemonClient) GetDiff(ctx context.Context, ref RunRef) (string, error) 
 	return c.proto.GetDiff(run.IssueID, run.RunID)
 }
 
+func (c *DaemonClient) GetGitContext(ctx context.Context, workDir string) (*GitContext, error) {
+	resp, err := c.proto.GetGitContext(workDir)
+	if err != nil {
+		return nil, err
+	}
+	return &GitContext{
+		Branch:             resp.Branch,
+		UncommittedChanges: resp.UncommittedChanges,
+		LastCommitMessage:  resp.LastCommitMessage,
+	}, nil
+}
+
 func (c *DaemonClient) ResolveIssue(ctx context.Context, issueID string, force bool) error {
 	_, err := c.proto.ResolveIssue(issueID, force)
 	return err

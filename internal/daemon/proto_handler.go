@@ -144,6 +144,8 @@ func (s *SocketServer) handleProtoRequest(req *orchpb.Request) *orchpb.Response 
 		return s.handleProtoWriteFile(r.WriteFile)
 	case *orchpb.Request_CreateRun:
 		return s.handleProtoCreateRun(r.CreateRun)
+	case *orchpb.Request_GetGitContext:
+		return s.handleProtoGetGitContext(r.GetGitContext)
 	default:
 		return errorResponse("unknown request type")
 	}
@@ -1519,4 +1521,60 @@ func writeFileContent(path string, content []byte, perm uint32) error {
 		perm = 0644
 	}
 	return os.WriteFile(path, content, os.FileMode(perm))
+}
+
+func (s *SocketServer) handleProtoGetGitContext(req *orchpb.GetGitContextRequest) *orchpb.Response {
+	workDir := req.WorkDir
+	if workDir == "" {
+		return errorResponse("work_dir required")
+	}
+
+	branch := getGitBranch(workDir)
+	uncommittedChanges := getUncommittedChangesStatus(workDir)
+	lastCommitMessage := getLastCommitMessage(workDir)
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_GetGitContext{
+			GetGitContext: &orchpb.GetGitContextResponse{
+				Branch:             branch,
+				UncommittedChanges: uncommittedChanges,
+				LastCommitMessage:  lastCommitMessage,
+			},
+		},
+	}
+}
+
+func getGitBranch(workDir string) string {
+	cmd := exec.Command("git", "-C", workDir, "rev-parse", "--abbrev-ref", "HEAD")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
+}
+
+func getUncommittedChangesStatus(workDir string) string {
+	cmd := exec.Command("git", "-C", workDir, "status", "--porcelain")
+	output, err := cmd.Output()
+	if err != nil {
+		return "Unknown"
+	}
+	if len(strings.TrimSpace(string(output))) > 0 {
+		return "Yes"
+	}
+	return "No"
+}
+
+func getLastCommitMessage(workDir string) string {
+	cmd := exec.Command("git", "-C", workDir, "log", "-1", "--format=%s")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	msg := strings.TrimSpace(string(output))
+	if len(msg) > 80 {
+		msg = msg[:77] + "..."
+	}
+	return msg
 }

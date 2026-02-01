@@ -1600,3 +1600,39 @@ func (c *ProtoClient) GetDiff(issueID, runID string) (string, error) {
 
 	return diffResp.Diff, nil
 }
+
+type GetGitContextResponse struct {
+	Branch             string
+	UncommittedChanges string
+	LastCommitMessage  string
+}
+
+func (c *ProtoClient) GetGitContext(workDir string) (*GetGitContextResponse, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_GetGitContext{
+			GetGitContext: &orchpb.GetGitContextRequest{
+				WorkDir: workDir,
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	gitResp := resp.GetGetGitContext()
+	if gitResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	return &GetGitContextResponse{
+		Branch:             gitResp.Branch,
+		UncommittedChanges: gitResp.UncommittedChanges,
+		LastCommitMessage:  gitResp.LastCommitMessage,
+	}, nil
+}

@@ -132,6 +132,9 @@ type OrchAPI interface {
 	// GetDiff returns the full diff for a run's branch vs main.
 	GetDiff(ctx context.Context, ref RunRef) (string, error)
 
+	// GetGitContext returns git context for a working directory.
+	GetGitContext(ctx context.Context, workDir string) (*GitContext, error)
+
 	// =========================================================================
 	// Issue Resolution (merge to main)
 	// =========================================================================
