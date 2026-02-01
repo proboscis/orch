@@ -104,7 +104,7 @@ func runStopAll(opts *stopOptions) error {
 		return err
 	}
 
-	resp, err := client.ListRuns("", []string{"running", "booting", "blocked", "blocked_api", "queued"}, 0, "")
+	resp, err := client.ListRuns("", []string{"running", "booting", "blocked", "blocked_api", "queued"}, 0, "", "")
 	if err != nil {
 		return err
 	}

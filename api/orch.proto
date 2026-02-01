@@ -121,6 +121,7 @@ message ListRunsRequest {
   string time_range = 6;  // "hour", "today", "week"
   int32 limit = 7;
   string cursor = 8;
+  string older_than = 9;  // ISO8601 timestamp - filter runs older than this time
 }
 
 message ListRunsResponse {

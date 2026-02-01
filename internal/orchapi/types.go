@@ -229,6 +229,7 @@ type ListRunsFilter struct {
 	TimeRange  string
 	Limit      int
 	Cursor     string
+	OlderThan  string
 }
 
 type ListRunsResult struct {

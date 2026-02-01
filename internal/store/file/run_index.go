@@ -154,6 +154,11 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 		sinceTime, _ = time.Parse(time.RFC3339, filter.Since)
 	}
 
+	var olderThanTime time.Time
+	if filter != nil && filter.OlderThan != "" {
+		olderThanTime, _ = time.Parse(time.RFC3339, filter.OlderThan)
+	}
+
 	var timeRangeCutoff time.Time
 	if filter != nil && filter.TimeRange != "" && filter.TimeRange != "all" {
 		now := time.Now()
@@ -215,7 +220,7 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 
 			seenKeys[key] = true
 			if cached, ok := idx.Entries[key]; ok && cached.FileMtime.Unix() == fileMtime.Unix() {
-				if !matchesRunFilters(cached, statusSet, sinceTime, timeRangeCutoff, textSearch, agentFilter) {
+				if !matchesRunFilters(cached, statusSet, sinceTime, olderThanTime, timeRangeCutoff, textSearch, agentFilter) {
 					continue
 				}
 				validEntries[key] = cached
@@ -250,7 +255,7 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 			}
 			idx.Entries[key] = entry
 
-			if !matchesRunFilters(entry, statusSet, sinceTime, timeRangeCutoff, textSearch, agentFilter) {
+			if !matchesRunFilters(entry, statusSet, sinceTime, olderThanTime, timeRangeCutoff, textSearch, agentFilter) {
 				continue
 			}
 			validEntries[key] = entry
@@ -325,11 +330,14 @@ func runEntryEqual(a, b *runIndexEntry) bool {
 		a.UpdatedAt.Equal(b.UpdatedAt)
 }
 
-func matchesRunFilters(entry *runIndexEntry, statusSet map[model.Status]bool, sinceTime, timeRangeCutoff time.Time, textSearch, agentFilter string) bool {
+func matchesRunFilters(entry *runIndexEntry, statusSet map[model.Status]bool, sinceTime, olderThanTime, timeRangeCutoff time.Time, textSearch, agentFilter string) bool {
 	if len(statusSet) > 0 && !statusSet[entry.Status] {
 		return false
 	}
 	if !sinceTime.IsZero() && entry.UpdatedAt.Before(sinceTime) {
+		return false
+	}
+	if !olderThanTime.IsZero() && !entry.UpdatedAt.Before(olderThanTime) {
 		return false
 	}
 	if !timeRangeCutoff.IsZero() && entry.StartedAt.Before(timeRangeCutoff) {

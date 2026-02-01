@@ -7,10 +7,10 @@ import (
 	"github.com/s22625/orch/internal/model"
 )
 
-func TestParseDuration(t *testing.T) {
+func TestDurationToOlderThan(t *testing.T) {
 	cases := []struct {
-		input string
-		want  time.Duration
+		input        string
+		wantDuration time.Duration
 	}{
 		{"7d", 7 * 24 * time.Hour},
 		{"2w", 14 * 24 * time.Hour},
@@ -18,18 +18,26 @@ func TestParseDuration(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		got, err := parseDuration(tc.input)
+		got, err := durationToOlderThan(tc.input)
 		if err != nil {
-			t.Fatalf("parseDuration(%q) error: %v", tc.input, err)
+			t.Fatalf("durationToOlderThan(%q) error: %v", tc.input, err)
 		}
-		if got != tc.want {
-			t.Fatalf("parseDuration(%q) = %v, want %v", tc.input, got, tc.want)
+
+		parsedTime, err := time.Parse(time.RFC3339, got)
+		if err != nil {
+			t.Fatalf("durationToOlderThan(%q) returned invalid RFC3339: %v", tc.input, err)
+		}
+
+		expectedCutoff := time.Now().Add(-tc.wantDuration)
+		diff := parsedTime.Sub(expectedCutoff)
+		if diff < -time.Second || diff > time.Second {
+			t.Fatalf("durationToOlderThan(%q) = %v, want ~%v (diff: %v)", tc.input, parsedTime, expectedCutoff, diff)
 		}
 	}
 }
 
-func TestParseDurationInvalid(t *testing.T) {
-	if _, err := parseDuration("7x"); err == nil {
+func TestDurationToOlderThanInvalid(t *testing.T) {
+	if _, err := durationToOlderThan("7x"); err == nil {
 		t.Fatal("expected error for invalid duration")
 	}
 }
@@ -40,21 +48,5 @@ func TestParseStatus(t *testing.T) {
 	}
 	if _, err := parseStatus(string(model.StatusRunning)); err == nil {
 		t.Fatal("expected error for running status")
-	}
-}
-
-func TestFilterByAge(t *testing.T) {
-	now := time.Now()
-	runs := []*model.Run{
-		{IssueID: "old", RunID: "1", UpdatedAt: now.Add(-10 * 24 * time.Hour)},
-		{IssueID: "new", RunID: "2", UpdatedAt: now.Add(-2 * 24 * time.Hour)},
-	}
-
-	filtered, err := filterByAge(runs, "7d")
-	if err != nil {
-		t.Fatalf("filterByAge error: %v", err)
-	}
-	if len(filtered) != 1 || filtered[0].IssueID != "old" {
-		t.Fatalf("unexpected filter result: %#v", filtered)
 	}
 }

@@ -103,7 +103,7 @@ func (c *ProtoClient) Ping() error {
 	return nil
 }
 
-func (c *ProtoClient) ListRuns(issueID string, status []string, limit int, cursor string) (*ListRunsResponse, error) {
+func (c *ProtoClient) ListRuns(issueID string, status []string, limit int, cursor string, olderThan string) (*ListRunsResponse, error) {
 	protoStatuses := make([]orchpb.RunStatus, 0, len(status))
 	for _, s := range status {
 		protoStatuses = append(protoStatuses, stringToProtoRunStatus(s))
@@ -117,6 +117,7 @@ func (c *ProtoClient) ListRuns(issueID string, status []string, limit int, curso
 				Status:     protoStatuses,
 				Limit:      int32(limit),
 				Cursor:     cursor,
+				OlderThan:  olderThan,
 			},
 		},
 	}
@@ -154,7 +155,7 @@ func (c *ProtoClient) ListRuns(issueID string, status []string, limit int, curso
 }
 
 func (c *ProtoClient) ListRunsAll(status []string, limit int, cursor string) (*ListRunsResponse, error) {
-	return c.ListRuns("", status, limit, cursor)
+	return c.ListRuns("", status, limit, cursor, "")
 }
 
 func (c *ProtoClient) GetRun(issueID, runID string) (*GetRunResponse, error) {
