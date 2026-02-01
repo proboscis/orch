@@ -1406,37 +1406,26 @@ func (s *SocketServer) processSend(req SendRequest) error {
 }
 
 func (s *SocketServer) processSendOpenCode(st store.Store, ref *model.RunRef, run *model.Run, message string) error {
-	if run.ServerPort <= 0 {
-		return fmt.Errorf("run %s missing server port (not running or server not started)", ref.String())
-	}
 	if run.OpenCodeSessionID == "" {
 		return fmt.Errorf("run %s missing session ID (agent may still be booting)", ref.String())
 	}
 
-	client := agent.NewOpenCodeClient(run.ServerPort)
-
-	healthCtx, healthCancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer healthCancel()
-
-	if !client.IsServerRunning(healthCtx) {
-		s.logger.Printf("opencode server not running for %s (port %d), updating status", ref.String(), run.ServerPort)
-
-		if run.Status == model.StatusBlocked || run.Status == model.StatusRunning || run.Status == model.StatusBlockedAPI {
-			st.AppendEvent(ref, model.NewStatusEvent(model.StatusUnknown))
-			s.logger.Printf("updated run %s status to unknown (server stopped)", ref.String())
-		}
-
-		return &agent.ServerStoppedError{
-			RunRef:       ref.String(),
-			Port:         run.ServerPort,
-			WorktreePath: run.WorktreePath,
-		}
+	projectRoot, err := git.FindRepoRoot(run.WorktreePath)
+	if err != nil {
+		return fmt.Errorf("failed to find project root for %s: %w", ref.String(), err)
 	}
+
+	port, err := s.ensureOpenCodeServerRunning(projectRoot)
+	if err != nil {
+		return fmt.Errorf("failed to ensure opencode server running for %s: %w", ref.String(), err)
+	}
+
+	client := agent.NewOpenCodeClient(port)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	err := client.SendMessageAsync(ctx, run.OpenCodeSessionID, message, run.WorktreePath, nil, "")
+	err = client.SendMessageAsync(ctx, run.OpenCodeSessionID, message, run.WorktreePath, nil, "")
 	if err != nil {
 		return fmt.Errorf("failed to send message: %w", err)
 	}
