@@ -221,14 +221,26 @@ type CreateIssueRequest struct {
 	Body  string
 }
 
+type PRFilter string
+
+const (
+	PRFilterAll  PRFilter = "all"
+	PRFilterHas  PRFilter = "has"
+	PRFilterNone PRFilter = "none"
+)
+
 type ListRunsFilter struct {
-	IssueID    string
-	Status     []RunStatus
-	Agent      string
-	TextSearch string
-	TimeRange  string
-	Limit      int
-	Cursor     string
+	IssueID              string
+	Status               []RunStatus
+	Agent                string
+	TextSearch           string
+	TimeRange            string
+	Limit                int
+	Cursor               string
+	BranchState          []BranchState
+	PRFilter             PRFilter
+	IssueStatus          []IssueStatus
+	UpdatedWithinSeconds int
 }
 
 type ListRunsResult struct {

@@ -46,6 +46,13 @@ enum Multiplexer {
   MULTIPLEXER_ZELLIJ = 2;
 }
 
+enum PRFilter {
+  PR_FILTER_UNSPECIFIED = 0;
+  PR_FILTER_ALL = 1;
+  PR_FILTER_HAS = 2;
+  PR_FILTER_NONE = 3;
+}
+
 // =============================================================================
 // Domain Models
 // =============================================================================
@@ -121,6 +128,11 @@ message ListRunsRequest {
   string time_range = 6;  // "hour", "today", "week"
   int32 limit = 7;
   string cursor = 8;
+  // Extended filters (server-side filtering)
+  repeated BranchState branch_state = 9;  // filter by branch state (clean, dirty, merged, etc.)
+  PRFilter pr_filter = 10;  // filter by PR presence (all, has, none)
+  repeated IssueStatus issue_status = 11;  // filter by issue's status (open, resolved, closed)
+  int32 updated_within_seconds = 12;  // filter runs updated within N seconds from now
 }
 
 message ListRunsResponse {

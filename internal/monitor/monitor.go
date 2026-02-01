@@ -474,9 +474,8 @@ func (m *Monitor) Refresh() ([]RunRow, error) {
 	if err != nil {
 		return nil, err
 	}
-	filtered := m.runFilter.FilterRows(rows, time.Now())
-	reindexRunRows(filtered)
-	return filtered, nil
+	reindexRunRows(rows)
+	return rows, nil
 }
 
 // RunFilter returns the active run filter.
@@ -910,13 +909,7 @@ func (m *Monitor) loadRuns() ([]*RunWindow, error) {
 		return []*RunWindow{}, nil
 	}
 
-	filter := &orchapi.ListRunsFilter{
-		Limit: 100,
-	}
-	filter.Status = statusSliceAPI(m.runFilter.Statuses)
-	if !m.runFilter.IsDefault() {
-		filter.Limit = 0
-	}
+	filter := m.buildListRunsFilter()
 
 	ctx := context.Background()
 	result, err := m.api.ListRuns(ctx, filter)
@@ -939,6 +932,46 @@ func (m *Monitor) loadRuns() ([]*RunWindow, error) {
 	}
 
 	return runWindows, nil
+}
+
+func (m *Monitor) buildListRunsFilter() *orchapi.ListRunsFilter {
+	filter := &orchapi.ListRunsFilter{
+		Limit: 100,
+	}
+
+	filter.Status = statusSliceAPI(m.runFilter.Statuses)
+	if !m.runFilter.IsDefault() {
+		filter.Limit = 0
+	}
+
+	if m.runFilter.Agent != "" && m.runFilter.Agent != agentFilterAll {
+		filter.Agent = m.runFilter.Agent
+	}
+
+	if m.runFilter.IssueQuery != "" {
+		filter.TextSearch = m.runFilter.IssueQuery
+	}
+
+	if m.runFilter.Merged != "" && m.runFilter.Merged != mergedFilterAll {
+		filter.BranchState = []orchapi.BranchState{orchapi.BranchState(m.runFilter.Merged)}
+	}
+
+	switch m.runFilter.PR {
+	case prFilterHas:
+		filter.PRFilter = orchapi.PRFilterHas
+	case prFilterNone:
+		filter.PRFilter = orchapi.PRFilterNone
+	}
+
+	if m.runFilter.IssueStatus != "" && m.runFilter.IssueStatus != issueStatusAll {
+		filter.IssueStatus = []orchapi.IssueStatus{orchapi.IssueStatus(m.runFilter.IssueStatus)}
+	}
+
+	if m.runFilter.UpdatedWithin > 0 {
+		filter.UpdatedWithinSeconds = int(m.runFilter.UpdatedWithin.Seconds())
+	}
+
+	return filter
 }
 
 func (m *Monitor) ensureRunSession(w *RunWindow) error {

@@ -162,21 +162,29 @@ func (c *DaemonClient) GetLatestRun(ctx context.Context, issueID string) (*Run, 
 }
 
 func (c *DaemonClient) ListRuns(ctx context.Context, filter *ListRunsFilter) (*ListRunsResult, error) {
-	var issueID string
-	var statuses []string
-	var limit int
-	var cursor string
+	opts := &daemon.ListRunsWithFilterOptions{}
 
 	if filter != nil {
-		issueID = filter.IssueID
+		opts.IssueID = filter.IssueID
 		for _, s := range filter.Status {
-			statuses = append(statuses, string(s))
+			opts.Status = append(opts.Status, string(s))
 		}
-		limit = filter.Limit
-		cursor = filter.Cursor
+		opts.Agent = filter.Agent
+		opts.TextSearch = filter.TextSearch
+		opts.TimeRange = filter.TimeRange
+		opts.Limit = filter.Limit
+		opts.Cursor = filter.Cursor
+		for _, bs := range filter.BranchState {
+			opts.BranchState = append(opts.BranchState, string(bs))
+		}
+		opts.PRFilter = string(filter.PRFilter)
+		for _, is := range filter.IssueStatus {
+			opts.IssueStatus = append(opts.IssueStatus, string(is))
+		}
+		opts.UpdatedWithinSeconds = filter.UpdatedWithinSeconds
 	}
 
-	resp, err := c.proto.ListRuns(issueID, statuses, limit, cursor)
+	resp, err := c.proto.ListRunsWithFilter(opts)
 	if err != nil {
 		return nil, err
 	}

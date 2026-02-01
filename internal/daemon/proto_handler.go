@@ -217,15 +217,104 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 	protoRuns := make([]*orchpb.Run, len(runs))
 	protoRuns = enrichRunsParallel(runs, protoRuns)
 
+	protoRuns = s.applyExtendedRunFilters(st, runs, protoRuns, req)
+
 	return &orchpb.Response{
 		Ok: true,
 		Response: &orchpb.Response_ListRuns{
 			ListRuns: &orchpb.ListRunsResponse{
 				Runs:  protoRuns,
-				Total: int32(len(runs)),
+				Total: int32(len(protoRuns)),
 			},
 		},
 	}
+}
+
+func (s *SocketServer) applyExtendedRunFilters(st store.Store, runs []*model.Run, protoRuns []*orchpb.Run, req *orchpb.ListRunsRequest) []*orchpb.Run {
+	hasFilters := len(req.BranchState) > 0 ||
+		req.PrFilter != orchpb.PRFilter_PR_FILTER_UNSPECIFIED && req.PrFilter != orchpb.PRFilter_PR_FILTER_ALL ||
+		len(req.IssueStatus) > 0 ||
+		req.UpdatedWithinSeconds > 0
+
+	if !hasFilters {
+		return protoRuns
+	}
+
+	var issueStatusMap map[string]model.IssueStatus
+	if len(req.IssueStatus) > 0 {
+		issueStatusMap = s.loadIssueStatusMap(st, runs)
+	}
+
+	branchStateSet := make(map[orchpb.BranchState]bool)
+	for _, bs := range req.BranchState {
+		branchStateSet[bs] = true
+	}
+
+	issueStatusSet := make(map[orchpb.IssueStatus]bool)
+	for _, is := range req.IssueStatus {
+		issueStatusSet[is] = true
+	}
+
+	var cutoff time.Time
+	if req.UpdatedWithinSeconds > 0 {
+		cutoff = time.Now().Add(-time.Duration(req.UpdatedWithinSeconds) * time.Second)
+	}
+
+	filtered := make([]*orchpb.Run, 0, len(protoRuns))
+	for i, pr := range protoRuns {
+		if pr == nil {
+			continue
+		}
+
+		if len(branchStateSet) > 0 && !branchStateSet[pr.BranchState] {
+			continue
+		}
+
+		if req.PrFilter == orchpb.PRFilter_PR_FILTER_HAS {
+			if pr.PrUrl == "" {
+				continue
+			}
+		} else if req.PrFilter == orchpb.PRFilter_PR_FILTER_NONE {
+			if pr.PrUrl != "" {
+				continue
+			}
+		}
+
+		if len(issueStatusSet) > 0 && issueStatusMap != nil {
+			issueStatus := issueStatusMap[runs[i].IssueID]
+			protoIssueStatus := modelIssueStatusToProto(issueStatus)
+			if !issueStatusSet[protoIssueStatus] {
+				continue
+			}
+		}
+
+		if !cutoff.IsZero() {
+			updatedAt := time.Unix(pr.UpdatedAtUnix, 0)
+			if updatedAt.Before(cutoff) {
+				continue
+			}
+		}
+
+		filtered = append(filtered, pr)
+	}
+
+	return filtered
+}
+
+func (s *SocketServer) loadIssueStatusMap(st store.Store, runs []*model.Run) map[string]model.IssueStatus {
+	issueIDs := make(map[string]bool)
+	for _, run := range runs {
+		issueIDs[run.IssueID] = true
+	}
+
+	result := make(map[string]model.IssueStatus)
+	for issueID := range issueIDs {
+		issue, err := st.ResolveIssue(issueID)
+		if err == nil && issue != nil {
+			result[issueID] = issue.Status
+		}
+	}
+	return result
 }
 
 func enrichRunProto(pr *orchpb.Run, run *model.Run) {

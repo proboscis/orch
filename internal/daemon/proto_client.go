@@ -157,6 +157,133 @@ func (c *ProtoClient) ListRunsAll(status []string, limit int, cursor string) (*L
 	return c.ListRuns("", status, limit, cursor)
 }
 
+type ListRunsWithFilterOptions struct {
+	IssuesRoot           string
+	IssueID              string
+	Status               []string
+	Agent                string
+	TextSearch           string
+	TimeRange            string
+	Limit                int
+	Cursor               string
+	BranchState          []string
+	PRFilter             string
+	IssueStatus          []string
+	UpdatedWithinSeconds int
+}
+
+func (c *ProtoClient) ListRunsWithFilter(opts *ListRunsWithFilterOptions) (*ListRunsResponse, error) {
+	if opts == nil {
+		opts = &ListRunsWithFilterOptions{}
+	}
+
+	protoStatuses := make([]orchpb.RunStatus, 0, len(opts.Status))
+	for _, s := range opts.Status {
+		protoStatuses = append(protoStatuses, stringToProtoRunStatus(s))
+	}
+
+	protoBranchStates := make([]orchpb.BranchState, 0, len(opts.BranchState))
+	for _, bs := range opts.BranchState {
+		protoBranchStates = append(protoBranchStates, stringToProtoBranchState(bs))
+	}
+
+	protoIssueStatuses := make([]orchpb.IssueStatus, 0, len(opts.IssueStatus))
+	for _, is := range opts.IssueStatus {
+		protoIssueStatuses = append(protoIssueStatuses, stringToProtoIssueStatus(is))
+	}
+
+	issuesRoot := opts.IssuesRoot
+	if issuesRoot == "" {
+		issuesRoot = c.issuesRoot
+	}
+
+	req := &orchpb.Request{
+		Request: &orchpb.Request_ListRuns{
+			ListRuns: &orchpb.ListRunsRequest{
+				IssuesRoot:           issuesRoot,
+				IssueId:              opts.IssueID,
+				Status:               protoStatuses,
+				Agent:                opts.Agent,
+				TextSearch:           opts.TextSearch,
+				TimeRange:            opts.TimeRange,
+				Limit:                int32(opts.Limit),
+				Cursor:               opts.Cursor,
+				BranchState:          protoBranchStates,
+				PrFilter:             stringToProtoPRFilter(opts.PRFilter),
+				IssueStatus:          protoIssueStatuses,
+				UpdatedWithinSeconds: int32(opts.UpdatedWithinSeconds),
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	listResp := resp.GetListRuns()
+	if listResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	runs := make([]*RunSummary, len(listResp.Runs))
+	for i, r := range listResp.Runs {
+		runs[i] = protoRunToSummary(r)
+	}
+
+	var nextCursor *string
+	if listResp.NextCursor != "" {
+		nextCursor = &listResp.NextCursor
+	}
+
+	return &ListRunsResponse{
+		OK:         true,
+		Runs:       runs,
+		NextCursor: nextCursor,
+		Total:      int(listResp.Total),
+	}, nil
+}
+
+func stringToProtoBranchState(s string) orchpb.BranchState {
+	switch s {
+	case "clean":
+		return orchpb.BranchState_BRANCH_STATE_CLEAN
+	case "dirty":
+		return orchpb.BranchState_BRANCH_STATE_DIRTY
+	case "merged":
+		return orchpb.BranchState_BRANCH_STATE_MERGED
+	case "conflict":
+		return orchpb.BranchState_BRANCH_STATE_CONFLICT
+	case "ahead":
+		return orchpb.BranchState_BRANCH_STATE_AHEAD
+	case "behind":
+		return orchpb.BranchState_BRANCH_STATE_BEHIND
+	case "diverged":
+		return orchpb.BranchState_BRANCH_STATE_DIVERGED
+	case "synced":
+		return orchpb.BranchState_BRANCH_STATE_SYNCED
+	default:
+		return orchpb.BranchState_BRANCH_STATE_UNSPECIFIED
+	}
+}
+
+func stringToProtoPRFilter(s string) orchpb.PRFilter {
+	switch s {
+	case "all":
+		return orchpb.PRFilter_PR_FILTER_ALL
+	case "has":
+		return orchpb.PRFilter_PR_FILTER_HAS
+	case "none":
+		return orchpb.PRFilter_PR_FILTER_NONE
+	default:
+		return orchpb.PRFilter_PR_FILTER_UNSPECIFIED
+	}
+}
+
 func (c *ProtoClient) GetRun(issueID, runID string) (*GetRunResponse, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_GetRun{

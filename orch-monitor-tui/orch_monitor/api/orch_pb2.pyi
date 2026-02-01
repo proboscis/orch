@@ -44,6 +44,13 @@ class Multiplexer(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     MULTIPLEXER_UNSPECIFIED: _ClassVar[Multiplexer]
     MULTIPLEXER_TMUX: _ClassVar[Multiplexer]
     MULTIPLEXER_ZELLIJ: _ClassVar[Multiplexer]
+
+class PRFilter(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    PR_FILTER_UNSPECIFIED: _ClassVar[PRFilter]
+    PR_FILTER_ALL: _ClassVar[PRFilter]
+    PR_FILTER_HAS: _ClassVar[PRFilter]
+    PR_FILTER_NONE: _ClassVar[PRFilter]
 RUN_STATUS_UNSPECIFIED: RunStatus
 RUN_STATUS_QUEUED: RunStatus
 RUN_STATUS_BOOTING: RunStatus
@@ -70,6 +77,10 @@ BRANCH_STATE_SYNCED: BranchState
 MULTIPLEXER_UNSPECIFIED: Multiplexer
 MULTIPLEXER_TMUX: Multiplexer
 MULTIPLEXER_ZELLIJ: Multiplexer
+PR_FILTER_UNSPECIFIED: PRFilter
+PR_FILTER_ALL: PRFilter
+PR_FILTER_HAS: PRFilter
+PR_FILTER_NONE: PRFilter
 
 class DiffStats(_message.Message):
     __slots__ = ("additions", "deletions", "files_changed", "files")
@@ -179,7 +190,7 @@ class PingResponse(_message.Message):
     def __init__(self, ok: _Optional[bool] = ..., version: _Optional[str] = ...) -> None: ...
 
 class ListRunsRequest(_message.Message):
-    __slots__ = ("issues_root", "issue_id", "status", "agent", "text_search", "time_range", "limit", "cursor")
+    __slots__ = ("issues_root", "issue_id", "status", "agent", "text_search", "time_range", "limit", "cursor", "branch_state", "pr_filter", "issue_status", "updated_within_seconds")
     ISSUES_ROOT_FIELD_NUMBER: _ClassVar[int]
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
@@ -188,6 +199,10 @@ class ListRunsRequest(_message.Message):
     TIME_RANGE_FIELD_NUMBER: _ClassVar[int]
     LIMIT_FIELD_NUMBER: _ClassVar[int]
     CURSOR_FIELD_NUMBER: _ClassVar[int]
+    BRANCH_STATE_FIELD_NUMBER: _ClassVar[int]
+    PR_FILTER_FIELD_NUMBER: _ClassVar[int]
+    ISSUE_STATUS_FIELD_NUMBER: _ClassVar[int]
+    UPDATED_WITHIN_SECONDS_FIELD_NUMBER: _ClassVar[int]
     issues_root: str
     issue_id: str
     status: _containers.RepeatedScalarFieldContainer[RunStatus]
@@ -196,7 +211,11 @@ class ListRunsRequest(_message.Message):
     time_range: str
     limit: int
     cursor: str
-    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., status: _Optional[_Iterable[_Union[RunStatus, str]]] = ..., agent: _Optional[str] = ..., text_search: _Optional[str] = ..., time_range: _Optional[str] = ..., limit: _Optional[int] = ..., cursor: _Optional[str] = ...) -> None: ...
+    branch_state: _containers.RepeatedScalarFieldContainer[BranchState]
+    pr_filter: PRFilter
+    issue_status: _containers.RepeatedScalarFieldContainer[IssueStatus]
+    updated_within_seconds: int
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., status: _Optional[_Iterable[_Union[RunStatus, str]]] = ..., agent: _Optional[str] = ..., text_search: _Optional[str] = ..., time_range: _Optional[str] = ..., limit: _Optional[int] = ..., cursor: _Optional[str] = ..., branch_state: _Optional[_Iterable[_Union[BranchState, str]]] = ..., pr_filter: _Optional[_Union[PRFilter, str]] = ..., issue_status: _Optional[_Iterable[_Union[IssueStatus, str]]] = ..., updated_within_seconds: _Optional[int] = ...) -> None: ...
 
 class ListRunsResponse(_message.Message):
     __slots__ = ("runs", "total", "next_cursor")
