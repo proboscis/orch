@@ -302,7 +302,6 @@ DataTable {
         (setv runs (_api_runs_to_model_runs response.runs))
         (when (> (len run-filters.agents) 1)
           (setv runs (lfor r runs :if (in r.agent run-filters.agents) r)))
-        (.sort runs :key (fn [r] (or r.updated_at r.started_at datetime.min)) :reverse True)
         (.call_from_thread self self._update_runs_table runs None))
       (.call_from_thread self self._update_runs_table None (str response))))
   

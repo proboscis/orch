@@ -195,7 +195,6 @@ def query_latest_opencode_session(
             _launcher_logger.warning(f"No sessions found for directory: {directory}")
             return None
 
-        matching.sort(key=lambda s: s.get("time", {}).get("updated", 0), reverse=True)
         session_id = matching[0]["id"]
         _launcher_logger.info(f"Found latest session for {directory}: {session_id}")
         return session_id
