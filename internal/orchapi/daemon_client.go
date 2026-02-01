@@ -298,6 +298,15 @@ func (c *DaemonClient) SendMessage(ctx context.Context, ref RunRef, message stri
 	return c.proto.SendMessage(run.IssueID, run.RunID, message)
 }
 
+func (c *DaemonClient) InjectInitialPrompt(ctx context.Context, ref RunRef, prompt string) error {
+	run, err := c.ResolveRun(ctx, ref)
+	if err != nil {
+		return err
+	}
+
+	return c.proto.InjectInitialPrompt(run.IssueID, run.RunID, prompt)
+}
+
 func (c *DaemonClient) GetDiffStats(ctx context.Context, ref RunRef) (*DiffStats, error) {
 	run, err := c.ResolveRun(ctx, ref)
 	if err != nil {
@@ -353,6 +362,33 @@ func (c *DaemonClient) EnsureOpenCodeServer(ctx context.Context, projectRoot str
 	return &OpenCodeServerInfo{
 		Port:    resp.Port,
 		Healthy: resp.Healthy,
+	}, nil
+}
+
+func (c *DaemonClient) QueryOpenCodeServer(ctx context.Context, port int) (*QueryOpenCodeServerResult, error) {
+	resp, err := c.proto.QueryOpenCodeServer(port)
+	if err != nil {
+		return nil, err
+	}
+	providers := make([]ProviderInfo, 0, len(resp.Providers))
+	for _, p := range resp.Providers {
+		models := make([]ModelInfo, 0, len(p.Models))
+		for _, m := range p.Models {
+			models = append(models, ModelInfo{
+				ID:       m.ID,
+				Name:     m.Name,
+				Variants: m.Variants,
+			})
+		}
+		providers = append(providers, ProviderInfo{
+			ID:     p.ID,
+			Name:   p.Name,
+			Models: models,
+		})
+	}
+	return &QueryOpenCodeServerResult{
+		ServerRunning: resp.ServerRunning,
+		Providers:     providers,
 	}, nil
 }
 

@@ -347,15 +347,10 @@ func killControlAgent(orchDir string) error {
 	state := loadControlAgentState(orchDir)
 
 	if state == nil {
-		// Try to kill session by name anyway (for tmux/zellij)
-		mux := multiplexer.GetDefault()
-		if mux.HasSession(controlAgentSessionName) {
-			if err := mux.KillSession(controlAgentSessionName); err != nil {
-				return fmt.Errorf("failed to kill session: %w", err)
-			}
-			fmt.Println("Control agent session terminated")
-			return nil
-		}
+		// No state file means no control agent session is tracked.
+		// Without state, we cannot reliably determine which multiplexer
+		// was used or if a session exists. User should use multiplexer
+		// commands directly if needed (e.g., tmux kill-session).
 		fmt.Println("No control agent session found")
 		return nil
 	}

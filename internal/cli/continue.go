@@ -11,6 +11,7 @@ import (
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/config"
+	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
@@ -257,6 +258,11 @@ func continueFromRun(ctx context.Context, api orchapi.OrchAPI, refStr string, op
 		return exitWithCode(err, ExitAgentError)
 	}
 
+	projectRoot, err := getProjectRoot()
+	if err != nil {
+		return exitWithCode(fmt.Errorf("project root required: %w", err), ExitInternalError)
+	}
+
 	appendStatusViaAPI(ctx, api, fromRun.IssueID, runID, model.StatusBooting)
 
 	if opts.Tmux {
@@ -293,7 +299,11 @@ func continueFromRun(ctx context.Context, api orchapi.OrchAPI, refStr string, op
 					return exitWithCode(fmt.Errorf("agent did not become ready: %w", err), ExitAgentError)
 				}
 			}
-			if err := mux.SendKeys(tmuxSession, launchCfg.Prompt); err != nil {
+			modelRun := &model.Run{
+				IssueID: fromRun.IssueID,
+				RunID:   runID,
+			}
+			if err := daemon.SendViaDaemon(projectRoot, issuesRoot, modelRun, launchCfg.Prompt, false); err != nil {
 				appendStatusViaAPI(ctx, api, fromRun.IssueID, runID, model.StatusFailed)
 				return exitWithCode(fmt.Errorf("failed to send prompt to session: %w", err), ExitTmuxError)
 			}
@@ -456,6 +466,11 @@ func continueFromBranch(ctx context.Context, api orchapi.OrchAPI, refStr string,
 		return exitWithCode(err, ExitAgentError)
 	}
 
+	projectRoot, err := getProjectRoot()
+	if err != nil {
+		return exitWithCode(fmt.Errorf("project root required: %w", err), ExitInternalError)
+	}
+
 	appendStatusViaAPI(ctx, api, issueID, runID, model.StatusBooting)
 
 	if opts.Tmux {
@@ -492,13 +507,16 @@ func continueFromBranch(ctx context.Context, api orchapi.OrchAPI, refStr string,
 					return exitWithCode(fmt.Errorf("agent did not become ready: %w", err), ExitAgentError)
 				}
 			}
-			if err := mux.SendKeys(tmuxSession, launchCfg.Prompt); err != nil {
+			modelRun := &model.Run{
+				IssueID: issueID,
+				RunID:   runID,
+			}
+			if err := daemon.SendViaDaemon(projectRoot, issuesRoot, modelRun, launchCfg.Prompt, false); err != nil {
 				appendStatusViaAPI(ctx, api, issueID, runID, model.StatusFailed)
 				return exitWithCode(fmt.Errorf("failed to send prompt to session: %w", err), ExitTmuxError)
 			}
 		}
 
-		// Only create session artifact for non-HTTP agents (opencode uses HTTP, no tmux session)
 		if adapter.PromptInjection() != agent.InjectionHTTP {
 			api.AppendEvent(ctx, runRef, &orchapi.Event{Type: "artifact", Name: "session", Attrs: map[string]string{"name": tmuxSession, "multiplexer": string(mux.Type())}})
 

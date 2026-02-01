@@ -566,6 +566,73 @@ message WriteFileRequest {
 
 message WriteFileResponse {}
 
+message KillSessionRequest {
+  string session_name = 1;
+  Multiplexer multiplexer = 2;
+}
+
+message KillSessionResponse {
+  bool killed = 1;
+}
+
+message ListSessionsRequest {
+  Multiplexer multiplexer = 1;
+}
+
+message ListSessionsResponse {
+  repeated string sessions = 1;
+}
+
+message ResumeRunRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+  string run_id = 3;
+  string short_id = 4;
+}
+
+message ResumeRunResponse {
+  string session_name = 1;
+}
+
+message QueryOpenCodeServerRequest {
+  int32 port = 1;
+  string project_root = 2;
+}
+
+message OpenCodeProviderInfo {
+  string id = 1;
+  string name = 2;
+  repeated OpenCodeModelInfo models = 3;
+}
+
+message OpenCodeModelInfo {
+  string id = 1;
+  string name = 2;
+  repeated string variants = 3;
+}
+
+message QueryOpenCodeServerResponse {
+  bool server_running = 1;
+  repeated OpenCodeProviderInfo providers = 2;
+  map<string, string> session_status = 3;
+}
+
+message InjectInitialPromptRequest {
+  string issues_root = 1;
+  string issue_id = 2;
+  string run_id = 3;
+  string prompt = 4;
+  string model = 5;
+  string model_variant = 6;
+  string work_dir = 7;
+  int32 port = 8;
+}
+
+message InjectInitialPromptResponse {
+  string session_id = 1;
+  int32 port = 2;
+}
+
 // =============================================================================
 // Unified Request/Response (for Unix socket dispatch)
 // =============================================================================
@@ -610,6 +677,11 @@ message Request {
     ReadFileRequest read_file = 36;
     WriteFileRequest write_file = 37;
     CreateRunRequest create_run = 38;
+    KillSessionRequest kill_session = 39;
+    ListSessionsRequest list_sessions = 40;
+    ResumeRunRequest resume_run = 41;
+    QueryOpenCodeServerRequest query_opencode_server = 42;
+    InjectInitialPromptRequest inject_initial_prompt = 43;
   }
 }
 
@@ -656,5 +728,10 @@ message Response {
     ReadFileResponse read_file = 38;
     WriteFileResponse write_file = 39;
     CreateRunResponse create_run = 40;
+    KillSessionResponse kill_session = 41;
+    ListSessionsResponse list_sessions = 42;
+    ResumeRunResponse resume_run = 43;
+    QueryOpenCodeServerResponse query_opencode_server = 44;
+    InjectInitialPromptResponse inject_initial_prompt = 45;
   }
 }

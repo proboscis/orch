@@ -9,8 +9,11 @@ import (
 	"time"
 
 	"github.com/s22625/orch/internal/agent"
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
+
+const defaultOpenCodePort = agent.OpenCodeServerPortStart
 
 type modelsOptions struct {
 	Port    int
@@ -32,7 +35,7 @@ Requires a running opencode server. If no server is running, start one with:
 		},
 	}
 
-	cmd.Flags().IntVar(&opts.Port, "port", agent.OpenCodeServerPortStart, "OpenCode server port")
+	cmd.Flags().IntVar(&opts.Port, "port", defaultOpenCodePort, "OpenCode server port")
 	cmd.Flags().IntVar(&opts.Timeout, "timeout", 5, "Timeout in seconds")
 
 	return cmd
@@ -55,23 +58,22 @@ type modelOutput struct {
 }
 
 func runModels(opts *modelsOptions) error {
-	client := agent.NewOpenCodeClient(opts.Port)
-
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(opts.Timeout)*time.Second)
 	defer cancel()
 
-	if !client.IsServerRunning(ctx) {
+	api := orchapi.NewDaemonClient("", "")
+	result, err := api.QueryOpenCodeServer(ctx, opts.Port)
+	if err != nil {
+		return fmt.Errorf("failed to query opencode server: %w", err)
+	}
+
+	if !result.ServerRunning {
 		return fmt.Errorf("opencode server not running on port %d\nStart with: opencode serve --port %d", opts.Port, opts.Port)
 	}
 
-	providers, err := client.GetProviders(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get providers: %w", err)
-	}
-
 	if globalOpts.JSON {
-		output := modelsOutput{Providers: make([]providerOutput, 0, len(providers.All))}
-		for _, p := range providers.All {
+		output := modelsOutput{Providers: make([]providerOutput, 0, len(result.Providers))}
+		for _, p := range result.Providers {
 			po := providerOutput{
 				ID:     p.ID,
 				Name:   p.Name,
@@ -91,7 +93,7 @@ func runModels(opts *modelsOptions) error {
 		return enc.Encode(output)
 	}
 
-	for _, p := range providers.All {
+	for _, p := range result.Providers {
 		fmt.Printf("Provider: %s\n", p.ID)
 		for _, m := range p.Models {
 			fmt.Printf("  %s/%s\n", p.ID, m.ID)

@@ -1523,6 +1523,30 @@ func (c *ProtoClient) SendMessage(issueID, runID, message string) error {
 	return nil
 }
 
+func (c *ProtoClient) InjectInitialPrompt(issueID, runID, prompt string) error {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_InjectInitialPrompt{
+			InjectInitialPrompt: &orchpb.InjectInitialPromptRequest{
+				IssuesRoot: c.issuesRoot,
+				IssueId:    issueID,
+				RunId:      runID,
+				Prompt:     prompt,
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return err
+	}
+
+	if !resp.Ok {
+		return fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	return nil
+}
+
 func (c *ProtoClient) GetDiffStats(issueID, runID string) (*GetDiffStatsResponse, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_GetDiffStats{
@@ -1610,4 +1634,175 @@ func (c *ProtoClient) GetDiff(issueID, runID string) (string, error) {
 	}
 
 	return diffResp.Diff, nil
+}
+
+func (c *ProtoClient) KillSession(sessionName string, muxType string) (bool, error) {
+	var mux orchpb.Multiplexer
+	switch muxType {
+	case "tmux":
+		mux = orchpb.Multiplexer_MULTIPLEXER_TMUX
+	case "zellij":
+		mux = orchpb.Multiplexer_MULTIPLEXER_ZELLIJ
+	default:
+		mux = orchpb.Multiplexer_MULTIPLEXER_UNSPECIFIED
+	}
+
+	req := &orchpb.Request{
+		Request: &orchpb.Request_KillSession{
+			KillSession: &orchpb.KillSessionRequest{
+				SessionName: sessionName,
+				Multiplexer: mux,
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return false, err
+	}
+
+	if !resp.Ok {
+		return false, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	killResp := resp.GetKillSession()
+	if killResp == nil {
+		return false, fmt.Errorf("unexpected response type")
+	}
+
+	return killResp.Killed, nil
+}
+
+func (c *ProtoClient) ListSessions(muxType string) ([]string, error) {
+	var mux orchpb.Multiplexer
+	switch muxType {
+	case "tmux":
+		mux = orchpb.Multiplexer_MULTIPLEXER_TMUX
+	case "zellij":
+		mux = orchpb.Multiplexer_MULTIPLEXER_ZELLIJ
+	default:
+		mux = orchpb.Multiplexer_MULTIPLEXER_UNSPECIFIED
+	}
+
+	req := &orchpb.Request{
+		Request: &orchpb.Request_ListSessions{
+			ListSessions: &orchpb.ListSessionsRequest{
+				Multiplexer: mux,
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	listResp := resp.GetListSessions()
+	if listResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	return listResp.Sessions, nil
+}
+
+type ResumeRunResponse struct {
+	SessionName string
+}
+
+func (c *ProtoClient) ResumeRun(issueID, runID, shortID string) (*ResumeRunResponse, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_ResumeRun{
+			ResumeRun: &orchpb.ResumeRunRequest{
+				IssuesRoot: c.issuesRoot,
+				IssueId:    issueID,
+				RunId:      runID,
+				ShortId:    shortID,
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	resumeResp := resp.GetResumeRun()
+	if resumeResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	return &ResumeRunResponse{
+		SessionName: resumeResp.SessionName,
+	}, nil
+}
+
+type ProviderInfo struct {
+	ID     string
+	Name   string
+	Models []ModelInfo
+}
+
+type ModelInfo struct {
+	ID       string
+	Name     string
+	Variants []string
+}
+
+type QueryOpenCodeServerResponse struct {
+	ServerRunning bool
+	Providers     []ProviderInfo
+}
+
+func (c *ProtoClient) QueryOpenCodeServer(port int) (*QueryOpenCodeServerResponse, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_QueryOpencodeServer{
+			QueryOpencodeServer: &orchpb.QueryOpenCodeServerRequest{
+				Port: int32(port),
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	queryResp := resp.GetQueryOpencodeServer()
+	if queryResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	providers := make([]ProviderInfo, 0, len(queryResp.Providers))
+	for _, p := range queryResp.Providers {
+		models := make([]ModelInfo, 0, len(p.Models))
+		for _, m := range p.Models {
+			models = append(models, ModelInfo{
+				ID:       m.Id,
+				Name:     m.Name,
+				Variants: m.Variants,
+			})
+		}
+		providers = append(providers, ProviderInfo{
+			ID:     p.Id,
+			Name:   p.Name,
+			Models: models,
+		})
+	}
+
+	return &QueryOpenCodeServerResponse{
+		ServerRunning: queryResp.ServerRunning,
+		Providers:     providers,
+	}, nil
 }

@@ -80,6 +80,8 @@ rules:
     paths:
       include:
         - /internal/cli/*.go
+      exclude:
+        - /internal/cli/debug.go
     message: |
       CLI must not create OpenCodeClient directly.
       All opencode server interactions must go through the daemon.

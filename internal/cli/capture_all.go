@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/multiplexer"
 	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
@@ -17,9 +16,11 @@ type captureAllOptions struct {
 	Lines int
 }
 
-var captureAllMux = multiplexer.GetDefault()
-var captureAllHasSession = captureAllMux.HasSession
-var captureAllCapturePane = captureAllMux.CapturePane
+// captureAllCaptureFunc is the function used to capture session output.
+// It can be overridden in tests.
+var captureAllCaptureFunc = func(api orchapi.OrchAPI, run *orchapi.Run, lines int) (*orchapi.CaptureResult, error) {
+	return api.CaptureSession(context.Background(), run.Ref(), lines)
+}
 
 func newCaptureAllCmd() *cobra.Command {
 	opts := &captureAllOptions{}
@@ -90,7 +91,7 @@ func runCaptureAll(opts *captureAllOptions) error {
 	items := make([]captureAllItem, 0, len(result.Runs))
 	overallOK := true
 	for _, run := range result.Runs {
-		item := captureAllItemForRun(run, opts.Lines)
+		item := captureAllItemForRun(api, run, opts.Lines)
 		if !item.OK {
 			overallOK = false
 		}
@@ -115,7 +116,7 @@ func captureAllStatusesAPI() []orchapi.RunStatus {
 	}
 }
 
-func captureAllItemForRun(run *orchapi.Run, lines int) captureAllItem {
+func captureAllItemForRun(api orchapi.OrchAPI, run *orchapi.Run, lines int) captureAllItem {
 	sessionName := run.TmuxSession
 	if sessionName == "" {
 		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
@@ -129,19 +130,14 @@ func captureAllItemForRun(run *orchapi.Run, lines int) captureAllItem {
 		Lines:       lines,
 	}
 
-	if !captureAllHasSession(sessionName) {
-		item.Error = fmt.Sprintf("tmux session %q not found (run may not be active)", sessionName)
-		return item
-	}
-
-	content, err := captureAllCapturePane(sessionName, lines)
+	result, err := captureAllCaptureFunc(api, run, lines)
 	if err != nil {
-		item.Error = fmt.Sprintf("failed to capture pane: %v", err)
+		item.Error = fmt.Sprintf("failed to capture session: %v", err)
 		return item
 	}
 
 	item.OK = true
-	item.Content = content
+	item.Content = result.Content
 	return item
 }
 
