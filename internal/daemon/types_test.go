@@ -223,3 +223,89 @@ func TestRunToSummaryRoundTrip(t *testing.T) {
 		t.Errorf("TmuxSession mismatch: got %q, want %q", roundTripped.TmuxSession, original.TmuxSession)
 	}
 }
+
+func TestListRunsFilterDefaults(t *testing.T) {
+	tests := []struct {
+		name   string
+		filter *ListRunsFilter
+		check  func(t *testing.T, f *ListRunsFilter)
+	}{
+		{
+			name:   "nil filter is valid",
+			filter: nil,
+			check: func(t *testing.T, f *ListRunsFilter) {
+				if f != nil {
+					t.Error("expected nil")
+				}
+			},
+		},
+		{
+			name:   "empty filter has zero values",
+			filter: &ListRunsFilter{},
+			check: func(t *testing.T, f *ListRunsFilter) {
+				if f.IssueID != "" {
+					t.Errorf("IssueID = %q, want empty", f.IssueID)
+				}
+				if len(f.Status) != 0 {
+					t.Errorf("Status = %v, want empty", f.Status)
+				}
+				if f.Limit != 0 {
+					t.Errorf("Limit = %d, want 0", f.Limit)
+				}
+				if f.Cursor != "" {
+					t.Errorf("Cursor = %q, want empty", f.Cursor)
+				}
+				if f.OlderThan != "" {
+					t.Errorf("OlderThan = %q, want empty", f.OlderThan)
+				}
+			},
+		},
+		{
+			name: "partial filter only sets specified fields",
+			filter: &ListRunsFilter{
+				Status: []string{"running", "blocked"},
+			},
+			check: func(t *testing.T, f *ListRunsFilter) {
+				if f.IssueID != "" {
+					t.Errorf("IssueID = %q, want empty", f.IssueID)
+				}
+				if len(f.Status) != 2 {
+					t.Errorf("Status = %v, want 2 elements", f.Status)
+				}
+				if f.Status[0] != "running" || f.Status[1] != "blocked" {
+					t.Errorf("Status = %v, want [running, blocked]", f.Status)
+				}
+			},
+		},
+		{
+			name: "full filter sets all fields",
+			filter: &ListRunsFilter{
+				IssueID:   "test-issue",
+				Status:    []string{"running"},
+				Limit:     10,
+				Cursor:    "abc123",
+				OlderThan: "2024-01-01T00:00:00Z",
+			},
+			check: func(t *testing.T, f *ListRunsFilter) {
+				if f.IssueID != "test-issue" {
+					t.Errorf("IssueID = %q, want test-issue", f.IssueID)
+				}
+				if f.Limit != 10 {
+					t.Errorf("Limit = %d, want 10", f.Limit)
+				}
+				if f.Cursor != "abc123" {
+					t.Errorf("Cursor = %q, want abc123", f.Cursor)
+				}
+				if f.OlderThan != "2024-01-01T00:00:00Z" {
+					t.Errorf("OlderThan = %q, want 2024-01-01T00:00:00Z", f.OlderThan)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.check(t, tt.filter)
+		})
+	}
+}

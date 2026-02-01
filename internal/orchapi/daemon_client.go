@@ -121,7 +121,7 @@ func (c *DaemonClient) ResolveRun(ctx context.Context, ref RunRef) (*Run, error)
 		return runFromDaemonFull(resp.Run), nil
 	}
 
-	runs, err := c.proto.ListRuns(ref.IssueID, nil, 1, "", "")
+	runs, err := c.proto.ListRuns(&daemon.ListRunsFilter{IssueID: ref.IssueID, Limit: 1})
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +147,7 @@ func (c *DaemonClient) GetRun(ctx context.Context, issueID, runID string) (*Run,
 }
 
 func (c *DaemonClient) GetLatestRun(ctx context.Context, issueID string) (*Run, error) {
-	runs, err := c.proto.ListRuns(issueID, nil, 1, "", "")
+	runs, err := c.proto.ListRuns(&daemon.ListRunsFilter{IssueID: issueID, Limit: 1})
 	if err != nil {
 		return nil, err
 	}
@@ -162,23 +162,22 @@ func (c *DaemonClient) GetLatestRun(ctx context.Context, issueID string) (*Run, 
 }
 
 func (c *DaemonClient) ListRuns(ctx context.Context, filter *ListRunsFilter) (*ListRunsResult, error) {
-	var issueID string
-	var statuses []string
-	var limit int
-	var cursor string
-	var olderThan string
-
+	var protoFilter *daemon.ListRunsFilter
 	if filter != nil {
-		issueID = filter.IssueID
-		for _, s := range filter.Status {
-			statuses = append(statuses, string(s))
+		statuses := make([]string, len(filter.Status))
+		for i, s := range filter.Status {
+			statuses[i] = string(s)
 		}
-		limit = filter.Limit
-		cursor = filter.Cursor
-		olderThan = filter.OlderThan
+		protoFilter = &daemon.ListRunsFilter{
+			IssueID:   filter.IssueID,
+			Status:    statuses,
+			Limit:     filter.Limit,
+			Cursor:    filter.Cursor,
+			OlderThan: filter.OlderThan,
+		}
 	}
 
-	resp, err := c.proto.ListRuns(issueID, statuses, limit, cursor, olderThan)
+	resp, err := c.proto.ListRuns(protoFilter)
 	if err != nil {
 		return nil, err
 	}

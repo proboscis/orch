@@ -66,6 +66,15 @@ type HeartbeatResponse struct {
 	Error string `json:"error,omitempty"`
 }
 
+// ListRunsFilter contains optional filters for listing runs
+type ListRunsFilter struct {
+	IssueID   string
+	Status    []string
+	Limit     int
+	Cursor    string
+	OlderThan string
+}
+
 // ListRunsResponse is the response for list_runs
 type ListRunsResponse struct {
 	OK         bool          `json:"ok"`

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
 	"github.com/spf13/cobra"
 )
@@ -104,7 +105,9 @@ func runStopAll(opts *stopOptions) error {
 		return err
 	}
 
-	resp, err := client.ListRuns("", []string{"running", "booting", "blocked", "blocked_api", "queued"}, 0, "", "")
+	resp, err := client.ListRuns(&daemon.ListRunsFilter{
+		Status: []string{"running", "booting", "blocked", "blocked_api", "queued"},
+	})
 	if err != nil {
 		return err
 	}
