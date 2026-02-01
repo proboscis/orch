@@ -95,6 +95,12 @@ func (m *mockAPI) CaptureSession(ctx context.Context, ref orchapi.RunRef, lines 
 func (m *mockAPI) SendMessage(ctx context.Context, ref orchapi.RunRef, message string) error {
 	return nil
 }
+func (m *mockAPI) InjectInitialPrompt(ctx context.Context, ref orchapi.RunRef, prompt string) error {
+	return nil
+}
+func (m *mockAPI) QueryOpenCodeServer(ctx context.Context, port int) (*orchapi.QueryOpenCodeServerResult, error) {
+	return nil, nil
+}
 func (m *mockAPI) GetDiffStats(ctx context.Context, ref orchapi.RunRef) (*orchapi.DiffStats, error) {
 	return nil, nil
 }

@@ -3,10 +3,9 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
-	"time"
+	"strings"
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/daemon"
@@ -95,54 +94,47 @@ func runSend(refStr, message string, opts *sendOptions) error {
 		return fmt.Errorf("issues root required for send: %w", err)
 	}
 
+	if !daemon.IsDaemonSocketAvailable(projectRoot) {
+		err := fmt.Errorf("daemon not available (run 'orch daemon start')")
+		if globalOpts.JSON {
+			result := map[string]interface{}{
+				"ok":    false,
+				"error": err.Error(),
+			}
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			enc.Encode(result)
+		} else {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		}
+		os.Exit(ExitAgentError)
+		return err
+	}
+
 	modelRun := apiRunToModelRun(run)
-
-	if isOpenCode && daemon.IsDaemonSocketAvailable(projectRoot) {
-		err = daemon.SendViaDaemon(projectRoot, issuesRoot, modelRun, message, opts.NoEnter)
-		if err != nil {
-			if globalOpts.JSON {
-				result := map[string]interface{}{
-					"ok":    false,
-					"error": err.Error(),
-				}
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				enc.Encode(result)
-			} else {
-				fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			}
-			os.Exit(ExitAgentError)
-			return err
+	err = daemon.SendViaDaemon(projectRoot, issuesRoot, modelRun, message, opts.NoEnter)
+	if err != nil {
+		exitCode := ExitAgentError
+		if strings.Contains(err.Error(), "has ended") {
+			exitCode = ExitRunEnded
 		}
-	} else {
-		sendCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-
-		manager := agent.GetManager(modelRun)
-		sendOpts := &agent.SendOptions{NoEnter: opts.NoEnter}
-
-		err = manager.SendMessage(sendCtx, modelRun, message, sendOpts)
-		if err != nil {
-			exitCode := ExitAgentError
-			var sessionErr *agent.SessionNotFoundError
-			if errors.As(err, &sessionErr) {
-				exitCode = ExitTmuxError
-			}
-
-			if globalOpts.JSON {
-				result := map[string]interface{}{
-					"ok":    false,
-					"error": err.Error(),
-				}
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				enc.Encode(result)
-			} else {
-				fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			}
-			os.Exit(exitCode)
-			return err
+		if strings.Contains(err.Error(), "session") && strings.Contains(err.Error(), "not found") {
+			exitCode = ExitTmuxError
 		}
+
+		if globalOpts.JSON {
+			result := map[string]interface{}{
+				"ok":    false,
+				"error": err.Error(),
+			}
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			enc.Encode(result)
+		} else {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		}
+		os.Exit(exitCode)
+		return err
 	}
 
 	result := &sendResult{

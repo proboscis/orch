@@ -119,6 +119,10 @@ type OrchAPI interface {
 	// SendMessage sends a message/input to a run's session.
 	SendMessage(ctx context.Context, ref RunRef, message string) error
 
+	// InjectInitialPrompt injects the initial prompt into a run's session.
+	// Handles both tmux and OpenCode agents through the daemon.
+	InjectInitialPrompt(ctx context.Context, ref RunRef, prompt string) error
+
 	// =========================================================================
 	// Git Operations
 	// =========================================================================
@@ -192,4 +196,7 @@ type OrchAPI interface {
 
 	// EnsureOpenCodeServer ensures an OpenCode server is running for the project.
 	EnsureOpenCodeServer(ctx context.Context, projectRoot string) (*OpenCodeServerInfo, error)
+
+	// QueryOpenCodeServer queries an OpenCode server for available providers and models.
+	QueryOpenCodeServer(ctx context.Context, port int) (*QueryOpenCodeServerResult, error)
 }

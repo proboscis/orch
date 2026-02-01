@@ -73,3 +73,59 @@ rules:
     languages: [go]
     metadata:
       category: architecture
+
+  - id: cli-no-opencode-client
+    patterns:
+      - pattern: agent.NewOpenCodeClient(...)
+    paths:
+      include:
+        - /internal/cli/*.go
+      exclude:
+        - /internal/cli/debug.go
+    message: |
+      CLI must not create OpenCodeClient directly.
+      All opencode server interactions must go through the daemon.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      issue: orch-405
+
+  - id: cli-no-agent-manager-sendmessage
+    patterns:
+      - pattern: $MANAGER.SendMessage(...)
+      - metavariable-pattern:
+          metavariable: $MANAGER
+          pattern-either:
+            - pattern: agent.GetManager(...)
+            - pattern: $M
+    paths:
+      include:
+        - /internal/cli/*.go
+    message: |
+      CLI must not call AgentManager.SendMessage directly.
+      Use daemon.SendViaDaemon() for all agent message sending.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      issue: orch-405
+
+  - id: cli-no-multiplexer-direct
+    patterns:
+      - pattern-either:
+          - pattern: multiplexer.GetDefault()
+          - pattern: multiplexer.SendKeys(...)
+          - pattern: $MUX.SendKeys(...)
+          - pattern: $MUX.SendKeysLiteral(...)
+    paths:
+      include:
+        - /internal/cli/*.go
+    message: |
+      CLI must not interact with multiplexer directly.
+      All tmux/agent interactions must go through the daemon.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      issue: orch-405

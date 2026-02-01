@@ -6,9 +6,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/s22625/orch/internal/agent"
-	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/multiplexer"
 	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
@@ -161,77 +158,16 @@ func runTick(refStr string, opts *tickOptions) error {
 }
 
 func resumeRun(ctx context.Context, api orchapi.OrchAPI, run *orchapi.Run, agentType string) error {
-	if agentType == "" {
-		agentType = "claude"
-	}
-
-	aType, err := agent.ParseAgentType(agentType)
-	if err != nil {
-		return err
-	}
-
-	adapter, err := agent.GetAdapter(aType)
-	if err != nil {
-		return err
-	}
-
-	issue, err := api.GetIssue(ctx, run.IssueID)
-	if err != nil {
-		return err
-	}
-
-	issuesRoot, err := getIssuesRoot()
-	if err != nil {
-		return err
-	}
-
-	runPath := fmt.Sprintf("%s/runs/%s/%s.md", issuesRoot, run.IssueID, run.RunID)
-
-	launchCfg := &agent.LaunchConfig{
-		Type:        aType,
-		WorkDir:     run.WorktreePath,
-		IssueID:     run.IssueID,
-		RunID:       run.RunID,
-		RunPath:     runPath,
-		IssuesRoot:  issuesRoot,
-		Branch:      run.Branch,
-		Prompt:      buildResumePrompt(issue, run),
-		Resume:      true,
-		SessionName: run.TmuxSession,
-	}
-
-	agentCmd, err := adapter.LaunchCommand(launchCfg)
-	if err != nil {
-		return err
-	}
-
-	sessionName := run.TmuxSession
-	if sessionName == "" {
-		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
-	}
-
-	mux := multiplexer.GetDefault()
-	if mux.HasSession(sessionName) {
-		err = mux.NewWindow(sessionName, "resume", run.WorktreePath, agentCmd)
-	} else {
-		err = mux.NewSession(&multiplexer.SessionConfig{
-			SessionName: sessionName,
-			WorkDir:     run.WorktreePath,
-			Command:     agentCmd,
-			Env:         launchCfg.Env(),
-		})
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to resume agent: %w", err)
-	}
-
-	api.AppendEvent(ctx, run.Ref(), &orchapi.Event{
-		Type: "status",
-		Name: string(orchapi.RunStatusRunning),
+	// Record the resume event. The daemon will handle session management and agent launching.
+	// The daemon's event processor will detect the resume event and take appropriate action.
+	_, err := api.AppendEvent(ctx, run.Ref(), &orchapi.Event{
+		Type: "resume",
+		Name: "tick",
+		Attrs: map[string]string{
+			"agent": agentType,
+		},
 	})
-
-	return nil
+	return err
 }
 
 func buildResumePrompt(issue *orchapi.Issue, run *orchapi.Run) string {

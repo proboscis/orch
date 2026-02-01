@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/s22625/orch/api/orchpb"
+	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
@@ -145,6 +147,16 @@ func (s *SocketServer) handleProtoRequest(req *orchpb.Request) *orchpb.Response 
 		return s.handleProtoWriteFile(r.WriteFile)
 	case *orchpb.Request_CreateRun:
 		return s.handleProtoCreateRun(r.CreateRun)
+	case *orchpb.Request_KillSession:
+		return s.handleProtoKillSession(r.KillSession)
+	case *orchpb.Request_ListSessions:
+		return s.handleProtoListSessions(r.ListSessions)
+	case *orchpb.Request_ResumeRun:
+		return s.handleProtoResumeRun(r.ResumeRun)
+	case *orchpb.Request_QueryOpencodeServer:
+		return s.handleProtoQueryOpenCodeServer(r.QueryOpencodeServer)
+	case *orchpb.Request_InjectInitialPrompt:
+		return s.handleProtoInjectInitialPrompt(r.InjectInitialPrompt)
 	default:
 		return errorResponse("unknown request type")
 	}
@@ -779,10 +791,20 @@ func (s *SocketServer) handleProtoCaptureSession(req *orchpb.CaptureSessionReque
 	}
 
 	var content string
-	muxType, _ := multiplexer.ParseType(run.Multiplexer)
-	mux, _ := multiplexer.GetMultiplexer(muxType)
-	if mux != nil && run.TmuxSession != "" {
-		content, _ = mux.CapturePane(run.TmuxSession, 100)
+	var source string
+
+	if run.Agent == string(agent.AgentOpenCode) {
+		content, source, err = s.captureOpenCodeSession(run)
+		if err != nil {
+			return errorResponse(err.Error())
+		}
+	} else {
+		muxType, _ := multiplexer.ParseType(run.Multiplexer)
+		mux, _ := multiplexer.GetMultiplexer(muxType)
+		if mux != nil && run.TmuxSession != "" {
+			content, _ = mux.CapturePane(run.TmuxSession, 100)
+		}
+		source = run.Multiplexer
 	}
 
 	return &orchpb.Response{
@@ -791,10 +813,35 @@ func (s *SocketServer) handleProtoCaptureSession(req *orchpb.CaptureSessionReque
 			CaptureSession: &orchpb.CaptureSessionResponse{
 				Content:       content,
 				TimestampUnix: time.Now().Unix(),
-				Source:        run.Multiplexer,
+				Source:        source,
 			},
 		},
 	}
+}
+
+func (s *SocketServer) captureOpenCodeSession(run *model.Run) (string, string, error) {
+	if run.ServerPort == 0 {
+		return "", "", fmt.Errorf("run has no server port (may have ended)")
+	}
+	if run.OpenCodeSessionID == "" {
+		return "", "", fmt.Errorf("run has no session ID")
+	}
+
+	client := agent.NewOpenCodeClient(run.ServerPort)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if !client.IsServerRunning(ctx) {
+		return "", "", fmt.Errorf("server not running (run may have ended)")
+	}
+
+	messages, err := client.GetMessages(ctx, run.OpenCodeSessionID, run.WorktreePath)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get messages: %w", err)
+	}
+
+	content := agent.FormatOpenCodeMessages(messages, 100)
+	return content, "opencode", nil
 }
 
 func (s *SocketServer) handleProtoSendMessage(req *orchpb.SendMessageRequest) *orchpb.Response {
@@ -1229,17 +1276,6 @@ func (s *SocketServer) handleProtoDeleteRun(req *orchpb.DeleteRunRequest) *orchp
 		ShortId: run.ShortID(),
 	}
 
-	mux := multiplexer.GetDefault()
-	sessionName := run.TmuxSession
-	if sessionName == "" {
-		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
-	}
-	if mux.HasSession(sessionName) {
-		if err := mux.KillSession(sessionName); err == nil {
-			result.SessionKilled = true
-		}
-	}
-
 	if req.WithWorktree && run.WorktreePath != "" {
 		repoRoot, err := git.FindRepoRoot("")
 		if err == nil {
@@ -1442,12 +1478,66 @@ func (s *SocketServer) handleProtoRepairState(req *orchpb.RepairStateRequest) *o
 		}
 	}
 
+	// Repair orphaned sessions
+	orphaned := s.findOrphanedSessions()
+	if len(orphaned) > 0 {
+		result.ProblemsFound += int32(len(orphaned))
+		for _, sessionName := range orphaned {
+			result.Details = append(result.Details, fmt.Sprintf("orphaned session: %s", sessionName))
+			if !req.DryRun && req.Force {
+				mux := multiplexer.GetDefault()
+				if err := mux.KillSession(sessionName); err == nil {
+					result.ProblemsFixed++
+					result.Details = append(result.Details, fmt.Sprintf("killed orphaned session: %s", sessionName))
+				}
+			}
+		}
+	}
+
 	return &orchpb.Response{
 		Ok: true,
 		Response: &orchpb.Response_RepairState{
 			RepairState: result,
 		},
 	}
+}
+
+func (s *SocketServer) findOrphanedSessions() []string {
+	mux := multiplexer.GetDefault()
+	sessions, err := mux.ListSessions()
+	if err != nil || len(sessions) == 0 {
+		return nil
+	}
+
+	st := s.resolveStoreFromProto("")
+	if st == nil {
+		return nil
+	}
+
+	runs, err := st.ListRuns(&store.ListRunsFilter{})
+	if err != nil {
+		return nil
+	}
+
+	expectedSessions := make(map[string]bool)
+	for _, run := range runs {
+		sessionName := run.TmuxSession
+		if sessionName == "" {
+			sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+		}
+		expectedSessions[sessionName] = true
+	}
+
+	var orphaned []string
+	for _, sess := range sessions {
+		if len(sess) > 4 && sess[:4] == "run-" {
+			if !expectedSessions[sess] {
+				orphaned = append(orphaned, sess)
+			}
+		}
+	}
+
+	return orphaned
 }
 
 func (s *SocketServer) handleProtoGetDaemonLog(req *orchpb.GetDaemonLogRequest) *orchpb.Response {
@@ -1531,6 +1621,94 @@ func (s *SocketServer) handleProtoCreateRun(req *orchpb.CreateRunRequest) *orchp
 	}
 }
 
+func (s *SocketServer) handleProtoInjectInitialPrompt(req *orchpb.InjectInitialPromptRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+	run, err := st.GetRun(ref)
+	if err != nil {
+		return errorResponse(fmt.Sprintf("run not found: %v", err))
+	}
+
+	if req.Prompt == "" {
+		return &orchpb.Response{
+			Ok: true,
+			Response: &orchpb.Response_InjectInitialPrompt{
+				InjectInitialPrompt: &orchpb.InjectInitialPromptResponse{
+					SessionId: run.TmuxSession,
+					Port:      int32(run.ServerPort),
+				},
+			},
+		}
+	}
+
+	if run.Agent == string(agent.AgentOpenCode) {
+		if run.ServerPort <= 0 {
+			return errorResponse(fmt.Sprintf("run %s missing server port (not running or server not started)", ref.String()))
+		}
+		if run.OpenCodeSessionID == "" {
+			return errorResponse(fmt.Sprintf("run %s missing session ID (agent may still be booting)", ref.String()))
+		}
+
+		client := agent.NewOpenCodeClient(run.ServerPort)
+		healthCtx, healthCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer healthCancel()
+
+		if !client.IsServerRunning(healthCtx) {
+			return errorResponse(fmt.Sprintf("opencode server not running for %s (port %d)", ref.String(), run.ServerPort))
+		}
+
+		sendCtx, sendCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer sendCancel()
+
+		_, err := client.SendMessage(sendCtx, run.OpenCodeSessionID, req.Prompt)
+		if err != nil {
+			return errorResponse(fmt.Sprintf("failed to send prompt to opencode: %v", err))
+		}
+
+		return &orchpb.Response{
+			Ok: true,
+			Response: &orchpb.Response_InjectInitialPrompt{
+				InjectInitialPrompt: &orchpb.InjectInitialPromptResponse{
+					SessionId: run.OpenCodeSessionID,
+					Port:      int32(run.ServerPort),
+				},
+			},
+		}
+	}
+
+	sessionName := run.TmuxSession
+	if sessionName == "" {
+		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+	}
+
+	mux := multiplexer.GetDefault()
+	if mux == nil {
+		return errorResponse("no multiplexer available")
+	}
+
+	if !mux.HasSession(sessionName) {
+		return errorResponse(fmt.Sprintf("session not found: %s", sessionName))
+	}
+
+	if err := mux.SendKeys(sessionName, req.Prompt); err != nil {
+		return errorResponse(fmt.Sprintf("failed to send prompt to session: %v", err))
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_InjectInitialPrompt{
+			InjectInitialPrompt: &orchpb.InjectInitialPromptResponse{
+				SessionId: sessionName,
+				Port:      int32(run.ServerPort),
+			},
+		},
+	}
+}
+
 func readLastNLines(path string, n int) (string, error) {
 	if n <= 0 {
 		n = 100
@@ -1557,4 +1735,135 @@ func writeFileContent(path string, content []byte, perm uint32) error {
 		perm = 0644
 	}
 	return os.WriteFile(path, content, os.FileMode(perm))
+}
+
+func (s *SocketServer) handleProtoKillSession(req *orchpb.KillSessionRequest) *orchpb.Response {
+	mux := s.getMultiplexer(req.Multiplexer)
+	err := mux.KillSession(req.SessionName)
+	if err != nil {
+		return errorResponse(fmt.Sprintf("failed to kill session: %v", err))
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_KillSession{
+			KillSession: &orchpb.KillSessionResponse{
+				Killed: true,
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoListSessions(req *orchpb.ListSessionsRequest) *orchpb.Response {
+	mux := s.getMultiplexer(req.Multiplexer)
+	sessions, err := mux.ListSessions()
+	if err != nil {
+		return errorResponse(fmt.Sprintf("failed to list sessions: %v", err))
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_ListSessions{
+			ListSessions: &orchpb.ListSessionsResponse{
+				Sessions: sessions,
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoResumeRun(req *orchpb.ResumeRunRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	var run *model.Run
+	var err error
+
+	if req.ShortId != "" {
+		run, err = st.GetRunByShortID(req.ShortId)
+	} else {
+		ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+		run, err = st.GetRun(ref)
+	}
+	if err != nil {
+		return errorResponse(fmt.Sprintf("run not found: %v", err))
+	}
+
+	sessionName := run.TmuxSession
+	if sessionName == "" {
+		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+	}
+
+	mux := multiplexer.GetDefault()
+	if err := mux.SendKeys(sessionName, ""); err != nil {
+		return errorResponse(fmt.Sprintf("failed to resume run: %v", err))
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_ResumeRun{
+			ResumeRun: &orchpb.ResumeRunResponse{
+				SessionName: sessionName,
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoQueryOpenCodeServer(req *orchpb.QueryOpenCodeServerRequest) *orchpb.Response {
+	port := int(req.Port)
+	if port == 0 {
+		return errorResponse("port required")
+	}
+
+	client := agent.NewOpenCodeClient(port)
+	providersResp, err := client.GetProviders(context.Background())
+	if err != nil {
+		return &orchpb.Response{
+			Ok: true,
+			Response: &orchpb.Response_QueryOpencodeServer{
+				QueryOpencodeServer: &orchpb.QueryOpenCodeServerResponse{
+					ServerRunning: false,
+				},
+			},
+		}
+	}
+
+	protoProviders := make([]*orchpb.OpenCodeProviderInfo, 0, len(providersResp.All))
+	for _, p := range providersResp.All {
+		protoModels := make([]*orchpb.OpenCodeModelInfo, 0, len(p.Models))
+		for _, m := range p.Models {
+			protoModels = append(protoModels, &orchpb.OpenCodeModelInfo{
+				Id:       m.ID,
+				Name:     m.Name,
+				Variants: m.Variants,
+			})
+		}
+		protoProviders = append(protoProviders, &orchpb.OpenCodeProviderInfo{
+			Id:     p.ID,
+			Name:   p.Name,
+			Models: protoModels,
+		})
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_QueryOpencodeServer{
+			QueryOpencodeServer: &orchpb.QueryOpenCodeServerResponse{
+				ServerRunning: true,
+				Providers:     protoProviders,
+			},
+		},
+	}
+}
+
+func (s *SocketServer) getMultiplexer(muxType orchpb.Multiplexer) multiplexer.Multiplexer {
+	switch muxType {
+	case orchpb.Multiplexer_MULTIPLEXER_TMUX:
+		return multiplexer.NewTmuxMultiplexer()
+	case orchpb.Multiplexer_MULTIPLEXER_ZELLIJ:
+		return multiplexer.NewZellijMultiplexer()
+	default:
+		return multiplexer.GetDefault()
+	}
 }

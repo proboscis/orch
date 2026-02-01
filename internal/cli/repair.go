@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/multiplexer"
 	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
@@ -91,25 +91,18 @@ func runRepair(opts *repairOptions) error {
 	}
 
 	fmt.Println("Checking for orphaned sessions...")
-	orphanedSessions := findOrphanedSessionsAPI(ctx, api)
-	if len(orphanedSessions) > 0 {
-		problemsFound += len(orphanedSessions)
-		fmt.Printf("  found %d orphaned sessions:\n", len(orphanedSessions))
-		for _, s := range orphanedSessions {
-			fmt.Printf("    - %s\n", s)
+	repairResult, err := api.RepairState(ctx, &orchapi.RepairOptions{DryRun: opts.DryRun, Force: opts.Force})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  error: %v\n", err)
+	} else if repairResult != nil {
+		problemsFound += repairResult.ProblemsFound
+		if !opts.DryRun {
+			problemsFixed += repairResult.ProblemsFixed
 		}
-		if !opts.DryRun && opts.Force {
-			mux := multiplexer.GetDefault()
-			for _, s := range orphanedSessions {
-				if err := mux.KillSession(s); err != nil {
-					fmt.Fprintf(os.Stderr, "    failed to kill %s: %v\n", s, err)
-				} else {
-					problemsFixed++
-					fmt.Printf("    killed: %s\n", s)
-				}
+		for _, detail := range repairResult.Details {
+			if strings.Contains(detail, "orphaned") {
+				fmt.Printf("  %s\n", detail)
 			}
-		} else if !opts.DryRun {
-			fmt.Println("  use --force to kill orphaned sessions")
 		}
 	}
 
@@ -230,39 +223,6 @@ func repairStaleRunsAPI(ctx context.Context, api orchapi.OrchAPI, opts *repairOp
 	}
 
 	return fixed, nil
-}
-
-func findOrphanedSessionsAPI(ctx context.Context, api orchapi.OrchAPI) []string {
-	mux := multiplexer.GetDefault()
-	sessions, err := mux.ListSessions()
-	if err != nil || len(sessions) == 0 {
-		return nil
-	}
-
-	result, err := api.ListRuns(ctx, &orchapi.ListRunsFilter{})
-	if err != nil {
-		return nil
-	}
-
-	expectedSessions := make(map[string]bool)
-	for _, run := range result.Runs {
-		sessionName := run.TmuxSession
-		if sessionName == "" {
-			sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
-		}
-		expectedSessions[sessionName] = true
-	}
-
-	var orphaned []string
-	for _, s := range sessions {
-		if len(s) > 4 && s[:4] == "run-" {
-			if !expectedSessions[s] {
-				orphaned = append(orphaned, s)
-			}
-		}
-	}
-
-	return orphaned
 }
 
 func waitForDaemonRestart(projectRoot string, oldMeta *daemon.DaemonMetadata, timeout time.Duration) bool {

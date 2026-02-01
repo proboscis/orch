@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/multiplexer"
 	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
@@ -295,8 +294,7 @@ func deleteRuns(ctx context.Context, api orchapi.OrchAPI, runs []*orchapi.Run, o
 			if opts.WithBranch && run.Branch != "" {
 				extras = append(extras, "branch")
 			}
-			mux := multiplexer.GetDefault()
-			if run.TmuxSession != "" && mux.HasSession(run.TmuxSession) {
+			if run.TmuxSession != "" {
 				extras = append(extras, "session")
 			}
 			extraStr := ""

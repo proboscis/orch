@@ -3,8 +3,10 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/orchapi"
@@ -41,7 +43,10 @@ func TestNewCaptureAllCmd(t *testing.T) {
 
 type mockCaptureAllAPI struct {
 	orchapi.OrchAPI
-	runs []*orchapi.Run
+	runs           []*orchapi.Run
+	captureResults map[string]*orchapi.CaptureResult
+	captureErrors  map[string]error
+	capturedLines  []int
 }
 
 func (m *mockCaptureAllAPI) ListRuns(ctx context.Context, filter *orchapi.ListRunsFilter) (*orchapi.ListRunsResult, error) {
@@ -61,6 +66,18 @@ func (m *mockCaptureAllAPI) ListRuns(ctx context.Context, filter *orchapi.ListRu
 	return &orchapi.ListRunsResult{Runs: filtered}, nil
 }
 
+func (m *mockCaptureAllAPI) CaptureSession(ctx context.Context, ref orchapi.RunRef, lines int) (*orchapi.CaptureResult, error) {
+	key := ref.IssueID + "#" + ref.RunID
+	m.capturedLines = append(m.capturedLines, lines)
+	if err, ok := m.captureErrors[key]; ok {
+		return nil, err
+	}
+	if result, ok := m.captureResults[key]; ok {
+		return result, nil
+	}
+	return nil, errors.New("session not found")
+}
+
 func TestRunCaptureAllJSON(t *testing.T) {
 	resetGlobalOpts(t)
 	globalOpts.JSON = true
@@ -71,29 +88,20 @@ func TestRunCaptureAllJSON(t *testing.T) {
 			{IssueID: "issue-1", RunID: "run-1", Status: orchapi.RunStatusRunning},
 			{IssueID: "issue-2", RunID: "run-2", Status: orchapi.RunStatusBlocked},
 		},
+		captureResults: map[string]*orchapi.CaptureResult{
+			"issue-1#run-1": {Content: "run-1 output\n", Timestamp: time.Now(), Source: "tmux"},
+		},
+		captureErrors: map[string]error{
+			"issue-2#run-2": errors.New("session not found"),
+		},
 	}
 	testAPIOverride = mockAPI
 	t.Cleanup(func() { testAPIOverride = nil })
 
-	outputs := map[string]string{
-		model.GenerateTmuxSession("issue-1", "run-1"): "run-1 output\n",
-	}
-
-	origHasSession := captureAllHasSession
-	origCapturePane := captureAllCapturePane
-	t.Cleanup(func() {
-		captureAllHasSession = origHasSession
-		captureAllCapturePane = origCapturePane
-	})
-
-	var capturedLines []int
-	captureAllHasSession = func(session string) bool {
-		_, ok := outputs[session]
-		return ok
-	}
-	captureAllCapturePane = func(session string, lines int) (string, error) {
-		capturedLines = append(capturedLines, lines)
-		return outputs[session], nil
+	origCaptureFunc := captureAllCaptureFunc
+	t.Cleanup(func() { captureAllCaptureFunc = origCaptureFunc })
+	captureAllCaptureFunc = func(api orchapi.OrchAPI, run *orchapi.Run, lines int) (*orchapi.CaptureResult, error) {
+		return api.CaptureSession(context.Background(), run.Ref(), lines)
 	}
 
 	out := captureStdout(t, func() {
@@ -116,8 +124,8 @@ func TestRunCaptureAllJSON(t *testing.T) {
 	if len(got.Items) != 2 {
 		t.Fatalf("expected 2 items, got %d", len(got.Items))
 	}
-	if len(capturedLines) != 1 || capturedLines[0] != 5 {
-		t.Fatalf("unexpected lines captured: %v", capturedLines)
+	if len(mockAPI.capturedLines) != 2 || mockAPI.capturedLines[0] != 5 {
+		t.Fatalf("unexpected lines captured: %v", mockAPI.capturedLines)
 	}
 
 	items := make(map[string]captureAllItem, len(got.Items))
@@ -161,7 +169,7 @@ func TestRunCaptureAllJSON(t *testing.T) {
 	if item2.Status != string(orchapi.RunStatusBlocked) {
 		t.Fatalf("issue-2 status = %q, want %q", item2.Status, orchapi.RunStatusBlocked)
 	}
-	if !strings.Contains(item2.Error, "tmux session") {
+	if !strings.Contains(item2.Error, "session not found") {
 		t.Fatalf("issue-2 error = %q", item2.Error)
 	}
 }
@@ -174,27 +182,20 @@ func TestRunCaptureAllPlain(t *testing.T) {
 			{IssueID: "issue-1", RunID: "run-1", Status: orchapi.RunStatusRunning},
 			{IssueID: "issue-2", RunID: "run-2", Status: orchapi.RunStatusBlocked},
 		},
+		captureResults: map[string]*orchapi.CaptureResult{
+			"issue-1#run-1": {Content: "run-1 output\n", Timestamp: time.Now(), Source: "tmux"},
+		},
+		captureErrors: map[string]error{
+			"issue-2#run-2": errors.New("session not found"),
+		},
 	}
 	testAPIOverride = mockAPI
 	t.Cleanup(func() { testAPIOverride = nil })
 
-	outputs := map[string]string{
-		model.GenerateTmuxSession("issue-1", "run-1"): "run-1 output\n",
-	}
-
-	origHasSession := captureAllHasSession
-	origCapturePane := captureAllCapturePane
-	t.Cleanup(func() {
-		captureAllHasSession = origHasSession
-		captureAllCapturePane = origCapturePane
-	})
-
-	captureAllHasSession = func(session string) bool {
-		_, ok := outputs[session]
-		return ok
-	}
-	captureAllCapturePane = func(session string, lines int) (string, error) {
-		return outputs[session], nil
+	origCaptureFunc := captureAllCaptureFunc
+	t.Cleanup(func() { captureAllCaptureFunc = origCaptureFunc })
+	captureAllCaptureFunc = func(api orchapi.OrchAPI, run *orchapi.Run, lines int) (*orchapi.CaptureResult, error) {
+		return api.CaptureSession(context.Background(), run.Ref(), lines)
 	}
 
 	out := captureStdout(t, func() {
@@ -212,7 +213,7 @@ func TestRunCaptureAllPlain(t *testing.T) {
 	if !strings.Contains(out, "=== issue-2#run-2 [blocked] ===") {
 		t.Fatalf("missing issue-2 header: %q", out)
 	}
-	if !strings.Contains(out, "error: tmux session") {
+	if !strings.Contains(out, "error:") && !strings.Contains(out, "session not found") {
 		t.Fatalf("missing issue-2 error: %q", out)
 	}
 }

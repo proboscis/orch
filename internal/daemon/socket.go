@@ -1399,30 +1399,78 @@ func (s *SocketServer) processSend(req SendRequest) error {
 		return fmt.Errorf("run %s#%s not found: %w", req.IssueID, req.RunID, err)
 	}
 
-	if run.Agent != string(agent.AgentOpenCode) {
-		return fmt.Errorf("run %s#%s is not an opencode agent (agent=%s)", req.IssueID, req.RunID, run.Agent)
+	if run.Agent == string(agent.AgentOpenCode) {
+		return s.processSendOpenCode(st, ref, run, req.Message)
 	}
+	return s.processSendTmux(run, req.Message, req.NoEnter)
+}
 
+func (s *SocketServer) processSendOpenCode(st store.Store, ref *model.RunRef, run *model.Run, message string) error {
 	if run.ServerPort <= 0 {
-		return fmt.Errorf("run %s#%s missing server port (not running or server not started)", req.IssueID, req.RunID)
+		return fmt.Errorf("run %s missing server port (not running or server not started)", ref.String())
 	}
 	if run.OpenCodeSessionID == "" {
-		return fmt.Errorf("run %s#%s missing session ID (agent may still be booting)", req.IssueID, req.RunID)
+		return fmt.Errorf("run %s missing session ID (agent may still be booting)", ref.String())
 	}
 
 	client := agent.NewOpenCodeClient(run.ServerPort)
 
+	healthCtx, healthCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer healthCancel()
+
+	if !client.IsServerRunning(healthCtx) {
+		s.logger.Printf("opencode server not running for %s (port %d), updating status", ref.String(), run.ServerPort)
+
+		if run.Status == model.StatusBlocked || run.Status == model.StatusRunning || run.Status == model.StatusBlockedAPI {
+			st.AppendEvent(ref, model.NewStatusEvent(model.StatusUnknown))
+			s.logger.Printf("updated run %s status to unknown (server stopped)", ref.String())
+		}
+
+		return &agent.ServerStoppedError{
+			RunRef:       ref.String(),
+			Port:         run.ServerPort,
+			WorktreePath: run.WorktreePath,
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Use async endpoint to return immediately after queuing the message
-	// (SendMessagePrompt blocks until the agent finishes processing)
-	err = client.SendMessageAsync(ctx, run.OpenCodeSessionID, req.Message, run.WorktreePath, nil, "")
+	err := client.SendMessageAsync(ctx, run.OpenCodeSessionID, message, run.WorktreePath, nil, "")
 	if err != nil {
 		return fmt.Errorf("failed to send message: %w", err)
 	}
 
-	s.logger.Printf("message sent successfully to %s#%s", req.IssueID, req.RunID)
+	s.logger.Printf("message sent successfully to %s", ref.String())
+	return nil
+}
+
+func (s *SocketServer) processSendTmux(run *model.Run, message string, noEnter bool) error {
+	sessionName := run.TmuxSession
+	if sessionName == "" {
+		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+	}
+
+	mux := multiplexer.GetDefault()
+	if mux == nil {
+		return fmt.Errorf("no multiplexer available")
+	}
+
+	if !mux.HasSession(sessionName) {
+		return &agent.SessionNotFoundError{SessionName: sessionName}
+	}
+
+	var err error
+	if noEnter {
+		err = mux.SendKeysLiteral(sessionName, message)
+	} else {
+		err = mux.SendKeys(sessionName, message)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to send keys: %w", err)
+	}
+
+	s.logger.Printf("message sent successfully to tmux session %s", sessionName)
 	return nil
 }
 

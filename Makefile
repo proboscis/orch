@@ -46,7 +46,7 @@ test:
 
 lint:
 	@command -v semgrep >/dev/null 2>&1 || uv tool install semgrep
-	semgrep --config .semgrep/ ./internal/cli/
+	semgrep --error --config .semgrep/ ./internal/cli/
 
 lint-install:
 	uv tool install semgrep

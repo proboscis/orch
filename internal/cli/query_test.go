@@ -136,6 +136,12 @@ func (m *mockQueryAPI) Ping(ctx context.Context) error { return nil }
 func (m *mockQueryAPI) EnsureOpenCodeServer(ctx context.Context, projectRoot string) (*orchapi.OpenCodeServerInfo, error) {
 	return nil, nil
 }
+func (m *mockQueryAPI) InjectInitialPrompt(ctx context.Context, ref orchapi.RunRef, prompt string) error {
+	return nil
+}
+func (m *mockQueryAPI) QueryOpenCodeServer(ctx context.Context, port int) (*orchapi.QueryOpenCodeServerResult, error) {
+	return nil, nil
+}
 
 func TestQueryCommand_BasicQuery(t *testing.T) {
 	now := time.Now()

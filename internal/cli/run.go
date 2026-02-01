@@ -423,7 +423,7 @@ func runRun(issueID string, opts *runOptions) error {
 						return exitWithCode(err, ExitAgentError)
 					}
 				}
-				if err := mux.SendKeys(tmuxSession, launchCfg.Prompt); err != nil {
+				if err := api.InjectInitialPrompt(ctx, ref, launchCfg.Prompt); err != nil {
 					err = fmt.Errorf("failed to send prompt to session: %w", err)
 					setRunFailed(ctx, api, run, err)
 					return exitWithCode(err, ExitTmuxError)
@@ -431,11 +431,6 @@ func runRun(issueID string, opts *runOptions) error {
 			}
 
 		case agent.InjectionHTTP:
-			if err := injectPromptViaHTTP(ctx, api, run, launchCfg, debug); err != nil {
-				err = fmt.Errorf("failed to send prompt via HTTP: %w", err)
-				setRunFailed(ctx, api, run, err)
-				return exitWithCode(err, ExitAgentError)
-			}
 		}
 
 		if !serverAlreadyRunning {
@@ -768,86 +763,6 @@ func setRunFailed(ctx context.Context, api orchapi.OrchAPI, run *model.Run, err 
 	}
 	api.AppendEvent(ctx, ref, errorEvent)
 	appendStatusEventViaDaemon(ctx, api, run, model.StatusFailed)
-}
-
-func injectPromptViaHTTP(ctx context.Context, api orchapi.OrchAPI, run *model.Run, cfg *agent.LaunchConfig, debug *DebugLogger) error {
-	port := cfg.Port
-	if port == 0 {
-		port = agent.OpenCodeServerPortStart
-	}
-
-	ref := orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}
-
-	debug.Printf("Connecting to opencode server on port %d...", port)
-	client := agent.NewOpenCodeClient(port)
-	client.SetDebugLogger(debug)
-
-	httpCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
-
-	debug.Printf("Waiting for server to become healthy...")
-	if err := client.WaitForHealthy(httpCtx, 60*time.Second); err != nil {
-		debug.Printf("Server health check failed: %v", err)
-		return fmt.Errorf("server did not become healthy: %w", err)
-	}
-
-	debug.Printf("Server is healthy, recording port artifact")
-	api.AppendEvent(ctx, ref, &orchapi.Event{
-		Type:  "artifact",
-		Name:  "server",
-		Attrs: map[string]string{"port": fmt.Sprintf("%d", port)},
-	})
-
-	usedModel := cfg.Model
-	usedVariant := cfg.ModelVariant
-	if usedModel == "" {
-		usedModel = "anthropic/claude-opus-4-5"
-		usedVariant = "max"
-		debug.Printf("No model specified, using hardcoded default: %s (variant: %s)", usedModel, usedVariant)
-	} else {
-		debug.Printf("Using configured model: %s (variant: %s)", usedModel, usedVariant)
-	}
-	api.AppendEvent(ctx, ref, &orchapi.Event{
-		Type:  "artifact",
-		Name:  "agent_model",
-		Attrs: map[string]string{"model": usedModel, "variant": usedVariant},
-	})
-
-	debug.Printf("Creating session for %s#%s in directory: %s", run.IssueID, run.RunID, cfg.WorkDir)
-	session, err := client.CreateSession(httpCtx, fmt.Sprintf("%s#%s", run.IssueID, run.RunID), cfg.WorkDir)
-	if err != nil {
-		debug.Printf("Failed to create session: %v", err)
-		return fmt.Errorf("failed to create session: %w", err)
-	}
-
-	debug.Printf("Session created with ID: %s", session.ID)
-	api.AppendEvent(ctx, ref, &orchapi.Event{
-		Type:  "artifact",
-		Name:  "opencode_session",
-		Attrs: map[string]string{"id": session.ID},
-	})
-
-	var modelRef *agent.ModelRef
-	if usedModel != "" {
-		modelRef = agent.ParseModel(usedModel)
-		if modelRef != nil {
-			debug.Printf("Using model: %s/%s", modelRef.ProviderID, modelRef.ModelID)
-		} else {
-			debug.Printf("Using model (raw): %s", usedModel)
-		}
-	}
-	if usedVariant != "" {
-		debug.Printf("Using variant: %s", usedVariant)
-	}
-
-	debug.Printf("Sending initial prompt to session %s...", session.ID)
-	if err := client.SendMessageAsync(httpCtx, session.ID, cfg.Prompt, cfg.WorkDir, modelRef, usedVariant); err != nil {
-		debug.Printf("Failed to send prompt: %v", err)
-		return fmt.Errorf("failed to send prompt: %w", err)
-	}
-
-	debug.Printf("Prompt sent successfully")
-	return nil
 }
 
 // findAvailablePort finds an available port in the given range

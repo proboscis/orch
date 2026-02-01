@@ -335,3 +335,20 @@ type RepairResult struct {
 	ProblemsFixed int
 	Details       []string
 }
+
+type ProviderInfo struct {
+	ID     string
+	Name   string
+	Models []ModelInfo
+}
+
+type ModelInfo struct {
+	ID       string
+	Name     string
+	Variants []string
+}
+
+type QueryOpenCodeServerResult struct {
+	ServerRunning bool
+	Providers     []ProviderInfo
+}

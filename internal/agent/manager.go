@@ -91,6 +91,19 @@ func (e *OpenCodeConfigError) Error() string {
 	return "opencode run " + e.RunRef + " missing " + e.Missing
 }
 
+// ServerStoppedError indicates the opencode server for a run has stopped.
+// This error provides clear messaging when trying to interact with a run
+// whose server is no longer running.
+type ServerStoppedError struct {
+	RunRef       string
+	Port         int
+	WorktreePath string
+}
+
+func (e *ServerStoppedError) Error() string {
+	return "run " + e.RunRef + " has ended (opencode server stopped)"
+}
+
 type SendOptions struct {
 	NoEnter bool
 }
@@ -386,8 +399,6 @@ func (m *OpenCodeManager) SendMessage(ctx context.Context, run *model.Run, messa
 	}
 
 	client := NewOpenCodeClient(m.Port)
-	// Use async endpoint to return immediately after queuing the message
-	// (SendMessagePrompt blocks until the agent finishes processing)
 	return client.SendMessageAsync(ctx, m.SessionID, message, run.WorktreePath, nil, "")
 }
 
