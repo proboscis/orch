@@ -102,6 +102,9 @@ func (m *mockAPI) GetBranchState(ctx context.Context, ref orchapi.RunRef) (orcha
 	return "", nil
 }
 func (m *mockAPI) GetDiff(ctx context.Context, ref orchapi.RunRef) (string, error) { return "", nil }
+func (m *mockAPI) GetGitContext(ctx context.Context, workDir string) (*orchapi.GitContext, error) {
+	return nil, nil
+}
 func (m *mockAPI) ResolveIssue(ctx context.Context, issueID string, force bool) error {
 	return nil
 }

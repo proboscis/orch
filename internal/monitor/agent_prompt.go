@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -275,9 +274,9 @@ func buildControlAgentPrompt(st store.Store) (string, error) {
 		Issues:         issueInfos,
 		ActiveRuns:     runInfos,
 
-		GitBranch:          getGitBranch(cwd),
-		UncommittedChanges: getUncommittedChangesStatus(cwd),
-		LastCommitMessage:  getLastCommitMessage(cwd),
+		GitBranch:          "",
+		UncommittedChanges: "Unknown",
+		LastCommitMessage:  "",
 
 		DefaultAgent:    defaultAgent,
 		AvailableAgents: getAvailableAgents(),
@@ -363,40 +362,6 @@ func detectIssueIDConvention(issues []*model.Issue) (pattern, example, nextID st
 	}
 
 	return
-}
-
-func getGitBranch(workDir string) string {
-	cmd := exec.Command("git", "-C", workDir, "rev-parse", "--abbrev-ref", "HEAD")
-	output, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(output))
-}
-
-func getUncommittedChangesStatus(workDir string) string {
-	cmd := exec.Command("git", "-C", workDir, "status", "--porcelain")
-	output, err := cmd.Output()
-	if err != nil {
-		return "Unknown"
-	}
-	if len(strings.TrimSpace(string(output))) > 0 {
-		return "Yes"
-	}
-	return "No"
-}
-
-func getLastCommitMessage(workDir string) string {
-	cmd := exec.Command("git", "-C", workDir, "log", "-1", "--format=%s")
-	output, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	msg := strings.TrimSpace(string(output))
-	if len(msg) > 80 {
-		msg = msg[:77] + "..."
-	}
-	return msg
 }
 
 func getAvailableAgents() string {
@@ -551,6 +516,16 @@ func buildControlAgentPromptViaAPI(ctx context.Context, api orchapi.OrchAPI, iss
 		}
 	}
 
+	var gitBranch, uncommittedChanges, lastCommitMessage string
+	gitCtx, err := api.GetGitContext(ctx, cwd)
+	if err == nil && gitCtx != nil {
+		gitBranch = gitCtx.Branch
+		uncommittedChanges = gitCtx.UncommittedChanges
+		lastCommitMessage = gitCtx.LastCommitMessage
+	} else {
+		uncommittedChanges = "Unknown"
+	}
+
 	data := ControlPromptData{
 		IssuesRoot:     issuesRoot,
 		WorkDir:        cwd,
@@ -560,9 +535,9 @@ func buildControlAgentPromptViaAPI(ctx context.Context, api orchapi.OrchAPI, iss
 		Issues:         issueInfos,
 		ActiveRuns:     runInfos,
 
-		GitBranch:          getGitBranch(cwd),
-		UncommittedChanges: getUncommittedChangesStatus(cwd),
-		LastCommitMessage:  getLastCommitMessage(cwd),
+		GitBranch:          gitBranch,
+		UncommittedChanges: uncommittedChanges,
+		LastCommitMessage:  lastCommitMessage,
 
 		DefaultAgent:    defaultAgent,
 		AvailableAgents: getAvailableAgents(),
