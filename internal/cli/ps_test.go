@@ -221,8 +221,10 @@ func TestOutputTableShowsNewColumns(t *testing.T) {
 		UpdatedAt: updatedAt,
 	}
 
+	prStatusByRun := map[string]string{"run-1": "open"}
+
 	out := captureStdout(t, func() {
-		if err := outputTable([]*model.Run{run}, updatedAt, false); err != nil {
+		if err := outputTableWithIssueInfoAndBranchState([]*model.Run{run}, updatedAt, &psOptions{}, nil, nil, nil, prStatusByRun); err != nil {
 			t.Fatalf("outputTable: %v", err)
 		}
 	})
@@ -264,8 +266,10 @@ func TestOutputTableShowsPROpenForPROpenStatus(t *testing.T) {
 		UpdatedAt: updatedAt,
 	}
 
+	prStatusByRun := map[string]string{"run-2": "open"}
+
 	out := captureStdout(t, func() {
-		if err := outputTable([]*model.Run{run}, updatedAt, false); err != nil {
+		if err := outputTableWithIssueInfoAndBranchState([]*model.Run{run}, updatedAt, &psOptions{}, nil, nil, nil, prStatusByRun); err != nil {
 			t.Fatalf("outputTable: %v", err)
 		}
 	})
@@ -290,8 +294,10 @@ func TestOutputJSON(t *testing.T) {
 		UpdatedAt:    updatedAt,
 	}
 
+	prStatusByRun := map[string]string{"run-1": "open"}
+
 	out := captureStdout(t, func() {
-		if err := outputJSON([]*model.Run{run}, now); err != nil {
+		if err := outputJSONWithIssueInfo([]*model.Run{run}, now, nil, nil, nil, prStatusByRun); err != nil {
 			t.Fatalf("outputJSON: %v", err)
 		}
 	})
@@ -518,92 +524,6 @@ func TestShortAgentStatus(t *testing.T) {
 			got := shortAgentStatus(tt.status)
 			if got != tt.want {
 				t.Fatalf("shortAgentStatus(%q) = %q, want %q", tt.status, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestPrStatusFromRun(t *testing.T) {
-	tests := []struct {
-		name     string
-		run      *model.Run
-		gitState string
-		want     string
-	}{
-		{
-			name: "done with PR URL",
-			run: &model.Run{
-				Status: model.StatusDone,
-				PRUrl:  "http://example.com/pr/1",
-			},
-			gitState: "",
-			want:     "merged",
-		},
-		{
-			name: "running with PR URL",
-			run: &model.Run{
-				Status: model.StatusRunning,
-				PRUrl:  "http://example.com/pr/1",
-			},
-			gitState: "",
-			want:     "open",
-		},
-		{
-			name: "pr_open status",
-			run: &model.Run{
-				Status: model.StatusPROpen,
-			},
-			gitState: "",
-			want:     "open",
-		},
-		{
-			name: "running no PR",
-			run: &model.Run{
-				Status: model.StatusRunning,
-			},
-			gitState: "",
-			want:     "-",
-		},
-		{
-			name: "merged gitState with PR",
-			run: &model.Run{
-				Status: model.StatusRunning,
-				PRUrl:  "http://example.com/pr/1",
-			},
-			gitState: "merged",
-			want:     "merged",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := prStatusFromRun(tt.run, tt.gitState)
-			if got != tt.want {
-				t.Fatalf("prStatusFromRun() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestBranchStatusFromGitState(t *testing.T) {
-	tests := []struct {
-		gitState string
-		want     string
-	}{
-		{"clean", "clean"},
-		{"dirty", "dirty"},
-		{"merged", "merged"},
-		{"conflict", "conflict"},
-		{"uncommit", "dirty"},
-		{"unknown", "-"},
-		{"", "-"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.gitState, func(t *testing.T) {
-			got := branchStatusFromGitState(tt.gitState)
-			if got != tt.want {
-				t.Fatalf("branchStatusFromGitState(%q) = %q, want %q", tt.gitState, got, tt.want)
 			}
 		})
 	}

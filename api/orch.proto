@@ -46,6 +46,14 @@ enum Multiplexer {
   MULTIPLEXER_ZELLIJ = 2;
 }
 
+enum PRStatus {
+  PR_STATUS_UNSPECIFIED = 0;
+  PR_STATUS_NONE = 1;
+  PR_STATUS_OPEN = 2;
+  PR_STATUS_MERGED = 3;
+  PR_STATUS_CLOSED = 4;
+}
+
 // =============================================================================
 // Domain Models
 // =============================================================================
@@ -77,6 +85,7 @@ message Run {
   int32 server_port = 17;
   string opencode_session_id = 18;
   string continued_from = 19;
+  PRStatus pr_status = 20;
 }
 
 message Issue {

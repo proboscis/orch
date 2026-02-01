@@ -103,6 +103,7 @@ type RunSummary struct {
 	Deletions         int            `json:"deletions"`
 	DiffStats         *DiffStatsJSON `json:"diff_stats,omitempty"`
 	BranchState       string         `json:"branch_state,omitempty"`
+	PRStatus          string         `json:"pr_status,omitempty"`
 	ElapsedSeconds    int            `json:"elapsed_seconds,omitempty"`
 	ElapsedDisplay    string         `json:"elapsed_display,omitempty"`
 	Alive             bool           `json:"alive"`
@@ -139,6 +140,7 @@ type RunFull struct {
 	ContinuedFrom     string         `json:"continued_from,omitempty"`
 	DiffStats         *DiffStatsJSON `json:"diff_stats,omitempty"`
 	BranchState       string         `json:"branch_state,omitempty"`
+	PRStatus          string         `json:"pr_status,omitempty"`
 	ElapsedSeconds    int            `json:"elapsed_seconds,omitempty"`
 	ElapsedDisplay    string         `json:"elapsed_display,omitempty"`
 	Alive             bool           `json:"alive"`

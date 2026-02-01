@@ -45,6 +45,15 @@ const (
 	MultiplexerZellij Multiplexer = "zellij"
 )
 
+type PRStatus string
+
+const (
+	PRStatusNone   PRStatus = "-"
+	PRStatusOpen   PRStatus = "open"
+	PRStatusMerged PRStatus = "merged"
+	PRStatusClosed PRStatus = "closed"
+)
+
 // RunRef identifies a run using one of three formats:
 //   - ShortID: 2-6 char hex prefix (e.g., "a3b4c5")
 //   - Full: IssueID + RunID (e.g., "my-task#20231220-100000")
@@ -148,6 +157,7 @@ type Run struct {
 	ContinuedFrom     string
 	DiffStats         *DiffStats
 	BranchState       BranchState
+	PRStatus          PRStatus
 	ElapsedSeconds    int
 	ElapsedDisplay    string
 	Alive             bool

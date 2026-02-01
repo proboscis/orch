@@ -242,6 +242,7 @@ func enrichRunProto(pr *orchpb.Run, run *model.Run) {
 		}
 	}
 	pr.ElapsedDisplay = formatElapsedTime(run.StartedAt, run.UpdatedAt, run.Status)
+	pr.PrStatus = computePRStatus(run, pr.BranchState)
 }
 
 func enrichRunsParallel(runs []*model.Run, protoRuns []*orchpb.Run) []*orchpb.Run {
@@ -305,6 +306,8 @@ func enrichRunsParallel(runs []*model.Run, protoRuns []*orchpb.Run) []*orchpb.Ru
 			}
 		}
 
+		pr.PrStatus = computePRStatus(run, pr.BranchState)
+
 		protoRuns[i] = pr
 	}
 
@@ -335,6 +338,19 @@ func formatElapsedTime(startedAt, updatedAt time.Time, status model.Status) stri
 		return fmt.Sprintf("%dm%ds", minutes, seconds)
 	}
 	return fmt.Sprintf("%ds", seconds)
+}
+
+func computePRStatus(run *model.Run, branchState orchpb.BranchState) orchpb.PRStatus {
+	if run.Status == model.StatusDone && run.PRUrl != "" {
+		return orchpb.PRStatus_PR_STATUS_MERGED
+	}
+	if branchState == orchpb.BranchState_BRANCH_STATE_MERGED && run.PRUrl != "" {
+		return orchpb.PRStatus_PR_STATUS_MERGED
+	}
+	if run.PRUrl != "" || run.Status == model.StatusPROpen {
+		return orchpb.PRStatus_PR_STATUS_OPEN
+	}
+	return orchpb.PRStatus_PR_STATUS_NONE
 }
 
 func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Response {

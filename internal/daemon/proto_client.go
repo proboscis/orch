@@ -781,6 +781,21 @@ func protoBranchStateToString(s orchpb.BranchState) string {
 	}
 }
 
+func protoPRStatusToString(s orchpb.PRStatus) string {
+	switch s {
+	case orchpb.PRStatus_PR_STATUS_OPEN:
+		return "open"
+	case orchpb.PRStatus_PR_STATUS_MERGED:
+		return "merged"
+	case orchpb.PRStatus_PR_STATUS_CLOSED:
+		return "closed"
+	case orchpb.PRStatus_PR_STATUS_NONE:
+		return "-"
+	default:
+		return "-"
+	}
+}
+
 func protoRunToSummary(r *orchpb.Run) *RunSummary {
 	if r == nil {
 		return nil
@@ -812,6 +827,7 @@ func protoRunToSummary(r *orchpb.Run) *RunSummary {
 		OpenCodeSessionID: r.OpencodeSessionId,
 		DiffStats:         diffStats,
 		BranchState:       protoBranchStateToString(r.BranchState),
+		PRStatus:          protoPRStatusToString(r.PrStatus),
 		ElapsedSeconds:    int(r.ElapsedSeconds),
 		ElapsedDisplay:    r.ElapsedDisplay,
 		StartedAt:         formatUnixTime(r.StartedAtUnix),
@@ -862,6 +878,7 @@ func protoRunToFull(r *orchpb.Run, events []*orchpb.Event) *RunFull {
 		ContinuedFrom:     r.ContinuedFrom,
 		DiffStats:         diffStats,
 		BranchState:       protoBranchStateToString(r.BranchState),
+		PRStatus:          protoPRStatusToString(r.PrStatus),
 		ElapsedSeconds:    int(r.ElapsedSeconds),
 		ElapsedDisplay:    r.ElapsedDisplay,
 		StartedAt:         formatUnixTime(r.StartedAtUnix),

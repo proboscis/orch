@@ -102,10 +102,12 @@ func runPs(opts *psOptions) error {
 	runs := make([]*model.Run, len(result.Runs))
 	aliveByRun := make(map[string]agentAliveInfo, len(result.Runs))
 	branchStateByRun := make(map[string]string, len(result.Runs))
+	prStatusByRun := make(map[string]string, len(result.Runs))
 	for i, r := range result.Runs {
 		runs[i] = apiRunToModelRun(r)
 		aliveByRun[r.RunID] = agentAliveInfo{alive: r.Alive, known: r.AliveKnown}
 		branchStateByRun[r.RunID] = string(r.BranchState)
+		prStatusByRun[r.RunID] = string(r.PRStatus)
 	}
 
 	issueStatusFilter := make(map[string]bool)
@@ -145,11 +147,11 @@ func runPs(opts *psOptions) error {
 	now := time.Now()
 	var outputErr error
 	if globalOpts.JSON {
-		outputErr = outputJSONWithIssueInfo(runs, now, issueCache, aliveByRun, branchStateByRun)
+		outputErr = outputJSONWithIssueInfo(runs, now, issueCache, aliveByRun, branchStateByRun, prStatusByRun)
 	} else if globalOpts.TSV {
-		outputErr = outputTSVWithIssueInfo(runs, issueCache, aliveByRun, branchStateByRun)
+		outputErr = outputTSVWithIssueInfo(runs, issueCache, aliveByRun, branchStateByRun, prStatusByRun)
 	} else {
-		outputErr = outputTableWithIssueInfoAndBranchState(runs, now, opts, issueCache, aliveByRun, branchStateByRun)
+		outputErr = outputTableWithIssueInfoAndBranchState(runs, now, opts, issueCache, aliveByRun, branchStateByRun, prStatusByRun)
 	}
 
 	if outputErr != nil {
@@ -213,10 +215,10 @@ func formatIssueTopicAPI(issue *orchapi.Issue) string {
 }
 
 func outputJSON(runs []*model.Run, now time.Time) error {
-	return outputJSONWithIssueInfo(runs, now, nil, nil, nil)
+	return outputJSONWithIssueInfo(runs, now, nil, nil, nil, nil)
 }
 
-func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[string]psIssueInfo, aliveByRun map[string]agentAliveInfo, branchStateByRun map[string]string) error {
+func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[string]psIssueInfo, aliveByRun map[string]agentAliveInfo, branchStateByRun map[string]string, prStatusByRun map[string]string) error {
 	type runOutput struct {
 		IssueID           string `json:"issue_id"`
 		IssueStatus       string `json:"issue_status"`
@@ -261,7 +263,13 @@ func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[st
 		branchStatus := "-"
 		if branchStateByRun != nil {
 			if state := branchStateByRun[r.RunID]; state != "" {
-				branchStatus = branchStatusFromGitState(state)
+				branchStatus = state
+			}
+		}
+		prStatus := "-"
+		if prStatusByRun != nil {
+			if status := prStatusByRun[r.RunID]; status != "" {
+				prStatus = status
 			}
 		}
 
@@ -276,7 +284,7 @@ func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[st
 			Status:            string(r.Status),
 			AgentStatus:       shortAgentStatus(r.Status),
 			BranchStatus:      branchStatus,
-			PRStatus:          prStatusFromRun(r, branchStateByRun[r.RunID]),
+			PRStatus:          prStatus,
 			AgentAlive:        formatAliveText(aliveInfo),
 			UpdatedAt:         r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			UpdatedAgo:        formatRelativeTime(r.UpdatedAt, now),
@@ -296,10 +304,10 @@ func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[st
 }
 
 func outputTSV(runs []*model.Run) error {
-	return outputTSVWithIssueInfo(runs, nil, nil, nil)
+	return outputTSVWithIssueInfo(runs, nil, nil, nil, nil)
 }
 
-func outputTSVWithIssueInfo(runs []*model.Run, issueCache map[string]psIssueInfo, aliveByRun map[string]agentAliveInfo, branchStateByRun map[string]string) error {
+func outputTSVWithIssueInfo(runs []*model.Run, issueCache map[string]psIssueInfo, aliveByRun map[string]agentAliveInfo, branchStateByRun map[string]string, prStatusByRun map[string]string) error {
 	for _, r := range runs {
 		issueStatus := ""
 		if issueCache != nil {
@@ -312,7 +320,13 @@ func outputTSVWithIssueInfo(runs []*model.Run, issueCache map[string]psIssueInfo
 		branchStatus := "-"
 		if branchStateByRun != nil {
 			if state := branchStateByRun[r.RunID]; state != "" {
-				branchStatus = branchStatusFromGitState(state)
+				branchStatus = state
+			}
+		}
+		prStatus := "-"
+		if prStatusByRun != nil {
+			if status := prStatusByRun[r.RunID]; status != "" {
+				prStatus = status
 			}
 		}
 
@@ -327,7 +341,7 @@ func outputTSVWithIssueInfo(runs []*model.Run, issueCache map[string]psIssueInfo
 			r.Status,
 			shortAgentStatus(r.Status),
 			branchStatus,
-			prStatusFromRun(r, branchStateByRun[r.RunID]),
+			prStatus,
 			formatAliveText(aliveInfo),
 			r.StartedAt.Format("2006-01-02T15:04:05Z07:00"),
 			r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
@@ -341,10 +355,10 @@ func outputTSVWithIssueInfo(runs []*model.Run, issueCache map[string]psIssueInfo
 }
 
 func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
-	return outputTableWithIssueInfoAndBranchState(runs, now, &psOptions{AbsoluteTime: absoluteTime}, nil, nil, nil)
+	return outputTableWithIssueInfoAndBranchState(runs, now, &psOptions{AbsoluteTime: absoluteTime}, nil, nil, nil, nil)
 }
 
-func outputTableWithIssueInfoAndBranchState(runs []*model.Run, now time.Time, opts *psOptions, issueCache map[string]psIssueInfo, aliveByRun map[string]agentAliveInfo, branchStateByRun map[string]string) error {
+func outputTableWithIssueInfoAndBranchState(runs []*model.Run, now time.Time, opts *psOptions, issueCache map[string]psIssueInfo, aliveByRun map[string]agentAliveInfo, branchStateByRun map[string]string, prStatusByRun map[string]string) error {
 	if len(runs) == 0 {
 		if !globalOpts.Quiet {
 			fmt.Println("No runs found")
@@ -364,10 +378,10 @@ func outputTableWithIssueInfoAndBranchState(runs []*model.Run, now time.Time, op
 		}
 	}
 
-	return outputTableWithGitStates(runs, now, opts, issueCache, aliveByRun, branchStateByRun)
+	return outputTableWithGitStates(runs, now, opts, issueCache, aliveByRun, branchStateByRun, prStatusByRun)
 }
 
-func outputTableWithGitStates(runs []*model.Run, now time.Time, opts *psOptions, issueCache map[string]psIssueInfo, aliveByRun map[string]agentAliveInfo, gitStates map[string]string) error {
+func outputTableWithGitStates(runs []*model.Run, now time.Time, opts *psOptions, issueCache map[string]psIssueInfo, aliveByRun map[string]agentAliveInfo, gitStates map[string]string, prStatusByRun map[string]string) error {
 
 	headers := []string{"ID", "ISSUE", "ISSUE-ST", "CLI", "MODEL", "AGENT", "ALIVE", "BRANCH", "WORKTREE", "PR", "STARTED", "UPDATED", "TOPIC"}
 	var rows [][]string
@@ -397,13 +411,18 @@ func outputTableWithGitStates(runs []*model.Run, now time.Time, opts *psOptions,
 			issueStatus = "-"
 		}
 
-		gitState := "-"
-		if state, ok := gitStates[r.RunID]; ok {
-			gitState = state
+		branchStatus := "-"
+		if gitStates != nil {
+			if state := gitStates[r.RunID]; state != "" {
+				branchStatus = state
+			}
 		}
-
-		branchStatus := branchStatusFromGitState(gitState)
-		prStatus := prStatusFromRun(r, gitState)
+		prStatus := "-"
+		if prStatusByRun != nil {
+			if status := prStatusByRun[r.RunID]; status != "" {
+				prStatus = status
+			}
+		}
 
 		cliDisplay := agent.AgentDisplayName(r.Agent, r.Model, r.ModelVariant)
 		modelDisplay := formatModelDisplay(r.Model, r.ModelVariant)
@@ -509,44 +528,6 @@ func shortAgentStatus(status model.Status) string {
 		return "?"
 	default:
 		return "?"
-	}
-}
-
-func prStatusFromRun(r *model.Run, gitState string) string {
-	if r.Status == model.StatusDone && r.PRUrl != "" {
-		return "merged"
-	}
-	if gitState == "merged" && r.PRUrl != "" {
-		return "merged"
-	}
-	if r.PRUrl != "" || r.Status == model.StatusPROpen {
-		return "open"
-	}
-	return "-"
-}
-
-func branchStatusFromGitState(gitState string) string {
-	switch gitState {
-	case "clean":
-		return "clean"
-	case "dirty":
-		return "dirty"
-	case "merged":
-		return "merged"
-	case "conflict":
-		return "conflict"
-	case "uncommit":
-		return "dirty"
-	case "ahead":
-		return "ahead"
-	case "behind":
-		return "behind"
-	case "diverged":
-		return "diverged"
-	case "synced":
-		return "synced"
-	default:
-		return "-"
 	}
 }
 
