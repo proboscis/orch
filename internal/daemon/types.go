@@ -9,6 +9,7 @@ import (
 
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/pr"
 )
 
 // MonitorConnection tracks a connected monitor instance
@@ -97,6 +98,8 @@ type RunSummary struct {
 	TmuxSession       string         `json:"tmux_session,omitempty"`
 	Multiplexer       string         `json:"multiplexer,omitempty"`
 	PRUrl             string         `json:"pr_url,omitempty"`
+	PRNumber          int            `json:"pr_number,omitempty"`
+	PRState           string         `json:"pr_state,omitempty"`
 	ServerPort        int            `json:"server_port,omitempty"`
 	OpenCodeSessionID string         `json:"opencode_session_id,omitempty"`
 	Additions         int            `json:"additions"`
@@ -134,6 +137,8 @@ type RunFull struct {
 	TmuxSession       string         `json:"tmux_session,omitempty"`
 	Multiplexer       string         `json:"multiplexer,omitempty"`
 	PRUrl             string         `json:"pr_url,omitempty"`
+	PRNumber          int            `json:"pr_number,omitempty"`
+	PRState           string         `json:"pr_state,omitempty"`
 	ServerPort        int            `json:"server_port,omitempty"`
 	OpenCodeSessionID string         `json:"opencode_session_id,omitempty"`
 	ContinuedFrom     string         `json:"continued_from,omitempty"`
@@ -314,6 +319,7 @@ func RunToSummary(run *model.Run) *RunSummary {
 
 	elapsedSeconds, elapsedDisplay := computeElapsed(run)
 	branchState := computeBranchStateString(run)
+	prNumber, prState := lookupPRInfo(run)
 
 	return &RunSummary{
 		IssueID:           run.IssueID,
@@ -328,6 +334,8 @@ func RunToSummary(run *model.Run) *RunSummary {
 		TmuxSession:       run.TmuxSession,
 		Multiplexer:       run.Multiplexer,
 		PRUrl:             run.PRUrl,
+		PRNumber:          prNumber,
+		PRState:           prState,
 		ServerPort:        run.ServerPort,
 		OpenCodeSessionID: run.OpenCodeSessionID,
 		Additions:         diffStats.Additions,
@@ -359,7 +367,6 @@ func RunToSummaryWithAlive(run *model.Run, computeAlive func(*model.Run) bool) *
 	return summary
 }
 
-// RunToFull converts a model.Run to a RunFull
 func RunToFull(run *model.Run) *RunFull {
 	events := make([]*EventJSON, len(run.Events))
 	for i, e := range run.Events {
@@ -374,6 +381,7 @@ func RunToFull(run *model.Run) *RunFull {
 	diffStats := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
 	elapsedSeconds, elapsedDisplay := computeElapsed(run)
 	branchState := computeBranchStateString(run)
+	prNumber, prState := lookupPRInfo(run)
 
 	return &RunFull{
 		IssueID:           run.IssueID,
@@ -389,6 +397,8 @@ func RunToFull(run *model.Run) *RunFull {
 		TmuxSession:       run.TmuxSession,
 		Multiplexer:       run.Multiplexer,
 		PRUrl:             run.PRUrl,
+		PRNumber:          prNumber,
+		PRState:           prState,
 		ServerPort:        run.ServerPort,
 		OpenCodeSessionID: run.OpenCodeSessionID,
 		ContinuedFrom:     run.ContinuedFrom,
@@ -594,4 +604,36 @@ type GetDiffStatsResponse struct {
 	Deletions    int      `json:"deletions"`
 	FilesChanged int      `json:"files_changed"`
 	Files        []string `json:"files"`
+}
+
+func lookupPRInfo(run *model.Run) (prNumber int, prState string) {
+	if run.PRUrl != "" {
+		prInfo, err := pr.LookupInfoByURL(run.PRUrl)
+		if err == nil && prInfo != nil {
+			return prInfo.Number, strings.ToLower(prInfo.State)
+		}
+	}
+
+	if run.Branch == "" {
+		return 0, ""
+	}
+
+	var repoRoot string
+	var err error
+	if run.WorktreePath != "" {
+		repoRoot, err = git.FindMainRepoRoot(run.WorktreePath)
+	}
+	if repoRoot == "" || err != nil {
+		repoRoot, err = git.FindMainRepoRoot("")
+		if err != nil {
+			return 0, ""
+		}
+	}
+
+	prInfo, err := pr.LookupInfo(repoRoot, run.Branch)
+	if err != nil || prInfo == nil {
+		return 0, ""
+	}
+
+	return prInfo.Number, strings.ToLower(prInfo.State)
 }

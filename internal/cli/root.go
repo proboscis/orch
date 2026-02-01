@@ -209,6 +209,8 @@ func apiRunToModelRun(r *orchapi.Run) *model.Run {
 		TmuxSession:       r.TmuxSession,
 		Multiplexer:       string(r.Multiplexer),
 		PRUrl:             r.PRUrl,
+		PRNumber:          r.PRNumber,
+		PRState:           r.PRState,
 		ServerPort:        r.ServerPort,
 		OpenCodeSessionID: r.OpenCodeSessionID,
 		ContinuedFrom:     r.ContinuedFrom,

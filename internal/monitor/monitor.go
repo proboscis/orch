@@ -20,7 +20,6 @@ import (
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
 	"github.com/s22625/orch/internal/orchapi"
-	"github.com/s22625/orch/internal/pr"
 	"github.com/s22625/orch/internal/xdg"
 )
 
@@ -994,15 +993,6 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		}
 	}
 
-	runList := make([]*model.Run, 0, len(windows))
-	for _, w := range windows {
-		if w != nil && w.Run != nil {
-			runList = append(runList, w.Run)
-		}
-	}
-
-	prInfoMap := pr.PopulateRunInfo(runList)
-
 	rows := make([]RunRow, 0, len(windows))
 	for _, w := range windows {
 		if w == nil || w.Run == nil {
@@ -1020,12 +1010,11 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 
 		agentDisplay := agent.AgentDisplayName(w.Run.Agent, w.Run.Model, w.Run.ModelVariant)
 
-		// Build PR display string and state
 		prDisplay := "-"
 		prState := ""
-		if prInfo := prInfoMap[w.Run.Branch]; prInfo != nil {
-			prDisplay = fmt.Sprintf("#%d", prInfo.Number)
-			prState = strings.ToLower(prInfo.State)
+		if w.Run.PRNumber > 0 {
+			prDisplay = fmt.Sprintf("#%d", w.Run.PRNumber)
+			prState = w.Run.PRState
 		} else if w.Run.PRUrl != "" || w.Run.Status == model.StatusPROpen {
 			prDisplay = "yes"
 		}
@@ -1850,6 +1839,8 @@ func apiRunToModel(r *orchapi.Run) *model.Run {
 		TmuxSession:       r.TmuxSession,
 		Multiplexer:       string(r.Multiplexer),
 		PRUrl:             r.PRUrl,
+		PRNumber:          r.PRNumber,
+		PRState:           r.PRState,
 		ServerPort:        r.ServerPort,
 		OpenCodeSessionID: r.OpenCodeSessionID,
 		ContinuedFrom:     r.ContinuedFrom,

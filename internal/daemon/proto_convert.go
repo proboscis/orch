@@ -127,6 +127,8 @@ func modelRunToProto(run *model.Run) *orchpb.Run {
 		ServerPort:        int32(run.ServerPort),
 		OpencodeSessionId: run.OpenCodeSessionID,
 		ContinuedFrom:     run.ContinuedFrom,
+		PrNumber:          int32(run.PRNumber),
+		PrState:           run.PRState,
 	}
 
 	return protoRun
@@ -145,6 +147,8 @@ func protoRunToModel(run *orchpb.Run) *model.Run {
 		Branch:            run.Branch,
 		WorktreePath:      run.WorktreePath,
 		PRUrl:             run.PrUrl,
+		PRNumber:          int(run.PrNumber),
+		PRState:           run.PrState,
 		StartedAt:         time.Unix(run.StartedAtUnix, 0),
 		UpdatedAt:         time.Unix(run.UpdatedAtUnix, 0),
 		TmuxSession:       run.TmuxSession,

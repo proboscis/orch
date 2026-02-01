@@ -348,6 +348,8 @@ type Run struct {
 	ServerPort        int32                  `protobuf:"varint,17,opt,name=server_port,json=serverPort,proto3" json:"server_port,omitempty"`
 	OpencodeSessionId string                 `protobuf:"bytes,18,opt,name=opencode_session_id,json=opencodeSessionId,proto3" json:"opencode_session_id,omitempty"`
 	ContinuedFrom     string                 `protobuf:"bytes,19,opt,name=continued_from,json=continuedFrom,proto3" json:"continued_from,omitempty"`
+	PrNumber          int32                  `protobuf:"varint,20,opt,name=pr_number,json=prNumber,proto3" json:"pr_number,omitempty"`
+	PrState           string                 `protobuf:"bytes,21,opt,name=pr_state,json=prState,proto3" json:"pr_state,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -511,6 +513,20 @@ func (x *Run) GetOpencodeSessionId() string {
 func (x *Run) GetContinuedFrom() string {
 	if x != nil {
 		return x.ContinuedFrom
+	}
+	return ""
+}
+
+func (x *Run) GetPrNumber() int32 {
+	if x != nil {
+		return x.PrNumber
+	}
+	return 0
+}
+
+func (x *Run) GetPrState() string {
+	if x != nil {
+		return x.PrState
 	}
 	return ""
 }
