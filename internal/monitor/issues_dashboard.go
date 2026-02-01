@@ -1591,7 +1591,7 @@ func (d *IssueDashboard) attachIssueCmd(issueID string) tea.Cmd {
 
 func findActiveOrLatestRun(runs []*model.Run) *model.Run {
 	for _, run := range runs {
-		if isActiveStatus(run.Status) {
+		if run.Status.IsActive() {
 			return run
 		}
 	}

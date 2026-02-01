@@ -99,6 +99,8 @@ type RunSummary struct {
 	RunID             string         `json:"run_id"`
 	ShortID           string         `json:"short_id"`
 	Status            string         `json:"status"`
+	IsActive          bool           `json:"is_active"`
+	IsTerminal        bool           `json:"is_terminal"`
 	Phase             string         `json:"phase,omitempty"`
 	Agent             string         `json:"agent"`
 	Model             string         `json:"model,omitempty"`
@@ -136,6 +138,8 @@ type RunFull struct {
 	RunID             string         `json:"run_id"`
 	ShortID           string         `json:"short_id"`
 	Status            string         `json:"status"`
+	IsActive          bool           `json:"is_active"`
+	IsTerminal        bool           `json:"is_terminal"`
 	Phase             string         `json:"phase,omitempty"`
 	Agent             string         `json:"agent"`
 	Model             string         `json:"model,omitempty"`
@@ -269,12 +273,7 @@ func computeElapsed(run *model.Run) (int, string) {
 }
 
 func isActiveStatus(status model.Status) bool {
-	switch status {
-	case model.StatusQueued, model.StatusBooting, model.StatusRunning, model.StatusBlocked, model.StatusBlockedAPI:
-		return true
-	default:
-		return false
-	}
+	return status.IsActive()
 }
 
 func formatDuration(d time.Duration) string {
@@ -340,6 +339,8 @@ func RunToSummary(run *model.Run) *RunSummary {
 		RunID:             run.RunID,
 		ShortID:           run.ShortID(),
 		Status:            string(run.Status),
+		IsActive:          run.Status.IsActive(),
+		IsTerminal:        run.Status.IsTerminal(),
 		Phase:             string(run.Phase),
 		Agent:             run.Agent,
 		Model:             run.Model,
@@ -401,6 +402,8 @@ func RunToFull(run *model.Run) *RunFull {
 		RunID:             run.RunID,
 		ShortID:           run.ShortID(),
 		Status:            string(run.Status),
+		IsActive:          run.Status.IsActive(),
+		IsTerminal:        run.Status.IsTerminal(),
 		Phase:             string(run.Phase),
 		Agent:             run.Agent,
 		Model:             run.Model,

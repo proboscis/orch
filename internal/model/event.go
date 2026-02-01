@@ -39,6 +39,15 @@ func (s Status) IsTerminal() bool {
 	return s == StatusDone || s == StatusCanceled || s == StatusFailed
 }
 
+func (s Status) IsActive() bool {
+	switch s {
+	case StatusQueued, StatusBooting, StatusRunning, StatusBlocked, StatusBlockedAPI, StatusPROpen:
+		return true
+	default:
+		return false
+	}
+}
+
 // EventSource distinguishes user commands from daemon observations
 type EventSource string
 

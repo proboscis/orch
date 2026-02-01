@@ -493,7 +493,7 @@ func (d *Dashboard) enterStopMode() (tea.Model, tea.Cmd) {
 		if row.Run == nil {
 			continue
 		}
-		if isTerminalStatus(row.Status) {
+		if row.Status.IsTerminal() {
 			continue
 		}
 		runs = append(runs, row)
