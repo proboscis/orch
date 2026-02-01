@@ -110,6 +110,10 @@ class Multiplexer(Protocol):
         """
         ...
 
+    def switch_to_session(self, target_session: str) -> tuple[bool, str]:
+        """Switch to session, creating viewer tab for cross-session access if needed."""
+        ...
+
 
 class TmuxMultiplexer:
     """Tmux implementation of Multiplexer."""
@@ -270,6 +274,22 @@ class TmuxMultiplexer:
         except (subprocess.TimeoutExpired, OSError):
             return []
 
+    def switch_to_session(self, target_session: str) -> tuple[bool, str]:
+        if not self.is_inside():
+            return (True, "not_inside_tmux")
+
+        current_session = self.get_current_session()
+        if current_session == target_session:
+            return (True, "already_in_session")
+
+        result = subprocess.run(
+            ["tmux", "switch-client", "-t", target_session],
+            capture_output=True,
+        )
+        if result.returncode == 0:
+            return (True, f"switched_to_session:{target_session}")
+        return (False, f"switch_failed:{result.stderr.decode().strip()}")
+
 
 ZELLIJ_TIMEOUT_SEC = 5
 
@@ -286,6 +306,87 @@ class ZellijMultiplexer:
 
     def is_inside(self) -> bool:
         return bool(os.environ.get("ZELLIJ"))
+
+    def switch_to_session(self, target_session: str) -> tuple[bool, str]:
+        """Switch to another zellij session, creating a viewer tab for cross-session access."""
+        if not self.is_inside():
+            return (True, "not_inside_zellij")
+
+        current_session = self.get_current_session()
+        if not current_session:
+            return (True, "no_current_session")
+
+        if current_session == target_session:
+            return (True, "already_in_session")
+
+        tab_name = f"view:{target_session[:12]}"
+
+        existing_tabs = self.list_windows()
+        if tab_name in existing_tabs:
+            self.select_window(tab_name)
+            return (True, f"switched_to_existing_viewer:{tab_name}")
+
+        viewer_script = self._create_session_viewer_script(target_session)
+        if not viewer_script:
+            return (False, "failed_to_create_viewer_script")
+
+        viewer_cmd = ["bash", "-c", viewer_script]
+        if self.new_tab_with_command(tab_name, viewer_cmd):
+            return (True, f"created_viewer_tab:{tab_name}")
+
+        return (False, "failed_to_create_viewer_tab")
+
+    def _create_session_viewer_script(self, target_session: str) -> Optional[str]:
+        """Create shell script that polls and displays target session output every 2 seconds."""
+        script = f'''
+# Session Viewer for: {target_session}
+# Press Ctrl+C to exit
+
+clear
+echo "=== Viewing Zellij Session: {target_session} ==="
+echo "Press Ctrl+C to exit, 'q' to quit viewer"
+echo ""
+
+cleanup() {{
+    echo ""
+    echo "Viewer closed."
+    exit 0
+}}
+
+trap cleanup INT TERM
+
+while true; do
+    # Clear and redraw
+    clear
+    echo "=== Viewing Zellij Session: {target_session} ==="
+    echo "Press Ctrl+C to exit | Last update: $(date '+%H:%M:%S')"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    # Check if target session exists
+    if ! zellij list-sessions -n 2>/dev/null | grep -q "^{target_session}"; then
+        echo "[Session '{target_session}' not found or has ended]"
+        echo ""
+        echo "Waiting for session to appear..."
+        sleep 2
+        continue
+    fi
+
+    # Capture and display output from target session
+    tmpfile=$(mktemp)
+    if zellij --session "{target_session}" action dump-screen "$tmpfile" 2>/dev/null; then
+        # Show last 40 lines of output
+        tail -n 40 "$tmpfile" 2>/dev/null || echo "[No output captured]"
+    else
+        echo "[Failed to capture session output]"
+    fi
+    rm -f "$tmpfile"
+
+    # Wait before next refresh
+    sleep 2
+done
+'''
+        return script.strip()
 
     def has_session(self, session_name: str) -> bool:
         try:
@@ -498,7 +599,6 @@ def get_agent_multiplexer_type() -> MultiplexerType:
     env_mux = os.environ.get("ORCH_AGENT_MULTIPLEXER", "").lower()
     if env_mux == "zellij":
         return MultiplexerType.ZELLIJ
-    # Default to tmux for agents (cross-session Zellij attach doesn't work)
     return MultiplexerType.TMUX
 
 
@@ -509,19 +609,7 @@ class InvalidMultiplexerConfigError(Exception):
 
 
 def validate_multiplexer_config(monitor_mux: MultiplexerType) -> None:
-    """Validate multiplexer configuration.
-
-    Raises InvalidMultiplexerConfigError if monitor=zellij and agent=zellij
-    (cross-session Zellij attach doesn't work).
-    """
-    agent_mux = get_agent_multiplexer_type()
-    if monitor_mux == MultiplexerType.ZELLIJ and agent_mux == MultiplexerType.ZELLIJ:
-        raise InvalidMultiplexerConfigError(
-            "Invalid multiplexer configuration: monitor_multiplexer=zellij with "
-            "agent_multiplexer=zellij is not supported (cross-session Zellij attach "
-            "doesn't work).\n"
-            "Fix: Set ORCH_AGENT_MULTIPLEXER=tmux or use --multiplexer tmux for monitor"
-        )
+    pass
 
 
 # Convenience functions for working with Run objects

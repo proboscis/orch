@@ -758,3 +758,91 @@ class TestZellijCommandContracts:
         assert expected_cmd[0] == "zellij"
         assert expected_cmd[1] == "--session"
         assert "action" in expected_cmd
+
+
+class TestSwitchToSession:
+    """Tests for switch_to_session method in both multiplexers."""
+
+    def test_tmux_switch_outside_session(self):
+        """TmuxMultiplexer returns 'not_inside_tmux' when outside tmux."""
+        tmux = TmuxMultiplexer()
+        with patch.dict(os.environ, {}, clear=True):
+            success, msg = tmux.switch_to_session("target-session")
+            assert success is True
+            assert msg == "not_inside_tmux"
+
+    def test_tmux_switch_same_session(self):
+        """TmuxMultiplexer returns 'already_in_session' when already in target."""
+        tmux = TmuxMultiplexer()
+        with patch.dict(os.environ, {"TMUX": "/tmp/tmux-1001/default,12345,0"}):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(
+                    returncode=0, stdout="target-session\n"
+                )
+                success, msg = tmux.switch_to_session("target-session")
+                assert success is True
+                assert msg == "already_in_session"
+
+    def test_tmux_switch_to_different_session(self):
+        """TmuxMultiplexer switches client when inside different session."""
+        tmux = TmuxMultiplexer()
+        with patch.dict(os.environ, {"TMUX": "/tmp/tmux-1001/default,12345,0"}):
+            with patch("subprocess.run") as mock_run:
+                mock_run.side_effect = [
+                    MagicMock(returncode=0, stdout="current-session\n"),
+                    MagicMock(returncode=0),
+                ]
+                success, msg = tmux.switch_to_session("target-session")
+                assert success is True
+                assert "switched_to_session" in msg
+
+    def test_zellij_switch_outside_session(self):
+        """ZellijMultiplexer returns 'not_inside_zellij' when outside zellij."""
+        zellij = ZellijMultiplexer()
+        with patch.dict(os.environ, {}, clear=True):
+            success, msg = zellij.switch_to_session("target-session")
+            assert success is True
+            assert msg == "not_inside_zellij"
+
+    def test_zellij_switch_same_session(self):
+        """ZellijMultiplexer returns 'already_in_session' when already in target."""
+        zellij = ZellijMultiplexer()
+        with patch.dict(
+            os.environ, {"ZELLIJ": "0", "ZELLIJ_SESSION_NAME": "target-session"}
+        ):
+            success, msg = zellij.switch_to_session("target-session")
+            assert success is True
+            assert msg == "already_in_session"
+
+    def test_zellij_creates_viewer_for_different_session(self):
+        """ZellijMultiplexer creates viewer tab for cross-session access."""
+        zellij = ZellijMultiplexer()
+        with patch.dict(
+            os.environ, {"ZELLIJ": "0", "ZELLIJ_SESSION_NAME": "current-session"}
+        ):
+            with patch("subprocess.run") as mock_run:
+                mock_run.side_effect = [
+                    MagicMock(returncode=0, stdout="other-tab\n"),
+                    MagicMock(returncode=0, stdout="other-tab\n"),
+                    MagicMock(returncode=0),
+                    MagicMock(returncode=0),
+                    MagicMock(returncode=0),
+                ]
+                success, msg = zellij.switch_to_session("target-session")
+                assert success is True
+                assert "created_viewer_tab" in msg
+
+    def test_zellij_switches_to_existing_viewer(self):
+        """ZellijMultiplexer switches to existing viewer tab if present."""
+        zellij = ZellijMultiplexer()
+        with patch.dict(
+            os.environ, {"ZELLIJ": "0", "ZELLIJ_SESSION_NAME": "current-session"}
+        ):
+            with patch("subprocess.run") as mock_run:
+                mock_run.side_effect = [
+                    MagicMock(returncode=0, stdout="view:target-sessi\nother-tab\n"),
+                    MagicMock(returncode=0),
+                ]
+                success, msg = zellij.switch_to_session("target-session")
+                assert success is True
+                assert "switched_to_existing_viewer" in msg

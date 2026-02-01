@@ -1337,31 +1337,41 @@
        (._do_attach self self.selected_run))
      
      (defn [(work :thread True)] _do_attach [self run]
-       "Attach to run in background thread to avoid blocking TUI."
-       (setv current-mux-type (detect_current_multiplexer))
-       (setv attach-cmd (+ (_build-orch-cmd self.config) ["attach" (.ref run)]))
-       (when current-mux-type
-         (setv current-mux (get_multiplexer current-mux-type))
-         (when (= current-mux-type MultiplexerType.ZELLIJ)
-           (setv run-mux-type (get_multiplexer_type_from_run run))
-           (when (= run-mux-type MultiplexerType.ZELLIJ)
-             (setv current-session (.get_current_session current-mux))
-             (setv run-session (get_session_name run))
-             (when (and current-session run-session (!= current-session run-session))
-               (setv cmd-str (.join " " attach-cmd))
-               (.call_from_thread self self.notify
-                 (+ "Cannot attach to different Zellij session from inside Zellij.\n"
-                    f"Run in a separate terminal: {cmd-str}")
-                 :severity "warning" :timeout 15)
-               (return))))
-         (setv tab-name f"{run.issue_id}[{(.short_id run)}]")
-         (when (.new_tab_with_command current-mux tab-name attach-cmd)
-           (.call_from_thread self self.notify f"Opened tab: {tab-name}")
-           (return))
-         (.call_from_thread self self.notify
-           "Failed to create tab, falling back to exit"
-           :severity "warning"))
-       (.call_from_thread self self._exit_and_attach attach-cmd))
+        "Attach to run in background thread to avoid blocking TUI."
+        (setv current-mux-type (detect_current_multiplexer))
+        (setv attach-cmd (+ (_build-orch-cmd self.config) ["attach" (.ref run)]))
+        (when current-mux-type
+          (setv current-mux (get_multiplexer current-mux-type))
+          (when (= current-mux-type MultiplexerType.ZELLIJ)
+            (setv run-mux-type (get_multiplexer_type_from_run run))
+            (when (= run-mux-type MultiplexerType.ZELLIJ)
+              (setv run-session (get_session_name run))
+              (when run-session
+                (setv #(success msg) (.switch_to_session current-mux run-session))
+                (cond
+                  (and success (.startswith msg "created_viewer_tab"))
+                  (do
+                    (.call_from_thread self self.notify
+                      f"Opened viewer for session: {run-session}" :timeout 5)
+                    (return))
+                  (and success (.startswith msg "switched_to_existing_viewer"))
+                  (do
+                    (.call_from_thread self self.notify
+                      f"Switched to existing viewer: {run-session}" :timeout 3)
+                    (return))
+                  (and success (in msg ["already_in_session" "not_inside_zellij" "no_current_session"]))
+                  None
+                  (not success)
+                  (.call_from_thread self self.notify
+                    f"Failed to create viewer: {msg}" :severity "warning" :timeout 5)))))
+          (setv tab-name f"{run.issue_id}[{(.short_id run)}]")
+          (when (.new_tab_with_command current-mux tab-name attach-cmd)
+            (.call_from_thread self self.notify f"Opened tab: {tab-name}")
+            (return))
+          (.call_from_thread self self.notify
+            "Failed to create tab, falling back to exit"
+            :severity "warning"))
+        (.call_from_thread self self._exit_and_attach attach-cmd))
      
      (defn _exit_and_attach [self attach-cmd]
        "Exit TUI and run attach command (must be called from main thread)."
