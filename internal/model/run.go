@@ -92,6 +92,11 @@ type Run struct {
 	ContinuedFrom string
 
 	BranchState string
+
+	// Daemon-computed fields
+	Alive          bool
+	AliveKnown     bool
+	WorktreeExists bool
 }
 
 // Ref returns the RunRef for this run

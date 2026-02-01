@@ -152,6 +152,7 @@ type Run struct {
 	ElapsedDisplay    string
 	Alive             bool
 	AliveKnown        bool
+	WorktreeExists    bool
 	StartedAt         time.Time
 	UpdatedAt         time.Time
 	Events            []*Event
