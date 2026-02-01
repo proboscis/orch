@@ -66,7 +66,7 @@ func GetWorktreeStatus(worktreePath, branch, baseBranch string) WorktreeStatus {
 	if isDirtyFast(worktreePath) {
 		return WorktreeStatus{
 			State:     BranchStateDirty,
-			DiffStats: getDiffStatsFast(worktreePath, baseBranch),
+			DiffStats: getWorkingTreeDiffStats(worktreePath, baseBranch),
 		}
 	}
 
@@ -144,6 +144,23 @@ func getDiffStatsFast(worktreePath, baseBranch string) DiffStats {
 	output, err := cmd.Output()
 	if err != nil {
 		cmd = exec.Command("git", "-C", worktreePath, "diff", "--numstat", baseBranch+"...HEAD")
+		output, err = cmd.Output()
+		if err != nil {
+			return DiffStats{}
+		}
+	}
+	return parseDiffNumstat(string(output))
+}
+
+// getWorkingTreeDiffStats computes diff from base branch to working tree (including uncommitted changes).
+func getWorkingTreeDiffStats(worktreePath, baseBranch string) DiffStats {
+	if baseBranch == "" {
+		baseBranch = "main"
+	}
+	cmd := exec.Command("git", "-C", worktreePath, "diff", "--numstat", "origin/"+baseBranch)
+	output, err := cmd.Output()
+	if err != nil {
+		cmd = exec.Command("git", "-C", worktreePath, "diff", "--numstat", baseBranch)
 		output, err = cmd.Output()
 		if err != nil {
 			return DiffStats{}
