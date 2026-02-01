@@ -320,6 +320,16 @@ message GetDiffResponse {
   string diff = 1;
 }
 
+message GetGitContextRequest {
+  string work_dir = 1;
+}
+
+message GetGitContextResponse {
+  string branch = 1;
+  string uncommitted_changes = 2;  // "Yes", "No", or "Unknown"
+  string last_commit_message = 3;
+}
+
 // --- Monitor Registration ---
 
 message RegisterMonitorRequest {
@@ -609,6 +619,7 @@ message Request {
     ReadFileRequest read_file = 36;
     WriteFileRequest write_file = 37;
     CreateRunRequest create_run = 38;
+    GetGitContextRequest get_git_context = 39;
   }
 }
 
@@ -655,5 +666,6 @@ message Response {
     ReadFileResponse read_file = 38;
     WriteFileResponse write_file = 39;
     CreateRunResponse create_run = 40;
+    GetGitContextResponse get_git_context = 41;
   }
 }
