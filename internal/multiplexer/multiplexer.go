@@ -178,7 +178,9 @@ func GetWithFallback(preferred Type) (Multiplexer, string, error) {
 }
 
 // GetAuto returns the best available multiplexer based on environment.
-// Priority: current session > zellij (if available) > tmux (if available).
+// Priority: current session > tmux > zellij.
+// Tmux is preferred because cross-session zellij attach doesn't work,
+// so orch-monitor (in zellij) needs agents to run in tmux.
 func GetAuto() (Multiplexer, error) {
 	tmux, _ := GetMultiplexer(TypeTmux)
 	zellij, _ := GetMultiplexer(TypeZellij)
@@ -190,11 +192,11 @@ func GetAuto() (Multiplexer, error) {
 		return zellij, nil
 	}
 
-	if zellij != nil && zellij.IsAvailable() {
-		return zellij, nil
-	}
 	if tmux != nil && tmux.IsAvailable() {
 		return tmux, nil
+	}
+	if zellij != nil && zellij.IsAvailable() {
+		return zellij, nil
 	}
 
 	return nil, fmt.Errorf("no terminal multiplexer available (install tmux or zellij)")
