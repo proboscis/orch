@@ -43,7 +43,6 @@ var globalOpts = &GlobalOptions{}
 var noDaemonCommands = map[string]bool{
 	"show":                 true,
 	"daemon":               true,
-	"run":                  true,
 	"list":                 true,
 	"kill":                 true,
 	"status":               true,

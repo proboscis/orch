@@ -77,6 +77,23 @@ queued → booting → running ⟷ blocked → done
 - `fail`: Run encountered an error
 - `cancel`: Run was manually cancelled
 
+### Architecture Lint (Enforced by Semgrep)
+
+The daemon boundary is mechanically enforced via semgrep rules in `.semgrep/architecture.yaml`.
+
+```bash
+make lint          # Show all architecture violations (non-blocking)
+make lint-strict   # Exit non-zero on any violation (use in CI)
+```
+
+**Before creating PRs that touch `internal/cli/` or `internal/monitor/`**, run `make lint` and ensure you are not introducing new violations. The rules enforce:
+- CLI must not import `internal/git`, `internal/pr`, `internal/store`
+- CLI must not shell out to `git` or call git functions directly
+- CLI must use `orchapi.OrchAPI` (via `getAPI()`), not `daemon` package directly
+- Monitor must not import `internal/git`, `internal/pr`, or shell out to `git`/`gh`
+
+Existing violations are tracked; do not add new ones.
+
 ## Code Style
 
 ### Go
@@ -84,6 +101,7 @@ queued → booting → running ⟷ blocked → done
 - Follow existing patterns in the codebase
 - Use the established error handling conventions
 - Run `go build ./...` and `go test ./...` before creating PRs
+- Run `make lint` to check for architecture boundary violations
 - Proto changes require regeneration: `make proto`
 
 ### Python (orch-monitor-tui)

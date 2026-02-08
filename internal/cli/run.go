@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/daemon"
@@ -124,7 +125,18 @@ func runRun(issueID string, opts *runOptions) error {
 
 	daemonClient := daemon.NewProtoClientWithIssuesRoot(repoRoot, issuesRoot)
 	if !daemonClient.IsAvailable() {
-		return exitWithCode(fmt.Errorf("daemon not running (run 'orch daemon start')"), ExitInternalError)
+		if _, err := daemon.StartInBackground(); err != nil {
+			return exitWithCode(fmt.Errorf("daemon not running and failed to start: %w\nRun 'orch repair' to fix daemon issues", err), ExitInternalError)
+		}
+		for i := 0; i < 20; i++ {
+			if daemonClient.IsAvailable() {
+				break
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+		if !daemonClient.IsAvailable() {
+			return exitWithCode(fmt.Errorf("daemon started but not responding"), ExitInternalError)
+		}
 	}
 
 	resp, err := daemonClient.StartRun(&daemon.StartRunOptions{

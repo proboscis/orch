@@ -29,9 +29,9 @@ rules:
           )
     paths:
       include:
-        - internal/cli/
+        - /internal/cli/
       exclude:
-        - internal/cli/*_test.go
+        - /internal/cli/*_test.go
     message: >
       CLI must not import internal/git. All git operations (repo root, branch,
       worktree, diff, merge state) must go through the daemon API.
@@ -52,9 +52,9 @@ rules:
           )
     paths:
       include:
-        - internal/cli/
+        - /internal/cli/
       exclude:
-        - internal/cli/*_test.go
+        - /internal/cli/*_test.go
     message: >
       CLI must not import internal/pr. PR lookups must go through the daemon API
       (daemon handles caching and rate limiting).
@@ -74,9 +74,9 @@ rules:
           )
     paths:
       include:
-        - internal/cli/
+        - /internal/cli/
       exclude:
-        - internal/cli/*_test.go
+        - /internal/cli/*_test.go
     message: >
       CLI must not import internal/store. All data access goes through the daemon.
     severity: ERROR
@@ -95,9 +95,9 @@ rules:
           )
     paths:
       include:
-        - internal/cli/
+        - /internal/cli/
       exclude:
-        - internal/cli/*_test.go
+        - /internal/cli/*_test.go
     message: >
       CLI must not import internal/store/file. All data access goes through the daemon.
     severity: ERROR
@@ -116,12 +116,12 @@ rules:
           )
     paths:
       include:
-        - internal/cli/
+        - /internal/cli/
       exclude:
-        - internal/cli/*_test.go
+        - /internal/cli/*_test.go
         # Bootstrap exceptions: these need config before daemon is available
-        - internal/cli/root.go
-        - internal/cli/daemon.go
+        - /internal/cli/root.go
+        - /internal/cli/daemon.go
     message: >
       CLI should not import internal/config directly. Config should flow from the
       daemon via API responses or a GetConfig RPC. Bootstrap exceptions: root.go, daemon.go.
@@ -142,13 +142,13 @@ rules:
           )
     paths:
       include:
-        - internal/cli/
+        - /internal/cli/
       exclude:
-        - internal/cli/*_test.go
+        - /internal/cli/*_test.go
         # Bootstrap/management exceptions
-        - internal/cli/root.go
-        - internal/cli/daemon.go
-        - internal/cli/monitor.go
+        - /internal/cli/root.go
+        - /internal/cli/daemon.go
+        - /internal/cli/monitor.go
     message: >
       CLI should use orchapi.OrchAPI interface (via getAPI()), not the daemon package.
       Direct daemon access bypasses the API abstraction layer.
@@ -168,9 +168,9 @@ rules:
       - pattern: exec.Command("git", ...)
     paths:
       include:
-        - internal/cli/
+        - /internal/cli/
       exclude:
-        - internal/cli/*_test.go
+        - /internal/cli/*_test.go
     message: >
       CLI must not shell out to git via exec.Command("git", ...).
       Use daemon API: GetDiff, GetDiffStats, GetBranchState.
@@ -185,9 +185,9 @@ rules:
       - pattern: git.FindMainRepoRoot(...)
     paths:
       include:
-        - internal/cli/
+        - /internal/cli/
       exclude:
-        - internal/cli/*_test.go
+        - /internal/cli/*_test.go
     message: >
       CLI must not call git.FindMainRepoRoot(). The daemon knows the repo root.
       Fix: Use getProjectRoot() or get it from daemon API responses.
@@ -208,9 +208,9 @@ rules:
           - pattern: git.HasUncommittedChanges(...)
     paths:
       include:
-        - internal/cli/
+        - /internal/cli/
       exclude:
-        - internal/cli/*_test.go
+        - /internal/cli/*_test.go
     message: >
       CLI must not perform git operations directly. Branch verification, worktree
       creation, and state checks must go through the daemon API.
@@ -226,9 +226,9 @@ rules:
       - pattern: pr.LookupInfo(...)
     paths:
       include:
-        - internal/cli/
+        - /internal/cli/
       exclude:
-        - internal/cli/*_test.go
+        - /internal/cli/*_test.go
     message: >
       CLI must not call pr.LookupInfo() directly. PR lookups go through the daemon
       (which handles caching and rate limiting).
@@ -245,9 +245,9 @@ rules:
           - pattern: agent.RefreshMuxCache()
     paths:
       include:
-        - internal/cli/
+        - /internal/cli/
       exclude:
-        - internal/cli/*_test.go
+        - /internal/cli/*_test.go
     message: >
       CLI must not check agent liveness via agent.GetManager()/RefreshMuxCache().
       The daemon computes alive status and returns it in API responses (Alive, AliveKnown fields).
@@ -262,9 +262,9 @@ rules:
       - pattern: agent.NewOpenCodeClient(...)
     paths:
       include:
-        - internal/cli/
+        - /internal/cli/
       exclude:
-        - internal/cli/*_test.go
+        - /internal/cli/*_test.go
     message: >
       CLI must not create OpenCodeClient directly.
       All OpenCode interactions go through the daemon (EnsureOpenCodeServer, QueryOpenCodeServer).
@@ -279,9 +279,9 @@ rules:
       - pattern: daemon.SendViaDaemon(...)
     paths:
       include:
-        - internal/cli/
+        - /internal/cli/
       exclude:
-        - internal/cli/*_test.go
+        - /internal/cli/*_test.go
     message: >
       CLI must not call daemon.SendViaDaemon() directly.
       Use orchapi.OrchAPI.SendMessage() through the getAPI() interface.
@@ -298,10 +298,10 @@ rules:
           - pattern: daemon.NewProtoClientWithIssuesRoot(...)
     paths:
       include:
-        - internal/cli/
+        - /internal/cli/
       exclude:
-        - internal/cli/*_test.go
-        - internal/cli/daemon.go
+        - /internal/cli/*_test.go
+        - /internal/cli/daemon.go
     message: >
       CLI must not construct ProtoClient directly. Use getAPI() which returns
       an orchapi.OrchAPI interface. This maintains the abstraction boundary.
@@ -319,11 +319,11 @@ rules:
           - pattern: daemon.IsDaemonSocketAvailable(...)
     paths:
       include:
-        - internal/cli/
+        - /internal/cli/
       exclude:
-        - internal/cli/*_test.go
-        - internal/cli/daemon.go
-        - internal/cli/repair.go
+        - /internal/cli/*_test.go
+        - /internal/cli/daemon.go
+        - /internal/cli/repair.go
     message: >
       CLI should not check daemon process state directly.
       Use orchapi.Ping() or the getAPI() auto-start mechanism.
@@ -346,9 +346,9 @@ rules:
           - pattern: os.Create(...)
     paths:
       include:
-        - internal/cli/
+        - /internal/cli/
       exclude:
-        - internal/cli/*_test.go
+        - /internal/cli/*_test.go
     message: >
       CLI should not use os.Open/OpenFile/Create directly.
       File operations should go through the daemon API (ReadFile, WriteFile).
@@ -365,9 +365,9 @@ rules:
           - pattern: os.WriteFile(...)
     paths:
       include:
-        - internal/cli/
+        - /internal/cli/
       exclude:
-        - internal/cli/*_test.go
+        - /internal/cli/*_test.go
     message: >
       CLI must not read/write files directly.
       Use orchapi.OrchAPI.ReadFile()/WriteFile() through the daemon.
@@ -382,9 +382,9 @@ rules:
       - pattern: os.MkdirAll(...)
     paths:
       include:
-        - internal/cli/
+        - /internal/cli/
       exclude:
-        - internal/cli/*_test.go
+        - /internal/cli/*_test.go
     message: >
       CLI must not create directories directly. Directory creation for issues/runs
       should be handled by the daemon (CreateIssue, CreateRun).
@@ -402,9 +402,9 @@ rules:
           - pattern: $MUX.SendKeysLiteral(...)
     paths:
       include:
-        - internal/cli/
+        - /internal/cli/
       exclude:
-        - internal/cli/*_test.go
+        - /internal/cli/*_test.go
     message: >
       CLI must not interact with multiplexer (tmux/zellij) directly for message sending.
       Use daemon API for agent interactions. Attach is acceptable as a UI concern.
@@ -428,9 +428,9 @@ rules:
           )
     paths:
       include:
-        - internal/monitor/
+        - /internal/monitor/
       exclude:
-        - internal/monitor/*_test.go
+        - /internal/monitor/*_test.go
     message: >
       Monitor must not import internal/git. All git operations must go through
       the daemon API.
@@ -450,9 +450,9 @@ rules:
           )
     paths:
       include:
-        - internal/monitor/
+        - /internal/monitor/
       exclude:
-        - internal/monitor/*_test.go
+        - /internal/monitor/*_test.go
     message: >
       Monitor must not import internal/pr. PR operations must go through the daemon API.
     severity: ERROR
@@ -466,9 +466,9 @@ rules:
       - pattern: exec.Command("git", ...)
     paths:
       include:
-        - internal/monitor/
+        - /internal/monitor/
       exclude:
-        - internal/monitor/*_test.go
+        - /internal/monitor/*_test.go
     message: >
       Monitor must not shell out to git. Use daemon API for git operations.
     severity: ERROR
@@ -482,9 +482,9 @@ rules:
       - pattern: exec.Command("gh", ...)
     paths:
       include:
-        - internal/monitor/
+        - /internal/monitor/
       exclude:
-        - internal/monitor/*_test.go
+        - /internal/monitor/*_test.go
     message: >
       Monitor must not shell out to 'gh' CLI. PR/GitHub operations must go
       through the daemon API.
@@ -499,9 +499,9 @@ rules:
       - pattern: pr.LookupInfo(...)
     paths:
       include:
-        - internal/monitor/
+        - /internal/monitor/
       exclude:
-        - internal/monitor/*_test.go
+        - /internal/monitor/*_test.go
     message: >
       Monitor must not call pr.LookupInfo() directly. PR lookups go through the daemon.
     severity: ERROR
@@ -524,7 +524,7 @@ rules:
           )
     paths:
       include:
-        - internal/cli/run.go
+        - /internal/cli/run.go
     message: >
       run.go must not import internal/agent. Agent operations are fully
       delegated to the daemon via StartRun().
@@ -544,7 +544,7 @@ rules:
           )
     paths:
       include:
-        - internal/cli/run.go
+        - /internal/cli/run.go
     message: >
       run.go must not import internal/multiplexer. Session creation is
       delegated to the daemon via StartRun().
