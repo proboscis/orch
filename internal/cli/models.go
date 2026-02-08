@@ -8,12 +8,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
 
-const defaultOpenCodePort = agent.OpenCodeServerPortStart
+// defaultOpenCodePort is the default port for the OpenCode server.
+// This value matches agent.OpenCodeServerPortStart but is defined here
+// to avoid importing the agent package for a single constant.
+const defaultOpenCodePort = 4096
 
 type modelsOptions struct {
 	Port    int

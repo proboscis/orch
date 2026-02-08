@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
@@ -72,7 +71,7 @@ func runAttach(refStr string, opts *attachOptions) error {
 		return fmt.Errorf("cannot attach: %s", resp.Error)
 	}
 
-	if resp.Agent == string(agent.AgentOpenCode) {
+	if resp.Agent == "opencode" {
 		return attachOpenCodeFromInfo(resp)
 	}
 

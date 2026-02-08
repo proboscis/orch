@@ -7,7 +7,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
@@ -78,7 +77,7 @@ func runSend(refStr, message string, opts *sendOptions) error {
 		return err
 	}
 
-	isOpenCode := run.Agent == string(agent.AgentOpenCode)
+	isOpenCode := run.Agent == "opencode"
 
 	if opts.DryRun {
 		return validateSendConfig(run, isOpenCode)

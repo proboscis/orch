@@ -129,3 +129,26 @@ rules:
     metadata:
       category: architecture
       issue: orch-405
+
+  - id: cli-no-agent-import-in-send-attach-models
+    patterns:
+      - pattern: |
+          import (
+            ...
+            "github.com/s22625/orch/internal/agent"
+            ...
+          )
+    paths:
+      include:
+        - /internal/cli/send.go
+        - /internal/cli/attach.go
+        - /internal/cli/models.go
+    message: |
+      send.go, attach.go, and models.go must not import internal/agent.
+      Use string literals for agent type comparisons ("opencode").
+      Use local constants for port values.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      issue: orch-413
