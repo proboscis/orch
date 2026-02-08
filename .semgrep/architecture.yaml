@@ -1,4 +1,69 @@
 rules:
+  # ===========================================================================
+  # BOUNDARY: CLI layer allowed imports
+  #
+  # CLI code (internal/cli/) MUST only interact with the daemon through:
+  #   - orchapi.OrchAPI interface (via getAPI())
+  #   - model types for display formatting
+  #   - agent display helpers (AgentDisplayName etc.)
+  #
+  # CLI code MUST NOT import or use:
+  #   - internal/git (git operations belong in daemon)
+  #   - internal/pr (PR lookups belong in daemon)
+  #   - internal/store (data access belongs in daemon)
+  #   - internal/config (config should come from daemon, except bootstrap)
+  #   - internal/daemon directly (use orchapi interface, except bootstrap)
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # 1. Forbidden package imports from CLI
+  # ---------------------------------------------------------------------------
+
+  - id: cli-no-git-import
+    patterns:
+      - pattern: |
+          import (
+            ...
+            "github.com/s22625/orch/internal/git"
+            ...
+          )
+    paths:
+      include:
+        - internal/cli/
+      exclude:
+        - internal/cli/*_test.go
+    message: >
+      CLI must not import internal/git. All git operations (repo root, branch,
+      worktree, diff, merge state) must go through the daemon API.
+      Fix: Use orchapi.OrchAPI methods like GetDiff, GetBranchState, GetDiffStats.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: daemon-bypass
+
+  - id: cli-no-pr-import
+    patterns:
+      - pattern: |
+          import (
+            ...
+            "github.com/s22625/orch/internal/pr"
+            ...
+          )
+    paths:
+      include:
+        - internal/cli/
+      exclude:
+        - internal/cli/*_test.go
+    message: >
+      CLI must not import internal/pr. PR lookups must go through the daemon API
+      (daemon handles caching and rate limiting).
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: daemon-bypass
+
   - id: cli-no-store-import
     patterns:
       - pattern: |
@@ -9,15 +74,16 @@ rules:
           )
     paths:
       include:
-        - /internal/cli/*.go
-    message: |
-      CLI commands should not import internal/store directly.
-      Use getAPI() to access data through the daemon instead.
+        - internal/cli/
+      exclude:
+        - internal/cli/*_test.go
+    message: >
+      CLI must not import internal/store. All data access goes through the daemon.
     severity: ERROR
     languages: [go]
     metadata:
       category: architecture
-      issue: orch-374
+      violation: daemon-bypass
 
   - id: cli-no-store-file-import
     patterns:
@@ -29,15 +95,248 @@ rules:
           )
     paths:
       include:
-        - /internal/cli/*.go
-    message: |
-      CLI commands should not import internal/store/file directly.
-      Use getAPI() to access data through the daemon instead.
+        - internal/cli/
+      exclude:
+        - internal/cli/*_test.go
+    message: >
+      CLI must not import internal/store/file. All data access goes through the daemon.
     severity: ERROR
     languages: [go]
     metadata:
       category: architecture
-      issue: orch-374
+      violation: daemon-bypass
+
+  - id: cli-no-config-import
+    patterns:
+      - pattern: |
+          import (
+            ...
+            "github.com/s22625/orch/internal/config"
+            ...
+          )
+    paths:
+      include:
+        - internal/cli/
+      exclude:
+        - internal/cli/*_test.go
+        # Bootstrap exceptions: these need config before daemon is available
+        - internal/cli/root.go
+        - internal/cli/daemon.go
+    message: >
+      CLI should not import internal/config directly. Config should flow from the
+      daemon via API responses or a GetConfig RPC. Bootstrap exceptions: root.go, daemon.go.
+      Fix: Move config-dependent logic to daemon, or add config fields to API responses.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: config-scatter
+
+  - id: cli-no-daemon-import
+    patterns:
+      - pattern: |
+          import (
+            ...
+            "github.com/s22625/orch/internal/daemon"
+            ...
+          )
+    paths:
+      include:
+        - internal/cli/
+      exclude:
+        - internal/cli/*_test.go
+        # Bootstrap/management exceptions
+        - internal/cli/root.go
+        - internal/cli/daemon.go
+        - internal/cli/monitor.go
+    message: >
+      CLI should use orchapi.OrchAPI interface (via getAPI()), not the daemon package.
+      Direct daemon access bypasses the API abstraction layer.
+      Exceptions: root.go (ensureDaemon), daemon.go (daemon commands), monitor.go (monitor launch).
+    severity: WARNING
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: abstraction-bypass
+
+  # ---------------------------------------------------------------------------
+  # 2. Forbidden direct operations from CLI
+  # ---------------------------------------------------------------------------
+
+  - id: cli-no-exec-git
+    patterns:
+      - pattern: exec.Command("git", ...)
+    paths:
+      include:
+        - internal/cli/
+      exclude:
+        - internal/cli/*_test.go
+    message: >
+      CLI must not shell out to git via exec.Command("git", ...).
+      Use daemon API: GetDiff, GetDiffStats, GetBranchState.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: daemon-bypass
+
+  - id: cli-no-git-find-repo
+    patterns:
+      - pattern: git.FindMainRepoRoot(...)
+    paths:
+      include:
+        - internal/cli/
+      exclude:
+        - internal/cli/*_test.go
+    message: >
+      CLI must not call git.FindMainRepoRoot(). The daemon knows the repo root.
+      Fix: Use getProjectRoot() or get it from daemon API responses.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: daemon-bypass
+
+  - id: cli-no-git-branch-ops
+    patterns:
+      - pattern-either:
+          - pattern: git.GetCurrentBranch(...)
+          - pattern: git.FindWorktreesByBranch(...)
+          - pattern: git.CreateWorktreeFromBranch(...)
+          - pattern: git.CreateWorktree(...)
+          - pattern: git.GetAheadCount(...)
+          - pattern: git.HasUncommittedChanges(...)
+    paths:
+      include:
+        - internal/cli/
+      exclude:
+        - internal/cli/*_test.go
+    message: >
+      CLI must not perform git operations directly. Branch verification, worktree
+      creation, and state checks must go through the daemon API.
+      Fix: For 'continue', add a ContinueRun daemon RPC that handles orchestration.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: daemon-bypass
+
+  - id: cli-no-pr-lookup
+    patterns:
+      - pattern: pr.LookupInfo(...)
+    paths:
+      include:
+        - internal/cli/
+      exclude:
+        - internal/cli/*_test.go
+    message: >
+      CLI must not call pr.LookupInfo() directly. PR lookups go through the daemon
+      (which handles caching and rate limiting).
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: daemon-bypass
+
+  - id: cli-no-agent-manager
+    patterns:
+      - pattern-either:
+          - pattern: agent.GetManager(...)
+          - pattern: agent.RefreshMuxCache()
+    paths:
+      include:
+        - internal/cli/
+      exclude:
+        - internal/cli/*_test.go
+    message: >
+      CLI must not check agent liveness via agent.GetManager()/RefreshMuxCache().
+      The daemon computes alive status and returns it in API responses (Alive, AliveKnown fields).
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: daemon-bypass
+
+  - id: cli-no-opencode-client
+    patterns:
+      - pattern: agent.NewOpenCodeClient(...)
+    paths:
+      include:
+        - internal/cli/
+      exclude:
+        - internal/cli/*_test.go
+    message: >
+      CLI must not create OpenCodeClient directly.
+      All OpenCode interactions go through the daemon (EnsureOpenCodeServer, QueryOpenCodeServer).
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: daemon-bypass
+
+  - id: cli-no-send-via-daemon
+    patterns:
+      - pattern: daemon.SendViaDaemon(...)
+    paths:
+      include:
+        - internal/cli/
+      exclude:
+        - internal/cli/*_test.go
+    message: >
+      CLI must not call daemon.SendViaDaemon() directly.
+      Use orchapi.OrchAPI.SendMessage() through the getAPI() interface.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: abstraction-bypass
+
+  - id: cli-no-proto-client-direct
+    patterns:
+      - pattern-either:
+          - pattern: daemon.NewProtoClient(...)
+          - pattern: daemon.NewProtoClientWithIssuesRoot(...)
+    paths:
+      include:
+        - internal/cli/
+      exclude:
+        - internal/cli/*_test.go
+        - internal/cli/daemon.go
+    message: >
+      CLI must not construct ProtoClient directly. Use getAPI() which returns
+      an orchapi.OrchAPI interface. This maintains the abstraction boundary.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: abstraction-bypass
+
+  - id: cli-no-daemon-process-checks
+    patterns:
+      - pattern-either:
+          - pattern: daemon.IsRunning(...)
+          - pattern: daemon.GetRunningPID(...)
+          - pattern: daemon.IsDaemonSocketAvailable(...)
+    paths:
+      include:
+        - internal/cli/
+      exclude:
+        - internal/cli/*_test.go
+        - internal/cli/daemon.go
+        - internal/cli/repair.go
+    message: >
+      CLI should not check daemon process state directly.
+      Use orchapi.Ping() or the getAPI() auto-start mechanism.
+      Exceptions: daemon.go (daemon management), repair.go (repair ops).
+    severity: WARNING
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: abstraction-bypass
+
+  # ---------------------------------------------------------------------------
+  # 3. Forbidden filesystem operations from CLI
+  # ---------------------------------------------------------------------------
 
   - id: cli-no-file-open
     patterns:
@@ -47,85 +346,210 @@ rules:
           - pattern: os.Create(...)
     paths:
       include:
-        - /internal/cli/*.go
-    message: |
-      CLI commands should not use os.Open/OpenFile/Create directly.
-      File operations should go through the daemon API.
+        - internal/cli/
+      exclude:
+        - internal/cli/*_test.go
+    message: >
+      CLI should not use os.Open/OpenFile/Create directly.
+      File operations should go through the daemon API (ReadFile, WriteFile).
     severity: ERROR
     languages: [go]
     metadata:
       category: architecture
+      violation: daemon-bypass
 
   - id: cli-no-file-readwrite
     patterns:
       - pattern-either:
           - pattern: os.ReadFile(...)
           - pattern: os.WriteFile(...)
-          - pattern: ioutil.ReadFile(...)
-          - pattern: ioutil.WriteFile(...)
     paths:
       include:
-        - /internal/cli/*.go
-    message: |
-      CLI commands should not use os.ReadFile/WriteFile directly.
-      File operations should go through the daemon API.
-    severity: ERROR
-    languages: [go]
-    metadata:
-      category: architecture
-
-  - id: cli-no-opencode-client
-    patterns:
-      - pattern: agent.NewOpenCodeClient(...)
-    paths:
-      include:
-        - /internal/cli/*.go
+        - internal/cli/
       exclude:
-        - /internal/cli/debug.go
-    message: |
-      CLI must not create OpenCodeClient directly.
-      All opencode server interactions must go through the daemon.
+        - internal/cli/*_test.go
+    message: >
+      CLI must not read/write files directly.
+      Use orchapi.OrchAPI.ReadFile()/WriteFile() through the daemon.
     severity: ERROR
     languages: [go]
     metadata:
       category: architecture
-      issue: orch-405
+      violation: daemon-bypass
 
-  - id: cli-no-agent-manager-sendmessage
+  - id: cli-no-mkdir-issues
     patterns:
-      - pattern: $MANAGER.SendMessage(...)
-      - metavariable-pattern:
-          metavariable: $MANAGER
-          pattern-either:
-            - pattern: agent.GetManager(...)
-            - pattern: $M
+      - pattern: os.MkdirAll(...)
     paths:
       include:
-        - /internal/cli/*.go
-    message: |
-      CLI must not call AgentManager.SendMessage directly.
-      Use daemon.SendViaDaemon() for all agent message sending.
-    severity: ERROR
+        - internal/cli/
+      exclude:
+        - internal/cli/*_test.go
+    message: >
+      CLI must not create directories directly. Directory creation for issues/runs
+      should be handled by the daemon (CreateIssue, CreateRun).
+    severity: WARNING
     languages: [go]
     metadata:
       category: architecture
-      issue: orch-405
+      violation: daemon-bypass
 
   - id: cli-no-multiplexer-direct
     patterns:
       - pattern-either:
           - pattern: multiplexer.GetDefault()
-          - pattern: multiplexer.SendKeys(...)
           - pattern: $MUX.SendKeys(...)
           - pattern: $MUX.SendKeysLiteral(...)
     paths:
       include:
-        - /internal/cli/*.go
-    message: |
-      CLI must not interact with multiplexer directly.
-      All tmux/agent interactions must go through the daemon.
+        - internal/cli/
+      exclude:
+        - internal/cli/*_test.go
+    message: >
+      CLI must not interact with multiplexer (tmux/zellij) directly for message sending.
+      Use daemon API for agent interactions. Attach is acceptable as a UI concern.
     severity: ERROR
     languages: [go]
     metadata:
       category: architecture
-      issue: orch-405
+      violation: daemon-bypass
+
+  # ---------------------------------------------------------------------------
+  # 4. Monitor boundary rules (same principles apply)
+  # ---------------------------------------------------------------------------
+
+  - id: monitor-no-git-import
+    patterns:
+      - pattern: |
+          import (
+            ...
+            "github.com/s22625/orch/internal/git"
+            ...
+          )
+    paths:
+      include:
+        - internal/monitor/
+      exclude:
+        - internal/monitor/*_test.go
+    message: >
+      Monitor must not import internal/git. All git operations must go through
+      the daemon API.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: daemon-bypass
+
+  - id: monitor-no-pr-import
+    patterns:
+      - pattern: |
+          import (
+            ...
+            "github.com/s22625/orch/internal/pr"
+            ...
+          )
+    paths:
+      include:
+        - internal/monitor/
+      exclude:
+        - internal/monitor/*_test.go
+    message: >
+      Monitor must not import internal/pr. PR operations must go through the daemon API.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: daemon-bypass
+
+  - id: monitor-no-exec-git
+    patterns:
+      - pattern: exec.Command("git", ...)
+    paths:
+      include:
+        - internal/monitor/
+      exclude:
+        - internal/monitor/*_test.go
+    message: >
+      Monitor must not shell out to git. Use daemon API for git operations.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: daemon-bypass
+
+  - id: monitor-no-exec-gh
+    patterns:
+      - pattern: exec.Command("gh", ...)
+    paths:
+      include:
+        - internal/monitor/
+      exclude:
+        - internal/monitor/*_test.go
+    message: >
+      Monitor must not shell out to 'gh' CLI. PR/GitHub operations must go
+      through the daemon API.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: daemon-bypass
+
+  - id: monitor-no-pr-lookup
+    patterns:
+      - pattern: pr.LookupInfo(...)
+    paths:
+      include:
+        - internal/monitor/
+      exclude:
+        - internal/monitor/*_test.go
+    message: >
+      Monitor must not call pr.LookupInfo() directly. PR lookups go through the daemon.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: daemon-bypass
+
+  # ---------------------------------------------------------------------------
+  # 5. run.go specific: must be a thin daemon client
+  # ---------------------------------------------------------------------------
+
+  - id: run-no-agent-import
+    patterns:
+      - pattern: |
+          import (
+            ...
+            "github.com/s22625/orch/internal/agent"
+            ...
+          )
+    paths:
+      include:
+        - internal/cli/run.go
+    message: >
+      run.go must not import internal/agent. Agent operations are fully
+      delegated to the daemon via StartRun().
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: daemon-bypass
+
+  - id: run-no-multiplexer-import
+    patterns:
+      - pattern: |
+          import (
+            ...
+            "github.com/s22625/orch/internal/multiplexer"
+            ...
+          )
+    paths:
+      include:
+        - internal/cli/run.go
+    message: >
+      run.go must not import internal/multiplexer. Session creation is
+      delegated to the daemon via StartRun().
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: daemon-bypass

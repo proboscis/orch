@@ -366,14 +366,28 @@ func (c *ProtoClient) CloseIssue(issueID, comment string) (*CloseIssueResponse, 
 	}, nil
 }
 
-func (c *ProtoClient) StartRun(issueID, agent, model string) (*StartRunResponse, error) {
+func (c *ProtoClient) StartRun(opts *StartRunOptions) (*StartRunResponse, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_StartRun{
 			StartRun: &orchpb.StartRunRequest{
-				IssuesRoot: c.issuesRoot,
-				IssueId:    issueID,
-				Agent:      agent,
-				Model:      model,
+				IssuesRoot:     c.issuesRoot,
+				IssueId:        opts.IssueID,
+				RunId:          opts.RunID,
+				Agent:          opts.Agent,
+				AgentCmd:       opts.AgentCmd,
+				AgentProfile:   opts.AgentProfile,
+				Model:          opts.Model,
+				ModelVariant:   opts.ModelVariant,
+				BaseBranch:     opts.BaseBranch,
+				Branch:         opts.Branch,
+				WorktreeDir:    opts.WorktreeDir,
+				NoPr:           opts.NoPR,
+				PromptTemplate: opts.PromptTemplate,
+				PrTargetBranch: opts.PRTargetBranch,
+				DryRun:         opts.DryRun,
+				Reuse:          opts.Reuse,
+				Multiplexer:    opts.Multiplexer,
+				ProjectRoot:    opts.ProjectRoot,
 			},
 		},
 	}
@@ -398,6 +412,7 @@ func (c *ProtoClient) StartRun(issueID, agent, model string) (*StartRunResponse,
 		Branch:       startResp.Branch,
 		WorktreePath: startResp.WorktreePath,
 		TmuxSession:  startResp.TmuxSession,
+		Status:       startResp.Status,
 	}, nil
 }
 

@@ -200,7 +200,14 @@ func (c *DaemonClient) ListRuns(ctx context.Context, filter *ListRunsFilter) (*L
 }
 
 func (c *DaemonClient) StartRun(ctx context.Context, req *StartRunRequest) (*StartRunResult, error) {
-	resp, err := c.proto.StartRun(req.IssueID, req.Agent, req.Model)
+	resp, err := c.proto.StartRun(&daemon.StartRunOptions{
+		IssueID:      req.IssueID,
+		Agent:        req.Agent,
+		Model:        req.Model,
+		ModelVariant: req.ModelVariant,
+		BaseBranch:   req.BaseBranch,
+		ProjectRoot:  req.ProjectRoot,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -209,6 +216,7 @@ func (c *DaemonClient) StartRun(ctx context.Context, req *StartRunRequest) (*Sta
 		Branch:       resp.Branch,
 		WorktreePath: resp.WorktreePath,
 		TmuxSession:  resp.TmuxSession,
+		Status:       resp.Status,
 	}, nil
 }
 

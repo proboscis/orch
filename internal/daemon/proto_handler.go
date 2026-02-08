@@ -423,12 +423,25 @@ func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Resp
 
 func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.Response {
 	jsonReq := SendRequest{
-		Type:        "start_run",
-		IssueID:     req.IssueId,
-		AgentType:   req.Agent,
-		Message:     req.Model,
-		IssuesRoot:  req.IssuesRoot,
-		ProjectRoot: req.ProjectRoot,
+		Type:           "start_run",
+		IssueID:        req.IssueId,
+		RunID:          req.RunId,
+		AgentType:      req.Agent,
+		Message:        req.Model,
+		ModelVariant:   req.ModelVariant,
+		BaseBranch:     req.BaseBranch,
+		Branch:         req.Branch,
+		WorktreeDir:    req.WorktreeDir,
+		NoPR:           req.NoPr,
+		PromptTemplate: req.PromptTemplate,
+		PRTargetBranch: req.PrTargetBranch,
+		DryRun:         req.DryRun,
+		Reuse:          req.Reuse,
+		AgentCmd:       req.AgentCmd,
+		AgentProfile:   req.AgentProfile,
+		Multiplexer:    req.Multiplexer,
+		IssuesRoot:     req.IssuesRoot,
+		ProjectRoot:    req.ProjectRoot,
 	}
 
 	var buf jsonCapture
@@ -452,6 +465,7 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 				Branch:       result.Branch,
 				WorktreePath: result.WorktreePath,
 				TmuxSession:  result.TmuxSession,
+				Status:       result.Status,
 			},
 		},
 	}

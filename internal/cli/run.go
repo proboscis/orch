@@ -9,15 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
-	"time"
 
-	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/multiplexer"
-	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
 
@@ -108,62 +104,11 @@ func runRun(issueID string, opts *runOptions) error {
 		issueID = model.NormalizeGitHubIssueID(issueID)
 	}
 
-	ctx := context.Background()
-	api, err := getAPI()
+	_, err := applyPromptConfigDefaults(opts)
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)
 	}
 
-	issuesRoot, err := getIssuesRoot()
-	if err != nil {
-		return exitWithCode(err, ExitInternalError)
-	}
-
-	cfg, err := applyPromptConfigDefaults(opts)
-	if err != nil {
-		return exitWithCode(err, ExitInternalError)
-	}
-
-	apiIssue, err := api.GetIssue(ctx, issueID)
-	if err != nil {
-		return exitWithCode(fmt.Errorf("issue not found: %s", issueID), ExitIssueNotFound)
-	}
-	issue := &model.Issue{
-		ID:      apiIssue.ID,
-		Title:   apiIssue.Title,
-		Summary: apiIssue.Summary,
-		Status:  model.IssueStatus(apiIssue.Status),
-		Body:    apiIssue.Body,
-		Path:    apiIssue.Path,
-	}
-
-	// Determine run ID
-	runID := opts.RunID
-	if runID == "" {
-		if opts.Reuse {
-			latestRun, err := api.GetLatestRun(ctx, issueID)
-			if err == nil && (latestRun.Status == orchapi.RunStatusBlocked || latestRun.Status == orchapi.RunStatusBlockedAPI) {
-				runID = latestRun.RunID
-			}
-		}
-		if runID == "" {
-			runID = model.GenerateRunID()
-		}
-	}
-
-	// Determine branch name
-	branch := opts.Branch
-	if branch == "" {
-		branch = model.GenerateBranchName(issueID, runID)
-	}
-
-	// Determine tmux session name
-	tmuxSession := opts.TmuxSession
-	if tmuxSession == "" {
-		tmuxSession = model.GenerateTmuxSession(issueID, runID)
-	}
-
-	// Find repo root - use main repo root to handle running from inside worktrees
 	repoRoot := opts.RepoRoot
 	if repoRoot == "" {
 		repoRoot, err = git.FindMainRepoRoot("")
@@ -172,47 +117,50 @@ func runRun(issueID string, opts *runOptions) error {
 		}
 	}
 
-	// Compute worktree path (absolute to ensure correct directory regardless of cwd)
-	worktreeName := model.GenerateWorktreeName(issueID, runID, opts.Agent)
-	var worktreePath string
-	if filepath.IsAbs(opts.WorktreeDir) {
-		// Absolute path: use directly without joining with repoRoot
-		worktreePath = filepath.Join(opts.WorktreeDir, issueID, worktreeName)
-	} else {
-		// Relative path: join with repoRoot
-		worktreePath = filepath.Join(repoRoot, opts.WorktreeDir, issueID, worktreeName)
+	issuesRoot, err := getIssuesRoot()
+	if err != nil {
+		return exitWithCode(err, ExitInternalError)
+	}
+
+	daemonClient := daemon.NewProtoClientWithIssuesRoot(repoRoot, issuesRoot)
+	if !daemonClient.IsAvailable() {
+		return exitWithCode(fmt.Errorf("daemon not running (run 'orch daemon start')"), ExitInternalError)
+	}
+
+	resp, err := daemonClient.StartRun(&daemon.StartRunOptions{
+		IssueID:        issueID,
+		RunID:          opts.RunID,
+		Agent:          opts.Agent,
+		AgentCmd:       opts.AgentCmd,
+		AgentProfile:   opts.AgentProfile,
+		Model:          opts.Model,
+		ModelVariant:   opts.ModelVariant,
+		BaseBranch:     opts.BaseBranch,
+		Branch:         opts.Branch,
+		WorktreeDir:    opts.WorktreeDir,
+		NoPR:           opts.NoPR,
+		PromptTemplate: opts.PromptTemplate,
+		PRTargetBranch: opts.PRTargetBranch,
+		DryRun:         opts.DryRun,
+		Reuse:          opts.Reuse,
+		Multiplexer:    opts.Multiplexer,
+		ProjectRoot:    repoRoot,
+	})
+	if err != nil {
+		return exitWithCode(err, ExitInternalError)
 	}
 
 	result := &runResult{
 		OK:           true,
 		IssueID:      issueID,
-		RunID:        runID,
-		Branch:       branch,
-		WorktreePath: worktreePath,
-		TmuxSession:  tmuxSession,
-		Status:       string(model.StatusQueued),
+		RunID:        resp.RunID,
+		Branch:       resp.Branch,
+		WorktreePath: resp.WorktreePath,
+		TmuxSession:  resp.TmuxSession,
+		Status:       resp.Status,
 	}
 
-	// Dry run - just output what would happen
 	if opts.DryRun {
-		initialPromptTemplate := cfg.GetPromptTemplate(opts.Agent)
-		initialPrompt := renderInitialPromptTemplate(initialPromptTemplate, issue)
-
-		agentType, _ := agent.ParseAgentType(opts.Agent)
-		adapter, _ := agent.GetAdapter(agentType)
-		launchCfg := &agent.LaunchConfig{
-			Type:       agentType,
-			CustomCmd:  opts.AgentCmd,
-			WorkDir:    worktreePath,
-			IssueID:    issueID,
-			RunID:      runID,
-			IssuesRoot: "",
-			Branch:     branch,
-			Prompt:     initialPrompt,
-			Profile:    opts.AgentProfile,
-		}
-		agentCmd, _ := adapter.LaunchCommand(launchCfg)
-
 		if globalOpts.JSON {
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
@@ -220,243 +168,13 @@ func runRun(issueID string, opts *runOptions) error {
 		}
 		fmt.Printf("Would create run:\n")
 		fmt.Printf("  Issue:     %s\n", issueID)
-		fmt.Printf("  Run ID:    %s\n", runID)
-		fmt.Printf("  Branch:    %s\n", branch)
-		fmt.Printf("  Worktree:  %s\n", worktreePath)
-		fmt.Printf("  Session:   %s\n", tmuxSession)
-		fmt.Printf("  Command:   %s\n", agentCmd)
+		fmt.Printf("  Run ID:    %s\n", resp.RunID)
+		fmt.Printf("  Branch:    %s\n", resp.Branch)
+		fmt.Printf("  Worktree:  %s\n", resp.WorktreePath)
+		fmt.Printf("  Session:   %s\n", resp.TmuxSession)
 		return nil
 	}
 
-	metadata := map[string]string{
-		"agent": opts.Agent,
-	}
-	if opts.Preset != "" {
-		metadata["preset"] = opts.Preset
-	}
-	if opts.Model != "" {
-		metadata["model"] = opts.Model
-	}
-	if opts.ModelVariant != "" {
-		metadata["model_variant"] = opts.ModelVariant
-	}
-	createResult, err := api.CreateRun(ctx, &orchapi.CreateRunRequest{
-		IssueID:  issueID,
-		RunID:    runID,
-		Metadata: metadata,
-	})
-	if err != nil {
-		return exitWithCode(fmt.Errorf("failed to create run: %w", err), ExitInternalError)
-	}
-	result.RunPath = createResult.Path
-
-	// Create a Run object for status events
-	run := &model.Run{
-		IssueID: issueID,
-		RunID:   runID,
-	}
-	if err := appendStatusEventViaDaemon(ctx, api, run, model.StatusQueued); err != nil {
-		return exitWithCode(err, ExitInternalError)
-	}
-
-	worktreeResult, err := git.CreateWorktree(&git.WorktreeConfig{
-		RepoRoot:    repoRoot,
-		WorktreeDir: opts.WorktreeDir,
-		IssueID:     issueID,
-		RunID:       runID,
-		Agent:       opts.Agent,
-		BaseBranch:  opts.BaseBranch,
-		Branch:      branch,
-	})
-	if err != nil {
-		err = fmt.Errorf("failed to create worktree: %w", err)
-		setRunFailed(ctx, api, run, err)
-		return exitWithCode(err, ExitWorktreeError)
-	}
-
-	result.WorktreePath = worktreeResult.WorktreePath
-	result.Branch = worktreeResult.Branch
-
-	ref := orchapi.RunRef{IssueID: issueID, RunID: runID}
-	api.AppendEvent(ctx, ref, &orchapi.Event{
-		Type:  "artifact",
-		Name:  "worktree",
-		Attrs: map[string]string{"path": worktreeResult.WorktreePath},
-	})
-	api.AppendEvent(ctx, ref, &orchapi.Event{
-		Type:  "artifact",
-		Name:  "branch",
-		Attrs: map[string]string{"name": worktreeResult.Branch},
-	})
-
-	// Get agent adapter
-	agentType, err := agent.ParseAgentType(opts.Agent)
-	if err != nil {
-		return exitWithCode(err, ExitAgentError)
-	}
-
-	adapter, err := agent.GetAdapter(agentType)
-	if err != nil {
-		return exitWithCode(err, ExitAgentError)
-	}
-
-	if !adapter.IsAvailable() {
-		return exitWithCode(fmt.Errorf("agent %s is not available", opts.Agent), ExitAgentError)
-	}
-
-	promptOpts := &promptOptions{
-		NoPR:           opts.NoPR,
-		PromptTemplate: opts.PromptTemplate,
-		BaseBranch:     opts.BaseBranch,
-		PRTargetBranch: opts.PRTargetBranch,
-		IssuesRoot:     issuesRoot,
-		IssuePath:      issue.Path,
-	}
-	agentPrompt := buildAgentPrompt(issue, promptOpts)
-	promptPath := filepath.Join(worktreeResult.WorktreePath, promptFileName)
-	if err := api.WriteFile(ctx, promptPath, []byte(agentPrompt), 0644); err != nil {
-		return exitWithCode(fmt.Errorf("failed to write prompt file: %w", err), ExitInternalError)
-	}
-
-	initialPromptTemplate := cfg.GetPromptTemplate(opts.Agent)
-	initialPrompt := renderInitialPromptTemplate(initialPromptTemplate, issue)
-
-	launchCfg := &agent.LaunchConfig{
-		Type:         agentType,
-		CustomCmd:    opts.AgentCmd,
-		WorkDir:      worktreeResult.WorktreePath,
-		IssueID:      issueID,
-		RunID:        runID,
-		RunPath:      createResult.Path,
-		IssuesRoot:   issuesRoot,
-		Branch:       worktreeResult.Branch,
-		Prompt:       initialPrompt,
-		Profile:      opts.AgentProfile,
-		Port:         agent.OpenCodeServerPortStart,
-		Model:        opts.Model,
-		ModelVariant: opts.ModelVariant,
-		ExtraArgs:    cfg.GetExtraArgs(opts.Agent),
-	}
-
-	agentCmd, err := adapter.LaunchCommand(launchCfg)
-	if err != nil {
-		return exitWithCode(err, ExitAgentError)
-	}
-
-	appendStatusEventViaDaemon(ctx, api, run, model.StatusBooting)
-
-	debug := NewDebugLogger()
-
-	if opts.Tmux {
-		muxType, err := multiplexer.ParseType(opts.Multiplexer)
-		if err != nil {
-			return exitWithCode(err, ExitTmuxError)
-		}
-
-		var mux multiplexer.Multiplexer
-		if muxType == multiplexer.TypeAuto {
-			mux, err = multiplexer.GetAuto()
-		} else {
-			var warning string
-			mux, warning, err = multiplexer.GetWithFallback(muxType)
-			if warning != "" {
-				fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
-			}
-		}
-		if err != nil {
-			return exitWithCode(err, ExitTmuxError)
-		}
-
-		serverAlreadyRunning := false
-		if adapter.PromptInjection() == agent.InjectionHTTP {
-			daemonClient := daemon.NewProtoClient(repoRoot)
-			if !daemonClient.IsAvailable() {
-				err := fmt.Errorf("daemon not running; opencode agent requires daemon for server management (run 'orch daemon start')")
-				setRunFailed(ctx, api, run, err)
-				return exitWithCode(err, ExitAgentError)
-			}
-
-			resp, err := daemonClient.GetOpenCodeServer(worktreeResult.WorktreePath)
-			if err != nil {
-				err = fmt.Errorf("failed to get opencode server from daemon: %w", err)
-				setRunFailed(ctx, api, run, err)
-				return exitWithCode(err, ExitAgentError)
-			}
-
-			serverAlreadyRunning = true
-			launchCfg.Port = resp.Port
-			debug.Printf("using daemon-managed opencode server on port %d", resp.Port)
-		}
-
-		if !serverAlreadyRunning {
-			env := launchCfg.Env()
-			if opencodeAdapter, ok := adapter.(*agent.OpenCodeAdapter); ok {
-				env = append(env, opencodeAdapter.Env()...)
-			}
-
-			err = mux.NewSession(&multiplexer.SessionConfig{
-				SessionName: tmuxSession,
-				WorkDir:     worktreeResult.WorktreePath,
-				Command:     agentCmd,
-				Env:         env,
-			})
-			if err != nil {
-				err = fmt.Errorf("failed to create %s session: %w", mux.Type(), err)
-				setRunFailed(ctx, api, run, err)
-				return exitWithCode(err, ExitTmuxError)
-			}
-
-			api.AppendEvent(ctx, ref, &orchapi.Event{
-				Type:  "artifact",
-				Name:  "session",
-				Attrs: map[string]string{"name": tmuxSession, "multiplexer": string(mux.Type())},
-			})
-		}
-
-		switch adapter.PromptInjection() {
-		case agent.InjectionTmux:
-			if launchCfg.Prompt != "" {
-				if pattern := adapter.ReadyPattern(); pattern != "" {
-					if err := mux.WaitForReady(tmuxSession, pattern, 30*time.Second); err != nil {
-						err = fmt.Errorf("agent did not become ready: %w", err)
-						setRunFailed(ctx, api, run, err)
-						return exitWithCode(err, ExitAgentError)
-					}
-				}
-				if err := api.InjectInitialPrompt(ctx, ref, launchCfg.Prompt); err != nil {
-					err = fmt.Errorf("failed to send prompt to session: %w", err)
-					setRunFailed(ctx, api, run, err)
-					return exitWithCode(err, ExitTmuxError)
-				}
-			}
-
-		case agent.InjectionHTTP:
-		}
-
-		if !serverAlreadyRunning {
-			windowID := ""
-			if windows, err := mux.ListWindows(tmuxSession); err == nil {
-				for _, window := range windows {
-					if window.Index == 0 {
-						windowID = window.ID
-						break
-					}
-				}
-			}
-			if windowID != "" {
-				api.AppendEvent(ctx, ref, &orchapi.Event{
-					Type:  "artifact",
-					Name:  "window",
-					Attrs: map[string]string{"id": windowID},
-				})
-			}
-		}
-	}
-
-	appendStatusEventViaDaemon(ctx, api, run, model.StatusRunning)
-	result.Status = string(model.StatusRunning)
-
-	// Output result
 	if globalOpts.JSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -464,12 +182,12 @@ func runRun(issueID string, opts *runOptions) error {
 	}
 
 	if !globalOpts.Quiet {
-		fmt.Printf("Run started: %s#%s\n", issueID, runID)
-		fmt.Printf("  Branch:   %s\n", result.Branch)
-		fmt.Printf("  Worktree: %s\n", result.WorktreePath)
-		if opts.Tmux {
-			fmt.Printf("  Session:  %s\n", result.TmuxSession)
-			fmt.Printf("\nAttach with: orch attach %s#%s\n", issueID, runID)
+		fmt.Printf("Run started: %s#%s\n", issueID, resp.RunID)
+		fmt.Printf("  Branch:   %s\n", resp.Branch)
+		fmt.Printf("  Worktree: %s\n", resp.WorktreePath)
+		if resp.TmuxSession != "" {
+			fmt.Printf("  Session:  %s\n", resp.TmuxSession)
+			fmt.Printf("\nAttach with: orch attach %s#%s\n", issueID, resp.RunID)
 		}
 	}
 
@@ -742,27 +460,6 @@ func exitWithCode(err error, code int) error {
 	}
 	os.Exit(code)
 	return err
-}
-
-func appendStatusEventViaDaemon(ctx context.Context, api orchapi.OrchAPI, run *model.Run, status model.Status) error {
-	ref := orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}
-	event := &orchapi.Event{
-		Type: "status",
-		Name: string(status),
-	}
-	_, err := api.AppendEvent(ctx, ref, event)
-	return err
-}
-
-func setRunFailed(ctx context.Context, api orchapi.OrchAPI, run *model.Run, err error) {
-	ref := orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}
-	errorEvent := &orchapi.Event{
-		Type:  "artifact",
-		Name:  "error",
-		Attrs: map[string]string{"message": err.Error()},
-	}
-	api.AppendEvent(ctx, ref, errorEvent)
-	appendStatusEventViaDaemon(ctx, api, run, model.StatusFailed)
 }
 
 // findAvailablePort finds an available port in the given range

@@ -1076,16 +1076,28 @@ func (x *GetRunResponse) GetEvents() []*Event {
 }
 
 type StartRunRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	IssuesRoot    string                 `protobuf:"bytes,1,opt,name=issues_root,json=issuesRoot,proto3" json:"issues_root,omitempty"`
-	IssueId       string                 `protobuf:"bytes,2,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"`
-	Agent         string                 `protobuf:"bytes,3,opt,name=agent,proto3" json:"agent,omitempty"`
-	Model         string                 `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
-	ModelVariant  string                 `protobuf:"bytes,5,opt,name=model_variant,json=modelVariant,proto3" json:"model_variant,omitempty"`
-	BaseBranch    string                 `protobuf:"bytes,6,opt,name=base_branch,json=baseBranch,proto3" json:"base_branch,omitempty"`
-	ProjectRoot   string                 `protobuf:"bytes,7,opt,name=project_root,json=projectRoot,proto3" json:"project_root,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	IssuesRoot     string                 `protobuf:"bytes,1,opt,name=issues_root,json=issuesRoot,proto3" json:"issues_root,omitempty"`
+	IssueId        string                 `protobuf:"bytes,2,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"`
+	Agent          string                 `protobuf:"bytes,3,opt,name=agent,proto3" json:"agent,omitempty"`
+	Model          string                 `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
+	ModelVariant   string                 `protobuf:"bytes,5,opt,name=model_variant,json=modelVariant,proto3" json:"model_variant,omitempty"`
+	BaseBranch     string                 `protobuf:"bytes,6,opt,name=base_branch,json=baseBranch,proto3" json:"base_branch,omitempty"`
+	ProjectRoot    string                 `protobuf:"bytes,7,opt,name=project_root,json=projectRoot,proto3" json:"project_root,omitempty"`
+	Preset         string                 `protobuf:"bytes,8,opt,name=preset,proto3" json:"preset,omitempty"`
+	Branch         string                 `protobuf:"bytes,9,opt,name=branch,proto3" json:"branch,omitempty"`
+	WorktreeDir    string                 `protobuf:"bytes,10,opt,name=worktree_dir,json=worktreeDir,proto3" json:"worktree_dir,omitempty"`
+	NoPr           bool                   `protobuf:"varint,11,opt,name=no_pr,json=noPr,proto3" json:"no_pr,omitempty"`
+	PromptTemplate string                 `protobuf:"bytes,12,opt,name=prompt_template,json=promptTemplate,proto3" json:"prompt_template,omitempty"`
+	PrTargetBranch string                 `protobuf:"bytes,13,opt,name=pr_target_branch,json=prTargetBranch,proto3" json:"pr_target_branch,omitempty"`
+	DryRun         bool                   `protobuf:"varint,14,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	Reuse          bool                   `protobuf:"varint,15,opt,name=reuse,proto3" json:"reuse,omitempty"`
+	RunId          string                 `protobuf:"bytes,16,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	AgentCmd       string                 `protobuf:"bytes,17,opt,name=agent_cmd,json=agentCmd,proto3" json:"agent_cmd,omitempty"`
+	AgentProfile   string                 `protobuf:"bytes,18,opt,name=agent_profile,json=agentProfile,proto3" json:"agent_profile,omitempty"`
+	Multiplexer    string                 `protobuf:"bytes,19,opt,name=multiplexer,proto3" json:"multiplexer,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *StartRunRequest) Reset() {
@@ -1167,12 +1179,97 @@ func (x *StartRunRequest) GetProjectRoot() string {
 	return ""
 }
 
+func (x *StartRunRequest) GetPreset() string {
+	if x != nil {
+		return x.Preset
+	}
+	return ""
+}
+
+func (x *StartRunRequest) GetBranch() string {
+	if x != nil {
+		return x.Branch
+	}
+	return ""
+}
+
+func (x *StartRunRequest) GetWorktreeDir() string {
+	if x != nil {
+		return x.WorktreeDir
+	}
+	return ""
+}
+
+func (x *StartRunRequest) GetNoPr() bool {
+	if x != nil {
+		return x.NoPr
+	}
+	return false
+}
+
+func (x *StartRunRequest) GetPromptTemplate() string {
+	if x != nil {
+		return x.PromptTemplate
+	}
+	return ""
+}
+
+func (x *StartRunRequest) GetPrTargetBranch() string {
+	if x != nil {
+		return x.PrTargetBranch
+	}
+	return ""
+}
+
+func (x *StartRunRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
+func (x *StartRunRequest) GetReuse() bool {
+	if x != nil {
+		return x.Reuse
+	}
+	return false
+}
+
+func (x *StartRunRequest) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *StartRunRequest) GetAgentCmd() string {
+	if x != nil {
+		return x.AgentCmd
+	}
+	return ""
+}
+
+func (x *StartRunRequest) GetAgentProfile() string {
+	if x != nil {
+		return x.AgentProfile
+	}
+	return ""
+}
+
+func (x *StartRunRequest) GetMultiplexer() string {
+	if x != nil {
+		return x.Multiplexer
+	}
+	return ""
+}
+
 type StartRunResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	Branch        string                 `protobuf:"bytes,2,opt,name=branch,proto3" json:"branch,omitempty"`
 	WorktreePath  string                 `protobuf:"bytes,3,opt,name=worktree_path,json=worktreePath,proto3" json:"worktree_path,omitempty"`
 	TmuxSession   string                 `protobuf:"bytes,4,opt,name=tmux_session,json=tmuxSession,proto3" json:"tmux_session,omitempty"`
+	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1231,6 +1328,13 @@ func (x *StartRunResponse) GetWorktreePath() string {
 func (x *StartRunResponse) GetTmuxSession() string {
 	if x != nil {
 		return x.TmuxSession
+	}
+	return ""
+}
+
+func (x *StartRunResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
 	}
 	return ""
 }
@@ -7517,7 +7621,7 @@ const file_orch_proto_rawDesc = "" +
 	"\tadditions\x18\x01 \x01(\x05R\tadditions\x12\x1c\n" +
 	"\tdeletions\x18\x02 \x01(\x05R\tdeletions\x12#\n" +
 	"\rfiles_changed\x18\x03 \x01(\x05R\ffilesChanged\x12\x14\n" +
-	"\x05files\x18\x04 \x03(\tR\x05files\"\xc4\x05\n" +
+	"\x05files\x18\x04 \x03(\tR\x05files\"\xfc\x05\n" +
 	"\x03Run\x12\x19\n" +
 	"\bissue_id\x18\x01 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12*\n" +
@@ -7540,7 +7644,9 @@ const file_orch_proto_rawDesc = "" +
 	"\vserver_port\x18\x11 \x01(\x05R\n" +
 	"serverPort\x12.\n" +
 	"\x13opencode_session_id\x18\x12 \x01(\tR\x11opencodeSessionId\x12%\n" +
-	"\x0econtinued_from\x18\x13 \x01(\tR\rcontinuedFrom\"\xf1\x01\n" +
+	"\x0econtinued_from\x18\x13 \x01(\tR\rcontinuedFrom\x12\x1b\n" +
+	"\tpr_number\x18\x14 \x01(\x05R\bprNumber\x12\x19\n" +
+	"\bpr_state\x18\x15 \x01(\tR\aprState\"\xf1\x01\n" +
 	"\x05Issue\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x18\n" +
@@ -7590,7 +7696,7 @@ const file_orch_proto_rawDesc = "" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\"X\n" +
 	"\x0eGetRunResponse\x12\x1e\n" +
 	"\x03run\x18\x01 \x01(\v2\f.orch.v1.RunR\x03run\x12&\n" +
-	"\x06events\x18\x02 \x03(\v2\x0e.orch.v1.EventR\x06events\"\xe2\x01\n" +
+	"\x06events\x18\x02 \x03(\v2\x0e.orch.v1.EventR\x06events\"\xc7\x04\n" +
 	"\x0fStartRunRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +
@@ -7600,12 +7706,26 @@ const file_orch_proto_rawDesc = "" +
 	"\rmodel_variant\x18\x05 \x01(\tR\fmodelVariant\x12\x1f\n" +
 	"\vbase_branch\x18\x06 \x01(\tR\n" +
 	"baseBranch\x12!\n" +
-	"\fproject_root\x18\a \x01(\tR\vprojectRoot\"\x89\x01\n" +
+	"\fproject_root\x18\a \x01(\tR\vprojectRoot\x12\x16\n" +
+	"\x06preset\x18\b \x01(\tR\x06preset\x12\x16\n" +
+	"\x06branch\x18\t \x01(\tR\x06branch\x12!\n" +
+	"\fworktree_dir\x18\n" +
+	" \x01(\tR\vworktreeDir\x12\x13\n" +
+	"\x05no_pr\x18\v \x01(\bR\x04noPr\x12'\n" +
+	"\x0fprompt_template\x18\f \x01(\tR\x0epromptTemplate\x12(\n" +
+	"\x10pr_target_branch\x18\r \x01(\tR\x0eprTargetBranch\x12\x17\n" +
+	"\adry_run\x18\x0e \x01(\bR\x06dryRun\x12\x14\n" +
+	"\x05reuse\x18\x0f \x01(\bR\x05reuse\x12\x15\n" +
+	"\x06run_id\x18\x10 \x01(\tR\x05runId\x12\x1b\n" +
+	"\tagent_cmd\x18\x11 \x01(\tR\bagentCmd\x12#\n" +
+	"\ragent_profile\x18\x12 \x01(\tR\fagentProfile\x12 \n" +
+	"\vmultiplexer\x18\x13 \x01(\tR\vmultiplexer\"\xa1\x01\n" +
 	"\x10StartRunResponse\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
 	"\x06branch\x18\x02 \x01(\tR\x06branch\x12#\n" +
 	"\rworktree_path\x18\x03 \x01(\tR\fworktreePath\x12!\n" +
-	"\ftmux_session\x18\x04 \x01(\tR\vtmuxSession\"\xe7\x01\n" +
+	"\ftmux_session\x18\x04 \x01(\tR\vtmuxSession\x12\x16\n" +
+	"\x06status\x18\x05 \x01(\tR\x06status\"\xe7\x01\n" +
 	"\x10CreateRunRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +

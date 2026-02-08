@@ -257,6 +257,7 @@ type StartRunResult struct {
 	Branch       string
 	WorktreePath string
 	TmuxSession  string
+	Status       string
 }
 
 type CreateRunRequest struct {

@@ -87,6 +87,20 @@ type SendRequest struct {
 	EventName   string            `json:"event_name,omitempty"`
 	EventAttrs  map[string]string `json:"event_attrs,omitempty"`
 	EventSource string            `json:"event_source,omitempty"`
+
+	// StartRun fields
+	ModelVariant   string `json:"model_variant,omitempty"`
+	BaseBranch     string `json:"base_branch,omitempty"`
+	Branch         string `json:"branch,omitempty"`
+	WorktreeDir    string `json:"worktree_dir,omitempty"`
+	NoPR           bool   `json:"no_pr,omitempty"`
+	PromptTemplate string `json:"prompt_template,omitempty"`
+	PRTargetBranch string `json:"pr_target_branch,omitempty"`
+	DryRun         bool   `json:"dry_run,omitempty"`
+	Reuse          bool   `json:"reuse,omitempty"`
+	AgentCmd       string `json:"agent_cmd,omitempty"`
+	AgentProfile   string `json:"agent_profile,omitempty"`
+	Multiplexer    string `json:"multiplexer_type,omitempty"`
 }
 
 type SendResponse struct {
@@ -1842,8 +1856,25 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		return
 	}
 
-	runID := model.GenerateRunID()
-	branch := model.GenerateBranchName(req.IssueID, runID)
+	runID := req.RunID
+	if runID == "" {
+		if req.Reuse {
+			runs, _ := st.ListRuns(&store.ListRunsFilter{IssueID: req.IssueID})
+			for _, r := range runs {
+				if r.Status == model.StatusBlocked || r.Status == model.StatusBlockedAPI {
+					runID = r.RunID
+					break
+				}
+			}
+		}
+		if runID == "" {
+			runID = model.GenerateRunID()
+		}
+	}
+	branch := req.Branch
+	if branch == "" {
+		branch = model.GenerateBranchName(req.IssueID, runID)
+	}
 	tmuxSession := model.GenerateTmuxSession(req.IssueID, runID)
 
 	ctx := s.GetRepoContext(req.RepoID)
@@ -1863,15 +1894,42 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		return
 	}
 
-	worktreeDir := cfg.WorktreeDir
+	worktreeDir := req.WorktreeDir
+	if worktreeDir == "" {
+		worktreeDir = cfg.WorktreeDir
+	}
 	if worktreeDir == "" {
 		home, _ := os.UserHomeDir()
 		worktreeDir = filepath.Join(home, ".orch", "worktrees")
 	}
 
-	_ = model.GenerateWorktreeName(req.IssueID, runID, agentName)
+	worktreeName := model.GenerateWorktreeName(req.IssueID, runID, agentName)
+	var worktreePath string
+	if filepath.IsAbs(worktreeDir) {
+		worktreePath = filepath.Join(worktreeDir, req.IssueID, worktreeName)
+	} else {
+		worktreePath = filepath.Join(repoRoot, worktreeDir, req.IssueID, worktreeName)
+	}
+
+	if req.DryRun {
+		encoder.Encode(StartRunResponse{
+			OK:           true,
+			RunID:        runID,
+			Branch:       branch,
+			WorktreePath: worktreePath,
+			TmuxSession:  tmuxSession,
+			Status:       "dry_run",
+		})
+		return
+	}
 
 	metadata := map[string]string{"agent": agentName}
+	if req.ModelVariant != "" {
+		metadata["model_variant"] = req.ModelVariant
+	}
+	if req.Message != "" {
+		metadata["model"] = req.Message
+	}
 	run, err := st.CreateRun(req.IssueID, runID, metadata)
 	if err != nil {
 		encoder.Encode(StartRunResponse{OK: false, Error: "failed to create run: " + err.Error()})
@@ -1880,7 +1938,10 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 
 	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusQueued))
 
-	baseBranch := cfg.BaseBranch
+	baseBranch := req.BaseBranch
+	if baseBranch == "" {
+		baseBranch = cfg.BaseBranch
+	}
 	if baseBranch == "" {
 		baseBranch = "main"
 	}
@@ -1904,7 +1965,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 	st.AppendEvent(run.Ref(), model.NewArtifactEvent("worktree", map[string]string{"path": worktreeResult.WorktreePath}))
 	st.AppendEvent(run.Ref(), model.NewArtifactEvent("branch", map[string]string{"name": worktreeResult.Branch}))
 
-	agentPrompt := s.buildRunPrompt(issue, st.RootPath())
+	agentPrompt := s.buildRunPrompt(issue, st.RootPath(), req.NoPR, req.PromptTemplate, req.PRTargetBranch)
 	promptPath := filepath.Join(worktreeResult.WorktreePath, "ORCH_PROMPT.md")
 	if err := os.WriteFile(promptPath, []byte(agentPrompt), 0644); err != nil {
 		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
@@ -1916,17 +1977,20 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 	initialPrompt := "ultrathink Please read 'ORCH_PROMPT.md' in the current directory and follow the instructions found there."
 
 	launchCfg := &agent.LaunchConfig{
-		Type:       agentType,
-		WorkDir:    worktreeResult.WorktreePath,
-		IssueID:    req.IssueID,
-		RunID:      runID,
-		RunPath:    run.Path,
-		IssuesRoot: st.RootPath(),
-		Branch:     worktreeResult.Branch,
-		Prompt:     initialPrompt,
-		Port:       agent.OpenCodeServerPortStart,
-		Model:      req.Message,
-		ExtraArgs:  cfg.GetExtraArgs(agentName),
+		Type:         agentType,
+		CustomCmd:    req.AgentCmd,
+		WorkDir:      worktreeResult.WorktreePath,
+		IssueID:      req.IssueID,
+		RunID:        runID,
+		RunPath:      run.Path,
+		IssuesRoot:   st.RootPath(),
+		Branch:       worktreeResult.Branch,
+		Prompt:       initialPrompt,
+		Profile:      req.AgentProfile,
+		Port:         agent.OpenCodeServerPortStart,
+		Model:        req.Message,
+		ModelVariant: req.ModelVariant,
+		ExtraArgs:    cfg.GetExtraArgs(agentName),
 	}
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)
@@ -1939,9 +2003,12 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 
 	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusBooting))
 
-	muxType, _ := multiplexer.ParseType("")
-	mux, _ := multiplexer.GetAuto()
-	if mux == nil {
+	muxType, _ := multiplexer.ParseType(req.Multiplexer)
+
+	var mux multiplexer.Multiplexer
+	if muxType == multiplexer.TypeAuto {
+		mux, _ = multiplexer.GetAuto()
+	} else {
 		mux, _, _ = multiplexer.GetWithFallback(muxType)
 	}
 
@@ -2008,7 +2075,6 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		if port == 0 {
 			port = agent.OpenCodeServerPortStart
 		}
-
 		client := agent.NewOpenCodeClient(port)
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
@@ -2053,8 +2119,28 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 	})
 }
 
-func (s *SocketServer) buildRunPrompt(issue *model.Issue, issuesRoot string) string {
-	prTargetBranch := "main"
+func (s *SocketServer) buildRunPrompt(issue *model.Issue, issuesRoot string, noPR bool, promptTemplate string, prTargetBranch string) string {
+	if prTargetBranch == "" {
+		prTargetBranch = "main"
+	}
+
+	if promptTemplate != "" {
+		content, err := os.ReadFile(promptTemplate)
+		if err == nil {
+			return string(content)
+		}
+		s.logger.Printf("failed to read prompt template %s: %v", promptTemplate, err)
+	}
+
+	prSection := ""
+	if !noPR {
+		prSection = fmt.Sprintf(`- When complete, create a pull request targeting `+"`%s`"+` with:
+  - Evidence that each acceptance criterion is met (command outputs, file listings, etc.)
+  - Summary of changes made
+  - Reference to the issue: %s
+`, prTargetBranch, issue.ID)
+	}
+
 	return fmt.Sprintf(`## Context
 
 This file (ORCH_PROMPT.md) is auto-generated by orch. The original issue is at:
@@ -2075,11 +2161,7 @@ This file (ORCH_PROMPT.md) is auto-generated by orch. The original issue is at:
   - If the issue requires outputs (CSV, reports, etc.), run the entrypoint and confirm outputs exist
   - Don't just check that code compiles - verify it produces correct results
 - Run tests to verify your changes work correctly
-- When complete, create a pull request targeting `+"`%s`"+` with:
-  - Evidence that each acceptance criterion is met (command outputs, file listings, etc.)
-  - Summary of changes made
-  - Reference to the issue: %s
-`, issuesRoot, issue.Path, issue.Body, prTargetBranch, issue.ID)
+%s`, issuesRoot, issue.Path, issue.Body, prSection)
 }
 
 func (s *SocketServer) handleStopRun(req SendRequest, encoder *json.Encoder) {

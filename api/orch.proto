@@ -151,6 +151,18 @@ message StartRunRequest {
   string model_variant = 5;
   string base_branch = 6;
   string project_root = 7;
+  string preset = 8;
+  string branch = 9;
+  string worktree_dir = 10;
+  bool no_pr = 11;
+  string prompt_template = 12;
+  string pr_target_branch = 13;
+  bool dry_run = 14;
+  bool reuse = 15;
+  string run_id = 16;
+  string agent_cmd = 17;
+  string agent_profile = 18;
+  string multiplexer = 19;
 }
 
 message StartRunResponse {
@@ -158,6 +170,7 @@ message StartRunResponse {
   string branch = 2;
   string worktree_path = 3;
   string tmux_session = 4;
+  string status = 5;
 }
 
 message CreateRunRequest {

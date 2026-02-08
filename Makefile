@@ -46,7 +46,15 @@ test:
 
 lint:
 	@command -v semgrep >/dev/null 2>&1 || uv tool install semgrep
-	semgrep --error --config .semgrep/ ./internal/cli/
+	@echo "=== Architecture lint: CLI layer ==="
+	semgrep --config .semgrep/ ./internal/cli/ --exclude='*_test.go'
+	@echo ""
+	@echo "=== Architecture lint: Monitor layer ==="
+	semgrep --config .semgrep/ ./internal/monitor/ --exclude='*_test.go'
+
+lint-strict:
+	@command -v semgrep >/dev/null 2>&1 || uv tool install semgrep
+	semgrep --error --config .semgrep/ ./internal/cli/ ./internal/monitor/ --exclude='*_test.go'
 
 lint-install:
 	uv tool install semgrep

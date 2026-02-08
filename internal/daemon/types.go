@@ -550,7 +550,26 @@ func SummaryAliveInfo(s *RunSummary) (alive bool, known bool) {
 	return s.Alive, s.AliveKnown
 }
 
-// StartRunResponse is the response for start_run
+type StartRunOptions struct {
+	IssueID        string
+	RunID          string
+	Agent          string
+	AgentCmd       string
+	AgentProfile   string
+	Model          string
+	ModelVariant   string
+	BaseBranch     string
+	Branch         string
+	WorktreeDir    string
+	NoPR           bool
+	PromptTemplate string
+	PRTargetBranch string
+	DryRun         bool
+	Reuse          bool
+	Multiplexer    string
+	ProjectRoot    string
+}
+
 type StartRunResponse struct {
 	OK           bool   `json:"ok"`
 	Error        string `json:"error,omitempty"`
