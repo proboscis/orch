@@ -94,14 +94,6 @@ func (d *Daemon) debug(format string, v ...interface{}) {
 
 // Run starts the daemon main loop (blocking)
 func (d *Daemon) Run() error {
-	// Acquire global lock (XDG-compliant)
-	lockFile, err := AcquireLock("")
-	if err != nil {
-		return err
-	}
-	d.lockFile = lockFile
-
-	// Ensure state directory exists and open log file
 	if err := xdg.EnsureStateDir(); err != nil {
 		return fmt.Errorf("failed to create state directory: %w", err)
 	}
@@ -113,6 +105,21 @@ func (d *Daemon) Run() error {
 	}
 	defer logFile.Close()
 	d.logger = log.New(logFile, "", log.LstdFlags)
+
+	recoveryResult, err := CheckAndRecoverStaleArtifacts(d.logger)
+	if err != nil {
+		return err
+	}
+	if recoveryResult != nil && (recoveryResult.HadStalePID || recoveryResult.HadStaleSocket || recoveryResult.WasAbruptExit) {
+		d.logger.Printf("LIFECYCLE: startup recovery completed - stalePID=%v, staleSocket=%v, abruptExit=%v",
+			recoveryResult.HadStalePID, recoveryResult.HadStaleSocket, recoveryResult.WasAbruptExit)
+	}
+
+	lockFile, err := AcquireLock("")
+	if err != nil {
+		return err
+	}
+	d.lockFile = lockFile
 
 	if err := d.initBinaryTracking(); err != nil {
 		d.logger.Printf("warning: failed to init binary tracking: %v", err)
@@ -154,7 +161,7 @@ func (d *Daemon) Run() error {
 		d.logger.Printf("warning: failed to register daemon: %v", err)
 	}
 
-	d.logger.Printf("global daemon started (pid=%d, binary=%s)", os.Getpid(), d.executablePath)
+	d.logger.Printf("LIFECYCLE: global daemon started (pid=%d, binary=%s)", os.Getpid(), d.executablePath)
 
 	d.socketServer = NewSocketServer(d.storeFactory, d.logger)
 	d.socketServer.SetGitHubBackend(d.githubBackend)
@@ -182,18 +189,28 @@ func (d *Daemon) Run() error {
 			d.checkBinaryStaleness()
 		case sig := <-sigCh:
 			if sig == syscall.SIGHUP {
-				d.logger.Printf("received SIGHUP, restarting with new binary")
+				d.logger.Printf("LIFECYCLE: received SIGHUP, restarting with new binary")
+				if err := UpdateShutdownReason(ShutdownReasonRestart); err != nil {
+					d.logger.Printf("warning: failed to record shutdown reason: %v", err)
+				}
 				if err := d.restartWithNewBinary(); err != nil {
 					d.logger.Printf("restart failed: %v", err)
 					continue
 				}
 				return nil
 			}
-			d.logger.Printf("received signal %v, shutting down", sig)
+			d.logger.Printf("LIFECYCLE: received signal %v, initiating graceful shutdown", sig)
+			if err := UpdateShutdownReason(ShutdownReasonGraceful); err != nil {
+				d.logger.Printf("warning: failed to record shutdown reason: %v", err)
+			}
 			d.Stop()
+			d.logger.Printf("LIFECYCLE: graceful shutdown completed")
 			return nil
 		case <-d.stopCh:
-			d.logger.Printf("daemon stopped")
+			d.logger.Printf("LIFECYCLE: daemon stopped via API/command")
+			if err := UpdateShutdownReason(ShutdownReasonStopped); err != nil {
+				d.logger.Printf("warning: failed to record shutdown reason: %v", err)
+			}
 			return nil
 		}
 	}
@@ -230,11 +247,13 @@ func (d *Daemon) initBinaryTracking() error {
 
 func (d *Daemon) writeMetadata() error {
 	meta := DaemonMetadata{
-		PID:       os.Getpid(),
-		StartedAt: time.Now(),
-		ExecPath:  d.executablePath,
-		ExecMtime: d.startupMtime,
-		Version:   2, // XDG global daemon version
+		PID:            os.Getpid(),
+		StartedAt:      time.Now(),
+		ExecPath:       d.executablePath,
+		ExecMtime:      d.startupMtime,
+		Version:        2,
+		ShutdownReason: ShutdownReasonUnknown,
+		ShutdownAt:     time.Time{},
 	}
 	data, err := json.Marshal(meta)
 	if err != nil {

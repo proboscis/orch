@@ -21,13 +21,23 @@ const (
 	lockFile     = "daemon.lock"
 )
 
+// Shutdown reason constants for distinguishing exit types
+const (
+	ShutdownReasonUnknown  = ""         // Not yet shutdown or unknown
+	ShutdownReasonGraceful = "graceful" // Normal signal-based shutdown (SIGINT/SIGTERM)
+	ShutdownReasonRestart  = "restart"  // SIGHUP triggered restart
+	ShutdownReasonStopped  = "stopped"  // Explicit stop via API/command
+)
+
 type DaemonMetadata struct {
-	PID         int       `json:"pid"`
-	StartedAt   time.Time `json:"started_at"`
-	ExecPath    string    `json:"exec_path"`
-	ExecMtime   time.Time `json:"exec_mtime"`
-	ProjectRoot string    `json:"project_root,omitempty"` // Deprecated: for legacy compat
-	Version     int       `json:"version,omitempty"`      // Schema version (2 = XDG global daemon)
+	PID            int       `json:"pid"`
+	StartedAt      time.Time `json:"started_at"`
+	ExecPath       string    `json:"exec_path"`
+	ExecMtime      time.Time `json:"exec_mtime"`
+	ProjectRoot    string    `json:"project_root,omitempty"`    // Deprecated: for legacy compat
+	Version        int       `json:"version,omitempty"`         // Schema version (2 = XDG global daemon)
+	ShutdownReason string    `json:"shutdown_reason,omitempty"` // Reason for last shutdown (empty if still running or abrupt exit)
+	ShutdownAt     time.Time `json:"shutdown_at,omitempty"`     // Time of last shutdown (zero if still running or abrupt exit)
 }
 
 // DaemonInfo contains information about a running daemon for listing
@@ -96,6 +106,140 @@ func ReadMetadata(_ string) (*DaemonMetadata, error) {
 		return nil, err
 	}
 	return &meta, nil
+}
+
+func WriteMetadata(meta *DaemonMetadata) error {
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(xdg.MetadataPath(), data, 0644)
+}
+
+func UpdateShutdownReason(reason string) error {
+	meta, err := ReadMetadata("")
+	if err != nil {
+		return err
+	}
+	meta.ShutdownReason = reason
+	meta.ShutdownAt = time.Now()
+	return WriteMetadata(meta)
+}
+
+type StartupRecoveryResult struct {
+	HadStalePID       bool
+	HadStaleSocket    bool
+	HadStaleMetadata  bool
+	PreviousPID       int
+	PreviousShutdown  string
+	PreviousStartedAt time.Time
+	WasAbruptExit     bool
+}
+
+func CheckAndRecoverStaleArtifacts(logger interface{ Printf(string, ...interface{}) }) (*StartupRecoveryResult, error) {
+	result := &StartupRecoveryResult{}
+
+	meta, metaErr := ReadMetadata("")
+	if metaErr == nil {
+		result.PreviousPID = meta.PID
+		result.PreviousShutdown = meta.ShutdownReason
+		result.PreviousStartedAt = meta.StartedAt
+
+		if meta.PID > 0 && !IsProcessRunning(meta.PID) {
+			result.HadStaleMetadata = true
+			if meta.ShutdownReason == "" || meta.ShutdownAt.IsZero() {
+				result.WasAbruptExit = true
+			}
+		}
+	}
+
+	pid, pidErr := ReadPID("")
+	if pidErr == nil && pid > 0 {
+		if IsProcessRunning(pid) {
+			return nil, fmt.Errorf("daemon already running (pid=%d)", pid)
+		}
+		result.HadStalePID = true
+		result.PreviousPID = pid
+
+		if logger != nil {
+			logger.Printf("STARTUP RECOVERY: found stale PID file (pid=%d, process not running) - removing", pid)
+		}
+		if err := RemovePID(""); err != nil {
+			if logger != nil {
+				logger.Printf("STARTUP RECOVERY: failed to remove stale PID file: %v", err)
+			}
+		}
+	}
+
+	socketPath := xdg.SocketPath()
+	if _, err := os.Stat(socketPath); err == nil {
+		conn, dialErr := dialSocket(socketPath)
+		if dialErr != nil {
+			result.HadStaleSocket = true
+			if logger != nil {
+				logger.Printf("STARTUP RECOVERY: found stale socket file (no daemon responding) - removing")
+			}
+			if err := os.Remove(socketPath); err != nil {
+				if logger != nil {
+					logger.Printf("STARTUP RECOVERY: failed to remove stale socket: %v", err)
+				}
+			}
+		} else {
+			conn.Close()
+			return nil, fmt.Errorf("daemon already running (socket responsive)")
+		}
+	}
+
+	lockPath := xdg.LockPath()
+	if _, err := os.Stat(lockPath); err == nil {
+		f, lockErr := os.OpenFile(lockPath, os.O_RDWR, 0600)
+		if lockErr == nil {
+			err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+			if err == nil {
+				syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+				if logger != nil {
+					logger.Printf("STARTUP RECOVERY: found stale lock file (lock available) - will be reused")
+				}
+			}
+			f.Close()
+		}
+	}
+
+	if logger != nil && (result.HadStalePID || result.HadStaleSocket || result.WasAbruptExit) {
+		if result.WasAbruptExit {
+			logger.Printf("STARTUP RECOVERY: previous daemon (pid=%d, started=%s) exited ABRUPTLY without graceful shutdown",
+				result.PreviousPID, result.PreviousStartedAt.Format(time.RFC3339))
+		} else if result.PreviousShutdown != "" {
+			logger.Printf("STARTUP RECOVERY: previous daemon shutdown was: %s at %s",
+				result.PreviousShutdown, meta.ShutdownAt.Format(time.RFC3339))
+		}
+	}
+
+	return result, nil
+}
+
+func dialSocket(socketPath string) (interface{ Close() error }, error) {
+	conn, err := syscall.Socket(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	addr := &syscall.SockaddrUnix{Name: socketPath}
+	err = syscall.Connect(conn, addr)
+	if err != nil {
+		syscall.Close(conn)
+		return nil, err
+	}
+
+	return &socketConn{fd: conn}, nil
+}
+
+type socketConn struct {
+	fd int
+}
+
+func (s *socketConn) Close() error {
+	return syscall.Close(s.fd)
 }
 
 // EnsureOrchDir is kept for backward compatibility but now ensures XDG dirs.
