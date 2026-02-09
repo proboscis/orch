@@ -679,6 +679,104 @@ func hasTmux() bool {
 	return cmd.Run() == nil
 }
 
+func hasBinary(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
+}
+
+func TestRunWithBuiltInAgents(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not available")
+	}
+
+	for _, bin := range []string{"codex", "claude", "opencode"} {
+		if !hasBinary(bin) {
+			t.Skipf("%s not available", bin)
+		}
+	}
+
+	issueID := "run-builtins-" + time.Now().Format("20060102-150405")
+	createTestIssue(t, issueID, fmt.Sprintf("---\ntype: issue\nid: %s\ntitle: Run Built-in Agents Test\nstatus: open\n---\n# Run Built-in Agents Test", issueID))
+
+	t.Cleanup(func() {
+		if output, err := runOrch(t, "stop", issueID, "--force", "--json"); err != nil {
+			t.Logf("cleanup stop failed for %s: %v (%s)", issueID, err, strings.TrimSpace(output))
+		}
+	})
+
+	type runResult struct {
+		OK      bool   `json:"ok"`
+		IssueID string `json:"issue_id"`
+		RunID   string `json:"run_id"`
+		Status  string `json:"status"`
+		Error   string `json:"error,omitempty"`
+	}
+
+	agents := []string{"codex", "claude", "opencode"}
+	for idx, agentName := range agents {
+		runID := fmt.Sprintf("%s-%d-%s", time.Now().Format("20060102-150405"), idx, agentName)
+		output, err := runOrch(t,
+			"run", issueID,
+			"--agent", agentName,
+			"--run-id", runID,
+			"--repo-root", testRepo,
+			"--worktree-dir", filepath.Join(testRepo, ".git-worktrees"),
+			"--no-pr",
+			"--json",
+		)
+		if err != nil {
+			t.Fatalf("run failed for %s: %v\nOutput: %s", agentName, err, output)
+		}
+
+		var result runResult
+		if err := json.Unmarshal([]byte(output), &result); err != nil {
+			t.Fatalf("failed to parse run JSON for %s: %v\nOutput: %s", agentName, err, output)
+		}
+
+		if !result.OK {
+			t.Fatalf("expected ok=true for %s, got false: %s", agentName, output)
+		}
+		if result.IssueID != issueID {
+			t.Fatalf("expected issue_id=%s for %s, got %s", issueID, agentName, result.IssueID)
+		}
+		if result.RunID == "" {
+			t.Fatalf("expected run_id for %s, got empty", agentName)
+		}
+		if result.Status != "running" {
+			t.Fatalf("expected status=running for %s, got %q", agentName, result.Status)
+		}
+	}
+
+	psOutput, err := runOrch(t, "ps", "--all", "--issue", issueID, "--json")
+	if err != nil {
+		t.Fatalf("ps failed for %s: %v\nOutput: %s", issueID, err, psOutput)
+	}
+
+	var psResult struct {
+		OK    bool `json:"ok"`
+		Items []struct {
+			CLI string `json:"cli"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(psOutput), &psResult); err != nil {
+		t.Fatalf("failed to parse ps JSON: %v\nOutput: %s", err, psOutput)
+	}
+	if !psResult.OK {
+		t.Fatalf("expected ps ok=true for %s, got false", issueID)
+	}
+
+	seen := map[string]bool{}
+	for _, item := range psResult.Items {
+		seen[item.CLI] = true
+	}
+
+	for _, agentName := range agents {
+		if !seen[agentName] {
+			t.Fatalf("expected ps output to include cli=%s for issue %s", agentName, issueID)
+		}
+	}
+}
+
 func TestRunWithTmux(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not available")
