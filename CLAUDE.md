@@ -137,3 +137,14 @@ Orch creates git worktrees for parallel runs. If a worktree is corrupted:
 ```bash
 git worktree remove <path> --force
 ```
+
+## Communication Style
+
+### Use ASCII Diagrams When Explaining Context
+
+When passing the turn back to the user (e.g., summarizing what was done, explaining a bug, describing architecture), use ASCII diagrams to make the explanation concrete and visual. This is especially useful for:
+
+- Data/control flow through multiple components
+- Timeline-based problems (race conditions, timeouts)
+- Before/after comparisons of a fix
+- Architecture boundaries and layer relationships

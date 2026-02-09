@@ -90,6 +90,8 @@ type SendRequest struct {
 	EventSource string            `json:"event_source,omitempty"`
 
 	// StartRun fields
+	Model          string `json:"model,omitempty"`
+	SessionName    string `json:"session_name,omitempty"`
 	ModelVariant   string `json:"model_variant,omitempty"`
 	BaseBranch     string `json:"base_branch,omitempty"`
 	Branch         string `json:"branch,omitempty"`
@@ -2052,8 +2054,8 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 	if req.ModelVariant != "" {
 		metadata["model_variant"] = req.ModelVariant
 	}
-	if req.Message != "" {
-		metadata["model"] = req.Message
+	if req.Model != "" {
+		metadata["model"] = req.Model
 	}
 	run, err := st.CreateRun(req.IssueID, runID, metadata)
 	if err != nil {
@@ -2113,7 +2115,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		Prompt:       initialPrompt,
 		Profile:      req.AgentProfile,
 		Port:         agent.OpenCodeServerPortStart,
-		Model:        req.Message,
+		Model:        req.Model,
 		ModelVariant: req.ModelVariant,
 		ExtraArgs:    cfg.GetExtraArgs(agentName),
 	}
@@ -2445,7 +2447,7 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 	}
 
 	runID := model.GenerateRunID()
-	tmuxSession := req.Message
+	tmuxSession := req.SessionName
 	if tmuxSession == "" {
 		tmuxSession = model.GenerateTmuxSession(issueID, runID)
 	}

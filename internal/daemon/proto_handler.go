@@ -447,7 +447,7 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		IssueID:        req.IssueId,
 		RunID:          req.RunId,
 		AgentType:      req.Agent,
-		Message:        req.Model,
+		Model:          req.Model,
 		ModelVariant:   req.ModelVariant,
 		BaseBranch:     req.BaseBranch,
 		Branch:         req.Branch,
@@ -492,6 +492,11 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 }
 
 func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *orchpb.Response {
+	projectRoot := req.ProjectRoot
+	if projectRoot == "" && req.RepoRoot != "" {
+		projectRoot = req.RepoRoot
+	}
+
 	jsonReq := SendRequest{
 		Type:           "continue_run",
 		IssueID:        req.IssueId,
@@ -506,9 +511,9 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 		PromptTemplate: req.PromptTemplate,
 		PRTargetBranch: req.PrTargetBranch,
 		Multiplexer:    req.Multiplexer,
-		Message:        req.TmuxSession,
+		SessionName:    req.TmuxSession,
 		IssuesRoot:     req.IssuesRoot,
-		ProjectRoot:    req.ProjectRoot,
+		ProjectRoot:    projectRoot,
 	}
 
 	var buf jsonCapture

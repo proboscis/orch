@@ -626,3 +626,73 @@ rules:
     metadata:
       category: architecture
       violation: identity-leakage
+
+  # ---------------------------------------------------------------------------
+  # 7. Transport contract fidelity: prevent Message field overloading
+  # ---------------------------------------------------------------------------
+
+  - id: daemon-proto-no-message-overload-model
+    patterns:
+      - pattern: |
+          SendRequest{..., Message: req.Model, ...}
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+    message: >
+      Proto handler must not overload SendRequest.Message with req.Model.
+      Use the dedicated SendRequest.Model field instead.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: field-overload
+
+  - id: daemon-proto-no-message-overload-tmux
+    patterns:
+      - pattern: |
+          SendRequest{..., Message: req.TmuxSession, ...}
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+    message: >
+      Proto handler must not overload SendRequest.Message with req.TmuxSession.
+      Use the dedicated SendRequest.SessionName field instead.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: field-overload
+
+  - id: daemon-socket-no-message-model-consumption
+    patterns:
+      - pattern: |
+          metadata["model"] = req.Message
+    paths:
+      include:
+        - /internal/daemon/socket.go
+    message: >
+      Do not read model from req.Message. Use req.Model instead.
+      The Message field was previously overloaded for model; use the dedicated field.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: field-overload
+
+  - id: daemon-socket-no-message-tmux-consumption
+    patterns:
+      - pattern: |
+          $SESSION := req.Message
+    paths:
+      include:
+        - /internal/daemon/socket.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      Do not read session name from req.Message. Use req.SessionName instead.
+      The Message field was previously overloaded for tmux session; use the dedicated field.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: field-overload
