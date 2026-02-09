@@ -139,8 +139,16 @@ func (d *Daemon) Run() error {
 		}
 	}
 
+	d.logPreviousLifecycleState()
+	if err := d.recoverStartupRuntimeArtifacts(); err != nil {
+		return err
+	}
+
 	if err := WritePID(""); err != nil {
 		return err
+	}
+	if err := d.markLifecycleRunning(); err != nil {
+		d.logger.Printf("warning: failed to mark daemon lifecycle running: %v", err)
 	}
 	defer func() {
 		UnregisterDaemon("")
@@ -183,17 +191,29 @@ func (d *Daemon) Run() error {
 		case sig := <-sigCh:
 			if sig == syscall.SIGHUP {
 				d.logger.Printf("received SIGHUP, restarting with new binary")
+				if err := d.markLifecycleStopped("signal:SIGHUP-restart"); err != nil {
+					d.logger.Printf("warning: failed to mark daemon lifecycle stopped: %v", err)
+				}
 				if err := d.restartWithNewBinary(); err != nil {
 					d.logger.Printf("restart failed: %v", err)
+					if err := d.markLifecycleRunning(); err != nil {
+						d.logger.Printf("warning: failed to restore daemon lifecycle running state after restart failure: %v", err)
+					}
 					continue
 				}
 				return nil
 			}
 			d.logger.Printf("received signal %v, shutting down", sig)
+			if err := d.markLifecycleStopped(fmt.Sprintf("signal:%s", sig)); err != nil {
+				d.logger.Printf("warning: failed to mark daemon lifecycle stopped: %v", err)
+			}
 			d.Stop()
 			return nil
 		case <-d.stopCh:
 			d.logger.Printf("daemon stopped")
+			if err := d.markLifecycleStopped("internal:stop"); err != nil {
+				d.logger.Printf("warning: failed to mark daemon lifecycle stopped: %v", err)
+			}
 			return nil
 		}
 	}
