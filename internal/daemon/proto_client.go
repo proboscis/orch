@@ -41,16 +41,25 @@ func (c *ProtoClient) IsAvailable() bool {
 	return IsDaemonSocketAvailable("") && IsRunning("")
 }
 
-func (c *ProtoClient) sendRequest(req *orchpb.Request) (*orchpb.Response, error) {
+func (c *ProtoClient) sendRequestWithTimeout(req *orchpb.Request, timeout time.Duration) (*orchpb.Response, error) {
 	socketPath := xdg.SocketPath()
 
-	conn, err := net.DialTimeout("unix", socketPath, c.timeout)
+	conn, err := net.DialTimeout("unix", socketPath, timeout)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to daemon: %w", err)
 	}
 	defer conn.Close()
 
-	conn.SetDeadline(time.Now().Add(c.timeout))
+	conn.SetDeadline(time.Now().Add(timeout))
+
+	return c.doSendRequest(conn, req)
+}
+
+func (c *ProtoClient) sendRequest(req *orchpb.Request) (*orchpb.Response, error) {
+	return c.sendRequestWithTimeout(req, c.timeout)
+}
+
+func (c *ProtoClient) doSendRequest(conn net.Conn, req *orchpb.Request) (*orchpb.Response, error) {
 
 	data, err := proto.Marshal(req)
 	if err != nil {
@@ -392,7 +401,7 @@ func (c *ProtoClient) StartRun(opts *StartRunOptions) (*StartRunResponse, error)
 		},
 	}
 
-	resp, err := c.sendRequest(req)
+	resp, err := c.sendRequestWithTimeout(req, 120*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -440,7 +449,7 @@ func (c *ProtoClient) ContinueRun(opts *ContinueRunOptions) (*ContinueRunRespons
 		},
 	}
 
-	resp, err := c.sendRequest(req)
+	resp, err := c.sendRequestWithTimeout(req, 120*time.Second)
 	if err != nil {
 		return nil, err
 	}

@@ -2081,31 +2081,27 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 			port = agent.OpenCodeServerPortStart
 		}
 		client := agent.NewOpenCodeClient(port)
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		if err := client.WaitForHealthy(ctx, 60*time.Second); err != nil {
-			s.logger.Printf("server health check failed: %v", err)
+		st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
+			"port": fmt.Sprintf("%d", port),
+		}))
+
+		session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", req.IssueID, runID), launchCfg.WorkDir)
+		if err != nil {
+			s.logger.Printf("failed to create session: %v", err)
 		} else {
-			st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
-				"port": fmt.Sprintf("%d", port),
+			st.AppendEvent(run.Ref(), model.NewArtifactEvent("opencode_session", map[string]string{
+				"id": session.ID,
 			}))
 
-			session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", req.IssueID, runID), launchCfg.WorkDir)
-			if err != nil {
-				s.logger.Printf("failed to create session: %v", err)
-			} else {
-				st.AppendEvent(run.Ref(), model.NewArtifactEvent("opencode_session", map[string]string{
-					"id": session.ID,
-				}))
-
-				var modelRef *agent.ModelRef
-				if launchCfg.Model != "" {
-					modelRef = agent.ParseModel(launchCfg.Model)
-				}
-				if err := client.SendMessagePrompt(ctx, session.ID, launchCfg.Prompt, launchCfg.WorkDir, modelRef, launchCfg.ModelVariant); err != nil {
-					s.logger.Printf("failed to send prompt: %v", err)
-				}
+			var modelRef *agent.ModelRef
+			if launchCfg.Model != "" {
+				modelRef = agent.ParseModel(launchCfg.Model)
+			}
+			if err := client.SendMessagePrompt(ctx, session.ID, launchCfg.Prompt, launchCfg.WorkDir, modelRef, launchCfg.ModelVariant); err != nil {
+				s.logger.Printf("failed to send prompt: %v", err)
 			}
 		}
 	}
