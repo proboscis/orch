@@ -77,7 +77,7 @@ func runOpen(refStr string, opts *openOptions) error {
 			if err == nil && issue.Path != "" {
 				path = issue.Path
 			} else if err == nil {
-				path = filepath.Join(issuesRoot, issue.ID+".md")
+				path = filepath.Join(issuesRoot, "issues", issue.ID+".md")
 			} else {
 				run, err := api.GetLatestRun(ctx, ref.IssueID)
 				if err != nil {

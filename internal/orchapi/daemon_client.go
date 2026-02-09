@@ -201,12 +201,23 @@ func (c *DaemonClient) ListRuns(ctx context.Context, filter *ListRunsFilter) (*L
 
 func (c *DaemonClient) StartRun(ctx context.Context, req *StartRunRequest) (*StartRunResult, error) {
 	resp, err := c.proto.StartRun(&daemon.StartRunOptions{
-		IssueID:      req.IssueID,
-		Agent:        req.Agent,
-		Model:        req.Model,
-		ModelVariant: req.ModelVariant,
-		BaseBranch:   req.BaseBranch,
-		ProjectRoot:  req.ProjectRoot,
+		IssueID:        req.IssueID,
+		RunID:          req.RunID,
+		Agent:          req.Agent,
+		AgentCmd:       req.AgentCmd,
+		AgentProfile:   req.AgentProfile,
+		Model:          req.Model,
+		ModelVariant:   req.ModelVariant,
+		BaseBranch:     req.BaseBranch,
+		Branch:         req.Branch,
+		WorktreeDir:    req.WorktreeDir,
+		NoPR:           req.NoPR,
+		PromptTemplate: req.PromptTemplate,
+		PRTargetBranch: req.PRTargetBranch,
+		DryRun:         req.DryRun,
+		Reuse:          req.Reuse,
+		Multiplexer:    req.Multiplexer,
+		ProjectRoot:    req.ProjectRoot,
 	})
 	if err != nil {
 		return nil, err

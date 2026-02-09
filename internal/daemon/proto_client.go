@@ -923,7 +923,19 @@ func protoRunToFull(r *orchpb.Run, events []*orchpb.Event) *RunFull {
 	}
 
 	eventJSON := make([]*EventJSON, len(events))
+	phase := ""
 	for i, e := range events {
+		if e.Type == "phase" {
+			if e.Name != "" {
+				phase = e.Name
+			} else if e.Attrs != nil {
+				if p := e.Attrs["phase"]; p != "" {
+					phase = p
+				} else if p := e.Attrs["name"]; p != "" {
+					phase = p
+				}
+			}
+		}
 		eventJSON[i] = &EventJSON{
 			Timestamp: formatUnixTime(e.TimestampUnix),
 			Type:      e.Type,
@@ -937,6 +949,7 @@ func protoRunToFull(r *orchpb.Run, events []*orchpb.Event) *RunFull {
 		RunID:             r.RunId,
 		ShortID:           computeShortID(r.IssueId, r.RunId),
 		Status:            protoRunStatusToString(r.Status),
+		Phase:             phase,
 		Agent:             r.Agent,
 		Model:             r.Model,
 		Branch:            r.Branch,

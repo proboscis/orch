@@ -139,7 +139,7 @@ func runContinue(refStr string, opts *continueOptions) error {
 		Multiplexer:    opts.Multiplexer,
 		TmuxSession:    opts.TmuxSession,
 		ProjectRoot:    repoRoot,
-		RepoRoot:       opts.RepoRoot,
+		RepoRoot:       repoRoot,
 	})
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)

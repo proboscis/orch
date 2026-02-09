@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"net"
 	"os"
 	"os/exec"
@@ -147,6 +148,8 @@ type managedServer struct {
 	StartTime   time.Time
 	LastHealthy time.Time
 	LogFile     *os.File
+	LogPath     string
+	WaitResult  chan error
 }
 
 type Logger interface {
@@ -173,6 +176,35 @@ func deriveRepoID(projectRoot string) string {
 	return repoID
 }
 
+func opencodeServerLogPath(projectRoot string) string {
+	if projectRoot == "" {
+		return ""
+	}
+
+	repoID := deriveRepoID(projectRoot)
+	if repoID == "" {
+		repoID = "repo"
+	}
+
+	var nameBuilder strings.Builder
+	for _, r := range repoID {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+			nameBuilder.WriteRune(r)
+		default:
+			nameBuilder.WriteByte('_')
+		}
+	}
+	if nameBuilder.Len() == 0 {
+		nameBuilder.WriteString("repo")
+	}
+
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(filepath.Clean(projectRoot)))
+
+	return filepath.Join(xdg.StateDir(), fmt.Sprintf("opencode-server-%s-%08x.log", nameBuilder.String(), h.Sum32()))
+}
+
 // RegisterRepo adds a new repo context to the daemon.
 func (s *SocketServer) RegisterRepo(projectRoot string, st store.Store) (string, error) {
 	repoID := deriveRepoID(projectRoot)
@@ -191,6 +223,10 @@ func (s *SocketServer) RegisterRepo(projectRoot string, st store.Store) (string,
 
 // GetRepoContext returns the context for a repo by ID or project root.
 func (s *SocketServer) GetRepoContext(repoIDOrPath string) *RepoContext {
+	if repoIDOrPath == "" {
+		return nil
+	}
+
 	s.reposMu.RLock()
 	defer s.reposMu.RUnlock()
 
@@ -260,6 +296,12 @@ func (s *SocketServer) getOrCreateStore(issuesRoot, projectRoot string) store.St
 
 	cacheKey := issuesRoot
 	if ctx, ok := s.repos[cacheKey]; ok {
+		if ctx.ProjectRoot == "" && projectRoot != "" {
+			ctx.ProjectRoot = projectRoot
+			if id, err := xdg.RepoID(projectRoot); err == nil && id != "" {
+				ctx.RepoID = id
+			}
+		}
 		return ctx.Store
 	}
 
@@ -283,6 +325,28 @@ func (s *SocketServer) getOrCreateStore(issuesRoot, projectRoot string) store.St
 	}
 
 	return st
+}
+
+func (s *SocketServer) resolveProjectRoot(req SendRequest) string {
+	if req.ProjectRoot != "" {
+		return req.ProjectRoot
+	}
+
+	if req.RepoID != "" {
+		if ctx := s.GetRepoContext(req.RepoID); ctx != nil && ctx.ProjectRoot != "" {
+			return ctx.ProjectRoot
+		}
+	}
+
+	if projectRoot := s.getFirstProjectRoot(); projectRoot != "" {
+		return projectRoot
+	}
+
+	if projectRoot := os.Getenv("ORCH_PROJECT_ROOT"); projectRoot != "" {
+		return projectRoot
+	}
+
+	return ""
 }
 
 func (s *SocketServer) SetGitHubBackend(backend *github.Backend) {
@@ -700,7 +764,7 @@ func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string) (int, err
 				return srv.Port, nil
 			}
 		}
-		s.logger.Printf("existing server for %s not healthy, stopping and restarting", projectRoot)
+		s.logger.Printf("existing server for %s not healthy, stopping and restarting (logs: %s)", projectRoot, srv.LogPath)
 		s.stopServerLocked(srv)
 		delete(s.openCodeServers, projectRoot)
 	}
@@ -725,22 +789,19 @@ func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string) (int, err
 	}
 
 	client := agent.NewOpenCodeClient(port)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	if err := client.WaitForHealthy(ctx, 30*time.Second); err != nil {
+	if err := s.waitForOpenCodeServerHealthy(srv, 30*time.Second, client.IsServerRunning); err != nil {
 		s.stopServerLocked(srv)
-		return 0, fmt.Errorf("server started but failed health check: %w", err)
+		return 0, fmt.Errorf("server started but failed health check (logs: %s): %w", srv.LogPath, err)
 	}
 
 	if !s.isServerProcessAlive(srv) {
 		s.stopServerLocked(srv)
-		return 0, fmt.Errorf("server process died after startup on port %d (pid: %d) — port may be occupied by another server", port, srv.Cmd.Process.Pid)
+		return 0, fmt.Errorf("server process died after startup on port %d (pid: %d, logs: %s) — port may be occupied by another server", port, srv.Cmd.Process.Pid, srv.LogPath)
 	}
 
 	srv.LastHealthy = time.Now()
 	s.openCodeServers[projectRoot] = srv
-	s.logger.Printf("started opencode server on port %d (pid: %d) for %s", port, srv.Cmd.Process.Pid, projectRoot)
+	s.logger.Printf("started opencode server on port %d (pid: %d) for %s (logs: %s)", port, srv.Cmd.Process.Pid, projectRoot, srv.LogPath)
 	return port, nil
 }
 
@@ -758,8 +819,10 @@ func (s *SocketServer) startServerProcess(projectRoot string, port int) (*manage
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create log directory: %w", err)
 	}
-	repoID := deriveRepoID(projectRoot)
-	logPath := filepath.Join(logDir, fmt.Sprintf("opencode-server-%s.log", repoID))
+	logPath := opencodeServerLogPath(projectRoot)
+	if logPath == "" {
+		return nil, fmt.Errorf("failed to derive opencode log path")
+	}
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create log file: %w", err)
@@ -779,21 +842,95 @@ func (s *SocketServer) startServerProcess(projectRoot string, port int) (*manage
 		return nil, fmt.Errorf("failed to start process: %w", err)
 	}
 
+	waitResult := make(chan error, 1)
+	go func(projectRoot string, pid int, logPath string) {
+		err := cmd.Wait()
+		if err != nil {
+			s.logger.Printf("opencode server for %s exited (pid: %d): %v (logs: %s)", projectRoot, pid, err, logPath)
+		} else {
+			s.logger.Printf("opencode server for %s exited cleanly (pid: %d, logs: %s)", projectRoot, pid, logPath)
+		}
+		waitResult <- err
+		close(waitResult)
+	}(projectRoot, cmd.Process.Pid, logPath)
+
 	return &managedServer{
 		ProjectRoot: projectRoot,
 		Port:        port,
 		Cmd:         cmd,
 		StartTime:   time.Now(),
 		LogFile:     logFile,
+		LogPath:     logPath,
+		WaitResult:  waitResult,
 	}, nil
 }
 
 func (s *SocketServer) isServerProcessAlive(srv *managedServer) bool {
-	if srv == nil || srv.Cmd == nil || srv.Cmd.Process == nil {
+	if srv == nil {
+		return false
+	}
+	if srv.WaitResult != nil {
+		select {
+		case <-srv.WaitResult:
+			return false
+		default:
+			return true
+		}
+	}
+	if srv.Cmd == nil || srv.Cmd.Process == nil {
 		return false
 	}
 	err := srv.Cmd.Process.Signal(syscall.Signal(0))
 	return err == nil
+}
+
+func (s *SocketServer) waitForOpenCodeServerHealthy(srv *managedServer, timeout time.Duration, isHealthy func(context.Context) bool) error {
+	if srv == nil {
+		return errors.New("server process is nil")
+	}
+
+	deadline := time.Now().Add(timeout)
+	pollInterval := 500 * time.Millisecond
+
+	for {
+		if !s.isServerProcessAlive(srv) {
+			return errors.New("server process exited during startup")
+		}
+
+		probeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		healthy := isHealthy(probeCtx)
+		cancel()
+		if healthy {
+			return nil
+		}
+
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timeout waiting for opencode server to be healthy after %s", timeout)
+		}
+
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return fmt.Errorf("timeout waiting for opencode server to be healthy after %s", timeout)
+		}
+
+		wait := pollInterval
+		if remaining < wait {
+			wait = remaining
+		}
+		time.Sleep(wait)
+	}
+}
+
+func (s *SocketServer) waitForServerExit(srv *managedServer, timeout time.Duration) bool {
+	if srv == nil || srv.WaitResult == nil {
+		return true
+	}
+	select {
+	case <-srv.WaitResult:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
 }
 
 func (s *SocketServer) stopServerLocked(srv *managedServer) {
@@ -801,17 +938,14 @@ func (s *SocketServer) stopServerLocked(srv *managedServer) {
 		return
 	}
 	if srv.Cmd != nil && srv.Cmd.Process != nil {
-		srv.Cmd.Process.Signal(syscall.SIGTERM)
-		done := make(chan error, 1)
-		go func() { done <- srv.Cmd.Wait() }()
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-			srv.Cmd.Process.Kill()
+		_ = srv.Cmd.Process.Signal(syscall.SIGTERM)
+		if !s.waitForServerExit(srv, 5*time.Second) {
+			_ = srv.Cmd.Process.Kill()
+			_ = s.waitForServerExit(srv, 2*time.Second)
 		}
 	}
 	if srv.LogFile != nil {
-		srv.LogFile.Close()
+		_ = srv.LogFile.Close()
 	}
 }
 
@@ -837,7 +971,7 @@ func (s *SocketServer) checkOpenCodeServerHealth() {
 
 	for projectRoot, srv := range s.openCodeServers {
 		if !s.isServerProcessAlive(srv) {
-			s.logger.Printf("opencode server for %s died (pid: %d), will restart on next request", projectRoot, srv.Cmd.Process.Pid)
+			s.logger.Printf("opencode server for %s died (pid: %d, logs: %s), will restart on next request", projectRoot, srv.Cmd.Process.Pid, srv.LogPath)
 			s.stopServerLocked(srv)
 			delete(s.openCodeServers, projectRoot)
 			continue
@@ -849,7 +983,7 @@ func (s *SocketServer) checkOpenCodeServerHealth() {
 			srv.LastHealthy = time.Now()
 		} else {
 			if time.Since(srv.LastHealthy) > 2*time.Minute {
-				s.logger.Printf("opencode server for %s unhealthy for 2+ minutes, restarting", projectRoot)
+				s.logger.Printf("opencode server for %s unhealthy for 2+ minutes, restarting (logs: %s)", projectRoot, srv.LogPath)
 				s.stopServerLocked(srv)
 				delete(s.openCodeServers, projectRoot)
 			}
@@ -1882,17 +2016,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 	}
 	tmuxSession := model.GenerateTmuxSession(req.IssueID, runID)
 
-	ctx := s.GetRepoContext(req.RepoID)
-	if ctx == nil && req.ProjectRoot != "" {
-		ctx = s.GetRepoContext(req.ProjectRoot)
-	}
-
-	var repoRoot string
-	if ctx != nil {
-		repoRoot = ctx.ProjectRoot
-	} else if req.ProjectRoot != "" {
-		repoRoot = req.ProjectRoot
-	}
+	repoRoot := s.resolveProjectRoot(req)
 
 	if repoRoot == "" {
 		encoder.Encode(StartRunResponse{OK: false, Error: "no project root available"})
@@ -2153,17 +2277,7 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 			return
 		}
 
-		ctx := s.GetRepoContext(req.RepoID)
-		if ctx == nil && req.ProjectRoot != "" {
-			ctx = s.GetRepoContext(req.ProjectRoot)
-		}
-
-		var repoRoot string
-		if ctx != nil {
-			repoRoot = ctx.ProjectRoot
-		} else if req.ProjectRoot != "" {
-			repoRoot = req.ProjectRoot
-		}
+		repoRoot := s.resolveProjectRoot(req)
 
 		if repoRoot == "" {
 			encoder.Encode(ContinueRunResponse{OK: false, Error: "no project root available"})

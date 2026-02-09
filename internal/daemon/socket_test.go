@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"io"
@@ -933,6 +934,181 @@ func TestResolveStoreWithProjectRoot(t *testing.T) {
 	resolved = server.resolveStore(SendRequest{ProjectRoot: "/unknown/project"})
 	if resolved != nil {
 		t.Error("expected nil store for unknown project root without factory")
+	}
+}
+
+func TestGetRepoContextEmptyLookupReturnsNil(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	server.repos["/issues/root"] = &RepoContext{
+		ProjectRoot: "",
+		RepoID:      "/issues/root",
+		Store:       &mockStore{runs: make(map[string]*model.Run), issues: make(map[string]*model.Issue)},
+	}
+
+	if got := server.GetRepoContext(""); got != nil {
+		t.Fatalf("expected nil context for empty lookup key, got %+v", got)
+	}
+}
+
+func TestGetOrCreateStoreHydratesProjectRootOnReuse(t *testing.T) {
+	callCount := 0
+	mockFactory := func(string) (store.Store, error) {
+		callCount++
+		return &mockStore{runs: make(map[string]*model.Run), issues: make(map[string]*model.Issue)}, nil
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(mockFactory, logger)
+
+	first := server.getOrCreateStore("/issues/root", "")
+	if first == nil {
+		t.Fatal("expected first store creation to succeed")
+	}
+
+	second := server.getOrCreateStore("/issues/root", "/project/root")
+	if second == nil {
+		t.Fatal("expected second store lookup to return store")
+	}
+	if first != second {
+		t.Fatal("expected store cache reuse for same issues root")
+	}
+
+	ctx := server.repos["/issues/root"]
+	if ctx == nil {
+		t.Fatal("expected cached repo context")
+	}
+	if ctx.ProjectRoot != "/project/root" {
+		t.Fatalf("expected project root to be hydrated to %q, got %q", "/project/root", ctx.ProjectRoot)
+	}
+	if callCount != 1 {
+		t.Fatalf("expected factory to be called once, got %d", callCount)
+	}
+}
+
+func TestResolveProjectRootPrecedence(t *testing.T) {
+	t.Setenv("ORCH_PROJECT_ROOT", "/env/project")
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	repoStore := &mockStore{runs: make(map[string]*model.Run), issues: make(map[string]*model.Issue)}
+	repoID, err := server.RegisterRepo("/daemon/project", repoStore)
+	if err != nil {
+		t.Fatalf("failed to register repo: %v", err)
+	}
+
+	if got := server.resolveProjectRoot(SendRequest{ProjectRoot: "/request/project", RepoID: repoID}); got != "/request/project" {
+		t.Fatalf("expected request project root precedence, got %q", got)
+	}
+
+	if got := server.resolveProjectRoot(SendRequest{RepoID: repoID}); got != "/daemon/project" {
+		t.Fatalf("expected repo context project root, got %q", got)
+	}
+
+	if got := server.resolveProjectRoot(SendRequest{}); got != "/daemon/project" {
+		t.Fatalf("expected daemon registered project root fallback, got %q", got)
+	}
+
+	emptyServer := NewSocketServer(nil, logger)
+	if got := emptyServer.resolveProjectRoot(SendRequest{}); got != "/env/project" {
+		t.Fatalf("expected ORCH_PROJECT_ROOT fallback, got %q", got)
+	}
+}
+
+func TestIsServerProcessAliveReturnsFalseAfterWaitResultClosed(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	waitResult := make(chan error, 1)
+	close(waitResult)
+
+	if server.isServerProcessAlive(&managedServer{WaitResult: waitResult}) {
+		t.Fatal("expected server to be considered dead when wait result channel is closed")
+	}
+}
+
+func TestWaitForServerExitUsesWaitResult(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	waitResult := make(chan error, 1)
+	srv := &managedServer{WaitResult: waitResult}
+
+	if server.waitForServerExit(srv, 5*time.Millisecond) {
+		t.Fatal("expected timeout when process has not exited")
+	}
+
+	close(waitResult)
+	if !server.waitForServerExit(srv, 5*time.Millisecond) {
+		t.Fatal("expected waitForServerExit to return true once channel is closed")
+	}
+}
+
+func TestWaitForOpenCodeServerHealthy(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	t.Run("returns nil when healthy", func(t *testing.T) {
+		waitResult := make(chan error, 1)
+		srv := &managedServer{WaitResult: waitResult}
+		err := server.waitForOpenCodeServerHealthy(srv, 50*time.Millisecond, func(context.Context) bool {
+			return true
+		})
+		if err != nil {
+			t.Fatalf("expected healthy wait to succeed, got error: %v", err)
+		}
+		close(waitResult)
+	})
+
+	t.Run("fails fast on process exit", func(t *testing.T) {
+		waitResult := make(chan error, 1)
+		close(waitResult)
+		srv := &managedServer{WaitResult: waitResult}
+		err := server.waitForOpenCodeServerHealthy(srv, 50*time.Millisecond, func(context.Context) bool {
+			return false
+		})
+		if err == nil || !strings.Contains(err.Error(), "exited during startup") {
+			t.Fatalf("expected process-exit error, got: %v", err)
+		}
+	})
+
+	t.Run("times out when process alive but unhealthy", func(t *testing.T) {
+		waitResult := make(chan error, 1)
+		srv := &managedServer{WaitResult: waitResult}
+		err := server.waitForOpenCodeServerHealthy(srv, 20*time.Millisecond, func(context.Context) bool {
+			return false
+		})
+		if err == nil || !strings.Contains(err.Error(), "timeout waiting for opencode server") {
+			t.Fatalf("expected timeout error, got: %v", err)
+		}
+		close(waitResult)
+	})
+}
+
+func TestOpenCodeServerLogPathIsPerProjectRoot(t *testing.T) {
+	stateHome := filepath.Join(os.TempDir(), "orch-state-"+randomID())
+	t.Setenv("XDG_STATE_HOME", stateHome)
+
+	pathA1 := opencodeServerLogPath("/tmp/repos/demo/worktree-a")
+	pathA2 := opencodeServerLogPath("/tmp/repos/demo/worktree-a")
+	pathB := opencodeServerLogPath("/tmp/repos/demo/worktree-b")
+
+	if pathA1 == "" || pathA2 == "" || pathB == "" {
+		t.Fatal("expected non-empty log paths")
+	}
+	if pathA1 != pathA2 {
+		t.Fatalf("expected deterministic log path for same project root, got %q vs %q", pathA1, pathA2)
+	}
+	if pathA1 == pathB {
+		t.Fatalf("expected different project roots to use different log files, got same path %q", pathA1)
+	}
+	if !strings.HasPrefix(pathA1, xdg.StateDir()+string(os.PathSeparator)) {
+		t.Fatalf("expected log path under state dir %q, got %q", xdg.StateDir(), pathA1)
+	}
+	if !strings.HasSuffix(pathA1, ".log") {
+		t.Fatalf("expected .log suffix, got %q", pathA1)
 	}
 }
 

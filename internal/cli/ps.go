@@ -131,6 +131,10 @@ func runPs(opts *psOptions) error {
 		runs = runs[:requestedLimit]
 	}
 
+	for _, r := range runs {
+		resolveIssueInfoAPI(ctx, api, issueCache, r.IssueID)
+	}
+
 	if opts.NoAlive {
 		aliveByRun = nil
 	}

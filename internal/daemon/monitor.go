@@ -43,6 +43,13 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
 		state.DeadCheckCount = 0
 	} else {
 		state.DeadCheckCount++
+		opencodeLogPath := ""
+		if run.Agent == "opencode" {
+			opencodeLogPath = opencodeServerLogPath(run.WorktreePath)
+			if state.DeadCheckCount == 1 && opencodeLogPath != "" {
+				d.logger.Printf("%s#%s: opencode bootstrap logs: %s", run.IssueID, run.RunID, opencodeLogPath)
+			}
+		}
 		if !state.WasAlive {
 			// Agent was never confirmed alive. For opencode runs, check if there are
 			// clear completion signals (merged PR, clean worktree) before giving up.
@@ -50,7 +57,11 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
 			if run.Agent == "opencode" && state.DeadCheckCount >= deadChecksBeforeFailed {
 				inferredStatus := d.inferStatusFromGitState(run, st, false)
 				if inferredStatus != "" {
-					d.logger.Printf("%s#%s: agent never confirmed alive, but inferred status from git state: %s", run.IssueID, run.RunID, inferredStatus)
+					if opencodeLogPath != "" {
+						d.logger.Printf("%s#%s: agent never confirmed alive, but inferred status from git state: %s (opencode logs: %s)", run.IssueID, run.RunID, inferredStatus, opencodeLogPath)
+					} else {
+						d.logger.Printf("%s#%s: agent never confirmed alive, but inferred status from git state: %s", run.IssueID, run.RunID, inferredStatus)
+					}
 					return d.updateStatus(run, inferredStatus, st)
 				}
 			}
@@ -64,10 +75,18 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
 		if run.Agent == "opencode" {
 			inferredStatus := d.inferStatusFromGitState(run, st, true)
 			if inferredStatus != "" {
-				d.logger.Printf("%s#%s: opencode session gone, inferred status from git state: %s", run.IssueID, run.RunID, inferredStatus)
+				if opencodeLogPath != "" {
+					d.logger.Printf("%s#%s: opencode session gone, inferred status from git state: %s (opencode logs: %s)", run.IssueID, run.RunID, inferredStatus, opencodeLogPath)
+				} else {
+					d.logger.Printf("%s#%s: opencode session gone, inferred status from git state: %s", run.IssueID, run.RunID, inferredStatus)
+				}
 				return d.updateStatus(run, inferredStatus, st)
 			}
-			d.logger.Printf("%s#%s: opencode session not found after %d checks, marking unknown", run.IssueID, run.RunID, state.DeadCheckCount)
+			if opencodeLogPath != "" {
+				d.logger.Printf("%s#%s: opencode session not found after %d checks, marking unknown (opencode logs: %s)", run.IssueID, run.RunID, state.DeadCheckCount, opencodeLogPath)
+			} else {
+				d.logger.Printf("%s#%s: opencode session not found after %d checks, marking unknown", run.IssueID, run.RunID, state.DeadCheckCount)
+			}
 			return d.updateStatus(run, model.StatusUnknown, st)
 		}
 		d.logger.Printf("%s#%s: agent confirmed dead after %d checks, marking failed", run.IssueID, run.RunID, state.DeadCheckCount)

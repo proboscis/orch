@@ -27,7 +27,24 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	defer os.RemoveAll(tmpDir)
+
+	runtimeDir := filepath.Join(tmpDir, "runtime")
+	stateDir := filepath.Join(tmpDir, "state")
+	dataDir := filepath.Join(tmpDir, "data")
+	if err := os.MkdirAll(runtimeDir, 0755); err != nil {
+		panic(err)
+	}
+	if err := os.MkdirAll(stateDir, 0755); err != nil {
+		panic(err)
+	}
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		panic(err)
+	}
+	os.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	os.Setenv("XDG_STATE_HOME", stateDir)
+	os.Setenv("XDG_DATA_HOME", dataDir)
+	os.Unsetenv("ORCH_VAULT")
+	os.Unsetenv("ORCH_ISSUES_ROOT")
 
 	orchBinary = filepath.Join(tmpDir, "orch")
 	cmd := exec.Command("go", "build", "-o", orchBinary, "../../cmd/orch")
@@ -44,14 +61,18 @@ func TestMain(m *testing.M) {
 	exec.Command("git", "-C", testRepo, "init").Run()
 	exec.Command("git", "-C", testRepo, "config", "user.email", "test@test.com").Run()
 	exec.Command("git", "-C", testRepo, "config", "user.name", "Test").Run()
+	os.MkdirAll(filepath.Join(testRepo, ".orch"), 0755)
+	os.WriteFile(filepath.Join(testRepo, ".orch", "config.yaml"), []byte("{}\n"), 0644)
+	os.Setenv("ORCH_PROJECT_ROOT", testRepo)
 	os.WriteFile(filepath.Join(testRepo, "README.md"), []byte("# Test"), 0644)
 	exec.Command("git", "-C", testRepo, "add", ".").Run()
 	exec.Command("git", "-C", testRepo, "commit", "-m", "initial").Run()
 
 	startTestDaemon()
-	defer stopTestDaemon()
-
-	os.Exit(m.Run())
+	code := m.Run()
+	stopTestDaemon()
+	_ = os.RemoveAll(tmpDir)
+	os.Exit(code)
 }
 
 func startTestDaemon() {
