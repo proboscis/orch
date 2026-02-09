@@ -1,17 +1,30 @@
 """Tests for protobuf client conversion functions."""
 
+import socket
+import threading
+import tempfile
+import shutil
+from pathlib import Path
+
 import pytest
+from returns.result import Failure
 
 import hy  # noqa: F401 - Enable Hy imports
 
 from orch_monitor.api import orch_pb2 as pb
 from orch_monitor.proto_client import (
+    ProtoDaemonClient,
     proto_branch_state_to_str as _proto_branch_state_to_str,
     proto_multiplexer_to_str as _proto_multiplexer_to_str,
     proto_run_to_model as _proto_run_to_model,
     proto_status_to_model as _proto_status_to_model,
 )
 from orch_monitor.models import Status
+from orch_monitor.types import (
+    ProtoDaemonConnectionRefusedError,
+    ProtoDaemonSocketMissingError,
+    ProtoDaemonTimeoutError,
+)
 
 
 class TestProtoBranchStateToStr:
@@ -208,3 +221,84 @@ class TestProtoRunToModel:
         assert run.server_port == 4096
         assert run.opencode_session_id == "sess-abc123"
         assert run.continued_from == "run-000"
+
+
+class TestProtoDaemonAvailability:
+    def _short_socket_path(self) -> tuple[Path, Path]:
+        socket_dir = Path(tempfile.mkdtemp(prefix="orch-sock-", dir="/tmp"))
+        return socket_dir, socket_dir / "daemon.sock"
+
+    def test_missing_socket_reports_typed_error(self):
+        socket_dir, socket_path = self._short_socket_path()
+        client = ProtoDaemonClient(socket_path, None, None, 0.2)
+
+        try:
+            result = client.check_availability()
+
+            assert isinstance(result, Failure)
+            assert isinstance(result.failure(), ProtoDaemonSocketMissingError)
+            assert client.is_available() is False
+        finally:
+            shutil.rmtree(socket_dir, ignore_errors=True)
+
+    def test_stale_socket_reports_connection_refused(self):
+        socket_dir, socket_path = self._short_socket_path()
+        stale_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            stale_socket.bind(str(socket_path))
+            stale_socket.close()
+
+            client = ProtoDaemonClient(socket_path, None, None, 0.2)
+            result = client.check_availability()
+
+            assert isinstance(result, Failure)
+            assert isinstance(result.failure(), ProtoDaemonConnectionRefusedError)
+            assert client.is_available() is False
+        finally:
+            try:
+                stale_socket.close()
+            except OSError:
+                pass
+            if socket_path.exists():
+                socket_path.unlink(missing_ok=True)
+            shutil.rmtree(socket_dir, ignore_errors=True)
+
+    def test_health_probe_timeout_reports_typed_error(self):
+        socket_dir, socket_path = self._short_socket_path()
+        ready = threading.Event()
+        release = threading.Event()
+
+        def _hanging_server():
+            server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                server.bind(str(socket_path))
+                server.listen(1)
+                ready.set()
+                conn, _ = server.accept()
+                try:
+                    conn.recv(4096)
+                    release.wait(timeout=1.0)
+                finally:
+                    conn.close()
+            finally:
+                server.close()
+
+        thread = threading.Thread(target=_hanging_server, daemon=True)
+        thread.start()
+        assert ready.wait(timeout=1.0)
+
+        try:
+            client = ProtoDaemonClient(socket_path, None, None, 0.05)
+            result = client.check_availability()
+            release.set()
+            thread.join(timeout=1.0)
+
+            assert isinstance(result, Failure)
+            assert isinstance(result.failure(), ProtoDaemonTimeoutError)
+            assert "timed out" in str(result.failure()).lower()
+        finally:
+            release.set()
+            thread.join(timeout=1.0)
+            if socket_path.exists():
+                socket_path.unlink(missing_ok=True)
+            shutil.rmtree(socket_dir, ignore_errors=True)

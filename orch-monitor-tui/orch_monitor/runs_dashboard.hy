@@ -314,7 +314,7 @@ DataTable {
       (setv self.title f"{self._base_title} | Disconnected")
       (setv log-path (_log-error "list_runs" error self.config.project_root
                        :socket-path self.config.socket_path))
-      (.notify self f"Daemon unavailable: {error}\nSee {log-path}"
+      (.notify self f"Daemon state: {error}\nAuto-retrying...\nSee {log-path}"
                :severity "warning" :timeout 5)
       (return))
     (setv self._daemon_error None)

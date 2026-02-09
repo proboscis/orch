@@ -499,30 +499,43 @@
        (send-and-receive sock))
    
    Catches:
-     socket.timeout       -> ProtoDaemonError
-     ConnectionRefusedError -> ProtoDaemonNotRunningError
-     FileNotFoundError    -> ProtoDaemonNotRunningError
-     Exception            -> ProtoDaemonError
+     socket.timeout / TimeoutError -> ProtoDaemonTimeoutError
+     ConnectionRefusedError        -> ProtoDaemonConnectionRefusedError
+     FileNotFoundError             -> ProtoDaemonSocketMissingError
+     PermissionError               -> ProtoDaemonPermissionError
+     Exception                     -> ProtoDaemonError
    
    All errors are ALWAYS re-raised as typed exceptions (never swallowed).
   "
   `(do
      (import socket)
-     (import orch_monitor.types [ProtoDaemonError ProtoDaemonNotRunningError])
-     (import logging)
-     (try
-       ~@body
-       (except [e socket.timeout]
-         (raise (ProtoDaemonError "Timeout communicating with daemon")))
-       (except [e ConnectionRefusedError]
-         (raise (ProtoDaemonNotRunningError "Daemon is not running")))
-       (except [e FileNotFoundError]
-         (raise (ProtoDaemonNotRunningError
-                  f"Daemon socket not found at {~socket-path}")))
-       (except [e Exception]
-         (setv logger (logging.getLogger "orch_monitor.proto_client"))
-         (setv __err_type__ (. (type e) __name__))
-         (.error logger f"[socket_send] Unexpected: {__err_type__}: {e}")
+      (import orch_monitor.types [ProtoDaemonError
+                                  ProtoDaemonConnectionRefusedError
+                                  ProtoDaemonPermissionError
+                                  ProtoDaemonSocketMissingError
+                                  ProtoDaemonTimeoutError])
+      (import logging)
+      (try
+        ~@body
+        (except [e socket.timeout]
+          (raise (ProtoDaemonTimeoutError
+                   f"Daemon request timed out at {~socket-path}")))
+        (except [e TimeoutError]
+          (raise (ProtoDaemonTimeoutError
+                   f"Daemon request timed out at {~socket-path}")))
+        (except [e ConnectionRefusedError]
+          (raise (ProtoDaemonConnectionRefusedError
+                   f"Daemon connection refused at {~socket-path}")))
+        (except [e FileNotFoundError]
+          (raise (ProtoDaemonSocketMissingError
+                   f"Daemon socket not found at {~socket-path}")))
+        (except [e PermissionError]
+          (raise (ProtoDaemonPermissionError
+                   f"Permission denied accessing daemon socket at {~socket-path}")))
+        (except [e Exception]
+          (setv logger (logging.getLogger "orch_monitor.proto_client"))
+          (setv __err_type__ (. (type e) __name__))
+          (.error logger f"[socket_send] Unexpected: {__err_type__}: {e}")
          (raise (ProtoDaemonError f"Socket error: {e}"))))))
 
 (defn _contains-return? [form]
