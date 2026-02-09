@@ -1875,3 +1875,139 @@ func (c *ProtoClient) QueryOpenCodeServer(port int) (*QueryOpenCodeServerRespons
 		Providers:     providers,
 	}, nil
 }
+
+func (c *ProtoClient) GetConfig(projectRoot string) (*ConfigResponse, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_GetConfig{
+			GetConfig: &orchpb.GetConfigRequest{
+				ProjectRoot: projectRoot,
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	configResp := resp.GetGetConfig()
+	if configResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	cfg := &ConfigResponse{
+		Agent:               configResp.Agent,
+		Model:               configResp.Model,
+		ModelVariant:        configResp.ModelVariant,
+		WorktreeDir:         configResp.WorktreeDir,
+		BaseBranch:          configResp.BaseBranch,
+		PRTargetBranch:      configResp.PrTargetBranch,
+		LogLevel:            configResp.LogLevel,
+		PromptTemplate:      configResp.PromptTemplate,
+		Multiplexer:         configResp.Multiplexer,
+		MonitorMultiplexer:  configResp.MonitorMultiplexer,
+		AgentMultiplexer:    configResp.AgentMultiplexer,
+		NoPR:                configResp.NoPr,
+		DefaultPreset:       configResp.DefaultPreset,
+		ControlAgent:        configResp.ControlAgent,
+		ControlModel:        configResp.ControlModel,
+		ControlModelVariant: configResp.ControlModelVariant,
+		DiffTool:            configResp.DiffTool,
+	}
+
+	if configResp.Monitor != nil {
+		cfg.Monitor.PSColumns = configResp.Monitor.PsColumns
+	}
+
+	for _, p := range configResp.Presets {
+		cfg.Presets = append(cfg.Presets, PresetConfig{
+			Name:    p.Name,
+			Backend: p.Backend,
+			Model:   p.Model,
+			Variant: p.Variant,
+			Profile: p.Profile,
+		})
+	}
+
+	if configResp.Opencode != nil {
+		cfg.OpenCode.DefaultModel = configResp.Opencode.DefaultModel
+		cfg.OpenCode.DefaultVariant = configResp.Opencode.DefaultVariant
+		cfg.OpenCode.PromptTemplate = configResp.Opencode.PromptTemplate
+		cfg.OpenCode.ExtraArgs = configResp.Opencode.ExtraArgs
+		cfg.OpenCode.ControlExtraArgs = configResp.Opencode.ControlExtraArgs
+	}
+
+	if configResp.Claude != nil {
+		cfg.Claude.PromptTemplate = configResp.Claude.PromptTemplate
+		cfg.Claude.ExtraArgs = configResp.Claude.ExtraArgs
+		cfg.Claude.ControlExtraArgs = configResp.Claude.ControlExtraArgs
+	}
+
+	if configResp.Codex != nil {
+		cfg.Codex.PromptTemplate = configResp.Codex.PromptTemplate
+		cfg.Codex.ExtraArgs = configResp.Codex.ExtraArgs
+		cfg.Codex.ControlExtraArgs = configResp.Codex.ControlExtraArgs
+	}
+
+	if configResp.Gemini != nil {
+		cfg.Gemini.PromptTemplate = configResp.Gemini.PromptTemplate
+		cfg.Gemini.ExtraArgs = configResp.Gemini.ExtraArgs
+		cfg.Gemini.ControlExtraArgs = configResp.Gemini.ControlExtraArgs
+	}
+
+	if configResp.Slack != nil {
+		cfg.Slack.Enabled = configResp.Slack.Enabled
+		cfg.Slack.WebhookURL = configResp.Slack.WebhookUrl
+		cfg.Slack.BotToken = configResp.Slack.BotToken
+		cfg.Slack.Channel = configResp.Slack.Channel
+		cfg.Slack.NotifyOn = configResp.Slack.NotifyOn
+	}
+
+	if configResp.Issues != nil {
+		cfg.Issues.Backend = configResp.Issues.Backend
+		cfg.Issues.Path = configResp.Issues.Path
+	}
+
+	if configResp.Github != nil {
+		cfg.GitHub.Owner = configResp.Github.Owner
+		cfg.GitHub.Repo = configResp.Github.Repo
+		cfg.GitHub.LabelFilter = configResp.Github.LabelFilter
+		cfg.GitHub.PollInterval = int(configResp.Github.PollInterval)
+		cfg.GitHub.StatusLabels = configResp.Github.StatusLabels
+	}
+
+	return cfg, nil
+}
+
+func (c *ProtoClient) GetDaemonStatus() (*DaemonStatusResponse, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_GetDaemonStatus{
+			GetDaemonStatus: &orchpb.GetDaemonStatusRequest{},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	statusResp := resp.GetGetDaemonStatus()
+	if statusResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	return &DaemonStatusResponse{
+		Running: statusResp.Running,
+		PID:     int(statusResp.Pid),
+		LogPath: statusResp.LogPath,
+		Version: statusResp.Version,
+	}, nil
+}

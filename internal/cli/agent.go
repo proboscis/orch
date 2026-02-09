@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/s22625/orch/internal/agent"
-	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/monitor"
 	"github.com/s22625/orch/internal/multiplexer"
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
 
@@ -83,9 +83,13 @@ func runAgent(opts *agentOptions) error {
 	// Determine backend from flag or config
 	backend := opts.Backend
 	if backend == "" {
-		cfg, err := config.Load()
-		if err == nil && cfg.Agent != "" {
-			backend = cfg.Agent
+		ctx := context.Background()
+		api, err := getAPI()
+		if err == nil {
+			cfg, err := api.GetConfig(ctx, projectRoot)
+			if err == nil && cfg.Agent != "" {
+				backend = cfg.Agent
+			}
 		}
 	}
 	if backend == "" {
@@ -185,12 +189,17 @@ func runOpenCodeAgent(orchDir string, opts *agentOptions) error {
 // runMultiplexerAgent handles claude/codex/gemini using tmux or zellij
 func runMultiplexerAgent(orchDir string, opts *agentOptions, agentType agent.AgentType) error {
 	// Get multiplexer from config (use agent multiplexer, default: tmux)
-	cfg, _ := config.Load()
 	muxType := multiplexer.TypeTmux
-	if cfg != nil {
-		parsed, err := multiplexer.ParseType(cfg.GetAgentMultiplexer())
-		if err == nil && parsed != multiplexer.TypeAuto {
-			muxType = parsed
+	ctx := context.Background()
+	api, apiErr := getAPI()
+	if apiErr == nil {
+		projectRoot, _ := getProjectRoot()
+		cfg, cfgErr := api.GetConfig(ctx, projectRoot)
+		if cfgErr == nil && cfg.AgentMultiplexer != "" {
+			parsed, parseErr := multiplexer.ParseType(cfg.AgentMultiplexer)
+			if parseErr == nil && parsed != multiplexer.TypeAuto {
+				muxType = parsed
+			}
 		}
 	}
 
@@ -265,19 +274,24 @@ func createMultiplexerSession(orchDir string, agentType agent.AgentType, mux mul
 	// Get model settings from config
 	var modelName, modelVariant, profile string
 	var extraArgs []string
-	cfg, cfgErr := config.Load()
-	if cfgErr == nil {
-		modelName = cfg.ControlModel
-		if modelName == "" {
-			modelName = cfg.Model
+	ctx := context.Background()
+	api, apiErr := getAPI()
+	if apiErr == nil {
+		projectRoot, _ := getProjectRoot()
+		cfg, cfgErr := api.GetConfig(ctx, projectRoot)
+		if cfgErr == nil {
+			modelName = cfg.ControlModel
+			if modelName == "" {
+				modelName = cfg.Model
+			}
+			modelVariant = cfg.ControlModelVariant
+			if modelVariant == "" {
+				modelVariant = cfg.ModelVariant
+			}
+			// Get extra args for control agent (use control-specific args)
+			extraArgs = getControlExtraArgs(cfg, string(agentType))
+			// profile not in global config, only in presets
 		}
-		modelVariant = cfg.ControlModelVariant
-		if modelVariant == "" {
-			modelVariant = cfg.ModelVariant
-		}
-		// Get extra args for control agent (use control-specific args)
-		extraArgs = cfg.GetControlExtraArgs(string(agentType))
-		// profile not in global config, only in presets
 	}
 
 	launchCfg := &agent.LaunchConfig{
@@ -455,4 +469,21 @@ func writeControlPromptViaAPI(issuesRoot string) (string, error) {
 		return "", fmt.Errorf("failed to get API: %w", err)
 	}
 	return monitor.WriteControlPromptFileViaAPI(ctx, api, issuesRoot)
+}
+
+func getControlExtraArgs(cfg *orchapi.Config, agentType string) []string {
+	if cfg == nil {
+		return nil
+	}
+	switch agentType {
+	case "opencode":
+		return cfg.OpenCode.ControlExtraArgs
+	case "claude":
+		return cfg.Claude.ControlExtraArgs
+	case "codex":
+		return cfg.Codex.ControlExtraArgs
+	case "gemini":
+		return cfg.Gemini.ControlExtraArgs
+	}
+	return nil
 }

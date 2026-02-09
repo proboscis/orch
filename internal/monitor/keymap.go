@@ -13,7 +13,6 @@ type KeyMap struct {
 	KillSession string
 	NewRun      string
 	Resolve     string
-	Merge       string
 	Refresh     string
 	Sort        string
 	SortDir     string
@@ -42,7 +41,6 @@ func DefaultKeyMap() KeyMap {
 		KillSession: "X",
 		NewRun:      "n",
 		Resolve:     "R",
-		Merge:       "M",
 		Refresh:     "r",
 		Sort:        "S",
 		SortDir:     "D",
@@ -62,6 +60,6 @@ func DefaultKeyMap() KeyMap {
 
 // HelpLine renders the footer help text.
 func (k KeyMap) HelpLine() string {
-	return fmt.Sprintf("[%s] runs  [%s] issues  [%s] chat  [%s] open  [%s] issue  [%s] exec  [%s] stop  [%s] kill  [%s] new  [%s] resolve  [%s] merge  [%s] refresh  [%s] sort  [%s] filter  [%s] presets  [%s] quit  [%s] help",
-		k.Runs, k.Issues, k.Chat, k.Open, k.EditIssue, k.Exec, k.Stop, k.KillSession, k.NewRun, k.Resolve, k.Merge, k.Refresh, k.Sort, k.Filter, k.QuickFilter, k.Quit, k.Help)
+	return fmt.Sprintf("[%s] runs  [%s] issues  [%s] chat  [%s] open  [%s] issue  [%s] exec  [%s] stop  [%s] kill  [%s] new  [%s] resolve  [%s] refresh  [%s] sort  [%s] filter  [%s] presets  [%s] quit  [%s] help",
+		k.Runs, k.Issues, k.Chat, k.Open, k.EditIssue, k.Exec, k.Stop, k.KillSession, k.NewRun, k.Resolve, k.Refresh, k.Sort, k.Filter, k.QuickFilter, k.Quit, k.Help)
 }

@@ -711,3 +711,98 @@ func lookupPRInfo(run *model.Run) (prNumber int, prState string) {
 
 	return prInfo.Number, strings.ToLower(prInfo.State)
 }
+
+type SlackConfigResponse struct {
+	Enabled    bool
+	WebhookURL string
+	BotToken   string
+	Channel    string
+	NotifyOn   []string
+}
+
+type OpenCodeConfigResponse struct {
+	DefaultModel     string
+	DefaultVariant   string
+	PromptTemplate   string
+	ExtraArgs        []string
+	ControlExtraArgs []string
+}
+
+type ClaudeConfigResponse struct {
+	PromptTemplate   string
+	ExtraArgs        []string
+	ControlExtraArgs []string
+}
+
+type CodexConfigResponse struct {
+	PromptTemplate   string
+	ExtraArgs        []string
+	ControlExtraArgs []string
+}
+
+type GeminiConfigResponse struct {
+	PromptTemplate   string
+	ExtraArgs        []string
+	ControlExtraArgs []string
+}
+
+type PresetConfig struct {
+	Name    string
+	Backend string
+	Model   string
+	Variant string
+	Profile string
+}
+
+type IssuesConfigResponse struct {
+	Backend string
+	Path    string
+}
+
+type GitHubConfigResponse struct {
+	Owner        string
+	Repo         string
+	LabelFilter  string
+	PollInterval int
+	StatusLabels map[string]string
+}
+
+type MonitorConfigResponse struct {
+	PSColumns []string
+}
+
+type ConfigResponse struct {
+	Agent               string
+	Model               string
+	ModelVariant        string
+	WorktreeDir         string
+	BaseBranch          string
+	PRTargetBranch      string
+	LogLevel            string
+	PromptTemplate      string
+	Multiplexer         string
+	MonitorMultiplexer  string
+	AgentMultiplexer    string
+	NoPR                bool
+	DefaultPreset       string
+	ControlAgent        string
+	ControlModel        string
+	ControlModelVariant string
+	DiffTool            string
+	Monitor             MonitorConfigResponse
+	Presets             []PresetConfig
+	OpenCode            OpenCodeConfigResponse
+	Claude              ClaudeConfigResponse
+	Codex               CodexConfigResponse
+	Gemini              GeminiConfigResponse
+	Slack               SlackConfigResponse
+	Issues              IssuesConfigResponse
+	GitHub              GitHubConfigResponse
+}
+
+type DaemonStatusResponse struct {
+	Running bool
+	PID     int
+	LogPath string
+	Version string
+}

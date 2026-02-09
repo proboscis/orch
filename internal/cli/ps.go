@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/s22625/orch/internal/agent"
-	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
@@ -151,13 +150,17 @@ func runPs(opts *psOptions) error {
 	}
 
 	if opts.Verbose {
-		projectRoot, _ := getProjectRoot()
 		fmt.Println()
-		fmt.Printf("Daemon running: %v\n", daemon.IsRunning(projectRoot))
-		if daemon.IsRunning(projectRoot) {
-			fmt.Printf("Daemon PID: %d\n", daemon.GetRunningPID(projectRoot))
+		daemonStatus, err := api.GetDaemonStatus(ctx)
+		if err != nil {
+			fmt.Printf("Daemon running: unknown (error: %v)\n", err)
+		} else {
+			fmt.Printf("Daemon running: %v\n", daemonStatus.Running)
+			if daemonStatus.Running {
+				fmt.Printf("Daemon PID: %d\n", daemonStatus.PID)
+			}
+			fmt.Printf("Daemon log: %s\n", daemonStatus.LogPath)
 		}
-		fmt.Printf("Daemon log: %s\n", daemon.LogFilePath(projectRoot))
 	}
 
 	return nil

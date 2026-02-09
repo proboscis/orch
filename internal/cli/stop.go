@@ -1,11 +1,12 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 
-	"github.com/s22625/orch/internal/daemon"
-	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
 
@@ -45,68 +46,100 @@ If the run is already stopped (done/failed/canceled), this is a no-op.`,
 }
 
 func runStop(refStr string, opts *stopOptions) error {
-	client, err := requireDaemon()
+	ctx := context.Background()
+	api, err := getAPI()
 	if err != nil {
 		return err
 	}
 
-	var issueID, runID string
+	ref, err := orchapi.ParseRunRef(refStr)
+	if err != nil {
+		return err
+	}
 
-	if shortIDRegex.MatchString(refStr) {
-		resp, err := client.GetRunByShortID(refStr)
-		if err == nil && resp.Run != nil {
-			issueID = resp.Run.IssueID
-			runID = resp.Run.RunID
-		} else if len(refStr) == 6 {
+	run, err := api.ResolveRun(ctx, ref)
+	if err != nil {
+		if errors.Is(err, orchapi.ErrNotFound) {
 			fmt.Fprintf(os.Stderr, "run not found: %s\n", refStr)
 			os.Exit(ExitRunNotFound)
-			return fmt.Errorf("run not found: %s", refStr)
-		}
-	}
-
-	if issueID == "" {
-		ref, err := model.ParseRunRef(refStr)
-		if err != nil {
 			return err
 		}
-		issueID = ref.IssueID
-		if !ref.IsLatest() {
-			runID = ref.RunID
-		}
+		return err
 	}
 
-	resp, err := client.StopRun(issueID, runID, opts.Force)
-	if err != nil {
+	if ref.IsLatest() {
+		return stopAllForIssue(ctx, api, run.IssueID, opts)
+	}
+
+	if err := api.StopRun(ctx, orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(ExitInternalError)
 		return err
 	}
 
 	if !globalOpts.Quiet {
-		if len(resp.StoppedRuns) == 0 {
-			if runID != "" {
-				fmt.Printf("no active run to stop: %s#%s\n", issueID, runID)
-			} else {
-				fmt.Printf("no active runs for issue: %s\n", issueID)
-			}
-		} else if len(resp.StoppedRuns) == 1 {
-			fmt.Printf("stopped: %s#%s\n", issueID, resp.StoppedRuns[0])
-		} else {
-			fmt.Printf("stopped %d runs for %s\n", resp.StoppedCount, issueID)
+		fmt.Printf("stopped: %s#%s\n", run.IssueID, run.RunID)
+	}
+
+	return nil
+}
+
+func stopAllForIssue(ctx context.Context, api orchapi.OrchAPI, issueID string, opts *stopOptions) error {
+	resp, err := api.ListRuns(ctx, &orchapi.ListRunsFilter{
+		IssueID: issueID,
+		Status: []orchapi.RunStatus{
+			orchapi.RunStatusRunning,
+			orchapi.RunStatusBooting,
+			orchapi.RunStatusBlocked,
+			orchapi.RunStatusBlockedAPI,
+			orchapi.RunStatusQueued,
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	if len(resp.Runs) == 0 {
+		if !globalOpts.Quiet {
+			fmt.Printf("no active runs for issue: %s\n", issueID)
 		}
+		return nil
+	}
+
+	stoppedCount := 0
+	for _, run := range resp.Runs {
+		if err := api.StopRun(ctx, orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to stop %s#%s: %v\n", run.IssueID, run.RunID, err)
+		} else {
+			stoppedCount++
+			if !globalOpts.Quiet {
+				fmt.Printf("stopped: %s#%s\n", run.IssueID, run.RunID)
+			}
+		}
+	}
+
+	if !globalOpts.Quiet && stoppedCount > 1 {
+		fmt.Printf("stopped %d runs for %s\n", stoppedCount, issueID)
 	}
 
 	return nil
 }
 
 func runStopAll(opts *stopOptions) error {
-	client, err := requireDaemon()
+	ctx := context.Background()
+	api, err := getAPI()
 	if err != nil {
 		return err
 	}
 
-	resp, err := client.ListRuns(&daemon.ListRunsFilter{
-		Status: []string{"running", "booting", "blocked", "blocked_api", "queued"},
+	resp, err := api.ListRuns(ctx, &orchapi.ListRunsFilter{
+		Status: []orchapi.RunStatus{
+			orchapi.RunStatusRunning,
+			orchapi.RunStatusBooting,
+			orchapi.RunStatusBlocked,
+			orchapi.RunStatusBlockedAPI,
+			orchapi.RunStatusQueued,
+		},
 	})
 	if err != nil {
 		return err
@@ -121,8 +154,7 @@ func runStopAll(opts *stopOptions) error {
 
 	stoppedCount := 0
 	for _, run := range resp.Runs {
-		_, err := client.StopRun(run.IssueID, run.RunID, opts.Force)
-		if err != nil {
+		if err := api.StopRun(ctx, orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to stop %s#%s: %v\n", run.IssueID, run.RunID, err)
 		} else {
 			stoppedCount++

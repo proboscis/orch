@@ -10,9 +10,8 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/s22625/orch/internal/config"
-	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
 
@@ -103,7 +102,8 @@ func runRun(issueID string, opts *runOptions) error {
 		issueID = model.NormalizeGitHubIssueID(issueID)
 	}
 
-	_, err := applyPromptConfigDefaults(opts)
+	ctx := context.Background()
+	api, err := getAPI()
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)
 	}
@@ -116,12 +116,14 @@ func runRun(issueID string, opts *runOptions) error {
 		}
 	}
 
-	daemonClient, err := requireDaemon()
+	cfg, err := api.GetConfig(ctx, repoRoot)
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)
 	}
 
-	resp, err := daemonClient.StartRun(&daemon.StartRunOptions{
+	applyConfigDefaults(opts, cfg)
+
+	resp, err := api.StartRun(ctx, &orchapi.StartRunRequest{
 		IssueID:        issueID,
 		RunID:          opts.RunID,
 		Agent:          opts.Agent,
@@ -281,7 +283,6 @@ func buildAgentPrompt(issue *model.Issue, opts *promptOptions) string {
 	return executeTemplate(defaultPromptTemplate, issue, opts)
 }
 
-// executeTemplate executes a prompt template with issue data
 func executeTemplate(tmplStr string, issue *model.Issue, opts *promptOptions) string {
 	opts = applyPromptDefaults(opts)
 
@@ -296,10 +297,8 @@ func executeTemplate(tmplStr string, issue *model.Issue, opts *promptOptions) st
 		"IssuePath":      opts.IssuePath,
 	}
 
-	// Use text/template for proper template execution
 	tmpl, err := template.New("prompt").Parse(tmplStr)
 	if err != nil {
-		// Fallback to simple format if template parsing fails
 		return buildSimplePrompt(issue, opts)
 	}
 
@@ -311,7 +310,6 @@ func executeTemplate(tmplStr string, issue *model.Issue, opts *promptOptions) st
 	return buf.String()
 }
 
-// buildSimplePrompt creates a basic prompt without template processing
 func buildSimplePrompt(issue *model.Issue, opts *promptOptions) string {
 	opts = applyPromptDefaults(opts)
 
@@ -338,12 +336,7 @@ func buildSimplePrompt(issue *model.Issue, opts *promptOptions) string {
 	return prompt
 }
 
-func applyPromptConfigDefaults(opts *runOptions) (*config.Config, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return nil, err
-	}
-
+func applyConfigDefaults(opts *runOptions, cfg *orchapi.Config) {
 	agentExplicit := opts.Agent != ""
 	modelExplicit := opts.Model != ""
 	variantExplicit := opts.ModelVariant != ""
@@ -355,25 +348,23 @@ func applyPromptConfigDefaults(opts *runOptions) (*config.Config, error) {
 	}
 
 	if presetName != "" {
-		preset := cfg.GetPreset(presetName)
-		if preset == nil {
-			return nil, fmt.Errorf("preset not found: %s", presetName)
-		}
-		if !agentExplicit {
-			opts.Agent = preset.EffectiveBackend()
-		}
-		if !modelExplicit && preset.Model != "" {
-			opts.Model = preset.Model
-		}
-		if !variantExplicit && preset.Variant != "" {
-			opts.ModelVariant = preset.Variant
-		}
-		if !profileExplicit && preset.Profile != "" {
-			opts.AgentProfile = preset.Profile
+		preset := findPreset(cfg.Presets, presetName)
+		if preset != nil {
+			if !agentExplicit {
+				opts.Agent = effectiveBackend(preset)
+			}
+			if !modelExplicit && preset.Model != "" {
+				opts.Model = preset.Model
+			}
+			if !variantExplicit && preset.Variant != "" {
+				opts.ModelVariant = preset.Variant
+			}
+			if !profileExplicit && preset.Profile != "" {
+				opts.AgentProfile = preset.Profile
+			}
 		}
 	}
 
-	// BaseBranch: use config value if flag not provided, fallback to "main"
 	if opts.BaseBranch == "" {
 		if cfg.BaseBranch != "" {
 			opts.BaseBranch = cfg.BaseBranch
@@ -382,7 +373,6 @@ func applyPromptConfigDefaults(opts *runOptions) (*config.Config, error) {
 		}
 	}
 
-	// Agent: use config value if flag not provided, fallback to "claude"
 	if opts.Agent == "" {
 		if cfg.Agent != "" {
 			opts.Agent = cfg.Agent
@@ -392,21 +382,18 @@ func applyPromptConfigDefaults(opts *runOptions) (*config.Config, error) {
 	}
 
 	if opts.Multiplexer == "" {
-		opts.Multiplexer = cfg.GetAgentMultiplexer()
+		opts.Multiplexer = getAgentMultiplexer(cfg)
 	}
 
-	// WorktreeDir: use config value if flag not provided, fallback to "~/.orch/worktrees"
 	if opts.WorktreeDir == "" {
 		if cfg.WorktreeDir != "" {
 			opts.WorktreeDir = cfg.WorktreeDir
 		} else {
-			// Default to ~/.orch/worktrees (outside repo, keeps repo clean)
 			home, _ := os.UserHomeDir()
 			opts.WorktreeDir = filepath.Join(home, ".orch", "worktrees")
 		}
 	}
 
-	// PromptTemplate: use config value if flag not provided
 	if opts.PromptTemplate == "" && cfg.PromptTemplate != "" {
 		opts.PromptTemplate = cfg.PromptTemplate
 	}
@@ -415,8 +402,6 @@ func applyPromptConfigDefaults(opts *runOptions) (*config.Config, error) {
 		opts.PRTargetBranch = cfg.PRTargetBranch
 	}
 
-	// For NoPR: config sets the default, but --no-pr flag overrides
-	// Since bool flags default to false, we apply config value if it's true
 	if cfg.NoPR && !opts.NoPR {
 		opts.NoPR = cfg.NoPR
 	}
@@ -436,8 +421,32 @@ func applyPromptConfigDefaults(opts *runOptions) (*config.Config, error) {
 			opts.ModelVariant = cfg.OpenCode.DefaultVariant
 		}
 	}
+}
 
-	return cfg, nil
+func findPreset(presets []orchapi.Preset, name string) *orchapi.Preset {
+	for i := range presets {
+		if presets[i].Name == name {
+			return &presets[i]
+		}
+	}
+	return nil
+}
+
+func effectiveBackend(preset *orchapi.Preset) string {
+	if preset.Backend != "" {
+		return preset.Backend
+	}
+	return "opencode"
+}
+
+func getAgentMultiplexer(cfg *orchapi.Config) string {
+	if cfg.AgentMultiplexer != "" {
+		return cfg.AgentMultiplexer
+	}
+	if cfg.Multiplexer != "" {
+		return cfg.Multiplexer
+	}
+	return "tmux"
 }
 
 func exitWithCode(err error, code int) error {
@@ -456,8 +465,6 @@ func exitWithCode(err error, code int) error {
 	return err
 }
 
-// findAvailablePort finds an available port in the given range
-// Returns 0 if no port is available
 func findAvailablePort(start, end int) int {
 	for port := start; port <= end; port++ {
 		addr := fmt.Sprintf("127.0.0.1:%d", port)

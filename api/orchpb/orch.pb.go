@@ -6377,6 +6377,978 @@ func (x *ContinueRunResponse) GetIssueId() string {
 	return ""
 }
 
+type GetConfigRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ProjectRoot   string                 `protobuf:"bytes,1,opt,name=project_root,json=projectRoot,proto3" json:"project_root,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetConfigRequest) Reset() {
+	*x = GetConfigRequest{}
+	mi := &file_orch_proto_msgTypes[99]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetConfigRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetConfigRequest) ProtoMessage() {}
+
+func (x *GetConfigRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[99]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetConfigRequest.ProtoReflect.Descriptor instead.
+func (*GetConfigRequest) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{99}
+}
+
+func (x *GetConfigRequest) GetProjectRoot() string {
+	if x != nil {
+		return x.ProjectRoot
+	}
+	return ""
+}
+
+type SlackConfigProto struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Enabled       bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	WebhookUrl    string                 `protobuf:"bytes,2,opt,name=webhook_url,json=webhookUrl,proto3" json:"webhook_url,omitempty"`
+	BotToken      string                 `protobuf:"bytes,3,opt,name=bot_token,json=botToken,proto3" json:"bot_token,omitempty"`
+	Channel       string                 `protobuf:"bytes,4,opt,name=channel,proto3" json:"channel,omitempty"`
+	NotifyOn      []string               `protobuf:"bytes,5,rep,name=notify_on,json=notifyOn,proto3" json:"notify_on,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SlackConfigProto) Reset() {
+	*x = SlackConfigProto{}
+	mi := &file_orch_proto_msgTypes[100]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SlackConfigProto) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SlackConfigProto) ProtoMessage() {}
+
+func (x *SlackConfigProto) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[100]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SlackConfigProto.ProtoReflect.Descriptor instead.
+func (*SlackConfigProto) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{100}
+}
+
+func (x *SlackConfigProto) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *SlackConfigProto) GetWebhookUrl() string {
+	if x != nil {
+		return x.WebhookUrl
+	}
+	return ""
+}
+
+func (x *SlackConfigProto) GetBotToken() string {
+	if x != nil {
+		return x.BotToken
+	}
+	return ""
+}
+
+func (x *SlackConfigProto) GetChannel() string {
+	if x != nil {
+		return x.Channel
+	}
+	return ""
+}
+
+func (x *SlackConfigProto) GetNotifyOn() []string {
+	if x != nil {
+		return x.NotifyOn
+	}
+	return nil
+}
+
+type OpenCodeConfigProto struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	DefaultModel     string                 `protobuf:"bytes,1,opt,name=default_model,json=defaultModel,proto3" json:"default_model,omitempty"`
+	DefaultVariant   string                 `protobuf:"bytes,2,opt,name=default_variant,json=defaultVariant,proto3" json:"default_variant,omitempty"`
+	PromptTemplate   string                 `protobuf:"bytes,3,opt,name=prompt_template,json=promptTemplate,proto3" json:"prompt_template,omitempty"`
+	ExtraArgs        []string               `protobuf:"bytes,4,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
+	ControlExtraArgs []string               `protobuf:"bytes,5,rep,name=control_extra_args,json=controlExtraArgs,proto3" json:"control_extra_args,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *OpenCodeConfigProto) Reset() {
+	*x = OpenCodeConfigProto{}
+	mi := &file_orch_proto_msgTypes[101]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OpenCodeConfigProto) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OpenCodeConfigProto) ProtoMessage() {}
+
+func (x *OpenCodeConfigProto) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[101]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OpenCodeConfigProto.ProtoReflect.Descriptor instead.
+func (*OpenCodeConfigProto) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{101}
+}
+
+func (x *OpenCodeConfigProto) GetDefaultModel() string {
+	if x != nil {
+		return x.DefaultModel
+	}
+	return ""
+}
+
+func (x *OpenCodeConfigProto) GetDefaultVariant() string {
+	if x != nil {
+		return x.DefaultVariant
+	}
+	return ""
+}
+
+func (x *OpenCodeConfigProto) GetPromptTemplate() string {
+	if x != nil {
+		return x.PromptTemplate
+	}
+	return ""
+}
+
+func (x *OpenCodeConfigProto) GetExtraArgs() []string {
+	if x != nil {
+		return x.ExtraArgs
+	}
+	return nil
+}
+
+func (x *OpenCodeConfigProto) GetControlExtraArgs() []string {
+	if x != nil {
+		return x.ControlExtraArgs
+	}
+	return nil
+}
+
+type ClaudeConfigProto struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	PromptTemplate   string                 `protobuf:"bytes,1,opt,name=prompt_template,json=promptTemplate,proto3" json:"prompt_template,omitempty"`
+	ExtraArgs        []string               `protobuf:"bytes,2,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
+	ControlExtraArgs []string               `protobuf:"bytes,3,rep,name=control_extra_args,json=controlExtraArgs,proto3" json:"control_extra_args,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ClaudeConfigProto) Reset() {
+	*x = ClaudeConfigProto{}
+	mi := &file_orch_proto_msgTypes[102]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClaudeConfigProto) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClaudeConfigProto) ProtoMessage() {}
+
+func (x *ClaudeConfigProto) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[102]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClaudeConfigProto.ProtoReflect.Descriptor instead.
+func (*ClaudeConfigProto) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{102}
+}
+
+func (x *ClaudeConfigProto) GetPromptTemplate() string {
+	if x != nil {
+		return x.PromptTemplate
+	}
+	return ""
+}
+
+func (x *ClaudeConfigProto) GetExtraArgs() []string {
+	if x != nil {
+		return x.ExtraArgs
+	}
+	return nil
+}
+
+func (x *ClaudeConfigProto) GetControlExtraArgs() []string {
+	if x != nil {
+		return x.ControlExtraArgs
+	}
+	return nil
+}
+
+type CodexConfigProto struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	PromptTemplate   string                 `protobuf:"bytes,1,opt,name=prompt_template,json=promptTemplate,proto3" json:"prompt_template,omitempty"`
+	ExtraArgs        []string               `protobuf:"bytes,2,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
+	ControlExtraArgs []string               `protobuf:"bytes,3,rep,name=control_extra_args,json=controlExtraArgs,proto3" json:"control_extra_args,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *CodexConfigProto) Reset() {
+	*x = CodexConfigProto{}
+	mi := &file_orch_proto_msgTypes[103]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CodexConfigProto) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CodexConfigProto) ProtoMessage() {}
+
+func (x *CodexConfigProto) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[103]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CodexConfigProto.ProtoReflect.Descriptor instead.
+func (*CodexConfigProto) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{103}
+}
+
+func (x *CodexConfigProto) GetPromptTemplate() string {
+	if x != nil {
+		return x.PromptTemplate
+	}
+	return ""
+}
+
+func (x *CodexConfigProto) GetExtraArgs() []string {
+	if x != nil {
+		return x.ExtraArgs
+	}
+	return nil
+}
+
+func (x *CodexConfigProto) GetControlExtraArgs() []string {
+	if x != nil {
+		return x.ControlExtraArgs
+	}
+	return nil
+}
+
+type GeminiConfigProto struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	PromptTemplate   string                 `protobuf:"bytes,1,opt,name=prompt_template,json=promptTemplate,proto3" json:"prompt_template,omitempty"`
+	ExtraArgs        []string               `protobuf:"bytes,2,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
+	ControlExtraArgs []string               `protobuf:"bytes,3,rep,name=control_extra_args,json=controlExtraArgs,proto3" json:"control_extra_args,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *GeminiConfigProto) Reset() {
+	*x = GeminiConfigProto{}
+	mi := &file_orch_proto_msgTypes[104]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GeminiConfigProto) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GeminiConfigProto) ProtoMessage() {}
+
+func (x *GeminiConfigProto) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[104]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GeminiConfigProto.ProtoReflect.Descriptor instead.
+func (*GeminiConfigProto) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{104}
+}
+
+func (x *GeminiConfigProto) GetPromptTemplate() string {
+	if x != nil {
+		return x.PromptTemplate
+	}
+	return ""
+}
+
+func (x *GeminiConfigProto) GetExtraArgs() []string {
+	if x != nil {
+		return x.ExtraArgs
+	}
+	return nil
+}
+
+func (x *GeminiConfigProto) GetControlExtraArgs() []string {
+	if x != nil {
+		return x.ControlExtraArgs
+	}
+	return nil
+}
+
+type PresetProto struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Backend       string                 `protobuf:"bytes,2,opt,name=backend,proto3" json:"backend,omitempty"`
+	Model         string                 `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
+	Variant       string                 `protobuf:"bytes,4,opt,name=variant,proto3" json:"variant,omitempty"`
+	Profile       string                 `protobuf:"bytes,5,opt,name=profile,proto3" json:"profile,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PresetProto) Reset() {
+	*x = PresetProto{}
+	mi := &file_orch_proto_msgTypes[105]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PresetProto) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PresetProto) ProtoMessage() {}
+
+func (x *PresetProto) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[105]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PresetProto.ProtoReflect.Descriptor instead.
+func (*PresetProto) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{105}
+}
+
+func (x *PresetProto) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *PresetProto) GetBackend() string {
+	if x != nil {
+		return x.Backend
+	}
+	return ""
+}
+
+func (x *PresetProto) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *PresetProto) GetVariant() string {
+	if x != nil {
+		return x.Variant
+	}
+	return ""
+}
+
+func (x *PresetProto) GetProfile() string {
+	if x != nil {
+		return x.Profile
+	}
+	return ""
+}
+
+type IssuesConfigProto struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Backend       string                 `protobuf:"bytes,1,opt,name=backend,proto3" json:"backend,omitempty"`
+	Path          string                 `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *IssuesConfigProto) Reset() {
+	*x = IssuesConfigProto{}
+	mi := &file_orch_proto_msgTypes[106]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *IssuesConfigProto) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*IssuesConfigProto) ProtoMessage() {}
+
+func (x *IssuesConfigProto) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[106]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use IssuesConfigProto.ProtoReflect.Descriptor instead.
+func (*IssuesConfigProto) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{106}
+}
+
+func (x *IssuesConfigProto) GetBackend() string {
+	if x != nil {
+		return x.Backend
+	}
+	return ""
+}
+
+func (x *IssuesConfigProto) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+type GitHubConfigProto struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Owner         string                 `protobuf:"bytes,1,opt,name=owner,proto3" json:"owner,omitempty"`
+	Repo          string                 `protobuf:"bytes,2,opt,name=repo,proto3" json:"repo,omitempty"`
+	LabelFilter   string                 `protobuf:"bytes,3,opt,name=label_filter,json=labelFilter,proto3" json:"label_filter,omitempty"`
+	PollInterval  int32                  `protobuf:"varint,4,opt,name=poll_interval,json=pollInterval,proto3" json:"poll_interval,omitempty"`
+	StatusLabels  map[string]string      `protobuf:"bytes,5,rep,name=status_labels,json=statusLabels,proto3" json:"status_labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GitHubConfigProto) Reset() {
+	*x = GitHubConfigProto{}
+	mi := &file_orch_proto_msgTypes[107]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GitHubConfigProto) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GitHubConfigProto) ProtoMessage() {}
+
+func (x *GitHubConfigProto) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[107]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GitHubConfigProto.ProtoReflect.Descriptor instead.
+func (*GitHubConfigProto) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{107}
+}
+
+func (x *GitHubConfigProto) GetOwner() string {
+	if x != nil {
+		return x.Owner
+	}
+	return ""
+}
+
+func (x *GitHubConfigProto) GetRepo() string {
+	if x != nil {
+		return x.Repo
+	}
+	return ""
+}
+
+func (x *GitHubConfigProto) GetLabelFilter() string {
+	if x != nil {
+		return x.LabelFilter
+	}
+	return ""
+}
+
+func (x *GitHubConfigProto) GetPollInterval() int32 {
+	if x != nil {
+		return x.PollInterval
+	}
+	return 0
+}
+
+func (x *GitHubConfigProto) GetStatusLabels() map[string]string {
+	if x != nil {
+		return x.StatusLabels
+	}
+	return nil
+}
+
+type MonitorConfigProto struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PsColumns     []string               `protobuf:"bytes,1,rep,name=ps_columns,json=psColumns,proto3" json:"ps_columns,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MonitorConfigProto) Reset() {
+	*x = MonitorConfigProto{}
+	mi := &file_orch_proto_msgTypes[108]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MonitorConfigProto) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MonitorConfigProto) ProtoMessage() {}
+
+func (x *MonitorConfigProto) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[108]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MonitorConfigProto.ProtoReflect.Descriptor instead.
+func (*MonitorConfigProto) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{108}
+}
+
+func (x *MonitorConfigProto) GetPsColumns() []string {
+	if x != nil {
+		return x.PsColumns
+	}
+	return nil
+}
+
+type GetConfigResponse struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	Agent               string                 `protobuf:"bytes,1,opt,name=agent,proto3" json:"agent,omitempty"`
+	Model               string                 `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
+	ModelVariant        string                 `protobuf:"bytes,3,opt,name=model_variant,json=modelVariant,proto3" json:"model_variant,omitempty"`
+	WorktreeDir         string                 `protobuf:"bytes,4,opt,name=worktree_dir,json=worktreeDir,proto3" json:"worktree_dir,omitempty"`
+	BaseBranch          string                 `protobuf:"bytes,5,opt,name=base_branch,json=baseBranch,proto3" json:"base_branch,omitempty"`
+	PrTargetBranch      string                 `protobuf:"bytes,6,opt,name=pr_target_branch,json=prTargetBranch,proto3" json:"pr_target_branch,omitempty"`
+	LogLevel            string                 `protobuf:"bytes,7,opt,name=log_level,json=logLevel,proto3" json:"log_level,omitempty"`
+	PromptTemplate      string                 `protobuf:"bytes,8,opt,name=prompt_template,json=promptTemplate,proto3" json:"prompt_template,omitempty"`
+	Multiplexer         string                 `protobuf:"bytes,9,opt,name=multiplexer,proto3" json:"multiplexer,omitempty"`
+	MonitorMultiplexer  string                 `protobuf:"bytes,10,opt,name=monitor_multiplexer,json=monitorMultiplexer,proto3" json:"monitor_multiplexer,omitempty"`
+	AgentMultiplexer    string                 `protobuf:"bytes,11,opt,name=agent_multiplexer,json=agentMultiplexer,proto3" json:"agent_multiplexer,omitempty"`
+	NoPr                bool                   `protobuf:"varint,12,opt,name=no_pr,json=noPr,proto3" json:"no_pr,omitempty"`
+	DefaultPreset       string                 `protobuf:"bytes,13,opt,name=default_preset,json=defaultPreset,proto3" json:"default_preset,omitempty"`
+	ControlAgent        string                 `protobuf:"bytes,14,opt,name=control_agent,json=controlAgent,proto3" json:"control_agent,omitempty"`
+	ControlModel        string                 `protobuf:"bytes,15,opt,name=control_model,json=controlModel,proto3" json:"control_model,omitempty"`
+	ControlModelVariant string                 `protobuf:"bytes,16,opt,name=control_model_variant,json=controlModelVariant,proto3" json:"control_model_variant,omitempty"`
+	DiffTool            string                 `protobuf:"bytes,17,opt,name=diff_tool,json=diffTool,proto3" json:"diff_tool,omitempty"`
+	Monitor             *MonitorConfigProto    `protobuf:"bytes,18,opt,name=monitor,proto3" json:"monitor,omitempty"`
+	Presets             []*PresetProto         `protobuf:"bytes,19,rep,name=presets,proto3" json:"presets,omitempty"`
+	Opencode            *OpenCodeConfigProto   `protobuf:"bytes,20,opt,name=opencode,proto3" json:"opencode,omitempty"`
+	Claude              *ClaudeConfigProto     `protobuf:"bytes,21,opt,name=claude,proto3" json:"claude,omitempty"`
+	Codex               *CodexConfigProto      `protobuf:"bytes,22,opt,name=codex,proto3" json:"codex,omitempty"`
+	Gemini              *GeminiConfigProto     `protobuf:"bytes,23,opt,name=gemini,proto3" json:"gemini,omitempty"`
+	Slack               *SlackConfigProto      `protobuf:"bytes,24,opt,name=slack,proto3" json:"slack,omitempty"`
+	Issues              *IssuesConfigProto     `protobuf:"bytes,25,opt,name=issues,proto3" json:"issues,omitempty"`
+	Github              *GitHubConfigProto     `protobuf:"bytes,26,opt,name=github,proto3" json:"github,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *GetConfigResponse) Reset() {
+	*x = GetConfigResponse{}
+	mi := &file_orch_proto_msgTypes[109]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetConfigResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetConfigResponse) ProtoMessage() {}
+
+func (x *GetConfigResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[109]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetConfigResponse.ProtoReflect.Descriptor instead.
+func (*GetConfigResponse) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{109}
+}
+
+func (x *GetConfigResponse) GetAgent() string {
+	if x != nil {
+		return x.Agent
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetModelVariant() string {
+	if x != nil {
+		return x.ModelVariant
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetWorktreeDir() string {
+	if x != nil {
+		return x.WorktreeDir
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetBaseBranch() string {
+	if x != nil {
+		return x.BaseBranch
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetPrTargetBranch() string {
+	if x != nil {
+		return x.PrTargetBranch
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetLogLevel() string {
+	if x != nil {
+		return x.LogLevel
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetPromptTemplate() string {
+	if x != nil {
+		return x.PromptTemplate
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetMultiplexer() string {
+	if x != nil {
+		return x.Multiplexer
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetMonitorMultiplexer() string {
+	if x != nil {
+		return x.MonitorMultiplexer
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetAgentMultiplexer() string {
+	if x != nil {
+		return x.AgentMultiplexer
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetNoPr() bool {
+	if x != nil {
+		return x.NoPr
+	}
+	return false
+}
+
+func (x *GetConfigResponse) GetDefaultPreset() string {
+	if x != nil {
+		return x.DefaultPreset
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetControlAgent() string {
+	if x != nil {
+		return x.ControlAgent
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetControlModel() string {
+	if x != nil {
+		return x.ControlModel
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetControlModelVariant() string {
+	if x != nil {
+		return x.ControlModelVariant
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetDiffTool() string {
+	if x != nil {
+		return x.DiffTool
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetMonitor() *MonitorConfigProto {
+	if x != nil {
+		return x.Monitor
+	}
+	return nil
+}
+
+func (x *GetConfigResponse) GetPresets() []*PresetProto {
+	if x != nil {
+		return x.Presets
+	}
+	return nil
+}
+
+func (x *GetConfigResponse) GetOpencode() *OpenCodeConfigProto {
+	if x != nil {
+		return x.Opencode
+	}
+	return nil
+}
+
+func (x *GetConfigResponse) GetClaude() *ClaudeConfigProto {
+	if x != nil {
+		return x.Claude
+	}
+	return nil
+}
+
+func (x *GetConfigResponse) GetCodex() *CodexConfigProto {
+	if x != nil {
+		return x.Codex
+	}
+	return nil
+}
+
+func (x *GetConfigResponse) GetGemini() *GeminiConfigProto {
+	if x != nil {
+		return x.Gemini
+	}
+	return nil
+}
+
+func (x *GetConfigResponse) GetSlack() *SlackConfigProto {
+	if x != nil {
+		return x.Slack
+	}
+	return nil
+}
+
+func (x *GetConfigResponse) GetIssues() *IssuesConfigProto {
+	if x != nil {
+		return x.Issues
+	}
+	return nil
+}
+
+func (x *GetConfigResponse) GetGithub() *GitHubConfigProto {
+	if x != nil {
+		return x.Github
+	}
+	return nil
+}
+
+type GetDaemonStatusRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDaemonStatusRequest) Reset() {
+	*x = GetDaemonStatusRequest{}
+	mi := &file_orch_proto_msgTypes[110]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDaemonStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDaemonStatusRequest) ProtoMessage() {}
+
+func (x *GetDaemonStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[110]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDaemonStatusRequest.ProtoReflect.Descriptor instead.
+func (*GetDaemonStatusRequest) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{110}
+}
+
+type GetDaemonStatusResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Running       bool                   `protobuf:"varint,1,opt,name=running,proto3" json:"running,omitempty"`
+	Pid           int32                  `protobuf:"varint,2,opt,name=pid,proto3" json:"pid,omitempty"`
+	LogPath       string                 `protobuf:"bytes,3,opt,name=log_path,json=logPath,proto3" json:"log_path,omitempty"`
+	Version       string                 `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDaemonStatusResponse) Reset() {
+	*x = GetDaemonStatusResponse{}
+	mi := &file_orch_proto_msgTypes[111]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDaemonStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDaemonStatusResponse) ProtoMessage() {}
+
+func (x *GetDaemonStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[111]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDaemonStatusResponse.ProtoReflect.Descriptor instead.
+func (*GetDaemonStatusResponse) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{111}
+}
+
+func (x *GetDaemonStatusResponse) GetRunning() bool {
+	if x != nil {
+		return x.Running
+	}
+	return false
+}
+
+func (x *GetDaemonStatusResponse) GetPid() int32 {
+	if x != nil {
+		return x.Pid
+	}
+	return 0
+}
+
+func (x *GetDaemonStatusResponse) GetLogPath() string {
+	if x != nil {
+		return x.LogPath
+	}
+	return ""
+}
+
+func (x *GetDaemonStatusResponse) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
 type Request struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Request:
@@ -6425,6 +7397,8 @@ type Request struct {
 	//	*Request_QueryOpencodeServer
 	//	*Request_InjectInitialPrompt
 	//	*Request_ContinueRun
+	//	*Request_GetConfig
+	//	*Request_GetDaemonStatus
 	Request       isRequest_Request `protobuf_oneof:"request"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -6432,7 +7406,7 @@ type Request struct {
 
 func (x *Request) Reset() {
 	*x = Request{}
-	mi := &file_orch_proto_msgTypes[99]
+	mi := &file_orch_proto_msgTypes[112]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6444,7 +7418,7 @@ func (x *Request) String() string {
 func (*Request) ProtoMessage() {}
 
 func (x *Request) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_proto_msgTypes[99]
+	mi := &file_orch_proto_msgTypes[112]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6457,7 +7431,7 @@ func (x *Request) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Request.ProtoReflect.Descriptor instead.
 func (*Request) Descriptor() ([]byte, []int) {
-	return file_orch_proto_rawDescGZIP(), []int{99}
+	return file_orch_proto_rawDescGZIP(), []int{112}
 }
 
 func (x *Request) GetRequest() isRequest_Request {
@@ -6863,6 +7837,24 @@ func (x *Request) GetContinueRun() *ContinueRunRequest {
 	return nil
 }
 
+func (x *Request) GetGetConfig() *GetConfigRequest {
+	if x != nil {
+		if x, ok := x.Request.(*Request_GetConfig); ok {
+			return x.GetConfig
+		}
+	}
+	return nil
+}
+
+func (x *Request) GetGetDaemonStatus() *GetDaemonStatusRequest {
+	if x != nil {
+		if x, ok := x.Request.(*Request_GetDaemonStatus); ok {
+			return x.GetDaemonStatus
+		}
+	}
+	return nil
+}
+
 type isRequest_Request interface {
 	isRequest_Request()
 }
@@ -7043,6 +8035,14 @@ type Request_ContinueRun struct {
 	ContinueRun *ContinueRunRequest `protobuf:"bytes,44,opt,name=continue_run,json=continueRun,proto3,oneof"`
 }
 
+type Request_GetConfig struct {
+	GetConfig *GetConfigRequest `protobuf:"bytes,45,opt,name=get_config,json=getConfig,proto3,oneof"`
+}
+
+type Request_GetDaemonStatus struct {
+	GetDaemonStatus *GetDaemonStatusRequest `protobuf:"bytes,46,opt,name=get_daemon_status,json=getDaemonStatus,proto3,oneof"`
+}
+
 func (*Request_Ping) isRequest_Request() {}
 
 func (*Request_ListRuns) isRequest_Request() {}
@@ -7131,6 +8131,10 @@ func (*Request_InjectInitialPrompt) isRequest_Request() {}
 
 func (*Request_ContinueRun) isRequest_Request() {}
 
+func (*Request_GetConfig) isRequest_Request() {}
+
+func (*Request_GetDaemonStatus) isRequest_Request() {}
+
 type Response struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Ok    bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
@@ -7181,6 +8185,8 @@ type Response struct {
 	//	*Response_QueryOpencodeServer
 	//	*Response_InjectInitialPrompt
 	//	*Response_ContinueRun
+	//	*Response_GetConfig
+	//	*Response_GetDaemonStatus
 	Response      isResponse_Response `protobuf_oneof:"response"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -7188,7 +8194,7 @@ type Response struct {
 
 func (x *Response) Reset() {
 	*x = Response{}
-	mi := &file_orch_proto_msgTypes[100]
+	mi := &file_orch_proto_msgTypes[113]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7200,7 +8206,7 @@ func (x *Response) String() string {
 func (*Response) ProtoMessage() {}
 
 func (x *Response) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_proto_msgTypes[100]
+	mi := &file_orch_proto_msgTypes[113]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7213,7 +8219,7 @@ func (x *Response) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Response.ProtoReflect.Descriptor instead.
 func (*Response) Descriptor() ([]byte, []int) {
-	return file_orch_proto_rawDescGZIP(), []int{100}
+	return file_orch_proto_rawDescGZIP(), []int{113}
 }
 
 func (x *Response) GetOk() bool {
@@ -7633,6 +8639,24 @@ func (x *Response) GetContinueRun() *ContinueRunResponse {
 	return nil
 }
 
+func (x *Response) GetGetConfig() *GetConfigResponse {
+	if x != nil {
+		if x, ok := x.Response.(*Response_GetConfig); ok {
+			return x.GetConfig
+		}
+	}
+	return nil
+}
+
+func (x *Response) GetGetDaemonStatus() *GetDaemonStatusResponse {
+	if x != nil {
+		if x, ok := x.Response.(*Response_GetDaemonStatus); ok {
+			return x.GetDaemonStatus
+		}
+	}
+	return nil
+}
+
 type isResponse_Response interface {
 	isResponse_Response()
 }
@@ -7813,6 +8837,14 @@ type Response_ContinueRun struct {
 	ContinueRun *ContinueRunResponse `protobuf:"bytes,46,opt,name=continue_run,json=continueRun,proto3,oneof"`
 }
 
+type Response_GetConfig struct {
+	GetConfig *GetConfigResponse `protobuf:"bytes,47,opt,name=get_config,json=getConfig,proto3,oneof"`
+}
+
+type Response_GetDaemonStatus struct {
+	GetDaemonStatus *GetDaemonStatusResponse `protobuf:"bytes,48,opt,name=get_daemon_status,json=getDaemonStatus,proto3,oneof"`
+}
+
 func (*Response_Ping) isResponse_Response() {}
 
 func (*Response_ListRuns) isResponse_Response() {}
@@ -7900,6 +8932,10 @@ func (*Response_QueryOpencodeServer) isResponse_Response() {}
 func (*Response_InjectInitialPrompt) isResponse_Response() {}
 
 func (*Response_ContinueRun) isResponse_Response() {}
+
+func (*Response_GetConfig) isResponse_Response() {}
+
+func (*Response_GetDaemonStatus) isResponse_Response() {}
 
 var File_orch_proto protoreflect.FileDescriptor
 
@@ -8393,7 +9429,94 @@ const file_orch_proto_rawDesc = "" +
 	"\ftmux_session\x18\x04 \x01(\tR\vtmuxSession\x12\x16\n" +
 	"\x06status\x18\x05 \x01(\tR\x06status\x12%\n" +
 	"\x0econtinued_from\x18\x06 \x01(\tR\rcontinuedFrom\x12\x19\n" +
-	"\bissue_id\x18\a \x01(\tR\aissueId\"\xd9\x17\n" +
+	"\bissue_id\x18\a \x01(\tR\aissueId\"5\n" +
+	"\x10GetConfigRequest\x12!\n" +
+	"\fproject_root\x18\x01 \x01(\tR\vprojectRoot\"\xa1\x01\n" +
+	"\x10SlackConfigProto\x12\x18\n" +
+	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x1f\n" +
+	"\vwebhook_url\x18\x02 \x01(\tR\n" +
+	"webhookUrl\x12\x1b\n" +
+	"\tbot_token\x18\x03 \x01(\tR\bbotToken\x12\x18\n" +
+	"\achannel\x18\x04 \x01(\tR\achannel\x12\x1b\n" +
+	"\tnotify_on\x18\x05 \x03(\tR\bnotifyOn\"\xd9\x01\n" +
+	"\x13OpenCodeConfigProto\x12#\n" +
+	"\rdefault_model\x18\x01 \x01(\tR\fdefaultModel\x12'\n" +
+	"\x0fdefault_variant\x18\x02 \x01(\tR\x0edefaultVariant\x12'\n" +
+	"\x0fprompt_template\x18\x03 \x01(\tR\x0epromptTemplate\x12\x1d\n" +
+	"\n" +
+	"extra_args\x18\x04 \x03(\tR\textraArgs\x12,\n" +
+	"\x12control_extra_args\x18\x05 \x03(\tR\x10controlExtraArgs\"\x89\x01\n" +
+	"\x11ClaudeConfigProto\x12'\n" +
+	"\x0fprompt_template\x18\x01 \x01(\tR\x0epromptTemplate\x12\x1d\n" +
+	"\n" +
+	"extra_args\x18\x02 \x03(\tR\textraArgs\x12,\n" +
+	"\x12control_extra_args\x18\x03 \x03(\tR\x10controlExtraArgs\"\x88\x01\n" +
+	"\x10CodexConfigProto\x12'\n" +
+	"\x0fprompt_template\x18\x01 \x01(\tR\x0epromptTemplate\x12\x1d\n" +
+	"\n" +
+	"extra_args\x18\x02 \x03(\tR\textraArgs\x12,\n" +
+	"\x12control_extra_args\x18\x03 \x03(\tR\x10controlExtraArgs\"\x89\x01\n" +
+	"\x11GeminiConfigProto\x12'\n" +
+	"\x0fprompt_template\x18\x01 \x01(\tR\x0epromptTemplate\x12\x1d\n" +
+	"\n" +
+	"extra_args\x18\x02 \x03(\tR\textraArgs\x12,\n" +
+	"\x12control_extra_args\x18\x03 \x03(\tR\x10controlExtraArgs\"\x85\x01\n" +
+	"\vPresetProto\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
+	"\abackend\x18\x02 \x01(\tR\abackend\x12\x14\n" +
+	"\x05model\x18\x03 \x01(\tR\x05model\x12\x18\n" +
+	"\avariant\x18\x04 \x01(\tR\avariant\x12\x18\n" +
+	"\aprofile\x18\x05 \x01(\tR\aprofile\"A\n" +
+	"\x11IssuesConfigProto\x12\x18\n" +
+	"\abackend\x18\x01 \x01(\tR\abackend\x12\x12\n" +
+	"\x04path\x18\x02 \x01(\tR\x04path\"\x99\x02\n" +
+	"\x11GitHubConfigProto\x12\x14\n" +
+	"\x05owner\x18\x01 \x01(\tR\x05owner\x12\x12\n" +
+	"\x04repo\x18\x02 \x01(\tR\x04repo\x12!\n" +
+	"\flabel_filter\x18\x03 \x01(\tR\vlabelFilter\x12#\n" +
+	"\rpoll_interval\x18\x04 \x01(\x05R\fpollInterval\x12Q\n" +
+	"\rstatus_labels\x18\x05 \x03(\v2,.orch.v1.GitHubConfigProto.StatusLabelsEntryR\fstatusLabels\x1a?\n" +
+	"\x11StatusLabelsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"3\n" +
+	"\x12MonitorConfigProto\x12\x1d\n" +
+	"\n" +
+	"ps_columns\x18\x01 \x03(\tR\tpsColumns\"\xc2\b\n" +
+	"\x11GetConfigResponse\x12\x14\n" +
+	"\x05agent\x18\x01 \x01(\tR\x05agent\x12\x14\n" +
+	"\x05model\x18\x02 \x01(\tR\x05model\x12#\n" +
+	"\rmodel_variant\x18\x03 \x01(\tR\fmodelVariant\x12!\n" +
+	"\fworktree_dir\x18\x04 \x01(\tR\vworktreeDir\x12\x1f\n" +
+	"\vbase_branch\x18\x05 \x01(\tR\n" +
+	"baseBranch\x12(\n" +
+	"\x10pr_target_branch\x18\x06 \x01(\tR\x0eprTargetBranch\x12\x1b\n" +
+	"\tlog_level\x18\a \x01(\tR\blogLevel\x12'\n" +
+	"\x0fprompt_template\x18\b \x01(\tR\x0epromptTemplate\x12 \n" +
+	"\vmultiplexer\x18\t \x01(\tR\vmultiplexer\x12/\n" +
+	"\x13monitor_multiplexer\x18\n" +
+	" \x01(\tR\x12monitorMultiplexer\x12+\n" +
+	"\x11agent_multiplexer\x18\v \x01(\tR\x10agentMultiplexer\x12\x13\n" +
+	"\x05no_pr\x18\f \x01(\bR\x04noPr\x12%\n" +
+	"\x0edefault_preset\x18\r \x01(\tR\rdefaultPreset\x12#\n" +
+	"\rcontrol_agent\x18\x0e \x01(\tR\fcontrolAgent\x12#\n" +
+	"\rcontrol_model\x18\x0f \x01(\tR\fcontrolModel\x122\n" +
+	"\x15control_model_variant\x18\x10 \x01(\tR\x13controlModelVariant\x12\x1b\n" +
+	"\tdiff_tool\x18\x11 \x01(\tR\bdiffTool\x125\n" +
+	"\amonitor\x18\x12 \x01(\v2\x1b.orch.v1.MonitorConfigProtoR\amonitor\x12.\n" +
+	"\apresets\x18\x13 \x03(\v2\x14.orch.v1.PresetProtoR\apresets\x128\n" +
+	"\bopencode\x18\x14 \x01(\v2\x1c.orch.v1.OpenCodeConfigProtoR\bopencode\x122\n" +
+	"\x06claude\x18\x15 \x01(\v2\x1a.orch.v1.ClaudeConfigProtoR\x06claude\x12/\n" +
+	"\x05codex\x18\x16 \x01(\v2\x19.orch.v1.CodexConfigProtoR\x05codex\x122\n" +
+	"\x06gemini\x18\x17 \x01(\v2\x1a.orch.v1.GeminiConfigProtoR\x06gemini\x12/\n" +
+	"\x05slack\x18\x18 \x01(\v2\x19.orch.v1.SlackConfigProtoR\x05slack\x122\n" +
+	"\x06issues\x18\x19 \x01(\v2\x1a.orch.v1.IssuesConfigProtoR\x06issues\x122\n" +
+	"\x06github\x18\x1a \x01(\v2\x1a.orch.v1.GitHubConfigProtoR\x06github\"\x18\n" +
+	"\x16GetDaemonStatusRequest\"z\n" +
+	"\x17GetDaemonStatusResponse\x12\x18\n" +
+	"\arunning\x18\x01 \x01(\bR\arunning\x12\x10\n" +
+	"\x03pid\x18\x02 \x01(\x05R\x03pid\x12\x19\n" +
+	"\blog_path\x18\x03 \x01(\tR\alogPath\x12\x18\n" +
+	"\aversion\x18\x04 \x01(\tR\aversion\"\xe4\x18\n" +
 	"\aRequest\x12*\n" +
 	"\x04ping\x18\x01 \x01(\v2\x14.orch.v1.PingRequestH\x00R\x04ping\x127\n" +
 	"\tlist_runs\x18\x02 \x01(\v2\x18.orch.v1.ListRunsRequestH\x00R\blistRuns\x121\n" +
@@ -8447,8 +9570,11 @@ const file_orch_proto_rawDesc = "" +
 	"resume_run\x18) \x01(\v2\x19.orch.v1.ResumeRunRequestH\x00R\tresumeRun\x12Y\n" +
 	"\x15query_opencode_server\x18* \x01(\v2#.orch.v1.QueryOpenCodeServerRequestH\x00R\x13queryOpencodeServer\x12Y\n" +
 	"\x15inject_initial_prompt\x18+ \x01(\v2#.orch.v1.InjectInitialPromptRequestH\x00R\x13injectInitialPrompt\x12@\n" +
-	"\fcontinue_run\x18, \x01(\v2\x1b.orch.v1.ContinueRunRequestH\x00R\vcontinueRunB\t\n" +
-	"\arequest\"\xad\x18\n" +
+	"\fcontinue_run\x18, \x01(\v2\x1b.orch.v1.ContinueRunRequestH\x00R\vcontinueRun\x12:\n" +
+	"\n" +
+	"get_config\x18- \x01(\v2\x19.orch.v1.GetConfigRequestH\x00R\tgetConfig\x12M\n" +
+	"\x11get_daemon_status\x18. \x01(\v2\x1f.orch.v1.GetDaemonStatusRequestH\x00R\x0fgetDaemonStatusB\t\n" +
+	"\arequest\"\xba\x19\n" +
 	"\bResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12+\n" +
@@ -8504,7 +9630,10 @@ const file_orch_proto_rawDesc = "" +
 	"resume_run\x18+ \x01(\v2\x1a.orch.v1.ResumeRunResponseH\x00R\tresumeRun\x12Z\n" +
 	"\x15query_opencode_server\x18, \x01(\v2$.orch.v1.QueryOpenCodeServerResponseH\x00R\x13queryOpencodeServer\x12Z\n" +
 	"\x15inject_initial_prompt\x18- \x01(\v2$.orch.v1.InjectInitialPromptResponseH\x00R\x13injectInitialPrompt\x12A\n" +
-	"\fcontinue_run\x18. \x01(\v2\x1c.orch.v1.ContinueRunResponseH\x00R\vcontinueRunB\n" +
+	"\fcontinue_run\x18. \x01(\v2\x1c.orch.v1.ContinueRunResponseH\x00R\vcontinueRun\x12;\n" +
+	"\n" +
+	"get_config\x18/ \x01(\v2\x1a.orch.v1.GetConfigResponseH\x00R\tgetConfig\x12N\n" +
+	"\x11get_daemon_status\x180 \x01(\v2 .orch.v1.GetDaemonStatusResponseH\x00R\x0fgetDaemonStatusB\n" +
 	"\n" +
 	"\bresponse*\xff\x01\n" +
 	"\tRunStatus\x12\x1a\n" +
@@ -8551,7 +9680,7 @@ func file_orch_proto_rawDescGZIP() []byte {
 }
 
 var file_orch_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_orch_proto_msgTypes = make([]protoimpl.MessageInfo, 105)
+var file_orch_proto_msgTypes = make([]protoimpl.MessageInfo, 119)
 var file_orch_proto_goTypes = []any{
 	(RunStatus)(0),                        // 0: orch.v1.RunStatus
 	(IssueStatus)(0),                      // 1: orch.v1.IssueStatus
@@ -8656,12 +9785,26 @@ var file_orch_proto_goTypes = []any{
 	(*InjectInitialPromptResponse)(nil),   // 100: orch.v1.InjectInitialPromptResponse
 	(*ContinueRunRequest)(nil),            // 101: orch.v1.ContinueRunRequest
 	(*ContinueRunResponse)(nil),           // 102: orch.v1.ContinueRunResponse
-	(*Request)(nil),                       // 103: orch.v1.Request
-	(*Response)(nil),                      // 104: orch.v1.Response
-	nil,                                   // 105: orch.v1.Event.AttrsEntry
-	nil,                                   // 106: orch.v1.CreateRunRequest.MetadataEntry
-	nil,                                   // 107: orch.v1.AppendEventRequest.EventAttrsEntry
-	nil,                                   // 108: orch.v1.QueryOpenCodeServerResponse.SessionStatusEntry
+	(*GetConfigRequest)(nil),              // 103: orch.v1.GetConfigRequest
+	(*SlackConfigProto)(nil),              // 104: orch.v1.SlackConfigProto
+	(*OpenCodeConfigProto)(nil),           // 105: orch.v1.OpenCodeConfigProto
+	(*ClaudeConfigProto)(nil),             // 106: orch.v1.ClaudeConfigProto
+	(*CodexConfigProto)(nil),              // 107: orch.v1.CodexConfigProto
+	(*GeminiConfigProto)(nil),             // 108: orch.v1.GeminiConfigProto
+	(*PresetProto)(nil),                   // 109: orch.v1.PresetProto
+	(*IssuesConfigProto)(nil),             // 110: orch.v1.IssuesConfigProto
+	(*GitHubConfigProto)(nil),             // 111: orch.v1.GitHubConfigProto
+	(*MonitorConfigProto)(nil),            // 112: orch.v1.MonitorConfigProto
+	(*GetConfigResponse)(nil),             // 113: orch.v1.GetConfigResponse
+	(*GetDaemonStatusRequest)(nil),        // 114: orch.v1.GetDaemonStatusRequest
+	(*GetDaemonStatusResponse)(nil),       // 115: orch.v1.GetDaemonStatusResponse
+	(*Request)(nil),                       // 116: orch.v1.Request
+	(*Response)(nil),                      // 117: orch.v1.Response
+	nil,                                   // 118: orch.v1.Event.AttrsEntry
+	nil,                                   // 119: orch.v1.CreateRunRequest.MetadataEntry
+	nil,                                   // 120: orch.v1.AppendEventRequest.EventAttrsEntry
+	nil,                                   // 121: orch.v1.QueryOpenCodeServerResponse.SessionStatusEntry
+	nil,                                   // 122: orch.v1.GitHubConfigProto.StatusLabelsEntry
 }
 var file_orch_proto_depIdxs = []int32{
 	0,   // 0: orch.v1.Run.status:type_name -> orch.v1.RunStatus
@@ -8669,12 +9812,12 @@ var file_orch_proto_depIdxs = []int32{
 	2,   // 2: orch.v1.Run.branch_state:type_name -> orch.v1.BranchState
 	3,   // 3: orch.v1.Run.multiplexer:type_name -> orch.v1.Multiplexer
 	1,   // 4: orch.v1.Issue.status:type_name -> orch.v1.IssueStatus
-	105, // 5: orch.v1.Event.attrs:type_name -> orch.v1.Event.AttrsEntry
+	118, // 5: orch.v1.Event.attrs:type_name -> orch.v1.Event.AttrsEntry
 	0,   // 6: orch.v1.ListRunsRequest.status:type_name -> orch.v1.RunStatus
 	5,   // 7: orch.v1.ListRunsResponse.runs:type_name -> orch.v1.Run
 	5,   // 8: orch.v1.GetRunResponse.run:type_name -> orch.v1.Run
 	7,   // 9: orch.v1.GetRunResponse.events:type_name -> orch.v1.Event
-	106, // 10: orch.v1.CreateRunRequest.metadata:type_name -> orch.v1.CreateRunRequest.MetadataEntry
+	119, // 10: orch.v1.CreateRunRequest.metadata:type_name -> orch.v1.CreateRunRequest.MetadataEntry
 	1,   // 11: orch.v1.ListIssuesRequest.status:type_name -> orch.v1.IssueStatus
 	6,   // 12: orch.v1.ListIssuesResponse.issues:type_name -> orch.v1.Issue
 	6,   // 13: orch.v1.GetIssueResponse.issue:type_name -> orch.v1.Issue
@@ -8684,7 +9827,7 @@ var file_orch_proto_depIdxs = []int32{
 	51,  // 17: orch.v1.ListMonitorsResponse.monitors:type_name -> orch.v1.MonitorInfo
 	5,   // 18: orch.v1.GetRunByShortIDResponse.run:type_name -> orch.v1.Run
 	7,   // 19: orch.v1.GetRunByShortIDResponse.events:type_name -> orch.v1.Event
-	107, // 20: orch.v1.AppendEventRequest.event_attrs:type_name -> orch.v1.AppendEventRequest.EventAttrsEntry
+	120, // 20: orch.v1.AppendEventRequest.event_attrs:type_name -> orch.v1.AppendEventRequest.EventAttrsEntry
 	66,  // 21: orch.v1.ListReposResponse.repos:type_name -> orch.v1.RepoInfo
 	6,   // 22: orch.v1.UpdateIssueResponse.issue:type_name -> orch.v1.Issue
 	73,  // 23: orch.v1.ValidationResultItem.errors:type_name -> orch.v1.ValidationIssue
@@ -8696,100 +9839,114 @@ var file_orch_proto_depIdxs = []int32{
 	3,   // 29: orch.v1.ListSessionsRequest.multiplexer:type_name -> orch.v1.Multiplexer
 	97,  // 30: orch.v1.OpenCodeProviderInfo.models:type_name -> orch.v1.OpenCodeModelInfo
 	96,  // 31: orch.v1.QueryOpenCodeServerResponse.providers:type_name -> orch.v1.OpenCodeProviderInfo
-	108, // 32: orch.v1.QueryOpenCodeServerResponse.session_status:type_name -> orch.v1.QueryOpenCodeServerResponse.SessionStatusEntry
-	8,   // 33: orch.v1.Request.ping:type_name -> orch.v1.PingRequest
-	10,  // 34: orch.v1.Request.list_runs:type_name -> orch.v1.ListRunsRequest
-	12,  // 35: orch.v1.Request.get_run:type_name -> orch.v1.GetRunRequest
-	14,  // 36: orch.v1.Request.start_run:type_name -> orch.v1.StartRunRequest
-	18,  // 37: orch.v1.Request.stop_run:type_name -> orch.v1.StopRunRequest
-	20,  // 38: orch.v1.Request.resolve_run:type_name -> orch.v1.ResolveRunRequest
-	22,  // 39: orch.v1.Request.list_issues:type_name -> orch.v1.ListIssuesRequest
-	24,  // 40: orch.v1.Request.get_issue:type_name -> orch.v1.GetIssueRequest
-	26,  // 41: orch.v1.Request.create_issue:type_name -> orch.v1.CreateIssueRequest
-	28,  // 42: orch.v1.Request.close_issue:type_name -> orch.v1.CloseIssueRequest
-	30,  // 43: orch.v1.Request.get_control_agent_launch:type_name -> orch.v1.GetControlAgentLaunchRequest
-	32,  // 44: orch.v1.Request.get_attach_info:type_name -> orch.v1.GetAttachInfoRequest
-	34,  // 45: orch.v1.Request.capture_session:type_name -> orch.v1.CaptureSessionRequest
-	36,  // 46: orch.v1.Request.send_message:type_name -> orch.v1.SendMessageRequest
-	38,  // 47: orch.v1.Request.get_diff_stats:type_name -> orch.v1.GetDiffStatsRequest
-	40,  // 48: orch.v1.Request.get_branch_state:type_name -> orch.v1.GetBranchStateRequest
-	42,  // 49: orch.v1.Request.get_diff:type_name -> orch.v1.GetDiffRequest
-	44,  // 50: orch.v1.Request.register_monitor:type_name -> orch.v1.RegisterMonitorRequest
-	46,  // 51: orch.v1.Request.unregister_monitor:type_name -> orch.v1.UnregisterMonitorRequest
-	48,  // 52: orch.v1.Request.heartbeat:type_name -> orch.v1.HeartbeatRequest
-	50,  // 53: orch.v1.Request.list_monitors:type_name -> orch.v1.ListMonitorsRequest
-	53,  // 54: orch.v1.Request.kill_monitor:type_name -> orch.v1.KillMonitorRequest
-	55,  // 55: orch.v1.Request.get_run_by_short_id:type_name -> orch.v1.GetRunByShortIDRequest
-	57,  // 56: orch.v1.Request.resolve_issue:type_name -> orch.v1.ResolveIssueRequest
-	59,  // 57: orch.v1.Request.append_event:type_name -> orch.v1.AppendEventRequest
-	61,  // 58: orch.v1.Request.ensure_opencode_server:type_name -> orch.v1.EnsureOpenCodeServerRequest
-	63,  // 59: orch.v1.Request.register_repo:type_name -> orch.v1.RegisterRepoRequest
-	65,  // 60: orch.v1.Request.list_repos:type_name -> orch.v1.ListReposRequest
-	68,  // 61: orch.v1.Request.delete_run:type_name -> orch.v1.DeleteRunRequest
-	70,  // 62: orch.v1.Request.update_issue:type_name -> orch.v1.UpdateIssueRequest
-	72,  // 63: orch.v1.Request.validate_issue_files:type_name -> orch.v1.ValidateIssueFilesRequest
-	77,  // 64: orch.v1.Request.write_agent_prompt:type_name -> orch.v1.WriteAgentPromptRequest
-	79,  // 65: orch.v1.Request.read_agent_prompt:type_name -> orch.v1.ReadAgentPromptRequest
-	81,  // 66: orch.v1.Request.repair_state:type_name -> orch.v1.RepairStateRequest
-	83,  // 67: orch.v1.Request.get_daemon_log:type_name -> orch.v1.GetDaemonLogRequest
-	85,  // 68: orch.v1.Request.read_file:type_name -> orch.v1.ReadFileRequest
-	87,  // 69: orch.v1.Request.write_file:type_name -> orch.v1.WriteFileRequest
-	16,  // 70: orch.v1.Request.create_run:type_name -> orch.v1.CreateRunRequest
-	89,  // 71: orch.v1.Request.kill_session:type_name -> orch.v1.KillSessionRequest
-	91,  // 72: orch.v1.Request.list_sessions:type_name -> orch.v1.ListSessionsRequest
-	93,  // 73: orch.v1.Request.resume_run:type_name -> orch.v1.ResumeRunRequest
-	95,  // 74: orch.v1.Request.query_opencode_server:type_name -> orch.v1.QueryOpenCodeServerRequest
-	99,  // 75: orch.v1.Request.inject_initial_prompt:type_name -> orch.v1.InjectInitialPromptRequest
-	101, // 76: orch.v1.Request.continue_run:type_name -> orch.v1.ContinueRunRequest
-	9,   // 77: orch.v1.Response.ping:type_name -> orch.v1.PingResponse
-	11,  // 78: orch.v1.Response.list_runs:type_name -> orch.v1.ListRunsResponse
-	13,  // 79: orch.v1.Response.get_run:type_name -> orch.v1.GetRunResponse
-	15,  // 80: orch.v1.Response.start_run:type_name -> orch.v1.StartRunResponse
-	19,  // 81: orch.v1.Response.stop_run:type_name -> orch.v1.StopRunResponse
-	21,  // 82: orch.v1.Response.resolve_run:type_name -> orch.v1.ResolveRunResponse
-	23,  // 83: orch.v1.Response.list_issues:type_name -> orch.v1.ListIssuesResponse
-	25,  // 84: orch.v1.Response.get_issue:type_name -> orch.v1.GetIssueResponse
-	27,  // 85: orch.v1.Response.create_issue:type_name -> orch.v1.CreateIssueResponse
-	29,  // 86: orch.v1.Response.close_issue:type_name -> orch.v1.CloseIssueResponse
-	31,  // 87: orch.v1.Response.get_control_agent_launch:type_name -> orch.v1.GetControlAgentLaunchResponse
-	33,  // 88: orch.v1.Response.get_attach_info:type_name -> orch.v1.GetAttachInfoResponse
-	35,  // 89: orch.v1.Response.capture_session:type_name -> orch.v1.CaptureSessionResponse
-	37,  // 90: orch.v1.Response.send_message:type_name -> orch.v1.SendMessageResponse
-	39,  // 91: orch.v1.Response.get_diff_stats:type_name -> orch.v1.GetDiffStatsResponse
-	41,  // 92: orch.v1.Response.get_branch_state:type_name -> orch.v1.GetBranchStateResponse
-	43,  // 93: orch.v1.Response.get_diff:type_name -> orch.v1.GetDiffResponse
-	45,  // 94: orch.v1.Response.register_monitor:type_name -> orch.v1.RegisterMonitorResponse
-	47,  // 95: orch.v1.Response.unregister_monitor:type_name -> orch.v1.UnregisterMonitorResponse
-	49,  // 96: orch.v1.Response.heartbeat:type_name -> orch.v1.HeartbeatResponse
-	52,  // 97: orch.v1.Response.list_monitors:type_name -> orch.v1.ListMonitorsResponse
-	54,  // 98: orch.v1.Response.kill_monitor:type_name -> orch.v1.KillMonitorResponse
-	56,  // 99: orch.v1.Response.get_run_by_short_id:type_name -> orch.v1.GetRunByShortIDResponse
-	58,  // 100: orch.v1.Response.resolve_issue:type_name -> orch.v1.ResolveIssueResponse
-	60,  // 101: orch.v1.Response.append_event:type_name -> orch.v1.AppendEventResponse
-	62,  // 102: orch.v1.Response.ensure_opencode_server:type_name -> orch.v1.EnsureOpenCodeServerResponse
-	64,  // 103: orch.v1.Response.register_repo:type_name -> orch.v1.RegisterRepoResponse
-	67,  // 104: orch.v1.Response.list_repos:type_name -> orch.v1.ListReposResponse
-	69,  // 105: orch.v1.Response.delete_run:type_name -> orch.v1.DeleteRunResponse
-	71,  // 106: orch.v1.Response.update_issue:type_name -> orch.v1.UpdateIssueResponse
-	76,  // 107: orch.v1.Response.validate_issue_files:type_name -> orch.v1.ValidateIssueFilesResponse
-	78,  // 108: orch.v1.Response.write_agent_prompt:type_name -> orch.v1.WriteAgentPromptResponse
-	80,  // 109: orch.v1.Response.read_agent_prompt:type_name -> orch.v1.ReadAgentPromptResponse
-	82,  // 110: orch.v1.Response.repair_state:type_name -> orch.v1.RepairStateResponse
-	84,  // 111: orch.v1.Response.get_daemon_log:type_name -> orch.v1.GetDaemonLogResponse
-	86,  // 112: orch.v1.Response.read_file:type_name -> orch.v1.ReadFileResponse
-	88,  // 113: orch.v1.Response.write_file:type_name -> orch.v1.WriteFileResponse
-	17,  // 114: orch.v1.Response.create_run:type_name -> orch.v1.CreateRunResponse
-	90,  // 115: orch.v1.Response.kill_session:type_name -> orch.v1.KillSessionResponse
-	92,  // 116: orch.v1.Response.list_sessions:type_name -> orch.v1.ListSessionsResponse
-	94,  // 117: orch.v1.Response.resume_run:type_name -> orch.v1.ResumeRunResponse
-	98,  // 118: orch.v1.Response.query_opencode_server:type_name -> orch.v1.QueryOpenCodeServerResponse
-	100, // 119: orch.v1.Response.inject_initial_prompt:type_name -> orch.v1.InjectInitialPromptResponse
-	102, // 120: orch.v1.Response.continue_run:type_name -> orch.v1.ContinueRunResponse
-	121, // [121:121] is the sub-list for method output_type
-	121, // [121:121] is the sub-list for method input_type
-	121, // [121:121] is the sub-list for extension type_name
-	121, // [121:121] is the sub-list for extension extendee
-	0,   // [0:121] is the sub-list for field type_name
+	121, // 32: orch.v1.QueryOpenCodeServerResponse.session_status:type_name -> orch.v1.QueryOpenCodeServerResponse.SessionStatusEntry
+	122, // 33: orch.v1.GitHubConfigProto.status_labels:type_name -> orch.v1.GitHubConfigProto.StatusLabelsEntry
+	112, // 34: orch.v1.GetConfigResponse.monitor:type_name -> orch.v1.MonitorConfigProto
+	109, // 35: orch.v1.GetConfigResponse.presets:type_name -> orch.v1.PresetProto
+	105, // 36: orch.v1.GetConfigResponse.opencode:type_name -> orch.v1.OpenCodeConfigProto
+	106, // 37: orch.v1.GetConfigResponse.claude:type_name -> orch.v1.ClaudeConfigProto
+	107, // 38: orch.v1.GetConfigResponse.codex:type_name -> orch.v1.CodexConfigProto
+	108, // 39: orch.v1.GetConfigResponse.gemini:type_name -> orch.v1.GeminiConfigProto
+	104, // 40: orch.v1.GetConfigResponse.slack:type_name -> orch.v1.SlackConfigProto
+	110, // 41: orch.v1.GetConfigResponse.issues:type_name -> orch.v1.IssuesConfigProto
+	111, // 42: orch.v1.GetConfigResponse.github:type_name -> orch.v1.GitHubConfigProto
+	8,   // 43: orch.v1.Request.ping:type_name -> orch.v1.PingRequest
+	10,  // 44: orch.v1.Request.list_runs:type_name -> orch.v1.ListRunsRequest
+	12,  // 45: orch.v1.Request.get_run:type_name -> orch.v1.GetRunRequest
+	14,  // 46: orch.v1.Request.start_run:type_name -> orch.v1.StartRunRequest
+	18,  // 47: orch.v1.Request.stop_run:type_name -> orch.v1.StopRunRequest
+	20,  // 48: orch.v1.Request.resolve_run:type_name -> orch.v1.ResolveRunRequest
+	22,  // 49: orch.v1.Request.list_issues:type_name -> orch.v1.ListIssuesRequest
+	24,  // 50: orch.v1.Request.get_issue:type_name -> orch.v1.GetIssueRequest
+	26,  // 51: orch.v1.Request.create_issue:type_name -> orch.v1.CreateIssueRequest
+	28,  // 52: orch.v1.Request.close_issue:type_name -> orch.v1.CloseIssueRequest
+	30,  // 53: orch.v1.Request.get_control_agent_launch:type_name -> orch.v1.GetControlAgentLaunchRequest
+	32,  // 54: orch.v1.Request.get_attach_info:type_name -> orch.v1.GetAttachInfoRequest
+	34,  // 55: orch.v1.Request.capture_session:type_name -> orch.v1.CaptureSessionRequest
+	36,  // 56: orch.v1.Request.send_message:type_name -> orch.v1.SendMessageRequest
+	38,  // 57: orch.v1.Request.get_diff_stats:type_name -> orch.v1.GetDiffStatsRequest
+	40,  // 58: orch.v1.Request.get_branch_state:type_name -> orch.v1.GetBranchStateRequest
+	42,  // 59: orch.v1.Request.get_diff:type_name -> orch.v1.GetDiffRequest
+	44,  // 60: orch.v1.Request.register_monitor:type_name -> orch.v1.RegisterMonitorRequest
+	46,  // 61: orch.v1.Request.unregister_monitor:type_name -> orch.v1.UnregisterMonitorRequest
+	48,  // 62: orch.v1.Request.heartbeat:type_name -> orch.v1.HeartbeatRequest
+	50,  // 63: orch.v1.Request.list_monitors:type_name -> orch.v1.ListMonitorsRequest
+	53,  // 64: orch.v1.Request.kill_monitor:type_name -> orch.v1.KillMonitorRequest
+	55,  // 65: orch.v1.Request.get_run_by_short_id:type_name -> orch.v1.GetRunByShortIDRequest
+	57,  // 66: orch.v1.Request.resolve_issue:type_name -> orch.v1.ResolveIssueRequest
+	59,  // 67: orch.v1.Request.append_event:type_name -> orch.v1.AppendEventRequest
+	61,  // 68: orch.v1.Request.ensure_opencode_server:type_name -> orch.v1.EnsureOpenCodeServerRequest
+	63,  // 69: orch.v1.Request.register_repo:type_name -> orch.v1.RegisterRepoRequest
+	65,  // 70: orch.v1.Request.list_repos:type_name -> orch.v1.ListReposRequest
+	68,  // 71: orch.v1.Request.delete_run:type_name -> orch.v1.DeleteRunRequest
+	70,  // 72: orch.v1.Request.update_issue:type_name -> orch.v1.UpdateIssueRequest
+	72,  // 73: orch.v1.Request.validate_issue_files:type_name -> orch.v1.ValidateIssueFilesRequest
+	77,  // 74: orch.v1.Request.write_agent_prompt:type_name -> orch.v1.WriteAgentPromptRequest
+	79,  // 75: orch.v1.Request.read_agent_prompt:type_name -> orch.v1.ReadAgentPromptRequest
+	81,  // 76: orch.v1.Request.repair_state:type_name -> orch.v1.RepairStateRequest
+	83,  // 77: orch.v1.Request.get_daemon_log:type_name -> orch.v1.GetDaemonLogRequest
+	85,  // 78: orch.v1.Request.read_file:type_name -> orch.v1.ReadFileRequest
+	87,  // 79: orch.v1.Request.write_file:type_name -> orch.v1.WriteFileRequest
+	16,  // 80: orch.v1.Request.create_run:type_name -> orch.v1.CreateRunRequest
+	89,  // 81: orch.v1.Request.kill_session:type_name -> orch.v1.KillSessionRequest
+	91,  // 82: orch.v1.Request.list_sessions:type_name -> orch.v1.ListSessionsRequest
+	93,  // 83: orch.v1.Request.resume_run:type_name -> orch.v1.ResumeRunRequest
+	95,  // 84: orch.v1.Request.query_opencode_server:type_name -> orch.v1.QueryOpenCodeServerRequest
+	99,  // 85: orch.v1.Request.inject_initial_prompt:type_name -> orch.v1.InjectInitialPromptRequest
+	101, // 86: orch.v1.Request.continue_run:type_name -> orch.v1.ContinueRunRequest
+	103, // 87: orch.v1.Request.get_config:type_name -> orch.v1.GetConfigRequest
+	114, // 88: orch.v1.Request.get_daemon_status:type_name -> orch.v1.GetDaemonStatusRequest
+	9,   // 89: orch.v1.Response.ping:type_name -> orch.v1.PingResponse
+	11,  // 90: orch.v1.Response.list_runs:type_name -> orch.v1.ListRunsResponse
+	13,  // 91: orch.v1.Response.get_run:type_name -> orch.v1.GetRunResponse
+	15,  // 92: orch.v1.Response.start_run:type_name -> orch.v1.StartRunResponse
+	19,  // 93: orch.v1.Response.stop_run:type_name -> orch.v1.StopRunResponse
+	21,  // 94: orch.v1.Response.resolve_run:type_name -> orch.v1.ResolveRunResponse
+	23,  // 95: orch.v1.Response.list_issues:type_name -> orch.v1.ListIssuesResponse
+	25,  // 96: orch.v1.Response.get_issue:type_name -> orch.v1.GetIssueResponse
+	27,  // 97: orch.v1.Response.create_issue:type_name -> orch.v1.CreateIssueResponse
+	29,  // 98: orch.v1.Response.close_issue:type_name -> orch.v1.CloseIssueResponse
+	31,  // 99: orch.v1.Response.get_control_agent_launch:type_name -> orch.v1.GetControlAgentLaunchResponse
+	33,  // 100: orch.v1.Response.get_attach_info:type_name -> orch.v1.GetAttachInfoResponse
+	35,  // 101: orch.v1.Response.capture_session:type_name -> orch.v1.CaptureSessionResponse
+	37,  // 102: orch.v1.Response.send_message:type_name -> orch.v1.SendMessageResponse
+	39,  // 103: orch.v1.Response.get_diff_stats:type_name -> orch.v1.GetDiffStatsResponse
+	41,  // 104: orch.v1.Response.get_branch_state:type_name -> orch.v1.GetBranchStateResponse
+	43,  // 105: orch.v1.Response.get_diff:type_name -> orch.v1.GetDiffResponse
+	45,  // 106: orch.v1.Response.register_monitor:type_name -> orch.v1.RegisterMonitorResponse
+	47,  // 107: orch.v1.Response.unregister_monitor:type_name -> orch.v1.UnregisterMonitorResponse
+	49,  // 108: orch.v1.Response.heartbeat:type_name -> orch.v1.HeartbeatResponse
+	52,  // 109: orch.v1.Response.list_monitors:type_name -> orch.v1.ListMonitorsResponse
+	54,  // 110: orch.v1.Response.kill_monitor:type_name -> orch.v1.KillMonitorResponse
+	56,  // 111: orch.v1.Response.get_run_by_short_id:type_name -> orch.v1.GetRunByShortIDResponse
+	58,  // 112: orch.v1.Response.resolve_issue:type_name -> orch.v1.ResolveIssueResponse
+	60,  // 113: orch.v1.Response.append_event:type_name -> orch.v1.AppendEventResponse
+	62,  // 114: orch.v1.Response.ensure_opencode_server:type_name -> orch.v1.EnsureOpenCodeServerResponse
+	64,  // 115: orch.v1.Response.register_repo:type_name -> orch.v1.RegisterRepoResponse
+	67,  // 116: orch.v1.Response.list_repos:type_name -> orch.v1.ListReposResponse
+	69,  // 117: orch.v1.Response.delete_run:type_name -> orch.v1.DeleteRunResponse
+	71,  // 118: orch.v1.Response.update_issue:type_name -> orch.v1.UpdateIssueResponse
+	76,  // 119: orch.v1.Response.validate_issue_files:type_name -> orch.v1.ValidateIssueFilesResponse
+	78,  // 120: orch.v1.Response.write_agent_prompt:type_name -> orch.v1.WriteAgentPromptResponse
+	80,  // 121: orch.v1.Response.read_agent_prompt:type_name -> orch.v1.ReadAgentPromptResponse
+	82,  // 122: orch.v1.Response.repair_state:type_name -> orch.v1.RepairStateResponse
+	84,  // 123: orch.v1.Response.get_daemon_log:type_name -> orch.v1.GetDaemonLogResponse
+	86,  // 124: orch.v1.Response.read_file:type_name -> orch.v1.ReadFileResponse
+	88,  // 125: orch.v1.Response.write_file:type_name -> orch.v1.WriteFileResponse
+	17,  // 126: orch.v1.Response.create_run:type_name -> orch.v1.CreateRunResponse
+	90,  // 127: orch.v1.Response.kill_session:type_name -> orch.v1.KillSessionResponse
+	92,  // 128: orch.v1.Response.list_sessions:type_name -> orch.v1.ListSessionsResponse
+	94,  // 129: orch.v1.Response.resume_run:type_name -> orch.v1.ResumeRunResponse
+	98,  // 130: orch.v1.Response.query_opencode_server:type_name -> orch.v1.QueryOpenCodeServerResponse
+	100, // 131: orch.v1.Response.inject_initial_prompt:type_name -> orch.v1.InjectInitialPromptResponse
+	102, // 132: orch.v1.Response.continue_run:type_name -> orch.v1.ContinueRunResponse
+	113, // 133: orch.v1.Response.get_config:type_name -> orch.v1.GetConfigResponse
+	115, // 134: orch.v1.Response.get_daemon_status:type_name -> orch.v1.GetDaemonStatusResponse
+	135, // [135:135] is the sub-list for method output_type
+	135, // [135:135] is the sub-list for method input_type
+	135, // [135:135] is the sub-list for extension type_name
+	135, // [135:135] is the sub-list for extension extendee
+	0,   // [0:135] is the sub-list for field type_name
 }
 
 func init() { file_orch_proto_init() }
@@ -8797,7 +9954,7 @@ func file_orch_proto_init() {
 	if File_orch_proto != nil {
 		return
 	}
-	file_orch_proto_msgTypes[99].OneofWrappers = []any{
+	file_orch_proto_msgTypes[112].OneofWrappers = []any{
 		(*Request_Ping)(nil),
 		(*Request_ListRuns)(nil),
 		(*Request_GetRun)(nil),
@@ -8842,8 +9999,10 @@ func file_orch_proto_init() {
 		(*Request_QueryOpencodeServer)(nil),
 		(*Request_InjectInitialPrompt)(nil),
 		(*Request_ContinueRun)(nil),
+		(*Request_GetConfig)(nil),
+		(*Request_GetDaemonStatus)(nil),
 	}
-	file_orch_proto_msgTypes[100].OneofWrappers = []any{
+	file_orch_proto_msgTypes[113].OneofWrappers = []any{
 		(*Response_Ping)(nil),
 		(*Response_ListRuns)(nil),
 		(*Response_GetRun)(nil),
@@ -8888,6 +10047,8 @@ func file_orch_proto_init() {
 		(*Response_QueryOpencodeServer)(nil),
 		(*Response_InjectInitialPrompt)(nil),
 		(*Response_ContinueRun)(nil),
+		(*Response_GetConfig)(nil),
+		(*Response_GetDaemonStatus)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -8895,7 +10056,7 @@ func file_orch_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orch_proto_rawDesc), len(file_orch_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   105,
+			NumMessages:   119,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

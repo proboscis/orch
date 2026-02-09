@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -8,10 +10,9 @@ import (
 	"time"
 
 	"github.com/s22625/orch/internal/agent"
-	"github.com/s22625/orch/internal/config"
-	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
 
@@ -42,49 +43,49 @@ This allows manual interaction with the agent, including image paste support.`,
 }
 
 func runAttach(refStr string, opts *attachOptions) error {
-	client, err := requireDaemon()
+	ctx := context.Background()
+	api, err := getAPI()
 	if err != nil {
 		return err
 	}
 
-	var resp *daemon.GetAttachInfoResponse
+	ref, err := orchapi.ParseRunRef(refStr)
+	if err != nil {
+		return err
+	}
 
-	if shortIDRegex.MatchString(refStr) {
-		resp, err = client.GetAttachInfo("", "", refStr)
-	} else {
-		ref, parseErr := model.ParseRunRef(refStr)
-		if parseErr != nil {
-			return parseErr
+	info, err := api.GetAttachInfo(ctx, ref)
+	if err != nil {
+		if errors.Is(err, orchapi.ErrNotFound) {
+			fmt.Fprintf(os.Stderr, "run not found: %s\n", refStr)
+			os.Exit(ExitRunNotFound)
+			return err
 		}
-		resp, err = client.GetAttachInfo(ref.IssueID, ref.RunID, "")
-	}
-
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "run not found: %s\n", refStr)
-		os.Exit(ExitRunNotFound)
 		return err
 	}
 
-	if !resp.OK {
-		fmt.Fprintf(os.Stderr, "cannot attach: %s (session: %s, worktree: %s)\n",
-			resp.Error, resp.TmuxSession, resp.WorktreePath)
+	if !info.SessionExists {
+		fmt.Fprintf(os.Stderr, "cannot attach: session not found (session: %s, worktree: %s)\n",
+			info.TmuxSession, info.WorktreePath)
 		os.Exit(ExitRunNotFound)
-		return fmt.Errorf("cannot attach: %s", resp.Error)
+		return fmt.Errorf("cannot attach: session not found")
 	}
 
-	if resp.Agent == string(agent.AgentOpenCode) {
-		return attachOpenCodeFromInfo(resp)
+	if info.Agent == string(agent.AgentOpenCode) {
+		return attachOpenCodeFromInfo(info)
 	}
 
-	sessionName := resp.TmuxSession
+	sessionName := info.TmuxSession
 	if sessionName == "" {
-		sessionName = model.GenerateTmuxSession(resp.IssueID, resp.RunID)
+		sessionName = model.GenerateTmuxSession(info.IssueID, info.RunID)
 	}
 
-	cfg, _ := config.Load()
-	muxType, _ := multiplexer.ParseType(cfg.GetAgentMultiplexer())
-	if resp.Multiplexer != "" {
-		muxType, _ = multiplexer.ParseType(resp.Multiplexer)
+	projectRoot, _ := getProjectRoot()
+	cfg, _ := api.GetConfig(ctx, projectRoot)
+
+	muxType, _ := multiplexer.ParseType(cfg.AgentMultiplexer)
+	if info.Multiplexer != "" {
+		muxType, _ = multiplexer.ParseType(string(info.Multiplexer))
 	}
 
 	var mux multiplexer.Multiplexer
@@ -118,7 +119,7 @@ func runAttach(refStr string, opts *attachOptions) error {
 	return nil
 }
 
-func attachOpenCodeFromInfo(info *daemon.GetAttachInfoResponse) error {
+func attachOpenCodeFromInfo(info *orchapi.AttachInfo) error {
 	if info.ServerPort == 0 && info.OpenCodeSessionID == "" {
 		fmt.Fprintf(os.Stderr, "no server port or session found for opencode run: %s#%s\n", info.IssueID, info.RunID)
 		os.Exit(ExitRunNotFound)
@@ -147,7 +148,7 @@ func isPortOpen(port int) bool {
 	return true
 }
 
-func attachToRunningOpenCode(info *daemon.GetAttachInfoResponse) error {
+func attachToRunningOpenCode(info *orchapi.AttachInfo) error {
 	serverURL := fmt.Sprintf("http://127.0.0.1:%d", info.ServerPort)
 
 	fmt.Fprintf(os.Stderr, "Attaching to opencode server: %s\n", serverURL)
@@ -178,7 +179,7 @@ func attachToRunningOpenCode(info *daemon.GetAttachInfoResponse) error {
 	return nil
 }
 
-func resumeOpenCodeSession(info *daemon.GetAttachInfoResponse) error {
+func resumeOpenCodeSession(info *orchapi.AttachInfo) error {
 	fmt.Fprintf(os.Stderr, "Server not running, resuming session in worktree\n")
 	fmt.Fprintf(os.Stderr, "Session: %s\n", info.OpenCodeSessionID)
 	fmt.Fprintf(os.Stderr, "Worktree: %s\n\n", info.WorktreePath)

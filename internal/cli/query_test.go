@@ -142,6 +142,15 @@ func (m *mockQueryAPI) InjectInitialPrompt(ctx context.Context, ref orchapi.RunR
 func (m *mockQueryAPI) QueryOpenCodeServer(ctx context.Context, port int) (*orchapi.QueryOpenCodeServerResult, error) {
 	return nil, nil
 }
+func (m *mockQueryAPI) GetConfig(ctx context.Context, projectRoot string) (*orchapi.Config, error) {
+	return nil, nil
+}
+func (m *mockQueryAPI) GetDaemonStatus(ctx context.Context) (*orchapi.DaemonStatus, error) {
+	return nil, nil
+}
+func (m *mockQueryAPI) ContinueRun(ctx context.Context, req *orchapi.ContinueRunRequest) (*orchapi.ContinueRunResult, error) {
+	return nil, nil
+}
 
 func TestQueryCommand_BasicQuery(t *testing.T) {
 	now := time.Now()

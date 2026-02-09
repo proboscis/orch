@@ -10,8 +10,6 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/s22625/orch/internal/config"
-	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
@@ -77,15 +75,6 @@ Examples:
 }
 
 func runIssueCreate(issueID string, opts *issueCreateOptions) error {
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
-
-	if opts.Edit && cfg.IsGitHubBackend() {
-		return fmt.Errorf("--edit flag is not supported with GitHub backend")
-	}
-
 	title := opts.Title
 	if title == "" && !opts.Edit {
 		fmt.Print("Title: ")
@@ -97,21 +86,40 @@ func runIssueCreate(issueID string, opts *issueCreateOptions) error {
 		title = issueID
 	}
 
-	if opts.Edit || testBypassDaemon {
-		return runIssueCreateWithEditor(issueID, title, opts)
+	if testBypassDaemon {
+		return runIssueCreateLocal(issueID, title, opts)
 	}
 
-	client, err := requireDaemon()
+	ctx := context.Background()
+	api, err := getAPI()
 	if err != nil {
 		return err
 	}
 
-	resp, err := client.CreateIssue(issueID, title, opts.Summary, opts.Body)
+	projectRoot, _ := getProjectRoot()
+	cfg, err := api.GetConfig(ctx, projectRoot)
 	if err != nil {
-		if err.Error() == "daemon error: already_exists" {
+		return err
+	}
+
+	if opts.Edit && isGitHubBackend(cfg) {
+		return fmt.Errorf("--edit flag is not supported with GitHub backend")
+	}
+
+	if opts.Edit {
+		return runIssueCreateWithEditor(api, issueID, title, opts)
+	}
+
+	issue, err := api.CreateIssue(ctx, &orchapi.CreateIssueRequest{
+		ID:    issueID,
+		Title: title,
+		Body:  opts.Body,
+	})
+	if err != nil {
+		if strings.Contains(err.Error(), "already_exists") {
 			return fmt.Errorf("issue already exists: %s", issueID)
 		}
-		if err.Error() == "daemon error: invalid_request: issue_id contains invalid characters" {
+		if strings.Contains(err.Error(), "invalid characters") {
 			return fmt.Errorf("invalid issue ID: %s (cannot contain / or ..)", issueID)
 		}
 		return err
@@ -124,8 +132,8 @@ func runIssueCreate(issueID string, opts *issueCreateOptions) error {
 			Path    string `json:"path"`
 		}{
 			OK:      true,
-			IssueID: resp.IssueID,
-			Path:    resp.Path,
+			IssueID: issue.ID,
+			Path:    issue.Path,
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -133,14 +141,18 @@ func runIssueCreate(issueID string, opts *issueCreateOptions) error {
 	}
 
 	if !globalOpts.Quiet {
-		fmt.Printf("Created issue: %s\n", resp.IssueID)
-		fmt.Printf("  Path: %s\n", resp.Path)
+		fmt.Printf("Created issue: %s\n", issue.ID)
+		fmt.Printf("  Path: %s\n", issue.Path)
 	}
 
 	return nil
 }
 
-func runIssueCreateWithEditor(issueID, title string, opts *issueCreateOptions) error {
+func isGitHubBackend(cfg *orchapi.Config) bool {
+	return cfg.Issues.Backend == "github"
+}
+
+func runIssueCreateLocal(issueID, title string, opts *issueCreateOptions) error {
 	issuesRoot, err := getIssuesRoot()
 	if err != nil {
 		return err
@@ -150,6 +162,7 @@ func runIssueCreateWithEditor(issueID, title string, opts *issueCreateOptions) e
 	if err != nil {
 		return err
 	}
+
 	if err := os.MkdirAll(issuesDir, 0755); err != nil {
 		return fmt.Errorf("failed to create issues directory: %w", err)
 	}
@@ -177,10 +190,71 @@ func runIssueCreateWithEditor(issueID, title string, opts *issueCreateOptions) e
 		sb.WriteString("\n")
 	}
 
-	api, err := getAPI()
+	if err := os.WriteFile(issuePath, []byte(sb.String()), 0644); err != nil {
+		return fmt.Errorf("failed to create issue: %w", err)
+	}
+
+	if globalOpts.JSON {
+		output := struct {
+			OK      bool   `json:"ok"`
+			IssueID string `json:"issue_id"`
+			Path    string `json:"path"`
+		}{
+			OK:      true,
+			IssueID: issueID,
+			Path:    issuePath,
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(output)
+	}
+
+	if !globalOpts.Quiet {
+		fmt.Printf("Created issue: %s\n", issueID)
+		fmt.Printf("  Path: %s\n", issuePath)
+	}
+
+	return nil
+}
+
+func runIssueCreateWithEditor(api orchapi.OrchAPI, issueID, title string, opts *issueCreateOptions) error {
+	issuesRoot, err := getIssuesRoot()
 	if err != nil {
 		return err
 	}
+
+	issuesDir, err := resolveIssuesDir(issuesRoot)
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		return fmt.Errorf("failed to create issues directory: %w", err)
+	}
+
+	issuePath := filepath.Join(issuesDir, issueID+".md")
+
+	if _, err := os.Stat(issuePath); err == nil {
+		return fmt.Errorf("issue already exists: %s", issueID)
+	}
+
+	var sb strings.Builder
+	sb.WriteString("---\n")
+	sb.WriteString("type: issue\n")
+	sb.WriteString(fmt.Sprintf("id: %s\n", model.QuoteYAMLValue(issueID)))
+	sb.WriteString(fmt.Sprintf("title: %s\n", model.QuoteYAMLValue(title)))
+	if opts.Summary != "" {
+		sb.WriteString(fmt.Sprintf("summary: %s\n", model.QuoteYAMLValue(opts.Summary)))
+	}
+	sb.WriteString("status: open\n")
+	sb.WriteString("---\n\n")
+	sb.WriteString(fmt.Sprintf("# %s\n\n", title))
+
+	if opts.Body != "" {
+		sb.WriteString(opts.Body)
+		sb.WriteString("\n")
+	}
+
 	ctx := context.Background()
 	if err := api.WriteFile(ctx, issuePath, []byte(sb.String()), 0644); err != nil {
 		return fmt.Errorf("failed to create issue: %w", err)
@@ -248,8 +322,8 @@ func dirExists(path string) bool {
 type issueListOptions struct {
 	NoPath  bool
 	Status  string
-	Tags    []string // AND logic - must have all tags
-	TagsAny []string // OR logic - must have any tag
+	Tags    []string
+	TagsAny []string
 }
 
 func newIssueListCmd() *cobra.Command {
@@ -312,7 +386,6 @@ func runIssueListViaAPI(ctx context.Context, api orchapi.OrchAPI, opts *issueLis
 		statusFilter = []orchapi.IssueStatus{orchapi.IssueStatus(opts.Status)}
 	}
 
-	// Collect all issues, handling pagination
 	var allIssues []*orchapi.Issue
 	cursor := ""
 	for {
@@ -352,7 +425,6 @@ func runIssueListViaAPI(ctx context.Context, api orchapi.OrchAPI, opts *issueLis
 
 	var issueInfos []issueInfo
 	for _, issue := range allIssues {
-		// Apply tag filters (status already filtered by daemon)
 		if !matchTagsAnd(issue.Tags, opts.Tags) {
 			continue
 		}
@@ -457,7 +529,6 @@ func formatRunsSummary(runs []runSummary) string {
 	return strings.Join(parts, ", ")
 }
 
-// matchTagsAnd returns true if the issue has ALL of the specified tags (case-insensitive)
 func matchTagsAnd(issueTags []string, filterTags []string) bool {
 	if len(filterTags) == 0 {
 		return true
@@ -474,7 +545,6 @@ func matchTagsAnd(issueTags []string, filterTags []string) bool {
 	return true
 }
 
-// matchTagsOr returns true if the issue has ANY of the specified tags (case-insensitive)
 func matchTagsOr(issueTags []string, filterTags []string) bool {
 	if len(filterTags) == 0 {
 		return true
@@ -491,17 +561,13 @@ func matchTagsOr(issueTags []string, filterTags []string) bool {
 	return false
 }
 
-// matchIssueFilters checks if an issue matches all filter criteria
 func matchIssueFilters(status string, tags []string, opts *issueListOptions) bool {
-	// Status filter
 	if opts.Status != "" && !strings.EqualFold(status, opts.Status) {
 		return false
 	}
-	// Tag AND filter
 	if !matchTagsAnd(tags, opts.Tags) {
 		return false
 	}
-	// Tag OR filter
 	if !matchTagsOr(tags, opts.TagsAny) {
 		return false
 	}
@@ -540,22 +606,23 @@ func runIssueShow(issueID string, opts *issueShowOptions) error {
 		issueID = model.NormalizeGitHubIssueID(issueID)
 	}
 
-	client, err := requireDaemon()
+	ctx := context.Background()
+	api, err := getAPI()
 	if err != nil {
 		return err
 	}
 
-	resp, err := client.GetIssue(issueID)
+	issue, err := api.GetIssue(ctx, issueID)
 	if err != nil {
 		return err
 	}
 
-	if opts.Web && resp.Issue != nil {
-		url := resp.Issue.URI
-		if fm, ok := resp.Issue.Frontmatter["url"]; ok && fm != "" {
+	if opts.Web && issue != nil {
+		url := issue.Path
+		if fm, ok := issue.Frontmatter["url"]; ok && fm != "" {
 			url = fm
 		}
-		if url != "" {
+		if url != "" && strings.HasPrefix(url, "http") {
 			return openWithSystem(url)
 		}
 		return fmt.Errorf("no URL available for issue %s", issueID)
@@ -564,10 +631,9 @@ func runIssueShow(issueID string, opts *issueShowOptions) error {
 	if globalOpts.JSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		return enc.Encode(resp)
+		return enc.Encode(issue)
 	}
 
-	issue := resp.Issue
 	if issue == nil {
 		return fmt.Errorf("issue not found: %s", issueID)
 	}
@@ -618,37 +684,38 @@ func runIssueEdit(issueID, title string) error {
 		issueID = model.NormalizeGitHubIssueID(issueID)
 	}
 
-	client, err := requireDaemon()
+	ctx := context.Background()
+	api, err := getAPI()
 	if err != nil {
 		return err
 	}
 
-	resp, err := client.GetIssue(issueID)
+	issue, err := api.GetIssue(ctx, issueID)
 	if err != nil {
 		return err
 	}
 
-	if resp.Issue == nil {
+	if issue == nil {
 		return fmt.Errorf("issue not found: %s", issueID)
 	}
 
 	if title != "" {
-		return fmt.Errorf("--title update not yet implemented for local issues; edit the file directly: %s", resp.Issue.URI)
+		return fmt.Errorf("--title update not yet implemented for local issues; edit the file directly: %s", issue.Path)
 	}
 
-	path := resp.Issue.URI
+	path := issue.Path
 	if strings.HasPrefix(path, "file://") {
 		path = strings.TrimPrefix(path, "file://")
 	}
 
 	if strings.HasPrefix(path, "https://") {
-		return editGitHubIssue(issueID, resp.Issue)
+		return editGitHubIssue(api, issueID, issue)
 	}
 
 	return openInEditor(path)
 }
 
-func editGitHubIssue(issueID string, issue *daemon.IssueFull) error {
+func editGitHubIssue(api orchapi.OrchAPI, issueID string, issue *orchapi.Issue) error {
 	tmpDir := os.TempDir()
 	tmpFile := filepath.Join(tmpDir, fmt.Sprintf("orch-issue-%s.md", strings.ReplaceAll(issueID, "/", "-")))
 
@@ -667,10 +734,6 @@ func editGitHubIssue(issueID string, issue *daemon.IssueFull) error {
 	sb.WriteString(issue.Body)
 	sb.WriteString("\n")
 
-	api, err := getAPI()
-	if err != nil {
-		return err
-	}
 	ctx := context.Background()
 	if err := api.WriteFile(ctx, tmpFile, []byte(sb.String()), 0644); err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
@@ -718,25 +781,31 @@ Examples:
 }
 
 func runIssueClose(issueID string, opts *issueCloseOptions) error {
-	// Normalize GitHub issue IDs at CLI boundary
 	if model.IsGitHubIssueID(issueID) {
 		issueID = model.NormalizeGitHubIssueID(issueID)
 	}
 
-	client, err := requireDaemon()
+	ctx := context.Background()
+	api, err := getAPI()
 	if err != nil {
 		return err
 	}
 
-	resp, err := client.CloseIssue(issueID, opts.Comment)
-	if err != nil {
+	if err := api.CloseIssue(ctx, issueID); err != nil {
 		return err
 	}
 
 	if globalOpts.JSON {
+		output := struct {
+			OK      bool   `json:"ok"`
+			IssueID string `json:"issue_id"`
+		}{
+			OK:      true,
+			IssueID: issueID,
+		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		return enc.Encode(resp)
+		return enc.Encode(output)
 	}
 
 	if !globalOpts.Quiet {

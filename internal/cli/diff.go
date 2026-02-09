@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
@@ -76,7 +75,8 @@ func runDiff(refStr string, opts *diffOptions) error {
 		return err
 	}
 
-	cfg, err := config.Load()
+	projectRoot, _ := getProjectRoot()
+	cfg, err := api.GetConfig(ctx, projectRoot)
 	if err != nil {
 		cfg = nil
 	}
@@ -85,13 +85,13 @@ func runDiff(refStr string, opts *diffOptions) error {
 	return displayDiff(diffContent, diffTool)
 }
 
-func getDiffTool(cfg *config.Config) string {
+func getDiffTool(cfg *orchapi.Config) string {
 	if tool := os.Getenv("ORCH_DIFFTOOL"); tool != "" {
 		return tool
 	}
 
-	if cfg != nil && cfg.GetDiffTool() != "" {
-		return cfg.GetDiffTool()
+	if cfg != nil && cfg.DiffTool != "" {
+		return cfg.DiffTool
 	}
 
 	if _, err := exec.LookPath("delta"); err == nil {

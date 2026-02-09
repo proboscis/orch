@@ -1,14 +1,14 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/s22625/orch/internal/config"
-	"github.com/s22625/orch/internal/daemon"
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
 
@@ -79,13 +79,29 @@ Use --branch with an issue ID to continue from an untracked branch.`,
 }
 
 func runContinue(refStr string, opts *continueOptions) error {
-	if err := applyPromptConfigDefaultsForContinue(opts); err != nil {
+	ctx := context.Background()
+	api, err := getAPI()
+	if err != nil {
 		return exitWithCode(err, ExitInternalError)
 	}
 
+	repoRoot := opts.RepoRoot
+	if repoRoot == "" {
+		repoRoot, err = getProjectRoot()
+		if err != nil {
+			return exitWithCode(fmt.Errorf("could not find project root: %w", err), ExitWorktreeError)
+		}
+	}
+
+	cfg, err := api.GetConfig(ctx, repoRoot)
+	if err != nil {
+		return exitWithCode(err, ExitInternalError)
+	}
+
+	applyContinueConfigDefaults(opts, cfg)
+
 	var issueID, runID, shortID string
 	if opts.Branch != "" {
-		var err error
 		issueID, err = resolveContinueIssueID(refStr, opts)
 		if err != nil {
 			return exitWithCode(err, ExitInternalError)
@@ -108,21 +124,7 @@ func runContinue(refStr string, opts *continueOptions) error {
 		}
 	}
 
-	repoRoot := opts.RepoRoot
-	if repoRoot == "" {
-		var err error
-		repoRoot, err = getProjectRoot()
-		if err != nil {
-			return exitWithCode(fmt.Errorf("could not find project root: %w", err), ExitWorktreeError)
-		}
-	}
-
-	daemonClient, err := requireDaemon()
-	if err != nil {
-		return exitWithCode(err, ExitInternalError)
-	}
-
-	resp, err := daemonClient.ContinueRun(&daemon.ContinueRunOptions{
+	resp, err := api.ContinueRun(ctx, &orchapi.ContinueRunRequest{
 		IssueID:        issueID,
 		RunID:          runID,
 		ShortID:        shortID,
@@ -174,12 +176,7 @@ func runContinue(refStr string, opts *continueOptions) error {
 	return nil
 }
 
-func applyPromptConfigDefaultsForContinue(opts *continueOptions) error {
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
-
+func applyContinueConfigDefaults(opts *continueOptions, cfg *orchapi.Config) {
 	if opts.PromptTemplate == "" && cfg.PromptTemplate != "" {
 		opts.PromptTemplate = cfg.PromptTemplate
 	}
@@ -200,8 +197,6 @@ func applyPromptConfigDefaultsForContinue(opts *continueOptions) error {
 			opts.WorktreeDir = filepath.Join(home, ".orch", "worktrees")
 		}
 	}
-
-	return nil
 }
 
 func resolveContinueIssueID(refStr string, opts *continueOptions) (string, error) {

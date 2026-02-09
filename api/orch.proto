@@ -679,6 +679,111 @@ message ContinueRunResponse {
   string issue_id = 7;
 }
 
+// --- Config ---
+
+message GetConfigRequest {
+  string project_root = 1;
+}
+
+message SlackConfigProto {
+  bool enabled = 1;
+  string webhook_url = 2;
+  string bot_token = 3;
+  string channel = 4;
+  repeated string notify_on = 5;
+}
+
+message OpenCodeConfigProto {
+  string default_model = 1;
+  string default_variant = 2;
+  string prompt_template = 3;
+  repeated string extra_args = 4;
+  repeated string control_extra_args = 5;
+}
+
+message ClaudeConfigProto {
+  string prompt_template = 1;
+  repeated string extra_args = 2;
+  repeated string control_extra_args = 3;
+}
+
+message CodexConfigProto {
+  string prompt_template = 1;
+  repeated string extra_args = 2;
+  repeated string control_extra_args = 3;
+}
+
+message GeminiConfigProto {
+  string prompt_template = 1;
+  repeated string extra_args = 2;
+  repeated string control_extra_args = 3;
+}
+
+message PresetProto {
+  string name = 1;
+  string backend = 2;
+  string model = 3;
+  string variant = 4;
+  string profile = 5;
+}
+
+message IssuesConfigProto {
+  string backend = 1;
+  string path = 2;
+}
+
+message GitHubConfigProto {
+  string owner = 1;
+  string repo = 2;
+  string label_filter = 3;
+  int32 poll_interval = 4;
+  map<string, string> status_labels = 5;
+}
+
+message MonitorConfigProto {
+  repeated string ps_columns = 1;
+}
+
+message GetConfigResponse {
+  string agent = 1;
+  string model = 2;
+  string model_variant = 3;
+  string worktree_dir = 4;
+  string base_branch = 5;
+  string pr_target_branch = 6;
+  string log_level = 7;
+  string prompt_template = 8;
+  string multiplexer = 9;
+  string monitor_multiplexer = 10;
+  string agent_multiplexer = 11;
+  bool no_pr = 12;
+  string default_preset = 13;
+  string control_agent = 14;
+  string control_model = 15;
+  string control_model_variant = 16;
+  string diff_tool = 17;
+  MonitorConfigProto monitor = 18;
+  repeated PresetProto presets = 19;
+  OpenCodeConfigProto opencode = 20;
+  ClaudeConfigProto claude = 21;
+  CodexConfigProto codex = 22;
+  GeminiConfigProto gemini = 23;
+  SlackConfigProto slack = 24;
+  IssuesConfigProto issues = 25;
+  GitHubConfigProto github = 26;
+}
+
+// --- Daemon Status ---
+
+message GetDaemonStatusRequest {}
+
+message GetDaemonStatusResponse {
+  bool running = 1;
+  int32 pid = 2;
+  string log_path = 3;
+  string version = 4;
+}
+
 // =============================================================================
 // Unified Request/Response (for Unix socket dispatch)
 // =============================================================================
@@ -729,6 +834,8 @@ message Request {
     QueryOpenCodeServerRequest query_opencode_server = 42;
     InjectInitialPromptRequest inject_initial_prompt = 43;
     ContinueRunRequest continue_run = 44;
+    GetConfigRequest get_config = 45;
+    GetDaemonStatusRequest get_daemon_status = 46;
   }
 }
 
@@ -781,5 +888,7 @@ message Response {
     QueryOpenCodeServerResponse query_opencode_server = 44;
     InjectInitialPromptResponse inject_initial_prompt = 45;
     ContinueRunResponse continue_run = 46;
+    GetConfigResponse get_config = 47;
+    GetDaemonStatusResponse get_daemon_status = 48;
   }
 }

@@ -199,4 +199,13 @@ type OrchAPI interface {
 
 	// QueryOpenCodeServer queries an OpenCode server for available providers and models.
 	QueryOpenCodeServer(ctx context.Context, port int) (*QueryOpenCodeServerResult, error)
+
+	// GetConfig retrieves the orch configuration for a project.
+	GetConfig(ctx context.Context, projectRoot string) (*Config, error)
+
+	// GetDaemonStatus returns the daemon's running status.
+	GetDaemonStatus(ctx context.Context) (*DaemonStatus, error)
+
+	// ContinueRun continues a run from a previous run or branch.
+	ContinueRun(ctx context.Context, req *ContinueRunRequest) (*ContinueRunResult, error)
 }

@@ -363,12 +363,6 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return d, d.resolveRunCmd(run)
 		}
 		return d, nil
-	case d.keymap.Merge:
-		if d.cursor >= 0 && d.cursor < len(d.runs) {
-			run := d.runs[d.cursor].Run
-			return d, d.requestMergeCmd(run)
-		}
-		return d, nil
 	case "up", "k":
 		if d.cursor > 0 {
 			d.cursor--
@@ -747,25 +741,6 @@ func (d *Dashboard) execShellCmd(run *model.Run) tea.Cmd {
 			return execFinishedMsg{err: fmt.Errorf("failed to open exec window: %w", err)}
 		}
 		return execFinishedMsg{err: nil}
-	}
-}
-
-func (d *Dashboard) requestMergeCmd(run *model.Run) tea.Cmd {
-	return func() tea.Msg {
-		if run == nil {
-			return errMsg{err: fmt.Errorf("run not found")}
-		}
-		output, err := d.monitor.RequestMerge(run)
-		if err != nil {
-			if strings.TrimSpace(output) == "" {
-				return errMsg{err: err}
-			}
-			return errMsg{err: fmt.Errorf("%s", output)}
-		}
-		if strings.TrimSpace(output) == "" {
-			output = fmt.Sprintf("merge requested for %s#%s", run.IssueID, run.RunID)
-		}
-		return infoMsg{text: output}
 	}
 }
 

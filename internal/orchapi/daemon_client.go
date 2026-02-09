@@ -685,4 +685,128 @@ func (c *DaemonClient) CreateRun(ctx context.Context, req *CreateRunRequest) (*C
 	}, nil
 }
 
+func (c *DaemonClient) GetConfig(ctx context.Context, projectRoot string) (*Config, error) {
+	resp, err := c.proto.GetConfig(projectRoot)
+	if err != nil {
+		return nil, err
+	}
+	cfg := &Config{
+		Agent:               resp.Agent,
+		Model:               resp.Model,
+		ModelVariant:        resp.ModelVariant,
+		WorktreeDir:         resp.WorktreeDir,
+		BaseBranch:          resp.BaseBranch,
+		PRTargetBranch:      resp.PRTargetBranch,
+		LogLevel:            resp.LogLevel,
+		PromptTemplate:      resp.PromptTemplate,
+		Multiplexer:         resp.Multiplexer,
+		MonitorMultiplexer:  resp.MonitorMultiplexer,
+		AgentMultiplexer:    resp.AgentMultiplexer,
+		NoPR:                resp.NoPR,
+		DefaultPreset:       resp.DefaultPreset,
+		ControlAgent:        resp.ControlAgent,
+		ControlModel:        resp.ControlModel,
+		ControlModelVariant: resp.ControlModelVariant,
+		DiffTool:            resp.DiffTool,
+		Monitor: MonitorConfig{
+			PSColumns: resp.Monitor.PSColumns,
+		},
+		OpenCode: OpenCodeConfig{
+			DefaultModel:     resp.OpenCode.DefaultModel,
+			DefaultVariant:   resp.OpenCode.DefaultVariant,
+			PromptTemplate:   resp.OpenCode.PromptTemplate,
+			ExtraArgs:        resp.OpenCode.ExtraArgs,
+			ControlExtraArgs: resp.OpenCode.ControlExtraArgs,
+		},
+		Claude: ClaudeConfig{
+			PromptTemplate:   resp.Claude.PromptTemplate,
+			ExtraArgs:        resp.Claude.ExtraArgs,
+			ControlExtraArgs: resp.Claude.ControlExtraArgs,
+		},
+		Codex: CodexConfig{
+			PromptTemplate:   resp.Codex.PromptTemplate,
+			ExtraArgs:        resp.Codex.ExtraArgs,
+			ControlExtraArgs: resp.Codex.ControlExtraArgs,
+		},
+		Gemini: GeminiConfig{
+			PromptTemplate:   resp.Gemini.PromptTemplate,
+			ExtraArgs:        resp.Gemini.ExtraArgs,
+			ControlExtraArgs: resp.Gemini.ControlExtraArgs,
+		},
+		Slack: SlackConfig{
+			Enabled:    resp.Slack.Enabled,
+			WebhookURL: resp.Slack.WebhookURL,
+			BotToken:   resp.Slack.BotToken,
+			Channel:    resp.Slack.Channel,
+			NotifyOn:   resp.Slack.NotifyOn,
+		},
+		Issues: IssuesConfig{
+			Backend: resp.Issues.Backend,
+			Path:    resp.Issues.Path,
+		},
+		GitHub: GitHubConfig{
+			Owner:        resp.GitHub.Owner,
+			Repo:         resp.GitHub.Repo,
+			LabelFilter:  resp.GitHub.LabelFilter,
+			PollInterval: resp.GitHub.PollInterval,
+			StatusLabels: resp.GitHub.StatusLabels,
+		},
+	}
+	for _, p := range resp.Presets {
+		cfg.Presets = append(cfg.Presets, Preset{
+			Name:    p.Name,
+			Backend: p.Backend,
+			Model:   p.Model,
+			Variant: p.Variant,
+			Profile: p.Profile,
+		})
+	}
+	return cfg, nil
+}
+
+func (c *DaemonClient) GetDaemonStatus(ctx context.Context) (*DaemonStatus, error) {
+	resp, err := c.proto.GetDaemonStatus()
+	if err != nil {
+		return nil, err
+	}
+	return &DaemonStatus{
+		Running: resp.Running,
+		PID:     resp.PID,
+		LogPath: resp.LogPath,
+		Version: resp.Version,
+	}, nil
+}
+
+func (c *DaemonClient) ContinueRun(ctx context.Context, req *ContinueRunRequest) (*ContinueRunResult, error) {
+	resp, err := c.proto.ContinueRun(&daemon.ContinueRunOptions{
+		IssueID:        req.IssueID,
+		RunID:          req.RunID,
+		ShortID:        req.ShortID,
+		Branch:         req.Branch,
+		Agent:          req.Agent,
+		AgentCmd:       req.AgentCmd,
+		AgentProfile:   req.AgentProfile,
+		WorktreeDir:    req.WorktreeDir,
+		NoPR:           req.NoPR,
+		PromptTemplate: req.PromptTemplate,
+		PRTargetBranch: req.PRTargetBranch,
+		Multiplexer:    req.Multiplexer,
+		TmuxSession:    req.TmuxSession,
+		ProjectRoot:    req.ProjectRoot,
+		RepoRoot:       req.RepoRoot,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &ContinueRunResult{
+		RunID:         resp.RunID,
+		Branch:        resp.Branch,
+		WorktreePath:  resp.WorktreePath,
+		TmuxSession:   resp.TmuxSession,
+		Status:        resp.Status,
+		ContinuedFrom: resp.ContinuedFrom,
+		IssueID:       resp.IssueID,
+	}, nil
+}
+
 var _ OrchAPI = (*DaemonClient)(nil)

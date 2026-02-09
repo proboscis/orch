@@ -138,6 +138,15 @@ func (m *mockAPI) Ping(ctx context.Context) error { return nil }
 func (m *mockAPI) EnsureOpenCodeServer(ctx context.Context, projectRoot string) (*orchapi.OpenCodeServerInfo, error) {
 	return nil, nil
 }
+func (m *mockAPI) GetConfig(ctx context.Context, projectRoot string) (*orchapi.Config, error) {
+	return nil, nil
+}
+func (m *mockAPI) GetDaemonStatus(ctx context.Context) (*orchapi.DaemonStatus, error) {
+	return nil, nil
+}
+func (m *mockAPI) ContinueRun(ctx context.Context, req *orchapi.ContinueRunRequest) (*orchapi.ContinueRunResult, error) {
+	return nil, nil
+}
 
 func TestNewEngine(t *testing.T) {
 	api := &mockAPI{

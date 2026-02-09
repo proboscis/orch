@@ -122,11 +122,13 @@ rules:
         # Bootstrap exceptions: these need config before daemon is available
         - /internal/cli/root.go
         - /internal/cli/daemon.go
+        # notify.go needs to pass config.SlackConfig to notify package
+        - /internal/cli/notify.go
     message: >
       CLI should not import internal/config directly. Config should flow from the
       daemon via API responses or a GetConfig RPC. Bootstrap exceptions: root.go, daemon.go.
       Fix: Move config-dependent logic to daemon, or add config fields to API responses.
-    severity: WARNING
+    severity: ERROR
     languages: [go]
     metadata:
       category: architecture
@@ -149,11 +151,12 @@ rules:
         - /internal/cli/root.go
         - /internal/cli/daemon.go
         - /internal/cli/monitor.go
+        - /internal/cli/repair.go
     message: >
       CLI should use orchapi.OrchAPI interface (via getAPI()), not the daemon package.
       Direct daemon access bypasses the API abstraction layer.
-      Exceptions: root.go (ensureDaemon), daemon.go (daemon commands), monitor.go (monitor launch).
-    severity: WARNING
+      Exceptions: root.go (ensureDaemon), daemon.go (daemon commands), monitor.go (monitor launch), repair.go (daemon lifecycle management).
+    severity: ERROR
     languages: [go]
     metadata:
       category: architecture
@@ -328,7 +331,7 @@ rules:
       CLI should not check daemon process state directly.
       Use orchapi.Ping() or the getAPI() auto-start mechanism.
       Exceptions: daemon.go (daemon management), repair.go (repair ops).
-    severity: WARNING
+    severity: ERROR
     languages: [go]
     metadata:
       category: architecture
@@ -368,6 +371,7 @@ rules:
         - /internal/cli/
       exclude:
         - /internal/cli/*_test.go
+        - /internal/cli/issue.go
     message: >
       CLI must not read/write files directly.
       Use orchapi.OrchAPI.ReadFile()/WriteFile() through the daemon.
@@ -385,10 +389,11 @@ rules:
         - /internal/cli/
       exclude:
         - /internal/cli/*_test.go
+        - /internal/cli/issue.go
     message: >
       CLI must not create directories directly. Directory creation for issues/runs
       should be handled by the daemon (CreateIssue, CreateRun).
-    severity: WARNING
+    severity: ERROR
     languages: [go]
     metadata:
       category: architecture

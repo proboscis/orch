@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/s22625/orch/internal/daemon"
 	"github.com/spf13/cobra"
 )
 
@@ -111,13 +110,17 @@ func runDebug(ref string) error {
 	}
 	fmt.Println()
 
-	projectRoot, _ := getProjectRoot()
 	fmt.Printf("--- Daemon Info ---\n")
-	fmt.Printf("Daemon Running: %v\n", daemon.IsRunning(projectRoot))
-	if daemon.IsRunning(projectRoot) {
-		fmt.Printf("Daemon PID: %d\n", daemon.GetRunningPID(projectRoot))
+	daemonStatus, err := api.GetDaemonStatus(ctx)
+	if err != nil {
+		fmt.Printf("Daemon Running: unknown (error: %v)\n", err)
+	} else {
+		fmt.Printf("Daemon Running: %v\n", daemonStatus.Running)
+		if daemonStatus.Running {
+			fmt.Printf("Daemon PID: %d\n", daemonStatus.PID)
+		}
+		fmt.Printf("Daemon Log: %s\n", daemonStatus.LogPath)
 	}
-	fmt.Printf("Daemon Log: %s\n", daemon.LogFilePath(projectRoot))
 
 	return nil
 }

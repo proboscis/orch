@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/s22625/orch/internal/config"
@@ -47,16 +48,30 @@ Examples:
 }
 
 func runNotifyTest(opts *notifyTestOptions) error {
-	cfg, err := config.Load()
+	ctx := context.Background()
+	api, err := getAPI()
+	if err != nil {
+		return err
+	}
+
+	projectRoot, _ := getProjectRoot()
+	cfg, err := api.GetConfig(ctx, projectRoot)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	if !cfg.Slack.IsConfigured() {
+	if !cfg.Slack.Enabled || (cfg.Slack.WebhookURL == "" && (cfg.Slack.BotToken == "" || cfg.Slack.Channel == "")) {
 		return fmt.Errorf("Slack not configured. Add slack config to .orch/config.yaml")
 	}
 
-	notifier := notify.NewSlackNotifier(&cfg.Slack)
+	slackCfg := &config.SlackConfig{
+		Enabled:    cfg.Slack.Enabled,
+		WebhookURL: cfg.Slack.WebhookURL,
+		BotToken:   cfg.Slack.BotToken,
+		Channel:    cfg.Slack.Channel,
+		NotifyOn:   cfg.Slack.NotifyOn,
+	}
+	notifier := notify.NewSlackNotifier(slackCfg)
 
 	channelName, err := notifier.SendTest(opts.Message)
 	if err != nil {

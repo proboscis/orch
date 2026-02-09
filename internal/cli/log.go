@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/s22625/orch/internal/daemon"
 	"github.com/spf13/cobra"
 )
 
@@ -32,23 +31,21 @@ func newLogDaemonCmd() *cobra.Command {
 The daemon monitors all running agent sessions and updates their status.
 Use this command to debug monitoring issues.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			projectRoot, err := getProjectRoot()
+			ctx := context.Background()
+			api, err := getAPI()
 			if err != nil {
 				return err
 			}
 
 			if follow {
-				logPath := daemon.LogFilePath(projectRoot)
-				tailCmd := exec.Command("tail", "-f", "-n", fmt.Sprintf("%d", lines), logPath)
+				daemonStatus, err := api.GetDaemonStatus(ctx)
+				if err != nil {
+					return fmt.Errorf("failed to get daemon status: %w", err)
+				}
+				tailCmd := exec.Command("tail", "-f", "-n", fmt.Sprintf("%d", lines), daemonStatus.LogPath)
 				tailCmd.Stdout = os.Stdout
 				tailCmd.Stderr = os.Stderr
 				return tailCmd.Run()
-			}
-
-			ctx := context.Background()
-			api, err := getAPI()
-			if err != nil {
-				return err
 			}
 
 			content, err := api.GetDaemonLog(ctx, lines)

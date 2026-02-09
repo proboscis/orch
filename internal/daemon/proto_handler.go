@@ -17,6 +17,7 @@ import (
 
 	"github.com/s22625/orch/api/orchpb"
 	"github.com/s22625/orch/internal/agent"
+	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
@@ -159,6 +160,10 @@ func (s *SocketServer) handleProtoRequest(req *orchpb.Request) *orchpb.Response 
 		return s.handleProtoInjectInitialPrompt(r.InjectInitialPrompt)
 	case *orchpb.Request_ContinueRun:
 		return s.handleProtoContinueRun(r.ContinueRun)
+	case *orchpb.Request_GetConfig:
+		return s.handleProtoGetConfig(r.GetConfig)
+	case *orchpb.Request_GetDaemonStatus:
+		return s.handleProtoGetDaemonStatus(r.GetDaemonStatus)
 	default:
 		return errorResponse("unknown request type")
 	}
@@ -1933,5 +1938,135 @@ func (s *SocketServer) getMultiplexer(muxType orchpb.Multiplexer) multiplexer.Mu
 		return multiplexer.NewZellijMultiplexer()
 	default:
 		return multiplexer.GetDefault()
+	}
+}
+
+func (s *SocketServer) loadConfig(projectRoot string) (*config.Config, error) {
+	if projectRoot != "" {
+		return config.LoadFromProjectRoot(projectRoot)
+	}
+	return config.Load()
+}
+
+func (s *SocketServer) handleProtoGetConfig(req *orchpb.GetConfigRequest) *orchpb.Response {
+	projectRoot := req.ProjectRoot
+	if projectRoot == "" {
+		s.reposMu.RLock()
+		for _, ctx := range s.repos {
+			if ctx.ProjectRoot != "" {
+				projectRoot = ctx.ProjectRoot
+				break
+			}
+		}
+		s.reposMu.RUnlock()
+	}
+
+	cfg, err := s.loadConfig(projectRoot)
+	if err != nil {
+		return errorResponse(fmt.Sprintf("failed to load config: %v", err))
+	}
+
+	resp := &orchpb.GetConfigResponse{
+		Agent:               cfg.Agent,
+		Model:               cfg.Model,
+		ModelVariant:        cfg.ModelVariant,
+		WorktreeDir:         cfg.WorktreeDir,
+		BaseBranch:          cfg.BaseBranch,
+		PrTargetBranch:      cfg.PRTargetBranch,
+		LogLevel:            cfg.LogLevel,
+		PromptTemplate:      cfg.PromptTemplate,
+		Multiplexer:         cfg.Multiplexer,
+		MonitorMultiplexer:  cfg.MonitorMultiplexer,
+		AgentMultiplexer:    cfg.AgentMultiplexer,
+		NoPr:                cfg.NoPR,
+		DefaultPreset:       cfg.DefaultPreset,
+		ControlAgent:        cfg.ControlAgent,
+		ControlModel:        cfg.ControlModel,
+		ControlModelVariant: cfg.ControlModelVariant,
+		DiffTool:            cfg.DiffTool,
+	}
+
+	if len(cfg.Monitor.PSColumns) > 0 {
+		resp.Monitor = &orchpb.MonitorConfigProto{
+			PsColumns: cfg.Monitor.PSColumns,
+		}
+	}
+
+	for _, p := range cfg.GetAllPresets() {
+		resp.Presets = append(resp.Presets, &orchpb.PresetProto{
+			Name:    p.Name,
+			Backend: p.Backend,
+			Model:   p.Model,
+			Variant: p.Variant,
+			Profile: p.Profile,
+		})
+	}
+
+	resp.Opencode = &orchpb.OpenCodeConfigProto{
+		DefaultModel:     cfg.OpenCode.DefaultModel,
+		DefaultVariant:   cfg.OpenCode.DefaultVariant,
+		PromptTemplate:   cfg.OpenCode.PromptTemplate,
+		ExtraArgs:        cfg.OpenCode.ExtraArgs,
+		ControlExtraArgs: cfg.OpenCode.ControlExtraArgs,
+	}
+
+	resp.Claude = &orchpb.ClaudeConfigProto{
+		PromptTemplate:   cfg.Claude.PromptTemplate,
+		ExtraArgs:        cfg.Claude.ExtraArgs,
+		ControlExtraArgs: cfg.Claude.ControlExtraArgs,
+	}
+
+	resp.Codex = &orchpb.CodexConfigProto{
+		PromptTemplate:   cfg.Codex.PromptTemplate,
+		ExtraArgs:        cfg.Codex.ExtraArgs,
+		ControlExtraArgs: cfg.Codex.ControlExtraArgs,
+	}
+
+	resp.Gemini = &orchpb.GeminiConfigProto{
+		PromptTemplate:   cfg.Gemini.PromptTemplate,
+		ExtraArgs:        cfg.Gemini.ExtraArgs,
+		ControlExtraArgs: cfg.Gemini.ControlExtraArgs,
+	}
+
+	resp.Slack = &orchpb.SlackConfigProto{
+		Enabled:    cfg.Slack.Enabled,
+		WebhookUrl: cfg.Slack.WebhookURL,
+		BotToken:   cfg.Slack.BotToken,
+		Channel:    cfg.Slack.Channel,
+		NotifyOn:   cfg.Slack.NotifyOn,
+	}
+
+	resp.Issues = &orchpb.IssuesConfigProto{
+		Backend: cfg.Issues.Backend,
+		Path:    cfg.Issues.Path,
+	}
+
+	resp.Github = &orchpb.GitHubConfigProto{
+		Owner:        cfg.GitHub.Owner,
+		Repo:         cfg.GitHub.Repo,
+		LabelFilter:  cfg.GitHub.LabelFilter,
+		PollInterval: int32(cfg.GitHub.PollInterval),
+		StatusLabels: cfg.GitHub.StatusLabels,
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_GetConfig{
+			GetConfig: resp,
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoGetDaemonStatus(_ *orchpb.GetDaemonStatusRequest) *orchpb.Response {
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_GetDaemonStatus{
+			GetDaemonStatus: &orchpb.GetDaemonStatusResponse{
+				Running: true,
+				Pid:     int32(os.Getpid()),
+				LogPath: LogFilePath(""),
+				Version: "1.0.0",
+			},
+		},
 	}
 }

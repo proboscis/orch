@@ -244,12 +244,24 @@ type ListRunsResult struct {
 }
 
 type StartRunRequest struct {
-	IssueID      string
-	Agent        string
-	Model        string
-	ModelVariant string
-	BaseBranch   string
-	ProjectRoot  string
+	IssueID        string
+	RunID          string
+	Agent          string
+	AgentCmd       string
+	AgentProfile   string
+	Model          string
+	ModelVariant   string
+	BaseBranch     string
+	Branch         string
+	WorktreeDir    string
+	NoPR           bool
+	PromptTemplate string
+	PRTargetBranch string
+	DryRun         bool
+	Reuse          bool
+	Multiplexer    string
+	ProjectRoot    string
+	Preset         string
 }
 
 type StartRunResult struct {
@@ -352,4 +364,127 @@ type ModelInfo struct {
 type QueryOpenCodeServerResult struct {
 	ServerRunning bool
 	Providers     []ProviderInfo
+}
+
+type SlackConfig struct {
+	Enabled    bool
+	WebhookURL string
+	BotToken   string
+	Channel    string
+	NotifyOn   []string
+}
+
+type OpenCodeConfig struct {
+	DefaultModel     string
+	DefaultVariant   string
+	PromptTemplate   string
+	ExtraArgs        []string
+	ControlExtraArgs []string
+}
+
+type ClaudeConfig struct {
+	PromptTemplate   string
+	ExtraArgs        []string
+	ControlExtraArgs []string
+}
+
+type CodexConfig struct {
+	PromptTemplate   string
+	ExtraArgs        []string
+	ControlExtraArgs []string
+}
+
+type GeminiConfig struct {
+	PromptTemplate   string
+	ExtraArgs        []string
+	ControlExtraArgs []string
+}
+
+type Preset struct {
+	Name    string
+	Backend string
+	Model   string
+	Variant string
+	Profile string
+}
+
+type IssuesConfig struct {
+	Backend string
+	Path    string
+}
+
+type GitHubConfig struct {
+	Owner        string
+	Repo         string
+	LabelFilter  string
+	PollInterval int
+	StatusLabels map[string]string
+}
+
+type MonitorConfig struct {
+	PSColumns []string
+}
+
+type Config struct {
+	Agent               string
+	Model               string
+	ModelVariant        string
+	WorktreeDir         string
+	BaseBranch          string
+	PRTargetBranch      string
+	LogLevel            string
+	PromptTemplate      string
+	Multiplexer         string
+	MonitorMultiplexer  string
+	AgentMultiplexer    string
+	NoPR                bool
+	DefaultPreset       string
+	ControlAgent        string
+	ControlModel        string
+	ControlModelVariant string
+	DiffTool            string
+	Monitor             MonitorConfig
+	Presets             []Preset
+	OpenCode            OpenCodeConfig
+	Claude              ClaudeConfig
+	Codex               CodexConfig
+	Gemini              GeminiConfig
+	Slack               SlackConfig
+	Issues              IssuesConfig
+	GitHub              GitHubConfig
+}
+
+type DaemonStatus struct {
+	Running bool
+	PID     int
+	LogPath string
+	Version string
+}
+
+type ContinueRunRequest struct {
+	IssueID        string
+	RunID          string
+	ShortID        string
+	Branch         string
+	Agent          string
+	AgentCmd       string
+	AgentProfile   string
+	WorktreeDir    string
+	NoPR           bool
+	PromptTemplate string
+	PRTargetBranch string
+	Multiplexer    string
+	TmuxSession    string
+	ProjectRoot    string
+	RepoRoot       string
+}
+
+type ContinueRunResult struct {
+	RunID         string
+	Branch        string
+	WorktreePath  string
+	TmuxSession   string
+	Status        string
+	ContinuedFrom string
+	IssueID       string
 }
