@@ -119,7 +119,7 @@ class Run:
     model_variant: str = ""
     branch: str = ""
     worktree_path: str = ""
-    tmux_session: str = ""
+    session_name: str = ""
     tmux_window_id: str = ""
     multiplexer: str = ""
     pr_url: str = ""

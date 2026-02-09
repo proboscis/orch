@@ -22,7 +22,7 @@ type runIndexEntry struct {
 	ModelVariant      string       `json:"model_variant,omitempty"`
 	Branch            string       `json:"branch,omitempty"`
 	WorktreePath      string       `json:"worktree_path,omitempty"`
-	TmuxSession       string       `json:"tmux_session,omitempty"`
+	SessionName       string       `json:"session_name,omitempty"`
 	Multiplexer       string       `json:"multiplexer,omitempty"`
 	PRUrl             string       `json:"pr_url,omitempty"`
 	ServerPort        int          `json:"server_port,omitempty"`
@@ -30,6 +30,23 @@ type runIndexEntry struct {
 	StartedAt         time.Time    `json:"started_at"`
 	UpdatedAt         time.Time    `json:"updated_at"`
 	FileMtime         time.Time    `json:"file_mtime"`
+}
+
+// UnmarshalJSON implements custom unmarshalling to support both the legacy
+// "tmux_session" key and the current "session_name" key in persisted index files.
+func (e *runIndexEntry) UnmarshalJSON(data []byte) error {
+	type Alias runIndexEntry
+	aux := &struct {
+		*Alias
+		LegacySessionName string `json:"tmux_session,omitempty"`
+	}{Alias: (*Alias)(e)}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	if e.SessionName == "" && aux.LegacySessionName != "" {
+		e.SessionName = aux.LegacySessionName
+	}
+	return nil
 }
 
 type runIndex struct {
@@ -241,7 +258,7 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 				ModelVariant:      run.ModelVariant,
 				Branch:            run.Branch,
 				WorktreePath:      run.WorktreePath,
-				TmuxSession:       run.TmuxSession,
+				SessionName:       run.SessionName,
 				Multiplexer:       run.Multiplexer,
 				PRUrl:             run.PRUrl,
 				ServerPort:        run.ServerPort,
@@ -321,7 +338,7 @@ func runEntryEqual(a, b *runIndexEntry) bool {
 		a.ModelVariant == b.ModelVariant &&
 		a.Branch == b.Branch &&
 		a.WorktreePath == b.WorktreePath &&
-		a.TmuxSession == b.TmuxSession &&
+		a.SessionName == b.SessionName &&
 		a.Multiplexer == b.Multiplexer &&
 		a.PRUrl == b.PRUrl &&
 		a.ServerPort == b.ServerPort &&
@@ -366,7 +383,7 @@ func entryToRun(e *runIndexEntry) *model.Run {
 		ModelVariant:      e.ModelVariant,
 		Branch:            e.Branch,
 		WorktreePath:      e.WorktreePath,
-		TmuxSession:       e.TmuxSession,
+		SessionName:       e.SessionName,
 		Multiplexer:       e.Multiplexer,
 		PRUrl:             e.PRUrl,
 		ServerPort:        e.ServerPort,

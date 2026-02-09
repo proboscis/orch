@@ -83,7 +83,7 @@ class TestProtoRunToModel:
             model="sonnet",
             branch="feature/test",
             worktree_path="/tmp/worktree",
-            tmux_session="orch-test",
+            session_name="orch-test",
             pr_url="https://github.com/test/pr/1",
         )
         run = _proto_run_to_model(proto_run)
@@ -95,7 +95,7 @@ class TestProtoRunToModel:
         assert run.model == "sonnet"
         assert run.branch == "feature/test"
         assert run.worktree_path == "/tmp/worktree"
-        assert run.tmux_session == "orch-test"
+        assert run.session_name == "orch-test"
         assert run.pr_url == "https://github.com/test/pr/1"
 
     def test_elapsed_fields(self):

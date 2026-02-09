@@ -128,8 +128,8 @@ func TestRunDeriveState(t *testing.T) {
 	if run.Branch != "feature/test" {
 		t.Errorf("Branch = %v, want feature/test", run.Branch)
 	}
-	if run.TmuxSession != "run-plc124" {
-		t.Errorf("TmuxSession = %v, want run-plc124", run.TmuxSession)
+	if run.SessionName != "run-plc124" {
+		t.Errorf("SessionName = %v, want run-plc124", run.SessionName)
 	}
 }
 
@@ -148,11 +148,11 @@ func TestGenerateBranchName(t *testing.T) {
 	}
 }
 
-func TestGenerateTmuxSession(t *testing.T) {
-	session := GenerateTmuxSession("plc124", "20231220")
+func TestGenerateSessionName(t *testing.T) {
+	session := GenerateSessionName("plc124", "20231220")
 	want := "run-plc124-20231220"
 	if session != want {
-		t.Errorf("GenerateTmuxSession() = %v, want %v", session, want)
+		t.Errorf("GenerateSessionName() = %v, want %v", session, want)
 	}
 }
 

@@ -94,7 +94,7 @@ func TestSummaryToRun(t *testing.T) {
 				Model:        "claude-3-opus",
 				Branch:       "feature/test",
 				WorktreePath: "/tmp/worktree",
-				TmuxSession:  "orch-issue-123",
+				SessionName:  "orch-issue-123",
 				Multiplexer:  "tmux",
 				PRUrl:        "https://github.com/test/repo/pull/1",
 				StartedAt:    "2024-01-15T10:30:00Z",
@@ -129,8 +129,8 @@ func TestSummaryToRun(t *testing.T) {
 				if run.WorktreePath != "/tmp/worktree" {
 					t.Errorf("WorktreePath = %q, want %q", run.WorktreePath, "/tmp/worktree")
 				}
-				if run.TmuxSession != "orch-issue-123" {
-					t.Errorf("TmuxSession = %q, want %q", run.TmuxSession, "orch-issue-123")
+				if run.SessionName != "orch-issue-123" {
+					t.Errorf("SessionName = %q, want %q", run.SessionName, "orch-issue-123")
 				}
 				if run.Multiplexer != "tmux" {
 					t.Errorf("Multiplexer = %q, want %q", run.Multiplexer, "tmux")
@@ -187,7 +187,7 @@ func TestRunToSummaryRoundTrip(t *testing.T) {
 		Model:        "gpt-4",
 		Branch:       "fix/bug-123",
 		WorktreePath: "/home/user/worktrees/fix-bug",
-		TmuxSession:  "orch-roundtrip",
+		SessionName:  "orch-roundtrip",
 		Multiplexer:  "tmux",
 		PRUrl:        "",
 	}
@@ -219,8 +219,8 @@ func TestRunToSummaryRoundTrip(t *testing.T) {
 	if roundTripped.WorktreePath != original.WorktreePath {
 		t.Errorf("WorktreePath mismatch: got %q, want %q", roundTripped.WorktreePath, original.WorktreePath)
 	}
-	if roundTripped.TmuxSession != original.TmuxSession {
-		t.Errorf("TmuxSession mismatch: got %q, want %q", roundTripped.TmuxSession, original.TmuxSession)
+	if roundTripped.SessionName != original.SessionName {
+		t.Errorf("SessionName mismatch: got %q, want %q", roundTripped.SessionName, original.SessionName)
 	}
 }
 

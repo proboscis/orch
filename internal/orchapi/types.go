@@ -142,7 +142,7 @@ type Run struct {
 	ModelVariant      string
 	Branch            string
 	WorktreePath      string
-	TmuxSession       string
+	SessionName       string
 	Multiplexer       Multiplexer
 	PRUrl             string
 	PRNumber          int
@@ -185,7 +185,7 @@ type AttachInfo struct {
 	RunID             string
 	ShortID           string
 	Agent             string
-	TmuxSession       string
+	SessionName       string
 	Multiplexer       Multiplexer
 	WorktreePath      string
 	ServerPort        int
@@ -268,7 +268,7 @@ type StartRunResult struct {
 	RunID        string
 	Branch       string
 	WorktreePath string
-	TmuxSession  string
+	SessionName  string
 	Status       string
 }
 
@@ -474,7 +474,7 @@ type ContinueRunRequest struct {
 	PromptTemplate string
 	PRTargetBranch string
 	Multiplexer    string
-	TmuxSession    string
+	SessionName    string
 	ProjectRoot    string
 	RepoRoot       string
 }
@@ -483,7 +483,7 @@ type ContinueRunResult struct {
 	RunID         string
 	Branch        string
 	WorktreePath  string
-	TmuxSession   string
+	SessionName   string
 	Status        string
 	ContinuedFrom string
 	IssueID       string

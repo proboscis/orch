@@ -76,7 +76,7 @@ func showJSON(run *orchapi.Run, opts *showOptions) error {
 		ContinuedFrom string        `json:"continued_from,omitempty"`
 		Branch        string        `json:"branch,omitempty"`
 		WorktreePath  string        `json:"worktree_path,omitempty"`
-		TmuxSession   string        `json:"tmux_session,omitempty"`
+		SessionName   string        `json:"session_name,omitempty"`
 		Multiplexer   string        `json:"multiplexer,omitempty"`
 		PRUrl         string        `json:"pr_url,omitempty"`
 		Events        []eventOutput `json:"events,omitempty"`
@@ -89,7 +89,7 @@ func showJSON(run *orchapi.Run, opts *showOptions) error {
 		ContinuedFrom: run.ContinuedFrom,
 		Branch:        run.Branch,
 		WorktreePath:  run.WorktreePath,
-		TmuxSession:   run.TmuxSession,
+		SessionName:   run.SessionName,
 		Multiplexer:   string(run.Multiplexer),
 		PRUrl:         run.PRUrl,
 	}
@@ -132,8 +132,8 @@ func showHuman(run *orchapi.Run, opts *showOptions) error {
 		if run.ContinuedFrom != "" {
 			fmt.Printf("Continued From: %s\n", run.ContinuedFrom)
 		}
-		if run.TmuxSession != "" {
-			fmt.Printf("Session:  %s\n", run.TmuxSession)
+		if run.SessionName != "" {
+			fmt.Printf("Session:  %s\n", run.SessionName)
 		}
 		if run.PRUrl != "" {
 			fmt.Printf("PR:       %s\n", run.PRUrl)

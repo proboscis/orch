@@ -42,7 +42,7 @@ orch q "SELECT * FROM runs" --format tsv
 | status | TEXT | Run status |
 | worktree | TEXT | Worktree path |
 | branch | TEXT | Git branch |
-| tmux_session | TEXT | Tmux session name |
+| session_name | TEXT | Multiplexer session name |
 | pr_url | TEXT | Pull request URL |
 | created | TEXT | Created timestamp |
 | updated | TEXT | Updated timestamp |

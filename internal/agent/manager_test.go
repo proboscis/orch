@@ -31,7 +31,7 @@ func TestGetManager(t *testing.T) {
 			name: "claude run returns MuxManager",
 			run: &model.Run{
 				Agent:       "claude",
-				TmuxSession: "orch-test-001",
+				SessionName: "orch-test-001",
 			},
 			wantType: "*agent.MuxManager",
 		},
@@ -84,11 +84,11 @@ func TestGetSessionName(t *testing.T) {
 		wantSessionContains string
 	}{
 		{
-			name: "uses TmuxSession if set",
+			name: "uses SessionName if set",
 			run: &model.Run{
 				IssueID:     "issue-1",
 				RunID:       "run-1",
-				TmuxSession: "custom-session",
+				SessionName: "custom-session",
 			},
 			wantSessionContains: "custom-session",
 		},

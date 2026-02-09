@@ -17,7 +17,7 @@ type continueOptions struct {
 	AgentCmd       string
 	AgentProfile   string
 	Tmux           bool
-	TmuxSession    string
+	SessionName    string
 	Multiplexer    string
 	NoPR           bool
 	PromptTemplate string
@@ -35,7 +35,7 @@ type continueResult struct {
 	RunPath       string `json:"run_path"`
 	Branch        string `json:"branch"`
 	WorktreePath  string `json:"worktree_path"`
-	TmuxSession   string `json:"tmux_session"`
+	SessionName   string `json:"session_name"`
 	Status        string `json:"status"`
 	ContinuedFrom string `json:"continued_from"`
 	Error         string `json:"error,omitempty"`
@@ -66,7 +66,7 @@ Use --branch with an issue ID to continue from an untracked branch.`,
 	cmd.Flags().StringVar(&opts.AgentCmd, "agent-cmd", "", "Custom agent command (when --agent=custom)")
 	cmd.Flags().StringVar(&opts.AgentProfile, "profile", "", "Agent profile (e.g., claude --profile)")
 	cmd.Flags().BoolVar(&opts.Tmux, "tmux", true, "Run in tmux session")
-	cmd.Flags().StringVar(&opts.TmuxSession, "tmux-session", "", "Tmux session name (default: run-<ISSUE>-<RUN>)")
+	cmd.Flags().StringVar(&opts.SessionName, "session-name", "", "Session name (default: run-<ISSUE>-<RUN>)")
 	cmd.Flags().StringVar(&opts.Multiplexer, "multiplexer", "", "Terminal multiplexer (tmux|zellij)")
 	cmd.Flags().BoolVar(&opts.NoPR, "no-pr", false, "Skip PR creation instructions in agent prompt")
 	cmd.Flags().StringVar(&opts.PromptTemplate, "prompt-template", "", "Custom prompt template file")
@@ -137,7 +137,7 @@ func runContinue(refStr string, opts *continueOptions) error {
 		PromptTemplate: opts.PromptTemplate,
 		PRTargetBranch: opts.PRTargetBranch,
 		Multiplexer:    opts.Multiplexer,
-		TmuxSession:    opts.TmuxSession,
+		SessionName:    opts.SessionName,
 		ProjectRoot:    repoRoot,
 		RepoRoot:       repoRoot,
 	})
@@ -151,7 +151,7 @@ func runContinue(refStr string, opts *continueOptions) error {
 		RunID:         resp.RunID,
 		Branch:        resp.Branch,
 		WorktreePath:  resp.WorktreePath,
-		TmuxSession:   resp.TmuxSession,
+		SessionName:   resp.SessionName,
 		Status:        resp.Status,
 		ContinuedFrom: resp.ContinuedFrom,
 	}
@@ -167,8 +167,8 @@ func runContinue(refStr string, opts *continueOptions) error {
 		fmt.Printf("  Continued from: %s\n", resp.ContinuedFrom)
 		fmt.Printf("  Branch:         %s\n", resp.Branch)
 		fmt.Printf("  Worktree:       %s\n", resp.WorktreePath)
-		if resp.TmuxSession != "" {
-			fmt.Printf("  Session:        %s\n", resp.TmuxSession)
+		if resp.SessionName != "" {
+			fmt.Printf("  Session:        %s\n", resp.SessionName)
 			fmt.Printf("\nAttach with: orch attach %s#%s\n", resp.IssueID, resp.RunID)
 		}
 	}

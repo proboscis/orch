@@ -115,7 +115,7 @@ func TestSchemaCommand_RunsTable(t *testing.T) {
 	}
 
 	// Check expected columns in runs table
-	expectedCols := []string{"issue_id", "run_id", "hex_id", "status", "phase", "agent", "model", "branch", "worktree_path", "tmux_session", "pr_url", "started_at", "updated_at"}
+	expectedCols := []string{"issue_id", "run_id", "hex_id", "status", "phase", "agent", "model", "branch", "worktree_path", "session_name", "pr_url", "started_at", "updated_at"}
 	colNames := make(map[string]bool)
 	for _, col := range info.Columns {
 		colNames[col.Name] = true

@@ -47,7 +47,7 @@ def api_run_to_model(api_run: ApiRun) -> Run:
         pr_url=api_run.pr_url,
         started_at=api_run.started_at,
         updated_at=api_run.updated_at,
-        tmux_session=api_run.tmux_session,
+        session_name=api_run.session_name,
         multiplexer=api_run.multiplexer,
         server_port=api_run.server_port,
         opencode_session_id=api_run.opencode_session_id,

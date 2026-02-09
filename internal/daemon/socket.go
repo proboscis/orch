@@ -1594,9 +1594,9 @@ func (s *SocketServer) processSendOpenCode(st store.Store, ref *model.RunRef, ru
 }
 
 func (s *SocketServer) processSendTmux(run *model.Run, message string, noEnter bool) error {
-	sessionName := run.TmuxSession
+	sessionName := run.SessionName
 	if sessionName == "" {
-		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+		sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
 	}
 
 	mux := multiplexer.GetDefault()
@@ -2020,7 +2020,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 	if branch == "" {
 		branch = model.GenerateBranchName(req.IssueID, runID)
 	}
-	tmuxSession := model.GenerateTmuxSession(req.IssueID, runID)
+	sessionName := model.GenerateSessionName(req.IssueID, runID)
 
 	repoRoot := s.resolveProjectRoot(req)
 
@@ -2052,7 +2052,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 			RunID:        runID,
 			Branch:       branch,
 			WorktreePath: worktreePath,
-			TmuxSession:  tmuxSession,
+			SessionName:  sessionName,
 			Status:       "dry_run",
 		})
 		return
@@ -2174,7 +2174,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		}
 
 		err = mux.NewSession(&multiplexer.SessionConfig{
-			SessionName: tmuxSession,
+			SessionName: sessionName,
 			WorkDir:     worktreeResult.WorktreePath,
 			Command:     agentCmd,
 			Env:         env,
@@ -2187,7 +2187,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		}
 
 		st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", map[string]string{
-			"name":        tmuxSession,
+			"name":        sessionName,
 			"multiplexer": string(mux.Type()),
 		}))
 	}
@@ -2196,11 +2196,11 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 	case agent.InjectionTmux:
 		if launchCfg.Prompt != "" {
 			if pattern := adapter.ReadyPattern(); pattern != "" {
-				if err := mux.WaitForReady(tmuxSession, pattern, 30*time.Second); err != nil {
+				if err := mux.WaitForReady(sessionName, pattern, 30*time.Second); err != nil {
 					s.logger.Printf("agent did not become ready: %v", err)
 				}
 			}
-			if err := mux.SendKeys(tmuxSession, launchCfg.Prompt); err != nil {
+			if err := mux.SendKeys(sessionName, launchCfg.Prompt); err != nil {
 				s.logger.Printf("failed to send prompt to session: %v", err)
 			}
 		}
@@ -2245,7 +2245,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		RunID:        runID,
 		Branch:       worktreeResult.Branch,
 		WorktreePath: worktreeResult.WorktreePath,
-		TmuxSession:  tmuxSession,
+		SessionName:  sessionName,
 		Status:       string(model.StatusRunning),
 	})
 }
@@ -2455,9 +2455,9 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 	}
 
 	runID := model.GenerateRunID()
-	tmuxSession := req.SessionName
-	if tmuxSession == "" {
-		tmuxSession = model.GenerateTmuxSession(issueID, runID)
+	sessionName := req.SessionName
+	if sessionName == "" {
+		sessionName = model.GenerateSessionName(issueID, runID)
 	}
 
 	metadata := map[string]string{
@@ -2548,7 +2548,7 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 		}
 
 		err = mux.NewSession(&multiplexer.SessionConfig{
-			SessionName: tmuxSession,
+			SessionName: sessionName,
 			WorkDir:     worktreePath,
 			Command:     agentCmd,
 			Env:         env,
@@ -2561,7 +2561,7 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 		}
 
 		st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", map[string]string{
-			"name":        tmuxSession,
+			"name":        sessionName,
 			"multiplexer": string(mux.Type()),
 		}))
 	}
@@ -2570,11 +2570,11 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 	case agent.InjectionTmux:
 		if launchCfg.Prompt != "" {
 			if pattern := adapter.ReadyPattern(); pattern != "" {
-				if err := mux.WaitForReady(tmuxSession, pattern, 30*time.Second); err != nil {
+				if err := mux.WaitForReady(sessionName, pattern, 30*time.Second); err != nil {
 					s.logger.Printf("agent did not become ready: %v", err)
 				}
 			}
-			if err := mux.SendKeys(tmuxSession, launchCfg.Prompt); err != nil {
+			if err := mux.SendKeys(sessionName, launchCfg.Prompt); err != nil {
 				s.logger.Printf("failed to send prompt to session: %v", err)
 			}
 		}
@@ -2623,7 +2623,7 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 		RunID:         runID,
 		Branch:        branch,
 		WorktreePath:  worktreePath,
-		TmuxSession:   tmuxSession,
+		SessionName:   sessionName,
 		Status:        string(model.StatusRunning),
 		ContinuedFrom: continuedFrom,
 		IssueID:       issueID,
@@ -2757,9 +2757,9 @@ func (s *SocketServer) stopSingleRun(run *model.Run, st store.Store) error {
 			s.logger.Printf("debug: skipping opencode API cancel (port=%d, session=%q), falling back to multiplexer",
 				run.ServerPort, run.OpenCodeSessionID)
 		}
-		sessionName := run.TmuxSession
+		sessionName := run.SessionName
 		if sessionName == "" {
-			sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+			sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
 		}
 
 		muxType, _ := multiplexer.ParseType(run.Multiplexer)
@@ -2985,9 +2985,9 @@ func (s *SocketServer) handleGetAttachInfo(req SendRequest, encoder *json.Encode
 		return
 	}
 
-	tmuxSession := run.TmuxSession
-	if tmuxSession == "" {
-		tmuxSession = model.GenerateTmuxSession(run.IssueID, run.RunID)
+	sessionName := run.SessionName
+	if sessionName == "" {
+		sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
 	}
 
 	serverPort := run.ServerPort
@@ -3000,7 +3000,7 @@ func (s *SocketServer) handleGetAttachInfo(req SendRequest, encoder *json.Encode
 		IssueID:           run.IssueID,
 		RunID:             run.RunID,
 		Agent:             run.Agent,
-		TmuxSession:       tmuxSession,
+		SessionName:       sessionName,
 		Multiplexer:       run.Multiplexer,
 		WorktreePath:      run.WorktreePath,
 		ServerPort:        serverPort,
@@ -3059,7 +3059,7 @@ func (s *SocketServer) handleRegisterMonitor(req SendRequest, encoder *json.Enco
 		StartedAt:   time.Now(),
 		LastSeen:    time.Now(),
 		Project:     req.ProjectRoot,
-		TmuxSession: req.Body,
+		SessionName: req.Body,
 	}
 
 	s.monitorsMu.Lock()

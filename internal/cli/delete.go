@@ -294,7 +294,7 @@ func deleteRuns(ctx context.Context, api orchapi.OrchAPI, runs []*orchapi.Run, o
 			if opts.WithBranch && run.Branch != "" {
 				extras = append(extras, "branch")
 			}
-			if run.TmuxSession != "" {
+			if run.SessionName != "" {
 				extras = append(extras, "session")
 			}
 			extraStr := ""

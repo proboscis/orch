@@ -318,7 +318,7 @@ run: 20231220-100000
 		t.Fatal("expected at least one TSV line")
 	}
 
-	// TSV columns: issue_id, issue_status, run_id, short_id, agent, status, updated_at, pr_url, branch, worktree_path, tmux_session
+	// TSV columns: issue_id, issue_status, run_id, short_id, agent, status, updated_at, pr_url, branch, worktree_path, session_name
 	// Find our test line
 	var testLine string
 	for _, line := range lines {
@@ -515,7 +515,7 @@ func TestRunDryRun(t *testing.T) {
 		RunID        string `json:"run_id"`
 		Branch       string `json:"branch"`
 		WorktreePath string `json:"worktree_path"`
-		TmuxSession  string `json:"tmux_session"`
+		SessionName  string `json:"session_name"`
 	}
 	if err := json.Unmarshal([]byte(output), &result); err != nil {
 		t.Fatalf("failed to parse JSON: %v", err)
@@ -530,8 +530,8 @@ func TestRunDryRun(t *testing.T) {
 	if result.Branch == "" {
 		t.Error("expected branch to be set")
 	}
-	if result.TmuxSession == "" {
-		t.Error("expected tmux_session to be set")
+	if result.SessionName == "" {
+		t.Error("expected session_name to be set")
 	}
 
 	// Verify no run was actually created
@@ -704,7 +704,7 @@ func TestRunWithTmux(t *testing.T) {
 	var result struct {
 		OK           bool   `json:"ok"`
 		Status       string `json:"status"`
-		TmuxSession  string `json:"tmux_session"`
+		SessionName  string `json:"session_name"`
 		WorktreePath string `json:"worktree_path"`
 	}
 	json.Unmarshal([]byte(output), &result)
@@ -714,8 +714,8 @@ func TestRunWithTmux(t *testing.T) {
 	}
 
 	// Clean up: kill the tmux session
-	if result.TmuxSession != "" {
-		exec.Command("tmux", "kill-session", "-t", result.TmuxSession).Run()
+	if result.SessionName != "" {
+		exec.Command("tmux", "kill-session", "-t", result.SessionName).Run()
 	}
 
 	// Clean up: remove worktree

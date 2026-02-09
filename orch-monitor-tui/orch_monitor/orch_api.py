@@ -76,7 +76,7 @@ class Run:
     elapsed_display: str = ""
     diff_stats: Optional[DiffStats] = None
     branch_state: str = ""
-    tmux_session: str = ""
+    session_name: str = ""
     multiplexer: str = ""
     server_port: int = 0
     opencode_session_id: str = ""

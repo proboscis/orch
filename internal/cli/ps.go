@@ -237,7 +237,7 @@ func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[st
 		PRUrl             string `json:"pr_url,omitempty"`
 		Branch            string `json:"branch,omitempty"`
 		WorktreePath      string `json:"worktree_path,omitempty"`
-		TmuxSession       string `json:"tmux_session,omitempty"`
+		SessionName       string `json:"session_name,omitempty"`
 		ServerPort        int    `json:"server_port,omitempty"`
 		OpenCodeSessionID string `json:"opencode_session_id,omitempty"`
 	}
@@ -285,7 +285,7 @@ func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[st
 			PRUrl:             r.PRUrl,
 			Branch:            r.Branch,
 			WorktreePath:      r.WorktreePath,
-			TmuxSession:       r.TmuxSession,
+			SessionName:       r.SessionName,
 			ServerPort:        r.ServerPort,
 			OpenCodeSessionID: r.OpenCodeSessionID,
 		}
@@ -335,7 +335,7 @@ func outputTSVWithIssueInfo(runs []*model.Run, issueCache map[string]psIssueInfo
 			r.PRUrl,
 			r.Branch,
 			r.WorktreePath,
-			r.TmuxSession,
+			r.SessionName,
 		)
 	}
 	return nil

@@ -405,7 +405,7 @@ DataTable {
                 (setv color (if (= role "assistant") "cyan" "green"))
                 (.append stats-lines f"[{color}]{role}:[/{color}] {text}")))
             (.append stats-lines "[dim]No messages yet[/dim]")))
-      run.tmux_session
+      run.session_name
       (do
         (.append stats-lines "")
         (.append stats-lines "[bold]Session Output:[/bold]")
@@ -469,11 +469,11 @@ DataTable {
   
   (defn _capture_session_output [self run]
     "Capture terminal session output using the appropriate multiplexer."
-    (when (not run.tmux_session)
+    (when (not run.session_name)
       (return []))
     (with-fallback-silent "capture_session_output" []
       (setv mux (get_multiplexer_for_run run))
-      (.capture_pane mux run.tmux_session 30)))
+      (.capture_pane mux run.session_name 30)))
   
   ;; NOTE: attach, stop, diff, kill_session actions are injected by (with-run-actions) above
   )

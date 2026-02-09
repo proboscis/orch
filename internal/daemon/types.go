@@ -22,7 +22,7 @@ type MonitorConnection struct {
 	StartedAt   time.Time `json:"started_at"`
 	LastSeen    time.Time `json:"last_seen"`
 	Project     string    `json:"project"`
-	TmuxSession string    `json:"tmux_session,omitempty"`
+	SessionName string    `json:"session_name,omitempty"`
 }
 
 // MonitorRequest is the base request for monitor operations
@@ -33,7 +33,7 @@ type MonitorRequest struct {
 	MonitorType string `json:"monitor_type,omitempty"` // "go" or "python"
 	View        string `json:"view,omitempty"`
 	Project     string `json:"project,omitempty"`
-	TmuxSession string `json:"tmux_session,omitempty"`
+	SessionName string `json:"session_name,omitempty"`
 	All         bool   `json:"all,omitempty"`
 	Global      bool   `json:"global,omitempty"`
 }
@@ -107,7 +107,7 @@ type RunSummary struct {
 	Model             string         `json:"model,omitempty"`
 	Branch            string         `json:"branch,omitempty"`
 	WorktreePath      string         `json:"worktree_path,omitempty"`
-	TmuxSession       string         `json:"tmux_session,omitempty"`
+	SessionName       string         `json:"session_name,omitempty"`
 	Multiplexer       string         `json:"multiplexer,omitempty"`
 	PRUrl             string         `json:"pr_url,omitempty"`
 	PRNumber          int            `json:"pr_number,omitempty"`
@@ -149,7 +149,7 @@ type RunFull struct {
 	ModelVariant      string         `json:"model_variant,omitempty"`
 	Branch            string         `json:"branch,omitempty"`
 	WorktreePath      string         `json:"worktree_path,omitempty"`
-	TmuxSession       string         `json:"tmux_session,omitempty"`
+	SessionName       string         `json:"session_name,omitempty"`
 	Multiplexer       string         `json:"multiplexer,omitempty"`
 	PRUrl             string         `json:"pr_url,omitempty"`
 	PRNumber          int            `json:"pr_number,omitempty"`
@@ -352,7 +352,7 @@ func RunToSummary(run *model.Run) *RunSummary {
 		Model:             run.Model,
 		Branch:            run.Branch,
 		WorktreePath:      run.WorktreePath,
-		TmuxSession:       run.TmuxSession,
+		SessionName:       run.SessionName,
 		Multiplexer:       run.Multiplexer,
 		PRUrl:             run.PRUrl,
 		PRNumber:          prNumber,
@@ -418,7 +418,7 @@ func RunToFull(run *model.Run) *RunFull {
 		ModelVariant:      run.ModelVariant,
 		Branch:            run.Branch,
 		WorktreePath:      run.WorktreePath,
-		TmuxSession:       run.TmuxSession,
+		SessionName:       run.SessionName,
 		Multiplexer:       run.Multiplexer,
 		PRUrl:             run.PRUrl,
 		PRNumber:          prNumber,
@@ -534,7 +534,7 @@ func SummaryToRun(s *RunSummary) *model.Run {
 		Model:        s.Model,
 		Branch:       s.Branch,
 		WorktreePath: s.WorktreePath,
-		TmuxSession:  s.TmuxSession,
+		SessionName:  s.SessionName,
 		Multiplexer:  s.Multiplexer,
 		PRUrl:        s.PRUrl,
 		StartedAt:    startedAt,
@@ -576,7 +576,7 @@ type StartRunResponse struct {
 	RunID        string `json:"run_id,omitempty"`
 	Branch       string `json:"branch,omitempty"`
 	WorktreePath string `json:"worktree,omitempty"`
-	TmuxSession  string `json:"tmux_session,omitempty"`
+	SessionName  string `json:"session_name,omitempty"`
 	Status       string `json:"status,omitempty"`
 }
 
@@ -593,7 +593,7 @@ type ContinueRunOptions struct {
 	PromptTemplate string
 	PRTargetBranch string
 	Multiplexer    string
-	TmuxSession    string
+	SessionName    string
 	ProjectRoot    string
 	RepoRoot       string
 }
@@ -604,7 +604,7 @@ type ContinueRunResponse struct {
 	RunID         string `json:"run_id,omitempty"`
 	Branch        string `json:"branch,omitempty"`
 	WorktreePath  string `json:"worktree,omitempty"`
-	TmuxSession   string `json:"tmux_session,omitempty"`
+	SessionName   string `json:"session_name,omitempty"`
 	Status        string `json:"status,omitempty"`
 	ContinuedFrom string `json:"continued_from,omitempty"`
 	IssueID       string `json:"issue_id,omitempty"`
@@ -649,7 +649,7 @@ type GetAttachInfoResponse struct {
 	IssueID           string `json:"issue_id,omitempty"`
 	RunID             string `json:"run_id,omitempty"`
 	Agent             string `json:"agent,omitempty"`
-	TmuxSession       string `json:"tmux_session,omitempty"`
+	SessionName       string `json:"session_name,omitempty"`
 	Multiplexer       string `json:"multiplexer,omitempty"`
 	WorktreePath      string `json:"worktree_path,omitempty"`
 	ServerPort        int    `json:"server_port,omitempty"`

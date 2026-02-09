@@ -284,7 +284,7 @@ func TestOutputJSON(t *testing.T) {
 		Status:       model.StatusRunning,
 		Branch:       "branch",
 		WorktreePath: "/tmp/worktree",
-		TmuxSession:  "session",
+		SessionName:  "session",
 		PRUrl:        "http://example.com/pr/1",
 		StartedAt:    time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC),
 		UpdatedAt:    updatedAt,
@@ -314,7 +314,7 @@ func TestOutputJSON(t *testing.T) {
 			PRUrl        string `json:"pr_url"`
 			Branch       string `json:"branch"`
 			Worktree     string `json:"worktree_path"`
-			TmuxSession  string `json:"tmux_session"`
+			SessionName  string `json:"session_name"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal([]byte(out), &got); err != nil {

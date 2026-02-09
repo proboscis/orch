@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v6.33.4
-// source: api/orch.proto
+// source: orch.proto
 
 package orchpb
 
@@ -75,11 +75,11 @@ func (x RunStatus) String() string {
 }
 
 func (RunStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_api_orch_proto_enumTypes[0].Descriptor()
+	return file_orch_proto_enumTypes[0].Descriptor()
 }
 
 func (RunStatus) Type() protoreflect.EnumType {
-	return &file_api_orch_proto_enumTypes[0]
+	return &file_orch_proto_enumTypes[0]
 }
 
 func (x RunStatus) Number() protoreflect.EnumNumber {
@@ -88,7 +88,7 @@ func (x RunStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RunStatus.Descriptor instead.
 func (RunStatus) EnumDescriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{0}
+	return file_orch_proto_rawDescGZIP(), []int{0}
 }
 
 type IssueStatus int32
@@ -127,11 +127,11 @@ func (x IssueStatus) String() string {
 }
 
 func (IssueStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_api_orch_proto_enumTypes[1].Descriptor()
+	return file_orch_proto_enumTypes[1].Descriptor()
 }
 
 func (IssueStatus) Type() protoreflect.EnumType {
-	return &file_api_orch_proto_enumTypes[1]
+	return &file_orch_proto_enumTypes[1]
 }
 
 func (x IssueStatus) Number() protoreflect.EnumNumber {
@@ -140,7 +140,7 @@ func (x IssueStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use IssueStatus.Descriptor instead.
 func (IssueStatus) EnumDescriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{1}
+	return file_orch_proto_rawDescGZIP(), []int{1}
 }
 
 type BranchState int32
@@ -194,11 +194,11 @@ func (x BranchState) String() string {
 }
 
 func (BranchState) Descriptor() protoreflect.EnumDescriptor {
-	return file_api_orch_proto_enumTypes[2].Descriptor()
+	return file_orch_proto_enumTypes[2].Descriptor()
 }
 
 func (BranchState) Type() protoreflect.EnumType {
-	return &file_api_orch_proto_enumTypes[2]
+	return &file_orch_proto_enumTypes[2]
 }
 
 func (x BranchState) Number() protoreflect.EnumNumber {
@@ -207,7 +207,7 @@ func (x BranchState) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use BranchState.Descriptor instead.
 func (BranchState) EnumDescriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{2}
+	return file_orch_proto_rawDescGZIP(), []int{2}
 }
 
 type Multiplexer int32
@@ -243,11 +243,11 @@ func (x Multiplexer) String() string {
 }
 
 func (Multiplexer) Descriptor() protoreflect.EnumDescriptor {
-	return file_api_orch_proto_enumTypes[3].Descriptor()
+	return file_orch_proto_enumTypes[3].Descriptor()
 }
 
 func (Multiplexer) Type() protoreflect.EnumType {
-	return &file_api_orch_proto_enumTypes[3]
+	return &file_orch_proto_enumTypes[3]
 }
 
 func (x Multiplexer) Number() protoreflect.EnumNumber {
@@ -256,7 +256,7 @@ func (x Multiplexer) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Multiplexer.Descriptor instead.
 func (Multiplexer) EnumDescriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{3}
+	return file_orch_proto_rawDescGZIP(), []int{3}
 }
 
 type DiffStats struct {
@@ -271,7 +271,7 @@ type DiffStats struct {
 
 func (x *DiffStats) Reset() {
 	*x = DiffStats{}
-	mi := &file_api_orch_proto_msgTypes[0]
+	mi := &file_orch_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -283,7 +283,7 @@ func (x *DiffStats) String() string {
 func (*DiffStats) ProtoMessage() {}
 
 func (x *DiffStats) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[0]
+	mi := &file_orch_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -296,7 +296,7 @@ func (x *DiffStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiffStats.ProtoReflect.Descriptor instead.
 func (*DiffStats) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{0}
+	return file_orch_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *DiffStats) GetAdditions() int32 {
@@ -343,18 +343,20 @@ type Run struct {
 	ElapsedDisplay    string                 `protobuf:"bytes,12,opt,name=elapsed_display,json=elapsedDisplay,proto3" json:"elapsed_display,omitempty"`
 	DiffStats         *DiffStats             `protobuf:"bytes,13,opt,name=diff_stats,json=diffStats,proto3" json:"diff_stats,omitempty"`
 	BranchState       BranchState            `protobuf:"varint,14,opt,name=branch_state,json=branchState,proto3,enum=orch.v1.BranchState" json:"branch_state,omitempty"`
-	TmuxSession       string                 `protobuf:"bytes,15,opt,name=tmux_session,json=tmuxSession,proto3" json:"tmux_session,omitempty"`
+	SessionName       string                 `protobuf:"bytes,15,opt,name=session_name,json=sessionName,proto3" json:"session_name,omitempty"`
 	Multiplexer       Multiplexer            `protobuf:"varint,16,opt,name=multiplexer,proto3,enum=orch.v1.Multiplexer" json:"multiplexer,omitempty"`
 	ServerPort        int32                  `protobuf:"varint,17,opt,name=server_port,json=serverPort,proto3" json:"server_port,omitempty"`
 	OpencodeSessionId string                 `protobuf:"bytes,18,opt,name=opencode_session_id,json=opencodeSessionId,proto3" json:"opencode_session_id,omitempty"`
 	ContinuedFrom     string                 `protobuf:"bytes,19,opt,name=continued_from,json=continuedFrom,proto3" json:"continued_from,omitempty"`
+	PrNumber          int32                  `protobuf:"varint,20,opt,name=pr_number,json=prNumber,proto3" json:"pr_number,omitempty"`
+	PrState           string                 `protobuf:"bytes,21,opt,name=pr_state,json=prState,proto3" json:"pr_state,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
 
 func (x *Run) Reset() {
 	*x = Run{}
-	mi := &file_api_orch_proto_msgTypes[1]
+	mi := &file_orch_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -366,7 +368,7 @@ func (x *Run) String() string {
 func (*Run) ProtoMessage() {}
 
 func (x *Run) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[1]
+	mi := &file_orch_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -379,7 +381,7 @@ func (x *Run) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Run.ProtoReflect.Descriptor instead.
 func (*Run) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{1}
+	return file_orch_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *Run) GetIssueId() string {
@@ -480,9 +482,9 @@ func (x *Run) GetBranchState() BranchState {
 	return BranchState_BRANCH_STATE_UNSPECIFIED
 }
 
-func (x *Run) GetTmuxSession() string {
+func (x *Run) GetSessionName() string {
 	if x != nil {
-		return x.TmuxSession
+		return x.SessionName
 	}
 	return ""
 }
@@ -515,6 +517,20 @@ func (x *Run) GetContinuedFrom() string {
 	return ""
 }
 
+func (x *Run) GetPrNumber() int32 {
+	if x != nil {
+		return x.PrNumber
+	}
+	return 0
+}
+
+func (x *Run) GetPrState() string {
+	if x != nil {
+		return x.PrState
+	}
+	return ""
+}
+
 type Issue struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -532,7 +548,7 @@ type Issue struct {
 
 func (x *Issue) Reset() {
 	*x = Issue{}
-	mi := &file_api_orch_proto_msgTypes[2]
+	mi := &file_orch_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -544,7 +560,7 @@ func (x *Issue) String() string {
 func (*Issue) ProtoMessage() {}
 
 func (x *Issue) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[2]
+	mi := &file_orch_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -557,7 +573,7 @@ func (x *Issue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Issue.ProtoReflect.Descriptor instead.
 func (*Issue) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{2}
+	return file_orch_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Issue) GetId() string {
@@ -635,7 +651,7 @@ type Event struct {
 
 func (x *Event) Reset() {
 	*x = Event{}
-	mi := &file_api_orch_proto_msgTypes[3]
+	mi := &file_orch_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -647,7 +663,7 @@ func (x *Event) String() string {
 func (*Event) ProtoMessage() {}
 
 func (x *Event) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[3]
+	mi := &file_orch_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -660,7 +676,7 @@ func (x *Event) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Event.ProtoReflect.Descriptor instead.
 func (*Event) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{3}
+	return file_orch_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Event) GetTimestampUnix() int64 {
@@ -699,7 +715,7 @@ type PingRequest struct {
 
 func (x *PingRequest) Reset() {
 	*x = PingRequest{}
-	mi := &file_api_orch_proto_msgTypes[4]
+	mi := &file_orch_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -711,7 +727,7 @@ func (x *PingRequest) String() string {
 func (*PingRequest) ProtoMessage() {}
 
 func (x *PingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[4]
+	mi := &file_orch_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -724,7 +740,7 @@ func (x *PingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingRequest.ProtoReflect.Descriptor instead.
 func (*PingRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{4}
+	return file_orch_proto_rawDescGZIP(), []int{4}
 }
 
 type PingResponse struct {
@@ -737,7 +753,7 @@ type PingResponse struct {
 
 func (x *PingResponse) Reset() {
 	*x = PingResponse{}
-	mi := &file_api_orch_proto_msgTypes[5]
+	mi := &file_orch_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -749,7 +765,7 @@ func (x *PingResponse) String() string {
 func (*PingResponse) ProtoMessage() {}
 
 func (x *PingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[5]
+	mi := &file_orch_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -762,7 +778,7 @@ func (x *PingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingResponse.ProtoReflect.Descriptor instead.
 func (*PingResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{5}
+	return file_orch_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *PingResponse) GetOk() bool {
@@ -796,7 +812,7 @@ type ListRunsRequest struct {
 
 func (x *ListRunsRequest) Reset() {
 	*x = ListRunsRequest{}
-	mi := &file_api_orch_proto_msgTypes[6]
+	mi := &file_orch_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -808,7 +824,7 @@ func (x *ListRunsRequest) String() string {
 func (*ListRunsRequest) ProtoMessage() {}
 
 func (x *ListRunsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[6]
+	mi := &file_orch_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -821,7 +837,7 @@ func (x *ListRunsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRunsRequest.ProtoReflect.Descriptor instead.
 func (*ListRunsRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{6}
+	return file_orch_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ListRunsRequest) GetIssuesRoot() string {
@@ -898,7 +914,7 @@ type ListRunsResponse struct {
 
 func (x *ListRunsResponse) Reset() {
 	*x = ListRunsResponse{}
-	mi := &file_api_orch_proto_msgTypes[7]
+	mi := &file_orch_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -910,7 +926,7 @@ func (x *ListRunsResponse) String() string {
 func (*ListRunsResponse) ProtoMessage() {}
 
 func (x *ListRunsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[7]
+	mi := &file_orch_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -923,7 +939,7 @@ func (x *ListRunsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRunsResponse.ProtoReflect.Descriptor instead.
 func (*ListRunsResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{7}
+	return file_orch_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ListRunsResponse) GetRuns() []*Run {
@@ -958,7 +974,7 @@ type GetRunRequest struct {
 
 func (x *GetRunRequest) Reset() {
 	*x = GetRunRequest{}
-	mi := &file_api_orch_proto_msgTypes[8]
+	mi := &file_orch_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -970,7 +986,7 @@ func (x *GetRunRequest) String() string {
 func (*GetRunRequest) ProtoMessage() {}
 
 func (x *GetRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[8]
+	mi := &file_orch_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -983,7 +999,7 @@ func (x *GetRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRunRequest.ProtoReflect.Descriptor instead.
 func (*GetRunRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{8}
+	return file_orch_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *GetRunRequest) GetIssuesRoot() string {
@@ -1017,7 +1033,7 @@ type GetRunResponse struct {
 
 func (x *GetRunResponse) Reset() {
 	*x = GetRunResponse{}
-	mi := &file_api_orch_proto_msgTypes[9]
+	mi := &file_orch_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1029,7 +1045,7 @@ func (x *GetRunResponse) String() string {
 func (*GetRunResponse) ProtoMessage() {}
 
 func (x *GetRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[9]
+	mi := &file_orch_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1042,7 +1058,7 @@ func (x *GetRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRunResponse.ProtoReflect.Descriptor instead.
 func (*GetRunResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{9}
+	return file_orch_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GetRunResponse) GetRun() *Run {
@@ -1060,21 +1076,33 @@ func (x *GetRunResponse) GetEvents() []*Event {
 }
 
 type StartRunRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	IssuesRoot    string                 `protobuf:"bytes,1,opt,name=issues_root,json=issuesRoot,proto3" json:"issues_root,omitempty"`
-	IssueId       string                 `protobuf:"bytes,2,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"`
-	Agent         string                 `protobuf:"bytes,3,opt,name=agent,proto3" json:"agent,omitempty"`
-	Model         string                 `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
-	ModelVariant  string                 `protobuf:"bytes,5,opt,name=model_variant,json=modelVariant,proto3" json:"model_variant,omitempty"`
-	BaseBranch    string                 `protobuf:"bytes,6,opt,name=base_branch,json=baseBranch,proto3" json:"base_branch,omitempty"`
-	ProjectRoot   string                 `protobuf:"bytes,7,opt,name=project_root,json=projectRoot,proto3" json:"project_root,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	IssuesRoot     string                 `protobuf:"bytes,1,opt,name=issues_root,json=issuesRoot,proto3" json:"issues_root,omitempty"`
+	IssueId        string                 `protobuf:"bytes,2,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"`
+	Agent          string                 `protobuf:"bytes,3,opt,name=agent,proto3" json:"agent,omitempty"`
+	Model          string                 `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
+	ModelVariant   string                 `protobuf:"bytes,5,opt,name=model_variant,json=modelVariant,proto3" json:"model_variant,omitempty"`
+	BaseBranch     string                 `protobuf:"bytes,6,opt,name=base_branch,json=baseBranch,proto3" json:"base_branch,omitempty"`
+	ProjectRoot    string                 `protobuf:"bytes,7,opt,name=project_root,json=projectRoot,proto3" json:"project_root,omitempty"`
+	Preset         string                 `protobuf:"bytes,8,opt,name=preset,proto3" json:"preset,omitempty"`
+	Branch         string                 `protobuf:"bytes,9,opt,name=branch,proto3" json:"branch,omitempty"`
+	WorktreeDir    string                 `protobuf:"bytes,10,opt,name=worktree_dir,json=worktreeDir,proto3" json:"worktree_dir,omitempty"`
+	NoPr           bool                   `protobuf:"varint,11,opt,name=no_pr,json=noPr,proto3" json:"no_pr,omitempty"`
+	PromptTemplate string                 `protobuf:"bytes,12,opt,name=prompt_template,json=promptTemplate,proto3" json:"prompt_template,omitempty"`
+	PrTargetBranch string                 `protobuf:"bytes,13,opt,name=pr_target_branch,json=prTargetBranch,proto3" json:"pr_target_branch,omitempty"`
+	DryRun         bool                   `protobuf:"varint,14,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	Reuse          bool                   `protobuf:"varint,15,opt,name=reuse,proto3" json:"reuse,omitempty"`
+	RunId          string                 `protobuf:"bytes,16,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	AgentCmd       string                 `protobuf:"bytes,17,opt,name=agent_cmd,json=agentCmd,proto3" json:"agent_cmd,omitempty"`
+	AgentProfile   string                 `protobuf:"bytes,18,opt,name=agent_profile,json=agentProfile,proto3" json:"agent_profile,omitempty"`
+	Multiplexer    string                 `protobuf:"bytes,19,opt,name=multiplexer,proto3" json:"multiplexer,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *StartRunRequest) Reset() {
 	*x = StartRunRequest{}
-	mi := &file_api_orch_proto_msgTypes[10]
+	mi := &file_orch_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1086,7 +1114,7 @@ func (x *StartRunRequest) String() string {
 func (*StartRunRequest) ProtoMessage() {}
 
 func (x *StartRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[10]
+	mi := &file_orch_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1099,7 +1127,7 @@ func (x *StartRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartRunRequest.ProtoReflect.Descriptor instead.
 func (*StartRunRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{10}
+	return file_orch_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *StartRunRequest) GetIssuesRoot() string {
@@ -1151,19 +1179,104 @@ func (x *StartRunRequest) GetProjectRoot() string {
 	return ""
 }
 
+func (x *StartRunRequest) GetPreset() string {
+	if x != nil {
+		return x.Preset
+	}
+	return ""
+}
+
+func (x *StartRunRequest) GetBranch() string {
+	if x != nil {
+		return x.Branch
+	}
+	return ""
+}
+
+func (x *StartRunRequest) GetWorktreeDir() string {
+	if x != nil {
+		return x.WorktreeDir
+	}
+	return ""
+}
+
+func (x *StartRunRequest) GetNoPr() bool {
+	if x != nil {
+		return x.NoPr
+	}
+	return false
+}
+
+func (x *StartRunRequest) GetPromptTemplate() string {
+	if x != nil {
+		return x.PromptTemplate
+	}
+	return ""
+}
+
+func (x *StartRunRequest) GetPrTargetBranch() string {
+	if x != nil {
+		return x.PrTargetBranch
+	}
+	return ""
+}
+
+func (x *StartRunRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
+func (x *StartRunRequest) GetReuse() bool {
+	if x != nil {
+		return x.Reuse
+	}
+	return false
+}
+
+func (x *StartRunRequest) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *StartRunRequest) GetAgentCmd() string {
+	if x != nil {
+		return x.AgentCmd
+	}
+	return ""
+}
+
+func (x *StartRunRequest) GetAgentProfile() string {
+	if x != nil {
+		return x.AgentProfile
+	}
+	return ""
+}
+
+func (x *StartRunRequest) GetMultiplexer() string {
+	if x != nil {
+		return x.Multiplexer
+	}
+	return ""
+}
+
 type StartRunResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	Branch        string                 `protobuf:"bytes,2,opt,name=branch,proto3" json:"branch,omitempty"`
 	WorktreePath  string                 `protobuf:"bytes,3,opt,name=worktree_path,json=worktreePath,proto3" json:"worktree_path,omitempty"`
-	TmuxSession   string                 `protobuf:"bytes,4,opt,name=tmux_session,json=tmuxSession,proto3" json:"tmux_session,omitempty"`
+	SessionName   string                 `protobuf:"bytes,4,opt,name=session_name,json=sessionName,proto3" json:"session_name,omitempty"`
+	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StartRunResponse) Reset() {
 	*x = StartRunResponse{}
-	mi := &file_api_orch_proto_msgTypes[11]
+	mi := &file_orch_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1175,7 +1288,7 @@ func (x *StartRunResponse) String() string {
 func (*StartRunResponse) ProtoMessage() {}
 
 func (x *StartRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[11]
+	mi := &file_orch_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1188,7 +1301,7 @@ func (x *StartRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartRunResponse.ProtoReflect.Descriptor instead.
 func (*StartRunResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{11}
+	return file_orch_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *StartRunResponse) GetRunId() string {
@@ -1212,9 +1325,16 @@ func (x *StartRunResponse) GetWorktreePath() string {
 	return ""
 }
 
-func (x *StartRunResponse) GetTmuxSession() string {
+func (x *StartRunResponse) GetSessionName() string {
 	if x != nil {
-		return x.TmuxSession
+		return x.SessionName
+	}
+	return ""
+}
+
+func (x *StartRunResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
 	}
 	return ""
 }
@@ -1231,7 +1351,7 @@ type CreateRunRequest struct {
 
 func (x *CreateRunRequest) Reset() {
 	*x = CreateRunRequest{}
-	mi := &file_api_orch_proto_msgTypes[12]
+	mi := &file_orch_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1243,7 +1363,7 @@ func (x *CreateRunRequest) String() string {
 func (*CreateRunRequest) ProtoMessage() {}
 
 func (x *CreateRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[12]
+	mi := &file_orch_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1256,7 +1376,7 @@ func (x *CreateRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateRunRequest.ProtoReflect.Descriptor instead.
 func (*CreateRunRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{12}
+	return file_orch_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *CreateRunRequest) GetIssuesRoot() string {
@@ -1298,7 +1418,7 @@ type CreateRunResponse struct {
 
 func (x *CreateRunResponse) Reset() {
 	*x = CreateRunResponse{}
-	mi := &file_api_orch_proto_msgTypes[13]
+	mi := &file_orch_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1310,7 +1430,7 @@ func (x *CreateRunResponse) String() string {
 func (*CreateRunResponse) ProtoMessage() {}
 
 func (x *CreateRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[13]
+	mi := &file_orch_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1323,7 +1443,7 @@ func (x *CreateRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateRunResponse.ProtoReflect.Descriptor instead.
 func (*CreateRunResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{13}
+	return file_orch_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *CreateRunResponse) GetIssueId() string {
@@ -1358,7 +1478,7 @@ type StopRunRequest struct {
 
 func (x *StopRunRequest) Reset() {
 	*x = StopRunRequest{}
-	mi := &file_api_orch_proto_msgTypes[14]
+	mi := &file_orch_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1370,7 +1490,7 @@ func (x *StopRunRequest) String() string {
 func (*StopRunRequest) ProtoMessage() {}
 
 func (x *StopRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[14]
+	mi := &file_orch_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1383,7 +1503,7 @@ func (x *StopRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopRunRequest.ProtoReflect.Descriptor instead.
 func (*StopRunRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{14}
+	return file_orch_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *StopRunRequest) GetIssuesRoot() string {
@@ -1415,7 +1535,7 @@ type StopRunResponse struct {
 
 func (x *StopRunResponse) Reset() {
 	*x = StopRunResponse{}
-	mi := &file_api_orch_proto_msgTypes[15]
+	mi := &file_orch_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1427,7 +1547,7 @@ func (x *StopRunResponse) String() string {
 func (*StopRunResponse) ProtoMessage() {}
 
 func (x *StopRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[15]
+	mi := &file_orch_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1440,7 +1560,7 @@ func (x *StopRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopRunResponse.ProtoReflect.Descriptor instead.
 func (*StopRunResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{15}
+	return file_orch_proto_rawDescGZIP(), []int{15}
 }
 
 type ResolveRunRequest struct {
@@ -1454,7 +1574,7 @@ type ResolveRunRequest struct {
 
 func (x *ResolveRunRequest) Reset() {
 	*x = ResolveRunRequest{}
-	mi := &file_api_orch_proto_msgTypes[16]
+	mi := &file_orch_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1466,7 +1586,7 @@ func (x *ResolveRunRequest) String() string {
 func (*ResolveRunRequest) ProtoMessage() {}
 
 func (x *ResolveRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[16]
+	mi := &file_orch_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1479,7 +1599,7 @@ func (x *ResolveRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveRunRequest.ProtoReflect.Descriptor instead.
 func (*ResolveRunRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{16}
+	return file_orch_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ResolveRunRequest) GetIssuesRoot() string {
@@ -1511,7 +1631,7 @@ type ResolveRunResponse struct {
 
 func (x *ResolveRunResponse) Reset() {
 	*x = ResolveRunResponse{}
-	mi := &file_api_orch_proto_msgTypes[17]
+	mi := &file_orch_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1523,7 +1643,7 @@ func (x *ResolveRunResponse) String() string {
 func (*ResolveRunResponse) ProtoMessage() {}
 
 func (x *ResolveRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[17]
+	mi := &file_orch_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1536,7 +1656,7 @@ func (x *ResolveRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveRunResponse.ProtoReflect.Descriptor instead.
 func (*ResolveRunResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{17}
+	return file_orch_proto_rawDescGZIP(), []int{17}
 }
 
 type ListIssuesRequest struct {
@@ -1554,7 +1674,7 @@ type ListIssuesRequest struct {
 
 func (x *ListIssuesRequest) Reset() {
 	*x = ListIssuesRequest{}
-	mi := &file_api_orch_proto_msgTypes[18]
+	mi := &file_orch_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1566,7 +1686,7 @@ func (x *ListIssuesRequest) String() string {
 func (*ListIssuesRequest) ProtoMessage() {}
 
 func (x *ListIssuesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[18]
+	mi := &file_orch_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1579,7 +1699,7 @@ func (x *ListIssuesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListIssuesRequest.ProtoReflect.Descriptor instead.
 func (*ListIssuesRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{18}
+	return file_orch_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ListIssuesRequest) GetIssuesRoot() string {
@@ -1642,7 +1762,7 @@ type ListIssuesResponse struct {
 
 func (x *ListIssuesResponse) Reset() {
 	*x = ListIssuesResponse{}
-	mi := &file_api_orch_proto_msgTypes[19]
+	mi := &file_orch_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1654,7 +1774,7 @@ func (x *ListIssuesResponse) String() string {
 func (*ListIssuesResponse) ProtoMessage() {}
 
 func (x *ListIssuesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[19]
+	mi := &file_orch_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1667,7 +1787,7 @@ func (x *ListIssuesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListIssuesResponse.ProtoReflect.Descriptor instead.
 func (*ListIssuesResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{19}
+	return file_orch_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ListIssuesResponse) GetIssues() []*Issue {
@@ -1701,7 +1821,7 @@ type GetIssueRequest struct {
 
 func (x *GetIssueRequest) Reset() {
 	*x = GetIssueRequest{}
-	mi := &file_api_orch_proto_msgTypes[20]
+	mi := &file_orch_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1713,7 +1833,7 @@ func (x *GetIssueRequest) String() string {
 func (*GetIssueRequest) ProtoMessage() {}
 
 func (x *GetIssueRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[20]
+	mi := &file_orch_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1726,7 +1846,7 @@ func (x *GetIssueRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetIssueRequest.ProtoReflect.Descriptor instead.
 func (*GetIssueRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{20}
+	return file_orch_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *GetIssueRequest) GetIssuesRoot() string {
@@ -1752,7 +1872,7 @@ type GetIssueResponse struct {
 
 func (x *GetIssueResponse) Reset() {
 	*x = GetIssueResponse{}
-	mi := &file_api_orch_proto_msgTypes[21]
+	mi := &file_orch_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1764,7 +1884,7 @@ func (x *GetIssueResponse) String() string {
 func (*GetIssueResponse) ProtoMessage() {}
 
 func (x *GetIssueResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[21]
+	mi := &file_orch_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1777,7 +1897,7 @@ func (x *GetIssueResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetIssueResponse.ProtoReflect.Descriptor instead.
 func (*GetIssueResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{21}
+	return file_orch_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *GetIssueResponse) GetIssue() *Issue {
@@ -1799,7 +1919,7 @@ type CreateIssueRequest struct {
 
 func (x *CreateIssueRequest) Reset() {
 	*x = CreateIssueRequest{}
-	mi := &file_api_orch_proto_msgTypes[22]
+	mi := &file_orch_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1811,7 +1931,7 @@ func (x *CreateIssueRequest) String() string {
 func (*CreateIssueRequest) ProtoMessage() {}
 
 func (x *CreateIssueRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[22]
+	mi := &file_orch_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1824,7 +1944,7 @@ func (x *CreateIssueRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateIssueRequest.ProtoReflect.Descriptor instead.
 func (*CreateIssueRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{22}
+	return file_orch_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *CreateIssueRequest) GetIssuesRoot() string {
@@ -1864,7 +1984,7 @@ type CreateIssueResponse struct {
 
 func (x *CreateIssueResponse) Reset() {
 	*x = CreateIssueResponse{}
-	mi := &file_api_orch_proto_msgTypes[23]
+	mi := &file_orch_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1876,7 +1996,7 @@ func (x *CreateIssueResponse) String() string {
 func (*CreateIssueResponse) ProtoMessage() {}
 
 func (x *CreateIssueResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[23]
+	mi := &file_orch_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1889,7 +2009,7 @@ func (x *CreateIssueResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateIssueResponse.ProtoReflect.Descriptor instead.
 func (*CreateIssueResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{23}
+	return file_orch_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *CreateIssueResponse) GetPath() string {
@@ -1909,7 +2029,7 @@ type CloseIssueRequest struct {
 
 func (x *CloseIssueRequest) Reset() {
 	*x = CloseIssueRequest{}
-	mi := &file_api_orch_proto_msgTypes[24]
+	mi := &file_orch_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1921,7 +2041,7 @@ func (x *CloseIssueRequest) String() string {
 func (*CloseIssueRequest) ProtoMessage() {}
 
 func (x *CloseIssueRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[24]
+	mi := &file_orch_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1934,7 +2054,7 @@ func (x *CloseIssueRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloseIssueRequest.ProtoReflect.Descriptor instead.
 func (*CloseIssueRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{24}
+	return file_orch_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *CloseIssueRequest) GetIssuesRoot() string {
@@ -1959,7 +2079,7 @@ type CloseIssueResponse struct {
 
 func (x *CloseIssueResponse) Reset() {
 	*x = CloseIssueResponse{}
-	mi := &file_api_orch_proto_msgTypes[25]
+	mi := &file_orch_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1971,7 +2091,7 @@ func (x *CloseIssueResponse) String() string {
 func (*CloseIssueResponse) ProtoMessage() {}
 
 func (x *CloseIssueResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[25]
+	mi := &file_orch_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1984,7 +2104,7 @@ func (x *CloseIssueResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloseIssueResponse.ProtoReflect.Descriptor instead.
 func (*CloseIssueResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{25}
+	return file_orch_proto_rawDescGZIP(), []int{25}
 }
 
 type GetControlAgentLaunchRequest struct {
@@ -1998,7 +2118,7 @@ type GetControlAgentLaunchRequest struct {
 
 func (x *GetControlAgentLaunchRequest) Reset() {
 	*x = GetControlAgentLaunchRequest{}
-	mi := &file_api_orch_proto_msgTypes[26]
+	mi := &file_orch_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2010,7 +2130,7 @@ func (x *GetControlAgentLaunchRequest) String() string {
 func (*GetControlAgentLaunchRequest) ProtoMessage() {}
 
 func (x *GetControlAgentLaunchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[26]
+	mi := &file_orch_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2023,7 +2143,7 @@ func (x *GetControlAgentLaunchRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetControlAgentLaunchRequest.ProtoReflect.Descriptor instead.
 func (*GetControlAgentLaunchRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{26}
+	return file_orch_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *GetControlAgentLaunchRequest) GetProjectRoot() string {
@@ -2059,7 +2179,7 @@ type GetControlAgentLaunchResponse struct {
 
 func (x *GetControlAgentLaunchResponse) Reset() {
 	*x = GetControlAgentLaunchResponse{}
-	mi := &file_api_orch_proto_msgTypes[27]
+	mi := &file_orch_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2071,7 +2191,7 @@ func (x *GetControlAgentLaunchResponse) String() string {
 func (*GetControlAgentLaunchResponse) ProtoMessage() {}
 
 func (x *GetControlAgentLaunchResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[27]
+	mi := &file_orch_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2084,7 +2204,7 @@ func (x *GetControlAgentLaunchResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetControlAgentLaunchResponse.ProtoReflect.Descriptor instead.
 func (*GetControlAgentLaunchResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{27}
+	return file_orch_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *GetControlAgentLaunchResponse) GetCommand() string {
@@ -2127,7 +2247,7 @@ type GetAttachInfoRequest struct {
 
 func (x *GetAttachInfoRequest) Reset() {
 	*x = GetAttachInfoRequest{}
-	mi := &file_api_orch_proto_msgTypes[28]
+	mi := &file_orch_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2139,7 +2259,7 @@ func (x *GetAttachInfoRequest) String() string {
 func (*GetAttachInfoRequest) ProtoMessage() {}
 
 func (x *GetAttachInfoRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[28]
+	mi := &file_orch_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2152,7 +2272,7 @@ func (x *GetAttachInfoRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAttachInfoRequest.ProtoReflect.Descriptor instead.
 func (*GetAttachInfoRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{28}
+	return file_orch_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *GetAttachInfoRequest) GetIssuesRoot() string {
@@ -2200,7 +2320,7 @@ type GetAttachInfoResponse struct {
 
 func (x *GetAttachInfoResponse) Reset() {
 	*x = GetAttachInfoResponse{}
-	mi := &file_api_orch_proto_msgTypes[29]
+	mi := &file_orch_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2212,7 +2332,7 @@ func (x *GetAttachInfoResponse) String() string {
 func (*GetAttachInfoResponse) ProtoMessage() {}
 
 func (x *GetAttachInfoResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[29]
+	mi := &file_orch_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2225,7 +2345,7 @@ func (x *GetAttachInfoResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAttachInfoResponse.ProtoReflect.Descriptor instead.
 func (*GetAttachInfoResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{29}
+	return file_orch_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *GetAttachInfoResponse) GetCommand() []string {
@@ -2302,7 +2422,7 @@ type CaptureSessionRequest struct {
 
 func (x *CaptureSessionRequest) Reset() {
 	*x = CaptureSessionRequest{}
-	mi := &file_api_orch_proto_msgTypes[30]
+	mi := &file_orch_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2314,7 +2434,7 @@ func (x *CaptureSessionRequest) String() string {
 func (*CaptureSessionRequest) ProtoMessage() {}
 
 func (x *CaptureSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[30]
+	mi := &file_orch_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2327,7 +2447,7 @@ func (x *CaptureSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CaptureSessionRequest.ProtoReflect.Descriptor instead.
 func (*CaptureSessionRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{30}
+	return file_orch_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *CaptureSessionRequest) GetIssuesRoot() string {
@@ -2362,7 +2482,7 @@ type CaptureSessionResponse struct {
 
 func (x *CaptureSessionResponse) Reset() {
 	*x = CaptureSessionResponse{}
-	mi := &file_api_orch_proto_msgTypes[31]
+	mi := &file_orch_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2374,7 +2494,7 @@ func (x *CaptureSessionResponse) String() string {
 func (*CaptureSessionResponse) ProtoMessage() {}
 
 func (x *CaptureSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[31]
+	mi := &file_orch_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2387,7 +2507,7 @@ func (x *CaptureSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CaptureSessionResponse.ProtoReflect.Descriptor instead.
 func (*CaptureSessionResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{31}
+	return file_orch_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *CaptureSessionResponse) GetContent() string {
@@ -2423,7 +2543,7 @@ type SendMessageRequest struct {
 
 func (x *SendMessageRequest) Reset() {
 	*x = SendMessageRequest{}
-	mi := &file_api_orch_proto_msgTypes[32]
+	mi := &file_orch_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2435,7 +2555,7 @@ func (x *SendMessageRequest) String() string {
 func (*SendMessageRequest) ProtoMessage() {}
 
 func (x *SendMessageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[32]
+	mi := &file_orch_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2448,7 +2568,7 @@ func (x *SendMessageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendMessageRequest.ProtoReflect.Descriptor instead.
 func (*SendMessageRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{32}
+	return file_orch_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *SendMessageRequest) GetIssuesRoot() string {
@@ -2487,7 +2607,7 @@ type SendMessageResponse struct {
 
 func (x *SendMessageResponse) Reset() {
 	*x = SendMessageResponse{}
-	mi := &file_api_orch_proto_msgTypes[33]
+	mi := &file_orch_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2499,7 +2619,7 @@ func (x *SendMessageResponse) String() string {
 func (*SendMessageResponse) ProtoMessage() {}
 
 func (x *SendMessageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[33]
+	mi := &file_orch_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2512,7 +2632,7 @@ func (x *SendMessageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendMessageResponse.ProtoReflect.Descriptor instead.
 func (*SendMessageResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{33}
+	return file_orch_proto_rawDescGZIP(), []int{33}
 }
 
 type GetDiffStatsRequest struct {
@@ -2526,7 +2646,7 @@ type GetDiffStatsRequest struct {
 
 func (x *GetDiffStatsRequest) Reset() {
 	*x = GetDiffStatsRequest{}
-	mi := &file_api_orch_proto_msgTypes[34]
+	mi := &file_orch_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2538,7 +2658,7 @@ func (x *GetDiffStatsRequest) String() string {
 func (*GetDiffStatsRequest) ProtoMessage() {}
 
 func (x *GetDiffStatsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[34]
+	mi := &file_orch_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2551,7 +2671,7 @@ func (x *GetDiffStatsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDiffStatsRequest.ProtoReflect.Descriptor instead.
 func (*GetDiffStatsRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{34}
+	return file_orch_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *GetDiffStatsRequest) GetIssuesRoot() string {
@@ -2584,7 +2704,7 @@ type GetDiffStatsResponse struct {
 
 func (x *GetDiffStatsResponse) Reset() {
 	*x = GetDiffStatsResponse{}
-	mi := &file_api_orch_proto_msgTypes[35]
+	mi := &file_orch_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2596,7 +2716,7 @@ func (x *GetDiffStatsResponse) String() string {
 func (*GetDiffStatsResponse) ProtoMessage() {}
 
 func (x *GetDiffStatsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[35]
+	mi := &file_orch_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2609,7 +2729,7 @@ func (x *GetDiffStatsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDiffStatsResponse.ProtoReflect.Descriptor instead.
 func (*GetDiffStatsResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{35}
+	return file_orch_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *GetDiffStatsResponse) GetDiffStats() *DiffStats {
@@ -2630,7 +2750,7 @@ type GetBranchStateRequest struct {
 
 func (x *GetBranchStateRequest) Reset() {
 	*x = GetBranchStateRequest{}
-	mi := &file_api_orch_proto_msgTypes[36]
+	mi := &file_orch_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2642,7 +2762,7 @@ func (x *GetBranchStateRequest) String() string {
 func (*GetBranchStateRequest) ProtoMessage() {}
 
 func (x *GetBranchStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[36]
+	mi := &file_orch_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2655,7 +2775,7 @@ func (x *GetBranchStateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBranchStateRequest.ProtoReflect.Descriptor instead.
 func (*GetBranchStateRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{36}
+	return file_orch_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *GetBranchStateRequest) GetIssuesRoot() string {
@@ -2688,7 +2808,7 @@ type GetBranchStateResponse struct {
 
 func (x *GetBranchStateResponse) Reset() {
 	*x = GetBranchStateResponse{}
-	mi := &file_api_orch_proto_msgTypes[37]
+	mi := &file_orch_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2700,7 +2820,7 @@ func (x *GetBranchStateResponse) String() string {
 func (*GetBranchStateResponse) ProtoMessage() {}
 
 func (x *GetBranchStateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[37]
+	mi := &file_orch_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2713,7 +2833,7 @@ func (x *GetBranchStateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBranchStateResponse.ProtoReflect.Descriptor instead.
 func (*GetBranchStateResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{37}
+	return file_orch_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *GetBranchStateResponse) GetState() BranchState {
@@ -2734,7 +2854,7 @@ type GetDiffRequest struct {
 
 func (x *GetDiffRequest) Reset() {
 	*x = GetDiffRequest{}
-	mi := &file_api_orch_proto_msgTypes[38]
+	mi := &file_orch_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2746,7 +2866,7 @@ func (x *GetDiffRequest) String() string {
 func (*GetDiffRequest) ProtoMessage() {}
 
 func (x *GetDiffRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[38]
+	mi := &file_orch_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2759,7 +2879,7 @@ func (x *GetDiffRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDiffRequest.ProtoReflect.Descriptor instead.
 func (*GetDiffRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{38}
+	return file_orch_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *GetDiffRequest) GetIssuesRoot() string {
@@ -2792,7 +2912,7 @@ type GetDiffResponse struct {
 
 func (x *GetDiffResponse) Reset() {
 	*x = GetDiffResponse{}
-	mi := &file_api_orch_proto_msgTypes[39]
+	mi := &file_orch_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2804,7 +2924,7 @@ func (x *GetDiffResponse) String() string {
 func (*GetDiffResponse) ProtoMessage() {}
 
 func (x *GetDiffResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[39]
+	mi := &file_orch_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2817,7 +2937,7 @@ func (x *GetDiffResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDiffResponse.ProtoReflect.Descriptor instead.
 func (*GetDiffResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{39}
+	return file_orch_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *GetDiffResponse) GetDiff() string {
@@ -2840,7 +2960,7 @@ type RegisterMonitorRequest struct {
 
 func (x *RegisterMonitorRequest) Reset() {
 	*x = RegisterMonitorRequest{}
-	mi := &file_api_orch_proto_msgTypes[40]
+	mi := &file_orch_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2852,7 +2972,7 @@ func (x *RegisterMonitorRequest) String() string {
 func (*RegisterMonitorRequest) ProtoMessage() {}
 
 func (x *RegisterMonitorRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[40]
+	mi := &file_orch_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2865,7 +2985,7 @@ func (x *RegisterMonitorRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterMonitorRequest.ProtoReflect.Descriptor instead.
 func (*RegisterMonitorRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{40}
+	return file_orch_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *RegisterMonitorRequest) GetPid() int32 {
@@ -2912,7 +3032,7 @@ type RegisterMonitorResponse struct {
 
 func (x *RegisterMonitorResponse) Reset() {
 	*x = RegisterMonitorResponse{}
-	mi := &file_api_orch_proto_msgTypes[41]
+	mi := &file_orch_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2924,7 +3044,7 @@ func (x *RegisterMonitorResponse) String() string {
 func (*RegisterMonitorResponse) ProtoMessage() {}
 
 func (x *RegisterMonitorResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[41]
+	mi := &file_orch_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2937,7 +3057,7 @@ func (x *RegisterMonitorResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterMonitorResponse.ProtoReflect.Descriptor instead.
 func (*RegisterMonitorResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{41}
+	return file_orch_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *RegisterMonitorResponse) GetMonitorId() string {
@@ -2956,7 +3076,7 @@ type UnregisterMonitorRequest struct {
 
 func (x *UnregisterMonitorRequest) Reset() {
 	*x = UnregisterMonitorRequest{}
-	mi := &file_api_orch_proto_msgTypes[42]
+	mi := &file_orch_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2968,7 +3088,7 @@ func (x *UnregisterMonitorRequest) String() string {
 func (*UnregisterMonitorRequest) ProtoMessage() {}
 
 func (x *UnregisterMonitorRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[42]
+	mi := &file_orch_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2981,7 +3101,7 @@ func (x *UnregisterMonitorRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnregisterMonitorRequest.ProtoReflect.Descriptor instead.
 func (*UnregisterMonitorRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{42}
+	return file_orch_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *UnregisterMonitorRequest) GetMonitorId() string {
@@ -2999,7 +3119,7 @@ type UnregisterMonitorResponse struct {
 
 func (x *UnregisterMonitorResponse) Reset() {
 	*x = UnregisterMonitorResponse{}
-	mi := &file_api_orch_proto_msgTypes[43]
+	mi := &file_orch_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3011,7 +3131,7 @@ func (x *UnregisterMonitorResponse) String() string {
 func (*UnregisterMonitorResponse) ProtoMessage() {}
 
 func (x *UnregisterMonitorResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[43]
+	mi := &file_orch_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3024,7 +3144,7 @@ func (x *UnregisterMonitorResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnregisterMonitorResponse.ProtoReflect.Descriptor instead.
 func (*UnregisterMonitorResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{43}
+	return file_orch_proto_rawDescGZIP(), []int{43}
 }
 
 type HeartbeatRequest struct {
@@ -3036,7 +3156,7 @@ type HeartbeatRequest struct {
 
 func (x *HeartbeatRequest) Reset() {
 	*x = HeartbeatRequest{}
-	mi := &file_api_orch_proto_msgTypes[44]
+	mi := &file_orch_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3048,7 +3168,7 @@ func (x *HeartbeatRequest) String() string {
 func (*HeartbeatRequest) ProtoMessage() {}
 
 func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[44]
+	mi := &file_orch_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3061,7 +3181,7 @@ func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatRequest.ProtoReflect.Descriptor instead.
 func (*HeartbeatRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{44}
+	return file_orch_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *HeartbeatRequest) GetMonitorId() string {
@@ -3079,7 +3199,7 @@ type HeartbeatResponse struct {
 
 func (x *HeartbeatResponse) Reset() {
 	*x = HeartbeatResponse{}
-	mi := &file_api_orch_proto_msgTypes[45]
+	mi := &file_orch_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3091,7 +3211,7 @@ func (x *HeartbeatResponse) String() string {
 func (*HeartbeatResponse) ProtoMessage() {}
 
 func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[45]
+	mi := &file_orch_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3104,7 +3224,7 @@ func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatResponse.ProtoReflect.Descriptor instead.
 func (*HeartbeatResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{45}
+	return file_orch_proto_rawDescGZIP(), []int{45}
 }
 
 type ListMonitorsRequest struct {
@@ -3117,7 +3237,7 @@ type ListMonitorsRequest struct {
 
 func (x *ListMonitorsRequest) Reset() {
 	*x = ListMonitorsRequest{}
-	mi := &file_api_orch_proto_msgTypes[46]
+	mi := &file_orch_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3129,7 +3249,7 @@ func (x *ListMonitorsRequest) String() string {
 func (*ListMonitorsRequest) ProtoMessage() {}
 
 func (x *ListMonitorsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[46]
+	mi := &file_orch_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3142,7 +3262,7 @@ func (x *ListMonitorsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMonitorsRequest.ProtoReflect.Descriptor instead.
 func (*ListMonitorsRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{46}
+	return file_orch_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *ListMonitorsRequest) GetProject() string {
@@ -3175,7 +3295,7 @@ type MonitorInfo struct {
 
 func (x *MonitorInfo) Reset() {
 	*x = MonitorInfo{}
-	mi := &file_api_orch_proto_msgTypes[47]
+	mi := &file_orch_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3187,7 +3307,7 @@ func (x *MonitorInfo) String() string {
 func (*MonitorInfo) ProtoMessage() {}
 
 func (x *MonitorInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[47]
+	mi := &file_orch_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3200,7 +3320,7 @@ func (x *MonitorInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MonitorInfo.ProtoReflect.Descriptor instead.
 func (*MonitorInfo) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{47}
+	return file_orch_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *MonitorInfo) GetId() string {
@@ -3268,7 +3388,7 @@ type ListMonitorsResponse struct {
 
 func (x *ListMonitorsResponse) Reset() {
 	*x = ListMonitorsResponse{}
-	mi := &file_api_orch_proto_msgTypes[48]
+	mi := &file_orch_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3280,7 +3400,7 @@ func (x *ListMonitorsResponse) String() string {
 func (*ListMonitorsResponse) ProtoMessage() {}
 
 func (x *ListMonitorsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[48]
+	mi := &file_orch_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3293,7 +3413,7 @@ func (x *ListMonitorsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMonitorsResponse.ProtoReflect.Descriptor instead.
 func (*ListMonitorsResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{48}
+	return file_orch_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *ListMonitorsResponse) GetMonitors() []*MonitorInfo {
@@ -3315,7 +3435,7 @@ type KillMonitorRequest struct {
 
 func (x *KillMonitorRequest) Reset() {
 	*x = KillMonitorRequest{}
-	mi := &file_api_orch_proto_msgTypes[49]
+	mi := &file_orch_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3327,7 +3447,7 @@ func (x *KillMonitorRequest) String() string {
 func (*KillMonitorRequest) ProtoMessage() {}
 
 func (x *KillMonitorRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[49]
+	mi := &file_orch_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3340,7 +3460,7 @@ func (x *KillMonitorRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KillMonitorRequest.ProtoReflect.Descriptor instead.
 func (*KillMonitorRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{49}
+	return file_orch_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *KillMonitorRequest) GetMonitorId() string {
@@ -3380,7 +3500,7 @@ type KillMonitorResponse struct {
 
 func (x *KillMonitorResponse) Reset() {
 	*x = KillMonitorResponse{}
-	mi := &file_api_orch_proto_msgTypes[50]
+	mi := &file_orch_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3392,7 +3512,7 @@ func (x *KillMonitorResponse) String() string {
 func (*KillMonitorResponse) ProtoMessage() {}
 
 func (x *KillMonitorResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[50]
+	mi := &file_orch_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3405,7 +3525,7 @@ func (x *KillMonitorResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KillMonitorResponse.ProtoReflect.Descriptor instead.
 func (*KillMonitorResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{50}
+	return file_orch_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *KillMonitorResponse) GetKilledCount() int32 {
@@ -3425,7 +3545,7 @@ type GetRunByShortIDRequest struct {
 
 func (x *GetRunByShortIDRequest) Reset() {
 	*x = GetRunByShortIDRequest{}
-	mi := &file_api_orch_proto_msgTypes[51]
+	mi := &file_orch_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3437,7 +3557,7 @@ func (x *GetRunByShortIDRequest) String() string {
 func (*GetRunByShortIDRequest) ProtoMessage() {}
 
 func (x *GetRunByShortIDRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[51]
+	mi := &file_orch_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3450,7 +3570,7 @@ func (x *GetRunByShortIDRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRunByShortIDRequest.ProtoReflect.Descriptor instead.
 func (*GetRunByShortIDRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{51}
+	return file_orch_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *GetRunByShortIDRequest) GetIssuesRoot() string {
@@ -3477,7 +3597,7 @@ type GetRunByShortIDResponse struct {
 
 func (x *GetRunByShortIDResponse) Reset() {
 	*x = GetRunByShortIDResponse{}
-	mi := &file_api_orch_proto_msgTypes[52]
+	mi := &file_orch_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3489,7 +3609,7 @@ func (x *GetRunByShortIDResponse) String() string {
 func (*GetRunByShortIDResponse) ProtoMessage() {}
 
 func (x *GetRunByShortIDResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[52]
+	mi := &file_orch_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3502,7 +3622,7 @@ func (x *GetRunByShortIDResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRunByShortIDResponse.ProtoReflect.Descriptor instead.
 func (*GetRunByShortIDResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{52}
+	return file_orch_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *GetRunByShortIDResponse) GetRun() *Run {
@@ -3530,7 +3650,7 @@ type ResolveIssueRequest struct {
 
 func (x *ResolveIssueRequest) Reset() {
 	*x = ResolveIssueRequest{}
-	mi := &file_api_orch_proto_msgTypes[53]
+	mi := &file_orch_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3542,7 +3662,7 @@ func (x *ResolveIssueRequest) String() string {
 func (*ResolveIssueRequest) ProtoMessage() {}
 
 func (x *ResolveIssueRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[53]
+	mi := &file_orch_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3555,7 +3675,7 @@ func (x *ResolveIssueRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveIssueRequest.ProtoReflect.Descriptor instead.
 func (*ResolveIssueRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{53}
+	return file_orch_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *ResolveIssueRequest) GetIssuesRoot() string {
@@ -3588,7 +3708,7 @@ type ResolveIssueResponse struct {
 
 func (x *ResolveIssueResponse) Reset() {
 	*x = ResolveIssueResponse{}
-	mi := &file_api_orch_proto_msgTypes[54]
+	mi := &file_orch_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3600,7 +3720,7 @@ func (x *ResolveIssueResponse) String() string {
 func (*ResolveIssueResponse) ProtoMessage() {}
 
 func (x *ResolveIssueResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[54]
+	mi := &file_orch_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3613,7 +3733,7 @@ func (x *ResolveIssueResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveIssueResponse.ProtoReflect.Descriptor instead.
 func (*ResolveIssueResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{54}
+	return file_orch_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *ResolveIssueResponse) GetIssueId() string {
@@ -3638,7 +3758,7 @@ type AppendEventRequest struct {
 
 func (x *AppendEventRequest) Reset() {
 	*x = AppendEventRequest{}
-	mi := &file_api_orch_proto_msgTypes[55]
+	mi := &file_orch_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3650,7 +3770,7 @@ func (x *AppendEventRequest) String() string {
 func (*AppendEventRequest) ProtoMessage() {}
 
 func (x *AppendEventRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[55]
+	mi := &file_orch_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3663,7 +3783,7 @@ func (x *AppendEventRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppendEventRequest.ProtoReflect.Descriptor instead.
 func (*AppendEventRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{55}
+	return file_orch_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *AppendEventRequest) GetIssuesRoot() string {
@@ -3725,7 +3845,7 @@ type AppendEventResponse struct {
 
 func (x *AppendEventResponse) Reset() {
 	*x = AppendEventResponse{}
-	mi := &file_api_orch_proto_msgTypes[56]
+	mi := &file_orch_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3737,7 +3857,7 @@ func (x *AppendEventResponse) String() string {
 func (*AppendEventResponse) ProtoMessage() {}
 
 func (x *AppendEventResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[56]
+	mi := &file_orch_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3750,7 +3870,7 @@ func (x *AppendEventResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppendEventResponse.ProtoReflect.Descriptor instead.
 func (*AppendEventResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{56}
+	return file_orch_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *AppendEventResponse) GetSkipped() bool {
@@ -3776,7 +3896,7 @@ type EnsureOpenCodeServerRequest struct {
 
 func (x *EnsureOpenCodeServerRequest) Reset() {
 	*x = EnsureOpenCodeServerRequest{}
-	mi := &file_api_orch_proto_msgTypes[57]
+	mi := &file_orch_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3788,7 +3908,7 @@ func (x *EnsureOpenCodeServerRequest) String() string {
 func (*EnsureOpenCodeServerRequest) ProtoMessage() {}
 
 func (x *EnsureOpenCodeServerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[57]
+	mi := &file_orch_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3801,7 +3921,7 @@ func (x *EnsureOpenCodeServerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnsureOpenCodeServerRequest.ProtoReflect.Descriptor instead.
 func (*EnsureOpenCodeServerRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{57}
+	return file_orch_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *EnsureOpenCodeServerRequest) GetProjectRoot() string {
@@ -3821,7 +3941,7 @@ type EnsureOpenCodeServerResponse struct {
 
 func (x *EnsureOpenCodeServerResponse) Reset() {
 	*x = EnsureOpenCodeServerResponse{}
-	mi := &file_api_orch_proto_msgTypes[58]
+	mi := &file_orch_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3833,7 +3953,7 @@ func (x *EnsureOpenCodeServerResponse) String() string {
 func (*EnsureOpenCodeServerResponse) ProtoMessage() {}
 
 func (x *EnsureOpenCodeServerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[58]
+	mi := &file_orch_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3846,7 +3966,7 @@ func (x *EnsureOpenCodeServerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnsureOpenCodeServerResponse.ProtoReflect.Descriptor instead.
 func (*EnsureOpenCodeServerResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{58}
+	return file_orch_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *EnsureOpenCodeServerResponse) GetPort() int32 {
@@ -3872,7 +3992,7 @@ type RegisterRepoRequest struct {
 
 func (x *RegisterRepoRequest) Reset() {
 	*x = RegisterRepoRequest{}
-	mi := &file_api_orch_proto_msgTypes[59]
+	mi := &file_orch_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3884,7 +4004,7 @@ func (x *RegisterRepoRequest) String() string {
 func (*RegisterRepoRequest) ProtoMessage() {}
 
 func (x *RegisterRepoRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[59]
+	mi := &file_orch_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3897,7 +4017,7 @@ func (x *RegisterRepoRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterRepoRequest.ProtoReflect.Descriptor instead.
 func (*RegisterRepoRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{59}
+	return file_orch_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *RegisterRepoRequest) GetProjectRoot() string {
@@ -3916,7 +4036,7 @@ type RegisterRepoResponse struct {
 
 func (x *RegisterRepoResponse) Reset() {
 	*x = RegisterRepoResponse{}
-	mi := &file_api_orch_proto_msgTypes[60]
+	mi := &file_orch_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3928,7 +4048,7 @@ func (x *RegisterRepoResponse) String() string {
 func (*RegisterRepoResponse) ProtoMessage() {}
 
 func (x *RegisterRepoResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[60]
+	mi := &file_orch_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3941,7 +4061,7 @@ func (x *RegisterRepoResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterRepoResponse.ProtoReflect.Descriptor instead.
 func (*RegisterRepoResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{60}
+	return file_orch_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *RegisterRepoResponse) GetRepoId() string {
@@ -3959,7 +4079,7 @@ type ListReposRequest struct {
 
 func (x *ListReposRequest) Reset() {
 	*x = ListReposRequest{}
-	mi := &file_api_orch_proto_msgTypes[61]
+	mi := &file_orch_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3971,7 +4091,7 @@ func (x *ListReposRequest) String() string {
 func (*ListReposRequest) ProtoMessage() {}
 
 func (x *ListReposRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[61]
+	mi := &file_orch_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3984,7 +4104,7 @@ func (x *ListReposRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListReposRequest.ProtoReflect.Descriptor instead.
 func (*ListReposRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{61}
+	return file_orch_proto_rawDescGZIP(), []int{61}
 }
 
 type RepoInfo struct {
@@ -3998,7 +4118,7 @@ type RepoInfo struct {
 
 func (x *RepoInfo) Reset() {
 	*x = RepoInfo{}
-	mi := &file_api_orch_proto_msgTypes[62]
+	mi := &file_orch_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4010,7 +4130,7 @@ func (x *RepoInfo) String() string {
 func (*RepoInfo) ProtoMessage() {}
 
 func (x *RepoInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[62]
+	mi := &file_orch_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4023,7 +4143,7 @@ func (x *RepoInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RepoInfo.ProtoReflect.Descriptor instead.
 func (*RepoInfo) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{62}
+	return file_orch_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *RepoInfo) GetId() string {
@@ -4056,7 +4176,7 @@ type ListReposResponse struct {
 
 func (x *ListReposResponse) Reset() {
 	*x = ListReposResponse{}
-	mi := &file_api_orch_proto_msgTypes[63]
+	mi := &file_orch_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4068,7 +4188,7 @@ func (x *ListReposResponse) String() string {
 func (*ListReposResponse) ProtoMessage() {}
 
 func (x *ListReposResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[63]
+	mi := &file_orch_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4081,7 +4201,7 @@ func (x *ListReposResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListReposResponse.ProtoReflect.Descriptor instead.
 func (*ListReposResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{63}
+	return file_orch_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *ListReposResponse) GetRepos() []*RepoInfo {
@@ -4106,7 +4226,7 @@ type DeleteRunRequest struct {
 
 func (x *DeleteRunRequest) Reset() {
 	*x = DeleteRunRequest{}
-	mi := &file_api_orch_proto_msgTypes[64]
+	mi := &file_orch_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4118,7 +4238,7 @@ func (x *DeleteRunRequest) String() string {
 func (*DeleteRunRequest) ProtoMessage() {}
 
 func (x *DeleteRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[64]
+	mi := &file_orch_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4131,7 +4251,7 @@ func (x *DeleteRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteRunRequest.ProtoReflect.Descriptor instead.
 func (*DeleteRunRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{64}
+	return file_orch_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *DeleteRunRequest) GetIssuesRoot() string {
@@ -4197,7 +4317,7 @@ type DeleteRunResponse struct {
 
 func (x *DeleteRunResponse) Reset() {
 	*x = DeleteRunResponse{}
-	mi := &file_api_orch_proto_msgTypes[65]
+	mi := &file_orch_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4209,7 +4329,7 @@ func (x *DeleteRunResponse) String() string {
 func (*DeleteRunResponse) ProtoMessage() {}
 
 func (x *DeleteRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[65]
+	mi := &file_orch_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4222,7 +4342,7 @@ func (x *DeleteRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteRunResponse.ProtoReflect.Descriptor instead.
 func (*DeleteRunResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{65}
+	return file_orch_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *DeleteRunResponse) GetIssueId() string {
@@ -4281,7 +4401,7 @@ type UpdateIssueRequest struct {
 
 func (x *UpdateIssueRequest) Reset() {
 	*x = UpdateIssueRequest{}
-	mi := &file_api_orch_proto_msgTypes[66]
+	mi := &file_orch_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4293,7 +4413,7 @@ func (x *UpdateIssueRequest) String() string {
 func (*UpdateIssueRequest) ProtoMessage() {}
 
 func (x *UpdateIssueRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[66]
+	mi := &file_orch_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4306,7 +4426,7 @@ func (x *UpdateIssueRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateIssueRequest.ProtoReflect.Descriptor instead.
 func (*UpdateIssueRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{66}
+	return file_orch_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *UpdateIssueRequest) GetIssuesRoot() string {
@@ -4360,7 +4480,7 @@ type UpdateIssueResponse struct {
 
 func (x *UpdateIssueResponse) Reset() {
 	*x = UpdateIssueResponse{}
-	mi := &file_api_orch_proto_msgTypes[67]
+	mi := &file_orch_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4372,7 +4492,7 @@ func (x *UpdateIssueResponse) String() string {
 func (*UpdateIssueResponse) ProtoMessage() {}
 
 func (x *UpdateIssueResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[67]
+	mi := &file_orch_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4385,7 +4505,7 @@ func (x *UpdateIssueResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateIssueResponse.ProtoReflect.Descriptor instead.
 func (*UpdateIssueResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{67}
+	return file_orch_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *UpdateIssueResponse) GetIssue() *Issue {
@@ -4405,7 +4525,7 @@ type ValidateIssueFilesRequest struct {
 
 func (x *ValidateIssueFilesRequest) Reset() {
 	*x = ValidateIssueFilesRequest{}
-	mi := &file_api_orch_proto_msgTypes[68]
+	mi := &file_orch_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4417,7 +4537,7 @@ func (x *ValidateIssueFilesRequest) String() string {
 func (*ValidateIssueFilesRequest) ProtoMessage() {}
 
 func (x *ValidateIssueFilesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[68]
+	mi := &file_orch_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4430,7 +4550,7 @@ func (x *ValidateIssueFilesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateIssueFilesRequest.ProtoReflect.Descriptor instead.
 func (*ValidateIssueFilesRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{68}
+	return file_orch_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *ValidateIssueFilesRequest) GetIssuesRoot() string {
@@ -4459,7 +4579,7 @@ type ValidationIssue struct {
 
 func (x *ValidationIssue) Reset() {
 	*x = ValidationIssue{}
-	mi := &file_api_orch_proto_msgTypes[69]
+	mi := &file_orch_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4471,7 +4591,7 @@ func (x *ValidationIssue) String() string {
 func (*ValidationIssue) ProtoMessage() {}
 
 func (x *ValidationIssue) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[69]
+	mi := &file_orch_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4484,7 +4604,7 @@ func (x *ValidationIssue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidationIssue.ProtoReflect.Descriptor instead.
 func (*ValidationIssue) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{69}
+	return file_orch_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *ValidationIssue) GetCode() string {
@@ -4527,7 +4647,7 @@ type ValidationResultItem struct {
 
 func (x *ValidationResultItem) Reset() {
 	*x = ValidationResultItem{}
-	mi := &file_api_orch_proto_msgTypes[70]
+	mi := &file_orch_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4539,7 +4659,7 @@ func (x *ValidationResultItem) String() string {
 func (*ValidationResultItem) ProtoMessage() {}
 
 func (x *ValidationResultItem) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[70]
+	mi := &file_orch_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4552,7 +4672,7 @@ func (x *ValidationResultItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidationResultItem.ProtoReflect.Descriptor instead.
 func (*ValidationResultItem) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{70}
+	return file_orch_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *ValidationResultItem) GetFile() string {
@@ -4593,7 +4713,7 @@ type DuplicateIDItem struct {
 
 func (x *DuplicateIDItem) Reset() {
 	*x = DuplicateIDItem{}
-	mi := &file_api_orch_proto_msgTypes[71]
+	mi := &file_orch_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4605,7 +4725,7 @@ func (x *DuplicateIDItem) String() string {
 func (*DuplicateIDItem) ProtoMessage() {}
 
 func (x *DuplicateIDItem) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[71]
+	mi := &file_orch_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4618,7 +4738,7 @@ func (x *DuplicateIDItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DuplicateIDItem.ProtoReflect.Descriptor instead.
 func (*DuplicateIDItem) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{71}
+	return file_orch_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *DuplicateIDItem) GetId() string {
@@ -4648,7 +4768,7 @@ type ValidateIssueFilesResponse struct {
 
 func (x *ValidateIssueFilesResponse) Reset() {
 	*x = ValidateIssueFilesResponse{}
-	mi := &file_api_orch_proto_msgTypes[72]
+	mi := &file_orch_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4660,7 +4780,7 @@ func (x *ValidateIssueFilesResponse) String() string {
 func (*ValidateIssueFilesResponse) ProtoMessage() {}
 
 func (x *ValidateIssueFilesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[72]
+	mi := &file_orch_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4673,7 +4793,7 @@ func (x *ValidateIssueFilesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateIssueFilesResponse.ProtoReflect.Descriptor instead.
 func (*ValidateIssueFilesResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{72}
+	return file_orch_proto_rawDescGZIP(), []int{72}
 }
 
 func (x *ValidateIssueFilesResponse) GetTotal() int32 {
@@ -4724,7 +4844,7 @@ type WriteAgentPromptRequest struct {
 
 func (x *WriteAgentPromptRequest) Reset() {
 	*x = WriteAgentPromptRequest{}
-	mi := &file_api_orch_proto_msgTypes[73]
+	mi := &file_orch_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4736,7 +4856,7 @@ func (x *WriteAgentPromptRequest) String() string {
 func (*WriteAgentPromptRequest) ProtoMessage() {}
 
 func (x *WriteAgentPromptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[73]
+	mi := &file_orch_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4749,7 +4869,7 @@ func (x *WriteAgentPromptRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteAgentPromptRequest.ProtoReflect.Descriptor instead.
 func (*WriteAgentPromptRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{73}
+	return file_orch_proto_rawDescGZIP(), []int{73}
 }
 
 func (x *WriteAgentPromptRequest) GetIssuesRoot() string {
@@ -4795,7 +4915,7 @@ type WriteAgentPromptResponse struct {
 
 func (x *WriteAgentPromptResponse) Reset() {
 	*x = WriteAgentPromptResponse{}
-	mi := &file_api_orch_proto_msgTypes[74]
+	mi := &file_orch_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4807,7 +4927,7 @@ func (x *WriteAgentPromptResponse) String() string {
 func (*WriteAgentPromptResponse) ProtoMessage() {}
 
 func (x *WriteAgentPromptResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[74]
+	mi := &file_orch_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4820,7 +4940,7 @@ func (x *WriteAgentPromptResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteAgentPromptResponse.ProtoReflect.Descriptor instead.
 func (*WriteAgentPromptResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{74}
+	return file_orch_proto_rawDescGZIP(), []int{74}
 }
 
 type ReadAgentPromptRequest struct {
@@ -4835,7 +4955,7 @@ type ReadAgentPromptRequest struct {
 
 func (x *ReadAgentPromptRequest) Reset() {
 	*x = ReadAgentPromptRequest{}
-	mi := &file_api_orch_proto_msgTypes[75]
+	mi := &file_orch_proto_msgTypes[75]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4847,7 +4967,7 @@ func (x *ReadAgentPromptRequest) String() string {
 func (*ReadAgentPromptRequest) ProtoMessage() {}
 
 func (x *ReadAgentPromptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[75]
+	mi := &file_orch_proto_msgTypes[75]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4860,7 +4980,7 @@ func (x *ReadAgentPromptRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadAgentPromptRequest.ProtoReflect.Descriptor instead.
 func (*ReadAgentPromptRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{75}
+	return file_orch_proto_rawDescGZIP(), []int{75}
 }
 
 func (x *ReadAgentPromptRequest) GetIssuesRoot() string {
@@ -4900,7 +5020,7 @@ type ReadAgentPromptResponse struct {
 
 func (x *ReadAgentPromptResponse) Reset() {
 	*x = ReadAgentPromptResponse{}
-	mi := &file_api_orch_proto_msgTypes[76]
+	mi := &file_orch_proto_msgTypes[76]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4912,7 +5032,7 @@ func (x *ReadAgentPromptResponse) String() string {
 func (*ReadAgentPromptResponse) ProtoMessage() {}
 
 func (x *ReadAgentPromptResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[76]
+	mi := &file_orch_proto_msgTypes[76]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4925,7 +5045,7 @@ func (x *ReadAgentPromptResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadAgentPromptResponse.ProtoReflect.Descriptor instead.
 func (*ReadAgentPromptResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{76}
+	return file_orch_proto_rawDescGZIP(), []int{76}
 }
 
 func (x *ReadAgentPromptResponse) GetContent() string {
@@ -4945,7 +5065,7 @@ type RepairStateRequest struct {
 
 func (x *RepairStateRequest) Reset() {
 	*x = RepairStateRequest{}
-	mi := &file_api_orch_proto_msgTypes[77]
+	mi := &file_orch_proto_msgTypes[77]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4957,7 +5077,7 @@ func (x *RepairStateRequest) String() string {
 func (*RepairStateRequest) ProtoMessage() {}
 
 func (x *RepairStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[77]
+	mi := &file_orch_proto_msgTypes[77]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4970,7 +5090,7 @@ func (x *RepairStateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RepairStateRequest.ProtoReflect.Descriptor instead.
 func (*RepairStateRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{77}
+	return file_orch_proto_rawDescGZIP(), []int{77}
 }
 
 func (x *RepairStateRequest) GetDryRun() bool {
@@ -4998,7 +5118,7 @@ type RepairStateResponse struct {
 
 func (x *RepairStateResponse) Reset() {
 	*x = RepairStateResponse{}
-	mi := &file_api_orch_proto_msgTypes[78]
+	mi := &file_orch_proto_msgTypes[78]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5010,7 +5130,7 @@ func (x *RepairStateResponse) String() string {
 func (*RepairStateResponse) ProtoMessage() {}
 
 func (x *RepairStateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[78]
+	mi := &file_orch_proto_msgTypes[78]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5023,7 +5143,7 @@ func (x *RepairStateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RepairStateResponse.ProtoReflect.Descriptor instead.
 func (*RepairStateResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{78}
+	return file_orch_proto_rawDescGZIP(), []int{78}
 }
 
 func (x *RepairStateResponse) GetProblemsFound() int32 {
@@ -5056,7 +5176,7 @@ type GetDaemonLogRequest struct {
 
 func (x *GetDaemonLogRequest) Reset() {
 	*x = GetDaemonLogRequest{}
-	mi := &file_api_orch_proto_msgTypes[79]
+	mi := &file_orch_proto_msgTypes[79]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5068,7 +5188,7 @@ func (x *GetDaemonLogRequest) String() string {
 func (*GetDaemonLogRequest) ProtoMessage() {}
 
 func (x *GetDaemonLogRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[79]
+	mi := &file_orch_proto_msgTypes[79]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5081,7 +5201,7 @@ func (x *GetDaemonLogRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDaemonLogRequest.ProtoReflect.Descriptor instead.
 func (*GetDaemonLogRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{79}
+	return file_orch_proto_rawDescGZIP(), []int{79}
 }
 
 func (x *GetDaemonLogRequest) GetLines() int32 {
@@ -5100,7 +5220,7 @@ type GetDaemonLogResponse struct {
 
 func (x *GetDaemonLogResponse) Reset() {
 	*x = GetDaemonLogResponse{}
-	mi := &file_api_orch_proto_msgTypes[80]
+	mi := &file_orch_proto_msgTypes[80]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5112,7 +5232,7 @@ func (x *GetDaemonLogResponse) String() string {
 func (*GetDaemonLogResponse) ProtoMessage() {}
 
 func (x *GetDaemonLogResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[80]
+	mi := &file_orch_proto_msgTypes[80]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5125,7 +5245,7 @@ func (x *GetDaemonLogResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDaemonLogResponse.ProtoReflect.Descriptor instead.
 func (*GetDaemonLogResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{80}
+	return file_orch_proto_rawDescGZIP(), []int{80}
 }
 
 func (x *GetDaemonLogResponse) GetContent() string {
@@ -5144,7 +5264,7 @@ type ReadFileRequest struct {
 
 func (x *ReadFileRequest) Reset() {
 	*x = ReadFileRequest{}
-	mi := &file_api_orch_proto_msgTypes[81]
+	mi := &file_orch_proto_msgTypes[81]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5156,7 +5276,7 @@ func (x *ReadFileRequest) String() string {
 func (*ReadFileRequest) ProtoMessage() {}
 
 func (x *ReadFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[81]
+	mi := &file_orch_proto_msgTypes[81]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5169,7 +5289,7 @@ func (x *ReadFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadFileRequest.ProtoReflect.Descriptor instead.
 func (*ReadFileRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{81}
+	return file_orch_proto_rawDescGZIP(), []int{81}
 }
 
 func (x *ReadFileRequest) GetPath() string {
@@ -5188,7 +5308,7 @@ type ReadFileResponse struct {
 
 func (x *ReadFileResponse) Reset() {
 	*x = ReadFileResponse{}
-	mi := &file_api_orch_proto_msgTypes[82]
+	mi := &file_orch_proto_msgTypes[82]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5200,7 +5320,7 @@ func (x *ReadFileResponse) String() string {
 func (*ReadFileResponse) ProtoMessage() {}
 
 func (x *ReadFileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[82]
+	mi := &file_orch_proto_msgTypes[82]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5213,7 +5333,7 @@ func (x *ReadFileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadFileResponse.ProtoReflect.Descriptor instead.
 func (*ReadFileResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{82}
+	return file_orch_proto_rawDescGZIP(), []int{82}
 }
 
 func (x *ReadFileResponse) GetContent() []byte {
@@ -5234,7 +5354,7 @@ type WriteFileRequest struct {
 
 func (x *WriteFileRequest) Reset() {
 	*x = WriteFileRequest{}
-	mi := &file_api_orch_proto_msgTypes[83]
+	mi := &file_orch_proto_msgTypes[83]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5246,7 +5366,7 @@ func (x *WriteFileRequest) String() string {
 func (*WriteFileRequest) ProtoMessage() {}
 
 func (x *WriteFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[83]
+	mi := &file_orch_proto_msgTypes[83]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5259,7 +5379,7 @@ func (x *WriteFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteFileRequest.ProtoReflect.Descriptor instead.
 func (*WriteFileRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{83}
+	return file_orch_proto_rawDescGZIP(), []int{83}
 }
 
 func (x *WriteFileRequest) GetPath() string {
@@ -5291,7 +5411,7 @@ type WriteFileResponse struct {
 
 func (x *WriteFileResponse) Reset() {
 	*x = WriteFileResponse{}
-	mi := &file_api_orch_proto_msgTypes[84]
+	mi := &file_orch_proto_msgTypes[84]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5303,7 +5423,7 @@ func (x *WriteFileResponse) String() string {
 func (*WriteFileResponse) ProtoMessage() {}
 
 func (x *WriteFileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[84]
+	mi := &file_orch_proto_msgTypes[84]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5316,7 +5436,7 @@ func (x *WriteFileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteFileResponse.ProtoReflect.Descriptor instead.
 func (*WriteFileResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{84}
+	return file_orch_proto_rawDescGZIP(), []int{84}
 }
 
 type KillSessionRequest struct {
@@ -5329,7 +5449,7 @@ type KillSessionRequest struct {
 
 func (x *KillSessionRequest) Reset() {
 	*x = KillSessionRequest{}
-	mi := &file_api_orch_proto_msgTypes[85]
+	mi := &file_orch_proto_msgTypes[85]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5341,7 +5461,7 @@ func (x *KillSessionRequest) String() string {
 func (*KillSessionRequest) ProtoMessage() {}
 
 func (x *KillSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[85]
+	mi := &file_orch_proto_msgTypes[85]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5354,7 +5474,7 @@ func (x *KillSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KillSessionRequest.ProtoReflect.Descriptor instead.
 func (*KillSessionRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{85}
+	return file_orch_proto_rawDescGZIP(), []int{85}
 }
 
 func (x *KillSessionRequest) GetSessionName() string {
@@ -5380,7 +5500,7 @@ type KillSessionResponse struct {
 
 func (x *KillSessionResponse) Reset() {
 	*x = KillSessionResponse{}
-	mi := &file_api_orch_proto_msgTypes[86]
+	mi := &file_orch_proto_msgTypes[86]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5392,7 +5512,7 @@ func (x *KillSessionResponse) String() string {
 func (*KillSessionResponse) ProtoMessage() {}
 
 func (x *KillSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[86]
+	mi := &file_orch_proto_msgTypes[86]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5405,7 +5525,7 @@ func (x *KillSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KillSessionResponse.ProtoReflect.Descriptor instead.
 func (*KillSessionResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{86}
+	return file_orch_proto_rawDescGZIP(), []int{86}
 }
 
 func (x *KillSessionResponse) GetKilled() bool {
@@ -5424,7 +5544,7 @@ type ListSessionsRequest struct {
 
 func (x *ListSessionsRequest) Reset() {
 	*x = ListSessionsRequest{}
-	mi := &file_api_orch_proto_msgTypes[87]
+	mi := &file_orch_proto_msgTypes[87]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5436,7 +5556,7 @@ func (x *ListSessionsRequest) String() string {
 func (*ListSessionsRequest) ProtoMessage() {}
 
 func (x *ListSessionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[87]
+	mi := &file_orch_proto_msgTypes[87]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5449,7 +5569,7 @@ func (x *ListSessionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSessionsRequest.ProtoReflect.Descriptor instead.
 func (*ListSessionsRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{87}
+	return file_orch_proto_rawDescGZIP(), []int{87}
 }
 
 func (x *ListSessionsRequest) GetMultiplexer() Multiplexer {
@@ -5468,7 +5588,7 @@ type ListSessionsResponse struct {
 
 func (x *ListSessionsResponse) Reset() {
 	*x = ListSessionsResponse{}
-	mi := &file_api_orch_proto_msgTypes[88]
+	mi := &file_orch_proto_msgTypes[88]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5480,7 +5600,7 @@ func (x *ListSessionsResponse) String() string {
 func (*ListSessionsResponse) ProtoMessage() {}
 
 func (x *ListSessionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[88]
+	mi := &file_orch_proto_msgTypes[88]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5493,7 +5613,7 @@ func (x *ListSessionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSessionsResponse.ProtoReflect.Descriptor instead.
 func (*ListSessionsResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{88}
+	return file_orch_proto_rawDescGZIP(), []int{88}
 }
 
 func (x *ListSessionsResponse) GetSessions() []string {
@@ -5515,7 +5635,7 @@ type ResumeRunRequest struct {
 
 func (x *ResumeRunRequest) Reset() {
 	*x = ResumeRunRequest{}
-	mi := &file_api_orch_proto_msgTypes[89]
+	mi := &file_orch_proto_msgTypes[89]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5527,7 +5647,7 @@ func (x *ResumeRunRequest) String() string {
 func (*ResumeRunRequest) ProtoMessage() {}
 
 func (x *ResumeRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[89]
+	mi := &file_orch_proto_msgTypes[89]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5540,7 +5660,7 @@ func (x *ResumeRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResumeRunRequest.ProtoReflect.Descriptor instead.
 func (*ResumeRunRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{89}
+	return file_orch_proto_rawDescGZIP(), []int{89}
 }
 
 func (x *ResumeRunRequest) GetIssuesRoot() string {
@@ -5580,7 +5700,7 @@ type ResumeRunResponse struct {
 
 func (x *ResumeRunResponse) Reset() {
 	*x = ResumeRunResponse{}
-	mi := &file_api_orch_proto_msgTypes[90]
+	mi := &file_orch_proto_msgTypes[90]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5592,7 +5712,7 @@ func (x *ResumeRunResponse) String() string {
 func (*ResumeRunResponse) ProtoMessage() {}
 
 func (x *ResumeRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[90]
+	mi := &file_orch_proto_msgTypes[90]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5605,7 +5725,7 @@ func (x *ResumeRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResumeRunResponse.ProtoReflect.Descriptor instead.
 func (*ResumeRunResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{90}
+	return file_orch_proto_rawDescGZIP(), []int{90}
 }
 
 func (x *ResumeRunResponse) GetSessionName() string {
@@ -5625,7 +5745,7 @@ type QueryOpenCodeServerRequest struct {
 
 func (x *QueryOpenCodeServerRequest) Reset() {
 	*x = QueryOpenCodeServerRequest{}
-	mi := &file_api_orch_proto_msgTypes[91]
+	mi := &file_orch_proto_msgTypes[91]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5637,7 +5757,7 @@ func (x *QueryOpenCodeServerRequest) String() string {
 func (*QueryOpenCodeServerRequest) ProtoMessage() {}
 
 func (x *QueryOpenCodeServerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[91]
+	mi := &file_orch_proto_msgTypes[91]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5650,7 +5770,7 @@ func (x *QueryOpenCodeServerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryOpenCodeServerRequest.ProtoReflect.Descriptor instead.
 func (*QueryOpenCodeServerRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{91}
+	return file_orch_proto_rawDescGZIP(), []int{91}
 }
 
 func (x *QueryOpenCodeServerRequest) GetPort() int32 {
@@ -5678,7 +5798,7 @@ type OpenCodeProviderInfo struct {
 
 func (x *OpenCodeProviderInfo) Reset() {
 	*x = OpenCodeProviderInfo{}
-	mi := &file_api_orch_proto_msgTypes[92]
+	mi := &file_orch_proto_msgTypes[92]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5690,7 +5810,7 @@ func (x *OpenCodeProviderInfo) String() string {
 func (*OpenCodeProviderInfo) ProtoMessage() {}
 
 func (x *OpenCodeProviderInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[92]
+	mi := &file_orch_proto_msgTypes[92]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5703,7 +5823,7 @@ func (x *OpenCodeProviderInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenCodeProviderInfo.ProtoReflect.Descriptor instead.
 func (*OpenCodeProviderInfo) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{92}
+	return file_orch_proto_rawDescGZIP(), []int{92}
 }
 
 func (x *OpenCodeProviderInfo) GetId() string {
@@ -5738,7 +5858,7 @@ type OpenCodeModelInfo struct {
 
 func (x *OpenCodeModelInfo) Reset() {
 	*x = OpenCodeModelInfo{}
-	mi := &file_api_orch_proto_msgTypes[93]
+	mi := &file_orch_proto_msgTypes[93]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5750,7 +5870,7 @@ func (x *OpenCodeModelInfo) String() string {
 func (*OpenCodeModelInfo) ProtoMessage() {}
 
 func (x *OpenCodeModelInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[93]
+	mi := &file_orch_proto_msgTypes[93]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5763,7 +5883,7 @@ func (x *OpenCodeModelInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenCodeModelInfo.ProtoReflect.Descriptor instead.
 func (*OpenCodeModelInfo) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{93}
+	return file_orch_proto_rawDescGZIP(), []int{93}
 }
 
 func (x *OpenCodeModelInfo) GetId() string {
@@ -5798,7 +5918,7 @@ type QueryOpenCodeServerResponse struct {
 
 func (x *QueryOpenCodeServerResponse) Reset() {
 	*x = QueryOpenCodeServerResponse{}
-	mi := &file_api_orch_proto_msgTypes[94]
+	mi := &file_orch_proto_msgTypes[94]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5810,7 +5930,7 @@ func (x *QueryOpenCodeServerResponse) String() string {
 func (*QueryOpenCodeServerResponse) ProtoMessage() {}
 
 func (x *QueryOpenCodeServerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[94]
+	mi := &file_orch_proto_msgTypes[94]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5823,7 +5943,7 @@ func (x *QueryOpenCodeServerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryOpenCodeServerResponse.ProtoReflect.Descriptor instead.
 func (*QueryOpenCodeServerResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{94}
+	return file_orch_proto_rawDescGZIP(), []int{94}
 }
 
 func (x *QueryOpenCodeServerResponse) GetServerRunning() bool {
@@ -5863,7 +5983,7 @@ type InjectInitialPromptRequest struct {
 
 func (x *InjectInitialPromptRequest) Reset() {
 	*x = InjectInitialPromptRequest{}
-	mi := &file_api_orch_proto_msgTypes[95]
+	mi := &file_orch_proto_msgTypes[95]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5875,7 +5995,7 @@ func (x *InjectInitialPromptRequest) String() string {
 func (*InjectInitialPromptRequest) ProtoMessage() {}
 
 func (x *InjectInitialPromptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[95]
+	mi := &file_orch_proto_msgTypes[95]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5888,7 +6008,7 @@ func (x *InjectInitialPromptRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InjectInitialPromptRequest.ProtoReflect.Descriptor instead.
 func (*InjectInitialPromptRequest) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{95}
+	return file_orch_proto_rawDescGZIP(), []int{95}
 }
 
 func (x *InjectInitialPromptRequest) GetIssuesRoot() string {
@@ -5957,7 +6077,7 @@ type InjectInitialPromptResponse struct {
 
 func (x *InjectInitialPromptResponse) Reset() {
 	*x = InjectInitialPromptResponse{}
-	mi := &file_api_orch_proto_msgTypes[96]
+	mi := &file_orch_proto_msgTypes[96]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5969,7 +6089,7 @@ func (x *InjectInitialPromptResponse) String() string {
 func (*InjectInitialPromptResponse) ProtoMessage() {}
 
 func (x *InjectInitialPromptResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[96]
+	mi := &file_orch_proto_msgTypes[96]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5982,7 +6102,7 @@ func (x *InjectInitialPromptResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InjectInitialPromptResponse.ProtoReflect.Descriptor instead.
 func (*InjectInitialPromptResponse) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{96}
+	return file_orch_proto_rawDescGZIP(), []int{96}
 }
 
 func (x *InjectInitialPromptResponse) GetSessionId() string {
@@ -5997,6 +6117,1236 @@ func (x *InjectInitialPromptResponse) GetPort() int32 {
 		return x.Port
 	}
 	return 0
+}
+
+type ContinueRunRequest struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	IssuesRoot  string                 `protobuf:"bytes,1,opt,name=issues_root,json=issuesRoot,proto3" json:"issues_root,omitempty"`
+	ProjectRoot string                 `protobuf:"bytes,2,opt,name=project_root,json=projectRoot,proto3" json:"project_root,omitempty"`
+	// Source: either from_run or from_branch (use issue_id + run_id for from_run, issue_id + branch for from_branch)
+	IssueId string `protobuf:"bytes,3,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"`
+	RunId   string `protobuf:"bytes,4,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	ShortId string `protobuf:"bytes,5,opt,name=short_id,json=shortId,proto3" json:"short_id,omitempty"`
+	Branch  string `protobuf:"bytes,6,opt,name=branch,proto3" json:"branch,omitempty"`
+	// Overrides
+	Agent          string `protobuf:"bytes,7,opt,name=agent,proto3" json:"agent,omitempty"`
+	AgentCmd       string `protobuf:"bytes,8,opt,name=agent_cmd,json=agentCmd,proto3" json:"agent_cmd,omitempty"`
+	AgentProfile   string `protobuf:"bytes,9,opt,name=agent_profile,json=agentProfile,proto3" json:"agent_profile,omitempty"`
+	WorktreeDir    string `protobuf:"bytes,10,opt,name=worktree_dir,json=worktreeDir,proto3" json:"worktree_dir,omitempty"`
+	NoPr           bool   `protobuf:"varint,11,opt,name=no_pr,json=noPr,proto3" json:"no_pr,omitempty"`
+	PromptTemplate string `protobuf:"bytes,12,opt,name=prompt_template,json=promptTemplate,proto3" json:"prompt_template,omitempty"`
+	PrTargetBranch string `protobuf:"bytes,13,opt,name=pr_target_branch,json=prTargetBranch,proto3" json:"pr_target_branch,omitempty"`
+	Multiplexer    string `protobuf:"bytes,14,opt,name=multiplexer,proto3" json:"multiplexer,omitempty"`
+	SessionName    string `protobuf:"bytes,15,opt,name=session_name,json=sessionName,proto3" json:"session_name,omitempty"`
+	RepoRoot       string `protobuf:"bytes,16,opt,name=repo_root,json=repoRoot,proto3" json:"repo_root,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ContinueRunRequest) Reset() {
+	*x = ContinueRunRequest{}
+	mi := &file_orch_proto_msgTypes[97]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContinueRunRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContinueRunRequest) ProtoMessage() {}
+
+func (x *ContinueRunRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[97]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContinueRunRequest.ProtoReflect.Descriptor instead.
+func (*ContinueRunRequest) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{97}
+}
+
+func (x *ContinueRunRequest) GetIssuesRoot() string {
+	if x != nil {
+		return x.IssuesRoot
+	}
+	return ""
+}
+
+func (x *ContinueRunRequest) GetProjectRoot() string {
+	if x != nil {
+		return x.ProjectRoot
+	}
+	return ""
+}
+
+func (x *ContinueRunRequest) GetIssueId() string {
+	if x != nil {
+		return x.IssueId
+	}
+	return ""
+}
+
+func (x *ContinueRunRequest) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *ContinueRunRequest) GetShortId() string {
+	if x != nil {
+		return x.ShortId
+	}
+	return ""
+}
+
+func (x *ContinueRunRequest) GetBranch() string {
+	if x != nil {
+		return x.Branch
+	}
+	return ""
+}
+
+func (x *ContinueRunRequest) GetAgent() string {
+	if x != nil {
+		return x.Agent
+	}
+	return ""
+}
+
+func (x *ContinueRunRequest) GetAgentCmd() string {
+	if x != nil {
+		return x.AgentCmd
+	}
+	return ""
+}
+
+func (x *ContinueRunRequest) GetAgentProfile() string {
+	if x != nil {
+		return x.AgentProfile
+	}
+	return ""
+}
+
+func (x *ContinueRunRequest) GetWorktreeDir() string {
+	if x != nil {
+		return x.WorktreeDir
+	}
+	return ""
+}
+
+func (x *ContinueRunRequest) GetNoPr() bool {
+	if x != nil {
+		return x.NoPr
+	}
+	return false
+}
+
+func (x *ContinueRunRequest) GetPromptTemplate() string {
+	if x != nil {
+		return x.PromptTemplate
+	}
+	return ""
+}
+
+func (x *ContinueRunRequest) GetPrTargetBranch() string {
+	if x != nil {
+		return x.PrTargetBranch
+	}
+	return ""
+}
+
+func (x *ContinueRunRequest) GetMultiplexer() string {
+	if x != nil {
+		return x.Multiplexer
+	}
+	return ""
+}
+
+func (x *ContinueRunRequest) GetSessionName() string {
+	if x != nil {
+		return x.SessionName
+	}
+	return ""
+}
+
+func (x *ContinueRunRequest) GetRepoRoot() string {
+	if x != nil {
+		return x.RepoRoot
+	}
+	return ""
+}
+
+type ContinueRunResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Branch        string                 `protobuf:"bytes,2,opt,name=branch,proto3" json:"branch,omitempty"`
+	WorktreePath  string                 `protobuf:"bytes,3,opt,name=worktree_path,json=worktreePath,proto3" json:"worktree_path,omitempty"`
+	SessionName   string                 `protobuf:"bytes,4,opt,name=session_name,json=sessionName,proto3" json:"session_name,omitempty"`
+	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
+	ContinuedFrom string                 `protobuf:"bytes,6,opt,name=continued_from,json=continuedFrom,proto3" json:"continued_from,omitempty"`
+	IssueId       string                 `protobuf:"bytes,7,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContinueRunResponse) Reset() {
+	*x = ContinueRunResponse{}
+	mi := &file_orch_proto_msgTypes[98]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContinueRunResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContinueRunResponse) ProtoMessage() {}
+
+func (x *ContinueRunResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[98]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContinueRunResponse.ProtoReflect.Descriptor instead.
+func (*ContinueRunResponse) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{98}
+}
+
+func (x *ContinueRunResponse) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *ContinueRunResponse) GetBranch() string {
+	if x != nil {
+		return x.Branch
+	}
+	return ""
+}
+
+func (x *ContinueRunResponse) GetWorktreePath() string {
+	if x != nil {
+		return x.WorktreePath
+	}
+	return ""
+}
+
+func (x *ContinueRunResponse) GetSessionName() string {
+	if x != nil {
+		return x.SessionName
+	}
+	return ""
+}
+
+func (x *ContinueRunResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ContinueRunResponse) GetContinuedFrom() string {
+	if x != nil {
+		return x.ContinuedFrom
+	}
+	return ""
+}
+
+func (x *ContinueRunResponse) GetIssueId() string {
+	if x != nil {
+		return x.IssueId
+	}
+	return ""
+}
+
+type GetConfigRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ProjectRoot   string                 `protobuf:"bytes,1,opt,name=project_root,json=projectRoot,proto3" json:"project_root,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetConfigRequest) Reset() {
+	*x = GetConfigRequest{}
+	mi := &file_orch_proto_msgTypes[99]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetConfigRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetConfigRequest) ProtoMessage() {}
+
+func (x *GetConfigRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[99]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetConfigRequest.ProtoReflect.Descriptor instead.
+func (*GetConfigRequest) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{99}
+}
+
+func (x *GetConfigRequest) GetProjectRoot() string {
+	if x != nil {
+		return x.ProjectRoot
+	}
+	return ""
+}
+
+type SlackConfigProto struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Enabled       bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	WebhookUrl    string                 `protobuf:"bytes,2,opt,name=webhook_url,json=webhookUrl,proto3" json:"webhook_url,omitempty"`
+	BotToken      string                 `protobuf:"bytes,3,opt,name=bot_token,json=botToken,proto3" json:"bot_token,omitempty"`
+	Channel       string                 `protobuf:"bytes,4,opt,name=channel,proto3" json:"channel,omitempty"`
+	NotifyOn      []string               `protobuf:"bytes,5,rep,name=notify_on,json=notifyOn,proto3" json:"notify_on,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SlackConfigProto) Reset() {
+	*x = SlackConfigProto{}
+	mi := &file_orch_proto_msgTypes[100]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SlackConfigProto) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SlackConfigProto) ProtoMessage() {}
+
+func (x *SlackConfigProto) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[100]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SlackConfigProto.ProtoReflect.Descriptor instead.
+func (*SlackConfigProto) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{100}
+}
+
+func (x *SlackConfigProto) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *SlackConfigProto) GetWebhookUrl() string {
+	if x != nil {
+		return x.WebhookUrl
+	}
+	return ""
+}
+
+func (x *SlackConfigProto) GetBotToken() string {
+	if x != nil {
+		return x.BotToken
+	}
+	return ""
+}
+
+func (x *SlackConfigProto) GetChannel() string {
+	if x != nil {
+		return x.Channel
+	}
+	return ""
+}
+
+func (x *SlackConfigProto) GetNotifyOn() []string {
+	if x != nil {
+		return x.NotifyOn
+	}
+	return nil
+}
+
+type OpenCodeConfigProto struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	DefaultModel     string                 `protobuf:"bytes,1,opt,name=default_model,json=defaultModel,proto3" json:"default_model,omitempty"`
+	DefaultVariant   string                 `protobuf:"bytes,2,opt,name=default_variant,json=defaultVariant,proto3" json:"default_variant,omitempty"`
+	PromptTemplate   string                 `protobuf:"bytes,3,opt,name=prompt_template,json=promptTemplate,proto3" json:"prompt_template,omitempty"`
+	ExtraArgs        []string               `protobuf:"bytes,4,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
+	ControlExtraArgs []string               `protobuf:"bytes,5,rep,name=control_extra_args,json=controlExtraArgs,proto3" json:"control_extra_args,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *OpenCodeConfigProto) Reset() {
+	*x = OpenCodeConfigProto{}
+	mi := &file_orch_proto_msgTypes[101]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OpenCodeConfigProto) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OpenCodeConfigProto) ProtoMessage() {}
+
+func (x *OpenCodeConfigProto) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[101]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OpenCodeConfigProto.ProtoReflect.Descriptor instead.
+func (*OpenCodeConfigProto) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{101}
+}
+
+func (x *OpenCodeConfigProto) GetDefaultModel() string {
+	if x != nil {
+		return x.DefaultModel
+	}
+	return ""
+}
+
+func (x *OpenCodeConfigProto) GetDefaultVariant() string {
+	if x != nil {
+		return x.DefaultVariant
+	}
+	return ""
+}
+
+func (x *OpenCodeConfigProto) GetPromptTemplate() string {
+	if x != nil {
+		return x.PromptTemplate
+	}
+	return ""
+}
+
+func (x *OpenCodeConfigProto) GetExtraArgs() []string {
+	if x != nil {
+		return x.ExtraArgs
+	}
+	return nil
+}
+
+func (x *OpenCodeConfigProto) GetControlExtraArgs() []string {
+	if x != nil {
+		return x.ControlExtraArgs
+	}
+	return nil
+}
+
+type ClaudeConfigProto struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	PromptTemplate   string                 `protobuf:"bytes,1,opt,name=prompt_template,json=promptTemplate,proto3" json:"prompt_template,omitempty"`
+	ExtraArgs        []string               `protobuf:"bytes,2,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
+	ControlExtraArgs []string               `protobuf:"bytes,3,rep,name=control_extra_args,json=controlExtraArgs,proto3" json:"control_extra_args,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ClaudeConfigProto) Reset() {
+	*x = ClaudeConfigProto{}
+	mi := &file_orch_proto_msgTypes[102]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClaudeConfigProto) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClaudeConfigProto) ProtoMessage() {}
+
+func (x *ClaudeConfigProto) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[102]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClaudeConfigProto.ProtoReflect.Descriptor instead.
+func (*ClaudeConfigProto) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{102}
+}
+
+func (x *ClaudeConfigProto) GetPromptTemplate() string {
+	if x != nil {
+		return x.PromptTemplate
+	}
+	return ""
+}
+
+func (x *ClaudeConfigProto) GetExtraArgs() []string {
+	if x != nil {
+		return x.ExtraArgs
+	}
+	return nil
+}
+
+func (x *ClaudeConfigProto) GetControlExtraArgs() []string {
+	if x != nil {
+		return x.ControlExtraArgs
+	}
+	return nil
+}
+
+type CodexConfigProto struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	PromptTemplate   string                 `protobuf:"bytes,1,opt,name=prompt_template,json=promptTemplate,proto3" json:"prompt_template,omitempty"`
+	ExtraArgs        []string               `protobuf:"bytes,2,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
+	ControlExtraArgs []string               `protobuf:"bytes,3,rep,name=control_extra_args,json=controlExtraArgs,proto3" json:"control_extra_args,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *CodexConfigProto) Reset() {
+	*x = CodexConfigProto{}
+	mi := &file_orch_proto_msgTypes[103]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CodexConfigProto) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CodexConfigProto) ProtoMessage() {}
+
+func (x *CodexConfigProto) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[103]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CodexConfigProto.ProtoReflect.Descriptor instead.
+func (*CodexConfigProto) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{103}
+}
+
+func (x *CodexConfigProto) GetPromptTemplate() string {
+	if x != nil {
+		return x.PromptTemplate
+	}
+	return ""
+}
+
+func (x *CodexConfigProto) GetExtraArgs() []string {
+	if x != nil {
+		return x.ExtraArgs
+	}
+	return nil
+}
+
+func (x *CodexConfigProto) GetControlExtraArgs() []string {
+	if x != nil {
+		return x.ControlExtraArgs
+	}
+	return nil
+}
+
+type GeminiConfigProto struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	PromptTemplate   string                 `protobuf:"bytes,1,opt,name=prompt_template,json=promptTemplate,proto3" json:"prompt_template,omitempty"`
+	ExtraArgs        []string               `protobuf:"bytes,2,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
+	ControlExtraArgs []string               `protobuf:"bytes,3,rep,name=control_extra_args,json=controlExtraArgs,proto3" json:"control_extra_args,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *GeminiConfigProto) Reset() {
+	*x = GeminiConfigProto{}
+	mi := &file_orch_proto_msgTypes[104]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GeminiConfigProto) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GeminiConfigProto) ProtoMessage() {}
+
+func (x *GeminiConfigProto) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[104]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GeminiConfigProto.ProtoReflect.Descriptor instead.
+func (*GeminiConfigProto) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{104}
+}
+
+func (x *GeminiConfigProto) GetPromptTemplate() string {
+	if x != nil {
+		return x.PromptTemplate
+	}
+	return ""
+}
+
+func (x *GeminiConfigProto) GetExtraArgs() []string {
+	if x != nil {
+		return x.ExtraArgs
+	}
+	return nil
+}
+
+func (x *GeminiConfigProto) GetControlExtraArgs() []string {
+	if x != nil {
+		return x.ControlExtraArgs
+	}
+	return nil
+}
+
+type PresetProto struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Backend       string                 `protobuf:"bytes,2,opt,name=backend,proto3" json:"backend,omitempty"`
+	Model         string                 `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
+	Variant       string                 `protobuf:"bytes,4,opt,name=variant,proto3" json:"variant,omitempty"`
+	Profile       string                 `protobuf:"bytes,5,opt,name=profile,proto3" json:"profile,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PresetProto) Reset() {
+	*x = PresetProto{}
+	mi := &file_orch_proto_msgTypes[105]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PresetProto) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PresetProto) ProtoMessage() {}
+
+func (x *PresetProto) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[105]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PresetProto.ProtoReflect.Descriptor instead.
+func (*PresetProto) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{105}
+}
+
+func (x *PresetProto) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *PresetProto) GetBackend() string {
+	if x != nil {
+		return x.Backend
+	}
+	return ""
+}
+
+func (x *PresetProto) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *PresetProto) GetVariant() string {
+	if x != nil {
+		return x.Variant
+	}
+	return ""
+}
+
+func (x *PresetProto) GetProfile() string {
+	if x != nil {
+		return x.Profile
+	}
+	return ""
+}
+
+type IssuesConfigProto struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Backend       string                 `protobuf:"bytes,1,opt,name=backend,proto3" json:"backend,omitempty"`
+	Path          string                 `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *IssuesConfigProto) Reset() {
+	*x = IssuesConfigProto{}
+	mi := &file_orch_proto_msgTypes[106]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *IssuesConfigProto) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*IssuesConfigProto) ProtoMessage() {}
+
+func (x *IssuesConfigProto) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[106]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use IssuesConfigProto.ProtoReflect.Descriptor instead.
+func (*IssuesConfigProto) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{106}
+}
+
+func (x *IssuesConfigProto) GetBackend() string {
+	if x != nil {
+		return x.Backend
+	}
+	return ""
+}
+
+func (x *IssuesConfigProto) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+type GitHubConfigProto struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Owner         string                 `protobuf:"bytes,1,opt,name=owner,proto3" json:"owner,omitempty"`
+	Repo          string                 `protobuf:"bytes,2,opt,name=repo,proto3" json:"repo,omitempty"`
+	LabelFilter   string                 `protobuf:"bytes,3,opt,name=label_filter,json=labelFilter,proto3" json:"label_filter,omitempty"`
+	PollInterval  int32                  `protobuf:"varint,4,opt,name=poll_interval,json=pollInterval,proto3" json:"poll_interval,omitempty"`
+	StatusLabels  map[string]string      `protobuf:"bytes,5,rep,name=status_labels,json=statusLabels,proto3" json:"status_labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GitHubConfigProto) Reset() {
+	*x = GitHubConfigProto{}
+	mi := &file_orch_proto_msgTypes[107]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GitHubConfigProto) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GitHubConfigProto) ProtoMessage() {}
+
+func (x *GitHubConfigProto) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[107]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GitHubConfigProto.ProtoReflect.Descriptor instead.
+func (*GitHubConfigProto) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{107}
+}
+
+func (x *GitHubConfigProto) GetOwner() string {
+	if x != nil {
+		return x.Owner
+	}
+	return ""
+}
+
+func (x *GitHubConfigProto) GetRepo() string {
+	if x != nil {
+		return x.Repo
+	}
+	return ""
+}
+
+func (x *GitHubConfigProto) GetLabelFilter() string {
+	if x != nil {
+		return x.LabelFilter
+	}
+	return ""
+}
+
+func (x *GitHubConfigProto) GetPollInterval() int32 {
+	if x != nil {
+		return x.PollInterval
+	}
+	return 0
+}
+
+func (x *GitHubConfigProto) GetStatusLabels() map[string]string {
+	if x != nil {
+		return x.StatusLabels
+	}
+	return nil
+}
+
+type MonitorConfigProto struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PsColumns     []string               `protobuf:"bytes,1,rep,name=ps_columns,json=psColumns,proto3" json:"ps_columns,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MonitorConfigProto) Reset() {
+	*x = MonitorConfigProto{}
+	mi := &file_orch_proto_msgTypes[108]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MonitorConfigProto) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MonitorConfigProto) ProtoMessage() {}
+
+func (x *MonitorConfigProto) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[108]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MonitorConfigProto.ProtoReflect.Descriptor instead.
+func (*MonitorConfigProto) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{108}
+}
+
+func (x *MonitorConfigProto) GetPsColumns() []string {
+	if x != nil {
+		return x.PsColumns
+	}
+	return nil
+}
+
+type GetConfigResponse struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	Agent               string                 `protobuf:"bytes,1,opt,name=agent,proto3" json:"agent,omitempty"`
+	Model               string                 `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
+	ModelVariant        string                 `protobuf:"bytes,3,opt,name=model_variant,json=modelVariant,proto3" json:"model_variant,omitempty"`
+	WorktreeDir         string                 `protobuf:"bytes,4,opt,name=worktree_dir,json=worktreeDir,proto3" json:"worktree_dir,omitempty"`
+	BaseBranch          string                 `protobuf:"bytes,5,opt,name=base_branch,json=baseBranch,proto3" json:"base_branch,omitempty"`
+	PrTargetBranch      string                 `protobuf:"bytes,6,opt,name=pr_target_branch,json=prTargetBranch,proto3" json:"pr_target_branch,omitempty"`
+	LogLevel            string                 `protobuf:"bytes,7,opt,name=log_level,json=logLevel,proto3" json:"log_level,omitempty"`
+	PromptTemplate      string                 `protobuf:"bytes,8,opt,name=prompt_template,json=promptTemplate,proto3" json:"prompt_template,omitempty"`
+	Multiplexer         string                 `protobuf:"bytes,9,opt,name=multiplexer,proto3" json:"multiplexer,omitempty"`
+	MonitorMultiplexer  string                 `protobuf:"bytes,10,opt,name=monitor_multiplexer,json=monitorMultiplexer,proto3" json:"monitor_multiplexer,omitempty"`
+	AgentMultiplexer    string                 `protobuf:"bytes,11,opt,name=agent_multiplexer,json=agentMultiplexer,proto3" json:"agent_multiplexer,omitempty"`
+	NoPr                bool                   `protobuf:"varint,12,opt,name=no_pr,json=noPr,proto3" json:"no_pr,omitempty"`
+	DefaultPreset       string                 `protobuf:"bytes,13,opt,name=default_preset,json=defaultPreset,proto3" json:"default_preset,omitempty"`
+	ControlAgent        string                 `protobuf:"bytes,14,opt,name=control_agent,json=controlAgent,proto3" json:"control_agent,omitempty"`
+	ControlModel        string                 `protobuf:"bytes,15,opt,name=control_model,json=controlModel,proto3" json:"control_model,omitempty"`
+	ControlModelVariant string                 `protobuf:"bytes,16,opt,name=control_model_variant,json=controlModelVariant,proto3" json:"control_model_variant,omitempty"`
+	DiffTool            string                 `protobuf:"bytes,17,opt,name=diff_tool,json=diffTool,proto3" json:"diff_tool,omitempty"`
+	Monitor             *MonitorConfigProto    `protobuf:"bytes,18,opt,name=monitor,proto3" json:"monitor,omitempty"`
+	Presets             []*PresetProto         `protobuf:"bytes,19,rep,name=presets,proto3" json:"presets,omitempty"`
+	Opencode            *OpenCodeConfigProto   `protobuf:"bytes,20,opt,name=opencode,proto3" json:"opencode,omitempty"`
+	Claude              *ClaudeConfigProto     `protobuf:"bytes,21,opt,name=claude,proto3" json:"claude,omitempty"`
+	Codex               *CodexConfigProto      `protobuf:"bytes,22,opt,name=codex,proto3" json:"codex,omitempty"`
+	Gemini              *GeminiConfigProto     `protobuf:"bytes,23,opt,name=gemini,proto3" json:"gemini,omitempty"`
+	Slack               *SlackConfigProto      `protobuf:"bytes,24,opt,name=slack,proto3" json:"slack,omitempty"`
+	Issues              *IssuesConfigProto     `protobuf:"bytes,25,opt,name=issues,proto3" json:"issues,omitempty"`
+	Github              *GitHubConfigProto     `protobuf:"bytes,26,opt,name=github,proto3" json:"github,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *GetConfigResponse) Reset() {
+	*x = GetConfigResponse{}
+	mi := &file_orch_proto_msgTypes[109]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetConfigResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetConfigResponse) ProtoMessage() {}
+
+func (x *GetConfigResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[109]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetConfigResponse.ProtoReflect.Descriptor instead.
+func (*GetConfigResponse) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{109}
+}
+
+func (x *GetConfigResponse) GetAgent() string {
+	if x != nil {
+		return x.Agent
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetModelVariant() string {
+	if x != nil {
+		return x.ModelVariant
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetWorktreeDir() string {
+	if x != nil {
+		return x.WorktreeDir
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetBaseBranch() string {
+	if x != nil {
+		return x.BaseBranch
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetPrTargetBranch() string {
+	if x != nil {
+		return x.PrTargetBranch
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetLogLevel() string {
+	if x != nil {
+		return x.LogLevel
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetPromptTemplate() string {
+	if x != nil {
+		return x.PromptTemplate
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetMultiplexer() string {
+	if x != nil {
+		return x.Multiplexer
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetMonitorMultiplexer() string {
+	if x != nil {
+		return x.MonitorMultiplexer
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetAgentMultiplexer() string {
+	if x != nil {
+		return x.AgentMultiplexer
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetNoPr() bool {
+	if x != nil {
+		return x.NoPr
+	}
+	return false
+}
+
+func (x *GetConfigResponse) GetDefaultPreset() string {
+	if x != nil {
+		return x.DefaultPreset
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetControlAgent() string {
+	if x != nil {
+		return x.ControlAgent
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetControlModel() string {
+	if x != nil {
+		return x.ControlModel
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetControlModelVariant() string {
+	if x != nil {
+		return x.ControlModelVariant
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetDiffTool() string {
+	if x != nil {
+		return x.DiffTool
+	}
+	return ""
+}
+
+func (x *GetConfigResponse) GetMonitor() *MonitorConfigProto {
+	if x != nil {
+		return x.Monitor
+	}
+	return nil
+}
+
+func (x *GetConfigResponse) GetPresets() []*PresetProto {
+	if x != nil {
+		return x.Presets
+	}
+	return nil
+}
+
+func (x *GetConfigResponse) GetOpencode() *OpenCodeConfigProto {
+	if x != nil {
+		return x.Opencode
+	}
+	return nil
+}
+
+func (x *GetConfigResponse) GetClaude() *ClaudeConfigProto {
+	if x != nil {
+		return x.Claude
+	}
+	return nil
+}
+
+func (x *GetConfigResponse) GetCodex() *CodexConfigProto {
+	if x != nil {
+		return x.Codex
+	}
+	return nil
+}
+
+func (x *GetConfigResponse) GetGemini() *GeminiConfigProto {
+	if x != nil {
+		return x.Gemini
+	}
+	return nil
+}
+
+func (x *GetConfigResponse) GetSlack() *SlackConfigProto {
+	if x != nil {
+		return x.Slack
+	}
+	return nil
+}
+
+func (x *GetConfigResponse) GetIssues() *IssuesConfigProto {
+	if x != nil {
+		return x.Issues
+	}
+	return nil
+}
+
+func (x *GetConfigResponse) GetGithub() *GitHubConfigProto {
+	if x != nil {
+		return x.Github
+	}
+	return nil
+}
+
+type GetDaemonStatusRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDaemonStatusRequest) Reset() {
+	*x = GetDaemonStatusRequest{}
+	mi := &file_orch_proto_msgTypes[110]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDaemonStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDaemonStatusRequest) ProtoMessage() {}
+
+func (x *GetDaemonStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[110]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDaemonStatusRequest.ProtoReflect.Descriptor instead.
+func (*GetDaemonStatusRequest) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{110}
+}
+
+type GetDaemonStatusResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Running       bool                   `protobuf:"varint,1,opt,name=running,proto3" json:"running,omitempty"`
+	Pid           int32                  `protobuf:"varint,2,opt,name=pid,proto3" json:"pid,omitempty"`
+	LogPath       string                 `protobuf:"bytes,3,opt,name=log_path,json=logPath,proto3" json:"log_path,omitempty"`
+	Version       string                 `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDaemonStatusResponse) Reset() {
+	*x = GetDaemonStatusResponse{}
+	mi := &file_orch_proto_msgTypes[111]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDaemonStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDaemonStatusResponse) ProtoMessage() {}
+
+func (x *GetDaemonStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_proto_msgTypes[111]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDaemonStatusResponse.ProtoReflect.Descriptor instead.
+func (*GetDaemonStatusResponse) Descriptor() ([]byte, []int) {
+	return file_orch_proto_rawDescGZIP(), []int{111}
+}
+
+func (x *GetDaemonStatusResponse) GetRunning() bool {
+	if x != nil {
+		return x.Running
+	}
+	return false
+}
+
+func (x *GetDaemonStatusResponse) GetPid() int32 {
+	if x != nil {
+		return x.Pid
+	}
+	return 0
+}
+
+func (x *GetDaemonStatusResponse) GetLogPath() string {
+	if x != nil {
+		return x.LogPath
+	}
+	return ""
+}
+
+func (x *GetDaemonStatusResponse) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
 }
 
 type Request struct {
@@ -6046,6 +7396,9 @@ type Request struct {
 	//	*Request_ResumeRun
 	//	*Request_QueryOpencodeServer
 	//	*Request_InjectInitialPrompt
+	//	*Request_ContinueRun
+	//	*Request_GetConfig
+	//	*Request_GetDaemonStatus
 	Request       isRequest_Request `protobuf_oneof:"request"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -6053,7 +7406,7 @@ type Request struct {
 
 func (x *Request) Reset() {
 	*x = Request{}
-	mi := &file_api_orch_proto_msgTypes[97]
+	mi := &file_orch_proto_msgTypes[112]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6065,7 +7418,7 @@ func (x *Request) String() string {
 func (*Request) ProtoMessage() {}
 
 func (x *Request) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[97]
+	mi := &file_orch_proto_msgTypes[112]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6078,7 +7431,7 @@ func (x *Request) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Request.ProtoReflect.Descriptor instead.
 func (*Request) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{97}
+	return file_orch_proto_rawDescGZIP(), []int{112}
 }
 
 func (x *Request) GetRequest() isRequest_Request {
@@ -6475,6 +7828,33 @@ func (x *Request) GetInjectInitialPrompt() *InjectInitialPromptRequest {
 	return nil
 }
 
+func (x *Request) GetContinueRun() *ContinueRunRequest {
+	if x != nil {
+		if x, ok := x.Request.(*Request_ContinueRun); ok {
+			return x.ContinueRun
+		}
+	}
+	return nil
+}
+
+func (x *Request) GetGetConfig() *GetConfigRequest {
+	if x != nil {
+		if x, ok := x.Request.(*Request_GetConfig); ok {
+			return x.GetConfig
+		}
+	}
+	return nil
+}
+
+func (x *Request) GetGetDaemonStatus() *GetDaemonStatusRequest {
+	if x != nil {
+		if x, ok := x.Request.(*Request_GetDaemonStatus); ok {
+			return x.GetDaemonStatus
+		}
+	}
+	return nil
+}
+
 type isRequest_Request interface {
 	isRequest_Request()
 }
@@ -6651,6 +8031,18 @@ type Request_InjectInitialPrompt struct {
 	InjectInitialPrompt *InjectInitialPromptRequest `protobuf:"bytes,43,opt,name=inject_initial_prompt,json=injectInitialPrompt,proto3,oneof"`
 }
 
+type Request_ContinueRun struct {
+	ContinueRun *ContinueRunRequest `protobuf:"bytes,44,opt,name=continue_run,json=continueRun,proto3,oneof"`
+}
+
+type Request_GetConfig struct {
+	GetConfig *GetConfigRequest `protobuf:"bytes,45,opt,name=get_config,json=getConfig,proto3,oneof"`
+}
+
+type Request_GetDaemonStatus struct {
+	GetDaemonStatus *GetDaemonStatusRequest `protobuf:"bytes,46,opt,name=get_daemon_status,json=getDaemonStatus,proto3,oneof"`
+}
+
 func (*Request_Ping) isRequest_Request() {}
 
 func (*Request_ListRuns) isRequest_Request() {}
@@ -6737,6 +8129,12 @@ func (*Request_QueryOpencodeServer) isRequest_Request() {}
 
 func (*Request_InjectInitialPrompt) isRequest_Request() {}
 
+func (*Request_ContinueRun) isRequest_Request() {}
+
+func (*Request_GetConfig) isRequest_Request() {}
+
+func (*Request_GetDaemonStatus) isRequest_Request() {}
+
 type Response struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Ok    bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
@@ -6786,6 +8184,9 @@ type Response struct {
 	//	*Response_ResumeRun
 	//	*Response_QueryOpencodeServer
 	//	*Response_InjectInitialPrompt
+	//	*Response_ContinueRun
+	//	*Response_GetConfig
+	//	*Response_GetDaemonStatus
 	Response      isResponse_Response `protobuf_oneof:"response"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -6793,7 +8194,7 @@ type Response struct {
 
 func (x *Response) Reset() {
 	*x = Response{}
-	mi := &file_api_orch_proto_msgTypes[98]
+	mi := &file_orch_proto_msgTypes[113]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6805,7 +8206,7 @@ func (x *Response) String() string {
 func (*Response) ProtoMessage() {}
 
 func (x *Response) ProtoReflect() protoreflect.Message {
-	mi := &file_api_orch_proto_msgTypes[98]
+	mi := &file_orch_proto_msgTypes[113]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6818,7 +8219,7 @@ func (x *Response) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Response.ProtoReflect.Descriptor instead.
 func (*Response) Descriptor() ([]byte, []int) {
-	return file_api_orch_proto_rawDescGZIP(), []int{98}
+	return file_orch_proto_rawDescGZIP(), []int{113}
 }
 
 func (x *Response) GetOk() bool {
@@ -7229,6 +8630,33 @@ func (x *Response) GetInjectInitialPrompt() *InjectInitialPromptResponse {
 	return nil
 }
 
+func (x *Response) GetContinueRun() *ContinueRunResponse {
+	if x != nil {
+		if x, ok := x.Response.(*Response_ContinueRun); ok {
+			return x.ContinueRun
+		}
+	}
+	return nil
+}
+
+func (x *Response) GetGetConfig() *GetConfigResponse {
+	if x != nil {
+		if x, ok := x.Response.(*Response_GetConfig); ok {
+			return x.GetConfig
+		}
+	}
+	return nil
+}
+
+func (x *Response) GetGetDaemonStatus() *GetDaemonStatusResponse {
+	if x != nil {
+		if x, ok := x.Response.(*Response_GetDaemonStatus); ok {
+			return x.GetDaemonStatus
+		}
+	}
+	return nil
+}
+
 type isResponse_Response interface {
 	isResponse_Response()
 }
@@ -7405,6 +8833,18 @@ type Response_InjectInitialPrompt struct {
 	InjectInitialPrompt *InjectInitialPromptResponse `protobuf:"bytes,45,opt,name=inject_initial_prompt,json=injectInitialPrompt,proto3,oneof"`
 }
 
+type Response_ContinueRun struct {
+	ContinueRun *ContinueRunResponse `protobuf:"bytes,46,opt,name=continue_run,json=continueRun,proto3,oneof"`
+}
+
+type Response_GetConfig struct {
+	GetConfig *GetConfigResponse `protobuf:"bytes,47,opt,name=get_config,json=getConfig,proto3,oneof"`
+}
+
+type Response_GetDaemonStatus struct {
+	GetDaemonStatus *GetDaemonStatusResponse `protobuf:"bytes,48,opt,name=get_daemon_status,json=getDaemonStatus,proto3,oneof"`
+}
+
 func (*Response_Ping) isResponse_Response() {}
 
 func (*Response_ListRuns) isResponse_Response() {}
@@ -7491,16 +8931,23 @@ func (*Response_QueryOpencodeServer) isResponse_Response() {}
 
 func (*Response_InjectInitialPrompt) isResponse_Response() {}
 
-var File_api_orch_proto protoreflect.FileDescriptor
+func (*Response_ContinueRun) isResponse_Response() {}
 
-const file_api_orch_proto_rawDesc = "" +
+func (*Response_GetConfig) isResponse_Response() {}
+
+func (*Response_GetDaemonStatus) isResponse_Response() {}
+
+var File_orch_proto protoreflect.FileDescriptor
+
+const file_orch_proto_rawDesc = "" +
 	"\n" +
-	"\x0eapi/orch.proto\x12\aorch.v1\"\x82\x01\n" +
+	"\n" +
+	"orch.proto\x12\aorch.v1\"\x82\x01\n" +
 	"\tDiffStats\x12\x1c\n" +
 	"\tadditions\x18\x01 \x01(\x05R\tadditions\x12\x1c\n" +
 	"\tdeletions\x18\x02 \x01(\x05R\tdeletions\x12#\n" +
 	"\rfiles_changed\x18\x03 \x01(\x05R\ffilesChanged\x12\x14\n" +
-	"\x05files\x18\x04 \x03(\tR\x05files\"\xc4\x05\n" +
+	"\x05files\x18\x04 \x03(\tR\x05files\"\xfc\x05\n" +
 	"\x03Run\x12\x19\n" +
 	"\bissue_id\x18\x01 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12*\n" +
@@ -7518,12 +8965,14 @@ const file_api_orch_proto_rawDesc = "" +
 	"\n" +
 	"diff_stats\x18\r \x01(\v2\x12.orch.v1.DiffStatsR\tdiffStats\x127\n" +
 	"\fbranch_state\x18\x0e \x01(\x0e2\x14.orch.v1.BranchStateR\vbranchState\x12!\n" +
-	"\ftmux_session\x18\x0f \x01(\tR\vtmuxSession\x126\n" +
+	"\fsession_name\x18\x0f \x01(\tR\vsessionName\x126\n" +
 	"\vmultiplexer\x18\x10 \x01(\x0e2\x14.orch.v1.MultiplexerR\vmultiplexer\x12\x1f\n" +
 	"\vserver_port\x18\x11 \x01(\x05R\n" +
 	"serverPort\x12.\n" +
 	"\x13opencode_session_id\x18\x12 \x01(\tR\x11opencodeSessionId\x12%\n" +
-	"\x0econtinued_from\x18\x13 \x01(\tR\rcontinuedFrom\"\xf1\x01\n" +
+	"\x0econtinued_from\x18\x13 \x01(\tR\rcontinuedFrom\x12\x1b\n" +
+	"\tpr_number\x18\x14 \x01(\x05R\bprNumber\x12\x19\n" +
+	"\bpr_state\x18\x15 \x01(\tR\aprState\"\xf1\x01\n" +
 	"\x05Issue\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x18\n" +
@@ -7573,7 +9022,7 @@ const file_api_orch_proto_rawDesc = "" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\"X\n" +
 	"\x0eGetRunResponse\x12\x1e\n" +
 	"\x03run\x18\x01 \x01(\v2\f.orch.v1.RunR\x03run\x12&\n" +
-	"\x06events\x18\x02 \x03(\v2\x0e.orch.v1.EventR\x06events\"\xe2\x01\n" +
+	"\x06events\x18\x02 \x03(\v2\x0e.orch.v1.EventR\x06events\"\xc7\x04\n" +
 	"\x0fStartRunRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +
@@ -7583,12 +9032,26 @@ const file_api_orch_proto_rawDesc = "" +
 	"\rmodel_variant\x18\x05 \x01(\tR\fmodelVariant\x12\x1f\n" +
 	"\vbase_branch\x18\x06 \x01(\tR\n" +
 	"baseBranch\x12!\n" +
-	"\fproject_root\x18\a \x01(\tR\vprojectRoot\"\x89\x01\n" +
+	"\fproject_root\x18\a \x01(\tR\vprojectRoot\x12\x16\n" +
+	"\x06preset\x18\b \x01(\tR\x06preset\x12\x16\n" +
+	"\x06branch\x18\t \x01(\tR\x06branch\x12!\n" +
+	"\fworktree_dir\x18\n" +
+	" \x01(\tR\vworktreeDir\x12\x13\n" +
+	"\x05no_pr\x18\v \x01(\bR\x04noPr\x12'\n" +
+	"\x0fprompt_template\x18\f \x01(\tR\x0epromptTemplate\x12(\n" +
+	"\x10pr_target_branch\x18\r \x01(\tR\x0eprTargetBranch\x12\x17\n" +
+	"\adry_run\x18\x0e \x01(\bR\x06dryRun\x12\x14\n" +
+	"\x05reuse\x18\x0f \x01(\bR\x05reuse\x12\x15\n" +
+	"\x06run_id\x18\x10 \x01(\tR\x05runId\x12\x1b\n" +
+	"\tagent_cmd\x18\x11 \x01(\tR\bagentCmd\x12#\n" +
+	"\ragent_profile\x18\x12 \x01(\tR\fagentProfile\x12 \n" +
+	"\vmultiplexer\x18\x13 \x01(\tR\vmultiplexer\"\xa1\x01\n" +
 	"\x10StartRunResponse\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
 	"\x06branch\x18\x02 \x01(\tR\x06branch\x12#\n" +
 	"\rworktree_path\x18\x03 \x01(\tR\fworktreePath\x12!\n" +
-	"\ftmux_session\x18\x04 \x01(\tR\vtmuxSession\"\xe7\x01\n" +
+	"\fsession_name\x18\x04 \x01(\tR\vsessionName\x12\x16\n" +
+	"\x06status\x18\x05 \x01(\tR\x06status\"\xe7\x01\n" +
 	"\x10CreateRunRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +
@@ -7939,7 +9402,121 @@ const file_api_orch_proto_rawDesc = "" +
 	"\x1bInjectInitialPromptResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x12\n" +
-	"\x04port\x18\x02 \x01(\x05R\x04port\"\x97\x17\n" +
+	"\x04port\x18\x02 \x01(\x05R\x04port\"\x82\x04\n" +
+	"\x12ContinueRunRequest\x12\x1f\n" +
+	"\vissues_root\x18\x01 \x01(\tR\n" +
+	"issuesRoot\x12!\n" +
+	"\fproject_root\x18\x02 \x01(\tR\vprojectRoot\x12\x19\n" +
+	"\bissue_id\x18\x03 \x01(\tR\aissueId\x12\x15\n" +
+	"\x06run_id\x18\x04 \x01(\tR\x05runId\x12\x19\n" +
+	"\bshort_id\x18\x05 \x01(\tR\ashortId\x12\x16\n" +
+	"\x06branch\x18\x06 \x01(\tR\x06branch\x12\x14\n" +
+	"\x05agent\x18\a \x01(\tR\x05agent\x12\x1b\n" +
+	"\tagent_cmd\x18\b \x01(\tR\bagentCmd\x12#\n" +
+	"\ragent_profile\x18\t \x01(\tR\fagentProfile\x12!\n" +
+	"\fworktree_dir\x18\n" +
+	" \x01(\tR\vworktreeDir\x12\x13\n" +
+	"\x05no_pr\x18\v \x01(\bR\x04noPr\x12'\n" +
+	"\x0fprompt_template\x18\f \x01(\tR\x0epromptTemplate\x12(\n" +
+	"\x10pr_target_branch\x18\r \x01(\tR\x0eprTargetBranch\x12 \n" +
+	"\vmultiplexer\x18\x0e \x01(\tR\vmultiplexer\x12!\n" +
+	"\fsession_name\x18\x0f \x01(\tR\vsessionName\x12\x1b\n" +
+	"\trepo_root\x18\x10 \x01(\tR\brepoRoot\"\xe6\x01\n" +
+	"\x13ContinueRunResponse\x12\x15\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
+	"\x06branch\x18\x02 \x01(\tR\x06branch\x12#\n" +
+	"\rworktree_path\x18\x03 \x01(\tR\fworktreePath\x12!\n" +
+	"\fsession_name\x18\x04 \x01(\tR\vsessionName\x12\x16\n" +
+	"\x06status\x18\x05 \x01(\tR\x06status\x12%\n" +
+	"\x0econtinued_from\x18\x06 \x01(\tR\rcontinuedFrom\x12\x19\n" +
+	"\bissue_id\x18\a \x01(\tR\aissueId\"5\n" +
+	"\x10GetConfigRequest\x12!\n" +
+	"\fproject_root\x18\x01 \x01(\tR\vprojectRoot\"\xa1\x01\n" +
+	"\x10SlackConfigProto\x12\x18\n" +
+	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x1f\n" +
+	"\vwebhook_url\x18\x02 \x01(\tR\n" +
+	"webhookUrl\x12\x1b\n" +
+	"\tbot_token\x18\x03 \x01(\tR\bbotToken\x12\x18\n" +
+	"\achannel\x18\x04 \x01(\tR\achannel\x12\x1b\n" +
+	"\tnotify_on\x18\x05 \x03(\tR\bnotifyOn\"\xd9\x01\n" +
+	"\x13OpenCodeConfigProto\x12#\n" +
+	"\rdefault_model\x18\x01 \x01(\tR\fdefaultModel\x12'\n" +
+	"\x0fdefault_variant\x18\x02 \x01(\tR\x0edefaultVariant\x12'\n" +
+	"\x0fprompt_template\x18\x03 \x01(\tR\x0epromptTemplate\x12\x1d\n" +
+	"\n" +
+	"extra_args\x18\x04 \x03(\tR\textraArgs\x12,\n" +
+	"\x12control_extra_args\x18\x05 \x03(\tR\x10controlExtraArgs\"\x89\x01\n" +
+	"\x11ClaudeConfigProto\x12'\n" +
+	"\x0fprompt_template\x18\x01 \x01(\tR\x0epromptTemplate\x12\x1d\n" +
+	"\n" +
+	"extra_args\x18\x02 \x03(\tR\textraArgs\x12,\n" +
+	"\x12control_extra_args\x18\x03 \x03(\tR\x10controlExtraArgs\"\x88\x01\n" +
+	"\x10CodexConfigProto\x12'\n" +
+	"\x0fprompt_template\x18\x01 \x01(\tR\x0epromptTemplate\x12\x1d\n" +
+	"\n" +
+	"extra_args\x18\x02 \x03(\tR\textraArgs\x12,\n" +
+	"\x12control_extra_args\x18\x03 \x03(\tR\x10controlExtraArgs\"\x89\x01\n" +
+	"\x11GeminiConfigProto\x12'\n" +
+	"\x0fprompt_template\x18\x01 \x01(\tR\x0epromptTemplate\x12\x1d\n" +
+	"\n" +
+	"extra_args\x18\x02 \x03(\tR\textraArgs\x12,\n" +
+	"\x12control_extra_args\x18\x03 \x03(\tR\x10controlExtraArgs\"\x85\x01\n" +
+	"\vPresetProto\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
+	"\abackend\x18\x02 \x01(\tR\abackend\x12\x14\n" +
+	"\x05model\x18\x03 \x01(\tR\x05model\x12\x18\n" +
+	"\avariant\x18\x04 \x01(\tR\avariant\x12\x18\n" +
+	"\aprofile\x18\x05 \x01(\tR\aprofile\"A\n" +
+	"\x11IssuesConfigProto\x12\x18\n" +
+	"\abackend\x18\x01 \x01(\tR\abackend\x12\x12\n" +
+	"\x04path\x18\x02 \x01(\tR\x04path\"\x99\x02\n" +
+	"\x11GitHubConfigProto\x12\x14\n" +
+	"\x05owner\x18\x01 \x01(\tR\x05owner\x12\x12\n" +
+	"\x04repo\x18\x02 \x01(\tR\x04repo\x12!\n" +
+	"\flabel_filter\x18\x03 \x01(\tR\vlabelFilter\x12#\n" +
+	"\rpoll_interval\x18\x04 \x01(\x05R\fpollInterval\x12Q\n" +
+	"\rstatus_labels\x18\x05 \x03(\v2,.orch.v1.GitHubConfigProto.StatusLabelsEntryR\fstatusLabels\x1a?\n" +
+	"\x11StatusLabelsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"3\n" +
+	"\x12MonitorConfigProto\x12\x1d\n" +
+	"\n" +
+	"ps_columns\x18\x01 \x03(\tR\tpsColumns\"\xc2\b\n" +
+	"\x11GetConfigResponse\x12\x14\n" +
+	"\x05agent\x18\x01 \x01(\tR\x05agent\x12\x14\n" +
+	"\x05model\x18\x02 \x01(\tR\x05model\x12#\n" +
+	"\rmodel_variant\x18\x03 \x01(\tR\fmodelVariant\x12!\n" +
+	"\fworktree_dir\x18\x04 \x01(\tR\vworktreeDir\x12\x1f\n" +
+	"\vbase_branch\x18\x05 \x01(\tR\n" +
+	"baseBranch\x12(\n" +
+	"\x10pr_target_branch\x18\x06 \x01(\tR\x0eprTargetBranch\x12\x1b\n" +
+	"\tlog_level\x18\a \x01(\tR\blogLevel\x12'\n" +
+	"\x0fprompt_template\x18\b \x01(\tR\x0epromptTemplate\x12 \n" +
+	"\vmultiplexer\x18\t \x01(\tR\vmultiplexer\x12/\n" +
+	"\x13monitor_multiplexer\x18\n" +
+	" \x01(\tR\x12monitorMultiplexer\x12+\n" +
+	"\x11agent_multiplexer\x18\v \x01(\tR\x10agentMultiplexer\x12\x13\n" +
+	"\x05no_pr\x18\f \x01(\bR\x04noPr\x12%\n" +
+	"\x0edefault_preset\x18\r \x01(\tR\rdefaultPreset\x12#\n" +
+	"\rcontrol_agent\x18\x0e \x01(\tR\fcontrolAgent\x12#\n" +
+	"\rcontrol_model\x18\x0f \x01(\tR\fcontrolModel\x122\n" +
+	"\x15control_model_variant\x18\x10 \x01(\tR\x13controlModelVariant\x12\x1b\n" +
+	"\tdiff_tool\x18\x11 \x01(\tR\bdiffTool\x125\n" +
+	"\amonitor\x18\x12 \x01(\v2\x1b.orch.v1.MonitorConfigProtoR\amonitor\x12.\n" +
+	"\apresets\x18\x13 \x03(\v2\x14.orch.v1.PresetProtoR\apresets\x128\n" +
+	"\bopencode\x18\x14 \x01(\v2\x1c.orch.v1.OpenCodeConfigProtoR\bopencode\x122\n" +
+	"\x06claude\x18\x15 \x01(\v2\x1a.orch.v1.ClaudeConfigProtoR\x06claude\x12/\n" +
+	"\x05codex\x18\x16 \x01(\v2\x19.orch.v1.CodexConfigProtoR\x05codex\x122\n" +
+	"\x06gemini\x18\x17 \x01(\v2\x1a.orch.v1.GeminiConfigProtoR\x06gemini\x12/\n" +
+	"\x05slack\x18\x18 \x01(\v2\x19.orch.v1.SlackConfigProtoR\x05slack\x122\n" +
+	"\x06issues\x18\x19 \x01(\v2\x1a.orch.v1.IssuesConfigProtoR\x06issues\x122\n" +
+	"\x06github\x18\x1a \x01(\v2\x1a.orch.v1.GitHubConfigProtoR\x06github\"\x18\n" +
+	"\x16GetDaemonStatusRequest\"z\n" +
+	"\x17GetDaemonStatusResponse\x12\x18\n" +
+	"\arunning\x18\x01 \x01(\bR\arunning\x12\x10\n" +
+	"\x03pid\x18\x02 \x01(\x05R\x03pid\x12\x19\n" +
+	"\blog_path\x18\x03 \x01(\tR\alogPath\x12\x18\n" +
+	"\aversion\x18\x04 \x01(\tR\aversion\"\xe4\x18\n" +
 	"\aRequest\x12*\n" +
 	"\x04ping\x18\x01 \x01(\v2\x14.orch.v1.PingRequestH\x00R\x04ping\x127\n" +
 	"\tlist_runs\x18\x02 \x01(\v2\x18.orch.v1.ListRunsRequestH\x00R\blistRuns\x121\n" +
@@ -7992,8 +9569,12 @@ const file_api_orch_proto_rawDesc = "" +
 	"\n" +
 	"resume_run\x18) \x01(\v2\x19.orch.v1.ResumeRunRequestH\x00R\tresumeRun\x12Y\n" +
 	"\x15query_opencode_server\x18* \x01(\v2#.orch.v1.QueryOpenCodeServerRequestH\x00R\x13queryOpencodeServer\x12Y\n" +
-	"\x15inject_initial_prompt\x18+ \x01(\v2#.orch.v1.InjectInitialPromptRequestH\x00R\x13injectInitialPromptB\t\n" +
-	"\arequest\"\xea\x17\n" +
+	"\x15inject_initial_prompt\x18+ \x01(\v2#.orch.v1.InjectInitialPromptRequestH\x00R\x13injectInitialPrompt\x12@\n" +
+	"\fcontinue_run\x18, \x01(\v2\x1b.orch.v1.ContinueRunRequestH\x00R\vcontinueRun\x12:\n" +
+	"\n" +
+	"get_config\x18- \x01(\v2\x19.orch.v1.GetConfigRequestH\x00R\tgetConfig\x12M\n" +
+	"\x11get_daemon_status\x18. \x01(\v2\x1f.orch.v1.GetDaemonStatusRequestH\x00R\x0fgetDaemonStatusB\t\n" +
+	"\arequest\"\xba\x19\n" +
 	"\bResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12+\n" +
@@ -8048,7 +9629,11 @@ const file_api_orch_proto_rawDesc = "" +
 	"\n" +
 	"resume_run\x18+ \x01(\v2\x1a.orch.v1.ResumeRunResponseH\x00R\tresumeRun\x12Z\n" +
 	"\x15query_opencode_server\x18, \x01(\v2$.orch.v1.QueryOpenCodeServerResponseH\x00R\x13queryOpencodeServer\x12Z\n" +
-	"\x15inject_initial_prompt\x18- \x01(\v2$.orch.v1.InjectInitialPromptResponseH\x00R\x13injectInitialPromptB\n" +
+	"\x15inject_initial_prompt\x18- \x01(\v2$.orch.v1.InjectInitialPromptResponseH\x00R\x13injectInitialPrompt\x12A\n" +
+	"\fcontinue_run\x18. \x01(\v2\x1c.orch.v1.ContinueRunResponseH\x00R\vcontinueRun\x12;\n" +
+	"\n" +
+	"get_config\x18/ \x01(\v2\x1a.orch.v1.GetConfigResponseH\x00R\tgetConfig\x12N\n" +
+	"\x11get_daemon_status\x180 \x01(\v2 .orch.v1.GetDaemonStatusResponseH\x00R\x0fgetDaemonStatusB\n" +
 	"\n" +
 	"\bresponse*\xff\x01\n" +
 	"\tRunStatus\x12\x1a\n" +
@@ -8083,20 +9668,20 @@ const file_api_orch_proto_rawDesc = "" +
 	"\x12MULTIPLEXER_ZELLIJ\x10\x02B#Z!github.com/s22625/orch/api/orchpbb\x06proto3"
 
 var (
-	file_api_orch_proto_rawDescOnce sync.Once
-	file_api_orch_proto_rawDescData []byte
+	file_orch_proto_rawDescOnce sync.Once
+	file_orch_proto_rawDescData []byte
 )
 
-func file_api_orch_proto_rawDescGZIP() []byte {
-	file_api_orch_proto_rawDescOnce.Do(func() {
-		file_api_orch_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_api_orch_proto_rawDesc), len(file_api_orch_proto_rawDesc)))
+func file_orch_proto_rawDescGZIP() []byte {
+	file_orch_proto_rawDescOnce.Do(func() {
+		file_orch_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_orch_proto_rawDesc), len(file_orch_proto_rawDesc)))
 	})
-	return file_api_orch_proto_rawDescData
+	return file_orch_proto_rawDescData
 }
 
-var file_api_orch_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_api_orch_proto_msgTypes = make([]protoimpl.MessageInfo, 103)
-var file_api_orch_proto_goTypes = []any{
+var file_orch_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_orch_proto_msgTypes = make([]protoimpl.MessageInfo, 119)
+var file_orch_proto_goTypes = []any{
 	(RunStatus)(0),                        // 0: orch.v1.RunStatus
 	(IssueStatus)(0),                      // 1: orch.v1.IssueStatus
 	(BranchState)(0),                      // 2: orch.v1.BranchState
@@ -8198,25 +9783,41 @@ var file_api_orch_proto_goTypes = []any{
 	(*QueryOpenCodeServerResponse)(nil),   // 98: orch.v1.QueryOpenCodeServerResponse
 	(*InjectInitialPromptRequest)(nil),    // 99: orch.v1.InjectInitialPromptRequest
 	(*InjectInitialPromptResponse)(nil),   // 100: orch.v1.InjectInitialPromptResponse
-	(*Request)(nil),                       // 101: orch.v1.Request
-	(*Response)(nil),                      // 102: orch.v1.Response
-	nil,                                   // 103: orch.v1.Event.AttrsEntry
-	nil,                                   // 104: orch.v1.CreateRunRequest.MetadataEntry
-	nil,                                   // 105: orch.v1.AppendEventRequest.EventAttrsEntry
-	nil,                                   // 106: orch.v1.QueryOpenCodeServerResponse.SessionStatusEntry
+	(*ContinueRunRequest)(nil),            // 101: orch.v1.ContinueRunRequest
+	(*ContinueRunResponse)(nil),           // 102: orch.v1.ContinueRunResponse
+	(*GetConfigRequest)(nil),              // 103: orch.v1.GetConfigRequest
+	(*SlackConfigProto)(nil),              // 104: orch.v1.SlackConfigProto
+	(*OpenCodeConfigProto)(nil),           // 105: orch.v1.OpenCodeConfigProto
+	(*ClaudeConfigProto)(nil),             // 106: orch.v1.ClaudeConfigProto
+	(*CodexConfigProto)(nil),              // 107: orch.v1.CodexConfigProto
+	(*GeminiConfigProto)(nil),             // 108: orch.v1.GeminiConfigProto
+	(*PresetProto)(nil),                   // 109: orch.v1.PresetProto
+	(*IssuesConfigProto)(nil),             // 110: orch.v1.IssuesConfigProto
+	(*GitHubConfigProto)(nil),             // 111: orch.v1.GitHubConfigProto
+	(*MonitorConfigProto)(nil),            // 112: orch.v1.MonitorConfigProto
+	(*GetConfigResponse)(nil),             // 113: orch.v1.GetConfigResponse
+	(*GetDaemonStatusRequest)(nil),        // 114: orch.v1.GetDaemonStatusRequest
+	(*GetDaemonStatusResponse)(nil),       // 115: orch.v1.GetDaemonStatusResponse
+	(*Request)(nil),                       // 116: orch.v1.Request
+	(*Response)(nil),                      // 117: orch.v1.Response
+	nil,                                   // 118: orch.v1.Event.AttrsEntry
+	nil,                                   // 119: orch.v1.CreateRunRequest.MetadataEntry
+	nil,                                   // 120: orch.v1.AppendEventRequest.EventAttrsEntry
+	nil,                                   // 121: orch.v1.QueryOpenCodeServerResponse.SessionStatusEntry
+	nil,                                   // 122: orch.v1.GitHubConfigProto.StatusLabelsEntry
 }
-var file_api_orch_proto_depIdxs = []int32{
+var file_orch_proto_depIdxs = []int32{
 	0,   // 0: orch.v1.Run.status:type_name -> orch.v1.RunStatus
 	4,   // 1: orch.v1.Run.diff_stats:type_name -> orch.v1.DiffStats
 	2,   // 2: orch.v1.Run.branch_state:type_name -> orch.v1.BranchState
 	3,   // 3: orch.v1.Run.multiplexer:type_name -> orch.v1.Multiplexer
 	1,   // 4: orch.v1.Issue.status:type_name -> orch.v1.IssueStatus
-	103, // 5: orch.v1.Event.attrs:type_name -> orch.v1.Event.AttrsEntry
+	118, // 5: orch.v1.Event.attrs:type_name -> orch.v1.Event.AttrsEntry
 	0,   // 6: orch.v1.ListRunsRequest.status:type_name -> orch.v1.RunStatus
 	5,   // 7: orch.v1.ListRunsResponse.runs:type_name -> orch.v1.Run
 	5,   // 8: orch.v1.GetRunResponse.run:type_name -> orch.v1.Run
 	7,   // 9: orch.v1.GetRunResponse.events:type_name -> orch.v1.Event
-	104, // 10: orch.v1.CreateRunRequest.metadata:type_name -> orch.v1.CreateRunRequest.MetadataEntry
+	119, // 10: orch.v1.CreateRunRequest.metadata:type_name -> orch.v1.CreateRunRequest.MetadataEntry
 	1,   // 11: orch.v1.ListIssuesRequest.status:type_name -> orch.v1.IssueStatus
 	6,   // 12: orch.v1.ListIssuesResponse.issues:type_name -> orch.v1.Issue
 	6,   // 13: orch.v1.GetIssueResponse.issue:type_name -> orch.v1.Issue
@@ -8226,7 +9827,7 @@ var file_api_orch_proto_depIdxs = []int32{
 	51,  // 17: orch.v1.ListMonitorsResponse.monitors:type_name -> orch.v1.MonitorInfo
 	5,   // 18: orch.v1.GetRunByShortIDResponse.run:type_name -> orch.v1.Run
 	7,   // 19: orch.v1.GetRunByShortIDResponse.events:type_name -> orch.v1.Event
-	105, // 20: orch.v1.AppendEventRequest.event_attrs:type_name -> orch.v1.AppendEventRequest.EventAttrsEntry
+	120, // 20: orch.v1.AppendEventRequest.event_attrs:type_name -> orch.v1.AppendEventRequest.EventAttrsEntry
 	66,  // 21: orch.v1.ListReposResponse.repos:type_name -> orch.v1.RepoInfo
 	6,   // 22: orch.v1.UpdateIssueResponse.issue:type_name -> orch.v1.Issue
 	73,  // 23: orch.v1.ValidationResultItem.errors:type_name -> orch.v1.ValidationIssue
@@ -8238,106 +9839,122 @@ var file_api_orch_proto_depIdxs = []int32{
 	3,   // 29: orch.v1.ListSessionsRequest.multiplexer:type_name -> orch.v1.Multiplexer
 	97,  // 30: orch.v1.OpenCodeProviderInfo.models:type_name -> orch.v1.OpenCodeModelInfo
 	96,  // 31: orch.v1.QueryOpenCodeServerResponse.providers:type_name -> orch.v1.OpenCodeProviderInfo
-	106, // 32: orch.v1.QueryOpenCodeServerResponse.session_status:type_name -> orch.v1.QueryOpenCodeServerResponse.SessionStatusEntry
-	8,   // 33: orch.v1.Request.ping:type_name -> orch.v1.PingRequest
-	10,  // 34: orch.v1.Request.list_runs:type_name -> orch.v1.ListRunsRequest
-	12,  // 35: orch.v1.Request.get_run:type_name -> orch.v1.GetRunRequest
-	14,  // 36: orch.v1.Request.start_run:type_name -> orch.v1.StartRunRequest
-	18,  // 37: orch.v1.Request.stop_run:type_name -> orch.v1.StopRunRequest
-	20,  // 38: orch.v1.Request.resolve_run:type_name -> orch.v1.ResolveRunRequest
-	22,  // 39: orch.v1.Request.list_issues:type_name -> orch.v1.ListIssuesRequest
-	24,  // 40: orch.v1.Request.get_issue:type_name -> orch.v1.GetIssueRequest
-	26,  // 41: orch.v1.Request.create_issue:type_name -> orch.v1.CreateIssueRequest
-	28,  // 42: orch.v1.Request.close_issue:type_name -> orch.v1.CloseIssueRequest
-	30,  // 43: orch.v1.Request.get_control_agent_launch:type_name -> orch.v1.GetControlAgentLaunchRequest
-	32,  // 44: orch.v1.Request.get_attach_info:type_name -> orch.v1.GetAttachInfoRequest
-	34,  // 45: orch.v1.Request.capture_session:type_name -> orch.v1.CaptureSessionRequest
-	36,  // 46: orch.v1.Request.send_message:type_name -> orch.v1.SendMessageRequest
-	38,  // 47: orch.v1.Request.get_diff_stats:type_name -> orch.v1.GetDiffStatsRequest
-	40,  // 48: orch.v1.Request.get_branch_state:type_name -> orch.v1.GetBranchStateRequest
-	42,  // 49: orch.v1.Request.get_diff:type_name -> orch.v1.GetDiffRequest
-	44,  // 50: orch.v1.Request.register_monitor:type_name -> orch.v1.RegisterMonitorRequest
-	46,  // 51: orch.v1.Request.unregister_monitor:type_name -> orch.v1.UnregisterMonitorRequest
-	48,  // 52: orch.v1.Request.heartbeat:type_name -> orch.v1.HeartbeatRequest
-	50,  // 53: orch.v1.Request.list_monitors:type_name -> orch.v1.ListMonitorsRequest
-	53,  // 54: orch.v1.Request.kill_monitor:type_name -> orch.v1.KillMonitorRequest
-	55,  // 55: orch.v1.Request.get_run_by_short_id:type_name -> orch.v1.GetRunByShortIDRequest
-	57,  // 56: orch.v1.Request.resolve_issue:type_name -> orch.v1.ResolveIssueRequest
-	59,  // 57: orch.v1.Request.append_event:type_name -> orch.v1.AppendEventRequest
-	61,  // 58: orch.v1.Request.ensure_opencode_server:type_name -> orch.v1.EnsureOpenCodeServerRequest
-	63,  // 59: orch.v1.Request.register_repo:type_name -> orch.v1.RegisterRepoRequest
-	65,  // 60: orch.v1.Request.list_repos:type_name -> orch.v1.ListReposRequest
-	68,  // 61: orch.v1.Request.delete_run:type_name -> orch.v1.DeleteRunRequest
-	70,  // 62: orch.v1.Request.update_issue:type_name -> orch.v1.UpdateIssueRequest
-	72,  // 63: orch.v1.Request.validate_issue_files:type_name -> orch.v1.ValidateIssueFilesRequest
-	77,  // 64: orch.v1.Request.write_agent_prompt:type_name -> orch.v1.WriteAgentPromptRequest
-	79,  // 65: orch.v1.Request.read_agent_prompt:type_name -> orch.v1.ReadAgentPromptRequest
-	81,  // 66: orch.v1.Request.repair_state:type_name -> orch.v1.RepairStateRequest
-	83,  // 67: orch.v1.Request.get_daemon_log:type_name -> orch.v1.GetDaemonLogRequest
-	85,  // 68: orch.v1.Request.read_file:type_name -> orch.v1.ReadFileRequest
-	87,  // 69: orch.v1.Request.write_file:type_name -> orch.v1.WriteFileRequest
-	16,  // 70: orch.v1.Request.create_run:type_name -> orch.v1.CreateRunRequest
-	89,  // 71: orch.v1.Request.kill_session:type_name -> orch.v1.KillSessionRequest
-	91,  // 72: orch.v1.Request.list_sessions:type_name -> orch.v1.ListSessionsRequest
-	93,  // 73: orch.v1.Request.resume_run:type_name -> orch.v1.ResumeRunRequest
-	95,  // 74: orch.v1.Request.query_opencode_server:type_name -> orch.v1.QueryOpenCodeServerRequest
-	99,  // 75: orch.v1.Request.inject_initial_prompt:type_name -> orch.v1.InjectInitialPromptRequest
-	9,   // 76: orch.v1.Response.ping:type_name -> orch.v1.PingResponse
-	11,  // 77: orch.v1.Response.list_runs:type_name -> orch.v1.ListRunsResponse
-	13,  // 78: orch.v1.Response.get_run:type_name -> orch.v1.GetRunResponse
-	15,  // 79: orch.v1.Response.start_run:type_name -> orch.v1.StartRunResponse
-	19,  // 80: orch.v1.Response.stop_run:type_name -> orch.v1.StopRunResponse
-	21,  // 81: orch.v1.Response.resolve_run:type_name -> orch.v1.ResolveRunResponse
-	23,  // 82: orch.v1.Response.list_issues:type_name -> orch.v1.ListIssuesResponse
-	25,  // 83: orch.v1.Response.get_issue:type_name -> orch.v1.GetIssueResponse
-	27,  // 84: orch.v1.Response.create_issue:type_name -> orch.v1.CreateIssueResponse
-	29,  // 85: orch.v1.Response.close_issue:type_name -> orch.v1.CloseIssueResponse
-	31,  // 86: orch.v1.Response.get_control_agent_launch:type_name -> orch.v1.GetControlAgentLaunchResponse
-	33,  // 87: orch.v1.Response.get_attach_info:type_name -> orch.v1.GetAttachInfoResponse
-	35,  // 88: orch.v1.Response.capture_session:type_name -> orch.v1.CaptureSessionResponse
-	37,  // 89: orch.v1.Response.send_message:type_name -> orch.v1.SendMessageResponse
-	39,  // 90: orch.v1.Response.get_diff_stats:type_name -> orch.v1.GetDiffStatsResponse
-	41,  // 91: orch.v1.Response.get_branch_state:type_name -> orch.v1.GetBranchStateResponse
-	43,  // 92: orch.v1.Response.get_diff:type_name -> orch.v1.GetDiffResponse
-	45,  // 93: orch.v1.Response.register_monitor:type_name -> orch.v1.RegisterMonitorResponse
-	47,  // 94: orch.v1.Response.unregister_monitor:type_name -> orch.v1.UnregisterMonitorResponse
-	49,  // 95: orch.v1.Response.heartbeat:type_name -> orch.v1.HeartbeatResponse
-	52,  // 96: orch.v1.Response.list_monitors:type_name -> orch.v1.ListMonitorsResponse
-	54,  // 97: orch.v1.Response.kill_monitor:type_name -> orch.v1.KillMonitorResponse
-	56,  // 98: orch.v1.Response.get_run_by_short_id:type_name -> orch.v1.GetRunByShortIDResponse
-	58,  // 99: orch.v1.Response.resolve_issue:type_name -> orch.v1.ResolveIssueResponse
-	60,  // 100: orch.v1.Response.append_event:type_name -> orch.v1.AppendEventResponse
-	62,  // 101: orch.v1.Response.ensure_opencode_server:type_name -> orch.v1.EnsureOpenCodeServerResponse
-	64,  // 102: orch.v1.Response.register_repo:type_name -> orch.v1.RegisterRepoResponse
-	67,  // 103: orch.v1.Response.list_repos:type_name -> orch.v1.ListReposResponse
-	69,  // 104: orch.v1.Response.delete_run:type_name -> orch.v1.DeleteRunResponse
-	71,  // 105: orch.v1.Response.update_issue:type_name -> orch.v1.UpdateIssueResponse
-	76,  // 106: orch.v1.Response.validate_issue_files:type_name -> orch.v1.ValidateIssueFilesResponse
-	78,  // 107: orch.v1.Response.write_agent_prompt:type_name -> orch.v1.WriteAgentPromptResponse
-	80,  // 108: orch.v1.Response.read_agent_prompt:type_name -> orch.v1.ReadAgentPromptResponse
-	82,  // 109: orch.v1.Response.repair_state:type_name -> orch.v1.RepairStateResponse
-	84,  // 110: orch.v1.Response.get_daemon_log:type_name -> orch.v1.GetDaemonLogResponse
-	86,  // 111: orch.v1.Response.read_file:type_name -> orch.v1.ReadFileResponse
-	88,  // 112: orch.v1.Response.write_file:type_name -> orch.v1.WriteFileResponse
-	17,  // 113: orch.v1.Response.create_run:type_name -> orch.v1.CreateRunResponse
-	90,  // 114: orch.v1.Response.kill_session:type_name -> orch.v1.KillSessionResponse
-	92,  // 115: orch.v1.Response.list_sessions:type_name -> orch.v1.ListSessionsResponse
-	94,  // 116: orch.v1.Response.resume_run:type_name -> orch.v1.ResumeRunResponse
-	98,  // 117: orch.v1.Response.query_opencode_server:type_name -> orch.v1.QueryOpenCodeServerResponse
-	100, // 118: orch.v1.Response.inject_initial_prompt:type_name -> orch.v1.InjectInitialPromptResponse
-	119, // [119:119] is the sub-list for method output_type
-	119, // [119:119] is the sub-list for method input_type
-	119, // [119:119] is the sub-list for extension type_name
-	119, // [119:119] is the sub-list for extension extendee
-	0,   // [0:119] is the sub-list for field type_name
+	121, // 32: orch.v1.QueryOpenCodeServerResponse.session_status:type_name -> orch.v1.QueryOpenCodeServerResponse.SessionStatusEntry
+	122, // 33: orch.v1.GitHubConfigProto.status_labels:type_name -> orch.v1.GitHubConfigProto.StatusLabelsEntry
+	112, // 34: orch.v1.GetConfigResponse.monitor:type_name -> orch.v1.MonitorConfigProto
+	109, // 35: orch.v1.GetConfigResponse.presets:type_name -> orch.v1.PresetProto
+	105, // 36: orch.v1.GetConfigResponse.opencode:type_name -> orch.v1.OpenCodeConfigProto
+	106, // 37: orch.v1.GetConfigResponse.claude:type_name -> orch.v1.ClaudeConfigProto
+	107, // 38: orch.v1.GetConfigResponse.codex:type_name -> orch.v1.CodexConfigProto
+	108, // 39: orch.v1.GetConfigResponse.gemini:type_name -> orch.v1.GeminiConfigProto
+	104, // 40: orch.v1.GetConfigResponse.slack:type_name -> orch.v1.SlackConfigProto
+	110, // 41: orch.v1.GetConfigResponse.issues:type_name -> orch.v1.IssuesConfigProto
+	111, // 42: orch.v1.GetConfigResponse.github:type_name -> orch.v1.GitHubConfigProto
+	8,   // 43: orch.v1.Request.ping:type_name -> orch.v1.PingRequest
+	10,  // 44: orch.v1.Request.list_runs:type_name -> orch.v1.ListRunsRequest
+	12,  // 45: orch.v1.Request.get_run:type_name -> orch.v1.GetRunRequest
+	14,  // 46: orch.v1.Request.start_run:type_name -> orch.v1.StartRunRequest
+	18,  // 47: orch.v1.Request.stop_run:type_name -> orch.v1.StopRunRequest
+	20,  // 48: orch.v1.Request.resolve_run:type_name -> orch.v1.ResolveRunRequest
+	22,  // 49: orch.v1.Request.list_issues:type_name -> orch.v1.ListIssuesRequest
+	24,  // 50: orch.v1.Request.get_issue:type_name -> orch.v1.GetIssueRequest
+	26,  // 51: orch.v1.Request.create_issue:type_name -> orch.v1.CreateIssueRequest
+	28,  // 52: orch.v1.Request.close_issue:type_name -> orch.v1.CloseIssueRequest
+	30,  // 53: orch.v1.Request.get_control_agent_launch:type_name -> orch.v1.GetControlAgentLaunchRequest
+	32,  // 54: orch.v1.Request.get_attach_info:type_name -> orch.v1.GetAttachInfoRequest
+	34,  // 55: orch.v1.Request.capture_session:type_name -> orch.v1.CaptureSessionRequest
+	36,  // 56: orch.v1.Request.send_message:type_name -> orch.v1.SendMessageRequest
+	38,  // 57: orch.v1.Request.get_diff_stats:type_name -> orch.v1.GetDiffStatsRequest
+	40,  // 58: orch.v1.Request.get_branch_state:type_name -> orch.v1.GetBranchStateRequest
+	42,  // 59: orch.v1.Request.get_diff:type_name -> orch.v1.GetDiffRequest
+	44,  // 60: orch.v1.Request.register_monitor:type_name -> orch.v1.RegisterMonitorRequest
+	46,  // 61: orch.v1.Request.unregister_monitor:type_name -> orch.v1.UnregisterMonitorRequest
+	48,  // 62: orch.v1.Request.heartbeat:type_name -> orch.v1.HeartbeatRequest
+	50,  // 63: orch.v1.Request.list_monitors:type_name -> orch.v1.ListMonitorsRequest
+	53,  // 64: orch.v1.Request.kill_monitor:type_name -> orch.v1.KillMonitorRequest
+	55,  // 65: orch.v1.Request.get_run_by_short_id:type_name -> orch.v1.GetRunByShortIDRequest
+	57,  // 66: orch.v1.Request.resolve_issue:type_name -> orch.v1.ResolveIssueRequest
+	59,  // 67: orch.v1.Request.append_event:type_name -> orch.v1.AppendEventRequest
+	61,  // 68: orch.v1.Request.ensure_opencode_server:type_name -> orch.v1.EnsureOpenCodeServerRequest
+	63,  // 69: orch.v1.Request.register_repo:type_name -> orch.v1.RegisterRepoRequest
+	65,  // 70: orch.v1.Request.list_repos:type_name -> orch.v1.ListReposRequest
+	68,  // 71: orch.v1.Request.delete_run:type_name -> orch.v1.DeleteRunRequest
+	70,  // 72: orch.v1.Request.update_issue:type_name -> orch.v1.UpdateIssueRequest
+	72,  // 73: orch.v1.Request.validate_issue_files:type_name -> orch.v1.ValidateIssueFilesRequest
+	77,  // 74: orch.v1.Request.write_agent_prompt:type_name -> orch.v1.WriteAgentPromptRequest
+	79,  // 75: orch.v1.Request.read_agent_prompt:type_name -> orch.v1.ReadAgentPromptRequest
+	81,  // 76: orch.v1.Request.repair_state:type_name -> orch.v1.RepairStateRequest
+	83,  // 77: orch.v1.Request.get_daemon_log:type_name -> orch.v1.GetDaemonLogRequest
+	85,  // 78: orch.v1.Request.read_file:type_name -> orch.v1.ReadFileRequest
+	87,  // 79: orch.v1.Request.write_file:type_name -> orch.v1.WriteFileRequest
+	16,  // 80: orch.v1.Request.create_run:type_name -> orch.v1.CreateRunRequest
+	89,  // 81: orch.v1.Request.kill_session:type_name -> orch.v1.KillSessionRequest
+	91,  // 82: orch.v1.Request.list_sessions:type_name -> orch.v1.ListSessionsRequest
+	93,  // 83: orch.v1.Request.resume_run:type_name -> orch.v1.ResumeRunRequest
+	95,  // 84: orch.v1.Request.query_opencode_server:type_name -> orch.v1.QueryOpenCodeServerRequest
+	99,  // 85: orch.v1.Request.inject_initial_prompt:type_name -> orch.v1.InjectInitialPromptRequest
+	101, // 86: orch.v1.Request.continue_run:type_name -> orch.v1.ContinueRunRequest
+	103, // 87: orch.v1.Request.get_config:type_name -> orch.v1.GetConfigRequest
+	114, // 88: orch.v1.Request.get_daemon_status:type_name -> orch.v1.GetDaemonStatusRequest
+	9,   // 89: orch.v1.Response.ping:type_name -> orch.v1.PingResponse
+	11,  // 90: orch.v1.Response.list_runs:type_name -> orch.v1.ListRunsResponse
+	13,  // 91: orch.v1.Response.get_run:type_name -> orch.v1.GetRunResponse
+	15,  // 92: orch.v1.Response.start_run:type_name -> orch.v1.StartRunResponse
+	19,  // 93: orch.v1.Response.stop_run:type_name -> orch.v1.StopRunResponse
+	21,  // 94: orch.v1.Response.resolve_run:type_name -> orch.v1.ResolveRunResponse
+	23,  // 95: orch.v1.Response.list_issues:type_name -> orch.v1.ListIssuesResponse
+	25,  // 96: orch.v1.Response.get_issue:type_name -> orch.v1.GetIssueResponse
+	27,  // 97: orch.v1.Response.create_issue:type_name -> orch.v1.CreateIssueResponse
+	29,  // 98: orch.v1.Response.close_issue:type_name -> orch.v1.CloseIssueResponse
+	31,  // 99: orch.v1.Response.get_control_agent_launch:type_name -> orch.v1.GetControlAgentLaunchResponse
+	33,  // 100: orch.v1.Response.get_attach_info:type_name -> orch.v1.GetAttachInfoResponse
+	35,  // 101: orch.v1.Response.capture_session:type_name -> orch.v1.CaptureSessionResponse
+	37,  // 102: orch.v1.Response.send_message:type_name -> orch.v1.SendMessageResponse
+	39,  // 103: orch.v1.Response.get_diff_stats:type_name -> orch.v1.GetDiffStatsResponse
+	41,  // 104: orch.v1.Response.get_branch_state:type_name -> orch.v1.GetBranchStateResponse
+	43,  // 105: orch.v1.Response.get_diff:type_name -> orch.v1.GetDiffResponse
+	45,  // 106: orch.v1.Response.register_monitor:type_name -> orch.v1.RegisterMonitorResponse
+	47,  // 107: orch.v1.Response.unregister_monitor:type_name -> orch.v1.UnregisterMonitorResponse
+	49,  // 108: orch.v1.Response.heartbeat:type_name -> orch.v1.HeartbeatResponse
+	52,  // 109: orch.v1.Response.list_monitors:type_name -> orch.v1.ListMonitorsResponse
+	54,  // 110: orch.v1.Response.kill_monitor:type_name -> orch.v1.KillMonitorResponse
+	56,  // 111: orch.v1.Response.get_run_by_short_id:type_name -> orch.v1.GetRunByShortIDResponse
+	58,  // 112: orch.v1.Response.resolve_issue:type_name -> orch.v1.ResolveIssueResponse
+	60,  // 113: orch.v1.Response.append_event:type_name -> orch.v1.AppendEventResponse
+	62,  // 114: orch.v1.Response.ensure_opencode_server:type_name -> orch.v1.EnsureOpenCodeServerResponse
+	64,  // 115: orch.v1.Response.register_repo:type_name -> orch.v1.RegisterRepoResponse
+	67,  // 116: orch.v1.Response.list_repos:type_name -> orch.v1.ListReposResponse
+	69,  // 117: orch.v1.Response.delete_run:type_name -> orch.v1.DeleteRunResponse
+	71,  // 118: orch.v1.Response.update_issue:type_name -> orch.v1.UpdateIssueResponse
+	76,  // 119: orch.v1.Response.validate_issue_files:type_name -> orch.v1.ValidateIssueFilesResponse
+	78,  // 120: orch.v1.Response.write_agent_prompt:type_name -> orch.v1.WriteAgentPromptResponse
+	80,  // 121: orch.v1.Response.read_agent_prompt:type_name -> orch.v1.ReadAgentPromptResponse
+	82,  // 122: orch.v1.Response.repair_state:type_name -> orch.v1.RepairStateResponse
+	84,  // 123: orch.v1.Response.get_daemon_log:type_name -> orch.v1.GetDaemonLogResponse
+	86,  // 124: orch.v1.Response.read_file:type_name -> orch.v1.ReadFileResponse
+	88,  // 125: orch.v1.Response.write_file:type_name -> orch.v1.WriteFileResponse
+	17,  // 126: orch.v1.Response.create_run:type_name -> orch.v1.CreateRunResponse
+	90,  // 127: orch.v1.Response.kill_session:type_name -> orch.v1.KillSessionResponse
+	92,  // 128: orch.v1.Response.list_sessions:type_name -> orch.v1.ListSessionsResponse
+	94,  // 129: orch.v1.Response.resume_run:type_name -> orch.v1.ResumeRunResponse
+	98,  // 130: orch.v1.Response.query_opencode_server:type_name -> orch.v1.QueryOpenCodeServerResponse
+	100, // 131: orch.v1.Response.inject_initial_prompt:type_name -> orch.v1.InjectInitialPromptResponse
+	102, // 132: orch.v1.Response.continue_run:type_name -> orch.v1.ContinueRunResponse
+	113, // 133: orch.v1.Response.get_config:type_name -> orch.v1.GetConfigResponse
+	115, // 134: orch.v1.Response.get_daemon_status:type_name -> orch.v1.GetDaemonStatusResponse
+	135, // [135:135] is the sub-list for method output_type
+	135, // [135:135] is the sub-list for method input_type
+	135, // [135:135] is the sub-list for extension type_name
+	135, // [135:135] is the sub-list for extension extendee
+	0,   // [0:135] is the sub-list for field type_name
 }
 
-func init() { file_api_orch_proto_init() }
-func file_api_orch_proto_init() {
-	if File_api_orch_proto != nil {
+func init() { file_orch_proto_init() }
+func file_orch_proto_init() {
+	if File_orch_proto != nil {
 		return
 	}
-	file_api_orch_proto_msgTypes[97].OneofWrappers = []any{
+	file_orch_proto_msgTypes[112].OneofWrappers = []any{
 		(*Request_Ping)(nil),
 		(*Request_ListRuns)(nil),
 		(*Request_GetRun)(nil),
@@ -8381,8 +9998,11 @@ func file_api_orch_proto_init() {
 		(*Request_ResumeRun)(nil),
 		(*Request_QueryOpencodeServer)(nil),
 		(*Request_InjectInitialPrompt)(nil),
+		(*Request_ContinueRun)(nil),
+		(*Request_GetConfig)(nil),
+		(*Request_GetDaemonStatus)(nil),
 	}
-	file_api_orch_proto_msgTypes[98].OneofWrappers = []any{
+	file_orch_proto_msgTypes[113].OneofWrappers = []any{
 		(*Response_Ping)(nil),
 		(*Response_ListRuns)(nil),
 		(*Response_GetRun)(nil),
@@ -8426,23 +10046,26 @@ func file_api_orch_proto_init() {
 		(*Response_ResumeRun)(nil),
 		(*Response_QueryOpencodeServer)(nil),
 		(*Response_InjectInitialPrompt)(nil),
+		(*Response_ContinueRun)(nil),
+		(*Response_GetConfig)(nil),
+		(*Response_GetDaemonStatus)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_orch_proto_rawDesc), len(file_api_orch_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orch_proto_rawDesc), len(file_orch_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   103,
+			NumMessages:   119,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_api_orch_proto_goTypes,
-		DependencyIndexes: file_api_orch_proto_depIdxs,
-		EnumInfos:         file_api_orch_proto_enumTypes,
-		MessageInfos:      file_api_orch_proto_msgTypes,
+		GoTypes:           file_orch_proto_goTypes,
+		DependencyIndexes: file_orch_proto_depIdxs,
+		EnumInfos:         file_orch_proto_enumTypes,
+		MessageInfos:      file_orch_proto_msgTypes,
 	}.Build()
-	File_api_orch_proto = out.File
-	file_api_orch_proto_goTypes = nil
-	file_api_orch_proto_depIdxs = nil
+	File_orch_proto = out.File
+	file_orch_proto_goTypes = nil
+	file_orch_proto_depIdxs = nil
 }

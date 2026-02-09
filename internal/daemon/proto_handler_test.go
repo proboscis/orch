@@ -27,7 +27,7 @@ func TestBuildAttachInfoResponse(t *testing.T) {
 				RunID:             "20260130-120000",
 				Agent:             "opencode",
 				WorktreePath:      "/path/to/worktree",
-				TmuxSession:       "run-orch-123",
+				SessionName:       "run-orch-123",
 				ServerPort:        4097,
 				OpenCodeSessionID: "ses_abc123",
 			},
@@ -52,7 +52,7 @@ func TestBuildAttachInfoResponse(t *testing.T) {
 				RunID:        "20260130-130000",
 				Agent:        "claude",
 				WorktreePath: "/path/to/worktree2",
-				TmuxSession:  "run-orch-456",
+				SessionName:  "run-orch-456",
 				ServerPort:   0,
 			},
 			want: struct {

@@ -532,7 +532,7 @@ github:
 		OK          bool   `json:"ok"`
 		IssueID     string `json:"issue_id"`
 		RunID       string `json:"run_id"`
-		TmuxSession string `json:"tmux_session"`
+		SessionName string `json:"session_name"`
 	}
 	jsonStart := strings.Index(string(runOut), "{")
 	if jsonStart == -1 {
@@ -549,7 +549,7 @@ github:
 		t.Errorf("issue ID mismatch: got %s, want %s", runResult.IssueID, issueID)
 	}
 
-	if runResult.TmuxSession != "" {
-		exec.Command("tmux", "kill-session", "-t", runResult.TmuxSession).Run()
+	if runResult.SessionName != "" {
+		exec.Command("tmux", "kill-session", "-t", runResult.SessionName).Run()
 	}
 }

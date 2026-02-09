@@ -66,7 +66,7 @@ func runAttach(refStr string, opts *attachOptions) error {
 
 	if !info.SessionExists {
 		fmt.Fprintf(os.Stderr, "cannot attach: session not found (session: %s, worktree: %s)\n",
-			info.TmuxSession, info.WorktreePath)
+			info.SessionName, info.WorktreePath)
 		os.Exit(ExitRunNotFound)
 		return fmt.Errorf("cannot attach: session not found")
 	}
@@ -75,9 +75,9 @@ func runAttach(refStr string, opts *attachOptions) error {
 		return attachOpenCodeFromInfo(info)
 	}
 
-	sessionName := info.TmuxSession
+	sessionName := info.SessionName
 	if sessionName == "" {
-		sessionName = model.GenerateTmuxSession(info.IssueID, info.RunID)
+		sessionName = model.GenerateSessionName(info.IssueID, info.RunID)
 	}
 
 	projectRoot, _ := getProjectRoot()

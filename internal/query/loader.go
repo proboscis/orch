@@ -72,7 +72,7 @@ func LoadRuns(db *DB, api orchapi.OrchAPI) error {
 
 func insertRun(db *DB, run *model.Run) error {
 	query := `INSERT INTO runs (issue_id, run_id, hex_id, status, phase, agent, model, model_variant,
-		branch, worktree_path, tmux_session, pr_url, started_at, updated_at, continued_from)
+		branch, worktree_path, session_name, pr_url, started_at, updated_at, continued_from)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	var startedAt, updatedAt string
@@ -94,7 +94,7 @@ func insertRun(db *DB, run *model.Run) error {
 		run.ModelVariant,
 		run.Branch,
 		run.WorktreePath,
-		run.TmuxSession,
+		run.SessionName,
 		run.PRUrl,
 		startedAt,
 		updatedAt,
@@ -199,7 +199,7 @@ func apiRunToModel(r *orchapi.Run) *model.Run {
 		ModelVariant:  r.ModelVariant,
 		Branch:        r.Branch,
 		WorktreePath:  r.WorktreePath,
-		TmuxSession:   r.TmuxSession,
+		SessionName:   r.SessionName,
 		PRUrl:         r.PRUrl,
 		ContinuedFrom: r.ContinuedFrom,
 		StartedAt:     r.StartedAt,

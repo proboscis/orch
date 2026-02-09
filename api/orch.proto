@@ -72,7 +72,7 @@ message Run {
   string elapsed_display = 12;
   DiffStats diff_stats = 13;
   BranchState branch_state = 14;
-  string tmux_session = 15;
+  string session_name = 15;
   Multiplexer multiplexer = 16;
   int32 server_port = 17;
   string opencode_session_id = 18;
@@ -169,7 +169,7 @@ message StartRunResponse {
   string run_id = 1;
   string branch = 2;
   string worktree_path = 3;
-  string tmux_session = 4;
+  string session_name = 4;
   string status = 5;
 }
 
@@ -665,7 +665,7 @@ message ContinueRunRequest {
   string prompt_template = 12;
   string pr_target_branch = 13;
   string multiplexer = 14;
-  string tmux_session = 15;
+  string session_name = 15;
   string repo_root = 16;
 }
 
@@ -673,7 +673,7 @@ message ContinueRunResponse {
   string run_id = 1;
   string branch = 2;
   string worktree_path = 3;
-  string tmux_session = 4;
+  string session_name = 4;
   string status = 5;
   string continued_from = 6;
   string issue_id = 7;

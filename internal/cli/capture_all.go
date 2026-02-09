@@ -58,7 +58,7 @@ type captureAllItem struct {
 	IssueID     string `json:"issue_id"`
 	RunID       string `json:"run_id"`
 	Status      string `json:"status"`
-	TmuxSession string `json:"tmux_session"`
+	SessionName string `json:"session_name"`
 	Lines       int    `json:"lines"`
 	Content     string `json:"content,omitempty"`
 	Error       string `json:"error,omitempty"`
@@ -117,16 +117,16 @@ func captureAllStatusesAPI() []orchapi.RunStatus {
 }
 
 func captureAllItemForRun(api orchapi.OrchAPI, run *orchapi.Run, lines int) captureAllItem {
-	sessionName := run.TmuxSession
+	sessionName := run.SessionName
 	if sessionName == "" {
-		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+		sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
 	}
 
 	item := captureAllItem{
 		IssueID:     run.IssueID,
 		RunID:       run.RunID,
 		Status:      string(run.Status),
-		TmuxSession: sessionName,
+		SessionName: sessionName,
 		Lines:       lines,
 	}
 

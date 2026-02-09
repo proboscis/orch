@@ -133,10 +133,10 @@ func GetManager(run *model.Run) AgentManager {
 }
 
 func getSessionName(run *model.Run) string {
-	if run.TmuxSession != "" {
-		return run.TmuxSession
+	if run.SessionName != "" {
+		return run.SessionName
 	}
-	return model.GenerateTmuxSession(run.IssueID, run.RunID)
+	return model.GenerateSessionName(run.IssueID, run.RunID)
 }
 
 type MuxManager struct {

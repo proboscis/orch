@@ -81,8 +81,8 @@ type Run struct {
 	ModelVariant      string
 	Branch            string
 	WorktreePath      string
-	TmuxSession       string
-	TmuxWindowID      string
+	SessionName       string
+	MuxWindowID       string
 	Multiplexer       string
 	PRUrl             string
 	PRNumber          int
@@ -175,11 +175,11 @@ func (r *Run) DeriveState() {
 		r.Branch = branch["name"]
 	}
 	if session, ok := artifacts["session"]; ok {
-		r.TmuxSession = session["name"]
+		r.SessionName = session["name"]
 		r.Multiplexer = session["multiplexer"]
 	}
 	if window, ok := artifacts["window"]; ok {
-		r.TmuxWindowID = window["id"]
+		r.MuxWindowID = window["id"]
 	}
 	if pr, ok := artifacts["pr"]; ok {
 		r.PRUrl = pr["url"]
@@ -220,7 +220,7 @@ func GenerateBranchName(issueID, runID string) string {
 	return fmt.Sprintf("issue/%s/run-%s", issueID, runID)
 }
 
-// GenerateTmuxSession generates a tmux session name using the convention
-func GenerateTmuxSession(issueID, runID string) string {
+// GenerateSessionName generates a session name using the convention
+func GenerateSessionName(issueID, runID string) string {
 	return fmt.Sprintf("run-%s-%s", issueID, runID)
 }

@@ -152,8 +152,8 @@ func TestRunCaptureAllJSON(t *testing.T) {
 	if item1.Lines != 5 {
 		t.Fatalf("issue-1 lines = %d, want 5", item1.Lines)
 	}
-	if item1.TmuxSession != model.GenerateTmuxSession("issue-1", "run-1") {
-		t.Fatalf("issue-1 tmux_session = %q", item1.TmuxSession)
+	if item1.SessionName != model.GenerateSessionName("issue-1", "run-1") {
+		t.Fatalf("issue-1 session_name = %q", item1.SessionName)
 	}
 
 	item2, ok := items["issue-2"]

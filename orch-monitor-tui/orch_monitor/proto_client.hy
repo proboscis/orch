@@ -121,7 +121,7 @@
        :model r.model
        :branch r.branch
        :worktree_path r.worktree_path
-       :tmux_session r.tmux_session
+       :session_name r.session_name
        :multiplexer (proto-multiplexer->str r.multiplexer)
        :pr_url r.pr_url
        :server_port r.server_port
@@ -387,7 +387,7 @@
              req.start_run.project_root (._project-root-str self))
       (setv sr (. (._send-ok self req) start_run))
       {"run_id" sr.run_id "branch" sr.branch 
-       "worktree" sr.worktree_path "tmux_session" sr.tmux_session}))
+       "worktree" sr.worktree_path "session_name" sr.session_name}))
   
   (defrpc stop-run [issue-id [run-id ""]] "stop_run"
     (setv req (pb.Request))
@@ -513,7 +513,7 @@
                           :session_id r.session_id
                           :agent (or agent-type r.agent ""))))
   
-  (defn register-monitor [self pid monitor-type view project [tmux-session ""]]
+  (defn register-monitor [self pid monitor-type view project [session-name ""]]
     "Register monitor. Returns Result[str | None, ProtoDaemonError]."
     (daemon-result "register_monitor"
       (setv req (pb.Request))
@@ -521,7 +521,7 @@
              req.register_monitor.monitor_type monitor-type
              req.register_monitor.view view
              req.register_monitor.project project
-             req.register_monitor.session_name tmux-session)
+             req.register_monitor.session_name session-name)
       (. (._send-ok self req "Failed to register monitor") register_monitor monitor_id)))
   
   (defrpc unregister-monitor [monitor-id] "unregister_monitor"

@@ -27,7 +27,7 @@ type runOptions struct {
 	WorktreeDir    string
 	RepoRoot       string
 	Tmux           bool
-	TmuxSession    string
+	SessionName    string
 	Multiplexer    string
 	DryRun         bool
 	NoPR           bool
@@ -72,7 +72,7 @@ Debug output can be enabled with --verbose, --log-level debug, or ORCH_DEBUG=1.`
 	cmd.Flags().StringVar(&opts.WorktreeDir, "worktree-dir", "", "Directory for worktrees (default: ~/.orch/worktrees)")
 	cmd.Flags().StringVar(&opts.RepoRoot, "repo-root", "", "Git repository root (default: auto-detect)")
 	cmd.Flags().BoolVar(&opts.Tmux, "tmux", true, "Run in terminal multiplexer session")
-	cmd.Flags().StringVar(&opts.TmuxSession, "tmux-session", "", "Session name (default: run-<ISSUE>-<RUN>)")
+	cmd.Flags().StringVar(&opts.SessionName, "session-name", "", "Session name (default: run-<ISSUE>-<RUN>)")
 	cmd.Flags().StringVar(&opts.Multiplexer, "multiplexer", "", "Terminal multiplexer (tmux|zellij)")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Show what would be done without doing it")
 	cmd.Flags().BoolVar(&opts.NoPR, "no-pr", false, "Skip PR creation instructions in agent prompt")
@@ -92,7 +92,7 @@ type runResult struct {
 	RunPath      string `json:"run_path"`
 	Branch       string `json:"branch"`
 	WorktreePath string `json:"worktree_path"`
-	TmuxSession  string `json:"tmux_session"`
+	SessionName  string `json:"session_name"`
 	Status       string `json:"status"`
 	Error        string `json:"error,omitempty"`
 }
@@ -152,7 +152,7 @@ func runRun(issueID string, opts *runOptions) error {
 		RunID:        resp.RunID,
 		Branch:       resp.Branch,
 		WorktreePath: resp.WorktreePath,
-		TmuxSession:  resp.TmuxSession,
+		SessionName:  resp.SessionName,
 		Status:       resp.Status,
 	}
 
@@ -167,7 +167,7 @@ func runRun(issueID string, opts *runOptions) error {
 		fmt.Printf("  Run ID:    %s\n", resp.RunID)
 		fmt.Printf("  Branch:    %s\n", resp.Branch)
 		fmt.Printf("  Worktree:  %s\n", resp.WorktreePath)
-		fmt.Printf("  Session:   %s\n", resp.TmuxSession)
+		fmt.Printf("  Session:   %s\n", resp.SessionName)
 		return nil
 	}
 
@@ -181,8 +181,8 @@ func runRun(issueID string, opts *runOptions) error {
 		fmt.Printf("Run started: %s#%s\n", issueID, resp.RunID)
 		fmt.Printf("  Branch:   %s\n", resp.Branch)
 		fmt.Printf("  Worktree: %s\n", resp.WorktreePath)
-		if resp.TmuxSession != "" {
-			fmt.Printf("  Session:  %s\n", resp.TmuxSession)
+		if resp.SessionName != "" {
+			fmt.Printf("  Session:  %s\n", resp.SessionName)
 			fmt.Printf("\nAttach with: orch attach %s#%s\n", issueID, resp.RunID)
 		}
 	}

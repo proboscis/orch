@@ -343,7 +343,7 @@ type Run struct {
 	ElapsedDisplay    string                 `protobuf:"bytes,12,opt,name=elapsed_display,json=elapsedDisplay,proto3" json:"elapsed_display,omitempty"`
 	DiffStats         *DiffStats             `protobuf:"bytes,13,opt,name=diff_stats,json=diffStats,proto3" json:"diff_stats,omitempty"`
 	BranchState       BranchState            `protobuf:"varint,14,opt,name=branch_state,json=branchState,proto3,enum=orch.v1.BranchState" json:"branch_state,omitempty"`
-	TmuxSession       string                 `protobuf:"bytes,15,opt,name=tmux_session,json=tmuxSession,proto3" json:"tmux_session,omitempty"`
+	SessionName       string                 `protobuf:"bytes,15,opt,name=session_name,json=sessionName,proto3" json:"session_name,omitempty"`
 	Multiplexer       Multiplexer            `protobuf:"varint,16,opt,name=multiplexer,proto3,enum=orch.v1.Multiplexer" json:"multiplexer,omitempty"`
 	ServerPort        int32                  `protobuf:"varint,17,opt,name=server_port,json=serverPort,proto3" json:"server_port,omitempty"`
 	OpencodeSessionId string                 `protobuf:"bytes,18,opt,name=opencode_session_id,json=opencodeSessionId,proto3" json:"opencode_session_id,omitempty"`
@@ -482,9 +482,9 @@ func (x *Run) GetBranchState() BranchState {
 	return BranchState_BRANCH_STATE_UNSPECIFIED
 }
 
-func (x *Run) GetTmuxSession() string {
+func (x *Run) GetSessionName() string {
 	if x != nil {
-		return x.TmuxSession
+		return x.SessionName
 	}
 	return ""
 }
@@ -1268,7 +1268,7 @@ type StartRunResponse struct {
 	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	Branch        string                 `protobuf:"bytes,2,opt,name=branch,proto3" json:"branch,omitempty"`
 	WorktreePath  string                 `protobuf:"bytes,3,opt,name=worktree_path,json=worktreePath,proto3" json:"worktree_path,omitempty"`
-	TmuxSession   string                 `protobuf:"bytes,4,opt,name=tmux_session,json=tmuxSession,proto3" json:"tmux_session,omitempty"`
+	SessionName   string                 `protobuf:"bytes,4,opt,name=session_name,json=sessionName,proto3" json:"session_name,omitempty"`
 	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1325,9 +1325,9 @@ func (x *StartRunResponse) GetWorktreePath() string {
 	return ""
 }
 
-func (x *StartRunResponse) GetTmuxSession() string {
+func (x *StartRunResponse) GetSessionName() string {
 	if x != nil {
-		return x.TmuxSession
+		return x.SessionName
 	}
 	return ""
 }
@@ -6137,7 +6137,7 @@ type ContinueRunRequest struct {
 	PromptTemplate string `protobuf:"bytes,12,opt,name=prompt_template,json=promptTemplate,proto3" json:"prompt_template,omitempty"`
 	PrTargetBranch string `protobuf:"bytes,13,opt,name=pr_target_branch,json=prTargetBranch,proto3" json:"pr_target_branch,omitempty"`
 	Multiplexer    string `protobuf:"bytes,14,opt,name=multiplexer,proto3" json:"multiplexer,omitempty"`
-	TmuxSession    string `protobuf:"bytes,15,opt,name=tmux_session,json=tmuxSession,proto3" json:"tmux_session,omitempty"`
+	SessionName    string `protobuf:"bytes,15,opt,name=session_name,json=sessionName,proto3" json:"session_name,omitempty"`
 	RepoRoot       string `protobuf:"bytes,16,opt,name=repo_root,json=repoRoot,proto3" json:"repo_root,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -6271,9 +6271,9 @@ func (x *ContinueRunRequest) GetMultiplexer() string {
 	return ""
 }
 
-func (x *ContinueRunRequest) GetTmuxSession() string {
+func (x *ContinueRunRequest) GetSessionName() string {
 	if x != nil {
-		return x.TmuxSession
+		return x.SessionName
 	}
 	return ""
 }
@@ -6290,7 +6290,7 @@ type ContinueRunResponse struct {
 	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	Branch        string                 `protobuf:"bytes,2,opt,name=branch,proto3" json:"branch,omitempty"`
 	WorktreePath  string                 `protobuf:"bytes,3,opt,name=worktree_path,json=worktreePath,proto3" json:"worktree_path,omitempty"`
-	TmuxSession   string                 `protobuf:"bytes,4,opt,name=tmux_session,json=tmuxSession,proto3" json:"tmux_session,omitempty"`
+	SessionName   string                 `protobuf:"bytes,4,opt,name=session_name,json=sessionName,proto3" json:"session_name,omitempty"`
 	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
 	ContinuedFrom string                 `protobuf:"bytes,6,opt,name=continued_from,json=continuedFrom,proto3" json:"continued_from,omitempty"`
 	IssueId       string                 `protobuf:"bytes,7,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"`
@@ -6349,9 +6349,9 @@ func (x *ContinueRunResponse) GetWorktreePath() string {
 	return ""
 }
 
-func (x *ContinueRunResponse) GetTmuxSession() string {
+func (x *ContinueRunResponse) GetSessionName() string {
 	if x != nil {
-		return x.TmuxSession
+		return x.SessionName
 	}
 	return ""
 }
@@ -8965,7 +8965,7 @@ const file_orch_proto_rawDesc = "" +
 	"\n" +
 	"diff_stats\x18\r \x01(\v2\x12.orch.v1.DiffStatsR\tdiffStats\x127\n" +
 	"\fbranch_state\x18\x0e \x01(\x0e2\x14.orch.v1.BranchStateR\vbranchState\x12!\n" +
-	"\ftmux_session\x18\x0f \x01(\tR\vtmuxSession\x126\n" +
+	"\fsession_name\x18\x0f \x01(\tR\vsessionName\x126\n" +
 	"\vmultiplexer\x18\x10 \x01(\x0e2\x14.orch.v1.MultiplexerR\vmultiplexer\x12\x1f\n" +
 	"\vserver_port\x18\x11 \x01(\x05R\n" +
 	"serverPort\x12.\n" +
@@ -9050,7 +9050,7 @@ const file_orch_proto_rawDesc = "" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
 	"\x06branch\x18\x02 \x01(\tR\x06branch\x12#\n" +
 	"\rworktree_path\x18\x03 \x01(\tR\fworktreePath\x12!\n" +
-	"\ftmux_session\x18\x04 \x01(\tR\vtmuxSession\x12\x16\n" +
+	"\fsession_name\x18\x04 \x01(\tR\vsessionName\x12\x16\n" +
 	"\x06status\x18\x05 \x01(\tR\x06status\"\xe7\x01\n" +
 	"\x10CreateRunRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
@@ -9420,13 +9420,13 @@ const file_orch_proto_rawDesc = "" +
 	"\x0fprompt_template\x18\f \x01(\tR\x0epromptTemplate\x12(\n" +
 	"\x10pr_target_branch\x18\r \x01(\tR\x0eprTargetBranch\x12 \n" +
 	"\vmultiplexer\x18\x0e \x01(\tR\vmultiplexer\x12!\n" +
-	"\ftmux_session\x18\x0f \x01(\tR\vtmuxSession\x12\x1b\n" +
+	"\fsession_name\x18\x0f \x01(\tR\vsessionName\x12\x1b\n" +
 	"\trepo_root\x18\x10 \x01(\tR\brepoRoot\"\xe6\x01\n" +
 	"\x13ContinueRunResponse\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
 	"\x06branch\x18\x02 \x01(\tR\x06branch\x12#\n" +
 	"\rworktree_path\x18\x03 \x01(\tR\fworktreePath\x12!\n" +
-	"\ftmux_session\x18\x04 \x01(\tR\vtmuxSession\x12\x16\n" +
+	"\fsession_name\x18\x04 \x01(\tR\vsessionName\x12\x16\n" +
 	"\x06status\x18\x05 \x01(\tR\x06status\x12%\n" +
 	"\x0econtinued_from\x18\x06 \x01(\tR\rcontinuedFrom\x12\x19\n" +
 	"\bissue_id\x18\a \x01(\tR\aissueId\"5\n" +

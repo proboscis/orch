@@ -35,7 +35,7 @@ type stopState struct {
 
 type killState struct {
 	run         *model.Run
-	tmuxSession string
+	sessionName string
 }
 
 type newRunState struct {
@@ -506,13 +506,13 @@ func (d *Dashboard) enterKillMode() (tea.Model, tea.Cmd) {
 		d.message = "no run selected"
 		return d, nil
 	}
-	sessionName := run.TmuxSession
+	sessionName := run.SessionName
 	if sessionName == "" {
-		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+		sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
 	}
 	d.kill = killState{
 		run:         run,
-		tmuxSession: sessionName,
+		sessionName: sessionName,
 	}
 	d.mode = modeKillConfirm
 	return d, nil
@@ -526,7 +526,7 @@ func (d *Dashboard) handleKillKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q":
 		return d.quit()
 	case "y", "Y":
-		cmd := d.killSessionCmd(d.kill.run, d.kill.tmuxSession)
+		cmd := d.killSessionCmd(d.kill.run, d.kill.sessionName)
 		d.mode = modeDashboard
 		return d, cmd
 	}
@@ -827,7 +827,7 @@ func (d *Dashboard) viewKillConfirm() string {
 		d.styles.Title.Render("KILL TMUX SESSION"),
 		"",
 		fmt.Sprintf("Run: %s#%s", run.IssueID, run.RunID),
-		fmt.Sprintf("Session: %s", d.kill.tmuxSession),
+		fmt.Sprintf("Session: %s", d.kill.sessionName),
 		"",
 		"This will:",
 		"  • Kill the tmux session",

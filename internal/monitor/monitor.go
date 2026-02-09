@@ -560,9 +560,9 @@ func (m *Monitor) StopRun(run *model.Run) error {
 		return nil
 	}
 
-	sessionName := run.TmuxSession
+	sessionName := run.SessionName
 	if sessionName == "" {
-		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+		sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
 	}
 
 	if m.mux.HasSession(sessionName) {
@@ -933,9 +933,9 @@ func (m *Monitor) loadRuns() ([]*RunWindow, error) {
 
 	runWindows := make([]*RunWindow, 0, len(runs))
 	for i, run := range runs {
-		sessionName := run.TmuxSession
+		sessionName := run.SessionName
 		if sessionName == "" {
-			sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+			sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
 		}
 		runWindows = append(runWindows, &RunWindow{
 			Index:        i + 1,
@@ -1608,9 +1608,9 @@ func (m *Monitor) repairSwappedMonitorChat() error {
 		return nil
 	}
 	run := apiRunToModel(apiRun)
-	sessionName := run.TmuxSession
+	sessionName := run.SessionName
 	if sessionName == "" {
-		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+		sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
 	}
 	if !m.mux.HasSession(sessionName) {
 		_ = m.mux.SetPaneTitle(chatPane.ID, chatPaneTitle)
@@ -1671,9 +1671,9 @@ func (m *Monitor) resolveRunWindowID(run *model.Run, sessionName string) (string
 	if err != nil {
 		return "", err
 	}
-	if run != nil && run.TmuxWindowID != "" {
-		if _, ok := windowIndexByID(windows, run.TmuxWindowID); ok {
-			return run.TmuxWindowID, nil
+	if run != nil && run.MuxWindowID != "" {
+		if _, ok := windowIndexByID(windows, run.MuxWindowID); ok {
+			return run.MuxWindowID, nil
 		}
 	}
 	for _, window := range windows {
@@ -1824,7 +1824,7 @@ func apiRunToModel(r *orchapi.Run) *model.Run {
 		ModelVariant:      r.ModelVariant,
 		Branch:            r.Branch,
 		WorktreePath:      r.WorktreePath,
-		TmuxSession:       r.TmuxSession,
+		SessionName:       r.SessionName,
 		Multiplexer:       string(r.Multiplexer),
 		PRUrl:             r.PRUrl,
 		PRNumber:          r.PRNumber,

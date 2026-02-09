@@ -52,7 +52,7 @@
 - RUN_ID = `YYYYMMDD-HHMMSS`
 - branch = `issue/<ISSUE_ID>/run-<RUN_ID>`
 - worktree_path = `<worktree_dir>/<ISSUE_ID>/<RUN_SHORT>_<AGENT>_<RUN_ID>`（RUN_SHORT = 6桁hex）
-- tmux_session = `run-<ISSUE_ID>-<RUN_ID>`
+- session_name = `run-<ISSUE_ID>-<RUN_ID>`
 
 ### 副作用
 
@@ -112,7 +112,7 @@ runs一覧を表示（人間/機械）
 ### TSV列（固定順）
 
 ```
-issue_id, issue_status, run_id, short_id, agent, status, updated_at, pr_url, branch, worktree_path, tmux_session
+issue_id, issue_status, run_id, short_id, agent, status, updated_at, pr_url, branch, worktree_path, session_name
 ```
 
 ---

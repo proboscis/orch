@@ -15,7 +15,7 @@ func TestShowJSONIncludesEvents(t *testing.T) {
 		Status:       orchapi.RunStatusRunning,
 		Branch:       "branch",
 		WorktreePath: "/tmp/worktree",
-		TmuxSession:  "session",
+		SessionName:  "session",
 		PRUrl:        "http://example.com/pr/1",
 	}
 

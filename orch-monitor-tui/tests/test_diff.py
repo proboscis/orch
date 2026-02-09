@@ -82,7 +82,7 @@ def mock_run_with_worktree() -> Run:
         branch="feature/diff-test",
         worktree_path="/tmp/test-worktree",
         multiplexer="tmux",
-        tmux_session="orch-diff-test",
+        session_name="orch-diff-test",
     )
 
 
@@ -100,7 +100,7 @@ def mock_run_without_worktree() -> Run:
         branch="",
         worktree_path="",  # No worktree
         multiplexer="tmux",
-        tmux_session="orch-no-worktree",
+        session_name="orch-no-worktree",
     )
 
 

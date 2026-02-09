@@ -1407,12 +1407,12 @@ func TestProtoContinueRunFieldMapping(t *testing.T) {
 	}
 	defer server.Stop()
 
-	t.Run("SessionName mapped from TmuxSession", func(t *testing.T) {
+	t.Run("SessionName mapped from SessionName", func(t *testing.T) {
 		resp := sendProtoRequest(t, &orchpb.Request{
 			Request: &orchpb.Request_ContinueRun{
 				ContinueRun: &orchpb.ContinueRunRequest{
 					IssueId:      "test-issue",
-					TmuxSession:  "my-session",
+					SessionName:  "my-session",
 					IssuesRoot:   testIssuesRoot,
 					ProjectRoot:  testProjectRoot,
 				},
@@ -1606,7 +1606,7 @@ func TestStopSingleRunOpencode(t *testing.T) {
 			RunID:       "run-4",
 			Status:      model.StatusRunning,
 			Agent:       "claude",
-			TmuxSession: "test-session",
+			SessionName: "test-session",
 		}
 
 		err := server.stopSingleRun(run, st)

@@ -484,7 +484,7 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 				RunId:        result.RunID,
 				Branch:       result.Branch,
 				WorktreePath: result.WorktreePath,
-				TmuxSession:  result.TmuxSession,
+				SessionName:  result.SessionName,
 				Status:       result.Status,
 			},
 		},
@@ -511,7 +511,7 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 		PromptTemplate: req.PromptTemplate,
 		PRTargetBranch: req.PrTargetBranch,
 		Multiplexer:    req.Multiplexer,
-		SessionName:    req.TmuxSession,
+		SessionName:    req.SessionName,
 		IssuesRoot:     req.IssuesRoot,
 		ProjectRoot:    projectRoot,
 	}
@@ -536,7 +536,7 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 				RunId:         result.RunID,
 				Branch:        result.Branch,
 				WorktreePath:  result.WorktreePath,
-				TmuxSession:   result.TmuxSession,
+				SessionName:   result.SessionName,
 				Status:        result.Status,
 				ContinuedFrom: result.ContinuedFrom,
 				IssueId:       result.IssueID,
@@ -821,7 +821,7 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 	attachInfo := &orchpb.GetAttachInfoResponse{
 		Command:           []string{"orch", "attach", fmt.Sprintf("%s#%s", run.IssueID, run.RunID)},
 		Multiplexer:       multiplexerToProto(run.Multiplexer),
-		SessionName:       run.TmuxSession,
+		SessionName:       run.SessionName,
 		WorktreePath:      run.WorktreePath,
 		Agent:             run.Agent,
 		ServerPort:        int32(run.ServerPort),
@@ -830,9 +830,9 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 		RunId:             run.RunID,
 	}
 
-	sessionName := run.TmuxSession
+	sessionName := run.SessionName
 	if sessionName == "" {
-		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+		sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
 		attachInfo.SessionName = sessionName
 	}
 
@@ -892,8 +892,8 @@ func (s *SocketServer) handleProtoCaptureSession(req *orchpb.CaptureSessionReque
 	} else {
 		muxType, _ := multiplexer.ParseType(run.Multiplexer)
 		mux, _ := multiplexer.GetMultiplexer(muxType)
-		if mux != nil && run.TmuxSession != "" {
-			content, _ = mux.CapturePane(run.TmuxSession, 100)
+		if mux != nil && run.SessionName != "" {
+			content, _ = mux.CapturePane(run.SessionName, 100)
 		}
 		source = run.Multiplexer
 	}
@@ -1092,7 +1092,7 @@ func (s *SocketServer) handleProtoRegisterMonitor(req *orchpb.RegisterMonitorReq
 		StartedAt:   time.Now(),
 		LastSeen:    time.Now(),
 		Project:     req.Project,
-		TmuxSession: req.SessionName,
+		SessionName: req.SessionName,
 	}
 
 	s.monitorsMu.Lock()
@@ -1148,7 +1148,7 @@ func (s *SocketServer) handleProtoListMonitors(req *orchpb.ListMonitorsRequest) 
 			Type:              conn.Type,
 			View:              conn.View,
 			Project:           conn.Project,
-			SessionName:       conn.TmuxSession,
+			SessionName:       conn.SessionName,
 			StartedAtUnix:     conn.StartedAt.Unix(),
 			LastHeartbeatUnix: conn.LastSeen.Unix(),
 		})
@@ -1612,9 +1612,9 @@ func (s *SocketServer) findOrphanedSessions() []string {
 			continue
 		}
 		for _, run := range runs {
-			sessionName := run.TmuxSession
+			sessionName := run.SessionName
 			if sessionName == "" {
-				sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+				sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
 			}
 			expectedSessions[sessionName] = true
 		}
@@ -1717,7 +1717,7 @@ func (s *SocketServer) handleProtoInjectInitialPrompt(req *orchpb.InjectInitialP
 			Ok: true,
 			Response: &orchpb.Response_InjectInitialPrompt{
 				InjectInitialPrompt: &orchpb.InjectInitialPromptResponse{
-					SessionId: run.TmuxSession,
+					SessionId: run.SessionName,
 					Port:      int32(run.ServerPort),
 				},
 			},
@@ -1759,9 +1759,9 @@ func (s *SocketServer) handleProtoInjectInitialPrompt(req *orchpb.InjectInitialP
 		}
 	}
 
-	sessionName := run.TmuxSession
+	sessionName := run.SessionName
 	if sessionName == "" {
-		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+		sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
 	}
 
 	mux := multiplexer.GetDefault()
@@ -1869,9 +1869,9 @@ func (s *SocketServer) handleProtoResumeRun(req *orchpb.ResumeRunRequest) *orchp
 		return errorResponse(fmt.Sprintf("run not found: %v", err))
 	}
 
-	sessionName := run.TmuxSession
+	sessionName := run.SessionName
 	if sessionName == "" {
-		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+		sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
 	}
 
 	mux := multiplexer.GetDefault()

@@ -13,14 +13,14 @@ import (
 
 const controlAgentSessionName = "orch-control-agent"
 
-// hasTmuxSession checks if a tmux session exists
-func hasTmuxSession(name string) bool {
+// hasSession checks if a multiplexer session exists
+func hasSession(name string) bool {
 	cmd := exec.Command("tmux", "has-session", "-t", name)
 	return cmd.Run() == nil
 }
 
-// killTmuxSession kills a tmux session if it exists
-func killTmuxSession(name string) {
+// killSession kills a multiplexer session if it exists
+func killSession(name string) {
 	exec.Command("tmux", "kill-session", "-t", name).Run()
 }
 
@@ -35,14 +35,14 @@ func setupAgentTest(t *testing.T) (orchDir string, cleanup func()) {
 	}
 
 	// Ensure no existing control agent session
-	killTmuxSession(controlAgentSessionName)
+	killSession(controlAgentSessionName)
 
 	// Remove existing state file
 	stateFile := filepath.Join(orchDir, "control-agent.json")
 	os.Remove(stateFile)
 
 	cleanup = func() {
-		killTmuxSession(controlAgentSessionName)
+		killSession(controlAgentSessionName)
 		os.Remove(stateFile)
 	}
 
@@ -118,7 +118,7 @@ func TestAgentClaudeCreatesMultiplexerSession(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 
-	if !hasTmuxSession(controlAgentSessionName) {
+	if !hasSession(controlAgentSessionName) {
 		t.Error("expected tmux session to be created for claude backend")
 	}
 
@@ -169,7 +169,7 @@ func TestAgentOpenCodeNoMultiplexer(t *testing.T) {
 	time.Sleep(1 * time.Second)
 	cmd.Process.Kill()
 
-	if hasTmuxSession(controlAgentSessionName) {
+	if hasSession(controlAgentSessionName) {
 		t.Error("opencode backend should NOT create tmux session")
 	}
 
@@ -228,7 +228,7 @@ func TestAgentAttachesToExistingMultiplexerSession(t *testing.T) {
 
 	_ = runAgentCommand(t, "--backend", "claude")
 
-	if !hasTmuxSession(controlAgentSessionName) {
+	if !hasSession(controlAgentSessionName) {
 		t.Error("expected session to still exist")
 	}
 
@@ -264,7 +264,7 @@ func TestAgentNewForcesNewMultiplexerSession(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 
-	if !hasTmuxSession(controlAgentSessionName) {
+	if !hasSession(controlAgentSessionName) {
 		t.Error("expected new session to be created")
 	}
 
@@ -306,7 +306,7 @@ func TestAgentKillTerminatesMultiplexerSession(t *testing.T) {
 		t.Fatalf("agent --kill failed: %v\nOutput: %s", err, output)
 	}
 
-	if hasTmuxSession(controlAgentSessionName) {
+	if hasSession(controlAgentSessionName) {
 		t.Error("expected session to be terminated")
 	}
 

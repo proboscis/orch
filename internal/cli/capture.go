@@ -54,7 +54,7 @@ type captureResult struct {
 	OK          bool   `json:"ok"`
 	IssueID     string `json:"issue_id"`
 	RunID       string `json:"run_id"`
-	TmuxSession string `json:"tmux_session,omitempty"`
+	SessionName string `json:"session_name,omitempty"`
 	Lines       int    `json:"lines"`
 	Content     string `json:"content"`
 	Source      string `json:"source,omitempty"`
@@ -90,7 +90,7 @@ func outputCaptureResultAPI(run *orchapi.Run, resp *orchapi.CaptureResult, opts 
 			OK:          true,
 			IssueID:     run.IssueID,
 			RunID:       run.RunID,
-			TmuxSession: run.TmuxSession,
+			SessionName: run.SessionName,
 			Lines:       opts.Lines,
 			Content:     resp.Content,
 			Source:      resp.Source,

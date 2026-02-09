@@ -529,7 +529,7 @@ def validate_multiplexer_config(monitor_mux: MultiplexerType) -> None:
 
 def get_session_name(run) -> Optional[str]:
     """Get the session name from a run."""
-    return run.tmux_session if run.tmux_session else None
+    return run.session_name if run.session_name else None
 
 
 def get_multiplexer_type_from_run(run) -> MultiplexerType:

@@ -206,7 +206,7 @@ func apiRunToModelRun(r *orchapi.Run) *model.Run {
 		ModelVariant:      r.ModelVariant,
 		Branch:            r.Branch,
 		WorktreePath:      r.WorktreePath,
-		TmuxSession:       r.TmuxSession,
+		SessionName:       r.SessionName,
 		Multiplexer:       string(r.Multiplexer),
 		PRUrl:             r.PRUrl,
 		PRNumber:          r.PRNumber,

@@ -254,7 +254,7 @@ orch ps --tsv  # for fzf
 
 **TSV Columns:**
 ```
-issue_id, issue_status, run_id, short_id, agent, status, updated_at, pr_url, branch, worktree_path, tmux_session
+issue_id, issue_status, run_id, short_id, agent, status, updated_at, pr_url, branch, worktree_path, session_name
 ```
 
 ### orch show RUN_REF

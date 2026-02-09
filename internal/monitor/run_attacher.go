@@ -31,9 +31,9 @@ func extractAgentName(agentType string) string {
 type MuxRunAttacher struct{}
 
 func (a *MuxRunAttacher) Attach(m *Monitor, run *model.Run) error {
-	sessionName := run.TmuxSession
+	sessionName := run.SessionName
 	if sessionName == "" {
-		sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+		sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
 	}
 	w := &RunWindow{
 		Run:          run,

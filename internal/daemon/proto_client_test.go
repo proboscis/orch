@@ -76,7 +76,7 @@ func TestGetAttachInfoResponseMapping(t *testing.T) {
 				IssueID:           "orch-123",
 				RunID:             "20260130-120000",
 				Agent:             "opencode",
-				TmuxSession:       "run-orch-123",
+				SessionName:       "run-orch-123",
 				Multiplexer:       "tmux",
 				WorktreePath:      "/path/to/worktree",
 				ServerPort:        4097,
@@ -98,7 +98,7 @@ func TestGetAttachInfoResponseMapping(t *testing.T) {
 				IssueID:      "orch-456",
 				RunID:        "20260130-130000",
 				Agent:        "claude",
-				TmuxSession:  "run-orch-456",
+				SessionName:  "run-orch-456",
 				Multiplexer:  "tmux",
 				WorktreePath: "/path/to/worktree2",
 				ServerPort:   0,
@@ -121,7 +121,7 @@ func TestGetAttachInfoResponseMapping(t *testing.T) {
 				IssueID:           tt.proto.IssueId,
 				RunID:             tt.proto.RunId,
 				Agent:             tt.proto.Agent,
-				TmuxSession:       tt.proto.SessionName,
+				SessionName:       tt.proto.SessionName,
 				Multiplexer:       protoMultiplexerToString(tt.proto.Multiplexer),
 				WorktreePath:      tt.proto.WorktreePath,
 				ServerPort:        int(tt.proto.ServerPort),
@@ -137,8 +137,8 @@ func TestGetAttachInfoResponseMapping(t *testing.T) {
 			if got.Agent != tt.wantResp.Agent {
 				t.Errorf("Agent = %q, want %q", got.Agent, tt.wantResp.Agent)
 			}
-			if got.TmuxSession != tt.wantResp.TmuxSession {
-				t.Errorf("TmuxSession = %q, want %q", got.TmuxSession, tt.wantResp.TmuxSession)
+			if got.SessionName != tt.wantResp.SessionName {
+				t.Errorf("SessionName = %q, want %q", got.SessionName, tt.wantResp.SessionName)
 			}
 			if got.Multiplexer != tt.wantResp.Multiplexer {
 				t.Errorf("Multiplexer = %q, want %q", got.Multiplexer, tt.wantResp.Multiplexer)

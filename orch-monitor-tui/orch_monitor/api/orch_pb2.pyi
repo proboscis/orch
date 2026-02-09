@@ -84,7 +84,7 @@ class DiffStats(_message.Message):
     def __init__(self, additions: _Optional[int] = ..., deletions: _Optional[int] = ..., files_changed: _Optional[int] = ..., files: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class Run(_message.Message):
-    __slots__ = ("issue_id", "run_id", "status", "agent", "model", "branch", "worktree_path", "pr_url", "started_at_unix", "updated_at_unix", "elapsed_seconds", "elapsed_display", "diff_stats", "branch_state", "tmux_session", "multiplexer", "server_port", "opencode_session_id", "continued_from", "pr_number", "pr_state")
+    __slots__ = ("issue_id", "run_id", "status", "agent", "model", "branch", "worktree_path", "pr_url", "started_at_unix", "updated_at_unix", "elapsed_seconds", "elapsed_display", "diff_stats", "branch_state", "session_name", "multiplexer", "server_port", "opencode_session_id", "continued_from", "pr_number", "pr_state")
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
@@ -99,7 +99,7 @@ class Run(_message.Message):
     ELAPSED_DISPLAY_FIELD_NUMBER: _ClassVar[int]
     DIFF_STATS_FIELD_NUMBER: _ClassVar[int]
     BRANCH_STATE_FIELD_NUMBER: _ClassVar[int]
-    TMUX_SESSION_FIELD_NUMBER: _ClassVar[int]
+    SESSION_NAME_FIELD_NUMBER: _ClassVar[int]
     MULTIPLEXER_FIELD_NUMBER: _ClassVar[int]
     SERVER_PORT_FIELD_NUMBER: _ClassVar[int]
     OPENCODE_SESSION_ID_FIELD_NUMBER: _ClassVar[int]
@@ -120,14 +120,14 @@ class Run(_message.Message):
     elapsed_display: str
     diff_stats: DiffStats
     branch_state: BranchState
-    tmux_session: str
+    session_name: str
     multiplexer: Multiplexer
     server_port: int
     opencode_session_id: str
     continued_from: str
     pr_number: int
     pr_state: str
-    def __init__(self, issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., status: _Optional[_Union[RunStatus, str]] = ..., agent: _Optional[str] = ..., model: _Optional[str] = ..., branch: _Optional[str] = ..., worktree_path: _Optional[str] = ..., pr_url: _Optional[str] = ..., started_at_unix: _Optional[int] = ..., updated_at_unix: _Optional[int] = ..., elapsed_seconds: _Optional[int] = ..., elapsed_display: _Optional[str] = ..., diff_stats: _Optional[_Union[DiffStats, _Mapping]] = ..., branch_state: _Optional[_Union[BranchState, str]] = ..., tmux_session: _Optional[str] = ..., multiplexer: _Optional[_Union[Multiplexer, str]] = ..., server_port: _Optional[int] = ..., opencode_session_id: _Optional[str] = ..., continued_from: _Optional[str] = ..., pr_number: _Optional[int] = ..., pr_state: _Optional[str] = ...) -> None: ...
+    def __init__(self, issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., status: _Optional[_Union[RunStatus, str]] = ..., agent: _Optional[str] = ..., model: _Optional[str] = ..., branch: _Optional[str] = ..., worktree_path: _Optional[str] = ..., pr_url: _Optional[str] = ..., started_at_unix: _Optional[int] = ..., updated_at_unix: _Optional[int] = ..., elapsed_seconds: _Optional[int] = ..., elapsed_display: _Optional[str] = ..., diff_stats: _Optional[_Union[DiffStats, _Mapping]] = ..., branch_state: _Optional[_Union[BranchState, str]] = ..., session_name: _Optional[str] = ..., multiplexer: _Optional[_Union[Multiplexer, str]] = ..., server_port: _Optional[int] = ..., opencode_session_id: _Optional[str] = ..., continued_from: _Optional[str] = ..., pr_number: _Optional[int] = ..., pr_state: _Optional[str] = ...) -> None: ...
 
 class Issue(_message.Message):
     __slots__ = ("id", "title", "summary", "status", "tags", "body", "path", "modified_at_unix", "topic")
@@ -275,18 +275,18 @@ class StartRunRequest(_message.Message):
     def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., agent: _Optional[str] = ..., model: _Optional[str] = ..., model_variant: _Optional[str] = ..., base_branch: _Optional[str] = ..., project_root: _Optional[str] = ..., preset: _Optional[str] = ..., branch: _Optional[str] = ..., worktree_dir: _Optional[str] = ..., no_pr: _Optional[bool] = ..., prompt_template: _Optional[str] = ..., pr_target_branch: _Optional[str] = ..., dry_run: _Optional[bool] = ..., reuse: _Optional[bool] = ..., run_id: _Optional[str] = ..., agent_cmd: _Optional[str] = ..., agent_profile: _Optional[str] = ..., multiplexer: _Optional[str] = ...) -> None: ...
 
 class StartRunResponse(_message.Message):
-    __slots__ = ("run_id", "branch", "worktree_path", "tmux_session", "status")
+    __slots__ = ("run_id", "branch", "worktree_path", "session_name", "status")
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     BRANCH_FIELD_NUMBER: _ClassVar[int]
     WORKTREE_PATH_FIELD_NUMBER: _ClassVar[int]
-    TMUX_SESSION_FIELD_NUMBER: _ClassVar[int]
+    SESSION_NAME_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
     run_id: str
     branch: str
     worktree_path: str
-    tmux_session: str
+    session_name: str
     status: str
-    def __init__(self, run_id: _Optional[str] = ..., branch: _Optional[str] = ..., worktree_path: _Optional[str] = ..., tmux_session: _Optional[str] = ..., status: _Optional[str] = ...) -> None: ...
+    def __init__(self, run_id: _Optional[str] = ..., branch: _Optional[str] = ..., worktree_path: _Optional[str] = ..., session_name: _Optional[str] = ..., status: _Optional[str] = ...) -> None: ...
 
 class CreateRunRequest(_message.Message):
     __slots__ = ("issues_root", "issue_id", "run_id", "metadata")
@@ -1079,7 +1079,7 @@ class InjectInitialPromptResponse(_message.Message):
     def __init__(self, session_id: _Optional[str] = ..., port: _Optional[int] = ...) -> None: ...
 
 class ContinueRunRequest(_message.Message):
-    __slots__ = ("issues_root", "project_root", "issue_id", "run_id", "short_id", "branch", "agent", "agent_cmd", "agent_profile", "worktree_dir", "no_pr", "prompt_template", "pr_target_branch", "multiplexer", "tmux_session", "repo_root")
+    __slots__ = ("issues_root", "project_root", "issue_id", "run_id", "short_id", "branch", "agent", "agent_cmd", "agent_profile", "worktree_dir", "no_pr", "prompt_template", "pr_target_branch", "multiplexer", "session_name", "repo_root")
     ISSUES_ROOT_FIELD_NUMBER: _ClassVar[int]
     PROJECT_ROOT_FIELD_NUMBER: _ClassVar[int]
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
@@ -1094,7 +1094,7 @@ class ContinueRunRequest(_message.Message):
     PROMPT_TEMPLATE_FIELD_NUMBER: _ClassVar[int]
     PR_TARGET_BRANCH_FIELD_NUMBER: _ClassVar[int]
     MULTIPLEXER_FIELD_NUMBER: _ClassVar[int]
-    TMUX_SESSION_FIELD_NUMBER: _ClassVar[int]
+    SESSION_NAME_FIELD_NUMBER: _ClassVar[int]
     REPO_ROOT_FIELD_NUMBER: _ClassVar[int]
     issues_root: str
     project_root: str
@@ -1110,27 +1110,27 @@ class ContinueRunRequest(_message.Message):
     prompt_template: str
     pr_target_branch: str
     multiplexer: str
-    tmux_session: str
+    session_name: str
     repo_root: str
-    def __init__(self, issues_root: _Optional[str] = ..., project_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., short_id: _Optional[str] = ..., branch: _Optional[str] = ..., agent: _Optional[str] = ..., agent_cmd: _Optional[str] = ..., agent_profile: _Optional[str] = ..., worktree_dir: _Optional[str] = ..., no_pr: _Optional[bool] = ..., prompt_template: _Optional[str] = ..., pr_target_branch: _Optional[str] = ..., multiplexer: _Optional[str] = ..., tmux_session: _Optional[str] = ..., repo_root: _Optional[str] = ...) -> None: ...
+    def __init__(self, issues_root: _Optional[str] = ..., project_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., short_id: _Optional[str] = ..., branch: _Optional[str] = ..., agent: _Optional[str] = ..., agent_cmd: _Optional[str] = ..., agent_profile: _Optional[str] = ..., worktree_dir: _Optional[str] = ..., no_pr: _Optional[bool] = ..., prompt_template: _Optional[str] = ..., pr_target_branch: _Optional[str] = ..., multiplexer: _Optional[str] = ..., session_name: _Optional[str] = ..., repo_root: _Optional[str] = ...) -> None: ...
 
 class ContinueRunResponse(_message.Message):
-    __slots__ = ("run_id", "branch", "worktree_path", "tmux_session", "status", "continued_from", "issue_id")
+    __slots__ = ("run_id", "branch", "worktree_path", "session_name", "status", "continued_from", "issue_id")
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     BRANCH_FIELD_NUMBER: _ClassVar[int]
     WORKTREE_PATH_FIELD_NUMBER: _ClassVar[int]
-    TMUX_SESSION_FIELD_NUMBER: _ClassVar[int]
+    SESSION_NAME_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
     CONTINUED_FROM_FIELD_NUMBER: _ClassVar[int]
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     run_id: str
     branch: str
     worktree_path: str
-    tmux_session: str
+    session_name: str
     status: str
     continued_from: str
     issue_id: str
-    def __init__(self, run_id: _Optional[str] = ..., branch: _Optional[str] = ..., worktree_path: _Optional[str] = ..., tmux_session: _Optional[str] = ..., status: _Optional[str] = ..., continued_from: _Optional[str] = ..., issue_id: _Optional[str] = ...) -> None: ...
+    def __init__(self, run_id: _Optional[str] = ..., branch: _Optional[str] = ..., worktree_path: _Optional[str] = ..., session_name: _Optional[str] = ..., status: _Optional[str] = ..., continued_from: _Optional[str] = ..., issue_id: _Optional[str] = ...) -> None: ...
 
 class GetConfigRequest(_message.Message):
     __slots__ = ("project_root",)

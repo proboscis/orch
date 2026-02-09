@@ -420,7 +420,7 @@ func (c *ProtoClient) StartRun(opts *StartRunOptions) (*StartRunResponse, error)
 		RunID:        startResp.RunId,
 		Branch:       startResp.Branch,
 		WorktreePath: startResp.WorktreePath,
-		TmuxSession:  startResp.TmuxSession,
+		SessionName:  startResp.SessionName,
 		Status:       startResp.Status,
 	}, nil
 }
@@ -443,7 +443,7 @@ func (c *ProtoClient) ContinueRun(opts *ContinueRunOptions) (*ContinueRunRespons
 				PromptTemplate: opts.PromptTemplate,
 				PrTargetBranch: opts.PRTargetBranch,
 				Multiplexer:    opts.Multiplexer,
-				TmuxSession:    opts.TmuxSession,
+				SessionName:    opts.SessionName,
 				RepoRoot:       opts.RepoRoot,
 			},
 		},
@@ -468,7 +468,7 @@ func (c *ProtoClient) ContinueRun(opts *ContinueRunOptions) (*ContinueRunRespons
 		RunID:         continueResp.RunId,
 		Branch:        continueResp.Branch,
 		WorktreePath:  continueResp.WorktreePath,
-		TmuxSession:   continueResp.TmuxSession,
+		SessionName:   continueResp.SessionName,
 		Status:        continueResp.Status,
 		ContinuedFrom: continueResp.ContinuedFrom,
 		IssueID:       continueResp.IssueId,
@@ -563,7 +563,7 @@ func (c *ProtoClient) GetAttachInfo(issueID, runID, shortID string) (*GetAttachI
 		IssueID:           attachResp.IssueId,
 		RunID:             attachResp.RunId,
 		Agent:             attachResp.Agent,
-		TmuxSession:       attachResp.SessionName,
+		SessionName:       attachResp.SessionName,
 		Multiplexer:       protoMultiplexerToString(attachResp.Multiplexer),
 		WorktreePath:      attachResp.WorktreePath,
 		ServerPort:        int(attachResp.ServerPort),
@@ -571,7 +571,7 @@ func (c *ProtoClient) GetAttachInfo(issueID, runID, shortID string) (*GetAttachI
 	}, nil
 }
 
-func (c *ProtoClient) RegisterMonitor(pid int, monitorType, view, project, tmuxSession string) (*RegisterMonitorResponse, error) {
+func (c *ProtoClient) RegisterMonitor(pid int, monitorType, view, project, sessionName string) (*RegisterMonitorResponse, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_RegisterMonitor{
 			RegisterMonitor: &orchpb.RegisterMonitorRequest{
@@ -579,7 +579,7 @@ func (c *ProtoClient) RegisterMonitor(pid int, monitorType, view, project, tmuxS
 				MonitorType: monitorType,
 				View:        view,
 				Project:     project,
-				SessionName: tmuxSession,
+				SessionName: sessionName,
 			},
 		},
 	}
@@ -678,7 +678,7 @@ func (c *ProtoClient) ListMonitors(projectRoot string, all bool) (*ListMonitorsR
 			Type:        m.Type,
 			View:        m.View,
 			Project:     m.Project,
-			TmuxSession: m.SessionName,
+			SessionName: m.SessionName,
 			StartedAt:   time.Unix(m.StartedAtUnix, 0),
 			LastSeen:    time.Unix(m.LastHeartbeatUnix, 0),
 		}
@@ -890,7 +890,7 @@ func protoRunToSummary(r *orchpb.Run) *RunSummary {
 		Model:             r.Model,
 		Branch:            r.Branch,
 		WorktreePath:      r.WorktreePath,
-		TmuxSession:       r.TmuxSession,
+		SessionName:       r.SessionName,
 		Multiplexer:       protoMultiplexerToString(r.Multiplexer),
 		PRUrl:             r.PrUrl,
 		PRNumber:          int(r.PrNumber),
@@ -954,7 +954,7 @@ func protoRunToFull(r *orchpb.Run, events []*orchpb.Event) *RunFull {
 		Model:             r.Model,
 		Branch:            r.Branch,
 		WorktreePath:      r.WorktreePath,
-		TmuxSession:       r.TmuxSession,
+		SessionName:       r.SessionName,
 		Multiplexer:       protoMultiplexerToString(r.Multiplexer),
 		PRUrl:             r.PrUrl,
 		PRNumber:          int(r.PrNumber),

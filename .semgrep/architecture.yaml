@@ -650,12 +650,12 @@ rules:
   - id: daemon-proto-no-message-overload-tmux
     patterns:
       - pattern: |
-          SendRequest{..., Message: req.TmuxSession, ...}
+          SendRequest{..., Message: req.SessionName, ...}
     paths:
       include:
         - /internal/daemon/proto_handler.go
     message: >
-      Proto handler must not overload SendRequest.Message with req.TmuxSession.
+      Proto handler must not overload SendRequest.Message with req.SessionName.
       Use the dedicated SendRequest.SessionName field instead.
     severity: ERROR
     languages: [go]

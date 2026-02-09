@@ -143,7 +143,7 @@ def _model_run_to_api(run: ModelRun) -> Run:
         updated_at=run.updated_at,
         elapsed_seconds=run.elapsed_seconds,
         elapsed_display=run.elapsed_display,
-        tmux_session=run.tmux_session,
+        session_name=run.session_name,
         multiplexer=run.multiplexer,
         server_port=run.server_port,
         opencode_session_id=run.opencode_session_id,
@@ -182,23 +182,23 @@ class MonitorHeartbeat:
         self._project = project
         self._view = view
         self._monitor_id: Optional[str] = None
-        self._tmux_session: str = ""
+        self._session_name: str = ""
         self._heartbeat_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
-    def start(self, tmux_session: str = "") -> Optional[str]:
+    def start(self, session_name: str = "") -> Optional[str]:
         import os
 
         if not self._client.is_available():
             return None
 
-        self._tmux_session = tmux_session
+        self._session_name = session_name
         result = self._client.register_monitor(
             pid=os.getpid(),
             monitor_type="python",
             view=self._view,
             project=self._project,
-            tmux_session=tmux_session,
+            session_name=session_name,
         )
         if isinstance(result, Success):
             self._monitor_id = result.unwrap()
@@ -246,7 +246,7 @@ class MonitorHeartbeat:
                         monitor_type="python",
                         view=self._view,
                         project=self._project,
-                        tmux_session=self._tmux_session,
+                        session_name=self._session_name,
                     )
                     if isinstance(reg_result, Success):
                         new_id = reg_result.unwrap()
@@ -484,7 +484,7 @@ class DaemonOrchAPI:
             AttachInfo(
                 command=attach_cmd,
                 multiplexer=run.multiplexer,
-                session_name=run.tmux_session,
+                session_name=run.session_name,
                 worktree_path=run.worktree_path,
             )
         )
@@ -579,7 +579,7 @@ class DaemonOrchAPI:
             monitor_type=monitor_type,
             view=view,
             project=project,
-            tmux_session=session_name,
+            session_name=session_name,
         )
         if isinstance(result, Failure):
             return _map_daemon_error(result.failure())

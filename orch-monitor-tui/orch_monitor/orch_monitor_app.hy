@@ -453,7 +453,7 @@
     (setv agent-str (or run.agent "-"))
     (setv branch-str (or run.branch "-"))
     (setv worktree-str (or run.worktree_path "-"))
-    (setv session-str (or run.tmux_session "-"))
+    (setv session-str (or run.session_name "-"))
     (setv mux-str (or run.multiplexer "-"))
     (setv content-lines
       [f"Run: {(.ref run)}"
@@ -471,7 +471,7 @@
                               f"[bold]Changes: [green]+{run.additions}[/green] [red]-{run.deletions}[/red][/bold]"]))
     (.extend content-lines ["" "" (+ "[bold]" (* "-" 50) "[/bold]")
                             "[bold]Recent Messages:[/bold]" ""])
-    (when run.tmux_session
+    (when run.session_name
       (setv messages (._fetch_session_output self run))
       (if messages
           (do
@@ -481,17 +481,17 @@
             (when (in run.status [Status.RUNNING Status.BOOTING])
               (.extend content-lines ["" "[dim]--- Streaming... ---[/dim]"])))
           (.append content-lines "  [dim](No output captured)[/dim]")))
-    (when (not run.tmux_session)
+    (when (not run.session_name)
       (.append content-lines "  [dim](No tmux session available)[/dim]"))
     (.update_content detail-panel (.join "\n" content-lines) f"Run Details: {(.ref run)}"))
   
   (defn _fetch_session_output [self run]
     "Capture recent output from a session using the appropriate multiplexer."
-    (when (not run.tmux_session)
+    (when (not run.session_name)
       (return []))
     (with-fallback-silent "fetch_session_output" []
       (setv mux (get_multiplexer_for_run run))
-      (.capture_pane mux run.tmux_session 50)))
+      (.capture_pane mux run.session_name 50)))
   
   (defn show_issue_detail [self issue]
     (setv detail-panel (.query_one self "#detail-panel" DetailPanel))

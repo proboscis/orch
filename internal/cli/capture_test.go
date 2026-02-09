@@ -453,12 +453,12 @@ func TestOpenCodeCaptureResultJSON(t *testing.T) {
 	}
 }
 
-func TestCaptureResultJSONOmitsEmptyTmuxSession(t *testing.T) {
+func TestCaptureResultJSONOmitsEmptySessionName(t *testing.T) {
 	result := &captureResult{
 		OK:          true,
 		IssueID:     "test-issue",
 		RunID:       "20240101-120000",
-		TmuxSession: "", // Empty - should be omitted due to omitempty
+		SessionName: "", // Empty - should be omitted due to omitempty
 		Lines:       100,
 		Content:     "test content",
 	}
@@ -468,18 +468,18 @@ func TestCaptureResultJSONOmitsEmptyTmuxSession(t *testing.T) {
 		t.Fatalf("json.Marshal error: %v", err)
 	}
 
-	// Verify tmux_session is omitted when empty
-	if strings.Contains(string(data), "tmux_session") {
-		t.Error("empty tmux_session should be omitted from JSON")
+	// Verify session_name is omitted when empty
+	if strings.Contains(string(data), "session_name") {
+		t.Error("empty session_name should be omitted from JSON")
 	}
 }
 
-func TestCaptureResultJSONIncludesTmuxSession(t *testing.T) {
+func TestCaptureResultJSONIncludesSessionName(t *testing.T) {
 	result := &captureResult{
 		OK:          true,
 		IssueID:     "test-issue",
 		RunID:       "20240101-120000",
-		TmuxSession: "run-test-issue-20240101",
+		SessionName: "run-test-issue-20240101",
 		Lines:       100,
 		Content:     "test content",
 	}
@@ -489,12 +489,12 @@ func TestCaptureResultJSONIncludesTmuxSession(t *testing.T) {
 		t.Fatalf("json.Marshal error: %v", err)
 	}
 
-	// Verify tmux_session is included when non-empty
-	if !strings.Contains(string(data), "tmux_session") {
-		t.Error("non-empty tmux_session should be included in JSON")
+	// Verify session_name is included when non-empty
+	if !strings.Contains(string(data), "session_name") {
+		t.Error("non-empty session_name should be included in JSON")
 	}
 	if !strings.Contains(string(data), "run-test-issue-20240101") {
-		t.Error("tmux_session value should be in JSON")
+		t.Error("session_name value should be in JSON")
 	}
 }
 

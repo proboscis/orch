@@ -132,7 +132,7 @@ agent: claude
 status: running
 worktree: /Users/me/.orch/worktrees/fix-login-bug/abc123_claude_20260120-163045
 branch: issue/fix-login-bug/run-20260120-163045
-tmux_session: run-fix-login-bug-20260120-163045
+session_name: run-fix-login-bug-20260120-163045
 created: 2026-01-20T16:30:45+09:00
 ---
 ```
