@@ -145,7 +145,7 @@ func NewIssueDashboard(m *Monitor) *IssueDashboard {
 		styles:          DefaultStyles(),
 		mode:            modeIssues,
 		filter:          filter,
-		refreshInterval: defaultRefreshInterval,
+		refreshInterval: monitorRefreshInterval(),
 	}
 }
 

@@ -135,7 +135,7 @@ func NewDashboard(m *Monitor) *Dashboard {
 		keymap:          DefaultKeyMap(),
 		styles:          DefaultStyles(),
 		mode:            modeDashboard,
-		refreshInterval: defaultRefreshInterval,
+		refreshInterval: monitorRefreshInterval(),
 		filterPreset:    -1,
 	}
 }

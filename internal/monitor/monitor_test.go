@@ -9,6 +9,64 @@ import (
 	"github.com/s22625/orch/internal/model"
 )
 
+func TestMonitorRefreshInterval_Default(t *testing.T) {
+	t.Setenv(monitorRefreshIntervalEnv, "")
+	if got := monitorRefreshInterval(); got != defaultRefreshInterval {
+		t.Fatalf("monitorRefreshInterval() = %v, want %v", got, defaultRefreshInterval)
+	}
+}
+
+func TestMonitorRefreshInterval_ParsesSecondsAndDuration(t *testing.T) {
+	t.Setenv(monitorRefreshIntervalEnv, "7")
+	if got := monitorRefreshInterval(); got != 7*time.Second {
+		t.Fatalf("monitorRefreshInterval() with integer = %v, want %v", got, 7*time.Second)
+	}
+
+	t.Setenv(monitorRefreshIntervalEnv, "1500ms")
+	if got := monitorRefreshInterval(); got != 1500*time.Millisecond {
+		t.Fatalf("monitorRefreshInterval() with duration = %v, want %v", got, 1500*time.Millisecond)
+	}
+}
+
+func TestMonitorRefreshInterval_InvalidFallsBack(t *testing.T) {
+	t.Setenv(monitorRefreshIntervalEnv, "0")
+	if got := monitorRefreshInterval(); got != defaultRefreshInterval {
+		t.Fatalf("monitorRefreshInterval() with zero = %v, want %v", got, defaultRefreshInterval)
+	}
+
+	t.Setenv(monitorRefreshIntervalEnv, "-2s")
+	if got := monitorRefreshInterval(); got != defaultRefreshInterval {
+		t.Fatalf("monitorRefreshInterval() with negative duration = %v, want %v", got, defaultRefreshInterval)
+	}
+
+	t.Setenv(monitorRefreshIntervalEnv, "bad-value")
+	if got := monitorRefreshInterval(); got != defaultRefreshInterval {
+		t.Fatalf("monitorRefreshInterval() with invalid value = %v, want %v", got, defaultRefreshInterval)
+	}
+}
+
+func TestBuildIssueDisplayMap(t *testing.T) {
+	issues := []*model.Issue{
+		{ID: "orch-1", Status: model.IssueStatusOpen, Summary: "first summary", Topic: "Topic One"},
+		{ID: "orch-2", Status: "", Summary: "", Topic: ""},
+		{ID: "", Status: model.IssueStatusOpen, Summary: "ignored"},
+		nil,
+	}
+
+	info := buildIssueDisplayMap(issues)
+	if len(info) != 2 {
+		t.Fatalf("buildIssueDisplayMap() entries = %d, want 2", len(info))
+	}
+
+	if got := info["orch-1"]; got.status != string(model.IssueStatusOpen) || got.topic != "Topic One" || got.summary != "first summary" {
+		t.Fatalf("buildIssueDisplayMap() orch-1 = %#v", got)
+	}
+
+	if got := info["orch-2"]; got.status != "-" || got.topic != "-" || got.summary != "-" {
+		t.Fatalf("buildIssueDisplayMap() orch-2 = %#v, want placeholders", got)
+	}
+}
+
 func TestSessionNameForProject(t *testing.T) {
 	tests := []struct {
 		name        string

@@ -101,6 +101,12 @@ type RunWindow struct {
 	AgentSession string
 }
 
+type issueDisplay struct {
+	status  string
+	topic   string
+	summary string
+}
+
 func New(api orchapi.OrchAPI, issuesRoot string, opts Options) *Monitor {
 	projectRoot := opts.ProjectRoot
 	if projectRoot == "" {
@@ -961,43 +967,10 @@ func (m *Monitor) ensureRunSession(w *RunWindow) error {
 }
 
 func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
-	type issueDisplay struct {
-		status  string
-		topic   string
-		summary string
-	}
-
 	issueInfo := make(map[string]issueDisplay)
-	for _, w := range windows {
-		if w == nil || w.Run == nil {
-			continue
-		}
-		if _, ok := issueInfo[w.Run.IssueID]; ok {
-			continue
-		}
-		ctx := context.Background()
-		apiIssue, err := m.api.GetIssue(ctx, w.Run.IssueID)
-		if err != nil {
-			continue
-		}
-		issue := apiIssueToModel(apiIssue)
-		status := string(issue.Status)
-		if status == "" {
-			status = "-"
-		}
-		topic := formatIssueTopic(issue)
-		if topic == "" {
-			topic = "-"
-		}
-		summary := issue.Summary
-		if summary == "" {
-			summary = "-"
-		}
-		issueInfo[w.Run.IssueID] = issueDisplay{
-			status:  status,
-			topic:   topic,
-			summary: summary,
-		}
+	ctx := context.Background()
+	if issuesResult, err := m.api.ListIssues(ctx, nil); err == nil {
+		issueInfo = buildIssueDisplayMap(apiIssuesToModel(issuesResult.Issues))
 	}
 
 	rows := make([]RunRow, 0, len(windows))
@@ -1063,6 +1036,35 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 
 	sortRunRowsWithDirection(rows, m.runSort, m.runSortDir)
 	return rows, nil
+}
+
+func buildIssueDisplayMap(issues []*model.Issue) map[string]issueDisplay {
+	result := make(map[string]issueDisplay, len(issues))
+	for _, issue := range issues {
+		if issue == nil || strings.TrimSpace(issue.ID) == "" {
+			continue
+		}
+
+		status := string(issue.Status)
+		if status == "" {
+			status = "-"
+		}
+		topic := formatIssueTopic(issue)
+		if topic == "" {
+			topic = "-"
+		}
+		summary := issue.Summary
+		if summary == "" {
+			summary = "-"
+		}
+
+		result[issue.ID] = issueDisplay{
+			status:  status,
+			topic:   topic,
+			summary: summary,
+		}
+	}
+	return result
 }
 
 func runAliveLabel(run *model.Run) string {
@@ -1791,13 +1793,16 @@ func apiIssuesToModel(issues []*orchapi.Issue) []*model.Issue {
 	result := make([]*model.Issue, 0, len(issues))
 	for _, i := range issues {
 		result = append(result, &model.Issue{
-			ID:      i.ID,
-			Title:   i.Title,
-			Summary: i.Summary,
-			Status:  model.IssueStatus(i.Status),
-			Tags:    i.Tags,
-			Body:    i.Body,
-			Path:    i.Path,
+			ID:          i.ID,
+			Title:       i.Title,
+			Topic:       i.Topic,
+			Summary:     i.Summary,
+			Status:      model.IssueStatus(i.Status),
+			Tags:        i.Tags,
+			Body:        i.Body,
+			Path:        i.Path,
+			Frontmatter: i.Frontmatter,
+			ModifiedAt:  i.ModifiedAt,
 		})
 	}
 	return result
@@ -1846,13 +1851,16 @@ func apiIssueToModel(i *orchapi.Issue) *model.Issue {
 		return nil
 	}
 	return &model.Issue{
-		ID:      i.ID,
-		Title:   i.Title,
-		Summary: i.Summary,
-		Status:  model.IssueStatus(i.Status),
-		Tags:    i.Tags,
-		Body:    i.Body,
-		Path:    i.Path,
+		ID:          i.ID,
+		Title:       i.Title,
+		Topic:       i.Topic,
+		Summary:     i.Summary,
+		Status:      model.IssueStatus(i.Status),
+		Tags:        i.Tags,
+		Body:        i.Body,
+		Path:        i.Path,
+		Frontmatter: i.Frontmatter,
+		ModifiedAt:  i.ModifiedAt,
 	}
 }
 
