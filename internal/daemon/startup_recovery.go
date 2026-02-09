@@ -199,23 +199,25 @@ func (d *Daemon) recoverStartupRuntimeArtifacts() error {
 		return fmt.Errorf("startup check failed to stat daemon socket: %w", err)
 	}
 
-	selfPID := os.Getpid()
-	if pidStatus == pidFileActive && pid != selfPID {
-		if socketPresent {
-			socketActive, probeErr := isSocketActive(socketPath, 300*time.Millisecond)
-			if probeErr != nil {
-				return fmt.Errorf("startup check failed to probe daemon socket: %w", probeErr)
-			}
-			if socketActive {
-				return fmt.Errorf("daemon already running (pid=%d)", pid)
-			}
+	// Check socket first - active socket is the definitive signal of a running daemon.
+	// PID alone is not reliable due to OS PID reuse.
+	socketActive := false
+	if socketPresent {
+		var probeErr error
+		socketActive, probeErr = isSocketActive(socketPath, 300*time.Millisecond)
+		if probeErr != nil {
+			return fmt.Errorf("startup check failed to probe daemon socket: %w", probeErr)
 		}
-
-		return fmt.Errorf("pid file %s points to active process pid=%d; refusing startup recovery", pidPath, pid)
+		if socketActive {
+			return fmt.Errorf("daemon already running (socket active at %s)", socketPath)
+		}
 	}
 
 	recovered := false
+	selfPID := os.Getpid()
 
+	// Handle PID file cleanup. Socket is not active at this point, so any PID file
+	// is considered stale (either dead process or PID reused by unrelated process).
 	switch pidStatus {
 	case pidFileInvalid:
 		if err := RemovePID(""); err != nil {
@@ -231,24 +233,28 @@ func (d *Daemon) recoverStartupRuntimeArtifacts() error {
 		}
 		recovered = true
 		if d.logger != nil {
-			d.logger.Printf("startup recovery: removed stale PID file (pid=%d) at %s", pid, pidPath)
+			d.logger.Printf("startup recovery: removed stale PID file (pid=%d, process dead) at %s", pid, pidPath)
 		}
 	case pidFileActive:
-		if pid == selfPID && d.logger != nil {
-			d.logger.Printf("startup check: detected in-place restart with existing PID file (pid=%d)", pid)
+		if pid == selfPID {
+			if d.logger != nil {
+				d.logger.Printf("startup check: detected in-place restart with existing PID file (pid=%d)", pid)
+			}
+		} else {
+			// PID is alive but socket is not active - this is PID reuse by an unrelated process.
+			// Safe to remove the stale PID file.
+			if err := RemovePID(""); err != nil {
+				return fmt.Errorf("failed to remove stale PID file: %w", err)
+			}
+			recovered = true
+			if d.logger != nil {
+				d.logger.Printf("startup recovery: removed stale PID file (pid=%d reused by unrelated process, socket inactive) at %s", pid, pidPath)
+			}
 		}
 	}
 
-	if socketPresent {
-		socketActive, probeErr := isSocketActive(socketPath, 300*time.Millisecond)
-		if probeErr != nil {
-			return fmt.Errorf("startup check failed to probe existing daemon socket %s: %w", socketPath, probeErr)
-		}
-
-		if socketActive {
-			return fmt.Errorf("daemon socket %s is active; refusing startup recovery", socketPath)
-		}
-
+	// Clean up stale socket file (already confirmed not active above)
+	if socketPresent && !socketActive {
 		if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("failed to remove stale daemon socket %s: %w", socketPath, err)
 		}

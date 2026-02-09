@@ -113,13 +113,18 @@ func TestRecoverStartupRuntimeArtifactsDoesNotOverrideActiveSocket(t *testing.T)
 	}
 }
 
-func TestRecoverStartupRuntimeArtifactsDoesNotOverrideActivePID(t *testing.T) {
+// TestRecoverStartupRuntimeArtifactsHandlesPIDReuse tests that recovery succeeds
+// when PID file points to an active process but the socket is inactive.
+// This is the PID reuse case: the OS has reused the PID for an unrelated process.
+// The socket is the authoritative signal for "daemon running", not the PID.
+func TestRecoverStartupRuntimeArtifactsHandlesPIDReuse(t *testing.T) {
 	setupStartupRecoveryEnv(t)
 
 	if err := xdg.EnsureRuntimeDir(); err != nil {
 		t.Fatalf("failed to create runtime dir: %v", err)
 	}
 
+	// Start a helper process to simulate an unrelated process that reused the PID
 	cmd := exec.Command("sleep", "30")
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("failed to start helper process: %v", err)
@@ -129,22 +134,31 @@ func TestRecoverStartupRuntimeArtifactsDoesNotOverrideActivePID(t *testing.T) {
 		_, _ = cmd.Process.Wait()
 	})
 
+	// Write the helper's PID to the PID file (simulating stale PID file from old daemon)
 	if err := os.WriteFile(xdg.PIDPath(), []byte(strconv.Itoa(cmd.Process.Pid)), 0644); err != nil {
 		t.Fatalf("failed to write pid file: %v", err)
 	}
 
+	// No socket exists - the daemon is NOT running, just the PID was reused
+
 	var logBuf bytes.Buffer
 	d := &Daemon{logger: log.New(&logBuf, "", 0)}
 	err := d.recoverStartupRuntimeArtifacts()
-	if err == nil {
-		t.Fatal("expected recovery to fail when pid file points to active process")
-	}
-	if !strings.Contains(err.Error(), "active process") {
-		t.Fatalf("expected active-pid protection error, got: %v", err)
+
+	// Recovery should SUCCEED - socket inactive means no daemon running
+	if err != nil {
+		t.Fatalf("expected recovery to succeed on PID reuse (socket inactive), got: %v", err)
 	}
 
-	if _, err := os.Stat(xdg.PIDPath()); err != nil {
-		t.Fatalf("expected active pid file to remain, stat err=%v", err)
+	// PID file should be removed
+	if _, err := os.Stat(xdg.PIDPath()); !os.IsNotExist(err) {
+		t.Fatalf("expected stale PID file to be removed, stat err=%v", err)
+	}
+
+	// Should log about PID reuse
+	logs := logBuf.String()
+	if !strings.Contains(logs, "reused by unrelated process") {
+		t.Fatalf("expected PID reuse log message, got: %s", logs)
 	}
 }
 
