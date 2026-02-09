@@ -13,8 +13,8 @@ claude:
     - "--dangerously-skip-permissions"
 
 opencode:
-  default_model: anthropic/claude-opus-4-5
-  default_variant: max
+  default_model: openai/gpt-5.3-codex
+  default_variant: xhigh
 
 issues:
   backend: local
