@@ -48,7 +48,7 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
 			// clear completion signals (merged PR, clean worktree) before giving up.
 			// This handles cases where the daemon started after the agent finished.
 			if run.Agent == "opencode" && state.DeadCheckCount >= deadChecksBeforeFailed {
-				inferredStatus := d.inferStatusFromGitState(run, st)
+				inferredStatus := d.inferStatusFromGitState(run, st, false)
 				if inferredStatus != "" {
 					d.logger.Printf("%s#%s: agent never confirmed alive, but inferred status from git state: %s", run.IssueID, run.RunID, inferredStatus)
 					return d.updateStatus(run, inferredStatus, st)
@@ -62,7 +62,7 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
 			return nil
 		}
 		if run.Agent == "opencode" {
-			inferredStatus := d.inferStatusFromGitState(run, st)
+			inferredStatus := d.inferStatusFromGitState(run, st, true)
 			if inferredStatus != "" {
 				d.logger.Printf("%s#%s: opencode session gone, inferred status from git state: %s", run.IssueID, run.RunID, inferredStatus)
 				return d.updateStatus(run, inferredStatus, st)
@@ -280,7 +280,11 @@ func (d *Daemon) notifyStatusChange(run *model.Run, newStatus model.Status, last
 	}
 }
 
-func (d *Daemon) inferStatusFromGitState(run *model.Run, st store.Store) model.Status {
+// inferStatusFromGitState infers a run's status from git state when the agent session
+// is no longer reachable. wasAlive indicates whether the agent was ever confirmed running.
+// When wasAlive is false and no work was done (0 commits, clean worktree), returns
+// StatusFailed rather than StatusDone — the agent never started, not "completed."
+func (d *Daemon) inferStatusFromGitState(run *model.Run, st store.Store, wasAlive bool) model.Status {
 	if run.Branch == "" || run.WorktreePath == "" {
 		d.debug("%s#%s: infer: skipping - branch=%q worktree=%q", run.IssueID, run.RunID, run.Branch, run.WorktreePath)
 		return ""
@@ -352,5 +356,8 @@ func (d *Daemon) inferStatusFromGitState(run *model.Run, st store.Store) model.S
 		return model.StatusBlocked
 	}
 
+	if !wasAlive {
+		return model.StatusFailed
+	}
 	return model.StatusDone
 }

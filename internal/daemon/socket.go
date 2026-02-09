@@ -733,6 +733,11 @@ func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string) (int, err
 		return 0, fmt.Errorf("server started but failed health check: %w", err)
 	}
 
+	if !s.isServerProcessAlive(srv) {
+		s.stopServerLocked(srv)
+		return 0, fmt.Errorf("server process died after startup on port %d (pid: %d) — port may be occupied by another server", port, srv.Cmd.Process.Pid)
+	}
+
 	srv.LastHealthy = time.Now()
 	s.openCodeServers[projectRoot] = srv
 	s.logger.Printf("started opencode server on port %d (pid: %d) for %s", port, srv.Cmd.Process.Pid, projectRoot)
