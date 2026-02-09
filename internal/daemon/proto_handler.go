@@ -244,7 +244,6 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 		Agent:      req.Agent,
 		TextSearch: req.TextSearch,
 		TimeRange:  req.TimeRange,
-		Limit:      int(req.Limit),
 		OlderThan:  req.OlderThan,
 	}
 
@@ -256,19 +255,45 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 		return errorResponse("store_error")
 	}
 
+	total := len(runs)
+
+	limit := int(req.Limit)
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	offset, _ := DecodeCursor(req.Cursor)
+	if offset > len(runs) {
+		offset = len(runs)
+	}
+	end := offset + limit
+	if end > len(runs) {
+		end = len(runs)
+	}
+	paginatedRuns := runs[offset:end]
+
 	enrichStart := time.Now()
-	protoRuns := make([]*orchpb.Run, len(runs))
-	protoRuns = enrichRunsParallel(runs, protoRuns)
+	protoRuns := make([]*orchpb.Run, len(paginatedRuns))
+	protoRuns = enrichRunsParallel(paginatedRuns, protoRuns)
 	enrichDuration := time.Since(enrichStart)
 
-	s.maybeLogListRunsTiming(req, len(runs), storeDuration, enrichDuration, time.Since(requestStart), nil)
+	s.maybeLogListRunsTiming(req, len(paginatedRuns), storeDuration, enrichDuration, time.Since(requestStart), nil)
+
+	var nextCursor string
+	if end < total {
+		nextCursor = EncodeCursor(end)
+	}
 
 	return &orchpb.Response{
 		Ok: true,
 		Response: &orchpb.Response_ListRuns{
 			ListRuns: &orchpb.ListRunsResponse{
-				Runs:  protoRuns,
-				Total: int32(len(runs)),
+				Runs:       protoRuns,
+				Total:      int32(total),
+				NextCursor: nextCursor,
 			},
 		},
 	}

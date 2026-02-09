@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -78,6 +79,9 @@ func (m *mockStore) ListRuns(filter *store.ListRunsFilter) ([]*model.Run, error)
 		}
 		runs = append(runs, run)
 	}
+	sort.Slice(runs, func(i, j int) bool {
+		return runs[i].UpdatedAt.After(runs[j].UpdatedAt)
+	})
 	return runs, nil
 }
 
@@ -549,6 +553,199 @@ func TestListRunsAPI(t *testing.T) {
 		listResp := resp.GetListRuns()
 		if listResp == nil || len(listResp.Runs) == 0 {
 			t.Fatal("expected at least 1 run")
+		}
+	})
+}
+
+func TestListRunsPaginationContract(t *testing.T) {
+	now := time.Now()
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			"orch-001#run-1": {IssueID: "orch-001", RunID: "run-1", Status: model.StatusRunning, Agent: "opencode", StartedAt: now.Add(-5 * time.Hour), UpdatedAt: now.Add(-4 * time.Hour)},
+			"orch-001#run-2": {IssueID: "orch-001", RunID: "run-2", Status: model.StatusDone, Agent: "claude", StartedAt: now.Add(-4 * time.Hour), UpdatedAt: now.Add(-3 * time.Hour)},
+			"orch-002#run-3": {IssueID: "orch-002", RunID: "run-3", Status: model.StatusRunning, Agent: "opencode", StartedAt: now.Add(-3 * time.Hour), UpdatedAt: now.Add(-2 * time.Hour)},
+			"orch-002#run-4": {IssueID: "orch-002", RunID: "run-4", Status: model.StatusBlocked, Agent: "claude", StartedAt: now.Add(-2 * time.Hour), UpdatedAt: now.Add(-1 * time.Hour)},
+			"orch-003#run-5": {IssueID: "orch-003", RunID: "run-5", Status: model.StatusFailed, Agent: "opencode", StartedAt: now.Add(-1 * time.Hour), UpdatedAt: now},
+		},
+		issues: make(map[string]*model.Issue),
+	}
+
+	_, cleanup := setupTestServer(t, st)
+	defer cleanup()
+
+	t.Run("total reflects full filtered count before pagination", func(t *testing.T) {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_ListRuns{
+				ListRuns: &orchpb.ListRunsRequest{Limit: 2},
+			},
+		})
+		if !resp.Ok {
+			t.Fatalf("expected OK=true, got error: %s", resp.Error)
+		}
+		listResp := resp.GetListRuns()
+		if listResp == nil {
+			t.Fatal("expected ListRunsResponse")
+		}
+		if listResp.Total != 5 {
+			t.Errorf("total should reflect full count (5), got %d", listResp.Total)
+		}
+		if len(listResp.Runs) != 2 {
+			t.Errorf("expected 2 runs in page, got %d", len(listResp.Runs))
+		}
+	})
+
+	t.Run("next_cursor returned when more items exist", func(t *testing.T) {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_ListRuns{
+				ListRuns: &orchpb.ListRunsRequest{Limit: 2},
+			},
+		})
+		if !resp.Ok {
+			t.Fatalf("expected OK=true, got error: %s", resp.Error)
+		}
+		listResp := resp.GetListRuns()
+		if listResp.NextCursor == "" {
+			t.Error("expected next_cursor when more items exist (5 total, limit 2)")
+		}
+	})
+
+	t.Run("no next_cursor when all items returned", func(t *testing.T) {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_ListRuns{
+				ListRuns: &orchpb.ListRunsRequest{Limit: 10},
+			},
+		})
+		if !resp.Ok {
+			t.Fatalf("expected OK=true, got error: %s", resp.Error)
+		}
+		listResp := resp.GetListRuns()
+		if listResp.NextCursor != "" {
+			t.Errorf("expected no next_cursor when all items returned, got %q", listResp.NextCursor)
+		}
+	})
+
+	t.Run("cursor advances through pages correctly", func(t *testing.T) {
+		resp1 := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_ListRuns{
+				ListRuns: &orchpb.ListRunsRequest{Limit: 2},
+			},
+		})
+		if !resp1.Ok {
+			t.Fatalf("page 1: expected OK=true, got error: %s", resp1.Error)
+		}
+		page1 := resp1.GetListRuns()
+		if len(page1.Runs) != 2 {
+			t.Fatalf("page 1: expected 2 runs, got %d", len(page1.Runs))
+		}
+		if page1.NextCursor == "" {
+			t.Fatal("page 1: expected next_cursor")
+		}
+
+		resp2 := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_ListRuns{
+				ListRuns: &orchpb.ListRunsRequest{Limit: 2, Cursor: page1.NextCursor},
+			},
+		})
+		if !resp2.Ok {
+			t.Fatalf("page 2: expected OK=true, got error: %s", resp2.Error)
+		}
+		page2 := resp2.GetListRuns()
+		if len(page2.Runs) != 2 {
+			t.Fatalf("page 2: expected 2 runs, got %d", len(page2.Runs))
+		}
+		if page2.Total != 5 {
+			t.Errorf("page 2: total should still be 5, got %d", page2.Total)
+		}
+
+		resp3 := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_ListRuns{
+				ListRuns: &orchpb.ListRunsRequest{Limit: 2, Cursor: page2.NextCursor},
+			},
+		})
+		if !resp3.Ok {
+			t.Fatalf("page 3: expected OK=true, got error: %s", resp3.Error)
+		}
+		page3 := resp3.GetListRuns()
+		if len(page3.Runs) != 1 {
+			t.Errorf("page 3: expected 1 run (remainder), got %d", len(page3.Runs))
+		}
+		if page3.NextCursor != "" {
+			t.Errorf("page 3: expected no next_cursor (last page), got %q", page3.NextCursor)
+		}
+
+		allRunIDs := make(map[string]bool)
+		for _, r := range page1.Runs {
+			allRunIDs[r.RunId] = true
+		}
+		for _, r := range page2.Runs {
+			allRunIDs[r.RunId] = true
+		}
+		for _, r := range page3.Runs {
+			allRunIDs[r.RunId] = true
+		}
+		if len(allRunIDs) != 5 {
+			t.Errorf("expected 5 unique runs across all pages, got %d", len(allRunIDs))
+		}
+	})
+
+	t.Run("filter with pagination - total reflects filtered count", func(t *testing.T) {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_ListRuns{
+				ListRuns: &orchpb.ListRunsRequest{
+					Status: []orchpb.RunStatus{orchpb.RunStatus_RUN_STATUS_RUNNING},
+					Limit:  1,
+				},
+			},
+		})
+		if !resp.Ok {
+			t.Fatalf("expected OK=true, got error: %s", resp.Error)
+		}
+		listResp := resp.GetListRuns()
+		if listResp.Total != 2 {
+			t.Errorf("expected total=2 (2 running runs), got %d", listResp.Total)
+		}
+		if len(listResp.Runs) != 1 {
+			t.Errorf("expected 1 run in page, got %d", len(listResp.Runs))
+		}
+		if listResp.NextCursor == "" {
+			t.Error("expected next_cursor (2 running, limit 1)")
+		}
+	})
+
+	t.Run("default limit caps at 50", func(t *testing.T) {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_ListRuns{
+				ListRuns: &orchpb.ListRunsRequest{},
+			},
+		})
+		if !resp.Ok {
+			t.Fatalf("expected OK=true, got error: %s", resp.Error)
+		}
+		listResp := resp.GetListRuns()
+		if listResp.Total != 5 {
+			t.Errorf("expected total=5, got %d", listResp.Total)
+		}
+		if len(listResp.Runs) != 5 {
+			t.Errorf("expected all 5 runs (under default limit), got %d", len(listResp.Runs))
+		}
+	})
+
+	t.Run("cursor beyond total returns empty page", func(t *testing.T) {
+		beyondCursor := EncodeCursor(100)
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_ListRuns{
+				ListRuns: &orchpb.ListRunsRequest{Cursor: beyondCursor, Limit: 10},
+			},
+		})
+		if !resp.Ok {
+			t.Fatalf("expected OK=true, got error: %s", resp.Error)
+		}
+		listResp := resp.GetListRuns()
+		if len(listResp.Runs) != 0 {
+			t.Errorf("expected 0 runs for cursor beyond total, got %d", len(listResp.Runs))
+		}
+		if listResp.Total != 5 {
+			t.Errorf("total should still be 5, got %d", listResp.Total)
 		}
 	})
 }
@@ -1411,10 +1608,10 @@ func TestProtoContinueRunFieldMapping(t *testing.T) {
 		resp := sendProtoRequest(t, &orchpb.Request{
 			Request: &orchpb.Request_ContinueRun{
 				ContinueRun: &orchpb.ContinueRunRequest{
-					IssueId:      "test-issue",
-					SessionName:  "my-session",
-					IssuesRoot:   testIssuesRoot,
-					ProjectRoot:  testProjectRoot,
+					IssueId:     "test-issue",
+					SessionName: "my-session",
+					IssuesRoot:  testIssuesRoot,
+					ProjectRoot: testProjectRoot,
 				},
 			},
 		})
@@ -1431,9 +1628,9 @@ func TestProtoContinueRunFieldMapping(t *testing.T) {
 		resp := sendProtoRequest(t, &orchpb.Request{
 			Request: &orchpb.Request_ContinueRun{
 				ContinueRun: &orchpb.ContinueRunRequest{
-					IssueId:     "test-issue",
-					RepoRoot:    "/fallback/repo/root",
-					IssuesRoot:  testIssuesRoot,
+					IssueId:    "test-issue",
+					RepoRoot:   "/fallback/repo/root",
+					IssuesRoot: testIssuesRoot,
 				},
 			},
 		})
