@@ -34,7 +34,10 @@ func generateMonitorID() string {
 
 const (
 	maxProtoMessageSize = 10 * 1024 * 1024
+	listRunsTimingEnv   = "ORCH_DAEMON_LISTRUNS_TIMING"
 )
+
+const listRunsSlowThreshold = 250 * time.Millisecond
 
 func (s *SocketServer) handleProtoConnection(conn net.Conn, data []byte) {
 	defer conn.Close()
@@ -228,6 +231,8 @@ func (s *SocketServer) handleProtoPing(_ *orchpb.PingRequest) *orchpb.Response {
 }
 
 func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.Response {
+	requestStart := time.Now()
+
 	st := s.resolveStoreFromProto(req.IssuesRoot)
 	if st == nil {
 		return errorResponse("no store available")
@@ -243,13 +248,20 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 		OlderThan:  req.OlderThan,
 	}
 
+	storeStart := time.Now()
 	runs, err := st.ListRuns(filter)
+	storeDuration := time.Since(storeStart)
 	if err != nil {
+		s.maybeLogListRunsTiming(req, 0, storeDuration, 0, time.Since(requestStart), err)
 		return errorResponse("store_error")
 	}
 
+	enrichStart := time.Now()
 	protoRuns := make([]*orchpb.Run, len(runs))
 	protoRuns = enrichRunsParallel(runs, protoRuns)
+	enrichDuration := time.Since(enrichStart)
+
+	s.maybeLogListRunsTiming(req, len(runs), storeDuration, enrichDuration, time.Since(requestStart), nil)
 
 	return &orchpb.Response{
 		Ok: true,
@@ -260,6 +272,64 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 			},
 		},
 	}
+}
+
+func daemonListRunsTimingEnabled() bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv(listRunsTimingEnv)))
+	switch value {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *SocketServer) maybeLogListRunsTiming(
+	req *orchpb.ListRunsRequest,
+	runCount int,
+	storeDuration, enrichDuration, totalDuration time.Duration,
+	err error,
+) {
+	slow := totalDuration >= listRunsSlowThreshold
+	if !daemonListRunsTimingEnabled() && !slow {
+		return
+	}
+
+	issueID := strings.TrimSpace(req.IssueId)
+	hasTextSearch := strings.TrimSpace(req.TextSearch) != ""
+	hasOlderThan := strings.TrimSpace(req.OlderThan) != ""
+
+	if err != nil {
+		s.logger.Printf(
+			"list_runs timing total=%s store=%s enrich=%s runs=%d issue=%q statuses=%d limit=%d text_search=%t older_than=%t slow=%t error=%v",
+			totalDuration,
+			storeDuration,
+			enrichDuration,
+			runCount,
+			issueID,
+			len(req.Status),
+			req.Limit,
+			hasTextSearch,
+			hasOlderThan,
+			slow,
+			err,
+		)
+		return
+	}
+
+	s.logger.Printf(
+		"list_runs timing total=%s store=%s enrich=%s runs=%d issue=%q statuses=%d limit=%d text_search=%t older_than=%t slow=%t",
+		totalDuration,
+		storeDuration,
+		enrichDuration,
+		runCount,
+		issueID,
+		len(req.Status),
+		req.Limit,
+		hasTextSearch,
+		hasOlderThan,
+		slow,
+	)
 }
 
 func enrichRunProto(pr *orchpb.Run, run *model.Run) {

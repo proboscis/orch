@@ -8,6 +8,32 @@ import (
 	"github.com/s22625/orch/internal/model"
 )
 
+func TestDaemonListRunsTimingEnabled(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{name: "empty disabled", value: "", want: false},
+		{name: "zero disabled", value: "0", want: false},
+		{name: "false disabled", value: "false", want: false},
+		{name: "one enabled", value: "1", want: true},
+		{name: "true enabled", value: "true", want: true},
+		{name: "yes enabled", value: "yes", want: true},
+		{name: "on enabled", value: "on", want: true},
+		{name: "mixed case true", value: " TrUe ", want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(listRunsTimingEnv, tt.value)
+			if got := daemonListRunsTimingEnabled(); got != tt.want {
+				t.Fatalf("daemonListRunsTimingEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildAttachInfoResponse(t *testing.T) {
 	tests := []struct {
 		name string
