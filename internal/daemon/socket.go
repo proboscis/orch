@@ -129,6 +129,8 @@ type SocketServer struct {
 	logger       Logger
 	stopCh       chan struct{}
 
+	managedServerStore *managedServerStore
+
 	repos   map[string]*RepoContext
 	reposMu sync.RWMutex
 
@@ -148,11 +150,26 @@ type managedServer struct {
 	ProjectRoot string
 	Port        int
 	Cmd         *exec.Cmd
+	PID         int
 	StartTime   time.Time
 	LastHealthy time.Time
 	LogFile     *os.File
 	LogPath     string
 	WaitResult  chan error
+	Adopted     bool
+}
+
+func serverPID(srv *managedServer) int {
+	if srv == nil {
+		return 0
+	}
+	if srv.PID > 0 {
+		return srv.PID
+	}
+	if srv.Cmd != nil && srv.Cmd.Process != nil {
+		return srv.Cmd.Process.Pid
+	}
+	return 0
 }
 
 type Logger interface {
@@ -367,10 +384,20 @@ func (s *SocketServer) Start() error {
 		return fmt.Errorf("failed to create runtime directory: %w", err)
 	}
 
+	if err := s.initManagedServerStore(); err != nil {
+		return fmt.Errorf("failed to initialize managed server store: %w", err)
+	}
+
+	if err := s.reconcileManagedServersOnStartup(); err != nil {
+		s.closeManagedServerStore()
+		return fmt.Errorf("failed to reconcile managed servers on startup: %w", err)
+	}
+
 	os.Remove(socketPath)
 
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
+		s.closeManagedServerStore()
 		return fmt.Errorf("failed to listen on socket: %w", err)
 	}
 	s.listener = listener
@@ -378,6 +405,7 @@ func (s *SocketServer) Start() error {
 	if err := os.Chmod(socketPath, 0600); err != nil {
 		s.listener.Close()
 		os.Remove(socketPath)
+		s.closeManagedServerStore()
 		return fmt.Errorf("failed to secure socket permissions: %w", err)
 	}
 
@@ -397,6 +425,7 @@ func (s *SocketServer) Stop() {
 		s.listener.Close()
 	}
 	os.Remove(xdg.SocketPath())
+	s.closeManagedServerStore()
 }
 
 func (s *SocketServer) acceptLoop() {
@@ -766,6 +795,7 @@ func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string) (int, err
 			defer cancel()
 			if client.IsServerRunning(ctx) {
 				srv.LastHealthy = time.Now()
+				s.updateManagedServerHealth(projectRoot, srv.LastHealthy)
 				s.logger.Printf("opencode server healthy on port %d for %s", srv.Port, projectRoot)
 				return srv.Port, nil
 			}
@@ -802,12 +832,13 @@ func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string) (int, err
 
 	if !s.isServerProcessAlive(srv) {
 		s.stopServerLocked(srv)
-		return 0, fmt.Errorf("server process died after startup on port %d (pid: %d, logs: %s) — port may be occupied by another server", port, srv.Cmd.Process.Pid, srv.LogPath)
+		return 0, fmt.Errorf("server process died after startup on port %d (pid: %d, logs: %s) — port may be occupied by another server", port, serverPID(srv), srv.LogPath)
 	}
 
 	srv.LastHealthy = time.Now()
+	s.updateManagedServerHealth(projectRoot, srv.LastHealthy)
 	s.openCodeServers[projectRoot] = srv
-	s.logger.Printf("started opencode server on port %d (pid: %d) for %s (logs: %s)", port, srv.Cmd.Process.Pid, projectRoot, srv.LogPath)
+	s.logger.Printf("started opencode server on port %d (pid: %d) for %s (logs: %s)", port, serverPID(srv), projectRoot, srv.LogPath)
 	return port, nil
 }
 
@@ -848,6 +879,24 @@ func (s *SocketServer) startServerProcess(projectRoot string, port int) (*manage
 		return nil, fmt.Errorf("failed to start process: %w", err)
 	}
 
+	startTime := time.Now()
+	srv := &managedServer{
+		ProjectRoot: projectRoot,
+		Port:        port,
+		Cmd:         cmd,
+		PID:         cmd.Process.Pid,
+		StartTime:   startTime,
+		LogFile:     logFile,
+		LogPath:     logPath,
+	}
+
+	if err := s.persistManagedServerStart(srv); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		_ = logFile.Close()
+		return nil, fmt.Errorf("failed to persist managed server state: %w", err)
+	}
+
 	waitResult := make(chan error, 1)
 	go func(projectRoot string, pid int, logPath string) {
 		err := cmd.Wait()
@@ -860,15 +909,8 @@ func (s *SocketServer) startServerProcess(projectRoot string, port int) (*manage
 		close(waitResult)
 	}(projectRoot, cmd.Process.Pid, logPath)
 
-	return &managedServer{
-		ProjectRoot: projectRoot,
-		Port:        port,
-		Cmd:         cmd,
-		StartTime:   time.Now(),
-		LogFile:     logFile,
-		LogPath:     logPath,
-		WaitResult:  waitResult,
-	}, nil
+	srv.WaitResult = waitResult
+	return srv, nil
 }
 
 func (s *SocketServer) isServerProcessAlive(srv *managedServer) bool {
@@ -882,6 +924,9 @@ func (s *SocketServer) isServerProcessAlive(srv *managedServer) bool {
 		default:
 			return true
 		}
+	}
+	if srv.PID > 0 {
+		return IsProcessRunning(srv.PID)
 	}
 	if srv.Cmd == nil || srv.Cmd.Process == nil {
 		return false
@@ -928,8 +973,18 @@ func (s *SocketServer) waitForOpenCodeServerHealthy(srv *managedServer, timeout 
 }
 
 func (s *SocketServer) waitForServerExit(srv *managedServer, timeout time.Duration) bool {
-	if srv == nil || srv.WaitResult == nil {
+	if srv == nil {
 		return true
+	}
+	if srv.WaitResult == nil {
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			if !s.isServerProcessAlive(srv) {
+				return true
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		return !s.isServerProcessAlive(srv)
 	}
 	select {
 	case <-srv.WaitResult:
@@ -949,10 +1004,15 @@ func (s *SocketServer) stopServerLocked(srv *managedServer) {
 			_ = srv.Cmd.Process.Kill()
 			_ = s.waitForServerExit(srv, 2*time.Second)
 		}
+	} else if srv.PID > 0 {
+		if err := s.terminateServerProcessByPID(srv.PID, 5*time.Second); err != nil && s.logger != nil {
+			s.logger.Printf("warning: failed to terminate opencode server pid=%d for %s: %v", srv.PID, srv.ProjectRoot, err)
+		}
 	}
 	if srv.LogFile != nil {
 		_ = srv.LogFile.Close()
 	}
+	s.deleteManagedServerRecord(srv.ProjectRoot)
 }
 
 func (s *SocketServer) StartOpenCodeServerHealthCheck() {
@@ -977,7 +1037,7 @@ func (s *SocketServer) checkOpenCodeServerHealth() {
 
 	for projectRoot, srv := range s.openCodeServers {
 		if !s.isServerProcessAlive(srv) {
-			s.logger.Printf("opencode server for %s died (pid: %d, logs: %s), will restart on next request", projectRoot, srv.Cmd.Process.Pid, srv.LogPath)
+			s.logger.Printf("opencode server for %s died (pid: %d, logs: %s), will restart on next request", projectRoot, serverPID(srv), srv.LogPath)
 			s.stopServerLocked(srv)
 			delete(s.openCodeServers, projectRoot)
 			continue
@@ -987,6 +1047,7 @@ func (s *SocketServer) checkOpenCodeServerHealth() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if client.IsServerRunning(ctx) {
 			srv.LastHealthy = time.Now()
+			s.updateManagedServerHealth(projectRoot, srv.LastHealthy)
 		} else {
 			if time.Since(srv.LastHealthy) > 2*time.Minute {
 				s.logger.Printf("opencode server for %s unhealthy for 2+ minutes, restarting (logs: %s)", projectRoot, srv.LogPath)
@@ -1003,7 +1064,7 @@ func (s *SocketServer) StopAllOpenCodeServers() {
 	defer s.openCodeServersMu.Unlock()
 
 	for projectRoot, srv := range s.openCodeServers {
-		s.logger.Printf("stopping opencode server for %s (pid: %d)", projectRoot, srv.Cmd.Process.Pid)
+		s.logger.Printf("stopping opencode server for %s (pid: %d)", projectRoot, serverPID(srv))
 		s.stopServerLocked(srv)
 	}
 	s.openCodeServers = make(map[string]*managedServer)

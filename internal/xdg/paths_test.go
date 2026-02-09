@@ -127,6 +127,18 @@ func TestDataDir(t *testing.T) {
 	}
 }
 
+func TestDaemonDBPath(t *testing.T) {
+	original := os.Getenv("XDG_DATA_HOME")
+	defer os.Setenv("XDG_DATA_HOME", original)
+
+	os.Setenv("XDG_DATA_HOME", "/home/test/.local/share")
+	got := DaemonDBPath()
+	want := "/home/test/.local/share/orch/daemon.db"
+	if got != want {
+		t.Errorf("DaemonDBPath() = %q, want %q", got, want)
+	}
+}
+
 func TestConfigDir(t *testing.T) {
 	original := os.Getenv("XDG_CONFIG_HOME")
 	defer os.Setenv("XDG_CONFIG_HOME", original)
@@ -189,8 +201,8 @@ func TestSanitizeRepoID(t *testing.T) {
 		{"owner", "repo", "owner-repo"},
 		{"my-org", "my-repo", "my-org-my-repo"},
 		{"owner_name", "repo_name", "owner_name-repo_name"},
-		{"owner/bad", "repo", "ownerbad-repo"},  // slashes removed
-		{"owner", "repo.git", "repogit-"},       // wait this is wrong
+		{"owner/bad", "repo", "ownerbad-repo"}, // slashes removed
+		{"owner", "repo.git", "repogit-"},      // wait this is wrong
 	}
 
 	for _, tt := range tests {

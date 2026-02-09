@@ -117,6 +117,13 @@ func LogPath() string {
 	return filepath.Join(StateDir(), "daemon.log")
 }
 
+// DaemonDBPath returns the path to the daemon state database.
+// macOS: ~/Library/Application Support/orch/daemon.db
+// Linux: ~/.local/share/orch/daemon.db
+func DaemonDBPath() string {
+	return filepath.Join(DataDir(), "daemon.db")
+}
+
 // RepoDataDir returns the data directory for a specific repo.
 // ~/.local/share/orch/{repoID}/
 func RepoDataDir(repoID string) string {
