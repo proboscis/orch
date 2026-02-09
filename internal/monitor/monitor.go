@@ -10,13 +10,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/daemon"
-	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
 	"github.com/s22625/orch/internal/orchapi"
@@ -761,23 +761,37 @@ func (m *Monitor) ListRunsForIssue(issueID string) ([]*model.Run, error) {
 	return runs, nil
 }
 
-// ListBranchesForIssue returns branches that contain the issue ID in their name.
+// ListBranchesForIssue returns branches for an issue derived from run data.
+// Uses daemon API to get runs and extracts branch info from them.
 func (m *Monitor) ListBranchesForIssue(issueID string) ([]branchInfo, error) {
 	if strings.TrimSpace(issueID) == "" {
 		return nil, fmt.Errorf("issue id is required")
 	}
 
-	repoRoot, err := m.getRepoRoot()
+	ctx := context.Background()
+	result, err := m.api.ListRuns(ctx, &orchapi.ListRunsFilter{IssueID: issueID})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to list runs: %w", err)
 	}
 
-	branches, err := git.GetBranchCommitTimes(repoRoot)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list branches: %w", err)
+	seen := make(map[string]bool)
+	var branches []branchInfo
+	for _, r := range result.Runs {
+		branch := strings.TrimSpace(r.Branch)
+		if branch == "" || seen[branch] {
+			continue
+		}
+		seen[branch] = true
+		branches = append(branches, branchInfo{
+			name:       branch,
+			commitTime: r.UpdatedAt,
+		})
 	}
 
-	return filterBranchesForIssue(branches, issueID), nil
+	sort.Slice(branches, func(i, j int) bool {
+		return branches[i].commitTime.After(branches[j].commitTime)
+	})
+	return branches, nil
 }
 
 func (m *Monitor) ContinueRun(issueID, branch, agentType, prompt string) (string, error) {
@@ -823,13 +837,6 @@ func (m *Monitor) ContinueRun(issueID, branch, agentType, prompt string) (string
 		output = "run continued"
 	}
 	return output, nil
-}
-
-func (m *Monitor) getRepoRoot() (string, error) {
-	if m.projectRoot == "" {
-		return "", fmt.Errorf("project root not set")
-	}
-	return git.FindMainRepoRoot(m.projectRoot)
 }
 
 func (m *Monitor) createSession() error {

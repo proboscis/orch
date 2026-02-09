@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/s22625/orch/internal/agent"
-	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
@@ -66,7 +65,7 @@ func runCapture(refStr string, opts *captureOptions) error {
 
 	api, err := getAPI()
 	if err != nil {
-		return err
+		return outputCaptureError(err)
 	}
 
 	run, err := resolveRunAPI(ctx, api, refStr)
@@ -76,30 +75,16 @@ func runCapture(refStr string, opts *captureOptions) error {
 		return err
 	}
 
-	projectRoot, err := getProjectRoot()
-	if err != nil {
-		return fmt.Errorf("project root required: %w", err)
-	}
-
-	issuesRoot, err := getIssuesRoot()
-	if err != nil {
-		return fmt.Errorf("issues root required: %w", err)
-	}
-
-	if !daemon.IsDaemonSocketAvailable(projectRoot) {
-		return outputCaptureError(fmt.Errorf("daemon not available (run 'orch daemon start')"))
-	}
-
-	client := daemon.NewProtoClientWithIssuesRoot(projectRoot, issuesRoot)
-	resp, err := client.CaptureSession(run.IssueID, run.RunID)
+	ref := orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}
+	captureResult, err := api.CaptureSession(ctx, ref, opts.Lines)
 	if err != nil {
 		return outputCaptureError(err)
 	}
 
-	return outputCaptureResult(run, resp, opts)
+	return outputCaptureResultAPI(run, captureResult, opts)
 }
 
-func outputCaptureResult(run *orchapi.Run, resp *daemon.CaptureSessionResponse, opts *captureOptions) error {
+func outputCaptureResultAPI(run *orchapi.Run, resp *orchapi.CaptureResult, opts *captureOptions) error {
 	if globalOpts.JSON {
 		result := &captureResult{
 			OK:          true,

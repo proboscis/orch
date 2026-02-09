@@ -240,27 +240,7 @@ func runMonitorKill(monitorID string, opts *monitorKillOptions) error {
 }
 
 func ensureDaemonReady(projectRoot string) (*daemon.ProtoClient, error) {
-	client := daemon.NewProtoClient(projectRoot)
-	if client.IsAvailable() {
-		return client, nil
-	}
-
-	_, err := daemon.StartInBackground()
-	if err != nil {
-		return nil, fmt.Errorf("daemon not running and failed to start: %w\nRun 'orch repair' to fix daemon issues", err)
-	}
-
-	for i := 0; i < 20; i++ {
-		time.Sleep(100 * time.Millisecond)
-		if client.IsAvailable() {
-			if !globalOpts.Quiet {
-				fmt.Fprintln(os.Stderr, "daemon auto-started")
-			}
-			return client, nil
-		}
-	}
-
-	return nil, fmt.Errorf("daemon did not become available after starting\nRun 'orch repair' to fix daemon issues")
+	return requireDaemon()
 }
 
 func runMonitor(opts *monitorOptions) error {

@@ -1,13 +1,14 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/s22625/orch/internal/config"
-	"github.com/s22625/orch/internal/daemon"
-	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
 
@@ -45,133 +46,78 @@ The diff tool is selected in priority order:
 }
 
 func runDiff(refStr string, opts *diffOptions) error {
-	client, err := requireDaemon()
+	ctx := context.Background()
+
+	api, err := getAPI()
 	if err != nil {
 		return err
 	}
 
-	// Get run info from daemon
-	var resp *daemon.GetAttachInfoResponse
+	ref, err := orchapi.ParseRunRef(refStr)
+	if err != nil {
+		return err
+	}
 
-	if shortIDRegex.MatchString(refStr) {
-		resp, err = client.GetAttachInfo("", "", refStr)
-	} else {
-		ref, parseErr := model.ParseRunRef(refStr)
-		if parseErr != nil {
-			return parseErr
+	if opts.Stat {
+		stats, err := api.GetDiffStats(ctx, ref)
+		if err != nil {
+			return err
 		}
-		resp, err = client.GetAttachInfo(ref.IssueID, ref.RunID, "")
+		fmt.Printf(" %d files changed, %d insertions(+), %d deletions(-)\n",
+			stats.FilesChanged, stats.Additions, stats.Deletions)
+		for _, f := range stats.Files {
+			fmt.Printf(" %s\n", f)
+		}
+		return nil
 	}
 
+	diffContent, err := api.GetDiff(ctx, ref)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "run not found: %s\n", refStr)
-		os.Exit(ExitRunNotFound)
 		return err
 	}
 
-	if resp.WorktreePath == "" {
-		fmt.Fprintf(os.Stderr, "run has no worktree: %s\n", refStr)
-		os.Exit(ExitWorktreeError)
-		return fmt.Errorf("run has no worktree")
-	}
-
-	// Load config for base branch and diff tool
 	cfg, err := config.Load()
 	if err != nil {
-		return err
+		cfg = nil
 	}
 
-	// Determine base branch
-	baseBranch := opts.BaseBranch
-	if baseBranch == "" {
-		baseBranch = cfg.GetBaseBranch()
-	}
-
-	// Get the run's branch for comparison
-	branch := resp.Branch
-	if branch == "" {
-		branch = "HEAD"
-	}
-
-	// Build git diff command
-	diffArgs := buildDiffArgs(baseBranch, branch, opts.Stat)
-
-	// Get diff tool
 	diffTool := getDiffTool(cfg)
-
-	// Execute diff
-	return executeDiff(resp.WorktreePath, diffArgs, diffTool)
-}
-
-func buildDiffArgs(baseBranch, branch string, stat bool) []string {
-	args := []string{"diff"}
-	if stat {
-		args = append(args, "--stat")
-	}
-	// Use merge-base syntax for cleaner diff
-	args = append(args, fmt.Sprintf("%s...%s", baseBranch, branch))
-	return args
+	return displayDiff(diffContent, diffTool)
 }
 
 func getDiffTool(cfg *config.Config) string {
-	// Priority order:
-	// 1. ORCH_DIFFTOOL env var
 	if tool := os.Getenv("ORCH_DIFFTOOL"); tool != "" {
 		return tool
 	}
 
-	// 2. diff_tool in config
-	if cfg.GetDiffTool() != "" {
+	if cfg != nil && cfg.GetDiffTool() != "" {
 		return cfg.GetDiffTool()
 	}
 
-	// 3. delta (if installed)
 	if _, err := exec.LookPath("delta"); err == nil {
 		return "delta"
 	}
 
-	// 4. PAGER env var
 	if pager := os.Getenv("PAGER"); pager != "" {
 		return pager
 	}
 
-	// 5. Fallback to less
 	return "less"
 }
 
-func executeDiff(worktreePath string, gitArgs []string, diffTool string) error {
-	// Create git command
-	gitCmd := exec.Command("git", gitArgs...)
-	gitCmd.Dir = worktreePath
-	gitCmd.Stderr = os.Stderr
-
-	// If diffTool is "cat" or empty, just output directly
-	if diffTool == "cat" || diffTool == "" {
-		gitCmd.Stdout = os.Stdout
-		return gitCmd.Run()
+func displayDiff(content string, diffTool string) error {
+	if diffTool == "cat" || diffTool == "" || content == "" {
+		fmt.Print(content)
+		return nil
 	}
 
-	// Pipe git output through diff tool
 	pagerCmd := exec.Command(diffTool)
-	pagerCmd.Stdin, _ = gitCmd.StdoutPipe()
+	pagerCmd.Stdin = strings.NewReader(content)
 	pagerCmd.Stdout = os.Stdout
 	pagerCmd.Stderr = os.Stderr
 
-	if err := pagerCmd.Start(); err != nil {
-		// Fall back to direct output if pager fails
-		gitCmd.Stdout = os.Stdout
-		return gitCmd.Run()
+	if err := pagerCmd.Run(); err != nil {
+		fmt.Print(content)
 	}
-
-	if err := gitCmd.Start(); err != nil {
-		return err
-	}
-
-	// Wait for git to finish first
-	gitErr := gitCmd.Wait()
-
-	// Close stdin to signal EOF to pager
-	pagerCmd.Wait()
-
-	return gitErr
+	return nil
 }

@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/s22625/orch/internal/agent"
@@ -764,42 +763,6 @@ func colorPrStatus(status string) string {
 		return color + status + reset
 	}
 	return status
-}
-
-func resolveAgentAliveInfo(runs []*model.Run) map[string]agentAliveInfo {
-	if len(runs) == 0 {
-		return nil
-	}
-
-	agent.RefreshMuxCache()
-
-	aliveByRun := make(map[string]agentAliveInfo, len(runs))
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-
-	sem := make(chan struct{}, 8)
-
-	for _, r := range runs {
-		if r == nil {
-			continue
-		}
-		wg.Add(1)
-		go func(run *model.Run) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			manager := agent.GetManager(run)
-			alive := manager.IsAlive(run)
-
-			mu.Lock()
-			aliveByRun[run.RunID] = agentAliveInfo{alive: alive, known: true}
-			mu.Unlock()
-		}(r)
-	}
-
-	wg.Wait()
-	return aliveByRun
 }
 
 func formatAliveText(info agentAliveInfo) string {

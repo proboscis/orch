@@ -15,7 +15,6 @@ import (
 	"github.com/mattn/go-runewidth"
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/config"
-	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 )
 
@@ -725,13 +724,12 @@ func (d *Dashboard) execShellCmd(run *model.Run) tea.Cmd {
 		}
 	}
 	if !filepath.IsAbs(worktreePath) {
-		repoRoot, err := git.FindMainRepoRoot("")
-		if err != nil {
+		if d.monitor.projectRoot == "" {
 			return func() tea.Msg {
-				return errMsg{err: fmt.Errorf("could not find git repository: %w", err)}
+				return errMsg{err: fmt.Errorf("could not resolve relative worktree path: project root not set")}
 			}
 		}
-		worktreePath = filepath.Join(repoRoot, worktreePath)
+		worktreePath = filepath.Join(d.monitor.projectRoot, worktreePath)
 	}
 
 	windowName := fmt.Sprintf("exec-%s", run.ShortID())

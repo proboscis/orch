@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/orchapi"
@@ -187,9 +186,10 @@ func repairStaleRunsAPI(ctx context.Context, api orchapi.OrchAPI, opts *repairOp
 
 	fixed := 0
 	for _, run := range result.Runs {
-		modelRun := apiRunToModelRun(run)
-		mgr := agent.GetManager(modelRun)
-		if mgr.IsAlive(modelRun) {
+		if run.AliveKnown && run.Alive {
+			continue
+		}
+		if !run.AliveKnown {
 			continue
 		}
 

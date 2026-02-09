@@ -13,6 +13,7 @@ import (
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
 
@@ -295,51 +296,56 @@ type issueInfo struct {
 }
 
 func runIssueList(opts *issueListOptions) error {
-	projectRoot, _ := getProjectRoot()
-	issuesRoot, err := getIssuesRoot()
+	ctx := context.Background()
+
+	api, err := getAPI()
 	if err != nil {
 		return err
 	}
 
-	client := daemon.NewProtoClientWithIssuesRoot(projectRoot, issuesRoot)
-	if !client.IsAvailable() {
-		return fmt.Errorf("daemon not available (run 'orch daemon run' or ensure daemon is started)")
-	}
-	return runIssueListViaDaemon(client, opts)
+	return runIssueListViaAPI(ctx, api, opts)
 }
 
-func runIssueListViaDaemon(client *daemon.ProtoClient, opts *issueListOptions) error {
-	// Collect all issues, handling pagination
-	// Pass status filter to daemon if set (daemon supports this)
-	var statusFilter []string
+func runIssueListViaAPI(ctx context.Context, api orchapi.OrchAPI, opts *issueListOptions) error {
+	var statusFilter []orchapi.IssueStatus
 	if opts.Status != "" {
-		statusFilter = []string{opts.Status}
+		statusFilter = []orchapi.IssueStatus{orchapi.IssueStatus(opts.Status)}
 	}
 
-	var allIssues []*daemon.IssueSummary
+	// Collect all issues, handling pagination
+	var allIssues []*orchapi.Issue
 	cursor := ""
 	for {
-		issuesResp, err := client.ListIssues(statusFilter, 200, cursor) // Use max limit
+		issuesResp, err := api.ListIssues(ctx, &orchapi.ListIssuesFilter{
+			Status: statusFilter,
+			Limit:  200,
+			Cursor: cursor,
+		})
 		if err != nil {
 			return err
 		}
 		allIssues = append(allIssues, issuesResp.Issues...)
 
-		// Check if there are more pages
-		if issuesResp.NextCursor == nil || *issuesResp.NextCursor == "" {
+		if issuesResp.NextCursor == "" {
 			break
 		}
-		cursor = *issuesResp.NextCursor
+		cursor = issuesResp.NextCursor
 	}
 
-	runsResp, err := client.ListRuns(&daemon.ListRunsFilter{
-		Status: []string{"running", "blocked", "blocked_api", "booting", "queued"},
+	runsResp, err := api.ListRuns(ctx, &orchapi.ListRunsFilter{
+		Status: []orchapi.RunStatus{
+			orchapi.RunStatusRunning,
+			orchapi.RunStatusBlocked,
+			orchapi.RunStatusBlockedAPI,
+			orchapi.RunStatusBooting,
+			orchapi.RunStatusQueued,
+		},
 	})
 	if err != nil {
-		runsResp = &daemon.ListRunsResponse{Runs: nil}
+		runsResp = &orchapi.ListRunsResult{Runs: nil}
 	}
 
-	runsByIssue := make(map[string][]*daemon.RunSummary)
+	runsByIssue := make(map[string][]*orchapi.Run)
 	for _, run := range runsResp.Runs {
 		runsByIssue[run.IssueID] = append(runsByIssue[run.IssueID], run)
 	}
@@ -358,16 +364,16 @@ func runIssueListViaDaemon(client *daemon.ProtoClient, opts *issueListOptions) e
 			ID:         issue.ID,
 			Title:      issue.Title,
 			Summary:    issue.Summary,
-			Status:     issue.Status,
+			Status:     string(issue.Status),
 			Tags:       issue.Tags,
-			Path:       issue.URI,
-			ModifiedAt: issue.ModifiedAt,
+			Path:       issue.Path,
+			ModifiedAt: issue.ModifiedAt.Format("2006-01-02T15:04:05Z07:00"),
 		}
 
 		for _, run := range runsByIssue[issue.ID] {
 			info.Runs = append(info.Runs, runSummary{
 				RunID:  run.RunID,
-				Status: run.Status,
+				Status: string(run.Status),
 			})
 		}
 

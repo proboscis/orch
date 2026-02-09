@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -365,38 +364,20 @@ func detectIssueIDConvention(issues []*model.Issue) (pattern, example, nextID st
 	return
 }
 
-func getGitBranch(workDir string) string {
-	cmd := exec.Command("git", "-C", workDir, "rev-parse", "--abbrev-ref", "HEAD")
-	output, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(output))
+// getGitBranch is intentionally empty — git operations go through daemon API.
+// The control prompt uses run-level context instead of local repo git state.
+func getGitBranch(_ string) string {
+	return ""
 }
 
-func getUncommittedChangesStatus(workDir string) string {
-	cmd := exec.Command("git", "-C", workDir, "status", "--porcelain")
-	output, err := cmd.Output()
-	if err != nil {
-		return "Unknown"
-	}
-	if len(strings.TrimSpace(string(output))) > 0 {
-		return "Yes"
-	}
-	return "No"
+// getUncommittedChangesStatus is intentionally empty — git operations go through daemon API.
+func getUncommittedChangesStatus(_ string) string {
+	return "Unknown"
 }
 
-func getLastCommitMessage(workDir string) string {
-	cmd := exec.Command("git", "-C", workDir, "log", "-1", "--format=%s")
-	output, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	msg := strings.TrimSpace(string(output))
-	if len(msg) > 80 {
-		msg = msg[:77] + "..."
-	}
-	return msg
+// getLastCommitMessage is intentionally empty — git operations go through daemon API.
+func getLastCommitMessage(_ string) string {
+	return ""
 }
 
 func getAvailableAgents() string {

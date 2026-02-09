@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/s22625/orch/internal/agent"
-	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
@@ -84,35 +83,8 @@ func runSend(refStr, message string, opts *sendOptions) error {
 		return validateSendConfig(run, isOpenCode)
 	}
 
-	projectRoot, err := getProjectRoot()
-	if err != nil {
-		return fmt.Errorf("project root required for send: %w", err)
-	}
-
-	issuesRoot, err := getIssuesRoot()
-	if err != nil {
-		return fmt.Errorf("issues root required for send: %w", err)
-	}
-
-	if !daemon.IsDaemonSocketAvailable(projectRoot) {
-		err := fmt.Errorf("daemon not available (run 'orch daemon start')")
-		if globalOpts.JSON {
-			result := map[string]interface{}{
-				"ok":    false,
-				"error": err.Error(),
-			}
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			enc.Encode(result)
-		} else {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		}
-		os.Exit(ExitAgentError)
-		return err
-	}
-
-	modelRun := apiRunToModelRun(run)
-	err = daemon.SendViaDaemon(projectRoot, issuesRoot, modelRun, message, opts.NoEnter)
+	ref := orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}
+	err = api.SendMessage(ctx, ref, message)
 	if err != nil {
 		exitCode := ExitAgentError
 		if strings.Contains(err.Error(), "has ended") {

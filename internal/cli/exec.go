@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/s22625/orch/internal/git"
 	"github.com/spf13/cobra"
 )
 
@@ -103,9 +102,9 @@ func runExec(refStr string, cmdArgs []string, opts *execOptions) error {
 	worktreePath := run.WorktreePath
 	if !filepath.IsAbs(worktreePath) {
 		// Find main repo root (not worktree root) to resolve relative path
-		repoRoot, err := git.FindMainRepoRoot("")
+		repoRoot, err := getProjectRoot()
 		if err != nil {
-			return fmt.Errorf("could not find git repository: %w", err)
+			return fmt.Errorf("could not find project root: %w", err)
 		}
 		worktreePath = filepath.Join(repoRoot, worktreePath)
 	}

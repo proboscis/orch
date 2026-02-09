@@ -9,11 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
-	"time"
 
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/daemon"
-	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/spf13/cobra"
 )
@@ -112,31 +110,15 @@ func runRun(issueID string, opts *runOptions) error {
 
 	repoRoot := opts.RepoRoot
 	if repoRoot == "" {
-		repoRoot, err = git.FindMainRepoRoot("")
+		repoRoot, err = getProjectRoot()
 		if err != nil {
-			return exitWithCode(fmt.Errorf("could not find git repository: %w", err), ExitWorktreeError)
+			return exitWithCode(fmt.Errorf("could not find project root: %w", err), ExitWorktreeError)
 		}
 	}
 
-	issuesRoot, err := getIssuesRoot()
+	daemonClient, err := requireDaemon()
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)
-	}
-
-	daemonClient := daemon.NewProtoClientWithIssuesRoot(repoRoot, issuesRoot)
-	if !daemonClient.IsAvailable() {
-		if _, err := daemon.StartInBackground(); err != nil {
-			return exitWithCode(fmt.Errorf("daemon not running and failed to start: %w\nRun 'orch repair' to fix daemon issues", err), ExitInternalError)
-		}
-		for i := 0; i < 20; i++ {
-			if daemonClient.IsAvailable() {
-				break
-			}
-			time.Sleep(250 * time.Millisecond)
-		}
-		if !daemonClient.IsAvailable() {
-			return exitWithCode(fmt.Errorf("daemon started but not responding"), ExitInternalError)
-		}
 	}
 
 	resp, err := daemonClient.StartRun(&daemon.StartRunOptions{
