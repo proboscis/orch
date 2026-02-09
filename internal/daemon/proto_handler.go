@@ -157,6 +157,8 @@ func (s *SocketServer) handleProtoRequest(req *orchpb.Request) *orchpb.Response 
 		return s.handleProtoQueryOpenCodeServer(r.QueryOpencodeServer)
 	case *orchpb.Request_InjectInitialPrompt:
 		return s.handleProtoInjectInitialPrompt(r.InjectInitialPrompt)
+	case *orchpb.Request_ContinueRun:
+		return s.handleProtoContinueRun(r.ContinueRun)
 	default:
 		return errorResponse("unknown request type")
 	}
@@ -466,6 +468,55 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 				WorktreePath: result.WorktreePath,
 				TmuxSession:  result.TmuxSession,
 				Status:       result.Status,
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *orchpb.Response {
+	jsonReq := SendRequest{
+		Type:           "continue_run",
+		IssueID:        req.IssueId,
+		RunID:          req.RunId,
+		ShortID:        req.ShortId,
+		Branch:         req.Branch,
+		AgentType:      req.Agent,
+		AgentCmd:       req.AgentCmd,
+		AgentProfile:   req.AgentProfile,
+		WorktreeDir:    req.WorktreeDir,
+		NoPR:           req.NoPr,
+		PromptTemplate: req.PromptTemplate,
+		PRTargetBranch: req.PrTargetBranch,
+		Multiplexer:    req.Multiplexer,
+		Message:        req.TmuxSession,
+		IssuesRoot:     req.IssuesRoot,
+		ProjectRoot:    req.ProjectRoot,
+	}
+
+	var buf jsonCapture
+	encoder := json.NewEncoder(&buf)
+	s.handleContinueRun(jsonReq, encoder)
+
+	var result ContinueRunResponse
+	if err := json.Unmarshal(buf.data, &result); err != nil {
+		return errorResponse("internal error")
+	}
+
+	if !result.OK {
+		return errorResponse(result.Error)
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_ContinueRun{
+			ContinueRun: &orchpb.ContinueRunResponse{
+				RunId:         result.RunID,
+				Branch:        result.Branch,
+				WorktreePath:  result.WorktreePath,
+				TmuxSession:   result.TmuxSession,
+				Status:        result.Status,
+				ContinuedFrom: result.ContinuedFrom,
+				IssueId:       result.IssueID,
 			},
 		},
 	}

@@ -580,6 +580,36 @@ type StartRunResponse struct {
 	Status       string `json:"status,omitempty"`
 }
 
+type ContinueRunOptions struct {
+	IssueID        string
+	RunID          string
+	ShortID        string
+	Branch         string
+	Agent          string
+	AgentCmd       string
+	AgentProfile   string
+	WorktreeDir    string
+	NoPR           bool
+	PromptTemplate string
+	PRTargetBranch string
+	Multiplexer    string
+	TmuxSession    string
+	ProjectRoot    string
+	RepoRoot       string
+}
+
+type ContinueRunResponse struct {
+	OK            bool   `json:"ok"`
+	Error         string `json:"error,omitempty"`
+	RunID         string `json:"run_id,omitempty"`
+	Branch        string `json:"branch,omitempty"`
+	WorktreePath  string `json:"worktree,omitempty"`
+	TmuxSession   string `json:"tmux_session,omitempty"`
+	Status        string `json:"status,omitempty"`
+	ContinuedFrom string `json:"continued_from,omitempty"`
+	IssueID       string `json:"issue_id,omitempty"`
+}
+
 type StopRunResponse struct {
 	OK           bool     `json:"ok"`
 	Error        string   `json:"error,omitempty"`

@@ -306,6 +306,118 @@ func TestSendMessageAsyncWithoutModel(t *testing.T) {
 	}
 }
 
+func TestSendMessagePromptWithDirectoryAndModel(t *testing.T) {
+	var receivedHeaders http.Header
+	var receivedBody map[string]interface{}
+	var receivedPath string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedHeaders = r.Header.Clone()
+		receivedPath = r.URL.Path
+
+		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+			t.Errorf("failed to decode request body: %v", err)
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := &OpenCodeClient{
+		baseURL:    server.URL,
+		httpClient: &http.Client{Timeout: 5 * time.Second},
+	}
+
+	ctx := context.Background()
+	model := &ModelRef{
+		ProviderID: "openai",
+		ModelID:    "codex-5.3",
+	}
+
+	err := client.SendMessagePrompt(ctx, "ses_test456", "Hello world", "/path/to/worktree", model, "xhigh")
+	if err != nil {
+		t.Fatalf("SendMessagePrompt error: %v", err)
+	}
+
+	expectedPath := "/session/ses_test456/message"
+	if receivedPath != expectedPath {
+		t.Errorf("request path = %q, want %q", receivedPath, expectedPath)
+	}
+
+	dirHeader := receivedHeaders.Get("X-OpenCode-Directory")
+	if dirHeader != "/path/to/worktree" {
+		t.Errorf("X-OpenCode-Directory header = %q, want %q", dirHeader, "/path/to/worktree")
+	}
+
+	contentType := receivedHeaders.Get("Content-Type")
+	if contentType != "application/json" {
+		t.Errorf("Content-Type header = %q, want %q", contentType, "application/json")
+	}
+
+	parts, ok := receivedBody["parts"].([]interface{})
+	if !ok || len(parts) != 1 {
+		t.Fatalf("body.parts should be array with 1 element, got %v", receivedBody["parts"])
+	}
+	part := parts[0].(map[string]interface{})
+	if part["type"] != "text" {
+		t.Errorf("part.type = %v, want %q", part["type"], "text")
+	}
+	if part["text"] != "Hello world" {
+		t.Errorf("part.text = %v, want %q", part["text"], "Hello world")
+	}
+
+	modelObj, ok := receivedBody["model"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("body.model should be an object, got %v", receivedBody["model"])
+	}
+	if modelObj["providerID"] != "openai" {
+		t.Errorf("model.providerID = %v, want %q", modelObj["providerID"], "openai")
+	}
+	if modelObj["modelID"] != "codex-5.3" {
+		t.Errorf("model.modelID = %v, want %q", modelObj["modelID"], "codex-5.3")
+	}
+
+	if receivedBody["variant"] != "xhigh" {
+		t.Errorf("body.variant = %v, want %q", receivedBody["variant"], "xhigh")
+	}
+}
+
+func TestSendMessagePromptWithoutModel(t *testing.T) {
+	var receivedBody map[string]interface{}
+	var receivedPath string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPath = r.URL.Path
+		json.NewDecoder(r.Body).Decode(&receivedBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := &OpenCodeClient{
+		baseURL:    server.URL,
+		httpClient: &http.Client{Timeout: 5 * time.Second},
+	}
+
+	ctx := context.Background()
+	err := client.SendMessagePrompt(ctx, "ses_test456", "Hello", "/path/to/worktree", nil, "")
+	if err != nil {
+		t.Fatalf("SendMessagePrompt error: %v", err)
+	}
+
+	expectedPath := "/session/ses_test456/message"
+	if receivedPath != expectedPath {
+		t.Errorf("request path = %q, want %q", receivedPath, expectedPath)
+	}
+
+	if _, ok := receivedBody["model"]; ok {
+		t.Error("model should be omitted when nil")
+	}
+
+	if _, ok := receivedBody["variant"]; ok {
+		t.Error("variant should be omitted when empty")
+	}
+}
+
 func TestNewOpenCodeClient(t *testing.T) {
 	client := NewOpenCodeClient(4096)
 	if client.baseURL != "http://127.0.0.1:4096" {

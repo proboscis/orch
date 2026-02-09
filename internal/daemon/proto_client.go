@@ -416,6 +416,56 @@ func (c *ProtoClient) StartRun(opts *StartRunOptions) (*StartRunResponse, error)
 	}, nil
 }
 
+func (c *ProtoClient) ContinueRun(opts *ContinueRunOptions) (*ContinueRunResponse, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_ContinueRun{
+			ContinueRun: &orchpb.ContinueRunRequest{
+				IssuesRoot:     c.issuesRoot,
+				ProjectRoot:    opts.ProjectRoot,
+				IssueId:        opts.IssueID,
+				RunId:          opts.RunID,
+				ShortId:        opts.ShortID,
+				Branch:         opts.Branch,
+				Agent:          opts.Agent,
+				AgentCmd:       opts.AgentCmd,
+				AgentProfile:   opts.AgentProfile,
+				WorktreeDir:    opts.WorktreeDir,
+				NoPr:           opts.NoPR,
+				PromptTemplate: opts.PromptTemplate,
+				PrTargetBranch: opts.PRTargetBranch,
+				Multiplexer:    opts.Multiplexer,
+				TmuxSession:    opts.TmuxSession,
+				RepoRoot:       opts.RepoRoot,
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	continueResp := resp.GetContinueRun()
+	if continueResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	return &ContinueRunResponse{
+		OK:            true,
+		RunID:         continueResp.RunId,
+		Branch:        continueResp.Branch,
+		WorktreePath:  continueResp.WorktreePath,
+		TmuxSession:   continueResp.TmuxSession,
+		Status:        continueResp.Status,
+		ContinuedFrom: continueResp.ContinuedFrom,
+		IssueID:       continueResp.IssueId,
+	}, nil
+}
+
 func (c *ProtoClient) StopRun(issueID, runID string, force bool) (*StopRunResponse, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_StopRun{

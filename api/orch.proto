@@ -648,6 +648,37 @@ message InjectInitialPromptResponse {
   int32 port = 2;
 }
 
+message ContinueRunRequest {
+  string issues_root = 1;
+  string project_root = 2;
+  // Source: either from_run or from_branch (use issue_id + run_id for from_run, issue_id + branch for from_branch)
+  string issue_id = 3;
+  string run_id = 4;
+  string short_id = 5;
+  string branch = 6;
+  // Overrides
+  string agent = 7;
+  string agent_cmd = 8;
+  string agent_profile = 9;
+  string worktree_dir = 10;
+  bool no_pr = 11;
+  string prompt_template = 12;
+  string pr_target_branch = 13;
+  string multiplexer = 14;
+  string tmux_session = 15;
+  string repo_root = 16;
+}
+
+message ContinueRunResponse {
+  string run_id = 1;
+  string branch = 2;
+  string worktree_path = 3;
+  string tmux_session = 4;
+  string status = 5;
+  string continued_from = 6;
+  string issue_id = 7;
+}
+
 // =============================================================================
 // Unified Request/Response (for Unix socket dispatch)
 // =============================================================================
@@ -697,6 +728,7 @@ message Request {
     ResumeRunRequest resume_run = 41;
     QueryOpenCodeServerRequest query_opencode_server = 42;
     InjectInitialPromptRequest inject_initial_prompt = 43;
+    ContinueRunRequest continue_run = 44;
   }
 }
 
@@ -748,5 +780,6 @@ message Response {
     ResumeRunResponse resume_run = 43;
     QueryOpenCodeServerResponse query_opencode_server = 44;
     InjectInitialPromptResponse inject_initial_prompt = 45;
+    ContinueRunResponse continue_run = 46;
   }
 }

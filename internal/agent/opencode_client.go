@@ -423,17 +423,20 @@ func (c *OpenCodeClient) SendMessageAsync(ctx context.Context, sessionID, text, 
 
 // SendMessagePrompt sends a message via /message endpoint (triggers agent execution, unlike prompt_async).
 // Queues message if agent is busy. TUI clients won't auto-refresh; they need reload to see the message.
-func (c *OpenCodeClient) SendMessagePrompt(ctx context.Context, sessionID, text, directory string) error {
+// The model and variant parameters optionally override the default model for this request.
+func (c *OpenCodeClient) SendMessagePrompt(ctx context.Context, sessionID, text, directory string, model *ModelRef, variant string) error {
 	return retryNoResult(ctx, 3, 500*time.Millisecond, func() error {
-		return c.sendMessagePromptOnce(ctx, sessionID, text, directory)
+		return c.sendMessagePromptOnce(ctx, sessionID, text, directory, model, variant)
 	})
 }
 
-func (c *OpenCodeClient) sendMessagePromptOnce(ctx context.Context, sessionID, text, directory string) error {
+func (c *OpenCodeClient) sendMessagePromptOnce(ctx context.Context, sessionID, text, directory string, model *ModelRef, variant string) error {
 	reqBody := PromptRequest{
 		Parts: []MessagePart{
 			{Type: "text", Text: text},
 		},
+		Model:   model,
+		Variant: variant,
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -441,7 +444,18 @@ func (c *OpenCodeClient) sendMessagePromptOnce(ctx context.Context, sessionID, t
 		return fmt.Errorf("marshaling prompt request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/session/"+sessionID+"/message", bytes.NewReader(jsonBody))
+	url := c.baseURL + "/session/" + sessionID + "/message"
+	c.logDebug("Sending prompt: POST %s", url)
+	c.logDebug("  X-OpenCode-Directory: %s", directory)
+	if model != nil {
+		c.logDebug("  Model: %s/%s", model.ProviderID, model.ModelID)
+	}
+	if variant != "" {
+		c.logDebug("  Variant: %s", variant)
+	}
+	c.logDebug("  Prompt length: %d bytes", len(text))
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonBody))
 	if err != nil {
 		return fmt.Errorf("creating prompt request: %w", err)
 	}
@@ -461,6 +475,7 @@ func (c *OpenCodeClient) sendMessagePromptOnce(ctx context.Context, sessionID, t
 		return fmt.Errorf("send prompt returned status %d: %s", resp.StatusCode, string(body))
 	}
 
+	c.logDebug("Prompt sent: %d %s", resp.StatusCode, http.StatusText(resp.StatusCode))
 	return nil
 }
 

@@ -181,6 +181,139 @@ func TestIntegration_CreateSessionInDifferentDirectories(t *testing.T) {
 	t.Log("Successfully created sessions in different directories")
 }
 
+func TestIntegration_SendMessagePromptTriggersExecution(t *testing.T) {
+	client := skipIfNoOpenCode(t)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get cwd: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	session, err := client.CreateSession(ctx, "integration-test-prompt-triggers", cwd)
+	if err != nil {
+		t.Fatalf("CreateSession error: %v", err)
+	}
+	t.Logf("Created session: %s", session.ID)
+
+	// Verify session starts idle
+	status, found, err := client.GetSingleSessionStatus(ctx, session.ID, cwd)
+	if err != nil {
+		t.Fatalf("GetSingleSessionStatus error: %v", err)
+	}
+	if found && status == SessionStatusBusy {
+		t.Fatal("session should not be busy before sending a message")
+	}
+
+	// Send via /message endpoint (SendMessagePrompt) — should trigger execution
+	err = client.SendMessagePrompt(ctx, session.ID, "Reply with just 'ok'", cwd, nil, "")
+	if err != nil {
+		t.Fatalf("SendMessagePrompt error: %v", err)
+	}
+	t.Log("SendMessagePrompt succeeded")
+
+	// Poll for session to become busy — proves the agent started working
+	busySeen := false
+	for i := 0; i < 20; i++ {
+		time.Sleep(500 * time.Millisecond)
+		status, found, err = client.GetSingleSessionStatus(ctx, session.ID, cwd)
+		if err != nil {
+			continue
+		}
+		if found && status == SessionStatusBusy {
+			busySeen = true
+			break
+		}
+	}
+
+	if !busySeen {
+		t.Error("session never became busy — SendMessagePrompt did not trigger agent execution")
+	} else {
+		t.Log("session became busy — agent execution triggered successfully")
+	}
+}
+
+func TestIntegration_SendMessagePromptWithModelAndVariant(t *testing.T) {
+	client := skipIfNoOpenCode(t)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get cwd: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	session, err := client.CreateSession(ctx, "integration-test-prompt-model", cwd)
+	if err != nil {
+		t.Fatalf("CreateSession error: %v", err)
+	}
+	t.Logf("Created session: %s", session.ID)
+
+	modelRef := &ModelRef{
+		ProviderID: "anthropic",
+		ModelID:    "claude-sonnet-4-5",
+	}
+	variant := "high"
+
+	err = client.SendMessagePrompt(ctx, session.ID, "Reply with just 'ok'", cwd, modelRef, variant)
+	if err != nil {
+		t.Fatalf("SendMessagePrompt error: %v", err)
+	}
+	t.Logf("SendMessagePrompt sent with model=%s/%s, variant=%s", modelRef.ProviderID, modelRef.ModelID, variant)
+
+	// Poll for session to become busy — proves model+variant didn't break execution
+	busySeen := false
+	for i := 0; i < 20; i++ {
+		time.Sleep(500 * time.Millisecond)
+		status, found, err := client.GetSingleSessionStatus(ctx, session.ID, cwd)
+		if err != nil {
+			continue
+		}
+		if found && status == SessionStatusBusy {
+			busySeen = true
+			break
+		}
+	}
+
+	if !busySeen {
+		t.Error("session never became busy — model/variant may have caused rejection")
+	} else {
+		t.Log("session became busy — agent accepted model/variant and started execution")
+	}
+
+	// Wait for completion and verify we got an assistant response
+	for i := 0; i < 60; i++ {
+		time.Sleep(1 * time.Second)
+		status, found, err := client.GetSingleSessionStatus(ctx, session.ID, cwd)
+		if err != nil {
+			continue
+		}
+		if found && status == SessionStatusIdle {
+			break
+		}
+	}
+
+	messages, err := client.GetMessages(ctx, session.ID, cwd)
+	if err != nil {
+		t.Fatalf("GetMessages error: %v", err)
+	}
+
+	hasAssistant := false
+	for _, msg := range messages {
+		if msg.Info.Role == "assistant" {
+			hasAssistant = true
+			t.Logf("Got assistant response with %d parts", len(msg.Parts))
+			break
+		}
+	}
+	if !hasAssistant {
+		t.Error("expected an assistant response — model selection may not have worked")
+	}
+}
+
 func TestIntegration_VerifyModelInResponse(t *testing.T) {
 	client := skipIfNoOpenCode(t)
 

@@ -919,7 +919,7 @@ func (s *SocketServer) getOrCreateOpenCodeControlSession(projectRoot string, por
 		go func() {
 			sendCtx, sendCancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer sendCancel()
-			if err := client.SendMessageAsync(sendCtx, session.ID, prompt, projectRoot, nil, ""); err != nil {
+			if err := client.SendMessagePrompt(sendCtx, session.ID, prompt, projectRoot, nil, ""); err != nil {
 				s.logger.Printf("warning: failed to send initial prompt to control session: %v", err)
 			} else {
 				s.logger.Printf("sent initial prompt to control session %s", session.ID)
@@ -1439,7 +1439,7 @@ func (s *SocketServer) processSendOpenCode(st store.Store, ref *model.RunRef, ru
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	err = client.SendMessageAsync(ctx, run.OpenCodeSessionID, message, run.WorktreePath, nil, "")
+	err = client.SendMessagePrompt(ctx, run.OpenCodeSessionID, message, run.WorktreePath, nil, "")
 	if err != nil {
 		return fmt.Errorf("failed to send message: %w", err)
 	}
@@ -2098,7 +2098,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 				if launchCfg.Model != "" {
 					modelRef = agent.ParseModel(launchCfg.Model)
 				}
-				if err := client.SendMessageAsync(ctx, session.ID, launchCfg.Prompt, launchCfg.WorkDir, modelRef, launchCfg.ModelVariant); err != nil {
+				if err := client.SendMessagePrompt(ctx, session.ID, launchCfg.Prompt, launchCfg.WorkDir, modelRef, launchCfg.ModelVariant); err != nil {
 					s.logger.Printf("failed to send prompt: %v", err)
 				}
 			}
@@ -2117,6 +2117,405 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		TmuxSession:  tmuxSession,
 		Status:       string(model.StatusRunning),
 	})
+}
+
+func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder) {
+	st := s.resolveStore(req)
+	if st == nil {
+		encoder.Encode(ContinueRunResponse{OK: false, Error: "no store available"})
+		return
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		encoder.Encode(ContinueRunResponse{OK: false, Error: "failed to load config: " + err.Error()})
+		return
+	}
+
+	var issueID string
+	var branch string
+	var worktreePath string
+	var continuedFrom string
+	var fromRunAgent string
+
+	if req.Branch != "" {
+		if req.IssueID == "" {
+			encoder.Encode(ContinueRunResponse{OK: false, Error: "issue_id required with branch"})
+			return
+		}
+		issueID = req.IssueID
+		branch = req.Branch
+
+		_, err := st.ResolveIssue(issueID)
+		if err != nil {
+			encoder.Encode(ContinueRunResponse{OK: false, Error: "issue not found: " + issueID})
+			return
+		}
+
+		ctx := s.GetRepoContext(req.RepoID)
+		if ctx == nil && req.ProjectRoot != "" {
+			ctx = s.GetRepoContext(req.ProjectRoot)
+		}
+
+		var repoRoot string
+		if ctx != nil {
+			repoRoot = ctx.ProjectRoot
+		} else if req.ProjectRoot != "" {
+			repoRoot = req.ProjectRoot
+		}
+
+		if repoRoot == "" {
+			encoder.Encode(ContinueRunResponse{OK: false, Error: "no project root available"})
+			return
+		}
+
+		worktreeDir := req.WorktreeDir
+		if worktreeDir == "" {
+			worktreeDir = cfg.WorktreeDir
+		}
+		if worktreeDir == "" {
+			home, _ := os.UserHomeDir()
+			worktreeDir = filepath.Join(home, ".orch", "worktrees")
+		}
+
+		matches, err := git.FindWorktreesByBranch(repoRoot, branch)
+		if err != nil {
+			encoder.Encode(ContinueRunResponse{OK: false, Error: "failed to list worktrees: " + err.Error()})
+			return
+		}
+
+		if len(matches) > 1 {
+			encoder.Encode(ContinueRunResponse{OK: false, Error: "branch checked out in multiple worktrees"})
+			return
+		}
+
+		if len(matches) == 1 {
+			wtPath := matches[0].Path
+			if !filepath.IsAbs(wtPath) {
+				wtPath = filepath.Join(repoRoot, wtPath)
+			}
+			info, err := os.Stat(wtPath)
+			if err != nil {
+				encoder.Encode(ContinueRunResponse{OK: false, Error: "worktree not found: " + err.Error()})
+				return
+			}
+			if !info.IsDir() {
+				encoder.Encode(ContinueRunResponse{OK: false, Error: "worktree path is not a directory"})
+				return
+			}
+			currentBranch, err := git.GetCurrentBranch(wtPath)
+			if err != nil {
+				encoder.Encode(ContinueRunResponse{OK: false, Error: "failed to read worktree branch: " + err.Error()})
+				return
+			}
+			if currentBranch != branch {
+				encoder.Encode(ContinueRunResponse{OK: false, Error: fmt.Sprintf("worktree %s is on branch %s; expected %s", wtPath, currentBranch, branch)})
+				return
+			}
+			worktreePath = wtPath
+		} else {
+			agentName := req.AgentType
+			if agentName == "" {
+				agentName = cfg.Agent
+			}
+			if agentName == "" {
+				agentName = "claude"
+			}
+			runID := model.GenerateRunID()
+			result, err := git.CreateWorktreeFromBranch(&git.WorktreeConfig{
+				RepoRoot:    repoRoot,
+				WorktreeDir: worktreeDir,
+				IssueID:     issueID,
+				RunID:       runID,
+				Agent:       agentName,
+				Branch:      branch,
+			})
+			if err != nil {
+				encoder.Encode(ContinueRunResponse{OK: false, Error: "failed to create worktree: " + err.Error()})
+				return
+			}
+			worktreePath = result.WorktreePath
+		}
+
+		continuedFrom = "branch:" + branch
+	} else {
+		var fromRun *model.Run
+		if req.ShortID != "" {
+			fromRun, err = st.GetRunByShortID(req.ShortID)
+			if err != nil {
+				encoder.Encode(ContinueRunResponse{OK: false, Error: "run not found: " + req.ShortID})
+				return
+			}
+		} else if req.IssueID != "" && req.RunID != "" {
+			ref := &model.RunRef{IssueID: req.IssueID, RunID: req.RunID}
+			fromRun, err = st.GetRun(ref)
+			if err != nil {
+				encoder.Encode(ContinueRunResponse{OK: false, Error: "run not found: " + req.IssueID + "#" + req.RunID})
+				return
+			}
+		} else {
+			encoder.Encode(ContinueRunResponse{OK: false, Error: "run reference required (issue_id+run_id, short_id, or branch)"})
+			return
+		}
+
+		if isActiveForContinue(fromRun.Status) {
+			encoder.Encode(ContinueRunResponse{OK: false, Error: fmt.Sprintf("run %s#%s is %s; stop it before continuing", fromRun.IssueID, fromRun.RunID, fromRun.Status)})
+			return
+		}
+
+		if fromRun.WorktreePath == "" {
+			encoder.Encode(ContinueRunResponse{OK: false, Error: fmt.Sprintf("run %s#%s has no worktree path", fromRun.IssueID, fromRun.RunID)})
+			return
+		}
+		if fromRun.Branch == "" {
+			encoder.Encode(ContinueRunResponse{OK: false, Error: fmt.Sprintf("run %s#%s has no branch", fromRun.IssueID, fromRun.RunID)})
+			return
+		}
+
+		info, err := os.Stat(fromRun.WorktreePath)
+		if err != nil {
+			encoder.Encode(ContinueRunResponse{OK: false, Error: "worktree not found: " + err.Error()})
+			return
+		}
+		if !info.IsDir() {
+			encoder.Encode(ContinueRunResponse{OK: false, Error: "worktree path is not a directory: " + fromRun.WorktreePath})
+			return
+		}
+
+		currentBranch, err := git.GetCurrentBranch(fromRun.WorktreePath)
+		if err != nil {
+			encoder.Encode(ContinueRunResponse{OK: false, Error: "failed to read worktree branch: " + err.Error()})
+			return
+		}
+		if currentBranch != fromRun.Branch {
+			encoder.Encode(ContinueRunResponse{OK: false, Error: fmt.Sprintf("worktree %s is on branch %s; expected %s", fromRun.WorktreePath, currentBranch, fromRun.Branch)})
+			return
+		}
+
+		issueID = fromRun.IssueID
+		branch = fromRun.Branch
+		worktreePath = fromRun.WorktreePath
+		fromRunAgent = fromRun.Agent
+		continuedFrom = fmt.Sprintf("%s#%s", fromRun.IssueID, fromRun.RunID)
+	}
+
+	issue, err := st.ResolveIssue(issueID)
+	if err != nil {
+		encoder.Encode(ContinueRunResponse{OK: false, Error: "issue not found: " + issueID})
+		return
+	}
+
+	agentName := req.AgentType
+	if agentName == "" && fromRunAgent != "" {
+		agentName = fromRunAgent
+	}
+	if agentName == "" {
+		agentName = cfg.Agent
+	}
+	if agentName == "" {
+		agentName = "claude"
+	}
+
+	agentType, err := agent.ParseAgentType(agentName)
+	if err != nil {
+		encoder.Encode(ContinueRunResponse{OK: false, Error: "invalid agent: " + err.Error()})
+		return
+	}
+
+	adapter, err := agent.GetAdapter(agentType)
+	if err != nil {
+		encoder.Encode(ContinueRunResponse{OK: false, Error: "failed to get adapter: " + err.Error()})
+		return
+	}
+
+	if !adapter.IsAvailable() {
+		encoder.Encode(ContinueRunResponse{OK: false, Error: "agent not available: " + agentName})
+		return
+	}
+
+	runID := model.GenerateRunID()
+	tmuxSession := req.Message
+	if tmuxSession == "" {
+		tmuxSession = model.GenerateTmuxSession(issueID, runID)
+	}
+
+	metadata := map[string]string{
+		"agent":          agentName,
+		"continued_from": continuedFrom,
+	}
+	run, err := st.CreateRun(issueID, runID, metadata)
+	if err != nil {
+		encoder.Encode(ContinueRunResponse{OK: false, Error: "failed to create run: " + err.Error()})
+		return
+	}
+
+	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusQueued))
+	st.AppendEvent(run.Ref(), model.NewArtifactEvent("worktree", map[string]string{"path": worktreePath}))
+	st.AppendEvent(run.Ref(), model.NewArtifactEvent("branch", map[string]string{"name": branch}))
+
+	promptPath := filepath.Join(worktreePath, "ORCH_PROMPT.md")
+	if _, err := os.Stat(promptPath); os.IsNotExist(err) {
+		agentPrompt := s.buildRunPrompt(issue, st.RootPath(), req.NoPR, req.PromptTemplate, req.PRTargetBranch)
+		if err := os.WriteFile(promptPath, []byte(agentPrompt), 0644); err != nil {
+			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
+			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+			encoder.Encode(ContinueRunResponse{OK: false, Error: "failed to write prompt file: " + err.Error()})
+			return
+		}
+	}
+
+	continuePrompt := fmt.Sprintf("ultrathink Please read 'ORCH_PROMPT.md' in the current directory and follow the instructions found there.\nThis run continues from %s. Use the existing worktree and branch and resume from the current state.", continuedFrom)
+
+	launchCfg := &agent.LaunchConfig{
+		Type:       agentType,
+		CustomCmd:  req.AgentCmd,
+		WorkDir:    worktreePath,
+		IssueID:    issueID,
+		RunID:      runID,
+		RunPath:    run.Path,
+		IssuesRoot: st.RootPath(),
+		Branch:     branch,
+		Prompt:     continuePrompt,
+		Profile:    req.AgentProfile,
+		Port:       agent.OpenCodeServerPortStart,
+		ExtraArgs:  cfg.GetExtraArgs(agentName),
+	}
+
+	agentCmd, err := adapter.LaunchCommand(launchCfg)
+	if err != nil {
+		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
+		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+		encoder.Encode(ContinueRunResponse{OK: false, Error: "failed to build agent command: " + err.Error()})
+		return
+	}
+
+	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusBooting))
+
+	muxType, _ := multiplexer.ParseType(req.Multiplexer)
+
+	var mux multiplexer.Multiplexer
+	if muxType == multiplexer.TypeAuto {
+		mux, _ = multiplexer.GetAuto()
+	} else {
+		mux, _, _ = multiplexer.GetWithFallback(muxType)
+	}
+
+	if mux == nil {
+		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent("no multiplexer available"))
+		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+		encoder.Encode(ContinueRunResponse{OK: false, Error: "no terminal multiplexer available"})
+		return
+	}
+
+	serverAlreadyRunning := false
+	if adapter.PromptInjection() == agent.InjectionHTTP {
+		resp, err := s.ensureOpenCodeServerRunning(worktreePath)
+		if err != nil {
+			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
+			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+			encoder.Encode(ContinueRunResponse{OK: false, Error: "failed to start opencode server: " + err.Error()})
+			return
+		}
+		serverAlreadyRunning = true
+		launchCfg.Port = resp
+	}
+
+	if !serverAlreadyRunning {
+		env := launchCfg.Env()
+		if opencodeAdapter, ok := adapter.(*agent.OpenCodeAdapter); ok {
+			env = append(env, opencodeAdapter.Env()...)
+		}
+
+		err = mux.NewSession(&multiplexer.SessionConfig{
+			SessionName: tmuxSession,
+			WorkDir:     worktreePath,
+			Command:     agentCmd,
+			Env:         env,
+		})
+		if err != nil {
+			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
+			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+			encoder.Encode(ContinueRunResponse{OK: false, Error: "failed to create session: " + err.Error()})
+			return
+		}
+
+		st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", map[string]string{
+			"name":        tmuxSession,
+			"multiplexer": string(mux.Type()),
+		}))
+	}
+
+	switch adapter.PromptInjection() {
+	case agent.InjectionTmux:
+		if launchCfg.Prompt != "" {
+			if pattern := adapter.ReadyPattern(); pattern != "" {
+				if err := mux.WaitForReady(tmuxSession, pattern, 30*time.Second); err != nil {
+					s.logger.Printf("agent did not become ready: %v", err)
+				}
+			}
+			if err := mux.SendKeys(tmuxSession, launchCfg.Prompt); err != nil {
+				s.logger.Printf("failed to send prompt to session: %v", err)
+			}
+		}
+
+	case agent.InjectionHTTP:
+		port := launchCfg.Port
+		if port == 0 {
+			port = agent.OpenCodeServerPortStart
+		}
+		client := agent.NewOpenCodeClient(port)
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		if err := client.WaitForHealthy(ctx, 60*time.Second); err != nil {
+			s.logger.Printf("server health check failed: %v", err)
+		} else {
+			st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
+				"port": fmt.Sprintf("%d", port),
+			}))
+
+			session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", issueID, runID), launchCfg.WorkDir)
+			if err != nil {
+				s.logger.Printf("failed to create session: %v", err)
+			} else {
+				st.AppendEvent(run.Ref(), model.NewArtifactEvent("opencode_session", map[string]string{
+					"id": session.ID,
+				}))
+
+				var modelRef *agent.ModelRef
+				if launchCfg.Model != "" {
+					modelRef = agent.ParseModel(launchCfg.Model)
+				}
+				if err := client.SendMessagePrompt(ctx, session.ID, launchCfg.Prompt, launchCfg.WorkDir, modelRef, launchCfg.ModelVariant); err != nil {
+					s.logger.Printf("failed to send prompt: %v", err)
+				}
+			}
+		}
+	}
+
+	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusRunning))
+
+	s.logger.Printf("continued run: %s#%s from %s (agent=%s, worktree=%s)", issueID, runID, continuedFrom, agentName, worktreePath)
+
+	encoder.Encode(ContinueRunResponse{
+		OK:            true,
+		RunID:         runID,
+		Branch:        branch,
+		WorktreePath:  worktreePath,
+		TmuxSession:   tmuxSession,
+		Status:        string(model.StatusRunning),
+		ContinuedFrom: continuedFrom,
+		IssueID:       issueID,
+	})
+}
+
+func isActiveForContinue(status model.Status) bool {
+	switch status {
+	case model.StatusRunning, model.StatusBlocked, model.StatusBlockedAPI, model.StatusBooting, model.StatusQueued, model.StatusPROpen:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *SocketServer) buildRunPrompt(issue *model.Issue, issuesRoot string, noPR bool, promptTemplate string, prTargetBranch string) string {
