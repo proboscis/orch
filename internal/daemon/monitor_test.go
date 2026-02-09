@@ -289,3 +289,146 @@ func TestCheckPRMergedWithURLReturnsURLWhenFound(t *testing.T) {
 	}
 	_ = merged
 }
+
+func TestShouldSkipCapture(t *testing.T) {
+	d := newTestDaemon()
+	run := &model.Run{IssueID: "test", RunID: "1"}
+
+	t.Run("no backoff state allows capture", func(t *testing.T) {
+		state := &RunState{}
+		if d.shouldSkipCapture(state, run) {
+			t.Error("expected capture to be allowed with no backoff state")
+		}
+	})
+
+	t.Run("future NextCaptureRetryAt skips capture", func(t *testing.T) {
+		state := &RunState{NextCaptureRetryAt: time.Now().Add(time.Minute)}
+		if !d.shouldSkipCapture(state, run) {
+			t.Error("expected capture to be skipped when in backoff period")
+		}
+	})
+
+	t.Run("past NextCaptureRetryAt allows capture", func(t *testing.T) {
+		state := &RunState{NextCaptureRetryAt: time.Now().Add(-time.Second)}
+		if d.shouldSkipCapture(state, run) {
+			t.Error("expected capture to be allowed after backoff expires")
+		}
+	})
+}
+
+func TestCalculateCaptureBackoff(t *testing.T) {
+	d := newTestDaemon()
+
+	t.Run("first failure uses initial backoff", func(t *testing.T) {
+		backoff := d.calculateCaptureBackoff(1, nil)
+		if backoff != captureInitialBackoff {
+			t.Errorf("expected %v, got %v", captureInitialBackoff, backoff)
+		}
+	})
+
+	t.Run("exponential backoff increases", func(t *testing.T) {
+		b1 := d.calculateCaptureBackoff(1, nil)
+		b2 := d.calculateCaptureBackoff(2, nil)
+		b3 := d.calculateCaptureBackoff(3, nil)
+
+		if b2 <= b1 {
+			t.Errorf("backoff should increase: b1=%v, b2=%v", b1, b2)
+		}
+		if b3 <= b2 {
+			t.Errorf("backoff should increase: b2=%v, b3=%v", b2, b3)
+		}
+	})
+
+	t.Run("backoff caps at max", func(t *testing.T) {
+		backoff := d.calculateCaptureBackoff(100, nil)
+		if backoff > captureMaxBackoff {
+			t.Errorf("backoff %v exceeds max %v", backoff, captureMaxBackoff)
+		}
+	})
+}
+
+func TestHandleCaptureError(t *testing.T) {
+	d := newTestDaemon()
+	run := &model.Run{IssueID: "test", RunID: "1"}
+
+	t.Run("first error sets backoff state", func(t *testing.T) {
+		state := &RunState{}
+		err := &mockError{msg: "connection refused"}
+
+		d.handleCaptureError(state, run, err)
+
+		if state.CaptureFailCount != 1 {
+			t.Errorf("expected CaptureFailCount=1, got %d", state.CaptureFailCount)
+		}
+		if state.NextCaptureRetryAt.IsZero() {
+			t.Error("expected NextCaptureRetryAt to be set")
+		}
+		if state.LastCaptureError == "" {
+			t.Error("expected LastCaptureError to be set")
+		}
+	})
+
+	t.Run("consecutive errors increase fail count", func(t *testing.T) {
+		state := &RunState{CaptureFailCount: 2}
+		err := &mockError{msg: "connection refused"}
+
+		d.handleCaptureError(state, run, err)
+
+		if state.CaptureFailCount != 3 {
+			t.Errorf("expected CaptureFailCount=3, got %d", state.CaptureFailCount)
+		}
+	})
+}
+
+func TestResetCaptureBackoff(t *testing.T) {
+	d := newTestDaemon()
+
+	state := &RunState{
+		CaptureFailCount:   5,
+		NextCaptureRetryAt: time.Now().Add(time.Minute),
+		LastCaptureError:   "some error",
+	}
+
+	d.resetCaptureBackoff(state)
+
+	if state.CaptureFailCount != 0 {
+		t.Errorf("expected CaptureFailCount=0, got %d", state.CaptureFailCount)
+	}
+	if !state.NextCaptureRetryAt.IsZero() {
+		t.Error("expected NextCaptureRetryAt to be reset")
+	}
+	if state.LastCaptureError != "" {
+		t.Error("expected LastCaptureError to be cleared")
+	}
+}
+
+func TestIsConnectionRefused(t *testing.T) {
+	tests := []struct {
+		name   string
+		err    error
+		expect bool
+	}{
+		{"nil error", nil, false},
+		{"generic error", &mockError{msg: "some error"}, false},
+		{"connection refused message", &mockError{msg: "connection refused"}, true},
+		{"connect prefix refused", &mockError{msg: "connect: connection refused"}, true},
+		{"other network error", &mockError{msg: "timeout"}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isConnectionRefused(tt.err)
+			if got != tt.expect {
+				t.Errorf("isConnectionRefused(%v) = %v, want %v", tt.err, got, tt.expect)
+			}
+		})
+	}
+}
+
+type mockError struct {
+	msg string
+}
+
+func (e *mockError) Error() string {
+	return e.msg
+}

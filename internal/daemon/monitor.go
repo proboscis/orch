@@ -3,8 +3,11 @@ package daemon
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"errors"
+	"net"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/s22625/orch/internal/agent"
@@ -15,6 +18,12 @@ import (
 )
 
 const deadChecksBeforeFailed = 3
+
+const (
+	captureInitialBackoff = 10 * time.Second
+	captureMaxBackoff     = 60 * time.Second
+	captureBackoffFactor  = 2
+)
 
 func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
 	if run.Status == model.StatusCanceled {
@@ -93,11 +102,17 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
 		return d.updateStatus(run, model.StatusFailed, st)
 	}
 
-	output, err := mgr.CaptureOutput(run)
-	if err != nil {
-		d.logger.Printf("%s#%s: failed to capture output: %v", run.IssueID, run.RunID, err)
+	if d.shouldSkipCapture(state, run) {
 		return nil
 	}
+
+	output, err := mgr.CaptureOutput(run)
+	if err != nil {
+		d.handleCaptureError(state, run, err)
+		return nil
+	}
+
+	d.resetCaptureBackoff(state)
 
 	contentHash := hashContent(output)
 	outputChanged := contentHash != state.OutputHash
@@ -297,6 +312,84 @@ func (d *Daemon) notifyStatusChange(run *model.Run, newStatus model.Status, last
 	} else {
 		d.logger.Printf("%s#%s: sent slack notification for status %s", run.IssueID, run.RunID, newStatus)
 	}
+}
+
+func (d *Daemon) shouldSkipCapture(state *RunState, run *model.Run) bool {
+	if state.NextCaptureRetryAt.IsZero() {
+		return false
+	}
+	if time.Now().Before(state.NextCaptureRetryAt) {
+		d.debug("%s#%s: skipping capture (backoff until %s)", run.IssueID, run.RunID, state.NextCaptureRetryAt.Format(time.RFC3339))
+		return true
+	}
+	return false
+}
+
+func (d *Daemon) handleCaptureError(state *RunState, run *model.Run, err error) {
+	state.CaptureFailCount++
+	state.LastCaptureFailAt = time.Now()
+
+	backoff := d.calculateCaptureBackoff(state.CaptureFailCount, err)
+	state.NextCaptureRetryAt = time.Now().Add(backoff)
+
+	errStr := err.Error()
+	isNewError := state.LastCaptureError != errStr
+	state.LastCaptureError = errStr
+
+	if state.CaptureFailCount == 1 || isNewError {
+		if isConnectionRefused(err) {
+			d.logger.Printf("%s#%s: capture failed (connection refused), backing off %s", run.IssueID, run.RunID, backoff)
+		} else {
+			d.logger.Printf("%s#%s: capture failed: %v, backing off %s", run.IssueID, run.RunID, err, backoff)
+		}
+	} else {
+		d.debug("%s#%s: repeated capture failure (%d), backing off %s", run.IssueID, run.RunID, state.CaptureFailCount, backoff)
+	}
+}
+
+func (d *Daemon) resetCaptureBackoff(state *RunState) {
+	if state.CaptureFailCount > 0 {
+		state.CaptureFailCount = 0
+		state.NextCaptureRetryAt = time.Time{}
+		state.LastCaptureError = ""
+	}
+}
+
+func (d *Daemon) calculateCaptureBackoff(failCount int, err error) time.Duration {
+	backoff := captureInitialBackoff
+	for i := 1; i < failCount; i++ {
+		backoff *= captureBackoffFactor
+		if backoff > captureMaxBackoff {
+			backoff = captureMaxBackoff
+			break
+		}
+	}
+
+	if isConnectionRefused(err) && backoff < captureMaxBackoff {
+		backoff = min(backoff*2, captureMaxBackoff)
+	}
+
+	return backoff
+}
+
+func isConnectionRefused(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		if sysErr, ok := opErr.Err.(*syscall.Errno); ok {
+			return *sysErr == syscall.ECONNREFUSED
+		}
+		if errors.Is(opErr.Err, syscall.ECONNREFUSED) {
+			return true
+		}
+	}
+
+	errStr := err.Error()
+	return strings.Contains(errStr, "connection refused") ||
+		strings.Contains(errStr, "connect: connection refused")
 }
 
 // inferStatusFromGitState infers a run's status from git state when the agent session

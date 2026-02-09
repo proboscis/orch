@@ -64,6 +64,11 @@ type RunState struct {
 	PRRecorded     bool
 	WasAlive       bool
 	DeadCheckCount int
+
+	CaptureFailCount   int
+	LastCaptureFailAt  time.Time
+	NextCaptureRetryAt time.Time
+	LastCaptureError   string
 }
 
 func New(factory StoreFactory) *Daemon {
