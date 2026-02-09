@@ -738,3 +738,116 @@ rules:
     metadata:
       category: architecture
       violation: identity-collision
+
+  # ---------------------------------------------------------------------------
+  # 9. Incremental migration guardrails (prevent boundary debt expansion)
+  # ---------------------------------------------------------------------------
+
+  - id: monitor-no-daemon-import-incremental
+    patterns:
+      - pattern: |
+          import (
+            ...
+            "github.com/s22625/orch/internal/daemon"
+            ...
+          )
+    paths:
+      include:
+        - /internal/monitor/
+      exclude:
+        - /internal/monitor/*_test.go
+        # Existing migration debt; remove this exclusion after monitor lifecycle
+        # is fully driven through orchapi.
+        - /internal/monitor/monitor.go
+    message: >
+      Monitor should not import internal/daemon directly. Use orchapi as the
+      boundary and move daemon lifecycle/health operations behind API methods.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: abstraction-bypass
+
+  - id: monitor-no-store-import-incremental
+    patterns:
+      - pattern: |
+          import (
+            ...
+            "github.com/s22625/orch/internal/store"
+            ...
+          )
+    paths:
+      include:
+        - /internal/monitor/
+      exclude:
+        - /internal/monitor/*_test.go
+        # Existing migration debt; remove this exclusion after agent prompt
+        # composition is daemon-owned.
+        - /internal/monitor/agent_prompt.go
+    message: >
+      Monitor should not import internal/store directly. Store access must be
+      daemon-owned and exposed via orchapi.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: daemon-bypass
+
+  - id: cli-no-worktree-fs-check-incremental
+    patterns:
+      - pattern-either:
+          - pattern: os.Stat($PATH)
+          - pattern: os.Lstat($PATH)
+      - metavariable-regex:
+          metavariable: $PATH
+          regex: .*[Ww]orktree.*
+    paths:
+      include:
+        - /internal/cli/
+      exclude:
+        - /internal/cli/*_test.go
+        # Existing migration debt; remove exclusions after daemon-backed
+        # worktree status fields are the only source of truth.
+        - /internal/cli/ps.go
+        - /internal/cli/exec.go
+    message: >
+      CLI must not perform direct worktree filesystem checks. Use daemon-returned
+      run metadata (worktree_exists/branch_state) via orchapi.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: daemon-bypass
+
+  - id: daemon-proto-no-new-jsoncapture-bridge
+    patterns:
+      - pattern: json.Unmarshal($BUF.data, &$RESULT)
+      - pattern-not-inside: |
+          func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.Response {
+            ...
+          }
+      - pattern-not-inside: |
+          func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *orchpb.Response {
+            ...
+          }
+      - pattern-not-inside: |
+          func (s *SocketServer) handleProtoCreateIssue(req *orchpb.CreateIssueRequest) *orchpb.Response {
+            ...
+          }
+      - pattern-not-inside: |
+          func (s *SocketServer) handleProtoGetControlAgentLaunch(req *orchpb.GetControlAgentLaunchRequest) *orchpb.Response {
+            ...
+          }
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      Do not add new proto->JSON capture bridges in proto handlers. Route
+      through shared typed service methods instead of jsonCapture bridges.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: transport-drift

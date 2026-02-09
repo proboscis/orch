@@ -2,11 +2,11 @@ repos:
   - repo: local
     hooks:
       - id: go-architecture-lint
-        name: Go CLI Architecture Lint (semgrep)
+        name: Go Architecture Lint (semgrep)
         entry: make lint
         language: system
         pass_filenames: false
-        files: ^internal/cli/.*\.go$
+        files: ^internal/(cli|monitor|daemon)/.*\.go$
 
       - id: tui-architecture-lint
         name: Python TUI Architecture Lint (semgrep)
