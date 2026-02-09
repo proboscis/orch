@@ -114,6 +114,38 @@ func runOrch(t *testing.T, args ...string) (string, error) {
 	return stdout.String(), err
 }
 
+func runOrchInRepo(t *testing.T, repoRoot, issuesRoot string, args ...string) (string, error) {
+	t.Helper()
+	fullArgs := append([]string{"--issues-root", issuesRoot}, args...)
+	cmd := exec.Command(orchBinary, fullArgs...)
+	cmd.Dir = repoRoot
+
+	env := make([]string, 0, len(os.Environ())+3)
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "ORCH_PROJECT_ROOT=") ||
+			strings.HasPrefix(kv, "ORCH_ISSUES_ROOT=") ||
+			strings.HasPrefix(kv, "ORCH_VAULT=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	env = append(env,
+		"ORCH_PROJECT_ROOT="+repoRoot,
+		"ORCH_ISSUES_ROOT=",
+		"ORCH_VAULT=",
+	)
+	cmd.Env = env
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		t.Logf("stderr: %s", stderr.String())
+	}
+	return stdout.String(), err
+}
+
 func runGitCmd(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
@@ -125,6 +157,10 @@ func runGitCmd(t *testing.T, dir string, args ...string) string {
 }
 
 func createTestIssue(t *testing.T, id, content string) {
+	createTestIssueInVault(t, testVault, id, content)
+}
+
+func createTestIssueInVault(t *testing.T, vaultRoot, id, content string) {
 	t.Helper()
 	if !strings.Contains(content, "type: issue") {
 		if strings.HasPrefix(content, "---\n") {
@@ -133,7 +169,7 @@ func createTestIssue(t *testing.T, id, content string) {
 			content = "---\ntype: issue\n---\n" + content
 		}
 	}
-	path := filepath.Join(testVault, "issues", id+".md")
+	path := filepath.Join(vaultRoot, "issues", id+".md")
 	content = ensureIssueType(content)
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
@@ -503,6 +539,123 @@ func TestRunDryRun(t *testing.T) {
 	entries, _ := os.ReadDir(runDir)
 	if len(entries) > 0 {
 		t.Error("expected no runs to be created in dry-run mode")
+	}
+}
+
+func TestRunBackToBackSameProjectNoRootLoss(t *testing.T) {
+	createTestIssue(t, "back-to-back-run-1", "---\ntype: issue\nid: back-to-back-run-1\ntitle: Back-to-back Run 1\nstatus: open\n---\n# Back-to-back Run 1")
+	createTestIssue(t, "back-to-back-run-2", "---\ntype: issue\nid: back-to-back-run-2\ntitle: Back-to-back Run 2\nstatus: open\n---\n# Back-to-back Run 2")
+
+	issueIDs := []string{"back-to-back-run-1", "back-to-back-run-2"}
+	for _, issueID := range issueIDs {
+		output, err := runOrch(t, "run", issueID, "--dry-run", "--repo-root", testRepo, "--worktree-dir", ".git-worktrees", "--json")
+		if err != nil {
+			t.Fatalf("run --dry-run failed for %s: %v", issueID, err)
+		}
+
+		var result struct {
+			OK           bool   `json:"ok"`
+			IssueID      string `json:"issue_id"`
+			Status       string `json:"status"`
+			WorktreePath string `json:"worktree_path"`
+			Error        string `json:"error,omitempty"`
+		}
+		if err := json.Unmarshal([]byte(output), &result); err != nil {
+			t.Fatalf("failed to parse JSON for %s: %v\nOutput: %s", issueID, err, output)
+		}
+		if !result.OK {
+			t.Fatalf("expected ok=true for %s, got false: %s", issueID, output)
+		}
+		if result.Status != "dry_run" {
+			t.Fatalf("expected status=dry_run for %s, got %q", issueID, result.Status)
+		}
+		if result.IssueID != issueID {
+			t.Fatalf("expected issue_id=%s, got %s", issueID, result.IssueID)
+		}
+		if !strings.HasPrefix(result.WorktreePath, testRepo+string(os.PathSeparator)) {
+			t.Fatalf("expected worktree path for %s to be under %s, got %s", issueID, testRepo, result.WorktreePath)
+		}
+	}
+}
+
+func TestDaemonMultiRepoIsolation(t *testing.T) {
+	createTestIssue(t, "isolation-a", "---\ntype: issue\nid: isolation-a\ntitle: Isolation A\nstatus: open\n---\n# Isolation A")
+
+	outputA, err := runOrch(t, "run", "isolation-a", "--dry-run", "--repo-root", testRepo, "--worktree-dir", ".git-worktrees", "--json")
+	if err != nil {
+		t.Fatalf("run --dry-run for repo A failed: %v", err)
+	}
+
+	var resultA struct {
+		OK           bool   `json:"ok"`
+		WorktreePath string `json:"worktree_path"`
+	}
+	if err := json.Unmarshal([]byte(outputA), &resultA); err != nil {
+		t.Fatalf("failed to parse repo A JSON: %v\nOutput: %s", err, outputA)
+	}
+	if !resultA.OK {
+		t.Fatalf("expected repo A run to succeed: %s", outputA)
+	}
+	if !strings.HasPrefix(resultA.WorktreePath, testRepo+string(os.PathSeparator)) {
+		t.Fatalf("expected repo A worktree under %s, got %s", testRepo, resultA.WorktreePath)
+	}
+
+	tmpRoot := filepath.Dir(testRepo)
+	repoB := filepath.Join(tmpRoot, "repo-b")
+	vaultB := filepath.Join(tmpRoot, "vault-b")
+
+	if err := os.MkdirAll(repoB, 0755); err != nil {
+		t.Fatalf("mkdir repo-b: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(vaultB, "issues"), 0755); err != nil {
+		t.Fatalf("mkdir vault-b/issues: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(vaultB, "runs"), 0755); err != nil {
+		t.Fatalf("mkdir vault-b/runs: %v", err)
+	}
+
+	runGitCmd(t, repoB, "init")
+	runGitCmd(t, repoB, "config", "user.email", "test@test.com")
+	runGitCmd(t, repoB, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(repoB, "README.md"), []byte("# Repo B\n"), 0644); err != nil {
+		t.Fatalf("write repo-b README: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(repoB, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo-b .orch: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoB, ".orch", "config.yaml"), []byte("{}\n"), 0644); err != nil {
+		t.Fatalf("write repo-b config: %v", err)
+	}
+	runGitCmd(t, repoB, "add", ".")
+	runGitCmd(t, repoB, "commit", "-m", "initial")
+
+	createTestIssueInVault(t, vaultB, "isolation-b", "---\ntype: issue\nid: isolation-b\ntitle: Isolation B\nstatus: open\n---\n# Isolation B")
+
+	outputB, err := runOrchInRepo(t, repoB, vaultB, "run", "isolation-b", "--dry-run", "--repo-root", repoB, "--worktree-dir", ".git-worktrees", "--json")
+	if err != nil {
+		t.Fatalf("run --dry-run for repo B failed: %v", err)
+	}
+
+	var resultB struct {
+		OK           bool   `json:"ok"`
+		IssueID      string `json:"issue_id"`
+		WorktreePath string `json:"worktree_path"`
+		Error        string `json:"error,omitempty"`
+	}
+	if err := json.Unmarshal([]byte(outputB), &resultB); err != nil {
+		t.Fatalf("failed to parse repo B JSON: %v\nOutput: %s", err, outputB)
+	}
+	if !resultB.OK {
+		t.Fatalf("expected repo B run to succeed: %s", outputB)
+	}
+	if resultB.IssueID != "isolation-b" {
+		t.Fatalf("expected issue_id=isolation-b, got %s", resultB.IssueID)
+	}
+	if !strings.HasPrefix(resultB.WorktreePath, repoB+string(os.PathSeparator)) {
+		t.Fatalf("expected repo B worktree under %s, got %s", repoB, resultB.WorktreePath)
+	}
+	if strings.HasPrefix(resultB.WorktreePath, testRepo+string(os.PathSeparator)) {
+		t.Fatalf("expected repo B worktree to not use repo A root %s, got %s", testRepo, resultB.WorktreePath)
 	}
 }
 

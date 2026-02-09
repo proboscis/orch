@@ -342,6 +342,32 @@ func TestIsDaemonSocketAvailable(t *testing.T) {
 }
 
 const testProjectRoot = "/test/project"
+const testIssuesRoot = "/test/issues"
+
+func ensureRequestIssuesRoot(req *orchpb.Request, issuesRoot string) {
+	if req == nil || req.Request == nil {
+		return
+	}
+
+	switch r := req.Request.(type) {
+	case *orchpb.Request_ListRuns:
+		if r.ListRuns != nil && r.ListRuns.IssuesRoot == "" {
+			r.ListRuns.IssuesRoot = issuesRoot
+		}
+	case *orchpb.Request_GetRun:
+		if r.GetRun != nil && r.GetRun.IssuesRoot == "" {
+			r.GetRun.IssuesRoot = issuesRoot
+		}
+	case *orchpb.Request_ListIssues:
+		if r.ListIssues != nil && r.ListIssues.IssuesRoot == "" {
+			r.ListIssues.IssuesRoot = issuesRoot
+		}
+	case *orchpb.Request_GetIssue:
+		if r.GetIssue != nil && r.GetIssue.IssuesRoot == "" {
+			r.GetIssue.IssuesRoot = issuesRoot
+		}
+	}
+}
 
 func setupTestServer(t *testing.T, st *mockStore) (*SocketServer, func()) {
 	cleanup := setupXDGTestEnv(t)
@@ -359,6 +385,8 @@ func setupTestServer(t *testing.T, st *mockStore) (*SocketServer, func()) {
 }
 
 func sendProtoRequest(t *testing.T, req *orchpb.Request) *orchpb.Response {
+	ensureRequestIssuesRoot(req, testIssuesRoot)
+
 	conn, err := net.DialTimeout("unix", xdg.SocketPath(), 5*time.Second)
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
@@ -1007,13 +1035,45 @@ func TestResolveProjectRootPrecedence(t *testing.T) {
 		t.Fatalf("expected repo context project root, got %q", got)
 	}
 
-	if got := server.resolveProjectRoot(SendRequest{}); got != "/daemon/project" {
-		t.Fatalf("expected daemon registered project root fallback, got %q", got)
+	if got := server.resolveProjectRoot(SendRequest{}); got != "/env/project" {
+		t.Fatalf("expected ORCH_PROJECT_ROOT fallback, got %q", got)
 	}
 
 	emptyServer := NewSocketServer(nil, logger)
 	if got := emptyServer.resolveProjectRoot(SendRequest{}); got != "/env/project" {
 		t.Fatalf("expected ORCH_PROJECT_ROOT fallback, got %q", got)
+	}
+
+	t.Setenv("ORCH_PROJECT_ROOT", "")
+	if got := emptyServer.resolveProjectRoot(SendRequest{}); got != "" {
+		t.Fatalf("expected empty project root when request and env are empty, got %q", got)
+	}
+}
+
+func TestResolveStoreFromProtoRequiresIssuesRoot(t *testing.T) {
+	callCount := 0
+	mockFactory := func(string) (store.Store, error) {
+		callCount++
+		return &mockStore{runs: make(map[string]*model.Run), issues: make(map[string]*model.Issue)}, nil
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(mockFactory, logger)
+
+	if got := server.resolveStoreFromProto(""); got != nil {
+		t.Fatalf("expected nil store when issues root is empty, got %#v", got)
+	}
+
+	if callCount != 0 {
+		t.Fatalf("expected no store creation for empty issues root, got %d", callCount)
+	}
+
+	if got := server.resolveStoreFromProto("/issues/root"); got == nil {
+		t.Fatal("expected store to resolve when issues root is provided")
+	}
+
+	if callCount != 1 {
+		t.Fatalf("expected one store creation for valid issues root, got %d", callCount)
 	}
 }
 

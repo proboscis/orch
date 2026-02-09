@@ -51,10 +51,13 @@ lint:
 	@echo ""
 	@echo "=== Architecture lint: Monitor layer ==="
 	semgrep --config .semgrep/ ./internal/monitor/ --exclude='*_test.go'
+	@echo ""
+	@echo "=== Architecture lint: Daemon layer ==="
+	semgrep --config .semgrep/ ./internal/daemon/ --exclude='*_test.go'
 
 lint-strict:
 	@command -v semgrep >/dev/null 2>&1 || uv tool install semgrep
-	semgrep --error --config .semgrep/ ./internal/cli/ ./internal/monitor/ --exclude='*_test.go'
+	semgrep --error --config .semgrep/ ./internal/cli/ ./internal/monitor/ ./internal/daemon/ --exclude='*_test.go'
 
 lint-install:
 	uv tool install semgrep

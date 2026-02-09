@@ -558,3 +558,71 @@ rules:
     metadata:
       category: architecture
       violation: daemon-bypass
+
+  # ---------------------------------------------------------------------------
+  # 6. Daemon identity/store resolution guardrails
+  # ---------------------------------------------------------------------------
+
+  - id: daemon-no-empty-resolve-store-from-proto
+    patterns:
+      - pattern-either:
+          - pattern: resolveStoreFromProto("")
+          - pattern: $S.resolveStoreFromProto("")
+    paths:
+      include:
+        - /internal/daemon/
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      Daemon must not resolve stores using an empty issues root fallback.
+      This can route requests to the wrong project/store.
+      Fix: require explicit issues_root and fail closed when missing.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: identity-leakage
+
+  - id: daemon-no-first-store-fallback
+    patterns:
+      - pattern: |
+          for _, $CTX := range $S.repos {
+            ...
+            if $CTX.Store != nil {
+              return $CTX.Store
+            }
+            ...
+          }
+    paths:
+      include:
+        - /internal/daemon/
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      Daemon must not return the first store from repos map iteration.
+      First-match fallback is non-deterministic and can leak across projects.
+      Fix: use explicit identity resolution.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: identity-leakage
+
+  - id: daemon-no-getfirstprojectroot-call
+    patterns:
+      - pattern-either:
+          - pattern: getFirstProjectRoot()
+          - pattern: $S.getFirstProjectRoot()
+    paths:
+      include:
+        - /internal/daemon/
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      Daemon handlers must not use first project-root fallback from map iteration.
+      Fix: require explicit project_root/repo_id identity and fail closed when missing.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: identity-leakage

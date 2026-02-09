@@ -338,10 +338,6 @@ func (s *SocketServer) resolveProjectRoot(req SendRequest) string {
 		}
 	}
 
-	if projectRoot := s.getFirstProjectRoot(); projectRoot != "" {
-		return projectRoot
-	}
-
 	if projectRoot := os.Getenv("ORCH_PROJECT_ROOT"); projectRoot != "" {
 		return projectRoot
 	}

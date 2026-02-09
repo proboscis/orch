@@ -192,17 +192,30 @@ func errorResponse(errMsg string) *orchpb.Response {
 }
 
 func (s *SocketServer) resolveStoreFromProto(issuesRoot string) store.Store {
-	if issuesRoot != "" {
-		return s.getOrCreateStore(issuesRoot, "")
+	if issuesRoot == "" {
+		return nil
 	}
+
+	return s.getOrCreateStore(issuesRoot, "")
+}
+
+func (s *SocketServer) listStores() []store.Store {
 	s.reposMu.RLock()
 	defer s.reposMu.RUnlock()
+
+	seen := make(map[store.Store]struct{})
+	stores := make([]store.Store, 0, len(s.repos))
 	for _, ctx := range s.repos {
-		if ctx.Store != nil {
-			return ctx.Store
+		if ctx.Store == nil {
+			continue
 		}
+		if _, ok := seen[ctx.Store]; ok {
+			continue
+		}
+		seen[ctx.Store] = struct{}{}
+		stores = append(stores, ctx.Store)
 	}
-	return nil
+	return stores
 }
 
 func (s *SocketServer) handleProtoPing(_ *orchpb.PingRequest) *orchpb.Response {
@@ -1582,23 +1595,24 @@ func (s *SocketServer) findOrphanedSessions() []string {
 		return nil
 	}
 
-	st := s.resolveStoreFromProto("")
-	if st == nil {
-		return nil
-	}
-
-	runs, err := st.ListRuns(&store.ListRunsFilter{})
-	if err != nil {
+	stores := s.listStores()
+	if len(stores) == 0 {
 		return nil
 	}
 
 	expectedSessions := make(map[string]bool)
-	for _, run := range runs {
-		sessionName := run.TmuxSession
-		if sessionName == "" {
-			sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+	for _, st := range stores {
+		runs, err := st.ListRuns(&store.ListRunsFilter{})
+		if err != nil {
+			continue
 		}
-		expectedSessions[sessionName] = true
+		for _, run := range runs {
+			sessionName := run.TmuxSession
+			if sessionName == "" {
+				sessionName = model.GenerateTmuxSession(run.IssueID, run.RunID)
+			}
+			expectedSessions[sessionName] = true
+		}
 	}
 
 	var orphaned []string
@@ -1614,8 +1628,7 @@ func (s *SocketServer) findOrphanedSessions() []string {
 }
 
 func (s *SocketServer) handleProtoGetDaemonLog(req *orchpb.GetDaemonLogRequest) *orchpb.Response {
-	projectRoot := s.getFirstProjectRoot()
-	logPath := LogFilePath(projectRoot)
+	logPath := LogFilePath("")
 	content, err := readLastNLines(logPath, int(req.Lines))
 	if err != nil {
 		return errorResponse(fmt.Sprintf("failed to read daemon log: %v", err))
@@ -1630,18 +1643,6 @@ func (s *SocketServer) handleProtoGetDaemonLog(req *orchpb.GetDaemonLogRequest) 
 		},
 	}
 }
-
-func (s *SocketServer) getFirstProjectRoot() string {
-	s.reposMu.RLock()
-	defer s.reposMu.RUnlock()
-	for _, ctx := range s.repos {
-		if ctx.ProjectRoot != "" {
-			return ctx.ProjectRoot
-		}
-	}
-	return ""
-}
-
 func (s *SocketServer) handleProtoReadFile(req *orchpb.ReadFileRequest) *orchpb.Response {
 	content, err := readFileContent(req.Path)
 	if err != nil {
@@ -1951,14 +1952,7 @@ func (s *SocketServer) loadConfig(projectRoot string) (*config.Config, error) {
 func (s *SocketServer) handleProtoGetConfig(req *orchpb.GetConfigRequest) *orchpb.Response {
 	projectRoot := req.ProjectRoot
 	if projectRoot == "" {
-		s.reposMu.RLock()
-		for _, ctx := range s.repos {
-			if ctx.ProjectRoot != "" {
-				projectRoot = ctx.ProjectRoot
-				break
-			}
-		}
-		s.reposMu.RUnlock()
+		projectRoot = os.Getenv("ORCH_PROJECT_ROOT")
 	}
 
 	cfg, err := s.loadConfig(projectRoot)
