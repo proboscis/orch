@@ -3,6 +3,7 @@
 package xdg
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"os/exec"
@@ -162,12 +163,21 @@ func RepoID(projectRoot string) (string, error) {
 	cmd := exec.Command("git", "-C", projectRoot, "config", "--get", "remote.origin.url")
 	output, err := cmd.Output()
 	if err != nil {
-		// Fallback to directory name
-		return filepath.Base(projectRoot), nil
+		// Fallback to directory name with path-derived hash suffix
+		// to avoid collisions when different repos share the same basename
+		cleaned := filepath.Clean(projectRoot)
+		h := sha256.Sum256([]byte(cleaned))
+		return fmt.Sprintf("%s-%x", filepath.Base(cleaned), h[:4]), nil
 	}
 
 	remoteURL := strings.TrimSpace(string(output))
 	return ParseRepoID(remoteURL)
+}
+
+// LegacyRepoID returns the bare basename that was used before collision-safe
+// hashing was added. Useful for migration lookups.
+func LegacyRepoID(projectRoot string) string {
+	return filepath.Base(projectRoot)
 }
 
 // ParseRepoID extracts owner-repo from a git remote URL.

@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -1202,10 +1203,11 @@ func TestRegisterRepoAPI(t *testing.T) {
 }
 
 func TestDeriveRepoID(t *testing.T) {
-	t.Run("fallback to basename for non-git path", func(t *testing.T) {
+	t.Run("fallback produces basename-<8hex> for non-git path", func(t *testing.T) {
 		got := deriveRepoID("/tmp/not-a-git-repo/my-project")
-		if got != "my-project" {
-			t.Errorf("deriveRepoID for non-git path = %q, want %q", got, "my-project")
+		pattern := regexp.MustCompile(`^my-project-[0-9a-f]{8}$`)
+		if !pattern.MatchString(got) {
+			t.Errorf("deriveRepoID for non-git path = %q, want format my-project-<8hex>", got)
 		}
 	})
 
@@ -1224,9 +1226,10 @@ func TestDeriveRepoID(t *testing.T) {
 	})
 
 	t.Run("handles path with trailing slash", func(t *testing.T) {
-		got := deriveRepoID("/tmp/not-a-git-repo/another-project/")
-		if got != "another-project" {
-			t.Errorf("deriveRepoID for path with trailing slash = %q, want %q", got, "another-project")
+		withSlash := deriveRepoID("/tmp/not-a-git-repo/another-project/")
+		withoutSlash := deriveRepoID("/tmp/not-a-git-repo/another-project")
+		if withSlash != withoutSlash {
+			t.Errorf("trailing slash should not change ID: %q != %q", withSlash, withoutSlash)
 		}
 	})
 
@@ -1245,6 +1248,25 @@ func TestDeriveRepoID(t *testing.T) {
 			t.Errorf("same path should produce same ID: %q != %q", id1, id2)
 		}
 	})
+}
+
+func TestDeriveRepoIDNoBasenameCollision(t *testing.T) {
+	// Two repos at different paths but sharing the same basename
+	// must produce different IDs
+	idA := deriveRepoID("/work/client-a/orch")
+	idB := deriveRepoID("/work/client-b/orch")
+	if idA == idB {
+		t.Errorf("same-basename paths produced same ID: %q", idA)
+	}
+
+	// Both should match the orch-<8hex> format (basename-hash from xdg.RepoID)
+	pattern := regexp.MustCompile(`^orch-[0-9a-f]{8}$`)
+	if !pattern.MatchString(idA) {
+		t.Errorf("deriveRepoID(/work/client-a/orch) = %q, want format orch-<8hex>", idA)
+	}
+	if !pattern.MatchString(idB) {
+		t.Errorf("deriveRepoID(/work/client-b/orch) = %q, want format orch-<8hex>", idB)
+	}
 }
 
 func TestListReposAPI(t *testing.T) {

@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -173,7 +174,9 @@ func NewSocketServer(factory StoreFactory, logger Logger) *SocketServer {
 func deriveRepoID(projectRoot string) string {
 	repoID, err := xdg.RepoID(projectRoot)
 	if err != nil || repoID == "" {
-		repoID = filepath.Base(projectRoot)
+		cleaned := filepath.Clean(projectRoot)
+		h := sha256.Sum256([]byte(cleaned))
+		return fmt.Sprintf("repo-%x", h[:4])
 	}
 	return repoID
 }
@@ -213,6 +216,11 @@ func (s *SocketServer) RegisterRepo(projectRoot string, st store.Store) (string,
 
 	s.reposMu.Lock()
 	defer s.reposMu.Unlock()
+
+	if existing, ok := s.repos[repoID]; ok && existing.ProjectRoot != projectRoot {
+		return "", fmt.Errorf("repo ID collision: %q maps to both %q and %q",
+			repoID, existing.ProjectRoot, projectRoot)
+	}
 
 	s.repos[repoID] = &RepoContext{
 		ProjectRoot: projectRoot,

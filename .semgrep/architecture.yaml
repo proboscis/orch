@@ -696,3 +696,45 @@ rules:
     metadata:
       category: architecture
       violation: field-overload
+
+  # ---------------------------------------------------------------------------
+  # 8. Identity collision guardrails: prevent bare basename fallbacks
+  # ---------------------------------------------------------------------------
+
+  - id: daemon-no-repoid-basename-fallback
+    patterns:
+      - pattern: return filepath.Base($X), nil
+    paths:
+      include:
+        - /internal/xdg/paths.go
+        - /internal/daemon/socket.go
+      exclude:
+        - "*_test.go"
+    message: >
+      Do not return bare filepath.Base() as a repo ID.
+      Bare basenames cause collisions when repos share the same directory name.
+      Fix: suffix with a path-derived hash, e.g. fmt.Sprintf("%s-%x", filepath.Base(x), sha256(x)[:4]).
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: identity-collision
+
+  - id: daemon-no-implicit-repoid-fallback
+    patterns:
+      - pattern: $ID = filepath.Base($PATH)
+    paths:
+      include:
+        - /internal/xdg/paths.go
+        - /internal/daemon/socket.go
+      exclude:
+        - "*_test.go"
+    message: >
+      Do not assign filepath.Base() directly as a repo ID fallback.
+      Bare basenames cause collisions when repos share the same directory name.
+      Fix: use a hash-suffixed or hash-only derivation.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: identity-collision

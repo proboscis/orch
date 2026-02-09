@@ -3,6 +3,7 @@ package xdg
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -200,5 +201,50 @@ func TestSanitizeRepoID(t *testing.T) {
 				t.Errorf("sanitizeRepoID(%q, %q) = %q contains unsafe characters", tt.owner, tt.repo, got)
 			}
 		})
+	}
+}
+
+func TestRepoIDNoGitRemoteFormat(t *testing.T) {
+	// Non-git path should produce "basename-<8hex>" format
+	id, err := RepoID("/tmp/definitely-not-a-git-repo-xyzzy/my-project")
+	if err != nil {
+		t.Fatalf("RepoID() unexpected error: %v", err)
+	}
+
+	// Must match "my-project-" followed by exactly 8 hex chars
+	pattern := regexp.MustCompile(`^my-project-[0-9a-f]{8}$`)
+	if !pattern.MatchString(id) {
+		t.Errorf("RepoID() = %q, want format my-project-<8hex>", id)
+	}
+
+	// Same path must produce same ID (deterministic)
+	id2, _ := RepoID("/tmp/definitely-not-a-git-repo-xyzzy/my-project")
+	if id != id2 {
+		t.Errorf("RepoID() not deterministic: %q != %q", id, id2)
+	}
+
+	// Different paths with same basename must produce different IDs
+	idA, _ := RepoID("/work/client-a/orch")
+	idB, _ := RepoID("/work/client-b/orch")
+	if idA == idB {
+		t.Errorf("same-basename paths produced same ID: %q", idA)
+	}
+	if !strings.HasPrefix(idA, "orch-") {
+		t.Errorf("RepoID() = %q, want prefix orch-", idA)
+	}
+	if !strings.HasPrefix(idB, "orch-") {
+		t.Errorf("RepoID() = %q, want prefix orch-", idB)
+	}
+}
+
+func TestRepoIDLegacyCompatibility(t *testing.T) {
+	got := LegacyRepoID("/work/client-a/orch")
+	if got != "orch" {
+		t.Errorf("LegacyRepoID() = %q, want %q", got, "orch")
+	}
+
+	got = LegacyRepoID("/home/user/repos/my-project")
+	if got != "my-project" {
+		t.Errorf("LegacyRepoID() = %q, want %q", got, "my-project")
 	}
 }
