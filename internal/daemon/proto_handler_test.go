@@ -1,12 +1,29 @@
 package daemon
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	orchpb "github.com/s22625/orch/api/orchpb"
 	"github.com/s22625/orch/internal/model"
 )
+
+type timingTestLogger struct {
+	buf bytes.Buffer
+}
+
+func (l *timingTestLogger) Printf(format string, v ...interface{}) {
+	_, _ = fmt.Fprintf(&l.buf, format, v...)
+	l.buf.WriteByte('\n')
+}
+
+func (l *timingTestLogger) String() string {
+	return l.buf.String()
+}
 
 func TestDaemonListRunsTimingEnabled(t *testing.T) {
 	tests := []struct {
@@ -31,6 +48,97 @@ func TestDaemonListRunsTimingEnabled(t *testing.T) {
 				t.Fatalf("daemonListRunsTimingEnabled() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestMaybeLogListRunsTiming_DefaultFastNoLog(t *testing.T) {
+	t.Setenv(listRunsTimingEnv, "")
+	logger := &timingTestLogger{}
+	server := NewSocketServer(nil, logger)
+
+	server.maybeLogListRunsTiming(
+		&orchpb.ListRunsRequest{IssueId: "orch-1", Limit: 10},
+		3,
+		10*time.Millisecond,
+		20*time.Millisecond,
+		30*time.Millisecond,
+		nil,
+	)
+
+	if got := logger.String(); got != "" {
+		t.Fatalf("expected no timing logs for fast request when env disabled, got %q", got)
+	}
+}
+
+func TestMaybeLogListRunsTiming_SlowLogsWithoutEnv(t *testing.T) {
+	t.Setenv(listRunsTimingEnv, "")
+	logger := &timingTestLogger{}
+	server := NewSocketServer(nil, logger)
+
+	server.maybeLogListRunsTiming(
+		&orchpb.ListRunsRequest{IssueId: "orch-1", Limit: 20},
+		5,
+		20*time.Millisecond,
+		30*time.Millisecond,
+		listRunsSlowThreshold+time.Millisecond,
+		nil,
+	)
+
+	logText := logger.String()
+	if !strings.Contains(logText, "list_runs timing") {
+		t.Fatalf("expected timing log for slow request, got %q", logText)
+	}
+	if !strings.Contains(logText, "slow=true") {
+		t.Fatalf("expected slow=true in log, got %q", logText)
+	}
+}
+
+func TestMaybeLogListRunsTiming_EnvEnabledLogsFast(t *testing.T) {
+	t.Setenv(listRunsTimingEnv, "true")
+	logger := &timingTestLogger{}
+	server := NewSocketServer(nil, logger)
+
+	server.maybeLogListRunsTiming(
+		&orchpb.ListRunsRequest{IssueId: "orch-2", Limit: 5, TextSearch: "poll", OlderThan: "2026-02-01T00:00:00Z"},
+		2,
+		8*time.Millisecond,
+		9*time.Millisecond,
+		17*time.Millisecond,
+		nil,
+	)
+
+	logText := logger.String()
+	if !strings.Contains(logText, "list_runs timing") {
+		t.Fatalf("expected timing log when env enabled, got %q", logText)
+	}
+	if !strings.Contains(logText, "slow=false") {
+		t.Fatalf("expected slow=false in log, got %q", logText)
+	}
+	if !strings.Contains(logText, "text_search=true") {
+		t.Fatalf("expected text_search=true in log, got %q", logText)
+	}
+	if !strings.Contains(logText, "older_than=true") {
+		t.Fatalf("expected older_than=true in log, got %q", logText)
+	}
+}
+
+func TestMaybeLogListRunsTiming_LogsErrorDetails(t *testing.T) {
+	t.Setenv(listRunsTimingEnv, "1")
+	logger := &timingTestLogger{}
+	server := NewSocketServer(nil, logger)
+
+	server.maybeLogListRunsTiming(
+		&orchpb.ListRunsRequest{IssueId: "orch-3", Limit: 1},
+		0,
+		5*time.Millisecond,
+		0,
+		5*time.Millisecond,
+		errors.New("store boom"),
+	)
+
+	logText := logger.String()
+	if !strings.Contains(logText, "error=store boom") {
+		t.Fatalf("expected error details in timing log, got %q", logText)
 	}
 }
 
