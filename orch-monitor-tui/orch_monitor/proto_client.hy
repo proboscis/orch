@@ -6,6 +6,7 @@
 (import socket)
 (import struct)
 (import threading)
+(import errno)
 (import datetime [datetime])
 (import pathlib [Path])
 (import logging)
@@ -22,7 +23,11 @@
 ;; Exceptions - Import from Python module for consistency
 ;; ============================================================================
 
-(import orch_monitor.types [ProtoDaemonError ProtoDaemonNotRunningError])
+(import orch_monitor.types [ProtoDaemonError
+                            ProtoDaemonConnectionRefusedError
+                            ProtoDaemonPermissionError
+                            ProtoDaemonSocketMissingError
+                            ProtoDaemonTimeoutError])
 
 
 ;; ============================================================================
@@ -156,6 +161,112 @@
 
 
 ;; ============================================================================
+;; Daemon socket health helpers
+;; ============================================================================
+
+(defn _classify-socket-error [err socket-path [context "daemon communication"]]
+  (setv socket-str (str socket-path))
+  (setv err-no (getattr err "errno" None))
+  (cond
+    (isinstance err ProtoDaemonError)
+      err
+    (or (isinstance err FileNotFoundError)
+        (= err-no errno.ENOENT)
+        (= err-no (getattr errno "ENOTSOCK" None)))
+      (ProtoDaemonSocketMissingError
+        f"Daemon socket not found at {socket-str}")
+    (or (isinstance err ConnectionRefusedError)
+        (= err-no errno.ECONNREFUSED))
+      (ProtoDaemonConnectionRefusedError
+        f"Daemon connection refused at {socket-str}")
+    (or (isinstance err socket.timeout)
+        (isinstance err TimeoutError)
+        (= err-no errno.ETIMEDOUT))
+      (ProtoDaemonTimeoutError
+        f"Daemon request timed out at {socket-str}")
+    (or (isinstance err PermissionError)
+        (= err-no errno.EACCES)
+        (= err-no errno.EPERM))
+      (ProtoDaemonPermissionError
+        f"Permission denied accessing daemon socket at {socket-str}")
+    True
+      (ProtoDaemonError
+        f"{context} failed ({(. (type err) __name__)}): {err}")))
+
+(defn _assert-socket-file [socket-path]
+  "Validate socket path exists and is a unix socket."
+  (import stat)
+  (try
+    (when (not (.exists socket-path))
+      (raise (ProtoDaemonSocketMissingError
+               f"Daemon socket not found at {socket-path}")))
+    (setv mode (. (.stat socket-path) st_mode))
+    (when (not (stat.S_ISSOCK mode))
+      (raise (ProtoDaemonSocketMissingError
+               f"Daemon socket path is not a socket: {socket-path}")))
+    True
+    (except [e Exception]
+      (when (isinstance e ProtoDaemonError)
+        (raise))
+      (raise (_classify-socket-error e socket-path "daemon socket check")))))
+
+(defn _recv-exact [sock size]
+  "Read exactly size bytes or fewer if peer closes."
+  (setv data b"")
+  (while (< (len data) size)
+    (setv chunk (.recv sock (- size (len data))))
+    (when (not chunk)
+      (break))
+    (+= data chunk))
+  data)
+
+(defn _probe-daemon-health [socket-path timeout]
+  "Actively probe daemon with ping request."
+  (setv probe-timeout (if (> timeout 1.0) 1.0 timeout))
+  (when (<= probe-timeout 0)
+    (setv probe-timeout 1.0))
+  (setv sock None)
+  (try
+    (setv sock (socket.socket socket.AF_UNIX socket.SOCK_STREAM))
+    (.settimeout sock probe-timeout)
+    (.connect sock (str socket-path))
+
+    (setv req (pb.Request))
+    (.CopyFrom req.ping (pb.PingRequest))
+
+    (setv payload (.SerializeToString req))
+    (setv length (struct.pack ">I" (len payload)))
+    (.sendall sock (+ length payload))
+
+    (setv len-data (_recv-exact sock 4))
+    (when (< (len len-data) 4)
+      (raise (ProtoDaemonError "Incomplete ping response length")))
+
+    (setv resp-len (get (struct.unpack ">I" len-data) 0))
+    (setv resp-data (_recv-exact sock resp-len))
+    (when (< (len resp-data) resp-len)
+      (raise (ProtoDaemonError "Incomplete ping response payload")))
+
+    (setv response (pb.Response))
+    (.ParseFromString response resp-data)
+    (when (or (not response.ok)
+              (not (.HasField response "ping"))
+              (not response.ping.ok))
+      (raise (ProtoDaemonError
+               (or response.error "Daemon ping failed"))))
+    True
+    (except [e Exception]
+      (when (isinstance e ProtoDaemonError)
+        (raise))
+      (raise (_classify-socket-error e socket-path "daemon health probe")))
+    (finally
+      (when sock
+        (try
+          (.close sock)
+          (except [close-error Exception] None))))))
+
+
+;; ============================================================================
 ;; Proto Daemon Client
 ;; ============================================================================
 
@@ -176,12 +287,22 @@
   
   (defn _project-root-str [self]
     (if self.project-root (str self.project-root) ""))
+
+  (defn check-availability [self]
+    "Active daemon availability check. Returns Result[bool, ProtoDaemonError]."
+    (try
+      (_assert-socket-file self.socket-path)
+      (_probe-daemon-health self.socket-path self._timeout)
+      (Success True)
+      (except [e ProtoDaemonError]
+        (Failure e))
+      (except [e Exception]
+        (Failure (_classify-socket-error e self.socket-path
+                  "daemon availability check")))))
   
   (defn is-available [self]
-    (try-or False
-      (import stat)
-      (setv mode (. (.stat self.socket-path) st_mode))
-      (stat.S_ISSOCK mode)))
+    (setv result (.check-availability self))
+    (isinstance result Success))
   
   ;; =========================================================================
   ;; Connection Management (persistent connection to reduce socket churn)
@@ -244,9 +365,7 @@
   
   (defn _send [self request]
     "Send request using persistent connection. Raises typed ProtoDaemonError on failure."
-    (when (not (.is-available self))
-      (raise (ProtoDaemonNotRunningError 
-               f"Daemon socket not found at {self.socket-path}")))
+    (_assert-socket-file self.socket-path)
     
     (with [_ self._lock]
       (socket-send self.socket-path
@@ -292,8 +411,8 @@
                 (._connect self))
               (when (>= retry max-retries)
                 (.warning _conn_logger (+ "Failed after " (str max-retries) " retries: " (str e)))
-                (raise (ProtoDaemonError f"Connection failed: {e}"))))))
-        
+                (raise (_classify-socket-error e self.socket-path "daemon request"))))))
+         
         response)))
   
   (defn _check [self response [error-msg "Unknown error"]]

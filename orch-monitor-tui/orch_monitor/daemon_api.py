@@ -23,8 +23,12 @@ from .types import (
     IssueFilters as ProtoIssueFilters,
     ListIssuesResponse as ProtoListIssuesResponse,
     ListRunsResponse as ProtoListRunsResponse,
+    ProtoDaemonConnectionRefusedError,
     ProtoDaemonError,
     ProtoDaemonNotRunningError,
+    ProtoDaemonPermissionError,
+    ProtoDaemonSocketMissingError,
+    ProtoDaemonTimeoutError,
     RunFilters as ProtoRunFilters,
 )
 from .models import Issue as ModelIssue
@@ -54,25 +58,36 @@ from .orch_api import DaemonNotRunningError as ApiDaemonNotRunningError
 _logger = logging.getLogger("orch_monitor.daemon_api")
 
 
+def _map_proto_error(err: Exception) -> Failure:
+    """Map typed proto errors to API-level errors while preserving cause text."""
+    if isinstance(err, ProtoDaemonSocketMissingError):
+        return Failure(ApiDaemonNotRunningError(str(err)))
+    if isinstance(err, ProtoDaemonConnectionRefusedError):
+        return Failure(ApiDaemonNotRunningError(str(err)))
+    if isinstance(err, ProtoDaemonNotRunningError):
+        return Failure(ApiDaemonNotRunningError(str(err) or "Daemon not running"))
+    if isinstance(err, ProtoDaemonTimeoutError):
+        return Failure(OrchError(str(err)))
+    if isinstance(err, ProtoDaemonPermissionError):
+        return Failure(OrchError(str(err)))
+    if isinstance(err, ProtoDaemonError):
+        return Failure(OrchError(str(err)))
+    err_type = type(err).__name__
+    return Failure(OrchError(f"{err_type}: {err}"))
+
+
 def _log_and_map_error(operation: str, err: Exception) -> Failure:
     """Log error with full context and map to appropriate API error type."""
     import traceback
 
     err_type = type(err).__name__
     _logger.error(f"{operation}: {err_type}: {err}\n{traceback.format_exc()}")
-
-    if isinstance(err, ProtoDaemonNotRunningError):
-        return Failure(ApiDaemonNotRunningError("Daemon not running"))
-    if isinstance(err, ProtoDaemonError):
-        return Failure(OrchError(str(err)))
-    return Failure(OrchError(f"{err_type}: {err}"))
+    return _map_proto_error(err)
 
 
 def _map_daemon_error(err: ProtoDaemonError) -> Failure:
     """Map ProtoDaemonError to appropriate API error type (legacy, use _log_and_map_error)."""
-    if isinstance(err, ProtoDaemonNotRunningError):
-        return Failure(ApiDaemonNotRunningError("Daemon not running"))
-    return Failure(OrchError(str(err)))
+    return _map_proto_error(err)
 
 
 def _model_status_to_api(status: ModelStatus) -> RunStatus:
