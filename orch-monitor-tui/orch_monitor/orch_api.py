@@ -21,6 +21,22 @@ class DaemonNotRunningError(OrchError):
     pass
 
 
+class DaemonSocketMissingError(DaemonNotRunningError):
+    pass
+
+
+class DaemonConnectionRefusedError(DaemonNotRunningError):
+    pass
+
+
+class DaemonTimeoutError(OrchError):
+    pass
+
+
+class DaemonPermissionError(OrchError):
+    pass
+
+
 class RunStatus(str, Enum):
     QUEUED = "queued"
     BOOTING = "booting"

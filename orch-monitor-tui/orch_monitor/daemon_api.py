@@ -25,6 +25,10 @@ from .types import (
     ListRunsResponse as ProtoListRunsResponse,
     ProtoDaemonError,
     ProtoDaemonNotRunningError,
+    ProtoDaemonSocketMissingError,
+    ProtoDaemonConnectionRefusedError,
+    ProtoDaemonTimeoutError,
+    ProtoDaemonPermissionError,
     RunFilters as ProtoRunFilters,
 )
 from .models import Issue as ModelIssue
@@ -50,17 +54,41 @@ from .orch_api import (
     StartRunResult,
 )
 from .orch_api import DaemonNotRunningError as ApiDaemonNotRunningError
+from .orch_api import DaemonSocketMissingError as ApiDaemonSocketMissingError
+from .orch_api import DaemonConnectionRefusedError as ApiDaemonConnectionRefusedError
+from .orch_api import DaemonTimeoutError as ApiDaemonTimeoutError
+from .orch_api import DaemonPermissionError as ApiDaemonPermissionError
 
 _logger = logging.getLogger("orch_monitor.daemon_api")
 
 
 def _log_and_map_error(operation: str, err: Exception) -> Failure:
-    """Log error with full context and map to appropriate API error type."""
+    """Log error with full context and map to appropriate API error type.
+
+    Preserves specific failure types for better error reporting:
+    - SocketMissing: "Daemon socket not found"
+    - ConnectionRefused: "Connection refused (daemon not running or stale socket)"
+    - Timeout: "Daemon not responding"
+    - Permission: "Permission denied"
+    """
     import traceback
 
     err_type = type(err).__name__
     _logger.error(f"{operation}: {err_type}: {err}\n{traceback.format_exc()}")
 
+    # Map specific error types to preserve failure cause
+    if isinstance(err, ProtoDaemonSocketMissingError):
+        return Failure(ApiDaemonSocketMissingError("Daemon socket not found"))
+    if isinstance(err, ProtoDaemonConnectionRefusedError):
+        return Failure(
+            ApiDaemonConnectionRefusedError(
+                "Connection refused (daemon not running or stale socket)"
+            )
+        )
+    if isinstance(err, ProtoDaemonTimeoutError):
+        return Failure(ApiDaemonTimeoutError("Daemon not responding (timeout)"))
+    if isinstance(err, ProtoDaemonPermissionError):
+        return Failure(ApiDaemonPermissionError(f"Permission denied: {err}"))
     if isinstance(err, ProtoDaemonNotRunningError):
         return Failure(ApiDaemonNotRunningError("Daemon not running"))
     if isinstance(err, ProtoDaemonError):
@@ -69,7 +97,22 @@ def _log_and_map_error(operation: str, err: Exception) -> Failure:
 
 
 def _map_daemon_error(err: ProtoDaemonError) -> Failure:
-    """Map ProtoDaemonError to appropriate API error type (legacy, use _log_and_map_error)."""
+    """Map ProtoDaemonError to appropriate API error type.
+
+    Preserves specific failure types for better error reporting.
+    """
+    if isinstance(err, ProtoDaemonSocketMissingError):
+        return Failure(ApiDaemonSocketMissingError("Daemon socket not found"))
+    if isinstance(err, ProtoDaemonConnectionRefusedError):
+        return Failure(
+            ApiDaemonConnectionRefusedError(
+                "Connection refused (daemon not running or stale socket)"
+            )
+        )
+    if isinstance(err, ProtoDaemonTimeoutError):
+        return Failure(ApiDaemonTimeoutError("Daemon not responding (timeout)"))
+    if isinstance(err, ProtoDaemonPermissionError):
+        return Failure(ApiDaemonPermissionError(f"Permission denied: {err}"))
     if isinstance(err, ProtoDaemonNotRunningError):
         return Failure(ApiDaemonNotRunningError("Daemon not running"))
     return Failure(OrchError(str(err)))
@@ -294,6 +337,21 @@ class DaemonOrchAPI:
 
     def is_available(self) -> bool:
         return self._daemon.is_available()
+
+    def check_health(self) -> Result[bool, OrchError]:
+        """Perform detailed health check with typed error on failure.
+
+        Returns Success(True) if daemon is healthy.
+        Returns Failure with specific error type:
+        - Socket not found
+        - Connection refused (stale socket)
+        - Timeout
+        - Permission denied
+        """
+        result = self._daemon.check_health()
+        if isinstance(result, Failure):
+            return _map_daemon_error(result.failure())
+        return Success(True)
 
     def ensure_running(self) -> Result[bool, OrchError]:
         if self._daemon.is_available():

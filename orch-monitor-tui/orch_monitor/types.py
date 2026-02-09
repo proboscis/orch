@@ -29,6 +29,30 @@ class ProtoDaemonNotRunningError(ProtoDaemonError):
     pass
 
 
+class ProtoDaemonSocketMissingError(ProtoDaemonNotRunningError):
+    """Raised when the daemon socket file does not exist."""
+
+    pass
+
+
+class ProtoDaemonConnectionRefusedError(ProtoDaemonNotRunningError):
+    """Raised when connection to daemon socket is refused (stale socket or daemon not listening)."""
+
+    pass
+
+
+class ProtoDaemonTimeoutError(ProtoDaemonError):
+    """Raised when communication with daemon times out."""
+
+    pass
+
+
+class ProtoDaemonPermissionError(ProtoDaemonError):
+    """Raised when there's a permission issue accessing the daemon socket."""
+
+    pass
+
+
 # ============================================================================
 # Constants
 # ============================================================================

@@ -499,26 +499,36 @@
        (send-and-receive sock))
    
    Catches:
-     socket.timeout       -> ProtoDaemonError
-     ConnectionRefusedError -> ProtoDaemonNotRunningError
-     FileNotFoundError    -> ProtoDaemonNotRunningError
+     socket.timeout       -> ProtoDaemonTimeoutError
+     ConnectionRefusedError -> ProtoDaemonConnectionRefusedError
+     FileNotFoundError    -> ProtoDaemonSocketMissingError
+     PermissionError      -> ProtoDaemonPermissionError
      Exception            -> ProtoDaemonError
    
    All errors are ALWAYS re-raised as typed exceptions (never swallowed).
   "
   `(do
      (import socket)
-     (import orch_monitor.types [ProtoDaemonError ProtoDaemonNotRunningError])
+     (import orch_monitor.types [ProtoDaemonError ProtoDaemonNotRunningError
+                                  ProtoDaemonSocketMissingError
+                                  ProtoDaemonConnectionRefusedError
+                                  ProtoDaemonTimeoutError
+                                  ProtoDaemonPermissionError])
      (import logging)
      (try
        ~@body
        (except [e socket.timeout]
-         (raise (ProtoDaemonError "Timeout communicating with daemon")))
+         (raise (ProtoDaemonTimeoutError
+                  f"Timeout communicating with daemon at {~socket-path}")))
        (except [e ConnectionRefusedError]
-         (raise (ProtoDaemonNotRunningError "Daemon is not running")))
+         (raise (ProtoDaemonConnectionRefusedError
+                  f"Connection refused at {~socket-path} (daemon not running or stale socket)")))
        (except [e FileNotFoundError]
-         (raise (ProtoDaemonNotRunningError
+         (raise (ProtoDaemonSocketMissingError
                   f"Daemon socket not found at {~socket-path}")))
+       (except [e PermissionError]
+         (raise (ProtoDaemonPermissionError
+                  f"Permission denied accessing daemon socket at {~socket-path}")))
        (except [e Exception]
          (setv logger (logging.getLogger "orch_monitor.proto_client"))
          (setv __err_type__ (. (type e) __name__))

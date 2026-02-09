@@ -22,7 +22,11 @@
 ;; Exceptions - Import from Python module for consistency
 ;; ============================================================================
 
-(import orch_monitor.types [ProtoDaemonError ProtoDaemonNotRunningError])
+(import orch_monitor.types [ProtoDaemonError ProtoDaemonNotRunningError
+                             ProtoDaemonSocketMissingError
+                             ProtoDaemonConnectionRefusedError
+                             ProtoDaemonTimeoutError
+                             ProtoDaemonPermissionError])
 
 
 ;; ============================================================================
@@ -178,10 +182,56 @@
     (if self.project-root (str self.project-root) ""))
   
   (defn is-available [self]
+    "Check if daemon is available by performing an active health probe (ping).
+     Returns True only if daemon responds to ping, False otherwise."
+    (try
+      (setv result (.ping self))
+      ;; ping returns Result[bool, Error], check if Success and value is True
+      (import returns.result [Success])
+      (and (isinstance result Success) (.unwrap result))
+      (except [e Exception]
+        False)))
+  
+  (defn socket-exists [self]
+    "Check if the socket file exists and is a socket (passive check).
+     Does NOT verify daemon is actually responding."
     (try-or False
       (import stat)
       (setv mode (. (.stat self.socket-path) st_mode))
       (stat.S_ISSOCK mode)))
+  
+  (defn check-health [self]
+    "Perform detailed health check returning typed error on failure.
+     Returns Result[True, ProtoDaemonError] with specific error types:
+       - ProtoDaemonSocketMissingError: socket file doesn't exist
+       - ProtoDaemonConnectionRefusedError: socket exists but connection refused
+       - ProtoDaemonTimeoutError: daemon not responding in time
+       - ProtoDaemonPermissionError: permission denied
+       - ProtoDaemonError: other errors"
+    (import returns.result [Success Failure])
+    ;; First check if socket file exists
+    (when (not (.exists self.socket-path))
+      (return (Failure (ProtoDaemonSocketMissingError
+                         f"Daemon socket not found at {self.socket-path}"))))
+    ;; Try an active ping to verify daemon is responding
+    (try
+      (setv result (.ping self))
+      (cond
+        (isinstance result Failure) (Failure (.failure result))
+        (.unwrap result) (Success True)
+        True (Failure (ProtoDaemonError "Ping returned False")))
+      (except [e ProtoDaemonSocketMissingError]
+        (Failure e))
+      (except [e ProtoDaemonConnectionRefusedError]
+        (Failure e))
+      (except [e ProtoDaemonTimeoutError]
+        (Failure e))
+      (except [e ProtoDaemonPermissionError]
+        (Failure e))
+      (except [e ProtoDaemonError]
+        (Failure e))
+      (except [e Exception]
+        (Failure (ProtoDaemonError f"Health check failed: {e}")))))
   
   ;; =========================================================================
   ;; Connection Management (persistent connection to reduce socket churn)
@@ -244,12 +294,12 @@
   
   (defn _send [self request]
     "Send request using persistent connection. Raises typed ProtoDaemonError on failure."
-    (when (not (.is-available self))
-      (raise (ProtoDaemonNotRunningError 
-               f"Daemon socket not found at {self.socket-path}")))
-    
     (with [_ self._lock]
       (socket-send self.socket-path
+        ;; Check socket exists (passive check to avoid circular call with is-available)
+        (when (not (.socket-exists self))
+          (raise (ProtoDaemonSocketMissingError 
+                   f"Daemon socket not found at {self.socket-path}")))
         ;; Ensure we have a valid connection
         (._ensure-connected self)
         
