@@ -64,6 +64,13 @@ type RunState struct {
 	PRRecorded     bool
 	WasAlive       bool
 	DeadCheckCount int
+
+	CaptureEndpoint       string
+	CaptureFailureCount   int
+	CaptureRetryAt        time.Time
+	CaptureErrorKey       string
+	CaptureErrorLogAt     time.Time
+	SuppressedCaptureLogs int
 }
 
 func New(factory StoreFactory) *Daemon {

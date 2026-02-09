@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +16,15 @@ import (
 )
 
 const deadChecksBeforeFailed = 3
+
+const (
+	captureErrorLogInterval        = 60 * time.Second
+	captureBackoffInitial          = 5 * time.Second
+	captureBackoffMax              = 60 * time.Second
+	captureRefusedBackoffInitial   = 10 * time.Second
+	captureRefusedBackoffMax       = 5 * time.Minute
+	captureRefusedNegativeCacheTTL = 30 * time.Second
+)
 
 func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
 	if run.Status == model.StatusCanceled {
@@ -93,11 +103,29 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
 		return d.updateStatus(run, model.StatusFailed, st)
 	}
 
-	output, err := mgr.CaptureOutput(run)
-	if err != nil {
-		d.logger.Printf("%s#%s: failed to capture output: %v", run.IssueID, run.RunID, err)
+	now := time.Now()
+	captureEndpoint := captureEndpointKey(run, mgr)
+	if state.shouldSkipCapture(captureEndpoint, now) {
 		return nil
 	}
+
+	output, err := mgr.CaptureOutput(run)
+	if err != nil {
+		retryAt, shouldLog, suppressed := state.recordCaptureFailure(captureEndpoint, err, now)
+		if shouldLog {
+			retryIn := retryAt.Sub(now).Round(time.Second)
+			if retryIn < time.Second {
+				retryIn = time.Second
+			}
+			if suppressed > 0 {
+				d.logger.Printf("%s#%s: failed to capture output from %s: %v (next retry in %s, suppressed %d similar errors)", run.IssueID, run.RunID, captureEndpoint, err, retryIn, suppressed)
+			} else {
+				d.logger.Printf("%s#%s: failed to capture output from %s: %v (next retry in %s)", run.IssueID, run.RunID, captureEndpoint, err, retryIn)
+			}
+		}
+		return nil
+	}
+	state.resetCaptureFailure()
 
 	contentHash := hashContent(output)
 	outputChanged := contentHash != state.OutputHash
@@ -142,6 +170,133 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
 	}
 
 	return nil
+}
+
+func captureEndpointKey(run *model.Run, mgr agent.AgentManager) string {
+	if run.Agent == string(agent.AgentOpenCode) {
+		if opencodeMgr, ok := mgr.(*agent.OpenCodeManager); ok && opencodeMgr.Port > 0 {
+			return "opencode:" + strconv.Itoa(opencodeMgr.Port)
+		}
+		if run.ServerPort > 0 {
+			return "opencode:" + strconv.Itoa(run.ServerPort)
+		}
+		return "opencode:unknown"
+	}
+
+	sessionName := run.SessionName
+	if sessionName == "" {
+		sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
+	}
+	agentName := run.Agent
+	if agentName == "" {
+		agentName = "unknown"
+	}
+	return agentName + ":" + sessionName
+}
+
+func (s *RunState) shouldSkipCapture(endpoint string, now time.Time) bool {
+	if endpoint == "" {
+		return false
+	}
+
+	if s.CaptureEndpoint != endpoint {
+		s.resetCaptureFailure()
+		s.CaptureEndpoint = endpoint
+		return false
+	}
+
+	if s.CaptureRetryAt.IsZero() {
+		return false
+	}
+
+	return now.Before(s.CaptureRetryAt)
+}
+
+func (s *RunState) recordCaptureFailure(endpoint string, err error, now time.Time) (time.Time, bool, int) {
+	if endpoint == "" {
+		endpoint = "unknown"
+	}
+	if s.CaptureEndpoint != endpoint {
+		s.resetCaptureFailure()
+		s.CaptureEndpoint = endpoint
+	}
+
+	s.CaptureFailureCount++
+	backoff := captureBackoffDuration(err, s.CaptureFailureCount)
+	s.CaptureRetryAt = now.Add(backoff)
+
+	errorKey := captureErrorKey(endpoint, err)
+	if s.CaptureErrorKey == errorKey && !s.CaptureErrorLogAt.IsZero() && now.Sub(s.CaptureErrorLogAt) < captureErrorLogInterval {
+		s.SuppressedCaptureLogs++
+		return s.CaptureRetryAt, false, 0
+	}
+
+	suppressed := s.SuppressedCaptureLogs
+	s.SuppressedCaptureLogs = 0
+	s.CaptureErrorKey = errorKey
+	s.CaptureErrorLogAt = now
+	return s.CaptureRetryAt, true, suppressed
+}
+
+func (s *RunState) resetCaptureFailure() {
+	s.CaptureEndpoint = ""
+	s.CaptureFailureCount = 0
+	s.CaptureRetryAt = time.Time{}
+	s.CaptureErrorKey = ""
+	s.CaptureErrorLogAt = time.Time{}
+	s.SuppressedCaptureLogs = 0
+}
+
+func captureBackoffDuration(err error, failures int) time.Duration {
+	if failures < 1 {
+		failures = 1
+	}
+
+	if isConnectionRefusedError(err) {
+		backoff := exponentialBackoff(captureRefusedBackoffInitial, captureRefusedBackoffMax, failures)
+		if backoff < captureRefusedNegativeCacheTTL {
+			backoff = captureRefusedNegativeCacheTTL
+		}
+		return backoff
+	}
+
+	return exponentialBackoff(captureBackoffInitial, captureBackoffMax, failures)
+}
+
+func exponentialBackoff(initial, max time.Duration, failures int) time.Duration {
+	if failures <= 1 {
+		return initial
+	}
+
+	backoff := initial
+	for i := 1; i < failures; i++ {
+		if backoff >= max/2 {
+			return max
+		}
+		backoff *= 2
+	}
+	if backoff > max {
+		return max
+	}
+	return backoff
+}
+
+func captureErrorKey(endpoint string, err error) string {
+	if isConnectionRefusedError(err) {
+		return endpoint + "|connection-refused"
+	}
+	if err == nil {
+		return endpoint + "|none"
+	}
+	return endpoint + "|" + err.Error()
+}
+
+func isConnectionRefusedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "connection refused") || strings.Contains(msg, "econnrefused")
 }
 
 func (d *Daemon) updateStatus(run *model.Run, status model.Status, st store.Store) error {

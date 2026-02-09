@@ -1,8 +1,13 @@
 package daemon
 
 import (
+	"errors"
 	"io"
 	"log"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -288,4 +293,150 @@ func TestCheckPRMergedWithURLReturnsURLWhenFound(t *testing.T) {
 		t.Error("expected non-empty URL when merged PR is found")
 	}
 	_ = merged
+}
+
+func TestCaptureFailureBackoffConnectionRefused(t *testing.T) {
+	state := &RunState{}
+	endpoint := "opencode:4097"
+	now := time.Now()
+
+	if state.shouldSkipCapture(endpoint, now) {
+		t.Fatal("expected first capture attempt not to be skipped")
+	}
+
+	err := errors.New("dial tcp 127.0.0.1:4097: connect: connection refused")
+	retryAt, shouldLog, suppressed := state.recordCaptureFailure(endpoint, err, now)
+
+	if !shouldLog {
+		t.Fatal("expected first failure to be logged")
+	}
+	if suppressed != 0 {
+		t.Fatalf("expected no suppressed logs on first failure, got %d", suppressed)
+	}
+	if got := retryAt.Sub(now); got < captureRefusedNegativeCacheTTL {
+		t.Fatalf("expected retry delay >= %s, got %s", captureRefusedNegativeCacheTTL, got)
+	}
+
+	if !state.shouldSkipCapture(endpoint, now.Add(5*time.Second)) {
+		t.Fatal("expected capture attempt to be throttled during backoff")
+	}
+	if state.shouldSkipCapture(endpoint, retryAt.Add(time.Millisecond)) {
+		t.Fatal("expected capture attempt to resume after backoff")
+	}
+}
+
+func TestCaptureFailureLogDeduplication(t *testing.T) {
+	state := &RunState{}
+	endpoint := "opencode:4098"
+	err := errors.New("dial tcp 127.0.0.1:4098: connect: connection refused")
+	now := time.Now()
+
+	_, shouldLog, _ := state.recordCaptureFailure(endpoint, err, now)
+	if !shouldLog {
+		t.Fatal("expected first failure to be logged")
+	}
+
+	_, shouldLog, _ = state.recordCaptureFailure(endpoint, err, now.Add(5*time.Second))
+	if shouldLog {
+		t.Fatal("expected duplicate failure log to be suppressed inside log interval")
+	}
+
+	_, shouldLog, suppressed := state.recordCaptureFailure(endpoint, err, now.Add(captureErrorLogInterval+time.Second))
+	if !shouldLog {
+		t.Fatal("expected failure log after interval")
+	}
+	if suppressed != 1 {
+		t.Fatalf("expected one suppressed log to be reported, got %d", suppressed)
+	}
+}
+
+func TestCaptureFailureEndpointChangeResetsBackoff(t *testing.T) {
+	state := &RunState{}
+	now := time.Now()
+
+	_, _, _ = state.recordCaptureFailure("opencode:4097", errors.New("dial tcp 127.0.0.1:4097: connect: connection refused"), now)
+
+	if !state.shouldSkipCapture("opencode:4097", now.Add(2*time.Second)) {
+		t.Fatal("expected original endpoint to remain throttled")
+	}
+	if state.shouldSkipCapture("opencode:4099", now.Add(2*time.Second)) {
+		t.Fatal("expected new endpoint to bypass old endpoint backoff")
+	}
+}
+
+func TestMonitorRunOpenCodeCaptureSuccessResetsFailureState(t *testing.T) {
+	worktreePath := "/tmp/orch-opencode-live"
+	sessionID := "ses_live"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/global/health":
+			_, _ = io.WriteString(w, `{"healthy":true,"version":"test"}`)
+		case "/project/current":
+			_, _ = io.WriteString(w, `{"id":"proj_test","worktree":"`+worktreePath+`"}`)
+		case "/session/" + sessionID + "/message":
+			_, _ = io.WriteString(w, `[{"info":{"id":"msg_1","sessionID":"`+sessionID+`","role":"assistant","createdAt":"2026-02-09T00:00:00Z"},"parts":[{"type":"text","text":"capture alive"}]}]`)
+		case "/session/status":
+			_, _ = io.WriteString(w, `{"`+sessionID+`":"busy"}`)
+		default:
+			t.Errorf("unexpected request path: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	port := testPortFromURL(t, server.URL)
+
+	d := newTestDaemon()
+	run := &model.Run{
+		IssueID:           "orch-427",
+		RunID:             "run-live",
+		Agent:             "opencode",
+		Status:            model.StatusRunning,
+		WorktreePath:      worktreePath,
+		ServerPort:        port,
+		OpenCodeSessionID: sessionID,
+	}
+	state := d.getOrCreateState(run)
+	state.CaptureEndpoint = "opencode:" + strconv.Itoa(port)
+	state.CaptureFailureCount = 3
+	state.CaptureRetryAt = time.Now().Add(-time.Second)
+	state.CaptureErrorKey = "opencode:old|connection-refused"
+	state.CaptureErrorLogAt = time.Now().Add(-2 * time.Minute)
+	state.SuppressedCaptureLogs = 5
+
+	st := &mockStoreForUpdate{issue: &model.Issue{ID: "orch-427", Status: model.IssueStatusOpen}}
+	if err := d.monitorRun(run, st); err != nil {
+		t.Fatalf("monitorRun() error = %v", err)
+	}
+
+	if state.CaptureFailureCount != 0 {
+		t.Fatalf("expected capture failure count reset, got %d", state.CaptureFailureCount)
+	}
+	if !state.CaptureRetryAt.IsZero() {
+		t.Fatalf("expected capture retry time reset, got %s", state.CaptureRetryAt)
+	}
+	if state.CaptureEndpoint != "" {
+		t.Fatalf("expected capture endpoint reset, got %q", state.CaptureEndpoint)
+	}
+	if state.SuppressedCaptureLogs != 0 {
+		t.Fatalf("expected suppressed log counter reset, got %d", state.SuppressedCaptureLogs)
+	}
+	if state.LastOutput == "" {
+		t.Fatal("expected successful capture to update last output")
+	}
+}
+
+func testPortFromURL(t *testing.T, rawURL string) int {
+	t.Helper()
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("parse URL: %v", err)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		t.Fatalf("parse port: %v", err)
+	}
+	return port
 }
