@@ -26,6 +26,7 @@ import (
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/multiplexer"
 	"github.com/s22625/orch/internal/store"
 	"github.com/s22625/orch/internal/xdg"
 	"google.golang.org/protobuf/proto"
@@ -2523,40 +2524,150 @@ func TestProcessSendMessageValidation(t *testing.T) {
 	})
 }
 
-func TestTmuxSubmitKeyForAgent(t *testing.T) {
-	tests := []struct {
-		name    string
-		agent   string
-		wantKey string
-	}{
-		{
-			name:    "codex uses carriage return submit key",
-			agent:   "codex",
-			wantKey: "C-m",
-		},
-		{
-			name:    "codex matching is case insensitive",
-			agent:   "CODEX",
-			wantKey: "C-m",
-		},
-		{
-			name:    "claude keeps default enter key",
-			agent:   "claude",
-			wantKey: "Enter",
-		},
-		{
-			name:    "unknown agents keep default enter key",
-			agent:   "custom-agent",
-			wantKey: "Enter",
-		},
+type sendCall struct {
+	session string
+	keys    string
+}
+
+type mockSendMux struct {
+	hasSession bool
+	sendErr    error
+	muxType    multiplexer.Type
+
+	sendKeysCalls        []sendCall
+	sendKeysLiteralCalls []sendCall
+	sendTextCalls        []sendCall
+}
+
+func (m *mockSendMux) Type() multiplexer.Type {
+	return m.muxType
+}
+
+func (m *mockSendMux) HasSession(name string) bool {
+	return m.hasSession
+}
+
+func (m *mockSendMux) SendKeys(session, keys string) error {
+	m.sendKeysCalls = append(m.sendKeysCalls, sendCall{session: session, keys: keys})
+	return m.sendErr
+}
+
+func (m *mockSendMux) SendKeysLiteral(session, keys string) error {
+	m.sendKeysLiteralCalls = append(m.sendKeysLiteralCalls, sendCall{session: session, keys: keys})
+	return m.sendErr
+}
+
+func (m *mockSendMux) SendText(session, text string) error {
+	m.sendTextCalls = append(m.sendTextCalls, sendCall{session: session, keys: text})
+	return m.sendErr
+}
+
+func TestProcessSendTmuxCodexSendsWithSubmit(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	mockMux := &mockSendMux{hasSession: true, muxType: multiplexer.TypeTmux}
+	prev := getSendMultiplexer
+	prevDelay := codexTmuxSubmitDelay
+	getSendMultiplexer = func() sendMultiplexer { return mockMux }
+	codexTmuxSubmitDelay = 0
+	defer func() {
+		getSendMultiplexer = prev
+		codexTmuxSubmitDelay = prevDelay
+	}()
+
+	run := &model.Run{
+		IssueID:     "issue-1",
+		RunID:       "run-1",
+		SessionName: "run-issue-1-run-1",
+		Agent:       string(agent.AgentCodex),
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := tmuxSubmitKeyForAgent(tt.agent)
-			if got != tt.wantKey {
-				t.Fatalf("tmuxSubmitKeyForAgent(%q) = %q, want %q", tt.agent, got, tt.wantKey)
-			}
-		})
+	if err := server.processSendTmux(run, "please continue", false); err != nil {
+		t.Fatalf("processSendTmux() error = %v", err)
+	}
+
+	if len(mockMux.sendKeysLiteralCalls) != 1 {
+		t.Fatalf("SendKeysLiteral calls = %d, want 1", len(mockMux.sendKeysLiteralCalls))
+	}
+	if got := mockMux.sendKeysLiteralCalls[0]; got.session != run.SessionName || got.keys != "please continue" {
+		t.Fatalf("SendKeysLiteral call = (%q, %q), want (%q, %q)", got.session, got.keys, run.SessionName, "please continue")
+	}
+	if len(mockMux.sendTextCalls) != 1 {
+		t.Fatalf("SendText calls = %d, want 1", len(mockMux.sendTextCalls))
+	}
+	if got := mockMux.sendTextCalls[0]; got.session != run.SessionName || got.keys != tmuxSubmitKeyEnter {
+		t.Fatalf("SendText call = (%q, %q), want (%q, %q)", got.session, got.keys, run.SessionName, tmuxSubmitKeyEnter)
+	}
+	if len(mockMux.sendKeysCalls) != 0 {
+		t.Fatalf("SendKeys calls = %d, want 0", len(mockMux.sendKeysCalls))
+	}
+}
+
+func TestProcessSendTmuxNoEnterUsesLiteral(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	mockMux := &mockSendMux{hasSession: true}
+	prev := getSendMultiplexer
+	getSendMultiplexer = func() sendMultiplexer { return mockMux }
+	defer func() { getSendMultiplexer = prev }()
+
+	run := &model.Run{
+		IssueID:     "issue-1",
+		RunID:       "run-1",
+		SessionName: "run-issue-1-run-1",
+		Agent:       string(agent.AgentCodex),
+	}
+
+	if err := server.processSendTmux(run, "partial input", true); err != nil {
+		t.Fatalf("processSendTmux() error = %v", err)
+	}
+
+	if len(mockMux.sendKeysLiteralCalls) != 1 {
+		t.Fatalf("SendKeysLiteral calls = %d, want 1", len(mockMux.sendKeysLiteralCalls))
+	}
+	if got := mockMux.sendKeysLiteralCalls[0]; got.session != run.SessionName || got.keys != "partial input" {
+		t.Fatalf("SendKeysLiteral call = (%q, %q), want (%q, %q)", got.session, got.keys, run.SessionName, "partial input")
+	}
+	if len(mockMux.sendKeysCalls) != 0 {
+		t.Fatalf("SendKeys calls = %d, want 0", len(mockMux.sendKeysCalls))
+	}
+	if len(mockMux.sendTextCalls) != 0 {
+		t.Fatalf("SendText calls = %d, want 0", len(mockMux.sendTextCalls))
+	}
+}
+
+func TestProcessSendTmuxNonCodexUsesSendKeys(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	mockMux := &mockSendMux{hasSession: true, muxType: multiplexer.TypeTmux}
+	prev := getSendMultiplexer
+	getSendMultiplexer = func() sendMultiplexer { return mockMux }
+	defer func() { getSendMultiplexer = prev }()
+
+	run := &model.Run{
+		IssueID:     "issue-1",
+		RunID:       "run-1",
+		SessionName: "run-issue-1-run-1",
+		Agent:       string(agent.AgentClaude),
+	}
+
+	if err := server.processSendTmux(run, "continue", false); err != nil {
+		t.Fatalf("processSendTmux() error = %v", err)
+	}
+
+	if len(mockMux.sendKeysCalls) != 1 {
+		t.Fatalf("SendKeys calls = %d, want 1", len(mockMux.sendKeysCalls))
+	}
+	if got := mockMux.sendKeysCalls[0]; got.session != run.SessionName || got.keys != "continue" {
+		t.Fatalf("SendKeys call = (%q, %q), want (%q, %q)", got.session, got.keys, run.SessionName, "continue")
+	}
+	if len(mockMux.sendKeysLiteralCalls) != 0 {
+		t.Fatalf("SendKeysLiteral calls = %d, want 0", len(mockMux.sendKeysLiteralCalls))
+	}
+	if len(mockMux.sendTextCalls) != 0 {
+		t.Fatalf("SendText calls = %d, want 0", len(mockMux.sendTextCalls))
 	}
 }

@@ -31,15 +31,27 @@ import (
 const (
 	socketFile                  = "daemon.sock"
 	openCodeControlSessionTitle = "orch-control"
-	tmuxSubmitKeyDefault        = "Enter"
-	tmuxSubmitKeyCodex          = "C-m"
+	tmuxSubmitKeyEnter          = "Enter"
 )
 
 var (
 	// Keep opencode send ACK timeout short so `orch send` returns quickly after
 	// the server accepts the message.
 	openCodeSendAckTimeout = 10 * time.Second
+	codexTmuxSubmitDelay   = 250 * time.Millisecond
+
+	getSendMultiplexer = func() sendMultiplexer {
+		return multiplexer.GetDefault()
+	}
 )
+
+type sendMultiplexer interface {
+	Type() multiplexer.Type
+	HasSession(name string) bool
+	SendKeys(session, keys string) error
+	SendKeysLiteral(session, keys string) error
+	SendText(session, text string) error
+}
 
 func readAll(conn net.Conn) ([]byte, error) {
 	var data []byte
@@ -1850,7 +1862,7 @@ func (s *SocketServer) processSendTmux(run *model.Run, message string, noEnter b
 		sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
 	}
 
-	mux := multiplexer.GetDefault()
+	mux := getSendMultiplexer()
 	if mux == nil {
 		return fmt.Errorf("no multiplexer available")
 	}
@@ -1859,14 +1871,21 @@ func (s *SocketServer) processSendTmux(run *model.Run, message string, noEnter b
 		return &agent.SessionNotFoundError{SessionName: sessionName}
 	}
 
-	if err := mux.SendKeysLiteral(sessionName, message); err != nil {
-		return fmt.Errorf("failed to send keys: %w", err)
-	}
-
-	if !noEnter {
-		submitKey := tmuxSubmitKeyForAgent(run.Agent)
-		if err := mux.SendText(sessionName, submitKey); err != nil {
+	if noEnter {
+		if err := mux.SendKeysLiteral(sessionName, message); err != nil {
+			return fmt.Errorf("failed to send keys: %w", err)
+		}
+	} else if useCodexTmuxSubmitDelay(run, mux) {
+		if err := mux.SendKeysLiteral(sessionName, message); err != nil {
+			return fmt.Errorf("failed to send keys: %w", err)
+		}
+		time.Sleep(codexTmuxSubmitDelay)
+		if err := mux.SendText(sessionName, tmuxSubmitKeyEnter); err != nil {
 			return fmt.Errorf("failed to send submit key: %w", err)
+		}
+	} else {
+		if err := mux.SendKeys(sessionName, message); err != nil {
+			return fmt.Errorf("failed to send keys: %w", err)
 		}
 	}
 
@@ -1874,11 +1893,16 @@ func (s *SocketServer) processSendTmux(run *model.Run, message string, noEnter b
 	return nil
 }
 
-func tmuxSubmitKeyForAgent(agentName string) string {
-	if strings.EqualFold(agentName, string(agent.AgentCodex)) {
-		return tmuxSubmitKeyCodex
+func useCodexTmuxSubmitDelay(run *model.Run, mux sendMultiplexer) bool {
+	if run == nil || !strings.EqualFold(run.Agent, string(agent.AgentCodex)) {
+		return false
 	}
-	return tmuxSubmitKeyDefault
+
+	if strings.EqualFold(run.Multiplexer, string(multiplexer.TypeTmux)) {
+		return true
+	}
+
+	return mux != nil && mux.Type() == multiplexer.TypeTmux
 }
 
 func (s *SocketServer) processSendMessage(st store.Store, params *SendMessageParams) error {
