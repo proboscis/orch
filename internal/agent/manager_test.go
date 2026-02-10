@@ -623,13 +623,13 @@ func TestFormatOpenCodeMessages(t *testing.T) {
 		name     string
 		messages []Message
 		maxLines int
-		wantLen  int
+		want     string
 	}{
 		{
 			name:     "empty messages",
 			messages: []Message{},
 			maxLines: 10,
-			wantLen:  0,
+			want:     "",
 		},
 		{
 			name: "single message",
@@ -640,7 +640,7 @@ func TestFormatOpenCodeMessages(t *testing.T) {
 				},
 			},
 			maxLines: 10,
-			wantLen:  2,
+			want:     "--- [USER] ---\nHello world",
 		},
 		{
 			name: "multiple messages",
@@ -655,7 +655,7 @@ func TestFormatOpenCodeMessages(t *testing.T) {
 				},
 			},
 			maxLines: 10,
-			wantLen:  4,
+			want:     "--- [USER] ---\nHello\n--- [ASSISTANT] ---\nHi there!",
 		},
 		{
 			name: "non-text parts ignored",
@@ -669,23 +669,72 @@ func TestFormatOpenCodeMessages(t *testing.T) {
 				},
 			},
 			maxLines: 10,
-			wantLen:  2,
+			want:     "--- [ASSISTANT] ---\nOnly this text",
+		},
+		{
+			name: "message with zero parts omitted",
+			messages: []Message{
+				{
+					Info:  MessageInfo{ID: "msg1", Role: "assistant"},
+					Parts: []MessagePart{},
+				},
+			},
+			maxLines: 10,
+			want:     "",
+		},
+		{
+			name: "tool-only message shows tool use count",
+			messages: []Message{
+				{
+					Info: MessageInfo{ID: "msg1", Role: "assistant"},
+					Parts: []MessagePart{
+						{Type: "tool_use", ToolName: "bash"},
+						{Type: "tool_use", ToolName: "read"},
+						{Type: "tool_use", ToolName: "write"},
+					},
+				},
+			},
+			maxLines: 10,
+			want:     "--- [ASSISTANT] --- (3 tool uses)",
+		},
+		{
+			name: "tool summary counts tool_use only",
+			messages: []Message{
+				{
+					Info: MessageInfo{ID: "msg1", Role: "assistant"},
+					Parts: []MessagePart{
+						{Type: "tool_use", ToolName: "bash"},
+						{Type: "tool_result", Text: "ok"},
+						{Type: "thinking", Text: "thinking"},
+						{Type: "tool_use", ToolName: "read"},
+					},
+				},
+			},
+			maxLines: 10,
+			want:     "--- [ASSISTANT] --- (2 tool uses)",
+		},
+		{
+			name: "mixed text and tool parts keeps normal text display",
+			messages: []Message{
+				{
+					Info: MessageInfo{ID: "msg1", Role: "assistant"},
+					Parts: []MessagePart{
+						{Type: "tool_use", ToolName: "bash"},
+						{Type: "text", Text: "Done"},
+						{Type: "tool_result", Text: "ok"},
+					},
+				},
+			},
+			maxLines: 10,
+			want:     "--- [ASSISTANT] ---\nDone",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := FormatOpenCodeMessages(tt.messages, tt.maxLines)
-
-			if len(tt.messages) == 0 {
-				if result != "" {
-					t.Errorf("expected empty string for empty messages, got %q", result)
-				}
-				return
-			}
-
-			if result == "" && tt.wantLen > 0 {
-				t.Errorf("expected non-empty result")
+			if result != tt.want {
+				t.Errorf("FormatOpenCodeMessages() = %q, want %q", result, tt.want)
 			}
 		})
 	}

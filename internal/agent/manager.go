@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -270,19 +271,39 @@ func FormatOpenCodeMessages(messages []Message, maxLines int) string {
 	var allLines []string
 
 	for _, msg := range messages {
+		if len(msg.Parts) == 0 {
+			continue
+		}
+
 		role := strings.ToUpper(msg.Info.Role)
 		if role == "" {
 			role = "UNKNOWN"
 		}
 
-		allLines = append(allLines, "--- ["+role+"] ---")
+		header := "--- [" + role + "] ---"
+		var textLines []string
+		toolUseCount := 0
 
 		for _, part := range msg.Parts {
+			if part.Type == "tool_use" {
+				toolUseCount++
+			}
+
 			if part.Type != "text" || part.Text == "" {
 				continue
 			}
 			partLines := strings.Split(part.Text, "\n")
-			allLines = append(allLines, partLines...)
+			textLines = append(textLines, partLines...)
+		}
+
+		if len(textLines) > 0 {
+			allLines = append(allLines, header)
+			allLines = append(allLines, textLines...)
+			continue
+		}
+
+		if toolUseCount > 0 {
+			allLines = append(allLines, header+" ("+strconv.Itoa(toolUseCount)+" tool uses)")
 		}
 	}
 
