@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -19,6 +20,54 @@ import (
 type attachOptions struct {
 	Pane   string
 	Window string
+}
+
+type attachSessionMux interface {
+	IsInsideSession() bool
+	SwitchClient(session string) error
+	AttachSession(session string) error
+}
+
+type attachStreams struct {
+	stdin  io.Reader
+	stdout io.Writer
+	stderr io.Writer
+}
+
+type openCodeExecutor func(args []string, dir string, streams attachStreams) error
+
+type attachDeps struct {
+	getAPI             func() (orchapi.OrchAPI, error)
+	parseRunRef        func(string) (orchapi.RunRef, error)
+	getProjectRoot     func() (string, error)
+	parseMuxType       func(string) (multiplexer.Type, error)
+	getMuxAuto         func() (attachSessionMux, error)
+	getMuxWithFallback func(multiplexer.Type) (attachSessionMux, string, error)
+	attachOpenCode     func(*orchapi.AttachInfo, attachStreams) (int, error)
+	streams            attachStreams
+	exit               func(int)
+}
+
+func defaultAttachDeps() *attachDeps {
+	return &attachDeps{
+		getAPI:         getAPI,
+		parseRunRef:    orchapi.ParseRunRef,
+		getProjectRoot: getProjectRoot,
+		parseMuxType:   multiplexer.ParseType,
+		getMuxAuto: func() (attachSessionMux, error) {
+			return multiplexer.GetAuto()
+		},
+		getMuxWithFallback: func(t multiplexer.Type) (attachSessionMux, string, error) {
+			return multiplexer.GetWithFallback(t)
+		},
+		attachOpenCode: attachOpenCodeFromInfoWithExecutor,
+		streams: attachStreams{
+			stdin:  os.Stdin,
+			stdout: os.Stdout,
+			stderr: os.Stderr,
+		},
+		exit: os.Exit,
+	}
 }
 
 func newAttachCmd() *cobra.Command {
@@ -43,13 +92,17 @@ This allows manual interaction with the agent, including image paste support.`,
 }
 
 func runAttach(refStr string, opts *attachOptions) error {
+	return runAttachWithDeps(refStr, opts, defaultAttachDeps())
+}
+
+func runAttachWithDeps(refStr string, opts *attachOptions, deps *attachDeps) error {
 	ctx := context.Background()
-	api, err := getAPI()
+	api, err := deps.getAPI()
 	if err != nil {
 		return err
 	}
 
-	ref, err := orchapi.ParseRunRef(refStr)
+	ref, err := deps.parseRunRef(refStr)
 	if err != nil {
 		return err
 	}
@@ -57,22 +110,26 @@ func runAttach(refStr string, opts *attachOptions) error {
 	info, err := api.GetAttachInfo(ctx, ref)
 	if err != nil {
 		if errors.Is(err, orchapi.ErrNotFound) {
-			fmt.Fprintf(os.Stderr, "run not found: %s\n", refStr)
-			os.Exit(ExitRunNotFound)
+			fmt.Fprintf(deps.streams.stderr, "run not found: %s\n", refStr)
+			deps.exit(ExitRunNotFound)
 			return err
 		}
 		return err
 	}
 
 	if !info.SessionExists {
-		fmt.Fprintf(os.Stderr, "cannot attach: session not found (session: %s, worktree: %s)\n",
+		fmt.Fprintf(deps.streams.stderr, "cannot attach: session not found (session: %s, worktree: %s)\n",
 			info.SessionName, info.WorktreePath)
-		os.Exit(ExitRunNotFound)
+		deps.exit(ExitRunNotFound)
 		return fmt.Errorf("cannot attach: session not found")
 	}
 
 	if info.Agent == string(agent.AgentOpenCode) {
-		return attachOpenCodeFromInfo(info)
+		exitCode, attachErr := deps.attachOpenCode(info, deps.streams)
+		if exitCode != 0 {
+			deps.exit(exitCode)
+		}
+		return attachErr
 	}
 
 	sessionName := info.SessionName
@@ -80,38 +137,42 @@ func runAttach(refStr string, opts *attachOptions) error {
 		sessionName = model.GenerateSessionName(info.IssueID, info.RunID)
 	}
 
-	projectRoot, _ := getProjectRoot()
+	projectRoot, _ := deps.getProjectRoot()
 	cfg, _ := api.GetConfig(ctx, projectRoot)
 
-	muxType, _ := multiplexer.ParseType(cfg.AgentMultiplexer)
+	muxSetting := ""
+	if cfg != nil {
+		muxSetting = cfg.AgentMultiplexer
+	}
+	muxType, _ := deps.parseMuxType(muxSetting)
 	if info.Multiplexer != "" {
-		muxType, _ = multiplexer.ParseType(string(info.Multiplexer))
+		muxType, _ = deps.parseMuxType(string(info.Multiplexer))
 	}
 
-	var mux multiplexer.Multiplexer
+	var mux attachSessionMux
 	if muxType == multiplexer.TypeAuto {
-		mux, err = multiplexer.GetAuto()
+		mux, err = deps.getMuxAuto()
 	} else {
 		var warning string
-		mux, warning, err = multiplexer.GetWithFallback(muxType)
+		mux, warning, err = deps.getMuxWithFallback(muxType)
 		if warning != "" {
-			fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
+			fmt.Fprintf(deps.streams.stderr, "warning: %s\n", warning)
 		}
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "no multiplexer available: %v\n", err)
-		os.Exit(ExitTmuxError)
+		fmt.Fprintf(deps.streams.stderr, "no multiplexer available: %v\n", err)
+		deps.exit(ExitTmuxError)
 		return err
 	}
 
 	if mux.IsInsideSession() {
 		if err := mux.SwitchClient(sessionName); err != nil {
-			os.Exit(ExitTmuxError)
+			deps.exit(ExitTmuxError)
 			return err
 		}
 	} else {
 		if err := mux.AttachSession(sessionName); err != nil {
-			os.Exit(ExitTmuxError)
+			deps.exit(ExitTmuxError)
 			return err
 		}
 	}
@@ -120,23 +181,33 @@ func runAttach(refStr string, opts *attachOptions) error {
 }
 
 func attachOpenCodeFromInfo(info *orchapi.AttachInfo) error {
+	exitCode, err := attachOpenCodeFromInfoWithExecutor(info, attachStreams{
+		stdin:  os.Stdin,
+		stdout: os.Stdout,
+		stderr: os.Stderr,
+	})
+	if exitCode != 0 {
+		os.Exit(exitCode)
+	}
+	return err
+}
+
+func attachOpenCodeFromInfoWithExecutor(info *orchapi.AttachInfo, streams attachStreams) (int, error) {
 	if info.ServerPort == 0 && info.OpenCodeSessionID == "" {
-		fmt.Fprintf(os.Stderr, "no server port or session found for opencode run: %s#%s\n", info.IssueID, info.RunID)
-		os.Exit(ExitRunNotFound)
-		return fmt.Errorf("no server port or session found")
+		fmt.Fprintf(streams.stderr, "no server port or session found for opencode run: %s#%s\n", info.IssueID, info.RunID)
+		return ExitRunNotFound, fmt.Errorf("no server port or session found")
 	}
 
 	if info.ServerPort > 0 && isPortOpen(info.ServerPort) {
-		return attachToRunningOpenCode(info)
+		return attachToRunningOpenCodeWithExecutor(info, streams)
 	}
 
 	if info.OpenCodeSessionID != "" && info.WorktreePath != "" {
-		return resumeOpenCodeSession(info)
+		return resumeOpenCodeSessionWithExecutor(info, streams)
 	}
 
-	fmt.Fprintf(os.Stderr, "opencode server not running and no session to resume\n")
-	os.Exit(ExitRunNotFound)
-	return fmt.Errorf("cannot attach")
+	fmt.Fprintf(streams.stderr, "opencode server not running and no session to resume\n")
+	return ExitRunNotFound, fmt.Errorf("cannot attach")
 }
 
 func isPortOpen(port int) bool {
@@ -148,12 +219,33 @@ func isPortOpen(port int) bool {
 	return true
 }
 
+var runOpenCodeCommand = func(args []string, dir string, streams attachStreams) error {
+	cmd := exec.Command("opencode", args...)
+	cmd.Dir = dir
+	cmd.Stdin = streams.stdin
+	cmd.Stdout = streams.stdout
+	cmd.Stderr = streams.stderr
+	return cmd.Run()
+}
+
 func attachToRunningOpenCode(info *orchapi.AttachInfo) error {
+	exitCode, err := attachToRunningOpenCodeWithExecutor(info, attachStreams{
+		stdin:  os.Stdin,
+		stdout: os.Stdout,
+		stderr: os.Stderr,
+	})
+	if exitCode != 0 {
+		os.Exit(exitCode)
+	}
+	return err
+}
+
+func attachToRunningOpenCodeWithExecutor(info *orchapi.AttachInfo, streams attachStreams) (int, error) {
 	serverURL := fmt.Sprintf("http://127.0.0.1:%d", info.ServerPort)
 
-	fmt.Fprintf(os.Stderr, "Attaching to opencode server: %s\n", serverURL)
-	fmt.Fprintf(os.Stderr, "Session: %s\n", info.OpenCodeSessionID)
-	fmt.Fprintf(os.Stderr, "Worktree: %s\n\n", info.WorktreePath)
+	fmt.Fprintf(streams.stderr, "Attaching to opencode server: %s\n", serverURL)
+	fmt.Fprintf(streams.stderr, "Session: %s\n", info.OpenCodeSessionID)
+	fmt.Fprintf(streams.stderr, "Worktree: %s\n\n", info.WorktreePath)
 
 	args := []string{"attach", serverURL}
 	if info.OpenCodeSessionID != "" {
@@ -163,42 +255,41 @@ func attachToRunningOpenCode(info *orchapi.AttachInfo) error {
 		args = append(args, "--dir", info.WorktreePath)
 	}
 
-	cmd := exec.Command("opencode", args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to attach to opencode: %v\n", err)
-		fmt.Fprintf(os.Stderr, "\nManual: opencode attach %s --session %s --dir %s\n",
+	if err := runOpenCodeCommand(args, "", streams); err != nil {
+		fmt.Fprintf(streams.stderr, "failed to attach to opencode: %v\n", err)
+		fmt.Fprintf(streams.stderr, "\nManual: opencode attach %s --session %s --dir %s\n",
 			serverURL, info.OpenCodeSessionID, info.WorktreePath)
-		os.Exit(ExitTmuxError)
-		return err
+		return ExitTmuxError, err
 	}
 
-	return nil
+	return 0, nil
 }
 
 func resumeOpenCodeSession(info *orchapi.AttachInfo) error {
-	fmt.Fprintf(os.Stderr, "Server not running, resuming session in worktree\n")
-	fmt.Fprintf(os.Stderr, "Session: %s\n", info.OpenCodeSessionID)
-	fmt.Fprintf(os.Stderr, "Worktree: %s\n\n", info.WorktreePath)
+	exitCode, err := resumeOpenCodeSessionWithExecutor(info, attachStreams{
+		stdin:  os.Stdin,
+		stdout: os.Stdout,
+		stderr: os.Stderr,
+	})
+	if exitCode != 0 {
+		os.Exit(exitCode)
+	}
+	return err
+}
+
+func resumeOpenCodeSessionWithExecutor(info *orchapi.AttachInfo, streams attachStreams) (int, error) {
+	fmt.Fprintf(streams.stderr, "Server not running, resuming session in worktree\n")
+	fmt.Fprintf(streams.stderr, "Session: %s\n", info.OpenCodeSessionID)
+	fmt.Fprintf(streams.stderr, "Worktree: %s\n\n", info.WorktreePath)
 
 	args := []string{"--session", info.OpenCodeSessionID, info.WorktreePath}
 
-	cmd := exec.Command("opencode", args...)
-	cmd.Dir = info.WorktreePath
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to resume opencode session: %v\n", err)
-		fmt.Fprintf(os.Stderr, "\nManual: cd %s && opencode --session %s\n",
+	if err := runOpenCodeCommand(args, info.WorktreePath, streams); err != nil {
+		fmt.Fprintf(streams.stderr, "failed to resume opencode session: %v\n", err)
+		fmt.Fprintf(streams.stderr, "\nManual: cd %s && opencode --session %s\n",
 			info.WorktreePath, info.OpenCodeSessionID)
-		os.Exit(ExitTmuxError)
-		return err
+		return ExitTmuxError, err
 	}
 
-	return nil
+	return 0, nil
 }
