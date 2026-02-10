@@ -114,6 +114,8 @@ type RunSummary struct {
 	PRState           string         `json:"pr_state,omitempty"`
 	ServerPort        int            `json:"server_port,omitempty"`
 	OpenCodeSessionID string         `json:"opencode_session_id,omitempty"`
+	IssueStatus       string         `json:"issue_status,omitempty"`
+	IssueTopic        string         `json:"issue_topic,omitempty"`
 	Additions         int            `json:"additions"`
 	Deletions         int            `json:"deletions"`
 	DiffStats         *DiffStatsJSON `json:"diff_stats,omitempty"`
@@ -156,6 +158,8 @@ type RunFull struct {
 	PRState           string         `json:"pr_state,omitempty"`
 	ServerPort        int            `json:"server_port,omitempty"`
 	OpenCodeSessionID string         `json:"opencode_session_id,omitempty"`
+	IssueStatus       string         `json:"issue_status,omitempty"`
+	IssueTopic        string         `json:"issue_topic,omitempty"`
 	ContinuedFrom     string         `json:"continued_from,omitempty"`
 	DiffStats         *DiffStatsJSON `json:"diff_stats,omitempty"`
 	BranchState       string         `json:"branch_state,omitempty"`
@@ -580,6 +584,15 @@ type StartRunResponse struct {
 	Status       string `json:"status,omitempty"`
 }
 
+// StartRunResult holds the success data from a start_run operation (no OK/Error).
+type StartRunResult struct {
+	RunID        string
+	Branch       string
+	WorktreePath string
+	SessionName  string
+	Status       string
+}
+
 type ContinueRunOptions struct {
 	IssueID        string
 	RunID          string
@@ -610,6 +623,17 @@ type ContinueRunResponse struct {
 	IssueID       string `json:"issue_id,omitempty"`
 }
 
+// ContinueRunResult holds the success data from a continue_run operation (no OK/Error).
+type ContinueRunResult struct {
+	RunID         string
+	Branch        string
+	WorktreePath  string
+	SessionName   string
+	Status        string
+	ContinuedFrom string
+	IssueID       string
+}
+
 type StopRunResponse struct {
 	OK           bool     `json:"ok"`
 	Error        string   `json:"error,omitempty"`
@@ -635,6 +659,11 @@ type CreateIssueResponse struct {
 	Error   string `json:"error,omitempty"`
 	IssueID string `json:"issue_id,omitempty"`
 	Path    string `json:"path,omitempty"`
+}
+
+type CreateIssueResult struct {
+	IssueID string
+	Path    string
 }
 
 type CloseIssueResponse struct {
@@ -665,6 +694,35 @@ type GetControlAgentLaunchResponse struct {
 	Port       int    `json:"port,omitempty"`
 	SessionID  string `json:"session_id,omitempty"`
 	Agent      string `json:"agent,omitempty"`
+}
+
+type ControlAgentLaunchParams struct {
+	ProjectRoot string
+	IssuesRoot  string
+	Agent       string
+	NewSession  bool
+}
+
+type ControlAgentLaunchResult struct {
+	Command    string
+	PromptFile string
+	Port       int
+	SessionID  string
+	Agent      string
+}
+
+type SendMessageParams struct {
+	IssueID    string
+	RunID      string
+	Message    string
+	IssuesRoot string
+}
+
+type CreateIssueParams struct {
+	IssueID string
+	Title   string
+	Body    string
+	Summary string
 }
 
 type CaptureSessionResponse struct {

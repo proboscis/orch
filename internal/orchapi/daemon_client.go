@@ -3,6 +3,7 @@ package orchapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/s22625/orch/internal/daemon"
@@ -11,6 +12,11 @@ import (
 type DaemonClient struct {
 	proto *daemon.ProtoClient
 }
+
+const (
+	daemonRepairTimeout = 2 * time.Second
+	daemonRetryInterval = 100 * time.Millisecond
+)
 
 func NewDaemonClient(projectRoot, issuesRoot string) *DaemonClient {
 	return &DaemonClient{
@@ -24,6 +30,47 @@ func (c *DaemonClient) IsAvailable() bool {
 
 func (c *DaemonClient) Ping(ctx context.Context) error {
 	return c.proto.Ping()
+}
+
+func (c *DaemonClient) EnsureDaemonHealthy(ctx context.Context) error {
+	if err := c.proto.Ping(); err == nil {
+		return nil
+	}
+
+	if daemon.IsRunning("") {
+		if err := daemon.KillDaemon(""); err != nil {
+			return fmt.Errorf("failed to kill stale daemon: %w", err)
+		}
+		time.Sleep(daemonRetryInterval)
+	}
+
+	if _, err := daemon.StartInBackground(); err != nil {
+		return fmt.Errorf("failed to start daemon: %w", err)
+	}
+
+	deadline := time.Now().Add(daemonRepairTimeout)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		if ctx != nil {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+		}
+
+		time.Sleep(daemonRetryInterval)
+		if err := c.proto.Ping(); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+	}
+
+	if lastErr != nil {
+		return fmt.Errorf("daemon did not become healthy within %v: %w", daemonRepairTimeout, lastErr)
+	}
+	return fmt.Errorf("daemon did not become healthy within %v", daemonRepairTimeout)
 }
 
 func (c *DaemonClient) GetIssue(ctx context.Context, issueID string) (*Issue, error) {
@@ -384,6 +431,22 @@ func (c *DaemonClient) EnsureOpenCodeServer(ctx context.Context, projectRoot str
 	}, nil
 }
 
+func (c *DaemonClient) RegisterMonitor(ctx context.Context, pid int, monitorType, view, project, sessionName string) (*MonitorRegistration, error) {
+	resp, err := c.proto.RegisterMonitor(pid, monitorType, view, project, sessionName)
+	if err != nil {
+		return nil, err
+	}
+	return &MonitorRegistration{MonitorID: resp.MonitorID}, nil
+}
+
+func (c *DaemonClient) MonitorHeartbeat(ctx context.Context, monitorID string) error {
+	return c.proto.MonitorHeartbeat(monitorID)
+}
+
+func (c *DaemonClient) UnregisterMonitor(ctx context.Context, monitorID string) error {
+	return c.proto.UnregisterMonitor(monitorID)
+}
+
 func (c *DaemonClient) QueryOpenCodeServer(ctx context.Context, port int) (*QueryOpenCodeServerResult, error) {
 	resp, err := c.proto.QueryOpenCodeServer(port)
 	if err != nil {
@@ -491,6 +554,8 @@ func runFromDaemonFull(r *daemon.RunFull) *Run {
 		IssueID:           r.IssueID,
 		RunID:             r.RunID,
 		ShortID:           r.ShortID,
+		IssueStatus:       r.IssueStatus,
+		IssueTopic:        r.IssueTopic,
 		Status:            RunStatus(r.Status),
 		IsActive:          r.IsActive,
 		IsTerminal:        r.IsTerminal,
@@ -542,6 +607,8 @@ func runFromDaemonSummary(r *daemon.RunSummary) *Run {
 		IssueID:           r.IssueID,
 		RunID:             r.RunID,
 		ShortID:           r.ShortID,
+		IssueStatus:       r.IssueStatus,
+		IssueTopic:        r.IssueTopic,
 		Status:            RunStatus(r.Status),
 		IsActive:          r.IsActive,
 		IsTerminal:        r.IsTerminal,

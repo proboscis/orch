@@ -79,6 +79,11 @@ message Run {
   string continued_from = 19;
   int32 pr_number = 20;
   string pr_state = 21;
+  string issue_status = 22;
+  string issue_topic = 23;
+  bool alive = 24;
+  bool alive_known = 25;
+  bool worktree_exists = 26;
 }
 
 message Issue {

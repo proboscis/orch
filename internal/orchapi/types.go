@@ -133,6 +133,8 @@ type Run struct {
 	IssueID           string
 	RunID             string
 	ShortID           string
+	IssueStatus       string
+	IssueTopic        string
 	Status            RunStatus
 	IsActive          bool
 	IsTerminal        bool
@@ -203,6 +205,10 @@ type CaptureResult struct {
 type OpenCodeServerInfo struct {
 	Port    int
 	Healthy bool
+}
+
+type MonitorRegistration struct {
+	MonitorID string
 }
 
 type ListIssuesFilter struct {

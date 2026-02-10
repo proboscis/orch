@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -278,6 +277,7 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 	enrichStart := time.Now()
 	protoRuns := make([]*orchpb.Run, len(paginatedRuns))
 	protoRuns = enrichRunsParallel(paginatedRuns, protoRuns)
+	applyIssueMetadataToRuns(st, paginatedRuns, protoRuns)
 	enrichDuration := time.Since(enrichStart)
 
 	s.maybeLogListRunsTiming(req, len(paginatedRuns), storeDuration, enrichDuration, time.Since(requestStart), nil)
@@ -296,6 +296,41 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 				NextCursor: nextCursor,
 			},
 		},
+	}
+}
+
+func applyIssueMetadataToRuns(st store.Store, runs []*model.Run, protoRuns []*orchpb.Run) {
+	if st == nil || len(runs) == 0 || len(protoRuns) == 0 {
+		return
+	}
+
+	issues, err := st.ListIssues()
+	if err != nil || len(issues) == 0 {
+		return
+	}
+
+	byID := make(map[string]*model.Issue, len(issues))
+	for _, issue := range issues {
+		if issue == nil {
+			continue
+		}
+		byID[issue.ID] = issue
+	}
+
+	for i, run := range runs {
+		if i >= len(protoRuns) || run == nil || protoRuns[i] == nil {
+			continue
+		}
+		issue := byID[run.IssueID]
+		if issue == nil {
+			continue
+		}
+		protoRuns[i].IssueStatus = string(issue.Status)
+		if issue.Topic != "" {
+			protoRuns[i].IssueTopic = issue.Topic
+		} else {
+			protoRuns[i].IssueTopic = issue.Summary
+		}
 	}
 }
 
@@ -537,11 +572,22 @@ func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Resp
 }
 
 func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.Response {
-	jsonReq := SendRequest{
-		Type:           "start_run",
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	projectRoot := req.ProjectRoot
+	if projectRoot == "" {
+		projectRoot = os.Getenv("ORCH_PROJECT_ROOT")
+	}
+
+	opts := &StartRunOptions{
 		IssueID:        req.IssueId,
 		RunID:          req.RunId,
-		AgentType:      req.Agent,
+		Agent:          req.Agent,
+		AgentCmd:       req.AgentCmd,
+		AgentProfile:   req.AgentProfile,
 		Model:          req.Model,
 		ModelVariant:   req.ModelVariant,
 		BaseBranch:     req.BaseBranch,
@@ -552,24 +598,13 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		PRTargetBranch: req.PrTargetBranch,
 		DryRun:         req.DryRun,
 		Reuse:          req.Reuse,
-		AgentCmd:       req.AgentCmd,
-		AgentProfile:   req.AgentProfile,
 		Multiplexer:    req.Multiplexer,
-		IssuesRoot:     req.IssuesRoot,
-		ProjectRoot:    req.ProjectRoot,
+		ProjectRoot:    projectRoot,
 	}
 
-	var buf jsonCapture
-	encoder := json.NewEncoder(&buf)
-	s.handleStartRun(jsonReq, encoder)
-
-	var result StartRunResponse
-	if err := json.Unmarshal(buf.data, &result); err != nil {
-		return errorResponse("internal error")
-	}
-
-	if !result.OK {
-		return errorResponse(result.Error)
+	result, err := s.processStartRunCore(st, projectRoot, opts)
+	if err != nil {
+		return errorResponse(err.Error())
 	}
 
 	return &orchpb.Response{
@@ -587,18 +622,25 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 }
 
 func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *orchpb.Response {
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
 	projectRoot := req.ProjectRoot
 	if projectRoot == "" && req.RepoRoot != "" {
 		projectRoot = req.RepoRoot
 	}
+	if projectRoot == "" {
+		projectRoot = os.Getenv("ORCH_PROJECT_ROOT")
+	}
 
-	jsonReq := SendRequest{
-		Type:           "continue_run",
+	opts := &ContinueRunOptions{
 		IssueID:        req.IssueId,
 		RunID:          req.RunId,
 		ShortID:        req.ShortId,
 		Branch:         req.Branch,
-		AgentType:      req.Agent,
+		Agent:          req.Agent,
 		AgentCmd:       req.AgentCmd,
 		AgentProfile:   req.AgentProfile,
 		WorktreeDir:    req.WorktreeDir,
@@ -607,21 +649,13 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 		PRTargetBranch: req.PrTargetBranch,
 		Multiplexer:    req.Multiplexer,
 		SessionName:    req.SessionName,
-		IssuesRoot:     req.IssuesRoot,
 		ProjectRoot:    projectRoot,
+		RepoRoot:       req.RepoRoot,
 	}
 
-	var buf jsonCapture
-	encoder := json.NewEncoder(&buf)
-	s.handleContinueRun(jsonReq, encoder)
-
-	var result ContinueRunResponse
-	if err := json.Unmarshal(buf.data, &result); err != nil {
-		return errorResponse("internal error")
-	}
-
-	if !result.OK {
-		return errorResponse(result.Error)
+	result, err := s.processContinueRunCore(st, projectRoot, opts)
+	if err != nil {
+		return errorResponse(err.Error())
 	}
 
 	return &orchpb.Response{
@@ -638,15 +672,6 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 			},
 		},
 	}
-}
-
-type jsonCapture struct {
-	data []byte
-}
-
-func (j *jsonCapture) Write(p []byte) (n int, err error) {
-	j.data = append(j.data, p...)
-	return len(p), nil
 }
 
 func (s *SocketServer) handleProtoStopRun(req *orchpb.StopRunRequest) *orchpb.Response {
@@ -807,25 +832,20 @@ func (s *SocketServer) handleProtoGetIssue(req *orchpb.GetIssueRequest) *orchpb.
 }
 
 func (s *SocketServer) handleProtoCreateIssue(req *orchpb.CreateIssueRequest) *orchpb.Response {
-	jsonReq := SendRequest{
-		Type:       "create_issue",
-		IssueID:    req.IssueId,
-		Title:      req.Title,
-		Body:       req.Body,
-		IssuesRoot: req.IssuesRoot,
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
 	}
 
-	var buf jsonCapture
-	encoder := json.NewEncoder(&buf)
-	s.handleCreateIssue(jsonReq, encoder)
-
-	var result CreateIssueResponse
-	if err := json.Unmarshal(buf.data, &result); err != nil {
-		return errorResponse("internal error")
+	params := &CreateIssueParams{
+		IssueID: req.IssueId,
+		Title:   req.Title,
+		Body:    req.Body,
 	}
 
-	if !result.OK {
-		return errorResponse(result.Error)
+	result, err := s.processCreateIssueCore(st, params)
+	if err != nil {
+		return errorResponse(err.Error())
 	}
 
 	return &orchpb.Response{
@@ -855,40 +875,38 @@ func (s *SocketServer) handleProtoCloseIssue(req *orchpb.CloseIssueRequest) *orc
 }
 
 func (s *SocketServer) handleProtoGetControlAgentLaunch(req *orchpb.GetControlAgentLaunchRequest) *orchpb.Response {
-	jsonReq := SendRequest{
-		Type:        "get_control_agent_launch",
+	issuesRoot := ""
+	if req.ProjectRoot != "" {
+		if cfg, err := config.LoadFromProjectRoot(req.ProjectRoot); err == nil && cfg != nil {
+			issuesRoot = cfg.GetIssuesPath()
+		}
+	}
+
+	st := s.resolveStoreFromProto(issuesRoot)
+	if st == nil {
+		return errorResponse("no store available for project")
+	}
+
+	params := &ControlAgentLaunchParams{
 		ProjectRoot: req.ProjectRoot,
-		AgentType:   req.Agent,
-		Force:       req.NewSession,
+		IssuesRoot:  issuesRoot,
+		Agent:       req.Agent,
+		NewSession:  req.NewSession,
 	}
 
-	var buf jsonCapture
-	encoder := json.NewEncoder(&buf)
-	s.handleGetControlAgentLaunch(jsonReq, encoder)
-
-	var result map[string]interface{}
-	if err := json.Unmarshal(buf.data, &result); err != nil {
-		return errorResponse("internal error")
+	result, err := s.processControlAgentLaunchCore(st, params)
+	if err != nil {
+		return errorResponse(err.Error())
 	}
-
-	if ok, _ := result["ok"].(bool); !ok {
-		errMsg, _ := result["error"].(string)
-		return errorResponse(errMsg)
-	}
-
-	command, _ := result["command"].(string)
-	promptFile, _ := result["prompt_file"].(string)
-	port, _ := result["port"].(float64)
-	sessionID, _ := result["session_id"].(string)
 
 	return &orchpb.Response{
 		Ok: true,
 		Response: &orchpb.Response_GetControlAgentLaunch{
 			GetControlAgentLaunch: &orchpb.GetControlAgentLaunchResponse{
-				Command:    command,
-				PromptFile: promptFile,
-				Port:       int32(port),
-				SessionId:  sessionID,
+				Command:    result.Command,
+				PromptFile: result.PromptFile,
+				Port:       int32(result.Port),
+				SessionId:  result.SessionID,
 			},
 		},
 	}
@@ -1031,15 +1049,19 @@ func (s *SocketServer) captureOpenCodeSession(run *model.Run) (string, string, e
 }
 
 func (s *SocketServer) handleProtoSendMessage(req *orchpb.SendMessageRequest) *orchpb.Response {
-	jsonReq := SendRequest{
-		Type:       "send",
+	st := s.resolveStoreFromProto(req.IssuesRoot)
+	if st == nil {
+		return errorResponse("no store available")
+	}
+
+	params := &SendMessageParams{
 		IssueID:    req.IssueId,
 		RunID:      req.RunId,
 		Message:    req.Message,
 		IssuesRoot: req.IssuesRoot,
 	}
 
-	if err := s.processSend(jsonReq); err != nil {
+	if err := s.processSendMessage(st, params); err != nil {
 		return errorResponse(err.Error())
 	}
 

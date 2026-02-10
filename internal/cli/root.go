@@ -216,5 +216,8 @@ func apiRunToModelRun(r *orchapi.Run) *model.Run {
 		ContinuedFrom:     r.ContinuedFrom,
 		StartedAt:         r.StartedAt,
 		UpdatedAt:         r.UpdatedAt,
+		Alive:             r.Alive,
+		AliveKnown:        r.AliveKnown,
+		WorktreeExists:    r.WorktreeExists,
 	}
 }

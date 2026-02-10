@@ -100,10 +100,14 @@ func runPs(opts *psOptions) error {
 	runs := make([]*model.Run, len(result.Runs))
 	aliveByRun := make(map[string]agentAliveInfo, len(result.Runs))
 	branchStateByRun := make(map[string]string, len(result.Runs))
+	issueCache := make(map[string]psIssueInfo, len(result.Runs))
 	for i, r := range result.Runs {
 		runs[i] = apiRunToModelRun(r)
 		aliveByRun[r.RunID] = agentAliveInfo{alive: r.Alive, known: r.AliveKnown}
 		branchStateByRun[r.RunID] = string(r.BranchState)
+		if _, ok := issueCache[r.IssueID]; !ok {
+			issueCache[r.IssueID] = psIssueInfo{status: r.IssueStatus, display: formatTopic(r.IssueTopic)}
+		}
 	}
 
 	issueStatusFilter := make(map[string]bool)
@@ -114,11 +118,13 @@ func runPs(opts *psOptions) error {
 		}
 	}
 
-	issueCache := make(map[string]psIssueInfo)
 	if len(issueStatusFilter) > 0 {
 		filteredRuns := make([]*model.Run, 0, len(runs))
 		for _, r := range runs {
-			info := resolveIssueInfoAPI(ctx, api, issueCache, r.IssueID)
+			info := issueCache[r.IssueID]
+			if info.status == "" {
+				info = resolveIssueInfoAPI(ctx, api, issueCache, r.IssueID)
+			}
 			if !issueStatusFilter[info.status] {
 				continue
 			}
@@ -129,10 +135,6 @@ func runPs(opts *psOptions) error {
 
 	if requestedLimit > 0 && len(runs) > requestedLimit {
 		runs = runs[:requestedLimit]
-	}
-
-	for _, r := range runs {
-		resolveIssueInfoAPI(ctx, api, issueCache, r.IssueID)
 	}
 
 	if opts.NoAlive {
@@ -383,7 +385,7 @@ func outputTableWithGitStates(runs []*model.Run, now time.Time, opts *psOptions,
 			updated = r.UpdatedAt.Format("01-02 15:04")
 		}
 		displayID := r.ShortID()
-		if _, err := os.Stat(r.WorktreePath); os.IsNotExist(err) {
+		if r.WorktreePath != "" && !r.WorktreeExists {
 			displayID += "*"
 		}
 

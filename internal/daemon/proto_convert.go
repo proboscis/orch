@@ -129,6 +129,9 @@ func modelRunToProto(run *model.Run) *orchpb.Run {
 		ContinuedFrom:     run.ContinuedFrom,
 		PrNumber:          int32(run.PRNumber),
 		PrState:           run.PRState,
+		Alive:             run.Alive,
+		AliveKnown:        run.AliveKnown,
+		WorktreeExists:    run.WorktreeExists,
 	}
 
 	return protoRun

@@ -1560,6 +1560,137 @@ func (s *SocketServer) handleGetControlAgentLaunch(req SendRequest, encoder *jso
 	})
 }
 
+func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *ControlAgentLaunchParams) (*ControlAgentLaunchResult, error) {
+	if params.ProjectRoot == "" {
+		return nil, fmt.Errorf("project_root required")
+	}
+
+	promptPath, err := s.writeControlPromptFile(st, params.ProjectRoot)
+	if err != nil {
+		s.logger.Printf("failed to write control prompt file: %v", err)
+		return nil, fmt.Errorf("failed to write control prompt file: %w", err)
+	}
+
+	cfg, cfgErr := config.Load()
+
+	agentName := params.Agent
+	if agentName == "" && cfgErr == nil {
+		agentName = cfg.ControlAgent
+		if agentName == "" {
+			agentName = cfg.Agent
+		}
+	}
+	if agentName == "" {
+		agentName = "opencode"
+	}
+
+	var modelName, modelVariant string
+	if cfgErr == nil {
+		modelName = cfg.ControlModel
+		if modelName == "" {
+			modelName = cfg.Model
+		}
+		modelVariant = cfg.ControlModelVariant
+		if modelVariant == "" {
+			modelVariant = cfg.ModelVariant
+		}
+	}
+
+	aType, err := agent.ParseAgentType(agentName)
+	if err != nil {
+		return nil, fmt.Errorf("invalid agent type: %w", err)
+	}
+
+	adapter, err := agent.GetAdapter(aType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get adapter: %w", err)
+	}
+
+	if !adapter.IsAvailable() {
+		return nil, fmt.Errorf("%s CLI not available", agentName)
+	}
+
+	prompt := getControlPromptInstruction()
+	var command string
+	var port int
+	var sessionID string
+	newSession := params.NewSession
+
+	if params.NewSession {
+		lock := s.getControlSessionLock(params.ProjectRoot)
+		lock.Lock()
+		sessionPath := s.controlSessionPath(params.ProjectRoot)
+		os.Remove(sessionPath)
+		lock.Unlock()
+	}
+
+	if adapter.PromptInjection() == agent.InjectionHTTP {
+		serverPort, err := s.ensureOpenCodeServerRunning(params.ProjectRoot)
+		if err != nil {
+			return nil, fmt.Errorf("failed to ensure opencode server: %w", err)
+		}
+		port = serverPort
+
+		session, err := s.getOrCreateOpenCodeControlSession(params.ProjectRoot, port)
+		if err != nil {
+			s.logger.Printf("warning: server running but failed to get session: %v", err)
+			command = fmt.Sprintf("opencode attach http://127.0.0.1:%d --dir %s", port, params.ProjectRoot)
+		} else {
+			sessionID = session
+			command = fmt.Sprintf("opencode attach http://127.0.0.1:%d --session %s --dir %s", port, sessionID, params.ProjectRoot)
+		}
+	} else {
+		var extraArgs []string
+		if cfgErr == nil {
+			extraArgs = cfg.GetControlExtraArgs(agentName)
+		}
+
+		launchCfg := &agent.LaunchConfig{
+			Type:            aType,
+			IssuesRoot:      st.RootPath(),
+			Prompt:          prompt,
+			ContinueSession: !newSession,
+			Model:           modelName,
+			ModelVariant:    modelVariant,
+			ExtraArgs:       extraArgs,
+		}
+
+		if agentName == "claude" && !newSession {
+			stored := s.getStoredControlSession(params.ProjectRoot)
+			if stored != "" {
+				launchCfg.Resume = true
+				launchCfg.SessionName = stored
+				sessionID = stored
+			} else {
+				discovered := s.discoverClaudeSession(params.ProjectRoot)
+				if discovered != "" {
+					launchCfg.Resume = true
+					launchCfg.SessionName = discovered
+					sessionID = discovered
+					s.saveControlSession(params.ProjectRoot, discovered, "claude")
+				}
+			}
+		}
+
+		cmd, err := adapter.LaunchCommand(launchCfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build launch command: %w", err)
+		}
+		command = cmd
+	}
+
+	s.logger.Printf("get_control_agent_launch: agent=%s, command=%s, port=%d, session=%s",
+		agentName, command, port, sessionID)
+
+	return &ControlAgentLaunchResult{
+		Command:    command,
+		PromptFile: promptPath,
+		Port:       port,
+		SessionID:  sessionID,
+		Agent:      agentName,
+	}, nil
+}
+
 // getStoredControlSession returns the stored session ID for a project, or empty string if none.
 func (s *SocketServer) getStoredControlSession(projectRoot string) string {
 	sessionPath := s.controlSessionPath(projectRoot)
@@ -1681,6 +1812,21 @@ func (s *SocketServer) processSendTmux(run *model.Run, message string, noEnter b
 
 	s.logger.Printf("message sent successfully to tmux session %s", sessionName)
 	return nil
+}
+
+func (s *SocketServer) processSendMessage(st store.Store, params *SendMessageParams) error {
+	s.logger.Printf("processing send for %s#%s", params.IssueID, params.RunID)
+
+	ref := &model.RunRef{IssueID: params.IssueID, RunID: params.RunID}
+	run, err := st.GetRun(ref)
+	if err != nil {
+		return fmt.Errorf("run %s#%s not found: %w", params.IssueID, params.RunID, err)
+	}
+
+	if run.Agent == string(agent.AgentOpenCode) {
+		return s.processSendOpenCode(st, ref, run, params.Message)
+	}
+	return s.processSendTmux(run, params.Message, false)
 }
 
 func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {
@@ -2309,6 +2455,619 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		SessionName:  sessionName,
 		Status:       string(model.StatusRunning),
 	})
+}
+
+func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, opts *StartRunOptions) (*StartRunResult, error) {
+	if opts.IssueID == "" {
+		return nil, fmt.Errorf("invalid_request: issue_id required")
+	}
+
+	issue, err := st.ResolveIssue(opts.IssueID)
+	if err != nil {
+		return nil, fmt.Errorf("issue not found: %s", opts.IssueID)
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+
+	agentName := opts.Agent
+	if agentName == "" {
+		agentName = cfg.Agent
+	}
+	if agentName == "" {
+		agentName = "claude"
+	}
+
+	agentType, err := agent.ParseAgentType(agentName)
+	if err != nil {
+		return nil, fmt.Errorf("invalid agent: %w", err)
+	}
+
+	adapter, err := agent.GetAdapter(agentType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get adapter: %w", err)
+	}
+
+	if !adapter.IsAvailable() {
+		return nil, fmt.Errorf("agent not available: %s", agentName)
+	}
+
+	runID := opts.RunID
+	if runID == "" {
+		if opts.Reuse {
+			runs, _ := st.ListRuns(&store.ListRunsFilter{IssueID: opts.IssueID})
+			for _, r := range runs {
+				if r.Status == model.StatusBlocked || r.Status == model.StatusBlockedAPI {
+					runID = r.RunID
+					break
+				}
+			}
+		}
+		if runID == "" {
+			runID = model.GenerateRunID()
+		}
+	}
+	branch := opts.Branch
+	if branch == "" {
+		branch = model.GenerateBranchName(opts.IssueID, runID)
+	}
+	sessionName := model.GenerateSessionName(opts.IssueID, runID)
+
+	if projectRoot == "" {
+		return nil, fmt.Errorf("no project root available")
+	}
+
+	worktreeDir := opts.WorktreeDir
+	if worktreeDir == "" {
+		worktreeDir = cfg.WorktreeDir
+	}
+	if worktreeDir == "" {
+		home, _ := os.UserHomeDir()
+		worktreeDir = filepath.Join(home, ".orch", "worktrees")
+	}
+
+	worktreeName := model.GenerateWorktreeName(opts.IssueID, runID, agentName)
+	var worktreePath string
+	if filepath.IsAbs(worktreeDir) {
+		worktreePath = filepath.Join(worktreeDir, opts.IssueID, worktreeName)
+	} else {
+		worktreePath = filepath.Join(projectRoot, worktreeDir, opts.IssueID, worktreeName)
+	}
+
+	if opts.DryRun {
+		return &StartRunResult{
+			RunID:        runID,
+			Branch:       branch,
+			WorktreePath: worktreePath,
+			SessionName:  sessionName,
+			Status:       "dry_run",
+		}, nil
+	}
+
+	metadata := map[string]string{"agent": agentName}
+	if opts.ModelVariant != "" {
+		metadata["model_variant"] = opts.ModelVariant
+	}
+	if opts.Model != "" {
+		metadata["model"] = opts.Model
+	}
+	run, err := st.CreateRun(opts.IssueID, runID, metadata)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create run: %w", err)
+	}
+
+	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusQueued))
+
+	baseBranch := opts.BaseBranch
+	if baseBranch == "" {
+		baseBranch = cfg.BaseBranch
+	}
+	if baseBranch == "" {
+		baseBranch = "main"
+	}
+
+	worktreeResult, err := git.CreateWorktree(&git.WorktreeConfig{
+		RepoRoot:    projectRoot,
+		WorktreeDir: worktreeDir,
+		IssueID:     opts.IssueID,
+		RunID:       runID,
+		Agent:       agentName,
+		BaseBranch:  baseBranch,
+		Branch:      branch,
+	})
+	if err != nil {
+		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
+		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+		return nil, fmt.Errorf("failed to create worktree: %w", err)
+	}
+
+	st.AppendEvent(run.Ref(), model.NewArtifactEvent("worktree", map[string]string{"path": worktreeResult.WorktreePath}))
+	st.AppendEvent(run.Ref(), model.NewArtifactEvent("branch", map[string]string{"name": worktreeResult.Branch}))
+
+	agentPrompt := s.buildRunPrompt(issue, st.RootPath(), opts.NoPR, opts.PromptTemplate, opts.PRTargetBranch)
+	promptPath := filepath.Join(worktreeResult.WorktreePath, "ORCH_PROMPT.md")
+	if err := os.WriteFile(promptPath, []byte(agentPrompt), 0644); err != nil {
+		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
+		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+		return nil, fmt.Errorf("failed to write prompt file: %w", err)
+	}
+
+	initialPrompt := "ultrathink Please read 'ORCH_PROMPT.md' in the current directory and follow the instructions found there."
+
+	launchCfg := &agent.LaunchConfig{
+		Type:         agentType,
+		CustomCmd:    opts.AgentCmd,
+		WorkDir:      worktreeResult.WorktreePath,
+		IssueID:      opts.IssueID,
+		RunID:        runID,
+		RunPath:      run.Path,
+		IssuesRoot:   st.RootPath(),
+		Branch:       worktreeResult.Branch,
+		Prompt:       initialPrompt,
+		Profile:      opts.AgentProfile,
+		Port:         agent.OpenCodeServerPortStart,
+		Model:        opts.Model,
+		ModelVariant: opts.ModelVariant,
+		ExtraArgs:    cfg.GetExtraArgs(agentName),
+	}
+
+	agentCmd, err := adapter.LaunchCommand(launchCfg)
+	if err != nil {
+		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
+		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+		return nil, fmt.Errorf("failed to build agent command: %w", err)
+	}
+
+	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusBooting))
+
+	muxType, _ := multiplexer.ParseType(opts.Multiplexer)
+
+	var mux multiplexer.Multiplexer
+	if muxType == multiplexer.TypeAuto {
+		mux, _ = multiplexer.GetAuto()
+	} else {
+		mux, _, _ = multiplexer.GetWithFallback(muxType)
+	}
+
+	if mux == nil {
+		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent("no multiplexer available"))
+		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+		return nil, fmt.Errorf("no terminal multiplexer available")
+	}
+
+	serverAlreadyRunning := false
+	if adapter.PromptInjection() == agent.InjectionHTTP {
+		resp, err := s.ensureOpenCodeServerRunning(worktreeResult.WorktreePath)
+		if err != nil {
+			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
+			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+			return nil, fmt.Errorf("failed to start opencode server: %w", err)
+		}
+		serverAlreadyRunning = true
+		launchCfg.Port = resp
+	}
+
+	if !serverAlreadyRunning {
+		env := launchCfg.Env()
+		if opencodeAdapter, ok := adapter.(*agent.OpenCodeAdapter); ok {
+			env = append(env, opencodeAdapter.Env()...)
+		}
+
+		err = mux.NewSession(&multiplexer.SessionConfig{
+			SessionName: sessionName,
+			WorkDir:     worktreeResult.WorktreePath,
+			Command:     agentCmd,
+			Env:         env,
+		})
+		if err != nil {
+			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
+			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+			return nil, fmt.Errorf("failed to create session: %w", err)
+		}
+
+		st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", map[string]string{
+			"name":        sessionName,
+			"multiplexer": string(mux.Type()),
+		}))
+	}
+
+	switch adapter.PromptInjection() {
+	case agent.InjectionTmux:
+		if launchCfg.Prompt != "" {
+			if pattern := adapter.ReadyPattern(); pattern != "" {
+				if err := mux.WaitForReady(sessionName, pattern, 30*time.Second); err != nil {
+					s.logger.Printf("agent did not become ready: %v", err)
+				}
+			}
+			if err := mux.SendKeys(sessionName, launchCfg.Prompt); err != nil {
+				s.logger.Printf("failed to send prompt to session: %v", err)
+			}
+		}
+
+	case agent.InjectionHTTP:
+		port := launchCfg.Port
+		if port == 0 {
+			port = agent.OpenCodeServerPortStart
+		}
+		client := agent.NewOpenCodeClient(port)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
+			"port": fmt.Sprintf("%d", port),
+		}))
+
+		session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", opts.IssueID, runID), launchCfg.WorkDir)
+		if err != nil {
+			s.logger.Printf("failed to create session: %v", err)
+		} else {
+			st.AppendEvent(run.Ref(), model.NewArtifactEvent("opencode_session", map[string]string{
+				"id": session.ID,
+			}))
+
+			var modelRef *agent.ModelRef
+			if launchCfg.Model != "" {
+				modelRef = agent.ParseModel(launchCfg.Model)
+			}
+			if err := client.SendMessagePrompt(ctx, session.ID, launchCfg.Prompt, launchCfg.WorkDir, modelRef, launchCfg.ModelVariant); err != nil {
+				s.logger.Printf("failed to send prompt: %v", err)
+			}
+		}
+	}
+
+	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusRunning))
+
+	s.logger.Printf("started run: %s#%s (agent=%s, worktree=%s)", opts.IssueID, runID, agentName, worktreeResult.WorktreePath)
+
+	return &StartRunResult{
+		RunID:        runID,
+		Branch:       worktreeResult.Branch,
+		WorktreePath: worktreeResult.WorktreePath,
+		SessionName:  sessionName,
+		Status:       string(model.StatusRunning),
+	}, nil
+}
+
+func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string, opts *ContinueRunOptions) (*ContinueRunResult, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+
+	var issueID string
+	var branch string
+	var worktreePath string
+	var continuedFrom string
+	var fromRunAgent string
+
+	if opts.Branch != "" {
+		if opts.IssueID == "" {
+			return nil, fmt.Errorf("issue_id required with branch")
+		}
+		issueID = opts.IssueID
+		branch = opts.Branch
+
+		_, err := st.ResolveIssue(issueID)
+		if err != nil {
+			return nil, fmt.Errorf("issue not found: %s", issueID)
+		}
+
+		if projectRoot == "" {
+			return nil, fmt.Errorf("no project root available")
+		}
+
+		worktreeDir := opts.WorktreeDir
+		if worktreeDir == "" {
+			worktreeDir = cfg.WorktreeDir
+		}
+		if worktreeDir == "" {
+			home, _ := os.UserHomeDir()
+			worktreeDir = filepath.Join(home, ".orch", "worktrees")
+		}
+
+		matches, err := git.FindWorktreesByBranch(projectRoot, branch)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list worktrees: %w", err)
+		}
+
+		if len(matches) > 1 {
+			return nil, fmt.Errorf("branch checked out in multiple worktrees")
+		}
+
+		if len(matches) == 1 {
+			wtPath := matches[0].Path
+			if !filepath.IsAbs(wtPath) {
+				wtPath = filepath.Join(projectRoot, wtPath)
+			}
+			info, err := os.Stat(wtPath)
+			if err != nil {
+				return nil, fmt.Errorf("worktree not found: %w", err)
+			}
+			if !info.IsDir() {
+				return nil, fmt.Errorf("worktree path is not a directory")
+			}
+			currentBranch, err := git.GetCurrentBranch(wtPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read worktree branch: %w", err)
+			}
+			if currentBranch != branch {
+				return nil, fmt.Errorf("worktree %s is on branch %s; expected %s", wtPath, currentBranch, branch)
+			}
+			worktreePath = wtPath
+		} else {
+			agentName := opts.Agent
+			if agentName == "" {
+				agentName = cfg.Agent
+			}
+			if agentName == "" {
+				agentName = "claude"
+			}
+			runID := model.GenerateRunID()
+			result, err := git.CreateWorktreeFromBranch(&git.WorktreeConfig{
+				RepoRoot:    projectRoot,
+				WorktreeDir: worktreeDir,
+				IssueID:     issueID,
+				RunID:       runID,
+				Agent:       agentName,
+				Branch:      branch,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to create worktree: %w", err)
+			}
+			worktreePath = result.WorktreePath
+		}
+
+		continuedFrom = "branch:" + branch
+	} else {
+		var fromRun *model.Run
+		if opts.ShortID != "" {
+			fromRun, err = st.GetRunByShortID(opts.ShortID)
+			if err != nil {
+				return nil, fmt.Errorf("run not found: %s", opts.ShortID)
+			}
+		} else if opts.IssueID != "" && opts.RunID != "" {
+			ref := &model.RunRef{IssueID: opts.IssueID, RunID: opts.RunID}
+			fromRun, err = st.GetRun(ref)
+			if err != nil {
+				return nil, fmt.Errorf("run not found: %s#%s", opts.IssueID, opts.RunID)
+			}
+		} else {
+			return nil, fmt.Errorf("run reference required (issue_id+run_id, short_id, or branch)")
+		}
+
+		if isActiveForContinue(fromRun.Status) {
+			return nil, fmt.Errorf("run %s#%s is %s; stop it before continuing", fromRun.IssueID, fromRun.RunID, fromRun.Status)
+		}
+
+		if fromRun.WorktreePath == "" {
+			return nil, fmt.Errorf("run %s#%s has no worktree path", fromRun.IssueID, fromRun.RunID)
+		}
+		if fromRun.Branch == "" {
+			return nil, fmt.Errorf("run %s#%s has no branch", fromRun.IssueID, fromRun.RunID)
+		}
+
+		info, err := os.Stat(fromRun.WorktreePath)
+		if err != nil {
+			return nil, fmt.Errorf("worktree not found: %w", err)
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("worktree path is not a directory: %s", fromRun.WorktreePath)
+		}
+
+		currentBranch, err := git.GetCurrentBranch(fromRun.WorktreePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read worktree branch: %w", err)
+		}
+		if currentBranch != fromRun.Branch {
+			return nil, fmt.Errorf("worktree %s is on branch %s; expected %s", fromRun.WorktreePath, currentBranch, fromRun.Branch)
+		}
+
+		issueID = fromRun.IssueID
+		branch = fromRun.Branch
+		worktreePath = fromRun.WorktreePath
+		fromRunAgent = fromRun.Agent
+		continuedFrom = fmt.Sprintf("%s#%s", fromRun.IssueID, fromRun.RunID)
+	}
+
+	issue, err := st.ResolveIssue(issueID)
+	if err != nil {
+		return nil, fmt.Errorf("issue not found: %s", issueID)
+	}
+
+	agentName := opts.Agent
+	if agentName == "" && fromRunAgent != "" {
+		agentName = fromRunAgent
+	}
+	if agentName == "" {
+		agentName = cfg.Agent
+	}
+	if agentName == "" {
+		agentName = "claude"
+	}
+
+	agentType, err := agent.ParseAgentType(agentName)
+	if err != nil {
+		return nil, fmt.Errorf("invalid agent: %w", err)
+	}
+
+	adapter, err := agent.GetAdapter(agentType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get adapter: %w", err)
+	}
+
+	if !adapter.IsAvailable() {
+		return nil, fmt.Errorf("agent not available: %s", agentName)
+	}
+
+	runID := model.GenerateRunID()
+	sessionName := opts.SessionName
+	if sessionName == "" {
+		sessionName = model.GenerateSessionName(issueID, runID)
+	}
+
+	metadata := map[string]string{
+		"agent":          agentName,
+		"continued_from": continuedFrom,
+	}
+	run, err := st.CreateRun(issueID, runID, metadata)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create run: %w", err)
+	}
+
+	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusQueued))
+	st.AppendEvent(run.Ref(), model.NewArtifactEvent("worktree", map[string]string{"path": worktreePath}))
+	st.AppendEvent(run.Ref(), model.NewArtifactEvent("branch", map[string]string{"name": branch}))
+
+	promptPath := filepath.Join(worktreePath, "ORCH_PROMPT.md")
+	if _, err := os.Stat(promptPath); os.IsNotExist(err) {
+		agentPrompt := s.buildRunPrompt(issue, st.RootPath(), opts.NoPR, opts.PromptTemplate, opts.PRTargetBranch)
+		if err := os.WriteFile(promptPath, []byte(agentPrompt), 0644); err != nil {
+			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
+			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+			return nil, fmt.Errorf("failed to write prompt file: %w", err)
+		}
+	}
+
+	continuePrompt := fmt.Sprintf("ultrathink Please read 'ORCH_PROMPT.md' in the current directory and follow the instructions found there.\nThis run continues from %s. Use the existing worktree and branch and resume from the current state.", continuedFrom)
+
+	launchCfg := &agent.LaunchConfig{
+		Type:       agentType,
+		CustomCmd:  opts.AgentCmd,
+		WorkDir:    worktreePath,
+		IssueID:    issueID,
+		RunID:      runID,
+		RunPath:    run.Path,
+		IssuesRoot: st.RootPath(),
+		Branch:     branch,
+		Prompt:     continuePrompt,
+		Profile:    opts.AgentProfile,
+		Port:       agent.OpenCodeServerPortStart,
+		ExtraArgs:  cfg.GetExtraArgs(agentName),
+	}
+
+	agentCmd, err := adapter.LaunchCommand(launchCfg)
+	if err != nil {
+		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
+		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+		return nil, fmt.Errorf("failed to build agent command: %w", err)
+	}
+
+	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusBooting))
+
+	muxType, _ := multiplexer.ParseType(opts.Multiplexer)
+
+	var mux multiplexer.Multiplexer
+	if muxType == multiplexer.TypeAuto {
+		mux, _ = multiplexer.GetAuto()
+	} else {
+		mux, _, _ = multiplexer.GetWithFallback(muxType)
+	}
+
+	if mux == nil {
+		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent("no multiplexer available"))
+		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+		return nil, fmt.Errorf("no terminal multiplexer available")
+	}
+
+	serverAlreadyRunning := false
+	if adapter.PromptInjection() == agent.InjectionHTTP {
+		resp, err := s.ensureOpenCodeServerRunning(worktreePath)
+		if err != nil {
+			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
+			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+			return nil, fmt.Errorf("failed to start opencode server: %w", err)
+		}
+		serverAlreadyRunning = true
+		launchCfg.Port = resp
+	}
+
+	if !serverAlreadyRunning {
+		env := launchCfg.Env()
+		if opencodeAdapter, ok := adapter.(*agent.OpenCodeAdapter); ok {
+			env = append(env, opencodeAdapter.Env()...)
+		}
+
+		err = mux.NewSession(&multiplexer.SessionConfig{
+			SessionName: sessionName,
+			WorkDir:     worktreePath,
+			Command:     agentCmd,
+			Env:         env,
+		})
+		if err != nil {
+			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
+			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+			return nil, fmt.Errorf("failed to create session: %w", err)
+		}
+
+		st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", map[string]string{
+			"name":        sessionName,
+			"multiplexer": string(mux.Type()),
+		}))
+	}
+
+	switch adapter.PromptInjection() {
+	case agent.InjectionTmux:
+		if launchCfg.Prompt != "" {
+			if pattern := adapter.ReadyPattern(); pattern != "" {
+				if err := mux.WaitForReady(sessionName, pattern, 30*time.Second); err != nil {
+					s.logger.Printf("agent did not become ready: %v", err)
+				}
+			}
+			if err := mux.SendKeys(sessionName, launchCfg.Prompt); err != nil {
+				s.logger.Printf("failed to send prompt to session: %v", err)
+			}
+		}
+
+	case agent.InjectionHTTP:
+		port := launchCfg.Port
+		if port == 0 {
+			port = agent.OpenCodeServerPortStart
+		}
+		client := agent.NewOpenCodeClient(port)
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		if err := client.WaitForHealthy(ctx, 60*time.Second); err != nil {
+			s.logger.Printf("server health check failed: %v", err)
+		} else {
+			st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
+				"port": fmt.Sprintf("%d", port),
+			}))
+
+			session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", issueID, runID), launchCfg.WorkDir)
+			if err != nil {
+				s.logger.Printf("failed to create session: %v", err)
+			} else {
+				st.AppendEvent(run.Ref(), model.NewArtifactEvent("opencode_session", map[string]string{
+					"id": session.ID,
+				}))
+
+				var modelRef *agent.ModelRef
+				if launchCfg.Model != "" {
+					modelRef = agent.ParseModel(launchCfg.Model)
+				}
+				if err := client.SendMessagePrompt(ctx, session.ID, launchCfg.Prompt, launchCfg.WorkDir, modelRef, launchCfg.ModelVariant); err != nil {
+					s.logger.Printf("failed to send prompt: %v", err)
+				}
+			}
+		}
+	}
+
+	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusRunning))
+
+	s.logger.Printf("continued run: %s#%s from %s (agent=%s, worktree=%s)", issueID, runID, continuedFrom, agentName, worktreePath)
+
+	return &ContinueRunResult{
+		RunID:         runID,
+		Branch:        branch,
+		WorktreePath:  worktreePath,
+		SessionName:   sessionName,
+		Status:        string(model.StatusRunning),
+		ContinuedFrom: continuedFrom,
+		IssueID:       issueID,
+	}, nil
 }
 
 func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder) {
@@ -2978,6 +3737,66 @@ func (s *SocketServer) handleCreateIssue(req SendRequest, encoder *json.Encoder)
 
 	s.logger.Printf("created issue: %s at %s", req.IssueID, issuePath)
 	encoder.Encode(CreateIssueResponse{OK: true, IssueID: req.IssueID, Path: issuePath})
+}
+
+func (s *SocketServer) processCreateIssueCore(st store.Store, params *CreateIssueParams) (*CreateIssueResult, error) {
+	title := params.Title
+	if title == "" {
+		title = params.IssueID
+	}
+	if title == "" {
+		return nil, fmt.Errorf("invalid_request: title required")
+	}
+
+	if params.IssueID == "" {
+		return nil, fmt.Errorf("invalid_request: issue_id required")
+	}
+
+	if strings.Contains(params.IssueID, "/") || strings.Contains(params.IssueID, "..") || strings.Contains(params.IssueID, "\\") {
+		return nil, fmt.Errorf("invalid_request: issue_id contains invalid characters")
+	}
+
+	issuesRoot := st.RootPath()
+	issuesDir := filepath.Join(issuesRoot, "issues")
+	if _, err := os.Stat(filepath.Join(issuesRoot, "Issues")); err == nil {
+		issuesDir = filepath.Join(issuesRoot, "Issues")
+	}
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		s.logger.Printf("error creating issues directory: %v", err)
+		return nil, fmt.Errorf("io_error")
+	}
+
+	issuePath := filepath.Join(issuesDir, params.IssueID+".md")
+	if _, err := os.Stat(issuePath); err == nil {
+		return nil, fmt.Errorf("already_exists")
+	}
+
+	var sb strings.Builder
+	sb.WriteString("---\n")
+	sb.WriteString("type: issue\n")
+	sb.WriteString("id: " + model.QuoteYAMLValue(params.IssueID) + "\n")
+	sb.WriteString("title: " + model.QuoteYAMLValue(title) + "\n")
+	if params.Summary != "" {
+		sb.WriteString("summary: " + model.QuoteYAMLValue(params.Summary) + "\n")
+	}
+	sb.WriteString("status: open\n")
+	sb.WriteString("---\n\n")
+	sb.WriteString("# " + title + "\n\n")
+	if params.Body != "" {
+		sb.WriteString(params.Body)
+		sb.WriteString("\n")
+	}
+
+	if err := os.WriteFile(issuePath, []byte(sb.String()), 0644); err != nil {
+		s.logger.Printf("error writing issue file: %v", err)
+		return nil, fmt.Errorf("io_error")
+	}
+
+	s.logger.Printf("created issue: %s at %s", params.IssueID, issuePath)
+	return &CreateIssueResult{
+		IssueID: params.IssueID,
+		Path:    issuePath,
+	}, nil
 }
 
 func (s *SocketServer) handleCloseIssue(req SendRequest, encoder *json.Encoder) {

@@ -94,7 +94,7 @@ func (m *mockStore) GetRun(ref *model.RunRef) (*model.Run, error) {
 }
 
 func (m *mockStore) GetRunByShortID(shortID string) (*model.Run, error) {
-	return nil, nil
+	return nil, os.ErrNotExist
 }
 
 func (m *mockStore) GetLatestRun(issueID string) (*model.Run, error) {
@@ -1853,4 +1853,206 @@ func getPortFromURL(t *testing.T, rawURL string) int {
 		t.Fatalf("failed to parse port: %v", err)
 	}
 	return port
+}
+
+func TestProcessStartRunCoreValidation(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	st := &mockStore{
+		runs:   make(map[string]*model.Run),
+		issues: make(map[string]*model.Issue),
+	}
+
+	t.Run("missing issue_id returns error", func(t *testing.T) {
+		opts := &StartRunOptions{
+			IssueID: "",
+		}
+		_, err := server.processStartRunCore(st, "/project", opts)
+		if err == nil {
+			t.Error("expected error for missing issue_id")
+		}
+		if !strings.Contains(err.Error(), "issue_id required") {
+			t.Errorf("expected 'issue_id required' error, got: %v", err)
+		}
+	})
+
+	t.Run("issue not found returns error", func(t *testing.T) {
+		opts := &StartRunOptions{
+			IssueID: "nonexistent",
+		}
+		_, err := server.processStartRunCore(st, "/project", opts)
+		if err == nil {
+			t.Error("expected error for nonexistent issue")
+		}
+		if !strings.Contains(err.Error(), "issue not found") {
+			t.Errorf("expected 'issue not found' error, got: %v", err)
+		}
+	})
+
+	t.Run("missing project root returns error", func(t *testing.T) {
+		st.issues["test-issue"] = &model.Issue{
+			ID:     "test-issue",
+			Title:  "Test",
+			Status: model.IssueStatusOpen,
+		}
+		opts := &StartRunOptions{
+			IssueID: "test-issue",
+		}
+		_, err := server.processStartRunCore(st, "", opts)
+		if err == nil {
+			t.Error("expected error for missing project root")
+		}
+		if !strings.Contains(err.Error(), "no project root available") {
+			t.Errorf("expected 'no project root available' error, got: %v", err)
+		}
+	})
+}
+
+func TestProcessContinueRunCoreValidation(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	st := &mockStore{
+		runs:   make(map[string]*model.Run),
+		issues: make(map[string]*model.Issue),
+	}
+
+	t.Run("missing run reference returns error", func(t *testing.T) {
+		opts := &ContinueRunOptions{}
+		_, err := server.processContinueRunCore(st, "/project", opts)
+		if err == nil {
+			t.Error("expected error for missing run reference")
+		}
+		if !strings.Contains(err.Error(), "run reference required") {
+			t.Errorf("expected 'run reference required' error, got: %v", err)
+		}
+	})
+
+	t.Run("branch without issue_id returns error", func(t *testing.T) {
+		opts := &ContinueRunOptions{
+			Branch: "feature-branch",
+		}
+		_, err := server.processContinueRunCore(st, "/project", opts)
+		if err == nil {
+			t.Error("expected error for branch without issue_id")
+		}
+		if !strings.Contains(err.Error(), "issue_id required with branch") {
+			t.Errorf("expected 'issue_id required with branch' error, got: %v", err)
+		}
+	})
+
+	t.Run("run not found by short_id returns error", func(t *testing.T) {
+		opts := &ContinueRunOptions{
+			ShortID: "nonexistent",
+		}
+		_, err := server.processContinueRunCore(st, "/project", opts)
+		if err == nil {
+			t.Error("expected error for nonexistent run")
+		}
+		if !strings.Contains(err.Error(), "run not found") {
+			t.Errorf("expected 'run not found' error, got: %v", err)
+		}
+	})
+}
+
+func TestProcessCreateIssueCoreValidation(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	t.Run("missing title and issue_id returns error", func(t *testing.T) {
+		st := &mockStore{
+			runs:   make(map[string]*model.Run),
+			issues: make(map[string]*model.Issue),
+		}
+		params := &CreateIssueParams{}
+		_, err := server.processCreateIssueCore(st, params)
+		if err == nil {
+			t.Error("expected error for missing title")
+		}
+		if !strings.Contains(err.Error(), "title required") {
+			t.Errorf("expected 'title required' error, got: %v", err)
+		}
+	})
+
+	t.Run("missing issue_id returns error", func(t *testing.T) {
+		st := &mockStore{
+			runs:   make(map[string]*model.Run),
+			issues: make(map[string]*model.Issue),
+		}
+		params := &CreateIssueParams{
+			Title: "Test Issue",
+		}
+		_, err := server.processCreateIssueCore(st, params)
+		if err == nil {
+			t.Error("expected error for missing issue_id")
+		}
+		if !strings.Contains(err.Error(), "issue_id required") {
+			t.Errorf("expected 'issue_id required' error, got: %v", err)
+		}
+	})
+
+	t.Run("invalid issue_id characters returns error", func(t *testing.T) {
+		st := &mockStore{
+			runs:   make(map[string]*model.Run),
+			issues: make(map[string]*model.Issue),
+		}
+		params := &CreateIssueParams{
+			IssueID: "invalid/path",
+			Title:   "Test Issue",
+		}
+		_, err := server.processCreateIssueCore(st, params)
+		if err == nil {
+			t.Error("expected error for invalid characters")
+		}
+		if !strings.Contains(err.Error(), "invalid characters") {
+			t.Errorf("expected 'invalid characters' error, got: %v", err)
+		}
+	})
+}
+
+func TestProcessControlAgentLaunchCoreValidation(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	st := &mockStore{
+		runs:   make(map[string]*model.Run),
+		issues: make(map[string]*model.Issue),
+	}
+
+	t.Run("missing project_root returns error", func(t *testing.T) {
+		params := &ControlAgentLaunchParams{}
+		_, err := server.processControlAgentLaunchCore(st, params)
+		if err == nil {
+			t.Error("expected error for missing project_root")
+		}
+		if !strings.Contains(err.Error(), "project_root required") {
+			t.Errorf("expected 'project_root required' error, got: %v", err)
+		}
+	})
+}
+
+func TestProcessSendMessageValidation(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	st := &mockStore{
+		runs:   make(map[string]*model.Run),
+		issues: make(map[string]*model.Issue),
+	}
+
+	t.Run("run not found returns error", func(t *testing.T) {
+		params := &SendMessageParams{
+			IssueID: "nonexistent",
+			RunID:   "run-1",
+			Message: "test message",
+		}
+		err := server.processSendMessage(st, params)
+		if err == nil {
+			t.Error("expected error for nonexistent run")
+		}
+		if !strings.Contains(err.Error(), "not found") {
+			t.Errorf("expected 'not found' error, got: %v", err)
+		}
+	})
 }

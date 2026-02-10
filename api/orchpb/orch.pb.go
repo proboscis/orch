@@ -350,6 +350,11 @@ type Run struct {
 	ContinuedFrom     string                 `protobuf:"bytes,19,opt,name=continued_from,json=continuedFrom,proto3" json:"continued_from,omitempty"`
 	PrNumber          int32                  `protobuf:"varint,20,opt,name=pr_number,json=prNumber,proto3" json:"pr_number,omitempty"`
 	PrState           string                 `protobuf:"bytes,21,opt,name=pr_state,json=prState,proto3" json:"pr_state,omitempty"`
+	IssueStatus       string                 `protobuf:"bytes,22,opt,name=issue_status,json=issueStatus,proto3" json:"issue_status,omitempty"`
+	IssueTopic        string                 `protobuf:"bytes,23,opt,name=issue_topic,json=issueTopic,proto3" json:"issue_topic,omitempty"`
+	Alive             bool                   `protobuf:"varint,24,opt,name=alive,proto3" json:"alive,omitempty"`
+	AliveKnown        bool                   `protobuf:"varint,25,opt,name=alive_known,json=aliveKnown,proto3" json:"alive_known,omitempty"`
+	WorktreeExists    bool                   `protobuf:"varint,26,opt,name=worktree_exists,json=worktreeExists,proto3" json:"worktree_exists,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -529,6 +534,41 @@ func (x *Run) GetPrState() string {
 		return x.PrState
 	}
 	return ""
+}
+
+func (x *Run) GetIssueStatus() string {
+	if x != nil {
+		return x.IssueStatus
+	}
+	return ""
+}
+
+func (x *Run) GetIssueTopic() string {
+	if x != nil {
+		return x.IssueTopic
+	}
+	return ""
+}
+
+func (x *Run) GetAlive() bool {
+	if x != nil {
+		return x.Alive
+	}
+	return false
+}
+
+func (x *Run) GetAliveKnown() bool {
+	if x != nil {
+		return x.AliveKnown
+	}
+	return false
+}
+
+func (x *Run) GetWorktreeExists() bool {
+	if x != nil {
+		return x.WorktreeExists
+	}
+	return false
 }
 
 type Issue struct {
@@ -8947,7 +8987,7 @@ const file_orch_proto_rawDesc = "" +
 	"\tadditions\x18\x01 \x01(\x05R\tadditions\x12\x1c\n" +
 	"\tdeletions\x18\x02 \x01(\x05R\tdeletions\x12#\n" +
 	"\rfiles_changed\x18\x03 \x01(\x05R\ffilesChanged\x12\x14\n" +
-	"\x05files\x18\x04 \x03(\tR\x05files\"\xfc\x05\n" +
+	"\x05files\x18\x04 \x03(\tR\x05files\"\xa0\a\n" +
 	"\x03Run\x12\x19\n" +
 	"\bissue_id\x18\x01 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12*\n" +
@@ -8972,7 +9012,14 @@ const file_orch_proto_rawDesc = "" +
 	"\x13opencode_session_id\x18\x12 \x01(\tR\x11opencodeSessionId\x12%\n" +
 	"\x0econtinued_from\x18\x13 \x01(\tR\rcontinuedFrom\x12\x1b\n" +
 	"\tpr_number\x18\x14 \x01(\x05R\bprNumber\x12\x19\n" +
-	"\bpr_state\x18\x15 \x01(\tR\aprState\"\xf1\x01\n" +
+	"\bpr_state\x18\x15 \x01(\tR\aprState\x12!\n" +
+	"\fissue_status\x18\x16 \x01(\tR\vissueStatus\x12\x1f\n" +
+	"\vissue_topic\x18\x17 \x01(\tR\n" +
+	"issueTopic\x12\x14\n" +
+	"\x05alive\x18\x18 \x01(\bR\x05alive\x12\x1f\n" +
+	"\valive_known\x18\x19 \x01(\bR\n" +
+	"aliveKnown\x12'\n" +
+	"\x0fworktree_exists\x18\x1a \x01(\bR\x0eworktreeExists\"\xf1\x01\n" +
 	"\x05Issue\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x18\n" +

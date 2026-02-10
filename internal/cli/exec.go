@@ -109,7 +109,7 @@ func runExec(refStr string, cmdArgs []string, opts *execOptions) error {
 		worktreePath = filepath.Join(repoRoot, worktreePath)
 	}
 
-	if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
+	if run.WorktreePath != "" && !run.WorktreeExists {
 		fmt.Fprintf(os.Stderr, "worktree does not exist: %s\n", worktreePath)
 		os.Exit(ExitWorktreeError)
 		return fmt.Errorf("worktree does not exist: %s", worktreePath)
