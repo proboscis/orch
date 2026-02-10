@@ -1,10 +1,12 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/s22625/orch/internal/git"
 	"gopkg.in/yaml.v3"
@@ -16,6 +18,16 @@ type MonitorConfig struct {
 	// Available columns: index, id, issue, issue_status, agent, status, alive,
 	// branch, worktree, pr, merged, updated, topic
 	PSColumns []string `yaml:"ps_columns,omitempty"`
+
+	// Python monitor-tui defaults (accepted for cross-client config compatibility).
+	DefaultRunStatuses   []string                  `yaml:"default_run_statuses,omitempty"`
+	DefaultIssueStatuses []string                  `yaml:"default_issue_statuses,omitempty"`
+	DefaultIssueFilter   MonitorIssueDefaultFilter `yaml:"default_issue_filter,omitempty"`
+}
+
+type MonitorIssueDefaultFilter struct {
+	Tags    []string `yaml:"tags,omitempty"`
+	TagMode string   `yaml:"tag_mode,omitempty"`
 }
 
 // OpenCodePreset defines a configurable opencode model+variant preset.
@@ -234,6 +246,10 @@ func Load() (*Config, error) {
 		}
 	}
 
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
 	return cfg, nil
 }
 
@@ -254,6 +270,10 @@ func LoadFromProjectRoot(projectRoot string) (*Config, error) {
 		if err := loadFromFile(configPath, cfg); err != nil {
 			return nil, err
 		}
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return nil, err
 	}
 
 	return cfg, nil
@@ -340,8 +360,10 @@ func loadFromFile(path string, cfg *Config) error {
 
 	// Parse into a temporary struct to merge non-empty values
 	var fileCfg fileConfig
-	if err := yaml.Unmarshal(data, &fileCfg); err != nil {
-		return err
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&fileCfg); err != nil {
+		return fmt.Errorf("invalid config schema in %s: %w", path, err)
 	}
 
 	// Get the base directory for resolving relative paths
@@ -399,6 +421,15 @@ func loadFromFile(path string, cfg *Config) error {
 	}
 	if len(fileCfg.Monitor.PSColumns) > 0 {
 		cfg.Monitor.PSColumns = fileCfg.Monitor.PSColumns
+	}
+	if len(fileCfg.Monitor.DefaultRunStatuses) > 0 {
+		cfg.Monitor.DefaultRunStatuses = fileCfg.Monitor.DefaultRunStatuses
+	}
+	if len(fileCfg.Monitor.DefaultIssueStatuses) > 0 {
+		cfg.Monitor.DefaultIssueStatuses = fileCfg.Monitor.DefaultIssueStatuses
+	}
+	if len(fileCfg.Monitor.DefaultIssueFilter.Tags) > 0 || fileCfg.Monitor.DefaultIssueFilter.TagMode != "" {
+		cfg.Monitor.DefaultIssueFilter = fileCfg.Monitor.DefaultIssueFilter
 	}
 	if len(fileCfg.Presets) > 0 {
 		cfg.Presets = fileCfg.Presets
@@ -493,10 +524,10 @@ func loadFromFile(path string, cfg *Config) error {
 	if fileCfg.ControlModel != "" {
 		cfg.ControlModel = fileCfg.ControlModel
 	}
+	if fileCfg.DiffTool != "" {
+		cfg.DiffTool = fileCfg.DiffTool
+	}
 	if fileCfg.ControlModelVariant != "" {
-		if fileCfg.DiffTool != "" {
-			cfg.DiffTool = fileCfg.DiffTool
-		}
 		cfg.ControlModelVariant = fileCfg.ControlModelVariant
 	}
 
@@ -733,6 +764,101 @@ var validBackends = map[string]bool{
 	"custom":   true,
 }
 
+var validIssueBackends = map[string]bool{
+	"local":  true,
+	"github": true,
+}
+
+var validLegacyMultiplexers = map[string]bool{
+	"auto":   true,
+	"tmux":   true,
+	"zellij": true,
+}
+
+var validMultiplexers = map[string]bool{
+	"tmux":   true,
+	"zellij": true,
+}
+
+var validLogLevels = map[string]bool{
+	"error": true,
+	"warn":  true,
+	"info":  true,
+	"debug": true,
+}
+
+var validSlackNotifyStatuses = map[string]bool{
+	"blocked":     true,
+	"blocked_api": true,
+	"done":        true,
+	"failed":      true,
+}
+
+// Validate enforces config key/value constraints after loading/merging.
+func (c *Config) Validate() error {
+	var errs []string
+
+	if c.Agent != "" && !validBackends[c.Agent] {
+		errs = append(errs, fmt.Sprintf("agent must be one of %s (got %q)", joinAllowedKeys(validBackends), c.Agent))
+	}
+	if c.ControlAgent != "" && !validBackends[c.ControlAgent] {
+		errs = append(errs, fmt.Sprintf("control_agent must be one of %s (got %q)", joinAllowedKeys(validBackends), c.ControlAgent))
+	}
+	if c.Issues.Backend != "" && !validIssueBackends[c.Issues.Backend] {
+		errs = append(errs, fmt.Sprintf("issues.backend must be one of %s (got %q)", joinAllowedKeys(validIssueBackends), c.Issues.Backend))
+	}
+	if c.LogLevel != "" && !validLogLevels[c.LogLevel] {
+		errs = append(errs, fmt.Sprintf("log_level must be one of %s (got %q)", joinAllowedKeys(validLogLevels), c.LogLevel))
+	}
+	if c.Multiplexer != "" && !validLegacyMultiplexers[c.Multiplexer] {
+		errs = append(errs, fmt.Sprintf("multiplexer must be one of %s (got %q)", joinAllowedKeys(validLegacyMultiplexers), c.Multiplexer))
+	}
+	if c.MonitorMultiplexer != "" && !validMultiplexers[c.MonitorMultiplexer] {
+		errs = append(errs, fmt.Sprintf("monitor_multiplexer must be one of %s (got %q)", joinAllowedKeys(validMultiplexers), c.MonitorMultiplexer))
+	}
+	if c.AgentMultiplexer != "" && !validMultiplexers[c.AgentMultiplexer] {
+		errs = append(errs, fmt.Sprintf("agent_multiplexer must be one of %s (got %q)", joinAllowedKeys(validMultiplexers), c.AgentMultiplexer))
+	}
+	for _, status := range c.Slack.NotifyOn {
+		if !validSlackNotifyStatuses[status] {
+			errs = append(errs, fmt.Sprintf("slack.notify_on contains invalid status %q (allowed: %s)", status, joinAllowedKeys(validSlackNotifyStatuses)))
+		}
+	}
+	for _, p := range c.Presets {
+		name := strings.TrimSpace(p.Name)
+		if name == "" {
+			errs = append(errs, "preset name must not be empty")
+			continue
+		}
+		backend := p.EffectiveBackend()
+		if !validBackends[backend] {
+			errs = append(errs, fmt.Sprintf("preset %q has invalid backend %q (allowed: %s)", name, backend, joinAllowedKeys(validBackends)))
+		}
+	}
+	for _, p := range c.OpenCodePresets {
+		if strings.TrimSpace(p.Name) == "" {
+			errs = append(errs, "opencode_preset name must not be empty")
+		}
+	}
+	if err := c.ValidateMultiplexerConfig(); err != nil {
+		errs = append(errs, err.Error())
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("invalid config: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+func joinAllowedKeys(values map[string]bool) string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, ", ")
+}
+
 // ValidatePresets checks all presets for valid backends and configuration.
 func (c *Config) ValidatePresets() []string {
 	var warnings []string
@@ -750,6 +876,79 @@ func (c *Config) ValidatePresets() []string {
 		warnings = append(warnings, "opencode_presets is deprecated, migrate to presets with backend field")
 	}
 	return warnings
+}
+
+// ResolveModelAndVariant returns the effective model and variant for a given agent.
+// Precedence: explicit request value > preset > agent-specific config > generic config.
+func (c *Config) ResolveModelAndVariant(agent, preset, reqModel, reqVariant string) (string, string) {
+	model := reqModel
+	variant := reqVariant
+
+	// Apply preset defaults for unset fields
+	if preset != "" {
+		if p := c.GetPreset(preset); p != nil {
+			if model == "" {
+				model = p.Model
+			}
+			if variant == "" {
+				variant = p.Variant
+			}
+		}
+	}
+
+	// Agent-specific config defaults
+	if model == "" {
+		switch agent {
+		case "opencode":
+			model = c.OpenCode.DefaultModel
+		}
+	}
+	if model == "" {
+		model = c.Model
+	}
+
+	if variant == "" {
+		switch agent {
+		case "opencode":
+			variant = c.OpenCode.DefaultVariant
+		}
+	}
+	if variant == "" {
+		variant = c.ModelVariant
+	}
+
+	return model, variant
+}
+
+// ResolveControlModelAndVariant returns the effective model and variant for a
+// control agent.  Precedence: ControlModel/ControlModelVariant > agent-specific
+// config (e.g. opencode defaults) > generic config (Model/ModelVariant).
+func (c *Config) ResolveControlModelAndVariant(agent string) (string, string) {
+	model := c.ControlModel
+	variant := c.ControlModelVariant
+
+	// Agent-specific config defaults
+	if model == "" {
+		switch agent {
+		case "opencode":
+			model = c.OpenCode.DefaultModel
+		}
+	}
+	if model == "" {
+		model = c.Model
+	}
+
+	if variant == "" {
+		switch agent {
+		case "opencode":
+			variant = c.OpenCode.DefaultVariant
+		}
+	}
+	if variant == "" {
+		variant = c.ModelVariant
+	}
+
+	return model, variant
 }
 
 func (c *Config) GetPromptTemplate(agent string) string {

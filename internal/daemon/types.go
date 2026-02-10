@@ -562,6 +562,7 @@ type StartRunOptions struct {
 	AgentProfile   string
 	Model          string
 	ModelVariant   string
+	Preset         string
 	BaseBranch     string
 	Branch         string
 	WorktreeDir    string

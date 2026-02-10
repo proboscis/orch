@@ -590,6 +590,7 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		AgentProfile:   req.AgentProfile,
 		Model:          req.Model,
 		ModelVariant:   req.ModelVariant,
+		Preset:         req.Preset,
 		BaseBranch:     req.BaseBranch,
 		Branch:         req.Branch,
 		WorktreeDir:    req.WorktreeDir,
@@ -2065,10 +2066,23 @@ func (s *SocketServer) getMultiplexer(muxType orchpb.Multiplexer) multiplexer.Mu
 }
 
 func (s *SocketServer) loadConfig(projectRoot string) (*config.Config, error) {
+	var (
+		cfg *config.Config
+		err error
+	)
 	if projectRoot != "" {
-		return config.LoadFromProjectRoot(projectRoot)
+		cfg, err = config.LoadFromProjectRoot(projectRoot)
+	} else {
+		cfg, err = config.Load()
 	}
-	return config.Load()
+	if err != nil && s.logger != nil {
+		if projectRoot != "" {
+			s.logger.Printf("config validation failed for project_root=%q: %v", projectRoot, err)
+		} else {
+			s.logger.Printf("config validation failed: %v", err)
+		}
+	}
+	return cfg, err
 }
 
 func (s *SocketServer) handleProtoGetConfig(req *orchpb.GetConfigRequest) *orchpb.Response {

@@ -387,6 +387,7 @@ func (c *ProtoClient) StartRun(opts *StartRunOptions) (*StartRunResponse, error)
 				AgentProfile:   opts.AgentProfile,
 				Model:          opts.Model,
 				ModelVariant:   opts.ModelVariant,
+				Preset:         opts.Preset,
 				BaseBranch:     opts.BaseBranch,
 				Branch:         opts.Branch,
 				WorktreeDir:    opts.WorktreeDir,

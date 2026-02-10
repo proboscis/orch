@@ -1141,6 +1141,13 @@ func getControlPromptInstruction() string {
 	return "ultrathink Please read 'ORCH_CONTROL_PROMPT.md' in the current directory and follow the instructions found there."
 }
 
+func loadControlAgentConfig(projectRoot string) (*config.Config, error) {
+	if strings.TrimSpace(projectRoot) != "" {
+		return config.LoadFromProjectRoot(projectRoot)
+	}
+	return config.Load()
+}
+
 const controlPromptFileName = "ORCH_CONTROL_PROMPT.md"
 
 // writeControlPromptFile writes the control agent prompt to a file in the specified project directory.
@@ -1242,7 +1249,10 @@ func (s *SocketServer) buildControlAgentPrompt(st store.Store, projectRoot strin
 	uncommittedChanges := s.getUncommittedChangesStatus(workDir)
 
 	// Get agent config
-	cfg, _ := config.Load()
+	cfg, err := loadControlAgentConfig(projectRoot)
+	if err != nil {
+		return "", fmt.Errorf("failed to load config: %w", err)
+	}
 	defaultAgent := "opencode"
 	if cfg != nil {
 		if cfg.ControlAgent != "" {
@@ -1403,11 +1413,19 @@ func (s *SocketServer) handleGetControlAgentLaunch(req SendRequest, encoder *jso
 	}
 
 	// Load configuration
-	cfg, cfgErr := config.Load()
+	cfg, cfgErr := loadControlAgentConfig(req.ProjectRoot)
+	if cfgErr != nil {
+		s.logger.Printf("config validation failed in handleGetControlAgentLaunch: %v", cfgErr)
+		encoder.Encode(map[string]interface{}{
+			"ok":    false,
+			"error": fmt.Sprintf("failed to load config: %v", cfgErr),
+		})
+		return
+	}
 
 	// Resolve agent type
 	agentName := req.AgentType
-	if agentName == "" && cfgErr == nil {
+	if agentName == "" {
 		agentName = cfg.ControlAgent
 		if agentName == "" {
 			agentName = cfg.Agent
@@ -1417,18 +1435,8 @@ func (s *SocketServer) handleGetControlAgentLaunch(req SendRequest, encoder *jso
 		agentName = "opencode"
 	}
 
-	// Get model configuration
-	var modelName, modelVariant string
-	if cfgErr == nil {
-		modelName = cfg.ControlModel
-		if modelName == "" {
-			modelName = cfg.Model
-		}
-		modelVariant = cfg.ControlModelVariant
-		if modelVariant == "" {
-			modelVariant = cfg.ModelVariant
-		}
-	}
+	// Get model configuration (resolved via config with agent-aware fallback)
+	modelName, modelVariant := cfg.ResolveControlModelAndVariant(agentName)
 
 	// Parse and validate agent type
 	aType, err := agent.ParseAgentType(agentName)
@@ -1571,10 +1579,14 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 		return nil, fmt.Errorf("failed to write control prompt file: %w", err)
 	}
 
-	cfg, cfgErr := config.Load()
+	cfg, cfgErr := loadControlAgentConfig(params.ProjectRoot)
+	if cfgErr != nil {
+		s.logger.Printf("config validation failed in processControlAgentLaunchCore: %v", cfgErr)
+		return nil, fmt.Errorf("failed to load config: %w", cfgErr)
+	}
 
 	agentName := params.Agent
-	if agentName == "" && cfgErr == nil {
+	if agentName == "" {
 		agentName = cfg.ControlAgent
 		if agentName == "" {
 			agentName = cfg.Agent
@@ -1584,17 +1596,7 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 		agentName = "opencode"
 	}
 
-	var modelName, modelVariant string
-	if cfgErr == nil {
-		modelName = cfg.ControlModel
-		if modelName == "" {
-			modelName = cfg.Model
-		}
-		modelVariant = cfg.ControlModelVariant
-		if modelVariant == "" {
-			modelVariant = cfg.ModelVariant
-		}
-	}
+	modelName, modelVariant := cfg.ResolveControlModelAndVariant(agentName)
 
 	aType, err := agent.ParseAgentType(agentName)
 	if err != nil {
@@ -2179,6 +2181,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 
 	cfg, err := config.Load()
 	if err != nil {
+		s.logger.Printf("config validation failed in handleStartRun: %v", err)
 		encoder.Encode(StartRunResponse{OK: false, Error: "failed to load config: " + err.Error()})
 		return
 	}
@@ -2318,6 +2321,8 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 
 	initialPrompt := "ultrathink Please read 'ORCH_PROMPT.md' in the current directory and follow the instructions found there."
 
+	runModel, runVariant := cfg.ResolveModelAndVariant(agentName, "", req.Model, req.ModelVariant)
+
 	launchCfg := &agent.LaunchConfig{
 		Type:         agentType,
 		CustomCmd:    req.AgentCmd,
@@ -2330,8 +2335,8 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		Prompt:       initialPrompt,
 		Profile:      req.AgentProfile,
 		Port:         agent.OpenCodeServerPortStart,
-		Model:        req.Model,
-		ModelVariant: req.ModelVariant,
+		Model:        runModel,
+		ModelVariant: runVariant,
 		ExtraArgs:    cfg.GetExtraArgs(agentName),
 	}
 
@@ -2469,6 +2474,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 
 	cfg, err := config.Load()
 	if err != nil {
+		s.logger.Printf("config validation failed in processStartRunCore: %v", err)
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
@@ -2596,6 +2602,8 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 
 	initialPrompt := "ultrathink Please read 'ORCH_PROMPT.md' in the current directory and follow the instructions found there."
 
+	runModel, runVariant := cfg.ResolveModelAndVariant(agentName, opts.Preset, opts.Model, opts.ModelVariant)
+
 	launchCfg := &agent.LaunchConfig{
 		Type:         agentType,
 		CustomCmd:    opts.AgentCmd,
@@ -2608,8 +2616,8 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		Prompt:       initialPrompt,
 		Profile:      opts.AgentProfile,
 		Port:         agent.OpenCodeServerPortStart,
-		Model:        opts.Model,
-		ModelVariant: opts.ModelVariant,
+		Model:        runModel,
+		ModelVariant: runVariant,
 		ExtraArgs:    cfg.GetExtraArgs(agentName),
 	}
 
@@ -2699,6 +2707,20 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 			"port": fmt.Sprintf("%d", port),
 		}))
 
+		s.logger.Printf("[model-debug] resolved model=%q variant=%q for run %s#%s", launchCfg.Model, launchCfg.ModelVariant, opts.IssueID, runID)
+
+		if provResp, provErr := client.GetProviders(ctx); provErr != nil {
+			s.logger.Printf("[model-debug] failed to query providers: %v", provErr)
+		} else {
+			for _, prov := range provResp.All {
+				var modelIDs []string
+				for _, m := range prov.Models {
+					modelIDs = append(modelIDs, m.ID)
+				}
+				s.logger.Printf("[model-debug] provider %q models: %v", prov.ID, modelIDs)
+			}
+		}
+
 		session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", opts.IssueID, runID), launchCfg.WorkDir)
 		if err != nil {
 			s.logger.Printf("failed to create session: %v", err)
@@ -2711,6 +2733,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 			if launchCfg.Model != "" {
 				modelRef = agent.ParseModel(launchCfg.Model)
 			}
+			s.logger.Printf("[model-debug] sending prompt with model=%+v variant=%q to session %s", modelRef, launchCfg.ModelVariant, session.ID)
 			if err := client.SendMessagePrompt(ctx, session.ID, launchCfg.Prompt, launchCfg.WorkDir, modelRef, launchCfg.ModelVariant); err != nil {
 				s.logger.Printf("failed to send prompt: %v", err)
 			}
@@ -2733,6 +2756,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string, opts *ContinueRunOptions) (*ContinueRunResult, error) {
 	cfg, err := config.Load()
 	if err != nil {
+		s.logger.Printf("config validation failed in processContinueRunCore: %v", err)
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
@@ -2932,19 +2956,23 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 
 	continuePrompt := fmt.Sprintf("ultrathink Please read 'ORCH_PROMPT.md' in the current directory and follow the instructions found there.\nThis run continues from %s. Use the existing worktree and branch and resume from the current state.", continuedFrom)
 
+	runModel, runVariant := cfg.ResolveModelAndVariant(agentName, "", "", "")
+
 	launchCfg := &agent.LaunchConfig{
-		Type:       agentType,
-		CustomCmd:  opts.AgentCmd,
-		WorkDir:    worktreePath,
-		IssueID:    issueID,
-		RunID:      runID,
-		RunPath:    run.Path,
-		IssuesRoot: st.RootPath(),
-		Branch:     branch,
-		Prompt:     continuePrompt,
-		Profile:    opts.AgentProfile,
-		Port:       agent.OpenCodeServerPortStart,
-		ExtraArgs:  cfg.GetExtraArgs(agentName),
+		Type:         agentType,
+		CustomCmd:    opts.AgentCmd,
+		WorkDir:      worktreePath,
+		IssueID:      issueID,
+		RunID:        runID,
+		RunPath:      run.Path,
+		IssuesRoot:   st.RootPath(),
+		Branch:       branch,
+		Prompt:       continuePrompt,
+		Profile:      opts.AgentProfile,
+		Port:         agent.OpenCodeServerPortStart,
+		Model:        runModel,
+		ModelVariant: runVariant,
+		ExtraArgs:    cfg.GetExtraArgs(agentName),
 	}
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)
@@ -3079,6 +3107,7 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 
 	cfg, err := config.Load()
 	if err != nil {
+		s.logger.Printf("config validation failed in handleContinueRun: %v", err)
 		encoder.Encode(ContinueRunResponse{OK: false, Error: "failed to load config: " + err.Error()})
 		return
 	}
@@ -3307,19 +3336,23 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 
 	continuePrompt := fmt.Sprintf("ultrathink Please read 'ORCH_PROMPT.md' in the current directory and follow the instructions found there.\nThis run continues from %s. Use the existing worktree and branch and resume from the current state.", continuedFrom)
 
+	runModel, runVariant := cfg.ResolveModelAndVariant(agentName, "", "", "")
+
 	launchCfg := &agent.LaunchConfig{
-		Type:       agentType,
-		CustomCmd:  req.AgentCmd,
-		WorkDir:    worktreePath,
-		IssueID:    issueID,
-		RunID:      runID,
-		RunPath:    run.Path,
-		IssuesRoot: st.RootPath(),
-		Branch:     branch,
-		Prompt:     continuePrompt,
-		Profile:    req.AgentProfile,
-		Port:       agent.OpenCodeServerPortStart,
-		ExtraArgs:  cfg.GetExtraArgs(agentName),
+		Type:         agentType,
+		CustomCmd:    req.AgentCmd,
+		WorkDir:      worktreePath,
+		IssueID:      issueID,
+		RunID:        runID,
+		RunPath:      run.Path,
+		IssuesRoot:   st.RootPath(),
+		Branch:       branch,
+		Prompt:       continuePrompt,
+		Profile:      req.AgentProfile,
+		Port:         agent.OpenCodeServerPortStart,
+		Model:        runModel,
+		ModelVariant: runVariant,
+		ExtraArgs:    cfg.GetExtraArgs(agentName),
 	}
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)

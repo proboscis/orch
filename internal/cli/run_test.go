@@ -400,7 +400,7 @@ func TestApplyPresetFromConfig(t *testing.T) {
 		_ = os.Chdir(cwd)
 	})
 
-	t.Run("preset sets agent model and variant", func(t *testing.T) {
+	t.Run("preset sets agent and forwards preset name", func(t *testing.T) {
 		opts := &runOptions{Preset: "opus:high"}
 		if _, err := applyPromptConfigDefaultsForTest(opts); err != nil {
 			t.Fatalf("applyPromptConfigDefaultsForTest: %v", err)
@@ -408,11 +408,10 @@ func TestApplyPresetFromConfig(t *testing.T) {
 		if opts.Agent != "opencode" {
 			t.Errorf("Agent = %q, want opencode", opts.Agent)
 		}
-		if opts.Model != "anthropic/claude-opus-4-5" {
-			t.Errorf("Model = %q, want anthropic/claude-opus-4-5", opts.Model)
-		}
-		if opts.ModelVariant != "high" {
-			t.Errorf("ModelVariant = %q, want high", opts.ModelVariant)
+		// Model and variant resolution is handled by the daemon, not CLI.
+		// CLI just forwards the preset name; daemon resolves model/variant.
+		if opts.Preset != "opus:high" {
+			t.Errorf("Preset = %q, want opus:high", opts.Preset)
 		}
 	})
 
@@ -429,7 +428,7 @@ func TestApplyPresetFromConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("explicit flags override preset", func(t *testing.T) {
+	t.Run("explicit agent flag overrides preset", func(t *testing.T) {
 		opts := &runOptions{
 			Preset:       "opus:high",
 			Agent:        "codex",
@@ -442,11 +441,12 @@ func TestApplyPresetFromConfig(t *testing.T) {
 		if opts.Agent != "codex" {
 			t.Errorf("Agent = %q, want codex (explicit override)", opts.Agent)
 		}
+		// Model/variant flags are forwarded as-is to daemon for resolution
 		if opts.Model != "explicit-model" {
-			t.Errorf("Model = %q, want explicit-model (explicit override)", opts.Model)
+			t.Errorf("Model = %q, want explicit-model (passthrough)", opts.Model)
 		}
 		if opts.ModelVariant != "explicit-variant" {
-			t.Errorf("ModelVariant = %q, want explicit-variant (explicit override)", opts.ModelVariant)
+			t.Errorf("ModelVariant = %q, want explicit-variant (passthrough)", opts.ModelVariant)
 		}
 	})
 
@@ -505,11 +505,9 @@ func TestApplyPresetLegacyOpenCodePresets(t *testing.T) {
 	if opts.Agent != "opencode" {
 		t.Errorf("Agent = %q, want opencode (legacy presets default to opencode)", opts.Agent)
 	}
-	if opts.Model != "anthropic/claude-sonnet-4-5" {
-		t.Errorf("Model = %q, want anthropic/claude-sonnet-4-5", opts.Model)
-	}
-	if opts.ModelVariant != "max" {
-		t.Errorf("ModelVariant = %q, want max", opts.ModelVariant)
+	// Model/variant resolution is handled by daemon; CLI just forwards preset name
+	if opts.Preset != "legacy:preset" {
+		t.Errorf("Preset = %q, want legacy:preset", opts.Preset)
 	}
 }
 
@@ -564,11 +562,9 @@ default_preset: opus:high
 		if opts.Agent != "opencode" {
 			t.Errorf("Agent = %q, want opencode", opts.Agent)
 		}
-		if opts.Model != "anthropic/claude-opus-4-5" {
-			t.Errorf("Model = %q, want anthropic/claude-opus-4-5", opts.Model)
-		}
-		if opts.ModelVariant != "high" {
-			t.Errorf("ModelVariant = %q, want high", opts.ModelVariant)
+		// CLI forwards preset name to daemon; daemon resolves model/variant
+		if opts.Preset != "opus:high" {
+			t.Errorf("Preset = %q, want opus:high", opts.Preset)
 		}
 	})
 
@@ -580,11 +576,8 @@ default_preset: opus:high
 		if opts.Agent != "opencode" {
 			t.Errorf("Agent = %q, want opencode", opts.Agent)
 		}
-		if opts.Model != "anthropic/claude-sonnet-4-5" {
-			t.Errorf("Model = %q, want anthropic/claude-sonnet-4-5", opts.Model)
-		}
-		if opts.ModelVariant != "max" {
-			t.Errorf("ModelVariant = %q, want max", opts.ModelVariant)
+		if opts.Preset != "sonnet:max" {
+			t.Errorf("Preset = %q, want sonnet:max", opts.Preset)
 		}
 	})
 
@@ -600,11 +593,12 @@ default_preset: opus:high
 		if opts.Agent != "codex" {
 			t.Errorf("Agent = %q, want codex (explicit override)", opts.Agent)
 		}
+		// Model/variant flags are forwarded as-is to daemon
 		if opts.Model != "explicit-model" {
-			t.Errorf("Model = %q, want explicit-model (explicit override)", opts.Model)
+			t.Errorf("Model = %q, want explicit-model (passthrough)", opts.Model)
 		}
 		if opts.ModelVariant != "explicit-variant" {
-			t.Errorf("ModelVariant = %q, want explicit-variant (explicit override)", opts.ModelVariant)
+			t.Errorf("ModelVariant = %q, want explicit-variant (passthrough)", opts.ModelVariant)
 		}
 	})
 }

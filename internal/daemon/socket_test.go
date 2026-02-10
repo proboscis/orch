@@ -2032,6 +2032,60 @@ func TestProcessControlAgentLaunchCoreValidation(t *testing.T) {
 	})
 }
 
+func TestProcessControlAgentLaunchCoreUsesProjectRootConfig(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	st := &mockStore{
+		runs:   make(map[string]*model.Run),
+		issues: make(map[string]*model.Issue),
+	}
+
+	// Config that should be ignored (cwd-based config).
+	cwdRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cwdRoot, ".orch"), 0755); err != nil {
+		t.Fatalf("failed to create cwd .orch: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cwdRoot, ".orch", "config.yaml"), []byte("control_agent: cwd-agent\n"), 0644); err != nil {
+		t.Fatalf("failed to write cwd config: %v", err)
+	}
+
+	// Config that should be used (request project_root config).
+	projectRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0755); err != nil {
+		t.Fatalf("failed to create project .orch: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), []byte("control_agent: project-agent\n"), 0644); err != nil {
+		t.Fatalf("failed to write project config: %v", err)
+	}
+
+	// Ensure env vars don't override config in this test.
+	t.Setenv("ORCH_CONTROL_AGENT", "")
+	t.Setenv("ORCH_AGENT", "")
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get cwd: %v", err)
+	}
+	defer func() { _ = os.Chdir(oldWD) }()
+	if err := os.Chdir(cwdRoot); err != nil {
+		t.Fatalf("failed to chdir to cwd test dir: %v", err)
+	}
+
+	_, err = server.processControlAgentLaunchCore(st, &ControlAgentLaunchParams{
+		ProjectRoot: projectRoot,
+	})
+	if err == nil {
+		t.Fatal("expected config validation error")
+	}
+	if !strings.Contains(err.Error(), "control_agent must be one of") || !strings.Contains(err.Error(), "project-agent") {
+		t.Fatalf("expected project config agent to be used, got error: %v", err)
+	}
+	if strings.Contains(err.Error(), "cwd-agent") {
+		t.Fatalf("expected cwd config to be ignored, got error: %v", err)
+	}
+}
+
 func TestProcessSendMessageValidation(t *testing.T) {
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)

@@ -315,3 +315,105 @@ class TestNewControlAgentFlag:
         assert "--continue" not in cmd_str, (
             f"Should NOT use --continue flag, got: {cmd_str}"
         )
+
+    def test_empty_agent_override_lets_daemon_resolve_agent(self):
+        """When no explicit --agent is provided, daemon should receive empty agent_type."""
+        from orch_monitor.__main__ import TmuxLayoutLauncher
+
+        launcher = TmuxLayoutLauncher()
+        commands_sent = []
+
+        def mock_run(args, **kwargs):
+            commands_sent.append(args)
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            return mock_result
+
+        mock_daemon = MagicMock()
+        mock_daemon.is_available.return_value = True
+        captured_agent_types = []
+
+        def capture_get_control_agent_launch(
+            project_str, agent_type="", new_session=False
+        ):
+            captured_agent_types.append(agent_type)
+            return Success(
+                ControlAgentLaunch(
+                    command="claude --resume test-session-id",
+                    prompt_file="/tmp/ORCH_CONTROL_PROMPT.md",
+                    port=0,
+                    session_id="test-session-id",
+                    agent="claude",
+                )
+            )
+
+        mock_daemon.get_control_agent_launch.side_effect = (
+            capture_get_control_agent_launch
+        )
+
+        with (
+            patch("subprocess.run", side_effect=mock_run),
+            patch("orch_monitor.__main__._get_daemon_client", return_value=mock_daemon),
+        ):
+            launcher.launch_layout(
+                session_name="test-session",
+                project_root=Path("/tmp/test"),
+                vault_path=Path("/tmp/vault"),
+                agent="opencode",  # fallback command only
+                agent_override="",  # no explicit --agent
+                cwd="/tmp/test",
+                new_control_agent=False,
+            )
+
+        assert captured_agent_types == [""], (
+            f"Expected empty agent_type override, got: {captured_agent_types}"
+        )
+
+
+class TestFallbackControlAgentCommand:
+    def test_builder_uses_claude_positional_prompt(self):
+        from orch_monitor.__main__ import _build_fallback_control_agent_command
+
+        cmd = _build_fallback_control_agent_command("claude")
+        assert cmd.startswith("claude --dangerously-skip-permissions ")
+        assert "--prompt" not in cmd
+
+    def test_tmux_fallback_from_daemon_failure_uses_claude_positional_prompt(self):
+        from orch_monitor.__main__ import TmuxLayoutLauncher
+
+        launcher = TmuxLayoutLauncher()
+        commands_sent = []
+
+        def mock_run(args, **kwargs):
+            commands_sent.append(args)
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            return mock_result
+
+        mock_daemon = MagicMock()
+        mock_daemon.is_available.return_value = True
+        mock_daemon.get_control_agent_launch.return_value = Failure("daemon failure")
+
+        with (
+            patch("subprocess.run", side_effect=mock_run),
+            patch("orch_monitor.__main__._get_daemon_client", return_value=mock_daemon),
+        ):
+            launcher.launch_layout(
+                session_name="test-session",
+                project_root=Path("/tmp/test"),
+                vault_path=Path("/tmp/vault"),
+                agent="claude",
+                cwd="/tmp/test",
+                new_control_agent=False,
+            )
+
+        agent_cmd = None
+        for cmd in commands_sent:
+            if "send-keys" in cmd and "claude" in str(cmd):
+                agent_cmd = cmd
+                break
+
+        assert agent_cmd is not None, "Should have sent fallback claude command"
+        cmd_str = " ".join(str(c) for c in agent_cmd)
+        assert "--dangerously-skip-permissions" in cmd_str
+        assert "--prompt" not in cmd_str

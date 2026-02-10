@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -240,6 +241,105 @@ func TestRepoConfigWithoutIssuesPathUsesDefault(t *testing.T) {
 	}
 	if cfg.Agent != "codex" {
 		t.Fatalf("Agent = %q, want codex", cfg.Agent)
+	}
+}
+
+func TestLoadRejectsUnknownConfigKey(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_ISSUES_ROOT", "")
+	t.Setenv("ORCH_AGENT", "")
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("issues:\n  path: /repo\nunknown_key: true\n"), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+
+	_, err = Load()
+	if err == nil {
+		t.Fatal("expected unknown key validation error")
+	}
+	if !strings.Contains(err.Error(), "invalid config schema") {
+		t.Fatalf("expected schema validation error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "unknown_key") {
+		t.Fatalf("expected unknown key name in error, got: %v", err)
+	}
+}
+
+func TestLoadRejectsInvalidAgentValue(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_ISSUES_ROOT", "")
+	t.Setenv("ORCH_AGENT", "")
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("issues:\n  path: /repo\nagent: not-an-agent\n"), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+
+	_, err = Load()
+	if err == nil {
+		t.Fatal("expected invalid agent error")
+	}
+	if !strings.Contains(err.Error(), "agent must be one of") {
+		t.Fatalf("expected invalid agent message, got: %v", err)
+	}
+}
+
+func TestLoadRejectsInvalidIssuesBackendValue(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_ISSUES_ROOT", "")
+	t.Setenv("ORCH_AGENT", "")
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("issues:\n  path: /repo\n  backend: invalid\n"), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+
+	_, err = Load()
+	if err == nil {
+		t.Fatal("expected invalid issues backend error")
+	}
+	if !strings.Contains(err.Error(), "issues.backend must be one of") {
+		t.Fatalf("expected invalid backend message, got: %v", err)
 	}
 }
 

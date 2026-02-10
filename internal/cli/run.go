@@ -131,6 +131,7 @@ func runRun(issueID string, opts *runOptions) error {
 		AgentProfile:   opts.AgentProfile,
 		Model:          opts.Model,
 		ModelVariant:   opts.ModelVariant,
+		Preset:         opts.Preset,
 		BaseBranch:     opts.BaseBranch,
 		Branch:         opts.Branch,
 		WorktreeDir:    opts.WorktreeDir,
@@ -338,26 +339,21 @@ func buildSimplePrompt(issue *model.Issue, opts *promptOptions) string {
 
 func applyConfigDefaults(opts *runOptions, cfg *orchapi.Config) {
 	agentExplicit := opts.Agent != ""
-	modelExplicit := opts.Model != ""
-	variantExplicit := opts.ModelVariant != ""
 	profileExplicit := opts.AgentProfile != ""
 
 	presetName := opts.Preset
 	if presetName == "" && cfg.DefaultPreset != "" {
 		presetName = cfg.DefaultPreset
+		opts.Preset = presetName
 	}
 
+	// Resolve agent and profile from preset in CLI since they affect
+	// CLI-side display; model and variant are resolved by the daemon.
 	if presetName != "" {
 		preset := findPreset(cfg.Presets, presetName)
 		if preset != nil {
 			if !agentExplicit {
 				opts.Agent = effectiveBackend(preset)
-			}
-			if !modelExplicit && preset.Model != "" {
-				opts.Model = preset.Model
-			}
-			if !variantExplicit && preset.Variant != "" {
-				opts.ModelVariant = preset.Variant
 			}
 			if !profileExplicit && preset.Profile != "" {
 				opts.AgentProfile = preset.Profile
@@ -406,21 +402,8 @@ func applyConfigDefaults(opts *runOptions, cfg *orchapi.Config) {
 		opts.NoPR = cfg.NoPR
 	}
 
-	if opts.Model == "" && cfg.Model != "" {
-		opts.Model = cfg.Model
-	}
-	if opts.ModelVariant == "" && cfg.ModelVariant != "" {
-		opts.ModelVariant = cfg.ModelVariant
-	}
-
-	if opts.Agent == "opencode" {
-		if opts.Model == "" && cfg.OpenCode.DefaultModel != "" {
-			opts.Model = cfg.OpenCode.DefaultModel
-		}
-		if opts.ModelVariant == "" && cfg.OpenCode.DefaultVariant != "" {
-			opts.ModelVariant = cfg.OpenCode.DefaultVariant
-		}
-	}
+	// Model and variant resolution is handled by the daemon via
+	// cfg.ResolveModelAndVariant — CLI just forwards flags as-is.
 }
 
 func findPreset(presets []orchapi.Preset, name string) *orchapi.Preset {

@@ -229,6 +229,9 @@ class Config:
     project_root: Path
     issues_root: Optional[Path] = None
     agent: str = "claude"
+    control_agent: Optional[str] = None
+    control_model: Optional[str] = None
+    control_model_variant: Optional[str] = None
     worktree_dir: str = ".git-worktrees"
     base_branch: str = "main"
     pr_target_branch: str = "main"
@@ -429,6 +432,9 @@ class Config:
             project_root=project_root,
             issues_root=issues_root,
             agent=data.get("agent", "claude"),
+            control_agent=data.get("control_agent"),
+            control_model=data.get("control_model"),
+            control_model_variant=data.get("control_model_variant"),
             worktree_dir=data.get("worktree_dir", ".git-worktrees"),
             base_branch=data.get("base_branch", "main"),
             pr_target_branch=data.get("pr_target_branch", "main"),

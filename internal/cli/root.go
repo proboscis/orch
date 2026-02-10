@@ -70,14 +70,19 @@ var rootCmd = &cobra.Command{
 using a unified vocabulary of issue/run/event.
 
 It operates non-interactively by default, using events to track state
-and questions to handle human input requirements.`,
+	and questions to handle human input requirements.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		if err := validateConfigForCommand(); err != nil {
+			return err
+		}
+
 		// Auto-start daemon for most commands
 		if !noDaemonCommands[cmd.Name()] {
 			ensureDaemon()
 		}
+		return nil
 	},
 }
 
@@ -220,4 +225,19 @@ func apiRunToModelRun(r *orchapi.Run) *model.Run {
 		AliveKnown:        r.AliveKnown,
 		WorktreeExists:    r.WorktreeExists,
 	}
+}
+
+func validateConfigForCommand() error {
+	if globalOpts.ProjectRoot != "" {
+		projectRoot := config.ExpandPath(globalOpts.ProjectRoot, "")
+		if _, err := config.LoadFromProjectRoot(projectRoot); err != nil {
+			return fmt.Errorf("invalid config: %w", err)
+		}
+		return nil
+	}
+
+	if _, err := config.Load(); err != nil {
+		return fmt.Errorf("invalid config: %w", err)
+	}
+	return nil
 }

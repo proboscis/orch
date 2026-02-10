@@ -3,6 +3,8 @@
 import argparse
 import logging
 import os
+import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -102,6 +104,20 @@ def get_session_name(vault_path: Path | None = None) -> str:
 
 
 CONTROL_PROMPT_INSTRUCTION = f"ultrathink Please read '{CONTROL_PROMPT_FILE}' in the current directory and follow the instructions found there."
+
+
+def _build_fallback_control_agent_command(agent: str) -> str:
+    """Build a local fallback command when daemon launch API is unavailable."""
+    prompt = shlex.quote(CONTROL_PROMPT_INSTRUCTION)
+    if agent == "opencode":
+        return f"opencode --prompt {prompt}"
+    if agent == "claude":
+        return f"claude --dangerously-skip-permissions {prompt}"
+    if agent == "codex":
+        return f"codex --yolo {prompt}"
+    if agent == "gemini":
+        return f"gemini --yolo --prompt-interactive {prompt}"
+    return agent
 
 
 def _get_daemon_client(project_root: Path | None) -> "ProtoDaemonClient | None":
@@ -227,6 +243,87 @@ def get_project_root(args) -> Path | None:
 
 DAEMON_STARTUP_TIMEOUT_SEC = 15
 DAEMON_POLL_INTERVAL_SEC = 0.2
+DAEMON_START_COMMAND_TIMEOUT_SEC = 10
+DAEMON_REPAIR_TIMEOUT_SEC = 60
+
+
+def _resolve_orch_binary() -> str:
+    env_orch = os.getenv("ORCH_BIN")
+    if env_orch:
+        return env_orch
+
+    local_orch = Path.home() / ".local" / "bin" / "orch"
+    if local_orch.exists() and os.access(local_orch, os.X_OK):
+        return str(local_orch)
+
+    found = shutil.which("orch")
+    if found:
+        return found
+
+    return "orch"
+
+
+def _orch_scope_args(project_root: Path | None, issues_root: Path | None) -> list[str]:
+    args: list[str] = []
+    if project_root:
+        args.extend(["--project-root", str(project_root)])
+    if issues_root:
+        args.extend(["--issues-root", str(issues_root)])
+    return args
+
+
+def _start_daemon_process(scope_args: list[str]) -> tuple[bool, str]:
+    orch_bin = _resolve_orch_binary()
+    try:
+        result = subprocess.run(
+            [orch_bin] + scope_args + ["daemon", "start"],
+            capture_output=True,
+            text=True,
+            timeout=DAEMON_START_COMMAND_TIMEOUT_SEC,
+        )
+        if result.returncode != 0:
+            error = result.stderr.strip() or result.stdout.strip()
+            return False, error or "daemon start failed"
+        return True, ""
+    except subprocess.TimeoutExpired:
+        return False, "daemon start command timed out"
+    except FileNotFoundError:
+        return False, "'orch' command not found. Is it installed?"
+
+
+def _run_auto_repair(scope_args: list[str]) -> tuple[bool, str]:
+    orch_bin = _resolve_orch_binary()
+    try:
+        result = subprocess.run(
+            [orch_bin] + scope_args + ["repair", "--force"],
+            capture_output=True,
+            text=True,
+            timeout=DAEMON_REPAIR_TIMEOUT_SEC,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "auto-repair command timed out"
+    except FileNotFoundError:
+        return False, "'orch' command not found. Is it installed?"
+
+    # `orch repair` exits non-zero when it fixes problems; treat that as success.
+    if result.returncode in (0, 1):
+        return True, ""
+
+    error = result.stderr.strip() or result.stdout.strip()
+    return False, error or "auto-repair failed"
+
+
+def _wait_for_daemon(daemon: ProtoDaemonClient) -> bool:
+    polls_per_second = int(1 / DAEMON_POLL_INTERVAL_SEC)
+    total_polls = DAEMON_STARTUP_TIMEOUT_SEC * polls_per_second
+    for poll_count in range(total_polls):
+        time.sleep(DAEMON_POLL_INTERVAL_SEC)
+        if daemon.is_available():
+            return True
+        elapsed_seconds = (poll_count + 1) // polls_per_second
+        if (poll_count + 1) % polls_per_second == 0:
+            print(f"  Waiting for daemon... ({elapsed_seconds}s)", file=sys.stderr)
+    return False
 
 
 def ensure_daemon(
@@ -249,36 +346,53 @@ def ensure_daemon(
     print(f"Daemon socket not found at {socket_path}", file=sys.stderr)
     print("Starting orch daemon...", file=sys.stderr)
 
-    project_root_arg = ["--project-root", str(project_root)] if project_root else []
-    issues_root_arg = ["--issues-root", str(issues_root)] if issues_root else []
-    try:
-        result = subprocess.run(
-            ["orch"] + project_root_arg + issues_root_arg + ["daemon", "start"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            return False, f"Failed to start daemon: {result.stderr.strip()}"
-    except subprocess.TimeoutExpired:
-        return False, "Daemon start command timed out"
-    except FileNotFoundError:
-        return False, "'orch' command not found. Is it installed?"
+    scope_args = _orch_scope_args(project_root, issues_root)
 
-    polls_per_second = int(1 / DAEMON_POLL_INTERVAL_SEC)
-    total_polls = DAEMON_STARTUP_TIMEOUT_SEC * polls_per_second
-    for poll_count in range(total_polls):
-        time.sleep(DAEMON_POLL_INTERVAL_SEC)
+    started, start_error = _start_daemon_process(scope_args)
+    if started and _wait_for_daemon(daemon):
+        print("Daemon started.", file=sys.stderr)
+        return True, ""
+
+    if not started:
+        print(f"Daemon start failed: {start_error}", file=sys.stderr)
+
+    print(
+        "Daemon startup stalled. Running automatic repair (orch repair --force)...",
+        file=sys.stderr,
+    )
+    repaired, repair_error = _run_auto_repair(scope_args)
+    if not repaired:
+        return (
+            False,
+            "Automatic daemon repair failed: "
+            + repair_error
+            + f". Socket: {socket_path}",
+        )
+
+    if daemon.is_available():
+        print("Daemon became available after repair.", file=sys.stderr)
+        return True, ""
+
+    print("Retrying orch daemon start after repair...", file=sys.stderr)
+    started_after_repair, retry_error = _start_daemon_process(scope_args)
+    if not started_after_repair:
         if daemon.is_available():
-            print("Daemon started.", file=sys.stderr)
+            print("Daemon became available after repair.", file=sys.stderr)
             return True, ""
-        elapsed_seconds = (poll_count + 1) // polls_per_second
-        if (poll_count + 1) % polls_per_second == 0:
-            print(f"  Waiting for daemon... ({elapsed_seconds}s)", file=sys.stderr)
+        return (
+            False,
+            "Failed to start daemon after auto-repair: "
+            + retry_error
+            + f". Socket: {socket_path}",
+        )
+
+    if _wait_for_daemon(daemon):
+        print("Daemon started after repair.", file=sys.stderr)
+        return True, ""
 
     return (
         False,
-        f"Daemon did not become available within {DAEMON_STARTUP_TIMEOUT_SEC}s. Socket: {socket_path}",
+        f"Daemon did not become available within {DAEMON_STARTUP_TIMEOUT_SEC}s after auto-repair. Socket: {socket_path}",
     )
 
 
@@ -305,6 +419,7 @@ class LayoutLauncher(Protocol):
         agent: str,
         cwd: str,
         new_control_agent: bool = False,
+        agent_override: str = "",
     ) -> None:
         """Launch a new layout with runs, issues, and agent panes.
 
@@ -312,10 +427,12 @@ class LayoutLauncher(Protocol):
             session_name: Name of the multiplexer session
             project_root: Path to project root
             vault_path: Path to issues root
-            agent: Agent command to use
+            agent: Fallback agent command to use
             cwd: Working directory
             new_control_agent: If True, start fresh control agent session.
                               If False, resume existing session using explicit session ID.
+            agent_override: Explicit agent override for daemon config resolution.
+                            Empty string means "let daemon choose from config".
         """
         ...
 
@@ -344,6 +461,7 @@ class TmuxLayoutLauncher:
         agent: str,
         cwd: str,
         new_control_agent: bool = False,
+        agent_override: str = "",
     ) -> None:
         python_exec = sys.executable
         orch_args = ""
@@ -424,15 +542,16 @@ class TmuxLayoutLauncher:
 
             project_str = str(project_root) if project_root else str(Path.cwd())
             result = daemon.get_control_agent_launch(
-                project_str, agent_type=agent, new_session=new_control_agent
+                project_str, agent_type=agent_override, new_session=new_control_agent
             )
             # Handle Result type
             if isinstance(result, Failure):
                 _launcher_logger.warning(
                     f"Failed to get control agent launch from daemon: {result.failure()}"
                 )
-                if agent in ("opencode", "claude", "codex", "gemini"):
-                    agent_cmd = f'{agent} --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
+                fallback_cmd = _build_fallback_control_agent_command(agent)
+                if fallback_cmd != agent:
+                    agent_cmd = fallback_cmd
                     need_capture_session = True
             else:
                 launch = result.unwrap()
@@ -445,8 +564,9 @@ class TmuxLayoutLauncher:
             _launcher_logger.warning(
                 "Daemon not available, using fallback agent command"
             )
-            if agent in ("opencode", "claude", "codex", "gemini"):
-                agent_cmd = f'{agent} --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
+            fallback_cmd = _build_fallback_control_agent_command(agent)
+            if fallback_cmd != agent:
+                agent_cmd = fallback_cmd
                 need_capture_session = True
 
         subprocess.run(
@@ -535,6 +655,7 @@ class ZellijLayoutLauncher:
         agent: str,
         cwd: str,
         new_control_agent: bool = False,
+        agent_override: str = "",
     ) -> None:
         python_exec = sys.executable
         orch_args = ""
@@ -556,16 +677,16 @@ class ZellijLayoutLauncher:
 
             project_str = str(project_root) if project_root else str(Path.cwd())
             launch_result = daemon.get_control_agent_launch(
-                project_str, agent_type=agent, new_session=new_control_agent
+                project_str, agent_type=agent_override, new_session=new_control_agent
             )
             if isinstance(launch_result, Failure):
                 _launcher_logger.warning(
                     f"Failed to get control agent launch from daemon: {launch_result.failure()}"
                 )
-                if agent in ("opencode", "claude", "codex", "gemini"):
-                    # Build command with proper shell quoting (quotes will be escaped for KDL later)
-                    agent_cmd = f'{agent} --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
+                fallback_cmd = _build_fallback_control_agent_command(agent)
+                if fallback_cmd != agent:
                     need_capture_session = True
+                    agent_cmd = fallback_cmd
             else:
                 launch = launch_result.unwrap()
                 agent_cmd = launch.command
@@ -577,9 +698,9 @@ class ZellijLayoutLauncher:
             _launcher_logger.warning(
                 "Daemon not available, using fallback agent command"
             )
-            if agent in ("opencode", "claude", "codex", "gemini"):
-                # Build command with proper shell quoting (quotes will be escaped for KDL later)
-                agent_cmd = f'{agent} --prompt "{CONTROL_PROMPT_INSTRUCTION}"'
+            fallback_cmd = _build_fallback_control_agent_command(agent)
+            if fallback_cmd != agent:
+                agent_cmd = fallback_cmd
                 need_capture_session = True
 
         # Escape commands for KDL string literals (backslashes and double quotes)
@@ -729,6 +850,7 @@ def launch_monitor_layout(
     agent: str = "opencode",
     new: bool = False,
     new_control_agent: bool = False,
+    agent_override: str = "",
     multiplexer: MultiplexerType | None = None,
     log: callable = lambda msg: None,
     show_spinner: bool = True,
@@ -742,6 +864,8 @@ def launch_monitor_layout(
         new: If True, restart the layout (kill existing session)
         new_control_agent: If True, also restart the control agent session.
                           If False, preserve control agent session on layout restart.
+        agent_override: Explicit control agent override.
+                        Empty string means daemon resolves from repo config.
         multiplexer: Which multiplexer to use (auto-detected if None)
         log: Logging function
         show_spinner: Whether to show visual spinner during slow operations
@@ -814,7 +938,13 @@ def launch_monitor_layout(
         _console.print(f"[dim]Starting orch-monitor in {multiplexer.value}...[/dim]")
     _launcher_logger.info("launching layout...")
     launcher.launch_layout(
-        session_name, project_root, vault_path, agent, cwd, new_control_agent
+        session_name,
+        project_root,
+        vault_path,
+        agent,
+        cwd,
+        new_control_agent,
+        agent_override=agent_override,
     )
     _launcher_logger.info("launch complete")
 
@@ -953,8 +1083,11 @@ def main():
         _log("starting launch_monitor_layout")
         # --new-control-agent implies --new for layout restart
         new = args.new or args.new_control_agent
-        # Use config.agent as default if --agent not specified
-        agent = args.agent if args.agent is not None else config.agent
+        # Use config.agent only as fallback command. Let daemon resolve control agent
+        # from repo config unless --agent is explicitly provided.
+        default_agent = config.control_agent or config.agent or "claude"
+        agent = args.agent if args.agent is not None else default_agent
+        agent_override = args.agent if args.agent is not None else ""
         _log(f"using agent: {agent}")
         launch_monitor_layout(
             project_root,
@@ -962,6 +1095,7 @@ def main():
             agent,
             new,
             args.new_control_agent,
+            agent_override,
             mux_type,
             log=_log,
         )

@@ -271,7 +271,7 @@ func createMultiplexerSession(orchDir string, agentType agent.AgentType, mux mul
 		fmt.Fprintf(os.Stderr, "warning: failed to write control prompt: %v\n", err)
 	}
 
-	// Get model settings from config
+	// Get model settings from config (resolution via centralized method)
 	var modelName, modelVariant, profile string
 	var extraArgs []string
 	ctx := context.Background()
@@ -280,17 +280,8 @@ func createMultiplexerSession(orchDir string, agentType agent.AgentType, mux mul
 		projectRoot, _ := getProjectRoot()
 		cfg, cfgErr := api.GetConfig(ctx, projectRoot)
 		if cfgErr == nil {
-			modelName = cfg.ControlModel
-			if modelName == "" {
-				modelName = cfg.Model
-			}
-			modelVariant = cfg.ControlModelVariant
-			if modelVariant == "" {
-				modelVariant = cfg.ModelVariant
-			}
-			// Get extra args for control agent (use control-specific args)
+			modelName, modelVariant = cfg.ResolveControlModelAndVariant(string(agentType))
 			extraArgs = getControlExtraArgs(cfg, string(agentType))
-			// profile not in global config, only in presets
 		}
 	}
 

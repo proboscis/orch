@@ -460,6 +460,36 @@ type Config struct {
 	GitHub              GitHubConfig
 }
 
+// ResolveControlModelAndVariant returns the effective model and variant for a
+// control agent.  Precedence: ControlModel/ControlModelVariant > agent-specific
+// config (e.g. opencode defaults) > generic config (Model/ModelVariant).
+func (c *Config) ResolveControlModelAndVariant(agent string) (string, string) {
+	model := c.ControlModel
+	variant := c.ControlModelVariant
+
+	if model == "" {
+		switch agent {
+		case "opencode":
+			model = c.OpenCode.DefaultModel
+		}
+	}
+	if model == "" {
+		model = c.Model
+	}
+
+	if variant == "" {
+		switch agent {
+		case "opencode":
+			variant = c.OpenCode.DefaultVariant
+		}
+	}
+	if variant == "" {
+		variant = c.ModelVariant
+	}
+
+	return model, variant
+}
+
 type DaemonStatus struct {
 	Running bool
 	PID     int

@@ -560,6 +560,76 @@ rules:
       violation: daemon-bypass
 
   # ---------------------------------------------------------------------------
+  # 5b. CLI must not resolve model/variant from config
+  #
+  # Model and variant resolution (including preset→model/variant, agent-specific
+  # defaults like opencode.default_variant, and generic fallbacks) MUST happen in
+  # the daemon via config.ResolveModelAndVariant / ResolveControlModelAndVariant.
+  # CLI forwards flags/preset name as-is; daemon is the single source of truth.
+  # ---------------------------------------------------------------------------
+
+  - id: cli-no-opencode-config-resolution
+    patterns:
+      - pattern-either:
+          - pattern: $CFG.OpenCode.DefaultModel
+          - pattern: $CFG.OpenCode.DefaultVariant
+    paths:
+      include:
+        - /internal/cli/
+      exclude:
+        - /internal/cli/*_test.go
+    message: >
+      CLI must not read OpenCode-specific config defaults (DefaultModel/DefaultVariant).
+      Agent-specific model/variant resolution is handled by the daemon via
+      config.ResolveModelAndVariant. CLI should forward flags as-is.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: config-scatter
+
+  - id: cli-no-control-model-inline-resolution
+    patterns:
+      - pattern-either:
+          - pattern: $CFG.ControlModel
+          - pattern: $CFG.ControlModelVariant
+    paths:
+      include:
+        - /internal/cli/
+      exclude:
+        - /internal/cli/*_test.go
+    message: >
+      CLI must not read ControlModel/ControlModelVariant for inline resolution.
+      Use cfg.ResolveControlModelAndVariant(agentType) instead, which applies
+      the full fallback chain (control-specific > agent-specific > generic).
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: config-scatter
+
+  - id: cli-no-model-config-fallback
+    patterns:
+      - pattern-either:
+          - pattern: $VAR = $CFG.Model
+          - pattern: $VAR = $CFG.ModelVariant
+    paths:
+      include:
+        - /internal/cli/
+      exclude:
+        - /internal/cli/*_test.go
+    message: >
+      CLI must not assign model/variant from config for resolution fallback.
+      Model and variant resolution (preset > agent-specific > generic) is
+      handled by the daemon via config.ResolveModelAndVariant.
+      CLI should forward --model/--model-variant flags as-is.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: config-scatter
+
+  # ---------------------------------------------------------------------------
   # 6. Daemon identity/store resolution guardrails
   # ---------------------------------------------------------------------------
 

@@ -255,6 +255,7 @@ func (c *DaemonClient) StartRun(ctx context.Context, req *StartRunRequest) (*Sta
 		AgentProfile:   req.AgentProfile,
 		Model:          req.Model,
 		ModelVariant:   req.ModelVariant,
+		Preset:         req.Preset,
 		BaseBranch:     req.BaseBranch,
 		Branch:         req.Branch,
 		WorktreeDir:    req.WorktreeDir,
