@@ -31,6 +31,12 @@ func (a *CodexAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 		args = append(args, "--yolo")
 	}
 
+	// Codex CLI expects model IDs like "gpt-5.3-codex"; normalize provider/model
+	// inputs from orch config by stripping the provider prefix when present.
+	if model := codexModelName(cfg.Model); model != "" {
+		args = append(args, "--model", shellQuote(model))
+	}
+
 	// Add the prompt
 	if cfg.Prompt != "" {
 		// Escape the prompt for shell
@@ -47,6 +53,18 @@ func (a *CodexAdapter) PromptInjection() InjectionMethod {
 
 func (a *CodexAdapter) ReadyPattern() string {
 	return "" // Not needed - prompt passed via command line
+}
+
+func codexModelName(model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return ""
+	}
+	parts := strings.SplitN(model, "/", 2)
+	if len(parts) == 2 && parts[0] != "" {
+		model = strings.TrimSpace(parts[1])
+	}
+	return model
 }
 
 var _ Adapter = (*CodexAdapter)(nil)
