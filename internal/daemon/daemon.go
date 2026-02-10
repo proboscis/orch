@@ -61,6 +61,7 @@ type RunState struct {
 	LastOutputAt   time.Time
 	LastCheckAt    time.Time
 	OutputHash     string
+	PromptStreak   int
 	PRRecorded     bool
 	WasAlive       bool
 	DeadCheckCount int

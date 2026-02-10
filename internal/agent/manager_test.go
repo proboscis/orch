@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/s22625/orch/internal/model"
@@ -169,6 +170,34 @@ func TestIsWaitingForInput(t *testing.T) {
 			name:   "opencode ctrl+c interrupt",
 			output: "ctrl+c interrupt",
 			want:   true,
+		},
+		{
+			name: "codex blocked prompt from pane",
+			output: strings.Join([]string{
+				"› Use /skills to list available skills",
+				"  ? for shortcuts",
+			}, "\n"),
+			want: true,
+		},
+		{
+			name: "codex active work should not be treated as blocked",
+			output: strings.Join([]string{
+				"› Run this command",
+				"• Working (7s • esc to interrupt)",
+				"› Use /skills to list available skills",
+				"  ? for shortcuts",
+			}, "\n"),
+			want: false,
+		},
+		{
+			name: "codex background task should not be treated as blocked",
+			output: strings.Join([]string{
+				"• Sending initial progress update (19s • esc to interrupt)",
+				"  1 background terminal running · /ps to view",
+				"› Use /skills to list available skills",
+				"  ? for shortcuts",
+			}, "\n"),
+			want: false,
 		},
 		{
 			name:   "no prompt",
@@ -454,6 +483,13 @@ func TestMuxManagerGetStatus(t *testing.T) {
 			outputChanged: true,
 			hasPrompt:     false,
 			want:          model.StatusRunning,
+		},
+		{
+			name:          "prompt overrides output changed",
+			output:        "Working...",
+			outputChanged: true,
+			hasPrompt:     true,
+			want:          model.StatusBlocked,
 		},
 		{
 			name:          "has prompt = blocked",

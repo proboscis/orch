@@ -24,6 +24,7 @@ const (
 	captureRefusedBackoffInitial   = 10 * time.Second
 	captureRefusedBackoffMax       = 5 * time.Minute
 	captureRefusedNegativeCacheTTL = 30 * time.Second
+	blockedPromptStreakThreshold   = 2
 )
 
 func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
@@ -130,11 +131,20 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
 	contentHash := hashContent(output)
 	outputChanged := contentHash != state.OutputHash
 	hasPrompt := mgr.DetectPrompt(output)
+	hasStablePrompt := state.recordPromptSignal(hasPrompt)
 
 	if outputChanged {
 		state.OutputHash = contentHash
 		state.LastOutput = output
 		state.LastOutputAt = time.Now()
+	}
+
+	if len(contentHash) > 8 {
+		d.debug("%s#%s: pane hash=%s changed=%t prompt=%t stable_prompt=%t streak=%d",
+			run.IssueID, run.RunID, contentHash[:8], outputChanged, hasPrompt, hasStablePrompt, state.PromptStreak)
+	} else {
+		d.debug("%s#%s: pane hash=%s changed=%t prompt=%t stable_prompt=%t streak=%d",
+			run.IssueID, run.RunID, contentHash, outputChanged, hasPrompt, hasStablePrompt, state.PromptStreak)
 	}
 
 	if prURL := d.detectPRCreation(output); prURL != "" {
@@ -159,7 +169,7 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
 		OutputHash:   state.OutputHash,
 		PRRecorded:   state.PRRecorded,
 	}
-	newStatus := mgr.GetStatus(run, output, agentState, outputChanged, hasPrompt)
+	newStatus := mgr.GetStatus(run, output, agentState, outputChanged, hasStablePrompt)
 
 	if newStatus != "" && newStatus != run.Status {
 		d.logger.Printf("%s#%s: status change %s -> %s", run.IssueID, run.RunID, run.Status, newStatus)
@@ -245,6 +255,16 @@ func (s *RunState) resetCaptureFailure() {
 	s.CaptureErrorKey = ""
 	s.CaptureErrorLogAt = time.Time{}
 	s.SuppressedCaptureLogs = 0
+}
+
+func (s *RunState) recordPromptSignal(hasPrompt bool) bool {
+	if hasPrompt {
+		s.PromptStreak++
+	} else {
+		s.PromptStreak = 0
+	}
+
+	return hasPrompt && s.PromptStreak >= blockedPromptStreakThreshold
 }
 
 func captureBackoffDuration(err error, failures int) time.Duration {

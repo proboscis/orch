@@ -193,11 +193,11 @@ func (m *MuxManager) GetStatus(run *model.Run, output string, state *RunState, o
 	if IsFailed(output) {
 		return model.StatusFailed
 	}
-	if outputChanged {
-		return model.StatusRunning
-	}
 	if hasPrompt {
 		return model.StatusBlocked
+	}
+	if outputChanged {
+		return model.StatusRunning
 	}
 	return ""
 }
@@ -424,24 +424,40 @@ func (m *OpenCodeManager) SendMessage(ctx context.Context, run *model.Run, messa
 }
 
 func IsWaitingForInput(output string) bool {
+	lines := strings.ToLower(getLastLines(output, 40))
+
+	// Codex keeps shortcut hints visible even while actively working.
+	// Treat explicit in-progress markers as stronger signals than prompt hints.
+	busyPatterns := []string{
+		"esc to interrupt",
+		"working (",
+		"background terminal running",
+	}
+	for _, pattern := range busyPatterns {
+		if strings.Contains(lines, pattern) {
+			return false
+		}
+	}
+
 	promptPatterns := []string{
-		"No, and tell Claude what to do differently",
-		"tell Claude what to do differently",
+		"no, and tell claude what to do differently",
+		"tell claude what to do differently",
 		"↵ send",
 		"? for shortcuts",
 		"accept edits",
 		"bypass permissions",
 		"shift+tab to cycle",
-		"Esc to cancel",
+		"esc to cancel",
 		"to show all projects",
-		"Type your message",
+		"type your message",
 		"ctrl+s send",
 		"enter newline",
 		"ctrl+c interrupt",
+		"use /skills to list available skills",
 	}
 
 	for _, pattern := range promptPatterns {
-		if strings.Contains(output, pattern) {
+		if strings.Contains(lines, pattern) {
 			return true
 		}
 	}
@@ -457,9 +473,11 @@ func IsAgentExited(output string) bool {
 		"tokens",
 		"Esc to cancel",
 		"to show all projects",
+		"Use /skills to list available skills",
 		"ctrl+s send",
 		"enter newline",
 		"ctrl+c interrupt",
+		"esc to interrupt",
 		"opencode server listening",
 		"POST /session",
 		"POST /message",
