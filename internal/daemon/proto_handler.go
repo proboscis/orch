@@ -175,7 +175,12 @@ func (s *SocketServer) sendProtoResponse(conn net.Conn, resp *orchpb.Response) {
 	data, err := proto.Marshal(resp)
 	if err != nil {
 		s.logger.Printf("failed to marshal proto response: %v", err)
-		return
+		fallbackData, fallbackErr := proto.Marshal(errorResponse("response_encoding_error"))
+		if fallbackErr != nil {
+			s.logger.Printf("failed to marshal fallback proto response: %v", fallbackErr)
+			return
+		}
+		data = fallbackData
 	}
 
 	lenBuf := make([]byte, 4)
@@ -325,11 +330,11 @@ func applyIssueMetadataToRuns(st store.Store, runs []*model.Run, protoRuns []*or
 		if issue == nil {
 			continue
 		}
-		protoRuns[i].IssueStatus = string(issue.Status)
+		protoRuns[i].IssueStatus = sanitizeUTF8(string(issue.Status))
 		if issue.Topic != "" {
-			protoRuns[i].IssueTopic = issue.Topic
+			protoRuns[i].IssueTopic = sanitizeUTF8(issue.Topic)
 		} else {
-			protoRuns[i].IssueTopic = issue.Summary
+			protoRuns[i].IssueTopic = sanitizeUTF8(issue.Summary)
 		}
 	}
 }
@@ -466,14 +471,14 @@ func enrichRunsParallel(runs []*model.Run, protoRuns []*orchpb.Run) []*orchpb.Ru
 					Additions:    int32(status.DiffStats.Additions),
 					Deletions:    int32(status.DiffStats.Deletions),
 					FilesChanged: int32(status.DiffStats.FilesChanged),
-					Files:        status.DiffStats.Files,
+					Files:        sanitizeUTF8Slice(status.DiffStats.Files),
 				}
 			}
 		}
 
 		if prInfo, ok := prInfoMap[run.Branch]; ok && prInfo != nil {
 			proto.PrNumber = int32(prInfo.Number)
-			proto.PrState = strings.ToLower(prInfo.State)
+			proto.PrState = sanitizeUTF8(strings.ToLower(prInfo.State))
 		}
 
 		protoRuns[i] = proto
@@ -1016,9 +1021,9 @@ func (s *SocketServer) handleProtoCaptureSession(req *orchpb.CaptureSessionReque
 		Ok: true,
 		Response: &orchpb.Response_CaptureSession{
 			CaptureSession: &orchpb.CaptureSessionResponse{
-				Content:       content,
+				Content:       sanitizeUTF8(content),
 				TimestampUnix: time.Now().Unix(),
-				Source:        source,
+				Source:        sanitizeUTF8(source),
 			},
 		},
 	}
@@ -1195,7 +1200,7 @@ func (s *SocketServer) handleProtoGetDiff(req *orchpb.GetDiffRequest) *orchpb.Re
 		Ok: true,
 		Response: &orchpb.Response_GetDiff{
 			GetDiff: &orchpb.GetDiffResponse{
-				Diff: diff,
+				Diff: sanitizeUTF8(diff),
 			},
 		},
 	}
@@ -1761,7 +1766,7 @@ func (s *SocketServer) handleProtoGetDaemonLog(req *orchpb.GetDaemonLogRequest) 
 		Ok: true,
 		Response: &orchpb.Response_GetDaemonLog{
 			GetDaemonLog: &orchpb.GetDaemonLogResponse{
-				Content: content,
+				Content: sanitizeUTF8(content),
 			},
 		},
 	}
