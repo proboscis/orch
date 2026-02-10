@@ -31,6 +31,8 @@ import (
 const (
 	socketFile                  = "daemon.sock"
 	openCodeControlSessionTitle = "orch-control"
+	tmuxSubmitKeyDefault        = "Enter"
+	tmuxSubmitKeyCodex          = "C-m"
 )
 
 func readAll(conn net.Conn) ([]byte, error) {
@@ -1846,18 +1848,26 @@ func (s *SocketServer) processSendTmux(run *model.Run, message string, noEnter b
 		return &agent.SessionNotFoundError{SessionName: sessionName}
 	}
 
-	var err error
-	if noEnter {
-		err = mux.SendKeysLiteral(sessionName, message)
-	} else {
-		err = mux.SendKeys(sessionName, message)
-	}
-	if err != nil {
+	if err := mux.SendKeysLiteral(sessionName, message); err != nil {
 		return fmt.Errorf("failed to send keys: %w", err)
+	}
+
+	if !noEnter {
+		submitKey := tmuxSubmitKeyForAgent(run.Agent)
+		if err := mux.SendText(sessionName, submitKey); err != nil {
+			return fmt.Errorf("failed to send submit key: %w", err)
+		}
 	}
 
 	s.logger.Printf("message sent successfully to tmux session %s", sessionName)
 	return nil
+}
+
+func tmuxSubmitKeyForAgent(agentName string) string {
+	if strings.EqualFold(agentName, string(agent.AgentCodex)) {
+		return tmuxSubmitKeyCodex
+	}
+	return tmuxSubmitKeyDefault
 }
 
 func (s *SocketServer) processSendMessage(st store.Store, params *SendMessageParams) error {

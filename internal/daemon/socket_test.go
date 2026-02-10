@@ -2400,3 +2400,41 @@ func TestProcessSendMessageValidation(t *testing.T) {
 		}
 	})
 }
+
+func TestTmuxSubmitKeyForAgent(t *testing.T) {
+	tests := []struct {
+		name    string
+		agent   string
+		wantKey string
+	}{
+		{
+			name:    "codex uses carriage return submit key",
+			agent:   "codex",
+			wantKey: "C-m",
+		},
+		{
+			name:    "codex matching is case insensitive",
+			agent:   "CODEX",
+			wantKey: "C-m",
+		},
+		{
+			name:    "claude keeps default enter key",
+			agent:   "claude",
+			wantKey: "Enter",
+		},
+		{
+			name:    "unknown agents keep default enter key",
+			agent:   "custom-agent",
+			wantKey: "Enter",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tmuxSubmitKeyForAgent(tt.agent)
+			if got != tt.wantKey {
+				t.Fatalf("tmuxSubmitKeyForAgent(%q) = %q, want %q", tt.agent, got, tt.wantKey)
+			}
+		})
+	}
+}
