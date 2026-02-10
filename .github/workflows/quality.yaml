@@ -26,8 +26,8 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Run strict architecture lint
-        run: make lint-strict
+      - name: Run architecture lint
+        run: make lint
 
   tests:
     name: Test Suite

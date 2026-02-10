@@ -82,8 +82,7 @@ queued → booting → running ⟷ blocked → done
 The daemon boundary is mechanically enforced via semgrep rules in `.semgrep/architecture.yaml`.
 
 ```bash
-make lint          # Show all architecture violations (non-blocking)
-make lint-strict   # Exit non-zero on any violation (use in CI)
+make lint          # Strict architecture lint (exits non-zero on violations)
 ```
 
 **Before creating PRs that touch `internal/cli/` or `internal/monitor/`**, run `make lint` and ensure you are not introducing new violations. The rules enforce:
