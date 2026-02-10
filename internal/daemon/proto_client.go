@@ -18,10 +18,12 @@ type ProtoClient struct {
 	timeout     time.Duration
 }
 
+const protoRequestTimeout = 30 * time.Second
+
 func NewProtoClient(projectRoot string) *ProtoClient {
 	return &ProtoClient{
 		projectRoot: projectRoot,
-		timeout:     30 * time.Second,
+		timeout:     protoRequestTimeout,
 	}
 }
 
@@ -29,7 +31,7 @@ func NewProtoClientWithIssuesRoot(projectRoot, issuesRoot string) *ProtoClient {
 	return &ProtoClient{
 		projectRoot: projectRoot,
 		issuesRoot:  issuesRoot,
-		timeout:     30 * time.Second,
+		timeout:     protoRequestTimeout,
 	}
 }
 

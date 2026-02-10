@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/s22625/orch/api/orchpb"
+	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/store"
 	"github.com/s22625/orch/internal/xdg"
@@ -2055,4 +2056,163 @@ func TestProcessSendMessageValidation(t *testing.T) {
 			t.Errorf("expected 'not found' error, got: %v", err)
 		}
 	})
+}
+
+func TestProcessSendOpenCodeReturnsQuicklyAfterACK(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get cwd: %v", err)
+	}
+	repoRoot, err := git.FindRepoRoot(cwd)
+	if err != nil {
+		t.Fatalf("failed to find repo root: %v", err)
+	}
+
+	messageReceived := make(chan struct{}, 1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/global/health":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"healthy":true,"version":"test"}`))
+		case "/session/ses_ack/message":
+			w.WriteHeader(http.StatusAccepted)
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+			messageReceived <- struct{}{}
+			// Keep body slow to ensure caller returns on ACK, not body completion.
+			time.Sleep(1500 * time.Millisecond)
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	port := getPortFromURL(t, ts.URL)
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	server.openCodeServers[repoRoot] = &managedServer{
+		ProjectRoot: repoRoot,
+		Port:        port,
+		WaitResult:  make(chan error),
+	}
+
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			"orch-ack#run-1": {
+				IssueID:           "orch-ack",
+				RunID:             "run-1",
+				Agent:             "opencode",
+				WorktreePath:      repoRoot,
+				OpenCodeSessionID: "ses_ack",
+			},
+		},
+		issues: make(map[string]*model.Issue),
+	}
+
+	params := &SendMessageParams{
+		IssueID: "orch-ack",
+		RunID:   "run-1",
+		Message: "please rebase",
+	}
+
+	start := time.Now()
+	if err := server.processSendMessage(st, params); err != nil {
+		t.Fatalf("processSendMessage returned error: %v", err)
+	}
+	elapsed := time.Since(start)
+
+	select {
+	case <-messageReceived:
+	default:
+		t.Fatal("expected message endpoint to receive request")
+	}
+
+	if elapsed >= 700*time.Millisecond {
+		t.Fatalf("expected send to return quickly after ACK, took %s", elapsed)
+	}
+}
+
+func TestProcessSendOpenCodeFailsPromptlyWhenACKStalls(t *testing.T) {
+	oldTimeout := openCodeSendACKTimeout
+	openCodeSendACKTimeout = 200 * time.Millisecond
+	defer func() {
+		openCodeSendACKTimeout = oldTimeout
+	}()
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get cwd: %v", err)
+	}
+	repoRoot, err := git.FindRepoRoot(cwd)
+	if err != nil {
+		t.Fatalf("failed to find repo root: %v", err)
+	}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/global/health":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"healthy":true,"version":"test"}`))
+		case "/session/ses_slow/message":
+			time.Sleep(1 * time.Second)
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	port := getPortFromURL(t, ts.URL)
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	server.openCodeServers[repoRoot] = &managedServer{
+		ProjectRoot: repoRoot,
+		Port:        port,
+		WaitResult:  make(chan error),
+	}
+
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			"orch-timeout#run-1": {
+				IssueID:           "orch-timeout",
+				RunID:             "run-1",
+				Agent:             "opencode",
+				WorktreePath:      repoRoot,
+				OpenCodeSessionID: "ses_slow",
+			},
+		},
+		issues: make(map[string]*model.Issue),
+	}
+
+	params := &SendMessageParams{
+		IssueID: "orch-timeout",
+		RunID:   "run-1",
+		Message: "please rebase",
+	}
+
+	start := time.Now()
+	err = server.processSendMessage(st, params)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected error when ACK stalls beyond timeout")
+	}
+	if !strings.Contains(err.Error(), "failed to send message") {
+		t.Fatalf("expected wrapped send error, got: %v", err)
+	}
+	if elapsed >= 700*time.Millisecond {
+		t.Fatalf("expected prompt timeout to fail quickly, took %s", elapsed)
+	}
+}
+
+func TestSendTimeoutHierarchy(t *testing.T) {
+	if protoRequestTimeout <= openCodeSendACKTimeout {
+		t.Fatalf(
+			"proto timeout (%s) must exceed opencode ACK timeout (%s)",
+			protoRequestTimeout,
+			openCodeSendACKTimeout,
+		)
+	}
 }

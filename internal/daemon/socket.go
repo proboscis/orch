@@ -159,6 +159,10 @@ type managedServer struct {
 	Adopted     bool
 }
 
+// openCodeSendACKTimeout bounds how long we wait for /session/{id}/message ACK.
+// Kept as a package variable so tests can shorten it.
+var openCodeSendACKTimeout = 10 * time.Second
+
 func serverPID(srv *managedServer) int {
 	if srv == nil {
 		return 0
@@ -1772,16 +1776,18 @@ func (s *SocketServer) processSendOpenCode(st store.Store, ref *model.RunRef, ru
 	}
 
 	client := agent.NewOpenCodeClient(port)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	sendStart := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), openCodeSendACKTimeout)
 	defer cancel()
 
+	s.logger.Printf("sending opencode message to %s (port=%d, timeout=%s)", ref.String(), port, openCodeSendACKTimeout)
 	err = client.SendMessagePrompt(ctx, run.OpenCodeSessionID, message, run.WorktreePath, nil, "")
 	if err != nil {
+		s.logger.Printf("opencode send failed for %s after %s: %v", ref.String(), time.Since(sendStart), err)
 		return fmt.Errorf("failed to send message: %w", err)
 	}
 
-	s.logger.Printf("message sent successfully to %s", ref.String())
+	s.logger.Printf("message sent successfully to %s in %s", ref.String(), time.Since(sendStart))
 	return nil
 }
 
