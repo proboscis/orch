@@ -16,7 +16,6 @@ import (
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/config"
-	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
 	"github.com/s22625/orch/internal/orchapi"
@@ -27,10 +26,6 @@ const (
 	defaultSessionName  = "orch-monitor"
 	dashboardWindowName = "dashboard"
 	dashboardWindowIdx  = 0
-
-	daemonRepairTimeout = 2 * time.Second
-	daemonPingTimeout   = 500 * time.Millisecond
-	daemonRetryInterval = 100 * time.Millisecond
 )
 
 const (
@@ -72,7 +67,6 @@ type Monitor struct {
 	issueSortDir    SortDirection
 	api             orchapi.OrchAPI
 	issuesRoot      string
-	daemonClient    *daemon.ProtoClient
 	orchPath        string
 	globalFlags     []string
 	agent           string
@@ -141,7 +135,6 @@ func New(api orchapi.OrchAPI, issuesRoot string, opts Options) *Monitor {
 	}
 	orchDir := GetOrchDir(projectRoot)
 	var presets []config.Preset
-	daemonClient := daemon.NewProtoClientWithIssuesRoot(projectRoot, issuesRoot)
 	if cfg, err := config.Load(); err == nil {
 		presets = cfg.GetAllPresets()
 	}
@@ -169,7 +162,6 @@ func New(api orchapi.OrchAPI, issuesRoot string, opts Options) *Monitor {
 		issueSortDir:    issueSortDir,
 		api:             api,
 		issuesRoot:      issuesRoot,
-		daemonClient:    daemonClient,
 		orchPath:        orchPath,
 		globalFlags:     opts.GlobalFlags,
 		agent:           opts.Agent,
@@ -326,68 +318,29 @@ func sessionNameForProject(projectRoot string) string {
 }
 
 func (m *Monitor) ensureDaemonHealthy() error {
-	if m.checkDaemonHealth() == nil {
+	if m.api == nil {
+		return fmt.Errorf("api not initialized")
+	}
+	ctx := context.Background()
+	if repairAPI, ok := m.api.(interface{ EnsureDaemonHealthy(context.Context) error }); ok {
+		if err := repairAPI.EnsureDaemonHealthy(ctx); err != nil {
+			return fmt.Errorf("daemon health check failed: %w\nRun 'orch repair' to diagnose further", err)
+		}
 		return nil
 	}
 
-	m.logger.Printf("daemon unhealthy, attempting repair...")
-
-	if daemon.IsRunning("") {
-		m.logger.Printf("killing stale daemon...")
-		if err := daemon.KillDaemon(""); err != nil {
-			m.logger.Printf("warning: failed to kill daemon: %v", err)
-		}
-		time.Sleep(daemonRetryInterval)
+	if err := m.api.Ping(ctx); err != nil {
+		return fmt.Errorf("daemon health check failed: %w\nRun 'orch repair' to diagnose further", err)
 	}
-
-	m.logger.Printf("starting fresh daemon...")
-	if _, err := daemon.StartInBackground(); err != nil {
-		return fmt.Errorf("failed to start daemon: %w", err)
-	}
-
-	pingClient := daemon.NewProtoClient(m.projectRoot)
-	pingClient.SetTimeout(daemonPingTimeout)
-
-	startTime := time.Now()
-	deadline := startTime.Add(daemonRepairTimeout)
-	var lastErr error
-	for time.Now().Before(deadline) {
-		time.Sleep(daemonRetryInterval)
-		if err := m.pingDaemon(pingClient); err == nil {
-			m.logger.Printf("daemon healthy after repair (took %v)", time.Since(startTime))
-			return nil
-		} else {
-			lastErr = err
-		}
-	}
-
-	if lastErr != nil {
-		return fmt.Errorf("daemon did not become healthy within %v: %w\nRun 'orch repair' to diagnose further", daemonRepairTimeout, lastErr)
-	}
-	return fmt.Errorf("daemon did not become healthy within %v\nRun 'orch repair' to diagnose further", daemonRepairTimeout)
+	return nil
 }
 
 func (m *Monitor) checkDaemonHealth() error {
-	if m.daemonClient == nil {
-		return fmt.Errorf("daemon client not initialized")
+	if m.api == nil {
+		return fmt.Errorf("api not initialized")
 	}
-	if !m.daemonClient.IsAvailable() {
-		return fmt.Errorf("daemon not available")
-	}
-
-	pingClient := daemon.NewProtoClient(m.projectRoot)
-	pingClient.SetTimeout(daemonPingTimeout)
-	return m.pingDaemon(pingClient)
-}
-
-func (m *Monitor) pingDaemon(client *daemon.ProtoClient) error {
-	if client == nil {
-		return fmt.Errorf("ping client is nil")
-	}
-	if err := client.Ping(); err != nil {
-		return fmt.Errorf("daemon ping failed: %w", err)
-	}
-	return nil
+	ctx := context.Background()
+	return m.api.Ping(ctx)
 }
 
 func (m *Monitor) isDaemonHealthy() bool {
@@ -1224,10 +1177,10 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 	}
 
 	if adapter.PromptInjection() == agent.InjectionHTTP {
-		if m.daemonClient == nil || !m.daemonClient.IsAvailable() {
+		if err := m.api.Ping(ctx); err != nil {
 			return agentChatLaunch{command: fallbackChatCommand("daemon not running; opencode requires daemon")}
 		}
-		resp, err := m.daemonClient.GetOpenCodeServer(m.projectRoot)
+		resp, err := m.api.EnsureOpenCodeServer(ctx, m.projectRoot)
 		if err != nil {
 			m.logger.Printf("daemon server request failed: %v", err)
 			return agentChatLaunch{command: fallbackChatCommand(fmt.Sprintf("daemon server error: %v", err))}
@@ -1711,11 +1664,19 @@ func nextAvailableWindowIndex(windows []multiplexer.Window, start int) int {
 }
 
 func (m *Monitor) registerWithDaemon() {
-	if m.daemonClient == nil || !m.daemonClient.IsAvailable() {
+	ctx := context.Background()
+	if err := m.api.Ping(ctx); err != nil {
+		return
+	}
+	registerAPI, ok := m.api.(interface {
+		RegisterMonitor(context.Context, int, string, string, string, string) (*orchapi.MonitorRegistration, error)
+	})
+	if !ok {
 		return
 	}
 
-	resp, err := m.daemonClient.RegisterMonitor(
+	resp, err := registerAPI.RegisterMonitor(
+		ctx,
 		os.Getpid(),
 		"go",
 		"dashboard",
@@ -1745,8 +1706,14 @@ func (m *Monitor) startHeartbeat() {
 			case <-m.heartbeatStop:
 				return
 			case <-ticker.C:
-				if m.daemonClient != nil && m.monitorID != "" {
-					err := m.daemonClient.MonitorHeartbeat(m.monitorID)
+				if m.monitorID != "" {
+					heartbeatAPI, ok := m.api.(interface {
+						MonitorHeartbeat(context.Context, string) error
+					})
+					if !ok {
+						return
+					}
+					err := heartbeatAPI.MonitorHeartbeat(context.Background(), m.monitorID)
 					if err != nil && strings.Contains(err.Error(), "not_found") {
 						m.reregisterWithDaemon()
 					}
@@ -1757,11 +1724,19 @@ func (m *Monitor) startHeartbeat() {
 }
 
 func (m *Monitor) reregisterWithDaemon() {
-	if m.daemonClient == nil || !m.daemonClient.IsAvailable() {
+	ctx := context.Background()
+	if err := m.api.Ping(ctx); err != nil {
+		return
+	}
+	registerAPI, ok := m.api.(interface {
+		RegisterMonitor(context.Context, int, string, string, string, string) (*orchapi.MonitorRegistration, error)
+	})
+	if !ok {
 		return
 	}
 
-	resp, err := m.daemonClient.RegisterMonitor(
+	resp, err := registerAPI.RegisterMonitor(
+		ctx,
 		os.Getpid(),
 		"go",
 		"dashboard",
@@ -1781,11 +1756,17 @@ func (m *Monitor) unregisterFromDaemon() {
 		m.heartbeatStop = nil
 	}
 
-	if m.daemonClient == nil || m.monitorID == "" {
+	if m.monitorID == "" {
+		return
+	}
+	unregisterAPI, ok := m.api.(interface {
+		UnregisterMonitor(context.Context, string) error
+	})
+	if !ok {
 		return
 	}
 
-	_ = m.daemonClient.UnregisterMonitor(m.monitorID)
+	_ = unregisterAPI.UnregisterMonitor(context.Background(), m.monitorID)
 	m.monitorID = ""
 }
 

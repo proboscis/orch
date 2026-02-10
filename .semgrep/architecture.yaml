@@ -756,9 +756,6 @@ rules:
         - /internal/monitor/
       exclude:
         - /internal/monitor/*_test.go
-        # Existing migration debt; remove this exclusion after monitor lifecycle
-        # is fully driven through orchapi.
-        - /internal/monitor/monitor.go
     message: >
       Monitor should not import internal/daemon directly. Use orchapi as the
       boundary and move daemon lifecycle/health operations behind API methods.
@@ -781,9 +778,6 @@ rules:
         - /internal/monitor/
       exclude:
         - /internal/monitor/*_test.go
-        # Existing migration debt; remove this exclusion after agent prompt
-        # composition is daemon-owned.
-        - /internal/monitor/agent_prompt.go
     message: >
       Monitor should not import internal/store directly. Store access must be
       daemon-owned and exposed via orchapi.
@@ -806,10 +800,6 @@ rules:
         - /internal/cli/
       exclude:
         - /internal/cli/*_test.go
-        # Existing migration debt; remove exclusions after daemon-backed
-        # worktree status fields are the only source of truth.
-        - /internal/cli/ps.go
-        - /internal/cli/exec.go
     message: >
       CLI must not perform direct worktree filesystem checks. Use daemon-returned
       run metadata (worktree_exists/branch_state) via orchapi.
@@ -822,22 +812,6 @@ rules:
   - id: daemon-proto-no-new-jsoncapture-bridge
     patterns:
       - pattern: json.Unmarshal($BUF.data, &$RESULT)
-      - pattern-not-inside: |
-          func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.Response {
-            ...
-          }
-      - pattern-not-inside: |
-          func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *orchpb.Response {
-            ...
-          }
-      - pattern-not-inside: |
-          func (s *SocketServer) handleProtoCreateIssue(req *orchpb.CreateIssueRequest) *orchpb.Response {
-            ...
-          }
-      - pattern-not-inside: |
-          func (s *SocketServer) handleProtoGetControlAgentLaunch(req *orchpb.GetControlAgentLaunchRequest) *orchpb.Response {
-            ...
-          }
     paths:
       include:
         - /internal/daemon/proto_handler.go

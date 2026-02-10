@@ -14,7 +14,6 @@ import (
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/orchapi"
-	"github.com/s22625/orch/internal/store"
 )
 
 const (
@@ -193,110 +192,6 @@ type RunInfo struct {
 	Status  string
 }
 
-// buildControlAgentPrompt builds the control agent prompt with dynamic repo context
-func buildControlAgentPrompt(st store.Store) (string, error) {
-	cwd, _ := os.Getwd()
-	issuesRoot := st.RootPath()
-
-	// Get existing issues
-	issues, err := st.ListIssues()
-	if err != nil {
-		issues = nil
-	}
-
-	// Get active runs
-	runs, err := st.ListRuns(&store.ListRunsFilter{
-		Status: []model.Status{
-			model.StatusRunning,
-			model.StatusBlocked,
-			model.StatusBlockedAPI,
-			model.StatusBooting,
-			model.StatusQueued,
-			model.StatusPROpen,
-		},
-		Limit: 20,
-	})
-	if err != nil {
-		runs = nil
-	}
-
-	// Detect issue ID pattern from existing issues
-	pattern, example, nextID := detectIssueIDConvention(issues)
-
-	// Build issue info list
-	issueInfos := make([]IssueInfo, 0, len(issues))
-	for _, issue := range issues {
-		status := string(issue.Status)
-		if status == "" {
-			status = string(model.IssueStatusOpen)
-		}
-		title := issue.Title
-		if title == "" {
-			title = "-"
-		}
-		// Truncate long titles
-		if len(title) > 50 {
-			title = title[:47] + "..."
-		}
-		issueInfos = append(issueInfos, IssueInfo{
-			ID:     issue.ID,
-			Status: status,
-			Title:  title,
-		})
-	}
-
-	// Build run info list
-	runInfos := make([]RunInfo, 0, len(runs))
-	for _, run := range runs {
-		runInfos = append(runInfos, RunInfo{
-			IssueID: run.IssueID,
-			ShortID: run.ShortID(),
-			Status:  string(run.Status),
-		})
-	}
-
-	cfg, _ := config.Load()
-	defaultAgent := "opencode"
-	if cfg != nil {
-		if cfg.ControlAgent != "" {
-			defaultAgent = cfg.ControlAgent
-		} else if cfg.Agent != "" {
-			defaultAgent = cfg.Agent
-		}
-	}
-
-	data := ControlPromptData{
-		IssuesRoot:     issuesRoot,
-		WorkDir:        cwd,
-		IssueIDPattern: pattern,
-		IssueIDExample: example,
-		NextIssueID:    nextID,
-		Issues:         issueInfos,
-		ActiveRuns:     runInfos,
-
-		GitBranch:          getGitBranch(cwd),
-		UncommittedChanges: getUncommittedChangesStatus(cwd),
-		LastCommitMessage:  getLastCommitMessage(cwd),
-
-		DefaultAgent:    defaultAgent,
-		AvailableAgents: getAvailableAgents(),
-
-		ExtraPrompt: loadExtraPrompt(),
-	}
-
-	tmpl, err := template.New("control-prompt").Parse(controlPromptTemplate)
-	if err != nil {
-		return buildFallbackControlPrompt(issuesRoot, cwd), nil
-	}
-
-	var buf strings.Builder
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return buildFallbackControlPrompt(issuesRoot, cwd), nil
-	}
-
-	return buf.String(), nil
-}
-
 // detectIssueIDConvention analyzes existing issue IDs to detect the naming pattern
 func detectIssueIDConvention(issues []*model.Issue) (pattern, example, nextID string) {
 	// Default fallback
@@ -424,26 +319,6 @@ Available commands (run directly via bash):
 - orch resolve <issue-id>#<run-id>
 - orch open <issue-id>
 `, issuesRoot, cwd)
-}
-
-// WriteControlPromptFile writes the control agent prompt to a temp file
-func WriteControlPromptFile(st store.Store) (string, error) {
-	prompt, err := buildControlAgentPrompt(st)
-	if err != nil {
-		return "", err
-	}
-
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("failed to get working directory: %w", err)
-	}
-
-	promptPath := filepath.Join(cwd, controlPromptFileName)
-	if err := os.WriteFile(promptPath, []byte(prompt), 0644); err != nil {
-		return "", fmt.Errorf("failed to write control prompt file: %w", err)
-	}
-
-	return promptPath, nil
 }
 
 // WriteControlPromptFileViaAPI writes the control agent prompt using the daemon API

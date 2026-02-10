@@ -1,13 +1,30 @@
 package monitor
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/orchapi"
 )
+
+type daemonHealthAPI struct {
+	orchapi.OrchAPI
+	pingErr   error
+	ensureErr error
+}
+
+func (a *daemonHealthAPI) Ping(ctx context.Context) error {
+	return a.pingErr
+}
+
+func (a *daemonHealthAPI) EnsureDaemonHealthy(ctx context.Context) error {
+	return a.ensureErr
+}
 
 func TestMonitorRefreshInterval_Default(t *testing.T) {
 	t.Setenv(monitorRefreshIntervalEnv, "")
@@ -294,37 +311,40 @@ func TestParseAgentPreset(t *testing.T) {
 	}
 }
 
-func TestIsDaemonHealthy_NilClient(t *testing.T) {
-	m := &Monitor{daemonClient: nil}
+func TestIsDaemonHealthy_NilAPI(t *testing.T) {
+	m := &Monitor{api: nil}
 	if m.isDaemonHealthy() {
-		t.Error("isDaemonHealthy() with nil client should return false")
+		t.Error("isDaemonHealthy() with nil api should return false")
 	}
 }
 
-func TestCheckDaemonHealth_NilClient(t *testing.T) {
-	m := &Monitor{daemonClient: nil}
+func TestCheckDaemonHealth_NilAPI(t *testing.T) {
+	m := &Monitor{api: nil}
 	err := m.checkDaemonHealth()
 	if err == nil {
-		t.Error("checkDaemonHealth() with nil client should return error")
+		t.Error("checkDaemonHealth() with nil api should return error")
 	}
-	if err.Error() != "daemon client not initialized" {
-		t.Errorf("checkDaemonHealth() error = %v, want 'daemon client not initialized'", err)
+	if err.Error() != "api not initialized" {
+		t.Errorf("checkDaemonHealth() error = %v, want 'api not initialized'", err)
 	}
 }
 
 func TestCheckDaemonHealth_Healthy(t *testing.T) {
-	m := &Monitor{daemonClient: nil}
+	m := &Monitor{api: &daemonHealthAPI{pingErr: nil}}
 	err := m.checkDaemonHealth()
-	if err == nil {
-		t.Skip("daemon is actually running - cannot test unhealthy path")
+	if err != nil {
+		t.Fatalf("checkDaemonHealth() error = %v, want nil", err)
 	}
 }
 
-func TestPingDaemon_NilClient(t *testing.T) {
-	m := &Monitor{}
-	err := m.pingDaemon(nil)
+func TestEnsureDaemonHealthy_UsesAPI(t *testing.T) {
+	m := &Monitor{api: &daemonHealthAPI{ensureErr: errors.New("boom")}}
+	err := m.ensureDaemonHealthy()
 	if err == nil {
-		t.Error("pingDaemon(nil) should return error")
+		t.Fatal("ensureDaemonHealthy() expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("ensureDaemonHealthy() error = %v, want contains boom", err)
 	}
 }
 
