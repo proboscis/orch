@@ -707,6 +707,70 @@ func TestFormatOpenCodeMessagesLineLimit(t *testing.T) {
 	}
 }
 
+func TestFormatOpenCodeMessagesSpecialCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		messages []Message
+		maxLines int
+		want     string
+	}{
+		{
+			name: "empty message omitted entirely",
+			messages: []Message{
+				{
+					Info:  MessageInfo{ID: "msg-empty", Role: "assistant"},
+					Parts: []MessagePart{},
+				},
+				{
+					Info:  MessageInfo{ID: "msg-user", Role: "user"},
+					Parts: []MessagePart{{Type: "text", Text: "Visible text"}},
+				},
+			},
+			maxLines: 100,
+			want:     "--- [USER] ---\nVisible text",
+		},
+		{
+			name: "tool-only assistant message shows tool use count",
+			messages: []Message{
+				{
+					Info: MessageInfo{ID: "msg-tools", Role: "assistant"},
+					Parts: []MessagePart{
+						{Type: "tool_use", ToolName: "read_file"},
+						{Type: "tool_result", Text: "result text"},
+						{Type: "thinking", Text: "internal"},
+						{Type: "tool_use", ToolName: "edit_file"},
+					},
+				},
+			},
+			maxLines: 100,
+			want:     "--- [ASSISTANT] --- (2 tool uses)",
+		},
+		{
+			name: "mixed message with text remains unchanged",
+			messages: []Message{
+				{
+					Info: MessageInfo{ID: "msg-mixed", Role: "assistant"},
+					Parts: []MessagePart{
+						{Type: "tool_use", ToolName: "read_file"},
+						{Type: "text", Text: "Final answer"},
+					},
+				},
+			},
+			maxLines: 100,
+			want:     "--- [ASSISTANT] ---\nFinal answer",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FormatOpenCodeMessages(tt.messages, tt.maxLines)
+			if got != tt.want {
+				t.Fatalf("FormatOpenCodeMessages() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFormatOpenCodeMessagesPartOrdering(t *testing.T) {
 	messages := []Message{
 		{
