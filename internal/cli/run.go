@@ -421,6 +421,11 @@ func applyConfigDefaults(opts *runOptions, cfg *orchapi.Config) {
 			opts.ModelVariant = cfg.OpenCode.DefaultVariant
 		}
 	}
+	if opts.Agent == "codex" {
+		if opts.Model == "" && cfg.Codex.DefaultModel != "" {
+			opts.Model = cfg.Codex.DefaultModel
+		}
+	}
 }
 
 func findPreset(presets []orchapi.Preset, name string) *orchapi.Preset {

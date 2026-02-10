@@ -1420,14 +1420,7 @@ func (s *SocketServer) handleGetControlAgentLaunch(req SendRequest, encoder *jso
 	// Get model configuration
 	var modelName, modelVariant string
 	if cfgErr == nil {
-		modelName = cfg.ControlModel
-		if modelName == "" {
-			modelName = cfg.Model
-		}
-		modelVariant = cfg.ControlModelVariant
-		if modelVariant == "" {
-			modelVariant = cfg.ModelVariant
-		}
+		modelName, modelVariant = cfg.ResolveModelAndVariant(agentName, "", "", true)
 	}
 
 	// Parse and validate agent type
@@ -1586,14 +1579,7 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 
 	var modelName, modelVariant string
 	if cfgErr == nil {
-		modelName = cfg.ControlModel
-		if modelName == "" {
-			modelName = cfg.Model
-		}
-		modelVariant = cfg.ControlModelVariant
-		if modelVariant == "" {
-			modelVariant = cfg.ModelVariant
-		}
+		modelName, modelVariant = cfg.ResolveModelAndVariant(agentName, "", "", true)
 	}
 
 	aType, err := agent.ParseAgentType(agentName)
@@ -2253,6 +2239,8 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		worktreePath = filepath.Join(repoRoot, worktreeDir, req.IssueID, worktreeName)
 	}
 
+	resolvedModel, resolvedModelVariant := cfg.ResolveModelAndVariant(agentName, req.Model, req.ModelVariant, false)
+
 	if req.DryRun {
 		encoder.Encode(StartRunResponse{
 			OK:           true,
@@ -2266,11 +2254,11 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 	}
 
 	metadata := map[string]string{"agent": agentName}
-	if req.ModelVariant != "" {
-		metadata["model_variant"] = req.ModelVariant
+	if resolvedModelVariant != "" {
+		metadata["model_variant"] = resolvedModelVariant
 	}
-	if req.Model != "" {
-		metadata["model"] = req.Model
+	if resolvedModel != "" {
+		metadata["model"] = resolvedModel
 	}
 	run, err := st.CreateRun(req.IssueID, runID, metadata)
 	if err != nil {
@@ -2330,8 +2318,8 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		Prompt:       initialPrompt,
 		Profile:      req.AgentProfile,
 		Port:         agent.OpenCodeServerPortStart,
-		Model:        req.Model,
-		ModelVariant: req.ModelVariant,
+		Model:        resolvedModel,
+		ModelVariant: resolvedModelVariant,
 		ExtraArgs:    cfg.GetExtraArgs(agentName),
 	}
 
@@ -2536,6 +2524,8 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		worktreePath = filepath.Join(projectRoot, worktreeDir, opts.IssueID, worktreeName)
 	}
 
+	resolvedModel, resolvedModelVariant := cfg.ResolveModelAndVariant(agentName, opts.Model, opts.ModelVariant, false)
+
 	if opts.DryRun {
 		return &StartRunResult{
 			RunID:        runID,
@@ -2547,11 +2537,11 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	}
 
 	metadata := map[string]string{"agent": agentName}
-	if opts.ModelVariant != "" {
-		metadata["model_variant"] = opts.ModelVariant
+	if resolvedModelVariant != "" {
+		metadata["model_variant"] = resolvedModelVariant
 	}
-	if opts.Model != "" {
-		metadata["model"] = opts.Model
+	if resolvedModel != "" {
+		metadata["model"] = resolvedModel
 	}
 	run, err := st.CreateRun(opts.IssueID, runID, metadata)
 	if err != nil {
@@ -2608,8 +2598,8 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		Prompt:       initialPrompt,
 		Profile:      opts.AgentProfile,
 		Port:         agent.OpenCodeServerPortStart,
-		Model:        opts.Model,
-		ModelVariant: opts.ModelVariant,
+		Model:        resolvedModel,
+		ModelVariant: resolvedModelVariant,
 		ExtraArgs:    cfg.GetExtraArgs(agentName),
 	}
 

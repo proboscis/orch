@@ -2133,6 +2133,7 @@ func (s *SocketServer) handleProtoGetConfig(req *orchpb.GetConfigRequest) *orchp
 	}
 
 	resp.Codex = &orchpb.CodexConfigProto{
+		DefaultModel:     cfg.Codex.DefaultModel,
 		PromptTemplate:   cfg.Codex.PromptTemplate,
 		ExtraArgs:        cfg.Codex.ExtraArgs,
 		ControlExtraArgs: cfg.Codex.ControlExtraArgs,

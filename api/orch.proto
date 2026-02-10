@@ -716,6 +716,7 @@ message CodexConfigProto {
   string prompt_template = 1;
   repeated string extra_args = 2;
   repeated string control_extra_args = 3;
+  string default_model = 4;
 }
 
 message GeminiConfigProto {

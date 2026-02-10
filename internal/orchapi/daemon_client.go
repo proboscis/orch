@@ -802,6 +802,7 @@ func (c *DaemonClient) GetConfig(ctx context.Context, projectRoot string) (*Conf
 			ControlExtraArgs: resp.Claude.ControlExtraArgs,
 		},
 		Codex: CodexConfig{
+			DefaultModel:     resp.Codex.DefaultModel,
 			PromptTemplate:   resp.Codex.PromptTemplate,
 			ExtraArgs:        resp.Codex.ExtraArgs,
 			ControlExtraArgs: resp.Codex.ControlExtraArgs,

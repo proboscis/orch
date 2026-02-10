@@ -395,6 +395,7 @@ type ClaudeConfig struct {
 }
 
 type CodexConfig struct {
+	DefaultModel     string
 	PromptTemplate   string
 	ExtraArgs        []string
 	ControlExtraArgs []string

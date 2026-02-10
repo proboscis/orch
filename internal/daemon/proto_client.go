@@ -1980,6 +1980,7 @@ func (c *ProtoClient) GetConfig(projectRoot string) (*ConfigResponse, error) {
 	}
 
 	if configResp.Codex != nil {
+		cfg.Codex.DefaultModel = configResp.Codex.DefaultModel
 		cfg.Codex.PromptTemplate = configResp.Codex.PromptTemplate
 		cfg.Codex.ExtraArgs = configResp.Codex.ExtraArgs
 		cfg.Codex.ControlExtraArgs = configResp.Codex.ControlExtraArgs

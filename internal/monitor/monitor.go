@@ -1152,14 +1152,7 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 				agentName = cfg.Agent
 			}
 		}
-		modelName = cfg.ControlModel
-		if modelName == "" {
-			modelName = cfg.Model
-		}
-		modelVariant = cfg.ControlModelVariant
-		if modelVariant == "" {
-			modelVariant = cfg.ModelVariant
-		}
+		modelName, modelVariant = cfg.ResolveModelAndVariant(agentName, "", "", true)
 	}
 	if agentName == "" {
 		agentName = "opencode"

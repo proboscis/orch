@@ -793,6 +793,7 @@ type ClaudeConfigResponse struct {
 }
 
 type CodexConfigResponse struct {
+	DefaultModel     string
 	PromptTemplate   string
 	ExtraArgs        []string
 	ControlExtraArgs []string

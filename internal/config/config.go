@@ -63,6 +63,7 @@ type ClaudeConfig struct {
 
 // CodexConfig holds default configuration for the codex agent.
 type CodexConfig struct {
+	DefaultModel     string   `yaml:"default_model,omitempty"`
 	PromptTemplate   string   `yaml:"prompt_template,omitempty"`
 	ExtraArgs        []string `yaml:"extra_args,omitempty"`         // Additional CLI args for run agents
 	ControlExtraArgs []string `yaml:"control_extra_args,omitempty"` // Additional CLI args for control agent
@@ -435,6 +436,9 @@ func loadFromFile(path string, cfg *Config) error {
 		}
 	}
 	if fileCfg.Codex != nil {
+		if fileCfg.Codex.DefaultModel != "" {
+			cfg.Codex.DefaultModel = fileCfg.Codex.DefaultModel
+		}
 		if fileCfg.Codex.PromptTemplate != "" {
 			cfg.Codex.PromptTemplate = fileCfg.Codex.PromptTemplate
 		}
@@ -616,6 +620,9 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("ORCH_OPENCODE_DEFAULT_VARIANT"); v != "" {
 		cfg.OpenCode.DefaultVariant = v
+	}
+	if v := os.Getenv("ORCH_CODEX_DEFAULT_MODEL"); v != "" {
+		cfg.Codex.DefaultModel = v
 	}
 	if v := os.Getenv("ORCH_DEFAULT_PRESET"); v != "" {
 		cfg.DefaultPreset = v
@@ -804,6 +811,50 @@ func (c *Config) GetControlExtraArgs(agent string) []string {
 		return c.Gemini.ControlExtraArgs
 	}
 	return nil
+}
+
+// ResolveModelAndVariant resolves model settings for a given agent.
+//
+// Precedence for each field:
+// 1) Explicit parameter (model/variant)
+// 2) Control defaults (when control=true)
+// 3) Global defaults (model/model_variant)
+// 4) Agent-specific defaults
+func (c *Config) ResolveModelAndVariant(agent, model, variant string, control bool) (string, string) {
+	resolvedModel := model
+	resolvedVariant := variant
+
+	if control {
+		if resolvedModel == "" && c.ControlModel != "" {
+			resolvedModel = c.ControlModel
+		}
+		if resolvedVariant == "" && c.ControlModelVariant != "" {
+			resolvedVariant = c.ControlModelVariant
+		}
+	}
+
+	if resolvedModel == "" && c.Model != "" {
+		resolvedModel = c.Model
+	}
+	if resolvedVariant == "" && c.ModelVariant != "" {
+		resolvedVariant = c.ModelVariant
+	}
+
+	switch agent {
+	case "opencode":
+		if resolvedModel == "" && c.OpenCode.DefaultModel != "" {
+			resolvedModel = c.OpenCode.DefaultModel
+		}
+		if resolvedVariant == "" && c.OpenCode.DefaultVariant != "" {
+			resolvedVariant = c.OpenCode.DefaultVariant
+		}
+	case "codex":
+		if resolvedModel == "" && c.Codex.DefaultModel != "" {
+			resolvedModel = c.Codex.DefaultModel
+		}
+	}
+
+	return resolvedModel, resolvedVariant
 }
 
 // GetMultiplexer returns the legacy multiplexer setting (deprecated)

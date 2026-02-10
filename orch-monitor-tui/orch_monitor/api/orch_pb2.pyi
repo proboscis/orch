@@ -1187,14 +1187,16 @@ class ClaudeConfigProto(_message.Message):
     def __init__(self, prompt_template: _Optional[str] = ..., extra_args: _Optional[_Iterable[str]] = ..., control_extra_args: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class CodexConfigProto(_message.Message):
-    __slots__ = ("prompt_template", "extra_args", "control_extra_args")
+    __slots__ = ("prompt_template", "extra_args", "control_extra_args", "default_model")
     PROMPT_TEMPLATE_FIELD_NUMBER: _ClassVar[int]
     EXTRA_ARGS_FIELD_NUMBER: _ClassVar[int]
     CONTROL_EXTRA_ARGS_FIELD_NUMBER: _ClassVar[int]
+    DEFAULT_MODEL_FIELD_NUMBER: _ClassVar[int]
     prompt_template: str
     extra_args: _containers.RepeatedScalarFieldContainer[str]
     control_extra_args: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, prompt_template: _Optional[str] = ..., extra_args: _Optional[_Iterable[str]] = ..., control_extra_args: _Optional[_Iterable[str]] = ...) -> None: ...
+    default_model: str
+    def __init__(self, prompt_template: _Optional[str] = ..., extra_args: _Optional[_Iterable[str]] = ..., control_extra_args: _Optional[_Iterable[str]] = ..., default_model: _Optional[str] = ...) -> None: ...
 
 class GeminiConfigProto(_message.Message):
     __slots__ = ("prompt_template", "extra_args", "control_extra_args")

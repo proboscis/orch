@@ -72,6 +72,9 @@ func configToOrchapi(cfg *config.Config) *orchapi.Config {
 			DefaultModel:   cfg.OpenCode.DefaultModel,
 			DefaultVariant: cfg.OpenCode.DefaultVariant,
 		},
+		Codex: orchapi.CodexConfig{
+			DefaultModel: cfg.Codex.DefaultModel,
+		},
 	}
 }
 
@@ -353,6 +356,62 @@ func TestApplyConfigDefaultsFallbacks(t *testing.T) {
 	wantWorktreeDir := filepath.Join(home, ".orch", "worktrees")
 	if opts.WorktreeDir != wantWorktreeDir {
 		t.Fatalf("WorktreeDir fallback = %q, want %q", opts.WorktreeDir, wantWorktreeDir)
+	}
+}
+
+func TestApplyConfigDefaultsCodexDefaultModel(t *testing.T) {
+	temp := t.TempDir()
+	home := filepath.Join(temp, "home")
+	if err := os.MkdirAll(home, 0755); err != nil {
+		t.Fatalf("mkdir home: %v", err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_AGENT", "")
+	t.Setenv("ORCH_MODEL", "")
+	t.Setenv("ORCH_MODEL_VARIANT", "")
+	t.Setenv("ORCH_CODEX_DEFAULT_MODEL", "")
+
+	repo := filepath.Join(temp, "repo")
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+
+	configData := `agent: codex
+codex:
+  default_model: openai/gpt-5.3-codex
+`
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(configData), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	opts := &runOptions{}
+	if _, err := applyPromptConfigDefaultsForTest(opts); err != nil {
+		t.Fatalf("applyPromptConfigDefaultsForTest: %v", err)
+	}
+	if opts.Agent != "codex" {
+		t.Fatalf("Agent = %q, want codex", opts.Agent)
+	}
+	if opts.Model != "openai/gpt-5.3-codex" {
+		t.Fatalf("Model = %q, want openai/gpt-5.3-codex", opts.Model)
+	}
+
+	optsOverride := &runOptions{Model: "openai/gpt-5.4-codex"}
+	if _, err := applyPromptConfigDefaultsForTest(optsOverride); err != nil {
+		t.Fatalf("applyPromptConfigDefaultsForTest explicit: %v", err)
+	}
+	if optsOverride.Model != "openai/gpt-5.4-codex" {
+		t.Fatalf("Model override = %q, want openai/gpt-5.4-codex", optsOverride.Model)
 	}
 }
 

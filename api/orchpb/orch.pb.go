@@ -6678,6 +6678,7 @@ type CodexConfigProto struct {
 	PromptTemplate   string                 `protobuf:"bytes,1,opt,name=prompt_template,json=promptTemplate,proto3" json:"prompt_template,omitempty"`
 	ExtraArgs        []string               `protobuf:"bytes,2,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
 	ControlExtraArgs []string               `protobuf:"bytes,3,rep,name=control_extra_args,json=controlExtraArgs,proto3" json:"control_extra_args,omitempty"`
+	DefaultModel     string                 `protobuf:"bytes,4,opt,name=default_model,json=defaultModel,proto3" json:"default_model,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -6731,6 +6732,13 @@ func (x *CodexConfigProto) GetControlExtraArgs() []string {
 		return x.ControlExtraArgs
 	}
 	return nil
+}
+
+func (x *CodexConfigProto) GetDefaultModel() string {
+	if x != nil {
+		return x.DefaultModel
+	}
+	return ""
 }
 
 type GeminiConfigProto struct {
@@ -9497,12 +9505,13 @@ const file_orch_proto_rawDesc = "" +
 	"\x0fprompt_template\x18\x01 \x01(\tR\x0epromptTemplate\x12\x1d\n" +
 	"\n" +
 	"extra_args\x18\x02 \x03(\tR\textraArgs\x12,\n" +
-	"\x12control_extra_args\x18\x03 \x03(\tR\x10controlExtraArgs\"\x88\x01\n" +
+	"\x12control_extra_args\x18\x03 \x03(\tR\x10controlExtraArgs\"\xad\x01\n" +
 	"\x10CodexConfigProto\x12'\n" +
 	"\x0fprompt_template\x18\x01 \x01(\tR\x0epromptTemplate\x12\x1d\n" +
 	"\n" +
 	"extra_args\x18\x02 \x03(\tR\textraArgs\x12,\n" +
-	"\x12control_extra_args\x18\x03 \x03(\tR\x10controlExtraArgs\"\x89\x01\n" +
+	"\x12control_extra_args\x18\x03 \x03(\tR\x10controlExtraArgs\x12#\n" +
+	"\rdefault_model\x18\x04 \x01(\tR\fdefaultModel\"\x89\x01\n" +
 	"\x11GeminiConfigProto\x12'\n" +
 	"\x0fprompt_template\x18\x01 \x01(\tR\x0epromptTemplate\x12\x1d\n" +
 	"\n" +

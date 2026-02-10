@@ -31,6 +31,11 @@ func (a *CodexAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 		args = append(args, "--yolo")
 	}
 
+	// Codex CLI expects the model identifier without provider prefix.
+	if model := formatCodexModel(cfg.Model); model != "" {
+		args = append(args, "--model", shellQuote(model))
+	}
+
 	// Add the prompt
 	if cfg.Prompt != "" {
 		// Escape the prompt for shell
@@ -47,6 +52,19 @@ func (a *CodexAdapter) PromptInjection() InjectionMethod {
 
 func (a *CodexAdapter) ReadyPattern() string {
 	return "" // Not needed - prompt passed via command line
+}
+
+func formatCodexModel(model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return ""
+	}
+
+	parts := strings.SplitN(model, "/", 2)
+	if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+		return parts[1]
+	}
+	return model
 }
 
 var _ Adapter = (*CodexAdapter)(nil)

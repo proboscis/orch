@@ -420,6 +420,166 @@ func TestOpenCodeConfigEnv(t *testing.T) {
 	}
 }
 
+func TestCodexConfigDefaultModel(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_ISSUES_ROOT", "")
+	t.Setenv("ORCH_CODEX_DEFAULT_MODEL", "")
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	configContent := `issues:
+  path: /repo
+codex:
+  default_model: openai/gpt-5.3-codex
+`
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(configContent), 0644); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.Codex.DefaultModel != "openai/gpt-5.3-codex" {
+		t.Fatalf("Codex.DefaultModel = %q, want openai/gpt-5.3-codex", cfg.Codex.DefaultModel)
+	}
+}
+
+func TestCodexConfigEnv(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_ISSUES_ROOT", "")
+	t.Setenv("ORCH_CODEX_DEFAULT_MODEL", "openai/gpt-5.3-codex")
+
+	repo := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.Codex.DefaultModel != "openai/gpt-5.3-codex" {
+		t.Fatalf("Codex.DefaultModel = %q, want openai/gpt-5.3-codex", cfg.Codex.DefaultModel)
+	}
+}
+
+func TestResolveModelAndVariant(t *testing.T) {
+	tests := []struct {
+		name      string
+		cfg       *Config
+		agent     string
+		model     string
+		variant   string
+		control   bool
+		wantModel string
+		wantVar   string
+	}{
+		{
+			name: "explicit model and variant win",
+			cfg: &Config{
+				Model:        "openai/global-model",
+				ModelVariant: "global-variant",
+				Codex:        CodexConfig{DefaultModel: "openai/codex-default"},
+			},
+			agent:     "codex",
+			model:     "openai/explicit-model",
+			variant:   "explicit-variant",
+			wantModel: "openai/explicit-model",
+			wantVar:   "explicit-variant",
+		},
+		{
+			name: "control defaults override global defaults",
+			cfg: &Config{
+				Model:               "openai/global-model",
+				ModelVariant:        "global-variant",
+				ControlModel:        "openai/control-model",
+				ControlModelVariant: "control-variant",
+			},
+			agent:     "codex",
+			control:   true,
+			wantModel: "openai/control-model",
+			wantVar:   "control-variant",
+		},
+		{
+			name: "codex uses codex default model",
+			cfg: &Config{
+				Codex: CodexConfig{DefaultModel: "openai/gpt-5.3-codex"},
+			},
+			agent:     "codex",
+			wantModel: "openai/gpt-5.3-codex",
+			wantVar:   "",
+		},
+		{
+			name: "global model beats codex default",
+			cfg: &Config{
+				Model: "openai/global-model",
+				Codex: CodexConfig{DefaultModel: "openai/gpt-5.3-codex"},
+			},
+			agent:     "codex",
+			wantModel: "openai/global-model",
+			wantVar:   "",
+		},
+		{
+			name: "opencode applies backend defaults",
+			cfg: &Config{
+				OpenCode: OpenCodeConfig{
+					DefaultModel:   "anthropic/claude-opus-4-5",
+					DefaultVariant: "max",
+				},
+			},
+			agent:     "opencode",
+			wantModel: "anthropic/claude-opus-4-5",
+			wantVar:   "max",
+		},
+		{
+			name: "other agents only use global settings",
+			cfg: &Config{
+				Model:        "openai/global-model",
+				ModelVariant: "high",
+				Codex:        CodexConfig{DefaultModel: "openai/gpt-5.3-codex"},
+			},
+			agent:     "claude",
+			wantModel: "openai/global-model",
+			wantVar:   "high",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotModel, gotVar := tt.cfg.ResolveModelAndVariant(tt.agent, tt.model, tt.variant, tt.control)
+			if gotModel != tt.wantModel {
+				t.Fatalf("ResolveModelAndVariant model = %q, want %q", gotModel, tt.wantModel)
+			}
+			if gotVar != tt.wantVar {
+				t.Fatalf("ResolveModelAndVariant variant = %q, want %q", gotVar, tt.wantVar)
+			}
+		})
+	}
+}
+
 func TestRelativePathFromSubdirectory(t *testing.T) {
 	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
