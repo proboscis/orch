@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"io"
 	"log"
 	"math/rand"
@@ -17,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1367,6 +1369,294 @@ func TestOpenCodeServerLogPathIsPerProjectRoot(t *testing.T) {
 	}
 	if !strings.HasSuffix(pathA1, ".log") {
 		t.Fatalf("expected .log suffix, got %q", pathA1)
+	}
+}
+
+func writeStoredOpenCodeControlSession(t *testing.T, projectRoot, sessionID string) {
+	t.Helper()
+	orchDir := filepath.Join(projectRoot, ".orch")
+	if err := os.MkdirAll(orchDir, 0755); err != nil {
+		t.Fatalf("failed to create .orch dir: %v", err)
+	}
+	data := []byte(`{"session_id":"` + sessionID + `","agent_type":"opencode","port":1234}`)
+	if err := os.WriteFile(filepath.Join(orchDir, "control-session.json"), data, 0644); err != nil {
+		t.Fatalf("failed to write stored control session: %v", err)
+	}
+}
+
+func readStoredOpenCodeControlSession(t *testing.T, projectRoot string) (string, string) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(projectRoot, ".orch", "control-session.json"))
+	if err != nil {
+		t.Fatalf("failed to read stored control session: %v", err)
+	}
+
+	var stored struct {
+		SessionID string `json:"session_id"`
+		AgentType string `json:"agent_type"`
+	}
+	if err := json.Unmarshal(data, &stored); err != nil {
+		t.Fatalf("failed to decode stored control session: %v", err)
+	}
+	return stored.SessionID, stored.AgentType
+}
+
+func TestGetOrCreateOpenCodeControlSessionReusesExisting(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeStoredOpenCodeControlSession(t, projectRoot, "ses_existing")
+
+	var mu sync.Mutex
+	getCalls := 0
+	listCalls := 0
+	createCalls := 0
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/session/ses_existing":
+			mu.Lock()
+			getCalls++
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"id":        "ses_existing",
+				"title":     openCodeControlSessionTitle,
+				"directory": projectRoot,
+				"time": map[string]int64{
+					"created": 1000,
+					"updated": 2000,
+				},
+			})
+		case r.Method == "GET" && r.URL.Path == "/session":
+			mu.Lock()
+			listCalls++
+			mu.Unlock()
+			w.WriteHeader(http.StatusInternalServerError)
+		case r.Method == "POST" && r.URL.Path == "/session":
+			mu.Lock()
+			createCalls++
+			mu.Unlock()
+			w.WriteHeader(http.StatusInternalServerError)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	sessionID, err := server.getOrCreateOpenCodeControlSession(projectRoot, getPortFromURL(t, ts.URL))
+	if err != nil {
+		t.Fatalf("getOrCreateOpenCodeControlSession() error = %v", err)
+	}
+	if sessionID != "ses_existing" {
+		t.Fatalf("expected existing session to be reused, got %q", sessionID)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if getCalls != 1 {
+		t.Fatalf("expected one GET by session ID, got %d", getCalls)
+	}
+	if listCalls != 0 {
+		t.Fatalf("expected no fallback list call, got %d", listCalls)
+	}
+	if createCalls != 0 {
+		t.Fatalf("expected no create call, got %d", createCalls)
+	}
+}
+
+func TestGetOrCreateOpenCodeControlSessionRecoversAfterServerRestart(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeStoredOpenCodeControlSession(t, projectRoot, "ses_stale")
+
+	var mu sync.Mutex
+	getCalls := 0
+	listCalls := 0
+	createCalls := 0
+	listDirectory := ""
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/session/ses_stale":
+			mu.Lock()
+			getCalls++
+			mu.Unlock()
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":"not found"}`))
+		case r.Method == "GET" && r.URL.Path == "/session":
+			mu.Lock()
+			listCalls++
+			listDirectory = r.Header.Get("X-OpenCode-Directory")
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode([]map[string]interface{}{
+				{
+					"id":        "ses_chat_latest",
+					"title":     "chat",
+					"directory": projectRoot,
+					"time":      map[string]int64{"created": 1000, "updated": 9000},
+				},
+				{
+					"id":        "ses_control_old",
+					"title":     openCodeControlSessionTitle,
+					"directory": projectRoot,
+					"time":      map[string]int64{"created": 1000, "updated": 4000},
+				},
+				{
+					"id":        "ses_control_new",
+					"title":     openCodeControlSessionTitle,
+					"directory": projectRoot,
+					"time":      map[string]int64{"created": 1000, "updated": 5000},
+				},
+				{
+					"id":        "ses_other_project",
+					"title":     openCodeControlSessionTitle,
+					"directory": "/other/project",
+					"time":      map[string]int64{"created": 1000, "updated": 20000},
+				},
+			})
+		case r.Method == "POST" && r.URL.Path == "/session":
+			mu.Lock()
+			createCalls++
+			mu.Unlock()
+			w.WriteHeader(http.StatusInternalServerError)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	sessionID, err := server.getOrCreateOpenCodeControlSession(projectRoot, getPortFromURL(t, ts.URL))
+	if err != nil {
+		t.Fatalf("getOrCreateOpenCodeControlSession() error = %v", err)
+	}
+	if sessionID != "ses_control_new" {
+		t.Fatalf("expected recovered control session %q, got %q", "ses_control_new", sessionID)
+	}
+
+	storedID, storedAgent := readStoredOpenCodeControlSession(t, projectRoot)
+	if storedID != "ses_control_new" {
+		t.Fatalf("expected stored session ID to be updated to recovered ID, got %q", storedID)
+	}
+	if storedAgent != "opencode" {
+		t.Fatalf("expected stored agent type opencode, got %q", storedAgent)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if getCalls != 1 {
+		t.Fatalf("expected one GET by stale session ID, got %d", getCalls)
+	}
+	if listCalls != 1 {
+		t.Fatalf("expected one fallback list call, got %d", listCalls)
+	}
+	if listDirectory != projectRoot {
+		t.Fatalf("expected list directory header %q, got %q", projectRoot, listDirectory)
+	}
+	if createCalls != 0 {
+		t.Fatalf("expected no new session creation during recovery, got %d", createCalls)
+	}
+}
+
+func TestGetOrCreateOpenCodeControlSessionCreatesWhenRecoveryFindsNoSession(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeStoredOpenCodeControlSession(t, projectRoot, "ses_stale")
+
+	var mu sync.Mutex
+	getCalls := 0
+	listCalls := 0
+	createCalls := 0
+	createDirectory := ""
+	createTitle := ""
+	createDecodeErr := ""
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/session/ses_stale":
+			mu.Lock()
+			getCalls++
+			mu.Unlock()
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":"not found"}`))
+		case r.Method == "GET" && r.URL.Path == "/session":
+			mu.Lock()
+			listCalls++
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode([]map[string]interface{}{})
+		case r.Method == "POST" && r.URL.Path == "/session":
+			mu.Lock()
+			createCalls++
+			createDirectory = r.Header.Get("X-OpenCode-Directory")
+			mu.Unlock()
+
+			var body map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				mu.Lock()
+				createDecodeErr = err.Error()
+				mu.Unlock()
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+
+			mu.Lock()
+			createTitle = body["title"]
+			mu.Unlock()
+
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"id":        "ses_brand_new",
+				"title":     openCodeControlSessionTitle,
+				"directory": projectRoot,
+				"time": map[string]int64{
+					"created": 3000,
+					"updated": 3000,
+				},
+			})
+		case r.Method == "POST" && r.URL.Path == "/session/ses_brand_new/prompt_async":
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	sessionID, err := server.getOrCreateOpenCodeControlSession(projectRoot, getPortFromURL(t, ts.URL))
+	if err != nil {
+		t.Fatalf("getOrCreateOpenCodeControlSession() error = %v", err)
+	}
+	if sessionID != "ses_brand_new" {
+		t.Fatalf("expected newly created session ID %q, got %q", "ses_brand_new", sessionID)
+	}
+
+	storedID, storedAgent := readStoredOpenCodeControlSession(t, projectRoot)
+	if storedID != "ses_brand_new" {
+		t.Fatalf("expected stored session ID to be updated to new ID, got %q", storedID)
+	}
+	if storedAgent != "opencode" {
+		t.Fatalf("expected stored agent type opencode, got %q", storedAgent)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if getCalls != 1 {
+		t.Fatalf("expected one GET by stale session ID, got %d", getCalls)
+	}
+	if listCalls != 1 {
+		t.Fatalf("expected one fallback list call, got %d", listCalls)
+	}
+	if createCalls != 1 {
+		t.Fatalf("expected one create call, got %d", createCalls)
+	}
+	if createDirectory != projectRoot {
+		t.Fatalf("expected create session directory header %q, got %q", projectRoot, createDirectory)
+	}
+	if createTitle != openCodeControlSessionTitle {
+		t.Fatalf("expected create session title %q, got %q", openCodeControlSessionTitle, createTitle)
+	}
+	if createDecodeErr != "" {
+		t.Fatalf("unexpected create request decode error: %s", createDecodeErr)
 	}
 }
 
