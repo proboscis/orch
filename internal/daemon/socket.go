@@ -33,6 +33,12 @@ const (
 	openCodeControlSessionTitle = "orch-control"
 )
 
+var (
+	// Keep opencode send ACK timeout short so `orch send` returns quickly after
+	// the server accepts the message.
+	openCodeSendAckTimeout = 10 * time.Second
+)
+
 func readAll(conn net.Conn) ([]byte, error) {
 	var data []byte
 	buf := make([]byte, 4096)
@@ -1812,22 +1818,27 @@ func (s *SocketServer) processSendOpenCode(st store.Store, ref *model.RunRef, ru
 		return fmt.Errorf("failed to find project root for %s: %w", ref.String(), err)
 	}
 
+	ensureStartedAt := time.Now()
 	port, err := s.ensureOpenCodeServerRunning(projectRoot)
 	if err != nil {
+		s.logger.Printf("opencode_send ensure_server_failed run=%s elapsed=%s err=%v", ref.String(), time.Since(ensureStartedAt), err)
 		return fmt.Errorf("failed to ensure opencode server running for %s: %w", ref.String(), err)
 	}
+	s.logger.Printf("opencode_send server_ready run=%s port=%d elapsed=%s", ref.String(), port, time.Since(ensureStartedAt))
 
 	client := agent.NewOpenCodeClient(port)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), openCodeSendAckTimeout)
 	defer cancel()
 
+	sendStartedAt := time.Now()
 	err = client.SendMessagePrompt(ctx, run.OpenCodeSessionID, message, run.WorktreePath, nil, "")
 	if err != nil {
+		s.logger.Printf("opencode_send ack_failed run=%s elapsed=%s timeout=%s err=%v", ref.String(), time.Since(sendStartedAt), openCodeSendAckTimeout, err)
 		return fmt.Errorf("failed to send message: %w", err)
 	}
 
-	s.logger.Printf("message sent successfully to %s", ref.String())
+	s.logger.Printf("opencode_send acknowledged run=%s elapsed=%s", ref.String(), time.Since(sendStartedAt))
 	return nil
 }
 

@@ -18,6 +18,8 @@ type ProtoClient struct {
 	timeout     time.Duration
 }
 
+const protoSendMessageTimeoutBuffer = 5 * time.Second
+
 func NewProtoClient(projectRoot string) *ProtoClient {
 	return &ProtoClient{
 		projectRoot: projectRoot,
@@ -35,6 +37,15 @@ func NewProtoClientWithIssuesRoot(projectRoot, issuesRoot string) *ProtoClient {
 
 func (c *ProtoClient) SetTimeout(timeout time.Duration) {
 	c.timeout = timeout
+}
+
+func (c *ProtoClient) sendMessageTimeout() time.Duration {
+	timeout := c.timeout
+	minTimeout := openCodeSendAckTimeout + protoSendMessageTimeoutBuffer
+	if timeout < minTimeout {
+		return minTimeout
+	}
+	return timeout
 }
 
 func (c *ProtoClient) IsAvailable() bool {
@@ -1613,7 +1624,7 @@ func (c *ProtoClient) SendMessage(issueID, runID, message string) error {
 		},
 	}
 
-	resp, err := c.sendRequest(req)
+	resp, err := c.sendRequestWithTimeout(req, c.sendMessageTimeout())
 	if err != nil {
 		return err
 	}
