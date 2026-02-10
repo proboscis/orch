@@ -29,7 +29,8 @@ import (
 )
 
 const (
-	socketFile = "daemon.sock"
+	socketFile                  = "daemon.sock"
+	openCodeControlSessionTitle = "orch-control"
 )
 
 func readAll(conn net.Conn) ([]byte, error) {
@@ -1103,6 +1104,18 @@ func (s *SocketServer) getOrCreateOpenCodeControlSession(projectRoot string, por
 					s.saveControlSession(projectRoot, stored.SessionID, "opencode")
 				}
 				return stored.SessionID, nil
+			} else if err != nil && strings.Contains(err.Error(), "session not found") {
+				// opencode may reassign session IDs when the server restarts; recover by directory.
+				sessions, listErr := client.GetSessionsForDirectory(ctx, projectRoot)
+				if listErr != nil {
+					s.logger.Printf("failed to list opencode sessions for recovery: %v", listErr)
+				} else if recovered := findBestOpenCodeControlSession(projectRoot, sessions); recovered != nil {
+					if err := s.saveControlSession(projectRoot, recovered.ID, "opencode"); err != nil {
+						s.logger.Printf("warning: failed to save recovered control session: %v", err)
+					}
+					s.logger.Printf("recovered opencode control session after ID mismatch: %s", recovered.ID)
+					return recovered.ID, nil
+				}
 			}
 		}
 	}
@@ -1111,7 +1124,7 @@ func (s *SocketServer) getOrCreateOpenCodeControlSession(projectRoot string, por
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	session, err := client.CreateSession(ctx, "orch-control", projectRoot)
+	session, err := client.CreateSession(ctx, openCodeControlSessionTitle, projectRoot)
 	if err != nil {
 		return "", fmt.Errorf("failed to create session: %w", err)
 	}
@@ -1135,6 +1148,37 @@ func (s *SocketServer) getOrCreateOpenCodeControlSession(projectRoot string, por
 
 	s.logger.Printf("created new opencode control session: %s", session.ID)
 	return session.ID, nil
+}
+
+func findBestOpenCodeControlSession(projectRoot string, sessions []agent.Session) *agent.Session {
+	var bestPreferred *agent.Session
+	var bestFallback *agent.Session
+
+	for i := range sessions {
+		session := sessions[i]
+		if projectRoot != "" && session.Directory != projectRoot {
+			continue
+		}
+
+		// Prefer explicit control sessions, but keep the most recent general session as fallback.
+		if session.Title == openCodeControlSessionTitle {
+			if bestPreferred == nil || session.UpdatedAt().After(bestPreferred.UpdatedAt()) {
+				copy := session
+				bestPreferred = &copy
+			}
+			continue
+		}
+
+		if bestFallback == nil || session.UpdatedAt().After(bestFallback.UpdatedAt()) {
+			copy := session
+			bestFallback = &copy
+		}
+	}
+
+	if bestPreferred != nil {
+		return bestPreferred
+	}
+	return bestFallback
 }
 
 func getControlPromptInstruction() string {
