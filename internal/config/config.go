@@ -75,6 +75,7 @@ type ClaudeConfig struct {
 
 // CodexConfig holds default configuration for the codex agent.
 type CodexConfig struct {
+	DefaultModel     string   `yaml:"default_model,omitempty"`
 	PromptTemplate   string   `yaml:"prompt_template,omitempty"`
 	ExtraArgs        []string `yaml:"extra_args,omitempty"`         // Additional CLI args for run agents
 	ControlExtraArgs []string `yaml:"control_extra_args,omitempty"` // Additional CLI args for control agent
@@ -466,6 +467,9 @@ func loadFromFile(path string, cfg *Config) error {
 		}
 	}
 	if fileCfg.Codex != nil {
+		if fileCfg.Codex.DefaultModel != "" {
+			cfg.Codex.DefaultModel = fileCfg.Codex.DefaultModel
+		}
 		if fileCfg.Codex.PromptTemplate != "" {
 			cfg.Codex.PromptTemplate = fileCfg.Codex.PromptTemplate
 		}
@@ -647,6 +651,9 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("ORCH_OPENCODE_DEFAULT_VARIANT"); v != "" {
 		cfg.OpenCode.DefaultVariant = v
+	}
+	if v := os.Getenv("ORCH_CODEX_DEFAULT_MODEL"); v != "" {
+		cfg.Codex.DefaultModel = v
 	}
 	if v := os.Getenv("ORCH_DEFAULT_PRESET"); v != "" {
 		cfg.DefaultPreset = v
@@ -901,6 +908,8 @@ func (c *Config) ResolveModelAndVariant(agent, preset, reqModel, reqVariant stri
 		switch agent {
 		case "opencode":
 			model = c.OpenCode.DefaultModel
+		case "codex":
+			model = c.Codex.DefaultModel
 		}
 	}
 	if model == "" {
@@ -932,6 +941,8 @@ func (c *Config) ResolveControlModelAndVariant(agent string) (string, string) {
 		switch agent {
 		case "opencode":
 			model = c.OpenCode.DefaultModel
+		case "codex":
+			model = c.Codex.DefaultModel
 		}
 	}
 	if model == "" {

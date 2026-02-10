@@ -520,6 +520,73 @@ func TestOpenCodeConfigEnv(t *testing.T) {
 	}
 }
 
+func TestCodexConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_ISSUES_ROOT", "")
+	t.Setenv("ORCH_AGENT", "")
+	t.Setenv("ORCH_CODEX_DEFAULT_MODEL", "")
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	configContent := `issues:
+  path: /repo
+codex:
+  default_model: openai/gpt-5.3-codex
+`
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(configContent), 0644); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.Codex.DefaultModel != "openai/gpt-5.3-codex" {
+		t.Fatalf("Codex.DefaultModel = %q, want openai/gpt-5.3-codex", cfg.Codex.DefaultModel)
+	}
+}
+
+func TestCodexConfigEnv(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_ISSUES_ROOT", "")
+	t.Setenv("ORCH_CODEX_DEFAULT_MODEL", "openai/gpt-5.3-codex")
+
+	repo := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.Codex.DefaultModel != "openai/gpt-5.3-codex" {
+		t.Fatalf("Codex.DefaultModel = %q, want openai/gpt-5.3-codex", cfg.Codex.DefaultModel)
+	}
+}
+
 func TestRelativePathFromSubdirectory(t *testing.T) {
 	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
@@ -1059,6 +1126,85 @@ func TestDefaultPresetEnv(t *testing.T) {
 
 	if cfg.DefaultPreset != "sonnet:max" {
 		t.Errorf("DefaultPreset = %q, want sonnet:max", cfg.DefaultPreset)
+	}
+}
+
+func TestResolveModelAndVariantCodexDefaults(t *testing.T) {
+	cfg := &Config{
+		Model:        "global-model",
+		ModelVariant: "global-variant",
+		Codex: CodexConfig{
+			DefaultModel: "openai/gpt-5.3-codex",
+		},
+		Presets: []Preset{
+			{
+				Name:    "preset-a",
+				Model:   "preset-model",
+				Variant: "preset-variant",
+			},
+		},
+	}
+
+	tests := []struct {
+		name       string
+		preset     string
+		reqModel   string
+		reqVariant string
+		wantModel  string
+		wantVar    string
+	}{
+		{
+			name:       "explicit request wins",
+			preset:     "preset-a",
+			reqModel:   "request-model",
+			reqVariant: "request-variant",
+			wantModel:  "request-model",
+			wantVar:    "request-variant",
+		},
+		{
+			name:      "preset wins over defaults",
+			preset:    "preset-a",
+			wantModel: "preset-model",
+			wantVar:   "preset-variant",
+		},
+		{
+			name:      "codex default model used when no request or preset model",
+			wantModel: "openai/gpt-5.3-codex",
+			wantVar:   "global-variant",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotModel, gotVariant := cfg.ResolveModelAndVariant("codex", tt.preset, tt.reqModel, tt.reqVariant)
+			if gotModel != tt.wantModel || gotVariant != tt.wantVar {
+				t.Fatalf("ResolveModelAndVariant(codex) = (%q, %q), want (%q, %q)", gotModel, gotVariant, tt.wantModel, tt.wantVar)
+			}
+		})
+	}
+}
+
+func TestResolveControlModelAndVariantCodexDefaults(t *testing.T) {
+	cfg := &Config{
+		Model:               "global-model",
+		ModelVariant:        "global-variant",
+		ControlModel:        "",
+		ControlModelVariant: "",
+		Codex: CodexConfig{
+			DefaultModel: "openai/gpt-5.3-codex",
+		},
+	}
+
+	gotModel, gotVariant := cfg.ResolveControlModelAndVariant("codex")
+	if gotModel != "openai/gpt-5.3-codex" || gotVariant != "global-variant" {
+		t.Fatalf("ResolveControlModelAndVariant(codex) = (%q, %q), want (%q, %q)", gotModel, gotVariant, "openai/gpt-5.3-codex", "global-variant")
+	}
+
+	cfg.ControlModel = "control-model"
+	cfg.ControlModelVariant = "control-variant"
+	gotModel, gotVariant = cfg.ResolveControlModelAndVariant("codex")
+	if gotModel != "control-model" || gotVariant != "control-variant" {
+		t.Fatalf("ResolveControlModelAndVariant(codex) override = (%q, %q), want (%q, %q)", gotModel, gotVariant, "control-model", "control-variant")
 	}
 }
 
