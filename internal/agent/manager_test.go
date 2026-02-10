@@ -172,6 +172,14 @@ func TestIsWaitingForInput(t *testing.T) {
 			want:   true,
 		},
 		{
+			name: "gemini waiting prompt",
+			output: strings.Join([]string{
+				"Esc to cancel",
+				"to show all projects",
+			}, "\n"),
+			want: true,
+		},
+		{
 			name: "codex blocked prompt from pane",
 			output: strings.Join([]string{
 				"› Use /skills to list available skills",
@@ -180,12 +188,31 @@ func TestIsWaitingForInput(t *testing.T) {
 			want: true,
 		},
 		{
+			name:   "codex blocked prompt tab to queue message",
+			output: "tab to queue message",
+			want:   true,
+		},
+		{
+			name:   "codex blocked prompt context left",
+			output: "100% context left",
+			want:   true,
+		},
+		{
 			name: "codex active work should not be treated as blocked",
 			output: strings.Join([]string{
 				"› Run this command",
 				"• Working (7s • esc to interrupt)",
 				"› Use /skills to list available skills",
 				"  ? for shortcuts",
+			}, "\n"),
+			want: false,
+		},
+		{
+			name: "codex active work with queue hint should not be treated as blocked",
+			output: strings.Join([]string{
+				"• Planning follow-up checks (2m 53s • esc to interrupt)",
+				"tab to queue message",
+				"77% context left",
 			}, "\n"),
 			want: false,
 		},
