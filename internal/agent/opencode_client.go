@@ -455,7 +455,10 @@ func (c *OpenCodeClient) sendMessagePromptOnce(ctx context.Context, sessionID, t
 	}
 	c.logDebug("  Prompt length: %d bytes", len(text))
 
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonBody))
+	reqCtx, cancelReq := context.WithCancel(ctx)
+	defer cancelReq()
+
+	req, err := http.NewRequestWithContext(reqCtx, "POST", url, bytes.NewReader(jsonBody))
 	if err != nil {
 		return fmt.Errorf("creating prompt request: %w", err)
 	}
@@ -464,18 +467,24 @@ func (c *OpenCodeClient) sendMessagePromptOnce(ctx context.Context, sessionID, t
 		req.Header.Set("X-OpenCode-Directory", directory)
 	}
 
+	sendStartedAt := time.Now()
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("sending prompt: %w", err)
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
 		return fmt.Errorf("send prompt returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	c.logDebug("Prompt sent: %d %s", resp.StatusCode, http.StatusText(resp.StatusCode))
+	// We only need the ACK status code. Cancel and close immediately so this
+	// call does not wait on response body streaming/drain behavior.
+	cancelReq()
+	_ = resp.Body.Close()
+
+	c.logDebug("Prompt sent: %d %s (ack in %s)", resp.StatusCode, http.StatusText(resp.StatusCode), time.Since(sendStartedAt))
 	return nil
 }
 

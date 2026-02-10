@@ -418,6 +418,69 @@ func TestSendMessagePromptWithoutModel(t *testing.T) {
 	}
 }
 
+func TestSendMessagePromptReturnsQuicklyAfterAck(t *testing.T) {
+	const bodyDelay = 600 * time.Millisecond
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		time.Sleep(bodyDelay)
+		_, _ = w.Write([]byte(`{"status":"accepted"}`))
+	}))
+	defer server.Close()
+
+	client := &OpenCodeClient{
+		baseURL:    server.URL,
+		httpClient: &http.Client{Timeout: 3 * time.Second},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	err := client.SendMessagePrompt(ctx, "ses_quick_ack", "Hello", "/path/to/worktree", nil, "")
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("SendMessagePrompt error: %v", err)
+	}
+	if elapsed >= bodyDelay {
+		t.Fatalf("SendMessagePrompt should return before response body completes, elapsed=%s bodyDelay=%s", elapsed, bodyDelay)
+	}
+}
+
+func TestSendMessagePromptRetriesTransientFailures(t *testing.T) {
+	attempts := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 3 {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("temporary failure"))
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	client := &OpenCodeClient{
+		baseURL:    server.URL,
+		httpClient: &http.Client{Timeout: 2 * time.Second},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	err := client.SendMessagePrompt(ctx, "ses_retry", "Hello", "/path/to/worktree", nil, "")
+	if err != nil {
+		t.Fatalf("SendMessagePrompt error: %v", err)
+	}
+	if attempts != 3 {
+		t.Fatalf("expected 3 attempts, got %d", attempts)
+	}
+}
+
 func TestNewOpenCodeClient(t *testing.T) {
 	client := NewOpenCodeClient(4096)
 	if client.baseURL != "http://127.0.0.1:4096" {

@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"testing"
+	"time"
 
 	orchpb "github.com/s22625/orch/api/orchpb"
 )
@@ -271,5 +272,21 @@ func TestGetDiffStatsResponseMapping(t *testing.T) {
 				t.Errorf("Files length = %d, want %d", len(got.Files), len(tt.want.Files))
 			}
 		})
+	}
+}
+
+func TestSendMessageTimeoutMaintainsSafetyMargin(t *testing.T) {
+	client := NewProtoClient("/tmp/project")
+
+	minimum := openCodeSendAckTimeout + protoSendMessageTimeoutBuffer
+
+	client.SetTimeout(2 * time.Second)
+	if got := client.sendMessageTimeout(); got != minimum {
+		t.Fatalf("sendMessageTimeout() = %s, want %s", got, minimum)
+	}
+
+	client.SetTimeout(minimum + 2*time.Second)
+	if got := client.sendMessageTimeout(); got != minimum+2*time.Second {
+		t.Fatalf("sendMessageTimeout() = %s, want %s", got, minimum+2*time.Second)
 	}
 }

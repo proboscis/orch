@@ -23,6 +23,8 @@ import (
 	"time"
 
 	"github.com/s22625/orch/api/orchpb"
+	"github.com/s22625/orch/internal/agent"
+	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/store"
 	"github.com/s22625/orch/internal/xdg"
@@ -323,6 +325,126 @@ func TestSocketServerSendRequestMissingConfig(t *testing.T) {
 	}
 	if resp.Error == "" {
 		t.Error("expected error message explaining what config is missing")
+	}
+}
+
+func TestProcessSendOpenCodeReturnsAfterAck(t *testing.T) {
+	projectRoot, err := git.FindRepoRoot(".")
+	if err != nil {
+		t.Fatalf("failed to find repo root: %v", err)
+	}
+
+	const bodyDelay = 600 * time.Millisecond
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/global/health":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"healthy":true,"version":"test"}`)
+		case strings.HasSuffix(r.URL.Path, "/message"):
+			w.WriteHeader(http.StatusAccepted)
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+			time.Sleep(bodyDelay)
+			_, _ = io.WriteString(w, `{"status":"accepted"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer testServer.Close()
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.openCodeServers[projectRoot] = &managedServer{
+		ProjectRoot: projectRoot,
+		Port:        getPortFromURL(t, testServer.URL),
+		WaitResult:  make(chan error, 1),
+	}
+
+	originalTimeout := openCodeSendAckTimeout
+	openCodeSendAckTimeout = 2 * time.Second
+	defer func() {
+		openCodeSendAckTimeout = originalTimeout
+	}()
+
+	ref := &model.RunRef{IssueID: "orch-432", RunID: "run-1"}
+	run := &model.Run{
+		IssueID:           ref.IssueID,
+		RunID:             ref.RunID,
+		Agent:             string(agent.AgentOpenCode),
+		OpenCodeSessionID: "ses_fast_ack",
+		WorktreePath:      projectRoot,
+	}
+
+	startedAt := time.Now()
+	err = server.processSendOpenCode(nil, ref, run, "please rebase")
+	elapsed := time.Since(startedAt)
+
+	if err != nil {
+		t.Fatalf("processSendOpenCode() error = %v", err)
+	}
+	if elapsed >= bodyDelay {
+		t.Fatalf("expected send to return before response body completion, elapsed=%s bodyDelay=%s", elapsed, bodyDelay)
+	}
+}
+
+func TestProcessSendOpenCodeTimesOutPromptlyWithoutAck(t *testing.T) {
+	projectRoot, err := git.FindRepoRoot(".")
+	if err != nil {
+		t.Fatalf("failed to find repo root: %v", err)
+	}
+
+	const ackDelay = 300 * time.Millisecond
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/global/health":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"healthy":true,"version":"test"}`)
+		case strings.HasSuffix(r.URL.Path, "/message"):
+			time.Sleep(ackDelay)
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = io.WriteString(w, `{"status":"accepted"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer testServer.Close()
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.openCodeServers[projectRoot] = &managedServer{
+		ProjectRoot: projectRoot,
+		Port:        getPortFromURL(t, testServer.URL),
+		WaitResult:  make(chan error, 1),
+	}
+
+	originalTimeout := openCodeSendAckTimeout
+	openCodeSendAckTimeout = 80 * time.Millisecond
+	defer func() {
+		openCodeSendAckTimeout = originalTimeout
+	}()
+
+	ref := &model.RunRef{IssueID: "orch-432", RunID: "run-2"}
+	run := &model.Run{
+		IssueID:           ref.IssueID,
+		RunID:             ref.RunID,
+		Agent:             string(agent.AgentOpenCode),
+		OpenCodeSessionID: "ses_slow_ack",
+		WorktreePath:      projectRoot,
+	}
+
+	startedAt := time.Now()
+	err = server.processSendOpenCode(nil, ref, run, "please retry")
+	elapsed := time.Since(startedAt)
+
+	if err == nil {
+		t.Fatal("expected timeout error when ACK is too slow")
+	}
+	if !strings.Contains(err.Error(), "context deadline exceeded") {
+		t.Fatalf("expected context deadline exceeded error, got: %v", err)
+	}
+	if elapsed >= time.Second {
+		t.Fatalf("expected send to fail promptly, elapsed=%s", elapsed)
 	}
 }
 
