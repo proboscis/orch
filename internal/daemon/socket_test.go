@@ -1582,38 +1582,46 @@ func TestOpenCodeServerLogPathIsPerProjectRoot(t *testing.T) {
 	}
 }
 
-func writeStoredOpenCodeControlSession(t *testing.T, projectRoot, sessionID string) {
+func writeStoredOpenCodeControlSession(t *testing.T, projectRoot, sessionID, modelName, modelVariant string) {
 	t.Helper()
 	orchDir := filepath.Join(projectRoot, ".orch")
 	if err := os.MkdirAll(orchDir, 0755); err != nil {
 		t.Fatalf("failed to create .orch dir: %v", err)
 	}
-	data := []byte(`{"session_id":"` + sessionID + `","agent_type":"opencode","port":1234}`)
+	data, err := json.Marshal(controlSessionRecord{
+		SessionID:    sessionID,
+		AgentType:    "opencode",
+		Port:         1234,
+		Model:        modelName,
+		ModelVariant: modelVariant,
+	})
+	if err != nil {
+		t.Fatalf("failed to marshal stored control session: %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(orchDir, "control-session.json"), data, 0644); err != nil {
 		t.Fatalf("failed to write stored control session: %v", err)
 	}
 }
 
-func readStoredOpenCodeControlSession(t *testing.T, projectRoot string) (string, string) {
+func readStoredOpenCodeControlSession(t *testing.T, projectRoot string) controlSessionRecord {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(projectRoot, ".orch", "control-session.json"))
 	if err != nil {
 		t.Fatalf("failed to read stored control session: %v", err)
 	}
 
-	var stored struct {
-		SessionID string `json:"session_id"`
-		AgentType string `json:"agent_type"`
-	}
+	var stored controlSessionRecord
 	if err := json.Unmarshal(data, &stored); err != nil {
 		t.Fatalf("failed to decode stored control session: %v", err)
 	}
-	return stored.SessionID, stored.AgentType
+	return stored
 }
 
 func TestGetOrCreateOpenCodeControlSessionReusesExisting(t *testing.T) {
 	projectRoot := t.TempDir()
-	writeStoredOpenCodeControlSession(t, projectRoot, "ses_existing")
+	modelName := "openai/gpt-5.3-codex"
+	modelVariant := "xhigh"
+	writeStoredOpenCodeControlSession(t, projectRoot, "ses_existing", modelName, modelVariant)
 
 	var mu sync.Mutex
 	getCalls := 0
@@ -1653,12 +1661,20 @@ func TestGetOrCreateOpenCodeControlSessionReusesExisting(t *testing.T) {
 	defer ts.Close()
 
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
-	sessionID, err := server.getOrCreateOpenCodeControlSession(projectRoot, getPortFromURL(t, ts.URL))
+	port := getPortFromURL(t, ts.URL)
+	sessionID, err := server.getOrCreateOpenCodeControlSession(projectRoot, port, modelName, modelVariant)
 	if err != nil {
 		t.Fatalf("getOrCreateOpenCodeControlSession() error = %v", err)
 	}
 	if sessionID != "ses_existing" {
 		t.Fatalf("expected existing session to be reused, got %q", sessionID)
+	}
+	stored := readStoredOpenCodeControlSession(t, projectRoot)
+	if stored.Port != port {
+		t.Fatalf("expected stored port %d after reuse, got %d", port, stored.Port)
+	}
+	if stored.Model != modelName || stored.ModelVariant != modelVariant {
+		t.Fatalf("expected stored model metadata (%q,%q), got (%q,%q)", modelName, modelVariant, stored.Model, stored.ModelVariant)
 	}
 
 	mu.Lock()
@@ -1676,7 +1692,9 @@ func TestGetOrCreateOpenCodeControlSessionReusesExisting(t *testing.T) {
 
 func TestGetOrCreateOpenCodeControlSessionRecoversAfterServerRestart(t *testing.T) {
 	projectRoot := t.TempDir()
-	writeStoredOpenCodeControlSession(t, projectRoot, "ses_stale")
+	modelName := "openai/gpt-5.3-codex"
+	modelVariant := "xhigh"
+	writeStoredOpenCodeControlSession(t, projectRoot, "ses_stale", modelName, modelVariant)
 
 	var mu sync.Mutex
 	getCalls := 0
@@ -1736,7 +1754,8 @@ func TestGetOrCreateOpenCodeControlSessionRecoversAfterServerRestart(t *testing.
 	defer ts.Close()
 
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
-	sessionID, err := server.getOrCreateOpenCodeControlSession(projectRoot, getPortFromURL(t, ts.URL))
+	port := getPortFromURL(t, ts.URL)
+	sessionID, err := server.getOrCreateOpenCodeControlSession(projectRoot, port, modelName, modelVariant)
 	if err != nil {
 		t.Fatalf("getOrCreateOpenCodeControlSession() error = %v", err)
 	}
@@ -1744,12 +1763,18 @@ func TestGetOrCreateOpenCodeControlSessionRecoversAfterServerRestart(t *testing.
 		t.Fatalf("expected recovered control session %q, got %q", "ses_control_new", sessionID)
 	}
 
-	storedID, storedAgent := readStoredOpenCodeControlSession(t, projectRoot)
-	if storedID != "ses_control_new" {
-		t.Fatalf("expected stored session ID to be updated to recovered ID, got %q", storedID)
+	stored := readStoredOpenCodeControlSession(t, projectRoot)
+	if stored.SessionID != "ses_control_new" {
+		t.Fatalf("expected stored session ID to be updated to recovered ID, got %q", stored.SessionID)
 	}
-	if storedAgent != "opencode" {
-		t.Fatalf("expected stored agent type opencode, got %q", storedAgent)
+	if stored.AgentType != "opencode" {
+		t.Fatalf("expected stored agent type opencode, got %q", stored.AgentType)
+	}
+	if stored.Port != port {
+		t.Fatalf("expected stored port %d, got %d", port, stored.Port)
+	}
+	if stored.Model != modelName || stored.ModelVariant != modelVariant {
+		t.Fatalf("expected stored model metadata (%q,%q), got (%q,%q)", modelName, modelVariant, stored.Model, stored.ModelVariant)
 	}
 
 	mu.Lock()
@@ -1770,7 +1795,9 @@ func TestGetOrCreateOpenCodeControlSessionRecoversAfterServerRestart(t *testing.
 
 func TestGetOrCreateOpenCodeControlSessionCreatesWhenRecoveryFindsNoSession(t *testing.T) {
 	projectRoot := t.TempDir()
-	writeStoredOpenCodeControlSession(t, projectRoot, "ses_stale")
+	modelName := "openai/gpt-5.3-codex"
+	modelVariant := "xhigh"
+	writeStoredOpenCodeControlSession(t, projectRoot, "ses_stale", modelName, modelVariant)
 
 	var mu sync.Mutex
 	getCalls := 0
@@ -1779,6 +1806,9 @@ func TestGetOrCreateOpenCodeControlSessionCreatesWhenRecoveryFindsNoSession(t *t
 	createDirectory := ""
 	createTitle := ""
 	createDecodeErr := ""
+	promptReqCh := make(chan agent.PromptRequest, 1)
+	promptDecodeErr := ""
+	promptDirectory := ""
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -1823,8 +1853,23 @@ func TestGetOrCreateOpenCodeControlSessionCreatesWhenRecoveryFindsNoSession(t *t
 					"updated": 3000,
 				},
 			})
-		case r.Method == "POST" && r.URL.Path == "/session/ses_brand_new/prompt_async":
-			w.WriteHeader(http.StatusOK)
+		case r.Method == "POST" && r.URL.Path == "/session/ses_brand_new/message":
+			var promptReq agent.PromptRequest
+			if err := json.NewDecoder(r.Body).Decode(&promptReq); err != nil {
+				mu.Lock()
+				promptDecodeErr = err.Error()
+				mu.Unlock()
+			} else {
+				select {
+				case promptReqCh <- promptReq:
+				default:
+				}
+			}
+			mu.Lock()
+			promptDirectory = r.Header.Get("X-OpenCode-Directory")
+			mu.Unlock()
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"status":"accepted"}`))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -1832,7 +1877,8 @@ func TestGetOrCreateOpenCodeControlSessionCreatesWhenRecoveryFindsNoSession(t *t
 	defer ts.Close()
 
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
-	sessionID, err := server.getOrCreateOpenCodeControlSession(projectRoot, getPortFromURL(t, ts.URL))
+	port := getPortFromURL(t, ts.URL)
+	sessionID, err := server.getOrCreateOpenCodeControlSession(projectRoot, port, modelName, modelVariant)
 	if err != nil {
 		t.Fatalf("getOrCreateOpenCodeControlSession() error = %v", err)
 	}
@@ -1840,12 +1886,35 @@ func TestGetOrCreateOpenCodeControlSessionCreatesWhenRecoveryFindsNoSession(t *t
 		t.Fatalf("expected newly created session ID %q, got %q", "ses_brand_new", sessionID)
 	}
 
-	storedID, storedAgent := readStoredOpenCodeControlSession(t, projectRoot)
-	if storedID != "ses_brand_new" {
-		t.Fatalf("expected stored session ID to be updated to new ID, got %q", storedID)
+	var promptReq agent.PromptRequest
+	select {
+	case promptReq = <-promptReqCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for initial control prompt request")
 	}
-	if storedAgent != "opencode" {
-		t.Fatalf("expected stored agent type opencode, got %q", storedAgent)
+
+	stored := readStoredOpenCodeControlSession(t, projectRoot)
+	if stored.SessionID != "ses_brand_new" {
+		t.Fatalf("expected stored session ID to be updated to new ID, got %q", stored.SessionID)
+	}
+	if stored.AgentType != "opencode" {
+		t.Fatalf("expected stored agent type opencode, got %q", stored.AgentType)
+	}
+	if stored.Port != port {
+		t.Fatalf("expected stored port %d, got %d", port, stored.Port)
+	}
+	if stored.Model != modelName || stored.ModelVariant != modelVariant {
+		t.Fatalf("expected stored model metadata (%q,%q), got (%q,%q)", modelName, modelVariant, stored.Model, stored.ModelVariant)
+	}
+
+	if promptReq.Model == nil {
+		t.Fatal("expected initial prompt request to include model override")
+	}
+	if got := promptReq.Model.ProviderID + "/" + promptReq.Model.ModelID; got != modelName {
+		t.Fatalf("expected initial prompt model %q, got %q", modelName, got)
+	}
+	if promptReq.Variant != modelVariant {
+		t.Fatalf("expected initial prompt variant %q, got %q", modelVariant, promptReq.Variant)
 	}
 
 	mu.Lock()
@@ -1867,6 +1936,179 @@ func TestGetOrCreateOpenCodeControlSessionCreatesWhenRecoveryFindsNoSession(t *t
 	}
 	if createDecodeErr != "" {
 		t.Fatalf("unexpected create request decode error: %s", createDecodeErr)
+	}
+	if promptDecodeErr != "" {
+		t.Fatalf("unexpected prompt request decode error: %s", promptDecodeErr)
+	}
+	if promptDirectory != projectRoot {
+		t.Fatalf("expected prompt directory header %q, got %q", projectRoot, promptDirectory)
+	}
+}
+
+func TestGetOrCreateOpenCodeControlSessionCreatesNewWhenStoredModelMismatches(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeStoredOpenCodeControlSession(t, projectRoot, "ses_old", "anthropic/claude-opus-4-5", "high")
+
+	modelName := "openai/gpt-5.3-codex"
+	modelVariant := "xhigh"
+
+	var mu sync.Mutex
+	getCalls := 0
+	listCalls := 0
+	createCalls := 0
+	promptReqCh := make(chan struct{}, 1)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/session/ses_old":
+			mu.Lock()
+			getCalls++
+			mu.Unlock()
+			w.WriteHeader(http.StatusOK)
+		case r.Method == "GET" && r.URL.Path == "/session":
+			mu.Lock()
+			listCalls++
+			mu.Unlock()
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode([]map[string]interface{}{})
+		case r.Method == "POST" && r.URL.Path == "/session":
+			mu.Lock()
+			createCalls++
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"id":        "ses_fresh",
+				"title":     openCodeControlSessionTitle,
+				"directory": projectRoot,
+				"time": map[string]int64{
+					"created": 4000,
+					"updated": 4000,
+				},
+			})
+		case r.Method == "POST" && r.URL.Path == "/session/ses_fresh/message":
+			select {
+			case promptReqCh <- struct{}{}:
+			default:
+			}
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	port := getPortFromURL(t, ts.URL)
+	sessionID, err := server.getOrCreateOpenCodeControlSession(projectRoot, port, modelName, modelVariant)
+	if err != nil {
+		t.Fatalf("getOrCreateOpenCodeControlSession() error = %v", err)
+	}
+	if sessionID != "ses_fresh" {
+		t.Fatalf("expected fresh session ID, got %q", sessionID)
+	}
+
+	select {
+	case <-promptReqCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for initial prompt on newly created session")
+	}
+
+	stored := readStoredOpenCodeControlSession(t, projectRoot)
+	if stored.SessionID != "ses_fresh" {
+		t.Fatalf("expected stored session to be refreshed, got %q", stored.SessionID)
+	}
+	if stored.Model != modelName || stored.ModelVariant != modelVariant {
+		t.Fatalf("expected stored model metadata (%q,%q), got (%q,%q)", modelName, modelVariant, stored.Model, stored.ModelVariant)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if getCalls != 0 {
+		t.Fatalf("expected no GET session reuse call on model mismatch, got %d", getCalls)
+	}
+	if listCalls != 0 {
+		t.Fatalf("expected no recovery list call on model mismatch, got %d", listCalls)
+	}
+	if createCalls != 1 {
+		t.Fatalf("expected exactly one create call on model mismatch, got %d", createCalls)
+	}
+}
+
+func TestResolvedControlModelAndVariantReachOpenCodeInitialPrompt(t *testing.T) {
+	projectRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0755); err != nil {
+		t.Fatalf("failed to create .orch dir: %v", err)
+	}
+
+	configYAML := []byte(`
+control_agent: opencode
+opencode:
+  default_model: openai/gpt-5.3-codex
+  default_variant: xhigh
+`)
+	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), configYAML, 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	cfg, err := loadControlAgentConfig(projectRoot)
+	if err != nil {
+		t.Fatalf("loadControlAgentConfig() error = %v", err)
+	}
+	modelName, modelVariant := cfg.ResolveControlModelAndVariant("opencode")
+	if modelName != "openai/gpt-5.3-codex" || modelVariant != "xhigh" {
+		t.Fatalf("unexpected resolved model config: (%q,%q)", modelName, modelVariant)
+	}
+
+	promptReqCh := make(chan agent.PromptRequest, 1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/session":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"id":        "ses_from_cfg",
+				"title":     openCodeControlSessionTitle,
+				"directory": projectRoot,
+				"time": map[string]int64{
+					"created": 5000,
+					"updated": 5000,
+				},
+			})
+		case r.Method == "POST" && r.URL.Path == "/session/ses_from_cfg/message":
+			var promptReq agent.PromptRequest
+			if err := json.NewDecoder(r.Body).Decode(&promptReq); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			select {
+			case promptReqCh <- promptReq:
+			default:
+			}
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	_, err = server.getOrCreateOpenCodeControlSession(projectRoot, getPortFromURL(t, ts.URL), modelName, modelVariant)
+	if err != nil {
+		t.Fatalf("getOrCreateOpenCodeControlSession() error = %v", err)
+	}
+
+	select {
+	case promptReq := <-promptReqCh:
+		if promptReq.Model == nil {
+			t.Fatal("expected prompt to include model from ResolveControlModelAndVariant")
+		}
+		if got := promptReq.Model.ProviderID + "/" + promptReq.Model.ModelID; got != modelName {
+			t.Fatalf("expected resolved model %q in prompt, got %q", modelName, got)
+		}
+		if promptReq.Variant != modelVariant {
+			t.Fatalf("expected resolved variant %q in prompt, got %q", modelVariant, promptReq.Variant)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for prompt request")
 	}
 }
 

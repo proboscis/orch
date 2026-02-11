@@ -532,6 +532,14 @@ func (s *SocketServer) controlSessionPath(projectRoot string) string {
 	return filepath.Join(projectRoot, ".orch", "control-session.json")
 }
 
+type controlSessionRecord struct {
+	SessionID    string `json:"session_id"`
+	AgentType    string `json:"agent_type"`
+	Port         int    `json:"port,omitempty"`
+	Model        string `json:"model,omitempty"`
+	ModelVariant string `json:"model_variant,omitempty"`
+}
+
 // getControlSessionLock returns a per-project mutex for control session operations.
 // This prevents race conditions when multiple orch-monitor instances start in quick succession.
 func (s *SocketServer) getControlSessionLock(projectRoot string) *sync.Mutex {
@@ -605,15 +613,31 @@ func (s *SocketServer) discoverClaudeSession(projectRoot string) string {
 
 // saveControlSession persists the control session to disk.
 func (s *SocketServer) saveControlSession(projectRoot, sessionID, agentType string) error {
+	return s.writeControlSession(projectRoot, &controlSessionRecord{
+		SessionID: sessionID,
+		AgentType: agentType,
+	})
+}
+
+func (s *SocketServer) saveOpenCodeControlSession(projectRoot, sessionID string, port int, modelName, modelVariant string) error {
+	return s.writeControlSession(projectRoot, &controlSessionRecord{
+		SessionID:    sessionID,
+		AgentType:    string(agent.AgentOpenCode),
+		Port:         port,
+		Model:        strings.TrimSpace(modelName),
+		ModelVariant: strings.TrimSpace(modelVariant),
+	})
+}
+
+func (s *SocketServer) writeControlSession(projectRoot string, sessionData *controlSessionRecord) error {
 	orchDir := filepath.Join(projectRoot, ".orch")
 	if err := os.MkdirAll(orchDir, 0755); err != nil {
 		return fmt.Errorf("failed to create .orch dir: %w", err)
 	}
 
 	sessionPath := s.controlSessionPath(projectRoot)
-	sessionData := map[string]string{
-		"session_id": sessionID,
-		"agent_type": agentType,
+	if sessionData == nil {
+		return fmt.Errorf("control session data is nil")
 	}
 	data, _ := json.MarshalIndent(sessionData, "", "  ")
 	if err := os.WriteFile(sessionPath, data, 0644); err != nil {
@@ -712,25 +736,14 @@ func (s *SocketServer) handleSetControlSession(req SendRequest, encoder *json.En
 	lock.Lock()
 	defer lock.Unlock()
 
-	orchDir := filepath.Join(req.ProjectRoot, ".orch")
-	if err := os.MkdirAll(orchDir, 0755); err != nil {
+	sessionData := &controlSessionRecord{
+		SessionID: req.SessionID,
+		AgentType: req.AgentType,
+	}
+	if err := s.writeControlSession(req.ProjectRoot, sessionData); err != nil {
 		encoder.Encode(map[string]interface{}{
 			"ok":    false,
-			"error": fmt.Sprintf("failed to create .orch dir: %v", err),
-		})
-		return
-	}
-
-	sessionPath := s.controlSessionPath(req.ProjectRoot)
-	sessionData := map[string]string{"session_id": req.SessionID}
-	if req.AgentType != "" {
-		sessionData["agent_type"] = req.AgentType
-	}
-	data, _ := json.MarshalIndent(sessionData, "", "  ")
-	if err := os.WriteFile(sessionPath, data, 0644); err != nil {
-		encoder.Encode(map[string]interface{}{
-			"ok":    false,
-			"error": fmt.Sprintf("failed to write session file: %v", err),
+			"error": fmt.Sprintf("failed to persist session file: %v", err),
 		})
 		return
 	}
@@ -788,7 +801,15 @@ func (s *SocketServer) handleEnsureOpenCodeServer(req SendRequest, encoder *json
 		return
 	}
 
-	sessionID, err := s.getOrCreateOpenCodeControlSession(req.ProjectRoot, port)
+	modelName := ""
+	modelVariant := ""
+	if cfg, cfgErr := loadControlAgentConfig(req.ProjectRoot); cfgErr != nil {
+		s.logger.Printf("warning: failed to load config for ensure_open_code_server: %v", cfgErr)
+	} else {
+		modelName, modelVariant = cfg.ResolveControlModelAndVariant(string(agent.AgentOpenCode))
+	}
+
+	sessionID, err := s.getOrCreateOpenCodeControlSession(req.ProjectRoot, port, modelName, modelVariant)
 	if err != nil {
 		s.logger.Printf("warning: server running but failed to get session: %v", err)
 		encoder.Encode(map[string]interface{}{
@@ -1101,41 +1122,52 @@ func (s *SocketServer) getOpenCodeServerPort(projectRoot string) int {
 	return 0
 }
 
-func (s *SocketServer) getOrCreateOpenCodeControlSession(projectRoot string, port int) (string, error) {
+func (s *SocketServer) getOrCreateOpenCodeControlSession(projectRoot string, port int, modelName, modelVariant string) (string, error) {
 	lock := s.getControlSessionLock(projectRoot)
 	lock.Lock()
 	defer lock.Unlock()
 
+	resolvedModel := strings.TrimSpace(modelName)
+	resolvedVariant := strings.TrimSpace(modelVariant)
+
 	sessionPath := s.controlSessionPath(projectRoot)
 	if data, err := os.ReadFile(sessionPath); err == nil {
-		var stored struct {
-			SessionID string `json:"session_id"`
-			AgentType string `json:"agent_type"`
-			Port      int    `json:"port"`
-		}
+		var stored controlSessionRecord
 		if json.Unmarshal(data, &stored) == nil && stored.SessionID != "" && stored.AgentType == "opencode" {
-			client := agent.NewOpenCodeClient(port)
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
+			storedModel := strings.TrimSpace(stored.Model)
+			storedVariant := strings.TrimSpace(stored.ModelVariant)
+			modelMatches := storedModel == resolvedModel && storedVariant == resolvedVariant
+			if modelMatches {
+				client := agent.NewOpenCodeClient(port)
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
 
-			if session, err := client.GetSession(ctx, stored.SessionID, projectRoot); err == nil && session != nil {
-				s.logger.Printf("reusing existing opencode control session: %s", stored.SessionID)
-				if stored.Port != port {
-					s.saveControlSession(projectRoot, stored.SessionID, "opencode")
-				}
-				return stored.SessionID, nil
-			} else if err != nil && strings.Contains(err.Error(), "session not found") {
-				// opencode may reassign session IDs when the server restarts; recover by directory.
-				sessions, listErr := client.GetSessionsForDirectory(ctx, projectRoot)
-				if listErr != nil {
-					s.logger.Printf("failed to list opencode sessions for recovery: %v", listErr)
-				} else if recovered := findBestOpenCodeControlSession(projectRoot, sessions); recovered != nil {
-					if err := s.saveControlSession(projectRoot, recovered.ID, "opencode"); err != nil {
-						s.logger.Printf("warning: failed to save recovered control session: %v", err)
+				if session, err := client.GetSession(ctx, stored.SessionID, projectRoot); err == nil && session != nil {
+					s.logger.Printf("reusing existing opencode control session: %s", stored.SessionID)
+					if stored.Port != port {
+						if err := s.saveOpenCodeControlSession(projectRoot, stored.SessionID, port, resolvedModel, resolvedVariant); err != nil {
+							s.logger.Printf("warning: failed to update control session metadata for reused session: %v", err)
+						}
 					}
-					s.logger.Printf("recovered opencode control session after ID mismatch: %s", recovered.ID)
-					return recovered.ID, nil
+					return stored.SessionID, nil
+				} else if err != nil && strings.Contains(err.Error(), "session not found") {
+					// opencode may reassign session IDs when the server restarts; recover by directory.
+					sessions, listErr := client.GetSessionsForDirectory(ctx, projectRoot)
+					if listErr != nil {
+						s.logger.Printf("failed to list opencode sessions for recovery: %v", listErr)
+					} else if recovered := findBestOpenCodeControlSession(projectRoot, sessions); recovered != nil {
+						if err := s.saveOpenCodeControlSession(projectRoot, recovered.ID, port, resolvedModel, resolvedVariant); err != nil {
+							s.logger.Printf("warning: failed to save recovered control session: %v", err)
+						}
+						s.logger.Printf("recovered opencode control session after ID mismatch: %s", recovered.ID)
+						return recovered.ID, nil
+					}
 				}
+			} else {
+				s.logger.Printf(
+					"stored opencode control session %s model/variant (%q,%q) does not match resolved (%q,%q); creating new control session",
+					stored.SessionID, storedModel, storedVariant, resolvedModel, resolvedVariant,
+				)
 			}
 		}
 	}
@@ -1149,16 +1181,21 @@ func (s *SocketServer) getOrCreateOpenCodeControlSession(projectRoot string, por
 		return "", fmt.Errorf("failed to create session: %w", err)
 	}
 
-	if err := s.saveControlSession(projectRoot, session.ID, "opencode"); err != nil {
+	if err := s.saveOpenCodeControlSession(projectRoot, session.ID, port, resolvedModel, resolvedVariant); err != nil {
 		s.logger.Printf("warning: failed to save control session: %v", err)
 	}
 
 	prompt := getControlPromptInstruction()
 	if prompt != "" {
+		modelRef := agent.ParseModel(resolvedModel)
+		if resolvedModel != "" && modelRef == nil {
+			s.logger.Printf("warning: control model %q is not in provider/model format; using opencode default for initial prompt", resolvedModel)
+		}
+
 		go func() {
 			sendCtx, sendCancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer sendCancel()
-			if err := client.SendMessagePrompt(sendCtx, session.ID, prompt, projectRoot, nil, ""); err != nil {
+			if err := client.SendMessagePrompt(sendCtx, session.ID, prompt, projectRoot, modelRef, resolvedVariant); err != nil {
 				s.logger.Printf("warning: failed to send initial prompt to control session: %v", err)
 			} else {
 				s.logger.Printf("sent initial prompt to control session %s", session.ID)
@@ -1559,7 +1596,7 @@ func (s *SocketServer) handleGetControlAgentLaunch(req SendRequest, encoder *jso
 		port = serverPort
 
 		// Get or create session
-		session, err := s.getOrCreateOpenCodeControlSession(req.ProjectRoot, port)
+		session, err := s.getOrCreateOpenCodeControlSession(req.ProjectRoot, port, modelName, modelVariant)
 		if err != nil {
 			s.logger.Printf("warning: server running but failed to get session: %v", err)
 			// Still return the command, but without session
@@ -1697,7 +1734,7 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 		}
 		port = serverPort
 
-		session, err := s.getOrCreateOpenCodeControlSession(params.ProjectRoot, port)
+		session, err := s.getOrCreateOpenCodeControlSession(params.ProjectRoot, port, modelName, modelVariant)
 		if err != nil {
 			s.logger.Printf("warning: server running but failed to get session: %v", err)
 			command = fmt.Sprintf("opencode attach http://127.0.0.1:%d --dir %s", port, params.ProjectRoot)
