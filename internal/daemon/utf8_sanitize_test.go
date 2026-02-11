@@ -39,6 +39,46 @@ func TestSanitizeUTF8Slice(t *testing.T) {
 	}
 }
 
+func TestSanitizeUTF8Slice_ValidSliceReturnedAsIs(t *testing.T) {
+	input := []string{"hello", "world"}
+	got := sanitizeUTF8Slice(input)
+
+	// Should return the same slice (no allocation) when all valid.
+	if &got[0] != &input[0] {
+		t.Fatal("sanitizeUTF8Slice() allocated a new slice for all-valid input")
+	}
+}
+
+func TestSanitizeUTF8Map(t *testing.T) {
+	invalid := string([]byte{'v', 0xff})
+	input := map[string]string{"key": invalid, "ok": "fine"}
+	got := sanitizeUTF8Map(input)
+
+	for k, v := range got {
+		if !utf8.ValidString(k) {
+			t.Fatalf("sanitizeUTF8Map() key not valid UTF-8: %q", k)
+		}
+		if !utf8.ValidString(v) {
+			t.Fatalf("sanitizeUTF8Map() value not valid UTF-8: %q", v)
+		}
+	}
+
+	if got["key"] != "v\ufffd" {
+		t.Fatalf("sanitizeUTF8Map()[\"key\"] = %q, want %q", got["key"], "v\ufffd")
+	}
+}
+
+func TestSanitizeUTF8Map_ValidMapReturnedAsIs(t *testing.T) {
+	input := map[string]string{"a": "b"}
+	got := sanitizeUTF8Map(input)
+
+	// Modify original and check got reflects it (same map).
+	input["a"] = "changed"
+	if got["a"] != "changed" {
+		t.Fatal("sanitizeUTF8Map() allocated a new map for all-valid input")
+	}
+}
+
 func TestModelIssueToProto_SanitizesInvalidTextFields(t *testing.T) {
 	invalid := string([]byte{'z', 0xff, 'z'})
 	issue := &model.Issue{
@@ -62,6 +102,30 @@ func TestModelIssueToProto_SanitizesInvalidTextFields(t *testing.T) {
 	for _, tag := range protoIssue.Tags {
 		if !utf8.ValidString(tag) {
 			t.Fatalf("modelIssueToProto() returned invalid UTF-8 tag: %q", tag)
+		}
+	}
+}
+
+func TestModelEventToProto_SanitizesInvalidFields(t *testing.T) {
+	invalid := string([]byte{'e', 0xff, 'v'})
+	event := &model.Event{
+		Timestamp: time.Unix(1, 0),
+		Type:      model.EventType(invalid),
+		Name:      invalid,
+		Attrs:     map[string]string{"key": invalid},
+	}
+
+	protoEvent := modelEventToProto(event)
+
+	if !utf8.ValidString(protoEvent.Type) {
+		t.Fatalf("modelEventToProto() Type not valid UTF-8: %q", protoEvent.Type)
+	}
+	if !utf8.ValidString(protoEvent.Name) {
+		t.Fatalf("modelEventToProto() Name not valid UTF-8: %q", protoEvent.Name)
+	}
+	for k, v := range protoEvent.Attrs {
+		if !utf8.ValidString(k) || !utf8.ValidString(v) {
+			t.Fatalf("modelEventToProto() Attrs contains invalid UTF-8: key=%q val=%q", k, v)
 		}
 	}
 }

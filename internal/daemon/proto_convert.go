@@ -202,9 +202,9 @@ func modelEventToProto(event *model.Event) *orchpb.Event {
 	}
 	return &orchpb.Event{
 		TimestampUnix: event.Timestamp.Unix(),
-		Type:          string(event.Type),
-		Name:          event.Name,
-		Attrs:         event.Attrs,
+		Type:          sanitizeUTF8(string(event.Type)),
+		Name:          sanitizeUTF8(event.Name),
+		Attrs:         sanitizeUTF8Map(event.Attrs),
 	}
 }
 

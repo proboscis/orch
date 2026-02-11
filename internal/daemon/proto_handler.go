@@ -406,7 +406,7 @@ func enrichRunProto(pr *orchpb.Run, run *model.Run) {
 				Additions:    int32(stats.Additions),
 				Deletions:    int32(stats.Deletions),
 				FilesChanged: int32(stats.FilesChanged),
-				Files:        stats.Files,
+				Files:        sanitizeUTF8Slice(stats.Files),
 			}
 		}
 	}
@@ -1099,7 +1099,7 @@ func (s *SocketServer) handleProtoGetDiffStats(req *orchpb.GetDiffStatsRequest) 
 					Additions:    int32(stats.Additions),
 					Deletions:    int32(stats.Deletions),
 					FilesChanged: int32(stats.FilesChanged),
-					Files:        stats.Files,
+					Files:        sanitizeUTF8Slice(stats.Files),
 				},
 			},
 		},
@@ -1967,7 +1967,7 @@ func (s *SocketServer) handleProtoListSessions(req *orchpb.ListSessionsRequest) 
 		Ok: true,
 		Response: &orchpb.Response_ListSessions{
 			ListSessions: &orchpb.ListSessionsResponse{
-				Sessions: sessions,
+				Sessions: sanitizeUTF8Slice(sessions),
 			},
 		},
 	}
