@@ -37,8 +37,14 @@ const (
 var (
 	// Keep opencode send ACK timeout short so `orch send` returns quickly after
 	// the server accepts the message.
-	openCodeSendAckTimeout = 10 * time.Second
-	codexTmuxSubmitDelay   = 250 * time.Millisecond
+	openCodeSendAckTimeout              = 10 * time.Second
+	codexTmuxSubmitDelay                = 250 * time.Millisecond
+	openCodeControlSessionLookupBackoff = []time.Duration{
+		0,
+		250 * time.Millisecond,
+		500 * time.Millisecond,
+	}
+	openCodeControlSessionLookupTimeout = 5 * time.Second
 
 	getSendMultiplexer = func() sendMultiplexer {
 		return multiplexer.GetDefault()
@@ -1139,10 +1145,7 @@ func (s *SocketServer) getOrCreateOpenCodeControlSession(projectRoot string, por
 			modelMatches := storedModel == resolvedModel && storedVariant == resolvedVariant
 			if modelMatches {
 				client := agent.NewOpenCodeClient(port)
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-
-				if session, err := client.GetSession(ctx, stored.SessionID, projectRoot); err == nil && session != nil {
+				if session, err := s.getOpenCodeSessionWithRetry(client, stored.SessionID, projectRoot); err == nil && session != nil {
 					s.logger.Printf("reusing existing opencode control session: %s", stored.SessionID)
 					if stored.Port != port {
 						if err := s.saveOpenCodeControlSession(projectRoot, stored.SessionID, port, resolvedModel, resolvedVariant); err != nil {
@@ -1150,17 +1153,20 @@ func (s *SocketServer) getOrCreateOpenCodeControlSession(projectRoot string, por
 						}
 					}
 					return stored.SessionID, nil
-				} else if err != nil && strings.Contains(err.Error(), "session not found") {
-					// opencode may reassign session IDs when the server restarts; recover by directory.
-					sessions, listErr := client.GetSessionsForDirectory(ctx, projectRoot)
-					if listErr != nil {
-						s.logger.Printf("failed to list opencode sessions for recovery: %v", listErr)
-					} else if recovered := findBestOpenCodeControlSession(projectRoot, sessions); recovered != nil {
+				} else {
+					s.logger.Printf("failed to reuse stored opencode control session %q: %v", stored.SessionID, err)
+					if recovered := s.recoverOpenCodeControlSession(client, projectRoot); recovered != nil {
 						if err := s.saveOpenCodeControlSession(projectRoot, recovered.ID, port, resolvedModel, resolvedVariant); err != nil {
 							s.logger.Printf("warning: failed to save recovered control session: %v", err)
 						}
 						s.logger.Printf("recovered opencode control session after ID mismatch: %s", recovered.ID)
 						return recovered.ID, nil
+					}
+
+					if isOpenCodeSessionNotFoundError(err) {
+						s.logger.Printf("stored opencode control session %q was not found; creating a new control session", stored.SessionID)
+					} else {
+						s.logger.Printf("unable to recover stored opencode control session %q; creating a new control session", stored.SessionID)
 					}
 				}
 			} else {
@@ -1207,35 +1213,169 @@ func (s *SocketServer) getOrCreateOpenCodeControlSession(projectRoot string, por
 	return session.ID, nil
 }
 
+func (s *SocketServer) getOpenCodeSessionWithRetry(client *agent.OpenCodeClient, sessionID, projectRoot string) (*agent.Session, error) {
+	var lastErr error
+
+	for attempt, backoff := range openCodeControlSessionLookupBackoff {
+		if backoff > 0 {
+			time.Sleep(backoff)
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), openCodeControlSessionLookupTimeout)
+		session, err := client.GetSession(ctx, sessionID, projectRoot)
+		cancel()
+		if err == nil && session != nil {
+			if attempt > 0 {
+				s.logger.Printf("reused opencode control session %s after %d lookup retries", sessionID, attempt)
+			}
+			return session, nil
+		}
+
+		if err == nil {
+			lastErr = fmt.Errorf("session lookup returned empty response")
+		} else {
+			lastErr = err
+		}
+
+		if attempt == len(openCodeControlSessionLookupBackoff)-1 {
+			break
+		}
+		if !shouldRetryOpenCodeSessionLookup(lastErr) {
+			break
+		}
+
+		s.logger.Printf("retrying opencode control session lookup for %s (%d/%d): %v",
+			sessionID, attempt+1, len(openCodeControlSessionLookupBackoff)-1, lastErr)
+	}
+
+	if lastErr == nil {
+		lastErr = fmt.Errorf("session lookup failed")
+	}
+	return nil, lastErr
+}
+
+func shouldRetryOpenCodeSessionLookup(err error) bool {
+	if err == nil {
+		return false
+	}
+	if isOpenCodeSessionNotFoundError(err) {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "timeout") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "unexpected eof") ||
+		strings.Contains(msg, "status 5")
+}
+
+func isOpenCodeSessionNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "session not found")
+}
+
+func (s *SocketServer) recoverOpenCodeControlSession(client *agent.OpenCodeClient, projectRoot string) *agent.Session {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	sessions, listErr := client.GetSessionsForDirectory(ctx, projectRoot)
+	cancel()
+	if listErr != nil {
+		s.logger.Printf("failed to list opencode sessions for recovery in %q: %v", projectRoot, listErr)
+	} else if recovered := findBestOpenCodeControlSession(projectRoot, sessions); recovered != nil {
+		return recovered
+	} else {
+		s.logger.Printf("no reusable opencode control session found in project-scoped session list for %q", projectRoot)
+	}
+
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	allSessions, listAllErr := client.GetSessionsForDirectory(ctx, "")
+	cancel()
+	if listAllErr != nil {
+		s.logger.Printf("failed to list unscoped opencode sessions for recovery in %q: %v", projectRoot, listAllErr)
+		return nil
+	}
+
+	recovered := findBestOpenCodeControlSession(projectRoot, allSessions)
+	if recovered == nil {
+		s.logger.Printf("no reusable opencode control session found in unscoped session list for %q", projectRoot)
+		return nil
+	}
+
+	if normalizeOpenCodeSessionDirectory(projectRoot) != normalizeOpenCodeSessionDirectory(recovered.Directory) {
+		s.logger.Printf("recovering opencode control session %s by title fallback despite directory mismatch (project=%q session_dir=%q)",
+			recovered.ID, projectRoot, recovered.Directory)
+	}
+	return recovered
+}
+
 func findBestOpenCodeControlSession(projectRoot string, sessions []agent.Session) *agent.Session {
-	var bestPreferred *agent.Session
-	var bestFallback *agent.Session
+	normalizedProjectRoot := normalizeOpenCodeSessionDirectory(projectRoot)
+	var bestPreferredSameProject *agent.Session
+	var bestFallbackSameProject *agent.Session
+	var bestPreferredAnyProject *agent.Session
+	var bestFallbackAnyProject *agent.Session
 
 	for i := range sessions {
 		session := sessions[i]
-		if projectRoot != "" && session.Directory != projectRoot {
-			continue
-		}
+		directoryMatches := normalizedProjectRoot == "" ||
+			normalizeOpenCodeSessionDirectory(session.Directory) == normalizedProjectRoot
 
 		// Prefer explicit control sessions, but keep the most recent general session as fallback.
 		if session.Title == openCodeControlSessionTitle {
-			if bestPreferred == nil || session.UpdatedAt().After(bestPreferred.UpdatedAt()) {
+			if bestPreferredAnyProject == nil || session.UpdatedAt().After(bestPreferredAnyProject.UpdatedAt()) {
 				copy := session
-				bestPreferred = &copy
+				bestPreferredAnyProject = &copy
+			}
+			if directoryMatches && (bestPreferredSameProject == nil || session.UpdatedAt().After(bestPreferredSameProject.UpdatedAt())) {
+				copy := session
+				bestPreferredSameProject = &copy
 			}
 			continue
 		}
 
-		if bestFallback == nil || session.UpdatedAt().After(bestFallback.UpdatedAt()) {
+		if bestFallbackAnyProject == nil || session.UpdatedAt().After(bestFallbackAnyProject.UpdatedAt()) {
 			copy := session
-			bestFallback = &copy
+			bestFallbackAnyProject = &copy
+		}
+		if directoryMatches && (bestFallbackSameProject == nil || session.UpdatedAt().After(bestFallbackSameProject.UpdatedAt())) {
+			copy := session
+			bestFallbackSameProject = &copy
 		}
 	}
 
-	if bestPreferred != nil {
-		return bestPreferred
+	if bestPreferredSameProject != nil {
+		return bestPreferredSameProject
 	}
-	return bestFallback
+	if bestFallbackSameProject != nil {
+		return bestFallbackSameProject
+	}
+	if normalizedProjectRoot != "" {
+		// Recovery mode: allow title-based reuse even if directory strings differ.
+		return bestPreferredAnyProject
+	}
+	if bestPreferredAnyProject != nil {
+		return bestPreferredAnyProject
+	}
+	return bestFallbackAnyProject
+}
+
+func normalizeOpenCodeSessionDirectory(path string) string {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return ""
+	}
+
+	cleaned := filepath.Clean(trimmed)
+	resolved, err := filepath.EvalSymlinks(cleaned)
+	if err != nil || resolved == "" {
+		return cleaned
+	}
+	return filepath.Clean(resolved)
 }
 
 func getControlPromptInstruction() string {
