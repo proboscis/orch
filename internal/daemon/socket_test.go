@@ -681,6 +681,52 @@ func TestListRunsAPI(t *testing.T) {
 	})
 }
 
+func TestListRunsAPI_InvalidUTF8IssueMetadataDoesNotBreakProto(t *testing.T) {
+	invalid := string([]byte{'b', 0xff, 'd'})
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			"orch-utf8#run-1": {
+				IssueID:   "orch-utf8",
+				RunID:     "run-1",
+				Status:    model.StatusRunning,
+				Agent:     "opencode",
+				StartedAt: time.Now().Add(-1 * time.Minute),
+				UpdatedAt: time.Now(),
+			},
+		},
+		issues: map[string]*model.Issue{
+			"orch-utf8": {
+				ID:      "orch-utf8",
+				Title:   "UTF8 test",
+				Topic:   "",
+				Summary: invalid,
+				Status:  model.IssueStatusOpen,
+				Path:    "/vault/issues/orch-utf8.md",
+			},
+		},
+	}
+
+	_, cleanup := setupTestServer(t, st)
+	defer cleanup()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_ListRuns{
+			ListRuns: &orchpb.ListRunsRequest{IssueId: "orch-utf8"},
+		},
+	})
+	if !resp.Ok {
+		t.Fatalf("expected OK=true, got error: %s", resp.Error)
+	}
+
+	listResp := resp.GetListRuns()
+	if listResp == nil || len(listResp.Runs) != 1 {
+		t.Fatalf("expected exactly 1 run, got %+v", listResp)
+	}
+	if got, want := listResp.Runs[0].IssueTopic, "b\ufffdd"; got != want {
+		t.Fatalf("issue_topic = %q, want %q", got, want)
+	}
+}
+
 func TestListRunsPaginationContract(t *testing.T) {
 	now := time.Now()
 	st := &mockStore{
@@ -1061,6 +1107,47 @@ func TestListIssuesAPI(t *testing.T) {
 			t.Fatal("expected at least 1 issue")
 		}
 	})
+}
+
+func TestListIssuesAPI_InvalidUTF8TextFieldsAreSanitized(t *testing.T) {
+	invalid := string([]byte{'x', 0xff, 'y'})
+	st := &mockStore{
+		runs: make(map[string]*model.Run),
+		issues: map[string]*model.Issue{
+			"orch-utf8": {
+				ID:      "orch-utf8",
+				Title:   invalid,
+				Topic:   invalid,
+				Summary: invalid,
+				Status:  model.IssueStatusOpen,
+				Body:    invalid,
+				Path:    "/vault/issues/orch-utf8.md",
+			},
+		},
+	}
+
+	_, cleanup := setupTestServer(t, st)
+	defer cleanup()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_ListIssues{
+			ListIssues: &orchpb.ListIssuesRequest{},
+		},
+	})
+	if !resp.Ok {
+		t.Fatalf("expected OK=true, got error: %s", resp.Error)
+	}
+
+	listResp := resp.GetListIssues()
+	if listResp == nil || len(listResp.Issues) != 1 {
+		t.Fatalf("expected exactly 1 issue, got %+v", listResp)
+	}
+
+	issue := listResp.Issues[0]
+	want := "x\ufffdy"
+	if issue.Title != want || issue.Topic != want || issue.Summary != want || issue.Body != want {
+		t.Fatalf("unexpected sanitized fields: title=%q topic=%q summary=%q body=%q", issue.Title, issue.Topic, issue.Summary, issue.Body)
+	}
 }
 
 func TestGetIssueAPI(t *testing.T) {
