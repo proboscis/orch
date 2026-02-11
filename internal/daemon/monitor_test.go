@@ -34,6 +34,31 @@ func TestHashContentIgnoresStatusBar(t *testing.T) {
 	}
 }
 
+func TestRunStateRecordPromptSignalDebounce(t *testing.T) {
+	state := &RunState{}
+
+	if state.recordPromptSignal(true) {
+		t.Fatal("expected first prompt observation to be unstable")
+	}
+	if state.PromptStreak != 1 {
+		t.Fatalf("prompt streak after first prompt = %d, want 1", state.PromptStreak)
+	}
+
+	if !state.recordPromptSignal(true) {
+		t.Fatal("expected second consecutive prompt observation to become stable")
+	}
+	if state.PromptStreak != 2 {
+		t.Fatalf("prompt streak after second prompt = %d, want 2", state.PromptStreak)
+	}
+
+	if state.recordPromptSignal(false) {
+		t.Fatal("expected non-prompt observation to clear stable state")
+	}
+	if state.PromptStreak != 0 {
+		t.Fatalf("prompt streak after reset = %d, want 0", state.PromptStreak)
+	}
+}
+
 func TestDetectPRCreation(t *testing.T) {
 	d := newTestDaemon()
 	url := d.detectPRCreation("opened https://github.com/org/repo/pull/123 for review")
