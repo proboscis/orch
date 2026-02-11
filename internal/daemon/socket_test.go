@@ -1765,12 +1765,12 @@ func TestGetOrCreateOpenCodeControlSessionCreatesWhenNoStoredSession(t *testing.
 		t.Fatalf("expected newly created session %q, got %q", "ses_new_after_clear", sessionID)
 	}
 
-	storedID, storedAgent := readStoredOpenCodeControlSession(t, projectRoot)
-	if storedID != "ses_new_after_clear" {
-		t.Fatalf("expected stored session ID to be updated to created session, got %q", storedID)
+	stored := readStoredOpenCodeControlSession(t, projectRoot)
+	if stored.SessionID != "ses_new_after_clear" {
+		t.Fatalf("expected stored session ID to be updated to created session, got %q", stored.SessionID)
 	}
-	if storedAgent != "opencode" {
-		t.Fatalf("expected stored agent type opencode, got %q", storedAgent)
+	if stored.AgentType != "opencode" {
+		t.Fatalf("expected stored agent type opencode, got %q", stored.AgentType)
 	}
 
 	mu.Lock()
@@ -1796,7 +1796,7 @@ func TestGetOrCreateOpenCodeControlSessionLogsReuseFailureReason(t *testing.T) {
 	setOpenCodeControlSessionLookupBackoffForTest(t, []time.Duration{0})
 
 	projectRoot := t.TempDir()
-	writeStoredOpenCodeControlSession(t, projectRoot, "ses_stale")
+	writeStoredOpenCodeControlSession(t, projectRoot, "ses_stale", "", "")
 
 	logs := &bytes.Buffer{}
 	server := NewSocketServer(nil, log.New(logs, "", 0))
@@ -1852,7 +1852,7 @@ func TestGetOrCreateOpenCodeControlSessionRetriesStoredLookup(t *testing.T) {
 	setOpenCodeControlSessionLookupBackoffForTest(t, []time.Duration{0, 0, 0})
 
 	projectRoot := t.TempDir()
-	writeStoredOpenCodeControlSession(t, projectRoot, "ses_existing")
+	writeStoredOpenCodeControlSession(t, projectRoot, "ses_existing", "", "")
 
 	var mu sync.Mutex
 	getCalls := 0
@@ -2037,7 +2037,7 @@ func TestGetOrCreateOpenCodeControlSessionRecoversWithNormalizedDirectory(t *tes
 	}
 
 	projectRoot := symlinkRoot + string(os.PathSeparator)
-	writeStoredOpenCodeControlSession(t, projectRoot, "ses_stale")
+	writeStoredOpenCodeControlSession(t, projectRoot, "ses_stale", "", "")
 
 	var mu sync.Mutex
 	getCalls := 0
@@ -2102,7 +2102,7 @@ func TestGetOrCreateOpenCodeControlSessionRecoversByTitleWithoutDirectoryFilter(
 	setOpenCodeControlSessionLookupBackoffForTest(t, []time.Duration{0})
 
 	projectRoot := t.TempDir()
-	writeStoredOpenCodeControlSession(t, projectRoot, "ses_stale")
+	writeStoredOpenCodeControlSession(t, projectRoot, "ses_stale", "", "")
 
 	var mu sync.Mutex
 	getCalls := 0
@@ -2164,12 +2164,12 @@ func TestGetOrCreateOpenCodeControlSessionRecoversByTitleWithoutDirectoryFilter(
 		t.Fatalf("expected title-based recovered session %q, got %q", "ses_control_title_fallback", sessionID)
 	}
 
-	storedID, storedAgent := readStoredOpenCodeControlSession(t, projectRoot)
-	if storedID != "ses_control_title_fallback" {
-		t.Fatalf("expected stored session ID to be updated to recovered ID, got %q", storedID)
+	stored := readStoredOpenCodeControlSession(t, projectRoot)
+	if stored.SessionID != "ses_control_title_fallback" {
+		t.Fatalf("expected stored session ID to be updated to recovered ID, got %q", stored.SessionID)
 	}
-	if storedAgent != "opencode" {
-		t.Fatalf("expected stored agent type opencode, got %q", storedAgent)
+	if stored.AgentType != "opencode" {
+		t.Fatalf("expected stored agent type opencode, got %q", stored.AgentType)
 	}
 
 	mu.Lock()
