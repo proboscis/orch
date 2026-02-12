@@ -39,6 +39,7 @@ var (
 	// the server accepts the message.
 	openCodeSendAckTimeout = 10 * time.Second
 	codexTmuxSubmitDelay   = 250 * time.Millisecond
+	findMainRepoRoot       = git.FindMainRepoRoot
 
 	getSendMultiplexer = func() sendMultiplexer {
 		return multiplexer.GetDefault()
@@ -826,7 +827,32 @@ func (s *SocketServer) handleEnsureOpenCodeServer(req SendRequest, encoder *json
 	})
 }
 
+func normalizeOpenCodeServerProjectRoot(projectRoot string) string {
+	projectRoot = strings.TrimSpace(projectRoot)
+	if projectRoot == "" {
+		return ""
+	}
+
+	keyRoot := projectRoot
+	if mainRoot, err := findMainRepoRoot(projectRoot); err == nil {
+		if trimmed := strings.TrimSpace(mainRoot); trimmed != "" {
+			keyRoot = trimmed
+		}
+	}
+
+	absRoot, err := filepath.Abs(keyRoot)
+	if err == nil {
+		return filepath.Clean(absRoot)
+	}
+	return filepath.Clean(keyRoot)
+}
+
 func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string) (int, error) {
+	projectRoot = normalizeOpenCodeServerProjectRoot(projectRoot)
+	if projectRoot == "" {
+		return 0, fmt.Errorf("project root required")
+	}
+
 	s.openCodeServersMu.Lock()
 	defer s.openCodeServersMu.Unlock()
 
@@ -1113,6 +1139,11 @@ func (s *SocketServer) StopAllOpenCodeServers() {
 }
 
 func (s *SocketServer) getOpenCodeServerPort(projectRoot string) int {
+	projectRoot = normalizeOpenCodeServerProjectRoot(projectRoot)
+	if projectRoot == "" {
+		return 0
+	}
+
 	s.openCodeServersMu.RLock()
 	defer s.openCodeServersMu.RUnlock()
 
@@ -2494,7 +2525,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 
 	serverAlreadyRunning := false
 	if adapter.PromptInjection() == agent.InjectionHTTP {
-		resp, err := s.ensureOpenCodeServerRunning(worktreeResult.WorktreePath)
+		resp, err := s.ensureOpenCodeServerRunning(repoRoot)
 		if err != nil {
 			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
 			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
@@ -2773,7 +2804,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 
 	serverAlreadyRunning := false
 	if adapter.PromptInjection() == agent.InjectionHTTP {
-		resp, err := s.ensureOpenCodeServerRunning(worktreeResult.WorktreePath)
+		resp, err := s.ensureOpenCodeServerRunning(projectRoot)
 		if err != nil {
 			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
 			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
@@ -3127,7 +3158,12 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 
 	serverAlreadyRunning := false
 	if adapter.PromptInjection() == agent.InjectionHTTP {
-		resp, err := s.ensureOpenCodeServerRunning(worktreePath)
+		serverProjectRoot := projectRoot
+		if serverProjectRoot == "" {
+			serverProjectRoot = worktreePath
+		}
+
+		resp, err := s.ensureOpenCodeServerRunning(serverProjectRoot)
 		if err != nil {
 			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
 			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
@@ -3509,7 +3545,12 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 
 	serverAlreadyRunning := false
 	if adapter.PromptInjection() == agent.InjectionHTTP {
-		resp, err := s.ensureOpenCodeServerRunning(worktreePath)
+		serverProjectRoot := s.resolveProjectRoot(req)
+		if serverProjectRoot == "" {
+			serverProjectRoot = worktreePath
+		}
+
+		resp, err := s.ensureOpenCodeServerRunning(serverProjectRoot)
 		if err != nil {
 			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
 			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))

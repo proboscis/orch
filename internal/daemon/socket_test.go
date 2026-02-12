@@ -356,7 +356,8 @@ func TestProcessSendOpenCodeReturnsAfterAck(t *testing.T) {
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
-	server.openCodeServers[projectRoot] = &managedServer{
+	serverKey := normalizeOpenCodeServerProjectRoot(projectRoot)
+	server.openCodeServers[serverKey] = &managedServer{
 		ProjectRoot: projectRoot,
 		Port:        getPortFromURL(t, testServer.URL),
 		WaitResult:  make(chan error, 1),
@@ -413,7 +414,8 @@ func TestProcessSendOpenCodeTimesOutPromptlyWithoutAck(t *testing.T) {
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
-	server.openCodeServers[projectRoot] = &managedServer{
+	serverKey := normalizeOpenCodeServerProjectRoot(projectRoot)
+	server.openCodeServers[serverKey] = &managedServer{
 		ProjectRoot: projectRoot,
 		Port:        getPortFromURL(t, testServer.URL),
 		WaitResult:  make(chan error, 1),
@@ -1555,6 +1557,59 @@ func TestWaitForOpenCodeServerHealthy(t *testing.T) {
 		}
 		close(waitResult)
 	})
+}
+
+func TestEnsureOpenCodeServerRunningNormalizesWorktreeServerKey(t *testing.T) {
+	repoRoot := filepath.Join(os.TempDir(), "orch-main-repo")
+	worktreeA := filepath.Join(repoRoot, ".git-worktrees", "run-a")
+	worktreeB := filepath.Join(repoRoot, ".git-worktrees", "run-b")
+
+	port, shutdown := startFakeOpenCodeServer(t, repoRoot)
+	defer shutdown()
+
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	server.openCodeServers[repoRoot] = &managedServer{
+		ProjectRoot: repoRoot,
+		Port:        port,
+		WaitResult:  make(chan error, 1),
+		LastHealthy: time.Now(),
+	}
+
+	prevFindMainRepoRoot := findMainRepoRoot
+	findMainRepoRoot = func(startDir string) (string, error) {
+		switch startDir {
+		case repoRoot, worktreeA, worktreeB:
+			return repoRoot, nil
+		default:
+			return "", os.ErrNotExist
+		}
+	}
+	defer func() { findMainRepoRoot = prevFindMainRepoRoot }()
+
+	portA, err := server.ensureOpenCodeServerRunning(worktreeA)
+	if err != nil {
+		t.Fatalf("ensureOpenCodeServerRunning(worktreeA) error = %v", err)
+	}
+	portB, err := server.ensureOpenCodeServerRunning(worktreeB)
+	if err != nil {
+		t.Fatalf("ensureOpenCodeServerRunning(worktreeB) error = %v", err)
+	}
+
+	if portA != port || portB != port {
+		t.Fatalf("expected both worktrees to resolve to port %d, got portA=%d portB=%d", port, portA, portB)
+	}
+	if got := server.getOpenCodeServerPort(worktreeA); got != port {
+		t.Fatalf("getOpenCodeServerPort(worktreeA) = %d, want %d", got, port)
+	}
+	if got := server.getOpenCodeServerPort(worktreeB); got != port {
+		t.Fatalf("getOpenCodeServerPort(worktreeB) = %d, want %d", got, port)
+	}
+	if len(server.openCodeServers) != 1 {
+		t.Fatalf("expected a single server entry keyed by main repo root, got %d entries", len(server.openCodeServers))
+	}
+	if _, ok := server.openCodeServers[repoRoot]; !ok {
+		t.Fatalf("expected server map key %q", repoRoot)
+	}
 }
 
 func TestOpenCodeServerLogPathIsPerProjectRoot(t *testing.T) {

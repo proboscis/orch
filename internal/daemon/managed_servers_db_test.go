@@ -93,6 +93,56 @@ func TestManagedServerStoreCRUD(t *testing.T) {
 	}
 }
 
+func TestPersistManagedServerStartNormalizesProjectRootKey(t *testing.T) {
+	setupManagedServerDBEnv(t)
+
+	repoRoot := filepath.Join(os.TempDir(), "orch-main-repo")
+	worktreePath := filepath.Join(repoRoot, ".git-worktrees", "run-a")
+
+	prevFindMainRepoRoot := findMainRepoRoot
+	findMainRepoRoot = func(startDir string) (string, error) {
+		switch startDir {
+		case repoRoot, worktreePath:
+			return repoRoot, nil
+		default:
+			return "", os.ErrNotExist
+		}
+	}
+	defer func() { findMainRepoRoot = prevFindMainRepoRoot }()
+
+	store, err := newManagedServerStore(xdg.DaemonDBPath())
+	if err != nil {
+		t.Fatalf("newManagedServerStore() error = %v", err)
+	}
+	defer store.Close()
+
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	server.managedServerStore = store
+
+	err = server.persistManagedServerStart(&managedServer{
+		ProjectRoot: worktreePath,
+		PID:         23456,
+		Port:        4097,
+		LogPath:     "/tmp/opencode-normalized.log",
+		StartTime:   time.Now().Add(-15 * time.Second),
+		LastHealthy: time.Now().Add(-5 * time.Second),
+	})
+	if err != nil {
+		t.Fatalf("persistManagedServerStart() error = %v", err)
+	}
+
+	rows, err := store.List()
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	if rows[0].ProjectRoot != repoRoot {
+		t.Fatalf("expected normalized project_root %q, got %q", repoRoot, rows[0].ProjectRoot)
+	}
+}
+
 func TestReconcileManagedServersOnStartupAdoptsHealthyServer(t *testing.T) {
 	setupManagedServerDBEnv(t)
 

@@ -261,15 +261,31 @@ func (s *SocketServer) persistManagedServerStart(srv *managedServer) error {
 		return nil
 	}
 
+	persistedProjectRoot := srv.ProjectRoot
+	normalizedProjectRoot := normalizeOpenCodeServerProjectRoot(persistedProjectRoot)
+	if normalizedProjectRoot == "" {
+		normalizedProjectRoot = persistedProjectRoot
+	}
+
 	record := managedServerRecord{
-		ProjectRoot: srv.ProjectRoot,
+		ProjectRoot: normalizedProjectRoot,
 		PID:         serverPID(srv),
 		Port:        srv.Port,
 		LogPath:     srv.LogPath,
 		StartedAt:   srv.StartTime,
 		LastHealthy: srv.LastHealthy,
 	}
-	return s.managedServerStore.Upsert(record)
+	if err := s.managedServerStore.Upsert(record); err != nil {
+		return err
+	}
+
+	if persistedProjectRoot != "" && persistedProjectRoot != normalizedProjectRoot {
+		if err := s.managedServerStore.Delete(persistedProjectRoot); err != nil && s.logger != nil {
+			s.logger.Printf("warning: failed to remove legacy managed server key %s after normalization to %s: %v", persistedProjectRoot, normalizedProjectRoot, err)
+		}
+	}
+
+	return nil
 }
 
 func (s *SocketServer) deleteManagedServerRecord(projectRoot string) {
@@ -314,8 +330,13 @@ func (s *SocketServer) reconcileManagedServersOnStartup() error {
 }
 
 func (s *SocketServer) reconcileManagedServerRecord(record managedServerRecord, adoptedPorts map[int]string) {
+	persistedProjectRoot := record.ProjectRoot
+	if normalizedProjectRoot := normalizeOpenCodeServerProjectRoot(record.ProjectRoot); normalizedProjectRoot != "" {
+		record.ProjectRoot = normalizedProjectRoot
+	}
+
 	if record.ProjectRoot == "" || record.PID <= 0 || record.Port <= 0 {
-		s.deleteManagedServerRecord(record.ProjectRoot)
+		s.deleteManagedServerRecord(persistedProjectRoot)
 		return
 	}
 
@@ -326,7 +347,20 @@ func (s *SocketServer) reconcileManagedServerRecord(record managedServerRecord, 
 		if err := s.terminateServerProcessByPID(record.PID, 5*time.Second); err != nil && s.logger != nil {
 			s.logger.Printf("warning: failed to terminate duplicate server process pid=%d for %s: %v", record.PID, record.ProjectRoot, err)
 		}
-		s.deleteManagedServerRecord(record.ProjectRoot)
+		s.deleteManagedServerRecord(persistedProjectRoot)
+		return
+	}
+
+	if existingSrv, exists := s.openCodeServers[record.ProjectRoot]; exists {
+		if s.logger != nil {
+			s.logger.Printf("startup recovery: server already adopted for %s on port %d; removing duplicate record (pid=%d, port=%d)", record.ProjectRoot, existingSrv.Port, record.PID, record.Port)
+		}
+		if existingSrv.PID != record.PID {
+			if err := s.terminateServerProcessByPID(record.PID, 5*time.Second); err != nil && s.logger != nil {
+				s.logger.Printf("warning: failed to terminate duplicate server process pid=%d for %s: %v", record.PID, record.ProjectRoot, err)
+			}
+		}
+		s.deleteManagedServerRecord(persistedProjectRoot)
 		return
 	}
 
@@ -334,7 +368,7 @@ func (s *SocketServer) reconcileManagedServerRecord(record managedServerRecord, 
 		if s.logger != nil {
 			s.logger.Printf("startup recovery: removing stale managed server record for %s (pid=%d dead)", record.ProjectRoot, record.PID)
 		}
-		s.deleteManagedServerRecord(record.ProjectRoot)
+		s.deleteManagedServerRecord(persistedProjectRoot)
 		return
 	}
 
@@ -353,7 +387,7 @@ func (s *SocketServer) reconcileManagedServerRecord(record managedServerRecord, 
 			}
 			return
 		}
-		s.deleteManagedServerRecord(record.ProjectRoot)
+		s.deleteManagedServerRecord(persistedProjectRoot)
 		return
 	}
 
@@ -362,7 +396,7 @@ func (s *SocketServer) reconcileManagedServerRecord(record managedServerRecord, 
 		lastHealthy = time.Now()
 	}
 
-	s.openCodeServers[record.ProjectRoot] = &managedServer{
+	srv := &managedServer{
 		ProjectRoot: record.ProjectRoot,
 		Port:        record.Port,
 		PID:         record.PID,
@@ -371,7 +405,16 @@ func (s *SocketServer) reconcileManagedServerRecord(record managedServerRecord, 
 		LogPath:     record.LogPath,
 		Adopted:     true,
 	}
+	s.openCodeServers[record.ProjectRoot] = srv
 	adoptedPorts[record.Port] = record.ProjectRoot
+
+	if persistedProjectRoot != "" && persistedProjectRoot != record.ProjectRoot {
+		s.deleteManagedServerRecord(persistedProjectRoot)
+		if err := s.persistManagedServerStart(srv); err != nil && s.logger != nil {
+			s.logger.Printf("warning: failed to persist normalized managed server key for %s: %v", record.ProjectRoot, err)
+		}
+	}
+
 	s.updateManagedServerHealth(record.ProjectRoot, lastHealthy)
 
 	if s.logger != nil {
