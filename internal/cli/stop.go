@@ -15,6 +15,14 @@ type stopOptions struct {
 	Force bool
 }
 
+type stopDeps struct {
+	getAPI func() (orchapi.OrchAPI, error)
+}
+
+func defaultStopDeps() *stopDeps {
+	return &stopDeps{getAPI: getAPI}
+}
+
 func newStopCmd() *cobra.Command {
 	opts := &stopOptions{}
 
@@ -47,7 +55,11 @@ If the run is already stopped (done/failed/canceled), this is a no-op.`,
 
 func runStop(refStr string, opts *stopOptions) error {
 	ctx := context.Background()
-	api, err := getAPI()
+	return runStopWithDeps(ctx, refStr, opts, defaultStopDeps())
+}
+
+func runStopWithDeps(ctx context.Context, refStr string, opts *stopOptions, deps *stopDeps) error {
+	api, err := deps.getAPI()
 	if err != nil {
 		return err
 	}
@@ -127,7 +139,11 @@ func stopAllForIssue(ctx context.Context, api orchapi.OrchAPI, issueID string, o
 
 func runStopAll(opts *stopOptions) error {
 	ctx := context.Background()
-	api, err := getAPI()
+	return runStopAllWithDeps(ctx, opts, defaultStopDeps())
+}
+
+func runStopAllWithDeps(ctx context.Context, opts *stopOptions, deps *stopDeps) error {
+	api, err := deps.getAPI()
 	if err != nil {
 		return err
 	}

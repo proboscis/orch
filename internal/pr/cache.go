@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/s22625/orch/internal/git"
+	"github.com/s22625/orch/internal/github"
 	"github.com/s22625/orch/internal/model"
 )
 
@@ -21,6 +21,8 @@ const (
 	cacheMinFetchInterval = 30 * time.Second
 	cacheMaxFetches       = 3
 )
+
+var ghClient = github.NewCLIClient()
 
 // Info holds details about a pull request.
 type Info struct {
@@ -51,7 +53,7 @@ func PopulateRunInfo(runs []*model.Run) InfoMap {
 		return prInfoMap
 	}
 
-	if _, err := exec.LookPath("gh"); err != nil {
+	if !ghClient.IsAvailable() {
 		return prInfoMap
 	}
 
@@ -110,7 +112,7 @@ func PopulateRunInfo(runs []*model.Run) InfoMap {
 			break
 		}
 
-		info, err := lookupInfo(repoRoot, r.Branch)
+		info, err := lookupInfo(ghClient, repoRoot, r.Branch)
 		fetchTime := time.Now()
 		c.LastFetch = fetchTime
 		fetches++
@@ -163,10 +165,11 @@ func applyCachedInfo(runs []*model.Run, c cache, now time.Time, prInfoMap InfoMa
 	}
 }
 
-func lookupInfo(repoRoot, branch string) (*Info, error) {
-	cmd := exec.Command("gh", "pr", "list", "--head", branch, "--state", "all", "--json", "url,number,state", "--limit", "1")
-	cmd.Dir = repoRoot
-	output, err := cmd.Output()
+func lookupInfo(client github.Client, repoRoot, branch string) (*Info, error) {
+	if client == nil {
+		client = ghClient
+	}
+	output, err := client.RunInDir(repoRoot, "pr", "list", "--head", branch, "--state", "all", "--json", "url,number,state", "--limit", "1")
 	if err != nil {
 		return nil, err
 	}
@@ -194,8 +197,8 @@ func LookupInfo(repoRoot, branch string) (*Info, error) {
 	if strings.TrimSpace(branch) == "" {
 		return nil, fmt.Errorf("branch is required")
 	}
-	if _, err := exec.LookPath("gh"); err != nil {
-		return nil, err
+	if !ghClient.IsAvailable() {
+		return nil, fmt.Errorf("gh CLI not available")
 	}
 	if repoRoot == "" {
 		var err error
@@ -204,7 +207,7 @@ func LookupInfo(repoRoot, branch string) (*Info, error) {
 			return nil, err
 		}
 	}
-	return lookupInfo(repoRoot, branch)
+	return lookupInfo(ghClient, repoRoot, branch)
 }
 
 // LookupInfoByURL returns PR info by URL using the GitHub CLI.
@@ -217,12 +220,10 @@ func LookupInfoByURL(prURL string) (*Info, error) {
 	if !strings.HasPrefix(prURL, "https://github.com/") {
 		return nil, fmt.Errorf("only GitHub URLs are supported: %s", prURL)
 	}
-	if _, err := exec.LookPath("gh"); err != nil {
-		return nil, err
+	if !ghClient.IsAvailable() {
+		return nil, fmt.Errorf("gh CLI not available")
 	}
-
-	cmd := exec.Command("gh", "pr", "view", prURL, "--json", "url,number,state")
-	output, err := cmd.Output()
+	output, err := ghClient.Run("pr", "view", prURL, "--json", "url,number,state")
 	if err != nil {
 		return nil, err
 	}

@@ -42,8 +42,9 @@ func (m *mockPsAPI) GetIssue(ctx context.Context, issueID string) (*orchapi.Issu
 }
 
 func setupMockPsAPI(t *testing.T, issuesRoot string) {
-	testAPIOverride = &mockPsAPI{issuesRoot: issuesRoot}
-	t.Cleanup(func() { testAPIOverride = nil })
+	mock := &mockPsAPI{issuesRoot: issuesRoot}
+	getAPIFunc = func() (orchapi.OrchAPI, error) { return mock, nil }
+	t.Cleanup(func() { getAPIFunc = defaultGetAPI })
 }
 
 func TestParseStatusList(t *testing.T) {

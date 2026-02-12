@@ -895,3 +895,46 @@ rules:
     metadata:
       category: architecture
       violation: transport-drift
+
+  # ---------------------------------------------------------------------------
+  # 10. Exec boundaries and legacy tmux guardrails
+  # ---------------------------------------------------------------------------
+
+  - id: no-legacy-tmux-import
+    patterns:
+      - pattern: |
+          import (
+            ...
+            "github.com/s22625/orch/internal/tmux"
+            ...
+          )
+    paths:
+      include:
+        - /internal/
+      exclude:
+        - "*_test.go"
+    message: >
+      Use internal/multiplexer.Multiplexer interface instead of legacy internal/tmux package.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: boundary-enforcement
+
+  - id: daemon-no-raw-exec-git
+    patterns:
+      - pattern: exec.Command("git", ...)
+    paths:
+      include:
+        - /internal/daemon/
+      exclude:
+        - /internal/daemon/daemon.go
+        - /internal/daemon/*_test.go
+    message: >
+      Raw exec.Command("git", ...) in daemon layer is forbidden.
+      Use internal/git.Runner or dedicated daemon interfaces.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: boundary-enforcement

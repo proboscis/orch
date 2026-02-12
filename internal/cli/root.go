@@ -165,13 +165,13 @@ func getProjectRoot() (string, error) {
 	return config.GetProjectRoot()
 }
 
-var testAPIOverride orchapi.OrchAPI
+var getAPIFunc = defaultGetAPI
 
 func getAPI() (orchapi.OrchAPI, error) {
-	if testAPIOverride != nil {
-		return testAPIOverride, nil
-	}
+	return getAPIFunc()
+}
 
+func defaultGetAPI() (orchapi.OrchAPI, error) {
 	projectRoot, err := getProjectRoot()
 	if err != nil {
 		return nil, err

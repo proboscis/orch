@@ -41,6 +41,14 @@ type continueResult struct {
 	Error         string `json:"error,omitempty"`
 }
 
+type continueDeps struct {
+	getAPI func() (orchapi.OrchAPI, error)
+}
+
+func defaultContinueDeps() *continueDeps {
+	return &continueDeps{getAPI: getAPI}
+}
+
 func newContinueCmd() *cobra.Command {
 	opts := &continueOptions{}
 
@@ -80,7 +88,11 @@ Use --branch with an issue ID to continue from an untracked branch.`,
 
 func runContinue(refStr string, opts *continueOptions) error {
 	ctx := context.Background()
-	api, err := getAPI()
+	return runContinueWithDeps(ctx, refStr, opts, defaultContinueDeps())
+}
+
+func runContinueWithDeps(ctx context.Context, refStr string, opts *continueOptions, deps *continueDeps) error {
+	api, err := deps.getAPI()
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)
 	}

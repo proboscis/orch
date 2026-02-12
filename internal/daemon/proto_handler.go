@@ -9,7 +9,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -1118,7 +1117,7 @@ func (s *SocketServer) handleProtoGetBranchState(req *orchpb.GetBranchStateReque
 		return errorResponse("not_found")
 	}
 
-	state := computeBranchState(run.WorktreePath, run.Branch, "main")
+	state := computeBranchStateWithRunner(s.gitRunner, run.WorktreePath, run.Branch, "main")
 
 	return &orchpb.Response{
 		Ok: true,
@@ -1131,12 +1130,19 @@ func (s *SocketServer) handleProtoGetBranchState(req *orchpb.GetBranchStateReque
 }
 
 func computeBranchState(worktreePath, branch, baseBranch string) orchpb.BranchState {
+	return computeBranchStateWithRunner(git.NewRunner(), worktreePath, branch, baseBranch)
+}
+
+func computeBranchStateWithRunner(runner git.Runner, worktreePath, branch, baseBranch string) orchpb.BranchState {
 	if worktreePath == "" {
 		return orchpb.BranchState_BRANCH_STATE_UNSPECIFIED
 	}
 
-	cmd := exec.Command("git", "-C", worktreePath, "status", "--porcelain")
-	output, err := cmd.Output()
+	if runner == nil {
+		runner = git.NewRunner()
+	}
+
+	output, err := runner.StatusPorcelain(context.Background(), worktreePath)
 	if err != nil {
 		return orchpb.BranchState_BRANCH_STATE_UNSPECIFIED
 	}
@@ -1144,11 +1150,9 @@ func computeBranchState(worktreePath, branch, baseBranch string) orchpb.BranchSt
 		return orchpb.BranchState_BRANCH_STATE_DIRTY
 	}
 
-	cmd = exec.Command("git", "-C", worktreePath, "branch", "--merged", baseBranch, "--format=%(refname:short)")
-	output, err = cmd.Output()
+	merged, err := runner.MergedBranches(context.Background(), worktreePath, baseBranch)
 	if err == nil {
-		lines := string(output)
-		for _, line := range splitLines(lines) {
+		for _, line := range merged {
 			if line == branch {
 				return orchpb.BranchState_BRANCH_STATE_MERGED
 			}
@@ -1189,10 +1193,9 @@ func (s *SocketServer) handleProtoGetDiff(req *orchpb.GetDiffRequest) *orchpb.Re
 
 	var diff string
 	if run.WorktreePath != "" && run.Branch != "" {
-		cmd := exec.Command("git", "-C", run.WorktreePath, "diff", "main..."+run.Branch)
-		output, err := cmd.Output()
+		output, err := s.gitRunner.Diff(context.Background(), run.WorktreePath, "main..."+run.Branch)
 		if err == nil {
-			diff = string(output)
+			diff = output
 		}
 	}
 
@@ -1502,8 +1505,7 @@ func (s *SocketServer) handleProtoDeleteRun(req *orchpb.DeleteRunRequest) *orchp
 	if req.WithBranch && run.Branch != "" {
 		repoRoot, err := git.FindRepoRoot("")
 		if err == nil {
-			cmd := exec.Command("git", "-C", repoRoot, "branch", "-D", run.Branch)
-			if cmd.Run() == nil {
+			if s.gitRunner.DeleteBranch(context.Background(), repoRoot, run.Branch) == nil {
 				result.BranchRemoved = true
 			}
 		}

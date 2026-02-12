@@ -1,10 +1,8 @@
 package github
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +17,7 @@ type Backend struct {
 	labelFilter string
 	cfg         *config.GitHubConfig
 	cache       *IssueCache
+	client      Client
 }
 
 type ghIssue struct {
@@ -37,8 +36,15 @@ type ghLabel struct {
 }
 
 func NewBackend(cfg *config.GitHubConfig, cachePath string) (*Backend, error) {
+	return NewBackendWithClient(cfg, cachePath, NewCLIClient())
+}
+
+func NewBackendWithClient(cfg *config.GitHubConfig, cachePath string, client Client) (*Backend, error) {
 	if !cfg.IsConfigured() {
 		return nil, fmt.Errorf("github backend not configured: missing owner or repo")
+	}
+	if client == nil {
+		client = NewCLIClient()
 	}
 
 	cache, err := NewIssueCache(cachePath)
@@ -52,6 +58,7 @@ func NewBackend(cfg *config.GitHubConfig, cachePath string) (*Backend, error) {
 		labelFilter: cfg.LabelFilter,
 		cfg:         cfg,
 		cache:       cache,
+		client:      client,
 	}, nil
 }
 
@@ -60,15 +67,11 @@ func (b *Backend) repoArg() string {
 }
 
 func (b *Backend) runGH(args ...string) ([]byte, error) {
-	cmd := exec.Command("gh", args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
+	out, err := b.client.Run(args...)
 	if err != nil {
-		return nil, fmt.Errorf("gh command failed: %w: %s", err, stderr.String())
+		return nil, err
 	}
-	return stdout.Bytes(), nil
+	return out, nil
 }
 
 // List fetches issues from GitHub and updates the cache.
