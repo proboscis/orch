@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,6 +42,20 @@ type continueResult struct {
 	Error         string `json:"error,omitempty"`
 }
 
+type continueDeps struct {
+	getAPI         func() (orchapi.OrchAPI, error)
+	getProjectRoot func() (string, error)
+	stdout         io.Writer
+}
+
+func defaultContinueDeps() *continueDeps {
+	return &continueDeps{
+		getAPI:         getAPI,
+		getProjectRoot: getProjectRoot,
+		stdout:         os.Stdout,
+	}
+}
+
 func newContinueCmd() *cobra.Command {
 	opts := &continueOptions{}
 
@@ -58,7 +73,7 @@ Use --branch with an issue ID to continue from an untracked branch.`,
 			if len(args) > 0 {
 				ref = args[0]
 			}
-			return runContinue(ref, opts)
+			return runContinueWithDeps(ref, opts, defaultContinueDeps())
 		},
 	}
 
@@ -79,15 +94,19 @@ Use --branch with an issue ID to continue from an untracked branch.`,
 }
 
 func runContinue(refStr string, opts *continueOptions) error {
+	return runContinueWithDeps(refStr, opts, defaultContinueDeps())
+}
+
+func runContinueWithDeps(refStr string, opts *continueOptions, deps *continueDeps) error {
 	ctx := context.Background()
-	api, err := getAPI()
+	api, err := deps.getAPI()
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)
 	}
 
 	repoRoot := opts.RepoRoot
 	if repoRoot == "" {
-		repoRoot, err = getProjectRoot()
+		repoRoot, err = deps.getProjectRoot()
 		if err != nil {
 			return exitWithCode(fmt.Errorf("could not find project root: %w", err), ExitWorktreeError)
 		}
@@ -163,13 +182,13 @@ func runContinue(refStr string, opts *continueOptions) error {
 	}
 
 	if !globalOpts.Quiet {
-		fmt.Printf("Run continued: %s#%s\n", resp.IssueID, resp.RunID)
-		fmt.Printf("  Continued from: %s\n", resp.ContinuedFrom)
-		fmt.Printf("  Branch:         %s\n", resp.Branch)
-		fmt.Printf("  Worktree:       %s\n", resp.WorktreePath)
+		fmt.Fprintf(deps.stdout, "Run continued: %s#%s\n", resp.IssueID, resp.RunID)
+		fmt.Fprintf(deps.stdout, "  Continued from: %s\n", resp.ContinuedFrom)
+		fmt.Fprintf(deps.stdout, "  Branch:         %s\n", resp.Branch)
+		fmt.Fprintf(deps.stdout, "  Worktree:       %s\n", resp.WorktreePath)
 		if resp.SessionName != "" {
-			fmt.Printf("  Session:        %s\n", resp.SessionName)
-			fmt.Printf("\nAttach with: orch attach %s#%s\n", resp.IssueID, resp.RunID)
+			fmt.Fprintf(deps.stdout, "  Session:        %s\n", resp.SessionName)
+			fmt.Fprintf(deps.stdout, "\nAttach with: orch attach %s#%s\n", resp.IssueID, resp.RunID)
 		}
 	}
 

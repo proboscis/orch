@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/s22625/orch/internal/git"
+	ghclient "github.com/s22625/orch/internal/github"
 	"github.com/s22625/orch/internal/model"
 )
 
@@ -21,6 +21,8 @@ const (
 	cacheMinFetchInterval = 30 * time.Second
 	cacheMaxFetches       = 3
 )
+
+var client ghclient.Client = ghclient.NewCLIClient()
 
 // Info holds details about a pull request.
 type Info struct {
@@ -51,7 +53,7 @@ func PopulateRunInfo(runs []*model.Run) InfoMap {
 		return prInfoMap
 	}
 
-	if _, err := exec.LookPath("gh"); err != nil {
+	if client == nil || !client.IsAvailable() {
 		return prInfoMap
 	}
 
@@ -164,28 +166,20 @@ func applyCachedInfo(runs []*model.Run, c cache, now time.Time, prInfoMap InfoMa
 }
 
 func lookupInfo(repoRoot, branch string) (*Info, error) {
-	cmd := exec.Command("gh", "pr", "list", "--head", branch, "--state", "all", "--json", "url,number,state", "--limit", "1")
-	cmd.Dir = repoRoot
-	output, err := cmd.Output()
+	if client == nil {
+		client = ghclient.NewCLIClient()
+	}
+	prInfo, err := client.LookupPRByHead(repoRoot, branch)
 	if err != nil {
 		return nil, err
 	}
-
-	var prs []struct {
-		URL    string `json:"url"`
-		Number int    `json:"number"`
-		State  string `json:"state"`
-	}
-	if err := json.Unmarshal(output, &prs); err != nil {
-		return nil, err
-	}
-	if len(prs) == 0 {
+	if prInfo == nil {
 		return nil, nil
 	}
 	return &Info{
-		URL:    prs[0].URL,
-		Number: prs[0].Number,
-		State:  prs[0].State,
+		URL:    prInfo.URL,
+		Number: prInfo.Number,
+		State:  prInfo.State,
 	}, nil
 }
 
@@ -194,8 +188,8 @@ func LookupInfo(repoRoot, branch string) (*Info, error) {
 	if strings.TrimSpace(branch) == "" {
 		return nil, fmt.Errorf("branch is required")
 	}
-	if _, err := exec.LookPath("gh"); err != nil {
-		return nil, err
+	if client == nil || !client.IsAvailable() {
+		return nil, fmt.Errorf("gh not found in PATH")
 	}
 	if repoRoot == "" {
 		var err error
@@ -217,29 +211,23 @@ func LookupInfoByURL(prURL string) (*Info, error) {
 	if !strings.HasPrefix(prURL, "https://github.com/") {
 		return nil, fmt.Errorf("only GitHub URLs are supported: %s", prURL)
 	}
-	if _, err := exec.LookPath("gh"); err != nil {
-		return nil, err
+	if client == nil || !client.IsAvailable() {
+		return nil, fmt.Errorf("gh not found in PATH")
 	}
-
-	cmd := exec.Command("gh", "pr", "view", prURL, "--json", "url,number,state")
-	output, err := cmd.Output()
+	if client == nil {
+		client = ghclient.NewCLIClient()
+	}
+	prInfo, err := client.LookupPRByURL(prURL)
 	if err != nil {
 		return nil, err
 	}
-
-	var pr struct {
-		URL    string `json:"url"`
-		Number int    `json:"number"`
-		State  string `json:"state"`
+	if prInfo == nil {
+		return nil, nil
 	}
-	if err := json.Unmarshal(output, &pr); err != nil {
-		return nil, err
-	}
-
 	return &Info{
-		URL:    pr.URL,
-		Number: pr.Number,
-		State:  pr.State,
+		URL:    prInfo.URL,
+		Number: prInfo.Number,
+		State:  prInfo.State,
 	}, nil
 }
 

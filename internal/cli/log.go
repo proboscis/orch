@@ -3,11 +3,64 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
+
+type logDeps struct {
+	getAPI func() (interface {
+		GetDaemonStatus(context.Context) (*daemonStatus, error)
+		GetDaemonLog(context.Context, int) (string, error)
+	}, error)
+	newCommand func(string, ...string) *exec.Cmd
+	stdout     io.Writer
+	stderr     io.Writer
+}
+
+type daemonStatus struct {
+	LogPath string
+}
+
+type logAPIAdapter struct {
+	api interface {
+		GetDaemonStatus(context.Context) (*orchapi.DaemonStatus, error)
+		GetDaemonLog(context.Context, int) (string, error)
+	}
+}
+
+func (a logAPIAdapter) GetDaemonStatus(ctx context.Context) (*daemonStatus, error) {
+	status, err := a.api.GetDaemonStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &daemonStatus{LogPath: status.LogPath}, nil
+}
+
+func (a logAPIAdapter) GetDaemonLog(ctx context.Context, lines int) (string, error) {
+	return a.api.GetDaemonLog(ctx, lines)
+}
+
+func defaultLogDeps() *logDeps {
+	return &logDeps{
+		getAPI: func() (interface {
+			GetDaemonStatus(context.Context) (*daemonStatus, error)
+			GetDaemonLog(context.Context, int) (string, error)
+		}, error) {
+			api, err := getAPI()
+			if err != nil {
+				return nil, err
+			}
+			return logAPIAdapter{api: api}, nil
+		},
+		newCommand: exec.Command,
+		stdout:     os.Stdout,
+		stderr:     os.Stderr,
+	}
+}
 
 func newLogCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -31,8 +84,9 @@ func newLogDaemonCmd() *cobra.Command {
 The daemon monitors all running agent sessions and updates their status.
 Use this command to debug monitoring issues.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			deps := defaultLogDeps()
 			ctx := context.Background()
-			api, err := getAPI()
+			api, err := deps.getAPI()
 			if err != nil {
 				return err
 			}
@@ -42,9 +96,9 @@ Use this command to debug monitoring issues.`,
 				if err != nil {
 					return fmt.Errorf("failed to get daemon status: %w", err)
 				}
-				tailCmd := exec.Command("tail", "-f", "-n", fmt.Sprintf("%d", lines), daemonStatus.LogPath)
-				tailCmd.Stdout = os.Stdout
-				tailCmd.Stderr = os.Stderr
+				tailCmd := deps.newCommand("tail", "-f", "-n", fmt.Sprintf("%d", lines), daemonStatus.LogPath)
+				tailCmd.Stdout = deps.stdout
+				tailCmd.Stderr = deps.stderr
 				return tailCmd.Run()
 			}
 
@@ -53,7 +107,7 @@ Use this command to debug monitoring issues.`,
 				return err
 			}
 
-			fmt.Print(content)
+			fmt.Fprint(deps.stdout, content)
 			return nil
 		},
 	}

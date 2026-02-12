@@ -9,7 +9,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -397,9 +396,9 @@ func (s *SocketServer) maybeLogListRunsTiming(
 	)
 }
 
-func enrichRunProto(pr *orchpb.Run, run *model.Run) {
+func enrichRunProto(runner git.Runner, pr *orchpb.Run, run *model.Run) {
 	if run.WorktreePath != "" && run.Branch != "" {
-		pr.BranchState = computeBranchState(run.WorktreePath, run.Branch, "main")
+		pr.BranchState = computeBranchState(runner, run.WorktreePath, run.Branch, "main")
 		stats := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
 		if stats.Additions > 0 || stats.Deletions > 0 || stats.FilesChanged > 0 {
 			pr.DiffStats = &orchpb.DiffStats{
@@ -563,7 +562,7 @@ func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Resp
 	}
 
 	pr := modelRunToProto(run)
-	enrichRunProto(pr, run)
+	enrichRunProto(s.gitRunner, pr, run)
 
 	return &orchpb.Response{
 		Ok: true,
@@ -1118,7 +1117,7 @@ func (s *SocketServer) handleProtoGetBranchState(req *orchpb.GetBranchStateReque
 		return errorResponse("not_found")
 	}
 
-	state := computeBranchState(run.WorktreePath, run.Branch, "main")
+	state := computeBranchState(s.gitRunner, run.WorktreePath, run.Branch, "main")
 
 	return &orchpb.Response{
 		Ok: true,
@@ -1130,25 +1129,22 @@ func (s *SocketServer) handleProtoGetBranchState(req *orchpb.GetBranchStateReque
 	}
 }
 
-func computeBranchState(worktreePath, branch, baseBranch string) orchpb.BranchState {
-	if worktreePath == "" {
+func computeBranchState(runner git.Runner, worktreePath, branch, baseBranch string) orchpb.BranchState {
+	if runner == nil || worktreePath == "" {
 		return orchpb.BranchState_BRANCH_STATE_UNSPECIFIED
 	}
 
-	cmd := exec.Command("git", "-C", worktreePath, "status", "--porcelain")
-	output, err := cmd.Output()
+	output, err := runner.Status(context.Background(), worktreePath)
 	if err != nil {
 		return orchpb.BranchState_BRANCH_STATE_UNSPECIFIED
 	}
-	if len(output) > 0 {
+	if len(strings.TrimSpace(output)) > 0 {
 		return orchpb.BranchState_BRANCH_STATE_DIRTY
 	}
 
-	cmd = exec.Command("git", "-C", worktreePath, "branch", "--merged", baseBranch, "--format=%(refname:short)")
-	output, err = cmd.Output()
+	mergedBranches, err := runner.ListMergedBranches(context.Background(), worktreePath, baseBranch)
 	if err == nil {
-		lines := string(output)
-		for _, line := range splitLines(lines) {
+		for _, line := range mergedBranches {
 			if line == branch {
 				return orchpb.BranchState_BRANCH_STATE_MERGED
 			}
@@ -1189,10 +1185,9 @@ func (s *SocketServer) handleProtoGetDiff(req *orchpb.GetDiffRequest) *orchpb.Re
 
 	var diff string
 	if run.WorktreePath != "" && run.Branch != "" {
-		cmd := exec.Command("git", "-C", run.WorktreePath, "diff", "main..."+run.Branch)
-		output, err := cmd.Output()
+		output, err := s.gitRunner.Diff(context.Background(), run.WorktreePath, "main..."+run.Branch)
 		if err == nil {
-			diff = string(output)
+			diff = output
 		}
 	}
 
@@ -1329,7 +1324,7 @@ func (s *SocketServer) handleProtoGetRunByShortID(req *orchpb.GetRunByShortIDReq
 	}
 
 	pr := modelRunToProto(run)
-	enrichRunProto(pr, run)
+	enrichRunProto(s.gitRunner, pr, run)
 
 	protoEvents := make([]*orchpb.Event, len(run.Events))
 	for i, e := range run.Events {
@@ -1502,8 +1497,7 @@ func (s *SocketServer) handleProtoDeleteRun(req *orchpb.DeleteRunRequest) *orchp
 	if req.WithBranch && run.Branch != "" {
 		repoRoot, err := git.FindRepoRoot("")
 		if err == nil {
-			cmd := exec.Command("git", "-C", repoRoot, "branch", "-D", run.Branch)
-			if cmd.Run() == nil {
+			if s.gitRunner.DeleteBranch(context.Background(), repoRoot, run.Branch) == nil {
 				result.BranchRemoved = true
 			}
 		}

@@ -3,11 +3,13 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
 
@@ -16,6 +18,77 @@ type execOptions struct {
 	NoOrchEnv bool     // Skip ORCH_* environment variables
 	Shell     bool     // Run through sh -c
 	Quiet     bool     // Suppress human-readable output
+}
+
+type execDeps struct {
+	getAPI func() (api interface {
+		ResolveRun(context.Context, string) (*runInfo, error)
+	}, err error)
+	resolveRun func(context.Context, interface {
+		ResolveRun(context.Context, string) (*runInfo, error)
+	}, string) (*runInfo, error)
+	getProjectRoot func() (string, error)
+	getIssuesRoot  func() (string, error)
+	newCommand     func(string, ...string) *exec.Cmd
+	stdout         io.Writer
+	stderr         io.Writer
+	exit           func(int)
+}
+
+type runInfo struct {
+	IssueID        string
+	RunID          string
+	WorktreePath   string
+	WorktreeExists bool
+	Branch         string
+}
+
+type orchRunResolver interface {
+	ResolveRun(ctx context.Context, ref orchapi.RunRef) (*orchapi.Run, error)
+}
+
+func defaultExecDeps() *execDeps {
+	return &execDeps{
+		getAPI: func() (interface {
+			ResolveRun(context.Context, string) (*runInfo, error)
+		}, error) {
+			api, err := getAPI()
+			if err != nil {
+				return nil, err
+			}
+			resolver := api
+			return resolverAdapter{resolver: resolver}, nil
+		},
+		resolveRun: func(ctx context.Context, api interface {
+			ResolveRun(context.Context, string) (*runInfo, error)
+		}, ref string) (*runInfo, error) {
+			return api.ResolveRun(ctx, ref)
+		},
+		getProjectRoot: getProjectRoot,
+		getIssuesRoot:  getIssuesRoot,
+		newCommand:     exec.Command,
+		stdout:         os.Stdout,
+		stderr:         os.Stderr,
+		exit:           os.Exit,
+	}
+}
+
+type resolverAdapter struct {
+	resolver orchapi.OrchAPI
+}
+
+func (r resolverAdapter) ResolveRun(ctx context.Context, ref string) (*runInfo, error) {
+	run, err := resolveRunAPI(ctx, r.resolver, ref)
+	if err != nil {
+		return nil, err
+	}
+	return &runInfo{
+		IssueID:        run.IssueID,
+		RunID:          run.RunID,
+		WorktreePath:   run.WorktreePath,
+		WorktreeExists: run.WorktreeExists,
+		Branch:         run.Branch,
+	}, nil
 }
 
 func newExecCmd() *cobra.Command {
@@ -64,7 +137,7 @@ Examples:
 			// Everything after -- is the command to execute
 			cmdArgs := os.Args[dashIdx+1:]
 
-			return runExec(runRef, cmdArgs, opts)
+			return runExecWithDeps(runRef, cmdArgs, opts, defaultExecDeps())
 		},
 	}
 
@@ -77,24 +150,28 @@ Examples:
 }
 
 func runExec(refStr string, cmdArgs []string, opts *execOptions) error {
+	return runExecWithDeps(refStr, cmdArgs, opts, defaultExecDeps())
+}
+
+func runExecWithDeps(refStr string, cmdArgs []string, opts *execOptions, deps *execDeps) error {
 	ctx := context.Background()
 
-	api, err := getAPI()
+	api, err := deps.getAPI()
 	if err != nil {
 		return err
 	}
 
-	run, err := resolveRunAPI(ctx, api, refStr)
+	run, err := deps.resolveRun(ctx, api, refStr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "run not found: %s\n", refStr)
-		os.Exit(ExitRunNotFound)
+		fmt.Fprintf(deps.stderr, "run not found: %s\n", refStr)
+		deps.exit(ExitRunNotFound)
 		return err
 	}
 
 	// Verify worktree exists
 	if run.WorktreePath == "" {
-		fmt.Fprintf(os.Stderr, "run has no worktree: %s\n", refStr)
-		os.Exit(ExitWorktreeError)
+		fmt.Fprintf(deps.stderr, "run has no worktree: %s\n", refStr)
+		deps.exit(ExitWorktreeError)
 		return fmt.Errorf("run has no worktree: %s", refStr)
 	}
 
@@ -102,7 +179,7 @@ func runExec(refStr string, cmdArgs []string, opts *execOptions) error {
 	worktreePath := run.WorktreePath
 	if !filepath.IsAbs(worktreePath) {
 		// Find main repo root (not worktree root) to resolve relative path
-		repoRoot, err := getProjectRoot()
+		repoRoot, err := deps.getProjectRoot()
 		if err != nil {
 			return fmt.Errorf("could not find project root: %w", err)
 		}
@@ -110,13 +187,13 @@ func runExec(refStr string, cmdArgs []string, opts *execOptions) error {
 	}
 
 	if run.WorktreePath != "" && !run.WorktreeExists {
-		fmt.Fprintf(os.Stderr, "worktree does not exist: %s\n", worktreePath)
-		os.Exit(ExitWorktreeError)
+		fmt.Fprintf(deps.stderr, "worktree does not exist: %s\n", worktreePath)
+		deps.exit(ExitWorktreeError)
 		return fmt.Errorf("worktree does not exist: %s", worktreePath)
 	}
 
 	// Get vault path for environment
-	issuesRoot, err := getIssuesRoot()
+	issuesRoot, err := deps.getIssuesRoot()
 	if err != nil {
 		return err
 	}
@@ -147,8 +224,8 @@ func runExec(refStr string, cmdArgs []string, opts *execOptions) error {
 
 	// Print info unless quiet
 	if !opts.Quiet && !globalOpts.Quiet {
-		fmt.Fprintf(os.Stderr, "Executing in %s#%s\n", run.IssueID, run.RunID)
-		fmt.Fprintf(os.Stderr, "Worktree: %s\n", worktreePath)
+		fmt.Fprintf(deps.stderr, "Executing in %s#%s\n", run.IssueID, run.RunID)
+		fmt.Fprintf(deps.stderr, "Worktree: %s\n", worktreePath)
 	}
 
 	// Build and execute command
@@ -156,21 +233,21 @@ func runExec(refStr string, cmdArgs []string, opts *execOptions) error {
 	if opts.Shell {
 		// Run through shell
 		shellCmd := strings.Join(cmdArgs, " ")
-		execCmd = exec.Command("sh", "-c", shellCmd)
+		execCmd = deps.newCommand("sh", "-c", shellCmd)
 	} else {
-		execCmd = exec.Command(cmdArgs[0], cmdArgs[1:]...)
+		execCmd = deps.newCommand(cmdArgs[0], cmdArgs[1:]...)
 	}
 
 	execCmd.Dir = worktreePath
 	execCmd.Env = env
 	execCmd.Stdin = os.Stdin
-	execCmd.Stdout = os.Stdout
-	execCmd.Stderr = os.Stderr
+	execCmd.Stdout = deps.stdout
+	execCmd.Stderr = deps.stderr
 
 	// Run the command and pass through the exit code
 	if err := execCmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			os.Exit(exitErr.ExitCode())
+			deps.exit(exitErr.ExitCode())
 		}
 		return err
 	}

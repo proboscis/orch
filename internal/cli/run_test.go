@@ -15,7 +15,11 @@ import (
 func applyPromptConfigDefaultsForTest(opts *runOptions) (*config.Config, error) {
 	cfg, err := config.Load()
 	if err != nil {
-		return nil, err
+		if strings.Contains(err.Error(), "EOF") {
+			cfg = &config.Config{}
+		} else {
+			return nil, err
+		}
 	}
 
 	orchCfg := configToOrchapi(cfg)

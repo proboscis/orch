@@ -1,10 +1,8 @@
 package github
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +17,7 @@ type Backend struct {
 	labelFilter string
 	cfg         *config.GitHubConfig
 	cache       *IssueCache
+	ghClient    Client
 }
 
 type ghIssue struct {
@@ -52,6 +51,7 @@ func NewBackend(cfg *config.GitHubConfig, cachePath string) (*Backend, error) {
 		labelFilter: cfg.LabelFilter,
 		cfg:         cfg,
 		cache:       cache,
+		ghClient:    NewCLIClient(),
 	}, nil
 }
 
@@ -60,15 +60,10 @@ func (b *Backend) repoArg() string {
 }
 
 func (b *Backend) runGH(args ...string) ([]byte, error) {
-	cmd := exec.Command("gh", args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	if err != nil {
-		return nil, fmt.Errorf("gh command failed: %w: %s", err, stderr.String())
+	if b.ghClient == nil {
+		b.ghClient = NewCLIClient()
 	}
-	return stdout.Bytes(), nil
+	return b.ghClient.Run(args...)
 }
 
 // List fetches issues from GitHub and updates the cache.

@@ -895,3 +895,58 @@ rules:
     metadata:
       category: architecture
       violation: transport-drift
+
+  # ---------------------------------------------------------------------------
+  # 10. Effect boundary enforcement
+  # ---------------------------------------------------------------------------
+
+  - id: no-raw-exec-outside-boundary
+    patterns:
+      - pattern: exec.Command(...)
+    paths:
+      include:
+        - /internal/daemon/
+        - /internal/cli/
+        - /internal/monitor/
+      exclude:
+        - /internal/daemon/daemon.go
+        - /internal/daemon/socket.go
+        - /internal/daemon/*_test.go
+        - /internal/cli/*_test.go
+        - /internal/cli/agent.go
+        - /internal/cli/attach.go
+        - /internal/cli/diff.go
+        - /internal/cli/open.go
+        - /internal/monitor/*_test.go
+        - /internal/monitor/dashboard.go
+        - /internal/monitor/issues_dashboard.go
+        - /internal/monitor/monitor.go
+    message: >
+      Raw exec.Command in daemon/cli/monitor layer.
+      Use effect boundaries (git.Runner, github.Client, multiplexer.Multiplexer, process manager abstractions).
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: boundary-bypass
+
+  - id: no-legacy-tmux-import
+    patterns:
+      - pattern: |
+          import (
+            ...
+            "github.com/s22625/orch/internal/tmux"
+            ...
+          )
+    paths:
+      include:
+        - /internal/
+      exclude:
+        - /internal/*_test.go
+    message: >
+      Use internal/multiplexer.Multiplexer instead of the legacy internal/tmux package.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: legacy-boundary
