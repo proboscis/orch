@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -60,6 +61,8 @@ func (t *TmuxMultiplexer) HasSession(name string) bool {
 
 // NewSession creates a new tmux session.
 func (t *TmuxMultiplexer) NewSession(cfg *SessionConfig) error {
+	runAsSessionCommand := shouldPassCommandToNewSession(cfg.Command)
+
 	args := []string{
 		"new-session",
 		"-d", // detached
@@ -71,6 +74,9 @@ func (t *TmuxMultiplexer) NewSession(cfg *SessionConfig) error {
 	}
 	if cfg.WindowName != "" {
 		args = append(args, "-n", cfg.WindowName)
+	}
+	if runAsSessionCommand {
+		args = append(args, cfg.Command)
 	}
 
 	cmd := execCommand("tmux", args...)
@@ -84,8 +90,8 @@ func (t *TmuxMultiplexer) NewSession(cfg *SessionConfig) error {
 		return fmt.Errorf("failed to create tmux session: %w", err)
 	}
 
-	// If a command is provided, send it to the session
-	if cfg.Command != "" {
+	// Keep legacy behavior for shell command launches.
+	if cfg.Command != "" && !runAsSessionCommand {
 		if err := t.SendKeys(cfg.SessionName, cfg.Command); err != nil {
 			return fmt.Errorf("failed to send command to session: %w", err)
 		}
@@ -498,4 +504,20 @@ func isShellCommand(command string) bool {
 	}
 	_, ok := shellCommands[command]
 	return ok
+}
+
+func shouldPassCommandToNewSession(command string) bool {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return false
+	}
+
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return false
+	}
+
+	first := strings.ToLower(filepath.Base(fields[0]))
+	_, isShell := shellCommands[first]
+	return !isShell
 }

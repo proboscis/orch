@@ -154,7 +154,7 @@ func TestTmuxMultiplexer_HasSession_Missing(t *testing.T) {
 }
 
 func TestTmuxMultiplexer_NewSession(t *testing.T) {
-	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}, {exitCode: 0}, {exitCode: 0}}}
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
 	orig := execCommand
 	execCommand = exec.Command
 	t.Cleanup(func() { execCommand = orig })
@@ -164,6 +164,37 @@ func TestTmuxMultiplexer_NewSession(t *testing.T) {
 		SessionName: "sess",
 		WorkDir:     "/work",
 		Command:     "echo hi",
+		Env:         []string{"FOO=bar"},
+		WindowName:  "main",
+	})
+	if err != nil {
+		t.Fatalf("NewSession error: %v", err)
+	}
+
+	if len(exec.recorded) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(exec.recorded))
+	}
+
+	first := exec.recorded[0]
+	if !equalArgs(first.args, []string{"new-session", "-d", "-s", "sess", "-c", "/work", "-n", "main", "echo hi"}) {
+		t.Fatalf("new-session args = %v", first.args)
+	}
+	if !envHas(first.cmd.Env, "FOO=bar") {
+		t.Fatalf("missing env in new-session: %v", first.cmd.Env)
+	}
+}
+
+func TestTmuxMultiplexer_NewSession_ShellCommandUsesSendKeys(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}, {exitCode: 0}, {exitCode: 0}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	tm := NewTmuxMultiplexer()
+	err := tm.NewSession(&SessionConfig{
+		SessionName: "sess",
+		WorkDir:     "/work",
+		Command:     "zsh",
 		Env:         []string{"FOO=bar"},
 		WindowName:  "main",
 	})
@@ -183,9 +214,8 @@ func TestTmuxMultiplexer_NewSession(t *testing.T) {
 		t.Fatalf("missing env in new-session: %v", first.cmd.Env)
 	}
 
-	// Second and third calls are for sending command
 	second := exec.recorded[1]
-	if !equalArgs(second.args, []string{"send-keys", "-t", "sess", "-l", "echo hi"}) {
+	if !equalArgs(second.args, []string{"send-keys", "-t", "sess", "-l", "zsh"}) {
 		t.Fatalf("send-keys literal args = %v", second.args)
 	}
 	third := exec.recorded[2]
@@ -712,6 +742,28 @@ func TestIsShellCommand(t *testing.T) {
 	}
 	if !isShellCommand("  bash  ") {
 		t.Error("isShellCommand(\"  bash  \") = false, want true (with spaces)")
+	}
+}
+
+func TestShouldPassCommandToNewSession(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantRun bool
+	}{
+		{name: "empty", input: "", wantRun: false},
+		{name: "shell", input: "zsh", wantRun: false},
+		{name: "shell with args", input: "bash -lc 'echo hi'", wantRun: false},
+		{name: "absolute shell path", input: "/bin/zsh -i", wantRun: false},
+		{name: "agent command", input: "codex --yolo 'hello'", wantRun: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldPassCommandToNewSession(tt.input); got != tt.wantRun {
+				t.Fatalf("shouldPassCommandToNewSession(%q) = %v, want %v", tt.input, got, tt.wantRun)
+			}
+		})
 	}
 }
 

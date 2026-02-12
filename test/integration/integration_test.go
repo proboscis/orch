@@ -684,6 +684,22 @@ func hasBinary(name string) bool {
 	return err == nil
 }
 
+func tmuxGlobalOption(name string) (string, error) {
+	out, err := exec.Command("tmux", "show-option", "-g", "-v", name).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("show-option %s failed: %w (%s)", name, err, strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func setTmuxGlobalOption(name, value string) error {
+	out, err := exec.Command("tmux", "set-option", "-g", name, value).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("set-option %s failed: %w (%s)", name, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 func TestRunWithBuiltInAgents(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not available")
@@ -819,6 +835,109 @@ func TestRunWithTmux(t *testing.T) {
 	// Clean up: remove worktree
 	if result.WorktreePath != "" {
 		exec.Command("git", "-C", testRepo, "worktree", "remove", result.WorktreePath, "--force").Run()
+	}
+}
+
+func TestRunWithTmuxStartupPromptRaceRegression(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not available")
+	}
+
+	issueID := "tmux-startup-race-" + time.Now().Format("20060102-150405")
+	createTestIssue(t, issueID, fmt.Sprintf("---\ntype: issue\nid: %s\ntitle: Tmux startup prompt race\nstatus: open\n---\n# Tmux startup prompt race", issueID))
+
+	fakeDir := t.TempDir()
+	fakeShell := filepath.Join(fakeDir, "fake-startup-shell.sh")
+	fakeAgent := filepath.Join(fakeDir, "fake-agent.sh")
+
+	fakeShellScript := `#!/bin/sh
+if [ "$#" -eq 0 ]; then
+  printf '[fake-startup] prompt [Y/n]\n'
+  dd bs=1 count=1 of=/dev/null 2>/dev/null || true
+  exec /bin/sh
+fi
+exec /bin/sh "$@"
+`
+	if err := os.WriteFile(fakeShell, []byte(fakeShellScript), 0755); err != nil {
+		t.Fatalf("write fake shell: %v", err)
+	}
+
+	fakeAgentScript := `#!/bin/sh
+echo started > AGENT_STARTED
+sleep 2
+`
+	if err := os.WriteFile(fakeAgent, []byte(fakeAgentScript), 0755); err != nil {
+		t.Fatalf("write fake agent: %v", err)
+	}
+
+	_ = exec.Command("tmux", "start-server").Run()
+	defaultShell, err := tmuxGlobalOption("default-shell")
+	if err != nil {
+		t.Skipf("unable to read tmux default-shell: %v", err)
+	}
+	if err := setTmuxGlobalOption("default-shell", fakeShell); err != nil {
+		t.Fatalf("set tmux default-shell: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := setTmuxGlobalOption("default-shell", defaultShell); err != nil {
+			t.Logf("restore tmux default-shell failed: %v", err)
+		}
+	})
+
+	runID := fmt.Sprintf("%d", time.Now().UnixNano())
+	output, err := runOrch(t, "run", issueID,
+		"--run-id", runID,
+		"--agent", "custom",
+		"--agent-cmd", fakeAgent,
+		"--worktree-dir", filepath.Join(testRepo, ".git-worktrees"),
+		"--repo-root", testRepo,
+		"--json",
+	)
+	if err != nil {
+		t.Fatalf("run failed: %v\nOutput: %s", err, output)
+	}
+
+	var result struct {
+		OK           bool   `json:"ok"`
+		Status       string `json:"status"`
+		SessionName  string `json:"session_name"`
+		WorktreePath string `json:"worktree_path"`
+	}
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v\nOutput: %s", err, output)
+	}
+	if !result.OK {
+		t.Fatalf("expected ok=true, got false: %s", output)
+	}
+
+	t.Cleanup(func() {
+		if stopOut, stopErr := runOrch(t, "stop", issueID+"#"+runID, "--force", "--json"); stopErr != nil {
+			t.Logf("cleanup stop failed: %v (%s)", stopErr, strings.TrimSpace(stopOut))
+		}
+		if result.WorktreePath != "" {
+			exec.Command("git", "-C", testRepo, "worktree", "remove", result.WorktreePath, "--force").Run()
+		}
+	})
+
+	marker := filepath.Join(result.WorktreePath, "AGENT_STARTED")
+	deadline := time.Now().Add(5 * time.Second)
+	found := false
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(marker); err == nil {
+			found = true
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if !found {
+		pane := ""
+		if result.SessionName != "" {
+			if out, err := exec.Command("tmux", "capture-pane", "-t", result.SessionName, "-p", "-S", "-50").CombinedOutput(); err == nil {
+				pane = string(out)
+			}
+		}
+		t.Fatalf("expected %s to exist, command may have been corrupted by startup prompt\nPane:\n%s", marker, pane)
 	}
 }
 
