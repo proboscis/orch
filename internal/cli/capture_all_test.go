@@ -95,8 +95,8 @@ func TestRunCaptureAllJSON(t *testing.T) {
 			"issue-2#run-2": errors.New("session not found"),
 		},
 	}
-	testAPIOverride = mockAPI
-	t.Cleanup(func() { testAPIOverride = nil })
+	getAPIFunc = func() (orchapi.OrchAPI, error) { return mockAPI, nil }
+	t.Cleanup(func() { getAPIFunc = defaultGetAPI })
 
 	origCaptureFunc := captureAllCaptureFunc
 	t.Cleanup(func() { captureAllCaptureFunc = origCaptureFunc })
@@ -189,8 +189,8 @@ func TestRunCaptureAllPlain(t *testing.T) {
 			"issue-2#run-2": errors.New("session not found"),
 		},
 	}
-	testAPIOverride = mockAPI
-	t.Cleanup(func() { testAPIOverride = nil })
+	getAPIFunc = func() (orchapi.OrchAPI, error) { return mockAPI, nil }
+	t.Cleanup(func() { getAPIFunc = defaultGetAPI })
 
 	origCaptureFunc := captureAllCaptureFunc
 	t.Cleanup(func() { captureAllCaptureFunc = origCaptureFunc })

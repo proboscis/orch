@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
 
@@ -16,6 +17,15 @@ type execOptions struct {
 	NoOrchEnv bool     // Skip ORCH_* environment variables
 	Shell     bool     // Run through sh -c
 	Quiet     bool     // Suppress human-readable output
+}
+
+type execDeps struct {
+	getAPI      func() (orchapi.OrchAPI, error)
+	execCommand func(name string, args ...string) *exec.Cmd
+}
+
+func defaultExecDeps() *execDeps {
+	return &execDeps{getAPI: getAPI, execCommand: exec.Command}
 }
 
 func newExecCmd() *cobra.Command {
@@ -78,8 +88,11 @@ Examples:
 
 func runExec(refStr string, cmdArgs []string, opts *execOptions) error {
 	ctx := context.Background()
+	return runExecWithDeps(ctx, refStr, cmdArgs, opts, defaultExecDeps())
+}
 
-	api, err := getAPI()
+func runExecWithDeps(ctx context.Context, refStr string, cmdArgs []string, opts *execOptions, deps *execDeps) error {
+	api, err := deps.getAPI()
 	if err != nil {
 		return err
 	}
@@ -156,9 +169,9 @@ func runExec(refStr string, cmdArgs []string, opts *execOptions) error {
 	if opts.Shell {
 		// Run through shell
 		shellCmd := strings.Join(cmdArgs, " ")
-		execCmd = exec.Command("sh", "-c", shellCmd)
+		execCmd = deps.execCommand("sh", "-c", shellCmd)
 	} else {
-		execCmd = exec.Command(cmdArgs[0], cmdArgs[1:]...)
+		execCmd = deps.execCommand(cmdArgs[0], cmdArgs[1:]...)
 	}
 
 	execCmd.Dir = worktreePath

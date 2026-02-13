@@ -149,6 +149,8 @@ type SocketServer struct {
 	listener     net.Listener
 	logger       Logger
 	stopCh       chan struct{}
+	gitRunner    git.Runner
+	procManager  ProcessManager
 
 	managedServerStore *managedServerStore
 
@@ -198,7 +200,7 @@ type Logger interface {
 }
 
 func NewSocketServer(factory StoreFactory, logger Logger) *SocketServer {
-	return &SocketServer{
+	s := &SocketServer{
 		storeFactory:        factory,
 		logger:              logger,
 		stopCh:              make(chan struct{}),
@@ -207,6 +209,9 @@ func NewSocketServer(factory StoreFactory, logger Logger) *SocketServer {
 		controlSessionLocks: make(map[string]*sync.Mutex),
 		openCodeServers:     make(map[string]*managedServer),
 	}
+	s.gitRunner = git.NewRunner()
+	s.procManager = newSocketProcessManager(s)
+	return s
 }
 
 func deriveRepoID(projectRoot string) string {
@@ -831,7 +836,7 @@ func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string) (int, err
 	defer s.openCodeServersMu.Unlock()
 
 	if srv, ok := s.openCodeServers[projectRoot]; ok {
-		if s.isServerProcessAlive(srv) {
+		if s.procManager.IsServerProcessAlive(srv) {
 			client := agent.NewOpenCodeClient(srv.Port)
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
@@ -843,7 +848,7 @@ func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string) (int, err
 			}
 		}
 		s.logger.Printf("existing server for %s not healthy, stopping and restarting (logs: %s)", projectRoot, srv.LogPath)
-		s.stopServerLocked(srv)
+		s.procManager.StopServerLocked(srv)
 		delete(s.openCodeServers, projectRoot)
 	}
 
@@ -861,19 +866,19 @@ func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string) (int, err
 		return 0, fmt.Errorf("no available port found for opencode server")
 	}
 
-	srv, err := s.startServerProcess(projectRoot, port)
+	srv, err := s.procManager.StartServerProcess(projectRoot, port)
 	if err != nil {
 		return 0, fmt.Errorf("failed to start opencode server: %w", err)
 	}
 
 	client := agent.NewOpenCodeClient(port)
-	if err := s.waitForOpenCodeServerHealthy(srv, 30*time.Second, client.IsServerRunning); err != nil {
-		s.stopServerLocked(srv)
+	if err := s.procManager.WaitForHealthy(srv, 30*time.Second, client.IsServerRunning); err != nil {
+		s.procManager.StopServerLocked(srv)
 		return 0, fmt.Errorf("server started but failed health check (logs: %s): %w", srv.LogPath, err)
 	}
 
-	if !s.isServerProcessAlive(srv) {
-		s.stopServerLocked(srv)
+	if !s.procManager.IsServerProcessAlive(srv) {
+		s.procManager.StopServerLocked(srv)
 		return 0, fmt.Errorf("server process died after startup on port %d (pid: %d, logs: %s) — port may be occupied by another server", port, serverPID(srv), srv.LogPath)
 	}
 
@@ -1078,9 +1083,9 @@ func (s *SocketServer) checkOpenCodeServerHealth() {
 	defer s.openCodeServersMu.Unlock()
 
 	for projectRoot, srv := range s.openCodeServers {
-		if !s.isServerProcessAlive(srv) {
+		if !s.procManager.IsServerProcessAlive(srv) {
 			s.logger.Printf("opencode server for %s died (pid: %d, logs: %s), will restart on next request", projectRoot, serverPID(srv), srv.LogPath)
-			s.stopServerLocked(srv)
+			s.procManager.StopServerLocked(srv)
 			delete(s.openCodeServers, projectRoot)
 			continue
 		}
@@ -1093,7 +1098,7 @@ func (s *SocketServer) checkOpenCodeServerHealth() {
 		} else {
 			if time.Since(srv.LastHealthy) > 2*time.Minute {
 				s.logger.Printf("opencode server for %s unhealthy for 2+ minutes, restarting (logs: %s)", projectRoot, srv.LogPath)
-				s.stopServerLocked(srv)
+				s.procManager.StopServerLocked(srv)
 				delete(s.openCodeServers, projectRoot)
 			}
 		}
@@ -1107,7 +1112,7 @@ func (s *SocketServer) StopAllOpenCodeServers() {
 
 	for projectRoot, srv := range s.openCodeServers {
 		s.logger.Printf("stopping opencode server for %s (pid: %d)", projectRoot, serverPID(srv))
-		s.stopServerLocked(srv)
+		s.procManager.StopServerLocked(srv)
 	}
 	s.openCodeServers = make(map[string]*managedServer)
 }
@@ -1450,12 +1455,10 @@ The following commands are interactive and will hang if called by an AI agent:
 
 // getGitBranch returns the current git branch name.
 func (s *SocketServer) getGitBranch(workDir string) string {
-	cmd := exec.Command("git", "-C", workDir, "rev-parse", "--abbrev-ref", "HEAD")
-	output, err := cmd.Output()
+	branch, err := s.gitRunner.CurrentBranch(context.Background(), workDir)
 	if err != nil {
 		return ""
 	}
-	branch := strings.TrimSpace(string(output))
 	if branch != "" {
 		return "- Current branch: " + branch
 	}
@@ -1464,12 +1467,11 @@ func (s *SocketServer) getGitBranch(workDir string) string {
 
 // getUncommittedChangesStatus returns "Yes" or "No" based on git status.
 func (s *SocketServer) getUncommittedChangesStatus(workDir string) string {
-	cmd := exec.Command("git", "-C", workDir, "status", "--porcelain")
-	output, err := cmd.Output()
+	output, err := s.gitRunner.StatusPorcelain(context.Background(), workDir)
 	if err != nil {
 		return "Unknown"
 	}
-	if len(strings.TrimSpace(string(output))) > 0 {
+	if len(strings.TrimSpace(output)) > 0 {
 		return "Yes"
 	}
 	return "No"

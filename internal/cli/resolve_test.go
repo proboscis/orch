@@ -48,8 +48,8 @@ func TestRunResolveMarksIssueResolved(t *testing.T) {
 	mock := &mockResolveAPI{
 		hasCompletedRun: map[string]bool{"issue-1": true},
 	}
-	testAPIOverride = mock
-	t.Cleanup(func() { testAPIOverride = nil })
+	getAPIFunc = func() (orchapi.OrchAPI, error) { return mock, nil }
+	t.Cleanup(func() { getAPIFunc = defaultGetAPI })
 
 	if err := runResolve("issue-1", &resolveOptions{}); err != nil {
 		t.Fatalf("runResolve: %v", err)
@@ -67,8 +67,8 @@ func TestRunResolveRequiresForceWithoutCompletedRuns(t *testing.T) {
 	mock := &mockResolveAPI{
 		hasCompletedRun: map[string]bool{"issue-2": false},
 	}
-	testAPIOverride = mock
-	t.Cleanup(func() { testAPIOverride = nil })
+	getAPIFunc = func() (orchapi.OrchAPI, error) { return mock, nil }
+	t.Cleanup(func() { getAPIFunc = defaultGetAPI })
 
 	err := runResolve("issue-2", &resolveOptions{})
 	if err == nil {
@@ -92,8 +92,8 @@ func TestRunResolveAlreadyResolved(t *testing.T) {
 		resolved:        map[string]bool{"issue-3": true},
 		hasCompletedRun: map[string]bool{"issue-3": true},
 	}
-	testAPIOverride = mock
-	t.Cleanup(func() { testAPIOverride = nil })
+	getAPIFunc = func() (orchapi.OrchAPI, error) { return mock, nil }
+	t.Cleanup(func() { getAPIFunc = defaultGetAPI })
 
 	if err := runResolve("issue-3", &resolveOptions{}); err != nil {
 		t.Fatalf("runResolve already resolved: %v", err)
