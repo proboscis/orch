@@ -48,10 +48,13 @@ func TestRunResolveMarksIssueResolved(t *testing.T) {
 	mock := &mockResolveAPI{
 		hasCompletedRun: map[string]bool{"issue-1": true},
 	}
-	getAPIFunc = func() (orchapi.OrchAPI, error) { return mock, nil }
-	t.Cleanup(func() { getAPIFunc = defaultGetAPI })
+	deps := &resolveDeps{
+		getAPI: func() (orchapi.OrchAPI, error) {
+			return mock, nil
+		},
+	}
 
-	if err := runResolve("issue-1", &resolveOptions{}); err != nil {
+	if err := runResolveWithDeps(context.Background(), "issue-1", &resolveOptions{}, deps); err != nil {
 		t.Fatalf("runResolve: %v", err)
 	}
 
@@ -67,15 +70,18 @@ func TestRunResolveRequiresForceWithoutCompletedRuns(t *testing.T) {
 	mock := &mockResolveAPI{
 		hasCompletedRun: map[string]bool{"issue-2": false},
 	}
-	getAPIFunc = func() (orchapi.OrchAPI, error) { return mock, nil }
-	t.Cleanup(func() { getAPIFunc = defaultGetAPI })
+	deps := &resolveDeps{
+		getAPI: func() (orchapi.OrchAPI, error) {
+			return mock, nil
+		},
+	}
 
-	err := runResolve("issue-2", &resolveOptions{})
+	err := runResolveWithDeps(context.Background(), "issue-2", &resolveOptions{}, deps)
 	if err == nil {
 		t.Fatal("expected error without --force when no completed runs")
 	}
 
-	if err := runResolve("issue-2", &resolveOptions{Force: true}); err != nil {
+	if err := runResolveWithDeps(context.Background(), "issue-2", &resolveOptions{Force: true}, deps); err != nil {
 		t.Fatalf("runResolve --force: %v", err)
 	}
 
@@ -92,10 +98,13 @@ func TestRunResolveAlreadyResolved(t *testing.T) {
 		resolved:        map[string]bool{"issue-3": true},
 		hasCompletedRun: map[string]bool{"issue-3": true},
 	}
-	getAPIFunc = func() (orchapi.OrchAPI, error) { return mock, nil }
-	t.Cleanup(func() { getAPIFunc = defaultGetAPI })
+	deps := &resolveDeps{
+		getAPI: func() (orchapi.OrchAPI, error) {
+			return mock, nil
+		},
+	}
 
-	if err := runResolve("issue-3", &resolveOptions{}); err != nil {
+	if err := runResolveWithDeps(context.Background(), "issue-3", &resolveOptions{}, deps); err != nil {
 		t.Fatalf("runResolve already resolved: %v", err)
 	}
 }

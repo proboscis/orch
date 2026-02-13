@@ -40,6 +40,14 @@ type agentAliveInfo struct {
 	known bool
 }
 
+type psDeps struct {
+	getAPI func() (orchapi.OrchAPI, error)
+}
+
+func defaultPsDeps() *psDeps {
+	return &psDeps{getAPI: getAPI}
+}
+
 func newPsCmd() *cobra.Command {
 	opts := &psOptions{}
 
@@ -68,8 +76,11 @@ func newPsCmd() *cobra.Command {
 }
 
 func runPs(opts *psOptions) error {
-	ctx := context.Background()
-	api, err := getAPI()
+	return runPsWithDeps(context.Background(), opts, defaultPsDeps())
+}
+
+func runPsWithDeps(ctx context.Context, opts *psOptions, deps *psDeps) error {
+	api, err := deps.getAPI()
 	if err != nil {
 		return err
 	}
@@ -148,7 +159,7 @@ func runPs(opts *psOptions) error {
 	} else if globalOpts.TSV {
 		outputErr = outputTSVWithIssueInfo(runs, issueCache, aliveByRun, branchStateByRun)
 	} else {
-		outputErr = outputTableWithIssueInfoAndBranchState(runs, now, opts, issueCache, aliveByRun, branchStateByRun)
+		outputErr = outputTableWithIssueInfoAndBranchStateWithDeps(ctx, runs, now, opts, issueCache, aliveByRun, branchStateByRun, deps)
 	}
 
 	if outputErr != nil {
@@ -344,10 +355,45 @@ func outputTSVWithIssueInfo(runs []*model.Run, issueCache map[string]psIssueInfo
 }
 
 func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
-	return outputTableWithIssueInfoAndBranchState(runs, now, &psOptions{AbsoluteTime: absoluteTime}, nil, nil, nil)
+	return outputTableWithIssueInfoAndBranchStateWithDeps(
+		context.Background(),
+		runs,
+		now,
+		&psOptions{AbsoluteTime: absoluteTime},
+		nil,
+		nil,
+		nil,
+		defaultPsDeps(),
+	)
 }
 
 func outputTableWithIssueInfoAndBranchState(runs []*model.Run, now time.Time, opts *psOptions, issueCache map[string]psIssueInfo, aliveByRun map[string]agentAliveInfo, branchStateByRun map[string]string) error {
+	return outputTableWithIssueInfoAndBranchStateWithDeps(
+		context.Background(),
+		runs,
+		now,
+		opts,
+		issueCache,
+		aliveByRun,
+		branchStateByRun,
+		defaultPsDeps(),
+	)
+}
+
+func outputTableWithIssueInfoAndBranchStateWithDeps(
+	ctx context.Context,
+	runs []*model.Run,
+	now time.Time,
+	opts *psOptions,
+	issueCache map[string]psIssueInfo,
+	aliveByRun map[string]agentAliveInfo,
+	branchStateByRun map[string]string,
+	deps *psDeps,
+) error {
+	if deps == nil {
+		deps = defaultPsDeps()
+	}
+
 	if len(runs) == 0 {
 		if !globalOpts.Quiet {
 			fmt.Println("No runs found")
@@ -356,14 +402,13 @@ func outputTableWithIssueInfoAndBranchState(runs []*model.Run, now time.Time, op
 	}
 
 	if issueCache == nil {
-		ctx := context.Background()
-		api, err := getAPI()
-		if err != nil {
-			return err
-		}
 		issueCache = make(map[string]psIssueInfo)
-		for _, r := range runs {
-			resolveIssueInfoAPI(ctx, api, issueCache, r.IssueID)
+
+		api, err := deps.getAPI()
+		if err == nil && api != nil {
+			for _, r := range runs {
+				resolveIssueInfoAPI(ctx, api, issueCache, r.IssueID)
+			}
 		}
 	}
 

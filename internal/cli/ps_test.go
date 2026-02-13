@@ -41,10 +41,13 @@ func (m *mockPsAPI) GetIssue(ctx context.Context, issueID string) (*orchapi.Issu
 	}, nil
 }
 
-func setupMockPsAPI(t *testing.T, issuesRoot string) {
+func setupMockPsDeps(issuesRoot string) *psDeps {
 	mock := &mockPsAPI{issuesRoot: issuesRoot}
-	getAPIFunc = func() (orchapi.OrchAPI, error) { return mock, nil }
-	t.Cleanup(func() { getAPIFunc = defaultGetAPI })
+	return &psDeps{
+		getAPI: func() (orchapi.OrchAPI, error) {
+			return mock, nil
+		},
+	}
 }
 
 func TestParseStatusList(t *testing.T) {
@@ -80,7 +83,7 @@ func TestOutputTableTruncatesSummary(t *testing.T) {
 
 	vault := t.TempDir()
 	globalOpts.IssuesRoot = vault
-	setupMockPsAPI(t, vault)
+	deps := setupMockPsDeps(vault)
 
 	issuesDir := filepath.Join(vault, "issues")
 	if err := os.MkdirAll(issuesDir, 0755); err != nil {
@@ -102,7 +105,16 @@ func TestOutputTableTruncatesSummary(t *testing.T) {
 	now := time.Date(2025, 1, 2, 3, 6, 0, 0, time.UTC)
 
 	out := captureStdout(t, func() {
-		if err := outputTable([]*model.Run{run}, now, false); err != nil {
+		if err := outputTableWithIssueInfoAndBranchStateWithDeps(
+			context.Background(),
+			[]*model.Run{run},
+			now,
+			&psOptions{},
+			nil,
+			nil,
+			nil,
+			deps,
+		); err != nil {
 			t.Fatalf("outputTable: %v", err)
 		}
 	})
@@ -118,7 +130,7 @@ func TestOutputTableUsesTopic(t *testing.T) {
 
 	vault := t.TempDir()
 	globalOpts.IssuesRoot = vault
-	setupMockPsAPI(t, vault)
+	deps := setupMockPsDeps(vault)
 
 	issuesDir := filepath.Join(vault, "issues")
 	if err := os.MkdirAll(issuesDir, 0755); err != nil {
@@ -141,7 +153,16 @@ func TestOutputTableUsesTopic(t *testing.T) {
 	now := time.Date(2025, 1, 2, 3, 6, 0, 0, time.UTC)
 
 	out := captureStdout(t, func() {
-		if err := outputTable([]*model.Run{run}, now, false); err != nil {
+		if err := outputTableWithIssueInfoAndBranchStateWithDeps(
+			context.Background(),
+			[]*model.Run{run},
+			now,
+			&psOptions{},
+			nil,
+			nil,
+			nil,
+			deps,
+		); err != nil {
 			t.Fatalf("outputTable: %v", err)
 		}
 	})
@@ -160,7 +181,7 @@ func TestOutputTableTruncatesTopicChars(t *testing.T) {
 
 	vault := t.TempDir()
 	globalOpts.IssuesRoot = vault
-	setupMockPsAPI(t, vault)
+	deps := setupMockPsDeps(vault)
 
 	issuesDir := filepath.Join(vault, "issues")
 	if err := os.MkdirAll(issuesDir, 0755); err != nil {
@@ -182,7 +203,16 @@ func TestOutputTableTruncatesTopicChars(t *testing.T) {
 	now := time.Date(2025, 1, 2, 3, 6, 0, 0, time.UTC)
 
 	out := captureStdout(t, func() {
-		if err := outputTable([]*model.Run{run}, now, false); err != nil {
+		if err := outputTableWithIssueInfoAndBranchStateWithDeps(
+			context.Background(),
+			[]*model.Run{run},
+			now,
+			&psOptions{},
+			nil,
+			nil,
+			nil,
+			deps,
+		); err != nil {
 			t.Fatalf("outputTable: %v", err)
 		}
 	})
@@ -374,44 +404,40 @@ func TestFormatRelativeTime(t *testing.T) {
 
 func TestRunPsShowsAllIssuesByDefault(t *testing.T) {
 	resetGlobalOpts(t)
-	testBypassDaemon = true
-	t.Cleanup(func() { testBypassDaemon = false })
-
-	vault := t.TempDir()
-	globalOpts.IssuesRoot = vault
-	globalOpts.Backend = "file"
 	globalOpts.JSON = true
 
-	// Create a resolved issue
-	writeIssueWithStatus(t, vault, "issue-resolved", "resolved")
-	// Create an open issue
-	writeIssue(t, vault, "issue-open")
-
-	st, err := filestore.New(vault)
-	if err != nil {
-		t.Fatalf("filestore.New: %v", err)
+	mock := &mockCaptureAllAPI{
+		runs: []*orchapi.Run{
+			{
+				IssueID:      "issue-resolved",
+				RunID:        "run-1",
+				Status:       orchapi.RunStatusDone,
+				IssueStatus:  string(orchapi.IssueStatusResolved),
+				StartedAt:    time.Now().Add(-2 * time.Hour),
+				UpdatedAt:    time.Now().Add(-time.Hour),
+				AliveKnown:   true,
+				WorktreePath: "/tmp/worktree-1",
+			},
+			{
+				IssueID:      "issue-open",
+				RunID:        "run-2",
+				Status:       orchapi.RunStatusRunning,
+				IssueStatus:  string(orchapi.IssueStatusOpen),
+				StartedAt:    time.Now().Add(-90 * time.Minute),
+				UpdatedAt:    time.Now().Add(-30 * time.Minute),
+				AliveKnown:   true,
+				WorktreePath: "/tmp/worktree-2",
+			},
+		},
 	}
-
-	// Create run for resolved issue
-	runFromResolved, err := st.CreateRun("issue-resolved", "run-1", nil)
-	if err != nil {
-		t.Fatalf("CreateRun from resolved: %v", err)
-	}
-	if err := st.AppendEvent(runFromResolved.Ref(), model.NewStatusEvent(model.StatusDone)); err != nil {
-		t.Fatalf("AppendEvent done: %v", err)
-	}
-
-	// Create run for open issue
-	runFromOpen, err := st.CreateRun("issue-open", "run-2", nil)
-	if err != nil {
-		t.Fatalf("CreateRun from open: %v", err)
-	}
-	if err := st.AppendEvent(runFromOpen.Ref(), model.NewStatusEvent(model.StatusRunning)); err != nil {
-		t.Fatalf("AppendEvent running: %v", err)
+	deps := &psDeps{
+		getAPI: func() (orchapi.OrchAPI, error) {
+			return mock, nil
+		},
 	}
 
 	out := captureStdout(t, func() {
-		if err := runPs(&psOptions{Limit: 10}); err != nil {
+		if err := runPsWithDeps(context.Background(), &psOptions{Limit: 10}, deps); err != nil {
 			t.Fatalf("runPs: %v", err)
 		}
 	})
@@ -434,44 +460,40 @@ func TestRunPsShowsAllIssuesByDefault(t *testing.T) {
 
 func TestRunPsAllIncludesResolvedIssues(t *testing.T) {
 	resetGlobalOpts(t)
-	testBypassDaemon = true
-	t.Cleanup(func() { testBypassDaemon = false })
-
-	vault := t.TempDir()
-	globalOpts.IssuesRoot = vault
-	globalOpts.Backend = "file"
 	globalOpts.JSON = true
 
-	// Create a resolved issue
-	writeIssueWithStatus(t, vault, "issue-resolved", "resolved")
-	// Create an open issue
-	writeIssue(t, vault, "issue-open")
-
-	st, err := filestore.New(vault)
-	if err != nil {
-		t.Fatalf("filestore.New: %v", err)
+	mock := &mockCaptureAllAPI{
+		runs: []*orchapi.Run{
+			{
+				IssueID:      "issue-resolved",
+				RunID:        "run-1",
+				Status:       orchapi.RunStatusDone,
+				IssueStatus:  string(orchapi.IssueStatusResolved),
+				StartedAt:    time.Now().Add(-2 * time.Hour),
+				UpdatedAt:    time.Now().Add(-time.Hour),
+				AliveKnown:   true,
+				WorktreePath: "/tmp/worktree-1",
+			},
+			{
+				IssueID:      "issue-open",
+				RunID:        "run-2",
+				Status:       orchapi.RunStatusRunning,
+				IssueStatus:  string(orchapi.IssueStatusOpen),
+				StartedAt:    time.Now().Add(-90 * time.Minute),
+				UpdatedAt:    time.Now().Add(-30 * time.Minute),
+				AliveKnown:   true,
+				WorktreePath: "/tmp/worktree-2",
+			},
+		},
 	}
-
-	// Create run for resolved issue
-	runFromResolved, err := st.CreateRun("issue-resolved", "run-1", nil)
-	if err != nil {
-		t.Fatalf("CreateRun from resolved: %v", err)
-	}
-	if err := st.AppendEvent(runFromResolved.Ref(), model.NewStatusEvent(model.StatusDone)); err != nil {
-		t.Fatalf("AppendEvent done: %v", err)
-	}
-
-	// Create run for open issue
-	runFromOpen, err := st.CreateRun("issue-open", "run-2", nil)
-	if err != nil {
-		t.Fatalf("CreateRun from open: %v", err)
-	}
-	if err := st.AppendEvent(runFromOpen.Ref(), model.NewStatusEvent(model.StatusRunning)); err != nil {
-		t.Fatalf("AppendEvent running: %v", err)
+	deps := &psDeps{
+		getAPI: func() (orchapi.OrchAPI, error) {
+			return mock, nil
+		},
 	}
 
 	out := captureStdout(t, func() {
-		if err := runPs(&psOptions{All: true, Limit: 10}); err != nil {
+		if err := runPsWithDeps(context.Background(), &psOptions{All: true, Limit: 10}, deps); err != nil {
 			t.Fatalf("runPs: %v", err)
 		}
 	})

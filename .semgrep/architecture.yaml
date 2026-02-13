@@ -921,18 +921,36 @@ rules:
       category: architecture
       violation: boundary-enforcement
 
-  - id: daemon-no-raw-exec-git
+  - id: no-raw-exec-in-boundary-layers
     patterns:
-      - pattern: exec.Command("git", ...)
+      - pattern-either:
+          - pattern: exec.Command(...)
+          - pattern: exec.CommandContext(...)
     paths:
       include:
         - /internal/daemon/
+        - /internal/cli/
+        - /internal/monitor/
       exclude:
+        # Daemon-managed process lifecycle exceptions
         - /internal/daemon/daemon.go
-        - /internal/daemon/*_test.go
+        - /internal/daemon/socket.go
+        # CLI UX/runtime exceptions
+        - /internal/cli/exec.go
+        - /internal/cli/log.go
+        - /internal/cli/open.go
+        - /internal/cli/attach.go
+        - /internal/cli/agent.go
+        - /internal/cli/diff.go
+        # Monitor UI launcher exceptions
+        - /internal/monitor/dashboard.go
+        - /internal/monitor/issues_dashboard.go
+        - /internal/monitor/monitor.go
+        - "*_test.go"
     message: >
-      Raw exec.Command("git", ...) in daemon layer is forbidden.
-      Use internal/git.Runner or dedicated daemon interfaces.
+      Raw exec.Command/exec.CommandContext in daemon/cli/monitor layers.
+      Use the appropriate interface: git.Runner, github.Client, ProcessManager,
+      multiplexer.Multiplexer, orchapi.OrchAPI, or agent.Adapter.
     severity: ERROR
     languages: [go]
     metadata:

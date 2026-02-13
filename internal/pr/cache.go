@@ -48,12 +48,22 @@ type cache struct {
 
 // PopulateRunInfo populates PR URLs and returns PR info for each run's branch.
 func PopulateRunInfo(runs []*model.Run) InfoMap {
+	return PopulateRunInfoWithClient(ghClient, runs)
+}
+
+// PopulateRunInfoWithClient populates PR URLs and returns PR info for each run's
+// branch using the provided GitHub client.
+func PopulateRunInfoWithClient(client github.Client, runs []*model.Run) InfoMap {
 	prInfoMap := make(InfoMap)
 	if len(runs) == 0 {
 		return prInfoMap
 	}
 
-	if !ghClient.IsAvailable() {
+	if client == nil {
+		client = ghClient
+	}
+
+	if !client.IsAvailable() {
 		return prInfoMap
 	}
 
@@ -112,7 +122,7 @@ func PopulateRunInfo(runs []*model.Run) InfoMap {
 			break
 		}
 
-		info, err := lookupInfo(ghClient, repoRoot, r.Branch)
+		info, err := lookupInfo(client, repoRoot, r.Branch)
 		fetchTime := time.Now()
 		c.LastFetch = fetchTime
 		fetches++
@@ -192,12 +202,22 @@ func lookupInfo(client github.Client, repoRoot, branch string) (*Info, error) {
 	}, nil
 }
 
-// LookupInfo returns PR info for a branch using the GitHub CLI.
+// LookupInfo returns PR info for a branch using the default GitHub client.
 func LookupInfo(repoRoot, branch string) (*Info, error) {
+	return LookupInfoWithClient(ghClient, repoRoot, branch)
+}
+
+// LookupInfoWithClient returns PR info for a branch using the provided GitHub client.
+func LookupInfoWithClient(client github.Client, repoRoot, branch string) (*Info, error) {
 	if strings.TrimSpace(branch) == "" {
 		return nil, fmt.Errorf("branch is required")
 	}
-	if !ghClient.IsAvailable() {
+
+	if client == nil {
+		client = ghClient
+	}
+
+	if !client.IsAvailable() {
 		return nil, fmt.Errorf("gh CLI not available")
 	}
 	if repoRoot == "" {
@@ -207,7 +227,7 @@ func LookupInfo(repoRoot, branch string) (*Info, error) {
 			return nil, err
 		}
 	}
-	return lookupInfo(ghClient, repoRoot, branch)
+	return lookupInfo(client, repoRoot, branch)
 }
 
 // LookupInfoByURL returns PR info by URL using the GitHub CLI.

@@ -165,10 +165,8 @@ func getProjectRoot() (string, error) {
 	return config.GetProjectRoot()
 }
 
-var getAPIFunc = defaultGetAPI
-
 func getAPI() (orchapi.OrchAPI, error) {
-	return getAPIFunc()
+	return defaultGetAPI()
 }
 
 func defaultGetAPI() (orchapi.OrchAPI, error) {
