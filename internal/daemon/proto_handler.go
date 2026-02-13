@@ -396,9 +396,9 @@ func (s *SocketServer) maybeLogListRunsTiming(
 	)
 }
 
-func enrichRunProto(pr *orchpb.Run, run *model.Run) {
+func enrichRunProto(pr *orchpb.Run, run *model.Run, runner git.Runner) {
 	if run.WorktreePath != "" && run.Branch != "" {
-		pr.BranchState = computeBranchState(run.WorktreePath, run.Branch, "main")
+		pr.BranchState = computeBranchState(run.WorktreePath, run.Branch, "main", runner)
 		stats := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
 		if stats.Additions > 0 || stats.Deletions > 0 || stats.FilesChanged > 0 {
 			pr.DiffStats = &orchpb.DiffStats{
@@ -562,7 +562,7 @@ func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Resp
 	}
 
 	pr := modelRunToProto(run)
-	enrichRunProto(pr, run)
+	enrichRunProto(pr, run, s.gitRunner)
 
 	return &orchpb.Response{
 		Ok: true,
@@ -1129,7 +1129,10 @@ func (s *SocketServer) handleProtoGetBranchState(req *orchpb.GetBranchStateReque
 	}
 }
 
-func computeBranchState(worktreePath, branch, baseBranch string) orchpb.BranchState {
+func computeBranchState(worktreePath, branch, baseBranch string, runner ...git.Runner) orchpb.BranchState {
+	if len(runner) > 0 && runner[0] != nil {
+		return computeBranchStateWithRunner(runner[0], worktreePath, branch, baseBranch)
+	}
 	return computeBranchStateWithRunner(git.NewRunner(), worktreePath, branch, baseBranch)
 }
 
@@ -1332,7 +1335,7 @@ func (s *SocketServer) handleProtoGetRunByShortID(req *orchpb.GetRunByShortIDReq
 	}
 
 	pr := modelRunToProto(run)
-	enrichRunProto(pr, run)
+	enrichRunProto(pr, run, s.gitRunner)
 
 	protoEvents := make([]*orchpb.Event, len(run.Events))
 	for i, e := range run.Events {

@@ -6,11 +6,20 @@ import (
 	"os"
 	"strings"
 
+	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
 
 type resolveOptions struct {
 	Force bool
+}
+
+type resolveDeps struct {
+	getAPI func() (orchapi.OrchAPI, error)
+}
+
+func defaultResolveDeps() *resolveDeps {
+	return &resolveDeps{getAPI: getAPI}
 }
 
 func newResolveCmd() *cobra.Command {
@@ -36,12 +45,15 @@ Note: This does not change run statuses - runs have their own lifecycle states.`
 }
 
 func runResolve(issueID string, opts *resolveOptions) error {
-	api, err := getAPI()
+	return runResolveWithDeps(context.Background(), issueID, opts, defaultResolveDeps())
+}
+
+func runResolveWithDeps(ctx context.Context, issueID string, opts *resolveOptions, deps *resolveDeps) error {
+	api, err := deps.getAPI()
 	if err != nil {
 		return err
 	}
 
-	ctx := context.Background()
 	err = api.ResolveIssue(ctx, issueID, opts.Force)
 	if err != nil {
 		errStr := err.Error()

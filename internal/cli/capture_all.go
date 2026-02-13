@@ -16,10 +16,18 @@ type captureAllOptions struct {
 	Lines int
 }
 
-// captureAllCaptureFunc is the function used to capture session output.
-// It can be overridden in tests.
-var captureAllCaptureFunc = func(api orchapi.OrchAPI, run *orchapi.Run, lines int) (*orchapi.CaptureResult, error) {
-	return api.CaptureSession(context.Background(), run.Ref(), lines)
+type captureDeps struct {
+	getAPI         func() (orchapi.OrchAPI, error)
+	captureSession func(context.Context, orchapi.OrchAPI, *orchapi.Run, int) (*orchapi.CaptureResult, error)
+}
+
+func defaultCaptureDeps() *captureDeps {
+	return &captureDeps{
+		getAPI: getAPI,
+		captureSession: func(ctx context.Context, api orchapi.OrchAPI, run *orchapi.Run, lines int) (*orchapi.CaptureResult, error) {
+			return api.CaptureSession(ctx, run.Ref(), lines)
+		},
+	}
 }
 
 func newCaptureAllCmd() *cobra.Command {
@@ -65,8 +73,11 @@ type captureAllItem struct {
 }
 
 func runCaptureAll(opts *captureAllOptions) error {
-	ctx := context.Background()
-	api, err := getAPI()
+	return runCaptureAllWithDeps(context.Background(), opts, defaultCaptureDeps())
+}
+
+func runCaptureAllWithDeps(ctx context.Context, opts *captureAllOptions, deps *captureDeps) error {
+	api, err := deps.getAPI()
 	if err != nil {
 		return err
 	}
@@ -91,7 +102,7 @@ func runCaptureAll(opts *captureAllOptions) error {
 	items := make([]captureAllItem, 0, len(result.Runs))
 	overallOK := true
 	for _, run := range result.Runs {
-		item := captureAllItemForRun(api, run, opts.Lines)
+		item := captureAllItemForRun(ctx, deps, api, run, opts.Lines)
 		if !item.OK {
 			overallOK = false
 		}
@@ -116,7 +127,7 @@ func captureAllStatusesAPI() []orchapi.RunStatus {
 	}
 }
 
-func captureAllItemForRun(api orchapi.OrchAPI, run *orchapi.Run, lines int) captureAllItem {
+func captureAllItemForRun(ctx context.Context, deps *captureDeps, api orchapi.OrchAPI, run *orchapi.Run, lines int) captureAllItem {
 	sessionName := run.SessionName
 	if sessionName == "" {
 		sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
@@ -130,7 +141,7 @@ func captureAllItemForRun(api orchapi.OrchAPI, run *orchapi.Run, lines int) capt
 		Lines:       lines,
 	}
 
-	result, err := captureAllCaptureFunc(api, run, lines)
+	result, err := deps.captureSession(ctx, api, run, lines)
 	if err != nil {
 		item.Error = fmt.Sprintf("failed to capture session: %v", err)
 		return item

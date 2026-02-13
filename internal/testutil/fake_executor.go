@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
+	"testing"
 )
 
 type FakeCall struct {
@@ -31,4 +33,28 @@ func (f *FakeExecutor) Command(name string, args ...string) *exec.Cmd {
 		fmt.Sprintf("FAKE_CMD_EXIT_CODE=%d", call.ExitCode),
 	)
 	return cmd
+}
+
+// TestHelperProcess provides a reusable helper process for FakeExecutor-based
+// command tests. Add `func TestHelperProcess(t *testing.T) { testutil.TestHelperProcess(t) }`
+// in the package under test to enable it.
+func TestHelperProcess(t *testing.T) {
+	t.Helper()
+
+	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
+		return
+	}
+
+	if output := os.Getenv("FAKE_CMD_OUTPUT"); output != "" {
+		_, _ = fmt.Fprint(os.Stdout, output)
+	}
+
+	code := 0
+	if raw := os.Getenv("FAKE_CMD_EXIT_CODE"); raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil {
+			code = v
+		}
+	}
+
+	os.Exit(code)
 }

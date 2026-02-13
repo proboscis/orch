@@ -49,6 +49,17 @@ type mockCaptureAllAPI struct {
 	capturedLines  []int
 }
 
+func newCaptureAllDeps(api orchapi.OrchAPI) *captureDeps {
+	return &captureDeps{
+		getAPI: func() (orchapi.OrchAPI, error) {
+			return api, nil
+		},
+		captureSession: func(ctx context.Context, api orchapi.OrchAPI, run *orchapi.Run, lines int) (*orchapi.CaptureResult, error) {
+			return api.CaptureSession(ctx, run.Ref(), lines)
+		},
+	}
+}
+
 func (m *mockCaptureAllAPI) ListRuns(ctx context.Context, filter *orchapi.ListRunsFilter) (*orchapi.ListRunsResult, error) {
 	var filtered []*orchapi.Run
 	for _, run := range m.runs {
@@ -95,17 +106,10 @@ func TestRunCaptureAllJSON(t *testing.T) {
 			"issue-2#run-2": errors.New("session not found"),
 		},
 	}
-	getAPIFunc = func() (orchapi.OrchAPI, error) { return mockAPI, nil }
-	t.Cleanup(func() { getAPIFunc = defaultGetAPI })
-
-	origCaptureFunc := captureAllCaptureFunc
-	t.Cleanup(func() { captureAllCaptureFunc = origCaptureFunc })
-	captureAllCaptureFunc = func(api orchapi.OrchAPI, run *orchapi.Run, lines int) (*orchapi.CaptureResult, error) {
-		return api.CaptureSession(context.Background(), run.Ref(), lines)
-	}
+	deps := newCaptureAllDeps(mockAPI)
 
 	out := captureStdout(t, func() {
-		if err := runCaptureAll(&captureAllOptions{Lines: 5}); err != nil {
+		if err := runCaptureAllWithDeps(context.Background(), &captureAllOptions{Lines: 5}, deps); err != nil {
 			t.Fatalf("runCaptureAll: %v", err)
 		}
 	})
@@ -189,17 +193,10 @@ func TestRunCaptureAllPlain(t *testing.T) {
 			"issue-2#run-2": errors.New("session not found"),
 		},
 	}
-	getAPIFunc = func() (orchapi.OrchAPI, error) { return mockAPI, nil }
-	t.Cleanup(func() { getAPIFunc = defaultGetAPI })
-
-	origCaptureFunc := captureAllCaptureFunc
-	t.Cleanup(func() { captureAllCaptureFunc = origCaptureFunc })
-	captureAllCaptureFunc = func(api orchapi.OrchAPI, run *orchapi.Run, lines int) (*orchapi.CaptureResult, error) {
-		return api.CaptureSession(context.Background(), run.Ref(), lines)
-	}
+	deps := newCaptureAllDeps(mockAPI)
 
 	out := captureStdout(t, func() {
-		if err := runCaptureAll(&captureAllOptions{Lines: 5}); err != nil {
+		if err := runCaptureAllWithDeps(context.Background(), &captureAllOptions{Lines: 5}, deps); err != nil {
 			t.Fatalf("runCaptureAll: %v", err)
 		}
 	})
