@@ -93,6 +93,66 @@ func TestManagedServerStoreCRUD(t *testing.T) {
 	}
 }
 
+func TestPersistManagedServerStartNormalizesProjectRoot(t *testing.T) {
+	setupManagedServerDBEnv(t)
+
+	repoRoot, worktreePath, _ := createMainRepoWithTwoWorktrees(t)
+
+	store, err := newManagedServerStore(xdg.DaemonDBPath())
+	if err != nil {
+		t.Fatalf("newManagedServerStore() error = %v", err)
+	}
+	defer store.Close()
+
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	server.managedServerStore = store
+	expectedProjectRoot := server.normalizeProjectRoot(repoRoot)
+
+	if err := server.persistManagedServerStart(&managedServer{
+		ProjectRoot: worktreePath,
+		PID:         12345,
+		Port:        4101,
+		LogPath:     "/tmp/opencode-normalized.log",
+		StartTime:   time.Now().Add(-5 * time.Second),
+	}); err != nil {
+		t.Fatalf("persistManagedServerStart() error = %v", err)
+	}
+
+	rows, err := store.List()
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	if rows[0].ProjectRoot != expectedProjectRoot {
+		t.Fatalf("expected normalized project_root %q, got %q", expectedProjectRoot, rows[0].ProjectRoot)
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+	server.updateManagedServerHealth(worktreePath, now)
+
+	rows, err = store.List()
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row after health update, got %d", len(rows))
+	}
+	if rows[0].LastHealthy.IsZero() {
+		t.Fatal("expected non-zero last_healthy after normalized update")
+	}
+
+	server.deleteManagedServerRecord(worktreePath)
+	rows, err = store.List()
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("expected row deleted via normalized key, got %d rows", len(rows))
+	}
+}
+
 func TestReconcileManagedServersOnStartupAdoptsHealthyServer(t *testing.T) {
 	setupManagedServerDBEnv(t)
 

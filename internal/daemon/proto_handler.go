@@ -1400,8 +1400,10 @@ func (s *SocketServer) handleProtoEnsureOpenCodeServer(req *orchpb.EnsureOpenCod
 		return errorResponse(fmt.Sprintf("failed to ensure opencode server: %v", err))
 	}
 
+	projectRoot := s.normalizeProjectRoot(req.ProjectRoot)
+
 	s.openCodeServersMu.RLock()
-	srv, exists := s.openCodeServers[req.ProjectRoot]
+	srv, exists := s.openCodeServers[projectRoot]
 	alreadyRunning := exists && srv != nil
 	s.openCodeServersMu.RUnlock()
 

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"math/rand"
@@ -335,12 +336,19 @@ func TestProcessSendOpenCodeReturnsAfterAck(t *testing.T) {
 		t.Fatalf("failed to find repo root: %v", err)
 	}
 
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	normalizedRoot := server.normalizeProjectRoot(projectRoot)
+
 	const bodyDelay = 600 * time.Millisecond
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/global/health":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, `{"healthy":true,"version":"test"}`)
+		case r.URL.Path == "/project/current":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, fmt.Sprintf(`{"id":"proj","worktree":%q,"sandboxes":[]}`, normalizedRoot))
 		case strings.HasSuffix(r.URL.Path, "/message"):
 			w.WriteHeader(http.StatusAccepted)
 			if flusher, ok := w.(http.Flusher); ok {
@@ -354,10 +362,8 @@ func TestProcessSendOpenCodeReturnsAfterAck(t *testing.T) {
 	}))
 	defer testServer.Close()
 
-	logger := log.New(io.Discard, "", 0)
-	server := NewSocketServer(nil, logger)
-	server.openCodeServers[projectRoot] = &managedServer{
-		ProjectRoot: projectRoot,
+	server.openCodeServers[normalizedRoot] = &managedServer{
+		ProjectRoot: normalizedRoot,
 		Port:        getPortFromURL(t, testServer.URL),
 		WaitResult:  make(chan error, 1),
 	}
@@ -395,12 +401,19 @@ func TestProcessSendOpenCodeTimesOutPromptlyWithoutAck(t *testing.T) {
 		t.Fatalf("failed to find repo root: %v", err)
 	}
 
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	normalizedRoot := server.normalizeProjectRoot(projectRoot)
+
 	const ackDelay = 300 * time.Millisecond
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/global/health":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, `{"healthy":true,"version":"test"}`)
+		case r.URL.Path == "/project/current":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, fmt.Sprintf(`{"id":"proj","worktree":%q,"sandboxes":[]}`, normalizedRoot))
 		case strings.HasSuffix(r.URL.Path, "/message"):
 			time.Sleep(ackDelay)
 			w.WriteHeader(http.StatusAccepted)
@@ -411,10 +424,8 @@ func TestProcessSendOpenCodeTimesOutPromptlyWithoutAck(t *testing.T) {
 	}))
 	defer testServer.Close()
 
-	logger := log.New(io.Discard, "", 0)
-	server := NewSocketServer(nil, logger)
-	server.openCodeServers[projectRoot] = &managedServer{
-		ProjectRoot: projectRoot,
+	server.openCodeServers[normalizedRoot] = &managedServer{
+		ProjectRoot: normalizedRoot,
 		Port:        getPortFromURL(t, testServer.URL),
 		WaitResult:  make(chan error, 1),
 	}

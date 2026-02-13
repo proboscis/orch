@@ -261,8 +261,10 @@ func (s *SocketServer) persistManagedServerStart(srv *managedServer) error {
 		return nil
 	}
 
+	projectRoot := s.normalizeProjectRoot(srv.ProjectRoot)
+
 	record := managedServerRecord{
-		ProjectRoot: srv.ProjectRoot,
+		ProjectRoot: projectRoot,
 		PID:         serverPID(srv),
 		Port:        srv.Port,
 		LogPath:     srv.LogPath,
@@ -277,8 +279,18 @@ func (s *SocketServer) deleteManagedServerRecord(projectRoot string) {
 		return
 	}
 
-	if err := s.managedServerStore.Delete(projectRoot); err != nil && s.logger != nil {
-		s.logger.Printf("warning: failed to delete managed server record for %s: %v", projectRoot, err)
+	normalizedProjectRoot := s.normalizeProjectRoot(projectRoot)
+	if normalizedProjectRoot != "" {
+		if err := s.managedServerStore.Delete(normalizedProjectRoot); err != nil && s.logger != nil {
+			s.logger.Printf("warning: failed to delete managed server record for %s: %v", normalizedProjectRoot, err)
+		}
+	}
+
+	// Delete legacy pre-normalized keys as best-effort cleanup.
+	if normalizedProjectRoot != projectRoot {
+		if err := s.managedServerStore.Delete(projectRoot); err != nil && s.logger != nil {
+			s.logger.Printf("warning: failed to delete legacy managed server record for %s: %v", projectRoot, err)
+		}
 	}
 }
 
@@ -287,6 +299,7 @@ func (s *SocketServer) updateManagedServerHealth(projectRoot string, at time.Tim
 		return
 	}
 
+	projectRoot = s.normalizeProjectRoot(projectRoot)
 	if err := s.managedServerStore.UpdateLastHealthy(projectRoot, at); err != nil && s.logger != nil {
 		s.logger.Printf("warning: failed to update managed server health for %s: %v", projectRoot, err)
 	}
@@ -314,8 +327,25 @@ func (s *SocketServer) reconcileManagedServersOnStartup() error {
 }
 
 func (s *SocketServer) reconcileManagedServerRecord(record managedServerRecord, adoptedPorts map[int]string) {
+	legacyProjectRoot := record.ProjectRoot
+	record.ProjectRoot = s.normalizeProjectRoot(record.ProjectRoot)
+	if record.ProjectRoot == "" {
+		record.ProjectRoot = legacyProjectRoot
+	}
+
+	// Migrate legacy worktree-path keys to normalized repo-root keys.
+	if legacyProjectRoot != "" && legacyProjectRoot != record.ProjectRoot && s.managedServerStore != nil {
+		if err := s.managedServerStore.Upsert(record); err != nil {
+			if s.logger != nil {
+				s.logger.Printf("warning: failed to migrate managed server record from %s to %s: %v", legacyProjectRoot, record.ProjectRoot, err)
+			}
+		} else if err := s.managedServerStore.Delete(legacyProjectRoot); err != nil && s.logger != nil {
+			s.logger.Printf("warning: failed to remove legacy managed server record for %s: %v", legacyProjectRoot, err)
+		}
+	}
+
 	if record.ProjectRoot == "" || record.PID <= 0 || record.Port <= 0 {
-		s.deleteManagedServerRecord(record.ProjectRoot)
+		s.deleteManagedServerRecord(legacyProjectRoot)
 		return
 	}
 

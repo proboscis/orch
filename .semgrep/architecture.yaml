@@ -697,6 +697,29 @@ rules:
       category: architecture
       violation: identity-leakage
 
+  - id: daemon-no-worktree-path-to-ensure-server
+    patterns:
+      - pattern-either:
+          - pattern: $S.ensureOpenCodeServerRunning($RESULT.WorktreePath)
+          - pattern: $S.ensureOpenCodeServerRunning(worktreePath)
+    paths:
+      include:
+        - /internal/daemon/
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      Do not pass worktree paths to ensureOpenCodeServerRunning().
+      This function uses the path as a registry key - worktree paths create
+      duplicate servers for the same repo. Pass the main repo root
+      (req.ProjectRoot or resolve via git.FindMainRepoRoot).
+      Note: ensureOpenCodeServerRunning also self-normalizes as defense-in-depth,
+      but call sites should pass the correct value.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: server-identity
+
   # ---------------------------------------------------------------------------
   # 7. Transport contract fidelity: prevent Message field overloading
   # ---------------------------------------------------------------------------

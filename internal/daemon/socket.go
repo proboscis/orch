@@ -831,7 +831,35 @@ func (s *SocketServer) handleEnsureOpenCodeServer(req SendRequest, encoder *json
 	})
 }
 
+func (s *SocketServer) normalizeProjectRoot(projectRoot string) string {
+	if projectRoot == "" {
+		return ""
+	}
+
+	normalized := projectRoot
+	if info, statErr := os.Stat(projectRoot); statErr == nil && info.IsDir() {
+		mainRoot, err := git.FindMainRepoRoot(projectRoot)
+		if err == nil && mainRoot != "" {
+			normalized = mainRoot
+		}
+	}
+
+	normalized = filepath.Clean(normalized)
+	if !filepath.IsAbs(normalized) {
+		if abs, absErr := filepath.Abs(normalized); absErr == nil {
+			normalized = abs
+		}
+	}
+	if resolved, resolveErr := filepath.EvalSymlinks(normalized); resolveErr == nil && resolved != "" {
+		normalized = resolved
+	}
+
+	return normalized
+}
+
 func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string) (int, error) {
+	projectRoot = s.normalizeProjectRoot(projectRoot)
+
 	s.openCodeServersMu.Lock()
 	defer s.openCodeServersMu.Unlock()
 
@@ -840,7 +868,7 @@ func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string) (int, err
 			client := agent.NewOpenCodeClient(srv.Port)
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
-			if client.IsServerRunning(ctx) {
+			if client.IsServerRunningForWorktree(ctx, projectRoot) {
 				srv.LastHealthy = time.Now()
 				s.updateManagedServerHealth(projectRoot, srv.LastHealthy)
 				s.logger.Printf("opencode server healthy on port %d for %s", srv.Port, projectRoot)
@@ -872,7 +900,9 @@ func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string) (int, err
 	}
 
 	client := agent.NewOpenCodeClient(port)
-	if err := s.procManager.WaitForHealthy(srv, 30*time.Second, client.IsServerRunning); err != nil {
+	if err := s.procManager.WaitForHealthy(srv, 30*time.Second, func(ctx context.Context) bool {
+		return client.IsServerRunningForWorktree(ctx, projectRoot)
+	}); err != nil {
 		s.procManager.StopServerLocked(srv)
 		return 0, fmt.Errorf("server started but failed health check (logs: %s): %w", srv.LogPath, err)
 	}
@@ -1092,7 +1122,7 @@ func (s *SocketServer) checkOpenCodeServerHealth() {
 
 		client := agent.NewOpenCodeClient(srv.Port)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if client.IsServerRunning(ctx) {
+		if client.IsServerRunningForWorktree(ctx, projectRoot) {
 			srv.LastHealthy = time.Now()
 			s.updateManagedServerHealth(projectRoot, srv.LastHealthy)
 		} else {
@@ -1118,6 +1148,8 @@ func (s *SocketServer) StopAllOpenCodeServers() {
 }
 
 func (s *SocketServer) getOpenCodeServerPort(projectRoot string) int {
+	projectRoot = s.normalizeProjectRoot(projectRoot)
+
 	s.openCodeServersMu.RLock()
 	defer s.openCodeServersMu.RUnlock()
 
@@ -2496,7 +2528,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 
 	serverAlreadyRunning := false
 	if adapter.PromptInjection() == agent.InjectionHTTP {
-		resp, err := s.ensureOpenCodeServerRunning(worktreeResult.WorktreePath)
+		resp, err := s.ensureOpenCodeServerRunning(repoRoot)
 		if err != nil {
 			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
 			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
@@ -2775,7 +2807,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 
 	serverAlreadyRunning := false
 	if adapter.PromptInjection() == agent.InjectionHTTP {
-		resp, err := s.ensureOpenCodeServerRunning(worktreeResult.WorktreePath)
+		resp, err := s.ensureOpenCodeServerRunning(projectRoot)
 		if err != nil {
 			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
 			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
@@ -3129,7 +3161,7 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 
 	serverAlreadyRunning := false
 	if adapter.PromptInjection() == agent.InjectionHTTP {
-		resp, err := s.ensureOpenCodeServerRunning(worktreePath)
+		resp, err := s.ensureOpenCodeServerRunning(projectRoot)
 		if err != nil {
 			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
 			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
@@ -3511,7 +3543,7 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 
 	serverAlreadyRunning := false
 	if adapter.PromptInjection() == agent.InjectionHTTP {
-		resp, err := s.ensureOpenCodeServerRunning(worktreePath)
+		resp, err := s.ensureOpenCodeServerRunning(s.normalizeProjectRoot(worktreePath))
 		if err != nil {
 			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
 			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
