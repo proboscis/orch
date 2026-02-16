@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/s22625/orch/api/orchpb"
@@ -16,6 +17,9 @@ type ProtoClient struct {
 	projectRoot string
 	issuesRoot  string
 	timeout     time.Duration
+
+	mu   sync.Mutex
+	conn net.Conn
 }
 
 const protoSendMessageTimeoutBuffer = 5 * time.Second
@@ -52,18 +56,66 @@ func (c *ProtoClient) IsAvailable() bool {
 	return IsDaemonSocketAvailable("") && IsRunning("")
 }
 
+// ARCHITECTURE NOTE (orch-447): ProtoClient reuses a single persistent Unix
+// socket connection. Do not introduce connection-per-request dials in client
+// request paths. Excessive socket churn can cause memory blowups in host
+// security services that audit socket lifecycle events.
 func (c *ProtoClient) sendRequestWithTimeout(req *orchpb.Request, timeout time.Duration) (*orchpb.Response, error) {
-	socketPath := xdg.SocketPath()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	conn, err := net.DialTimeout("unix", socketPath, timeout)
+	if timeout <= 0 {
+		timeout = c.timeout
+	}
+
+	conn, err := c.getOrConnectLocked(timeout)
+	if err != nil {
+		return nil, err
+	}
+
+	_ = conn.SetDeadline(time.Now().Add(timeout))
+	resp, err := c.doSendRequest(conn, req)
+	if err == nil {
+		return resp, nil
+	}
+
+	// Connection might have gone stale (daemon restart, peer close, etc.).
+	c.resetConnLocked()
+
+	conn, reconnErr := c.getOrConnectLocked(timeout)
+	if reconnErr != nil {
+		return nil, fmt.Errorf("daemon request failed: %w (reconnect failed: %v)", err, reconnErr)
+	}
+
+	_ = conn.SetDeadline(time.Now().Add(timeout))
+	resp, retryErr := c.doSendRequest(conn, req)
+	if retryErr != nil {
+		c.resetConnLocked()
+		return nil, retryErr
+	}
+
+	return resp, nil
+}
+
+func (c *ProtoClient) getOrConnectLocked(timeout time.Duration) (net.Conn, error) {
+	if c.conn != nil {
+		return c.conn, nil
+	}
+
+	conn, err := net.DialTimeout("unix", xdg.SocketPath(), timeout)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to daemon: %w", err)
 	}
-	defer conn.Close()
+	c.conn = conn
+	return c.conn, nil
+}
 
-	conn.SetDeadline(time.Now().Add(timeout))
-
-	return c.doSendRequest(conn, req)
+func (c *ProtoClient) resetConnLocked() {
+	if c.conn == nil {
+		return
+	}
+	_ = c.conn.Close()
+	c.conn = nil
 }
 
 func (c *ProtoClient) sendRequest(req *orchpb.Request) (*orchpb.Response, error) {

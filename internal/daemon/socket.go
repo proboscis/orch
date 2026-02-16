@@ -478,16 +478,7 @@ func (s *SocketServer) acceptLoop() {
 }
 
 func (s *SocketServer) handleConnection(conn net.Conn) {
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-
-	peek := make([]byte, 4)
-	n, err := conn.Read(peek)
-	if err != nil || n == 0 {
-		conn.Close()
-		return
-	}
-
-	s.handleProtoConnection(conn, peek[:n])
+	s.handleProtoConnection(conn)
 }
 
 // handleRegisterRepo handles repo registration requests from clients.

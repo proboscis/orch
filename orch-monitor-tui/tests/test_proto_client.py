@@ -1,13 +1,14 @@
 """Tests for protobuf client conversion functions."""
 
 import socket
+import struct
 import threading
 import tempfile
 import shutil
 from pathlib import Path
 
 import pytest
-from returns.result import Failure
+from returns.result import Failure, Success
 
 import hy  # noqa: F401 - Enable Hy imports
 
@@ -298,6 +299,85 @@ class TestProtoDaemonAvailability:
             assert "timed out" in str(result.failure()).lower()
         finally:
             release.set()
+            thread.join(timeout=1.0)
+            if socket_path.exists():
+                socket_path.unlink(missing_ok=True)
+            shutil.rmtree(socket_dir, ignore_errors=True)
+
+    def test_check_availability_reuses_single_connection(self):
+        socket_dir, socket_path = self._short_socket_path()
+        ready = threading.Event()
+        done = threading.Event()
+        accept_count = 0
+
+        def _recv_exact(conn: socket.socket, size: int) -> bytes:
+            data = b""
+            while len(data) < size:
+                chunk = conn.recv(size - len(data))
+                if not chunk:
+                    break
+                data += chunk
+            return data
+
+        def _ping_server():
+            nonlocal accept_count
+            server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                server.bind(str(socket_path))
+                server.listen(2)
+                ready.set()
+
+                conn, _ = server.accept()
+                accept_count += 1
+                try:
+                    # Serve multiple requests on the same accepted connection.
+                    for _ in range(2):
+                        len_data = _recv_exact(conn, 4)
+                        if len(len_data) < 4:
+                            return
+                        req_len = struct.unpack(">I", len_data)[0]
+                        req_data = _recv_exact(conn, req_len)
+                        if len(req_data) < req_len:
+                            return
+
+                        req = pb.Request()
+                        req.ParseFromString(req_data)
+
+                        resp = pb.Response(
+                            ok=True,
+                            ping=pb.PingResponse(ok=True, version="test"),
+                        )
+                        payload = resp.SerializeToString()
+                        conn.sendall(struct.pack(">I", len(payload)) + payload)
+
+                    # Keep socket open briefly to detect illegal second accept.
+                    server.settimeout(0.2)
+                    try:
+                        extra_conn, _ = server.accept()
+                        accept_count += 1
+                        extra_conn.close()
+                    except socket.timeout:
+                        pass
+                finally:
+                    conn.close()
+            finally:
+                server.close()
+                done.set()
+
+        thread = threading.Thread(target=_ping_server, daemon=True)
+        thread.start()
+        assert ready.wait(timeout=1.0)
+
+        try:
+            client = ProtoDaemonClient(socket_path, None, None, 0.2)
+            first = client.check_availability()
+            second = client.check_availability()
+
+            assert first == Success(True)
+            assert second == Success(True)
+            assert done.wait(timeout=1.0)
+            assert accept_count == 1
+        finally:
             thread.join(timeout=1.0)
             if socket_path.exists():
                 socket_path.unlink(missing_ok=True)

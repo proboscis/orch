@@ -220,52 +220,6 @@
     (+= data chunk))
   data)
 
-(defn _probe-daemon-health [socket-path timeout]
-  "Actively probe daemon with ping request."
-  (setv probe-timeout (if (> timeout 1.0) 1.0 timeout))
-  (when (<= probe-timeout 0)
-    (setv probe-timeout 1.0))
-  (setv sock None)
-  (try
-    (setv sock (socket.socket socket.AF_UNIX socket.SOCK_STREAM))
-    (.settimeout sock probe-timeout)
-    (.connect sock (str socket-path))
-
-    (setv req (pb.Request))
-    (.CopyFrom req.ping (pb.PingRequest))
-
-    (setv payload (.SerializeToString req))
-    (setv length (struct.pack ">I" (len payload)))
-    (.sendall sock (+ length payload))
-
-    (setv len-data (_recv-exact sock 4))
-    (when (< (len len-data) 4)
-      (raise (ProtoDaemonError "Incomplete ping response length")))
-
-    (setv resp-len (get (struct.unpack ">I" len-data) 0))
-    (setv resp-data (_recv-exact sock resp-len))
-    (when (< (len resp-data) resp-len)
-      (raise (ProtoDaemonError "Incomplete ping response payload")))
-
-    (setv response (pb.Response))
-    (.ParseFromString response resp-data)
-    (when (or (not response.ok)
-              (not (.HasField response "ping"))
-              (not response.ping.ok))
-      (raise (ProtoDaemonError
-               (or response.error "Daemon ping failed"))))
-    True
-    (except [e Exception]
-      (when (isinstance e ProtoDaemonError)
-        (raise))
-      (raise (_classify-socket-error e socket-path "daemon health probe")))
-    (finally
-      (when sock
-        (try
-          (.close sock)
-          (except [close-error Exception] None))))))
-
-
 ;; ============================================================================
 ;; Proto Daemon Client
 ;; ============================================================================
@@ -292,8 +246,12 @@
     "Active daemon availability check. Returns Result[bool, ProtoDaemonError]."
     (try
       (_assert-socket-file self.socket-path)
-      (_probe-daemon-health self.socket-path self._timeout)
-      (Success True)
+      ;; Keep availability checks on the persistent client channel to avoid
+      ;; separate one-shot socket churn.
+      (setv req (pb.Request))
+      (.CopyFrom req.ping (pb.PingRequest))
+      (setv resp (._send self req))
+      (Success (and resp.ok resp.ping.ok))
       (except [e ProtoDaemonError]
         (Failure e))
       (except [e Exception]
@@ -306,6 +264,10 @@
   
   ;; =========================================================================
   ;; Connection Management (persistent connection to reduce socket churn)
+  ;;
+  ;; ARCHITECTURE NOTE (orch-447): this client must keep a persistent Unix
+  ;; socket connection. Avoid one-shot probe sockets in request paths because
+  ;; socket lifecycle churn can exhaust host security service memory.
   ;; =========================================================================
   
   (defn _connect [self]
@@ -411,7 +373,7 @@
                 (._connect self))
               (when (>= retry max-retries)
                 (.warning _conn_logger (+ "Failed after " (str max-retries) " retries: " (str e)))
-                (raise (_classify-socket-error e self.socket-path "daemon request"))))))
+                (raise e))))))
          
         response)))
   
@@ -664,7 +626,7 @@
     "Cleanup on garbage collection."
     (try
       (.close self)
-      (except [e Exception] None))))
+      (except [e Exception] None)))
 
 
 ;; ============================================================================

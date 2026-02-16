@@ -956,3 +956,48 @@ rules:
     metadata:
       category: architecture
       violation: boundary-enforcement
+
+  - id: no-raw-unix-socket-dial
+    patterns:
+      - pattern-either:
+          - pattern: net.DialTimeout("unix", ...)
+          - pattern: net.Dial("unix", ...)
+    paths:
+      include:
+        - /internal/cli/
+        - /internal/monitor/
+        - /internal/orchapi/
+        - /internal/daemon/
+      exclude:
+        - /internal/daemon/proto_client.go
+        - /internal/daemon/startup_recovery.go
+        - /internal/daemon/*_test.go
+        - /internal/cli/*_test.go
+        - /internal/monitor/*_test.go
+        - /internal/orchapi/*_test.go
+    message: >
+      CRITICAL (orch-447): do not create raw Unix socket connections in client
+      request paths. Route daemon communication through ProtoClient's
+      persistent connection manager to prevent socket churn regressions.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: socket-churn
+
+  - id: no-oneshot-health-probe-socket
+    patterns:
+      - pattern: |
+          (defn _probe-daemon-health ...)
+    paths:
+      include:
+        - /orch-monitor-tui/orch_monitor/proto_client.hy
+    message: >
+      CRITICAL (orch-447): avoid one-shot daemon health probe sockets in the
+      Python/Hy monitor. Availability checks must use the persistent
+      ProtoDaemonClient channel.
+    severity: ERROR
+    languages: [generic]
+    metadata:
+      category: architecture
+      violation: socket-churn

@@ -517,6 +517,8 @@
       (import logging)
       (try
         ~@body
+        (except [e ProtoDaemonError]
+          (raise))
         (except [e socket.timeout]
           (raise (ProtoDaemonTimeoutError
                    f"Daemon request timed out at {~socket-path}")))
@@ -533,6 +535,8 @@
           (raise (ProtoDaemonPermissionError
                    f"Permission denied accessing daemon socket at {~socket-path}")))
         (except [e Exception]
+          (when (isinstance e ProtoDaemonError)
+            (raise e))
           (setv logger (logging.getLogger "orch_monitor.proto_client"))
           (setv __err_type__ (. (type e) __name__))
           (.error logger f"[socket_send] Unexpected: {__err_type__}: {e}")

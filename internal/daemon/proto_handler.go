@@ -33,42 +33,64 @@ func generateMonitorID() string {
 const (
 	maxProtoMessageSize = 10 * 1024 * 1024
 	listRunsTimingEnv   = "ORCH_DAEMON_LISTRUNS_TIMING"
+	protoConnIdleTTL    = 5 * time.Minute
 )
 
 const listRunsSlowThreshold = 250 * time.Millisecond
 
-func (s *SocketServer) handleProtoConnection(conn net.Conn, data []byte) {
+// ARCHITECTURE NOTE (orch-447): this handler must support multiple request/
+// response exchanges on a single connection. If the daemon closes the
+// connection after each request, clients are forced to reconnect constantly,
+// which creates excessive socket lifecycle events and can exhaust memory in
+// macOS security services.
+func (s *SocketServer) handleProtoConnection(conn net.Conn) {
 	defer conn.Close()
 
-	msgLen := binary.BigEndian.Uint32(data[:4])
-	if msgLen > maxProtoMessageSize {
-		s.sendProtoError(conn, "message too large")
-		return
-	}
+	for {
+		if err := conn.SetReadDeadline(time.Now().Add(protoConnIdleTTL)); err != nil {
+			s.logger.Printf("failed to set read deadline: %v", err)
+			return
+		}
 
-	msgData := make([]byte, msgLen)
-	if len(data) > 4 {
-		copy(msgData, data[4:])
-	}
+		lenBuf := make([]byte, 4)
+		if _, err := io.ReadFull(conn, lenBuf); err != nil {
+			if err == io.EOF {
+				return
+			}
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				return
+			}
+			s.logger.Printf("failed to read proto message length: %v", err)
+			return
+		}
 
-	remaining := int(msgLen) - (len(data) - 4)
-	if remaining > 0 {
-		_, err := io.ReadFull(conn, msgData[len(data)-4:])
-		if err != nil {
+		msgLen := binary.BigEndian.Uint32(lenBuf)
+		if msgLen > maxProtoMessageSize {
+			s.sendProtoError(conn, "message too large")
+			return
+		}
+
+		msgData := make([]byte, msgLen)
+		if _, err := io.ReadFull(conn, msgData); err != nil {
 			s.logger.Printf("failed to read proto message: %v", err)
 			return
 		}
-	}
 
-	var req orchpb.Request
-	if err := proto.Unmarshal(msgData, &req); err != nil {
-		s.logger.Printf("failed to unmarshal proto request: %v", err)
-		s.sendProtoError(conn, "invalid request")
-		return
-	}
+		if err := conn.SetReadDeadline(time.Time{}); err != nil {
+			s.logger.Printf("failed to clear read deadline: %v", err)
+			return
+		}
 
-	resp := s.handleProtoRequest(&req)
-	s.sendProtoResponse(conn, resp)
+		var req orchpb.Request
+		if err := proto.Unmarshal(msgData, &req); err != nil {
+			s.logger.Printf("failed to unmarshal proto request: %v", err)
+			s.sendProtoError(conn, "invalid request")
+			return
+		}
+
+		resp := s.handleProtoRequest(&req)
+		s.sendProtoResponse(conn, resp)
+	}
 }
 
 func (s *SocketServer) handleProtoRequest(req *orchpb.Request) *orchpb.Response {
