@@ -189,12 +189,12 @@ func (d *Daemon) Run() error {
 	ticker := time.NewTicker(d.interval)
 	defer ticker.Stop()
 
-	d.monitorAll()
+	d.safeMonitorAll()
 
 	for {
 		select {
 		case <-ticker.C:
-			d.monitorAll()
+			d.safeMonitorAll()
 			d.checkBinaryStaleness()
 		case sig := <-sigCh:
 			if sig == syscall.SIGHUP {
@@ -296,6 +296,15 @@ func (d *Daemon) restartWithNewBinary() error {
 	d.logger.Printf("restarting daemon with new binary via exec...")
 	args := []string{d.executablePath, "daemon", "run"}
 	return syscall.Exec(d.executablePath, args, os.Environ())
+}
+
+func (d *Daemon) safeMonitorAll() {
+	defer func() {
+		if r := recover(); r != nil {
+			d.logger.Printf("PANIC in monitorAll: %v", r)
+		}
+	}()
+	d.monitorAll()
 }
 
 func (d *Daemon) monitorAll() {
@@ -429,6 +438,15 @@ func StartInBackground() (int, error) {
 		return 0, fmt.Errorf("failed to find executable: %w", err)
 	}
 
+	if err := xdg.EnsureStateDir(); err != nil {
+		return 0, fmt.Errorf("failed to create state directory: %w", err)
+	}
+
+	stderrFile, err := os.OpenFile(xdg.StderrLogPath(), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open stderr log: %w", err)
+	}
+
 	args := []string{executable, "daemon", "run"}
 
 	cmd := &exec.Cmd{
@@ -438,13 +456,19 @@ func StartInBackground() (int, error) {
 			Setsid: true,
 		},
 		Stdout: nil,
-		Stderr: nil,
+		Stderr: stderrFile,
 		Stdin:  nil,
 	}
 
 	if err := cmd.Start(); err != nil {
+		stderrFile.Close()
 		return 0, fmt.Errorf("failed to start daemon: %w", err)
 	}
+
+	go func() {
+		cmd.Wait()
+		stderrFile.Close()
+	}()
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -476,6 +500,11 @@ func Kill(_ string) error {
 
 func (d *Daemon) gitHubPollingLoop() {
 	defer d.wg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			d.logger.Printf("PANIC in gitHubPollingLoop: %v", r)
+		}
+	}()
 
 	pollInterval := 300 * time.Second
 	if d.config != nil && d.config.GitHub.PollInterval > 0 {

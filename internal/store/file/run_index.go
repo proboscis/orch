@@ -81,6 +81,10 @@ func (s *FileStore) getRunIndex() *runIndex {
 	globalRunIndex.mu.Lock()
 	defer globalRunIndex.mu.Unlock()
 
+	return s.getRunIndexLocked()
+}
+
+func (s *FileStore) getRunIndexLocked() *runIndex {
 	if globalRunIndex.index != nil && globalRunIndex.rootDir == s.rootPath {
 		return globalRunIndex.index
 	}
@@ -137,7 +141,10 @@ func (s *FileStore) saveRunIndex(idx *runIndex) {
 }
 
 func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run, error) {
-	idx := s.getRunIndex()
+	globalRunIndex.mu.Lock()
+	defer globalRunIndex.mu.Unlock()
+
+	idx := s.getRunIndexLocked()
 	runsRoot := filepath.Join(s.rootPath, "runs")
 
 	var issueDirs []string

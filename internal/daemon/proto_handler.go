@@ -45,6 +45,11 @@ const listRunsSlowThreshold = 250 * time.Millisecond
 // macOS security services.
 func (s *SocketServer) handleProtoConnection(conn net.Conn) {
 	defer conn.Close()
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Printf("PANIC in handleProtoConnection: %v", r)
+		}
+	}()
 
 	for {
 		if err := conn.SetReadDeadline(time.Now().Add(protoConnIdleTTL)); err != nil {

@@ -117,6 +117,13 @@ func LogPath() string {
 	return filepath.Join(StateDir(), "daemon.log")
 }
 
+// StderrLogPath returns the path to the daemon stderr capture file.
+// This captures Go panics and runtime errors that would otherwise be lost
+// when the daemon runs in background mode (where stderr is /dev/null).
+func StderrLogPath() string {
+	return filepath.Join(StateDir(), "daemon-stderr.log")
+}
+
 // DaemonDBPath returns the path to the daemon state database.
 // macOS: ~/Library/Application Support/orch/daemon.db
 // Linux: ~/.local/share/orch/daemon.db

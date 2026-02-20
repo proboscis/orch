@@ -455,6 +455,12 @@ func (s *SocketServer) Stop() {
 }
 
 func (s *SocketServer) acceptLoop() {
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Printf("PANIC in acceptLoop: %v", r)
+		}
+	}()
+
 	for {
 		select {
 		case <-s.stopCh:
@@ -1055,6 +1061,12 @@ func (s *SocketServer) stopServerLocked(srv *managedServer) {
 
 func (s *SocketServer) StartOpenCodeServerHealthCheck() {
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.logger.Printf("PANIC in OpenCodeServerHealthCheck: %v", r)
+			}
+		}()
+
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 
@@ -4251,6 +4263,12 @@ func (s *SocketServer) killMonitorProcess(conn *MonitorConnection) error {
 
 func (s *SocketServer) StartStaleMonitorCleanup() {
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.logger.Printf("PANIC in StaleMonitorCleanup: %v", r)
+			}
+		}()
+
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 

@@ -373,7 +373,7 @@
                 (._connect self))
               (when (>= retry max-retries)
                 (.warning _conn_logger (+ "Failed after " (str max-retries) " retries: " (str e)))
-                (raise e))))))
+                (raise e)))))
          
         response)))
   
@@ -627,6 +627,8 @@
     (try
       (.close self)
       (except [e Exception] None)))
+
+  )
 
 
 ;; ============================================================================
