@@ -20,6 +20,7 @@ type issueCreateOptions struct {
 	Summary string
 	Body    string
 	Edit    bool
+	Tags    []string
 }
 
 func newIssueCmd() *cobra.Command {
@@ -70,6 +71,7 @@ Examples:
 	cmd.Flags().StringVarP(&opts.Summary, "summary", "s", "", "Short summary for display (~50 chars)")
 	cmd.Flags().StringVarP(&opts.Body, "body", "b", "", "Issue body/description")
 	cmd.Flags().BoolVarP(&opts.Edit, "edit", "e", false, "Open in $EDITOR after creation")
+	cmd.Flags().StringSliceVar(&opts.Tags, "tag", nil, "Tags for the issue (repeatable, comma-separated)")
 
 	return cmd
 }
@@ -114,6 +116,7 @@ func runIssueCreate(issueID string, opts *issueCreateOptions) error {
 		ID:    issueID,
 		Title: title,
 		Body:  opts.Body,
+		Tags:  opts.Tags,
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "already_exists") {
@@ -181,6 +184,9 @@ func runIssueCreateLocal(issueID, title string, opts *issueCreateOptions) error 
 	if opts.Summary != "" {
 		sb.WriteString(fmt.Sprintf("summary: %s\n", model.QuoteYAMLValue(opts.Summary)))
 	}
+	if len(opts.Tags) > 0 {
+		sb.WriteString(fmt.Sprintf("tags: %s\n", model.FormatTags(opts.Tags)))
+	}
 	sb.WriteString("status: open\n")
 	sb.WriteString("---\n\n")
 	sb.WriteString(fmt.Sprintf("# %s\n\n", title))
@@ -245,6 +251,9 @@ func runIssueCreateWithEditor(api orchapi.OrchAPI, issueID, title string, opts *
 	sb.WriteString(fmt.Sprintf("title: %s\n", model.QuoteYAMLValue(title)))
 	if opts.Summary != "" {
 		sb.WriteString(fmt.Sprintf("summary: %s\n", model.QuoteYAMLValue(opts.Summary)))
+	}
+	if len(opts.Tags) > 0 {
+		sb.WriteString(fmt.Sprintf("tags: %s\n", model.FormatTags(opts.Tags)))
 	}
 	sb.WriteString("status: open\n")
 	sb.WriteString("---\n\n")

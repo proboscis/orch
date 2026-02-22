@@ -873,6 +873,7 @@ func (s *SocketServer) handleProtoCreateIssue(req *orchpb.CreateIssueRequest) *o
 		IssueID: req.IssueId,
 		Title:   req.Title,
 		Body:    req.Body,
+		Tags:    req.Tags,
 	}
 
 	result, err := s.processCreateIssueCore(st, params)

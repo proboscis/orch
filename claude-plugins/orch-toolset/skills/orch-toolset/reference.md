@@ -50,7 +50,11 @@ orch issue create orch-055 --title "Create Claude Code plugin"
 orch issue create orch-055 \
   --title "Create Claude Code plugin" \
   --summary "Claude Code skill plugin for orch toolset" \
-  --body "Detailed description here..."
+  --body "Detailed description here..." \
+  --tag tooling --tag ux
+
+# Comma-separated tags
+orch issue create orch-055 --title "Fix bug" --tag bug,urgent
 
 # Open editor after creation
 orch issue create orch-055 --edit
@@ -62,6 +66,7 @@ orch issue create orch-055 --edit
 | `--title` | Issue title |
 | `--summary` | One-line summary |
 | `--body` | Detailed description |
+| `--tag` | Tags (repeatable, comma-separated) |
 | `--edit` | Open $EDITOR after creation |
 
 **Creates:** `issues/<ISSUE_ID>.md` with frontmatter:
@@ -70,6 +75,7 @@ orch issue create orch-055 --edit
 type: issue
 id: orch-055
 title: Create Claude Code plugin
+tags: [tooling, ux]
 status: open
 summary: ...
 ---
@@ -86,6 +92,12 @@ orch issue list
 # Filter by status
 orch issue list --status open
 
+# Filter by tags (AND - must have all)
+orch issue list --tag bug --tag urgent
+
+# Filter by tags (OR - has any)
+orch issue list --tag-any bug,enhancement
+
 # With run info
 orch issue list --with-runs
 
@@ -97,6 +109,8 @@ orch issue list --json
 | Flag | Description |
 |------|-------------|
 | `--status` | Filter by status (open/closed/resolved) |
+| `--tag` | Filter by tag (AND logic, repeatable) |
+| `--tag-any` | Filter by any tag (OR logic, comma-separated) |
 | `--with-runs` | Show active runs per issue |
 
 ### orch open ISSUE_ID|RUN_REF
@@ -585,7 +599,7 @@ orch tick orch-055 --agent claude
 
 ### Starting Fresh Work
 ```bash
-orch issue create orch-100 --title "Add feature X" --body "Details..."
+orch issue create orch-100 --title "Add feature X" --body "Details..." --tag feature
 orch run orch-100
 orch ps --status running
 ```

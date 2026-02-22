@@ -239,6 +239,7 @@ message CreateIssueRequest {
   string issue_id = 2;
   string title = 3;
   string body = 4;
+  repeated string tags = 5;
 }
 
 message CreateIssueResponse {

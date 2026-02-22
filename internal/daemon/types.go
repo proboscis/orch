@@ -724,6 +724,7 @@ type CreateIssueParams struct {
 	Title   string
 	Body    string
 	Summary string
+	Tags    []string
 }
 
 type CaptureSessionResponse struct {

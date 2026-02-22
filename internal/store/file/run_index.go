@@ -243,7 +243,7 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 			fileMtime := info.ModTime()
 
 			seenKeys[key] = true
-			if cached, ok := idx.Entries[key]; ok && cached.FileMtime.Unix() == fileMtime.Unix() {
+			if cached, ok := idx.Entries[key]; ok && cached.FileMtime.UnixNano() == fileMtime.UnixNano() {
 				if !matchesRunFilters(cached, statusSet, sinceTime, olderThanTime, timeRangeCutoff, textSearch, agentFilter) {
 					continue
 				}
@@ -274,7 +274,7 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 				UpdatedAt:         run.UpdatedAt,
 				FileMtime:         fileMtime,
 			}
-			if old, exists := idx.Entries[key]; !exists || !runEntryEqual(old, entry) || old.FileMtime.Unix() != fileMtime.Unix() {
+			if old, exists := idx.Entries[key]; !exists || !runEntryEqual(old, entry) || old.FileMtime.UnixNano() != fileMtime.UnixNano() {
 				indexDirty = true
 			}
 			idx.Entries[key] = entry

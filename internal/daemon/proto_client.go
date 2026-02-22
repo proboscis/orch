@@ -380,7 +380,7 @@ func (c *ProtoClient) GetIssue(issueID string) (*GetIssueResponse, error) {
 	}, nil
 }
 
-func (c *ProtoClient) CreateIssue(issueID, title, summary, body string) (*CreateIssueResponse, error) {
+func (c *ProtoClient) CreateIssue(issueID, title, summary, body string, tags []string) (*CreateIssueResponse, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_CreateIssue{
 			CreateIssue: &orchpb.CreateIssueRequest{
@@ -388,6 +388,7 @@ func (c *ProtoClient) CreateIssue(issueID, title, summary, body string) (*Create
 				IssueId:    issueID,
 				Title:      title,
 				Body:       body,
+				Tags:       tags,
 			},
 		},
 	}

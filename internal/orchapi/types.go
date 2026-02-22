@@ -230,6 +230,7 @@ type CreateIssueRequest struct {
 	ID    string
 	Title string
 	Body  string
+	Tags  []string
 }
 
 type ListRunsFilter struct {

@@ -120,7 +120,7 @@ func (c *DaemonClient) ListIssues(ctx context.Context, filter *ListIssuesFilter)
 }
 
 func (c *DaemonClient) CreateIssue(ctx context.Context, req *CreateIssueRequest) (*Issue, error) {
-	resp, err := c.proto.CreateIssue(req.ID, req.Title, "", req.Body)
+	resp, err := c.proto.CreateIssue(req.ID, req.Title, "", req.Body, req.Tags)
 	if err != nil {
 		return nil, err
 	}

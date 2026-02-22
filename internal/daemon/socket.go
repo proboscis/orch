@@ -3885,6 +3885,9 @@ func (s *SocketServer) handleCreateIssue(req SendRequest, encoder *json.Encoder)
 	if req.Summary != "" {
 		sb.WriteString("summary: " + model.QuoteYAMLValue(req.Summary) + "\n")
 	}
+	if len(req.Tags) > 0 {
+		sb.WriteString("tags: " + model.FormatTags(req.Tags) + "\n")
+	}
 	sb.WriteString("status: open\n")
 	sb.WriteString("---\n\n")
 	sb.WriteString("# " + title + "\n\n")
@@ -3942,6 +3945,9 @@ func (s *SocketServer) processCreateIssueCore(st store.Store, params *CreateIssu
 	sb.WriteString("title: " + model.QuoteYAMLValue(title) + "\n")
 	if params.Summary != "" {
 		sb.WriteString("summary: " + model.QuoteYAMLValue(params.Summary) + "\n")
+	}
+	if len(params.Tags) > 0 {
+		sb.WriteString("tags: " + model.FormatTags(params.Tags) + "\n")
 	}
 	sb.WriteString("status: open\n")
 	sb.WriteString("---\n\n")

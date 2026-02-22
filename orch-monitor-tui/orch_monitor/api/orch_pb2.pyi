@@ -398,16 +398,18 @@ class GetIssueResponse(_message.Message):
     def __init__(self, issue: _Optional[_Union[Issue, _Mapping]] = ...) -> None: ...
 
 class CreateIssueRequest(_message.Message):
-    __slots__ = ("issues_root", "issue_id", "title", "body")
+    __slots__ = ("issues_root", "issue_id", "title", "body", "tags")
     ISSUES_ROOT_FIELD_NUMBER: _ClassVar[int]
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     TITLE_FIELD_NUMBER: _ClassVar[int]
     BODY_FIELD_NUMBER: _ClassVar[int]
+    TAGS_FIELD_NUMBER: _ClassVar[int]
     issues_root: str
     issue_id: str
     title: str
     body: str
-    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., title: _Optional[str] = ..., body: _Optional[str] = ...) -> None: ...
+    tags: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., title: _Optional[str] = ..., body: _Optional[str] = ..., tags: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class CreateIssueResponse(_message.Message):
     __slots__ = ("path",)

@@ -36,8 +36,11 @@ Orch is a non-interactive orchestrator for managing multiple LLM CLI agents (Cla
 ## Command Categories
 
 ### Issue Management
-- `orch issue create <ID>`: Create new issue with frontmatter
-- `orch issue list`: List all issues (filter with `--status`)
+- `orch issue create <ID> --title "..." --tag <tag>`: Create new issue with frontmatter
+  - Tags are written to YAML frontmatter: `--tag bug --tag urgent` or `--tag bug,urgent`
+- `orch issue list`: List all issues (filter with `--status`, `--tag`, `--tag-any`)
+  - Filter by tags (AND): `orch issue list --tag bug --tag urgent`
+  - Filter by tags (OR): `orch issue list --tag-any bug,enhancement`
 - `orch open <ID>`: Open issue/run in Obsidian or editor
 
 ### Run Management
@@ -168,7 +171,7 @@ Benefits of external worktrees:
 
 | Goal | Command |
 |------|---------|
-| Create issue | `orch issue create <ID> --title "..."` |
+| Create issue | `orch issue create <ID> --title "..." --tag <tag>` |
 | Start run | `orch run <ISSUE>` |
 | Continue failed run | `orch continue <RUN_ID> --agent codex` |
 | List active | `orch ps --status running,blocked` |
