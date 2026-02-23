@@ -26,12 +26,13 @@ def get_orch_binary() -> str | None:
     """Get path to orch binary, building if necessary."""
     # Try to find in project root
     project_root = Path(__file__).parent.parent.parent
-    
+
     # Check if we can build
     cmd_dir = project_root / "cmd" / "orch"
     if cmd_dir.exists():
         # Build to temp location
         import tempfile
+
         tmp = tempfile.mkdtemp()
         binary_path = Path(tmp) / "orch"
         try:
@@ -45,7 +46,7 @@ def get_orch_binary() -> str | None:
                 return str(binary_path)
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pass
-    
+
     return None
 
 
@@ -139,17 +140,23 @@ class TestDiffKeybinding:
         """Verify 'd' keybinding is bound to 'diff' action."""
         for binding in RunsDashboard.BINDINGS:
             if binding.key == "d":
-                assert binding.action == "diff", f"Expected action 'diff', got '{binding.action}'"
+                assert binding.action == "diff", (
+                    f"Expected action 'diff', got '{binding.action}'"
+                )
                 return
         pytest.fail("'d' keybinding not found")
 
     def test_action_diff_method_exists_in_runs_dashboard(self):
         """Verify action_diff method exists in RunsDashboard."""
-        assert hasattr(RunsDashboard, "action_diff"), "RunsDashboard should have action_diff method"
+        assert hasattr(RunsDashboard, "action_diff"), (
+            "RunsDashboard should have action_diff method"
+        )
 
     def test_action_diff_method_exists_in_orch_monitor_app(self):
         """Verify action_diff method exists in OrchMonitorApp."""
-        assert hasattr(OrchMonitorApp, "action_diff"), "OrchMonitorApp should have action_diff method"
+        assert hasattr(OrchMonitorApp, "action_diff"), (
+            "OrchMonitorApp should have action_diff method"
+        )
 
 
 # ============================================================================
@@ -164,7 +171,7 @@ class TestBuildDiffCommand:
         """Test building basic diff command."""
         base_cmd = _build_orch_cmd(mock_config)
         diff_cmd = base_cmd + ["diff", "test-issue#20260120-120000"]
-        
+
         assert "orch" in diff_cmd[0] or diff_cmd[0] == "orch"
         assert "diff" in diff_cmd
         assert "test-issue#20260120-120000" in diff_cmd
@@ -172,7 +179,7 @@ class TestBuildDiffCommand:
     def test_build_diff_cmd_includes_project_root(self, mock_config: Config):
         """Test that diff command includes project root flag."""
         base_cmd = _build_orch_cmd(mock_config)
-        
+
         # Should include --project-root when config has project_root
         assert "--project-root" in base_cmd or mock_config.project_root is None
 
@@ -185,25 +192,32 @@ class TestBuildDiffCommand:
 class TestDiffActionBehavior:
     """Tests for diff action behavior."""
 
-    def test_diff_action_requires_selected_run(self):
-        """Verify diff action checks for selected run."""
-        import inspect
-        source = inspect.getsource(OrchMonitorApp.action_diff)
-        assert "selected_run" in source, "action_diff should check selected_run"
+    def test_diff_action_uses_guard_bound_run(self):
+        """Verify diff action uses guard-bound run local, not async selected state."""
+        source = (
+            Path(__file__).parent.parent / "orch_monitor" / "macros.hy"
+        ).read_text()
+        assert "run.worktree_path" in source, "action_diff should use guard-bound run"
+        assert "self.selected_run.worktree_path" not in source, (
+            "action_diff should not use async selected_run worktree access"
+        )
 
     def test_diff_action_checks_worktree_path(self):
         """Verify diff action checks for worktree path."""
-        import inspect
-        source = inspect.getsource(OrchMonitorApp.action_diff)
+        source = (
+            Path(__file__).parent.parent / "orch_monitor" / "macros.hy"
+        ).read_text()
         assert "worktree_path" in source, "action_diff should check worktree_path"
 
     def test_diff_action_notifies_on_no_worktree(self):
         """Verify diff action shows notification when no worktree."""
-        import inspect
-        source = inspect.getsource(OrchMonitorApp.action_diff)
+        source = (
+            Path(__file__).parent.parent / "orch_monitor" / "macros.hy"
+        ).read_text()
         assert "notify" in source, "action_diff should notify user"
-        assert "no worktree" in source.lower() or "No worktree" in source, \
+        assert "no worktree" in source.lower() or "No worktree" in source, (
             "action_diff should mention missing worktree"
+        )
 
 
 # ============================================================================
@@ -216,23 +230,20 @@ class TestDiffMultiplexerIntegration:
 
     def test_diff_opens_in_new_tab(self):
         """Verify diff action tries to open in new terminal tab."""
-        import inspect
-        
-        if hasattr(OrchMonitorApp, "_do_diff"):
-            source = inspect.getsource(OrchMonitorApp._do_diff)
-            assert "new_tab_with_command" in source, \
-                "_do_diff should try to open new tab"
-            assert "detect_current_multiplexer" in source, \
-                "_do_diff should detect current multiplexer"
+        source = (
+            Path(__file__).parent.parent / "orch_monitor" / "macros.hy"
+        ).read_text()
+        assert "new_tab_with_command" in source, "_do_diff should try to open new tab"
+        assert "detect_current_multiplexer" in source, (
+            "_do_diff should detect current multiplexer"
+        )
 
     def test_diff_falls_back_to_exit(self):
         """Verify diff action falls back to exit if tab creation fails."""
-        import inspect
-        
-        if hasattr(OrchMonitorApp, "_do_diff"):
-            source = inspect.getsource(OrchMonitorApp._do_diff)
-            assert "exit" in source.lower(), \
-                "_do_diff should have exit fallback"
+        source = (
+            Path(__file__).parent.parent / "orch_monitor" / "macros.hy"
+        ).read_text()
+        assert "exit" in source.lower(), "_do_diff should have exit fallback"
 
 
 # ============================================================================
@@ -295,8 +306,7 @@ class TestDiffToolSelection:
             text=True,
             timeout=10,
         )
-        assert "ORCH_DIFFTOOL" in result.stdout, \
-            "Expected ORCH_DIFFTOOL in help text"
+        assert "ORCH_DIFFTOOL" in result.stdout, "Expected ORCH_DIFFTOOL in help text"
 
     def test_delta_mentioned_in_help(self):
         """Test that delta is mentioned as auto-detected tool."""
@@ -307,8 +317,7 @@ class TestDiffToolSelection:
             text=True,
             timeout=10,
         )
-        assert "delta" in result.stdout.lower(), \
-            "Expected delta mentioned in help text"
+        assert "delta" in result.stdout.lower(), "Expected delta mentioned in help text"
 
     def test_pager_mentioned_in_help(self):
         """Test that PAGER fallback is mentioned in help."""
@@ -319,8 +328,7 @@ class TestDiffToolSelection:
             text=True,
             timeout=10,
         )
-        assert "PAGER" in result.stdout, \
-            "Expected PAGER mentioned in help text"
+        assert "PAGER" in result.stdout, "Expected PAGER mentioned in help text"
 
     def test_tool_priority_order_documented(self):
         """Test that tool priority order is documented."""
@@ -332,8 +340,9 @@ class TestDiffToolSelection:
             timeout=10,
         )
         output = result.stdout
-        assert "1." in output and "2." in output, \
+        assert "1." in output and "2." in output, (
             "Expected numbered priority list in help"
+        )
 
 
 # ============================================================================
@@ -361,8 +370,13 @@ class TestDiffE2EWorkflow:
         """Test diff command with invalid run reference."""
         binary = orch_binary()
         result = subprocess.run(
-            [binary, "diff", "nonexistent-issue#invalid-run", 
-             "--issues-root", "/tmp/nonexistent"],
+            [
+                binary,
+                "diff",
+                "nonexistent-issue#invalid-run",
+                "--issues-root",
+                "/tmp/nonexistent",
+            ],
             capture_output=True,
             text=True,
             timeout=10,

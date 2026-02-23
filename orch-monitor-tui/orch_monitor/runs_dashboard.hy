@@ -40,8 +40,7 @@
 (import orch_monitor.orch_api [OrchAPI create_orch_api])
 (import orch_monitor.orch_api [RunFilters :as ApiRunFilters
                                RunStatus :as ApiRunStatus])
-(import orch_monitor.converters [api_run_to_model :as _api_run_to_model
-                                 api_runs_to_model :as _api_runs_to_model_runs
+(import orch_monitor.converters [api_runs_to_model :as _api_runs_to_model_runs
                                  api_issue_to_model :as _api_issue_to_model])
 (import orch_monitor.confirm_screens [KillConfirmScreen])
 (import orch_monitor.filter_screens [RunFilterScreen])
@@ -146,7 +145,7 @@ DataTable {
     (setv self.api (or api (create_orch_api self.config.socket_path
                                             self.config.issues_root)))
     (setv self.runs [])
-    (setv self.selected_run None)
+    (setv self._runs_by_ref {})
     (setv self.filter_state (.load_filters self.config))
     (setv self._auto_refresh_enabled auto-refresh)
     (setv self._base_title f"Runs [{self.config.project_root.name}]")
@@ -154,6 +153,7 @@ DataTable {
     (setv self._daemon_error None)
     (setv self._last_update None)
     (setv self._highlighted_run_ref None)
+    (setv self._repopulating_runs False)
     (setv self._monitor_id None)
     (setv self._is_loading False))
   
@@ -320,6 +320,9 @@ DataTable {
     (setv self._daemon_error None)
     (when (is-not runs None)
       (setv self.runs runs))
+    (setv self._runs_by_ref {})
+    (for [run self.runs]
+      (setv (get self._runs_by_ref (.ref run)) run))
     (setv time-str (.strftime self._last_update "%H:%M:%S"))
     (setv self.title f"{self._base_title} | {time-str}")
     (setv diff-stats {})
@@ -330,7 +333,18 @@ DataTable {
                      :total_additions run.additions
                      :total_deletions run.deletions))))
     (setv run-table (.query_one self "#runs-table" RunTable))
-    (.populate run-table self.runs :diff_stats diff-stats))
+    (setv self._repopulating_runs True)
+    (try
+      (.populate run-table self.runs :diff_stats diff-stats)
+      (finally
+        (setv self._repopulating_runs False)))
+    (setv current-key (._get_current_row_key run-table))
+    (if (and current-key (in "#" current-key))
+        (setv self._highlighted_run_ref current-key)
+        (setv self._highlighted_run_ref None))
+    (setv run (when self._highlighted_run_ref
+                (.get self._runs_by_ref self._highlighted_run_ref)))
+    (._update_run_detail_panel self run))
   
   ;; =========================================================================
   ;; Row selection events
@@ -341,27 +355,19 @@ DataTable {
   
   (defn [(on RunTable.RowHighlighted)] on_run_highlighted [self event]
     "Track highlighted run for Enter key attach functionality."
+    (when (getattr self "_repopulating_runs" False)
+      (return))
     (setv run-ref (if event.row_key event.row_key.value None))
     (when (or (not run-ref) (not (in "#" run-ref)))
       (setv self._highlighted_run_ref None)
+      (._update_run_detail_panel self None)
       (return))
     ;; Skip if already highlighted
     (when (= (getattr self "_highlighted_run_ref" None) run-ref)
       (return))
     (setv self._highlighted_run_ref run-ref)
-    (setv #(issue-id run-id) (.rsplit run-ref "#" 1))
-    (._fetch_run_detail self issue-id run-id run-ref))
-  
-  (defn [(work :thread True :exclusive True)] _fetch_run_detail [self issue-id run-id run-ref]
-    (setv run (ok-or (.get_run self.api issue-id run-id) None))
-    (when-some [r run]
-      (setv run (_api_run_to_model r)))
-    (.call_from_thread self self._set_selected_run run run-ref))
-  
-  (defn _set_selected_run [self run run-ref]
-    (when (= (getattr self "_highlighted_run_ref" None) run-ref)
-      (setv self.selected_run run)
-      (._update_run_detail_panel self run)))
+    (setv run (.get self._runs_by_ref run-ref))
+    (._update_run_detail_panel self run))
   
   ;; =========================================================================
   ;; Detail panel - Uses with-fallback-silent for UI queries

@@ -40,9 +40,7 @@
                                RunStatus :as ApiRunStatus
                                IssueFilters :as ApiIssueFilters
                                IssueStatus :as ApiIssueStatus])
-(import orch_monitor.converters [api_run_to_model :as _api_run_to_model
-                                 api_runs_to_model :as _api_runs_to_model_runs
-                                 api_issue_to_model :as _api_issue_to_model
+(import orch_monitor.converters [api_runs_to_model :as _api_runs_to_model_runs
                                  api_issues_to_model :as _api_issues_to_model_issues])
 (import orch_monitor.confirm_screens [KillConfirmScreen CloseIssueConfirmScreen])
 (import orch_monitor.filter_screens [RunFilterScreen IssueFilterScreen])
@@ -107,11 +105,13 @@
                                             self.config.issues_root)))
     (setv self.runs [])
     (setv self.issues [])
-    (setv self.selected_run None)
-    (setv self.selected_issue None)
+    (setv self._runs_by_ref {})
+    (setv self._issues_by_id {})
     (setv self.current_focus "runs")
     (setv self._highlighted_run_ref None)
     (setv self._highlighted_issue_id None)
+    (setv self._repopulating_runs False)
+    (setv self._repopulating_issues False)
     (setv self.filter_state (.load_filters self.config))
     (setv self._auto_refresh_enabled auto-refresh)
     (setv self._base_title f"Orch Monitor [{self.config.project_root.name}]")
@@ -203,9 +203,11 @@
   
   (defn _do_message_refresh [self]
     "Refresh only the messages for the selected run (lightweight update)."
-    (when (and self.selected_run
-               (in self.selected_run.status [Status.RUNNING Status.BOOTING Status.BLOCKED]))
-      (.show_run_detail self self.selected_run)))
+    (setv run-ref (getattr self "_highlighted_run_ref" None))
+    (setv run (when run-ref (.get self._runs_by_ref run-ref)))
+    (when (and run
+               (in run.status [Status.RUNNING Status.BOOTING Status.BLOCKED]))
+      (.show_run_detail self run)))
   
   ;; =========================================================================
   ;; Injected actions — shared behavior via compile-time macros
@@ -358,6 +360,12 @@
       (setv self.runs runs))
     (when (is-not issues None)
       (setv self.issues issues))
+    (setv self._runs_by_ref {})
+    (for [run self.runs]
+      (setv (get self._runs_by_ref (.ref run)) run))
+    (setv self._issues_by_id {})
+    (for [issue self.issues]
+      (setv (get self._issues_by_id issue.id) issue))
     (setv time-str (.strftime self._last_update "%H:%M:%S"))
     (setv self.title f"{self._base_title} | {time-str}")
     
@@ -370,9 +378,39 @@
                      :total_deletions run.deletions))))
     
     (setv run-table (.query_one self "#runs-table" RunTable))
-    (.populate run-table self.runs :diff_stats diff-stats)
+    (setv self._repopulating_runs True)
+    (try
+      (.populate run-table self.runs :diff_stats diff-stats)
+      (finally
+        (setv self._repopulating_runs False)))
     (setv issue-table (.query_one self "#issues-table" IssueTable))
-    (.populate issue-table self.issues))
+    (setv self._repopulating_issues True)
+    (try
+      (.populate issue-table self.issues)
+      (finally
+        (setv self._repopulating_issues False)))
+    (setv run-current-key (._get_current_row_key run-table))
+    (if (and run-current-key (in "#" run-current-key))
+        (setv self._highlighted_run_ref run-current-key)
+        (setv self._highlighted_run_ref None))
+    (setv issue-current-key (._get_current_row_key issue-table))
+    (if issue-current-key
+        (setv self._highlighted_issue_id issue-current-key)
+        (setv self._highlighted_issue_id None))
+    (setv run None)
+    (setv issue None)
+    (if (= self.current_focus "runs")
+        (setv run (when self._highlighted_run_ref
+                    (.get self._runs_by_ref self._highlighted_run_ref)))
+        (setv issue (when self._highlighted_issue_id
+                      (.get self._issues_by_id self._highlighted_issue_id))))
+    (if (= self.current_focus "runs")
+        (if run
+            (.show_run_detail self run)
+            (.clear (.query_one self "#detail-panel" DetailPanel)))
+        (if issue
+            (.show_issue_detail self issue)
+            (.clear (.query_one self "#detail-panel" DetailPanel)))))
   
   ;; =========================================================================
   ;; Focus switching
@@ -386,59 +424,66 @@
           (setv self.current_focus "issues"))
         (do
           (setv tabbed.active "runs-pane")
-          (setv self.current_focus "runs"))))
+          (setv self.current_focus "runs")))
+    (setv run None)
+    (setv issue None)
+    (if (= self.current_focus "runs")
+        (setv run (when self._highlighted_run_ref
+                    (.get self._runs_by_ref self._highlighted_run_ref)))
+        (setv issue (when self._highlighted_issue_id
+                      (.get self._issues_by_id self._highlighted_issue_id))))
+    (if (= self.current_focus "runs")
+        (if run
+            (.show_run_detail self run)
+            (.clear (.query_one self "#detail-panel" DetailPanel)))
+        (if issue
+            (.show_issue_detail self issue)
+            (.clear (.query_one self "#detail-panel" DetailPanel)))))
   
   ;; =========================================================================
   ;; Row selection events
   ;; =========================================================================
   
   (defn [(on RunTable.RowHighlighted)] on_run_highlighted [self event]
+    (when (getattr self "_repopulating_runs" False)
+      (return))
     (setv run-ref (if event.row_key event.row_key.value None))
     (when (or (not run-ref) (not (in "#" run-ref)))
       (setv self._highlighted_run_ref None)
+      (when (= self.current_focus "runs")
+        (.clear (.query_one self "#detail-panel" DetailPanel)))
       (return))
     (when (= (getattr self "_highlighted_run_ref" None) run-ref)
       (return))
     (setv self._highlighted_run_ref run-ref)
-    (setv #(issue-id run-id) (.rsplit run-ref "#" 1))
-    (._fetch_run_for_detail self issue-id run-id run-ref))
-  
-  (defn [(work :thread True :exclusive True)] _fetch_run_for_detail [self issue-id run-id run-ref]
-    (setv raw (ok-or (.get_run self.api issue-id run-id) None))
-    (setv run (when-some [r raw] (_api_run_to_model r)))
-    (.call_from_thread self self._show_run_detail_callback run run-ref))
-  
-  (defn _show_run_detail_callback [self run run-ref]
-    (when (!= (getattr self "_highlighted_run_ref" None) run-ref)
-      (return))
-    (when run
-      (setv self.selected_run run)
-      (.show_run_detail self run)))
+    (setv run (.get self._runs_by_ref run-ref))
+    (when (= self.current_focus "runs")
+      (if run
+          (.show_run_detail self run)
+          (.clear (.query_one self "#detail-panel" DetailPanel)))))
   
   (defn [(on IssueTable.RowHighlighted)] on_issue_highlighted [self event]
+    (when (getattr self "_repopulating_issues" False)
+      (return))
     (setv issue-id (if event.row_key event.row_key.value None))
     (when (not issue-id)
       (setv self._highlighted_issue_id None)
+      (when (= self.current_focus "issues")
+        (.clear (.query_one self "#detail-panel" DetailPanel)))
       (return))
     (when (= (getattr self "_highlighted_issue_id" None) issue-id)
       (return))
     (setv self._highlighted_issue_id issue-id)
-    (._fetch_issue_for_detail self issue-id))
+    (setv issue (.get self._issues_by_id issue-id))
+    (when (= self.current_focus "issues")
+      (if issue
+          (.show_issue_detail self issue)
+          (.clear (.query_one self "#detail-panel" DetailPanel)))))
   
   (defn [(on IssueTable.RowSelected)] on_issue_selected [self event]
-    (when self.selected_issue
-      (.show_issue_detail self self.selected_issue)))
-  
-  (defn [(work :thread True :exclusive True)] _fetch_issue_for_detail [self issue-id]
-    (setv raw (ok-or (.get_issue self.api issue-id) None))
-    (setv issue (when-some [i raw] (_api_issue_to_model i)))
-    (.call_from_thread self self._show_issue_detail_callback issue issue-id))
-  
-  (defn _show_issue_detail_callback [self issue issue-id]
-    (when (!= (getattr self "_highlighted_issue_id" None) issue-id)
-      (return))
+    (setv issue-id (getattr self "_highlighted_issue_id" None))
+    (setv issue (when issue-id (.get self._issues_by_id issue-id)))
     (when issue
-      (setv self.selected_issue issue)
       (.show_issue_detail self issue)))
   
   ;; =========================================================================
@@ -514,9 +559,9 @@
   
   (defn action_select [self]
     (cond
-      (and (= self.current_focus "runs") self.selected_run)
+      (= self.current_focus "runs")
         (.action_attach self)
-      (and (= self.current_focus "issues") self.selected_issue)
+      (= self.current_focus "issues")
         (.action_open_issue self))))
 
 
