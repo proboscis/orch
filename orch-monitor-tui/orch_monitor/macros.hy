@@ -1273,10 +1273,10 @@
   "Define an action method with declarative guards.
    
    guards: list of guard keywords
-     :guard-input     - skip if Input widget has focus
-     :require-run     - require self.selected_run
-     :require-issue   - require self.selected_issue
-     :require-run-ref - require self._highlighted_run_ref (binds to run-ref)
+      :guard-input     - skip if Input widget has focus
+      :require-run     - require selected run (binds run-ref and run from sync lookup)
+      :require-issue   - require selected issue (binds issue-id and issue from sync lookup)
+      :require-run-ref - require self._highlighted_run_ref (binds to run-ref)
    
    Usage:
      (defaction action_stop [self] [:guard-input :require-run-ref]
@@ -1285,12 +1285,52 @@
      
      (defaction action_diff [self] [:guard-input :require-run]
        ;; can add extra guards after the standard ones
-       (when (not self.selected_run.worktree_path)
+       (when (not run.worktree_path)
          (.notify self \"Run has no worktree\" :severity \"warning\")
          (return))
-       (._do_diff self self.selected_run))
-  "
-  (import hy.models [Keyword Symbol])
+       (._do_diff self run))
+   "
+  (import hy.models [Expression Keyword Symbol])
+  (defn _is-self-selected-attr [form attr]
+    (and (isinstance form Expression)
+         (>= (len form) 1)
+         (do (setv head (get form 0))
+             (or (and (isinstance head Expression)
+                      (= (len head) 3)
+                      (isinstance (get head 0) Symbol)
+                      (= (str (get head 0)) ".")
+                      (isinstance (get head 1) Symbol)
+                      (= (str (get head 1)) "self")
+                      (isinstance (get head 2) Symbol)
+                      (= (str (get head 2)) attr))
+                 (and (= (len form) 3)
+                      (isinstance (get form 0) Symbol)
+                      (= (str (get form 0)) ".")
+                      (isinstance (get form 1) Symbol)
+                      (= (str (get form 1)) "self")
+                      (isinstance (get form 2) Symbol)
+                      (= (str (get form 2)) attr))))))
+  (defn _contains-self-selected-attr [forms attr]
+    (setv stack (list forms))
+    (while stack
+      (setv form (.pop stack))
+      (cond
+        (isinstance form Symbol)
+        (when (= (str form) f"self.{attr}")
+          (return True))
+        (isinstance form Expression)
+        (do
+          (when (_is-self-selected-attr form attr)
+            (return True))
+          (for [child form]
+            (.append stack child)))
+        (isinstance form list)
+        (for [child form]
+          (.append stack child))
+        (isinstance form tuple)
+        (for [child form]
+          (.append stack child))))
+    False)
   (setv guard-forms [])
   (for [g guards]
     (setv gs (cond
@@ -1302,14 +1342,22 @@
       (.append guard-forms `(when (_input-has-focus self) (return)))
       
       (= gs "require-run")
-      (.append guard-forms `(when (not self.selected_run)
-                               (.notify self "No run selected" :severity "warning")
-                               (return)))
+      (.extend guard-forms [`(setv run-ref (getattr self "_highlighted_run_ref" None))
+                             `(setv run (when run-ref (.get (getattr self "_runs_by_ref" {}) run-ref)))
+                             `(when (not run)
+                                (.notify self
+                                  (if run-ref "Run no longer available" "No run selected")
+                                  :severity "warning")
+                                (return))])
       
       (= gs "require-issue")
-      (.append guard-forms `(when (not self.selected_issue)
-                               (.notify self "No issue selected" :severity "warning")
-                               (return)))
+      (.extend guard-forms [`(setv issue-id (getattr self "_highlighted_issue_id" None))
+                             `(setv issue (when issue-id (.get (getattr self "_issues_by_id" {}) issue-id)))
+                             `(when (not issue)
+                                (.notify self
+                                  (if issue-id "Issue no longer available" "No issue selected")
+                                  :severity "warning")
+                                (return))])
       
       (= gs "require-run-ref")
       (.extend guard-forms [`(setv run-ref (getattr self "_highlighted_run_ref" None))
@@ -1319,6 +1367,12 @@
       
       True
       (raise (SyntaxError f"defaction: unknown guard: {gs}"))))
+  (when (_contains-self-selected-attr body "selected_run")
+    (raise (SyntaxError
+      f"defaction {name}: 'self.selected_run' is async state - use bound local 'run' from :require-run guard")))
+  (when (_contains-self-selected-attr body "selected_issue")
+    (raise (SyntaxError
+      f"defaction {name}: 'self.selected_issue' is async state - use bound local 'issue' from :require-issue guard")))
   `(defn ~name ~params
      ~@guard-forms
      ~@body))
@@ -1336,7 +1390,7 @@
        MultiplexerType, get_multiplexer_type_from_run, get_session_name,
        get_multiplexer_for_run, KillConfirmScreen, _build-orch-cmd, _input-has-focus
      - Macros: with-fallback, when-err
-     - Instance attrs: self.selected_run, self._highlighted_run_ref,
+     - Instance attrs: self._runs_by_ref, self._highlighted_run_ref,
        self.config, self.api
    
    Usage:
@@ -1346,12 +1400,8 @@
   "
   `(do
      ;; ===================== ATTACH =====================
-     (defn action_attach [self]
-       (when (_input-has-focus self) (return))
-       (when (not self.selected_run)
-         (.notify self "No run selected" :severity "warning")
-         (return))
-       (._do_attach self self.selected_run))
+     (defaction action_attach [self] [:guard-input :require-run]
+       (._do_attach self run))
      
      (defn [(work :thread True)] _do_attach [self run]
        "Attach to run in background thread to avoid blocking TUI."
@@ -1386,12 +1436,7 @@
        (subprocess.run attach-cmd))
      
      ;; ===================== STOP =====================
-     (defn action_stop [self]
-       (when (_input-has-focus self) (return))
-       (setv run-ref (getattr self "_highlighted_run_ref" None))
-       (when (not run-ref)
-         (.notify self "No run selected" :severity "warning")
-         (return))
+     (defaction action_stop [self] [:guard-input :require-run-ref]
        (._do_stop self run-ref)
        (.notify self f"Stopping {run-ref}"))
      
@@ -1406,15 +1451,11 @@
        (.call_from_thread self self.refresh_data))
      
      ;; ===================== DIFF =====================
-     (defn action_diff [self]
-       (when (_input-has-focus self) (return))
-       (when (not self.selected_run)
-         (.notify self "No run selected" :severity "warning")
-         (return))
-       (when (not self.selected_run.worktree_path)
+     (defaction action_diff [self] [:guard-input :require-run]
+       (when (not run.worktree_path)
          (.notify self "Run has no worktree" :severity "warning")
          (return))
-       (._do_diff self self.selected_run))
+       (._do_diff self run))
      
      (defn [(work :thread True)] _do_diff [self run]
        "Open diff in a new terminal tab."
@@ -1437,16 +1478,12 @@
        (subprocess.run diff-cmd))
      
      ;; ===================== KILL SESSION =====================
-     (defn action_kill_session [self]
+     (defaction action_kill_session [self] [:require-run]
        "Show kill confirmation dialog for selected run."
-       (when (not self.selected_run)
-         (.notify self "No run selected" :severity "warning")
-         (return))
-       (setv session-name (get_session_name self.selected_run))
+       (setv session-name (get_session_name run))
        (when (not session-name)
          (.notify self "Run has no session" :severity "warning")
          (return))
-       (setv run self.selected_run)
        (setv multiplexer (get_multiplexer_for_run run))
        (setv run-ref (.ref run))
        (defn on-confirm [confirmed]
@@ -1484,7 +1521,8 @@
        _get-issue-file-path, _get-available-agents, detect_current_multiplexer,
        get_multiplexer, AgentSelectScreen, CloseIssueConfirmScreen, get-logger
      - Macros: if-ok
-     - Instance attrs: self.selected_issue, self.config, self.api
+     - Instance attrs: self._issues_by_id, self._highlighted_issue_id,
+       self.config, self.api
    
    Usage:
      (defclass IssuesDashboard [App]
@@ -1493,19 +1531,17 @@
   "
   `(do
      ;; ===================== NEW RUN =====================
-     (defn action_new_run [self]
-       (when (_input-has-focus self) (return))
-       (when (not self.selected_issue)
-         (.notify self "No issue selected" :severity "warning")
-         (return))
+     (defaction action_new_run [self] [:guard-input :require-issue]
        (setv agents (_get-available-agents self.config))
+       (setv issue-id issue.id)
+       (defn on-agent-selected [agent]
+         (._on_agent_selected self issue-id agent))
        (.push_screen self
-         (AgentSelectScreen self.selected_issue.id agents)
-         self._on_agent_selected))
-     
-     (defn _on_agent_selected [self agent]
-       (when (and agent self.selected_issue)
-         (setv issue-id self.selected_issue.id)
+         (AgentSelectScreen issue-id agents)
+         on-agent-selected))
+      
+     (defn _on_agent_selected [self issue-id agent]
+       (when agent
          (.notify self f"Starting run for {issue-id} with {agent}...")
          (._do_new_run self issue-id agent)))
      
@@ -1527,12 +1563,8 @@
        (.call_from_thread self self.refresh_data))
      
      ;; ===================== OPEN ISSUE =====================
-     (defn action_open_issue [self]
-       (when (_input-has-focus self) (return))
-       (when (not self.selected_issue)
-         (.notify self "No issue selected" :severity "warning")
-         (return))
-       (setv #(file-path error) (_get-issue-file-path self.selected_issue))
+     (defaction action_open_issue [self] [:guard-input :require-issue]
+       (setv #(file-path error) (_get-issue-file-path issue))
        (when (or error (is file-path None))
          (.notify self (or error "Unknown error") :severity "error")
          (return))
@@ -1543,7 +1575,7 @@
        (setv current-mux-type (detect_current_multiplexer))
        (when current-mux-type
          (setv current-mux (get_multiplexer current-mux-type))
-         (setv tab-name f"edit-{self.selected_issue.id}")
+         (setv tab-name f"edit-{issue.id}")
          (when (.new_tab_with_command current-mux tab-name cmd)
            (.notify self f"Opened tab: {tab-name}")
            (return))
@@ -1553,13 +1585,9 @@
        (.refresh_data self))
      
      ;; ===================== CLOSE ISSUE =====================
-     (defn action_close_issue [self]
-       (when (_input-has-focus self) (return))
-       (when (not self.selected_issue)
-         (.notify self "No issue selected" :severity "warning")
-         (return))
-       (setv issue-id self.selected_issue.id)
-       (setv issue-title self.selected_issue.title)
+     (defaction action_close_issue [self] [:guard-input :require-issue]
+       (setv issue-id issue.id)
+       (setv issue-title issue.title)
        (defn on-confirm [confirmed]
          (when confirmed
            (._do_close_issue self issue-id)))

@@ -12,6 +12,9 @@ from .runs_dashboard import RunsDashboard, RUNS_DASHBOARD_CSS, COMMON_CSS
 from .issues_dashboard import IssuesDashboard
 from .orch_monitor_app import OrchMonitorApp, ORCH_MONITOR_CSS
 from .help_screen import OnboardingApp
+from .filter_screens import RunFilterScreen, IssueFilterScreen
+from .confirm_screens import KillConfirmScreen, CloseIssueConfirmScreen
+from .agent_screen import AgentSelectScreen
 
 # Re-export helper functions from app_base.hy
 from .app_base import (
@@ -60,6 +63,11 @@ __all__ = [
     "IssuesDashboard",
     "OrchMonitorApp",
     "OnboardingApp",
+    "RunFilterScreen",
+    "IssueFilterScreen",
+    "KillConfirmScreen",
+    "CloseIssueConfirmScreen",
+    "AgentSelectScreen",
     # CSS constants
     "COMMON_CSS",
     "RUNS_DASHBOARD_CSS",

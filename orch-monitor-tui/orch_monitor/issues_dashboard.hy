@@ -38,8 +38,7 @@
 (import orch_monitor.orch_api [OrchAPI create_orch_api])
 (import orch_monitor.orch_api [IssueFilters :as ApiIssueFilters
                                IssueStatus :as ApiIssueStatus])
-(import orch_monitor.converters [api_issue_to_model :as _api_issue_to_model
-                                 api_issues_to_model :as _api_issues_to_model_issues])
+(import orch_monitor.converters [api_issues_to_model :as _api_issues_to_model_issues])
 (import orch_monitor.confirm_screens [CloseIssueConfirmScreen])
 (import orch_monitor.filter_screens [IssueFilterScreen])
 (import orch_monitor.help_screen [HelpScreen])
@@ -83,8 +82,9 @@
     (setv self.api (or api (create_orch_api self.config.socket_path
                                             self.config.issues_root)))
     (setv self.issues [])
-    (setv self.selected_issue None)
+    (setv self._issues_by_id {})
     (setv self._highlighted_issue_id None)
+    (setv self._repopulating_issues False)
     (setv self.filter_state (.load_filters self.config))
     (setv self._auto_refresh_enabled auto-refresh)
     (setv self._base_title f"Issues [{self.config.project_root.name}]")
@@ -229,10 +229,24 @@
     (setv self._daemon_error None)
     (when (is-not issues None)
       (setv self.issues issues))
+    (setv self._issues_by_id {})
+    (for [issue self.issues]
+      (setv (get self._issues_by_id issue.id) issue))
     (setv time-str (.strftime self._last_update "%H:%M:%S"))
     (setv self.title f"{self._base_title} | {time-str}")
     (setv issue-table (.query_one self "#issues-table" IssueTable))
-    (.populate issue-table self.issues))
+    (setv self._repopulating_issues True)
+    (try
+      (.populate issue-table self.issues)
+      (finally
+        ;; Defer flag-clear + highlight sync to next idle tick
+        ;; so queued RowHighlighted messages from populate() are drained first.
+        (.call_later self (fn []
+          (setv self._repopulating_issues False)
+          (setv current-key (._get_current_row_key issue-table))
+          (if current-key
+              (setv self._highlighted_issue_id current-key)
+              (setv self._highlighted_issue_id None)))))))
   
   ;; =========================================================================
   ;; Row selection events
@@ -240,6 +254,8 @@
   
   (defn [(on IssueTable.RowHighlighted)] on_issue_highlighted [self event]
     "Track highlighted issue for Enter key open functionality."
+    (when (getattr self "_repopulating_issues" False)
+      (return))
     (setv issue-id (if event.row_key event.row_key.value None))
     (when (not issue-id)
       (setv self._highlighted_issue_id None)
@@ -247,22 +263,11 @@
     ;; Skip if already highlighted
     (when (= (getattr self "_highlighted_issue_id" None) issue-id)
       (return))
-    (setv self._highlighted_issue_id issue-id)
-    (._fetch_issue_detail self issue-id))
+    (setv self._highlighted_issue_id issue-id))
   
   (defn [(on IssueTable.RowSelected)] on_issue_selected [self event]
     "Handle Enter key on issue - open in editor."
     (.action_open_issue self))
-  
-  (defn [(work :thread True :exclusive True)] _fetch_issue_detail [self issue-id]
-    (setv raw (ok-or (.get_issue self.api issue-id) None))
-    (setv issue (when-some [i raw] (_api_issue_to_model i)))
-    (.call_from_thread self self._set_selected_issue issue issue-id))
-  
-  (defn _set_selected_issue [self issue issue-id]
-    ;; Only apply if this is still the highlighted issue
-    (when (= (getattr self "_highlighted_issue_id" None) issue-id)
-      (setv self.selected_issue issue)))
   
   ;; NOTE: open_issue, new_run, close_issue actions are injected by (with-issue-actions) above
   )
