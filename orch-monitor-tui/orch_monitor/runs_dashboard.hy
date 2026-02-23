@@ -337,14 +337,17 @@ DataTable {
     (try
       (.populate run-table self.runs :diff_stats diff-stats)
       (finally
-        (setv self._repopulating_runs False)))
-    (setv current-key (._get_current_row_key run-table))
-    (if (and current-key (in "#" current-key))
-        (setv self._highlighted_run_ref current-key)
-        (setv self._highlighted_run_ref None))
-    (setv run (when self._highlighted_run_ref
-                (.get self._runs_by_ref self._highlighted_run_ref)))
-    (._update_run_detail_panel self run))
+        ;; Defer flag-clear + highlight sync + detail update to next idle tick
+        ;; so queued RowHighlighted messages from populate() are drained first.
+        (.call_later self (fn []
+          (setv self._repopulating_runs False)
+          (setv current-key (._get_current_row_key run-table))
+          (if (and current-key (in "#" current-key))
+              (setv self._highlighted_run_ref current-key)
+              (setv self._highlighted_run_ref None))
+          (setv run (when self._highlighted_run_ref
+                      (.get self._runs_by_ref self._highlighted_run_ref)))
+          (._update_run_detail_panel self run))))))
   
   ;; =========================================================================
   ;; Row selection events

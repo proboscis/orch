@@ -239,11 +239,14 @@
     (try
       (.populate issue-table self.issues)
       (finally
-        (setv self._repopulating_issues False)))
-    (setv current-key (._get_current_row_key issue-table))
-    (if current-key
-        (setv self._highlighted_issue_id current-key)
-        (setv self._highlighted_issue_id None)))
+        ;; Defer flag-clear + highlight sync to next idle tick
+        ;; so queued RowHighlighted messages from populate() are drained first.
+        (.call_later self (fn []
+          (setv self._repopulating_issues False)
+          (setv current-key (._get_current_row_key issue-table))
+          (if current-key
+              (setv self._highlighted_issue_id current-key)
+              (setv self._highlighted_issue_id None)))))))
   
   ;; =========================================================================
   ;; Row selection events

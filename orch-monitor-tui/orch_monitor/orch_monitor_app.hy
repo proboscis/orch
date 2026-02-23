@@ -378,39 +378,48 @@
                      :total_deletions run.deletions))))
     
     (setv run-table (.query_one self "#runs-table" RunTable))
-    (setv self._repopulating_runs True)
-    (try
-      (.populate run-table self.runs :diff_stats diff-stats)
-      (finally
-        (setv self._repopulating_runs False)))
     (setv issue-table (.query_one self "#issues-table" IssueTable))
+    (setv self._repopulating_runs True)
     (setv self._repopulating_issues True)
     (try
+      (.populate run-table self.runs :diff_stats diff-stats)
       (.populate issue-table self.issues)
       (finally
-        (setv self._repopulating_issues False)))
-    (setv run-current-key (._get_current_row_key run-table))
-    (if (and run-current-key (in "#" run-current-key))
-        (setv self._highlighted_run_ref run-current-key)
-        (setv self._highlighted_run_ref None))
-    (setv issue-current-key (._get_current_row_key issue-table))
-    (if issue-current-key
-        (setv self._highlighted_issue_id issue-current-key)
-        (setv self._highlighted_issue_id None))
-    (setv run None)
-    (setv issue None)
+        ;; Defer flag-clear + highlight sync + detail update to next idle tick
+        ;; so queued RowHighlighted messages from populate() are drained first.
+        (.call_later self (fn []
+          (setv self._repopulating_runs False)
+          (setv self._repopulating_issues False)
+          (setv run-current-key (._get_current_row_key run-table))
+          (if (and run-current-key (in "#" run-current-key))
+              (setv self._highlighted_run_ref run-current-key)
+              (setv self._highlighted_run_ref None))
+          (setv issue-current-key (._get_current_row_key issue-table))
+          (if issue-current-key
+              (setv self._highlighted_issue_id issue-current-key)
+              (setv self._highlighted_issue_id None))
+          (._update_detail_panel self))))))
+  
+  ;; =========================================================================
+  ;; Detail panel helper — single source of truth
+  ;; =========================================================================
+  
+  (defn _update_detail_panel [self]
+    "Update the detail panel based on current_focus and highlighted row."
+    (setv detail (.query_one self "#detail-panel" DetailPanel))
     (if (= self.current_focus "runs")
-        (setv run (when self._highlighted_run_ref
-                    (.get self._runs_by_ref self._highlighted_run_ref)))
-        (setv issue (when self._highlighted_issue_id
-                      (.get self._issues_by_id self._highlighted_issue_id))))
-    (if (= self.current_focus "runs")
-        (if run
-            (.show_run_detail self run)
-            (.clear (.query_one self "#detail-panel" DetailPanel)))
-        (if issue
-            (.show_issue_detail self issue)
-            (.clear (.query_one self "#detail-panel" DetailPanel)))))
+        (do
+          (setv run (when self._highlighted_run_ref
+                      (.get self._runs_by_ref self._highlighted_run_ref)))
+          (if run
+              (.show_run_detail self run)
+              (.clear detail)))
+        (do
+          (setv issue (when self._highlighted_issue_id
+                        (.get self._issues_by_id self._highlighted_issue_id)))
+          (if issue
+              (.show_issue_detail self issue)
+              (.clear detail)))))
   
   ;; =========================================================================
   ;; Focus switching
@@ -425,20 +434,13 @@
         (do
           (setv tabbed.active "runs-pane")
           (setv self.current_focus "runs")))
-    (setv run None)
-    (setv issue None)
-    (if (= self.current_focus "runs")
-        (setv run (when self._highlighted_run_ref
-                    (.get self._runs_by_ref self._highlighted_run_ref)))
-        (setv issue (when self._highlighted_issue_id
-                      (.get self._issues_by_id self._highlighted_issue_id))))
-    (if (= self.current_focus "runs")
-        (if run
-            (.show_run_detail self run)
-            (.clear (.query_one self "#detail-panel" DetailPanel)))
-        (if issue
-            (.show_issue_detail self issue)
-            (.clear (.query_one self "#detail-panel" DetailPanel)))))
+    (._update_detail_panel self))
+  
+  (defn on_tabbed_content_tab_activated [self event]
+    "Sync current_focus when user clicks a tab header directly."
+    (setv pane-id (getattr event.pane "id" None))
+    (setv self.current_focus (if (= pane-id "issues-pane") "issues" "runs"))
+    (._update_detail_panel self))
   
   ;; =========================================================================
   ;; Row selection events
@@ -451,16 +453,13 @@
     (when (or (not run-ref) (not (in "#" run-ref)))
       (setv self._highlighted_run_ref None)
       (when (= self.current_focus "runs")
-        (.clear (.query_one self "#detail-panel" DetailPanel)))
+        (._update_detail_panel self))
       (return))
     (when (= (getattr self "_highlighted_run_ref" None) run-ref)
       (return))
     (setv self._highlighted_run_ref run-ref)
-    (setv run (.get self._runs_by_ref run-ref))
     (when (= self.current_focus "runs")
-      (if run
-          (.show_run_detail self run)
-          (.clear (.query_one self "#detail-panel" DetailPanel)))))
+      (._update_detail_panel self)))
   
   (defn [(on IssueTable.RowHighlighted)] on_issue_highlighted [self event]
     (when (getattr self "_repopulating_issues" False)
@@ -469,16 +468,13 @@
     (when (not issue-id)
       (setv self._highlighted_issue_id None)
       (when (= self.current_focus "issues")
-        (.clear (.query_one self "#detail-panel" DetailPanel)))
+        (._update_detail_panel self))
       (return))
     (when (= (getattr self "_highlighted_issue_id" None) issue-id)
       (return))
     (setv self._highlighted_issue_id issue-id)
-    (setv issue (.get self._issues_by_id issue-id))
     (when (= self.current_focus "issues")
-      (if issue
-          (.show_issue_detail self issue)
-          (.clear (.query_one self "#detail-panel" DetailPanel)))))
+      (._update_detail_panel self)))
   
   (defn [(on IssueTable.RowSelected)] on_issue_selected [self event]
     (setv issue-id (getattr self "_highlighted_issue_id" None))
