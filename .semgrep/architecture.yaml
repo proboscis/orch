@@ -1001,3 +1001,67 @@ rules:
     metadata:
       category: architecture
       violation: socket-churn
+
+  # ---------------------------------------------------------------------------
+  # 11. PR cache enforcement: daemon must use cached/batched PR lookups
+  #
+  # The daemon MUST NOT call uncached PR lookup functions directly.
+  # These functions shell out to `gh` CLI on every call with no caching,
+  # which exhausts the GitHub API rate limit (5000/hr) with just ~4 active runs.
+  #
+  # Allowed: pr.PopulateRunInfo() / pr.PopulateRunInfoWithClient() — batched + cached
+  # Banned:  pr.LookupInfo() / pr.LookupInfoByURL() / pr.LookupInfoWithClient()
+  #
+  # Tracked by: orch-450
+  # ---------------------------------------------------------------------------
+
+  - id: daemon-no-uncached-pr-lookup
+    patterns:
+      - pattern-either:
+          - pattern: pr.LookupInfo(...)
+          - pattern: pr.LookupInfoWithClient(...)
+    paths:
+      include:
+        - /internal/daemon/
+      exclude:
+        - /internal/daemon/*_test.go
+        # Known debt (orch-450) — remove exclusions as each file is fixed
+        - /internal/daemon/monitor.go
+        - /internal/daemon/types.go
+        - /internal/daemon/proto_handler.go
+    message: >
+      Daemon must not call pr.LookupInfo() or pr.LookupInfoWithClient() directly.
+      These bypass the PR cache and shell out to `gh pr list` on every call,
+      exhausting the GitHub API rate limit (5000/hr).
+      Fix: Use pr.PopulateRunInfo() or pr.PopulateRunInfoWithClient() which
+      batch lookups and respect cache TTLs (cacheHitTTL, cacheMissTTL, cacheMaxFetches).
+      See: orch-450
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: rate-limit-bypass
+
+  - id: daemon-no-uncached-pr-lookup-by-url
+    patterns:
+      - pattern: pr.LookupInfoByURL(...)
+    paths:
+      include:
+        - /internal/daemon/
+      exclude:
+        - /internal/daemon/*_test.go
+        # Known debt (orch-450) — remove exclusions as each file is fixed
+        - /internal/daemon/monitor.go
+        - /internal/daemon/types.go
+        - /internal/daemon/proto_handler.go
+    message: >
+      Daemon must not call pr.LookupInfoByURL() directly.
+      This bypasses the PR cache and shells out to `gh pr view` on every call,
+      exhausting the GitHub API rate limit (5000/hr).
+      Fix: Use a cache-aware lookup that respects TTLs, or batch via PopulateRunInfo.
+      See: orch-450
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: rate-limit-bypass
