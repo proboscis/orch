@@ -513,38 +513,6 @@ func enrichRunsParallel(runs []*model.Run, protoRuns []*orchpb.Run) []*orchpb.Ru
 	return protoRuns
 }
 
-func lookupPRInfoForRun(run *model.Run) (prNumber int, prState string) {
-	if run.PRUrl != "" {
-		prInfo, err := pr.LookupInfoByURL(run.PRUrl)
-		if err == nil && prInfo != nil {
-			return prInfo.Number, strings.ToLower(prInfo.State)
-		}
-	}
-
-	if run.Branch == "" {
-		return 0, ""
-	}
-
-	var repoRoot string
-	var err error
-	if run.WorktreePath != "" {
-		repoRoot, err = git.FindMainRepoRoot(run.WorktreePath)
-	}
-	if repoRoot == "" || err != nil {
-		repoRoot, err = git.FindMainRepoRoot("")
-		if err != nil {
-			return 0, ""
-		}
-	}
-
-	prInfo, err := pr.LookupInfo(repoRoot, run.Branch)
-	if err != nil || prInfo == nil {
-		return 0, ""
-	}
-
-	return prInfo.Number, strings.ToLower(prInfo.State)
-}
-
 func formatElapsedTime(startedAt, updatedAt time.Time, status model.Status) string {
 	if startedAt.IsZero() {
 		return "-"
