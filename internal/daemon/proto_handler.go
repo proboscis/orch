@@ -515,7 +515,7 @@ func enrichRunsParallel(runs []*model.Run, protoRuns []*orchpb.Run) []*orchpb.Ru
 
 func lookupPRInfoForRun(run *model.Run) (prNumber int, prState string) {
 	if run.PRUrl != "" {
-		prInfo, err := pr.LookupInfoByURL(run.PRUrl)
+		prInfo, err := pr.LookupInfoByURLCached(run.PRUrl)
 		if err == nil && prInfo != nil {
 			return prInfo.Number, strings.ToLower(prInfo.State)
 		}
@@ -537,7 +537,7 @@ func lookupPRInfoForRun(run *model.Run) (prNumber int, prState string) {
 		}
 	}
 
-	prInfo, err := pr.LookupInfo(repoRoot, run.Branch)
+	prInfo, err := pr.LookupInfoCached(repoRoot, run.Branch)
 	if err != nil || prInfo == nil {
 		return 0, ""
 	}

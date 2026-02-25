@@ -46,6 +46,57 @@ type cache struct {
 	Entries   map[string]cacheEntry `json:"entries"`
 }
 
+func cacheKeyForPRURL(prURL string) string {
+	return "url:" + prURL
+}
+
+func cacheEntryTTL(entry cacheEntry) time.Duration {
+	if entry.URL != "" {
+		return cacheHitTTL
+	}
+	return cacheMissTTL
+}
+
+func cacheEntryToInfo(entry cacheEntry) *Info {
+	if entry.URL == "" {
+		return nil
+	}
+	return &Info{
+		URL:    entry.URL,
+		Number: entry.Number,
+		State:  entry.State,
+	}
+}
+
+// lookupCachedEntry returns cached info and whether the cache entry is still fresh.
+// A fresh cached miss returns (nil, true).
+func lookupCachedEntry(c cache, key string, now time.Time) (*Info, bool) {
+	if len(c.Entries) == 0 {
+		return nil, false
+	}
+	entry, ok := c.Entries[key]
+	if !ok {
+		return nil, false
+	}
+	if !entry.CheckedAt.IsZero() && now.Sub(entry.CheckedAt) < cacheEntryTTL(entry) {
+		return cacheEntryToInfo(entry), true
+	}
+	return nil, false
+}
+
+func upsertCacheEntry(c *cache, key string, info *Info, checkedAt time.Time) {
+	if c.Entries == nil {
+		c.Entries = make(map[string]cacheEntry)
+	}
+	entry := cacheEntry{CheckedAt: checkedAt}
+	if info != nil {
+		entry.URL = info.URL
+		entry.Number = info.Number
+		entry.State = info.State
+	}
+	c.Entries[key] = entry
+}
+
 // PopulateRunInfo populates PR URLs and returns PR info for each run's branch.
 func PopulateRunInfo(runs []*model.Run) InfoMap {
 	return PopulateRunInfoWithClient(ghClient, runs)
@@ -100,22 +151,12 @@ func PopulateRunInfoWithClient(client github.Client, runs []*model.Run) InfoMap 
 			continue
 		}
 
-		if entry, ok := c.Entries[r.Branch]; ok {
-			ttl := cacheMissTTL
-			if entry.URL != "" {
-				ttl = cacheHitTTL
+		if info, ok := lookupCachedEntry(c, r.Branch, now); ok {
+			if info != nil {
+				r.PRUrl = info.URL
+				prInfoMap[r.Branch] = info
 			}
-			if !entry.CheckedAt.IsZero() && now.Sub(entry.CheckedAt) < ttl {
-				if entry.URL != "" {
-					r.PRUrl = entry.URL
-					prInfoMap[r.Branch] = &Info{
-						URL:    entry.URL,
-						Number: entry.Number,
-						State:  entry.State,
-					}
-				}
-				continue
-			}
+			continue
 		}
 
 		if fetches >= cacheMaxFetches {
@@ -129,16 +170,11 @@ func PopulateRunInfoWithClient(client github.Client, runs []*model.Run) InfoMap 
 		dirty = true
 
 		if err != nil || info == nil {
-			c.Entries[r.Branch] = cacheEntry{CheckedAt: fetchTime}
+			upsertCacheEntry(&c, r.Branch, nil, fetchTime)
 			continue
 		}
 
-		c.Entries[r.Branch] = cacheEntry{
-			URL:       info.URL,
-			Number:    info.Number,
-			State:     info.State,
-			CheckedAt: fetchTime,
-		}
+		upsertCacheEntry(&c, r.Branch, info, fetchTime)
 		if info.URL != "" {
 			r.PRUrl = info.URL
 			prInfoMap[r.Branch] = info
@@ -159,19 +195,12 @@ func applyCachedInfo(runs []*model.Run, c cache, now time.Time, prInfoMap InfoMa
 		if r.PRUrl != "" || r.Branch == "" {
 			continue
 		}
-		entry, ok := c.Entries[r.Branch]
-		if !ok || entry.URL == "" {
+		info, ok := lookupCachedEntry(c, r.Branch, now)
+		if !ok || info == nil {
 			continue
 		}
-		if !entry.CheckedAt.IsZero() && now.Sub(entry.CheckedAt) > cacheHitTTL {
-			continue
-		}
-		r.PRUrl = entry.URL
-		prInfoMap[r.Branch] = &Info{
-			URL:    entry.URL,
-			Number: entry.Number,
-			State:  entry.State,
-		}
+		r.PRUrl = info.URL
+		prInfoMap[r.Branch] = info
 	}
 }
 
@@ -202,6 +231,39 @@ func lookupInfo(client github.Client, repoRoot, branch string) (*Info, error) {
 	}, nil
 }
 
+func lookupInfoByURL(client github.Client, prURL string) (*Info, error) {
+	if client == nil {
+		client = ghClient
+	}
+	output, err := client.Run("pr", "view", prURL, "--json", "url,number,state")
+	if err != nil {
+		return nil, err
+	}
+
+	var pr struct {
+		URL    string `json:"url"`
+		Number int    `json:"number"`
+		State  string `json:"state"`
+	}
+	if err := json.Unmarshal(output, &pr); err != nil {
+		return nil, err
+	}
+	if pr.URL == "" {
+		pr.URL = prURL
+	}
+
+	return &Info{
+		URL:    pr.URL,
+		Number: pr.Number,
+		State:  pr.State,
+	}, nil
+}
+
+// LookupInfoCached returns cached PR info for a branch.
+func LookupInfoCached(repoRoot, branch string) (*Info, error) {
+	return LookupInfoWithClient(ghClient, repoRoot, branch)
+}
+
 // LookupInfo returns PR info for a branch using the default GitHub client.
 func LookupInfo(repoRoot, branch string) (*Info, error) {
 	return LookupInfoWithClient(ghClient, repoRoot, branch)
@@ -227,47 +289,119 @@ func LookupInfoWithClient(client github.Client, repoRoot, branch string) (*Info,
 			return nil, err
 		}
 	}
-	return lookupInfo(client, repoRoot, branch)
+
+	if info, statErr := os.Stat(repoRoot); statErr != nil || !info.IsDir() {
+		return lookupInfo(client, repoRoot, branch)
+	}
+
+	cachePath, err := getCachePath(repoRoot)
+	if err != nil {
+		return lookupInfo(client, repoRoot, branch)
+	}
+
+	now := time.Now()
+	c := loadCache(cachePath)
+	if c.Entries == nil {
+		c.Entries = make(map[string]cacheEntry)
+	}
+
+	if info, ok := lookupCachedEntry(c, branch, now); ok {
+		return info, nil
+	}
+
+	if !c.LastFetch.IsZero() && now.Sub(c.LastFetch) < cacheMinFetchInterval {
+		if entry, ok := c.Entries[branch]; ok && entry.URL != "" {
+			return cacheEntryToInfo(entry), nil
+		}
+		return nil, nil
+	}
+
+	info, lookupErr := lookupInfo(client, repoRoot, branch)
+	fetchTime := time.Now()
+	c.LastFetch = fetchTime
+	if lookupErr != nil || info == nil {
+		upsertCacheEntry(&c, branch, nil, fetchTime)
+		saveCache(cachePath, c)
+		return nil, lookupErr
+	}
+
+	upsertCacheEntry(&c, branch, info, fetchTime)
+	saveCache(cachePath, c)
+	return info, nil
+}
+
+// LookupInfoByURLCached returns cached PR info by URL.
+func LookupInfoByURLCached(prURL string) (*Info, error) {
+	return LookupInfoByURLWithClient(ghClient, prURL)
 }
 
 // LookupInfoByURL returns PR info by URL using the GitHub CLI.
 // This works even if the local worktree has been deleted.
 // Only GitHub URLs are supported (gh CLI requirement).
 func LookupInfoByURL(prURL string) (*Info, error) {
+	return LookupInfoByURLWithClient(ghClient, prURL)
+}
+
+// LookupInfoByURLWithClient returns PR info by URL using the provided GitHub client.
+func LookupInfoByURLWithClient(client github.Client, prURL string) (*Info, error) {
 	if strings.TrimSpace(prURL) == "" {
 		return nil, fmt.Errorf("PR URL is required")
 	}
 	if !strings.HasPrefix(prURL, "https://github.com/") {
 		return nil, fmt.Errorf("only GitHub URLs are supported: %s", prURL)
 	}
-	if !ghClient.IsAvailable() {
+	if client == nil {
+		client = ghClient
+	}
+	if !client.IsAvailable() {
 		return nil, fmt.Errorf("gh CLI not available")
 	}
-	output, err := ghClient.Run("pr", "view", prURL, "--json", "url,number,state")
+
+	cachePath, err := getCachePath("")
 	if err != nil {
-		return nil, err
+		return lookupInfoByURL(client, prURL)
 	}
 
-	var pr struct {
-		URL    string `json:"url"`
-		Number int    `json:"number"`
-		State  string `json:"state"`
-	}
-	if err := json.Unmarshal(output, &pr); err != nil {
-		return nil, err
+	now := time.Now()
+	key := cacheKeyForPRURL(prURL)
+	c := loadCache(cachePath)
+	if c.Entries == nil {
+		c.Entries = make(map[string]cacheEntry)
 	}
 
-	return &Info{
-		URL:    pr.URL,
-		Number: pr.Number,
-		State:  pr.State,
-	}, nil
+	if info, ok := lookupCachedEntry(c, key, now); ok {
+		return info, nil
+	}
+
+	if !c.LastFetch.IsZero() && now.Sub(c.LastFetch) < cacheMinFetchInterval {
+		if entry, ok := c.Entries[key]; ok && entry.URL != "" {
+			return cacheEntryToInfo(entry), nil
+		}
+		return nil, nil
+	}
+
+	info, lookupErr := lookupInfoByURL(client, prURL)
+	fetchTime := time.Now()
+	c.LastFetch = fetchTime
+	if lookupErr != nil || info == nil {
+		upsertCacheEntry(&c, key, nil, fetchTime)
+		saveCache(cachePath, c)
+		return nil, lookupErr
+	}
+
+	upsertCacheEntry(&c, key, info, fetchTime)
+	saveCache(cachePath, c)
+	return info, nil
 }
 
 func getCachePath(repoRoot string) (string, error) {
-	cacheDir, err := os.UserCacheDir()
-	if err != nil {
-		return "", err
+	cacheDir := strings.TrimSpace(os.Getenv("XDG_CACHE_HOME"))
+	if cacheDir == "" {
+		var err error
+		cacheDir, err = os.UserCacheDir()
+		if err != nil {
+			return "", err
+		}
 	}
 	dir := filepath.Join(cacheDir, "orch")
 	name := "pr_cache_" + hashString(repoRoot) + ".json"

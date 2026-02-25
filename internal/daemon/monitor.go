@@ -403,7 +403,7 @@ func (d *Daemon) checkPRMerged(run *model.Run) bool {
 
 func (d *Daemon) checkPRMergedWithURL(run *model.Run, st store.Store) (merged bool, prURL string) {
 	if run.PRUrl != "" {
-		prInfo, err := pr.LookupInfoByURL(run.PRUrl)
+		prInfo, err := pr.LookupInfoByURLCached(run.PRUrl)
 		if err == nil && prInfo != nil && prInfo.State == "MERGED" {
 			return true, run.PRUrl
 		}
@@ -425,7 +425,7 @@ func (d *Daemon) checkPRMergedWithURL(run *model.Run, st store.Store) (merged bo
 		}
 	}
 
-	prInfo, err := pr.LookupInfo(repoRoot, run.Branch)
+	prInfo, err := pr.LookupInfoCached(repoRoot, run.Branch)
 	if err != nil || prInfo == nil {
 		return false, ""
 	}
@@ -491,7 +491,7 @@ func (d *Daemon) inferStatusFromGitState(run *model.Run, st store.Store, wasAliv
 	}
 
 	d.debug("%s#%s: infer: checking PR for branch %s", run.IssueID, run.RunID, run.Branch)
-	prInfo, err := pr.LookupInfo(repoRoot, run.Branch)
+	prInfo, err := pr.LookupInfoCached(repoRoot, run.Branch)
 	if err == nil && prInfo != nil && prInfo.URL != "" {
 		d.logger.Printf("%s#%s: infer: found PR %s (state=%s)", run.IssueID, run.RunID, prInfo.URL, prInfo.State)
 		if run.PRUrl == "" {
@@ -514,7 +514,7 @@ func (d *Daemon) inferStatusFromGitState(run *model.Run, st store.Store, wasAliv
 	// This handles cases where the local branch was deleted/rebased but PR still exists
 	if run.PRUrl != "" {
 		d.debug("%s#%s: infer: branch lookup failed, checking existing PR URL: %s", run.IssueID, run.RunID, run.PRUrl)
-		prInfo, err := pr.LookupInfoByURL(run.PRUrl)
+		prInfo, err := pr.LookupInfoByURLCached(run.PRUrl)
 		if err == nil && prInfo != nil {
 			d.logger.Printf("%s#%s: infer: PR %s state=%s (via URL lookup)", run.IssueID, run.RunID, prInfo.URL, prInfo.State)
 			if prInfo.State == "MERGED" {

@@ -1025,10 +1025,6 @@ rules:
         - /internal/daemon/
       exclude:
         - /internal/daemon/*_test.go
-        # Known debt (orch-450) — remove exclusions as each file is fixed
-        - /internal/daemon/monitor.go
-        - /internal/daemon/types.go
-        - /internal/daemon/proto_handler.go
     message: >
       Daemon must not call pr.LookupInfo() or pr.LookupInfoWithClient() directly.
       These bypass the PR cache and shell out to `gh pr list` on every call,
@@ -1050,10 +1046,6 @@ rules:
         - /internal/daemon/
       exclude:
         - /internal/daemon/*_test.go
-        # Known debt (orch-450) — remove exclusions as each file is fixed
-        - /internal/daemon/monitor.go
-        - /internal/daemon/types.go
-        - /internal/daemon/proto_handler.go
     message: >
       Daemon must not call pr.LookupInfoByURL() directly.
       This bypasses the PR cache and shells out to `gh pr view` on every call,
