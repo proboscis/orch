@@ -908,6 +908,7 @@ func (s *SocketServer) handleProtoGetControlAgentLaunch(req *orchpb.GetControlAg
 				PromptFile: result.PromptFile,
 				Port:       int32(result.Port),
 				SessionId:  result.SessionID,
+				Resumed:    result.Resumed,
 			},
 		},
 	}

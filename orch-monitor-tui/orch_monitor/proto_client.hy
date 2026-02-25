@@ -49,8 +49,8 @@
   (setv mapping {Status.QUEUED pb.RUN_STATUS_QUEUED
                  Status.BOOTING pb.RUN_STATUS_BOOTING
                  Status.RUNNING pb.RUN_STATUS_RUNNING
-                 Status.BLOCKED pb.RUN_STATUS_WAITING
-                 Status.BLOCKED_API pb.RUN_STATUS_RATE_LIMITED
+                 Status.WAITING pb.RUN_STATUS_WAITING
+                 Status.RATE_LIMITED pb.RUN_STATUS_RATE_LIMITED
                  Status.PR_OPEN pb.RUN_STATUS_PR_OPEN
                  Status.DONE pb.RUN_STATUS_DONE
                  Status.FAILED pb.RUN_STATUS_FAILED
@@ -61,8 +61,8 @@
   (setv mapping {pb.RUN_STATUS_QUEUED Status.QUEUED
                  pb.RUN_STATUS_BOOTING Status.BOOTING
                  pb.RUN_STATUS_RUNNING Status.RUNNING
-                 pb.RUN_STATUS_WAITING Status.BLOCKED
-                 pb.RUN_STATUS_RATE_LIMITED Status.BLOCKED_API
+                 pb.RUN_STATUS_WAITING Status.WAITING
+                 pb.RUN_STATUS_RATE_LIMITED Status.RATE_LIMITED
                  pb.RUN_STATUS_PR_OPEN Status.PR_OPEN
                  pb.RUN_STATUS_DONE Status.DONE
                  pb.RUN_STATUS_FAILED Status.FAILED
@@ -592,7 +592,8 @@
                           :prompt_file r.prompt_file
                           :port r.port
                           :session_id r.session_id
-                          :agent (or agent-type r.agent ""))))
+                          :agent (or agent-type r.agent "")
+                          :resumed r.resumed)))
   
   (defn register-monitor [self pid monitor-type view project [session-name ""]]
     "Register monitor. Returns Result[str | None, ProtoDaemonError]."

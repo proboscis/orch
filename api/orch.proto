@@ -266,6 +266,7 @@ message GetControlAgentLaunchResponse {
   string prompt_file = 2;
   int32 port = 3;
   string session_id = 4;
+  bool resumed = 5;
 }
 
 // --- Session Operations ---

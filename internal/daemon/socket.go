@@ -811,7 +811,7 @@ func (s *SocketServer) handleEnsureOpenCodeServer(req SendRequest, encoder *json
 		modelName, modelVariant = cfg.ResolveControlModelAndVariant(string(agent.AgentOpenCode))
 	}
 
-	sessionID, err := s.getOrCreateOpenCodeControlSession(req.ProjectRoot, port, modelName, modelVariant)
+	sessionID, _, err := s.getOrCreateOpenCodeControlSession(req.ProjectRoot, port, modelName, modelVariant)
 	if err != nil {
 		s.logger.Printf("warning: server running but failed to get session: %v", err)
 		encoder.Encode(map[string]interface{}{
@@ -1130,7 +1130,9 @@ func (s *SocketServer) getOpenCodeServerPort(projectRoot string) int {
 	return 0
 }
 
-func (s *SocketServer) getOrCreateOpenCodeControlSession(projectRoot string, port int, modelName, modelVariant string) (string, error) {
+// getOrCreateOpenCodeControlSession returns (sessionID, resumed, error).
+// resumed is true when an existing session was found and reused, false when a new session was created.
+func (s *SocketServer) getOrCreateOpenCodeControlSession(projectRoot string, port int, modelName, modelVariant string) (string, bool, error) {
 	lock := s.getControlSessionLock(projectRoot)
 	lock.Lock()
 	defer lock.Unlock()
@@ -1157,7 +1159,7 @@ func (s *SocketServer) getOrCreateOpenCodeControlSession(projectRoot string, por
 							s.logger.Printf("warning: failed to update control session metadata for reused session: %v", err)
 						}
 					}
-					return stored.SessionID, nil
+					return stored.SessionID, true, nil
 				} else if err != nil && strings.Contains(err.Error(), "session not found") {
 					// opencode may reassign session IDs when the server restarts; recover by directory.
 					sessions, listErr := client.GetSessionsForDirectory(ctx, projectRoot)
@@ -1168,7 +1170,7 @@ func (s *SocketServer) getOrCreateOpenCodeControlSession(projectRoot string, por
 							s.logger.Printf("warning: failed to save recovered control session: %v", err)
 						}
 						s.logger.Printf("recovered opencode control session after ID mismatch: %s", recovered.ID)
-						return recovered.ID, nil
+						return recovered.ID, true, nil
 					}
 				}
 			} else {
@@ -1186,7 +1188,7 @@ func (s *SocketServer) getOrCreateOpenCodeControlSession(projectRoot string, por
 
 	session, err := client.CreateSession(ctx, openCodeControlSessionTitle, projectRoot)
 	if err != nil {
-		return "", fmt.Errorf("failed to create session: %w", err)
+		return "", false, fmt.Errorf("failed to create session: %w", err)
 	}
 
 	if err := s.saveOpenCodeControlSession(projectRoot, session.ID, port, resolvedModel, resolvedVariant); err != nil {
@@ -1212,7 +1214,7 @@ func (s *SocketServer) getOrCreateOpenCodeControlSession(projectRoot string, por
 	}
 
 	s.logger.Printf("created new opencode control session: %s", session.ID)
-	return session.ID, nil
+	return session.ID, false, nil
 }
 
 func findBestOpenCodeControlSession(projectRoot string, sessions []agent.Session) *agent.Session {
@@ -1480,200 +1482,6 @@ func (s *SocketServer) getUncommittedChangesStatus(workDir string) string {
 	return "No"
 }
 
-// handleGetControlAgentLaunch handles the get_control_agent_launch API request.
-// It writes the control prompt file, resolves agent configuration, and returns
-// a ready-to-execute command for launching the control agent.
-func (s *SocketServer) handleGetControlAgentLaunch(req SendRequest, encoder *json.Encoder) {
-	if req.ProjectRoot == "" {
-		encoder.Encode(map[string]interface{}{
-			"ok":    false,
-			"error": "project_root required",
-		})
-		return
-	}
-
-	if req.IssuesRoot == "" {
-		if cfg, err := config.LoadFromProjectRoot(req.ProjectRoot); err == nil && cfg != nil {
-			req.IssuesRoot = cfg.GetIssuesPath()
-			s.logger.Printf("derived issues_root=%q from project config", req.IssuesRoot)
-		}
-	}
-
-	st := s.resolveStore(req)
-	if st == nil {
-		encoder.Encode(map[string]interface{}{
-			"ok":    false,
-			"error": "no store available for project",
-		})
-		return
-	}
-
-	promptPath, err := s.writeControlPromptFile(st, req.ProjectRoot)
-	if err != nil {
-		s.logger.Printf("failed to write control prompt file: %v", err)
-		encoder.Encode(map[string]interface{}{
-			"ok":    false,
-			"error": fmt.Sprintf("failed to write control prompt file: %v", err),
-		})
-		return
-	}
-
-	// Load configuration
-	cfg, cfgErr := loadControlAgentConfig(req.ProjectRoot)
-	if cfgErr != nil {
-		s.logger.Printf("config validation failed in handleGetControlAgentLaunch: %v", cfgErr)
-		encoder.Encode(map[string]interface{}{
-			"ok":    false,
-			"error": fmt.Sprintf("failed to load config: %v", cfgErr),
-		})
-		return
-	}
-
-	// Resolve agent type
-	agentName := req.AgentType
-	if agentName == "" {
-		agentName = cfg.ControlAgent
-		if agentName == "" {
-			agentName = cfg.Agent
-		}
-	}
-	if agentName == "" {
-		agentName = "opencode"
-	}
-
-	// Get model configuration (resolved via config with agent-aware fallback)
-	modelName, modelVariant := cfg.ResolveControlModelAndVariant(agentName)
-
-	// Parse and validate agent type
-	aType, err := agent.ParseAgentType(agentName)
-	if err != nil {
-		encoder.Encode(map[string]interface{}{
-			"ok":    false,
-			"error": fmt.Sprintf("invalid agent type: %v", err),
-		})
-		return
-	}
-
-	adapter, err := agent.GetAdapter(aType)
-	if err != nil {
-		encoder.Encode(map[string]interface{}{
-			"ok":    false,
-			"error": fmt.Sprintf("failed to get adapter: %v", err),
-		})
-		return
-	}
-
-	if !adapter.IsAvailable() {
-		encoder.Encode(map[string]interface{}{
-			"ok":    false,
-			"error": fmt.Sprintf("%s CLI not available", agentName),
-		})
-		return
-	}
-
-	prompt := getControlPromptInstruction()
-	var command string
-	var port int
-	var sessionID string
-	var newSession bool
-
-	// Handle session clearing for new_session request
-	if req.Force { // Using Force as the "new_session" flag
-		lock := s.getControlSessionLock(req.ProjectRoot)
-		lock.Lock()
-		sessionPath := s.controlSessionPath(req.ProjectRoot)
-		os.Remove(sessionPath)
-		lock.Unlock()
-		newSession = true
-	}
-
-	// Handle based on injection method
-	if adapter.PromptInjection() == agent.InjectionHTTP {
-		// OpenCode uses HTTP injection via a managed server
-		serverPort, err := s.ensureOpenCodeServerRunning(req.ProjectRoot)
-		if err != nil {
-			encoder.Encode(map[string]interface{}{
-				"ok":    false,
-				"error": fmt.Sprintf("failed to ensure opencode server: %v", err),
-			})
-			return
-		}
-		port = serverPort
-
-		// Get or create session
-		session, err := s.getOrCreateOpenCodeControlSession(req.ProjectRoot, port, modelName, modelVariant)
-		if err != nil {
-			s.logger.Printf("warning: server running but failed to get session: %v", err)
-			// Still return the command, but without session
-			command = fmt.Sprintf("opencode attach http://127.0.0.1:%d --dir %s", port, req.ProjectRoot)
-		} else {
-			sessionID = session
-			// Include --dir to match the directory the session was created with
-			command = fmt.Sprintf("opencode attach http://127.0.0.1:%d --session %s --dir %s", port, sessionID, req.ProjectRoot)
-		}
-	} else {
-		// CLI-based agents (claude, codex, gemini, custom)
-		// Get extra args for control agent
-		var extraArgs []string
-		if cfgErr == nil {
-			extraArgs = cfg.GetControlExtraArgs(agentName)
-		}
-
-		// Build launch config
-		launchCfg := &agent.LaunchConfig{
-			Type:            aType,
-			IssuesRoot:      st.RootPath(),
-			Prompt:          prompt,
-			ContinueSession: !newSession,
-			Model:           modelName,
-			ModelVariant:    modelVariant,
-			ExtraArgs:       extraArgs,
-		}
-
-		// For claude, try to get existing session
-		if agentName == "claude" && !newSession {
-			stored := s.getStoredControlSession(req.ProjectRoot)
-			if stored != "" {
-				launchCfg.Resume = true
-				launchCfg.SessionName = stored
-				sessionID = stored
-			} else {
-				// Try to discover Claude session
-				discovered := s.discoverClaudeSession(req.ProjectRoot)
-				if discovered != "" {
-					launchCfg.Resume = true
-					launchCfg.SessionName = discovered
-					sessionID = discovered
-					// Save discovered session
-					s.saveControlSession(req.ProjectRoot, discovered, "claude")
-				}
-			}
-		}
-
-		cmd, err := adapter.LaunchCommand(launchCfg)
-		if err != nil {
-			encoder.Encode(map[string]interface{}{
-				"ok":    false,
-				"error": fmt.Sprintf("failed to build launch command: %v", err),
-			})
-			return
-		}
-		command = cmd
-	}
-
-	s.logger.Printf("get_control_agent_launch: agent=%s, command=%s, port=%d, session=%s",
-		agentName, command, port, sessionID)
-
-	encoder.Encode(map[string]interface{}{
-		"ok":          true,
-		"command":     command,
-		"prompt_file": promptPath,
-		"port":        port,
-		"session_id":  sessionID,
-		"agent":       agentName,
-	})
-}
-
 func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *ControlAgentLaunchParams) (*ControlAgentLaunchResult, error) {
 	if params.ProjectRoot == "" {
 		return nil, fmt.Errorf("project_root required")
@@ -1732,6 +1540,8 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 		lock.Unlock()
 	}
 
+	var resumed bool
+
 	if adapter.PromptInjection() == agent.InjectionHTTP {
 		serverPort, err := s.ensureOpenCodeServerRunning(params.ProjectRoot)
 		if err != nil {
@@ -1739,12 +1549,13 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 		}
 		port = serverPort
 
-		session, err := s.getOrCreateOpenCodeControlSession(params.ProjectRoot, port, modelName, modelVariant)
+		session, sessionResumed, err := s.getOrCreateOpenCodeControlSession(params.ProjectRoot, port, modelName, modelVariant)
 		if err != nil {
 			s.logger.Printf("warning: server running but failed to get session: %v", err)
 			command = fmt.Sprintf("opencode attach http://127.0.0.1:%d --dir %s", port, params.ProjectRoot)
 		} else {
 			sessionID = session
+			resumed = sessionResumed
 			command = fmt.Sprintf("opencode attach http://127.0.0.1:%d --session %s --dir %s", port, sessionID, params.ProjectRoot)
 		}
 	} else {
@@ -1769,12 +1580,14 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 				launchCfg.Resume = true
 				launchCfg.SessionName = stored
 				sessionID = stored
+				resumed = true
 			} else {
 				discovered := s.discoverClaudeSession(params.ProjectRoot)
 				if discovered != "" {
 					launchCfg.Resume = true
 					launchCfg.SessionName = discovered
 					sessionID = discovered
+					resumed = true
 					s.saveControlSession(params.ProjectRoot, discovered, "claude")
 				}
 			}
@@ -1787,8 +1600,8 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 		command = cmd
 	}
 
-	s.logger.Printf("get_control_agent_launch: agent=%s, command=%s, port=%d, session=%s",
-		agentName, command, port, sessionID)
+	s.logger.Printf("get_control_agent_launch: agent=%s, command=%s, port=%d, session=%s, resumed=%v",
+		agentName, command, port, sessionID, resumed)
 
 	return &ControlAgentLaunchResult{
 		Command:    command,
@@ -1796,6 +1609,7 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 		Port:       port,
 		SessionID:  sessionID,
 		Agent:      agentName,
+		Resumed:    resumed,
 	}, nil
 }
 

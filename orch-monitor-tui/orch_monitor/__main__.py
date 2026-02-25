@@ -906,6 +906,70 @@ def launch_monitor_layout(
     if session_exists:
         _launcher_logger.info("session exists")
         if new or new_control_agent:
+            # Pre-flight: when --new (layout restart only), verify control agent
+            # session is recoverable BEFORE destroying the existing layout.
+            if new and not new_control_agent:
+                _launcher_logger.info(
+                    "--new: checking if control agent session is recoverable..."
+                )
+                daemon = _get_daemon_client(project_root)
+                if daemon:
+                    from returns.result import Failure as _Failure
+
+                    project_str = str(project_root) if project_root else str(Path.cwd())
+                    preflight = daemon.get_control_agent_launch(
+                        project_str, agent_type=agent_override, new_session=False
+                    )
+                    if isinstance(preflight, _Failure):
+                        _launcher_logger.error(
+                            f"pre-flight failed: {preflight.failure()}"
+                        )
+                        _console.print(
+                            "[red]Error:[/red] Cannot recover control agent session."
+                        )
+                        _console.print(
+                            f"[dim]Daemon error: {preflight.failure()}[/dim]"
+                        )
+                        _console.print(
+                            "[dim]Use --new-control-agent to start a fresh session.[/dim]"
+                        )
+                        sys.exit(1)
+                    else:
+                        launch = preflight.unwrap()
+                        _launcher_logger.info(
+                            f"pre-flight result: session={launch.session_id}, resumed={launch.resumed}"
+                        )
+                        if not launch.resumed:
+                            _launcher_logger.error(
+                                "no previous control agent session found to resume"
+                            )
+                            _console.print(
+                                "[red]Error:[/red] --new requires an existing control agent session to resume, "
+                                "but none was found."
+                            )
+                            _console.print(
+                                f"[dim]  agent={agent_override or '(auto)'}, "
+                                f"session_id={launch.session_id or '(none)'}[/dim]"
+                            )
+                            _console.print(
+                                "[dim]  A new session was created by the daemon but will not be used.[/dim]"
+                            )
+                            _console.print("")
+                            _console.print(
+                                "[dim]To start fresh:  orch-monitor --new-control-agent[/dim]"
+                            )
+                            _console.print(
+                                "[dim]To attach as-is: orch-monitor  (no flags)[/dim]"
+                            )
+                            sys.exit(1)
+                        _console.print(
+                            f"[dim]Resuming control agent session: {launch.session_id}[/dim]"
+                        )
+                else:
+                    _launcher_logger.warning(
+                        "--new: daemon not available for pre-flight check, proceeding anyway"
+                    )
+
             with _spinner_context("Restarting session...", enabled=show_spinner):
                 _launcher_logger.info("killing existing session...")
                 launcher.kill_session(session_name)

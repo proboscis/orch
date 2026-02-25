@@ -710,6 +710,7 @@ type ControlAgentLaunchResult struct {
 	Port       int
 	SessionID  string
 	Agent      string
+	Resumed    bool
 }
 
 type SendMessageParams struct {

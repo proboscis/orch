@@ -16,7 +16,9 @@ from returns.result import Success, Failure
 from orch_monitor.types import ControlAgentLaunch
 
 
-def mock_daemon_client_with_launch(command, port=0, session_id=None, agent="opencode"):
+def mock_daemon_client_with_launch(
+    command, port=0, session_id=None, agent="opencode", resumed=False
+):
     """Create a mock daemon client that returns a specific launch command."""
     mock_daemon = MagicMock()
     mock_daemon.is_available.return_value = True
@@ -27,6 +29,7 @@ def mock_daemon_client_with_launch(command, port=0, session_id=None, agent="open
             port=port,
             session_id=session_id or "",
             agent=agent,
+            resumed=resumed,
         )
     )
     return mock_daemon
@@ -417,3 +420,108 @@ class TestFallbackControlAgentCommand:
         cmd_str = " ".join(str(c) for c in agent_cmd)
         assert "--dangerously-skip-permissions" in cmd_str
         assert "--prompt" not in cmd_str
+
+
+class TestNewLayoutPreflightGuard:
+    """Test that --new (layout restart) fails when control agent session is not recoverable."""
+
+    def test_new_flag_exits_when_session_not_resumed(self):
+        """--new should exit(1) when daemon reports resumed=False."""
+        from orch_monitor.__main__ import launch_monitor_layout
+
+        mock_launcher = MagicMock()
+        mock_launcher.has_session.return_value = True
+
+        mock_daemon = mock_daemon_client_with_launch(
+            command="opencode attach http://127.0.0.1:4096 --session new-ses",
+            port=4096,
+            session_id="new-ses",
+            agent="opencode",
+            resumed=False,
+        )
+
+        with (
+            patch("orch_monitor.__main__.get_default_multiplexer_type"),
+            patch("orch_monitor.__main__.validate_multiplexer_config"),
+            patch(
+                "orch_monitor.__main__.get_layout_launcher", return_value=mock_launcher
+            ),
+            patch("orch_monitor.__main__.get_session_name", return_value="test-ses"),
+            patch("orch_monitor.__main__._get_daemon_client", return_value=mock_daemon),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            launch_monitor_layout(
+                project_root=Path("/tmp/test"),
+                vault_path=Path("/tmp/vault"),
+                new=True,
+                new_control_agent=False,
+                show_spinner=False,
+            )
+
+        assert exc_info.value.code == 1
+        mock_launcher.kill_session.assert_not_called()
+
+    def test_new_flag_proceeds_when_session_resumed(self):
+        """--new should proceed normally when daemon reports resumed=True."""
+        from orch_monitor.__main__ import launch_monitor_layout
+
+        mock_launcher = MagicMock()
+        mock_launcher.has_session.return_value = True
+
+        mock_daemon = mock_daemon_client_with_launch(
+            command="opencode attach http://127.0.0.1:4096 --session old-ses",
+            port=4096,
+            session_id="old-ses",
+            agent="opencode",
+            resumed=True,
+        )
+
+        with (
+            patch("orch_monitor.__main__.get_default_multiplexer_type"),
+            patch("orch_monitor.__main__.validate_multiplexer_config"),
+            patch(
+                "orch_monitor.__main__.get_layout_launcher", return_value=mock_launcher
+            ),
+            patch("orch_monitor.__main__.get_session_name", return_value="test-ses"),
+            patch("orch_monitor.__main__._get_daemon_client", return_value=mock_daemon),
+        ):
+            launch_monitor_layout(
+                project_root=Path("/tmp/test"),
+                vault_path=Path("/tmp/vault"),
+                new=True,
+                new_control_agent=False,
+                show_spinner=False,
+            )
+
+        mock_launcher.kill_session.assert_called_once()
+        mock_launcher.launch_layout.assert_called_once()
+
+    def test_new_control_agent_skips_preflight(self):
+        """--new-control-agent should skip the preflight check entirely."""
+        from orch_monitor.__main__ import launch_monitor_layout
+
+        mock_launcher = MagicMock()
+        mock_launcher.has_session.return_value = True
+
+        with (
+            patch("orch_monitor.__main__.get_default_multiplexer_type"),
+            patch("orch_monitor.__main__.validate_multiplexer_config"),
+            patch(
+                "orch_monitor.__main__.get_layout_launcher", return_value=mock_launcher
+            ),
+            patch("orch_monitor.__main__.get_session_name", return_value="test-ses"),
+            patch("orch_monitor.__main__._get_daemon_client") as mock_get_daemon,
+        ):
+            launch_monitor_layout(
+                project_root=Path("/tmp/test"),
+                vault_path=Path("/tmp/vault"),
+                new=True,
+                new_control_agent=True,
+                show_spinner=False,
+            )
+
+        mock_launcher.kill_session.assert_called_once()
+        mock_launcher.launch_layout.assert_called_once()
+        # Pre-flight daemon call should NOT have been made
+        # (the launcher.launch_layout makes its own daemon call internally)
+        mock_get_daemon.assert_not_called()

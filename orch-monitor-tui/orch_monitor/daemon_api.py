@@ -468,17 +468,14 @@ class DaemonOrchAPI:
         result = self._daemon.get_control_agent_launch(project_root, agent, new_session)
         if isinstance(result, Failure):
             return _map_daemon_error(result.failure())
-        ok, command, prompt_file, port, session_id, resolved_agent, error = (
-            result.unwrap()
-        )
-        if not ok:
-            return Failure(OrchError(error or "Failed to get control agent launch"))
+        launch = result.unwrap()
         return Success(
             ControlAgentLaunch(
-                command=command or "",
-                prompt_file=prompt_file or "",
-                port=port,
-                session_id=session_id,
+                command=launch.command or "",
+                prompt_file=launch.prompt_file or "",
+                port=launch.port,
+                session_id=launch.session_id,
+                resumed=launch.resumed,
             )
         )
 

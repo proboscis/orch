@@ -117,6 +117,7 @@ class ControlAgentLaunch:
     port: int
     session_id: str
     agent: str
+    resumed: bool = False
 
 
 # ============================================================================

@@ -1662,7 +1662,7 @@ func TestGetOrCreateOpenCodeControlSessionReusesExisting(t *testing.T) {
 
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
 	port := getPortFromURL(t, ts.URL)
-	sessionID, err := server.getOrCreateOpenCodeControlSession(projectRoot, port, modelName, modelVariant)
+	sessionID, _, err := server.getOrCreateOpenCodeControlSession(projectRoot, port, modelName, modelVariant)
 	if err != nil {
 		t.Fatalf("getOrCreateOpenCodeControlSession() error = %v", err)
 	}
@@ -1755,7 +1755,7 @@ func TestGetOrCreateOpenCodeControlSessionRecoversAfterServerRestart(t *testing.
 
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
 	port := getPortFromURL(t, ts.URL)
-	sessionID, err := server.getOrCreateOpenCodeControlSession(projectRoot, port, modelName, modelVariant)
+	sessionID, _, err := server.getOrCreateOpenCodeControlSession(projectRoot, port, modelName, modelVariant)
 	if err != nil {
 		t.Fatalf("getOrCreateOpenCodeControlSession() error = %v", err)
 	}
@@ -1878,7 +1878,7 @@ func TestGetOrCreateOpenCodeControlSessionCreatesWhenRecoveryFindsNoSession(t *t
 
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
 	port := getPortFromURL(t, ts.URL)
-	sessionID, err := server.getOrCreateOpenCodeControlSession(projectRoot, port, modelName, modelVariant)
+	sessionID, _, err := server.getOrCreateOpenCodeControlSession(projectRoot, port, modelName, modelVariant)
 	if err != nil {
 		t.Fatalf("getOrCreateOpenCodeControlSession() error = %v", err)
 	}
@@ -1999,7 +1999,7 @@ func TestGetOrCreateOpenCodeControlSessionCreatesNewWhenStoredModelMismatches(t 
 
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
 	port := getPortFromURL(t, ts.URL)
-	sessionID, err := server.getOrCreateOpenCodeControlSession(projectRoot, port, modelName, modelVariant)
+	sessionID, _, err := server.getOrCreateOpenCodeControlSession(projectRoot, port, modelName, modelVariant)
 	if err != nil {
 		t.Fatalf("getOrCreateOpenCodeControlSession() error = %v", err)
 	}
@@ -2091,7 +2091,7 @@ opencode:
 	defer ts.Close()
 
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
-	_, err = server.getOrCreateOpenCodeControlSession(projectRoot, getPortFromURL(t, ts.URL), modelName, modelVariant)
+	_, _, err = server.getOrCreateOpenCodeControlSession(projectRoot, getPortFromURL(t, ts.URL), modelName, modelVariant)
 	if err != nil {
 		t.Fatalf("getOrCreateOpenCodeControlSession() error = %v", err)
 	}

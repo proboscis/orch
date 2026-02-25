@@ -137,6 +137,7 @@ class ControlAgentLaunch:
     prompt_file: str
     port: int = 0
     session_id: Optional[str] = None
+    resumed: bool = False
 
 
 @dataclass

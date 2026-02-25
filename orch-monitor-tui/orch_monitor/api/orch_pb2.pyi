@@ -440,16 +440,18 @@ class GetControlAgentLaunchRequest(_message.Message):
     def __init__(self, project_root: _Optional[str] = ..., agent: _Optional[str] = ..., new_session: _Optional[bool] = ...) -> None: ...
 
 class GetControlAgentLaunchResponse(_message.Message):
-    __slots__ = ("command", "prompt_file", "port", "session_id")
+    __slots__ = ("command", "prompt_file", "port", "session_id", "resumed")
     COMMAND_FIELD_NUMBER: _ClassVar[int]
     PROMPT_FILE_FIELD_NUMBER: _ClassVar[int]
     PORT_FIELD_NUMBER: _ClassVar[int]
     SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    RESUMED_FIELD_NUMBER: _ClassVar[int]
     command: str
     prompt_file: str
     port: int
     session_id: str
-    def __init__(self, command: _Optional[str] = ..., prompt_file: _Optional[str] = ..., port: _Optional[int] = ..., session_id: _Optional[str] = ...) -> None: ...
+    resumed: bool
+    def __init__(self, command: _Optional[str] = ..., prompt_file: _Optional[str] = ..., port: _Optional[int] = ..., session_id: _Optional[str] = ..., resumed: _Optional[bool] = ...) -> None: ...
 
 class GetAttachInfoRequest(_message.Message):
     __slots__ = ("issues_root", "issue_id", "run_id", "short_id")

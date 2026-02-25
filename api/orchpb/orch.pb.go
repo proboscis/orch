@@ -2221,6 +2221,7 @@ type GetControlAgentLaunchResponse struct {
 	PromptFile    string                 `protobuf:"bytes,2,opt,name=prompt_file,json=promptFile,proto3" json:"prompt_file,omitempty"`
 	Port          int32                  `protobuf:"varint,3,opt,name=port,proto3" json:"port,omitempty"`
 	SessionId     string                 `protobuf:"bytes,4,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Resumed       bool                   `protobuf:"varint,5,opt,name=resumed,proto3" json:"resumed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2281,6 +2282,13 @@ func (x *GetControlAgentLaunchResponse) GetSessionId() string {
 		return x.SessionId
 	}
 	return ""
+}
+
+func (x *GetControlAgentLaunchResponse) GetResumed() bool {
+	if x != nil {
+		return x.Resumed
+	}
+	return false
 }
 
 type GetAttachInfoRequest struct {
@@ -9171,14 +9179,15 @@ const file_orch_proto_rawDesc = "" +
 	"\fproject_root\x18\x01 \x01(\tR\vprojectRoot\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x1f\n" +
 	"\vnew_session\x18\x03 \x01(\bR\n" +
-	"newSession\"\x8d\x01\n" +
+	"newSession\"\xa7\x01\n" +
 	"\x1dGetControlAgentLaunchResponse\x12\x18\n" +
 	"\acommand\x18\x01 \x01(\tR\acommand\x12\x1f\n" +
 	"\vprompt_file\x18\x02 \x01(\tR\n" +
 	"promptFile\x12\x12\n" +
 	"\x04port\x18\x03 \x01(\x05R\x04port\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\x04 \x01(\tR\tsessionId\"\x84\x01\n" +
+	"session_id\x18\x04 \x01(\tR\tsessionId\x12\x18\n" +
+	"\aresumed\x18\x05 \x01(\bR\aresumed\"\x84\x01\n" +
 	"\x14GetAttachInfoRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +
