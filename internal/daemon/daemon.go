@@ -325,7 +325,7 @@ func (d *Daemon) monitorAll() {
 			continue
 		}
 		runs, err := ctx.Store.ListRuns(&store.ListRunsFilter{
-			Status: []model.Status{model.StatusRunning, model.StatusBooting, model.StatusBlocked, model.StatusBlockedAPI, model.StatusPROpen, model.StatusUnknown},
+			Status: []model.Status{model.StatusRunning, model.StatusBooting, model.StatusWaiting, model.StatusRateLimited, model.StatusPROpen, model.StatusUnknown},
 		})
 		if err != nil {
 			d.logger.Printf("error listing runs for %s: %v", ctx.RepoID, err)

@@ -52,7 +52,7 @@ func setupMockPsDeps(issuesRoot string) *psDeps {
 
 func TestParseStatusList(t *testing.T) {
 	statuses := parseStatusList("running, blocked ,done")
-	want := []model.Status{model.StatusRunning, model.StatusBlocked, model.StatusDone}
+	want := []model.Status{model.StatusRunning, model.StatusWaiting, model.StatusDone}
 	if len(statuses) != len(want) {
 		t.Fatalf("got %d statuses, want %d", len(statuses), len(want))
 	}
@@ -527,8 +527,8 @@ func TestShortAgentStatus(t *testing.T) {
 		{model.StatusQueued, "queue"},
 		{model.StatusBooting, "boot"},
 		{model.StatusRunning, "run"},
-		{model.StatusBlocked, "block"},
-		{model.StatusBlockedAPI, "block"},
+		{model.StatusWaiting, "wait"},
+		{model.StatusRateLimited, "rlimit"},
 		{model.StatusPROpen, "pr"},
 		{model.StatusDone, "done"},
 		{model.StatusFailed, "fail"},
@@ -645,7 +645,7 @@ func TestOutputTableAgentColumn(t *testing.T) {
 		wantShort string
 	}{
 		{model.StatusRunning, "run"},
-		{model.StatusBlocked, "block"},
+		{model.StatusWaiting, "wait"},
 		{model.StatusDone, "done"},
 		{model.StatusFailed, "fail"},
 	}

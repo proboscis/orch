@@ -68,7 +68,7 @@ func TestRunFilterRows(t *testing.T) {
 		},
 		{
 			IssueID:     "orch-2",
-			Status:      model.StatusBlocked,
+			Status:      model.StatusWaiting,
 			Agent:       "claude",
 			PR:          "-",
 			Merged:      "conflict",
@@ -91,7 +91,7 @@ func TestRunFilterRows(t *testing.T) {
 	filter := DefaultRunFilter()
 	filter.Statuses = map[model.Status]bool{
 		model.StatusRunning: true,
-		model.StatusBlocked: true,
+		model.StatusWaiting: true,
 	}
 	filter.Agent = "codex"
 	filter.Merged = mergedFilterClean

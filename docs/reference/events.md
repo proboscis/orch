@@ -30,8 +30,8 @@ Tracks run state changes. These events determine the current status of a run.
 | `queued` | Run created, waiting to start | `status \| queued \|` |
 | `booting` | Agent is starting | `status \| booting \| agent=claude` |
 | `running` | Agent is working | `status \| running \|` |
-| `blocked` | Needs human input | `status \| blocked \| reason=question` |
-| `blocked_api` | API/rate limit issue | `status \| blocked_api \| error=rate_limit` |
+| `waiting` | Needs human input | `status \| waiting \| reason=question` |
+| `rate_limited` | API/rate limit issue | `status \| rate_limited \| error=rate_limit` |
 | `pr_open` | PR created | `status \| pr_open \|` |
 | `done` | Completed successfully | `status \| done \|` |
 | `failed` | Error occurred | `status \| failed \| error=...` |

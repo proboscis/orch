@@ -134,7 +134,7 @@ The TUI uses colors to indicate run status at a glance:
 | Color | Status | Meaning |
 |-------|--------|---------|
 | 🟢 Green | `running` | Agent is actively working |
-| 🟡 Yellow | `blocked` | Agent needs your input |
+| 🟡 Yellow | `waiting` | Agent needs your input |
 | 🔵 Blue | `pr_open` | PR created, ready for review |
 | ⚪ White | `done` | Completed successfully |
 | 🔴 Red | `failed` | Error occurred |
@@ -167,7 +167,7 @@ Agent: Starting run for fix-login-timeout with claude agent...
 You: What's running right now?
 Agent: You have 2 active runs:
        - fix-login-timeout: running (started 10m ago)
-       - update-deps: blocked (waiting for input about React version)
+       - update-deps: waiting (needs input about React version)
 ```
 
 ### Getting Help
@@ -199,8 +199,8 @@ Agent: You can press 'd' while a run is selected in the Runs panel,
    - Watch the status change in the Runs panel
    - Status updates automatically
 
-5. **Help if blocked**
-   - If status turns yellow (blocked), press `a` to attach
+5. **Help if waiting**
+   - If status turns yellow (waiting), press `a` to attach
    - Provide the needed input
    - Press `Ctrl+B D` to detach
 
@@ -226,7 +226,7 @@ Agent: You can press 'd' while a run is selected in the Runs panel,
 
 If the TUI seems unresponsive:
 1. Press `r` to refresh the current panel
-2. Check if a run is actually blocked (`orch ps` in another terminal)
+2. Check if a run is actually waiting (`orch ps` in another terminal)
 3. Try `q` and restart if needed
 
 If control agent isn't responding:

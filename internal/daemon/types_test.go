@@ -181,7 +181,7 @@ func TestRunToSummaryRoundTrip(t *testing.T) {
 	original := &model.Run{
 		IssueID:      "issue-roundtrip",
 		RunID:        "run-roundtrip-123",
-		Status:       model.StatusBlocked,
+		Status:       model.StatusWaiting,
 		Phase:        model.PhasePlan,
 		Agent:        "opencode",
 		Model:        "gpt-4",
@@ -263,7 +263,7 @@ func TestListRunsFilterDefaults(t *testing.T) {
 		{
 			name: "partial filter only sets specified fields",
 			filter: &ListRunsFilter{
-				Status: []string{"running", "blocked"},
+				Status: []string{"running", "waiting"},
 			},
 			check: func(t *testing.T, f *ListRunsFilter) {
 				if f.IssueID != "" {
@@ -272,8 +272,8 @@ func TestListRunsFilterDefaults(t *testing.T) {
 				if len(f.Status) != 2 {
 					t.Errorf("Status = %v, want 2 elements", f.Status)
 				}
-				if f.Status[0] != "running" || f.Status[1] != "blocked" {
-					t.Errorf("Status = %v, want [running, blocked]", f.Status)
+				if f.Status[0] != "running" || f.Status[1] != "waiting" {
+					t.Errorf("Status = %v, want [running, waiting]", f.Status)
 				}
 			},
 		},

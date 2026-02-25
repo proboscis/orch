@@ -12,7 +12,7 @@ import (
 
 type tickOptions struct {
 	All         bool
-	OnlyBlocked bool
+	OnlyWaiting bool
 	Agent       string
 	Max         int
 }
@@ -22,10 +22,10 @@ func newTickCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "tick [RUN_REF]",
-		Short: "Resume blocked runs",
-		Long: `Trigger blocked runs to resume if their questions are answered.
+		Short: "Resume waiting runs",
+		Long: `Trigger waiting runs to resume if their questions are answered.
 
-With --all, processes all blocked runs. Otherwise, processes a single run.`,
+With --all, processes all waiting runs. Otherwise, processes a single run.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var refStr string
@@ -36,8 +36,8 @@ With --all, processes all blocked runs. Otherwise, processes a single run.`,
 		},
 	}
 
-	cmd.Flags().BoolVar(&opts.All, "all", false, "Process all blocked runs")
-	cmd.Flags().BoolVar(&opts.OnlyBlocked, "only-blocked", true, "Only process blocked runs (default when --all)")
+	cmd.Flags().BoolVar(&opts.All, "all", false, "Process all waiting runs")
+	cmd.Flags().BoolVar(&opts.OnlyWaiting, "only-waiting", true, "Only process waiting runs (default when --all)")
 	cmd.Flags().StringVar(&opts.Agent, "agent", "", "Agent to use for resumption")
 	cmd.Flags().IntVar(&opts.Max, "max", 10, "Maximum runs to process with --all")
 
@@ -74,7 +74,7 @@ func runTick(refStr string, opts *tickOptions) error {
 
 	if opts.All {
 		filter := &orchapi.ListRunsFilter{
-			Status: []orchapi.RunStatus{orchapi.RunStatusBlocked, orchapi.RunStatusBlockedAPI},
+			Status: []orchapi.RunStatus{orchapi.RunStatusWaiting, orchapi.RunStatusRateLimited},
 			Limit:  opts.Max,
 		}
 		listResult, err := api.ListRuns(ctx, filter)
@@ -103,11 +103,11 @@ func runTick(refStr string, opts *tickOptions) error {
 
 	for _, run := range runs {
 		// Only check blocked status for single-run case; --all already filters at daemon level
-		if !opts.All && opts.OnlyBlocked && run.Status != orchapi.RunStatusBlocked && run.Status != orchapi.RunStatusBlockedAPI {
+		if !opts.All && opts.OnlyWaiting && run.Status != orchapi.RunStatusWaiting && run.Status != orchapi.RunStatusRateLimited {
 			result.Skipped = append(result.Skipped, skippedRun{
 				IssueID: run.IssueID,
 				RunID:   run.RunID,
-				Reason:  fmt.Sprintf("status is %s, not blocked", run.Status),
+				Reason:  fmt.Sprintf("status is %s, not waiting", run.Status),
 			})
 			continue
 		}
@@ -175,10 +175,10 @@ func buildResumePrompt(issue *orchapi.Issue, run *orchapi.Run) string {
 	if issue.Title != "" {
 		prompt += fmt.Sprintf("Title: %s\n\n", issue.Title)
 	}
-	if run.Status == orchapi.RunStatusBlockedAPI {
-		prompt += "The previous session was blocked by API usage limits.\n"
+	if run.Status == orchapi.RunStatusRateLimited {
+		prompt += "The previous session was rate limited by API usage limits.\n"
 	} else {
-		prompt += "The previous session was blocked.\n"
+		prompt += "The previous session was waiting for input.\n"
 	}
 	prompt += "Please continue from where you left off.\n"
 	return prompt

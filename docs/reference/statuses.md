@@ -11,19 +11,19 @@ stateDiagram-v2
     queued --> booting: agent starting
     booting --> running: agent ready
 
-    running --> blocked: needs human input
-    running --> blocked_api: API/rate limit issue
+    running --> waiting: needs human input
+    running --> rate_limited: API/rate limit issue
     running --> pr_open: PR created
     running --> done: task complete
     running --> failed: error occurred
     running --> canceled: orch stop
     running --> unknown: agent exited unexpectedly
 
-    blocked --> running: input provided (orch attach)
-    blocked --> canceled: orch stop
+    waiting --> running: input provided (orch attach)
+    waiting --> canceled: orch stop
 
-    blocked_api --> running: issue resolved
-    blocked_api --> canceled: orch stop
+    rate_limited --> running: issue resolved
+    rate_limited --> canceled: orch stop
 
     pr_open --> done: PR merged/closed
 
@@ -68,9 +68,9 @@ Agent is actively working on the task.
 |--------|---------|
 | What's happening | Agent analyzing, coding, testing |
 | User action | Wait, or attach to watch |
-| Next status | `blocked`, `pr_open`, `done`, `failed` |
+| Next status | `waiting`, `pr_open`, `done`, `failed` |
 
-#### `blocked`
+#### `waiting`
 
 Agent needs human input to continue.
 
@@ -80,13 +80,13 @@ Agent needs human input to continue.
 | User action | `orch attach` to provide input |
 | Next status | `running` (after input) |
 
-Common reasons for blocked:
+Common reasons for waiting:
 - Agent asking clarifying question
 - Permission confirmation needed
 - Design decision required
 - Error needs human judgment
 
-#### `blocked_api`
+#### `rate_limited`
 
 API or rate limit issue preventing progress.
 
@@ -162,10 +162,10 @@ The daemon detects this by:
 
 ```bash
 # Active runs
-orch ps --status running,blocked
+orch ps --status running,waiting
 
-# All blocked runs
-orch ps --status blocked,blocked_api
+# All waiting runs
+orch ps --status waiting,rate_limited
 
 # Completed runs
 orch ps --status done
@@ -191,9 +191,9 @@ SELECT
 FROM runs
 WHERE status = 'running';
 
--- Recently blocked
+-- Recently waiting
 SELECT * FROM runs
-WHERE status = 'blocked'
+WHERE status = 'waiting'
 ORDER BY updated_at DESC
 LIMIT 10;
 ```
@@ -209,7 +209,7 @@ queued → booting → running → pr_open → done
 ### With human interaction
 
 ```
-queued → booting → running → blocked → running → pr_open → done
+queued → booting → running → waiting → running → pr_open → done
 ```
 
 ### Failure scenarios
@@ -224,7 +224,7 @@ running → unknown (agent crashed)
 
 ```
 running → canceled (user stopped)
-blocked → canceled (user stopped)
+waiting → canceled (user stopped)
 ```
 
 ## Monitoring Status
@@ -239,7 +239,7 @@ orch ps
 watch -n 5 orch ps
 
 # JSON for scripting
-orch ps --json | jq '.runs[] | select(.status == "blocked")'
+orch ps --json | jq '.runs[] | select(.status == "waiting")'
 ```
 
 ### Notifications
@@ -251,17 +251,17 @@ slack:
   enabled: true
   webhook_url: ${SLACK_WEBHOOK}
   notify_on:
-    - blocked
-    - blocked_api
+    - waiting
+    - rate_limited
     - failed
 ```
 
 ## Best Practices
 
-### Handling blocked runs
+### Handling waiting runs
 
 1. Check `orch ps` regularly
-2. Set up Slack notifications for `blocked`
+2. Set up Slack notifications for `waiting`
 3. Use `orch attach` to provide input
 4. Document common questions in issue templates
 
@@ -278,7 +278,7 @@ slack:
 # Simple loop
 while true; do
   clear
-  orch ps --status running,blocked,booting
+  orch ps --status running,waiting,booting
   sleep 10
 done
 ```

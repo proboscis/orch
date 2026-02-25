@@ -13,7 +13,7 @@ orchは自動的にバックグラウンドdaemonを起動・管理する。ユ�
 
 ## 監視ループ（5-10秒間隔）
 
-各"running"/"blocked"/"unknown"状態のrunに対して:
+各"running"/"waiting"/"unknown"状態のrunに対して:
 
 1. tmuxセッション存在確認
 2. capture-paneで最新出力を取得
@@ -27,7 +27,7 @@ claude-squad互換のロジック:
 2. **完了パターン**: "task completed successfully" 等 → `done`
 3. **エラーパターン**: "fatal error" 等 → `failed`
 4. **Content変化あり**: 主要コンテンツが変化 → `running`
-5. **Content安定 + Prompt検出**: 入力待ちパターン → `blocked`
+5. **Content安定 + Prompt検出**: 入力待ちパターン → `waiting`
 6. **その他**: 状態維持
 
 ### Content変化検出

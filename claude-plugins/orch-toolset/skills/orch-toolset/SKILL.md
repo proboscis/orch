@@ -64,12 +64,12 @@ Orch is a non-interactive orchestrator for managing multiple LLM CLI agents (Cla
 
 ### Maintenance
 - `orch repair`: Fix system state corruption
-- `orch tick <RUN_REF>`: Resume blocked runs
+- `orch tick <RUN_REF>`: Resume waiting runs
 
 ## Run Lifecycle States
 
 ```
-queued -> booting -> running -> blocked -> pr_open -> done
+queued -> booting -> running -> waiting -> pr_open -> done
                             \-> failed
                             \-> canceled
                             \-> unknown
@@ -79,8 +79,8 @@ State meanings:
 - `queued`: Run created, waiting to start
 - `booting`: Agent starting up
 - `running`: Agent actively working
-- `blocked`: Agent needs input (waiting on question)
-- `blocked_api`: API rate limit hit
+- `waiting`: Agent needs input (waiting on question)
+- `rate_limited`: API rate limit hit
 - `pr_open`: PR created, awaiting review
 - `done`: Work completed successfully
 - `failed`: Run failed with error
@@ -95,7 +95,7 @@ State meanings:
 - Use issue status (open/resolved) separately from run status
 
 ### Monitoring Strategy
-- Use `orch ps --status running,blocked` for active attention
+- Use `orch ps --status running,waiting` for active attention
 - Use `orch monitor` for multi-agent coordination and rapid context-switching
 - Set up background daemon (auto-runs) and check periodically
 
@@ -116,7 +116,7 @@ State meanings:
 When acting as a control agent managing other runs:
 
 1. **Survey**: `orch issue list` to see all work items
-2. **Monitor**: `orch ps --status running,blocked` to prioritize attention
+2. **Monitor**: `orch ps --status running,waiting` to prioritize attention
 3. **Investigate**: `orch capture <run>` to fetch output without attaching
 4. **Inspect**: `orch open <run>` to read full run doc with context
 5. **Guide**: `orch send <run> "focused guidance"` to steer work
@@ -174,7 +174,7 @@ Benefits of external worktrees:
 | Create issue | `orch issue create <ID> --title "..." --tag <tag>` |
 | Start run | `orch run <ISSUE>` |
 | Continue failed run | `orch continue <RUN_ID> --agent codex` |
-| List active | `orch ps --status running,blocked` |
+| List active | `orch ps --status running,waiting` |
 | Inspect run | `orch show <RUN>` |
 | Watch agent | `orch attach <RUN>` |
 | Get output | `orch capture <RUN>` |

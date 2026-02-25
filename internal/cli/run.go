@@ -62,7 +62,7 @@ Debug output can be enabled with --verbose, --log-level debug, or ORCH_DEBUG=1.`
 	}
 
 	cmd.Flags().BoolVar(&opts.New, "new", true, "Always create a new run (default)")
-	cmd.Flags().BoolVar(&opts.Reuse, "reuse", false, "Reuse the latest run if blocked or blocked_api")
+	cmd.Flags().BoolVar(&opts.Reuse, "reuse", false, "Reuse the latest run if waiting or rate_limited")
 	cmd.Flags().StringVar(&opts.RunID, "run-id", "", "Manually specify run ID")
 	cmd.Flags().StringVar(&opts.Agent, "agent", "", "Agent type (claude|codex|gemini|opencode|custom)")
 	cmd.Flags().StringVar(&opts.AgentCmd, "agent-cmd", "", "Custom agent command (when --agent=custom)")

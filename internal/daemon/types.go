@@ -532,7 +532,7 @@ func SummaryToRun(s *RunSummary) *model.Run {
 	return &model.Run{
 		IssueID:      s.IssueID,
 		RunID:        s.RunID,
-		Status:       model.Status(s.Status),
+		Status:       model.NormalizeStatus(s.Status),
 		Phase:        model.Phase(s.Phase),
 		Agent:        s.Agent,
 		Model:        s.Model,

@@ -60,7 +60,7 @@ func newPsCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringSliceVar(&opts.Status, "status", nil, "Filter by run status (queued,booting,running,blocked,blocked_api,pr_open,done,failed,canceled,unknown)")
+	cmd.Flags().StringSliceVar(&opts.Status, "status", nil, "Filter by run status (queued,booting,running,waiting,rate_limited,pr_open,done,failed,canceled,unknown)")
 	cmd.Flags().StringSliceVar(&opts.IssueStatus, "issue-status", nil, "Filter by issue status (open,resolved,closed)")
 	cmd.Flags().StringVar(&opts.Issue, "issue", "", "Filter by issue ID")
 	cmd.Flags().IntVar(&opts.Limit, "limit", 50, "Maximum number of runs to show")
@@ -89,7 +89,7 @@ func runPsWithDeps(ctx context.Context, opts *psOptions, deps *psDeps) error {
 
 	statusFilter := make([]orchapi.RunStatus, len(opts.Status))
 	for i, s := range opts.Status {
-		statusFilter[i] = orchapi.RunStatus(s)
+		statusFilter[i] = orchapi.NormalizeRunStatus(s)
 	}
 
 	limit := opts.Limit
@@ -541,10 +541,10 @@ func shortAgentStatus(status model.Status) string {
 		return "boot"
 	case model.StatusRunning:
 		return "run"
-	case model.StatusBlocked:
-		return "block"
-	case model.StatusBlockedAPI:
-		return "block"
+	case model.StatusWaiting:
+		return "wait"
+	case model.StatusRateLimited:
+		return "rlimit"
 	case model.StatusPROpen:
 		return "pr"
 	case model.StatusDone:
@@ -745,16 +745,16 @@ func formatRelativeTime(when time.Time, now time.Time) string {
 
 func colorStatus(status model.Status) string {
 	colors := map[model.Status]string{
-		model.StatusRunning:    "\033[32m",
-		model.StatusBlocked:    "\033[33m",
-		model.StatusBlockedAPI: "\033[33m",
-		model.StatusFailed:     "\033[31m",
-		model.StatusDone:       "\033[34m",
-		model.StatusPROpen:     "\033[36m",
-		model.StatusQueued:     "\033[37m",
-		model.StatusBooting:    "\033[32m",
-		model.StatusCanceled:   "\033[90m",
-		model.StatusUnknown:    "\033[35m",
+		model.StatusRunning:     "\033[32m",
+		model.StatusWaiting:     "\033[33m",
+		model.StatusRateLimited: "\033[33m",
+		model.StatusFailed:      "\033[31m",
+		model.StatusDone:        "\033[34m",
+		model.StatusPROpen:      "\033[36m",
+		model.StatusQueued:      "\033[37m",
+		model.StatusBooting:     "\033[32m",
+		model.StatusCanceled:    "\033[90m",
+		model.StatusUnknown:     "\033[35m",
 	}
 
 	reset := "\033[0m"
@@ -766,16 +766,16 @@ func colorStatus(status model.Status) string {
 
 func colorShortStatus(status model.Status) string {
 	colors := map[model.Status]string{
-		model.StatusRunning:    "\033[32m",
-		model.StatusBlocked:    "\033[33m",
-		model.StatusBlockedAPI: "\033[33m",
-		model.StatusFailed:     "\033[31m",
-		model.StatusDone:       "\033[34m",
-		model.StatusPROpen:     "\033[36m",
-		model.StatusQueued:     "\033[37m",
-		model.StatusBooting:    "\033[32m",
-		model.StatusCanceled:   "\033[90m",
-		model.StatusUnknown:    "\033[35m",
+		model.StatusRunning:     "\033[32m",
+		model.StatusWaiting:     "\033[33m",
+		model.StatusRateLimited: "\033[33m",
+		model.StatusFailed:      "\033[31m",
+		model.StatusDone:        "\033[34m",
+		model.StatusPROpen:      "\033[36m",
+		model.StatusQueued:      "\033[37m",
+		model.StatusBooting:     "\033[32m",
+		model.StatusCanceled:    "\033[90m",
+		model.StatusUnknown:     "\033[35m",
 	}
 
 	short := shortAgentStatus(status)
@@ -848,7 +848,7 @@ func parseStatusList(s string) []model.Status {
 	parts := strings.Split(s, ",")
 	statuses := make([]model.Status, len(parts))
 	for i, p := range parts {
-		statuses[i] = model.Status(strings.TrimSpace(p))
+		statuses[i] = model.NormalizeStatus(strings.TrimSpace(p))
 	}
 	return statuses
 }

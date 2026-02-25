@@ -143,8 +143,8 @@ slack:
   
   # Events that trigger notifications
   notify_on:
-    - blocked
-    - blocked_api
+    - waiting
+    - rate_limited
     # - done
     # - failed
 
@@ -158,8 +158,8 @@ monitor:
     - queued
     - booting
     - running
-    - blocked
-    - blocked_api
+    - waiting
+    - rate_limited
     - pr_open
   
   # Default issue statuses to show
@@ -292,7 +292,7 @@ slack:
   enabled: true
   webhook_url: https://hooks.slack.com/services/XXX/YYY/ZZZ
   notify_on:
-    - blocked
+    - waiting
     - failed
 ```
 
@@ -307,8 +307,8 @@ slack:
   bot_token: xoxb-your-token
   channel: "#orch-notifications"
   notify_on:
-    - blocked
-    - blocked_api
+    - waiting
+    - rate_limited
     - done
 ```
 
@@ -342,7 +342,7 @@ slack:
   enabled: true
   webhook_url: ${SLACK_WEBHOOK_URL}
   notify_on:
-    - blocked
+    - waiting
 ```
 
 ### Multiple models

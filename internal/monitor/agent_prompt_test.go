@@ -198,8 +198,8 @@ func TestControlPromptTemplateContainsNewSections(t *testing.T) {
 	if !contains(controlPromptTemplate, "## Workflows") {
 		t.Error("template should contain Workflows section")
 	}
-	if !contains(controlPromptTemplate, "### Handling Blocked Runs") {
-		t.Error("template should contain Handling Blocked Runs subsection")
+	if !contains(controlPromptTemplate, "### Handling Waiting Runs") {
+		t.Error("template should contain Handling Waiting Runs subsection")
 	}
 	if !contains(controlPromptTemplate, "### Continuing Work") {
 		t.Error("template should contain Continuing Work subsection")

@@ -50,7 +50,7 @@ func (s *SlackNotifier) NotifyBlocked(run *model.Run, issueTitle string, lastOut
 	emoji := statusEmoji(run.Status)
 	statusText := statusDescription(run.Status)
 
-	text := fmt.Sprintf("%s Run blocked: %s#%s", emoji, run.IssueID, run.ShortID())
+	text := fmt.Sprintf("%s Run waiting: %s#%s", emoji, run.IssueID, run.ShortID())
 
 	attachCmd := fmt.Sprintf("orch attach %s#%s", run.IssueID, run.RunID)
 
@@ -59,7 +59,7 @@ func (s *SlackNotifier) NotifyBlocked(run *model.Run, issueTitle string, lastOut
 			Type: "section",
 			Text: &SlackBlockText{
 				Type: "mrkdwn",
-				Text: fmt.Sprintf("*%s Run blocked: %s#%s*", emoji, run.IssueID, run.ShortID()),
+				Text: fmt.Sprintf("*%s Run waiting: %s#%s*", emoji, run.IssueID, run.ShortID()),
 			},
 		},
 		{
@@ -185,7 +185,7 @@ func (s *SlackNotifier) sendBotMessage(msg SlackMessage) error {
 
 func statusEmoji(status model.Status) string {
 	switch status {
-	case model.StatusBlocked, model.StatusBlockedAPI:
+	case model.StatusWaiting, model.StatusRateLimited:
 		return ":no_entry:"
 	case model.StatusDone:
 		return ":white_check_mark:"
@@ -270,9 +270,9 @@ func isUIElement(line string) bool {
 
 func statusDescription(status model.Status) string {
 	switch status {
-	case model.StatusBlocked:
+	case model.StatusWaiting:
 		return "waiting for user input"
-	case model.StatusBlockedAPI:
+	case model.StatusRateLimited:
 		return "waiting for API response"
 	case model.StatusDone:
 		return "task completed"

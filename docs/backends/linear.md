@@ -137,7 +137,7 @@ linear:
   comments:
     enabled: true
     on_start: true
-    on_blocked: true
+    on_waiting: true
     on_complete: true
     include_run_link: true
 ```

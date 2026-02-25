@@ -24,7 +24,7 @@ const (
 	captureRefusedBackoffInitial   = 10 * time.Second
 	captureRefusedBackoffMax       = 5 * time.Minute
 	captureRefusedNegativeCacheTTL = 30 * time.Second
-	blockedPromptStreakThreshold   = 2
+	waitingPromptStreakThreshold   = 2
 )
 
 func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
@@ -264,7 +264,7 @@ func (s *RunState) recordPromptSignal(hasPrompt bool) bool {
 		s.PromptStreak = 0
 	}
 
-	return hasPrompt && s.PromptStreak >= blockedPromptStreakThreshold
+	return hasPrompt && s.PromptStreak >= waitingPromptStreakThreshold
 }
 
 func captureBackoffDuration(err error, failures int) time.Duration {
@@ -461,7 +461,7 @@ func (d *Daemon) notifyStatusChange(run *model.Run, newStatus model.Status, last
 	}
 
 	var err error
-	if newStatus == model.StatusBlocked || newStatus == model.StatusBlockedAPI {
+	if newStatus == model.StatusWaiting || newStatus == model.StatusRateLimited {
 		err = d.slackNotifier.NotifyBlocked(run, issueTitle, lastOutput)
 	} else {
 		err = d.slackNotifier.NotifyStatusChange(run, issueTitle, newStatus)
@@ -547,7 +547,7 @@ func (d *Daemon) inferStatusFromGitState(run *model.Run, st store.Store, wasAliv
 	d.logger.Printf("%s#%s: infer: commits ahead=%d, uncommitted=%v", run.IssueID, run.RunID, aheadCount, hasUncommitted)
 
 	if aheadCount > 0 || hasUncommitted {
-		return model.StatusBlocked
+		return model.StatusWaiting
 	}
 
 	if !wasAlive {

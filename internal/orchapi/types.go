@@ -18,16 +18,27 @@ const (
 type RunStatus string
 
 const (
-	RunStatusQueued     RunStatus = "queued"
-	RunStatusBooting    RunStatus = "booting"
-	RunStatusRunning    RunStatus = "running"
-	RunStatusBlocked    RunStatus = "blocked"
-	RunStatusBlockedAPI RunStatus = "blocked_api"
-	RunStatusPROpen     RunStatus = "pr_open"
-	RunStatusDone       RunStatus = "done"
-	RunStatusFailed     RunStatus = "failed"
-	RunStatusCanceled   RunStatus = "canceled"
+	RunStatusQueued      RunStatus = "queued"
+	RunStatusBooting     RunStatus = "booting"
+	RunStatusRunning     RunStatus = "running"
+	RunStatusWaiting     RunStatus = "waiting"
+	RunStatusRateLimited RunStatus = "rate_limited"
+	RunStatusPROpen      RunStatus = "pr_open"
+	RunStatusDone        RunStatus = "done"
+	RunStatusFailed      RunStatus = "failed"
+	RunStatusCanceled    RunStatus = "canceled"
 )
+
+func NormalizeRunStatus(s string) RunStatus {
+	switch s {
+	case "blocked":
+		return RunStatusWaiting
+	case "blocked_api":
+		return RunStatusRateLimited
+	default:
+		return RunStatus(s)
+	}
+}
 
 type BranchState string
 

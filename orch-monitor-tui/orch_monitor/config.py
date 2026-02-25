@@ -34,8 +34,8 @@ DEFAULT_RUN_STATUSES = [
     "queued",
     "booting",
     "running",
-    "blocked",
-    "blocked_api",
+    "waiting",
+    "rate_limited",
     "pr_open",
     "failed",
 ]

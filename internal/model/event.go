@@ -23,17 +23,28 @@ const (
 type Status string
 
 const (
-	StatusQueued     Status = "queued"
-	StatusBooting    Status = "booting"
-	StatusRunning    Status = "running"
-	StatusBlocked    Status = "blocked"
-	StatusBlockedAPI Status = "blocked_api"
-	StatusPROpen     Status = "pr_open"
-	StatusDone       Status = "done"
-	StatusFailed     Status = "failed"
-	StatusCanceled   Status = "canceled"
-	StatusUnknown    Status = "unknown" // Agent exited unexpectedly, shell prompt showing
+	StatusQueued      Status = "queued"
+	StatusBooting     Status = "booting"
+	StatusRunning     Status = "running"
+	StatusWaiting     Status = "waiting"
+	StatusRateLimited Status = "rate_limited"
+	StatusPROpen      Status = "pr_open"
+	StatusDone        Status = "done"
+	StatusFailed      Status = "failed"
+	StatusCanceled    Status = "canceled"
+	StatusUnknown     Status = "unknown" // Agent exited unexpectedly, shell prompt showing
 )
+
+func NormalizeStatus(s string) Status {
+	switch s {
+	case "blocked":
+		return StatusWaiting
+	case "blocked_api":
+		return StatusRateLimited
+	default:
+		return Status(s)
+	}
+}
 
 func (s Status) IsTerminal() bool {
 	return s == StatusDone || s == StatusCanceled || s == StatusFailed
@@ -41,7 +52,7 @@ func (s Status) IsTerminal() bool {
 
 func (s Status) IsActive() bool {
 	switch s {
-	case StatusQueued, StatusBooting, StatusRunning, StatusBlocked, StatusBlockedAPI, StatusPROpen:
+	case StatusQueued, StatusBooting, StatusRunning, StatusWaiting, StatusRateLimited, StatusPROpen:
 		return true
 	default:
 		return false

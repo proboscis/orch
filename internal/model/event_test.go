@@ -130,6 +130,29 @@ func TestNewStatusEvent(t *testing.T) {
 	}
 }
 
+func TestNormalizeStatus(t *testing.T) {
+	tests := []struct {
+		input string
+		want  Status
+	}{
+		{"blocked", StatusWaiting},
+		{"blocked_api", StatusRateLimited},
+		{"waiting", StatusWaiting},
+		{"rate_limited", StatusRateLimited},
+		{"running", StatusRunning},
+		{"done", StatusDone},
+		{"queued", StatusQueued},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := NormalizeStatus(tt.input)
+			if got != tt.want {
+				t.Errorf("NormalizeStatus(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNewArtifactEvent(t *testing.T) {
 	event := NewArtifactEvent("worktree", map[string]string{"path": "/tmp/test"})
 	if event.Type != EventTypeArtifact {

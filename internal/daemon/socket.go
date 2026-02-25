@@ -1300,8 +1300,8 @@ func (s *SocketServer) buildControlAgentPrompt(st store.Store, projectRoot strin
 	runs, _ := st.ListRuns(&store.ListRunsFilter{
 		Status: []model.Status{
 			model.StatusRunning,
-			model.StatusBlocked,
-			model.StatusBlockedAPI,
+			model.StatusWaiting,
+			model.StatusRateLimited,
 			model.StatusBooting,
 			model.StatusQueued,
 			model.StatusPROpen,
@@ -1405,8 +1405,8 @@ Use `+"`--agent <name>`"+` to specify a different agent when starting runs.
 2. Start run: `+"`orch run <issue-id>`"+`
 3. Monitor: Watch the runs table or use `+"`orch ps`"+`
 
-### Handling Blocked Runs
-When a run shows "blocked" status:
+### Handling Waiting Runs
+When a run shows "waiting" status:
 1. Capture: `+"`orch capture <run-ref>`"+` to see what the agent needs
 2. Send feedback: `+"`orch send <issue-id> \"<message>\"`"+` to provide input
 3. The agent will resume automatically after receiving input
@@ -1427,12 +1427,12 @@ Run these commands directly using bash (do not use any special protocol):
 ### Run Management
 - Start a run: `+"`orch run <issue-id>`"+`
 - Continue from branch: `+"`orch continue <issue> --branch <branch>`"+`
-- List runs: `+"`orch ps`"+` (use `+"`--status running,blocked`"+` to filter)
+- List runs: `+"`orch ps`"+` (use `+"`--status running,waiting`"+` to filter)
 - Stop a run: `+"`orch stop <issue-id>#<run-id>`"+`
 - Resolve a run: `+"`orch resolve <issue-id>#<run-id>`"+`
 - Show run details: `+"`orch show <issue-id>#<run-id>`"+`
 - Capture run state: `+"`orch capture <run-ref>`"+` - see agent's last message
-- Send feedback: `+"`orch send <issue-id> \"<message>\"`"+` - provide input to blocked agent
+- Send feedback: `+"`orch send <issue-id> \"<message>\"`"+` - provide input to waiting agent
 
 ### Interactive Commands (DO NOT USE)
 The following commands are interactive and will hang if called by an AI agent:
@@ -1998,7 +1998,7 @@ func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {
 			Limit:      0,
 		}
 		for _, status := range req.Status {
-			filter.Status = append(filter.Status, model.Status(status))
+			filter.Status = append(filter.Status, model.NormalizeStatus(status))
 		}
 		runs, err = st.ListRuns(filter)
 	}
@@ -2063,7 +2063,7 @@ func (s *SocketServer) listAllRepoRuns(req SendRequest) ([]*model.Run, error) {
 			TimeRange:  req.TimeRange,
 		}
 		for _, status := range req.Status {
-			filter.Status = append(filter.Status, model.Status(status))
+			filter.Status = append(filter.Status, model.NormalizeStatus(status))
 		}
 		runs, err := st.ListRuns(filter)
 		if err != nil {
@@ -2347,7 +2347,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		if req.Reuse {
 			runs, _ := st.ListRuns(&store.ListRunsFilter{IssueID: req.IssueID})
 			for _, r := range runs {
-				if r.Status == model.StatusBlocked || r.Status == model.StatusBlockedAPI {
+				if r.Status == model.StatusWaiting || r.Status == model.StatusRateLimited {
 					runID = r.RunID
 					break
 				}
@@ -2636,7 +2636,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		if opts.Reuse {
 			runs, _ := st.ListRuns(&store.ListRunsFilter{IssueID: opts.IssueID})
 			for _, r := range runs {
-				if r.Status == model.StatusBlocked || r.Status == model.StatusBlockedAPI {
+				if r.Status == model.StatusWaiting || r.Status == model.StatusRateLimited {
 					runID = r.RunID
 					break
 				}
@@ -3616,7 +3616,7 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 
 func isActiveForContinue(status model.Status) bool {
 	switch status {
-	case model.StatusRunning, model.StatusBlocked, model.StatusBlockedAPI, model.StatusBooting, model.StatusQueued, model.StatusPROpen:
+	case model.StatusRunning, model.StatusWaiting, model.StatusRateLimited, model.StatusBooting, model.StatusQueued, model.StatusPROpen:
 		return true
 	default:
 		return false
@@ -3699,7 +3699,7 @@ func (s *SocketServer) handleStopRun(req SendRequest, encoder *json.Encoder) {
 	} else {
 		runs, err := st.ListRuns(&store.ListRunsFilter{
 			IssueID: req.IssueID,
-			Status:  []model.Status{model.StatusRunning, model.StatusBooting, model.StatusBlocked, model.StatusBlockedAPI, model.StatusQueued},
+			Status:  []model.Status{model.StatusRunning, model.StatusBooting, model.StatusWaiting, model.StatusRateLimited, model.StatusQueued},
 		})
 		if err != nil {
 			s.logger.Printf("error listing runs for %s: %v", req.IssueID, err)
@@ -4318,7 +4318,7 @@ func (s *SocketServer) handleAppendEvent(req SendRequest, encoder *json.Encoder)
 
 	source := model.EventSource(req.EventSource)
 	if req.EventType == "status" {
-		newStatus := model.Status(req.EventName)
+		newStatus := model.NormalizeStatus(req.EventName)
 		if !model.CanTransitionStatus(run.Status, newStatus, source) {
 			reason := fmt.Sprintf("cannot transition from %s to %s (source=%s)", run.Status, newStatus, source)
 			s.logger.Printf("%s#%s: %s", req.IssueID, req.RunID, reason)

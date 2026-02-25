@@ -118,7 +118,7 @@ Interact with the agent:
     orch send <run> "msg"   Send message to running agent
     orch monitor            TUI dashboard for all runs
     orch show <issue>       Show issue details
-    orch continue <run>     Resume a paused or blocked run
+    orch continue <run>     Resume a paused or waiting run
     orch capture <run>      Capture agent session to markdown
 
 --------------------------------------------------------------------------------
@@ -128,12 +128,12 @@ Interact with the agent:
     Status      Meaning                   Action
     ------      -------                   ------
     running     Agent is working          Wait or 'attach' to watch
-    blocked     Agent needs input         'attach' to help
+    waiting     Agent needs input         'attach' to help
     done        Work complete             Review the PR
     failed      Error occurred            Check logs, retry
     resolved    Run completed and acked   No action needed
 
-To check why a run is blocked:
+To check why a run is waiting:
 
     orch show <run>
 
@@ -215,7 +215,7 @@ Workflow with Control Agent:
   1. Talk to control agent (bottom pane) to create issues
   2. Select issue and press 'n' to start a run
   3. Monitor status: queued → booting → running → pr_open → done
-  4. Attach with 'a' when status is 'blocked'
+   4. Attach with 'a' when status is 'waiting'
   5. Review PR when status is 'pr_open'
 
 Status Legend:
@@ -225,7 +225,7 @@ Status Legend:
     queued      Run waiting to start
     booting     Agent starting up
     running     Agent actively working
-    blocked     Agent needs input - attach!
+    waiting     Agent needs input - attach!
     pr_open     PR created - review it
     done        Work completed
 

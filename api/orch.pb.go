@@ -24,16 +24,16 @@ const (
 type RunStatus int32
 
 const (
-	RunStatus_RUN_STATUS_UNSPECIFIED RunStatus = 0
-	RunStatus_RUN_STATUS_QUEUED      RunStatus = 1
-	RunStatus_RUN_STATUS_BOOTING     RunStatus = 2
-	RunStatus_RUN_STATUS_RUNNING     RunStatus = 3
-	RunStatus_RUN_STATUS_BLOCKED     RunStatus = 4
-	RunStatus_RUN_STATUS_BLOCKED_API RunStatus = 5
-	RunStatus_RUN_STATUS_PR_OPEN     RunStatus = 6
-	RunStatus_RUN_STATUS_DONE        RunStatus = 7
-	RunStatus_RUN_STATUS_FAILED      RunStatus = 8
-	RunStatus_RUN_STATUS_CANCELED    RunStatus = 9
+	RunStatus_RUN_STATUS_UNSPECIFIED  RunStatus = 0
+	RunStatus_RUN_STATUS_QUEUED       RunStatus = 1
+	RunStatus_RUN_STATUS_BOOTING      RunStatus = 2
+	RunStatus_RUN_STATUS_RUNNING      RunStatus = 3
+	RunStatus_RUN_STATUS_WAITING      RunStatus = 4
+	RunStatus_RUN_STATUS_RATE_LIMITED RunStatus = 5
+	RunStatus_RUN_STATUS_PR_OPEN      RunStatus = 6
+	RunStatus_RUN_STATUS_DONE         RunStatus = 7
+	RunStatus_RUN_STATUS_FAILED       RunStatus = 8
+	RunStatus_RUN_STATUS_CANCELED     RunStatus = 9
 )
 
 // Enum value maps for RunStatus.
@@ -43,24 +43,24 @@ var (
 		1: "RUN_STATUS_QUEUED",
 		2: "RUN_STATUS_BOOTING",
 		3: "RUN_STATUS_RUNNING",
-		4: "RUN_STATUS_BLOCKED",
-		5: "RUN_STATUS_BLOCKED_API",
+		4: "RUN_STATUS_WAITING",
+		5: "RUN_STATUS_RATE_LIMITED",
 		6: "RUN_STATUS_PR_OPEN",
 		7: "RUN_STATUS_DONE",
 		8: "RUN_STATUS_FAILED",
 		9: "RUN_STATUS_CANCELED",
 	}
 	RunStatus_value = map[string]int32{
-		"RUN_STATUS_UNSPECIFIED": 0,
-		"RUN_STATUS_QUEUED":      1,
-		"RUN_STATUS_BOOTING":     2,
-		"RUN_STATUS_RUNNING":     3,
-		"RUN_STATUS_BLOCKED":     4,
-		"RUN_STATUS_BLOCKED_API": 5,
-		"RUN_STATUS_PR_OPEN":     6,
-		"RUN_STATUS_DONE":        7,
-		"RUN_STATUS_FAILED":      8,
-		"RUN_STATUS_CANCELED":    9,
+		"RUN_STATUS_UNSPECIFIED":  0,
+		"RUN_STATUS_QUEUED":       1,
+		"RUN_STATUS_BOOTING":      2,
+		"RUN_STATUS_RUNNING":      3,
+		"RUN_STATUS_WAITING":      4,
+		"RUN_STATUS_RATE_LIMITED": 5,
+		"RUN_STATUS_PR_OPEN":      6,
+		"RUN_STATUS_DONE":         7,
+		"RUN_STATUS_FAILED":       8,
+		"RUN_STATUS_CANCELED":     9,
 	}
 )
 
@@ -350,6 +350,11 @@ type Run struct {
 	ContinuedFrom     string                 `protobuf:"bytes,19,opt,name=continued_from,json=continuedFrom,proto3" json:"continued_from,omitempty"`
 	PrNumber          int32                  `protobuf:"varint,20,opt,name=pr_number,json=prNumber,proto3" json:"pr_number,omitempty"`
 	PrState           string                 `protobuf:"bytes,21,opt,name=pr_state,json=prState,proto3" json:"pr_state,omitempty"`
+	IssueStatus       string                 `protobuf:"bytes,22,opt,name=issue_status,json=issueStatus,proto3" json:"issue_status,omitempty"`
+	IssueTopic        string                 `protobuf:"bytes,23,opt,name=issue_topic,json=issueTopic,proto3" json:"issue_topic,omitempty"`
+	Alive             bool                   `protobuf:"varint,24,opt,name=alive,proto3" json:"alive,omitempty"`
+	AliveKnown        bool                   `protobuf:"varint,25,opt,name=alive_known,json=aliveKnown,proto3" json:"alive_known,omitempty"`
+	WorktreeExists    bool                   `protobuf:"varint,26,opt,name=worktree_exists,json=worktreeExists,proto3" json:"worktree_exists,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -529,6 +534,41 @@ func (x *Run) GetPrState() string {
 		return x.PrState
 	}
 	return ""
+}
+
+func (x *Run) GetIssueStatus() string {
+	if x != nil {
+		return x.IssueStatus
+	}
+	return ""
+}
+
+func (x *Run) GetIssueTopic() string {
+	if x != nil {
+		return x.IssueTopic
+	}
+	return ""
+}
+
+func (x *Run) GetAlive() bool {
+	if x != nil {
+		return x.Alive
+	}
+	return false
+}
+
+func (x *Run) GetAliveKnown() bool {
+	if x != nil {
+		return x.AliveKnown
+	}
+	return false
+}
+
+func (x *Run) GetWorktreeExists() bool {
+	if x != nil {
+		return x.WorktreeExists
+	}
+	return false
 }
 
 type Issue struct {
@@ -1913,6 +1953,7 @@ type CreateIssueRequest struct {
 	IssueId       string                 `protobuf:"bytes,2,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"`
 	Title         string                 `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`
 	Body          string                 `protobuf:"bytes,4,opt,name=body,proto3" json:"body,omitempty"`
+	Tags          []string               `protobuf:"bytes,5,rep,name=tags,proto3" json:"tags,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1973,6 +2014,13 @@ func (x *CreateIssueRequest) GetBody() string {
 		return x.Body
 	}
 	return ""
+}
+
+func (x *CreateIssueRequest) GetTags() []string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
 }
 
 type CreateIssueResponse struct {
@@ -8947,7 +8995,7 @@ const file_orch_proto_rawDesc = "" +
 	"\tadditions\x18\x01 \x01(\x05R\tadditions\x12\x1c\n" +
 	"\tdeletions\x18\x02 \x01(\x05R\tdeletions\x12#\n" +
 	"\rfiles_changed\x18\x03 \x01(\x05R\ffilesChanged\x12\x14\n" +
-	"\x05files\x18\x04 \x03(\tR\x05files\"\xfc\x05\n" +
+	"\x05files\x18\x04 \x03(\tR\x05files\"\xa0\a\n" +
 	"\x03Run\x12\x19\n" +
 	"\bissue_id\x18\x01 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12*\n" +
@@ -8972,7 +9020,14 @@ const file_orch_proto_rawDesc = "" +
 	"\x13opencode_session_id\x18\x12 \x01(\tR\x11opencodeSessionId\x12%\n" +
 	"\x0econtinued_from\x18\x13 \x01(\tR\rcontinuedFrom\x12\x1b\n" +
 	"\tpr_number\x18\x14 \x01(\x05R\bprNumber\x12\x19\n" +
-	"\bpr_state\x18\x15 \x01(\tR\aprState\"\xf1\x01\n" +
+	"\bpr_state\x18\x15 \x01(\tR\aprState\x12!\n" +
+	"\fissue_status\x18\x16 \x01(\tR\vissueStatus\x12\x1f\n" +
+	"\vissue_topic\x18\x17 \x01(\tR\n" +
+	"issueTopic\x12\x14\n" +
+	"\x05alive\x18\x18 \x01(\bR\x05alive\x12\x1f\n" +
+	"\valive_known\x18\x19 \x01(\bR\n" +
+	"aliveKnown\x12'\n" +
+	"\x0fworktree_exists\x18\x1a \x01(\bR\x0eworktreeExists\"\xf1\x01\n" +
 	"\x05Issue\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x18\n" +
@@ -9097,13 +9152,14 @@ const file_orch_proto_rawDesc = "" +
 	"issuesRoot\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\"8\n" +
 	"\x10GetIssueResponse\x12$\n" +
-	"\x05issue\x18\x01 \x01(\v2\x0e.orch.v1.IssueR\x05issue\"z\n" +
+	"\x05issue\x18\x01 \x01(\v2\x0e.orch.v1.IssueR\x05issue\"\x8e\x01\n" +
 	"\x12CreateIssueRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x14\n" +
 	"\x05title\x18\x03 \x01(\tR\x05title\x12\x12\n" +
-	"\x04body\x18\x04 \x01(\tR\x04body\")\n" +
+	"\x04body\x18\x04 \x01(\tR\x04body\x12\x12\n" +
+	"\x04tags\x18\x05 \x03(\tR\x04tags\")\n" +
 	"\x13CreateIssueResponse\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\"O\n" +
 	"\x11CloseIssueRequest\x12\x1f\n" +
@@ -9635,14 +9691,14 @@ const file_orch_proto_rawDesc = "" +
 	"get_config\x18/ \x01(\v2\x1a.orch.v1.GetConfigResponseH\x00R\tgetConfig\x12N\n" +
 	"\x11get_daemon_status\x180 \x01(\v2 .orch.v1.GetDaemonStatusResponseH\x00R\x0fgetDaemonStatusB\n" +
 	"\n" +
-	"\bresponse*\xff\x01\n" +
+	"\bresponse*\x80\x02\n" +
 	"\tRunStatus\x12\x1a\n" +
 	"\x16RUN_STATUS_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11RUN_STATUS_QUEUED\x10\x01\x12\x16\n" +
 	"\x12RUN_STATUS_BOOTING\x10\x02\x12\x16\n" +
 	"\x12RUN_STATUS_RUNNING\x10\x03\x12\x16\n" +
-	"\x12RUN_STATUS_BLOCKED\x10\x04\x12\x1a\n" +
-	"\x16RUN_STATUS_BLOCKED_API\x10\x05\x12\x16\n" +
+	"\x12RUN_STATUS_WAITING\x10\x04\x12\x1b\n" +
+	"\x17RUN_STATUS_RATE_LIMITED\x10\x05\x12\x16\n" +
 	"\x12RUN_STATUS_PR_OPEN\x10\x06\x12\x13\n" +
 	"\x0fRUN_STATUS_DONE\x10\a\x12\x15\n" +
 	"\x11RUN_STATUS_FAILED\x10\b\x12\x17\n" +

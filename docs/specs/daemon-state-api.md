@@ -23,7 +23,7 @@ EventSourceDaemon - Lowest authority (daemon inferences)
 
 | From State | To State | User | Agent | Daemon |
 |------------|----------|------|-------|--------|
-| running    | blocked  | ✓    | ✓     | ✓      |
+| running    | waiting  | ✓    | ✓     | ✓      |
 | running    | pr_open  | ✓    | ✓     | ✓      |
 | running    | done     | ✓    | ✓     | ✓      |
 | running    | canceled | ✓    | ✓     | ✓      |

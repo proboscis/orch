@@ -829,10 +829,10 @@ func stringToProtoRunStatus(s string) orchpb.RunStatus {
 		return orchpb.RunStatus_RUN_STATUS_BOOTING
 	case "running":
 		return orchpb.RunStatus_RUN_STATUS_RUNNING
-	case "blocked":
-		return orchpb.RunStatus_RUN_STATUS_BLOCKED
-	case "blocked_api":
-		return orchpb.RunStatus_RUN_STATUS_BLOCKED_API
+	case "blocked", "waiting":
+		return orchpb.RunStatus_RUN_STATUS_WAITING
+	case "blocked_api", "rate_limited":
+		return orchpb.RunStatus_RUN_STATUS_RATE_LIMITED
 	case "pr_open":
 		return orchpb.RunStatus_RUN_STATUS_PR_OPEN
 	case "done":
@@ -867,10 +867,10 @@ func protoRunStatusToString(s orchpb.RunStatus) string {
 		return "booting"
 	case orchpb.RunStatus_RUN_STATUS_RUNNING:
 		return "running"
-	case orchpb.RunStatus_RUN_STATUS_BLOCKED:
-		return "blocked"
-	case orchpb.RunStatus_RUN_STATUS_BLOCKED_API:
-		return "blocked_api"
+	case orchpb.RunStatus_RUN_STATUS_WAITING:
+		return "waiting"
+	case orchpb.RunStatus_RUN_STATUS_RATE_LIMITED:
+		return "rate_limited"
 	case orchpb.RunStatus_RUN_STATUS_PR_OPEN:
 		return "pr_open"
 	case orchpb.RunStatus_RUN_STATUS_DONE:

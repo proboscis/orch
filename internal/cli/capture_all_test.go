@@ -97,7 +97,7 @@ func TestRunCaptureAllJSON(t *testing.T) {
 	mockAPI := &mockCaptureAllAPI{
 		runs: []*orchapi.Run{
 			{IssueID: "issue-1", RunID: "run-1", Status: orchapi.RunStatusRunning},
-			{IssueID: "issue-2", RunID: "run-2", Status: orchapi.RunStatusBlocked},
+			{IssueID: "issue-2", RunID: "run-2", Status: orchapi.RunStatusWaiting},
 		},
 		captureResults: map[string]*orchapi.CaptureResult{
 			"issue-1#run-1": {Content: "run-1 output\n", Timestamp: time.Now(), Source: "tmux"},
@@ -170,8 +170,8 @@ func TestRunCaptureAllJSON(t *testing.T) {
 	if item2.RunID != "run-2" {
 		t.Fatalf("issue-2 run_id = %q, want run-2", item2.RunID)
 	}
-	if item2.Status != string(orchapi.RunStatusBlocked) {
-		t.Fatalf("issue-2 status = %q, want %q", item2.Status, orchapi.RunStatusBlocked)
+	if item2.Status != string(orchapi.RunStatusWaiting) {
+		t.Fatalf("issue-2 status = %q, want %q", item2.Status, orchapi.RunStatusWaiting)
 	}
 	if !strings.Contains(item2.Error, "session not found") {
 		t.Fatalf("issue-2 error = %q", item2.Error)
@@ -184,7 +184,7 @@ func TestRunCaptureAllPlain(t *testing.T) {
 	mockAPI := &mockCaptureAllAPI{
 		runs: []*orchapi.Run{
 			{IssueID: "issue-1", RunID: "run-1", Status: orchapi.RunStatusRunning},
-			{IssueID: "issue-2", RunID: "run-2", Status: orchapi.RunStatusBlocked},
+			{IssueID: "issue-2", RunID: "run-2", Status: orchapi.RunStatusWaiting},
 		},
 		captureResults: map[string]*orchapi.CaptureResult{
 			"issue-1#run-1": {Content: "run-1 output\n", Timestamp: time.Now(), Source: "tmux"},
@@ -207,7 +207,7 @@ func TestRunCaptureAllPlain(t *testing.T) {
 	if !strings.Contains(out, "run-1 output") {
 		t.Fatalf("missing issue-1 output: %q", out)
 	}
-	if !strings.Contains(out, "=== issue-2#run-2 [blocked] ===") {
+	if !strings.Contains(out, "=== issue-2#run-2 [waiting] ===") {
 		t.Fatalf("missing issue-2 header: %q", out)
 	}
 	if !strings.Contains(out, "error:") && !strings.Contains(out, "session not found") {

@@ -159,8 +159,8 @@ func SortIndicator(dir SortDirection) string {
 
 var runStatusOrder = map[model.Status]int{
 	model.StatusRunning:    0,
-	model.StatusBlocked:    1,
-	model.StatusBlockedAPI: 2,
+	model.StatusWaiting:    1,
+	model.StatusRateLimited: 2,
 	model.StatusBooting:    3,
 	model.StatusQueued:     4,
 	model.StatusPROpen:     5,

@@ -130,7 +130,7 @@ func (s *SlackConfig) ShouldNotify(status string) bool {
 		return false
 	}
 	if len(s.NotifyOn) == 0 {
-		return status == "blocked" || status == "blocked_api"
+		return status == "waiting" || status == "blocked" || status == "rate_limited" || status == "blocked_api"
 	}
 	for _, n := range s.NotifyOn {
 		if n == status {
@@ -795,10 +795,12 @@ var validLogLevels = map[string]bool{
 }
 
 var validSlackNotifyStatuses = map[string]bool{
-	"blocked":     true,
-	"blocked_api": true,
-	"done":        true,
-	"failed":      true,
+	"waiting":      true,
+	"blocked":      true,
+	"rate_limited": true,
+	"blocked_api":  true,
+	"done":         true,
+	"failed":       true,
 }
 
 // Validate enforces config key/value constraints after loading/merging.

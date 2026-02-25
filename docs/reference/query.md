@@ -113,7 +113,7 @@ WHERE r.run_id IS NULL;
 SELECT DISTINCT i.* 
 FROM issues i
 JOIN runs r ON i.id = r.issue_id
-WHERE r.status IN ('running', 'blocked', 'booting');
+WHERE r.status IN ('running', 'waiting', 'booting');
 
 -- Issue summary with run counts
 SELECT 
@@ -133,14 +133,14 @@ SELECT issue_id, run_id, agent, status
 FROM runs
 WHERE status = 'running';
 
--- Blocked runs needing attention
+-- Waiting runs needing attention
 SELECT 
   issue_id,
   run_id,
   hex_id,
   updated
 FROM runs
-WHERE status IN ('blocked', 'blocked_api')
+WHERE status IN ('waiting', 'rate_limited')
 ORDER BY updated DESC;
 
 -- Runs with PRs
@@ -303,9 +303,9 @@ other-task  closed
 # Get running run IDs
 RUNNING=$(orch q "SELECT hex_id FROM runs WHERE status='running'" --format tsv)
 
-# Iterate over blocked runs
-orch q "SELECT hex_id FROM runs WHERE status='blocked'" --format tsv | while read id; do
-  echo "Run $id is blocked"
+# Iterate over waiting runs
+orch q "SELECT hex_id FROM runs WHERE status='waiting'" --format tsv | while read id; do
+  echo "Run $id is waiting"
 done
 ```
 

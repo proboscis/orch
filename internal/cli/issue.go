@@ -417,8 +417,8 @@ func runIssueListViaAPI(ctx context.Context, api orchapi.OrchAPI, opts *issueLis
 	runsResp, err := api.ListRuns(ctx, &orchapi.ListRunsFilter{
 		Status: []orchapi.RunStatus{
 			orchapi.RunStatusRunning,
-			orchapi.RunStatusBlocked,
-			orchapi.RunStatusBlockedAPI,
+			orchapi.RunStatusWaiting,
+			orchapi.RunStatusRateLimited,
 			orchapi.RunStatusBooting,
 			orchapi.RunStatusQueued,
 		},

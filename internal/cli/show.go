@@ -117,7 +117,7 @@ func showJSON(run *orchapi.Run, opts *showOptions) error {
 func showHuman(run *orchapi.Run, opts *showOptions) error {
 	// Header
 	fmt.Printf("Run: %s#%s\n", run.IssueID, run.RunID)
-	fmt.Printf("Status: %s", colorStatus(model.Status(run.Status)))
+	fmt.Printf("Status: %s", colorStatus(model.NormalizeStatus(string(run.Status))))
 	fmt.Println()
 	fmt.Println(strings.Repeat("-", 60))
 

@@ -236,7 +236,7 @@ orch ps
 
 # Filter by status
 orch ps --status running
-orch ps --status running,blocked
+orch ps --status running,waiting
 orch ps --status pr_open,done
 
 # Filter by issue
@@ -257,7 +257,7 @@ orch ps --tsv  # for fzf
 **Flags:**
 | Flag | Description |
 |------|-------------|
-| `--status` | Filter: queued,booting,running,blocked,blocked_api,pr_open,done,resolved,failed,canceled,unknown |
+| `--status` | Filter: queued,booting,running,waiting,rate_limited,pr_open,done,resolved,failed,canceled,unknown |
 | `--issue-status` | Filter by issue status (open/closed) |
 | `--issue` | Filter by issue ID |
 | `--limit N` | Max runs (default: 50) |
@@ -366,7 +366,7 @@ orch monitor
 orch monitor --issue orch-055
 
 # Filter by status
-orch monitor --status running,blocked
+orch monitor --status running,waiting
 
 # Start and immediately attach
 orch monitor --attach
@@ -564,13 +564,13 @@ orch repair --force
 
 ### orch tick RUN_REF|--all
 
-Resume blocked runs when questions are answered.
+Resume waiting runs when questions are answered.
 
 ```bash
 # Tick specific run
 orch tick orch-055#20251223-165605
 
-# Tick all blocked runs
+# Tick all waiting runs
 orch tick --all
 
 # Limit number processed
@@ -583,8 +583,8 @@ orch tick orch-055 --agent claude
 **Flags:**
 | Flag | Description |
 |------|-------------|
-| `--all` | Process all blocked runs |
-| `--only-blocked` | Only blocked (default with --all) |
+| `--all` | Process all waiting runs |
+| `--only-waiting` | Only waiting (default with --all) |
 | `--agent` | Agent for restart |
 | `--max N` | Max runs to process |
 
@@ -606,7 +606,7 @@ orch ps --status running
 
 ### Monitoring Active Runs
 ```bash
-orch ps --status running,blocked
+orch ps --status running,waiting
 orch capture a3b4c5 --lines 200
 orch monitor
 ```
@@ -634,8 +634,8 @@ orch repair --dry-run  # Check for problems
 ### Control Agent Loop
 ```bash
 orch issue list --status open
-orch ps --status running,blocked
-orch capture <blocked-run>
-orch send <blocked-run> "guidance"
+orch ps --status running,waiting
+orch capture <waiting-run>
+orch send <waiting-run> "guidance"
 orch resolve <completed-issue>
 ```

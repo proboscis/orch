@@ -37,11 +37,11 @@ All runs consolidated into one tmux session with:
 ┌─ ORCH MONITOR ──────────────────────────────────────────────────┐
 │                                                                  │
 │  #  ID      ISSUE     STATUS   AGO   SUMMARY                     │
-│  1  3f68c8  orch-008  blocked  5m    Add issue status to ps      │
-│  2  f94c3e  orch-009  blocked  3m    Show elapsed time           │
+│  1  3f68c8  orch-008  waiting  5m    Add issue status to ps      │
+│  2  f94c3e  orch-009  waiting  3m    Show elapsed time           │
 │  3  43d956  orch-010  running  1m    Add summary column to ps    │
 │                                                                  │
-│  ● running: 1    ◐ blocked: 2    ✓ done: 0    ✗ failed: 0       │
+│  ● running: 1    ◐ waiting: 2    ✓ done: 0    ✗ failed: 0       │
 │                                                                  │
 ├──────────────────────────────────────────────────────────────────┤
 │  [1-9] attach   [s] stop   [n] new run   [q] quit                │
@@ -95,7 +95,7 @@ orch monitor --attach     # Auto-attach to monitor if exists
 | Option | Description |
 |--------|-------------|
 | `--issue <ID>` | Filter to specific issue |
-| `--status <status>` | Filter by status (running,blocked) |
+| `--status <status>` | Filter by status (running,waiting) |
 | `--attach` | Attach to existing monitor session |
 | `--new` | Force create new monitor (kill existing) |
 
@@ -141,7 +141,7 @@ When switching to a run window, show context header:
 ```
 ┌─ orch-008 ─────────────────────────────────────────────────────┐
 │ Issue: Show issue status in orch ps output                      │
-│ Status: blocked (2 questions pending)                           │
+│ Status: waiting (2 questions pending)                           │
 │ Branch: issue/orch-008/run-20251221-122336                      │
 │ Updated: 5 minutes ago                                          │
 ├─────────────────────────────────────────────────────────────────┤
@@ -154,7 +154,7 @@ When switching to a run window, show context header:
 ## Notifications
 
 Desktop notifications (optional) when:
-- Run becomes blocked (needs input)
+- Run becomes waiting (needs input)
 - Run completes (done/failed)
 - Run stalls (no output for N minutes)
 

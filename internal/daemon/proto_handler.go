@@ -551,7 +551,7 @@ func formatElapsedTime(startedAt, updatedAt time.Time, status model.Status) stri
 	}
 
 	var elapsed time.Duration
-	if status == model.StatusRunning || status == model.StatusBlocked || status == model.StatusBlockedAPI {
+	if status == model.StatusRunning || status == model.StatusWaiting || status == model.StatusRateLimited {
 		elapsed = time.Since(startedAt)
 	} else if !updatedAt.IsZero() {
 		elapsed = updatedAt.Sub(startedAt)

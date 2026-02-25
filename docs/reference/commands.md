@@ -139,7 +139,7 @@ orch run ISSUE_ID [flags]
 | `--profile <name>` | Agent profile |
 | `--prompt-template <file>` | Custom prompt template file |
 | `--repo-root <path>` | Git repository root |
-| `--reuse` | Reuse latest run if blocked |
+| `--reuse` | Reuse latest run if waiting |
 | `--run-id <id>` | Manually specify run ID |
 | `--tmux` | Run in tmux session (default: true) |
 | `--tmux-session <name>` | Session name |
@@ -231,7 +231,7 @@ orch ps [flags]
 orch ps
 
 # Filter by status
-orch ps --status running,blocked
+orch ps --status running,waiting
 
 # Show runs for specific issue
 orch ps --issue my-issue
@@ -455,7 +455,7 @@ orch resolve ISSUE_ID [flags]
 
 ## orch tick
 
-Resume blocked runs.
+Resume waiting runs.
 
 ```bash
 orch tick RUN_REF|--all [flags]
@@ -465,8 +465,8 @@ orch tick RUN_REF|--all [flags]
 
 | Flag | Description |
 |------|-------------|
-| `--all` | Process all blocked runs |
-| `--only-blocked` | Only process blocked runs |
+| `--all` | Process all waiting runs |
+| `--only-waiting` | Only process waiting runs |
 | `--agent <type>` | Agent for resumption |
 | `--max <n>` | Max runs to process |
 

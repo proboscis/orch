@@ -93,7 +93,7 @@ def sample_runs() -> list[Run]:
         create_mock_run(
             issue_id="orch-124",
             run_id="20260115-110000",
-            status=Status.BLOCKED,
+            status=Status.WAITING,
             agent="opencode",
         ),
         create_mock_run(

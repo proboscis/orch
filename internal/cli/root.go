@@ -203,7 +203,7 @@ func apiRunToModelRun(r *orchapi.Run) *model.Run {
 	return &model.Run{
 		IssueID:           r.IssueID,
 		RunID:             r.RunID,
-		Status:            model.Status(r.Status),
+		Status:            model.NormalizeStatus(string(r.Status)),
 		Agent:             r.Agent,
 		Model:             r.Model,
 		ModelVariant:      r.ModelVariant,

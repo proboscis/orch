@@ -97,7 +97,7 @@
         (yield (Label "  queued    -> Run waiting to start"))
         (yield (Label "  booting   -> Agent starting up"))
         (yield (Label "  running   -> Agent actively working"))
-        (yield (Label "  blocked   -> Agent needs input (attach!)"))
+        (yield (Label "  waiting   -> Agent needs input (attach!)"))
         (yield (Label "  pr_open   -> PR created, review it"))
         (yield (Label "  done      -> Work completed")))
       

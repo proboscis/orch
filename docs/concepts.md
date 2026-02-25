@@ -55,7 +55,7 @@ A **single execution attempt** for an issue.
 **Key properties:**
 - `issue_id` - The parent issue
 - `run_id` - Timestamp identifier
-- `status` - Current state (running, blocked, done, etc.)
+- `status` - Current state (running, waiting, done, etc.)
 - `agent` - Which LLM CLI is being used
 - `worktree` - Isolated git working directory
 - `branch` - Git branch for this run
@@ -85,13 +85,13 @@ stateDiagram-v2
     [*] --> queued: orch run
     queued --> booting: agent starting
     booting --> running: agent ready
-    running --> blocked: needs input
+    running --> waiting: needs input
     running --> pr_open: PR created
     running --> done: complete
     running --> failed: error
     running --> canceled: stopped
-    blocked --> running: input provided
-    blocked --> canceled: stopped
+    waiting --> running: input provided
+    waiting --> canceled: stopped
     pr_open --> done: PR merged
     done --> [*]
     failed --> [*]
@@ -103,8 +103,8 @@ stateDiagram-v2
 | `queued` | Run created, waiting to start | Wait |
 | `booting` | Agent is launching | Wait |
 | `running` | Agent actively working | Wait, or attach to watch |
-| `blocked` | Agent needs human input | Attach and provide input |
-| `blocked_api` | API/rate limit issue | Wait or check credentials |
+| `waiting` | Agent needs human input | Attach and provide input |
+| `rate_limited` | API/rate limit issue | Wait or check credentials |
 | `pr_open` | Pull request created | Review the PR |
 | `done` | Work completed successfully | Celebrate! |
 | `failed` | Run encountered an error | Check logs, maybe retry |
@@ -236,7 +236,7 @@ A key design principle of orch:
 - Agents run in the background without blocking your terminal
 - Use `orch ps` to check status anytime
 - Use `orch attach` when you need to interact
-- Human input is handled through the `blocked` status
+- Human input is handled through the `waiting` status
 
 This allows you to:
 - Start multiple agents working on different issues

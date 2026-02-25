@@ -49,8 +49,8 @@
   (setv mapping {Status.QUEUED pb.RUN_STATUS_QUEUED
                  Status.BOOTING pb.RUN_STATUS_BOOTING
                  Status.RUNNING pb.RUN_STATUS_RUNNING
-                 Status.BLOCKED pb.RUN_STATUS_BLOCKED
-                 Status.BLOCKED_API pb.RUN_STATUS_BLOCKED_API
+                 Status.BLOCKED pb.RUN_STATUS_WAITING
+                 Status.BLOCKED_API pb.RUN_STATUS_RATE_LIMITED
                  Status.PR_OPEN pb.RUN_STATUS_PR_OPEN
                  Status.DONE pb.RUN_STATUS_DONE
                  Status.FAILED pb.RUN_STATUS_FAILED
@@ -61,8 +61,8 @@
   (setv mapping {pb.RUN_STATUS_QUEUED Status.QUEUED
                  pb.RUN_STATUS_BOOTING Status.BOOTING
                  pb.RUN_STATUS_RUNNING Status.RUNNING
-                 pb.RUN_STATUS_BLOCKED Status.BLOCKED
-                 pb.RUN_STATUS_BLOCKED_API Status.BLOCKED_API
+                 pb.RUN_STATUS_WAITING Status.BLOCKED
+                 pb.RUN_STATUS_RATE_LIMITED Status.BLOCKED_API
                  pb.RUN_STATUS_PR_OPEN Status.PR_OPEN
                  pb.RUN_STATUS_DONE Status.DONE
                  pb.RUN_STATUS_FAILED Status.FAILED

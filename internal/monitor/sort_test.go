@@ -112,7 +112,7 @@ func TestSortRunRows(t *testing.T) {
 		{
 			IssueID: "b",
 			ShortID: "b1",
-			Status:  model.StatusBlocked,
+			Status:  model.StatusWaiting,
 			Updated: updatedMid,
 			Run:     &model.Run{IssueID: "b", RunID: "002"},
 		},
@@ -133,7 +133,7 @@ func TestSortRunRows(t *testing.T) {
 	}
 
 	sortRunRows(rows, SortByUpdated)
-	if rows[0].Status != model.StatusRunning || rows[1].Status != model.StatusBlocked || rows[2].Status != model.StatusDone {
+	if rows[0].Status != model.StatusRunning || rows[1].Status != model.StatusWaiting || rows[2].Status != model.StatusDone {
 		t.Fatalf("SortByUpdated order mismatch: got %v, %v, %v", rows[0].Status, rows[1].Status, rows[2].Status)
 	}
 	if rows[0].Index != 1 || rows[1].Index != 2 || rows[2].Index != 3 {
@@ -156,7 +156,7 @@ func TestSortRunRows(t *testing.T) {
 		{
 			IssueID: "b",
 			ShortID: "b1",
-			Status:  model.StatusBlocked,
+			Status:  model.StatusWaiting,
 			Updated: updatedMid,
 			Run:     &model.Run{IssueID: "b", RunID: "002"},
 		},

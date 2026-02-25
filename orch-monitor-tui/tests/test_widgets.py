@@ -152,13 +152,13 @@ class TestRunModel:
         )
         assert run.is_active() is True
 
-    def test_is_active_blocked(self):
-        """Test is_active for blocked status."""
+    def test_is_active_waiting(self):
+        """Test is_active for waiting status."""
         run = Run(
             issue_id="test",
             run_id="123",
             path=Path(),
-            status=Status.BLOCKED,
+            status=Status.WAITING,
         )
         assert run.is_active() is True
 
@@ -697,11 +697,11 @@ class TestShortAgentStatus:
     def test_running(self):
         assert short_agent_status(Status.RUNNING) == "run"
 
-    def test_blocked(self):
-        assert short_agent_status(Status.BLOCKED) == "block"
+    def test_waiting(self):
+        assert short_agent_status(Status.WAITING) == "wait"
 
-    def test_blocked_api(self):
-        assert short_agent_status(Status.BLOCKED_API) == "block"
+    def test_rate_limited(self):
+        assert short_agent_status(Status.RATE_LIMITED) == "rlimit"
 
     def test_pr_open(self):
         assert short_agent_status(Status.PR_OPEN) == "pr"
@@ -725,10 +725,10 @@ class TestColorAgentStatus:
         assert "[green]" in result
         assert "run" in result
 
-    def test_blocked_is_yellow(self):
-        result = color_agent_status(Status.BLOCKED)
+    def test_waiting_is_yellow(self):
+        result = color_agent_status(Status.WAITING)
         assert "[yellow]" in result
-        assert "block" in result
+        assert "wait" in result
 
     def test_failed_is_red(self):
         result = color_agent_status(Status.FAILED)
@@ -1024,7 +1024,7 @@ class TestRunTableColumnsE2E:
 
             assert table.row_count > 0
             assert short_agent_status(Status.RUNNING) == "run"
-            assert short_agent_status(Status.BLOCKED) == "block"
+            assert short_agent_status(Status.WAITING) == "wait"
             assert short_agent_status(Status.DONE) == "done"
 
     async def test_run_table_pr_column_derives_status_correctly(self):

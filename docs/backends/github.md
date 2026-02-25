@@ -132,7 +132,7 @@ github:
   comments:
     enabled: true
     on_start: true      # Comment when run starts
-    on_blocked: true    # Comment when input needed
+    on_waiting: true     # Comment when input needed
     on_complete: true   # Comment with results
 ```
 
@@ -265,7 +265,7 @@ slack:
   enabled: true
   webhook_url: ${SLACK_WEBHOOK}
   notify_on:
-    - blocked
+    - waiting
 ```
 
 ## Limitations

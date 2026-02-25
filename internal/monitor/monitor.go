@@ -1309,8 +1309,8 @@ func (m *Monitor) getOrCreateControlSession(ctx context.Context, client *agent.O
 func defaultStatuses() []model.Status {
 	return []model.Status{
 		model.StatusRunning,
-		model.StatusBlocked,
-		model.StatusBlockedAPI,
+		model.StatusWaiting,
+		model.StatusRateLimited,
 		model.StatusBooting,
 		model.StatusQueued,
 		model.StatusPROpen,
@@ -1804,7 +1804,7 @@ func apiRunToModel(r *orchapi.Run) *model.Run {
 	return &model.Run{
 		IssueID:           r.IssueID,
 		RunID:             r.RunID,
-		Status:            model.Status(r.Status),
+		Status:            model.NormalizeStatus(string(r.Status)),
 		Agent:             r.Agent,
 		Model:             r.Model,
 		ModelVariant:      r.ModelVariant,
@@ -1848,7 +1848,7 @@ func apiIssueToModel(i *orchapi.Issue) *model.Issue {
 func statusSliceAPI(set map[model.Status]bool) []orchapi.RunStatus {
 	result := make([]orchapi.RunStatus, 0, len(set))
 	for s := range set {
-		result = append(result, orchapi.RunStatus(s))
+		result = append(result, orchapi.NormalizeRunStatus(string(s)))
 	}
 	return result
 }
