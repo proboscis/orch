@@ -76,8 +76,8 @@ class TestProtoStatusToModel:
         assert _proto_status_to_model(pb.RUN_STATUS_QUEUED) == Status.QUEUED
         assert _proto_status_to_model(pb.RUN_STATUS_BOOTING) == Status.BOOTING
         assert _proto_status_to_model(pb.RUN_STATUS_RUNNING) == Status.RUNNING
-        assert _proto_status_to_model(pb.RUN_STATUS_BLOCKED) == Status.BLOCKED
-        assert _proto_status_to_model(pb.RUN_STATUS_BLOCKED_API) == Status.BLOCKED_API
+        assert _proto_status_to_model(pb.RUN_STATUS_WAITING) == Status.WAITING
+        assert _proto_status_to_model(pb.RUN_STATUS_RATE_LIMITED) == Status.RATE_LIMITED
         assert _proto_status_to_model(pb.RUN_STATUS_PR_OPEN) == Status.PR_OPEN
         assert _proto_status_to_model(pb.RUN_STATUS_DONE) == Status.DONE
         assert _proto_status_to_model(pb.RUN_STATUS_FAILED) == Status.FAILED

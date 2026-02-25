@@ -15,10 +15,10 @@ func modelStatusToProto(s model.Status) orchpb.RunStatus {
 		return orchpb.RunStatus_RUN_STATUS_BOOTING
 	case model.StatusRunning:
 		return orchpb.RunStatus_RUN_STATUS_RUNNING
-	case model.StatusBlocked:
-		return orchpb.RunStatus_RUN_STATUS_BLOCKED
-	case model.StatusBlockedAPI:
-		return orchpb.RunStatus_RUN_STATUS_BLOCKED_API
+	case model.StatusWaiting:
+		return orchpb.RunStatus_RUN_STATUS_WAITING
+	case model.StatusRateLimited:
+		return orchpb.RunStatus_RUN_STATUS_RATE_LIMITED
 	case model.StatusPROpen:
 		return orchpb.RunStatus_RUN_STATUS_PR_OPEN
 	case model.StatusDone:
@@ -40,10 +40,10 @@ func protoStatusToModel(s orchpb.RunStatus) model.Status {
 		return model.StatusBooting
 	case orchpb.RunStatus_RUN_STATUS_RUNNING:
 		return model.StatusRunning
-	case orchpb.RunStatus_RUN_STATUS_BLOCKED:
-		return model.StatusBlocked
-	case orchpb.RunStatus_RUN_STATUS_BLOCKED_API:
-		return model.StatusBlockedAPI
+	case orchpb.RunStatus_RUN_STATUS_WAITING:
+		return model.StatusWaiting
+	case orchpb.RunStatus_RUN_STATUS_RATE_LIMITED:
+		return model.StatusRateLimited
 	case orchpb.RunStatus_RUN_STATUS_PR_OPEN:
 		return model.StatusPROpen
 	case orchpb.RunStatus_RUN_STATUS_DONE:

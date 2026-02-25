@@ -180,7 +180,7 @@ func TestIsWaitingForInput(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "codex blocked prompt from pane",
+			name: "codex waiting prompt from pane",
 			output: strings.Join([]string{
 				"› Use /skills to list available skills",
 				"  ? for shortcuts",
@@ -188,17 +188,17 @@ func TestIsWaitingForInput(t *testing.T) {
 			want: true,
 		},
 		{
-			name:   "codex blocked prompt tab to queue message",
+			name:   "codex waiting prompt tab to queue message",
 			output: "tab to queue message",
 			want:   true,
 		},
 		{
-			name:   "codex blocked prompt context left",
+			name:   "codex waiting prompt context left",
 			output: "100% context left",
 			want:   true,
 		},
 		{
-			name: "codex active work should not be treated as blocked",
+			name: "codex active work should not be treated as waiting",
 			output: strings.Join([]string{
 				"› Run this command",
 				"• Working (7s • esc to interrupt)",
@@ -208,7 +208,7 @@ func TestIsWaitingForInput(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "codex active work with queue hint should not be treated as blocked",
+			name: "codex active work with queue hint should not be treated as waiting",
 			output: strings.Join([]string{
 				"• Planning follow-up checks (2m 53s • esc to interrupt)",
 				"tab to queue message",
@@ -217,7 +217,7 @@ func TestIsWaitingForInput(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "codex background task should not be treated as blocked",
+			name: "codex background task should not be treated as waiting",
 			output: strings.Join([]string{
 				"• Sending initial progress update (19s • esc to interrupt)",
 				"  1 background terminal running · /ps to view",
@@ -495,7 +495,7 @@ func TestMuxManagerGetStatus(t *testing.T) {
 			output:        "Rate limit exceeded",
 			outputChanged: false,
 			hasPrompt:     false,
-			want:          model.StatusBlockedAPI,
+			want:          model.StatusRateLimited,
 		},
 		{
 			name:          "failed",
@@ -516,14 +516,14 @@ func TestMuxManagerGetStatus(t *testing.T) {
 			output:        "Working...",
 			outputChanged: true,
 			hasPrompt:     true,
-			want:          model.StatusBlocked,
+			want:          model.StatusWaiting,
 		},
 		{
-			name:          "has prompt = blocked",
+			name:          "has prompt = waiting",
 			output:        "Regular output",
 			outputChanged: false,
 			hasPrompt:     true,
-			want:          model.StatusBlocked,
+			want:          model.StatusWaiting,
 		},
 		{
 			name:          "no change no prompt = empty",
@@ -589,14 +589,14 @@ func TestOpenCodeManagerGetStatusFromAPI(t *testing.T) {
 			wantStatus:    model.StatusRunning,
 		},
 		{
-			name:          "idle session returns blocked",
+			name:          "idle session returns waiting",
 			sessionStatus: SessionStatusIdle,
-			wantStatus:    model.StatusBlocked,
+			wantStatus:    model.StatusWaiting,
 		},
 		{
-			name:          "retry session returns blocked_api",
+			name:          "retry session returns rate_limited",
 			sessionStatus: SessionStatusRetry,
-			wantStatus:    model.StatusBlockedAPI,
+			wantStatus:    model.StatusRateLimited,
 		},
 	}
 
@@ -643,8 +643,8 @@ func TestOpenCodeManagerGetStatusSessionIdleInStatusMap(t *testing.T) {
 	run := &model.Run{Status: model.StatusRunning}
 	state := &RunState{}
 	got := manager.GetStatus(run, "", state, false, false)
-	if got != model.StatusBlocked {
-		t.Errorf("GetStatus() for idle session = %v, want %v", got, model.StatusBlocked)
+	if got != model.StatusWaiting {
+		t.Errorf("GetStatus() for idle session = %v, want %v", got, model.StatusWaiting)
 	}
 }
 
@@ -1060,9 +1060,9 @@ func TestOpenCodeManagerGetStatusUsesDirectory(t *testing.T) {
 		wantStatus    model.Status
 	}{
 		{
-			name:          "detects idle status (blocked) with directory scoping",
+			name:          "detects idle status (waiting) with directory scoping",
 			sessionStatus: SessionStatusIdle,
-			wantStatus:    model.StatusBlocked,
+			wantStatus:    model.StatusWaiting,
 		},
 		{
 			name:          "detects busy status (running) with directory scoping",
@@ -1070,9 +1070,9 @@ func TestOpenCodeManagerGetStatusUsesDirectory(t *testing.T) {
 			wantStatus:    model.StatusRunning,
 		},
 		{
-			name:          "detects retry status (blocked_api) with directory scoping",
+			name:          "detects retry status (rate_limited) with directory scoping",
 			sessionStatus: SessionStatusRetry,
-			wantStatus:    model.StatusBlockedAPI,
+			wantStatus:    model.StatusRateLimited,
 		},
 	}
 
@@ -1224,8 +1224,8 @@ func TestOpenCodeManagerDirectoryScoping(t *testing.T) {
 
 	state := &RunState{}
 	status := manager.GetStatus(run, "", state, false, false)
-	if status != model.StatusBlocked {
-		t.Errorf("GetStatus() = %v, want %v (blocked when agent is idle)", status, model.StatusBlocked)
+	if status != model.StatusWaiting {
+		t.Errorf("GetStatus() = %v, want %v (waiting when agent is idle)", status, model.StatusWaiting)
 	}
 }
 

@@ -192,7 +192,7 @@ func apiRunToModel(r *orchapi.Run) *model.Run {
 	run := &model.Run{
 		IssueID:       r.IssueID,
 		RunID:         r.RunID,
-		Status:        model.Status(r.Status),
+		Status:        model.NormalizeStatus(string(r.Status)),
 		Phase:         model.Phase(r.Phase),
 		Agent:         r.Agent,
 		Model:         r.Model,

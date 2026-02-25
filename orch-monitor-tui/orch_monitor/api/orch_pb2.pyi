@@ -13,8 +13,8 @@ class RunStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     RUN_STATUS_QUEUED: _ClassVar[RunStatus]
     RUN_STATUS_BOOTING: _ClassVar[RunStatus]
     RUN_STATUS_RUNNING: _ClassVar[RunStatus]
-    RUN_STATUS_BLOCKED: _ClassVar[RunStatus]
-    RUN_STATUS_BLOCKED_API: _ClassVar[RunStatus]
+    RUN_STATUS_WAITING: _ClassVar[RunStatus]
+    RUN_STATUS_RATE_LIMITED: _ClassVar[RunStatus]
     RUN_STATUS_PR_OPEN: _ClassVar[RunStatus]
     RUN_STATUS_DONE: _ClassVar[RunStatus]
     RUN_STATUS_FAILED: _ClassVar[RunStatus]
@@ -48,8 +48,8 @@ RUN_STATUS_UNSPECIFIED: RunStatus
 RUN_STATUS_QUEUED: RunStatus
 RUN_STATUS_BOOTING: RunStatus
 RUN_STATUS_RUNNING: RunStatus
-RUN_STATUS_BLOCKED: RunStatus
-RUN_STATUS_BLOCKED_API: RunStatus
+RUN_STATUS_WAITING: RunStatus
+RUN_STATUS_RATE_LIMITED: RunStatus
 RUN_STATUS_PR_OPEN: RunStatus
 RUN_STATUS_DONE: RunStatus
 RUN_STATUS_FAILED: RunStatus

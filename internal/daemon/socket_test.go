@@ -735,7 +735,7 @@ func TestListRunsPaginationContract(t *testing.T) {
 			"orch-001#run-1": {IssueID: "orch-001", RunID: "run-1", Status: model.StatusRunning, Agent: "opencode", StartedAt: now.Add(-5 * time.Hour), UpdatedAt: now.Add(-4 * time.Hour)},
 			"orch-001#run-2": {IssueID: "orch-001", RunID: "run-2", Status: model.StatusDone, Agent: "claude", StartedAt: now.Add(-4 * time.Hour), UpdatedAt: now.Add(-3 * time.Hour)},
 			"orch-002#run-3": {IssueID: "orch-002", RunID: "run-3", Status: model.StatusRunning, Agent: "opencode", StartedAt: now.Add(-3 * time.Hour), UpdatedAt: now.Add(-2 * time.Hour)},
-			"orch-002#run-4": {IssueID: "orch-002", RunID: "run-4", Status: model.StatusBlocked, Agent: "claude", StartedAt: now.Add(-2 * time.Hour), UpdatedAt: now.Add(-1 * time.Hour)},
+			"orch-002#run-4": {IssueID: "orch-002", RunID: "run-4", Status: model.StatusWaiting, Agent: "claude", StartedAt: now.Add(-2 * time.Hour), UpdatedAt: now.Add(-1 * time.Hour)},
 			"orch-003#run-5": {IssueID: "orch-003", RunID: "run-5", Status: model.StatusFailed, Agent: "opencode", StartedAt: now.Add(-1 * time.Hour), UpdatedAt: now},
 		},
 		issues: make(map[string]*model.Issue),

@@ -121,8 +121,8 @@ func captureAllStatusesAPI() []orchapi.RunStatus {
 	return []orchapi.RunStatus{
 		orchapi.RunStatusRunning,
 		orchapi.RunStatusBooting,
-		orchapi.RunStatusBlocked,
-		orchapi.RunStatusBlockedAPI,
+		orchapi.RunStatusWaiting,
+		orchapi.RunStatusRateLimited,
 		orchapi.RunStatusPROpen,
 	}
 }

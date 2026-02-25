@@ -17,8 +17,8 @@ class Status(str, Enum):
     QUEUED = "queued"
     BOOTING = "booting"
     RUNNING = "running"
-    BLOCKED = "blocked"
-    BLOCKED_API = "blocked_api"
+    WAITING = "waiting"
+    RATE_LIMITED = "rate_limited"
     PR_OPEN = "pr_open"
     DONE = "done"
     FAILED = "failed"
@@ -162,8 +162,8 @@ class Run:
             Status.QUEUED,
             Status.BOOTING,
             Status.RUNNING,
-            Status.BLOCKED,
-            Status.BLOCKED_API,
+            Status.WAITING,
+            Status.RATE_LIMITED,
         }
         return self.status in active_states
 

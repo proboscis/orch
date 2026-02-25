@@ -84,8 +84,8 @@ No active runs.
 2. Start run: ` + "`orch run <issue-id>`" + `
 3. Monitor: Watch the runs table or use ` + "`orch ps`" + `
 
-### Handling Blocked Runs
-When a run shows "blocked" status:
+### Handling Waiting Runs
+When a run shows "waiting" status:
 1. Capture: ` + "`orch capture <run-ref>`" + ` to see what the agent needs
 2. Send feedback: ` + "`orch send <issue-id> \"<message>\"`" + ` to provide input
 3. The agent will resume automatically after receiving input
@@ -106,12 +106,12 @@ Run these commands directly using bash (do not use any special protocol):
 ### Run Management
 - Start a run: ` + "`orch run <issue-id>`" + `
 - Continue from branch: ` + "`orch continue <issue> --branch <branch>`" + `
-- List runs: ` + "`orch ps`" + ` (use ` + "`--status running,blocked`" + ` to filter)
+- List runs: ` + "`orch ps`" + ` (use ` + "`--status running,waiting`" + ` to filter)
 - Stop a run: ` + "`orch stop <issue-id>#<run-id>`" + `
 - Resolve a run: ` + "`orch resolve <issue-id>#<run-id>`" + `
 - Show run details: ` + "`orch show <issue-id>#<run-id>`" + `
 - Capture run state: ` + "`orch capture <run-ref>`" + ` - see agent's last message
-- Send feedback: ` + "`orch send <issue-id> \"<message>\"`" + ` - provide input to blocked agent
+- Send feedback: ` + "`orch send <issue-id> \"<message>\"`" + ` - provide input to waiting agent
 
 ### Interactive Commands (DO NOT USE)
 The following commands are interactive and will hang if called by an AI agent:
@@ -348,8 +348,8 @@ func buildControlAgentPromptViaAPI(ctx context.Context, api orchapi.OrchAPI, iss
 	runsResult, _ := api.ListRuns(ctx, &orchapi.ListRunsFilter{
 		Status: []orchapi.RunStatus{
 			orchapi.RunStatusRunning,
-			orchapi.RunStatusBlocked,
-			orchapi.RunStatusBlockedAPI,
+			orchapi.RunStatusWaiting,
+			orchapi.RunStatusRateLimited,
 			orchapi.RunStatusBooting,
 			orchapi.RunStatusQueued,
 			orchapi.RunStatusPROpen,

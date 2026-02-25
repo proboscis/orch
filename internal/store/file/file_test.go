@@ -312,7 +312,7 @@ func TestListRunsWithStatusFilter(t *testing.T) {
 	s.AppendEvent(run1.Ref(), model.NewStatusEvent(model.StatusRunning))
 
 	run2, _ := s.CreateRun("test123", "20231220-110000", nil)
-	s.AppendEvent(run2.Ref(), model.NewStatusEvent(model.StatusBlocked))
+	s.AppendEvent(run2.Ref(), model.NewStatusEvent(model.StatusWaiting))
 
 	run3, _ := s.CreateRun("test123", "20231220-120000", nil)
 	s.AppendEvent(run3.Ref(), model.NewStatusEvent(model.StatusDone))
@@ -324,7 +324,7 @@ func TestListRunsWithStatusFilter(t *testing.T) {
 	}
 
 	// Filter by multiple statuses
-	runs, _ = s.ListRuns(&store.ListRunsFilter{Status: []model.Status{model.StatusRunning, model.StatusBlocked}})
+	runs, _ = s.ListRuns(&store.ListRunsFilter{Status: []model.Status{model.StatusRunning, model.StatusWaiting}})
 	if len(runs) != 2 {
 		t.Errorf("expected 2 runs, got %d", len(runs))
 	}

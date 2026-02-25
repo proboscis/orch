@@ -102,8 +102,8 @@ func stopAllForIssue(ctx context.Context, api orchapi.OrchAPI, issueID string, o
 		Status: []orchapi.RunStatus{
 			orchapi.RunStatusRunning,
 			orchapi.RunStatusBooting,
-			orchapi.RunStatusBlocked,
-			orchapi.RunStatusBlockedAPI,
+			orchapi.RunStatusWaiting,
+			orchapi.RunStatusRateLimited,
 			orchapi.RunStatusQueued,
 		},
 	})
@@ -152,8 +152,8 @@ func runStopAllWithDeps(ctx context.Context, opts *stopOptions, deps *stopDeps) 
 		Status: []orchapi.RunStatus{
 			orchapi.RunStatusRunning,
 			orchapi.RunStatusBooting,
-			orchapi.RunStatusBlocked,
-			orchapi.RunStatusBlockedAPI,
+			orchapi.RunStatusWaiting,
+			orchapi.RunStatusRateLimited,
 			orchapi.RunStatusQueued,
 		},
 	})

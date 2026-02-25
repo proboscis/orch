@@ -56,7 +56,7 @@ Skills are model-invoked - Claude will automatically use this skill when you ask
 - "Show me how to monitor multiple runs and send guidance."
 - "What is the control agent workflow for orch?"
 - "How do I run tests in an agent's worktree?"
-- "What commands can I use to check on blocked runs?"
+- "What commands can I use to check on waiting runs?"
 
 ## Skill Contents
 
@@ -101,10 +101,10 @@ orch issue create my-task --title "Implement feature X"
 orch run my-task
 
 # Monitor progress
-orch ps --status running,blocked
+orch ps --status running,waiting
 orch capture my-task --lines 200
 
-# Send guidance to blocked agent
+# Send guidance to waiting agent
 orch send my-task "Focus on the auth module"
 
 # Run tests in isolation

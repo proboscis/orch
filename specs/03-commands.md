@@ -35,7 +35,7 @@
 | オプション | 説明 |
 |-----------|------|
 | `--new` | 常に新run（デフォルト） |
-| `--reuse` | 最新runを再開（blocked向け） |
+| `--reuse` | 最新runを再開（waiting向け） |
 | `--run-id <RUN_ID>` | 手動指定 |
 | `--agent claude\|codex\|gemini\|custom:` | agent種別 |
 | `--agent-cmd` | custom時の起動コマンド |
@@ -100,7 +100,7 @@ runs一覧を表示（人間/機械）
 
 | オプション | 説明 |
 |-----------|------|
-| `--status` | queued,booting,running,blocked,blocked_api,pr_open,done,resolved,failed,canceled,unknown |
+| `--status` | queued,booting,running,waiting,rate_limited,pr_open,done,resolved,failed,canceled,unknown |
 | `--issue-status` | open,closed,etc |
 | `--issue <ISSUE_ID>` | 特定issueのrunのみ |
 | `--limit N` | default 50 |
@@ -152,13 +152,13 @@ tmux attach（画像コピペ等の手動対話）
 
 ## orch tick RUN_REF | --all
 
-blocked等のrunを再開するトリガ（質問が解消されていれば次フェーズを進める）
+waiting等のrunを再開するトリガ（質問が解消されていれば次フェーズを進める）
 
 ### オプション
 
 | オプション | 説明 |
 |-----------|------|
-| `--only-blocked` | default on when --all |
+| `--only-waiting` | default on when --all |
 | `--agent …` | 再開時のagent指定 |
 | `--max N` | --all時の最大処理件数 |
 
@@ -188,7 +188,7 @@ Obsidian/Editorで該当ノートを開く
 
 ### 挙動
 
-- ISSUE_ID のみ指定 → そのissueの全アクティブrun（running/booting/blocked/queued）を停止
+- ISSUE_ID のみ指定 → そのissueの全アクティブrun（running/booting/waiting/queued）を停止
 - ISSUE_ID#RUN_ID 指定 → 特定runのみ停止
 - --all → 全アクティブrunを停止
 
@@ -270,7 +270,7 @@ vault内の全issueを一覧表示
 ```
 ID          STATUS  TITLE                           RUNS
 plc-123     open    Fix login timeout               1 running
-plc-124     open    Add dark mode                   1 blocked, 1 done
+plc-124     open    Add dark mode                   1 waiting, 1 done
 plc-125     closed  Update documentation            -
 ```
 

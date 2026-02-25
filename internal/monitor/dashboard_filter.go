@@ -61,9 +61,9 @@ var runFilterPresets = []runFilterPreset{
 		apply: func() RunFilter {
 			filter := DefaultRunFilter()
 			filter.Statuses = map[model.Status]bool{
-				model.StatusBlocked:    true,
-				model.StatusBlockedAPI: true,
-				model.StatusFailed:     true,
+				model.StatusWaiting:     true,
+				model.StatusRateLimited: true,
+				model.StatusFailed:      true,
 			}
 			return filter
 		},
@@ -161,7 +161,7 @@ func (d *Dashboard) activateFilterRow() (tea.Model, tea.Cmd) {
 			d.filter.Statuses = allStatusSet()
 			return d, nil
 		}
-		status := model.Status(row.value)
+		status := model.NormalizeStatus(row.value)
 		if d.filter.Statuses == nil {
 			d.filter.Statuses = make(map[model.Status]bool)
 		}

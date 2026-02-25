@@ -35,7 +35,7 @@ func TestSlackNotifier_NotifyBlocked_Webhook(t *testing.T) {
 	run := &model.Run{
 		IssueID: "test-123",
 		RunID:   "20260115-120000",
-		Status:  model.StatusBlocked,
+		Status:  model.StatusWaiting,
 	}
 
 	err := notifier.NotifyBlocked(run, "Test Issue Title", "Agent is waiting for input")
@@ -79,7 +79,7 @@ func TestSlackNotifier_NotifyBlocked_BotToken(t *testing.T) {
 	run := &model.Run{
 		IssueID: "test-456",
 		RunID:   "20260115-130000",
-		Status:  model.StatusBlockedAPI,
+		Status:  model.StatusRateLimited,
 	}
 
 	err := notifier.NotifyBlocked(run, "Another Issue", "")
@@ -144,13 +144,25 @@ func TestSlackConfig_ShouldNotify(t *testing.T) {
 			expected: false,
 		},
 		{
-			name:     "default notifies on blocked",
+			name:     "default notifies on waiting",
+			cfg:      config.SlackConfig{Enabled: true},
+			status:   "waiting",
+			expected: true,
+		},
+		{
+			name:     "default notifies on rate_limited",
+			cfg:      config.SlackConfig{Enabled: true},
+			status:   "rate_limited",
+			expected: true,
+		},
+		{
+			name:     "default notifies on blocked (compat)",
 			cfg:      config.SlackConfig{Enabled: true},
 			status:   "blocked",
 			expected: true,
 		},
 		{
-			name:     "default notifies on blocked_api",
+			name:     "default notifies on blocked_api (compat)",
 			cfg:      config.SlackConfig{Enabled: true},
 			status:   "blocked_api",
 			expected: true,
@@ -189,8 +201,8 @@ func TestStatusEmoji(t *testing.T) {
 		status   model.Status
 		expected string
 	}{
-		{model.StatusBlocked, ":no_entry:"},
-		{model.StatusBlockedAPI, ":no_entry:"},
+		{model.StatusWaiting, ":no_entry:"},
+		{model.StatusRateLimited, ":no_entry:"},
 		{model.StatusDone, ":white_check_mark:"},
 		{model.StatusFailed, ":x:"},
 		{model.StatusPROpen, ":pull_request:"},
@@ -211,8 +223,8 @@ func TestStatusDescription(t *testing.T) {
 		status   model.Status
 		expected string
 	}{
-		{model.StatusBlocked, "waiting for user input"},
-		{model.StatusBlockedAPI, "waiting for API response"},
+		{model.StatusWaiting, "waiting for user input"},
+		{model.StatusRateLimited, "waiting for API response"},
 		{model.StatusDone, "task completed"},
 		{model.StatusFailed, "run failed"},
 	}

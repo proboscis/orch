@@ -134,7 +134,7 @@ func (r *Run) GetStatus() Status {
 	for i := len(r.Events) - 1; i >= 0; i-- {
 		e := r.Events[i]
 		if e.Type == EventTypeStatus {
-			return Status(e.Name)
+			return NormalizeStatus(e.Name)
 		}
 	}
 	return StatusQueued

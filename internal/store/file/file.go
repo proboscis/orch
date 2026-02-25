@@ -705,7 +705,7 @@ func (s *FileStore) AppendEvent(ref *model.RunRef, event *model.Event) error {
 	}
 
 	if event.Type == model.EventTypeStatus {
-		newStatus := model.Status(event.Name)
+		newStatus := model.NormalizeStatus(event.Name)
 		source := model.EventSource(event.Attrs["source"])
 		if source == "" {
 			source = model.EventSourceDaemon

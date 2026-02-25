@@ -190,6 +190,7 @@ func TestBackendMapLabelsToStatus(t *testing.T) {
 		Repo:  "testrepo",
 		StatusLabels: map[string]string{
 			"status:in-progress": "in_progress",
+			"status:waiting":     "waiting",
 			"status:blocked":     "blocked",
 			"status:done":        "done",
 		},
@@ -205,6 +206,7 @@ func TestBackendMapLabelsToStatus(t *testing.T) {
 		want   model.IssueStatus
 	}{
 		{[]string{"bug", "status:in-progress"}, model.IssueStatus("in_progress")},
+		{[]string{"status:waiting", "urgent"}, model.IssueStatus("waiting")},
 		{[]string{"status:blocked", "urgent"}, model.IssueStatus("blocked")},
 		{[]string{"enhancement"}, model.IssueStatus("")},
 	}

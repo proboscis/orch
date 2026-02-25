@@ -28,14 +28,14 @@ When your PR has conflicts with main after other PRs are merged:
 
 ### Preferred Approach: Rebase via Feedback
 
-1. **DO**: Use `orch send <run_id> "rebase message"` to send feedback to the blocked run
+1. **DO**: Use `orch send <run_id> "rebase message"` to send feedback to the waiting run
 2. **DO**: Let the agent resolve conflicts in its existing session context
 3. **DO**: Wait for the agent to force push the rebased branch
 
 ### Avoid
 
 1. **DON'T**: Close the PR and restart the run from scratch
-2. **DON'T**: Cancel the run just because it's blocked
+2. **DON'T**: Cancel the run just because it's waiting
 3. **DON'T**: Manually resolve conflicts when the agent can do it
 
 ### Why This Matters
@@ -48,9 +48,9 @@ When your PR has conflicts with main after other PRs are merged:
 ### Example
 
 ```bash
-# Run is blocked with conflicts
+# Run is waiting with conflicts
 orch ps
-# Shows: 75731b   orch-383   block   conflict
+# Shows: 75731b   orch-383   wait   conflict
 
 # Send feedback to resume
 orch send 75731b "Your PR has conflicts with main. Please run: git fetch origin main && git rebase origin/main - then resolve conflicts and force push."
@@ -66,13 +66,13 @@ orch send 75731b "Your PR has conflicts with main. Please run: git fetch origin 
 ## Run Lifecycle
 
 ```
-queued → booting → running ⟷ blocked → done
+queued → booting → running ⟷ waiting → done
                       ↓         ↓
                     fail     cancel
 ```
 
-- `blocked`: Run is waiting for user input (use `orch send`)
-- `blocked_api`: Run is waiting for API response
+- `waiting`: Run is waiting for user input (use `orch send`)
+- `rate_limited`: Run is waiting for API response
 - `done`: Run completed successfully
 - `fail`: Run encountered an error
 - `cancel`: Run was manually cancelled
@@ -119,7 +119,7 @@ Existing violations are tracked; do not add new ones.
 
 ### "Connection refused" when using `orch send`
 
-The opencode server may have stopped while the run shows as "blocked". 
+The opencode server may have stopped while the run shows as "waiting". 
 - Check if the run is actually alive: look at the ALIVE column in `orch ps`
 - If server stopped, use `orch continue <id>` to restart
 

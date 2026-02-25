@@ -28,8 +28,8 @@ const (
 
 var runStatusOptions = []model.Status{
 	model.StatusRunning,
-	model.StatusBlocked,
-	model.StatusBlockedAPI,
+	model.StatusWaiting,
+	model.StatusRateLimited,
 	model.StatusQueued,
 	model.StatusBooting,
 	model.StatusPROpen,

@@ -9,7 +9,7 @@ orch は「複数LLM CLI（claude/codex/gemini等）を、issue/run/event とい
 
 1. **non-interactive がデフォルト**
    - 実行中に入力待ちはしない
-   - 人間の判断が必要なら question event を追記して終了（blocked）
+   - 人間の判断が必要なら question event を追記して終了（waiting）
 
 2. **真実は append-only events**
    - 既存イベントを書き換えない

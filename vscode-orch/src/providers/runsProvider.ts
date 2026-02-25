@@ -70,6 +70,8 @@ function iconForStatus(status: string): vscode.ThemeIcon {
   switch (status) {
     case 'running':
       return new vscode.ThemeIcon('play-circle', new vscode.ThemeColor('charts.green'));
+    case 'waiting':
+    case 'rate_limited':
     case 'blocked':
     case 'blocked_api':
       return new vscode.ThemeIcon('warning', new vscode.ThemeColor('charts.yellow'));

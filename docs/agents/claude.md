@@ -252,7 +252,7 @@ Claude has various UI modes and features. In tmux sessions:
 |--------------|-------------|
 | Initializing | `booting` |
 | Actively working | `running` |
-| Waiting for input | `blocked` |
+| Waiting for input | `waiting` |
 | Completed task | `done` |
 | Error message | `failed` |
 | Exited to shell | `unknown` |

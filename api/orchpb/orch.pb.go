@@ -24,16 +24,16 @@ const (
 type RunStatus int32
 
 const (
-	RunStatus_RUN_STATUS_UNSPECIFIED RunStatus = 0
-	RunStatus_RUN_STATUS_QUEUED      RunStatus = 1
-	RunStatus_RUN_STATUS_BOOTING     RunStatus = 2
-	RunStatus_RUN_STATUS_RUNNING     RunStatus = 3
-	RunStatus_RUN_STATUS_BLOCKED     RunStatus = 4
-	RunStatus_RUN_STATUS_BLOCKED_API RunStatus = 5
-	RunStatus_RUN_STATUS_PR_OPEN     RunStatus = 6
-	RunStatus_RUN_STATUS_DONE        RunStatus = 7
-	RunStatus_RUN_STATUS_FAILED      RunStatus = 8
-	RunStatus_RUN_STATUS_CANCELED    RunStatus = 9
+	RunStatus_RUN_STATUS_UNSPECIFIED  RunStatus = 0
+	RunStatus_RUN_STATUS_QUEUED       RunStatus = 1
+	RunStatus_RUN_STATUS_BOOTING      RunStatus = 2
+	RunStatus_RUN_STATUS_RUNNING      RunStatus = 3
+	RunStatus_RUN_STATUS_WAITING      RunStatus = 4
+	RunStatus_RUN_STATUS_RATE_LIMITED RunStatus = 5
+	RunStatus_RUN_STATUS_PR_OPEN      RunStatus = 6
+	RunStatus_RUN_STATUS_DONE         RunStatus = 7
+	RunStatus_RUN_STATUS_FAILED       RunStatus = 8
+	RunStatus_RUN_STATUS_CANCELED     RunStatus = 9
 )
 
 // Enum value maps for RunStatus.
@@ -43,24 +43,24 @@ var (
 		1: "RUN_STATUS_QUEUED",
 		2: "RUN_STATUS_BOOTING",
 		3: "RUN_STATUS_RUNNING",
-		4: "RUN_STATUS_BLOCKED",
-		5: "RUN_STATUS_BLOCKED_API",
+		4: "RUN_STATUS_WAITING",
+		5: "RUN_STATUS_RATE_LIMITED",
 		6: "RUN_STATUS_PR_OPEN",
 		7: "RUN_STATUS_DONE",
 		8: "RUN_STATUS_FAILED",
 		9: "RUN_STATUS_CANCELED",
 	}
 	RunStatus_value = map[string]int32{
-		"RUN_STATUS_UNSPECIFIED": 0,
-		"RUN_STATUS_QUEUED":      1,
-		"RUN_STATUS_BOOTING":     2,
-		"RUN_STATUS_RUNNING":     3,
-		"RUN_STATUS_BLOCKED":     4,
-		"RUN_STATUS_BLOCKED_API": 5,
-		"RUN_STATUS_PR_OPEN":     6,
-		"RUN_STATUS_DONE":        7,
-		"RUN_STATUS_FAILED":      8,
-		"RUN_STATUS_CANCELED":    9,
+		"RUN_STATUS_UNSPECIFIED":  0,
+		"RUN_STATUS_QUEUED":       1,
+		"RUN_STATUS_BOOTING":      2,
+		"RUN_STATUS_RUNNING":      3,
+		"RUN_STATUS_WAITING":      4,
+		"RUN_STATUS_RATE_LIMITED": 5,
+		"RUN_STATUS_PR_OPEN":      6,
+		"RUN_STATUS_DONE":         7,
+		"RUN_STATUS_FAILED":       8,
+		"RUN_STATUS_CANCELED":     9,
 	}
 )
 
@@ -9691,14 +9691,14 @@ const file_orch_proto_rawDesc = "" +
 	"get_config\x18/ \x01(\v2\x1a.orch.v1.GetConfigResponseH\x00R\tgetConfig\x12N\n" +
 	"\x11get_daemon_status\x180 \x01(\v2 .orch.v1.GetDaemonStatusResponseH\x00R\x0fgetDaemonStatusB\n" +
 	"\n" +
-	"\bresponse*\xff\x01\n" +
+	"\bresponse*\x80\x02\n" +
 	"\tRunStatus\x12\x1a\n" +
 	"\x16RUN_STATUS_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11RUN_STATUS_QUEUED\x10\x01\x12\x16\n" +
 	"\x12RUN_STATUS_BOOTING\x10\x02\x12\x16\n" +
 	"\x12RUN_STATUS_RUNNING\x10\x03\x12\x16\n" +
-	"\x12RUN_STATUS_BLOCKED\x10\x04\x12\x1a\n" +
-	"\x16RUN_STATUS_BLOCKED_API\x10\x05\x12\x16\n" +
+	"\x12RUN_STATUS_WAITING\x10\x04\x12\x1b\n" +
+	"\x17RUN_STATUS_RATE_LIMITED\x10\x05\x12\x16\n" +
 	"\x12RUN_STATUS_PR_OPEN\x10\x06\x12\x13\n" +
 	"\x0fRUN_STATUS_DONE\x10\a\x12\x15\n" +
 	"\x11RUN_STATUS_FAILED\x10\b\x12\x17\n" +

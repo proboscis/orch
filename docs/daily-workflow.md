@@ -11,7 +11,7 @@ Start your day by checking what happened overnight:
 orch ps
 
 # See runs that completed or need attention
-orch ps --status done,pr_open,blocked,failed
+orch ps --status done,pr_open,waiting,failed
 ```
 
 Review any PRs that agents created:
@@ -89,7 +89,7 @@ The agent starts working in the background. You can continue with other tasks.
 orch ps
 
 # Filter by status
-orch ps --status running,blocked
+orch ps --status running,waiting
 
 # Detailed view of a specific run
 orch show fix-login-timeout
@@ -100,7 +100,7 @@ orch show fix-login-timeout
 | Status | What it means | Your action |
 |--------|---------------|-------------|
 | `running` | Agent is actively working | Wait, or watch with `attach` |
-| `blocked` | Agent needs input or is stuck | Use `attach` or `send` to help |
+| `waiting` | Agent needs input or is stuck | Use `attach` or `send` to help |
 | `pr_open` | Agent created a PR | Review the PR |
 | `done` | Work completed successfully | Celebrate! |
 | `failed` | Something went wrong | Check logs, possibly restart |
@@ -216,7 +216,7 @@ orch ps
 
 1. **Use descriptive issue IDs** - Easy to tell runs apart in `ps` output
 2. **Check status regularly** - Some may finish quickly, others may block
-3. **Prioritize blocked runs** - Agents waiting for input aren't making progress
+3. **Prioritize waiting runs** - Agents waiting for input aren't making progress
 4. **Review PRs as they come in** - Don't let them pile up
 
 ## End of Day
@@ -275,9 +275,9 @@ orch run update-deps
 orch ps
 # ISSUE                STATUS   RUN                 AGENT   UPDATED
 # optimize-db-queries  running  20260115-093012     claude  5m ago
-# update-deps          blocked  20260115-093045     claude  2m ago
+# update-deps          waiting  20260115-093045     claude  2m ago
 
-# Help the blocked agent
+# Help the waiting agent
 orch attach update-deps
 # Agent: "Should I update React to v19 or stay on v18?"
 # You: "Stay on v18 for now, we're not ready for the migration"

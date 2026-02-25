@@ -271,7 +271,7 @@ func runMonitor(opts *monitorOptions) error {
 		if s == "" {
 			continue
 		}
-		statuses = append(statuses, model.Status(s))
+		statuses = append(statuses, model.NormalizeStatus(s))
 	}
 
 	runSortFallback := settings.RunSort

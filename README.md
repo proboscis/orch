@@ -78,7 +78,7 @@ orch attach my-task
 - **Issue**: A task specification (markdown file or external ticket)
 - **Run**: One execution attempt for an issue (isolated worktree + branch)
 - **Event**: Append-only log entry tracking run progress
-- **Status**: Current state derived from events (running, blocked, done, etc.)
+- **Status**: Current state derived from events (running, waiting, done, etc.)
 
 ```
 User runs: orch run my-issue
@@ -99,7 +99,7 @@ User interacts: orch attach my-issue
 | Status | Meaning | User Action |
 |--------|---------|-------------|
 | `running` | Agent is working | Wait, or attach to watch |
-| `blocked` | Agent needs input | `orch attach` to help |
+| `waiting` | Agent needs input | `orch attach` to help |
 | `pr_open` | PR created | Review the PR |
 | `done` | Completed | Celebrate! |
 | `failed` | Error occurred | Check logs, retry |

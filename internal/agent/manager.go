@@ -188,13 +188,13 @@ func (m *MuxManager) GetStatus(run *model.Run, output string, state *RunState, o
 		return model.StatusDone
 	}
 	if IsAPILimited(output) {
-		return model.StatusBlockedAPI
+		return model.StatusRateLimited
 	}
 	if IsFailed(output) {
 		return model.StatusFailed
 	}
 	if hasPrompt {
-		return model.StatusBlocked
+		return model.StatusWaiting
 	}
 	if outputChanged {
 		return model.StatusRunning
@@ -339,9 +339,9 @@ func (m *OpenCodeManager) GetStatus(run *model.Run, output string, state *RunSta
 		case SessionStatusBusy:
 			return model.StatusRunning
 		case SessionStatusIdle:
-			return model.StatusBlocked
+			return model.StatusWaiting
 		case SessionStatusRetry:
-			return model.StatusBlockedAPI
+			return model.StatusRateLimited
 		default:
 			return ""
 		}
@@ -356,7 +356,7 @@ func (m *OpenCodeManager) GetStatus(run *model.Run, output string, state *RunSta
 	}
 
 	if m.sessionExists(ctx, client) {
-		return model.StatusBlocked
+		return model.StatusWaiting
 	}
 
 	return model.StatusUnknown

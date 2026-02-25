@@ -204,8 +204,8 @@ func TestUpdateStatusAutoResolve(t *testing.T) {
 			wantSetStatusCall: false,
 		},
 		{
-			name:              "StatusBlocked does not resolve",
-			status:            model.StatusBlocked,
+			name:              "StatusWaiting does not resolve",
+			status:            model.StatusWaiting,
 			issueStatus:       model.IssueStatusOpen,
 			wantSetStatusCall: false,
 		},

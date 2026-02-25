@@ -174,7 +174,7 @@ my-first-issue   running  20260120-163045     claude  2m ago
 | `queued` | Run created, starting soon |
 | `booting` | Agent is launching |
 | `running` | Agent is actively working |
-| `blocked` | Agent needs your input |
+| `waiting` | Agent needs your input |
 | `pr_open` | Agent created a PR |
 | `done` | Task completed |
 | `failed` | Something went wrong |
@@ -271,7 +271,7 @@ Ask it to create issues, start runs, check status—all through natural language
 
 Learn efficient patterns for working with orch day-to-day:
 - Morning routines for checking overnight progress
-- How to handle blocked agents
+- How to handle waiting agents
 - Running multiple agents in parallel
 - Reviewing and merging agent PRs
 
@@ -306,7 +306,7 @@ ORCH_DEBUG=1 orch run my-issue
 Check if it's waiting for input:
 
 ```bash
-orch ps  # Look for "blocked" status
+orch ps  # Look for "waiting" status
 orch attach my-issue  # Connect and provide input
 ```
 

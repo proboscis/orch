@@ -29,8 +29,8 @@ func DefaultStyles() Styles {
 		Faint:    lipgloss.NewStyle().Foreground(lipgloss.Color("241")),
 		Status: map[model.Status]lipgloss.Style{
 			model.StatusRunning:    lipgloss.NewStyle().Foreground(lipgloss.Color("2")),
-			model.StatusBlocked:    lipgloss.NewStyle().Foreground(lipgloss.Color("3")),
-			model.StatusBlockedAPI: lipgloss.NewStyle().Foreground(lipgloss.Color("3")),
+			model.StatusWaiting:    lipgloss.NewStyle().Foreground(lipgloss.Color("3")),
+			model.StatusRateLimited: lipgloss.NewStyle().Foreground(lipgloss.Color("3")),
 			model.StatusBooting:    lipgloss.NewStyle().Foreground(lipgloss.Color("2")),
 			model.StatusQueued:     lipgloss.NewStyle().Foreground(lipgloss.Color("7")),
 			model.StatusPROpen:     lipgloss.NewStyle().Foreground(lipgloss.Color("6")),
