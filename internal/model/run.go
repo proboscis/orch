@@ -81,6 +81,7 @@ type Run struct {
 	ModelVariant      string
 	Branch            string
 	WorktreePath      string
+	Target            string
 	SessionName       string
 	MuxWindowID       string
 	Multiplexer       string
@@ -173,6 +174,9 @@ func (r *Run) DeriveState() {
 	}
 	if branch, ok := artifacts["branch"]; ok {
 		r.Branch = branch["name"]
+	}
+	if target, ok := artifacts["target"]; ok {
+		r.Target = target["name"]
 	}
 	if session, ok := artifacts["session"]; ok {
 		r.SessionName = session["name"]

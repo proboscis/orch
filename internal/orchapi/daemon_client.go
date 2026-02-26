@@ -283,6 +283,7 @@ func (c *DaemonClient) StartRun(ctx context.Context, req *StartRunRequest) (*Sta
 		DryRun:         req.DryRun,
 		Reuse:          req.Reuse,
 		Multiplexer:    req.Multiplexer,
+		Target:         req.Target,
 		ProjectRoot:    req.ProjectRoot,
 	})
 	if err != nil {
@@ -584,6 +585,7 @@ func runFromDaemonFull(r *daemon.RunFull) *Run {
 		ModelVariant:      r.ModelVariant,
 		Branch:            r.Branch,
 		WorktreePath:      r.WorktreePath,
+		Target:            r.Target,
 		SessionName:       r.SessionName,
 		Multiplexer:       Multiplexer(r.Multiplexer),
 		PRUrl:             r.PRUrl,
@@ -636,6 +638,7 @@ func runFromDaemonSummary(r *daemon.RunSummary) *Run {
 		Model:             r.Model,
 		Branch:            r.Branch,
 		WorktreePath:      r.WorktreePath,
+		Target:            r.Target,
 		SessionName:       r.SessionName,
 		Multiplexer:       Multiplexer(r.Multiplexer),
 		PRUrl:             r.PRUrl,

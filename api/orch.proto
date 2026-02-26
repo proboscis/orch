@@ -84,6 +84,7 @@ message Run {
   bool alive = 24;
   bool alive_known = 25;
   bool worktree_exists = 26;
+  string target = 27;
 }
 
 message Issue {
@@ -168,6 +169,7 @@ message StartRunRequest {
   string agent_cmd = 17;
   string agent_profile = 18;
   string multiplexer = 19;
+  string target = 20;
 }
 
 message StartRunResponse {

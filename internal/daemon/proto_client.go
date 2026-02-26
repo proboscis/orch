@@ -524,6 +524,7 @@ func (c *ProtoClient) StartRun(opts *StartRunOptions) (*StartRunResponse, error)
 				DryRun:         opts.DryRun,
 				Reuse:          opts.Reuse,
 				Multiplexer:    opts.Multiplexer,
+				Target:         opts.Target,
 				ProjectRoot:    opts.ProjectRoot,
 			},
 		},

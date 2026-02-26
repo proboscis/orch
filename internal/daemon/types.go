@@ -107,6 +107,7 @@ type RunSummary struct {
 	Model             string         `json:"model,omitempty"`
 	Branch            string         `json:"branch,omitempty"`
 	WorktreePath      string         `json:"worktree_path,omitempty"`
+	Target            string         `json:"target,omitempty"`
 	SessionName       string         `json:"session_name,omitempty"`
 	Multiplexer       string         `json:"multiplexer,omitempty"`
 	PRUrl             string         `json:"pr_url,omitempty"`
@@ -151,6 +152,7 @@ type RunFull struct {
 	ModelVariant      string         `json:"model_variant,omitempty"`
 	Branch            string         `json:"branch,omitempty"`
 	WorktreePath      string         `json:"worktree_path,omitempty"`
+	Target            string         `json:"target,omitempty"`
 	SessionName       string         `json:"session_name,omitempty"`
 	Multiplexer       string         `json:"multiplexer,omitempty"`
 	PRUrl             string         `json:"pr_url,omitempty"`
@@ -356,6 +358,7 @@ func RunToSummary(run *model.Run) *RunSummary {
 		Model:             run.Model,
 		Branch:            run.Branch,
 		WorktreePath:      run.WorktreePath,
+		Target:            run.Target,
 		SessionName:       run.SessionName,
 		Multiplexer:       run.Multiplexer,
 		PRUrl:             run.PRUrl,
@@ -422,6 +425,7 @@ func RunToFull(run *model.Run) *RunFull {
 		ModelVariant:      run.ModelVariant,
 		Branch:            run.Branch,
 		WorktreePath:      run.WorktreePath,
+		Target:            run.Target,
 		SessionName:       run.SessionName,
 		Multiplexer:       run.Multiplexer,
 		PRUrl:             run.PRUrl,
@@ -572,6 +576,7 @@ type StartRunOptions struct {
 	DryRun         bool
 	Reuse          bool
 	Multiplexer    string
+	Target         string
 	ProjectRoot    string
 }
 

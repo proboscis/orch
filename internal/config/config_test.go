@@ -444,6 +444,61 @@ func TestRelativeIssuesPathResolution(t *testing.T) {
 	}
 }
 
+func TestLoadTargetsAndGetTarget(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_ISSUES_ROOT", "")
+	t.Setenv("ORCH_AGENT", "")
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	configBody := `targets:
+  - name: mac
+    host: user@mac
+    repo: /Users/user/repos/project
+  - name: linux
+    host: dev@linux
+    repo: /home/dev/project
+`
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(configBody), 0644); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	if len(cfg.Targets) != 2 {
+		t.Fatalf("targets len = %d, want 2", len(cfg.Targets))
+	}
+
+	mac := cfg.GetTarget("mac")
+	if mac == nil {
+		t.Fatalf("GetTarget(mac) = nil, want target")
+	}
+	if mac.Host != "user@mac" || mac.Repo != "/Users/user/repos/project" {
+		t.Fatalf("GetTarget(mac) = %+v, unexpected values", mac)
+	}
+
+	if cfg.GetTarget("missing") != nil {
+		t.Fatalf("GetTarget(missing) != nil")
+	}
+}
+
 func TestOpenCodeConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

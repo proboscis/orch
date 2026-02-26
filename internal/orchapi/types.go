@@ -155,6 +155,7 @@ type Run struct {
 	ModelVariant      string
 	Branch            string
 	WorktreePath      string
+	Target            string
 	SessionName       string
 	Multiplexer       Multiplexer
 	PRUrl             string
@@ -278,6 +279,7 @@ type StartRunRequest struct {
 	DryRun         bool
 	Reuse          bool
 	Multiplexer    string
+	Target         string
 	ProjectRoot    string
 	Preset         string
 }

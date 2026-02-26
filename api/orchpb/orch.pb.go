@@ -355,6 +355,7 @@ type Run struct {
 	Alive             bool                   `protobuf:"varint,24,opt,name=alive,proto3" json:"alive,omitempty"`
 	AliveKnown        bool                   `protobuf:"varint,25,opt,name=alive_known,json=aliveKnown,proto3" json:"alive_known,omitempty"`
 	WorktreeExists    bool                   `protobuf:"varint,26,opt,name=worktree_exists,json=worktreeExists,proto3" json:"worktree_exists,omitempty"`
+	Target            string                 `protobuf:"bytes,27,opt,name=target,proto3" json:"target,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -569,6 +570,13 @@ func (x *Run) GetWorktreeExists() bool {
 		return x.WorktreeExists
 	}
 	return false
+}
+
+func (x *Run) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
 }
 
 type Issue struct {
@@ -1136,6 +1144,7 @@ type StartRunRequest struct {
 	AgentCmd       string                 `protobuf:"bytes,17,opt,name=agent_cmd,json=agentCmd,proto3" json:"agent_cmd,omitempty"`
 	AgentProfile   string                 `protobuf:"bytes,18,opt,name=agent_profile,json=agentProfile,proto3" json:"agent_profile,omitempty"`
 	Multiplexer    string                 `protobuf:"bytes,19,opt,name=multiplexer,proto3" json:"multiplexer,omitempty"`
+	Target         string                 `protobuf:"bytes,20,opt,name=target,proto3" json:"target,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1299,6 +1308,13 @@ func (x *StartRunRequest) GetAgentProfile() string {
 func (x *StartRunRequest) GetMultiplexer() string {
 	if x != nil {
 		return x.Multiplexer
+	}
+	return ""
+}
+
+func (x *StartRunRequest) GetTarget() string {
+	if x != nil {
+		return x.Target
 	}
 	return ""
 }
@@ -9003,7 +9019,7 @@ const file_orch_proto_rawDesc = "" +
 	"\tadditions\x18\x01 \x01(\x05R\tadditions\x12\x1c\n" +
 	"\tdeletions\x18\x02 \x01(\x05R\tdeletions\x12#\n" +
 	"\rfiles_changed\x18\x03 \x01(\x05R\ffilesChanged\x12\x14\n" +
-	"\x05files\x18\x04 \x03(\tR\x05files\"\xa0\a\n" +
+	"\x05files\x18\x04 \x03(\tR\x05files\"\xb8\a\n" +
 	"\x03Run\x12\x19\n" +
 	"\bissue_id\x18\x01 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12*\n" +
@@ -9035,7 +9051,8 @@ const file_orch_proto_rawDesc = "" +
 	"\x05alive\x18\x18 \x01(\bR\x05alive\x12\x1f\n" +
 	"\valive_known\x18\x19 \x01(\bR\n" +
 	"aliveKnown\x12'\n" +
-	"\x0fworktree_exists\x18\x1a \x01(\bR\x0eworktreeExists\"\xf1\x01\n" +
+	"\x0fworktree_exists\x18\x1a \x01(\bR\x0eworktreeExists\x12\x16\n" +
+	"\x06target\x18\x1b \x01(\tR\x06target\"\xf1\x01\n" +
 	"\x05Issue\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x18\n" +
@@ -9085,7 +9102,7 @@ const file_orch_proto_rawDesc = "" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\"X\n" +
 	"\x0eGetRunResponse\x12\x1e\n" +
 	"\x03run\x18\x01 \x01(\v2\f.orch.v1.RunR\x03run\x12&\n" +
-	"\x06events\x18\x02 \x03(\v2\x0e.orch.v1.EventR\x06events\"\xc7\x04\n" +
+	"\x06events\x18\x02 \x03(\v2\x0e.orch.v1.EventR\x06events\"\xdf\x04\n" +
 	"\x0fStartRunRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +
@@ -9108,7 +9125,8 @@ const file_orch_proto_rawDesc = "" +
 	"\x06run_id\x18\x10 \x01(\tR\x05runId\x12\x1b\n" +
 	"\tagent_cmd\x18\x11 \x01(\tR\bagentCmd\x12#\n" +
 	"\ragent_profile\x18\x12 \x01(\tR\fagentProfile\x12 \n" +
-	"\vmultiplexer\x18\x13 \x01(\tR\vmultiplexer\"\xa1\x01\n" +
+	"\vmultiplexer\x18\x13 \x01(\tR\vmultiplexer\x12\x16\n" +
+	"\x06target\x18\x14 \x01(\tR\x06target\"\xa1\x01\n" +
 	"\x10StartRunResponse\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
 	"\x06branch\x18\x02 \x01(\tR\x06branch\x12#\n" +

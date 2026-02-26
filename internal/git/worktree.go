@@ -19,12 +19,27 @@ var worktreeExecutorFactory = func() executor.Executor {
 }
 
 func runGitOutput(args ...string) ([]byte, error) {
-	output, _, err := worktreeExecutorFactory().RunCommand(context.Background(), "git", args, executor.RunOptions{})
+	output, _, err := runGitOutputWithExecutor(nil, args...)
 	return output, err
 }
 
+func runGitOutputWithExecutor(exec executor.Executor, args ...string) ([]byte, int, error) {
+	if exec == nil {
+		exec = worktreeExecutorFactory()
+	}
+	return exec.RunCommand(context.Background(), "git", args, executor.RunOptions{})
+}
+
 func runGitWithStderr(args ...string) error {
-	_, _, err := worktreeExecutorFactory().RunCommand(context.Background(), "git", args, executor.RunOptions{Stderr: os.Stderr})
+	err := runGitWithStderrWithExecutor(nil, args...)
+	return err
+}
+
+func runGitWithStderrWithExecutor(exec executor.Executor, args ...string) error {
+	if exec == nil {
+		exec = worktreeExecutorFactory()
+	}
+	_, _, err := exec.RunCommand(context.Background(), "git", args, executor.RunOptions{Stderr: os.Stderr})
 	return err
 }
 
@@ -203,6 +218,10 @@ func RemoteBranchRef(remote, branch string) string {
 // The worktree is created from the remote branch (e.g., origin/main) to ensure
 // it's based on the latest remote state rather than potentially stale local state.
 func CreateWorktree(cfg *WorktreeConfig) (*WorktreeResult, error) {
+	return CreateWorktreeWithExecutor(cfg, nil)
+}
+
+func CreateWorktreeWithExecutor(cfg *WorktreeConfig, exec executor.Executor) (*WorktreeResult, error) {
 	// Set defaults
 	if cfg.BaseBranch == "" {
 		cfg.BaseBranch = "main"
@@ -232,7 +251,7 @@ func CreateWorktree(cfg *WorktreeConfig) (*WorktreeResult, error) {
 	}
 
 	// Fetch the remote branch to ensure we have the latest state
-	if err := runGitWithStderr("-C", cfg.RepoRoot, "fetch", remote, branch); err != nil {
+	if err := runGitWithStderrWithExecutor(exec, "-C", cfg.RepoRoot, "fetch", remote, branch); err != nil {
 		// Continue even if fetch fails - remote might not exist or be offline
 		// The worktree creation will fail if the ref doesn't exist
 	}
@@ -249,7 +268,7 @@ func CreateWorktree(cfg *WorktreeConfig) (*WorktreeResult, error) {
 	}
 
 	actualBaseBranch := remoteBranchRef
-	if err := runGitWithStderr(args...); err != nil {
+	if err := runGitWithStderrWithExecutor(exec, args...); err != nil {
 		// Fall back to local branch if remote ref doesn't exist
 		// This handles repos without remotes or when the remote is unavailable
 		args = []string{
@@ -261,7 +280,7 @@ func CreateWorktree(cfg *WorktreeConfig) (*WorktreeResult, error) {
 		}
 
 		actualBaseBranch = branch
-		if err := runGitWithStderr(args...); err != nil {
+		if err := runGitWithStderrWithExecutor(exec, args...); err != nil {
 			// Try without -b if branch might already exist
 			args = []string{
 				"-C", cfg.RepoRoot,
@@ -269,7 +288,7 @@ func CreateWorktree(cfg *WorktreeConfig) (*WorktreeResult, error) {
 				cfg.WorktreePath,
 				cfg.Branch,
 			}
-			if err := runGitWithStderr(args...); err != nil {
+			if err := runGitWithStderrWithExecutor(exec, args...); err != nil {
 				return nil, fmt.Errorf("failed to create worktree: %w", err)
 			}
 		}

@@ -20,6 +20,7 @@ import (
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/config"
+	"github.com/s22625/orch/internal/executor"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/github"
 	"github.com/s22625/orch/internal/model"
@@ -143,6 +144,7 @@ type SendRequest struct {
 	AgentCmd       string `json:"agent_cmd,omitempty"`
 	AgentProfile   string `json:"agent_profile,omitempty"`
 	Multiplexer    string `json:"multiplexer_type,omitempty"`
+	Target         string `json:"target,omitempty"`
 }
 
 type SendResponse struct {
@@ -2470,6 +2472,25 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
+	targetName := strings.TrimSpace(opts.Target)
+	isRemoteTarget := targetName != "" && targetName != "local"
+	executionProjectRoot := projectRoot
+	runExecutor := executor.NewLocalExecutor()
+	if isRemoteTarget {
+		targetCfg := cfg.GetTarget(targetName)
+		if targetCfg == nil {
+			return nil, fmt.Errorf("target %q not found in config", targetName)
+		}
+		if strings.TrimSpace(targetCfg.Host) == "" {
+			return nil, fmt.Errorf("target %q host is empty", targetName)
+		}
+		if strings.TrimSpace(targetCfg.Repo) == "" {
+			return nil, fmt.Errorf("target %q repo is empty", targetName)
+		}
+		executionProjectRoot = strings.TrimSpace(targetCfg.Repo)
+		runExecutor = executor.NewSSHExecutor(strings.TrimSpace(targetCfg.Host))
+	}
+
 	agentName := opts.Agent
 	if agentName == "" {
 		agentName = cfg.Agent
@@ -2488,8 +2509,11 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		return nil, fmt.Errorf("failed to get adapter: %w", err)
 	}
 
-	if !adapter.IsAvailable() {
+	if !isRemoteTarget && !adapter.IsAvailable() {
 		return nil, fmt.Errorf("agent not available: %s", agentName)
+	}
+	if isRemoteTarget && adapter.PromptInjection() == agent.InjectionHTTP {
+		return nil, fmt.Errorf("agent %s with HTTP prompt injection is not supported with remote target %q", agentName, targetName)
 	}
 
 	runID := opts.RunID
@@ -2513,7 +2537,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	}
 	sessionName := model.GenerateSessionName(opts.IssueID, runID)
 
-	if projectRoot == "" {
+	if executionProjectRoot == "" {
 		return nil, fmt.Errorf("no project root available")
 	}
 
@@ -2531,7 +2555,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	if filepath.IsAbs(worktreeDir) {
 		worktreePath = filepath.Join(worktreeDir, opts.IssueID, worktreeName)
 	} else {
-		worktreePath = filepath.Join(projectRoot, worktreeDir, opts.IssueID, worktreeName)
+		worktreePath = filepath.Join(executionProjectRoot, worktreeDir, opts.IssueID, worktreeName)
 	}
 
 	if opts.DryRun {
@@ -2551,6 +2575,9 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	if opts.Model != "" {
 		metadata["model"] = opts.Model
 	}
+	if targetName != "" {
+		metadata["target"] = targetName
+	}
 	run, err := st.CreateRun(opts.IssueID, runID, metadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create run: %w", err)
@@ -2566,15 +2593,15 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		baseBranch = "main"
 	}
 
-	worktreeResult, err := git.CreateWorktree(&git.WorktreeConfig{
-		RepoRoot:    projectRoot,
+	worktreeResult, err := git.CreateWorktreeWithExecutor(&git.WorktreeConfig{
+		RepoRoot:    executionProjectRoot,
 		WorktreeDir: worktreeDir,
 		IssueID:     opts.IssueID,
 		RunID:       runID,
 		Agent:       agentName,
 		BaseBranch:  baseBranch,
 		Branch:      branch,
-	})
+	}, runExecutor)
 	if err != nil {
 		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
 		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
@@ -2583,6 +2610,9 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 
 	st.AppendEvent(run.Ref(), model.NewArtifactEvent("worktree", map[string]string{"path": worktreeResult.WorktreePath}))
 	st.AppendEvent(run.Ref(), model.NewArtifactEvent("branch", map[string]string{"name": worktreeResult.Branch}))
+	if targetName != "" {
+		st.AppendEvent(run.Ref(), model.NewArtifactEvent("target", map[string]string{"name": targetName}))
+	}
 
 	agentPrompt := s.buildRunPrompt(issue, st.RootPath(), opts.NoPR, opts.PromptTemplate, opts.PRTargetBranch)
 	promptPath := filepath.Join(worktreeResult.WorktreePath, "ORCH_PROMPT.md")
@@ -2625,7 +2655,24 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	muxType, _ := multiplexer.ParseType(opts.Multiplexer)
 
 	var mux multiplexer.Multiplexer
-	if muxType == multiplexer.TypeAuto {
+	if isRemoteTarget {
+		if muxType == multiplexer.TypeAuto {
+			configuredMux := cfg.GetAgentMultiplexer()
+			parsedMux, parseErr := multiplexer.ParseType(configuredMux)
+			if parseErr != nil {
+				return nil, fmt.Errorf("invalid agent multiplexer config %q: %w", configuredMux, parseErr)
+			}
+			muxType = parsedMux
+		}
+		switch muxType {
+		case multiplexer.TypeTmux:
+			mux = multiplexer.NewTmuxMultiplexerWithExecutor(runExecutor)
+		case multiplexer.TypeZellij:
+			mux = multiplexer.NewZellijMultiplexerWithExecutor(runExecutor)
+		default:
+			return nil, fmt.Errorf("remote target requires explicit tmux or zellij multiplexer")
+		}
+	} else if muxType == multiplexer.TypeAuto {
 		mux, _ = multiplexer.GetAuto()
 	} else {
 		mux, _, _ = multiplexer.GetWithFallback(muxType)

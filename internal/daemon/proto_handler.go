@@ -599,6 +599,7 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		DryRun:         req.DryRun,
 		Reuse:          req.Reuse,
 		Multiplexer:    req.Multiplexer,
+		Target:         req.Target,
 		ProjectRoot:    projectRoot,
 	}
 

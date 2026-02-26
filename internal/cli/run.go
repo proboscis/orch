@@ -35,6 +35,7 @@ type runOptions struct {
 	PRTargetBranch string
 	Model          string
 	ModelVariant   string
+	On             string
 	Preset         string
 	Verbose        bool
 }
@@ -79,6 +80,7 @@ Debug output can be enabled with --verbose, --log-level debug, or ORCH_DEBUG=1.`
 	cmd.Flags().StringVar(&opts.PromptTemplate, "prompt-template", "", "Custom prompt template file")
 	cmd.Flags().StringVar(&opts.Model, "model", "", "Model for opencode (provider/model format, e.g., anthropic/claude-opus-4-5)")
 	cmd.Flags().StringVar(&opts.ModelVariant, "model-variant", "", "Model variant (e.g., 'max' for max thinking)")
+	cmd.Flags().StringVar(&opts.On, "on", "", "Target name from config.targets for remote execution")
 	cmd.Flags().StringVar(&opts.Preset, "preset", "", "Named preset from config (e.g., 'opus:high', 'gpt5.2-codex:xhigh')")
 	cmd.Flags().BoolVarP(&opts.Verbose, "verbose", "v", false, "Enable debug output for troubleshooting")
 
@@ -141,6 +143,7 @@ func runRun(issueID string, opts *runOptions) error {
 		DryRun:         opts.DryRun,
 		Reuse:          opts.Reuse,
 		Multiplexer:    opts.Multiplexer,
+		Target:         opts.On,
 		ProjectRoot:    repoRoot,
 	})
 	if err != nil {
