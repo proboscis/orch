@@ -755,7 +755,7 @@ func (m *Monitor) ListBranchesForIssue(issueID string) ([]branchInfo, error) {
 
 func (m *Monitor) ContinueRun(issueID, branch, agentType, prompt string) (string, error) {
 	args := append([]string{}, m.globalFlags...)
-	args = append(args, "continue", "--issue", issueID, "--branch", branch)
+	args = append(args, "restart-from", "--issue", issueID, "--branch", branch)
 	if agentType != "" {
 		agentName, model, variant, profile := m.parseAgentPreset(agentType)
 		args = append(args, "--agent", agentName)
@@ -777,7 +777,7 @@ func (m *Monitor) ContinueRun(issueID, branch, agentType, prompt string) (string
 
 	// If prompt is provided, we need to inject it after the run starts
 	// For now, we'll pass it via environment variable or stdin
-	// The continue command doesn't have a --prompt flag, so we'll handle this differently
+	// The restart-from command doesn't have a --prompt flag, so we'll handle this differently
 	if prompt != "" {
 		// Store the prompt to be injected via tmux after the session starts
 		cmd.Env = append(os.Environ(), fmt.Sprintf("ORCH_CONTINUE_PROMPT=%s", prompt))
@@ -793,7 +793,7 @@ func (m *Monitor) ContinueRun(issueID, branch, agentType, prompt string) (string
 		return output, err
 	}
 	if strings.TrimSpace(output) == "" {
-		output = "run continued"
+		output = "run restarted"
 	}
 	return output, nil
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/s22625/orch/internal/agent"
@@ -25,11 +26,23 @@ func newSendCmd() *cobra.Command {
 		Short: "Send a message to a running agent",
 		Long: `Send a message to a running agent.
 
+This is the primary way to interact with waiting runs.
+Capture the latest output with orch capture first, then reply with orch send.
+
 For tmux-based agents (claude, codex, gemini), the message is sent via send-keys.
 For opencode agents, the message is sent via HTTP API.
 
 By default, Enter is pressed after the message for tmux agents.
 The --no-enter flag is ignored for opencode agents.
+
+If sending fails, treat it as an infrastructure issue first:
+  1. orch capture <RUN_REF>
+  2. orch ps
+  3. Check the multiplexer directly (tmux list-sessions / zellij list-sessions)
+  4. Write feedback into ORCH_PROMPT.md in the run worktree
+  5. Use native multiplexer send (tmux send-keys / zellij action write-chars)
+
+Do NOT use orch restart-from unless the run is failed, canceled, or unknown.
 
 Examples:
   # Send a message to an agent
@@ -86,6 +99,7 @@ func runSend(refStr, message string, opts *sendOptions) error {
 	ref := orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}
 	err = api.SendMessage(ctx, ref, message)
 	if err != nil {
+		formattedErr := formatSendFailureMessage(err, run)
 		exitCode := ExitAgentError
 		if strings.Contains(err.Error(), "has ended") {
 			exitCode = ExitRunEnded
@@ -97,13 +111,13 @@ func runSend(refStr, message string, opts *sendOptions) error {
 		if globalOpts.JSON {
 			result := map[string]interface{}{
 				"ok":    false,
-				"error": err.Error(),
+				"error": formattedErr,
 			}
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
 			enc.Encode(result)
 		} else {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			fmt.Fprintf(os.Stderr, "error: %s\n", formattedErr)
 		}
 		os.Exit(exitCode)
 		return err
@@ -127,6 +141,27 @@ func runSend(refStr, message string, opts *sendOptions) error {
 	}
 
 	return nil
+}
+
+func formatSendFailureMessage(err error, run *orchapi.Run) string {
+	if err == nil {
+		return ""
+	}
+
+	runRef := "<RUN_REF>"
+	promptPath := "ORCH_PROMPT.md"
+	if run != nil {
+		if run.IssueID != "" && run.RunID != "" {
+			runRef = run.IssueID + "#" + run.RunID
+		} else if run.IssueID != "" {
+			runRef = run.IssueID
+		}
+		if run.WorktreePath != "" {
+			promptPath = filepath.Join(run.WorktreePath, "ORCH_PROMPT.md")
+		}
+	}
+
+	return fmt.Sprintf("%s\n\nSend failed. Try this escalation path before assuming the run is broken:\n  1. orch capture %s\n  2. orch ps\n  3. Check the multiplexer directly (tmux list-sessions / zellij list-sessions)\n  4. Write feedback into %s\n  5. Use native multiplexer send (tmux send-keys / zellij action write-chars)\n\nDo NOT use orch restart-from - the run is likely still alive.", err.Error(), runRef, promptPath)
 }
 
 func validateSendConfig(run *orchapi.Run, isOpenCode bool) error {

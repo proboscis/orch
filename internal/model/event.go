@@ -63,7 +63,7 @@ func (s Status) IsActive() bool {
 type EventSource string
 
 const (
-	EventSourceUser   EventSource = "user"   // CLI commands (stop, continue, resolve)
+	EventSourceUser   EventSource = "user"   // CLI commands (stop, restart-from, resolve)
 	EventSourceDaemon EventSource = "daemon" // Daemon inferences (PR merged, agent dead)
 	EventSourceAgent  EventSource = "agent"  // Agent self-reported status
 )

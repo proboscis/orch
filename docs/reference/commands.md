@@ -164,12 +164,13 @@ orch run --preset thorough my-issue
 
 ---
 
-## orch continue
+## orch restart-from
 
-Continue work from an existing run, reusing its worktree and branch.
+Restart work from an existing run, reusing its worktree and branch.
+Use this recovery command only for failed/canceled/unknown runs.
 
 ```bash
-orch continue RUN_REF|ISSUE_ID [flags]
+orch restart-from RUN_REF|ISSUE_ID [flags]
 ```
 
 ### Flags
@@ -178,7 +179,7 @@ orch continue RUN_REF|ISSUE_ID [flags]
 |------|-------------|
 | `--agent <type>` | Agent type |
 | `--agent-cmd <cmd>` | Custom agent command |
-| `--branch <name>` | Continue from existing branch |
+| `--branch <name>` | Restart from existing branch |
 | `--issue <id>` | Issue ID (with `--branch`) |
 | `--no-pr` | Skip PR creation instructions |
 | `--profile <name>` | Agent profile |
@@ -191,14 +192,14 @@ orch continue RUN_REF|ISSUE_ID [flags]
 ### Examples
 
 ```bash
-# Continue latest run for an issue
-orch continue my-issue
+# Restart specific run
+orch restart-from my-issue#20260120-163045
 
-# Continue specific run
-orch continue my-issue#20260120-163045
+# Restart using short run ID
+orch restart-from a3b4c5
 
-# Continue from existing branch
-orch continue --branch feature/my-work --issue my-issue
+# Restart from existing branch
+orch restart-from --branch feature/my-work --issue my-issue
 ```
 
 ---
@@ -334,7 +335,17 @@ orch stop --all
 
 ## orch send
 
-Send a message to a running agent.
+Send a message to a running/waiting agent.
+This is the primary way to interact with waiting runs.
+
+If `orch send` fails, do not assume the run is dead:
+1. `orch capture <RUN_REF>`
+2. `orch ps`
+3. Check multiplexer sessions (`tmux list-sessions` / `zellij list-sessions`)
+4. Write feedback into `ORCH_PROMPT.md` in the run worktree
+5. Use native multiplexer send (`tmux send-keys` / `zellij action write-chars`)
+
+Do NOT use `orch restart-from` for send failures - the run is likely still alive.
 
 ```bash
 orch send RUN_REF MESSAGE [flags]

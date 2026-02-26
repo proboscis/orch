@@ -405,11 +405,11 @@ run: 20231221-110000
 	}
 }
 
-func TestContinueFromBranch(t *testing.T) {
-	issueID := "continue-branch"
-	createTestIssue(t, issueID, "---\ntitle: Continue Branch\n---\n# Continue Branch")
+func TestRestartFromBranch(t *testing.T) {
+	issueID := "restart-branch"
+	createTestIssue(t, issueID, "---\ntitle: Restart Branch\n---\n# Restart Branch")
 
-	runGitCmd(t, testRepo, "checkout", "-b", "feature/continue-branch")
+	runGitCmd(t, testRepo, "checkout", "-b", "feature/restart-branch")
 	if err := os.WriteFile(filepath.Join(testRepo, "feature.txt"), []byte("feature"), 0644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
@@ -417,9 +417,9 @@ func TestContinueFromBranch(t *testing.T) {
 	runGitCmd(t, testRepo, "commit", "-m", "feature work")
 	runGitCmd(t, testRepo, "checkout", "main")
 
-	output, err := runOrch(t, "--json", "continue", issueID, "--branch", "feature/continue-branch", "--tmux=false")
+	output, err := runOrch(t, "--json", "restart-from", issueID, "--branch", "feature/restart-branch", "--tmux=false")
 	if err != nil {
-		t.Fatalf("continue failed: %v", err)
+		t.Fatalf("restart-from failed: %v", err)
 	}
 
 	var result struct {
@@ -439,8 +439,8 @@ func TestContinueFromBranch(t *testing.T) {
 	if result.IssueID != issueID {
 		t.Fatalf("IssueID = %q, want %q", result.IssueID, issueID)
 	}
-	if result.Branch != "feature/continue-branch" {
-		t.Fatalf("Branch = %q, want %q", result.Branch, "feature/continue-branch")
+	if result.Branch != "feature/restart-branch" {
+		t.Fatalf("Branch = %q, want %q", result.Branch, "feature/restart-branch")
 	}
 	if !strings.HasPrefix(result.ContinuedFrom, "branch:") {
 		t.Fatalf("ContinuedFrom = %q, want prefix %q", result.ContinuedFrom, "branch:")
@@ -450,8 +450,22 @@ func TestContinueFromBranch(t *testing.T) {
 	}
 
 	branch := runGitCmd(t, result.WorktreePath, "rev-parse", "--abbrev-ref", "HEAD")
-	if branch != "feature/continue-branch" {
-		t.Fatalf("worktree branch = %q, want %q", branch, "feature/continue-branch")
+	if branch != "feature/restart-branch" {
+		t.Fatalf("worktree branch = %q, want %q", branch, "feature/restart-branch")
+	}
+}
+
+func TestHelpListsRestartFromAndNotContinue(t *testing.T) {
+	output, err := runOrch(t, "--help")
+	if err != nil {
+		t.Fatalf("help failed: %v", err)
+	}
+
+	if !strings.Contains(output, "restart-from") {
+		t.Fatalf("expected help output to contain restart-from command")
+	}
+	if strings.Contains(output, "\n  continue") {
+		t.Fatalf("expected help output to remove continue command")
 	}
 }
 

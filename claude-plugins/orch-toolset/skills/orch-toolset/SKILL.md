@@ -45,9 +45,9 @@ Orch is a non-interactive orchestrator for managing multiple LLM CLI agents (Cla
 
 ### Run Management
 - `orch run <ISSUE_ID>`: Start new run (creates worktree, launches agent in tmux)
-- `orch continue <RUN_REF>`: Resume from existing worktree/branch (failed/canceled runs ONLY)
-  - Pass a failed/canceled run's short ID to retry: `orch continue 33632a`
-  - Use `--agent` to change agent type: `orch continue 33632a --agent codex`
+- `orch restart-from <RUN_REF>`: Restart from existing worktree/branch (failed/canceled/unknown runs ONLY)
+  - Pass a failed/canceled run's short ID to retry: `orch restart-from 33632a`
+  - Use `--agent` to change agent type: `orch restart-from 33632a --agent codex`
   - **NEVER use on `blocked` runs** — blocked means the agent is waiting for user input, not stuck. Use `orch send` to answer the agent's question instead.
 - `orch ps`: List runs with status filtering
 - `orch show <RUN_REF>`: Inspect run details and events
@@ -80,7 +80,7 @@ State meanings:
 - `queued`: Run created, waiting to start
 - `booting`: Agent starting up
 - `running`: Agent actively working
-- `blocked`: Agent is waiting for user input (asked a question via CLI prompt). This is NOT an error state — the agent is alive and has full context. Use `orch send <RUN_REF> "your answer"` to respond and unblock it. Do NOT use `orch stop` + `orch continue` — that kills the session, loses context, and starts a fresh agent.
+- `blocked`: Agent is waiting for user input (asked a question via CLI prompt). This is NOT an error state — the agent is alive and has full context. Use `orch send <RUN_REF> "your answer"` to respond and unblock it. Do NOT use `orch stop` + `orch restart-from` — that kills the session, loses context, and starts a fresh agent.
 - `blocked_api`: API rate limit hit
 - `pr_open`: PR created, awaiting review
 - `done`: Work completed successfully
@@ -92,7 +92,7 @@ State meanings:
 
 ### Issue/Run Design
 - Keep each issue focused; split large work into separate issues
-- One run per attempt; use `orch continue` for retries from same branch
+- One run per attempt; use `orch restart-from` for retries from same branch
 - Use issue status (open/resolved) separately from run status
 
 ### Monitoring Strategy
@@ -108,8 +108,8 @@ State meanings:
 ### Workflow Tips
 - Stop idle/stale runs before starting new ones
 - Use short IDs (2-6 hex chars) for speed: `orch attach a3b4c5`
-- Continue failed/canceled runs instead of starting fresh: `orch continue <failed-run-id> --agent codex`
-- Unblock blocked runs with `orch send`, never with `orch stop` + `orch continue`
+- Continue failed/canceled runs instead of starting fresh: `orch restart-from <failed-run-id> --agent codex`
+- Unblock blocked runs with `orch send`, never with `orch stop` + `orch restart-from`
 - Keep issue queue clean: resolve completed, close duplicates
 - Use `orch exec -- <test>` for isolated testing without tmux
 
@@ -175,7 +175,7 @@ Benefits of external worktrees:
 |------|---------|
 | Create issue | `orch issue create <ID> --title "..." --tag <tag>` |
 | Start run | `orch run <ISSUE>` |
-| Continue failed run | `orch continue <RUN_ID> --agent codex` |
+| Continue failed run | `orch restart-from <RUN_ID> --agent codex` |
 | List active | `orch ps --status running,blocked` |
 | Inspect run | `orch show <RUN>` |
 | Watch agent | `orch attach <RUN>` |

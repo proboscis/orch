@@ -133,7 +133,7 @@ A **git worktree** created for each run.
 - Each run works on its own copy of the codebase
 - Located in `~/.orch/worktrees/<issue>/<run>/` by default
 - Automatically created by `orch run`
-- Can be reused with `orch continue`
+- Can be reused with `orch restart-from`
 
 **Why worktrees?**
 - Multiple agents can work on different issues simultaneously
