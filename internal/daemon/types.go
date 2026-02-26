@@ -719,6 +719,24 @@ type ControlAgentLaunchResult struct {
 	Resumed    bool
 }
 
+type GetControlAgentConfigResponse struct {
+	OK            bool     `json:"ok"`
+	Error         string   `json:"error,omitempty"`
+	PromptContent string   `json:"prompt_content,omitempty"`
+	Agent         string   `json:"agent,omitempty"`
+	Model         string   `json:"model,omitempty"`
+	ModelVariant  string   `json:"model_variant,omitempty"`
+	ExtraArgs     []string `json:"extra_args,omitempty"`
+}
+
+type ControlAgentConfigResult struct {
+	PromptContent string
+	Agent         string
+	Model         string
+	ModelVariant  string
+	ExtraArgs     []string
+}
+
 type SendMessageParams struct {
 	IssueID    string
 	RunID      string

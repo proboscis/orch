@@ -541,6 +541,19 @@ class TmuxLayoutLauncher:
             from returns.result import Failure
 
             project_str = str(project_root) if project_root else str(Path.cwd())
+
+            config_result = daemon.get_control_agent_config(project_str)
+            if not isinstance(config_result, Failure):
+                cfg = config_result.unwrap()
+                if cfg.prompt_content:
+                    prompt_path = Path(cwd) / CONTROL_PROMPT_FILE
+                    try:
+                        prompt_path.write_text(cfg.prompt_content)
+                    except Exception as prompt_err:
+                        _launcher_logger.warning(
+                            f"Failed to write local control prompt file: {prompt_err}"
+                        )
+
             result = daemon.get_control_agent_launch(
                 project_str, agent_type=agent_override, new_session=new_control_agent
             )
@@ -676,6 +689,19 @@ class ZellijLayoutLauncher:
             from returns.result import Failure
 
             project_str = str(project_root) if project_root else str(Path.cwd())
+
+            config_result = daemon.get_control_agent_config(project_str)
+            if not isinstance(config_result, Failure):
+                cfg = config_result.unwrap()
+                if cfg.prompt_content:
+                    prompt_path = Path(cwd) / CONTROL_PROMPT_FILE
+                    try:
+                        prompt_path.write_text(cfg.prompt_content)
+                    except Exception as prompt_err:
+                        _launcher_logger.warning(
+                            f"Failed to write local control prompt file: {prompt_err}"
+                        )
+
             launch_result = daemon.get_control_agent_launch(
                 project_str, agent_type=agent_override, new_session=new_control_agent
             )

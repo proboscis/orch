@@ -886,6 +886,39 @@ func (c *ProtoClient) GetControlAgentLaunch(projectRoot, agentType string, newSe
 	}, nil
 }
 
+func (c *ProtoClient) GetControlAgentConfig(projectRoot string) (*GetControlAgentConfigResponse, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_GetControlAgentConfig{
+			GetControlAgentConfig: &orchpb.GetControlAgentConfigRequest{
+				ProjectRoot: projectRoot,
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	configResp := resp.GetGetControlAgentConfig()
+	if configResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	return &GetControlAgentConfigResponse{
+		OK:            true,
+		PromptContent: configResp.PromptContent,
+		Agent:         configResp.Agent,
+		Model:         configResp.Model,
+		ModelVariant:  configResp.ModelVariant,
+		ExtraArgs:     configResp.ExtraArgs,
+	}, nil
+}
+
 func stringToProtoRunStatus(s string) orchpb.RunStatus {
 	switch s {
 	case "queued":

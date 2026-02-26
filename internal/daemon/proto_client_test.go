@@ -219,6 +219,44 @@ func TestCaptureSessionResponseMapping(t *testing.T) {
 	}
 }
 
+func TestGetControlAgentConfigResponseMapping(t *testing.T) {
+	proto := &orchpb.GetControlAgentConfigResponse{
+		PromptContent: "control prompt content",
+		Agent:         "opencode",
+		Model:         "anthropic/claude-opus-4-1",
+		ModelVariant:  "max",
+		ExtraArgs:     []string{"--foo", "bar"},
+	}
+
+	got := &GetControlAgentConfigResponse{
+		OK:            true,
+		PromptContent: proto.PromptContent,
+		Agent:         proto.Agent,
+		Model:         proto.Model,
+		ModelVariant:  proto.ModelVariant,
+		ExtraArgs:     proto.ExtraArgs,
+	}
+
+	if !got.OK {
+		t.Fatalf("OK = false, want true")
+	}
+	if got.PromptContent != "control prompt content" {
+		t.Fatalf("PromptContent = %q, want %q", got.PromptContent, "control prompt content")
+	}
+	if got.Agent != "opencode" {
+		t.Fatalf("Agent = %q, want %q", got.Agent, "opencode")
+	}
+	if got.Model != "anthropic/claude-opus-4-1" {
+		t.Fatalf("Model = %q, want %q", got.Model, "anthropic/claude-opus-4-1")
+	}
+	if got.ModelVariant != "max" {
+		t.Fatalf("ModelVariant = %q, want %q", got.ModelVariant, "max")
+	}
+	if len(got.ExtraArgs) != 2 || got.ExtraArgs[0] != "--foo" || got.ExtraArgs[1] != "bar" {
+		t.Fatalf("ExtraArgs = %v, want [--foo bar]", got.ExtraArgs)
+	}
+}
+
 func TestGetDiffStatsResponseMapping(t *testing.T) {
 	tests := []struct {
 		name  string

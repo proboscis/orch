@@ -37,7 +37,7 @@
 ;; Reuse existing dataclasses from types module
 (import orch_monitor.types [RunFilters IssueFilters 
                             ListRunsResponse ListIssuesResponse
-                            ControlAgentLaunch
+                            ControlAgentLaunch ControlAgentConfig
                             MAX_PAGE_SIZE MAX_PAGES])
 
 
@@ -594,6 +594,21 @@
                           :session_id r.session_id
                           :agent (or agent-type "")
                           :resumed r.resumed)))
+
+  (defn get-control-agent-config [self project-root]
+    "Returns Result[ControlAgentConfig | None, ProtoDaemonError]."
+    (daemon-result "get_control_agent_config"
+      (setv req (pb.Request))
+      (set-> req.get_control_agent_config.project_root project-root)
+      (setv resp (._send self req))
+      (when (not resp.ok)
+        (raise (ProtoDaemonError (or resp.error "Failed to get control agent config"))))
+      (setv r resp.get_control_agent_config)
+      (ControlAgentConfig :prompt_content r.prompt_content
+                          :agent r.agent
+                          :model r.model
+                          :model_variant r.model_variant
+                          :extra_args (list r.extra_args))))
   
   (defn register-monitor [self pid monitor-type view project [session-name ""]]
     "Register monitor. Returns Result[str | None, ProtoDaemonError]."

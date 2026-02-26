@@ -879,6 +879,20 @@ func (c *DaemonClient) GetDaemonStatus(ctx context.Context) (*DaemonStatus, erro
 	}, nil
 }
 
+func (c *DaemonClient) GetControlAgentConfig(ctx context.Context, projectRoot string) (*ControlAgentConfig, error) {
+	resp, err := c.proto.GetControlAgentConfig(projectRoot)
+	if err != nil {
+		return nil, err
+	}
+	return &ControlAgentConfig{
+		PromptContent: resp.PromptContent,
+		Agent:         resp.Agent,
+		Model:         resp.Model,
+		ModelVariant:  resp.ModelVariant,
+		ExtraArgs:     resp.ExtraArgs,
+	}, nil
+}
+
 func (c *DaemonClient) ContinueRun(ctx context.Context, req *ContinueRunRequest) (*ContinueRunResult, error) {
 	resp, err := c.proto.ContinueRun(&daemon.ContinueRunOptions{
 		IssueID:        req.IssueID,

@@ -1135,32 +1135,60 @@ type agentChatLaunch struct {
 
 func (m *Monitor) agentChatLaunch() agentChatLaunch {
 	ctx := context.Background()
-	_, err := WriteControlPromptFileViaAPI(ctx, m.api, m.issuesRoot)
-	if err != nil {
-		return agentChatLaunch{command: fallbackChatCommand(fmt.Sprintf("failed to write prompt file: %v", err))}
-	}
-
 	prompt := GetControlPromptInstruction()
-
 	agentName := strings.TrimSpace(m.agent)
 	var modelName, modelVariant string
-	cfg, cfgErr := config.Load()
-	if cfgErr == nil {
-		if agentName == "" {
-			agentName = cfg.ControlAgent
-			if agentName == "" {
-				agentName = cfg.Agent
+	var extraArgs []string
+	wrotePromptFromConfig := false
+
+	if provider, ok := m.api.(interface {
+		GetControlAgentConfig(context.Context, string) (*orchapi.ControlAgentConfig, error)
+	}); ok {
+		if controlCfg, cfgErr := provider.GetControlAgentConfig(ctx, m.projectRoot); cfgErr == nil && controlCfg != nil {
+			if strings.TrimSpace(controlCfg.PromptContent) != "" {
+				cwd, _ := os.Getwd()
+				promptPath := filepath.Join(cwd, controlPromptFileName)
+				if err := os.WriteFile(promptPath, []byte(controlCfg.PromptContent), 0644); err != nil {
+					return agentChatLaunch{command: fallbackChatCommand(fmt.Sprintf("failed to write prompt file: %v", err))}
+				}
+				wrotePromptFromConfig = true
 			}
-		}
-		modelName = cfg.ControlModel
-		if modelName == "" {
-			modelName = cfg.Model
-		}
-		modelVariant = cfg.ControlModelVariant
-		if modelVariant == "" {
-			modelVariant = cfg.ModelVariant
+			if agentName == "" {
+				agentName = strings.TrimSpace(controlCfg.Agent)
+			}
+			modelName = controlCfg.Model
+			modelVariant = controlCfg.ModelVariant
+			extraArgs = append(extraArgs, controlCfg.ExtraArgs...)
 		}
 	}
+
+	if modelName == "" && modelVariant == "" {
+		cfg, cfgErr := config.Load()
+		if cfgErr == nil {
+			if agentName == "" {
+				agentName = cfg.ControlAgent
+				if agentName == "" {
+					agentName = cfg.Agent
+				}
+			}
+			modelName = cfg.ControlModel
+			if modelName == "" {
+				modelName = cfg.Model
+			}
+			modelVariant = cfg.ControlModelVariant
+			if modelVariant == "" {
+				modelVariant = cfg.ModelVariant
+			}
+			extraArgs = append(extraArgs, cfg.GetControlExtraArgs(agentName)...)
+		}
+	}
+
+	if !wrotePromptFromConfig {
+		if _, err := WriteControlPromptFileViaAPI(ctx, m.api, m.issuesRoot); err != nil {
+			return agentChatLaunch{command: fallbackChatCommand(fmt.Sprintf("failed to write prompt file: %v", err))}
+		}
+	}
+
 	if agentName == "" {
 		agentName = "opencode"
 	}
@@ -1208,6 +1236,7 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 		Port:            agent.OpenCodeServerPortStart,
 		Model:           modelName,
 		ModelVariant:    modelVariant,
+		ExtraArgs:       extraArgs,
 	})
 	if err != nil {
 		return agentChatLaunch{command: fallbackChatCommand(err.Error())}

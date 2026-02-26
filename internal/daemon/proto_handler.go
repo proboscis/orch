@@ -122,6 +122,8 @@ func (s *SocketServer) handleProtoRequest(req *orchpb.Request) *orchpb.Response 
 		return s.handleProtoCloseIssue(r.CloseIssue)
 	case *orchpb.Request_GetControlAgentLaunch:
 		return s.handleProtoGetControlAgentLaunch(r.GetControlAgentLaunch)
+	case *orchpb.Request_GetControlAgentConfig:
+		return s.handleProtoGetControlAgentConfig(r.GetControlAgentConfig)
 	case *orchpb.Request_GetAttachInfo:
 		return s.handleProtoGetAttachInfo(r.GetAttachInfo)
 	case *orchpb.Request_CaptureSession:
@@ -910,6 +912,38 @@ func (s *SocketServer) handleProtoGetControlAgentLaunch(req *orchpb.GetControlAg
 				Port:       int32(result.Port),
 				SessionId:  result.SessionID,
 				Resumed:    result.Resumed,
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoGetControlAgentConfig(req *orchpb.GetControlAgentConfigRequest) *orchpb.Response {
+	issuesRoot := ""
+	if req.ProjectRoot != "" {
+		if cfg, err := config.LoadFromProjectRoot(req.ProjectRoot); err == nil && cfg != nil {
+			issuesRoot = cfg.GetIssuesPath()
+		}
+	}
+
+	st := s.resolveStoreFromProto(issuesRoot)
+	if st == nil {
+		return errorResponse("no store available for project")
+	}
+
+	result, err := s.processControlAgentConfigCore(st, req.ProjectRoot, "")
+	if err != nil {
+		return errorResponse(err.Error())
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_GetControlAgentConfig{
+			GetControlAgentConfig: &orchpb.GetControlAgentConfigResponse{
+				PromptContent: result.PromptContent,
+				Agent:         result.Agent,
+				Model:         result.Model,
+				ModelVariant:  result.ModelVariant,
+				ExtraArgs:     result.ExtraArgs,
 			},
 		},
 	}

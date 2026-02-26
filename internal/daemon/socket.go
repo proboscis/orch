@@ -1536,30 +1536,15 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 		return nil, fmt.Errorf("project_root required")
 	}
 
-	promptPath, err := s.writeControlPromptFile(st, params.ProjectRoot)
+	controlCfg, err := s.processControlAgentConfigCore(st, params.ProjectRoot, params.Agent)
 	if err != nil {
-		s.logger.Printf("failed to write control prompt file: %v", err)
-		return nil, fmt.Errorf("failed to write control prompt file: %w", err)
+		return nil, err
 	}
 
-	cfg, cfgErr := loadControlAgentConfig(params.ProjectRoot)
-	if cfgErr != nil {
-		s.logger.Printf("config validation failed in processControlAgentLaunchCore: %v", cfgErr)
-		return nil, fmt.Errorf("failed to load config: %w", cfgErr)
-	}
-
-	agentName := params.Agent
-	if agentName == "" {
-		agentName = cfg.ControlAgent
-		if agentName == "" {
-			agentName = cfg.Agent
-		}
-	}
-	if agentName == "" {
-		agentName = "opencode"
-	}
-
-	modelName, modelVariant := cfg.ResolveControlModelAndVariant(agentName)
+	agentName := controlCfg.Agent
+	modelName := controlCfg.Model
+	modelVariant := controlCfg.ModelVariant
+	extraArgs := controlCfg.ExtraArgs
 
 	aType, err := agent.ParseAgentType(agentName)
 	if err != nil {
@@ -1576,6 +1561,7 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 	}
 
 	prompt := getControlPromptInstruction()
+	promptPath := filepath.Join(params.ProjectRoot, controlPromptFileName)
 	var command string
 	var port int
 	var sessionID string
@@ -1608,11 +1594,6 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 			command = fmt.Sprintf("opencode attach http://127.0.0.1:%d --session %s --dir %s", port, sessionID, params.ProjectRoot)
 		}
 	} else {
-		var extraArgs []string
-		if cfgErr == nil {
-			extraArgs = cfg.GetControlExtraArgs(agentName)
-		}
-
 		launchCfg := &agent.LaunchConfig{
 			Type:            aType,
 			IssuesRoot:      st.RootPath(),
@@ -1659,6 +1640,50 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 		SessionID:  sessionID,
 		Agent:      agentName,
 		Resumed:    resumed,
+	}, nil
+}
+
+func (s *SocketServer) processControlAgentConfigCore(st store.Store, projectRoot, agentOverride string) (*ControlAgentConfigResult, error) {
+	if projectRoot == "" {
+		return nil, fmt.Errorf("project_root required")
+	}
+
+	promptPath, err := s.writeControlPromptFile(st, projectRoot)
+	if err != nil {
+		s.logger.Printf("failed to write control prompt file: %v", err)
+		return nil, fmt.Errorf("failed to write control prompt file: %w", err)
+	}
+
+	promptContentBytes, err := os.ReadFile(promptPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read control prompt file: %w", err)
+	}
+
+	cfg, cfgErr := loadControlAgentConfig(projectRoot)
+	if cfgErr != nil {
+		s.logger.Printf("config validation failed in processControlAgentConfigCore: %v", cfgErr)
+		return nil, fmt.Errorf("failed to load config: %w", cfgErr)
+	}
+
+	agentName := strings.TrimSpace(agentOverride)
+	if agentName == "" {
+		agentName = strings.TrimSpace(cfg.ControlAgent)
+		if agentName == "" {
+			agentName = strings.TrimSpace(cfg.Agent)
+		}
+	}
+	if agentName == "" {
+		agentName = "opencode"
+	}
+
+	modelName, modelVariant := cfg.ResolveControlModelAndVariant(agentName)
+
+	return &ControlAgentConfigResult{
+		PromptContent: string(promptContentBytes),
+		Agent:         agentName,
+		Model:         modelName,
+		ModelVariant:  modelVariant,
+		ExtraArgs:     cfg.GetControlExtraArgs(agentName),
 	}, nil
 }
 

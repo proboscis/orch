@@ -38,6 +38,7 @@ from .models import Status as ModelStatus
 from .orch_api import (
     AttachInfo,
     BranchState,
+    ControlAgentConfig,
     ControlAgentLaunch,
     DiffStats,
     Issue,
@@ -476,6 +477,24 @@ class DaemonOrchAPI:
                 port=launch.port,
                 session_id=launch.session_id,
                 resumed=launch.resumed,
+            )
+        )
+
+    def get_control_agent_config(
+        self,
+        project_root: str,
+    ) -> Result[ControlAgentConfig, OrchError]:
+        result = self._daemon.get_control_agent_config(project_root)
+        if isinstance(result, Failure):
+            return _map_daemon_error(result.failure())
+        cfg = result.unwrap()
+        return Success(
+            ControlAgentConfig(
+                prompt_content=cfg.prompt_content or "",
+                agent=cfg.agent or "",
+                model=cfg.model or "",
+                model_variant=cfg.model_variant or "",
+                extra_args=list(cfg.extra_args or []),
             )
         )
 

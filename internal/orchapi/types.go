@@ -512,6 +512,14 @@ type DaemonStatus struct {
 	Version string
 }
 
+type ControlAgentConfig struct {
+	PromptContent string
+	Agent         string
+	Model         string
+	ModelVariant  string
+	ExtraArgs     []string
+}
+
 type ContinueRunRequest struct {
 	IssueID        string
 	RunID          string

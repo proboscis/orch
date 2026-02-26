@@ -271,6 +271,18 @@ message GetControlAgentLaunchResponse {
   bool resumed = 5;
 }
 
+message GetControlAgentConfigRequest {
+  string project_root = 1;
+}
+
+message GetControlAgentConfigResponse {
+  string prompt_content = 1;
+  string agent = 2;
+  string model = 3;
+  string model_variant = 4;
+  repeated string extra_args = 5;
+}
+
 // --- Session Operations ---
 
 message GetAttachInfoRequest {
@@ -846,6 +858,7 @@ message Request {
     ContinueRunRequest continue_run = 44;
     GetConfigRequest get_config = 45;
     GetDaemonStatusRequest get_daemon_status = 46;
+    GetControlAgentConfigRequest get_control_agent_config = 47;
   }
 }
 
@@ -900,5 +913,6 @@ message Response {
     ContinueRunResponse continue_run = 46;
     GetConfigResponse get_config = 47;
     GetDaemonStatusResponse get_daemon_status = 48;
+    GetControlAgentConfigResponse get_control_agent_config = 49;
   }
 }
