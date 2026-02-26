@@ -194,7 +194,7 @@ orch run orch-055 --agent claude --profile my-profile
 
 ### orch continue RUN_REF|ISSUE_ID
 
-Resume from existing worktree/branch with a new run.
+Resume from existing worktree/branch with a new run. **For failed/canceled runs ONLY.** Never use on `blocked` runs — those are waiting for user input via `orch send`, not stuck.
 
 ```bash
 # Continue latest run for issue

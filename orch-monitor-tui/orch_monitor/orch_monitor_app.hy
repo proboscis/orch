@@ -206,7 +206,7 @@
     (setv run-ref (getattr self "_highlighted_run_ref" None))
     (setv run (when run-ref (.get self._runs_by_ref run-ref)))
     (when (and run
-               (in run.status [Status.RUNNING Status.BOOTING Status.BLOCKED]))
+               (in run.status [Status.RUNNING Status.BOOTING Status.WAITING]))
       (.show_run_detail self run)))
   
   ;; =========================================================================
