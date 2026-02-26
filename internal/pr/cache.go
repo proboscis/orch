@@ -16,7 +16,8 @@ import (
 )
 
 const (
-	cacheHitTTL           = 24 * time.Hour
+	cacheHitTerminalTTL   = 24 * time.Hour
+	cacheHitActiveTTL     = 60 * time.Second
 	cacheMissTTL          = 30 * time.Second
 	cacheMinFetchInterval = 30 * time.Second
 	cacheMaxFetches       = 3
@@ -165,11 +166,19 @@ func applyCachedInfo(runs []*model.Run, c cache, now time.Time, prInfoMap InfoMa
 	}
 }
 
+func isTerminalPRState(state string) bool {
+	upper := strings.ToUpper(state)
+	return upper == "MERGED" || upper == "CLOSED"
+}
+
 func cacheEntryTTL(entry cacheEntry) time.Duration {
 	if entry.URL == "" {
 		return cacheMissTTL
 	}
-	return cacheHitTTL
+	if isTerminalPRState(entry.State) {
+		return cacheHitTerminalTTL
+	}
+	return cacheHitActiveTTL
 }
 
 func isCacheEntryFresh(entry cacheEntry, now time.Time) bool {

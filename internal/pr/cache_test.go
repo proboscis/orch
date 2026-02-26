@@ -362,3 +362,52 @@ func TestLookupInfoByURL_CacheHitSkipsAPI(t *testing.T) {
 		t.Fatalf("cached call: expected state MERGED, got %q", info2.State)
 	}
 }
+
+func TestCacheEntryTTL_TerminalStateGetsLongTTL(t *testing.T) {
+	for _, state := range []string{"MERGED", "CLOSED", "merged", "closed"} {
+		ttl := cacheEntryTTL(cacheEntry{URL: "https://example.com/pr/1", State: state})
+		if ttl != cacheHitTerminalTTL {
+			t.Errorf("state %q: expected TTL %v, got %v", state, cacheHitTerminalTTL, ttl)
+		}
+	}
+}
+
+func TestCacheEntryTTL_ActiveStateGetsShortTTL(t *testing.T) {
+	ttl := cacheEntryTTL(cacheEntry{URL: "https://example.com/pr/1", State: "OPEN"})
+	if ttl != cacheHitActiveTTL {
+		t.Errorf("OPEN state: expected TTL %v, got %v", cacheHitActiveTTL, ttl)
+	}
+}
+
+func TestCacheEntryTTL_MissGetsShortTTL(t *testing.T) {
+	ttl := cacheEntryTTL(cacheEntry{})
+	if ttl != cacheMissTTL {
+		t.Errorf("miss: expected TTL %v, got %v", cacheMissTTL, ttl)
+	}
+}
+
+func TestOpenPRCacheExpiresFast(t *testing.T) {
+	now := time.Now()
+	entry := cacheEntry{
+		URL:       "https://github.com/acme/repo/pull/1",
+		Number:    1,
+		State:     "OPEN",
+		CheckedAt: now.Add(-2 * time.Minute),
+	}
+	if isCacheEntryFresh(entry, now) {
+		t.Fatal("OPEN PR cached 2 minutes ago should be stale")
+	}
+}
+
+func TestMergedPRCacheStaysFresh(t *testing.T) {
+	now := time.Now()
+	entry := cacheEntry{
+		URL:       "https://github.com/acme/repo/pull/1",
+		Number:    1,
+		State:     "MERGED",
+		CheckedAt: now.Add(-1 * time.Hour),
+	}
+	if !isCacheEntryFresh(entry, now) {
+		t.Fatal("MERGED PR cached 1 hour ago should still be fresh")
+	}
+}

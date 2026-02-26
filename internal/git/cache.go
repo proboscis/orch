@@ -5,6 +5,19 @@ import (
 	"time"
 )
 
+const (
+	// fetchThrottleInterval is the minimum time between background fetches of
+	// the base branch. This prevents hammering the remote on every poll cycle
+	// while keeping local refs reasonably fresh.
+	fetchThrottleInterval = 60 * time.Second
+)
+
+var (
+	fetchMu       sync.Mutex
+	lastFetchTime time.Time
+	fetchRepoRoot string // tracks which repo we last fetched for
+)
+
 // cache is a generic TTL cache for key-value data.
 type cache[V any] struct {
 	mu            sync.RWMutex
@@ -121,6 +134,40 @@ func InvalidateWorktreeCache() {
 	globalWorktreeStatusCache.invalidate()
 }
 
+func maybeRefreshRemoteRefs(worktrees []struct {
+	Path       string
+	Branch     string
+	BaseBranch string
+}) {
+	if len(worktrees) == 0 {
+		return
+	}
+
+	fetchMu.Lock()
+	defer fetchMu.Unlock()
+
+	if time.Since(lastFetchTime) < fetchThrottleInterval {
+		return
+	}
+
+	repoRoot, err := FindMainRepoRoot("")
+	if err != nil {
+		return
+	}
+
+	baseBranch := "main"
+	for _, wt := range worktrees {
+		if wt.BaseBranch != "" {
+			baseBranch = wt.BaseBranch
+			break
+		}
+	}
+
+	_ = FetchWithTimeout(repoRoot, baseBranch, 10*time.Second)
+	lastFetchTime = time.Now()
+	fetchRepoRoot = repoRoot
+}
+
 func GetCachedWorktreeStatusBatch(worktrees []struct {
 	Path       string
 	Branch     string
@@ -129,6 +176,8 @@ func GetCachedWorktreeStatusBatch(worktrees []struct {
 	if len(worktrees) == 0 {
 		return nil
 	}
+
+	maybeRefreshRemoteRefs(worktrees)
 
 	paths := make([]string, 0, len(worktrees))
 	for _, wt := range worktrees {
