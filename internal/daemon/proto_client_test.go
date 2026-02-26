@@ -5,6 +5,7 @@ import (
 	"time"
 
 	orchpb "github.com/s22625/orch/api/orchpb"
+	"github.com/s22625/orch/internal/xdg"
 )
 
 func TestProtoBranchStateToString(t *testing.T) {
@@ -288,5 +289,79 @@ func TestSendMessageTimeoutMaintainsSafetyMargin(t *testing.T) {
 	client.SetTimeout(minimum + 2*time.Second)
 	if got := client.sendMessageTimeout(); got != minimum+2*time.Second {
 		t.Fatalf("sendMessageTimeout() = %s, want %s", got, minimum+2*time.Second)
+	}
+}
+
+func TestProtoClientDialTarget(t *testing.T) {
+	tests := []struct {
+		name        string
+		daemonAddr  string
+		wantNetwork string
+		wantAddress string
+		wantErr     bool
+	}{
+		{
+			name:        "empty uses unix socket",
+			daemonAddr:  "",
+			wantNetwork: "unix",
+			wantAddress: xdg.SocketPath(),
+		},
+		{
+			name:        "tcp scheme",
+			daemonAddr:  "tcp://127.0.0.1:7777",
+			wantNetwork: "tcp",
+			wantAddress: "127.0.0.1:7777",
+		},
+		{
+			name:        "bare host port",
+			daemonAddr:  "127.0.0.1:7777",
+			wantNetwork: "tcp",
+			wantAddress: "127.0.0.1:7777",
+		},
+		{
+			name:        "unix scheme",
+			daemonAddr:  "unix:///tmp/orch.sock",
+			wantNetwork: "unix",
+			wantAddress: "/tmp/orch.sock",
+		},
+		{
+			name:       "unsupported scheme",
+			daemonAddr: "http://127.0.0.1:7777",
+			wantErr:    true,
+		},
+		{
+			name:       "empty tcp target",
+			daemonAddr: "tcp://",
+			wantErr:    true,
+		},
+		{
+			name:       "empty unix target",
+			daemonAddr: "unix://",
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := NewProtoClientWithAddress("/tmp/project", "", tt.daemonAddr)
+
+			network, address, err := client.dialTarget()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("dialTarget() error = nil, want non-nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("dialTarget() error = %v", err)
+			}
+			if network != tt.wantNetwork {
+				t.Fatalf("network = %q, want %q", network, tt.wantNetwork)
+			}
+			if address != tt.wantAddress {
+				t.Fatalf("address = %q, want %q", address, tt.wantAddress)
+			}
+		})
 	}
 }

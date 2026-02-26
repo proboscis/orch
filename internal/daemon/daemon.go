@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -53,6 +54,7 @@ type Daemon struct {
 	githubBackend  *github.Backend
 	lastGitHubSync time.Time
 	gitHubSyncMu   sync.Mutex
+	listenAddr     string
 }
 
 // RunState tracks the monitoring state of a single run
@@ -92,6 +94,10 @@ func (d *Daemon) SetInterval(interval time.Duration) {
 
 func (d *Daemon) SetDebugMode(enabled bool) {
 	d.debugMode = enabled
+}
+
+func (d *Daemon) SetListenAddress(addr string) {
+	d.listenAddr = addr
 }
 
 func (d *Daemon) debug(format string, v ...interface{}) {
@@ -173,6 +179,9 @@ func (d *Daemon) Run() error {
 	d.logger.Printf("global daemon started (pid=%d, binary=%s)", os.Getpid(), d.executablePath)
 
 	d.socketServer = NewSocketServer(d.storeFactory, d.logger)
+	if d.listenAddr != "" {
+		d.socketServer.SetTCPListenAddr(d.listenAddr)
+	}
 	d.socketServer.SetGitHubBackend(d.githubBackend)
 	if err := d.socketServer.Start(); err != nil {
 		d.logger.Printf("warning: failed to start socket server: %v", err)
@@ -429,6 +438,10 @@ func (d *Daemon) getOrCreateState(run *model.Run) *RunState {
 }
 
 func StartInBackground() (int, error) {
+	return StartInBackgroundWithListen("")
+}
+
+func StartInBackgroundWithListen(listenAddr string) (int, error) {
 	if IsRunning("") {
 		return GetRunningPID(""), nil
 	}
@@ -448,6 +461,9 @@ func StartInBackground() (int, error) {
 	}
 
 	args := []string{executable, "daemon", "run"}
+	if strings.TrimSpace(listenAddr) != "" {
+		args = append(args, "--listen", strings.TrimSpace(listenAddr))
+	}
 
 	cmd := &exec.Cmd{
 		Path: executable,
@@ -561,6 +577,10 @@ func (d *Daemon) GetGitHubBackend() *github.Backend {
 }
 
 func RunWithFileStore(debug bool) error {
+	return RunWithFileStoreAndListen(debug, "")
+}
+
+func RunWithFileStoreAndListen(debug bool, listenAddr string) error {
 	if IsRunning("") {
 		pid := GetRunningPID("")
 		return fmt.Errorf("daemon already running (pid=%d)", pid)
@@ -573,6 +593,9 @@ func RunWithFileStore(debug bool) error {
 	d := New(factory)
 	if debug {
 		d.SetDebugMode(true)
+	}
+	if listenAddr != "" {
+		d.SetListenAddress(listenAddr)
 	}
 	return d.Run()
 }

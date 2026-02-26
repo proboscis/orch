@@ -61,7 +61,7 @@ func runModels(opts *modelsOptions) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(opts.Timeout)*time.Second)
 	defer cancel()
 
-	api := orchapi.NewDaemonClient("", "")
+	api := orchapi.NewDaemonClientWithAddress("", "", getRemoteAddr())
 	result, err := api.QueryOpenCodeServer(ctx, opts.Port)
 	if err != nil {
 		return fmt.Errorf("failed to query opencode server: %w", err)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/model"
@@ -31,6 +32,7 @@ const (
 type GlobalOptions struct {
 	IssuesRoot  string
 	ProjectRoot string
+	Remote      string
 	Backend     string
 	JSON        bool
 	TSV         bool
@@ -79,7 +81,7 @@ It operates non-interactively by default, using events to track state
 		}
 
 		// Auto-start daemon for most commands
-		if !noDaemonCommands[cmd.Name()] {
+		if !noDaemonCommands[cmd.Name()] && getRemoteAddr() == "" {
 			ensureDaemon()
 		}
 		return nil
@@ -89,6 +91,7 @@ It operates non-interactively by default, using events to track state
 func init() {
 	rootCmd.PersistentFlags().StringVar(&globalOpts.ProjectRoot, "project-root", "", "Path to project root where .orch/ lives (or set ORCH_PROJECT_ROOT)")
 	rootCmd.PersistentFlags().StringVar(&globalOpts.IssuesRoot, "issues-root", "", "Path to issues root for file-based issues (or set ORCH_ISSUES_ROOT)")
+	rootCmd.PersistentFlags().StringVar(&globalOpts.Remote, "remote", "", "Connect to remote daemon address (or set ORCH_REMOTE)")
 
 	rootCmd.PersistentFlags().StringVar(&globalOpts.Backend, "backend", "file", "Backend type (file|github|linear)")
 	rootCmd.PersistentFlags().BoolVar(&globalOpts.JSON, "json", false, "Output in JSON format")
@@ -165,6 +168,13 @@ func getProjectRoot() (string, error) {
 	return config.GetProjectRoot()
 }
 
+func getRemoteAddr() string {
+	if strings.TrimSpace(globalOpts.Remote) != "" {
+		return strings.TrimSpace(globalOpts.Remote)
+	}
+	return strings.TrimSpace(os.Getenv("ORCH_REMOTE"))
+}
+
 func getAPI() (orchapi.OrchAPI, error) {
 	return defaultGetAPI()
 }
@@ -180,8 +190,9 @@ func defaultGetAPI() (orchapi.OrchAPI, error) {
 		return nil, err
 	}
 
-	client := orchapi.NewDaemonClient(projectRoot, issuesRoot)
-	if !client.IsAvailable() {
+	remoteAddr := getRemoteAddr()
+	client := orchapi.NewDaemonClientWithAddress(projectRoot, issuesRoot, remoteAddr)
+	if remoteAddr == "" && !client.IsAvailable() {
 		ensureDaemon()
 	}
 

@@ -103,6 +103,7 @@ func runMonitorList(opts *monitorListOptions) error {
 	if err != nil {
 		return err
 	}
+	defer client.Close()
 
 	resp, err := client.ListMonitors(projectRoot, opts.All)
 	if err != nil {
@@ -249,9 +250,11 @@ func runMonitor(opts *monitorOptions) error {
 		return fmt.Errorf("project root required for monitor: %w", err)
 	}
 
-	if _, err := ensureDaemonReady(projectRoot); err != nil {
+	daemonClient, err := ensureDaemonReady(projectRoot)
+	if err != nil {
 		return err
 	}
+	_ = daemonClient.Close()
 
 	issuesRoot, err := getIssuesRoot()
 	if err != nil {

@@ -4,13 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/s22625/orch/internal/daemon"
 )
 
 type DaemonClient struct {
-	proto *daemon.ProtoClient
+	proto      *daemon.ProtoClient
+	daemonAddr string
 }
 
 const (
@@ -19,9 +21,18 @@ const (
 )
 
 func NewDaemonClient(projectRoot, issuesRoot string) *DaemonClient {
+	return NewDaemonClientWithAddress(projectRoot, issuesRoot, "")
+}
+
+func NewDaemonClientWithAddress(projectRoot, issuesRoot, daemonAddr string) *DaemonClient {
 	return &DaemonClient{
-		proto: daemon.NewProtoClientWithIssuesRoot(projectRoot, issuesRoot),
+		proto:      daemon.NewProtoClientWithAddress(projectRoot, issuesRoot, daemonAddr),
+		daemonAddr: strings.TrimSpace(daemonAddr),
 	}
+}
+
+func (c *DaemonClient) isRemote() bool {
+	return c.daemonAddr != ""
 }
 
 func (c *DaemonClient) IsAvailable() bool {
@@ -33,6 +44,13 @@ func (c *DaemonClient) Ping(ctx context.Context) error {
 }
 
 func (c *DaemonClient) EnsureDaemonHealthy(ctx context.Context) error {
+	if c.isRemote() {
+		if err := c.proto.Ping(); err != nil {
+			return fmt.Errorf("failed to reach remote daemon at %s: %w", c.daemonAddr, err)
+		}
+		return nil
+	}
+
 	if err := c.proto.Ping(); err == nil {
 		return nil
 	}

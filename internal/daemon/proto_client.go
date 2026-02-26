@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 type ProtoClient struct {
 	projectRoot string
 	issuesRoot  string
+	daemonAddr  string
 	timeout     time.Duration
 
 	mu   sync.Mutex
@@ -32,9 +34,14 @@ func NewProtoClient(projectRoot string) *ProtoClient {
 }
 
 func NewProtoClientWithIssuesRoot(projectRoot, issuesRoot string) *ProtoClient {
+	return NewProtoClientWithAddress(projectRoot, issuesRoot, "")
+}
+
+func NewProtoClientWithAddress(projectRoot, issuesRoot, daemonAddr string) *ProtoClient {
 	return &ProtoClient{
 		projectRoot: projectRoot,
 		issuesRoot:  issuesRoot,
+		daemonAddr:  strings.TrimSpace(daemonAddr),
 		timeout:     30 * time.Second,
 	}
 }
@@ -53,7 +60,25 @@ func (c *ProtoClient) sendMessageTimeout() time.Duration {
 }
 
 func (c *ProtoClient) IsAvailable() bool {
+	if c.daemonAddr != "" {
+		req := &orchpb.Request{Request: &orchpb.Request_Ping{Ping: &orchpb.PingRequest{}}}
+		resp, err := c.sendRequestWithTimeout(req, 500*time.Millisecond)
+		return err == nil && resp != nil && resp.Ok && resp.GetPing() != nil && resp.GetPing().GetOk()
+	}
 	return IsDaemonSocketAvailable("") && IsRunning("")
+}
+
+func (c *ProtoClient) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.conn == nil {
+		return nil
+	}
+
+	err := c.conn.Close()
+	c.conn = nil
+	return err
 }
 
 // ARCHITECTURE NOTE (orch-447): ProtoClient reuses a single persistent Unix
@@ -102,12 +127,50 @@ func (c *ProtoClient) getOrConnectLocked(timeout time.Duration) (net.Conn, error
 		return c.conn, nil
 	}
 
-	conn, err := net.DialTimeout("unix", xdg.SocketPath(), timeout)
+	network, address, err := c.dialTarget()
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to daemon: %w", err)
+		return nil, err
+	}
+
+	conn, err := net.DialTimeout(network, address, timeout)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to daemon (%s %s): %w", network, address, err)
 	}
 	c.conn = conn
 	return c.conn, nil
+}
+
+func (c *ProtoClient) dialTarget() (string, string, error) {
+	if c.daemonAddr == "" {
+		return "unix", xdg.SocketPath(), nil
+	}
+
+	addr := strings.TrimSpace(c.daemonAddr)
+	if addr == "" {
+		return "unix", xdg.SocketPath(), nil
+	}
+
+	if strings.HasPrefix(addr, "tcp://") {
+		hostPort := strings.TrimPrefix(addr, "tcp://")
+		if hostPort == "" {
+			return "", "", fmt.Errorf("invalid daemon address: %q", c.daemonAddr)
+		}
+		return "tcp", hostPort, nil
+	}
+
+	if strings.HasPrefix(addr, "unix://") {
+		socketPath := strings.TrimPrefix(addr, "unix://")
+		if socketPath == "" {
+			return "", "", fmt.Errorf("invalid daemon address: %q", c.daemonAddr)
+		}
+		return "unix", socketPath, nil
+	}
+
+	if strings.Contains(addr, "://") {
+		return "", "", fmt.Errorf("unsupported daemon address scheme: %q", c.daemonAddr)
+	}
+
+	return "tcp", addr, nil
 }
 
 func (c *ProtoClient) resetConnLocked() {

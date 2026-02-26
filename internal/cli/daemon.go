@@ -12,6 +12,7 @@ import (
 )
 
 var daemonDebugMode bool
+var daemonListenAddr string
 
 func newDaemonCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -32,12 +33,30 @@ It runs automatically in the background when needed.`,
 		},
 	}
 	runCmd.Flags().BoolVar(&daemonDebugMode, "debug", false, "Enable verbose debug logging")
+	runCmd.Flags().StringVar(&daemonListenAddr, "listen", "", "Additional daemon listen address (e.g. tcp://0.0.0.0:7777)")
 	cmd.AddCommand(runCmd)
+	cmd.AddCommand(newDaemonStartCmd())
 
 	cmd.AddCommand(newDaemonListCmd())
 	cmd.AddCommand(newDaemonKillCmd())
 	cmd.AddCommand(newDaemonStatusCmd())
 
+	return cmd
+}
+
+func newDaemonStartCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "start",
+		Short: "Start the daemon in the background",
+		Long: `Start the orch daemon in the background.
+
+Use --listen to additionally expose the proto API on TCP (e.g. for remote clients).`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDaemonStart()
+		},
+	}
+
+	cmd.Flags().StringVar(&daemonListenAddr, "listen", "", "Additional daemon listen address (e.g. tcp://0.0.0.0:7777)")
 	return cmd
 }
 
@@ -252,9 +271,27 @@ func newDaemonRestartCmd() *cobra.Command {
 }
 
 func runDaemon() error {
-	if err := daemon.RunWithFileStore(daemonDebugMode); err != nil {
+	if err := daemon.RunWithFileStoreAndListen(daemonDebugMode, daemonListenAddr); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
+	}
+	return nil
+}
+
+func runDaemonStart() error {
+	if daemon.IsRunning("") {
+		fmt.Printf("Daemon already running (pid=%d)\n", daemon.GetRunningPID(""))
+		return nil
+	}
+
+	pid, err := daemon.StartInBackgroundWithListen(daemonListenAddr)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Started daemon (pid=%d)\n", pid)
+	if daemonListenAddr != "" {
+		fmt.Printf("Listening on %s\n", daemonListenAddr)
 	}
 	return nil
 }
@@ -285,6 +322,16 @@ func requireDaemon() (*daemon.ProtoClient, error) {
 	issuesRoot, err := getIssuesRoot()
 	if err != nil {
 		return nil, err
+	}
+
+	remoteAddr := getRemoteAddr()
+	if remoteAddr != "" {
+		client := daemon.NewProtoClientWithAddress(projectRoot, issuesRoot, remoteAddr)
+		if err := client.Ping(); err != nil {
+			_ = client.Close()
+			return nil, fmt.Errorf("remote daemon %s is not reachable: %w", remoteAddr, err)
+		}
+		return client, nil
 	}
 
 	client := daemon.NewProtoClientWithIssuesRoot(projectRoot, issuesRoot)

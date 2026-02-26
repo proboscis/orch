@@ -141,3 +141,44 @@ func TestProtoClientPingReusesSingleSocketConnection(t *testing.T) {
 	_ = listener.Close()
 	<-acceptDone
 }
+
+func TestProtoClientIsAvailableRemoteReusesSingleTCPConnection(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen tcp: %v", err)
+	}
+	defer listener.Close()
+
+	srv := &SocketServer{logger: log.New(io.Discard, "", 0)}
+	var acceptCount atomic.Int32
+
+	acceptDone := make(chan struct{})
+	go func() {
+		defer close(acceptDone)
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			acceptCount.Add(1)
+			go srv.handleProtoConnection(conn)
+		}
+	}()
+
+	client := NewProtoClientWithAddress("/tmp/project", "", listener.Addr().String())
+	if !client.IsAvailable() {
+		t.Fatalf("first IsAvailable() = false, want true")
+	}
+	if !client.IsAvailable() {
+		t.Fatalf("second IsAvailable() = false, want true")
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if got := acceptCount.Load(); got != 1 {
+		t.Fatalf("accept count = %d, want 1 (connection should be reused)", got)
+	}
+
+	_ = client.Close()
+	_ = listener.Close()
+	<-acceptDone
+}

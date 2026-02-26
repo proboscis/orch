@@ -78,6 +78,23 @@ func LegacySocketFilePath(projectRoot string) string {
 	return filepath.Join(OrchDir(projectRoot), socketFile)
 }
 
+func normalizeTCPListenAddr(raw string) (string, error) {
+	addr := strings.TrimSpace(raw)
+	if addr == "" {
+		return "", fmt.Errorf("tcp listen address cannot be empty")
+	}
+
+	if strings.HasPrefix(addr, "tcp://") {
+		addr = strings.TrimPrefix(addr, "tcp://")
+	}
+
+	if strings.Contains(addr, "://") {
+		return "", fmt.Errorf("unsupported listen address scheme: %q", raw)
+	}
+
+	return addr, nil
+}
+
 type SendRequest struct {
 	Type        string   `json:"type"`
 	IssueID     string   `json:"issue_id"`
@@ -145,12 +162,14 @@ type RepoContext struct {
 type StoreFactory func(issuesRoot string) (store.Store, error)
 
 type SocketServer struct {
-	storeFactory StoreFactory
-	listener     net.Listener
-	logger       Logger
-	stopCh       chan struct{}
-	gitRunner    git.Runner
-	procManager  ProcessManager
+	storeFactory  StoreFactory
+	listener      net.Listener
+	tcpListener   net.Listener
+	tcpListenAddr string
+	logger        Logger
+	stopCh        chan struct{}
+	gitRunner     git.Runner
+	procManager   ProcessManager
 
 	managedServerStore *managedServerStore
 
@@ -212,6 +231,10 @@ func NewSocketServer(factory StoreFactory, logger Logger) *SocketServer {
 	s.gitRunner = git.NewRunner()
 	s.procManager = newSocketProcessManager(s)
 	return s
+}
+
+func (s *SocketServer) SetTCPListenAddr(addr string) {
+	s.tcpListenAddr = strings.TrimSpace(addr)
 }
 
 func deriveRepoID(projectRoot string) string {
@@ -437,7 +460,28 @@ func (s *SocketServer) Start() error {
 
 	s.logger.Printf("socket server listening on %s", socketPath)
 
-	go s.acceptLoop()
+	if s.tcpListenAddr != "" {
+		tcpAddr, err := normalizeTCPListenAddr(s.tcpListenAddr)
+		if err != nil {
+			s.listener.Close()
+			os.Remove(socketPath)
+			s.closeManagedServerStore()
+			return err
+		}
+
+		tcpListener, err := net.Listen("tcp", tcpAddr)
+		if err != nil {
+			s.listener.Close()
+			os.Remove(socketPath)
+			s.closeManagedServerStore()
+			return fmt.Errorf("failed to listen on tcp address %s: %w", tcpAddr, err)
+		}
+		s.tcpListener = tcpListener
+		s.logger.Printf("socket server listening on tcp://%s", tcpListener.Addr().String())
+		go s.acceptLoop(tcpListener)
+	}
+
+	go s.acceptLoop(s.listener)
 	s.StartStaleMonitorCleanup()
 	s.StartOpenCodeServerHealthCheck()
 
@@ -450,11 +494,14 @@ func (s *SocketServer) Stop() {
 	if s.listener != nil {
 		s.listener.Close()
 	}
+	if s.tcpListener != nil {
+		s.tcpListener.Close()
+	}
 	os.Remove(xdg.SocketPath())
 	s.closeManagedServerStore()
 }
 
-func (s *SocketServer) acceptLoop() {
+func (s *SocketServer) acceptLoop(listener net.Listener) {
 	defer func() {
 		if r := recover(); r != nil {
 			s.logger.Printf("PANIC in acceptLoop: %v", r)
@@ -468,7 +515,7 @@ func (s *SocketServer) acceptLoop() {
 		default:
 		}
 
-		conn, err := s.listener.Accept()
+		conn, err := listener.Accept()
 		if err != nil {
 			select {
 			case <-s.stopCh:
