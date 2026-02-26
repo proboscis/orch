@@ -1,6 +1,7 @@
 package multiplexer
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/s22625/orch/internal/executor"
 )
 
 var execCommand = exec.Command
@@ -30,11 +33,35 @@ var shellCommands = map[string]struct{}{
 }
 
 // TmuxMultiplexer implements the Multiplexer interface for tmux.
-type TmuxMultiplexer struct{}
+type TmuxMultiplexer struct {
+	executor executor.Executor
+}
 
 // NewTmuxMultiplexer creates a new TmuxMultiplexer.
 func NewTmuxMultiplexer() *TmuxMultiplexer {
-	return &TmuxMultiplexer{}
+	return NewTmuxMultiplexerWithExecutor(executor.NewCommandFuncExecutor(execCommand))
+}
+
+func NewTmuxMultiplexerWithExecutor(exec executor.Executor) *TmuxMultiplexer {
+	if exec == nil {
+		exec = executor.NewLocalExecutor()
+	}
+	return &TmuxMultiplexer{executor: exec}
+}
+
+func (t *TmuxMultiplexer) run(args ...string) error {
+	_, _, err := t.executor.RunCommand(context.Background(), "tmux", args, executor.RunOptions{})
+	return err
+}
+
+func (t *TmuxMultiplexer) output(args ...string) ([]byte, error) {
+	output, _, err := t.executor.RunCommand(context.Background(), "tmux", args, executor.RunOptions{})
+	return output, err
+}
+
+func (t *TmuxMultiplexer) runWithOptions(args []string, opts executor.RunOptions) error {
+	_, _, err := t.executor.RunCommand(context.Background(), "tmux", args, opts)
+	return err
 }
 
 // Type returns the multiplexer type.
@@ -44,8 +71,7 @@ func (t *TmuxMultiplexer) Type() Type {
 
 // IsAvailable checks if tmux is installed and accessible.
 func (t *TmuxMultiplexer) IsAvailable() bool {
-	cmd := execCommand("tmux", "-V")
-	return cmd.Run() == nil
+	return t.run("-V") == nil
 }
 
 // IsInsideSession returns true if we're currently inside a tmux session.
@@ -55,8 +81,7 @@ func (t *TmuxMultiplexer) IsInsideSession() bool {
 
 // HasSession checks if a tmux session exists.
 func (t *TmuxMultiplexer) HasSession(name string) bool {
-	cmd := execCommand("tmux", "has-session", "-t", name)
-	return cmd.Run() == nil
+	return t.run("has-session", "-t", name) == nil
 }
 
 // NewSession creates a new tmux session.
@@ -79,14 +104,8 @@ func (t *TmuxMultiplexer) NewSession(cfg *SessionConfig) error {
 		args = append(args, cfg.Command)
 	}
 
-	cmd := execCommand("tmux", args...)
-	if cmd.Env == nil {
-		cmd.Env = os.Environ()
-	}
-	cmd.Env = append(cmd.Env, cfg.Env...)
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
+	env := append(os.Environ(), cfg.Env...)
+	if err := t.runWithOptions(args, executor.RunOptions{Env: env, Stderr: os.Stderr}); err != nil {
 		return fmt.Errorf("failed to create tmux session: %w", err)
 	}
 
@@ -102,24 +121,20 @@ func (t *TmuxMultiplexer) NewSession(cfg *SessionConfig) error {
 
 // AttachSession attaches to an existing tmux session (foreground).
 func (t *TmuxMultiplexer) AttachSession(session string) error {
-	cmd := execCommand("tmux", "attach-session", "-t", session)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return t.runWithOptions(
+		[]string{"attach-session", "-t", session},
+		executor.RunOptions{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr},
+	)
 }
 
 // KillSession kills a tmux session.
 func (t *TmuxMultiplexer) KillSession(session string) error {
-	cmd := execCommand("tmux", "kill-session", "-t", session)
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return t.runWithOptions([]string{"kill-session", "-t", session}, executor.RunOptions{Stderr: os.Stderr})
 }
 
 // ListSessions returns all tmux session names.
 func (t *TmuxMultiplexer) ListSessions() ([]string, error) {
-	cmd := execCommand("tmux", "list-sessions", "-F", "#{session_name}")
-	output, err := cmd.Output()
+	output, err := t.output("list-sessions", "-F", "#{session_name}")
 	if err != nil {
 		// tmux returns error if no sessions exist
 		if strings.Contains(err.Error(), "no server running") {
@@ -139,8 +154,7 @@ func (t *TmuxMultiplexer) ListSessions() ([]string, error) {
 
 // ListWindows returns windows for a session.
 func (t *TmuxMultiplexer) ListWindows(session string) ([]Window, error) {
-	cmd := execCommand("tmux", "list-windows", "-t", session, "-F", "#{window_index}:#{window_name}:#{window_id}")
-	output, err := cmd.Output()
+	output, err := t.output("list-windows", "-t", session, "-F", "#{window_index}:#{window_name}:#{window_id}")
 	if err != nil {
 		if strings.Contains(err.Error(), "no server running") || strings.Contains(err.Error(), "can't find session") {
 			return nil, nil
@@ -180,9 +194,7 @@ func (t *TmuxMultiplexer) NewWindow(session, name, workDir, command string) erro
 		args = append(args, "-c", workDir)
 	}
 
-	cmd := execCommand("tmux", args...)
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := t.runWithOptions(args, executor.RunOptions{Stderr: os.Stderr}); err != nil {
 		return err
 	}
 
@@ -200,30 +212,23 @@ func (t *TmuxMultiplexer) NewWindow(session, name, workDir, command string) erro
 // SelectWindow switches to a window in a session.
 func (t *TmuxMultiplexer) SelectWindow(session string, index int) error {
 	target := fmt.Sprintf("%s:%d", session, index)
-	cmd := execCommand("tmux", "select-window", "-t", target)
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return t.runWithOptions([]string{"select-window", "-t", target}, executor.RunOptions{Stderr: os.Stderr})
 }
 
 // SelectWindowByID switches to a window by ID.
 func (t *TmuxMultiplexer) SelectWindowByID(windowID string) error {
-	cmd := execCommand("tmux", "select-window", "-t", windowID)
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return t.runWithOptions([]string{"select-window", "-t", windowID}, executor.RunOptions{Stderr: os.Stderr})
 }
 
 // RenameWindow renames a window in a session.
 func (t *TmuxMultiplexer) RenameWindow(session string, index int, name string) error {
 	target := fmt.Sprintf("%s:%d", session, index)
-	cmd := execCommand("tmux", "rename-window", "-t", target, name)
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return t.runWithOptions([]string{"rename-window", "-t", target, name}, executor.RunOptions{Stderr: os.Stderr})
 }
 
 // ListPanes returns panes for a window target (session:window).
 func (t *TmuxMultiplexer) ListPanes(target string) ([]Pane, error) {
-	cmd := execCommand("tmux", "list-panes", "-t", target, "-F", "#{pane_id}:#{pane_index}:#{pane_title}:#{pane_current_command}")
-	output, err := cmd.Output()
+	output, err := t.output("list-panes", "-t", target, "-F", "#{pane_id}:#{pane_index}:#{pane_title}:#{pane_current_command}")
 	if err != nil {
 		if strings.Contains(err.Error(), "no server running") || strings.Contains(err.Error(), "can't find") {
 			return nil, nil
@@ -270,8 +275,7 @@ func (t *TmuxMultiplexer) SplitWindow(target string, vertical bool, percent int)
 	if percent > 0 {
 		args = append(args, "-p", strconv.Itoa(percent))
 	}
-	cmd := execCommand("tmux", args...)
-	output, err := cmd.Output()
+	output, err := t.output(args...)
 	if err != nil {
 		return "", err
 	}
@@ -280,30 +284,23 @@ func (t *TmuxMultiplexer) SplitWindow(target string, vertical bool, percent int)
 
 // SelectPane focuses a pane.
 func (t *TmuxMultiplexer) SelectPane(target string) error {
-	cmd := execCommand("tmux", "select-pane", "-t", target)
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return t.runWithOptions([]string{"select-pane", "-t", target}, executor.RunOptions{Stderr: os.Stderr})
 }
 
 // SetPaneTitle sets a pane title without changing focus.
 func (t *TmuxMultiplexer) SetPaneTitle(target, title string) error {
 	// Get current pane to restore focus after
-	currentCmd := execCommand("tmux", "display-message", "-p", "#{pane_id}")
-	currentOutput, displayErr := currentCmd.Output()
+	currentOutput, displayErr := t.output("display-message", "-p", "#{pane_id}")
 	currentPane := strings.TrimSpace(string(currentOutput))
 
 	// Set the title (this unfortunately selects the pane)
-	cmd := execCommand("tmux", "select-pane", "-t", target, "-T", title)
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := t.runWithOptions([]string{"select-pane", "-t", target, "-T", title}, executor.RunOptions{Stderr: os.Stderr}); err != nil {
 		return err
 	}
 
 	// Restore focus to original pane if we had one
 	if displayErr == nil && currentPane != "" && currentPane != target {
-		restoreCmd := execCommand("tmux", "select-pane", "-t", currentPane)
-		restoreCmd.Stderr = os.Stderr
-		_ = restoreCmd.Run() // Best effort
+		_ = t.runWithOptions([]string{"select-pane", "-t", currentPane}, executor.RunOptions{Stderr: os.Stderr}) // Best effort
 	}
 
 	return nil
@@ -311,16 +308,12 @@ func (t *TmuxMultiplexer) SetPaneTitle(target, title string) error {
 
 // KillPane kills a pane by ID or target.
 func (t *TmuxMultiplexer) KillPane(target string) error {
-	cmd := execCommand("tmux", "kill-pane", "-t", target)
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return t.runWithOptions([]string{"kill-pane", "-t", target}, executor.RunOptions{Stderr: os.Stderr})
 }
 
 // SwapPane swaps two panes.
 func (t *TmuxMultiplexer) SwapPane(source, target string) error {
-	cmd := execCommand("tmux", "swap-pane", "-s", source, "-t", target)
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return t.runWithOptions([]string{"swap-pane", "-s", source, "-t", target}, executor.RunOptions{Stderr: os.Stderr})
 }
 
 const enterKey = "Enter"
@@ -336,23 +329,18 @@ func (t *TmuxMultiplexer) SendKeys(session, keys string) error {
 // SendKeysLiteral sends keys to a tmux session without pressing Enter.
 // Uses -l flag to send keys literally (without interpreting special keys).
 func (t *TmuxMultiplexer) SendKeysLiteral(session, keys string) error {
-	cmd := execCommand("tmux", "send-keys", "-t", session, "-l", keys)
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return t.runWithOptions([]string{"send-keys", "-t", session, "-l", keys}, executor.RunOptions{Stderr: os.Stderr})
 }
 
 // SendText sends text to a tmux session without pressing Enter.
 func (t *TmuxMultiplexer) SendText(session, text string) error {
-	cmd := execCommand("tmux", "send-keys", "-t", session, text)
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return t.runWithOptions([]string{"send-keys", "-t", session, text}, executor.RunOptions{Stderr: os.Stderr})
 }
 
 // CapturePane captures the content of a tmux pane.
 func (t *TmuxMultiplexer) CapturePane(session string, lines int) (string, error) {
 	startLine := fmt.Sprintf("-%d", lines)
-	cmd := execCommand("tmux", "capture-pane", "-t", session, "-p", "-S", startLine)
-	output, err := cmd.Output()
+	output, err := t.output("capture-pane", "-t", session, "-p", "-S", startLine)
 	if err != nil {
 		return "", err
 	}
@@ -388,15 +376,12 @@ func (t *TmuxMultiplexer) WaitForReady(session, pattern string, timeout time.Dur
 
 // SwitchClient switches the active tmux client to a session.
 func (t *TmuxMultiplexer) SwitchClient(session string) error {
-	cmd := execCommand("tmux", "switch-client", "-t", session)
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return t.runWithOptions([]string{"switch-client", "-t", session}, executor.RunOptions{Stderr: os.Stderr})
 }
 
 // CurrentSession returns the name of the current tmux session.
 func (t *TmuxMultiplexer) CurrentSession() (string, error) {
-	cmd := execCommand("tmux", "display-message", "-p", "#{session_name}")
-	output, err := cmd.Output()
+	output, err := t.output("display-message", "-p", "#{session_name}")
 	if err != nil {
 		return "", err
 	}
@@ -405,15 +390,12 @@ func (t *TmuxMultiplexer) CurrentSession() (string, error) {
 
 // SetOption sets a tmux option on a session.
 func (t *TmuxMultiplexer) SetOption(session, option, value string) error {
-	cmd := execCommand("tmux", "set-option", "-t", session, option, value)
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return t.runWithOptions([]string{"set-option", "-t", session, option, value}, executor.RunOptions{Stderr: os.Stderr})
 }
 
 // GetOption retrieves a tmux option value for a session.
 func (t *TmuxMultiplexer) GetOption(session, option string) (string, error) {
-	cmd := execCommand("tmux", "show-option", "-t", session, "-v", option)
-	output, err := cmd.Output()
+	output, err := t.output("show-option", "-t", session, "-v", option)
 	if err != nil {
 		return "", err
 	}
@@ -424,31 +406,24 @@ func (t *TmuxMultiplexer) GetOption(session, option string) (string, error) {
 func (t *TmuxMultiplexer) LinkWindow(sourceSession string, sourceWindow int, targetSession string, targetIndex int) error {
 	source := fmt.Sprintf("%s:%d", sourceSession, sourceWindow)
 	target := fmt.Sprintf("%s:%d", targetSession, targetIndex)
-	cmd := execCommand("tmux", "link-window", "-s", source, "-t", target)
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return t.runWithOptions([]string{"link-window", "-s", source, "-t", target}, executor.RunOptions{Stderr: os.Stderr})
 }
 
 // LinkWindowByID links an existing window by ID into a session.
 func (t *TmuxMultiplexer) LinkWindowByID(windowID, targetSession string, targetIndex int) error {
 	target := fmt.Sprintf("%s:%d", targetSession, targetIndex)
-	cmd := execCommand("tmux", "link-window", "-s", windowID, "-t", target)
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return t.runWithOptions([]string{"link-window", "-s", windowID, "-t", target}, executor.RunOptions{Stderr: os.Stderr})
 }
 
 // UnlinkWindow removes a window from a session.
 func (t *TmuxMultiplexer) UnlinkWindow(session string, index int) error {
 	target := fmt.Sprintf("%s:%d", session, index)
-	cmd := execCommand("tmux", "unlink-window", "-t", target)
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return t.runWithOptions([]string{"unlink-window", "-t", target}, executor.RunOptions{Stderr: os.Stderr})
 }
 
 // ListPaneCommands returns current commands for all panes grouped by session.
 func (t *TmuxMultiplexer) ListPaneCommands() (map[string][]string, error) {
-	cmd := execCommand("tmux", "list-panes", "-a", "-F", "#{session_name}\t#{pane_current_command}")
-	output, err := cmd.Output()
+	output, err := t.output("list-panes", "-a", "-F", "#{session_name}\t#{pane_current_command}")
 	if err != nil {
 		if strings.Contains(err.Error(), "no server running") {
 			return map[string][]string{}, nil
