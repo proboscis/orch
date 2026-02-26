@@ -946,6 +946,14 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 		RunId:             run.RunID,
 	}
 
+	if run.Target != "" {
+		if cfg, cfgErr := s.loadConfig(""); cfgErr == nil && cfg != nil {
+			if target := cfg.GetTarget(run.Target); target != nil {
+				attachInfo.TargetHost = target.Host
+			}
+		}
+	}
+
 	sessionName := run.SessionName
 	if sessionName == "" {
 		sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
@@ -963,7 +971,7 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 				},
 			}
 		}
-	} else {
+	} else if attachInfo.TargetHost == "" {
 		muxType, _ := multiplexer.ParseType(run.Multiplexer)
 		mux, _ := multiplexer.GetMultiplexer(muxType)
 		if mux != nil && !mux.HasSession(sessionName) {

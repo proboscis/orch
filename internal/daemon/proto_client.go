@@ -697,6 +697,7 @@ func (c *ProtoClient) GetAttachInfo(issueID, runID, shortID string) (*GetAttachI
 		WorktreePath:      attachResp.WorktreePath,
 		ServerPort:        int(attachResp.ServerPort),
 		OpenCodeSessionID: attachResp.OpencodeSessionId,
+		TargetHost:        attachResp.TargetHost,
 	}, nil
 }
 

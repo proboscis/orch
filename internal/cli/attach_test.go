@@ -77,6 +77,7 @@ func newAttachDepsForTest(api orchapi.OrchAPI) (*attachDeps, *bytes.Buffer, *[]i
 			return nil, "", errors.New("mux fallback not configured")
 		},
 		attachOpenCode: attachOpenCodeFromInfoWithExecutor,
+		attachRemote:   attachRemoteFromInfoWithExecutor,
 		streams: attachStreams{
 			stdin:  bytes.NewReader(nil),
 			stdout: stdout,
@@ -292,5 +293,109 @@ func TestResumeOpenCodeSessionWithExecutor_BuildsResumeCommand(t *testing.T) {
 	}
 	if gotDir != "/tmp/run-worktree" {
 		t.Fatalf("command dir = %q, want %q", gotDir, "/tmp/run-worktree")
+	}
+}
+
+func TestRunAttachWithDeps_RemoteTargetUsesSSHAttach(t *testing.T) {
+	api := &mockAttachAPI{
+		info: &orchapi.AttachInfo{
+			IssueID:       "orch-remote",
+			RunID:         "20260101-090909",
+			Agent:         "claude",
+			SessionName:   "run-orch-remote-20260101-090909",
+			SessionExists: true,
+			TargetHost:    "user@mac",
+			Multiplexer:   orchapi.MultiplexerTmux,
+		},
+	}
+	deps, _, exitCodes := newAttachDepsForTest(api)
+
+	calledRemote := false
+	deps.attachRemote = func(info *orchapi.AttachInfo, streams attachStreams) (int, error) {
+		calledRemote = true
+		if info.TargetHost != "user@mac" {
+			t.Fatalf("TargetHost = %q, want user@mac", info.TargetHost)
+		}
+		return 0, nil
+	}
+
+	muxUsed := false
+	deps.getMuxWithFallback = func(t multiplexer.Type) (attachSessionMux, string, error) {
+		muxUsed = true
+		return &mockAttachMux{}, "", nil
+	}
+
+	err := runAttachWithDeps("orch-remote#20260101-090909", &attachOptions{}, deps)
+	if err != nil {
+		t.Fatalf("runAttachWithDeps() error = %v, want nil", err)
+	}
+	if !calledRemote {
+		t.Fatalf("attachRemote was not called")
+	}
+	if muxUsed {
+		t.Fatalf("multiplexer path should not be used for remote attach")
+	}
+	if len(*exitCodes) != 0 {
+		t.Fatalf("exit codes = %v, want none", *exitCodes)
+	}
+}
+
+func TestAttachRemoteFromInfoWithExecutor_TmuxCommand(t *testing.T) {
+	orig := runSSHCommand
+	t.Cleanup(func() { runSSHCommand = orig })
+
+	var gotArgs []string
+	runSSHCommand = func(args []string, streams attachStreams) error {
+		gotArgs = append([]string(nil), args...)
+		return nil
+	}
+
+	code, err := attachRemoteFromInfoWithExecutor(&orchapi.AttachInfo{
+		IssueID:     "orch-r1",
+		RunID:       "20260101-010101",
+		SessionName: "run-session",
+		TargetHost:  "user@mac",
+		Multiplexer: orchapi.MultiplexerTmux,
+	}, attachStreams{stderr: &bytes.Buffer{}})
+	if err != nil {
+		t.Fatalf("attachRemoteFromInfoWithExecutor() error = %v, want nil", err)
+	}
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+
+	want := []string{"-t", "user@mac", "tmux", "attach-session", "-t", "run-session"}
+	if !reflect.DeepEqual(gotArgs, want) {
+		t.Fatalf("ssh args = %v, want %v", gotArgs, want)
+	}
+}
+
+func TestAttachRemoteFromInfoWithExecutor_ZellijCommand(t *testing.T) {
+	orig := runSSHCommand
+	t.Cleanup(func() { runSSHCommand = orig })
+
+	var gotArgs []string
+	runSSHCommand = func(args []string, streams attachStreams) error {
+		gotArgs = append([]string(nil), args...)
+		return nil
+	}
+
+	code, err := attachRemoteFromInfoWithExecutor(&orchapi.AttachInfo{
+		IssueID:     "orch-r2",
+		RunID:       "20260101-020202",
+		TargetHost:  "dev@linux",
+		Multiplexer: orchapi.MultiplexerZellij,
+	}, attachStreams{stderr: &bytes.Buffer{}})
+	if err != nil {
+		t.Fatalf("attachRemoteFromInfoWithExecutor() error = %v, want nil", err)
+	}
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+
+	wantSession := model.GenerateSessionName("orch-r2", "20260101-020202")
+	want := []string{"-t", "dev@linux", "zellij", "attach", wantSession}
+	if !reflect.DeepEqual(gotArgs, want) {
+		t.Fatalf("ssh args = %v, want %v", gotArgs, want)
 	}
 }

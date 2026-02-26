@@ -44,6 +44,7 @@ type attachDeps struct {
 	getMuxAuto         func() (attachSessionMux, error)
 	getMuxWithFallback func(multiplexer.Type) (attachSessionMux, string, error)
 	attachOpenCode     func(*orchapi.AttachInfo, attachStreams) (int, error)
+	attachRemote       func(*orchapi.AttachInfo, attachStreams) (int, error)
 	streams            attachStreams
 	exit               func(int)
 }
@@ -61,6 +62,7 @@ func defaultAttachDeps() *attachDeps {
 			return multiplexer.GetWithFallback(t)
 		},
 		attachOpenCode: attachOpenCodeFromInfoWithExecutor,
+		attachRemote:   attachRemoteFromInfoWithExecutor,
 		streams: attachStreams{
 			stdin:  os.Stdin,
 			stdout: os.Stdout,
@@ -124,6 +126,14 @@ func runAttachWithDeps(refStr string, opts *attachOptions, deps *attachDeps) err
 		return fmt.Errorf("cannot attach: session not found")
 	}
 
+	if info.TargetHost != "" {
+		exitCode, attachErr := deps.attachRemote(info, deps.streams)
+		if exitCode != 0 {
+			deps.exit(exitCode)
+		}
+		return attachErr
+	}
+
 	if info.Agent == string(agent.AgentOpenCode) {
 		exitCode, attachErr := deps.attachOpenCode(info, deps.streams)
 		if exitCode != 0 {
@@ -178,6 +188,36 @@ func runAttachWithDeps(refStr string, opts *attachOptions, deps *attachDeps) err
 	}
 
 	return nil
+}
+
+var runSSHCommand = func(args []string, streams attachStreams) error {
+	cmd := exec.Command("ssh", args...)
+	cmd.Stdin = streams.stdin
+	cmd.Stdout = streams.stdout
+	cmd.Stderr = streams.stderr
+	return cmd.Run()
+}
+
+func attachRemoteFromInfoWithExecutor(info *orchapi.AttachInfo, streams attachStreams) (int, error) {
+	sessionName := info.SessionName
+	if sessionName == "" {
+		sessionName = model.GenerateSessionName(info.IssueID, info.RunID)
+	}
+
+	var args []string
+	switch info.Multiplexer {
+	case orchapi.MultiplexerZellij:
+		args = []string{"-t", info.TargetHost, "zellij", "attach", sessionName}
+	default:
+		args = []string{"-t", info.TargetHost, "tmux", "attach-session", "-t", sessionName}
+	}
+
+	if err := runSSHCommand(args, streams); err != nil {
+		fmt.Fprintf(streams.stderr, "failed to attach via ssh: %v\n", err)
+		return ExitTmuxError, err
+	}
+
+	return 0, nil
 }
 
 func attachOpenCodeFromInfo(info *orchapi.AttachInfo) error {

@@ -73,6 +73,7 @@ func TestGetAttachInfoResponseMapping(t *testing.T) {
 				WorktreePath:      "/path/to/worktree",
 				ServerPort:        4097,
 				OpencodeSessionId: "ses_abc123",
+				TargetHost:        "user@mac",
 			},
 			wantResp: &GetAttachInfoResponse{
 				IssueID:           "orch-123",
@@ -83,6 +84,7 @@ func TestGetAttachInfoResponseMapping(t *testing.T) {
 				WorktreePath:      "/path/to/worktree",
 				ServerPort:        4097,
 				OpenCodeSessionID: "ses_abc123",
+				TargetHost:        "user@mac",
 			},
 		},
 		{
@@ -128,6 +130,7 @@ func TestGetAttachInfoResponseMapping(t *testing.T) {
 				WorktreePath:      tt.proto.WorktreePath,
 				ServerPort:        int(tt.proto.ServerPort),
 				OpenCodeSessionID: tt.proto.OpencodeSessionId,
+				TargetHost:        tt.proto.TargetHost,
 			}
 
 			if got.IssueID != tt.wantResp.IssueID {
@@ -153,6 +156,9 @@ func TestGetAttachInfoResponseMapping(t *testing.T) {
 			}
 			if got.OpenCodeSessionID != tt.wantResp.OpenCodeSessionID {
 				t.Errorf("OpenCodeSessionID = %q, want %q", got.OpenCodeSessionID, tt.wantResp.OpenCodeSessionID)
+			}
+			if got.TargetHost != tt.wantResp.TargetHost {
+				t.Errorf("TargetHost = %q, want %q", got.TargetHost, tt.wantResp.TargetHost)
 			}
 		})
 	}

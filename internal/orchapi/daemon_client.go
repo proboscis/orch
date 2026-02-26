@@ -338,6 +338,7 @@ func (c *DaemonClient) GetAttachInfo(ctx context.Context, ref RunRef) (*AttachIn
 				SessionName:   resp.SessionName,
 				Multiplexer:   Multiplexer(resp.Multiplexer),
 				WorktreePath:  resp.WorktreePath,
+				TargetHost:    resp.TargetHost,
 				SessionExists: false,
 			}, nil
 		}
@@ -353,6 +354,7 @@ func (c *DaemonClient) GetAttachInfo(ctx context.Context, ref RunRef) (*AttachIn
 		ServerPort:        resp.ServerPort,
 		OpenCodeSessionID: resp.OpenCodeSessionID,
 		Branch:            resp.Branch,
+		TargetHost:        resp.TargetHost,
 		SessionExists:     true,
 	}, nil
 }

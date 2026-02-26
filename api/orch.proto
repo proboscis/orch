@@ -290,6 +290,7 @@ message GetAttachInfoResponse {
   string opencode_session_id = 7;
   string issue_id = 8;
   string run_id = 9;
+  string target_host = 10;
 }
 
 message CaptureSessionRequest {

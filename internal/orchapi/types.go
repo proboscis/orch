@@ -205,6 +205,7 @@ type AttachInfo struct {
 	ServerPort        int
 	OpenCodeSessionID string
 	Branch            string
+	TargetHost        string
 	SessionExists     bool
 }
 

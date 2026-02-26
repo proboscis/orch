@@ -690,6 +690,7 @@ type GetAttachInfoResponse struct {
 	ServerPort        int    `json:"server_port,omitempty"`
 	OpenCodeSessionID string `json:"opencode_session_id,omitempty"`
 	Branch            string `json:"branch,omitempty"`
+	TargetHost        string `json:"target_host,omitempty"`
 }
 
 type GetControlAgentLaunchResponse struct {

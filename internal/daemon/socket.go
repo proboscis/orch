@@ -3999,6 +3999,17 @@ func (s *SocketServer) handleGetAttachInfo(req SendRequest, encoder *json.Encode
 		ServerPort:        serverPort,
 		OpenCodeSessionID: run.OpenCodeSessionID,
 		Branch:            run.Branch,
+		TargetHost: func() string {
+			if run.Target == "" {
+				return ""
+			}
+			if cfg, cfgErr := config.Load(); cfgErr == nil && cfg != nil {
+				if target := cfg.GetTarget(run.Target); target != nil {
+					return target.Host
+				}
+			}
+			return ""
+		}(),
 	})
 }
 
