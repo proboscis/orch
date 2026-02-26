@@ -90,9 +90,9 @@ When a run shows "waiting" status:
 2. Send feedback: ` + "`orch send <issue-id> \"<message>\"`" + ` to provide input
 3. The agent will resume automatically after receiving input
 
-### Continuing Work
-- From a branch: ` + "`orch continue <issue> --branch <branch-name>`" + `
-- From a run: ` + "`orch continue <issue>#<run-id>`" + `
+### Restarting Work
+- From a branch: ` + "`orch restart-from <issue> --branch <branch-name>`" + `
+- From a run: ` + "`orch restart-from <issue>#<run-id>`" + `
 
 ## Available Orch Commands
 
@@ -105,7 +105,7 @@ Run these commands directly using bash (do not use any special protocol):
 
 ### Run Management
 - Start a run: ` + "`orch run <issue-id>`" + `
-- Continue from branch: ` + "`orch continue <issue> --branch <branch>`" + `
+- Restart from branch: ` + "`orch restart-from <issue> --branch <branch>`" + `
 - List runs: ` + "`orch ps`" + ` (use ` + "`--status running,waiting`" + ` to filter)
 - Stop a run: ` + "`orch stop <issue-id>#<run-id>`" + `
 - Resolve a run: ` + "`orch resolve <issue-id>#<run-id>`" + `

@@ -121,7 +121,10 @@ Existing violations are tracked; do not add new ones.
 
 The opencode server may have stopped while the run shows as "waiting". 
 - Check if the run is actually alive: look at the ALIVE column in `orch ps`
-- If server stopped, use `orch continue <id>` to restart
+- Capture output first: `orch capture <id>`
+- Check multiplexer sessions directly (`tmux list-sessions` / `zellij list-sessions`)
+- If needed, write feedback into `ORCH_PROMPT.md` in the run worktree and use native multiplexer send
+- Do NOT use `orch restart-from` for send failures unless the run is truly `failed`, `canceled`, or `unknown`
 
 ### Proto changes not reflected
 

@@ -201,14 +201,14 @@ func TestControlPromptTemplateContainsNewSections(t *testing.T) {
 	if !contains(controlPromptTemplate, "### Handling Waiting Runs") {
 		t.Error("template should contain Handling Waiting Runs subsection")
 	}
-	if !contains(controlPromptTemplate, "### Continuing Work") {
-		t.Error("template should contain Continuing Work subsection")
+	if !contains(controlPromptTemplate, "### Restarting Work") {
+		t.Error("template should contain Restarting Work subsection")
 	}
 	if !contains(controlPromptTemplate, "## Troubleshooting") {
 		t.Error("template should contain Troubleshooting section")
 	}
-	if !contains(controlPromptTemplate, "orch continue") {
-		t.Error("template should contain orch continue command")
+	if !contains(controlPromptTemplate, "orch restart-from") {
+		t.Error("template should contain orch restart-from command")
 	}
 	if !contains(controlPromptTemplate, "orch attach") {
 		t.Error("template should contain orch attach command")

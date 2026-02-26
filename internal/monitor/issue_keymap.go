@@ -59,6 +59,6 @@ func DefaultIssueKeyMap() IssueKeyMap {
 }
 
 func (k IssueKeyMap) HelpLine() string {
-	return fmt.Sprintf("[%s] browser  [%s] edit  [%s] view  [%s] open run  [%s] start  [%s] continue  [%s] attach  [%s] resolve  [%s] filter  [%s] sort  [%s] quit  [%s] help",
+	return fmt.Sprintf("[%s] browser  [%s] edit  [%s] view  [%s] open run  [%s] start  [%s] restart  [%s] attach  [%s] resolve  [%s] filter  [%s] sort  [%s] quit  [%s] help",
 		k.OpenBrowser, k.EditIssue, k.ViewIssue, k.OpenRun, k.StartRun, k.ContinueRun, k.Attach, k.Resolve, k.Filter, k.Sort, k.Quit, k.Help)
 }

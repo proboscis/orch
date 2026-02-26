@@ -192,22 +192,22 @@ orch run orch-055 --agent claude --profile my-profile
 - Worktree: `<worktree_dir>/<ISSUE_ID>/<SHORT_ID>_<AGENT>_<RUN_ID>`
 - Tmux session: `run-<ISSUE_ID>-<RUN_ID>`
 
-### orch continue RUN_REF|ISSUE_ID
+### orch restart-from RUN_REF|ISSUE_ID
 
-Resume from existing worktree/branch with a new run. **For failed/canceled runs ONLY.** Never use on `blocked` runs — those are waiting for user input via `orch send`, not stuck.
+Resume from existing worktree/branch with a new run. **For failed/canceled/unknown runs ONLY.** Never use on `blocked` runs — those are waiting for user input via `orch send`, not stuck.
 
 ```bash
-# Continue latest run for issue
-orch continue orch-055
+# Restart latest run for issue
+orch restart-from orch-055
 
-# Continue specific run
-orch continue orch-055#20251223-165605
+# Restart specific run
+orch restart-from orch-055#20251223-165605
 
-# Continue with different agent
-orch continue orch-055 --agent codex
+# Restart with different agent
+orch restart-from orch-055 --agent codex
 
-# Continue from specific branch
-orch continue --branch "issue/orch-055/run-20251223" --issue orch-055
+# Restart from specific branch
+orch restart-from --branch "issue/orch-055/run-20251223" --issue orch-055
 ```
 
 **Flags:**
@@ -216,13 +216,13 @@ orch continue --branch "issue/orch-055/run-20251223" --issue orch-055
 | `--agent` | Agent (default: previous run's agent) |
 | `--agent-cmd` | Custom agent command |
 | `--profile` | Agent profile |
-| `--branch` | Specific branch to continue from |
+| `--branch` | Specific branch to restart from |
 | `--issue` | Issue ID when using --branch |
 | `--tmux / --no-tmux` | Enable/disable tmux |
 | `--no-pr` | Skip PR instructions |
 
 **Behavior:**
-- Fails if target run is still active (use `orch stop` first)
+- Fails if target run is still active (use `orch send` / `orch capture` to interact)
 - Reuses existing worktree and branch
 - Creates new run doc with `continued_from` reference
 

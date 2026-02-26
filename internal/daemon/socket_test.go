@@ -2696,6 +2696,59 @@ func TestProcessContinueRunCoreValidation(t *testing.T) {
 			t.Errorf("expected 'run not found' error, got: %v", err)
 		}
 	})
+
+	t.Run("live run returns safe send/capture guidance", func(t *testing.T) {
+		st.runs["orch-451#run-live"] = &model.Run{
+			IssueID: "orch-451",
+			RunID:   "run-live",
+			Status:  model.StatusWaiting,
+		}
+
+		opts := &ContinueRunOptions{
+			IssueID: "orch-451",
+			RunID:   "run-live",
+		}
+
+		_, err := server.processContinueRunCore(st, "/project", opts)
+		if err == nil {
+			t.Fatal("expected error for live run")
+		}
+
+		msg := err.Error()
+		if !strings.Contains(msg, "Run orch-451#run-live is alive (status: wait).") {
+			t.Fatalf("expected alive status guidance, got: %s", msg)
+		}
+		if !strings.Contains(msg, "orch send orch-451#run-live \"your message\"") {
+			t.Fatalf("expected orch send guidance, got: %s", msg)
+		}
+		if !strings.Contains(msg, "orch capture orch-451#run-live") {
+			t.Fatalf("expected orch capture guidance, got: %s", msg)
+		}
+		if strings.Contains(msg, "orch stop") {
+			t.Fatalf("expected no orch stop guidance, got: %s", msg)
+		}
+	})
+
+	t.Run("done run is rejected", func(t *testing.T) {
+		st.runs["orch-451#run-done"] = &model.Run{
+			IssueID: "orch-451",
+			RunID:   "run-done",
+			Status:  model.StatusDone,
+		}
+
+		opts := &ContinueRunOptions{
+			IssueID: "orch-451",
+			RunID:   "run-done",
+		}
+
+		_, err := server.processContinueRunCore(st, "/project", opts)
+		if err == nil {
+			t.Fatal("expected error for done run")
+		}
+		if !strings.Contains(err.Error(), "'orch restart-from' only supports failed, canceled, or unknown runs") {
+			t.Fatalf("expected restart-from terminal-state guidance, got: %s", err.Error())
+		}
+	})
 }
 
 func TestProcessCreateIssueCoreValidation(t *testing.T) {

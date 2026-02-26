@@ -100,7 +100,7 @@ func init() {
 	rootCmd.AddCommand(newIssueCmd())
 	rootCmd.AddCommand(newPsCmd())
 	rootCmd.AddCommand(newRunCmd())
-	rootCmd.AddCommand(newContinueCmd())
+	rootCmd.AddCommand(newRestartFromCmd())
 	rootCmd.AddCommand(newShowCmd())
 	rootCmd.AddCommand(newDiffCmd())
 	rootCmd.AddCommand(newAttachCmd())

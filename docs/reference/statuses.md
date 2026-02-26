@@ -270,7 +270,7 @@ slack:
 1. Check daemon logs: `tail .orch/daemon.log`
 2. Attach to see error: `orch attach run-ref`
 3. Check if issue is retriable
-4. Use `orch continue` to retry from last state
+4. Use `orch restart-from` to retry from last state
 
 ### Monitoring active runs
 

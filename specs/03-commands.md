@@ -63,7 +63,7 @@
 
 ---
 
-## orch continue RUN_REF|ISSUE_ID
+## orch restart-from RUN_REF|ISSUE_ID
 
 既存runのworktree/branchを再利用して新しいrunを開始する。
 
@@ -85,7 +85,8 @@
 
 ### 挙動
 
-- 対象runがアクティブならエラー（stopで停止が必要）
+- 対象runが `failed` / `canceled` / `unknown` 以外ならエラー
+- アクティブrunへのエラー時は `orch send` / `orch capture` を案内し、`orch stop` は案内しない
 - `--branch` 指定時は既存branchからworktreeを作成（既存worktreeがあれば再利用）
 - 新しいrun docを作成し、continued_fromを記録
 - agentを起動

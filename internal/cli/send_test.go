@@ -1,7 +1,11 @@
 package cli
 
 import (
+	"errors"
+	"strings"
 	"testing"
+
+	"github.com/s22625/orch/internal/orchapi"
 )
 
 func TestNewSendCmd(t *testing.T) {
@@ -54,5 +58,44 @@ func TestSendCmdDryRunFlag(t *testing.T) {
 
 	if dryRunFlag.DefValue != "false" {
 		t.Errorf("expected --dry-run default to be false, got %s", dryRunFlag.DefValue)
+	}
+}
+
+func TestSendCmdLongDescriptionGuidance(t *testing.T) {
+	cmd := newSendCmd()
+
+	if !strings.Contains(cmd.Long, "primary way to interact with waiting runs") {
+		t.Fatalf("expected send command help to emphasize waiting-run interaction")
+	}
+	if !strings.Contains(cmd.Long, "Do NOT use orch restart-from") {
+		t.Fatalf("expected send command help to warn against orch restart-from")
+	}
+}
+
+func TestFormatSendFailureMessageIncludesEscalationPath(t *testing.T) {
+	run := &orchapi.Run{
+		IssueID:      "orch-451",
+		RunID:        "20260226-123456",
+		WorktreePath: "/tmp/worktree",
+	}
+
+	msg := formatSendFailureMessage(errors.New("daemon error: session not found"), run)
+
+	checks := []string{
+		"daemon error: session not found",
+		"orch capture orch-451#20260226-123456",
+		"orch ps",
+		"tmux list-sessions",
+		"zellij list-sessions",
+		"/tmp/worktree/ORCH_PROMPT.md",
+		"tmux send-keys",
+		"zellij action write-chars",
+		"Do NOT use orch restart-from - the run is likely still alive.",
+	}
+
+	for _, check := range checks {
+		if !strings.Contains(msg, check) {
+			t.Fatalf("expected message to contain %q, got: %s", check, msg)
+		}
 	}
 }

@@ -1467,7 +1467,7 @@ func (d *IssueDashboard) viewContinueBranch() string {
 		return strings.Join(lines, "\n")
 	}
 
-	lines = append(lines, "Select a branch to continue from:", "")
+	lines = append(lines, "Select a branch to restart from:", "")
 	maxRows := d.continueBranchMaxRows()
 	visibleRows := d.continueBranchVisibleRows(maxRows)
 	start := d.continue_.offset

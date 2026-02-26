@@ -92,7 +92,7 @@ type OrchAPI interface {
 	StartRun(ctx context.Context, req *StartRunRequest) (*StartRunResult, error)
 
 	// CreateRun creates a new run record without starting the agent.
-	// Used by continue command to create runs that reuse existing worktrees.
+	// Used by restart-from command to create runs that reuse existing worktrees.
 	CreateRun(ctx context.Context, req *CreateRunRequest) (*CreateRunResult, error)
 
 	// StopRun stops a running run.

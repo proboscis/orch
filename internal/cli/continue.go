@@ -49,17 +49,19 @@ func defaultContinueDeps() *continueDeps {
 	return &continueDeps{getAPI: getAPI}
 }
 
-func newContinueCmd() *cobra.Command {
+func newRestartFromCmd() *cobra.Command {
 	opts := &continueOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "continue [RUN_REF|ISSUE_ID]",
-		Short: "Continue work from an existing run",
-		Long: `Continue work from an existing run by reusing its worktree and branch.
+		Use:   "restart-from [RUN_REF|ISSUE_ID]",
+		Short: "Restart work from an existing run",
+		Long: `Restart work from an existing run by reusing its worktree and branch.
 
 This creates a new run record that references the original run.
 
-Use --branch with an issue ID to continue from an untracked branch.`,
+Use this for failed, canceled, or unknown runs.
+
+Use --branch with an issue ID to restart from an untracked branch.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ref := ""
@@ -78,7 +80,7 @@ Use --branch with an issue ID to continue from an untracked branch.`,
 	cmd.Flags().StringVar(&opts.Multiplexer, "multiplexer", "", "Terminal multiplexer (tmux|zellij)")
 	cmd.Flags().BoolVar(&opts.NoPR, "no-pr", false, "Skip PR creation instructions in agent prompt")
 	cmd.Flags().StringVar(&opts.PromptTemplate, "prompt-template", "", "Custom prompt template file")
-	cmd.Flags().StringVar(&opts.Branch, "branch", "", "Existing branch to continue from")
+	cmd.Flags().StringVar(&opts.Branch, "branch", "", "Existing branch to restart from")
 	cmd.Flags().StringVar(&opts.IssueID, "issue", "", "Issue ID (required with --branch when no RUN_REF)")
 	cmd.Flags().StringVar(&opts.WorktreeDir, "worktree-dir", "", "Directory for worktrees (default: ~/.orch/worktrees)")
 	cmd.Flags().StringVar(&opts.RepoRoot, "repo-root", "", "Git repository root (default: auto-detect)")
@@ -175,8 +177,8 @@ func runContinueWithDeps(ctx context.Context, refStr string, opts *continueOptio
 	}
 
 	if !globalOpts.Quiet {
-		fmt.Printf("Run continued: %s#%s\n", resp.IssueID, resp.RunID)
-		fmt.Printf("  Continued from: %s\n", resp.ContinuedFrom)
+		fmt.Printf("Run restarted: %s#%s\n", resp.IssueID, resp.RunID)
+		fmt.Printf("  Restarted from: %s\n", resp.ContinuedFrom)
 		fmt.Printf("  Branch:         %s\n", resp.Branch)
 		fmt.Printf("  Worktree:       %s\n", resp.WorktreePath)
 		if resp.SessionName != "" {

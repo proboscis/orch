@@ -185,11 +185,17 @@ orch exec fix-login-timeout -- make lint
 
 ### 4. Request changes if needed
 
-If the PR needs work, you can continue the run:
+If the PR needs work and the run is still waiting/alive, send feedback first:
 
 ```bash
-# Continue work with the same agent
-orch continue fix-login-timeout
+orch send fix-login-timeout "Please fix the edge case in session.ts"
+```
+
+If a run actually failed/canceled/unknown, restart it:
+
+```bash
+# Restart from the last failed run with the same agent
+orch restart-from fix-login-timeout#20260120-163045
 
 # Or attach and provide feedback
 orch attach fix-login-timeout

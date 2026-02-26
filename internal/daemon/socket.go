@@ -1413,9 +1413,9 @@ When a run shows "waiting" status:
 2. Send feedback: `+"`orch send <issue-id> \"<message>\"`"+` to provide input
 3. The agent will resume automatically after receiving input
 
-### Continuing Work
-- From a branch: `+"`orch continue <issue> --branch <branch-name>`"+`
-- From a run: `+"`orch continue <issue>#<run-id>`"+`
+### Restarting Work
+- From a branch: `+"`orch restart-from <issue> --branch <branch-name>`"+`
+- From a run: `+"`orch restart-from <issue>#<run-id>`"+`
 
 ## Available Orch Commands
 
@@ -1428,7 +1428,7 @@ Run these commands directly using bash (do not use any special protocol):
 
 ### Run Management
 - Start a run: `+"`orch run <issue-id>`"+`
-- Continue from branch: `+"`orch continue <issue> --branch <branch>`"+`
+- Restart from branch: `+"`orch restart-from <issue> --branch <branch>`"+`
 - List runs: `+"`orch ps`"+` (use `+"`--status running,waiting`"+` to filter)
 - Stop a run: `+"`orch stop <issue-id>#<run-id>`"+`
 - Resolve a run: `+"`orch resolve <issue-id>#<run-id>`"+`
@@ -2806,8 +2806,8 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 			return nil, fmt.Errorf("run reference required (issue_id+run_id, short_id, or branch)")
 		}
 
-		if isActiveForContinue(fromRun.Status) {
-			return nil, fmt.Errorf("run %s#%s is %s; stop it before continuing", fromRun.IssueID, fromRun.RunID, fromRun.Status)
+		if err := validateRestartFromStatus(fromRun); err != nil {
+			return nil, err
 		}
 
 		if fromRun.WorktreePath == "" {
@@ -3173,8 +3173,8 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 			return
 		}
 
-		if isActiveForContinue(fromRun.Status) {
-			encoder.Encode(ContinueRunResponse{OK: false, Error: fmt.Sprintf("run %s#%s is %s; stop it before continuing", fromRun.IssueID, fromRun.RunID, fromRun.Status)})
+		if err := validateRestartFromStatus(fromRun); err != nil {
+			encoder.Encode(ContinueRunResponse{OK: false, Error: err.Error()})
 			return
 		}
 
@@ -3428,13 +3428,48 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 	})
 }
 
-func isActiveForContinue(status model.Status) bool {
+func canRestartFromStatus(status model.Status) bool {
+	switch status {
+	case model.StatusFailed, model.StatusCanceled, model.StatusUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+func isLiveRestartableStatus(status model.Status) bool {
 	switch status {
 	case model.StatusRunning, model.StatusWaiting, model.StatusRateLimited, model.StatusBooting, model.StatusQueued, model.StatusPROpen:
 		return true
 	default:
 		return false
 	}
+}
+
+func restartFromStatusDisplay(status model.Status) string {
+	switch status {
+	case model.StatusWaiting:
+		return "wait"
+	case model.StatusRateLimited:
+		return "blocked"
+	default:
+		return string(status)
+	}
+}
+
+func validateRestartFromStatus(run *model.Run) error {
+	status := model.NormalizeStatus(string(run.Status))
+	if canRestartFromStatus(status) {
+		return nil
+	}
+
+	ref := fmt.Sprintf("%s#%s", run.IssueID, run.RunID)
+	if isLiveRestartableStatus(status) {
+		statusText := restartFromStatusDisplay(status)
+		return fmt.Errorf("Run %s is alive (status: %s).\n\n  To send feedback:  orch send %s \"your message\"\n  To check output:   orch capture %s\n\n'orch restart-from' is for recovering from failed/canceled/unknown runs only.", ref, statusText, ref, ref)
+	}
+
+	return fmt.Errorf("run %s is %s; 'orch restart-from' only supports failed, canceled, or unknown runs", ref, status)
 }
 
 func (s *SocketServer) buildRunPrompt(issue *model.Issue, issuesRoot string, noPR bool, promptTemplate string, prTargetBranch string) string {

@@ -118,7 +118,7 @@ Interact with the agent:
     orch send <run> "msg"   Send message to running agent
     orch monitor            TUI dashboard for all runs
     orch show <issue>       Show issue details
-    orch continue <run>     Resume a paused or waiting run
+	orch restart-from <run> Restart from a failed/canceled/unknown run
     orch capture <run>      Capture agent session to markdown
 
 --------------------------------------------------------------------------------
