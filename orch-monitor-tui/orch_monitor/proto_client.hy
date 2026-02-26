@@ -592,7 +592,7 @@
                           :prompt_file r.prompt_file
                           :port r.port
                           :session_id r.session_id
-                          :agent (or agent-type r.agent "")
+                          :agent (or agent-type "")
                           :resumed r.resumed)))
   
   (defn register-monitor [self pid monitor-type view project [session-name ""]]

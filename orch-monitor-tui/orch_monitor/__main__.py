@@ -909,27 +909,53 @@ def launch_monitor_layout(
             # Pre-flight: when --new (layout restart only), verify control agent
             # session is recoverable BEFORE destroying the existing layout.
             if new and not new_control_agent:
+                project_str = str(project_root) if project_root else str(Path.cwd())
+                session_file = Path(project_str) / ".orch" / "control-session.json"
                 _launcher_logger.info(
                     "--new: checking if control agent session is recoverable..."
+                )
+                _launcher_logger.info(
+                    f"  project_root={project_str}, agent={agent_override or '(auto)'}, "
+                    f"session_file={session_file}"
                 )
                 daemon = _get_daemon_client(project_root)
                 if daemon:
                     from returns.result import Failure as _Failure
 
-                    project_str = str(project_root) if project_root else str(Path.cwd())
                     preflight = daemon.get_control_agent_launch(
                         project_str, agent_type=agent_override, new_session=False
                     )
                     if isinstance(preflight, _Failure):
+                        error_msg = str(preflight.failure())
+                        _launcher_logger.error(f"pre-flight failed: {error_msg}")
                         _launcher_logger.error(
-                            f"pre-flight failed: {preflight.failure()}"
+                            f"  project_root={project_str}, agent={agent_override or '(auto)'}, "
+                            f"session_file={session_file}, exists={session_file.exists()}"
                         )
                         _console.print(
                             "[red]Error:[/red] Cannot recover control agent session."
                         )
+                        _console.print(f"[dim]Daemon error: {error_msg}[/dim]")
+                        _console.print("")
+                        _console.print("[dim]Diagnostic details:[/dim]")
+                        _console.print(f"[dim]  project_root: {project_str}[/dim]")
                         _console.print(
-                            f"[dim]Daemon error: {preflight.failure()}[/dim]"
+                            f"[dim]  agent: {agent_override or '(auto)'}[/dim]"
                         )
+                        _console.print(f"[dim]  session_file: {session_file}[/dim]")
+                        _console.print(
+                            f"[dim]  session_file exists: {session_file.exists()}[/dim]"
+                        )
+                        if session_file.exists():
+                            try:
+                                _console.print(
+                                    f"[dim]  session_file content: {session_file.read_text().strip()}[/dim]"
+                                )
+                            except Exception as read_err:
+                                _console.print(
+                                    f"[dim]  session_file read error: {read_err}[/dim]"
+                                )
+                        _console.print("")
                         _console.print(
                             "[dim]Use --new-control-agent to start a fresh session.[/dim]"
                         )
@@ -943,16 +969,45 @@ def launch_monitor_layout(
                             _launcher_logger.error(
                                 "no previous control agent session found to resume"
                             )
+                            _launcher_logger.error(
+                                f"  project_root={project_str}, agent={agent_override or '(auto)'}, "
+                                f"session_id={launch.session_id or '(none)'}, "
+                                f"session_file={session_file}, exists={session_file.exists()}"
+                            )
                             _console.print(
                                 "[red]Error:[/red] --new requires an existing control agent session to resume, "
                                 "but none was found."
                             )
+                            _console.print("")
+                            _console.print("[dim]Diagnostic details:[/dim]")
+                            _console.print(f"[dim]  project_root: {project_str}[/dim]")
                             _console.print(
-                                f"[dim]  agent={agent_override or '(auto)'}, "
-                                f"session_id={launch.session_id or '(none)'}[/dim]"
+                                f"[dim]  agent: {agent_override or '(auto)'}[/dim]"
+                            )
+                            _console.print(f"[dim]  session_file: {session_file}[/dim]")
+                            _console.print(
+                                f"[dim]  session_file exists: {session_file.exists()}[/dim]"
+                            )
+                            if session_file.exists():
+                                try:
+                                    _console.print(
+                                        f"[dim]  session_file content: {session_file.read_text().strip()}[/dim]"
+                                    )
+                                except Exception as read_err:
+                                    _console.print(
+                                        f"[dim]  session_file read error: {read_err}[/dim]"
+                                    )
+                            _console.print(
+                                f"[dim]  daemon returned: session_id={launch.session_id or '(none)'}, "
+                                f"resumed={launch.resumed}[/dim]"
+                            )
+                            _console.print(f"[dim]  command: {launch.command}[/dim]")
+                            _console.print("")
+                            _console.print(
+                                "[dim]The daemon could not find a previous session to resume.[/dim]"
                             )
                             _console.print(
-                                "[dim]  A new session was created by the daemon but will not be used.[/dim]"
+                                "[dim]Checked: stored session file + Claude session discovery.[/dim]"
                             )
                             _console.print("")
                             _console.print(
@@ -968,6 +1023,10 @@ def launch_monitor_layout(
                 else:
                     _launcher_logger.warning(
                         "--new: daemon not available for pre-flight check, proceeding anyway"
+                    )
+                    _launcher_logger.warning(
+                        f"  project_root={project_str}, session_file={session_file}, "
+                        f"session_file_exists={session_file.exists()}"
                     )
 
             with _spinner_context("Restarting session...", enabled=show_spinner):
