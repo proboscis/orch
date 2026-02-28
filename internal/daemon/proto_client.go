@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/s22625/orch/api/orchpb"
@@ -26,6 +27,8 @@ type ProtoClient struct {
 
 const protoSendMessageTimeoutBuffer = 5 * time.Second
 
+var requestCounter uint64
+
 func NewProtoClient(projectRoot string) *ProtoClient {
 	return &ProtoClient{
 		projectRoot: projectRoot,
@@ -43,7 +46,14 @@ func NewProtoClientWithAddress(projectRoot, issuesRoot, daemonAddr string) *Prot
 	trimmedIssuesRoot := strings.TrimSpace(issuesRoot)
 
 	if remoteAddr != "" && trimmedProjectRoot != "" {
-		repoToken := encodeRepoIDToken(derivePortableRepoID(trimmedProjectRoot))
+		repoID := ""
+		if id, ok := decodeRepoIDToken(trimmedProjectRoot); ok {
+			repoID = id
+		} else {
+			repoID = derivePortableRepoID(trimmedProjectRoot)
+		}
+
+		repoToken := encodeRepoIDToken(repoID)
 		if repoToken != "" {
 			trimmedProjectRoot = repoToken
 			trimmedIssuesRoot = repoToken
@@ -73,6 +83,44 @@ func (c *ProtoClient) projectRootForRequest(projectRoot string) string {
 		return ""
 	}
 	return encodeRepoIDToken(derivePortableRepoID(target))
+}
+
+func (c *ProtoClient) projectIDForRequest(projectRoot string) string {
+	target := strings.TrimSpace(projectRoot)
+	if target == "" {
+		target = strings.TrimSpace(c.projectRoot)
+	}
+	if target == "" {
+		return ""
+	}
+
+	if repoID, ok := decodeRepoIDToken(target); ok {
+		return repoID
+	}
+
+	return derivePortableRepoID(target)
+}
+
+func (c *ProtoClient) newRequestID() string {
+	seq := atomic.AddUint64(&requestCounter, 1)
+	return fmt.Sprintf("req-%d-%d", time.Now().UnixNano(), seq)
+}
+
+func (c *ProtoClient) requestContext(projectRoot string) *orchpb.RequestContext {
+	if strings.TrimSpace(c.daemonAddr) == "" {
+		return nil
+	}
+
+	projectID := c.projectIDForRequest(projectRoot)
+	if projectID == "" {
+		return nil
+	}
+
+	return &orchpb.RequestContext{
+		ProjectId: projectID,
+		RequestId: c.newRequestID(),
+		ClientId:  "orch-cli",
+	}
 }
 
 func (c *ProtoClient) SetTimeout(timeout time.Duration) {
@@ -296,6 +344,7 @@ func (c *ProtoClient) ListRuns(filter *ListRunsFilter) (*ListRunsResponse, error
 				Limit:      int32(limit),
 				Cursor:     cursor,
 				OlderThan:  olderThan,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -339,6 +388,7 @@ func (c *ProtoClient) GetRun(issueID, runID string) (*GetRunResponse, error) {
 				IssuesRoot: c.issuesRoot,
 				IssueId:    issueID,
 				RunId:      runID,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -369,6 +419,7 @@ func (c *ProtoClient) GetRunByShortID(shortID string) (*GetRunResponse, error) {
 			GetRunByShortId: &orchpb.GetRunByShortIDRequest{
 				IssuesRoot: c.issuesRoot,
 				ShortId:    shortID,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -406,6 +457,7 @@ func (c *ProtoClient) ListIssues(status []string, limit int, cursor string) (*Li
 				Status:     protoStatuses,
 				Limit:      int32(limit),
 				Cursor:     cursor,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -448,6 +500,7 @@ func (c *ProtoClient) GetIssue(issueID string) (*GetIssueResponse, error) {
 			GetIssue: &orchpb.GetIssueRequest{
 				IssuesRoot: c.issuesRoot,
 				IssueId:    issueID,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -481,6 +534,7 @@ func (c *ProtoClient) CreateIssue(issueID, title, summary, body string, tags []s
 				Title:      title,
 				Body:       body,
 				Tags:       tags,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -512,6 +566,7 @@ func (c *ProtoClient) CloseIssue(issueID, comment string) (*CloseIssueResponse, 
 			CloseIssue: &orchpb.CloseIssueRequest{
 				IssuesRoot: c.issuesRoot,
 				IssueId:    issueID,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -555,6 +610,7 @@ func (c *ProtoClient) StartRun(opts *StartRunOptions) (*StartRunResponse, error)
 				Multiplexer:    opts.Multiplexer,
 				Target:         opts.Target,
 				ProjectRoot:    c.projectRootForRequest(opts.ProjectRoot),
+				Context:        c.requestContext(opts.ProjectRoot),
 			},
 		},
 	}
@@ -603,6 +659,7 @@ func (c *ProtoClient) ContinueRun(opts *ContinueRunOptions) (*ContinueRunRespons
 				Multiplexer:    opts.Multiplexer,
 				SessionName:    opts.SessionName,
 				RepoRoot:       c.projectRootForRequest(opts.RepoRoot),
+				Context:        c.requestContext(opts.ProjectRoot),
 			},
 		},
 	}
@@ -640,6 +697,7 @@ func (c *ProtoClient) StopRun(issueID, runID string, force bool) (*StopRunRespon
 				IssuesRoot: c.issuesRoot,
 				IssueId:    issueID,
 				RunId:      runID,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -666,6 +724,7 @@ func (c *ProtoClient) ResolveIssue(issueID string, force bool) (*ResolveIssueRes
 				IssuesRoot: c.issuesRoot,
 				IssueId:    issueID,
 				Force:      force,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1325,7 +1384,7 @@ func (c *ProtoClient) RegisterRepo(projectRoot string) (string, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_RegisterRepo{
 			RegisterRepo: &orchpb.RegisterRepoRequest{
-				ProjectRoot: c.projectRootForRequest(projectRoot),
+				ProjectRoot: strings.TrimSpace(projectRoot),
 			},
 		},
 	}
@@ -1400,6 +1459,7 @@ func (c *ProtoClient) DeleteRun(issueID, runID, shortID string, withWorktree, wi
 				WithWorktree: withWorktree,
 				WithBranch:   withBranch,
 				Force:        force,
+				Context:      c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1438,6 +1498,7 @@ func (c *ProtoClient) UpdateIssue(issueID, title, summary, body, status string) 
 				Summary:    summary,
 				Body:       body,
 				Status:     status,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -2105,6 +2166,7 @@ func (c *ProtoClient) GetConfig(projectRoot string) (*ConfigResponse, error) {
 		Request: &orchpb.Request_GetConfig{
 			GetConfig: &orchpb.GetConfigRequest{
 				ProjectRoot: c.projectRootForRequest(projectRoot),
+				Context:     c.requestContext(projectRoot),
 			},
 		},
 	}

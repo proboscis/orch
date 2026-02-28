@@ -118,6 +118,12 @@ message PingResponse {
   string version = 2;
 }
 
+message RequestContext {
+  string project_id = 1;
+  string request_id = 2;
+  string client_id = 3;
+}
+
 // --- Runs ---
 
 message ListRunsRequest {
@@ -130,6 +136,7 @@ message ListRunsRequest {
   int32 limit = 7;
   string cursor = 8;
   string older_than = 9;  // ISO8601 timestamp - filter runs older than this time
+  RequestContext context = 10;
 }
 
 message ListRunsResponse {
@@ -142,6 +149,7 @@ message GetRunRequest {
   string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
+  RequestContext context = 4;
 }
 
 message GetRunResponse {
@@ -170,6 +178,7 @@ message StartRunRequest {
   string agent_profile = 18;
   string multiplexer = 19;
   string target = 20;
+  RequestContext context = 21;
 }
 
 message StartRunResponse {
@@ -197,6 +206,7 @@ message StopRunRequest {
   string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
+  RequestContext context = 4;
 }
 
 message StopRunResponse {}
@@ -205,6 +215,7 @@ message ResolveRunRequest {
   string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
+  RequestContext context = 4;
 }
 
 message ResolveRunResponse {}
@@ -219,6 +230,7 @@ message ListIssuesRequest {
   string text_search = 5;
   int32 limit = 6;
   string cursor = 7;
+  RequestContext context = 8;
 }
 
 message ListIssuesResponse {
@@ -230,6 +242,7 @@ message ListIssuesResponse {
 message GetIssueRequest {
   string issues_root = 1;
   string issue_id = 2;
+  RequestContext context = 3;
 }
 
 message GetIssueResponse {
@@ -242,6 +255,7 @@ message CreateIssueRequest {
   string title = 3;
   string body = 4;
   repeated string tags = 5;
+  RequestContext context = 6;
 }
 
 message CreateIssueResponse {
@@ -251,6 +265,7 @@ message CreateIssueResponse {
 message CloseIssueRequest {
   string issues_root = 1;
   string issue_id = 2;
+  RequestContext context = 3;
 }
 
 message CloseIssueResponse {}
@@ -420,6 +435,7 @@ message KillMonitorResponse {
 message GetRunByShortIDRequest {
   string issues_root = 1;
   string short_id = 2;
+  RequestContext context = 3;
 }
 
 message GetRunByShortIDResponse {
@@ -433,6 +449,7 @@ message ResolveIssueRequest {
   string issues_root = 1;
   string issue_id = 2;
   bool force = 3;
+  RequestContext context = 4;
 }
 
 message ResolveIssueResponse {
@@ -491,6 +508,7 @@ message DeleteRunRequest {
   bool with_worktree = 5;
   bool with_branch = 6;
   bool force = 7;
+  RequestContext context = 8;
 }
 
 message DeleteRunResponse {
@@ -509,6 +527,7 @@ message UpdateIssueRequest {
   string summary = 4;
   string body = 5;
   string status = 6;
+  RequestContext context = 7;
 }
 
 message UpdateIssueResponse {
@@ -689,6 +708,7 @@ message ContinueRunRequest {
   string multiplexer = 14;
   string session_name = 15;
   string repo_root = 16;
+  RequestContext context = 17;
 }
 
 message ContinueRunResponse {
@@ -705,6 +725,7 @@ message ContinueRunResponse {
 
 message GetConfigRequest {
   string project_root = 1;
+  RequestContext context = 2;
 }
 
 message SlackConfigProto {

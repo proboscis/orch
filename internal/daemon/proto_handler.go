@@ -226,9 +226,41 @@ func errorResponse(errMsg string) *orchpb.Response {
 	return &orchpb.Response{Ok: false, Error: errMsg}
 }
 
+func projectIDFromContext(ctx *orchpb.RequestContext) string {
+	if ctx == nil {
+		return ""
+	}
+	return strings.TrimSpace(ctx.ProjectId)
+}
+
+func (s *SocketServer) resolveStoreFromContextOrProto(ctx *orchpb.RequestContext, issuesRoot string) store.Store {
+	if projectID := projectIDFromContext(ctx); projectID != "" {
+		if repo := s.ensureRepoStoreByID(projectID); repo != nil && repo.Store != nil {
+			return repo.Store
+		}
+		return nil
+	}
+
+	return s.resolveStoreFromProto(issuesRoot)
+}
+
+func (s *SocketServer) resolveProjectRootFromContextOrProto(ctx *orchpb.RequestContext, projectRoot string) string {
+	if projectID := projectIDFromContext(ctx); projectID != "" {
+		if repo := s.GetRepoContext(projectID); repo != nil && strings.TrimSpace(repo.ProjectRoot) != "" {
+			return strings.TrimSpace(repo.ProjectRoot)
+		}
+		if repo := s.ensureRepoContextByID(projectID); repo != nil && strings.TrimSpace(repo.ProjectRoot) != "" {
+			return strings.TrimSpace(repo.ProjectRoot)
+		}
+		return ""
+	}
+
+	return s.resolveProtoProjectRoot(projectRoot)
+}
+
 func (s *SocketServer) resolveStoreFromProto(issuesRoot string) store.Store {
 	if repoID, ok := decodeRepoIDToken(issuesRoot); ok {
-		if ctx := s.GetRepoContext(repoID); ctx != nil {
+		if ctx := s.ensureRepoStoreByID(repoID); ctx != nil && ctx.Store != nil {
 			return ctx.Store
 		}
 		if ctx := s.ensureRepoContextByID(repoID); ctx != nil {
@@ -288,8 +320,11 @@ func (s *SocketServer) handleProtoPing(_ *orchpb.PingRequest) *orchpb.Response {
 func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.Response {
 	requestStart := time.Now()
 
-	st := s.resolveStoreFromProto(req.IssuesRoot)
+	st := s.resolveStoreFromContextOrProto(req.Context, req.IssuesRoot)
 	if st == nil {
+		if projectID := projectIDFromContext(req.Context); projectID != "" {
+			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+		}
 		return errorResponse("no store available")
 	}
 
@@ -565,8 +600,11 @@ func formatElapsedTime(startedAt, updatedAt time.Time, status model.Status) stri
 }
 
 func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Response {
-	st := s.resolveStoreFromProto(req.IssuesRoot)
+	st := s.resolveStoreFromContextOrProto(req.Context, req.IssuesRoot)
 	if st == nil {
+		if projectID := projectIDFromContext(req.Context); projectID != "" {
+			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+		}
 		return errorResponse("no store available")
 	}
 
@@ -596,14 +634,20 @@ func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Resp
 }
 
 func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.Response {
-	st := s.resolveStoreFromProto(req.IssuesRoot)
+	st := s.resolveStoreFromContextOrProto(req.Context, req.IssuesRoot)
 	if st == nil {
+		if projectID := projectIDFromContext(req.Context); projectID != "" {
+			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+		}
 		return errorResponse("no store available")
 	}
 
-	projectRoot := s.resolveProtoProjectRoot(req.ProjectRoot)
+	projectRoot := s.resolveProjectRootFromContextOrProto(req.Context, req.ProjectRoot)
 	if projectRoot == "" {
-		projectRoot = os.Getenv("ORCH_PROJECT_ROOT")
+		if projectID := projectIDFromContext(req.Context); projectID != "" {
+			return errorResponse(fmt.Sprintf("unknown project_id %q (register daemon project mapping)", projectID))
+		}
+		return errorResponse("project_root required")
 	}
 
 	opts := &StartRunOptions{
@@ -648,17 +692,23 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 }
 
 func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *orchpb.Response {
-	st := s.resolveStoreFromProto(req.IssuesRoot)
+	st := s.resolveStoreFromContextOrProto(req.Context, req.IssuesRoot)
 	if st == nil {
+		if projectID := projectIDFromContext(req.Context); projectID != "" {
+			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+		}
 		return errorResponse("no store available")
 	}
 
-	projectRoot := s.resolveProtoProjectRoot(req.ProjectRoot)
+	projectRoot := s.resolveProjectRootFromContextOrProto(req.Context, req.ProjectRoot)
 	if projectRoot == "" && req.RepoRoot != "" {
-		projectRoot = s.resolveProtoProjectRoot(req.RepoRoot)
+		projectRoot = s.resolveProjectRootFromContextOrProto(req.Context, req.RepoRoot)
 	}
 	if projectRoot == "" {
-		projectRoot = os.Getenv("ORCH_PROJECT_ROOT")
+		if projectID := projectIDFromContext(req.Context); projectID != "" {
+			return errorResponse(fmt.Sprintf("unknown project_id %q (register daemon project mapping)", projectID))
+		}
+		return errorResponse("project_root required")
 	}
 
 	opts := &ContinueRunOptions{
@@ -701,8 +751,11 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 }
 
 func (s *SocketServer) handleProtoStopRun(req *orchpb.StopRunRequest) *orchpb.Response {
-	st := s.resolveStoreFromProto(req.IssuesRoot)
+	st := s.resolveStoreFromContextOrProto(req.Context, req.IssuesRoot)
 	if st == nil {
+		if projectID := projectIDFromContext(req.Context); projectID != "" {
+			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+		}
 		return errorResponse("no store available")
 	}
 
@@ -723,8 +776,11 @@ func (s *SocketServer) handleProtoStopRun(req *orchpb.StopRunRequest) *orchpb.Re
 }
 
 func (s *SocketServer) handleProtoResolveRun(req *orchpb.ResolveRunRequest) *orchpb.Response {
-	st := s.resolveStoreFromProto(req.IssuesRoot)
+	st := s.resolveStoreFromContextOrProto(req.Context, req.IssuesRoot)
 	if st == nil {
+		if projectID := projectIDFromContext(req.Context); projectID != "" {
+			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+		}
 		return errorResponse("no store available")
 	}
 
@@ -739,8 +795,11 @@ func (s *SocketServer) handleProtoResolveRun(req *orchpb.ResolveRunRequest) *orc
 }
 
 func (s *SocketServer) handleProtoListIssues(req *orchpb.ListIssuesRequest) *orchpb.Response {
-	st := s.resolveStoreFromProto(req.IssuesRoot)
+	st := s.resolveStoreFromContextOrProto(req.Context, req.IssuesRoot)
 	if st == nil {
+		if projectID := projectIDFromContext(req.Context); projectID != "" {
+			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+		}
 		return errorResponse("no store available")
 	}
 
@@ -837,8 +896,11 @@ func (s *SocketServer) handleProtoListIssues(req *orchpb.ListIssuesRequest) *orc
 }
 
 func (s *SocketServer) handleProtoGetIssue(req *orchpb.GetIssueRequest) *orchpb.Response {
-	st := s.resolveStoreFromProto(req.IssuesRoot)
+	st := s.resolveStoreFromContextOrProto(req.Context, req.IssuesRoot)
 	if st == nil {
+		if projectID := projectIDFromContext(req.Context); projectID != "" {
+			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+		}
 		return errorResponse("no store available")
 	}
 
@@ -858,8 +920,11 @@ func (s *SocketServer) handleProtoGetIssue(req *orchpb.GetIssueRequest) *orchpb.
 }
 
 func (s *SocketServer) handleProtoCreateIssue(req *orchpb.CreateIssueRequest) *orchpb.Response {
-	st := s.resolveStoreFromProto(req.IssuesRoot)
+	st := s.resolveStoreFromContextOrProto(req.Context, req.IssuesRoot)
 	if st == nil {
+		if projectID := projectIDFromContext(req.Context); projectID != "" {
+			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+		}
 		return errorResponse("no store available")
 	}
 
@@ -886,8 +951,11 @@ func (s *SocketServer) handleProtoCreateIssue(req *orchpb.CreateIssueRequest) *o
 }
 
 func (s *SocketServer) handleProtoCloseIssue(req *orchpb.CloseIssueRequest) *orchpb.Response {
-	st := s.resolveStoreFromProto(req.IssuesRoot)
+	st := s.resolveStoreFromContextOrProto(req.Context, req.IssuesRoot)
 	if st == nil {
+		if projectID := projectIDFromContext(req.Context); projectID != "" {
+			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+		}
 		return errorResponse("no store available")
 	}
 
@@ -1393,8 +1461,11 @@ func (s *SocketServer) handleProtoKillMonitor(req *orchpb.KillMonitorRequest) *o
 }
 
 func (s *SocketServer) handleProtoGetRunByShortID(req *orchpb.GetRunByShortIDRequest) *orchpb.Response {
-	st := s.resolveStoreFromProto(req.IssuesRoot)
+	st := s.resolveStoreFromContextOrProto(req.Context, req.IssuesRoot)
 	if st == nil {
+		if projectID := projectIDFromContext(req.Context); projectID != "" {
+			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+		}
 		return errorResponse("no store available")
 	}
 
@@ -1423,8 +1494,11 @@ func (s *SocketServer) handleProtoGetRunByShortID(req *orchpb.GetRunByShortIDReq
 }
 
 func (s *SocketServer) handleProtoResolveIssue(req *orchpb.ResolveIssueRequest) *orchpb.Response {
-	st := s.resolveStoreFromProto(req.IssuesRoot)
+	st := s.resolveStoreFromContextOrProto(req.Context, req.IssuesRoot)
 	if st == nil {
+		if projectID := projectIDFromContext(req.Context); projectID != "" {
+			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+		}
 		return errorResponse("no store available")
 	}
 
@@ -1504,8 +1578,17 @@ func (s *SocketServer) handleProtoRegisterRepo(req *orchpb.RegisterRepoRequest) 
 			ProjectRoot: projectRoot,
 			RepoID:      repoID,
 		}
+	} else {
+		existing := s.repos[repoID]
+		if existing != nil {
+			existing.ProjectRoot = projectRoot
+		}
 	}
 	s.reposMu.Unlock()
+
+	if err := s.persistRepoRegistry(); err != nil {
+		return errorResponse(fmt.Sprintf("failed to persist repo registry: %v", err))
+	}
 
 	s.logger.Printf("registered repo: %s (%s)", repoID, projectRoot)
 
@@ -1524,17 +1607,35 @@ func (s *SocketServer) handleProtoListRepos(_ *orchpb.ListReposRequest) *orchpb.
 	defer s.reposMu.RUnlock()
 
 	repos := make([]*orchpb.RepoInfo, 0, len(s.repos))
-	for id, info := range s.repos {
+	seen := make(map[string]struct{}, len(s.repos))
+	for key, info := range s.repos {
+		if info == nil {
+			continue
+		}
+
+		repoID := strings.TrimSpace(info.RepoID)
+		if repoID == "" {
+			repoID = key
+		}
+		if _, ok := seen[repoID]; ok {
+			continue
+		}
+		seen[repoID] = struct{}{}
+
 		issuesRoot := ""
 		if info.Store != nil {
 			issuesRoot = info.Store.RootPath()
 		}
 		repos = append(repos, &orchpb.RepoInfo{
-			Id:          id,
+			Id:          repoID,
 			ProjectRoot: info.ProjectRoot,
 			IssuesRoot:  issuesRoot,
 		})
 	}
+
+	sort.Slice(repos, func(i, j int) bool {
+		return repos[i].Id < repos[j].Id
+	})
 
 	return &orchpb.Response{
 		Ok: true,
@@ -1547,8 +1648,11 @@ func (s *SocketServer) handleProtoListRepos(_ *orchpb.ListReposRequest) *orchpb.
 }
 
 func (s *SocketServer) handleProtoDeleteRun(req *orchpb.DeleteRunRequest) *orchpb.Response {
-	st := s.resolveStoreFromProto(req.IssuesRoot)
+	st := s.resolveStoreFromContextOrProto(req.Context, req.IssuesRoot)
 	if st == nil {
+		if projectID := projectIDFromContext(req.Context); projectID != "" {
+			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+		}
 		return errorResponse("no store available")
 	}
 
@@ -1602,8 +1706,11 @@ func (s *SocketServer) handleProtoDeleteRun(req *orchpb.DeleteRunRequest) *orchp
 }
 
 func (s *SocketServer) handleProtoUpdateIssue(req *orchpb.UpdateIssueRequest) *orchpb.Response {
-	st := s.resolveStoreFromProto(req.IssuesRoot)
+	st := s.resolveStoreFromContextOrProto(req.Context, req.IssuesRoot)
 	if st == nil {
+		if projectID := projectIDFromContext(req.Context); projectID != "" {
+			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+		}
 		return errorResponse("no store available")
 	}
 
@@ -2171,9 +2278,12 @@ func (s *SocketServer) loadConfig(projectRoot string) (*config.Config, error) {
 }
 
 func (s *SocketServer) handleProtoGetConfig(req *orchpb.GetConfigRequest) *orchpb.Response {
-	projectRoot := s.resolveProtoProjectRoot(req.ProjectRoot)
+	projectRoot := s.resolveProjectRootFromContextOrProto(req.Context, req.ProjectRoot)
 	if projectRoot == "" {
-		projectRoot = os.Getenv("ORCH_PROJECT_ROOT")
+		if projectID := projectIDFromContext(req.Context); projectID != "" {
+			return errorResponse(fmt.Sprintf("unknown project_id %q (register daemon project mapping)", projectID))
+		}
+		return errorResponse("project_root required")
 	}
 
 	cfg, err := s.loadConfig(projectRoot)

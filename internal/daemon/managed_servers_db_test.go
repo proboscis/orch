@@ -93,6 +93,36 @@ func TestManagedServerStoreCRUD(t *testing.T) {
 	}
 }
 
+func TestManagedServerStoreMigratesRuntimeTables(t *testing.T) {
+	setupManagedServerDBEnv(t)
+
+	store, err := newManagedServerStore(xdg.DaemonDBPath())
+	if err != nil {
+		t.Fatalf("newManagedServerStore() error = %v", err)
+	}
+	defer store.Close()
+
+	tables := []string{
+		"managed_servers",
+		"events",
+		"run_state_projection",
+		"issue_state_projection",
+		"idempotency_keys",
+		"outbox",
+	}
+
+	for _, table := range tables {
+		var name string
+		err := store.db.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name = ?`, table).Scan(&name)
+		if err != nil {
+			t.Fatalf("expected table %q to exist: %v", table, err)
+		}
+		if name != table {
+			t.Fatalf("sqlite returned table %q, want %q", name, table)
+		}
+	}
+}
+
 func TestReconcileManagedServersOnStartupAdoptsHealthyServer(t *testing.T) {
 	setupManagedServerDBEnv(t)
 

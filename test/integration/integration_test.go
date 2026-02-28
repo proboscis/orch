@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +20,7 @@ var (
 	orchBinary    string
 	testVault     string
 	testRepo      string
+	remoteAddr    string
 	daemonProcess *os.Process
 )
 
@@ -45,6 +47,12 @@ func TestMain(m *testing.M) {
 	os.Setenv("XDG_DATA_HOME", dataDir)
 	os.Unsetenv("ORCH_VAULT")
 	os.Unsetenv("ORCH_ISSUES_ROOT")
+
+	addr, err := reserveLoopbackTCPAddr()
+	if err != nil {
+		panic("failed to reserve remote daemon address: " + err.Error())
+	}
+	remoteAddr = addr
 
 	orchBinary = filepath.Join(tmpDir, "orch")
 	cmd := exec.Command("go", "build", "-o", orchBinary, "../../cmd/orch")
@@ -76,7 +84,11 @@ func TestMain(m *testing.M) {
 }
 
 func startTestDaemon() {
-	cmd := exec.Command(orchBinary, "daemon", "run")
+	args := []string{"daemon", "run"}
+	if remoteAddr != "" {
+		args = append(args, "--listen", "tcp://"+remoteAddr)
+	}
+	cmd := exec.Command(orchBinary, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		panic("failed to start daemon: " + err.Error())
@@ -90,6 +102,15 @@ func startTestDaemon() {
 		}
 	}
 	panic("daemon did not start in time")
+}
+
+func reserveLoopbackTCPAddr() (string, error) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", err
+	}
+	defer l.Close()
+	return l.Addr().String(), nil
 }
 
 func stopTestDaemon() {
@@ -144,6 +165,59 @@ func runOrchInRepo(t *testing.T, repoRoot, issuesRoot string, args ...string) (s
 		t.Logf("stderr: %s", stderr.String())
 	}
 	return stdout.String(), err
+}
+
+func runOrchRemoteOutsideRepo(t *testing.T, workingDir, projectRoot string, args ...string) (string, string, error) {
+	t.Helper()
+
+	fullArgs := []string{"--remote", remoteAddr, "--project-root", projectRoot}
+	fullArgs = append(fullArgs, args...)
+	cmd := exec.Command(orchBinary, fullArgs...)
+	cmd.Dir = workingDir
+
+	home := filepath.Join(workingDir, ".home")
+	if err := os.MkdirAll(home, 0755); err != nil {
+		t.Fatalf("mkdir home: %v", err)
+	}
+
+	env := make([]string, 0, len(os.Environ())+4)
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "ORCH_PROJECT_ROOT=") ||
+			strings.HasPrefix(kv, "ORCH_ISSUES_ROOT=") ||
+			strings.HasPrefix(kv, "ORCH_VAULT=") ||
+			strings.HasPrefix(kv, "ORCH_REMOTE=") ||
+			strings.HasPrefix(kv, "HOME=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	env = append(env, "HOME="+home)
+	cmd.Env = env
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return stdout.String(), stderr.String(), err
+}
+
+func waitForRemoteDaemon(t *testing.T) {
+	t.Helper()
+
+	client := daemon.NewProtoClientWithAddress("", "", remoteAddr)
+	defer client.Close()
+
+	var lastErr error
+	for i := 0; i < 40; i++ {
+		if err := client.Ping(); err == nil {
+			return
+		} else {
+			lastErr = err
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	t.Fatalf("remote daemon %s did not become reachable: %v", remoteAddr, lastErr)
 }
 
 func runGitCmd(t *testing.T, dir string, args ...string) string {
@@ -203,6 +277,62 @@ func ensureIssueType(content string) string {
 	updated = append(updated, "type: issue")
 	updated = append(updated, lines[1:]...)
 	return strings.Join(updated, "\n")
+}
+
+func TestPsRemoteWithRepoIDProjectRootOutsideRepo(t *testing.T) {
+	if strings.TrimSpace(remoteAddr) == "" {
+		t.Fatal("remote daemon address is empty")
+	}
+
+	waitForRemoteDaemon(t)
+
+	tmp := t.TempDir()
+	serverRepo := filepath.Join(tmp, "server-repo")
+	serverIssues := filepath.Join(tmp, "server-issues")
+	outsideRepo := filepath.Join(tmp, "outside")
+
+	if err := os.MkdirAll(filepath.Join(serverRepo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir server repo .orch: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(serverIssues, "issues"), 0755); err != nil {
+		t.Fatalf("mkdir server issues/issues: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(serverIssues, "runs"), 0755); err != nil {
+		t.Fatalf("mkdir server issues/runs: %v", err)
+	}
+	if err := os.MkdirAll(outsideRepo, 0755); err != nil {
+		t.Fatalf("mkdir outside repo dir: %v", err)
+	}
+
+	configData := fmt.Sprintf("issues:\n  path: %s\n", serverIssues)
+	if err := os.WriteFile(filepath.Join(serverRepo, ".orch", "config.yaml"), []byte(configData), 0644); err != nil {
+		t.Fatalf("write server repo config: %v", err)
+	}
+
+	admin := daemon.NewProtoClientWithAddress("", "", remoteAddr)
+	defer admin.Close()
+
+	repoID, err := admin.RegisterRepo(serverRepo)
+	if err != nil {
+		t.Fatalf("register repo mapping failed: %v", err)
+	}
+
+	projectToken := "repoid:" + repoID
+	out, errOut, err := runOrchRemoteOutsideRepo(t, outsideRepo, projectToken, "ps", "--json")
+	if err != nil {
+		t.Fatalf("remote ps failed: %v\nstdout: %s\nstderr: %s", err, out, errOut)
+	}
+
+	var result struct {
+		OK    bool              `json:"ok"`
+		Items []json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("failed to parse ps --json output: %v\noutput: %s", err, out)
+	}
+	if !result.OK {
+		t.Fatalf("expected ok=true from remote ps output, got: %s", out)
+	}
 }
 
 func TestPsEmpty(t *testing.T) {

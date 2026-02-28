@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -40,8 +41,129 @@ It runs automatically in the background when needed.`,
 	cmd.AddCommand(newDaemonListCmd())
 	cmd.AddCommand(newDaemonKillCmd())
 	cmd.AddCommand(newDaemonStatusCmd())
+	cmd.AddCommand(newDaemonRepoCmd())
 
 	return cmd
+}
+
+func newDaemonRepoCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "repo",
+		Short: "Manage daemon repo identity mappings",
+		Long: `Manage daemon-side repo identity mappings used by remote clients.
+
+Mappings connect portable repo IDs to server-local project roots.`,
+	}
+
+	cmd.AddCommand(newDaemonRepoRegisterCmd())
+	cmd.AddCommand(newDaemonRepoListCmd())
+
+	return cmd
+}
+
+func newDaemonRepoRegisterCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "register SERVER_PROJECT_ROOT",
+		Short: "Register a server project root for remote repo identity",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDaemonRepoRegister(args[0])
+		},
+	}
+}
+
+func newDaemonRepoListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List repo identity mappings known by daemon",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDaemonRepoList()
+		},
+	}
+}
+
+func requireDaemonAdminClient() (*daemon.ProtoClient, error) {
+	remoteAddr := getRemoteAddr()
+	if remoteAddr != "" {
+		client := daemon.NewProtoClientWithAddress("", "", remoteAddr)
+		if err := client.Ping(); err != nil {
+			_ = client.Close()
+			return nil, fmt.Errorf("remote daemon %s is not reachable: %w", remoteAddr, err)
+		}
+		return client, nil
+	}
+
+	client := daemon.NewProtoClientWithAddress("", "", "")
+	if client.IsAvailable() {
+		return client, nil
+	}
+
+	if _, err := daemon.StartInBackground(); err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("daemon not running and failed to start: %w", err)
+	}
+
+	for i := 0; i < 10; i++ {
+		time.Sleep(100 * time.Millisecond)
+		if client.IsAvailable() {
+			return client, nil
+		}
+	}
+
+	_ = client.Close()
+	return nil, fmt.Errorf("daemon did not become available after starting")
+}
+
+func runDaemonRepoRegister(serverProjectRoot string) error {
+	client, err := requireDaemonAdminClient()
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	repoID, err := client.RegisterRepo(serverProjectRoot)
+	if err != nil {
+		return err
+	}
+
+	if globalOpts.JSON {
+		fmt.Printf("{\"repo_id\":%q,\"project_root\":%q}\n", repoID, serverProjectRoot)
+		return nil
+	}
+
+	fmt.Printf("Registered repo mapping: %s -> %s\n", repoID, serverProjectRoot)
+	return nil
+}
+
+func runDaemonRepoList() error {
+	client, err := requireDaemonAdminClient()
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	repos, err := client.ListRepos()
+	if err != nil {
+		return err
+	}
+
+	if globalOpts.JSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(repos)
+	}
+
+	if len(repos) == 0 {
+		fmt.Println("No repo mappings registered.")
+		return nil
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "REPO_ID\tPROJECT_ROOT\tISSUES_ROOT")
+	for _, r := range repos {
+		fmt.Fprintf(w, "%s\t%s\t%s\n", r["repo_id"], r["project_root"], r["issues_root"])
+	}
+	return w.Flush()
 }
 
 func newDaemonStartCmd() *cobra.Command {
@@ -319,12 +441,12 @@ func requireDaemon() (*daemon.ProtoClient, error) {
 		return nil, err
 	}
 
-	issuesRoot, err := getIssuesRoot()
+	remoteAddr := getRemoteAddr()
+	issuesRoot, err := getIssuesRootForClient(remoteAddr)
 	if err != nil {
 		return nil, err
 	}
 
-	remoteAddr := getRemoteAddr()
 	if remoteAddr != "" {
 		client := daemon.NewProtoClientWithAddress(projectRoot, issuesRoot, remoteAddr)
 		if err := client.Ping(); err != nil {

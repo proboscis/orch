@@ -181,9 +181,15 @@ func setupXDGTestEnv(t *testing.T) func() {
 	}
 
 	oldXDG := os.Getenv("XDG_RUNTIME_DIR")
+	oldXDGState := os.Getenv("XDG_STATE_HOME")
+	oldXDGConfig := os.Getenv("XDG_CONFIG_HOME")
 	os.Setenv("XDG_RUNTIME_DIR", tmpDir)
+	os.Setenv("XDG_STATE_HOME", filepath.Join(tmpDir, "state"))
+	os.Setenv("XDG_CONFIG_HOME", filepath.Join(tmpDir, "config"))
 	return func() {
 		os.Setenv("XDG_RUNTIME_DIR", oldXDG)
+		os.Setenv("XDG_STATE_HOME", oldXDGState)
+		os.Setenv("XDG_CONFIG_HOME", oldXDGConfig)
 		os.RemoveAll(tmpDir)
 	}
 }
@@ -1426,8 +1432,6 @@ func TestGetOrCreateStoreHydratesProjectRootOnReuse(t *testing.T) {
 }
 
 func TestResolveProjectRootPrecedence(t *testing.T) {
-	t.Setenv("ORCH_PROJECT_ROOT", "/env/project")
-
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
 
@@ -1445,18 +1449,13 @@ func TestResolveProjectRootPrecedence(t *testing.T) {
 		t.Fatalf("expected repo context project root, got %q", got)
 	}
 
-	if got := server.resolveProjectRoot(SendRequest{}); got != "/env/project" {
-		t.Fatalf("expected ORCH_PROJECT_ROOT fallback, got %q", got)
+	if got := server.resolveProjectRoot(SendRequest{}); got != "" {
+		t.Fatalf("expected empty project root when request has no project root and no repo id, got %q", got)
 	}
 
 	emptyServer := NewSocketServer(nil, logger)
-	if got := emptyServer.resolveProjectRoot(SendRequest{}); got != "/env/project" {
-		t.Fatalf("expected ORCH_PROJECT_ROOT fallback, got %q", got)
-	}
-
-	t.Setenv("ORCH_PROJECT_ROOT", "")
 	if got := emptyServer.resolveProjectRoot(SendRequest{}); got != "" {
-		t.Fatalf("expected empty project root when request and env are empty, got %q", got)
+		t.Fatalf("expected empty project root when request is empty, got %q", got)
 	}
 }
 
@@ -1484,6 +1483,162 @@ func TestResolveStoreFromProtoRequiresIssuesRoot(t *testing.T) {
 
 	if callCount != 1 {
 		t.Fatalf("expected one store creation for valid issues root, got %d", callCount)
+	}
+}
+
+func TestResolveStoreFromProtoRepoIDTokenUsesRegisteredProjectRoot(t *testing.T) {
+	callCount := 0
+	mockFactory := func(string) (store.Store, error) {
+		callCount++
+		return &mockStore{runs: make(map[string]*model.Run), issues: make(map[string]*model.Issue)}, nil
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(mockFactory, logger)
+
+	projectRoot := t.TempDir()
+	issuesRoot := filepath.Join(projectRoot, "issues")
+	if err := os.MkdirAll(issuesRoot, 0o755); err != nil {
+		t.Fatalf("mkdir issues root: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0o755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	configYAML := []byte("issues:\n  path: " + issuesRoot + "\n")
+	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), configYAML, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	repoID := deriveRepoID(projectRoot)
+	server.reposMu.Lock()
+	server.repos[repoID] = &RepoContext{ProjectRoot: projectRoot, RepoID: repoID}
+	server.reposMu.Unlock()
+
+	token := encodeRepoIDToken(repoID)
+	resolved := server.resolveStoreFromProto(token)
+	if resolved == nil {
+		t.Fatal("expected store to resolve for registered repo token")
+	}
+	if callCount != 1 {
+		t.Fatalf("expected one store creation call, got %d", callCount)
+	}
+
+	resolvedAgain := server.resolveStoreFromProto(token)
+	if resolvedAgain == nil {
+		t.Fatal("expected store to resolve on repeated token lookup")
+	}
+	if callCount != 1 {
+		t.Fatalf("expected no additional store creation call, got %d", callCount)
+	}
+}
+
+func TestEnsureRepoContextByIDDoesNotFallbackToEnvProjectRoot(t *testing.T) {
+	callCount := 0
+	mockFactory := func(string) (store.Store, error) {
+		callCount++
+		return &mockStore{runs: make(map[string]*model.Run), issues: make(map[string]*model.Issue)}, nil
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(mockFactory, logger)
+
+	projectRoot := t.TempDir()
+	issuesRoot := filepath.Join(projectRoot, "issues")
+	if err := os.MkdirAll(issuesRoot, 0o755); err != nil {
+		t.Fatalf("mkdir issues root: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0o755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	configYAML := []byte("issues:\n  path: " + issuesRoot + "\n")
+	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), configYAML, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	t.Setenv("ORCH_PROJECT_ROOT", projectRoot)
+	repoID := deriveRepoID(projectRoot)
+	if got := server.ensureRepoContextByID(repoID); got != nil {
+		t.Fatalf("expected nil context without registry mapping, got %#v", got)
+	}
+	if callCount != 0 {
+		t.Fatalf("expected no store creation without registry mapping, got %d", callCount)
+	}
+}
+
+func TestRepoRegistryPersistenceAcrossServerInstances(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	projectRoot := "/srv/repos/orch"
+	resp := server.handleProtoRegisterRepo(&orchpb.RegisterRepoRequest{ProjectRoot: projectRoot})
+	if !resp.Ok {
+		t.Fatalf("register repo failed: %s", resp.Error)
+	}
+
+	repoID := deriveRepoID(projectRoot)
+	projectCfgPath := filepath.Join(xdg.ConfigDir(), "projects", repoID+".yaml")
+	data, err := os.ReadFile(projectCfgPath)
+	if err != nil {
+		t.Fatalf("read project config %s: %v", projectCfgPath, err)
+	}
+	if !strings.Contains(string(data), "project_id: "+repoID) {
+		t.Fatalf("project config missing project_id %q: %s", repoID, string(data))
+	}
+	if !strings.Contains(string(data), "root: "+projectRoot) {
+		t.Fatalf("project config missing workspace root %q: %s", projectRoot, string(data))
+	}
+
+	server2 := NewSocketServer(nil, logger)
+	if err := server2.loadRepoRegistry(); err != nil {
+		t.Fatalf("loadRepoRegistry() error: %v", err)
+	}
+
+	ctx := server2.GetRepoContext(repoID)
+	if ctx == nil {
+		t.Fatalf("expected repo context for %q after reload", repoID)
+	}
+	if ctx.ProjectRoot != projectRoot {
+		t.Fatalf("ProjectRoot = %q, want %q", ctx.ProjectRoot, projectRoot)
+	}
+}
+
+func TestLoadRepoRegistrySupportsLegacyStateFile(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	legacyPath := filepath.Join(xdg.StateDir(), repoRegistryLegacyFileName)
+	if err := os.MkdirAll(filepath.Dir(legacyPath), 0o755); err != nil {
+		t.Fatalf("mkdir legacy registry dir: %v", err)
+	}
+
+	legacy := repoRegistrySnapshot{
+		Version: 1,
+		Repos: []repoRegistryEntry{
+			{RepoID: "legacy-repo", ProjectRoot: "/srv/legacy-repo"},
+		},
+	}
+	legacyData, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatalf("marshal legacy registry: %v", err)
+	}
+	if err := os.WriteFile(legacyPath, legacyData, 0o644); err != nil {
+		t.Fatalf("write legacy registry: %v", err)
+	}
+
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	if err := server.loadRepoRegistry(); err != nil {
+		t.Fatalf("loadRepoRegistry() error: %v", err)
+	}
+
+	ctx := server.GetRepoContext("legacy-repo")
+	if ctx == nil {
+		t.Fatal("expected legacy repo context to load")
+	}
+	if ctx.ProjectRoot != "/srv/legacy-repo" {
+		t.Fatalf("legacy project root = %q, want /srv/legacy-repo", ctx.ProjectRoot)
 	}
 }
 
@@ -2236,6 +2391,320 @@ func TestListReposAPI(t *testing.T) {
 	}
 	if len(listResp.Repos) == 0 {
 		t.Error("expected at least one registered repo")
+	}
+}
+
+func TestListRunsWithRequestContextProjectID(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			"ctx-issue/ctx-run": {
+				IssueID: "ctx-issue",
+				RunID:   "ctx-run",
+				Status:  model.StatusRunning,
+				Agent:   "opencode",
+				Branch:  "feature/ctx-run",
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.reposMu.Lock()
+	server.repos["project-ctx"] = &RepoContext{
+		RepoID:      "project-ctx",
+		ProjectRoot: "/srv/repos/orch",
+		Store:       st,
+	}
+	server.reposMu.Unlock()
+
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_ListRuns{
+			ListRuns: &orchpb.ListRunsRequest{
+				Context: &orchpb.RequestContext{ProjectId: "project-ctx"},
+				Limit:   10,
+			},
+		},
+	})
+
+	if !resp.Ok {
+		t.Fatalf("expected ok=true, got error: %s", resp.Error)
+	}
+	listResp := resp.GetListRuns()
+	if listResp == nil {
+		t.Fatal("expected ListRunsResponse")
+	}
+	if len(listResp.Runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(listResp.Runs))
+	}
+	if listResp.Runs[0].IssueId != "ctx-issue" || listResp.Runs[0].RunId != "ctx-run" {
+		t.Fatalf("unexpected run in response: issue=%q run=%q", listResp.Runs[0].IssueId, listResp.Runs[0].RunId)
+	}
+}
+
+func TestGetConfigWithUnknownProjectContextDoesNotFallbackToEnv(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	t.Setenv("ORCH_PROJECT_ROOT", "/tmp/should-not-be-used")
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_GetConfig{
+			GetConfig: &orchpb.GetConfigRequest{
+				Context: &orchpb.RequestContext{ProjectId: "missing-project"},
+			},
+		},
+	})
+
+	if resp.Ok {
+		t.Fatal("expected error response for unknown project context")
+	}
+	if !strings.Contains(resp.Error, "unknown project_id") {
+		t.Fatalf("expected unknown project_id error, got: %s", resp.Error)
+	}
+}
+
+func TestProtoStartRunWithoutProjectRootDoesNotFallbackToEnv(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	t.Setenv("ORCH_PROJECT_ROOT", "/tmp/should-not-be-used")
+
+	st := &mockStore{
+		runs: make(map[string]*model.Run),
+		issues: map[string]*model.Issue{
+			"test-issue": {
+				ID:     "test-issue",
+				Title:  "Test issue",
+				Status: model.IssueStatusOpen,
+				Path:   "/test/issues/test-issue.md",
+			},
+		},
+	}
+
+	server := newTestServer(t, st)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_StartRun{
+			StartRun: &orchpb.StartRunRequest{
+				IssueId:    "test-issue",
+				IssuesRoot: testIssuesRoot,
+				DryRun:     true,
+			},
+		},
+	})
+
+	if resp.Ok {
+		t.Fatal("expected error response")
+	}
+	if resp.Error != "project_root required" {
+		t.Fatalf("expected project_root required, got: %s", resp.Error)
+	}
+}
+
+func TestProtoContinueRunWithoutProjectRootDoesNotFallbackToEnv(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	t.Setenv("ORCH_PROJECT_ROOT", "/tmp/should-not-be-used")
+
+	st := &mockStore{
+		runs:   make(map[string]*model.Run),
+		issues: make(map[string]*model.Issue),
+	}
+
+	server := newTestServer(t, st)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_ContinueRun{
+			ContinueRun: &orchpb.ContinueRunRequest{
+				IssueId:    "test-issue",
+				IssuesRoot: testIssuesRoot,
+			},
+		},
+	})
+
+	if resp.Ok {
+		t.Fatal("expected error response")
+	}
+	if resp.Error != "project_root required" {
+		t.Fatalf("expected project_root required, got: %s", resp.Error)
+	}
+}
+
+func TestGetConfigWithoutProjectRootDoesNotFallbackToEnv(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	t.Setenv("ORCH_PROJECT_ROOT", "/tmp/should-not-be-used")
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_GetConfig{
+			GetConfig: &orchpb.GetConfigRequest{},
+		},
+	})
+
+	if resp.Ok {
+		t.Fatal("expected error response")
+	}
+	if resp.Error != "project_root required" {
+		t.Fatalf("expected project_root required, got: %s", resp.Error)
+	}
+}
+
+func TestGetIssueWithRequestContextProjectID(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	st := &mockStore{
+		runs: map[string]*model.Run{},
+		issues: map[string]*model.Issue{
+			"ctx-issue": {
+				ID:     "ctx-issue",
+				Title:  "Context issue",
+				Status: model.IssueStatusOpen,
+				Path:   "/srv/repos/orch/issues/ctx-issue.md",
+			},
+		},
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.reposMu.Lock()
+	server.repos["project-ctx"] = &RepoContext{
+		RepoID:      "project-ctx",
+		ProjectRoot: "/srv/repos/orch",
+		Store:       st,
+	}
+	server.reposMu.Unlock()
+
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_GetIssue{
+			GetIssue: &orchpb.GetIssueRequest{
+				IssueId: "ctx-issue",
+				Context: &orchpb.RequestContext{ProjectId: "project-ctx"},
+			},
+		},
+	})
+
+	if !resp.Ok {
+		t.Fatalf("expected ok=true, got error: %s", resp.Error)
+	}
+
+	getResp := resp.GetGetIssue()
+	if getResp == nil || getResp.Issue == nil {
+		t.Fatal("expected GetIssue response with issue")
+	}
+	if getResp.Issue.Id != "ctx-issue" {
+		t.Fatalf("expected issue id ctx-issue, got %q", getResp.Issue.Id)
+	}
+}
+
+func TestContextEnabledHandlersUnknownProjectReturnProjectScopedStoreError(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	t.Setenv("ORCH_PROJECT_ROOT", "/tmp/should-not-be-used")
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	missing := &orchpb.RequestContext{ProjectId: "missing-project"}
+	tests := []struct {
+		name string
+		req  *orchpb.Request
+	}{
+		{
+			name: "get-run",
+			req:  &orchpb.Request{Request: &orchpb.Request_GetRun{GetRun: &orchpb.GetRunRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "stop-run",
+			req:  &orchpb.Request{Request: &orchpb.Request_StopRun{StopRun: &orchpb.StopRunRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "resolve-run",
+			req:  &orchpb.Request{Request: &orchpb.Request_ResolveRun{ResolveRun: &orchpb.ResolveRunRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "get-issue",
+			req:  &orchpb.Request{Request: &orchpb.Request_GetIssue{GetIssue: &orchpb.GetIssueRequest{IssueId: "i", Context: missing}}},
+		},
+		{
+			name: "create-issue",
+			req:  &orchpb.Request{Request: &orchpb.Request_CreateIssue{CreateIssue: &orchpb.CreateIssueRequest{IssueId: "i", Title: "title", Body: "body", Context: missing}}},
+		},
+		{
+			name: "close-issue",
+			req:  &orchpb.Request{Request: &orchpb.Request_CloseIssue{CloseIssue: &orchpb.CloseIssueRequest{IssueId: "i", Context: missing}}},
+		},
+		{
+			name: "get-run-by-short-id",
+			req:  &orchpb.Request{Request: &orchpb.Request_GetRunByShortId{GetRunByShortId: &orchpb.GetRunByShortIDRequest{ShortId: "abc", Context: missing}}},
+		},
+		{
+			name: "resolve-issue",
+			req:  &orchpb.Request{Request: &orchpb.Request_ResolveIssue{ResolveIssue: &orchpb.ResolveIssueRequest{IssueId: "i", Context: missing}}},
+		},
+		{
+			name: "delete-run",
+			req:  &orchpb.Request{Request: &orchpb.Request_DeleteRun{DeleteRun: &orchpb.DeleteRunRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "update-issue",
+			req:  &orchpb.Request{Request: &orchpb.Request_UpdateIssue{UpdateIssue: &orchpb.UpdateIssueRequest{IssueId: "i", Title: "new", Context: missing}}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := sendProtoRequest(t, tt.req)
+			if resp.Ok {
+				t.Fatalf("expected error response, got ok=true")
+			}
+			if !strings.Contains(resp.Error, "no store available for project_id \"missing-project\"") {
+				t.Fatalf("expected project-scoped store error, got: %s", resp.Error)
+			}
+		})
 	}
 }
 

@@ -74,6 +74,55 @@ func (s *managedServerStore) migrate() error {
 		last_healthy TEXT
 	);
 	CREATE INDEX IF NOT EXISTS idx_managed_servers_port ON managed_servers(port);
+
+	CREATE TABLE IF NOT EXISTS events (
+		seq            INTEGER PRIMARY KEY AUTOINCREMENT,
+		stream_type    TEXT NOT NULL,
+		stream_id      TEXT NOT NULL,
+		stream_version INTEGER NOT NULL,
+		event_type     TEXT NOT NULL,
+		payload_json   TEXT NOT NULL,
+		metadata_json  TEXT,
+		created_at     TEXT NOT NULL
+	);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_events_stream_version ON events(stream_type, stream_id, stream_version);
+
+	CREATE TABLE IF NOT EXISTS run_state_projection (
+		run_id       TEXT PRIMARY KEY,
+		project_id   TEXT NOT NULL,
+		issue_id     TEXT NOT NULL,
+		status       TEXT NOT NULL,
+		updated_at   TEXT NOT NULL,
+		summary_json TEXT
+	);
+	CREATE INDEX IF NOT EXISTS idx_run_state_projection_project_status ON run_state_projection(project_id, status);
+
+	CREATE TABLE IF NOT EXISTS issue_state_projection (
+		issue_id     TEXT PRIMARY KEY,
+		project_id   TEXT NOT NULL,
+		status       TEXT NOT NULL,
+		updated_at   TEXT NOT NULL,
+		summary_json TEXT
+	);
+	CREATE INDEX IF NOT EXISTS idx_issue_state_projection_project_status ON issue_state_projection(project_id, status);
+
+	CREATE TABLE IF NOT EXISTS idempotency_keys (
+		request_id    TEXT PRIMARY KEY,
+		response_json TEXT NOT NULL,
+		created_at    TEXT NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_idempotency_keys_created_at ON idempotency_keys(created_at);
+
+	CREATE TABLE IF NOT EXISTS outbox (
+		id           INTEGER PRIMARY KEY AUTOINCREMENT,
+		kind         TEXT NOT NULL,
+		payload_json TEXT NOT NULL,
+		status       TEXT NOT NULL,
+		attempts     INTEGER NOT NULL DEFAULT 0,
+		updated_at   TEXT NOT NULL,
+		created_at   TEXT NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_outbox_status_updated ON outbox(status, updated_at);
 	`
 
 	_, err := s.db.Exec(schema)

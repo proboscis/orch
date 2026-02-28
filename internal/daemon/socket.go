@@ -26,13 +26,38 @@ import (
 	"github.com/s22625/orch/internal/multiplexer"
 	"github.com/s22625/orch/internal/store"
 	"github.com/s22625/orch/internal/xdg"
+	"gopkg.in/yaml.v3"
 )
 
 const (
 	socketFile                  = "daemon.sock"
 	openCodeControlSessionTitle = "orch-control"
 	tmuxSubmitKeyEnter          = "Enter"
+	repoRegistryLegacyFileName  = "repo-registry.json"
+	projectConfigsDirName       = "projects"
+	projectConfigVersion        = 1
 )
+
+type repoRegistryEntry struct {
+	RepoID      string `json:"repo_id"`
+	ProjectRoot string `json:"project_root"`
+}
+
+type repoRegistrySnapshot struct {
+	Version int                 `json:"version"`
+	Repos   []repoRegistryEntry `json:"repos"`
+}
+
+type projectConfigWorkspace struct {
+	Root string `yaml:"root"`
+}
+
+type projectConfigFile struct {
+	Version     int                    `yaml:"version"`
+	ProjectID   string                 `yaml:"project_id"`
+	DisplayName string                 `yaml:"display_name,omitempty"`
+	Workspace   projectConfigWorkspace `yaml:"workspace"`
+}
 
 var (
 	// Keep opencode send ACK timeout short so `orch send` returns quickly after
@@ -292,6 +317,198 @@ func (s *SocketServer) RegisterRepo(projectRoot string, st store.Store) (string,
 	return repoID, nil
 }
 
+func repoRegistryPath() string {
+	return filepath.Join(xdg.StateDir(), repoRegistryLegacyFileName)
+}
+
+func projectConfigsDirPath() string {
+	return filepath.Join(xdg.ConfigDir(), projectConfigsDirName)
+}
+
+func projectConfigPath(projectID string) (string, error) {
+	id := strings.TrimSpace(projectID)
+	if id == "" {
+		return "", fmt.Errorf("project_id is required")
+	}
+	if strings.Contains(id, "/") || strings.Contains(id, "\\") || strings.Contains(id, "..") {
+		return "", fmt.Errorf("invalid project_id %q", projectID)
+	}
+	return filepath.Join(projectConfigsDirPath(), id+".yaml"), nil
+}
+
+func loadProjectConfig(path string) (*projectConfigFile, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var cfg projectConfigFile
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("decode project config %s: %w", path, err)
+	}
+
+	cfg.ProjectID = strings.TrimSpace(cfg.ProjectID)
+	cfg.Workspace.Root = strings.TrimSpace(cfg.Workspace.Root)
+	if cfg.ProjectID == "" {
+		return nil, fmt.Errorf("invalid project config %s: project_id is required", path)
+	}
+	if cfg.Workspace.Root == "" {
+		return nil, fmt.Errorf("invalid project config %s: workspace.root is required", path)
+	}
+
+	return &cfg, nil
+}
+
+func writeProjectConfig(path string, cfg *projectConfigFile) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("encode project config %s: %w", path, err)
+	}
+
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
+		return fmt.Errorf("write project config temp file %s: %w", path, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("replace project config file %s: %w", path, err)
+	}
+	return nil
+}
+
+func (s *SocketServer) loadLegacyRepoRegistry() error {
+	path := repoRegistryPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to read legacy repo registry: %w", err)
+	}
+
+	var snapshot repoRegistrySnapshot
+	if err := json.Unmarshal(data, &snapshot); err != nil {
+		return fmt.Errorf("failed to decode legacy repo registry: %w", err)
+	}
+
+	s.reposMu.Lock()
+	defer s.reposMu.Unlock()
+
+	for _, entry := range snapshot.Repos {
+		repoID := strings.TrimSpace(entry.RepoID)
+		projectRoot := strings.TrimSpace(entry.ProjectRoot)
+		if repoID == "" || projectRoot == "" {
+			continue
+		}
+		if existing, ok := s.repos[repoID]; ok && existing != nil {
+			if existing.ProjectRoot == "" {
+				existing.ProjectRoot = projectRoot
+			}
+			if existing.RepoID == "" {
+				existing.RepoID = repoID
+			}
+			continue
+		}
+
+		s.repos[repoID] = &RepoContext{ProjectRoot: projectRoot, RepoID: repoID}
+	}
+
+	return nil
+}
+
+func (s *SocketServer) loadRepoRegistry() error {
+	dir := projectConfigsDirPath()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("failed to read project config directory: %w", err)
+		}
+	} else {
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].Name() < entries[j].Name()
+		})
+
+		s.reposMu.Lock()
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+				continue
+			}
+
+			path := filepath.Join(dir, entry.Name())
+			cfg, cfgErr := loadProjectConfig(path)
+			if cfgErr != nil {
+				s.reposMu.Unlock()
+				return cfgErr
+			}
+
+			repoID := strings.TrimSpace(cfg.ProjectID)
+			projectRoot := strings.TrimSpace(cfg.Workspace.Root)
+			if existing, ok := s.repos[repoID]; ok && existing != nil {
+				existing.RepoID = repoID
+				existing.ProjectRoot = projectRoot
+			} else {
+				s.repos[repoID] = &RepoContext{ProjectRoot: projectRoot, RepoID: repoID}
+			}
+		}
+		s.reposMu.Unlock()
+	}
+
+	if err := s.loadLegacyRepoRegistry(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *SocketServer) persistRepoRegistry() error {
+	if err := os.MkdirAll(projectConfigsDirPath(), 0o755); err != nil {
+		return fmt.Errorf("failed to ensure project config directory: %w", err)
+	}
+
+	seen := make(map[string]projectConfigFile)
+
+	s.reposMu.RLock()
+	for _, ctx := range s.repos {
+		if ctx == nil {
+			continue
+		}
+		repoID := strings.TrimSpace(ctx.RepoID)
+		projectRoot := strings.TrimSpace(ctx.ProjectRoot)
+		if repoID == "" || projectRoot == "" {
+			continue
+		}
+		if _, exists := seen[repoID]; !exists {
+			seen[repoID] = projectConfigFile{
+				Version:     projectConfigVersion,
+				ProjectID:   repoID,
+				DisplayName: filepath.Base(projectRoot),
+				Workspace: projectConfigWorkspace{
+					Root: projectRoot,
+				},
+			}
+		}
+	}
+	s.reposMu.RUnlock()
+
+	projectIDs := make([]string, 0, len(seen))
+	for repoID := range seen {
+		projectIDs = append(projectIDs, repoID)
+	}
+	sort.Strings(projectIDs)
+
+	for _, projectID := range projectIDs {
+		path, err := projectConfigPath(projectID)
+		if err != nil {
+			return err
+		}
+		cfg := seen[projectID]
+		if err := writeProjectConfig(path, &cfg); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // GetRepoContext returns the context for a repo by ID or project root.
 func (s *SocketServer) GetRepoContext(repoIDOrPath string) *RepoContext {
 	if repoIDOrPath == "" {
@@ -365,21 +582,34 @@ func (s *SocketServer) ensureRepoContextByID(repoID string) *RepoContext {
 	if repoID == "" {
 		return nil
 	}
+	if ctx := s.ensureRepoStoreByID(repoID); ctx != nil {
+		return ctx
+	}
 	if ctx := s.GetRepoContext(repoID); ctx != nil {
 		return ctx
 	}
+	return nil
+}
 
-	projectRoot := strings.TrimSpace(os.Getenv("ORCH_PROJECT_ROOT"))
-	if projectRoot == "" {
-		if pr, err := config.GetProjectRoot(); err == nil {
-			projectRoot = strings.TrimSpace(pr)
-		}
-	}
-	if projectRoot == "" {
+func (s *SocketServer) ensureRepoStoreByID(repoID string) *RepoContext {
+	if repoID == "" {
 		return nil
 	}
 
-	if deriveRepoID(projectRoot) != repoID {
+	s.reposMu.RLock()
+	ctx := s.repos[repoID]
+	if ctx == nil {
+		s.reposMu.RUnlock()
+		return nil
+	}
+	if ctx.Store != nil {
+		s.reposMu.RUnlock()
+		return ctx
+	}
+	projectRoot := strings.TrimSpace(ctx.ProjectRoot)
+	s.reposMu.RUnlock()
+
+	if projectRoot == "" {
 		return nil
 	}
 
@@ -398,14 +628,16 @@ func (s *SocketServer) ensureRepoContextByID(repoID string) *RepoContext {
 	}
 
 	s.reposMu.Lock()
-	ctx := s.repos[repoID]
-	if ctx == nil {
-		ctx = &RepoContext{ProjectRoot: projectRoot, RepoID: repoID, Store: st}
-		s.repos[repoID] = ctx
+	existing := s.repos[repoID]
+	if existing == nil {
+		existing = &RepoContext{ProjectRoot: projectRoot, RepoID: repoID, Store: st}
+		s.repos[repoID] = existing
+	} else if existing.Store == nil {
+		existing.Store = st
 	}
 	s.reposMu.Unlock()
 
-	return ctx
+	return existing
 }
 
 func (s *SocketServer) getOrCreateStore(issuesRoot, projectRoot string) store.Store {
@@ -456,10 +688,6 @@ func (s *SocketServer) resolveProjectRoot(req SendRequest) string {
 		}
 	}
 
-	if projectRoot := os.Getenv("ORCH_PROJECT_ROOT"); projectRoot != "" {
-		return projectRoot
-	}
-
 	return ""
 }
 
@@ -482,6 +710,11 @@ func (s *SocketServer) Start() error {
 	if err := s.reconcileManagedServersOnStartup(); err != nil {
 		s.closeManagedServerStore()
 		return fmt.Errorf("failed to reconcile managed servers on startup: %w", err)
+	}
+
+	if err := s.loadRepoRegistry(); err != nil {
+		s.closeManagedServerStore()
+		return fmt.Errorf("failed to load repo registry: %w", err)
 	}
 
 	os.Remove(socketPath)

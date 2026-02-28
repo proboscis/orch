@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/s22625/orch/internal/config"
@@ -68,5 +70,55 @@ func TestResolveRemoteAddrPrecedence(t *testing.T) {
 				t.Fatalf("resolveRemoteAddr() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestGetIssuesRootForClientRemoteSkipsLookup(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_PROJECT_ROOT", "")
+	t.Setenv("ORCH_ISSUES_ROOT", "")
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	tmp := t.TempDir()
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+
+	issuesRoot, err := getIssuesRootForClient("zeus:7777")
+	if err != nil {
+		t.Fatalf("expected remote mode to skip issues root lookup, got error: %v", err)
+	}
+	if issuesRoot != "" {
+		t.Fatalf("expected empty issues root in remote mode, got %q", issuesRoot)
+	}
+}
+
+func TestGetIssuesRootForClientLocalPerformsLookup(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_PROJECT_ROOT", "")
+	t.Setenv("ORCH_ISSUES_ROOT", "")
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	tmp := t.TempDir()
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+
+	issuesRoot, err := getIssuesRootForClient("")
+	if err != nil {
+		t.Fatalf("expected local mode lookup to succeed, got error: %v", err)
+	}
+	if strings.TrimSpace(issuesRoot) == "" {
+		t.Fatal("expected non-empty issues root in local mode")
 	}
 }

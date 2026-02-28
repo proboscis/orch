@@ -180,6 +180,14 @@ func getRemoteAddr() string {
 	return resolveRemoteAddr(globalOpts.Remote, remoteFlagWasSet, os.Getenv("ORCH_REMOTE"), clientCfg)
 }
 
+func getIssuesRootForClient(remoteAddr string) (string, error) {
+	if strings.TrimSpace(remoteAddr) != "" {
+		return "", nil
+	}
+
+	return getIssuesRoot()
+}
+
 func resolveRemoteAddr(flagValue string, flagChanged bool, envValue string, clientCfg *config.ClientConfig) string {
 	resolve := func(v string) string {
 		if clientCfg != nil {
@@ -214,12 +222,13 @@ func defaultGetAPI() (orchapi.OrchAPI, error) {
 		return nil, err
 	}
 
-	issuesRoot, err := getIssuesRoot()
+	remoteAddr := getRemoteAddr()
+
+	issuesRoot, err := getIssuesRootForClient(remoteAddr)
 	if err != nil {
 		return nil, err
 	}
 
-	remoteAddr := getRemoteAddr()
 	client := orchapi.NewDaemonClientWithAddress(projectRoot, issuesRoot, remoteAddr)
 	if remoteAddr == "" && !client.IsAvailable() {
 		ensureDaemon()

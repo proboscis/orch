@@ -51,3 +51,14 @@ func TestProjectRootForRequestRemoteEncodesPath(t *testing.T) {
 		t.Fatalf("projectRootForRequest(token) = %q, want %q", passthrough, client.projectRoot)
 	}
 }
+
+func TestNewProtoClientWithAddressRemotePreservesRepoIDToken(t *testing.T) {
+	client := NewProtoClientWithAddress("repoid:server-repo", "", "zeus:7777")
+
+	if client.projectRoot != "repoid:server-repo" {
+		t.Fatalf("projectRoot = %q, want %q", client.projectRoot, "repoid:server-repo")
+	}
+	if client.issuesRoot != "repoid:server-repo" {
+		t.Fatalf("issuesRoot = %q, want %q", client.issuesRoot, "repoid:server-repo")
+	}
+}
