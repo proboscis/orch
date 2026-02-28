@@ -1,6 +1,7 @@
 """Entry point for orch monitor TUI."""
 
 import argparse
+import json
 import logging
 import os
 import shlex
@@ -120,6 +121,69 @@ def _build_fallback_control_agent_command(agent: str) -> str:
     return agent
 
 
+def _normalize_codex_model(model: str) -> str:
+    model = model.strip()
+    if not model:
+        return ""
+    if "/" in model:
+        return model.split("/", 1)[1].strip()
+    return model
+
+
+def _build_local_control_agent_command(
+    agent: str,
+    model: str = "",
+    model_variant: str = "",
+    extra_args: list[str] | None = None,
+) -> str:
+    prompt = CONTROL_PROMPT_INSTRUCTION
+    args: list[str] = []
+    extras = [a for a in (extra_args or []) if a]
+
+    if agent == "opencode":
+        args = ["opencode"]
+        if extras:
+            args.extend(extras)
+        args.extend(["--prompt", prompt])
+        if model:
+            args.extend(["--model", model])
+        if model_variant:
+            args.extend(["--model-variant", model_variant])
+        return shlex.join(args)
+
+    if agent == "claude":
+        args = ["claude"]
+        if extras:
+            args.extend(extras)
+        else:
+            args.append("--dangerously-skip-permissions")
+        args.append(prompt)
+        return shlex.join(args)
+
+    if agent == "codex":
+        args = ["codex"]
+        if extras:
+            args.extend(extras)
+        else:
+            args.append("--yolo")
+        normalized_model = _normalize_codex_model(model)
+        if normalized_model:
+            args.extend(["--model", normalized_model])
+        args.append(prompt)
+        return shlex.join(args)
+
+    if agent == "gemini":
+        args = ["gemini"]
+        if extras:
+            args.extend(extras)
+        else:
+            args.append("--yolo")
+        args.extend(["--prompt-interactive", prompt])
+        return shlex.join(args)
+
+    return _build_fallback_control_agent_command(agent)
+
+
 def _get_daemon_client(project_root: Path | None) -> "ProtoDaemonClient | None":
     try:
         config = Config.from_vault(project_root) if project_root else Config.load()
@@ -145,44 +209,107 @@ def _get_orch_api(project_root: Path | None) -> OrchAPI | None:
 
 
 def load_control_session(project_root: Path | None, agent_type: str = "") -> str | None:
-    """Load control session for the given agent type.
+    """Load control session for the given agent type."""
+    root = (project_root or Path.cwd()).resolve()
+    session_path = root / ".orch" / "control-session.json"
+    if not session_path.exists():
+        return None
+    try:
+        data = json.loads(session_path.read_text())
+    except Exception as e:
+        _launcher_logger.warning(f"Failed reading control session file: {e}")
+        return None
 
-    Note: After protobuf migration (orch-368), session management is handled
-    internally by get_control_agent_launch. This function is kept for API
-    compatibility but always returns None.
-    """
-    _launcher_logger.debug(
-        f"load_control_session called but session management is now internal to daemon"
-    )
-    return None
+    session_id = str(data.get("session_id", "")).strip()
+    stored_agent = str(data.get("agent_type", "")).strip()
+    if not session_id:
+        return None
+    if agent_type and stored_agent and stored_agent != agent_type:
+        return None
+    return session_id
 
 
 def save_control_session(
     project_root: Path | None, session_id: str, agent_type: str = ""
 ) -> bool:
-    """Save control session.
-
-    Note: After protobuf migration (orch-368), session management is handled
-    internally by get_control_agent_launch. This function is kept for API
-    compatibility but always returns False.
-    """
-    _launcher_logger.debug(
-        f"save_control_session called but session management is now internal to daemon"
-    )
-    return False
+    """Save control session."""
+    root = (project_root or Path.cwd()).resolve()
+    session_path = root / ".orch" / "control-session.json"
+    try:
+        session_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "session_id": session_id,
+            "agent_type": agent_type,
+        }
+        session_path.write_text(json.dumps(payload, indent=2) + "\n")
+        return True
+    except Exception as e:
+        _launcher_logger.warning(f"Failed saving control session file: {e}")
+        return False
 
 
 def clear_control_session(project_root: Path | None) -> bool:
-    """Clear control session.
+    """Clear control session."""
+    root = (project_root or Path.cwd()).resolve()
+    session_path = root / ".orch" / "control-session.json"
+    try:
+        session_path.unlink(missing_ok=True)
+        return True
+    except Exception as e:
+        _launcher_logger.warning(f"Failed clearing control session file: {e}")
+        return False
 
-    Note: After protobuf migration (orch-368), session management is handled
-    internally by get_control_agent_launch. This function is kept for API
-    compatibility but always returns False.
-    """
-    _launcher_logger.debug(
-        f"clear_control_session called but session management is now internal to daemon"
+
+def _resolve_local_control_agent_command(
+    daemon: "ProtoDaemonClient | None",
+    project_root: Path | None,
+    cwd: str,
+    fallback_agent: str,
+    agent_override: str = "",
+) -> tuple[str, str, bool]:
+    """Resolve control agent command from config RPC and build command locally."""
+    fallback_cmd = _build_fallback_control_agent_command(fallback_agent)
+    if not daemon:
+        _launcher_logger.warning(
+            "Daemon not available, using fallback local control agent command"
+        )
+        return fallback_cmd, fallback_agent, True
+
+    from returns.result import Failure
+
+    project_str = str(project_root) if project_root else str(Path.cwd())
+    config_result = daemon.get_control_agent_config(project_str)
+    if isinstance(config_result, Failure):
+        _launcher_logger.warning(
+            f"Failed to get control agent config from daemon: {config_result.failure()}"
+        )
+        return fallback_cmd, fallback_agent, True
+
+    cfg = config_result.unwrap()
+    if cfg.prompt_content:
+        prompt_path = Path(cwd) / CONTROL_PROMPT_FILE
+        try:
+            prompt_path.write_text(cfg.prompt_content)
+        except Exception as prompt_err:
+            _launcher_logger.warning(
+                f"Failed to write local control prompt file: {prompt_err}"
+            )
+
+    resolved_agent = (
+        agent_override.strip() or cfg.agent.strip() or fallback_agent
+    ).strip()
+    command = _build_local_control_agent_command(
+        agent=resolved_agent,
+        model=cfg.model,
+        model_variant=cfg.model_variant,
+        extra_args=list(cfg.extra_args or []),
     )
-    return False
+    _launcher_logger.info(
+        "Using local control launch from config: "
+        f"agent={resolved_agent}, model={cfg.model}, variant={cfg.model_variant}, "
+        f"extra_args={len(cfg.extra_args or [])}"
+    )
+    return command, resolved_agent, False
 
 
 def query_latest_opencode_session(
@@ -530,57 +657,20 @@ class TmuxLayoutLauncher:
             f'{env_export}"{python_exec}" -m orch_monitor --issues {orch_args}'.strip()
         )
 
-        # Use daemon API to get control agent launch command
-        # The daemon handles: writing control prompt file, resolving agent config,
-        # session management, and building the command
-        agent_cmd = agent  # fallback to raw agent command
+        # Resolve control config from daemon and build launch command locally.
+        agent_cmd = agent
         need_capture_session = False
 
         daemon = _get_daemon_client(project_root)
-        if daemon:
-            from returns.result import Failure
-
-            project_str = str(project_root) if project_root else str(Path.cwd())
-
-            config_result = daemon.get_control_agent_config(project_str)
-            if not isinstance(config_result, Failure):
-                cfg = config_result.unwrap()
-                if cfg.prompt_content:
-                    prompt_path = Path(cwd) / CONTROL_PROMPT_FILE
-                    try:
-                        prompt_path.write_text(cfg.prompt_content)
-                    except Exception as prompt_err:
-                        _launcher_logger.warning(
-                            f"Failed to write local control prompt file: {prompt_err}"
-                        )
-
-            result = daemon.get_control_agent_launch(
-                project_str, agent_type=agent_override, new_session=new_control_agent
-            )
-            # Handle Result type
-            if isinstance(result, Failure):
-                _launcher_logger.warning(
-                    f"Failed to get control agent launch from daemon: {result.failure()}"
-                )
-                fallback_cmd = _build_fallback_control_agent_command(agent)
-                if fallback_cmd != agent:
-                    agent_cmd = fallback_cmd
-                    need_capture_session = True
-            else:
-                launch = result.unwrap()
-                agent_cmd = launch.command
-                _launcher_logger.info(
-                    f"Using daemon launch: agent={launch.agent}, command={launch.command}, "
-                    f"port={launch.port}, session={launch.session_id}"
-                )
-        else:
-            _launcher_logger.warning(
-                "Daemon not available, using fallback agent command"
-            )
-            fallback_cmd = _build_fallback_control_agent_command(agent)
-            if fallback_cmd != agent:
-                agent_cmd = fallback_cmd
-                need_capture_session = True
+        agent_cmd, resolved_agent, used_fallback = _resolve_local_control_agent_command(
+            daemon=daemon,
+            project_root=project_root,
+            cwd=cwd,
+            fallback_agent=agent,
+            agent_override=agent_override,
+        )
+        if used_fallback and agent_cmd != agent:
+            need_capture_session = True
 
         subprocess.run(
             ["tmux", "send-keys", "-t", f"{session_name}:0.0", runs_cmd, "Enter"]
@@ -594,15 +684,15 @@ class TmuxLayoutLauncher:
 
         # Capture session for fallback cases
         if need_capture_session:
-            _launcher_logger.info(f"Waiting to capture {agent} session ID...")
+            _launcher_logger.info(f"Waiting to capture {resolved_agent} session ID...")
             time.sleep(3)
-            if agent == "opencode":
+            if resolved_agent == "opencode":
                 session_id = query_latest_opencode_session(project_root)
                 if session_id:
                     save_control_session(
                         project_root, session_id, agent_type="opencode"
                     )
-            elif agent == "claude":
+            elif resolved_agent == "claude":
                 session_id = load_control_session(project_root, agent_type="claude")
                 if session_id:
                     _launcher_logger.info(f"Captured Claude session: {session_id}")
@@ -685,49 +775,15 @@ class ZellijLayoutLauncher:
         need_capture_session = False
 
         daemon = _get_daemon_client(project_root)
-        if daemon:
-            from returns.result import Failure
-
-            project_str = str(project_root) if project_root else str(Path.cwd())
-
-            config_result = daemon.get_control_agent_config(project_str)
-            if not isinstance(config_result, Failure):
-                cfg = config_result.unwrap()
-                if cfg.prompt_content:
-                    prompt_path = Path(cwd) / CONTROL_PROMPT_FILE
-                    try:
-                        prompt_path.write_text(cfg.prompt_content)
-                    except Exception as prompt_err:
-                        _launcher_logger.warning(
-                            f"Failed to write local control prompt file: {prompt_err}"
-                        )
-
-            launch_result = daemon.get_control_agent_launch(
-                project_str, agent_type=agent_override, new_session=new_control_agent
-            )
-            if isinstance(launch_result, Failure):
-                _launcher_logger.warning(
-                    f"Failed to get control agent launch from daemon: {launch_result.failure()}"
-                )
-                fallback_cmd = _build_fallback_control_agent_command(agent)
-                if fallback_cmd != agent:
-                    need_capture_session = True
-                    agent_cmd = fallback_cmd
-            else:
-                launch = launch_result.unwrap()
-                agent_cmd = launch.command
-                _launcher_logger.info(
-                    f"Using daemon launch: agent={launch.agent}, command={launch.command}, "
-                    f"port={launch.port}, session={launch.session_id}"
-                )
-        else:
-            _launcher_logger.warning(
-                "Daemon not available, using fallback agent command"
-            )
-            fallback_cmd = _build_fallback_control_agent_command(agent)
-            if fallback_cmd != agent:
-                agent_cmd = fallback_cmd
-                need_capture_session = True
+        agent_cmd, resolved_agent, used_fallback = _resolve_local_control_agent_command(
+            daemon=daemon,
+            project_root=project_root,
+            cwd=cwd,
+            fallback_agent=agent,
+            agent_override=agent_override,
+        )
+        if used_fallback and agent_cmd != agent:
+            need_capture_session = True
 
         # Escape commands for KDL string literals (backslashes and double quotes)
         runs_cmd_escaped = _escape_kdl_string(runs_cmd)
@@ -833,13 +889,13 @@ layout {{
             # Capture session for fallback cases
             if need_capture_session:
                 time.sleep(2)
-                if agent == "opencode":
+                if resolved_agent == "opencode":
                     session_id = query_latest_opencode_session(project_root)
                     if session_id:
                         save_control_session(
                             project_root, session_id, agent_type="opencode"
                         )
-                elif agent == "claude":
+                elif resolved_agent == "claude":
                     session_id = load_control_session(project_root, agent_type="claude")
                     if session_id:
                         _launcher_logger.info(f"Captured Claude session: {session_id}")
@@ -932,6 +988,9 @@ def launch_monitor_layout(
     if session_exists:
         _launcher_logger.info("session exists")
         if new or new_control_agent:
+            if new_control_agent:
+                clear_control_session(project_root)
+
             # Pre-flight: when --new (layout restart only), verify control agent
             # session is recoverable BEFORE destroying the existing layout.
             if new and not new_control_agent:
@@ -944,116 +1003,48 @@ def launch_monitor_layout(
                     f"  project_root={project_str}, agent={agent_override or '(auto)'}, "
                     f"session_file={session_file}"
                 )
-                daemon = _get_daemon_client(project_root)
-                if daemon:
-                    from returns.result import Failure as _Failure
+                session_id = load_control_session(project_root)
+                if not session_id:
+                    _launcher_logger.error(
+                        "no previous control agent session found to resume"
+                    )
+                    _launcher_logger.error(
+                        f"  project_root={project_str}, agent={agent_override or '(auto)'}, "
+                        f"session_file={session_file}, exists={session_file.exists()}"
+                    )
+                    _console.print(
+                        "[red]Error:[/red] --new requires an existing control agent session to resume, "
+                        "but none was found."
+                    )
+                    _console.print("")
+                    _console.print("[dim]Diagnostic details:[/dim]")
+                    _console.print(f"[dim]  project_root: {project_str}[/dim]")
+                    _console.print(f"[dim]  agent: {agent_override or '(auto)'}[/dim]")
+                    _console.print(f"[dim]  session_file: {session_file}[/dim]")
+                    _console.print(
+                        f"[dim]  session_file exists: {session_file.exists()}[/dim]"
+                    )
+                    if session_file.exists():
+                        try:
+                            _console.print(
+                                f"[dim]  session_file content: {session_file.read_text().strip()}[/dim]"
+                            )
+                        except Exception as read_err:
+                            _console.print(
+                                f"[dim]  session_file read error: {read_err}[/dim]"
+                            )
+                    _console.print("")
+                    _console.print(
+                        "[dim]To start fresh:  orch-monitor --new-control-agent[/dim]"
+                    )
+                    _console.print(
+                        "[dim]To attach as-is: orch-monitor  (no flags)[/dim]"
+                    )
+                    sys.exit(1)
 
-                    preflight = daemon.get_control_agent_launch(
-                        project_str, agent_type=agent_override, new_session=False
-                    )
-                    if isinstance(preflight, _Failure):
-                        error_msg = str(preflight.failure())
-                        _launcher_logger.error(f"pre-flight failed: {error_msg}")
-                        _launcher_logger.error(
-                            f"  project_root={project_str}, agent={agent_override or '(auto)'}, "
-                            f"session_file={session_file}, exists={session_file.exists()}"
-                        )
-                        _console.print(
-                            "[red]Error:[/red] Cannot recover control agent session."
-                        )
-                        _console.print(f"[dim]Daemon error: {error_msg}[/dim]")
-                        _console.print("")
-                        _console.print("[dim]Diagnostic details:[/dim]")
-                        _console.print(f"[dim]  project_root: {project_str}[/dim]")
-                        _console.print(
-                            f"[dim]  agent: {agent_override or '(auto)'}[/dim]"
-                        )
-                        _console.print(f"[dim]  session_file: {session_file}[/dim]")
-                        _console.print(
-                            f"[dim]  session_file exists: {session_file.exists()}[/dim]"
-                        )
-                        if session_file.exists():
-                            try:
-                                _console.print(
-                                    f"[dim]  session_file content: {session_file.read_text().strip()}[/dim]"
-                                )
-                            except Exception as read_err:
-                                _console.print(
-                                    f"[dim]  session_file read error: {read_err}[/dim]"
-                                )
-                        _console.print("")
-                        _console.print(
-                            "[dim]Use --new-control-agent to start a fresh session.[/dim]"
-                        )
-                        sys.exit(1)
-                    else:
-                        launch = preflight.unwrap()
-                        _launcher_logger.info(
-                            f"pre-flight result: session={launch.session_id}, resumed={launch.resumed}"
-                        )
-                        if not launch.resumed:
-                            _launcher_logger.error(
-                                "no previous control agent session found to resume"
-                            )
-                            _launcher_logger.error(
-                                f"  project_root={project_str}, agent={agent_override or '(auto)'}, "
-                                f"session_id={launch.session_id or '(none)'}, "
-                                f"session_file={session_file}, exists={session_file.exists()}"
-                            )
-                            _console.print(
-                                "[red]Error:[/red] --new requires an existing control agent session to resume, "
-                                "but none was found."
-                            )
-                            _console.print("")
-                            _console.print("[dim]Diagnostic details:[/dim]")
-                            _console.print(f"[dim]  project_root: {project_str}[/dim]")
-                            _console.print(
-                                f"[dim]  agent: {agent_override or '(auto)'}[/dim]"
-                            )
-                            _console.print(f"[dim]  session_file: {session_file}[/dim]")
-                            _console.print(
-                                f"[dim]  session_file exists: {session_file.exists()}[/dim]"
-                            )
-                            if session_file.exists():
-                                try:
-                                    _console.print(
-                                        f"[dim]  session_file content: {session_file.read_text().strip()}[/dim]"
-                                    )
-                                except Exception as read_err:
-                                    _console.print(
-                                        f"[dim]  session_file read error: {read_err}[/dim]"
-                                    )
-                            _console.print(
-                                f"[dim]  daemon returned: session_id={launch.session_id or '(none)'}, "
-                                f"resumed={launch.resumed}[/dim]"
-                            )
-                            _console.print(f"[dim]  command: {launch.command}[/dim]")
-                            _console.print("")
-                            _console.print(
-                                "[dim]The daemon could not find a previous session to resume.[/dim]"
-                            )
-                            _console.print(
-                                "[dim]Checked: stored session file + Claude session discovery.[/dim]"
-                            )
-                            _console.print("")
-                            _console.print(
-                                "[dim]To start fresh:  orch-monitor --new-control-agent[/dim]"
-                            )
-                            _console.print(
-                                "[dim]To attach as-is: orch-monitor  (no flags)[/dim]"
-                            )
-                            sys.exit(1)
-                        _console.print(
-                            f"[dim]Resuming control agent session: {launch.session_id}[/dim]"
-                        )
-                else:
-                    _launcher_logger.warning(
-                        "--new: daemon not available for pre-flight check, proceeding anyway"
-                    )
-                    _launcher_logger.warning(
-                        f"  project_root={project_str}, session_file={session_file}, "
-                        f"session_file_exists={session_file.exists()}"
-                    )
+                _console.print(
+                    f"[dim]Resuming control agent session: {session_id}[/dim]"
+                )
 
             with _spinner_context("Restarting session...", enabled=show_spinner):
                 _launcher_logger.info("killing existing session...")

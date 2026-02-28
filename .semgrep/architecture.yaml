@@ -1057,3 +1057,25 @@ rules:
     metadata:
       category: architecture
       violation: rate-limit-bypass
+
+  # ---------------------------------------------------------------------------
+  # 12. Control-agent split guardrails (remote-safe monitor architecture)
+  # ---------------------------------------------------------------------------
+
+  - id: monitor-no-control-agent-launch-rpc
+    patterns:
+      - pattern: $API.GetControlAgentLaunch(...)
+    paths:
+      include:
+        - /internal/monitor/
+      exclude:
+        - /internal/monitor/*_test.go
+    message: >
+      Monitor must not call GetControlAgentLaunch() directly.
+      For remote-safe architecture, monitor should use GetControlAgentConfig()
+      and manage local control-agent session lifecycle client-side.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: control-agent-split

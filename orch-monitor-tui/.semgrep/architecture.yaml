@@ -226,3 +226,24 @@ rules:
     metadata:
       category: architecture
       layer: tui
+
+  # =============================================================================
+  # Control-Agent Split Guardrail (remote-safe monitor architecture)
+  # =============================================================================
+
+  - id: tui-launcher-no-control-agent-launch-rpc
+    patterns:
+      - pattern: $DAEMON.get_control_agent_launch(...)
+    paths:
+      include:
+        - "__main__.py"
+    message: |
+      Launcher must not call get_control_agent_launch().
+      Use get_control_agent_config() and build control-agent command/session
+      locally to preserve remote-safe control-agent split.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      category: architecture
+      layer: tui
+      violation: control-agent-split

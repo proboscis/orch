@@ -258,9 +258,10 @@ orch_monitor/
   widgets.py     - Custom Textual widgets (RunTable, IssueTable, DetailPanel)
 ```
 
-The TUI uses a daemon-only architecture:
-- All data comes from the Go daemon via Unix socket
-- No direct file/vault access
+The TUI uses a daemon-centric architecture:
+- Runs/issues data comes from the Go daemon via Unix socket
+- Control-agent prompt/config comes from daemon (`get_control_agent_config`)
+- Control-agent session file is managed locally at `.orch/control-session.json`
 - Automatic refresh via polling (configurable interval)
 
 ## Daemon Communication
@@ -271,6 +272,7 @@ The TUI communicates with the orch daemon via Unix socket at `$PROJECT_ROOT/.orc
 - `list_issues` - List all issues
 - `get_run` - Get details for a specific run
 - `get_issue` - Get details for a specific issue
+- `get_control_agent_config` - Fetch control-agent prompt and launch config
 - `send` - Send a message to a running agent
 
 ## Differences from Go Monitor
