@@ -319,7 +319,7 @@ class StartRunResponse(_message.Message):
     def __init__(self, run_id: _Optional[str] = ..., branch: _Optional[str] = ..., worktree_path: _Optional[str] = ..., session_name: _Optional[str] = ..., status: _Optional[str] = ...) -> None: ...
 
 class CreateRunRequest(_message.Message):
-    __slots__ = ("issues_root", "issue_id", "run_id", "metadata")
+    __slots__ = ("issues_root", "issue_id", "run_id", "metadata", "context")
     class MetadataEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -331,11 +331,13 @@ class CreateRunRequest(_message.Message):
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     METADATA_FIELD_NUMBER: _ClassVar[int]
+    CONTEXT_FIELD_NUMBER: _ClassVar[int]
     issues_root: str
     issue_id: str
     run_id: str
     metadata: _containers.ScalarMap[str, str]
-    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ...) -> None: ...
+    context: RequestContext
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
 
 class CreateRunResponse(_message.Message):
     __slots__ = ("issue_id", "run_id", "path")
@@ -462,14 +464,16 @@ class CloseIssueResponse(_message.Message):
     def __init__(self) -> None: ...
 
 class GetControlAgentLaunchRequest(_message.Message):
-    __slots__ = ("project_root", "agent", "new_session")
+    __slots__ = ("project_root", "agent", "new_session", "context")
     PROJECT_ROOT_FIELD_NUMBER: _ClassVar[int]
     AGENT_FIELD_NUMBER: _ClassVar[int]
     NEW_SESSION_FIELD_NUMBER: _ClassVar[int]
+    CONTEXT_FIELD_NUMBER: _ClassVar[int]
     project_root: str
     agent: str
     new_session: bool
-    def __init__(self, project_root: _Optional[str] = ..., agent: _Optional[str] = ..., new_session: _Optional[bool] = ...) -> None: ...
+    context: RequestContext
+    def __init__(self, project_root: _Optional[str] = ..., agent: _Optional[str] = ..., new_session: _Optional[bool] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
 
 class GetControlAgentLaunchResponse(_message.Message):
     __slots__ = ("command", "prompt_file", "port", "session_id", "resumed")
@@ -486,10 +490,12 @@ class GetControlAgentLaunchResponse(_message.Message):
     def __init__(self, command: _Optional[str] = ..., prompt_file: _Optional[str] = ..., port: _Optional[int] = ..., session_id: _Optional[str] = ..., resumed: _Optional[bool] = ...) -> None: ...
 
 class GetControlAgentConfigRequest(_message.Message):
-    __slots__ = ("project_root",)
+    __slots__ = ("project_root", "context")
     PROJECT_ROOT_FIELD_NUMBER: _ClassVar[int]
+    CONTEXT_FIELD_NUMBER: _ClassVar[int]
     project_root: str
-    def __init__(self, project_root: _Optional[str] = ...) -> None: ...
+    context: RequestContext
+    def __init__(self, project_root: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
 
 class GetControlAgentConfigResponse(_message.Message):
     __slots__ = ("prompt_content", "agent", "model", "model_variant", "extra_args")
@@ -506,16 +512,18 @@ class GetControlAgentConfigResponse(_message.Message):
     def __init__(self, prompt_content: _Optional[str] = ..., agent: _Optional[str] = ..., model: _Optional[str] = ..., model_variant: _Optional[str] = ..., extra_args: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class GetAttachInfoRequest(_message.Message):
-    __slots__ = ("issues_root", "issue_id", "run_id", "short_id")
+    __slots__ = ("issues_root", "issue_id", "run_id", "short_id", "context")
     ISSUES_ROOT_FIELD_NUMBER: _ClassVar[int]
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     SHORT_ID_FIELD_NUMBER: _ClassVar[int]
+    CONTEXT_FIELD_NUMBER: _ClassVar[int]
     issues_root: str
     issue_id: str
     run_id: str
     short_id: str
-    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., short_id: _Optional[str] = ...) -> None: ...
+    context: RequestContext
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., short_id: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
 
 class GetAttachInfoResponse(_message.Message):
     __slots__ = ("command", "multiplexer", "session_name", "worktree_path", "agent", "server_port", "opencode_session_id", "issue_id", "run_id", "target_host")
@@ -542,14 +550,16 @@ class GetAttachInfoResponse(_message.Message):
     def __init__(self, command: _Optional[_Iterable[str]] = ..., multiplexer: _Optional[_Union[Multiplexer, str]] = ..., session_name: _Optional[str] = ..., worktree_path: _Optional[str] = ..., agent: _Optional[str] = ..., server_port: _Optional[int] = ..., opencode_session_id: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., target_host: _Optional[str] = ...) -> None: ...
 
 class CaptureSessionRequest(_message.Message):
-    __slots__ = ("issues_root", "issue_id", "run_id")
+    __slots__ = ("issues_root", "issue_id", "run_id", "context")
     ISSUES_ROOT_FIELD_NUMBER: _ClassVar[int]
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
+    CONTEXT_FIELD_NUMBER: _ClassVar[int]
     issues_root: str
     issue_id: str
     run_id: str
-    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ...) -> None: ...
+    context: RequestContext
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
 
 class CaptureSessionResponse(_message.Message):
     __slots__ = ("content", "timestamp_unix", "source")
@@ -562,30 +572,34 @@ class CaptureSessionResponse(_message.Message):
     def __init__(self, content: _Optional[str] = ..., timestamp_unix: _Optional[int] = ..., source: _Optional[str] = ...) -> None: ...
 
 class SendMessageRequest(_message.Message):
-    __slots__ = ("issues_root", "issue_id", "run_id", "message")
+    __slots__ = ("issues_root", "issue_id", "run_id", "message", "context")
     ISSUES_ROOT_FIELD_NUMBER: _ClassVar[int]
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    CONTEXT_FIELD_NUMBER: _ClassVar[int]
     issues_root: str
     issue_id: str
     run_id: str
     message: str
-    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., message: _Optional[str] = ...) -> None: ...
+    context: RequestContext
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., message: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
 
 class SendMessageResponse(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
 
 class GetDiffStatsRequest(_message.Message):
-    __slots__ = ("issues_root", "issue_id", "run_id")
+    __slots__ = ("issues_root", "issue_id", "run_id", "context")
     ISSUES_ROOT_FIELD_NUMBER: _ClassVar[int]
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
+    CONTEXT_FIELD_NUMBER: _ClassVar[int]
     issues_root: str
     issue_id: str
     run_id: str
-    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ...) -> None: ...
+    context: RequestContext
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
 
 class GetDiffStatsResponse(_message.Message):
     __slots__ = ("diff_stats",)
@@ -594,14 +608,16 @@ class GetDiffStatsResponse(_message.Message):
     def __init__(self, diff_stats: _Optional[_Union[DiffStats, _Mapping]] = ...) -> None: ...
 
 class GetBranchStateRequest(_message.Message):
-    __slots__ = ("issues_root", "issue_id", "run_id")
+    __slots__ = ("issues_root", "issue_id", "run_id", "context")
     ISSUES_ROOT_FIELD_NUMBER: _ClassVar[int]
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
+    CONTEXT_FIELD_NUMBER: _ClassVar[int]
     issues_root: str
     issue_id: str
     run_id: str
-    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ...) -> None: ...
+    context: RequestContext
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
 
 class GetBranchStateResponse(_message.Message):
     __slots__ = ("state",)
@@ -610,14 +626,16 @@ class GetBranchStateResponse(_message.Message):
     def __init__(self, state: _Optional[_Union[BranchState, str]] = ...) -> None: ...
 
 class GetDiffRequest(_message.Message):
-    __slots__ = ("issues_root", "issue_id", "run_id")
+    __slots__ = ("issues_root", "issue_id", "run_id", "context")
     ISSUES_ROOT_FIELD_NUMBER: _ClassVar[int]
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
+    CONTEXT_FIELD_NUMBER: _ClassVar[int]
     issues_root: str
     issue_id: str
     run_id: str
-    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ...) -> None: ...
+    context: RequestContext
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
 
 class GetDiffResponse(_message.Message):
     __slots__ = ("diff",)
@@ -753,7 +771,7 @@ class ResolveIssueResponse(_message.Message):
     def __init__(self, issue_id: _Optional[str] = ...) -> None: ...
 
 class AppendEventRequest(_message.Message):
-    __slots__ = ("issues_root", "issue_id", "run_id", "event_type", "event_name", "event_attrs", "event_source")
+    __slots__ = ("issues_root", "issue_id", "run_id", "event_type", "event_name", "event_attrs", "event_source", "context")
     class EventAttrsEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -768,6 +786,7 @@ class AppendEventRequest(_message.Message):
     EVENT_NAME_FIELD_NUMBER: _ClassVar[int]
     EVENT_ATTRS_FIELD_NUMBER: _ClassVar[int]
     EVENT_SOURCE_FIELD_NUMBER: _ClassVar[int]
+    CONTEXT_FIELD_NUMBER: _ClassVar[int]
     issues_root: str
     issue_id: str
     run_id: str
@@ -775,7 +794,8 @@ class AppendEventRequest(_message.Message):
     event_name: str
     event_attrs: _containers.ScalarMap[str, str]
     event_source: str
-    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., event_type: _Optional[str] = ..., event_name: _Optional[str] = ..., event_attrs: _Optional[_Mapping[str, str]] = ..., event_source: _Optional[str] = ...) -> None: ...
+    context: RequestContext
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., event_type: _Optional[str] = ..., event_name: _Optional[str] = ..., event_attrs: _Optional[_Mapping[str, str]] = ..., event_source: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
 
 class AppendEventResponse(_message.Message):
     __slots__ = ("skipped", "reason")
@@ -892,12 +912,14 @@ class UpdateIssueResponse(_message.Message):
     def __init__(self, issue: _Optional[_Union[Issue, _Mapping]] = ...) -> None: ...
 
 class ValidateIssueFilesRequest(_message.Message):
-    __slots__ = ("issues_root", "issue_id")
+    __slots__ = ("issues_root", "issue_id", "context")
     ISSUES_ROOT_FIELD_NUMBER: _ClassVar[int]
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
+    CONTEXT_FIELD_NUMBER: _ClassVar[int]
     issues_root: str
     issue_id: str
-    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ...) -> None: ...
+    context: RequestContext
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
 
 class ValidationIssue(_message.Message):
     __slots__ = ("code", "message", "line", "level")
@@ -946,34 +968,38 @@ class ValidateIssueFilesResponse(_message.Message):
     def __init__(self, total: _Optional[int] = ..., valid: _Optional[int] = ..., errors: _Optional[_Iterable[_Union[ValidationResultItem, _Mapping]]] = ..., warnings: _Optional[_Iterable[_Union[ValidationResultItem, _Mapping]]] = ..., duplicates: _Optional[_Iterable[_Union[DuplicateIDItem, _Mapping]]] = ...) -> None: ...
 
 class WriteAgentPromptRequest(_message.Message):
-    __slots__ = ("issues_root", "issue_id", "run_id", "short_id", "content")
+    __slots__ = ("issues_root", "issue_id", "run_id", "short_id", "content", "context")
     ISSUES_ROOT_FIELD_NUMBER: _ClassVar[int]
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     SHORT_ID_FIELD_NUMBER: _ClassVar[int]
     CONTENT_FIELD_NUMBER: _ClassVar[int]
+    CONTEXT_FIELD_NUMBER: _ClassVar[int]
     issues_root: str
     issue_id: str
     run_id: str
     short_id: str
     content: str
-    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., short_id: _Optional[str] = ..., content: _Optional[str] = ...) -> None: ...
+    context: RequestContext
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., short_id: _Optional[str] = ..., content: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
 
 class WriteAgentPromptResponse(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
 
 class ReadAgentPromptRequest(_message.Message):
-    __slots__ = ("issues_root", "issue_id", "run_id", "short_id")
+    __slots__ = ("issues_root", "issue_id", "run_id", "short_id", "context")
     ISSUES_ROOT_FIELD_NUMBER: _ClassVar[int]
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     SHORT_ID_FIELD_NUMBER: _ClassVar[int]
+    CONTEXT_FIELD_NUMBER: _ClassVar[int]
     issues_root: str
     issue_id: str
     run_id: str
     short_id: str
-    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., short_id: _Optional[str] = ...) -> None: ...
+    context: RequestContext
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., short_id: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
 
 class ReadAgentPromptResponse(_message.Message):
     __slots__ = ("content",)
@@ -1064,16 +1090,18 @@ class ListSessionsResponse(_message.Message):
     def __init__(self, sessions: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class ResumeRunRequest(_message.Message):
-    __slots__ = ("issues_root", "issue_id", "run_id", "short_id")
+    __slots__ = ("issues_root", "issue_id", "run_id", "short_id", "context")
     ISSUES_ROOT_FIELD_NUMBER: _ClassVar[int]
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     SHORT_ID_FIELD_NUMBER: _ClassVar[int]
+    CONTEXT_FIELD_NUMBER: _ClassVar[int]
     issues_root: str
     issue_id: str
     run_id: str
     short_id: str
-    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., short_id: _Optional[str] = ...) -> None: ...
+    context: RequestContext
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., short_id: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
 
 class ResumeRunResponse(_message.Message):
     __slots__ = ("session_name",)
@@ -1127,7 +1155,7 @@ class QueryOpenCodeServerResponse(_message.Message):
     def __init__(self, server_running: _Optional[bool] = ..., providers: _Optional[_Iterable[_Union[OpenCodeProviderInfo, _Mapping]]] = ..., session_status: _Optional[_Mapping[str, str]] = ...) -> None: ...
 
 class InjectInitialPromptRequest(_message.Message):
-    __slots__ = ("issues_root", "issue_id", "run_id", "prompt", "model", "model_variant", "work_dir", "port")
+    __slots__ = ("issues_root", "issue_id", "run_id", "prompt", "model", "model_variant", "work_dir", "port", "context")
     ISSUES_ROOT_FIELD_NUMBER: _ClassVar[int]
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
@@ -1136,6 +1164,7 @@ class InjectInitialPromptRequest(_message.Message):
     MODEL_VARIANT_FIELD_NUMBER: _ClassVar[int]
     WORK_DIR_FIELD_NUMBER: _ClassVar[int]
     PORT_FIELD_NUMBER: _ClassVar[int]
+    CONTEXT_FIELD_NUMBER: _ClassVar[int]
     issues_root: str
     issue_id: str
     run_id: str
@@ -1144,7 +1173,8 @@ class InjectInitialPromptRequest(_message.Message):
     model_variant: str
     work_dir: str
     port: int
-    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., prompt: _Optional[str] = ..., model: _Optional[str] = ..., model_variant: _Optional[str] = ..., work_dir: _Optional[str] = ..., port: _Optional[int] = ...) -> None: ...
+    context: RequestContext
+    def __init__(self, issues_root: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., prompt: _Optional[str] = ..., model: _Optional[str] = ..., model_variant: _Optional[str] = ..., work_dir: _Optional[str] = ..., port: _Optional[int] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
 
 class InjectInitialPromptResponse(_message.Message):
     __slots__ = ("session_id", "port")

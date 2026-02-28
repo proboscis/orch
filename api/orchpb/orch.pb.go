@@ -1485,6 +1485,7 @@ type CreateRunRequest struct {
 	IssueId       string                 `protobuf:"bytes,2,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"`
 	RunId         string                 `protobuf:"bytes,3,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	Metadata      map[string]string      `protobuf:"bytes,4,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Context       *RequestContext        `protobuf:"bytes,5,opt,name=context,proto3" json:"context,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1543,6 +1544,13 @@ func (x *CreateRunRequest) GetRunId() string {
 func (x *CreateRunRequest) GetMetadata() map[string]string {
 	if x != nil {
 		return x.Metadata
+	}
+	return nil
+}
+
+func (x *CreateRunRequest) GetContext() *RequestContext {
+	if x != nil {
+		return x.Context
 	}
 	return nil
 }
@@ -2308,6 +2316,7 @@ type GetControlAgentLaunchRequest struct {
 	ProjectRoot   string                 `protobuf:"bytes,1,opt,name=project_root,json=projectRoot,proto3" json:"project_root,omitempty"`
 	Agent         string                 `protobuf:"bytes,2,opt,name=agent,proto3" json:"agent,omitempty"`
 	NewSession    bool                   `protobuf:"varint,3,opt,name=new_session,json=newSession,proto3" json:"new_session,omitempty"`
+	Context       *RequestContext        `protobuf:"bytes,4,opt,name=context,proto3" json:"context,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2361,6 +2370,13 @@ func (x *GetControlAgentLaunchRequest) GetNewSession() bool {
 		return x.NewSession
 	}
 	return false
+}
+
+func (x *GetControlAgentLaunchRequest) GetContext() *RequestContext {
+	if x != nil {
+		return x.Context
+	}
+	return nil
 }
 
 type GetControlAgentLaunchResponse struct {
@@ -2442,6 +2458,7 @@ func (x *GetControlAgentLaunchResponse) GetResumed() bool {
 type GetControlAgentConfigRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ProjectRoot   string                 `protobuf:"bytes,1,opt,name=project_root,json=projectRoot,proto3" json:"project_root,omitempty"`
+	Context       *RequestContext        `protobuf:"bytes,2,opt,name=context,proto3" json:"context,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2481,6 +2498,13 @@ func (x *GetControlAgentConfigRequest) GetProjectRoot() string {
 		return x.ProjectRoot
 	}
 	return ""
+}
+
+func (x *GetControlAgentConfigRequest) GetContext() *RequestContext {
+	if x != nil {
+		return x.Context
+	}
+	return nil
 }
 
 type GetControlAgentConfigResponse struct {
@@ -2565,6 +2589,7 @@ type GetAttachInfoRequest struct {
 	IssueId       string                 `protobuf:"bytes,2,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"`
 	RunId         string                 `protobuf:"bytes,3,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	ShortId       string                 `protobuf:"bytes,4,opt,name=short_id,json=shortId,proto3" json:"short_id,omitempty"`
+	Context       *RequestContext        `protobuf:"bytes,5,opt,name=context,proto3" json:"context,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2625,6 +2650,13 @@ func (x *GetAttachInfoRequest) GetShortId() string {
 		return x.ShortId
 	}
 	return ""
+}
+
+func (x *GetAttachInfoRequest) GetContext() *RequestContext {
+	if x != nil {
+		return x.Context
+	}
+	return nil
 }
 
 type GetAttachInfoResponse struct {
@@ -2748,6 +2780,7 @@ type CaptureSessionRequest struct {
 	IssuesRoot    string                 `protobuf:"bytes,1,opt,name=issues_root,json=issuesRoot,proto3" json:"issues_root,omitempty"`
 	IssueId       string                 `protobuf:"bytes,2,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"`
 	RunId         string                 `protobuf:"bytes,3,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Context       *RequestContext        `protobuf:"bytes,4,opt,name=context,proto3" json:"context,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2801,6 +2834,13 @@ func (x *CaptureSessionRequest) GetRunId() string {
 		return x.RunId
 	}
 	return ""
+}
+
+func (x *CaptureSessionRequest) GetContext() *RequestContext {
+	if x != nil {
+		return x.Context
+	}
+	return nil
 }
 
 type CaptureSessionResponse struct {
@@ -2869,6 +2909,7 @@ type SendMessageRequest struct {
 	IssueId       string                 `protobuf:"bytes,2,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"`
 	RunId         string                 `protobuf:"bytes,3,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	Message       string                 `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
+	Context       *RequestContext        `protobuf:"bytes,5,opt,name=context,proto3" json:"context,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2931,6 +2972,13 @@ func (x *SendMessageRequest) GetMessage() string {
 	return ""
 }
 
+func (x *SendMessageRequest) GetContext() *RequestContext {
+	if x != nil {
+		return x.Context
+	}
+	return nil
+}
+
 type SendMessageResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -2972,6 +3020,7 @@ type GetDiffStatsRequest struct {
 	IssuesRoot    string                 `protobuf:"bytes,1,opt,name=issues_root,json=issuesRoot,proto3" json:"issues_root,omitempty"`
 	IssueId       string                 `protobuf:"bytes,2,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"`
 	RunId         string                 `protobuf:"bytes,3,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Context       *RequestContext        `protobuf:"bytes,4,opt,name=context,proto3" json:"context,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3027,6 +3076,13 @@ func (x *GetDiffStatsRequest) GetRunId() string {
 	return ""
 }
 
+func (x *GetDiffStatsRequest) GetContext() *RequestContext {
+	if x != nil {
+		return x.Context
+	}
+	return nil
+}
+
 type GetDiffStatsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	DiffStats     *DiffStats             `protobuf:"bytes,1,opt,name=diff_stats,json=diffStats,proto3" json:"diff_stats,omitempty"`
@@ -3076,6 +3132,7 @@ type GetBranchStateRequest struct {
 	IssuesRoot    string                 `protobuf:"bytes,1,opt,name=issues_root,json=issuesRoot,proto3" json:"issues_root,omitempty"`
 	IssueId       string                 `protobuf:"bytes,2,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"`
 	RunId         string                 `protobuf:"bytes,3,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Context       *RequestContext        `protobuf:"bytes,4,opt,name=context,proto3" json:"context,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3131,6 +3188,13 @@ func (x *GetBranchStateRequest) GetRunId() string {
 	return ""
 }
 
+func (x *GetBranchStateRequest) GetContext() *RequestContext {
+	if x != nil {
+		return x.Context
+	}
+	return nil
+}
+
 type GetBranchStateResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	State         BranchState            `protobuf:"varint,1,opt,name=state,proto3,enum=orch.v1.BranchState" json:"state,omitempty"`
@@ -3180,6 +3244,7 @@ type GetDiffRequest struct {
 	IssuesRoot    string                 `protobuf:"bytes,1,opt,name=issues_root,json=issuesRoot,proto3" json:"issues_root,omitempty"`
 	IssueId       string                 `protobuf:"bytes,2,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"`
 	RunId         string                 `protobuf:"bytes,3,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Context       *RequestContext        `protobuf:"bytes,4,opt,name=context,proto3" json:"context,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3233,6 +3298,13 @@ func (x *GetDiffRequest) GetRunId() string {
 		return x.RunId
 	}
 	return ""
+}
+
+func (x *GetDiffRequest) GetContext() *RequestContext {
+	if x != nil {
+		return x.Context
+	}
+	return nil
 }
 
 type GetDiffResponse struct {
@@ -4100,6 +4172,7 @@ type AppendEventRequest struct {
 	EventName     string                 `protobuf:"bytes,5,opt,name=event_name,json=eventName,proto3" json:"event_name,omitempty"`
 	EventAttrs    map[string]string      `protobuf:"bytes,6,rep,name=event_attrs,json=eventAttrs,proto3" json:"event_attrs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	EventSource   string                 `protobuf:"bytes,7,opt,name=event_source,json=eventSource,proto3" json:"event_source,omitempty"`
+	Context       *RequestContext        `protobuf:"bytes,8,opt,name=context,proto3" json:"context,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4181,6 +4254,13 @@ func (x *AppendEventRequest) GetEventSource() string {
 		return x.EventSource
 	}
 	return ""
+}
+
+func (x *AppendEventRequest) GetContext() *RequestContext {
+	if x != nil {
+		return x.Context
+	}
+	return nil
 }
 
 type AppendEventResponse struct {
@@ -4883,6 +4963,7 @@ type ValidateIssueFilesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	IssuesRoot    string                 `protobuf:"bytes,1,opt,name=issues_root,json=issuesRoot,proto3" json:"issues_root,omitempty"`
 	IssueId       string                 `protobuf:"bytes,2,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"`
+	Context       *RequestContext        `protobuf:"bytes,3,opt,name=context,proto3" json:"context,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4929,6 +5010,13 @@ func (x *ValidateIssueFilesRequest) GetIssueId() string {
 		return x.IssueId
 	}
 	return ""
+}
+
+func (x *ValidateIssueFilesRequest) GetContext() *RequestContext {
+	if x != nil {
+		return x.Context
+	}
+	return nil
 }
 
 type ValidationIssue struct {
@@ -5202,6 +5290,7 @@ type WriteAgentPromptRequest struct {
 	RunId         string                 `protobuf:"bytes,3,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	ShortId       string                 `protobuf:"bytes,4,opt,name=short_id,json=shortId,proto3" json:"short_id,omitempty"`
 	Content       string                 `protobuf:"bytes,5,opt,name=content,proto3" json:"content,omitempty"`
+	Context       *RequestContext        `protobuf:"bytes,6,opt,name=context,proto3" json:"context,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5271,6 +5360,13 @@ func (x *WriteAgentPromptRequest) GetContent() string {
 	return ""
 }
 
+func (x *WriteAgentPromptRequest) GetContext() *RequestContext {
+	if x != nil {
+		return x.Context
+	}
+	return nil
+}
+
 type WriteAgentPromptResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -5313,6 +5409,7 @@ type ReadAgentPromptRequest struct {
 	IssueId       string                 `protobuf:"bytes,2,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"`
 	RunId         string                 `protobuf:"bytes,3,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	ShortId       string                 `protobuf:"bytes,4,opt,name=short_id,json=shortId,proto3" json:"short_id,omitempty"`
+	Context       *RequestContext        `protobuf:"bytes,5,opt,name=context,proto3" json:"context,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5373,6 +5470,13 @@ func (x *ReadAgentPromptRequest) GetShortId() string {
 		return x.ShortId
 	}
 	return ""
+}
+
+func (x *ReadAgentPromptRequest) GetContext() *RequestContext {
+	if x != nil {
+		return x.Context
+	}
+	return nil
 }
 
 type ReadAgentPromptResponse struct {
@@ -5993,6 +6097,7 @@ type ResumeRunRequest struct {
 	IssueId       string                 `protobuf:"bytes,2,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"`
 	RunId         string                 `protobuf:"bytes,3,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	ShortId       string                 `protobuf:"bytes,4,opt,name=short_id,json=shortId,proto3" json:"short_id,omitempty"`
+	Context       *RequestContext        `protobuf:"bytes,5,opt,name=context,proto3" json:"context,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6053,6 +6158,13 @@ func (x *ResumeRunRequest) GetShortId() string {
 		return x.ShortId
 	}
 	return ""
+}
+
+func (x *ResumeRunRequest) GetContext() *RequestContext {
+	if x != nil {
+		return x.Context
+	}
+	return nil
 }
 
 type ResumeRunResponse struct {
@@ -6341,6 +6453,7 @@ type InjectInitialPromptRequest struct {
 	ModelVariant  string                 `protobuf:"bytes,6,opt,name=model_variant,json=modelVariant,proto3" json:"model_variant,omitempty"`
 	WorkDir       string                 `protobuf:"bytes,7,opt,name=work_dir,json=workDir,proto3" json:"work_dir,omitempty"`
 	Port          int32                  `protobuf:"varint,8,opt,name=port,proto3" json:"port,omitempty"`
+	Context       *RequestContext        `protobuf:"bytes,9,opt,name=context,proto3" json:"context,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6429,6 +6542,13 @@ func (x *InjectInitialPromptRequest) GetPort() int32 {
 		return x.Port
 	}
 	return 0
+}
+
+func (x *InjectInitialPromptRequest) GetContext() *RequestContext {
+	if x != nil {
+		return x.Context
+	}
+	return nil
 }
 
 type InjectInitialPromptResponse struct {
@@ -9482,13 +9602,14 @@ const file_orch_proto_rawDesc = "" +
 	"\x06branch\x18\x02 \x01(\tR\x06branch\x12#\n" +
 	"\rworktree_path\x18\x03 \x01(\tR\fworktreePath\x12!\n" +
 	"\fsession_name\x18\x04 \x01(\tR\vsessionName\x12\x16\n" +
-	"\x06status\x18\x05 \x01(\tR\x06status\"\xe7\x01\n" +
+	"\x06status\x18\x05 \x01(\tR\x06status\"\x9a\x02\n" +
 	"\x10CreateRunRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\x12C\n" +
-	"\bmetadata\x18\x04 \x03(\v2'.orch.v1.CreateRunRequest.MetadataEntryR\bmetadata\x1a;\n" +
+	"\bmetadata\x18\x04 \x03(\v2'.orch.v1.CreateRunRequest.MetadataEntryR\bmetadata\x121\n" +
+	"\acontext\x18\x05 \x01(\v2\x17.orch.v1.RequestContextR\acontext\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"Y\n" +
@@ -9548,12 +9669,13 @@ const file_orch_proto_rawDesc = "" +
 	"issuesRoot\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x121\n" +
 	"\acontext\x18\x03 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"\x14\n" +
-	"\x12CloseIssueResponse\"x\n" +
+	"\x12CloseIssueResponse\"\xab\x01\n" +
 	"\x1cGetControlAgentLaunchRequest\x12!\n" +
 	"\fproject_root\x18\x01 \x01(\tR\vprojectRoot\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x1f\n" +
 	"\vnew_session\x18\x03 \x01(\bR\n" +
-	"newSession\"\xa7\x01\n" +
+	"newSession\x121\n" +
+	"\acontext\x18\x04 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"\xa7\x01\n" +
 	"\x1dGetControlAgentLaunchResponse\x12\x18\n" +
 	"\acommand\x18\x01 \x01(\tR\acommand\x12\x1f\n" +
 	"\vprompt_file\x18\x02 \x01(\tR\n" +
@@ -9561,22 +9683,24 @@ const file_orch_proto_rawDesc = "" +
 	"\x04port\x18\x03 \x01(\x05R\x04port\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x04 \x01(\tR\tsessionId\x12\x18\n" +
-	"\aresumed\x18\x05 \x01(\bR\aresumed\"A\n" +
+	"\aresumed\x18\x05 \x01(\bR\aresumed\"t\n" +
 	"\x1cGetControlAgentConfigRequest\x12!\n" +
-	"\fproject_root\x18\x01 \x01(\tR\vprojectRoot\"\xb6\x01\n" +
+	"\fproject_root\x18\x01 \x01(\tR\vprojectRoot\x121\n" +
+	"\acontext\x18\x02 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"\xb6\x01\n" +
 	"\x1dGetControlAgentConfigResponse\x12%\n" +
 	"\x0eprompt_content\x18\x01 \x01(\tR\rpromptContent\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x14\n" +
 	"\x05model\x18\x03 \x01(\tR\x05model\x12#\n" +
 	"\rmodel_variant\x18\x04 \x01(\tR\fmodelVariant\x12\x1d\n" +
 	"\n" +
-	"extra_args\x18\x05 \x03(\tR\textraArgs\"\x84\x01\n" +
+	"extra_args\x18\x05 \x03(\tR\textraArgs\"\xb7\x01\n" +
 	"\x14GetAttachInfoRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\x12\x19\n" +
-	"\bshort_id\x18\x04 \x01(\tR\ashortId\"\xeb\x02\n" +
+	"\bshort_id\x18\x04 \x01(\tR\ashortId\x121\n" +
+	"\acontext\x18\x05 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"\xeb\x02\n" +
 	"\x15GetAttachInfoResponse\x12\x18\n" +
 	"\acommand\x18\x01 \x03(\tR\acommand\x126\n" +
 	"\vmultiplexer\x18\x02 \x01(\x0e2\x14.orch.v1.MultiplexerR\vmultiplexer\x12!\n" +
@@ -9590,43 +9714,48 @@ const file_orch_proto_rawDesc = "" +
 	"\x06run_id\x18\t \x01(\tR\x05runId\x12\x1f\n" +
 	"\vtarget_host\x18\n" +
 	" \x01(\tR\n" +
-	"targetHost\"j\n" +
+	"targetHost\"\x9d\x01\n" +
 	"\x15CaptureSessionRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x15\n" +
-	"\x06run_id\x18\x03 \x01(\tR\x05runId\"q\n" +
+	"\x06run_id\x18\x03 \x01(\tR\x05runId\x121\n" +
+	"\acontext\x18\x04 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"q\n" +
 	"\x16CaptureSessionResponse\x12\x18\n" +
 	"\acontent\x18\x01 \x01(\tR\acontent\x12%\n" +
 	"\x0etimestamp_unix\x18\x02 \x01(\x03R\rtimestampUnix\x12\x16\n" +
-	"\x06source\x18\x03 \x01(\tR\x06source\"\x81\x01\n" +
+	"\x06source\x18\x03 \x01(\tR\x06source\"\xb4\x01\n" +
 	"\x12SendMessageRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\x12\x18\n" +
-	"\amessage\x18\x04 \x01(\tR\amessage\"\x15\n" +
-	"\x13SendMessageResponse\"h\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\x121\n" +
+	"\acontext\x18\x05 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"\x15\n" +
+	"\x13SendMessageResponse\"\x9b\x01\n" +
 	"\x13GetDiffStatsRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x15\n" +
-	"\x06run_id\x18\x03 \x01(\tR\x05runId\"I\n" +
+	"\x06run_id\x18\x03 \x01(\tR\x05runId\x121\n" +
+	"\acontext\x18\x04 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"I\n" +
 	"\x14GetDiffStatsResponse\x121\n" +
 	"\n" +
-	"diff_stats\x18\x01 \x01(\v2\x12.orch.v1.DiffStatsR\tdiffStats\"j\n" +
+	"diff_stats\x18\x01 \x01(\v2\x12.orch.v1.DiffStatsR\tdiffStats\"\x9d\x01\n" +
 	"\x15GetBranchStateRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x15\n" +
-	"\x06run_id\x18\x03 \x01(\tR\x05runId\"D\n" +
+	"\x06run_id\x18\x03 \x01(\tR\x05runId\x121\n" +
+	"\acontext\x18\x04 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"D\n" +
 	"\x16GetBranchStateResponse\x12*\n" +
-	"\x05state\x18\x01 \x01(\x0e2\x14.orch.v1.BranchStateR\x05state\"c\n" +
+	"\x05state\x18\x01 \x01(\x0e2\x14.orch.v1.BranchStateR\x05state\"\x96\x01\n" +
 	"\x0eGetDiffRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x15\n" +
-	"\x06run_id\x18\x03 \x01(\tR\x05runId\"%\n" +
+	"\x06run_id\x18\x03 \x01(\tR\x05runId\x121\n" +
+	"\acontext\x18\x04 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"%\n" +
 	"\x0fGetDiffResponse\x12\x12\n" +
 	"\x04diff\x18\x01 \x01(\tR\x04diff\"\x9e\x01\n" +
 	"\x16RegisterMonitorRequest\x12\x10\n" +
@@ -9683,7 +9812,7 @@ const file_orch_proto_rawDesc = "" +
 	"\x05force\x18\x03 \x01(\bR\x05force\x121\n" +
 	"\acontext\x18\x04 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"1\n" +
 	"\x14ResolveIssueResponse\x12\x19\n" +
-	"\bissue_id\x18\x01 \x01(\tR\aissueId\"\xd5\x02\n" +
+	"\bissue_id\x18\x01 \x01(\tR\aissueId\"\x88\x03\n" +
 	"\x12AppendEventRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +
@@ -9695,7 +9824,8 @@ const file_orch_proto_rawDesc = "" +
 	"event_name\x18\x05 \x01(\tR\teventName\x12L\n" +
 	"\vevent_attrs\x18\x06 \x03(\v2+.orch.v1.AppendEventRequest.EventAttrsEntryR\n" +
 	"eventAttrs\x12!\n" +
-	"\fevent_source\x18\a \x01(\tR\veventSource\x1a=\n" +
+	"\fevent_source\x18\a \x01(\tR\veventSource\x121\n" +
+	"\acontext\x18\b \x01(\v2\x17.orch.v1.RequestContextR\acontext\x1a=\n" +
 	"\x0fEventAttrsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"G\n" +
@@ -9747,11 +9877,12 @@ const file_orch_proto_rawDesc = "" +
 	"\x06status\x18\x06 \x01(\tR\x06status\x121\n" +
 	"\acontext\x18\a \x01(\v2\x17.orch.v1.RequestContextR\acontext\";\n" +
 	"\x13UpdateIssueResponse\x12$\n" +
-	"\x05issue\x18\x01 \x01(\v2\x0e.orch.v1.IssueR\x05issue\"W\n" +
+	"\x05issue\x18\x01 \x01(\v2\x0e.orch.v1.IssueR\x05issue\"\x8a\x01\n" +
 	"\x19ValidateIssueFilesRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +
-	"\bissue_id\x18\x02 \x01(\tR\aissueId\"i\n" +
+	"\bissue_id\x18\x02 \x01(\tR\aissueId\x121\n" +
+	"\acontext\x18\x03 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"i\n" +
 	"\x0fValidationIssue\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x12\n" +
@@ -9772,21 +9903,23 @@ const file_orch_proto_rawDesc = "" +
 	"\bwarnings\x18\x04 \x03(\v2\x1d.orch.v1.ValidationResultItemR\bwarnings\x128\n" +
 	"\n" +
 	"duplicates\x18\x05 \x03(\v2\x18.orch.v1.DuplicateIDItemR\n" +
-	"duplicates\"\xa1\x01\n" +
+	"duplicates\"\xd4\x01\n" +
 	"\x17WriteAgentPromptRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\x12\x19\n" +
 	"\bshort_id\x18\x04 \x01(\tR\ashortId\x12\x18\n" +
-	"\acontent\x18\x05 \x01(\tR\acontent\"\x1a\n" +
-	"\x18WriteAgentPromptResponse\"\x86\x01\n" +
+	"\acontent\x18\x05 \x01(\tR\acontent\x121\n" +
+	"\acontext\x18\x06 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"\x1a\n" +
+	"\x18WriteAgentPromptResponse\"\xb9\x01\n" +
 	"\x16ReadAgentPromptRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\x12\x19\n" +
-	"\bshort_id\x18\x04 \x01(\tR\ashortId\"3\n" +
+	"\bshort_id\x18\x04 \x01(\tR\ashortId\x121\n" +
+	"\acontext\x18\x05 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"3\n" +
 	"\x17ReadAgentPromptResponse\x12\x18\n" +
 	"\acontent\x18\x01 \x01(\tR\acontent\"C\n" +
 	"\x12RepairStateRequest\x12\x17\n" +
@@ -9817,13 +9950,14 @@ const file_orch_proto_rawDesc = "" +
 	"\x13ListSessionsRequest\x126\n" +
 	"\vmultiplexer\x18\x01 \x01(\x0e2\x14.orch.v1.MultiplexerR\vmultiplexer\"2\n" +
 	"\x14ListSessionsResponse\x12\x1a\n" +
-	"\bsessions\x18\x01 \x03(\tR\bsessions\"\x80\x01\n" +
+	"\bsessions\x18\x01 \x03(\tR\bsessions\"\xb3\x01\n" +
 	"\x10ResumeRunRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\x12\x19\n" +
-	"\bshort_id\x18\x04 \x01(\tR\ashortId\"6\n" +
+	"\bshort_id\x18\x04 \x01(\tR\ashortId\x121\n" +
+	"\acontext\x18\x05 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"6\n" +
 	"\x11ResumeRunResponse\x12!\n" +
 	"\fsession_name\x18\x01 \x01(\tR\vsessionName\"S\n" +
 	"\x1aQueryOpenCodeServerRequest\x12\x12\n" +
@@ -9843,7 +9977,7 @@ const file_orch_proto_rawDesc = "" +
 	"\x0esession_status\x18\x03 \x03(\v27.orch.v1.QueryOpenCodeServerResponse.SessionStatusEntryR\rsessionStatus\x1a@\n" +
 	"\x12SessionStatusEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf1\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa4\x02\n" +
 	"\x1aInjectInitialPromptRequest\x12\x1f\n" +
 	"\vissues_root\x18\x01 \x01(\tR\n" +
 	"issuesRoot\x12\x19\n" +
@@ -9853,7 +9987,8 @@ const file_orch_proto_rawDesc = "" +
 	"\x05model\x18\x05 \x01(\tR\x05model\x12#\n" +
 	"\rmodel_variant\x18\x06 \x01(\tR\fmodelVariant\x12\x19\n" +
 	"\bwork_dir\x18\a \x01(\tR\aworkDir\x12\x12\n" +
-	"\x04port\x18\b \x01(\x05R\x04port\"P\n" +
+	"\x04port\x18\b \x01(\x05R\x04port\x121\n" +
+	"\acontext\x18\t \x01(\v2\x17.orch.v1.RequestContextR\acontext\"P\n" +
 	"\x1bInjectInitialPromptResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x12\n" +
@@ -10283,149 +10418,164 @@ var file_orch_proto_depIdxs = []int32{
 	7,   // 11: orch.v1.GetRunResponse.events:type_name -> orch.v1.Event
 	10,  // 12: orch.v1.StartRunRequest.context:type_name -> orch.v1.RequestContext
 	122, // 13: orch.v1.CreateRunRequest.metadata:type_name -> orch.v1.CreateRunRequest.MetadataEntry
-	10,  // 14: orch.v1.StopRunRequest.context:type_name -> orch.v1.RequestContext
-	10,  // 15: orch.v1.ResolveRunRequest.context:type_name -> orch.v1.RequestContext
-	1,   // 16: orch.v1.ListIssuesRequest.status:type_name -> orch.v1.IssueStatus
-	10,  // 17: orch.v1.ListIssuesRequest.context:type_name -> orch.v1.RequestContext
-	6,   // 18: orch.v1.ListIssuesResponse.issues:type_name -> orch.v1.Issue
-	10,  // 19: orch.v1.GetIssueRequest.context:type_name -> orch.v1.RequestContext
-	6,   // 20: orch.v1.GetIssueResponse.issue:type_name -> orch.v1.Issue
-	10,  // 21: orch.v1.CreateIssueRequest.context:type_name -> orch.v1.RequestContext
-	10,  // 22: orch.v1.CloseIssueRequest.context:type_name -> orch.v1.RequestContext
-	3,   // 23: orch.v1.GetAttachInfoResponse.multiplexer:type_name -> orch.v1.Multiplexer
-	4,   // 24: orch.v1.GetDiffStatsResponse.diff_stats:type_name -> orch.v1.DiffStats
-	2,   // 25: orch.v1.GetBranchStateResponse.state:type_name -> orch.v1.BranchState
-	54,  // 26: orch.v1.ListMonitorsResponse.monitors:type_name -> orch.v1.MonitorInfo
-	10,  // 27: orch.v1.GetRunByShortIDRequest.context:type_name -> orch.v1.RequestContext
-	5,   // 28: orch.v1.GetRunByShortIDResponse.run:type_name -> orch.v1.Run
-	7,   // 29: orch.v1.GetRunByShortIDResponse.events:type_name -> orch.v1.Event
-	10,  // 30: orch.v1.ResolveIssueRequest.context:type_name -> orch.v1.RequestContext
-	123, // 31: orch.v1.AppendEventRequest.event_attrs:type_name -> orch.v1.AppendEventRequest.EventAttrsEntry
-	69,  // 32: orch.v1.ListReposResponse.repos:type_name -> orch.v1.RepoInfo
-	10,  // 33: orch.v1.DeleteRunRequest.context:type_name -> orch.v1.RequestContext
-	10,  // 34: orch.v1.UpdateIssueRequest.context:type_name -> orch.v1.RequestContext
-	6,   // 35: orch.v1.UpdateIssueResponse.issue:type_name -> orch.v1.Issue
-	76,  // 36: orch.v1.ValidationResultItem.errors:type_name -> orch.v1.ValidationIssue
-	76,  // 37: orch.v1.ValidationResultItem.warnings:type_name -> orch.v1.ValidationIssue
-	77,  // 38: orch.v1.ValidateIssueFilesResponse.errors:type_name -> orch.v1.ValidationResultItem
-	77,  // 39: orch.v1.ValidateIssueFilesResponse.warnings:type_name -> orch.v1.ValidationResultItem
-	78,  // 40: orch.v1.ValidateIssueFilesResponse.duplicates:type_name -> orch.v1.DuplicateIDItem
-	3,   // 41: orch.v1.KillSessionRequest.multiplexer:type_name -> orch.v1.Multiplexer
-	3,   // 42: orch.v1.ListSessionsRequest.multiplexer:type_name -> orch.v1.Multiplexer
-	100, // 43: orch.v1.OpenCodeProviderInfo.models:type_name -> orch.v1.OpenCodeModelInfo
-	99,  // 44: orch.v1.QueryOpenCodeServerResponse.providers:type_name -> orch.v1.OpenCodeProviderInfo
-	124, // 45: orch.v1.QueryOpenCodeServerResponse.session_status:type_name -> orch.v1.QueryOpenCodeServerResponse.SessionStatusEntry
-	10,  // 46: orch.v1.ContinueRunRequest.context:type_name -> orch.v1.RequestContext
-	10,  // 47: orch.v1.GetConfigRequest.context:type_name -> orch.v1.RequestContext
-	125, // 48: orch.v1.GitHubConfigProto.status_labels:type_name -> orch.v1.GitHubConfigProto.StatusLabelsEntry
-	115, // 49: orch.v1.GetConfigResponse.monitor:type_name -> orch.v1.MonitorConfigProto
-	112, // 50: orch.v1.GetConfigResponse.presets:type_name -> orch.v1.PresetProto
-	108, // 51: orch.v1.GetConfigResponse.opencode:type_name -> orch.v1.OpenCodeConfigProto
-	109, // 52: orch.v1.GetConfigResponse.claude:type_name -> orch.v1.ClaudeConfigProto
-	110, // 53: orch.v1.GetConfigResponse.codex:type_name -> orch.v1.CodexConfigProto
-	111, // 54: orch.v1.GetConfigResponse.gemini:type_name -> orch.v1.GeminiConfigProto
-	107, // 55: orch.v1.GetConfigResponse.slack:type_name -> orch.v1.SlackConfigProto
-	113, // 56: orch.v1.GetConfigResponse.issues:type_name -> orch.v1.IssuesConfigProto
-	114, // 57: orch.v1.GetConfigResponse.github:type_name -> orch.v1.GitHubConfigProto
-	8,   // 58: orch.v1.Request.ping:type_name -> orch.v1.PingRequest
-	11,  // 59: orch.v1.Request.list_runs:type_name -> orch.v1.ListRunsRequest
-	13,  // 60: orch.v1.Request.get_run:type_name -> orch.v1.GetRunRequest
-	15,  // 61: orch.v1.Request.start_run:type_name -> orch.v1.StartRunRequest
-	19,  // 62: orch.v1.Request.stop_run:type_name -> orch.v1.StopRunRequest
-	21,  // 63: orch.v1.Request.resolve_run:type_name -> orch.v1.ResolveRunRequest
-	23,  // 64: orch.v1.Request.list_issues:type_name -> orch.v1.ListIssuesRequest
-	25,  // 65: orch.v1.Request.get_issue:type_name -> orch.v1.GetIssueRequest
-	27,  // 66: orch.v1.Request.create_issue:type_name -> orch.v1.CreateIssueRequest
-	29,  // 67: orch.v1.Request.close_issue:type_name -> orch.v1.CloseIssueRequest
-	31,  // 68: orch.v1.Request.get_control_agent_launch:type_name -> orch.v1.GetControlAgentLaunchRequest
-	35,  // 69: orch.v1.Request.get_attach_info:type_name -> orch.v1.GetAttachInfoRequest
-	37,  // 70: orch.v1.Request.capture_session:type_name -> orch.v1.CaptureSessionRequest
-	39,  // 71: orch.v1.Request.send_message:type_name -> orch.v1.SendMessageRequest
-	41,  // 72: orch.v1.Request.get_diff_stats:type_name -> orch.v1.GetDiffStatsRequest
-	43,  // 73: orch.v1.Request.get_branch_state:type_name -> orch.v1.GetBranchStateRequest
-	45,  // 74: orch.v1.Request.get_diff:type_name -> orch.v1.GetDiffRequest
-	47,  // 75: orch.v1.Request.register_monitor:type_name -> orch.v1.RegisterMonitorRequest
-	49,  // 76: orch.v1.Request.unregister_monitor:type_name -> orch.v1.UnregisterMonitorRequest
-	51,  // 77: orch.v1.Request.heartbeat:type_name -> orch.v1.HeartbeatRequest
-	53,  // 78: orch.v1.Request.list_monitors:type_name -> orch.v1.ListMonitorsRequest
-	56,  // 79: orch.v1.Request.kill_monitor:type_name -> orch.v1.KillMonitorRequest
-	58,  // 80: orch.v1.Request.get_run_by_short_id:type_name -> orch.v1.GetRunByShortIDRequest
-	60,  // 81: orch.v1.Request.resolve_issue:type_name -> orch.v1.ResolveIssueRequest
-	62,  // 82: orch.v1.Request.append_event:type_name -> orch.v1.AppendEventRequest
-	64,  // 83: orch.v1.Request.ensure_opencode_server:type_name -> orch.v1.EnsureOpenCodeServerRequest
-	66,  // 84: orch.v1.Request.register_repo:type_name -> orch.v1.RegisterRepoRequest
-	68,  // 85: orch.v1.Request.list_repos:type_name -> orch.v1.ListReposRequest
-	71,  // 86: orch.v1.Request.delete_run:type_name -> orch.v1.DeleteRunRequest
-	73,  // 87: orch.v1.Request.update_issue:type_name -> orch.v1.UpdateIssueRequest
-	75,  // 88: orch.v1.Request.validate_issue_files:type_name -> orch.v1.ValidateIssueFilesRequest
-	80,  // 89: orch.v1.Request.write_agent_prompt:type_name -> orch.v1.WriteAgentPromptRequest
-	82,  // 90: orch.v1.Request.read_agent_prompt:type_name -> orch.v1.ReadAgentPromptRequest
-	84,  // 91: orch.v1.Request.repair_state:type_name -> orch.v1.RepairStateRequest
-	86,  // 92: orch.v1.Request.get_daemon_log:type_name -> orch.v1.GetDaemonLogRequest
-	88,  // 93: orch.v1.Request.read_file:type_name -> orch.v1.ReadFileRequest
-	90,  // 94: orch.v1.Request.write_file:type_name -> orch.v1.WriteFileRequest
-	17,  // 95: orch.v1.Request.create_run:type_name -> orch.v1.CreateRunRequest
-	92,  // 96: orch.v1.Request.kill_session:type_name -> orch.v1.KillSessionRequest
-	94,  // 97: orch.v1.Request.list_sessions:type_name -> orch.v1.ListSessionsRequest
-	96,  // 98: orch.v1.Request.resume_run:type_name -> orch.v1.ResumeRunRequest
-	98,  // 99: orch.v1.Request.query_opencode_server:type_name -> orch.v1.QueryOpenCodeServerRequest
-	102, // 100: orch.v1.Request.inject_initial_prompt:type_name -> orch.v1.InjectInitialPromptRequest
-	104, // 101: orch.v1.Request.continue_run:type_name -> orch.v1.ContinueRunRequest
-	106, // 102: orch.v1.Request.get_config:type_name -> orch.v1.GetConfigRequest
-	117, // 103: orch.v1.Request.get_daemon_status:type_name -> orch.v1.GetDaemonStatusRequest
-	33,  // 104: orch.v1.Request.get_control_agent_config:type_name -> orch.v1.GetControlAgentConfigRequest
-	9,   // 105: orch.v1.Response.ping:type_name -> orch.v1.PingResponse
-	12,  // 106: orch.v1.Response.list_runs:type_name -> orch.v1.ListRunsResponse
-	14,  // 107: orch.v1.Response.get_run:type_name -> orch.v1.GetRunResponse
-	16,  // 108: orch.v1.Response.start_run:type_name -> orch.v1.StartRunResponse
-	20,  // 109: orch.v1.Response.stop_run:type_name -> orch.v1.StopRunResponse
-	22,  // 110: orch.v1.Response.resolve_run:type_name -> orch.v1.ResolveRunResponse
-	24,  // 111: orch.v1.Response.list_issues:type_name -> orch.v1.ListIssuesResponse
-	26,  // 112: orch.v1.Response.get_issue:type_name -> orch.v1.GetIssueResponse
-	28,  // 113: orch.v1.Response.create_issue:type_name -> orch.v1.CreateIssueResponse
-	30,  // 114: orch.v1.Response.close_issue:type_name -> orch.v1.CloseIssueResponse
-	32,  // 115: orch.v1.Response.get_control_agent_launch:type_name -> orch.v1.GetControlAgentLaunchResponse
-	36,  // 116: orch.v1.Response.get_attach_info:type_name -> orch.v1.GetAttachInfoResponse
-	38,  // 117: orch.v1.Response.capture_session:type_name -> orch.v1.CaptureSessionResponse
-	40,  // 118: orch.v1.Response.send_message:type_name -> orch.v1.SendMessageResponse
-	42,  // 119: orch.v1.Response.get_diff_stats:type_name -> orch.v1.GetDiffStatsResponse
-	44,  // 120: orch.v1.Response.get_branch_state:type_name -> orch.v1.GetBranchStateResponse
-	46,  // 121: orch.v1.Response.get_diff:type_name -> orch.v1.GetDiffResponse
-	48,  // 122: orch.v1.Response.register_monitor:type_name -> orch.v1.RegisterMonitorResponse
-	50,  // 123: orch.v1.Response.unregister_monitor:type_name -> orch.v1.UnregisterMonitorResponse
-	52,  // 124: orch.v1.Response.heartbeat:type_name -> orch.v1.HeartbeatResponse
-	55,  // 125: orch.v1.Response.list_monitors:type_name -> orch.v1.ListMonitorsResponse
-	57,  // 126: orch.v1.Response.kill_monitor:type_name -> orch.v1.KillMonitorResponse
-	59,  // 127: orch.v1.Response.get_run_by_short_id:type_name -> orch.v1.GetRunByShortIDResponse
-	61,  // 128: orch.v1.Response.resolve_issue:type_name -> orch.v1.ResolveIssueResponse
-	63,  // 129: orch.v1.Response.append_event:type_name -> orch.v1.AppendEventResponse
-	65,  // 130: orch.v1.Response.ensure_opencode_server:type_name -> orch.v1.EnsureOpenCodeServerResponse
-	67,  // 131: orch.v1.Response.register_repo:type_name -> orch.v1.RegisterRepoResponse
-	70,  // 132: orch.v1.Response.list_repos:type_name -> orch.v1.ListReposResponse
-	72,  // 133: orch.v1.Response.delete_run:type_name -> orch.v1.DeleteRunResponse
-	74,  // 134: orch.v1.Response.update_issue:type_name -> orch.v1.UpdateIssueResponse
-	79,  // 135: orch.v1.Response.validate_issue_files:type_name -> orch.v1.ValidateIssueFilesResponse
-	81,  // 136: orch.v1.Response.write_agent_prompt:type_name -> orch.v1.WriteAgentPromptResponse
-	83,  // 137: orch.v1.Response.read_agent_prompt:type_name -> orch.v1.ReadAgentPromptResponse
-	85,  // 138: orch.v1.Response.repair_state:type_name -> orch.v1.RepairStateResponse
-	87,  // 139: orch.v1.Response.get_daemon_log:type_name -> orch.v1.GetDaemonLogResponse
-	89,  // 140: orch.v1.Response.read_file:type_name -> orch.v1.ReadFileResponse
-	91,  // 141: orch.v1.Response.write_file:type_name -> orch.v1.WriteFileResponse
-	18,  // 142: orch.v1.Response.create_run:type_name -> orch.v1.CreateRunResponse
-	93,  // 143: orch.v1.Response.kill_session:type_name -> orch.v1.KillSessionResponse
-	95,  // 144: orch.v1.Response.list_sessions:type_name -> orch.v1.ListSessionsResponse
-	97,  // 145: orch.v1.Response.resume_run:type_name -> orch.v1.ResumeRunResponse
-	101, // 146: orch.v1.Response.query_opencode_server:type_name -> orch.v1.QueryOpenCodeServerResponse
-	103, // 147: orch.v1.Response.inject_initial_prompt:type_name -> orch.v1.InjectInitialPromptResponse
-	105, // 148: orch.v1.Response.continue_run:type_name -> orch.v1.ContinueRunResponse
-	116, // 149: orch.v1.Response.get_config:type_name -> orch.v1.GetConfigResponse
-	118, // 150: orch.v1.Response.get_daemon_status:type_name -> orch.v1.GetDaemonStatusResponse
-	34,  // 151: orch.v1.Response.get_control_agent_config:type_name -> orch.v1.GetControlAgentConfigResponse
-	152, // [152:152] is the sub-list for method output_type
-	152, // [152:152] is the sub-list for method input_type
-	152, // [152:152] is the sub-list for extension type_name
-	152, // [152:152] is the sub-list for extension extendee
-	0,   // [0:152] is the sub-list for field type_name
+	10,  // 14: orch.v1.CreateRunRequest.context:type_name -> orch.v1.RequestContext
+	10,  // 15: orch.v1.StopRunRequest.context:type_name -> orch.v1.RequestContext
+	10,  // 16: orch.v1.ResolveRunRequest.context:type_name -> orch.v1.RequestContext
+	1,   // 17: orch.v1.ListIssuesRequest.status:type_name -> orch.v1.IssueStatus
+	10,  // 18: orch.v1.ListIssuesRequest.context:type_name -> orch.v1.RequestContext
+	6,   // 19: orch.v1.ListIssuesResponse.issues:type_name -> orch.v1.Issue
+	10,  // 20: orch.v1.GetIssueRequest.context:type_name -> orch.v1.RequestContext
+	6,   // 21: orch.v1.GetIssueResponse.issue:type_name -> orch.v1.Issue
+	10,  // 22: orch.v1.CreateIssueRequest.context:type_name -> orch.v1.RequestContext
+	10,  // 23: orch.v1.CloseIssueRequest.context:type_name -> orch.v1.RequestContext
+	10,  // 24: orch.v1.GetControlAgentLaunchRequest.context:type_name -> orch.v1.RequestContext
+	10,  // 25: orch.v1.GetControlAgentConfigRequest.context:type_name -> orch.v1.RequestContext
+	10,  // 26: orch.v1.GetAttachInfoRequest.context:type_name -> orch.v1.RequestContext
+	3,   // 27: orch.v1.GetAttachInfoResponse.multiplexer:type_name -> orch.v1.Multiplexer
+	10,  // 28: orch.v1.CaptureSessionRequest.context:type_name -> orch.v1.RequestContext
+	10,  // 29: orch.v1.SendMessageRequest.context:type_name -> orch.v1.RequestContext
+	10,  // 30: orch.v1.GetDiffStatsRequest.context:type_name -> orch.v1.RequestContext
+	4,   // 31: orch.v1.GetDiffStatsResponse.diff_stats:type_name -> orch.v1.DiffStats
+	10,  // 32: orch.v1.GetBranchStateRequest.context:type_name -> orch.v1.RequestContext
+	2,   // 33: orch.v1.GetBranchStateResponse.state:type_name -> orch.v1.BranchState
+	10,  // 34: orch.v1.GetDiffRequest.context:type_name -> orch.v1.RequestContext
+	54,  // 35: orch.v1.ListMonitorsResponse.monitors:type_name -> orch.v1.MonitorInfo
+	10,  // 36: orch.v1.GetRunByShortIDRequest.context:type_name -> orch.v1.RequestContext
+	5,   // 37: orch.v1.GetRunByShortIDResponse.run:type_name -> orch.v1.Run
+	7,   // 38: orch.v1.GetRunByShortIDResponse.events:type_name -> orch.v1.Event
+	10,  // 39: orch.v1.ResolveIssueRequest.context:type_name -> orch.v1.RequestContext
+	123, // 40: orch.v1.AppendEventRequest.event_attrs:type_name -> orch.v1.AppendEventRequest.EventAttrsEntry
+	10,  // 41: orch.v1.AppendEventRequest.context:type_name -> orch.v1.RequestContext
+	69,  // 42: orch.v1.ListReposResponse.repos:type_name -> orch.v1.RepoInfo
+	10,  // 43: orch.v1.DeleteRunRequest.context:type_name -> orch.v1.RequestContext
+	10,  // 44: orch.v1.UpdateIssueRequest.context:type_name -> orch.v1.RequestContext
+	6,   // 45: orch.v1.UpdateIssueResponse.issue:type_name -> orch.v1.Issue
+	10,  // 46: orch.v1.ValidateIssueFilesRequest.context:type_name -> orch.v1.RequestContext
+	76,  // 47: orch.v1.ValidationResultItem.errors:type_name -> orch.v1.ValidationIssue
+	76,  // 48: orch.v1.ValidationResultItem.warnings:type_name -> orch.v1.ValidationIssue
+	77,  // 49: orch.v1.ValidateIssueFilesResponse.errors:type_name -> orch.v1.ValidationResultItem
+	77,  // 50: orch.v1.ValidateIssueFilesResponse.warnings:type_name -> orch.v1.ValidationResultItem
+	78,  // 51: orch.v1.ValidateIssueFilesResponse.duplicates:type_name -> orch.v1.DuplicateIDItem
+	10,  // 52: orch.v1.WriteAgentPromptRequest.context:type_name -> orch.v1.RequestContext
+	10,  // 53: orch.v1.ReadAgentPromptRequest.context:type_name -> orch.v1.RequestContext
+	3,   // 54: orch.v1.KillSessionRequest.multiplexer:type_name -> orch.v1.Multiplexer
+	3,   // 55: orch.v1.ListSessionsRequest.multiplexer:type_name -> orch.v1.Multiplexer
+	10,  // 56: orch.v1.ResumeRunRequest.context:type_name -> orch.v1.RequestContext
+	100, // 57: orch.v1.OpenCodeProviderInfo.models:type_name -> orch.v1.OpenCodeModelInfo
+	99,  // 58: orch.v1.QueryOpenCodeServerResponse.providers:type_name -> orch.v1.OpenCodeProviderInfo
+	124, // 59: orch.v1.QueryOpenCodeServerResponse.session_status:type_name -> orch.v1.QueryOpenCodeServerResponse.SessionStatusEntry
+	10,  // 60: orch.v1.InjectInitialPromptRequest.context:type_name -> orch.v1.RequestContext
+	10,  // 61: orch.v1.ContinueRunRequest.context:type_name -> orch.v1.RequestContext
+	10,  // 62: orch.v1.GetConfigRequest.context:type_name -> orch.v1.RequestContext
+	125, // 63: orch.v1.GitHubConfigProto.status_labels:type_name -> orch.v1.GitHubConfigProto.StatusLabelsEntry
+	115, // 64: orch.v1.GetConfigResponse.monitor:type_name -> orch.v1.MonitorConfigProto
+	112, // 65: orch.v1.GetConfigResponse.presets:type_name -> orch.v1.PresetProto
+	108, // 66: orch.v1.GetConfigResponse.opencode:type_name -> orch.v1.OpenCodeConfigProto
+	109, // 67: orch.v1.GetConfigResponse.claude:type_name -> orch.v1.ClaudeConfigProto
+	110, // 68: orch.v1.GetConfigResponse.codex:type_name -> orch.v1.CodexConfigProto
+	111, // 69: orch.v1.GetConfigResponse.gemini:type_name -> orch.v1.GeminiConfigProto
+	107, // 70: orch.v1.GetConfigResponse.slack:type_name -> orch.v1.SlackConfigProto
+	113, // 71: orch.v1.GetConfigResponse.issues:type_name -> orch.v1.IssuesConfigProto
+	114, // 72: orch.v1.GetConfigResponse.github:type_name -> orch.v1.GitHubConfigProto
+	8,   // 73: orch.v1.Request.ping:type_name -> orch.v1.PingRequest
+	11,  // 74: orch.v1.Request.list_runs:type_name -> orch.v1.ListRunsRequest
+	13,  // 75: orch.v1.Request.get_run:type_name -> orch.v1.GetRunRequest
+	15,  // 76: orch.v1.Request.start_run:type_name -> orch.v1.StartRunRequest
+	19,  // 77: orch.v1.Request.stop_run:type_name -> orch.v1.StopRunRequest
+	21,  // 78: orch.v1.Request.resolve_run:type_name -> orch.v1.ResolveRunRequest
+	23,  // 79: orch.v1.Request.list_issues:type_name -> orch.v1.ListIssuesRequest
+	25,  // 80: orch.v1.Request.get_issue:type_name -> orch.v1.GetIssueRequest
+	27,  // 81: orch.v1.Request.create_issue:type_name -> orch.v1.CreateIssueRequest
+	29,  // 82: orch.v1.Request.close_issue:type_name -> orch.v1.CloseIssueRequest
+	31,  // 83: orch.v1.Request.get_control_agent_launch:type_name -> orch.v1.GetControlAgentLaunchRequest
+	35,  // 84: orch.v1.Request.get_attach_info:type_name -> orch.v1.GetAttachInfoRequest
+	37,  // 85: orch.v1.Request.capture_session:type_name -> orch.v1.CaptureSessionRequest
+	39,  // 86: orch.v1.Request.send_message:type_name -> orch.v1.SendMessageRequest
+	41,  // 87: orch.v1.Request.get_diff_stats:type_name -> orch.v1.GetDiffStatsRequest
+	43,  // 88: orch.v1.Request.get_branch_state:type_name -> orch.v1.GetBranchStateRequest
+	45,  // 89: orch.v1.Request.get_diff:type_name -> orch.v1.GetDiffRequest
+	47,  // 90: orch.v1.Request.register_monitor:type_name -> orch.v1.RegisterMonitorRequest
+	49,  // 91: orch.v1.Request.unregister_monitor:type_name -> orch.v1.UnregisterMonitorRequest
+	51,  // 92: orch.v1.Request.heartbeat:type_name -> orch.v1.HeartbeatRequest
+	53,  // 93: orch.v1.Request.list_monitors:type_name -> orch.v1.ListMonitorsRequest
+	56,  // 94: orch.v1.Request.kill_monitor:type_name -> orch.v1.KillMonitorRequest
+	58,  // 95: orch.v1.Request.get_run_by_short_id:type_name -> orch.v1.GetRunByShortIDRequest
+	60,  // 96: orch.v1.Request.resolve_issue:type_name -> orch.v1.ResolveIssueRequest
+	62,  // 97: orch.v1.Request.append_event:type_name -> orch.v1.AppendEventRequest
+	64,  // 98: orch.v1.Request.ensure_opencode_server:type_name -> orch.v1.EnsureOpenCodeServerRequest
+	66,  // 99: orch.v1.Request.register_repo:type_name -> orch.v1.RegisterRepoRequest
+	68,  // 100: orch.v1.Request.list_repos:type_name -> orch.v1.ListReposRequest
+	71,  // 101: orch.v1.Request.delete_run:type_name -> orch.v1.DeleteRunRequest
+	73,  // 102: orch.v1.Request.update_issue:type_name -> orch.v1.UpdateIssueRequest
+	75,  // 103: orch.v1.Request.validate_issue_files:type_name -> orch.v1.ValidateIssueFilesRequest
+	80,  // 104: orch.v1.Request.write_agent_prompt:type_name -> orch.v1.WriteAgentPromptRequest
+	82,  // 105: orch.v1.Request.read_agent_prompt:type_name -> orch.v1.ReadAgentPromptRequest
+	84,  // 106: orch.v1.Request.repair_state:type_name -> orch.v1.RepairStateRequest
+	86,  // 107: orch.v1.Request.get_daemon_log:type_name -> orch.v1.GetDaemonLogRequest
+	88,  // 108: orch.v1.Request.read_file:type_name -> orch.v1.ReadFileRequest
+	90,  // 109: orch.v1.Request.write_file:type_name -> orch.v1.WriteFileRequest
+	17,  // 110: orch.v1.Request.create_run:type_name -> orch.v1.CreateRunRequest
+	92,  // 111: orch.v1.Request.kill_session:type_name -> orch.v1.KillSessionRequest
+	94,  // 112: orch.v1.Request.list_sessions:type_name -> orch.v1.ListSessionsRequest
+	96,  // 113: orch.v1.Request.resume_run:type_name -> orch.v1.ResumeRunRequest
+	98,  // 114: orch.v1.Request.query_opencode_server:type_name -> orch.v1.QueryOpenCodeServerRequest
+	102, // 115: orch.v1.Request.inject_initial_prompt:type_name -> orch.v1.InjectInitialPromptRequest
+	104, // 116: orch.v1.Request.continue_run:type_name -> orch.v1.ContinueRunRequest
+	106, // 117: orch.v1.Request.get_config:type_name -> orch.v1.GetConfigRequest
+	117, // 118: orch.v1.Request.get_daemon_status:type_name -> orch.v1.GetDaemonStatusRequest
+	33,  // 119: orch.v1.Request.get_control_agent_config:type_name -> orch.v1.GetControlAgentConfigRequest
+	9,   // 120: orch.v1.Response.ping:type_name -> orch.v1.PingResponse
+	12,  // 121: orch.v1.Response.list_runs:type_name -> orch.v1.ListRunsResponse
+	14,  // 122: orch.v1.Response.get_run:type_name -> orch.v1.GetRunResponse
+	16,  // 123: orch.v1.Response.start_run:type_name -> orch.v1.StartRunResponse
+	20,  // 124: orch.v1.Response.stop_run:type_name -> orch.v1.StopRunResponse
+	22,  // 125: orch.v1.Response.resolve_run:type_name -> orch.v1.ResolveRunResponse
+	24,  // 126: orch.v1.Response.list_issues:type_name -> orch.v1.ListIssuesResponse
+	26,  // 127: orch.v1.Response.get_issue:type_name -> orch.v1.GetIssueResponse
+	28,  // 128: orch.v1.Response.create_issue:type_name -> orch.v1.CreateIssueResponse
+	30,  // 129: orch.v1.Response.close_issue:type_name -> orch.v1.CloseIssueResponse
+	32,  // 130: orch.v1.Response.get_control_agent_launch:type_name -> orch.v1.GetControlAgentLaunchResponse
+	36,  // 131: orch.v1.Response.get_attach_info:type_name -> orch.v1.GetAttachInfoResponse
+	38,  // 132: orch.v1.Response.capture_session:type_name -> orch.v1.CaptureSessionResponse
+	40,  // 133: orch.v1.Response.send_message:type_name -> orch.v1.SendMessageResponse
+	42,  // 134: orch.v1.Response.get_diff_stats:type_name -> orch.v1.GetDiffStatsResponse
+	44,  // 135: orch.v1.Response.get_branch_state:type_name -> orch.v1.GetBranchStateResponse
+	46,  // 136: orch.v1.Response.get_diff:type_name -> orch.v1.GetDiffResponse
+	48,  // 137: orch.v1.Response.register_monitor:type_name -> orch.v1.RegisterMonitorResponse
+	50,  // 138: orch.v1.Response.unregister_monitor:type_name -> orch.v1.UnregisterMonitorResponse
+	52,  // 139: orch.v1.Response.heartbeat:type_name -> orch.v1.HeartbeatResponse
+	55,  // 140: orch.v1.Response.list_monitors:type_name -> orch.v1.ListMonitorsResponse
+	57,  // 141: orch.v1.Response.kill_monitor:type_name -> orch.v1.KillMonitorResponse
+	59,  // 142: orch.v1.Response.get_run_by_short_id:type_name -> orch.v1.GetRunByShortIDResponse
+	61,  // 143: orch.v1.Response.resolve_issue:type_name -> orch.v1.ResolveIssueResponse
+	63,  // 144: orch.v1.Response.append_event:type_name -> orch.v1.AppendEventResponse
+	65,  // 145: orch.v1.Response.ensure_opencode_server:type_name -> orch.v1.EnsureOpenCodeServerResponse
+	67,  // 146: orch.v1.Response.register_repo:type_name -> orch.v1.RegisterRepoResponse
+	70,  // 147: orch.v1.Response.list_repos:type_name -> orch.v1.ListReposResponse
+	72,  // 148: orch.v1.Response.delete_run:type_name -> orch.v1.DeleteRunResponse
+	74,  // 149: orch.v1.Response.update_issue:type_name -> orch.v1.UpdateIssueResponse
+	79,  // 150: orch.v1.Response.validate_issue_files:type_name -> orch.v1.ValidateIssueFilesResponse
+	81,  // 151: orch.v1.Response.write_agent_prompt:type_name -> orch.v1.WriteAgentPromptResponse
+	83,  // 152: orch.v1.Response.read_agent_prompt:type_name -> orch.v1.ReadAgentPromptResponse
+	85,  // 153: orch.v1.Response.repair_state:type_name -> orch.v1.RepairStateResponse
+	87,  // 154: orch.v1.Response.get_daemon_log:type_name -> orch.v1.GetDaemonLogResponse
+	89,  // 155: orch.v1.Response.read_file:type_name -> orch.v1.ReadFileResponse
+	91,  // 156: orch.v1.Response.write_file:type_name -> orch.v1.WriteFileResponse
+	18,  // 157: orch.v1.Response.create_run:type_name -> orch.v1.CreateRunResponse
+	93,  // 158: orch.v1.Response.kill_session:type_name -> orch.v1.KillSessionResponse
+	95,  // 159: orch.v1.Response.list_sessions:type_name -> orch.v1.ListSessionsResponse
+	97,  // 160: orch.v1.Response.resume_run:type_name -> orch.v1.ResumeRunResponse
+	101, // 161: orch.v1.Response.query_opencode_server:type_name -> orch.v1.QueryOpenCodeServerResponse
+	103, // 162: orch.v1.Response.inject_initial_prompt:type_name -> orch.v1.InjectInitialPromptResponse
+	105, // 163: orch.v1.Response.continue_run:type_name -> orch.v1.ContinueRunResponse
+	116, // 164: orch.v1.Response.get_config:type_name -> orch.v1.GetConfigResponse
+	118, // 165: orch.v1.Response.get_daemon_status:type_name -> orch.v1.GetDaemonStatusResponse
+	34,  // 166: orch.v1.Response.get_control_agent_config:type_name -> orch.v1.GetControlAgentConfigResponse
+	167, // [167:167] is the sub-list for method output_type
+	167, // [167:167] is the sub-list for method input_type
+	167, // [167:167] is the sub-list for extension type_name
+	167, // [167:167] is the sub-list for extension extendee
+	0,   // [0:167] is the sub-list for field type_name
 }
 
 func init() { file_orch_proto_init() }

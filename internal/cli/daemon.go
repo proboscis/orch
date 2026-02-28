@@ -208,16 +208,15 @@ func newDaemonKillCmd() *cobra.Command {
 		Short: "Kill running daemon(s)",
 		Long: `Kill orch daemon(s).
 
-By default, kills the daemon for the current project.
-Use --all to kill all running daemons across all projects.
-Use --project to kill a daemon for a specific project.`,
+Orch uses a global daemon. By default, this kills that daemon.
+Use --all as an alias for the same behavior.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDaemonKill(opts)
 		},
 	}
 
 	cmd.Flags().BoolVar(&opts.All, "all", false, "Kill all running daemons")
-	cmd.Flags().StringVar(&opts.Project, "project", "", "Kill daemon for specific project path")
+	cmd.Flags().StringVar(&opts.Project, "project", "", "Deprecated: ignored for global daemon")
 
 	return cmd
 }
@@ -225,7 +224,7 @@ Use --project to kill a daemon for a specific project.`,
 func newDaemonStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
-		Short: "Show daemon status for current project",
+		Short: "Show global daemon status",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDaemonStatus()
 		},
@@ -276,6 +275,10 @@ func runDaemonList() error {
 }
 
 func runDaemonKill(opts *daemonKillOptions) error {
+	if opts.Project != "" {
+		fmt.Fprintln(os.Stderr, "warning: --project is deprecated and ignored for global daemon")
+	}
+
 	if opts.All {
 		count, err := daemon.KillAllDaemons()
 		if err != nil {
@@ -289,68 +292,59 @@ func runDaemonKill(opts *daemonKillOptions) error {
 		return nil
 	}
 
-	var projectRoot string
-	var err error
-
-	if opts.Project != "" {
-		projectRoot, err = filepath.Abs(opts.Project)
-		if err != nil {
-			return fmt.Errorf("invalid project path: %w", err)
-		}
-	} else {
-		projectRoot, err = getProjectRoot()
-		if err != nil {
-			return fmt.Errorf("could not determine project root: %w\nUse --project to specify a path or --all to kill all daemons", err)
-		}
-	}
-
-	if !daemon.IsRunning(projectRoot) {
-		fmt.Printf("No daemon running for %s\n", projectRoot)
+	if !daemon.IsRunning("") {
+		fmt.Println("No daemon running.")
 		return nil
 	}
 
-	pid := daemon.GetRunningPID(projectRoot)
-	if err := daemon.KillDaemon(projectRoot); err != nil {
+	pid := daemon.GetRunningPID("")
+	if err := daemon.KillDaemon(""); err != nil {
 		return fmt.Errorf("failed to kill daemon (pid=%d): %w", pid, err)
 	}
 
-	fmt.Printf("Killed daemon (pid=%d) for %s\n", pid, projectRoot)
+	fmt.Printf("Killed daemon (pid=%d)\n", pid)
 	return nil
 }
 
 func runDaemonStatus() error {
-	projectRoot, err := getProjectRoot()
-	if err != nil {
-		return fmt.Errorf("could not determine project root: %w", err)
+	remoteAddr := getRemoteAddr()
+	if remoteAddr != "" {
+		client := daemon.NewProtoClientWithAddress("", "", remoteAddr)
+		defer client.Close()
+
+		if err := client.Ping(); err != nil {
+			return fmt.Errorf("remote daemon %s is not reachable: %w", remoteAddr, err)
+		}
+
+		fmt.Printf("Status: running (remote=%s)\n", remoteAddr)
+		return nil
 	}
 
-	fmt.Printf("Project: %s\n", projectRoot)
-
-	if !daemon.IsRunning(projectRoot) {
+	if !daemon.IsRunning("") {
 		fmt.Println("Status: not running")
 		return nil
 	}
 
-	pid := daemon.GetRunningPID(projectRoot)
+	pid := daemon.GetRunningPID("")
 	fmt.Printf("Status: running (pid=%d)\n", pid)
 
-	if daemon.IsDaemonSocketAvailable(projectRoot) {
+	if daemon.IsDaemonSocketAvailable("") {
 		fmt.Println("Socket: available")
 	} else {
 		fmt.Println("Socket: unavailable")
 	}
 
-	if meta, err := daemon.ReadMetadata(projectRoot); err == nil {
+	if meta, err := daemon.ReadMetadata(""); err == nil {
 		fmt.Printf("Started: %s\n", meta.StartedAt.Format(time.RFC3339))
 		fmt.Printf("Uptime: %s\n", formatUptime(time.Since(meta.StartedAt)))
 	}
 
-	stale, err := daemon.IsStaleBinary(projectRoot)
+	stale, err := daemon.IsStaleBinary("")
 	if err == nil && stale {
 		fmt.Println("Warning: daemon is running stale binary (code updated since start)")
 	}
 
-	fmt.Printf("Log: %s\n", daemon.LogFilePath(projectRoot))
+	fmt.Printf("Log: %s\n", daemon.LogFilePath(""))
 
 	return nil
 }
@@ -378,16 +372,11 @@ func newDaemonRestartCmd() *cobra.Command {
 		Short:  "Restart daemon with new binary",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			projectRoot, err := getProjectRoot()
-			if err != nil {
+			if !daemon.IsRunning("") {
 				return nil
 			}
 
-			if !daemon.IsRunning(projectRoot) {
-				return nil
-			}
-
-			return daemon.RestartDaemon(projectRoot)
+			return daemon.RestartDaemon("")
 		},
 	}
 }
@@ -436,12 +425,16 @@ func ensureDaemon() {
 var testBypassDaemon bool
 
 func requireDaemon() (*daemon.ProtoClient, error) {
+	remoteAddr := getRemoteAddr()
+
 	projectRoot, err := getProjectRoot()
 	if err != nil {
-		return nil, err
+		if remoteAddr == "" {
+			return nil, err
+		}
+		projectRoot = ""
 	}
 
-	remoteAddr := getRemoteAddr()
 	issuesRoot, err := getIssuesRootForClient(remoteAddr)
 	if err != nil {
 		return nil, err

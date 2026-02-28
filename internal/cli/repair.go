@@ -48,10 +48,6 @@ func runRepair(opts *repairOptions) error {
 		return err
 	}
 
-	projectRoot, err := getProjectRoot()
-	if err != nil {
-		return fmt.Errorf("project root required for repair: %w", err)
-	}
 	problemsFound := 0
 	problemsFixed := 0
 
@@ -68,7 +64,7 @@ func runRepair(opts *repairOptions) error {
 	}
 
 	fmt.Println("Checking daemon...")
-	daemonFixed, err := repairDaemon(projectRoot, opts)
+	daemonFixed, err := repairDaemon(opts)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  error: %v\n", err)
 	}
@@ -121,12 +117,12 @@ func runRepair(opts *repairOptions) error {
 	return nil
 }
 
-func repairDaemon(projectRoot string, opts *repairOptions) (bool, error) {
-	if daemon.IsRunning(projectRoot) {
-		pid := daemon.GetRunningPID(projectRoot)
+func repairDaemon(opts *repairOptions) (bool, error) {
+	if daemon.IsRunning("") {
+		pid := daemon.GetRunningPID("")
 		fmt.Printf("  daemon running (pid=%d)\n", pid)
 
-		stale, err := daemon.IsStaleBinary(projectRoot)
+		stale, err := daemon.IsStaleBinary("")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  warning: could not check binary staleness: %v\n", err)
 		} else if stale {
@@ -136,13 +132,13 @@ func repairDaemon(projectRoot string, opts *repairOptions) (bool, error) {
 				return true, nil
 			}
 
-			oldMeta, _ := daemon.ReadMetadata(projectRoot)
-			if err := daemon.RestartDaemon(projectRoot); err != nil {
+			oldMeta, _ := daemon.ReadMetadata("")
+			if err := daemon.RestartDaemon(""); err != nil {
 				return true, fmt.Errorf("failed to restart daemon: %w", err)
 			}
 
-			if waitForDaemonRestart(projectRoot, oldMeta, 2*time.Second) {
-				newPid := daemon.GetRunningPID(projectRoot)
+			if waitForDaemonRestart(oldMeta, 2*time.Second) {
+				newPid := daemon.GetRunningPID("")
 				fmt.Printf("  restarted daemon with new binary (pid=%d)\n", newPid)
 				return true, nil
 			}
@@ -158,7 +154,7 @@ func repairDaemon(projectRoot string, opts *repairOptions) (bool, error) {
 		return true, nil
 	}
 
-	daemon.RemovePID(projectRoot)
+	daemon.RemovePID("")
 
 	pid, err := daemon.StartInBackground()
 	if err != nil {
@@ -225,15 +221,15 @@ func repairStaleRunsAPI(ctx context.Context, api orchapi.OrchAPI, opts *repairOp
 	return fixed, nil
 }
 
-func waitForDaemonRestart(projectRoot string, oldMeta *daemon.DaemonMetadata, timeout time.Duration) bool {
+func waitForDaemonRestart(oldMeta *daemon.DaemonMetadata, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if !daemon.IsRunning(projectRoot) {
+		if !daemon.IsRunning("") {
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
 
-		newMeta, err := daemon.ReadMetadata(projectRoot)
+		newMeta, err := daemon.ReadMetadata("")
 		if err != nil {
 			time.Sleep(50 * time.Millisecond)
 			continue

@@ -46,6 +46,8 @@ var remoteFlagWasSet bool
 var noDaemonCommands = map[string]bool{
 	"show":                 true,
 	"daemon":               true,
+	"master":               true,
+	"worker":               true,
 	"list":                 true,
 	"kill":                 true,
 	"status":               true,
@@ -116,6 +118,8 @@ func init() {
 	rootCmd.AddCommand(newMonitorCmd())
 	rootCmd.AddCommand(newResolveCmd())
 	rootCmd.AddCommand(newDaemonCmd())
+	rootCmd.AddCommand(newMasterCmd())
+	rootCmd.AddCommand(newWorkerCmd())
 	rootCmd.AddCommand(newDaemonRestartCmd())
 	rootCmd.AddCommand(newRepairCmd())
 	rootCmd.AddCommand(newDeleteCmd())
@@ -217,12 +221,15 @@ func getAPI() (orchapi.OrchAPI, error) {
 }
 
 func defaultGetAPI() (orchapi.OrchAPI, error) {
+	remoteAddr := getRemoteAddr()
+
 	projectRoot, err := getProjectRoot()
 	if err != nil {
-		return nil, err
+		if strings.TrimSpace(remoteAddr) == "" {
+			return nil, err
+		}
+		projectRoot = ""
 	}
-
-	remoteAddr := getRemoteAddr()
 
 	issuesRoot, err := getIssuesRootForClient(remoteAddr)
 	if err != nil {

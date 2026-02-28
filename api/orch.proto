@@ -194,6 +194,7 @@ message CreateRunRequest {
   string issue_id = 2;
   string run_id = 3;
   map<string, string> metadata = 4;
+  RequestContext context = 5;
 }
 
 message CreateRunResponse {
@@ -276,6 +277,7 @@ message GetControlAgentLaunchRequest {
   string project_root = 1;
   string agent = 2;
   bool new_session = 3;
+  RequestContext context = 4;
 }
 
 message GetControlAgentLaunchResponse {
@@ -288,6 +290,7 @@ message GetControlAgentLaunchResponse {
 
 message GetControlAgentConfigRequest {
   string project_root = 1;
+  RequestContext context = 2;
 }
 
 message GetControlAgentConfigResponse {
@@ -305,6 +308,7 @@ message GetAttachInfoRequest {
   string issue_id = 2;
   string run_id = 3;
   string short_id = 4;
+  RequestContext context = 5;
 }
 
 message GetAttachInfoResponse {
@@ -324,6 +328,7 @@ message CaptureSessionRequest {
   string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
+  RequestContext context = 4;
 }
 
 message CaptureSessionResponse {
@@ -337,6 +342,7 @@ message SendMessageRequest {
   string issue_id = 2;
   string run_id = 3;
   string message = 4;
+  RequestContext context = 5;
 }
 
 message SendMessageResponse {}
@@ -347,6 +353,7 @@ message GetDiffStatsRequest {
   string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
+  RequestContext context = 4;
 }
 
 message GetDiffStatsResponse {
@@ -357,6 +364,7 @@ message GetBranchStateRequest {
   string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
+  RequestContext context = 4;
 }
 
 message GetBranchStateResponse {
@@ -367,6 +375,7 @@ message GetDiffRequest {
   string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
+  RequestContext context = 4;
 }
 
 message GetDiffResponse {
@@ -464,6 +473,7 @@ message AppendEventRequest {
   string event_name = 5;
   map<string, string> event_attrs = 6;
   string event_source = 7;
+  RequestContext context = 8;
 }
 
 message AppendEventResponse {
@@ -537,6 +547,7 @@ message UpdateIssueResponse {
 message ValidateIssueFilesRequest {
   string issues_root = 1;
   string issue_id = 2;
+  RequestContext context = 3;
 }
 
 message ValidationIssue {
@@ -572,6 +583,7 @@ message WriteAgentPromptRequest {
   string run_id = 3;
   string short_id = 4;
   string content = 5;
+  RequestContext context = 6;
 }
 
 message WriteAgentPromptResponse {}
@@ -581,6 +593,7 @@ message ReadAgentPromptRequest {
   string issue_id = 2;
   string run_id = 3;
   string short_id = 4;
+  RequestContext context = 5;
 }
 
 message ReadAgentPromptResponse {
@@ -644,6 +657,7 @@ message ResumeRunRequest {
   string issue_id = 2;
   string run_id = 3;
   string short_id = 4;
+  RequestContext context = 5;
 }
 
 message ResumeRunResponse {
@@ -682,6 +696,7 @@ message InjectInitialPromptRequest {
   string model_variant = 6;
   string work_dir = 7;
   int32 port = 8;
+  RequestContext context = 9;
 }
 
 message InjectInitialPromptResponse {

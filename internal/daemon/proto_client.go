@@ -107,10 +107,6 @@ func (c *ProtoClient) newRequestID() string {
 }
 
 func (c *ProtoClient) requestContext(projectRoot string) *orchpb.RequestContext {
-	if strings.TrimSpace(c.daemonAddr) == "" {
-		return nil
-	}
-
 	projectID := c.projectIDForRequest(projectRoot)
 	if projectID == "" {
 		return nil
@@ -757,6 +753,7 @@ func (c *ProtoClient) GetAttachInfo(issueID, runID, shortID string) (*GetAttachI
 				IssueId:    issueID,
 				RunId:      runID,
 				ShortId:    shortID,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -941,12 +938,15 @@ func (c *ProtoClient) KillMonitor(monitorID string, killAll bool, global bool, p
 }
 
 func (c *ProtoClient) GetControlAgentLaunch(projectRoot, agentType string, newSession bool) (*GetControlAgentLaunchResponse, error) {
+	targetProjectRoot := c.projectRootForRequest(projectRoot)
+
 	req := &orchpb.Request{
 		Request: &orchpb.Request_GetControlAgentLaunch{
 			GetControlAgentLaunch: &orchpb.GetControlAgentLaunchRequest{
-				ProjectRoot: c.projectRootForRequest(projectRoot),
+				ProjectRoot: targetProjectRoot,
 				Agent:       agentType,
 				NewSession:  newSession,
+				Context:     c.requestContext(targetProjectRoot),
 			},
 		},
 	}
@@ -975,10 +975,13 @@ func (c *ProtoClient) GetControlAgentLaunch(projectRoot, agentType string, newSe
 }
 
 func (c *ProtoClient) GetControlAgentConfig(projectRoot string) (*GetControlAgentConfigResponse, error) {
+	targetProjectRoot := c.projectRootForRequest(projectRoot)
+
 	req := &orchpb.Request{
 		Request: &orchpb.Request_GetControlAgentConfig{
 			GetControlAgentConfig: &orchpb.GetControlAgentConfigRequest{
-				ProjectRoot: c.projectRootForRequest(projectRoot),
+				ProjectRoot: targetProjectRoot,
+				Context:     c.requestContext(targetProjectRoot),
 			},
 		},
 	}
@@ -1303,6 +1306,7 @@ func (c *ProtoClient) AppendEvent(issueID, runID, eventType, eventName string, a
 				EventName:   eventName,
 				EventAttrs:  attrs,
 				EventSource: source,
+				Context:     c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1553,6 +1557,7 @@ func (c *ProtoClient) ValidateIssueFiles(issueID string) (*ValidateIssueFilesRes
 			ValidateIssueFiles: &orchpb.ValidateIssueFilesRequest{
 				IssuesRoot: c.issuesRoot,
 				IssueId:    issueID,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1635,6 +1640,7 @@ func (c *ProtoClient) WriteAgentPrompt(issueID, runID, shortID, content string) 
 				RunId:      runID,
 				ShortId:    shortID,
 				Content:    content,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1659,6 +1665,7 @@ func (c *ProtoClient) ReadAgentPrompt(issueID, runID, shortID string) (string, e
 				IssueId:    issueID,
 				RunId:      runID,
 				ShortId:    shortID,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1800,6 +1807,7 @@ func (c *ProtoClient) CreateRun(issueID, runID string, metadata map[string]strin
 				IssueId:    issueID,
 				RunId:      runID,
 				Metadata:   metadata,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1828,6 +1836,7 @@ func (c *ProtoClient) CaptureSession(issueID, runID string) (*CaptureSessionResp
 				IssuesRoot: c.issuesRoot,
 				IssueId:    issueID,
 				RunId:      runID,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1861,6 +1870,7 @@ func (c *ProtoClient) SendMessage(issueID, runID, message string) error {
 				IssueId:    issueID,
 				RunId:      runID,
 				Message:    message,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1885,6 +1895,7 @@ func (c *ProtoClient) InjectInitialPrompt(issueID, runID, prompt string) error {
 				IssueId:    issueID,
 				RunId:      runID,
 				Prompt:     prompt,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1908,6 +1919,7 @@ func (c *ProtoClient) GetDiffStats(issueID, runID string) (*GetDiffStatsResponse
 				IssuesRoot: c.issuesRoot,
 				IssueId:    issueID,
 				RunId:      runID,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1941,6 +1953,7 @@ func (c *ProtoClient) GetBranchState(issueID, runID string) (string, error) {
 				IssuesRoot: c.issuesRoot,
 				IssueId:    issueID,
 				RunId:      runID,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1969,6 +1982,7 @@ func (c *ProtoClient) GetDiff(issueID, runID string) (string, error) {
 				IssuesRoot: c.issuesRoot,
 				IssueId:    issueID,
 				RunId:      runID,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -2075,6 +2089,7 @@ func (c *ProtoClient) ResumeRun(issueID, runID, shortID string) (*ResumeRunRespo
 				IssueId:    issueID,
 				RunId:      runID,
 				ShortId:    shortID,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}

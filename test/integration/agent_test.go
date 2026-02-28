@@ -52,6 +52,7 @@ func setupAgentTest(t *testing.T) (orchDir string, cleanup func()) {
 // runAgentCommand runs orch agent and waits for session creation
 func runAgentCommand(t *testing.T, args ...string) error {
 	t.Helper()
+	ensureRepoMapping(t, testRepo, testVault)
 
 	fullArgs := append([]string{
 		"--project-root", testRepo,
@@ -81,7 +82,7 @@ func runAgentCommand(t *testing.T, args ...string) error {
 func writeAgentConfig(t *testing.T, orchDir string, agent string, mux string) {
 	t.Helper()
 	configPath := filepath.Join(orchDir, "config.yaml")
-	content := fmt.Sprintf("agent: %s\n", agent)
+	content := fmt.Sprintf("agent: %s\nissues:\n  path: %s\n", agent, testVault)
 	if mux != "" {
 		content += fmt.Sprintf("multiplexer: %s\n", mux)
 	}

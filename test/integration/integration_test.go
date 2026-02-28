@@ -70,17 +70,45 @@ func TestMain(m *testing.M) {
 	exec.Command("git", "-C", testRepo, "config", "user.email", "test@test.com").Run()
 	exec.Command("git", "-C", testRepo, "config", "user.name", "Test").Run()
 	os.MkdirAll(filepath.Join(testRepo, ".orch"), 0755)
-	os.WriteFile(filepath.Join(testRepo, ".orch", "config.yaml"), []byte("{}\n"), 0644)
+	configData := fmt.Sprintf("issues:\n  path: %s\n", testVault)
+	os.WriteFile(filepath.Join(testRepo, ".orch", "config.yaml"), []byte(configData), 0644)
 	os.Setenv("ORCH_PROJECT_ROOT", testRepo)
 	os.WriteFile(filepath.Join(testRepo, "README.md"), []byte("# Test"), 0644)
 	exec.Command("git", "-C", testRepo, "add", ".").Run()
 	exec.Command("git", "-C", testRepo, "commit", "-m", "initial").Run()
 
 	startTestDaemon()
+	registerRepoOrPanic(testRepo)
 	code := m.Run()
 	stopTestDaemon()
 	_ = os.RemoveAll(tmpDir)
 	os.Exit(code)
+}
+
+func registerRepoOrPanic(projectRoot string) {
+	admin := daemon.NewProtoClient("")
+	defer admin.Close()
+	if _, err := admin.RegisterRepo(projectRoot); err != nil {
+		panic("failed to register repo mapping: " + err.Error())
+	}
+}
+
+func ensureRepoMapping(t *testing.T, repoRoot, issuesRoot string) {
+	t.Helper()
+
+	if err := os.MkdirAll(filepath.Join(repoRoot, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo .orch: %v", err)
+	}
+	configData := fmt.Sprintf("issues:\n  path: %s\n", issuesRoot)
+	if err := os.WriteFile(filepath.Join(repoRoot, ".orch", "config.yaml"), []byte(configData), 0644); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	admin := daemon.NewProtoClient("")
+	defer admin.Close()
+	if _, err := admin.RegisterRepo(repoRoot); err != nil {
+		t.Fatalf("register repo mapping failed: %v", err)
+	}
 }
 
 func startTestDaemon() {
@@ -97,7 +125,14 @@ func startTestDaemon() {
 
 	for i := 0; i < 30; i++ {
 		time.Sleep(100 * time.Millisecond)
-		if daemon.IsRunning("") {
+		if !daemon.IsRunning("") {
+			continue
+		}
+
+		client := daemon.NewProtoClient("")
+		err := client.Ping()
+		_ = client.Close()
+		if err == nil {
 			return
 		}
 	}
@@ -122,6 +157,7 @@ func stopTestDaemon() {
 
 func runOrch(t *testing.T, args ...string) (string, error) {
 	t.Helper()
+	ensureRepoMapping(t, testRepo, testVault)
 	fullArgs := append([]string{"--issues-root", testVault}, args...)
 	cmd := exec.Command(orchBinary, fullArgs...)
 	cmd.Dir = testRepo
@@ -137,6 +173,7 @@ func runOrch(t *testing.T, args ...string) (string, error) {
 
 func runOrchInRepo(t *testing.T, repoRoot, issuesRoot string, args ...string) (string, error) {
 	t.Helper()
+	ensureRepoMapping(t, repoRoot, issuesRoot)
 	fullArgs := append([]string{"--issues-root", issuesRoot}, args...)
 	cmd := exec.Command(orchBinary, fullArgs...)
 	cmd.Dir = repoRoot
@@ -192,6 +229,44 @@ func runOrchRemoteOutsideRepo(t *testing.T, workingDir, projectRoot string, args
 		env = append(env, kv)
 	}
 	env = append(env, "HOME="+home)
+	cmd.Env = env
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return stdout.String(), stderr.String(), err
+}
+
+func runOrchOutsideRepo(t *testing.T, workingDir string, args ...string) (string, string, error) {
+	t.Helper()
+
+	cmd := exec.Command(orchBinary, args...)
+	cmd.Dir = workingDir
+
+	home := filepath.Join(workingDir, ".home")
+	if err := os.MkdirAll(home, 0755); err != nil {
+		t.Fatalf("mkdir home: %v", err)
+	}
+
+	env := make([]string, 0, len(os.Environ())+5)
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "ORCH_PROJECT_ROOT=") ||
+			strings.HasPrefix(kv, "ORCH_ISSUES_ROOT=") ||
+			strings.HasPrefix(kv, "ORCH_VAULT=") ||
+			strings.HasPrefix(kv, "ORCH_REMOTE=") ||
+			strings.HasPrefix(kv, "HOME=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	env = append(env,
+		"HOME="+home,
+		"ORCH_PROJECT_ROOT=",
+		"ORCH_ISSUES_ROOT=",
+		"ORCH_VAULT=",
+		"ORCH_REMOTE=",
+	)
 	cmd.Env = env
 
 	var stdout, stderr bytes.Buffer
@@ -332,6 +407,34 @@ func TestPsRemoteWithRepoIDProjectRootOutsideRepo(t *testing.T) {
 	}
 	if !result.OK {
 		t.Fatalf("expected ok=true from remote ps output, got: %s", out)
+	}
+}
+
+func TestDaemonStatusOutsideRepo(t *testing.T) {
+	tmp := t.TempDir()
+	out, errOut, err := runOrchOutsideRepo(t, tmp, "daemon", "status")
+	if err != nil {
+		t.Fatalf("daemon status failed: %v\nstdout: %s\nstderr: %s", err, out, errOut)
+	}
+	if strings.Contains(out, "could not determine project root") || strings.Contains(errOut, "could not determine project root") {
+		t.Fatalf("unexpected project-root error\nstdout: %s\nstderr: %s", out, errOut)
+	}
+	if !strings.Contains(out, "Status:") {
+		t.Fatalf("expected status output, got: %s", out)
+	}
+}
+
+func TestMasterStatusOutsideRepo(t *testing.T) {
+	tmp := t.TempDir()
+	out, errOut, err := runOrchOutsideRepo(t, tmp, "master", "status")
+	if err != nil {
+		t.Fatalf("master status failed: %v\nstdout: %s\nstderr: %s", err, out, errOut)
+	}
+	if strings.Contains(out, "could not determine project root") || strings.Contains(errOut, "could not determine project root") {
+		t.Fatalf("unexpected project-root error\nstdout: %s\nstderr: %s", out, errOut)
+	}
+	if !strings.Contains(out, "Status:") {
+		t.Fatalf("expected status output, got: %s", out)
 	}
 }
 

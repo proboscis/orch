@@ -697,6 +697,94 @@ rules:
       category: architecture
       violation: identity-leakage
 
+  - id: daemon-proto-no-legacy-store-resolution-call
+    patterns:
+      - pattern-either:
+          - pattern: resolveStoreFromProto(...)
+          - pattern: $S.resolveStoreFromProto(...)
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      SPEC-12 cluster invariant: proto runtime handlers must not route stores by
+      legacy issues_root/project_root resolution helpers.
+      Fix: resolve from RequestContext.project_id (or explicit registered project mapping only).
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-identity-routing
+
+  - id: daemon-proto-no-issues-root-arg-in-context-resolver
+    patterns:
+      - pattern: $S.resolveStoreFromContextOrProto($CTX, $REQ.IssuesRoot)
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      SPEC-12 cluster invariant: even context-capable resolver calls must not
+      carry issues_root as runtime routing input.
+      Fix: pass empty fallback and route by RequestContext.project_id only.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-identity-routing
+
+  - id: daemon-proto-control-launch-no-project-root-fallback
+    patterns:
+      - pattern-inside: |
+          func (s *SocketServer) handleProtoGetControlAgentLaunch(req *orchpb.GetControlAgentLaunchRequest) *orchpb.Response {
+            ...
+          }
+      - pattern-either:
+          - pattern: resolveProtoProjectRoot(req.ProjectRoot)
+          - pattern: $S.resolveProtoProjectRoot(req.ProjectRoot)
+          - pattern: resolveProjectRootFromContextOrProto(req.Context, req.ProjectRoot)
+          - pattern: $S.resolveProjectRootFromContextOrProto(req.Context, req.ProjectRoot)
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      SPEC-12 cluster invariant: control-agent launch routing must not fall back
+      to request project_root. Resolve project identity from RequestContext.project_id only.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-identity-routing
+
+  - id: daemon-proto-control-config-no-project-root-fallback
+    patterns:
+      - pattern-inside: |
+          func (s *SocketServer) handleProtoGetControlAgentConfig(req *orchpb.GetControlAgentConfigRequest) *orchpb.Response {
+            ...
+          }
+      - pattern-either:
+          - pattern: resolveProtoProjectRoot(req.ProjectRoot)
+          - pattern: $S.resolveProtoProjectRoot(req.ProjectRoot)
+          - pattern: resolveProjectRootFromContextOrProto(req.Context, req.ProjectRoot)
+          - pattern: $S.resolveProjectRootFromContextOrProto(req.Context, req.ProjectRoot)
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      SPEC-12 cluster invariant: control-agent config routing must not fall back
+      to request project_root. Resolve project identity from RequestContext.project_id only.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-identity-routing
+
   # ---------------------------------------------------------------------------
   # 7. Transport contract fidelity: prevent Message field overloading
   # ---------------------------------------------------------------------------

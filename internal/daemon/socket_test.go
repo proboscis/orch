@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"math/rand"
@@ -480,6 +481,8 @@ func TestIsDaemonSocketAvailable(t *testing.T) {
 const testProjectRoot = "/test/project"
 const testIssuesRoot = "/test/issues"
 
+var testProjectID = derivePortableRepoID(testProjectRoot)
+
 func ensureRequestIssuesRoot(req *orchpb.Request, issuesRoot string) {
 	if req == nil || req.Request == nil {
 		return
@@ -505,6 +508,139 @@ func ensureRequestIssuesRoot(req *orchpb.Request, issuesRoot string) {
 	}
 }
 
+func ensureRequestContext(req *orchpb.Request) {
+	if req == nil || req.Request == nil {
+		return
+	}
+
+	newCtx := func() *orchpb.RequestContext {
+		return &orchpb.RequestContext{ProjectId: testProjectID}
+	}
+
+	switch r := req.Request.(type) {
+	case *orchpb.Request_ListRuns:
+		if r.ListRuns != nil && r.ListRuns.Context == nil {
+			r.ListRuns.Context = newCtx()
+		}
+	case *orchpb.Request_GetRun:
+		if r.GetRun != nil && r.GetRun.Context == nil {
+			r.GetRun.Context = newCtx()
+		}
+	case *orchpb.Request_StartRun:
+		if r.StartRun != nil && r.StartRun.Context == nil {
+			r.StartRun.Context = newCtx()
+		}
+	case *orchpb.Request_StopRun:
+		if r.StopRun != nil && r.StopRun.Context == nil {
+			r.StopRun.Context = newCtx()
+		}
+	case *orchpb.Request_ResolveRun:
+		if r.ResolveRun != nil && r.ResolveRun.Context == nil {
+			r.ResolveRun.Context = newCtx()
+		}
+	case *orchpb.Request_ListIssues:
+		if r.ListIssues != nil && r.ListIssues.Context == nil {
+			r.ListIssues.Context = newCtx()
+		}
+	case *orchpb.Request_GetIssue:
+		if r.GetIssue != nil && r.GetIssue.Context == nil {
+			r.GetIssue.Context = newCtx()
+		}
+	case *orchpb.Request_CreateIssue:
+		if r.CreateIssue != nil && r.CreateIssue.Context == nil {
+			r.CreateIssue.Context = newCtx()
+		}
+	case *orchpb.Request_CloseIssue:
+		if r.CloseIssue != nil && r.CloseIssue.Context == nil {
+			r.CloseIssue.Context = newCtx()
+		}
+	case *orchpb.Request_GetRunByShortId:
+		if r.GetRunByShortId != nil && r.GetRunByShortId.Context == nil {
+			r.GetRunByShortId.Context = newCtx()
+		}
+	case *orchpb.Request_ResolveIssue:
+		if r.ResolveIssue != nil && r.ResolveIssue.Context == nil {
+			r.ResolveIssue.Context = newCtx()
+		}
+	case *orchpb.Request_DeleteRun:
+		if r.DeleteRun != nil && r.DeleteRun.Context == nil {
+			r.DeleteRun.Context = newCtx()
+		}
+	case *orchpb.Request_UpdateIssue:
+		if r.UpdateIssue != nil && r.UpdateIssue.Context == nil {
+			r.UpdateIssue.Context = newCtx()
+		}
+	case *orchpb.Request_GetAttachInfo:
+		if r.GetAttachInfo != nil && r.GetAttachInfo.Context == nil {
+			r.GetAttachInfo.Context = newCtx()
+		}
+	case *orchpb.Request_CaptureSession:
+		if r.CaptureSession != nil && r.CaptureSession.Context == nil {
+			r.CaptureSession.Context = newCtx()
+		}
+	case *orchpb.Request_SendMessage:
+		if r.SendMessage != nil && r.SendMessage.Context == nil {
+			r.SendMessage.Context = newCtx()
+		}
+	case *orchpb.Request_GetDiffStats:
+		if r.GetDiffStats != nil && r.GetDiffStats.Context == nil {
+			r.GetDiffStats.Context = newCtx()
+		}
+	case *orchpb.Request_GetBranchState:
+		if r.GetBranchState != nil && r.GetBranchState.Context == nil {
+			r.GetBranchState.Context = newCtx()
+		}
+	case *orchpb.Request_GetDiff:
+		if r.GetDiff != nil && r.GetDiff.Context == nil {
+			r.GetDiff.Context = newCtx()
+		}
+	case *orchpb.Request_AppendEvent:
+		if r.AppendEvent != nil && r.AppendEvent.Context == nil {
+			r.AppendEvent.Context = newCtx()
+		}
+	case *orchpb.Request_ValidateIssueFiles:
+		if r.ValidateIssueFiles != nil && r.ValidateIssueFiles.Context == nil {
+			r.ValidateIssueFiles.Context = newCtx()
+		}
+	case *orchpb.Request_WriteAgentPrompt:
+		if r.WriteAgentPrompt != nil && r.WriteAgentPrompt.Context == nil {
+			r.WriteAgentPrompt.Context = newCtx()
+		}
+	case *orchpb.Request_ReadAgentPrompt:
+		if r.ReadAgentPrompt != nil && r.ReadAgentPrompt.Context == nil {
+			r.ReadAgentPrompt.Context = newCtx()
+		}
+	case *orchpb.Request_ResumeRun:
+		if r.ResumeRun != nil && r.ResumeRun.Context == nil {
+			r.ResumeRun.Context = newCtx()
+		}
+	case *orchpb.Request_CreateRun:
+		if r.CreateRun != nil && r.CreateRun.Context == nil {
+			r.CreateRun.Context = newCtx()
+		}
+	case *orchpb.Request_InjectInitialPrompt:
+		if r.InjectInitialPrompt != nil && r.InjectInitialPrompt.Context == nil {
+			r.InjectInitialPrompt.Context = newCtx()
+		}
+	case *orchpb.Request_ContinueRun:
+		if r.ContinueRun != nil && r.ContinueRun.Context == nil {
+			r.ContinueRun.Context = newCtx()
+		}
+	case *orchpb.Request_GetControlAgentLaunch:
+		if r.GetControlAgentLaunch != nil && r.GetControlAgentLaunch.Context == nil {
+			r.GetControlAgentLaunch.Context = newCtx()
+		}
+	case *orchpb.Request_GetControlAgentConfig:
+		if r.GetControlAgentConfig != nil && r.GetControlAgentConfig.Context == nil {
+			r.GetControlAgentConfig.Context = newCtx()
+		}
+	case *orchpb.Request_GetConfig:
+		if r.GetConfig != nil && r.GetConfig.Context == nil {
+			r.GetConfig.Context = newCtx()
+		}
+	}
+}
+
 func setupTestServer(t *testing.T, st *mockStore) (*SocketServer, func()) {
 	cleanup := setupXDGTestEnv(t)
 
@@ -522,6 +658,7 @@ func setupTestServer(t *testing.T, st *mockStore) (*SocketServer, func()) {
 
 func sendProtoRequest(t *testing.T, req *orchpb.Request) *orchpb.Response {
 	ensureRequestIssuesRoot(req, testIssuesRoot)
+	ensureRequestContext(req)
 
 	conn, err := net.DialTimeout("unix", xdg.SocketPath(), 5*time.Second)
 	if err != nil {
@@ -1306,11 +1443,10 @@ func TestStoreFactoryDynamicCreation(t *testing.T) {
 	}
 	defer server.Stop()
 
-	_ = sendProtoRequest(t, &orchpb.Request{
-		Request: &orchpb.Request_ListIssues{
-			ListIssues: &orchpb.ListIssuesRequest{IssuesRoot: "/test/issues/path"},
-		},
-	})
+	resolved := server.getOrCreateStore("/test/issues/path", "")
+	if resolved == nil {
+		t.Fatal("expected store to be resolved")
+	}
 
 	if !factoryCalled {
 		t.Error("expected factory to be called")
@@ -1341,11 +1477,10 @@ func TestStoreFactoryReusesExistingStore(t *testing.T) {
 	defer server.Stop()
 
 	sendListIssues := func() {
-		_ = sendProtoRequest(t, &orchpb.Request{
-			Request: &orchpb.Request_ListIssues{
-				ListIssues: &orchpb.ListIssuesRequest{IssuesRoot: "/reuse/test/path"},
-			},
-		})
+		resolved := server.getOrCreateStore("/reuse/test/path", "")
+		if resolved == nil {
+			t.Fatal("expected store to be resolved")
+		}
 	}
 
 	sendListIssues()
@@ -1459,34 +1594,7 @@ func TestResolveProjectRootPrecedence(t *testing.T) {
 	}
 }
 
-func TestResolveStoreFromProtoRequiresIssuesRoot(t *testing.T) {
-	callCount := 0
-	mockFactory := func(string) (store.Store, error) {
-		callCount++
-		return &mockStore{runs: make(map[string]*model.Run), issues: make(map[string]*model.Issue)}, nil
-	}
-
-	logger := log.New(io.Discard, "", 0)
-	server := NewSocketServer(mockFactory, logger)
-
-	if got := server.resolveStoreFromProto(""); got != nil {
-		t.Fatalf("expected nil store when issues root is empty, got %#v", got)
-	}
-
-	if callCount != 0 {
-		t.Fatalf("expected no store creation for empty issues root, got %d", callCount)
-	}
-
-	if got := server.resolveStoreFromProto("/issues/root"); got == nil {
-		t.Fatal("expected store to resolve when issues root is provided")
-	}
-
-	if callCount != 1 {
-		t.Fatalf("expected one store creation for valid issues root, got %d", callCount)
-	}
-}
-
-func TestResolveStoreFromProtoRepoIDTokenUsesRegisteredProjectRoot(t *testing.T) {
+func TestEnsureRepoStoreByIDUsesRegisteredProjectRoot(t *testing.T) {
 	callCount := 0
 	mockFactory := func(string) (store.Store, error) {
 		callCount++
@@ -1514,21 +1622,23 @@ func TestResolveStoreFromProtoRepoIDTokenUsesRegisteredProjectRoot(t *testing.T)
 	server.repos[repoID] = &RepoContext{ProjectRoot: projectRoot, RepoID: repoID}
 	server.reposMu.Unlock()
 
-	token := encodeRepoIDToken(repoID)
-	resolved := server.resolveStoreFromProto(token)
-	if resolved == nil {
-		t.Fatal("expected store to resolve for registered repo token")
+	resolved := server.ensureRepoStoreByID(repoID)
+	if resolved == nil || resolved.Store == nil {
+		t.Fatal("expected store to resolve for registered repo id")
 	}
 	if callCount != 1 {
 		t.Fatalf("expected one store creation call, got %d", callCount)
 	}
 
-	resolvedAgain := server.resolveStoreFromProto(token)
-	if resolvedAgain == nil {
-		t.Fatal("expected store to resolve on repeated token lookup")
+	resolvedAgain := server.ensureRepoStoreByID(repoID)
+	if resolvedAgain == nil || resolvedAgain.Store == nil {
+		t.Fatal("expected store to resolve on repeated repo id lookup")
 	}
 	if callCount != 1 {
 		t.Fatalf("expected no additional store creation call, got %d", callCount)
+	}
+	if resolved.Store != resolvedAgain.Store {
+		t.Fatal("expected same store instance on repeated repo id lookup")
 	}
 }
 
@@ -2479,6 +2589,41 @@ func TestGetConfigWithUnknownProjectContextDoesNotFallbackToEnv(t *testing.T) {
 	}
 }
 
+func TestListIssuesRequiresProjectContext(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	st := &mockStore{
+		runs: make(map[string]*model.Run),
+		issues: map[string]*model.Issue{
+			"issue-1": {
+				ID:     "issue-1",
+				Title:  "Issue 1",
+				Status: model.IssueStatusOpen,
+			},
+		},
+	}
+
+	server := newTestServer(t, st)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_ListIssues{
+			ListIssues: &orchpb.ListIssuesRequest{Context: &orchpb.RequestContext{}},
+		},
+	})
+
+	if resp.Ok {
+		t.Fatalf("expected project context required error, got ok response")
+	}
+	if !strings.Contains(resp.Error, "no store available") {
+		t.Fatalf("expected no store available error, got: %s", resp.Error)
+	}
+}
+
 func TestProtoStartRunWithoutProjectRootDoesNotFallbackToEnv(t *testing.T) {
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
@@ -2509,6 +2654,7 @@ func TestProtoStartRunWithoutProjectRootDoesNotFallbackToEnv(t *testing.T) {
 				IssueId:    "test-issue",
 				IssuesRoot: testIssuesRoot,
 				DryRun:     true,
+				Context:    &orchpb.RequestContext{},
 			},
 		},
 	})
@@ -2516,8 +2662,8 @@ func TestProtoStartRunWithoutProjectRootDoesNotFallbackToEnv(t *testing.T) {
 	if resp.Ok {
 		t.Fatal("expected error response")
 	}
-	if resp.Error != "project_root required" {
-		t.Fatalf("expected project_root required, got: %s", resp.Error)
+	if resp.Error != "no store available" {
+		t.Fatalf("expected no store available, got: %s", resp.Error)
 	}
 }
 
@@ -2543,6 +2689,7 @@ func TestProtoContinueRunWithoutProjectRootDoesNotFallbackToEnv(t *testing.T) {
 			ContinueRun: &orchpb.ContinueRunRequest{
 				IssueId:    "test-issue",
 				IssuesRoot: testIssuesRoot,
+				Context:    &orchpb.RequestContext{},
 			},
 		},
 	})
@@ -2550,8 +2697,8 @@ func TestProtoContinueRunWithoutProjectRootDoesNotFallbackToEnv(t *testing.T) {
 	if resp.Ok {
 		t.Fatal("expected error response")
 	}
-	if resp.Error != "project_root required" {
-		t.Fatalf("expected project_root required, got: %s", resp.Error)
+	if resp.Error != "no store available" {
+		t.Fatalf("expected no store available, got: %s", resp.Error)
 	}
 }
 
@@ -2570,7 +2717,7 @@ func TestGetConfigWithoutProjectRootDoesNotFallbackToEnv(t *testing.T) {
 
 	resp := sendProtoRequest(t, &orchpb.Request{
 		Request: &orchpb.Request_GetConfig{
-			GetConfig: &orchpb.GetConfigRequest{},
+			GetConfig: &orchpb.GetConfigRequest{Context: &orchpb.RequestContext{}},
 		},
 	})
 
@@ -2693,6 +2840,58 @@ func TestContextEnabledHandlersUnknownProjectReturnProjectScopedStoreError(t *te
 			name: "update-issue",
 			req:  &orchpb.Request{Request: &orchpb.Request_UpdateIssue{UpdateIssue: &orchpb.UpdateIssueRequest{IssueId: "i", Title: "new", Context: missing}}},
 		},
+		{
+			name: "get-attach-info",
+			req:  &orchpb.Request{Request: &orchpb.Request_GetAttachInfo{GetAttachInfo: &orchpb.GetAttachInfoRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "capture-session",
+			req:  &orchpb.Request{Request: &orchpb.Request_CaptureSession{CaptureSession: &orchpb.CaptureSessionRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "send-message",
+			req:  &orchpb.Request{Request: &orchpb.Request_SendMessage{SendMessage: &orchpb.SendMessageRequest{IssueId: "i", RunId: "r", Message: "hi", Context: missing}}},
+		},
+		{
+			name: "get-diff-stats",
+			req:  &orchpb.Request{Request: &orchpb.Request_GetDiffStats{GetDiffStats: &orchpb.GetDiffStatsRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "get-branch-state",
+			req:  &orchpb.Request{Request: &orchpb.Request_GetBranchState{GetBranchState: &orchpb.GetBranchStateRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "get-diff",
+			req:  &orchpb.Request{Request: &orchpb.Request_GetDiff{GetDiff: &orchpb.GetDiffRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "append-event",
+			req:  &orchpb.Request{Request: &orchpb.Request_AppendEvent{AppendEvent: &orchpb.AppendEventRequest{IssueId: "i", RunId: "r", EventType: "status", EventName: "running", Context: missing}}},
+		},
+		{
+			name: "validate-issue-files",
+			req:  &orchpb.Request{Request: &orchpb.Request_ValidateIssueFiles{ValidateIssueFiles: &orchpb.ValidateIssueFilesRequest{IssueId: "i", Context: missing}}},
+		},
+		{
+			name: "write-agent-prompt",
+			req:  &orchpb.Request{Request: &orchpb.Request_WriteAgentPrompt{WriteAgentPrompt: &orchpb.WriteAgentPromptRequest{IssueId: "i", RunId: "r", Content: "x", Context: missing}}},
+		},
+		{
+			name: "read-agent-prompt",
+			req:  &orchpb.Request{Request: &orchpb.Request_ReadAgentPrompt{ReadAgentPrompt: &orchpb.ReadAgentPromptRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "resume-run",
+			req:  &orchpb.Request{Request: &orchpb.Request_ResumeRun{ResumeRun: &orchpb.ResumeRunRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "create-run",
+			req:  &orchpb.Request{Request: &orchpb.Request_CreateRun{CreateRun: &orchpb.CreateRunRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "inject-initial-prompt",
+			req:  &orchpb.Request{Request: &orchpb.Request_InjectInitialPrompt{InjectInitialPrompt: &orchpb.InjectInitialPromptRequest{IssueId: "i", RunId: "r", Prompt: "hello", Context: missing}}},
+		},
 	}
 
 	for _, tt := range tests {
@@ -2706,6 +2905,84 @@ func TestContextEnabledHandlersUnknownProjectReturnProjectScopedStoreError(t *te
 			}
 		})
 	}
+}
+
+func TestControlAgentProtoHandlersRequireRegisteredProjectMapping(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	projectRoot := "/tmp/missing-control-project"
+	projectID := deriveRepoID(projectRoot)
+	missing := &orchpb.RequestContext{ProjectId: projectID}
+
+	t.Run("get-control-agent-config", func(t *testing.T) {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_GetControlAgentConfig{
+				GetControlAgentConfig: &orchpb.GetControlAgentConfigRequest{ProjectRoot: projectRoot, Context: missing},
+			},
+		})
+
+		if resp.Ok {
+			t.Fatalf("expected error response, got ok=true")
+		}
+		expected := fmt.Sprintf("unknown project_id %q (register daemon project mapping)", projectID)
+		if resp.Error != expected {
+			t.Fatalf("expected %q, got %q", expected, resp.Error)
+		}
+	})
+
+	t.Run("get-control-agent-launch", func(t *testing.T) {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_GetControlAgentLaunch{
+				GetControlAgentLaunch: &orchpb.GetControlAgentLaunchRequest{ProjectRoot: projectRoot, Context: missing},
+			},
+		})
+
+		if resp.Ok {
+			t.Fatalf("expected error response, got ok=true")
+		}
+		expected := fmt.Sprintf("unknown project_id %q (register daemon project mapping)", projectID)
+		if resp.Error != expected {
+			t.Fatalf("expected %q, got %q", expected, resp.Error)
+		}
+	})
+
+	t.Run("get-control-agent-config-missing-context", func(t *testing.T) {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_GetControlAgentConfig{
+				GetControlAgentConfig: &orchpb.GetControlAgentConfigRequest{ProjectRoot: projectRoot, Context: &orchpb.RequestContext{}},
+			},
+		})
+
+		if resp.Ok {
+			t.Fatalf("expected error response, got ok=true")
+		}
+		if resp.Error != "project_id required" {
+			t.Fatalf("expected project_id required, got %q", resp.Error)
+		}
+	})
+
+	t.Run("get-control-agent-launch-missing-context", func(t *testing.T) {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_GetControlAgentLaunch{
+				GetControlAgentLaunch: &orchpb.GetControlAgentLaunchRequest{ProjectRoot: projectRoot, Context: &orchpb.RequestContext{}},
+			},
+		})
+
+		if resp.Ok {
+			t.Fatalf("expected error response, got ok=true")
+		}
+		if resp.Error != "project_id required" {
+			t.Fatalf("expected project_id required, got %q", resp.Error)
+		}
+	})
 }
 
 type mockStoreWithCapture struct {
