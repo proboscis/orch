@@ -41,6 +41,7 @@ type GlobalOptions struct {
 }
 
 var globalOpts = &GlobalOptions{}
+var remoteFlagWasSet bool
 
 var noDaemonCommands = map[string]bool{
 	"show":                 true,
@@ -76,6 +77,8 @@ It operates non-interactively by default, using events to track state
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		remoteFlagWasSet = cmd.Flags().Changed("remote") || cmd.PersistentFlags().Changed("remote")
+
 		if err := validateConfigForCommand(); err != nil {
 			return err
 		}
@@ -169,10 +172,36 @@ func getProjectRoot() (string, error) {
 }
 
 func getRemoteAddr() string {
-	if strings.TrimSpace(globalOpts.Remote) != "" {
-		return strings.TrimSpace(globalOpts.Remote)
+	clientCfg, err := config.LoadClient()
+	if err != nil {
+		clientCfg = nil
 	}
-	return strings.TrimSpace(os.Getenv("ORCH_REMOTE"))
+
+	return resolveRemoteAddr(globalOpts.Remote, remoteFlagWasSet, os.Getenv("ORCH_REMOTE"), clientCfg)
+}
+
+func resolveRemoteAddr(flagValue string, flagChanged bool, envValue string, clientCfg *config.ClientConfig) string {
+	resolve := func(v string) string {
+		if clientCfg != nil {
+			return clientCfg.ResolveRemote(v)
+		}
+		return strings.TrimSpace(v)
+	}
+
+	if flagChanged {
+		// Explicit --remote "" forces local mode by design.
+		return resolve(flagValue)
+	}
+
+	if env := strings.TrimSpace(envValue); env != "" {
+		return resolve(env)
+	}
+
+	if clientCfg != nil {
+		return clientCfg.ResolveRemote(clientCfg.Remote.Default)
+	}
+
+	return ""
 }
 
 func getAPI() (orchapi.OrchAPI, error) {
@@ -237,6 +266,10 @@ func apiRunToModelRun(r *orchapi.Run) *model.Run {
 }
 
 func validateConfigForCommand() error {
+	if _, err := config.LoadClient(); err != nil {
+		return fmt.Errorf("invalid client config: %w", err)
+	}
+
 	if globalOpts.ProjectRoot != "" {
 		projectRoot := config.ExpandPath(globalOpts.ProjectRoot, "")
 		if _, err := config.LoadFromProjectRoot(projectRoot); err != nil {

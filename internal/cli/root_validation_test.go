@@ -86,3 +86,26 @@ func TestValidateConfigForCommandUsesProjectRootFlag(t *testing.T) {
 		t.Fatalf("expected issues backend validation error, got: %v", err)
 	}
 }
+
+func TestValidateConfigForCommandRejectsInvalidClientConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_PROJECT_ROOT", "")
+	t.Setenv("ORCH_ISSUES_ROOT", "")
+
+	clientCfgDir := filepath.Join(home, ".config", "orch")
+	if err := os.MkdirAll(clientCfgDir, 0o755); err != nil {
+		t.Fatalf("mkdir client config dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(clientCfgDir, "client.yaml"), []byte("remote:\n  oops: true\n"), 0o644); err != nil {
+		t.Fatalf("write client config: %v", err)
+	}
+
+	err := validateConfigForCommand()
+	if err == nil {
+		t.Fatal("expected client config validation error")
+	}
+	if !strings.Contains(err.Error(), "invalid client config") {
+		t.Fatalf("expected invalid client config error, got: %v", err)
+	}
+}
