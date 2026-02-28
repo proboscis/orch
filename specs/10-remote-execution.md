@@ -77,8 +77,21 @@ Where `<repo-id>` is derived from Git remote metadata (or deterministic fallback
 - Client side: when `--remote` is active, request context fields are encoded as
   `repoid:<repo-id>` tokens instead of local absolute paths.
 - Daemon side: token values are resolved to server-local project context using
-  daemon repo context + server config (`ORCH_PROJECT_ROOT` / project config).
+  the daemon repo registry (`repo_id -> project_root`).
 - Local mode remains path-based and unchanged.
+
+### Server Repo Registry
+
+Remote daemons maintain a repo registry (`repo_id -> server project_root`).
+Clients can register mappings explicitly:
+
+```bash
+orch --remote zeus:7777 daemon repo register /srv/repos/orch
+orch --remote zeus:7777 daemon repo list
+```
+
+After registration, normal commands (`ps`, `issue`, `run`, `show`, etc.) resolve
+context via repo identity without needing server filesystem paths on each call.
 
 #### Authentication
 
@@ -337,3 +350,4 @@ targets:
 5. **Control agent is always local** — never managed by the remote daemon
 6. **Target machines need only: git, tmux/zellij, agent CLI** — no orch binary required
 7. **Remote identity is path-agnostic** — client-local `project_root`/`issues_root` paths are not used as authoritative lookup keys on remote daemons
+8. **Registry is authoritative for remote** — remote context resolution requires a repo registry mapping; no hidden `ORCH_PROJECT_ROOT` fallback is used for remote requests

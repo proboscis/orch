@@ -299,7 +299,10 @@ causes `no store available` errors.
 - In remote mode, encode request context as `repoid:<repo-id>` tokens derived
   from portable repo ID.
 - On daemon side, decode token and resolve server-local project context from
-  daemon repo context and server config (`ORCH_PROJECT_ROOT` / project config).
+  daemon repo registry (`repo_id -> project_root`).
+- Add daemon repo registry commands so users can register mappings explicitly:
+  `orch --remote <addr> daemon repo register <server-project-root>` and inspect
+  with `orch --remote <addr> daemon repo list`.
 - Continue supporting path-based behavior for local mode.
 
 ### Validation
