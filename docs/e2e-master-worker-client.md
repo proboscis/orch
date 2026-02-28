@@ -1,0 +1,248 @@
+# Master/Worker/Client Manual E2E
+
+This guide validates the cluster-facing CLI behavior by running real `orch`
+commands (not `go test`).
+
+## Scope
+
+This checklist verifies the command-plane path:
+
+```
+orch client CLI -> orch-master daemon -> orch-worker (embedded mode today)
+```
+
+It covers:
+
+1. `master` lifecycle commands
+2. `worker` lifecycle commands (embedded)
+3. local client run/ps/show/stop flow
+4. remote master reachability via `--remote`
+
+## Prerequisites
+
+- `git` installed
+- `tmux` installed (for non-dry run session checks)
+- run from repo root (where `./cmd/orch` exists)
+
+## 1) Create Isolated Sandbox
+
+```bash
+export ROOT="$(mktemp -d /tmp/orch-e2e-XXXXXX)"
+mkdir -p "$ROOT"/{home,runtime,state,data,bin,repo/.orch,vault/issues,vault/runs,outside}
+
+export HOME="$ROOT/home"
+export XDG_RUNTIME_DIR="$ROOT/runtime"
+export XDG_STATE_HOME="$ROOT/state"
+export XDG_DATA_HOME="$ROOT/data"
+unset ORCH_PROJECT_ROOT ORCH_ISSUES_ROOT ORCH_VAULT ORCH_REMOTE
+
+go build -o "$ROOT/bin/orch" ./cmd/orch
+ORCH_BIN="$ROOT/bin/orch"
+```
+
+## 2) Bootstrap Project + Issues
+
+```bash
+PROJECT="$(python - <<'PY'
+import os, pathlib
+print(pathlib.Path(os.path.realpath(os.path.join(os.environ['ROOT'], 'repo'))))
+PY
+)"
+ISSUES="$(python - <<'PY'
+import os, pathlib
+print(pathlib.Path(os.path.realpath(os.path.join(os.environ['ROOT'], 'vault'))))
+PY
+)"
+
+cat > "$PROJECT/.orch/config.yaml" <<EOF
+issues:
+  path: $ISSUES
+EOF
+
+cat > "$PROJECT/README.md" <<'EOF'
+# Manual E2E Repo
+EOF
+
+cat > "$ISSUES/issues/mwc-local-live.md" <<'EOF'
+---
+type: issue
+id: mwc-local-live
+title: Local live run
+status: open
+---
+
+# Local live run
+EOF
+
+git -C "$PROJECT" init
+git -C "$PROJECT" config user.email e2e@example.com
+git -C "$PROJECT" config user.name E2E
+git -C "$PROJECT" add .
+git -C "$PROJECT" commit -m "init"
+```
+
+## 3) Master/Worker Lifecycle Checks
+
+```bash
+"$ORCH_BIN" master status
+"$ORCH_BIN" worker status
+
+"$ORCH_BIN" master start
+"$ORCH_BIN" master status
+
+"$ORCH_BIN" worker start
+"$ORCH_BIN" worker status
+```
+
+Expected:
+
+- initial status reports `Status: not running`
+- after `master start`, status reports `Status: running`
+- `worker start` reports embedded mode message
+
+## 4) Register Project Mapping
+
+```bash
+"$ORCH_BIN" daemon repo register "$PROJECT"
+"$ORCH_BIN" daemon repo list
+```
+
+Expected:
+
+- `daemon repo register` prints `Registered repo mapping: <repo_id> -> <project_root>`
+- `daemon repo list` includes that `repo_id`
+
+## 5) Local Client Live Run Flow
+
+```bash
+RUN_ID="$(date +%Y%m%d-%H%M%S)-local"
+
+"$ORCH_BIN" --issues-root "$ISSUES" run mwc-local-live \
+  --run-id "$RUN_ID" \
+  --agent custom \
+  --agent-cmd "echo cli-e2e; sleep 1" \
+  --repo-root "$PROJECT" \
+  --worktree-dir "$PROJECT/.git-worktrees" \
+  --json
+
+"$ORCH_BIN" --issues-root "$ISSUES" ps --issue mwc-local-live --json
+"$ORCH_BIN" --issues-root "$ISSUES" show "mwc-local-live#$RUN_ID" --json
+"$ORCH_BIN" --issues-root "$ISSUES" stop "mwc-local-live#$RUN_ID" --force --json
+```
+
+Expected:
+
+- run command returns `"ok": true`
+- `ps` returns at least one item for `mwc-local-live`
+- `show` returns `"ok": true` and run metadata/events
+
+## 6) Remote Master Reachability Smoke
+
+Pick a free port first (example `60318` below).
+
+```bash
+export ORCH_REMOTE=skip
+"$ORCH_BIN" master start --listen tcp://127.0.0.1:60318
+unset ORCH_REMOTE
+
+"$ORCH_BIN" --remote 127.0.0.1:60318 master status
+"$ORCH_BIN" --remote 127.0.0.1:60318 master kill
+```
+
+Expected:
+
+- remote status prints `Status: running (remote=127.0.0.1:60318)`
+
+## 7) Cleanup
+
+```bash
+"$ORCH_BIN" worker stop || true
+"$ORCH_BIN" master kill || true
+rm -rf "$ROOT"
+```
+
+## 8) Zeus Full Flow (Master + Worker + Run + PR + Close + Stop)
+
+Use this when you want a true end-to-end check against a real remote host.
+
+Target used in examples:
+
+- host: `zeus`
+- repo: `/home/kento/repos/doeff`
+- issues vault: `/home/kento/repos/doeff-VAULT`
+
+```bash
+TS="$(date +%Y%m%d-%H%M%S)"
+ISSUE_ID="zeus-e2e-$TS"
+RUN_ID="$TS-sample"
+E2E_ROOT="/tmp/orch-zeus-e2e-$TS"
+
+ssh zeus "mkdir -p $E2E_ROOT/runtime $E2E_ROOT/state $E2E_ROOT/data"
+
+ENV_PREFIX="XDG_RUNTIME_DIR=$E2E_ROOT/runtime XDG_STATE_HOME=$E2E_ROOT/state XDG_DATA_HOME=$E2E_ROOT/data"
+
+# launch master and worker on Zeus
+ssh zeus "$ENV_PREFIX orch master start"
+ssh zeus "$ENV_PREFIX orch worker start"
+ssh zeus "$ENV_PREFIX orch master status"
+ssh zeus "$ENV_PREFIX orch worker status"
+
+# create sample issue
+ssh zeus "cat > /home/kento/repos/doeff-VAULT/issues/$ISSUE_ID.md <<'EOF'
+---
+type: issue
+id: $ISSUE_ID
+title: Zeus E2E sample
+status: open
+---
+
+# Zeus E2E sample
+EOF"
+
+# register repo mapping for strict project_id routing
+ssh zeus "$ENV_PREFIX orch daemon repo register /home/kento/repos/doeff"
+
+# run with custom agent that makes a commit and creates a PR
+ssh zeus "cat > /tmp/orch-zeus-agent-$ISSUE_ID.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p e2e
+cat > e2e/$ISSUE_ID.md <<'EOT'
+# Zeus E2E sample change
+EOT
+git add e2e/$ISSUE_ID.md
+git commit -m 'chore(e2e): sample zeus run $ISSUE_ID'
+git push -u origin HEAD
+branch=$(git rev-parse --abbrev-ref HEAD)
+gh pr create --repo proboscis/doeff --title 'chore(e2e): sample zeus run $ISSUE_ID' --body 'Automated sample PR from Zeus manual E2E.' --base main --head "$branch"
+EOF
+chmod +x /tmp/orch-zeus-agent-$ISSUE_ID.sh"
+
+ssh zeus "$ENV_PREFIX orch --project-root /home/kento/repos/doeff --issues-root /home/kento/repos/doeff-VAULT run $ISSUE_ID --run-id $RUN_ID --agent custom --agent-cmd 'bash /tmp/orch-zeus-agent-$ISSUE_ID.sh' --repo-root /home/kento/repos/doeff --worktree-dir /home/kento/repos/doeff/.git-worktrees --json"
+
+# find and close the sample PR
+BRANCH="issue/$ISSUE_ID/run-$RUN_ID"
+ssh zeus "gh pr list --repo proboscis/doeff --head $BRANCH --state open --json number,url"
+ssh zeus "gh pr close <PR_NUMBER> --repo proboscis/doeff --comment 'Closing sample Zeus E2E PR.' --delete-branch"
+
+# stop the run at the end
+ssh zeus "$ENV_PREFIX orch --project-root /home/kento/repos/doeff --issues-root /home/kento/repos/doeff-VAULT stop $ISSUE_ID#$RUN_ID --force --json"
+
+# cleanup
+ssh zeus "rm -f /home/kento/repos/doeff-VAULT/issues/$ISSUE_ID.md /tmp/orch-zeus-agent-$ISSUE_ID.sh"
+ssh zeus "$ENV_PREFIX orch worker stop"
+```
+
+Expected outcomes:
+
+- master and worker report `Status: running`
+- `orch run` returns `"ok": true`
+- a PR is created for the run branch
+- PR is closed successfully
+- `orch stop <issue#run>` succeeds
+
+## Troubleshooting
+
+- If `daemon repo register` fails right after `master start`, retry once after a short delay.
+- If TCP remote status is unreachable, restart with `ORCH_REMOTE=skip` set for the `master start --listen ...` command.
+- Ensure `PROJECT` path is canonical (`realpath`) before registering, so `repo_id` derivation matches client context.
