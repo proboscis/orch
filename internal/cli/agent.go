@@ -35,6 +35,7 @@ type agentOptions struct {
 	New     bool
 	Backend string
 	Kill    bool
+	DryRun  bool
 }
 
 type controlAgentConfigProvider interface {
@@ -68,6 +69,7 @@ Examples:
 	cmd.Flags().BoolVar(&opts.New, "new", false, "Force create a new control agent session")
 	cmd.Flags().StringVar(&opts.Backend, "backend", "", "Agent backend (opencode, claude, codex, gemini)")
 	cmd.Flags().BoolVar(&opts.Kill, "kill", false, "Terminate the control agent session")
+	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Validate backend resolution without launching an interactive session")
 
 	return cmd
 }
@@ -80,14 +82,6 @@ func runAgent(opts *agentOptions) error {
 
 	ctx := context.Background()
 	api, apiErr := getAPI()
-	var controlCfg *orchapi.ControlAgentConfig
-	if apiErr == nil {
-		if provider, ok := api.(controlAgentConfigProvider); ok {
-			if cfg, cfgErr := provider.GetControlAgentConfig(ctx, projectRoot); cfgErr == nil {
-				controlCfg = cfg
-			}
-		}
-	}
 
 	orchDir := monitor.GetOrchDir(projectRoot)
 
@@ -99,12 +93,14 @@ func runAgent(opts *agentOptions) error {
 	// Determine backend from flag or config
 	backend := opts.Backend
 	if backend == "" {
-		if controlCfg != nil && controlCfg.Agent != "" {
-			backend = controlCfg.Agent
-		} else if apiErr == nil {
-			cfg, err := api.GetConfig(ctx, projectRoot)
-			if err == nil && cfg.Agent != "" {
-				backend = cfg.Agent
+		if apiErr == nil {
+			cfg, cfgErr := api.GetConfig(ctx, projectRoot)
+			if cfgErr == nil {
+				if cfg.ControlAgent != "" {
+					backend = cfg.ControlAgent
+				} else if cfg.Agent != "" {
+					backend = cfg.Agent
+				}
 			}
 		}
 	}
@@ -116,6 +112,24 @@ func runAgent(opts *agentOptions) error {
 	agentType, err := agent.ParseAgentType(backend)
 	if err != nil {
 		return fmt.Errorf("invalid backend: %w", err)
+	}
+
+	if opts.DryRun {
+		if globalOpts.JSON {
+			fmt.Printf("{\"ok\":true,\"backend\":%q}\n", backend)
+		} else {
+			fmt.Printf("backend: %s\n", backend)
+		}
+		return nil
+	}
+
+	var controlCfg *orchapi.ControlAgentConfig
+	if apiErr == nil {
+		if provider, ok := api.(controlAgentConfigProvider); ok {
+			if cfg, cfgErr := provider.GetControlAgentConfig(ctx, projectRoot); cfgErr == nil {
+				controlCfg = cfg
+			}
+		}
 	}
 
 	// Route to appropriate handler based on backend

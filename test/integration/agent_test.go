@@ -97,7 +97,7 @@ func TestAgentRequiresConfig(t *testing.T) {
 
 	os.Remove(filepath.Join(orchDir, "config.yaml"))
 
-	_, err := runOrch(t, "--project-root", testRepo, "agent")
+	_, err := runOrch(t, "--project-root", testRepo, "agent", "--dry-run")
 	if err == nil {
 		t.Error("expected error when no agent configured")
 	}
