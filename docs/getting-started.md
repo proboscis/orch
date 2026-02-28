@@ -224,6 +224,7 @@ orch stop my-first-issue#20260120-163045
 ## Next steps
 
 - Learn the [core concepts](./concepts.md) (Issue, Run, Event, etc.)
+- Set up [remote usage](./remote-usage.md) for server-based orchestration
 - Configure [different agents](./agents/claude.md)
 - Set up [backend integrations](./backends/file.md) (GitHub, Linear)
 - Explore all [CLI commands](./reference/commands.md)

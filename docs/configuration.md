@@ -12,6 +12,49 @@ Settings are resolved in this order (highest priority first):
 4. **Global config** (`~/.config/orch/config.yaml`)
 5. **Built-in defaults**
 
+## Remote Configuration
+
+When using a remote daemon, configure the client target in
+`~/.config/orch/client.yaml`.
+
+```yaml
+# ~/.config/orch/client.yaml
+remote:
+  default: zeus
+  hosts:
+    zeus:
+      addr: zeus:7777
+    cloud:
+      addr: 10.0.0.5:7777
+```
+
+You can then run remote commands without passing `--remote` each time:
+
+```bash
+# Uses remote.default from client.yaml
+orch ps
+
+# Override default with alias
+orch --remote cloud ps
+
+# Force local mode for one command
+orch --remote "" ps
+```
+
+On the server side, expose the daemon over TCP and register the project root:
+
+```bash
+# On remote server
+orch daemon start --listen tcp://0.0.0.0:7777
+
+# From client machine
+orch --remote zeus:7777 daemon repo register /srv/repos/your-project
+orch --remote zeus:7777 daemon repo list
+```
+
+In remote mode, orch resolves project identity from `--project-root` and daemon
+repo mappings. `--issues-root`/`ORCH_ISSUES_ROOT` are ignored.
+
 ## Quick Start
 
 Create `.orch/config.yaml` in your project root:
@@ -199,6 +242,7 @@ All settings can be configured via environment variables:
 |----------|-------------|---------|
 | `ORCH_PROJECT_ROOT` | Project root path | `/path/to/repo` |
 | `ORCH_ISSUES_ROOT` | Issues directory path | `~/orch-issues` |
+| `ORCH_REMOTE` | Remote daemon address | `zeus:7777` |
 | `ORCH_AGENT` | Default agent | `claude` |
 | `ORCH_BACKEND` | Backend type | `file` |
 | `ORCH_MODEL` | Default model | `anthropic/claude-opus-4-5` |

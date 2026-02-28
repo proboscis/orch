@@ -10,7 +10,8 @@ These flags work with all commands:
 |------|-------------|
 | `--backend <type>` | Backend type: `file`, `github`, `linear` (default: `file`) |
 | `--project-root <path>` | Path to project root (or `ORCH_PROJECT_ROOT`) |
-| `--issues-root <path>` | Path to issues root (or `ORCH_ISSUES_ROOT`) |
+| `--issues-root <path>` | Path to issues root (or `ORCH_ISSUES_ROOT`). Ignored in remote mode. |
+| `--remote <addr>` | Connect to remote daemon address (or `ORCH_REMOTE`) |
 | `--json` | Output in JSON format |
 | `--tsv` | Output in TSV format (for fzf integration) |
 | `--quiet` | Suppress human-readable output |
@@ -48,6 +49,7 @@ The control agent is a persistent AI agent that helps you manage issues and runs
 | `--new` | Force start a new control agent session |
 | `--kill` | Terminate the running control agent |
 | `--backend <type>` | Agent type: `claude`, `opencode`, etc. |
+| `--dry-run` | Validate agent backend resolution without launching |
 
 ### Examples
 
@@ -578,12 +580,18 @@ Start the daemon.
 orch daemon start
 ```
 
-### orch daemon stop
+#### Flags
 
-Stop the daemon.
+| Flag | Description |
+|------|-------------|
+| `--listen <addr>` | Additional daemon listen address for remote clients (example: `tcp://0.0.0.0:7777`) |
+
+### orch daemon kill
+
+Kill running daemon(s).
 
 ```bash
-orch daemon stop
+orch daemon kill
 ```
 
 ### orch daemon status
@@ -592,6 +600,22 @@ Check daemon status.
 
 ```bash
 orch daemon status
+```
+
+### orch daemon repo register
+
+Register a server-side project root for remote repo identity mapping.
+
+```bash
+orch daemon repo register SERVER_PROJECT_ROOT
+```
+
+### orch daemon repo list
+
+List daemon repo identity mappings used for remote resolution.
+
+```bash
+orch daemon repo list
 ```
 
 ---
