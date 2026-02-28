@@ -25,6 +25,7 @@ type continueOptions struct {
 	Branch         string
 	IssueID        string
 	WorktreeDir    string
+	WorktreeSet    bool
 	RepoRoot       string
 }
 
@@ -68,6 +69,7 @@ Use --branch with an issue ID to restart from an untracked branch.`,
 			if len(args) > 0 {
 				ref = args[0]
 			}
+			opts.WorktreeSet = cmd.Flags().Changed("worktree-dir")
 			return runContinue(ref, opts)
 		},
 	}
@@ -112,7 +114,7 @@ func runContinueWithDeps(ctx context.Context, refStr string, opts *continueOptio
 		return exitWithCode(err, ExitInternalError)
 	}
 
-	applyContinueConfigDefaults(opts, cfg)
+	applyContinueConfigDefaults(opts, cfg, getRemoteAddr() != "")
 
 	var issueID, runID, shortID string
 	if opts.Branch != "" {
@@ -190,7 +192,7 @@ func runContinueWithDeps(ctx context.Context, refStr string, opts *continueOptio
 	return nil
 }
 
-func applyContinueConfigDefaults(opts *continueOptions, cfg *orchapi.Config) {
+func applyContinueConfigDefaults(opts *continueOptions, cfg *orchapi.Config, remoteMode bool) {
 	if opts.PromptTemplate == "" && cfg.PromptTemplate != "" {
 		opts.PromptTemplate = cfg.PromptTemplate
 	}
@@ -203,10 +205,10 @@ func applyContinueConfigDefaults(opts *continueOptions, cfg *orchapi.Config) {
 		opts.NoPR = cfg.NoPR
 	}
 
-	if opts.WorktreeDir == "" {
+	if opts.WorktreeDir == "" && !opts.WorktreeSet {
 		if cfg.WorktreeDir != "" {
 			opts.WorktreeDir = cfg.WorktreeDir
-		} else {
+		} else if !remoteMode {
 			home, _ := os.UserHomeDir()
 			opts.WorktreeDir = filepath.Join(home, ".orch", "worktrees")
 		}

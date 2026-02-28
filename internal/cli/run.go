@@ -25,6 +25,7 @@ type runOptions struct {
 	BaseBranch     string
 	Branch         string
 	WorktreeDir    string
+	WorktreeSet    bool
 	RepoRoot       string
 	Tmux           bool
 	SessionName    string
@@ -58,6 +59,7 @@ Debug output can be enabled with --verbose, --log-level debug, or ORCH_DEBUG=1.`
 			}
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			opts.WorktreeSet = cmd.Flags().Changed("worktree-dir")
 			return runRun(args[0], opts)
 		},
 	}
@@ -123,7 +125,7 @@ func runRun(issueID string, opts *runOptions) error {
 		return exitWithCode(err, ExitInternalError)
 	}
 
-	applyConfigDefaults(opts, cfg)
+	applyConfigDefaults(opts, cfg, getRemoteAddr() != "")
 
 	resp, err := api.StartRun(ctx, &orchapi.StartRunRequest{
 		IssueID:        issueID,
@@ -340,7 +342,7 @@ func buildSimplePrompt(issue *model.Issue, opts *promptOptions) string {
 	return prompt
 }
 
-func applyConfigDefaults(opts *runOptions, cfg *orchapi.Config) {
+func applyConfigDefaults(opts *runOptions, cfg *orchapi.Config, remoteMode bool) {
 	agentExplicit := opts.Agent != ""
 	profileExplicit := opts.AgentProfile != ""
 
@@ -384,10 +386,10 @@ func applyConfigDefaults(opts *runOptions, cfg *orchapi.Config) {
 		opts.Multiplexer = getAgentMultiplexer(cfg)
 	}
 
-	if opts.WorktreeDir == "" {
+	if opts.WorktreeDir == "" && !opts.WorktreeSet {
 		if cfg.WorktreeDir != "" {
 			opts.WorktreeDir = cfg.WorktreeDir
-		} else {
+		} else if !remoteMode {
 			home, _ := os.UserHomeDir()
 			opts.WorktreeDir = filepath.Join(home, ".orch", "worktrees")
 		}
