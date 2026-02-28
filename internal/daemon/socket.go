@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -240,13 +239,7 @@ func (s *SocketServer) SetTCPListenAddr(addr string) {
 }
 
 func deriveRepoID(projectRoot string) string {
-	repoID, err := xdg.RepoID(projectRoot)
-	if err != nil || repoID == "" {
-		cleaned := filepath.Clean(projectRoot)
-		h := sha256.Sum256([]byte(cleaned))
-		return fmt.Sprintf("repo-%x", h[:4])
-	}
-	return repoID
+	return derivePortableRepoID(projectRoot)
 }
 
 func opencodeServerLogPath(projectRoot string) string {
@@ -366,6 +359,53 @@ func (s *SocketServer) resolveStore(req SendRequest) store.Store {
 
 	s.logger.Printf("resolveStore: no store found (all fields empty or no match)")
 	return nil
+}
+
+func (s *SocketServer) ensureRepoContextByID(repoID string) *RepoContext {
+	if repoID == "" {
+		return nil
+	}
+	if ctx := s.GetRepoContext(repoID); ctx != nil {
+		return ctx
+	}
+
+	projectRoot := strings.TrimSpace(os.Getenv("ORCH_PROJECT_ROOT"))
+	if projectRoot == "" {
+		if pr, err := config.GetProjectRoot(); err == nil {
+			projectRoot = strings.TrimSpace(pr)
+		}
+	}
+	if projectRoot == "" {
+		return nil
+	}
+
+	if deriveRepoID(projectRoot) != repoID {
+		return nil
+	}
+
+	cfg, err := config.LoadFromProjectRoot(projectRoot)
+	if err != nil || cfg == nil {
+		return nil
+	}
+	issuesRoot := strings.TrimSpace(cfg.GetIssuesPath())
+	if issuesRoot == "" {
+		return nil
+	}
+
+	st := s.getOrCreateStore(issuesRoot, projectRoot)
+	if st == nil {
+		return nil
+	}
+
+	s.reposMu.Lock()
+	ctx := s.repos[repoID]
+	if ctx == nil {
+		ctx = &RepoContext{ProjectRoot: projectRoot, RepoID: repoID, Store: st}
+		s.repos[repoID] = ctx
+	}
+	s.reposMu.Unlock()
+
+	return ctx
 }
 
 func (s *SocketServer) getOrCreateStore(issuesRoot, projectRoot string) store.Store {

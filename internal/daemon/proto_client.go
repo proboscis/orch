@@ -38,12 +38,41 @@ func NewProtoClientWithIssuesRoot(projectRoot, issuesRoot string) *ProtoClient {
 }
 
 func NewProtoClientWithAddress(projectRoot, issuesRoot, daemonAddr string) *ProtoClient {
+	remoteAddr := strings.TrimSpace(daemonAddr)
+	trimmedProjectRoot := strings.TrimSpace(projectRoot)
+	trimmedIssuesRoot := strings.TrimSpace(issuesRoot)
+
+	if remoteAddr != "" && trimmedProjectRoot != "" {
+		repoToken := encodeRepoIDToken(derivePortableRepoID(trimmedProjectRoot))
+		if repoToken != "" {
+			trimmedProjectRoot = repoToken
+			trimmedIssuesRoot = repoToken
+		}
+	}
+
 	return &ProtoClient{
-		projectRoot: projectRoot,
-		issuesRoot:  issuesRoot,
-		daemonAddr:  strings.TrimSpace(daemonAddr),
+		projectRoot: trimmedProjectRoot,
+		issuesRoot:  trimmedIssuesRoot,
+		daemonAddr:  remoteAddr,
 		timeout:     30 * time.Second,
 	}
+}
+
+func (c *ProtoClient) projectRootForRequest(projectRoot string) string {
+	if strings.TrimSpace(c.daemonAddr) == "" {
+		return strings.TrimSpace(projectRoot)
+	}
+	target := strings.TrimSpace(projectRoot)
+	if target == "" {
+		target = strings.TrimSpace(c.projectRoot)
+	}
+	if repoID, ok := decodeRepoIDToken(target); ok {
+		return encodeRepoIDToken(repoID)
+	}
+	if target == "" {
+		return ""
+	}
+	return encodeRepoIDToken(derivePortableRepoID(target))
 }
 
 func (c *ProtoClient) SetTimeout(timeout time.Duration) {
@@ -525,7 +554,7 @@ func (c *ProtoClient) StartRun(opts *StartRunOptions) (*StartRunResponse, error)
 				Reuse:          opts.Reuse,
 				Multiplexer:    opts.Multiplexer,
 				Target:         opts.Target,
-				ProjectRoot:    opts.ProjectRoot,
+				ProjectRoot:    c.projectRootForRequest(opts.ProjectRoot),
 			},
 		},
 	}
@@ -559,7 +588,7 @@ func (c *ProtoClient) ContinueRun(opts *ContinueRunOptions) (*ContinueRunRespons
 		Request: &orchpb.Request_ContinueRun{
 			ContinueRun: &orchpb.ContinueRunRequest{
 				IssuesRoot:     c.issuesRoot,
-				ProjectRoot:    opts.ProjectRoot,
+				ProjectRoot:    c.projectRootForRequest(opts.ProjectRoot),
 				IssueId:        opts.IssueID,
 				RunId:          opts.RunID,
 				ShortId:        opts.ShortID,
@@ -573,7 +602,7 @@ func (c *ProtoClient) ContinueRun(opts *ContinueRunOptions) (*ContinueRunRespons
 				PrTargetBranch: opts.PRTargetBranch,
 				Multiplexer:    opts.Multiplexer,
 				SessionName:    opts.SessionName,
-				RepoRoot:       opts.RepoRoot,
+				RepoRoot:       c.projectRootForRequest(opts.RepoRoot),
 			},
 		},
 	}
@@ -856,7 +885,7 @@ func (c *ProtoClient) GetControlAgentLaunch(projectRoot, agentType string, newSe
 	req := &orchpb.Request{
 		Request: &orchpb.Request_GetControlAgentLaunch{
 			GetControlAgentLaunch: &orchpb.GetControlAgentLaunchRequest{
-				ProjectRoot: projectRoot,
+				ProjectRoot: c.projectRootForRequest(projectRoot),
 				Agent:       agentType,
 				NewSession:  newSession,
 			},
@@ -890,7 +919,7 @@ func (c *ProtoClient) GetControlAgentConfig(projectRoot string) (*GetControlAgen
 	req := &orchpb.Request{
 		Request: &orchpb.Request_GetControlAgentConfig{
 			GetControlAgentConfig: &orchpb.GetControlAgentConfigRequest{
-				ProjectRoot: projectRoot,
+				ProjectRoot: c.projectRootForRequest(projectRoot),
 			},
 		},
 	}
@@ -1266,7 +1295,7 @@ func (c *ProtoClient) GetOpenCodeServer(projectRoot string) (*GetOpenCodeServerR
 	req := &orchpb.Request{
 		Request: &orchpb.Request_EnsureOpencodeServer{
 			EnsureOpencodeServer: &orchpb.EnsureOpenCodeServerRequest{
-				ProjectRoot: projectRoot,
+				ProjectRoot: c.projectRootForRequest(projectRoot),
 			},
 		},
 	}
@@ -1296,7 +1325,7 @@ func (c *ProtoClient) RegisterRepo(projectRoot string) (string, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_RegisterRepo{
 			RegisterRepo: &orchpb.RegisterRepoRequest{
-				ProjectRoot: projectRoot,
+				ProjectRoot: c.projectRootForRequest(projectRoot),
 			},
 		},
 	}
@@ -2075,7 +2104,7 @@ func (c *ProtoClient) GetConfig(projectRoot string) (*ConfigResponse, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_GetConfig{
 			GetConfig: &orchpb.GetConfigRequest{
-				ProjectRoot: projectRoot,
+				ProjectRoot: c.projectRootForRequest(projectRoot),
 			},
 		},
 	}

@@ -60,6 +60,26 @@ When `--remote` is set:
 - `EnsureDaemonHealthy()` is skipped (no auto-start for remote daemons)
 - All other CLI behavior is identical
 
+### Project Identity in Remote Mode
+
+Remote clients MUST NOT rely on client-local absolute paths for daemon store
+resolution. The daemon process is global and may run on a different machine with
+different filesystem paths.
+
+Remote requests use a portable project identity derived from repo ID:
+
+```
+repoid:<repo-id>
+```
+
+Where `<repo-id>` is derived from Git remote metadata (or deterministic fallback).
+
+- Client side: when `--remote` is active, request context fields are encoded as
+  `repoid:<repo-id>` tokens instead of local absolute paths.
+- Daemon side: token values are resolved to server-local project context using
+  daemon repo context + server config (`ORCH_PROJECT_ROOT` / project config).
+- Local mode remains path-based and unchanged.
+
 #### Authentication
 
 None. The transport relies on network-level security (Tailscale, VPN, private network). The daemon binds to a configurable address; operators restrict access at the network layer.
@@ -316,3 +336,4 @@ targets:
 4. **Executor is the only abstraction** — no "remote daemon" or "worker" process on targets
 5. **Control agent is always local** — never managed by the remote daemon
 6. **Target machines need only: git, tmux/zellij, agent CLI** — no orch binary required
+7. **Remote identity is path-agnostic** — client-local `project_root`/`issues_root` paths are not used as authoritative lookup keys on remote daemons

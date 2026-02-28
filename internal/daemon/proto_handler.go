@@ -227,11 +227,34 @@ func errorResponse(errMsg string) *orchpb.Response {
 }
 
 func (s *SocketServer) resolveStoreFromProto(issuesRoot string) store.Store {
+	if repoID, ok := decodeRepoIDToken(issuesRoot); ok {
+		if ctx := s.GetRepoContext(repoID); ctx != nil {
+			return ctx.Store
+		}
+		if ctx := s.ensureRepoContextByID(repoID); ctx != nil {
+			return ctx.Store
+		}
+		return nil
+	}
+
 	if issuesRoot == "" {
 		return nil
 	}
 
 	return s.getOrCreateStore(issuesRoot, "")
+}
+
+func (s *SocketServer) resolveProtoProjectRoot(projectRoot string) string {
+	if repoID, ok := decodeRepoIDToken(projectRoot); ok {
+		if ctx := s.GetRepoContext(repoID); ctx != nil && strings.TrimSpace(ctx.ProjectRoot) != "" {
+			return strings.TrimSpace(ctx.ProjectRoot)
+		}
+		if ctx := s.ensureRepoContextByID(repoID); ctx != nil {
+			return strings.TrimSpace(ctx.ProjectRoot)
+		}
+		return ""
+	}
+	return strings.TrimSpace(projectRoot)
 }
 
 func (s *SocketServer) listStores() []store.Store {
@@ -578,7 +601,7 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		return errorResponse("no store available")
 	}
 
-	projectRoot := req.ProjectRoot
+	projectRoot := s.resolveProtoProjectRoot(req.ProjectRoot)
 	if projectRoot == "" {
 		projectRoot = os.Getenv("ORCH_PROJECT_ROOT")
 	}
@@ -630,9 +653,9 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 		return errorResponse("no store available")
 	}
 
-	projectRoot := req.ProjectRoot
+	projectRoot := s.resolveProtoProjectRoot(req.ProjectRoot)
 	if projectRoot == "" && req.RepoRoot != "" {
-		projectRoot = req.RepoRoot
+		projectRoot = s.resolveProtoProjectRoot(req.RepoRoot)
 	}
 	if projectRoot == "" {
 		projectRoot = os.Getenv("ORCH_PROJECT_ROOT")
@@ -879,11 +902,14 @@ func (s *SocketServer) handleProtoCloseIssue(req *orchpb.CloseIssueRequest) *orc
 }
 
 func (s *SocketServer) handleProtoGetControlAgentLaunch(req *orchpb.GetControlAgentLaunchRequest) *orchpb.Response {
+	projectRoot := s.resolveProtoProjectRoot(req.ProjectRoot)
+	if projectRoot == "" {
+		return errorResponse("project_root required")
+	}
+
 	issuesRoot := ""
-	if req.ProjectRoot != "" {
-		if cfg, err := config.LoadFromProjectRoot(req.ProjectRoot); err == nil && cfg != nil {
-			issuesRoot = cfg.GetIssuesPath()
-		}
+	if cfg, err := config.LoadFromProjectRoot(projectRoot); err == nil && cfg != nil {
+		issuesRoot = cfg.GetIssuesPath()
 	}
 
 	st := s.resolveStoreFromProto(issuesRoot)
@@ -892,7 +918,7 @@ func (s *SocketServer) handleProtoGetControlAgentLaunch(req *orchpb.GetControlAg
 	}
 
 	params := &ControlAgentLaunchParams{
-		ProjectRoot: req.ProjectRoot,
+		ProjectRoot: projectRoot,
 		IssuesRoot:  issuesRoot,
 		Agent:       req.Agent,
 		NewSession:  req.NewSession,
@@ -918,11 +944,14 @@ func (s *SocketServer) handleProtoGetControlAgentLaunch(req *orchpb.GetControlAg
 }
 
 func (s *SocketServer) handleProtoGetControlAgentConfig(req *orchpb.GetControlAgentConfigRequest) *orchpb.Response {
+	projectRoot := s.resolveProtoProjectRoot(req.ProjectRoot)
+	if projectRoot == "" {
+		return errorResponse("project_root required")
+	}
+
 	issuesRoot := ""
-	if req.ProjectRoot != "" {
-		if cfg, err := config.LoadFromProjectRoot(req.ProjectRoot); err == nil && cfg != nil {
-			issuesRoot = cfg.GetIssuesPath()
-		}
+	if cfg, err := config.LoadFromProjectRoot(projectRoot); err == nil && cfg != nil {
+		issuesRoot = cfg.GetIssuesPath()
 	}
 
 	st := s.resolveStoreFromProto(issuesRoot)
@@ -930,7 +959,7 @@ func (s *SocketServer) handleProtoGetControlAgentConfig(req *orchpb.GetControlAg
 		return errorResponse("no store available for project")
 	}
 
-	result, err := s.processControlAgentConfigCore(st, req.ProjectRoot, "")
+	result, err := s.processControlAgentConfigCore(st, projectRoot, "")
 	if err != nil {
 		return errorResponse(err.Error())
 	}
@@ -1435,13 +1464,18 @@ func (s *SocketServer) handleProtoAppendEvent(req *orchpb.AppendEventRequest) *o
 }
 
 func (s *SocketServer) handleProtoEnsureOpenCodeServer(req *orchpb.EnsureOpenCodeServerRequest) *orchpb.Response {
-	port, err := s.ensureOpenCodeServerRunning(req.ProjectRoot)
+	projectRoot := s.resolveProtoProjectRoot(req.ProjectRoot)
+	if projectRoot == "" {
+		return errorResponse("project_root required")
+	}
+
+	port, err := s.ensureOpenCodeServerRunning(projectRoot)
 	if err != nil {
 		return errorResponse(fmt.Sprintf("failed to ensure opencode server: %v", err))
 	}
 
 	s.openCodeServersMu.RLock()
-	srv, exists := s.openCodeServers[req.ProjectRoot]
+	srv, exists := s.openCodeServers[projectRoot]
 	alreadyRunning := exists && srv != nil
 	s.openCodeServersMu.RUnlock()
 
@@ -1457,22 +1491,23 @@ func (s *SocketServer) handleProtoEnsureOpenCodeServer(req *orchpb.EnsureOpenCod
 }
 
 func (s *SocketServer) handleProtoRegisterRepo(req *orchpb.RegisterRepoRequest) *orchpb.Response {
-	if req.ProjectRoot == "" {
+	projectRoot := s.resolveProtoProjectRoot(req.ProjectRoot)
+	if projectRoot == "" {
 		return errorResponse("project_root required")
 	}
 
-	repoID := deriveRepoID(req.ProjectRoot)
+	repoID := deriveRepoID(projectRoot)
 
 	s.reposMu.Lock()
 	if _, exists := s.repos[repoID]; !exists {
 		s.repos[repoID] = &RepoContext{
-			ProjectRoot: req.ProjectRoot,
+			ProjectRoot: projectRoot,
 			RepoID:      repoID,
 		}
 	}
 	s.reposMu.Unlock()
 
-	s.logger.Printf("registered repo: %s (%s)", repoID, req.ProjectRoot)
+	s.logger.Printf("registered repo: %s (%s)", repoID, projectRoot)
 
 	return &orchpb.Response{
 		Ok: true,
@@ -2136,7 +2171,7 @@ func (s *SocketServer) loadConfig(projectRoot string) (*config.Config, error) {
 }
 
 func (s *SocketServer) handleProtoGetConfig(req *orchpb.GetConfigRequest) *orchpb.Response {
-	projectRoot := req.ProjectRoot
+	projectRoot := s.resolveProtoProjectRoot(req.ProjectRoot)
 	if projectRoot == "" {
 		projectRoot = os.Getenv("ORCH_PROJECT_ROOT")
 	}

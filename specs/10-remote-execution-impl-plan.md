@@ -282,6 +282,39 @@ remote:
 
 ---
 
+## Phase 6: Remote Project Identity (Path-Agnostic)
+
+**Goal**: Make remote daemon store resolution independent of client-local
+absolute paths.
+
+### Problem
+
+Remote clients currently send `project_root` / `issues_root` values derived from
+the client machine. These paths are not valid on the remote daemon host, which
+causes `no store available` errors.
+
+### Approach
+
+- Keep proto schema unchanged for now.
+- In remote mode, encode request context as `repoid:<repo-id>` tokens derived
+  from portable repo ID.
+- On daemon side, decode token and resolve server-local project context from
+  daemon repo context and server config (`ORCH_PROJECT_ROOT` / project config).
+- Continue supporting path-based behavior for local mode.
+
+### Validation
+
+- `orch --remote zeus:7777 ps` works without passing server filesystem paths
+- `orch --remote zeus:7777 --project-root /client/path ps` still resolves using
+  repo identity token in remote mode
+- Local mode remains unchanged
+
+### Estimated Scope
+
+~150-220 lines Go.
+
+---
+
 ## Dependency Graph
 
 ```
