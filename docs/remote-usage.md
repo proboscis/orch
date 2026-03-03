@@ -132,6 +132,26 @@ If missing, register the remote project root:
 orch --remote zeus:7777 daemon repo register /srv/repos/your-project
 ```
 
+### "Issue not found" during `run` with remote master + external worker
+
+When worker execution happens on a different host than the master, the worker must
+be able to resolve the project root and issue content referenced by the lease.
+If the worker cannot read those issue files, `run` can fail with `issue not found`
+even when `issue show` succeeds on the master.
+
+Checklist:
+
+```bash
+# master-side mapping exists
+orch --remote zeus:7777 daemon repo list
+
+# worker is active and has start_run capability
+orch --remote zeus:7777 worker status --json
+```
+
+Then confirm worker host project/config alignment (`--project-root`, `.orch/config.yaml`,
+and `issues.path`) for the same project identity.
+
 ## See Also
 
 - [Configuration](./configuration.md)

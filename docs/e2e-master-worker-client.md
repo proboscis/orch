@@ -246,3 +246,5 @@ Expected outcomes:
 - If `daemon repo register` fails right after `master start`, retry once after a short delay.
 - If TCP remote status is unreachable, restart with `ORCH_REMOTE=skip` set for the `master start --listen ...` command.
 - Ensure `PROJECT` path is canonical (`realpath`) before registering, so `repo_id` derivation matches client context.
+- For cross-host `master` (Zeus) + local `worker` validation, ensure the worker host can resolve the same project-root path and issue files used by the lease. If issue files only exist on Zeus, `run` may fail with `issue not found` during worker execution.
+- In this topology, verify run state on both sides when debugging: master (`orch --remote ... ps`) and worker-local issues store (`issues.path/runs/...`) to detect projection/store divergence.
