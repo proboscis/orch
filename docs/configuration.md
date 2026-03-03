@@ -37,7 +37,7 @@ orch ps
 # Override default with alias
 orch --remote cloud ps
 
-# Force local mode for one command
+# Bypass remote.default for one command (use local daemon)
 orch --remote "" ps
 ```
 
@@ -53,7 +53,7 @@ orch --remote zeus:7777 daemon repo list
 ```
 
 In remote mode, orch resolves project identity from `--project-root` and daemon
-repo mappings. `--issues-root`/`ORCH_ISSUES_ROOT` are ignored.
+repo mappings.
 
 ## Quick Start
 
@@ -241,7 +241,6 @@ All settings can be configured via environment variables:
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `ORCH_PROJECT_ROOT` | Project root path | `/path/to/repo` |
-| `ORCH_ISSUES_ROOT` | Issues directory path | `~/orch-issues` |
 | `ORCH_REMOTE` | Remote daemon address | `zeus:7777` |
 | `ORCH_AGENT` | Default agent | `claude` |
 | `ORCH_BACKEND` | Backend type | `file` |
@@ -255,11 +254,10 @@ All settings can be configured via environment variables:
 | `ORCH_SLACK_BOT_TOKEN` | Slack bot token | `xoxb-...` |
 | `ORCH_SLACK_CHANNEL` | Slack channel | `#notifications` |
 
-### Deprecated Variables
+### Removed Variables
 
-| Deprecated | Replacement |
-|------------|-------------|
-| `ORCH_VAULT` | `ORCH_ISSUES_ROOT` |
+`ORCH_VAULT` and `ORCH_ISSUES_ROOT` are no longer used at runtime.
+Configure issue storage with `issues.path` in `.orch/config.yaml`.
 
 ## Prompt Templates
 

@@ -14,7 +14,7 @@ All commands support these flags:
 
 | Flag | Description |
 |------|-------------|
-| `--vault PATH` | Vault path (or env `ORCH_VAULT`) |
+| `--project-root PATH` | Project root (`.orch/config.yaml` + daemon scope) |
 | `--backend file\|github\|linear` | Backend selection (file is default) |
 | `--json` | Machine-readable JSON output |
 | `--tsv` | TSV output (useful for fzf) |
@@ -83,7 +83,7 @@ summary: ...
 
 ### orch issue list
 
-List all issues in vault.
+List all issues in the configured issue store.
 
 ```bash
 # All issues
@@ -529,7 +529,6 @@ orch exec orch-055 --quiet -- pytest
 - `ORCH_RUN_PATH` - Path to run document
 - `ORCH_WORKTREE_PATH` - Worktree directory
 - `ORCH_BRANCH` - Git branch name
-- `ORCH_VAULT` - Vault path
 
 ---
 

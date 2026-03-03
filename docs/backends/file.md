@@ -21,11 +21,7 @@ issues:
   path: ~/orch-issues
 ```
 
-Or use environment variable:
-
-```bash
-export ORCH_ISSUES_ROOT=~/orch-issues
-```
+Configure `issues.path` in `.orch/config.yaml` (recommended).
 
 ### In-repo issues
 
@@ -215,7 +211,7 @@ Use issue status for your workflow state, and run status for execution state.
 
 The file backend is fully compatible with [Obsidian](https://obsidian.md/):
 
-1. Open your issues root as an Obsidian vault
+1. Open your configured issues directory as an Obsidian workspace folder
 2. Use Obsidian's editor for issue creation
 3. Use Dataview plugin to query issues and runs
 4. Benefit from backlinks between related issues

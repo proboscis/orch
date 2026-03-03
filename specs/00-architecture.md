@@ -2,18 +2,18 @@
 
 ## Key Concepts
 
-### Project Root vs Vault
+### Project Root vs Issues Path
 
 | Concept | Description | Location |
 |---------|-------------|----------|
 | **Project Root** | The git repository where orch is configured | Contains `.orch/config.yaml` |
-| **Vault** | Obsidian vault for local markdown issues (optional) | Configured via `vault:` in config or `ORCH_VAULT` env |
+| **Issues Path** | Directory for local markdown issues (optional) | Configured via `issues.path` in `.orch/config.yaml` |
 
 ### Issue Backends
 
 | Backend | Vault Required | Issue Source |
 |---------|----------------|--------------|
-| **File-based** | Yes | Local `.md` files in `vault/issues/` |
+| **File-based** | Yes | Local `.md` files in `issues.path/issues/` |
 | **GitHub** | No | GitHub Issues API (`gh-123` format) |
 
 ### Directory Structure
@@ -28,9 +28,9 @@ project/
     └── monitor.log      # Monitor TUI logs
 ```
 
-**Vault (only for file-based issues):**
+**Issues path (only for file-based issues):**
 ```
-vault/
+issues-path/
 ├── issues/
 │   └── <ISSUE_ID>.md    # Issue specification
 └── runs/
@@ -42,7 +42,7 @@ vault/
 
 When using GitHub as the issue backend:
 - Issues are identified by `gh-<number>` (e.g., `gh-123`)
-- No local vault directory needed
+- No local issues directory needed
 - Issue content fetched from GitHub API
 - Runs stored in project root's `.orch/runs/`
 - Configuration:
@@ -61,13 +61,11 @@ github:
 1. `--project-root` flag (highest)
 2. `ORCH_PROJECT_ROOT` environment variable
 3. Directory containing `.orch/config.yaml` (searched upward from cwd)
-4. `ORCH_VAULT` (backward compatibility fallback)
+4. none
 
-**For vault path (file-based issues only):**
-1. `--vault` flag (highest)
-2. `vault:` in `.orch/config.yaml`
-3. `ORCH_VAULT` environment variable
-4. `~/.config/orch/config.yaml` (lowest)
+**For issues path (file-based issues only):**
+1. `issues.path` in project `.orch/config.yaml` (highest)
+2. `issues.path` in `~/.config/orch/config.yaml` (lowest)
 
 ### Log Files
 

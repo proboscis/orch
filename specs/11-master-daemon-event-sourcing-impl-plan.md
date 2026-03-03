@@ -118,7 +118,7 @@ tables in SQLite without changing all command behavior.
 
 | Area | Work |
 |------|------|
-| Proto cleanup | Deprecate/remove runtime `project_root`/`issues_root` payload dependence |
+| Proto cleanup | Deprecate/remove runtime payload dependence on legacy path fields |
 | Daemon cleanup | Remove remote fallback branches tied to env/path legacy behavior |
 | Docs | Update architecture/config/daemon specs and CLI docs |
 

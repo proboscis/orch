@@ -1,6 +1,6 @@
 # Knowledge Store
 
-orch は「知識ベース」を抽象化して扱う。最初の実装は file backend（Obsidian vault）。
+orch は「知識ベース」を抽象化して扱う。最初の実装は file backend（Obsidianのディレクトリ）。
 
 ## 必須操作（インターフェース）
 
@@ -19,7 +19,7 @@ orch は「知識ベース」を抽象化して扱う。最初の実装は file 
 
 ### Issue検出
 
-- vault内の任意の`.md`ファイルで、frontmatterに `type: issue` を持つものがissue
+- issuesストア内の任意の`.md`ファイルで、frontmatterに `type: issue` を持つものがissue
 - `id` フィールドでissue IDを指定（省略時はファイル名）
 - 配置場所は自由（`issues/` ディレクトリ不要）
 
@@ -37,7 +37,7 @@ status: open
 ### ディレクトリ構造
 
 ```
-vault/
+issues-store/
   任意の場所/<任意>.md   # type: issue frontmatterでissue判定
   runs/<ISSUE_ID>/<RUN_ID>.md
   runs/<ISSUE_ID>/<RUN_ID>.log/   # 任意：ログ格納用
@@ -47,7 +47,7 @@ vault/
     daemon.sock     # （将来）IPC用Unix socket
 ```
 
-※ ObsidianはUI。vaultはただのファイル集合。
+※ ObsidianはUI。issuesストアはただのファイル集合。
 
 ## 将来のBackend
 

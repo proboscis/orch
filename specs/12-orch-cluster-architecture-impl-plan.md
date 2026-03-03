@@ -46,7 +46,7 @@ Reference: [specs/12-orch-cluster-architecture.md](./12-orch-cluster-architectur
 ### Acceptance
 
 1. Runtime RPCs fail closed when `project_id` is missing/unknown.
-2. Runtime routing does not depend on `project_root`, `issues_root`, or env fallback.
+2. Runtime routing does not depend on legacy path fields or env fallback.
 3. Existing runtime tests pass with explicit context semantics.
 
 ---
@@ -60,7 +60,7 @@ Reference: [specs/12-orch-cluster-architecture.md](./12-orch-cluster-architectur
 | Area | Work |
 |------|------|
 | Rule set | Add rules banning `resolveStoreFromProto(...)` usage in proto runtime handlers |
-| Rule set | Add rules banning runtime fallback routing by `issues_root`/`project_root` in master handler paths |
+| Rule set | Add rules banning runtime fallback routing by legacy path fields in master handler paths |
 | Rule scope | Exclude test files and keep messages tied to spec 12 intent |
 
 ### Acceptance

@@ -4,7 +4,7 @@
 
 | オプション | 説明 |
 |-----------|------|
-| `--vault PATH` | vault path（または env `ORCH_VAULT`） |
+| `--project-root PATH` | project root path（または env `ORCH_PROJECT_ROOT`） |
 | `--backend file\|github\|linear` | v0.2では file を正式、他は予約 |
 | `--json` | 機械可読JSON出力 |
 | `--tsv` | fzf向け出力（ps等で有効） |
@@ -285,7 +285,7 @@ plc-125     closed  Update documentation            -
       "id": "plc-123",
       "title": "Fix login timeout",
       "status": "open",
-      "path": "/vault/issues/plc-123.md",
+      "path": "/issues-store/issues/plc-123.md",
       "runs": [
         {"run_id": "20251221-123456", "status": "running"}
       ]

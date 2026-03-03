@@ -8,13 +8,13 @@ commands (not `go test`).
 This checklist verifies the command-plane path:
 
 ```
-orch client CLI -> orch-master daemon -> orch-worker (embedded mode today)
+orch client CLI -> orch-master daemon -> orch-worker (external process)
 ```
 
 It covers:
 
 1. `master` lifecycle commands
-2. `worker` lifecycle commands (embedded)
+2. `worker` lifecycle commands (external process)
 3. local client run/ps/show/stop flow
 4. remote master reachability via `--remote`
 
@@ -28,13 +28,13 @@ It covers:
 
 ```bash
 export ROOT="$(mktemp -d /tmp/orch-e2e-XXXXXX)"
-mkdir -p "$ROOT"/{home,runtime,state,data,bin,repo/.orch,vault/issues,vault/runs,outside}
+mkdir -p "$ROOT"/{home,runtime,state,data,bin,repo/.orch,issues-store/issues,issues-store/runs,outside}
 
 export HOME="$ROOT/home"
 export XDG_RUNTIME_DIR="$ROOT/runtime"
 export XDG_STATE_HOME="$ROOT/state"
 export XDG_DATA_HOME="$ROOT/data"
-unset ORCH_PROJECT_ROOT ORCH_ISSUES_ROOT ORCH_VAULT ORCH_REMOTE
+unset ORCH_PROJECT_ROOT ORCH_REMOTE
 
 go build -o "$ROOT/bin/orch" ./cmd/orch
 ORCH_BIN="$ROOT/bin/orch"
@@ -50,7 +50,7 @@ PY
 )"
 ISSUES="$(python - <<'PY'
 import os, pathlib
-print(pathlib.Path(os.path.realpath(os.path.join(os.environ['ROOT'], 'vault'))))
+print(pathlib.Path(os.path.realpath(os.path.join(os.environ['ROOT'], 'issues-store'))))
 PY
 )"
 
@@ -98,7 +98,7 @@ Expected:
 
 - initial status reports `Status: not running`
 - after `master start`, status reports `Status: running`
-- `worker start` reports embedded mode message
+- `worker start` reports managed external worker process started
 
 ## 4) Register Project Mapping
 
@@ -117,7 +117,7 @@ Expected:
 ```bash
 RUN_ID="$(date +%Y%m%d-%H%M%S)-local"
 
-"$ORCH_BIN" --issues-root "$ISSUES" run mwc-local-live \
+"$ORCH_BIN" run mwc-local-live \
   --run-id "$RUN_ID" \
   --agent custom \
   --agent-cmd "echo cli-e2e; sleep 1" \
@@ -125,9 +125,9 @@ RUN_ID="$(date +%Y%m%d-%H%M%S)-local"
   --worktree-dir "$PROJECT/.git-worktrees" \
   --json
 
-"$ORCH_BIN" --issues-root "$ISSUES" ps --issue mwc-local-live --json
-"$ORCH_BIN" --issues-root "$ISSUES" show "mwc-local-live#$RUN_ID" --json
-"$ORCH_BIN" --issues-root "$ISSUES" stop "mwc-local-live#$RUN_ID" --force --json
+"$ORCH_BIN" ps --issue mwc-local-live --json
+"$ORCH_BIN" show "mwc-local-live#$RUN_ID" --json
+"$ORCH_BIN" stop "mwc-local-live#$RUN_ID" --force --json
 ```
 
 Expected:
@@ -169,7 +169,7 @@ Target used in examples:
 
 - host: `zeus`
 - repo: `/home/kento/repos/doeff`
-- issues vault: `/home/kento/repos/doeff-VAULT`
+- issues path: `/home/kento/repos/doeff-issues`
 
 ```bash
 TS="$(date +%Y%m%d-%H%M%S)"
@@ -218,7 +218,7 @@ gh pr create --repo proboscis/doeff --title 'chore(e2e): sample zeus run $ISSUE_
 EOF
 chmod +x /tmp/orch-zeus-agent-$ISSUE_ID.sh"
 
-ssh zeus "$ENV_PREFIX orch --project-root /home/kento/repos/doeff --issues-root /home/kento/repos/doeff-VAULT run $ISSUE_ID --run-id $RUN_ID --agent custom --agent-cmd 'bash /tmp/orch-zeus-agent-$ISSUE_ID.sh' --repo-root /home/kento/repos/doeff --worktree-dir /home/kento/repos/doeff/.git-worktrees --json"
+ssh zeus "$ENV_PREFIX orch --project-root /home/kento/repos/doeff run $ISSUE_ID --run-id $RUN_ID --agent custom --agent-cmd 'bash /tmp/orch-zeus-agent-$ISSUE_ID.sh' --repo-root /home/kento/repos/doeff --worktree-dir /home/kento/repos/doeff/.git-worktrees --json"
 
 # find and close the sample PR
 BRANCH="issue/$ISSUE_ID/run-$RUN_ID"
@@ -226,7 +226,7 @@ ssh zeus "gh pr list --repo proboscis/doeff --head $BRANCH --state open --json n
 ssh zeus "gh pr close <PR_NUMBER> --repo proboscis/doeff --comment 'Closing sample Zeus E2E PR.' --delete-branch"
 
 # stop the run at the end
-ssh zeus "$ENV_PREFIX orch --project-root /home/kento/repos/doeff --issues-root /home/kento/repos/doeff-VAULT stop $ISSUE_ID#$RUN_ID --force --json"
+ssh zeus "$ENV_PREFIX orch --project-root /home/kento/repos/doeff stop $ISSUE_ID#$RUN_ID --force --json"
 
 # cleanup
 ssh zeus "rm -f /home/kento/repos/doeff-VAULT/issues/$ISSUE_ID.md /tmp/orch-zeus-agent-$ISSUE_ID.sh"

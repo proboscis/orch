@@ -86,7 +86,7 @@ orch ps
 # Override with another alias
 orch --remote cloud ps
 
-# Force local mode for one command
+# Bypass remote.default for one command (use local daemon)
 orch --remote "" ps
 ```
 
@@ -108,7 +108,6 @@ orch --remote zeus:7777 capture my-issue
 ## Important Behavior in Remote Mode
 
 - `--project-root` is used to derive portable project identity.
-- `--issues-root` / `ORCH_ISSUES_ROOT` are ignored in remote mode.
 - Remote commands depend on daemon-side repo registration (`daemon repo register`).
 
 ## Troubleshooting
