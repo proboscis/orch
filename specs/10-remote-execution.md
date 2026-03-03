@@ -349,5 +349,5 @@ targets:
 4. **Executor is the only abstraction** — no "remote daemon" or "worker" process on targets
 5. **Control agent is always local** — never managed by the remote daemon
 6. **Target machines need only: git, tmux/zellij, agent CLI** — no orch binary required
-7. **Remote identity is path-agnostic** — client-local `project_root`/`issues_root` paths are not used as authoritative lookup keys on remote daemons
+7. **Remote identity is path-agnostic** — client-local `project_root` paths are not used as authoritative lookup keys on remote daemons
 8. **Registry is authoritative for remote** — remote context resolution requires a repo registry mapping; no hidden `ORCH_PROJECT_ROOT` fallback is used for remote requests

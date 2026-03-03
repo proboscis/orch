@@ -10,7 +10,6 @@ These flags work with all commands:
 |------|-------------|
 | `--backend <type>` | Backend type: `file`, `github`, `linear` (default: `file`) |
 | `--project-root <path>` | Path to project root (or `ORCH_PROJECT_ROOT`) |
-| `--issues-root <path>` | Path to issues root (or `ORCH_ISSUES_ROOT`). Ignored in remote mode. |
 | `--remote <addr>` | Connect to remote daemon address (or `ORCH_REMOTE`) |
 | `--json` | Output in JSON format |
 | `--tsv` | Output in TSV format (for fzf integration) |

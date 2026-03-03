@@ -80,7 +80,7 @@ EOF
 
 ### Setting up the issues directory
 
-orch needs a place to store issues. You have two options:
+orch needs a place to store issues. Configure it in `.orch/config.yaml`.
 
 **Option A: Use a separate issues directory (recommended for teams)**
 
@@ -89,7 +89,10 @@ orch needs a place to store issues. You have two options:
 mkdir -p ~/orch-issues/issues
 
 # Tell orch where to find issues
-export ORCH_ISSUES_ROOT=~/orch-issues
+cat >> .orch/config.yaml << 'EOF'
+issues:
+  path: ~/orch-issues
+EOF
 ```
 
 **Option B: Keep issues in the same repo**

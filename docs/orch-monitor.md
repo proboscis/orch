@@ -244,12 +244,8 @@ agent: claude          # Default agent for new runs
 base_branch: main      # Default base branch
 ```
 
-Environment variables also work:
-```bash
-export ORCH_PROJECT_ROOT=/path/to/repo
-export ORCH_ISSUES_ROOT=/path/to/issues
-orch-monitor
-```
+The monitor resolves configuration from `ORCH_PROJECT_ROOT` and
+`.orch/config.yaml` (`issues.path`).
 
 ## See Also
 

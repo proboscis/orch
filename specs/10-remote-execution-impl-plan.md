@@ -2,6 +2,10 @@
 
 Reference: [specs/10-remote-execution.md](./10-remote-execution.md)
 
+Status: Historical implementation plan. Runtime execution semantics are now
+defined by [specs/12-orch-cluster-architecture.md](./12-orch-cluster-architecture.md)
+and its implementation plan.
+
 ## Phase 0: TCP Transport
 
 **Goal**: CLI can talk to a remote daemon. Zero functional changes — just a new transport.
@@ -15,13 +19,13 @@ Reference: [specs/10-remote-execution.md](./10-remote-execution.md)
 | `internal/daemon/daemon.go` | Parse `--listen` flag; start TCP listener if specified |
 | `internal/cli/root.go` | Add `--remote` global flag; set on all subcommands |
 | `internal/orchapi/daemon_client.go` | When `--remote` is set, pass TCP address to `ProtoClient`; skip `EnsureDaemonHealthy` auto-start |
-| `internal/xdg/paths.go` | No change (Unix socket path unchanged for local mode) |
+| `internal/xdg/paths.go` | No change (Unix socket path unchanged for local daemon transport) |
 | `cmd/orch/main.go` | Wire `--listen` for `daemon start` subcommand |
 
 ### Key Decisions
 
 - TCP listener reuses the same `handleProtoConnection` loop (identical framing)
-- Unix socket listener remains for local mode (backward compatible)
+- Unix socket listener remains for local daemon transport (backward compatible)
 - `--remote` takes precedence over local socket detection
 - `ORCH_REMOTE` env var as fallback for `--remote` flag
 
@@ -230,7 +234,7 @@ Client (monitor):
 
 ### Backward Compatibility
 
-`GetControlAgentLaunch` remains unchanged for local mode. The monitor checks if connected to a remote daemon and uses the appropriate API.
+`GetControlAgentLaunch` remains unchanged for local daemon transport. The monitor checks if connected to a remote daemon and uses the appropriate API.
 
 ### Validation
 
@@ -273,7 +277,7 @@ remote:
 
 - With config: `orch ps` → connects to zeus:7777 automatically
 - `orch --remote cloud ps` → overrides default
-- `orch --remote "" ps` → force local mode
+- `orch --remote "" ps` → bypass remote default and use local daemon transport
 - No config file → existing behavior unchanged
 
 ### Estimated Scope
@@ -289,7 +293,7 @@ absolute paths.
 
 ### Problem
 
-Remote clients currently send `project_root` / `issues_root` values derived from
+Remote clients currently send `project_root` values derived from
 the client machine. These paths are not valid on the remote daemon host, which
 causes `no store available` errors.
 
@@ -303,14 +307,14 @@ causes `no store available` errors.
 - Add daemon repo registry commands so users can register mappings explicitly:
   `orch --remote <addr> daemon repo register <server-project-root>` and inspect
   with `orch --remote <addr> daemon repo list`.
-- Continue supporting path-based behavior for local mode.
+- Continue supporting path-based behavior for local daemon transport.
 
 ### Validation
 
 - `orch --remote zeus:7777 ps` works without passing server filesystem paths
 - `orch --remote zeus:7777 --project-root /client/path ps` still resolves using
   repo identity token in remote mode
-- Local mode remains unchanged
+- Local daemon transport remains unchanged
 
 ### Estimated Scope
 
