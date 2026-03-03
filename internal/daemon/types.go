@@ -611,6 +611,7 @@ func SummaryAliveInfo(s *RunSummary) (alive bool, known bool) {
 
 type StartRunOptions struct {
 	IssueID        string
+	IssueSnapshot  *model.Issue
 	RunID          string
 	Agent          string
 	AgentCmd       string

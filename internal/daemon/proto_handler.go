@@ -758,6 +758,10 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		ProjectRoot:    projectRoot,
 	}
 
+	if issue, err := st.ResolveIssue(req.IssueId); err == nil {
+		opts.IssueSnapshot = issue
+	}
+
 	projectID := projectIDFromContext(req.Context)
 	payload := &WorkerEffectPayload{StartRun: opts}
 	completedLease, err := s.withWorkerLease(projectID, "start_run", req.IssueId, req.RunId, payload)
@@ -773,6 +777,12 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		return errorResponse("worker lease completed without start_run result")
 	}
 
+	if !req.DryRun {
+		if err := s.syncStartRunResultToMasterStore(st, req, result); err != nil {
+			s.logger.Printf("warning: failed to sync start_run projection for %s#%s: %v", req.IssueId, result.RunID, err)
+		}
+	}
+
 	return &orchpb.Response{
 		Ok: true,
 		Response: &orchpb.Response_StartRun{
@@ -785,6 +795,60 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 			},
 		},
 	}
+}
+
+func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orchpb.StartRunRequest, result *StartRunResult) error {
+	if st == nil || result == nil {
+		return nil
+	}
+
+	ref := &model.RunRef{IssueID: req.IssueId, RunID: result.RunID}
+	run, err := st.GetRun(ref)
+	if err != nil {
+		metadata := map[string]string{}
+		if req.Agent != "" {
+			metadata["agent"] = req.Agent
+		}
+		if req.Model != "" {
+			metadata["model"] = req.Model
+		}
+		if req.ModelVariant != "" {
+			metadata["model_variant"] = req.ModelVariant
+		}
+		if req.Target != "" {
+			metadata["target"] = req.Target
+		}
+
+		run, err = st.CreateRun(req.IssueId, result.RunID, metadata)
+		if err != nil {
+			return err
+		}
+		if run == nil {
+			return fmt.Errorf("store returned nil run for %s#%s", req.IssueId, result.RunID)
+		}
+		_ = st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusQueued))
+	}
+	if run == nil {
+		return fmt.Errorf("run unavailable for %s#%s", req.IssueId, result.RunID)
+	}
+
+	if result.WorktreePath != "" {
+		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("worktree", map[string]string{"path": result.WorktreePath}))
+	}
+	if result.Branch != "" {
+		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("branch", map[string]string{"name": result.Branch}))
+	}
+	if result.SessionName != "" {
+		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", map[string]string{"name": result.SessionName}))
+	}
+
+	status := model.NormalizeStatus(result.Status)
+	if status == "" {
+		status = model.StatusRunning
+	}
+	_ = st.AppendEvent(run.Ref(), model.NewStatusEvent(status))
+
+	return nil
 }
 
 func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *orchpb.Response {

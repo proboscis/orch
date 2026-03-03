@@ -2872,9 +2872,26 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		return nil, fmt.Errorf("invalid_request: issue_id required")
 	}
 
-	issue, err := st.ResolveIssue(opts.IssueID)
-	if err != nil {
-		return nil, fmt.Errorf("issue not found: %s", opts.IssueID)
+	issue := opts.IssueSnapshot
+	if issue == nil || strings.TrimSpace(issue.ID) != opts.IssueID {
+		resolvedIssue, err := st.ResolveIssue(opts.IssueID)
+		if err != nil {
+			return nil, fmt.Errorf("issue not found: %s", opts.IssueID)
+		}
+		issue = resolvedIssue
+	}
+
+	if _, err := st.ResolveIssue(opts.IssueID); err != nil {
+		issueCopy := *issue
+		if issueCopy.ID == "" {
+			issueCopy.ID = opts.IssueID
+		}
+		if issueCopy.Status == "" {
+			issueCopy.Status = model.IssueStatusOpen
+		}
+		if err := st.CreateIssue(&issueCopy); err != nil {
+			return nil, fmt.Errorf("failed to sync issue for worker execution: %w", err)
+		}
 	}
 
 	cfg, err := config.Load()
