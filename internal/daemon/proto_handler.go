@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -21,6 +22,7 @@ import (
 	"github.com/s22625/orch/internal/multiplexer"
 	"github.com/s22625/orch/internal/pr"
 	"github.com/s22625/orch/internal/store"
+	"github.com/s22625/orch/internal/xdg"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -194,6 +196,24 @@ func (s *SocketServer) handleProtoRequest(req *orchpb.Request) *orchpb.Response 
 		return s.handleProtoGetConfig(r.GetConfig)
 	case *orchpb.Request_GetDaemonStatus:
 		return s.handleProtoGetDaemonStatus(r.GetDaemonStatus)
+	case *orchpb.Request_RegisterWorker:
+		return s.handleProtoRegisterWorker(r.RegisterWorker)
+	case *orchpb.Request_UnregisterWorker:
+		return s.handleProtoUnregisterWorker(r.UnregisterWorker)
+	case *orchpb.Request_WorkerHeartbeat:
+		return s.handleProtoWorkerHeartbeat(r.WorkerHeartbeat)
+	case *orchpb.Request_ListWorkers:
+		return s.handleProtoListWorkers(r.ListWorkers)
+	case *orchpb.Request_LeaseWork:
+		return s.handleProtoLeaseWork(r.LeaseWork)
+	case *orchpb.Request_AcknowledgeEffect:
+		return s.handleProtoAcknowledgeEffect(r.AcknowledgeEffect)
+	case *orchpb.Request_StartExternalWorker:
+		return s.handleProtoStartExternalWorker(r.StartExternalWorker)
+	case *orchpb.Request_StopExternalWorker:
+		return s.handleProtoStopExternalWorker(r.StopExternalWorker)
+	case *orchpb.Request_ListExternalWorkers:
+		return s.handleProtoListExternalWorkers(r.ListExternalWorkers)
 	default:
 		return errorResponse("unknown request type")
 	}
@@ -290,6 +310,21 @@ func (s *SocketServer) listStores() []store.Store {
 	return stores
 }
 
+func isStoreNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "not found")
+}
+
+type runStoreEntry struct {
+	run   *model.Run
+	store store.Store
+}
+
 func (s *SocketServer) handleProtoPing(_ *orchpb.PingRequest) *orchpb.Response {
 	return &orchpb.Response{
 		Ok: true,
@@ -301,14 +336,7 @@ func (s *SocketServer) handleProtoPing(_ *orchpb.PingRequest) *orchpb.Response {
 
 func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.Response {
 	requestStart := time.Now()
-
-	st := s.resolveStoreFromContextOrProto(req.Context, "")
-	if st == nil {
-		if projectID := projectIDFromContext(req.Context); projectID != "" {
-			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
-		}
-		return errorResponse("no store available")
-	}
+	projectID := projectIDFromContext(req.Context)
 
 	filter := &store.ListRunsFilter{
 		IssueID:    req.IssueId,
@@ -320,14 +348,49 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 	}
 
 	storeStart := time.Now()
-	runs, err := st.ListRuns(filter)
-	storeDuration := time.Since(storeStart)
-	if err != nil {
-		s.maybeLogListRunsTiming(req, 0, storeDuration, 0, time.Since(requestStart), err)
-		return errorResponse("store_error")
+	entries := make([]runStoreEntry, 0)
+	if projectID != "" {
+		st := s.resolveStoreFromContextOrProto(req.Context, "")
+		if st == nil {
+			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+		}
+		runs, err := st.ListRuns(filter)
+		if err != nil {
+			storeDuration := time.Since(storeStart)
+			s.maybeLogListRunsTiming(req, 0, storeDuration, 0, time.Since(requestStart), err)
+			return errorResponse("store_error")
+		}
+		for _, run := range runs {
+			entries = append(entries, runStoreEntry{run: run, store: st})
+		}
+	} else {
+		for _, st := range s.listStores() {
+			runs, err := st.ListRuns(filter)
+			if err != nil {
+				storeDuration := time.Since(storeStart)
+				s.maybeLogListRunsTiming(req, 0, storeDuration, 0, time.Since(requestStart), err)
+				return errorResponse("store_error")
+			}
+			for _, run := range runs {
+				entries = append(entries, runStoreEntry{run: run, store: st})
+			}
+		}
 	}
+	storeDuration := time.Since(storeStart)
 
-	total := len(runs)
+	sort.Slice(entries, func(i, j int) bool {
+		left := entries[i].run
+		right := entries[j].run
+		if left == nil {
+			return false
+		}
+		if right == nil {
+			return true
+		}
+		return left.UpdatedAt.After(right.UpdatedAt)
+	})
+
+	total := len(entries)
 
 	limit := int(req.Limit)
 	if limit <= 0 {
@@ -338,19 +401,24 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 	}
 
 	offset, _ := DecodeCursor(req.Cursor)
-	if offset > len(runs) {
-		offset = len(runs)
+	if offset > total {
+		offset = total
 	}
 	end := offset + limit
-	if end > len(runs) {
-		end = len(runs)
+	if end > total {
+		end = total
 	}
-	paginatedRuns := runs[offset:end]
+	paginatedEntries := entries[offset:end]
+
+	paginatedRuns := make([]*model.Run, len(paginatedEntries))
+	for i, entry := range paginatedEntries {
+		paginatedRuns[i] = entry.run
+	}
 
 	enrichStart := time.Now()
 	protoRuns := make([]*orchpb.Run, len(paginatedRuns))
 	protoRuns = enrichRunsParallel(paginatedRuns, protoRuns)
-	applyIssueMetadataToRuns(st, paginatedRuns, protoRuns)
+	applyIssueMetadataToRunEntries(paginatedEntries, protoRuns)
 	enrichDuration := time.Since(enrichStart)
 
 	s.maybeLogListRunsTiming(req, len(paginatedRuns), storeDuration, enrichDuration, time.Since(requestStart), nil)
@@ -372,32 +440,45 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 	}
 }
 
-func applyIssueMetadataToRuns(st store.Store, runs []*model.Run, protoRuns []*orchpb.Run) {
-	if st == nil || len(runs) == 0 || len(protoRuns) == 0 {
+func applyIssueMetadataToRunEntries(entries []runStoreEntry, protoRuns []*orchpb.Run) {
+	if len(entries) == 0 || len(protoRuns) == 0 {
 		return
 	}
 
-	issues, err := st.ListIssues()
-	if err != nil || len(issues) == 0 {
-		return
-	}
+	issuesByStore := make(map[store.Store]map[string]*model.Issue)
 
-	byID := make(map[string]*model.Issue, len(issues))
-	for _, issue := range issues {
+	for i, entry := range entries {
+		if i >= len(protoRuns) || protoRuns[i] == nil || entry.run == nil || entry.store == nil {
+			continue
+		}
+
+		byID, ok := issuesByStore[entry.store]
+		if !ok {
+			issues, err := entry.store.ListIssues()
+			if err != nil {
+				issuesByStore[entry.store] = nil
+				continue
+			}
+
+			byID = make(map[string]*model.Issue, len(issues))
+			for _, issue := range issues {
+				if issue == nil {
+					continue
+				}
+				byID[issue.ID] = issue
+			}
+			issuesByStore[entry.store] = byID
+		}
+
+		if byID == nil {
+			continue
+		}
+
+		issue := byID[entry.run.IssueID]
 		if issue == nil {
 			continue
 		}
-		byID[issue.ID] = issue
-	}
 
-	for i, run := range runs {
-		if i >= len(protoRuns) || run == nil || protoRuns[i] == nil {
-			continue
-		}
-		issue := byID[run.IssueID]
-		if issue == nil {
-			continue
-		}
 		protoRuns[i].IssueStatus = sanitizeUTF8(string(issue.Status))
 		if issue.Topic != "" {
 			protoRuns[i].IssueTopic = sanitizeUTF8(issue.Topic)
@@ -582,18 +663,41 @@ func formatElapsedTime(startedAt, updatedAt time.Time, status model.Status) stri
 }
 
 func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Response {
-	st := s.resolveStoreFromContextOrProto(req.Context, "")
-	if st == nil {
-		if projectID := projectIDFromContext(req.Context); projectID != "" {
+	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+	projectID := projectIDFromContext(req.Context)
+
+	var run *model.Run
+	if projectID != "" {
+		st := s.resolveStoreFromContextOrProto(req.Context, "")
+		if st == nil {
 			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
 		}
-		return errorResponse("no store available")
-	}
 
-	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
-	run, err := st.GetRun(ref)
-	if err != nil {
-		return errorResponse("not_found")
+		resolved, err := st.GetRun(ref)
+		if err != nil {
+			return errorResponse("not_found")
+		}
+		run = resolved
+	} else {
+		for _, st := range s.listStores() {
+			resolved, err := st.GetRun(ref)
+			if err != nil {
+				if isStoreNotFoundError(err) {
+					continue
+				}
+				return errorResponse("store_error")
+			}
+			if resolved == nil {
+				continue
+			}
+			if run != nil {
+				return errorResponse("ambiguous_run_ref")
+			}
+			run = resolved
+		}
+		if run == nil {
+			return errorResponse("not_found")
+		}
 	}
 
 	protoEvents := make([]*orchpb.Event, len(run.Events))
@@ -654,9 +758,19 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		ProjectRoot:    projectRoot,
 	}
 
-	result, err := s.processStartRunCore(st, projectRoot, opts)
+	projectID := projectIDFromContext(req.Context)
+	payload := &WorkerEffectPayload{StartRun: opts}
+	completedLease, err := s.withWorkerLease(projectID, "start_run", req.IssueId, req.RunId, payload)
 	if err != nil {
 		return errorResponse(err.Error())
+	}
+	effectResult, err := decodeWorkerEffectResult(completedLease.ResultJSON)
+	if err != nil {
+		return errorResponse(err.Error())
+	}
+	result := effectResult.StartRunResult
+	if result == nil {
+		return errorResponse("worker lease completed without start_run result")
 	}
 
 	return &orchpb.Response{
@@ -711,9 +825,19 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 		RepoRoot:       req.RepoRoot,
 	}
 
-	result, err := s.processContinueRunCore(st, projectRoot, opts)
+	projectID := projectIDFromContext(req.Context)
+	payload := &WorkerEffectPayload{ContinueRun: opts}
+	completedLease, err := s.withWorkerLease(projectID, "continue_run", req.IssueId, req.RunId, payload)
 	if err != nil {
 		return errorResponse(err.Error())
+	}
+	effectResult, err := decodeWorkerEffectResult(completedLease.ResultJSON)
+	if err != nil {
+		return errorResponse(err.Error())
+	}
+	result := effectResult.ContinueRunResult
+	if result == nil {
+		return errorResponse("worker lease completed without continue_run result")
 	}
 
 	return &orchpb.Response{
@@ -747,7 +871,13 @@ func (s *SocketServer) handleProtoStopRun(req *orchpb.StopRunRequest) *orchpb.Re
 		return errorResponse("not_found")
 	}
 
-	if err := s.stopSingleRun(run, st); err != nil {
+	projectID := projectIDFromContext(req.Context)
+	projectRoot := s.resolveProjectRootFromContextOrProto(req.Context, "")
+	payload := &WorkerEffectPayload{}
+	if strings.TrimSpace(projectRoot) != "" {
+		payload.StopRun = &StopRunPayload{ProjectRoot: projectRoot}
+	}
+	if _, err := s.withWorkerLease(projectID, "stop_run", run.IssueID, run.RunID, payload); err != nil {
 		return errorResponse(err.Error())
 	}
 
@@ -777,17 +907,28 @@ func (s *SocketServer) handleProtoResolveRun(req *orchpb.ResolveRunRequest) *orc
 }
 
 func (s *SocketServer) handleProtoListIssues(req *orchpb.ListIssuesRequest) *orchpb.Response {
-	st := s.resolveStoreFromContextOrProto(req.Context, "")
-	if st == nil {
-		if projectID := projectIDFromContext(req.Context); projectID != "" {
+	projectID := projectIDFromContext(req.Context)
+	issues := make([]*model.Issue, 0)
+
+	if projectID != "" {
+		st := s.resolveStoreFromContextOrProto(req.Context, "")
+		if st == nil {
 			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
 		}
-		return errorResponse("no store available")
-	}
 
-	issues, err := st.ListIssues()
-	if err != nil {
-		return errorResponse("store_error")
+		list, err := st.ListIssues()
+		if err != nil {
+			return errorResponse("store_error")
+		}
+		issues = append(issues, list...)
+	} else {
+		for _, st := range s.listStores() {
+			list, err := st.ListIssues()
+			if err != nil {
+				return errorResponse("store_error")
+			}
+			issues = append(issues, list...)
+		}
 	}
 
 	sort.Slice(issues, func(i, j int) bool {
@@ -878,17 +1019,40 @@ func (s *SocketServer) handleProtoListIssues(req *orchpb.ListIssuesRequest) *orc
 }
 
 func (s *SocketServer) handleProtoGetIssue(req *orchpb.GetIssueRequest) *orchpb.Response {
-	st := s.resolveStoreFromContextOrProto(req.Context, "")
-	if st == nil {
-		if projectID := projectIDFromContext(req.Context); projectID != "" {
+	projectID := projectIDFromContext(req.Context)
+
+	var issue *model.Issue
+	if projectID != "" {
+		st := s.resolveStoreFromContextOrProto(req.Context, "")
+		if st == nil {
 			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
 		}
-		return errorResponse("no store available")
-	}
 
-	issue, err := st.ResolveIssue(req.IssueId)
-	if err != nil {
-		return errorResponse("not_found")
+		resolved, err := st.ResolveIssue(req.IssueId)
+		if err != nil {
+			return errorResponse("not_found")
+		}
+		issue = resolved
+	} else {
+		for _, st := range s.listStores() {
+			resolved, err := st.ResolveIssue(req.IssueId)
+			if err != nil {
+				if isStoreNotFoundError(err) {
+					continue
+				}
+				return errorResponse("store_error")
+			}
+			if resolved == nil {
+				continue
+			}
+			if issue != nil {
+				return errorResponse("ambiguous_issue_id")
+			}
+			issue = resolved
+		}
+		if issue == nil {
+			return errorResponse("not_found")
+		}
 	}
 
 	return &orchpb.Response{
@@ -968,14 +1132,8 @@ func (s *SocketServer) handleProtoGetControlAgentLaunch(req *orchpb.GetControlAg
 		return errorResponse("no store available")
 	}
 
-	issuesRoot := ""
-	if cfg, err := config.LoadFromProjectRoot(projectRoot); err == nil && cfg != nil {
-		issuesRoot = cfg.GetIssuesPath()
-	}
-
 	params := &ControlAgentLaunchParams{
 		ProjectRoot: projectRoot,
-		IssuesRoot:  issuesRoot,
 		Agent:       req.Agent,
 		NewSession:  req.NewSession,
 	}
@@ -1036,25 +1194,67 @@ func (s *SocketServer) handleProtoGetControlAgentConfig(req *orchpb.GetControlAg
 }
 
 func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest) *orchpb.Response {
-	st := s.resolveStoreFromContextOrProto(req.Context, "")
-	if st == nil {
-		if projectID := projectIDFromContext(req.Context); projectID != "" {
+	var run *model.Run
+	projectID := projectIDFromContext(req.Context)
+
+	if projectID != "" {
+		st := s.resolveStoreFromContextOrProto(req.Context, "")
+		if st == nil {
 			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
 		}
-		return errorResponse("no store available")
-	}
 
-	var run *model.Run
-	var err error
-
-	if req.ShortId != "" {
-		run, err = st.GetRunByShortID(req.ShortId)
+		var err error
+		if req.ShortId != "" {
+			run, err = st.GetRunByShortID(req.ShortId)
+		} else {
+			ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+			run, err = st.GetRun(ref)
+		}
+		if err != nil {
+			return errorResponse("not_found")
+		}
 	} else {
-		ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
-		run, err = st.GetRun(ref)
-	}
-	if err != nil {
-		return errorResponse("not_found")
+		for _, st := range s.listStores() {
+			var (
+				resolved *model.Run
+				err      error
+			)
+			if req.ShortId != "" {
+				resolved, err = st.GetRunByShortID(req.ShortId)
+				if err != nil {
+					if isStoreNotFoundError(err) {
+						continue
+					}
+					if strings.Contains(strings.ToLower(err.Error()), "ambiguous") {
+						return errorResponse("ambiguous_short_id")
+					}
+					return errorResponse("store_error")
+				}
+			} else {
+				ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+				resolved, err = st.GetRun(ref)
+				if err != nil {
+					if isStoreNotFoundError(err) {
+						continue
+					}
+					return errorResponse("store_error")
+				}
+			}
+
+			if resolved == nil {
+				continue
+			}
+			if run != nil {
+				if req.ShortId != "" {
+					return errorResponse("ambiguous_short_id")
+				}
+				return errorResponse("ambiguous_run_ref")
+			}
+			run = resolved
+		}
+		if run == nil {
+			return errorResponse("not_found")
+		}
 	}
 
 	attachInfo := &orchpb.GetAttachInfoResponse{
@@ -1117,22 +1317,46 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 }
 
 func (s *SocketServer) handleProtoCaptureSession(req *orchpb.CaptureSessionRequest) *orchpb.Response {
-	st := s.resolveStoreFromContextOrProto(req.Context, "")
-	if st == nil {
-		if projectID := projectIDFromContext(req.Context); projectID != "" {
+	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+	projectID := projectIDFromContext(req.Context)
+
+	var run *model.Run
+	if projectID != "" {
+		st := s.resolveStoreFromContextOrProto(req.Context, "")
+		if st == nil {
 			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
 		}
-		return errorResponse("no store available")
-	}
 
-	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
-	run, err := st.GetRun(ref)
-	if err != nil {
-		return errorResponse("not_found")
+		resolved, err := st.GetRun(ref)
+		if err != nil {
+			return errorResponse("not_found")
+		}
+		run = resolved
+	} else {
+		for _, st := range s.listStores() {
+			resolved, err := st.GetRun(ref)
+			if err != nil {
+				if isStoreNotFoundError(err) {
+					continue
+				}
+				return errorResponse("store_error")
+			}
+			if resolved == nil {
+				continue
+			}
+			if run != nil {
+				return errorResponse("ambiguous_run_ref")
+			}
+			run = resolved
+		}
+		if run == nil {
+			return errorResponse("not_found")
+		}
 	}
 
 	var content string
 	var source string
+	var err error
 
 	if run.Agent == string(agent.AgentOpenCode) {
 		content, source, err = s.captureOpenCodeSession(run)
@@ -1195,10 +1419,9 @@ func (s *SocketServer) handleProtoSendMessage(req *orchpb.SendMessageRequest) *o
 	}
 
 	params := &SendMessageParams{
-		IssueID:    req.IssueId,
-		RunID:      req.RunId,
-		Message:    req.Message,
-		IssuesRoot: req.IssuesRoot,
+		IssueID: req.IssueId,
+		RunID:   req.RunId,
+		Message: req.Message,
 	}
 
 	if err := s.processSendMessage(st, params); err != nil {
@@ -1212,18 +1435,41 @@ func (s *SocketServer) handleProtoSendMessage(req *orchpb.SendMessageRequest) *o
 }
 
 func (s *SocketServer) handleProtoGetDiffStats(req *orchpb.GetDiffStatsRequest) *orchpb.Response {
-	st := s.resolveStoreFromContextOrProto(req.Context, "")
-	if st == nil {
-		if projectID := projectIDFromContext(req.Context); projectID != "" {
+	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+	projectID := projectIDFromContext(req.Context)
+
+	var run *model.Run
+	if projectID != "" {
+		st := s.resolveStoreFromContextOrProto(req.Context, "")
+		if st == nil {
 			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
 		}
-		return errorResponse("no store available")
-	}
 
-	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
-	run, err := st.GetRun(ref)
-	if err != nil {
-		return errorResponse("not_found")
+		resolved, err := st.GetRun(ref)
+		if err != nil {
+			return errorResponse("not_found")
+		}
+		run = resolved
+	} else {
+		for _, st := range s.listStores() {
+			resolved, err := st.GetRun(ref)
+			if err != nil {
+				if isStoreNotFoundError(err) {
+					continue
+				}
+				return errorResponse("store_error")
+			}
+			if resolved == nil {
+				continue
+			}
+			if run != nil {
+				return errorResponse("ambiguous_run_ref")
+			}
+			run = resolved
+		}
+		if run == nil {
+			return errorResponse("not_found")
+		}
 	}
 
 	stats := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
@@ -1244,18 +1490,41 @@ func (s *SocketServer) handleProtoGetDiffStats(req *orchpb.GetDiffStatsRequest) 
 }
 
 func (s *SocketServer) handleProtoGetBranchState(req *orchpb.GetBranchStateRequest) *orchpb.Response {
-	st := s.resolveStoreFromContextOrProto(req.Context, "")
-	if st == nil {
-		if projectID := projectIDFromContext(req.Context); projectID != "" {
+	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+	projectID := projectIDFromContext(req.Context)
+
+	var run *model.Run
+	if projectID != "" {
+		st := s.resolveStoreFromContextOrProto(req.Context, "")
+		if st == nil {
 			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
 		}
-		return errorResponse("no store available")
-	}
 
-	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
-	run, err := st.GetRun(ref)
-	if err != nil {
-		return errorResponse("not_found")
+		resolved, err := st.GetRun(ref)
+		if err != nil {
+			return errorResponse("not_found")
+		}
+		run = resolved
+	} else {
+		for _, st := range s.listStores() {
+			resolved, err := st.GetRun(ref)
+			if err != nil {
+				if isStoreNotFoundError(err) {
+					continue
+				}
+				return errorResponse("store_error")
+			}
+			if resolved == nil {
+				continue
+			}
+			if run != nil {
+				return errorResponse("ambiguous_run_ref")
+			}
+			run = resolved
+		}
+		if run == nil {
+			return errorResponse("not_found")
+		}
 	}
 
 	state := computeBranchStateWithRunner(s.gitRunner, run.WorktreePath, run.Branch, "main")
@@ -1324,18 +1593,41 @@ func splitLines(s string) []string {
 }
 
 func (s *SocketServer) handleProtoGetDiff(req *orchpb.GetDiffRequest) *orchpb.Response {
-	st := s.resolveStoreFromContextOrProto(req.Context, "")
-	if st == nil {
-		if projectID := projectIDFromContext(req.Context); projectID != "" {
+	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+	projectID := projectIDFromContext(req.Context)
+
+	var run *model.Run
+	if projectID != "" {
+		st := s.resolveStoreFromContextOrProto(req.Context, "")
+		if st == nil {
 			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
 		}
-		return errorResponse("no store available")
-	}
 
-	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
-	run, err := st.GetRun(ref)
-	if err != nil {
-		return errorResponse("not_found")
+		resolved, err := st.GetRun(ref)
+		if err != nil {
+			return errorResponse("not_found")
+		}
+		run = resolved
+	} else {
+		for _, st := range s.listStores() {
+			resolved, err := st.GetRun(ref)
+			if err != nil {
+				if isStoreNotFoundError(err) {
+					continue
+				}
+				return errorResponse("store_error")
+			}
+			if resolved == nil {
+				continue
+			}
+			if run != nil {
+				return errorResponse("ambiguous_run_ref")
+			}
+			run = resolved
+		}
+		if run == nil {
+			return errorResponse("not_found")
+		}
 	}
 
 	var diff string
@@ -1467,18 +1759,200 @@ func (s *SocketServer) handleProtoKillMonitor(req *orchpb.KillMonitorRequest) *o
 	}
 }
 
-func (s *SocketServer) handleProtoGetRunByShortID(req *orchpb.GetRunByShortIDRequest) *orchpb.Response {
-	st := s.resolveStoreFromContextOrProto(req.Context, "")
-	if st == nil {
-		if projectID := projectIDFromContext(req.Context); projectID != "" {
-			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
-		}
-		return errorResponse("no store available")
+func (s *SocketServer) handleProtoRegisterWorker(req *orchpb.RegisterWorkerRequest) *orchpb.Response {
+	if err := s.requireWorkerAuth(req.AuthToken); err != nil {
+		return errorResponse(err.Error())
 	}
 
-	run, err := st.GetRunByShortID(req.ShortId)
+	worker, ttl := s.registerWorker(req.WorkerId, req.WorkerType, req.Host, req.Mode, req.Capabilities)
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_RegisterWorker{
+			RegisterWorker: &orchpb.RegisterWorkerResponse{
+				WorkerId:            worker.ID,
+				HeartbeatTtlSeconds: ttl,
+			},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoUnregisterWorker(req *orchpb.UnregisterWorkerRequest) *orchpb.Response {
+	workerID := strings.TrimSpace(req.WorkerId)
+	if workerID == "" {
+		return errorResponse("worker_id required")
+	}
+
+	s.unregisterWorker(workerID)
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_UnregisterWorker{
+			UnregisterWorker: &orchpb.UnregisterWorkerResponse{},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoWorkerHeartbeat(req *orchpb.WorkerHeartbeatRequest) *orchpb.Response {
+	if err := s.requireWorkerAuth(req.AuthToken); err != nil {
+		return errorResponse(err.Error())
+	}
+
+	ttl, err := s.heartbeatWorker(req.WorkerId)
 	if err != nil {
-		return errorResponse("not_found")
+		return errorResponse(err.Error())
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_WorkerHeartbeat{
+			WorkerHeartbeat: &orchpb.WorkerHeartbeatResponse{HeartbeatTtlSeconds: ttl},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoListWorkers(_ *orchpb.ListWorkersRequest) *orchpb.Response {
+	workers := s.listWorkers()
+	protoWorkers := make([]*orchpb.WorkerInfo, 0, len(workers))
+	for _, worker := range workers {
+		protoWorkers = append(protoWorkers, &orchpb.WorkerInfo{
+			Id:                worker.ID,
+			WorkerType:        worker.WorkerType,
+			Host:              worker.Host,
+			Mode:              worker.Mode,
+			RegisteredAtUnix:  worker.RegisteredAt.Unix(),
+			LastHeartbeatUnix: worker.LastHeartbeat.Unix(),
+			Active:            worker.Active,
+			Capabilities:      append([]string(nil), worker.Capabilities...),
+		})
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_ListWorkers{
+			ListWorkers: &orchpb.ListWorkersResponse{Workers: protoWorkers},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoLeaseWork(req *orchpb.LeaseWorkRequest) *orchpb.Response {
+	if err := s.requireWorkerAuth(req.AuthToken); err != nil {
+		return errorResponse(err.Error())
+	}
+
+	workerID := strings.TrimSpace(req.WorkerId)
+	if workerID == "" {
+		return errorResponse("worker_id required")
+	}
+
+	if _, err := s.heartbeatWorker(workerID); err != nil {
+		return errorResponse(err.Error())
+	}
+
+	lease := s.leaseWorkForWorker(workerID)
+
+	leaseResp := &orchpb.LeaseWorkResponse{}
+	if lease != nil {
+		leaseResp = &orchpb.LeaseWorkResponse{
+			LeaseId:       lease.LeaseID,
+			WorkerId:      lease.WorkerID,
+			ProjectId:     lease.ProjectID,
+			Effect:        lease.Effect,
+			IssueId:       lease.IssueID,
+			RunId:         lease.RunID,
+			LeasedAtUnix:  lease.LeasedAt.Unix(),
+			ExpiresAtUnix: lease.ExpiresAt.Unix(),
+			PayloadJson:   lease.PayloadJSON,
+		}
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_LeaseWork{
+			LeaseWork: leaseResp,
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoAcknowledgeEffect(req *orchpb.AcknowledgeEffectRequest) *orchpb.Response {
+	if err := s.requireWorkerAuth(req.AuthToken); err != nil {
+		return errorResponse(err.Error())
+	}
+
+	if err := s.acknowledgeWorkerLease(req.WorkerId, req.LeaseId, req.Success, req.Error, req.ResultJson); err != nil {
+		return errorResponse(err.Error())
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_AcknowledgeEffect{
+			AcknowledgeEffect: &orchpb.AcknowledgeEffectResponse{},
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoStartExternalWorker(req *orchpb.StartExternalWorkerRequest) *orchpb.Response {
+	workerID, pid, err := s.startManagedExternalWorker(req.WorkerId)
+	if err != nil {
+		return errorResponse(err.Error())
+	}
+	return &orchpb.Response{Ok: true, Response: &orchpb.Response_StartExternalWorker{StartExternalWorker: &orchpb.StartExternalWorkerResponse{WorkerId: workerID, Pid: int32(pid)}}}
+}
+
+func (s *SocketServer) handleProtoStopExternalWorker(req *orchpb.StopExternalWorkerRequest) *orchpb.Response {
+	stopped, err := s.stopManagedExternalWorker(req.WorkerId, req.All)
+	if err != nil {
+		return errorResponse(err.Error())
+	}
+	return &orchpb.Response{Ok: true, Response: &orchpb.Response_StopExternalWorker{StopExternalWorker: &orchpb.StopExternalWorkerResponse{StoppedCount: int32(stopped)}}}
+}
+
+func (s *SocketServer) handleProtoListExternalWorkers(_ *orchpb.ListExternalWorkersRequest) *orchpb.Response {
+	items := s.listManagedExternalWorkers()
+	out := make([]*orchpb.ExternalWorkerProcessInfo, 0, len(items))
+	for _, item := range items {
+		out = append(out, &orchpb.ExternalWorkerProcessInfo{WorkerId: item.WorkerID, Pid: int32(item.PID), StartedAtUnix: item.StartedAt.Unix()})
+	}
+	return &orchpb.Response{Ok: true, Response: &orchpb.Response_ListExternalWorkers{ListExternalWorkers: &orchpb.ListExternalWorkersResponse{Workers: out}}}
+}
+
+func (s *SocketServer) handleProtoGetRunByShortID(req *orchpb.GetRunByShortIDRequest) *orchpb.Response {
+	projectID := projectIDFromContext(req.Context)
+
+	var run *model.Run
+	if projectID != "" {
+		st := s.resolveStoreFromContextOrProto(req.Context, "")
+		if st == nil {
+			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+		}
+
+		resolved, err := st.GetRunByShortID(req.ShortId)
+		if err != nil {
+			return errorResponse("not_found")
+		}
+		run = resolved
+	} else {
+		for _, st := range s.listStores() {
+			resolved, err := st.GetRunByShortID(req.ShortId)
+			if err != nil {
+				if isStoreNotFoundError(err) {
+					continue
+				}
+				if strings.Contains(strings.ToLower(err.Error()), "ambiguous") {
+					return errorResponse("ambiguous_short_id")
+				}
+				return errorResponse("store_error")
+			}
+			if resolved == nil {
+				continue
+			}
+			if run != nil {
+				return errorResponse("ambiguous_short_id")
+			}
+			run = resolved
+		}
+		if run == nil {
+			return errorResponse("not_found")
+		}
 	}
 
 	pr := modelRunToProto(run)
@@ -1581,17 +2055,39 @@ func (s *SocketServer) handleProtoRegisterRepo(req *orchpb.RegisterRepoRequest) 
 	}
 
 	repoID := deriveRepoID(projectRoot)
+	aliasRepoID := ""
+	if portableID, err := xdg.RepoID(projectRoot); err == nil {
+		aliasRepoID = strings.TrimSpace(portableID)
+	}
+
+	var repoStore store.Store
+	if s.storeFactory != nil {
+		if cfg, err := config.LoadFromProjectRoot(projectRoot); err == nil && cfg != nil {
+			if issuesRoot := strings.TrimSpace(cfg.GetIssuesPath()); issuesRoot != "" {
+				repoStore = s.getOrCreateStore(issuesRoot, projectRoot)
+			}
+		}
+	}
 
 	s.reposMu.Lock()
 	if _, exists := s.repos[repoID]; !exists {
 		s.repos[repoID] = &RepoContext{
 			ProjectRoot: projectRoot,
 			RepoID:      repoID,
+			Store:       repoStore,
 		}
 	} else {
 		existing := s.repos[repoID]
 		if existing != nil {
 			existing.ProjectRoot = projectRoot
+			if existing.Store == nil {
+				existing.Store = repoStore
+			}
+		}
+	}
+	if aliasRepoID != "" {
+		if existing, ok := s.repos[repoID]; ok && existing != nil {
+			s.repos[aliasRepoID] = existing
 		}
 	}
 	s.reposMu.Unlock()
@@ -1632,14 +2128,9 @@ func (s *SocketServer) handleProtoListRepos(_ *orchpb.ListReposRequest) *orchpb.
 		}
 		seen[repoID] = struct{}{}
 
-		issuesRoot := ""
-		if info.Store != nil {
-			issuesRoot = info.Store.RootPath()
-		}
 		repos = append(repos, &orchpb.RepoInfo{
 			Id:          repoID,
 			ProjectRoot: info.ProjectRoot,
-			IssuesRoot:  issuesRoot,
 		})
 	}
 
@@ -1757,25 +2248,51 @@ func (s *SocketServer) handleProtoUpdateIssue(req *orchpb.UpdateIssueRequest) *o
 }
 
 func (s *SocketServer) handleProtoValidateIssueFiles(req *orchpb.ValidateIssueFilesRequest) *orchpb.Response {
-	st := s.resolveStoreFromContextOrProto(req.Context, "")
-	if st == nil {
-		if projectID := projectIDFromContext(req.Context); projectID != "" {
+	projectID := projectIDFromContext(req.Context)
+	aggregated := &store.ValidationResult{}
+
+	if projectID != "" {
+		st := s.resolveStoreFromContextOrProto(req.Context, "")
+		if st == nil {
 			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
 		}
-		return errorResponse("no store available")
-	}
 
-	result, err := st.ValidateIssueFiles(req.IssueId)
-	if err != nil {
-		return errorResponse(fmt.Sprintf("validation failed: %v", err))
+		result, err := st.ValidateIssueFiles(req.IssueId)
+		if err != nil {
+			return errorResponse(fmt.Sprintf("validation failed: %v", err))
+		}
+		if result != nil {
+			aggregated.Total += result.Total
+			aggregated.Valid += result.Valid
+			aggregated.Errors = append(aggregated.Errors, result.Errors...)
+			aggregated.Duplicates = append(aggregated.Duplicates, result.Duplicates...)
+		}
+	} else {
+		stores := s.listStores()
+		for _, st := range stores {
+			result, err := st.ValidateIssueFiles(req.IssueId)
+			if err != nil {
+				if req.IssueId != "" && isStoreNotFoundError(err) {
+					continue
+				}
+				return errorResponse(fmt.Sprintf("validation failed: %v", err))
+			}
+			if result == nil {
+				continue
+			}
+			aggregated.Total += result.Total
+			aggregated.Valid += result.Valid
+			aggregated.Errors = append(aggregated.Errors, result.Errors...)
+			aggregated.Duplicates = append(aggregated.Duplicates, result.Duplicates...)
+		}
 	}
 
 	protoResult := &orchpb.ValidateIssueFilesResponse{
-		Total: int32(result.Total),
-		Valid: int32(result.Valid),
+		Total: int32(aggregated.Total),
+		Valid: int32(aggregated.Valid),
 	}
 
-	for _, e := range result.Errors {
+	for _, e := range aggregated.Errors {
 		item := &orchpb.ValidationResultItem{
 			File:    e.File,
 			IssueId: e.IssueID,
@@ -1791,7 +2308,7 @@ func (s *SocketServer) handleProtoValidateIssueFiles(req *orchpb.ValidateIssueFi
 		protoResult.Errors = append(protoResult.Errors, item)
 	}
 
-	for _, d := range result.Duplicates {
+	for _, d := range aggregated.Duplicates {
 		protoResult.Duplicates = append(protoResult.Duplicates, &orchpb.DuplicateIDItem{
 			Id:    d.ID,
 			Files: d.Files,
@@ -1841,25 +2358,71 @@ func (s *SocketServer) handleProtoWriteAgentPrompt(req *orchpb.WriteAgentPromptR
 }
 
 func (s *SocketServer) handleProtoReadAgentPrompt(req *orchpb.ReadAgentPromptRequest) *orchpb.Response {
-	st := s.resolveStoreFromContextOrProto(req.Context, "")
-	if st == nil {
-		if projectID := projectIDFromContext(req.Context); projectID != "" {
-			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
-		}
-		return errorResponse("no store available")
-	}
-
+	projectID := projectIDFromContext(req.Context)
+	var st store.Store
 	var run *model.Run
 	var err error
 
-	if req.ShortId != "" {
-		run, err = st.GetRunByShortID(req.ShortId)
+	if projectID != "" {
+		st = s.resolveStoreFromContextOrProto(req.Context, "")
+		if st == nil {
+			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+		}
+
+		if req.ShortId != "" {
+			run, err = st.GetRunByShortID(req.ShortId)
+		} else {
+			ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+			run, err = st.GetRun(ref)
+		}
+		if err != nil {
+			return errorResponse(fmt.Sprintf("run not found: %v", err))
+		}
 	} else {
-		ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
-		run, err = st.GetRun(ref)
-	}
-	if err != nil {
-		return errorResponse(fmt.Sprintf("run not found: %v", err))
+		for _, candidateStore := range s.listStores() {
+			var (
+				resolved *model.Run
+				err      error
+			)
+
+			if req.ShortId != "" {
+				resolved, err = candidateStore.GetRunByShortID(req.ShortId)
+				if err != nil {
+					if isStoreNotFoundError(err) {
+						continue
+					}
+					if strings.Contains(strings.ToLower(err.Error()), "ambiguous") {
+						return errorResponse("ambiguous_short_id")
+					}
+					return errorResponse(fmt.Sprintf("run lookup failed: %v", err))
+				}
+			} else {
+				ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+				resolved, err = candidateStore.GetRun(ref)
+				if err != nil {
+					if isStoreNotFoundError(err) {
+						continue
+					}
+					return errorResponse(fmt.Sprintf("run lookup failed: %v", err))
+				}
+			}
+
+			if resolved == nil {
+				continue
+			}
+			if run != nil {
+				if req.ShortId != "" {
+					return errorResponse("ambiguous_short_id")
+				}
+				return errorResponse("ambiguous_run_ref")
+			}
+			run = resolved
+			st = candidateStore
+		}
+
+		if run == nil || st == nil {
+			return errorResponse("run not found")
+		}
 	}
 
 	content, err := st.ReadAgentPrompt(&model.RunRef{IssueID: run.IssueID, RunID: run.RunID})

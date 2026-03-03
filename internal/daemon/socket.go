@@ -126,7 +126,6 @@ type SendRequest struct {
 	RunID       string   `json:"run_id"`
 	Message     string   `json:"message"`
 	NoEnter     bool     `json:"no_enter,omitempty"`
-	IssuesRoot  string   `json:"issues_root,omitempty"`
 	ProjectRoot string   `json:"project_root,omitempty"`
 	RepoID      string   `json:"repo_id,omitempty"`
 	Status      []string `json:"status,omitempty"`
@@ -207,6 +206,16 @@ type SocketServer struct {
 	monitors   map[string]*MonitorConnection
 	monitorsMu sync.RWMutex
 
+	workers   map[string]*WorkerRegistration
+	workersMu sync.RWMutex
+
+	workerLeases       map[string]*WorkerLease
+	workerLeasesMu     sync.RWMutex
+	workerAuthToken    string
+	managedWorkers     map[string]*managedWorkerProcess
+	managedWorkersMu   sync.RWMutex
+	workerLaunchConfig func(workerID string) (string, []string, []string, error)
+
 	controlSessionLocks   map[string]*sync.Mutex
 	controlSessionLocksMu sync.Mutex
 
@@ -225,6 +234,13 @@ type managedServer struct {
 	LogPath     string
 	WaitResult  chan error
 	Adopted     bool
+}
+
+type managedWorkerProcess struct {
+	WorkerID  string
+	Process   *os.Process
+	PID       int
+	StartedAt time.Time
 }
 
 func serverPID(srv *managedServer) int {
@@ -250,9 +266,13 @@ func NewSocketServer(factory StoreFactory, logger Logger) *SocketServer {
 		logger:              logger,
 		stopCh:              make(chan struct{}),
 		monitors:            make(map[string]*MonitorConnection),
+		workers:             make(map[string]*WorkerRegistration),
+		workerLeases:        make(map[string]*WorkerLease),
 		repos:               make(map[string]*RepoContext),
 		controlSessionLocks: make(map[string]*sync.Mutex),
 		openCodeServers:     make(map[string]*managedServer),
+		managedWorkers:      make(map[string]*managedWorkerProcess),
+		workerAuthToken:     strings.TrimSpace(os.Getenv("ORCH_WORKER_AUTH_TOKEN")),
 	}
 	s.gitRunner = git.NewRunner()
 	s.procManager = newSocketProcessManager(s)
@@ -525,6 +545,17 @@ func (s *SocketServer) GetRepoContext(repoIDOrPath string) *RepoContext {
 
 	// Try to find by project root path
 	for _, ctx := range s.repos {
+		if strings.TrimSpace(ctx.RepoID) == repoIDOrPath {
+			return ctx
+		}
+		if projectRoot := strings.TrimSpace(ctx.ProjectRoot); projectRoot != "" {
+			if deriveRepoID(projectRoot) == repoIDOrPath {
+				return ctx
+			}
+			if id, err := xdg.RepoID(projectRoot); err == nil && strings.TrimSpace(id) == repoIDOrPath {
+				return ctx
+			}
+		}
 		if ctx.ProjectRoot == repoIDOrPath {
 			return ctx
 		}
@@ -545,8 +576,8 @@ func (s *SocketServer) GetAllRepoContexts() []*RepoContext {
 }
 
 func (s *SocketServer) resolveStore(req SendRequest) store.Store {
-	s.logger.Printf("resolveStore: type=%s repoID=%q projectRoot=%q issuesRoot=%q",
-		req.Type, req.RepoID, req.ProjectRoot, req.IssuesRoot)
+	s.logger.Printf("resolveStore: type=%s repoID=%q projectRoot=%q",
+		req.Type, req.RepoID, req.ProjectRoot)
 
 	if req.RepoID != "" {
 		if ctx := s.GetRepoContext(req.RepoID); ctx != nil {
@@ -556,6 +587,10 @@ func (s *SocketServer) resolveStore(req SendRequest) store.Store {
 	}
 
 	if req.ProjectRoot != "" {
+		if ctx := s.ensureRepoStoreByProjectRoot(req.ProjectRoot); ctx != nil && ctx.Store != nil {
+			s.logger.Printf("resolveStore: hydrated from projectRoot=%q", req.ProjectRoot)
+			return ctx.Store
+		}
 		repoID, _ := xdg.RepoID(req.ProjectRoot)
 		if repoID != "" {
 			if ctx := s.GetRepoContext(repoID); ctx != nil {
@@ -569,12 +604,66 @@ func (s *SocketServer) resolveStore(req SendRequest) store.Store {
 		}
 	}
 
-	if req.IssuesRoot != "" {
-		s.logger.Printf("resolveStore: creating store for issuesRoot=%q", req.IssuesRoot)
-		return s.getOrCreateStore(req.IssuesRoot, req.ProjectRoot)
+	s.logger.Printf("resolveStore: no store found (all fields empty or no match)")
+	return nil
+}
+
+func (s *SocketServer) ensureRepoStoreByProjectRoot(projectRoot string) *RepoContext {
+	projectRoot = strings.TrimSpace(projectRoot)
+	if projectRoot == "" {
+		return nil
 	}
 
-	s.logger.Printf("resolveStore: no store found (all fields empty or no match)")
+	if repoID, ok := decodeRepoIDToken(projectRoot); ok {
+		return s.ensureRepoStoreByID(repoID)
+	}
+
+	repoID, _ := xdg.RepoID(projectRoot)
+	if repoID != "" {
+		if ctx := s.ensureRepoStoreByID(repoID); ctx != nil && ctx.Store != nil {
+			return ctx
+		}
+	}
+
+	cfg, err := config.LoadFromProjectRoot(projectRoot)
+	if err != nil || cfg == nil {
+		return nil
+	}
+	issuesRoot := strings.TrimSpace(cfg.GetIssuesPath())
+	if issuesRoot == "" {
+		return nil
+	}
+	if s.storeFactory == nil {
+		return nil
+	}
+
+	st := s.getOrCreateStore(issuesRoot, projectRoot)
+	if st == nil {
+		return nil
+	}
+
+	if repoID != "" {
+		s.reposMu.Lock()
+		existing := s.repos[repoID]
+		if existing == nil {
+			existing = &RepoContext{ProjectRoot: projectRoot, RepoID: repoID, Store: st}
+			s.repos[repoID] = existing
+		} else {
+			if existing.ProjectRoot == "" {
+				existing.ProjectRoot = projectRoot
+			}
+			if existing.Store == nil {
+				existing.Store = st
+			}
+		}
+		s.reposMu.Unlock()
+		return existing
+	}
+
+	if ctx := s.GetRepoContext(projectRoot); ctx != nil {
+		return ctx
+	}
+
 	return nil
 }
 
@@ -599,8 +688,31 @@ func (s *SocketServer) ensureRepoStoreByID(repoID string) *RepoContext {
 	s.reposMu.RLock()
 	ctx := s.repos[repoID]
 	if ctx == nil {
-		s.reposMu.RUnlock()
-		return nil
+		for _, candidate := range s.repos {
+			if candidate == nil {
+				continue
+			}
+			if strings.TrimSpace(candidate.RepoID) == repoID {
+				ctx = candidate
+				break
+			}
+			projectRoot := strings.TrimSpace(candidate.ProjectRoot)
+			if projectRoot == "" {
+				continue
+			}
+			if deriveRepoID(projectRoot) == repoID {
+				ctx = candidate
+				break
+			}
+			if portableID, err := xdg.RepoID(projectRoot); err == nil && strings.TrimSpace(portableID) == repoID {
+				ctx = candidate
+				break
+			}
+		}
+		if ctx == nil {
+			s.reposMu.RUnlock()
+			return nil
+		}
 	}
 	if ctx.Store != nil {
 		s.reposMu.RUnlock()
@@ -765,6 +877,7 @@ func (s *SocketServer) Start() error {
 
 func (s *SocketServer) Stop() {
 	close(s.stopCh)
+	_, _ = s.stopManagedExternalWorker("", true)
 	s.StopAllOpenCodeServers()
 	if s.listener != nil {
 		s.listener.Close()
@@ -1700,7 +1813,7 @@ You can run orch commands directly via bash to manage issues and runs.
 
 ## Repository Context
 
-- IssuesRoot: %s
+- Issues path: %s
 - Working directory: %s
 
 ## Git Context
@@ -2440,8 +2553,8 @@ func (s *SocketServer) handleGetIssue(req SendRequest, encoder *json.Encoder) {
 	})
 }
 
-func SendViaDaemon(projectRoot, issuesRoot string, run *model.Run, message string, noEnter bool) error {
-	client := NewProtoClientWithIssuesRoot(projectRoot, issuesRoot)
+func SendViaDaemon(projectRoot, _ string, run *model.Run, message string, noEnter bool) error {
+	client := NewProtoClientLocal(projectRoot)
 	client.SetTimeout(35 * time.Second)
 	return client.SendMessage(run.IssueID, run.RunID, message)
 }
@@ -3889,7 +4002,7 @@ func (s *SocketServer) buildRunPrompt(issue *model.Issue, issuesRoot string, noP
 	return fmt.Sprintf(`## Context
 
 This file (ORCH_PROMPT.md) is auto-generated by orch. The original issue is at:
-- IssuesRoot: %s
+- Issues path: %s
 - Issue file: %s
 
 ## Issue

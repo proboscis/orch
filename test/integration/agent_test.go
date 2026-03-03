@@ -56,13 +56,20 @@ func runAgentCommand(t *testing.T, args ...string) error {
 
 	fullArgs := append([]string{
 		"--project-root", testRepo,
-		"--issues-root", testVault,
 		"agent",
 	}, args...)
 
 	cmd := exec.Command(orchBinary, fullArgs...)
 	cmd.Dir = testRepo
-	cmd.Env = append(os.Environ(), "TMUX=")
+	env := make([]string, 0, len(os.Environ())+2)
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "ORCH_REMOTE=") || strings.HasPrefix(kv, "ORCH_PROJECT_ROOT=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	env = append(env, "ORCH_PROJECT_ROOT="+testRepo, "TMUX=")
+	cmd.Env = env
 
 	done := make(chan error, 1)
 	go func() {
@@ -162,9 +169,16 @@ func TestAgentOpenCodeNoMultiplexer(t *testing.T) {
 
 	cmd := exec.Command(orchBinary,
 		"--project-root", testRepo,
-		"--issues-root", testVault,
 		"agent", "--backend", "opencode")
 	cmd.Dir = testRepo
+	env := make([]string, 0, len(os.Environ())+1)
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "ORCH_REMOTE=") || strings.HasPrefix(kv, "ORCH_PROJECT_ROOT=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	cmd.Env = append(env, "ORCH_PROJECT_ROOT="+testRepo)
 
 	cmd.Start()
 	time.Sleep(1 * time.Second)
