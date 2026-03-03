@@ -44,9 +44,6 @@ var runSortKeyCycle = []SortKey{SortByUpdated, SortByStarted, SortByStatus, Sort
 // issueSortKeyCycle defines the cycle order for issue sorting
 var issueSortKeyCycle = []SortKey{SortByName, SortByStatus, SortByTitle, SortByPriority, SortByUpdated}
 
-// Legacy cycle for backward compatibility
-var sortKeyCycle = []SortKey{SortByName, SortByUpdated, SortByStatus}
-
 func ParseSortKey(value string, fallback SortKey) (SortKey, error) {
 	trimmed := strings.TrimSpace(strings.ToLower(value))
 	if trimmed == "" {
@@ -114,15 +111,6 @@ func IsValidIssueSortKey(key SortKey) bool {
 	}
 }
 
-func NextSortKey(current SortKey) SortKey {
-	for i, key := range sortKeyCycle {
-		if key == current {
-			return sortKeyCycle[(i+1)%len(sortKeyCycle)]
-		}
-	}
-	return sortKeyCycle[0]
-}
-
 func NextRunSortKey(current SortKey) SortKey {
 	for i, key := range runSortKeyCycle {
 		if key == current {
@@ -158,16 +146,16 @@ func SortIndicator(dir SortDirection) string {
 }
 
 var runStatusOrder = map[model.Status]int{
-	model.StatusRunning:    0,
-	model.StatusWaiting:    1,
+	model.StatusRunning:     0,
+	model.StatusWaiting:     1,
 	model.StatusRateLimited: 2,
-	model.StatusBooting:    3,
-	model.StatusQueued:     4,
-	model.StatusPROpen:     5,
-	model.StatusDone:       6,
-	model.StatusFailed:     7,
-	model.StatusCanceled:   8,
-	model.StatusUnknown:    9,
+	model.StatusBooting:     3,
+	model.StatusQueued:      4,
+	model.StatusPROpen:      5,
+	model.StatusDone:        6,
+	model.StatusFailed:      7,
+	model.StatusCanceled:    8,
+	model.StatusUnknown:     9,
 }
 
 var issueStatusOrder = map[model.IssueStatus]int{

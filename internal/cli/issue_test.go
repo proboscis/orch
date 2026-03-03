@@ -7,6 +7,28 @@ import (
 	"testing"
 )
 
+func setIssueRootConfig(t *testing.T, issuesRoot string) {
+	t.Helper()
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0o755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	configBody := []byte("issues:\n  path: " + issuesRoot + "\n")
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), configBody, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir repo: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+}
+
 func TestRunIssueCreatePrefersExistingIssuesDir(t *testing.T) {
 	vault := t.TempDir()
 	issuesDir := filepath.Join(vault, "Issues")
@@ -15,9 +37,9 @@ func TestRunIssueCreatePrefersExistingIssuesDir(t *testing.T) {
 	}
 
 	prev := *globalOpts
-	globalOpts.IssuesRoot = vault
 	globalOpts.JSON = false
 	globalOpts.Quiet = true
+	setIssueRootConfig(t, vault)
 	testBypassDaemon = true
 	t.Cleanup(func() {
 		*globalOpts = prev
@@ -44,9 +66,9 @@ func TestRunIssueCreateUsesVaultIssuesDir(t *testing.T) {
 	}
 
 	prev := *globalOpts
-	globalOpts.IssuesRoot = issuesDir
 	globalOpts.JSON = false
 	globalOpts.Quiet = true
+	setIssueRootConfig(t, issuesDir)
 	testBypassDaemon = true
 	t.Cleanup(func() {
 		*globalOpts = prev
@@ -119,9 +141,9 @@ func TestRunIssueCreateQuotesSpecialCharacters(t *testing.T) {
 	}
 
 	prev := *globalOpts
-	globalOpts.IssuesRoot = vault
 	globalOpts.JSON = false
 	globalOpts.Quiet = true
+	setIssueRootConfig(t, vault)
 	testBypassDaemon = true
 	t.Cleanup(func() {
 		*globalOpts = prev

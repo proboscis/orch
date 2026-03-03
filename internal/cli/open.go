@@ -45,14 +45,16 @@ Examples:
 func runOpen(refStr string, opts *openOptions) error {
 	ctx := context.Background()
 
-	api, err := getAPI()
+	api, err := getAPIForListing()
 	if err != nil {
 		return err
 	}
 
-	issuesRoot, err := getIssuesRoot()
-	if err != nil {
-		return err
+	issuesRoot := ""
+	if projectRoot, _, rootErr := getProjectRootWithSource(); rootErr == nil && projectRoot != "" {
+		if resolvedRoot, issuesErr := getIssuesRootForProject(projectRoot); issuesErr == nil {
+			issuesRoot = resolvedRoot
+		}
 	}
 
 	var path string
@@ -65,7 +67,7 @@ func runOpen(refStr string, opts *openOptions) error {
 	if ref.IsShortID() {
 		run, err := api.ResolveRun(ctx, ref)
 		if err == nil {
-			path = filepath.Join(issuesRoot, "runs", run.IssueID, run.RunID+".md")
+			path = deriveRunDocPath(ctx, api, run, issuesRoot)
 		} else if len(refStr) == 6 {
 			return err
 		}
@@ -76,14 +78,17 @@ func runOpen(refStr string, opts *openOptions) error {
 			issue, err := api.GetIssue(ctx, ref.IssueID)
 			if err == nil && issue.Path != "" {
 				path = issue.Path
-			} else if err == nil {
+			} else if err == nil && issuesRoot != "" {
 				path = filepath.Join(issuesRoot, "issues", issue.ID+".md")
 			} else {
 				run, err := api.GetLatestRun(ctx, ref.IssueID)
 				if err != nil {
 					return fmt.Errorf("not found: %s", refStr)
 				}
-				path = filepath.Join(issuesRoot, "runs", run.IssueID, run.RunID+".md")
+				path = deriveRunDocPath(ctx, api, run, issuesRoot)
+				if path == "" {
+					return fmt.Errorf("run document path unavailable for %s#%s", run.IssueID, run.RunID)
+				}
 			}
 		} else {
 			run, err := api.GetRun(ctx, ref.IssueID, ref.RunID)
@@ -91,8 +96,15 @@ func runOpen(refStr string, opts *openOptions) error {
 				os.Exit(ExitRunNotFound)
 				return err
 			}
-			path = filepath.Join(issuesRoot, "runs", run.IssueID, run.RunID+".md")
+			path = deriveRunDocPath(ctx, api, run, issuesRoot)
+			if path == "" {
+				return fmt.Errorf("run document path unavailable for %s#%s", run.IssueID, run.RunID)
+			}
 		}
+	}
+
+	if issuesRoot == "" {
+		issuesRoot = deriveIssuesRootFromPath(path)
 	}
 
 	if globalOpts.JSON {
@@ -116,6 +128,51 @@ func runOpen(refStr string, opts *openOptions) error {
 	return openFile(path, opts.App, issuesRoot)
 }
 
+func deriveRunDocPath(ctx context.Context, api orchapi.OrchAPI, run *orchapi.Run, issuesRoot string) string {
+	if run == nil {
+		return ""
+	}
+	if issuesRoot != "" {
+		return filepath.Join(issuesRoot, "runs", run.IssueID, run.RunID+".md")
+	}
+
+	issue, err := api.GetIssue(ctx, run.IssueID)
+	if err != nil || issue == nil {
+		return ""
+	}
+
+	derivedRoot := deriveIssuesRootFromPath(issue.Path)
+	if derivedRoot == "" {
+		return ""
+	}
+
+	return filepath.Join(derivedRoot, "runs", run.IssueID, run.RunID+".md")
+}
+
+func deriveIssuesRootFromPath(path string) string {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return ""
+	}
+
+	if strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") || strings.HasPrefix(trimmed, "obsidian://") {
+		return ""
+	}
+
+	clean := filepath.Clean(trimmed)
+	dir := filepath.Dir(clean)
+	if filepath.Base(dir) == "issues" {
+		return filepath.Dir(dir)
+	}
+
+	parent := filepath.Dir(dir)
+	if filepath.Base(parent) == "runs" {
+		return filepath.Dir(parent)
+	}
+
+	return ""
+}
+
 func openFile(path, app, issuesRoot string) error {
 	switch app {
 	case "obsidian":
@@ -134,6 +191,10 @@ func openFile(path, app, issuesRoot string) error {
 }
 
 func openInObsidian(path, issuesRoot string) error {
+	if strings.TrimSpace(issuesRoot) == "" {
+		return fmt.Errorf("issues root not available for obsidian link")
+	}
+
 	// Obsidian URI format: obsidian://open?vault=NAME&file=PATH
 	// The path should be relative to the vault
 	relPath := strings.TrimPrefix(path, issuesRoot)

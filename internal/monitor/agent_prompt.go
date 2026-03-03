@@ -27,7 +27,7 @@ You can run orch commands directly via bash to manage issues and runs.
 
 ## Repository Context
 
-- IssuesRoot: {{.IssuesRoot}}
+- Issues path: {{.IssuesRoot}}
 - Working directory: {{.WorkDir}}
 
 ## Git Context
@@ -526,13 +526,6 @@ func sortIssuesByID(issues []*model.Issue) {
 		// Fall back to string comparison
 		return issues[i].ID < issues[j].ID
 	})
-}
-
-// buildAgentChatPrompt is kept for backwards compatibility but now generates dynamic content
-// Deprecated: use buildControlAgentPrompt with store access instead
-func buildAgentChatPrompt(issuesRoot string) string {
-	cwd, _ := os.Getwd()
-	return buildFallbackControlPrompt(issuesRoot, cwd)
 }
 
 func fallbackChatCommand(reason string) string {

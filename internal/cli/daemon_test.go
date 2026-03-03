@@ -44,7 +44,6 @@ func setIsolatedXDG(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(base, "data"))
 	t.Setenv("ORCH_REMOTE", "")
 	t.Setenv("ORCH_PROJECT_ROOT", "")
-	t.Setenv("ORCH_ISSUES_ROOT", "")
 }
 
 func TestRunDaemonStatusWithoutProjectRoot(t *testing.T) {

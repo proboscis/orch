@@ -129,10 +129,10 @@
     "configuration": {
       "title": "Orch",
       "properties": {
-        "orch.vaultPath": {
+        "orch.projectRoot": {
           "type": "string",
           "default": "",
-          "description": "Path to the orch vault (fallback when .orch/config.yaml is missing)."
+          "description": "Explicit project root path for orch commands (defaults to first workspace folder)."
         },
         "orch.refreshInterval": {
           "type": "number",

@@ -39,7 +39,7 @@ RUN_REF can be ISSUE_ID#RUN_ID or just ISSUE_ID (for latest run).`,
 }
 
 func runShow(refStr string, opts *showOptions) error {
-	api, err := getAPI()
+	api, err := getAPIForListing()
 	if err != nil {
 		return err
 	}

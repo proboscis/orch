@@ -579,7 +579,6 @@ func resolvePathFromConfig(path, baseDir string) string {
 // Precedence:
 // 1. ORCH_PROJECT_ROOT environment variable (must contain .orch/ directory)
 // 2. Directory containing .orch/config.yaml (searched upward from cwd)
-// 3. ORCH_VAULT as legacy fallback (only if it contains .orch/ directory)
 func GetProjectRoot() (string, error) {
 	if v := os.Getenv("ORCH_PROJECT_ROOT"); v != "" {
 		resolved := ExpandPath(v, "")
@@ -598,13 +597,6 @@ func GetProjectRoot() (string, error) {
 		return filepath.Dir(orchDir), nil
 	}
 
-	if v := os.Getenv("ORCH_VAULT"); v != "" {
-		resolved := ExpandPath(v, "")
-		if hasOrchDir(resolved) {
-			return resolved, nil
-		}
-	}
-
 	return "", fmt.Errorf("project root not found (no .orch/config.yaml in current or parent directories)")
 }
 
@@ -616,9 +608,6 @@ func hasOrchDir(path string) bool {
 
 // applyEnv applies environment variables to config
 func applyEnv(cfg *Config) {
-	if v := os.Getenv("ORCH_ISSUES_ROOT"); v != "" {
-		cfg.Issues.Path = v
-	}
 	if v := os.Getenv("ORCH_AGENT"); v != "" {
 		cfg.Agent = v
 	}

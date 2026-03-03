@@ -47,7 +47,7 @@ The diff tool is selected in priority order:
 func runDiff(refStr string, opts *diffOptions) error {
 	ctx := context.Background()
 
-	api, err := getAPI()
+	api, err := getAPIForListing()
 	if err != nil {
 		return err
 	}
@@ -75,8 +75,7 @@ func runDiff(refStr string, opts *diffOptions) error {
 		return err
 	}
 
-	projectRoot, _ := getProjectRoot()
-	cfg, err := api.GetConfig(ctx, projectRoot)
+	cfg, err := api.GetConfig(ctx, "")
 	if err != nil {
 		cfg = nil
 	}

@@ -186,10 +186,10 @@ def _build_local_control_agent_command(
 
 def _get_daemon_client(project_root: Path | None) -> "ProtoDaemonClient | None":
     try:
-        config = Config.from_vault(project_root) if project_root else Config.load()
-        daemon = ProtoDaemonClient(
-            config.socket_path, config.issues_root, config.project_root
+        config = (
+            Config.from_project_root(project_root) if project_root else Config.load()
         )
+        daemon = ProtoDaemonClient(config.socket_path, config.project_root)
         if daemon.is_available():
             return daemon
     except Exception as e:
@@ -199,8 +199,10 @@ def _get_daemon_client(project_root: Path | None) -> "ProtoDaemonClient | None":
 
 def _get_orch_api(project_root: Path | None) -> OrchAPI | None:
     try:
-        config = Config.from_vault(project_root) if project_root else Config.load()
-        api = create_orch_api(config.socket_path, config.issues_root)
+        config = (
+            Config.from_project_root(project_root) if project_root else Config.load()
+        )
+        api = create_orch_api(config.socket_path, config.project_root)
         if api.is_available():
             return api
     except Exception as e:
@@ -347,17 +349,6 @@ def query_latest_opencode_session(
         return None
 
 
-def get_issues_root(args) -> Path | None:
-    if getattr(args, "issues_root", None):
-        return args.issues_root
-    if getattr(args, "vault", None):
-        return args.vault
-    env_issues_root = os.getenv("ORCH_ISSUES_ROOT") or os.getenv("ORCH_VAULT")
-    if env_issues_root:
-        return Path(env_issues_root)
-    return None
-
-
 def get_project_root(args) -> Path | None:
     """Get project root from args or environment."""
     if hasattr(args, "project_root") and args.project_root:
@@ -390,12 +381,10 @@ def _resolve_orch_binary() -> str:
     return "orch"
 
 
-def _orch_scope_args(project_root: Path | None, issues_root: Path | None) -> list[str]:
+def _orch_scope_args(project_root: Path | None) -> list[str]:
     args: list[str] = []
     if project_root:
         args.extend(["--project-root", str(project_root)])
-    if issues_root:
-        args.extend(["--issues-root", str(issues_root)])
     return args
 
 
@@ -453,18 +442,12 @@ def _wait_for_daemon(daemon: ProtoDaemonClient) -> bool:
     return False
 
 
-def ensure_daemon(
-    project_root: Path | None, issues_root: Path | None
-) -> tuple[bool, str]:
+def ensure_daemon(project_root: Path | None) -> tuple[bool, str]:
     if project_root:
         config = Config.from_project_root(project_root)
-        if issues_root:
-            config.issues_root = issues_root
-    elif issues_root:
-        config = Config.from_issues_root(issues_root)
     else:
         config = Config.load()
-    daemon = ProtoDaemonClient(config.socket_path, config.issues_root)
+    daemon = ProtoDaemonClient(config.socket_path, config.project_root)
     socket_path = config.socket_path
 
     if daemon.is_available():
@@ -473,7 +456,7 @@ def ensure_daemon(
     print(f"Daemon socket not found at {socket_path}", file=sys.stderr)
     print("Starting orch daemon...", file=sys.stderr)
 
-    scope_args = _orch_scope_args(project_root, issues_root)
+    scope_args = _orch_scope_args(project_root)
 
     started, start_error = _start_daemon_process(scope_args)
     if started and _wait_for_daemon(daemon):
@@ -553,7 +536,7 @@ class LayoutLauncher(Protocol):
         Args:
             session_name: Name of the multiplexer session
             project_root: Path to project root
-            vault_path: Path to issues root
+            vault_path: Deprecated and unused issues root path
             agent: Fallback agent command to use
             cwd: Working directory
             new_control_agent: If True, start fresh control agent session.
@@ -594,15 +577,11 @@ class TmuxLayoutLauncher:
         orch_args = ""
         if project_root:
             orch_args += f"--project-root {project_root} "
-        if vault_path:
-            orch_args += f"--vault {vault_path} "
         orch_args = orch_args.strip()
 
         env_export = ""
         if project_root:
             env_export += f"export ORCH_PROJECT_ROOT='{project_root}'; "
-        if vault_path:
-            env_export += f"export ORCH_VAULT='{vault_path}'; "
 
         subprocess.run(
             [
@@ -764,8 +743,6 @@ class ZellijLayoutLauncher:
         orch_args = ""
         if project_root:
             orch_args += f"--project-root {project_root} "
-        if vault_path:
-            orch_args += f"--vault {vault_path} "
         orch_args = orch_args.strip()
 
         runs_cmd = f"{python_exec} -m orch_monitor --runs {orch_args}".strip()
@@ -834,9 +811,6 @@ layout {{
         env = os.environ.copy()
         if project_root:
             env["ORCH_PROJECT_ROOT"] = str(project_root)
-        if vault_path:
-            env["ORCH_VAULT"] = str(vault_path)
-
         inside_zellij = os.environ.get("ZELLIJ_SESSION_NAME") is not None
         for var in ("ZELLIJ", "ZELLIJ_SESSION_NAME", "ZELLIJ_PANE_ID"):
             removed = env.pop(var, None)
@@ -941,7 +915,7 @@ def launch_monitor_layout(
 
     Args:
         project_root: Path to project root
-        vault_path: Path to issues root
+        vault_path: Deprecated, unused compatibility argument
         agent: Agent command to use (default: opencode)
         new: If True, restart the layout (kill existing session)
         new_control_agent: If True, also restart the control agent session.
@@ -954,7 +928,7 @@ def launch_monitor_layout(
     """
     _setup_launcher_logging()
     _launcher_logger.info(
-        f"launch_monitor_layout: project_root={project_root}, vault_path={vault_path}, new={new}, new_control_agent={new_control_agent}"
+        f"launch_monitor_layout: project_root={project_root}, new={new}, new_control_agent={new_control_agent}"
     )
 
     # Phase 1: Detect and validate multiplexer
@@ -976,7 +950,7 @@ def launch_monitor_layout(
 
         launcher = get_layout_launcher(multiplexer)
         cwd = os.getcwd()
-        session_name = get_session_name(project_root or vault_path)
+        session_name = get_session_name(project_root)
         _launcher_logger.info(f"session_name={session_name}, cwd={cwd}")
 
         # Phase 2: Check for existing session
@@ -1080,7 +1054,7 @@ def launch_monitor_layout(
     launcher.launch_layout(
         session_name,
         project_root,
-        vault_path,
+        None,
         agent,
         cwd,
         new_control_agent,
@@ -1091,17 +1065,6 @@ def launch_monitor_layout(
 
 def main():
     parser = argparse.ArgumentParser(description="Orch monitor TUI")
-    parser.add_argument(
-        "--issues-root",
-        type=Path,
-        dest="issues_root",
-        help="Path to issues root directory for file-based issues",
-    )
-    parser.add_argument(
-        "--vault",
-        type=Path,
-        help="(Deprecated, use --issues-root) Path to issues root directory",
-    )
     parser.add_argument(
         "--project-root",
         type=Path,
@@ -1161,7 +1124,6 @@ def main():
         def _log(msg: str) -> None:
             pass
 
-    vault_path = get_issues_root(args)
     project_root = get_project_root(args)
 
     # Determine if we should show spinners (only for layout mode, not single panes)
@@ -1175,7 +1137,7 @@ def main():
 
     # Show onboarding if unconfigured (only for full layout mode, not single panes)
     if show_spinner:
-        if not config_state.has_orch_dir or not config_state.has_issues_path:
+        if not config_state.has_orch_dir or not config_state.has_config_file:
             from .app import OnboardingApp
 
             _log("showing onboarding screen - config not found")
@@ -1186,12 +1148,10 @@ def main():
                 sys.exit(0)
             # Refresh paths after onboarding
             config_state = detect_configuration_state()
-            if config_state.issues_path:
-                vault_path = config_state.issues_path
 
     _log("ensuring daemon...")
     with _spinner_context("Connecting to daemon...", enabled=show_spinner):
-        success, error_msg = ensure_daemon(project_root, vault_path)
+        success, error_msg = ensure_daemon(project_root)
     if not success:
         print(f"Error: {error_msg}", file=sys.stderr)
         print("Try running 'orch repair' to fix.", file=sys.stderr)
@@ -1201,20 +1161,16 @@ def main():
     _log("loading config...")
     if project_root:
         config = Config.from_project_root(project_root)
-        if vault_path:
-            config.issues_root = vault_path
-    elif vault_path:
-        config = Config.from_issues_root(vault_path)
     else:
         config = Config.load()
     setup_logging(config.log_path)
     _log("config loaded")
 
     if args.runs:
-        app = RunsDashboard(issues_root=vault_path)
+        app = RunsDashboard(project_root=project_root)
         app.run()
     elif args.issues:
-        app = IssuesDashboard(issues_root=vault_path)
+        app = IssuesDashboard(project_root=project_root)
         app.run()
     else:
         mux_type = None
@@ -1231,7 +1187,7 @@ def main():
         _log(f"using agent: {agent}")
         launch_monitor_layout(
             project_root,
-            vault_path,
+            None,
             agent,
             new,
             args.new_control_agent,

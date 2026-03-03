@@ -165,7 +165,7 @@ func TestProtoClientIsAvailableRemoteReusesSingleTCPConnection(t *testing.T) {
 		}
 	}()
 
-	client := NewProtoClientWithAddress("/tmp/project", "", listener.Addr().String())
+	client := NewProtoClientWithAddress("/tmp/project", listener.Addr().String())
 	if !client.IsAvailable() {
 		t.Fatalf("first IsAvailable() = false, want true")
 	}

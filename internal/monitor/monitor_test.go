@@ -105,9 +105,9 @@ func TestSessionNameForProject(t *testing.T) {
 		},
 		{
 			name:        "path with dots replaced",
-			projectPath: "/home/user/.vault",
-			wantStart:   "orch--vault-",
-			wantLen:     len("orch--vault-") + 6,
+			projectPath: "/home/user/.project",
+			wantStart:   "orch--project-",
+			wantLen:     len("orch--project-") + 6,
 		},
 		{
 			name:        "path with spaces replaced",

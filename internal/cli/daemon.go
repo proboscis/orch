@@ -85,7 +85,7 @@ func newDaemonRepoListCmd() *cobra.Command {
 func requireDaemonAdminClient() (*daemon.ProtoClient, error) {
 	remoteAddr := getRemoteAddr()
 	if remoteAddr != "" {
-		client := daemon.NewProtoClientWithAddress("", "", remoteAddr)
+		client := daemon.NewProtoClientWithAddress("", remoteAddr)
 		if err := client.Ping(); err != nil {
 			_ = client.Close()
 			return nil, fmt.Errorf("remote daemon %s is not reachable: %w", remoteAddr, err)
@@ -93,7 +93,7 @@ func requireDaemonAdminClient() (*daemon.ProtoClient, error) {
 		return client, nil
 	}
 
-	client := daemon.NewProtoClientWithAddress("", "", "")
+	client := daemon.NewProtoClientWithAddress("", "")
 	if client.IsAvailable() {
 		return client, nil
 	}
@@ -159,9 +159,9 @@ func runDaemonRepoList() error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "REPO_ID\tPROJECT_ROOT\tISSUES_ROOT")
+	fmt.Fprintln(w, "REPO_ID\tPROJECT_ROOT")
 	for _, r := range repos {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", r["repo_id"], r["project_root"], r["issues_root"])
+		fmt.Fprintf(w, "%s\t%s\n", r["repo_id"], r["project_root"])
 	}
 	return w.Flush()
 }
@@ -309,7 +309,7 @@ func runDaemonKill(opts *daemonKillOptions) error {
 func runDaemonStatus() error {
 	remoteAddr := getRemoteAddr()
 	if remoteAddr != "" {
-		client := daemon.NewProtoClientWithAddress("", "", remoteAddr)
+		client := daemon.NewProtoClientWithAddress("", remoteAddr)
 		defer client.Close()
 
 		if err := client.Ping(); err != nil {
@@ -427,21 +427,16 @@ var testBypassDaemon bool
 func requireDaemon() (*daemon.ProtoClient, error) {
 	remoteAddr := getRemoteAddr()
 
-	projectRoot, err := getProjectRoot()
+	projectRoot, explicitProjectRoot, err := getProjectRootWithSource()
 	if err != nil {
-		if remoteAddr == "" {
-			return nil, err
-		}
+		projectRoot = ""
+	}
+	if !explicitProjectRoot {
 		projectRoot = ""
 	}
 
-	issuesRoot, err := getIssuesRootForClient(remoteAddr)
-	if err != nil {
-		return nil, err
-	}
-
 	if remoteAddr != "" {
-		client := daemon.NewProtoClientWithAddress(projectRoot, issuesRoot, remoteAddr)
+		client := daemon.NewProtoClientWithAddress(projectRoot, remoteAddr)
 		if err := client.Ping(); err != nil {
 			_ = client.Close()
 			return nil, fmt.Errorf("remote daemon %s is not reachable: %w", remoteAddr, err)
@@ -449,7 +444,7 @@ func requireDaemon() (*daemon.ProtoClient, error) {
 		return client, nil
 	}
 
-	client := daemon.NewProtoClientWithIssuesRoot(projectRoot, issuesRoot)
+	client := daemon.NewProtoClientLocal(projectRoot)
 	if client.IsAvailable() {
 		return client, nil
 	}

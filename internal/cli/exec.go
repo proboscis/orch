@@ -114,10 +114,10 @@ func runExecWithDeps(ctx context.Context, refStr string, cmdArgs []string, opts 
 	// Resolve worktree path - may be stored as relative path
 	worktreePath := run.WorktreePath
 	if !filepath.IsAbs(worktreePath) {
-		// Find main repo root (not worktree root) to resolve relative path
-		repoRoot, err := getProjectRoot()
+		// Resolve relative path against explicit project scope.
+		repoRoot, err := resolveExplicitProjectScope("", "")
 		if err != nil {
-			return fmt.Errorf("could not find project root: %w", err)
+			return fmt.Errorf("project scope required to resolve relative worktree path: %w", err)
 		}
 		worktreePath = filepath.Join(repoRoot, worktreePath)
 	}
@@ -128,24 +128,27 @@ func runExecWithDeps(ctx context.Context, refStr string, cmdArgs []string, opts 
 		return fmt.Errorf("worktree does not exist: %s", worktreePath)
 	}
 
-	// Get vault path for environment
-	issuesRoot, err := getIssuesRoot()
-	if err != nil {
-		return err
-	}
-
 	// Build environment
 	env := os.Environ()
 
 	if !opts.NoOrchEnv {
-		runPath := filepath.Join(issuesRoot, "runs", run.IssueID, run.RunID+".md")
+		projectRoot, err := resolveExplicitProjectScope("", "")
+		if err != nil {
+			return fmt.Errorf("project scope required to build orch runtime env: %w", err)
+		}
+		issuesRoot, err := getIssuesRootForProjectIfConfigured(projectRoot)
+		if err != nil {
+			return err
+		}
 		orchEnv := []string{
 			fmt.Sprintf("ORCH_ISSUE_ID=%s", run.IssueID),
 			fmt.Sprintf("ORCH_RUN_ID=%s", run.RunID),
-			fmt.Sprintf("ORCH_RUN_PATH=%s", runPath),
 			fmt.Sprintf("ORCH_WORKTREE_PATH=%s", worktreePath),
 			fmt.Sprintf("ORCH_BRANCH=%s", run.Branch),
-			fmt.Sprintf("ORCH_VAULT=%s", issuesRoot),
+		}
+		if issuesRoot != "" {
+			runPath := filepath.Join(issuesRoot, "runs", run.IssueID, run.RunID+".md")
+			orchEnv = append(orchEnv, fmt.Sprintf("ORCH_RUN_PATH=%s", runPath))
 		}
 		env = append(env, orchEnv...)
 	}

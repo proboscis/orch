@@ -54,7 +54,7 @@ It shows:
 
 func runDebug(ref string) error {
 	ctx := context.Background()
-	api, err := getAPI()
+	api, err := getAPIForListing()
 	if err != nil {
 		return err
 	}

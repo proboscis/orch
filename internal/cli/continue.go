@@ -96,17 +96,14 @@ func runContinue(refStr string, opts *continueOptions) error {
 }
 
 func runContinueWithDeps(ctx context.Context, refStr string, opts *continueOptions, deps *continueDeps) error {
+	repoRoot, err := resolveExplicitProjectScope(opts.RepoRoot, "--repo-root")
+	if err != nil {
+		return exitWithCode(err, ExitWorktreeError)
+	}
+
 	api, err := deps.getAPI()
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)
-	}
-
-	repoRoot := opts.RepoRoot
-	if repoRoot == "" {
-		repoRoot, err = getProjectRoot()
-		if err != nil {
-			return exitWithCode(fmt.Errorf("could not find project root: %w", err), ExitWorktreeError)
-		}
 	}
 
 	cfg, err := api.GetConfig(ctx, repoRoot)

@@ -276,7 +276,6 @@ class DaemonOrchAPI:
     def __init__(
         self,
         socket_path: Optional[Path] = None,
-        issues_root: Optional[Path] = None,
         project_root: Optional[Path] = None,
         base_branch: str = "main",
     ):
@@ -285,25 +284,20 @@ class DaemonOrchAPI:
 
             config = Config.load()
             socket_path = config.socket_path
-            if issues_root is None:
-                issues_root = config.issues_root
             if project_root is None:
                 project_root = config.project_root
 
         self._socket_path = socket_path
-        self._issues_root = issues_root
         self._project_root = project_root or Path.cwd()
         self._base_branch = base_branch
-        self._daemon = ProtoDaemonClient(socket_path, issues_root, self._project_root)
+        self._daemon = ProtoDaemonClient(socket_path, self._project_root)
         self._monitor_heartbeat: Optional[MonitorHeartbeat] = None
 
     def _build_orch_cmd(self) -> list[str]:
-        """Build base orch command with project/issues root args."""
+        """Build base orch command with project scope args."""
         cmd = ["orch"]
         if self._project_root:
             cmd.extend(["--project-root", str(self._project_root)])
-        if self._issues_root:
-            cmd.extend(["--issues-root", str(self._issues_root)])
         return cmd
 
     # === Lifecycle ===

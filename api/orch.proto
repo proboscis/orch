@@ -127,7 +127,6 @@ message RequestContext {
 // --- Runs ---
 
 message ListRunsRequest {
-  string issues_root = 1;
   string issue_id = 2;
   repeated RunStatus status = 3;
   string agent = 4;
@@ -146,7 +145,6 @@ message ListRunsResponse {
 }
 
 message GetRunRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   RequestContext context = 4;
@@ -158,7 +156,6 @@ message GetRunResponse {
 }
 
 message StartRunRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string agent = 3;
   string model = 4;
@@ -190,7 +187,6 @@ message StartRunResponse {
 }
 
 message CreateRunRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   map<string, string> metadata = 4;
@@ -204,7 +200,6 @@ message CreateRunResponse {
 }
 
 message StopRunRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   RequestContext context = 4;
@@ -213,7 +208,6 @@ message StopRunRequest {
 message StopRunResponse {}
 
 message ResolveRunRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   RequestContext context = 4;
@@ -224,7 +218,6 @@ message ResolveRunResponse {}
 // --- Issues ---
 
 message ListIssuesRequest {
-  string issues_root = 1;
   repeated IssueStatus status = 2;
   repeated string tags = 3;
   string tags_mode = 4;  // "and" or "or"
@@ -241,7 +234,6 @@ message ListIssuesResponse {
 }
 
 message GetIssueRequest {
-  string issues_root = 1;
   string issue_id = 2;
   RequestContext context = 3;
 }
@@ -251,7 +243,6 @@ message GetIssueResponse {
 }
 
 message CreateIssueRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string title = 3;
   string body = 4;
@@ -264,7 +255,6 @@ message CreateIssueResponse {
 }
 
 message CloseIssueRequest {
-  string issues_root = 1;
   string issue_id = 2;
   RequestContext context = 3;
 }
@@ -304,7 +294,6 @@ message GetControlAgentConfigResponse {
 // --- Session Operations ---
 
 message GetAttachInfoRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   string short_id = 4;
@@ -325,7 +314,6 @@ message GetAttachInfoResponse {
 }
 
 message CaptureSessionRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   RequestContext context = 4;
@@ -338,7 +326,6 @@ message CaptureSessionResponse {
 }
 
 message SendMessageRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   string message = 4;
@@ -350,7 +337,6 @@ message SendMessageResponse {}
 // --- Git Operations ---
 
 message GetDiffStatsRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   RequestContext context = 4;
@@ -361,7 +347,6 @@ message GetDiffStatsResponse {
 }
 
 message GetBranchStateRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   RequestContext context = 4;
@@ -372,7 +357,6 @@ message GetBranchStateResponse {
 }
 
 message GetDiffRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   RequestContext context = 4;
@@ -439,10 +423,115 @@ message KillMonitorResponse {
   int32 killed_count = 1;
 }
 
+// --- Worker Plane Protocol ---
+
+message RegisterWorkerRequest {
+  string worker_id = 1;
+  string worker_type = 2;
+  string host = 3;
+  string mode = 4;
+  string auth_token = 5;
+  repeated string capabilities = 6;
+}
+
+message RegisterWorkerResponse {
+  string worker_id = 1;
+  int64 heartbeat_ttl_seconds = 2;
+}
+
+message UnregisterWorkerRequest {
+  string worker_id = 1;
+}
+
+message UnregisterWorkerResponse {}
+
+message WorkerHeartbeatRequest {
+  string worker_id = 1;
+  string auth_token = 2;
+}
+
+message WorkerHeartbeatResponse {
+  int64 heartbeat_ttl_seconds = 1;
+}
+
+message ListWorkersRequest {}
+
+message WorkerInfo {
+  string id = 1;
+  string worker_type = 2;
+  string host = 3;
+  string mode = 4;
+  int64 registered_at_unix = 5;
+  int64 last_heartbeat_unix = 6;
+  bool active = 7;
+  repeated string capabilities = 8;
+}
+
+message ListWorkersResponse {
+  repeated WorkerInfo workers = 1;
+}
+
+message LeaseWorkRequest {
+  string worker_id = 1;
+  string auth_token = 2;
+}
+
+message LeaseWorkResponse {
+  string lease_id = 1;
+  string worker_id = 2;
+  string project_id = 3;
+  string effect = 4;
+  string issue_id = 5;
+  string run_id = 6;
+  int64 leased_at_unix = 7;
+  int64 expires_at_unix = 8;
+  string payload_json = 9;
+}
+
+message AcknowledgeEffectRequest {
+  string worker_id = 1;
+  string lease_id = 2;
+  bool success = 3;
+  string error = 4;
+  string result_json = 5;
+  string auth_token = 6;
+}
+
+message AcknowledgeEffectResponse {}
+
+message StartExternalWorkerRequest {
+  string worker_id = 1;
+}
+
+message StartExternalWorkerResponse {
+  string worker_id = 1;
+  int32 pid = 2;
+}
+
+message StopExternalWorkerRequest {
+  string worker_id = 1;
+  bool all = 2;
+}
+
+message StopExternalWorkerResponse {
+  int32 stopped_count = 1;
+}
+
+message ListExternalWorkersRequest {}
+
+message ExternalWorkerProcessInfo {
+  string worker_id = 1;
+  int32 pid = 2;
+  int64 started_at_unix = 3;
+}
+
+message ListExternalWorkersResponse {
+  repeated ExternalWorkerProcessInfo workers = 1;
+}
+
 // --- Short ID Resolution ---
 
 message GetRunByShortIDRequest {
-  string issues_root = 1;
   string short_id = 2;
   RequestContext context = 3;
 }
@@ -455,7 +544,6 @@ message GetRunByShortIDResponse {
 // --- Issue Resolution ---
 
 message ResolveIssueRequest {
-  string issues_root = 1;
   string issue_id = 2;
   bool force = 3;
   RequestContext context = 4;
@@ -466,7 +554,6 @@ message ResolveIssueResponse {
 }
 
 message AppendEventRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   string event_type = 4;
@@ -503,7 +590,6 @@ message ListReposRequest {}
 message RepoInfo {
   string id = 1;
   string project_root = 2;
-  string issues_root = 3;
 }
 
 message ListReposResponse {
@@ -511,7 +597,6 @@ message ListReposResponse {
 }
 
 message DeleteRunRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   string short_id = 4;
@@ -531,7 +616,6 @@ message DeleteRunResponse {
 }
 
 message UpdateIssueRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string title = 3;
   string summary = 4;
@@ -545,7 +629,6 @@ message UpdateIssueResponse {
 }
 
 message ValidateIssueFilesRequest {
-  string issues_root = 1;
   string issue_id = 2;
   RequestContext context = 3;
 }
@@ -578,7 +661,6 @@ message ValidateIssueFilesResponse {
 }
 
 message WriteAgentPromptRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   string short_id = 4;
@@ -589,7 +671,6 @@ message WriteAgentPromptRequest {
 message WriteAgentPromptResponse {}
 
 message ReadAgentPromptRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   string short_id = 4;
@@ -653,7 +734,6 @@ message ListSessionsResponse {
 }
 
 message ResumeRunRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   string short_id = 4;
@@ -688,7 +768,6 @@ message QueryOpenCodeServerResponse {
 }
 
 message InjectInitialPromptRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   string prompt = 4;
@@ -705,7 +784,6 @@ message InjectInitialPromptResponse {
 }
 
 message ContinueRunRequest {
-  string issues_root = 1;
   string project_root = 2;
   // Source: either from_run or from_branch (use issue_id + run_id for from_run, issue_id + branch for from_branch)
   string issue_id = 3;
@@ -895,6 +973,15 @@ message Request {
     GetConfigRequest get_config = 45;
     GetDaemonStatusRequest get_daemon_status = 46;
     GetControlAgentConfigRequest get_control_agent_config = 47;
+    RegisterWorkerRequest register_worker = 48;
+    UnregisterWorkerRequest unregister_worker = 49;
+    WorkerHeartbeatRequest worker_heartbeat = 50;
+    ListWorkersRequest list_workers = 51;
+    LeaseWorkRequest lease_work = 52;
+    AcknowledgeEffectRequest acknowledge_effect = 53;
+    StartExternalWorkerRequest start_external_worker = 54;
+    StopExternalWorkerRequest stop_external_worker = 55;
+    ListExternalWorkersRequest list_external_workers = 56;
   }
 }
 
@@ -950,5 +1037,14 @@ message Response {
     GetConfigResponse get_config = 47;
     GetDaemonStatusResponse get_daemon_status = 48;
     GetControlAgentConfigResponse get_control_agent_config = 49;
+    RegisterWorkerResponse register_worker = 50;
+    UnregisterWorkerResponse unregister_worker = 51;
+    WorkerHeartbeatResponse worker_heartbeat = 52;
+    ListWorkersResponse list_workers = 53;
+    LeaseWorkResponse lease_work = 54;
+    AcknowledgeEffectResponse acknowledge_effect = 55;
+    StartExternalWorkerResponse start_external_worker = 56;
+    StopExternalWorkerResponse stop_external_worker = 57;
+    ListExternalWorkersResponse list_external_workers = 58;
   }
 }

@@ -5,10 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
-	"time"
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/model"
@@ -39,7 +37,6 @@ type openCodeExecutor func(args []string, dir string, streams attachStreams) err
 type attachDeps struct {
 	getAPI             func() (orchapi.OrchAPI, error)
 	parseRunRef        func(string) (orchapi.RunRef, error)
-	getProjectRoot     func() (string, error)
 	parseMuxType       func(string) (multiplexer.Type, error)
 	getMuxAuto         func() (attachSessionMux, error)
 	getMuxWithFallback func(multiplexer.Type) (attachSessionMux, string, error)
@@ -51,10 +48,9 @@ type attachDeps struct {
 
 func defaultAttachDeps() *attachDeps {
 	return &attachDeps{
-		getAPI:         getAPI,
-		parseRunRef:    orchapi.ParseRunRef,
-		getProjectRoot: getProjectRoot,
-		parseMuxType:   multiplexer.ParseType,
+		getAPI:       getAPIForListing,
+		parseRunRef:  orchapi.ParseRunRef,
+		parseMuxType: multiplexer.ParseType,
 		getMuxAuto: func() (attachSessionMux, error) {
 			return multiplexer.GetAuto()
 		},
@@ -147,8 +143,7 @@ func runAttachWithDeps(refStr string, opts *attachOptions, deps *attachDeps) err
 		sessionName = model.GenerateSessionName(info.IssueID, info.RunID)
 	}
 
-	projectRoot, _ := deps.getProjectRoot()
-	cfg, _ := api.GetConfig(ctx, projectRoot)
+	cfg, _ := api.GetConfig(ctx, "")
 
 	muxSetting := ""
 	if cfg != nil {
@@ -238,7 +233,7 @@ func attachOpenCodeFromInfoWithExecutor(info *orchapi.AttachInfo, streams attach
 		return ExitRunNotFound, fmt.Errorf("no server port or session found")
 	}
 
-	if info.ServerPort > 0 && isPortOpen(info.ServerPort) {
+	if info.ServerPort > 0 {
 		return attachToRunningOpenCodeWithExecutor(info, streams)
 	}
 
@@ -246,17 +241,8 @@ func attachOpenCodeFromInfoWithExecutor(info *orchapi.AttachInfo, streams attach
 		return resumeOpenCodeSessionWithExecutor(info, streams)
 	}
 
-	fmt.Fprintf(streams.stderr, "opencode server not running and no session to resume\n")
+	fmt.Fprintf(streams.stderr, "no opencode server port and no session to resume\n")
 	return ExitRunNotFound, fmt.Errorf("cannot attach")
-}
-
-func isPortOpen(port int) bool {
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 500*time.Millisecond)
-	if err != nil {
-		return false
-	}
-	conn.Close()
-	return true
 }
 
 var runOpenCodeCommand = func(args []string, dir string, streams attachStreams) error {

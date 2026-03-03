@@ -68,6 +68,57 @@ type HeartbeatResponse struct {
 	Error string `json:"error,omitempty"`
 }
 
+type RegisterWorkerOptions struct {
+	WorkerID   string
+	WorkerType string
+	Host       string
+	Mode       string
+}
+
+type RegisterWorkerResponse struct {
+	OK                  bool   `json:"ok"`
+	Error               string `json:"error,omitempty"`
+	WorkerID            string `json:"worker_id,omitempty"`
+	HeartbeatTTLSeconds int64  `json:"heartbeat_ttl_seconds,omitempty"`
+}
+
+type ListWorkersResponse struct {
+	OK      bool                  `json:"ok"`
+	Error   string                `json:"error,omitempty"`
+	Workers []*WorkerRegistration `json:"workers,omitempty"`
+}
+
+type LeaseWorkResponse struct {
+	OK    bool         `json:"ok"`
+	Error string       `json:"error,omitempty"`
+	Lease *WorkerLease `json:"lease,omitempty"`
+}
+
+type ExternalWorkerProcessInfo struct {
+	WorkerID  string    `json:"worker_id"`
+	PID       int       `json:"pid"`
+	StartedAt time.Time `json:"started_at"`
+}
+
+type StartExternalWorkerResponse struct {
+	OK       bool   `json:"ok"`
+	Error    string `json:"error,omitempty"`
+	WorkerID string `json:"worker_id,omitempty"`
+	PID      int    `json:"pid,omitempty"`
+}
+
+type StopExternalWorkerResponse struct {
+	OK           bool   `json:"ok"`
+	Error        string `json:"error,omitempty"`
+	StoppedCount int    `json:"stopped_count,omitempty"`
+}
+
+type ListExternalWorkersResponse struct {
+	OK      bool                         `json:"ok"`
+	Error   string                       `json:"error,omitempty"`
+	Workers []*ExternalWorkerProcessInfo `json:"workers,omitempty"`
+}
+
 // ListRunsFilter contains optional filters for listing runs
 type ListRunsFilter struct {
 	IssueID   string
@@ -705,7 +756,6 @@ type GetControlAgentLaunchResponse struct {
 
 type ControlAgentLaunchParams struct {
 	ProjectRoot string
-	IssuesRoot  string
 	Agent       string
 	NewSession  bool
 }
@@ -738,10 +788,9 @@ type ControlAgentConfigResult struct {
 }
 
 type SendMessageParams struct {
-	IssueID    string
-	RunID      string
-	Message    string
-	IssuesRoot string
+	IssueID string
+	RunID   string
+	Message string
 }
 
 type CreateIssueParams struct {

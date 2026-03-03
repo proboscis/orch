@@ -10,7 +10,6 @@ import (
 func TestLoadPrecedence(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 
 	globalDir := filepath.Join(home, ".config", "orch")
@@ -48,7 +47,6 @@ func TestLoadPrecedence(t *testing.T) {
 		t.Fatalf("unexpected config: %+v", cfg)
 	}
 
-	t.Setenv("ORCH_ISSUES_ROOT", "/env")
 	t.Setenv("ORCH_AGENT", "gemini")
 	cfgEnv, err := Load()
 	if err != nil {
@@ -67,7 +65,7 @@ func TestLoadPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load env-only error: %v", err)
 	}
-	if cfgEnvOnly.Issues.Path != "/env" || cfgEnvOnly.Agent != "gemini" {
+	if cfgEnvOnly.Issues.Path != "/global" || cfgEnvOnly.Agent != "gemini" {
 		t.Fatalf("unexpected env-only config: %+v", cfgEnvOnly)
 	}
 }
@@ -75,7 +73,6 @@ func TestLoadPrecedence(t *testing.T) {
 func TestParentConfigPrecedence(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_ISSUES_ROOT", "/env")
 	t.Setenv("ORCH_AGENT", "gemini")
 	t.Setenv("ORCH_WORKTREE_DIR", "/env-worktrees")
 
@@ -136,7 +133,6 @@ func TestParentConfigPrecedence(t *testing.T) {
 func TestLoadIssuesPathCaseInsensitive(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 
 	repo := t.TempDir()
@@ -174,7 +170,6 @@ func TestLoadIssuesPathCaseInsensitive(t *testing.T) {
 func TestLoadDefaultIssuesPath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 
 	// No config at all - should use default path
@@ -209,7 +204,6 @@ func TestLoadDefaultIssuesPath(t *testing.T) {
 func TestRepoConfigWithoutIssuesPathUsesDefault(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 
 	repo := t.TempDir()
@@ -247,7 +241,6 @@ func TestRepoConfigWithoutIssuesPathUsesDefault(t *testing.T) {
 func TestLoadRejectsUnknownConfigKey(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 
 	repo := t.TempDir()
@@ -282,7 +275,6 @@ func TestLoadRejectsUnknownConfigKey(t *testing.T) {
 func TestLoadRejectsInvalidAgentValue(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 
 	repo := t.TempDir()
@@ -314,7 +306,6 @@ func TestLoadRejectsInvalidAgentValue(t *testing.T) {
 func TestLoadRejectsInvalidIssuesBackendValue(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 
 	repo := t.TempDir()
@@ -390,7 +381,6 @@ func TestExpandPath(t *testing.T) {
 
 func TestRelativeIssuesPathResolution(t *testing.T) {
 	// Clear environment variables that could interfere
-	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 	t.Setenv("ORCH_WORKTREE_DIR", "")
 	t.Setenv("ORCH_PROMPT_TEMPLATE", "")
@@ -447,7 +437,6 @@ func TestRelativeIssuesPathResolution(t *testing.T) {
 func TestLoadTargetsAndGetTarget(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 
 	repo := t.TempDir()
@@ -502,7 +491,6 @@ func TestLoadTargetsAndGetTarget(t *testing.T) {
 func TestOpenCodeConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 	t.Setenv("ORCH_OPENCODE_DEFAULT_MODEL", "")
 	t.Setenv("ORCH_OPENCODE_DEFAULT_VARIANT", "")
@@ -547,7 +535,6 @@ opencode:
 func TestOpenCodeConfigEnv(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_OPENCODE_DEFAULT_MODEL", "openai/gpt-5")
 	t.Setenv("ORCH_OPENCODE_DEFAULT_VARIANT", "high")
 
@@ -578,7 +565,6 @@ func TestOpenCodeConfigEnv(t *testing.T) {
 func TestCodexConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 	t.Setenv("ORCH_CODEX_DEFAULT_MODEL", "")
 
@@ -618,7 +604,6 @@ codex:
 func TestCodexConfigEnv(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_CODEX_DEFAULT_MODEL", "openai/gpt-5.3-codex")
 
 	repo := t.TempDir()
@@ -643,7 +628,6 @@ func TestCodexConfigEnv(t *testing.T) {
 }
 
 func TestRelativePathFromSubdirectory(t *testing.T) {
-	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 	t.Setenv("ORCH_WORKTREE_DIR", "")
 
@@ -712,7 +696,6 @@ func TestRelativePathFromSubdirectory(t *testing.T) {
 func TestVaultConfigErrorsWithHelpfulMessage(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 
 	repo := t.TempDir()
@@ -1034,7 +1017,6 @@ func TestValidatePresets(t *testing.T) {
 func TestLoadPresetsFromConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 
 	repo := t.TempDir()
@@ -1113,7 +1095,6 @@ opencode_presets:
 func TestDefaultPresetConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 	t.Setenv("ORCH_DEFAULT_PRESET", "")
 
@@ -1159,7 +1140,6 @@ default_preset: opus:high
 func TestDefaultPresetEnv(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_DEFAULT_PRESET", "sonnet:max")
 
 	repo := t.TempDir()
@@ -1344,7 +1324,6 @@ func TestGetPromptTemplate(t *testing.T) {
 func TestLoadPerBackendPromptTemplates(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_ISSUES_ROOT", "")
 	t.Setenv("ORCH_AGENT", "")
 	t.Setenv("ORCH_PROMPT_TEMPLATE", "")
 

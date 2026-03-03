@@ -49,13 +49,12 @@ Examples:
 
 func runNotifyTest(opts *notifyTestOptions) error {
 	ctx := context.Background()
-	api, err := getAPI()
+	api, err := getAPIForListing()
 	if err != nil {
 		return err
 	}
 
-	projectRoot, _ := getProjectRoot()
-	cfg, err := api.GetConfig(ctx, projectRoot)
+	cfg, err := api.GetConfig(ctx, "")
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}

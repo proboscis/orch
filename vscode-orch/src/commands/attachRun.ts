@@ -18,9 +18,9 @@ export function registerAttachRunCommand(
     result.terminal.show(true);
 
     if (result.created) {
-      const vaultPath = await config.resolveVaultPath();
-      const vaultArg = vaultPath ? ` --vault ${quoteArg(vaultPath)}` : '';
-      result.terminal.sendText(`orch${vaultArg} attach ${runRef}`);
+      const projectRoot = config.getWorkspaceRoot();
+      const projectArg = projectRoot ? ` --project-root ${quoteArg(projectRoot)}` : '';
+      result.terminal.sendText(`orch${projectArg} attach ${runRef}`);
     }
   });
 }

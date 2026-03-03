@@ -75,9 +75,9 @@ Examples:
 }
 
 func runAgent(opts *agentOptions) error {
-	projectRoot, err := getProjectRoot()
+	projectRoot, err := resolveExplicitProjectScope("", "")
 	if err != nil {
-		return fmt.Errorf("project root required for agent: %w", err)
+		return fmt.Errorf("project scope required for agent: %w", err)
 	}
 
 	ctx := context.Background()
@@ -134,13 +134,13 @@ func runAgent(opts *agentOptions) error {
 
 	// Route to appropriate handler based on backend
 	if agentType == agent.AgentOpenCode {
-		return runOpenCodeAgent(orchDir, opts, controlCfg)
+		return runOpenCodeAgent(orchDir, projectRoot, opts, controlCfg)
 	}
-	return runMultiplexerAgent(orchDir, opts, agentType, controlCfg)
+	return runMultiplexerAgent(orchDir, projectRoot, opts, agentType, controlCfg)
 }
 
 // runOpenCodeAgent handles opencode backend using native --session flag (no tmux)
-func runOpenCodeAgent(orchDir string, opts *agentOptions, controlCfg *orchapi.ControlAgentConfig) error {
+func runOpenCodeAgent(orchDir, projectRoot string, opts *agentOptions, controlCfg *orchapi.ControlAgentConfig) error {
 	// Load existing state
 	state := loadControlAgentState(orchDir)
 
@@ -168,9 +168,9 @@ func runOpenCodeAgent(orchDir string, opts *agentOptions, controlCfg *orchapi.Co
 			promptPath = writtenPath
 		}
 	} else {
-		issuesRoot, err := getIssuesRoot()
+		issuesRoot, err := getIssuesRootForProjectIfConfigured(projectRoot)
 		if err != nil {
-			return fmt.Errorf("failed to get issues root: %w", err)
+			return fmt.Errorf("failed to load project config: %w", err)
 		}
 
 		promptPath, err = writeControlPromptViaAPI(issuesRoot)
@@ -226,14 +226,13 @@ func runOpenCodeAgent(orchDir string, opts *agentOptions, controlCfg *orchapi.Co
 }
 
 // runMultiplexerAgent handles claude/codex/gemini using tmux or zellij
-func runMultiplexerAgent(orchDir string, opts *agentOptions, agentType agent.AgentType, controlCfg *orchapi.ControlAgentConfig) error {
+func runMultiplexerAgent(orchDir, projectRoot string, opts *agentOptions, agentType agent.AgentType, controlCfg *orchapi.ControlAgentConfig) error {
 	// Get multiplexer from config (use agent multiplexer, default: tmux)
 	muxType := multiplexer.TypeTmux
 	ctx := context.Background()
 	api, apiErr := getAPI()
 	if apiErr == nil {
-		projectRoot, _ := getProjectRoot()
-		cfg, cfgErr := api.GetConfig(ctx, projectRoot)
+		cfg, cfgErr := api.GetConfig(ctx, "")
 		if cfgErr == nil && cfg.AgentMultiplexer != "" {
 			parsed, parseErr := multiplexer.ParseType(cfg.AgentMultiplexer)
 			if parseErr == nil && parsed != multiplexer.TypeAuto {
@@ -287,10 +286,10 @@ func runMultiplexerAgent(orchDir string, opts *agentOptions, agentType agent.Age
 	}
 
 	// Create new session
-	return createMultiplexerSession(orchDir, agentType, mux, controlCfg)
+	return createMultiplexerSession(orchDir, projectRoot, agentType, mux, controlCfg)
 }
 
-func createMultiplexerSession(orchDir string, agentType agent.AgentType, mux multiplexer.Multiplexer, controlCfg *orchapi.ControlAgentConfig) error {
+func createMultiplexerSession(orchDir, projectRoot string, agentType agent.AgentType, mux multiplexer.Multiplexer, controlCfg *orchapi.ControlAgentConfig) error {
 	adapter, err := agent.GetAdapter(agentType)
 	if err != nil {
 		return fmt.Errorf("failed to get adapter: %w", err)
@@ -300,9 +299,9 @@ func createMultiplexerSession(orchDir string, agentType agent.AgentType, mux mul
 		return fmt.Errorf("%s CLI is not available", agentType)
 	}
 
-	issuesRoot, err := getIssuesRoot()
+	issuesRoot, err := getIssuesRootForProjectIfConfigured(projectRoot)
 	if err != nil {
-		return fmt.Errorf("failed to get issues root: %w", err)
+		return fmt.Errorf("failed to load project config: %w", err)
 	}
 
 	promptPath := ""
@@ -328,8 +327,7 @@ func createMultiplexerSession(orchDir string, agentType agent.AgentType, mux mul
 		ctx := context.Background()
 		api, apiErr := getAPI()
 		if apiErr == nil {
-			projectRoot, _ := getProjectRoot()
-			cfg, cfgErr := api.GetConfig(ctx, projectRoot)
+			cfg, cfgErr := api.GetConfig(ctx, "")
 			if cfgErr == nil {
 				modelName, modelVariant = cfg.ResolveControlModelAndVariant(string(agentType))
 				extraArgs = getControlExtraArgs(cfg, string(agentType))
@@ -356,7 +354,7 @@ func createMultiplexerSession(orchDir string, agentType agent.AgentType, mux mul
 	// Get working directory
 	workDir, err := os.Getwd()
 	if err != nil {
-		workDir, _ = getProjectRoot()
+		workDir = projectRoot
 	}
 
 	// Create multiplexer session

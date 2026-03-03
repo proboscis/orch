@@ -387,7 +387,7 @@ func TestProtoClientDialTarget(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client := NewProtoClientWithAddress("/tmp/project", "", tt.daemonAddr)
+			client := NewProtoClientWithAddress("/tmp/project", tt.daemonAddr)
 
 			network, address, err := client.dialTarget()
 			if tt.wantErr {

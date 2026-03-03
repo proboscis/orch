@@ -137,13 +137,13 @@ DataTable {
   ;; Initialization
   ;; =========================================================================
   
-  (defn __init__ [self [issues-root None] [auto-refresh True] [api None]]
+  (defn __init__ [self [project-root None] [auto-refresh True] [api None]]
     (.__init__ (super))
-    (setv self.config (if issues-root
-                          (Config.from_issues_root issues-root)
+    (setv self.config (if project-root
+                          (Config.from_project_root project-root)
                           (Config.load)))
     (setv self.api (or api (create_orch_api self.config.socket_path
-                                            self.config.issues_root)))
+                                            self.config.project_root)))
     (setv self.runs [])
     (setv self._runs_by_ref {})
     (setv self.filter_state (.load_filters self.config))

@@ -82,7 +82,6 @@ func TestOutputTableTruncatesSummary(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
-	globalOpts.IssuesRoot = vault
 	deps := setupMockPsDeps(vault)
 
 	issuesDir := filepath.Join(vault, "issues")
@@ -129,7 +128,6 @@ func TestOutputTableUsesTopic(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
-	globalOpts.IssuesRoot = vault
 	deps := setupMockPsDeps(vault)
 
 	issuesDir := filepath.Join(vault, "issues")
@@ -180,7 +178,6 @@ func TestOutputTableTruncatesTopicChars(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
-	globalOpts.IssuesRoot = vault
 	deps := setupMockPsDeps(vault)
 
 	issuesDir := filepath.Join(vault, "issues")
@@ -240,9 +237,6 @@ func TestOutputTableNoRuns(t *testing.T) {
 func TestOutputTableShowsNewColumns(t *testing.T) {
 	resetGlobalOpts(t)
 
-	vault := t.TempDir()
-	globalOpts.IssuesRoot = vault
-
 	updatedAt := time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC)
 	run := &model.Run{
 		IssueID:   "issue-1",
@@ -283,9 +277,6 @@ func TestOutputTableShowsNewColumns(t *testing.T) {
 
 func TestOutputTableShowsPROpenForPROpenStatus(t *testing.T) {
 	resetGlobalOpts(t)
-
-	vault := t.TempDir()
-	globalOpts.IssuesRoot = vault
 
 	updatedAt := time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC)
 	run := &model.Run{
@@ -634,9 +625,6 @@ func TestBranchStatusFromGitState(t *testing.T) {
 
 func TestOutputTableAgentColumn(t *testing.T) {
 	resetGlobalOpts(t)
-
-	vault := t.TempDir()
-	globalOpts.IssuesRoot = vault
 
 	updatedAt := time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC)
 

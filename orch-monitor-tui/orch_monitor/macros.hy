@@ -1619,8 +1619,7 @@
    Usage:
      (defrpc stop-run [issue-id [run-id \"\"]] \"stop_run\"
        (setv req (pb.Request))
-       (set-> req.stop_run.issues_root (._issues-root-str self)
-              req.stop_run.issue_id issue-id
+       (set-> req.stop_run.issue_id issue-id
               req.stop_run.run_id run-id)
        (._send-ok self req)
        {\"stopped\" True})

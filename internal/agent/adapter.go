@@ -49,20 +49,20 @@ func ParseAgentType(s string) (AgentType, error) {
 // LaunchConfig holds configuration for launching an agent
 type LaunchConfig struct {
 	Type            AgentType
-	CustomCmd       string   // Used when Type is AgentCustom
+	CustomCmd       string // Used when Type is AgentCustom
 	WorkDir         string
 	IssueID         string
 	RunID           string
 	RunPath         string
 	IssuesRoot      string
 	Branch          string
-	Prompt          string   // Initial prompt/instruction for the agent
-	Resume          bool     // Whether to resume an existing session
-	SessionName     string   // For agents that support session naming
-	Profile         string   // Profile name for agents that support it (e.g., claude --profile)
-	Port            int      // Port for HTTP-based agents (e.g., opencode)
-	Model           string   // Model in provider/model format (e.g., anthropic/claude-opus-4-5)
-	ModelVariant    string   // Model variant (e.g., "max" for max thinking)
+	Prompt          string // Initial prompt/instruction for the agent
+	Resume          bool   // Whether to resume an existing session
+	SessionName     string // For agents that support session naming
+	Profile         string // Profile name for agents that support it (e.g., claude --profile)
+	Port            int    // Port for HTTP-based agents (e.g., opencode)
+	Model           string // Model in provider/model format (e.g., anthropic/claude-opus-4-5)
+	ModelVariant    string // Model variant (e.g., "max" for max thinking)
 	ContinueSession bool
 	ExtraArgs       []string // Additional CLI arguments from config
 }
@@ -75,7 +75,6 @@ func (c *LaunchConfig) Env() []string {
 		fmt.Sprintf("ORCH_RUN_PATH=%s", c.RunPath),
 		fmt.Sprintf("ORCH_WORKTREE_PATH=%s", c.WorkDir),
 		fmt.Sprintf("ORCH_BRANCH=%s", c.Branch),
-		fmt.Sprintf("ORCH_VAULT=%s", c.IssuesRoot),
 	}
 	// Ensure HOME is passed for OAuth credentials in ~/.claude.json
 	if home := os.Getenv("HOME"); home != "" {

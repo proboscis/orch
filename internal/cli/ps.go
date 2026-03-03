@@ -45,7 +45,7 @@ type psDeps struct {
 }
 
 func defaultPsDeps() *psDeps {
-	return &psDeps{getAPI: getAPI}
+	return &psDeps{getAPI: getAPIForListing}
 }
 
 func newPsCmd() *cobra.Command {

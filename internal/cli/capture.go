@@ -63,7 +63,7 @@ type captureResult struct {
 func runCapture(refStr string, opts *captureOptions) error {
 	ctx := context.Background()
 
-	api, err := getAPI()
+	api, err := getAPIForListing()
 	if err != nil {
 		return outputCaptureError(err)
 	}

@@ -20,13 +20,13 @@ const (
 	daemonRetryInterval = 100 * time.Millisecond
 )
 
-func NewDaemonClient(projectRoot, issuesRoot string) *DaemonClient {
-	return NewDaemonClientWithAddress(projectRoot, issuesRoot, "")
+func NewDaemonClient(projectRoot string) *DaemonClient {
+	return NewDaemonClientWithAddress(projectRoot, "")
 }
 
-func NewDaemonClientWithAddress(projectRoot, issuesRoot, daemonAddr string) *DaemonClient {
+func NewDaemonClientWithAddress(projectRoot, daemonAddr string) *DaemonClient {
 	return &DaemonClient{
-		proto:      daemon.NewProtoClientWithAddress(projectRoot, issuesRoot, daemonAddr),
+		proto:      daemon.NewProtoClientWithAddress(projectRoot, daemonAddr),
 		daemonAddr: strings.TrimSpace(daemonAddr),
 	}
 }

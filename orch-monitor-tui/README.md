@@ -34,7 +34,7 @@ This section describes the end-to-end workflow for using orch-monitor TUI with t
 ```bash
 cd your-repo
 mkdir -p .orch
-# Configure .orch/config.yaml with issues_root, agent preferences, etc.
+# Configure `.orch/config.yaml` with agent/runtime preferences.
 ```
 
 ### 2. Launch orch-monitor
@@ -146,16 +146,16 @@ uv tool install "git+https://github.com/proboscis/orch#subdirectory=orch-monitor
 
 ## Usage
 
-Run from any directory (uses `ORCH_PROJECT_ROOT` or `ORCH_VAULT` env var, or `.orch/config.yaml`):
+Run from any directory (uses `ORCH_PROJECT_ROOT` or `.orch/config.yaml`):
 
 ```bash
 orch-monitor
 ```
 
-Or specify vault path:
+Or pin a project explicitly:
 
 ```bash
-orch-monitor --vault ~/my-vault
+orch-monitor --project-root ~/my-repo
 ```
 
 ### Terminal Multiplexer
@@ -242,7 +242,7 @@ The TUI respects the same configuration as the Go `orch` CLI:
 
 - `ORCH_PROJECT_ROOT` environment variable (must contain `.orch/` directory)
 - `.orch/config.yaml` found by searching upward from current directory
-- `ORCH_VAULT` environment variable (legacy fallback)
+- `.orch/config.yaml` in the selected project root
 
 ## Architecture
 

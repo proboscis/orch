@@ -226,18 +226,14 @@
 
 (defclass ProtoDaemonClient []
   
-  (defn __init__ [self socket-path [issues-root None] [project-root None] [timeout 30.0]]
+  (defn __init__ [self socket-path [project-root None] [timeout 30.0]]
     (setv self.socket-path socket-path)
-    (setv self.issues-root issues-root)
     (setv self.project-root project-root)
     (setv self._timeout timeout)
     ;; Persistent connection state
     (setv self._socket None)
     (setv self._lock (threading.RLock))
     (setv self._connected False))
-  
-  (defn _issues-root-str [self]
-    (if self.issues-root (str self.issues-root) ""))
   
   (defn _project-root-str [self]
     (if self.project-root (str self.project-root) ""))
@@ -396,8 +392,7 @@
     (setv filters (or filters (RunFilters)))
     (daemon-result "list_runs"
       (setv req (pb.Request))
-      (set-> req.list_runs.issues_root (._issues-root-str self)
-             req.list_runs.issue_id (or filters.issue_id "")
+      (set-> req.list_runs.issue_id (or filters.issue_id "")
              req.list_runs.agent (or filters.agent "")
              req.list_runs.text_search (or filters.text_search "")
              req.list_runs.time_range (or filters.time_range "")
@@ -415,8 +410,7 @@
     (setv filters (or filters (IssueFilters)))
     (daemon-result "list_issues"
       (setv req (pb.Request))
-      (set-> req.list_issues.issues_root (._issues-root-str self)
-             req.list_issues.tags_mode (or filters.tags_mode "")
+      (set-> req.list_issues.tags_mode (or filters.tags_mode "")
              req.list_issues.text_search (or filters.text_search "")
              req.list_issues.limit MAX_PAGE_SIZE)
       (for [s filters.status]
@@ -433,8 +427,7 @@
     "Get a run. Returns Result[Run | None, ProtoDaemonError]."
     (daemon-result "get_run"
       (setv req (pb.Request))
-      (set-> req.get_run.issues_root (._issues-root-str self)
-             req.get_run.issue_id issue-id
+      (set-> req.get_run.issue_id issue-id
              req.get_run.run_id run-id)
       (setv resp (._send self req))
       (cond
@@ -449,8 +442,7 @@
     "Get an issue. Returns Result[Issue | None, ProtoDaemonError]."
     (daemon-result "get_issue"
       (setv req (pb.Request))
-      (set-> req.get_issue.issues_root (._issues-root-str self)
-             req.get_issue.issue_id issue-id)
+      (set-> req.get_issue.issue_id issue-id)
       (setv resp (._send self req))
       (cond
         (and (not resp.ok) (= resp.error "not_found")) None
@@ -461,8 +453,7 @@
     "Start a run. Returns Result[dict, ProtoDaemonError]."
     (daemon-result "start_run"
       (setv req (pb.Request))
-      (set-> req.start_run.issues_root (._issues-root-str self)
-             req.start_run.issue_id issue-id
+      (set-> req.start_run.issue_id issue-id
              req.start_run.agent agent
              req.start_run.model model
              req.start_run.project_root (._project-root-str self))
@@ -472,16 +463,14 @@
   
   (defrpc stop-run [issue-id [run-id ""]] "stop_run"
     (setv req (pb.Request))
-    (set-> req.stop_run.issues_root (._issues-root-str self)
-           req.stop_run.issue_id issue-id
+    (set-> req.stop_run.issue_id issue-id
            req.stop_run.run_id run-id)
     (._send-ok self req)
     {"stopped" True})
   
   (defrpc send-message [issue-id run-id message] "send_message"
     (setv req (pb.Request))
-    (set-> req.send_message.issues_root (._issues-root-str self)
-           req.send_message.issue_id issue-id
+    (set-> req.send_message.issue_id issue-id
            req.send_message.run_id run-id
            req.send_message.message message)
     (._send-ok self req)
@@ -497,8 +486,7 @@
     "Get diff stats. Returns Result[tuple | None, ProtoDaemonError]."
     (daemon-result "get_diff_stats"
       (setv req (pb.Request))
-      (set-> req.get_diff_stats.issues_root (._issues-root-str self)
-             req.get_diff_stats.issue_id issue-id
+      (set-> req.get_diff_stats.issue_id issue-id
              req.get_diff_stats.run_id run-id)
       (setv resp (._send self req))
       (cond
@@ -512,8 +500,7 @@
     "Get branch state. Returns Result[str, ProtoDaemonError]."
     (daemon-result "get_branch_state"
       (setv req (pb.Request))
-      (set-> req.get_branch_state.issues_root (._issues-root-str self)
-             req.get_branch_state.issue_id issue-id
+      (set-> req.get_branch_state.issue_id issue-id
              req.get_branch_state.run_id run-id)
       (setv resp (._send self req))
       (cond
@@ -526,8 +513,7 @@
     "Get diff. Returns Result[str | None, ProtoDaemonError]."
     (daemon-result "get_diff"
       (setv req (pb.Request))
-      (set-> req.get_diff.issues_root (._issues-root-str self)
-             req.get_diff.issue_id issue-id
+      (set-> req.get_diff.issue_id issue-id
              req.get_diff.run_id run-id)
       (setv resp (._send self req))
       (cond
@@ -539,8 +525,7 @@
     "Capture session. Returns Result[tuple | None, ProtoDaemonError]."
     (daemon-result "capture_session"
       (setv req (pb.Request))
-      (set-> req.capture_session.issues_root (._issues-root-str self)
-             req.capture_session.issue_id issue-id
+      (set-> req.capture_session.issue_id issue-id
              req.capture_session.run_id run-id)
       (setv resp (._send self req))
       (cond
@@ -553,8 +538,7 @@
     "Create issue. Returns Result[str | None, ProtoDaemonError]."
     (daemon-result "create_issue"
       (setv req (pb.Request))
-      (set-> req.create_issue.issues_root (._issues-root-str self)
-             req.create_issue.issue_id issue-id
+      (set-> req.create_issue.issue_id issue-id
              req.create_issue.title title
              req.create_issue.body body)
       (setv resp (._send self req))
@@ -564,15 +548,13 @@
   
   (defrpc close-issue [issue-id] "close_issue"
     (setv req (pb.Request))
-    (set-> req.close_issue.issues_root (._issues-root-str self)
-           req.close_issue.issue_id issue-id)
+    (set-> req.close_issue.issue_id issue-id)
     (._send-ok self req "Failed to close issue")
     None)
   
   (defrpc resolve-issue [issue-id [force False]] "resolve_issue"
     (setv req (pb.Request))
-    (set-> req.resolve_issue.issues_root (._issues-root-str self)
-           req.resolve_issue.issue_id issue-id
+    (set-> req.resolve_issue.issue_id issue-id
            req.resolve_issue.force force)
     (._send-ok self req "Failed to resolve issue")
     True)
@@ -651,9 +633,9 @@
 ;; Convenience: Create client with Result-based API
 ;; ============================================================================
 
-(defn create-client [socket-path [issues-root None] [timeout 30.0]]
+(defn create-client [socket-path [project-root None] [timeout 30.0]]
   "Create a ProtoDaemonClient instance."
-  (ProtoDaemonClient socket-path issues-root timeout))
+  (ProtoDaemonClient socket-path project-root timeout))
 
 
 ;; ============================================================================

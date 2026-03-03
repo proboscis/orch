@@ -2,9 +2,11 @@ package daemon
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,10 +18,10 @@ import (
 )
 
 type ProtoClient struct {
-	projectRoot string
-	issuesRoot  string
-	daemonAddr  string
-	timeout     time.Duration
+	projectRoot     string
+	daemonAddr      string
+	timeout         time.Duration
+	workerAuthToken string
 
 	mu   sync.Mutex
 	conn net.Conn
@@ -36,14 +38,13 @@ func NewProtoClient(projectRoot string) *ProtoClient {
 	}
 }
 
-func NewProtoClientWithIssuesRoot(projectRoot, issuesRoot string) *ProtoClient {
-	return NewProtoClientWithAddress(projectRoot, issuesRoot, "")
+func NewProtoClientLocal(projectRoot string) *ProtoClient {
+	return NewProtoClientWithAddress(projectRoot, "")
 }
 
-func NewProtoClientWithAddress(projectRoot, issuesRoot, daemonAddr string) *ProtoClient {
+func NewProtoClientWithAddress(projectRoot, daemonAddr string) *ProtoClient {
 	remoteAddr := strings.TrimSpace(daemonAddr)
 	trimmedProjectRoot := strings.TrimSpace(projectRoot)
-	trimmedIssuesRoot := strings.TrimSpace(issuesRoot)
 
 	if remoteAddr != "" && trimmedProjectRoot != "" {
 		repoID := ""
@@ -56,16 +57,19 @@ func NewProtoClientWithAddress(projectRoot, issuesRoot, daemonAddr string) *Prot
 		repoToken := encodeRepoIDToken(repoID)
 		if repoToken != "" {
 			trimmedProjectRoot = repoToken
-			trimmedIssuesRoot = repoToken
 		}
 	}
 
 	return &ProtoClient{
-		projectRoot: trimmedProjectRoot,
-		issuesRoot:  trimmedIssuesRoot,
-		daemonAddr:  remoteAddr,
-		timeout:     30 * time.Second,
+		projectRoot:     trimmedProjectRoot,
+		daemonAddr:      remoteAddr,
+		timeout:         30 * time.Second,
+		workerAuthToken: strings.TrimSpace(os.Getenv("ORCH_WORKER_AUTH_TOKEN")),
 	}
+}
+
+func (c *ProtoClient) SetWorkerAuthToken(token string) {
+	c.workerAuthToken = strings.TrimSpace(token)
 }
 
 func (c *ProtoClient) projectRootForRequest(projectRoot string) string {
@@ -334,13 +338,12 @@ func (c *ProtoClient) ListRuns(filter *ListRunsFilter) (*ListRunsResponse, error
 	req := &orchpb.Request{
 		Request: &orchpb.Request_ListRuns{
 			ListRuns: &orchpb.ListRunsRequest{
-				IssuesRoot: c.issuesRoot,
-				IssueId:    issueID,
-				Status:     protoStatuses,
-				Limit:      int32(limit),
-				Cursor:     cursor,
-				OlderThan:  olderThan,
-				Context:    c.requestContext(c.projectRoot),
+				IssueId:   issueID,
+				Status:    protoStatuses,
+				Limit:     int32(limit),
+				Cursor:    cursor,
+				OlderThan: olderThan,
+				Context:   c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -381,10 +384,9 @@ func (c *ProtoClient) GetRun(issueID, runID string) (*GetRunResponse, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_GetRun{
 			GetRun: &orchpb.GetRunRequest{
-				IssuesRoot: c.issuesRoot,
-				IssueId:    issueID,
-				RunId:      runID,
-				Context:    c.requestContext(c.projectRoot),
+				IssueId: issueID,
+				RunId:   runID,
+				Context: c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -413,9 +415,8 @@ func (c *ProtoClient) GetRunByShortID(shortID string) (*GetRunResponse, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_GetRunByShortId{
 			GetRunByShortId: &orchpb.GetRunByShortIDRequest{
-				IssuesRoot: c.issuesRoot,
-				ShortId:    shortID,
-				Context:    c.requestContext(c.projectRoot),
+				ShortId: shortID,
+				Context: c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -449,11 +450,10 @@ func (c *ProtoClient) ListIssues(status []string, limit int, cursor string) (*Li
 	req := &orchpb.Request{
 		Request: &orchpb.Request_ListIssues{
 			ListIssues: &orchpb.ListIssuesRequest{
-				IssuesRoot: c.issuesRoot,
-				Status:     protoStatuses,
-				Limit:      int32(limit),
-				Cursor:     cursor,
-				Context:    c.requestContext(c.projectRoot),
+				Status:  protoStatuses,
+				Limit:   int32(limit),
+				Cursor:  cursor,
+				Context: c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -494,9 +494,8 @@ func (c *ProtoClient) GetIssue(issueID string) (*GetIssueResponse, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_GetIssue{
 			GetIssue: &orchpb.GetIssueRequest{
-				IssuesRoot: c.issuesRoot,
-				IssueId:    issueID,
-				Context:    c.requestContext(c.projectRoot),
+				IssueId: issueID,
+				Context: c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -525,12 +524,11 @@ func (c *ProtoClient) CreateIssue(issueID, title, summary, body string, tags []s
 	req := &orchpb.Request{
 		Request: &orchpb.Request_CreateIssue{
 			CreateIssue: &orchpb.CreateIssueRequest{
-				IssuesRoot: c.issuesRoot,
-				IssueId:    issueID,
-				Title:      title,
-				Body:       body,
-				Tags:       tags,
-				Context:    c.requestContext(c.projectRoot),
+				IssueId: issueID,
+				Title:   title,
+				Body:    body,
+				Tags:    tags,
+				Context: c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -560,9 +558,8 @@ func (c *ProtoClient) CloseIssue(issueID, comment string) (*CloseIssueResponse, 
 	req := &orchpb.Request{
 		Request: &orchpb.Request_CloseIssue{
 			CloseIssue: &orchpb.CloseIssueRequest{
-				IssuesRoot: c.issuesRoot,
-				IssueId:    issueID,
-				Context:    c.requestContext(c.projectRoot),
+				IssueId: issueID,
+				Context: c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -586,7 +583,6 @@ func (c *ProtoClient) StartRun(opts *StartRunOptions) (*StartRunResponse, error)
 	req := &orchpb.Request{
 		Request: &orchpb.Request_StartRun{
 			StartRun: &orchpb.StartRunRequest{
-				IssuesRoot:     c.issuesRoot,
 				IssueId:        opts.IssueID,
 				RunId:          opts.RunID,
 				Agent:          opts.Agent,
@@ -639,7 +635,6 @@ func (c *ProtoClient) ContinueRun(opts *ContinueRunOptions) (*ContinueRunRespons
 	req := &orchpb.Request{
 		Request: &orchpb.Request_ContinueRun{
 			ContinueRun: &orchpb.ContinueRunRequest{
-				IssuesRoot:     c.issuesRoot,
 				ProjectRoot:    c.projectRootForRequest(opts.ProjectRoot),
 				IssueId:        opts.IssueID,
 				RunId:          opts.RunID,
@@ -690,10 +685,9 @@ func (c *ProtoClient) StopRun(issueID, runID string, force bool) (*StopRunRespon
 	req := &orchpb.Request{
 		Request: &orchpb.Request_StopRun{
 			StopRun: &orchpb.StopRunRequest{
-				IssuesRoot: c.issuesRoot,
-				IssueId:    issueID,
-				RunId:      runID,
-				Context:    c.requestContext(c.projectRoot),
+				IssueId: issueID,
+				RunId:   runID,
+				Context: c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -717,10 +711,9 @@ func (c *ProtoClient) ResolveIssue(issueID string, force bool) (*ResolveIssueRes
 	req := &orchpb.Request{
 		Request: &orchpb.Request_ResolveIssue{
 			ResolveIssue: &orchpb.ResolveIssueRequest{
-				IssuesRoot: c.issuesRoot,
-				IssueId:    issueID,
-				Force:      force,
-				Context:    c.requestContext(c.projectRoot),
+				IssueId: issueID,
+				Force:   force,
+				Context: c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -749,11 +742,10 @@ func (c *ProtoClient) GetAttachInfo(issueID, runID, shortID string) (*GetAttachI
 	req := &orchpb.Request{
 		Request: &orchpb.Request_GetAttachInfo{
 			GetAttachInfo: &orchpb.GetAttachInfoRequest{
-				IssuesRoot: c.issuesRoot,
-				IssueId:    issueID,
-				RunId:      runID,
-				ShortId:    shortID,
-				Context:    c.requestContext(c.projectRoot),
+				IssueId: issueID,
+				RunId:   runID,
+				ShortId: shortID,
+				Context: c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -935,6 +927,235 @@ func (c *ProtoClient) KillMonitor(monitorID string, killAll bool, global bool, p
 		OK:          true,
 		KilledCount: int(killResp.KilledCount),
 	}, nil
+}
+
+func (c *ProtoClient) RegisterWorker(workerID, workerType, host, mode string) (*RegisterWorkerResponse, error) {
+	return c.RegisterWorkerWithCapabilities(workerID, workerType, host, mode, nil)
+}
+
+func (c *ProtoClient) RegisterWorkerWithCapabilities(workerID, workerType, host, mode string, capabilities []string) (*RegisterWorkerResponse, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_RegisterWorker{
+			RegisterWorker: &orchpb.RegisterWorkerRequest{
+				WorkerId:     workerID,
+				WorkerType:   workerType,
+				Host:         host,
+				Mode:         mode,
+				AuthToken:    c.workerAuthToken,
+				Capabilities: append([]string(nil), capabilities...),
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	regResp := resp.GetRegisterWorker()
+	if regResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	return &RegisterWorkerResponse{
+		OK:                  true,
+		WorkerID:            regResp.WorkerId,
+		HeartbeatTTLSeconds: regResp.HeartbeatTtlSeconds,
+	}, nil
+}
+
+func (c *ProtoClient) UnregisterWorker(workerID string) error {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_UnregisterWorker{
+			UnregisterWorker: &orchpb.UnregisterWorkerRequest{WorkerId: workerID},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return err
+	}
+	if !resp.Ok {
+		return fmt.Errorf("daemon error: %s", resp.Error)
+	}
+	return nil
+}
+
+func (c *ProtoClient) WorkerHeartbeat(workerID string) error {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_WorkerHeartbeat{
+			WorkerHeartbeat: &orchpb.WorkerHeartbeatRequest{WorkerId: workerID, AuthToken: c.workerAuthToken},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return err
+	}
+	if !resp.Ok {
+		return fmt.Errorf("daemon error: %s", resp.Error)
+	}
+	return nil
+}
+
+func (c *ProtoClient) ListWorkers() (*ListWorkersResponse, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_ListWorkers{ListWorkers: &orchpb.ListWorkersRequest{}},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	listResp := resp.GetListWorkers()
+	if listResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	workers := make([]*WorkerRegistration, 0, len(listResp.Workers))
+	for _, w := range listResp.Workers {
+		workers = append(workers, &WorkerRegistration{
+			ID:            w.Id,
+			WorkerType:    w.WorkerType,
+			Host:          w.Host,
+			Mode:          w.Mode,
+			Capabilities:  append([]string(nil), w.Capabilities...),
+			RegisteredAt:  time.Unix(w.RegisteredAtUnix, 0),
+			LastHeartbeat: time.Unix(w.LastHeartbeatUnix, 0),
+			Active:        w.Active,
+		})
+	}
+
+	return &ListWorkersResponse{OK: true, Workers: workers}, nil
+}
+
+func (c *ProtoClient) LeaseWork(workerID string) (*LeaseWorkResponse, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_LeaseWork{
+			LeaseWork: &orchpb.LeaseWorkRequest{WorkerId: workerID, AuthToken: c.workerAuthToken},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	leaseResp := resp.GetLeaseWork()
+	if leaseResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	var payload *WorkerEffectPayload
+	if strings.TrimSpace(leaseResp.PayloadJson) != "" {
+		payload = &WorkerEffectPayload{}
+		if err := json.Unmarshal([]byte(leaseResp.PayloadJson), payload); err != nil {
+			return nil, fmt.Errorf("invalid lease payload_json: %w", err)
+		}
+	}
+
+	return &LeaseWorkResponse{
+		OK: true,
+		Lease: &WorkerLease{
+			LeaseID:     leaseResp.LeaseId,
+			WorkerID:    leaseResp.WorkerId,
+			ProjectID:   leaseResp.ProjectId,
+			Effect:      leaseResp.Effect,
+			IssueID:     leaseResp.IssueId,
+			RunID:       leaseResp.RunId,
+			LeasedAt:    time.Unix(leaseResp.LeasedAtUnix, 0),
+			ExpiresAt:   time.Unix(leaseResp.ExpiresAtUnix, 0),
+			Payload:     payload,
+			PayloadJSON: leaseResp.PayloadJson,
+		},
+	}, nil
+}
+
+func (c *ProtoClient) AcknowledgeEffect(workerID, leaseID string, success bool, effectErr, resultJSON string) error {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_AcknowledgeEffect{
+			AcknowledgeEffect: &orchpb.AcknowledgeEffectRequest{
+				WorkerId:   workerID,
+				LeaseId:    leaseID,
+				Success:    success,
+				Error:      effectErr,
+				ResultJson: resultJSON,
+				AuthToken:  c.workerAuthToken,
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return err
+	}
+	if !resp.Ok {
+		return fmt.Errorf("daemon error: %s", resp.Error)
+	}
+	return nil
+}
+
+func (c *ProtoClient) StartExternalWorker(workerID string) (*StartExternalWorkerResponse, error) {
+	req := &orchpb.Request{Request: &orchpb.Request_StartExternalWorker{StartExternalWorker: &orchpb.StartExternalWorkerRequest{WorkerId: strings.TrimSpace(workerID)}}}
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+	r := resp.GetStartExternalWorker()
+	if r == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+	return &StartExternalWorkerResponse{OK: true, WorkerID: r.WorkerId, PID: int(r.Pid)}, nil
+}
+
+func (c *ProtoClient) StopExternalWorker(workerID string, all bool) (*StopExternalWorkerResponse, error) {
+	req := &orchpb.Request{Request: &orchpb.Request_StopExternalWorker{StopExternalWorker: &orchpb.StopExternalWorkerRequest{WorkerId: strings.TrimSpace(workerID), All: all}}}
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+	r := resp.GetStopExternalWorker()
+	if r == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+	return &StopExternalWorkerResponse{OK: true, StoppedCount: int(r.StoppedCount)}, nil
+}
+
+func (c *ProtoClient) ListExternalWorkers() (*ListExternalWorkersResponse, error) {
+	req := &orchpb.Request{Request: &orchpb.Request_ListExternalWorkers{ListExternalWorkers: &orchpb.ListExternalWorkersRequest{}}}
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+	r := resp.GetListExternalWorkers()
+	if r == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+	out := make([]*ExternalWorkerProcessInfo, 0, len(r.Workers))
+	for _, w := range r.Workers {
+		out = append(out, &ExternalWorkerProcessInfo{WorkerID: w.WorkerId, PID: int(w.Pid), StartedAt: time.Unix(w.StartedAtUnix, 0)})
+	}
+	return &ListExternalWorkersResponse{OK: true, Workers: out}, nil
 }
 
 func (c *ProtoClient) GetControlAgentLaunch(projectRoot, agentType string, newSession bool) (*GetControlAgentLaunchResponse, error) {
@@ -1299,7 +1520,6 @@ func (c *ProtoClient) AppendEvent(issueID, runID, eventType, eventName string, a
 	req := &orchpb.Request{
 		Request: &orchpb.Request_AppendEvent{
 			AppendEvent: &orchpb.AppendEventRequest{
-				IssuesRoot:  c.issuesRoot,
 				IssueId:     issueID,
 				RunId:       runID,
 				EventType:   eventType,
@@ -1436,7 +1656,6 @@ func (c *ProtoClient) ListRepos() ([]map[string]string, error) {
 		repos[i] = map[string]string{
 			"repo_id":      r.Id,
 			"project_root": r.ProjectRoot,
-			"issues_root":  r.IssuesRoot,
 		}
 	}
 
@@ -1456,7 +1675,6 @@ func (c *ProtoClient) DeleteRun(issueID, runID, shortID string, withWorktree, wi
 	req := &orchpb.Request{
 		Request: &orchpb.Request_DeleteRun{
 			DeleteRun: &orchpb.DeleteRunRequest{
-				IssuesRoot:   c.issuesRoot,
 				IssueId:      issueID,
 				RunId:        runID,
 				ShortId:      shortID,
@@ -1496,13 +1714,12 @@ func (c *ProtoClient) UpdateIssue(issueID, title, summary, body, status string) 
 	req := &orchpb.Request{
 		Request: &orchpb.Request_UpdateIssue{
 			UpdateIssue: &orchpb.UpdateIssueRequest{
-				IssuesRoot: c.issuesRoot,
-				IssueId:    issueID,
-				Title:      title,
-				Summary:    summary,
-				Body:       body,
-				Status:     status,
-				Context:    c.requestContext(c.projectRoot),
+				IssueId: issueID,
+				Title:   title,
+				Summary: summary,
+				Body:    body,
+				Status:  status,
+				Context: c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1555,9 +1772,8 @@ func (c *ProtoClient) ValidateIssueFiles(issueID string) (*ValidateIssueFilesRes
 	req := &orchpb.Request{
 		Request: &orchpb.Request_ValidateIssueFiles{
 			ValidateIssueFiles: &orchpb.ValidateIssueFilesRequest{
-				IssuesRoot: c.issuesRoot,
-				IssueId:    issueID,
-				Context:    c.requestContext(c.projectRoot),
+				IssueId: issueID,
+				Context: c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1635,12 +1851,11 @@ func (c *ProtoClient) WriteAgentPrompt(issueID, runID, shortID, content string) 
 	req := &orchpb.Request{
 		Request: &orchpb.Request_WriteAgentPrompt{
 			WriteAgentPrompt: &orchpb.WriteAgentPromptRequest{
-				IssuesRoot: c.issuesRoot,
-				IssueId:    issueID,
-				RunId:      runID,
-				ShortId:    shortID,
-				Content:    content,
-				Context:    c.requestContext(c.projectRoot),
+				IssueId: issueID,
+				RunId:   runID,
+				ShortId: shortID,
+				Content: content,
+				Context: c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1661,11 +1876,10 @@ func (c *ProtoClient) ReadAgentPrompt(issueID, runID, shortID string) (string, e
 	req := &orchpb.Request{
 		Request: &orchpb.Request_ReadAgentPrompt{
 			ReadAgentPrompt: &orchpb.ReadAgentPromptRequest{
-				IssuesRoot: c.issuesRoot,
-				IssueId:    issueID,
-				RunId:      runID,
-				ShortId:    shortID,
-				Context:    c.requestContext(c.projectRoot),
+				IssueId: issueID,
+				RunId:   runID,
+				ShortId: shortID,
+				Context: c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1803,11 +2017,10 @@ func (c *ProtoClient) CreateRun(issueID, runID string, metadata map[string]strin
 	req := &orchpb.Request{
 		Request: &orchpb.Request_CreateRun{
 			CreateRun: &orchpb.CreateRunRequest{
-				IssuesRoot: c.issuesRoot,
-				IssueId:    issueID,
-				RunId:      runID,
-				Metadata:   metadata,
-				Context:    c.requestContext(c.projectRoot),
+				IssueId:  issueID,
+				RunId:    runID,
+				Metadata: metadata,
+				Context:  c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1833,10 +2046,9 @@ func (c *ProtoClient) CaptureSession(issueID, runID string) (*CaptureSessionResp
 	req := &orchpb.Request{
 		Request: &orchpb.Request_CaptureSession{
 			CaptureSession: &orchpb.CaptureSessionRequest{
-				IssuesRoot: c.issuesRoot,
-				IssueId:    issueID,
-				RunId:      runID,
-				Context:    c.requestContext(c.projectRoot),
+				IssueId: issueID,
+				RunId:   runID,
+				Context: c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1866,11 +2078,10 @@ func (c *ProtoClient) SendMessage(issueID, runID, message string) error {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_SendMessage{
 			SendMessage: &orchpb.SendMessageRequest{
-				IssuesRoot: c.issuesRoot,
-				IssueId:    issueID,
-				RunId:      runID,
-				Message:    message,
-				Context:    c.requestContext(c.projectRoot),
+				IssueId: issueID,
+				RunId:   runID,
+				Message: message,
+				Context: c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1891,11 +2102,10 @@ func (c *ProtoClient) InjectInitialPrompt(issueID, runID, prompt string) error {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_InjectInitialPrompt{
 			InjectInitialPrompt: &orchpb.InjectInitialPromptRequest{
-				IssuesRoot: c.issuesRoot,
-				IssueId:    issueID,
-				RunId:      runID,
-				Prompt:     prompt,
-				Context:    c.requestContext(c.projectRoot),
+				IssueId: issueID,
+				RunId:   runID,
+				Prompt:  prompt,
+				Context: c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1916,10 +2126,9 @@ func (c *ProtoClient) GetDiffStats(issueID, runID string) (*GetDiffStatsResponse
 	req := &orchpb.Request{
 		Request: &orchpb.Request_GetDiffStats{
 			GetDiffStats: &orchpb.GetDiffStatsRequest{
-				IssuesRoot: c.issuesRoot,
-				IssueId:    issueID,
-				RunId:      runID,
-				Context:    c.requestContext(c.projectRoot),
+				IssueId: issueID,
+				RunId:   runID,
+				Context: c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1950,10 +2159,9 @@ func (c *ProtoClient) GetBranchState(issueID, runID string) (string, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_GetBranchState{
 			GetBranchState: &orchpb.GetBranchStateRequest{
-				IssuesRoot: c.issuesRoot,
-				IssueId:    issueID,
-				RunId:      runID,
-				Context:    c.requestContext(c.projectRoot),
+				IssueId: issueID,
+				RunId:   runID,
+				Context: c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1979,10 +2187,9 @@ func (c *ProtoClient) GetDiff(issueID, runID string) (string, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_GetDiff{
 			GetDiff: &orchpb.GetDiffRequest{
-				IssuesRoot: c.issuesRoot,
-				IssueId:    issueID,
-				RunId:      runID,
-				Context:    c.requestContext(c.projectRoot),
+				IssueId: issueID,
+				RunId:   runID,
+				Context: c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -2085,11 +2292,10 @@ func (c *ProtoClient) ResumeRun(issueID, runID, shortID string) (*ResumeRunRespo
 	req := &orchpb.Request{
 		Request: &orchpb.Request_ResumeRun{
 			ResumeRun: &orchpb.ResumeRunRequest{
-				IssuesRoot: c.issuesRoot,
-				IssueId:    issueID,
-				RunId:      runID,
-				ShortId:    shortID,
-				Context:    c.requestContext(c.projectRoot),
+				IssueId: issueID,
+				RunId:   runID,
+				ShortId: shortID,
+				Context: c.requestContext(c.projectRoot),
 			},
 		},
 	}

@@ -30,7 +30,6 @@ const (
 
 // GlobalOptions holds options shared across all commands
 type GlobalOptions struct {
-	IssuesRoot  string
 	ProjectRoot string
 	Remote      string
 	Backend     string
@@ -95,7 +94,6 @@ It operates non-interactively by default, using events to track state
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&globalOpts.ProjectRoot, "project-root", "", "Path to project root where .orch/ lives (or set ORCH_PROJECT_ROOT)")
-	rootCmd.PersistentFlags().StringVar(&globalOpts.IssuesRoot, "issues-root", "", "Path to issues root for file-based issues (or set ORCH_ISSUES_ROOT)")
 	rootCmd.PersistentFlags().StringVar(&globalOpts.Remote, "remote", "", "Connect to remote daemon address (or set ORCH_REMOTE)")
 
 	rootCmd.PersistentFlags().StringVar(&globalOpts.Backend, "backend", "file", "Backend type (file|github|linear)")
@@ -146,14 +144,8 @@ func Execute() {
 	}
 }
 
-// getIssuesRoot returns the issues root path from flags, environment, or config files
-// Precedence: --issues-root flag > issues.path config > default XDG path (~/.local/share/orch/<repo>)
-func getIssuesRoot() (string, error) {
-	if globalOpts.IssuesRoot != "" {
-		return config.ExpandPath(globalOpts.IssuesRoot, ""), nil
-	}
-
-	cfg, err := config.Load()
+func getIssuesRootForProject(projectRoot string) (string, error) {
+	cfg, err := config.LoadFromProjectRoot(projectRoot)
 	if err != nil {
 		return "", err
 	}
@@ -162,7 +154,25 @@ func getIssuesRoot() (string, error) {
 		return issuesPath, nil
 	}
 
-	return "", fmt.Errorf("issues root not specified (use --issues-root or set issues.path in .orch/config.yaml)")
+	return "", fmt.Errorf("issues root not specified (set issues.path in .orch/config.yaml)")
+}
+
+func getIssuesRootForProjectIfConfigured(projectRoot string) (string, error) {
+	cfg, err := config.LoadFromProjectRoot(projectRoot)
+	if err != nil {
+		return "", err
+	}
+
+	return cfg.GetIssuesPath(), nil
+}
+
+// getIssuesRoot resolves project root and then loads issues.path for that project.
+func getIssuesRoot() (string, error) {
+	projectRoot, err := getProjectRoot()
+	if err != nil {
+		return "", err
+	}
+	return getIssuesRootForProject(projectRoot)
 }
 
 // getProjectRoot returns the project root directory (where .orch/ lives).
@@ -175,6 +185,50 @@ func getProjectRoot() (string, error) {
 	return config.GetProjectRoot()
 }
 
+func getProjectRootWithSource() (string, bool, error) {
+	if globalOpts.ProjectRoot != "" {
+		return config.ExpandPath(globalOpts.ProjectRoot, ""), true, nil
+	}
+
+	if strings.TrimSpace(os.Getenv("ORCH_PROJECT_ROOT")) != "" {
+		projectRoot, err := config.GetProjectRoot()
+		if err != nil {
+			return "", true, err
+		}
+		return projectRoot, true, nil
+	}
+
+	projectRoot, err := config.GetProjectRoot()
+	if err != nil {
+		return "", false, err
+	}
+
+	return projectRoot, false, nil
+}
+
+func resolveExplicitProjectScope(scopeValue, scopeFlagName string) (string, error) {
+	if strings.TrimSpace(scopeValue) != "" {
+		return config.ExpandPath(scopeValue, ""), nil
+	}
+
+	projectRoot, explicitProjectRoot, err := getProjectRootWithSource()
+	if err != nil {
+		if scopeFlagName != "" {
+			return "", fmt.Errorf("project scope required: %w (set %s, --project-root, or ORCH_PROJECT_ROOT)", err, scopeFlagName)
+		}
+		return "", fmt.Errorf("project scope required: %w (set --project-root or ORCH_PROJECT_ROOT)", err)
+	}
+
+	if !explicitProjectRoot {
+		if scopeFlagName != "" {
+			return "", fmt.Errorf("project scope required: set %s, --project-root, or ORCH_PROJECT_ROOT", scopeFlagName)
+		}
+		return "", fmt.Errorf("project scope required: set --project-root or ORCH_PROJECT_ROOT")
+	}
+
+	return projectRoot, nil
+}
+
 func getRemoteAddr() string {
 	clientCfg, err := config.LoadClient()
 	if err != nil {
@@ -182,14 +236,6 @@ func getRemoteAddr() string {
 	}
 
 	return resolveRemoteAddr(globalOpts.Remote, remoteFlagWasSet, os.Getenv("ORCH_REMOTE"), clientCfg)
-}
-
-func getIssuesRootForClient(remoteAddr string) (string, error) {
-	if strings.TrimSpace(remoteAddr) != "" {
-		return "", nil
-	}
-
-	return getIssuesRoot()
 }
 
 func resolveRemoteAddr(flagValue string, flagChanged bool, envValue string, clientCfg *config.ClientConfig) string {
@@ -220,23 +266,33 @@ func getAPI() (orchapi.OrchAPI, error) {
 	return defaultGetAPI()
 }
 
+func getAPIForListing() (orchapi.OrchAPI, error) {
+	return defaultGetAPIWithOptions(false)
+}
+
 func defaultGetAPI() (orchapi.OrchAPI, error) {
+	return defaultGetAPIWithOptions(true)
+}
+
+func defaultGetAPIWithOptions(requireProjectRoot bool) (orchapi.OrchAPI, error) {
 	remoteAddr := getRemoteAddr()
 
-	projectRoot, err := getProjectRoot()
+	projectRoot, explicitProjectRoot, err := getProjectRootWithSource()
 	if err != nil {
-		if strings.TrimSpace(remoteAddr) == "" {
-			return nil, err
+		if requireProjectRoot {
+			return nil, fmt.Errorf("project scope required for this command: %w (set --project-root or ORCH_PROJECT_ROOT)", err)
 		}
 		projectRoot = ""
 	}
 
-	issuesRoot, err := getIssuesRootForClient(remoteAddr)
-	if err != nil {
-		return nil, err
+	if requireProjectRoot && !explicitProjectRoot {
+		if strings.TrimSpace(remoteAddr) != "" {
+			return nil, fmt.Errorf("project scope required for remote command: set --project-root or ORCH_PROJECT_ROOT")
+		}
+		return nil, fmt.Errorf("project scope required for this command: set --project-root or ORCH_PROJECT_ROOT")
 	}
 
-	client := orchapi.NewDaemonClientWithAddress(projectRoot, issuesRoot, remoteAddr)
+	client := orchapi.NewDaemonClientWithAddress(projectRoot, remoteAddr)
 	if remoteAddr == "" && !client.IsAvailable() {
 		ensureDaemon()
 	}

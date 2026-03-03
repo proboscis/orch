@@ -11,7 +11,6 @@ func TestValidateConfigForCommandRejectsInvalidRepoConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("ORCH_PROJECT_ROOT", "")
-	t.Setenv("ORCH_ISSUES_ROOT", "")
 
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0o755); err != nil {
@@ -47,7 +46,6 @@ func TestValidateConfigForCommandUsesProjectRootFlag(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("ORCH_PROJECT_ROOT", "")
-	t.Setenv("ORCH_ISSUES_ROOT", "")
 
 	validRepo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(validRepo, ".orch"), 0o755); err != nil {
@@ -91,7 +89,6 @@ func TestValidateConfigForCommandRejectsInvalidClientConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("ORCH_PROJECT_ROOT", "")
-	t.Setenv("ORCH_ISSUES_ROOT", "")
 
 	clientCfgDir := filepath.Join(home, ".config", "orch")
 	if err := os.MkdirAll(clientCfgDir, 0o755); err != nil {

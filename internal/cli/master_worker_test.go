@@ -1,8 +1,12 @@
 package cli
 
 import (
-	"strings"
+	"fmt"
 	"testing"
+	"time"
+
+	"github.com/s22625/orch/internal/daemon"
+	"github.com/s22625/orch/internal/worker"
 )
 
 func TestRootRegistersMasterAndWorkerCommands(t *testing.T) {
@@ -29,17 +33,72 @@ func TestRootRegistersMasterAndWorkerCommands(t *testing.T) {
 	}
 }
 
+func TestWorkerCommandRegistersRunSubcommand(t *testing.T) {
+	worker := newWorkerCmd()
+	if worker == nil {
+		t.Fatal("newWorkerCmd() = nil")
+	}
+
+	hasRun := false
+	for _, cmd := range worker.Commands() {
+		if cmd.Name() == "run" {
+			hasRun = true
+			break
+		}
+	}
+
+	if !hasRun {
+		t.Fatal("expected worker command to include 'run' subcommand")
+	}
+}
+
+func TestWorkerRunCommandInvokesExternalLoop(t *testing.T) {
+	origRequire := requireDaemonForWorker
+	origRun := runExternalWorkerLoop
+	t.Cleanup(func() {
+		requireDaemonForWorker = origRequire
+		runExternalWorkerLoop = origRun
+	})
+
+	requireDaemonForWorker = func() (*daemon.ProtoClient, error) {
+		return &daemon.ProtoClient{}, nil
+	}
+
+	called := false
+	var got worker.RunConfig
+	runExternalWorkerLoop = func(client worker.Client, cfg worker.RunConfig) error {
+		called = true
+		got = cfg
+		return nil
+	}
+
+	cmd := newWorkerRunCmd()
+	cmd.SetArgs([]string{"--worker-id", "worker-1", "--once", "--poll-interval", "300ms", "--heartbeat-interval", "7s"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("worker run execute failed: %v", err)
+	}
+
+	if !called {
+		t.Fatal("expected runExternalWorkerLoop to be called")
+	}
+	if got.WorkerID != "worker-1" || !got.Once || got.PollInterval != 300*time.Millisecond || got.HeartbeatInterval != 7*time.Second {
+		t.Fatalf("unexpected run config: %+v", got)
+	}
+}
+
 func TestRunWorkerStatusWithoutProjectRoot(t *testing.T) {
 	setIsolatedXDG(t)
 	resetGlobalOpts(t)
-
-	out := captureStdout(t, func() {
-		if err := runWorkerStatus(); err != nil {
-			t.Fatalf("runWorkerStatus() error = %v", err)
-		}
+	origRequire := requireDaemonForWorker
+	t.Cleanup(func() {
+		requireDaemonForWorker = origRequire
 	})
+	requireDaemonForWorker = func() (*daemon.ProtoClient, error) {
+		return nil, fmt.Errorf("daemon unavailable in unit test")
+	}
 
-	if !strings.Contains(out, "Status: not running") {
-		t.Fatalf("expected not running output, got: %s", out)
+	err := runWorkerStatus()
+	if err == nil {
+		t.Fatal("runWorkerStatus() error = nil, want daemon unavailable error")
 	}
 }

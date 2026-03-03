@@ -112,7 +112,6 @@ def mock_config(tmp_path: Path) -> Config:
     orch_dir.mkdir(parents=True, exist_ok=True)
     return Config(
         project_root=tmp_path,
-        issues_root=tmp_path / "issues",
         agent="claude",
         monitor=MonitorConfig(),
     )
@@ -374,8 +373,8 @@ class TestDiffE2EWorkflow:
                 binary,
                 "diff",
                 "nonexistent-issue#invalid-run",
-                "--issues-root",
-                "/tmp/nonexistent",
+                "--project-root",
+                "/tmp",
             ],
             capture_output=True,
             text=True,

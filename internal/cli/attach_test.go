@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"net"
 	"reflect"
 	"strconv"
 	"strings"
@@ -68,8 +67,7 @@ func newAttachDepsForTest(api orchapi.OrchAPI) (*attachDeps, *bytes.Buffer, *[]i
 		parseRunRef: func(string) (orchapi.RunRef, error) {
 			return orchapi.RunRef{IssueID: "orch-1", RunID: "20260101-010101"}, nil
 		},
-		getProjectRoot: func() (string, error) { return "/tmp/project", nil },
-		parseMuxType:   multiplexer.ParseType,
+		parseMuxType: multiplexer.ParseType,
 		getMuxAuto: func() (attachSessionMux, error) {
 			return nil, errors.New("mux auto not configured")
 		},
@@ -216,12 +214,7 @@ func TestAttachOpenCodeFromInfoWithExecutor_NoServerOrSession(t *testing.T) {
 }
 
 func TestAttachOpenCodeFromInfoWithExecutor_AttachesToRunningServer(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen tcp: %v", err)
-	}
-	t.Cleanup(func() { _ = listener.Close() })
-	port := listener.Addr().(*net.TCPAddr).Port
+	port := 43123
 
 	orig := runOpenCodeCommand
 	t.Cleanup(func() { runOpenCodeCommand = orig })

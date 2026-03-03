@@ -98,8 +98,7 @@ func runIssueCreate(issueID string, opts *issueCreateOptions) error {
 		return err
 	}
 
-	projectRoot, _ := getProjectRoot()
-	cfg, err := api.GetConfig(ctx, projectRoot)
+	cfg, err := api.GetConfig(ctx, "")
 	if err != nil {
 		return err
 	}
@@ -156,7 +155,11 @@ func isGitHubBackend(cfg *orchapi.Config) bool {
 }
 
 func runIssueCreateLocal(issueID, title string, opts *issueCreateOptions) error {
-	issuesRoot, err := getIssuesRoot()
+	projectRoot, err := getProjectRoot()
+	if err != nil {
+		return err
+	}
+	issuesRoot, err := getIssuesRootForProject(projectRoot)
 	if err != nil {
 		return err
 	}
@@ -224,7 +227,11 @@ func runIssueCreateLocal(issueID, title string, opts *issueCreateOptions) error 
 }
 
 func runIssueCreateWithEditor(api orchapi.OrchAPI, issueID, title string, opts *issueCreateOptions) error {
-	issuesRoot, err := getIssuesRoot()
+	projectRoot, err := getProjectRoot()
+	if err != nil {
+		return err
+	}
+	issuesRoot, err := getIssuesRootForProject(projectRoot)
 	if err != nil {
 		return err
 	}
@@ -381,7 +388,7 @@ type issueInfo struct {
 func runIssueList(opts *issueListOptions) error {
 	ctx := context.Background()
 
-	api, err := getAPI()
+	api, err := getAPIForListing()
 	if err != nil {
 		return err
 	}
@@ -616,7 +623,7 @@ func runIssueShow(issueID string, opts *issueShowOptions) error {
 	}
 
 	ctx := context.Background()
-	api, err := getAPI()
+	api, err := getAPIForListing()
 	if err != nil {
 		return err
 	}
