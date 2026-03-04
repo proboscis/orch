@@ -57,9 +57,9 @@ github:
 
 ### Configuration Precedence
 
-**For project root:**
-1. `--project-root` flag (highest)
-2. `ORCH_PROJECT_ROOT` environment variable
+**For project identity:**
+1. `--project` flag (highest)
+2. `ORCH_PROJECT` environment variable
 3. Directory containing `.orch/config.yaml` (searched upward from cwd)
 4. none
 

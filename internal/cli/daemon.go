@@ -52,7 +52,7 @@ func newDaemonRepoCmd() *cobra.Command {
 		Short: "Manage daemon repo identity mappings",
 		Long: `Manage daemon-side repo identity mappings used by remote clients.
 
-Mappings connect portable repo IDs to server-local project roots.`,
+Mappings connect repo URL identities to daemon-managed project workspaces.`,
 	}
 
 	cmd.AddCommand(newDaemonRepoRegisterCmd())
@@ -63,8 +63,8 @@ Mappings connect portable repo IDs to server-local project roots.`,
 
 func newDaemonRepoRegisterCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "register SERVER_PROJECT_ROOT",
-		Short: "Register a server project root for remote repo identity",
+		Use:   "register REPO_URL",
+		Short: "Register a repository URL for remote project identity",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDaemonRepoRegister(args[0])
@@ -114,24 +114,24 @@ func requireDaemonAdminClient() (*daemon.ProtoClient, error) {
 	return nil, fmt.Errorf("daemon did not become available after starting")
 }
 
-func runDaemonRepoRegister(serverProjectRoot string) error {
+func runDaemonRepoRegister(repoURL string) error {
 	client, err := requireDaemonAdminClient()
 	if err != nil {
 		return err
 	}
 	defer client.Close()
 
-	repoID, err := client.RegisterRepo(serverProjectRoot)
+	repoID, err := client.RegisterRepo(repoURL)
 	if err != nil {
 		return err
 	}
 
 	if globalOpts.JSON {
-		fmt.Printf("{\"repo_id\":%q,\"project_root\":%q}\n", repoID, serverProjectRoot)
+		fmt.Printf("{\"repo_id\":%q,\"repo_url\":%q}\n", repoID, repoURL)
 		return nil
 	}
 
-	fmt.Printf("Registered repo mapping: %s -> %s\n", repoID, serverProjectRoot)
+	fmt.Printf("Registered repo mapping: %s -> %s\n", repoID, repoURL)
 	return nil
 }
 

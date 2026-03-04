@@ -42,7 +42,7 @@ def _spinner_context(message: str, enabled: bool = True):
 
 
 from .app import IssuesDashboard, OrchMonitorApp, RunsDashboard, setup_logging
-from .config import Config
+from .config import Config, resolve_project_identity, resolve_project_root_hint
 from .proto_client import ProtoDaemonClient
 from .multiplexer import (
     InvalidMultiplexerConfigError,
@@ -350,13 +350,25 @@ def query_latest_opencode_session(
 
 
 def get_project_root(args) -> Path | None:
-    """Get project root from args or environment."""
-    if hasattr(args, "project_root") and args.project_root:
-        return args.project_root
-    project_root_env = os.getenv("ORCH_PROJECT_ROOT")
-    if project_root_env:
-        return Path(project_root_env)
+    """Get local project root path from args/environment when available."""
+    if hasattr(args, "project") and args.project:
+        hinted_root = resolve_project_root_hint(args.project)
+        if hinted_root is not None:
+            return hinted_root
+
+    project_env = os.getenv("ORCH_PROJECT")
+    if project_env:
+        hinted_root = resolve_project_root_hint(project_env)
+        if hinted_root is not None:
+            return hinted_root
     return None
+
+
+def get_project_scope(args, project_root: Path | None) -> str | None:
+    explicit_project = args.project if hasattr(args, "project") else None
+    return resolve_project_identity(
+        project_root=project_root, explicit_project=explicit_project
+    )
 
 
 DAEMON_STARTUP_TIMEOUT_SEC = 15
@@ -381,10 +393,10 @@ def _resolve_orch_binary() -> str:
     return "orch"
 
 
-def _orch_scope_args(project_root: Path | None) -> list[str]:
+def _orch_scope_args(project_scope: str | None) -> list[str]:
     args: list[str] = []
-    if project_root:
-        args.extend(["--project-root", str(project_root)])
+    if project_scope:
+        args.extend(["--project", project_scope])
     return args
 
 
@@ -442,7 +454,10 @@ def _wait_for_daemon(daemon: ProtoDaemonClient) -> bool:
     return False
 
 
-def ensure_daemon(project_root: Path | None) -> tuple[bool, str]:
+def ensure_daemon(
+    project_root: Path | None,
+    project_scope: str | None = None,
+) -> tuple[bool, str]:
     if project_root:
         config = Config.from_project_root(project_root)
     else:
@@ -456,7 +471,7 @@ def ensure_daemon(project_root: Path | None) -> tuple[bool, str]:
     print(f"Daemon socket not found at {socket_path}", file=sys.stderr)
     print("Starting orch daemon...", file=sys.stderr)
 
-    scope_args = _orch_scope_args(project_root)
+    scope_args = _orch_scope_args(project_scope)
 
     started, start_error = _start_daemon_process(scope_args)
     if started and _wait_for_daemon(daemon):
@@ -530,6 +545,7 @@ class LayoutLauncher(Protocol):
         cwd: str,
         new_control_agent: bool = False,
         agent_override: str = "",
+        project_scope: str | None = None,
     ) -> None:
         """Launch a new layout with runs, issues, and agent panes.
 
@@ -572,16 +588,17 @@ class TmuxLayoutLauncher:
         cwd: str,
         new_control_agent: bool = False,
         agent_override: str = "",
+        project_scope: str | None = None,
     ) -> None:
         python_exec = sys.executable
         orch_args = ""
-        if project_root:
-            orch_args += f"--project-root {project_root} "
+        if project_scope:
+            orch_args += f"--project {shlex.quote(project_scope)} "
         orch_args = orch_args.strip()
 
         env_export = ""
-        if project_root:
-            env_export += f"export ORCH_PROJECT_ROOT='{project_root}'; "
+        if project_scope:
+            env_export += f"export ORCH_PROJECT={shlex.quote(project_scope)}; "
 
         subprocess.run(
             [
@@ -738,11 +755,12 @@ class ZellijLayoutLauncher:
         cwd: str,
         new_control_agent: bool = False,
         agent_override: str = "",
+        project_scope: str | None = None,
     ) -> None:
         python_exec = sys.executable
         orch_args = ""
-        if project_root:
-            orch_args += f"--project-root {project_root} "
+        if project_scope:
+            orch_args += f"--project {shlex.quote(project_scope)} "
         orch_args = orch_args.strip()
 
         runs_cmd = f"{python_exec} -m orch_monitor --runs {orch_args}".strip()
@@ -809,8 +827,8 @@ layout {{
         atexit.register(lambda: layout_path.unlink(missing_ok=True))
 
         env = os.environ.copy()
-        if project_root:
-            env["ORCH_PROJECT_ROOT"] = str(project_root)
+        if project_scope:
+            env["ORCH_PROJECT"] = project_scope
         inside_zellij = os.environ.get("ZELLIJ_SESSION_NAME") is not None
         for var in ("ZELLIJ", "ZELLIJ_SESSION_NAME", "ZELLIJ_PANE_ID"):
             removed = env.pop(var, None)
@@ -902,7 +920,8 @@ def get_layout_launcher(mux_type: MultiplexerType) -> LayoutLauncher:
 
 def launch_monitor_layout(
     project_root: Path | None,
-    vault_path: Path | None,
+    project_scope: str | None = None,
+    vault_path: Path | None = None,
     agent: str = "opencode",
     new: bool = False,
     new_control_agent: bool = False,
@@ -915,6 +934,7 @@ def launch_monitor_layout(
 
     Args:
         project_root: Path to project root
+        project_scope: Project identity for orch CLI scoping
         vault_path: Deprecated, unused compatibility argument
         agent: Agent command to use (default: opencode)
         new: If True, restart the layout (kill existing session)
@@ -928,7 +948,7 @@ def launch_monitor_layout(
     """
     _setup_launcher_logging()
     _launcher_logger.info(
-        f"launch_monitor_layout: project_root={project_root}, new={new}, new_control_agent={new_control_agent}"
+        f"launch_monitor_layout: project_root={project_root}, project_scope={project_scope}, new={new}, new_control_agent={new_control_agent}"
     )
 
     # Phase 1: Detect and validate multiplexer
@@ -949,7 +969,7 @@ def launch_monitor_layout(
             sys.exit(1)
 
         launcher = get_layout_launcher(multiplexer)
-        cwd = os.getcwd()
+        cwd = str(project_root) if project_root else os.getcwd()
         session_name = get_session_name(project_root)
         _launcher_logger.info(f"session_name={session_name}, cwd={cwd}")
 
@@ -1059,6 +1079,7 @@ def launch_monitor_layout(
         cwd,
         new_control_agent,
         agent_override=agent_override,
+        project_scope=project_scope,
     )
     _launcher_logger.info("launch complete")
 
@@ -1066,9 +1087,9 @@ def launch_monitor_layout(
 def main():
     parser = argparse.ArgumentParser(description="Orch monitor TUI")
     parser.add_argument(
-        "--project-root",
-        type=Path,
-        help="Path to project root (where .orch/ lives)",
+        "--project",
+        type=str,
+        help="Project identity (git repo URL or normalized repo ID)",
     )
     parser.add_argument(
         "--runs",
@@ -1111,6 +1132,9 @@ def main():
 
     args = parser.parse_args()
 
+    if args.project:
+        os.environ["ORCH_PROJECT"] = args.project
+
     if args.verbose:
         import time as _time
 
@@ -1125,6 +1149,7 @@ def main():
             pass
 
     project_root = get_project_root(args)
+    project_scope = get_project_scope(args, project_root)
 
     # Determine if we should show spinners (only for layout mode, not single panes)
     show_spinner = not args.runs and not args.issues
@@ -1151,7 +1176,7 @@ def main():
 
     _log("ensuring daemon...")
     with _spinner_context("Connecting to daemon...", enabled=show_spinner):
-        success, error_msg = ensure_daemon(project_root)
+        success, error_msg = ensure_daemon(project_root, project_scope)
     if not success:
         print(f"Error: {error_msg}", file=sys.stderr)
         print("Try running 'orch repair' to fix.", file=sys.stderr)
@@ -1187,6 +1212,7 @@ def main():
         _log(f"using agent: {agent}")
         launch_monitor_layout(
             project_root,
+            project_scope,
             None,
             agent,
             new,

@@ -2113,12 +2113,35 @@ func (s *SocketServer) handleProtoEnsureOpenCodeServer(req *orchpb.EnsureOpenCod
 }
 
 func (s *SocketServer) handleProtoRegisterRepo(req *orchpb.RegisterRepoRequest) *orchpb.Response {
-	projectRoot := s.resolveProtoProjectRoot(req.ProjectRoot)
-	if projectRoot == "" {
-		return errorResponse("project_root required")
+	input := strings.TrimSpace(req.ProjectRoot)
+	if input == "" {
+		return errorResponse("repo URL required")
 	}
 
-	repoID := deriveRepoID(projectRoot)
+	projectRoot := ""
+	repoURL := ""
+	repoID := ""
+
+	if looksLikeRepoURL(input) {
+		parsedID, err := xdg.ParseRepoID(input)
+		if err != nil {
+			return errorResponse(fmt.Sprintf("invalid repo URL %q: %v", input, err))
+		}
+		repoID = strings.TrimSpace(parsedID)
+		repoURL = input
+		workspaceRoot, err := ensureManagedRepoWorkspace(repoID, repoURL)
+		if err != nil {
+			return errorResponse(err.Error())
+		}
+		projectRoot = workspaceRoot
+	} else {
+		projectRoot = s.resolveProtoProjectRoot(input)
+		if projectRoot == "" {
+			return errorResponse("repo URL required")
+		}
+		repoID = deriveRepoID(projectRoot)
+	}
+
 	aliasRepoID := ""
 	if portableID, err := xdg.RepoID(projectRoot); err == nil {
 		aliasRepoID = strings.TrimSpace(portableID)
@@ -2138,12 +2161,16 @@ func (s *SocketServer) handleProtoRegisterRepo(req *orchpb.RegisterRepoRequest) 
 		s.repos[repoID] = &RepoContext{
 			ProjectRoot: projectRoot,
 			RepoID:      repoID,
+			RepoURL:     repoURL,
 			Store:       repoStore,
 		}
 	} else {
 		existing := s.repos[repoID]
 		if existing != nil {
 			existing.ProjectRoot = projectRoot
+			if repoURL != "" {
+				existing.RepoURL = repoURL
+			}
 			if existing.Store == nil {
 				existing.Store = repoStore
 			}
@@ -2160,7 +2187,11 @@ func (s *SocketServer) handleProtoRegisterRepo(req *orchpb.RegisterRepoRequest) 
 		return errorResponse(fmt.Sprintf("failed to persist repo registry: %v", err))
 	}
 
-	s.logger.Printf("registered repo: %s (%s)", repoID, projectRoot)
+	if repoURL != "" {
+		s.logger.Printf("registered repo: %s (%s -> %s)", repoID, repoURL, projectRoot)
+	} else {
+		s.logger.Printf("registered repo: %s (%s)", repoID, projectRoot)
+	}
 
 	return &orchpb.Response{
 		Ok: true,

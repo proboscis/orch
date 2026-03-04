@@ -41,19 +41,19 @@ orch --remote cloud ps
 orch --remote "" ps
 ```
 
-On the server side, expose the daemon over TCP and register the project root:
+On the server side, expose the daemon over TCP and register the repository URL:
 
 ```bash
 # On remote server
 orch daemon start --listen tcp://0.0.0.0:7777
 
 # From client machine
-orch --remote zeus:7777 daemon repo register /srv/repos/your-project
+orch --remote zeus:7777 daemon repo register https://github.com/your-org/your-project.git
 orch --remote zeus:7777 daemon repo list
 ```
 
-In remote mode, orch resolves project identity from `--project-root` and daemon
-repo mappings.
+In remote mode, orch resolves project identity from `--project`/`ORCH_PROJECT`
+and daemon repo mappings.
 
 ## Quick Start
 
@@ -240,7 +240,7 @@ All settings can be configured via environment variables:
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `ORCH_PROJECT_ROOT` | Project root path | `/path/to/repo` |
+| `ORCH_PROJECT` | Project identity (repo ID or URL) | `your-org-your-repo` |
 | `ORCH_REMOTE` | Remote daemon address | `zeus:7777` |
 | `ORCH_AGENT` | Default agent | `claude` |
 | `ORCH_BACKEND` | Backend type | `file` |

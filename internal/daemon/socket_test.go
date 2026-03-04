@@ -2055,7 +2055,7 @@ func TestEnsureRepoContextByIDDoesNotFallbackToEnvProjectRoot(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	t.Setenv("ORCH_PROJECT_ROOT", projectRoot)
+	t.Setenv("ORCH_PROJECT", projectRoot)
 	repoID := deriveRepoID(projectRoot)
 	if got := server.ensureRepoContextByID(repoID); got != nil {
 		t.Fatalf("expected nil context without registry mapping, got %#v", got)
@@ -3031,7 +3031,7 @@ func TestGetConfigWithUnknownProjectContextDoesNotFallbackToEnv(t *testing.T) {
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
 
-	t.Setenv("ORCH_PROJECT_ROOT", "/tmp/should-not-be-used")
+	t.Setenv("ORCH_PROJECT", "repoid:should-not-be-used")
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
@@ -3725,7 +3725,7 @@ func TestProtoStartRunWithoutProjectRootDoesNotFallbackToEnv(t *testing.T) {
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
 
-	t.Setenv("ORCH_PROJECT_ROOT", "/tmp/should-not-be-used")
+	t.Setenv("ORCH_PROJECT", "repoid:should-not-be-used")
 
 	st := &mockStore{
 		runs: make(map[string]*model.Run),
@@ -3767,7 +3767,7 @@ func TestProtoContinueRunWithoutProjectRootDoesNotFallbackToEnv(t *testing.T) {
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
 
-	t.Setenv("ORCH_PROJECT_ROOT", "/tmp/should-not-be-used")
+	t.Setenv("ORCH_PROJECT", "repoid:should-not-be-used")
 
 	st := &mockStore{
 		runs:   make(map[string]*model.Run),
@@ -3801,7 +3801,7 @@ func TestGetConfigWithoutProjectRootDoesNotFallbackToEnv(t *testing.T) {
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
 
-	t.Setenv("ORCH_PROJECT_ROOT", "/tmp/should-not-be-used")
+	t.Setenv("ORCH_PROJECT", "repoid:should-not-be-used")
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
@@ -3881,7 +3881,7 @@ func TestContextEnabledHandlersUnknownProjectReturnProjectScopedStoreError(t *te
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
 
-	t.Setenv("ORCH_PROJECT_ROOT", "/tmp/should-not-be-used")
+	t.Setenv("ORCH_PROJECT", "repoid:should-not-be-used")
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)

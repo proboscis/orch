@@ -34,7 +34,7 @@ export HOME="$ROOT/home"
 export XDG_RUNTIME_DIR="$ROOT/runtime"
 export XDG_STATE_HOME="$ROOT/state"
 export XDG_DATA_HOME="$ROOT/data"
-unset ORCH_PROJECT_ROOT ORCH_REMOTE
+unset ORCH_PROJECT ORCH_REMOTE
 
 go build -o "$ROOT/bin/orch" ./cmd/orch
 ORCH_BIN="$ROOT/bin/orch"
@@ -77,6 +77,7 @@ EOF
 git -C "$PROJECT" init
 git -C "$PROJECT" config user.email e2e@example.com
 git -C "$PROJECT" config user.name E2E
+git -C "$PROJECT" remote add origin https://github.com/example/manual-e2e-repo.git
 git -C "$PROJECT" add .
 git -C "$PROJECT" commit -m "init"
 ```
@@ -109,25 +110,24 @@ Expected:
 
 Expected:
 
-- `daemon repo register` prints `Registered repo mapping: <repo_id> -> <project_root>`
+- `daemon repo register` prints `Registered repo mapping: <repo_id> -> <repo_url>`
 - `daemon repo list` includes that `repo_id`
 
 ## 5) Local Client Live Run Flow
 
 ```bash
 RUN_ID="$(date +%Y%m%d-%H%M%S)-local"
+PROJECT_ID="example-manual-e2e-repo"
 
-"$ORCH_BIN" run mwc-local-live \
+"$ORCH_BIN" --project "$PROJECT_ID" run mwc-local-live \
   --run-id "$RUN_ID" \
   --agent custom \
   --agent-cmd "echo cli-e2e; sleep 1" \
-  --repo-root "$PROJECT" \
-  --worktree-dir "$PROJECT/.git-worktrees" \
   --json
 
-"$ORCH_BIN" ps --issue mwc-local-live --json
-"$ORCH_BIN" show "mwc-local-live#$RUN_ID" --json
-"$ORCH_BIN" stop "mwc-local-live#$RUN_ID" --force --json
+"$ORCH_BIN" --project "$PROJECT_ID" ps --issue mwc-local-live --json
+"$ORCH_BIN" --project "$PROJECT_ID" show "mwc-local-live#$RUN_ID" --json
+"$ORCH_BIN" --project "$PROJECT_ID" stop "mwc-local-live#$RUN_ID" --force --json
 ```
 
 Expected:
@@ -200,7 +200,7 @@ status: open
 EOF"
 
 # register repo mapping for strict project_id routing
-ssh zeus "$ENV_PREFIX orch daemon repo register /home/kento/repos/doeff"
+ssh zeus "$ENV_PREFIX orch daemon repo register https://github.com/proboscis/doeff.git"
 
 # runtime commands use repo identity scope
 PROJECT_ID="proboscis-doeff"
@@ -221,7 +221,7 @@ gh pr create --repo proboscis/doeff --title 'chore(e2e): sample zeus run $ISSUE_
 EOF
 chmod +x /tmp/orch-zeus-agent-$ISSUE_ID.sh"
 
-ssh zeus "$ENV_PREFIX orch --project $PROJECT_ID run $ISSUE_ID --run-id $RUN_ID --agent custom --agent-cmd 'bash /tmp/orch-zeus-agent-$ISSUE_ID.sh' --repo-root /home/kento/repos/doeff --worktree-dir /home/kento/repos/doeff/.git-worktrees --json"
+ssh zeus "$ENV_PREFIX orch --project $PROJECT_ID run $ISSUE_ID --run-id $RUN_ID --agent custom --agent-cmd 'bash /tmp/orch-zeus-agent-$ISSUE_ID.sh' --json"
 
 # find and close the sample PR
 BRANCH="issue/$ISSUE_ID/run-$RUN_ID"
@@ -248,6 +248,6 @@ Expected outcomes:
 
 - If `daemon repo register` fails right after `master start`, retry once after a short delay.
 - If TCP remote status is unreachable, restart with `ORCH_REMOTE=skip` set for the `master start --listen ...` command.
-- Ensure `PROJECT` path is canonical (`realpath`) before registering, so `repo_id` derivation matches client context.
+- Ensure `--project` value matches the registered repository identity.
 - For cross-host `master` (Zeus) + local `worker` validation, ensure the worker host can resolve the same project-root path and issue files used by the lease. If issue files only exist on Zeus, `run` may fail with `issue not found` during worker execution.
 - In this topology, verify run state on both sides when debugging: master (`orch --remote ... ps`) and worker-local issues store (`issues.path/runs/...`) to detect projection/store divergence.

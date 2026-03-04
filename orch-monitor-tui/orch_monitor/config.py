@@ -1,6 +1,7 @@
 """Configuration management for orch monitor."""
 
 import os
+import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +16,90 @@ from . import xdg
 MONITOR_FILTERS_FILE = "monitor-filters.yaml"
 MONITOR_LOG_FILE = "monitor-tui.log"
 ORCH_DIR = ".orch"
+
+
+def _looks_like_local_path(value: str) -> bool:
+    return (
+        value.startswith("/")
+        or value.startswith("./")
+        or value.startswith("../")
+        or value.startswith("~")
+        or os.sep in value
+    )
+
+
+def resolve_project_root_hint(project_value: Optional[str]) -> Optional[Path]:
+    """Resolve a local project root hint from explicit project input.
+
+    The new primary project selector is identity-based (ORCH_PROJECT/--project).
+    For local workflows, we still accept path-like values as hints.
+    """
+    if not project_value:
+        return None
+
+    value = project_value.strip()
+    if not value:
+        return None
+    if value.startswith("repoid:"):
+        return None
+    if not _looks_like_local_path(value):
+        return None
+
+    candidate = Path(value).expanduser()
+    if not candidate.is_absolute():
+        candidate = (Path.cwd() / candidate).resolve()
+    else:
+        candidate = candidate.resolve()
+
+    if candidate.is_dir():
+        return candidate
+    return None
+
+
+def _repo_url_from_git_remote(project_root: Path) -> Optional[str]:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(project_root), "config", "--get", "remote.origin.url"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+    if result.returncode != 0:
+        return None
+    repo_url = result.stdout.strip()
+    if not repo_url:
+        return None
+    return repo_url
+
+
+def resolve_project_identity(
+    project_root: Optional[Path] = None,
+    explicit_project: Optional[str] = None,
+) -> Optional[str]:
+    """Resolve identity value for orch `--project`/`ORCH_PROJECT` scope."""
+
+    value = (explicit_project or "").strip()
+    if not value:
+        value = os.getenv("ORCH_PROJECT", "").strip()
+
+    if value:
+        if value.startswith("repoid:"):
+            value = value[len("repoid:") :].strip()
+
+        path_hint = resolve_project_root_hint(value)
+        if path_hint is not None:
+            return _repo_url_from_git_remote(path_hint)
+
+        return value
+
+    if project_root is None:
+        return None
+
+    return _repo_url_from_git_remote(project_root)
 
 
 def _log_config_error(operation: str, error: str, orch_dir: Optional[Path]) -> None:
@@ -207,6 +292,7 @@ class Config:
     """
 
     project_root: Path
+    project: str = ""
     agent: str = "claude"
     control_agent: Optional[str] = None
     control_model: Optional[str] = None
@@ -328,16 +414,15 @@ class Config:
     def load(cls, config_path: Optional[Path] = None) -> "Config":
         data: dict = {}
         project_root: Optional[Path] = None
+        env_project = os.getenv("ORCH_PROJECT")
 
-        env_project_root = os.getenv("ORCH_PROJECT_ROOT")
-        if env_project_root:
-            candidate = Path(env_project_root).expanduser().resolve()
-            if (candidate / ORCH_DIR).is_dir():
-                project_root = candidate
-                config_file = candidate / ORCH_DIR / "config.yaml"
-                if config_file.exists():
-                    with open(config_file) as f:
-                        data = yaml.safe_load(f) or {}
+        hinted_root = resolve_project_root_hint(env_project)
+        if hinted_root and (hinted_root / ORCH_DIR).is_dir():
+            project_root = hinted_root
+            config_file = hinted_root / ORCH_DIR / "config.yaml"
+            if config_file.exists():
+                with open(config_file) as f:
+                    data = yaml.safe_load(f) or {}
 
         if config_path and config_path.exists():
             with open(config_path) as f:
@@ -363,6 +448,10 @@ class Config:
 
         return cls(
             project_root=project_root,
+            project=resolve_project_identity(
+                project_root=project_root, explicit_project=env_project
+            )
+            or "",
             agent=data.get("agent", "claude"),
             control_agent=data.get("control_agent"),
             control_model=data.get("control_model"),
@@ -376,4 +465,7 @@ class Config:
     @classmethod
     def from_project_root(cls, project_root: Path) -> "Config":
         config_file = project_root / ORCH_DIR / "config.yaml"
-        return cls.load(config_file)
+        config = cls.load(config_file)
+        if not config.project:
+            config.project = resolve_project_identity(project_root=project_root) or ""
+        return config

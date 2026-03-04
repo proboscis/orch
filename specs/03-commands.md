@@ -4,7 +4,7 @@
 
 | オプション | 説明 |
 |-----------|------|
-| `--project-root PATH` | project root path（または env `ORCH_PROJECT_ROOT`） |
+| `--project IDENTITY` | project identity（または env `ORCH_PROJECT`） |
 | `--backend file\|github\|linear` | v0.2では file を正式、他は予約 |
 | `--json` | 機械可読JSON出力 |
 | `--tsv` | fzf向け出力（ps等で有効） |

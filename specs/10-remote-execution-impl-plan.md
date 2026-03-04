@@ -312,7 +312,7 @@ causes `no store available` errors.
 ### Validation
 
 - `orch --remote zeus:7777 ps` works without passing server filesystem paths
-- `orch --remote zeus:7777 --project-root /client/path ps` still resolves using
+- `orch --remote zeus:7777 --project github.com/acme/repo ps` still resolves using
   repo identity token in remote mode
 - Local daemon transport remains unchanged
 

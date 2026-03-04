@@ -16,6 +16,7 @@ import hy  # noqa: F401 - Enable Hy imports
 from returns.result import Failure, Result, Success
 
 # Import client from Hy module (returns Result types)
+from .config import resolve_project_identity
 from .proto_client import ProtoDaemonClient
 
 # Import types/exceptions from types module
@@ -289,6 +290,7 @@ class DaemonOrchAPI:
 
         self._socket_path = socket_path
         self._project_root = project_root or Path.cwd()
+        self._project_scope = resolve_project_identity(project_root=self._project_root)
         self._base_branch = base_branch
         self._daemon = ProtoDaemonClient(socket_path, self._project_root)
         self._monitor_heartbeat: Optional[MonitorHeartbeat] = None
@@ -296,8 +298,8 @@ class DaemonOrchAPI:
     def _build_orch_cmd(self) -> list[str]:
         """Build base orch command with project scope args."""
         cmd = ["orch"]
-        if self._project_root:
-            cmd.extend(["--project-root", str(self._project_root)])
+        if self._project_scope:
+            cmd.extend(["--project", self._project_scope])
         return cmd
 
     # === Lifecycle ===

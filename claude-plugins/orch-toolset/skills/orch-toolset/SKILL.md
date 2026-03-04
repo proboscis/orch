@@ -145,9 +145,9 @@ Types: `status`, `artifact`, `phase`, `test`, `monitor`
 ## Configuration
 
 Config resolution order:
-1. Command-line options (`--project-root`, `--backend`, `--worktree-dir`)
+1. Command-line options (`--project`, `--backend`)
 2. `.orch/config.yaml` in current/parent directories
-3. Environment variables (`ORCH_PROJECT_ROOT`, `ORCH_BACKEND`)
+3. Environment variables (`ORCH_PROJECT`, `ORCH_BACKEND`)
 4. Global config (`~/.config/orch/config.yaml`)
 
 Example `.orch/config.yaml`:

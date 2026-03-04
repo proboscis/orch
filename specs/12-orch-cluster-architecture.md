@@ -101,7 +101,7 @@ Both modes must use the same protocol and lifecycle semantics.
 2. Master runtime handlers MUST NOT resolve identity from path/env fields.
 3. Worker is never source of truth for run/issue status; master is.
 4. Local and remote mode share identical runtime semantics.
-5. `ORCH_PROJECT_ROOT` may exist for compatibility in
+5. Legacy project-root compatibility inputs may exist in
    client UX, but not for master runtime routing.
 
 ## API Direction

@@ -19,7 +19,7 @@ configuration.
 2. Keep durable daemon/project config in YAML under XDG config.
 3. Keep runtime/operational state in SQLite under XDG data.
 4. Introduce event-sourcing for run lifecycle and projection rebuildability.
-5. Remove remote request resolution dependency on `ORCH_PROJECT_ROOT`.
+5. Remove remote request resolution dependency on legacy project-root env fallback.
 
 ## Non-goals
 
@@ -116,7 +116,7 @@ Semantics:
 1. Client runtime RPCs use `project_id`.
 2. Daemon resolves `project_id -> projects/<project_id>.yaml -> workspace.root`.
 3. Client does not send server filesystem paths on normal runtime RPCs.
-4. Remote handler resolution MUST NOT fallback to `ORCH_PROJECT_ROOT`.
+4. Remote handler resolution MUST NOT fallback to legacy project-root env values.
 
 ## API Direction
 
@@ -190,7 +190,7 @@ Phase B: Add RequestContext(project_id, request_id)
 Phase C: Route runtime handlers by project_id (dual-read period)
 Phase D: Introduce event tables + projections
 Phase E: Move ps/show/list to projection reads
-Phase F: Remove remote fallback to ORCH_PROJECT_ROOT and path-based runtime inputs
+Phase F: Remove remote fallback to legacy project-root env and path-based runtime inputs
 ```
 
 ## Acceptance Criteria

@@ -26,7 +26,6 @@ type runOptions struct {
 	Branch         string
 	WorktreeDir    string
 	WorktreeSet    bool
-	RepoRoot       string
 	Tmux           bool
 	SessionName    string
 	Multiplexer    string
@@ -59,7 +58,6 @@ Debug output can be enabled with --verbose, --log-level debug, or ORCH_DEBUG=1.`
 			}
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts.WorktreeSet = cmd.Flags().Changed("worktree-dir")
 			return runRun(args[0], opts)
 		},
 	}
@@ -72,8 +70,6 @@ Debug output can be enabled with --verbose, --log-level debug, or ORCH_DEBUG=1.`
 	cmd.Flags().StringVar(&opts.AgentProfile, "profile", "", "Agent profile (e.g., claude --profile)")
 	cmd.Flags().StringVar(&opts.BaseBranch, "base-branch", "", "Base branch for worktree")
 	cmd.Flags().StringVar(&opts.Branch, "branch", "", "Branch name (default: issue/<ID>/run-<RUN_ID>)")
-	cmd.Flags().StringVar(&opts.WorktreeDir, "worktree-dir", "", "Directory for worktrees (default: ~/.orch/worktrees)")
-	cmd.Flags().StringVar(&opts.RepoRoot, "repo-root", "", "Git repository root (default: auto-detect)")
 	cmd.Flags().BoolVar(&opts.Tmux, "tmux", true, "Run in terminal multiplexer session")
 	cmd.Flags().StringVar(&opts.SessionName, "session-name", "", "Session name (default: run-<ISSUE>-<RUN>)")
 	cmd.Flags().StringVar(&opts.Multiplexer, "multiplexer", "", "Terminal multiplexer (tmux|zellij)")
@@ -106,9 +102,23 @@ func runRun(issueID string, opts *runOptions) error {
 		issueID = model.NormalizeGitHubIssueID(issueID)
 	}
 
-	repoRoot, err := resolveExplicitProjectScope(opts.RepoRoot, "--repo-root")
+	projectRoot, _, rootErr := getProjectRootWithSource()
+	remoteMode := strings.TrimSpace(getRemoteAddr()) != ""
+	if rootErr != nil {
+		projectRoot = ""
+		if !remoteMode {
+			return exitWithCode(fmt.Errorf("project scope required: run from repository root or set --project/ORCH_PROJECT"), ExitWorktreeError)
+		}
+	}
+
+	requestProjectScope, err := resolveRequestProjectScope(projectRoot)
 	if err != nil {
 		return exitWithCode(err, ExitWorktreeError)
+	}
+
+	configProjectScope := projectRoot
+	if remoteMode {
+		configProjectScope = requestProjectScope
 	}
 
 	ctx := context.Background()
@@ -117,12 +127,12 @@ func runRun(issueID string, opts *runOptions) error {
 		return exitWithCode(err, ExitInternalError)
 	}
 
-	cfg, err := api.GetConfig(ctx, repoRoot)
+	cfg, err := api.GetConfig(ctx, configProjectScope)
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)
 	}
 
-	applyConfigDefaults(opts, cfg, getRemoteAddr() != "")
+	applyConfigDefaults(opts, cfg, remoteMode)
 
 	resp, err := api.StartRun(ctx, &orchapi.StartRunRequest{
 		IssueID:        issueID,
@@ -143,7 +153,7 @@ func runRun(issueID string, opts *runOptions) error {
 		Reuse:          opts.Reuse,
 		Multiplexer:    opts.Multiplexer,
 		Target:         opts.On,
-		ProjectRoot:    repoRoot,
+		ProjectRoot:    requestProjectScope,
 	})
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)

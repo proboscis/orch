@@ -4,10 +4,10 @@
 
 orch は以下の順序で設定を解決する:
 
-1. コマンドラインオプション（`--project-root`, `--backend` 等）
+1. コマンドラインオプション（`--project`, `--backend` 等）
 2. カレントディレクトリの `.orch/config.yaml`
 3. 親ディレクトリの `.orch/config.yaml`（上方向に探索）
-4. 環境変数（`ORCH_PROJECT_ROOT`, `ORCH_BACKEND` 等）
+4. 環境変数（`ORCH_PROJECT`, `ORCH_BACKEND` 等）
 5. グローバル設定（`~/.config/orch/config.yaml`）
 
 ## リポジトリローカル設定
@@ -84,7 +84,7 @@ log_level: info
 
 | 変数 | 説明 |
 |------|------|
-| `ORCH_PROJECT_ROOT` | Project root path |
+| `ORCH_PROJECT` | Project identity (repo URL or normalized repo ID) |
 | `ORCH_BACKEND` | Backend type (file/github/linear) |
 | `ORCH_AGENT` | Default agent for runs |
 | `ORCH_MODEL` | Default model for runs |

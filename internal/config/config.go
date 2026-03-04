@@ -577,17 +577,8 @@ func resolvePathFromConfig(path, baseDir string) string {
 // Returns the directory containing .orch/, or an error if not found.
 //
 // Precedence:
-// 1. ORCH_PROJECT_ROOT environment variable (must contain .orch/ directory)
-// 2. Directory containing .orch/config.yaml (searched upward from cwd)
+// 1. Directory containing .orch/config.yaml (searched upward from cwd)
 func GetProjectRoot() (string, error) {
-	if v := os.Getenv("ORCH_PROJECT_ROOT"); v != "" {
-		resolved := ExpandPath(v, "")
-		if hasOrchDir(resolved) {
-			return resolved, nil
-		}
-		return "", fmt.Errorf("ORCH_PROJECT_ROOT (%s) does not contain .orch/ directory", resolved)
-	}
-
 	configPath, err := findRepoConfig()
 	if err != nil {
 		return "", err

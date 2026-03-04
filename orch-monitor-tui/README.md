@@ -146,7 +146,7 @@ uv tool install "git+https://github.com/proboscis/orch#subdirectory=orch-monitor
 
 ## Usage
 
-Run from any directory (uses `ORCH_PROJECT_ROOT` or `.orch/config.yaml`):
+Run from any directory (uses `ORCH_PROJECT` or `.orch/config.yaml`):
 
 ```bash
 orch-monitor
@@ -155,7 +155,7 @@ orch-monitor
 Or pin a project explicitly:
 
 ```bash
-orch-monitor --project-root ~/my-repo
+orch-monitor --project github.com/owner/repo
 ```
 
 ### Terminal Multiplexer
@@ -240,7 +240,7 @@ uv run python -m orch_monitor
 
 The TUI respects the same configuration as the Go `orch` CLI:
 
-- `ORCH_PROJECT_ROOT` environment variable (must contain `.orch/` directory)
+- `ORCH_PROJECT` environment variable (project identity; path-like values are accepted for local compatibility)
 - `.orch/config.yaml` found by searching upward from current directory
 - `.orch/config.yaml` in the selected project root
 

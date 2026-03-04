@@ -61,7 +61,7 @@ tables in SQLite without changing all command behavior.
 |------|------|
 | Resolution | Replace per-request path resolution in runtime handlers with `project_id` lookup |
 | Store init | Resolve issues backend/path from project YAML + daemon-side config |
-| Fallback | Remove remote dependency on `ORCH_PROJECT_ROOT` for runtime RPC resolution |
+| Fallback | Remove remote dependency on legacy project-root env fallback for runtime RPC resolution |
 
 ### Acceptance
 

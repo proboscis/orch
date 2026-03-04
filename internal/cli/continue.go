@@ -26,7 +26,6 @@ type continueOptions struct {
 	IssueID        string
 	WorktreeDir    string
 	WorktreeSet    bool
-	RepoRoot       string
 }
 
 type continueResult struct {
@@ -69,7 +68,6 @@ Use --branch with an issue ID to restart from an untracked branch.`,
 			if len(args) > 0 {
 				ref = args[0]
 			}
-			opts.WorktreeSet = cmd.Flags().Changed("worktree-dir")
 			return runContinue(ref, opts)
 		},
 	}
@@ -84,9 +82,6 @@ Use --branch with an issue ID to restart from an untracked branch.`,
 	cmd.Flags().StringVar(&opts.PromptTemplate, "prompt-template", "", "Custom prompt template file")
 	cmd.Flags().StringVar(&opts.Branch, "branch", "", "Existing branch to restart from")
 	cmd.Flags().StringVar(&opts.IssueID, "issue", "", "Issue ID (required with --branch when no RUN_REF)")
-	cmd.Flags().StringVar(&opts.WorktreeDir, "worktree-dir", "", "Directory for worktrees (default: ~/.orch/worktrees)")
-	cmd.Flags().StringVar(&opts.RepoRoot, "repo-root", "", "Git repository root (default: auto-detect)")
-
 	return cmd
 }
 
@@ -96,9 +91,23 @@ func runContinue(refStr string, opts *continueOptions) error {
 }
 
 func runContinueWithDeps(ctx context.Context, refStr string, opts *continueOptions, deps *continueDeps) error {
-	repoRoot, err := resolveExplicitProjectScope(opts.RepoRoot, "--repo-root")
+	projectRoot, _, rootErr := getProjectRootWithSource()
+	remoteMode := strings.TrimSpace(getRemoteAddr()) != ""
+	if rootErr != nil {
+		projectRoot = ""
+		if !remoteMode {
+			return exitWithCode(fmt.Errorf("project scope required: run from repository root or set --project/ORCH_PROJECT"), ExitWorktreeError)
+		}
+	}
+
+	requestProjectScope, err := resolveRequestProjectScope(projectRoot)
 	if err != nil {
 		return exitWithCode(err, ExitWorktreeError)
+	}
+
+	configProjectScope := projectRoot
+	if remoteMode {
+		configProjectScope = requestProjectScope
 	}
 
 	api, err := deps.getAPI()
@@ -106,12 +115,12 @@ func runContinueWithDeps(ctx context.Context, refStr string, opts *continueOptio
 		return exitWithCode(err, ExitInternalError)
 	}
 
-	cfg, err := api.GetConfig(ctx, repoRoot)
+	cfg, err := api.GetConfig(ctx, configProjectScope)
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)
 	}
 
-	applyContinueConfigDefaults(opts, cfg, getRemoteAddr() != "")
+	applyContinueConfigDefaults(opts, cfg, remoteMode)
 
 	var issueID, runID, shortID string
 	if opts.Branch != "" {
@@ -151,8 +160,8 @@ func runContinueWithDeps(ctx context.Context, refStr string, opts *continueOptio
 		PRTargetBranch: opts.PRTargetBranch,
 		Multiplexer:    opts.Multiplexer,
 		SessionName:    opts.SessionName,
-		ProjectRoot:    repoRoot,
-		RepoRoot:       repoRoot,
+		ProjectRoot:    requestProjectScope,
+		RepoRoot:       requestProjectScope,
 	})
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)

@@ -55,7 +55,6 @@ func runAgentCommand(t *testing.T, args ...string) error {
 	ensureRepoMapping(t, testRepo, testVault)
 
 	fullArgs := append([]string{
-		"--project-root", testRepo,
 		"agent",
 	}, args...)
 
@@ -63,12 +62,12 @@ func runAgentCommand(t *testing.T, args ...string) error {
 	cmd.Dir = testRepo
 	env := make([]string, 0, len(os.Environ())+2)
 	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, "ORCH_REMOTE=") || strings.HasPrefix(kv, "ORCH_PROJECT_ROOT=") {
+		if strings.HasPrefix(kv, "ORCH_REMOTE=") || strings.HasPrefix(kv, "ORCH_PROJECT=") {
 			continue
 		}
 		env = append(env, kv)
 	}
-	env = append(env, "ORCH_PROJECT_ROOT="+testRepo, "TMUX=")
+	env = append(env, "ORCH_PROJECT=", "TMUX=")
 	cmd.Env = env
 
 	done := make(chan error, 1)
@@ -105,7 +104,7 @@ func TestAgentRequiresConfig(t *testing.T) {
 
 	os.Remove(filepath.Join(orchDir, "config.yaml"))
 
-	_, err := runOrch(t, "--project-root", testRepo, "agent", "--dry-run")
+	_, err := runOrch(t, "agent", "--dry-run")
 	if err == nil {
 		t.Error("expected error when no agent configured")
 	}
@@ -168,17 +167,16 @@ func TestAgentOpenCodeNoMultiplexer(t *testing.T) {
 	writeAgentConfig(t, orchDir, "opencode", "tmux")
 
 	cmd := exec.Command(orchBinary,
-		"--project-root", testRepo,
 		"agent", "--backend", "opencode")
 	cmd.Dir = testRepo
 	env := make([]string, 0, len(os.Environ())+1)
 	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, "ORCH_REMOTE=") || strings.HasPrefix(kv, "ORCH_PROJECT_ROOT=") {
+		if strings.HasPrefix(kv, "ORCH_REMOTE=") || strings.HasPrefix(kv, "ORCH_PROJECT=") {
 			continue
 		}
 		env = append(env, kv)
 	}
-	cmd.Env = append(env, "ORCH_PROJECT_ROOT="+testRepo)
+	cmd.Env = append(env, "ORCH_PROJECT=")
 
 	cmd.Start()
 	time.Sleep(1 * time.Second)
@@ -316,7 +314,7 @@ func TestAgentKillTerminatesMultiplexerSession(t *testing.T) {
 	}`
 	os.WriteFile(stateFile, []byte(state), 0644)
 
-	output, err := runOrch(t, "--project-root", testRepo, "agent", "--kill")
+	output, err := runOrch(t, "agent", "--kill")
 	if err != nil {
 		t.Fatalf("agent --kill failed: %v\nOutput: %s", err, output)
 	}

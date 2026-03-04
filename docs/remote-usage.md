@@ -42,11 +42,11 @@ orch --version
 orch daemon start --listen tcp://0.0.0.0:7777
 ```
 
-### 2. Register project root for remote resolution
+### 2. Register repository URL for remote resolution
 
 ```bash
 # From client (or server), point to remote daemon
-orch --remote zeus:7777 daemon repo register /srv/repos/your-project
+orch --remote zeus:7777 daemon repo register https://github.com/your-org/your-project.git
 orch --remote zeus:7777 daemon repo list
 ```
 
@@ -94,20 +94,20 @@ orch --remote "" ps
 
 ```bash
 # Start a run remotely
-orch --remote zeus:7777 run my-issue
+orch --remote zeus:7777 --project yourorg-yourrepo run my-issue
 
 # Monitor runs
-orch --remote zeus:7777 ps
+orch --remote zeus:7777 --project yourorg-yourrepo ps
 
 # Attach/send/capture as usual
-orch --remote zeus:7777 attach my-issue
-orch --remote zeus:7777 send my-issue "please include tests"
-orch --remote zeus:7777 capture my-issue
+orch --remote zeus:7777 --project yourorg-yourrepo attach my-issue
+orch --remote zeus:7777 --project yourorg-yourrepo send my-issue "please include tests"
+orch --remote zeus:7777 --project yourorg-yourrepo capture my-issue
 ```
 
 ## Important Behavior in Remote Mode
 
-- `--project-root` is used to derive portable project identity.
+- `--project` / `ORCH_PROJECT` provides project identity scope.
 - Remote commands depend on daemon-side repo registration (`daemon repo register`).
 
 ## Troubleshooting
@@ -126,10 +126,10 @@ Verify listener and network path to the remote host.
 orch --remote zeus:7777 daemon repo list
 ```
 
-If missing, register the remote project workspace path:
+If missing, register the repository URL on the remote daemon:
 
 ```bash
-orch --remote zeus:7777 daemon repo register /srv/repos/your-project
+orch --remote zeus:7777 daemon repo register https://github.com/your-org/your-project.git
 ```
 
 Then scope runtime commands by project identity (repo ID):

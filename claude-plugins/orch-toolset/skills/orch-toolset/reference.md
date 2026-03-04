@@ -14,7 +14,7 @@ All commands support these flags:
 
 | Flag | Description |
 |------|-------------|
-| `--project-root PATH` | Project root (`.orch/config.yaml` + daemon scope) |
+| `--project IDENTITY` | Project identity (repo URL or normalized repo ID) |
 | `--backend file\|github\|linear` | Backend selection (file is default) |
 | `--json` | Machine-readable JSON output |
 | `--tsv` | TSV output (useful for fzf) |

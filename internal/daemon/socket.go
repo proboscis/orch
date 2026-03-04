@@ -55,6 +55,7 @@ type projectConfigWorkspace struct {
 type projectConfigFile struct {
 	Version     int                    `yaml:"version"`
 	ProjectID   string                 `yaml:"project_id"`
+	RepoURL     string                 `yaml:"repo_url,omitempty"`
 	DisplayName string                 `yaml:"display_name,omitempty"`
 	Workspace   projectConfigWorkspace `yaml:"workspace"`
 }
@@ -179,9 +180,76 @@ type SendResponse struct {
 type RepoContext struct {
 	ProjectRoot   string
 	RepoID        string
+	RepoURL       string
 	Store         store.Store
 	GitHubBackend *github.Backend
 	Config        interface{}
+}
+
+func managedReposDirPath() string {
+	return filepath.Join(xdg.DataDir(), "repos")
+}
+
+func managedRepoWorkspacePath(repoID string) string {
+	return filepath.Join(managedReposDirPath(), repoID)
+}
+
+func looksLikeRepoURL(raw string) bool {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return false
+	}
+	if strings.HasPrefix(value, "git@") || strings.Contains(value, "://") {
+		return true
+	}
+	if strings.HasPrefix(value, "github.com/") || strings.HasPrefix(value, "gitlab.com/") {
+		return true
+	}
+	parts := strings.Split(value, "/")
+	if len(parts) >= 3 && strings.Contains(parts[0], ".") {
+		return true
+	}
+	return false
+}
+
+func ensureManagedRepoWorkspace(repoID, repoURL string) (string, error) {
+	repoID = strings.TrimSpace(repoID)
+	repoURL = strings.TrimSpace(repoURL)
+	if repoID == "" {
+		return "", fmt.Errorf("repo_id is required")
+	}
+	if repoURL == "" {
+		return "", fmt.Errorf("repo_url is required")
+	}
+
+	workspaceRoot := managedRepoWorkspacePath(repoID)
+	if err := os.MkdirAll(managedReposDirPath(), 0o755); err != nil {
+		return "", fmt.Errorf("failed to ensure managed repos dir: %w", err)
+	}
+
+	if info, err := os.Stat(filepath.Join(workspaceRoot, ".git")); err == nil && info != nil {
+		out, err := exec.Command("git", "-C", workspaceRoot, "remote", "get-url", "origin").CombinedOutput()
+		if err == nil {
+			current := strings.TrimSpace(string(out))
+			if current != repoURL {
+				if setOut, setErr := exec.Command("git", "-C", workspaceRoot, "remote", "set-url", "origin", repoURL).CombinedOutput(); setErr != nil {
+					return "", fmt.Errorf("failed to set origin url for %s: %v (%s)", workspaceRoot, setErr, strings.TrimSpace(string(setOut)))
+				}
+			}
+		}
+		return workspaceRoot, nil
+	}
+
+	if _, err := os.Stat(workspaceRoot); err == nil {
+		return "", fmt.Errorf("managed workspace exists without .git: %s", workspaceRoot)
+	}
+
+	cloneOut, cloneErr := exec.Command("git", "clone", repoURL, workspaceRoot).CombinedOutput()
+	if cloneErr != nil {
+		return "", fmt.Errorf("failed to clone %s into %s: %v (%s)", repoURL, workspaceRoot, cloneErr, strings.TrimSpace(string(cloneOut)))
+	}
+
+	return workspaceRoot, nil
 }
 
 type StoreFactory func(issuesRoot string) (store.Store, error)
@@ -368,6 +436,7 @@ func loadProjectConfig(path string) (*projectConfigFile, error) {
 	}
 
 	cfg.ProjectID = strings.TrimSpace(cfg.ProjectID)
+	cfg.RepoURL = strings.TrimSpace(cfg.RepoURL)
 	cfg.Workspace.Root = strings.TrimSpace(cfg.Workspace.Root)
 	if cfg.ProjectID == "" {
 		return nil, fmt.Errorf("invalid project config %s: project_id is required", path)
@@ -461,12 +530,14 @@ func (s *SocketServer) loadRepoRegistry() error {
 			}
 
 			repoID := strings.TrimSpace(cfg.ProjectID)
+			repoURL := strings.TrimSpace(cfg.RepoURL)
 			projectRoot := strings.TrimSpace(cfg.Workspace.Root)
 			if existing, ok := s.repos[repoID]; ok && existing != nil {
 				existing.RepoID = repoID
 				existing.ProjectRoot = projectRoot
+				existing.RepoURL = repoURL
 			} else {
-				s.repos[repoID] = &RepoContext{ProjectRoot: projectRoot, RepoID: repoID}
+				s.repos[repoID] = &RepoContext{ProjectRoot: projectRoot, RepoID: repoID, RepoURL: repoURL}
 			}
 		}
 		s.reposMu.Unlock()
@@ -492,6 +563,7 @@ func (s *SocketServer) persistRepoRegistry() error {
 			continue
 		}
 		repoID := strings.TrimSpace(ctx.RepoID)
+		repoURL := strings.TrimSpace(ctx.RepoURL)
 		projectRoot := strings.TrimSpace(ctx.ProjectRoot)
 		if repoID == "" || projectRoot == "" {
 			continue
@@ -500,6 +572,7 @@ func (s *SocketServer) persistRepoRegistry() error {
 			seen[repoID] = projectConfigFile{
 				Version:     projectConfigVersion,
 				ProjectID:   repoID,
+				RepoURL:     repoURL,
 				DisplayName: filepath.Base(projectRoot),
 				Workspace: projectConfigWorkspace{
 					Root: projectRoot,

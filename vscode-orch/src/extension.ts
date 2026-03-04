@@ -26,7 +26,7 @@ export function activate(context: vscode.ExtensionContext): void {
     registerOpenIssueCommand(),
     registerStartRunCommand(client, runsProvider),
     registerContinueRunCommand(client, runsProvider),
-    registerAttachRunCommand(config, terminalManager),
+    registerAttachRunCommand(terminalManager),
     registerStopRunCommand(client, runsProvider),
     registerResolveRunCommand(client, runsProvider),
     vscode.commands.registerCommand('orch.refreshIssues', () => issuesProvider.refresh()),

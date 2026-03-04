@@ -71,7 +71,6 @@ func TestMain(m *testing.M) {
 	os.MkdirAll(filepath.Join(testRepo, ".orch"), 0755)
 	configData := fmt.Sprintf("issues:\n  path: %s\n", testVault)
 	os.WriteFile(filepath.Join(testRepo, ".orch", "config.yaml"), []byte(configData), 0644)
-	os.Setenv("ORCH_PROJECT_ROOT", testRepo)
 	os.WriteFile(filepath.Join(testRepo, "README.md"), []byte("# Test"), 0644)
 	exec.Command("git", "-C", testRepo, "add", ".").Run()
 	exec.Command("git", "-C", testRepo, "commit", "-m", "initial").Run()
@@ -175,18 +174,17 @@ func runOrch(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	ensureRepoMapping(t, testRepo, testVault)
 	ensureWorkerAvailable(t)
-	fullArgs := appendProjectRootFlagIfMissing(testRepo, args)
-	cmd := exec.Command(orchBinary, fullArgs...)
+	cmd := exec.Command(orchBinary, args...)
 	cmd.Dir = testRepo
 
 	env := make([]string, 0, len(os.Environ())+2)
 	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, "ORCH_PROJECT_ROOT=") || strings.HasPrefix(kv, "ORCH_REMOTE=") {
+		if strings.HasPrefix(kv, "ORCH_PROJECT=") || strings.HasPrefix(kv, "ORCH_REMOTE=") {
 			continue
 		}
 		env = append(env, kv)
 	}
-	env = append(env, "ORCH_PROJECT_ROOT="+testRepo)
+	env = append(env, "ORCH_PROJECT=")
 	cmd.Env = env
 
 	var stdout, stderr bytes.Buffer
@@ -204,20 +202,17 @@ func runOrchInRepo(t *testing.T, repoRoot, issuesRoot string, args ...string) (s
 	t.Helper()
 	ensureRepoMapping(t, repoRoot, issuesRoot)
 	ensureWorkerAvailable(t)
-	fullArgs := appendProjectRootFlagIfMissing(repoRoot, args)
-	cmd := exec.Command(orchBinary, fullArgs...)
+	cmd := exec.Command(orchBinary, args...)
 	cmd.Dir = repoRoot
 
 	env := make([]string, 0, len(os.Environ())+3)
 	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, "ORCH_PROJECT_ROOT=") {
+		if strings.HasPrefix(kv, "ORCH_PROJECT=") {
 			continue
 		}
 		env = append(env, kv)
 	}
-	env = append(env,
-		"ORCH_PROJECT_ROOT="+repoRoot,
-	)
+	env = append(env, "ORCH_PROJECT=")
 	cmd.Env = env
 
 	var stdout, stderr bytes.Buffer
@@ -281,25 +276,10 @@ func workersActive(client *daemon.ProtoClient) bool {
 	return false
 }
 
-func appendProjectRootFlagIfMissing(projectRoot string, args []string) []string {
-	for i := 0; i < len(args); i++ {
-		if args[i] == "--project-root" {
-			return append([]string{}, args...)
-		}
-		if strings.HasPrefix(args[i], "--project-root=") {
-			return append([]string{}, args...)
-		}
-	}
-
-	fullArgs := []string{"--project-root", projectRoot}
-	fullArgs = append(fullArgs, args...)
-	return fullArgs
-}
-
-func runOrchRemoteOutsideRepo(t *testing.T, workingDir, projectRoot string, args ...string) (string, string, error) {
+func runOrchRemoteOutsideRepo(t *testing.T, workingDir, project string, args ...string) (string, string, error) {
 	t.Helper()
 
-	fullArgs := []string{"--remote", remoteAddr, "--project-root", projectRoot}
+	fullArgs := []string{"--remote", remoteAddr, "--project", project}
 	fullArgs = append(fullArgs, args...)
 	cmd := exec.Command(orchBinary, fullArgs...)
 	cmd.Dir = workingDir
@@ -311,7 +291,7 @@ func runOrchRemoteOutsideRepo(t *testing.T, workingDir, projectRoot string, args
 
 	env := make([]string, 0, len(os.Environ())+4)
 	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, "ORCH_PROJECT_ROOT=") ||
+		if strings.HasPrefix(kv, "ORCH_PROJECT=") ||
 			strings.HasPrefix(kv, "ORCH_REMOTE=") ||
 			strings.HasPrefix(kv, "HOME=") {
 			continue
@@ -341,7 +321,7 @@ func runOrchOutsideRepo(t *testing.T, workingDir string, args ...string) (string
 
 	env := make([]string, 0, len(os.Environ())+5)
 	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, "ORCH_PROJECT_ROOT=") ||
+		if strings.HasPrefix(kv, "ORCH_PROJECT=") ||
 			strings.HasPrefix(kv, "ORCH_REMOTE=") ||
 			strings.HasPrefix(kv, "HOME=") {
 			continue
@@ -350,7 +330,7 @@ func runOrchOutsideRepo(t *testing.T, workingDir string, args ...string) (string
 	}
 	env = append(env,
 		"HOME="+home,
-		"ORCH_PROJECT_ROOT=",
+		"ORCH_PROJECT=",
 		"ORCH_REMOTE=",
 	)
 	cmd.Env = env
@@ -947,7 +927,7 @@ func TestRunBackToBackSameProjectNoRootLoss(t *testing.T) {
 
 	issueIDs := []string{"back-to-back-run-1", "back-to-back-run-2"}
 	for _, issueID := range issueIDs {
-		output, err := runOrch(t, "run", issueID, "--dry-run", "--repo-root", testRepo, "--worktree-dir", ".git-worktrees", "--json")
+		output, err := runOrch(t, "run", issueID, "--dry-run", "--json")
 		if err != nil {
 			t.Fatalf("run --dry-run failed for %s: %v", issueID, err)
 		}
@@ -971,8 +951,12 @@ func TestRunBackToBackSameProjectNoRootLoss(t *testing.T) {
 		if result.IssueID != issueID {
 			t.Fatalf("expected issue_id=%s, got %s", issueID, result.IssueID)
 		}
-		if !strings.HasPrefix(result.WorktreePath, testRepo+string(os.PathSeparator)) {
-			t.Fatalf("expected worktree path for %s to be under %s, got %s", issueID, testRepo, result.WorktreePath)
+		if result.WorktreePath == "" {
+			t.Fatalf("expected worktree path for %s to be set", issueID)
+		}
+		issueSegment := string(os.PathSeparator) + issueID + string(os.PathSeparator)
+		if !strings.Contains(result.WorktreePath, issueSegment) {
+			t.Fatalf("expected worktree path for %s to contain %s, got %s", issueID, issueSegment, result.WorktreePath)
 		}
 	}
 }
@@ -980,7 +964,7 @@ func TestRunBackToBackSameProjectNoRootLoss(t *testing.T) {
 func TestDaemonMultiRepoIsolation(t *testing.T) {
 	createTestIssue(t, "isolation-a", "---\ntype: issue\nid: isolation-a\ntitle: Isolation A\nstatus: open\n---\n# Isolation A")
 
-	outputA, err := runOrch(t, "run", "isolation-a", "--dry-run", "--repo-root", testRepo, "--worktree-dir", ".git-worktrees", "--json")
+	outputA, err := runOrch(t, "run", "isolation-a", "--dry-run", "--json")
 	if err != nil {
 		t.Fatalf("run --dry-run for repo A failed: %v", err)
 	}
@@ -995,8 +979,11 @@ func TestDaemonMultiRepoIsolation(t *testing.T) {
 	if !resultA.OK {
 		t.Fatalf("expected repo A run to succeed: %s", outputA)
 	}
-	if !strings.HasPrefix(resultA.WorktreePath, testRepo+string(os.PathSeparator)) {
-		t.Fatalf("expected repo A worktree under %s, got %s", testRepo, resultA.WorktreePath)
+	if resultA.WorktreePath == "" {
+		t.Fatalf("expected repo A worktree path to be set")
+	}
+	if !strings.Contains(resultA.WorktreePath, string(os.PathSeparator)+"isolation-a"+string(os.PathSeparator)) {
+		t.Fatalf("expected repo A worktree path to contain issue ID, got %s", resultA.WorktreePath)
 	}
 
 	tmpRoot := filepath.Dir(testRepo)
@@ -1035,7 +1022,7 @@ func TestDaemonMultiRepoIsolation(t *testing.T) {
 
 	createTestIssueInVault(t, vaultB, "isolation-b", "---\ntype: issue\nid: isolation-b\ntitle: Isolation B\nstatus: open\n---\n# Isolation B")
 
-	outputB, err := runOrchInRepo(t, repoB, vaultB, "run", "isolation-b", "--dry-run", "--repo-root", repoB, "--worktree-dir", ".git-worktrees", "--json")
+	outputB, err := runOrchInRepo(t, repoB, vaultB, "run", "isolation-b", "--dry-run", "--json")
 	if err != nil {
 		if strings.Contains(outputB, "unknown project_id") {
 			t.Skipf("multi-repo project-id aliasing not yet available in distributed worker path: %s", strings.TrimSpace(outputB))
@@ -1058,11 +1045,14 @@ func TestDaemonMultiRepoIsolation(t *testing.T) {
 	if resultB.IssueID != "isolation-b" {
 		t.Fatalf("expected issue_id=isolation-b, got %s", resultB.IssueID)
 	}
-	if !strings.HasPrefix(resultB.WorktreePath, repoB+string(os.PathSeparator)) {
-		t.Fatalf("expected repo B worktree under %s, got %s", repoB, resultB.WorktreePath)
+	if resultB.WorktreePath == "" {
+		t.Fatalf("expected repo B worktree path to be set")
 	}
-	if strings.HasPrefix(resultB.WorktreePath, testRepo+string(os.PathSeparator)) {
-		t.Fatalf("expected repo B worktree to not use repo A root %s, got %s", testRepo, resultB.WorktreePath)
+	if !strings.Contains(resultB.WorktreePath, string(os.PathSeparator)+"isolation-b"+string(os.PathSeparator)) {
+		t.Fatalf("expected repo B worktree path to contain issue ID, got %s", resultB.WorktreePath)
+	}
+	if resultA.WorktreePath == resultB.WorktreePath {
+		t.Fatalf("expected isolated worktree paths per repo, both were %s", resultB.WorktreePath)
 	}
 }
 
@@ -1142,8 +1132,6 @@ func TestRunWithBuiltInAgents(t *testing.T) {
 			"run", issueID,
 			"--agent", agentName,
 			"--run-id", runID,
-			"--repo-root", testRepo,
-			"--worktree-dir", filepath.Join(testRepo, ".git-worktrees"),
 			"--no-pr",
 			"--json",
 		)
@@ -1214,8 +1202,6 @@ func TestRunWithTmux(t *testing.T) {
 		"--run-id", runID,
 		"--agent", "custom",
 		"--agent-cmd", "echo 'test'; sleep 1",
-		"--worktree-dir", filepath.Join(testRepo, ".git-worktrees"),
-		"--repo-root", testRepo,
 		"--json",
 	)
 	if err != nil {
@@ -1296,8 +1282,6 @@ sleep 2
 		"--run-id", runID,
 		"--agent", "custom",
 		"--agent-cmd", fakeAgent,
-		"--worktree-dir", filepath.Join(testRepo, ".git-worktrees"),
-		"--repo-root", testRepo,
 		"--json",
 	)
 	if err != nil {
@@ -1415,8 +1399,6 @@ func TestDiffWithWorktreeChanges(t *testing.T) {
 	// Start a run with --dry-run to get the worktree created
 	output, err := runOrch(t, "run", issueID,
 		"--run-id", runID,
-		"--worktree-dir", worktreeDir,
-		"--repo-root", testRepo,
 		"--agent", "custom",
 		"--agent-cmd", "sleep 0.1",
 		"--tmux=false",

@@ -95,7 +95,7 @@ It operates non-interactively by default, using events to track state
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&globalOpts.Project, "project", "", "Project identity (owner-repo, or set ORCH_PROJECT)")
+	rootCmd.PersistentFlags().StringVar(&globalOpts.Project, "project", "", "Project identity (git repo URL or normalized repo ID; or set ORCH_PROJECT)")
 	rootCmd.PersistentFlags().StringVar(&globalOpts.Remote, "remote", "", "Connect to remote daemon address (or set ORCH_REMOTE)")
 
 	rootCmd.PersistentFlags().StringVar(&globalOpts.Backend, "backend", "file", "Backend type (file|github|linear)")
@@ -194,11 +194,19 @@ func getProjectRootWithSource() (string, bool, error) {
 
 func getProjectIDWithSource(projectRoot string) (string, bool, error) {
 	if projectID := strings.TrimSpace(globalOpts.Project); projectID != "" {
-		return projectID, true, nil
+		normalized, err := normalizeProjectIdentityInput(projectID)
+		if err != nil {
+			return "", true, err
+		}
+		return normalized, true, nil
 	}
 
 	if projectID := strings.TrimSpace(os.Getenv("ORCH_PROJECT")); projectID != "" {
-		return projectID, true, nil
+		normalized, err := normalizeProjectIdentityInput(projectID)
+		if err != nil {
+			return "", true, err
+		}
+		return normalized, true, nil
 	}
 
 	if strings.TrimSpace(projectRoot) == "" {
@@ -223,12 +231,45 @@ func resolveProjectIdentity(projectRoot string) (string, error) {
 
 	projectID, _, err := getProjectIDWithSource(projectRoot)
 	if err != nil {
-		return "", fmt.Errorf("project identity required: %w (set --project/ORCH_PROJECT or configure git remote origin)", err)
+		return "", fmt.Errorf("project identity required: %w (set --project/ORCH_PROJECT to git repo URL or configure git remote origin)", err)
 	}
 	if strings.TrimSpace(projectID) == "" {
-		return "", fmt.Errorf("project identity required: set --project/ORCH_PROJECT or run from a git repo with remote origin")
+		return "", fmt.Errorf("project identity required: set --project/ORCH_PROJECT to git repo URL or run from a git repo with remote origin")
 	}
 	return strings.TrimSpace(projectID), nil
+}
+
+func normalizeProjectIdentityInput(project string) (string, error) {
+	project = strings.TrimSpace(project)
+	if project == "" {
+		return "", nil
+	}
+
+	if strings.HasPrefix(project, "repoid:") {
+		project = strings.TrimSpace(strings.TrimPrefix(project, "repoid:"))
+	}
+
+	if strings.Contains(project, "/") || strings.Contains(project, "://") || strings.HasPrefix(project, "git@") {
+		normalized, err := xdg.ParseRepoID(project)
+		if err != nil {
+			return "", fmt.Errorf("invalid project identity %q: %w", project, err)
+		}
+		return normalized, nil
+	}
+
+	return project, nil
+}
+
+func resolveRequestProjectScope(projectRoot string) (string, error) {
+	if strings.TrimSpace(getRemoteAddr()) == "" {
+		return strings.TrimSpace(projectRoot), nil
+	}
+
+	projectID, err := resolveProjectIdentity(projectRoot)
+	if err != nil {
+		return "", err
+	}
+	return "repoid:" + projectID, nil
 }
 
 func resolveExplicitProjectScope(scopeValue, scopeFlagName string) (string, error) {
@@ -315,7 +356,11 @@ func defaultGetAPIWithOptions(requireProjectRoot bool) (orchapi.OrchAPI, error) 
 		}
 		clientProjectScope = "repoid:" + projectID
 	} else if !explicitProjectRoot && strings.TrimSpace(globalOpts.Project) != "" {
-		clientProjectScope = "repoid:" + strings.TrimSpace(globalOpts.Project)
+		projectID, err := resolveProjectIdentity("")
+		if err != nil {
+			return nil, err
+		}
+		clientProjectScope = "repoid:" + projectID
 	}
 
 	client := orchapi.NewDaemonClientWithAddress(clientProjectScope, remoteAddr)
