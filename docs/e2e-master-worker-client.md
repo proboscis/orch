@@ -202,6 +202,9 @@ EOF"
 # register repo mapping for strict project_id routing
 ssh zeus "$ENV_PREFIX orch daemon repo register /home/kento/repos/doeff"
 
+# runtime commands use repo identity scope
+PROJECT_ID="proboscis-doeff"
+
 # run with custom agent that makes a commit and creates a PR
 ssh zeus "cat > /tmp/orch-zeus-agent-$ISSUE_ID.sh <<'EOF'
 #!/usr/bin/env bash
@@ -218,7 +221,7 @@ gh pr create --repo proboscis/doeff --title 'chore(e2e): sample zeus run $ISSUE_
 EOF
 chmod +x /tmp/orch-zeus-agent-$ISSUE_ID.sh"
 
-ssh zeus "$ENV_PREFIX orch --project-root /home/kento/repos/doeff run $ISSUE_ID --run-id $RUN_ID --agent custom --agent-cmd 'bash /tmp/orch-zeus-agent-$ISSUE_ID.sh' --repo-root /home/kento/repos/doeff --worktree-dir /home/kento/repos/doeff/.git-worktrees --json"
+ssh zeus "$ENV_PREFIX orch --project $PROJECT_ID run $ISSUE_ID --run-id $RUN_ID --agent custom --agent-cmd 'bash /tmp/orch-zeus-agent-$ISSUE_ID.sh' --repo-root /home/kento/repos/doeff --worktree-dir /home/kento/repos/doeff/.git-worktrees --json"
 
 # find and close the sample PR
 BRANCH="issue/$ISSUE_ID/run-$RUN_ID"
@@ -226,7 +229,7 @@ ssh zeus "gh pr list --repo proboscis/doeff --head $BRANCH --state open --json n
 ssh zeus "gh pr close <PR_NUMBER> --repo proboscis/doeff --comment 'Closing sample Zeus E2E PR.' --delete-branch"
 
 # stop the run at the end
-ssh zeus "$ENV_PREFIX orch --project-root /home/kento/repos/doeff stop $ISSUE_ID#$RUN_ID --force --json"
+ssh zeus "$ENV_PREFIX orch --project $PROJECT_ID stop $ISSUE_ID#$RUN_ID --force --json"
 
 # cleanup
 ssh zeus "rm -f /home/kento/repos/doeff-VAULT/issues/$ISSUE_ID.md /tmp/orch-zeus-agent-$ISSUE_ID.sh"

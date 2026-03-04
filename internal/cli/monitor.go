@@ -77,7 +77,7 @@ func newMonitorListCmd() *cobra.Command {
 		Long: `List all running orch-monitor instances.
 
 By default, shows monitors across all projects.
-Set --project-root (or ORCH_PROJECT_ROOT) to scope listing to one project.
+Set --project (or ORCH_PROJECT) to scope listing to one project identity.
 Use --all to force global listing.
 
 Examples:
@@ -171,7 +171,7 @@ func newMonitorKillCmd() *cobra.Command {
 
 Examples:
   orch monitor kill mon-12345       # Kill specific monitor
-  orch monitor kill --all --project-root /path/to/repo  # Kill monitors for one project
+orch monitor kill --all --project proboscis-orch  # Kill monitors for one project
   orch monitor kill --all --global  # Kill all monitors everywhere`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -196,7 +196,7 @@ func runMonitorKill(monitorID string, opts *monitorKillOptions) error {
 
 	projectRoot, explicitProjectRoot, _ := resolveMonitorProjectScope()
 	if opts.All && !opts.Global && !explicitProjectRoot {
-		return fmt.Errorf("project scope required for --all without --global: set --project-root or ORCH_PROJECT_ROOT, or use --global")
+		return fmt.Errorf("project scope required for --all without --global: set --project/ORCH_PROJECT or use --global")
 	}
 
 	client, err := ensureDaemonReady(projectRoot)
@@ -246,17 +246,18 @@ func runMonitorKill(monitorID string, opts *monitorKillOptions) error {
 func resolveMonitorProjectScope() (string, bool, bool) {
 	remote := strings.TrimSpace(getRemoteAddr()) != ""
 
-	projectRoot, explicitProjectRoot, err := getProjectRootWithSource()
+	projectRoot, _, err := getProjectRootWithSource()
 	if err != nil {
 		projectRoot = ""
-		explicitProjectRoot = false
 	}
 
-	if !explicitProjectRoot {
+	explicitProject := strings.TrimSpace(globalOpts.Project) != "" || strings.TrimSpace(os.Getenv("ORCH_PROJECT")) != ""
+
+	if !explicitProject {
 		projectRoot = ""
 	}
 
-	return projectRoot, explicitProjectRoot, remote
+	return projectRoot, explicitProject, remote
 }
 
 func ensureDaemonReady(projectRoot string) (*daemon.ProtoClient, error) {
@@ -346,9 +347,11 @@ func runMonitor(opts *monitorOptions) error {
 func monitorGlobalFlags(projectRoot string) []string {
 	var flags []string
 	if projectRoot != "" {
-		flags = append(flags, "--project-root", projectRoot)
-	} else if globalOpts.ProjectRoot != "" {
-		flags = append(flags, "--project-root", globalOpts.ProjectRoot)
+		if projectID, err := resolveProjectIdentity(projectRoot); err == nil && strings.TrimSpace(projectID) != "" {
+			flags = append(flags, "--project", projectID)
+		}
+	} else if strings.TrimSpace(globalOpts.Project) != "" {
+		flags = append(flags, "--project", strings.TrimSpace(globalOpts.Project))
 	}
 	if globalOpts.Backend != "" {
 		flags = append(flags, "--backend", globalOpts.Backend)

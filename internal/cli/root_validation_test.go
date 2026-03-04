@@ -10,7 +10,7 @@ import (
 func TestValidateConfigForCommandRejectsInvalidRepoConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_PROJECT_ROOT", "")
+	t.Setenv("ORCH_PROJECT", "")
 
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0o755); err != nil {
@@ -29,9 +29,9 @@ func TestValidateConfigForCommandRejectsInvalidRepoConfig(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(cwd) })
 
-	origProjectRoot := globalOpts.ProjectRoot
-	globalOpts.ProjectRoot = ""
-	t.Cleanup(func() { globalOpts.ProjectRoot = origProjectRoot })
+	origProject := globalOpts.Project
+	globalOpts.Project = ""
+	t.Cleanup(func() { globalOpts.Project = origProject })
 
 	err = validateConfigForCommand()
 	if err == nil {
@@ -42,10 +42,10 @@ func TestValidateConfigForCommandRejectsInvalidRepoConfig(t *testing.T) {
 	}
 }
 
-func TestValidateConfigForCommandUsesProjectRootFlag(t *testing.T) {
+func TestValidateConfigForCommandIgnoresDeprecatedProjectRootField(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_PROJECT_ROOT", "")
+	t.Setenv("ORCH_PROJECT", "")
 
 	validRepo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(validRepo, ".orch"), 0o755); err != nil {
@@ -77,18 +77,15 @@ func TestValidateConfigForCommandUsesProjectRootFlag(t *testing.T) {
 	t.Cleanup(func() { globalOpts.ProjectRoot = origProjectRoot })
 
 	err = validateConfigForCommand()
-	if err == nil {
-		t.Fatal("expected config validation error from --project-root")
-	}
-	if !strings.Contains(err.Error(), "issues.backend must be one of") {
-		t.Fatalf("expected issues backend validation error, got: %v", err)
+	if err != nil {
+		t.Fatalf("expected validation to ignore deprecated project-root field, got: %v", err)
 	}
 }
 
 func TestValidateConfigForCommandRejectsInvalidClientConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ORCH_PROJECT_ROOT", "")
+	t.Setenv("ORCH_PROJECT", "")
 
 	clientCfgDir := filepath.Join(home, ".config", "orch")
 	if err := os.MkdirAll(clientCfgDir, 0o755); err != nil {

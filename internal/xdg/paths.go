@@ -188,6 +188,23 @@ func RepoID(projectRoot string) (string, error) {
 	return ParseRepoID(remoteURL)
 }
 
+// RepoIDStrict derives repo identifier strictly from git remote URL.
+// Unlike RepoID, it does not fall back to a path-derived identifier.
+func RepoIDStrict(projectRoot string) (string, error) {
+	cmd := exec.Command("git", "-C", projectRoot, "config", "--get", "remote.origin.url")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve git remote for %s: %w", projectRoot, err)
+	}
+
+	remoteURL := strings.TrimSpace(string(output))
+	if remoteURL == "" {
+		return "", fmt.Errorf("empty git remote URL for %s", projectRoot)
+	}
+
+	return ParseRepoID(remoteURL)
+}
+
 // LegacyRepoID returns the bare basename that was used before collision-safe
 // hashing was added. Useful for migration lookups.
 func LegacyRepoID(projectRoot string) string {

@@ -17,14 +17,14 @@ func canonicalPath(path string) string {
 func TestResolveMonitorProjectScopeLocalDropsImplicitCWDProject(t *testing.T) {
 	withRepoProjectScope(t)
 
-	origProjectRoot := globalOpts.ProjectRoot
+	origProject := globalOpts.Project
 	origRemote := globalOpts.Remote
 	origFlag := remoteFlagWasSet
-	globalOpts.ProjectRoot = ""
+	globalOpts.Project = ""
 	globalOpts.Remote = ""
 	remoteFlagWasSet = true
 	t.Cleanup(func() {
-		globalOpts.ProjectRoot = origProjectRoot
+		globalOpts.Project = origProject
 		globalOpts.Remote = origRemote
 		remoteFlagWasSet = origFlag
 	})
@@ -44,14 +44,14 @@ func TestResolveMonitorProjectScopeLocalDropsImplicitCWDProject(t *testing.T) {
 func TestResolveMonitorProjectScopeRemoteDropsImplicitCWDProject(t *testing.T) {
 	withRepoProjectScope(t)
 
-	origProjectRoot := globalOpts.ProjectRoot
+	origProject := globalOpts.Project
 	origRemote := globalOpts.Remote
 	origFlag := remoteFlagWasSet
-	globalOpts.ProjectRoot = ""
+	globalOpts.Project = ""
 	globalOpts.Remote = "zeus:7777"
 	remoteFlagWasSet = true
 	t.Cleanup(func() {
-		globalOpts.ProjectRoot = origProjectRoot
+		globalOpts.Project = origProject
 		globalOpts.Remote = origRemote
 		remoteFlagWasSet = origFlag
 	})
@@ -68,17 +68,17 @@ func TestResolveMonitorProjectScopeRemoteDropsImplicitCWDProject(t *testing.T) {
 	}
 }
 
-func TestResolveMonitorProjectScopeRemoteKeepsExplicitProjectRoot(t *testing.T) {
+func TestResolveMonitorProjectScopeRemoteKeepsExplicitProject(t *testing.T) {
 	repo := withRepoProjectScope(t)
 
-	origProjectRoot := globalOpts.ProjectRoot
+	origProject := globalOpts.Project
 	origRemote := globalOpts.Remote
 	origFlag := remoteFlagWasSet
-	globalOpts.ProjectRoot = repo
+	globalOpts.Project = "example-" + filepath.Base(repo)
 	globalOpts.Remote = "zeus:7777"
 	remoteFlagWasSet = true
 	t.Cleanup(func() {
-		globalOpts.ProjectRoot = origProjectRoot
+		globalOpts.Project = origProject
 		globalOpts.Remote = origRemote
 		remoteFlagWasSet = origFlag
 	})
@@ -98,14 +98,14 @@ func TestResolveMonitorProjectScopeRemoteKeepsExplicitProjectRoot(t *testing.T) 
 func TestRunMonitorKillAllRequiresExplicitProjectScope(t *testing.T) {
 	withRepoProjectScope(t)
 
-	origProjectRoot := globalOpts.ProjectRoot
+	origProject := globalOpts.Project
 	origRemote := globalOpts.Remote
 	origFlag := remoteFlagWasSet
-	globalOpts.ProjectRoot = ""
+	globalOpts.Project = ""
 	globalOpts.Remote = ""
 	remoteFlagWasSet = true
 	t.Cleanup(func() {
-		globalOpts.ProjectRoot = origProjectRoot
+		globalOpts.Project = origProject
 		globalOpts.Remote = origRemote
 		remoteFlagWasSet = origFlag
 	})

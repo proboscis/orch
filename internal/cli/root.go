@@ -10,6 +10,7 @@ import (
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/orchapi"
+	"github.com/s22625/orch/internal/xdg"
 	"github.com/spf13/cobra"
 )
 
@@ -30,7 +31,8 @@ const (
 
 // GlobalOptions holds options shared across all commands
 type GlobalOptions struct {
-	ProjectRoot string
+	Project     string
+	ProjectRoot string // deprecated compatibility field
 	Remote      string
 	Backend     string
 	JSON        bool
@@ -93,7 +95,7 @@ It operates non-interactively by default, using events to track state
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&globalOpts.ProjectRoot, "project-root", "", "Path to project root where .orch/ lives (or set ORCH_PROJECT_ROOT)")
+	rootCmd.PersistentFlags().StringVar(&globalOpts.Project, "project", "", "Project identity (owner-repo, or set ORCH_PROJECT)")
 	rootCmd.PersistentFlags().StringVar(&globalOpts.Remote, "remote", "", "Connect to remote daemon address (or set ORCH_REMOTE)")
 
 	rootCmd.PersistentFlags().StringVar(&globalOpts.Backend, "backend", "file", "Backend type (file|github|linear)")
@@ -176,28 +178,12 @@ func getIssuesRoot() (string, error) {
 }
 
 // getProjectRoot returns the project root directory (where .orch/ lives).
-// Precedence: --project-root flag > ORCH_PROJECT_ROOT > .orch/config.yaml location
+// It is auto-resolved from the current directory hierarchy.
 func getProjectRoot() (string, error) {
-	if globalOpts.ProjectRoot != "" {
-		return config.ExpandPath(globalOpts.ProjectRoot, ""), nil
-	}
-
 	return config.GetProjectRoot()
 }
 
 func getProjectRootWithSource() (string, bool, error) {
-	if globalOpts.ProjectRoot != "" {
-		return config.ExpandPath(globalOpts.ProjectRoot, ""), true, nil
-	}
-
-	if strings.TrimSpace(os.Getenv("ORCH_PROJECT_ROOT")) != "" {
-		projectRoot, err := config.GetProjectRoot()
-		if err != nil {
-			return "", true, err
-		}
-		return projectRoot, true, nil
-	}
-
 	projectRoot, err := config.GetProjectRoot()
 	if err != nil {
 		return "", false, err
@@ -206,24 +192,56 @@ func getProjectRootWithSource() (string, bool, error) {
 	return projectRoot, false, nil
 }
 
+func getProjectIDWithSource(projectRoot string) (string, bool, error) {
+	if projectID := strings.TrimSpace(globalOpts.Project); projectID != "" {
+		return projectID, true, nil
+	}
+
+	if projectID := strings.TrimSpace(os.Getenv("ORCH_PROJECT")); projectID != "" {
+		return projectID, true, nil
+	}
+
+	if strings.TrimSpace(projectRoot) == "" {
+		return "", false, nil
+	}
+
+	projectID, err := xdg.RepoIDStrict(projectRoot)
+	if err != nil {
+		return "", false, err
+	}
+
+	return projectID, false, nil
+}
+
+func resolveProjectIdentity(projectRoot string) (string, error) {
+	if token := strings.TrimSpace(projectRoot); strings.HasPrefix(token, "repoid:") {
+		projectID := strings.TrimSpace(strings.TrimPrefix(token, "repoid:"))
+		if projectID != "" {
+			return projectID, nil
+		}
+	}
+
+	projectID, _, err := getProjectIDWithSource(projectRoot)
+	if err != nil {
+		return "", fmt.Errorf("project identity required: %w (set --project/ORCH_PROJECT or configure git remote origin)", err)
+	}
+	if strings.TrimSpace(projectID) == "" {
+		return "", fmt.Errorf("project identity required: set --project/ORCH_PROJECT or run from a git repo with remote origin")
+	}
+	return strings.TrimSpace(projectID), nil
+}
+
 func resolveExplicitProjectScope(scopeValue, scopeFlagName string) (string, error) {
 	if strings.TrimSpace(scopeValue) != "" {
 		return config.ExpandPath(scopeValue, ""), nil
 	}
 
-	projectRoot, explicitProjectRoot, err := getProjectRootWithSource()
+	projectRoot, _, err := getProjectRootWithSource()
 	if err != nil {
 		if scopeFlagName != "" {
-			return "", fmt.Errorf("project scope required: %w (set %s, --project-root, or ORCH_PROJECT_ROOT)", err, scopeFlagName)
+			return "", fmt.Errorf("project scope required: %w (set %s or run from repo root)", err, scopeFlagName)
 		}
-		return "", fmt.Errorf("project scope required: %w (set --project-root or ORCH_PROJECT_ROOT)", err)
-	}
-
-	if !explicitProjectRoot {
-		if scopeFlagName != "" {
-			return "", fmt.Errorf("project scope required: set %s, --project-root, or ORCH_PROJECT_ROOT", scopeFlagName)
-		}
-		return "", fmt.Errorf("project scope required: set --project-root or ORCH_PROJECT_ROOT")
+		return "", fmt.Errorf("project scope required: %w (run from repo root)", err)
 	}
 
 	return projectRoot, nil
@@ -279,20 +297,28 @@ func defaultGetAPIWithOptions(requireProjectRoot bool) (orchapi.OrchAPI, error) 
 
 	projectRoot, explicitProjectRoot, err := getProjectRootWithSource()
 	if err != nil {
-		if requireProjectRoot {
-			return nil, fmt.Errorf("project scope required for this command: %w (set --project-root or ORCH_PROJECT_ROOT)", err)
-		}
 		projectRoot = ""
+		explicitProjectRoot = false
 	}
 
-	if requireProjectRoot && !explicitProjectRoot {
-		if strings.TrimSpace(remoteAddr) != "" {
-			return nil, fmt.Errorf("project scope required for remote command: set --project-root or ORCH_PROJECT_ROOT")
+	if requireProjectRoot {
+		if _, err := resolveProjectIdentity(projectRoot); err != nil {
+			return nil, err
 		}
-		return nil, fmt.Errorf("project scope required for this command: set --project-root or ORCH_PROJECT_ROOT")
 	}
 
-	client := orchapi.NewDaemonClientWithAddress(projectRoot, remoteAddr)
+	clientProjectScope := projectRoot
+	if strings.TrimSpace(remoteAddr) != "" {
+		projectID, err := resolveProjectIdentity(projectRoot)
+		if err != nil {
+			return nil, err
+		}
+		clientProjectScope = "repoid:" + projectID
+	} else if !explicitProjectRoot && strings.TrimSpace(globalOpts.Project) != "" {
+		clientProjectScope = "repoid:" + strings.TrimSpace(globalOpts.Project)
+	}
+
+	client := orchapi.NewDaemonClientWithAddress(clientProjectScope, remoteAddr)
 	if remoteAddr == "" && !client.IsAvailable() {
 		ensureDaemon()
 	}
@@ -340,14 +366,6 @@ func apiRunToModelRun(r *orchapi.Run) *model.Run {
 func validateConfigForCommand() error {
 	if _, err := config.LoadClient(); err != nil {
 		return fmt.Errorf("invalid client config: %w", err)
-	}
-
-	if globalOpts.ProjectRoot != "" {
-		projectRoot := config.ExpandPath(globalOpts.ProjectRoot, "")
-		if _, err := config.LoadFromProjectRoot(projectRoot); err != nil {
-			return fmt.Errorf("invalid config: %w", err)
-		}
-		return nil
 	}
 
 	if _, err := config.Load(); err != nil {

@@ -126,10 +126,16 @@ Verify listener and network path to the remote host.
 orch --remote zeus:7777 daemon repo list
 ```
 
-If missing, register the remote project root:
+If missing, register the remote project workspace path:
 
 ```bash
 orch --remote zeus:7777 daemon repo register /srv/repos/your-project
+```
+
+Then scope runtime commands by project identity (repo ID):
+
+```bash
+orch --remote zeus:7777 --project yourorg-yourrepo ps --json
 ```
 
 ### "Issue not found" during `run` with remote master + external worker
@@ -149,7 +155,7 @@ orch --remote zeus:7777 daemon repo list
 orch --remote zeus:7777 worker status --json
 ```
 
-Then confirm worker host project/config alignment (`--project-root`, `.orch/config.yaml`,
+Then confirm worker host project/config alignment (`--project`, `.orch/config.yaml`,
 and `issues.path`) for the same project identity.
 
 ## See Also
