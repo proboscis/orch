@@ -28,7 +28,7 @@ It covers:
 
 ```bash
 export ROOT="$(mktemp -d /tmp/orch-e2e-XXXXXX)"
-mkdir -p "$ROOT"/{home,runtime,state,data,bin,repo/.orch,issues-store/issues,issues-store/runs,outside}
+mkdir -p "$ROOT"/{home,runtime,state,data,bin,repo/.orch,issues-store/issues,issues-store/runs,outside,origin/example}
 
 export HOME="$ROOT/home"
 export XDG_RUNTIME_DIR="$ROOT/runtime"
@@ -77,9 +77,18 @@ EOF
 git -C "$PROJECT" init
 git -C "$PROJECT" config user.email e2e@example.com
 git -C "$PROJECT" config user.name E2E
-git -C "$PROJECT" remote add origin https://github.com/example/manual-e2e-repo.git
+
+git init --bare "$ROOT/origin/example/manual-e2e-repo.git"
+REPO_URL="file://$ROOT/origin/example/manual-e2e-repo.git"
+PROJECT_ID="example-manual-e2e-repo"
+
+git -C "$PROJECT" remote add origin "$REPO_URL"
 git -C "$PROJECT" add .
 git -C "$PROJECT" commit -m "init"
+git -C "$PROJECT" push -u origin HEAD
+
+# run runtime commands from the project root
+cd "$PROJECT"
 ```
 
 ## 3) Master/Worker Lifecycle Checks
@@ -92,6 +101,7 @@ git -C "$PROJECT" commit -m "init"
 "$ORCH_BIN" master status
 
 "$ORCH_BIN" worker start
+sleep 2
 "$ORCH_BIN" worker status
 ```
 
@@ -99,12 +109,12 @@ Expected:
 
 - initial status reports `Status: not running`
 - after `master start`, status reports `Status: running`
-- `worker start` reports managed external worker process started
+- `worker start` reports managed external worker process started (allow a short delay before `worker status`)
 
 ## 4) Register Project Mapping
 
 ```bash
-"$ORCH_BIN" daemon repo register "$PROJECT"
+"$ORCH_BIN" daemon repo register "$REPO_URL"
 "$ORCH_BIN" daemon repo list
 ```
 
@@ -117,7 +127,6 @@ Expected:
 
 ```bash
 RUN_ID="$(date +%Y%m%d-%H%M%S)-local"
-PROJECT_ID="example-manual-e2e-repo"
 
 "$ORCH_BIN" --project "$PROJECT_ID" run mwc-local-live \
   --run-id "$RUN_ID" \
@@ -127,7 +136,7 @@ PROJECT_ID="example-manual-e2e-repo"
 
 "$ORCH_BIN" --project "$PROJECT_ID" ps --issue mwc-local-live --json
 "$ORCH_BIN" --project "$PROJECT_ID" show "mwc-local-live#$RUN_ID" --json
-"$ORCH_BIN" --project "$PROJECT_ID" stop "mwc-local-live#$RUN_ID" --force --json
+"$ORCH_BIN" --project "$PROJECT_ID" stop "mwc-local-live#$RUN_ID" --force
 ```
 
 Expected:
@@ -141,6 +150,8 @@ Expected:
 Pick a free port first (example `60318` below).
 
 ```bash
+"$ORCH_BIN" master kill || true
+
 export ORCH_REMOTE=skip
 "$ORCH_BIN" master start --listen tcp://127.0.0.1:60318
 unset ORCH_REMOTE
@@ -158,6 +169,7 @@ Expected:
 ```bash
 "$ORCH_BIN" worker stop || true
 "$ORCH_BIN" master kill || true
+chmod -R u+w "$ROOT" || true
 rm -rf "$ROOT"
 ```
 
@@ -188,7 +200,7 @@ ssh zeus "$ENV_PREFIX orch master status"
 ssh zeus "$ENV_PREFIX orch worker status"
 
 # create sample issue
-ssh zeus "cat > /home/kento/repos/doeff-VAULT/issues/$ISSUE_ID.md <<'EOF'
+ssh zeus "cat > /home/kento/repos/doeff-issues/issues/$ISSUE_ID.md <<'EOF'
 ---
 type: issue
 id: $ISSUE_ID
@@ -229,10 +241,10 @@ ssh zeus "gh pr list --repo proboscis/doeff --head $BRANCH --state open --json n
 ssh zeus "gh pr close <PR_NUMBER> --repo proboscis/doeff --comment 'Closing sample Zeus E2E PR.' --delete-branch"
 
 # stop the run at the end
-ssh zeus "$ENV_PREFIX orch --project $PROJECT_ID stop $ISSUE_ID#$RUN_ID --force --json"
+ssh zeus "$ENV_PREFIX orch --project $PROJECT_ID stop $ISSUE_ID#$RUN_ID --force"
 
 # cleanup
-ssh zeus "rm -f /home/kento/repos/doeff-VAULT/issues/$ISSUE_ID.md /tmp/orch-zeus-agent-$ISSUE_ID.sh"
+ssh zeus "rm -f /home/kento/repos/doeff-issues/issues/$ISSUE_ID.md /tmp/orch-zeus-agent-$ISSUE_ID.sh"
 ssh zeus "$ENV_PREFIX orch worker stop"
 ```
 
