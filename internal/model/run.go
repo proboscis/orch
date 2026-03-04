@@ -82,6 +82,7 @@ type Run struct {
 	Branch            string
 	WorktreePath      string
 	Target            string
+	TargetHost        string
 	SessionName       string
 	MuxWindowID       string
 	Multiplexer       string

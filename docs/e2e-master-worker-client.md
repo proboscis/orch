@@ -144,6 +144,7 @@ Expected:
 - run command returns `"ok": true`
 - `ps` returns at least one item for `mwc-local-live`
 - `show` returns `"ok": true` and run metadata/events
+- `ps` JSON includes `target` and `target_host` fields (populated when the run uses `--on <target>`)
 
 ## 6) Remote Master Reachability Smoke
 

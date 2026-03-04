@@ -926,6 +926,14 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		issueInfo = buildIssueDisplayMap(apiIssuesToModel(issuesResult.Issues))
 	}
 
+	runModels := make([]*model.Run, 0, len(windows))
+	for _, w := range windows {
+		if w != nil && w.Run != nil {
+			runModels = append(runModels, w.Run)
+		}
+	}
+	targetHostByRun := resolveTargetHostByRun(runModels)
+
 	rows := make([]RunRow, 0, len(windows))
 	for _, w := range windows {
 		if w == nil || w.Run == nil {
@@ -960,6 +968,8 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		if w.Run.WorktreePath != "" && !w.Run.WorktreeExists {
 			shortID += "*"
 		}
+		target := formatTargetDisplay(w.Run.Target, runTableTargetWidth)
+		targetHost := formatTargetDisplay(targetHostByRun[w.Run.RunID], runTableTargetHostWidth)
 		branch := formatBranchDisplay(w.Run.Branch, runTableBranchWidth)
 		worktree := formatWorktreeDisplay(w.Run.WorktreePath, runTableWorktreeWidth)
 
@@ -975,6 +985,8 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 			Model:        modelDisplay,
 			Status:       w.Run.Status,
 			Alive:        runAliveLabel(w.Run),
+			Target:       target,
+			TargetHost:   targetHost,
 			Branch:       branch,
 			Worktree:     worktree,
 			PR:           prDisplay,
@@ -1839,6 +1851,8 @@ func apiRunToModel(r *orchapi.Run) *model.Run {
 		ModelVariant:      r.ModelVariant,
 		Branch:            r.Branch,
 		WorktreePath:      r.WorktreePath,
+		Target:            r.Target,
+		TargetHost:        r.TargetHost,
 		SessionName:       r.SessionName,
 		Multiplexer:       string(r.Multiplexer),
 		PRUrl:             r.PRUrl,

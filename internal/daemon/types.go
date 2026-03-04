@@ -159,6 +159,7 @@ type RunSummary struct {
 	Branch            string         `json:"branch,omitempty"`
 	WorktreePath      string         `json:"worktree_path,omitempty"`
 	Target            string         `json:"target,omitempty"`
+	TargetHost        string         `json:"target_host,omitempty"`
 	SessionName       string         `json:"session_name,omitempty"`
 	Multiplexer       string         `json:"multiplexer,omitempty"`
 	PRUrl             string         `json:"pr_url,omitempty"`
@@ -204,6 +205,7 @@ type RunFull struct {
 	Branch            string         `json:"branch,omitempty"`
 	WorktreePath      string         `json:"worktree_path,omitempty"`
 	Target            string         `json:"target,omitempty"`
+	TargetHost        string         `json:"target_host,omitempty"`
 	SessionName       string         `json:"session_name,omitempty"`
 	Multiplexer       string         `json:"multiplexer,omitempty"`
 	PRUrl             string         `json:"pr_url,omitempty"`
@@ -410,6 +412,7 @@ func RunToSummary(run *model.Run) *RunSummary {
 		Branch:            run.Branch,
 		WorktreePath:      run.WorktreePath,
 		Target:            run.Target,
+		TargetHost:        run.TargetHost,
 		SessionName:       run.SessionName,
 		Multiplexer:       run.Multiplexer,
 		PRUrl:             run.PRUrl,
@@ -477,6 +480,7 @@ func RunToFull(run *model.Run) *RunFull {
 		Branch:            run.Branch,
 		WorktreePath:      run.WorktreePath,
 		Target:            run.Target,
+		TargetHost:        run.TargetHost,
 		SessionName:       run.SessionName,
 		Multiplexer:       run.Multiplexer,
 		PRUrl:             run.PRUrl,

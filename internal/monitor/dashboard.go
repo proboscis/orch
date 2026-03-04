@@ -1129,6 +1129,14 @@ func (d *Dashboard) renderDetails(maxLines int) string {
 	if worktree == "" {
 		worktree = "-"
 	}
+	target := strings.TrimSpace(row.Target)
+	if target == "" {
+		target = "-"
+	}
+	targetHost := strings.TrimSpace(row.TargetHost)
+	if targetHost == "" {
+		targetHost = "-"
+	}
 	summary := strings.TrimSpace(row.IssueSummary)
 	if summary == "" {
 		summary = "-"
@@ -1141,6 +1149,8 @@ func (d *Dashboard) renderDetails(maxLines int) string {
 	lines = append(lines, wrapLabelValue("Run: ", run.Ref().String(), contentWidth)...)
 	lines = append(lines, wrapLabelValue("Issue: ", run.IssueID, contentWidth)...)
 	lines = append(lines, wrapLabelValue("Summary: ", summary, contentWidth)...)
+	lines = append(lines, wrapLabelValue("Target: ", target, contentWidth)...)
+	lines = append(lines, wrapLabelValue("Host: ", targetHost, contentWidth)...)
 	lines = append(lines, wrapLabelValue("Branch: ", branch, contentWidth)...)
 	lines = append(lines, wrapLabelValue("Worktree: ", worktree, contentWidth)...)
 

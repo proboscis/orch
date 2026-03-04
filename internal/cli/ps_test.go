@@ -112,6 +112,7 @@ func TestOutputTableTruncatesSummary(t *testing.T) {
 			nil,
 			nil,
 			nil,
+			nil,
 			deps,
 		); err != nil {
 			t.Fatalf("outputTable: %v", err)
@@ -156,6 +157,7 @@ func TestOutputTableUsesTopic(t *testing.T) {
 			[]*model.Run{run},
 			now,
 			&psOptions{},
+			nil,
 			nil,
 			nil,
 			nil,
@@ -205,6 +207,7 @@ func TestOutputTableTruncatesTopicChars(t *testing.T) {
 			[]*model.Run{run},
 			now,
 			&psOptions{},
+			nil,
 			nil,
 			nil,
 			nil,
@@ -258,15 +261,17 @@ func TestOutputTableShowsNewColumns(t *testing.T) {
 	}
 
 	header := lines[0]
+	targetIdx := strings.Index(header, "TARGET")
+	hostIdx := strings.Index(header, "HOST")
 	agentIdx := strings.Index(header, "AGENT")
 	aliveIdx := strings.Index(header, "ALIVE")
 	branchIdx := strings.Index(header, "BRANCH")
 	worktreeIdx := strings.Index(header, "WORKTREE")
 	prIdx := strings.Index(header, "PR")
-	if agentIdx == -1 || aliveIdx == -1 || branchIdx == -1 || worktreeIdx == -1 || prIdx == -1 {
+	if targetIdx == -1 || hostIdx == -1 || agentIdx == -1 || aliveIdx == -1 || branchIdx == -1 || worktreeIdx == -1 || prIdx == -1 {
 		t.Fatalf("missing columns in header: %q", header)
 	}
-	if !(agentIdx < aliveIdx && aliveIdx < branchIdx && branchIdx < worktreeIdx && worktreeIdx < prIdx) {
+	if !(targetIdx < hostIdx && hostIdx < agentIdx && agentIdx < aliveIdx && aliveIdx < branchIdx && branchIdx < worktreeIdx && worktreeIdx < prIdx) {
 		t.Fatalf("unexpected header order: %q", header)
 	}
 
@@ -304,6 +309,7 @@ func TestOutputJSON(t *testing.T) {
 		IssueID:      "issue-1",
 		RunID:        "run-1",
 		Status:       model.StatusRunning,
+		Target:       "zeus",
 		Branch:       "branch",
 		WorktreePath: "/tmp/worktree",
 		SessionName:  "session",
@@ -326,6 +332,8 @@ func TestOutputJSON(t *testing.T) {
 			RunID        string `json:"run_id"`
 			ShortID      string `json:"short_id"`
 			CLI          string `json:"cli"`
+			Target       string `json:"target"`
+			TargetHost   string `json:"target_host"`
 			Status       string `json:"status"`
 			AgentStatus  string `json:"agent_status"`
 			BranchStatus string `json:"branch_status"`
@@ -363,6 +371,12 @@ func TestOutputJSON(t *testing.T) {
 	}
 	if item.PRStatus != "open" {
 		t.Fatalf("pr_status = %q, want %q", item.PRStatus, "open")
+	}
+	if item.Target != "zeus" {
+		t.Fatalf("target = %q, want %q", item.Target, "zeus")
+	}
+	if item.TargetHost != "zeus" {
+		t.Fatalf("target_host = %q, want %q", item.TargetHost, "zeus")
 	}
 }
 

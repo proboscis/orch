@@ -392,6 +392,8 @@ func apiRunToModelRun(r *orchapi.Run) *model.Run {
 		ModelVariant:      r.ModelVariant,
 		Branch:            r.Branch,
 		WorktreePath:      r.WorktreePath,
+		Target:            r.Target,
+		TargetHost:        r.TargetHost,
 		SessionName:       r.SessionName,
 		Multiplexer:       string(r.Multiplexer),
 		PRUrl:             r.PRUrl,

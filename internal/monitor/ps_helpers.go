@@ -70,6 +70,17 @@ func formatBranchDisplay(branch string, max int) string {
 	return truncateWithEllipsis(branch, max)
 }
 
+func formatTargetDisplay(target string, max int) string {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return "-"
+	}
+	if max <= 0 {
+		return target
+	}
+	return truncateWithEllipsis(target, max)
+}
+
 func formatWorktreeDisplay(path string, max int) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -120,4 +131,29 @@ func truncateLeading(text string, max int) string {
 		return text[:max]
 	}
 	return "..." + text[len(text)-(max-3):]
+}
+
+func resolveTargetHostByRun(runs []*model.Run) map[string]string {
+	resolved := make(map[string]string, len(runs))
+	if len(runs) == 0 {
+		return resolved
+	}
+
+	for _, run := range runs {
+		if run == nil {
+			continue
+		}
+		targetName := strings.TrimSpace(run.Target)
+		if targetName == "" {
+			continue
+		}
+
+		targetHost := strings.TrimSpace(run.TargetHost)
+		if targetHost == "" {
+			targetHost = targetName
+		}
+		resolved[run.RunID] = targetHost
+	}
+
+	return resolved
 }

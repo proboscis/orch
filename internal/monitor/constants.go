@@ -8,11 +8,13 @@ import (
 )
 
 const (
-	defaultRefreshInterval = 5 * time.Second
-	defaultCaptureLines    = 200
-	runTableBranchWidth    = 8
-	runTableWorktreeWidth  = 16
-	runDetailsMaxLines     = 7
+	defaultRefreshInterval  = 5 * time.Second
+	defaultCaptureLines     = 200
+	runTableTargetWidth     = 10
+	runTableTargetHostWidth = 16
+	runTableBranchWidth     = 8
+	runTableWorktreeWidth   = 16
+	runDetailsMaxLines      = 7
 )
 
 const monitorRefreshIntervalEnv = "ORCH_MONITOR_REFRESH_INTERVAL"

@@ -17,6 +17,8 @@ type RunRow struct {
 	Model        string
 	Status       model.Status
 	Alive        string
+	Target       string
+	TargetHost   string
 	Branch       string
 	Worktree     string
 	PR           string

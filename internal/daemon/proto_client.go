@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/s22625/orch/api/orchpb"
+	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/xdg"
 	"google.golang.org/protobuf/proto"
 )
@@ -361,10 +362,11 @@ func (c *ProtoClient) ListRuns(filter *ListRunsFilter) (*ListRunsResponse, error
 	if listResp == nil {
 		return nil, fmt.Errorf("unexpected response type")
 	}
+	cfg, _ := config.Load()
 
 	runs := make([]*RunSummary, len(listResp.Runs))
 	for i, r := range listResp.Runs {
-		runs[i] = protoRunToSummary(r)
+		runs[i] = protoRunToSummary(r, cfg)
 	}
 
 	var nextCursor *string
@@ -407,7 +409,7 @@ func (c *ProtoClient) GetRun(issueID, runID string) (*GetRunResponse, error) {
 
 	return &GetRunResponse{
 		OK:  true,
-		Run: protoRunToFull(getResp.Run, getResp.Events),
+		Run: protoRunToFull(getResp.Run, getResp.Events, loadConfigOrNil()),
 	}, nil
 }
 
@@ -437,7 +439,7 @@ func (c *ProtoClient) GetRunByShortID(shortID string) (*GetRunResponse, error) {
 
 	return &GetRunResponse{
 		OK:  true,
-		Run: protoRunToFull(getResp.Run, getResp.Events),
+		Run: protoRunToFull(getResp.Run, getResp.Events, loadConfigOrNil()),
 	}, nil
 }
 
@@ -1341,7 +1343,7 @@ func protoBranchStateToString(s orchpb.BranchState) string {
 	}
 }
 
-func protoRunToSummary(r *orchpb.Run) *RunSummary {
+func protoRunToSummary(r *orchpb.Run, cfg *config.Config) *RunSummary {
 	if r == nil {
 		return nil
 	}
@@ -1365,6 +1367,8 @@ func protoRunToSummary(r *orchpb.Run) *RunSummary {
 		Model:             r.Model,
 		Branch:            r.Branch,
 		WorktreePath:      r.WorktreePath,
+		Target:            r.Target,
+		TargetHost:        resolveTargetHost(r.Target, cfg),
 		SessionName:       r.SessionName,
 		Multiplexer:       protoMultiplexerToString(r.Multiplexer),
 		PRUrl:             r.PrUrl,
@@ -1387,7 +1391,7 @@ func protoRunToSummary(r *orchpb.Run) *RunSummary {
 	}
 }
 
-func protoRunToFull(r *orchpb.Run, events []*orchpb.Event) *RunFull {
+func protoRunToFull(r *orchpb.Run, events []*orchpb.Event, cfg *config.Config) *RunFull {
 	if r == nil {
 		return nil
 	}
@@ -1434,6 +1438,8 @@ func protoRunToFull(r *orchpb.Run, events []*orchpb.Event) *RunFull {
 		Model:             r.Model,
 		Branch:            r.Branch,
 		WorktreePath:      r.WorktreePath,
+		Target:            r.Target,
+		TargetHost:        resolveTargetHost(r.Target, cfg),
 		SessionName:       r.SessionName,
 		Multiplexer:       protoMultiplexerToString(r.Multiplexer),
 		PRUrl:             r.PrUrl,
@@ -1456,6 +1462,30 @@ func protoRunToFull(r *orchpb.Run, events []*orchpb.Event) *RunFull {
 		URI:               fmt.Sprintf("orch://run/%s/%s", r.IssueId, r.RunId),
 		Events:            eventJSON,
 	}
+}
+
+func loadConfigOrNil() *config.Config {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil
+	}
+	return cfg
+}
+
+func resolveTargetHost(targetName string, cfg *config.Config) string {
+	targetName = strings.TrimSpace(targetName)
+	if targetName == "" {
+		return ""
+	}
+	targetHost := targetName
+	if cfg != nil {
+		if targetCfg := cfg.GetTarget(targetName); targetCfg != nil {
+			if host := strings.TrimSpace(targetCfg.Host); host != "" {
+				targetHost = host
+			}
+		}
+	}
+	return targetHost
 }
 
 func protoIssueToSummary(i *orchpb.Issue) *IssueSummary {
