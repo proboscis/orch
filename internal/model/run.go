@@ -180,8 +180,14 @@ func (r *Run) DeriveState() {
 		r.Target = target["name"]
 	}
 	if session, ok := artifacts["session"]; ok {
-		r.SessionName = session["name"]
-		r.Multiplexer = session["multiplexer"]
+		if sessionName := session["name"]; sessionName != "" {
+			r.SessionName = sessionName
+		}
+		if mux := session["multiplexer"]; mux != "" {
+			r.Multiplexer = mux
+		} else if r.Multiplexer == "" {
+			r.Multiplexer = r.lastArtifactAttr("session", "multiplexer")
+		}
 	}
 	if window, ok := artifacts["window"]; ok {
 		r.MuxWindowID = window["id"]
@@ -213,6 +219,19 @@ func (r *Run) DeriveState() {
 		r.StartedAt = r.Events[0].Timestamp
 		r.UpdatedAt = r.Events[len(r.Events)-1].Timestamp
 	}
+}
+
+func (r *Run) lastArtifactAttr(name, key string) string {
+	for i := len(r.Events) - 1; i >= 0; i-- {
+		e := r.Events[i]
+		if e == nil || e.Type != EventTypeArtifact || e.Name != name || e.Attrs == nil {
+			continue
+		}
+		if v := e.Attrs[key]; v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // GenerateRunID generates a run ID using the convention YYYYMMDD-HHMMSS

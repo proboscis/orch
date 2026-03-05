@@ -69,6 +69,13 @@ var (
 	getSendMultiplexer = func() sendMultiplexer {
 		return multiplexer.GetDefault()
 	}
+	getSendMultiplexerForType = func(muxType multiplexer.Type) sendMultiplexer {
+		mux, _ := multiplexer.GetMultiplexer(muxType)
+		if mux == nil {
+			return nil
+		}
+		return mux
+	}
 )
 
 type sendMultiplexer interface {
@@ -2251,7 +2258,7 @@ func (s *SocketServer) processSendTmux(run *model.Run, message string, noEnter b
 		sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
 	}
 
-	mux := getSendMultiplexer()
+	mux := resolveSendMultiplexer(run)
 	if mux == nil {
 		return fmt.Errorf("no multiplexer available")
 	}
@@ -2280,6 +2287,17 @@ func (s *SocketServer) processSendTmux(run *model.Run, message string, noEnter b
 
 	s.logger.Printf("message sent successfully to tmux session %s", sessionName)
 	return nil
+}
+
+func resolveSendMultiplexer(run *model.Run) sendMultiplexer {
+	if run != nil {
+		if muxType, err := multiplexer.ParseType(strings.TrimSpace(run.Multiplexer)); err == nil && muxType != multiplexer.TypeAuto {
+			if mux := getSendMultiplexerForType(muxType); mux != nil {
+				return mux
+			}
+		}
+	}
+	return getSendMultiplexer()
 }
 
 func useCodexTmuxSubmitDelay(run *model.Run, mux sendMultiplexer) bool {

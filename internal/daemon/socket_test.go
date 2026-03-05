@@ -4933,3 +4933,47 @@ func TestProcessSendTmuxNonCodexUsesSendKeys(t *testing.T) {
 		t.Fatalf("SendText calls = %d, want 0", len(mockMux.sendTextCalls))
 	}
 }
+
+func TestProcessSendTmuxUsesRunMultiplexerWhenAvailable(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	defaultMux := &mockSendMux{hasSession: false, muxType: multiplexer.TypeTmux}
+	zellijMux := &mockSendMux{hasSession: true, muxType: multiplexer.TypeZellij}
+
+	prevDefault := getSendMultiplexer
+	prevByType := getSendMultiplexerForType
+	getSendMultiplexer = func() sendMultiplexer { return defaultMux }
+	getSendMultiplexerForType = func(muxType multiplexer.Type) sendMultiplexer {
+		if muxType == multiplexer.TypeZellij {
+			return zellijMux
+		}
+		return nil
+	}
+	defer func() {
+		getSendMultiplexer = prevDefault
+		getSendMultiplexerForType = prevByType
+	}()
+
+	run := &model.Run{
+		IssueID:     "issue-z",
+		RunID:       "run-z",
+		SessionName: "run-issue-z-run-z",
+		Agent:       string(agent.AgentClaude),
+		Multiplexer: string(multiplexer.TypeZellij),
+	}
+
+	if err := server.processSendTmux(run, "continue-zellij", false); err != nil {
+		t.Fatalf("processSendTmux() error = %v", err)
+	}
+
+	if len(defaultMux.sendKeysCalls) != 0 {
+		t.Fatalf("default mux SendKeys calls = %d, want 0", len(defaultMux.sendKeysCalls))
+	}
+	if len(zellijMux.sendKeysCalls) != 1 {
+		t.Fatalf("zellij mux SendKeys calls = %d, want 1", len(zellijMux.sendKeysCalls))
+	}
+	if got := zellijMux.sendKeysCalls[0]; got.session != run.SessionName || got.keys != "continue-zellij" {
+		t.Fatalf("zellij SendKeys call = (%q, %q), want (%q, %q)", got.session, got.keys, run.SessionName, "continue-zellij")
+	}
+}
