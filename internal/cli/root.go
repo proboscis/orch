@@ -86,12 +86,28 @@ It operates non-interactively by default, using events to track state
 			return err
 		}
 
-		// Auto-start daemon for most commands
-		if !noDaemonCommands[cmd.Name()] && getRemoteAddr() == "" {
+		// Auto-start daemon for most commands.
+		// Check command ancestry so "orch master start" and "orch worker ..."
+		// don't auto-start an implicit local daemon before command execution.
+		if shouldAutoStartDaemonForCommand(cmd, getRemoteAddr()) {
 			ensureDaemon()
 		}
 		return nil
 	},
+}
+
+func shouldAutoStartDaemonForCommand(cmd *cobra.Command, remoteAddr string) bool {
+	if strings.TrimSpace(remoteAddr) != "" {
+		return false
+	}
+
+	for c := cmd; c != nil; c = c.Parent() {
+		if noDaemonCommands[c.Name()] {
+			return false
+		}
+	}
+
+	return true
 }
 
 func init() {
