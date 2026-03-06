@@ -872,6 +872,108 @@ func TestProcessSendOpenCodeTimesOutPromptlyWithoutAck(t *testing.T) {
 	}
 }
 
+func TestProcessSendOpenCodeAckTimeoutButQueuedMessageSucceeds(t *testing.T) {
+	projectRoot, err := git.FindRepoRoot(".")
+	if err != nil {
+		t.Fatalf("failed to find repo root: %v", err)
+	}
+
+	const ackDelay = 300 * time.Millisecond
+	var (
+		mu       sync.Mutex
+		messages []agent.Message
+	)
+
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/global/health":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"healthy":true,"version":"test"}`)
+		case r.URL.Path == "/session/ses_queued/message" && r.Method == http.MethodPost:
+			var req agent.PromptRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			text := ""
+			for _, part := range req.Parts {
+				if part.Type == "text" {
+					text = part.Text
+					break
+				}
+			}
+
+			mu.Lock()
+			messages = append(messages, agent.Message{
+				Info: agent.MessageInfo{
+					ID:        "msg-1",
+					SessionID: "ses_queued",
+					Role:      "user",
+					CreatedAt: time.Now(),
+				},
+				Parts: []agent.MessagePart{{Type: "text", Text: text}},
+			})
+			mu.Unlock()
+
+			time.Sleep(ackDelay)
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = io.WriteString(w, `{"status":"accepted"}`)
+		case r.URL.Path == "/session/ses_queued/message" && r.Method == http.MethodGet:
+			mu.Lock()
+			copied := append([]agent.Message(nil), messages...)
+			mu.Unlock()
+
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(copied); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer testServer.Close()
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.openCodeServers[projectRoot] = &managedServer{
+		ProjectRoot: projectRoot,
+		Port:        getPortFromURL(t, testServer.URL),
+		WaitResult:  make(chan error, 1),
+	}
+
+	prevAckTimeout := openCodeSendAckTimeout
+	prevConfirmTimeout := openCodeSendConfirmTimeout
+	prevPollInterval := openCodeSendConfirmPollInterval
+	openCodeSendAckTimeout = 80 * time.Millisecond
+	openCodeSendConfirmTimeout = 1200 * time.Millisecond
+	openCodeSendConfirmPollInterval = 20 * time.Millisecond
+	defer func() {
+		openCodeSendAckTimeout = prevAckTimeout
+		openCodeSendConfirmTimeout = prevConfirmTimeout
+		openCodeSendConfirmPollInterval = prevPollInterval
+	}()
+
+	ref := &model.RunRef{IssueID: "orch-432", RunID: "run-queued"}
+	run := &model.Run{
+		IssueID:           ref.IssueID,
+		RunID:             ref.RunID,
+		Agent:             string(agent.AgentOpenCode),
+		OpenCodeSessionID: "ses_queued",
+		WorktreePath:      projectRoot,
+	}
+
+	startedAt := time.Now()
+	err = server.processSendOpenCode(nil, ref, run, "please queue this")
+	elapsed := time.Since(startedAt)
+
+	if err != nil {
+		t.Fatalf("processSendOpenCode() error = %v", err)
+	}
+	if elapsed >= 2*time.Second {
+		t.Fatalf("expected queued-message confirmation to return quickly, elapsed=%s", elapsed)
+	}
+}
+
 func TestIsDaemonSocketAvailable(t *testing.T) {
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
@@ -4975,5 +5077,66 @@ func TestProcessSendTmuxUsesRunMultiplexerWhenAvailable(t *testing.T) {
 	}
 	if got := zellijMux.sendKeysCalls[0]; got.session != run.SessionName || got.keys != "continue-zellij" {
 		t.Fatalf("zellij SendKeys call = (%q, %q), want (%q, %q)", got.session, got.keys, run.SessionName, "continue-zellij")
+	}
+}
+
+func TestProcessSendMessageClaudeAndCodexPaths(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	mockMux := &mockSendMux{hasSession: true, muxType: multiplexer.TypeTmux}
+	prevMux := getSendMultiplexer
+	prevDelay := codexTmuxSubmitDelay
+	getSendMultiplexer = func() sendMultiplexer { return mockMux }
+	codexTmuxSubmitDelay = 0
+	defer func() {
+		getSendMultiplexer = prevMux
+		codexTmuxSubmitDelay = prevDelay
+	}()
+
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			"issue-1#run-claude": {
+				IssueID:     "issue-1",
+				RunID:       "run-claude",
+				SessionName: "session-claude",
+				Agent:       string(agent.AgentClaude),
+			},
+			"issue-1#run-codex": {
+				IssueID:     "issue-1",
+				RunID:       "run-codex",
+				SessionName: "session-codex",
+				Agent:       string(agent.AgentCodex),
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	if err := server.processSendMessage(st, &SendMessageParams{IssueID: "issue-1", RunID: "run-claude", Message: "claude message"}); err != nil {
+		t.Fatalf("claude processSendMessage() error = %v", err)
+	}
+	if err := server.processSendMessage(st, &SendMessageParams{IssueID: "issue-1", RunID: "run-codex", Message: "codex message"}); err != nil {
+		t.Fatalf("codex processSendMessage() error = %v", err)
+	}
+
+	if len(mockMux.sendKeysCalls) != 1 {
+		t.Fatalf("SendKeys calls = %d, want 1", len(mockMux.sendKeysCalls))
+	}
+	if got := mockMux.sendKeysCalls[0]; got.session != "session-claude" || got.keys != "claude message" {
+		t.Fatalf("claude SendKeys call = (%q, %q), want (%q, %q)", got.session, got.keys, "session-claude", "claude message")
+	}
+
+	if len(mockMux.sendKeysLiteralCalls) != 1 {
+		t.Fatalf("SendKeysLiteral calls = %d, want 1", len(mockMux.sendKeysLiteralCalls))
+	}
+	if got := mockMux.sendKeysLiteralCalls[0]; got.session != "session-codex" || got.keys != "codex message" {
+		t.Fatalf("codex SendKeysLiteral call = (%q, %q), want (%q, %q)", got.session, got.keys, "session-codex", "codex message")
+	}
+
+	if len(mockMux.sendTextCalls) != 1 {
+		t.Fatalf("SendText calls = %d, want 1", len(mockMux.sendTextCalls))
+	}
+	if got := mockMux.sendTextCalls[0]; got.session != "session-codex" || got.keys != tmuxSubmitKeyEnter {
+		t.Fatalf("codex SendText call = (%q, %q), want (%q, %q)", got.session, got.keys, "session-codex", tmuxSubmitKeyEnter)
 	}
 }

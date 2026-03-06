@@ -205,7 +205,49 @@ Expected:
 - OpenCode send returns quickly after API ACK
 - run can be stopped and continued via `restart-from`
 
-## 9) Cleanup
+## 9) Lane D/E: `claude` and `codex` send checks
+
+If the real CLIs are unavailable in CI/sandbox, use lightweight shims:
+
+```bash
+cat > "$ROOT/bin/claude" <<'EOF'
+#!/usr/bin/env bash
+printf 'fake claude ready\n'
+sleep 30
+EOF
+
+cat > "$ROOT/bin/codex" <<'EOF'
+#!/usr/bin/env bash
+printf 'fake codex ready\n'
+sleep 30
+EOF
+
+chmod +x "$ROOT/bin/claude" "$ROOT/bin/codex"
+export PATH="$ROOT/bin:$PATH"
+```
+
+Then run send-path checks:
+
+```bash
+RUN_CLAUDE="$(now_id)-claude"
+"$ORCH_BIN" --project "$PROJECT_ID" run e2e-claude --run-id "$RUN_CLAUDE" --agent claude --json
+"$ORCH_BIN" --project "$PROJECT_ID" send "e2e-claude#$RUN_CLAUDE" "claude-send-check"
+"$ORCH_BIN" --project "$PROJECT_ID" capture "e2e-claude#$RUN_CLAUDE"
+"$ORCH_BIN" --project "$PROJECT_ID" stop "e2e-claude#$RUN_CLAUDE" --force
+
+RUN_CODEX="$(now_id)-codex"
+"$ORCH_BIN" --project "$PROJECT_ID" run e2e-codex --run-id "$RUN_CODEX" --agent codex --json
+"$ORCH_BIN" --project "$PROJECT_ID" send "e2e-codex#$RUN_CODEX" "codex-send-check"
+"$ORCH_BIN" --project "$PROJECT_ID" capture "e2e-codex#$RUN_CODEX"
+"$ORCH_BIN" --project "$PROJECT_ID" stop "e2e-codex#$RUN_CODEX" --force
+```
+
+Expected:
+
+- `claude` send path uses standard `SendKeys` behavior
+- `codex` send path preserves codex submit behavior (`literal` + Enter on tmux)
+
+## 10) Cleanup
 
 ```bash
 "$ORCH_BIN" master kill || true

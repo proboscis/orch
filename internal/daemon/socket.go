@@ -64,7 +64,11 @@ var (
 	// Keep opencode send ACK timeout short so `orch send` returns quickly after
 	// the server accepts the message.
 	openCodeSendAckTimeout = 10 * time.Second
-	codexTmuxSubmitDelay   = 250 * time.Millisecond
+	// If ACK times out, briefly poll session messages to confirm whether the
+	// message was queued anyway before returning an error.
+	openCodeSendConfirmTimeout      = 600 * time.Millisecond
+	openCodeSendConfirmPollInterval = 200 * time.Millisecond
+	codexTmuxSubmitDelay            = 250 * time.Millisecond
 
 	getSendMultiplexer = func() sendMultiplexer {
 		return multiplexer.GetDefault()
@@ -2244,12 +2248,101 @@ func (s *SocketServer) processSendOpenCode(st store.Store, ref *model.RunRef, ru
 	sendStartedAt := time.Now()
 	err = client.SendMessagePrompt(ctx, run.OpenCodeSessionID, message, run.WorktreePath, nil, "")
 	if err != nil {
+		if isOpenCodeSendAckTimeout(err) {
+			if confirmed, confirmErr := confirmOpenCodeQueuedMessage(client, run, message, sendStartedAt); confirmed {
+				s.logger.Printf(
+					"opencode_send ack_timeout_but_confirmed run=%s elapsed=%s timeout=%s",
+					ref.String(),
+					time.Since(sendStartedAt),
+					openCodeSendAckTimeout,
+				)
+				return nil
+			} else if confirmErr != nil {
+				s.logger.Printf(
+					"opencode_send confirm_queued_failed run=%s elapsed=%s err=%v",
+					ref.String(),
+					time.Since(sendStartedAt),
+					confirmErr,
+				)
+			}
+		}
 		s.logger.Printf("opencode_send ack_failed run=%s elapsed=%s timeout=%s err=%v", ref.String(), time.Since(sendStartedAt), openCodeSendAckTimeout, err)
 		return fmt.Errorf("failed to send message: %w", err)
 	}
 
 	s.logger.Printf("opencode_send acknowledged run=%s elapsed=%s", ref.String(), time.Since(sendStartedAt))
 	return nil
+}
+
+func isOpenCodeSendAckTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "context deadline exceeded") || strings.Contains(msg, "context canceled")
+}
+
+func confirmOpenCodeQueuedMessage(client *agent.OpenCodeClient, run *model.Run, message string, notBefore time.Time) (bool, error) {
+	if client == nil || run == nil || strings.TrimSpace(run.OpenCodeSessionID) == "" {
+		return false, nil
+	}
+
+	deadline := time.Now().Add(openCodeSendConfirmTimeout)
+	var lastErr error
+
+	for {
+		pollCtx, cancel := context.WithTimeout(context.Background(), openCodeSendConfirmPollInterval)
+		messages, err := client.GetMessages(pollCtx, run.OpenCodeSessionID, run.WorktreePath)
+		cancel()
+		if err == nil {
+			if hasOpenCodeUserMessage(messages, message, notBefore) {
+				return true, nil
+			}
+		} else {
+			lastErr = err
+			if !isOpenCodeSendAckTimeout(err) {
+				break
+			}
+		}
+
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(openCodeSendConfirmPollInterval)
+	}
+
+	return false, lastErr
+}
+
+func hasOpenCodeUserMessage(messages []agent.Message, text string, notBefore time.Time) bool {
+	want := strings.TrimSpace(text)
+	if want == "" {
+		return false
+	}
+
+	cutoff := notBefore.Add(-1 * time.Second)
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg := messages[i]
+		if !strings.EqualFold(strings.TrimSpace(msg.Info.Role), "user") {
+			continue
+		}
+		if !msg.Info.CreatedAt.IsZero() && msg.Info.CreatedAt.Before(cutoff) {
+			continue
+		}
+		for _, part := range msg.Parts {
+			if part.Type != "text" {
+				continue
+			}
+			if strings.TrimSpace(part.Text) == want {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func (s *SocketServer) processSendTmux(run *model.Run, message string, noEnter bool) error {
