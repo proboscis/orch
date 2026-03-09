@@ -31,9 +31,17 @@ Treat both files together as the complete manual E2E suite:
 - `docs/e2e-master-worker-client.md`
 - `docs/e2e-backend-matrix.md`
 
+Automation lane planning lives in:
+
+- [E2E Automation Plan](./e2e-automation-plan.md)
+
 Automation-first entrypoint for the local single-host flow:
 
 - `scripts/e2e-master-worker-client-local.sh`
+
+Automation-first entrypoint for remote reachability smoke:
+
+- `scripts/e2e-master-worker-client-remote-smoke.sh`
 
 Parameterized automation entrypoint for target-host runs:
 
@@ -42,6 +50,10 @@ Parameterized automation entrypoint for target-host runs:
 Automation-first entrypoint for same-machine target-host simulation:
 
 - `scripts/e2e-master-worker-client-target-local.sh`
+
+Parameterized automation entrypoint for the real Zeus full flow:
+
+- `scripts/e2e-master-worker-client-zeus.sh`
 
 For targets that need custom SSH flags or a nonstandard port, prefer passing a
 full command via `TARGET_SSH_CMD` instead of relying on a simple host alias.
@@ -228,6 +240,10 @@ Expected:
 
 Pick a free port first (example `60318` below).
 
+Automation entrypoint:
+
+- `scripts/e2e-master-worker-client-remote-smoke.sh`
+
 ```bash
 "$ORCH_BIN" master kill || true
 
@@ -255,6 +271,10 @@ rm -rf "$ROOT"
 ## 8) Zeus Full Flow (Master + Worker + Run + PR + Close + Stop)
 
 Use this when you want a true end-to-end check against a real remote host.
+
+Automation entrypoint:
+
+- `scripts/e2e-master-worker-client-zeus.sh`
 
 Target used in examples:
 

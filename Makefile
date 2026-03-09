@@ -1,4 +1,4 @@
-.PHONY: all build install install-cli install-tui test test-fast test-compile lint lint-install clean kill-daemons update e2e-local-host-worker e2e-target-host-worker e2e-target-host-worker-local
+.PHONY: all build install install-cli install-tui test test-fast test-compile lint lint-install clean kill-daemons update e2e-local-host-worker e2e-remote-smoke e2e-backend-smoke e2e-pr-ci e2e-target-host-worker e2e-target-host-worker-local e2e-zeus-full-flow
 .DEFAULT_GOAL := install
 
 BINARY_NAME := orch
@@ -88,8 +88,20 @@ clean:
 e2e-local-host-worker:
 	./scripts/e2e-master-worker-client-local.sh
 
+e2e-remote-smoke:
+	./scripts/e2e-master-worker-client-remote-smoke.sh
+
+e2e-backend-smoke:
+	./scripts/e2e-backend-matrix-smoke.sh
+
+e2e-pr-ci:
+	./scripts/e2e-pr-ci.sh
+
 e2e-target-host-worker:
 	./scripts/e2e-master-worker-client-target.sh
 
 e2e-target-host-worker-local:
 	./scripts/e2e-master-worker-client-target-local.sh
+
+e2e-zeus-full-flow:
+	./scripts/e2e-master-worker-client-zeus.sh

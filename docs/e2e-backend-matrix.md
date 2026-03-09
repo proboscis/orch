@@ -3,6 +3,22 @@
 This guide validates run-control behavior across multiplexer and send backends
 using real `orch` commands (not `go test`).
 
+Automation-first entrypoint:
+
+- `scripts/e2e-backend-matrix-smoke.sh`
+
+By default this automation runs a PR-safe smoke subset:
+
+- `tmux`
+- `claude` via shim
+- `codex` via shim
+- `zellij` only when enabled / available
+- `opencode` only when explicitly enabled
+
+Automation lane planning:
+
+- [E2E Automation Plan](./e2e-automation-plan.md)
+
 ## Scope
 
 The checklist covers these operations for each backend mode:
@@ -17,6 +33,7 @@ Matrix dimensions:
 
 - Multiplexer-backed runs (`tmux`, `zellij`) with a custom agent
 - OpenCode-backed runs (`opencode`) via OpenCode server/session messaging
+- Shim-backed smoke lanes for `claude` and `codex` in PR CI
 
 ## Prerequisites
 
