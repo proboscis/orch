@@ -1,333 +1,172 @@
 # Remote Execution
 
+Status: Desired state
+
 ## Overview
 
-orch supports running agent sessions on remote machines while controlling them from a local client. A **master daemon** runs on an always-on server, managing all state (issues, runs, events). **Clients** connect over TCP and interact via the existing proto API. The master executes runs either locally or on remote targets via SSH.
+orch supports remote execution with a strict three-plane model:
+
+1. **orch-client** on the user's machine
+2. **orch-master** as the control plane and single source of truth
+3. **orch-worker** as the long-lived execution manager on each host
+
+The master never depends on client-local paths. The worker owns host-local
+execution. One worker may manage multiple active runs on its host.
 
 ## Architecture
 
-```
-Client (MacBook)                  Master (Zeus)                     Target (any machine)
-┌──────────────┐                 ┌──────────────────────┐          ┌──────────────────┐
-│ orch CLI/TUI │── TCP ────────▶│ orch daemon           │── SSH ──▶│ tmux + agent     │
-│              │                │  ├── issues/ (fs)      │          │ git worktree     │
-│ Control agent│                │  ├── runs/   (fs)      │          │                  │
-│ (local)      │                │  ├── worktrees/ (local)│          └──────────────────┘
-│              │                │  ├── tmux (local runs) │
-└──────────────┘                │  └── scheduling        │
-                                └──────────────────────┘
-```
-
-### Design Principles
-
-1. **Master daemon is the single source of truth** — all state lives on the master
-2. **Clients are thin** — CLI/TUI only talk to the daemon API, never touch state directly
-3. **Execution is abstracted** — the daemon doesn't care if a run is local or remote; it goes through an `Executor` interface
-4. **Control agent is client-side** — the interactive agent you discuss with runs on your machine, not the master
-
-## Components
-
-### 1. TCP Transport
-
-The daemon listens on TCP in addition to the existing Unix socket.
-
-```
-daemon --listen tcp://0.0.0.0:7777    # remote-accessible
-daemon --listen unix://~/.orch/sock   # local-only (existing, unchanged)
+```text
+Client (MacBook)                  Master (Zeus)                     Target Host (Mac / Linux)
+┌──────────────┐                 ┌──────────────────────┐          ┌──────────────────────┐
+│ orch CLI/TUI │── TCP/RPC ────▶│ orch-master          │── RPC ──▶│ orch-worker          │
+│              │                │  ├── project registry │          │  ├── git/worktrees   │
+│ Control agent│                │  ├── run/issue state  │          │  ├── tmux/zellij     │
+│ (local)      │                │  ├── scheduling       │          │  ├── agent sessions  │
+│              │                │  └── event log        │          │  └── active runs     │
+└──────────────┘                └──────────────────────┘          └──────────────────────┘
 ```
 
-The proto wire format (4-byte length-prefix + protobuf) is transport-agnostic. No changes to the proto schema, framing, or request/response types.
+## Design Principles
 
-#### Client Connection
+1. **Master is authoritative**. All run and issue state is master-derived.
+2. **Client is thin**. Client requests use `project_id` and never route by server path.
+3. **Worker is host-scoped**. One worker represents one host/profile, not one run slot.
+4. **Run multiplicity lives inside the worker**. A worker may manage multiple runs concurrently on its host.
+5. **Target selection is explicit**. `--on <target>` chooses a host/profile, not an ad-hoc SSH destination.
+6. **Control agent stays local**. Interactive planning remains on the client machine.
 
+## Identity Model
+
+Runtime routing uses only `RequestContext.project_id`.
+
+```protobuf
+message RequestContext {
+  string project_id = 1;
+  string request_id = 2;
+  string client_id = 3;
+}
 ```
+
+Rules:
+
+1. Client runtime RPCs must include `project_id`.
+2. Master resolves `project_id` to server-local operational context via project registry.
+3. `project_root` is operational data only, never the authoritative selector.
+4. Path-derived fallback identity is forbidden.
+
+## Project Registry
+
+Master maintains a registry:
+
+```text
+project_id -> repo metadata -> workspace.root -> issue backend config
+```
+
+Typical admin flow:
+
+```bash
+orch --remote zeus:7777 daemon repo register https://github.com/acme/repo.git
+orch --remote zeus:7777 daemon repo list
+```
+
+If a deployment intentionally uses an operational root instead of repo-URL
+registration, that path is still an operational mapping owned by the master,
+not a client-side runtime selector.
+
+## Worker Model
+
+Each execution host runs one long-lived `orch-worker` process (or one per host
+profile when there is a real reason to separate capabilities).
+
+Worker responsibilities:
+
+- register with the master
+- heartbeat continuously
+- receive work assignments from the master
+- manage multiple active runs on the host
+- own host-local worktrees, sessions, and agent processes
+- report events back to the master
+
+Operational rule:
+
+```text
+repeated `orch worker start` on the same host/profile
+  -> reuse/reconnect the same host worker
+  -> do not create duplicate workers for routine operation
+```
+
+## Scheduling and Dispatch
+
+Master assigns work to workers by host/profile.
+
+Examples of master-to-worker effects:
+
+- start run
+- continue run
+- stop run
+- reconcile active sessions
+
+The worker is not the source of truth for state. It is the source of execution.
+
+```text
+master
+  -> assigns work to worker(host=mac)
+worker(mac)
+  -> updates host-local runtime
+  -> reports events/results
+master
+  -> commits authoritative state
+```
+
+## Run Target Configuration
+
+Runs specify where they execute via `--on <target>`.
+
+```bash
+orch run my-issue --on mac
+```
+
+Master-side config:
+
+```yaml
+targets:
+  - name: mac
+    host: mac
+    repo: /Users/me/repos/project
+  - name: zeus
+    host: localhost
+    repo: /home/me/repos/project
+```
+
+Semantics:
+
+- `target.name` is the operator-facing selector
+- `target.host` identifies the worker host/profile
+- `target.repo` is the operational project root on that host
+- empty target means the default worker on the master host
+
+The `Run` model records:
+
+- `target`
+- `target_host`
+
+## Client Connection
+
+Client talks only to the master.
+
+```bash
 # Explicit
 orch --remote zeus:7777 ps
 
 # Environment
 ORCH_REMOTE=zeus:7777 orch ps
 
-# Config file (~/.config/orch/client.yaml)
-remote:
-  default: zeus
-  hosts:
-    zeus:
-      addr: zeus:7777
+# Client config
+~/.config/orch/client.yaml
 ```
 
-When `--remote` is set:
-- `ProtoClient` dials `net.Dial("tcp", addr)` instead of `net.Dial("unix", socketPath)`
-- `EnsureDaemonHealthy()` is skipped (no auto-start for remote daemons)
-- All other CLI behavior is identical
+Example client config:
 
-### Project Identity in Remote Mode
-
-Remote clients MUST NOT rely on client-local absolute paths for daemon store
-resolution. The daemon process is global and may run on a different machine with
-different filesystem paths.
-
-Remote requests use a portable project identity carried in
-`RequestContext.project_id`:
-
-```
-repoid:<repo-id>
-```
-
-Where `<repo-id>` is derived from explicit project identity input or Git remote
-metadata. Path-derived fallbacks are not allowed.
-
-- Client side: when `--remote` is active, the client sends
-  `RequestContext.project_id`; legacy `project_root` fields are compatibility or
-  operational fields only.
-- Daemon side: `project_id` resolves server-local project context using the
-  daemon repo registry (`repo_id -> project_root`).
-- Local mode may still discover a project root from cwd, but daemon identity is
-  still `project_id`, not the directory path.
-
-### Server Repo Registry
-
-Remote daemons maintain a repo registry (`repo_id -> server project_root`).
-Clients can register mappings explicitly:
-
-```bash
-orch --remote zeus:7777 daemon repo register https://github.com/acme/orch.git
-orch --remote zeus:7777 daemon repo list
-```
-
-After registration, normal commands (`ps`, `issue`, `run`, `show`, etc.) resolve
-context via repo identity without needing server filesystem paths on each call.
-
-#### Authentication
-
-None. The transport relies on network-level security (Tailscale, VPN, private network). The daemon binds to a configurable address; operators restrict access at the network layer.
-
-### 2. Executor Interface
-
-All command execution (git, multiplexer, file I/O) goes through an `Executor` abstraction. This decouples the daemon from the assumption that everything is local.
-
-```go
-type Executor interface {
-    // Run a command, return stdout
-    Run(ctx context.Context, cmd string, args ...string) ([]byte, error)
-
-    // Run a command, return combined output and exit code
-    RunWithStatus(ctx context.Context, cmd string, args ...string) ([]byte, int, error)
-
-    // File operations
-    WriteFile(ctx context.Context, path string, content []byte, perm os.FileMode) error
-    ReadFile(ctx context.Context, path string) ([]byte, error)
-    MkdirAll(ctx context.Context, path string, perm os.FileMode) error
-    Stat(ctx context.Context, path string) (os.FileInfo, error)
-    Remove(ctx context.Context, path string) error
-}
-```
-
-#### Implementations
-
-| Implementation | Transport | Use Case |
-|---------------|-----------|----------|
-| `LocalExecutor` | `exec.Command` | Runs on the daemon's own machine (current behavior) |
-| `SSHExecutor` | `ssh <host> <cmd>` | Runs on a remote machine via SSH |
-
-Future implementations (not in initial scope):
-- `K8sExecutor` — runs commands via `kubectl exec` in pods
-- `DockerExecutor` — runs commands in containers
-
-#### SSHExecutor Details
-
-```go
-type SSHExecutor struct {
-    Host    string          // SSH target (e.g., "mac", "user@host")
-    Options []string        // SSH options (e.g., "-o", "ControlMaster=auto")
-}
-```
-
-- Uses SSH `ControlMaster` for connection multiplexing (avoids per-command TCP handshake)
-- File write: pipes content via stdin (`ssh host 'cat > path'`)
-- File read: `ssh host cat path`
-
-### 3. Remote-Aware Multiplexer
-
-The existing `Multiplexer` interface is unchanged. Instead, the multiplexer commands are executed through the `Executor`:
-
-```go
-type TmuxMultiplexer struct {
-    executor Executor    // LocalExecutor or SSHExecutor
-}
-
-// NewSession creates a tmux session
-func (t *TmuxMultiplexer) NewSession(cfg *SessionConfig) error {
-    // Instead of: exec.Command("tmux", "new-session", ...)
-    // Now:        t.executor.Run(ctx, "tmux", "new-session", ...)
-    return t.executor.Run(ctx, "tmux", "new-session", "-d", "-s", cfg.SessionName, cfg.Command)
-}
-```
-
-This means:
-- `LocalExecutor` → `tmux new-session ...` (current behavior)
-- `SSHExecutor{Host: "mac"}` → `ssh mac tmux new-session ...`
-
-All multiplexer operations (SendKeys, CapturePane, AgentAlive, etc.) work identically — they're just commands executed through a different transport.
-
-### 4. Remote-Aware Git Operations
-
-Same pattern as multiplexer. Git operations go through the `Executor`:
-
-```go
-// Instead of: exec.Command("git", "worktree", "add", ...)
-// Now:        executor.Run(ctx, "git", "-C", repoRoot, "worktree", "add", ...)
-```
-
-The target machine must have:
-- Git installed
-- The repository cloned at a known path
-- SSH keys / credentials for pushing to remote
-
-### 5. Run Target Configuration
-
-Runs specify where they execute via `--on` flag or config:
-
-```bash
-# Explicit target
-orch run my-issue --on mac
-
-# Default: runs on the daemon's own machine (local executor)
-orch run my-issue
-```
-
-#### Config
-
-```yaml
-# .orch/config.yaml (on master)
-targets:
-  mac:
-    host: mac                    # SSH host (from ~/.ssh/config or Tailscale)
-    repo: /Users/me/repos/proj   # Git repo path on target
-  zeus:
-    host: localhost              # Special: means "this machine"
-    repo: /home/me/repos/proj
-```
-
-#### Run Record
-
-The `Run` proto message gains a `target` field:
-
-```protobuf
-message Run {
-    // ... existing fields ...
-    string target = 27;          // Execution target (e.g., "mac", "zeus", "")
-}
-```
-
-Empty target means local (daemon's own machine).
-
-### 6. Control Agent (Client-Side)
-
-The control agent is the interactive agent you discuss with for planning and architecture. It always runs on the **client machine**, never on the master or a target.
-
-#### Current API Split
-
-`GetControlAgentLaunch` currently bundles server-side and client-side concerns. For remote, these split:
-
-| Concern | Source | API |
-|---------|--------|-----|
-| Prompt content (issue list, repo context) | Daemon (remote) | `GetControlAgentConfig` (new) |
-| Agent config (type, model, extra args) | Daemon (remote) | `GetControlAgentConfig` (new) |
-| OpenCode server lifecycle | Client (local) | Client-side logic |
-| Session create/resume | Client (local) | Client-side logic |
-| control-session.json | Client (local) | Client-side file |
-
-New proto message:
-
-```protobuf
-message GetControlAgentConfigRequest {
-    string project_root = 1; // legacy compatibility field
-    RequestContext context = 2;
-}
-
-message GetControlAgentConfigResponse {
-    bool ok = 1;
-    string error = 2;
-    string prompt_content = 3;       // Full ORCH_CONTROL_PROMPT.md content
-    string agent = 4;               // Agent type (claude, opencode, etc.)
-    string model = 5;               // Model name
-    string model_variant = 6;       // Model variant
-    repeated string extra_args = 7; // Additional CLI args
-}
-```
-
-The client:
-1. Calls `GetControlAgentConfig` on the remote daemon → gets prompt + config
-2. Writes `ORCH_CONTROL_PROMPT.md` locally
-3. Manages local opencode server / tmux session
-4. Handles `control-session.json` locally
-5. Resumes or creates the agent session locally
-
-`GetControlAgentLaunch` remains for backward compatibility when daemon and client are on the same machine (local mode).
-
-### 7. `orch attach` (Remote)
-
-`orch attach` needs to reach the multiplexer session on the target machine.
-
-```
-# Local target (unchanged):
-tmux attach-session -t run-abc
-
-# Remote target:
-ssh <target-host> -t tmux attach-session -t run-abc
-```
-
-The `GetAttachInfo` response gains a `host` field:
-
-```protobuf
-message GetAttachInfoResponse {
-    // ... existing fields ...
-    string target_host = 10;     // SSH host for remote targets (empty = local)
-}
-```
-
-CLI behavior:
-- If `target_host` is empty → attach locally (current behavior)
-- If `target_host` is set → `ssh -t <host> tmux attach -t <session>`
-
-### 8. `orch monitor` (Remote)
-
-`orch monitor` works against the remote daemon with one key difference: the control agent pane runs locally.
-
-```
-Monitor layout (on client machine):
-┌─────────────────┬──────────────────────────┐
-│ Runs TUI        │ Issues TUI               │
-│ (remote daemon) │ (remote daemon)          │
-│                 ├──────────────────────────┤
-│                 │ Control Agent             │
-│                 │ (LOCAL - client machine)  │
-└─────────────────┴──────────────────────────┘
-```
-
-- Runs/Issues panes: query remote daemon via TCP (existing orchapi calls)
-- Control agent pane: uses `GetControlAgentConfig` (remote) for prompt, manages session locally
-- Monitor registration: registers with remote daemon for heartbeat/lifecycle
-
-## Command Changes
-
-### New Flags
-
-| Command | Flag | Description |
-|---------|------|-------------|
-| `orch daemon start` | `--listen <addr>` | TCP listen address (e.g., `tcp://0.0.0.0:7777`) |
-| `orch run` | `--on <target>` | Execution target name |
-| `orch *` (global) | `--remote <addr>` | Connect to remote daemon |
-
-### Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `ORCH_REMOTE` | Default remote daemon address (e.g., `zeus:7777`) |
-
-### Config Files
-
-**Client config** (`~/.config/orch/client.yaml`):
 ```yaml
 remote:
   default: zeus
@@ -336,23 +175,82 @@ remote:
       addr: zeus:7777
 ```
 
-**Server config** (`.orch/config.yaml` on master):
-```yaml
-listen: tcp://0.0.0.0:7777
+## Attach / Capture / Send
 
-targets:
-  mac:
-    host: mac
-    repo: /Users/me/repos/project
+Client operations target the run, not the worker directly.
+
+Behavior:
+
+- `orch attach` uses `target_host` when the run is remote
+- `orch capture` reads through master-derived run metadata
+- `orch send` targets the run session selected by master state
+
+```text
+client -> master -> run metadata -> target host session
 ```
+
+## Control Agent
+
+The control agent always runs on the client machine.
+
+Master provides:
+
+- prompt content
+- selected agent backend
+- model / variant
+- extra args
+
+Client owns:
+
+- local control-agent session
+- local control-session persistence
+- local control UI lifecycle
+
+## Monitor
+
+`orch monitor` connects to the master for runs/issues state.
+The control pane remains local.
+
+Desired monitor semantics:
+
+- monitor uses `project_id`
+- monitor registration is keyed by project identity, not path
+- monitor session naming is worker/identity aware, not path-hash based
+
+## Command Surface
+
+| Command | Purpose |
+|---------|---------|
+| `orch master ...` | control-plane lifecycle and admin commands |
+| `orch worker ...` | host-worker lifecycle |
+| `orch run --on <target>` | dispatch a run to a host/profile |
+| `orch attach` | attach to the run session on its host |
+| `orch ps/show` | always read master-derived state |
 
 ## Invariants
 
-1. **All state on master** — issues/, runs/, events are only on the master's filesystem
-2. **No auth layer** — network-level security only (Tailscale/VPN)
-3. **Proto API unchanged** — existing request/response types work for both local and remote
-4. **Executor is the only abstraction** — no "remote daemon" or "worker" process on targets
-5. **Control agent is always local** — never managed by the remote daemon
-6. **Target machines need only: git, tmux/zellij, agent CLI** — no orch binary required
-7. **Remote identity is path-agnostic** — client-local `project_root` paths are not used as authoritative lookup keys on remote daemons
-8. **Registry is authoritative for remote** — remote context resolution requires a repo registry mapping; no hidden legacy project-root env fallback is used for remote requests
+1. All runtime state is authoritative on the master.
+2. Runtime routing uses `project_id`, never raw path.
+3. Each host/profile has one long-lived worker in normal operation.
+4. One worker may manage multiple active runs on its host.
+5. Spawning duplicate workers on the same host is not a scaling strategy.
+6. Target hosts need `orch-worker`, git, the configured multiplexer, and agent binaries.
+7. Control agent remains client-local in both local and remote deployments.
+
+## Validation Matrix
+
+| Scenario | Expected |
+|---------|----------|
+| `orch worker start` twice on same host | same host worker reused |
+| Two runs on same host | both active, one worker |
+| `orch run --on mac` | run executes on Mac worker |
+| `orch ps/show` | derived from master state only |
+| Unknown `project_id` | fail-closed with registration guidance |
+| Client without `--remote` but client.yaml default | master connection still resolves correctly |
+
+## Non-Goals
+
+- multi-master consensus
+- path-based runtime routing
+- one-worker-per-run operational model
+- client-derived server execution paths

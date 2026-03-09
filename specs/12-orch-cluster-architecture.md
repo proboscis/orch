@@ -22,7 +22,7 @@ separate concepts.
 ## Terminology (Authoritative)
 
 1. **orch-master**: control plane and source of truth.
-2. **orch-worker**: execution plane for git/worktree/session/agent actions.
+2. **orch-worker**: host-local execution manager for git/worktree/session/agent actions.
 3. **orch-client**: CLI/TUI/control-agent process used by humans.
 4. **project_id**: cluster-wide logical project identity.
 
@@ -34,7 +34,7 @@ Legacy term mapping:
 
 1. Make `project_id` the only runtime identity in cluster RPC contracts.
 2. Make `orch-master` independent from client local filesystem/env assumptions.
-3. Move execution responsibilities to `orch-worker`.
+3. Move execution responsibilities to long-lived host workers.
 4. Support both distributed and single-host deployment with same semantics.
 5. Keep `orch-master` as single source of truth for run/issue state.
 
@@ -55,9 +55,11 @@ orch-client
     v
 orch-master  ------------------------+------------------------+
     |                                |                        |
-    | schedule + lease               | schedule + lease       | schedule + lease
+    | dispatch host work             | dispatch host work     | dispatch host work
     v                                v                        v
 orch-worker[a]                   orch-worker[b]          orch-worker[c]
+  host manager                     host manager             host manager
+  active runs: N                   active runs: M           active runs: K
 ```
 
 ### B) Single-host (Zeus mode)
@@ -73,13 +75,20 @@ Host: zeus
 
 Both modes must use the same protocol and lifecycle semantics.
 
+Normal operating model:
+
+1. One long-lived `orch-worker` process per host (or per host profile).
+2. A worker remains registered while managing zero or more active runs on that host.
+3. Repeating `orch worker start` on the same host should reconnect/reuse the
+   existing host worker instead of spawning an unbounded number of identical workers.
+
 ## Responsibility Split
 
 ### orch-master owns
 
 - Project registry (`project_id`, repo metadata, worker placement metadata).
 - Run/issue state store (events + projections + idempotency + outbox).
-- Scheduling and worker lease assignment.
+- Scheduling and host-worker work assignment.
 - API for clients and admin operations.
 
 ### orch-worker owns
@@ -87,6 +96,8 @@ Both modes must use the same protocol and lifecycle semantics.
 - Workspace/repo checkout and local worktree operations.
 - Session process lifecycle (tmux/zellij/opencode/etc).
 - Runtime side effects requested by master.
+- Host-local inventory of active runs/sessions/worktrees.
+- Host-level health observation for runs it is responsible for.
 - Event reporting back to master.
 
 ### orch-client owns
@@ -103,6 +114,8 @@ Both modes must use the same protocol and lifecycle semantics.
 4. Local and remote mode share identical runtime semantics.
 5. Legacy project-root compatibility inputs may exist in
    client UX, but not for master runtime routing.
+6. Multiple active runs on one host are managed by one worker process; worker
+   multiplicity is for multiple hosts/profiles, not for routine per-run scaling.
 
 ## API Direction
 
@@ -117,11 +130,17 @@ Worker protocol (shape-level direction):
 
 1. `RegisterWorker`
 2. `Heartbeat`
-3. `LeaseWork`
+3. `AssignWork`
 4. `ReportEvent`
 5. `AcknowledgeEffect`
 
 Master schedules; worker executes; worker reports events; master commits state.
+
+The protocol is host-manager oriented:
+
+- worker registration identifies a host/profile, not a single run slot
+- master dispatches work to a host worker
+- worker may manage many active runs concurrently on that host
 
 ## Storage Direction
 
@@ -132,7 +151,7 @@ Master DB (SQLite in current phase, single writer):
 - `run_events`
 - `run_projection`
 - `issue_projection`
-- `leases`
+- `work_assignments`
 - `outbox`
 - `idempotency_keys`
 
@@ -152,12 +171,12 @@ Worker local state is operational cache only and recoverable.
 
 ### Phase 3: Worker Protocol Introduction
 
-- Add worker registration/heartbeat/lease/event-report path.
+- Add worker registration/heartbeat/dispatch/event-report path.
 - Keep existing local executor as a temporary built-in worker.
 
 ### Phase 4: Execution Offload
 
-- Route run execution through worker lease model.
+- Route run execution through host-worker dispatch model.
 - Master no longer requires local project repo checkout.
 
 ### Phase 5: Legacy Daemon Semantics Removal
@@ -171,7 +190,7 @@ Worker local state is operational cache only and recoverable.
 1. Master can run on a host with no project checkouts and still orchestrate runs
    on workers.
 2. Starting and managing runs requires only `project_id` from client API.
-3. Zeus single-host mode works as co-located `orch-master` + `orch-worker`.
+3. Zeus single-host mode works as co-located `orch-master` + one long-lived `orch-worker`.
 4. Existing local UX remains usable via compatibility layer during migration.
 5. Runtime correctness derives from master events/projections, not worker-local
    status files.

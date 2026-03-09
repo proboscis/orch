@@ -9,6 +9,8 @@ Reference: [specs/12-orch-cluster-architecture.md](./12-orch-cluster-architectur
 3. Make `RequestContext.project_id` mandatory for runtime behavior.
 4. Add semgrep guardrails before and during migration slices.
 5. Validate each phase with integration/e2e checks (distributed + Zeus single-host).
+6. Treat worker identity as host identity; do not model routine scaling by
+   spawning duplicate workers on the same host.
 
 ## Phase 0: Naming Surface + Compatibility Entrypoints
 
@@ -72,42 +74,48 @@ Reference: [specs/12-orch-cluster-architecture.md](./12-orch-cluster-architectur
 
 ## Phase 3: Worker Protocol Bootstrap
 
-**Goal**: Introduce master<->worker protocol primitives while keeping current executor behavior available as a built-in worker profile.
+**Goal**: Introduce master<->worker protocol primitives that converge on one
+long-lived worker per host/profile.
 
 ### Changes
 
 | Area | Work |
 |------|------|
-| Protocol | Add worker RPCs (`RegisterWorker`, `Heartbeat`, `LeaseWork`, `ReportEvent`, `AcknowledgeEffect`) |
-| Master state | Add worker/lease tables and scheduling hooks |
-| Worker runtime | Implement registration heartbeat loop and lease execution skeleton |
+| Protocol | Add worker RPCs (`RegisterWorker`, `Heartbeat`, `AssignWork`, `ReportEvent`, `AcknowledgeEffect`) |
+| Master state | Add worker/assignment tables and scheduling hooks |
+| Worker runtime | Implement long-lived registration heartbeat loop and host-manager execution skeleton |
 | Zeus mode | Support co-located master+worker with same protocol semantics |
+| CLI semantics | Make `orch worker start` idempotent for the local host/profile |
 
 ### Acceptance
 
 1. Worker can register and heartbeat to master.
-2. Master can issue and track leases for runnable work.
-3. Zeus single-host mode runs via same worker protocol path.
+2. Master can issue and track host work assignments for runnable work.
+3. Repeated `orch worker start` on the same host does not create duplicate host workers.
+4. Zeus single-host mode runs via same worker protocol path.
 
 ---
 
 ## Phase 4: Execution Offload and Master Decoupling
 
-**Goal**: Make worker plane own execution side effects; master remains orchestration/state authority.
+**Goal**: Make the worker plane own host execution side effects and active-run
+management; master remains orchestration/state authority.
 
 ### Changes
 
 | Area | Work |
 |------|------|
-| Scheduling | Route run start/continue/stop side effects through lease/outbox flow |
+| Scheduling | Route run start/continue/stop side effects through assignment/outbox flow |
 | Worker effects | Move git/worktree/session/agent execution to worker handlers |
+| Worker runtime | Track multiple active runs per host worker and reconcile their sessions locally |
 | Master isolation | Remove assumptions that master host has local project checkout |
 
 ### Acceptance
 
 1. Master can orchestrate projects not checked out locally.
-2. Worker reports runtime events that drive master projections.
-3. `orch ps/show` correctness remains master-derived.
+2. One worker can manage multiple active runs on a host.
+3. Worker reports runtime events that drive master projections.
+4. `orch ps/show` correctness remains master-derived.
 
 ---
 
@@ -121,12 +129,14 @@ Reference: [specs/12-orch-cluster-architecture.md](./12-orch-cluster-architectur
 |------|------|
 | API cleanup | Deprecate/remove legacy runtime path fields where no longer needed |
 | Code cleanup | Remove dead fallback helpers and compatibility-only branches |
+| Worker model cleanup | Remove duplicate-worker assumptions from CLI and operational docs |
 | Docs and examples | Finalize master/worker terminology and operational guides |
 
 ### Acceptance
 
 1. Runtime orchestration uses project identity and worker protocol only.
 2. No remaining path-coupled runtime routing in master handlers.
+3. Worker lifecycle docs and commands describe a single long-lived worker per host/profile.
 
 ---
 
@@ -137,8 +147,10 @@ Reference: [specs/12-orch-cluster-architecture.md](./12-orch-cluster-architectur
 | Runtime request with known `project_id` | Routed to correct project store and succeeds |
 | Runtime request with unknown `project_id` | Deterministic error with registration guidance |
 | Runtime request missing context | Fail-closed error |
-| Distributed deployment (master on host A, worker on host B) | Run lifecycle works via lease/event flow |
+| Distributed deployment (master on host A, worker on host B) | Run lifecycle works via assignment/event flow |
 | Zeus single-host mode | Same semantics as distributed topology |
+| Same host, repeated `worker start` | Existing worker reused; no duplicate host worker |
+| Same worker, multiple active runs | Both runs stay active and worker remains singular |
 
 ## Risk Register
 
@@ -148,7 +160,13 @@ Reference: [specs/12-orch-cluster-architecture.md](./12-orch-cluster-architectur
    - Mitigation: keep command aliases while hardening runtime contracts.
 3. **Worker protocol rollout complexity**
    - Mitigation: phased bootstrap with built-in worker profile before full offload.
+4. **Old mental model of “one worker per lease slot” persisting in ops/docs**
+   - Mitigation: make idempotent worker-start behavior and multi-run host-manager E2E mandatory.
+5. **Temporary execution shims surviving past cutover**
+   - Mitigation: final migration exit criteria require removal of duplicate-worker semantics and ad-hoc per-run worker expectations.
 
 ## Current Execution Focus
 
-Current focus is **Phase 1 + Phase 2**: complete strict `project_id` runtime routing and add semgrep guardrails that prevent reintroduction of path-based routing.
+Current focus after identity hardening should shift to **Phase 3 + Phase 4**:
+turn the worker into a long-lived host manager and remove the duplicate-worker
+operational model.

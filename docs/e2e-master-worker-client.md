@@ -8,16 +8,17 @@ commands (not `go test`).
 This checklist verifies the command-plane path:
 
 ```
-orch client CLI -> orch-master daemon -> orch-worker (external process)
+orch client CLI -> orch-master daemon -> orch-worker (host manager)
 ```
 
 It covers:
 
 1. `master` lifecycle commands
-2. `worker` lifecycle commands (external process)
+2. `worker` lifecycle commands (single long-lived host worker)
 3. local client run/ps/show/stop flow
 4. remote master reachability via `--remote`
 5. backend coverage handoff for `tmux` / `zellij` / `opencode` / `claude` / `codex`
+6. one worker managing multiple runs on the same host
 
 This file validates the cluster-facing command plane first.
 
@@ -118,6 +119,10 @@ cd "$PROJECT"
 "$ORCH_BIN" worker start
 sleep 2
 "$ORCH_BIN" worker status
+
+# starting again should not create a duplicate host worker
+"$ORCH_BIN" worker start
+"$ORCH_BIN" worker status
 ```
 
 Expected:
@@ -126,7 +131,9 @@ Expected:
 - initial `worker status` may report `No workers registered` before any worker
   is started
 - after `master start`, status reports `Status: running`
-- `worker start` reports managed external worker process started (allow a short delay before `worker status`)
+- `worker start` brings up one host worker for the local host
+- repeating `worker start` should not create an extra duplicate worker for the
+  same host/profile
 
 ## 4) Register Project Mapping
 
@@ -162,6 +169,45 @@ Expected:
 - `ps` returns at least one item for `mwc-local-live`
 - `show` returns `"ok": true` and run metadata/events
 - `ps` JSON includes `target` and `target_host` fields (populated when the run uses `--on <target>`)
+
+## 5b) Single Worker, Multiple Runs On One Host
+
+```bash
+cat > "$ISSUES/issues/mwc-local-live-2.md" <<'EOF'
+---
+type: issue
+id: mwc-local-live-2
+title: Local live run 2
+status: open
+---
+
+# Local live run 2
+EOF
+
+RUN_ID_1="$(date +%Y%m%d-%H%M%S)-a"
+RUN_ID_2="$(date +%Y%m%d-%H%M%S)-b"
+
+"$ORCH_BIN" --project "$PROJECT_ID" run mwc-local-live \
+  --run-id "$RUN_ID_1" \
+  --agent custom \
+  --agent-cmd "echo cli-e2e-a; sleep 20" \
+  --json
+
+"$ORCH_BIN" --project "$PROJECT_ID" run mwc-local-live-2 \
+  --run-id "$RUN_ID_2" \
+  --agent custom \
+  --agent-cmd "echo cli-e2e-b; sleep 20" \
+  --json
+
+"$ORCH_BIN" worker status
+"$ORCH_BIN" --project "$PROJECT_ID" ps --json
+```
+
+Expected:
+
+- both runs become active at the same time
+- `worker status` still shows one host worker, not one worker per run
+- run multiplicity comes from one worker managing multiple sessions on the host
 
 ## 6) Remote Master Reachability Smoke
 
@@ -327,6 +373,7 @@ Additional prerequisites:
 - the target Mac has the same repo cloned at the configured target `repo`
 - the target Mac has the required runtime dependencies installed (`git`, chosen
   multiplexer, agent binary)
+- the target Mac runs one long-lived `orch-worker` for that host/profile
 
 Example target config on Zeus:
 
@@ -361,6 +408,10 @@ EOF"
 # ensure Zeus resolves project identity to the operational root it should use
 ssh zeus 'orch daemon repo register /home/kento/repos/doeff'
 
+# ensure the target Mac worker is connected to Zeus
+ssh mac 'ORCH_REMOTE=zeus:7777 orch worker start'
+ssh mac 'ORCH_REMOTE=zeus:7777 orch worker status'
+
 # run on the Mac target
 #
 # Run from the operational project root on Zeus so the daemon can discover the
@@ -382,6 +433,7 @@ ssh zeus "orch --project $PROJECT_ID capture $ISSUE_ID#$RUN_ID"
 
 # stop and clean up
 ssh zeus "orch --project $PROJECT_ID stop $ISSUE_ID#$RUN_ID --force"
+ssh mac 'ORCH_REMOTE=zeus:7777 orch worker stop --all'
 ssh zeus "rm -f /home/kento/repos/doeff-VAULT/issues/$ISSUE_ID.md"
 ```
 
@@ -392,6 +444,8 @@ Expected outcomes:
 - `ps --json` or attach metadata exposes non-empty `target_host`
 - `capture` output includes the custom marker (`mac-target-ready`) or target hostname
 - `stop` succeeds for the Mac-targeted run
+- repeated `orch worker start` on the Mac target should not create duplicate
+  workers for the same host/profile
 - If the target host cannot resolve the requested multiplexer in its remote SSH
   PATH, expect session creation to fail with `failed to create tmux session` or
   the equivalent multiplexer error
@@ -415,5 +469,5 @@ run target = mac
   not replace the target repo path needed for SSH execution.
 - For `--on mac`, verify plain SSH first from Zeus (`ssh <target> 'command -v tmux; hostname'`)
   before attributing failures to orch itself.
-- For cross-host `master` (Zeus) + local `worker` validation, ensure the worker host can resolve the same project-root path and issue files used by the lease. If issue files only exist on Zeus, `run` may fail with `issue not found` during worker execution.
+- For cross-host `master` (Zeus) + local `worker` validation, ensure the worker host can resolve the same project-root path and issue files used by the host work assignment. If issue files only exist on Zeus, `run` may fail with `issue not found` during worker execution.
 - In this topology, verify run state on both sides when debugging: master (`orch --remote ... ps`) and worker-local issues store (`issues.path/runs/...`) to detect projection/store divergence.
