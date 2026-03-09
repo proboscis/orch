@@ -35,6 +35,10 @@ Automation-first entrypoint for the local single-host flow:
 
 - `scripts/e2e-master-worker-client-local.sh`
 
+Parameterized automation entrypoint for target-host runs:
+
+- `scripts/e2e-master-worker-client-target.sh`
+
 ## Prerequisites
 
 - `git` installed

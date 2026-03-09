@@ -1,4 +1,4 @@
-.PHONY: all build install install-cli install-tui test test-fast test-compile lint lint-install clean kill-daemons update e2e-local-host-worker
+.PHONY: all build install install-cli install-tui test test-fast test-compile lint lint-install clean kill-daemons update e2e-local-host-worker e2e-target-host-worker
 .DEFAULT_GOAL := install
 
 BINARY_NAME := orch
@@ -87,3 +87,6 @@ clean:
 
 e2e-local-host-worker:
 	./scripts/e2e-master-worker-client-local.sh
+
+e2e-target-host-worker:
+	./scripts/e2e-master-worker-client-target.sh
