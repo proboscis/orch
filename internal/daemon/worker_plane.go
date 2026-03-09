@@ -69,6 +69,7 @@ type WorkerEffectPayload struct {
 
 type StopRunPayload struct {
 	ProjectRoot string `json:"project_root,omitempty"`
+	Target      string `json:"target,omitempty"`
 }
 
 type WorkerEffectResult struct {
@@ -225,12 +226,13 @@ func (s *SocketServer) workerIsActive(worker *WorkerRegistration, now time.Time)
 }
 
 func (s *SocketServer) selectActiveWorker() (*WorkerRegistration, error) {
-	return s.selectActiveWorkerForEffect("")
+	return s.selectActiveWorkerForEffect("", "", false)
 }
 
-func (s *SocketServer) selectActiveWorkerForEffect(effect string) (*WorkerRegistration, error) {
+func (s *SocketServer) selectActiveWorkerForEffect(effect, requiredWorkerID string, strict bool) (*WorkerRegistration, error) {
 	now := time.Now()
 	effect = strings.TrimSpace(effect)
+	requiredWorkerID = strings.TrimSpace(requiredWorkerID)
 
 	s.workersMu.RLock()
 	defer s.workersMu.RUnlock()
@@ -252,12 +254,45 @@ func (s *SocketServer) selectActiveWorkerForEffect(effect string) (*WorkerRegist
 				continue
 			}
 		}
+		if requiredWorkerID != "" && worker.ID != requiredWorkerID {
+			continue
+		}
 		if selected == nil || worker.LastHeartbeat.After(selected.LastHeartbeat) {
 			selected = worker
 		}
 	}
 
 	if selected == nil {
+		if requiredWorkerID != "" && strict {
+			return nil, fmt.Errorf("no active worker available for target %q; start orch-worker with --worker-id %s on the target host", requiredWorkerID, requiredWorkerID)
+		}
+		if requiredWorkerID != "" && !strict {
+			for _, worker := range s.workers {
+				if !s.workerIsActive(worker, now) {
+					continue
+				}
+				if effect != "" {
+					supported := false
+					for _, cap := range worker.Capabilities {
+						if cap == effect {
+							supported = true
+							break
+						}
+					}
+					if !supported {
+						continue
+					}
+				}
+				if selected == nil || worker.LastHeartbeat.After(selected.LastHeartbeat) {
+					selected = worker
+				}
+			}
+			if selected != nil {
+				copy := *selected
+				copy.Active = true
+				return &copy, nil
+			}
+		}
 		return nil, fmt.Errorf("no active workers available; start an external worker via 'orch worker start'")
 	}
 
@@ -267,7 +302,8 @@ func (s *SocketServer) selectActiveWorkerForEffect(effect string) (*WorkerRegist
 }
 
 func (s *SocketServer) acquireWorkerLease(projectID, effect, issueID, runID string, payload *WorkerEffectPayload) (*WorkerLease, error) {
-	worker, err := s.selectActiveWorkerForEffect(effect)
+	preferredWorkerID, strict := preferredWorkerPreferenceForPayload(payload)
+	worker, err := s.selectActiveWorkerForEffect(effect, preferredWorkerID, strict)
 	if err != nil {
 		return nil, err
 	}
@@ -290,6 +326,31 @@ func (s *SocketServer) acquireWorkerLease(projectID, effect, issueID, runID stri
 
 	copy := *lease
 	return &copy, nil
+}
+
+func preferredWorkerPreferenceForPayload(payload *WorkerEffectPayload) (string, bool) {
+	if payload == nil {
+		return defaultWorkerID(), false
+	}
+	if payload.StartRun != nil {
+		if target := strings.TrimSpace(payload.StartRun.Target); target != "" && target != "local" {
+			return target, true
+		}
+		return defaultWorkerID(), false
+	}
+	if payload.ContinueRun != nil {
+		if target := strings.TrimSpace(payload.ContinueRun.Target); target != "" && target != "local" {
+			return target, true
+		}
+		return defaultWorkerID(), false
+	}
+	if payload.StopRun != nil {
+		if target := strings.TrimSpace(payload.StopRun.Target); target != "" && target != "local" {
+			return target, true
+		}
+		return defaultWorkerID(), false
+	}
+	return defaultWorkerID(), false
 }
 
 func (s *SocketServer) leaseWorkForWorker(workerID string) *WorkerLease {
@@ -451,6 +512,9 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 			return nil, fmt.Errorf("start_run payload missing")
 		}
 		optsCopy := *lease.Payload.StartRun
+		if s.currentWorkerID != "" && strings.TrimSpace(optsCopy.Target) == s.currentWorkerID {
+			optsCopy.Target = ""
+		}
 		if strings.TrimSpace(optsCopy.ProjectRoot) == "" {
 			optsCopy.ProjectRoot = repoCtx.ProjectRoot
 		}
@@ -464,6 +528,9 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 			return nil, fmt.Errorf("continue_run payload missing")
 		}
 		optsCopy := *lease.Payload.ContinueRun
+		if s.currentWorkerID != "" && strings.TrimSpace(optsCopy.Target) == s.currentWorkerID {
+			optsCopy.Target = ""
+		}
 		projectRoot := strings.TrimSpace(optsCopy.ProjectRoot)
 		if projectRoot == "" {
 			projectRoot = repoCtx.ProjectRoot

@@ -301,6 +301,9 @@ type SocketServer struct {
 
 	openCodeServers   map[string]*managedServer
 	openCodeServersMu sync.RWMutex
+
+	currentWorkerID   string
+	currentWorkerHost string
 }
 
 type managedServer struct {
@@ -358,6 +361,11 @@ func NewSocketServer(factory StoreFactory, logger Logger) *SocketServer {
 	s.gitRunner = git.NewRunner()
 	s.procManager = newSocketProcessManager(s)
 	return s
+}
+
+func (s *SocketServer) SetWorkerIdentity(workerID, host string) {
+	s.currentWorkerID = strings.TrimSpace(workerID)
+	s.currentWorkerHost = strings.TrimSpace(host)
 }
 
 func (s *SocketServer) SetTCPListenAddr(addr string) {

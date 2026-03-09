@@ -86,7 +86,7 @@ func (m *mockExecutor) ExecuteWorkerLease(lease *daemon.WorkerLease) (*daemon.Wo
 func TestRunExternalLoopOnceProcessesLease(t *testing.T) {
 	origNew := newLeaseExecutor
 	t.Cleanup(func() { newLeaseExecutor = origNew })
-	newLeaseExecutor = func() leaseExecutor { return &mockExecutor{} }
+	newLeaseExecutor = func(string, string) leaseExecutor { return &mockExecutor{} }
 
 	client := &mockClient{lease: &daemon.WorkerLease{LeaseID: "lease-1", WorkerID: "w1", Effect: "start_run", Payload: &daemon.WorkerEffectPayload{StartRun: &daemon.StartRunOptions{ProjectRoot: "/tmp/p"}}}}
 	err := RunExternalLoop(client, RunConfig{WorkerID: "w1", Once: true, PollInterval: 10 * time.Millisecond, HeartbeatInterval: time.Second})
@@ -107,7 +107,7 @@ func TestRunExternalLoopOnceProcessesLease(t *testing.T) {
 func TestRunExternalLoopOnceNoLeaseReturnsNil(t *testing.T) {
 	origNew := newLeaseExecutor
 	t.Cleanup(func() { newLeaseExecutor = origNew })
-	newLeaseExecutor = func() leaseExecutor { return &mockExecutor{} }
+	newLeaseExecutor = func(string, string) leaseExecutor { return &mockExecutor{} }
 
 	client := &mockClient{}
 	err := RunExternalLoop(client, RunConfig{WorkerID: "w2", Once: true, PollInterval: 10 * time.Millisecond, HeartbeatInterval: time.Second})
@@ -136,7 +136,7 @@ func TestRunExternalLoopRegisterFailure(t *testing.T) {
 func TestRunExternalLoopHeartbeatFailure(t *testing.T) {
 	origNew := newLeaseExecutor
 	t.Cleanup(func() { newLeaseExecutor = origNew })
-	newLeaseExecutor = func() leaseExecutor { return &mockExecutor{} }
+	newLeaseExecutor = func(string, string) leaseExecutor { return &mockExecutor{} }
 
 	client := &mockClient{hbErr: assertErr("heartbeat failed")}
 	err := RunExternalLoop(client, RunConfig{WorkerID: "w4", PollInterval: 200 * time.Millisecond, HeartbeatInterval: 10 * time.Millisecond})
@@ -151,7 +151,7 @@ func TestRunExternalLoopHeartbeatFailure(t *testing.T) {
 func TestRunExternalLoopRegistersCapabilitiesWhenSupported(t *testing.T) {
 	origNew := newLeaseExecutor
 	t.Cleanup(func() { newLeaseExecutor = origNew })
-	newLeaseExecutor = func() leaseExecutor { return &mockExecutor{} }
+	newLeaseExecutor = func(string, string) leaseExecutor { return &mockExecutor{} }
 
 	client := &mockCapClient{}
 	err := RunExternalLoop(client, RunConfig{WorkerID: "w-cap", Once: true, PollInterval: 10 * time.Millisecond, HeartbeatInterval: time.Second})
@@ -170,7 +170,7 @@ func TestRunExternalLoopDefaultsWorkerIDToStableHostIdentity(t *testing.T) {
 		newLeaseExecutor = origNew
 		currentWorkerHostname = origHost
 	})
-	newLeaseExecutor = func() leaseExecutor { return &mockExecutor{} }
+	newLeaseExecutor = func(string, string) leaseExecutor { return &mockExecutor{} }
 	currentWorkerHostname = func() (string, error) { return "zeus", nil }
 
 	client := &mockClient{}

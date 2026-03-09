@@ -41,10 +41,12 @@ type leaseExecutor interface {
 	ExecuteWorkerLease(lease *daemon.WorkerLease) (*daemon.WorkerEffectResult, error)
 }
 
-var newLeaseExecutor = func() leaseExecutor {
-	return daemon.NewSocketServer(func(issuesRoot string) (store.Store, error) {
+var newLeaseExecutor = func(workerID, host string) leaseExecutor {
+	server := daemon.NewSocketServer(func(issuesRoot string) (store.Store, error) {
 		return filestore.New(issuesRoot)
 	}, log.New(io.Discard, "", 0))
+	server.SetWorkerIdentity(workerID, host)
+	return server
 }
 
 func RunExternalLoop(client Client, cfg RunConfig) error {
@@ -79,7 +81,7 @@ func RunExternalLoop(client Client, cfg RunConfig) error {
 	}
 	defer client.UnregisterWorker(workerID)
 
-	executor := newLeaseExecutor()
+	executor := newLeaseExecutor(workerID, host)
 
 	heartbeatTicker := time.NewTicker(heartbeatInterval)
 	pollTicker := time.NewTicker(pollInterval)

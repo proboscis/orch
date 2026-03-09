@@ -671,6 +671,7 @@ type ContinueRunOptions struct {
 	SessionName    string
 	ProjectRoot    string
 	RepoRoot       string
+	Target         string
 }
 
 type ContinueRunResponse struct {

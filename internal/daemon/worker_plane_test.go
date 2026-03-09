@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -101,19 +102,58 @@ func TestWorkerProfileDefaultDistributedDoesNotRegisterEmbeddedWorker(t *testing
 }
 
 func TestWorkerSchedulingUsesExplicitExternalWorkersOnly(t *testing.T) {
+	orig := currentHostname
+	currentHostname = func() (string, error) { return "zeus", nil }
+	t.Cleanup(func() { currentHostname = orig })
+
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
 	if len(server.listWorkers()) != 0 {
 		t.Fatal("expected no implicit workers in distributed profile")
 	}
 
-	if _, ttl := server.registerWorker("ext-1", "external", "localhost", "external", []string{"stop_run"}); ttl <= 0 {
+	if _, ttl := server.registerWorker("host-zeus", "external", "localhost", "external", []string{"stop_run"}); ttl <= 0 {
 		t.Fatal("expected positive heartbeat ttl for external registration")
 	}
 	lease, err := server.acquireWorkerLease("project-test", "stop_run", "issue-x", "run-x", nil)
 	if err != nil {
 		t.Fatalf("acquireWorkerLease() error = %v", err)
 	}
-	if lease.WorkerID != "ext-1" {
-		t.Fatalf("lease worker = %q, want ext-1", lease.WorkerID)
+	if lease.WorkerID != "host-zeus" {
+		t.Fatalf("lease worker = %q, want host-zeus", lease.WorkerID)
+	}
+}
+
+func TestWorkerSchedulingPrefersTargetNamedWorker(t *testing.T) {
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	if _, ttl := server.registerWorker("host-zeus", "external", "zeus", "external", []string{"start_run"}); ttl <= 0 {
+		t.Fatal("expected positive heartbeat ttl for zeus worker")
+	}
+	if _, ttl := server.registerWorker("mac", "external", "mac-host", "external", []string{"start_run"}); ttl <= 0 {
+		t.Fatal("expected positive heartbeat ttl for mac worker")
+	}
+
+	payload := &WorkerEffectPayload{StartRun: &StartRunOptions{Target: "mac", ProjectRoot: "/tmp/project"}}
+	lease, err := server.acquireWorkerLease("project-test", "start_run", "issue-x", "run-x", payload)
+	if err != nil {
+		t.Fatalf("acquireWorkerLease() error = %v", err)
+	}
+	if lease.WorkerID != "mac" {
+		t.Fatalf("lease worker = %q, want mac", lease.WorkerID)
+	}
+}
+
+func TestWorkerSchedulingFailsWhenTargetWorkerMissing(t *testing.T) {
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	if _, ttl := server.registerWorker("host-zeus", "external", "zeus", "external", []string{"start_run"}); ttl <= 0 {
+		t.Fatal("expected positive heartbeat ttl for zeus worker")
+	}
+
+	payload := &WorkerEffectPayload{StartRun: &StartRunOptions{Target: "mac", ProjectRoot: "/tmp/project"}}
+	_, err := server.acquireWorkerLease("project-test", "start_run", "issue-x", "run-x", payload)
+	if err == nil {
+		t.Fatal("acquireWorkerLease() error = nil, want missing target worker error")
+	}
+	if !strings.Contains(err.Error(), `target "mac"`) {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

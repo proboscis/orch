@@ -757,6 +757,17 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		Target:         req.Target,
 		ProjectRoot:    projectRoot,
 	}
+	if strings.TrimSpace(req.Target) != "" && strings.TrimSpace(req.Target) != "local" {
+		cfg, cfgErr := config.LoadFromProjectRoot(projectRoot)
+		if cfgErr != nil {
+			return errorResponse(fmt.Sprintf("failed to load config for target %q: %v", req.Target, cfgErr))
+		}
+		targetCfg := cfg.GetTarget(strings.TrimSpace(req.Target))
+		if targetCfg == nil {
+			return errorResponse(fmt.Sprintf("target %q not found in config", req.Target))
+		}
+		opts.ProjectRoot = strings.TrimSpace(targetCfg.Repo)
+	}
 
 	if issue, err := st.ResolveIssue(req.IssueId); err == nil {
 		opts.IssueSnapshot = issue
@@ -888,6 +899,15 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 		ProjectRoot:    projectRoot,
 		RepoRoot:       req.RepoRoot,
 	}
+	if req.ShortId != "" {
+		if run, err := st.GetRunByShortID(req.ShortId); err == nil && run != nil {
+			opts.Target = strings.TrimSpace(run.Target)
+		}
+	} else if req.IssueId != "" && req.RunId != "" {
+		if run, err := st.GetRun(&model.RunRef{IssueID: req.IssueId, RunID: req.RunId}); err == nil && run != nil {
+			opts.Target = strings.TrimSpace(run.Target)
+		}
+	}
 
 	projectID := projectIDFromContext(req.Context)
 	payload := &WorkerEffectPayload{ContinueRun: opts}
@@ -939,7 +959,7 @@ func (s *SocketServer) handleProtoStopRun(req *orchpb.StopRunRequest) *orchpb.Re
 	projectRoot := s.resolveProjectRootFromContextOrProto(req.Context, "")
 	payload := &WorkerEffectPayload{}
 	if strings.TrimSpace(projectRoot) != "" {
-		payload.StopRun = &StopRunPayload{ProjectRoot: projectRoot}
+		payload.StopRun = &StopRunPayload{ProjectRoot: projectRoot, Target: strings.TrimSpace(run.Target)}
 	}
 	if _, err := s.withWorkerLease(projectID, "stop_run", run.IssueID, run.RunID, payload); err != nil {
 		return errorResponse(err.Error())
