@@ -2,8 +2,8 @@ package xdg
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 )
@@ -216,36 +216,31 @@ func TestSanitizeRepoID(t *testing.T) {
 	}
 }
 
-func TestRepoIDNoGitRemoteFormat(t *testing.T) {
-	// Non-git path should produce "basename-<8hex>" format
-	id, err := RepoID("/tmp/definitely-not-a-git-repo-xyzzy/my-project")
+func TestRepoIDRequiresGitRemote(t *testing.T) {
+	if _, err := RepoID("/tmp/definitely-not-a-git-repo-xyzzy/my-project"); err == nil {
+		t.Fatal("RepoID() expected error for path without git remote")
+	}
+}
+
+func TestRepoIDUsesRemoteOrigin(t *testing.T) {
+	repo := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command(args[0], args[1:]...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%s failed: %v (%s)", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		}
+	}
+
+	run("git", "init", repo)
+	run("git", "-C", repo, "remote", "add", "origin", "https://github.com/example/repo-id.git")
+
+	id, err := RepoID(repo)
 	if err != nil {
 		t.Fatalf("RepoID() unexpected error: %v", err)
 	}
-
-	// Must match "my-project-" followed by exactly 8 hex chars
-	pattern := regexp.MustCompile(`^my-project-[0-9a-f]{8}$`)
-	if !pattern.MatchString(id) {
-		t.Errorf("RepoID() = %q, want format my-project-<8hex>", id)
-	}
-
-	// Same path must produce same ID (deterministic)
-	id2, _ := RepoID("/tmp/definitely-not-a-git-repo-xyzzy/my-project")
-	if id != id2 {
-		t.Errorf("RepoID() not deterministic: %q != %q", id, id2)
-	}
-
-	// Different paths with same basename must produce different IDs
-	idA, _ := RepoID("/work/client-a/orch")
-	idB, _ := RepoID("/work/client-b/orch")
-	if idA == idB {
-		t.Errorf("same-basename paths produced same ID: %q", idA)
-	}
-	if !strings.HasPrefix(idA, "orch-") {
-		t.Errorf("RepoID() = %q, want prefix orch-", idA)
-	}
-	if !strings.HasPrefix(idB, "orch-") {
-		t.Errorf("RepoID() = %q, want prefix orch-", idB)
+	if id != "example-repo-id" {
+		t.Fatalf("RepoID() = %q, want %q", id, "example-repo-id")
 	}
 }
 

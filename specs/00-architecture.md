@@ -60,8 +60,13 @@ github:
 **For project identity:**
 1. `--project` flag (highest)
 2. `ORCH_PROJECT` environment variable
-3. Directory containing `.orch/config.yaml` (searched upward from cwd)
+3. Git remote-derived `project_id` for the repo discovered from cwd / `.orch/config.yaml`
 4. none
+
+Note: upward `.orch/config.yaml` discovery and cwd lookup determine the
+operational project root. They do not define project identity by themselves.
+Identity must come from explicit `--project` / `ORCH_PROJECT` input or from the
+repo's remote metadata.
 
 **For issues path (file-based issues only):**
 1. `issues.path` in project `.orch/config.yaml` (highest)

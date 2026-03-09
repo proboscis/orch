@@ -570,6 +570,7 @@ message AppendEventResponse {
 
 message EnsureOpenCodeServerRequest {
   string project_root = 1;
+  RequestContext context = 2;
 }
 
 message EnsureOpenCodeServerResponse {

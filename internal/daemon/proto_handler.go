@@ -2086,20 +2086,26 @@ func (s *SocketServer) handleProtoAppendEvent(req *orchpb.AppendEventRequest) *o
 }
 
 func (s *SocketServer) handleProtoEnsureOpenCodeServer(req *orchpb.EnsureOpenCodeServerRequest) *orchpb.Response {
-	projectRoot := s.resolveProtoProjectRoot(req.ProjectRoot)
+	projectRoot := s.resolveProjectRootFromContextOrProto(req.Context, "")
 	if projectRoot == "" {
-		return errorResponse("project_root required")
+		if projectID := projectIDFromContext(req.Context); projectID != "" {
+			return errorResponse(fmt.Sprintf("unknown project_id %q (register daemon project mapping)", projectID))
+		}
+		return errorResponse("project_id required")
 	}
+	repoID, err := s.repoIDForProjectRoot(projectRoot)
+	if err != nil {
+		return errorResponse(err.Error())
+	}
+
+	s.openCodeServersMu.RLock()
+	_, alreadyRunning := s.openCodeServers[repoID]
+	s.openCodeServersMu.RUnlock()
 
 	port, err := s.ensureOpenCodeServerRunning(projectRoot)
 	if err != nil {
 		return errorResponse(fmt.Sprintf("failed to ensure opencode server: %v", err))
 	}
-
-	s.openCodeServersMu.RLock()
-	srv, exists := s.openCodeServers[projectRoot]
-	alreadyRunning := exists && srv != nil
-	s.openCodeServersMu.RUnlock()
 
 	return &orchpb.Response{
 		Ok: true,
@@ -2121,6 +2127,7 @@ func (s *SocketServer) handleProtoRegisterRepo(req *orchpb.RegisterRepoRequest) 
 	projectRoot := ""
 	repoURL := ""
 	repoID := ""
+	var err error
 
 	if looksLikeRepoURL(input) {
 		parsedID, err := xdg.ParseRepoID(input)
@@ -2139,12 +2146,10 @@ func (s *SocketServer) handleProtoRegisterRepo(req *orchpb.RegisterRepoRequest) 
 		if projectRoot == "" {
 			return errorResponse("repo URL required")
 		}
-		repoID = deriveRepoID(projectRoot)
-	}
-
-	aliasRepoID := ""
-	if portableID, err := xdg.RepoID(projectRoot); err == nil {
-		aliasRepoID = strings.TrimSpace(portableID)
+		repoID, err = s.repoIDForProjectRoot(projectRoot)
+		if err != nil {
+			return errorResponse(err.Error())
+		}
 	}
 
 	var repoStore store.Store
@@ -2156,32 +2161,9 @@ func (s *SocketServer) handleProtoRegisterRepo(req *orchpb.RegisterRepoRequest) 
 		}
 	}
 
-	s.reposMu.Lock()
-	if _, exists := s.repos[repoID]; !exists {
-		s.repos[repoID] = &RepoContext{
-			ProjectRoot: projectRoot,
-			RepoID:      repoID,
-			RepoURL:     repoURL,
-			Store:       repoStore,
-		}
-	} else {
-		existing := s.repos[repoID]
-		if existing != nil {
-			existing.ProjectRoot = projectRoot
-			if repoURL != "" {
-				existing.RepoURL = repoURL
-			}
-			if existing.Store == nil {
-				existing.Store = repoStore
-			}
-		}
+	if _, err := s.registerRepoContext(repoID, projectRoot, repoURL, repoStore); err != nil {
+		return errorResponse(err.Error())
 	}
-	if aliasRepoID != "" {
-		if existing, ok := s.repos[repoID]; ok && existing != nil {
-			s.repos[aliasRepoID] = existing
-		}
-	}
-	s.reposMu.Unlock()
 
 	if err := s.persistRepoRegistry(); err != nil {
 		return errorResponse(fmt.Sprintf("failed to persist repo registry: %v", err))
@@ -2969,7 +2951,7 @@ func (s *SocketServer) handleProtoGetConfig(req *orchpb.GetConfigRequest) *orchp
 		if projectID := projectIDFromContext(req.Context); projectID != "" {
 			return errorResponse(fmt.Sprintf("unknown project_id %q (register daemon project mapping)", projectID))
 		}
-		return errorResponse("project_root required")
+		return errorResponse("project_id required")
 	}
 
 	cfg, err := s.loadConfig(projectRoot)

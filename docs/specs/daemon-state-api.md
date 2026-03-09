@@ -47,7 +47,7 @@ EventSourceDaemon - Lowest authority (daemon inferences)
   "event_name": "running",
   "event_attrs": {"key": "value"},
   "event_source": "user",
-  "project_root": "/path/to/repo"
+  "repo_id": "acme-orch"
 }
 ```
 
@@ -62,7 +62,7 @@ EventSourceDaemon - Lowest authority (daemon inferences)
 | event_name | yes | Event name (e.g., status value, artifact name) |
 | event_attrs | no | Additional key-value attributes |
 | event_source | yes | "user", "daemon", or "agent" |
-| project_root | no | Project root for store resolution |
+| repo_id | no | Project identity for store resolution |
 
 ### Response: AppendEventResponse
 

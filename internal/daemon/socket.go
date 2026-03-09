@@ -303,6 +303,7 @@ type SocketServer struct {
 }
 
 type managedServer struct {
+	RepoID      string
 	ProjectRoot string
 	Port        int
 	Cmd         *exec.Cmd
@@ -366,6 +367,45 @@ func deriveRepoID(projectRoot string) string {
 	return derivePortableRepoID(projectRoot)
 }
 
+func (s *SocketServer) repoIDForProjectRoot(projectRoot string) (string, error) {
+	if repoID, ok := decodeRepoIDToken(projectRoot); ok {
+		return repoID, nil
+	}
+
+	projectRoot = strings.TrimSpace(projectRoot)
+	if projectRoot == "" {
+		return "", fmt.Errorf("project_root required")
+	}
+
+	if repoID, err := xdg.RepoIDStrict(projectRoot); err == nil && strings.TrimSpace(repoID) != "" {
+		return strings.TrimSpace(repoID), nil
+	}
+
+	s.reposMu.RLock()
+	defer s.reposMu.RUnlock()
+	for _, ctx := range s.repos {
+		if ctx == nil {
+			continue
+		}
+		if strings.TrimSpace(ctx.ProjectRoot) == projectRoot && strings.TrimSpace(ctx.RepoID) != "" {
+			return strings.TrimSpace(ctx.RepoID), nil
+		}
+	}
+
+	return "", fmt.Errorf("project identity required for %s: set --project/ORCH_PROJECT to a repo ID or configure git remote origin", projectRoot)
+}
+
+func (s *SocketServer) canonicalProjectRootForRepo(repoID, projectRoot string) string {
+	if ctx := s.GetRepoContext(repoID); ctx != nil && strings.TrimSpace(ctx.ProjectRoot) != "" {
+		return strings.TrimSpace(ctx.ProjectRoot)
+	}
+	return strings.TrimSpace(projectRoot)
+}
+
+func controlSessionPathForRepoID(repoID string) string {
+	return filepath.Join(xdg.StateDir(), "projects", strings.TrimSpace(repoID), "control-session.json")
+}
+
 func opencodeServerLogPath(projectRoot string) string {
 	if projectRoot == "" {
 		return ""
@@ -397,22 +437,47 @@ func opencodeServerLogPath(projectRoot string) string {
 
 // RegisterRepo adds a new repo context to the daemon.
 func (s *SocketServer) RegisterRepo(projectRoot string, st store.Store) (string, error) {
-	repoID := deriveRepoID(projectRoot)
+	repoID, err := s.repoIDForProjectRoot(projectRoot)
+	if err != nil {
+		return "", err
+	}
+	return s.registerRepoContext(repoID, projectRoot, "", st)
+}
+
+func (s *SocketServer) registerRepoContext(repoID, projectRoot, repoURL string, st store.Store) (string, error) {
+	repoID = strings.TrimSpace(repoID)
+	projectRoot = strings.TrimSpace(projectRoot)
+	repoURL = strings.TrimSpace(repoURL)
+	if repoID == "" {
+		return "", fmt.Errorf("project_id required")
+	}
 
 	s.reposMu.Lock()
 	defer s.reposMu.Unlock()
 
-	if existing, ok := s.repos[repoID]; ok && existing.ProjectRoot != projectRoot {
-		return "", fmt.Errorf("repo ID collision: %q maps to both %q and %q",
-			repoID, existing.ProjectRoot, projectRoot)
+	if existing, ok := s.repos[repoID]; ok && existing != nil {
+		if existing.ProjectRoot != "" && projectRoot != "" && existing.ProjectRoot != projectRoot {
+			return "", fmt.Errorf("repo ID collision: %q maps to both %q and %q",
+				repoID, existing.ProjectRoot, projectRoot)
+		}
+		if existing.ProjectRoot == "" {
+			existing.ProjectRoot = projectRoot
+		}
+		if repoURL != "" {
+			existing.RepoURL = repoURL
+		}
+		if existing.Store == nil {
+			existing.Store = st
+		}
+		return repoID, nil
 	}
 
 	s.repos[repoID] = &RepoContext{
 		ProjectRoot: projectRoot,
 		RepoID:      repoID,
+		RepoURL:     repoURL,
 		Store:       st,
 	}
-
 	return repoID, nil
 }
 
@@ -613,34 +678,41 @@ func (s *SocketServer) persistRepoRegistry() error {
 	return nil
 }
 
-// GetRepoContext returns the context for a repo by ID or project root.
-func (s *SocketServer) GetRepoContext(repoIDOrPath string) *RepoContext {
-	if repoIDOrPath == "" {
+// GetRepoContext returns the context for a repo by repo ID only.
+func (s *SocketServer) GetRepoContext(repoID string) *RepoContext {
+	if repoID == "" {
 		return nil
 	}
 
 	s.reposMu.RLock()
 	defer s.reposMu.RUnlock()
 
-	// Try direct repoID lookup
-	if ctx, ok := s.repos[repoIDOrPath]; ok {
+	if ctx, ok := s.repos[repoID]; ok {
 		return ctx
 	}
-
-	// Try to find by project root path
 	for _, ctx := range s.repos {
-		if strings.TrimSpace(ctx.RepoID) == repoIDOrPath {
+		if ctx != nil && strings.TrimSpace(ctx.RepoID) == repoID {
 			return ctx
 		}
-		if projectRoot := strings.TrimSpace(ctx.ProjectRoot); projectRoot != "" {
-			if deriveRepoID(projectRoot) == repoIDOrPath {
-				return ctx
-			}
-			if id, err := xdg.RepoID(projectRoot); err == nil && strings.TrimSpace(id) == repoIDOrPath {
-				return ctx
-			}
+	}
+
+	return nil
+}
+
+func (s *SocketServer) findRepoContextByProjectRoot(projectRoot string) *RepoContext {
+	projectRoot = strings.TrimSpace(projectRoot)
+	if projectRoot == "" {
+		return nil
+	}
+
+	s.reposMu.RLock()
+	defer s.reposMu.RUnlock()
+
+	for _, ctx := range s.repos {
+		if ctx == nil {
+			continue
 		}
-		if ctx.ProjectRoot == repoIDOrPath {
+		if strings.TrimSpace(ctx.ProjectRoot) == projectRoot {
 			return ctx
 		}
 	}
@@ -675,17 +747,6 @@ func (s *SocketServer) resolveStore(req SendRequest) store.Store {
 			s.logger.Printf("resolveStore: hydrated from projectRoot=%q", req.ProjectRoot)
 			return ctx.Store
 		}
-		repoID, _ := xdg.RepoID(req.ProjectRoot)
-		if repoID != "" {
-			if ctx := s.GetRepoContext(repoID); ctx != nil {
-				s.logger.Printf("resolveStore: found by projectRoot repoID=%q", repoID)
-				return ctx.Store
-			}
-		}
-		if ctx := s.GetRepoContext(req.ProjectRoot); ctx != nil {
-			s.logger.Printf("resolveStore: found by projectRoot path=%q", req.ProjectRoot)
-			return ctx.Store
-		}
 	}
 
 	s.logger.Printf("resolveStore: no store found (all fields empty or no match)")
@@ -702,11 +763,13 @@ func (s *SocketServer) ensureRepoStoreByProjectRoot(projectRoot string) *RepoCon
 		return s.ensureRepoStoreByID(repoID)
 	}
 
-	repoID, _ := xdg.RepoID(projectRoot)
-	if repoID != "" {
+	repoID, err := s.repoIDForProjectRoot(projectRoot)
+	if err == nil {
 		if ctx := s.ensureRepoStoreByID(repoID); ctx != nil && ctx.Store != nil {
 			return ctx
 		}
+	} else if ctx := s.findRepoContextByProjectRoot(projectRoot); ctx != nil && ctx.Store != nil {
+		return ctx
 	}
 
 	cfg, err := config.LoadFromProjectRoot(projectRoot)
@@ -726,7 +789,7 @@ func (s *SocketServer) ensureRepoStoreByProjectRoot(projectRoot string) *RepoCon
 		return nil
 	}
 
-	if repoID != "" {
+	if err == nil && repoID != "" {
 		s.reposMu.Lock()
 		existing := s.repos[repoID]
 		if existing == nil {
@@ -744,7 +807,7 @@ func (s *SocketServer) ensureRepoStoreByProjectRoot(projectRoot string) *RepoCon
 		return existing
 	}
 
-	if ctx := s.GetRepoContext(projectRoot); ctx != nil {
+	if ctx := s.findRepoContextByProjectRoot(projectRoot); ctx != nil {
 		return ctx
 	}
 
@@ -777,18 +840,6 @@ func (s *SocketServer) ensureRepoStoreByID(repoID string) *RepoContext {
 				continue
 			}
 			if strings.TrimSpace(candidate.RepoID) == repoID {
-				ctx = candidate
-				break
-			}
-			projectRoot := strings.TrimSpace(candidate.ProjectRoot)
-			if projectRoot == "" {
-				continue
-			}
-			if deriveRepoID(projectRoot) == repoID {
-				ctx = candidate
-				break
-			}
-			if portableID, err := xdg.RepoID(projectRoot); err == nil && strings.TrimSpace(portableID) == repoID {
 				ctx = candidate
 				break
 			}
@@ -844,6 +895,8 @@ func (s *SocketServer) getOrCreateStore(issuesRoot, projectRoot string) store.St
 	if ctx, ok := s.repos[cacheKey]; ok {
 		if ctx.ProjectRoot == "" && projectRoot != "" {
 			ctx.ProjectRoot = projectRoot
+		}
+		if ctx.RepoID == "" && projectRoot != "" {
 			if id, err := xdg.RepoID(projectRoot); err == nil && id != "" {
 				ctx.RepoID = id
 			}
@@ -857,7 +910,7 @@ func (s *SocketServer) getOrCreateStore(issuesRoot, projectRoot string) store.St
 		return nil
 	}
 
-	repoID := cacheKey
+	repoID := ""
 	if projectRoot != "" {
 		if id, err := xdg.RepoID(projectRoot); err == nil && id != "" {
 			repoID = id
@@ -1013,16 +1066,15 @@ func (s *SocketServer) handleRegisterRepo(req SendRequest, encoder *json.Encoder
 		return
 	}
 
-	repoID := deriveRepoID(req.ProjectRoot)
-
-	s.reposMu.Lock()
-	if _, exists := s.repos[repoID]; !exists {
-		s.repos[repoID] = &RepoContext{
-			ProjectRoot: req.ProjectRoot,
-			RepoID:      repoID,
-		}
+	repoID, err := s.repoIDForProjectRoot(req.ProjectRoot)
+	if err != nil {
+		encoder.Encode(SendResponse{OK: false, Error: err.Error()})
+		return
 	}
-	s.reposMu.Unlock()
+	if _, err := s.registerRepoContext(repoID, req.ProjectRoot, "", nil); err != nil {
+		encoder.Encode(SendResponse{OK: false, Error: err.Error()})
+		return
+	}
 
 	s.logger.Printf("registered repo: %s (%s)", repoID, req.ProjectRoot)
 	encoder.Encode(map[string]interface{}{
@@ -1049,8 +1101,12 @@ func (s *SocketServer) handleListRepos(req SendRequest, encoder *json.Encoder) {
 	})
 }
 
-func (s *SocketServer) controlSessionPath(projectRoot string) string {
-	return filepath.Join(projectRoot, ".orch", "control-session.json")
+func (s *SocketServer) controlSessionPath(projectRoot string) (string, string, error) {
+	repoID, err := s.repoIDForProjectRoot(projectRoot)
+	if err != nil {
+		return "", "", err
+	}
+	return repoID, controlSessionPathForRepoID(repoID), nil
 }
 
 type controlSessionRecord struct {
@@ -1061,17 +1117,17 @@ type controlSessionRecord struct {
 	ModelVariant string `json:"model_variant,omitempty"`
 }
 
-// getControlSessionLock returns a per-project mutex for control session operations.
-// This prevents race conditions when multiple orch-monitor instances start in quick succession.
-func (s *SocketServer) getControlSessionLock(projectRoot string) *sync.Mutex {
+// getControlSessionLock returns a per-repo mutex for control session operations.
+// This prevents race conditions when multiple monitor/control agent instances start in quick succession.
+func (s *SocketServer) getControlSessionLock(repoID string) *sync.Mutex {
 	s.controlSessionLocksMu.Lock()
 	defer s.controlSessionLocksMu.Unlock()
 
-	if lock, ok := s.controlSessionLocks[projectRoot]; ok {
+	if lock, ok := s.controlSessionLocks[repoID]; ok {
 		return lock
 	}
 	lock := &sync.Mutex{}
-	s.controlSessionLocks[projectRoot] = lock
+	s.controlSessionLocks[repoID] = lock
 	return lock
 }
 
@@ -1151,12 +1207,13 @@ func (s *SocketServer) saveOpenCodeControlSession(projectRoot, sessionID string,
 }
 
 func (s *SocketServer) writeControlSession(projectRoot string, sessionData *controlSessionRecord) error {
-	orchDir := filepath.Join(projectRoot, ".orch")
-	if err := os.MkdirAll(orchDir, 0755); err != nil {
-		return fmt.Errorf("failed to create .orch dir: %w", err)
+	_, sessionPath, err := s.controlSessionPath(projectRoot)
+	if err != nil {
+		return err
 	}
-
-	sessionPath := s.controlSessionPath(projectRoot)
+	if err := os.MkdirAll(filepath.Dir(sessionPath), 0755); err != nil {
+		return fmt.Errorf("failed to create control session dir: %w", err)
+	}
 	if sessionData == nil {
 		return fmt.Errorf("control session data is nil")
 	}
@@ -1176,15 +1233,23 @@ func (s *SocketServer) handleGetControlSession(req SendRequest, encoder *json.En
 		return
 	}
 
-	// Acquire per-project lock to prevent race conditions
-	lock := s.getControlSessionLock(req.ProjectRoot)
+	repoID, sessionPath, err := s.controlSessionPath(req.ProjectRoot)
+	if err != nil {
+		encoder.Encode(map[string]interface{}{
+			"ok":    false,
+			"error": err.Error(),
+		})
+		return
+	}
+
+	// Acquire per-repo lock to prevent race conditions
+	lock := s.getControlSessionLock(repoID)
 	lock.Lock()
 	defer lock.Unlock()
 
 	requestedAgent := req.AgentType // The agent type the client wants to use
 
 	// Load stored session
-	sessionPath := s.controlSessionPath(req.ProjectRoot)
 	var storedSession struct {
 		SessionID string `json:"session_id"`
 		AgentType string `json:"agent_type"`
@@ -1252,8 +1317,17 @@ func (s *SocketServer) handleSetControlSession(req SendRequest, encoder *json.En
 		return
 	}
 
-	// Acquire per-project lock to prevent race conditions
-	lock := s.getControlSessionLock(req.ProjectRoot)
+	repoID, _, err := s.controlSessionPath(req.ProjectRoot)
+	if err != nil {
+		encoder.Encode(map[string]interface{}{
+			"ok":    false,
+			"error": err.Error(),
+		})
+		return
+	}
+
+	// Acquire per-repo lock to prevent race conditions
+	lock := s.getControlSessionLock(repoID)
 	lock.Lock()
 	defer lock.Unlock()
 
@@ -1284,12 +1358,20 @@ func (s *SocketServer) handleClearControlSession(req SendRequest, encoder *json.
 		return
 	}
 
-	// Acquire per-project lock to prevent race conditions
-	lock := s.getControlSessionLock(req.ProjectRoot)
+	repoID, sessionPath, err := s.controlSessionPath(req.ProjectRoot)
+	if err != nil {
+		encoder.Encode(map[string]interface{}{
+			"ok":    false,
+			"error": err.Error(),
+		})
+		return
+	}
+
+	// Acquire per-repo lock to prevent race conditions
+	lock := s.getControlSessionLock(repoID)
 	lock.Lock()
 	defer lock.Unlock()
 
-	sessionPath := s.controlSessionPath(req.ProjectRoot)
 	if err := os.Remove(sessionPath); err != nil && !os.IsNotExist(err) {
 		encoder.Encode(map[string]interface{}{
 			"ok":    false,
@@ -1348,24 +1430,30 @@ func (s *SocketServer) handleEnsureOpenCodeServer(req SendRequest, encoder *json
 }
 
 func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string) (int, error) {
+	repoID, err := s.repoIDForProjectRoot(projectRoot)
+	if err != nil {
+		return 0, err
+	}
+	canonicalRoot := s.canonicalProjectRootForRepo(repoID, projectRoot)
+
 	s.openCodeServersMu.Lock()
 	defer s.openCodeServersMu.Unlock()
 
-	if srv, ok := s.openCodeServers[projectRoot]; ok {
+	if srv, ok := s.openCodeServers[repoID]; ok {
 		if s.procManager.IsServerProcessAlive(srv) {
 			client := agent.NewOpenCodeClient(srv.Port)
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 			if client.IsServerRunning(ctx) {
 				srv.LastHealthy = time.Now()
-				s.updateManagedServerHealth(projectRoot, srv.LastHealthy)
-				s.logger.Printf("opencode server healthy on port %d for %s", srv.Port, projectRoot)
+				s.updateManagedServerHealth(repoID, srv.LastHealthy)
+				s.logger.Printf("opencode server healthy on port %d for %s", srv.Port, repoID)
 				return srv.Port, nil
 			}
 		}
-		s.logger.Printf("existing server for %s not healthy, stopping and restarting (logs: %s)", projectRoot, srv.LogPath)
+		s.logger.Printf("existing server for %s not healthy, stopping and restarting (logs: %s)", repoID, srv.LogPath)
 		s.procManager.StopServerLocked(srv)
-		delete(s.openCodeServers, projectRoot)
+		delete(s.openCodeServers, repoID)
 	}
 
 	// Collect ports already in use by the registry to exclude from allocation.
@@ -1382,10 +1470,12 @@ func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string) (int, err
 		return 0, fmt.Errorf("no available port found for opencode server")
 	}
 
-	srv, err := s.procManager.StartServerProcess(projectRoot, port)
+	srv, err := s.procManager.StartServerProcess(canonicalRoot, port)
 	if err != nil {
 		return 0, fmt.Errorf("failed to start opencode server: %w", err)
 	}
+	srv.RepoID = repoID
+	srv.ProjectRoot = canonicalRoot
 
 	client := agent.NewOpenCodeClient(port)
 	if err := s.procManager.WaitForHealthy(srv, 30*time.Second, client.IsServerRunning); err != nil {
@@ -1399,9 +1489,9 @@ func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string) (int, err
 	}
 
 	srv.LastHealthy = time.Now()
-	s.updateManagedServerHealth(projectRoot, srv.LastHealthy)
-	s.openCodeServers[projectRoot] = srv
-	s.logger.Printf("started opencode server on port %d (pid: %d) for %s (logs: %s)", port, serverPID(srv), projectRoot, srv.LogPath)
+	s.updateManagedServerHealth(repoID, srv.LastHealthy)
+	s.openCodeServers[repoID] = srv
+	s.logger.Printf("started opencode server on port %d (pid: %d) for %s (logs: %s)", port, serverPID(srv), repoID, srv.LogPath)
 	return port, nil
 }
 
@@ -1444,6 +1534,7 @@ func (s *SocketServer) startServerProcess(projectRoot string, port int) (*manage
 
 	startTime := time.Now()
 	srv := &managedServer{
+		RepoID:      "",
 		ProjectRoot: projectRoot,
 		Port:        port,
 		Cmd:         cmd,
@@ -1569,13 +1660,13 @@ func (s *SocketServer) stopServerLocked(srv *managedServer) {
 		}
 	} else if srv.PID > 0 {
 		if err := s.terminateServerProcessByPID(srv.PID, 5*time.Second); err != nil && s.logger != nil {
-			s.logger.Printf("warning: failed to terminate opencode server pid=%d for %s: %v", srv.PID, srv.ProjectRoot, err)
+			s.logger.Printf("warning: failed to terminate opencode server pid=%d for %s: %v", srv.PID, srv.RepoID, err)
 		}
 	}
 	if srv.LogFile != nil {
 		_ = srv.LogFile.Close()
 	}
-	s.deleteManagedServerRecord(srv.ProjectRoot)
+	s.deleteManagedServerRecord(srv.RepoID)
 }
 
 func (s *SocketServer) StartOpenCodeServerHealthCheck() {
@@ -1604,11 +1695,11 @@ func (s *SocketServer) checkOpenCodeServerHealth() {
 	s.openCodeServersMu.Lock()
 	defer s.openCodeServersMu.Unlock()
 
-	for projectRoot, srv := range s.openCodeServers {
+	for repoID, srv := range s.openCodeServers {
 		if !s.procManager.IsServerProcessAlive(srv) {
-			s.logger.Printf("opencode server for %s died (pid: %d, logs: %s), will restart on next request", projectRoot, serverPID(srv), srv.LogPath)
+			s.logger.Printf("opencode server for %s died (pid: %d, logs: %s), will restart on next request", repoID, serverPID(srv), srv.LogPath)
 			s.procManager.StopServerLocked(srv)
-			delete(s.openCodeServers, projectRoot)
+			delete(s.openCodeServers, repoID)
 			continue
 		}
 
@@ -1616,12 +1707,12 @@ func (s *SocketServer) checkOpenCodeServerHealth() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if client.IsServerRunning(ctx) {
 			srv.LastHealthy = time.Now()
-			s.updateManagedServerHealth(projectRoot, srv.LastHealthy)
+			s.updateManagedServerHealth(repoID, srv.LastHealthy)
 		} else {
 			if time.Since(srv.LastHealthy) > 2*time.Minute {
-				s.logger.Printf("opencode server for %s unhealthy for 2+ minutes, restarting (logs: %s)", projectRoot, srv.LogPath)
+				s.logger.Printf("opencode server for %s unhealthy for 2+ minutes, restarting (logs: %s)", repoID, srv.LogPath)
 				s.procManager.StopServerLocked(srv)
-				delete(s.openCodeServers, projectRoot)
+				delete(s.openCodeServers, repoID)
 			}
 		}
 		cancel()
@@ -1632,18 +1723,23 @@ func (s *SocketServer) StopAllOpenCodeServers() {
 	s.openCodeServersMu.Lock()
 	defer s.openCodeServersMu.Unlock()
 
-	for projectRoot, srv := range s.openCodeServers {
-		s.logger.Printf("stopping opencode server for %s (pid: %d)", projectRoot, serverPID(srv))
+	for repoID, srv := range s.openCodeServers {
+		s.logger.Printf("stopping opencode server for %s (pid: %d)", repoID, serverPID(srv))
 		s.procManager.StopServerLocked(srv)
 	}
 	s.openCodeServers = make(map[string]*managedServer)
 }
 
 func (s *SocketServer) getOpenCodeServerPort(projectRoot string) int {
+	repoID, err := s.repoIDForProjectRoot(projectRoot)
+	if err != nil {
+		return 0
+	}
+
 	s.openCodeServersMu.RLock()
 	defer s.openCodeServersMu.RUnlock()
 
-	if srv, ok := s.openCodeServers[projectRoot]; ok {
+	if srv, ok := s.openCodeServers[repoID]; ok {
 		return srv.Port
 	}
 	return 0
@@ -1652,14 +1748,18 @@ func (s *SocketServer) getOpenCodeServerPort(projectRoot string) int {
 // getOrCreateOpenCodeControlSession returns (sessionID, resumed, error).
 // resumed is true when an existing session was found and reused, false when a new session was created.
 func (s *SocketServer) getOrCreateOpenCodeControlSession(projectRoot string, port int, modelName, modelVariant string) (string, bool, error) {
-	lock := s.getControlSessionLock(projectRoot)
+	repoID, sessionPath, err := s.controlSessionPath(projectRoot)
+	if err != nil {
+		return "", false, err
+	}
+
+	lock := s.getControlSessionLock(repoID)
 	lock.Lock()
 	defer lock.Unlock()
 
 	resolvedModel := strings.TrimSpace(modelName)
 	resolvedVariant := strings.TrimSpace(modelVariant)
 
-	sessionPath := s.controlSessionPath(projectRoot)
 	if data, err := os.ReadFile(sessionPath); err == nil {
 		var stored controlSessionRecord
 		if json.Unmarshal(data, &stored) == nil && stored.SessionID != "" && stored.AgentType == "opencode" {
@@ -2038,9 +2138,12 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 	newSession := params.NewSession
 
 	if params.NewSession {
-		lock := s.getControlSessionLock(params.ProjectRoot)
+		repoID, sessionPath, err := s.controlSessionPath(params.ProjectRoot)
+		if err != nil {
+			return nil, err
+		}
+		lock := s.getControlSessionLock(repoID)
 		lock.Lock()
-		sessionPath := s.controlSessionPath(params.ProjectRoot)
 		os.Remove(sessionPath)
 		lock.Unlock()
 	}
@@ -2159,7 +2262,10 @@ func (s *SocketServer) processControlAgentConfigCore(st store.Store, projectRoot
 
 // getStoredControlSession returns the stored session ID for a project, or empty string if none.
 func (s *SocketServer) getStoredControlSession(projectRoot string) string {
-	sessionPath := s.controlSessionPath(projectRoot)
+	_, sessionPath, err := s.controlSessionPath(projectRoot)
+	if err != nil {
+		return ""
+	}
 	data, err := os.ReadFile(sessionPath)
 	if err != nil {
 		return ""

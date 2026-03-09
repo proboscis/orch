@@ -690,7 +690,26 @@ rules:
         - /internal/daemon/*_test.go
     message: >
       Daemon handlers must not use first project-root fallback from map iteration.
-      Fix: require explicit project_root/repo_id identity and fail closed when missing.
+      Fix: require explicit project_id identity and fail closed when missing.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: identity-leakage
+
+  - id: daemon-proto-no-project-root-context-lookup
+    patterns:
+      - pattern-either:
+          - pattern: findRepoContextByProjectRoot(...)
+          - pattern: $S.findRepoContextByProjectRoot(...)
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      Proto handlers must not resolve repo context from raw project_root lookups.
+      Fix: use RequestContext.project_id and registered repo mappings instead.
     severity: ERROR
     languages: [go]
     metadata:
@@ -1297,7 +1316,7 @@ rules:
         - /internal/cli/root.go
     message: >
       Phase-3 guardrail: defaultGetAPIWithOptions() must use getProjectRootWithSource()
-      to distinguish explicit scope (--project-root/ORCH_PROJECT_ROOT) from implicit cwd-derived
+      to distinguish explicit scope (--project/ORCH_PROJECT) from implicit cwd-derived
       scope before applying remote project-scope rules.
     severity: ERROR
     languages: [go]
@@ -1482,7 +1501,7 @@ rules:
         - /internal/cli/monitor.go
     message: >
       Phase-3 guardrail: interactive `orch monitor` must not infer project scope
-      from cwd. Require explicit project scope (`--project-root`/`ORCH_PROJECT_ROOT`).
+      from cwd. Require explicit project scope (`--project`/`ORCH_PROJECT`).
     severity: ERROR
     languages: [go]
     metadata:
@@ -1783,7 +1802,7 @@ rules:
     message: >
       Do not return bare filepath.Base() as a repo ID.
       Bare basenames cause collisions when repos share the same directory name.
-      Fix: suffix with a path-derived hash, e.g. fmt.Sprintf("%s-%x", filepath.Base(x), sha256(x)[:4]).
+      Fix: require repo identity from explicit input or git remote metadata instead.
     severity: ERROR
     languages: [go]
     metadata:

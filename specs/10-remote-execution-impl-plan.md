@@ -305,9 +305,9 @@ causes `no store available` errors.
 - On daemon side, decode token and resolve server-local project context from
   daemon repo registry (`repo_id -> project_root`).
 - Add daemon repo registry commands so users can register mappings explicitly:
-  `orch --remote <addr> daemon repo register <server-project-root>` and inspect
+  `orch --remote <addr> daemon repo register <repo-url>` and inspect
   with `orch --remote <addr> daemon repo list`.
-- Continue supporting path-based behavior for local daemon transport.
+- Do not reintroduce path-derived project identity on either local or remote transport.
 
 ### Validation
 

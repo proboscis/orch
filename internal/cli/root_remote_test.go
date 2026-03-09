@@ -239,6 +239,16 @@ func TestDefaultGetAPIWithOptionsRemoteAllowsExplicitProjectFlag(t *testing.T) {
 	}
 }
 
+func TestNormalizeProjectIdentityInputRejectsFilesystemPath(t *testing.T) {
+	_, err := normalizeProjectIdentityInput("/tmp/example-repo")
+	if err == nil {
+		t.Fatal("expected filesystem path to be rejected")
+	}
+	if !strings.Contains(err.Error(), "filesystem path") {
+		t.Fatalf("expected filesystem path guidance, got: %v", err)
+	}
+}
+
 func TestDefaultGetAPIWithOptionsLocalAllowsGitDerivedProjectIdentity(t *testing.T) {
 	withRepoProjectScope(t)
 
@@ -266,7 +276,7 @@ func TestDefaultGetAPIWithOptionsLocalAllowsGitDerivedProjectIdentity(t *testing
 func TestResolveExplicitProjectScopeAcceptsImplicitCWDScope(t *testing.T) {
 	withRepoProjectScope(t)
 
-	root, err := resolveExplicitProjectScope("", "--repo-root")
+	root, err := resolveExplicitProjectScope("", "--project")
 	if err != nil {
 		t.Fatalf("expected cwd repo scope to pass: %v", err)
 	}
@@ -278,7 +288,7 @@ func TestResolveExplicitProjectScopeAcceptsImplicitCWDScope(t *testing.T) {
 func TestResolveExplicitProjectScopeAcceptsScopeFlagValue(t *testing.T) {
 	withNoProjectScope(t)
 
-	root, err := resolveExplicitProjectScope("/tmp/example-repo", "--repo-root")
+	root, err := resolveExplicitProjectScope("/tmp/example-repo", "--project")
 	if err != nil {
 		t.Fatalf("expected explicit scope value to pass: %v", err)
 	}
@@ -290,7 +300,7 @@ func TestResolveExplicitProjectScopeAcceptsScopeFlagValue(t *testing.T) {
 func TestResolveExplicitProjectScopeRejectsOutsideRepo(t *testing.T) {
 	withNoProjectScope(t)
 
-	_, err := resolveExplicitProjectScope("", "--repo-root")
+	_, err := resolveExplicitProjectScope("", "--project")
 	if err == nil {
 		t.Fatal("expected scope error outside repo")
 	}

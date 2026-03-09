@@ -7,6 +7,17 @@ import (
 	"github.com/s22625/orch/internal/orchapi"
 )
 
+func TestRestartFromCommandDoesNotExposePathSelectorFlags(t *testing.T) {
+	cmd := newRestartFromCmd()
+
+	if flag := cmd.Flags().Lookup("repo-root"); flag != nil {
+		t.Fatalf("unexpected repo-root flag: %#v", flag)
+	}
+	if flag := cmd.Flags().Lookup("worktree-dir"); flag != nil {
+		t.Fatalf("unexpected worktree-dir flag: %#v", flag)
+	}
+}
+
 func TestApplyContinueConfigDefaultsLocalFallback(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

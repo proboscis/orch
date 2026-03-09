@@ -39,6 +39,7 @@ func TestManagedServerStoreCRUD(t *testing.T) {
 
 	startedAt := time.Now().Add(-1 * time.Minute).UTC().Truncate(time.Second)
 	record := managedServerRecord{
+		RepoID:      "repo-a",
 		ProjectRoot: "/tmp/project-a",
 		PID:         12345,
 		Port:        4096,
@@ -57,6 +58,9 @@ func TestManagedServerStoreCRUD(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(rows))
 	}
+	if rows[0].RepoID != record.RepoID {
+		t.Fatalf("expected repo_id %q, got %q", record.RepoID, rows[0].RepoID)
+	}
 	if rows[0].ProjectRoot != record.ProjectRoot {
 		t.Fatalf("expected project_root %q, got %q", record.ProjectRoot, rows[0].ProjectRoot)
 	}
@@ -65,7 +69,7 @@ func TestManagedServerStoreCRUD(t *testing.T) {
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)
-	if err := store.UpdateLastHealthy(record.ProjectRoot, now); err != nil {
+	if err := store.UpdateLastHealthy(record.RepoID, now); err != nil {
 		t.Fatalf("UpdateLastHealthy() error = %v", err)
 	}
 
@@ -80,7 +84,7 @@ func TestManagedServerStoreCRUD(t *testing.T) {
 		t.Fatal("expected non-zero last_healthy after update")
 	}
 
-	if err := store.Delete(record.ProjectRoot); err != nil {
+	if err := store.Delete(record.RepoID); err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
 
@@ -146,6 +150,7 @@ func TestReconcileManagedServersOnStartupAdoptsHealthyServer(t *testing.T) {
 	defer store.Close()
 
 	if err := store.Upsert(managedServerRecord{
+		RepoID:      "repo-adopt",
 		ProjectRoot: projectRoot,
 		PID:         proc.Process.Pid,
 		Port:        port,
@@ -161,9 +166,9 @@ func TestReconcileManagedServersOnStartupAdoptsHealthyServer(t *testing.T) {
 		t.Fatalf("reconcileManagedServersOnStartup() error = %v", err)
 	}
 
-	srv, ok := server.openCodeServers[projectRoot]
+	srv, ok := server.openCodeServers["repo-adopt"]
 	if !ok {
-		t.Fatalf("expected adopted server entry for %s", projectRoot)
+		t.Fatalf("expected adopted server entry for %s", "repo-adopt")
 	}
 	if !srv.Adopted {
 		t.Fatal("expected adopted server flag to be true")
@@ -198,6 +203,7 @@ func TestReconcileManagedServersOnStartupRemovesDeadRecord(t *testing.T) {
 
 	deadPID := nonExistentPID()
 	if err := store.Upsert(managedServerRecord{
+		RepoID:      "repo-dead",
 		ProjectRoot: "/tmp/orch-worktree-dead",
 		PID:         deadPID,
 		Port:        4099,
@@ -245,6 +251,7 @@ func TestReconcileManagedServersOnStartupKillsUnhealthyProcess(t *testing.T) {
 	defer store.Close()
 
 	if err := store.Upsert(managedServerRecord{
+		RepoID:      "repo-unhealthy",
 		ProjectRoot: "/tmp/orch-worktree-unhealthy",
 		PID:         pid,
 		Port:        port,

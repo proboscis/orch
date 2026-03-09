@@ -98,6 +98,17 @@ func TestBuildAgentPromptDefault(t *testing.T) {
 	}
 }
 
+func TestRunCommandDoesNotExposePathSelectorFlags(t *testing.T) {
+	cmd := newRunCmd()
+
+	if flag := cmd.Flags().Lookup("repo-root"); flag != nil {
+		t.Fatalf("unexpected repo-root flag: %#v", flag)
+	}
+	if flag := cmd.Flags().Lookup("worktree-dir"); flag != nil {
+		t.Fatalf("unexpected worktree-dir flag: %#v", flag)
+	}
+}
+
 func TestBuildAgentPromptWithBaseBranch(t *testing.T) {
 	issue := &model.Issue{
 		ID:    "orch-1",

@@ -90,3 +90,17 @@ func TestRunDaemonKillProjectFlagWarnsButIgnored(t *testing.T) {
 		t.Fatalf("expected deprecation warning, got: %s", errOut)
 	}
 }
+
+func TestDaemonRepoRegisterCommandUsesRepoURLIdentity(t *testing.T) {
+	cmd := newDaemonRepoRegisterCmd()
+
+	if cmd.Use != "register REPO_URL" {
+		t.Fatalf("Use = %q, want %q", cmd.Use, "register REPO_URL")
+	}
+	if !strings.Contains(strings.ToLower(cmd.Short), "repository url") {
+		t.Fatalf("Short = %q, want repository URL guidance", cmd.Short)
+	}
+	if strings.Contains(strings.ToLower(cmd.Short), "project root") {
+		t.Fatalf("Short should not mention project root, got %q", cmd.Short)
+	}
+}

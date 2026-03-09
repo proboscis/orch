@@ -17,7 +17,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -268,9 +267,41 @@ func newTestServer(t *testing.T, st store.Store) *SocketServer {
 	}
 	server := NewSocketServer(factory, logger)
 	if st != nil {
-		server.RegisterRepo("/test/project", st)
+		registerRepoContextForTest(t, server, testProjectID, testProjectRoot, st)
 	}
 	return server
+}
+
+func registerRepoContextForTest(t *testing.T, server *SocketServer, repoID, projectRoot string, st store.Store) {
+	t.Helper()
+
+	if _, err := server.registerRepoContext(repoID, projectRoot, "", st); err != nil {
+		t.Fatalf("register repo context: %v", err)
+	}
+}
+
+func createGitRepoWithOrigin(t *testing.T, remoteURL string) string {
+	t.Helper()
+
+	repo := t.TempDir()
+	if remoteURL == "" {
+		remoteURL = fmt.Sprintf("https://github.com/example/%s.git", filepath.Base(repo))
+	}
+
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command(args[0], args[1:]...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%s failed: %v (%s)", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		}
+	}
+
+	run("git", "init", repo)
+	run("git", "-C", repo, "config", "user.email", "test@example.com")
+	run("git", "-C", repo, "config", "user.name", "Test User")
+	run("git", "-C", repo, "remote", "add", "origin", remoteURL)
+
+	return repo
 }
 
 func TestSocketServerStartStop(t *testing.T) {
@@ -334,7 +365,7 @@ func TestWithWorkerLeaseUsesEmbeddedDispatcherRPCPath(t *testing.T) {
 		}
 	}()
 
-	projectID := derivePortableRepoID("/test/project")
+	projectID := testProjectID
 	if _, err := server.withWorkerLease(projectID, "stop_run", issueID, runID, nil); err != nil {
 		t.Fatalf("withWorkerLease() error = %v", err)
 	}
@@ -495,7 +526,7 @@ func TestProtoStartRunUsesExternalWorkerResultJSON(t *testing.T) {
 	defer cleanup()
 
 	projectRoot := "/test/project"
-	projectID := derivePortableRepoID(projectRoot)
+	projectID := testProjectID
 	st := &mockStore{
 		runs: make(map[string]*model.Run),
 		issues: map[string]*model.Issue{
@@ -575,7 +606,7 @@ func TestProtoContinueRunUsesExternalWorkerResultJSON(t *testing.T) {
 	defer cleanup()
 
 	projectRoot := "/test/project"
-	projectID := derivePortableRepoID(projectRoot)
+	projectID := testProjectID
 	st := &mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}}
 
 	server := newTestServer(t, st)
@@ -757,6 +788,10 @@ func TestProcessSendOpenCodeReturnsAfterAck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to find repo root: %v", err)
 	}
+	repoID, err := xdg.RepoIDStrict(projectRoot)
+	if err != nil {
+		t.Fatalf("failed to resolve repo id: %v", err)
+	}
 
 	const bodyDelay = 600 * time.Millisecond
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -779,7 +814,8 @@ func TestProcessSendOpenCodeReturnsAfterAck(t *testing.T) {
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
-	server.openCodeServers[projectRoot] = &managedServer{
+	server.openCodeServers[repoID] = &managedServer{
+		RepoID:      repoID,
 		ProjectRoot: projectRoot,
 		Port:        getPortFromURL(t, testServer.URL),
 		WaitResult:  make(chan error, 1),
@@ -817,6 +853,10 @@ func TestProcessSendOpenCodeTimesOutPromptlyWithoutAck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to find repo root: %v", err)
 	}
+	repoID, err := xdg.RepoIDStrict(projectRoot)
+	if err != nil {
+		t.Fatalf("failed to resolve repo id: %v", err)
+	}
 
 	const ackDelay = 300 * time.Millisecond
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -836,7 +876,8 @@ func TestProcessSendOpenCodeTimesOutPromptlyWithoutAck(t *testing.T) {
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
-	server.openCodeServers[projectRoot] = &managedServer{
+	server.openCodeServers[repoID] = &managedServer{
+		RepoID:      repoID,
 		ProjectRoot: projectRoot,
 		Port:        getPortFromURL(t, testServer.URL),
 		WaitResult:  make(chan error, 1),
@@ -876,6 +917,10 @@ func TestProcessSendOpenCodeAckTimeoutButQueuedMessageSucceeds(t *testing.T) {
 	projectRoot, err := git.FindRepoRoot(".")
 	if err != nil {
 		t.Fatalf("failed to find repo root: %v", err)
+	}
+	repoID, err := xdg.RepoIDStrict(projectRoot)
+	if err != nil {
+		t.Fatalf("failed to resolve repo id: %v", err)
 	}
 
 	const ackDelay = 300 * time.Millisecond
@@ -935,7 +980,8 @@ func TestProcessSendOpenCodeAckTimeoutButQueuedMessageSucceeds(t *testing.T) {
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
-	server.openCodeServers[projectRoot] = &managedServer{
+	server.openCodeServers[repoID] = &managedServer{
+		RepoID:      repoID,
 		ProjectRoot: projectRoot,
 		Port:        getPortFromURL(t, testServer.URL),
 		WaitResult:  make(chan error, 1),
@@ -998,8 +1044,7 @@ func TestIsDaemonSocketAvailable(t *testing.T) {
 
 const testProjectRoot = "/test/project"
 const testIssuesRoot = "/test/issues"
-
-var testProjectID = derivePortableRepoID(testProjectRoot)
+const testProjectID = "test-project"
 
 func ensureRequestContext(req *orchpb.Request) {
 	if req == nil || req.Request == nil {
@@ -1995,7 +2040,7 @@ func TestResolveStoreWithProjectRoot(t *testing.T) {
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
-	server.RegisterRepo("/project/root", st)
+	registerRepoContextForTest(t, server, "project-root", "/project/root", st)
 
 	resolved := server.resolveStore(SendRequest{ProjectRoot: "/project/root"})
 	if resolved == nil {
@@ -2063,10 +2108,8 @@ func TestResolveProjectRootPrecedence(t *testing.T) {
 	server := NewSocketServer(nil, logger)
 
 	repoStore := &mockStore{runs: make(map[string]*model.Run), issues: make(map[string]*model.Issue)}
-	repoID, err := server.RegisterRepo("/daemon/project", repoStore)
-	if err != nil {
-		t.Fatalf("failed to register repo: %v", err)
-	}
+	repoID := "daemon-project"
+	registerRepoContextForTest(t, server, repoID, "/daemon/project", repoStore)
 
 	if got := server.resolveProjectRoot(SendRequest{ProjectRoot: "/request/project", RepoID: repoID}); got != "/request/project" {
 		t.Fatalf("expected request project root precedence, got %q", got)
@@ -2109,7 +2152,7 @@ func TestEnsureRepoStoreByIDUsesRegisteredProjectRoot(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	repoID := deriveRepoID(projectRoot)
+	repoID := "repo-store-by-id"
 	server.reposMu.Lock()
 	server.repos[repoID] = &RepoContext{ProjectRoot: projectRoot, RepoID: repoID}
 	server.reposMu.Unlock()
@@ -2158,7 +2201,7 @@ func TestEnsureRepoContextByIDDoesNotFallbackToEnvProjectRoot(t *testing.T) {
 	}
 
 	t.Setenv("ORCH_PROJECT", projectRoot)
-	repoID := deriveRepoID(projectRoot)
+	repoID := "missing-project"
 	if got := server.ensureRepoContextByID(repoID); got != nil {
 		t.Fatalf("expected nil context without registry mapping, got %#v", got)
 	}
@@ -2174,13 +2217,13 @@ func TestRepoRegistryPersistenceAcrossServerInstances(t *testing.T) {
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
 
-	projectRoot := "/srv/repos/orch"
+	projectRoot := createGitRepoWithOrigin(t, "https://github.com/example/orch.git")
 	resp := server.handleProtoRegisterRepo(&orchpb.RegisterRepoRequest{ProjectRoot: projectRoot})
 	if !resp.Ok {
 		t.Fatalf("register repo failed: %s", resp.Error)
 	}
 
-	repoID := deriveRepoID(projectRoot)
+	repoID := "example-orch"
 	projectCfgPath := filepath.Join(xdg.ConfigDir(), "projects", repoID+".yaml")
 	data, err := os.ReadFile(projectCfgPath)
 	if err != nil {
@@ -2339,11 +2382,11 @@ func TestOpenCodeServerLogPathIsPerProjectRoot(t *testing.T) {
 	}
 }
 
-func writeStoredOpenCodeControlSession(t *testing.T, projectRoot, sessionID, modelName, modelVariant string) {
+func writeStoredOpenCodeControlSession(t *testing.T, repoID, sessionID, modelName, modelVariant string) {
 	t.Helper()
-	orchDir := filepath.Join(projectRoot, ".orch")
-	if err := os.MkdirAll(orchDir, 0755); err != nil {
-		t.Fatalf("failed to create .orch dir: %v", err)
+	sessionPath := controlSessionPathForRepoID(repoID)
+	if err := os.MkdirAll(filepath.Dir(sessionPath), 0755); err != nil {
+		t.Fatalf("failed to create control session dir: %v", err)
 	}
 	data, err := json.Marshal(controlSessionRecord{
 		SessionID:    sessionID,
@@ -2355,14 +2398,14 @@ func writeStoredOpenCodeControlSession(t *testing.T, projectRoot, sessionID, mod
 	if err != nil {
 		t.Fatalf("failed to marshal stored control session: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(orchDir, "control-session.json"), data, 0644); err != nil {
+	if err := os.WriteFile(sessionPath, data, 0644); err != nil {
 		t.Fatalf("failed to write stored control session: %v", err)
 	}
 }
 
-func readStoredOpenCodeControlSession(t *testing.T, projectRoot string) controlSessionRecord {
+func readStoredOpenCodeControlSession(t *testing.T, repoID string) controlSessionRecord {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(projectRoot, ".orch", "control-session.json"))
+	data, err := os.ReadFile(controlSessionPathForRepoID(repoID))
 	if err != nil {
 		t.Fatalf("failed to read stored control session: %v", err)
 	}
@@ -2376,9 +2419,10 @@ func readStoredOpenCodeControlSession(t *testing.T, projectRoot string) controlS
 
 func TestGetOrCreateOpenCodeControlSessionReusesExisting(t *testing.T) {
 	projectRoot := t.TempDir()
+	repoID := "project-ctx"
 	modelName := "openai/gpt-5.3-codex"
 	modelVariant := "xhigh"
-	writeStoredOpenCodeControlSession(t, projectRoot, "ses_existing", modelName, modelVariant)
+	writeStoredOpenCodeControlSession(t, repoID, "ses_existing", modelName, modelVariant)
 
 	var mu sync.Mutex
 	getCalls := 0
@@ -2418,6 +2462,7 @@ func TestGetOrCreateOpenCodeControlSessionReusesExisting(t *testing.T) {
 	defer ts.Close()
 
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	server.repos[repoID] = &RepoContext{RepoID: repoID, ProjectRoot: projectRoot}
 	port := getPortFromURL(t, ts.URL)
 	sessionID, _, err := server.getOrCreateOpenCodeControlSession(projectRoot, port, modelName, modelVariant)
 	if err != nil {
@@ -2426,7 +2471,7 @@ func TestGetOrCreateOpenCodeControlSessionReusesExisting(t *testing.T) {
 	if sessionID != "ses_existing" {
 		t.Fatalf("expected existing session to be reused, got %q", sessionID)
 	}
-	stored := readStoredOpenCodeControlSession(t, projectRoot)
+	stored := readStoredOpenCodeControlSession(t, repoID)
 	if stored.Port != port {
 		t.Fatalf("expected stored port %d after reuse, got %d", port, stored.Port)
 	}
@@ -2449,9 +2494,10 @@ func TestGetOrCreateOpenCodeControlSessionReusesExisting(t *testing.T) {
 
 func TestGetOrCreateOpenCodeControlSessionRecoversAfterServerRestart(t *testing.T) {
 	projectRoot := t.TempDir()
+	repoID := "project-ctx"
 	modelName := "openai/gpt-5.3-codex"
 	modelVariant := "xhigh"
-	writeStoredOpenCodeControlSession(t, projectRoot, "ses_stale", modelName, modelVariant)
+	writeStoredOpenCodeControlSession(t, repoID, "ses_stale", modelName, modelVariant)
 
 	var mu sync.Mutex
 	getCalls := 0
@@ -2511,6 +2557,7 @@ func TestGetOrCreateOpenCodeControlSessionRecoversAfterServerRestart(t *testing.
 	defer ts.Close()
 
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	server.repos[repoID] = &RepoContext{RepoID: repoID, ProjectRoot: projectRoot}
 	port := getPortFromURL(t, ts.URL)
 	sessionID, _, err := server.getOrCreateOpenCodeControlSession(projectRoot, port, modelName, modelVariant)
 	if err != nil {
@@ -2520,7 +2567,7 @@ func TestGetOrCreateOpenCodeControlSessionRecoversAfterServerRestart(t *testing.
 		t.Fatalf("expected recovered control session %q, got %q", "ses_control_new", sessionID)
 	}
 
-	stored := readStoredOpenCodeControlSession(t, projectRoot)
+	stored := readStoredOpenCodeControlSession(t, repoID)
 	if stored.SessionID != "ses_control_new" {
 		t.Fatalf("expected stored session ID to be updated to recovered ID, got %q", stored.SessionID)
 	}
@@ -2552,9 +2599,10 @@ func TestGetOrCreateOpenCodeControlSessionRecoversAfterServerRestart(t *testing.
 
 func TestGetOrCreateOpenCodeControlSessionCreatesWhenRecoveryFindsNoSession(t *testing.T) {
 	projectRoot := t.TempDir()
+	repoID := "project-ctx"
 	modelName := "openai/gpt-5.3-codex"
 	modelVariant := "xhigh"
-	writeStoredOpenCodeControlSession(t, projectRoot, "ses_stale", modelName, modelVariant)
+	writeStoredOpenCodeControlSession(t, repoID, "ses_stale", modelName, modelVariant)
 
 	var mu sync.Mutex
 	getCalls := 0
@@ -2634,6 +2682,7 @@ func TestGetOrCreateOpenCodeControlSessionCreatesWhenRecoveryFindsNoSession(t *t
 	defer ts.Close()
 
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	server.repos[repoID] = &RepoContext{RepoID: repoID, ProjectRoot: projectRoot}
 	port := getPortFromURL(t, ts.URL)
 	sessionID, _, err := server.getOrCreateOpenCodeControlSession(projectRoot, port, modelName, modelVariant)
 	if err != nil {
@@ -2650,7 +2699,7 @@ func TestGetOrCreateOpenCodeControlSessionCreatesWhenRecoveryFindsNoSession(t *t
 		t.Fatal("timed out waiting for initial control prompt request")
 	}
 
-	stored := readStoredOpenCodeControlSession(t, projectRoot)
+	stored := readStoredOpenCodeControlSession(t, repoID)
 	if stored.SessionID != "ses_brand_new" {
 		t.Fatalf("expected stored session ID to be updated to new ID, got %q", stored.SessionID)
 	}
@@ -2704,7 +2753,8 @@ func TestGetOrCreateOpenCodeControlSessionCreatesWhenRecoveryFindsNoSession(t *t
 
 func TestGetOrCreateOpenCodeControlSessionCreatesNewWhenStoredModelMismatches(t *testing.T) {
 	projectRoot := t.TempDir()
-	writeStoredOpenCodeControlSession(t, projectRoot, "ses_old", "anthropic/claude-opus-4-5", "high")
+	repoID := "project-ctx"
+	writeStoredOpenCodeControlSession(t, repoID, "ses_old", "anthropic/claude-opus-4-5", "high")
 
 	modelName := "openai/gpt-5.3-codex"
 	modelVariant := "xhigh"
@@ -2755,6 +2805,7 @@ func TestGetOrCreateOpenCodeControlSessionCreatesNewWhenStoredModelMismatches(t 
 	defer ts.Close()
 
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	server.repos[repoID] = &RepoContext{RepoID: repoID, ProjectRoot: projectRoot}
 	port := getPortFromURL(t, ts.URL)
 	sessionID, _, err := server.getOrCreateOpenCodeControlSession(projectRoot, port, modelName, modelVariant)
 	if err != nil {
@@ -2770,7 +2821,7 @@ func TestGetOrCreateOpenCodeControlSessionCreatesNewWhenStoredModelMismatches(t 
 		t.Fatal("timed out waiting for initial prompt on newly created session")
 	}
 
-	stored := readStoredOpenCodeControlSession(t, projectRoot)
+	stored := readStoredOpenCodeControlSession(t, repoID)
 	if stored.SessionID != "ses_fresh" {
 		t.Fatalf("expected stored session to be refreshed, got %q", stored.SessionID)
 	}
@@ -2793,6 +2844,7 @@ func TestGetOrCreateOpenCodeControlSessionCreatesNewWhenStoredModelMismatches(t 
 
 func TestResolvedControlModelAndVariantReachOpenCodeInitialPrompt(t *testing.T) {
 	projectRoot := t.TempDir()
+	repoID := "project-ctx"
 	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0755); err != nil {
 		t.Fatalf("failed to create .orch dir: %v", err)
 	}
@@ -2848,6 +2900,7 @@ opencode:
 	defer ts.Close()
 
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	server.repos[repoID] = &RepoContext{RepoID: repoID, ProjectRoot: projectRoot}
 	_, _, err = server.getOrCreateOpenCodeControlSession(projectRoot, getPortFromURL(t, ts.URL), modelName, modelVariant)
 	if err != nil {
 		t.Fatalf("getOrCreateOpenCodeControlSession() error = %v", err)
@@ -2880,9 +2933,10 @@ func TestRegisterRepoAPI(t *testing.T) {
 	}
 	defer server.Stop()
 
+	projectRoot := createGitRepoWithOrigin(t, "https://github.com/example/register-repo.git")
 	resp := sendProtoRequest(t, &orchpb.Request{
 		Request: &orchpb.Request_RegisterRepo{
-			RegisterRepo: &orchpb.RegisterRepoRequest{ProjectRoot: "/new/project/path"},
+			RegisterRepo: &orchpb.RegisterRepoRequest{ProjectRoot: projectRoot},
 		},
 	})
 
@@ -2898,48 +2952,67 @@ func TestRegisterRepoAPI(t *testing.T) {
 	}
 }
 
+func TestRegisterRepoAPIRejectsPathWithoutRemote(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_RegisterRepo{
+			RegisterRepo: &orchpb.RegisterRepoRequest{ProjectRoot: t.TempDir()},
+		},
+	})
+
+	if resp.Ok {
+		t.Fatal("expected register repo to fail for path without remote origin")
+	}
+	if !strings.Contains(resp.Error, "project identity required") {
+		t.Fatalf("expected project identity guidance, got: %s", resp.Error)
+	}
+}
+
 func TestDeriveRepoID(t *testing.T) {
-	t.Run("fallback produces basename-<8hex> for non-git path", func(t *testing.T) {
+	t.Run("returns empty for non-git path", func(t *testing.T) {
 		got := deriveRepoID("/tmp/not-a-git-repo/my-project")
-		pattern := regexp.MustCompile(`^my-project-[0-9a-f]{8}$`)
-		if !pattern.MatchString(got) {
-			t.Errorf("deriveRepoID for non-git path = %q, want format my-project-<8hex>", got)
+		if got != "" {
+			t.Errorf("deriveRepoID for non-git path = %q, want empty", got)
 		}
 	})
 
-	t.Run("never returns empty string", func(t *testing.T) {
-		testPaths := []string{
-			"/Users/test/repos/my-project",
-			"/tmp/some-path",
-			"/single",
-		}
-		for _, path := range testPaths {
-			got := deriveRepoID(path)
-			if got == "" {
-				t.Errorf("deriveRepoID(%q) returned empty string", path)
-			}
+	t.Run("returns repo id from git remote", func(t *testing.T) {
+		projectRoot := createGitRepoWithOrigin(t, "https://github.com/example/my-project.git")
+		if got := deriveRepoID(projectRoot); got != "example-my-project" {
+			t.Fatalf("deriveRepoID(%q) = %q, want %q", projectRoot, got, "example-my-project")
 		}
 	})
 
 	t.Run("handles path with trailing slash", func(t *testing.T) {
-		withSlash := deriveRepoID("/tmp/not-a-git-repo/another-project/")
-		withoutSlash := deriveRepoID("/tmp/not-a-git-repo/another-project")
+		projectRoot := createGitRepoWithOrigin(t, "https://github.com/example/another-project.git")
+		withSlash := deriveRepoID(projectRoot + string(os.PathSeparator))
+		withoutSlash := deriveRepoID(projectRoot)
 		if withSlash != withoutSlash {
 			t.Errorf("trailing slash should not change ID: %q != %q", withSlash, withoutSlash)
 		}
 	})
 
-	t.Run("different paths produce different IDs", func(t *testing.T) {
-		id1 := deriveRepoID("/path/to/project-a")
-		id2 := deriveRepoID("/path/to/project-b")
+	t.Run("different remotes produce different IDs", func(t *testing.T) {
+		id1 := deriveRepoID(createGitRepoWithOrigin(t, "https://github.com/example/project-a.git"))
+		id2 := deriveRepoID(createGitRepoWithOrigin(t, "https://github.com/example/project-b.git"))
 		if id1 == id2 {
-			t.Errorf("different paths should produce different IDs: %q == %q", id1, id2)
+			t.Errorf("different remotes should produce different IDs: %q == %q", id1, id2)
 		}
 	})
 
-	t.Run("same path produces same ID", func(t *testing.T) {
-		id1 := deriveRepoID("/path/to/my-project")
-		id2 := deriveRepoID("/path/to/my-project")
+	t.Run("same repo path produces same ID", func(t *testing.T) {
+		projectRoot := createGitRepoWithOrigin(t, "https://github.com/example/my-project.git")
+		id1 := deriveRepoID(projectRoot)
+		id2 := deriveRepoID(projectRoot)
 		if id1 != id2 {
 			t.Errorf("same path should produce same ID: %q != %q", id1, id2)
 		}
@@ -2947,21 +3020,17 @@ func TestDeriveRepoID(t *testing.T) {
 }
 
 func TestDeriveRepoIDNoBasenameCollision(t *testing.T) {
-	// Two repos at different paths but sharing the same basename
-	// must produce different IDs
-	idA := deriveRepoID("/work/client-a/orch")
-	idB := deriveRepoID("/work/client-b/orch")
+	idA := deriveRepoID(createGitRepoWithOrigin(t, "https://github.com/client-a/orch.git"))
+	idB := deriveRepoID(createGitRepoWithOrigin(t, "https://github.com/client-b/orch.git"))
 	if idA == idB {
-		t.Errorf("same-basename paths produced same ID: %q", idA)
+		t.Errorf("same-basename repos produced same ID: %q", idA)
 	}
 
-	// Both should match the orch-<8hex> format (basename-hash from xdg.RepoID)
-	pattern := regexp.MustCompile(`^orch-[0-9a-f]{8}$`)
-	if !pattern.MatchString(idA) {
-		t.Errorf("deriveRepoID(/work/client-a/orch) = %q, want format orch-<8hex>", idA)
+	if idA != "client-a-orch" {
+		t.Errorf("deriveRepoID(client-a/orch) = %q, want %q", idA, "client-a-orch")
 	}
-	if !pattern.MatchString(idB) {
-		t.Errorf("deriveRepoID(/work/client-b/orch) = %q, want format orch-<8hex>", idB)
+	if idB != "client-b-orch" {
+		t.Errorf("deriveRepoID(client-b/orch) = %q, want %q", idB, "client-b-orch")
 	}
 }
 
@@ -2972,7 +3041,7 @@ func TestListReposAPI(t *testing.T) {
 	st := &mockStore{runs: make(map[string]*model.Run), issues: make(map[string]*model.Issue)}
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
-	server.RegisterRepo("/test/project", st)
+	registerRepoContextForTest(t, server, testProjectID, testProjectRoot, st)
 	if err := server.Start(); err != nil {
 		t.Fatalf("failed to start server: %v", err)
 	}
@@ -3899,6 +3968,72 @@ func TestProtoContinueRunWithoutProjectRootDoesNotFallbackToEnv(t *testing.T) {
 	}
 }
 
+func TestProtoRunRequestsDoNotRouteByProjectRootWithoutProjectContext(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	st := &mockStore{
+		runs: map[string]*model.Run{},
+		issues: map[string]*model.Issue{
+			"test-issue": {
+				ID:     "test-issue",
+				Title:  "Test issue",
+				Status: model.IssueStatusOpen,
+				Path:   "/test/issues/test-issue.md",
+			},
+		},
+	}
+
+	server := newTestServer(t, st)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	tests := []struct {
+		name string
+		req  *orchpb.Request
+	}{
+		{
+			name: "start-run",
+			req: &orchpb.Request{
+				Request: &orchpb.Request_StartRun{
+					StartRun: &orchpb.StartRunRequest{
+						IssueId:     "test-issue",
+						ProjectRoot: testProjectRoot,
+						Context:     &orchpb.RequestContext{},
+					},
+				},
+			},
+		},
+		{
+			name: "continue-run",
+			req: &orchpb.Request{
+				Request: &orchpb.Request_ContinueRun{
+					ContinueRun: &orchpb.ContinueRunRequest{
+						IssueId:     "test-issue",
+						ProjectRoot: testProjectRoot,
+						RepoRoot:    testProjectRoot,
+						Context:     &orchpb.RequestContext{},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := sendProtoRequest(t, tt.req)
+			if resp.Ok {
+				t.Fatal("expected error response")
+			}
+			if resp.Error != "no store available" {
+				t.Fatalf("expected no store available, got %q", resp.Error)
+			}
+		})
+	}
+}
+
 func TestGetConfigWithoutProjectRootDoesNotFallbackToEnv(t *testing.T) {
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
@@ -3921,8 +4056,156 @@ func TestGetConfigWithoutProjectRootDoesNotFallbackToEnv(t *testing.T) {
 	if resp.Ok {
 		t.Fatal("expected error response")
 	}
-	if resp.Error != "project_root required" {
-		t.Fatalf("expected project_root required, got: %s", resp.Error)
+	if resp.Error != "project_id required" {
+		t.Fatalf("expected project_id required, got: %s", resp.Error)
+	}
+}
+
+func TestGetConfigWithRequestContextProjectID(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	projectRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0o755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	configYAML := []byte("agent: opencode\nmodel: example/model\n")
+	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), configYAML, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	registerRepoContextForTest(t, server, "project-ctx", projectRoot, nil)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_GetConfig{
+			GetConfig: &orchpb.GetConfigRequest{Context: &orchpb.RequestContext{ProjectId: "project-ctx"}},
+		},
+	})
+
+	if !resp.Ok {
+		t.Fatalf("expected ok response, got error: %s", resp.Error)
+	}
+	cfgResp := resp.GetGetConfig()
+	if cfgResp == nil {
+		t.Fatal("expected GetConfig response payload")
+	}
+	if cfgResp.Agent != "opencode" {
+		t.Fatalf("expected agent opencode, got %q", cfgResp.Agent)
+	}
+	if cfgResp.Model != "example/model" {
+		t.Fatalf("expected model example/model, got %q", cfgResp.Model)
+	}
+}
+
+func TestGetControlAgentConfigWithRequestContextProjectID(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	projectRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0o755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	configYAML := []byte("agent: opencode\ncontrol_agent: opencode\ncontrol_model: example/control\ncontrol_model_variant: fast\n")
+	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), configYAML, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	st := &mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}}
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	registerRepoContextForTest(t, server, "project-ctx", projectRoot, st)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_GetControlAgentConfig{
+			GetControlAgentConfig: &orchpb.GetControlAgentConfigRequest{Context: &orchpb.RequestContext{ProjectId: "project-ctx"}},
+		},
+	})
+
+	if !resp.Ok {
+		t.Fatalf("expected ok response, got error: %s", resp.Error)
+	}
+	cfgResp := resp.GetGetControlAgentConfig()
+	if cfgResp == nil {
+		t.Fatal("expected GetControlAgentConfig response payload")
+	}
+	if cfgResp.Agent != "opencode" {
+		t.Fatalf("expected agent opencode, got %q", cfgResp.Agent)
+	}
+	if cfgResp.Model != "example/control" {
+		t.Fatalf("expected control model example/control, got %q", cfgResp.Model)
+	}
+	if cfgResp.ModelVariant != "fast" {
+		t.Fatalf("expected control model variant fast, got %q", cfgResp.ModelVariant)
+	}
+	if strings.TrimSpace(cfgResp.PromptContent) == "" {
+		t.Fatal("expected non-empty prompt content")
+	}
+}
+
+func TestEnsureOpenCodeServerWithoutProjectContextDoesNotFallbackToEnv(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	t.Setenv("ORCH_PROJECT", "repoid:should-not-be-used")
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_EnsureOpencodeServer{
+			EnsureOpencodeServer: &orchpb.EnsureOpenCodeServerRequest{Context: &orchpb.RequestContext{}},
+		},
+	})
+
+	if resp.Ok {
+		t.Fatal("expected error response")
+	}
+	if resp.Error != "project_id required" {
+		t.Fatalf("expected project_id required, got: %s", resp.Error)
+	}
+}
+
+func TestEnsureOpenCodeServerWithUnknownProjectContextDoesNotFallbackToEnv(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	t.Setenv("ORCH_PROJECT", "repoid:should-not-be-used")
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_EnsureOpencodeServer{
+			EnsureOpencodeServer: &orchpb.EnsureOpenCodeServerRequest{
+				Context: &orchpb.RequestContext{ProjectId: "missing-project"},
+			},
+		},
+	})
+
+	if resp.Ok {
+		t.Fatal("expected error response")
+	}
+	expected := `unknown project_id "missing-project" (register daemon project mapping)`
+	if resp.Error != expected {
+		t.Fatalf("expected %q, got %q", expected, resp.Error)
 	}
 }
 
@@ -4116,7 +4399,7 @@ func TestControlAgentProtoHandlersRequireRegisteredProjectMapping(t *testing.T) 
 	defer server.Stop()
 
 	projectRoot := "/tmp/missing-control-project"
-	projectID := deriveRepoID(projectRoot)
+	projectID := "missing-control-project"
 	missing := &orchpb.RequestContext{ProjectId: projectID}
 
 	t.Run("get-control-agent-config", func(t *testing.T) {

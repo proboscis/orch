@@ -1,9 +1,6 @@
 package daemon
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
 func TestRepoIDTokenEncodeDecode(t *testing.T) {
 	token := encodeRepoIDToken("owner-repo")
@@ -25,24 +22,47 @@ func TestRepoIDTokenEncodeDecode(t *testing.T) {
 }
 
 func TestNewProtoClientWithAddressRemoteUsesRepoIDToken(t *testing.T) {
-	client := NewProtoClientWithAddress("/tmp/project", "zeus:7777")
+	projectRoot := createGitRepoWithOrigin(t, "https://github.com/example/remote-project.git")
+	client := NewProtoClientWithAddress(projectRoot, "zeus:7777")
 
-	if !strings.HasPrefix(client.projectRoot, "repoid:") {
-		t.Fatalf("projectRoot = %q, want repoid token", client.projectRoot)
+	if client.projectRoot != "repoid:example-remote-project" {
+		t.Fatalf("projectRoot = %q, want %q", client.projectRoot, "repoid:example-remote-project")
 	}
 }
 
-func TestProjectRootForRequestRemoteEncodesPath(t *testing.T) {
+func TestProjectRootForRequestRemoteOmitsCompatibilityField(t *testing.T) {
 	client := NewProtoClientWithAddress("/tmp/project", "zeus:7777")
 
 	encoded := client.projectRootForRequest("/tmp/other-project")
-	if !strings.HasPrefix(encoded, "repoid:") {
-		t.Fatalf("projectRootForRequest(path) = %q, want repoid token", encoded)
+	if encoded != "" {
+		t.Fatalf("projectRootForRequest(path) = %q, want empty", encoded)
 	}
 
 	passthrough := client.projectRootForRequest(client.projectRoot)
-	if passthrough != client.projectRoot {
-		t.Fatalf("projectRootForRequest(token) = %q, want %q", passthrough, client.projectRoot)
+	if passthrough != "" {
+		t.Fatalf("projectRootForRequest(token) = %q, want empty", passthrough)
+	}
+}
+
+func TestNewProtoClientWithAddressRemoteClearsUnknownPathIdentity(t *testing.T) {
+	client := NewProtoClientWithAddress("/tmp/project", "zeus:7777")
+
+	if client.projectRoot != "" {
+		t.Fatalf("projectRoot = %q, want empty", client.projectRoot)
+	}
+	if got := client.projectIDForRequest("/tmp/project"); got != "" {
+		t.Fatalf("projectIDForRequest(path) = %q, want empty", got)
+	}
+	if ctx := client.requestContext("/tmp/project"); ctx != nil {
+		t.Fatalf("requestContext(path) = %#v, want nil", ctx)
+	}
+}
+
+func TestProjectIDForRequestRemoteUsesStoredRepoIDToken(t *testing.T) {
+	client := NewProtoClientWithAddress("repoid:server-repo", "zeus:7777")
+
+	if got := client.projectIDForRequest(""); got != "server-repo" {
+		t.Fatalf("projectIDForRequest(\"\") = %q, want %q", got, "server-repo")
 	}
 }
 

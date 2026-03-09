@@ -1,8 +1,6 @@
 package daemon
 
 import (
-	"crypto/sha256"
-	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -12,13 +10,49 @@ import (
 const repoIDTokenPrefix = "repoid:"
 
 func derivePortableRepoID(projectRoot string) string {
-	repoID, err := xdg.RepoID(projectRoot)
-	if err != nil || repoID == "" {
-		cleaned := filepath.Clean(projectRoot)
-		h := sha256.Sum256([]byte(cleaned))
-		return fmt.Sprintf("repo-%x", h[:4])
+	repoID, err := xdg.RepoIDStrict(projectRoot)
+	if err != nil {
+		return ""
 	}
-	return repoID
+	return strings.TrimSpace(repoID)
+}
+
+func repoIDFromProjectSelector(value string) string {
+	target := strings.TrimSpace(value)
+	if target == "" {
+		return ""
+	}
+	if repoID, ok := decodeRepoIDToken(target); ok {
+		return repoID
+	}
+	if repoID := derivePortableRepoID(target); repoID != "" {
+		return repoID
+	}
+	if looksLikeRepoURL(target) {
+		repoID, err := xdg.ParseRepoID(target)
+		if err == nil {
+			return strings.TrimSpace(repoID)
+		}
+		return ""
+	}
+	if looksLikeFilesystemPath(target) {
+		return ""
+	}
+	return target
+}
+
+func looksLikeFilesystemPath(value string) bool {
+	target := strings.TrimSpace(value)
+	if target == "" {
+		return false
+	}
+	if filepath.IsAbs(target) {
+		return true
+	}
+	if target == "." || target == ".." {
+		return true
+	}
+	return strings.HasPrefix(target, "./") || strings.HasPrefix(target, "../") || strings.Contains(target, "/") || strings.Contains(target, "\\")
 }
 
 func encodeRepoIDToken(repoID string) string {

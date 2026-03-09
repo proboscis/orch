@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -265,15 +266,47 @@ func normalizeProjectIdentityInput(project string) (string, error) {
 		project = strings.TrimSpace(strings.TrimPrefix(project, "repoid:"))
 	}
 
-	if strings.Contains(project, "/") || strings.Contains(project, "://") || strings.HasPrefix(project, "git@") {
+	if looksLikeProjectRepoURL(project) {
 		normalized, err := xdg.ParseRepoID(project)
 		if err != nil {
 			return "", fmt.Errorf("invalid project identity %q: %w", project, err)
 		}
 		return normalized, nil
 	}
+	if looksLikeProjectPath(project) {
+		return "", fmt.Errorf("project identity %q looks like a filesystem path; use git repo URL or normalized repo ID", project)
+	}
 
 	return project, nil
+}
+
+func looksLikeProjectRepoURL(project string) bool {
+	value := strings.TrimSpace(project)
+	if value == "" {
+		return false
+	}
+	if strings.HasPrefix(value, "git@") || strings.Contains(value, "://") {
+		return true
+	}
+	if strings.HasPrefix(value, "github.com/") || strings.HasPrefix(value, "gitlab.com/") {
+		return true
+	}
+	parts := strings.Split(value, "/")
+	return len(parts) >= 3 && strings.Contains(parts[0], ".")
+}
+
+func looksLikeProjectPath(project string) bool {
+	value := strings.TrimSpace(project)
+	if value == "" {
+		return false
+	}
+	if filepath.IsAbs(value) {
+		return true
+	}
+	if value == "." || value == ".." {
+		return true
+	}
+	return strings.HasPrefix(value, "./") || strings.HasPrefix(value, "../") || strings.Contains(value, "/") || strings.Contains(value, "\\")
 }
 
 func resolveRequestProjectScope(projectRoot string) (string, error) {

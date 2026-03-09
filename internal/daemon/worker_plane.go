@@ -407,7 +407,11 @@ func (s *SocketServer) ensureRepoContextForProject(projectID, projectRoot string
 
 	repoID := strings.TrimSpace(projectID)
 	if repoID == "" {
-		repoID = derivePortableRepoID(projectRoot)
+		var err error
+		repoID, err = s.repoIDForProjectRoot(projectRoot)
+		if err != nil {
+			return nil
+		}
 	}
 
 	s.reposMu.Lock()

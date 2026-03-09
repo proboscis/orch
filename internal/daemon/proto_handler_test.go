@@ -965,8 +965,8 @@ func TestDaemonStartedExternalWorkerHandlesStartRunEndToEnd(t *testing.T) {
 	}
 	defer server.Stop()
 	projectRoot := "/test/project"
-	projectID := derivePortableRepoID(projectRoot)
-	server.RegisterRepo(projectRoot, st)
+	projectID := "project-start-daemon"
+	registerRepoContextForTest(t, server, projectID, projectRoot, st)
 
 	startResp := server.handleProtoStartExternalWorker(&orchpb.StartExternalWorkerRequest{WorkerId: "managed-worker-start"})
 	if !startResp.GetOk() {
@@ -1024,8 +1024,8 @@ func TestDaemonStartedExternalWorkerHandlesContinueRunEndToEnd(t *testing.T) {
 	}
 	defer server.Stop()
 	projectRoot := "/test/project"
-	projectID := derivePortableRepoID(projectRoot)
-	server.RegisterRepo(projectRoot, st)
+	projectID := "project-continue-daemon"
+	registerRepoContextForTest(t, server, projectID, projectRoot, st)
 
 	startResp := server.handleProtoStartExternalWorker(&orchpb.StartExternalWorkerRequest{WorkerId: "managed-worker-continue"})
 	if !startResp.GetOk() {

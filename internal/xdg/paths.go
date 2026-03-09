@@ -3,7 +3,6 @@
 package xdg
 
 import (
-	"crypto/sha256"
 	"fmt"
 	"os"
 	"os/exec"
@@ -169,28 +168,19 @@ func EnsureDataDir() error {
 	return EnsureDir(DataDir(), 0755)
 }
 
-// RepoID derives a repo identifier from the git remote URL.
+// RepoID derives a repo identifier strictly from the git remote URL.
 // Returns "owner-repo" format (e.g., "proboscis-orch").
-// Falls back to directory name if no git remote is found.
 func RepoID(projectRoot string) (string, error) {
-	// Try to get remote URL
-	cmd := exec.Command("git", "-C", projectRoot, "config", "--get", "remote.origin.url")
-	output, err := cmd.Output()
-	if err != nil {
-		// Fallback to directory name with path-derived hash suffix
-		// to avoid collisions when different repos share the same basename
-		cleaned := filepath.Clean(projectRoot)
-		h := sha256.Sum256([]byte(cleaned))
-		return fmt.Sprintf("%s-%x", filepath.Base(cleaned), h[:4]), nil
-	}
-
-	remoteURL := strings.TrimSpace(string(output))
-	return ParseRepoID(remoteURL)
+	return repoIDFromRemote(projectRoot)
 }
 
 // RepoIDStrict derives repo identifier strictly from git remote URL.
 // Unlike RepoID, it does not fall back to a path-derived identifier.
 func RepoIDStrict(projectRoot string) (string, error) {
+	return repoIDFromRemote(projectRoot)
+}
+
+func repoIDFromRemote(projectRoot string) (string, error) {
 	cmd := exec.Command("git", "-C", projectRoot, "config", "--get", "remote.origin.url")
 	output, err := cmd.Output()
 	if err != nil {

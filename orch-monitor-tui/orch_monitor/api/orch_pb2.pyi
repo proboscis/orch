@@ -944,10 +944,12 @@ class AppendEventResponse(_message.Message):
     def __init__(self, skipped: _Optional[bool] = ..., reason: _Optional[str] = ...) -> None: ...
 
 class EnsureOpenCodeServerRequest(_message.Message):
-    __slots__ = ("project_root",)
+    __slots__ = ("project_root", "context")
     PROJECT_ROOT_FIELD_NUMBER: _ClassVar[int]
+    CONTEXT_FIELD_NUMBER: _ClassVar[int]
     project_root: str
-    def __init__(self, project_root: _Optional[str] = ...) -> None: ...
+    context: RequestContext
+    def __init__(self, project_root: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
 
 class EnsureOpenCodeServerResponse(_message.Message):
     __slots__ = ("port", "already_running")

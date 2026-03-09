@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,6 +23,7 @@ type managedServerStore struct {
 }
 
 type managedServerRecord struct {
+	RepoID      string
 	ProjectRoot string
 	PID         int
 	Port        int
@@ -63,18 +65,11 @@ func (s *managedServerStore) migrate() error {
 	if s == nil || s.db == nil {
 		return fmt.Errorf("managed server store is not initialized")
 	}
+	if err := s.migrateManagedServersTable(); err != nil {
+		return err
+	}
 
 	schema := `
-	CREATE TABLE IF NOT EXISTS managed_servers (
-		project_root TEXT PRIMARY KEY,
-		pid          INTEGER NOT NULL,
-		port         INTEGER NOT NULL,
-		log_path     TEXT,
-		started_at   TEXT NOT NULL,
-		last_healthy TEXT
-	);
-	CREATE INDEX IF NOT EXISTS idx_managed_servers_port ON managed_servers(port);
-
 	CREATE TABLE IF NOT EXISTS events (
 		seq            INTEGER PRIMARY KEY AUTOINCREMENT,
 		stream_type    TEXT NOT NULL,
@@ -133,11 +128,159 @@ func (s *managedServerStore) migrate() error {
 	return nil
 }
 
+func (s *managedServerStore) migrateManagedServersTable() error {
+	const schema = `
+	CREATE TABLE IF NOT EXISTS managed_servers (
+		repo_id      TEXT PRIMARY KEY,
+		project_root TEXT NOT NULL,
+		pid          INTEGER NOT NULL,
+		port         INTEGER NOT NULL,
+		log_path     TEXT,
+		started_at   TEXT NOT NULL,
+		last_healthy TEXT
+	);
+	CREATE INDEX IF NOT EXISTS idx_managed_servers_port ON managed_servers(port);
+	CREATE INDEX IF NOT EXISTS idx_managed_servers_project_root ON managed_servers(project_root);
+	`
+
+	columns, err := s.tableColumns("managed_servers")
+	if err != nil {
+		return err
+	}
+	if len(columns) == 0 {
+		if _, err := s.db.Exec(schema); err != nil {
+			return fmt.Errorf("failed to create managed_servers table: %w", err)
+		}
+		return nil
+	}
+	if _, ok := columns["repo_id"]; ok {
+		if _, err := s.db.Exec(schema); err != nil {
+			return fmt.Errorf("failed to ensure managed_servers indexes: %w", err)
+		}
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin managed_servers migration: %w", err)
+	}
+	defer func() {
+		if tx != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if _, err := tx.Exec(`
+		CREATE TABLE managed_servers_v2 (
+			repo_id      TEXT PRIMARY KEY,
+			project_root TEXT NOT NULL,
+			pid          INTEGER NOT NULL,
+			port         INTEGER NOT NULL,
+			log_path     TEXT,
+			started_at   TEXT NOT NULL,
+			last_healthy TEXT
+		)
+	`); err != nil {
+		return fmt.Errorf("create managed_servers_v2: %w", err)
+	}
+
+	rows, err := tx.Query(`SELECT project_root, pid, port, log_path, started_at, last_healthy FROM managed_servers`)
+	if err != nil {
+		return fmt.Errorf("read legacy managed_servers rows: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			projectRoot string
+			pid         int
+			port        int
+			logPath     sql.NullString
+			startedAt   string
+			lastHealthy sql.NullString
+		)
+		if err := rows.Scan(&projectRoot, &pid, &port, &logPath, &startedAt, &lastHealthy); err != nil {
+			return fmt.Errorf("scan legacy managed_servers row: %w", err)
+		}
+
+		repoID, err := xdg.RepoIDStrict(projectRoot)
+		if err != nil || strings.TrimSpace(repoID) == "" {
+			continue
+		}
+
+		if _, err := tx.Exec(`
+			INSERT INTO managed_servers_v2 (repo_id, project_root, pid, port, log_path, started_at, last_healthy)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(repo_id) DO UPDATE SET
+				project_root = excluded.project_root,
+				pid = excluded.pid,
+				port = excluded.port,
+				log_path = excluded.log_path,
+				started_at = excluded.started_at,
+				last_healthy = excluded.last_healthy
+		`, strings.TrimSpace(repoID), projectRoot, pid, port, nullStringValue(logPath), startedAt, nullStringValue(lastHealthy)); err != nil {
+			return fmt.Errorf("migrate managed_servers row for %s: %w", projectRoot, err)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate legacy managed_servers rows: %w", err)
+	}
+
+	if _, err := tx.Exec(`DROP TABLE managed_servers`); err != nil {
+		return fmt.Errorf("drop legacy managed_servers table: %w", err)
+	}
+	if _, err := tx.Exec(`ALTER TABLE managed_servers_v2 RENAME TO managed_servers`); err != nil {
+		return fmt.Errorf("rename managed_servers_v2: %w", err)
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_managed_servers_port ON managed_servers(port)`); err != nil {
+		return fmt.Errorf("create managed_servers port index: %w", err)
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_managed_servers_project_root ON managed_servers(project_root)`); err != nil {
+		return fmt.Errorf("create managed_servers project_root index: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit managed_servers migration: %w", err)
+	}
+	tx = nil
+	return nil
+}
+
+func (s *managedServerStore) tableColumns(table string) (map[string]struct{}, error) {
+	rows, err := s.db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return nil, fmt.Errorf("pragma table_info(%s): %w", table, err)
+	}
+	defer rows.Close()
+
+	columns := make(map[string]struct{})
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			colType    string
+			notNull    int
+			defaultVal sql.NullString
+			pk         int
+		)
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &defaultVal, &pk); err != nil {
+			return nil, fmt.Errorf("scan table_info(%s): %w", table, err)
+		}
+		columns[name] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate table_info(%s): %w", table, err)
+	}
+	return columns, nil
+}
+
 func (s *managedServerStore) Upsert(record managedServerRecord) error {
 	if s == nil || s.db == nil {
 		return fmt.Errorf("managed server store is not initialized")
 	}
 
+	if strings.TrimSpace(record.RepoID) == "" {
+		return fmt.Errorf("repo_id is required")
+	}
 	if record.ProjectRoot == "" {
 		return fmt.Errorf("project_root is required")
 	}
@@ -154,9 +297,10 @@ func (s *managedServerStore) Upsert(record managedServerRecord) error {
 	}
 
 	query := `
-	INSERT INTO managed_servers (project_root, pid, port, log_path, started_at, last_healthy)
-	VALUES (?, ?, ?, ?, ?, ?)
-	ON CONFLICT(project_root) DO UPDATE SET
+	INSERT INTO managed_servers (repo_id, project_root, pid, port, log_path, started_at, last_healthy)
+	VALUES (?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(repo_id) DO UPDATE SET
+		project_root = excluded.project_root,
 		pid = excluded.pid,
 		port = excluded.port,
 		log_path = excluded.log_path,
@@ -166,6 +310,7 @@ func (s *managedServerStore) Upsert(record managedServerRecord) error {
 
 	_, err := s.db.Exec(
 		query,
+		record.RepoID,
 		record.ProjectRoot,
 		record.PID,
 		record.Port,
@@ -174,39 +319,39 @@ func (s *managedServerStore) Upsert(record managedServerRecord) error {
 		nullableTimestamp(record.LastHealthy),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to upsert managed server for %s: %w", record.ProjectRoot, err)
+		return fmt.Errorf("failed to upsert managed server for %s: %w", record.RepoID, err)
 	}
 
 	return nil
 }
 
-func (s *managedServerStore) Delete(projectRoot string) error {
+func (s *managedServerStore) Delete(repoID string) error {
 	if s == nil || s.db == nil {
 		return fmt.Errorf("managed server store is not initialized")
 	}
-	if projectRoot == "" {
+	if repoID == "" {
 		return nil
 	}
 
-	if _, err := s.db.Exec(`DELETE FROM managed_servers WHERE project_root = ?`, projectRoot); err != nil {
-		return fmt.Errorf("failed to delete managed server for %s: %w", projectRoot, err)
+	if _, err := s.db.Exec(`DELETE FROM managed_servers WHERE repo_id = ?`, repoID); err != nil {
+		return fmt.Errorf("failed to delete managed server for %s: %w", repoID, err)
 	}
 	return nil
 }
 
-func (s *managedServerStore) UpdateLastHealthy(projectRoot string, at time.Time) error {
+func (s *managedServerStore) UpdateLastHealthy(repoID string, at time.Time) error {
 	if s == nil || s.db == nil {
 		return fmt.Errorf("managed server store is not initialized")
 	}
-	if projectRoot == "" {
+	if repoID == "" {
 		return nil
 	}
 	if at.IsZero() {
 		at = time.Now()
 	}
 
-	if _, err := s.db.Exec(`UPDATE managed_servers SET last_healthy = ? WHERE project_root = ?`, at.Format(managedServerTimestampLayout), projectRoot); err != nil {
-		return fmt.Errorf("failed to update last_healthy for %s: %w", projectRoot, err)
+	if _, err := s.db.Exec(`UPDATE managed_servers SET last_healthy = ? WHERE repo_id = ?`, at.Format(managedServerTimestampLayout), repoID); err != nil {
+		return fmt.Errorf("failed to update last_healthy for %s: %w", repoID, err)
 	}
 	return nil
 }
@@ -216,7 +361,7 @@ func (s *managedServerStore) List() ([]managedServerRecord, error) {
 		return nil, fmt.Errorf("managed server store is not initialized")
 	}
 
-	rows, err := s.db.Query(`SELECT project_root, pid, port, log_path, started_at, last_healthy FROM managed_servers ORDER BY project_root`)
+	rows, err := s.db.Query(`SELECT repo_id, project_root, pid, port, log_path, started_at, last_healthy FROM managed_servers ORDER BY repo_id`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list managed servers: %w", err)
 	}
@@ -228,7 +373,7 @@ func (s *managedServerStore) List() ([]managedServerRecord, error) {
 		var startedAt string
 		var lastHealthy sql.NullString
 
-		if err := rows.Scan(&rec.ProjectRoot, &rec.PID, &rec.Port, &rec.LogPath, &startedAt, &lastHealthy); err != nil {
+		if err := rows.Scan(&rec.RepoID, &rec.ProjectRoot, &rec.PID, &rec.Port, &rec.LogPath, &startedAt, &lastHealthy); err != nil {
 			return nil, fmt.Errorf("failed to scan managed server row: %w", err)
 		}
 
@@ -276,6 +421,13 @@ func parseNullableManagedServerTimestamp(value sql.NullString) time.Time {
 	return parseManagedServerTimestamp(value.String)
 }
 
+func nullStringValue(value sql.NullString) any {
+	if !value.Valid {
+		return nil
+	}
+	return value.String
+}
+
 func (s *SocketServer) initManagedServerStore() error {
 	if s.managedServerStore != nil {
 		return nil
@@ -311,6 +463,7 @@ func (s *SocketServer) persistManagedServerStart(srv *managedServer) error {
 	}
 
 	record := managedServerRecord{
+		RepoID:      srv.RepoID,
 		ProjectRoot: srv.ProjectRoot,
 		PID:         serverPID(srv),
 		Port:        srv.Port,
@@ -321,23 +474,23 @@ func (s *SocketServer) persistManagedServerStart(srv *managedServer) error {
 	return s.managedServerStore.Upsert(record)
 }
 
-func (s *SocketServer) deleteManagedServerRecord(projectRoot string) {
-	if s.managedServerStore == nil || projectRoot == "" {
+func (s *SocketServer) deleteManagedServerRecord(repoID string) {
+	if s.managedServerStore == nil || repoID == "" {
 		return
 	}
 
-	if err := s.managedServerStore.Delete(projectRoot); err != nil && s.logger != nil {
-		s.logger.Printf("warning: failed to delete managed server record for %s: %v", projectRoot, err)
+	if err := s.managedServerStore.Delete(repoID); err != nil && s.logger != nil {
+		s.logger.Printf("warning: failed to delete managed server record for %s: %v", repoID, err)
 	}
 }
 
-func (s *SocketServer) updateManagedServerHealth(projectRoot string, at time.Time) {
-	if s.managedServerStore == nil || projectRoot == "" {
+func (s *SocketServer) updateManagedServerHealth(repoID string, at time.Time) {
+	if s.managedServerStore == nil || repoID == "" {
 		return
 	}
 
-	if err := s.managedServerStore.UpdateLastHealthy(projectRoot, at); err != nil && s.logger != nil {
-		s.logger.Printf("warning: failed to update managed server health for %s: %v", projectRoot, err)
+	if err := s.managedServerStore.UpdateLastHealthy(repoID, at); err != nil && s.logger != nil {
+		s.logger.Printf("warning: failed to update managed server health for %s: %v", repoID, err)
 	}
 }
 
@@ -363,27 +516,27 @@ func (s *SocketServer) reconcileManagedServersOnStartup() error {
 }
 
 func (s *SocketServer) reconcileManagedServerRecord(record managedServerRecord, adoptedPorts map[int]string) {
-	if record.ProjectRoot == "" || record.PID <= 0 || record.Port <= 0 {
-		s.deleteManagedServerRecord(record.ProjectRoot)
+	if record.RepoID == "" || record.ProjectRoot == "" || record.PID <= 0 || record.Port <= 0 {
+		s.deleteManagedServerRecord(record.RepoID)
 		return
 	}
 
-	if projectRoot, exists := adoptedPorts[record.Port]; exists && projectRoot != record.ProjectRoot {
+	if repoID, exists := adoptedPorts[record.Port]; exists && repoID != record.RepoID {
 		if s.logger != nil {
-			s.logger.Printf("startup recovery: port %d already adopted for %s; removing duplicate managed server record for %s", record.Port, projectRoot, record.ProjectRoot)
+			s.logger.Printf("startup recovery: port %d already adopted for %s; removing duplicate managed server record for %s", record.Port, repoID, record.RepoID)
 		}
 		if err := s.terminateServerProcessByPID(record.PID, 5*time.Second); err != nil && s.logger != nil {
-			s.logger.Printf("warning: failed to terminate duplicate server process pid=%d for %s: %v", record.PID, record.ProjectRoot, err)
+			s.logger.Printf("warning: failed to terminate duplicate server process pid=%d for %s: %v", record.PID, record.RepoID, err)
 		}
-		s.deleteManagedServerRecord(record.ProjectRoot)
+		s.deleteManagedServerRecord(record.RepoID)
 		return
 	}
 
 	if !IsProcessRunning(record.PID) {
 		if s.logger != nil {
-			s.logger.Printf("startup recovery: removing stale managed server record for %s (pid=%d dead)", record.ProjectRoot, record.PID)
+			s.logger.Printf("startup recovery: removing stale managed server record for %s (pid=%d dead)", record.RepoID, record.PID)
 		}
-		s.deleteManagedServerRecord(record.ProjectRoot)
+		s.deleteManagedServerRecord(record.RepoID)
 		return
 	}
 
@@ -394,15 +547,15 @@ func (s *SocketServer) reconcileManagedServerRecord(record managedServerRecord, 
 
 	if !healthy {
 		if s.logger != nil {
-			s.logger.Printf("startup recovery: managed server pid=%d for %s unhealthy on port %d; terminating", record.PID, record.ProjectRoot, record.Port)
+			s.logger.Printf("startup recovery: managed server pid=%d for %s unhealthy on port %d; terminating", record.PID, record.RepoID, record.Port)
 		}
 		if err := s.terminateServerProcessByPID(record.PID, 5*time.Second); err != nil {
 			if s.logger != nil {
-				s.logger.Printf("warning: failed to terminate unhealthy managed server pid=%d for %s: %v", record.PID, record.ProjectRoot, err)
+				s.logger.Printf("warning: failed to terminate unhealthy managed server pid=%d for %s: %v", record.PID, record.RepoID, err)
 			}
 			return
 		}
-		s.deleteManagedServerRecord(record.ProjectRoot)
+		s.deleteManagedServerRecord(record.RepoID)
 		return
 	}
 
@@ -411,7 +564,8 @@ func (s *SocketServer) reconcileManagedServerRecord(record managedServerRecord, 
 		lastHealthy = time.Now()
 	}
 
-	s.openCodeServers[record.ProjectRoot] = &managedServer{
+	s.openCodeServers[record.RepoID] = &managedServer{
+		RepoID:      record.RepoID,
 		ProjectRoot: record.ProjectRoot,
 		Port:        record.Port,
 		PID:         record.PID,
@@ -420,11 +574,11 @@ func (s *SocketServer) reconcileManagedServerRecord(record managedServerRecord, 
 		LogPath:     record.LogPath,
 		Adopted:     true,
 	}
-	adoptedPorts[record.Port] = record.ProjectRoot
-	s.updateManagedServerHealth(record.ProjectRoot, lastHealthy)
+	adoptedPorts[record.Port] = record.RepoID
+	s.updateManagedServerHealth(record.RepoID, lastHealthy)
 
 	if s.logger != nil {
-		s.logger.Printf("startup recovery: re-adopted opencode server for %s on port %d (pid: %d)", record.ProjectRoot, record.Port, record.PID)
+		s.logger.Printf("startup recovery: re-adopted opencode server for %s on port %d (pid: %d)", record.RepoID, record.Port, record.PID)
 	}
 }
 

@@ -66,19 +66,23 @@ Remote clients MUST NOT rely on client-local absolute paths for daemon store
 resolution. The daemon process is global and may run on a different machine with
 different filesystem paths.
 
-Remote requests use a portable project identity derived from repo ID:
+Remote requests use a portable project identity carried in
+`RequestContext.project_id`:
 
 ```
 repoid:<repo-id>
 ```
 
-Where `<repo-id>` is derived from Git remote metadata (or deterministic fallback).
+Where `<repo-id>` is derived from explicit project identity input or Git remote
+metadata. Path-derived fallbacks are not allowed.
 
-- Client side: when `--remote` is active, request context fields are encoded as
-  `repoid:<repo-id>` tokens instead of local absolute paths.
-- Daemon side: token values are resolved to server-local project context using
-  the daemon repo registry (`repo_id -> project_root`).
-- Local mode remains path-based and unchanged.
+- Client side: when `--remote` is active, the client sends
+  `RequestContext.project_id`; legacy `project_root` fields are compatibility or
+  operational fields only.
+- Daemon side: `project_id` resolves server-local project context using the
+  daemon repo registry (`repo_id -> project_root`).
+- Local mode may still discover a project root from cwd, but daemon identity is
+  still `project_id`, not the directory path.
 
 ### Server Repo Registry
 
@@ -86,7 +90,7 @@ Remote daemons maintain a repo registry (`repo_id -> server project_root`).
 Clients can register mappings explicitly:
 
 ```bash
-orch --remote zeus:7777 daemon repo register /srv/repos/orch
+orch --remote zeus:7777 daemon repo register https://github.com/acme/orch.git
 orch --remote zeus:7777 daemon repo list
 ```
 
@@ -237,7 +241,8 @@ New proto message:
 
 ```protobuf
 message GetControlAgentConfigRequest {
-    string project_root = 1;
+    string project_root = 1; // legacy compatibility field
+    RequestContext context = 2;
 }
 
 message GetControlAgentConfigResponse {

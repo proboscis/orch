@@ -240,9 +240,9 @@ uv run python -m orch_monitor
 
 The TUI respects the same configuration as the Go `orch` CLI:
 
-- `ORCH_PROJECT` environment variable (project identity; path-like values are accepted for local compatibility)
+- `ORCH_PROJECT` environment variable (project identity: repo URL or normalized repo ID)
 - `.orch/config.yaml` found by searching upward from current directory
-- `.orch/config.yaml` in the selected project root
+- `.orch/config.yaml` in the selected project workspace
 
 ## Architecture
 

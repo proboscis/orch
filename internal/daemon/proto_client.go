@@ -48,16 +48,12 @@ func NewProtoClientWithAddress(projectRoot, daemonAddr string) *ProtoClient {
 	trimmedProjectRoot := strings.TrimSpace(projectRoot)
 
 	if remoteAddr != "" && trimmedProjectRoot != "" {
-		repoID := ""
-		if id, ok := decodeRepoIDToken(trimmedProjectRoot); ok {
-			repoID = id
-		} else {
-			repoID = derivePortableRepoID(trimmedProjectRoot)
-		}
-
+		repoID := repoIDFromProjectSelector(trimmedProjectRoot)
 		repoToken := encodeRepoIDToken(repoID)
 		if repoToken != "" {
 			trimmedProjectRoot = repoToken
+		} else {
+			trimmedProjectRoot = ""
 		}
 	}
 
@@ -74,20 +70,14 @@ func (c *ProtoClient) SetWorkerAuthToken(token string) {
 }
 
 func (c *ProtoClient) projectRootForRequest(projectRoot string) string {
-	if strings.TrimSpace(c.daemonAddr) == "" {
-		return strings.TrimSpace(projectRoot)
-	}
 	target := strings.TrimSpace(projectRoot)
 	if target == "" {
 		target = strings.TrimSpace(c.projectRoot)
 	}
-	if repoID, ok := decodeRepoIDToken(target); ok {
-		return encodeRepoIDToken(repoID)
-	}
-	if target == "" {
+	if strings.TrimSpace(c.daemonAddr) != "" {
 		return ""
 	}
-	return encodeRepoIDToken(derivePortableRepoID(target))
+	return target
 }
 
 func (c *ProtoClient) projectIDForRequest(projectRoot string) string {
@@ -103,7 +93,7 @@ func (c *ProtoClient) projectIDForRequest(projectRoot string) string {
 		return repoID
 	}
 
-	return derivePortableRepoID(target)
+	return repoIDFromProjectSelector(target)
 }
 
 func (c *ProtoClient) newRequestID() string {
@@ -1161,15 +1151,13 @@ func (c *ProtoClient) ListExternalWorkers() (*ListExternalWorkersResponse, error
 }
 
 func (c *ProtoClient) GetControlAgentLaunch(projectRoot, agentType string, newSession bool) (*GetControlAgentLaunchResponse, error) {
-	targetProjectRoot := c.projectRootForRequest(projectRoot)
-
 	req := &orchpb.Request{
 		Request: &orchpb.Request_GetControlAgentLaunch{
 			GetControlAgentLaunch: &orchpb.GetControlAgentLaunchRequest{
-				ProjectRoot: targetProjectRoot,
+				ProjectRoot: c.projectRootForRequest(projectRoot),
 				Agent:       agentType,
 				NewSession:  newSession,
-				Context:     c.requestContext(targetProjectRoot),
+				Context:     c.requestContext(projectRoot),
 			},
 		},
 	}
@@ -1198,13 +1186,11 @@ func (c *ProtoClient) GetControlAgentLaunch(projectRoot, agentType string, newSe
 }
 
 func (c *ProtoClient) GetControlAgentConfig(projectRoot string) (*GetControlAgentConfigResponse, error) {
-	targetProjectRoot := c.projectRootForRequest(projectRoot)
-
 	req := &orchpb.Request{
 		Request: &orchpb.Request_GetControlAgentConfig{
 			GetControlAgentConfig: &orchpb.GetControlAgentConfigRequest{
-				ProjectRoot: targetProjectRoot,
-				Context:     c.requestContext(targetProjectRoot),
+				ProjectRoot: c.projectRootForRequest(projectRoot),
+				Context:     c.requestContext(projectRoot),
 			},
 		},
 	}
@@ -1609,6 +1595,7 @@ func (c *ProtoClient) GetOpenCodeServer(projectRoot string) (*GetOpenCodeServerR
 		Request: &orchpb.Request_EnsureOpencodeServer{
 			EnsureOpencodeServer: &orchpb.EnsureOpenCodeServerRequest{
 				ProjectRoot: c.projectRootForRequest(projectRoot),
+				Context:     c.requestContext(projectRoot),
 			},
 		},
 	}
