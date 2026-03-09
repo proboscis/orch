@@ -9,10 +9,37 @@ import (
 	"time"
 )
 
+var currentHostname = os.Hostname
+
+func defaultWorkerID() string {
+	host, _ := currentHostname()
+	host = strings.TrimSpace(host)
+	if host == "" {
+		host = "localhost"
+	}
+
+	var b strings.Builder
+	for _, r := range host {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-', r == '_', r == '.':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	idHost := strings.Trim(b.String(), "-")
+	if idHost == "" {
+		idHost = "localhost"
+	}
+	return "host-" + idHost
+}
+
 func (s *SocketServer) startManagedExternalWorker(workerID string) (string, int, error) {
 	workerID = strings.TrimSpace(workerID)
 	if workerID == "" {
-		workerID = "external-" + generateMonitorID()[:8]
+		workerID = defaultWorkerID()
 	}
 
 	s.managedWorkersMu.RLock()

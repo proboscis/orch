@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -13,6 +14,8 @@ import (
 	"github.com/s22625/orch/internal/store"
 	filestore "github.com/s22625/orch/internal/store/file"
 )
+
+var currentWorkerHostname = os.Hostname
 
 type Client interface {
 	RegisterWorker(workerID, workerType, host, mode string) (*daemon.RegisterWorkerResponse, error)
@@ -58,13 +61,13 @@ func RunExternalLoop(client Client, cfg RunConfig) error {
 		heartbeatInterval = 5 * time.Second
 	}
 
-	host, _ := os.Hostname()
+	host, _ := currentWorkerHostname()
 	if host == "" {
 		host = "localhost"
 	}
 	workerID := cfg.WorkerID
 	if workerID == "" {
-		workerID = fmt.Sprintf("external-%s-%d", host, os.Getpid())
+		workerID = daemonDefaultWorkerID(host)
 	}
 
 	if capClient, ok := client.(capabilityRegisterClient); ok {
@@ -122,4 +125,28 @@ func RunExternalLoop(client Client, cfg RunConfig) error {
 			}
 		}
 	}
+}
+
+func daemonDefaultWorkerID(host string) string {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		host = "localhost"
+	}
+
+	var b strings.Builder
+	for _, r := range host {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-', r == '_', r == '.':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	idHost := strings.Trim(b.String(), "-")
+	if idHost == "" {
+		idHost = "localhost"
+	}
+	return "host-" + idHost
 }

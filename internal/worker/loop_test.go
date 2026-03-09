@@ -12,6 +12,10 @@ type mockClient struct {
 	acked       bool
 	lease       *daemon.WorkerLease
 	ackResult   string
+	workerID    string
+	workerType  string
+	host        string
+	mode        string
 	regErr      error
 	hbErr       error
 	leaseErr    error
@@ -34,6 +38,10 @@ func (m *mockClient) RegisterWorker(workerID, workerType, host, mode string) (*d
 	if m.regErr != nil {
 		return nil, m.regErr
 	}
+	m.workerID = workerID
+	m.workerType = workerType
+	m.host = host
+	m.mode = mode
 	m.registered = true
 	return &daemon.RegisterWorkerResponse{OK: true, WorkerID: workerID}, nil
 }
@@ -152,6 +160,29 @@ func TestRunExternalLoopRegistersCapabilitiesWhenSupported(t *testing.T) {
 	}
 	if len(client.capabilities) == 0 {
 		t.Fatal("expected capabilities to be sent during register")
+	}
+}
+
+func TestRunExternalLoopDefaultsWorkerIDToStableHostIdentity(t *testing.T) {
+	origNew := newLeaseExecutor
+	origHost := currentWorkerHostname
+	t.Cleanup(func() {
+		newLeaseExecutor = origNew
+		currentWorkerHostname = origHost
+	})
+	newLeaseExecutor = func() leaseExecutor { return &mockExecutor{} }
+	currentWorkerHostname = func() (string, error) { return "zeus", nil }
+
+	client := &mockClient{}
+	err := RunExternalLoop(client, RunConfig{Once: true, PollInterval: 10 * time.Millisecond, HeartbeatInterval: time.Second})
+	if err != nil {
+		t.Fatalf("RunExternalLoop() error = %v", err)
+	}
+	if !client.registered {
+		t.Fatal("expected worker registration")
+	}
+	if client.workerID != "host-zeus" {
+		t.Fatalf("workerID = %q, want %q", client.workerID, "host-zeus")
 	}
 }
 

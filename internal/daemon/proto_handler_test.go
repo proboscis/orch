@@ -874,6 +874,47 @@ func TestExternalWorkerLifecycleAPIStartListStop(t *testing.T) {
 	_ = server.handleProtoStopExternalWorker(&orchpb.StopExternalWorkerRequest{All: true})
 }
 
+func TestExternalWorkerLifecycleAPIStartWithoutWorkerIDIsIdempotentPerHost(t *testing.T) {
+	orig := currentHostname
+	currentHostname = func() (string, error) { return "zeus", nil }
+	t.Cleanup(func() { currentHostname = orig })
+
+	logger := &timingTestLogger{}
+	server := NewSocketServer(nil, logger)
+	server.workerLaunchConfig = func(workerID string) (string, []string, []string, error) {
+		return "/bin/sleep", []string{"/bin/sleep", "30"}, nil, nil
+	}
+
+	first := server.handleProtoStartExternalWorker(&orchpb.StartExternalWorkerRequest{})
+	if !first.GetOk() {
+		t.Fatalf("first start external worker failed: %s", first.GetError())
+	}
+	second := server.handleProtoStartExternalWorker(&orchpb.StartExternalWorkerRequest{})
+	if !second.GetOk() {
+		t.Fatalf("second start external worker failed: %s", second.GetError())
+	}
+
+	if first.GetStartExternalWorker().GetWorkerId() != "host-zeus" {
+		t.Fatalf("unexpected default worker id: %s", first.GetStartExternalWorker().GetWorkerId())
+	}
+	if second.GetStartExternalWorker().GetWorkerId() != first.GetStartExternalWorker().GetWorkerId() {
+		t.Fatalf("worker id changed across repeated start: %s vs %s", first.GetStartExternalWorker().GetWorkerId(), second.GetStartExternalWorker().GetWorkerId())
+	}
+	if second.GetStartExternalWorker().GetPid() != first.GetStartExternalWorker().GetPid() {
+		t.Fatalf("expected repeated start to reuse pid %d, got %d", first.GetStartExternalWorker().GetPid(), second.GetStartExternalWorker().GetPid())
+	}
+
+	listResp := server.handleProtoListExternalWorkers(&orchpb.ListExternalWorkersRequest{})
+	if !listResp.GetOk() {
+		t.Fatalf("list external workers failed: %s", listResp.GetError())
+	}
+	if got := len(listResp.GetListExternalWorkers().GetWorkers()); got != 1 {
+		t.Fatalf("external worker count = %d, want 1", got)
+	}
+
+	_ = server.handleProtoStopExternalWorker(&orchpb.StopExternalWorkerRequest{All: true})
+}
+
 func TestDaemonStartedExternalWorkerProcessesLeaseSuccessfully(t *testing.T) {
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
