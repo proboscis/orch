@@ -35,6 +35,9 @@ Treat both files together as the complete manual E2E suite:
 - `git` installed
 - `tmux` installed (for non-dry run session checks)
 - run from repo root (where `./cmd/orch` exists)
+- Unless otherwise noted, these examples assume the project uses the `local`
+  file backend via `issues.path`. If you use the GitHub backend instead,
+  replace manual issue-file creation with equivalent GitHub issue setup.
 
 ## 1) Create Isolated Sandbox
 
@@ -119,7 +122,9 @@ sleep 2
 
 Expected:
 
-- initial status reports `Status: not running`
+- initial `master status` reports `Status: not running`
+- initial `worker status` may report `No workers registered` before any worker
+  is started
 - after `master start`, status reports `Status: running`
 - `worker start` reports managed external worker process started (allow a short delay before `worker status`)
 
@@ -180,7 +185,7 @@ Expected:
 ## 7) Cleanup
 
 ```bash
-"$ORCH_BIN" worker stop || true
+"$ORCH_BIN" worker stop --all || true
 "$ORCH_BIN" master kill || true
 chmod -R u+w "$ROOT" || true
 rm -rf "$ROOT"
@@ -194,7 +199,8 @@ Target used in examples:
 
 - host: `zeus`
 - repo: `/home/kento/repos/doeff`
-- issues path: `/home/kento/repos/doeff-issues`
+- issues path: use the actual `issues.path` from `/home/kento/repos/doeff/.orch/config.yaml`
+  (for example `/home/kento/repos/doeff-VAULT`)
 
 ```bash
 TS="$(date +%Y%m%d-%H%M%S)"
@@ -204,7 +210,7 @@ E2E_ROOT="/tmp/orch-zeus-e2e-$TS"
 
 ssh zeus "mkdir -p $E2E_ROOT/runtime $E2E_ROOT/state $E2E_ROOT/data"
 
-ENV_PREFIX="XDG_RUNTIME_DIR=$E2E_ROOT/runtime XDG_STATE_HOME=$E2E_ROOT/state XDG_DATA_HOME=$E2E_ROOT/data"
+ENV_PREFIX="XDG_RUNTIME_DIR=$E2E_ROOT/runtime XDG_STATE_HOME=$E2E_ROOT/state XDG_DATA_HOME=$E2E_ROOT/data XDG_CONFIG_HOME=$E2E_ROOT/config"
 
 # launch master and worker on Zeus
 ssh zeus "$ENV_PREFIX orch master start"
@@ -213,7 +219,7 @@ ssh zeus "$ENV_PREFIX orch master status"
 ssh zeus "$ENV_PREFIX orch worker status"
 
 # create sample issue
-ssh zeus "cat > /home/kento/repos/doeff-issues/issues/$ISSUE_ID.md <<'EOF'
+ssh zeus "cat > /home/kento/repos/doeff-VAULT/issues/$ISSUE_ID.md <<'EOF'
 ---
 type: issue
 id: $ISSUE_ID
@@ -225,7 +231,12 @@ status: open
 EOF"
 
 # register repo mapping for strict project_id routing
-ssh zeus "$ENV_PREFIX orch daemon repo register https://github.com/proboscis/doeff.git"
+#
+# Preferred: register by repo URL.
+# If the managed clone created from the repo URL does not contain the required
+# project config (for example `.orch/config.yaml` is not committed), register
+# the operational project root instead.
+ssh zeus "$ENV_PREFIX orch daemon repo register /home/kento/repos/doeff"
 
 # runtime commands use repo identity scope
 PROJECT_ID="proboscis-doeff"
@@ -246,7 +257,7 @@ gh pr create --repo proboscis/doeff --title 'chore(e2e): sample zeus run $ISSUE_
 EOF
 chmod +x /tmp/orch-zeus-agent-$ISSUE_ID.sh"
 
-ssh zeus "$ENV_PREFIX orch --project $PROJECT_ID run $ISSUE_ID --run-id $RUN_ID --agent custom --agent-cmd 'bash /tmp/orch-zeus-agent-$ISSUE_ID.sh' --json"
+ssh zeus "$ENV_PREFIX bash -lc 'cd /home/kento/repos/doeff && orch --project $PROJECT_ID run $ISSUE_ID --run-id $RUN_ID --agent custom --agent-cmd '\\''bash /tmp/orch-zeus-agent-$ISSUE_ID.sh'\\'' --json'"
 
 # find and close the sample PR
 BRANCH="issue/$ISSUE_ID/run-$RUN_ID"
@@ -257,8 +268,8 @@ ssh zeus "gh pr close <PR_NUMBER> --repo proboscis/doeff --comment 'Closing samp
 ssh zeus "$ENV_PREFIX orch --project $PROJECT_ID stop $ISSUE_ID#$RUN_ID --force"
 
 # cleanup
-ssh zeus "rm -f /home/kento/repos/doeff-issues/issues/$ISSUE_ID.md /tmp/orch-zeus-agent-$ISSUE_ID.sh"
-ssh zeus "$ENV_PREFIX orch worker stop"
+ssh zeus "rm -f /home/kento/repos/doeff-VAULT/issues/$ISSUE_ID.md /tmp/orch-zeus-agent-$ISSUE_ID.sh"
+ssh zeus "$ENV_PREFIX orch worker stop --all"
 ```
 
 Expected outcomes:
@@ -268,6 +279,12 @@ Expected outcomes:
 - a PR is created for the run branch
 - PR is closed successfully
 - `orch stop <issue#run>` succeeds
+- If you run Zeus in an isolated XDG sandbox, include `XDG_CONFIG_HOME` in the
+  environment prefix; otherwise daemon project mappings from `~/.config/orch/projects`
+  may leak into the test
+- For file-backend projects whose config is not committed into the repo clone,
+  repo-URL registration may be insufficient; use the operational project root
+  instead
 
 ## 9) Required Backend Coverage
 
@@ -305,9 +322,9 @@ Zeus, but the run itself executes on a Mac target instead of on Zeus.
 
 Additional prerequisites:
 
-- Zeus-side project config includes a `targets.mac` entry
-- the SSH host alias `mac` resolves from Zeus
-- the target Mac has the same repo cloned at the configured `targets.mac.repo`
+- Zeus-side project config includes a `targets` entry for the target Mac
+- the SSH host alias resolves from Zeus before running orch
+- the target Mac has the same repo cloned at the configured target `repo`
 - the target Mac has the required runtime dependencies installed (`git`, chosen
   multiplexer, agent binary)
 
@@ -315,7 +332,7 @@ Example target config on Zeus:
 
 ```yaml
 targets:
-  mac:
+  - name: mac
     host: mac
     repo: /Users/<user>/repos/doeff
 ```
@@ -345,6 +362,10 @@ EOF"
 ssh zeus 'orch daemon repo register /home/kento/repos/doeff'
 
 # run on the Mac target
+#
+# Run from the operational project root on Zeus so the daemon can discover the
+# correct project config for local-mode CLI execution before dispatching to the
+# remote target.
 ssh zeus "cd /home/kento/repos/doeff && orch --project $PROJECT_ID run $ISSUE_ID \
   --run-id $RUN_ID \
   --on mac \
@@ -371,6 +392,9 @@ Expected outcomes:
 - `ps --json` or attach metadata exposes non-empty `target_host`
 - `capture` output includes the custom marker (`mac-target-ready`) or target hostname
 - `stop` succeeds for the Mac-targeted run
+- If the target host cannot resolve the requested multiplexer in its remote SSH
+  PATH, expect session creation to fail with `failed to create tmux session` or
+  the equivalent multiplexer error
 
 This is the minimum manual check for the user story:
 
@@ -384,8 +408,12 @@ run target = mac
 - If `daemon repo register` fails right after `master start`, retry once after a short delay.
 - If TCP remote status is unreachable, restart with `ORCH_REMOTE=skip` set for the `master start --listen ...` command.
 - Ensure `--project` value matches the registered repository identity.
-- For `--on mac` validation, ensure the Zeus-side `targets.mac.repo` path matches
-  the actual clone path on the Mac host. A valid repo identity mapping on Zeus
-  does not replace the target repo path needed for SSH execution.
+- For file-backend projects, ensure the issue file is created under the actual
+  `issues.path` configured for the project being tested.
+- For `--on mac` validation, ensure the Zeus-side target `repo` path matches the
+  actual clone path on the Mac host. A valid repo identity mapping on Zeus does
+  not replace the target repo path needed for SSH execution.
+- For `--on mac`, verify plain SSH first from Zeus (`ssh <target> 'command -v tmux; hostname'`)
+  before attributing failures to orch itself.
 - For cross-host `master` (Zeus) + local `worker` validation, ensure the worker host can resolve the same project-root path and issue files used by the lease. If issue files only exist on Zeus, `run` may fail with `issue not found` during worker execution.
 - In this topology, verify run state on both sides when debugging: master (`orch --remote ... ps`) and worker-local issues store (`issues.path/runs/...`) to detect projection/store divergence.
