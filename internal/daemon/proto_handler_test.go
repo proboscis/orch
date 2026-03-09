@@ -915,6 +915,34 @@ func TestExternalWorkerLifecycleAPIStartWithoutWorkerIDIsIdempotentPerHost(t *te
 	_ = server.handleProtoStopExternalWorker(&orchpb.StopExternalWorkerRequest{All: true})
 }
 
+func TestExternalWorkerLifecycleAPIStopWithoutWorkerIDStopsDefaultHostWorker(t *testing.T) {
+	orig := currentHostname
+	currentHostname = func() (string, error) { return "zeus", nil }
+	t.Cleanup(func() { currentHostname = orig })
+
+	logger := &timingTestLogger{}
+	server := NewSocketServer(nil, logger)
+	server.workerLaunchConfig = func(workerID string) (string, []string, []string, error) {
+		return "/bin/sleep", []string{"/bin/sleep", "30"}, nil, nil
+	}
+
+	startResp := server.handleProtoStartExternalWorker(&orchpb.StartExternalWorkerRequest{})
+	if !startResp.GetOk() {
+		t.Fatalf("start external worker failed: %s", startResp.GetError())
+	}
+	if startResp.GetStartExternalWorker().GetWorkerId() != "host-zeus" {
+		t.Fatalf("unexpected default worker id: %s", startResp.GetStartExternalWorker().GetWorkerId())
+	}
+
+	stopResp := server.handleProtoStopExternalWorker(&orchpb.StopExternalWorkerRequest{})
+	if !stopResp.GetOk() {
+		t.Fatalf("stop external worker failed: %s", stopResp.GetError())
+	}
+	if stopResp.GetStopExternalWorker().GetStoppedCount() != 1 {
+		t.Fatalf("expected stopped_count = 1, got %d", stopResp.GetStopExternalWorker().GetStoppedCount())
+	}
+}
+
 func TestDaemonStartedExternalWorkerProcessesLeaseSuccessfully(t *testing.T) {
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()

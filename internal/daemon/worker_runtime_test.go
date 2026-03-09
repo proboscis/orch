@@ -48,3 +48,31 @@ func TestStartManagedExternalWorkerWithoutIDIsIdempotentPerHost(t *testing.T) {
 
 	_, _ = server.stopManagedExternalWorker(workerID1, false)
 }
+
+func TestStopManagedExternalWorkerWithoutIDStopsDefaultHostWorker(t *testing.T) {
+	orig := currentHostname
+	currentHostname = func() (string, error) { return "zeus", nil }
+	t.Cleanup(func() { currentHostname = orig })
+
+	logger := log.New(os.Stdout, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.workerLaunchConfig = func(workerID string) (string, []string, []string, error) {
+		return "/bin/sleep", []string{"/bin/sleep", "30"}, nil, nil
+	}
+
+	workerID, _, err := server.startManagedExternalWorker("")
+	if err != nil {
+		t.Fatalf("startManagedExternalWorker() error = %v", err)
+	}
+	if workerID != "host-zeus" {
+		t.Fatalf("workerID = %q, want %q", workerID, "host-zeus")
+	}
+
+	stopped, err := server.stopManagedExternalWorker("", false)
+	if err != nil {
+		t.Fatalf("stopManagedExternalWorker() error = %v", err)
+	}
+	if stopped != 1 {
+		t.Fatalf("stopped = %d, want 1", stopped)
+	}
+}

@@ -205,7 +205,7 @@ func newWorkerStopCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&workerID, "worker-id", "", "worker id to stop")
+	cmd.Flags().StringVar(&workerID, "worker-id", "", "worker id to stop (default: local host worker)")
 	cmd.Flags().BoolVar(&stopAll, "all", false, "stop all managed external workers")
 	return cmd
 }

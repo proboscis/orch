@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"fmt"
 	"os"
 	"sort"
 	"strings"
@@ -122,7 +121,7 @@ func (s *SocketServer) stopManagedExternalWorker(workerID string, all bool) (int
 
 	workerID = strings.TrimSpace(workerID)
 	if workerID == "" {
-		return 0, fmt.Errorf("worker_id required")
+		workerID = defaultWorkerID()
 	}
 
 	s.managedWorkersMu.RLock()

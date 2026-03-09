@@ -39,6 +39,7 @@ func setIsolatedXDG(t *testing.T) {
 	t.Helper()
 
 	base := t.TempDir()
+	t.Setenv("HOME", filepath.Join(base, "home"))
 	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(base, "runtime"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(base, "state"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(base, "data"))
