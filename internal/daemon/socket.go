@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -938,6 +939,23 @@ func (s *SocketServer) resolveProjectRoot(req SendRequest) string {
 	}
 
 	return ""
+}
+
+func writeFileWithExecutor(exec executor.Executor, path string, content []byte, perm os.FileMode) error {
+	if exec == nil {
+		exec = executor.NewLocalExecutor()
+	}
+
+	_, _, err := exec.RunCommand(
+		context.Background(),
+		"sh",
+		[]string{"-c", `cat > "$1" && chmod "$2" "$1"`, "sh", path, fmt.Sprintf("%o", perm)},
+		executor.RunOptions{Stdin: bytes.NewReader(content)},
+	)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *SocketServer) SetGitHubBackend(backend *github.Backend) {
@@ -3334,7 +3352,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 
 	agentPrompt := s.buildRunPrompt(issue, st.RootPath(), opts.NoPR, opts.PromptTemplate, opts.PRTargetBranch)
 	promptPath := filepath.Join(worktreeResult.WorktreePath, "ORCH_PROMPT.md")
-	if err := os.WriteFile(promptPath, []byte(agentPrompt), 0644); err != nil {
+	if err := writeFileWithExecutor(runExecutor, promptPath, []byte(agentPrompt), 0644); err != nil {
 		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
 		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
 		return nil, fmt.Errorf("failed to write prompt file: %w", err)

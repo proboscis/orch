@@ -104,7 +104,7 @@ func (t *TmuxMultiplexer) NewSession(cfg *SessionConfig) error {
 		args = append(args, cfg.Command)
 	}
 
-	env := append(os.Environ(), cfg.Env...)
+	env := sessionEnv(t.executor, cfg.Env)
 	if err := t.runWithOptions(args, executor.RunOptions{Env: env, Stderr: os.Stderr}); err != nil {
 		return fmt.Errorf("failed to create tmux session: %w", err)
 	}

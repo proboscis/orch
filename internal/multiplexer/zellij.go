@@ -98,8 +98,7 @@ func (z *ZellijMultiplexer) HasSession(name string) bool {
 func (z *ZellijMultiplexer) NewSession(cfg *SessionConfig) error {
 	sessionName := shortenSessionName(cfg.SessionName)
 
-	env := os.Environ()
-	env = append(env, cfg.Env...)
+	env := sessionEnv(z.executor, cfg.Env)
 
 	workDir := cfg.WorkDir
 	if workDir == "" {

@@ -17,6 +17,18 @@ It covers:
 2. `worker` lifecycle commands (external process)
 3. local client run/ps/show/stop flow
 4. remote master reachability via `--remote`
+5. backend coverage handoff for `tmux` / `zellij` / `opencode` / `claude` / `codex`
+
+This file validates the cluster-facing command plane first.
+
+Backend-specific run/send/capture behavior is covered by the companion checklist:
+
+- [Backend Matrix Manual E2E](./e2e-backend-matrix.md)
+
+Treat both files together as the complete manual E2E suite:
+
+- `docs/e2e-master-worker-client.md`
+- `docs/e2e-backend-matrix.md`
 
 ## Prerequisites
 
@@ -257,10 +269,123 @@ Expected outcomes:
 - PR is closed successfully
 - `orch stop <issue#run>` succeeds
 
+## 9) Required Backend Coverage
+
+The core flow above does **not** fully exercise backend-specific behavior.
+After sections 1-8 pass, run the companion backend matrix checklist and record
+results for all of the following lanes:
+
+- `tmux`
+- `zellij`
+- `opencode`
+- `claude`
+- `codex`
+
+Use:
+
+```bash
+# companion checklist
+sed -n '1,260p' docs/e2e-backend-matrix.md
+```
+
+Minimum acceptance criteria:
+
+- `tmux`: `run`, `capture`, `send`, `stop`, `restart-from`
+- `zellij`: `run`, `capture`, `send`, `stop`, `restart-from`
+- `opencode`: `run`, `capture`, `send`, `stop`, `restart-from`
+- `claude`: `run`, `capture`, `send`, `stop`
+- `codex`: `run`, `capture`, `send`, `stop`
+
+If you only run `docs/e2e-master-worker-client.md`, backend coverage is incomplete.
+
+## 10) Zeus Master + Mac Target Flow (`--on mac`)
+
+Use this when you want to verify the case where the control plane stays on
+Zeus, but the run itself executes on a Mac target instead of on Zeus.
+
+Additional prerequisites:
+
+- Zeus-side project config includes a `targets.mac` entry
+- the SSH host alias `mac` resolves from Zeus
+- the target Mac has the same repo cloned at the configured `targets.mac.repo`
+- the target Mac has the required runtime dependencies installed (`git`, chosen
+  multiplexer, agent binary)
+
+Example target config on Zeus:
+
+```yaml
+targets:
+  mac:
+    host: mac
+    repo: /Users/<user>/repos/doeff
+```
+
+Checklist:
+
+```bash
+TS="$(date +%Y%m%d-%H%M%S)"
+ISSUE_ID="mac-target-e2e-$TS"
+RUN_ID="$TS-mac"
+PROJECT_ID="proboscis-doeff"
+BRANCH="issue/$ISSUE_ID/run-$RUN_ID"
+
+# create sample issue in the Zeus-backed issue store
+ssh zeus "cat > /home/kento/repos/doeff-VAULT/issues/$ISSUE_ID.md <<'EOF'
+---
+type: issue
+id: $ISSUE_ID
+title: Mac target E2E sample
+status: open
+---
+
+# Mac target E2E sample
+EOF"
+
+# ensure Zeus resolves project identity to the operational root it should use
+ssh zeus 'orch daemon repo register /home/kento/repos/doeff'
+
+# run on the Mac target
+ssh zeus "cd /home/kento/repos/doeff && orch --project $PROJECT_ID run $ISSUE_ID \
+  --run-id $RUN_ID \
+  --on mac \
+  --agent custom \
+  --agent-cmd 'printf mac-target-ready; hostname; sleep 20' \
+  --json"
+
+# verify the run is tracked as a Mac-targeted run
+ssh zeus "orch --project $PROJECT_ID ps --issue $ISSUE_ID --json"
+ssh zeus "orch --project $PROJECT_ID show $ISSUE_ID#$RUN_ID --json"
+
+# optional but recommended: capture the remote session output
+ssh zeus "orch --project $PROJECT_ID capture $ISSUE_ID#$RUN_ID"
+
+# stop and clean up
+ssh zeus "orch --project $PROJECT_ID stop $ISSUE_ID#$RUN_ID --force"
+ssh zeus "rm -f /home/kento/repos/doeff-VAULT/issues/$ISSUE_ID.md"
+```
+
+Expected outcomes:
+
+- `run` returns `"ok": true`
+- `ps --json` shows `target: "mac"`
+- `ps --json` or attach metadata exposes non-empty `target_host`
+- `capture` output includes the custom marker (`mac-target-ready`) or target hostname
+- `stop` succeeds for the Mac-targeted run
+
+This is the minimum manual check for the user story:
+
+```text
+master = zeus
+run target = mac
+```
+
 ## Troubleshooting
 
 - If `daemon repo register` fails right after `master start`, retry once after a short delay.
 - If TCP remote status is unreachable, restart with `ORCH_REMOTE=skip` set for the `master start --listen ...` command.
 - Ensure `--project` value matches the registered repository identity.
+- For `--on mac` validation, ensure the Zeus-side `targets.mac.repo` path matches
+  the actual clone path on the Mac host. A valid repo identity mapping on Zeus
+  does not replace the target repo path needed for SSH execution.
 - For cross-host `master` (Zeus) + local `worker` validation, ensure the worker host can resolve the same project-root path and issue files used by the lease. If issue files only exist on Zeus, `run` may fail with `issue not found` during worker execution.
 - In this topology, verify run state on both sides when debugging: master (`orch --remote ... ps`) and worker-local issues store (`issues.path/runs/...`) to detect projection/store divergence.
