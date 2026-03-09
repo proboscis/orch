@@ -3,6 +3,7 @@ package daemon
 import (
 	"log"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -75,4 +76,45 @@ func TestStopManagedExternalWorkerWithoutIDStopsDefaultHostWorker(t *testing.T) 
 	if stopped != 1 {
 		t.Fatalf("stopped = %d, want 1", stopped)
 	}
+}
+
+func TestDefaultManagedWorkerLaunchConfigForcesLocalMode(t *testing.T) {
+	path, args, env, err := defaultManagedWorkerLaunchConfig("host-zeus")
+	if err != nil {
+		t.Fatalf("defaultManagedWorkerLaunchConfig() error = %v", err)
+	}
+	if path == "" {
+		t.Fatal("expected executable path")
+	}
+	if len(env) != 0 {
+		t.Fatalf("env = %v, want nil/empty override env", env)
+	}
+	if len(args) < 5 {
+		t.Fatalf("args = %v, want remote override + worker args", args)
+	}
+	if args[1] != "--remote=" {
+		t.Fatalf("args[1] = %q, want %q", args[1], "--remote=")
+	}
+}
+
+func TestPrepareManagedWorkerEnvStripsORCHREMOTE(t *testing.T) {
+	t.Setenv("ORCH_REMOTE", "skip")
+	env := prepareManagedWorkerEnv([]string{"ORCH_REMOTE=zeus:7777", "FOO=bar"})
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "ORCH_REMOTE=") {
+			t.Fatalf("unexpected ORCH_REMOTE in env: %v", env)
+		}
+	}
+	if !containsEnv(env, "FOO=bar") {
+		t.Fatalf("expected extra env to survive filtering: %v", env)
+	}
+}
+
+func containsEnv(env []string, want string) bool {
+	for _, kv := range env {
+		if kv == want {
+			return true
+		}
+	}
+	return false
 }

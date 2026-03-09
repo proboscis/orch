@@ -69,11 +69,7 @@ func (s *SocketServer) startManagedExternalWorker(workerID string) (string, int,
 			return "", 0, err
 		}
 	}
-	if len(env) == 0 {
-		env = os.Environ()
-	} else {
-		env = append(os.Environ(), env...)
-	}
+	env = prepareManagedWorkerEnv(env)
 	if len(args) == 0 {
 		args = []string{path}
 	}
@@ -103,7 +99,29 @@ func defaultManagedWorkerLaunchConfig(workerID string) (string, []string, []stri
 	if err != nil {
 		return "", nil, nil, err
 	}
-	return exe, []string{exe, "worker", "run", "--worker-id", workerID}, nil, nil
+	return exe, []string{exe, "--remote=", "worker", "run", "--worker-id", workerID}, nil, nil
+}
+
+func prepareManagedWorkerEnv(extraEnv []string) []string {
+	base := filterManagedWorkerEnv(os.Environ())
+	if len(extraEnv) == 0 {
+		return base
+	}
+	return append(base, filterManagedWorkerEnv(extraEnv)...)
+}
+
+func filterManagedWorkerEnv(env []string) []string {
+	if len(env) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "ORCH_REMOTE=") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }
 
 func (s *SocketServer) stopManagedExternalWorker(workerID string, all bool) (int, error) {
