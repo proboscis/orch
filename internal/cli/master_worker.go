@@ -31,9 +31,9 @@ func newWorkerCmd() *cobra.Command {
 		Short: "Manage orch-worker execution plane",
 		Long: `Manage orch-worker execution plane.
 
-Workers run as separate processes and execute leases from orch-master via
-worker protocol APIs. Zeus single-host mode is implemented as co-located
-external worker processes with the same semantics as distributed mode.`,
+Workers run as long-lived host managers and execute work assigned by
+orch-master via worker protocol APIs. Zeus single-host mode is implemented as
+co-located master+worker with the same semantics as distributed mode.`,
 	}
 
 	cmd.AddCommand(newWorkerStatusCmd())
@@ -52,7 +52,7 @@ func newWorkerRunCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "run",
-		Short: "Run external orch-worker lease loop",
+		Short: "Run long-lived orch-worker host loop",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := requireDaemonForWorker()
 			if err != nil {
@@ -142,7 +142,7 @@ func newWorkerStartCmd() *cobra.Command {
 	var workerID string
 	cmd := &cobra.Command{
 		Use:   "start",
-		Short: "Start managed external orch-worker process",
+		Short: "Start managed orch-worker host process",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := runDaemonStart(); err != nil {
 				return err
@@ -166,12 +166,12 @@ func newWorkerStartCmd() *cobra.Command {
 			}
 
 			if !globalOpts.Quiet {
-				fmt.Printf("Started external worker: %s (pid: %d)\n", resp.WorkerID, resp.PID)
+				fmt.Printf("Started worker: %s (pid: %d)\n", resp.WorkerID, resp.PID)
 			}
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&workerID, "worker-id", "", "worker id to start (auto-generated if empty)")
+	cmd.Flags().StringVar(&workerID, "worker-id", "", "worker id to start (default: local host worker)")
 	return cmd
 }
 
@@ -180,7 +180,7 @@ func newWorkerStopCmd() *cobra.Command {
 	var stopAll bool
 	cmd := &cobra.Command{
 		Use:   "stop",
-		Short: "Stop managed external orch-worker process",
+		Short: "Stop managed orch-worker host process",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := requireDaemonForWorker()
 			if err != nil {
@@ -200,12 +200,12 @@ func newWorkerStopCmd() *cobra.Command {
 			}
 
 			if !globalOpts.Quiet {
-				fmt.Printf("Stopped external workers: %d\n", resp.StoppedCount)
+				fmt.Printf("Stopped workers: %d\n", resp.StoppedCount)
 			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&workerID, "worker-id", "", "worker id to stop (default: local host worker)")
-	cmd.Flags().BoolVar(&stopAll, "all", false, "stop all managed external workers")
+	cmd.Flags().BoolVar(&stopAll, "all", false, "stop all managed workers")
 	return cmd
 }
