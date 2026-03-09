@@ -31,6 +31,10 @@ Treat both files together as the complete manual E2E suite:
 - `docs/e2e-master-worker-client.md`
 - `docs/e2e-backend-matrix.md`
 
+Automation-first entrypoint for the local single-host flow:
+
+- `scripts/e2e-master-worker-client-local.sh`
+
 ## Prerequisites
 
 - `git` installed
