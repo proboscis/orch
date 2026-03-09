@@ -3224,22 +3224,35 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	}
 
 	targetName := strings.TrimSpace(opts.Target)
+	targetHost := strings.TrimSpace(opts.TargetHost)
+	targetWorkerID := strings.TrimSpace(opts.TargetWorkerID)
 	isRemoteTarget := targetName != "" && targetName != "local"
 	executionProjectRoot := projectRoot
 	runExecutor := executor.NewLocalExecutor()
 	if isRemoteTarget {
-		targetCfg := cfg.GetTarget(targetName)
-		if targetCfg == nil {
-			return nil, fmt.Errorf("target %q not found in config", targetName)
+		if targetHost == "" || targetWorkerID == "" || strings.TrimSpace(opts.ProjectRoot) == "" {
+			targetCfg := cfg.GetTarget(targetName)
+			if targetCfg == nil {
+				return nil, fmt.Errorf("target %q not found in config", targetName)
+			}
+			targetHost = strings.TrimSpace(targetCfg.Host)
+			if targetHost == "" {
+				return nil, fmt.Errorf("target %q host is empty", targetName)
+			}
+			executionProjectRoot = strings.TrimSpace(targetCfg.Repo)
+			if executionProjectRoot == "" {
+				return nil, fmt.Errorf("target %q repo is empty", targetName)
+			}
+			targetWorkerID = HostWorkerID(targetHost)
+		} else {
+			executionProjectRoot = strings.TrimSpace(opts.ProjectRoot)
 		}
-		if strings.TrimSpace(targetCfg.Host) == "" {
-			return nil, fmt.Errorf("target %q host is empty", targetName)
+		if s.currentWorkerID != "" && targetWorkerID == s.currentWorkerID {
+			isRemoteTarget = false
+			runExecutor = executor.NewLocalExecutor()
+		} else {
+			runExecutor = executor.NewSSHExecutor(targetHost)
 		}
-		if strings.TrimSpace(targetCfg.Repo) == "" {
-			return nil, fmt.Errorf("target %q repo is empty", targetName)
-		}
-		executionProjectRoot = strings.TrimSpace(targetCfg.Repo)
-		runExecutor = executor.NewSSHExecutor(strings.TrimSpace(targetCfg.Host))
 	}
 
 	agentName := opts.Agent
@@ -3362,7 +3375,14 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	st.AppendEvent(run.Ref(), model.NewArtifactEvent("worktree", map[string]string{"path": worktreeResult.WorktreePath}))
 	st.AppendEvent(run.Ref(), model.NewArtifactEvent("branch", map[string]string{"name": worktreeResult.Branch}))
 	if targetName != "" {
-		st.AppendEvent(run.Ref(), model.NewArtifactEvent("target", map[string]string{"name": targetName}))
+		targetAttrs := map[string]string{"name": targetName}
+		if targetHost != "" {
+			targetAttrs["host"] = targetHost
+		}
+		if targetWorkerID != "" {
+			targetAttrs["worker_id"] = targetWorkerID
+		}
+		st.AppendEvent(run.Ref(), model.NewArtifactEvent("target", targetAttrs))
 	}
 
 	agentPrompt := s.buildRunPrompt(issue, st.RootPath(), opts.NoPR, opts.PromptTemplate, opts.PRTargetBranch)
@@ -3725,6 +3745,9 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		"agent":          agentName,
 		"continued_from": continuedFrom,
 	}
+	if targetName := strings.TrimSpace(opts.Target); targetName != "" {
+		metadata["target"] = targetName
+	}
 	run, err := st.CreateRun(issueID, runID, metadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create run: %w", err)
@@ -3733,6 +3756,16 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusQueued))
 	st.AppendEvent(run.Ref(), model.NewArtifactEvent("worktree", map[string]string{"path": worktreePath}))
 	st.AppendEvent(run.Ref(), model.NewArtifactEvent("branch", map[string]string{"name": branch}))
+	if targetName := strings.TrimSpace(opts.Target); targetName != "" {
+		targetAttrs := map[string]string{"name": targetName}
+		if targetHost := strings.TrimSpace(opts.TargetHost); targetHost != "" {
+			targetAttrs["host"] = targetHost
+		}
+		if targetWorkerID := strings.TrimSpace(opts.TargetWorkerID); targetWorkerID != "" {
+			targetAttrs["worker_id"] = targetWorkerID
+		}
+		st.AppendEvent(run.Ref(), model.NewArtifactEvent("target", targetAttrs))
+	}
 
 	promptPath := filepath.Join(worktreePath, "ORCH_PROMPT.md")
 	if _, err := os.Stat(promptPath); os.IsNotExist(err) {
@@ -4751,6 +4784,9 @@ func (s *SocketServer) handleGetAttachInfo(req SendRequest, encoder *json.Encode
 		OpenCodeSessionID: run.OpenCodeSessionID,
 		Branch:            run.Branch,
 		TargetHost: func() string {
+			if targetHost := strings.TrimSpace(run.TargetHost); targetHost != "" {
+				return targetHost
+			}
 			if run.Target == "" {
 				return ""
 			}

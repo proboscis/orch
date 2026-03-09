@@ -34,6 +34,8 @@ func TestMain(m *testing.M) {
 	runtimeDir := filepath.Join(tmpDir, "runtime")
 	stateDir := filepath.Join(tmpDir, "state")
 	dataDir := filepath.Join(tmpDir, "data")
+	homeDir := filepath.Join(tmpDir, "home")
+	configDir := filepath.Join(tmpDir, "config")
 	if err := os.MkdirAll(runtimeDir, 0755); err != nil {
 		panic(err)
 	}
@@ -43,9 +45,19 @@ func TestMain(m *testing.M) {
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		panic(err)
 	}
+	if err := os.MkdirAll(homeDir, 0755); err != nil {
+		panic(err)
+	}
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		panic(err)
+	}
+	os.Setenv("HOME", homeDir)
 	os.Setenv("XDG_RUNTIME_DIR", runtimeDir)
 	os.Setenv("XDG_STATE_HOME", stateDir)
 	os.Setenv("XDG_DATA_HOME", dataDir)
+	os.Setenv("XDG_CONFIG_HOME", configDir)
+	os.Unsetenv("ORCH_REMOTE")
+	os.Unsetenv("ORCH_PROJECT")
 
 	addr, err := reserveLoopbackTCPAddr()
 	if err != nil {
@@ -448,6 +460,34 @@ func TestPsRemoteWithRepoIDProjectRootOutsideRepo(t *testing.T) {
 	configData := fmt.Sprintf("issues:\n  path: %s\n", serverIssues)
 	if err := os.WriteFile(filepath.Join(serverRepo, ".orch", "config.yaml"), []byte(configData), 0644); err != nil {
 		t.Fatalf("write server repo config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(serverRepo, "README.md"), []byte("# Server Repo\n"), 0644); err != nil {
+		t.Fatalf("write server repo README: %v", err)
+	}
+	if err := exec.Command("git", "-C", serverRepo, "init").Run(); err != nil {
+		t.Fatalf("git init server repo: %v", err)
+	}
+	if err := exec.Command("git", "-C", serverRepo, "config", "user.email", "test@test.com").Run(); err != nil {
+		t.Fatalf("git config email: %v", err)
+	}
+	if err := exec.Command("git", "-C", serverRepo, "config", "user.name", "Test").Run(); err != nil {
+		t.Fatalf("git config name: %v", err)
+	}
+	serverOrigin := filepath.Join(tmp, "server-origin.git")
+	if err := exec.Command("git", "init", "--bare", serverOrigin).Run(); err != nil {
+		t.Fatalf("git init --bare server origin: %v", err)
+	}
+	if err := exec.Command("git", "-C", serverRepo, "add", ".").Run(); err != nil {
+		t.Fatalf("git add server repo: %v", err)
+	}
+	if err := exec.Command("git", "-C", serverRepo, "commit", "-m", "init").Run(); err != nil {
+		t.Fatalf("git commit server repo: %v", err)
+	}
+	if err := exec.Command("git", "-C", serverRepo, "branch", "-M", "main").Run(); err != nil {
+		t.Fatalf("git branch -M main: %v", err)
+	}
+	if err := exec.Command("git", "-C", serverRepo, "remote", "add", "origin", serverOrigin).Run(); err != nil {
+		t.Fatalf("git remote add origin: %v", err)
 	}
 
 	admin := daemon.NewProtoClientWithAddress("", remoteAddr)

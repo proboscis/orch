@@ -633,6 +633,8 @@ type StartRunOptions struct {
 	Reuse          bool
 	Multiplexer    string
 	Target         string
+	TargetHost     string
+	TargetWorkerID string
 	ProjectRoot    string
 }
 
@@ -672,6 +674,8 @@ type ContinueRunOptions struct {
 	ProjectRoot    string
 	RepoRoot       string
 	Target         string
+	TargetHost     string
+	TargetWorkerID string
 }
 
 type ContinueRunResponse struct {

@@ -15,6 +15,8 @@ func TestShowJSONIncludesEvents(t *testing.T) {
 		Status:       orchapi.RunStatusRunning,
 		Branch:       "branch",
 		WorktreePath: "/tmp/worktree",
+		Target:       "mac",
+		TargetHost:   "mac",
 		SessionName:  "session",
 		PRUrl:        "http://example.com/pr/1",
 	}
@@ -39,8 +41,10 @@ func TestShowJSONIncludesEvents(t *testing.T) {
 	})
 
 	var got struct {
-		OK     bool `json:"ok"`
-		Events []struct {
+		OK         bool   `json:"ok"`
+		Target     string `json:"target"`
+		TargetHost string `json:"target_host"`
+		Events     []struct {
 			Type string `json:"type"`
 			Name string `json:"name"`
 		} `json:"events"`
@@ -51,5 +55,8 @@ func TestShowJSONIncludesEvents(t *testing.T) {
 	}
 	if !got.OK || len(got.Events) != 2 {
 		t.Fatalf("unexpected response: %+v", got)
+	}
+	if got.Target != "mac" || got.TargetHost != "mac" {
+		t.Fatalf("unexpected target metadata: %+v", got)
 	}
 }

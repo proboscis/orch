@@ -178,6 +178,11 @@ func (r *Run) DeriveState() {
 	}
 	if target, ok := artifacts["target"]; ok {
 		r.Target = target["name"]
+		if host := target["host"]; host != "" {
+			r.TargetHost = host
+		} else if r.TargetHost == "" {
+			r.TargetHost = r.lastArtifactAttr("target", "host")
+		}
 	}
 	if session, ok := artifacts["session"]; ok {
 		if sessionName := session["name"]; sessionName != "" {

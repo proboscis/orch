@@ -69,8 +69,10 @@ type WorkerEffectPayload struct {
 }
 
 type StopRunPayload struct {
-	ProjectRoot string `json:"project_root,omitempty"`
-	Target      string `json:"target,omitempty"`
+	ProjectRoot    string `json:"project_root,omitempty"`
+	Target         string `json:"target,omitempty"`
+	TargetHost     string `json:"target_host,omitempty"`
+	TargetWorkerID string `json:"target_worker_id,omitempty"`
 }
 
 type WorkerEffectResult struct {
@@ -334,18 +336,27 @@ func preferredWorkerPreferenceForPayload(payload *WorkerEffectPayload) (string, 
 		return defaultWorkerID(), false
 	}
 	if payload.StartRun != nil {
+		if workerID := strings.TrimSpace(payload.StartRun.TargetWorkerID); workerID != "" {
+			return workerID, true
+		}
 		if target := strings.TrimSpace(payload.StartRun.Target); target != "" && target != "local" {
 			return target, true
 		}
 		return defaultWorkerID(), false
 	}
 	if payload.ContinueRun != nil {
+		if workerID := strings.TrimSpace(payload.ContinueRun.TargetWorkerID); workerID != "" {
+			return workerID, true
+		}
 		if target := strings.TrimSpace(payload.ContinueRun.Target); target != "" && target != "local" {
 			return target, true
 		}
 		return defaultWorkerID(), false
 	}
 	if payload.StopRun != nil {
+		if workerID := strings.TrimSpace(payload.StopRun.TargetWorkerID); workerID != "" {
+			return workerID, true
+		}
 		if target := strings.TrimSpace(payload.StopRun.Target); target != "" && target != "local" {
 			return target, true
 		}
@@ -513,8 +524,7 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 			return nil, fmt.Errorf("start_run payload missing")
 		}
 		optsCopy := *lease.Payload.StartRun
-		if s.currentWorkerID != "" && strings.TrimSpace(optsCopy.Target) == s.currentWorkerID {
-			optsCopy.Target = ""
+		if s.currentWorkerID != "" && strings.TrimSpace(optsCopy.TargetWorkerID) == s.currentWorkerID {
 			if filepath.IsAbs(strings.TrimSpace(optsCopy.WorktreeDir)) {
 				optsCopy.WorktreeDir = ""
 			}
@@ -532,8 +542,7 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 			return nil, fmt.Errorf("continue_run payload missing")
 		}
 		optsCopy := *lease.Payload.ContinueRun
-		if s.currentWorkerID != "" && strings.TrimSpace(optsCopy.Target) == s.currentWorkerID {
-			optsCopy.Target = ""
+		if s.currentWorkerID != "" && strings.TrimSpace(optsCopy.TargetWorkerID) == s.currentWorkerID {
 			if filepath.IsAbs(strings.TrimSpace(optsCopy.WorktreeDir)) {
 				optsCopy.WorktreeDir = ""
 			}

@@ -758,15 +758,13 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		ProjectRoot:    projectRoot,
 	}
 	if strings.TrimSpace(req.Target) != "" && strings.TrimSpace(req.Target) != "local" {
-		cfg, cfgErr := config.LoadFromProjectRoot(projectRoot)
-		if cfgErr != nil {
-			return errorResponse(fmt.Sprintf("failed to load config for target %q: %v", req.Target, cfgErr))
+		target, targetErr := resolveTargetForProjectRoot(projectRoot, req.Target)
+		if targetErr != nil {
+			return errorResponse(targetErr.Error())
 		}
-		targetCfg := cfg.GetTarget(strings.TrimSpace(req.Target))
-		if targetCfg == nil {
-			return errorResponse(fmt.Sprintf("target %q not found in config", req.Target))
-		}
-		opts.ProjectRoot = strings.TrimSpace(targetCfg.Repo)
+		opts.ProjectRoot = target.Repo
+		opts.TargetHost = target.Host
+		opts.TargetWorkerID = target.WorkerID
 	}
 
 	if issue, err := st.ResolveIssue(req.IssueId); err == nil {
@@ -852,6 +850,16 @@ func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orch
 	if result.SessionName != "" {
 		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", map[string]string{"name": result.SessionName}))
 	}
+	if targetName := strings.TrimSpace(req.Target); targetName != "" {
+		targetAttrs := map[string]string{"name": targetName}
+		if projectRoot := s.resolveProjectRootFromContextOrProto(req.Context, req.ProjectRoot); projectRoot != "" {
+			if target, err := resolveTargetForProjectRoot(projectRoot, targetName); err == nil && target != nil {
+				targetAttrs["host"] = target.Host
+				targetAttrs["worker_id"] = target.WorkerID
+			}
+		}
+		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("target", targetAttrs))
+	}
 
 	status := model.NormalizeStatus(result.Status)
 	if status == "" {
@@ -908,6 +916,15 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 			opts.Target = strings.TrimSpace(run.Target)
 		}
 	}
+	if strings.TrimSpace(opts.Target) != "" && strings.TrimSpace(opts.Target) != "local" {
+		target, targetErr := resolveTargetForProjectRoot(projectRoot, opts.Target)
+		if targetErr != nil {
+			return errorResponse(targetErr.Error())
+		}
+		opts.ProjectRoot = target.Repo
+		opts.TargetHost = target.Host
+		opts.TargetWorkerID = target.WorkerID
+	}
 
 	projectID := projectIDFromContext(req.Context)
 	payload := &WorkerEffectPayload{ContinueRun: opts}
@@ -959,7 +976,17 @@ func (s *SocketServer) handleProtoStopRun(req *orchpb.StopRunRequest) *orchpb.Re
 	projectRoot := s.resolveProjectRootFromContextOrProto(req.Context, "")
 	payload := &WorkerEffectPayload{}
 	if strings.TrimSpace(projectRoot) != "" {
-		payload.StopRun = &StopRunPayload{ProjectRoot: projectRoot, Target: strings.TrimSpace(run.Target)}
+		stopPayload := &StopRunPayload{ProjectRoot: projectRoot, Target: strings.TrimSpace(run.Target)}
+		if strings.TrimSpace(run.Target) != "" && strings.TrimSpace(run.Target) != "local" {
+			target, targetErr := resolveTargetForProjectRoot(projectRoot, run.Target)
+			if targetErr != nil {
+				return errorResponse(targetErr.Error())
+			}
+			stopPayload.ProjectRoot = target.Repo
+			stopPayload.TargetHost = target.Host
+			stopPayload.TargetWorkerID = target.WorkerID
+		}
+		payload.StopRun = stopPayload
 	}
 	if _, err := s.withWorkerLease(projectID, "stop_run", run.IssueID, run.RunID, payload); err != nil {
 		return errorResponse(err.Error())
@@ -1353,7 +1380,9 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 		RunId:             run.RunID,
 	}
 
-	if run.Target != "" {
+	if strings.TrimSpace(run.TargetHost) != "" {
+		attachInfo.TargetHost = strings.TrimSpace(run.TargetHost)
+	} else if run.Target != "" {
 		if cfg, cfgErr := s.loadConfig(""); cfgErr == nil && cfg != nil {
 			if target := cfg.GetTarget(run.Target); target != nil {
 				attachInfo.TargetHost = target.Host

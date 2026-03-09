@@ -10,8 +10,7 @@ import (
 
 var currentHostname = os.Hostname
 
-func defaultWorkerID() string {
-	host, _ := currentHostname()
+func HostWorkerID(host string) string {
 	host = strings.TrimSpace(host)
 	if host == "" {
 		host = "localhost"
@@ -33,6 +32,11 @@ func defaultWorkerID() string {
 		idHost = "localhost"
 	}
 	return "host-" + idHost
+}
+
+func defaultWorkerID() string {
+	host, _ := currentHostname()
+	return HostWorkerID(host)
 }
 
 func (s *SocketServer) startManagedExternalWorker(workerID string) (string, int, error) {

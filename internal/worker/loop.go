@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -69,7 +68,7 @@ func RunExternalLoop(client Client, cfg RunConfig) error {
 	}
 	workerID := cfg.WorkerID
 	if workerID == "" {
-		workerID = daemonDefaultWorkerID(host)
+		workerID = daemon.HostWorkerID(host)
 	}
 
 	if capClient, ok := client.(capabilityRegisterClient); ok {
@@ -129,26 +128,4 @@ func RunExternalLoop(client Client, cfg RunConfig) error {
 	}
 }
 
-func daemonDefaultWorkerID(host string) string {
-	host = strings.TrimSpace(host)
-	if host == "" {
-		host = "localhost"
-	}
-
-	var b strings.Builder
-	for _, r := range host {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
-			b.WriteRune(r)
-		case r == '-', r == '_', r == '.':
-			b.WriteRune(r)
-		default:
-			b.WriteByte('-')
-		}
-	}
-	idHost := strings.Trim(b.String(), "-")
-	if idHost == "" {
-		idHost = "localhost"
-	}
-	return "host-" + idHost
-}
+func daemonDefaultWorkerID(host string) string { return daemon.HostWorkerID(host) }

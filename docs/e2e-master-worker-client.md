@@ -39,6 +39,10 @@ Parameterized automation entrypoint for target-host runs:
 
 - `scripts/e2e-master-worker-client-target.sh`
 
+Automation-first entrypoint for same-machine target-host simulation:
+
+- `scripts/e2e-master-worker-client-target-local.sh`
+
 For targets that need custom SSH flags or a nonstandard port, prefer passing a
 full command via `TARGET_SSH_CMD` instead of relying on a simple host alias.
 
@@ -395,6 +399,12 @@ targets:
     repo: /Users/<user>/repos/doeff
 ```
 
+Semantics:
+
+- `name` is the value passed to `--on`
+- `host` is the host/profile identity used to locate the target worker
+- the default worker identity for that host is `host-<host>`
+
 Checklist:
 
 ```bash
@@ -420,6 +430,7 @@ EOF"
 ssh zeus 'orch daemon repo register /home/kento/repos/doeff'
 
 # ensure the target Mac worker is connected to Zeus
+# normal case: start the default host worker on the target host
 ssh mac 'ORCH_REMOTE=zeus:7777 orch worker start'
 ssh mac 'ORCH_REMOTE=zeus:7777 orch worker status'
 
@@ -452,7 +463,7 @@ Expected outcomes:
 
 - `run` returns `"ok": true`
 - `ps --json` shows `target: "mac"`
-- `ps --json` or attach metadata exposes non-empty `target_host`
+- `ps --json` or attach metadata exposes `target_host: "mac"`
 - `capture` output includes the custom marker (`mac-target-ready`) or target hostname
 - `stop` succeeds for the Mac-targeted run
 - repeated `orch worker start` on the Mac target should not create duplicate
@@ -477,8 +488,12 @@ run target = mac
   `issues.path` configured for the project being tested.
 - For `--on mac` validation, ensure the Zeus-side target `repo` path matches the
   actual clone path on the Mac host. A valid repo identity mapping on Zeus does
-  not replace the target repo path needed for SSH execution.
+  not replace the target repo path needed for target-worker execution.
 - For `--on mac`, verify plain SSH first from Zeus (`ssh <target> 'command -v tmux; hostname'`)
   before attributing failures to orch itself.
-- For cross-host `master` (Zeus) + local `worker` validation, ensure the worker host can resolve the same project-root path and issue files used by the host work assignment. If issue files only exist on Zeus, `run` may fail with `issue not found` during worker execution.
+- If the target host identity in config (`targets[].host`) does not match the hostname
+  the worker auto-detects, start the worker with an explicit `--worker-id` that
+  matches `host-<targets[].host>`.
+- For automated same-machine coverage of the target-host model, run
+  `make e2e-target-host-worker-local`.
 - In this topology, verify run state on both sides when debugging: master (`orch --remote ... ps`) and worker-local issues store (`issues.path/runs/...`) to detect projection/store divergence.

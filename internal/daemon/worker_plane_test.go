@@ -129,17 +129,18 @@ func TestWorkerSchedulingPrefersTargetNamedWorker(t *testing.T) {
 	if _, ttl := server.registerWorker("host-zeus", "external", "zeus", "external", []string{"start_run"}); ttl <= 0 {
 		t.Fatal("expected positive heartbeat ttl for zeus worker")
 	}
-	if _, ttl := server.registerWorker("mac", "external", "mac-host", "external", []string{"start_run"}); ttl <= 0 {
+	targetWorkerID := HostWorkerID("mac-host")
+	if _, ttl := server.registerWorker(targetWorkerID, "external", "mac-host", "external", []string{"start_run"}); ttl <= 0 {
 		t.Fatal("expected positive heartbeat ttl for mac worker")
 	}
 
-	payload := &WorkerEffectPayload{StartRun: &StartRunOptions{Target: "mac", ProjectRoot: "/tmp/project"}}
+	payload := &WorkerEffectPayload{StartRun: &StartRunOptions{Target: "mac", TargetHost: "mac-host", TargetWorkerID: targetWorkerID, ProjectRoot: "/tmp/project"}}
 	lease, err := server.acquireWorkerLease("project-test", "start_run", "issue-x", "run-x", payload)
 	if err != nil {
 		t.Fatalf("acquireWorkerLease() error = %v", err)
 	}
-	if lease.WorkerID != "mac" {
-		t.Fatalf("lease worker = %q, want mac", lease.WorkerID)
+	if lease.WorkerID != targetWorkerID {
+		t.Fatalf("lease worker = %q, want %q", lease.WorkerID, targetWorkerID)
 	}
 }
 
@@ -149,12 +150,12 @@ func TestWorkerSchedulingFailsWhenTargetWorkerMissing(t *testing.T) {
 		t.Fatal("expected positive heartbeat ttl for zeus worker")
 	}
 
-	payload := &WorkerEffectPayload{StartRun: &StartRunOptions{Target: "mac", ProjectRoot: "/tmp/project"}}
+	payload := &WorkerEffectPayload{StartRun: &StartRunOptions{Target: "mac", TargetHost: "mac-host", TargetWorkerID: HostWorkerID("mac-host"), ProjectRoot: "/tmp/project"}}
 	_, err := server.acquireWorkerLease("project-test", "start_run", "issue-x", "run-x", payload)
 	if err == nil {
 		t.Fatal("acquireWorkerLease() error = nil, want missing target worker error")
 	}
-	if !strings.Contains(err.Error(), `target "mac"`) {
+	if !strings.Contains(err.Error(), HostWorkerID("mac-host")) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -190,21 +191,24 @@ targets:
 	}
 
 	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, log.New(io.Discard, "", 0))
-	server.SetWorkerIdentity("mac", "mac-host")
+	targetWorkerID := HostWorkerID("mac")
+	server.SetWorkerIdentity(targetWorkerID, "mac-host")
 
 	lease := &WorkerLease{
 		LeaseID:   "lease-target-local",
-		WorkerID:  "mac",
+		WorkerID:  targetWorkerID,
 		ProjectID: "project-target",
 		Effect:    "start_run",
 		Payload: &WorkerEffectPayload{
 			StartRun: &StartRunOptions{
-				IssueID:     "issue-target",
-				ProjectRoot: projectRoot,
-				Target:      "mac",
-				Agent:       "custom",
-				AgentCmd:    "echo test",
-				DryRun:      true,
+				IssueID:        "issue-target",
+				ProjectRoot:    projectRoot,
+				Target:         "mac",
+				TargetHost:     "mac",
+				TargetWorkerID: targetWorkerID,
+				Agent:          "custom",
+				AgentCmd:       "echo test",
+				DryRun:         true,
 			},
 		},
 	}
