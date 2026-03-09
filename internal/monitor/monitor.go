@@ -1154,9 +1154,9 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 	wrotePromptFromConfig := false
 
 	if provider, ok := m.api.(interface {
-		GetControlAgentConfig(context.Context, string) (*orchapi.ControlAgentConfig, error)
+		GetControlAgentConfig(context.Context) (*orchapi.ControlAgentConfig, error)
 	}); ok {
-		if controlCfg, cfgErr := provider.GetControlAgentConfig(ctx, m.projectRoot); cfgErr == nil && controlCfg != nil {
+		if controlCfg, cfgErr := provider.GetControlAgentConfig(ctx); cfgErr == nil && controlCfg != nil {
 			if strings.TrimSpace(controlCfg.PromptContent) != "" {
 				cwd, _ := os.Getwd()
 				promptPath := filepath.Join(cwd, controlPromptFileName)
@@ -1220,7 +1220,7 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 		if err := m.api.Ping(ctx); err != nil {
 			return agentChatLaunch{command: fallbackChatCommand("daemon not running; opencode requires daemon")}
 		}
-		resp, err := m.api.EnsureOpenCodeServer(ctx, m.projectRoot)
+		resp, err := m.api.EnsureOpenCodeServer(ctx)
 		if err != nil {
 			m.logger.Printf("daemon server request failed: %v", err)
 			return agentChatLaunch{command: fallbackChatCommand(fmt.Sprintf("daemon server error: %v", err))}

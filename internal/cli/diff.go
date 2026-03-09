@@ -75,7 +75,7 @@ func runDiff(refStr string, opts *diffOptions) error {
 		return err
 	}
 
-	cfg, err := api.GetConfig(ctx, "")
+	cfg, err := api.GetConfig(ctx)
 	if err != nil {
 		cfg = nil
 	}

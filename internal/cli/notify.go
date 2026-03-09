@@ -54,7 +54,7 @@ func runNotifyTest(opts *notifyTestOptions) error {
 		return err
 	}
 
-	cfg, err := api.GetConfig(ctx, "")
+	cfg, err := api.GetConfig(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}

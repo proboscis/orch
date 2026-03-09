@@ -66,35 +66,6 @@ func TestWaitForWorkerLeaseCompletionReturnsResultJSON(t *testing.T) {
 	}
 }
 
-func TestEnsureRepoContextForProjectFromConfig(t *testing.T) {
-	projectRoot := t.TempDir()
-	issuesRoot := filepath.Join(projectRoot, "ISSUES")
-	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0o755); err != nil {
-		t.Fatalf("mkdir .orch: %v", err)
-	}
-	if err := os.MkdirAll(issuesRoot, 0o755); err != nil {
-		t.Fatalf("mkdir issues: %v", err)
-	}
-	configBody := "issues:\n  path: " + issuesRoot + "\n"
-	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), []byte(configBody), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-
-	server := NewSocketServer(func(issuesRoot string) (store.Store, error) {
-		return filestore.New(issuesRoot)
-	}, log.New(io.Discard, "", 0))
-	ctx := server.ensureRepoContextForProject("project-test", projectRoot)
-	if ctx == nil {
-		t.Fatal("expected repo context from project config")
-	}
-	if ctx.Store == nil {
-		t.Fatal("expected non-nil store in repo context")
-	}
-	if ctx.ProjectRoot != projectRoot {
-		t.Fatalf("project_root = %q, want %q", ctx.ProjectRoot, projectRoot)
-	}
-}
-
 func TestWorkerProfileDefaultDistributedDoesNotRegisterEmbeddedWorker(t *testing.T) {
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
 	if len(server.listWorkers()) != 0 {
@@ -134,7 +105,7 @@ func TestWorkerSchedulingPrefersTargetNamedWorker(t *testing.T) {
 		t.Fatal("expected positive heartbeat ttl for mac worker")
 	}
 
-	payload := &WorkerEffectPayload{StartRun: &StartRunOptions{Target: "mac", TargetHost: "mac-host", TargetWorkerID: targetWorkerID, ProjectRoot: "/tmp/project"}}
+	payload := &WorkerEffectPayload{StartRun: &StartRunOptions{Target: "mac", TargetHost: "mac-host", TargetWorkerID: targetWorkerID}}
 	lease, err := server.acquireWorkerLease("project-test", "start_run", "issue-x", "run-x", payload)
 	if err != nil {
 		t.Fatalf("acquireWorkerLease() error = %v", err)
@@ -150,7 +121,7 @@ func TestWorkerSchedulingFailsWhenTargetWorkerMissing(t *testing.T) {
 		t.Fatal("expected positive heartbeat ttl for zeus worker")
 	}
 
-	payload := &WorkerEffectPayload{StartRun: &StartRunOptions{Target: "mac", TargetHost: "mac-host", TargetWorkerID: HostWorkerID("mac-host"), ProjectRoot: "/tmp/project"}}
+	payload := &WorkerEffectPayload{StartRun: &StartRunOptions{Target: "mac", TargetHost: "mac-host", TargetWorkerID: HostWorkerID("mac-host")}}
 	_, err := server.acquireWorkerLease("project-test", "start_run", "issue-x", "run-x", payload)
 	if err == nil {
 		t.Fatal("acquireWorkerLease() error = nil, want missing target worker error")
@@ -170,7 +141,7 @@ func TestWorkerSchedulingReportsManagedWorkerStartupFailure(t *testing.T) {
 		ExitErr:  "exit status 7",
 	}
 
-	payload := &WorkerEffectPayload{StartRun: &StartRunOptions{Target: "mac", TargetHost: "mac-host", TargetWorkerID: targetWorkerID, ProjectRoot: "/tmp/project"}}
+	payload := &WorkerEffectPayload{StartRun: &StartRunOptions{Target: "mac", TargetHost: "mac-host", TargetWorkerID: targetWorkerID}}
 	_, err := server.acquireWorkerLease("project-test", "start_run", "issue-x", "run-x", payload)
 	if err == nil {
 		t.Fatal("expected startup failure error")
@@ -224,7 +195,6 @@ targets:
 		Payload: &WorkerEffectPayload{
 			StartRun: &StartRunOptions{
 				IssueID:        "issue-target",
-				ProjectRoot:    "/srv/master/doeff",
 				Target:         "mac",
 				TargetHost:     "mac",
 				TargetWorkerID: targetWorkerID,

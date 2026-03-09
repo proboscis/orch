@@ -282,7 +282,6 @@ type StartRunRequest struct {
 	Reuse          bool
 	Multiplexer    string
 	Target         string
-	ProjectRoot    string
 	Preset         string
 }
 
@@ -535,8 +534,6 @@ type ContinueRunRequest struct {
 	PRTargetBranch string
 	Multiplexer    string
 	SessionName    string
-	ProjectRoot    string
-	RepoRoot       string
 }
 
 type ContinueRunResult struct {

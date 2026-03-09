@@ -88,7 +88,7 @@ func TestRunExternalLoopOnceProcessesLease(t *testing.T) {
 	t.Cleanup(func() { newLeaseExecutor = origNew })
 	newLeaseExecutor = func(string, string) leaseExecutor { return &mockExecutor{} }
 
-	client := &mockClient{lease: &daemon.WorkerLease{LeaseID: "lease-1", WorkerID: "w1", Effect: "start_run", Payload: &daemon.WorkerEffectPayload{StartRun: &daemon.StartRunOptions{ProjectRoot: "/tmp/p"}}}}
+	client := &mockClient{lease: &daemon.WorkerLease{LeaseID: "lease-1", WorkerID: "w1", Effect: "start_run", Payload: &daemon.WorkerEffectPayload{StartRun: &daemon.StartRunOptions{}}}}
 	err := RunExternalLoop(client, RunConfig{WorkerID: "w1", Once: true, PollInterval: 10 * time.Millisecond, HeartbeatInterval: time.Second})
 	if err != nil {
 		t.Fatalf("RunExternalLoop() error = %v", err)

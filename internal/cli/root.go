@@ -309,18 +309,6 @@ func looksLikeProjectPath(project string) bool {
 	return strings.HasPrefix(value, "./") || strings.HasPrefix(value, "../") || strings.Contains(value, "/") || strings.Contains(value, "\\")
 }
 
-func resolveRequestProjectScope(projectRoot string) (string, error) {
-	if strings.TrimSpace(getRemoteAddr()) == "" {
-		return strings.TrimSpace(projectRoot), nil
-	}
-
-	projectID, err := resolveProjectIdentity(projectRoot)
-	if err != nil {
-		return "", err
-	}
-	return "repoid:" + projectID, nil
-}
-
 func resolveExplicitProjectScope(scopeValue, scopeFlagName string) (string, error) {
 	if strings.TrimSpace(scopeValue) != "" {
 		return config.ExpandPath(scopeValue, ""), nil
@@ -397,19 +385,19 @@ func defaultGetAPIWithOptions(requireProjectRoot bool) (orchapi.OrchAPI, error) 
 		}
 	}
 
-	clientProjectScope := projectRoot
-	if strings.TrimSpace(remoteAddr) != "" {
-		projectID, err := resolveProjectIdentity(projectRoot)
-		if err != nil {
-			return nil, err
-		}
-		clientProjectScope = "repoid:" + projectID
+	clientProjectScope := ""
+	if projectID, err := resolveProjectIdentity(projectRoot); err == nil && strings.TrimSpace(projectID) != "" {
+		clientProjectScope = projectID
+	} else if requireProjectRoot {
+		return nil, err
 	} else if !explicitProjectRoot && strings.TrimSpace(globalOpts.Project) != "" {
 		projectID, err := resolveProjectIdentity("")
 		if err != nil {
 			return nil, err
 		}
-		clientProjectScope = "repoid:" + projectID
+		clientProjectScope = projectID
+	} else if strings.TrimSpace(projectRoot) != "" && strings.TrimSpace(remoteAddr) == "" {
+		clientProjectScope = strings.TrimSpace(projectRoot)
 	}
 
 	client := orchapi.NewDaemonClientWithAddress(clientProjectScope, remoteAddr)

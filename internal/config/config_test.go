@@ -446,10 +446,8 @@ func TestLoadTargetsAndGetTarget(t *testing.T) {
 	configBody := `targets:
   - name: mac
     host: user@mac
-    repo: /Users/user/repos/project
   - name: linux
     host: dev@linux
-    repo: /home/dev/project
 `
 	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(configBody), 0644); err != nil {
 		t.Fatalf("write repo config: %v", err)
@@ -479,7 +477,7 @@ func TestLoadTargetsAndGetTarget(t *testing.T) {
 	if mac == nil {
 		t.Fatalf("GetTarget(mac) = nil, want target")
 	}
-	if mac.Host != "user@mac" || mac.Repo != "/Users/user/repos/project" {
+	if mac.Host != "user@mac" {
 		t.Fatalf("GetTarget(mac) = %+v, unexpected values", mac)
 	}
 

@@ -21,12 +21,12 @@ func TestRepoIDTokenEncodeDecode(t *testing.T) {
 	}
 }
 
-func TestNewProtoClientWithAddressRemoteUsesRepoIDToken(t *testing.T) {
+func TestNewProtoClientWithAddressRemoteUsesPlainProjectID(t *testing.T) {
 	projectRoot := createGitRepoWithOrigin(t, "https://github.com/example/remote-project.git")
 	client := NewProtoClientWithAddress(projectRoot, "zeus:7777")
 
-	if client.projectRoot != "repoid:example-remote-project" {
-		t.Fatalf("projectRoot = %q, want %q", client.projectRoot, "repoid:example-remote-project")
+	if client.projectRoot != "example-remote-project" {
+		t.Fatalf("projectRoot = %q, want %q", client.projectRoot, "example-remote-project")
 	}
 }
 
@@ -58,18 +58,18 @@ func TestNewProtoClientWithAddressRemoteClearsUnknownPathIdentity(t *testing.T) 
 	}
 }
 
-func TestProjectIDForRequestRemoteUsesStoredRepoIDToken(t *testing.T) {
-	client := NewProtoClientWithAddress("repoid:server-repo", "zeus:7777")
+func TestProjectIDForRequestRemoteUsesStoredProjectID(t *testing.T) {
+	client := NewProtoClientWithAddress("server-repo", "zeus:7777")
 
 	if got := client.projectIDForRequest(""); got != "server-repo" {
 		t.Fatalf("projectIDForRequest(\"\") = %q, want %q", got, "server-repo")
 	}
 }
 
-func TestNewProtoClientWithAddressRemotePreservesRepoIDToken(t *testing.T) {
-	client := NewProtoClientWithAddress("repoid:server-repo", "zeus:7777")
+func TestNewProtoClientWithAddressRemotePreservesPlainProjectID(t *testing.T) {
+	client := NewProtoClientWithAddress("server-repo", "zeus:7777")
 
-	if client.projectRoot != "repoid:server-repo" {
-		t.Fatalf("projectRoot = %q, want %q", client.projectRoot, "repoid:server-repo")
+	if client.projectRoot != "server-repo" {
+		t.Fatalf("projectRoot = %q, want %q", client.projectRoot, "server-repo")
 	}
 }

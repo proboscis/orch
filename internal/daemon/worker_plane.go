@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/xdg"
 )
@@ -491,22 +490,6 @@ func decodeWorkerEffectResult(resultJSON string) (*WorkerEffectResult, error) {
 	return &result, nil
 }
 
-func projectRootFromWorkerPayload(payload *WorkerEffectPayload) string {
-	if payload == nil {
-		return ""
-	}
-	if payload.StartRun != nil {
-		return strings.TrimSpace(payload.StartRun.ProjectRoot)
-	}
-	if payload.ContinueRun != nil {
-		return strings.TrimSpace(payload.ContinueRun.ProjectRoot)
-	}
-	if payload.StopRun != nil {
-		return strings.TrimSpace(payload.StopRun.ProjectRoot)
-	}
-	return ""
-}
-
 func workerLocalProjectMappingError(projectID, workerID string) error {
 	projectID = strings.TrimSpace(projectID)
 	workerID = strings.TrimSpace(workerID)
@@ -514,53 +497,6 @@ func workerLocalProjectMappingError(projectID, workerID string) error {
 		return fmt.Errorf("no local project mapping for project_id %q on worker %q; run 'orch --remote= daemon repo register /path/to/repo' on that host", projectID, workerID)
 	}
 	return fmt.Errorf("no local project mapping for project_id %q on this worker; run 'orch --remote= daemon repo register /path/to/repo' on that host", projectID)
-}
-
-func (s *SocketServer) ensureRepoContextForProject(projectID, projectRoot string) *RepoContext {
-	projectRoot = strings.TrimSpace(projectRoot)
-	if projectRoot == "" {
-		return nil
-	}
-
-	cfg, err := config.LoadFromProjectRoot(projectRoot)
-	if err != nil || cfg == nil {
-		return nil
-	}
-	issuesRoot := strings.TrimSpace(cfg.GetIssuesPath())
-	if issuesRoot == "" {
-		return nil
-	}
-
-	st := s.getOrCreateStore(issuesRoot, projectRoot)
-	if st == nil {
-		return nil
-	}
-
-	repoID := strings.TrimSpace(projectID)
-	if repoID == "" {
-		var err error
-		repoID, err = s.repoIDForProjectRoot(projectRoot)
-		if err != nil {
-			return nil
-		}
-	}
-
-	s.reposMu.Lock()
-	existing := s.repos[repoID]
-	if existing == nil {
-		existing = &RepoContext{ProjectRoot: projectRoot, RepoID: repoID, Store: st}
-		s.repos[repoID] = existing
-	} else {
-		if strings.TrimSpace(existing.ProjectRoot) == "" {
-			existing.ProjectRoot = projectRoot
-		}
-		if existing.Store == nil {
-			existing.Store = st
-		}
-	}
-	s.reposMu.Unlock()
-
-	return existing
 }
 
 func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResult, error) {
@@ -583,15 +519,11 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 		}
 		optsCopy := *lease.Payload.StartRun
 		if s.currentWorkerID != "" && strings.TrimSpace(optsCopy.TargetWorkerID) == s.currentWorkerID {
-			optsCopy.ProjectRoot = repoCtx.ProjectRoot
 			if filepath.IsAbs(strings.TrimSpace(optsCopy.WorktreeDir)) {
 				optsCopy.WorktreeDir = ""
 			}
 		}
-		if strings.TrimSpace(optsCopy.ProjectRoot) == "" {
-			optsCopy.ProjectRoot = repoCtx.ProjectRoot
-		}
-		result, err := s.processStartRunCore(repoCtx.Store, optsCopy.ProjectRoot, &optsCopy)
+		result, err := s.processStartRunCore(repoCtx.Store, repoCtx.ProjectRoot, &optsCopy)
 		if err != nil {
 			return nil, err
 		}
@@ -601,19 +533,12 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 			return nil, fmt.Errorf("continue_run payload missing")
 		}
 		optsCopy := *lease.Payload.ContinueRun
-		projectRoot := strings.TrimSpace(optsCopy.ProjectRoot)
 		if s.currentWorkerID != "" && strings.TrimSpace(optsCopy.TargetWorkerID) == s.currentWorkerID {
-			projectRoot = repoCtx.ProjectRoot
-			optsCopy.ProjectRoot = projectRoot
 			if filepath.IsAbs(strings.TrimSpace(optsCopy.WorktreeDir)) {
 				optsCopy.WorktreeDir = ""
 			}
 		}
-		if projectRoot == "" {
-			projectRoot = repoCtx.ProjectRoot
-			optsCopy.ProjectRoot = projectRoot
-		}
-		result, err := s.processContinueRunCore(repoCtx.Store, projectRoot, &optsCopy)
+		result, err := s.processContinueRunCore(repoCtx.Store, repoCtx.ProjectRoot, &optsCopy)
 		if err != nil {
 			return nil, err
 		}

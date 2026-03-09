@@ -128,7 +128,6 @@ type IssuesConfig struct {
 type TargetConfig struct {
 	Name string `yaml:"name"`
 	Host string `yaml:"host"`
-	Repo string `yaml:"repo"`
 }
 
 func (s *SlackConfig) ShouldNotify(status string) bool {

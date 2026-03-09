@@ -39,7 +39,7 @@ type agentOptions struct {
 }
 
 type controlAgentConfigProvider interface {
-	GetControlAgentConfig(ctx context.Context, projectRoot string) (*orchapi.ControlAgentConfig, error)
+	GetControlAgentConfig(ctx context.Context) (*orchapi.ControlAgentConfig, error)
 }
 
 func newAgentCmd() *cobra.Command {
@@ -94,7 +94,7 @@ func runAgent(opts *agentOptions) error {
 	backend := opts.Backend
 	if backend == "" {
 		if apiErr == nil {
-			cfg, cfgErr := api.GetConfig(ctx, projectRoot)
+			cfg, cfgErr := api.GetConfig(ctx)
 			if cfgErr == nil {
 				if cfg.ControlAgent != "" {
 					backend = cfg.ControlAgent
@@ -126,7 +126,7 @@ func runAgent(opts *agentOptions) error {
 	var controlCfg *orchapi.ControlAgentConfig
 	if apiErr == nil {
 		if provider, ok := api.(controlAgentConfigProvider); ok {
-			if cfg, cfgErr := provider.GetControlAgentConfig(ctx, projectRoot); cfgErr == nil {
+			if cfg, cfgErr := provider.GetControlAgentConfig(ctx); cfgErr == nil {
 				controlCfg = cfg
 			}
 		}
@@ -232,7 +232,7 @@ func runMultiplexerAgent(orchDir, projectRoot string, opts *agentOptions, agentT
 	ctx := context.Background()
 	api, apiErr := getAPI()
 	if apiErr == nil {
-		cfg, cfgErr := api.GetConfig(ctx, "")
+		cfg, cfgErr := api.GetConfig(ctx)
 		if cfgErr == nil && cfg.AgentMultiplexer != "" {
 			parsed, parseErr := multiplexer.ParseType(cfg.AgentMultiplexer)
 			if parseErr == nil && parsed != multiplexer.TypeAuto {
@@ -327,7 +327,7 @@ func createMultiplexerSession(orchDir, projectRoot string, agentType agent.Agent
 		ctx := context.Background()
 		api, apiErr := getAPI()
 		if apiErr == nil {
-			cfg, cfgErr := api.GetConfig(ctx, "")
+			cfg, cfgErr := api.GetConfig(ctx)
 			if cfgErr == nil {
 				modelName, modelVariant = cfg.ResolveControlModelAndVariant(string(agentType))
 				extraArgs = getControlExtraArgs(cfg, string(agentType))

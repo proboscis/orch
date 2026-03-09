@@ -478,7 +478,7 @@ func TestWorkerProtocolLeaseAndAcknowledge(t *testing.T) {
 		t.Fatalf("register worker failed: %s", registerResp.GetError())
 	}
 
-	leasePayload := &WorkerEffectPayload{StartRun: &StartRunOptions{IssueID: "orch-1", ProjectRoot: "/tmp/project"}}
+	leasePayload := &WorkerEffectPayload{StartRun: &StartRunOptions{IssueID: "orch-1"}}
 	lease, err := server.acquireWorkerLease("project-test", "start_run", "orch-1", "run-1", leasePayload)
 	if err != nil {
 		t.Fatalf("acquire lease failed: %v", err)
@@ -1086,10 +1086,9 @@ func TestDaemonStartedExternalWorkerHandlesStartRunEndToEnd(t *testing.T) {
 	}
 
 	resp := sendProtoRequest(t, &orchpb.Request{Request: &orchpb.Request_StartRun{StartRun: &orchpb.StartRunRequest{
-		IssueId:     "issue-start-daemon",
-		RunId:       "run-daemon-start",
-		ProjectRoot: projectRoot,
-		Context:     &orchpb.RequestContext{ProjectId: projectID},
+		IssueId: "issue-start-daemon",
+		RunId:   "run-daemon-start",
+		Context: &orchpb.RequestContext{ProjectId: projectID},
 	}}})
 	if !resp.GetOk() || resp.GetStartRun() == nil {
 		t.Fatalf("start_run response not ok: ok=%v err=%s", resp.GetOk(), resp.GetError())
@@ -1145,10 +1144,9 @@ func TestDaemonStartedExternalWorkerHandlesContinueRunEndToEnd(t *testing.T) {
 	}
 
 	resp := sendProtoRequest(t, &orchpb.Request{Request: &orchpb.Request_ContinueRun{ContinueRun: &orchpb.ContinueRunRequest{
-		IssueId:     "issue-cont-daemon",
-		RunId:       "run-daemon-continue",
-		ProjectRoot: projectRoot,
-		Context:     &orchpb.RequestContext{ProjectId: projectID},
+		IssueId: "issue-cont-daemon",
+		RunId:   "run-daemon-continue",
+		Context: &orchpb.RequestContext{ProjectId: projectID},
 	}}})
 	if !resp.GetOk() || resp.GetContinueRun() == nil {
 		t.Fatalf("continue_run response not ok: ok=%v err=%s", resp.GetOk(), resp.GetError())

@@ -356,6 +356,7 @@ type Run struct {
 	AliveKnown        bool                   `protobuf:"varint,25,opt,name=alive_known,json=aliveKnown,proto3" json:"alive_known,omitempty"`
 	WorktreeExists    bool                   `protobuf:"varint,26,opt,name=worktree_exists,json=worktreeExists,proto3" json:"worktree_exists,omitempty"`
 	Target            string                 `protobuf:"bytes,27,opt,name=target,proto3" json:"target,omitempty"`
+	TargetHost        string                 `protobuf:"bytes,28,opt,name=target_host,json=targetHost,proto3" json:"target_host,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -575,6 +576,13 @@ func (x *Run) GetWorktreeExists() bool {
 func (x *Run) GetTarget() string {
 	if x != nil {
 		return x.Target
+	}
+	return ""
+}
+
+func (x *Run) GetTargetHost() string {
+	if x != nil {
+		return x.TargetHost
 	}
 	return ""
 }
@@ -1190,7 +1198,6 @@ type StartRunRequest struct {
 	Model          string                 `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
 	ModelVariant   string                 `protobuf:"bytes,5,opt,name=model_variant,json=modelVariant,proto3" json:"model_variant,omitempty"`
 	BaseBranch     string                 `protobuf:"bytes,6,opt,name=base_branch,json=baseBranch,proto3" json:"base_branch,omitempty"`
-	ProjectRoot    string                 `protobuf:"bytes,7,opt,name=project_root,json=projectRoot,proto3" json:"project_root,omitempty"`
 	Preset         string                 `protobuf:"bytes,8,opt,name=preset,proto3" json:"preset,omitempty"`
 	Branch         string                 `protobuf:"bytes,9,opt,name=branch,proto3" json:"branch,omitempty"`
 	WorktreeDir    string                 `protobuf:"bytes,10,opt,name=worktree_dir,json=worktreeDir,proto3" json:"worktree_dir,omitempty"`
@@ -1270,13 +1277,6 @@ func (x *StartRunRequest) GetModelVariant() string {
 func (x *StartRunRequest) GetBaseBranch() string {
 	if x != nil {
 		return x.BaseBranch
-	}
-	return ""
-}
-
-func (x *StartRunRequest) GetProjectRoot() string {
-	if x != nil {
-		return x.ProjectRoot
 	}
 	return ""
 }
@@ -2233,7 +2233,6 @@ func (*CloseIssueResponse) Descriptor() ([]byte, []int) {
 
 type GetControlAgentLaunchRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	ProjectRoot   string                 `protobuf:"bytes,1,opt,name=project_root,json=projectRoot,proto3" json:"project_root,omitempty"`
 	Agent         string                 `protobuf:"bytes,2,opt,name=agent,proto3" json:"agent,omitempty"`
 	NewSession    bool                   `protobuf:"varint,3,opt,name=new_session,json=newSession,proto3" json:"new_session,omitempty"`
 	Context       *RequestContext        `protobuf:"bytes,4,opt,name=context,proto3" json:"context,omitempty"`
@@ -2269,13 +2268,6 @@ func (x *GetControlAgentLaunchRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use GetControlAgentLaunchRequest.ProtoReflect.Descriptor instead.
 func (*GetControlAgentLaunchRequest) Descriptor() ([]byte, []int) {
 	return file_orch_proto_rawDescGZIP(), []int{27}
-}
-
-func (x *GetControlAgentLaunchRequest) GetProjectRoot() string {
-	if x != nil {
-		return x.ProjectRoot
-	}
-	return ""
 }
 
 func (x *GetControlAgentLaunchRequest) GetAgent() string {
@@ -2377,7 +2369,6 @@ func (x *GetControlAgentLaunchResponse) GetResumed() bool {
 
 type GetControlAgentConfigRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	ProjectRoot   string                 `protobuf:"bytes,1,opt,name=project_root,json=projectRoot,proto3" json:"project_root,omitempty"`
 	Context       *RequestContext        `protobuf:"bytes,2,opt,name=context,proto3" json:"context,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2411,13 +2402,6 @@ func (x *GetControlAgentConfigRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use GetControlAgentConfigRequest.ProtoReflect.Descriptor instead.
 func (*GetControlAgentConfigRequest) Descriptor() ([]byte, []int) {
 	return file_orch_proto_rawDescGZIP(), []int{29}
-}
-
-func (x *GetControlAgentConfigRequest) GetProjectRoot() string {
-	if x != nil {
-		return x.ProjectRoot
-	}
-	return ""
 }
 
 func (x *GetControlAgentConfigRequest) GetContext() *RequestContext {
@@ -5269,7 +5253,6 @@ func (x *AppendEventResponse) GetReason() string {
 
 type EnsureOpenCodeServerRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	ProjectRoot   string                 `protobuf:"bytes,1,opt,name=project_root,json=projectRoot,proto3" json:"project_root,omitempty"`
 	Context       *RequestContext        `protobuf:"bytes,2,opt,name=context,proto3" json:"context,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -5303,13 +5286,6 @@ func (x *EnsureOpenCodeServerRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use EnsureOpenCodeServerRequest.ProtoReflect.Descriptor instead.
 func (*EnsureOpenCodeServerRequest) Descriptor() ([]byte, []int) {
 	return file_orch_proto_rawDescGZIP(), []int{80}
-}
-
-func (x *EnsureOpenCodeServerRequest) GetProjectRoot() string {
-	if x != nil {
-		return x.ProjectRoot
-	}
-	return ""
 }
 
 func (x *EnsureOpenCodeServerRequest) GetContext() *RequestContext {
@@ -7118,7 +7094,6 @@ func (x *ResumeRunResponse) GetSessionName() string {
 type QueryOpenCodeServerRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Port          int32                  `protobuf:"varint,1,opt,name=port,proto3" json:"port,omitempty"`
-	ProjectRoot   string                 `protobuf:"bytes,2,opt,name=project_root,json=projectRoot,proto3" json:"project_root,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7158,13 +7133,6 @@ func (x *QueryOpenCodeServerRequest) GetPort() int32 {
 		return x.Port
 	}
 	return 0
-}
-
-func (x *QueryOpenCodeServerRequest) GetProjectRoot() string {
-	if x != nil {
-		return x.ProjectRoot
-	}
-	return ""
 }
 
 type OpenCodeProviderInfo struct {
@@ -7500,8 +7468,7 @@ func (x *InjectInitialPromptResponse) GetPort() int32 {
 }
 
 type ContinueRunRequest struct {
-	state       protoimpl.MessageState `protogen:"open.v1"`
-	ProjectRoot string                 `protobuf:"bytes,2,opt,name=project_root,json=projectRoot,proto3" json:"project_root,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
 	// Source: either from_run or from_branch (use issue_id + run_id for from_run, issue_id + branch for from_branch)
 	IssueId string `protobuf:"bytes,3,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"`
 	RunId   string `protobuf:"bytes,4,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
@@ -7517,7 +7484,6 @@ type ContinueRunRequest struct {
 	PrTargetBranch string          `protobuf:"bytes,13,opt,name=pr_target_branch,json=prTargetBranch,proto3" json:"pr_target_branch,omitempty"`
 	Multiplexer    string          `protobuf:"bytes,14,opt,name=multiplexer,proto3" json:"multiplexer,omitempty"`
 	SessionName    string          `protobuf:"bytes,15,opt,name=session_name,json=sessionName,proto3" json:"session_name,omitempty"`
-	RepoRoot       string          `protobuf:"bytes,16,opt,name=repo_root,json=repoRoot,proto3" json:"repo_root,omitempty"`
 	Context        *RequestContext `protobuf:"bytes,17,opt,name=context,proto3" json:"context,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -7551,13 +7517,6 @@ func (x *ContinueRunRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ContinueRunRequest.ProtoReflect.Descriptor instead.
 func (*ContinueRunRequest) Descriptor() ([]byte, []int) {
 	return file_orch_proto_rawDescGZIP(), []int{120}
-}
-
-func (x *ContinueRunRequest) GetProjectRoot() string {
-	if x != nil {
-		return x.ProjectRoot
-	}
-	return ""
 }
 
 func (x *ContinueRunRequest) GetIssueId() string {
@@ -7647,13 +7606,6 @@ func (x *ContinueRunRequest) GetMultiplexer() string {
 func (x *ContinueRunRequest) GetSessionName() string {
 	if x != nil {
 		return x.SessionName
-	}
-	return ""
-}
-
-func (x *ContinueRunRequest) GetRepoRoot() string {
-	if x != nil {
-		return x.RepoRoot
 	}
 	return ""
 }
@@ -7759,7 +7711,6 @@ func (x *ContinueRunResponse) GetIssueId() string {
 
 type GetConfigRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	ProjectRoot   string                 `protobuf:"bytes,1,opt,name=project_root,json=projectRoot,proto3" json:"project_root,omitempty"`
 	Context       *RequestContext        `protobuf:"bytes,2,opt,name=context,proto3" json:"context,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -7793,13 +7744,6 @@ func (x *GetConfigRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use GetConfigRequest.ProtoReflect.Descriptor instead.
 func (*GetConfigRequest) Descriptor() ([]byte, []int) {
 	return file_orch_proto_rawDescGZIP(), []int{122}
-}
-
-func (x *GetConfigRequest) GetProjectRoot() string {
-	if x != nil {
-		return x.ProjectRoot
-	}
-	return ""
 }
 
 func (x *GetConfigRequest) GetContext() *RequestContext {
@@ -10655,7 +10599,7 @@ const file_orch_proto_rawDesc = "" +
 	"\tadditions\x18\x01 \x01(\x05R\tadditions\x12\x1c\n" +
 	"\tdeletions\x18\x02 \x01(\x05R\tdeletions\x12#\n" +
 	"\rfiles_changed\x18\x03 \x01(\x05R\ffilesChanged\x12\x14\n" +
-	"\x05files\x18\x04 \x03(\tR\x05files\"\xb8\a\n" +
+	"\x05files\x18\x04 \x03(\tR\x05files\"\xd9\a\n" +
 	"\x03Run\x12\x19\n" +
 	"\bissue_id\x18\x01 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12*\n" +
@@ -10688,7 +10632,9 @@ const file_orch_proto_rawDesc = "" +
 	"\valive_known\x18\x19 \x01(\bR\n" +
 	"aliveKnown\x12'\n" +
 	"\x0fworktree_exists\x18\x1a \x01(\bR\x0eworktreeExists\x12\x16\n" +
-	"\x06target\x18\x1b \x01(\tR\x06target\"\xf1\x01\n" +
+	"\x06target\x18\x1b \x01(\tR\x06target\x12\x1f\n" +
+	"\vtarget_host\x18\x1c \x01(\tR\n" +
+	"targetHost\"\xf1\x01\n" +
 	"\x05Issue\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x18\n" +
@@ -10743,15 +10689,14 @@ const file_orch_proto_rawDesc = "" +
 	"\acontext\x18\x04 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"X\n" +
 	"\x0eGetRunResponse\x12\x1e\n" +
 	"\x03run\x18\x01 \x01(\v2\f.orch.v1.RunR\x03run\x12&\n" +
-	"\x06events\x18\x02 \x03(\v2\x0e.orch.v1.EventR\x06events\"\xf1\x04\n" +
+	"\x06events\x18\x02 \x03(\v2\x0e.orch.v1.EventR\x06events\"\xce\x04\n" +
 	"\x0fStartRunRequest\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x14\n" +
 	"\x05agent\x18\x03 \x01(\tR\x05agent\x12\x14\n" +
 	"\x05model\x18\x04 \x01(\tR\x05model\x12#\n" +
 	"\rmodel_variant\x18\x05 \x01(\tR\fmodelVariant\x12\x1f\n" +
 	"\vbase_branch\x18\x06 \x01(\tR\n" +
-	"baseBranch\x12!\n" +
-	"\fproject_root\x18\a \x01(\tR\vprojectRoot\x12\x16\n" +
+	"baseBranch\x12\x16\n" +
 	"\x06preset\x18\b \x01(\tR\x06preset\x12\x16\n" +
 	"\x06branch\x18\t \x01(\tR\x06branch\x12!\n" +
 	"\fworktree_dir\x18\n" +
@@ -10825,9 +10770,8 @@ const file_orch_proto_rawDesc = "" +
 	"\x11CloseIssueRequest\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x121\n" +
 	"\acontext\x18\x03 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"\x14\n" +
-	"\x12CloseIssueResponse\"\xab\x01\n" +
-	"\x1cGetControlAgentLaunchRequest\x12!\n" +
-	"\fproject_root\x18\x01 \x01(\tR\vprojectRoot\x12\x14\n" +
+	"\x12CloseIssueResponse\"\x88\x01\n" +
+	"\x1cGetControlAgentLaunchRequest\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x1f\n" +
 	"\vnew_session\x18\x03 \x01(\bR\n" +
 	"newSession\x121\n" +
@@ -10839,9 +10783,8 @@ const file_orch_proto_rawDesc = "" +
 	"\x04port\x18\x03 \x01(\x05R\x04port\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x04 \x01(\tR\tsessionId\x12\x18\n" +
-	"\aresumed\x18\x05 \x01(\bR\aresumed\"t\n" +
-	"\x1cGetControlAgentConfigRequest\x12!\n" +
-	"\fproject_root\x18\x01 \x01(\tR\vprojectRoot\x121\n" +
+	"\aresumed\x18\x05 \x01(\bR\aresumed\"Q\n" +
+	"\x1cGetControlAgentConfigRequest\x121\n" +
 	"\acontext\x18\x02 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"\xb6\x01\n" +
 	"\x1dGetControlAgentConfigResponse\x12%\n" +
 	"\x0eprompt_content\x18\x01 \x01(\tR\rpromptContent\x12\x14\n" +
@@ -11046,9 +10989,8 @@ const file_orch_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"G\n" +
 	"\x13AppendEventResponse\x12\x18\n" +
 	"\askipped\x18\x01 \x01(\bR\askipped\x12\x16\n" +
-	"\x06reason\x18\x02 \x01(\tR\x06reason\"s\n" +
-	"\x1bEnsureOpenCodeServerRequest\x12!\n" +
-	"\fproject_root\x18\x01 \x01(\tR\vprojectRoot\x121\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"P\n" +
+	"\x1bEnsureOpenCodeServerRequest\x121\n" +
 	"\acontext\x18\x02 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"[\n" +
 	"\x1cEnsureOpenCodeServerResponse\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\x05R\x04port\x12'\n" +
@@ -11161,10 +11103,9 @@ const file_orch_proto_rawDesc = "" +
 	"\bshort_id\x18\x04 \x01(\tR\ashortId\x121\n" +
 	"\acontext\x18\x05 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"6\n" +
 	"\x11ResumeRunResponse\x12!\n" +
-	"\fsession_name\x18\x01 \x01(\tR\vsessionName\"S\n" +
+	"\fsession_name\x18\x01 \x01(\tR\vsessionName\"0\n" +
 	"\x1aQueryOpenCodeServerRequest\x12\x12\n" +
-	"\x04port\x18\x01 \x01(\x05R\x04port\x12!\n" +
-	"\fproject_root\x18\x02 \x01(\tR\vprojectRoot\"n\n" +
+	"\x04port\x18\x01 \x01(\x05R\x04port\"n\n" +
 	"\x14OpenCodeProviderInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x122\n" +
@@ -11192,9 +11133,8 @@ const file_orch_proto_rawDesc = "" +
 	"\x1bInjectInitialPromptResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x12\n" +
-	"\x04port\x18\x02 \x01(\x05R\x04port\"\x94\x04\n" +
-	"\x12ContinueRunRequest\x12!\n" +
-	"\fproject_root\x18\x02 \x01(\tR\vprojectRoot\x12\x19\n" +
+	"\x04port\x18\x02 \x01(\x05R\x04port\"\xd4\x03\n" +
+	"\x12ContinueRunRequest\x12\x19\n" +
 	"\bissue_id\x18\x03 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x04 \x01(\tR\x05runId\x12\x19\n" +
 	"\bshort_id\x18\x05 \x01(\tR\ashortId\x12\x16\n" +
@@ -11208,8 +11148,7 @@ const file_orch_proto_rawDesc = "" +
 	"\x0fprompt_template\x18\f \x01(\tR\x0epromptTemplate\x12(\n" +
 	"\x10pr_target_branch\x18\r \x01(\tR\x0eprTargetBranch\x12 \n" +
 	"\vmultiplexer\x18\x0e \x01(\tR\vmultiplexer\x12!\n" +
-	"\fsession_name\x18\x0f \x01(\tR\vsessionName\x12\x1b\n" +
-	"\trepo_root\x18\x10 \x01(\tR\brepoRoot\x121\n" +
+	"\fsession_name\x18\x0f \x01(\tR\vsessionName\x121\n" +
 	"\acontext\x18\x11 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"\xe6\x01\n" +
 	"\x13ContinueRunResponse\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
@@ -11218,9 +11157,8 @@ const file_orch_proto_rawDesc = "" +
 	"\fsession_name\x18\x04 \x01(\tR\vsessionName\x12\x16\n" +
 	"\x06status\x18\x05 \x01(\tR\x06status\x12%\n" +
 	"\x0econtinued_from\x18\x06 \x01(\tR\rcontinuedFrom\x12\x19\n" +
-	"\bissue_id\x18\a \x01(\tR\aissueId\"h\n" +
-	"\x10GetConfigRequest\x12!\n" +
-	"\fproject_root\x18\x01 \x01(\tR\vprojectRoot\x121\n" +
+	"\bissue_id\x18\a \x01(\tR\aissueId\"E\n" +
+	"\x10GetConfigRequest\x121\n" +
 	"\acontext\x18\x02 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"\xa1\x01\n" +
 	"\x10SlackConfigProto\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x1f\n" +

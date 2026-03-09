@@ -525,7 +525,6 @@ func TestProtoStartRunUsesExternalWorkerResultJSON(t *testing.T) {
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
 
-	projectRoot := "/test/project"
 	projectID := testProjectID
 	st := &mockStore{
 		runs: make(map[string]*model.Run),
@@ -567,10 +566,9 @@ func TestProtoStartRunUsesExternalWorkerResultJSON(t *testing.T) {
 
 	resp := sendProtoRequest(t, &orchpb.Request{
 		Request: &orchpb.Request_StartRun{StartRun: &orchpb.StartRunRequest{
-			IssueId:     "issue-start",
-			RunId:       "run-from-worker",
-			ProjectRoot: projectRoot,
-			Context:     &orchpb.RequestContext{ProjectId: projectID},
+			IssueId: "issue-start",
+			RunId:   "run-from-worker",
+			Context: &orchpb.RequestContext{ProjectId: projectID},
 		}},
 	})
 
@@ -605,7 +603,6 @@ func TestProtoContinueRunUsesExternalWorkerResultJSON(t *testing.T) {
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
 
-	projectRoot := "/test/project"
 	projectID := testProjectID
 	st := &mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}}
 
@@ -642,10 +639,9 @@ func TestProtoContinueRunUsesExternalWorkerResultJSON(t *testing.T) {
 
 	resp := sendProtoRequest(t, &orchpb.Request{
 		Request: &orchpb.Request_ContinueRun{ContinueRun: &orchpb.ContinueRunRequest{
-			IssueId:     "issue-cont",
-			RunId:       "run-cont",
-			ProjectRoot: projectRoot,
-			Context:     &orchpb.RequestContext{ProjectId: projectID},
+			IssueId: "issue-cont",
+			RunId:   "run-cont",
+			Context: &orchpb.RequestContext{ProjectId: projectID},
 		}},
 	})
 
@@ -3929,8 +3925,8 @@ func TestProtoStartRunWithoutProjectRootDoesNotFallbackToEnv(t *testing.T) {
 	if resp.Ok {
 		t.Fatal("expected error response")
 	}
-	if resp.Error != "no store available" {
-		t.Fatalf("expected no store available, got: %s", resp.Error)
+	if resp.Error != "project_id required" {
+		t.Fatalf("expected project_id required, got: %s", resp.Error)
 	}
 }
 
@@ -3963,8 +3959,8 @@ func TestProtoContinueRunWithoutProjectRootDoesNotFallbackToEnv(t *testing.T) {
 	if resp.Ok {
 		t.Fatal("expected error response")
 	}
-	if resp.Error != "no store available" {
-		t.Fatalf("expected no store available, got: %s", resp.Error)
+	if resp.Error != "project_id required" {
+		t.Fatalf("expected project_id required, got: %s", resp.Error)
 	}
 }
 
@@ -3999,9 +3995,8 @@ func TestProtoRunRequestsDoNotRouteByProjectRootWithoutProjectContext(t *testing
 			req: &orchpb.Request{
 				Request: &orchpb.Request_StartRun{
 					StartRun: &orchpb.StartRunRequest{
-						IssueId:     "test-issue",
-						ProjectRoot: testProjectRoot,
-						Context:     &orchpb.RequestContext{},
+						IssueId: "test-issue",
+						Context: &orchpb.RequestContext{},
 					},
 				},
 			},
@@ -4011,10 +4006,8 @@ func TestProtoRunRequestsDoNotRouteByProjectRootWithoutProjectContext(t *testing
 			req: &orchpb.Request{
 				Request: &orchpb.Request_ContinueRun{
 					ContinueRun: &orchpb.ContinueRunRequest{
-						IssueId:     "test-issue",
-						ProjectRoot: testProjectRoot,
-						RepoRoot:    testProjectRoot,
-						Context:     &orchpb.RequestContext{},
+						IssueId: "test-issue",
+						Context: &orchpb.RequestContext{},
 					},
 				},
 			},
@@ -4027,8 +4020,8 @@ func TestProtoRunRequestsDoNotRouteByProjectRootWithoutProjectContext(t *testing
 			if resp.Ok {
 				t.Fatal("expected error response")
 			}
-			if resp.Error != "no store available" {
-				t.Fatalf("expected no store available, got %q", resp.Error)
+			if resp.Error != "project_id required" {
+				t.Fatalf("expected project_id required, got %q", resp.Error)
 			}
 		})
 	}
@@ -4398,14 +4391,13 @@ func TestControlAgentProtoHandlersRequireRegisteredProjectMapping(t *testing.T) 
 	}
 	defer server.Stop()
 
-	projectRoot := "/tmp/missing-control-project"
 	projectID := "missing-control-project"
 	missing := &orchpb.RequestContext{ProjectId: projectID}
 
 	t.Run("get-control-agent-config", func(t *testing.T) {
 		resp := sendProtoRequest(t, &orchpb.Request{
 			Request: &orchpb.Request_GetControlAgentConfig{
-				GetControlAgentConfig: &orchpb.GetControlAgentConfigRequest{ProjectRoot: projectRoot, Context: missing},
+				GetControlAgentConfig: &orchpb.GetControlAgentConfigRequest{Context: missing},
 			},
 		})
 
@@ -4421,7 +4413,7 @@ func TestControlAgentProtoHandlersRequireRegisteredProjectMapping(t *testing.T) 
 	t.Run("get-control-agent-launch", func(t *testing.T) {
 		resp := sendProtoRequest(t, &orchpb.Request{
 			Request: &orchpb.Request_GetControlAgentLaunch{
-				GetControlAgentLaunch: &orchpb.GetControlAgentLaunchRequest{ProjectRoot: projectRoot, Context: missing},
+				GetControlAgentLaunch: &orchpb.GetControlAgentLaunchRequest{Context: missing},
 			},
 		})
 
@@ -4437,7 +4429,7 @@ func TestControlAgentProtoHandlersRequireRegisteredProjectMapping(t *testing.T) 
 	t.Run("get-control-agent-config-missing-context", func(t *testing.T) {
 		resp := sendProtoRequest(t, &orchpb.Request{
 			Request: &orchpb.Request_GetControlAgentConfig{
-				GetControlAgentConfig: &orchpb.GetControlAgentConfigRequest{ProjectRoot: projectRoot, Context: &orchpb.RequestContext{}},
+				GetControlAgentConfig: &orchpb.GetControlAgentConfigRequest{Context: &orchpb.RequestContext{}},
 			},
 		})
 
@@ -4452,7 +4444,7 @@ func TestControlAgentProtoHandlersRequireRegisteredProjectMapping(t *testing.T) 
 	t.Run("get-control-agent-launch-missing-context", func(t *testing.T) {
 		resp := sendProtoRequest(t, &orchpb.Request{
 			Request: &orchpb.Request_GetControlAgentLaunch{
-				GetControlAgentLaunch: &orchpb.GetControlAgentLaunchRequest{ProjectRoot: projectRoot, Context: &orchpb.RequestContext{}},
+				GetControlAgentLaunch: &orchpb.GetControlAgentLaunchRequest{Context: &orchpb.RequestContext{}},
 			},
 		})
 
@@ -4555,10 +4547,9 @@ func TestProtoStartRunFieldMapping(t *testing.T) {
 	resp := sendProtoRequest(t, &orchpb.Request{
 		Request: &orchpb.Request_StartRun{
 			StartRun: &orchpb.StartRunRequest{
-				IssueId:     "test-issue",
-				Model:       "anthropic/claude-sonnet-4",
-				ProjectRoot: testProjectRoot,
-				DryRun:      true,
+				IssueId: "test-issue",
+				Model:   "anthropic/claude-sonnet-4",
+				DryRun:  true,
 			},
 		},
 	})
@@ -4580,9 +4571,8 @@ func TestProtoStartRunFieldMapping(t *testing.T) {
 	_ = sendProtoRequest(t, &orchpb.Request{
 		Request: &orchpb.Request_StartRun{
 			StartRun: &orchpb.StartRunRequest{
-				IssueId:     "test-issue",
-				Model:       "anthropic/claude-sonnet-4",
-				ProjectRoot: testProjectRoot,
+				IssueId: "test-issue",
+				Model:   "anthropic/claude-sonnet-4",
 			},
 		},
 	})
@@ -4620,7 +4610,6 @@ func TestProtoContinueRunFieldMapping(t *testing.T) {
 				ContinueRun: &orchpb.ContinueRunRequest{
 					IssueId:     "test-issue",
 					SessionName: "my-session",
-					ProjectRoot: testProjectRoot,
 				},
 			},
 		})
@@ -4633,33 +4622,12 @@ func TestProtoContinueRunFieldMapping(t *testing.T) {
 		}
 	})
 
-	t.Run("RepoRoot falls back to ProjectRoot", func(t *testing.T) {
+	t.Run("missing project context fails closed", func(t *testing.T) {
 		resp := sendProtoRequest(t, &orchpb.Request{
 			Request: &orchpb.Request_ContinueRun{
 				ContinueRun: &orchpb.ContinueRunRequest{
-					IssueId:  "test-issue",
-					RepoRoot: "/fallback/repo/root",
-				},
-			},
-		})
-
-		// Should not fail with "no project root available" since RepoRoot
-		// is now used as a fallback for ProjectRoot.
-		if resp.Ok {
-			t.Error("expected error since issue doesn't exist")
-		}
-		if resp.Error == "no project root available" {
-			t.Error("RepoRoot should have been used as fallback for ProjectRoot")
-		}
-	})
-
-	t.Run("ProjectRoot takes precedence over RepoRoot", func(t *testing.T) {
-		resp := sendProtoRequest(t, &orchpb.Request{
-			Request: &orchpb.Request_ContinueRun{
-				ContinueRun: &orchpb.ContinueRunRequest{
-					IssueId:     "test-issue",
-					ProjectRoot: "/explicit/project/root",
-					RepoRoot:    "/fallback/repo/root",
+					IssueId: "test-issue",
+					Context: &orchpb.RequestContext{},
 				},
 			},
 		})
@@ -4667,8 +4635,8 @@ func TestProtoContinueRunFieldMapping(t *testing.T) {
 		if resp.Ok {
 			t.Error("expected error since issue doesn't exist")
 		}
-		if resp.Error == "no project root available" {
-			t.Error("ProjectRoot should have been used")
+		if resp.Error != "project_id required" {
+			t.Fatalf("expected project_id required, got %q", resp.Error)
 		}
 	})
 }

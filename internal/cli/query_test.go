@@ -133,7 +133,7 @@ func (m *mockQueryAPI) WriteFile(ctx context.Context, path string, content []byt
 	return nil
 }
 func (m *mockQueryAPI) Ping(ctx context.Context) error { return nil }
-func (m *mockQueryAPI) EnsureOpenCodeServer(ctx context.Context, projectRoot string) (*orchapi.OpenCodeServerInfo, error) {
+func (m *mockQueryAPI) EnsureOpenCodeServer(ctx context.Context) (*orchapi.OpenCodeServerInfo, error) {
 	return nil, nil
 }
 func (m *mockQueryAPI) InjectInitialPrompt(ctx context.Context, ref orchapi.RunRef, prompt string) error {
@@ -142,7 +142,7 @@ func (m *mockQueryAPI) InjectInitialPrompt(ctx context.Context, ref orchapi.RunR
 func (m *mockQueryAPI) QueryOpenCodeServer(ctx context.Context, port int) (*orchapi.QueryOpenCodeServerResult, error) {
 	return nil, nil
 }
-func (m *mockQueryAPI) GetConfig(ctx context.Context, projectRoot string) (*orchapi.Config, error) {
+func (m *mockQueryAPI) GetConfig(ctx context.Context) (*orchapi.Config, error) {
 	return nil, nil
 }
 func (m *mockQueryAPI) GetDaemonStatus(ctx context.Context) (*orchapi.DaemonStatus, error) {

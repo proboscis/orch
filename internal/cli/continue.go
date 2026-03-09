@@ -91,23 +91,12 @@ func runContinue(refStr string, opts *continueOptions) error {
 }
 
 func runContinueWithDeps(ctx context.Context, refStr string, opts *continueOptions, deps *continueDeps) error {
-	projectRoot, _, rootErr := getProjectRootWithSource()
+	_, _, rootErr := getProjectRootWithSource()
 	remoteMode := strings.TrimSpace(getRemoteAddr()) != ""
 	if rootErr != nil {
-		projectRoot = ""
 		if !remoteMode {
 			return exitWithCode(fmt.Errorf("project scope required: run from repository root or set --project/ORCH_PROJECT"), ExitWorktreeError)
 		}
-	}
-
-	requestProjectScope, err := resolveRequestProjectScope(projectRoot)
-	if err != nil {
-		return exitWithCode(err, ExitWorktreeError)
-	}
-
-	configProjectScope := projectRoot
-	if remoteMode {
-		configProjectScope = requestProjectScope
 	}
 
 	api, err := deps.getAPI()
@@ -115,7 +104,7 @@ func runContinueWithDeps(ctx context.Context, refStr string, opts *continueOptio
 		return exitWithCode(err, ExitInternalError)
 	}
 
-	cfg, err := api.GetConfig(ctx, configProjectScope)
+	cfg, err := api.GetConfig(ctx)
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)
 	}
@@ -160,8 +149,6 @@ func runContinueWithDeps(ctx context.Context, refStr string, opts *continueOptio
 		PRTargetBranch: opts.PRTargetBranch,
 		Multiplexer:    opts.Multiplexer,
 		SessionName:    opts.SessionName,
-		ProjectRoot:    requestProjectScope,
-		RepoRoot:       requestProjectScope,
 	})
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)

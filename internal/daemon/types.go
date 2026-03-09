@@ -635,7 +635,6 @@ type StartRunOptions struct {
 	Target         string
 	TargetHost     string
 	TargetWorkerID string
-	ProjectRoot    string
 }
 
 type StartRunResponse struct {
@@ -671,8 +670,6 @@ type ContinueRunOptions struct {
 	PRTargetBranch string
 	Multiplexer    string
 	SessionName    string
-	ProjectRoot    string
-	RepoRoot       string
 	Target         string
 	TargetHost     string
 	TargetWorkerID string

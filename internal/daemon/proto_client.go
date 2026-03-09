@@ -46,15 +46,9 @@ func NewProtoClientLocal(projectRoot string) *ProtoClient {
 func NewProtoClientWithAddress(projectRoot, daemonAddr string) *ProtoClient {
 	remoteAddr := strings.TrimSpace(daemonAddr)
 	trimmedProjectRoot := strings.TrimSpace(projectRoot)
-
 	if remoteAddr != "" && trimmedProjectRoot != "" {
-		repoID := repoIDFromProjectSelector(trimmedProjectRoot)
-		repoToken := encodeRepoIDToken(repoID)
-		if repoToken != "" {
-			trimmedProjectRoot = repoToken
-		} else {
-			trimmedProjectRoot = ""
-		}
+		projectID := repoIDFromProjectSelector(trimmedProjectRoot)
+		trimmedProjectRoot = strings.TrimSpace(projectID)
 	}
 
 	return &ProtoClient{
@@ -87,10 +81,6 @@ func (c *ProtoClient) projectIDForRequest(projectRoot string) string {
 	}
 	if target == "" {
 		return ""
-	}
-
-	if repoID, ok := decodeRepoIDToken(target); ok {
-		return repoID
 	}
 
 	return repoIDFromProjectSelector(target)
@@ -593,8 +583,7 @@ func (c *ProtoClient) StartRun(opts *StartRunOptions) (*StartRunResponse, error)
 				Reuse:          opts.Reuse,
 				Multiplexer:    opts.Multiplexer,
 				Target:         opts.Target,
-				ProjectRoot:    c.projectRootForRequest(opts.ProjectRoot),
-				Context:        c.requestContext(opts.ProjectRoot),
+				Context:        c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -627,7 +616,6 @@ func (c *ProtoClient) ContinueRun(opts *ContinueRunOptions) (*ContinueRunRespons
 	req := &orchpb.Request{
 		Request: &orchpb.Request_ContinueRun{
 			ContinueRun: &orchpb.ContinueRunRequest{
-				ProjectRoot:    c.projectRootForRequest(opts.ProjectRoot),
 				IssueId:        opts.IssueID,
 				RunId:          opts.RunID,
 				ShortId:        opts.ShortID,
@@ -641,8 +629,7 @@ func (c *ProtoClient) ContinueRun(opts *ContinueRunOptions) (*ContinueRunRespons
 				PrTargetBranch: opts.PRTargetBranch,
 				Multiplexer:    opts.Multiplexer,
 				SessionName:    opts.SessionName,
-				RepoRoot:       c.projectRootForRequest(opts.RepoRoot),
-				Context:        c.requestContext(opts.ProjectRoot),
+				Context:        c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1150,14 +1137,13 @@ func (c *ProtoClient) ListExternalWorkers() (*ListExternalWorkersResponse, error
 	return &ListExternalWorkersResponse{OK: true, Workers: out}, nil
 }
 
-func (c *ProtoClient) GetControlAgentLaunch(projectRoot, agentType string, newSession bool) (*GetControlAgentLaunchResponse, error) {
+func (c *ProtoClient) GetControlAgentLaunch(agentType string, newSession bool) (*GetControlAgentLaunchResponse, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_GetControlAgentLaunch{
 			GetControlAgentLaunch: &orchpb.GetControlAgentLaunchRequest{
-				ProjectRoot: c.projectRootForRequest(projectRoot),
-				Agent:       agentType,
-				NewSession:  newSession,
-				Context:     c.requestContext(projectRoot),
+				Agent:      agentType,
+				NewSession: newSession,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1185,12 +1171,11 @@ func (c *ProtoClient) GetControlAgentLaunch(projectRoot, agentType string, newSe
 	}, nil
 }
 
-func (c *ProtoClient) GetControlAgentConfig(projectRoot string) (*GetControlAgentConfigResponse, error) {
+func (c *ProtoClient) GetControlAgentConfig() (*GetControlAgentConfigResponse, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_GetControlAgentConfig{
 			GetControlAgentConfig: &orchpb.GetControlAgentConfigRequest{
-				ProjectRoot: c.projectRootForRequest(projectRoot),
-				Context:     c.requestContext(projectRoot),
+				Context: c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1329,7 +1314,7 @@ func protoBranchStateToString(s orchpb.BranchState) string {
 	}
 }
 
-func protoRunToSummary(r *orchpb.Run, cfg *config.Config) *RunSummary {
+func protoRunToSummary(r *orchpb.Run, _ *config.Config) *RunSummary {
 	if r == nil {
 		return nil
 	}
@@ -1354,7 +1339,7 @@ func protoRunToSummary(r *orchpb.Run, cfg *config.Config) *RunSummary {
 		Branch:            r.Branch,
 		WorktreePath:      r.WorktreePath,
 		Target:            r.Target,
-		TargetHost:        resolveTargetHost(r.Target, cfg),
+		TargetHost:        strings.TrimSpace(r.TargetHost),
 		SessionName:       r.SessionName,
 		Multiplexer:       protoMultiplexerToString(r.Multiplexer),
 		PRUrl:             r.PrUrl,
@@ -1377,7 +1362,7 @@ func protoRunToSummary(r *orchpb.Run, cfg *config.Config) *RunSummary {
 	}
 }
 
-func protoRunToFull(r *orchpb.Run, events []*orchpb.Event, cfg *config.Config) *RunFull {
+func protoRunToFull(r *orchpb.Run, events []*orchpb.Event, _ *config.Config) *RunFull {
 	if r == nil {
 		return nil
 	}
@@ -1425,7 +1410,7 @@ func protoRunToFull(r *orchpb.Run, events []*orchpb.Event, cfg *config.Config) *
 		Branch:            r.Branch,
 		WorktreePath:      r.WorktreePath,
 		Target:            r.Target,
-		TargetHost:        resolveTargetHost(r.Target, cfg),
+		TargetHost:        strings.TrimSpace(r.TargetHost),
 		SessionName:       r.SessionName,
 		Multiplexer:       protoMultiplexerToString(r.Multiplexer),
 		PRUrl:             r.PrUrl,
@@ -1456,22 +1441,6 @@ func loadConfigOrNil() *config.Config {
 		return nil
 	}
 	return cfg
-}
-
-func resolveTargetHost(targetName string, cfg *config.Config) string {
-	targetName = strings.TrimSpace(targetName)
-	if targetName == "" {
-		return ""
-	}
-	targetHost := targetName
-	if cfg != nil {
-		if targetCfg := cfg.GetTarget(targetName); targetCfg != nil {
-			if host := strings.TrimSpace(targetCfg.Host); host != "" {
-				targetHost = host
-			}
-		}
-	}
-	return targetHost
 }
 
 func protoIssueToSummary(i *orchpb.Issue) *IssueSummary {
@@ -1590,12 +1559,11 @@ func (c *ProtoClient) AppendArtifactEvent(issueID, runID, artifactName string, a
 	return nil
 }
 
-func (c *ProtoClient) GetOpenCodeServer(projectRoot string) (*GetOpenCodeServerResponse, error) {
+func (c *ProtoClient) GetOpenCodeServer() (*GetOpenCodeServerResponse, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_EnsureOpencodeServer{
 			EnsureOpencodeServer: &orchpb.EnsureOpenCodeServerRequest{
-				ProjectRoot: c.projectRootForRequest(projectRoot),
-				Context:     c.requestContext(projectRoot),
+				Context: c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -2399,12 +2367,11 @@ func (c *ProtoClient) QueryOpenCodeServer(port int) (*QueryOpenCodeServerRespons
 	}, nil
 }
 
-func (c *ProtoClient) GetConfig(projectRoot string) (*ConfigResponse, error) {
+func (c *ProtoClient) GetConfig() (*ConfigResponse, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_GetConfig{
 			GetConfig: &orchpb.GetConfigRequest{
-				ProjectRoot: c.projectRootForRequest(projectRoot),
-				Context:     c.requestContext(projectRoot),
+				Context: c.requestContext(c.projectRoot),
 			},
 		},
 	}

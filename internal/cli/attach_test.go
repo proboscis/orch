@@ -28,7 +28,7 @@ func (m *mockAttachAPI) GetAttachInfo(ctx context.Context, ref orchapi.RunRef) (
 	return m.info, nil
 }
 
-func (m *mockAttachAPI) GetConfig(ctx context.Context, projectRoot string) (*orchapi.Config, error) {
+func (m *mockAttachAPI) GetConfig(ctx context.Context) (*orchapi.Config, error) {
 	if m.cfg != nil {
 		return m.cfg, nil
 	}

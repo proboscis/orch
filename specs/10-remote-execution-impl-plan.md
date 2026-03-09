@@ -134,18 +134,18 @@ processStartRunCore(req):
     // etc.
 ```
 
-### Repo Path Resolution
+### Worker-Local Repo Resolution
 
-The target config specifies where the git repo lives on the target machine:
+The target config selects the host/profile only:
 
 ```yaml
 targets:
   mac:
     host: mac
-    repo: /Users/me/repos/project
 ```
 
-Worktree path on target: `<repo>/.orch/worktrees/<issue>/<issue>-<run>-<agent>/`
+The worker host is responsible for resolving `project_id -> local repo root`
+before creating worktrees.
 
 ### Validation
 
@@ -299,11 +299,9 @@ causes `no store available` errors.
 
 ### Approach
 
-- Keep proto schema unchanged for now.
-- In remote mode, encode request context as `repoid:<repo-id>` tokens derived
-  from portable repo ID.
-- On daemon side, decode token and resolve server-local project context from
-  daemon repo registry (`repo_id -> project_root`).
+- Use `RequestContext.project_id` directly for runtime requests.
+- Resolve server-local project context from daemon repo registry
+  (`repo_id -> project_root`).
 - Add daemon repo registry commands so users can register mappings explicitly:
   `orch --remote <addr> daemon repo register <repo-url>` and inspect
   with `orch --remote <addr> daemon repo list`.

@@ -156,7 +156,7 @@ type OrchAPIMock struct {
 	DeleteRunFunc func(ctx context.Context, ref orchapi.RunRef, opts *orchapi.DeleteRunOptions) (*orchapi.DeleteRunResult, error)
 
 	// EnsureOpenCodeServerFunc mocks the EnsureOpenCodeServer method.
-	EnsureOpenCodeServerFunc func(ctx context.Context, projectRoot string) (*orchapi.OpenCodeServerInfo, error)
+	EnsureOpenCodeServerFunc func(ctx context.Context) (*orchapi.OpenCodeServerInfo, error)
 
 	// GetAttachInfoFunc mocks the GetAttachInfo method.
 	GetAttachInfoFunc func(ctx context.Context, ref orchapi.RunRef) (*orchapi.AttachInfo, error)
@@ -165,7 +165,7 @@ type OrchAPIMock struct {
 	GetBranchStateFunc func(ctx context.Context, ref orchapi.RunRef) (orchapi.BranchState, error)
 
 	// GetConfigFunc mocks the GetConfig method.
-	GetConfigFunc func(ctx context.Context, projectRoot string) (*orchapi.Config, error)
+	GetConfigFunc func(ctx context.Context) (*orchapi.Config, error)
 
 	// GetDaemonLogFunc mocks the GetDaemonLog method.
 	GetDaemonLogFunc func(ctx context.Context, lines int) (string, error)
@@ -303,8 +303,6 @@ type OrchAPIMock struct {
 		EnsureOpenCodeServer []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// ProjectRoot is the projectRoot argument value.
-			ProjectRoot string
 		}
 		// GetAttachInfo holds details about calls to the GetAttachInfo method.
 		GetAttachInfo []struct {
@@ -324,8 +322,6 @@ type OrchAPIMock struct {
 		GetConfig []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// ProjectRoot is the projectRoot argument value.
-			ProjectRoot string
 		}
 		// GetDaemonLog holds details about calls to the GetDaemonLog method.
 		GetDaemonLog []struct {
@@ -820,21 +816,19 @@ func (mock *OrchAPIMock) DeleteRunCalls() []struct {
 }
 
 // EnsureOpenCodeServer calls EnsureOpenCodeServerFunc.
-func (mock *OrchAPIMock) EnsureOpenCodeServer(ctx context.Context, projectRoot string) (*orchapi.OpenCodeServerInfo, error) {
+func (mock *OrchAPIMock) EnsureOpenCodeServer(ctx context.Context) (*orchapi.OpenCodeServerInfo, error) {
 	if mock.EnsureOpenCodeServerFunc == nil {
 		panic("OrchAPIMock.EnsureOpenCodeServerFunc: method is nil but OrchAPI.EnsureOpenCodeServer was just called")
 	}
 	callInfo := struct {
-		Ctx         context.Context
-		ProjectRoot string
+		Ctx context.Context
 	}{
-		Ctx:         ctx,
-		ProjectRoot: projectRoot,
+		Ctx: ctx,
 	}
 	mock.lockEnsureOpenCodeServer.Lock()
 	mock.calls.EnsureOpenCodeServer = append(mock.calls.EnsureOpenCodeServer, callInfo)
 	mock.lockEnsureOpenCodeServer.Unlock()
-	return mock.EnsureOpenCodeServerFunc(ctx, projectRoot)
+	return mock.EnsureOpenCodeServerFunc(ctx)
 }
 
 // EnsureOpenCodeServerCalls gets all the calls that were made to EnsureOpenCodeServer.
@@ -842,12 +836,10 @@ func (mock *OrchAPIMock) EnsureOpenCodeServer(ctx context.Context, projectRoot s
 //
 //	len(mockedOrchAPI.EnsureOpenCodeServerCalls())
 func (mock *OrchAPIMock) EnsureOpenCodeServerCalls() []struct {
-	Ctx         context.Context
-	ProjectRoot string
+	Ctx context.Context
 } {
 	var calls []struct {
-		Ctx         context.Context
-		ProjectRoot string
+		Ctx context.Context
 	}
 	mock.lockEnsureOpenCodeServer.RLock()
 	calls = mock.calls.EnsureOpenCodeServer
@@ -928,21 +920,19 @@ func (mock *OrchAPIMock) GetBranchStateCalls() []struct {
 }
 
 // GetConfig calls GetConfigFunc.
-func (mock *OrchAPIMock) GetConfig(ctx context.Context, projectRoot string) (*orchapi.Config, error) {
+func (mock *OrchAPIMock) GetConfig(ctx context.Context) (*orchapi.Config, error) {
 	if mock.GetConfigFunc == nil {
 		panic("OrchAPIMock.GetConfigFunc: method is nil but OrchAPI.GetConfig was just called")
 	}
 	callInfo := struct {
-		Ctx         context.Context
-		ProjectRoot string
+		Ctx context.Context
 	}{
-		Ctx:         ctx,
-		ProjectRoot: projectRoot,
+		Ctx: ctx,
 	}
 	mock.lockGetConfig.Lock()
 	mock.calls.GetConfig = append(mock.calls.GetConfig, callInfo)
 	mock.lockGetConfig.Unlock()
-	return mock.GetConfigFunc(ctx, projectRoot)
+	return mock.GetConfigFunc(ctx)
 }
 
 // GetConfigCalls gets all the calls that were made to GetConfig.
@@ -950,12 +940,10 @@ func (mock *OrchAPIMock) GetConfig(ctx context.Context, projectRoot string) (*or
 //
 //	len(mockedOrchAPI.GetConfigCalls())
 func (mock *OrchAPIMock) GetConfigCalls() []struct {
-	Ctx         context.Context
-	ProjectRoot string
+	Ctx context.Context
 } {
 	var calls []struct {
-		Ctx         context.Context
-		ProjectRoot string
+		Ctx context.Context
 	}
 	mock.lockGetConfig.RLock()
 	calls = mock.calls.GetConfig

@@ -284,7 +284,6 @@ func (c *DaemonClient) StartRun(ctx context.Context, req *StartRunRequest) (*Sta
 		Reuse:          req.Reuse,
 		Multiplexer:    req.Multiplexer,
 		Target:         req.Target,
-		ProjectRoot:    req.ProjectRoot,
 	})
 	if err != nil {
 		return nil, err
@@ -442,8 +441,8 @@ func (c *DaemonClient) ResolveIssue(ctx context.Context, issueID string, force b
 	return err
 }
 
-func (c *DaemonClient) EnsureOpenCodeServer(ctx context.Context, projectRoot string) (*OpenCodeServerInfo, error) {
-	resp, err := c.proto.GetOpenCodeServer(projectRoot)
+func (c *DaemonClient) EnsureOpenCodeServer(ctx context.Context) (*OpenCodeServerInfo, error) {
+	resp, err := c.proto.GetOpenCodeServer()
 	if err != nil {
 		return nil, err
 	}
@@ -789,8 +788,8 @@ func (c *DaemonClient) CreateRun(ctx context.Context, req *CreateRunRequest) (*C
 	}, nil
 }
 
-func (c *DaemonClient) GetConfig(ctx context.Context, projectRoot string) (*Config, error) {
-	resp, err := c.proto.GetConfig(projectRoot)
+func (c *DaemonClient) GetConfig(ctx context.Context) (*Config, error) {
+	resp, err := c.proto.GetConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -881,8 +880,8 @@ func (c *DaemonClient) GetDaemonStatus(ctx context.Context) (*DaemonStatus, erro
 	}, nil
 }
 
-func (c *DaemonClient) GetControlAgentConfig(ctx context.Context, projectRoot string) (*ControlAgentConfig, error) {
-	resp, err := c.proto.GetControlAgentConfig(projectRoot)
+func (c *DaemonClient) GetControlAgentConfig(ctx context.Context) (*ControlAgentConfig, error) {
+	resp, err := c.proto.GetControlAgentConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -910,8 +909,6 @@ func (c *DaemonClient) ContinueRun(ctx context.Context, req *ContinueRunRequest)
 		PRTargetBranch: req.PRTargetBranch,
 		Multiplexer:    req.Multiplexer,
 		SessionName:    req.SessionName,
-		ProjectRoot:    req.ProjectRoot,
-		RepoRoot:       req.RepoRoot,
 	})
 	if err != nil {
 		return nil, err

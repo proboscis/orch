@@ -85,6 +85,7 @@ message Run {
   bool alive_known = 25;
   bool worktree_exists = 26;
   string target = 27;
+  string target_host = 28;
 }
 
 message Issue {
@@ -161,7 +162,6 @@ message StartRunRequest {
   string model = 4;
   string model_variant = 5;
   string base_branch = 6;
-  string project_root = 7;
   string preset = 8;
   string branch = 9;
   string worktree_dir = 10;
@@ -264,7 +264,6 @@ message CloseIssueResponse {}
 // --- Control Agent ---
 
 message GetControlAgentLaunchRequest {
-  string project_root = 1;
   string agent = 2;
   bool new_session = 3;
   RequestContext context = 4;
@@ -279,7 +278,6 @@ message GetControlAgentLaunchResponse {
 }
 
 message GetControlAgentConfigRequest {
-  string project_root = 1;
   RequestContext context = 2;
 }
 
@@ -569,7 +567,6 @@ message AppendEventResponse {
 }
 
 message EnsureOpenCodeServerRequest {
-  string project_root = 1;
   RequestContext context = 2;
 }
 
@@ -747,7 +744,6 @@ message ResumeRunResponse {
 
 message QueryOpenCodeServerRequest {
   int32 port = 1;
-  string project_root = 2;
 }
 
 message OpenCodeProviderInfo {
@@ -785,7 +781,6 @@ message InjectInitialPromptResponse {
 }
 
 message ContinueRunRequest {
-  string project_root = 2;
   // Source: either from_run or from_branch (use issue_id + run_id for from_run, issue_id + branch for from_branch)
   string issue_id = 3;
   string run_id = 4;
@@ -801,7 +796,6 @@ message ContinueRunRequest {
   string pr_target_branch = 13;
   string multiplexer = 14;
   string session_name = 15;
-  string repo_root = 16;
   RequestContext context = 17;
 }
 
@@ -818,7 +812,6 @@ message ContinueRunResponse {
 // --- Config ---
 
 message GetConfigRequest {
-  string project_root = 1;
   RequestContext context = 2;
 }
 

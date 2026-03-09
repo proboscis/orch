@@ -98,7 +98,7 @@ func runIssueCreate(issueID string, opts *issueCreateOptions) error {
 		return err
 	}
 
-	cfg, err := api.GetConfig(ctx, "")
+	cfg, err := api.GetConfig(ctx)
 	if err != nil {
 		return err
 	}

@@ -143,7 +143,7 @@ func runAttachWithDeps(refStr string, opts *attachOptions, deps *attachDeps) err
 		sessionName = model.GenerateSessionName(info.IssueID, info.RunID)
 	}
 
-	cfg, _ := api.GetConfig(ctx, "")
+	cfg, _ := api.GetConfig(ctx)
 
 	muxSetting := ""
 	if cfg != nil {

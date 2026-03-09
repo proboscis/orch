@@ -102,23 +102,12 @@ func runRun(issueID string, opts *runOptions) error {
 		issueID = model.NormalizeGitHubIssueID(issueID)
 	}
 
-	projectRoot, _, rootErr := getProjectRootWithSource()
+	_, _, rootErr := getProjectRootWithSource()
 	remoteMode := strings.TrimSpace(getRemoteAddr()) != ""
 	if rootErr != nil {
-		projectRoot = ""
 		if !remoteMode {
 			return exitWithCode(fmt.Errorf("project scope required: run from repository root or set --project/ORCH_PROJECT"), ExitWorktreeError)
 		}
-	}
-
-	requestProjectScope, err := resolveRequestProjectScope(projectRoot)
-	if err != nil {
-		return exitWithCode(err, ExitWorktreeError)
-	}
-
-	configProjectScope := projectRoot
-	if remoteMode {
-		configProjectScope = requestProjectScope
 	}
 
 	ctx := context.Background()
@@ -127,7 +116,7 @@ func runRun(issueID string, opts *runOptions) error {
 		return exitWithCode(err, ExitInternalError)
 	}
 
-	cfg, err := api.GetConfig(ctx, configProjectScope)
+	cfg, err := api.GetConfig(ctx)
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)
 	}
@@ -153,7 +142,6 @@ func runRun(issueID string, opts *runOptions) error {
 		Reuse:          opts.Reuse,
 		Multiplexer:    opts.Multiplexer,
 		Target:         opts.On,
-		ProjectRoot:    requestProjectScope,
 	})
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)
