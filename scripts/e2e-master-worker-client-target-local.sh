@@ -6,6 +6,7 @@ KEEP_ROOT="${KEEP_ROOT:-0}"
 ORCH_BIN="${ORCH_BIN:-}"
 TARGET_NAME="${TARGET_NAME:-mac}"
 TARGET_HOST="${TARGET_HOST:-mac}"
+MASTER_REMOTE_ADDR="${MASTER_REMOTE_ADDR:-127.0.0.1:60318}"
 TARGET_WORKER_ID="${TARGET_WORKER_ID:-$(TARGET_HOST="$TARGET_HOST" python3 - <<'PY'
 import os
 host = os.environ["TARGET_HOST"].strip() or "localhost"
@@ -45,7 +46,8 @@ echo "ROOT=$ROOT"
 echo "TARGET_NAME=$TARGET_NAME"
 echo "TARGET_HOST=$TARGET_HOST"
 echo "TARGET_WORKER_ID=$TARGET_WORKER_ID"
-mkdir -p "$ROOT"/{home,runtime,state,data,bin,master-repo/.orch,issues-store/issues,issues-store/runs,origin/example}
+echo "MASTER_REMOTE_ADDR=$MASTER_REMOTE_ADDR"
+mkdir -p "$ROOT"/{home,runtime,state,data,bin,master-repo/.orch,issues-store/issues,issues-store/runs,origin/example,target-home,target-runtime,target-state,target-data,target-config}
 
 export HOME="$ROOT/home"
 export XDG_RUNTIME_DIR="$ROOT/runtime"
@@ -68,11 +70,37 @@ import os, pathlib
 print(pathlib.Path(os.path.realpath(os.path.join(os.environ['ROOT'], 'target-repo'))))
 PY
 )"
+TARGET_HOME="$(python3 - <<'PY'
+import os, pathlib
+print(pathlib.Path(os.path.realpath(os.path.join(os.environ['ROOT'], 'target-home'))))
+PY
+)"
+TARGET_RUNTIME_DIR="$(python3 - <<'PY'
+import os, pathlib
+print(pathlib.Path(os.path.realpath(os.path.join(os.environ['ROOT'], 'target-runtime'))))
+PY
+)"
+TARGET_STATE_HOME="$(python3 - <<'PY'
+import os, pathlib
+print(pathlib.Path(os.path.realpath(os.path.join(os.environ['ROOT'], 'target-state'))))
+PY
+)"
+TARGET_DATA_HOME="$(python3 - <<'PY'
+import os, pathlib
+print(pathlib.Path(os.path.realpath(os.path.join(os.environ['ROOT'], 'target-data'))))
+PY
+)"
+TARGET_CONFIG_HOME="$(python3 - <<'PY'
+import os, pathlib
+print(pathlib.Path(os.path.realpath(os.path.join(os.environ['ROOT'], 'target-config'))))
+PY
+)"
 ISSUES="$(python3 - <<'PY'
 import os, pathlib
 print(pathlib.Path(os.path.realpath(os.path.join(os.environ['ROOT'], 'issues-store'))))
 PY
 )"
+TARGET_ENV_PREFIX="HOME=$TARGET_HOME XDG_RUNTIME_DIR=$TARGET_RUNTIME_DIR XDG_STATE_HOME=$TARGET_STATE_HOME XDG_DATA_HOME=$TARGET_DATA_HOME XDG_CONFIG_HOME=$TARGET_CONFIG_HOME"
 
 cat > "$MASTER_PROJECT/.orch/config.yaml" <<EOF
 issues:
@@ -81,7 +109,6 @@ worktree_dir: worktrees
 targets:
   - name: $TARGET_NAME
     host: $TARGET_HOST
-    repo: $TARGET_PROJECT
 EOF
 
 cat > "$MASTER_PROJECT/README.md" <<'EOF'
@@ -128,9 +155,10 @@ git clone "$REPO_URL" "$TARGET_PROJECT" >/dev/null
 cd "$MASTER_PROJECT"
 
 echo "== master and target worker =="
-"$ORCH_BIN" master start >/dev/null
+"$ORCH_BIN" master start --listen "tcp://$MASTER_REMOTE_ADDR" >/dev/null
 sleep 1
-"$ORCH_BIN" worker run --worker-id "$TARGET_WORKER_ID" >"$ROOT/target-worker.log" 2>&1 &
+env $TARGET_ENV_PREFIX "$ORCH_BIN" --remote= daemon repo register "$TARGET_PROJECT" >/dev/null
+env $TARGET_ENV_PREFIX ORCH_REMOTE="$MASTER_REMOTE_ADDR" "$ORCH_BIN" worker run --worker-id "$TARGET_WORKER_ID" >"$ROOT/target-worker.log" 2>&1 &
 TARGET_WORKER_PID=$!
 sleep 2
 
@@ -172,10 +200,10 @@ printf '%s' "$PS_OUT" | jq -e \
   --arg r2 "$RUN_ID_2" \
   --arg target "$TARGET_NAME" \
   --arg target_host "$TARGET_HOST" \
-  --arg repo "$TARGET_PROJECT/worktrees" '
+  --arg forbidden "$MASTER_PROJECT/worktrees" '
   .ok == true and
   ([.items[] | select(.run_id == $r1 or .run_id == $r2)] | length) == 2 and
-  ([.items[] | select((.run_id == $r1 or .run_id == $r2) and .target == $target and .target_host == $target_host and (.worktree_path | startswith($repo)))] | length) == 2
+  ([.items[] | select((.run_id == $r1 or .run_id == $r2) and .target == $target and .target_host == $target_host and (.worktree_path != null) and (.worktree_path | contains("/worktrees/")) and ((.worktree_path | startswith($forbidden)) | not))] | length) == 2
 ' >/dev/null
 
 SHOW_OUT="$("$ORCH_BIN" --project "$PROJECT_ID" show "target-local-live#$RUN_ID_1" --json)"

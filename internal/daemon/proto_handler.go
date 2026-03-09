@@ -762,7 +762,6 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		if targetErr != nil {
 			return errorResponse(targetErr.Error())
 		}
-		opts.ProjectRoot = target.Repo
 		opts.TargetHost = target.Host
 		opts.TargetWorkerID = target.WorkerID
 	}
@@ -921,7 +920,6 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 		if targetErr != nil {
 			return errorResponse(targetErr.Error())
 		}
-		opts.ProjectRoot = target.Repo
 		opts.TargetHost = target.Host
 		opts.TargetWorkerID = target.WorkerID
 	}
@@ -982,7 +980,6 @@ func (s *SocketServer) handleProtoStopRun(req *orchpb.StopRunRequest) *orchpb.Re
 			if targetErr != nil {
 				return errorResponse(targetErr.Error())
 			}
-			stopPayload.ProjectRoot = target.Repo
 			stopPayload.TargetHost = target.Host
 			stopPayload.TargetWorkerID = target.WorkerID
 		}

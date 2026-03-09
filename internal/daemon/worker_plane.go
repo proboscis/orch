@@ -507,6 +507,15 @@ func projectRootFromWorkerPayload(payload *WorkerEffectPayload) string {
 	return ""
 }
 
+func workerLocalProjectMappingError(projectID, workerID string) error {
+	projectID = strings.TrimSpace(projectID)
+	workerID = strings.TrimSpace(workerID)
+	if workerID != "" {
+		return fmt.Errorf("no local project mapping for project_id %q on worker %q; run 'orch --remote= daemon repo register /path/to/repo' on that host", projectID, workerID)
+	}
+	return fmt.Errorf("no local project mapping for project_id %q on this worker; run 'orch --remote= daemon repo register /path/to/repo' on that host", projectID)
+}
+
 func (s *SocketServer) ensureRepoContextForProject(projectID, projectRoot string) *RepoContext {
 	projectRoot = strings.TrimSpace(projectRoot)
 	if projectRoot == "" {
@@ -558,13 +567,13 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 	if lease == nil {
 		return nil, fmt.Errorf("lease required")
 	}
+	if err := s.refreshRepoRegistry(); err != nil {
+		return nil, fmt.Errorf("failed to refresh local project mappings: %w", err)
+	}
 
 	repoCtx := s.ensureRepoContextByID(strings.TrimSpace(lease.ProjectID))
 	if repoCtx == nil || repoCtx.Store == nil {
-		repoCtx = s.ensureRepoContextForProject(strings.TrimSpace(lease.ProjectID), projectRootFromWorkerPayload(lease.Payload))
-	}
-	if repoCtx == nil || repoCtx.Store == nil {
-		return nil, fmt.Errorf("no store available for project_id %q (register daemon project mapping)", strings.TrimSpace(lease.ProjectID))
+		return nil, workerLocalProjectMappingError(strings.TrimSpace(lease.ProjectID), s.currentWorkerID)
 	}
 
 	switch lease.Effect {
@@ -574,6 +583,7 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 		}
 		optsCopy := *lease.Payload.StartRun
 		if s.currentWorkerID != "" && strings.TrimSpace(optsCopy.TargetWorkerID) == s.currentWorkerID {
+			optsCopy.ProjectRoot = repoCtx.ProjectRoot
 			if filepath.IsAbs(strings.TrimSpace(optsCopy.WorktreeDir)) {
 				optsCopy.WorktreeDir = ""
 			}
@@ -591,12 +601,14 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 			return nil, fmt.Errorf("continue_run payload missing")
 		}
 		optsCopy := *lease.Payload.ContinueRun
+		projectRoot := strings.TrimSpace(optsCopy.ProjectRoot)
 		if s.currentWorkerID != "" && strings.TrimSpace(optsCopy.TargetWorkerID) == s.currentWorkerID {
+			projectRoot = repoCtx.ProjectRoot
+			optsCopy.ProjectRoot = projectRoot
 			if filepath.IsAbs(strings.TrimSpace(optsCopy.WorktreeDir)) {
 				optsCopy.WorktreeDir = ""
 			}
 		}
-		projectRoot := strings.TrimSpace(optsCopy.ProjectRoot)
 		if projectRoot == "" {
 			projectRoot = repoCtx.ProjectRoot
 			optsCopy.ProjectRoot = projectRoot

@@ -196,7 +196,6 @@ worktree_dir: worktrees
 targets:
   - name: mac
     host: mac
-    repo: /remote/mac-repo
 `
 	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), []byte(configBody), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -213,6 +212,9 @@ targets:
 	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, log.New(io.Discard, "", 0))
 	targetWorkerID := HostWorkerID("mac")
 	server.SetWorkerIdentity(targetWorkerID, "mac-host")
+	if _, err := server.registerRepoContext("project-target", projectRoot, "", st); err != nil {
+		t.Fatalf("registerRepoContext() error = %v", err)
+	}
 
 	lease := &WorkerLease{
 		LeaseID:   "lease-target-local",
@@ -222,7 +224,7 @@ targets:
 		Payload: &WorkerEffectPayload{
 			StartRun: &StartRunOptions{
 				IssueID:        "issue-target",
-				ProjectRoot:    projectRoot,
+				ProjectRoot:    "/srv/master/doeff",
 				Target:         "mac",
 				TargetHost:     "mac",
 				TargetWorkerID: targetWorkerID,

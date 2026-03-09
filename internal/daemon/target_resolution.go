@@ -8,7 +8,6 @@ import (
 type resolvedTarget struct {
 	Name     string
 	Host     string
-	Repo     string
 	WorkerID string
 }
 
@@ -32,15 +31,10 @@ func resolveTargetForProjectRoot(projectRoot, targetName string) (*resolvedTarge
 	if host == "" {
 		return nil, fmt.Errorf("target %q host is empty", targetName)
 	}
-	repo := strings.TrimSpace(targetCfg.Repo)
-	if repo == "" {
-		return nil, fmt.Errorf("target %q repo is empty", targetName)
-	}
 
 	return &resolvedTarget{
 		Name:     targetName,
 		Host:     host,
-		Repo:     repo,
 		WorkerID: HostWorkerID(host),
 	}, nil
 }

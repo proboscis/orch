@@ -72,6 +72,7 @@ Must include:
   - Zeus master
   - remote target worker
   - `--on <target>`
+  - worker-local `project_id -> local repo root` registration on the target host
 - full backend matrix where credentials are available
   - `tmux`
   - `zellij`
@@ -89,6 +90,7 @@ Expected environment:
 
 - SSH reachability
 - real remote repo clones
+- local repo registration on each worker host
 - GitHub token/write access
 - backend auth/config
 

@@ -278,8 +278,10 @@ type SocketServer struct {
 
 	managedServerStore *managedServerStore
 
-	repos   map[string]*RepoContext
-	reposMu sync.RWMutex
+	repos                map[string]*RepoContext
+	reposMu              sync.RWMutex
+	repoRegistryLoadOnce sync.Once
+	repoRegistryLoadErr  error
 
 	githubBackend *github.Backend
 
@@ -637,6 +639,17 @@ func (s *SocketServer) loadRepoRegistry() error {
 	return nil
 }
 
+func (s *SocketServer) ensureRepoRegistryLoaded() error {
+	s.repoRegistryLoadOnce.Do(func() {
+		s.repoRegistryLoadErr = s.loadRepoRegistry()
+	})
+	return s.repoRegistryLoadErr
+}
+
+func (s *SocketServer) refreshRepoRegistry() error {
+	return s.loadRepoRegistry()
+}
+
 func (s *SocketServer) persistRepoRegistry() error {
 	if err := os.MkdirAll(projectConfigsDirPath(), 0o755); err != nil {
 		return fmt.Errorf("failed to ensure project config directory: %w", err)
@@ -829,6 +842,7 @@ func (s *SocketServer) ensureRepoContextByID(repoID string) *RepoContext {
 	if repoID == "" {
 		return nil
 	}
+	_ = s.ensureRepoRegistryLoaded()
 	if ctx := s.ensureRepoStoreByID(repoID); ctx != nil {
 		return ctx
 	}
@@ -842,6 +856,8 @@ func (s *SocketServer) ensureRepoStoreByID(repoID string) *RepoContext {
 	if repoID == "" {
 		return nil
 	}
+
+	_ = s.ensureRepoRegistryLoaded()
 
 	s.reposMu.RLock()
 	ctx := s.repos[repoID]
@@ -857,7 +873,26 @@ func (s *SocketServer) ensureRepoStoreByID(repoID string) *RepoContext {
 		}
 		if ctx == nil {
 			s.reposMu.RUnlock()
-			return nil
+			if err := s.loadRepoRegistry(); err != nil {
+				return nil
+			}
+			s.reposMu.RLock()
+			ctx = s.repos[repoID]
+			if ctx == nil {
+				for _, candidate := range s.repos {
+					if candidate == nil {
+						continue
+					}
+					if strings.TrimSpace(candidate.RepoID) == repoID {
+						ctx = candidate
+						break
+					}
+				}
+			}
+			if ctx == nil {
+				s.reposMu.RUnlock()
+				return nil
+			}
 		}
 	}
 	if ctx.Store != nil {
@@ -996,7 +1031,7 @@ func (s *SocketServer) Start() error {
 		return fmt.Errorf("failed to reconcile managed servers on startup: %w", err)
 	}
 
-	if err := s.loadRepoRegistry(); err != nil {
+	if err := s.ensureRepoRegistryLoaded(); err != nil {
 		s.closeManagedServerStore()
 		return fmt.Errorf("failed to load repo registry: %w", err)
 	}
@@ -3232,7 +3267,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	executionProjectRoot := projectRoot
 	runExecutor := executor.NewLocalExecutor()
 	if isRemoteTarget {
-		if targetHost == "" || targetWorkerID == "" || strings.TrimSpace(opts.ProjectRoot) == "" {
+		if targetHost == "" || targetWorkerID == "" {
 			targetCfg := cfg.GetTarget(targetName)
 			if targetCfg == nil {
 				return nil, fmt.Errorf("target %q not found in config", targetName)
@@ -3241,20 +3276,15 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 			if targetHost == "" {
 				return nil, fmt.Errorf("target %q host is empty", targetName)
 			}
-			executionProjectRoot = strings.TrimSpace(targetCfg.Repo)
-			if executionProjectRoot == "" {
-				return nil, fmt.Errorf("target %q repo is empty", targetName)
-			}
 			targetWorkerID = HostWorkerID(targetHost)
-		} else {
-			executionProjectRoot = strings.TrimSpace(opts.ProjectRoot)
 		}
-		if s.currentWorkerID != "" && targetWorkerID == s.currentWorkerID {
-			isRemoteTarget = false
-			runExecutor = executor.NewLocalExecutor()
-		} else {
-			runExecutor = executor.NewSSHExecutor(targetHost)
+		if s.currentWorkerID == "" {
+			return nil, fmt.Errorf("target %q must be executed by worker %q; direct master-side target execution is not supported", targetName, targetWorkerID)
 		}
+		if targetWorkerID != s.currentWorkerID {
+			return nil, fmt.Errorf("target %q must be executed by worker %q, got %q", targetName, targetWorkerID, s.currentWorkerID)
+		}
+		isRemoteTarget = false
 	}
 
 	agentName := opts.Agent

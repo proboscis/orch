@@ -405,10 +405,11 @@ Additional prerequisites:
 
 - Zeus-side project config includes a `targets` entry for the target Mac
 - the SSH host alias resolves from Zeus before running orch
-- the target Mac has the same repo cloned at the configured target `repo`
+- the target Mac has the same project cloned locally
 - the target Mac has the required runtime dependencies installed (`git`, chosen
   multiplexer, agent binary)
 - the target Mac runs one long-lived `orch-worker` for that host/profile
+- the target Mac has a local repo registration for the same `project_id`
 
 Example target config on Zeus:
 
@@ -416,7 +417,6 @@ Example target config on Zeus:
 targets:
   - name: mac
     host: mac
-    repo: /Users/<user>/repos/doeff
 ```
 
 Semantics:
@@ -451,6 +451,7 @@ ssh zeus 'orch daemon repo register /home/kento/repos/doeff'
 
 # ensure the target Mac worker is connected to Zeus
 # normal case: start the default host worker on the target host
+ssh mac 'orch --remote= daemon repo register /Users/<user>/repos/doeff'
 ssh mac 'ORCH_REMOTE=zeus:7777 orch worker start'
 ssh mac 'ORCH_REMOTE=zeus:7777 orch worker status'
 
@@ -506,9 +507,9 @@ run target = mac
 - Ensure `--project` value matches the registered repository identity.
 - For file-backend projects, ensure the issue file is created under the actual
   `issues.path` configured for the project being tested.
-- For `--on mac` validation, ensure the Zeus-side target `repo` path matches the
-  actual clone path on the Mac host. A valid repo identity mapping on Zeus does
-  not replace the target repo path needed for target-worker execution.
+- For `--on mac` validation, ensure the target host has a local repo mapping for
+  the same `project_id`. A repo identity mapping on Zeus does not provision the
+  worker host automatically.
 - For `--on mac`, verify plain SSH first from Zeus (`ssh <target> 'command -v tmux; hostname'`)
   before attributing failures to orch itself.
 - If the target host identity in config (`targets[].host`) does not match the hostname

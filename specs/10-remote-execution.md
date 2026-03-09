@@ -132,18 +132,21 @@ Master-side config:
 targets:
   - name: mac
     host: mac
-    repo: /Users/me/repos/project
   - name: zeus
     host: localhost
-    repo: /home/me/repos/project
 ```
 
 Semantics:
 
 - `target.name` is the operator-facing selector
 - `target.host` identifies the worker host/profile
-- `target.repo` is the operational project root on that host
 - empty target means the default worker on the master host
+
+Worker-side prerequisite:
+
+- each worker host maintains its own `project_id -> local repo root` mapping
+- `orch --remote= daemon repo register /path/to/local/repo` is host-local setup,
+  not master-side target config
 
 The `Run` model records:
 

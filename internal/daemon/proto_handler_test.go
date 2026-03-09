@@ -627,12 +627,12 @@ func TestWithWorkerLeaseDispatchesViaLeasePath(t *testing.T) {
 	if err == nil {
 		t.Fatal("withWorkerLease() error = nil, want project mapping error")
 	}
-	if !strings.Contains(err.Error(), "no store available for project_id") {
-		t.Fatalf("withWorkerLease() error = %v, want store mapping error", err)
+	if !strings.Contains(err.Error(), "no local project mapping for project_id") {
+		t.Fatalf("withWorkerLease() error = %v, want local project mapping error", err)
 	}
 
-	if helperErr := <-dispatchErr; helperErr == nil || !strings.Contains(helperErr.Error(), "no store available for project_id") {
-		t.Fatalf("helper dispatch error = %v, want store mapping error", helperErr)
+	if helperErr := <-dispatchErr; helperErr == nil || !strings.Contains(helperErr.Error(), "no local project mapping for project_id") {
+		t.Fatalf("helper dispatch error = %v, want local project mapping error", helperErr)
 	}
 
 	allLeases := server.listWorkerLeases(true)
