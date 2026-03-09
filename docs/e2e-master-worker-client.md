@@ -39,6 +39,9 @@ Parameterized automation entrypoint for target-host runs:
 
 - `scripts/e2e-master-worker-client-target.sh`
 
+For targets that need custom SSH flags or a nonstandard port, prefer passing a
+full command via `TARGET_SSH_CMD` instead of relying on a simple host alias.
+
 ## Prerequisites
 
 - `git` installed
