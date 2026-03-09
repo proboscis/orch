@@ -966,6 +966,13 @@ func writeFileWithExecutor(exec executor.Executor, path string, content []byte, 
 	return nil
 }
 
+func loadConfigForProjectRoot(projectRoot string) (*config.Config, error) {
+	if strings.TrimSpace(projectRoot) != "" {
+		return config.LoadFromProjectRoot(projectRoot)
+	}
+	return config.Load()
+}
+
 func (s *SocketServer) SetGitHubBackend(backend *github.Backend) {
 	s.githubBackend = backend
 }
@@ -3210,7 +3217,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		}
 	}
 
-	cfg, err := config.Load()
+	cfg, err := loadConfigForProjectRoot(projectRoot)
 	if err != nil {
 		s.logger.Printf("config validation failed in processStartRunCore: %v", err)
 		return nil, fmt.Errorf("failed to load config: %w", err)
@@ -3537,7 +3544,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 }
 
 func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string, opts *ContinueRunOptions) (*ContinueRunResult, error) {
-	cfg, err := config.Load()
+	cfg, err := loadConfigForProjectRoot(projectRoot)
 	if err != nil {
 		s.logger.Printf("config validation failed in processContinueRunCore: %v", err)
 		return nil, fmt.Errorf("failed to load config: %w", err)

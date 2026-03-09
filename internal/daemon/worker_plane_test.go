@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/store"
 	filestore "github.com/s22625/orch/internal/store/file"
 )
@@ -155,5 +156,67 @@ func TestWorkerSchedulingFailsWhenTargetWorkerMissing(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), `target "mac"`) {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestExecuteLeaseEffectUsesLocalExecutionForMatchingTargetWorker(t *testing.T) {
+	projectRoot := t.TempDir()
+	issuesRoot := filepath.Join(projectRoot, "issues-store")
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0o755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(issuesRoot, "issues"), 0o755); err != nil {
+		t.Fatalf("mkdir issues root: %v", err)
+	}
+
+	configBody := `issues:
+  path: ` + issuesRoot + `
+worktree_dir: worktrees
+targets:
+  - name: mac
+    host: mac
+    repo: /remote/mac-repo
+`
+	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), []byte(configBody), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	st, err := filestore.New(issuesRoot)
+	if err != nil {
+		t.Fatalf("filestore.New() error = %v", err)
+	}
+	if err := st.CreateIssue(&model.Issue{ID: "issue-target", Title: "target issue", Status: model.IssueStatusOpen}); err != nil {
+		t.Fatalf("CreateIssue() error = %v", err)
+	}
+
+	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, log.New(io.Discard, "", 0))
+	server.SetWorkerIdentity("mac", "mac-host")
+
+	lease := &WorkerLease{
+		LeaseID:   "lease-target-local",
+		WorkerID:  "mac",
+		ProjectID: "project-target",
+		Effect:    "start_run",
+		Payload: &WorkerEffectPayload{
+			StartRun: &StartRunOptions{
+				IssueID:     "issue-target",
+				ProjectRoot: projectRoot,
+				Target:      "mac",
+				Agent:       "custom",
+				AgentCmd:    "echo test",
+				DryRun:      true,
+			},
+		},
+	}
+
+	result, err := server.executeLeaseEffect(lease)
+	if err != nil {
+		t.Fatalf("executeLeaseEffect() error = %v", err)
+	}
+	if result == nil || result.StartRunResult == nil {
+		t.Fatal("expected start_run result")
+	}
+	if !strings.HasPrefix(result.StartRunResult.WorktreePath, filepath.Join(projectRoot, "worktrees")) {
+		t.Fatalf("worktree path = %q, want local project-root-based path", result.StartRunResult.WorktreePath)
 	}
 }
