@@ -325,6 +325,8 @@ type managedWorkerProcess struct {
 	Process   *os.Process
 	PID       int
 	StartedAt time.Time
+	ExitedAt  time.Time
+	ExitErr   string
 }
 
 func serverPID(srv *managedServer) int {

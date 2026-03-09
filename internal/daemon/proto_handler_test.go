@@ -846,6 +846,10 @@ func TestExternalWorkerLifecycleAPIStartListStop(t *testing.T) {
 	server.workerLaunchConfig = func(workerID string) (string, []string, []string, error) {
 		return "/bin/sleep", []string{"/bin/sleep", "30"}, nil, nil
 	}
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		server.registerWorker("worker-managed-1", "executor", "localhost", "external", nil)
+	}()
 
 	startResp := server.handleProtoStartExternalWorker(&orchpb.StartExternalWorkerRequest{WorkerId: "worker-managed-1"})
 	if !startResp.GetOk() {
@@ -884,6 +888,10 @@ func TestExternalWorkerLifecycleAPIStartWithoutWorkerIDIsIdempotentPerHost(t *te
 	server.workerLaunchConfig = func(workerID string) (string, []string, []string, error) {
 		return "/bin/sleep", []string{"/bin/sleep", "30"}, nil, nil
 	}
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		server.registerWorker("host-zeus", "executor", "zeus", "external", nil)
+	}()
 
 	first := server.handleProtoStartExternalWorker(&orchpb.StartExternalWorkerRequest{})
 	if !first.GetOk() {
@@ -925,6 +933,10 @@ func TestExternalWorkerLifecycleAPIStopWithoutWorkerIDStopsDefaultHostWorker(t *
 	server.workerLaunchConfig = func(workerID string) (string, []string, []string, error) {
 		return "/bin/sleep", []string{"/bin/sleep", "30"}, nil, nil
 	}
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		server.registerWorker("host-zeus", "executor", "zeus", "external", nil)
+	}()
 
 	startResp := server.handleProtoStartExternalWorker(&orchpb.StartExternalWorkerRequest{})
 	if !startResp.GetOk() {
@@ -940,6 +952,22 @@ func TestExternalWorkerLifecycleAPIStopWithoutWorkerIDStopsDefaultHostWorker(t *
 	}
 	if stopResp.GetStopExternalWorker().GetStoppedCount() != 1 {
 		t.Fatalf("expected stopped_count = 1, got %d", stopResp.GetStopExternalWorker().GetStoppedCount())
+	}
+}
+
+func TestExternalWorkerLifecycleAPIStartFailsFastWhenWorkerExitsBeforeRegister(t *testing.T) {
+	logger := &timingTestLogger{}
+	server := NewSocketServer(nil, logger)
+	server.workerLaunchConfig = func(workerID string) (string, []string, []string, error) {
+		return "/bin/sh", []string{"/bin/sh", "-c", "exit 7"}, nil, nil
+	}
+
+	startResp := server.handleProtoStartExternalWorker(&orchpb.StartExternalWorkerRequest{WorkerId: "worker-managed-fail"})
+	if startResp.GetOk() {
+		t.Fatal("expected start external worker failure")
+	}
+	if !strings.Contains(startResp.GetError(), "exited before registering") {
+		t.Fatalf("unexpected error: %s", startResp.GetError())
 	}
 }
 

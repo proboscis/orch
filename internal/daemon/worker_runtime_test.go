@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDefaultWorkerIDUsesStableHostIdentity(t *testing.T) {
@@ -27,6 +28,10 @@ func TestStartManagedExternalWorkerWithoutIDIsIdempotentPerHost(t *testing.T) {
 	server.workerLaunchConfig = func(workerID string) (string, []string, []string, error) {
 		return "/bin/sleep", []string{"/bin/sleep", "30"}, nil, nil
 	}
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		server.registerWorker("host-zeus", "executor", "zeus", "external", nil)
+	}()
 
 	workerID1, pid1, err := server.startManagedExternalWorker("")
 	if err != nil {
@@ -60,6 +65,10 @@ func TestStopManagedExternalWorkerWithoutIDStopsDefaultHostWorker(t *testing.T) 
 	server.workerLaunchConfig = func(workerID string) (string, []string, []string, error) {
 		return "/bin/sleep", []string{"/bin/sleep", "30"}, nil, nil
 	}
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		server.registerWorker("host-zeus", "executor", "zeus", "external", nil)
+	}()
 
 	workerID, _, err := server.startManagedExternalWorker("")
 	if err != nil {
@@ -107,6 +116,22 @@ func TestPrepareManagedWorkerEnvStripsORCHREMOTE(t *testing.T) {
 	}
 	if !containsEnv(env, "FOO=bar") {
 		t.Fatalf("expected extra env to survive filtering: %v", env)
+	}
+}
+
+func TestStartManagedExternalWorkerFailsFastWhenProcessExitsBeforeRegister(t *testing.T) {
+	logger := log.New(os.Stdout, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.workerLaunchConfig = func(workerID string) (string, []string, []string, error) {
+		return "/bin/sh", []string{"/bin/sh", "-c", "exit 7"}, nil, nil
+	}
+
+	_, _, err := server.startManagedExternalWorker("worker-fail")
+	if err == nil {
+		t.Fatal("expected startManagedExternalWorker to fail")
+	}
+	if !strings.Contains(err.Error(), `exited before registering`) {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

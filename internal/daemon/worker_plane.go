@@ -11,6 +11,7 @@ import (
 
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/xdg"
 )
 
 const (
@@ -267,6 +268,9 @@ func (s *SocketServer) selectActiveWorkerForEffect(effect, requiredWorkerID stri
 
 	if selected == nil {
 		if requiredWorkerID != "" && strict {
+			if detail := s.managedWorkerDiagnostic(requiredWorkerID); detail != "" {
+				return nil, fmt.Errorf("no active worker available for target %q; %s", requiredWorkerID, detail)
+			}
 			return nil, fmt.Errorf("no active worker available for target %q; start orch-worker with --worker-id %s on the target host", requiredWorkerID, requiredWorkerID)
 		}
 		if requiredWorkerID != "" && !strict {
@@ -295,6 +299,12 @@ func (s *SocketServer) selectActiveWorkerForEffect(effect, requiredWorkerID stri
 				copy.Active = true
 				return &copy, nil
 			}
+			if detail := s.managedWorkerDiagnostic(requiredWorkerID); detail != "" {
+				return nil, fmt.Errorf("no active worker available for %q; %s", requiredWorkerID, detail)
+			}
+		}
+		if detail := s.managedWorkerDiagnostic(""); detail != "" {
+			return nil, fmt.Errorf("no active workers available; %s", detail)
 		}
 		return nil, fmt.Errorf("no active workers available; start an external worker via 'orch worker start'")
 	}
@@ -302,6 +312,45 @@ func (s *SocketServer) selectActiveWorkerForEffect(effect, requiredWorkerID stri
 	copy := *selected
 	copy.Active = true
 	return &copy, nil
+}
+
+func (s *SocketServer) managedWorkerDiagnostic(workerID string) string {
+	s.managedWorkersMu.RLock()
+	defer s.managedWorkersMu.RUnlock()
+
+	if workerID = strings.TrimSpace(workerID); workerID != "" {
+		entry := s.managedWorkers[workerID]
+		if entry == nil {
+			return ""
+		}
+		if entry.Process != nil {
+			return fmt.Sprintf("managed worker process %q is running but not registered; check 'orch log' or %s", workerID, xdg.LogPath())
+		}
+		if !entry.ExitedAt.IsZero() {
+			if exitErr := strings.TrimSpace(entry.ExitErr); exitErr != "" {
+				return fmt.Sprintf("managed worker %q exited during startup (%s); check 'orch log' or %s", workerID, exitErr, xdg.LogPath())
+			}
+			return fmt.Sprintf("managed worker %q exited during startup; check 'orch log' or %s", workerID, xdg.LogPath())
+		}
+		return ""
+	}
+
+	for _, entry := range s.managedWorkers {
+		if entry == nil {
+			continue
+		}
+		if entry.Process != nil {
+			return fmt.Sprintf("managed worker processes exist but none are registered yet; check 'orch log' or %s", xdg.LogPath())
+		}
+		if !entry.ExitedAt.IsZero() {
+			if exitErr := strings.TrimSpace(entry.ExitErr); exitErr != "" {
+				return fmt.Sprintf("a managed worker exited during startup (%s); check 'orch log' or %s", exitErr, xdg.LogPath())
+			}
+			return fmt.Sprintf("a managed worker exited during startup; check 'orch log' or %s", xdg.LogPath())
+		}
+	}
+
+	return ""
 }
 
 func (s *SocketServer) acquireWorkerLease(projectID, effect, issueID, runID string, payload *WorkerEffectPayload) (*WorkerLease, error) {

@@ -1,14 +1,20 @@
 package daemon
 
 import (
+	"fmt"
 	"os"
 	"sort"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/s22625/orch/internal/xdg"
 )
 
 var currentHostname = os.Hostname
+
+const managedWorkerRegistrationTimeout = 5 * time.Second
+const managedWorkerRegistrationPoll = 50 * time.Millisecond
 
 func HostWorkerID(host string) string {
 	host = strings.TrimSpace(host)
@@ -84,12 +90,27 @@ func (s *SocketServer) startManagedExternalWorker(workerID string) (string, int,
 	s.managedWorkersMu.Unlock()
 
 	go func(id string, proc *os.Process) {
-		_, _ = proc.Wait()
+		state, err := proc.Wait()
 		s.managedWorkersMu.Lock()
-		delete(s.managedWorkers, id)
+		if entry := s.managedWorkers[id]; entry != nil && entry.Process == proc {
+			entry.Process = nil
+			entry.ExitedAt = time.Now()
+			if err != nil {
+				entry.ExitErr = err.Error()
+			} else if state != nil && !state.Success() {
+				entry.ExitErr = state.String()
+			} else {
+				entry.ExitErr = ""
+			}
+		}
 		s.managedWorkersMu.Unlock()
 		s.unregisterWorker(id)
 	}(workerID, proc)
+
+	if err := s.waitForManagedWorkerReady(workerID, proc.Pid, managedWorkerRegistrationTimeout); err != nil {
+		_, _ = s.stopManagedExternalWorker(workerID, false)
+		return "", 0, err
+	}
 
 	return workerID, proc.Pid, nil
 }
@@ -124,6 +145,61 @@ func filterManagedWorkerEnv(env []string) []string {
 	return out
 }
 
+func (s *SocketServer) waitForManagedWorkerReady(workerID string, pid int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if worker := s.lookupActiveWorker(workerID); worker != nil {
+			return nil
+		}
+		if exited, exitErr := s.managedWorkerExitState(workerID, pid); exited {
+			return fmt.Errorf("managed worker %q exited before registering with orch-master%s; check 'orch log' or %s, or run 'orch --remote= worker run --worker-id %s' manually for diagnostics", workerID, formatManagedWorkerExitSuffix(exitErr), xdg.LogPath(), workerID)
+		}
+		time.Sleep(managedWorkerRegistrationPoll)
+	}
+	return fmt.Errorf("managed worker %q did not register with orch-master within %s; check 'orch log' or %s, or run 'orch --remote= worker run --worker-id %s' manually for diagnostics", workerID, timeout, xdg.LogPath(), workerID)
+}
+
+func (s *SocketServer) lookupActiveWorker(workerID string) *WorkerRegistration {
+	workerID = strings.TrimSpace(workerID)
+	if workerID == "" {
+		return nil
+	}
+	now := time.Now()
+	s.workersMu.RLock()
+	defer s.workersMu.RUnlock()
+	worker := s.workers[workerID]
+	if worker == nil || !s.workerIsActive(worker, now) {
+		return nil
+	}
+	copy := *worker
+	copy.Active = true
+	return &copy
+}
+
+func (s *SocketServer) managedWorkerExitState(workerID string, pid int) (bool, string) {
+	s.managedWorkersMu.RLock()
+	defer s.managedWorkersMu.RUnlock()
+	entry := s.managedWorkers[workerID]
+	if entry == nil {
+		return false, ""
+	}
+	if pid > 0 && entry.PID != 0 && entry.PID != pid {
+		return false, ""
+	}
+	if entry.Process != nil {
+		return false, ""
+	}
+	return !entry.ExitedAt.IsZero(), strings.TrimSpace(entry.ExitErr)
+}
+
+func formatManagedWorkerExitSuffix(exitErr string) string {
+	exitErr = strings.TrimSpace(exitErr)
+	if exitErr == "" {
+		return ""
+	}
+	return fmt.Sprintf(" (%s)", exitErr)
+}
+
 func (s *SocketServer) stopManagedExternalWorker(workerID string, all bool) (int, error) {
 	if all {
 		s.managedWorkersMu.RLock()
@@ -149,14 +225,21 @@ func (s *SocketServer) stopManagedExternalWorker(workerID string, all bool) (int
 	s.managedWorkersMu.RLock()
 	entry := s.managedWorkers[workerID]
 	s.managedWorkersMu.RUnlock()
-	if entry == nil || entry.Process == nil {
+	if entry == nil {
+		return 0, nil
+	}
+	proc := entry.Process
+	if proc == nil {
+		s.managedWorkersMu.Lock()
+		delete(s.managedWorkers, workerID)
+		s.managedWorkersMu.Unlock()
 		return 0, nil
 	}
 
-	_ = entry.Process.Signal(os.Interrupt)
+	_ = proc.Signal(os.Interrupt)
 	time.Sleep(200 * time.Millisecond)
-	if err := entry.Process.Signal(syscall.Signal(0)); err == nil {
-		_ = entry.Process.Kill()
+	if err := proc.Signal(syscall.Signal(0)); err == nil {
+		_ = proc.Kill()
 	}
 
 	s.managedWorkersMu.Lock()
@@ -170,6 +253,9 @@ func (s *SocketServer) listManagedExternalWorkers() []*managedWorkerProcess {
 	s.managedWorkersMu.RLock()
 	items := make([]*managedWorkerProcess, 0, len(s.managedWorkers))
 	for _, w := range s.managedWorkers {
+		if w == nil || w.Process == nil {
+			continue
+		}
 		copy := *w
 		items = append(items, &copy)
 	}
