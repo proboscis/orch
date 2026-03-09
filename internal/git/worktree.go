@@ -99,6 +99,22 @@ func normalizeWorktreePath(cfg *WorktreeConfig) error {
 	return nil
 }
 
+func ensureWorktreeParentDir(exec executor.Executor, path string) error {
+	parent := filepath.Dir(path)
+	if exec == nil {
+		return os.MkdirAll(parent, 0755)
+	}
+	output, _, err := exec.RunCommand(context.Background(), "sh", []string{"-c", `mkdir -p "$1"`, "sh", parent}, executor.RunOptions{})
+	if err != nil {
+		msg := strings.TrimSpace(string(output))
+		if msg != "" {
+			return fmt.Errorf("%w (%s)", err, msg)
+		}
+		return err
+	}
+	return nil
+}
+
 // FindRepoRoot finds the git repository root from the current directory
 // Note: For worktrees, this returns the worktree directory, not the main repo.
 // Use FindMainRepoRoot to get the main repository root.
@@ -241,7 +257,7 @@ func CreateWorktreeWithExecutor(cfg *WorktreeConfig, exec executor.Executor) (*W
 	}
 
 	// Ensure worktree parent directory exists
-	if err := os.MkdirAll(filepath.Dir(cfg.WorktreePath), 0755); err != nil {
+	if err := ensureWorktreeParentDir(exec, cfg.WorktreePath); err != nil {
 		return nil, fmt.Errorf("failed to create worktree parent directory: %w", err)
 	}
 

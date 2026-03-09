@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -514,6 +515,9 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 		optsCopy := *lease.Payload.StartRun
 		if s.currentWorkerID != "" && strings.TrimSpace(optsCopy.Target) == s.currentWorkerID {
 			optsCopy.Target = ""
+			if filepath.IsAbs(strings.TrimSpace(optsCopy.WorktreeDir)) {
+				optsCopy.WorktreeDir = ""
+			}
 		}
 		if strings.TrimSpace(optsCopy.ProjectRoot) == "" {
 			optsCopy.ProjectRoot = repoCtx.ProjectRoot
@@ -530,6 +534,9 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 		optsCopy := *lease.Payload.ContinueRun
 		if s.currentWorkerID != "" && strings.TrimSpace(optsCopy.Target) == s.currentWorkerID {
 			optsCopy.Target = ""
+			if filepath.IsAbs(strings.TrimSpace(optsCopy.WorktreeDir)) {
+				optsCopy.WorktreeDir = ""
+			}
 		}
 		projectRoot := strings.TrimSpace(optsCopy.ProjectRoot)
 		if projectRoot == "" {

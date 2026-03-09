@@ -15,6 +15,8 @@ TS="${TS:-$(date +%Y%m%d-%H%M%S)}"
 ISSUE_ID="${ISSUE_ID:-target-e2e-$TS}"
 RUN_ID="${RUN_ID:-$TS-target}"
 TARGET_SSH_CMD="${TARGET_SSH_CMD:-ssh \"$TARGET_SSH\"}"
+TARGET_WORKER_LOG="${TARGET_WORKER_LOG:-/tmp/orch-target-worker.log}"
+TARGET_ENV_PREFIX="${TARGET_ENV_PREFIX:-}"
 
 echo "ZEUS_HOST=$ZEUS_HOST"
 echo "TARGET_SSH=$TARGET_SSH"
@@ -24,8 +26,9 @@ echo "ISSUE_ID=$ISSUE_ID"
 echo "RUN_ID=$RUN_ID"
 echo "ZEUS_ORCH_BIN=$ZEUS_ORCH_BIN"
 echo "TARGET_ORCH_BIN=$TARGET_ORCH_BIN"
+echo "TARGET_ENV_PREFIX=$TARGET_ENV_PREFIX"
 
-bash -lc "$TARGET_SSH_CMD \"ORCH_REMOTE=$ZEUS_HOST:7777 $TARGET_ORCH_BIN worker run --worker-id '$TARGET_WORKER_ID'\"" &
+eval "$TARGET_SSH_CMD \"$TARGET_ENV_PREFIX ORCH_REMOTE=$ZEUS_HOST:7777 $TARGET_ORCH_BIN worker run --worker-id '$TARGET_WORKER_ID'\" >'$TARGET_WORKER_LOG' 2>&1" &
 TARGET_WORKER_PID=$!
 
 cleanup() {
@@ -62,6 +65,10 @@ RUN_OUT="$(ssh "$ZEUS_HOST" "cd '$ZEUS_PROJECT_ROOT' && $ZEUS_ORCH_BIN --project
 RUN_RC=$?
 set -e
 printf '%s\n' "$RUN_OUT"
+if [ "$RUN_RC" -ne 0 ]; then
+  echo "== target worker log =="
+  cat "$TARGET_WORKER_LOG" || true
+fi
 [ "$RUN_RC" -eq 0 ]
 printf '%s' "$RUN_OUT" | jq -e '.ok == true' >/dev/null
 
