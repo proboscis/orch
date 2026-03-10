@@ -498,7 +498,7 @@ func TestPsRemoteWithRepoIDProjectRootOutsideRepo(t *testing.T) {
 		t.Fatalf("register repo mapping failed: %v", err)
 	}
 
-	projectToken := "repoid:" + repoID
+	projectToken := repoID
 	out, errOut, err := runOrchRemoteOutsideRepo(t, outsideRepo, projectToken, "ps", "--json")
 	if err != nil {
 		t.Fatalf("remote ps failed: %v\nstdout: %s\nstderr: %s", err, out, errOut)

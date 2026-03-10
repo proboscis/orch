@@ -239,13 +239,6 @@ func getProjectIDWithSource(projectRoot string) (string, bool, error) {
 }
 
 func resolveProjectIdentity(projectRoot string) (string, error) {
-	if token := strings.TrimSpace(projectRoot); strings.HasPrefix(token, "repoid:") {
-		projectID := strings.TrimSpace(strings.TrimPrefix(token, "repoid:"))
-		if projectID != "" {
-			return projectID, nil
-		}
-	}
-
 	projectID, _, err := getProjectIDWithSource(projectRoot)
 	if err != nil {
 		return "", fmt.Errorf("project identity required: %w (set --project/ORCH_PROJECT to git repo URL or configure git remote origin)", err)
@@ -260,10 +253,6 @@ func normalizeProjectIdentityInput(project string) (string, error) {
 	project = strings.TrimSpace(project)
 	if project == "" {
 		return "", nil
-	}
-
-	if strings.HasPrefix(project, "repoid:") {
-		project = strings.TrimSpace(strings.TrimPrefix(project, "repoid:"))
 	}
 
 	if looksLikeProjectRepoURL(project) {

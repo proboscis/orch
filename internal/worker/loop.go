@@ -20,6 +20,7 @@ type Client interface {
 	RegisterWorker(workerID, workerType, host, mode string) (*daemon.RegisterWorkerResponse, error)
 	UnregisterWorker(workerID string) error
 	WorkerHeartbeat(workerID string) error
+	// LeaseWork/AcknowledgeEffect are compatibility RPC names for host work assignments.
 	LeaseWork(workerID string) (*daemon.LeaseWorkResponse, error)
 	AcknowledgeEffect(workerID, leaseID string, success bool, effectErr, resultJSON string) error
 	Close() error
@@ -37,6 +38,7 @@ type RunConfig struct {
 }
 
 type leaseExecutor interface {
+	// ExecuteWorkerLease executes one host work assignment. The type name is compatibility-only.
 	ExecuteWorkerLease(lease *daemon.WorkerLease) (*daemon.WorkerEffectResult, error)
 }
 

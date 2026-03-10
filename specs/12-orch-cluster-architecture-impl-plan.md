@@ -81,7 +81,7 @@ long-lived worker per host/profile.
 
 | Area | Work |
 |------|------|
-| Protocol | Add worker RPCs (`RegisterWorker`, `Heartbeat`, `AssignWork`, `ReportEvent`, `AcknowledgeEffect`) |
+| Protocol | Add worker RPCs (`RegisterWorker`, `Heartbeat`, `AssignWork`, `ReportEvent`, completion ACK; current compatibility name `AcknowledgeEffect`) |
 | Master state | Add worker/assignment tables and scheduling hooks |
 | Worker runtime | Implement long-lived registration heartbeat loop and host-manager execution skeleton |
 | Zeus mode | Support co-located master+worker with same protocol semantics |

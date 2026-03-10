@@ -25,9 +25,9 @@ Project identity is the normalized Git repository URL identity (represented in r
 ## Current Problems
 
 1. Runtime commands still expose path flags (`--repo-root`, `--worktree-dir`).
-2. Some runtime requests still carry path fields (`project_root`, `repo_root`) as identity/fallback.
-3. `daemon repo register` expects server path instead of repo URL.
-4. Cross-host execution can diverge when request context is derived from local path rather than explicit repo identity.
+2. Legacy JSON socket handlers still route by `project_root`.
+3. `daemon repo register` still supports operational root registration in addition to repo URL.
+4. Cross-host execution still has stale compatibility/docs fragments from the older path-based model.
 
 ## Target UX
 
@@ -65,7 +65,8 @@ Daemon clones/manages workspace root and stores mapping:
 ### Proto/handler behavior
 
 - Runtime identity comes from `RequestContext.project_id`.
-- `project_root`/`repo_root` remain internal compatibility transport until full removal.
+- Main runtime proto/API transport no longer relies on `project_root`/`repo_root`.
+- Remaining cleanup is in legacy JSON socket compatibility paths.
 - Handler must resolve execution workspace from daemon registry by `project_id`.
 
 ### Daemon registration
@@ -88,7 +89,7 @@ Daemon clones/manages workspace root and stores mapping:
 
 ### Phase 2
 
-1. Remove path-fallback identity wiring from proto client and handlers.
+1. Remove legacy JSON socket path routing and compatibility helpers.
 2. Remove deprecated path-oriented env/flags and compatibility fields.
 3. Simplify monitor/admin project filters to identity-only.
 

@@ -469,11 +469,14 @@ message ListWorkersResponse {
   repeated WorkerInfo workers = 1;
 }
 
+// Compatibility RPC name for host work assignment polling.
+// The worker model is host-manager oriented, not one-worker-per-run.
 message LeaseWorkRequest {
   string worker_id = 1;
   string auth_token = 2;
 }
 
+// Compatibility response shape for host work assignment polling.
 message LeaseWorkResponse {
   string lease_id = 1;
   string worker_id = 2;
@@ -486,6 +489,7 @@ message LeaseWorkResponse {
   string payload_json = 9;
 }
 
+// Compatibility RPC name for worker completion ACKs.
 message AcknowledgeEffectRequest {
   string worker_id = 1;
   string lease_id = 2;

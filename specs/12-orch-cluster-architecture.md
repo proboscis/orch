@@ -132,7 +132,8 @@ Worker protocol (shape-level direction):
 2. `Heartbeat`
 3. `AssignWork`
 4. `ReportEvent`
-5. `AcknowledgeEffect`
+5. worker-completion ACK
+   Current compatibility RPC name: `AcknowledgeEffect`
 
 Master schedules; worker executes; worker reports events; master commits state.
 

@@ -2,25 +2,6 @@ package daemon
 
 import "testing"
 
-func TestRepoIDTokenEncodeDecode(t *testing.T) {
-	token := encodeRepoIDToken("owner-repo")
-	if token != "repoid:owner-repo" {
-		t.Fatalf("encodeRepoIDToken() = %q, want %q", token, "repoid:owner-repo")
-	}
-
-	id, ok := decodeRepoIDToken(token)
-	if !ok {
-		t.Fatal("decodeRepoIDToken() expected ok=true")
-	}
-	if id != "owner-repo" {
-		t.Fatalf("decoded id = %q, want %q", id, "owner-repo")
-	}
-
-	if _, ok := decodeRepoIDToken("/tmp/issues"); ok {
-		t.Fatal("decodeRepoIDToken() expected ok=false for non-token input")
-	}
-}
-
 func TestNewProtoClientWithAddressRemoteUsesPlainProjectID(t *testing.T) {
 	projectRoot := createGitRepoWithOrigin(t, "https://github.com/example/remote-project.git")
 	client := NewProtoClientWithAddress(projectRoot, "zeus:7777")

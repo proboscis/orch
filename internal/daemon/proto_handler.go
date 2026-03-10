@@ -279,15 +279,6 @@ func (s *SocketServer) resolveProjectRootFromContextOrProto(ctx *orchpb.RequestC
 }
 
 func (s *SocketServer) resolveProtoProjectRoot(projectRoot string) string {
-	if repoID, ok := decodeRepoIDToken(projectRoot); ok {
-		if ctx := s.GetRepoContext(repoID); ctx != nil && strings.TrimSpace(ctx.ProjectRoot) != "" {
-			return strings.TrimSpace(ctx.ProjectRoot)
-		}
-		if ctx := s.ensureRepoContextByID(repoID); ctx != nil {
-			return strings.TrimSpace(ctx.ProjectRoot)
-		}
-		return ""
-	}
 	return strings.TrimSpace(projectRoot)
 }
 

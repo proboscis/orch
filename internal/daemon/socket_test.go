@@ -2038,14 +2038,14 @@ func TestResolveStoreWithProjectRoot(t *testing.T) {
 	server := NewSocketServer(nil, logger)
 	registerRepoContextForTest(t, server, "project-root", "/project/root", st)
 
-	resolved := server.resolveStore(SendRequest{ProjectRoot: "/project/root"})
+	resolved := server.resolveStore(SendRequest{RepoID: "project-root"})
 	if resolved == nil {
-		t.Error("expected store to be resolved for registered project root")
+		t.Error("expected store to be resolved for registered repo id")
 	}
 
-	resolved = server.resolveStore(SendRequest{ProjectRoot: "/unknown/project"})
+	resolved = server.resolveStore(SendRequest{RepoID: "unknown-project"})
 	if resolved != nil {
-		t.Error("expected nil store for unknown project root without factory")
+		t.Error("expected nil store for unknown repo id")
 	}
 }
 
@@ -2106,10 +2106,6 @@ func TestResolveProjectRootPrecedence(t *testing.T) {
 	repoStore := &mockStore{runs: make(map[string]*model.Run), issues: make(map[string]*model.Issue)}
 	repoID := "daemon-project"
 	registerRepoContextForTest(t, server, repoID, "/daemon/project", repoStore)
-
-	if got := server.resolveProjectRoot(SendRequest{ProjectRoot: "/request/project", RepoID: repoID}); got != "/request/project" {
-		t.Fatalf("expected request project root precedence, got %q", got)
-	}
 
 	if got := server.resolveProjectRoot(SendRequest{RepoID: repoID}); got != "/daemon/project" {
 		t.Fatalf("expected repo context project root, got %q", got)
@@ -3198,7 +3194,7 @@ func TestGetConfigWithUnknownProjectContextDoesNotFallbackToEnv(t *testing.T) {
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
 
-	t.Setenv("ORCH_PROJECT", "repoid:should-not-be-used")
+	t.Setenv("ORCH_PROJECT", "should-not-be-used")
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
@@ -3892,7 +3888,7 @@ func TestProtoStartRunWithoutProjectRootDoesNotFallbackToEnv(t *testing.T) {
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
 
-	t.Setenv("ORCH_PROJECT", "repoid:should-not-be-used")
+	t.Setenv("ORCH_PROJECT", "should-not-be-used")
 
 	st := &mockStore{
 		runs: make(map[string]*model.Run),
@@ -3934,7 +3930,7 @@ func TestProtoContinueRunWithoutProjectRootDoesNotFallbackToEnv(t *testing.T) {
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
 
-	t.Setenv("ORCH_PROJECT", "repoid:should-not-be-used")
+	t.Setenv("ORCH_PROJECT", "should-not-be-used")
 
 	st := &mockStore{
 		runs:   make(map[string]*model.Run),
@@ -4031,7 +4027,7 @@ func TestGetConfigWithoutProjectRootDoesNotFallbackToEnv(t *testing.T) {
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
 
-	t.Setenv("ORCH_PROJECT", "repoid:should-not-be-used")
+	t.Setenv("ORCH_PROJECT", "should-not-be-used")
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
@@ -4149,7 +4145,7 @@ func TestEnsureOpenCodeServerWithoutProjectContextDoesNotFallbackToEnv(t *testin
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
 
-	t.Setenv("ORCH_PROJECT", "repoid:should-not-be-used")
+	t.Setenv("ORCH_PROJECT", "should-not-be-used")
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
@@ -4176,7 +4172,7 @@ func TestEnsureOpenCodeServerWithUnknownProjectContextDoesNotFallbackToEnv(t *te
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
 
-	t.Setenv("ORCH_PROJECT", "repoid:should-not-be-used")
+	t.Setenv("ORCH_PROJECT", "should-not-be-used")
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
@@ -4259,7 +4255,7 @@ func TestContextEnabledHandlersUnknownProjectReturnProjectScopedStoreError(t *te
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
 
-	t.Setenv("ORCH_PROJECT", "repoid:should-not-be-used")
+	t.Setenv("ORCH_PROJECT", "should-not-be-used")
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)

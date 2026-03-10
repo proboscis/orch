@@ -41,6 +41,7 @@ type WorkerRegistration struct {
 }
 
 type WorkerLease struct {
+	// Compatibility name for a host work assignment record.
 	LeaseID       string               `json:"lease_id"`
 	WorkerID      string               `json:"worker_id"`
 	ProjectID     string               `json:"project_id,omitempty"`

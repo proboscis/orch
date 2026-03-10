@@ -381,10 +381,6 @@ func deriveRepoID(projectRoot string) string {
 }
 
 func (s *SocketServer) repoIDForProjectRoot(projectRoot string) (string, error) {
-	if repoID, ok := decodeRepoIDToken(projectRoot); ok {
-		return repoID, nil
-	}
-
 	projectRoot = strings.TrimSpace(projectRoot)
 	if projectRoot == "" {
 		return "", fmt.Errorf("project_root required")
@@ -766,75 +762,7 @@ func (s *SocketServer) resolveStore(req SendRequest) store.Store {
 		}
 	}
 
-	if req.ProjectRoot != "" {
-		if ctx := s.ensureRepoStoreByProjectRoot(req.ProjectRoot); ctx != nil && ctx.Store != nil {
-			s.logger.Printf("resolveStore: hydrated from projectRoot=%q", req.ProjectRoot)
-			return ctx.Store
-		}
-	}
-
 	s.logger.Printf("resolveStore: no store found (all fields empty or no match)")
-	return nil
-}
-
-func (s *SocketServer) ensureRepoStoreByProjectRoot(projectRoot string) *RepoContext {
-	projectRoot = strings.TrimSpace(projectRoot)
-	if projectRoot == "" {
-		return nil
-	}
-
-	if repoID, ok := decodeRepoIDToken(projectRoot); ok {
-		return s.ensureRepoStoreByID(repoID)
-	}
-
-	repoID, err := s.repoIDForProjectRoot(projectRoot)
-	if err == nil {
-		if ctx := s.ensureRepoStoreByID(repoID); ctx != nil && ctx.Store != nil {
-			return ctx
-		}
-	} else if ctx := s.findRepoContextByProjectRoot(projectRoot); ctx != nil && ctx.Store != nil {
-		return ctx
-	}
-
-	cfg, err := config.LoadFromProjectRoot(projectRoot)
-	if err != nil || cfg == nil {
-		return nil
-	}
-	issuesRoot := strings.TrimSpace(cfg.GetIssuesPath())
-	if issuesRoot == "" {
-		return nil
-	}
-	if s.storeFactory == nil {
-		return nil
-	}
-
-	st := s.getOrCreateStore(issuesRoot, projectRoot)
-	if st == nil {
-		return nil
-	}
-
-	if err == nil && repoID != "" {
-		s.reposMu.Lock()
-		existing := s.repos[repoID]
-		if existing == nil {
-			existing = &RepoContext{ProjectRoot: projectRoot, RepoID: repoID, Store: st}
-			s.repos[repoID] = existing
-		} else {
-			if existing.ProjectRoot == "" {
-				existing.ProjectRoot = projectRoot
-			}
-			if existing.Store == nil {
-				existing.Store = st
-			}
-		}
-		s.reposMu.Unlock()
-		return existing
-	}
-
-	if ctx := s.findRepoContextByProjectRoot(projectRoot); ctx != nil {
-		return ctx
-	}
-
 	return nil
 }
 
@@ -973,10 +901,6 @@ func (s *SocketServer) getOrCreateStore(issuesRoot, projectRoot string) store.St
 }
 
 func (s *SocketServer) resolveProjectRoot(req SendRequest) string {
-	if req.ProjectRoot != "" {
-		return req.ProjectRoot
-	}
-
 	if req.RepoID != "" {
 		if ctx := s.GetRepoContext(req.RepoID); ctx != nil && ctx.ProjectRoot != "" {
 			return ctx.ProjectRoot
