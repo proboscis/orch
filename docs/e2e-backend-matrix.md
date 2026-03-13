@@ -1,11 +1,14 @@
-# Backend Matrix Manual E2E (`tmux` / `zellij` / `opencode`)
+# Backend Matrix Manual E2E (`tmux` / `zellij` / `opencode` / `claude` / `codex`)
 
 This guide validates run-control behavior across multiplexer and send backends
 using real `orch` commands (not `go test`).
 
+This is the canonical instruction file for backend/session-control E2E.
+
 Automation-first entrypoint:
 
 - `scripts/e2e-backend-matrix-smoke.sh`
+- `scripts/e2e-run-control-matrix.sh`
 
 By default this automation runs a PR-safe smoke subset:
 
@@ -24,16 +27,41 @@ Automation lane planning:
 The checklist covers these operations for each backend mode:
 
 1. `run`
-2. `capture`
-3. `send`
-4. `stop`
-5. `restart-from` (after stop)
+2. `attach`
+3. `capture`
+4. `send`
+5. `stop`
+6. `restart-from` (after stop)
 
 Matrix dimensions:
 
-- Multiplexer-backed runs (`tmux`, `zellij`) with a custom agent
-- OpenCode-backed runs (`opencode`) via OpenCode server/session messaging
-- Shim-backed smoke lanes for `claude` and `codex` in PR CI
+- Multiplexer-backed runs (`tmux`, `zellij`) on the actual execution host
+- OpenCode-backed runs (`opencode`) via real OpenCode server/session messaging
+- Real `claude` and `codex` TUI sessions inside tmux/zellij
+- Operator-host to target-host routing for `attach` / `capture` / `send`
+
+## Strict Validation Requirement
+
+For changes that affect any of the following:
+
+- `orch attach`
+- `orch capture`
+- `orch send`
+- session metadata / host attribution
+- multiplexer routing
+- tmux / zellij / opencode session interaction
+- remote host execution / worker routing
+
+the validation bar is strict:
+
+- Real agent E2E is required.
+- `custom --agent-cmd ...` runs are not sufficient on their own.
+- Shims are not sufficient on their own.
+- `orch attach`, `orch capture`, and `orch send` must all work in the same matrix.
+- For remote-host runs, verify from the operator host against the actual target host.
+
+If a real agent E2E cannot be run, the change is not fully verified and must be
+reported as such.
 
 ## Prerequisites
 
@@ -222,7 +250,14 @@ Expected:
 - OpenCode send returns quickly after API ACK
 - run can be stopped and continued via `restart-from`
 
-## 9) Lane D/E: `claude` and `codex` send checks
+## 9) Lane D/E: `claude` and `codex`
+
+Real validation requirement:
+
+- Launch the actual `claude` / `codex` TUI in `tmux` or `zellij`.
+- Verify `attach`, `capture`, and `send` against that real session.
+
+PR-safe smoke fallback:
 
 If the real CLIs are unavailable in CI/sandbox, use lightweight shims:
 
@@ -243,28 +278,50 @@ chmod +x "$ROOT/bin/claude" "$ROOT/bin/codex"
 export PATH="$ROOT/bin:$PATH"
 ```
 
-Then run send-path checks:
+Then run smoke checks:
 
 ```bash
 RUN_CLAUDE="$(now_id)-claude"
 "$ORCH_BIN" --project "$PROJECT_ID" run e2e-claude --run-id "$RUN_CLAUDE" --agent claude --json
-"$ORCH_BIN" --project "$PROJECT_ID" send "e2e-claude#$RUN_CLAUDE" "claude-send-check"
+"$ORCH_BIN" --project "$PROJECT_ID" attach "e2e-claude#$RUN_CLAUDE"
 "$ORCH_BIN" --project "$PROJECT_ID" capture "e2e-claude#$RUN_CLAUDE"
+"$ORCH_BIN" --project "$PROJECT_ID" send "e2e-claude#$RUN_CLAUDE" "claude-send-check"
 "$ORCH_BIN" --project "$PROJECT_ID" stop "e2e-claude#$RUN_CLAUDE" --force
 
 RUN_CODEX="$(now_id)-codex"
 "$ORCH_BIN" --project "$PROJECT_ID" run e2e-codex --run-id "$RUN_CODEX" --agent codex --json
-"$ORCH_BIN" --project "$PROJECT_ID" send "e2e-codex#$RUN_CODEX" "codex-send-check"
+"$ORCH_BIN" --project "$PROJECT_ID" attach "e2e-codex#$RUN_CODEX"
 "$ORCH_BIN" --project "$PROJECT_ID" capture "e2e-codex#$RUN_CODEX"
+"$ORCH_BIN" --project "$PROJECT_ID" send "e2e-codex#$RUN_CODEX" "codex-send-check"
 "$ORCH_BIN" --project "$PROJECT_ID" stop "e2e-codex#$RUN_CODEX" --force
 ```
 
 Expected:
 
-- `claude` send path uses standard `SendKeys` behavior
-- `codex` send path preserves codex submit behavior (`literal` + Enter on tmux)
+- Real lanes: actual Claude/Codex TUI accepts attach/capture/send
+- Smoke lanes: `claude` send path uses standard `SendKeys` behavior
+- Smoke lanes: `codex` send path preserves codex submit behavior (`literal` + Enter on tmux)
 
-## 10) Cleanup
+## 10) Remote Host Matrix
+
+Use the run-control matrix script to prove operator-host control over an
+actual target-host run:
+
+```bash
+./scripts/e2e-run-control-matrix.sh
+```
+
+Expected:
+
+- local-host matrix passes
+- remote Zeus matrix passes
+- `orch ps` shows the actual execution host in `HOST` for both local and remote runs
+- Zeus OpenCode runs stay `running` / `waiting` after session creation when the session is still alive
+- `attach`, `capture`, and `send` all succeed in that matrix
+- for headless automation, `attach` may complete as an interactive preflight
+  rather than staying attached to the TUI
+
+## 11) Cleanup
 
 ```bash
 "$ORCH_BIN" master kill || true
@@ -277,6 +334,8 @@ rm -rf "$ROOT"
 - `restart-from` on a live run is expected to fail. Stop first.
 - `restart-from` for `--agent custom` requires `--agent-cmd`; otherwise the
   continued run fails with `custom agent requires --agent-cmd`.
+- If only `custom` or shim-backed lanes were run, treat validation as partial
+  for changes that affect real agent TUIs.
 - If `capture` is empty for multiplexer lanes, inspect run events for latest
   non-empty `session.multiplexer` artifact and verify it is preserved.
 - If zellij `send` fails with `session not found`, verify send-path multiplexer

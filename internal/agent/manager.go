@@ -222,38 +222,29 @@ type OpenCodeManager struct {
 }
 
 func (m *OpenCodeManager) IsAlive(run *model.Run) bool {
-	// For OpenCode: ALIVE = server is running for this project
-	//
-	// Unlike tmux agents where "alive" means "process is running",
-	// opencode sessions persist in the server indefinitely. The meaningful
-	// question is: "Is there a server running that can handle this run?"
-	//
-	// We dynamically find the server if m.Port is 0 or unreachable because:
-	// 1. Server might have restarted on a different port
-	// 2. The stored port may be stale
-	//
-	// See: https://github.com/s22625/orch/issues/354
-
-	// First, try the stored port if available
-	if m.Port > 0 {
-		client := NewOpenCodeClient(m.Port)
-		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		running := client.IsServerRunningForWorktree(ctx, m.Directory)
-		cancel()
-		if running {
-			return true
-		}
+	if m.Port <= 0 || strings.TrimSpace(m.SessionID) == "" {
+		return false
 	}
 
-	// Stored port didn't work - scan for a running server on this worktree
-	port := FindRunningOpenCodeServerForWorktree(m.Directory, OpenCodeServerPortStart, OpenCodeServerPortEnd)
-	return port != 0
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	client := NewOpenCodeClient(m.Port)
+	if !client.IsServerRunning(ctx) {
+		return false
+	}
+
+	return m.sessionReachable(ctx, client)
 }
 
 func (m *OpenCodeManager) CaptureOutput(run *model.Run) (string, error) {
-	client := NewOpenCodeClient(m.Port)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+
+	client, err := m.readyClient(ctx)
+	if err != nil {
+		return "", err
+	}
 
 	messages, err := client.GetMessages(ctx, m.SessionID, m.Directory)
 	if err != nil {
@@ -324,17 +315,16 @@ func (m *OpenCodeManager) GetStatus(run *model.Run, output string, state *RunSta
 	if run.Status == model.StatusBooting || run.Status == model.StatusQueued {
 		return model.StatusRunning
 	}
+	if m.Port <= 0 || strings.TrimSpace(m.SessionID) == "" {
+		return ""
+	}
 
 	client := NewOpenCodeClient(m.Port)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	sessionStatus, found, err := client.GetSingleSessionStatus(ctx, m.SessionID, m.Directory)
-	if err != nil {
-		return ""
-	}
-
-	if found {
+	if err == nil && found {
 		switch sessionStatus {
 		case SessionStatusBusy:
 			return model.StatusRunning
@@ -412,15 +402,43 @@ func (m *OpenCodeManager) sessionExists(ctx context.Context, client *OpenCodeCli
 }
 
 func (m *OpenCodeManager) SendMessage(ctx context.Context, run *model.Run, message string, opts *SendOptions) error {
-	if m.Port <= 0 {
-		return &OpenCodeConfigError{RunRef: m.RunRef, Missing: "server port"}
+	client, err := m.readyClient(ctx)
+	if err != nil {
+		return err
 	}
-	if m.SessionID == "" {
-		return &OpenCodeConfigError{RunRef: m.RunRef, Missing: "session ID"}
+
+	return client.SendMessageAsync(ctx, m.SessionID, message, run.WorktreePath, nil, "")
+}
+
+func (m *OpenCodeManager) readyClient(ctx context.Context) (*OpenCodeClient, error) {
+	if m.Port <= 0 {
+		return nil, &OpenCodeConfigError{RunRef: m.RunRef, Missing: "server port"}
+	}
+	if strings.TrimSpace(m.SessionID) == "" {
+		return nil, &OpenCodeConfigError{RunRef: m.RunRef, Missing: "session ID"}
 	}
 
 	client := NewOpenCodeClient(m.Port)
-	return client.SendMessageAsync(ctx, m.SessionID, message, run.WorktreePath, nil, "")
+	if !client.IsServerRunning(ctx) {
+		return nil, &ServerStoppedError{RunRef: m.RunRef, Port: m.Port, WorktreePath: m.Directory}
+	}
+	return client, nil
+}
+
+func (m *OpenCodeManager) sessionReachable(ctx context.Context, client *OpenCodeClient) bool {
+	if client == nil || strings.TrimSpace(m.SessionID) == "" {
+		return false
+	}
+
+	if _, found, err := client.GetSingleSessionStatus(ctx, m.SessionID, m.Directory); err == nil && found {
+		return true
+	}
+
+	if _, err := client.GetSession(ctx, m.SessionID, m.Directory); err == nil {
+		return true
+	}
+
+	return m.sessionExists(ctx, client)
 }
 
 func IsWaitingForInput(output string) bool {

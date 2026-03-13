@@ -131,26 +131,6 @@ func TestWorkerSchedulingFailsWhenTargetWorkerMissing(t *testing.T) {
 	}
 }
 
-func TestWorkerSchedulingReportsManagedWorkerStartupFailure(t *testing.T) {
-	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
-	targetWorkerID := HostWorkerID("mac-host")
-	server.managedWorkers[targetWorkerID] = &managedWorkerProcess{
-		WorkerID: targetWorkerID,
-		PID:      1234,
-		ExitedAt: time.Now(),
-		ExitErr:  "exit status 7",
-	}
-
-	payload := &WorkerEffectPayload{StartRun: &StartRunOptions{Target: "mac", TargetHost: "mac-host", TargetWorkerID: targetWorkerID}}
-	_, err := server.acquireWorkerLease("project-test", "start_run", "issue-x", "run-x", payload)
-	if err == nil {
-		t.Fatal("expected startup failure error")
-	}
-	if !strings.Contains(err.Error(), "exited during startup") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func TestExecuteLeaseEffectUsesLocalExecutionForMatchingTargetWorker(t *testing.T) {
 	projectRoot := t.TempDir()
 	issuesRoot := filepath.Join(projectRoot, "issues-store")

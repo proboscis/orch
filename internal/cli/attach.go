@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/model"
@@ -115,14 +116,14 @@ func runAttachWithDeps(refStr string, opts *attachOptions, deps *attachDeps) err
 		return err
 	}
 
-	if !info.SessionExists {
+	if !info.SessionExists && !shouldHandleRunLocally(info) {
 		fmt.Fprintf(deps.streams.stderr, "cannot attach: session not found (session: %s, worktree: %s)\n",
 			info.SessionName, info.WorktreePath)
 		deps.exit(ExitRunNotFound)
 		return fmt.Errorf("cannot attach: session not found")
 	}
 
-	if info.TargetHost != "" {
+	if info.TargetHost != "" && !shouldHandleRunLocally(info) {
 		exitCode, attachErr := deps.attachRemote(info, deps.streams)
 		if exitCode != 0 {
 			deps.exit(exitCode)
@@ -194,6 +195,19 @@ var runSSHCommand = func(args []string, streams attachStreams) error {
 }
 
 func attachRemoteFromInfoWithExecutor(info *orchapi.AttachInfo, streams attachStreams) (int, error) {
+	if strings.EqualFold(info.Agent, string(agent.AgentOpenCode)) {
+		script, err := buildRemoteOpenCodeAttachScript(info)
+		if err != nil {
+			fmt.Fprintf(streams.stderr, "%v\n", err)
+			return ExitRunNotFound, err
+		}
+		if err := runSSHCommand(sshScriptArgs(info.TargetHost, true, script), streams); err != nil {
+			fmt.Fprintf(streams.stderr, "failed to attach via ssh: %v\n", err)
+			return ExitTmuxError, err
+		}
+		return 0, nil
+	}
+
 	sessionName := info.SessionName
 	if sessionName == "" {
 		sessionName = model.GenerateSessionName(info.IssueID, info.RunID)

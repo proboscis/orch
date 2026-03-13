@@ -488,6 +488,40 @@ func TestSendMessagePromptRetriesTransientFailures(t *testing.T) {
 	}
 }
 
+func TestGetMessagesRetriesTransientPartialJSON(t *testing.T) {
+	attempts := 0
+
+	client := newSocketlessOpenCodeClient(t, func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if r.URL.Path != "/session/ses_retry/message" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("X-OpenCode-Directory"); got != "/tmp/worktree" {
+			t.Fatalf("X-OpenCode-Directory = %q, want %q", got, "/tmp/worktree")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if attempts < 3 {
+			_, _ = w.Write([]byte(`[{"info":{"id":"msg1"`))
+			return
+		}
+		_, _ = w.Write([]byte(`[{"info":{"id":"msg1","sessionID":"ses_retry","role":"assistant","createdAt":"2026-03-12T00:00:00Z"},"parts":[{"type":"text","text":"ready"}]}]`))
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	messages, err := client.GetMessages(ctx, "ses_retry", "/tmp/worktree")
+	if err != nil {
+		t.Fatalf("GetMessages error: %v", err)
+	}
+	if attempts != 3 {
+		t.Fatalf("expected 3 attempts, got %d", attempts)
+	}
+	if len(messages) != 1 || messages[0].Info.Role != "assistant" {
+		t.Fatalf("unexpected messages: %+v", messages)
+	}
+}
+
 func TestNewOpenCodeClient(t *testing.T) {
 	client := NewOpenCodeClient(4096)
 	if client.baseURL != "http://127.0.0.1:4096" {

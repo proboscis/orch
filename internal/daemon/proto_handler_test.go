@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -840,319 +839,48 @@ func TestWorkerLeaseRedispatchToSecondWorkerAfterExpiry(t *testing.T) {
 	}
 }
 
-func TestExternalWorkerLifecycleAPIStartListStop(t *testing.T) {
-	logger := &timingTestLogger{}
-	server := NewSocketServer(nil, logger)
-	server.workerLaunchConfig = func(workerID string) (string, []string, []string, error) {
-		return "/bin/sleep", []string{"/bin/sleep", "30"}, nil, nil
+func TestSyncStartRunResultToMasterStorePreservesOpenCodeArtifacts(t *testing.T) {
+	st := &mockStore{
+		runs:   map[string]*model.Run{},
+		issues: map[string]*model.Issue{},
 	}
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		server.registerWorker("worker-managed-1", "executor", "localhost", "external", nil)
-	}()
+	server := NewSocketServer(nil, &timingTestLogger{})
 
-	startResp := server.handleProtoStartExternalWorker(&orchpb.StartExternalWorkerRequest{WorkerId: "worker-managed-1"})
-	if !startResp.GetOk() {
-		t.Fatalf("start external worker failed: %s", startResp.GetError())
-	}
-	if startResp.GetStartExternalWorker().GetWorkerId() != "worker-managed-1" {
-		t.Fatalf("unexpected started worker id: %s", startResp.GetStartExternalWorker().GetWorkerId())
-	}
-
-	listResp := server.handleProtoListExternalWorkers(&orchpb.ListExternalWorkersRequest{})
-	if !listResp.GetOk() {
-		t.Fatalf("list external workers failed: %s", listResp.GetError())
-	}
-	if len(listResp.GetListExternalWorkers().GetWorkers()) == 0 {
-		t.Fatal("expected at least one managed external worker")
-	}
-
-	stopResp := server.handleProtoStopExternalWorker(&orchpb.StopExternalWorkerRequest{WorkerId: "worker-managed-1"})
-	if !stopResp.GetOk() {
-		t.Fatalf("stop external worker failed: %s", stopResp.GetError())
-	}
-	if stopResp.GetStopExternalWorker().GetStoppedCount() < 1 {
-		t.Fatalf("expected stopped_count >= 1, got %d", stopResp.GetStopExternalWorker().GetStoppedCount())
-	}
-
-	_ = server.handleProtoStopExternalWorker(&orchpb.StopExternalWorkerRequest{All: true})
-}
-
-func TestExternalWorkerLifecycleAPIStartWithoutWorkerIDIsIdempotentPerHost(t *testing.T) {
-	orig := currentHostname
-	currentHostname = func() (string, error) { return "zeus", nil }
-	t.Cleanup(func() { currentHostname = orig })
-
-	logger := &timingTestLogger{}
-	server := NewSocketServer(nil, logger)
-	server.workerLaunchConfig = func(workerID string) (string, []string, []string, error) {
-		return "/bin/sleep", []string{"/bin/sleep", "30"}, nil, nil
-	}
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		server.registerWorker("host-zeus", "executor", "zeus", "external", nil)
-	}()
-
-	first := server.handleProtoStartExternalWorker(&orchpb.StartExternalWorkerRequest{})
-	if !first.GetOk() {
-		t.Fatalf("first start external worker failed: %s", first.GetError())
-	}
-	second := server.handleProtoStartExternalWorker(&orchpb.StartExternalWorkerRequest{})
-	if !second.GetOk() {
-		t.Fatalf("second start external worker failed: %s", second.GetError())
-	}
-
-	if first.GetStartExternalWorker().GetWorkerId() != "host-zeus" {
-		t.Fatalf("unexpected default worker id: %s", first.GetStartExternalWorker().GetWorkerId())
-	}
-	if second.GetStartExternalWorker().GetWorkerId() != first.GetStartExternalWorker().GetWorkerId() {
-		t.Fatalf("worker id changed across repeated start: %s vs %s", first.GetStartExternalWorker().GetWorkerId(), second.GetStartExternalWorker().GetWorkerId())
-	}
-	if second.GetStartExternalWorker().GetPid() != first.GetStartExternalWorker().GetPid() {
-		t.Fatalf("expected repeated start to reuse pid %d, got %d", first.GetStartExternalWorker().GetPid(), second.GetStartExternalWorker().GetPid())
-	}
-
-	listResp := server.handleProtoListExternalWorkers(&orchpb.ListExternalWorkersRequest{})
-	if !listResp.GetOk() {
-		t.Fatalf("list external workers failed: %s", listResp.GetError())
-	}
-	if got := len(listResp.GetListExternalWorkers().GetWorkers()); got != 1 {
-		t.Fatalf("external worker count = %d, want 1", got)
-	}
-
-	_ = server.handleProtoStopExternalWorker(&orchpb.StopExternalWorkerRequest{All: true})
-}
-
-func TestExternalWorkerLifecycleAPIStopWithoutWorkerIDStopsDefaultHostWorker(t *testing.T) {
-	orig := currentHostname
-	currentHostname = func() (string, error) { return "zeus", nil }
-	t.Cleanup(func() { currentHostname = orig })
-
-	logger := &timingTestLogger{}
-	server := NewSocketServer(nil, logger)
-	server.workerLaunchConfig = func(workerID string) (string, []string, []string, error) {
-		return "/bin/sleep", []string{"/bin/sleep", "30"}, nil, nil
-	}
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		server.registerWorker("host-zeus", "executor", "zeus", "external", nil)
-	}()
-
-	startResp := server.handleProtoStartExternalWorker(&orchpb.StartExternalWorkerRequest{})
-	if !startResp.GetOk() {
-		t.Fatalf("start external worker failed: %s", startResp.GetError())
-	}
-	if startResp.GetStartExternalWorker().GetWorkerId() != "host-zeus" {
-		t.Fatalf("unexpected default worker id: %s", startResp.GetStartExternalWorker().GetWorkerId())
-	}
-
-	stopResp := server.handleProtoStopExternalWorker(&orchpb.StopExternalWorkerRequest{})
-	if !stopResp.GetOk() {
-		t.Fatalf("stop external worker failed: %s", stopResp.GetError())
-	}
-	if stopResp.GetStopExternalWorker().GetStoppedCount() != 1 {
-		t.Fatalf("expected stopped_count = 1, got %d", stopResp.GetStopExternalWorker().GetStoppedCount())
-	}
-}
-
-func TestExternalWorkerLifecycleAPIStartFailsFastWhenWorkerExitsBeforeRegister(t *testing.T) {
-	logger := &timingTestLogger{}
-	server := NewSocketServer(nil, logger)
-	server.workerLaunchConfig = func(workerID string) (string, []string, []string, error) {
-		return "/bin/sh", []string{"/bin/sh", "-c", "exit 7"}, nil, nil
-	}
-
-	startResp := server.handleProtoStartExternalWorker(&orchpb.StartExternalWorkerRequest{WorkerId: "worker-managed-fail"})
-	if startResp.GetOk() {
-		t.Fatal("expected start external worker failure")
-	}
-	if !strings.Contains(startResp.GetError(), "exited before registering") {
-		t.Fatalf("unexpected error: %s", startResp.GetError())
-	}
-}
-
-func TestDaemonStartedExternalWorkerProcessesLeaseSuccessfully(t *testing.T) {
-	cleanup := setupXDGTestEnv(t)
-	defer cleanup()
-
-	logger := &timingTestLogger{}
-	server := NewSocketServer(nil, logger)
-	server.workerLaunchConfig = func(workerID string) (string, []string, []string, error) {
-		env := []string{
-			"ORCH_WORKER_HELPER=1",
-			"ORCH_WORKER_ID=" + workerID,
-			"ORCH_WORKER_HELPER_REGISTER=1",
-			"ORCH_WORKER_HELPER_MODE=success",
-			"ORCH_WORKER_EXPECT_EFFECT=stop_run",
-			"ORCH_WORKER_HELPER_RESULT_JSON={\"continue_run_result\":{\"RunID\":\"run-daemon-started\"}}",
-		}
-		return os.Args[0], []string{os.Args[0], "-test.run=TestExternalWorkerHelperProcess"}, env, nil
-	}
-	if err := server.Start(); err != nil {
-		t.Fatalf("start server: %v", err)
-	}
-	defer server.Stop()
-
-	startResp := server.handleProtoStartExternalWorker(&orchpb.StartExternalWorkerRequest{WorkerId: "managed-worker-success"})
-	if !startResp.GetOk() {
-		t.Fatalf("start external worker failed: %s", startResp.GetError())
-	}
-
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		workers := server.listWorkers()
-		found := false
-		for _, w := range workers {
-			if w.ID == "managed-worker-success" {
-				found = true
-				break
-			}
-		}
-		if found {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	_, err := server.withWorkerLease("project-test", "stop_run", "orch-managed", "run-managed", nil)
+	err := server.syncStartRunResultToMasterStore(st, &orchpb.StartRunRequest{
+		IssueId: "issue-opencode-sync",
+		Agent:   "opencode",
+		Context: &orchpb.RequestContext{ProjectId: "project-sync"},
+	}, &StartRunResult{
+		RunID:             "run-opencode-sync",
+		Branch:            "issue/issue-opencode-sync/run-run-opencode-sync",
+		WorktreePath:      "/tmp/opencode-sync",
+		SessionName:       "session-opencode-sync",
+		Status:            string(model.StatusRunning),
+		Multiplexer:       "tmux",
+		SessionHost:       "mac-host",
+		WorkerID:          "host-mac-host",
+		ServerPort:        4111,
+		OpenCodeSessionID: "ses_sync",
+	})
 	if err != nil {
-		t.Fatalf("withWorkerLease() error = %v", err)
+		t.Fatalf("syncStartRunResultToMasterStore() error = %v", err)
 	}
 
-	leases := server.listWorkerLeases(true)
-	found := false
-	for _, lease := range leases {
-		if lease.WorkerID == "managed-worker-success" && lease.Effect == "stop_run" && lease.IssueID == "orch-managed" {
-			if !lease.Completed || !lease.Success {
-				t.Fatalf("unexpected lease completion state: completed=%v success=%v", lease.Completed, lease.Success)
-			}
-			if strings.TrimSpace(lease.ResultJSON) == "" {
-				t.Fatal("expected non-empty result_json from managed external worker")
-			}
-			found = true
-			break
-		}
+	run, err := st.GetRun(&model.RunRef{IssueID: "issue-opencode-sync", RunID: "run-opencode-sync"})
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
 	}
-	if !found {
-		t.Fatal("expected lease completed by daemon-managed external worker")
+	if run == nil {
+		t.Fatal("expected synced run")
 	}
-
-	_ = server.handleProtoStopExternalWorker(&orchpb.StopExternalWorkerRequest{All: true})
-}
-
-func TestDaemonStartedExternalWorkerHandlesStartRunEndToEnd(t *testing.T) {
-	cleanup := setupXDGTestEnv(t)
-	defer cleanup()
-
-	st := &mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{"issue-start-daemon": {ID: "issue-start-daemon", Title: "issue", Status: model.IssueStatusOpen}}}
-	server := newTestServer(t, st)
-	server.workerLaunchConfig = func(workerID string) (string, []string, []string, error) {
-		env := []string{
-			"ORCH_WORKER_HELPER=1",
-			"ORCH_WORKER_ID=" + workerID,
-			"ORCH_WORKER_HELPER_REGISTER=1",
-			"ORCH_WORKER_HELPER_MODE=success",
-			"ORCH_WORKER_EXPECT_EFFECT=start_run",
-			"ORCH_WORKER_HELPER_RESULT_JSON={\"start_run_result\":{\"RunID\":\"run-daemon-start\",\"Branch\":\"daemon-branch\",\"WorktreePath\":\"/tmp/wt\",\"SessionName\":\"sess\",\"Status\":\"running\"}}",
-		}
-		return os.Args[0], []string{os.Args[0], "-test.run=TestExternalWorkerHelperProcess"}, env, nil
+	if run.ServerPort != 4111 {
+		t.Fatalf("ServerPort = %d, want 4111", run.ServerPort)
 	}
-	if err := server.Start(); err != nil {
-		t.Fatalf("start server: %v", err)
+	if run.OpenCodeSessionID != "ses_sync" {
+		t.Fatalf("OpenCodeSessionID = %q, want %q", run.OpenCodeSessionID, "ses_sync")
 	}
-	defer server.Stop()
-	projectRoot := "/test/project"
-	projectID := "project-start-daemon"
-	registerRepoContextForTest(t, server, projectID, projectRoot, st)
-
-	startResp := server.handleProtoStartExternalWorker(&orchpb.StartExternalWorkerRequest{WorkerId: "managed-worker-start"})
-	if !startResp.GetOk() {
-		t.Fatalf("start external worker failed: %s", startResp.GetError())
-	}
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		workers := server.listWorkers()
-		found := false
-		for _, w := range workers {
-			if w.ID == "managed-worker-start" {
-				found = true
-				break
-			}
-		}
-		if found {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	resp := sendProtoRequest(t, &orchpb.Request{Request: &orchpb.Request_StartRun{StartRun: &orchpb.StartRunRequest{
-		IssueId: "issue-start-daemon",
-		RunId:   "run-daemon-start",
-		Context: &orchpb.RequestContext{ProjectId: projectID},
-	}}})
-	if !resp.GetOk() || resp.GetStartRun() == nil {
-		t.Fatalf("start_run response not ok: ok=%v err=%s", resp.GetOk(), resp.GetError())
-	}
-	if resp.GetStartRun().GetRunId() != "run-daemon-start" || resp.GetStartRun().GetBranch() != "daemon-branch" {
-		t.Fatalf("unexpected start_run response: %+v", resp.GetStartRun())
-	}
-}
-
-func TestDaemonStartedExternalWorkerHandlesContinueRunEndToEnd(t *testing.T) {
-	cleanup := setupXDGTestEnv(t)
-	defer cleanup()
-
-	st := &mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}}
-	server := newTestServer(t, st)
-	server.workerLaunchConfig = func(workerID string) (string, []string, []string, error) {
-		env := []string{
-			"ORCH_WORKER_HELPER=1",
-			"ORCH_WORKER_ID=" + workerID,
-			"ORCH_WORKER_HELPER_REGISTER=1",
-			"ORCH_WORKER_HELPER_MODE=success",
-			"ORCH_WORKER_EXPECT_EFFECT=continue_run",
-			"ORCH_WORKER_HELPER_RESULT_JSON={\"continue_run_result\":{\"RunID\":\"run-daemon-continue\",\"Branch\":\"cont-branch\",\"WorktreePath\":\"/tmp/cont\",\"SessionName\":\"sess-cont\",\"Status\":\"running\",\"ContinuedFrom\":\"run-prev\",\"IssueID\":\"issue-cont-daemon\"}}",
-		}
-		return os.Args[0], []string{os.Args[0], "-test.run=TestExternalWorkerHelperProcess"}, env, nil
-	}
-	if err := server.Start(); err != nil {
-		t.Fatalf("start server: %v", err)
-	}
-	defer server.Stop()
-	projectRoot := "/test/project"
-	projectID := "project-continue-daemon"
-	registerRepoContextForTest(t, server, projectID, projectRoot, st)
-
-	startResp := server.handleProtoStartExternalWorker(&orchpb.StartExternalWorkerRequest{WorkerId: "managed-worker-continue"})
-	if !startResp.GetOk() {
-		t.Fatalf("start external worker failed: %s", startResp.GetError())
-	}
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		workers := server.listWorkers()
-		found := false
-		for _, w := range workers {
-			if w.ID == "managed-worker-continue" {
-				found = true
-				break
-			}
-		}
-		if found {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	resp := sendProtoRequest(t, &orchpb.Request{Request: &orchpb.Request_ContinueRun{ContinueRun: &orchpb.ContinueRunRequest{
-		IssueId: "issue-cont-daemon",
-		RunId:   "run-daemon-continue",
-		Context: &orchpb.RequestContext{ProjectId: projectID},
-	}}})
-	if !resp.GetOk() || resp.GetContinueRun() == nil {
-		t.Fatalf("continue_run response not ok: ok=%v err=%s", resp.GetOk(), resp.GetError())
-	}
-	if resp.GetContinueRun().GetRunId() != "run-daemon-continue" || resp.GetContinueRun().GetContinuedFrom() != "run-prev" {
-		t.Fatalf("unexpected continue_run response: %+v", resp.GetContinueRun())
+	if run.TargetHost != "mac-host" {
+		t.Fatalf("TargetHost = %q, want %q", run.TargetHost, "mac-host")
 	}
 }
 

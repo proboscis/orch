@@ -50,10 +50,17 @@ var newLeaseExecutor = func(workerID, host string) leaseExecutor {
 	return server
 }
 
-func RunExternalLoop(client Client, cfg RunConfig) error {
+func RunExternalLoop(client Client, cfg RunConfig) (err error) {
 	if client == nil {
 		return fmt.Errorf("client required")
 	}
+
+	runtimeState := managedRuntimeStateFromEnv()
+	defer func() {
+		if runtimeState != nil {
+			runtimeState.markExited(err)
+		}
+	}()
 
 	pollInterval := cfg.PollInterval
 	if pollInterval <= 0 {
@@ -72,6 +79,9 @@ func RunExternalLoop(client Client, cfg RunConfig) error {
 	if workerID == "" {
 		workerID = daemon.HostWorkerID(host)
 	}
+	if runtimeState != nil {
+		runtimeState.markStarting(workerID)
+	}
 
 	if capClient, ok := client.(capabilityRegisterClient); ok {
 		if _, err := capClient.RegisterWorkerWithCapabilities(workerID, "executor", host, "external", []string{"start_run", "continue_run", "stop_run"}); err != nil {
@@ -79,6 +89,9 @@ func RunExternalLoop(client Client, cfg RunConfig) error {
 		}
 	} else if _, err := client.RegisterWorker(workerID, "executor", host, "external"); err != nil {
 		return err
+	}
+	if runtimeState != nil {
+		runtimeState.markRegistered()
 	}
 	defer client.UnregisterWorker(workerID)
 
@@ -100,6 +113,9 @@ func RunExternalLoop(client Client, cfg RunConfig) error {
 		case <-heartbeatTicker.C:
 			if err := client.WorkerHeartbeat(workerID); err != nil {
 				return err
+			}
+			if runtimeState != nil {
+				runtimeState.markHeartbeat()
 			}
 		case <-pollTicker.C:
 			leaseResp, err := client.LeaseWork(workerID)

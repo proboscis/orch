@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -81,6 +82,13 @@ var (
 		}
 		return mux
 	}
+	getCaptureMultiplexerForType = func(muxType multiplexer.Type) captureMultiplexer {
+		mux, _ := multiplexer.GetMultiplexer(muxType)
+		if mux == nil {
+			return nil
+		}
+		return mux
+	}
 )
 
 type sendMultiplexer interface {
@@ -89,6 +97,11 @@ type sendMultiplexer interface {
 	SendKeys(session, keys string) error
 	SendKeysLiteral(session, keys string) error
 	SendText(session, text string) error
+}
+
+type captureMultiplexer interface {
+	HasSession(name string) bool
+	CapturePane(session string, lines int) (string, error)
 }
 
 func readAll(conn net.Conn) ([]byte, error) {
@@ -291,12 +304,9 @@ type SocketServer struct {
 	workers   map[string]*WorkerRegistration
 	workersMu sync.RWMutex
 
-	workerLeases       map[string]*WorkerLease
-	workerLeasesMu     sync.RWMutex
-	workerAuthToken    string
-	managedWorkers     map[string]*managedWorkerProcess
-	managedWorkersMu   sync.RWMutex
-	workerLaunchConfig func(workerID string) (string, []string, []string, error)
+	workerLeases    map[string]*WorkerLease
+	workerLeasesMu  sync.RWMutex
+	workerAuthToken string
 
 	controlSessionLocks   map[string]*sync.Mutex
 	controlSessionLocksMu sync.Mutex
@@ -320,15 +330,6 @@ type managedServer struct {
 	LogPath     string
 	WaitResult  chan error
 	Adopted     bool
-}
-
-type managedWorkerProcess struct {
-	WorkerID  string
-	Process   *os.Process
-	PID       int
-	StartedAt time.Time
-	ExitedAt  time.Time
-	ExitErr   string
 }
 
 func serverPID(srv *managedServer) int {
@@ -359,7 +360,6 @@ func NewSocketServer(factory StoreFactory, logger Logger) *SocketServer {
 		repos:               make(map[string]*RepoContext),
 		controlSessionLocks: make(map[string]*sync.Mutex),
 		openCodeServers:     make(map[string]*managedServer),
-		managedWorkers:      make(map[string]*managedWorkerProcess),
 		workerAuthToken:     strings.TrimSpace(os.Getenv("ORCH_WORKER_AUTH_TOKEN")),
 	}
 	s.gitRunner = git.NewRunner()
@@ -442,6 +442,83 @@ func opencodeServerLogPath(projectRoot string) string {
 	_, _ = h.Write([]byte(filepath.Clean(projectRoot)))
 
 	return filepath.Join(xdg.StateDir(), fmt.Sprintf("opencode-server-%s-%08x.log", nameBuilder.String(), h.Sum32()))
+}
+
+func defaultExternalDataHome() string {
+	if dir := strings.TrimSpace(os.Getenv("XDG_DATA_HOME")); dir != "" {
+		return dir
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".local", "share")
+}
+
+func defaultExternalStateHome() string {
+	if dir := strings.TrimSpace(os.Getenv("XDG_STATE_HOME")); dir != "" {
+		return dir
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	if runtime.GOOS == "darwin" {
+		return filepath.Join(home, ".local", "state")
+	}
+	return filepath.Join(home, ".local", "state")
+}
+
+func openCodeManagedXDGHomes(repoID string) (string, string) {
+	id := strings.TrimSpace(repoID)
+	if id == "" {
+		id = "unknown"
+	}
+	return filepath.Join(xdg.DataDir(), "opencode-runtime", id, "data"),
+		filepath.Join(xdg.StateDir(), "opencode-runtime", id, "state")
+}
+
+func seedOpenCodeAuth(targetDataHome string) error {
+	source := filepath.Join(defaultExternalDataHome(), "opencode", "auth.json")
+	data, err := os.ReadFile(source)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	targetDir := filepath.Join(targetDataHome, "opencode")
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(targetDir, "auth.json"), data, 0o600)
+}
+
+func prepareManagedOpenCodeEnv(repoID string) ([]string, error) {
+	dataHome, stateHome := openCodeManagedXDGHomes(repoID)
+	if err := os.MkdirAll(filepath.Join(dataHome, "opencode"), 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Join(stateHome, "opencode"), 0o755); err != nil {
+		return nil, err
+	}
+	if err := seedOpenCodeAuth(dataHome); err != nil {
+		return nil, err
+	}
+
+	env := make([]string, 0, len(os.Environ())+2)
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "XDG_DATA_HOME=") || strings.HasPrefix(kv, "XDG_STATE_HOME=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	env = append(env,
+		"XDG_DATA_HOME="+dataHome,
+		"XDG_STATE_HOME="+stateHome,
+	)
+	return env, nil
 }
 
 // RegisterRepo adds a new repo context to the daemon.
@@ -1008,7 +1085,6 @@ func (s *SocketServer) Start() error {
 
 func (s *SocketServer) Stop() {
 	close(s.stopCh)
-	_, _ = s.stopManagedExternalWorker("", true)
 	s.StopAllOpenCodeServers()
 	if s.listener != nil {
 		s.listener.Close()
@@ -1438,11 +1514,14 @@ func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string) (int, err
 			client := agent.NewOpenCodeClient(srv.Port)
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
-			if client.IsServerRunning(ctx) {
+			if client.IsServerRunningForWorktree(ctx, canonicalRoot) {
 				srv.LastHealthy = time.Now()
 				s.updateManagedServerHealth(repoID, srv.LastHealthy)
 				s.logger.Printf("opencode server healthy on port %d for %s", srv.Port, repoID)
 				return srv.Port, nil
+			}
+			if client.IsServerRunning(ctx) {
+				s.logger.Printf("existing server for %s is healthy but serving a different project/worktree, restarting (logs: %s)", repoID, srv.LogPath)
 			}
 		}
 		s.logger.Printf("existing server for %s not healthy, stopping and restarting (logs: %s)", repoID, srv.LogPath)
@@ -1514,7 +1593,17 @@ func (s *SocketServer) startServerProcess(projectRoot string, port int) (*manage
 
 	cmd := exec.Command(opencodeBin, "serve", "--port", fmt.Sprintf("%d", port), "--hostname", "0.0.0.0")
 	cmd.Dir = projectRoot
-	cmd.Env = append(os.Environ(),
+	repoID, err := s.repoIDForProjectRoot(projectRoot)
+	if err != nil {
+		logFile.Close()
+		return nil, fmt.Errorf("failed to resolve repo id for opencode environment: %w", err)
+	}
+	env, err := prepareManagedOpenCodeEnv(repoID)
+	if err != nil {
+		logFile.Close()
+		return nil, fmt.Errorf("failed to prepare opencode environment: %w", err)
+	}
+	cmd.Env = append(env,
 		`OPENCODE_PERMISSION={"edit":"allow","bash":"allow","skill":"allow","webfetch":"allow","doom_loop":"allow","external_directory":"allow"}`,
 	)
 	cmd.Stdout = logFile
@@ -1737,6 +1826,138 @@ func (s *SocketServer) getOpenCodeServerPort(projectRoot string) int {
 		return srv.Port
 	}
 	return 0
+}
+
+func (s *SocketServer) failOpenCodeRunBootstrap(st store.Store, run *model.Run, err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	s.logger.Printf(msg)
+	if st != nil && run != nil {
+		_ = st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(msg))
+		_ = st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+	}
+	return err
+}
+
+func isOpenCodeSQLiteIOError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "sqliteerror: disk i/o error")
+}
+
+func (s *SocketServer) resetManagedOpenCodeRuntime(projectRoot string) error {
+	repoID, err := s.repoIDForProjectRoot(projectRoot)
+	if err != nil {
+		return err
+	}
+
+	s.openCodeServersMu.Lock()
+	if srv, ok := s.openCodeServers[repoID]; ok {
+		s.procManager.StopServerLocked(srv)
+		delete(s.openCodeServers, repoID)
+	}
+	s.openCodeServersMu.Unlock()
+
+	dataHome, _ := openCodeManagedXDGHomes(repoID)
+	for _, name := range []string{"opencode.db-shm", "opencode.db-wal"} {
+		path := filepath.Join(dataHome, "opencode", name)
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove %s: %w", path, err)
+		}
+	}
+	return nil
+}
+
+func (s *SocketServer) bootstrapOpenCodeRunSession(
+	st store.Store,
+	run *model.Run,
+	issueID string,
+	runID string,
+	launchCfg *agent.LaunchConfig,
+	timeout time.Duration,
+) (int, string, error) {
+	if launchCfg == nil {
+		return 0, "", s.failOpenCodeRunBootstrap(st, run, fmt.Errorf("missing launch config for opencode bootstrap"))
+	}
+
+	port := launchCfg.Port
+	if port == 0 {
+		port = agent.OpenCodeServerPortStart
+	}
+
+	client := agent.NewOpenCodeClient(port)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	if err := client.WaitForHealthy(ctx, timeout); err != nil {
+		return 0, "", s.failOpenCodeRunBootstrap(st, run, fmt.Errorf("server health check failed: %w", err))
+	}
+
+	_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
+		"port": fmt.Sprintf("%d", port),
+	}))
+
+	session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", issueID, runID), launchCfg.WorkDir)
+	if err != nil && isOpenCodeSQLiteIOError(err) {
+		s.logger.Printf("opencode session creation hit sqlite I/O error for %s#%s; resetting managed runtime and retrying once", issueID, runID)
+		if resetErr := s.resetManagedOpenCodeRuntime(launchCfg.WorkDir); resetErr != nil {
+			s.logger.Printf("failed to reset managed opencode runtime for %s#%s: %v", issueID, runID, resetErr)
+		} else if retryPort, retryErr := s.ensureOpenCodeServerRunning(launchCfg.WorkDir); retryErr != nil {
+			s.logger.Printf("failed to restart managed opencode runtime for %s#%s: %v", issueID, runID, retryErr)
+		} else {
+			port = retryPort
+			client = agent.NewOpenCodeClient(port)
+			ctx, cancel = context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			if waitErr := client.WaitForHealthy(ctx, timeout); waitErr != nil {
+				err = fmt.Errorf("server health check failed after sqlite reset: %w", waitErr)
+			} else {
+				_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
+					"port": fmt.Sprintf("%d", port),
+				}))
+				session, err = client.CreateSession(ctx, fmt.Sprintf("%s#%s", issueID, runID), launchCfg.WorkDir)
+			}
+		}
+	}
+	if err != nil {
+		return port, "", s.failOpenCodeRunBootstrap(st, run, fmt.Errorf("failed to create opencode session: %w", err))
+	}
+
+	_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("opencode_session", map[string]string{
+		"id": session.ID,
+	}))
+
+	if strings.TrimSpace(launchCfg.Prompt) == "" {
+		return port, session.ID, nil
+	}
+
+	var modelRef *agent.ModelRef
+	if launchCfg.Model != "" {
+		modelRef = agent.ParseModel(launchCfg.Model)
+	}
+	runForConfirm := &model.Run{
+		IssueID:           issueID,
+		RunID:             runID,
+		WorktreePath:      launchCfg.WorkDir,
+		OpenCodeSessionID: session.ID,
+	}
+	sendStartedAt := time.Now()
+	if err := client.SendMessagePrompt(ctx, session.ID, launchCfg.Prompt, launchCfg.WorkDir, modelRef, launchCfg.ModelVariant); err != nil {
+		if isOpenCodeSendAckTimeout(err) {
+			if confirmed, confirmErr := confirmOpenCodeQueuedMessage(client, runForConfirm, launchCfg.Prompt, sendStartedAt); confirmed {
+				s.logger.Printf("opencode bootstrap ack_timeout_but_confirmed run=%s#%s elapsed=%s timeout=%s", issueID, runID, time.Since(sendStartedAt), openCodeSendAckTimeout)
+				return port, session.ID, nil
+			} else if confirmErr != nil {
+				s.logger.Printf("opencode bootstrap confirm_queued_failed run=%s#%s elapsed=%s err=%v", issueID, runID, time.Since(sendStartedAt), confirmErr)
+			}
+		}
+		return port, session.ID, s.failOpenCodeRunBootstrap(st, run, fmt.Errorf("failed to send opencode prompt: %w", err))
+	}
+
+	return port, session.ID, nil
 }
 
 // getOrCreateOpenCodeControlSession returns (sessionID, resumed, error).
@@ -2493,6 +2714,57 @@ func resolveSendMultiplexer(run *model.Run) sendMultiplexer {
 	return getSendMultiplexer()
 }
 
+func resolveCaptureMultiplexer(run *model.Run) captureMultiplexer {
+	if run == nil {
+		return nil
+	}
+	muxType, err := multiplexer.ParseType(strings.TrimSpace(run.Multiplexer))
+	if err != nil || muxType == multiplexer.TypeAuto {
+		muxType = multiplexer.TypeTmux
+	}
+	return getCaptureMultiplexerForType(muxType)
+}
+
+func captureLocalMultiplexerSession(run *model.Run, lines int) (string, string, error) {
+	if run == nil {
+		return "", "", fmt.Errorf("run required")
+	}
+	sessionName := run.SessionName
+	if sessionName == "" {
+		sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
+	}
+	mux := resolveCaptureMultiplexer(run)
+	if mux == nil {
+		return "", "", fmt.Errorf("no multiplexer available for run %s#%s", run.IssueID, run.RunID)
+	}
+	if !mux.HasSession(sessionName) {
+		return "", "", &agent.SessionNotFoundError{SessionName: sessionName}
+	}
+	content, err := mux.CapturePane(sessionName, lines)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to capture session %s: %w", sessionName, err)
+	}
+	source := strings.TrimSpace(run.Multiplexer)
+	if source == "" {
+		source = string(multiplexer.TypeTmux)
+	}
+	return content, source, nil
+}
+
+func sessionArtifactAttrs(sessionName string, muxType multiplexer.Type, host, workerID string) map[string]string {
+	attrs := map[string]string{
+		"name":        sessionName,
+		"multiplexer": string(muxType),
+	}
+	if strings.TrimSpace(host) != "" {
+		attrs["host"] = strings.TrimSpace(host)
+	}
+	if strings.TrimSpace(workerID) != "" {
+		attrs["worker_id"] = strings.TrimSpace(workerID)
+	}
+	return attrs
+}
+
 func useCodexTmuxSubmitDelay(run *model.Run, mux sendMultiplexer) bool {
 	if run == nil || !strings.EqualFold(run.Agent, string(agent.AgentCodex)) {
 		return false
@@ -2512,6 +2784,10 @@ func (s *SocketServer) processSendMessage(st store.Store, params *SendMessagePar
 	run, err := st.GetRun(ref)
 	if err != nil {
 		return fmt.Errorf("run %s#%s not found: %w", params.IssueID, params.RunID, err)
+	}
+
+	if targetHost := strings.TrimSpace(run.TargetHost); targetHost != "" {
+		return fmt.Errorf("run %s#%s is executing on remote host %q; use the CLI send path that routes to the target host", params.IssueID, params.RunID, targetHost)
 	}
 
 	if run.Agent == string(agent.AgentOpenCode) {
@@ -3087,10 +3363,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 			return
 		}
 
-		st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", map[string]string{
-			"name":        sessionName,
-			"multiplexer": string(mux.Type()),
-		}))
+		st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", sessionArtifactAttrs(sessionName, mux.Type(), s.currentWorkerHost, s.currentWorkerID)))
 	}
 
 	switch adapter.PromptInjection() {
@@ -3107,33 +3380,10 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		}
 
 	case agent.InjectionHTTP:
-		port := launchCfg.Port
-		if port == 0 {
-			port = agent.OpenCodeServerPortStart
-		}
-		client := agent.NewOpenCodeClient(port)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
-			"port": fmt.Sprintf("%d", port),
-		}))
-
-		session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", req.IssueID, runID), launchCfg.WorkDir)
+		_, _, err = s.bootstrapOpenCodeRunSession(st, run, req.IssueID, runID, launchCfg, 30*time.Second)
 		if err != nil {
-			s.logger.Printf("failed to create session: %v", err)
-		} else {
-			st.AppendEvent(run.Ref(), model.NewArtifactEvent("opencode_session", map[string]string{
-				"id": session.ID,
-			}))
-
-			var modelRef *agent.ModelRef
-			if launchCfg.Model != "" {
-				modelRef = agent.ParseModel(launchCfg.Model)
-			}
-			if err := client.SendMessagePrompt(ctx, session.ID, launchCfg.Prompt, launchCfg.WorkDir, modelRef, launchCfg.ModelVariant); err != nil {
-				s.logger.Printf("failed to send prompt: %v", err)
-			}
+			encoder.Encode(StartRunResponse{OK: false, Error: err.Error()})
+			return
 		}
 	}
 
@@ -3352,6 +3602,8 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	initialPrompt := "ultrathink Please read 'ORCH_PROMPT.md' in the current directory and follow the instructions found there."
 
 	runModel, runVariant := cfg.ResolveModelAndVariant(agentName, opts.Preset, opts.Model, opts.ModelVariant)
+	serverPort := 0
+	opencodeSessionID := ""
 
 	launchCfg := &agent.LaunchConfig{
 		Type:         agentType,
@@ -3441,10 +3693,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 			return nil, fmt.Errorf("failed to create session: %w", err)
 		}
 
-		st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", map[string]string{
-			"name":        sessionName,
-			"multiplexer": string(mux.Type()),
-		}))
+		st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", sessionArtifactAttrs(sessionName, mux.Type(), s.currentWorkerHost, s.currentWorkerID)))
 	}
 
 	switch adapter.PromptInjection() {
@@ -3461,48 +3710,10 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		}
 
 	case agent.InjectionHTTP:
-		port := launchCfg.Port
-		if port == 0 {
-			port = agent.OpenCodeServerPortStart
-		}
-		client := agent.NewOpenCodeClient(port)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
-			"port": fmt.Sprintf("%d", port),
-		}))
-
 		s.logger.Printf("[model-debug] resolved model=%q variant=%q for run %s#%s", launchCfg.Model, launchCfg.ModelVariant, opts.IssueID, runID)
-
-		if provResp, provErr := client.GetProviders(ctx); provErr != nil {
-			s.logger.Printf("[model-debug] failed to query providers: %v", provErr)
-		} else {
-			for _, prov := range provResp.All {
-				var modelIDs []string
-				for _, m := range prov.Models {
-					modelIDs = append(modelIDs, m.ID)
-				}
-				s.logger.Printf("[model-debug] provider %q models: %v", prov.ID, modelIDs)
-			}
-		}
-
-		session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", opts.IssueID, runID), launchCfg.WorkDir)
+		serverPort, opencodeSessionID, err = s.bootstrapOpenCodeRunSession(st, run, opts.IssueID, runID, launchCfg, 30*time.Second)
 		if err != nil {
-			s.logger.Printf("failed to create session: %v", err)
-		} else {
-			st.AppendEvent(run.Ref(), model.NewArtifactEvent("opencode_session", map[string]string{
-				"id": session.ID,
-			}))
-
-			var modelRef *agent.ModelRef
-			if launchCfg.Model != "" {
-				modelRef = agent.ParseModel(launchCfg.Model)
-			}
-			s.logger.Printf("[model-debug] sending prompt with model=%+v variant=%q to session %s", modelRef, launchCfg.ModelVariant, session.ID)
-			if err := client.SendMessagePrompt(ctx, session.ID, launchCfg.Prompt, launchCfg.WorkDir, modelRef, launchCfg.ModelVariant); err != nil {
-				s.logger.Printf("failed to send prompt: %v", err)
-			}
+			return nil, err
 		}
 	}
 
@@ -3511,11 +3722,16 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	s.logger.Printf("started run: %s#%s (agent=%s, worktree=%s)", opts.IssueID, runID, agentName, worktreeResult.WorktreePath)
 
 	return &StartRunResult{
-		RunID:        runID,
-		Branch:       worktreeResult.Branch,
-		WorktreePath: worktreeResult.WorktreePath,
-		SessionName:  sessionName,
-		Status:       string(model.StatusRunning),
+		RunID:             runID,
+		Branch:            worktreeResult.Branch,
+		WorktreePath:      worktreeResult.WorktreePath,
+		SessionName:       sessionName,
+		Status:            string(model.StatusRunning),
+		Multiplexer:       string(mux.Type()),
+		SessionHost:       strings.TrimSpace(s.currentWorkerHost),
+		WorkerID:          strings.TrimSpace(s.currentWorkerID),
+		ServerPort:        serverPort,
+		OpenCodeSessionID: opencodeSessionID,
 	}, nil
 }
 
@@ -3736,6 +3952,8 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 	continuePrompt := fmt.Sprintf("ultrathink Please read 'ORCH_PROMPT.md' in the current directory and follow the instructions found there.\nThis run continues from %s. Use the existing worktree and branch and resume from the current state.", continuedFrom)
 
 	runModel, runVariant := cfg.ResolveModelAndVariant(agentName, "", "", "")
+	serverPort := 0
+	opencodeSessionID := ""
 
 	launchCfg := &agent.LaunchConfig{
 		Type:         agentType,
@@ -3828,37 +4046,9 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		}
 
 	case agent.InjectionHTTP:
-		port := launchCfg.Port
-		if port == 0 {
-			port = agent.OpenCodeServerPortStart
-		}
-		client := agent.NewOpenCodeClient(port)
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-
-		if err := client.WaitForHealthy(ctx, 60*time.Second); err != nil {
-			s.logger.Printf("server health check failed: %v", err)
-		} else {
-			st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
-				"port": fmt.Sprintf("%d", port),
-			}))
-
-			session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", issueID, runID), launchCfg.WorkDir)
-			if err != nil {
-				s.logger.Printf("failed to create session: %v", err)
-			} else {
-				st.AppendEvent(run.Ref(), model.NewArtifactEvent("opencode_session", map[string]string{
-					"id": session.ID,
-				}))
-
-				var modelRef *agent.ModelRef
-				if launchCfg.Model != "" {
-					modelRef = agent.ParseModel(launchCfg.Model)
-				}
-				if err := client.SendMessagePrompt(ctx, session.ID, launchCfg.Prompt, launchCfg.WorkDir, modelRef, launchCfg.ModelVariant); err != nil {
-					s.logger.Printf("failed to send prompt: %v", err)
-				}
-			}
+		serverPort, opencodeSessionID, err = s.bootstrapOpenCodeRunSession(st, run, issueID, runID, launchCfg, 60*time.Second)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -3867,13 +4057,18 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 	s.logger.Printf("continued run: %s#%s from %s (agent=%s, worktree=%s)", issueID, runID, continuedFrom, agentName, worktreePath)
 
 	return &ContinueRunResult{
-		RunID:         runID,
-		Branch:        branch,
-		WorktreePath:  worktreePath,
-		SessionName:   sessionName,
-		Status:        string(model.StatusRunning),
-		ContinuedFrom: continuedFrom,
-		IssueID:       issueID,
+		RunID:             runID,
+		Branch:            branch,
+		WorktreePath:      worktreePath,
+		SessionName:       sessionName,
+		Status:            string(model.StatusRunning),
+		ContinuedFrom:     continuedFrom,
+		IssueID:           issueID,
+		Multiplexer:       string(mux.Type()),
+		SessionHost:       strings.TrimSpace(s.currentWorkerHost),
+		WorkerID:          strings.TrimSpace(s.currentWorkerID),
+		ServerPort:        serverPort,
+		OpenCodeSessionID: opencodeSessionID,
 	}, nil
 }
 
@@ -4212,37 +4407,10 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 		}
 
 	case agent.InjectionHTTP:
-		port := launchCfg.Port
-		if port == 0 {
-			port = agent.OpenCodeServerPortStart
-		}
-		client := agent.NewOpenCodeClient(port)
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-
-		if err := client.WaitForHealthy(ctx, 60*time.Second); err != nil {
-			s.logger.Printf("server health check failed: %v", err)
-		} else {
-			st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
-				"port": fmt.Sprintf("%d", port),
-			}))
-
-			session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", issueID, runID), launchCfg.WorkDir)
-			if err != nil {
-				s.logger.Printf("failed to create session: %v", err)
-			} else {
-				st.AppendEvent(run.Ref(), model.NewArtifactEvent("opencode_session", map[string]string{
-					"id": session.ID,
-				}))
-
-				var modelRef *agent.ModelRef
-				if launchCfg.Model != "" {
-					modelRef = agent.ParseModel(launchCfg.Model)
-				}
-				if err := client.SendMessagePrompt(ctx, session.ID, launchCfg.Prompt, launchCfg.WorkDir, modelRef, launchCfg.ModelVariant); err != nil {
-					s.logger.Printf("failed to send prompt: %v", err)
-				}
-			}
+		_, _, err = s.bootstrapOpenCodeRunSession(st, run, issueID, runID, launchCfg, 60*time.Second)
+		if err != nil {
+			encoder.Encode(ContinueRunResponse{OK: false, Error: err.Error()})
+			return
 		}
 	}
 

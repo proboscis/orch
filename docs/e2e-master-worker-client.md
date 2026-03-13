@@ -22,7 +22,7 @@ It covers:
 
 This file validates the cluster-facing command plane first.
 
-Backend-specific run/send/capture behavior is covered by the companion checklist:
+Backend-specific run/attach/send/capture behavior is covered by the companion checklist:
 
 - [Backend Matrix Manual E2E](./e2e-backend-matrix.md)
 
@@ -155,10 +155,12 @@ sleep 2
 Expected:
 
 - initial `master status` reports `Status: not running`
-- initial `worker status` may report `No workers registered` before any worker
-  is started
+- initial `worker status` reports the local worker profile and shows
+  `Local Process: missing`
 - after `master start`, status reports `Status: running`
 - `worker start` brings up one host worker for the local host
+- after `worker start`, `worker status` shows both the local process state and
+  the master registration state for that same host/profile
 - repeating `worker start` should not create an extra duplicate worker for the
   same host/profile
 
@@ -233,7 +235,7 @@ RUN_ID_2="$(date +%Y%m%d-%H%M%S)-b"
 Expected:
 
 - both runs become active at the same time
-- `worker status` still shows one host worker, not one worker per run
+- `worker status` still reports one host worker profile, not one worker per run
 - run multiplicity comes from one worker managing multiple sessions on the host
 
 ## 6) Remote Master Reachability Smoke
@@ -484,11 +486,14 @@ Expected outcomes:
 
 - `run` returns `"ok": true`
 - `ps --json` shows `target: "mac"`
+- `orch ps` shows the execution host in the `HOST` column even when the run has no logical `target`
 - `ps --json` or attach metadata exposes `target_host: "mac"`
 - `capture` output includes the custom marker (`mac-target-ready`) or target hostname
 - `stop` succeeds for the Mac-targeted run
 - repeated `orch worker start` on the Mac target should not create duplicate
   workers for the same host/profile
+- `orch worker status` on the Mac target should show the Mac local process state
+  and the Zeus registration state for the same worker profile
 - If the target host cannot resolve the requested multiplexer in its remote SSH
   PATH, expect session creation to fail with `failed to create tmux session` or
   the equivalent multiplexer error

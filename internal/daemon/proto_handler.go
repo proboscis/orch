@@ -208,12 +208,6 @@ func (s *SocketServer) handleProtoRequest(req *orchpb.Request) *orchpb.Response 
 		return s.handleProtoLeaseWork(r.LeaseWork)
 	case *orchpb.Request_AcknowledgeEffect:
 		return s.handleProtoAcknowledgeEffect(r.AcknowledgeEffect)
-	case *orchpb.Request_StartExternalWorker:
-		return s.handleProtoStartExternalWorker(r.StartExternalWorker)
-	case *orchpb.Request_StopExternalWorker:
-		return s.handleProtoStopExternalWorker(r.StopExternalWorker)
-	case *orchpb.Request_ListExternalWorkers:
-		return s.handleProtoListExternalWorkers(r.ListExternalWorkers)
 	default:
 		return errorResponse("unknown request type")
 	}
@@ -834,7 +828,27 @@ func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orch
 		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("branch", map[string]string{"name": result.Branch}))
 	}
 	if result.SessionName != "" {
-		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", map[string]string{"name": result.SessionName}))
+		attrs := map[string]string{"name": result.SessionName}
+		if strings.TrimSpace(result.Multiplexer) != "" {
+			attrs["multiplexer"] = strings.TrimSpace(result.Multiplexer)
+		}
+		if strings.TrimSpace(result.SessionHost) != "" {
+			attrs["host"] = strings.TrimSpace(result.SessionHost)
+		}
+		if strings.TrimSpace(result.WorkerID) != "" {
+			attrs["worker_id"] = strings.TrimSpace(result.WorkerID)
+		}
+		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", attrs))
+	}
+	if result.ServerPort > 0 {
+		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
+			"port": fmt.Sprintf("%d", result.ServerPort),
+		}))
+	}
+	if strings.TrimSpace(result.OpenCodeSessionID) != "" {
+		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("opencode_session", map[string]string{
+			"id": strings.TrimSpace(result.OpenCodeSessionID),
+		}))
 	}
 	if targetName := strings.TrimSpace(req.Target); targetName != "" {
 		targetAttrs := map[string]string{"name": targetName}
@@ -854,6 +868,85 @@ func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orch
 	}
 	_ = st.AppendEvent(run.Ref(), model.NewStatusEvent(status))
 
+	return nil
+}
+
+func (s *SocketServer) syncContinueRunResultToMasterStore(st store.Store, req *orchpb.ContinueRunRequest, result *ContinueRunResult, targetName string) error {
+	if st == nil || result == nil {
+		return nil
+	}
+
+	ref := &model.RunRef{IssueID: result.IssueID, RunID: result.RunID}
+	run, err := st.GetRun(ref)
+	if err != nil {
+		metadata := map[string]string{}
+		if req.Agent != "" {
+			metadata["agent"] = req.Agent
+		}
+		if req.ShortId != "" {
+			metadata["continued_from"] = req.ShortId
+		} else if req.IssueId != "" && req.RunId != "" {
+			metadata["continued_from"] = fmt.Sprintf("%s#%s", req.IssueId, req.RunId)
+		}
+		run, err = st.CreateRun(result.IssueID, result.RunID, metadata)
+		if err != nil {
+			return err
+		}
+		if run == nil {
+			return fmt.Errorf("store returned nil run for %s#%s", result.IssueID, result.RunID)
+		}
+		_ = st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusQueued))
+	}
+	if run == nil {
+		return fmt.Errorf("run unavailable for %s#%s", result.IssueID, result.RunID)
+	}
+
+	if result.WorktreePath != "" {
+		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("worktree", map[string]string{"path": result.WorktreePath}))
+	}
+	if result.Branch != "" {
+		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("branch", map[string]string{"name": result.Branch}))
+	}
+	if result.SessionName != "" {
+		attrs := map[string]string{"name": result.SessionName}
+		if strings.TrimSpace(result.Multiplexer) != "" {
+			attrs["multiplexer"] = strings.TrimSpace(result.Multiplexer)
+		}
+		if strings.TrimSpace(result.SessionHost) != "" {
+			attrs["host"] = strings.TrimSpace(result.SessionHost)
+		}
+		if strings.TrimSpace(result.WorkerID) != "" {
+			attrs["worker_id"] = strings.TrimSpace(result.WorkerID)
+		}
+		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", attrs))
+	}
+	if result.ServerPort > 0 {
+		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
+			"port": fmt.Sprintf("%d", result.ServerPort),
+		}))
+	}
+	if strings.TrimSpace(result.OpenCodeSessionID) != "" {
+		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("opencode_session", map[string]string{
+			"id": strings.TrimSpace(result.OpenCodeSessionID),
+		}))
+	}
+	if targetName = strings.TrimSpace(targetName); targetName != "" {
+		targetAttrs := map[string]string{"name": targetName}
+		if repoCtx := s.ensureRepoContextByID(projectIDFromContext(req.Context)); repoCtx != nil && strings.TrimSpace(repoCtx.ProjectRoot) != "" {
+			projectRoot := strings.TrimSpace(repoCtx.ProjectRoot)
+			if target, err := resolveTargetForProjectRoot(projectRoot, targetName); err == nil && target != nil {
+				targetAttrs["host"] = target.Host
+				targetAttrs["worker_id"] = target.WorkerID
+			}
+		}
+		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("target", targetAttrs))
+	}
+
+	status := model.NormalizeStatus(result.Status)
+	if status == "" {
+		status = model.StatusRunning
+	}
+	_ = st.AppendEvent(run.Ref(), model.NewStatusEvent(status))
 	return nil
 }
 
@@ -917,6 +1010,9 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 	result := effectResult.ContinueRunResult
 	if result == nil {
 		return errorResponse("worker lease completed without continue_run result")
+	}
+	if err := s.syncContinueRunResultToMasterStore(st, req, result, opts.Target); err != nil {
+		return errorResponse(fmt.Sprintf("failed to sync continue_run result to master store: %v", err))
 	}
 
 	return &orchpb.Response{
@@ -1448,19 +1544,23 @@ func (s *SocketServer) handleProtoCaptureSession(req *orchpb.CaptureSessionReque
 	var content string
 	var source string
 	var err error
+	lines := int(req.Lines)
+	if lines <= 0 {
+		lines = 100
+	}
 
 	if run.Agent == string(agent.AgentOpenCode) {
-		content, source, err = s.captureOpenCodeSession(run)
+		content, source, err = s.captureOpenCodeSession(run, lines)
 		if err != nil {
 			return errorResponse(err.Error())
 		}
+	} else if strings.TrimSpace(run.TargetHost) != "" {
+		return errorResponse(fmt.Sprintf("capture for run %s#%s is on remote host %q; use the CLI capture path that routes to the target host", run.IssueID, run.RunID, strings.TrimSpace(run.TargetHost)))
 	} else {
-		muxType, _ := multiplexer.ParseType(run.Multiplexer)
-		mux, _ := multiplexer.GetMultiplexer(muxType)
-		if mux != nil && run.SessionName != "" {
-			content, _ = mux.CapturePane(run.SessionName, 100)
+		content, source, err = captureLocalMultiplexerSession(run, lines)
+		if err != nil {
+			return errorResponse(err.Error())
 		}
-		source = run.Multiplexer
 	}
 
 	return &orchpb.Response{
@@ -1475,7 +1575,7 @@ func (s *SocketServer) handleProtoCaptureSession(req *orchpb.CaptureSessionReque
 	}
 }
 
-func (s *SocketServer) captureOpenCodeSession(run *model.Run) (string, string, error) {
+func (s *SocketServer) captureOpenCodeSession(run *model.Run, lines int) (string, string, error) {
 	if run.ServerPort == 0 {
 		return "", "", fmt.Errorf("run has no server port (may have ended)")
 	}
@@ -1496,7 +1596,7 @@ func (s *SocketServer) captureOpenCodeSession(run *model.Run) (string, string, e
 		return "", "", fmt.Errorf("failed to get messages: %w", err)
 	}
 
-	content := agent.FormatOpenCodeMessages(messages, 100)
+	content := agent.FormatOpenCodeMessages(messages, lines)
 	return content, "opencode", nil
 }
 
@@ -1979,31 +2079,6 @@ func (s *SocketServer) handleProtoAcknowledgeEffect(req *orchpb.AcknowledgeEffec
 			AcknowledgeEffect: &orchpb.AcknowledgeEffectResponse{},
 		},
 	}
-}
-
-func (s *SocketServer) handleProtoStartExternalWorker(req *orchpb.StartExternalWorkerRequest) *orchpb.Response {
-	workerID, pid, err := s.startManagedExternalWorker(req.WorkerId)
-	if err != nil {
-		return errorResponse(err.Error())
-	}
-	return &orchpb.Response{Ok: true, Response: &orchpb.Response_StartExternalWorker{StartExternalWorker: &orchpb.StartExternalWorkerResponse{WorkerId: workerID, Pid: int32(pid)}}}
-}
-
-func (s *SocketServer) handleProtoStopExternalWorker(req *orchpb.StopExternalWorkerRequest) *orchpb.Response {
-	stopped, err := s.stopManagedExternalWorker(req.WorkerId, req.All)
-	if err != nil {
-		return errorResponse(err.Error())
-	}
-	return &orchpb.Response{Ok: true, Response: &orchpb.Response_StopExternalWorker{StopExternalWorker: &orchpb.StopExternalWorkerResponse{StoppedCount: int32(stopped)}}}
-}
-
-func (s *SocketServer) handleProtoListExternalWorkers(_ *orchpb.ListExternalWorkersRequest) *orchpb.Response {
-	items := s.listManagedExternalWorkers()
-	out := make([]*orchpb.ExternalWorkerProcessInfo, 0, len(items))
-	for _, item := range items {
-		out = append(out, &orchpb.ExternalWorkerProcessInfo{WorkerId: item.WorkerID, Pid: int32(item.PID), StartedAtUnix: item.StartedAt.Unix()})
-	}
-	return &orchpb.Response{Ok: true, Response: &orchpb.Response_ListExternalWorkers{ListExternalWorkers: &orchpb.ListExternalWorkersResponse{Workers: out}}}
 }
 
 func (s *SocketServer) handleProtoGetRunByShortID(req *orchpb.GetRunByShortIDRequest) *orchpb.Response {

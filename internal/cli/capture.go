@@ -76,7 +76,19 @@ func runCapture(refStr string, opts *captureOptions) error {
 	}
 
 	ref := orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}
-	captureResult, err := api.CaptureSession(ctx, ref, opts.Lines)
+	info, err := getRunAttachInfo(ctx, api, ref)
+	if err != nil {
+		return outputCaptureError(err)
+	}
+
+	var captureResult *orchapi.CaptureResult
+	if shouldHandleRunLocally(info) {
+		captureResult, err = captureLocalFromInfo(info, opts.Lines)
+	} else if strings.TrimSpace(info.TargetHost) != "" {
+		captureResult, err = captureRemoteFromInfo(info, opts.Lines)
+	} else {
+		captureResult, err = api.CaptureSession(ctx, ref, opts.Lines)
+	}
 	if err != nil {
 		return outputCaptureError(err)
 	}

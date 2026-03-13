@@ -975,6 +975,54 @@ func TestRunIndexCleanupWhenFileDeleted(t *testing.T) {
 	}
 }
 
+func TestListRunsIncludesExecutionHostFromSessionArtifact(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	createTestIssue(t, vault, "host-issue", "---\ntype: issue\ntitle: Host issue\n---\n# Host issue")
+
+	s, _ := New(vault)
+	run, err := s.CreateRun("host-issue", "20260312-100000", nil)
+	if err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	err = s.AppendEvent(run.Ref(), &model.Event{
+		Type: model.EventTypeArtifact,
+		Name: "session",
+		Attrs: map[string]string{
+			"name":        "run-host-issue-20260312-100000",
+			"host":        "zeus",
+			"multiplexer": "tmux",
+		},
+	})
+	if err != nil {
+		t.Fatalf("AppendEvent() error = %v", err)
+	}
+
+	InvalidateRunIndex()
+
+	runs, err := s.ListRuns(nil)
+	if err != nil {
+		t.Fatalf("ListRuns() error = %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(runs))
+	}
+	if runs[0].TargetHost != "zeus" {
+		t.Fatalf("TargetHost = %q, want %q", runs[0].TargetHost, "zeus")
+	}
+
+	indexPath := filepath.Join(vault, ".orch_run_index.json")
+	data, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatalf("read index file: %v", err)
+	}
+	if !strings.Contains(string(data), `"target_host":"zeus"`) {
+		t.Fatalf("expected run index to persist target_host, got %s", string(data))
+	}
+}
+
 func TestRunIndexCleanupWhenDirectoryDeleted(t *testing.T) {
 	vault, cleanup := setupTestVault(t)
 	defer cleanup()

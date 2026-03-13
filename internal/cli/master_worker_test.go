@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -89,16 +89,15 @@ func TestWorkerRunCommandInvokesExternalLoop(t *testing.T) {
 func TestRunWorkerStatusWithoutProjectRoot(t *testing.T) {
 	setIsolatedXDG(t)
 	resetGlobalOpts(t)
-	origRequire := requireDaemonForWorker
-	t.Cleanup(func() {
-		requireDaemonForWorker = origRequire
+	out := captureStdout(t, func() {
+		if err := runWorkerStatus(""); err != nil {
+			t.Fatalf("runWorkerStatus() error = %v", err)
+		}
 	})
-	requireDaemonForWorker = func() (*daemon.ProtoClient, error) {
-		return nil, fmt.Errorf("daemon unavailable in unit test")
+	if !strings.Contains(out, "Local Process: missing") {
+		t.Fatalf("expected local-process output, got: %s", out)
 	}
-
-	err := runWorkerStatus()
-	if err == nil {
-		t.Fatal("runWorkerStatus() error = nil, want daemon unavailable error")
+	if !strings.Contains(out, "Master Registration: unreachable") {
+		t.Fatalf("expected unreachable master output, got: %s", out)
 	}
 }

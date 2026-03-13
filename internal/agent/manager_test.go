@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/s22625/orch/internal/model"
 )
@@ -904,15 +905,16 @@ func TestOpenCodeManagerIsAliveServerNotRunning(t *testing.T) {
 	}
 }
 
-func TestOpenCodeManagerIsAliveServerRunningForWorktree(t *testing.T) {
-	// With orch-354: IsAlive checks if server is running for this worktree, not session existence
+func TestOpenCodeManagerIsAliveWithSessionStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/global/health":
 			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
-		case "/project/current":
-			json.NewEncoder(w).Encode(ProjectInfo{Worktree: "/test"})
+		case "/session/status":
+			json.NewEncoder(w).Encode(map[string]SessionStatus{
+				"ses_test123": SessionStatusBusy,
+			})
 		}
 	}))
 	defer server.Close()
@@ -923,19 +925,20 @@ func TestOpenCodeManagerIsAliveServerRunningForWorktree(t *testing.T) {
 
 	got := manager.IsAlive(run)
 	if got != true {
-		t.Errorf("IsAlive() with server running for worktree = %v, want true", got)
+		t.Errorf("IsAlive() with live session status = %v, want true", got)
 	}
 }
 
-func TestOpenCodeManagerIsAliveServerHealthy(t *testing.T) {
-	// With orch-354: IsAlive returns true if server is healthy and worktree matches
+func TestOpenCodeManagerIsAliveWithSessionLookupFallback(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/global/health":
 			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
-		case "/project/current":
-			json.NewEncoder(w).Encode(ProjectInfo{Worktree: "/my-project"})
+		case "/session/status":
+			json.NewEncoder(w).Encode(map[string]SessionStatus{})
+		case "/session/ses_parent":
+			json.NewEncoder(w).Encode(Session{ID: "ses_parent", Directory: "/my-project"})
 		}
 	}))
 	defer server.Close()
@@ -946,12 +949,11 @@ func TestOpenCodeManagerIsAliveServerHealthy(t *testing.T) {
 
 	got := manager.IsAlive(run)
 	if got != true {
-		t.Errorf("IsAlive() with healthy server and matching worktree = %v, want true", got)
+		t.Errorf("IsAlive() with session lookup fallback = %v, want true", got)
 	}
 }
 
-func TestOpenCodeManagerIsAliveWorktreeMismatch(t *testing.T) {
-	// With orch-354: IsAlive returns false if server is running but for a different worktree
+func TestOpenCodeManagerIsAliveIgnoresProjectMismatchWhenSessionExists(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
@@ -959,6 +961,10 @@ func TestOpenCodeManagerIsAliveWorktreeMismatch(t *testing.T) {
 			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
 		case "/project/current":
 			json.NewEncoder(w).Encode(ProjectInfo{Worktree: "/different-worktree"})
+		case "/session/status":
+			json.NewEncoder(w).Encode(map[string]SessionStatus{
+				"ses_active": SessionStatusIdle,
+			})
 		}
 	}))
 	defer server.Close()
@@ -968,8 +974,8 @@ func TestOpenCodeManagerIsAliveWorktreeMismatch(t *testing.T) {
 	run := &model.Run{Agent: "opencode"}
 
 	got := manager.IsAlive(run)
-	if got != false {
-		t.Errorf("IsAlive() with server running for different worktree = %v, want false", got)
+	if got != true {
+		t.Errorf("IsAlive() with mismatched project but live session = %v, want true", got)
 	}
 }
 
@@ -994,18 +1000,18 @@ func TestOpenCodeManagerIsAliveServerUnhealthy(t *testing.T) {
 	}
 }
 
-// Tests for orch-354: IsAlive checks if server is running for this worktree.
-// This replaces the old session-existence checks from orch-308/315.
-
-func TestOpenCodeManagerIsAliveWithDifferentGitRoot(t *testing.T) {
-	// Server running for a completely different git repo should return false
+func TestOpenCodeManagerIsAliveMissingSession(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/global/health":
 			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
-		case "/project/current":
-			json.NewEncoder(w).Encode(ProjectInfo{Worktree: "/different-repo"})
+		case "/session/status":
+			json.NewEncoder(w).Encode(map[string]SessionStatus{})
+		case "/session/ses_target":
+			http.NotFound(w, r)
+		case "/session":
+			json.NewEncoder(w).Encode([]Session{})
 		}
 	}))
 	defer server.Close()
@@ -1014,40 +1020,13 @@ func TestOpenCodeManagerIsAliveWithDifferentGitRoot(t *testing.T) {
 	manager := &OpenCodeManager{
 		Port:      port,
 		SessionID: "ses_target",
-		Directory: "/my-repo/.git-worktrees/issue-123/abc123_run",
+		Directory: "/my-project",
 	}
 	run := &model.Run{Agent: "opencode"}
 
 	got := manager.IsAlive(run)
 	if got != false {
-		t.Errorf("IsAlive() should return false when server is for different git root, got %v", got)
-	}
-}
-
-func TestOpenCodeManagerIsAliveWorktreeUnderGitRoot(t *testing.T) {
-	// Worktree under the server's git root should return true
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/global/health":
-			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
-		case "/project/current":
-			json.NewEncoder(w).Encode(ProjectInfo{Worktree: "/repo"})
-		}
-	}))
-	defer server.Close()
-
-	port := extractPort(server.URL)
-	manager := &OpenCodeManager{
-		Port:      port,
-		SessionID: "ses_target",
-		Directory: "/repo/.git-worktrees/issue-123/abc123_run",
-	}
-	run := &model.Run{Agent: "opencode"}
-
-	got := manager.IsAlive(run)
-	if got != true {
-		t.Errorf("IsAlive() should return true for worktree under git root, got %v", got)
+		t.Errorf("IsAlive() should return false when session is missing, got %v", got)
 	}
 }
 
@@ -1112,13 +1091,16 @@ func TestOpenCodeManagerGetStatusUsesDirectory(t *testing.T) {
 }
 
 func TestOpenCodeManagerHasActiveBusyChildrenIgnoresDirectory(t *testing.T) {
-	// Note: With orch-315, IsAlive no longer checks for busy children.
-	// This test now verifies that parent session must exist to be alive.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
+		case "/global/health":
+			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
+		case "/session/status":
+			json.NewEncoder(w).Encode(map[string]SessionStatus{})
+		case "/session/ses_parent":
+			http.NotFound(w, r)
 		case "/session":
-			// Only child session exists, not parent
 			json.NewEncoder(w).Encode([]Session{
 				{ID: "ses_busy_child"},
 			})
@@ -1135,22 +1117,24 @@ func TestOpenCodeManagerHasActiveBusyChildrenIgnoresDirectory(t *testing.T) {
 	run := &model.Run{Agent: "opencode"}
 
 	got := manager.IsAlive(run)
-	// Now expects false: parent session must exist in list to be alive
 	if got != false {
 		t.Errorf("IsAlive() without parent session in list = %v, want false", got)
 	}
 }
 
-func TestOpenCodeManagerIsAliveRequiresMatchingWorktree(t *testing.T) {
-	// With orch-354: IsAlive checks if server is running for the EXACT worktree.
-	// This tests that worktree mismatch returns false (replacing old session-existence test).
+func TestOpenCodeManagerGetStatusFallsBackWhenStatusEndpointErrors(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/global/health":
-			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
-		case "/project/current":
-			json.NewEncoder(w).Encode(ProjectInfo{Worktree: "/different/path"})
+		case "/session/status":
+			_, _ = w.Write([]byte(`{"ses_recent":`))
+		case "/session/ses_recent":
+			json.NewEncoder(w).Encode(Session{
+				ID: "ses_recent",
+				Time: SessionTimeMillis{
+					Updated: time.Now().UnixMilli(),
+				},
+			})
 		}
 	}))
 	defer server.Close()
@@ -1159,18 +1143,18 @@ func TestOpenCodeManagerIsAliveRequiresMatchingWorktree(t *testing.T) {
 	manager := &OpenCodeManager{
 		Port:      port,
 		SessionID: "ses_recent",
-		Directory: "/wrong/directory/path",
+		Directory: "/repo/worktree",
 	}
-	run := &model.Run{Agent: "opencode"}
+	run := &model.Run{Agent: "opencode", Status: model.StatusRunning}
+	state := &RunState{}
 
-	got := manager.IsAlive(run)
-	if got != false {
-		t.Errorf("IsAlive() should return false when server worktree doesn't match, got %v", got)
+	got := manager.GetStatus(run, "", state, false, false)
+	if got != model.StatusRunning {
+		t.Errorf("GetStatus() with broken status payload = %v, want %v", got, model.StatusRunning)
 	}
 }
 
 // TestOpenCodeManagerDirectoryScoping verifies GetStatus uses proper directory scoping.
-// With orch-354, IsAlive only checks server health/worktree - session scoping is for GetStatus.
 func TestOpenCodeManagerDirectoryScoping(t *testing.T) {
 	worktreePath := "/Users/dev/repos/orch/.git-worktrees/orch-347/run"
 
@@ -1181,7 +1165,7 @@ func TestOpenCodeManagerDirectoryScoping(t *testing.T) {
 		case "/global/health":
 			json.NewEncoder(w).Encode(HealthResponse{Healthy: true})
 		case "/project/current":
-			json.NewEncoder(w).Encode(ProjectInfo{Worktree: worktreePath})
+			json.NewEncoder(w).Encode(ProjectInfo{Worktree: "/Users/dev/repos/orch"})
 		case "/session":
 			dir := r.Header.Get("X-OpenCode-Directory")
 			if dir != worktreePath {
@@ -1219,7 +1203,7 @@ func TestOpenCodeManagerDirectoryScoping(t *testing.T) {
 	run := &model.Run{Agent: "opencode", Status: model.StatusRunning}
 	alive := manager.IsAlive(run)
 	if !alive {
-		t.Error("IsAlive() should return true when server is running for worktree")
+		t.Error("IsAlive() should return true when session exists for the worktree")
 	}
 
 	state := &RunState{}

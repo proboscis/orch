@@ -163,6 +163,28 @@ func TestRunDeriveStatePrefersLastNonEmptySessionMultiplexer(t *testing.T) {
 	}
 }
 
+func TestRunDeriveStateFallsBackToSessionHost(t *testing.T) {
+	ts := time.Now()
+	run := &Run{
+		IssueID: "plc126",
+		RunID:   "20231222",
+		Events: []*Event{
+			{Timestamp: ts, Type: EventTypeStatus, Name: "queued"},
+			{Timestamp: ts.Add(time.Second), Type: EventTypeArtifact, Name: "session", Attrs: map[string]string{"name": "run-plc126", "host": "mac-host", "multiplexer": "tmux"}},
+			{Timestamp: ts.Add(2 * time.Second), Type: EventTypeStatus, Name: "running"},
+		},
+	}
+
+	run.DeriveState()
+
+	if run.TargetHost != "mac-host" {
+		t.Errorf("TargetHost = %v, want mac-host", run.TargetHost)
+	}
+	if run.Multiplexer != "tmux" {
+		t.Errorf("Multiplexer = %v, want tmux", run.Multiplexer)
+	}
+}
+
 func TestGenerateRunID(t *testing.T) {
 	id := GenerateRunID()
 	if len(id) != 15 { // YYYYMMDD-HHMMSS

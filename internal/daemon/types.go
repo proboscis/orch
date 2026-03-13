@@ -94,31 +94,6 @@ type LeaseWorkResponse struct {
 	Lease *WorkerLease `json:"lease,omitempty"`
 }
 
-type ExternalWorkerProcessInfo struct {
-	WorkerID  string    `json:"worker_id"`
-	PID       int       `json:"pid"`
-	StartedAt time.Time `json:"started_at"`
-}
-
-type StartExternalWorkerResponse struct {
-	OK       bool   `json:"ok"`
-	Error    string `json:"error,omitempty"`
-	WorkerID string `json:"worker_id,omitempty"`
-	PID      int    `json:"pid,omitempty"`
-}
-
-type StopExternalWorkerResponse struct {
-	OK           bool   `json:"ok"`
-	Error        string `json:"error,omitempty"`
-	StoppedCount int    `json:"stopped_count,omitempty"`
-}
-
-type ListExternalWorkersResponse struct {
-	OK      bool                         `json:"ok"`
-	Error   string                       `json:"error,omitempty"`
-	Workers []*ExternalWorkerProcessInfo `json:"workers,omitempty"`
-}
-
 // ListRunsFilter contains optional filters for listing runs
 type ListRunsFilter struct {
 	IssueID   string
@@ -649,11 +624,16 @@ type StartRunResponse struct {
 
 // StartRunResult holds the success data from a start_run operation (no OK/Error).
 type StartRunResult struct {
-	RunID        string
-	Branch       string
-	WorktreePath string
-	SessionName  string
-	Status       string
+	RunID             string
+	Branch            string
+	WorktreePath      string
+	SessionName       string
+	Status            string
+	Multiplexer       string
+	SessionHost       string
+	WorkerID          string
+	ServerPort        int
+	OpenCodeSessionID string
 }
 
 type ContinueRunOptions struct {
@@ -689,13 +669,18 @@ type ContinueRunResponse struct {
 
 // ContinueRunResult holds the success data from a continue_run operation (no OK/Error).
 type ContinueRunResult struct {
-	RunID         string
-	Branch        string
-	WorktreePath  string
-	SessionName   string
-	Status        string
-	ContinuedFrom string
-	IssueID       string
+	RunID             string
+	Branch            string
+	WorktreePath      string
+	SessionName       string
+	Status            string
+	ContinuedFrom     string
+	IssueID           string
+	Multiplexer       string
+	SessionHost       string
+	WorkerID          string
+	ServerPort        int
+	OpenCodeSessionID string
 }
 
 type StopRunResponse struct {

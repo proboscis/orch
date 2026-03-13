@@ -116,6 +116,16 @@ func LogPath() string {
 	return filepath.Join(StateDir(), "daemon.log")
 }
 
+// WorkersStateDir returns the directory for local managed worker state.
+func WorkersStateDir() string {
+	return filepath.Join(StateDir(), "workers")
+}
+
+// WorkersRuntimeDir returns the directory for local managed worker runtime files.
+func WorkersRuntimeDir() string {
+	return filepath.Join(RuntimeDir(), "workers")
+}
+
 // StderrLogPath returns the path to the daemon stderr capture file.
 // This captures Go panics and runtime errors that would otherwise be lost
 // when the daemon runs in background mode (where stderr is /dev/null).
@@ -161,6 +171,16 @@ func EnsureRuntimeDir() error {
 // EnsureStateDir creates the state directory with appropriate permissions.
 func EnsureStateDir() error {
 	return EnsureDir(StateDir(), 0755)
+}
+
+// EnsureWorkersStateDir creates the managed worker state directory.
+func EnsureWorkersStateDir() error {
+	return EnsureDir(WorkersStateDir(), 0755)
+}
+
+// EnsureWorkersRuntimeDir creates the managed worker runtime directory.
+func EnsureWorkersRuntimeDir() error {
+	return EnsureDir(WorkersRuntimeDir(), 0700)
 }
 
 // EnsureDataDir creates the data directory with appropriate permissions.

@@ -101,6 +101,11 @@ func TestRuntimeDir(t *testing.T) {
 	if !strings.Contains(got, "orch") {
 		t.Errorf("RuntimeDir() without XDG_RUNTIME_DIR should contain 'orch', got %q", got)
 	}
+
+	os.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+	if got := WorkersRuntimeDir(); got != "/run/user/1000/orch/workers" {
+		t.Errorf("WorkersRuntimeDir() = %q, want %q", got, "/run/user/1000/orch/workers")
+	}
 }
 
 func TestStateDir(t *testing.T) {
@@ -112,6 +117,10 @@ func TestStateDir(t *testing.T) {
 	want := "/home/test/.local/state/orch"
 	if got != want {
 		t.Errorf("StateDir() with XDG_STATE_HOME = %q, want %q", got, want)
+	}
+
+	if got := WorkersStateDir(); got != filepath.Join(want, "workers") {
+		t.Errorf("WorkersStateDir() = %q, want %q", got, filepath.Join(want, "workers"))
 	}
 }
 

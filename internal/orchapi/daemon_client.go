@@ -364,7 +364,7 @@ func (c *DaemonClient) CaptureSession(ctx context.Context, ref RunRef, lines int
 		return nil, err
 	}
 
-	resp, err := c.proto.CaptureSession(run.IssueID, run.RunID)
+	resp, err := c.proto.CaptureSession(run.IssueID, run.RunID, lines)
 	if err != nil {
 		return nil, err
 	}

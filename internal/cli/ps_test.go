@@ -380,6 +380,75 @@ func TestOutputJSON(t *testing.T) {
 	}
 }
 
+func TestOutputJSONUsesExecutionHostWithoutTargetName(t *testing.T) {
+	updatedAt := time.Date(2025, 1, 2, 3, 5, 6, 0, time.UTC)
+	now := updatedAt.Add(2 * time.Minute)
+	run := &model.Run{
+		IssueID:      "issue-2",
+		RunID:        "run-2",
+		Status:       model.StatusRunning,
+		TargetHost:   "mac-host",
+		Branch:       "branch",
+		WorktreePath: "/tmp/worktree",
+		SessionName:  "session",
+		StartedAt:    time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC),
+		UpdatedAt:    updatedAt,
+	}
+
+	out := captureStdout(t, func() {
+		if err := outputJSON([]*model.Run{run}, now); err != nil {
+			t.Fatalf("outputJSON: %v", err)
+		}
+	})
+
+	var got struct {
+		OK    bool `json:"ok"`
+		Items []struct {
+			Target     string `json:"target"`
+			TargetHost string `json:"target_host"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !got.OK || len(got.Items) != 1 {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+	if got.Items[0].Target != "" {
+		t.Fatalf("target = %q, want empty", got.Items[0].Target)
+	}
+	if got.Items[0].TargetHost != "mac-host" {
+		t.Fatalf("target_host = %q, want %q", got.Items[0].TargetHost, "mac-host")
+	}
+}
+
+func TestOutputTableShowsExecutionHostWithoutTargetName(t *testing.T) {
+	resetGlobalOpts(t)
+
+	updatedAt := time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC)
+	run := &model.Run{
+		IssueID:    "issue-3",
+		RunID:      "run-3",
+		Status:     model.StatusRunning,
+		TargetHost: "mac-host",
+		UpdatedAt:  updatedAt,
+	}
+
+	out := captureStdout(t, func() {
+		if err := outputTable([]*model.Run{run}, updatedAt, false); err != nil {
+			t.Fatalf("outputTable: %v", err)
+		}
+	})
+
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected header and row output, got %q", out)
+	}
+	if !strings.Contains(lines[1], "mac-host") {
+		t.Fatalf("expected HOST column to include execution host, row=%q", lines[1])
+	}
+}
+
 func TestFormatRelativeTime(t *testing.T) {
 	now := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
 

@@ -193,6 +193,13 @@ func (r *Run) DeriveState() {
 		} else if r.Multiplexer == "" {
 			r.Multiplexer = r.lastArtifactAttr("session", "multiplexer")
 		}
+		if r.TargetHost == "" {
+			if host := session["host"]; host != "" {
+				r.TargetHost = host
+			} else {
+				r.TargetHost = r.lastArtifactAttr("session", "host")
+			}
+		}
 	}
 	if window, ok := artifacts["window"]; ok {
 		r.MuxWindowID = window["id"]

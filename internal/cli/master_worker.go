@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"text/tabwriter"
+	"strings"
 	"time"
 
+	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/worker"
 	"github.com/spf13/cobra"
 )
@@ -78,23 +79,23 @@ func newWorkerRunCmd() *cobra.Command {
 }
 
 func newWorkerStatusCmd() *cobra.Command {
-	return &cobra.Command{
+	var workerID string
+	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show orch-worker status",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runWorkerStatus()
+			return runWorkerStatus(workerID)
 		},
 	}
+	cmd.Flags().StringVar(&workerID, "worker-id", "", "worker id to inspect (default: local host worker)")
+	return cmd
 }
 
-func runWorkerStatus() error {
-	client, err := requireDaemonForWorker()
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-
-	resp, err := client.ListWorkers()
+func runWorkerStatus(workerID string) error {
+	status, err := worker.StatusManaged(worker.ManagedOptions{
+		WorkerID:   workerID,
+		RemoteAddr: getRemoteAddr(),
+	})
 	if err != nil {
 		return err
 	}
@@ -102,39 +103,60 @@ func runWorkerStatus() error {
 	if globalOpts.JSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		return enc.Encode(resp)
+		return enc.Encode(status)
 	}
 
-	if len(resp.Workers) == 0 {
-		if !globalOpts.Quiet {
-			fmt.Println("No workers registered")
-		}
+	if globalOpts.Quiet {
 		return nil
 	}
-
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tTYPE\tMODE\tHOST\tSTATUS\tLAST HEARTBEAT")
-	now := time.Now()
-	for _, worker := range resp.Workers {
-		status := "stale"
-		if worker.Active {
-			status = "active"
+	fmt.Printf("Worker ID: %s\n", status.WorkerID)
+	fmt.Printf("Profile: %s\n", status.Profile)
+	if status.Local.Managed {
+		if status.Local.ProcessExists {
+			fmt.Printf("Local Process: %s (pid: %d)\n", status.Local.State, status.Local.PID)
+		} else if status.Local.PID > 0 {
+			fmt.Printf("Local Process: %s (last pid: %d)\n", status.Local.State, status.Local.PID)
+		} else {
+			fmt.Printf("Local Process: %s\n", status.Local.State)
 		}
+		if status.Local.LogPath != "" {
+			fmt.Printf("Log: %s\n", status.Local.LogPath)
+		}
+		if !status.Local.RegisteredAt.IsZero() {
+			fmt.Printf("Registered: %s\n", status.Local.RegisteredAt.Format(time.RFC3339))
+		}
+		if !status.Local.LastHeartbeatAt.IsZero() {
+			fmt.Printf("Last Heartbeat: %s\n", humanizeWorkerTime(status.Local.LastHeartbeatAt))
+		}
+		if !status.Local.ExitedAt.IsZero() {
+			fmt.Printf("Exited: %s\n", status.Local.ExitedAt.Format(time.RFC3339))
+		}
+		if status.Local.LastError != "" {
+			fmt.Printf("Last Error: %s\n", status.Local.LastError)
+		}
+	} else {
+		fmt.Println("Local Process: missing")
+	}
 
-		lastHeartbeat := "-"
-		if !worker.LastHeartbeat.IsZero() {
-			if now.Sub(worker.LastHeartbeat) < 0 {
-				lastHeartbeat = "just now"
-			} else {
-				lastHeartbeat = formatTimeAgo(worker.LastHeartbeat)
+	switch status.Master.State {
+	case "active", "stale":
+		fmt.Printf("Master Registration: %s\n", status.Master.State)
+		if status.Master.Registration != nil {
+			fmt.Printf("Master Host: %s\n", status.Master.Registration.Host)
+			if !status.Master.Registration.LastHeartbeat.IsZero() {
+				fmt.Printf("Master Heartbeat: %s\n", humanizeWorkerTime(status.Master.Registration.LastHeartbeat))
 			}
 		}
-
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			worker.ID, worker.WorkerType, worker.Mode, worker.Host, status, lastHeartbeat)
+	case "not_registered":
+		fmt.Println("Master Registration: not registered")
+	case "unreachable":
+		fmt.Printf("Master Registration: unreachable (%s)\n", status.Master.Error)
+	default:
+		fmt.Printf("Master Registration: %s\n", status.Master.State)
 	}
-	w.Flush()
-
+	if status.Diagnostic != "" {
+		fmt.Printf("Diagnostic: %s\n", status.Diagnostic)
+	}
 	return nil
 }
 
@@ -144,17 +166,16 @@ func newWorkerStartCmd() *cobra.Command {
 		Use:   "start",
 		Short: "Start managed orch-worker host process",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := runDaemonStart(); err != nil {
-				return err
+			if strings.TrimSpace(getRemoteAddr()) == "" {
+				if err := ensureLocalWorkerMaster(); err != nil {
+					return err
+				}
 			}
 
-			client, err := requireDaemonForWorker()
-			if err != nil {
-				return err
-			}
-			defer client.Close()
-
-			resp, err := client.StartExternalWorker(workerID)
+			resp, err := worker.StartManaged(worker.ManagedOptions{
+				WorkerID:   workerID,
+				RemoteAddr: getRemoteAddr(),
+			})
 			if err != nil {
 				return err
 			}
@@ -166,7 +187,14 @@ func newWorkerStartCmd() *cobra.Command {
 			}
 
 			if !globalOpts.Quiet {
-				fmt.Printf("Started worker: %s (pid: %d)\n", resp.WorkerID, resp.PID)
+				if resp.Reused {
+					fmt.Printf("Worker already running: %s (pid: %d)\n", resp.WorkerID, resp.PID)
+				} else {
+					fmt.Printf("Started worker: %s (pid: %d)\n", resp.WorkerID, resp.PID)
+				}
+				if resp.LogPath != "" {
+					fmt.Printf("Log: %s\n", resp.LogPath)
+				}
 			}
 			return nil
 		},
@@ -182,16 +210,17 @@ func newWorkerStopCmd() *cobra.Command {
 		Use:   "stop",
 		Short: "Stop managed orch-worker host process",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := requireDaemonForWorker()
+			stoppedCount, err := worker.StopManaged(worker.ManagedOptions{
+				WorkerID:   workerID,
+				RemoteAddr: getRemoteAddr(),
+			}, stopAll)
 			if err != nil {
 				return err
 			}
-			defer client.Close()
-
-			resp, err := client.StopExternalWorker(workerID, stopAll)
-			if err != nil {
-				return err
-			}
+			resp := struct {
+				OK           bool `json:"ok"`
+				StoppedCount int  `json:"stopped_count"`
+			}{OK: true, StoppedCount: stoppedCount}
 
 			if globalOpts.JSON {
 				enc := json.NewEncoder(os.Stdout)
@@ -208,4 +237,34 @@ func newWorkerStopCmd() *cobra.Command {
 	cmd.Flags().StringVar(&workerID, "worker-id", "", "worker id to stop (default: local host worker)")
 	cmd.Flags().BoolVar(&stopAll, "all", false, "stop all managed workers")
 	return cmd
+}
+
+func humanizeWorkerTime(ts time.Time) string {
+	if ts.IsZero() {
+		return "-"
+	}
+	now := time.Now()
+	if now.Sub(ts) < 0 {
+		return "just now"
+	}
+	return formatTimeAgo(ts)
+}
+
+func ensureLocalWorkerMaster() error {
+	client := daemon.NewProtoClientWithAddress("", "")
+	defer client.Close()
+
+	if client.IsAvailable() {
+		return nil
+	}
+	if _, err := daemon.StartInBackground(); err != nil {
+		return fmt.Errorf("orch-master is not running locally and failed to start: %w", err)
+	}
+	for i := 0; i < 10; i++ {
+		time.Sleep(100 * time.Millisecond)
+		if client.IsAvailable() {
+			return nil
+		}
+	}
+	return fmt.Errorf("orch-master did not become available after starting")
 }

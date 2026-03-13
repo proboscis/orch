@@ -1085,58 +1085,6 @@ func (c *ProtoClient) AcknowledgeEffect(workerID, leaseID string, success bool, 
 	return nil
 }
 
-func (c *ProtoClient) StartExternalWorker(workerID string) (*StartExternalWorkerResponse, error) {
-	req := &orchpb.Request{Request: &orchpb.Request_StartExternalWorker{StartExternalWorker: &orchpb.StartExternalWorkerRequest{WorkerId: strings.TrimSpace(workerID)}}}
-	resp, err := c.sendRequest(req)
-	if err != nil {
-		return nil, err
-	}
-	if !resp.Ok {
-		return nil, fmt.Errorf("daemon error: %s", resp.Error)
-	}
-	r := resp.GetStartExternalWorker()
-	if r == nil {
-		return nil, fmt.Errorf("unexpected response type")
-	}
-	return &StartExternalWorkerResponse{OK: true, WorkerID: r.WorkerId, PID: int(r.Pid)}, nil
-}
-
-func (c *ProtoClient) StopExternalWorker(workerID string, all bool) (*StopExternalWorkerResponse, error) {
-	req := &orchpb.Request{Request: &orchpb.Request_StopExternalWorker{StopExternalWorker: &orchpb.StopExternalWorkerRequest{WorkerId: strings.TrimSpace(workerID), All: all}}}
-	resp, err := c.sendRequest(req)
-	if err != nil {
-		return nil, err
-	}
-	if !resp.Ok {
-		return nil, fmt.Errorf("daemon error: %s", resp.Error)
-	}
-	r := resp.GetStopExternalWorker()
-	if r == nil {
-		return nil, fmt.Errorf("unexpected response type")
-	}
-	return &StopExternalWorkerResponse{OK: true, StoppedCount: int(r.StoppedCount)}, nil
-}
-
-func (c *ProtoClient) ListExternalWorkers() (*ListExternalWorkersResponse, error) {
-	req := &orchpb.Request{Request: &orchpb.Request_ListExternalWorkers{ListExternalWorkers: &orchpb.ListExternalWorkersRequest{}}}
-	resp, err := c.sendRequest(req)
-	if err != nil {
-		return nil, err
-	}
-	if !resp.Ok {
-		return nil, fmt.Errorf("daemon error: %s", resp.Error)
-	}
-	r := resp.GetListExternalWorkers()
-	if r == nil {
-		return nil, fmt.Errorf("unexpected response type")
-	}
-	out := make([]*ExternalWorkerProcessInfo, 0, len(r.Workers))
-	for _, w := range r.Workers {
-		out = append(out, &ExternalWorkerProcessInfo{WorkerID: w.WorkerId, PID: int(w.Pid), StartedAt: time.Unix(w.StartedAtUnix, 0)})
-	}
-	return &ListExternalWorkersResponse{OK: true, Workers: out}, nil
-}
-
 func (c *ProtoClient) GetControlAgentLaunch(agentType string, newSession bool) (*GetControlAgentLaunchResponse, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_GetControlAgentLaunch{
@@ -2027,13 +1975,14 @@ func (c *ProtoClient) CreateRun(issueID, runID string, metadata map[string]strin
 	return createResp, nil
 }
 
-func (c *ProtoClient) CaptureSession(issueID, runID string) (*CaptureSessionResponse, error) {
+func (c *ProtoClient) CaptureSession(issueID, runID string, lines int) (*CaptureSessionResponse, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_CaptureSession{
 			CaptureSession: &orchpb.CaptureSessionRequest{
 				IssueId: issueID,
 				RunId:   runID,
 				Context: c.requestContext(c.projectRoot),
+				Lines:   int32(lines),
 			},
 		},
 	}

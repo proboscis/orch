@@ -17,7 +17,7 @@ Previous behavior:
 
 ```text
 orch worker start
-  -> daemon spawns process
+  -> local host starts a background worker process
   -> CLI prints success immediately
   -> worker may exit before register/heartbeat
   -> later `orch run` fails with "no active workers available"
@@ -30,7 +30,7 @@ This is not fail-fast.
 Previous behavior:
 
 ```text
-no active workers available; start an external worker via 'orch worker start'
+no active workers available; start a local worker on the target host via 'orch worker start'
 ```
 
 That message is acceptable when no worker exists, but it is misleading when a
@@ -44,6 +44,8 @@ managed worker process already exists or just crashed during startup.
 - If the child exits before registration, return an immediate actionable error.
 - If the child fails to register within a short timeout, fail and clean up the
   orphaned process.
+- Persist local pid/log/metadata under XDG dirs so `worker stop` and `worker status`
+  survive daemon restarts.
 
 ### Phase B: Scheduler-side diagnosis
 
@@ -67,6 +69,6 @@ bad
 
 good
   worker start -> "managed worker host-zeus exited before registering ..."
-                -> "check orch log ..."
-                -> "run orch --remote= worker run --worker-id host-zeus manually ..."
+                -> "check /.../orch/workers/<profile>.log ..."
+                -> "run orch --remote=... worker run --worker-id host-zeus manually ..."
 ```

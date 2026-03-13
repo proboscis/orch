@@ -151,7 +151,8 @@ Checklist:
 # master-side mapping exists
 orch --remote zeus:7777 daemon repo list
 
-# worker is active and has start_run capability
+# run this on the worker host; it reports the local background process plus
+# that worker's registration state on the configured master
 orch --remote zeus:7777 worker status --json
 ```
 

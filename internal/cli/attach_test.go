@@ -392,3 +392,36 @@ func TestAttachRemoteFromInfoWithExecutor_ZellijCommand(t *testing.T) {
 		t.Fatalf("ssh args = %v, want %v", gotArgs, want)
 	}
 }
+
+func TestAttachRemoteFromInfoWithExecutor_OpenCodeCommand(t *testing.T) {
+	orig := runSSHCommand
+	t.Cleanup(func() { runSSHCommand = orig })
+
+	var gotArgs []string
+	runSSHCommand = func(args []string, streams attachStreams) error {
+		gotArgs = append([]string(nil), args...)
+		return nil
+	}
+
+	code, err := attachRemoteFromInfoWithExecutor(&orchapi.AttachInfo{
+		IssueID:           "orch-r3",
+		RunID:             "20260101-030303",
+		TargetHost:        "mac-dev",
+		Agent:             "opencode",
+		ServerPort:        4099,
+		OpenCodeSessionID: "ses-123",
+		WorktreePath:      "/tmp/remote-worktree",
+	}, attachStreams{stderr: &bytes.Buffer{}})
+	if err != nil {
+		t.Fatalf("attachRemoteFromInfoWithExecutor() error = %v, want nil", err)
+	}
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+
+	wantScript := "exec opencode attach " + shellQuote("http://127.0.0.1:4099") + " --session " + shellQuote("ses-123") + " --dir " + shellQuote("/tmp/remote-worktree")
+	want := sshScriptArgs("mac-dev", true, wantScript)
+	if !reflect.DeepEqual(gotArgs, want) {
+		t.Fatalf("ssh args = %v, want %v", gotArgs, want)
+	}
+}

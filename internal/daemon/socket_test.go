@@ -108,10 +108,31 @@ func (m *mockStore) SetIssueStatus(issueID string, status model.IssueStatus) err
 }
 
 func (m *mockStore) CreateRun(issueID, runID string, metadata map[string]string) (*model.Run, error) {
-	return nil, nil
+	if m.runs == nil {
+		m.runs = make(map[string]*model.Run)
+	}
+	run := &model.Run{
+		IssueID:       issueID,
+		RunID:         runID,
+		Agent:         metadata["agent"],
+		Model:         metadata["model"],
+		ModelVariant:  metadata["model_variant"],
+		Target:        metadata["target"],
+		ContinuedFrom: metadata["continued_from"],
+		Status:        model.StatusQueued,
+	}
+	m.runs[issueID+"#"+runID] = run
+	return run, nil
 }
 
 func (m *mockStore) AppendEvent(ref *model.RunRef, event *model.Event) error {
+	if m.runs == nil || ref == nil || event == nil {
+		return nil
+	}
+	if run, ok := m.runs[ref.IssueID+"#"+ref.RunID]; ok && run != nil {
+		run.Events = append(run.Events, event)
+		run.DeriveState()
+	}
 	return nil
 }
 
@@ -795,6 +816,9 @@ func TestProcessSendOpenCodeReturnsAfterAck(t *testing.T) {
 		case r.URL.Path == "/global/health":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, `{"healthy":true,"version":"test"}`)
+		case r.URL.Path == "/project/current":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, fmt.Sprintf(`{"id":"%s","worktree":%q,"sandboxes":[]}`, repoID, projectRoot))
 		case strings.HasSuffix(r.URL.Path, "/message"):
 			w.WriteHeader(http.StatusAccepted)
 			if flusher, ok := w.(http.Flusher); ok {
@@ -860,6 +884,9 @@ func TestProcessSendOpenCodeTimesOutPromptlyWithoutAck(t *testing.T) {
 		case r.URL.Path == "/global/health":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, `{"healthy":true,"version":"test"}`)
+		case r.URL.Path == "/project/current":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, fmt.Sprintf(`{"id":"%s","worktree":%q,"sandboxes":[]}`, repoID, projectRoot))
 		case strings.HasSuffix(r.URL.Path, "/message"):
 			time.Sleep(ackDelay)
 			w.WriteHeader(http.StatusAccepted)
@@ -930,6 +957,9 @@ func TestProcessSendOpenCodeAckTimeoutButQueuedMessageSucceeds(t *testing.T) {
 		case r.URL.Path == "/global/health":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, `{"healthy":true,"version":"test"}`)
+		case r.URL.Path == "/project/current":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, fmt.Sprintf(`{"id":"%s","worktree":%q,"sandboxes":[]}`, repoID, projectRoot))
 		case r.URL.Path == "/session/ses_queued/message" && r.Method == http.MethodPost:
 			var req agent.PromptRequest
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -3572,6 +3602,7 @@ func TestCaptureSessionWithoutProjectContextAggregatesAcrossStores(t *testing.T)
 				WorktreePath: "/tmp/capture",
 				Agent:        "custom",
 				Multiplexer:  "tmux",
+				SessionName:  "capture-session",
 			},
 		},
 		issues: map[string]*model.Issue{},
@@ -3588,6 +3619,12 @@ func TestCaptureSessionWithoutProjectContextAggregatesAcrossStores(t *testing.T)
 		t.Fatalf("failed to start server: %v", err)
 	}
 	defer server.Stop()
+
+	prevCaptureMux := getCaptureMultiplexerForType
+	getCaptureMultiplexerForType = func(muxType multiplexer.Type) captureMultiplexer {
+		return &mockCaptureMux{hasSession: true, content: "captured text"}
+	}
+	defer func() { getCaptureMultiplexerForType = prevCaptureMux }()
 
 	resp := sendProtoRequest(t, &orchpb.Request{
 		Request: &orchpb.Request_CaptureSession{
@@ -3608,6 +3645,55 @@ func TestCaptureSessionWithoutProjectContextAggregatesAcrossStores(t *testing.T)
 	}
 	if captureResp.Source != "tmux" {
 		t.Fatalf("expected capture source tmux, got %q", captureResp.Source)
+	}
+}
+
+func TestCaptureSessionRemoteTargetFailsClearly(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			"capture-remote#run-remote": {
+				IssueID:      "capture-remote",
+				RunID:        "run-remote",
+				Status:       model.StatusRunning,
+				UpdatedAt:    time.Now(),
+				WorktreePath: "/tmp/capture-remote",
+				Agent:        "custom",
+				Multiplexer:  "tmux",
+				TargetHost:   "mac-host",
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.reposMu.Lock()
+	server.repos["project-remote"] = &RepoContext{RepoID: "project-remote", ProjectRoot: "/srv/repos/remote", Store: st}
+	server.reposMu.Unlock()
+
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_CaptureSession{
+			CaptureSession: &orchpb.CaptureSessionRequest{
+				IssueId: "capture-remote",
+				RunId:   "run-remote",
+				Context: &orchpb.RequestContext{},
+			},
+		},
+	})
+
+	if resp.Ok {
+		t.Fatal("expected capture to fail for remote target run")
+	}
+	if !strings.Contains(resp.Error, "remote host") {
+		t.Fatalf("unexpected error: %s", resp.Error)
 	}
 }
 
@@ -4880,6 +4966,144 @@ func TestProcessStartRunCoreValidation(t *testing.T) {
 	})
 }
 
+func TestBootstrapOpenCodeRunSessionFailsFastOnCreateSessionError(t *testing.T) {
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	st := &mockStore{
+		runs:   make(map[string]*model.Run),
+		issues: make(map[string]*model.Issue),
+	}
+	run := &model.Run{IssueID: "orch-437", RunID: "run-opencode"}
+	st.runs["orch-437#run-opencode"] = run
+
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/global/health":
+			_ = json.NewEncoder(w).Encode(agent.HealthResponse{Healthy: true})
+		case "/session":
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":"sqlite disk i/o"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer httpServer.Close()
+
+	parsedURL, err := url.Parse(httpServer.URL)
+	if err != nil {
+		t.Fatalf("parse test server url: %v", err)
+	}
+	port, err := strconv.Atoi(parsedURL.Port())
+	if err != nil {
+		t.Fatalf("parse test server port: %v", err)
+	}
+	launchCfg := &agent.LaunchConfig{
+		Port:    port,
+		WorkDir: "/tmp/worktree",
+		Prompt:  "prompt",
+	}
+
+	serverPort, sessionID, err := server.bootstrapOpenCodeRunSession(st, run, "orch-437", "run-opencode", launchCfg, 2*time.Second)
+	if err == nil {
+		t.Fatal("expected bootstrapOpenCodeRunSession() to fail")
+	}
+	if !strings.Contains(err.Error(), "failed to create opencode session") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if serverPort != port {
+		t.Fatalf("serverPort = %d, want %d", serverPort, port)
+	}
+	if sessionID != "" {
+		t.Fatalf("sessionID = %q, want empty", sessionID)
+	}
+	if run.Status != model.StatusFailed {
+		t.Fatalf("run.Status = %v, want %v", run.Status, model.StatusFailed)
+	}
+	if run.ServerPort != port {
+		t.Fatalf("run.ServerPort = %d, want %d", run.ServerPort, port)
+	}
+	if run.OpenCodeSessionID != "" {
+		t.Fatalf("run.OpenCodeSessionID = %q, want empty", run.OpenCodeSessionID)
+	}
+	foundErrorArtifact := false
+	for _, event := range run.Events {
+		if event.Type == model.EventTypeArtifact && event.Name == "error" {
+			foundErrorArtifact = true
+			break
+		}
+	}
+	if !foundErrorArtifact {
+		t.Fatal("expected error artifact event")
+	}
+}
+
+func TestBootstrapOpenCodeRunSessionConfirmsQueuedPromptAfterAckTimeout(t *testing.T) {
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	st := &mockStore{
+		runs:   make(map[string]*model.Run),
+		issues: make(map[string]*model.Issue),
+	}
+	run := &model.Run{IssueID: "orch-438", RunID: "run-opencode"}
+	st.runs["orch-438#run-opencode"] = run
+
+	prompt := "Please read ORCH_PROMPT.md and wait."
+	sessionID := "ses_confirmed"
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/global/health":
+			_ = json.NewEncoder(w).Encode(agent.HealthResponse{Healthy: true})
+		case r.URL.Path == "/session" && r.Method == http.MethodPost:
+			_ = json.NewEncoder(w).Encode(agent.Session{ID: sessionID})
+		case r.URL.Path == "/session/"+sessionID+"/message" && r.Method == http.MethodPost:
+			time.Sleep(3 * time.Second)
+		case r.URL.Path == "/session/"+sessionID+"/message" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode([]agent.Message{
+				{
+					Info: agent.MessageInfo{
+						SessionID: sessionID,
+						Role:      "user",
+						CreatedAt: time.Now(),
+					},
+					Parts: []agent.MessagePart{{Type: "text", Text: prompt}},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer httpServer.Close()
+
+	parsedURL, err := url.Parse(httpServer.URL)
+	if err != nil {
+		t.Fatalf("parse test server url: %v", err)
+	}
+	port, err := strconv.Atoi(parsedURL.Port())
+	if err != nil {
+		t.Fatalf("parse test server port: %v", err)
+	}
+
+	launchCfg := &agent.LaunchConfig{
+		Port:    port,
+		WorkDir: "/tmp/worktree",
+		Prompt:  prompt,
+	}
+
+	serverPort, gotSessionID, err := server.bootstrapOpenCodeRunSession(st, run, "orch-438", "run-opencode", launchCfg, 1500*time.Millisecond)
+	if err != nil {
+		t.Fatalf("bootstrapOpenCodeRunSession() error = %v", err)
+	}
+	if serverPort != port {
+		t.Fatalf("serverPort = %d, want %d", serverPort, port)
+	}
+	if gotSessionID != sessionID {
+		t.Fatalf("sessionID = %q, want %q", gotSessionID, sessionID)
+	}
+	if run.Status == model.StatusFailed {
+		t.Fatalf("run.Status = %v, want non-failed", run.Status)
+	}
+}
+
 func TestProcessContinueRunCoreValidation(t *testing.T) {
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
@@ -5173,6 +5397,72 @@ func (m *mockSendMux) SendText(session, text string) error {
 	return m.sendErr
 }
 
+type mockCaptureMux struct {
+	hasSession bool
+	content    string
+	err        error
+	lines      int
+	session    string
+}
+
+func (m *mockCaptureMux) HasSession(name string) bool {
+	m.session = name
+	return m.hasSession
+}
+
+func (m *mockCaptureMux) CapturePane(session string, lines int) (string, error) {
+	m.session = session
+	m.lines = lines
+	return m.content, m.err
+}
+
+func TestCaptureLocalMultiplexerSessionFailsWhenSessionMissing(t *testing.T) {
+	run := &model.Run{
+		IssueID:     "issue-capture",
+		RunID:       "run-capture",
+		SessionName: "session-capture",
+		Multiplexer: string(multiplexer.TypeTmux),
+	}
+
+	prev := getCaptureMultiplexerForType
+	mockMux := &mockCaptureMux{hasSession: false}
+	getCaptureMultiplexerForType = func(muxType multiplexer.Type) captureMultiplexer { return mockMux }
+	defer func() { getCaptureMultiplexerForType = prev }()
+
+	_, _, err := captureLocalMultiplexerSession(run, 25)
+	if err == nil {
+		t.Fatal("expected captureLocalMultiplexerSession to fail")
+	}
+	if !strings.Contains(err.Error(), "session-capture") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCaptureLocalMultiplexerSessionUsesRequestedLines(t *testing.T) {
+	run := &model.Run{
+		IssueID:     "issue-capture",
+		RunID:       "run-capture",
+		SessionName: "session-capture",
+		Multiplexer: string(multiplexer.TypeTmux),
+	}
+
+	prev := getCaptureMultiplexerForType
+	mockMux := &mockCaptureMux{hasSession: true, content: "captured output"}
+	getCaptureMultiplexerForType = func(muxType multiplexer.Type) captureMultiplexer { return mockMux }
+	defer func() { getCaptureMultiplexerForType = prev }()
+
+	content, source, err := captureLocalMultiplexerSession(run, 25)
+	if err != nil {
+		t.Fatalf("captureLocalMultiplexerSession() error = %v", err)
+	}
+	if content != "captured output" || source != string(multiplexer.TypeTmux) {
+		t.Fatalf("unexpected capture result: content=%q source=%q", content, source)
+	}
+	if mockMux.lines != 25 {
+		t.Fatalf("capture lines = %d, want 25", mockMux.lines)
+	}
+}
+
 func TestProcessSendTmuxCodexSendsWithSubmit(t *testing.T) {
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
@@ -5385,5 +5675,31 @@ func TestProcessSendMessageClaudeAndCodexPaths(t *testing.T) {
 	}
 	if got := mockMux.sendTextCalls[0]; got.session != "session-codex" || got.keys != tmuxSubmitKeyEnter {
 		t.Fatalf("codex SendText call = (%q, %q), want (%q, %q)", got.session, got.keys, "session-codex", tmuxSubmitKeyEnter)
+	}
+}
+
+func TestProcessSendMessageRemoteTargetFailsClearly(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			"issue-remote#run-remote": {
+				IssueID:     "issue-remote",
+				RunID:       "run-remote",
+				SessionName: "session-remote",
+				Agent:       string(agent.AgentClaude),
+				TargetHost:  "mac-host",
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	err := server.processSendMessage(st, &SendMessageParams{IssueID: "issue-remote", RunID: "run-remote", Message: "hello"})
+	if err == nil {
+		t.Fatal("expected processSendMessage to fail for remote target run")
+	}
+	if !strings.Contains(err.Error(), "remote host") || !strings.Contains(err.Error(), "mac-host") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

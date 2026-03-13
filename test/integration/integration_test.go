@@ -15,6 +15,7 @@ import (
 
 	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/worker"
+	"github.com/s22625/orch/internal/xdg"
 )
 
 var (
@@ -513,6 +514,169 @@ func TestPsRemoteWithRepoIDProjectRootOutsideRepo(t *testing.T) {
 	}
 	if !result.OK {
 		t.Fatalf("expected ok=true from remote ps output, got: %s", out)
+	}
+}
+
+func TestWorkerLifecycleRemoteUsesLocalSupervisor(t *testing.T) {
+	if strings.TrimSpace(remoteAddr) == "" {
+		t.Fatal("remote daemon address is empty")
+	}
+
+	waitForRemoteDaemon(t)
+	tmp := t.TempDir()
+
+	cleanupManaged := func() {
+		_, _, _ = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "stop", "--all", "--json")
+	}
+	cleanupManaged()
+
+	t.Cleanup(func() {
+		cleanupManaged()
+	})
+
+	type workerStartResult struct {
+		OK       bool   `json:"ok"`
+		WorkerID string `json:"worker_id"`
+		PID      int    `json:"pid"`
+		LogPath  string `json:"log_path"`
+		Reused   bool   `json:"reused"`
+	}
+	type workerStatusResult struct {
+		OK       bool   `json:"ok"`
+		WorkerID string `json:"worker_id"`
+		Profile  string `json:"profile"`
+		Local    struct {
+			Managed       bool   `json:"managed"`
+			ProcessExists bool   `json:"process_exists"`
+			State         string `json:"state"`
+			PID           int    `json:"pid"`
+			LogPath       string `json:"log_path"`
+			LastError     string `json:"last_error"`
+		} `json:"local"`
+		Master struct {
+			Reachable    bool   `json:"reachable"`
+			State        string `json:"state"`
+			Error        string `json:"error"`
+			Registration *struct {
+				ID string `json:"id"`
+			} `json:"registration"`
+		} `json:"master"`
+	}
+	type workerStopResult struct {
+		OK           bool `json:"ok"`
+		StoppedCount int  `json:"stopped_count"`
+	}
+
+	out, errOut, err := runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "start", "--json")
+	if err != nil {
+		t.Fatalf("worker start failed: %v\nstdout: %s\nstderr: %s", err, out, errOut)
+	}
+	var start workerStartResult
+	if err := json.Unmarshal([]byte(out), &start); err != nil {
+		t.Fatalf("parse worker start json: %v\noutput: %s", err, out)
+	}
+	if !start.OK {
+		t.Fatalf("expected ok=true from worker start, got: %s", out)
+	}
+	if start.WorkerID == "" || start.PID == 0 {
+		t.Fatalf("unexpected worker start result: %+v", start)
+	}
+	if daemonProcess != nil && start.PID == daemonProcess.Pid {
+		t.Fatalf("worker start returned daemon pid %d; expected a separate local worker process", start.PID)
+	}
+	if start.LogPath == "" {
+		t.Fatalf("expected worker log path, got: %+v", start)
+	}
+	if _, err := os.Stat(start.LogPath); err != nil {
+		t.Fatalf("worker log path stat failed: %v", err)
+	}
+
+	stateMatches, err := filepath.Glob(filepath.Join(xdg.WorkersStateDir(), start.WorkerID+"-*.json"))
+	if err != nil {
+		t.Fatalf("glob worker state files: %v", err)
+	}
+	if len(stateMatches) == 0 {
+		t.Fatalf("expected worker state file for %s under %s", start.WorkerID, xdg.WorkersStateDir())
+	}
+	pidMatches, err := filepath.Glob(filepath.Join(xdg.WorkersRuntimeDir(), start.WorkerID+"-*.pid"))
+	if err != nil {
+		t.Fatalf("glob worker pid files: %v", err)
+	}
+	if len(pidMatches) == 0 {
+		t.Fatalf("expected worker pid file for %s under %s", start.WorkerID, xdg.WorkersRuntimeDir())
+	}
+
+	out, errOut, err = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "start", "--json")
+	if err != nil {
+		t.Fatalf("second worker start failed: %v\nstdout: %s\nstderr: %s", err, out, errOut)
+	}
+	var reused workerStartResult
+	if err := json.Unmarshal([]byte(out), &reused); err != nil {
+		t.Fatalf("parse second worker start json: %v\noutput: %s", err, out)
+	}
+	if !reused.Reused {
+		t.Fatalf("expected reused=true on second start, got: %+v", reused)
+	}
+	if reused.PID != start.PID || reused.WorkerID != start.WorkerID {
+		t.Fatalf("expected second start to reuse same worker, first=%+v second=%+v", start, reused)
+	}
+
+	var status workerStatusResult
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		out, errOut, err = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "status", "--json")
+		if err != nil {
+			t.Fatalf("worker status failed: %v\nstdout: %s\nstderr: %s", err, out, errOut)
+		}
+		if err := json.Unmarshal([]byte(out), &status); err != nil {
+			t.Fatalf("parse worker status json: %v\noutput: %s", err, out)
+		}
+		if status.Local.ProcessExists && status.Local.State == "running" && status.Master.State == "active" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("worker status did not become active in time: %+v", status)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !status.OK {
+		t.Fatalf("expected ok=true from worker status, got: %+v", status)
+	}
+	if !status.Local.Managed || !status.Local.ProcessExists {
+		t.Fatalf("expected managed local running worker, got: %+v", status.Local)
+	}
+	if status.Master.Registration == nil || status.Master.Registration.ID != start.WorkerID {
+		t.Fatalf("expected master registration for %s, got: %+v", start.WorkerID, status.Master)
+	}
+
+	out, errOut, err = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "stop", "--json")
+	if err != nil {
+		t.Fatalf("worker stop failed: %v\nstdout: %s\nstderr: %s", err, out, errOut)
+	}
+	var stop workerStopResult
+	if err := json.Unmarshal([]byte(out), &stop); err != nil {
+		t.Fatalf("parse worker stop json: %v\noutput: %s", err, out)
+	}
+	if !stop.OK || stop.StoppedCount != 1 {
+		t.Fatalf("unexpected worker stop result: %+v", stop)
+	}
+
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		out, errOut, err = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "status", "--json")
+		if err != nil {
+			t.Fatalf("worker status after stop failed: %v\nstdout: %s\nstderr: %s", err, out, errOut)
+		}
+		if err := json.Unmarshal([]byte(out), &status); err != nil {
+			t.Fatalf("parse worker status after stop json: %v\noutput: %s", err, out)
+		}
+		if !status.Local.ProcessExists && (status.Master.State == "not_registered" || status.Master.State == "stale") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("worker status did not reflect stopped worker in time: %+v", status)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
@@ -1176,6 +1340,9 @@ func TestRunWithBuiltInAgents(t *testing.T) {
 			"--json",
 		)
 		if err != nil {
+			if agentName == "opencode" && strings.Contains(output, "failed to create opencode session") && strings.Contains(output, "SQLiteError: disk I/O error") {
+				t.Skipf("opencode runtime not healthy in test env: %s", output)
+			}
 			t.Fatalf("run failed for %s: %v\nOutput: %s", agentName, err, output)
 		}
 

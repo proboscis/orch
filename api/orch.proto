@@ -315,6 +315,7 @@ message CaptureSessionRequest {
   string issue_id = 2;
   string run_id = 3;
   RequestContext context = 4;
+  int32 lines = 5;
 }
 
 message CaptureSessionResponse {
@@ -500,36 +501,6 @@ message AcknowledgeEffectRequest {
 }
 
 message AcknowledgeEffectResponse {}
-
-message StartExternalWorkerRequest {
-  string worker_id = 1;
-}
-
-message StartExternalWorkerResponse {
-  string worker_id = 1;
-  int32 pid = 2;
-}
-
-message StopExternalWorkerRequest {
-  string worker_id = 1;
-  bool all = 2;
-}
-
-message StopExternalWorkerResponse {
-  int32 stopped_count = 1;
-}
-
-message ListExternalWorkersRequest {}
-
-message ExternalWorkerProcessInfo {
-  string worker_id = 1;
-  int32 pid = 2;
-  int64 started_at_unix = 3;
-}
-
-message ListExternalWorkersResponse {
-  repeated ExternalWorkerProcessInfo workers = 1;
-}
 
 // --- Short ID Resolution ---
 
@@ -977,9 +948,6 @@ message Request {
     ListWorkersRequest list_workers = 51;
     LeaseWorkRequest lease_work = 52;
     AcknowledgeEffectRequest acknowledge_effect = 53;
-    StartExternalWorkerRequest start_external_worker = 54;
-    StopExternalWorkerRequest stop_external_worker = 55;
-    ListExternalWorkersRequest list_external_workers = 56;
   }
 }
 
@@ -1041,8 +1009,5 @@ message Response {
     ListWorkersResponse list_workers = 53;
     LeaseWorkResponse lease_work = 54;
     AcknowledgeEffectResponse acknowledge_effect = 55;
-    StartExternalWorkerResponse start_external_worker = 56;
-    StopExternalWorkerResponse stop_external_worker = 57;
-    ListExternalWorkersResponse list_external_workers = 58;
   }
 }

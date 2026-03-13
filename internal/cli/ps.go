@@ -763,16 +763,16 @@ func resolveTargetHostByRun(runs []*model.Run) map[string]string {
 		if run == nil {
 			continue
 		}
-		targetName := strings.TrimSpace(run.Target)
-		if targetName == "" {
+		targetHost := strings.TrimSpace(run.TargetHost)
+		if targetHost != "" {
+			resolved[run.RunID] = targetHost
 			continue
 		}
 
-		targetHost := strings.TrimSpace(run.TargetHost)
-		if targetHost == "" {
-			targetHost = targetName
+		targetName := strings.TrimSpace(run.Target)
+		if targetName != "" {
+			resolved[run.RunID] = targetName
 		}
-		resolved[run.RunID] = targetHost
 	}
 
 	return resolved

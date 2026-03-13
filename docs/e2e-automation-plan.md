@@ -39,6 +39,7 @@ Must include:
   - `claude` via shim
   - `codex` via shim
   - `zellij` when installed on the runner
+- run-control matrix smoke for `attach` / `capture` / `send`
 
 PR CI does not need to prove every paid or remote integration on every push.
 It needs to fail fast on command-plane regressions with deterministic local
@@ -47,6 +48,7 @@ contracts.
 Entrypoint:
 
 - `scripts/e2e-pr-ci.sh`
+- `scripts/e2e-run-control-local.sh`
 
 Expected environment:
 
@@ -79,12 +81,17 @@ Must include:
   - `opencode`
   - `claude`
   - `codex`
+- run-control matrix where `attach` / `capture` / `send` all work across host boundaries
+- verify `orch ps` exposes the real execution host in `HOST` / `target_host`
+- verify Zeus OpenCode sessions stay alive after session creation instead of flipping to `failed`
 
 Entrypoints:
 
 - `scripts/e2e-master-worker-client-zeus.sh`
 - `scripts/e2e-master-worker-client-target.sh`
 - `scripts/e2e-backend-matrix-smoke.sh` with real backend lanes enabled
+- `scripts/e2e-run-control-zeus.sh`
+- `scripts/e2e-run-control-matrix.sh`
 
 Expected environment:
 
@@ -100,8 +107,8 @@ Goal: preserve an operator procedure when automation contracts are unavailable.
 
 Manual docs remain:
 
-- [docs/e2e-master-worker-client.md](/Users/s22625/repos/orch-feature-remote-execution-phase0/docs/e2e-master-worker-client.md)
-- [docs/e2e-backend-matrix.md](/Users/s22625/repos/orch-feature-remote-execution-phase0/docs/e2e-backend-matrix.md)
+- [docs/e2e-master-worker-client.md](./e2e-master-worker-client.md)
+- [docs/e2e-backend-matrix.md](./e2e-backend-matrix.md)
 
 ## Mapping From Manual Sections
 
@@ -140,6 +147,9 @@ Implemented:
 - `scripts/e2e-master-worker-client-target.sh`
 - `scripts/e2e-master-worker-client-zeus.sh`
 - `scripts/e2e-backend-matrix-smoke.sh`
+- `scripts/e2e-run-control-local.sh`
+- `scripts/e2e-run-control-zeus.sh`
+- `scripts/e2e-run-control-matrix.sh`
 
 Next operational step:
 
