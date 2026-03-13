@@ -30,8 +30,8 @@ orch-monitor
 # Start with a fresh control agent session
 orch-monitor --new
 
-# Specify a different project root
-orch-monitor --project-root /path/to/repo
+# Specify a project identity (repo URL or repoid)
+orch-monitor --project github.com/owner/repo
 ```
 
 ## Interface Overview
@@ -244,12 +244,8 @@ agent: claude          # Default agent for new runs
 base_branch: main      # Default base branch
 ```
 
-Environment variables also work:
-```bash
-export ORCH_PROJECT_ROOT=/path/to/repo
-export ORCH_ISSUES_ROOT=/path/to/issues
-orch-monitor
-```
+The monitor resolves configuration from `ORCH_PROJECT` and
+`.orch/config.yaml` (`issues.path`).
 
 ## See Also
 

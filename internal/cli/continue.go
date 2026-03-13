@@ -25,7 +25,7 @@ type continueOptions struct {
 	Branch         string
 	IssueID        string
 	WorktreeDir    string
-	RepoRoot       string
+	WorktreeSet    bool
 }
 
 type continueResult struct {
@@ -82,9 +82,6 @@ Use --branch with an issue ID to restart from an untracked branch.`,
 	cmd.Flags().StringVar(&opts.PromptTemplate, "prompt-template", "", "Custom prompt template file")
 	cmd.Flags().StringVar(&opts.Branch, "branch", "", "Existing branch to restart from")
 	cmd.Flags().StringVar(&opts.IssueID, "issue", "", "Issue ID (required with --branch when no RUN_REF)")
-	cmd.Flags().StringVar(&opts.WorktreeDir, "worktree-dir", "", "Directory for worktrees (default: ~/.orch/worktrees)")
-	cmd.Flags().StringVar(&opts.RepoRoot, "repo-root", "", "Git repository root (default: auto-detect)")
-
 	return cmd
 }
 
@@ -94,25 +91,25 @@ func runContinue(refStr string, opts *continueOptions) error {
 }
 
 func runContinueWithDeps(ctx context.Context, refStr string, opts *continueOptions, deps *continueDeps) error {
+	_, _, rootErr := getProjectRootWithSource()
+	remoteMode := strings.TrimSpace(getRemoteAddr()) != ""
+	if rootErr != nil {
+		if !remoteMode {
+			return exitWithCode(fmt.Errorf("project scope required: run from repository root or set --project/ORCH_PROJECT"), ExitWorktreeError)
+		}
+	}
+
 	api, err := deps.getAPI()
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)
 	}
 
-	repoRoot := opts.RepoRoot
-	if repoRoot == "" {
-		repoRoot, err = getProjectRoot()
-		if err != nil {
-			return exitWithCode(fmt.Errorf("could not find project root: %w", err), ExitWorktreeError)
-		}
-	}
-
-	cfg, err := api.GetConfig(ctx, repoRoot)
+	cfg, err := api.GetConfig(ctx)
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)
 	}
 
-	applyContinueConfigDefaults(opts, cfg)
+	applyContinueConfigDefaults(opts, cfg, remoteMode)
 
 	var issueID, runID, shortID string
 	if opts.Branch != "" {
@@ -152,8 +149,6 @@ func runContinueWithDeps(ctx context.Context, refStr string, opts *continueOptio
 		PRTargetBranch: opts.PRTargetBranch,
 		Multiplexer:    opts.Multiplexer,
 		SessionName:    opts.SessionName,
-		ProjectRoot:    repoRoot,
-		RepoRoot:       repoRoot,
 	})
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)
@@ -190,7 +185,7 @@ func runContinueWithDeps(ctx context.Context, refStr string, opts *continueOptio
 	return nil
 }
 
-func applyContinueConfigDefaults(opts *continueOptions, cfg *orchapi.Config) {
+func applyContinueConfigDefaults(opts *continueOptions, cfg *orchapi.Config, remoteMode bool) {
 	if opts.PromptTemplate == "" && cfg.PromptTemplate != "" {
 		opts.PromptTemplate = cfg.PromptTemplate
 	}
@@ -203,10 +198,10 @@ func applyContinueConfigDefaults(opts *continueOptions, cfg *orchapi.Config) {
 		opts.NoPR = cfg.NoPR
 	}
 
-	if opts.WorktreeDir == "" {
+	if opts.WorktreeDir == "" && !opts.WorktreeSet {
 		if cfg.WorktreeDir != "" {
 			opts.WorktreeDir = cfg.WorktreeDir
-		} else {
+		} else if !remoteMode {
 			home, _ := os.UserHomeDir()
 			opts.WorktreeDir = filepath.Join(home, ".orch", "worktrees")
 		}

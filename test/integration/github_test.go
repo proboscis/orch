@@ -64,6 +64,12 @@ func setupTestRepo(t *testing.T, dir string) string {
 	return repo
 }
 
+func orchCmd(binary, repo string, args ...string) *exec.Cmd {
+	cmd := exec.Command(binary, args...)
+	cmd.Dir = repo
+	return cmd
+}
+
 func writeGitHubConfig(t *testing.T, vault, owner, repo, labelFilter string) {
 	t.Helper()
 	config := fmt.Sprintf(`vault: .
@@ -84,8 +90,7 @@ github:
 
 func startDaemon(t *testing.T, binary, vault, repo string) func() {
 	t.Helper()
-	cmd := exec.Command(binary, "--issues-root", vault, "daemon")
-	cmd.Dir = vault
+	cmd := orchCmd(binary, repo, "daemon")
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("failed to start daemon: %v", err)
 	}
@@ -150,7 +155,7 @@ func TestGitHubBackend_ListIssues_Empty(t *testing.T) {
 	stopDaemon := startDaemon(t, binary, vault, repo)
 	defer stopDaemon()
 
-	cmd := exec.Command(binary, "--issues-root", vault, "issue", "list", "--json")
+	cmd := orchCmd(binary, repo, "issue", "list", "--json")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		if strings.Contains(string(out), "No issues found") {
@@ -192,7 +197,7 @@ func TestGitHubBackend_CreateAndListIssue(t *testing.T) {
 	testTitle := fmt.Sprintf("E2E Test Issue %d", time.Now().Unix())
 	testBody := "This is an automated test issue created by orch E2E tests."
 
-	createCmd := exec.Command(binary, "--issues-root", vault, "issue", "create", "--title", testTitle, "--body", testBody, "--json")
+	createCmd := orchCmd(binary, repo, "issue", "create", "--title", testTitle, "--body", testBody, "--json")
 	createOut, err := createCmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("issue create failed: %v\n%s", err, createOut)
@@ -223,7 +228,7 @@ func TestGitHubBackend_CreateAndListIssue(t *testing.T) {
 
 	time.Sleep(2 * time.Second)
 
-	listCmd := exec.Command(binary, "--issues-root", vault, "issue", "list", "--json")
+	listCmd := orchCmd(binary, repo, "issue", "list", "--json")
 	listOut, err := listCmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("issue list failed: %v\n%s", err, listOut)
@@ -271,7 +276,7 @@ func TestGitHubBackend_CreateIssue_StatusOpen(t *testing.T) {
 
 	testTitle := fmt.Sprintf("E2E Status Test %d", time.Now().Unix())
 
-	createCmd := exec.Command(binary, "--issues-root", vault, "issue", "create", "--title", testTitle, "--body", "Testing open status", "--json")
+	createCmd := orchCmd(binary, repo, "issue", "create", "--title", testTitle, "--body", "Testing open status", "--json")
 	createOut, err := createCmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("issue create failed: %v\n%s", err, createOut)
@@ -289,7 +294,7 @@ func TestGitHubBackend_CreateIssue_StatusOpen(t *testing.T) {
 	fmt.Sscanf(createResult.IssueID, "gh-%d", &issueNumber)
 	defer closeGitHubIssueViaGH(t, "proboscis", "orch", issueNumber)
 
-	showCmd := exec.Command(binary, "--issues-root", vault, "issue", "show", createResult.IssueID, "--json")
+	showCmd := orchCmd(binary, repo, "issue", "show", createResult.IssueID, "--json")
 	showOut, err := showCmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("issue show failed: %v\n%s", err, showOut)
@@ -336,7 +341,7 @@ func TestGitHubBackend_GetIssue(t *testing.T) {
 	daemonLog, _ := os.ReadFile(filepath.Join(vault, ".orch", "daemon.log"))
 	t.Logf("Daemon log after start:\n%s", string(daemonLog))
 
-	showCmd := exec.Command(binary, "--issues-root", vault, "issue", "show", fmt.Sprintf("gh-%d", issueNumber), "--json")
+	showCmd := orchCmd(binary, repo, "issue", "show", fmt.Sprintf("gh-%d", issueNumber), "--json")
 	showOut, err := showCmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("issue show failed: %v\n%s", err, showOut)
@@ -380,7 +385,7 @@ func TestGitHubBackend_CloseIssue(t *testing.T) {
 	stopDaemon := startDaemon(t, binary, vault, repo)
 	defer stopDaemon()
 
-	closeCmd := exec.Command(binary, "--issues-root", vault, "issue", "close", fmt.Sprintf("gh-%d", issueNumber), "--json")
+	closeCmd := orchCmd(binary, repo, "issue", "close", fmt.Sprintf("gh-%d", issueNumber), "--json")
 	closeOut, err := closeCmd.CombinedOutput()
 	if err != nil {
 		closeGitHubIssueViaGH(t, "proboscis", "orch", issueNumber)
@@ -427,7 +432,7 @@ func TestGitHubBackend_SyncIssues(t *testing.T) {
 	stopDaemon := startDaemon(t, binary, vault, repo)
 	defer stopDaemon()
 
-	syncCmd := exec.Command(binary, "--issues-root", vault, "issue", "sync", "--json")
+	syncCmd := orchCmd(binary, repo, "issue", "sync", "--json")
 	syncOut, err := syncCmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("issue sync failed: %v\n%s", err, syncOut)
@@ -474,7 +479,7 @@ status: open
 	daemonLog, _ := os.ReadFile(filepath.Join(vault, ".orch", "daemon.log"))
 	t.Logf("Daemon log:\n%s", string(daemonLog))
 
-	listCmd := exec.Command(binary, "--issues-root", vault, "issue", "list")
+	listCmd := orchCmd(binary, repo, "issue", "list")
 	listOut, _ := listCmd.CombinedOutput()
 
 	if strings.Contains(string(listOut), "local-test-issue") {
@@ -516,11 +521,9 @@ github:
 	defer stopDaemon()
 
 	issueID := fmt.Sprintf("gh-%d", issueNumber)
-	runCmd := exec.Command(binary, "--issues-root", vault, "run", issueID,
+	runCmd := orchCmd(binary, repo, "run", issueID,
 		"--agent", "custom",
 		"--agent-cmd", "echo 'test'; sleep 1",
-		"--worktree-dir", filepath.Join(repo, ".git-worktrees"),
-		"--repo-root", repo,
 		"--json")
 	runCmd.Dir = repo
 	runOut, err := runCmd.CombinedOutput()

@@ -1,10 +1,12 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"math/rand"
@@ -13,8 +15,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -31,6 +33,55 @@ import (
 	"github.com/s22625/orch/internal/xdg"
 	"google.golang.org/protobuf/proto"
 )
+
+func TestExternalWorkerHelperProcess(t *testing.T) {
+	if os.Getenv("ORCH_WORKER_HELPER") != "1" {
+		return
+	}
+
+	workerID := strings.TrimSpace(os.Getenv("ORCH_WORKER_ID"))
+	if workerID == "" {
+		os.Exit(2)
+	}
+	helperMode := strings.TrimSpace(os.Getenv("ORCH_WORKER_HELPER_MODE"))
+	if helperMode == "" {
+		helperMode = "fail"
+	}
+	resultJSON := os.Getenv("ORCH_WORKER_HELPER_RESULT_JSON")
+	expectedEffect := strings.TrimSpace(os.Getenv("ORCH_WORKER_EXPECT_EFFECT"))
+	autoRegister := strings.TrimSpace(os.Getenv("ORCH_WORKER_HELPER_REGISTER")) == "1"
+
+	client := NewProtoClientWithAddress("", "")
+	defer client.Close()
+	if autoRegister {
+		_, _ = client.RegisterWorker(workerID, "executor", "localhost", "external")
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		leaseResp, err := client.LeaseWork(workerID)
+		if err != nil {
+			os.Exit(3)
+		}
+		if leaseResp != nil && leaseResp.Lease != nil && strings.TrimSpace(leaseResp.Lease.LeaseID) != "" {
+			if expectedEffect != "" && strings.TrimSpace(leaseResp.Lease.Effect) != expectedEffect {
+				_ = client.AcknowledgeEffect(workerID, leaseResp.Lease.LeaseID, false, "unexpected lease effect", "")
+				os.Exit(5)
+			}
+
+			success := helperMode == "success"
+			errMsg := ""
+			if !success {
+				errMsg = "external worker helper failure"
+			}
+			_ = client.AcknowledgeEffect(workerID, leaseResp.Lease.LeaseID, success, errMsg, resultJSON)
+			os.Exit(0)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	os.Exit(4)
+}
 
 type mockStore struct {
 	runs   map[string]*model.Run
@@ -57,10 +108,31 @@ func (m *mockStore) SetIssueStatus(issueID string, status model.IssueStatus) err
 }
 
 func (m *mockStore) CreateRun(issueID, runID string, metadata map[string]string) (*model.Run, error) {
-	return nil, nil
+	if m.runs == nil {
+		m.runs = make(map[string]*model.Run)
+	}
+	run := &model.Run{
+		IssueID:       issueID,
+		RunID:         runID,
+		Agent:         metadata["agent"],
+		Model:         metadata["model"],
+		ModelVariant:  metadata["model_variant"],
+		Target:        metadata["target"],
+		ContinuedFrom: metadata["continued_from"],
+		Status:        model.StatusQueued,
+	}
+	m.runs[issueID+"#"+runID] = run
+	return run, nil
 }
 
 func (m *mockStore) AppendEvent(ref *model.RunRef, event *model.Event) error {
+	if m.runs == nil || ref == nil || event == nil {
+		return nil
+	}
+	if run, ok := m.runs[ref.IssueID+"#"+ref.RunID]; ok && run != nil {
+		run.Events = append(run.Events, event)
+		run.DeriveState()
+	}
 	return nil
 }
 
@@ -99,7 +171,22 @@ func (m *mockStore) GetRun(ref *model.RunRef) (*model.Run, error) {
 }
 
 func (m *mockStore) GetRunByShortID(shortID string) (*model.Run, error) {
-	return nil, os.ErrNotExist
+	var match *model.Run
+	for _, run := range m.runs {
+		if run == nil {
+			continue
+		}
+		if strings.HasPrefix(run.ShortID(), shortID) {
+			if match != nil {
+				return nil, fmt.Errorf("ambiguous short ID")
+			}
+			match = run
+		}
+	}
+	if match == nil {
+		return nil, os.ErrNotExist
+	}
+	return match, nil
 }
 
 func (m *mockStore) GetLatestRun(issueID string) (*model.Run, error) {
@@ -181,9 +268,15 @@ func setupXDGTestEnv(t *testing.T) func() {
 	}
 
 	oldXDG := os.Getenv("XDG_RUNTIME_DIR")
+	oldXDGState := os.Getenv("XDG_STATE_HOME")
+	oldXDGConfig := os.Getenv("XDG_CONFIG_HOME")
 	os.Setenv("XDG_RUNTIME_DIR", tmpDir)
+	os.Setenv("XDG_STATE_HOME", filepath.Join(tmpDir, "state"))
+	os.Setenv("XDG_CONFIG_HOME", filepath.Join(tmpDir, "config"))
 	return func() {
 		os.Setenv("XDG_RUNTIME_DIR", oldXDG)
+		os.Setenv("XDG_STATE_HOME", oldXDGState)
+		os.Setenv("XDG_CONFIG_HOME", oldXDGConfig)
 		os.RemoveAll(tmpDir)
 	}
 }
@@ -195,9 +288,41 @@ func newTestServer(t *testing.T, st store.Store) *SocketServer {
 	}
 	server := NewSocketServer(factory, logger)
 	if st != nil {
-		server.RegisterRepo("/test/project", st)
+		registerRepoContextForTest(t, server, testProjectID, testProjectRoot, st)
 	}
 	return server
+}
+
+func registerRepoContextForTest(t *testing.T, server *SocketServer, repoID, projectRoot string, st store.Store) {
+	t.Helper()
+
+	if _, err := server.registerRepoContext(repoID, projectRoot, "", st); err != nil {
+		t.Fatalf("register repo context: %v", err)
+	}
+}
+
+func createGitRepoWithOrigin(t *testing.T, remoteURL string) string {
+	t.Helper()
+
+	repo := t.TempDir()
+	if remoteURL == "" {
+		remoteURL = fmt.Sprintf("https://github.com/example/%s.git", filepath.Base(repo))
+	}
+
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command(args[0], args[1:]...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%s failed: %v (%s)", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		}
+	}
+
+	run("git", "init", repo)
+	run("git", "-C", repo, "config", "user.email", "test@example.com")
+	run("git", "-C", repo, "config", "user.name", "Test User")
+	run("git", "-C", repo, "remote", "add", "origin", remoteURL)
+
+	return repo
 }
 
 func TestSocketServerStartStop(t *testing.T) {
@@ -219,6 +344,352 @@ func TestSocketServerStartStop(t *testing.T) {
 
 	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
 		t.Error("socket file not cleaned up")
+	}
+}
+
+func TestWithWorkerLeaseUsesEmbeddedDispatcherRPCPath(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	issueID := "orch-lease"
+	runID := "run-lease"
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			issueID + "#" + runID: {
+				IssueID: issueID,
+				RunID:   runID,
+				Status:  model.StatusRunning,
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	server := newTestServer(t, st)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	workerID := "lease-helper-worker"
+	if _, ttl := server.registerWorker(workerID, "external", "localhost", "external", []string{"stop_run"}); ttl <= 0 {
+		t.Fatal("expected positive heartbeat ttl for helper worker")
+	}
+	go func() {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			lease := server.leaseWorkForWorker(workerID)
+			if lease != nil {
+				_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, true, "", "")
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+
+	projectID := testProjectID
+	if _, err := server.withWorkerLease(projectID, "stop_run", issueID, runID, nil); err != nil {
+		t.Fatalf("withWorkerLease() error = %v", err)
+	}
+
+	allLeases := server.listWorkerLeases(true)
+	var matched *WorkerLease
+	for _, lease := range allLeases {
+		if lease.ProjectID == projectID && lease.Effect == "stop_run" && lease.IssueID == issueID && lease.RunID == runID {
+			matched = lease
+			break
+		}
+	}
+	if matched == nil {
+		t.Fatal("expected worker lease record")
+	}
+	if !matched.Completed || !matched.Success {
+		t.Fatalf("expected completed successful lease, got completed=%v success=%v err=%q", matched.Completed, matched.Success, matched.Error)
+	}
+	if matched.DispatchCount < 1 {
+		t.Fatalf("dispatch_count = %d, want >= 1", matched.DispatchCount)
+	}
+}
+
+func TestWithWorkerLeaseExternalProcessAckPath(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	st := &mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}}
+	server := newTestServer(t, st)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	client := NewProtoClientWithAddress("", "")
+	defer client.Close()
+
+	workerID := "external-helper-worker"
+	if _, err := client.RegisterWorker(workerID, "executor", "localhost", "external"); err != nil {
+		t.Fatalf("register external worker failed: %v", err)
+	}
+	defer client.UnregisterWorker(workerID)
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := server.withWorkerLease("project-test", "stop_run", "orch-x", "run-x", nil)
+		errCh <- err
+	}()
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestExternalWorkerHelperProcess")
+	cmd.Env = append(os.Environ(), "ORCH_WORKER_HELPER=1", "ORCH_WORKER_ID="+workerID, "ORCH_WORKER_HELPER_MODE=fail")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("external worker helper failed: %v, output: %s", err, out)
+	}
+
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("withWorkerLease() error = nil, want propagated external worker failure")
+		}
+		if !strings.Contains(err.Error(), "external worker helper failure") {
+			t.Fatalf("withWorkerLease() error = %v, want external worker failure", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for withWorkerLease completion")
+	}
+
+	allLeases := server.listWorkerLeases(true)
+	var matched *WorkerLease
+	for _, lease := range allLeases {
+		if lease.WorkerID == workerID && lease.Effect == "stop_run" && lease.IssueID == "orch-x" && lease.RunID == "run-x" {
+			matched = lease
+			break
+		}
+	}
+	if matched == nil {
+		t.Fatal("expected lease assigned to external helper worker")
+	}
+	if !matched.Completed || matched.Success {
+		t.Fatalf("expected completed failed lease, got completed=%v success=%v", matched.Completed, matched.Success)
+	}
+}
+
+func TestWithWorkerLeaseExternalProcessSuccessResultPath(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	st := &mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}}
+	server := newTestServer(t, st)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	client := NewProtoClientWithAddress("", "")
+	defer client.Close()
+
+	workerID := "external-helper-worker-success"
+	if _, err := client.RegisterWorker(workerID, "executor", "localhost", "external"); err != nil {
+		t.Fatalf("register external worker failed: %v", err)
+	}
+	defer client.UnregisterWorker(workerID)
+
+	resultJSON := `{"continue_run_result":{"RunID":"run-success"}}`
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := server.withWorkerLease("project-test", "stop_run", "orch-y", "run-y", nil)
+		errCh <- err
+	}()
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestExternalWorkerHelperProcess")
+	var outBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &outBuf
+	cmd.Env = append(os.Environ(),
+		"ORCH_WORKER_HELPER=1",
+		"ORCH_WORKER_ID="+workerID,
+		"ORCH_WORKER_HELPER_MODE=success",
+		"ORCH_WORKER_HELPER_RESULT_JSON="+resultJSON,
+	)
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start helper process: %v", err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("external worker helper failed: %v, output: %s", err, outBuf.String())
+	}
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("withWorkerLease() error = %v, want nil", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for withWorkerLease completion")
+	}
+
+	allLeases := server.listWorkerLeases(true)
+	var matched *WorkerLease
+	for _, lease := range allLeases {
+		if lease.WorkerID == workerID && lease.Effect == "stop_run" && lease.IssueID == "orch-y" && lease.RunID == "run-y" {
+			matched = lease
+			break
+		}
+	}
+	if matched == nil {
+		t.Fatal("expected lease assigned to external helper worker")
+	}
+	if !matched.Completed || !matched.Success {
+		t.Fatalf("expected completed successful lease, got completed=%v success=%v", matched.Completed, matched.Success)
+	}
+	if strings.TrimSpace(matched.ResultJSON) == "" {
+		t.Fatal("expected non-empty lease result_json")
+	}
+}
+
+func TestProtoStartRunUsesExternalWorkerResultJSON(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	projectID := testProjectID
+	st := &mockStore{
+		runs: make(map[string]*model.Run),
+		issues: map[string]*model.Issue{
+			"issue-start": {ID: "issue-start", Title: "Start issue", Status: model.IssueStatusOpen, Path: "/tmp/issue-start.md"},
+		},
+	}
+
+	server := newTestServer(t, st)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	client := NewProtoClientWithAddress("", "")
+	defer client.Close()
+
+	workerID := "external-helper-worker-start"
+	if _, err := client.RegisterWorker(workerID, "executor", "localhost", "external"); err != nil {
+		t.Fatalf("register external worker failed: %v", err)
+	}
+	defer client.UnregisterWorker(workerID)
+
+	resultJSON := `{"start_run_result":{"RunID":"run-from-worker","Branch":"worker-branch","WorktreePath":"/tmp/wt","SessionName":"sess1","Status":"running"}}`
+	cmd := exec.Command(os.Args[0], "-test.run=TestExternalWorkerHelperProcess")
+	var outBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &outBuf
+	cmd.Env = append(os.Environ(),
+		"ORCH_WORKER_HELPER=1",
+		"ORCH_WORKER_ID="+workerID,
+		"ORCH_WORKER_HELPER_MODE=success",
+		"ORCH_WORKER_EXPECT_EFFECT=start_run",
+		"ORCH_WORKER_HELPER_RESULT_JSON="+resultJSON,
+	)
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start helper process: %v", err)
+	}
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_StartRun{StartRun: &orchpb.StartRunRequest{
+			IssueId: "issue-start",
+			RunId:   "run-from-worker",
+			Context: &orchpb.RequestContext{ProjectId: projectID},
+		}},
+	})
+
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("helper process failed: %v, output: %s", err, outBuf.String())
+	}
+
+	if !resp.Ok || resp.GetStartRun() == nil {
+		t.Fatalf("expected successful start_run response, got ok=%v error=%q", resp.Ok, resp.Error)
+	}
+	if resp.GetStartRun().GetRunId() != "run-from-worker" || resp.GetStartRun().GetBranch() != "worker-branch" {
+		t.Fatalf("unexpected start_run response: %+v", resp.GetStartRun())
+	}
+
+	allLeases := server.listWorkerLeases(true)
+	found := false
+	for _, lease := range allLeases {
+		if lease.WorkerID == workerID && lease.Effect == "start_run" && lease.IssueID == "issue-start" {
+			if !lease.Completed || !lease.Success || strings.TrimSpace(lease.ResultJSON) == "" {
+				t.Fatalf("unexpected lease completion state: completed=%v success=%v result=%q", lease.Completed, lease.Success, lease.ResultJSON)
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected start_run lease assigned to external worker")
+	}
+}
+
+func TestProtoContinueRunUsesExternalWorkerResultJSON(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	projectID := testProjectID
+	st := &mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}}
+
+	server := newTestServer(t, st)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	client := NewProtoClientWithAddress("", "")
+	defer client.Close()
+
+	workerID := "external-helper-worker-continue"
+	if _, err := client.RegisterWorker(workerID, "executor", "localhost", "external"); err != nil {
+		t.Fatalf("register external worker failed: %v", err)
+	}
+	defer client.UnregisterWorker(workerID)
+
+	resultJSON := `{"continue_run_result":{"RunID":"run-cont","Branch":"cont-branch","WorktreePath":"/tmp/cont","SessionName":"sess-cont","Status":"running","ContinuedFrom":"run-prev","IssueID":"issue-cont"}}`
+	cmd := exec.Command(os.Args[0], "-test.run=TestExternalWorkerHelperProcess")
+	var outBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &outBuf
+	cmd.Env = append(os.Environ(),
+		"ORCH_WORKER_HELPER=1",
+		"ORCH_WORKER_ID="+workerID,
+		"ORCH_WORKER_HELPER_MODE=success",
+		"ORCH_WORKER_EXPECT_EFFECT=continue_run",
+		"ORCH_WORKER_HELPER_RESULT_JSON="+resultJSON,
+	)
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start helper process: %v", err)
+	}
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_ContinueRun{ContinueRun: &orchpb.ContinueRunRequest{
+			IssueId: "issue-cont",
+			RunId:   "run-cont",
+			Context: &orchpb.RequestContext{ProjectId: projectID},
+		}},
+	})
+
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("helper process failed: %v, output: %s", err, outBuf.String())
+	}
+
+	if !resp.Ok || resp.GetContinueRun() == nil {
+		t.Fatalf("expected successful continue_run response, got ok=%v error=%q", resp.Ok, resp.Error)
+	}
+	if resp.GetContinueRun().GetRunId() != "run-cont" || resp.GetContinueRun().GetContinuedFrom() != "run-prev" {
+		t.Fatalf("unexpected continue_run response: %+v", resp.GetContinueRun())
+	}
+
+	allLeases := server.listWorkerLeases(true)
+	found := false
+	for _, lease := range allLeases {
+		if lease.WorkerID == workerID && lease.Effect == "continue_run" && lease.IssueID == "issue-cont" {
+			if !lease.Completed || !lease.Success || strings.TrimSpace(lease.ResultJSON) == "" {
+				t.Fatalf("unexpected lease completion state: completed=%v success=%v result=%q", lease.Completed, lease.Success, lease.ResultJSON)
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected continue_run lease assigned to external worker")
 	}
 }
 
@@ -334,6 +805,10 @@ func TestProcessSendOpenCodeReturnsAfterAck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to find repo root: %v", err)
 	}
+	repoID, err := xdg.RepoIDStrict(projectRoot)
+	if err != nil {
+		t.Fatalf("failed to resolve repo id: %v", err)
+	}
 
 	const bodyDelay = 600 * time.Millisecond
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -341,6 +816,9 @@ func TestProcessSendOpenCodeReturnsAfterAck(t *testing.T) {
 		case r.URL.Path == "/global/health":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, `{"healthy":true,"version":"test"}`)
+		case r.URL.Path == "/project/current":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, fmt.Sprintf(`{"id":"%s","worktree":%q,"sandboxes":[]}`, repoID, projectRoot))
 		case strings.HasSuffix(r.URL.Path, "/message"):
 			w.WriteHeader(http.StatusAccepted)
 			if flusher, ok := w.(http.Flusher); ok {
@@ -356,7 +834,8 @@ func TestProcessSendOpenCodeReturnsAfterAck(t *testing.T) {
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
-	server.openCodeServers[projectRoot] = &managedServer{
+	server.openCodeServers[repoID] = &managedServer{
+		RepoID:      repoID,
 		ProjectRoot: projectRoot,
 		Port:        getPortFromURL(t, testServer.URL),
 		WaitResult:  make(chan error, 1),
@@ -394,6 +873,10 @@ func TestProcessSendOpenCodeTimesOutPromptlyWithoutAck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to find repo root: %v", err)
 	}
+	repoID, err := xdg.RepoIDStrict(projectRoot)
+	if err != nil {
+		t.Fatalf("failed to resolve repo id: %v", err)
+	}
 
 	const ackDelay = 300 * time.Millisecond
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -401,6 +884,9 @@ func TestProcessSendOpenCodeTimesOutPromptlyWithoutAck(t *testing.T) {
 		case r.URL.Path == "/global/health":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, `{"healthy":true,"version":"test"}`)
+		case r.URL.Path == "/project/current":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, fmt.Sprintf(`{"id":"%s","worktree":%q,"sandboxes":[]}`, repoID, projectRoot))
 		case strings.HasSuffix(r.URL.Path, "/message"):
 			time.Sleep(ackDelay)
 			w.WriteHeader(http.StatusAccepted)
@@ -413,7 +899,8 @@ func TestProcessSendOpenCodeTimesOutPromptlyWithoutAck(t *testing.T) {
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
-	server.openCodeServers[projectRoot] = &managedServer{
+	server.openCodeServers[repoID] = &managedServer{
+		RepoID:      repoID,
 		ProjectRoot: projectRoot,
 		Port:        getPortFromURL(t, testServer.URL),
 		WaitResult:  make(chan error, 1),
@@ -449,6 +936,116 @@ func TestProcessSendOpenCodeTimesOutPromptlyWithoutAck(t *testing.T) {
 	}
 }
 
+func TestProcessSendOpenCodeAckTimeoutButQueuedMessageSucceeds(t *testing.T) {
+	projectRoot, err := git.FindRepoRoot(".")
+	if err != nil {
+		t.Fatalf("failed to find repo root: %v", err)
+	}
+	repoID, err := xdg.RepoIDStrict(projectRoot)
+	if err != nil {
+		t.Fatalf("failed to resolve repo id: %v", err)
+	}
+
+	const ackDelay = 300 * time.Millisecond
+	var (
+		mu       sync.Mutex
+		messages []agent.Message
+	)
+
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/global/health":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"healthy":true,"version":"test"}`)
+		case r.URL.Path == "/project/current":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, fmt.Sprintf(`{"id":"%s","worktree":%q,"sandboxes":[]}`, repoID, projectRoot))
+		case r.URL.Path == "/session/ses_queued/message" && r.Method == http.MethodPost:
+			var req agent.PromptRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			text := ""
+			for _, part := range req.Parts {
+				if part.Type == "text" {
+					text = part.Text
+					break
+				}
+			}
+
+			mu.Lock()
+			messages = append(messages, agent.Message{
+				Info: agent.MessageInfo{
+					ID:        "msg-1",
+					SessionID: "ses_queued",
+					Role:      "user",
+					CreatedAt: time.Now(),
+				},
+				Parts: []agent.MessagePart{{Type: "text", Text: text}},
+			})
+			mu.Unlock()
+
+			time.Sleep(ackDelay)
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = io.WriteString(w, `{"status":"accepted"}`)
+		case r.URL.Path == "/session/ses_queued/message" && r.Method == http.MethodGet:
+			mu.Lock()
+			copied := append([]agent.Message(nil), messages...)
+			mu.Unlock()
+
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(copied); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer testServer.Close()
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.openCodeServers[repoID] = &managedServer{
+		RepoID:      repoID,
+		ProjectRoot: projectRoot,
+		Port:        getPortFromURL(t, testServer.URL),
+		WaitResult:  make(chan error, 1),
+	}
+
+	prevAckTimeout := openCodeSendAckTimeout
+	prevConfirmTimeout := openCodeSendConfirmTimeout
+	prevPollInterval := openCodeSendConfirmPollInterval
+	openCodeSendAckTimeout = 80 * time.Millisecond
+	openCodeSendConfirmTimeout = 1200 * time.Millisecond
+	openCodeSendConfirmPollInterval = 20 * time.Millisecond
+	defer func() {
+		openCodeSendAckTimeout = prevAckTimeout
+		openCodeSendConfirmTimeout = prevConfirmTimeout
+		openCodeSendConfirmPollInterval = prevPollInterval
+	}()
+
+	ref := &model.RunRef{IssueID: "orch-432", RunID: "run-queued"}
+	run := &model.Run{
+		IssueID:           ref.IssueID,
+		RunID:             ref.RunID,
+		Agent:             string(agent.AgentOpenCode),
+		OpenCodeSessionID: "ses_queued",
+		WorktreePath:      projectRoot,
+	}
+
+	startedAt := time.Now()
+	err = server.processSendOpenCode(nil, ref, run, "please queue this")
+	elapsed := time.Since(startedAt)
+
+	if err != nil {
+		t.Fatalf("processSendOpenCode() error = %v", err)
+	}
+	if elapsed >= 2*time.Second {
+		t.Fatalf("expected queued-message confirmation to return quickly, elapsed=%s", elapsed)
+	}
+}
+
 func TestIsDaemonSocketAvailable(t *testing.T) {
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
@@ -473,28 +1070,137 @@ func TestIsDaemonSocketAvailable(t *testing.T) {
 
 const testProjectRoot = "/test/project"
 const testIssuesRoot = "/test/issues"
+const testProjectID = "test-project"
 
-func ensureRequestIssuesRoot(req *orchpb.Request, issuesRoot string) {
+func ensureRequestContext(req *orchpb.Request) {
 	if req == nil || req.Request == nil {
 		return
 	}
 
+	newCtx := func() *orchpb.RequestContext {
+		return &orchpb.RequestContext{ProjectId: testProjectID}
+	}
+
 	switch r := req.Request.(type) {
 	case *orchpb.Request_ListRuns:
-		if r.ListRuns != nil && r.ListRuns.IssuesRoot == "" {
-			r.ListRuns.IssuesRoot = issuesRoot
+		if r.ListRuns != nil && r.ListRuns.Context == nil {
+			r.ListRuns.Context = newCtx()
 		}
 	case *orchpb.Request_GetRun:
-		if r.GetRun != nil && r.GetRun.IssuesRoot == "" {
-			r.GetRun.IssuesRoot = issuesRoot
+		if r.GetRun != nil && r.GetRun.Context == nil {
+			r.GetRun.Context = newCtx()
+		}
+	case *orchpb.Request_StartRun:
+		if r.StartRun != nil && r.StartRun.Context == nil {
+			r.StartRun.Context = newCtx()
+		}
+	case *orchpb.Request_StopRun:
+		if r.StopRun != nil && r.StopRun.Context == nil {
+			r.StopRun.Context = newCtx()
+		}
+	case *orchpb.Request_ResolveRun:
+		if r.ResolveRun != nil && r.ResolveRun.Context == nil {
+			r.ResolveRun.Context = newCtx()
 		}
 	case *orchpb.Request_ListIssues:
-		if r.ListIssues != nil && r.ListIssues.IssuesRoot == "" {
-			r.ListIssues.IssuesRoot = issuesRoot
+		if r.ListIssues != nil && r.ListIssues.Context == nil {
+			r.ListIssues.Context = newCtx()
 		}
 	case *orchpb.Request_GetIssue:
-		if r.GetIssue != nil && r.GetIssue.IssuesRoot == "" {
-			r.GetIssue.IssuesRoot = issuesRoot
+		if r.GetIssue != nil && r.GetIssue.Context == nil {
+			r.GetIssue.Context = newCtx()
+		}
+	case *orchpb.Request_CreateIssue:
+		if r.CreateIssue != nil && r.CreateIssue.Context == nil {
+			r.CreateIssue.Context = newCtx()
+		}
+	case *orchpb.Request_CloseIssue:
+		if r.CloseIssue != nil && r.CloseIssue.Context == nil {
+			r.CloseIssue.Context = newCtx()
+		}
+	case *orchpb.Request_GetRunByShortId:
+		if r.GetRunByShortId != nil && r.GetRunByShortId.Context == nil {
+			r.GetRunByShortId.Context = newCtx()
+		}
+	case *orchpb.Request_ResolveIssue:
+		if r.ResolveIssue != nil && r.ResolveIssue.Context == nil {
+			r.ResolveIssue.Context = newCtx()
+		}
+	case *orchpb.Request_DeleteRun:
+		if r.DeleteRun != nil && r.DeleteRun.Context == nil {
+			r.DeleteRun.Context = newCtx()
+		}
+	case *orchpb.Request_UpdateIssue:
+		if r.UpdateIssue != nil && r.UpdateIssue.Context == nil {
+			r.UpdateIssue.Context = newCtx()
+		}
+	case *orchpb.Request_GetAttachInfo:
+		if r.GetAttachInfo != nil && r.GetAttachInfo.Context == nil {
+			r.GetAttachInfo.Context = newCtx()
+		}
+	case *orchpb.Request_CaptureSession:
+		if r.CaptureSession != nil && r.CaptureSession.Context == nil {
+			r.CaptureSession.Context = newCtx()
+		}
+	case *orchpb.Request_SendMessage:
+		if r.SendMessage != nil && r.SendMessage.Context == nil {
+			r.SendMessage.Context = newCtx()
+		}
+	case *orchpb.Request_GetDiffStats:
+		if r.GetDiffStats != nil && r.GetDiffStats.Context == nil {
+			r.GetDiffStats.Context = newCtx()
+		}
+	case *orchpb.Request_GetBranchState:
+		if r.GetBranchState != nil && r.GetBranchState.Context == nil {
+			r.GetBranchState.Context = newCtx()
+		}
+	case *orchpb.Request_GetDiff:
+		if r.GetDiff != nil && r.GetDiff.Context == nil {
+			r.GetDiff.Context = newCtx()
+		}
+	case *orchpb.Request_AppendEvent:
+		if r.AppendEvent != nil && r.AppendEvent.Context == nil {
+			r.AppendEvent.Context = newCtx()
+		}
+	case *orchpb.Request_ValidateIssueFiles:
+		if r.ValidateIssueFiles != nil && r.ValidateIssueFiles.Context == nil {
+			r.ValidateIssueFiles.Context = newCtx()
+		}
+	case *orchpb.Request_WriteAgentPrompt:
+		if r.WriteAgentPrompt != nil && r.WriteAgentPrompt.Context == nil {
+			r.WriteAgentPrompt.Context = newCtx()
+		}
+	case *orchpb.Request_ReadAgentPrompt:
+		if r.ReadAgentPrompt != nil && r.ReadAgentPrompt.Context == nil {
+			r.ReadAgentPrompt.Context = newCtx()
+		}
+	case *orchpb.Request_ResumeRun:
+		if r.ResumeRun != nil && r.ResumeRun.Context == nil {
+			r.ResumeRun.Context = newCtx()
+		}
+	case *orchpb.Request_CreateRun:
+		if r.CreateRun != nil && r.CreateRun.Context == nil {
+			r.CreateRun.Context = newCtx()
+		}
+	case *orchpb.Request_InjectInitialPrompt:
+		if r.InjectInitialPrompt != nil && r.InjectInitialPrompt.Context == nil {
+			r.InjectInitialPrompt.Context = newCtx()
+		}
+	case *orchpb.Request_ContinueRun:
+		if r.ContinueRun != nil && r.ContinueRun.Context == nil {
+			r.ContinueRun.Context = newCtx()
+		}
+	case *orchpb.Request_GetControlAgentLaunch:
+		if r.GetControlAgentLaunch != nil && r.GetControlAgentLaunch.Context == nil {
+			r.GetControlAgentLaunch.Context = newCtx()
+		}
+	case *orchpb.Request_GetControlAgentConfig:
+		if r.GetControlAgentConfig != nil && r.GetControlAgentConfig.Context == nil {
+			r.GetControlAgentConfig.Context = newCtx()
+		}
+	case *orchpb.Request_GetConfig:
+		if r.GetConfig != nil && r.GetConfig.Context == nil {
+			r.GetConfig.Context = newCtx()
 		}
 	}
 }
@@ -515,7 +1221,7 @@ func setupTestServer(t *testing.T, st *mockStore) (*SocketServer, func()) {
 }
 
 func sendProtoRequest(t *testing.T, req *orchpb.Request) *orchpb.Response {
-	ensureRequestIssuesRoot(req, testIssuesRoot)
+	ensureRequestContext(req)
 
 	conn, err := net.DialTimeout("unix", xdg.SocketPath(), 5*time.Second)
 	if err != nil {
@@ -1300,11 +2006,10 @@ func TestStoreFactoryDynamicCreation(t *testing.T) {
 	}
 	defer server.Stop()
 
-	_ = sendProtoRequest(t, &orchpb.Request{
-		Request: &orchpb.Request_ListIssues{
-			ListIssues: &orchpb.ListIssuesRequest{IssuesRoot: "/test/issues/path"},
-		},
-	})
+	resolved := server.getOrCreateStore("/test/issues/path", "")
+	if resolved == nil {
+		t.Fatal("expected store to be resolved")
+	}
 
 	if !factoryCalled {
 		t.Error("expected factory to be called")
@@ -1335,11 +2040,10 @@ func TestStoreFactoryReusesExistingStore(t *testing.T) {
 	defer server.Stop()
 
 	sendListIssues := func() {
-		_ = sendProtoRequest(t, &orchpb.Request{
-			Request: &orchpb.Request_ListIssues{
-				ListIssues: &orchpb.ListIssuesRequest{IssuesRoot: "/reuse/test/path"},
-			},
-		})
+		resolved := server.getOrCreateStore("/reuse/test/path", "")
+		if resolved == nil {
+			t.Fatal("expected store to be resolved")
+		}
 	}
 
 	sendListIssues()
@@ -1362,16 +2066,16 @@ func TestResolveStoreWithProjectRoot(t *testing.T) {
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
-	server.RegisterRepo("/project/root", st)
+	registerRepoContextForTest(t, server, "project-root", "/project/root", st)
 
-	resolved := server.resolveStore(SendRequest{ProjectRoot: "/project/root"})
+	resolved := server.resolveStore(SendRequest{RepoID: "project-root"})
 	if resolved == nil {
-		t.Error("expected store to be resolved for registered project root")
+		t.Error("expected store to be resolved for registered repo id")
 	}
 
-	resolved = server.resolveStore(SendRequest{ProjectRoot: "/unknown/project"})
+	resolved = server.resolveStore(SendRequest{RepoID: "unknown-project"})
 	if resolved != nil {
-		t.Error("expected nil store for unknown project root without factory")
+		t.Error("expected nil store for unknown repo id")
 	}
 }
 
@@ -1426,41 +2130,28 @@ func TestGetOrCreateStoreHydratesProjectRootOnReuse(t *testing.T) {
 }
 
 func TestResolveProjectRootPrecedence(t *testing.T) {
-	t.Setenv("ORCH_PROJECT_ROOT", "/env/project")
-
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
 
 	repoStore := &mockStore{runs: make(map[string]*model.Run), issues: make(map[string]*model.Issue)}
-	repoID, err := server.RegisterRepo("/daemon/project", repoStore)
-	if err != nil {
-		t.Fatalf("failed to register repo: %v", err)
-	}
-
-	if got := server.resolveProjectRoot(SendRequest{ProjectRoot: "/request/project", RepoID: repoID}); got != "/request/project" {
-		t.Fatalf("expected request project root precedence, got %q", got)
-	}
+	repoID := "daemon-project"
+	registerRepoContextForTest(t, server, repoID, "/daemon/project", repoStore)
 
 	if got := server.resolveProjectRoot(SendRequest{RepoID: repoID}); got != "/daemon/project" {
 		t.Fatalf("expected repo context project root, got %q", got)
 	}
 
-	if got := server.resolveProjectRoot(SendRequest{}); got != "/env/project" {
-		t.Fatalf("expected ORCH_PROJECT_ROOT fallback, got %q", got)
+	if got := server.resolveProjectRoot(SendRequest{}); got != "" {
+		t.Fatalf("expected empty project root when request has no project root and no repo id, got %q", got)
 	}
 
 	emptyServer := NewSocketServer(nil, logger)
-	if got := emptyServer.resolveProjectRoot(SendRequest{}); got != "/env/project" {
-		t.Fatalf("expected ORCH_PROJECT_ROOT fallback, got %q", got)
-	}
-
-	t.Setenv("ORCH_PROJECT_ROOT", "")
 	if got := emptyServer.resolveProjectRoot(SendRequest{}); got != "" {
-		t.Fatalf("expected empty project root when request and env are empty, got %q", got)
+		t.Fatalf("expected empty project root when request is empty, got %q", got)
 	}
 }
 
-func TestResolveStoreFromProtoRequiresIssuesRoot(t *testing.T) {
+func TestEnsureRepoStoreByIDUsesRegisteredProjectRoot(t *testing.T) {
 	callCount := 0
 	mockFactory := func(string) (store.Store, error) {
 		callCount++
@@ -1470,20 +2161,151 @@ func TestResolveStoreFromProtoRequiresIssuesRoot(t *testing.T) {
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(mockFactory, logger)
 
-	if got := server.resolveStoreFromProto(""); got != nil {
-		t.Fatalf("expected nil store when issues root is empty, got %#v", got)
+	projectRoot := t.TempDir()
+	issuesRoot := filepath.Join(projectRoot, "issues")
+	if err := os.MkdirAll(issuesRoot, 0o755); err != nil {
+		t.Fatalf("mkdir issues root: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0o755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	configYAML := []byte("issues:\n  path: " + issuesRoot + "\n")
+	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), configYAML, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
 	}
 
-	if callCount != 0 {
-		t.Fatalf("expected no store creation for empty issues root, got %d", callCount)
-	}
+	repoID := "repo-store-by-id"
+	server.reposMu.Lock()
+	server.repos[repoID] = &RepoContext{ProjectRoot: projectRoot, RepoID: repoID}
+	server.reposMu.Unlock()
 
-	if got := server.resolveStoreFromProto("/issues/root"); got == nil {
-		t.Fatal("expected store to resolve when issues root is provided")
+	resolved := server.ensureRepoStoreByID(repoID)
+	if resolved == nil || resolved.Store == nil {
+		t.Fatal("expected store to resolve for registered repo id")
 	}
-
 	if callCount != 1 {
-		t.Fatalf("expected one store creation for valid issues root, got %d", callCount)
+		t.Fatalf("expected one store creation call, got %d", callCount)
+	}
+
+	resolvedAgain := server.ensureRepoStoreByID(repoID)
+	if resolvedAgain == nil || resolvedAgain.Store == nil {
+		t.Fatal("expected store to resolve on repeated repo id lookup")
+	}
+	if callCount != 1 {
+		t.Fatalf("expected no additional store creation call, got %d", callCount)
+	}
+	if resolved.Store != resolvedAgain.Store {
+		t.Fatal("expected same store instance on repeated repo id lookup")
+	}
+}
+
+func TestEnsureRepoContextByIDDoesNotFallbackToEnvProjectRoot(t *testing.T) {
+	callCount := 0
+	mockFactory := func(string) (store.Store, error) {
+		callCount++
+		return &mockStore{runs: make(map[string]*model.Run), issues: make(map[string]*model.Issue)}, nil
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(mockFactory, logger)
+
+	projectRoot := t.TempDir()
+	issuesRoot := filepath.Join(projectRoot, "issues")
+	if err := os.MkdirAll(issuesRoot, 0o755); err != nil {
+		t.Fatalf("mkdir issues root: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0o755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	configYAML := []byte("issues:\n  path: " + issuesRoot + "\n")
+	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), configYAML, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	t.Setenv("ORCH_PROJECT", projectRoot)
+	repoID := "missing-project"
+	if got := server.ensureRepoContextByID(repoID); got != nil {
+		t.Fatalf("expected nil context without registry mapping, got %#v", got)
+	}
+	if callCount != 0 {
+		t.Fatalf("expected no store creation without registry mapping, got %d", callCount)
+	}
+}
+
+func TestRepoRegistryPersistenceAcrossServerInstances(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	projectRoot := createGitRepoWithOrigin(t, "https://github.com/example/orch.git")
+	resp := server.handleProtoRegisterRepo(&orchpb.RegisterRepoRequest{ProjectRoot: projectRoot})
+	if !resp.Ok {
+		t.Fatalf("register repo failed: %s", resp.Error)
+	}
+
+	repoID := "example-orch"
+	projectCfgPath := filepath.Join(xdg.ConfigDir(), "projects", repoID+".yaml")
+	data, err := os.ReadFile(projectCfgPath)
+	if err != nil {
+		t.Fatalf("read project config %s: %v", projectCfgPath, err)
+	}
+	if !strings.Contains(string(data), "project_id: "+repoID) {
+		t.Fatalf("project config missing project_id %q: %s", repoID, string(data))
+	}
+	if !strings.Contains(string(data), "root: "+projectRoot) {
+		t.Fatalf("project config missing workspace root %q: %s", projectRoot, string(data))
+	}
+
+	server2 := NewSocketServer(nil, logger)
+	if err := server2.loadRepoRegistry(); err != nil {
+		t.Fatalf("loadRepoRegistry() error: %v", err)
+	}
+
+	ctx := server2.GetRepoContext(repoID)
+	if ctx == nil {
+		t.Fatalf("expected repo context for %q after reload", repoID)
+	}
+	if ctx.ProjectRoot != projectRoot {
+		t.Fatalf("ProjectRoot = %q, want %q", ctx.ProjectRoot, projectRoot)
+	}
+}
+
+func TestLoadRepoRegistrySupportsLegacyStateFile(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	legacyPath := filepath.Join(xdg.StateDir(), repoRegistryLegacyFileName)
+	if err := os.MkdirAll(filepath.Dir(legacyPath), 0o755); err != nil {
+		t.Fatalf("mkdir legacy registry dir: %v", err)
+	}
+
+	legacy := repoRegistrySnapshot{
+		Version: 1,
+		Repos: []repoRegistryEntry{
+			{RepoID: "legacy-repo", ProjectRoot: "/srv/legacy-repo"},
+		},
+	}
+	legacyData, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatalf("marshal legacy registry: %v", err)
+	}
+	if err := os.WriteFile(legacyPath, legacyData, 0o644); err != nil {
+		t.Fatalf("write legacy registry: %v", err)
+	}
+
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	if err := server.loadRepoRegistry(); err != nil {
+		t.Fatalf("loadRepoRegistry() error: %v", err)
+	}
+
+	ctx := server.GetRepoContext("legacy-repo")
+	if ctx == nil {
+		t.Fatal("expected legacy repo context to load")
+	}
+	if ctx.ProjectRoot != "/srv/legacy-repo" {
+		t.Fatalf("legacy project root = %q, want /srv/legacy-repo", ctx.ProjectRoot)
 	}
 }
 
@@ -1582,11 +2404,11 @@ func TestOpenCodeServerLogPathIsPerProjectRoot(t *testing.T) {
 	}
 }
 
-func writeStoredOpenCodeControlSession(t *testing.T, projectRoot, sessionID, modelName, modelVariant string) {
+func writeStoredOpenCodeControlSession(t *testing.T, repoID, sessionID, modelName, modelVariant string) {
 	t.Helper()
-	orchDir := filepath.Join(projectRoot, ".orch")
-	if err := os.MkdirAll(orchDir, 0755); err != nil {
-		t.Fatalf("failed to create .orch dir: %v", err)
+	sessionPath := controlSessionPathForRepoID(repoID)
+	if err := os.MkdirAll(filepath.Dir(sessionPath), 0755); err != nil {
+		t.Fatalf("failed to create control session dir: %v", err)
 	}
 	data, err := json.Marshal(controlSessionRecord{
 		SessionID:    sessionID,
@@ -1598,14 +2420,14 @@ func writeStoredOpenCodeControlSession(t *testing.T, projectRoot, sessionID, mod
 	if err != nil {
 		t.Fatalf("failed to marshal stored control session: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(orchDir, "control-session.json"), data, 0644); err != nil {
+	if err := os.WriteFile(sessionPath, data, 0644); err != nil {
 		t.Fatalf("failed to write stored control session: %v", err)
 	}
 }
 
-func readStoredOpenCodeControlSession(t *testing.T, projectRoot string) controlSessionRecord {
+func readStoredOpenCodeControlSession(t *testing.T, repoID string) controlSessionRecord {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(projectRoot, ".orch", "control-session.json"))
+	data, err := os.ReadFile(controlSessionPathForRepoID(repoID))
 	if err != nil {
 		t.Fatalf("failed to read stored control session: %v", err)
 	}
@@ -1619,9 +2441,10 @@ func readStoredOpenCodeControlSession(t *testing.T, projectRoot string) controlS
 
 func TestGetOrCreateOpenCodeControlSessionReusesExisting(t *testing.T) {
 	projectRoot := t.TempDir()
+	repoID := "project-ctx"
 	modelName := "openai/gpt-5.3-codex"
 	modelVariant := "xhigh"
-	writeStoredOpenCodeControlSession(t, projectRoot, "ses_existing", modelName, modelVariant)
+	writeStoredOpenCodeControlSession(t, repoID, "ses_existing", modelName, modelVariant)
 
 	var mu sync.Mutex
 	getCalls := 0
@@ -1661,6 +2484,7 @@ func TestGetOrCreateOpenCodeControlSessionReusesExisting(t *testing.T) {
 	defer ts.Close()
 
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	server.repos[repoID] = &RepoContext{RepoID: repoID, ProjectRoot: projectRoot}
 	port := getPortFromURL(t, ts.URL)
 	sessionID, _, err := server.getOrCreateOpenCodeControlSession(projectRoot, port, modelName, modelVariant)
 	if err != nil {
@@ -1669,7 +2493,7 @@ func TestGetOrCreateOpenCodeControlSessionReusesExisting(t *testing.T) {
 	if sessionID != "ses_existing" {
 		t.Fatalf("expected existing session to be reused, got %q", sessionID)
 	}
-	stored := readStoredOpenCodeControlSession(t, projectRoot)
+	stored := readStoredOpenCodeControlSession(t, repoID)
 	if stored.Port != port {
 		t.Fatalf("expected stored port %d after reuse, got %d", port, stored.Port)
 	}
@@ -1692,9 +2516,10 @@ func TestGetOrCreateOpenCodeControlSessionReusesExisting(t *testing.T) {
 
 func TestGetOrCreateOpenCodeControlSessionRecoversAfterServerRestart(t *testing.T) {
 	projectRoot := t.TempDir()
+	repoID := "project-ctx"
 	modelName := "openai/gpt-5.3-codex"
 	modelVariant := "xhigh"
-	writeStoredOpenCodeControlSession(t, projectRoot, "ses_stale", modelName, modelVariant)
+	writeStoredOpenCodeControlSession(t, repoID, "ses_stale", modelName, modelVariant)
 
 	var mu sync.Mutex
 	getCalls := 0
@@ -1754,6 +2579,7 @@ func TestGetOrCreateOpenCodeControlSessionRecoversAfterServerRestart(t *testing.
 	defer ts.Close()
 
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	server.repos[repoID] = &RepoContext{RepoID: repoID, ProjectRoot: projectRoot}
 	port := getPortFromURL(t, ts.URL)
 	sessionID, _, err := server.getOrCreateOpenCodeControlSession(projectRoot, port, modelName, modelVariant)
 	if err != nil {
@@ -1763,7 +2589,7 @@ func TestGetOrCreateOpenCodeControlSessionRecoversAfterServerRestart(t *testing.
 		t.Fatalf("expected recovered control session %q, got %q", "ses_control_new", sessionID)
 	}
 
-	stored := readStoredOpenCodeControlSession(t, projectRoot)
+	stored := readStoredOpenCodeControlSession(t, repoID)
 	if stored.SessionID != "ses_control_new" {
 		t.Fatalf("expected stored session ID to be updated to recovered ID, got %q", stored.SessionID)
 	}
@@ -1795,9 +2621,10 @@ func TestGetOrCreateOpenCodeControlSessionRecoversAfterServerRestart(t *testing.
 
 func TestGetOrCreateOpenCodeControlSessionCreatesWhenRecoveryFindsNoSession(t *testing.T) {
 	projectRoot := t.TempDir()
+	repoID := "project-ctx"
 	modelName := "openai/gpt-5.3-codex"
 	modelVariant := "xhigh"
-	writeStoredOpenCodeControlSession(t, projectRoot, "ses_stale", modelName, modelVariant)
+	writeStoredOpenCodeControlSession(t, repoID, "ses_stale", modelName, modelVariant)
 
 	var mu sync.Mutex
 	getCalls := 0
@@ -1877,6 +2704,7 @@ func TestGetOrCreateOpenCodeControlSessionCreatesWhenRecoveryFindsNoSession(t *t
 	defer ts.Close()
 
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	server.repos[repoID] = &RepoContext{RepoID: repoID, ProjectRoot: projectRoot}
 	port := getPortFromURL(t, ts.URL)
 	sessionID, _, err := server.getOrCreateOpenCodeControlSession(projectRoot, port, modelName, modelVariant)
 	if err != nil {
@@ -1893,7 +2721,7 @@ func TestGetOrCreateOpenCodeControlSessionCreatesWhenRecoveryFindsNoSession(t *t
 		t.Fatal("timed out waiting for initial control prompt request")
 	}
 
-	stored := readStoredOpenCodeControlSession(t, projectRoot)
+	stored := readStoredOpenCodeControlSession(t, repoID)
 	if stored.SessionID != "ses_brand_new" {
 		t.Fatalf("expected stored session ID to be updated to new ID, got %q", stored.SessionID)
 	}
@@ -1947,7 +2775,8 @@ func TestGetOrCreateOpenCodeControlSessionCreatesWhenRecoveryFindsNoSession(t *t
 
 func TestGetOrCreateOpenCodeControlSessionCreatesNewWhenStoredModelMismatches(t *testing.T) {
 	projectRoot := t.TempDir()
-	writeStoredOpenCodeControlSession(t, projectRoot, "ses_old", "anthropic/claude-opus-4-5", "high")
+	repoID := "project-ctx"
+	writeStoredOpenCodeControlSession(t, repoID, "ses_old", "anthropic/claude-opus-4-5", "high")
 
 	modelName := "openai/gpt-5.3-codex"
 	modelVariant := "xhigh"
@@ -1998,6 +2827,7 @@ func TestGetOrCreateOpenCodeControlSessionCreatesNewWhenStoredModelMismatches(t 
 	defer ts.Close()
 
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	server.repos[repoID] = &RepoContext{RepoID: repoID, ProjectRoot: projectRoot}
 	port := getPortFromURL(t, ts.URL)
 	sessionID, _, err := server.getOrCreateOpenCodeControlSession(projectRoot, port, modelName, modelVariant)
 	if err != nil {
@@ -2013,7 +2843,7 @@ func TestGetOrCreateOpenCodeControlSessionCreatesNewWhenStoredModelMismatches(t 
 		t.Fatal("timed out waiting for initial prompt on newly created session")
 	}
 
-	stored := readStoredOpenCodeControlSession(t, projectRoot)
+	stored := readStoredOpenCodeControlSession(t, repoID)
 	if stored.SessionID != "ses_fresh" {
 		t.Fatalf("expected stored session to be refreshed, got %q", stored.SessionID)
 	}
@@ -2036,6 +2866,7 @@ func TestGetOrCreateOpenCodeControlSessionCreatesNewWhenStoredModelMismatches(t 
 
 func TestResolvedControlModelAndVariantReachOpenCodeInitialPrompt(t *testing.T) {
 	projectRoot := t.TempDir()
+	repoID := "project-ctx"
 	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0755); err != nil {
 		t.Fatalf("failed to create .orch dir: %v", err)
 	}
@@ -2091,6 +2922,7 @@ opencode:
 	defer ts.Close()
 
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	server.repos[repoID] = &RepoContext{RepoID: repoID, ProjectRoot: projectRoot}
 	_, _, err = server.getOrCreateOpenCodeControlSession(projectRoot, getPortFromURL(t, ts.URL), modelName, modelVariant)
 	if err != nil {
 		t.Fatalf("getOrCreateOpenCodeControlSession() error = %v", err)
@@ -2123,9 +2955,10 @@ func TestRegisterRepoAPI(t *testing.T) {
 	}
 	defer server.Stop()
 
+	projectRoot := createGitRepoWithOrigin(t, "https://github.com/example/register-repo.git")
 	resp := sendProtoRequest(t, &orchpb.Request{
 		Request: &orchpb.Request_RegisterRepo{
-			RegisterRepo: &orchpb.RegisterRepoRequest{ProjectRoot: "/new/project/path"},
+			RegisterRepo: &orchpb.RegisterRepoRequest{ProjectRoot: projectRoot},
 		},
 	})
 
@@ -2141,48 +2974,67 @@ func TestRegisterRepoAPI(t *testing.T) {
 	}
 }
 
+func TestRegisterRepoAPIRejectsPathWithoutRemote(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_RegisterRepo{
+			RegisterRepo: &orchpb.RegisterRepoRequest{ProjectRoot: t.TempDir()},
+		},
+	})
+
+	if resp.Ok {
+		t.Fatal("expected register repo to fail for path without remote origin")
+	}
+	if !strings.Contains(resp.Error, "project identity required") {
+		t.Fatalf("expected project identity guidance, got: %s", resp.Error)
+	}
+}
+
 func TestDeriveRepoID(t *testing.T) {
-	t.Run("fallback produces basename-<8hex> for non-git path", func(t *testing.T) {
+	t.Run("returns empty for non-git path", func(t *testing.T) {
 		got := deriveRepoID("/tmp/not-a-git-repo/my-project")
-		pattern := regexp.MustCompile(`^my-project-[0-9a-f]{8}$`)
-		if !pattern.MatchString(got) {
-			t.Errorf("deriveRepoID for non-git path = %q, want format my-project-<8hex>", got)
+		if got != "" {
+			t.Errorf("deriveRepoID for non-git path = %q, want empty", got)
 		}
 	})
 
-	t.Run("never returns empty string", func(t *testing.T) {
-		testPaths := []string{
-			"/Users/test/repos/my-project",
-			"/tmp/some-path",
-			"/single",
-		}
-		for _, path := range testPaths {
-			got := deriveRepoID(path)
-			if got == "" {
-				t.Errorf("deriveRepoID(%q) returned empty string", path)
-			}
+	t.Run("returns repo id from git remote", func(t *testing.T) {
+		projectRoot := createGitRepoWithOrigin(t, "https://github.com/example/my-project.git")
+		if got := deriveRepoID(projectRoot); got != "example-my-project" {
+			t.Fatalf("deriveRepoID(%q) = %q, want %q", projectRoot, got, "example-my-project")
 		}
 	})
 
 	t.Run("handles path with trailing slash", func(t *testing.T) {
-		withSlash := deriveRepoID("/tmp/not-a-git-repo/another-project/")
-		withoutSlash := deriveRepoID("/tmp/not-a-git-repo/another-project")
+		projectRoot := createGitRepoWithOrigin(t, "https://github.com/example/another-project.git")
+		withSlash := deriveRepoID(projectRoot + string(os.PathSeparator))
+		withoutSlash := deriveRepoID(projectRoot)
 		if withSlash != withoutSlash {
 			t.Errorf("trailing slash should not change ID: %q != %q", withSlash, withoutSlash)
 		}
 	})
 
-	t.Run("different paths produce different IDs", func(t *testing.T) {
-		id1 := deriveRepoID("/path/to/project-a")
-		id2 := deriveRepoID("/path/to/project-b")
+	t.Run("different remotes produce different IDs", func(t *testing.T) {
+		id1 := deriveRepoID(createGitRepoWithOrigin(t, "https://github.com/example/project-a.git"))
+		id2 := deriveRepoID(createGitRepoWithOrigin(t, "https://github.com/example/project-b.git"))
 		if id1 == id2 {
-			t.Errorf("different paths should produce different IDs: %q == %q", id1, id2)
+			t.Errorf("different remotes should produce different IDs: %q == %q", id1, id2)
 		}
 	})
 
-	t.Run("same path produces same ID", func(t *testing.T) {
-		id1 := deriveRepoID("/path/to/my-project")
-		id2 := deriveRepoID("/path/to/my-project")
+	t.Run("same repo path produces same ID", func(t *testing.T) {
+		projectRoot := createGitRepoWithOrigin(t, "https://github.com/example/my-project.git")
+		id1 := deriveRepoID(projectRoot)
+		id2 := deriveRepoID(projectRoot)
 		if id1 != id2 {
 			t.Errorf("same path should produce same ID: %q != %q", id1, id2)
 		}
@@ -2190,21 +3042,17 @@ func TestDeriveRepoID(t *testing.T) {
 }
 
 func TestDeriveRepoIDNoBasenameCollision(t *testing.T) {
-	// Two repos at different paths but sharing the same basename
-	// must produce different IDs
-	idA := deriveRepoID("/work/client-a/orch")
-	idB := deriveRepoID("/work/client-b/orch")
+	idA := deriveRepoID(createGitRepoWithOrigin(t, "https://github.com/client-a/orch.git"))
+	idB := deriveRepoID(createGitRepoWithOrigin(t, "https://github.com/client-b/orch.git"))
 	if idA == idB {
-		t.Errorf("same-basename paths produced same ID: %q", idA)
+		t.Errorf("same-basename repos produced same ID: %q", idA)
 	}
 
-	// Both should match the orch-<8hex> format (basename-hash from xdg.RepoID)
-	pattern := regexp.MustCompile(`^orch-[0-9a-f]{8}$`)
-	if !pattern.MatchString(idA) {
-		t.Errorf("deriveRepoID(/work/client-a/orch) = %q, want format orch-<8hex>", idA)
+	if idA != "client-a-orch" {
+		t.Errorf("deriveRepoID(client-a/orch) = %q, want %q", idA, "client-a-orch")
 	}
-	if !pattern.MatchString(idB) {
-		t.Errorf("deriveRepoID(/work/client-b/orch) = %q, want format orch-<8hex>", idB)
+	if idB != "client-b-orch" {
+		t.Errorf("deriveRepoID(client-b/orch) = %q, want %q", idB, "client-b-orch")
 	}
 }
 
@@ -2215,7 +3063,7 @@ func TestListReposAPI(t *testing.T) {
 	st := &mockStore{runs: make(map[string]*model.Run), issues: make(map[string]*model.Issue)}
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
-	server.RegisterRepo("/test/project", st)
+	registerRepoContextForTest(t, server, testProjectID, testProjectRoot, st)
 	if err := server.Start(); err != nil {
 		t.Fatalf("failed to start server: %v", err)
 	}
@@ -2239,9 +3087,1505 @@ func TestListReposAPI(t *testing.T) {
 	}
 }
 
+func TestListRunsWithRequestContextProjectID(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			"ctx-issue/ctx-run": {
+				IssueID: "ctx-issue",
+				RunID:   "ctx-run",
+				Status:  model.StatusRunning,
+				Agent:   "opencode",
+				Branch:  "feature/ctx-run",
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.reposMu.Lock()
+	server.repos["project-ctx"] = &RepoContext{
+		RepoID:      "project-ctx",
+		ProjectRoot: "/srv/repos/orch",
+		Store:       st,
+	}
+	server.reposMu.Unlock()
+
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_ListRuns{
+			ListRuns: &orchpb.ListRunsRequest{
+				Context: &orchpb.RequestContext{ProjectId: "project-ctx"},
+				Limit:   10,
+			},
+		},
+	})
+
+	if !resp.Ok {
+		t.Fatalf("expected ok=true, got error: %s", resp.Error)
+	}
+	listResp := resp.GetListRuns()
+	if listResp == nil {
+		t.Fatal("expected ListRunsResponse")
+	}
+	if len(listResp.Runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(listResp.Runs))
+	}
+	if listResp.Runs[0].IssueId != "ctx-issue" || listResp.Runs[0].RunId != "ctx-run" {
+		t.Fatalf("unexpected run in response: issue=%q run=%q", listResp.Runs[0].IssueId, listResp.Runs[0].RunId)
+	}
+}
+
+func TestListRunsWithoutProjectContextAggregatesAcrossStores(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	newer := time.Now()
+	older := newer.Add(-1 * time.Hour)
+
+	stA := &mockStore{
+		runs: map[string]*model.Run{
+			"issue-a/run-a": {
+				IssueID:      "issue-a",
+				RunID:        "run-a",
+				Status:       model.StatusRunning,
+				UpdatedAt:    older,
+				StartedAt:    older,
+				Agent:        "opencode",
+				WorktreePath: "/tmp/a",
+			},
+		},
+		issues: map[string]*model.Issue{
+			"issue-a": {ID: "issue-a", Status: model.IssueStatusOpen, Summary: "A"},
+		},
+	}
+
+	stB := &mockStore{
+		runs: map[string]*model.Run{
+			"issue-b/run-b": {
+				IssueID:      "issue-b",
+				RunID:        "run-b",
+				Status:       model.StatusRunning,
+				UpdatedAt:    newer,
+				StartedAt:    newer,
+				Agent:        "opencode",
+				WorktreePath: "/tmp/b",
+			},
+		},
+		issues: map[string]*model.Issue{
+			"issue-b": {ID: "issue-b", Status: model.IssueStatusOpen, Summary: "B"},
+		},
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.reposMu.Lock()
+	server.repos["project-a"] = &RepoContext{RepoID: "project-a", ProjectRoot: "/srv/repos/a", Store: stA}
+	server.repos["project-b"] = &RepoContext{RepoID: "project-b", ProjectRoot: "/srv/repos/b", Store: stB}
+	server.reposMu.Unlock()
+
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_ListRuns{
+			ListRuns: &orchpb.ListRunsRequest{
+				Context: &orchpb.RequestContext{},
+				Limit:   10,
+			},
+		},
+	})
+
+	if !resp.Ok {
+		t.Fatalf("expected ok=true, got error: %s", resp.Error)
+	}
+	listResp := resp.GetListRuns()
+	if listResp == nil {
+		t.Fatal("expected ListRunsResponse")
+	}
+	if len(listResp.Runs) != 2 {
+		t.Fatalf("expected 2 runs from aggregate listing, got %d", len(listResp.Runs))
+	}
+	if listResp.Runs[0].IssueId != "issue-b" || listResp.Runs[0].RunId != "run-b" {
+		t.Fatalf("expected newest run first, got issue=%q run=%q", listResp.Runs[0].IssueId, listResp.Runs[0].RunId)
+	}
+}
+
+func TestGetConfigWithUnknownProjectContextDoesNotFallbackToEnv(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	t.Setenv("ORCH_PROJECT", "should-not-be-used")
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_GetConfig{
+			GetConfig: &orchpb.GetConfigRequest{
+				Context: &orchpb.RequestContext{ProjectId: "missing-project"},
+			},
+		},
+	})
+
+	if resp.Ok {
+		t.Fatal("expected error response for unknown project context")
+	}
+	if !strings.Contains(resp.Error, "unknown project_id") {
+		t.Fatalf("expected unknown project_id error, got: %s", resp.Error)
+	}
+}
+
+func TestListIssuesWithoutProjectContextAggregatesAcrossStores(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	st := &mockStore{
+		runs: make(map[string]*model.Run),
+		issues: map[string]*model.Issue{
+			"issue-1": {
+				ID:     "issue-1",
+				Title:  "Issue 1",
+				Status: model.IssueStatusOpen,
+			},
+		},
+	}
+
+	server := newTestServer(t, st)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_ListIssues{
+			ListIssues: &orchpb.ListIssuesRequest{Context: &orchpb.RequestContext{}},
+		},
+	})
+
+	if !resp.Ok {
+		t.Fatalf("expected ok response, got error: %s", resp.Error)
+	}
+	listResp := resp.GetListIssues()
+	if listResp == nil {
+		t.Fatal("expected ListIssuesResponse")
+	}
+	if len(listResp.Issues) != 1 || listResp.Issues[0].Id != "issue-1" {
+		t.Fatalf("expected aggregate issue listing, got %#v", listResp.Issues)
+	}
+}
+
+func TestListIssuesUnknownProjectContextReturnsProjectScopedError(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	st := &mockStore{
+		runs:   make(map[string]*model.Run),
+		issues: make(map[string]*model.Issue),
+	}
+
+	server := newTestServer(t, st)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_ListIssues{
+			ListIssues: &orchpb.ListIssuesRequest{Context: &orchpb.RequestContext{ProjectId: "missing-project"}},
+		},
+	})
+
+	if resp.Ok {
+		t.Fatalf("expected error response for unknown project context")
+	}
+	expected := "no store available for project_id \"missing-project\" (register daemon project mapping)"
+	if resp.Error != expected {
+		t.Fatalf("expected %q, got %q", expected, resp.Error)
+	}
+}
+
+func TestGetRunWithoutProjectContextAggregatesAcrossStores(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	stA := &mockStore{
+		runs:   map[string]*model.Run{},
+		issues: map[string]*model.Issue{},
+	}
+	stB := &mockStore{
+		runs: map[string]*model.Run{
+			"agg-issue#agg-run": {
+				IssueID:      "agg-issue",
+				RunID:        "agg-run",
+				Status:       model.StatusRunning,
+				UpdatedAt:    time.Now(),
+				WorktreePath: "/tmp/agg",
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.reposMu.Lock()
+	server.repos["project-a"] = &RepoContext{RepoID: "project-a", ProjectRoot: "/srv/repos/a", Store: stA}
+	server.repos["project-b"] = &RepoContext{RepoID: "project-b", ProjectRoot: "/srv/repos/b", Store: stB}
+	server.reposMu.Unlock()
+
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_GetRun{
+			GetRun: &orchpb.GetRunRequest{
+				IssueId: "agg-issue",
+				RunId:   "agg-run",
+				Context: &orchpb.RequestContext{},
+			},
+		},
+	})
+
+	if !resp.Ok {
+		t.Fatalf("expected ok response, got error: %s", resp.Error)
+	}
+	getResp := resp.GetGetRun()
+	if getResp == nil || getResp.Run == nil {
+		t.Fatal("expected GetRun response payload")
+	}
+	if getResp.Run.IssueId != "agg-issue" || getResp.Run.RunId != "agg-run" {
+		t.Fatalf("unexpected run payload: issue=%q run=%q", getResp.Run.IssueId, getResp.Run.RunId)
+	}
+}
+
+func TestGetIssueWithoutProjectContextAggregatesAcrossStores(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	stA := &mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}}
+	stB := &mockStore{
+		runs: map[string]*model.Run{},
+		issues: map[string]*model.Issue{
+			"agg-issue": {
+				ID:         "agg-issue",
+				Title:      "Aggregate issue",
+				Status:     model.IssueStatusOpen,
+				ModifiedAt: time.Now(),
+			},
+		},
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.reposMu.Lock()
+	server.repos["project-a"] = &RepoContext{RepoID: "project-a", ProjectRoot: "/srv/repos/a", Store: stA}
+	server.repos["project-b"] = &RepoContext{RepoID: "project-b", ProjectRoot: "/srv/repos/b", Store: stB}
+	server.reposMu.Unlock()
+
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_GetIssue{
+			GetIssue: &orchpb.GetIssueRequest{
+				IssueId: "agg-issue",
+				Context: &orchpb.RequestContext{},
+			},
+		},
+	})
+
+	if !resp.Ok {
+		t.Fatalf("expected ok response, got error: %s", resp.Error)
+	}
+	getResp := resp.GetGetIssue()
+	if getResp == nil || getResp.Issue == nil {
+		t.Fatal("expected GetIssue response payload")
+	}
+	if getResp.Issue.Id != "agg-issue" {
+		t.Fatalf("unexpected issue id: %q", getResp.Issue.Id)
+	}
+}
+
+func TestGetRunByShortIDWithoutProjectContextAggregatesAcrossStores(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	stA := &mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}}
+	stB := &mockStore{
+		runs: map[string]*model.Run{
+			"agg-short#run-one": {
+				IssueID:      "agg-short",
+				RunID:        "run-one",
+				Status:       model.StatusRunning,
+				UpdatedAt:    time.Now(),
+				WorktreePath: "/tmp/agg-short",
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	runShortID := model.GenerateShortID("agg-short", "run-one")
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.reposMu.Lock()
+	server.repos["project-a"] = &RepoContext{RepoID: "project-a", ProjectRoot: "/srv/repos/a", Store: stA}
+	server.repos["project-b"] = &RepoContext{RepoID: "project-b", ProjectRoot: "/srv/repos/b", Store: stB}
+	server.reposMu.Unlock()
+
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_GetRunByShortId{
+			GetRunByShortId: &orchpb.GetRunByShortIDRequest{
+				ShortId: runShortID,
+				Context: &orchpb.RequestContext{},
+			},
+		},
+	})
+
+	if !resp.Ok {
+		t.Fatalf("expected ok response, got error: %s", resp.Error)
+	}
+	getResp := resp.GetGetRunByShortId()
+	if getResp == nil || getResp.Run == nil {
+		t.Fatal("expected GetRunByShortID response payload")
+	}
+	if getResp.Run.IssueId != "agg-short" || getResp.Run.RunId != "run-one" {
+		t.Fatalf("unexpected run payload: issue=%q run=%q", getResp.Run.IssueId, getResp.Run.RunId)
+	}
+}
+
+func TestGetAttachInfoWithoutProjectContextAggregatesAcrossStores(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	stA := &mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}}
+	stB := &mockStore{
+		runs: map[string]*model.Run{
+			"attach-issue#attach-run": {
+				IssueID:           "attach-issue",
+				RunID:             "attach-run",
+				Status:            model.StatusRunning,
+				UpdatedAt:         time.Now(),
+				WorktreePath:      "/tmp/attach",
+				Agent:             "opencode",
+				ServerPort:        7777,
+				OpenCodeSessionID: "session-attach",
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.reposMu.Lock()
+	server.repos["project-a"] = &RepoContext{RepoID: "project-a", ProjectRoot: "/srv/repos/a", Store: stA}
+	server.repos["project-b"] = &RepoContext{RepoID: "project-b", ProjectRoot: "/srv/repos/b", Store: stB}
+	server.reposMu.Unlock()
+
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_GetAttachInfo{
+			GetAttachInfo: &orchpb.GetAttachInfoRequest{
+				IssueId: "attach-issue",
+				RunId:   "attach-run",
+				Context: &orchpb.RequestContext{},
+			},
+		},
+	})
+
+	if !resp.Ok {
+		t.Fatalf("expected ok response, got error: %s", resp.Error)
+	}
+	attachResp := resp.GetGetAttachInfo()
+	if attachResp == nil {
+		t.Fatal("expected GetAttachInfo response payload")
+	}
+	if attachResp.IssueId != "attach-issue" || attachResp.RunId != "attach-run" {
+		t.Fatalf("unexpected attach payload: issue=%q run=%q", attachResp.IssueId, attachResp.RunId)
+	}
+}
+
+func TestGetAttachInfoByShortIDWithoutProjectContextAggregatesAcrossStores(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	stA := &mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}}
+	stB := &mockStore{
+		runs: map[string]*model.Run{
+			"attach-short#attach-run": {
+				IssueID:           "attach-short",
+				RunID:             "attach-run",
+				Status:            model.StatusRunning,
+				UpdatedAt:         time.Now(),
+				WorktreePath:      "/tmp/attach-short",
+				Agent:             "opencode",
+				ServerPort:        7777,
+				OpenCodeSessionID: "session-short",
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	shortID := model.GenerateShortID("attach-short", "attach-run")
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.reposMu.Lock()
+	server.repos["project-a"] = &RepoContext{RepoID: "project-a", ProjectRoot: "/srv/repos/a", Store: stA}
+	server.repos["project-b"] = &RepoContext{RepoID: "project-b", ProjectRoot: "/srv/repos/b", Store: stB}
+	server.reposMu.Unlock()
+
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_GetAttachInfo{
+			GetAttachInfo: &orchpb.GetAttachInfoRequest{
+				ShortId: shortID,
+				Context: &orchpb.RequestContext{},
+			},
+		},
+	})
+
+	if !resp.Ok {
+		t.Fatalf("expected ok response, got error: %s", resp.Error)
+	}
+	attachResp := resp.GetGetAttachInfo()
+	if attachResp == nil {
+		t.Fatal("expected GetAttachInfo response payload")
+	}
+	if attachResp.IssueId != "attach-short" || attachResp.RunId != "attach-run" {
+		t.Fatalf("unexpected attach payload: issue=%q run=%q", attachResp.IssueId, attachResp.RunId)
+	}
+}
+
+func TestCaptureSessionWithoutProjectContextAggregatesAcrossStores(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	stA := &mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}}
+	stB := &mockStore{
+		runs: map[string]*model.Run{
+			"capture-issue#capture-run": {
+				IssueID:      "capture-issue",
+				RunID:        "capture-run",
+				Status:       model.StatusRunning,
+				UpdatedAt:    time.Now(),
+				WorktreePath: "/tmp/capture",
+				Agent:        "custom",
+				Multiplexer:  "tmux",
+				SessionName:  "capture-session",
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.reposMu.Lock()
+	server.repos["project-a"] = &RepoContext{RepoID: "project-a", ProjectRoot: "/srv/repos/a", Store: stA}
+	server.repos["project-b"] = &RepoContext{RepoID: "project-b", ProjectRoot: "/srv/repos/b", Store: stB}
+	server.reposMu.Unlock()
+
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	prevCaptureMux := getCaptureMultiplexerForType
+	getCaptureMultiplexerForType = func(muxType multiplexer.Type) captureMultiplexer {
+		return &mockCaptureMux{hasSession: true, content: "captured text"}
+	}
+	defer func() { getCaptureMultiplexerForType = prevCaptureMux }()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_CaptureSession{
+			CaptureSession: &orchpb.CaptureSessionRequest{
+				IssueId: "capture-issue",
+				RunId:   "capture-run",
+				Context: &orchpb.RequestContext{},
+			},
+		},
+	})
+
+	if !resp.Ok {
+		t.Fatalf("expected ok response, got error: %s", resp.Error)
+	}
+	captureResp := resp.GetCaptureSession()
+	if captureResp == nil {
+		t.Fatal("expected CaptureSession response payload")
+	}
+	if captureResp.Source != "tmux" {
+		t.Fatalf("expected capture source tmux, got %q", captureResp.Source)
+	}
+}
+
+func TestCaptureSessionRemoteTargetFailsClearly(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			"capture-remote#run-remote": {
+				IssueID:      "capture-remote",
+				RunID:        "run-remote",
+				Status:       model.StatusRunning,
+				UpdatedAt:    time.Now(),
+				WorktreePath: "/tmp/capture-remote",
+				Agent:        "custom",
+				Multiplexer:  "tmux",
+				TargetHost:   "mac-host",
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.reposMu.Lock()
+	server.repos["project-remote"] = &RepoContext{RepoID: "project-remote", ProjectRoot: "/srv/repos/remote", Store: st}
+	server.reposMu.Unlock()
+
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_CaptureSession{
+			CaptureSession: &orchpb.CaptureSessionRequest{
+				IssueId: "capture-remote",
+				RunId:   "run-remote",
+				Context: &orchpb.RequestContext{},
+			},
+		},
+	})
+
+	if resp.Ok {
+		t.Fatal("expected capture to fail for remote target run")
+	}
+	if !strings.Contains(resp.Error, "remote host") {
+		t.Fatalf("unexpected error: %s", resp.Error)
+	}
+}
+
+func TestGetDiffStatsWithoutProjectContextAggregatesAcrossStores(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	stA := &mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}}
+	stB := &mockStore{
+		runs: map[string]*model.Run{
+			"diffstats-issue#diffstats-run": {
+				IssueID:      "diffstats-issue",
+				RunID:        "diffstats-run",
+				Status:       model.StatusRunning,
+				UpdatedAt:    time.Now(),
+				WorktreePath: "/tmp/diffstats-missing",
+				Branch:       "feature/diffstats",
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.reposMu.Lock()
+	server.repos["project-a"] = &RepoContext{RepoID: "project-a", ProjectRoot: "/srv/repos/a", Store: stA}
+	server.repos["project-b"] = &RepoContext{RepoID: "project-b", ProjectRoot: "/srv/repos/b", Store: stB}
+	server.reposMu.Unlock()
+
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_GetDiffStats{
+			GetDiffStats: &orchpb.GetDiffStatsRequest{
+				IssueId: "diffstats-issue",
+				RunId:   "diffstats-run",
+				Context: &orchpb.RequestContext{},
+			},
+		},
+	})
+
+	if !resp.Ok {
+		t.Fatalf("expected ok response, got error: %s", resp.Error)
+	}
+	statsResp := resp.GetGetDiffStats()
+	if statsResp == nil || statsResp.DiffStats == nil {
+		t.Fatal("expected GetDiffStats response payload")
+	}
+}
+
+func TestGetBranchStateWithoutProjectContextAggregatesAcrossStores(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	stA := &mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}}
+	stB := &mockStore{
+		runs: map[string]*model.Run{
+			"branch-issue#branch-run": {
+				IssueID:      "branch-issue",
+				RunID:        "branch-run",
+				Status:       model.StatusRunning,
+				UpdatedAt:    time.Now(),
+				WorktreePath: "/tmp/branch-missing",
+				Branch:       "feature/branch",
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.reposMu.Lock()
+	server.repos["project-a"] = &RepoContext{RepoID: "project-a", ProjectRoot: "/srv/repos/a", Store: stA}
+	server.repos["project-b"] = &RepoContext{RepoID: "project-b", ProjectRoot: "/srv/repos/b", Store: stB}
+	server.reposMu.Unlock()
+
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_GetBranchState{
+			GetBranchState: &orchpb.GetBranchStateRequest{
+				IssueId: "branch-issue",
+				RunId:   "branch-run",
+				Context: &orchpb.RequestContext{},
+			},
+		},
+	})
+
+	if !resp.Ok {
+		t.Fatalf("expected ok response, got error: %s", resp.Error)
+	}
+	stateResp := resp.GetGetBranchState()
+	if stateResp == nil {
+		t.Fatal("expected GetBranchState response payload")
+	}
+}
+
+func TestGetDiffWithoutProjectContextAggregatesAcrossStores(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	stA := &mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}}
+	stB := &mockStore{
+		runs: map[string]*model.Run{
+			"diff-issue#diff-run": {
+				IssueID:      "diff-issue",
+				RunID:        "diff-run",
+				Status:       model.StatusRunning,
+				UpdatedAt:    time.Now(),
+				WorktreePath: "/tmp/diff-missing",
+				Branch:       "feature/diff",
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.reposMu.Lock()
+	server.repos["project-a"] = &RepoContext{RepoID: "project-a", ProjectRoot: "/srv/repos/a", Store: stA}
+	server.repos["project-b"] = &RepoContext{RepoID: "project-b", ProjectRoot: "/srv/repos/b", Store: stB}
+	server.reposMu.Unlock()
+
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_GetDiff{
+			GetDiff: &orchpb.GetDiffRequest{
+				IssueId: "diff-issue",
+				RunId:   "diff-run",
+				Context: &orchpb.RequestContext{},
+			},
+		},
+	})
+
+	if !resp.Ok {
+		t.Fatalf("expected ok response, got error: %s", resp.Error)
+	}
+	diffResp := resp.GetGetDiff()
+	if diffResp == nil {
+		t.Fatal("expected GetDiff response payload")
+	}
+}
+
+func TestReadAgentPromptWithoutProjectContextAggregatesAcrossStores(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	stA := &mockStoreWithPrompt{
+		mockStore: mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}},
+		prompts:   map[string]string{},
+	}
+	stB := &mockStoreWithPrompt{
+		mockStore: mockStore{
+			runs: map[string]*model.Run{
+				"prompt-issue#prompt-run": {
+					IssueID:      "prompt-issue",
+					RunID:        "prompt-run",
+					Status:       model.StatusRunning,
+					UpdatedAt:    time.Now(),
+					WorktreePath: "/tmp/prompt",
+				},
+			},
+			issues: map[string]*model.Issue{},
+		},
+		prompts: map[string]string{
+			"prompt-issue#prompt-run": "hello from aggregate prompt",
+		},
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.reposMu.Lock()
+	server.repos["project-a"] = &RepoContext{RepoID: "project-a", ProjectRoot: "/srv/repos/a", Store: stA}
+	server.repos["project-b"] = &RepoContext{RepoID: "project-b", ProjectRoot: "/srv/repos/b", Store: stB}
+	server.reposMu.Unlock()
+
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_ReadAgentPrompt{
+			ReadAgentPrompt: &orchpb.ReadAgentPromptRequest{
+				IssueId: "prompt-issue",
+				RunId:   "prompt-run",
+				Context: &orchpb.RequestContext{},
+			},
+		},
+	})
+
+	if !resp.Ok {
+		t.Fatalf("expected ok response, got error: %s", resp.Error)
+	}
+	promptResp := resp.GetReadAgentPrompt()
+	if promptResp == nil {
+		t.Fatal("expected ReadAgentPrompt response payload")
+	}
+	if promptResp.Content != "hello from aggregate prompt" {
+		t.Fatalf("unexpected prompt content: %q", promptResp.Content)
+	}
+}
+
+func TestValidateIssueFilesWithoutProjectContextAggregatesAcrossStores(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	stA := &mockStoreWithValidation{
+		mockStore:        mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}},
+		validationResult: &store.ValidationResult{Total: 2, Valid: 2},
+	}
+	stB := &mockStoreWithValidation{
+		mockStore: mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}},
+		validationResult: &store.ValidationResult{
+			Total: 1,
+			Valid: 0,
+			Errors: []*store.ValidationResultItem{
+				{
+					File:    "issues/bad.md",
+					IssueID: "bad-issue",
+					Errors:  []store.ValidationIssue{{Code: "missing-title", Message: "title required", Line: 3, Level: "error"}},
+				},
+			},
+			Duplicates: []*store.DuplicateID{{ID: "dup-1", Files: []string{"issues/a.md", "issues/b.md"}}},
+		},
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.reposMu.Lock()
+	server.repos["project-a"] = &RepoContext{RepoID: "project-a", ProjectRoot: "/srv/repos/a", Store: stA}
+	server.repos["project-b"] = &RepoContext{RepoID: "project-b", ProjectRoot: "/srv/repos/b", Store: stB}
+	server.reposMu.Unlock()
+
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_ValidateIssueFiles{
+			ValidateIssueFiles: &orchpb.ValidateIssueFilesRequest{
+				IssueId: "",
+				Context: &orchpb.RequestContext{},
+			},
+		},
+	})
+
+	if !resp.Ok {
+		t.Fatalf("expected ok response, got error: %s", resp.Error)
+	}
+	validateResp := resp.GetValidateIssueFiles()
+	if validateResp == nil {
+		t.Fatal("expected ValidateIssueFiles response payload")
+	}
+	if validateResp.Total != 3 || validateResp.Valid != 2 {
+		t.Fatalf("unexpected aggregate totals: total=%d valid=%d", validateResp.Total, validateResp.Valid)
+	}
+	if len(validateResp.Errors) != 1 {
+		t.Fatalf("expected one validation error item, got %d", len(validateResp.Errors))
+	}
+	if len(validateResp.Duplicates) != 1 {
+		t.Fatalf("expected one duplicate item, got %d", len(validateResp.Duplicates))
+	}
+}
+
+func TestProtoStartRunWithoutProjectRootDoesNotFallbackToEnv(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	t.Setenv("ORCH_PROJECT", "should-not-be-used")
+
+	st := &mockStore{
+		runs: make(map[string]*model.Run),
+		issues: map[string]*model.Issue{
+			"test-issue": {
+				ID:     "test-issue",
+				Title:  "Test issue",
+				Status: model.IssueStatusOpen,
+				Path:   "/test/issues/test-issue.md",
+			},
+		},
+	}
+
+	server := newTestServer(t, st)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_StartRun{
+			StartRun: &orchpb.StartRunRequest{
+				IssueId: "test-issue",
+				DryRun:  true,
+				Context: &orchpb.RequestContext{},
+			},
+		},
+	})
+
+	if resp.Ok {
+		t.Fatal("expected error response")
+	}
+	if resp.Error != "project_id required" {
+		t.Fatalf("expected project_id required, got: %s", resp.Error)
+	}
+}
+
+func TestProtoContinueRunWithoutProjectRootDoesNotFallbackToEnv(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	t.Setenv("ORCH_PROJECT", "should-not-be-used")
+
+	st := &mockStore{
+		runs:   make(map[string]*model.Run),
+		issues: make(map[string]*model.Issue),
+	}
+
+	server := newTestServer(t, st)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_ContinueRun{
+			ContinueRun: &orchpb.ContinueRunRequest{
+				IssueId: "test-issue",
+				Context: &orchpb.RequestContext{},
+			},
+		},
+	})
+
+	if resp.Ok {
+		t.Fatal("expected error response")
+	}
+	if resp.Error != "project_id required" {
+		t.Fatalf("expected project_id required, got: %s", resp.Error)
+	}
+}
+
+func TestProtoRunRequestsDoNotRouteByProjectRootWithoutProjectContext(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	st := &mockStore{
+		runs: map[string]*model.Run{},
+		issues: map[string]*model.Issue{
+			"test-issue": {
+				ID:     "test-issue",
+				Title:  "Test issue",
+				Status: model.IssueStatusOpen,
+				Path:   "/test/issues/test-issue.md",
+			},
+		},
+	}
+
+	server := newTestServer(t, st)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	tests := []struct {
+		name string
+		req  *orchpb.Request
+	}{
+		{
+			name: "start-run",
+			req: &orchpb.Request{
+				Request: &orchpb.Request_StartRun{
+					StartRun: &orchpb.StartRunRequest{
+						IssueId: "test-issue",
+						Context: &orchpb.RequestContext{},
+					},
+				},
+			},
+		},
+		{
+			name: "continue-run",
+			req: &orchpb.Request{
+				Request: &orchpb.Request_ContinueRun{
+					ContinueRun: &orchpb.ContinueRunRequest{
+						IssueId: "test-issue",
+						Context: &orchpb.RequestContext{},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := sendProtoRequest(t, tt.req)
+			if resp.Ok {
+				t.Fatal("expected error response")
+			}
+			if resp.Error != "project_id required" {
+				t.Fatalf("expected project_id required, got %q", resp.Error)
+			}
+		})
+	}
+}
+
+func TestGetConfigWithoutProjectRootDoesNotFallbackToEnv(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	t.Setenv("ORCH_PROJECT", "should-not-be-used")
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_GetConfig{
+			GetConfig: &orchpb.GetConfigRequest{Context: &orchpb.RequestContext{}},
+		},
+	})
+
+	if resp.Ok {
+		t.Fatal("expected error response")
+	}
+	if resp.Error != "project_id required" {
+		t.Fatalf("expected project_id required, got: %s", resp.Error)
+	}
+}
+
+func TestGetConfigWithRequestContextProjectID(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	projectRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0o755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	configYAML := []byte("agent: opencode\nmodel: example/model\n")
+	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), configYAML, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	registerRepoContextForTest(t, server, "project-ctx", projectRoot, nil)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_GetConfig{
+			GetConfig: &orchpb.GetConfigRequest{Context: &orchpb.RequestContext{ProjectId: "project-ctx"}},
+		},
+	})
+
+	if !resp.Ok {
+		t.Fatalf("expected ok response, got error: %s", resp.Error)
+	}
+	cfgResp := resp.GetGetConfig()
+	if cfgResp == nil {
+		t.Fatal("expected GetConfig response payload")
+	}
+	if cfgResp.Agent != "opencode" {
+		t.Fatalf("expected agent opencode, got %q", cfgResp.Agent)
+	}
+	if cfgResp.Model != "example/model" {
+		t.Fatalf("expected model example/model, got %q", cfgResp.Model)
+	}
+}
+
+func TestGetControlAgentConfigWithRequestContextProjectID(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	projectRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0o755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	configYAML := []byte("agent: opencode\ncontrol_agent: opencode\ncontrol_model: example/control\ncontrol_model_variant: fast\n")
+	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), configYAML, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	st := &mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}}
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	registerRepoContextForTest(t, server, "project-ctx", projectRoot, st)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_GetControlAgentConfig{
+			GetControlAgentConfig: &orchpb.GetControlAgentConfigRequest{Context: &orchpb.RequestContext{ProjectId: "project-ctx"}},
+		},
+	})
+
+	if !resp.Ok {
+		t.Fatalf("expected ok response, got error: %s", resp.Error)
+	}
+	cfgResp := resp.GetGetControlAgentConfig()
+	if cfgResp == nil {
+		t.Fatal("expected GetControlAgentConfig response payload")
+	}
+	if cfgResp.Agent != "opencode" {
+		t.Fatalf("expected agent opencode, got %q", cfgResp.Agent)
+	}
+	if cfgResp.Model != "example/control" {
+		t.Fatalf("expected control model example/control, got %q", cfgResp.Model)
+	}
+	if cfgResp.ModelVariant != "fast" {
+		t.Fatalf("expected control model variant fast, got %q", cfgResp.ModelVariant)
+	}
+	if strings.TrimSpace(cfgResp.PromptContent) == "" {
+		t.Fatal("expected non-empty prompt content")
+	}
+}
+
+func TestEnsureOpenCodeServerWithoutProjectContextDoesNotFallbackToEnv(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	t.Setenv("ORCH_PROJECT", "should-not-be-used")
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_EnsureOpencodeServer{
+			EnsureOpencodeServer: &orchpb.EnsureOpenCodeServerRequest{Context: &orchpb.RequestContext{}},
+		},
+	})
+
+	if resp.Ok {
+		t.Fatal("expected error response")
+	}
+	if resp.Error != "project_id required" {
+		t.Fatalf("expected project_id required, got: %s", resp.Error)
+	}
+}
+
+func TestEnsureOpenCodeServerWithUnknownProjectContextDoesNotFallbackToEnv(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	t.Setenv("ORCH_PROJECT", "should-not-be-used")
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_EnsureOpencodeServer{
+			EnsureOpencodeServer: &orchpb.EnsureOpenCodeServerRequest{
+				Context: &orchpb.RequestContext{ProjectId: "missing-project"},
+			},
+		},
+	})
+
+	if resp.Ok {
+		t.Fatal("expected error response")
+	}
+	expected := `unknown project_id "missing-project" (register daemon project mapping)`
+	if resp.Error != expected {
+		t.Fatalf("expected %q, got %q", expected, resp.Error)
+	}
+}
+
+func TestGetIssueWithRequestContextProjectID(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	st := &mockStore{
+		runs: map[string]*model.Run{},
+		issues: map[string]*model.Issue{
+			"ctx-issue": {
+				ID:     "ctx-issue",
+				Title:  "Context issue",
+				Status: model.IssueStatusOpen,
+				Path:   "/srv/repos/orch/issues/ctx-issue.md",
+			},
+		},
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.reposMu.Lock()
+	server.repos["project-ctx"] = &RepoContext{
+		RepoID:      "project-ctx",
+		ProjectRoot: "/srv/repos/orch",
+		Store:       st,
+	}
+	server.reposMu.Unlock()
+
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_GetIssue{
+			GetIssue: &orchpb.GetIssueRequest{
+				IssueId: "ctx-issue",
+				Context: &orchpb.RequestContext{ProjectId: "project-ctx"},
+			},
+		},
+	})
+
+	if !resp.Ok {
+		t.Fatalf("expected ok=true, got error: %s", resp.Error)
+	}
+
+	getResp := resp.GetGetIssue()
+	if getResp == nil || getResp.Issue == nil {
+		t.Fatal("expected GetIssue response with issue")
+	}
+	if getResp.Issue.Id != "ctx-issue" {
+		t.Fatalf("expected issue id ctx-issue, got %q", getResp.Issue.Id)
+	}
+}
+
+func TestContextEnabledHandlersUnknownProjectReturnProjectScopedStoreError(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	t.Setenv("ORCH_PROJECT", "should-not-be-used")
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	missing := &orchpb.RequestContext{ProjectId: "missing-project"}
+	tests := []struct {
+		name string
+		req  *orchpb.Request
+	}{
+		{
+			name: "get-run",
+			req:  &orchpb.Request{Request: &orchpb.Request_GetRun{GetRun: &orchpb.GetRunRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "stop-run",
+			req:  &orchpb.Request{Request: &orchpb.Request_StopRun{StopRun: &orchpb.StopRunRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "resolve-run",
+			req:  &orchpb.Request{Request: &orchpb.Request_ResolveRun{ResolveRun: &orchpb.ResolveRunRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "get-issue",
+			req:  &orchpb.Request{Request: &orchpb.Request_GetIssue{GetIssue: &orchpb.GetIssueRequest{IssueId: "i", Context: missing}}},
+		},
+		{
+			name: "create-issue",
+			req:  &orchpb.Request{Request: &orchpb.Request_CreateIssue{CreateIssue: &orchpb.CreateIssueRequest{IssueId: "i", Title: "title", Body: "body", Context: missing}}},
+		},
+		{
+			name: "close-issue",
+			req:  &orchpb.Request{Request: &orchpb.Request_CloseIssue{CloseIssue: &orchpb.CloseIssueRequest{IssueId: "i", Context: missing}}},
+		},
+		{
+			name: "get-run-by-short-id",
+			req:  &orchpb.Request{Request: &orchpb.Request_GetRunByShortId{GetRunByShortId: &orchpb.GetRunByShortIDRequest{ShortId: "abc", Context: missing}}},
+		},
+		{
+			name: "resolve-issue",
+			req:  &orchpb.Request{Request: &orchpb.Request_ResolveIssue{ResolveIssue: &orchpb.ResolveIssueRequest{IssueId: "i", Context: missing}}},
+		},
+		{
+			name: "delete-run",
+			req:  &orchpb.Request{Request: &orchpb.Request_DeleteRun{DeleteRun: &orchpb.DeleteRunRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "update-issue",
+			req:  &orchpb.Request{Request: &orchpb.Request_UpdateIssue{UpdateIssue: &orchpb.UpdateIssueRequest{IssueId: "i", Title: "new", Context: missing}}},
+		},
+		{
+			name: "get-attach-info",
+			req:  &orchpb.Request{Request: &orchpb.Request_GetAttachInfo{GetAttachInfo: &orchpb.GetAttachInfoRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "capture-session",
+			req:  &orchpb.Request{Request: &orchpb.Request_CaptureSession{CaptureSession: &orchpb.CaptureSessionRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "send-message",
+			req:  &orchpb.Request{Request: &orchpb.Request_SendMessage{SendMessage: &orchpb.SendMessageRequest{IssueId: "i", RunId: "r", Message: "hi", Context: missing}}},
+		},
+		{
+			name: "get-diff-stats",
+			req:  &orchpb.Request{Request: &orchpb.Request_GetDiffStats{GetDiffStats: &orchpb.GetDiffStatsRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "get-branch-state",
+			req:  &orchpb.Request{Request: &orchpb.Request_GetBranchState{GetBranchState: &orchpb.GetBranchStateRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "get-diff",
+			req:  &orchpb.Request{Request: &orchpb.Request_GetDiff{GetDiff: &orchpb.GetDiffRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "append-event",
+			req:  &orchpb.Request{Request: &orchpb.Request_AppendEvent{AppendEvent: &orchpb.AppendEventRequest{IssueId: "i", RunId: "r", EventType: "status", EventName: "running", Context: missing}}},
+		},
+		{
+			name: "validate-issue-files",
+			req:  &orchpb.Request{Request: &orchpb.Request_ValidateIssueFiles{ValidateIssueFiles: &orchpb.ValidateIssueFilesRequest{IssueId: "i", Context: missing}}},
+		},
+		{
+			name: "write-agent-prompt",
+			req:  &orchpb.Request{Request: &orchpb.Request_WriteAgentPrompt{WriteAgentPrompt: &orchpb.WriteAgentPromptRequest{IssueId: "i", RunId: "r", Content: "x", Context: missing}}},
+		},
+		{
+			name: "read-agent-prompt",
+			req:  &orchpb.Request{Request: &orchpb.Request_ReadAgentPrompt{ReadAgentPrompt: &orchpb.ReadAgentPromptRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "resume-run",
+			req:  &orchpb.Request{Request: &orchpb.Request_ResumeRun{ResumeRun: &orchpb.ResumeRunRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "create-run",
+			req:  &orchpb.Request{Request: &orchpb.Request_CreateRun{CreateRun: &orchpb.CreateRunRequest{IssueId: "i", RunId: "r", Context: missing}}},
+		},
+		{
+			name: "inject-initial-prompt",
+			req:  &orchpb.Request{Request: &orchpb.Request_InjectInitialPrompt{InjectInitialPrompt: &orchpb.InjectInitialPromptRequest{IssueId: "i", RunId: "r", Prompt: "hello", Context: missing}}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := sendProtoRequest(t, tt.req)
+			if resp.Ok {
+				t.Fatalf("expected error response, got ok=true")
+			}
+			if !strings.Contains(resp.Error, "no store available for project_id \"missing-project\"") {
+				t.Fatalf("expected project-scoped store error, got: %s", resp.Error)
+			}
+		})
+	}
+}
+
+func TestControlAgentProtoHandlersRequireRegisteredProjectMapping(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	projectID := "missing-control-project"
+	missing := &orchpb.RequestContext{ProjectId: projectID}
+
+	t.Run("get-control-agent-config", func(t *testing.T) {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_GetControlAgentConfig{
+				GetControlAgentConfig: &orchpb.GetControlAgentConfigRequest{Context: missing},
+			},
+		})
+
+		if resp.Ok {
+			t.Fatalf("expected error response, got ok=true")
+		}
+		expected := fmt.Sprintf("unknown project_id %q (register daemon project mapping)", projectID)
+		if resp.Error != expected {
+			t.Fatalf("expected %q, got %q", expected, resp.Error)
+		}
+	})
+
+	t.Run("get-control-agent-launch", func(t *testing.T) {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_GetControlAgentLaunch{
+				GetControlAgentLaunch: &orchpb.GetControlAgentLaunchRequest{Context: missing},
+			},
+		})
+
+		if resp.Ok {
+			t.Fatalf("expected error response, got ok=true")
+		}
+		expected := fmt.Sprintf("unknown project_id %q (register daemon project mapping)", projectID)
+		if resp.Error != expected {
+			t.Fatalf("expected %q, got %q", expected, resp.Error)
+		}
+	})
+
+	t.Run("get-control-agent-config-missing-context", func(t *testing.T) {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_GetControlAgentConfig{
+				GetControlAgentConfig: &orchpb.GetControlAgentConfigRequest{Context: &orchpb.RequestContext{}},
+			},
+		})
+
+		if resp.Ok {
+			t.Fatalf("expected error response, got ok=true")
+		}
+		if resp.Error != "project_id required" {
+			t.Fatalf("expected project_id required, got %q", resp.Error)
+		}
+	})
+
+	t.Run("get-control-agent-launch-missing-context", func(t *testing.T) {
+		resp := sendProtoRequest(t, &orchpb.Request{
+			Request: &orchpb.Request_GetControlAgentLaunch{
+				GetControlAgentLaunch: &orchpb.GetControlAgentLaunchRequest{Context: &orchpb.RequestContext{}},
+			},
+		})
+
+		if resp.Ok {
+			t.Fatalf("expected error response, got ok=true")
+		}
+		if resp.Error != "project_id required" {
+			t.Fatalf("expected project_id required, got %q", resp.Error)
+		}
+	})
+}
+
 type mockStoreWithCapture struct {
 	mockStore
 	capturedMetadata map[string]string
+}
+
+type mockStoreWithPrompt struct {
+	mockStore
+	prompts map[string]string
+}
+
+type mockStoreWithValidation struct {
+	mockStore
+	validationResult *store.ValidationResult
+	validationErr    error
+}
+
+func (m *mockStoreWithValidation) ValidateIssueFiles(issueID string) (*store.ValidationResult, error) {
+	if m.validationErr != nil {
+		return nil, m.validationErr
+	}
+	if m.validationResult == nil {
+		return &store.ValidationResult{}, nil
+	}
+	return m.validationResult, nil
+}
+
+func (m *mockStoreWithPrompt) WriteAgentPrompt(ref *model.RunRef, content string) error {
+	if m.prompts == nil {
+		m.prompts = make(map[string]string)
+	}
+	if ref == nil {
+		return fmt.Errorf("nil run ref")
+	}
+	key := ref.IssueID + "#" + ref.RunID
+	m.prompts[key] = content
+	return nil
+}
+
+func (m *mockStoreWithPrompt) ReadAgentPrompt(ref *model.RunRef) (string, error) {
+	if ref == nil {
+		return "", os.ErrNotExist
+	}
+	key := ref.IssueID + "#" + ref.RunID
+	if content, ok := m.prompts[key]; ok {
+		return content, nil
+	}
+	return "", os.ErrNotExist
 }
 
 func (m *mockStoreWithCapture) CreateRun(issueID, runID string, metadata map[string]string) (*model.Run, error) {
@@ -2285,11 +4629,9 @@ func TestProtoStartRunFieldMapping(t *testing.T) {
 	resp := sendProtoRequest(t, &orchpb.Request{
 		Request: &orchpb.Request_StartRun{
 			StartRun: &orchpb.StartRunRequest{
-				IssueId:     "test-issue",
-				Model:       "anthropic/claude-sonnet-4",
-				IssuesRoot:  testIssuesRoot,
-				ProjectRoot: testProjectRoot,
-				DryRun:      true,
+				IssueId: "test-issue",
+				Model:   "anthropic/claude-sonnet-4",
+				DryRun:  true,
 			},
 		},
 	})
@@ -2299,7 +4641,7 @@ func TestProtoStartRunFieldMapping(t *testing.T) {
 		// If it fails with "agent not available", that's expected in CI without claude installed.
 		// The key contract test is that Model is NOT in Message.
 		errMsg := resp.Error
-		if errMsg != "agent not available: claude" && errMsg != "no project root available" {
+		if errMsg != "agent not available: claude" && errMsg != "no project root available" && !strings.Contains(errMsg, "no active workers available") {
 			t.Fatalf("unexpected error: %s", errMsg)
 		}
 	}
@@ -2311,10 +4653,8 @@ func TestProtoStartRunFieldMapping(t *testing.T) {
 	_ = sendProtoRequest(t, &orchpb.Request{
 		Request: &orchpb.Request_StartRun{
 			StartRun: &orchpb.StartRunRequest{
-				IssueId:     "test-issue",
-				Model:       "anthropic/claude-sonnet-4",
-				IssuesRoot:  testIssuesRoot,
-				ProjectRoot: testProjectRoot,
+				IssueId: "test-issue",
+				Model:   "anthropic/claude-sonnet-4",
 			},
 		},
 	})
@@ -2352,8 +4692,6 @@ func TestProtoContinueRunFieldMapping(t *testing.T) {
 				ContinueRun: &orchpb.ContinueRunRequest{
 					IssueId:     "test-issue",
 					SessionName: "my-session",
-					IssuesRoot:  testIssuesRoot,
-					ProjectRoot: testProjectRoot,
 				},
 			},
 		})
@@ -2366,35 +4704,12 @@ func TestProtoContinueRunFieldMapping(t *testing.T) {
 		}
 	})
 
-	t.Run("RepoRoot falls back to ProjectRoot", func(t *testing.T) {
+	t.Run("missing project context fails closed", func(t *testing.T) {
 		resp := sendProtoRequest(t, &orchpb.Request{
 			Request: &orchpb.Request_ContinueRun{
 				ContinueRun: &orchpb.ContinueRunRequest{
-					IssueId:    "test-issue",
-					RepoRoot:   "/fallback/repo/root",
-					IssuesRoot: testIssuesRoot,
-				},
-			},
-		})
-
-		// Should not fail with "no project root available" since RepoRoot
-		// is now used as a fallback for ProjectRoot.
-		if resp.Ok {
-			t.Error("expected error since issue doesn't exist")
-		}
-		if resp.Error == "no project root available" {
-			t.Error("RepoRoot should have been used as fallback for ProjectRoot")
-		}
-	})
-
-	t.Run("ProjectRoot takes precedence over RepoRoot", func(t *testing.T) {
-		resp := sendProtoRequest(t, &orchpb.Request{
-			Request: &orchpb.Request_ContinueRun{
-				ContinueRun: &orchpb.ContinueRunRequest{
-					IssueId:     "test-issue",
-					ProjectRoot: "/explicit/project/root",
-					RepoRoot:    "/fallback/repo/root",
-					IssuesRoot:  testIssuesRoot,
+					IssueId: "test-issue",
+					Context: &orchpb.RequestContext{},
 				},
 			},
 		})
@@ -2402,8 +4717,8 @@ func TestProtoContinueRunFieldMapping(t *testing.T) {
 		if resp.Ok {
 			t.Error("expected error since issue doesn't exist")
 		}
-		if resp.Error == "no project root available" {
-			t.Error("ProjectRoot should have been used")
+		if resp.Error != "project_id required" {
+			t.Fatalf("expected project_id required, got %q", resp.Error)
 		}
 	})
 }
@@ -2649,6 +4964,144 @@ func TestProcessStartRunCoreValidation(t *testing.T) {
 			t.Errorf("expected 'no project root available' error, got: %v", err)
 		}
 	})
+}
+
+func TestBootstrapOpenCodeRunSessionFailsFastOnCreateSessionError(t *testing.T) {
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	st := &mockStore{
+		runs:   make(map[string]*model.Run),
+		issues: make(map[string]*model.Issue),
+	}
+	run := &model.Run{IssueID: "orch-437", RunID: "run-opencode"}
+	st.runs["orch-437#run-opencode"] = run
+
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/global/health":
+			_ = json.NewEncoder(w).Encode(agent.HealthResponse{Healthy: true})
+		case "/session":
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":"sqlite disk i/o"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer httpServer.Close()
+
+	parsedURL, err := url.Parse(httpServer.URL)
+	if err != nil {
+		t.Fatalf("parse test server url: %v", err)
+	}
+	port, err := strconv.Atoi(parsedURL.Port())
+	if err != nil {
+		t.Fatalf("parse test server port: %v", err)
+	}
+	launchCfg := &agent.LaunchConfig{
+		Port:    port,
+		WorkDir: "/tmp/worktree",
+		Prompt:  "prompt",
+	}
+
+	serverPort, sessionID, err := server.bootstrapOpenCodeRunSession(st, run, "orch-437", "run-opencode", launchCfg, 2*time.Second)
+	if err == nil {
+		t.Fatal("expected bootstrapOpenCodeRunSession() to fail")
+	}
+	if !strings.Contains(err.Error(), "failed to create opencode session") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if serverPort != port {
+		t.Fatalf("serverPort = %d, want %d", serverPort, port)
+	}
+	if sessionID != "" {
+		t.Fatalf("sessionID = %q, want empty", sessionID)
+	}
+	if run.Status != model.StatusFailed {
+		t.Fatalf("run.Status = %v, want %v", run.Status, model.StatusFailed)
+	}
+	if run.ServerPort != port {
+		t.Fatalf("run.ServerPort = %d, want %d", run.ServerPort, port)
+	}
+	if run.OpenCodeSessionID != "" {
+		t.Fatalf("run.OpenCodeSessionID = %q, want empty", run.OpenCodeSessionID)
+	}
+	foundErrorArtifact := false
+	for _, event := range run.Events {
+		if event.Type == model.EventTypeArtifact && event.Name == "error" {
+			foundErrorArtifact = true
+			break
+		}
+	}
+	if !foundErrorArtifact {
+		t.Fatal("expected error artifact event")
+	}
+}
+
+func TestBootstrapOpenCodeRunSessionConfirmsQueuedPromptAfterAckTimeout(t *testing.T) {
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	st := &mockStore{
+		runs:   make(map[string]*model.Run),
+		issues: make(map[string]*model.Issue),
+	}
+	run := &model.Run{IssueID: "orch-438", RunID: "run-opencode"}
+	st.runs["orch-438#run-opencode"] = run
+
+	prompt := "Please read ORCH_PROMPT.md and wait."
+	sessionID := "ses_confirmed"
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/global/health":
+			_ = json.NewEncoder(w).Encode(agent.HealthResponse{Healthy: true})
+		case r.URL.Path == "/session" && r.Method == http.MethodPost:
+			_ = json.NewEncoder(w).Encode(agent.Session{ID: sessionID})
+		case r.URL.Path == "/session/"+sessionID+"/message" && r.Method == http.MethodPost:
+			time.Sleep(3 * time.Second)
+		case r.URL.Path == "/session/"+sessionID+"/message" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode([]agent.Message{
+				{
+					Info: agent.MessageInfo{
+						SessionID: sessionID,
+						Role:      "user",
+						CreatedAt: time.Now(),
+					},
+					Parts: []agent.MessagePart{{Type: "text", Text: prompt}},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer httpServer.Close()
+
+	parsedURL, err := url.Parse(httpServer.URL)
+	if err != nil {
+		t.Fatalf("parse test server url: %v", err)
+	}
+	port, err := strconv.Atoi(parsedURL.Port())
+	if err != nil {
+		t.Fatalf("parse test server port: %v", err)
+	}
+
+	launchCfg := &agent.LaunchConfig{
+		Port:    port,
+		WorkDir: "/tmp/worktree",
+		Prompt:  prompt,
+	}
+
+	serverPort, gotSessionID, err := server.bootstrapOpenCodeRunSession(st, run, "orch-438", "run-opencode", launchCfg, 1500*time.Millisecond)
+	if err != nil {
+		t.Fatalf("bootstrapOpenCodeRunSession() error = %v", err)
+	}
+	if serverPort != port {
+		t.Fatalf("serverPort = %d, want %d", serverPort, port)
+	}
+	if gotSessionID != sessionID {
+		t.Fatalf("sessionID = %q, want %q", gotSessionID, sessionID)
+	}
+	if run.Status == model.StatusFailed {
+		t.Fatalf("run.Status = %v, want non-failed", run.Status)
+	}
 }
 
 func TestProcessContinueRunCoreValidation(t *testing.T) {
@@ -2944,6 +5397,72 @@ func (m *mockSendMux) SendText(session, text string) error {
 	return m.sendErr
 }
 
+type mockCaptureMux struct {
+	hasSession bool
+	content    string
+	err        error
+	lines      int
+	session    string
+}
+
+func (m *mockCaptureMux) HasSession(name string) bool {
+	m.session = name
+	return m.hasSession
+}
+
+func (m *mockCaptureMux) CapturePane(session string, lines int) (string, error) {
+	m.session = session
+	m.lines = lines
+	return m.content, m.err
+}
+
+func TestCaptureLocalMultiplexerSessionFailsWhenSessionMissing(t *testing.T) {
+	run := &model.Run{
+		IssueID:     "issue-capture",
+		RunID:       "run-capture",
+		SessionName: "session-capture",
+		Multiplexer: string(multiplexer.TypeTmux),
+	}
+
+	prev := getCaptureMultiplexerForType
+	mockMux := &mockCaptureMux{hasSession: false}
+	getCaptureMultiplexerForType = func(muxType multiplexer.Type) captureMultiplexer { return mockMux }
+	defer func() { getCaptureMultiplexerForType = prev }()
+
+	_, _, err := captureLocalMultiplexerSession(run, 25)
+	if err == nil {
+		t.Fatal("expected captureLocalMultiplexerSession to fail")
+	}
+	if !strings.Contains(err.Error(), "session-capture") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCaptureLocalMultiplexerSessionUsesRequestedLines(t *testing.T) {
+	run := &model.Run{
+		IssueID:     "issue-capture",
+		RunID:       "run-capture",
+		SessionName: "session-capture",
+		Multiplexer: string(multiplexer.TypeTmux),
+	}
+
+	prev := getCaptureMultiplexerForType
+	mockMux := &mockCaptureMux{hasSession: true, content: "captured output"}
+	getCaptureMultiplexerForType = func(muxType multiplexer.Type) captureMultiplexer { return mockMux }
+	defer func() { getCaptureMultiplexerForType = prev }()
+
+	content, source, err := captureLocalMultiplexerSession(run, 25)
+	if err != nil {
+		t.Fatalf("captureLocalMultiplexerSession() error = %v", err)
+	}
+	if content != "captured output" || source != string(multiplexer.TypeTmux) {
+		t.Fatalf("unexpected capture result: content=%q source=%q", content, source)
+	}
+	if mockMux.lines != 25 {
+		t.Fatalf("capture lines = %d, want 25", mockMux.lines)
+	}
+}
+
 func TestProcessSendTmuxCodexSendsWithSubmit(t *testing.T) {
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
@@ -3051,5 +5570,136 @@ func TestProcessSendTmuxNonCodexUsesSendKeys(t *testing.T) {
 	}
 	if len(mockMux.sendTextCalls) != 0 {
 		t.Fatalf("SendText calls = %d, want 0", len(mockMux.sendTextCalls))
+	}
+}
+
+func TestProcessSendTmuxUsesRunMultiplexerWhenAvailable(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	defaultMux := &mockSendMux{hasSession: false, muxType: multiplexer.TypeTmux}
+	zellijMux := &mockSendMux{hasSession: true, muxType: multiplexer.TypeZellij}
+
+	prevDefault := getSendMultiplexer
+	prevByType := getSendMultiplexerForType
+	getSendMultiplexer = func() sendMultiplexer { return defaultMux }
+	getSendMultiplexerForType = func(muxType multiplexer.Type) sendMultiplexer {
+		if muxType == multiplexer.TypeZellij {
+			return zellijMux
+		}
+		return nil
+	}
+	defer func() {
+		getSendMultiplexer = prevDefault
+		getSendMultiplexerForType = prevByType
+	}()
+
+	run := &model.Run{
+		IssueID:     "issue-z",
+		RunID:       "run-z",
+		SessionName: "run-issue-z-run-z",
+		Agent:       string(agent.AgentClaude),
+		Multiplexer: string(multiplexer.TypeZellij),
+	}
+
+	if err := server.processSendTmux(run, "continue-zellij", false); err != nil {
+		t.Fatalf("processSendTmux() error = %v", err)
+	}
+
+	if len(defaultMux.sendKeysCalls) != 0 {
+		t.Fatalf("default mux SendKeys calls = %d, want 0", len(defaultMux.sendKeysCalls))
+	}
+	if len(zellijMux.sendKeysCalls) != 1 {
+		t.Fatalf("zellij mux SendKeys calls = %d, want 1", len(zellijMux.sendKeysCalls))
+	}
+	if got := zellijMux.sendKeysCalls[0]; got.session != run.SessionName || got.keys != "continue-zellij" {
+		t.Fatalf("zellij SendKeys call = (%q, %q), want (%q, %q)", got.session, got.keys, run.SessionName, "continue-zellij")
+	}
+}
+
+func TestProcessSendMessageClaudeAndCodexPaths(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	mockMux := &mockSendMux{hasSession: true, muxType: multiplexer.TypeTmux}
+	prevMux := getSendMultiplexer
+	prevDelay := codexTmuxSubmitDelay
+	getSendMultiplexer = func() sendMultiplexer { return mockMux }
+	codexTmuxSubmitDelay = 0
+	defer func() {
+		getSendMultiplexer = prevMux
+		codexTmuxSubmitDelay = prevDelay
+	}()
+
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			"issue-1#run-claude": {
+				IssueID:     "issue-1",
+				RunID:       "run-claude",
+				SessionName: "session-claude",
+				Agent:       string(agent.AgentClaude),
+			},
+			"issue-1#run-codex": {
+				IssueID:     "issue-1",
+				RunID:       "run-codex",
+				SessionName: "session-codex",
+				Agent:       string(agent.AgentCodex),
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	if err := server.processSendMessage(st, &SendMessageParams{IssueID: "issue-1", RunID: "run-claude", Message: "claude message"}); err != nil {
+		t.Fatalf("claude processSendMessage() error = %v", err)
+	}
+	if err := server.processSendMessage(st, &SendMessageParams{IssueID: "issue-1", RunID: "run-codex", Message: "codex message"}); err != nil {
+		t.Fatalf("codex processSendMessage() error = %v", err)
+	}
+
+	if len(mockMux.sendKeysCalls) != 1 {
+		t.Fatalf("SendKeys calls = %d, want 1", len(mockMux.sendKeysCalls))
+	}
+	if got := mockMux.sendKeysCalls[0]; got.session != "session-claude" || got.keys != "claude message" {
+		t.Fatalf("claude SendKeys call = (%q, %q), want (%q, %q)", got.session, got.keys, "session-claude", "claude message")
+	}
+
+	if len(mockMux.sendKeysLiteralCalls) != 1 {
+		t.Fatalf("SendKeysLiteral calls = %d, want 1", len(mockMux.sendKeysLiteralCalls))
+	}
+	if got := mockMux.sendKeysLiteralCalls[0]; got.session != "session-codex" || got.keys != "codex message" {
+		t.Fatalf("codex SendKeysLiteral call = (%q, %q), want (%q, %q)", got.session, got.keys, "session-codex", "codex message")
+	}
+
+	if len(mockMux.sendTextCalls) != 1 {
+		t.Fatalf("SendText calls = %d, want 1", len(mockMux.sendTextCalls))
+	}
+	if got := mockMux.sendTextCalls[0]; got.session != "session-codex" || got.keys != tmuxSubmitKeyEnter {
+		t.Fatalf("codex SendText call = (%q, %q), want (%q, %q)", got.session, got.keys, "session-codex", tmuxSubmitKeyEnter)
+	}
+}
+
+func TestProcessSendMessageRemoteTargetFailsClearly(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			"issue-remote#run-remote": {
+				IssueID:     "issue-remote",
+				RunID:       "run-remote",
+				SessionName: "session-remote",
+				Agent:       string(agent.AgentClaude),
+				TargetHost:  "mac-host",
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	err := server.processSendMessage(st, &SendMessageParams{IssueID: "issue-remote", RunID: "run-remote", Message: "hello"})
+	if err == nil {
+		t.Fatal("expected processSendMessage to fail for remote target run")
+	}
+	if !strings.Contains(err.Error(), "remote host") || !strings.Contains(err.Error(), "mac-host") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

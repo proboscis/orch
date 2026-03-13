@@ -52,16 +52,23 @@ func setupAgentTest(t *testing.T) (orchDir string, cleanup func()) {
 // runAgentCommand runs orch agent and waits for session creation
 func runAgentCommand(t *testing.T, args ...string) error {
 	t.Helper()
+	ensureRepoMapping(t, testRepo, testVault)
 
 	fullArgs := append([]string{
-		"--project-root", testRepo,
-		"--issues-root", testVault,
 		"agent",
 	}, args...)
 
 	cmd := exec.Command(orchBinary, fullArgs...)
 	cmd.Dir = testRepo
-	cmd.Env = append(os.Environ(), "TMUX=")
+	env := make([]string, 0, len(os.Environ())+2)
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "ORCH_REMOTE=") || strings.HasPrefix(kv, "ORCH_PROJECT=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	env = append(env, "ORCH_PROJECT=", "TMUX=")
+	cmd.Env = env
 
 	done := make(chan error, 1)
 	go func() {
@@ -81,7 +88,7 @@ func runAgentCommand(t *testing.T, args ...string) error {
 func writeAgentConfig(t *testing.T, orchDir string, agent string, mux string) {
 	t.Helper()
 	configPath := filepath.Join(orchDir, "config.yaml")
-	content := fmt.Sprintf("agent: %s\n", agent)
+	content := fmt.Sprintf("agent: %s\nissues:\n  path: %s\n", agent, testVault)
 	if mux != "" {
 		content += fmt.Sprintf("multiplexer: %s\n", mux)
 	}
@@ -97,7 +104,7 @@ func TestAgentRequiresConfig(t *testing.T) {
 
 	os.Remove(filepath.Join(orchDir, "config.yaml"))
 
-	_, err := runOrch(t, "--project-root", testRepo, "agent")
+	_, err := runOrch(t, "agent", "--dry-run")
 	if err == nil {
 		t.Error("expected error when no agent configured")
 	}
@@ -160,10 +167,16 @@ func TestAgentOpenCodeNoMultiplexer(t *testing.T) {
 	writeAgentConfig(t, orchDir, "opencode", "tmux")
 
 	cmd := exec.Command(orchBinary,
-		"--project-root", testRepo,
-		"--issues-root", testVault,
 		"agent", "--backend", "opencode")
 	cmd.Dir = testRepo
+	env := make([]string, 0, len(os.Environ())+1)
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "ORCH_REMOTE=") || strings.HasPrefix(kv, "ORCH_PROJECT=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	cmd.Env = append(env, "ORCH_PROJECT=")
 
 	cmd.Start()
 	time.Sleep(1 * time.Second)
@@ -301,7 +314,7 @@ func TestAgentKillTerminatesMultiplexerSession(t *testing.T) {
 	}`
 	os.WriteFile(stateFile, []byte(state), 0644)
 
-	output, err := runOrch(t, "--project-root", testRepo, "agent", "--kill")
+	output, err := runOrch(t, "agent", "--kill")
 	if err != nil {
 		t.Fatalf("agent --kill failed: %v\nOutput: %s", err, output)
 	}

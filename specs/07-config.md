@@ -4,10 +4,10 @@
 
 orch は以下の順序で設定を解決する:
 
-1. コマンドラインオプション（`--vault`, `--backend` 等）
+1. コマンドラインオプション（`--project`, `--backend` 等）
 2. カレントディレクトリの `.orch/config.yaml`
 3. 親ディレクトリの `.orch/config.yaml`（上方向に探索）
-4. 環境変数（`ORCH_VAULT`, `ORCH_BACKEND` 等）
+4. 環境変数（`ORCH_PROJECT`, `ORCH_BACKEND` 等）
 5. グローバル設定（`~/.config/orch/config.yaml`）
 
 ## リポジトリローカル設定
@@ -26,11 +26,9 @@ repo/
 ### .orch/config.yaml
 
 ```yaml
-# vault path (relative to repo root or absolute)
-vault: ~/vault
-
-# または同じvault内にissueを置く場合
-vault: .
+# issues path (relative to repo root or absolute)
+issues:
+  path: ~/issues
 
 # default agent for runs
 agent: claude
@@ -71,8 +69,9 @@ control_model_variant: default
 `~/.config/orch/config.yaml`:
 
 ```yaml
-# default vault for all repos without local config
-default_vault: ~/vault
+# default issues path for repos without local override
+issues:
+  path: ~/issues
 
 # default agent
 agent: claude
@@ -85,7 +84,7 @@ log_level: info
 
 | 変数 | 説明 |
 |------|------|
-| `ORCH_VAULT` | Vault path |
+| `ORCH_PROJECT` | Project identity (repo URL or normalized repo ID) |
 | `ORCH_BACKEND` | Backend type (file/github/linear) |
 | `ORCH_AGENT` | Default agent for runs |
 | `ORCH_MODEL` | Default model for runs |

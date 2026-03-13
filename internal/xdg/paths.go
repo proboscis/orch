@@ -3,7 +3,6 @@
 package xdg
 
 import (
-	"crypto/sha256"
 	"fmt"
 	"os"
 	"os/exec"
@@ -117,6 +116,16 @@ func LogPath() string {
 	return filepath.Join(StateDir(), "daemon.log")
 }
 
+// WorkersStateDir returns the directory for local managed worker state.
+func WorkersStateDir() string {
+	return filepath.Join(StateDir(), "workers")
+}
+
+// WorkersRuntimeDir returns the directory for local managed worker runtime files.
+func WorkersRuntimeDir() string {
+	return filepath.Join(RuntimeDir(), "workers")
+}
+
 // StderrLogPath returns the path to the daemon stderr capture file.
 // This captures Go panics and runtime errors that would otherwise be lost
 // when the daemon runs in background mode (where stderr is /dev/null).
@@ -164,27 +173,45 @@ func EnsureStateDir() error {
 	return EnsureDir(StateDir(), 0755)
 }
 
+// EnsureWorkersStateDir creates the managed worker state directory.
+func EnsureWorkersStateDir() error {
+	return EnsureDir(WorkersStateDir(), 0755)
+}
+
+// EnsureWorkersRuntimeDir creates the managed worker runtime directory.
+func EnsureWorkersRuntimeDir() error {
+	return EnsureDir(WorkersRuntimeDir(), 0700)
+}
+
 // EnsureDataDir creates the data directory with appropriate permissions.
 func EnsureDataDir() error {
 	return EnsureDir(DataDir(), 0755)
 }
 
-// RepoID derives a repo identifier from the git remote URL.
+// RepoID derives a repo identifier strictly from the git remote URL.
 // Returns "owner-repo" format (e.g., "proboscis-orch").
-// Falls back to directory name if no git remote is found.
 func RepoID(projectRoot string) (string, error) {
-	// Try to get remote URL
+	return repoIDFromRemote(projectRoot)
+}
+
+// RepoIDStrict derives repo identifier strictly from git remote URL.
+// Unlike RepoID, it does not fall back to a path-derived identifier.
+func RepoIDStrict(projectRoot string) (string, error) {
+	return repoIDFromRemote(projectRoot)
+}
+
+func repoIDFromRemote(projectRoot string) (string, error) {
 	cmd := exec.Command("git", "-C", projectRoot, "config", "--get", "remote.origin.url")
 	output, err := cmd.Output()
 	if err != nil {
-		// Fallback to directory name with path-derived hash suffix
-		// to avoid collisions when different repos share the same basename
-		cleaned := filepath.Clean(projectRoot)
-		h := sha256.Sum256([]byte(cleaned))
-		return fmt.Sprintf("%s-%x", filepath.Base(cleaned), h[:4]), nil
+		return "", fmt.Errorf("failed to resolve git remote for %s: %w", projectRoot, err)
 	}
 
 	remoteURL := strings.TrimSpace(string(output))
+	if remoteURL == "" {
+		return "", fmt.Errorf("empty git remote URL for %s", projectRoot)
+	}
+
 	return ParseRepoID(remoteURL)
 }
 

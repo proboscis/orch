@@ -34,7 +34,7 @@ This section describes the end-to-end workflow for using orch-monitor TUI with t
 ```bash
 cd your-repo
 mkdir -p .orch
-# Configure .orch/config.yaml with issues_root, agent preferences, etc.
+# Configure `.orch/config.yaml` with agent/runtime preferences.
 ```
 
 ### 2. Launch orch-monitor
@@ -146,16 +146,16 @@ uv tool install "git+https://github.com/proboscis/orch#subdirectory=orch-monitor
 
 ## Usage
 
-Run from any directory (uses `ORCH_PROJECT_ROOT` or `ORCH_VAULT` env var, or `.orch/config.yaml`):
+Run from any directory (uses `ORCH_PROJECT` or `.orch/config.yaml`):
 
 ```bash
 orch-monitor
 ```
 
-Or specify vault path:
+Or pin a project explicitly:
 
 ```bash
-orch-monitor --vault ~/my-vault
+orch-monitor --project github.com/owner/repo
 ```
 
 ### Terminal Multiplexer
@@ -240,9 +240,9 @@ uv run python -m orch_monitor
 
 The TUI respects the same configuration as the Go `orch` CLI:
 
-- `ORCH_PROJECT_ROOT` environment variable (must contain `.orch/` directory)
+- `ORCH_PROJECT` environment variable (project identity: repo URL or normalized repo ID)
 - `.orch/config.yaml` found by searching upward from current directory
-- `ORCH_VAULT` environment variable (legacy fallback)
+- `.orch/config.yaml` in the selected project workspace
 
 ## Architecture
 
@@ -258,9 +258,10 @@ orch_monitor/
   widgets.py     - Custom Textual widgets (RunTable, IssueTable, DetailPanel)
 ```
 
-The TUI uses a daemon-only architecture:
-- All data comes from the Go daemon via Unix socket
-- No direct file/vault access
+The TUI uses a daemon-centric architecture:
+- Runs/issues data comes from the Go daemon via Unix socket
+- Control-agent prompt/config comes from daemon (`get_control_agent_config`)
+- Control-agent session file is managed locally at `.orch/control-session.json`
 - Automatic refresh via polling (configurable interval)
 
 ## Daemon Communication
@@ -271,6 +272,7 @@ The TUI communicates with the orch daemon via Unix socket at `$PROJECT_ROOT/.orc
 - `list_issues` - List all issues
 - `get_run` - Get details for a specific run
 - `get_issue` - Get details for a specific issue
+- `get_control_agent_config` - Fetch control-agent prompt and launch config
 - `send` - Send a message to a running agent
 
 ## Differences from Go Monitor

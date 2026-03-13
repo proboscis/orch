@@ -926,6 +926,14 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		issueInfo = buildIssueDisplayMap(apiIssuesToModel(issuesResult.Issues))
 	}
 
+	runModels := make([]*model.Run, 0, len(windows))
+	for _, w := range windows {
+		if w != nil && w.Run != nil {
+			runModels = append(runModels, w.Run)
+		}
+	}
+	targetHostByRun := resolveTargetHostByRun(runModels)
+
 	rows := make([]RunRow, 0, len(windows))
 	for _, w := range windows {
 		if w == nil || w.Run == nil {
@@ -960,6 +968,8 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		if w.Run.WorktreePath != "" && !w.Run.WorktreeExists {
 			shortID += "*"
 		}
+		target := formatTargetDisplay(w.Run.Target, runTableTargetWidth)
+		targetHost := formatTargetDisplay(targetHostByRun[w.Run.RunID], runTableTargetHostWidth)
 		branch := formatBranchDisplay(w.Run.Branch, runTableBranchWidth)
 		worktree := formatWorktreeDisplay(w.Run.WorktreePath, runTableWorktreeWidth)
 
@@ -975,6 +985,8 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 			Model:        modelDisplay,
 			Status:       w.Run.Status,
 			Alive:        runAliveLabel(w.Run),
+			Target:       target,
+			TargetHost:   targetHost,
 			Branch:       branch,
 			Worktree:     worktree,
 			PR:           prDisplay,
@@ -1135,32 +1147,60 @@ type agentChatLaunch struct {
 
 func (m *Monitor) agentChatLaunch() agentChatLaunch {
 	ctx := context.Background()
-	_, err := WriteControlPromptFileViaAPI(ctx, m.api, m.issuesRoot)
-	if err != nil {
-		return agentChatLaunch{command: fallbackChatCommand(fmt.Sprintf("failed to write prompt file: %v", err))}
-	}
-
 	prompt := GetControlPromptInstruction()
-
 	agentName := strings.TrimSpace(m.agent)
 	var modelName, modelVariant string
-	cfg, cfgErr := config.Load()
-	if cfgErr == nil {
-		if agentName == "" {
-			agentName = cfg.ControlAgent
-			if agentName == "" {
-				agentName = cfg.Agent
+	var extraArgs []string
+	wrotePromptFromConfig := false
+
+	if provider, ok := m.api.(interface {
+		GetControlAgentConfig(context.Context) (*orchapi.ControlAgentConfig, error)
+	}); ok {
+		if controlCfg, cfgErr := provider.GetControlAgentConfig(ctx); cfgErr == nil && controlCfg != nil {
+			if strings.TrimSpace(controlCfg.PromptContent) != "" {
+				cwd, _ := os.Getwd()
+				promptPath := filepath.Join(cwd, controlPromptFileName)
+				if err := os.WriteFile(promptPath, []byte(controlCfg.PromptContent), 0644); err != nil {
+					return agentChatLaunch{command: fallbackChatCommand(fmt.Sprintf("failed to write prompt file: %v", err))}
+				}
+				wrotePromptFromConfig = true
 			}
-		}
-		modelName = cfg.ControlModel
-		if modelName == "" {
-			modelName = cfg.Model
-		}
-		modelVariant = cfg.ControlModelVariant
-		if modelVariant == "" {
-			modelVariant = cfg.ModelVariant
+			if agentName == "" {
+				agentName = strings.TrimSpace(controlCfg.Agent)
+			}
+			modelName = controlCfg.Model
+			modelVariant = controlCfg.ModelVariant
+			extraArgs = append(extraArgs, controlCfg.ExtraArgs...)
 		}
 	}
+
+	if modelName == "" && modelVariant == "" {
+		cfg, cfgErr := config.Load()
+		if cfgErr == nil {
+			if agentName == "" {
+				agentName = cfg.ControlAgent
+				if agentName == "" {
+					agentName = cfg.Agent
+				}
+			}
+			modelName = cfg.ControlModel
+			if modelName == "" {
+				modelName = cfg.Model
+			}
+			modelVariant = cfg.ControlModelVariant
+			if modelVariant == "" {
+				modelVariant = cfg.ModelVariant
+			}
+			extraArgs = append(extraArgs, cfg.GetControlExtraArgs(agentName)...)
+		}
+	}
+
+	if !wrotePromptFromConfig {
+		if _, err := WriteControlPromptFileViaAPI(ctx, m.api, m.issuesRoot); err != nil {
+			return agentChatLaunch{command: fallbackChatCommand(fmt.Sprintf("failed to write prompt file: %v", err))}
+		}
+	}
+
 	if agentName == "" {
 		agentName = "opencode"
 	}
@@ -1180,7 +1220,7 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 		if err := m.api.Ping(ctx); err != nil {
 			return agentChatLaunch{command: fallbackChatCommand("daemon not running; opencode requires daemon")}
 		}
-		resp, err := m.api.EnsureOpenCodeServer(ctx, m.projectRoot)
+		resp, err := m.api.EnsureOpenCodeServer(ctx)
 		if err != nil {
 			m.logger.Printf("daemon server request failed: %v", err)
 			return agentChatLaunch{command: fallbackChatCommand(fmt.Sprintf("daemon server error: %v", err))}
@@ -1208,6 +1248,7 @@ func (m *Monitor) agentChatLaunch() agentChatLaunch {
 		Port:            agent.OpenCodeServerPortStart,
 		Model:           modelName,
 		ModelVariant:    modelVariant,
+		ExtraArgs:       extraArgs,
 	})
 	if err != nil {
 		return agentChatLaunch{command: fallbackChatCommand(err.Error())}
@@ -1810,6 +1851,8 @@ func apiRunToModel(r *orchapi.Run) *model.Run {
 		ModelVariant:      r.ModelVariant,
 		Branch:            r.Branch,
 		WorktreePath:      r.WorktreePath,
+		Target:            r.Target,
+		TargetHost:        r.TargetHost,
 		SessionName:       r.SessionName,
 		Multiplexer:       string(r.Multiplexer),
 		PRUrl:             r.PRUrl,

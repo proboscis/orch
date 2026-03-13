@@ -47,20 +47,16 @@ Create config directory in your repo root:
 
     mkdir -p .orch
 
-Set up issues directory (separate from repo):
+Set up issues directory (separate from repo) in .orch/config.yaml:
 
-    export ORCH_ISSUES_ROOT=~/my-project-issues  # add to shell profile
+    issues:
+      path: ~/my-project-issues
 
 This creates the structure:
 
     ~/my-project-issues/
     ├── issues/       # issue markdown files
     └── runs/         # run logs (auto-created)
-
-Or specify issues.path in .orch/config.yaml:
-
-    issues:
-      path: ~/my-project-issues
 
 --------------------------------------------------------------------------------
 2. CONFIGURE DEFAULT AGENT AND MODEL

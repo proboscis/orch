@@ -81,6 +81,8 @@ type Run struct {
 	ModelVariant      string
 	Branch            string
 	WorktreePath      string
+	Target            string
+	TargetHost        string
 	SessionName       string
 	MuxWindowID       string
 	Multiplexer       string
@@ -174,9 +176,30 @@ func (r *Run) DeriveState() {
 	if branch, ok := artifacts["branch"]; ok {
 		r.Branch = branch["name"]
 	}
+	if target, ok := artifacts["target"]; ok {
+		r.Target = target["name"]
+		if host := target["host"]; host != "" {
+			r.TargetHost = host
+		} else if r.TargetHost == "" {
+			r.TargetHost = r.lastArtifactAttr("target", "host")
+		}
+	}
 	if session, ok := artifacts["session"]; ok {
-		r.SessionName = session["name"]
-		r.Multiplexer = session["multiplexer"]
+		if sessionName := session["name"]; sessionName != "" {
+			r.SessionName = sessionName
+		}
+		if mux := session["multiplexer"]; mux != "" {
+			r.Multiplexer = mux
+		} else if r.Multiplexer == "" {
+			r.Multiplexer = r.lastArtifactAttr("session", "multiplexer")
+		}
+		if r.TargetHost == "" {
+			if host := session["host"]; host != "" {
+				r.TargetHost = host
+			} else {
+				r.TargetHost = r.lastArtifactAttr("session", "host")
+			}
+		}
 	}
 	if window, ok := artifacts["window"]; ok {
 		r.MuxWindowID = window["id"]
@@ -208,6 +231,19 @@ func (r *Run) DeriveState() {
 		r.StartedAt = r.Events[0].Timestamp
 		r.UpdatedAt = r.Events[len(r.Events)-1].Timestamp
 	}
+}
+
+func (r *Run) lastArtifactAttr(name, key string) string {
+	for i := len(r.Events) - 1; i >= 0; i-- {
+		e := r.Events[i]
+		if e == nil || e.Type != EventTypeArtifact || e.Name != name || e.Attrs == nil {
+			continue
+		}
+		if v := e.Attrs[key]; v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // GenerateRunID generates a run ID using the convention YYYYMMDD-HHMMSS

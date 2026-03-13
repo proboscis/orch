@@ -2,7 +2,11 @@ package multiplexer
 
 import (
 	"errors"
+	"os"
+	"strings"
 	"testing"
+
+	"github.com/s22625/orch/internal/executor"
 )
 
 func TestParseType(t *testing.T) {
@@ -155,5 +159,37 @@ func TestErrUnsupported(t *testing.T) {
 	}
 	if err.Error() != "multiplexer: operation not supported: test feature" {
 		t.Fatalf("unexpected error message: %v", err)
+	}
+}
+
+func TestSessionEnvForLocalExecutorIncludesProcessEnv(t *testing.T) {
+	t.Setenv("ORCH_TEST_ENV", "local-value")
+
+	env := sessionEnv(executor.NewLocalExecutor(), []string{"FOO=bar"})
+	joined := strings.Join(env, "\n")
+	if !strings.Contains(joined, "ORCH_TEST_ENV=local-value") {
+		t.Fatalf("expected local env to include process environment, got %v", env)
+	}
+	if !strings.Contains(joined, "FOO=bar") {
+		t.Fatalf("expected local env to include extra env, got %v", env)
+	}
+}
+
+func TestSessionEnvForSSHExecutorDoesNotLeakProcessEnv(t *testing.T) {
+	t.Setenv("ORCH_TEST_ENV", "remote-should-not-leak")
+
+	env := sessionEnv(executor.NewSSHExecutor("mac-e2e"), []string{"FOO=bar"})
+	joined := strings.Join(env, "\n")
+	if strings.Contains(joined, "ORCH_TEST_ENV=remote-should-not-leak") {
+		t.Fatalf("unexpected process env leak for ssh executor: %v", env)
+	}
+	if !strings.Contains(joined, "FOO=bar") {
+		t.Fatalf("expected ssh env to include explicit extra env, got %v", env)
+	}
+	if len(env) != 1 || env[0] != "FOO=bar" {
+		t.Fatalf("expected only explicit env for ssh executor, got %v", env)
+	}
+	if _, ok := os.LookupEnv("ORCH_TEST_ENV"); !ok {
+		t.Fatal("expected test env to stay set in process")
 	}
 }

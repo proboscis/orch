@@ -194,14 +194,14 @@ type OrchAPI interface {
 	// Ping checks if the daemon is running and healthy.
 	Ping(ctx context.Context) error
 
-	// EnsureOpenCodeServer ensures an OpenCode server is running for the project.
-	EnsureOpenCodeServer(ctx context.Context, projectRoot string) (*OpenCodeServerInfo, error)
+	// EnsureOpenCodeServer ensures an OpenCode server is running for the current project scope.
+	EnsureOpenCodeServer(ctx context.Context) (*OpenCodeServerInfo, error)
 
 	// QueryOpenCodeServer queries an OpenCode server for available providers and models.
 	QueryOpenCodeServer(ctx context.Context, port int) (*QueryOpenCodeServerResult, error)
 
-	// GetConfig retrieves the orch configuration for a project.
-	GetConfig(ctx context.Context, projectRoot string) (*Config, error)
+	// GetConfig retrieves the orch configuration for the current project scope.
+	GetConfig(ctx context.Context) (*Config, error)
 
 	// GetDaemonStatus returns the daemon's running status.
 	GetDaemonStatus(ctx context.Context) (*DaemonStatus, error)

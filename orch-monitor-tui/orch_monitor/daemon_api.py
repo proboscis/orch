@@ -16,6 +16,7 @@ import hy  # noqa: F401 - Enable Hy imports
 from returns.result import Failure, Result, Success
 
 # Import client from Hy module (returns Result types)
+from .config import resolve_project_identity
 from .proto_client import ProtoDaemonClient
 
 # Import types/exceptions from types module
@@ -38,6 +39,7 @@ from .models import Status as ModelStatus
 from .orch_api import (
     AttachInfo,
     BranchState,
+    ControlAgentConfig,
     ControlAgentLaunch,
     DiffStats,
     Issue,
@@ -275,7 +277,6 @@ class DaemonOrchAPI:
     def __init__(
         self,
         socket_path: Optional[Path] = None,
-        issues_root: Optional[Path] = None,
         project_root: Optional[Path] = None,
         base_branch: str = "main",
     ):
@@ -284,25 +285,21 @@ class DaemonOrchAPI:
 
             config = Config.load()
             socket_path = config.socket_path
-            if issues_root is None:
-                issues_root = config.issues_root
             if project_root is None:
                 project_root = config.project_root
 
         self._socket_path = socket_path
-        self._issues_root = issues_root
         self._project_root = project_root or Path.cwd()
+        self._project_scope = resolve_project_identity(project_root=self._project_root)
         self._base_branch = base_branch
-        self._daemon = ProtoDaemonClient(socket_path, issues_root, self._project_root)
+        self._daemon = ProtoDaemonClient(socket_path, self._project_root)
         self._monitor_heartbeat: Optional[MonitorHeartbeat] = None
 
     def _build_orch_cmd(self) -> list[str]:
-        """Build base orch command with project/issues root args."""
+        """Build base orch command with project scope args."""
         cmd = ["orch"]
-        if self._project_root:
-            cmd.extend(["--project-root", str(self._project_root)])
-        if self._issues_root:
-            cmd.extend(["--issues-root", str(self._issues_root)])
+        if self._project_scope:
+            cmd.extend(["--project", self._project_scope])
         return cmd
 
     # === Lifecycle ===
@@ -476,6 +473,24 @@ class DaemonOrchAPI:
                 port=launch.port,
                 session_id=launch.session_id,
                 resumed=launch.resumed,
+            )
+        )
+
+    def get_control_agent_config(
+        self,
+        project_root: str,
+    ) -> Result[ControlAgentConfig, OrchError]:
+        result = self._daemon.get_control_agent_config(project_root)
+        if isinstance(result, Failure):
+            return _map_daemon_error(result.failure())
+        cfg = result.unwrap()
+        return Success(
+            ControlAgentConfig(
+                prompt_content=cfg.prompt_content or "",
+                agent=cfg.agent or "",
+                model=cfg.model or "",
+                model_variant=cfg.model_variant or "",
+                extra_args=list(cfg.extra_args or []),
             )
         )
 

@@ -58,7 +58,7 @@ func runQuery(sql string, opts *queryOptions) error {
 		return err
 	}
 
-	api, err := getAPI()
+	api, err := getAPIForListing()
 	if err != nil {
 		return err
 	}

@@ -125,6 +125,11 @@ type IssuesConfig struct {
 	Path    string `yaml:"path,omitempty"`    // Path to issues storage (default: ~/.local/share/orch/<repo>)
 }
 
+type TargetConfig struct {
+	Name string `yaml:"name"`
+	Host string `yaml:"host"`
+}
+
 func (s *SlackConfig) ShouldNotify(status string) bool {
 	if !s.Enabled {
 		return false
@@ -169,6 +174,7 @@ type Config struct {
 	Slack              SlackConfig      `yaml:"slack"`
 	Issues             IssuesConfig     `yaml:"issues"`
 	GitHub             GitHubConfig     `yaml:"github"`
+	Targets            []TargetConfig   `yaml:"targets,omitempty"`
 
 	// Control agent settings (for orch monitor 'c' keybinding)
 	// Falls back to run agent defaults if not set
@@ -208,6 +214,7 @@ type fileConfig struct {
 	Slack               *SlackConfig     `yaml:"slack"`
 	Issues              *IssuesConfig    `yaml:"issues"`
 	GitHub              *GitHubConfig    `yaml:"github"`
+	Targets             []TargetConfig   `yaml:"targets"`
 	ControlAgent        string           `yaml:"control_agent"`
 	ControlModel        string           `yaml:"control_model"`
 	ControlModelVariant string           `yaml:"control_model_variant"`
@@ -435,6 +442,9 @@ func loadFromFile(path string, cfg *Config) error {
 	if len(fileCfg.Presets) > 0 {
 		cfg.Presets = fileCfg.Presets
 	}
+	if len(fileCfg.Targets) > 0 {
+		cfg.Targets = fileCfg.Targets
+	}
 	if len(fileCfg.OpenCodePresets) > 0 {
 		cfg.OpenCodePresets = fileCfg.OpenCodePresets
 	}
@@ -566,18 +576,8 @@ func resolvePathFromConfig(path, baseDir string) string {
 // Returns the directory containing .orch/, or an error if not found.
 //
 // Precedence:
-// 1. ORCH_PROJECT_ROOT environment variable (must contain .orch/ directory)
-// 2. Directory containing .orch/config.yaml (searched upward from cwd)
-// 3. ORCH_VAULT as legacy fallback (only if it contains .orch/ directory)
+// 1. Directory containing .orch/config.yaml (searched upward from cwd)
 func GetProjectRoot() (string, error) {
-	if v := os.Getenv("ORCH_PROJECT_ROOT"); v != "" {
-		resolved := ExpandPath(v, "")
-		if hasOrchDir(resolved) {
-			return resolved, nil
-		}
-		return "", fmt.Errorf("ORCH_PROJECT_ROOT (%s) does not contain .orch/ directory", resolved)
-	}
-
 	configPath, err := findRepoConfig()
 	if err != nil {
 		return "", err
@@ -585,13 +585,6 @@ func GetProjectRoot() (string, error) {
 	if configPath != "" {
 		orchDir := filepath.Dir(configPath)
 		return filepath.Dir(orchDir), nil
-	}
-
-	if v := os.Getenv("ORCH_VAULT"); v != "" {
-		resolved := ExpandPath(v, "")
-		if hasOrchDir(resolved) {
-			return resolved, nil
-		}
 	}
 
 	return "", fmt.Errorf("project root not found (no .orch/config.yaml in current or parent directories)")
@@ -605,9 +598,6 @@ func hasOrchDir(path string) bool {
 
 // applyEnv applies environment variables to config
 func applyEnv(cfg *Config) {
-	if v := os.Getenv("ORCH_ISSUES_ROOT"); v != "" {
-		cfg.Issues.Path = v
-	}
 	if v := os.Getenv("ORCH_AGENT"); v != "" {
 		cfg.Agent = v
 	}
@@ -720,6 +710,15 @@ func (c *Config) GetPreset(name string) *Preset {
 				Model:   c.OpenCodePresets[i].Model,
 				Variant: c.OpenCodePresets[i].Variant,
 			}
+		}
+	}
+	return nil
+}
+
+func (c *Config) GetTarget(name string) *TargetConfig {
+	for i := range c.Targets {
+		if c.Targets[i].Name == name {
+			return &c.Targets[i]
 		}
 	}
 	return nil
@@ -847,6 +846,15 @@ func (c *Config) Validate() error {
 	for _, p := range c.OpenCodePresets {
 		if strings.TrimSpace(p.Name) == "" {
 			errs = append(errs, "opencode_preset name must not be empty")
+		}
+	}
+	for _, target := range c.Targets {
+		if strings.TrimSpace(target.Name) == "" {
+			errs = append(errs, "target name must not be empty")
+			continue
+		}
+		if strings.TrimSpace(target.Host) == "" {
+			errs = append(errs, fmt.Sprintf("target %q host must not be empty", target.Name))
 		}
 	}
 	if err := c.ValidateMultiplexerConfig(); err != nil {

@@ -48,7 +48,7 @@ func runSchema(tableName string, opts *schemaOptions) error {
 		return err
 	}
 
-	api, err := getAPI()
+	api, err := getAPIForListing()
 	if err != nil {
 		return err
 	}

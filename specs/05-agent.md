@@ -14,7 +14,6 @@ agent起動時に以下の環境変数が設定される:
 | `ORCH_RUN_PATH` | Run document path |
 | `ORCH_WORKTREE_PATH` | Git worktree path |
 | `ORCH_BRANCH` | Git branch name |
-| `ORCH_VAULT` | Vault root path |
 
 ## プロンプト渡し
 

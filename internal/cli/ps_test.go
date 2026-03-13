@@ -82,7 +82,6 @@ func TestOutputTableTruncatesSummary(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
-	globalOpts.IssuesRoot = vault
 	deps := setupMockPsDeps(vault)
 
 	issuesDir := filepath.Join(vault, "issues")
@@ -113,6 +112,7 @@ func TestOutputTableTruncatesSummary(t *testing.T) {
 			nil,
 			nil,
 			nil,
+			nil,
 			deps,
 		); err != nil {
 			t.Fatalf("outputTable: %v", err)
@@ -129,7 +129,6 @@ func TestOutputTableUsesTopic(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
-	globalOpts.IssuesRoot = vault
 	deps := setupMockPsDeps(vault)
 
 	issuesDir := filepath.Join(vault, "issues")
@@ -161,6 +160,7 @@ func TestOutputTableUsesTopic(t *testing.T) {
 			nil,
 			nil,
 			nil,
+			nil,
 			deps,
 		); err != nil {
 			t.Fatalf("outputTable: %v", err)
@@ -180,7 +180,6 @@ func TestOutputTableTruncatesTopicChars(t *testing.T) {
 	resetGlobalOpts(t)
 
 	vault := t.TempDir()
-	globalOpts.IssuesRoot = vault
 	deps := setupMockPsDeps(vault)
 
 	issuesDir := filepath.Join(vault, "issues")
@@ -208,6 +207,7 @@ func TestOutputTableTruncatesTopicChars(t *testing.T) {
 			[]*model.Run{run},
 			now,
 			&psOptions{},
+			nil,
 			nil,
 			nil,
 			nil,
@@ -240,9 +240,6 @@ func TestOutputTableNoRuns(t *testing.T) {
 func TestOutputTableShowsNewColumns(t *testing.T) {
 	resetGlobalOpts(t)
 
-	vault := t.TempDir()
-	globalOpts.IssuesRoot = vault
-
 	updatedAt := time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC)
 	run := &model.Run{
 		IssueID:   "issue-1",
@@ -264,15 +261,17 @@ func TestOutputTableShowsNewColumns(t *testing.T) {
 	}
 
 	header := lines[0]
+	targetIdx := strings.Index(header, "TARGET")
+	hostIdx := strings.Index(header, "HOST")
 	agentIdx := strings.Index(header, "AGENT")
 	aliveIdx := strings.Index(header, "ALIVE")
 	branchIdx := strings.Index(header, "BRANCH")
 	worktreeIdx := strings.Index(header, "WORKTREE")
 	prIdx := strings.Index(header, "PR")
-	if agentIdx == -1 || aliveIdx == -1 || branchIdx == -1 || worktreeIdx == -1 || prIdx == -1 {
+	if targetIdx == -1 || hostIdx == -1 || agentIdx == -1 || aliveIdx == -1 || branchIdx == -1 || worktreeIdx == -1 || prIdx == -1 {
 		t.Fatalf("missing columns in header: %q", header)
 	}
-	if !(agentIdx < aliveIdx && aliveIdx < branchIdx && branchIdx < worktreeIdx && worktreeIdx < prIdx) {
+	if !(targetIdx < hostIdx && hostIdx < agentIdx && agentIdx < aliveIdx && aliveIdx < branchIdx && branchIdx < worktreeIdx && worktreeIdx < prIdx) {
 		t.Fatalf("unexpected header order: %q", header)
 	}
 
@@ -283,9 +282,6 @@ func TestOutputTableShowsNewColumns(t *testing.T) {
 
 func TestOutputTableShowsPROpenForPROpenStatus(t *testing.T) {
 	resetGlobalOpts(t)
-
-	vault := t.TempDir()
-	globalOpts.IssuesRoot = vault
 
 	updatedAt := time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC)
 	run := &model.Run{
@@ -313,6 +309,7 @@ func TestOutputJSON(t *testing.T) {
 		IssueID:      "issue-1",
 		RunID:        "run-1",
 		Status:       model.StatusRunning,
+		Target:       "zeus",
 		Branch:       "branch",
 		WorktreePath: "/tmp/worktree",
 		SessionName:  "session",
@@ -335,6 +332,8 @@ func TestOutputJSON(t *testing.T) {
 			RunID        string `json:"run_id"`
 			ShortID      string `json:"short_id"`
 			CLI          string `json:"cli"`
+			Target       string `json:"target"`
+			TargetHost   string `json:"target_host"`
 			Status       string `json:"status"`
 			AgentStatus  string `json:"agent_status"`
 			BranchStatus string `json:"branch_status"`
@@ -372,6 +371,81 @@ func TestOutputJSON(t *testing.T) {
 	}
 	if item.PRStatus != "open" {
 		t.Fatalf("pr_status = %q, want %q", item.PRStatus, "open")
+	}
+	if item.Target != "zeus" {
+		t.Fatalf("target = %q, want %q", item.Target, "zeus")
+	}
+	if item.TargetHost != "zeus" {
+		t.Fatalf("target_host = %q, want %q", item.TargetHost, "zeus")
+	}
+}
+
+func TestOutputJSONUsesExecutionHostWithoutTargetName(t *testing.T) {
+	updatedAt := time.Date(2025, 1, 2, 3, 5, 6, 0, time.UTC)
+	now := updatedAt.Add(2 * time.Minute)
+	run := &model.Run{
+		IssueID:      "issue-2",
+		RunID:        "run-2",
+		Status:       model.StatusRunning,
+		TargetHost:   "mac-host",
+		Branch:       "branch",
+		WorktreePath: "/tmp/worktree",
+		SessionName:  "session",
+		StartedAt:    time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC),
+		UpdatedAt:    updatedAt,
+	}
+
+	out := captureStdout(t, func() {
+		if err := outputJSON([]*model.Run{run}, now); err != nil {
+			t.Fatalf("outputJSON: %v", err)
+		}
+	})
+
+	var got struct {
+		OK    bool `json:"ok"`
+		Items []struct {
+			Target     string `json:"target"`
+			TargetHost string `json:"target_host"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !got.OK || len(got.Items) != 1 {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+	if got.Items[0].Target != "" {
+		t.Fatalf("target = %q, want empty", got.Items[0].Target)
+	}
+	if got.Items[0].TargetHost != "mac-host" {
+		t.Fatalf("target_host = %q, want %q", got.Items[0].TargetHost, "mac-host")
+	}
+}
+
+func TestOutputTableShowsExecutionHostWithoutTargetName(t *testing.T) {
+	resetGlobalOpts(t)
+
+	updatedAt := time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC)
+	run := &model.Run{
+		IssueID:    "issue-3",
+		RunID:      "run-3",
+		Status:     model.StatusRunning,
+		TargetHost: "mac-host",
+		UpdatedAt:  updatedAt,
+	}
+
+	out := captureStdout(t, func() {
+		if err := outputTable([]*model.Run{run}, updatedAt, false); err != nil {
+			t.Fatalf("outputTable: %v", err)
+		}
+	})
+
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected header and row output, got %q", out)
+	}
+	if !strings.Contains(lines[1], "mac-host") {
+		t.Fatalf("expected HOST column to include execution host, row=%q", lines[1])
 	}
 }
 
@@ -634,9 +708,6 @@ func TestBranchStatusFromGitState(t *testing.T) {
 
 func TestOutputTableAgentColumn(t *testing.T) {
 	resetGlobalOpts(t)
-
-	vault := t.TempDir()
-	globalOpts.IssuesRoot = vault
 
 	updatedAt := time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC)
 

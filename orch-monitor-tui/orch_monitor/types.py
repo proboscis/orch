@@ -120,6 +120,15 @@ class ControlAgentLaunch:
     resumed: bool = False
 
 
+@dataclass
+class ControlAgentConfig:
+    prompt_content: str
+    agent: str
+    model: str
+    model_variant: str
+    extra_args: list[str]
+
+
 # ============================================================================
 # UI Filter Result Dataclasses
 # ============================================================================

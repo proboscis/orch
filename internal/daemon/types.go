@@ -68,6 +68,32 @@ type HeartbeatResponse struct {
 	Error string `json:"error,omitempty"`
 }
 
+type RegisterWorkerOptions struct {
+	WorkerID   string
+	WorkerType string
+	Host       string
+	Mode       string
+}
+
+type RegisterWorkerResponse struct {
+	OK                  bool   `json:"ok"`
+	Error               string `json:"error,omitempty"`
+	WorkerID            string `json:"worker_id,omitempty"`
+	HeartbeatTTLSeconds int64  `json:"heartbeat_ttl_seconds,omitempty"`
+}
+
+type ListWorkersResponse struct {
+	OK      bool                  `json:"ok"`
+	Error   string                `json:"error,omitempty"`
+	Workers []*WorkerRegistration `json:"workers,omitempty"`
+}
+
+type LeaseWorkResponse struct {
+	OK    bool         `json:"ok"`
+	Error string       `json:"error,omitempty"`
+	Lease *WorkerLease `json:"lease,omitempty"`
+}
+
 // ListRunsFilter contains optional filters for listing runs
 type ListRunsFilter struct {
 	IssueID   string
@@ -107,6 +133,8 @@ type RunSummary struct {
 	Model             string         `json:"model,omitempty"`
 	Branch            string         `json:"branch,omitempty"`
 	WorktreePath      string         `json:"worktree_path,omitempty"`
+	Target            string         `json:"target,omitempty"`
+	TargetHost        string         `json:"target_host,omitempty"`
 	SessionName       string         `json:"session_name,omitempty"`
 	Multiplexer       string         `json:"multiplexer,omitempty"`
 	PRUrl             string         `json:"pr_url,omitempty"`
@@ -151,6 +179,8 @@ type RunFull struct {
 	ModelVariant      string         `json:"model_variant,omitempty"`
 	Branch            string         `json:"branch,omitempty"`
 	WorktreePath      string         `json:"worktree_path,omitempty"`
+	Target            string         `json:"target,omitempty"`
+	TargetHost        string         `json:"target_host,omitempty"`
 	SessionName       string         `json:"session_name,omitempty"`
 	Multiplexer       string         `json:"multiplexer,omitempty"`
 	PRUrl             string         `json:"pr_url,omitempty"`
@@ -356,6 +386,8 @@ func RunToSummary(run *model.Run) *RunSummary {
 		Model:             run.Model,
 		Branch:            run.Branch,
 		WorktreePath:      run.WorktreePath,
+		Target:            run.Target,
+		TargetHost:        run.TargetHost,
 		SessionName:       run.SessionName,
 		Multiplexer:       run.Multiplexer,
 		PRUrl:             run.PRUrl,
@@ -422,6 +454,8 @@ func RunToFull(run *model.Run) *RunFull {
 		ModelVariant:      run.ModelVariant,
 		Branch:            run.Branch,
 		WorktreePath:      run.WorktreePath,
+		Target:            run.Target,
+		TargetHost:        run.TargetHost,
 		SessionName:       run.SessionName,
 		Multiplexer:       run.Multiplexer,
 		PRUrl:             run.PRUrl,
@@ -556,6 +590,7 @@ func SummaryAliveInfo(s *RunSummary) (alive bool, known bool) {
 
 type StartRunOptions struct {
 	IssueID        string
+	IssueSnapshot  *model.Issue
 	RunID          string
 	Agent          string
 	AgentCmd       string
@@ -572,7 +607,9 @@ type StartRunOptions struct {
 	DryRun         bool
 	Reuse          bool
 	Multiplexer    string
-	ProjectRoot    string
+	Target         string
+	TargetHost     string
+	TargetWorkerID string
 }
 
 type StartRunResponse struct {
@@ -587,11 +624,16 @@ type StartRunResponse struct {
 
 // StartRunResult holds the success data from a start_run operation (no OK/Error).
 type StartRunResult struct {
-	RunID        string
-	Branch       string
-	WorktreePath string
-	SessionName  string
-	Status       string
+	RunID             string
+	Branch            string
+	WorktreePath      string
+	SessionName       string
+	Status            string
+	Multiplexer       string
+	SessionHost       string
+	WorkerID          string
+	ServerPort        int
+	OpenCodeSessionID string
 }
 
 type ContinueRunOptions struct {
@@ -608,8 +650,9 @@ type ContinueRunOptions struct {
 	PRTargetBranch string
 	Multiplexer    string
 	SessionName    string
-	ProjectRoot    string
-	RepoRoot       string
+	Target         string
+	TargetHost     string
+	TargetWorkerID string
 }
 
 type ContinueRunResponse struct {
@@ -626,13 +669,18 @@ type ContinueRunResponse struct {
 
 // ContinueRunResult holds the success data from a continue_run operation (no OK/Error).
 type ContinueRunResult struct {
-	RunID         string
-	Branch        string
-	WorktreePath  string
-	SessionName   string
-	Status        string
-	ContinuedFrom string
-	IssueID       string
+	RunID             string
+	Branch            string
+	WorktreePath      string
+	SessionName       string
+	Status            string
+	ContinuedFrom     string
+	IssueID           string
+	Multiplexer       string
+	SessionHost       string
+	WorkerID          string
+	ServerPort        int
+	OpenCodeSessionID string
 }
 
 type StopRunResponse struct {
@@ -685,6 +733,7 @@ type GetAttachInfoResponse struct {
 	ServerPort        int    `json:"server_port,omitempty"`
 	OpenCodeSessionID string `json:"opencode_session_id,omitempty"`
 	Branch            string `json:"branch,omitempty"`
+	TargetHost        string `json:"target_host,omitempty"`
 }
 
 type GetControlAgentLaunchResponse struct {
@@ -699,7 +748,6 @@ type GetControlAgentLaunchResponse struct {
 
 type ControlAgentLaunchParams struct {
 	ProjectRoot string
-	IssuesRoot  string
 	Agent       string
 	NewSession  bool
 }
@@ -713,11 +761,28 @@ type ControlAgentLaunchResult struct {
 	Resumed    bool
 }
 
+type GetControlAgentConfigResponse struct {
+	OK            bool     `json:"ok"`
+	Error         string   `json:"error,omitempty"`
+	PromptContent string   `json:"prompt_content,omitempty"`
+	Agent         string   `json:"agent,omitempty"`
+	Model         string   `json:"model,omitempty"`
+	ModelVariant  string   `json:"model_variant,omitempty"`
+	ExtraArgs     []string `json:"extra_args,omitempty"`
+}
+
+type ControlAgentConfigResult struct {
+	PromptContent string
+	Agent         string
+	Model         string
+	ModelVariant  string
+	ExtraArgs     []string
+}
+
 type SendMessageParams struct {
-	IssueID    string
-	RunID      string
-	Message    string
-	IssuesRoot string
+	IssueID string
+	RunID   string
+	Message string
 }
 
 type CreateIssueParams struct {

@@ -5,10 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
-	"time"
+	"strings"
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/model"
@@ -39,21 +38,20 @@ type openCodeExecutor func(args []string, dir string, streams attachStreams) err
 type attachDeps struct {
 	getAPI             func() (orchapi.OrchAPI, error)
 	parseRunRef        func(string) (orchapi.RunRef, error)
-	getProjectRoot     func() (string, error)
 	parseMuxType       func(string) (multiplexer.Type, error)
 	getMuxAuto         func() (attachSessionMux, error)
 	getMuxWithFallback func(multiplexer.Type) (attachSessionMux, string, error)
 	attachOpenCode     func(*orchapi.AttachInfo, attachStreams) (int, error)
+	attachRemote       func(*orchapi.AttachInfo, attachStreams) (int, error)
 	streams            attachStreams
 	exit               func(int)
 }
 
 func defaultAttachDeps() *attachDeps {
 	return &attachDeps{
-		getAPI:         getAPI,
-		parseRunRef:    orchapi.ParseRunRef,
-		getProjectRoot: getProjectRoot,
-		parseMuxType:   multiplexer.ParseType,
+		getAPI:       getAPIForListing,
+		parseRunRef:  orchapi.ParseRunRef,
+		parseMuxType: multiplexer.ParseType,
 		getMuxAuto: func() (attachSessionMux, error) {
 			return multiplexer.GetAuto()
 		},
@@ -61,6 +59,7 @@ func defaultAttachDeps() *attachDeps {
 			return multiplexer.GetWithFallback(t)
 		},
 		attachOpenCode: attachOpenCodeFromInfoWithExecutor,
+		attachRemote:   attachRemoteFromInfoWithExecutor,
 		streams: attachStreams{
 			stdin:  os.Stdin,
 			stdout: os.Stdout,
@@ -117,11 +116,19 @@ func runAttachWithDeps(refStr string, opts *attachOptions, deps *attachDeps) err
 		return err
 	}
 
-	if !info.SessionExists {
+	if !info.SessionExists && !shouldHandleRunLocally(info) {
 		fmt.Fprintf(deps.streams.stderr, "cannot attach: session not found (session: %s, worktree: %s)\n",
 			info.SessionName, info.WorktreePath)
 		deps.exit(ExitRunNotFound)
 		return fmt.Errorf("cannot attach: session not found")
+	}
+
+	if info.TargetHost != "" && !shouldHandleRunLocally(info) {
+		exitCode, attachErr := deps.attachRemote(info, deps.streams)
+		if exitCode != 0 {
+			deps.exit(exitCode)
+		}
+		return attachErr
 	}
 
 	if info.Agent == string(agent.AgentOpenCode) {
@@ -137,8 +144,7 @@ func runAttachWithDeps(refStr string, opts *attachOptions, deps *attachDeps) err
 		sessionName = model.GenerateSessionName(info.IssueID, info.RunID)
 	}
 
-	projectRoot, _ := deps.getProjectRoot()
-	cfg, _ := api.GetConfig(ctx, projectRoot)
+	cfg, _ := api.GetConfig(ctx)
 
 	muxSetting := ""
 	if cfg != nil {
@@ -180,6 +186,49 @@ func runAttachWithDeps(refStr string, opts *attachOptions, deps *attachDeps) err
 	return nil
 }
 
+var runSSHCommand = func(args []string, streams attachStreams) error {
+	cmd := exec.Command("ssh", args...)
+	cmd.Stdin = streams.stdin
+	cmd.Stdout = streams.stdout
+	cmd.Stderr = streams.stderr
+	return cmd.Run()
+}
+
+func attachRemoteFromInfoWithExecutor(info *orchapi.AttachInfo, streams attachStreams) (int, error) {
+	if strings.EqualFold(info.Agent, string(agent.AgentOpenCode)) {
+		script, err := buildRemoteOpenCodeAttachScript(info)
+		if err != nil {
+			fmt.Fprintf(streams.stderr, "%v\n", err)
+			return ExitRunNotFound, err
+		}
+		if err := runSSHCommand(sshScriptArgs(info.TargetHost, true, script), streams); err != nil {
+			fmt.Fprintf(streams.stderr, "failed to attach via ssh: %v\n", err)
+			return ExitTmuxError, err
+		}
+		return 0, nil
+	}
+
+	sessionName := info.SessionName
+	if sessionName == "" {
+		sessionName = model.GenerateSessionName(info.IssueID, info.RunID)
+	}
+
+	var args []string
+	switch info.Multiplexer {
+	case orchapi.MultiplexerZellij:
+		args = []string{"-t", info.TargetHost, "zellij", "attach", sessionName}
+	default:
+		args = []string{"-t", info.TargetHost, "tmux", "attach-session", "-t", sessionName}
+	}
+
+	if err := runSSHCommand(args, streams); err != nil {
+		fmt.Fprintf(streams.stderr, "failed to attach via ssh: %v\n", err)
+		return ExitTmuxError, err
+	}
+
+	return 0, nil
+}
+
 func attachOpenCodeFromInfo(info *orchapi.AttachInfo) error {
 	exitCode, err := attachOpenCodeFromInfoWithExecutor(info, attachStreams{
 		stdin:  os.Stdin,
@@ -198,7 +247,7 @@ func attachOpenCodeFromInfoWithExecutor(info *orchapi.AttachInfo, streams attach
 		return ExitRunNotFound, fmt.Errorf("no server port or session found")
 	}
 
-	if info.ServerPort > 0 && isPortOpen(info.ServerPort) {
+	if info.ServerPort > 0 {
 		return attachToRunningOpenCodeWithExecutor(info, streams)
 	}
 
@@ -206,17 +255,8 @@ func attachOpenCodeFromInfoWithExecutor(info *orchapi.AttachInfo, streams attach
 		return resumeOpenCodeSessionWithExecutor(info, streams)
 	}
 
-	fmt.Fprintf(streams.stderr, "opencode server not running and no session to resume\n")
+	fmt.Fprintf(streams.stderr, "no opencode server port and no session to resume\n")
 	return ExitRunNotFound, fmt.Errorf("cannot attach")
-}
-
-func isPortOpen(port int) bool {
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 500*time.Millisecond)
-	if err != nil {
-		return false
-	}
-	conn.Close()
-	return true
 }
 
 var runOpenCodeCommand = func(args []string, dir string, streams attachStreams) error {

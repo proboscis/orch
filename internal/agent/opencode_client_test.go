@@ -3,12 +3,57 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 )
+
+type roundTripFunc func(req *http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func newSocketlessOpenCodeClient(t *testing.T, handler http.HandlerFunc) *OpenCodeClient {
+	t.Helper()
+
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		rec := httptest.NewRecorder()
+		handler(rec, req)
+		return rec.Result(), nil
+	})
+
+	return &OpenCodeClient{
+		baseURL: "http://opencode.test",
+		httpClient: &http.Client{
+			Timeout:   5 * time.Second,
+			Transport: transport,
+		},
+	}
+}
+
+type delayedBody struct {
+	delay   time.Duration
+	payload []byte
+	read    bool
+}
+
+func (d *delayedBody) Read(p []byte) (int, error) {
+	if d.read {
+		return 0, io.EOF
+	}
+	time.Sleep(d.delay)
+	d.read = true
+	n := copy(p, d.payload)
+	return n, io.EOF
+}
+
+func (d *delayedBody) Close() error {
+	return nil
+}
 
 func TestParseModel(t *testing.T) {
 	tests := []struct {
@@ -148,7 +193,7 @@ func TestCreateSessionWithDirectory(t *testing.T) {
 	var receivedHeaders http.Header
 	var receivedBody map[string]interface{}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newSocketlessOpenCodeClient(t, func(w http.ResponseWriter, r *http.Request) {
 		receivedHeaders = r.Header.Clone()
 
 		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
@@ -160,14 +205,7 @@ func TestCreateSessionWithDirectory(t *testing.T) {
 			ID:    "ses_test123",
 			Title: "Test Session",
 		})
-	}))
-	defer server.Close()
-
-	// Extract port from server URL
-	client := &OpenCodeClient{
-		baseURL:    server.URL,
-		httpClient: &http.Client{Timeout: 5 * time.Second},
-	}
+	})
 
 	ctx := context.Background()
 	session, err := client.CreateSession(ctx, "Test Session", "/path/to/worktree")
@@ -197,7 +235,7 @@ func TestSendMessageAsyncWithDirectoryAndModel(t *testing.T) {
 	var receivedBody map[string]interface{}
 	var receivedPath string
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newSocketlessOpenCodeClient(t, func(w http.ResponseWriter, r *http.Request) {
 		receivedHeaders = r.Header.Clone()
 		receivedPath = r.URL.Path
 
@@ -206,13 +244,7 @@ func TestSendMessageAsyncWithDirectoryAndModel(t *testing.T) {
 		}
 
 		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer server.Close()
-
-	client := &OpenCodeClient{
-		baseURL:    server.URL,
-		httpClient: &http.Client{Timeout: 5 * time.Second},
-	}
+	})
 
 	ctx := context.Background()
 	model := &ModelRef{
@@ -278,16 +310,10 @@ func TestSendMessageAsyncWithDirectoryAndModel(t *testing.T) {
 func TestSendMessageAsyncWithoutModel(t *testing.T) {
 	var receivedBody map[string]interface{}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newSocketlessOpenCodeClient(t, func(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&receivedBody)
 		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer server.Close()
-
-	client := &OpenCodeClient{
-		baseURL:    server.URL,
-		httpClient: &http.Client{Timeout: 5 * time.Second},
-	}
+	})
 
 	ctx := context.Background()
 	err := client.SendMessageAsync(ctx, "ses_test123", "Hello", "/path/to/worktree", nil, "")
@@ -311,7 +337,7 @@ func TestSendMessagePromptWithDirectoryAndModel(t *testing.T) {
 	var receivedBody map[string]interface{}
 	var receivedPath string
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newSocketlessOpenCodeClient(t, func(w http.ResponseWriter, r *http.Request) {
 		receivedHeaders = r.Header.Clone()
 		receivedPath = r.URL.Path
 
@@ -320,13 +346,7 @@ func TestSendMessagePromptWithDirectoryAndModel(t *testing.T) {
 		}
 
 		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	client := &OpenCodeClient{
-		baseURL:    server.URL,
-		httpClient: &http.Client{Timeout: 5 * time.Second},
-	}
+	})
 
 	ctx := context.Background()
 	model := &ModelRef{
@@ -386,17 +406,11 @@ func TestSendMessagePromptWithoutModel(t *testing.T) {
 	var receivedBody map[string]interface{}
 	var receivedPath string
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newSocketlessOpenCodeClient(t, func(w http.ResponseWriter, r *http.Request) {
 		receivedPath = r.URL.Path
 		json.NewDecoder(r.Body).Decode(&receivedBody)
 		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	client := &OpenCodeClient{
-		baseURL:    server.URL,
-		httpClient: &http.Client{Timeout: 5 * time.Second},
-	}
+	})
 
 	ctx := context.Background()
 	err := client.SendMessagePrompt(ctx, "ses_test456", "Hello", "/path/to/worktree", nil, "")
@@ -421,19 +435,18 @@ func TestSendMessagePromptWithoutModel(t *testing.T) {
 func TestSendMessagePromptReturnsQuicklyAfterAck(t *testing.T) {
 	const bodyDelay = 600 * time.Millisecond
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusAccepted)
-		if flusher, ok := w.(http.Flusher); ok {
-			flusher.Flush()
-		}
-		time.Sleep(bodyDelay)
-		_, _ = w.Write([]byte(`{"status":"accepted"}`))
-	}))
-	defer server.Close()
-
 	client := &OpenCodeClient{
-		baseURL:    server.URL,
-		httpClient: &http.Client{Timeout: 3 * time.Second},
+		baseURL: "http://opencode.test",
+		httpClient: &http.Client{
+			Timeout: 3 * time.Second,
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusAccepted,
+					Header:     make(http.Header),
+					Body:       &delayedBody{delay: bodyDelay, payload: []byte(`{"status":"accepted"}`)},
+				}, nil
+			}),
+		},
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -453,7 +466,7 @@ func TestSendMessagePromptReturnsQuicklyAfterAck(t *testing.T) {
 func TestSendMessagePromptRetriesTransientFailures(t *testing.T) {
 	attempts := 0
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newSocketlessOpenCodeClient(t, func(w http.ResponseWriter, r *http.Request) {
 		attempts++
 		if attempts < 3 {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -461,13 +474,7 @@ func TestSendMessagePromptRetriesTransientFailures(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusAccepted)
-	}))
-	defer server.Close()
-
-	client := &OpenCodeClient{
-		baseURL:    server.URL,
-		httpClient: &http.Client{Timeout: 2 * time.Second},
-	}
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -478,6 +485,40 @@ func TestSendMessagePromptRetriesTransientFailures(t *testing.T) {
 	}
 	if attempts != 3 {
 		t.Fatalf("expected 3 attempts, got %d", attempts)
+	}
+}
+
+func TestGetMessagesRetriesTransientPartialJSON(t *testing.T) {
+	attempts := 0
+
+	client := newSocketlessOpenCodeClient(t, func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if r.URL.Path != "/session/ses_retry/message" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("X-OpenCode-Directory"); got != "/tmp/worktree" {
+			t.Fatalf("X-OpenCode-Directory = %q, want %q", got, "/tmp/worktree")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if attempts < 3 {
+			_, _ = w.Write([]byte(`[{"info":{"id":"msg1"`))
+			return
+		}
+		_, _ = w.Write([]byte(`[{"info":{"id":"msg1","sessionID":"ses_retry","role":"assistant","createdAt":"2026-03-12T00:00:00Z"},"parts":[{"type":"text","text":"ready"}]}]`))
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	messages, err := client.GetMessages(ctx, "ses_retry", "/tmp/worktree")
+	if err != nil {
+		t.Fatalf("GetMessages error: %v", err)
+	}
+	if attempts != 3 {
+		t.Fatalf("expected 3 attempts, got %d", attempts)
+	}
+	if len(messages) != 1 || messages[0].Info.Role != "assistant" {
+		t.Fatalf("unexpected messages: %+v", messages)
 	}
 }
 
@@ -494,7 +535,7 @@ func TestNewOpenCodeClient(t *testing.T) {
 }
 
 func TestHealthCheck(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newSocketlessOpenCodeClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/global/health" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
@@ -503,13 +544,7 @@ func TestHealthCheck(t *testing.T) {
 			Healthy: true,
 			Version: "1.0.0",
 		})
-	}))
-	defer server.Close()
-
-	client := &OpenCodeClient{
-		baseURL:    server.URL,
-		httpClient: &http.Client{Timeout: 5 * time.Second},
-	}
+	})
 
 	ctx := context.Background()
 	health, err := client.Health(ctx)
@@ -526,16 +561,10 @@ func TestHealthCheck(t *testing.T) {
 }
 
 func TestIsServerRunning(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newSocketlessOpenCodeClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(HealthResponse{Healthy: true, Version: "1.0.0"})
-	}))
-	defer server.Close()
-
-	client := &OpenCodeClient{
-		baseURL:    server.URL,
-		httpClient: &http.Client{Timeout: 5 * time.Second},
-	}
+	})
 
 	ctx := context.Background()
 	if !client.IsServerRunning(ctx) {
@@ -544,7 +573,7 @@ func TestIsServerRunning(t *testing.T) {
 }
 
 func TestIsServerRunningForWorktree(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newSocketlessOpenCodeClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/global/health" {
 			json.NewEncoder(w).Encode(HealthResponse{Healthy: true, Version: "1.0.0"})
@@ -554,13 +583,7 @@ func TestIsServerRunningForWorktree(t *testing.T) {
 				Worktree: "/path/to/project",
 			})
 		}
-	}))
-	defer server.Close()
-
-	client := &OpenCodeClient{
-		baseURL:    server.URL,
-		httpClient: &http.Client{Timeout: 5 * time.Second},
-	}
+	})
 
 	ctx := context.Background()
 
@@ -584,7 +607,7 @@ func TestFindRunningOpenCodeServerForWorktree(t *testing.T) {
 	})
 
 	t.Run("returns 0 when server running but wrong worktree", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		client := newSocketlessOpenCodeClient(t, func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			if r.URL.Path == "/global/health" {
 				json.NewEncoder(w).Encode(HealthResponse{Healthy: true, Version: "1.0.0"})
@@ -594,13 +617,7 @@ func TestFindRunningOpenCodeServerForWorktree(t *testing.T) {
 					Worktree: "/path/to/different-project",
 				})
 			}
-		}))
-		defer server.Close()
-
-		client := &OpenCodeClient{
-			baseURL:    server.URL,
-			httpClient: &http.Client{Timeout: 5 * time.Second},
-		}
+		})
 
 		ctx := context.Background()
 		if client.IsServerRunningForWorktree(ctx, "/path/to/my-project") {
@@ -625,7 +642,7 @@ func TestOpenCodeServerPortConstants(t *testing.T) {
 func TestGetSessionStatus(t *testing.T) {
 	var receivedHeaders http.Header
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newSocketlessOpenCodeClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/session/status" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
@@ -635,13 +652,7 @@ func TestGetSessionStatus(t *testing.T) {
 			"ses_abc123": SessionStatusBusy,
 			"ses_def456": SessionStatusIdle,
 		})
-	}))
-	defer server.Close()
-
-	client := &OpenCodeClient{
-		baseURL:    server.URL,
-		httpClient: &http.Client{Timeout: 5 * time.Second},
-	}
+	})
 
 	ctx := context.Background()
 	statusMap, err := client.GetSessionStatus(ctx, "/path/to/worktree")
@@ -662,16 +673,10 @@ func TestGetSessionStatus(t *testing.T) {
 }
 
 func TestGetSessionStatusObjectFormat(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newSocketlessOpenCodeClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"ses_abc123":{"type":"busy"},"ses_def456":{"type":"idle"},"ses_ghi789":{"type":"retry"}}`))
-	}))
-	defer server.Close()
-
-	client := &OpenCodeClient{
-		baseURL:    server.URL,
-		httpClient: &http.Client{Timeout: 5 * time.Second},
-	}
+	})
 
 	ctx := context.Background()
 	statusMap, err := client.GetSessionStatus(ctx, "")
@@ -691,19 +696,13 @@ func TestGetSessionStatusObjectFormat(t *testing.T) {
 }
 
 func TestGetSingleSessionStatus(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newSocketlessOpenCodeClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]SessionStatus{
 			"ses_abc123": SessionStatusBusy,
 			"ses_def456": SessionStatusIdle,
 		})
-	}))
-	defer server.Close()
-
-	client := &OpenCodeClient{
-		baseURL:    server.URL,
-		httpClient: &http.Client{Timeout: 5 * time.Second},
-	}
+	})
 
 	ctx := context.Background()
 

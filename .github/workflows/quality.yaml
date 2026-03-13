@@ -47,3 +47,27 @@ jobs:
 
       - name: Run race tests on core packages
         run: go test -race ./internal/daemon ./internal/monitor ./internal/cli
+
+  e2e-pr-ci:
+    name: E2E PR CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Install runner dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux jq
+
+      - name: Run PR-safe E2E automation
+        run: |
+          RUN_ZELLIJ_LANE=0 \
+          RUN_OPENCODE_LANE=0 \
+          make e2e-pr-ci

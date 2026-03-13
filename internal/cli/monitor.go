@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -75,8 +76,9 @@ func newMonitorListCmd() *cobra.Command {
 		Short: "List running monitor instances",
 		Long: `List all running orch-monitor instances.
 
-By default, shows monitors for the current project only.
-Use --all to show monitors from all projects.
+By default, shows monitors across all projects.
+Set --project (or ORCH_PROJECT) to scope listing to one project identity.
+Use --all to force global listing.
 
 Examples:
   orch monitor list           # List monitors for current project
@@ -94,17 +96,16 @@ Examples:
 }
 
 func runMonitorList(opts *monitorListOptions) error {
-	projectRoot, err := getProjectRoot()
-	if err != nil {
-		return err
-	}
+	projectRoot, _, _ := resolveMonitorProjectScope()
 
 	client, err := ensureDaemonReady(projectRoot)
 	if err != nil {
 		return err
 	}
+	defer client.Close()
 
-	resp, err := client.ListMonitors(projectRoot, opts.All)
+	listAll := opts.All || projectRoot == ""
+	resp, err := client.ListMonitors(projectRoot, listAll)
 	if err != nil {
 		return err
 	}
@@ -170,7 +171,7 @@ func newMonitorKillCmd() *cobra.Command {
 
 Examples:
   orch monitor kill mon-12345       # Kill specific monitor
-  orch monitor kill --all           # Kill all monitors for current project
+orch monitor kill --all --project proboscis-orch  # Kill monitors for one project
   orch monitor kill --all --global  # Kill all monitors everywhere`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -182,7 +183,7 @@ Examples:
 		},
 	}
 
-	cmd.Flags().BoolVar(&opts.All, "all", false, "Kill all monitors for current project")
+	cmd.Flags().BoolVar(&opts.All, "all", false, "Kill all monitors for explicit project scope")
 	cmd.Flags().BoolVar(&opts.Global, "global", false, "With --all, kill monitors from all projects")
 
 	return cmd
@@ -193,17 +194,20 @@ func runMonitorKill(monitorID string, opts *monitorKillOptions) error {
 		return fmt.Errorf("specify MONITOR_ID or use --all")
 	}
 
-	projectRoot, err := getProjectRoot()
-	if err != nil {
-		return err
+	projectRoot, explicitProjectRoot, _ := resolveMonitorProjectScope()
+	if opts.All && !opts.Global && !explicitProjectRoot {
+		return fmt.Errorf("project scope required for --all without --global: set --project/ORCH_PROJECT or use --global")
 	}
 
 	client, err := ensureDaemonReady(projectRoot)
 	if err != nil {
 		return err
 	}
+	defer client.Close()
 
-	resp, err := client.KillMonitor(monitorID, opts.All, opts.Global, projectRoot)
+	globalKill := opts.Global
+
+	resp, err := client.KillMonitor(monitorID, opts.All, globalKill, projectRoot)
 	if err != nil {
 		return err
 	}
@@ -239,21 +243,40 @@ func runMonitorKill(monitorID string, opts *monitorKillOptions) error {
 	return nil
 }
 
+func resolveMonitorProjectScope() (string, bool, bool) {
+	remote := strings.TrimSpace(getRemoteAddr()) != ""
+
+	projectRoot, _, err := getProjectRootWithSource()
+	if err != nil {
+		projectRoot = ""
+	}
+
+	explicitProject := strings.TrimSpace(globalOpts.Project) != "" || strings.TrimSpace(os.Getenv("ORCH_PROJECT")) != ""
+
+	if !explicitProject {
+		projectRoot = ""
+	}
+
+	return projectRoot, explicitProject, remote
+}
+
 func ensureDaemonReady(projectRoot string) (*daemon.ProtoClient, error) {
 	return requireDaemon()
 }
 
 func runMonitor(opts *monitorOptions) error {
-	projectRoot, err := getProjectRoot()
+	projectRoot, err := resolveExplicitProjectScope("", "")
 	if err != nil {
-		return fmt.Errorf("project root required for monitor: %w", err)
+		return fmt.Errorf("project scope required for monitor: %w", err)
 	}
 
-	if _, err := ensureDaemonReady(projectRoot); err != nil {
+	daemonClient, err := ensureDaemonReady(projectRoot)
+	if err != nil {
 		return err
 	}
+	_ = daemonClient.Close()
 
-	issuesRoot, err := getIssuesRoot()
+	issuesRoot, err := getIssuesRootForProjectIfConfigured(projectRoot)
 	if err != nil {
 		return err
 	}
@@ -304,7 +327,7 @@ func runMonitor(opts *monitorOptions) error {
 		ForceNew:        forceNew,
 		NewControlAgent: opts.NewControlAgent,
 		OrchPath:        os.Args[0],
-		GlobalFlags:     monitorGlobalFlags(projectRoot, issuesRoot),
+		GlobalFlags:     monitorGlobalFlags(projectRoot),
 		ShowResolved:    opts.ShowResolved,
 		ShowClosed:      opts.ShowClosed,
 		UISettings:      settings,
@@ -321,17 +344,14 @@ func runMonitor(opts *monitorOptions) error {
 	return m.Start()
 }
 
-func monitorGlobalFlags(projectRoot, issuesRoot string) []string {
+func monitorGlobalFlags(projectRoot string) []string {
 	var flags []string
 	if projectRoot != "" {
-		flags = append(flags, "--project-root", projectRoot)
-	} else if globalOpts.ProjectRoot != "" {
-		flags = append(flags, "--project-root", globalOpts.ProjectRoot)
-	}
-	if issuesRoot != "" {
-		flags = append(flags, "--issues-root", issuesRoot)
-	} else if globalOpts.IssuesRoot != "" {
-		flags = append(flags, "--issues-root", globalOpts.IssuesRoot)
+		if projectID, err := resolveProjectIdentity(projectRoot); err == nil && strings.TrimSpace(projectID) != "" {
+			flags = append(flags, "--project", projectID)
+		}
+	} else if strings.TrimSpace(globalOpts.Project) != "" {
+		flags = append(flags, "--project", strings.TrimSpace(globalOpts.Project))
 	}
 	if globalOpts.Backend != "" {
 		flags = append(flags, "--backend", globalOpts.Backend)

@@ -9,8 +9,8 @@ These flags work with all commands:
 | Flag | Description |
 |------|-------------|
 | `--backend <type>` | Backend type: `file`, `github`, `linear` (default: `file`) |
-| `--project-root <path>` | Path to project root (or `ORCH_PROJECT_ROOT`) |
-| `--issues-root <path>` | Path to issues root (or `ORCH_ISSUES_ROOT`) |
+| `--project <id-or-url>` | Project identity (repo ID or git remote URL, or `ORCH_PROJECT`) |
+| `--remote <addr>` | Connect to remote daemon address (or `ORCH_REMOTE`) |
 | `--json` | Output in JSON format |
 | `--tsv` | Output in TSV format (for fzf integration) |
 | `--quiet` | Suppress human-readable output |
@@ -48,6 +48,7 @@ The control agent is a persistent AI agent that helps you manage issues and runs
 | `--new` | Force start a new control agent session |
 | `--kill` | Terminate the running control agent |
 | `--backend <type>` | Agent type: `claude`, `opencode`, etc. |
+| `--dry-run` | Validate agent backend resolution without launching |
 
 ### Examples
 
@@ -138,13 +139,11 @@ orch run ISSUE_ID [flags]
 | `--preset <name>` | Use named preset from config |
 | `--profile <name>` | Agent profile |
 | `--prompt-template <file>` | Custom prompt template file |
-| `--repo-root <path>` | Git repository root |
 | `--reuse` | Reuse latest run if waiting |
 | `--run-id <id>` | Manually specify run ID |
 | `--tmux` | Run in tmux session (default: true) |
 | `--tmux-session <name>` | Session name |
 | `-v, --verbose` | Enable debug output |
-| `--worktree-dir <path>` | Directory for worktrees |
 
 ### Examples
 
@@ -184,10 +183,8 @@ orch restart-from RUN_REF|ISSUE_ID [flags]
 | `--no-pr` | Skip PR creation instructions |
 | `--profile <name>` | Agent profile |
 | `--prompt-template <file>` | Custom prompt template |
-| `--repo-root <path>` | Git repository root |
 | `--tmux` | Run in tmux (default: true) |
 | `--tmux-session <name>` | Session name |
-| `--worktree-dir <path>` | Worktree directory |
 
 ### Examples
 
@@ -578,12 +575,18 @@ Start the daemon.
 orch daemon start
 ```
 
-### orch daemon stop
+#### Flags
 
-Stop the daemon.
+| Flag | Description |
+|------|-------------|
+| `--listen <addr>` | Additional daemon listen address for remote clients (example: `tcp://0.0.0.0:7777`) |
+
+### orch daemon kill
+
+Kill running daemon(s).
 
 ```bash
-orch daemon stop
+orch daemon kill
 ```
 
 ### orch daemon status
@@ -592,6 +595,22 @@ Check daemon status.
 
 ```bash
 orch daemon status
+```
+
+### orch daemon repo register
+
+Register a repository URL for remote project identity mapping.
+
+```bash
+orch daemon repo register REPO_URL
+```
+
+### orch daemon repo list
+
+List daemon repo identity mappings used for remote resolution.
+
+```bash
+orch daemon repo list
 ```
 
 ---

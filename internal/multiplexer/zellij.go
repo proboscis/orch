@@ -1,6 +1,7 @@
 package multiplexer
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -8,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/s22625/orch/internal/executor"
 )
 
 const zellijMaxSessionNameLen = 25
@@ -36,10 +39,34 @@ func shortenSessionName(name string) string {
 	return prefix + "-" + suffix
 }
 
-type ZellijMultiplexer struct{}
+type ZellijMultiplexer struct {
+	executor executor.Executor
+}
 
 func NewZellijMultiplexer() *ZellijMultiplexer {
-	return &ZellijMultiplexer{}
+	return NewZellijMultiplexerWithExecutor(executor.NewCommandFuncExecutor(execCommand))
+}
+
+func NewZellijMultiplexerWithExecutor(exec executor.Executor) *ZellijMultiplexer {
+	if exec == nil {
+		exec = executor.NewLocalExecutor()
+	}
+	return &ZellijMultiplexer{executor: exec}
+}
+
+func (z *ZellijMultiplexer) run(args ...string) error {
+	_, _, err := z.executor.RunCommand(context.Background(), "zellij", args, executor.RunOptions{})
+	return err
+}
+
+func (z *ZellijMultiplexer) output(args ...string) ([]byte, error) {
+	output, _, err := z.executor.RunCommand(context.Background(), "zellij", args, executor.RunOptions{})
+	return output, err
+}
+
+func (z *ZellijMultiplexer) runWithOptions(args []string, opts executor.RunOptions) error {
+	_, _, err := z.executor.RunCommand(context.Background(), "zellij", args, opts)
+	return err
 }
 
 func (z *ZellijMultiplexer) Type() Type {
@@ -47,8 +74,7 @@ func (z *ZellijMultiplexer) Type() Type {
 }
 
 func (z *ZellijMultiplexer) IsAvailable() bool {
-	cmd := execCommand("zellij", "--version")
-	return cmd.Run() == nil
+	return z.run("--version") == nil
 }
 
 func (z *ZellijMultiplexer) IsInsideSession() bool {
@@ -72,8 +98,7 @@ func (z *ZellijMultiplexer) HasSession(name string) bool {
 func (z *ZellijMultiplexer) NewSession(cfg *SessionConfig) error {
 	sessionName := shortenSessionName(cfg.SessionName)
 
-	env := os.Environ()
-	env = append(env, cfg.Env...)
+	env := sessionEnv(z.executor, cfg.Env)
 
 	workDir := cfg.WorkDir
 	if workDir == "" {
@@ -84,10 +109,7 @@ func (z *ZellijMultiplexer) NewSession(cfg *SessionConfig) error {
 	// The old nohup approach caused sessions to exit immediately because
 	// zellij doesn't persist properly when started with stdin from /dev/null.
 	args := []string{"attach", "--create-background", sessionName}
-	startCmd := execCommand("zellij", args...)
-	startCmd.Dir = workDir
-	startCmd.Env = env
-	if err := startCmd.Run(); err != nil {
+	if err := z.runWithOptions(args, executor.RunOptions{Dir: workDir, Env: env}); err != nil {
 		return fmt.Errorf("failed to create zellij session: %w", err)
 	}
 
@@ -114,23 +136,19 @@ func (z *ZellijMultiplexer) waitForSession(name string, timeout time.Duration) e
 
 func (z *ZellijMultiplexer) AttachSession(session string) error {
 	session = shortenSessionName(session)
-	cmd := execCommand("zellij", "attach", session)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return z.runWithOptions(
+		[]string{"attach", session},
+		executor.RunOptions{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr},
+	)
 }
 
 func (z *ZellijMultiplexer) KillSession(session string) error {
 	session = shortenSessionName(session)
-	cmd := execCommand("zellij", "kill-session", session)
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return z.runWithOptions([]string{"kill-session", session}, executor.RunOptions{Stderr: os.Stderr})
 }
 
 func (z *ZellijMultiplexer) ListSessions() ([]string, error) {
-	cmd := execCommand("zellij", "list-sessions", "-n")
-	output, err := cmd.Output()
+	output, err := z.output("list-sessions", "-n")
 	if err != nil {
 		// Check if the error is just "no sessions"
 		if strings.Contains(err.Error(), "No active zellij sessions") ||
@@ -174,9 +192,7 @@ func (z *ZellijMultiplexer) NewWindow(session, name, workDir, command string) er
 		args = append(args, "--name", name)
 	}
 
-	cmd := execCommand("zellij", args...)
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := z.runWithOptions(args, executor.RunOptions{Stderr: os.Stderr}); err != nil {
 		return err
 	}
 
@@ -189,9 +205,7 @@ func (z *ZellijMultiplexer) NewWindow(session, name, workDir, command string) er
 func (z *ZellijMultiplexer) SelectWindow(session string, index int) error {
 	session = shortenSessionName(session)
 	args := []string{"--session", session, "action", "go-to-tab", strconv.Itoa(index + 1)}
-	cmd := execCommand("zellij", args...)
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return z.runWithOptions(args, executor.RunOptions{Stderr: os.Stderr})
 }
 
 func (z *ZellijMultiplexer) SelectWindowByID(windowID string) error {
@@ -204,9 +218,7 @@ func (z *ZellijMultiplexer) RenameWindow(session string, index int, name string)
 		return err
 	}
 	args := []string{"--session", session, "action", "rename-tab", name}
-	cmd := execCommand("zellij", args...)
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return z.runWithOptions(args, executor.RunOptions{Stderr: os.Stderr})
 }
 
 func (z *ZellijMultiplexer) ListPanes(target string) ([]Pane, error) {
@@ -225,9 +237,7 @@ func (z *ZellijMultiplexer) SplitWindow(target string, vertical bool, percent in
 	}
 
 	args := []string{"--session", session, "action", "new-pane", "--direction", direction}
-	cmd := execCommand("zellij", args...)
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := z.runWithOptions(args, executor.RunOptions{Stderr: os.Stderr}); err != nil {
 		return "", err
 	}
 	return "", nil
@@ -243,9 +253,7 @@ func (z *ZellijMultiplexer) SetPaneTitle(target, title string) error {
 		return unsupportedErr("set pane title without session")
 	}
 	args := []string{"--session", session, "action", "rename-pane", title}
-	cmd := execCommand("zellij", args...)
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return z.runWithOptions(args, executor.RunOptions{Stderr: os.Stderr})
 }
 
 func (z *ZellijMultiplexer) KillPane(target string) error {
@@ -254,9 +262,7 @@ func (z *ZellijMultiplexer) KillPane(target string) error {
 		return unsupportedErr("kill pane without session")
 	}
 	args := []string{"--session", session, "action", "close-pane"}
-	cmd := execCommand("zellij", args...)
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return z.runWithOptions(args, executor.RunOptions{Stderr: os.Stderr})
 }
 
 func (z *ZellijMultiplexer) SwapPane(source, target string) error {
@@ -274,9 +280,7 @@ func (z *ZellijMultiplexer) SendKeys(session, keys string) error {
 func (z *ZellijMultiplexer) SendKeysLiteral(session, keys string) error {
 	session = shortenSessionName(session)
 	args := []string{"--session", session, "action", "write-chars", "--", keys}
-	cmd := execCommand("zellij", args...)
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return z.runWithOptions(args, executor.RunOptions{Stderr: os.Stderr})
 }
 
 func (z *ZellijMultiplexer) SendText(session, text string) error {
@@ -286,9 +290,7 @@ func (z *ZellijMultiplexer) SendText(session, text string) error {
 func (z *ZellijMultiplexer) sendKey(session string, keyCode int) error {
 	session = shortenSessionName(session)
 	args := []string{"--session", session, "action", "write", strconv.Itoa(keyCode)}
-	cmd := execCommand("zellij", args...)
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return z.runWithOptions(args, executor.RunOptions{Stderr: os.Stderr})
 }
 
 func (z *ZellijMultiplexer) CapturePane(session string, lines int) (string, error) {
@@ -302,8 +304,7 @@ func (z *ZellijMultiplexer) CapturePane(session string, lines int) (string, erro
 	defer os.Remove(tmpPath)
 
 	args := []string{"--session", session, "action", "dump-screen", tmpPath}
-	cmd := execCommand("zellij", args...)
-	if err := cmd.Run(); err != nil {
+	if err := z.run(args...); err != nil {
 		return "", err
 	}
 

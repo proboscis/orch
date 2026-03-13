@@ -176,12 +176,10 @@
         lines)))
 
 (defn _build-orch-cmd [config]
-  "Build orch command with project root and issues root."
+  "Build orch command with project identity scope."
   (setv cmd ["orch"])
-  (when config.project_root
-    (.extend cmd ["--project-root" (str config.project_root)]))
-  (when config.issues_root
-    (.extend cmd ["--issues-root" (str config.issues_root)]))
+  (when config.project
+    (.extend cmd ["--project" (str config.project)]))
   cmd)
 
 (defn _get-editor-command [file-path]

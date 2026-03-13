@@ -155,6 +155,8 @@ type Run struct {
 	ModelVariant      string
 	Branch            string
 	WorktreePath      string
+	Target            string
+	TargetHost        string
 	SessionName       string
 	Multiplexer       Multiplexer
 	PRUrl             string
@@ -204,6 +206,7 @@ type AttachInfo struct {
 	ServerPort        int
 	OpenCodeSessionID string
 	Branch            string
+	TargetHost        string
 	SessionExists     bool
 }
 
@@ -278,7 +281,7 @@ type StartRunRequest struct {
 	DryRun         bool
 	Reuse          bool
 	Multiplexer    string
-	ProjectRoot    string
+	Target         string
 	Preset         string
 }
 
@@ -509,6 +512,14 @@ type DaemonStatus struct {
 	Version string
 }
 
+type ControlAgentConfig struct {
+	PromptContent string
+	Agent         string
+	Model         string
+	ModelVariant  string
+	ExtraArgs     []string
+}
+
 type ContinueRunRequest struct {
 	IssueID        string
 	RunID          string
@@ -523,8 +534,6 @@ type ContinueRunRequest struct {
 	PRTargetBranch string
 	Multiplexer    string
 	SessionName    string
-	ProjectRoot    string
-	RepoRoot       string
 }
 
 type ContinueRunResult struct {

@@ -112,7 +112,6 @@ def mock_config(tmp_path: Path) -> Config:
     orch_dir.mkdir(parents=True, exist_ok=True)
     return Config(
         project_root=tmp_path,
-        issues_root=tmp_path / "issues",
         agent="claude",
         monitor=MonitorConfig(),
     )
@@ -176,12 +175,12 @@ class TestBuildDiffCommand:
         assert "diff" in diff_cmd
         assert "test-issue#20260120-120000" in diff_cmd
 
-    def test_build_diff_cmd_includes_project_root(self, mock_config: Config):
-        """Test that diff command includes project root flag."""
+    def test_build_diff_cmd_includes_project_scope(self, mock_config: Config):
+        """Test that diff command includes project scope flag."""
         base_cmd = _build_orch_cmd(mock_config)
 
-        # Should include --project-root when config has project_root
-        assert "--project-root" in base_cmd or mock_config.project_root is None
+        # Should include --project when config has project identity
+        assert "--project" in base_cmd or not mock_config.project
 
 
 # ============================================================================
@@ -374,8 +373,8 @@ class TestDiffE2EWorkflow:
                 binary,
                 "diff",
                 "nonexistent-issue#invalid-run",
-                "--issues-root",
-                "/tmp/nonexistent",
+                "--project",
+                "github.com/example/repo",
             ],
             capture_output=True,
             text=True,

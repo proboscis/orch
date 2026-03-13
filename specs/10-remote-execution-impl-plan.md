@@ -2,6 +2,10 @@
 
 Reference: [specs/10-remote-execution.md](./10-remote-execution.md)
 
+Status: Historical implementation plan. Runtime execution semantics are now
+defined by [specs/12-orch-cluster-architecture.md](./12-orch-cluster-architecture.md)
+and its implementation plan.
+
 ## Phase 0: TCP Transport
 
 **Goal**: CLI can talk to a remote daemon. Zero functional changes — just a new transport.
@@ -15,13 +19,13 @@ Reference: [specs/10-remote-execution.md](./10-remote-execution.md)
 | `internal/daemon/daemon.go` | Parse `--listen` flag; start TCP listener if specified |
 | `internal/cli/root.go` | Add `--remote` global flag; set on all subcommands |
 | `internal/orchapi/daemon_client.go` | When `--remote` is set, pass TCP address to `ProtoClient`; skip `EnsureDaemonHealthy` auto-start |
-| `internal/xdg/paths.go` | No change (Unix socket path unchanged for local mode) |
+| `internal/xdg/paths.go` | No change (Unix socket path unchanged for local daemon transport) |
 | `cmd/orch/main.go` | Wire `--listen` for `daemon start` subcommand |
 
 ### Key Decisions
 
 - TCP listener reuses the same `handleProtoConnection` loop (identical framing)
-- Unix socket listener remains for local mode (backward compatible)
+- Unix socket listener remains for local daemon transport (backward compatible)
 - `--remote` takes precedence over local socket detection
 - `ORCH_REMOTE` env var as fallback for `--remote` flag
 
@@ -130,18 +134,18 @@ processStartRunCore(req):
     // etc.
 ```
 
-### Repo Path Resolution
+### Worker-Local Repo Resolution
 
-The target config specifies where the git repo lives on the target machine:
+The target config selects the host/profile only:
 
 ```yaml
 targets:
   mac:
     host: mac
-    repo: /Users/me/repos/project
 ```
 
-Worktree path on target: `<repo>/.orch/worktrees/<issue>/<issue>-<run>-<agent>/`
+The worker host is responsible for resolving `project_id -> local repo root`
+before creating worktrees.
 
 ### Validation
 
@@ -230,7 +234,7 @@ Client (monitor):
 
 ### Backward Compatibility
 
-`GetControlAgentLaunch` remains unchanged for local mode. The monitor checks if connected to a remote daemon and uses the appropriate API.
+`GetControlAgentLaunch` remains unchanged for local daemon transport. The monitor checks if connected to a remote daemon and uses the appropriate API.
 
 ### Validation
 
@@ -273,12 +277,46 @@ remote:
 
 - With config: `orch ps` → connects to zeus:7777 automatically
 - `orch --remote cloud ps` → overrides default
-- `orch --remote "" ps` → force local mode
+- `orch --remote "" ps` → bypass remote default and use local daemon transport
 - No config file → existing behavior unchanged
 
 ### Estimated Scope
 
 ~100 lines.
+
+---
+
+## Phase 6: Remote Project Identity (Path-Agnostic)
+
+**Goal**: Make remote daemon store resolution independent of client-local
+absolute paths.
+
+### Problem
+
+Remote clients currently send `project_root` values derived from
+the client machine. These paths are not valid on the remote daemon host, which
+causes `no store available` errors.
+
+### Approach
+
+- Use `RequestContext.project_id` directly for runtime requests.
+- Resolve server-local project context from daemon repo registry
+  (`repo_id -> project_root`).
+- Add daemon repo registry commands so users can register mappings explicitly:
+  `orch --remote <addr> daemon repo register <repo-url>` and inspect
+  with `orch --remote <addr> daemon repo list`.
+- Do not reintroduce path-derived project identity on either local or remote transport.
+
+### Validation
+
+- `orch --remote zeus:7777 ps` works without passing server filesystem paths
+- `orch --remote zeus:7777 --project github.com/acme/repo ps` still resolves using
+  repo identity token in remote mode
+- Local daemon transport remains unchanged
+
+### Estimated Scope
+
+~150-220 lines Go.
 
 ---
 

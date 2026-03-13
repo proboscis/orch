@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -839,6 +840,29 @@ func (c *OpenCodeClient) GetSingleSessionStatus(ctx context.Context, sessionID, 
 }
 
 func (c *OpenCodeClient) GetMessages(ctx context.Context, sessionID, directory string) ([]Message, error) {
+	const maxDecodeAttempts = 3
+
+	var lastErr error
+	for attempt := 1; attempt <= maxDecodeAttempts; attempt++ {
+		messages, err := c.getMessagesOnce(ctx, sessionID, directory)
+		if err == nil {
+			return messages, nil
+		}
+		lastErr = err
+		if !isRetryableOpenCodeDecodeError(err) || attempt == maxDecodeAttempts {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(150 * time.Millisecond):
+		}
+	}
+
+	return nil, lastErr
+}
+
+func (c *OpenCodeClient) getMessagesOnce(ctx context.Context, sessionID, directory string) ([]Message, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/session/"+sessionID+"/message", nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating messages request: %w", err)
@@ -867,6 +891,19 @@ func (c *OpenCodeClient) GetMessages(ctx context.Context, sessionID, directory s
 	}
 
 	return messages, nil
+}
+
+func isRetryableOpenCodeDecodeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unexpected end of json input") ||
+		strings.Contains(msg, "unexpected eof")
 }
 
 type AgentConfig struct {

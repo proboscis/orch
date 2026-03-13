@@ -42,7 +42,6 @@ ORCH_RUN_ID=<run_id>
 ORCH_RUN_PATH=<path_to_run_doc>
 ORCH_WORKTREE_PATH=<worktree_path>
 ORCH_BRANCH=<branch_name>
-ORCH_VAULT=<vault_path>
 ```
 
 ### Working Directory

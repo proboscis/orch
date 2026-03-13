@@ -4,7 +4,7 @@
 
 | オプション | 説明 |
 |-----------|------|
-| `--vault PATH` | vault path（または env `ORCH_VAULT`） |
+| `--project IDENTITY` | project identity（または env `ORCH_PROJECT`） |
 | `--backend file\|github\|linear` | v0.2では file を正式、他は予約 |
 | `--json` | 機械可読JSON出力 |
 | `--tsv` | fzf向け出力（ps等で有効） |
@@ -41,8 +41,6 @@
 | `--agent-cmd` | custom時の起動コマンド |
 | `--base-branch main` | デフォルトmain |
 | `--branch` | 省略時は規約生成 |
-| `--worktree-dir` | ワークツリーディレクトリ（デフォルト: ~/.orch/worktrees） |
-| `--repo-root` | git rootを明示（省略時は探索） |
 | `--tmux / --no-tmux` | デフォルトtmux |
 | `--tmux-session` | 省略時は規約生成 |
 | `--dry-run` | 副作用なし：作成予定を表示 |
@@ -80,9 +78,6 @@
 | `--no-pr` | PR作成指示を省略 |
 | `--branch` | 既存branchから継続する場合に指定 |
 | `--issue` | `--branch` 使用時のissue ID（引数がISSUE_IDなら省略可） |
-| `--worktree-dir` | worktree配置先（デフォルト: `~/.orch/worktrees`） |
-| `--repo-root` | git rootを明示（省略時は探索） |
-
 ### 挙動
 
 - 対象runが `failed` / `canceled` / `unknown` 以外ならエラー
@@ -285,7 +280,7 @@ plc-125     closed  Update documentation            -
       "id": "plc-123",
       "title": "Fix login timeout",
       "status": "open",
-      "path": "/vault/issues/plc-123.md",
+      "path": "/issues-store/issues/plc-123.md",
       "runs": [
         {"run_id": "20251221-123456", "status": "running"}
       ]

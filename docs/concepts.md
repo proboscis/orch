@@ -145,9 +145,8 @@ A **git worktree** created for each run.
 
 The **directory containing issue markdown files**.
 
-- Previously called "vault" (deprecated term)
 - Can be a separate directory or within your project
-- Set via `ORCH_ISSUES_ROOT` environment variable
+- Set via `issues.path` in `.orch/config.yaml`
 - Also stores run logs in `runs/` subdirectory
 
 **Structure:**

@@ -34,11 +34,11 @@ func TestLaunchConfigEnv(t *testing.T) {
 	t.Setenv("HOME", "/tmp/home")
 
 	cfg := &LaunchConfig{
-		IssueID:   "issue",
-		RunID:     "run",
-		RunPath:   "/vault/run.md",
-		WorkDir:   "/work",
-		Branch:    "branch",
+		IssueID:    "issue",
+		RunID:      "run",
+		RunPath:    "/vault/run.md",
+		WorkDir:    "/work",
+		Branch:     "branch",
 		IssuesRoot: "/vault",
 	}
 
@@ -48,7 +48,6 @@ func TestLaunchConfigEnv(t *testing.T) {
 	assertEnvContains(t, env, "ORCH_RUN_PATH=/vault/run.md")
 	assertEnvContains(t, env, "ORCH_WORKTREE_PATH=/work")
 	assertEnvContains(t, env, "ORCH_BRANCH=branch")
-	assertEnvContains(t, env, "ORCH_VAULT=/vault")
 	assertEnvContains(t, env, "HOME=/tmp/home")
 }
 

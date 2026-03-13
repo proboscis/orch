@@ -18,6 +18,8 @@ type runIndexEntry struct {
 	RunID             string       `json:"run_id"`
 	Status            model.Status `json:"status"`
 	Agent             string       `json:"agent,omitempty"`
+	Target            string       `json:"target,omitempty"`
+	TargetHost        string       `json:"target_host,omitempty"`
 	Model             string       `json:"model,omitempty"`
 	ModelVariant      string       `json:"model_variant,omitempty"`
 	Branch            string       `json:"branch,omitempty"`
@@ -57,7 +59,7 @@ type runIndex struct {
 }
 
 const (
-	runIndexVersion  = 1
+	runIndexVersion  = 3
 	runIndexFileName = ".orch_run_index.json"
 )
 
@@ -261,6 +263,8 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 				RunID:             run.RunID,
 				Status:            run.Status,
 				Agent:             run.Agent,
+				Target:            run.Target,
+				TargetHost:        run.TargetHost,
 				Model:             run.Model,
 				ModelVariant:      run.ModelVariant,
 				Branch:            run.Branch,
@@ -341,6 +345,8 @@ func runEntryEqual(a, b *runIndexEntry) bool {
 		a.RunID == b.RunID &&
 		a.Status == b.Status &&
 		a.Agent == b.Agent &&
+		a.Target == b.Target &&
+		a.TargetHost == b.TargetHost &&
 		a.Model == b.Model &&
 		a.ModelVariant == b.ModelVariant &&
 		a.Branch == b.Branch &&
@@ -386,6 +392,8 @@ func entryToRun(e *runIndexEntry) *model.Run {
 		RunID:             e.RunID,
 		Status:            e.Status,
 		Agent:             e.Agent,
+		Target:            e.Target,
+		TargetHost:        e.TargetHost,
 		Model:             e.Model,
 		ModelVariant:      e.ModelVariant,
 		Branch:            e.Branch,

@@ -1,16 +1,47 @@
 package git
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/s22625/orch/internal/executor"
 	"github.com/s22625/orch/internal/model"
 )
 
 var execCommand = exec.Command
+
+var worktreeExecutorFactory = func() executor.Executor {
+	return executor.NewCommandFuncExecutor(execCommand)
+}
+
+func runGitOutput(args ...string) ([]byte, error) {
+	output, _, err := runGitOutputWithExecutor(nil, args...)
+	return output, err
+}
+
+func runGitOutputWithExecutor(exec executor.Executor, args ...string) ([]byte, int, error) {
+	if exec == nil {
+		exec = worktreeExecutorFactory()
+	}
+	return exec.RunCommand(context.Background(), "git", args, executor.RunOptions{})
+}
+
+func runGitWithStderr(args ...string) error {
+	err := runGitWithStderrWithExecutor(nil, args...)
+	return err
+}
+
+func runGitWithStderrWithExecutor(exec executor.Executor, args ...string) error {
+	if exec == nil {
+		exec = worktreeExecutorFactory()
+	}
+	_, _, err := exec.RunCommand(context.Background(), "git", args, executor.RunOptions{Stderr: os.Stderr})
+	return err
+}
 
 // WorktreeConfig holds configuration for worktree creation
 type WorktreeConfig struct {
@@ -68,6 +99,22 @@ func normalizeWorktreePath(cfg *WorktreeConfig) error {
 	return nil
 }
 
+func ensureWorktreeParentDir(exec executor.Executor, path string) error {
+	parent := filepath.Dir(path)
+	if exec == nil {
+		return os.MkdirAll(parent, 0755)
+	}
+	output, _, err := exec.RunCommand(context.Background(), "sh", []string{"-c", `mkdir -p "$1"`, "sh", parent}, executor.RunOptions{})
+	if err != nil {
+		msg := strings.TrimSpace(string(output))
+		if msg != "" {
+			return fmt.Errorf("%w (%s)", err, msg)
+		}
+		return err
+	}
+	return nil
+}
+
 // FindRepoRoot finds the git repository root from the current directory
 // Note: For worktrees, this returns the worktree directory, not the main repo.
 // Use FindMainRepoRoot to get the main repository root.
@@ -80,8 +127,7 @@ func FindRepoRoot(startDir string) (string, error) {
 		}
 	}
 
-	cmd := execCommand("git", "-C", startDir, "rev-parse", "--show-toplevel")
-	output, err := cmd.Output()
+	output, err := runGitOutput("-C", startDir, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return "", fmt.Errorf("not a git repository: %w", err)
 	}
@@ -100,8 +146,7 @@ func FindMainRepoRoot(startDir string) (string, error) {
 		}
 	}
 
-	cmd := exec.Command("git", "-C", startDir, "rev-parse", "--git-common-dir")
-	output, err := cmd.Output()
+	output, err := runGitOutput("-C", startDir, "rev-parse", "--git-common-dir")
 	if err != nil {
 		return "", fmt.Errorf("not a git repository: %w", err)
 	}
@@ -157,8 +202,7 @@ func IsWorktree(startDir string) (mainRepoRoot string, isWorktree bool) {
 }
 
 func getGitRevParseOutput(dir, flag string) string {
-	cmd := exec.Command("git", "-C", dir, "rev-parse", flag)
-	output, err := cmd.Output()
+	output, err := runGitOutput("-C", dir, "rev-parse", flag)
 	if err != nil {
 		return ""
 	}
@@ -190,6 +234,10 @@ func RemoteBranchRef(remote, branch string) string {
 // The worktree is created from the remote branch (e.g., origin/main) to ensure
 // it's based on the latest remote state rather than potentially stale local state.
 func CreateWorktree(cfg *WorktreeConfig) (*WorktreeResult, error) {
+	return CreateWorktreeWithExecutor(cfg, nil)
+}
+
+func CreateWorktreeWithExecutor(cfg *WorktreeConfig, exec executor.Executor) (*WorktreeResult, error) {
 	// Set defaults
 	if cfg.BaseBranch == "" {
 		cfg.BaseBranch = "main"
@@ -209,7 +257,7 @@ func CreateWorktree(cfg *WorktreeConfig) (*WorktreeResult, error) {
 	}
 
 	// Ensure worktree parent directory exists
-	if err := os.MkdirAll(filepath.Dir(cfg.WorktreePath), 0755); err != nil {
+	if err := ensureWorktreeParentDir(exec, cfg.WorktreePath); err != nil {
 		return nil, fmt.Errorf("failed to create worktree parent directory: %w", err)
 	}
 
@@ -219,9 +267,7 @@ func CreateWorktree(cfg *WorktreeConfig) (*WorktreeResult, error) {
 	}
 
 	// Fetch the remote branch to ensure we have the latest state
-	fetchCmd := execCommand("git", "-C", cfg.RepoRoot, "fetch", remote, branch)
-	fetchCmd.Stderr = os.Stderr
-	if err := fetchCmd.Run(); err != nil {
+	if err := runGitWithStderrWithExecutor(exec, "-C", cfg.RepoRoot, "fetch", remote, branch); err != nil {
 		// Continue even if fetch fails - remote might not exist or be offline
 		// The worktree creation will fail if the ref doesn't exist
 	}
@@ -238,9 +284,7 @@ func CreateWorktree(cfg *WorktreeConfig) (*WorktreeResult, error) {
 	}
 
 	actualBaseBranch := remoteBranchRef
-	cmd := execCommand("git", args...)
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := runGitWithStderrWithExecutor(exec, args...); err != nil {
 		// Fall back to local branch if remote ref doesn't exist
 		// This handles repos without remotes or when the remote is unavailable
 		args = []string{
@@ -250,10 +294,9 @@ func CreateWorktree(cfg *WorktreeConfig) (*WorktreeResult, error) {
 			cfg.WorktreePath,
 			branch, // local branch name
 		}
-		cmd = execCommand("git", args...)
-		cmd.Stderr = os.Stderr
+
 		actualBaseBranch = branch
-		if err := cmd.Run(); err != nil {
+		if err := runGitWithStderrWithExecutor(exec, args...); err != nil {
 			// Try without -b if branch might already exist
 			args = []string{
 				"-C", cfg.RepoRoot,
@@ -261,9 +304,7 @@ func CreateWorktree(cfg *WorktreeConfig) (*WorktreeResult, error) {
 				cfg.WorktreePath,
 				cfg.Branch,
 			}
-			cmd = execCommand("git", args...)
-			cmd.Stderr = os.Stderr
-			if err := cmd.Run(); err != nil {
+			if err := runGitWithStderrWithExecutor(exec, args...); err != nil {
 				return nil, fmt.Errorf("failed to create worktree: %w", err)
 			}
 		}
@@ -303,9 +344,7 @@ func CreateWorktreeFromBranch(cfg *WorktreeConfig) (*WorktreeResult, error) {
 		cfg.WorktreePath,
 		cfg.Branch,
 	}
-	cmd := execCommand("git", args...)
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := runGitWithStderr(args...); err != nil {
 		return nil, fmt.Errorf("failed to create worktree: %w", err)
 	}
 
@@ -317,9 +356,7 @@ func CreateWorktreeFromBranch(cfg *WorktreeConfig) (*WorktreeResult, error) {
 
 // RemoveWorktree removes a git worktree
 func RemoveWorktree(repoRoot, worktreePath string) error {
-	cmd := execCommand("git", "-C", repoRoot, "worktree", "remove", worktreePath, "--force")
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return runGitWithStderr("-C", repoRoot, "worktree", "remove", worktreePath, "--force")
 }
 
 // ListWorktreeInfos returns detailed worktree information for a repository.
@@ -332,8 +369,7 @@ func ListWorktreeInfos(repoRoot string) ([]WorktreeInfo, error) {
 		}
 	}
 
-	cmd := execCommand("git", "-C", repoRoot, "worktree", "list", "--porcelain")
-	output, err := cmd.Output()
+	output, err := runGitOutput("-C", repoRoot, "worktree", "list", "--porcelain")
 	if err != nil {
 		return nil, err
 	}
@@ -387,8 +423,7 @@ func FindWorktreesByBranch(repoRoot, branch string) ([]WorktreeInfo, error) {
 
 // ListWorktrees returns all worktrees for a repository
 func ListWorktrees(repoRoot string) ([]string, error) {
-	cmd := execCommand("git", "-C", repoRoot, "worktree", "list", "--porcelain")
-	output, err := cmd.Output()
+	output, err := runGitOutput("-C", repoRoot, "worktree", "list", "--porcelain")
 	if err != nil {
 		return nil, err
 	}
@@ -405,8 +440,7 @@ func ListWorktrees(repoRoot string) ([]string, error) {
 
 // GetCurrentBranch returns the current branch name
 func GetCurrentBranch(repoPath string) (string, error) {
-	cmd := execCommand("git", "-C", repoPath, "rev-parse", "--abbrev-ref", "HEAD")
-	output, err := cmd.Output()
+	output, err := runGitOutput("-C", repoPath, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return "", err
 	}
@@ -420,8 +454,7 @@ func HasUncommittedChanges(worktreePath string) bool {
 	if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
 		return false
 	}
-	cmd := execCommand("git", "-C", worktreePath, "status", "--porcelain")
-	output, err := cmd.Output()
+	output, err := runGitOutput("-C", worktreePath, "status", "--porcelain")
 	if err != nil {
 		return false
 	}

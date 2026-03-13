@@ -45,7 +45,7 @@ type psDeps struct {
 }
 
 func defaultPsDeps() *psDeps {
-	return &psDeps{getAPI: getAPI}
+	return &psDeps{getAPI: getAPIForListing}
 }
 
 func newPsCmd() *cobra.Command {
@@ -151,15 +151,16 @@ func runPsWithDeps(ctx context.Context, opts *psOptions, deps *psDeps) error {
 	if opts.NoAlive {
 		aliveByRun = nil
 	}
+	targetHostByRun := resolveTargetHostByRun(runs)
 
 	now := time.Now()
 	var outputErr error
 	if globalOpts.JSON {
-		outputErr = outputJSONWithIssueInfo(runs, now, issueCache, aliveByRun, branchStateByRun)
+		outputErr = outputJSONWithIssueInfo(runs, now, issueCache, aliveByRun, branchStateByRun, targetHostByRun)
 	} else if globalOpts.TSV {
-		outputErr = outputTSVWithIssueInfo(runs, issueCache, aliveByRun, branchStateByRun)
+		outputErr = outputTSVWithIssueInfo(runs, issueCache, aliveByRun, branchStateByRun, targetHostByRun)
 	} else {
-		outputErr = outputTableWithIssueInfoAndBranchStateWithDeps(ctx, runs, now, opts, issueCache, aliveByRun, branchStateByRun, deps)
+		outputErr = outputTableWithIssueInfoAndBranchStateWithDeps(ctx, runs, now, opts, issueCache, aliveByRun, branchStateByRun, targetHostByRun, deps)
 	}
 
 	if outputErr != nil {
@@ -227,10 +228,21 @@ func formatIssueTopicAPI(issue *orchapi.Issue) string {
 }
 
 func outputJSON(runs []*model.Run, now time.Time) error {
-	return outputJSONWithIssueInfo(runs, now, nil, nil, nil)
+	return outputJSONWithIssueInfo(runs, now, nil, nil, nil, nil)
 }
 
-func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[string]psIssueInfo, aliveByRun map[string]agentAliveInfo, branchStateByRun map[string]string) error {
+func outputJSONWithIssueInfo(
+	runs []*model.Run,
+	now time.Time,
+	issueCache map[string]psIssueInfo,
+	aliveByRun map[string]agentAliveInfo,
+	branchStateByRun map[string]string,
+	targetHostByRun map[string]string,
+) error {
+	if targetHostByRun == nil {
+		targetHostByRun = resolveTargetHostByRun(runs)
+	}
+
 	type runOutput struct {
 		IssueID           string `json:"issue_id"`
 		IssueStatus       string `json:"issue_status"`
@@ -239,6 +251,8 @@ func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[st
 		CLI               string `json:"cli,omitempty"`
 		Model             string `json:"model,omitempty"`
 		ModelVariant      string `json:"model_variant,omitempty"`
+		Target            string `json:"target,omitempty"`
+		TargetHost        string `json:"target_host,omitempty"`
 		Status            string `json:"status"`
 		AgentStatus       string `json:"agent_status"`
 		BranchStatus      string `json:"branch_status"`
@@ -278,6 +292,8 @@ func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[st
 				branchStatus = branchStatusFromGitState(state)
 			}
 		}
+		target := strings.TrimSpace(r.Target)
+		targetHost := strings.TrimSpace(targetHostByRun[r.RunID])
 
 		output.Items[i] = runOutput{
 			IssueID:           r.IssueID,
@@ -287,6 +303,8 @@ func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[st
 			CLI:               r.Agent,
 			Model:             r.Model,
 			ModelVariant:      r.ModelVariant,
+			Target:            target,
+			TargetHost:        targetHost,
 			Status:            string(r.Status),
 			AgentStatus:       shortAgentStatus(r.Status),
 			BranchStatus:      branchStatus,
@@ -310,10 +328,20 @@ func outputJSONWithIssueInfo(runs []*model.Run, now time.Time, issueCache map[st
 }
 
 func outputTSV(runs []*model.Run) error {
-	return outputTSVWithIssueInfo(runs, nil, nil, nil)
+	return outputTSVWithIssueInfo(runs, nil, nil, nil, nil)
 }
 
-func outputTSVWithIssueInfo(runs []*model.Run, issueCache map[string]psIssueInfo, aliveByRun map[string]agentAliveInfo, branchStateByRun map[string]string) error {
+func outputTSVWithIssueInfo(
+	runs []*model.Run,
+	issueCache map[string]psIssueInfo,
+	aliveByRun map[string]agentAliveInfo,
+	branchStateByRun map[string]string,
+	targetHostByRun map[string]string,
+) error {
+	if targetHostByRun == nil {
+		targetHostByRun = resolveTargetHostByRun(runs)
+	}
+
 	for _, r := range runs {
 		issueStatus := ""
 		if issueCache != nil {
@@ -329,8 +357,10 @@ func outputTSVWithIssueInfo(runs []*model.Run, issueCache map[string]psIssueInfo
 				branchStatus = branchStatusFromGitState(state)
 			}
 		}
+		target := strings.TrimSpace(r.Target)
+		targetHost := strings.TrimSpace(targetHostByRun[r.RunID])
 
-		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			r.IssueID,
 			issueStatus,
 			r.RunID,
@@ -338,6 +368,8 @@ func outputTSVWithIssueInfo(runs []*model.Run, issueCache map[string]psIssueInfo
 			r.Agent,
 			r.Model,
 			r.ModelVariant,
+			target,
+			targetHost,
 			r.Status,
 			shortAgentStatus(r.Status),
 			branchStatus,
@@ -363,11 +395,20 @@ func outputTable(runs []*model.Run, now time.Time, absoluteTime bool) error {
 		nil,
 		nil,
 		nil,
+		nil,
 		defaultPsDeps(),
 	)
 }
 
-func outputTableWithIssueInfoAndBranchState(runs []*model.Run, now time.Time, opts *psOptions, issueCache map[string]psIssueInfo, aliveByRun map[string]agentAliveInfo, branchStateByRun map[string]string) error {
+func outputTableWithIssueInfoAndBranchState(
+	runs []*model.Run,
+	now time.Time,
+	opts *psOptions,
+	issueCache map[string]psIssueInfo,
+	aliveByRun map[string]agentAliveInfo,
+	branchStateByRun map[string]string,
+	targetHostByRun map[string]string,
+) error {
 	return outputTableWithIssueInfoAndBranchStateWithDeps(
 		context.Background(),
 		runs,
@@ -376,6 +417,7 @@ func outputTableWithIssueInfoAndBranchState(runs []*model.Run, now time.Time, op
 		issueCache,
 		aliveByRun,
 		branchStateByRun,
+		targetHostByRun,
 		defaultPsDeps(),
 	)
 }
@@ -388,6 +430,7 @@ func outputTableWithIssueInfoAndBranchStateWithDeps(
 	issueCache map[string]psIssueInfo,
 	aliveByRun map[string]agentAliveInfo,
 	branchStateByRun map[string]string,
+	targetHostByRun map[string]string,
 	deps *psDeps,
 ) error {
 	if deps == nil {
@@ -412,12 +455,23 @@ func outputTableWithIssueInfoAndBranchStateWithDeps(
 		}
 	}
 
-	return outputTableWithGitStates(runs, now, opts, issueCache, aliveByRun, branchStateByRun)
+	return outputTableWithGitStates(runs, now, opts, issueCache, aliveByRun, branchStateByRun, targetHostByRun)
 }
 
-func outputTableWithGitStates(runs []*model.Run, now time.Time, opts *psOptions, issueCache map[string]psIssueInfo, aliveByRun map[string]agentAliveInfo, gitStates map[string]string) error {
+func outputTableWithGitStates(
+	runs []*model.Run,
+	now time.Time,
+	opts *psOptions,
+	issueCache map[string]psIssueInfo,
+	aliveByRun map[string]agentAliveInfo,
+	gitStates map[string]string,
+	targetHostByRun map[string]string,
+) error {
+	if targetHostByRun == nil {
+		targetHostByRun = resolveTargetHostByRun(runs)
+	}
 
-	headers := []string{"ID", "ISSUE", "ISSUE-ST", "CLI", "MODEL", "AGENT", "ALIVE", "BRANCH", "WORKTREE", "PR", "STARTED", "UPDATED", "TOPIC"}
+	headers := []string{"ID", "ISSUE", "ISSUE-ST", "CLI", "MODEL", "TARGET", "HOST", "AGENT", "ALIVE", "BRANCH", "WORKTREE", "PR", "STARTED", "UPDATED", "TOPIC"}
 	var rows [][]string
 
 	for _, r := range runs {
@@ -455,6 +509,8 @@ func outputTableWithGitStates(runs []*model.Run, now time.Time, opts *psOptions,
 
 		cliDisplay := agent.AgentDisplayName(r.Agent, r.Model, r.ModelVariant)
 		modelDisplay := formatModelDisplay(r.Model, r.ModelVariant)
+		targetDisplay := formatTargetDisplay(r.Target, targetMaxLen)
+		targetHostDisplay := formatTargetDisplay(targetHostByRun[r.RunID], targetHostMaxLen)
 		worktree := formatWorktreeDisplay(r.WorktreePath, worktreeMaxLen)
 		aliveInfo := agentAliveInfo{}
 		if aliveByRun != nil {
@@ -467,6 +523,8 @@ func outputTableWithGitStates(runs []*model.Run, now time.Time, opts *psOptions,
 			issueStatus,
 			cliDisplay,
 			modelDisplay,
+			targetDisplay,
+			targetHostDisplay,
 			colorShortStatus(r.Status),
 			colorAlive(aliveInfo),
 			colorBranchStatus(branchStatus),
@@ -526,11 +584,13 @@ func visibleLen(s string) int {
 }
 
 const (
-	summaryMaxLen  = 40
-	topicMaxLen    = 30
-	topicMaxWords  = 5
-	branchMaxLen   = 24
-	worktreeMaxLen = 40
+	summaryMaxLen    = 40
+	topicMaxLen      = 30
+	topicMaxWords    = 5
+	branchMaxLen     = 24
+	worktreeMaxLen   = 40
+	targetMaxLen     = 16
+	targetHostMaxLen = 20
 )
 
 func shortAgentStatus(status model.Status) string {
@@ -669,6 +729,17 @@ func formatBranchDisplay(branch string, max int) string {
 	return truncateWithEllipsis(branch, max)
 }
 
+func formatTargetDisplay(target string, max int) string {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return "-"
+	}
+	if max <= 0 {
+		return target
+	}
+	return truncateWithEllipsis(target, max)
+}
+
 func formatWorktreeDisplay(path string, max int) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -680,6 +751,31 @@ func formatWorktreeDisplay(path string, max int) string {
 	path = abbreviateHome(path)
 	short := shortenPath(path)
 	return truncateLeading(short, max)
+}
+
+func resolveTargetHostByRun(runs []*model.Run) map[string]string {
+	resolved := make(map[string]string, len(runs))
+	if len(runs) == 0 {
+		return resolved
+	}
+
+	for _, run := range runs {
+		if run == nil {
+			continue
+		}
+		targetHost := strings.TrimSpace(run.TargetHost)
+		if targetHost != "" {
+			resolved[run.RunID] = targetHost
+			continue
+		}
+
+		targetName := strings.TrimSpace(run.Target)
+		if targetName != "" {
+			resolved[run.RunID] = targetName
+		}
+	}
+
+	return resolved
 }
 
 func abbreviateHome(path string) string {

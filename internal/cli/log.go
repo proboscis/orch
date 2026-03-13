@@ -16,7 +16,7 @@ type logDeps struct {
 }
 
 func defaultLogDeps() *logDeps {
-	return &logDeps{getAPI: getAPI, execCommand: exec.Command}
+	return &logDeps{getAPI: getAPIForListing, execCommand: exec.Command}
 }
 
 func newLogCmd() *cobra.Command {

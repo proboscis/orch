@@ -23,7 +23,7 @@ type captureDeps struct {
 
 func defaultCaptureDeps() *captureDeps {
 	return &captureDeps{
-		getAPI: getAPI,
+		getAPI: getAPIForListing,
 		captureSession: func(ctx context.Context, api orchapi.OrchAPI, run *orchapi.Run, lines int) (*orchapi.CaptureResult, error) {
 			return api.CaptureSession(ctx, run.Ref(), lines)
 		},

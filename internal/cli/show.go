@@ -39,7 +39,7 @@ RUN_REF can be ISSUE_ID#RUN_ID or just ISSUE_ID (for latest run).`,
 }
 
 func runShow(refStr string, opts *showOptions) error {
-	api, err := getAPI()
+	api, err := getAPIForListing()
 	if err != nil {
 		return err
 	}
@@ -76,6 +76,8 @@ func showJSON(run *orchapi.Run, opts *showOptions) error {
 		ContinuedFrom string        `json:"continued_from,omitempty"`
 		Branch        string        `json:"branch,omitempty"`
 		WorktreePath  string        `json:"worktree_path,omitempty"`
+		Target        string        `json:"target,omitempty"`
+		TargetHost    string        `json:"target_host,omitempty"`
 		SessionName   string        `json:"session_name,omitempty"`
 		Multiplexer   string        `json:"multiplexer,omitempty"`
 		PRUrl         string        `json:"pr_url,omitempty"`
@@ -89,6 +91,8 @@ func showJSON(run *orchapi.Run, opts *showOptions) error {
 		ContinuedFrom: run.ContinuedFrom,
 		Branch:        run.Branch,
 		WorktreePath:  run.WorktreePath,
+		Target:        run.Target,
+		TargetHost:    run.TargetHost,
 		SessionName:   run.SessionName,
 		Multiplexer:   string(run.Multiplexer),
 		PRUrl:         run.PRUrl,
@@ -128,6 +132,12 @@ func showHuman(run *orchapi.Run, opts *showOptions) error {
 		}
 		if run.WorktreePath != "" {
 			fmt.Printf("Worktree: %s\n", run.WorktreePath)
+		}
+		if run.Target != "" {
+			fmt.Printf("Target:   %s\n", run.Target)
+			if run.TargetHost != "" {
+				fmt.Printf("Host:     %s\n", run.TargetHost)
+			}
 		}
 		if run.ContinuedFrom != "" {
 			fmt.Printf("Continued From: %s\n", run.ContinuedFrom)

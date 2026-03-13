@@ -256,11 +256,6 @@ func RestartDaemon(_ string) error {
 	return process.Signal(syscall.SIGHUP)
 }
 
-// globalOrchDir returns the global orch directory (legacy, now uses XDG).
-func globalOrchDir() string {
-	return xdg.DataDir()
-}
-
 func globalRegistryPath() string {
 	return filepath.Join(xdg.DataDir(), "daemons.json")
 }

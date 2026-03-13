@@ -1,8 +1,8 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -20,28 +21,73 @@ import (
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/config"
+	"github.com/s22625/orch/internal/executor"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/github"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
 	"github.com/s22625/orch/internal/store"
 	"github.com/s22625/orch/internal/xdg"
+	"gopkg.in/yaml.v3"
 )
 
 const (
 	socketFile                  = "daemon.sock"
 	openCodeControlSessionTitle = "orch-control"
 	tmuxSubmitKeyEnter          = "Enter"
+	repoRegistryLegacyFileName  = "repo-registry.json"
+	projectConfigsDirName       = "projects"
+	projectConfigVersion        = 1
 )
+
+type repoRegistryEntry struct {
+	RepoID      string `json:"repo_id"`
+	ProjectRoot string `json:"project_root"`
+}
+
+type repoRegistrySnapshot struct {
+	Version int                 `json:"version"`
+	Repos   []repoRegistryEntry `json:"repos"`
+}
+
+type projectConfigWorkspace struct {
+	Root string `yaml:"root"`
+}
+
+type projectConfigFile struct {
+	Version     int                    `yaml:"version"`
+	ProjectID   string                 `yaml:"project_id"`
+	RepoURL     string                 `yaml:"repo_url,omitempty"`
+	DisplayName string                 `yaml:"display_name,omitempty"`
+	Workspace   projectConfigWorkspace `yaml:"workspace"`
+}
 
 var (
 	// Keep opencode send ACK timeout short so `orch send` returns quickly after
 	// the server accepts the message.
 	openCodeSendAckTimeout = 10 * time.Second
-	codexTmuxSubmitDelay   = 250 * time.Millisecond
+	// If ACK times out, briefly poll session messages to confirm whether the
+	// message was queued anyway before returning an error.
+	openCodeSendConfirmTimeout      = 600 * time.Millisecond
+	openCodeSendConfirmPollInterval = 200 * time.Millisecond
+	codexTmuxSubmitDelay            = 250 * time.Millisecond
 
 	getSendMultiplexer = func() sendMultiplexer {
 		return multiplexer.GetDefault()
+	}
+	getSendMultiplexerForType = func(muxType multiplexer.Type) sendMultiplexer {
+		mux, _ := multiplexer.GetMultiplexer(muxType)
+		if mux == nil {
+			return nil
+		}
+		return mux
+	}
+	getCaptureMultiplexerForType = func(muxType multiplexer.Type) captureMultiplexer {
+		mux, _ := multiplexer.GetMultiplexer(muxType)
+		if mux == nil {
+			return nil
+		}
+		return mux
 	}
 )
 
@@ -51,6 +97,11 @@ type sendMultiplexer interface {
 	SendKeys(session, keys string) error
 	SendKeysLiteral(session, keys string) error
 	SendText(session, text string) error
+}
+
+type captureMultiplexer interface {
+	HasSession(name string) bool
+	CapturePane(session string, lines int) (string, error)
 }
 
 func readAll(conn net.Conn) ([]byte, error) {
@@ -78,13 +129,29 @@ func LegacySocketFilePath(projectRoot string) string {
 	return filepath.Join(OrchDir(projectRoot), socketFile)
 }
 
+func normalizeTCPListenAddr(raw string) (string, error) {
+	addr := strings.TrimSpace(raw)
+	if addr == "" {
+		return "", fmt.Errorf("tcp listen address cannot be empty")
+	}
+
+	if strings.HasPrefix(addr, "tcp://") {
+		addr = strings.TrimPrefix(addr, "tcp://")
+	}
+
+	if strings.Contains(addr, "://") {
+		return "", fmt.Errorf("unsupported listen address scheme: %q", raw)
+	}
+
+	return addr, nil
+}
+
 type SendRequest struct {
 	Type        string   `json:"type"`
 	IssueID     string   `json:"issue_id"`
 	RunID       string   `json:"run_id"`
 	Message     string   `json:"message"`
 	NoEnter     bool     `json:"no_enter,omitempty"`
-	IssuesRoot  string   `json:"issues_root,omitempty"`
 	ProjectRoot string   `json:"project_root,omitempty"`
 	RepoID      string   `json:"repo_id,omitempty"`
 	Status      []string `json:"status,omitempty"`
@@ -126,6 +193,7 @@ type SendRequest struct {
 	AgentCmd       string `json:"agent_cmd,omitempty"`
 	AgentProfile   string `json:"agent_profile,omitempty"`
 	Multiplexer    string `json:"multiplexer_type,omitempty"`
+	Target         string `json:"target,omitempty"`
 }
 
 type SendResponse struct {
@@ -137,39 +205,121 @@ type SendResponse struct {
 type RepoContext struct {
 	ProjectRoot   string
 	RepoID        string
+	RepoURL       string
 	Store         store.Store
 	GitHubBackend *github.Backend
 	Config        interface{}
 }
 
+func managedReposDirPath() string {
+	return filepath.Join(xdg.DataDir(), "repos")
+}
+
+func managedRepoWorkspacePath(repoID string) string {
+	return filepath.Join(managedReposDirPath(), repoID)
+}
+
+func looksLikeRepoURL(raw string) bool {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return false
+	}
+	if strings.HasPrefix(value, "git@") || strings.Contains(value, "://") {
+		return true
+	}
+	if strings.HasPrefix(value, "github.com/") || strings.HasPrefix(value, "gitlab.com/") {
+		return true
+	}
+	parts := strings.Split(value, "/")
+	if len(parts) >= 3 && strings.Contains(parts[0], ".") {
+		return true
+	}
+	return false
+}
+
+func ensureManagedRepoWorkspace(repoID, repoURL string) (string, error) {
+	repoID = strings.TrimSpace(repoID)
+	repoURL = strings.TrimSpace(repoURL)
+	if repoID == "" {
+		return "", fmt.Errorf("repo_id is required")
+	}
+	if repoURL == "" {
+		return "", fmt.Errorf("repo_url is required")
+	}
+
+	workspaceRoot := managedRepoWorkspacePath(repoID)
+	if err := os.MkdirAll(managedReposDirPath(), 0o755); err != nil {
+		return "", fmt.Errorf("failed to ensure managed repos dir: %w", err)
+	}
+
+	if info, err := os.Stat(filepath.Join(workspaceRoot, ".git")); err == nil && info != nil {
+		out, err := exec.Command("git", "-C", workspaceRoot, "remote", "get-url", "origin").CombinedOutput()
+		if err == nil {
+			current := strings.TrimSpace(string(out))
+			if current != repoURL {
+				if setOut, setErr := exec.Command("git", "-C", workspaceRoot, "remote", "set-url", "origin", repoURL).CombinedOutput(); setErr != nil {
+					return "", fmt.Errorf("failed to set origin url for %s: %v (%s)", workspaceRoot, setErr, strings.TrimSpace(string(setOut)))
+				}
+			}
+		}
+		return workspaceRoot, nil
+	}
+
+	if _, err := os.Stat(workspaceRoot); err == nil {
+		return "", fmt.Errorf("managed workspace exists without .git: %s", workspaceRoot)
+	}
+
+	cloneOut, cloneErr := exec.Command("git", "clone", repoURL, workspaceRoot).CombinedOutput()
+	if cloneErr != nil {
+		return "", fmt.Errorf("failed to clone %s into %s: %v (%s)", repoURL, workspaceRoot, cloneErr, strings.TrimSpace(string(cloneOut)))
+	}
+
+	return workspaceRoot, nil
+}
+
 type StoreFactory func(issuesRoot string) (store.Store, error)
 
 type SocketServer struct {
-	storeFactory StoreFactory
-	listener     net.Listener
-	logger       Logger
-	stopCh       chan struct{}
-	gitRunner    git.Runner
-	procManager  ProcessManager
+	storeFactory  StoreFactory
+	listener      net.Listener
+	tcpListener   net.Listener
+	tcpListenAddr string
+	logger        Logger
+	stopCh        chan struct{}
+	gitRunner     git.Runner
+	procManager   ProcessManager
 
 	managedServerStore *managedServerStore
 
-	repos   map[string]*RepoContext
-	reposMu sync.RWMutex
+	repos                map[string]*RepoContext
+	reposMu              sync.RWMutex
+	repoRegistryLoadOnce sync.Once
+	repoRegistryLoadErr  error
 
 	githubBackend *github.Backend
 
 	monitors   map[string]*MonitorConnection
 	monitorsMu sync.RWMutex
 
+	workers   map[string]*WorkerRegistration
+	workersMu sync.RWMutex
+
+	workerLeases    map[string]*WorkerLease
+	workerLeasesMu  sync.RWMutex
+	workerAuthToken string
+
 	controlSessionLocks   map[string]*sync.Mutex
 	controlSessionLocksMu sync.Mutex
 
 	openCodeServers   map[string]*managedServer
 	openCodeServersMu sync.RWMutex
+
+	currentWorkerID   string
+	currentWorkerHost string
 }
 
 type managedServer struct {
+	RepoID      string
 	ProjectRoot string
 	Port        int
 	Cmd         *exec.Cmd
@@ -205,23 +355,64 @@ func NewSocketServer(factory StoreFactory, logger Logger) *SocketServer {
 		logger:              logger,
 		stopCh:              make(chan struct{}),
 		monitors:            make(map[string]*MonitorConnection),
+		workers:             make(map[string]*WorkerRegistration),
+		workerLeases:        make(map[string]*WorkerLease),
 		repos:               make(map[string]*RepoContext),
 		controlSessionLocks: make(map[string]*sync.Mutex),
 		openCodeServers:     make(map[string]*managedServer),
+		workerAuthToken:     strings.TrimSpace(os.Getenv("ORCH_WORKER_AUTH_TOKEN")),
 	}
 	s.gitRunner = git.NewRunner()
 	s.procManager = newSocketProcessManager(s)
 	return s
 }
 
+func (s *SocketServer) SetWorkerIdentity(workerID, host string) {
+	s.currentWorkerID = strings.TrimSpace(workerID)
+	s.currentWorkerHost = strings.TrimSpace(host)
+}
+
+func (s *SocketServer) SetTCPListenAddr(addr string) {
+	s.tcpListenAddr = strings.TrimSpace(addr)
+}
+
 func deriveRepoID(projectRoot string) string {
-	repoID, err := xdg.RepoID(projectRoot)
-	if err != nil || repoID == "" {
-		cleaned := filepath.Clean(projectRoot)
-		h := sha256.Sum256([]byte(cleaned))
-		return fmt.Sprintf("repo-%x", h[:4])
+	return derivePortableRepoID(projectRoot)
+}
+
+func (s *SocketServer) repoIDForProjectRoot(projectRoot string) (string, error) {
+	projectRoot = strings.TrimSpace(projectRoot)
+	if projectRoot == "" {
+		return "", fmt.Errorf("project_root required")
 	}
-	return repoID
+
+	if repoID, err := xdg.RepoIDStrict(projectRoot); err == nil && strings.TrimSpace(repoID) != "" {
+		return strings.TrimSpace(repoID), nil
+	}
+
+	s.reposMu.RLock()
+	defer s.reposMu.RUnlock()
+	for _, ctx := range s.repos {
+		if ctx == nil {
+			continue
+		}
+		if strings.TrimSpace(ctx.ProjectRoot) == projectRoot && strings.TrimSpace(ctx.RepoID) != "" {
+			return strings.TrimSpace(ctx.RepoID), nil
+		}
+	}
+
+	return "", fmt.Errorf("project identity required for %s: set --project/ORCH_PROJECT to a repo ID or configure git remote origin", projectRoot)
+}
+
+func (s *SocketServer) canonicalProjectRootForRepo(repoID, projectRoot string) string {
+	if ctx := s.GetRepoContext(repoID); ctx != nil && strings.TrimSpace(ctx.ProjectRoot) != "" {
+		return strings.TrimSpace(ctx.ProjectRoot)
+	}
+	return strings.TrimSpace(projectRoot)
+}
+
+func controlSessionPathForRepoID(repoID string) string {
+	return filepath.Join(xdg.StateDir(), "projects", strings.TrimSpace(repoID), "control-session.json")
 }
 
 func opencodeServerLogPath(projectRoot string) string {
@@ -253,44 +444,372 @@ func opencodeServerLogPath(projectRoot string) string {
 	return filepath.Join(xdg.StateDir(), fmt.Sprintf("opencode-server-%s-%08x.log", nameBuilder.String(), h.Sum32()))
 }
 
+func defaultExternalDataHome() string {
+	if dir := strings.TrimSpace(os.Getenv("XDG_DATA_HOME")); dir != "" {
+		return dir
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".local", "share")
+}
+
+func defaultExternalStateHome() string {
+	if dir := strings.TrimSpace(os.Getenv("XDG_STATE_HOME")); dir != "" {
+		return dir
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	if runtime.GOOS == "darwin" {
+		return filepath.Join(home, ".local", "state")
+	}
+	return filepath.Join(home, ".local", "state")
+}
+
+func openCodeManagedXDGHomes(repoID string) (string, string) {
+	id := strings.TrimSpace(repoID)
+	if id == "" {
+		id = "unknown"
+	}
+	return filepath.Join(xdg.DataDir(), "opencode-runtime", id, "data"),
+		filepath.Join(xdg.StateDir(), "opencode-runtime", id, "state")
+}
+
+func seedOpenCodeAuth(targetDataHome string) error {
+	source := filepath.Join(defaultExternalDataHome(), "opencode", "auth.json")
+	data, err := os.ReadFile(source)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	targetDir := filepath.Join(targetDataHome, "opencode")
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(targetDir, "auth.json"), data, 0o600)
+}
+
+func prepareManagedOpenCodeEnv(repoID string) ([]string, error) {
+	dataHome, stateHome := openCodeManagedXDGHomes(repoID)
+	if err := os.MkdirAll(filepath.Join(dataHome, "opencode"), 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Join(stateHome, "opencode"), 0o755); err != nil {
+		return nil, err
+	}
+	if err := seedOpenCodeAuth(dataHome); err != nil {
+		return nil, err
+	}
+
+	env := make([]string, 0, len(os.Environ())+2)
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "XDG_DATA_HOME=") || strings.HasPrefix(kv, "XDG_STATE_HOME=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	env = append(env,
+		"XDG_DATA_HOME="+dataHome,
+		"XDG_STATE_HOME="+stateHome,
+	)
+	return env, nil
+}
+
 // RegisterRepo adds a new repo context to the daemon.
 func (s *SocketServer) RegisterRepo(projectRoot string, st store.Store) (string, error) {
-	repoID := deriveRepoID(projectRoot)
+	repoID, err := s.repoIDForProjectRoot(projectRoot)
+	if err != nil {
+		return "", err
+	}
+	return s.registerRepoContext(repoID, projectRoot, "", st)
+}
+
+func (s *SocketServer) registerRepoContext(repoID, projectRoot, repoURL string, st store.Store) (string, error) {
+	repoID = strings.TrimSpace(repoID)
+	projectRoot = strings.TrimSpace(projectRoot)
+	repoURL = strings.TrimSpace(repoURL)
+	if repoID == "" {
+		return "", fmt.Errorf("project_id required")
+	}
 
 	s.reposMu.Lock()
 	defer s.reposMu.Unlock()
 
-	if existing, ok := s.repos[repoID]; ok && existing.ProjectRoot != projectRoot {
-		return "", fmt.Errorf("repo ID collision: %q maps to both %q and %q",
-			repoID, existing.ProjectRoot, projectRoot)
+	if existing, ok := s.repos[repoID]; ok && existing != nil {
+		if existing.ProjectRoot != "" && projectRoot != "" && existing.ProjectRoot != projectRoot {
+			return "", fmt.Errorf("repo ID collision: %q maps to both %q and %q",
+				repoID, existing.ProjectRoot, projectRoot)
+		}
+		if existing.ProjectRoot == "" {
+			existing.ProjectRoot = projectRoot
+		}
+		if repoURL != "" {
+			existing.RepoURL = repoURL
+		}
+		if existing.Store == nil {
+			existing.Store = st
+		}
+		return repoID, nil
 	}
 
 	s.repos[repoID] = &RepoContext{
 		ProjectRoot: projectRoot,
 		RepoID:      repoID,
+		RepoURL:     repoURL,
 		Store:       st,
 	}
-
 	return repoID, nil
 }
 
-// GetRepoContext returns the context for a repo by ID or project root.
-func (s *SocketServer) GetRepoContext(repoIDOrPath string) *RepoContext {
-	if repoIDOrPath == "" {
+func repoRegistryPath() string {
+	return filepath.Join(xdg.StateDir(), repoRegistryLegacyFileName)
+}
+
+func projectConfigsDirPath() string {
+	return filepath.Join(xdg.ConfigDir(), projectConfigsDirName)
+}
+
+func projectConfigPath(projectID string) (string, error) {
+	id := strings.TrimSpace(projectID)
+	if id == "" {
+		return "", fmt.Errorf("project_id is required")
+	}
+	if strings.Contains(id, "/") || strings.Contains(id, "\\") || strings.Contains(id, "..") {
+		return "", fmt.Errorf("invalid project_id %q", projectID)
+	}
+	return filepath.Join(projectConfigsDirPath(), id+".yaml"), nil
+}
+
+func loadProjectConfig(path string) (*projectConfigFile, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var cfg projectConfigFile
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("decode project config %s: %w", path, err)
+	}
+
+	cfg.ProjectID = strings.TrimSpace(cfg.ProjectID)
+	cfg.RepoURL = strings.TrimSpace(cfg.RepoURL)
+	cfg.Workspace.Root = strings.TrimSpace(cfg.Workspace.Root)
+	if cfg.ProjectID == "" {
+		return nil, fmt.Errorf("invalid project config %s: project_id is required", path)
+	}
+	if cfg.Workspace.Root == "" {
+		return nil, fmt.Errorf("invalid project config %s: workspace.root is required", path)
+	}
+
+	return &cfg, nil
+}
+
+func writeProjectConfig(path string, cfg *projectConfigFile) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("encode project config %s: %w", path, err)
+	}
+
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
+		return fmt.Errorf("write project config temp file %s: %w", path, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("replace project config file %s: %w", path, err)
+	}
+	return nil
+}
+
+func (s *SocketServer) loadLegacyRepoRegistry() error {
+	path := repoRegistryPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to read legacy repo registry: %w", err)
+	}
+
+	var snapshot repoRegistrySnapshot
+	if err := json.Unmarshal(data, &snapshot); err != nil {
+		return fmt.Errorf("failed to decode legacy repo registry: %w", err)
+	}
+
+	s.reposMu.Lock()
+	defer s.reposMu.Unlock()
+
+	for _, entry := range snapshot.Repos {
+		repoID := strings.TrimSpace(entry.RepoID)
+		projectRoot := strings.TrimSpace(entry.ProjectRoot)
+		if repoID == "" || projectRoot == "" {
+			continue
+		}
+		if existing, ok := s.repos[repoID]; ok && existing != nil {
+			if existing.ProjectRoot == "" {
+				existing.ProjectRoot = projectRoot
+			}
+			if existing.RepoID == "" {
+				existing.RepoID = repoID
+			}
+			continue
+		}
+
+		s.repos[repoID] = &RepoContext{ProjectRoot: projectRoot, RepoID: repoID}
+	}
+
+	return nil
+}
+
+func (s *SocketServer) loadRepoRegistry() error {
+	dir := projectConfigsDirPath()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("failed to read project config directory: %w", err)
+		}
+	} else {
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].Name() < entries[j].Name()
+		})
+
+		s.reposMu.Lock()
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+				continue
+			}
+
+			path := filepath.Join(dir, entry.Name())
+			cfg, cfgErr := loadProjectConfig(path)
+			if cfgErr != nil {
+				s.reposMu.Unlock()
+				return cfgErr
+			}
+
+			repoID := strings.TrimSpace(cfg.ProjectID)
+			repoURL := strings.TrimSpace(cfg.RepoURL)
+			projectRoot := strings.TrimSpace(cfg.Workspace.Root)
+			if existing, ok := s.repos[repoID]; ok && existing != nil {
+				existing.RepoID = repoID
+				existing.ProjectRoot = projectRoot
+				existing.RepoURL = repoURL
+			} else {
+				s.repos[repoID] = &RepoContext{ProjectRoot: projectRoot, RepoID: repoID, RepoURL: repoURL}
+			}
+		}
+		s.reposMu.Unlock()
+	}
+
+	if err := s.loadLegacyRepoRegistry(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *SocketServer) ensureRepoRegistryLoaded() error {
+	s.repoRegistryLoadOnce.Do(func() {
+		s.repoRegistryLoadErr = s.loadRepoRegistry()
+	})
+	return s.repoRegistryLoadErr
+}
+
+func (s *SocketServer) refreshRepoRegistry() error {
+	return s.loadRepoRegistry()
+}
+
+func (s *SocketServer) persistRepoRegistry() error {
+	if err := os.MkdirAll(projectConfigsDirPath(), 0o755); err != nil {
+		return fmt.Errorf("failed to ensure project config directory: %w", err)
+	}
+
+	seen := make(map[string]projectConfigFile)
+
+	s.reposMu.RLock()
+	for _, ctx := range s.repos {
+		if ctx == nil {
+			continue
+		}
+		repoID := strings.TrimSpace(ctx.RepoID)
+		repoURL := strings.TrimSpace(ctx.RepoURL)
+		projectRoot := strings.TrimSpace(ctx.ProjectRoot)
+		if repoID == "" || projectRoot == "" {
+			continue
+		}
+		if _, exists := seen[repoID]; !exists {
+			seen[repoID] = projectConfigFile{
+				Version:     projectConfigVersion,
+				ProjectID:   repoID,
+				RepoURL:     repoURL,
+				DisplayName: filepath.Base(projectRoot),
+				Workspace: projectConfigWorkspace{
+					Root: projectRoot,
+				},
+			}
+		}
+	}
+	s.reposMu.RUnlock()
+
+	projectIDs := make([]string, 0, len(seen))
+	for repoID := range seen {
+		projectIDs = append(projectIDs, repoID)
+	}
+	sort.Strings(projectIDs)
+
+	for _, projectID := range projectIDs {
+		path, err := projectConfigPath(projectID)
+		if err != nil {
+			return err
+		}
+		cfg := seen[projectID]
+		if err := writeProjectConfig(path, &cfg); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// GetRepoContext returns the context for a repo by repo ID only.
+func (s *SocketServer) GetRepoContext(repoID string) *RepoContext {
+	if repoID == "" {
 		return nil
 	}
 
 	s.reposMu.RLock()
 	defer s.reposMu.RUnlock()
 
-	// Try direct repoID lookup
-	if ctx, ok := s.repos[repoIDOrPath]; ok {
+	if ctx, ok := s.repos[repoID]; ok {
 		return ctx
 	}
-
-	// Try to find by project root path
 	for _, ctx := range s.repos {
-		if ctx.ProjectRoot == repoIDOrPath {
+		if ctx != nil && strings.TrimSpace(ctx.RepoID) == repoID {
+			return ctx
+		}
+	}
+
+	return nil
+}
+
+func (s *SocketServer) findRepoContextByProjectRoot(projectRoot string) *RepoContext {
+	projectRoot = strings.TrimSpace(projectRoot)
+	if projectRoot == "" {
+		return nil
+	}
+
+	s.reposMu.RLock()
+	defer s.reposMu.RUnlock()
+
+	for _, ctx := range s.repos {
+		if ctx == nil {
+			continue
+		}
+		if strings.TrimSpace(ctx.ProjectRoot) == projectRoot {
 			return ctx
 		}
 	}
@@ -310,8 +829,8 @@ func (s *SocketServer) GetAllRepoContexts() []*RepoContext {
 }
 
 func (s *SocketServer) resolveStore(req SendRequest) store.Store {
-	s.logger.Printf("resolveStore: type=%s repoID=%q projectRoot=%q issuesRoot=%q",
-		req.Type, req.RepoID, req.ProjectRoot, req.IssuesRoot)
+	s.logger.Printf("resolveStore: type=%s repoID=%q projectRoot=%q",
+		req.Type, req.RepoID, req.ProjectRoot)
 
 	if req.RepoID != "" {
 		if ctx := s.GetRepoContext(req.RepoID); ctx != nil {
@@ -320,27 +839,103 @@ func (s *SocketServer) resolveStore(req SendRequest) store.Store {
 		}
 	}
 
-	if req.ProjectRoot != "" {
-		repoID, _ := xdg.RepoID(req.ProjectRoot)
-		if repoID != "" {
-			if ctx := s.GetRepoContext(repoID); ctx != nil {
-				s.logger.Printf("resolveStore: found by projectRoot repoID=%q", repoID)
-				return ctx.Store
-			}
-		}
-		if ctx := s.GetRepoContext(req.ProjectRoot); ctx != nil {
-			s.logger.Printf("resolveStore: found by projectRoot path=%q", req.ProjectRoot)
-			return ctx.Store
-		}
-	}
-
-	if req.IssuesRoot != "" {
-		s.logger.Printf("resolveStore: creating store for issuesRoot=%q", req.IssuesRoot)
-		return s.getOrCreateStore(req.IssuesRoot, req.ProjectRoot)
-	}
-
 	s.logger.Printf("resolveStore: no store found (all fields empty or no match)")
 	return nil
+}
+
+func (s *SocketServer) ensureRepoContextByID(repoID string) *RepoContext {
+	if repoID == "" {
+		return nil
+	}
+	_ = s.ensureRepoRegistryLoaded()
+	if ctx := s.ensureRepoStoreByID(repoID); ctx != nil {
+		return ctx
+	}
+	if ctx := s.GetRepoContext(repoID); ctx != nil {
+		return ctx
+	}
+	return nil
+}
+
+func (s *SocketServer) ensureRepoStoreByID(repoID string) *RepoContext {
+	if repoID == "" {
+		return nil
+	}
+
+	_ = s.ensureRepoRegistryLoaded()
+
+	s.reposMu.RLock()
+	ctx := s.repos[repoID]
+	if ctx == nil {
+		for _, candidate := range s.repos {
+			if candidate == nil {
+				continue
+			}
+			if strings.TrimSpace(candidate.RepoID) == repoID {
+				ctx = candidate
+				break
+			}
+		}
+		if ctx == nil {
+			s.reposMu.RUnlock()
+			if err := s.loadRepoRegistry(); err != nil {
+				return nil
+			}
+			s.reposMu.RLock()
+			ctx = s.repos[repoID]
+			if ctx == nil {
+				for _, candidate := range s.repos {
+					if candidate == nil {
+						continue
+					}
+					if strings.TrimSpace(candidate.RepoID) == repoID {
+						ctx = candidate
+						break
+					}
+				}
+			}
+			if ctx == nil {
+				s.reposMu.RUnlock()
+				return nil
+			}
+		}
+	}
+	if ctx.Store != nil {
+		s.reposMu.RUnlock()
+		return ctx
+	}
+	projectRoot := strings.TrimSpace(ctx.ProjectRoot)
+	s.reposMu.RUnlock()
+
+	if projectRoot == "" {
+		return nil
+	}
+
+	cfg, err := config.LoadFromProjectRoot(projectRoot)
+	if err != nil || cfg == nil {
+		return nil
+	}
+	issuesRoot := strings.TrimSpace(cfg.GetIssuesPath())
+	if issuesRoot == "" {
+		return nil
+	}
+
+	st := s.getOrCreateStore(issuesRoot, projectRoot)
+	if st == nil {
+		return nil
+	}
+
+	s.reposMu.Lock()
+	existing := s.repos[repoID]
+	if existing == nil {
+		existing = &RepoContext{ProjectRoot: projectRoot, RepoID: repoID, Store: st}
+		s.repos[repoID] = existing
+	} else if existing.Store == nil {
+		existing.Store = st
+	}
+	s.reposMu.Unlock()
+
+	return existing
 }
 
 func (s *SocketServer) getOrCreateStore(issuesRoot, projectRoot string) store.Store {
@@ -351,6 +946,8 @@ func (s *SocketServer) getOrCreateStore(issuesRoot, projectRoot string) store.St
 	if ctx, ok := s.repos[cacheKey]; ok {
 		if ctx.ProjectRoot == "" && projectRoot != "" {
 			ctx.ProjectRoot = projectRoot
+		}
+		if ctx.RepoID == "" && projectRoot != "" {
 			if id, err := xdg.RepoID(projectRoot); err == nil && id != "" {
 				ctx.RepoID = id
 			}
@@ -364,7 +961,7 @@ func (s *SocketServer) getOrCreateStore(issuesRoot, projectRoot string) store.St
 		return nil
 	}
 
-	repoID := cacheKey
+	repoID := ""
 	if projectRoot != "" {
 		if id, err := xdg.RepoID(projectRoot); err == nil && id != "" {
 			repoID = id
@@ -381,21 +978,37 @@ func (s *SocketServer) getOrCreateStore(issuesRoot, projectRoot string) store.St
 }
 
 func (s *SocketServer) resolveProjectRoot(req SendRequest) string {
-	if req.ProjectRoot != "" {
-		return req.ProjectRoot
-	}
-
 	if req.RepoID != "" {
 		if ctx := s.GetRepoContext(req.RepoID); ctx != nil && ctx.ProjectRoot != "" {
 			return ctx.ProjectRoot
 		}
 	}
 
-	if projectRoot := os.Getenv("ORCH_PROJECT_ROOT"); projectRoot != "" {
-		return projectRoot
+	return ""
+}
+
+func writeFileWithExecutor(exec executor.Executor, path string, content []byte, perm os.FileMode) error {
+	if exec == nil {
+		exec = executor.NewLocalExecutor()
 	}
 
-	return ""
+	_, _, err := exec.RunCommand(
+		context.Background(),
+		"sh",
+		[]string{"-c", `cat > "$1" && chmod "$2" "$1"`, "sh", path, fmt.Sprintf("%o", perm)},
+		executor.RunOptions{Stdin: bytes.NewReader(content)},
+	)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func loadConfigForProjectRoot(projectRoot string) (*config.Config, error) {
+	if strings.TrimSpace(projectRoot) != "" {
+		return config.LoadFromProjectRoot(projectRoot)
+	}
+	return config.Load()
 }
 
 func (s *SocketServer) SetGitHubBackend(backend *github.Backend) {
@@ -419,6 +1032,11 @@ func (s *SocketServer) Start() error {
 		return fmt.Errorf("failed to reconcile managed servers on startup: %w", err)
 	}
 
+	if err := s.ensureRepoRegistryLoaded(); err != nil {
+		s.closeManagedServerStore()
+		return fmt.Errorf("failed to load repo registry: %w", err)
+	}
+
 	os.Remove(socketPath)
 
 	listener, err := net.Listen("unix", socketPath)
@@ -437,7 +1055,28 @@ func (s *SocketServer) Start() error {
 
 	s.logger.Printf("socket server listening on %s", socketPath)
 
-	go s.acceptLoop()
+	if s.tcpListenAddr != "" {
+		tcpAddr, err := normalizeTCPListenAddr(s.tcpListenAddr)
+		if err != nil {
+			s.listener.Close()
+			os.Remove(socketPath)
+			s.closeManagedServerStore()
+			return err
+		}
+
+		tcpListener, err := net.Listen("tcp", tcpAddr)
+		if err != nil {
+			s.listener.Close()
+			os.Remove(socketPath)
+			s.closeManagedServerStore()
+			return fmt.Errorf("failed to listen on tcp address %s: %w", tcpAddr, err)
+		}
+		s.tcpListener = tcpListener
+		s.logger.Printf("socket server listening on tcp://%s", tcpListener.Addr().String())
+		go s.acceptLoop(tcpListener)
+	}
+
+	go s.acceptLoop(s.listener)
 	s.StartStaleMonitorCleanup()
 	s.StartOpenCodeServerHealthCheck()
 
@@ -450,11 +1089,14 @@ func (s *SocketServer) Stop() {
 	if s.listener != nil {
 		s.listener.Close()
 	}
+	if s.tcpListener != nil {
+		s.tcpListener.Close()
+	}
 	os.Remove(xdg.SocketPath())
 	s.closeManagedServerStore()
 }
 
-func (s *SocketServer) acceptLoop() {
+func (s *SocketServer) acceptLoop(listener net.Listener) {
 	defer func() {
 		if r := recover(); r != nil {
 			s.logger.Printf("PANIC in acceptLoop: %v", r)
@@ -468,7 +1110,7 @@ func (s *SocketServer) acceptLoop() {
 		default:
 		}
 
-		conn, err := s.listener.Accept()
+		conn, err := listener.Accept()
 		if err != nil {
 			select {
 			case <-s.stopCh:
@@ -494,16 +1136,15 @@ func (s *SocketServer) handleRegisterRepo(req SendRequest, encoder *json.Encoder
 		return
 	}
 
-	repoID := deriveRepoID(req.ProjectRoot)
-
-	s.reposMu.Lock()
-	if _, exists := s.repos[repoID]; !exists {
-		s.repos[repoID] = &RepoContext{
-			ProjectRoot: req.ProjectRoot,
-			RepoID:      repoID,
-		}
+	repoID, err := s.repoIDForProjectRoot(req.ProjectRoot)
+	if err != nil {
+		encoder.Encode(SendResponse{OK: false, Error: err.Error()})
+		return
 	}
-	s.reposMu.Unlock()
+	if _, err := s.registerRepoContext(repoID, req.ProjectRoot, "", nil); err != nil {
+		encoder.Encode(SendResponse{OK: false, Error: err.Error()})
+		return
+	}
 
 	s.logger.Printf("registered repo: %s (%s)", repoID, req.ProjectRoot)
 	encoder.Encode(map[string]interface{}{
@@ -530,8 +1171,12 @@ func (s *SocketServer) handleListRepos(req SendRequest, encoder *json.Encoder) {
 	})
 }
 
-func (s *SocketServer) controlSessionPath(projectRoot string) string {
-	return filepath.Join(projectRoot, ".orch", "control-session.json")
+func (s *SocketServer) controlSessionPath(projectRoot string) (string, string, error) {
+	repoID, err := s.repoIDForProjectRoot(projectRoot)
+	if err != nil {
+		return "", "", err
+	}
+	return repoID, controlSessionPathForRepoID(repoID), nil
 }
 
 type controlSessionRecord struct {
@@ -542,17 +1187,17 @@ type controlSessionRecord struct {
 	ModelVariant string `json:"model_variant,omitempty"`
 }
 
-// getControlSessionLock returns a per-project mutex for control session operations.
-// This prevents race conditions when multiple orch-monitor instances start in quick succession.
-func (s *SocketServer) getControlSessionLock(projectRoot string) *sync.Mutex {
+// getControlSessionLock returns a per-repo mutex for control session operations.
+// This prevents race conditions when multiple monitor/control agent instances start in quick succession.
+func (s *SocketServer) getControlSessionLock(repoID string) *sync.Mutex {
 	s.controlSessionLocksMu.Lock()
 	defer s.controlSessionLocksMu.Unlock()
 
-	if lock, ok := s.controlSessionLocks[projectRoot]; ok {
+	if lock, ok := s.controlSessionLocks[repoID]; ok {
 		return lock
 	}
 	lock := &sync.Mutex{}
-	s.controlSessionLocks[projectRoot] = lock
+	s.controlSessionLocks[repoID] = lock
 	return lock
 }
 
@@ -632,12 +1277,13 @@ func (s *SocketServer) saveOpenCodeControlSession(projectRoot, sessionID string,
 }
 
 func (s *SocketServer) writeControlSession(projectRoot string, sessionData *controlSessionRecord) error {
-	orchDir := filepath.Join(projectRoot, ".orch")
-	if err := os.MkdirAll(orchDir, 0755); err != nil {
-		return fmt.Errorf("failed to create .orch dir: %w", err)
+	_, sessionPath, err := s.controlSessionPath(projectRoot)
+	if err != nil {
+		return err
 	}
-
-	sessionPath := s.controlSessionPath(projectRoot)
+	if err := os.MkdirAll(filepath.Dir(sessionPath), 0755); err != nil {
+		return fmt.Errorf("failed to create control session dir: %w", err)
+	}
 	if sessionData == nil {
 		return fmt.Errorf("control session data is nil")
 	}
@@ -657,15 +1303,23 @@ func (s *SocketServer) handleGetControlSession(req SendRequest, encoder *json.En
 		return
 	}
 
-	// Acquire per-project lock to prevent race conditions
-	lock := s.getControlSessionLock(req.ProjectRoot)
+	repoID, sessionPath, err := s.controlSessionPath(req.ProjectRoot)
+	if err != nil {
+		encoder.Encode(map[string]interface{}{
+			"ok":    false,
+			"error": err.Error(),
+		})
+		return
+	}
+
+	// Acquire per-repo lock to prevent race conditions
+	lock := s.getControlSessionLock(repoID)
 	lock.Lock()
 	defer lock.Unlock()
 
 	requestedAgent := req.AgentType // The agent type the client wants to use
 
 	// Load stored session
-	sessionPath := s.controlSessionPath(req.ProjectRoot)
 	var storedSession struct {
 		SessionID string `json:"session_id"`
 		AgentType string `json:"agent_type"`
@@ -733,8 +1387,17 @@ func (s *SocketServer) handleSetControlSession(req SendRequest, encoder *json.En
 		return
 	}
 
-	// Acquire per-project lock to prevent race conditions
-	lock := s.getControlSessionLock(req.ProjectRoot)
+	repoID, _, err := s.controlSessionPath(req.ProjectRoot)
+	if err != nil {
+		encoder.Encode(map[string]interface{}{
+			"ok":    false,
+			"error": err.Error(),
+		})
+		return
+	}
+
+	// Acquire per-repo lock to prevent race conditions
+	lock := s.getControlSessionLock(repoID)
 	lock.Lock()
 	defer lock.Unlock()
 
@@ -765,12 +1428,20 @@ func (s *SocketServer) handleClearControlSession(req SendRequest, encoder *json.
 		return
 	}
 
-	// Acquire per-project lock to prevent race conditions
-	lock := s.getControlSessionLock(req.ProjectRoot)
+	repoID, sessionPath, err := s.controlSessionPath(req.ProjectRoot)
+	if err != nil {
+		encoder.Encode(map[string]interface{}{
+			"ok":    false,
+			"error": err.Error(),
+		})
+		return
+	}
+
+	// Acquire per-repo lock to prevent race conditions
+	lock := s.getControlSessionLock(repoID)
 	lock.Lock()
 	defer lock.Unlock()
 
-	sessionPath := s.controlSessionPath(req.ProjectRoot)
 	if err := os.Remove(sessionPath); err != nil && !os.IsNotExist(err) {
 		encoder.Encode(map[string]interface{}{
 			"ok":    false,
@@ -829,24 +1500,33 @@ func (s *SocketServer) handleEnsureOpenCodeServer(req SendRequest, encoder *json
 }
 
 func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string) (int, error) {
+	repoID, err := s.repoIDForProjectRoot(projectRoot)
+	if err != nil {
+		return 0, err
+	}
+	canonicalRoot := s.canonicalProjectRootForRepo(repoID, projectRoot)
+
 	s.openCodeServersMu.Lock()
 	defer s.openCodeServersMu.Unlock()
 
-	if srv, ok := s.openCodeServers[projectRoot]; ok {
+	if srv, ok := s.openCodeServers[repoID]; ok {
 		if s.procManager.IsServerProcessAlive(srv) {
 			client := agent.NewOpenCodeClient(srv.Port)
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
-			if client.IsServerRunning(ctx) {
+			if client.IsServerRunningForWorktree(ctx, canonicalRoot) {
 				srv.LastHealthy = time.Now()
-				s.updateManagedServerHealth(projectRoot, srv.LastHealthy)
-				s.logger.Printf("opencode server healthy on port %d for %s", srv.Port, projectRoot)
+				s.updateManagedServerHealth(repoID, srv.LastHealthy)
+				s.logger.Printf("opencode server healthy on port %d for %s", srv.Port, repoID)
 				return srv.Port, nil
 			}
+			if client.IsServerRunning(ctx) {
+				s.logger.Printf("existing server for %s is healthy but serving a different project/worktree, restarting (logs: %s)", repoID, srv.LogPath)
+			}
 		}
-		s.logger.Printf("existing server for %s not healthy, stopping and restarting (logs: %s)", projectRoot, srv.LogPath)
+		s.logger.Printf("existing server for %s not healthy, stopping and restarting (logs: %s)", repoID, srv.LogPath)
 		s.procManager.StopServerLocked(srv)
-		delete(s.openCodeServers, projectRoot)
+		delete(s.openCodeServers, repoID)
 	}
 
 	// Collect ports already in use by the registry to exclude from allocation.
@@ -863,10 +1543,12 @@ func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string) (int, err
 		return 0, fmt.Errorf("no available port found for opencode server")
 	}
 
-	srv, err := s.procManager.StartServerProcess(projectRoot, port)
+	srv, err := s.procManager.StartServerProcess(canonicalRoot, port)
 	if err != nil {
 		return 0, fmt.Errorf("failed to start opencode server: %w", err)
 	}
+	srv.RepoID = repoID
+	srv.ProjectRoot = canonicalRoot
 
 	client := agent.NewOpenCodeClient(port)
 	if err := s.procManager.WaitForHealthy(srv, 30*time.Second, client.IsServerRunning); err != nil {
@@ -880,9 +1562,9 @@ func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string) (int, err
 	}
 
 	srv.LastHealthy = time.Now()
-	s.updateManagedServerHealth(projectRoot, srv.LastHealthy)
-	s.openCodeServers[projectRoot] = srv
-	s.logger.Printf("started opencode server on port %d (pid: %d) for %s (logs: %s)", port, serverPID(srv), projectRoot, srv.LogPath)
+	s.updateManagedServerHealth(repoID, srv.LastHealthy)
+	s.openCodeServers[repoID] = srv
+	s.logger.Printf("started opencode server on port %d (pid: %d) for %s (logs: %s)", port, serverPID(srv), repoID, srv.LogPath)
 	return port, nil
 }
 
@@ -911,7 +1593,17 @@ func (s *SocketServer) startServerProcess(projectRoot string, port int) (*manage
 
 	cmd := exec.Command(opencodeBin, "serve", "--port", fmt.Sprintf("%d", port), "--hostname", "0.0.0.0")
 	cmd.Dir = projectRoot
-	cmd.Env = append(os.Environ(),
+	repoID, err := s.repoIDForProjectRoot(projectRoot)
+	if err != nil {
+		logFile.Close()
+		return nil, fmt.Errorf("failed to resolve repo id for opencode environment: %w", err)
+	}
+	env, err := prepareManagedOpenCodeEnv(repoID)
+	if err != nil {
+		logFile.Close()
+		return nil, fmt.Errorf("failed to prepare opencode environment: %w", err)
+	}
+	cmd.Env = append(env,
 		`OPENCODE_PERMISSION={"edit":"allow","bash":"allow","skill":"allow","webfetch":"allow","doom_loop":"allow","external_directory":"allow"}`,
 	)
 	cmd.Stdout = logFile
@@ -925,6 +1617,7 @@ func (s *SocketServer) startServerProcess(projectRoot string, port int) (*manage
 
 	startTime := time.Now()
 	srv := &managedServer{
+		RepoID:      "",
 		ProjectRoot: projectRoot,
 		Port:        port,
 		Cmd:         cmd,
@@ -1050,13 +1743,13 @@ func (s *SocketServer) stopServerLocked(srv *managedServer) {
 		}
 	} else if srv.PID > 0 {
 		if err := s.terminateServerProcessByPID(srv.PID, 5*time.Second); err != nil && s.logger != nil {
-			s.logger.Printf("warning: failed to terminate opencode server pid=%d for %s: %v", srv.PID, srv.ProjectRoot, err)
+			s.logger.Printf("warning: failed to terminate opencode server pid=%d for %s: %v", srv.PID, srv.RepoID, err)
 		}
 	}
 	if srv.LogFile != nil {
 		_ = srv.LogFile.Close()
 	}
-	s.deleteManagedServerRecord(srv.ProjectRoot)
+	s.deleteManagedServerRecord(srv.RepoID)
 }
 
 func (s *SocketServer) StartOpenCodeServerHealthCheck() {
@@ -1085,11 +1778,11 @@ func (s *SocketServer) checkOpenCodeServerHealth() {
 	s.openCodeServersMu.Lock()
 	defer s.openCodeServersMu.Unlock()
 
-	for projectRoot, srv := range s.openCodeServers {
+	for repoID, srv := range s.openCodeServers {
 		if !s.procManager.IsServerProcessAlive(srv) {
-			s.logger.Printf("opencode server for %s died (pid: %d, logs: %s), will restart on next request", projectRoot, serverPID(srv), srv.LogPath)
+			s.logger.Printf("opencode server for %s died (pid: %d, logs: %s), will restart on next request", repoID, serverPID(srv), srv.LogPath)
 			s.procManager.StopServerLocked(srv)
-			delete(s.openCodeServers, projectRoot)
+			delete(s.openCodeServers, repoID)
 			continue
 		}
 
@@ -1097,12 +1790,12 @@ func (s *SocketServer) checkOpenCodeServerHealth() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if client.IsServerRunning(ctx) {
 			srv.LastHealthy = time.Now()
-			s.updateManagedServerHealth(projectRoot, srv.LastHealthy)
+			s.updateManagedServerHealth(repoID, srv.LastHealthy)
 		} else {
 			if time.Since(srv.LastHealthy) > 2*time.Minute {
-				s.logger.Printf("opencode server for %s unhealthy for 2+ minutes, restarting (logs: %s)", projectRoot, srv.LogPath)
+				s.logger.Printf("opencode server for %s unhealthy for 2+ minutes, restarting (logs: %s)", repoID, srv.LogPath)
 				s.procManager.StopServerLocked(srv)
-				delete(s.openCodeServers, projectRoot)
+				delete(s.openCodeServers, repoID)
 			}
 		}
 		cancel()
@@ -1113,34 +1806,175 @@ func (s *SocketServer) StopAllOpenCodeServers() {
 	s.openCodeServersMu.Lock()
 	defer s.openCodeServersMu.Unlock()
 
-	for projectRoot, srv := range s.openCodeServers {
-		s.logger.Printf("stopping opencode server for %s (pid: %d)", projectRoot, serverPID(srv))
+	for repoID, srv := range s.openCodeServers {
+		s.logger.Printf("stopping opencode server for %s (pid: %d)", repoID, serverPID(srv))
 		s.procManager.StopServerLocked(srv)
 	}
 	s.openCodeServers = make(map[string]*managedServer)
 }
 
 func (s *SocketServer) getOpenCodeServerPort(projectRoot string) int {
+	repoID, err := s.repoIDForProjectRoot(projectRoot)
+	if err != nil {
+		return 0
+	}
+
 	s.openCodeServersMu.RLock()
 	defer s.openCodeServersMu.RUnlock()
 
-	if srv, ok := s.openCodeServers[projectRoot]; ok {
+	if srv, ok := s.openCodeServers[repoID]; ok {
 		return srv.Port
 	}
 	return 0
 }
 
+func (s *SocketServer) failOpenCodeRunBootstrap(st store.Store, run *model.Run, err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	s.logger.Printf(msg)
+	if st != nil && run != nil {
+		_ = st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(msg))
+		_ = st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
+	}
+	return err
+}
+
+func isOpenCodeSQLiteIOError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "sqliteerror: disk i/o error")
+}
+
+func (s *SocketServer) resetManagedOpenCodeRuntime(projectRoot string) error {
+	repoID, err := s.repoIDForProjectRoot(projectRoot)
+	if err != nil {
+		return err
+	}
+
+	s.openCodeServersMu.Lock()
+	if srv, ok := s.openCodeServers[repoID]; ok {
+		s.procManager.StopServerLocked(srv)
+		delete(s.openCodeServers, repoID)
+	}
+	s.openCodeServersMu.Unlock()
+
+	dataHome, _ := openCodeManagedXDGHomes(repoID)
+	for _, name := range []string{"opencode.db-shm", "opencode.db-wal"} {
+		path := filepath.Join(dataHome, "opencode", name)
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove %s: %w", path, err)
+		}
+	}
+	return nil
+}
+
+func (s *SocketServer) bootstrapOpenCodeRunSession(
+	st store.Store,
+	run *model.Run,
+	issueID string,
+	runID string,
+	launchCfg *agent.LaunchConfig,
+	timeout time.Duration,
+) (int, string, error) {
+	if launchCfg == nil {
+		return 0, "", s.failOpenCodeRunBootstrap(st, run, fmt.Errorf("missing launch config for opencode bootstrap"))
+	}
+
+	port := launchCfg.Port
+	if port == 0 {
+		port = agent.OpenCodeServerPortStart
+	}
+
+	client := agent.NewOpenCodeClient(port)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	if err := client.WaitForHealthy(ctx, timeout); err != nil {
+		return 0, "", s.failOpenCodeRunBootstrap(st, run, fmt.Errorf("server health check failed: %w", err))
+	}
+
+	_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
+		"port": fmt.Sprintf("%d", port),
+	}))
+
+	session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", issueID, runID), launchCfg.WorkDir)
+	if err != nil && isOpenCodeSQLiteIOError(err) {
+		s.logger.Printf("opencode session creation hit sqlite I/O error for %s#%s; resetting managed runtime and retrying once", issueID, runID)
+		if resetErr := s.resetManagedOpenCodeRuntime(launchCfg.WorkDir); resetErr != nil {
+			s.logger.Printf("failed to reset managed opencode runtime for %s#%s: %v", issueID, runID, resetErr)
+		} else if retryPort, retryErr := s.ensureOpenCodeServerRunning(launchCfg.WorkDir); retryErr != nil {
+			s.logger.Printf("failed to restart managed opencode runtime for %s#%s: %v", issueID, runID, retryErr)
+		} else {
+			port = retryPort
+			client = agent.NewOpenCodeClient(port)
+			ctx, cancel = context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			if waitErr := client.WaitForHealthy(ctx, timeout); waitErr != nil {
+				err = fmt.Errorf("server health check failed after sqlite reset: %w", waitErr)
+			} else {
+				_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
+					"port": fmt.Sprintf("%d", port),
+				}))
+				session, err = client.CreateSession(ctx, fmt.Sprintf("%s#%s", issueID, runID), launchCfg.WorkDir)
+			}
+		}
+	}
+	if err != nil {
+		return port, "", s.failOpenCodeRunBootstrap(st, run, fmt.Errorf("failed to create opencode session: %w", err))
+	}
+
+	_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("opencode_session", map[string]string{
+		"id": session.ID,
+	}))
+
+	if strings.TrimSpace(launchCfg.Prompt) == "" {
+		return port, session.ID, nil
+	}
+
+	var modelRef *agent.ModelRef
+	if launchCfg.Model != "" {
+		modelRef = agent.ParseModel(launchCfg.Model)
+	}
+	runForConfirm := &model.Run{
+		IssueID:           issueID,
+		RunID:             runID,
+		WorktreePath:      launchCfg.WorkDir,
+		OpenCodeSessionID: session.ID,
+	}
+	sendStartedAt := time.Now()
+	if err := client.SendMessagePrompt(ctx, session.ID, launchCfg.Prompt, launchCfg.WorkDir, modelRef, launchCfg.ModelVariant); err != nil {
+		if isOpenCodeSendAckTimeout(err) {
+			if confirmed, confirmErr := confirmOpenCodeQueuedMessage(client, runForConfirm, launchCfg.Prompt, sendStartedAt); confirmed {
+				s.logger.Printf("opencode bootstrap ack_timeout_but_confirmed run=%s#%s elapsed=%s timeout=%s", issueID, runID, time.Since(sendStartedAt), openCodeSendAckTimeout)
+				return port, session.ID, nil
+			} else if confirmErr != nil {
+				s.logger.Printf("opencode bootstrap confirm_queued_failed run=%s#%s elapsed=%s err=%v", issueID, runID, time.Since(sendStartedAt), confirmErr)
+			}
+		}
+		return port, session.ID, s.failOpenCodeRunBootstrap(st, run, fmt.Errorf("failed to send opencode prompt: %w", err))
+	}
+
+	return port, session.ID, nil
+}
+
 // getOrCreateOpenCodeControlSession returns (sessionID, resumed, error).
 // resumed is true when an existing session was found and reused, false when a new session was created.
 func (s *SocketServer) getOrCreateOpenCodeControlSession(projectRoot string, port int, modelName, modelVariant string) (string, bool, error) {
-	lock := s.getControlSessionLock(projectRoot)
+	repoID, sessionPath, err := s.controlSessionPath(projectRoot)
+	if err != nil {
+		return "", false, err
+	}
+
+	lock := s.getControlSessionLock(repoID)
 	lock.Lock()
 	defer lock.Unlock()
 
 	resolvedModel := strings.TrimSpace(modelName)
 	resolvedVariant := strings.TrimSpace(modelVariant)
 
-	sessionPath := s.controlSessionPath(projectRoot)
 	if data, err := os.ReadFile(sessionPath); err == nil {
 		var stored controlSessionRecord
 		if json.Unmarshal(data, &stored) == nil && stored.SessionID != "" && stored.AgentType == "opencode" {
@@ -1378,7 +2212,7 @@ You can run orch commands directly via bash to manage issues and runs.
 
 ## Repository Context
 
-- IssuesRoot: %s
+- Issues path: %s
 - Working directory: %s
 
 ## Git Context
@@ -1487,30 +2321,15 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 		return nil, fmt.Errorf("project_root required")
 	}
 
-	promptPath, err := s.writeControlPromptFile(st, params.ProjectRoot)
+	controlCfg, err := s.processControlAgentConfigCore(st, params.ProjectRoot, params.Agent)
 	if err != nil {
-		s.logger.Printf("failed to write control prompt file: %v", err)
-		return nil, fmt.Errorf("failed to write control prompt file: %w", err)
+		return nil, err
 	}
 
-	cfg, cfgErr := loadControlAgentConfig(params.ProjectRoot)
-	if cfgErr != nil {
-		s.logger.Printf("config validation failed in processControlAgentLaunchCore: %v", cfgErr)
-		return nil, fmt.Errorf("failed to load config: %w", cfgErr)
-	}
-
-	agentName := params.Agent
-	if agentName == "" {
-		agentName = cfg.ControlAgent
-		if agentName == "" {
-			agentName = cfg.Agent
-		}
-	}
-	if agentName == "" {
-		agentName = "opencode"
-	}
-
-	modelName, modelVariant := cfg.ResolveControlModelAndVariant(agentName)
+	agentName := controlCfg.Agent
+	modelName := controlCfg.Model
+	modelVariant := controlCfg.ModelVariant
+	extraArgs := controlCfg.ExtraArgs
 
 	aType, err := agent.ParseAgentType(agentName)
 	if err != nil {
@@ -1527,15 +2346,19 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 	}
 
 	prompt := getControlPromptInstruction()
+	promptPath := filepath.Join(params.ProjectRoot, controlPromptFileName)
 	var command string
 	var port int
 	var sessionID string
 	newSession := params.NewSession
 
 	if params.NewSession {
-		lock := s.getControlSessionLock(params.ProjectRoot)
+		repoID, sessionPath, err := s.controlSessionPath(params.ProjectRoot)
+		if err != nil {
+			return nil, err
+		}
+		lock := s.getControlSessionLock(repoID)
 		lock.Lock()
-		sessionPath := s.controlSessionPath(params.ProjectRoot)
 		os.Remove(sessionPath)
 		lock.Unlock()
 	}
@@ -1559,11 +2382,6 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 			command = fmt.Sprintf("opencode attach http://127.0.0.1:%d --session %s --dir %s", port, sessionID, params.ProjectRoot)
 		}
 	} else {
-		var extraArgs []string
-		if cfgErr == nil {
-			extraArgs = cfg.GetControlExtraArgs(agentName)
-		}
-
 		launchCfg := &agent.LaunchConfig{
 			Type:            aType,
 			IssuesRoot:      st.RootPath(),
@@ -1613,9 +2431,56 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 	}, nil
 }
 
+func (s *SocketServer) processControlAgentConfigCore(st store.Store, projectRoot, agentOverride string) (*ControlAgentConfigResult, error) {
+	if projectRoot == "" {
+		return nil, fmt.Errorf("project_root required")
+	}
+
+	promptPath, err := s.writeControlPromptFile(st, projectRoot)
+	if err != nil {
+		s.logger.Printf("failed to write control prompt file: %v", err)
+		return nil, fmt.Errorf("failed to write control prompt file: %w", err)
+	}
+
+	promptContentBytes, err := os.ReadFile(promptPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read control prompt file: %w", err)
+	}
+
+	cfg, cfgErr := loadControlAgentConfig(projectRoot)
+	if cfgErr != nil {
+		s.logger.Printf("config validation failed in processControlAgentConfigCore: %v", cfgErr)
+		return nil, fmt.Errorf("failed to load config: %w", cfgErr)
+	}
+
+	agentName := strings.TrimSpace(agentOverride)
+	if agentName == "" {
+		agentName = strings.TrimSpace(cfg.ControlAgent)
+		if agentName == "" {
+			agentName = strings.TrimSpace(cfg.Agent)
+		}
+	}
+	if agentName == "" {
+		agentName = "opencode"
+	}
+
+	modelName, modelVariant := cfg.ResolveControlModelAndVariant(agentName)
+
+	return &ControlAgentConfigResult{
+		PromptContent: string(promptContentBytes),
+		Agent:         agentName,
+		Model:         modelName,
+		ModelVariant:  modelVariant,
+		ExtraArgs:     cfg.GetControlExtraArgs(agentName),
+	}, nil
+}
+
 // getStoredControlSession returns the stored session ID for a project, or empty string if none.
 func (s *SocketServer) getStoredControlSession(projectRoot string) string {
-	sessionPath := s.controlSessionPath(projectRoot)
+	_, sessionPath, err := s.controlSessionPath(projectRoot)
+	if err != nil {
+		return ""
+	}
 	data, err := os.ReadFile(sessionPath)
 	if err != nil {
 		return ""
@@ -1704,6 +2569,24 @@ func (s *SocketServer) processSendOpenCode(st store.Store, ref *model.RunRef, ru
 	sendStartedAt := time.Now()
 	err = client.SendMessagePrompt(ctx, run.OpenCodeSessionID, message, run.WorktreePath, nil, "")
 	if err != nil {
+		if isOpenCodeSendAckTimeout(err) {
+			if confirmed, confirmErr := confirmOpenCodeQueuedMessage(client, run, message, sendStartedAt); confirmed {
+				s.logger.Printf(
+					"opencode_send ack_timeout_but_confirmed run=%s elapsed=%s timeout=%s",
+					ref.String(),
+					time.Since(sendStartedAt),
+					openCodeSendAckTimeout,
+				)
+				return nil
+			} else if confirmErr != nil {
+				s.logger.Printf(
+					"opencode_send confirm_queued_failed run=%s elapsed=%s err=%v",
+					ref.String(),
+					time.Since(sendStartedAt),
+					confirmErr,
+				)
+			}
+		}
 		s.logger.Printf("opencode_send ack_failed run=%s elapsed=%s timeout=%s err=%v", ref.String(), time.Since(sendStartedAt), openCodeSendAckTimeout, err)
 		return fmt.Errorf("failed to send message: %w", err)
 	}
@@ -1712,13 +2595,84 @@ func (s *SocketServer) processSendOpenCode(st store.Store, ref *model.RunRef, ru
 	return nil
 }
 
+func isOpenCodeSendAckTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "context deadline exceeded") || strings.Contains(msg, "context canceled")
+}
+
+func confirmOpenCodeQueuedMessage(client *agent.OpenCodeClient, run *model.Run, message string, notBefore time.Time) (bool, error) {
+	if client == nil || run == nil || strings.TrimSpace(run.OpenCodeSessionID) == "" {
+		return false, nil
+	}
+
+	deadline := time.Now().Add(openCodeSendConfirmTimeout)
+	var lastErr error
+
+	for {
+		pollCtx, cancel := context.WithTimeout(context.Background(), openCodeSendConfirmPollInterval)
+		messages, err := client.GetMessages(pollCtx, run.OpenCodeSessionID, run.WorktreePath)
+		cancel()
+		if err == nil {
+			if hasOpenCodeUserMessage(messages, message, notBefore) {
+				return true, nil
+			}
+		} else {
+			lastErr = err
+			if !isOpenCodeSendAckTimeout(err) {
+				break
+			}
+		}
+
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(openCodeSendConfirmPollInterval)
+	}
+
+	return false, lastErr
+}
+
+func hasOpenCodeUserMessage(messages []agent.Message, text string, notBefore time.Time) bool {
+	want := strings.TrimSpace(text)
+	if want == "" {
+		return false
+	}
+
+	cutoff := notBefore.Add(-1 * time.Second)
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg := messages[i]
+		if !strings.EqualFold(strings.TrimSpace(msg.Info.Role), "user") {
+			continue
+		}
+		if !msg.Info.CreatedAt.IsZero() && msg.Info.CreatedAt.Before(cutoff) {
+			continue
+		}
+		for _, part := range msg.Parts {
+			if part.Type != "text" {
+				continue
+			}
+			if strings.TrimSpace(part.Text) == want {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 func (s *SocketServer) processSendTmux(run *model.Run, message string, noEnter bool) error {
 	sessionName := run.SessionName
 	if sessionName == "" {
 		sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
 	}
 
-	mux := getSendMultiplexer()
+	mux := resolveSendMultiplexer(run)
 	if mux == nil {
 		return fmt.Errorf("no multiplexer available")
 	}
@@ -1749,6 +2703,68 @@ func (s *SocketServer) processSendTmux(run *model.Run, message string, noEnter b
 	return nil
 }
 
+func resolveSendMultiplexer(run *model.Run) sendMultiplexer {
+	if run != nil {
+		if muxType, err := multiplexer.ParseType(strings.TrimSpace(run.Multiplexer)); err == nil && muxType != multiplexer.TypeAuto {
+			if mux := getSendMultiplexerForType(muxType); mux != nil {
+				return mux
+			}
+		}
+	}
+	return getSendMultiplexer()
+}
+
+func resolveCaptureMultiplexer(run *model.Run) captureMultiplexer {
+	if run == nil {
+		return nil
+	}
+	muxType, err := multiplexer.ParseType(strings.TrimSpace(run.Multiplexer))
+	if err != nil || muxType == multiplexer.TypeAuto {
+		muxType = multiplexer.TypeTmux
+	}
+	return getCaptureMultiplexerForType(muxType)
+}
+
+func captureLocalMultiplexerSession(run *model.Run, lines int) (string, string, error) {
+	if run == nil {
+		return "", "", fmt.Errorf("run required")
+	}
+	sessionName := run.SessionName
+	if sessionName == "" {
+		sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
+	}
+	mux := resolveCaptureMultiplexer(run)
+	if mux == nil {
+		return "", "", fmt.Errorf("no multiplexer available for run %s#%s", run.IssueID, run.RunID)
+	}
+	if !mux.HasSession(sessionName) {
+		return "", "", &agent.SessionNotFoundError{SessionName: sessionName}
+	}
+	content, err := mux.CapturePane(sessionName, lines)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to capture session %s: %w", sessionName, err)
+	}
+	source := strings.TrimSpace(run.Multiplexer)
+	if source == "" {
+		source = string(multiplexer.TypeTmux)
+	}
+	return content, source, nil
+}
+
+func sessionArtifactAttrs(sessionName string, muxType multiplexer.Type, host, workerID string) map[string]string {
+	attrs := map[string]string{
+		"name":        sessionName,
+		"multiplexer": string(muxType),
+	}
+	if strings.TrimSpace(host) != "" {
+		attrs["host"] = strings.TrimSpace(host)
+	}
+	if strings.TrimSpace(workerID) != "" {
+		attrs["worker_id"] = strings.TrimSpace(workerID)
+	}
+	return attrs
+}
+
 func useCodexTmuxSubmitDelay(run *model.Run, mux sendMultiplexer) bool {
 	if run == nil || !strings.EqualFold(run.Agent, string(agent.AgentCodex)) {
 		return false
@@ -1768,6 +2784,10 @@ func (s *SocketServer) processSendMessage(st store.Store, params *SendMessagePar
 	run, err := st.GetRun(ref)
 	if err != nil {
 		return fmt.Errorf("run %s#%s not found: %w", params.IssueID, params.RunID, err)
+	}
+
+	if targetHost := strings.TrimSpace(run.TargetHost); targetHost != "" {
+		return fmt.Errorf("run %s#%s is executing on remote host %q; use the CLI send path that routes to the target host", params.IssueID, params.RunID, targetHost)
 	}
 
 	if run.Agent == string(agent.AgentOpenCode) {
@@ -2093,8 +3113,8 @@ func (s *SocketServer) handleGetIssue(req SendRequest, encoder *json.Encoder) {
 	})
 }
 
-func SendViaDaemon(projectRoot, issuesRoot string, run *model.Run, message string, noEnter bool) error {
-	client := NewProtoClientWithIssuesRoot(projectRoot, issuesRoot)
+func SendViaDaemon(projectRoot, _ string, run *model.Run, message string, noEnter bool) error {
+	client := NewProtoClientLocal(projectRoot)
 	client.SetTimeout(35 * time.Second)
 	return client.SendMessage(run.IssueID, run.RunID, message)
 }
@@ -2343,10 +3363,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 			return
 		}
 
-		st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", map[string]string{
-			"name":        sessionName,
-			"multiplexer": string(mux.Type()),
-		}))
+		st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", sessionArtifactAttrs(sessionName, mux.Type(), s.currentWorkerHost, s.currentWorkerID)))
 	}
 
 	switch adapter.PromptInjection() {
@@ -2363,33 +3380,10 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		}
 
 	case agent.InjectionHTTP:
-		port := launchCfg.Port
-		if port == 0 {
-			port = agent.OpenCodeServerPortStart
-		}
-		client := agent.NewOpenCodeClient(port)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
-			"port": fmt.Sprintf("%d", port),
-		}))
-
-		session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", req.IssueID, runID), launchCfg.WorkDir)
+		_, _, err = s.bootstrapOpenCodeRunSession(st, run, req.IssueID, runID, launchCfg, 30*time.Second)
 		if err != nil {
-			s.logger.Printf("failed to create session: %v", err)
-		} else {
-			st.AppendEvent(run.Ref(), model.NewArtifactEvent("opencode_session", map[string]string{
-				"id": session.ID,
-			}))
-
-			var modelRef *agent.ModelRef
-			if launchCfg.Model != "" {
-				modelRef = agent.ParseModel(launchCfg.Model)
-			}
-			if err := client.SendMessagePrompt(ctx, session.ID, launchCfg.Prompt, launchCfg.WorkDir, modelRef, launchCfg.ModelVariant); err != nil {
-				s.logger.Printf("failed to send prompt: %v", err)
-			}
+			encoder.Encode(StartRunResponse{OK: false, Error: err.Error()})
+			return
 		}
 	}
 
@@ -2412,15 +3406,59 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		return nil, fmt.Errorf("invalid_request: issue_id required")
 	}
 
-	issue, err := st.ResolveIssue(opts.IssueID)
-	if err != nil {
-		return nil, fmt.Errorf("issue not found: %s", opts.IssueID)
+	issue := opts.IssueSnapshot
+	if issue == nil || strings.TrimSpace(issue.ID) != opts.IssueID {
+		resolvedIssue, err := st.ResolveIssue(opts.IssueID)
+		if err != nil {
+			return nil, fmt.Errorf("issue not found: %s", opts.IssueID)
+		}
+		issue = resolvedIssue
 	}
 
-	cfg, err := config.Load()
+	if _, err := st.ResolveIssue(opts.IssueID); err != nil {
+		issueCopy := *issue
+		if issueCopy.ID == "" {
+			issueCopy.ID = opts.IssueID
+		}
+		if issueCopy.Status == "" {
+			issueCopy.Status = model.IssueStatusOpen
+		}
+		if err := st.CreateIssue(&issueCopy); err != nil {
+			return nil, fmt.Errorf("failed to sync issue for worker execution: %w", err)
+		}
+	}
+
+	cfg, err := loadConfigForProjectRoot(projectRoot)
 	if err != nil {
 		s.logger.Printf("config validation failed in processStartRunCore: %v", err)
 		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+
+	targetName := strings.TrimSpace(opts.Target)
+	targetHost := strings.TrimSpace(opts.TargetHost)
+	targetWorkerID := strings.TrimSpace(opts.TargetWorkerID)
+	isRemoteTarget := targetName != "" && targetName != "local"
+	executionProjectRoot := projectRoot
+	runExecutor := executor.NewLocalExecutor()
+	if isRemoteTarget {
+		if targetHost == "" || targetWorkerID == "" {
+			targetCfg := cfg.GetTarget(targetName)
+			if targetCfg == nil {
+				return nil, fmt.Errorf("target %q not found in config", targetName)
+			}
+			targetHost = strings.TrimSpace(targetCfg.Host)
+			if targetHost == "" {
+				return nil, fmt.Errorf("target %q host is empty", targetName)
+			}
+			targetWorkerID = HostWorkerID(targetHost)
+		}
+		if s.currentWorkerID == "" {
+			return nil, fmt.Errorf("target %q must be executed by worker %q; direct master-side target execution is not supported", targetName, targetWorkerID)
+		}
+		if targetWorkerID != s.currentWorkerID {
+			return nil, fmt.Errorf("target %q must be executed by worker %q, got %q", targetName, targetWorkerID, s.currentWorkerID)
+		}
+		isRemoteTarget = false
 	}
 
 	agentName := opts.Agent
@@ -2441,8 +3479,11 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		return nil, fmt.Errorf("failed to get adapter: %w", err)
 	}
 
-	if !adapter.IsAvailable() {
+	if !isRemoteTarget && !adapter.IsAvailable() {
 		return nil, fmt.Errorf("agent not available: %s", agentName)
+	}
+	if isRemoteTarget && adapter.PromptInjection() == agent.InjectionHTTP {
+		return nil, fmt.Errorf("agent %s with HTTP prompt injection is not supported with remote target %q", agentName, targetName)
 	}
 
 	runID := opts.RunID
@@ -2466,7 +3507,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	}
 	sessionName := model.GenerateSessionName(opts.IssueID, runID)
 
-	if projectRoot == "" {
+	if executionProjectRoot == "" {
 		return nil, fmt.Errorf("no project root available")
 	}
 
@@ -2484,7 +3525,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	if filepath.IsAbs(worktreeDir) {
 		worktreePath = filepath.Join(worktreeDir, opts.IssueID, worktreeName)
 	} else {
-		worktreePath = filepath.Join(projectRoot, worktreeDir, opts.IssueID, worktreeName)
+		worktreePath = filepath.Join(executionProjectRoot, worktreeDir, opts.IssueID, worktreeName)
 	}
 
 	if opts.DryRun {
@@ -2504,6 +3545,9 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	if opts.Model != "" {
 		metadata["model"] = opts.Model
 	}
+	if targetName != "" {
+		metadata["target"] = targetName
+	}
 	run, err := st.CreateRun(opts.IssueID, runID, metadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create run: %w", err)
@@ -2519,15 +3563,15 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		baseBranch = "main"
 	}
 
-	worktreeResult, err := git.CreateWorktree(&git.WorktreeConfig{
-		RepoRoot:    projectRoot,
+	worktreeResult, err := git.CreateWorktreeWithExecutor(&git.WorktreeConfig{
+		RepoRoot:    executionProjectRoot,
 		WorktreeDir: worktreeDir,
 		IssueID:     opts.IssueID,
 		RunID:       runID,
 		Agent:       agentName,
 		BaseBranch:  baseBranch,
 		Branch:      branch,
-	})
+	}, runExecutor)
 	if err != nil {
 		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
 		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
@@ -2536,10 +3580,20 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 
 	st.AppendEvent(run.Ref(), model.NewArtifactEvent("worktree", map[string]string{"path": worktreeResult.WorktreePath}))
 	st.AppendEvent(run.Ref(), model.NewArtifactEvent("branch", map[string]string{"name": worktreeResult.Branch}))
+	if targetName != "" {
+		targetAttrs := map[string]string{"name": targetName}
+		if targetHost != "" {
+			targetAttrs["host"] = targetHost
+		}
+		if targetWorkerID != "" {
+			targetAttrs["worker_id"] = targetWorkerID
+		}
+		st.AppendEvent(run.Ref(), model.NewArtifactEvent("target", targetAttrs))
+	}
 
 	agentPrompt := s.buildRunPrompt(issue, st.RootPath(), opts.NoPR, opts.PromptTemplate, opts.PRTargetBranch)
 	promptPath := filepath.Join(worktreeResult.WorktreePath, "ORCH_PROMPT.md")
-	if err := os.WriteFile(promptPath, []byte(agentPrompt), 0644); err != nil {
+	if err := writeFileWithExecutor(runExecutor, promptPath, []byte(agentPrompt), 0644); err != nil {
 		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
 		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed))
 		return nil, fmt.Errorf("failed to write prompt file: %w", err)
@@ -2548,6 +3602,8 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	initialPrompt := "ultrathink Please read 'ORCH_PROMPT.md' in the current directory and follow the instructions found there."
 
 	runModel, runVariant := cfg.ResolveModelAndVariant(agentName, opts.Preset, opts.Model, opts.ModelVariant)
+	serverPort := 0
+	opencodeSessionID := ""
 
 	launchCfg := &agent.LaunchConfig{
 		Type:         agentType,
@@ -2578,7 +3634,24 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	muxType, _ := multiplexer.ParseType(opts.Multiplexer)
 
 	var mux multiplexer.Multiplexer
-	if muxType == multiplexer.TypeAuto {
+	if isRemoteTarget {
+		if muxType == multiplexer.TypeAuto {
+			configuredMux := cfg.GetAgentMultiplexer()
+			parsedMux, parseErr := multiplexer.ParseType(configuredMux)
+			if parseErr != nil {
+				return nil, fmt.Errorf("invalid agent multiplexer config %q: %w", configuredMux, parseErr)
+			}
+			muxType = parsedMux
+		}
+		switch muxType {
+		case multiplexer.TypeTmux:
+			mux = multiplexer.NewTmuxMultiplexerWithExecutor(runExecutor)
+		case multiplexer.TypeZellij:
+			mux = multiplexer.NewZellijMultiplexerWithExecutor(runExecutor)
+		default:
+			return nil, fmt.Errorf("remote target requires explicit tmux or zellij multiplexer")
+		}
+	} else if muxType == multiplexer.TypeAuto {
 		mux, _ = multiplexer.GetAuto()
 	} else {
 		mux, _, _ = multiplexer.GetWithFallback(muxType)
@@ -2620,10 +3693,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 			return nil, fmt.Errorf("failed to create session: %w", err)
 		}
 
-		st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", map[string]string{
-			"name":        sessionName,
-			"multiplexer": string(mux.Type()),
-		}))
+		st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", sessionArtifactAttrs(sessionName, mux.Type(), s.currentWorkerHost, s.currentWorkerID)))
 	}
 
 	switch adapter.PromptInjection() {
@@ -2640,48 +3710,10 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		}
 
 	case agent.InjectionHTTP:
-		port := launchCfg.Port
-		if port == 0 {
-			port = agent.OpenCodeServerPortStart
-		}
-		client := agent.NewOpenCodeClient(port)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
-			"port": fmt.Sprintf("%d", port),
-		}))
-
 		s.logger.Printf("[model-debug] resolved model=%q variant=%q for run %s#%s", launchCfg.Model, launchCfg.ModelVariant, opts.IssueID, runID)
-
-		if provResp, provErr := client.GetProviders(ctx); provErr != nil {
-			s.logger.Printf("[model-debug] failed to query providers: %v", provErr)
-		} else {
-			for _, prov := range provResp.All {
-				var modelIDs []string
-				for _, m := range prov.Models {
-					modelIDs = append(modelIDs, m.ID)
-				}
-				s.logger.Printf("[model-debug] provider %q models: %v", prov.ID, modelIDs)
-			}
-		}
-
-		session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", opts.IssueID, runID), launchCfg.WorkDir)
+		serverPort, opencodeSessionID, err = s.bootstrapOpenCodeRunSession(st, run, opts.IssueID, runID, launchCfg, 30*time.Second)
 		if err != nil {
-			s.logger.Printf("failed to create session: %v", err)
-		} else {
-			st.AppendEvent(run.Ref(), model.NewArtifactEvent("opencode_session", map[string]string{
-				"id": session.ID,
-			}))
-
-			var modelRef *agent.ModelRef
-			if launchCfg.Model != "" {
-				modelRef = agent.ParseModel(launchCfg.Model)
-			}
-			s.logger.Printf("[model-debug] sending prompt with model=%+v variant=%q to session %s", modelRef, launchCfg.ModelVariant, session.ID)
-			if err := client.SendMessagePrompt(ctx, session.ID, launchCfg.Prompt, launchCfg.WorkDir, modelRef, launchCfg.ModelVariant); err != nil {
-				s.logger.Printf("failed to send prompt: %v", err)
-			}
+			return nil, err
 		}
 	}
 
@@ -2690,16 +3722,21 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	s.logger.Printf("started run: %s#%s (agent=%s, worktree=%s)", opts.IssueID, runID, agentName, worktreeResult.WorktreePath)
 
 	return &StartRunResult{
-		RunID:        runID,
-		Branch:       worktreeResult.Branch,
-		WorktreePath: worktreeResult.WorktreePath,
-		SessionName:  sessionName,
-		Status:       string(model.StatusRunning),
+		RunID:             runID,
+		Branch:            worktreeResult.Branch,
+		WorktreePath:      worktreeResult.WorktreePath,
+		SessionName:       sessionName,
+		Status:            string(model.StatusRunning),
+		Multiplexer:       string(mux.Type()),
+		SessionHost:       strings.TrimSpace(s.currentWorkerHost),
+		WorkerID:          strings.TrimSpace(s.currentWorkerID),
+		ServerPort:        serverPort,
+		OpenCodeSessionID: opencodeSessionID,
 	}, nil
 }
 
 func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string, opts *ContinueRunOptions) (*ContinueRunResult, error) {
-	cfg, err := config.Load()
+	cfg, err := loadConfigForProjectRoot(projectRoot)
 	if err != nil {
 		s.logger.Printf("config validation failed in processContinueRunCore: %v", err)
 		return nil, fmt.Errorf("failed to load config: %w", err)
@@ -2880,6 +3917,9 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		"agent":          agentName,
 		"continued_from": continuedFrom,
 	}
+	if targetName := strings.TrimSpace(opts.Target); targetName != "" {
+		metadata["target"] = targetName
+	}
 	run, err := st.CreateRun(issueID, runID, metadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create run: %w", err)
@@ -2888,6 +3928,16 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusQueued))
 	st.AppendEvent(run.Ref(), model.NewArtifactEvent("worktree", map[string]string{"path": worktreePath}))
 	st.AppendEvent(run.Ref(), model.NewArtifactEvent("branch", map[string]string{"name": branch}))
+	if targetName := strings.TrimSpace(opts.Target); targetName != "" {
+		targetAttrs := map[string]string{"name": targetName}
+		if targetHost := strings.TrimSpace(opts.TargetHost); targetHost != "" {
+			targetAttrs["host"] = targetHost
+		}
+		if targetWorkerID := strings.TrimSpace(opts.TargetWorkerID); targetWorkerID != "" {
+			targetAttrs["worker_id"] = targetWorkerID
+		}
+		st.AppendEvent(run.Ref(), model.NewArtifactEvent("target", targetAttrs))
+	}
 
 	promptPath := filepath.Join(worktreePath, "ORCH_PROMPT.md")
 	if _, err := os.Stat(promptPath); os.IsNotExist(err) {
@@ -2902,6 +3952,8 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 	continuePrompt := fmt.Sprintf("ultrathink Please read 'ORCH_PROMPT.md' in the current directory and follow the instructions found there.\nThis run continues from %s. Use the existing worktree and branch and resume from the current state.", continuedFrom)
 
 	runModel, runVariant := cfg.ResolveModelAndVariant(agentName, "", "", "")
+	serverPort := 0
+	opencodeSessionID := ""
 
 	launchCfg := &agent.LaunchConfig{
 		Type:         agentType,
@@ -2994,37 +4046,9 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		}
 
 	case agent.InjectionHTTP:
-		port := launchCfg.Port
-		if port == 0 {
-			port = agent.OpenCodeServerPortStart
-		}
-		client := agent.NewOpenCodeClient(port)
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-
-		if err := client.WaitForHealthy(ctx, 60*time.Second); err != nil {
-			s.logger.Printf("server health check failed: %v", err)
-		} else {
-			st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
-				"port": fmt.Sprintf("%d", port),
-			}))
-
-			session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", issueID, runID), launchCfg.WorkDir)
-			if err != nil {
-				s.logger.Printf("failed to create session: %v", err)
-			} else {
-				st.AppendEvent(run.Ref(), model.NewArtifactEvent("opencode_session", map[string]string{
-					"id": session.ID,
-				}))
-
-				var modelRef *agent.ModelRef
-				if launchCfg.Model != "" {
-					modelRef = agent.ParseModel(launchCfg.Model)
-				}
-				if err := client.SendMessagePrompt(ctx, session.ID, launchCfg.Prompt, launchCfg.WorkDir, modelRef, launchCfg.ModelVariant); err != nil {
-					s.logger.Printf("failed to send prompt: %v", err)
-				}
-			}
+		serverPort, opencodeSessionID, err = s.bootstrapOpenCodeRunSession(st, run, issueID, runID, launchCfg, 60*time.Second)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -3033,13 +4057,18 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 	s.logger.Printf("continued run: %s#%s from %s (agent=%s, worktree=%s)", issueID, runID, continuedFrom, agentName, worktreePath)
 
 	return &ContinueRunResult{
-		RunID:         runID,
-		Branch:        branch,
-		WorktreePath:  worktreePath,
-		SessionName:   sessionName,
-		Status:        string(model.StatusRunning),
-		ContinuedFrom: continuedFrom,
-		IssueID:       issueID,
+		RunID:             runID,
+		Branch:            branch,
+		WorktreePath:      worktreePath,
+		SessionName:       sessionName,
+		Status:            string(model.StatusRunning),
+		ContinuedFrom:     continuedFrom,
+		IssueID:           issueID,
+		Multiplexer:       string(mux.Type()),
+		SessionHost:       strings.TrimSpace(s.currentWorkerHost),
+		WorkerID:          strings.TrimSpace(s.currentWorkerID),
+		ServerPort:        serverPort,
+		OpenCodeSessionID: opencodeSessionID,
 	}, nil
 }
 
@@ -3378,37 +4407,10 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 		}
 
 	case agent.InjectionHTTP:
-		port := launchCfg.Port
-		if port == 0 {
-			port = agent.OpenCodeServerPortStart
-		}
-		client := agent.NewOpenCodeClient(port)
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-
-		if err := client.WaitForHealthy(ctx, 60*time.Second); err != nil {
-			s.logger.Printf("server health check failed: %v", err)
-		} else {
-			st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
-				"port": fmt.Sprintf("%d", port),
-			}))
-
-			session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", issueID, runID), launchCfg.WorkDir)
-			if err != nil {
-				s.logger.Printf("failed to create session: %v", err)
-			} else {
-				st.AppendEvent(run.Ref(), model.NewArtifactEvent("opencode_session", map[string]string{
-					"id": session.ID,
-				}))
-
-				var modelRef *agent.ModelRef
-				if launchCfg.Model != "" {
-					modelRef = agent.ParseModel(launchCfg.Model)
-				}
-				if err := client.SendMessagePrompt(ctx, session.ID, launchCfg.Prompt, launchCfg.WorkDir, modelRef, launchCfg.ModelVariant); err != nil {
-					s.logger.Printf("failed to send prompt: %v", err)
-				}
-			}
+		_, _, err = s.bootstrapOpenCodeRunSession(st, run, issueID, runID, launchCfg, 60*time.Second)
+		if err != nil {
+			encoder.Encode(ContinueRunResponse{OK: false, Error: err.Error()})
+			return
 		}
 	}
 
@@ -3497,7 +4499,7 @@ func (s *SocketServer) buildRunPrompt(issue *model.Issue, issuesRoot string, noP
 	return fmt.Sprintf(`## Context
 
 This file (ORCH_PROMPT.md) is auto-generated by orch. The original issue is at:
-- IssuesRoot: %s
+- Issues path: %s
 - Issue file: %s
 
 ## Issue
@@ -3905,6 +4907,20 @@ func (s *SocketServer) handleGetAttachInfo(req SendRequest, encoder *json.Encode
 		ServerPort:        serverPort,
 		OpenCodeSessionID: run.OpenCodeSessionID,
 		Branch:            run.Branch,
+		TargetHost: func() string {
+			if targetHost := strings.TrimSpace(run.TargetHost); targetHost != "" {
+				return targetHost
+			}
+			if run.Target == "" {
+				return ""
+			}
+			if cfg, cfgErr := config.Load(); cfgErr == nil && cfg != nil {
+				if target := cfg.GetTarget(run.Target); target != nil {
+					return target.Host
+				}
+			}
+			return ""
+		}(),
 	})
 }
 

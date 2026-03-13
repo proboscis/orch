@@ -1,0 +1,167 @@
+# Remote Usage with orch
+
+This guide shows how to run orch against a remote daemon over TCP while keeping
+the same daily `orch` workflow from your local machine.
+
+## Overview
+
+In remote mode, your local CLI sends requests to a server-hosted daemon. The
+daemon is the source of truth for runs/issues state and resolves project
+identity through repo mappings.
+
+```text
+Local client                  Remote host
+┌──────────────────────┐      ┌────────────────────────────────────┐
+│ orch CLI / monitor   │ TCP  │ orch daemon (--listen)            │
+│ --remote zeus:7777   │─────▶│ repo mapping: repoid -> path      │
+└──────────────────────┘      └────────────────────────────────────┘
+```
+
+## Prerequisites
+
+1. orch installed on client and server.
+2. Network route to server (VPN/Tailscale/SSH tunnel).
+3. Project repository is available on the remote host.
+
+### Quick checks
+
+```bash
+# Client
+orch --version
+
+# Server
+orch --version
+```
+
+## Server Setup
+
+### 1. Start daemon with TCP listener
+
+```bash
+# On remote server
+orch daemon start --listen tcp://0.0.0.0:7777
+```
+
+### 2. Register repository URL for remote resolution
+
+```bash
+# From client (or server), point to remote daemon
+orch --remote zeus:7777 daemon repo register https://github.com/your-org/your-project.git
+orch --remote zeus:7777 daemon repo list
+```
+
+If repo mappings are missing, remote commands fail with a store/project mapping
+error.
+
+## Client Setup
+
+### Option A: per-command remote flag
+
+```bash
+orch --remote zeus:7777 ps
+```
+
+### Option B: environment variable
+
+```bash
+export ORCH_REMOTE=zeus:7777
+orch ps
+```
+
+### Option C: persistent client config (recommended)
+
+```yaml
+# ~/.config/orch/client.yaml
+remote:
+  default: zeus
+  hosts:
+    zeus:
+      addr: zeus:7777
+```
+
+```bash
+# Uses remote.default
+orch ps
+
+# Override with another alias
+orch --remote cloud ps
+
+# Bypass remote.default for one command (use local daemon)
+orch --remote "" ps
+```
+
+## Running and Managing Work
+
+```bash
+# Start a run remotely
+orch --remote zeus:7777 --project yourorg-yourrepo run my-issue
+
+# Monitor runs
+orch --remote zeus:7777 --project yourorg-yourrepo ps
+
+# Attach/send/capture as usual
+orch --remote zeus:7777 --project yourorg-yourrepo attach my-issue
+orch --remote zeus:7777 --project yourorg-yourrepo send my-issue "please include tests"
+orch --remote zeus:7777 --project yourorg-yourrepo capture my-issue
+```
+
+## Important Behavior in Remote Mode
+
+- `--project` / `ORCH_PROJECT` provides project identity scope.
+- Remote commands depend on daemon-side repo registration (`daemon repo register`).
+
+## Troubleshooting
+
+### Cannot connect to daemon
+
+```bash
+orch --remote zeus:7777 daemon status
+```
+
+Verify listener and network path to the remote host.
+
+### "No store available" / project mapping errors
+
+```bash
+orch --remote zeus:7777 daemon repo list
+```
+
+If missing, register the repository URL on the remote daemon:
+
+```bash
+orch --remote zeus:7777 daemon repo register https://github.com/your-org/your-project.git
+```
+
+Then scope runtime commands by project identity (repo ID):
+
+```bash
+orch --remote zeus:7777 --project yourorg-yourrepo ps --json
+```
+
+### "Issue not found" during `run` with remote master + external worker
+
+When worker execution happens on a different host than the master, the worker must
+be able to resolve the project root and issue content referenced by the lease.
+If the worker cannot read those issue files, `run` can fail with `issue not found`
+even when `issue show` succeeds on the master.
+
+Checklist:
+
+```bash
+# master-side mapping exists
+orch --remote zeus:7777 daemon repo list
+
+# run this on the worker host; it reports the local background process plus
+# that worker's registration state on the configured master
+orch --remote zeus:7777 worker status --json
+```
+
+Then confirm worker host project/config alignment (`--project`, `.orch/config.yaml`,
+and `issues.path`) for the same project identity.
+
+## See Also
+
+- [Configuration](./configuration.md)
+- [CLI Command Reference](./reference/commands.md)
+- [Getting Started](./getting-started.md)
+- [Daily Workflow](./daily-workflow.md)

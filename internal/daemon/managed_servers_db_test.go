@@ -39,6 +39,7 @@ func TestManagedServerStoreCRUD(t *testing.T) {
 
 	startedAt := time.Now().Add(-1 * time.Minute).UTC().Truncate(time.Second)
 	record := managedServerRecord{
+		RepoID:      "repo-a",
 		ProjectRoot: "/tmp/project-a",
 		PID:         12345,
 		Port:        4096,
@@ -57,6 +58,9 @@ func TestManagedServerStoreCRUD(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(rows))
 	}
+	if rows[0].RepoID != record.RepoID {
+		t.Fatalf("expected repo_id %q, got %q", record.RepoID, rows[0].RepoID)
+	}
 	if rows[0].ProjectRoot != record.ProjectRoot {
 		t.Fatalf("expected project_root %q, got %q", record.ProjectRoot, rows[0].ProjectRoot)
 	}
@@ -65,7 +69,7 @@ func TestManagedServerStoreCRUD(t *testing.T) {
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)
-	if err := store.UpdateLastHealthy(record.ProjectRoot, now); err != nil {
+	if err := store.UpdateLastHealthy(record.RepoID, now); err != nil {
 		t.Fatalf("UpdateLastHealthy() error = %v", err)
 	}
 
@@ -80,7 +84,7 @@ func TestManagedServerStoreCRUD(t *testing.T) {
 		t.Fatal("expected non-zero last_healthy after update")
 	}
 
-	if err := store.Delete(record.ProjectRoot); err != nil {
+	if err := store.Delete(record.RepoID); err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
 
@@ -90,6 +94,36 @@ func TestManagedServerStoreCRUD(t *testing.T) {
 	}
 	if len(rows) != 0 {
 		t.Fatalf("expected 0 rows after delete, got %d", len(rows))
+	}
+}
+
+func TestManagedServerStoreMigratesRuntimeTables(t *testing.T) {
+	setupManagedServerDBEnv(t)
+
+	store, err := newManagedServerStore(xdg.DaemonDBPath())
+	if err != nil {
+		t.Fatalf("newManagedServerStore() error = %v", err)
+	}
+	defer store.Close()
+
+	tables := []string{
+		"managed_servers",
+		"events",
+		"run_state_projection",
+		"issue_state_projection",
+		"idempotency_keys",
+		"outbox",
+	}
+
+	for _, table := range tables {
+		var name string
+		err := store.db.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name = ?`, table).Scan(&name)
+		if err != nil {
+			t.Fatalf("expected table %q to exist: %v", table, err)
+		}
+		if name != table {
+			t.Fatalf("sqlite returned table %q, want %q", name, table)
+		}
 	}
 }
 
@@ -116,6 +150,7 @@ func TestReconcileManagedServersOnStartupAdoptsHealthyServer(t *testing.T) {
 	defer store.Close()
 
 	if err := store.Upsert(managedServerRecord{
+		RepoID:      "repo-adopt",
 		ProjectRoot: projectRoot,
 		PID:         proc.Process.Pid,
 		Port:        port,
@@ -131,9 +166,9 @@ func TestReconcileManagedServersOnStartupAdoptsHealthyServer(t *testing.T) {
 		t.Fatalf("reconcileManagedServersOnStartup() error = %v", err)
 	}
 
-	srv, ok := server.openCodeServers[projectRoot]
+	srv, ok := server.openCodeServers["repo-adopt"]
 	if !ok {
-		t.Fatalf("expected adopted server entry for %s", projectRoot)
+		t.Fatalf("expected adopted server entry for %s", "repo-adopt")
 	}
 	if !srv.Adopted {
 		t.Fatal("expected adopted server flag to be true")
@@ -168,6 +203,7 @@ func TestReconcileManagedServersOnStartupRemovesDeadRecord(t *testing.T) {
 
 	deadPID := nonExistentPID()
 	if err := store.Upsert(managedServerRecord{
+		RepoID:      "repo-dead",
 		ProjectRoot: "/tmp/orch-worktree-dead",
 		PID:         deadPID,
 		Port:        4099,
@@ -215,6 +251,7 @@ func TestReconcileManagedServersOnStartupKillsUnhealthyProcess(t *testing.T) {
 	defer store.Close()
 
 	if err := store.Upsert(managedServerRecord{
+		RepoID:      "repo-unhealthy",
 		ProjectRoot: "/tmp/orch-worktree-unhealthy",
 		PID:         pid,
 		Port:        port,

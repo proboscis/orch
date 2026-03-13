@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/orchapi"
+	"github.com/s22625/orch/internal/xdg"
 	"github.com/spf13/cobra"
 )
 
@@ -29,8 +32,9 @@ const (
 
 // GlobalOptions holds options shared across all commands
 type GlobalOptions struct {
-	IssuesRoot  string
-	ProjectRoot string
+	Project     string
+	ProjectRoot string // deprecated compatibility field
+	Remote      string
 	Backend     string
 	JSON        bool
 	TSV         bool
@@ -39,10 +43,13 @@ type GlobalOptions struct {
 }
 
 var globalOpts = &GlobalOptions{}
+var remoteFlagWasSet bool
 
 var noDaemonCommands = map[string]bool{
 	"show":                 true,
 	"daemon":               true,
+	"master":               true,
+	"worker":               true,
 	"list":                 true,
 	"kill":                 true,
 	"status":               true,
@@ -74,21 +81,39 @@ It operates non-interactively by default, using events to track state
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		remoteFlagWasSet = cmd.Flags().Changed("remote") || cmd.PersistentFlags().Changed("remote")
+
 		if err := validateConfigForCommand(); err != nil {
 			return err
 		}
 
-		// Auto-start daemon for most commands
-		if !noDaemonCommands[cmd.Name()] {
+		// Auto-start daemon for most commands.
+		// Check command ancestry so "orch master start" and "orch worker ..."
+		// don't auto-start an implicit local daemon before command execution.
+		if shouldAutoStartDaemonForCommand(cmd, getRemoteAddr()) {
 			ensureDaemon()
 		}
 		return nil
 	},
 }
 
+func shouldAutoStartDaemonForCommand(cmd *cobra.Command, remoteAddr string) bool {
+	if strings.TrimSpace(remoteAddr) != "" {
+		return false
+	}
+
+	for c := cmd; c != nil; c = c.Parent() {
+		if noDaemonCommands[c.Name()] {
+			return false
+		}
+	}
+
+	return true
+}
+
 func init() {
-	rootCmd.PersistentFlags().StringVar(&globalOpts.ProjectRoot, "project-root", "", "Path to project root where .orch/ lives (or set ORCH_PROJECT_ROOT)")
-	rootCmd.PersistentFlags().StringVar(&globalOpts.IssuesRoot, "issues-root", "", "Path to issues root for file-based issues (or set ORCH_ISSUES_ROOT)")
+	rootCmd.PersistentFlags().StringVar(&globalOpts.Project, "project", "", "Project identity (git repo URL or normalized repo ID; or set ORCH_PROJECT)")
+	rootCmd.PersistentFlags().StringVar(&globalOpts.Remote, "remote", "", "Connect to remote daemon address (or set ORCH_REMOTE)")
 
 	rootCmd.PersistentFlags().StringVar(&globalOpts.Backend, "backend", "file", "Backend type (file|github|linear)")
 	rootCmd.PersistentFlags().BoolVar(&globalOpts.JSON, "json", false, "Output in JSON format")
@@ -110,6 +135,8 @@ func init() {
 	rootCmd.AddCommand(newMonitorCmd())
 	rootCmd.AddCommand(newResolveCmd())
 	rootCmd.AddCommand(newDaemonCmd())
+	rootCmd.AddCommand(newMasterCmd())
+	rootCmd.AddCommand(newWorkerCmd())
 	rootCmd.AddCommand(newDaemonRestartCmd())
 	rootCmd.AddCommand(newRepairCmd())
 	rootCmd.AddCommand(newDeleteCmd())
@@ -136,14 +163,8 @@ func Execute() {
 	}
 }
 
-// getIssuesRoot returns the issues root path from flags, environment, or config files
-// Precedence: --issues-root flag > issues.path config > default XDG path (~/.local/share/orch/<repo>)
-func getIssuesRoot() (string, error) {
-	if globalOpts.IssuesRoot != "" {
-		return config.ExpandPath(globalOpts.IssuesRoot, ""), nil
-	}
-
-	cfg, err := config.Load()
+func getIssuesRootForProject(projectRoot string) (string, error) {
+	cfg, err := config.LoadFromProjectRoot(projectRoot)
 	if err != nil {
 		return "", err
 	}
@@ -152,36 +173,224 @@ func getIssuesRoot() (string, error) {
 		return issuesPath, nil
 	}
 
-	return "", fmt.Errorf("issues root not specified (use --issues-root or set issues.path in .orch/config.yaml)")
+	return "", fmt.Errorf("issues root not specified (set issues.path in .orch/config.yaml)")
+}
+
+func getIssuesRootForProjectIfConfigured(projectRoot string) (string, error) {
+	cfg, err := config.LoadFromProjectRoot(projectRoot)
+	if err != nil {
+		return "", err
+	}
+
+	return cfg.GetIssuesPath(), nil
+}
+
+// getIssuesRoot resolves project root and then loads issues.path for that project.
+func getIssuesRoot() (string, error) {
+	projectRoot, err := getProjectRoot()
+	if err != nil {
+		return "", err
+	}
+	return getIssuesRootForProject(projectRoot)
 }
 
 // getProjectRoot returns the project root directory (where .orch/ lives).
-// Precedence: --project-root flag > ORCH_PROJECT_ROOT > .orch/config.yaml location
+// It is auto-resolved from the current directory hierarchy.
 func getProjectRoot() (string, error) {
-	if globalOpts.ProjectRoot != "" {
-		return config.ExpandPath(globalOpts.ProjectRoot, ""), nil
+	return config.GetProjectRoot()
+}
+
+func getProjectRootWithSource() (string, bool, error) {
+	projectRoot, err := config.GetProjectRoot()
+	if err != nil {
+		return "", false, err
 	}
 
-	return config.GetProjectRoot()
+	return projectRoot, false, nil
+}
+
+func getProjectIDWithSource(projectRoot string) (string, bool, error) {
+	if projectID := strings.TrimSpace(globalOpts.Project); projectID != "" {
+		normalized, err := normalizeProjectIdentityInput(projectID)
+		if err != nil {
+			return "", true, err
+		}
+		return normalized, true, nil
+	}
+
+	if projectID := strings.TrimSpace(os.Getenv("ORCH_PROJECT")); projectID != "" {
+		normalized, err := normalizeProjectIdentityInput(projectID)
+		if err != nil {
+			return "", true, err
+		}
+		return normalized, true, nil
+	}
+
+	if strings.TrimSpace(projectRoot) == "" {
+		return "", false, nil
+	}
+
+	projectID, err := xdg.RepoIDStrict(projectRoot)
+	if err != nil {
+		return "", false, err
+	}
+
+	return projectID, false, nil
+}
+
+func resolveProjectIdentity(projectRoot string) (string, error) {
+	projectID, _, err := getProjectIDWithSource(projectRoot)
+	if err != nil {
+		return "", fmt.Errorf("project identity required: %w (set --project/ORCH_PROJECT to git repo URL or configure git remote origin)", err)
+	}
+	if strings.TrimSpace(projectID) == "" {
+		return "", fmt.Errorf("project identity required: set --project/ORCH_PROJECT to git repo URL or run from a git repo with remote origin")
+	}
+	return strings.TrimSpace(projectID), nil
+}
+
+func normalizeProjectIdentityInput(project string) (string, error) {
+	project = strings.TrimSpace(project)
+	if project == "" {
+		return "", nil
+	}
+
+	if looksLikeProjectRepoURL(project) {
+		normalized, err := xdg.ParseRepoID(project)
+		if err != nil {
+			return "", fmt.Errorf("invalid project identity %q: %w", project, err)
+		}
+		return normalized, nil
+	}
+	if looksLikeProjectPath(project) {
+		return "", fmt.Errorf("project identity %q looks like a filesystem path; use git repo URL or normalized repo ID", project)
+	}
+
+	return project, nil
+}
+
+func looksLikeProjectRepoURL(project string) bool {
+	value := strings.TrimSpace(project)
+	if value == "" {
+		return false
+	}
+	if strings.HasPrefix(value, "git@") || strings.Contains(value, "://") {
+		return true
+	}
+	if strings.HasPrefix(value, "github.com/") || strings.HasPrefix(value, "gitlab.com/") {
+		return true
+	}
+	parts := strings.Split(value, "/")
+	return len(parts) >= 3 && strings.Contains(parts[0], ".")
+}
+
+func looksLikeProjectPath(project string) bool {
+	value := strings.TrimSpace(project)
+	if value == "" {
+		return false
+	}
+	if filepath.IsAbs(value) {
+		return true
+	}
+	if value == "." || value == ".." {
+		return true
+	}
+	return strings.HasPrefix(value, "./") || strings.HasPrefix(value, "../") || strings.Contains(value, "/") || strings.Contains(value, "\\")
+}
+
+func resolveExplicitProjectScope(scopeValue, scopeFlagName string) (string, error) {
+	if strings.TrimSpace(scopeValue) != "" {
+		return config.ExpandPath(scopeValue, ""), nil
+	}
+
+	projectRoot, _, err := getProjectRootWithSource()
+	if err != nil {
+		if scopeFlagName != "" {
+			return "", fmt.Errorf("project scope required: %w (set %s or run from repo root)", err, scopeFlagName)
+		}
+		return "", fmt.Errorf("project scope required: %w (run from repo root)", err)
+	}
+
+	return projectRoot, nil
+}
+
+func getRemoteAddr() string {
+	clientCfg, err := config.LoadClient()
+	if err != nil {
+		clientCfg = nil
+	}
+
+	return resolveRemoteAddr(globalOpts.Remote, remoteFlagWasSet, os.Getenv("ORCH_REMOTE"), clientCfg)
+}
+
+func resolveRemoteAddr(flagValue string, flagChanged bool, envValue string, clientCfg *config.ClientConfig) string {
+	resolve := func(v string) string {
+		if clientCfg != nil {
+			return clientCfg.ResolveRemote(v)
+		}
+		return strings.TrimSpace(v)
+	}
+
+	if flagChanged {
+		// Explicit --remote "" forces local mode by design.
+		return resolve(flagValue)
+	}
+
+	if env := strings.TrimSpace(envValue); env != "" {
+		return resolve(env)
+	}
+
+	if clientCfg != nil {
+		return clientCfg.ResolveRemote(clientCfg.Remote.Default)
+	}
+
+	return ""
 }
 
 func getAPI() (orchapi.OrchAPI, error) {
 	return defaultGetAPI()
 }
 
+func getAPIForListing() (orchapi.OrchAPI, error) {
+	return defaultGetAPIWithOptions(false)
+}
+
 func defaultGetAPI() (orchapi.OrchAPI, error) {
-	projectRoot, err := getProjectRoot()
+	return defaultGetAPIWithOptions(true)
+}
+
+func defaultGetAPIWithOptions(requireProjectRoot bool) (orchapi.OrchAPI, error) {
+	remoteAddr := getRemoteAddr()
+
+	projectRoot, explicitProjectRoot, err := getProjectRootWithSource()
 	if err != nil {
-		return nil, err
+		projectRoot = ""
+		explicitProjectRoot = false
 	}
 
-	issuesRoot, err := getIssuesRoot()
-	if err != nil {
-		return nil, err
+	if requireProjectRoot {
+		if _, err := resolveProjectIdentity(projectRoot); err != nil {
+			return nil, err
+		}
 	}
 
-	client := orchapi.NewDaemonClient(projectRoot, issuesRoot)
-	if !client.IsAvailable() {
+	clientProjectScope := ""
+	if projectID, err := resolveProjectIdentity(projectRoot); err == nil && strings.TrimSpace(projectID) != "" {
+		clientProjectScope = projectID
+	} else if requireProjectRoot {
+		return nil, err
+	} else if !explicitProjectRoot && strings.TrimSpace(globalOpts.Project) != "" {
+		projectID, err := resolveProjectIdentity("")
+		if err != nil {
+			return nil, err
+		}
+		clientProjectScope = projectID
+	} else if strings.TrimSpace(projectRoot) != "" && strings.TrimSpace(remoteAddr) == "" {
+		clientProjectScope = strings.TrimSpace(projectRoot)
+	}
+
+	client := orchapi.NewDaemonClientWithAddress(clientProjectScope, remoteAddr)
+	if remoteAddr == "" && !client.IsAvailable() {
 		ensureDaemon()
 	}
 
@@ -209,6 +418,8 @@ func apiRunToModelRun(r *orchapi.Run) *model.Run {
 		ModelVariant:      r.ModelVariant,
 		Branch:            r.Branch,
 		WorktreePath:      r.WorktreePath,
+		Target:            r.Target,
+		TargetHost:        r.TargetHost,
 		SessionName:       r.SessionName,
 		Multiplexer:       string(r.Multiplexer),
 		PRUrl:             r.PRUrl,
@@ -226,12 +437,8 @@ func apiRunToModelRun(r *orchapi.Run) *model.Run {
 }
 
 func validateConfigForCommand() error {
-	if globalOpts.ProjectRoot != "" {
-		projectRoot := config.ExpandPath(globalOpts.ProjectRoot, "")
-		if _, err := config.LoadFromProjectRoot(projectRoot); err != nil {
-			return fmt.Errorf("invalid config: %w", err)
-		}
-		return nil
+	if _, err := config.LoadClient(); err != nil {
+		return fmt.Errorf("invalid client config: %w", err)
 	}
 
 	if _, err := config.Load(); err != nil {

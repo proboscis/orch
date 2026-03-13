@@ -57,7 +57,7 @@ claude-squad互換のロジック:
 ## ファイル構造
 
 ```
-vault/.orch/
+<issues-store>/.orch/
   daemon.pid      # daemon PID
   daemon.log      # daemon ログ
   daemon.sock     # （将来）IPC用Unix socket

@@ -453,6 +453,60 @@ func TestMonitorRunOpenCodeCaptureSuccessResetsFailureState(t *testing.T) {
 	}
 }
 
+func TestMonitorRunOpenCodeSessionAliveDespiteProjectMismatch(t *testing.T) {
+	worktreePath := "/tmp/orch-opencode-worktree"
+	sessionID := "ses_waiting"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/global/health":
+			_, _ = io.WriteString(w, `{"healthy":true,"version":"test"}`)
+		case "/project/current":
+			_, _ = io.WriteString(w, `{"id":"proj_test","worktree":"/tmp/repo-root"}`)
+		case "/session/status":
+			_, _ = io.WriteString(w, `{"`+sessionID+`":"idle"}`)
+		case "/session/" + sessionID + "/message":
+			_, _ = io.WriteString(w, `[{"info":{"id":"msg_wait","sessionID":"`+sessionID+`","role":"assistant","createdAt":"2026-03-12T00:00:00Z"},"parts":[{"type":"text","text":"waiting"}]}]`)
+		default:
+			t.Errorf("unexpected request path: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	port := testPortFromURL(t, server.URL)
+
+	d := newTestDaemon()
+	run := &model.Run{
+		IssueID:           "orch-437",
+		RunID:             "run-zeus-opencode",
+		Agent:             "opencode",
+		Status:            model.StatusWaiting,
+		WorktreePath:      worktreePath,
+		ServerPort:        port,
+		OpenCodeSessionID: sessionID,
+	}
+	state := d.getOrCreateState(run)
+	state.WasAlive = false
+	state.DeadCheckCount = deadChecksBeforeFailed - 1
+
+	st := &mockStoreForUpdate{issue: &model.Issue{ID: "orch-437", Status: model.IssueStatusOpen}}
+	if err := d.monitorRun(run, st); err != nil {
+		t.Fatalf("monitorRun() error = %v", err)
+	}
+
+	if !state.WasAlive {
+		t.Fatal("expected run to be marked alive from session status")
+	}
+	if state.DeadCheckCount != 0 {
+		t.Fatalf("expected dead check count reset, got %d", state.DeadCheckCount)
+	}
+	if st.appendEventCalls != 0 {
+		t.Fatalf("expected no failure status event, got %d append calls", st.appendEventCalls)
+	}
+}
+
 func testPortFromURL(t *testing.T, rawURL string) int {
 	t.Helper()
 	parsed, err := url.Parse(rawURL)

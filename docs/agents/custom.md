@@ -105,7 +105,6 @@ Custom agents receive these environment variables from orch:
 | `ORCH_RUN_PATH` | Path to run document |
 | `ORCH_WORKTREE_PATH` | Git worktree path |
 | `ORCH_BRANCH` | Git branch name |
-| `ORCH_VAULT` | Issues root path |
 
 ### Using in your agent
 

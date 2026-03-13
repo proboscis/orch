@@ -10,8 +10,7 @@ from orch_monitor.config import Config
 
 def test_ensure_daemon_auto_repair_recovers(monkeypatch):
     project_root = Path("/tmp/project")
-    issues_root = Path("/tmp/issues")
-    cfg = Config(project_root=project_root, issues_root=issues_root)
+    cfg = Config(project_root=project_root)
 
     monkeypatch.setattr("orch_monitor.__main__.Config.from_project_root", lambda _: cfg)
     monkeypatch.setattr("orch_monitor.__main__.DAEMON_STARTUP_TIMEOUT_SEC", 1)
@@ -42,7 +41,7 @@ def test_ensure_daemon_auto_repair_recovers(monkeypatch):
 
     monkeypatch.setattr("orch_monitor.__main__.subprocess.run", mock_run)
 
-    ok, msg = ensure_daemon(project_root=project_root, issues_root=issues_root)
+    ok, msg = ensure_daemon(project_root=project_root)
     assert ok is True
     assert msg == ""
     assert any(cmd[-2:] == ["repair", "--force"] for cmd in commands)
@@ -50,8 +49,7 @@ def test_ensure_daemon_auto_repair_recovers(monkeypatch):
 
 def test_ensure_daemon_auto_repair_still_fails(monkeypatch):
     project_root = Path("/tmp/project")
-    issues_root = Path("/tmp/issues")
-    cfg = Config(project_root=project_root, issues_root=issues_root)
+    cfg = Config(project_root=project_root)
 
     monkeypatch.setattr("orch_monitor.__main__.Config.from_project_root", lambda _: cfg)
     monkeypatch.setattr("orch_monitor.__main__.DAEMON_STARTUP_TIMEOUT_SEC", 1)
@@ -74,7 +72,7 @@ def test_ensure_daemon_auto_repair_still_fails(monkeypatch):
 
     monkeypatch.setattr("orch_monitor.__main__.subprocess.run", mock_run)
 
-    ok, msg = ensure_daemon(project_root=project_root, issues_root=issues_root)
+    ok, msg = ensure_daemon(project_root=project_root)
     assert ok is False
     assert "after auto-repair" in msg
 

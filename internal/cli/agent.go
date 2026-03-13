@@ -19,6 +19,7 @@ import (
 const (
 	controlAgentFileName    = "control-agent.json"
 	controlAgentSessionName = "orch-control-agent"
+	controlPromptFileName   = "ORCH_CONTROL_PROMPT.md"
 )
 
 // ControlAgentState persists state about the control agent session.
@@ -34,6 +35,11 @@ type agentOptions struct {
 	New     bool
 	Backend string
 	Kill    bool
+	DryRun  bool
+}
+
+type controlAgentConfigProvider interface {
+	GetControlAgentConfig(ctx context.Context) (*orchapi.ControlAgentConfig, error)
 }
 
 func newAgentCmd() *cobra.Command {
@@ -63,15 +69,19 @@ Examples:
 	cmd.Flags().BoolVar(&opts.New, "new", false, "Force create a new control agent session")
 	cmd.Flags().StringVar(&opts.Backend, "backend", "", "Agent backend (opencode, claude, codex, gemini)")
 	cmd.Flags().BoolVar(&opts.Kill, "kill", false, "Terminate the control agent session")
+	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Validate backend resolution without launching an interactive session")
 
 	return cmd
 }
 
 func runAgent(opts *agentOptions) error {
-	projectRoot, err := getProjectRoot()
+	projectRoot, err := resolveExplicitProjectScope("", "")
 	if err != nil {
-		return fmt.Errorf("project root required for agent: %w", err)
+		return fmt.Errorf("project scope required for agent: %w", err)
 	}
+
+	ctx := context.Background()
+	api, apiErr := getAPI()
 
 	orchDir := monitor.GetOrchDir(projectRoot)
 
@@ -83,12 +93,14 @@ func runAgent(opts *agentOptions) error {
 	// Determine backend from flag or config
 	backend := opts.Backend
 	if backend == "" {
-		ctx := context.Background()
-		api, err := getAPI()
-		if err == nil {
-			cfg, err := api.GetConfig(ctx, projectRoot)
-			if err == nil && cfg.Agent != "" {
-				backend = cfg.Agent
+		if apiErr == nil {
+			cfg, cfgErr := api.GetConfig(ctx)
+			if cfgErr == nil {
+				if cfg.ControlAgent != "" {
+					backend = cfg.ControlAgent
+				} else if cfg.Agent != "" {
+					backend = cfg.Agent
+				}
 			}
 		}
 	}
@@ -102,15 +114,33 @@ func runAgent(opts *agentOptions) error {
 		return fmt.Errorf("invalid backend: %w", err)
 	}
 
+	if opts.DryRun {
+		if globalOpts.JSON {
+			fmt.Printf("{\"ok\":true,\"backend\":%q}\n", backend)
+		} else {
+			fmt.Printf("backend: %s\n", backend)
+		}
+		return nil
+	}
+
+	var controlCfg *orchapi.ControlAgentConfig
+	if apiErr == nil {
+		if provider, ok := api.(controlAgentConfigProvider); ok {
+			if cfg, cfgErr := provider.GetControlAgentConfig(ctx); cfgErr == nil {
+				controlCfg = cfg
+			}
+		}
+	}
+
 	// Route to appropriate handler based on backend
 	if agentType == agent.AgentOpenCode {
-		return runOpenCodeAgent(orchDir, opts)
+		return runOpenCodeAgent(orchDir, projectRoot, opts, controlCfg)
 	}
-	return runMultiplexerAgent(orchDir, opts, agentType)
+	return runMultiplexerAgent(orchDir, projectRoot, opts, agentType, controlCfg)
 }
 
 // runOpenCodeAgent handles opencode backend using native --session flag (no tmux)
-func runOpenCodeAgent(orchDir string, opts *agentOptions) error {
+func runOpenCodeAgent(orchDir, projectRoot string, opts *agentOptions, controlCfg *orchapi.ControlAgentConfig) error {
 	// Load existing state
 	state := loadControlAgentState(orchDir)
 
@@ -130,14 +160,23 @@ func runOpenCodeAgent(orchDir string, opts *agentOptions) error {
 		fmt.Fprintf(os.Stderr, "Resuming opencode session: %s\n", sessionID)
 	}
 
-	issuesRoot, err := getIssuesRoot()
-	if err != nil {
-		return fmt.Errorf("failed to get issues root: %w", err)
-	}
+	promptPath := ""
+	if controlCfg != nil && controlCfg.PromptContent != "" {
+		if writtenPath, writeErr := writeControlPromptContentViaAPI(controlCfg.PromptContent); writeErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to write control prompt: %v\n", writeErr)
+		} else {
+			promptPath = writtenPath
+		}
+	} else {
+		issuesRoot, err := getIssuesRootForProjectIfConfigured(projectRoot)
+		if err != nil {
+			return fmt.Errorf("failed to load project config: %w", err)
+		}
 
-	promptPath, err := writeControlPromptViaAPI(issuesRoot)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: failed to write control prompt: %v\n", err)
+		promptPath, err = writeControlPromptViaAPI(issuesRoot)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to write control prompt: %v\n", err)
+		}
 	}
 
 	binary, err := exec.LookPath("opencode")
@@ -187,14 +226,13 @@ func runOpenCodeAgent(orchDir string, opts *agentOptions) error {
 }
 
 // runMultiplexerAgent handles claude/codex/gemini using tmux or zellij
-func runMultiplexerAgent(orchDir string, opts *agentOptions, agentType agent.AgentType) error {
+func runMultiplexerAgent(orchDir, projectRoot string, opts *agentOptions, agentType agent.AgentType, controlCfg *orchapi.ControlAgentConfig) error {
 	// Get multiplexer from config (use agent multiplexer, default: tmux)
 	muxType := multiplexer.TypeTmux
 	ctx := context.Background()
 	api, apiErr := getAPI()
 	if apiErr == nil {
-		projectRoot, _ := getProjectRoot()
-		cfg, cfgErr := api.GetConfig(ctx, projectRoot)
+		cfg, cfgErr := api.GetConfig(ctx)
 		if cfgErr == nil && cfg.AgentMultiplexer != "" {
 			parsed, parseErr := multiplexer.ParseType(cfg.AgentMultiplexer)
 			if parseErr == nil && parsed != multiplexer.TypeAuto {
@@ -248,10 +286,10 @@ func runMultiplexerAgent(orchDir string, opts *agentOptions, agentType agent.Age
 	}
 
 	// Create new session
-	return createMultiplexerSession(orchDir, agentType, mux)
+	return createMultiplexerSession(orchDir, projectRoot, agentType, mux, controlCfg)
 }
 
-func createMultiplexerSession(orchDir string, agentType agent.AgentType, mux multiplexer.Multiplexer) error {
+func createMultiplexerSession(orchDir, projectRoot string, agentType agent.AgentType, mux multiplexer.Multiplexer, controlCfg *orchapi.ControlAgentConfig) error {
 	adapter, err := agent.GetAdapter(agentType)
 	if err != nil {
 		return fmt.Errorf("failed to get adapter: %w", err)
@@ -261,27 +299,39 @@ func createMultiplexerSession(orchDir string, agentType agent.AgentType, mux mul
 		return fmt.Errorf("%s CLI is not available", agentType)
 	}
 
-	issuesRoot, err := getIssuesRoot()
+	issuesRoot, err := getIssuesRootForProjectIfConfigured(projectRoot)
 	if err != nil {
-		return fmt.Errorf("failed to get issues root: %w", err)
+		return fmt.Errorf("failed to load project config: %w", err)
 	}
 
-	promptPath, err := writeControlPromptViaAPI(issuesRoot)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: failed to write control prompt: %v\n", err)
+	promptPath := ""
+	if controlCfg != nil && controlCfg.PromptContent != "" {
+		if writtenPath, writeErr := writeControlPromptContentViaAPI(controlCfg.PromptContent); writeErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to write control prompt: %v\n", writeErr)
+		} else {
+			promptPath = writtenPath
+		}
+	} else {
+		promptPath, err = writeControlPromptViaAPI(issuesRoot)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to write control prompt: %v\n", err)
+		}
 	}
 
 	// Get model settings from config (resolution via centralized method)
 	var modelName, modelVariant, profile string
 	var extraArgs []string
-	ctx := context.Background()
-	api, apiErr := getAPI()
-	if apiErr == nil {
-		projectRoot, _ := getProjectRoot()
-		cfg, cfgErr := api.GetConfig(ctx, projectRoot)
-		if cfgErr == nil {
-			modelName, modelVariant = cfg.ResolveControlModelAndVariant(string(agentType))
-			extraArgs = getControlExtraArgs(cfg, string(agentType))
+	if controlCfg != nil {
+		extraArgs = append(extraArgs, controlCfg.ExtraArgs...)
+	} else {
+		ctx := context.Background()
+		api, apiErr := getAPI()
+		if apiErr == nil {
+			cfg, cfgErr := api.GetConfig(ctx)
+			if cfgErr == nil {
+				modelName, modelVariant = cfg.ResolveControlModelAndVariant(string(agentType))
+				extraArgs = getControlExtraArgs(cfg, string(agentType))
+			}
 		}
 	}
 
@@ -304,7 +354,7 @@ func createMultiplexerSession(orchDir string, agentType agent.AgentType, mux mul
 	// Get working directory
 	workDir, err := os.Getwd()
 	if err != nil {
-		workDir, _ = getProjectRoot()
+		workDir = projectRoot
 	}
 
 	// Create multiplexer session
@@ -460,6 +510,25 @@ func writeControlPromptViaAPI(issuesRoot string) (string, error) {
 		return "", fmt.Errorf("failed to get API: %w", err)
 	}
 	return monitor.WriteControlPromptFileViaAPI(ctx, api, issuesRoot)
+}
+
+func writeControlPromptContentViaAPI(promptContent string) (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get working directory: %w", err)
+	}
+	promptPath := filepath.Join(cwd, controlPromptFileName)
+
+	ctx := context.Background()
+	api, err := getAPI()
+	if err != nil {
+		return "", fmt.Errorf("failed to get API: %w", err)
+	}
+	if err := api.WriteFile(ctx, promptPath, []byte(promptContent), 0644); err != nil {
+		return "", fmt.Errorf("failed to write prompt file: %w", err)
+	}
+
+	return promptPath, nil
 }
 
 func getControlExtraArgs(cfg *orchapi.Config, agentType string) []string {

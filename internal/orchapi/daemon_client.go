@@ -4,13 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/s22625/orch/internal/daemon"
 )
 
 type DaemonClient struct {
-	proto *daemon.ProtoClient
+	proto      *daemon.ProtoClient
+	daemonAddr string
 }
 
 const (
@@ -18,10 +20,19 @@ const (
 	daemonRetryInterval = 100 * time.Millisecond
 )
 
-func NewDaemonClient(projectRoot, issuesRoot string) *DaemonClient {
+func NewDaemonClient(projectRoot string) *DaemonClient {
+	return NewDaemonClientWithAddress(projectRoot, "")
+}
+
+func NewDaemonClientWithAddress(projectRoot, daemonAddr string) *DaemonClient {
 	return &DaemonClient{
-		proto: daemon.NewProtoClientWithIssuesRoot(projectRoot, issuesRoot),
+		proto:      daemon.NewProtoClientWithAddress(projectRoot, daemonAddr),
+		daemonAddr: strings.TrimSpace(daemonAddr),
 	}
+}
+
+func (c *DaemonClient) isRemote() bool {
+	return c.daemonAddr != ""
 }
 
 func (c *DaemonClient) IsAvailable() bool {
@@ -33,6 +44,13 @@ func (c *DaemonClient) Ping(ctx context.Context) error {
 }
 
 func (c *DaemonClient) EnsureDaemonHealthy(ctx context.Context) error {
+	if c.isRemote() {
+		if err := c.proto.Ping(); err != nil {
+			return fmt.Errorf("failed to reach remote daemon at %s: %w", c.daemonAddr, err)
+		}
+		return nil
+	}
+
 	if err := c.proto.Ping(); err == nil {
 		return nil
 	}
@@ -265,7 +283,7 @@ func (c *DaemonClient) StartRun(ctx context.Context, req *StartRunRequest) (*Sta
 		DryRun:         req.DryRun,
 		Reuse:          req.Reuse,
 		Multiplexer:    req.Multiplexer,
-		ProjectRoot:    req.ProjectRoot,
+		Target:         req.Target,
 	})
 	if err != nil {
 		return nil, err
@@ -319,6 +337,7 @@ func (c *DaemonClient) GetAttachInfo(ctx context.Context, ref RunRef) (*AttachIn
 				SessionName:   resp.SessionName,
 				Multiplexer:   Multiplexer(resp.Multiplexer),
 				WorktreePath:  resp.WorktreePath,
+				TargetHost:    resp.TargetHost,
 				SessionExists: false,
 			}, nil
 		}
@@ -334,6 +353,7 @@ func (c *DaemonClient) GetAttachInfo(ctx context.Context, ref RunRef) (*AttachIn
 		ServerPort:        resp.ServerPort,
 		OpenCodeSessionID: resp.OpenCodeSessionID,
 		Branch:            resp.Branch,
+		TargetHost:        resp.TargetHost,
 		SessionExists:     true,
 	}, nil
 }
@@ -344,7 +364,7 @@ func (c *DaemonClient) CaptureSession(ctx context.Context, ref RunRef, lines int
 		return nil, err
 	}
 
-	resp, err := c.proto.CaptureSession(run.IssueID, run.RunID)
+	resp, err := c.proto.CaptureSession(run.IssueID, run.RunID, lines)
 	if err != nil {
 		return nil, err
 	}
@@ -421,8 +441,8 @@ func (c *DaemonClient) ResolveIssue(ctx context.Context, issueID string, force b
 	return err
 }
 
-func (c *DaemonClient) EnsureOpenCodeServer(ctx context.Context, projectRoot string) (*OpenCodeServerInfo, error) {
-	resp, err := c.proto.GetOpenCodeServer(projectRoot)
+func (c *DaemonClient) EnsureOpenCodeServer(ctx context.Context) (*OpenCodeServerInfo, error) {
+	resp, err := c.proto.GetOpenCodeServer()
 	if err != nil {
 		return nil, err
 	}
@@ -566,6 +586,8 @@ func runFromDaemonFull(r *daemon.RunFull) *Run {
 		ModelVariant:      r.ModelVariant,
 		Branch:            r.Branch,
 		WorktreePath:      r.WorktreePath,
+		Target:            r.Target,
+		TargetHost:        r.TargetHost,
 		SessionName:       r.SessionName,
 		Multiplexer:       Multiplexer(r.Multiplexer),
 		PRUrl:             r.PRUrl,
@@ -618,6 +640,8 @@ func runFromDaemonSummary(r *daemon.RunSummary) *Run {
 		Model:             r.Model,
 		Branch:            r.Branch,
 		WorktreePath:      r.WorktreePath,
+		Target:            r.Target,
+		TargetHost:        r.TargetHost,
 		SessionName:       r.SessionName,
 		Multiplexer:       Multiplexer(r.Multiplexer),
 		PRUrl:             r.PRUrl,
@@ -764,8 +788,8 @@ func (c *DaemonClient) CreateRun(ctx context.Context, req *CreateRunRequest) (*C
 	}, nil
 }
 
-func (c *DaemonClient) GetConfig(ctx context.Context, projectRoot string) (*Config, error) {
-	resp, err := c.proto.GetConfig(projectRoot)
+func (c *DaemonClient) GetConfig(ctx context.Context) (*Config, error) {
+	resp, err := c.proto.GetConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -856,6 +880,20 @@ func (c *DaemonClient) GetDaemonStatus(ctx context.Context) (*DaemonStatus, erro
 	}, nil
 }
 
+func (c *DaemonClient) GetControlAgentConfig(ctx context.Context) (*ControlAgentConfig, error) {
+	resp, err := c.proto.GetControlAgentConfig()
+	if err != nil {
+		return nil, err
+	}
+	return &ControlAgentConfig{
+		PromptContent: resp.PromptContent,
+		Agent:         resp.Agent,
+		Model:         resp.Model,
+		ModelVariant:  resp.ModelVariant,
+		ExtraArgs:     resp.ExtraArgs,
+	}, nil
+}
+
 func (c *DaemonClient) ContinueRun(ctx context.Context, req *ContinueRunRequest) (*ContinueRunResult, error) {
 	resp, err := c.proto.ContinueRun(&daemon.ContinueRunOptions{
 		IssueID:        req.IssueID,
@@ -871,8 +909,6 @@ func (c *DaemonClient) ContinueRun(ctx context.Context, req *ContinueRunRequest)
 		PRTargetBranch: req.PRTargetBranch,
 		Multiplexer:    req.Multiplexer,
 		SessionName:    req.SessionName,
-		ProjectRoot:    req.ProjectRoot,
-		RepoRoot:       req.RepoRoot,
 	})
 	if err != nil {
 		return nil, err

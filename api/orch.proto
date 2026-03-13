@@ -84,6 +84,8 @@ message Run {
   bool alive = 24;
   bool alive_known = 25;
   bool worktree_exists = 26;
+  string target = 27;
+  string target_host = 28;
 }
 
 message Issue {
@@ -117,10 +119,15 @@ message PingResponse {
   string version = 2;
 }
 
+message RequestContext {
+  string project_id = 1;
+  string request_id = 2;
+  string client_id = 3;
+}
+
 // --- Runs ---
 
 message ListRunsRequest {
-  string issues_root = 1;
   string issue_id = 2;
   repeated RunStatus status = 3;
   string agent = 4;
@@ -129,6 +136,7 @@ message ListRunsRequest {
   int32 limit = 7;
   string cursor = 8;
   string older_than = 9;  // ISO8601 timestamp - filter runs older than this time
+  RequestContext context = 10;
 }
 
 message ListRunsResponse {
@@ -138,9 +146,9 @@ message ListRunsResponse {
 }
 
 message GetRunRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
+  RequestContext context = 4;
 }
 
 message GetRunResponse {
@@ -149,13 +157,11 @@ message GetRunResponse {
 }
 
 message StartRunRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string agent = 3;
   string model = 4;
   string model_variant = 5;
   string base_branch = 6;
-  string project_root = 7;
   string preset = 8;
   string branch = 9;
   string worktree_dir = 10;
@@ -168,6 +174,8 @@ message StartRunRequest {
   string agent_cmd = 17;
   string agent_profile = 18;
   string multiplexer = 19;
+  string target = 20;
+  RequestContext context = 21;
 }
 
 message StartRunResponse {
@@ -179,10 +187,10 @@ message StartRunResponse {
 }
 
 message CreateRunRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   map<string, string> metadata = 4;
+  RequestContext context = 5;
 }
 
 message CreateRunResponse {
@@ -192,17 +200,17 @@ message CreateRunResponse {
 }
 
 message StopRunRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
+  RequestContext context = 4;
 }
 
 message StopRunResponse {}
 
 message ResolveRunRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
+  RequestContext context = 4;
 }
 
 message ResolveRunResponse {}
@@ -210,13 +218,13 @@ message ResolveRunResponse {}
 // --- Issues ---
 
 message ListIssuesRequest {
-  string issues_root = 1;
   repeated IssueStatus status = 2;
   repeated string tags = 3;
   string tags_mode = 4;  // "and" or "or"
   string text_search = 5;
   int32 limit = 6;
   string cursor = 7;
+  RequestContext context = 8;
 }
 
 message ListIssuesResponse {
@@ -226,8 +234,8 @@ message ListIssuesResponse {
 }
 
 message GetIssueRequest {
-  string issues_root = 1;
   string issue_id = 2;
+  RequestContext context = 3;
 }
 
 message GetIssueResponse {
@@ -235,11 +243,11 @@ message GetIssueResponse {
 }
 
 message CreateIssueRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string title = 3;
   string body = 4;
   repeated string tags = 5;
+  RequestContext context = 6;
 }
 
 message CreateIssueResponse {
@@ -247,8 +255,8 @@ message CreateIssueResponse {
 }
 
 message CloseIssueRequest {
-  string issues_root = 1;
   string issue_id = 2;
+  RequestContext context = 3;
 }
 
 message CloseIssueResponse {}
@@ -256,9 +264,9 @@ message CloseIssueResponse {}
 // --- Control Agent ---
 
 message GetControlAgentLaunchRequest {
-  string project_root = 1;
   string agent = 2;
   bool new_session = 3;
+  RequestContext context = 4;
 }
 
 message GetControlAgentLaunchResponse {
@@ -269,13 +277,25 @@ message GetControlAgentLaunchResponse {
   bool resumed = 5;
 }
 
+message GetControlAgentConfigRequest {
+  RequestContext context = 2;
+}
+
+message GetControlAgentConfigResponse {
+  string prompt_content = 1;
+  string agent = 2;
+  string model = 3;
+  string model_variant = 4;
+  repeated string extra_args = 5;
+}
+
 // --- Session Operations ---
 
 message GetAttachInfoRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   string short_id = 4;
+  RequestContext context = 5;
 }
 
 message GetAttachInfoResponse {
@@ -288,12 +308,14 @@ message GetAttachInfoResponse {
   string opencode_session_id = 7;
   string issue_id = 8;
   string run_id = 9;
+  string target_host = 10;
 }
 
 message CaptureSessionRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
+  RequestContext context = 4;
+  int32 lines = 5;
 }
 
 message CaptureSessionResponse {
@@ -303,10 +325,10 @@ message CaptureSessionResponse {
 }
 
 message SendMessageRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   string message = 4;
+  RequestContext context = 5;
 }
 
 message SendMessageResponse {}
@@ -314,9 +336,9 @@ message SendMessageResponse {}
 // --- Git Operations ---
 
 message GetDiffStatsRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
+  RequestContext context = 4;
 }
 
 message GetDiffStatsResponse {
@@ -324,9 +346,9 @@ message GetDiffStatsResponse {
 }
 
 message GetBranchStateRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
+  RequestContext context = 4;
 }
 
 message GetBranchStateResponse {
@@ -334,9 +356,9 @@ message GetBranchStateResponse {
 }
 
 message GetDiffRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
+  RequestContext context = 4;
 }
 
 message GetDiffResponse {
@@ -400,11 +422,91 @@ message KillMonitorResponse {
   int32 killed_count = 1;
 }
 
+// --- Worker Plane Protocol ---
+
+message RegisterWorkerRequest {
+  string worker_id = 1;
+  string worker_type = 2;
+  string host = 3;
+  string mode = 4;
+  string auth_token = 5;
+  repeated string capabilities = 6;
+}
+
+message RegisterWorkerResponse {
+  string worker_id = 1;
+  int64 heartbeat_ttl_seconds = 2;
+}
+
+message UnregisterWorkerRequest {
+  string worker_id = 1;
+}
+
+message UnregisterWorkerResponse {}
+
+message WorkerHeartbeatRequest {
+  string worker_id = 1;
+  string auth_token = 2;
+}
+
+message WorkerHeartbeatResponse {
+  int64 heartbeat_ttl_seconds = 1;
+}
+
+message ListWorkersRequest {}
+
+message WorkerInfo {
+  string id = 1;
+  string worker_type = 2;
+  string host = 3;
+  string mode = 4;
+  int64 registered_at_unix = 5;
+  int64 last_heartbeat_unix = 6;
+  bool active = 7;
+  repeated string capabilities = 8;
+}
+
+message ListWorkersResponse {
+  repeated WorkerInfo workers = 1;
+}
+
+// Compatibility RPC name for host work assignment polling.
+// The worker model is host-manager oriented, not one-worker-per-run.
+message LeaseWorkRequest {
+  string worker_id = 1;
+  string auth_token = 2;
+}
+
+// Compatibility response shape for host work assignment polling.
+message LeaseWorkResponse {
+  string lease_id = 1;
+  string worker_id = 2;
+  string project_id = 3;
+  string effect = 4;
+  string issue_id = 5;
+  string run_id = 6;
+  int64 leased_at_unix = 7;
+  int64 expires_at_unix = 8;
+  string payload_json = 9;
+}
+
+// Compatibility RPC name for worker completion ACKs.
+message AcknowledgeEffectRequest {
+  string worker_id = 1;
+  string lease_id = 2;
+  bool success = 3;
+  string error = 4;
+  string result_json = 5;
+  string auth_token = 6;
+}
+
+message AcknowledgeEffectResponse {}
+
 // --- Short ID Resolution ---
 
 message GetRunByShortIDRequest {
-  string issues_root = 1;
   string short_id = 2;
+  RequestContext context = 3;
 }
 
 message GetRunByShortIDResponse {
@@ -415,9 +517,9 @@ message GetRunByShortIDResponse {
 // --- Issue Resolution ---
 
 message ResolveIssueRequest {
-  string issues_root = 1;
   string issue_id = 2;
   bool force = 3;
+  RequestContext context = 4;
 }
 
 message ResolveIssueResponse {
@@ -425,13 +527,13 @@ message ResolveIssueResponse {
 }
 
 message AppendEventRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   string event_type = 4;
   string event_name = 5;
   map<string, string> event_attrs = 6;
   string event_source = 7;
+  RequestContext context = 8;
 }
 
 message AppendEventResponse {
@@ -440,7 +542,7 @@ message AppendEventResponse {
 }
 
 message EnsureOpenCodeServerRequest {
-  string project_root = 1;
+  RequestContext context = 2;
 }
 
 message EnsureOpenCodeServerResponse {
@@ -461,7 +563,6 @@ message ListReposRequest {}
 message RepoInfo {
   string id = 1;
   string project_root = 2;
-  string issues_root = 3;
 }
 
 message ListReposResponse {
@@ -469,13 +570,13 @@ message ListReposResponse {
 }
 
 message DeleteRunRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   string short_id = 4;
   bool with_worktree = 5;
   bool with_branch = 6;
   bool force = 7;
+  RequestContext context = 8;
 }
 
 message DeleteRunResponse {
@@ -488,12 +589,12 @@ message DeleteRunResponse {
 }
 
 message UpdateIssueRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string title = 3;
   string summary = 4;
   string body = 5;
   string status = 6;
+  RequestContext context = 7;
 }
 
 message UpdateIssueResponse {
@@ -501,8 +602,8 @@ message UpdateIssueResponse {
 }
 
 message ValidateIssueFilesRequest {
-  string issues_root = 1;
   string issue_id = 2;
+  RequestContext context = 3;
 }
 
 message ValidationIssue {
@@ -533,20 +634,20 @@ message ValidateIssueFilesResponse {
 }
 
 message WriteAgentPromptRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   string short_id = 4;
   string content = 5;
+  RequestContext context = 6;
 }
 
 message WriteAgentPromptResponse {}
 
 message ReadAgentPromptRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   string short_id = 4;
+  RequestContext context = 5;
 }
 
 message ReadAgentPromptResponse {
@@ -606,10 +707,10 @@ message ListSessionsResponse {
 }
 
 message ResumeRunRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   string short_id = 4;
+  RequestContext context = 5;
 }
 
 message ResumeRunResponse {
@@ -618,7 +719,6 @@ message ResumeRunResponse {
 
 message QueryOpenCodeServerRequest {
   int32 port = 1;
-  string project_root = 2;
 }
 
 message OpenCodeProviderInfo {
@@ -640,7 +740,6 @@ message QueryOpenCodeServerResponse {
 }
 
 message InjectInitialPromptRequest {
-  string issues_root = 1;
   string issue_id = 2;
   string run_id = 3;
   string prompt = 4;
@@ -648,6 +747,7 @@ message InjectInitialPromptRequest {
   string model_variant = 6;
   string work_dir = 7;
   int32 port = 8;
+  RequestContext context = 9;
 }
 
 message InjectInitialPromptResponse {
@@ -656,8 +756,6 @@ message InjectInitialPromptResponse {
 }
 
 message ContinueRunRequest {
-  string issues_root = 1;
-  string project_root = 2;
   // Source: either from_run or from_branch (use issue_id + run_id for from_run, issue_id + branch for from_branch)
   string issue_id = 3;
   string run_id = 4;
@@ -673,7 +771,7 @@ message ContinueRunRequest {
   string pr_target_branch = 13;
   string multiplexer = 14;
   string session_name = 15;
-  string repo_root = 16;
+  RequestContext context = 17;
 }
 
 message ContinueRunResponse {
@@ -689,7 +787,7 @@ message ContinueRunResponse {
 // --- Config ---
 
 message GetConfigRequest {
-  string project_root = 1;
+  RequestContext context = 2;
 }
 
 message SlackConfigProto {
@@ -843,6 +941,13 @@ message Request {
     ContinueRunRequest continue_run = 44;
     GetConfigRequest get_config = 45;
     GetDaemonStatusRequest get_daemon_status = 46;
+    GetControlAgentConfigRequest get_control_agent_config = 47;
+    RegisterWorkerRequest register_worker = 48;
+    UnregisterWorkerRequest unregister_worker = 49;
+    WorkerHeartbeatRequest worker_heartbeat = 50;
+    ListWorkersRequest list_workers = 51;
+    LeaseWorkRequest lease_work = 52;
+    AcknowledgeEffectRequest acknowledge_effect = 53;
   }
 }
 
@@ -897,5 +1002,12 @@ message Response {
     ContinueRunResponse continue_run = 46;
     GetConfigResponse get_config = 47;
     GetDaemonStatusResponse get_daemon_status = 48;
+    GetControlAgentConfigResponse get_control_agent_config = 49;
+    RegisterWorkerResponse register_worker = 50;
+    UnregisterWorkerResponse unregister_worker = 51;
+    WorkerHeartbeatResponse worker_heartbeat = 52;
+    ListWorkersResponse list_workers = 53;
+    LeaseWorkResponse lease_work = 54;
+    AcknowledgeEffectResponse acknowledge_effect = 55;
   }
 }

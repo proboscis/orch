@@ -128,6 +128,9 @@ Branches should be:
 4. **Write clear commit messages** - Future you will thank you
 5. **Test your changes** - `make test` before pushing
 
+For direct CLI validation (without `go test`), see:
+- [Master/Worker/Client Manual E2E](./e2e-master-worker-client.md)
+
 ### PR Guidelines
 
 - **Title**: Clear, concise summary of the change

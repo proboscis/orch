@@ -13,6 +13,10 @@ import (
 )
 
 func applyPromptConfigDefaultsForTest(opts *runOptions) (*config.Config, error) {
+	return applyPromptConfigDefaultsForTestWithRemote(opts, false)
+}
+
+func applyPromptConfigDefaultsForTestWithRemote(opts *runOptions, remoteMode bool) (*config.Config, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
@@ -31,7 +35,7 @@ func applyPromptConfigDefaultsForTest(opts *runOptions) (*config.Config, error) 
 		}
 	}
 
-	applyConfigDefaults(opts, orchCfg)
+	applyConfigDefaults(opts, orchCfg, remoteMode)
 	return cfg, nil
 }
 
@@ -91,6 +95,17 @@ func TestBuildAgentPromptDefault(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "create a pull request targeting `main`") {
 		t.Fatalf("prompt missing PR target branch: %q", prompt)
+	}
+}
+
+func TestRunCommandDoesNotExposePathSelectorFlags(t *testing.T) {
+	cmd := newRunCmd()
+
+	if flag := cmd.Flags().Lookup("repo-root"); flag != nil {
+		t.Fatalf("unexpected repo-root flag: %#v", flag)
+	}
+	if flag := cmd.Flags().Lookup("worktree-dir"); flag != nil {
+		t.Fatalf("unexpected worktree-dir flag: %#v", flag)
 	}
 }
 
@@ -161,8 +176,8 @@ func TestBuildAgentPromptCustomTemplate(t *testing.T) {
 
 	issue := &model.Issue{ID: "orch-3", Title: "Custom"}
 	prompt := buildAgentPrompt(issue, &promptOptions{PromptTemplate: tmplPath})
-	if strings.TrimSpace(prompt) != "Issue: orch-3 - Custom" {
-		t.Fatalf("unexpected prompt: %q", prompt)
+	if !strings.Contains(prompt, "Reference to the issue: orch-3") {
+		t.Fatalf("expected fallback prompt to include issue reference, got: %q", prompt)
 	}
 }
 
@@ -323,7 +338,7 @@ func TestApplyConfigDefaultsFallbacks(t *testing.T) {
 	}
 
 	// Empty config - should use fallback defaults
-	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(""), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("{}\n"), 0644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -353,6 +368,52 @@ func TestApplyConfigDefaultsFallbacks(t *testing.T) {
 	wantWorktreeDir := filepath.Join(home, ".orch", "worktrees")
 	if opts.WorktreeDir != wantWorktreeDir {
 		t.Fatalf("WorktreeDir fallback = %q, want %q", opts.WorktreeDir, wantWorktreeDir)
+	}
+}
+
+func TestApplyConfigDefaultsRemoteDoesNotForceLocalWorktreeDefault(t *testing.T) {
+	temp := t.TempDir()
+	home := filepath.Join(temp, "home")
+	if err := os.MkdirAll(home, 0755); err != nil {
+		t.Fatalf("mkdir home: %v", err)
+	}
+	t.Setenv("HOME", home)
+
+	repo := filepath.Join(temp, "repo")
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte("{}\n"), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	opts := &runOptions{}
+	if _, err := applyPromptConfigDefaultsForTestWithRemote(opts, true); err != nil {
+		t.Fatalf("applyPromptConfigDefaultsForTestWithRemote: %v", err)
+	}
+	if opts.WorktreeDir != "" {
+		t.Fatalf("WorktreeDir remote fallback = %q, want empty", opts.WorktreeDir)
+	}
+
+	opts.WorktreeDir = ""
+	opts.WorktreeSet = true
+	if _, err := applyPromptConfigDefaultsForTestWithRemote(opts, true); err != nil {
+		t.Fatalf("applyPromptConfigDefaultsForTestWithRemote explicit: %v", err)
+	}
+	if opts.WorktreeDir != "" {
+		t.Fatalf("WorktreeDir explicit empty = %q, want empty", opts.WorktreeDir)
 	}
 }
 

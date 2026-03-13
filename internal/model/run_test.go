@@ -113,6 +113,7 @@ func TestRunDeriveState(t *testing.T) {
 			{Timestamp: ts.Add(time.Second), Type: EventTypeStatus, Name: "running"},
 			{Timestamp: ts.Add(3 * time.Second), Type: EventTypeArtifact, Name: "worktree", Attrs: map[string]string{"path": "/tmp/wt"}},
 			{Timestamp: ts.Add(4 * time.Second), Type: EventTypeArtifact, Name: "branch", Attrs: map[string]string{"name": "feature/test"}},
+			{Timestamp: ts.Add(4500 * time.Millisecond), Type: EventTypeArtifact, Name: "target", Attrs: map[string]string{"name": "mac", "host": "mac"}},
 			{Timestamp: ts.Add(5 * time.Second), Type: EventTypeArtifact, Name: "session", Attrs: map[string]string{"name": "run-plc124"}},
 		},
 	}
@@ -128,8 +129,59 @@ func TestRunDeriveState(t *testing.T) {
 	if run.Branch != "feature/test" {
 		t.Errorf("Branch = %v, want feature/test", run.Branch)
 	}
+	if run.Target != "mac" {
+		t.Errorf("Target = %v, want mac", run.Target)
+	}
+	if run.TargetHost != "mac" {
+		t.Errorf("TargetHost = %v, want mac", run.TargetHost)
+	}
 	if run.SessionName != "run-plc124" {
 		t.Errorf("SessionName = %v, want run-plc124", run.SessionName)
+	}
+}
+
+func TestRunDeriveStatePrefersLastNonEmptySessionMultiplexer(t *testing.T) {
+	ts := time.Now()
+	run := &Run{
+		IssueID: "plc125",
+		RunID:   "20231221",
+		Events: []*Event{
+			{Timestamp: ts, Type: EventTypeStatus, Name: "queued"},
+			{Timestamp: ts.Add(time.Second), Type: EventTypeArtifact, Name: "session", Attrs: map[string]string{"name": "run-plc125", "multiplexer": "tmux"}},
+			{Timestamp: ts.Add(2 * time.Second), Type: EventTypeArtifact, Name: "session", Attrs: map[string]string{"name": "run-plc125"}},
+			{Timestamp: ts.Add(3 * time.Second), Type: EventTypeStatus, Name: "running"},
+		},
+	}
+
+	run.DeriveState()
+
+	if run.SessionName != "run-plc125" {
+		t.Errorf("SessionName = %v, want run-plc125", run.SessionName)
+	}
+	if run.Multiplexer != "tmux" {
+		t.Errorf("Multiplexer = %v, want tmux", run.Multiplexer)
+	}
+}
+
+func TestRunDeriveStateFallsBackToSessionHost(t *testing.T) {
+	ts := time.Now()
+	run := &Run{
+		IssueID: "plc126",
+		RunID:   "20231222",
+		Events: []*Event{
+			{Timestamp: ts, Type: EventTypeStatus, Name: "queued"},
+			{Timestamp: ts.Add(time.Second), Type: EventTypeArtifact, Name: "session", Attrs: map[string]string{"name": "run-plc126", "host": "mac-host", "multiplexer": "tmux"}},
+			{Timestamp: ts.Add(2 * time.Second), Type: EventTypeStatus, Name: "running"},
+		},
+	}
+
+	run.DeriveState()
+
+	if run.TargetHost != "mac-host" {
+		t.Errorf("TargetHost = %v, want mac-host", run.TargetHost)
+	}
+	if run.Multiplexer != "tmux" {
+		t.Errorf("Multiplexer = %v, want tmux", run.Multiplexer)
 	}
 }
 

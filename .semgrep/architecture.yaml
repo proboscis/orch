@@ -690,12 +690,1031 @@ rules:
         - /internal/daemon/*_test.go
     message: >
       Daemon handlers must not use first project-root fallback from map iteration.
-      Fix: require explicit project_root/repo_id identity and fail closed when missing.
+      Fix: require explicit project_id identity and fail closed when missing.
     severity: ERROR
     languages: [go]
     metadata:
       category: architecture
       violation: identity-leakage
+
+  - id: daemon-proto-no-project-root-context-lookup
+    patterns:
+      - pattern-either:
+          - pattern: findRepoContextByProjectRoot(...)
+          - pattern: $S.findRepoContextByProjectRoot(...)
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      Proto handlers must not resolve repo context from raw project_root lookups.
+      Fix: use RequestContext.project_id and registered repo mappings instead.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: identity-leakage
+
+  - id: daemon-proto-no-legacy-store-resolution-call
+    patterns:
+      - pattern-either:
+          - pattern: resolveStoreFromProto(...)
+          - pattern: $S.resolveStoreFromProto(...)
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      SPEC-12 cluster invariant: proto runtime handlers must not route stores by
+      legacy issues_root/project_root resolution helpers.
+      Fix: resolve from RequestContext.project_id (or explicit registered project mapping only).
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-identity-routing
+
+  - id: daemon-proto-no-issues-root-arg-in-context-resolver
+    patterns:
+      - pattern: $S.resolveStoreFromContextOrProto($CTX, $REQ.IssuesRoot)
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      SPEC-12 cluster invariant: even context-capable resolver calls must not
+      carry issues_root as runtime routing input.
+      Fix: pass empty fallback and route by RequestContext.project_id only.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-identity-routing
+
+  - id: daemon-proto-control-launch-no-project-root-fallback
+    patterns:
+      - pattern-inside: |
+          func (s *SocketServer) handleProtoGetControlAgentLaunch(req *orchpb.GetControlAgentLaunchRequest) *orchpb.Response {
+            ...
+          }
+      - pattern-either:
+          - pattern: resolveProtoProjectRoot(req.ProjectRoot)
+          - pattern: $S.resolveProtoProjectRoot(req.ProjectRoot)
+          - pattern: resolveProjectRootFromContextOrProto(req.Context, req.ProjectRoot)
+          - pattern: $S.resolveProjectRootFromContextOrProto(req.Context, req.ProjectRoot)
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      SPEC-12 cluster invariant: control-agent launch routing must not fall back
+      to request project_root. Resolve project identity from RequestContext.project_id only.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-identity-routing
+
+  - id: daemon-proto-control-config-no-project-root-fallback
+    patterns:
+      - pattern-inside: |
+          func (s *SocketServer) handleProtoGetControlAgentConfig(req *orchpb.GetControlAgentConfigRequest) *orchpb.Response {
+            ...
+          }
+      - pattern-either:
+          - pattern: resolveProtoProjectRoot(req.ProjectRoot)
+          - pattern: $S.resolveProtoProjectRoot(req.ProjectRoot)
+          - pattern: resolveProjectRootFromContextOrProto(req.Context, req.ProjectRoot)
+          - pattern: $S.resolveProjectRootFromContextOrProto(req.Context, req.ProjectRoot)
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      SPEC-12 cluster invariant: control-agent config routing must not fall back
+      to request project_root. Resolve project identity from RequestContext.project_id only.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-identity-routing
+
+  - id: daemon-proto-list-runs-must-not-reject-empty-project-context
+    patterns:
+      - pattern-inside: |
+          func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.Response {
+            ...
+          }
+      - pattern: return errorResponse("no store available")
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      SPEC-12 acceptance guardrail: ListRuns must not fail closed with "no store available"
+      when RequestContext.project_id is absent. It should aggregate across master-known repos.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-listing
+
+  - id: daemon-proto-list-issues-must-not-reject-empty-project-context
+    patterns:
+      - pattern-inside: |
+          func (s *SocketServer) handleProtoListIssues(req *orchpb.ListIssuesRequest) *orchpb.Response {
+            ...
+          }
+      - pattern: return errorResponse("no store available")
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      SPEC-12 acceptance guardrail: ListIssues must not fail closed with "no store available"
+      when RequestContext.project_id is absent. It should aggregate across master-known repos.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-listing
+
+  - id: daemon-proto-get-run-must-not-reject-empty-project-context
+    patterns:
+      - pattern-inside: |
+          func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Response {
+            ...
+          }
+      - pattern: return errorResponse("no store available")
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      SPEC-12 acceptance guardrail: GetRun must not fail with "no store available"
+      when RequestContext.project_id is absent. It should resolve across master-known repos.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: daemon-proto-get-issue-must-not-reject-empty-project-context
+    patterns:
+      - pattern-inside: |
+          func (s *SocketServer) handleProtoGetIssue(req *orchpb.GetIssueRequest) *orchpb.Response {
+            ...
+          }
+      - pattern: return errorResponse("no store available")
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      SPEC-12 acceptance guardrail: GetIssue must not fail with "no store available"
+      when RequestContext.project_id is absent. It should resolve across master-known repos.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: daemon-proto-get-run-shortid-must-not-reject-empty-project-context
+    patterns:
+      - pattern-inside: |
+          func (s *SocketServer) handleProtoGetRunByShortID(req *orchpb.GetRunByShortIDRequest) *orchpb.Response {
+            ...
+          }
+      - pattern: return errorResponse("no store available")
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      SPEC-12 acceptance guardrail: GetRunByShortID must not fail with "no store available"
+      when RequestContext.project_id is absent. It should resolve across master-known repos.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: cli-show-must-use-listing-api
+    patterns:
+      - pattern-inside: |
+          func runShow(refStr string, opts *showOptions) error {
+            ...
+          }
+      - pattern: api, err := getAPI()
+    paths:
+      include:
+        - /internal/cli/show.go
+    message: >
+      SPEC-12 acceptance guardrail: `orch show` is read-only and must use
+      getAPIForListing() so it works outside repo roots in master-global mode.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: cli-issue-show-must-use-listing-api
+    patterns:
+      - pattern-inside: |
+          func runIssueShow(issueID string, opts *issueShowOptions) error {
+            ...
+          }
+      - pattern: api, err := getAPI()
+    paths:
+      include:
+        - /internal/cli/issue.go
+    message: >
+      SPEC-12 acceptance guardrail: `orch issue show` is read-only and must use
+      getAPIForListing() so it works outside repo roots in master-global mode.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: daemon-proto-get-attach-info-must-not-reject-empty-project-context
+    patterns:
+      - pattern-inside: |
+          func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest) *orchpb.Response {
+            ...
+          }
+      - pattern: return errorResponse("no store available")
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      SPEC-12 acceptance guardrail: GetAttachInfo must not fail with "no store available"
+      when RequestContext.project_id is absent. It should resolve run identity across master-known repos.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: daemon-proto-capture-session-must-not-reject-empty-project-context
+    patterns:
+      - pattern-inside: |
+          func (s *SocketServer) handleProtoCaptureSession(req *orchpb.CaptureSessionRequest) *orchpb.Response {
+            ...
+          }
+      - pattern: return errorResponse("no store available")
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      SPEC-12 acceptance guardrail: CaptureSession must not fail with "no store available"
+      when RequestContext.project_id is absent. It should resolve run identity across master-known repos.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: daemon-proto-get-diff-stats-must-not-reject-empty-project-context
+    patterns:
+      - pattern-inside: |
+          func (s *SocketServer) handleProtoGetDiffStats(req *orchpb.GetDiffStatsRequest) *orchpb.Response {
+            ...
+          }
+      - pattern: return errorResponse("no store available")
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      SPEC-12 acceptance guardrail: GetDiffStats must not fail with "no store available"
+      when RequestContext.project_id is absent. It should resolve run identity across master-known repos.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: daemon-proto-get-branch-state-must-not-reject-empty-project-context
+    patterns:
+      - pattern-inside: |
+          func (s *SocketServer) handleProtoGetBranchState(req *orchpb.GetBranchStateRequest) *orchpb.Response {
+            ...
+          }
+      - pattern: return errorResponse("no store available")
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      SPEC-12 acceptance guardrail: GetBranchState must not fail with "no store available"
+      when RequestContext.project_id is absent. It should resolve run identity across master-known repos.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: daemon-proto-get-diff-must-not-reject-empty-project-context
+    patterns:
+      - pattern-inside: |
+          func (s *SocketServer) handleProtoGetDiff(req *orchpb.GetDiffRequest) *orchpb.Response {
+            ...
+          }
+      - pattern: return errorResponse("no store available")
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      SPEC-12 acceptance guardrail: GetDiff must not fail with "no store available"
+      when RequestContext.project_id is absent. It should resolve run identity across master-known repos.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: daemon-proto-read-agent-prompt-must-not-reject-empty-project-context
+    patterns:
+      - pattern-inside: |
+          func (s *SocketServer) handleProtoReadAgentPrompt(req *orchpb.ReadAgentPromptRequest) *orchpb.Response {
+            ...
+          }
+      - pattern: return errorResponse("no store available")
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      SPEC-12 acceptance guardrail: ReadAgentPrompt must not fail with "no store available"
+      when RequestContext.project_id is absent. It should resolve run/store across master-known repos.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: daemon-proto-validate-issue-files-must-not-reject-empty-project-context
+    patterns:
+      - pattern-inside: |
+          func (s *SocketServer) handleProtoValidateIssueFiles(req *orchpb.ValidateIssueFilesRequest) *orchpb.Response {
+            ...
+          }
+      - pattern: return errorResponse("no store available")
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      SPEC-12 acceptance guardrail: ValidateIssueFiles must not fail with "no store available"
+      when RequestContext.project_id is absent. It should aggregate across master-known repos.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: cli-capture-must-use-listing-api
+    patterns:
+      - pattern-inside: |
+          func runCapture(refStr string, opts *captureOptions) error {
+            ...
+          }
+      - pattern: api, err := getAPI()
+    paths:
+      include:
+        - /internal/cli/capture.go
+    message: >
+      SPEC-12 acceptance guardrail: `orch capture` is read-only and must use
+      getAPIForListing() so it works outside repo roots in master-global mode.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: cli-diff-must-use-listing-api
+    patterns:
+      - pattern-inside: |
+          func runDiff(refStr string, opts *diffOptions) error {
+            ...
+          }
+      - pattern: api, err := getAPI()
+    paths:
+      include:
+        - /internal/cli/diff.go
+    message: >
+      SPEC-12 acceptance guardrail: `orch diff` is read-only and must use
+      getAPIForListing() so it works outside repo roots in master-global mode.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: cli-query-must-use-listing-api
+    patterns:
+      - pattern-inside: |
+          func runQuery(sql string, opts *queryOptions) error {
+            ...
+          }
+      - pattern: api, err := getAPI()
+    paths:
+      include:
+        - /internal/cli/query.go
+    message: >
+      SPEC-12 acceptance guardrail: `orch query` is read-only and must use
+      getAPIForListing() so it works outside repo roots in master-global mode.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: cli-schema-must-use-listing-api
+    patterns:
+      - pattern-inside: |
+          func runSchema(tableName string, opts *schemaOptions) error {
+            ...
+          }
+      - pattern: api, err := getAPI()
+    paths:
+      include:
+        - /internal/cli/schema.go
+    message: >
+      SPEC-12 acceptance guardrail: `orch schema` is read-only and must use
+      getAPIForListing() so it works outside repo roots in master-global mode.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: cli-debug-must-use-listing-api
+    patterns:
+      - pattern-inside: |
+          func runDebug(ref string) error {
+            ...
+          }
+      - pattern: api, err := getAPI()
+    paths:
+      include:
+        - /internal/cli/debug.go
+    message: >
+      SPEC-12 acceptance guardrail: `orch debug` is read-only and must use
+      getAPIForListing() so it works outside repo roots in master-global mode.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: cli-capture-all-defaults-must-use-listing-api
+    patterns:
+      - pattern-inside: |
+          func defaultCaptureDeps() *captureDeps {
+            ...
+          }
+      - pattern: 'getAPI: getAPI'
+    paths:
+      include:
+        - /internal/cli/capture_all.go
+    message: >
+      SPEC-12 acceptance guardrail: capture-all default deps must use getAPIForListing().
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: cli-log-defaults-must-use-listing-api
+    patterns:
+      - pattern-inside: |
+          func defaultLogDeps() *logDeps {
+            ...
+          }
+      - pattern: 'getAPI: getAPI'
+    paths:
+      include:
+        - /internal/cli/log.go
+    message: >
+      SPEC-12 acceptance guardrail: log command default deps must use getAPIForListing().
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: cli-attach-defaults-must-use-listing-api
+    patterns:
+      - pattern-inside: |
+          func defaultAttachDeps() *attachDeps {
+            ...
+          }
+      - pattern: 'getAPI: getAPI'
+    paths:
+      include:
+        - /internal/cli/attach.go
+    message: >
+      SPEC-12 acceptance guardrail: attach command default deps must use getAPIForListing().
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: cli-open-must-use-listing-api
+    patterns:
+      - pattern-inside: |
+          func runOpen(refStr string, opts *openOptions) error {
+            ...
+          }
+      - pattern: api, err := getAPI()
+    paths:
+      include:
+        - /internal/cli/open.go
+    message: >
+      SPEC-12 acceptance guardrail: `orch open` is read-oriented and must use
+      getAPIForListing() so resolution works outside repo roots in master-global mode.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: cli-validate-issue-files-must-use-listing-api
+    patterns:
+      - pattern-inside: |
+          func runValidateIssueFiles(issueID string) error {
+            ...
+          }
+      - pattern: api, err := getAPI()
+    paths:
+      include:
+        - /internal/cli/validate.go
+    message: >
+      SPEC-12 acceptance guardrail: `orch validate-issue-files` is read-oriented and
+      must use getAPIForListing() so validation output is daemon-derived and works outside
+      repo roots in master-global mode.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: cli-project-scope-must-not-bypass-remote
+    patterns:
+      - pattern-inside: |
+          func defaultGetAPIWithOptions(requireProjectRoot bool) (orchapi.OrchAPI, error) {
+            ...
+          }
+      - pattern: |
+          if requireProjectRoot && strings.TrimSpace(remoteAddr) == "" {
+            ...
+          }
+    paths:
+      include:
+        - /internal/cli/root.go
+    message: >
+      Phase-3 guardrail: project-scoped commands must require explicit project scope even
+      in remote mode. Do not bypass scope enforcement based on remote/local transport.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-project-scope
+
+  - id: cli-project-scope-must-track-project-root-source
+    patterns:
+      - pattern-inside: |
+          func defaultGetAPIWithOptions(requireProjectRoot bool) (orchapi.OrchAPI, error) {
+            ...
+          }
+      - pattern: projectRoot, err := getProjectRoot()
+    paths:
+      include:
+        - /internal/cli/root.go
+    message: >
+      Phase-3 guardrail: defaultGetAPIWithOptions() must use getProjectRootWithSource()
+      to distinguish explicit scope (--project/ORCH_PROJECT) from implicit cwd-derived
+      scope before applying remote project-scope rules.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-project-scope
+
+  - id: cli-monitor-list-must-not-hardfail-on-missing-project-root
+    patterns:
+      - pattern: |
+          projectRoot, err := getProjectRoot()
+          if err != nil {
+            return err
+          }
+      - pattern-inside: |
+          func runMonitorList(opts *monitorListOptions) error {
+            ...
+          }
+    paths:
+      include:
+        - /internal/cli/monitor.go
+    message: >
+      SPEC-12 acceptance guardrail: monitor list should tolerate missing project root
+      and still operate in master-global mode outside repos.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: cli-monitor-kill-must-not-hardfail-on-missing-project-root
+    patterns:
+      - pattern: |
+          projectRoot, err := getProjectRoot()
+          if err != nil {
+            return err
+          }
+      - pattern-inside: |
+          func runMonitorKill(monitorID string, opts *monitorKillOptions) error {
+            ...
+          }
+    paths:
+      include:
+        - /internal/cli/monitor.go
+    message: >
+      SPEC-12 acceptance guardrail: monitor kill should tolerate missing project root
+      (monitor id/global modes) outside repos.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-global-read
+
+  - id: cli-monitor-list-must-not-infer-project-scope-from-cwd
+    patterns:
+      - pattern-inside: |
+          func runMonitorList(opts *monitorListOptions) error {
+            ...
+          }
+      - pattern: getProjectRoot()
+    paths:
+      include:
+        - /internal/cli/monitor.go
+    message: >
+      Phase-3 guardrail: `orch monitor list` must not infer project scope directly
+      from cwd. Use resolveMonitorProjectScope()/getProjectRootWithSource() so
+      monitor scope is only applied when project root is explicit.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-project-scope
+
+  - id: cli-monitor-kill-must-not-infer-project-scope-from-cwd
+    patterns:
+      - pattern-inside: |
+          func runMonitorKill(monitorID string, opts *monitorKillOptions) error {
+            ...
+          }
+      - pattern: getProjectRoot()
+    paths:
+      include:
+        - /internal/cli/monitor.go
+    message: >
+      Phase-3 guardrail: `orch monitor kill` must not infer project scope directly
+      from cwd. Use resolveMonitorProjectScope()/getProjectRootWithSource() so
+      monitor scope is only applied when project root is explicit.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-project-scope
+
+  - id: cli-monitor-scope-must-not-be-remote-only
+    patterns:
+      - pattern-inside: |
+          func resolveMonitorProjectScope() (string, bool, bool) {
+            ...
+          }
+      - pattern: |
+          if remote && !explicitProjectRoot {
+            ...
+          }
+    paths:
+      include:
+        - /internal/cli/monitor.go
+    message: >
+      Phase-3 guardrail: dropping implicit cwd scope must apply uniformly, not only
+      in remote transport mode.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-project-scope
+
+  - id: cli-run-must-not-infer-repo-root-from-cwd
+    patterns:
+      - pattern-inside: |
+          func runRun(issueID string, opts *runOptions) error {
+            ...
+          }
+      - pattern: getProjectRoot()
+    paths:
+      include:
+        - /internal/cli/run.go
+    message: >
+      Phase-3 guardrail: `orch run` must not infer project scope from cwd.
+      Use explicit project scope resolution (flag/env) for cluster-consistent behavior.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-project-scope
+
+  - id: cli-continue-must-not-infer-repo-root-from-cwd
+    patterns:
+      - pattern-inside: |
+          func runContinueWithDeps(ctx context.Context, refStr string, opts *continueOptions, deps *continueDeps) error {
+            ...
+          }
+      - pattern: getProjectRoot()
+    paths:
+      include:
+        - /internal/cli/continue.go
+    message: >
+      Phase-3 guardrail: `orch continue` must not infer project scope from cwd.
+      Use explicit project scope resolution (flag/env) for cluster-consistent behavior.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-project-scope
+
+  - id: cli-exec-must-not-infer-project-root-from-cwd
+    patterns:
+      - pattern-inside: |
+          func runExecWithDeps(ctx context.Context, refStr string, cmdArgs []string, opts *execOptions, deps *execDeps) error {
+            ...
+          }
+      - pattern: getProjectRoot()
+    paths:
+      include:
+        - /internal/cli/exec.go
+    message: >
+      Phase-3 guardrail: `orch exec` must not infer project scope from cwd when
+      resolving relative worktree paths. Use explicit project scope resolution.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-project-scope
+
+  - id: cli-monitor-main-must-not-infer-project-scope-from-cwd
+    patterns:
+      - pattern-inside: |
+          func runMonitor(opts *monitorOptions) error {
+            ...
+          }
+      - pattern: getProjectRoot()
+    paths:
+      include:
+        - /internal/cli/monitor.go
+    message: >
+      Phase-3 guardrail: interactive `orch monitor` must not infer project scope
+      from cwd. Require explicit project scope (`--project`/`ORCH_PROJECT`).
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-project-scope
+
+  - id: cli-require-daemon-must-not-infer-project-scope-from-cwd
+    patterns:
+      - pattern-inside: |
+          func requireDaemon() (*daemon.ProtoClient, error) {
+            ...
+          }
+      - pattern: getProjectRoot()
+    paths:
+      include:
+        - /internal/cli/daemon.go
+    message: >
+      Phase-3 guardrail: daemon bootstrap helper must not infer project scope
+      from cwd; use getProjectRootWithSource() and only pass explicit scope.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-project-scope
+
+  - id: cli-notify-test-must-use-listing-api
+    patterns:
+      - pattern-inside: |
+          func runNotifyTest(opts *notifyTestOptions) error {
+            ...
+          }
+      - pattern: api, err := getAPI()
+    paths:
+      include:
+        - /internal/cli/notify.go
+    message: >
+      Phase-3 guardrail: `notify test` should not require explicit project scope.
+      Use getAPIForListing() and daemon-derived config lookup.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-project-scope
+
+  - id: cli-issue-create-must-not-infer-project-scope-for-config
+    patterns:
+      - pattern-inside: |
+          func runIssueCreate(issueID string, opts *issueCreateOptions) error {
+            ...
+          }
+      - pattern: getProjectRoot()
+    paths:
+      include:
+        - /internal/cli/issue.go
+    message: >
+      Phase-3 guardrail: `issue create` config lookup must not use implicit cwd
+      project root; rely on explicit project-scoped API client context.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-project-scope
+
+  - id: cli-attach-must-not-infer-project-scope-for-config
+    patterns:
+      - pattern-inside: |
+          func runAttachWithDeps(refStr string, opts *attachOptions, deps *attachDeps) error {
+            ...
+          }
+      - pattern: deps.getProjectRoot()
+    paths:
+      include:
+        - /internal/cli/attach.go
+    message: >
+      Phase-3 guardrail: `attach` config lookup must not infer project scope from cwd.
+      Use daemon-derived defaults without deps.getProjectRoot().
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-project-scope
+
+  - id: cli-diff-must-not-infer-project-scope-for-config
+    patterns:
+      - pattern-inside: |
+          func runDiff(refStr string, opts *diffOptions) error {
+            ...
+          }
+      - pattern: getProjectRoot()
+    paths:
+      include:
+        - /internal/cli/diff.go
+    message: >
+      Phase-3 guardrail: `diff` config lookup must not infer project scope from cwd.
+      Use daemon-derived/default config resolution in listing mode.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-project-scope
+
+  - id: cli-agent-must-not-infer-project-scope-from-cwd
+    patterns:
+      - pattern-inside: |
+          func runAgent(opts *agentOptions) error {
+            ...
+          }
+      - pattern: getProjectRoot()
+    paths:
+      include:
+        - /internal/cli/agent.go
+    message: >
+      Phase-3 guardrail: `agent` must require explicit project scope and must not
+      infer project root from cwd.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: cluster-project-scope
+
+  - id: cli-worker-status-must-not-proxy-daemon-status
+    patterns:
+      - pattern-inside: |
+          func runWorkerStatus() error {
+            ...
+          }
+      - pattern: return runDaemonStatus()
+    paths:
+      include:
+        - /internal/cli/master_worker.go
+    message: >
+      Phase-4 guardrail: `worker status` must use explicit worker protocol data,
+      not a daemon-status alias.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: worker-plane
+
+  - id: daemon-proto-start-run-must-use-worker-lease
+    patterns:
+      - pattern-inside: |
+          func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.Response {
+            ...
+          }
+      - pattern: s.processStartRunCore($STORE, $ROOT, $OPTS)
+      - pattern-not-inside: |
+          s.withWorkerLease(..., func(...) error {
+            ...
+            s.processStartRunCore($STORE, $ROOT, $OPTS)
+            ...
+          })
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+    message: >
+      Phase-4 guardrail: start_run execution side effects must be routed through
+      worker lease path (withWorkerLease), not invoked directly.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: worker-plane
+
+  - id: daemon-proto-continue-run-must-use-worker-lease
+    patterns:
+      - pattern-inside: |
+          func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *orchpb.Response {
+            ...
+          }
+      - pattern: s.processContinueRunCore($STORE, $ROOT, $OPTS)
+      - pattern-not-inside: |
+          s.withWorkerLease(..., func(...) error {
+            ...
+            s.processContinueRunCore($STORE, $ROOT, $OPTS)
+            ...
+          })
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+    message: >
+      Phase-4 guardrail: continue_run execution side effects must be routed through
+      worker lease path (withWorkerLease), not invoked directly.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: worker-plane
+
+  - id: daemon-proto-stop-run-must-use-worker-lease
+    patterns:
+      - pattern-inside: |
+          func (s *SocketServer) handleProtoStopRun(req *orchpb.StopRunRequest) *orchpb.Response {
+            ...
+          }
+      - pattern: s.stopSingleRun($RUN, $STORE)
+      - pattern-not-inside: |
+          s.withWorkerLease(..., func(...) error {
+            ...
+            s.stopSingleRun($RUN, $STORE)
+            ...
+          })
+    paths:
+      include:
+        - /internal/daemon/proto_handler.go
+    message: >
+      Phase-4 guardrail: stop_run side effects must be routed through worker lease
+      path (withWorkerLease), not invoked directly.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: worker-plane
 
   # ---------------------------------------------------------------------------
   # 7. Transport contract fidelity: prevent Message field overloading
@@ -783,7 +1802,7 @@ rules:
     message: >
       Do not return bare filepath.Base() as a repo ID.
       Bare basenames cause collisions when repos share the same directory name.
-      Fix: suffix with a path-derived hash, e.g. fmt.Sprintf("%s-%x", filepath.Base(x), sha256(x)[:4]).
+      Fix: require repo identity from explicit input or git remote metadata instead.
     severity: ERROR
     languages: [go]
     metadata:
@@ -1057,3 +2076,25 @@ rules:
     metadata:
       category: architecture
       violation: rate-limit-bypass
+
+  # ---------------------------------------------------------------------------
+  # 12. Control-agent split guardrails (remote-safe monitor architecture)
+  # ---------------------------------------------------------------------------
+
+  - id: monitor-no-control-agent-launch-rpc
+    patterns:
+      - pattern: $API.GetControlAgentLaunch(...)
+    paths:
+      include:
+        - /internal/monitor/
+      exclude:
+        - /internal/monitor/*_test.go
+    message: >
+      Monitor must not call GetControlAgentLaunch() directly.
+      For remote-safe architecture, monitor should use GetControlAgentConfig()
+      and manage local control-agent session lifecycle client-side.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: control-agent-split

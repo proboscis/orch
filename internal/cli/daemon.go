@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 )
 
 var daemonDebugMode bool
+var daemonListenAddr string
 
 func newDaemonCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -32,12 +34,151 @@ It runs automatically in the background when needed.`,
 		},
 	}
 	runCmd.Flags().BoolVar(&daemonDebugMode, "debug", false, "Enable verbose debug logging")
+	runCmd.Flags().StringVar(&daemonListenAddr, "listen", "", "Additional daemon listen address (e.g. tcp://0.0.0.0:7777)")
 	cmd.AddCommand(runCmd)
+	cmd.AddCommand(newDaemonStartCmd())
 
 	cmd.AddCommand(newDaemonListCmd())
 	cmd.AddCommand(newDaemonKillCmd())
 	cmd.AddCommand(newDaemonStatusCmd())
+	cmd.AddCommand(newDaemonRepoCmd())
 
+	return cmd
+}
+
+func newDaemonRepoCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "repo",
+		Short: "Manage daemon repo identity mappings",
+		Long: `Manage daemon-side repo identity mappings used by remote clients.
+
+Mappings connect repo URL identities to daemon-managed project workspaces.`,
+	}
+
+	cmd.AddCommand(newDaemonRepoRegisterCmd())
+	cmd.AddCommand(newDaemonRepoListCmd())
+
+	return cmd
+}
+
+func newDaemonRepoRegisterCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "register REPO_URL",
+		Short: "Register a repository URL for remote project identity",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDaemonRepoRegister(args[0])
+		},
+	}
+}
+
+func newDaemonRepoListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List repo identity mappings known by daemon",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDaemonRepoList()
+		},
+	}
+}
+
+func requireDaemonAdminClient() (*daemon.ProtoClient, error) {
+	remoteAddr := getRemoteAddr()
+	if remoteAddr != "" {
+		client := daemon.NewProtoClientWithAddress("", remoteAddr)
+		if err := client.Ping(); err != nil {
+			_ = client.Close()
+			return nil, fmt.Errorf("remote daemon %s is not reachable: %w", remoteAddr, err)
+		}
+		return client, nil
+	}
+
+	client := daemon.NewProtoClientWithAddress("", "")
+	if client.IsAvailable() {
+		return client, nil
+	}
+
+	if _, err := daemon.StartInBackground(); err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("daemon not running and failed to start: %w", err)
+	}
+
+	for i := 0; i < 10; i++ {
+		time.Sleep(100 * time.Millisecond)
+		if client.IsAvailable() {
+			return client, nil
+		}
+	}
+
+	_ = client.Close()
+	return nil, fmt.Errorf("daemon did not become available after starting")
+}
+
+func runDaemonRepoRegister(repoURL string) error {
+	client, err := requireDaemonAdminClient()
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	repoID, err := client.RegisterRepo(repoURL)
+	if err != nil {
+		return err
+	}
+
+	if globalOpts.JSON {
+		fmt.Printf("{\"repo_id\":%q,\"repo_url\":%q}\n", repoID, repoURL)
+		return nil
+	}
+
+	fmt.Printf("Registered repo mapping: %s -> %s\n", repoID, repoURL)
+	return nil
+}
+
+func runDaemonRepoList() error {
+	client, err := requireDaemonAdminClient()
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	repos, err := client.ListRepos()
+	if err != nil {
+		return err
+	}
+
+	if globalOpts.JSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(repos)
+	}
+
+	if len(repos) == 0 {
+		fmt.Println("No repo mappings registered.")
+		return nil
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "REPO_ID\tPROJECT_ROOT")
+	for _, r := range repos {
+		fmt.Fprintf(w, "%s\t%s\n", r["repo_id"], r["project_root"])
+	}
+	return w.Flush()
+}
+
+func newDaemonStartCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "start",
+		Short: "Start the daemon in the background",
+		Long: `Start the orch daemon in the background.
+
+Use --listen to additionally expose the proto API on TCP (e.g. for remote clients).`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDaemonStart()
+		},
+	}
+
+	cmd.Flags().StringVar(&daemonListenAddr, "listen", "", "Additional daemon listen address (e.g. tcp://0.0.0.0:7777)")
 	return cmd
 }
 
@@ -67,16 +208,15 @@ func newDaemonKillCmd() *cobra.Command {
 		Short: "Kill running daemon(s)",
 		Long: `Kill orch daemon(s).
 
-By default, kills the daemon for the current project.
-Use --all to kill all running daemons across all projects.
-Use --project to kill a daemon for a specific project.`,
+Orch uses a global daemon. By default, this kills that daemon.
+Use --all as an alias for the same behavior.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDaemonKill(opts)
 		},
 	}
 
 	cmd.Flags().BoolVar(&opts.All, "all", false, "Kill all running daemons")
-	cmd.Flags().StringVar(&opts.Project, "project", "", "Kill daemon for specific project path")
+	cmd.Flags().StringVar(&opts.Project, "project", "", "Deprecated: ignored for global daemon")
 
 	return cmd
 }
@@ -84,7 +224,7 @@ Use --project to kill a daemon for a specific project.`,
 func newDaemonStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
-		Short: "Show daemon status for current project",
+		Short: "Show global daemon status",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDaemonStatus()
 		},
@@ -135,6 +275,10 @@ func runDaemonList() error {
 }
 
 func runDaemonKill(opts *daemonKillOptions) error {
+	if opts.Project != "" {
+		fmt.Fprintln(os.Stderr, "warning: --project is deprecated and ignored for global daemon")
+	}
+
 	if opts.All {
 		count, err := daemon.KillAllDaemons()
 		if err != nil {
@@ -148,68 +292,59 @@ func runDaemonKill(opts *daemonKillOptions) error {
 		return nil
 	}
 
-	var projectRoot string
-	var err error
-
-	if opts.Project != "" {
-		projectRoot, err = filepath.Abs(opts.Project)
-		if err != nil {
-			return fmt.Errorf("invalid project path: %w", err)
-		}
-	} else {
-		projectRoot, err = getProjectRoot()
-		if err != nil {
-			return fmt.Errorf("could not determine project root: %w\nUse --project to specify a path or --all to kill all daemons", err)
-		}
-	}
-
-	if !daemon.IsRunning(projectRoot) {
-		fmt.Printf("No daemon running for %s\n", projectRoot)
+	if !daemon.IsRunning("") {
+		fmt.Println("No daemon running.")
 		return nil
 	}
 
-	pid := daemon.GetRunningPID(projectRoot)
-	if err := daemon.KillDaemon(projectRoot); err != nil {
+	pid := daemon.GetRunningPID("")
+	if err := daemon.KillDaemon(""); err != nil {
 		return fmt.Errorf("failed to kill daemon (pid=%d): %w", pid, err)
 	}
 
-	fmt.Printf("Killed daemon (pid=%d) for %s\n", pid, projectRoot)
+	fmt.Printf("Killed daemon (pid=%d)\n", pid)
 	return nil
 }
 
 func runDaemonStatus() error {
-	projectRoot, err := getProjectRoot()
-	if err != nil {
-		return fmt.Errorf("could not determine project root: %w", err)
+	remoteAddr := getRemoteAddr()
+	if remoteAddr != "" {
+		client := daemon.NewProtoClientWithAddress("", remoteAddr)
+		defer client.Close()
+
+		if err := client.Ping(); err != nil {
+			return fmt.Errorf("remote daemon %s is not reachable: %w", remoteAddr, err)
+		}
+
+		fmt.Printf("Status: running (remote=%s)\n", remoteAddr)
+		return nil
 	}
 
-	fmt.Printf("Project: %s\n", projectRoot)
-
-	if !daemon.IsRunning(projectRoot) {
+	if !daemon.IsRunning("") {
 		fmt.Println("Status: not running")
 		return nil
 	}
 
-	pid := daemon.GetRunningPID(projectRoot)
+	pid := daemon.GetRunningPID("")
 	fmt.Printf("Status: running (pid=%d)\n", pid)
 
-	if daemon.IsDaemonSocketAvailable(projectRoot) {
+	if daemon.IsDaemonSocketAvailable("") {
 		fmt.Println("Socket: available")
 	} else {
 		fmt.Println("Socket: unavailable")
 	}
 
-	if meta, err := daemon.ReadMetadata(projectRoot); err == nil {
+	if meta, err := daemon.ReadMetadata(""); err == nil {
 		fmt.Printf("Started: %s\n", meta.StartedAt.Format(time.RFC3339))
 		fmt.Printf("Uptime: %s\n", formatUptime(time.Since(meta.StartedAt)))
 	}
 
-	stale, err := daemon.IsStaleBinary(projectRoot)
+	stale, err := daemon.IsStaleBinary("")
 	if err == nil && stale {
 		fmt.Println("Warning: daemon is running stale binary (code updated since start)")
 	}
 
-	fmt.Printf("Log: %s\n", daemon.LogFilePath(projectRoot))
+	fmt.Printf("Log: %s\n", daemon.LogFilePath(""))
 
 	return nil
 }
@@ -237,24 +372,37 @@ func newDaemonRestartCmd() *cobra.Command {
 		Short:  "Restart daemon with new binary",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			projectRoot, err := getProjectRoot()
-			if err != nil {
+			if !daemon.IsRunning("") {
 				return nil
 			}
 
-			if !daemon.IsRunning(projectRoot) {
-				return nil
-			}
-
-			return daemon.RestartDaemon(projectRoot)
+			return daemon.RestartDaemon("")
 		},
 	}
 }
 
 func runDaemon() error {
-	if err := daemon.RunWithFileStore(daemonDebugMode); err != nil {
+	if err := daemon.RunWithFileStoreAndListen(daemonDebugMode, daemonListenAddr); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
+	}
+	return nil
+}
+
+func runDaemonStart() error {
+	if daemon.IsRunning("") {
+		fmt.Printf("Daemon already running (pid=%d)\n", daemon.GetRunningPID(""))
+		return nil
+	}
+
+	pid, err := daemon.StartInBackgroundWithListen(daemonListenAddr)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Started daemon (pid=%d)\n", pid)
+	if daemonListenAddr != "" {
+		fmt.Printf("Listening on %s\n", daemonListenAddr)
 	}
 	return nil
 }
@@ -277,17 +425,26 @@ func ensureDaemon() {
 var testBypassDaemon bool
 
 func requireDaemon() (*daemon.ProtoClient, error) {
-	projectRoot, err := getProjectRoot()
+	remoteAddr := getRemoteAddr()
+
+	projectRoot, explicitProjectRoot, err := getProjectRootWithSource()
 	if err != nil {
-		return nil, err
+		projectRoot = ""
+	}
+	if !explicitProjectRoot {
+		projectRoot = ""
 	}
 
-	issuesRoot, err := getIssuesRoot()
-	if err != nil {
-		return nil, err
+	if remoteAddr != "" {
+		client := daemon.NewProtoClientWithAddress(projectRoot, remoteAddr)
+		if err := client.Ping(); err != nil {
+			_ = client.Close()
+			return nil, fmt.Errorf("remote daemon %s is not reachable: %w", remoteAddr, err)
+		}
+		return client, nil
 	}
 
-	client := daemon.NewProtoClientWithIssuesRoot(projectRoot, issuesRoot)
+	client := daemon.NewProtoClientLocal(projectRoot)
 	if client.IsAvailable() {
 		return client, nil
 	}

@@ -135,10 +135,10 @@ func (m *mockAPI) WriteFile(ctx context.Context, path string, content []byte, pe
 	return nil
 }
 func (m *mockAPI) Ping(ctx context.Context) error { return nil }
-func (m *mockAPI) EnsureOpenCodeServer(ctx context.Context, projectRoot string) (*orchapi.OpenCodeServerInfo, error) {
+func (m *mockAPI) EnsureOpenCodeServer(ctx context.Context) (*orchapi.OpenCodeServerInfo, error) {
 	return nil, nil
 }
-func (m *mockAPI) GetConfig(ctx context.Context, projectRoot string) (*orchapi.Config, error) {
+func (m *mockAPI) GetConfig(ctx context.Context) (*orchapi.Config, error) {
 	return nil, nil
 }
 func (m *mockAPI) GetDaemonStatus(ctx context.Context) (*orchapi.DaemonStatus, error) {

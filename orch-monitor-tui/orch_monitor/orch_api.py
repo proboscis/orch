@@ -141,6 +141,15 @@ class ControlAgentLaunch:
 
 
 @dataclass
+class ControlAgentConfig:
+    prompt_content: str
+    agent: str
+    model: str
+    model_variant: str
+    extra_args: list[str]
+
+
+@dataclass
 class AttachInfo:
     command: list[str]
     multiplexer: str
@@ -199,6 +208,11 @@ class OrchAPI(Protocol):
         new_session: bool = False,
     ) -> Result[ControlAgentLaunch, OrchError]: ...
 
+    def get_control_agent_config(
+        self,
+        project_root: str,
+    ) -> Result[ControlAgentConfig, OrchError]: ...
+
     def get_attach_info(
         self, issue_id: str, run_id: str
     ) -> Result[AttachInfo, OrchError]: ...
@@ -234,7 +248,6 @@ class OrchAPI(Protocol):
 
 def create_orch_api(
     socket_path: Optional[Path] = None,
-    issues_root: Optional[Path] = None,
     project_root: Optional[Path] = None,
     base_branch: str = "main",
     fallback_to_cli: bool = True,
@@ -243,7 +256,6 @@ def create_orch_api(
 
     api = DaemonOrchAPI(
         socket_path=socket_path,
-        issues_root=issues_root,
         project_root=project_root,
         base_branch=base_branch,
     )

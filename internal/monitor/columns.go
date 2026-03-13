@@ -18,6 +18,8 @@ const (
 	ColIssueStatus ColumnID = "issue_status"
 	ColAgent       ColumnID = "agent"
 	ColModel       ColumnID = "model"
+	ColTarget      ColumnID = "target"
+	ColHost        ColumnID = "host"
 	ColStatus      ColumnID = "status"
 	ColAlive       ColumnID = "alive"
 	ColBranch      ColumnID = "branch"
@@ -43,6 +45,8 @@ var columnRegistry = map[ColumnID]ColumnDef{
 	ColIssueStatus: {ID: ColIssueStatus, Header: "ISSUE-ST", Width: 8},
 	ColAgent:       {ID: ColAgent, Header: "AGENT", Width: agent.MaxAgentDisplayWidth},
 	ColModel:       {ID: ColModel, Header: "MODEL", Width: 18},
+	ColTarget:      {ID: ColTarget, Header: "TARGET", Width: runTableTargetWidth},
+	ColHost:        {ID: ColHost, Header: "HOST", Width: runTableTargetHostWidth},
 	ColStatus:      {ID: ColStatus, Header: "STATUS", Width: 10},
 	ColAlive:       {ID: ColAlive, Header: "ALIVE", Width: 5},
 	ColBranch:      {ID: ColBranch, Header: "BRANCH", Width: runTableBranchWidth},
@@ -61,6 +65,8 @@ var defaultColumns = []ColumnID{
 	ColIssueStatus,
 	ColAgent,
 	ColModel,
+	ColTarget,
+	ColHost,
 	ColStatus,
 	ColAlive,
 	ColBranch,
@@ -168,6 +174,10 @@ func GetColumnValue(col ColumnID, row *RunRow, now time.Time) string {
 		return row.Agent
 	case ColModel:
 		return row.Model
+	case ColTarget:
+		return row.Target
+	case ColHost:
+		return row.TargetHost
 	case ColStatus:
 		return string(row.Status)
 	case ColAlive:
