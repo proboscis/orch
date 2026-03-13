@@ -1,189 +1,169 @@
 ---
 name: orch-toolset
 description: |
-  Use when working with the orch CLI for managing LLM agent runs, issues, and multi-agent orchestration.
-  Covers orch issue create/list/open, orch run/ps/stop/resolve/continue, orch monitor/attach/capture, orch send/exec, and control agent workflows.
-  Trigger terms: orch, orchestrator, issue management, run management, agent runs, multi-agent, tmux session, worktree.
-version: 1.0.0
+  Use when working with the orch CLI for issue management, agent runs, worker/master execution,
+  and host-aware session control. Covers orch issue create/list/open, orch run/ps/show/stop/resolve/
+  restart-from, orch worker start/status/stop, orch attach/capture/send/exec, and remote execution
+  via ORCH_REMOTE and target_host. Trigger terms: orch, orchestrator, worker, master, ORCH_REMOTE,
+  target_host, run management, issue management, agent runs, worktree.
+version: 1.1.0
 ---
 
 # Orch Toolset
 
-Orch is a non-interactive orchestrator for managing multiple LLM CLI agents (Claude, Codex, Gemini) using issues and runs as the core abstraction.
+Orch is a non-interactive orchestrator for managing LLM agent runs around issues,
+worktrees, and append-only run events.
 
-## Design Philosophy
+## Current Execution Model
 
-- **Non-interactive by default**: Runs start, agent works, CLI returns immediately
-- **Append-only events**: Run state derived from immutable event log
-- **UI as skin**: CLI is stable contract; tmux/VSCode/Obsidian are optional layers
-- **Delegate PTY control**: Use tmux for interaction, not direct TTY
+- **Issue**: unit of work specification.
+- **Run**: one execution attempt for an issue.
+- **RUN_REF**: `ISSUE_ID#RUN_ID`, `ISSUE_ID` for latest run, or short hex ID.
+- **Master**: the daemon endpoint that stores issue/run state.
+- **Worker**: a long-lived host-local executor process that registers to a master.
+- **Execution host**: the host where the run session actually lives. `orch ps` shows this in
+  the `HOST` column, and JSON output exposes it as `target_host`.
 
-## Core Vocabulary
+Important remote rule:
 
-- **Issue**: Unit of work specification (e.g., `orch-055`)
-- **Run**: Single execution attempt for an issue (multiple runs per issue possible)
-- **Event**: Immutable append-only record in run log
-- **RUN_REF**: Reference format - `ISSUE_ID#RUN_ID`, `ISSUE_ID` (latest), or SHORT_ID (6-char hex)
+- `ORCH_REMOTE=<master>` points the CLI and local worker at that master.
+- It does **not** mean `worker start` happens on the remote host.
+- `orch worker start` is local-host scoped. The worker process is started on the machine where
+  you run the command, then it connects to the configured master.
 
 ## Core Workflow
 
-1. Create or review the issue with `orch issue create` or `orch open`
-2. Start work with `orch run <issue-id>` (picks agent, creates worktree, launches tmux session)
-3. Track progress with `orch ps` and inspect with `orch show` or `orch open`
-4. Monitor or interact with `orch monitor`, `orch attach`, `orch capture`, and `orch send`
-5. Stop stale runs with `orch stop` and mark finished work with `orch resolve`
+1. Create or inspect the issue with `orch issue create`, `orch issue list`, or `orch open`.
+2. If using a remote master, start or verify the **local** worker first:
+   `ORCH_REMOTE=<master> orch worker start`
+3. Start work with `orch run <issue-id>`.
+4. Track state with `orch ps` and inspect details with `orch show`.
+5. Interact with the live run via `orch capture`, `orch send`, and `orch attach`.
+6. Use `orch stop` only for actually stale or canceled work. Use `orch restart-from` only for
+   failed, canceled, or unknown runs. Mark completed work with `orch resolve`.
 
-## Command Categories
+## Run States
 
-### Issue Management
-- `orch issue create <ID> --title "..." --tag <tag>`: Create new issue with frontmatter
-  - Tags are written to YAML frontmatter: `--tag bug --tag urgent` or `--tag bug,urgent`
-- `orch issue list`: List all issues (filter with `--status`, `--tag`, `--tag-any`)
-  - Filter by tags (AND): `orch issue list --tag bug --tag urgent`
-  - Filter by tags (OR): `orch issue list --tag-any bug,enhancement`
-- `orch open <ID>`: Open issue/run in Obsidian or editor
+Use the current run states only:
 
-### Run Management
-- `orch run <ISSUE_ID>`: Start new run (creates worktree, launches agent in tmux)
-- `orch restart-from <RUN_REF>`: Restart from existing worktree/branch (failed/canceled/unknown runs ONLY)
-  - Pass a failed/canceled run's short ID to retry: `orch restart-from 33632a`
-  - Use `--agent` to change agent type: `orch restart-from 33632a --agent codex`
-  - **NEVER use on `blocked` runs** — blocked means the agent is waiting for user input, not stuck. Use `orch send` to answer the agent's question instead.
-- `orch ps`: List runs with status filtering
-- `orch show <RUN_REF>`: Inspect run details and events
-- `orch stop <RUN_REF>`: Kill tmux session and mark canceled
-- `orch resolve <ISSUE_ID>`: Mark issue as resolved
+- `queued`
+- `booting`
+- `running`
+- `waiting`
+- `rate_limited`
+- `pr_open`
+- `done`
+- `failed`
+- `canceled`
+- `unknown`
 
-### Monitoring
-- `orch monitor`: Interactive TUI dashboard for all runs
-- `orch attach <RUN_REF>`: Attach to agent's tmux session
-- `orch capture <RUN_REF>`: Get agent output without attaching
+Operational guidance:
 
-### Agent Communication
-- `orch send <RUN_REF> <MESSAGE>`: Send text to running agent
-- `orch exec <RUN_REF> -- COMMAND`: Execute command in run's worktree
+- `waiting`: run is alive and waiting for user input. Use `orch send`.
+- `rate_limited`: run is alive but blocked on provider/API pacing. Do not restart it blindly.
+- `running`, `waiting`, and `rate_limited` are all live states. Do not use `orch restart-from`
+  on them.
+- `restart-from` is for `failed`, `canceled`, or `unknown` runs.
 
-### Maintenance
-- `orch repair`: Fix system state corruption
-- `orch tick <RUN_REF>`: Resume blocked runs
+## Host-Aware Session Control
 
-## Run Lifecycle States
+`attach`, `capture`, and `send` are execution-host aware.
 
-```
-queued -> booting -> running -> blocked -> pr_open -> done
-                            \-> failed
-                            \-> canceled
-                            \-> unknown
-```
+- For local runs, they operate on the local host.
+- For remote runs, they route to the run's execution host.
+- Remote `attach` / `capture` / `send` require SSH reachability from the operator host.
+- `tmux` and `zellij` runs use multiplexer control.
+- `opencode` runs use OpenCode HTTP session control.
 
-State meanings:
-- `queued`: Run created, waiting to start
-- `booting`: Agent starting up
-- `running`: Agent actively working
-- `blocked`: Agent is waiting for user input (asked a question via CLI prompt). This is NOT an error state — the agent is alive and has full context. Use `orch send <RUN_REF> "your answer"` to respond and unblock it. Do NOT use `orch stop` + `orch restart-from` — that kills the session, loses context, and starts a fresh agent.
-- `blocked_api`: API rate limit hit
-- `pr_open`: PR created, awaiting review
-- `done`: Work completed successfully
-- `failed`: Run failed with error
-- `canceled`: Manually stopped via `orch stop`
-- `unknown`: Agent exited unexpectedly
+`attach` notes:
 
-## Best Practices for Multi-Run Orchestration
+- Prefer `attach` when you need true interactive handoff.
+- In headless environments, `attach` may only prove that the attach path reaches the interactive
+  boundary; it may not stay attached to the UI.
 
-### Issue/Run Design
-- Keep each issue focused; split large work into separate issues
-- One run per attempt; use `orch restart-from` for retries from same branch
-- Use issue status (open/resolved) separately from run status
+## Worker / Master Plane
 
-### Monitoring Strategy
-- Use `orch ps --status running,blocked` for active attention
-- Use `orch monitor` for multi-agent coordination and rapid context-switching
-- Set up background daemon (auto-runs) and check periodically
+Use the worker commands when operating across hosts:
 
-### Communication
-- Prefer `orch send` + `orch capture` for programmatic loops
-- Use `orch attach` for interactive handoffs (image paste, complex setup)
-- Record decisions in issue/run notes (via `orch open`)
+- `orch worker start`
+- `orch worker status`
+- `orch worker stop`
 
-### Workflow Tips
-- Stop idle/stale runs before starting new ones
-- Use short IDs (2-6 hex chars) for speed: `orch attach a3b4c5`
-- Continue failed/canceled runs instead of starting fresh: `orch restart-from <failed-run-id> --agent codex`
-- Unblock blocked runs with `orch send`, never with `orch stop` + `orch restart-from`
-- Keep issue queue clean: resolve completed, close duplicates
-- Use `orch exec -- <test>` for isolated testing without tmux
+What to expect:
 
-## Control Agent Workflow
+- `worker status` shows both:
+  - local managed-process state
+  - master registration state
+- `ps` and `show --json` surface the execution host via `HOST` / `target_host`.
+- Repeating `worker start` on the same host/profile should reuse the same managed worker rather
+  than creating duplicates.
 
-When acting as a control agent managing other runs:
+Remote example:
 
-1. **Survey**: `orch issue list` to see all work items
-2. **Monitor**: `orch ps --status running,blocked` to prioritize attention
-3. **Investigate**: `orch capture <run>` to fetch output without attaching
-4. **Inspect**: `orch open <run>` to read full run doc with context
-5. **Guide**: `orch send <run> "focused guidance"` to steer work
-6. **Execute**: `orch exec <run> -- pytest` to test in isolation
-7. **Manage**: `orch stop <issue>` to kill stale runs
-8. **Resolve**: `orch resolve <issue>` to mark completed work
-
-### Key Control Patterns
-- Use `orch capture` + `orch send` for async coordination
-- Use `orch attach` only when direct interaction needed (image paste, complex dialog)
-- Check `orch ps` frequently to catch blockers early
-- Open run docs in editor to read full context before sending guidance
-
-## Event Format
-
-Events are append-only records in run documents:
-
-```
-- <ISO8601> | <type> | <name> | key=value | ...
+```bash
+export ORCH_REMOTE=zeus:7777
+orch worker start
+orch worker status --json
+orch run plc-123
+orch ps --json
 ```
 
-Types: `status`, `artifact`, `phase`, `test`, `monitor`
+Interpretation:
 
-## Configuration
+- the worker process started on **this** machine
+- the worker registered to `zeus:7777`
+- the run's `target_host` / `HOST` tells you where the session actually runs
 
-Config resolution order:
-1. Command-line options (`--vault`, `--backend`, `--worktree-dir`)
-2. `.orch/config.yaml` in current/parent directories
-3. Environment variables (`ORCH_VAULT`, `ORCH_BACKEND`)
-4. Global config (`~/.config/orch/config.yaml`)
+## Control-Agent Patterns
 
-Example `.orch/config.yaml`:
-```yaml
-vault: ~/vault
-agent: claude
-worktree_dir: ~/.orch/worktrees
-base_branch: main
-```
+- Use `orch ps --status running,waiting,rate_limited` to focus on live work.
+- Use `orch capture` before `orch send`.
+- Use `orch show --json` when you need artifacts like `target_host`, `server_port`, or
+  `opencode_session_id`.
+- Use short IDs for speed once the run is unambiguous.
+- Keep live runs alive; prefer guidance over restart.
 
-### Worktree Directory
+## Fail Fast, Fail Clearly
 
-Worktrees are created outside the repo by default at `~/.orch/worktrees/`. Override with:
-- CLI: `orch run <issue> --worktree-dir /path/to/dir`
-- Config: `worktree_dir: /custom/path`
+Treat silent success as suspicious.
 
-Benefits of external worktrees:
-- Keeps repository directory clean
-- Centralizes worktrees across multiple orch-managed repos
-- Allows placement on faster storage
+- Missing sessions should fail with an explicit error, not empty output.
+- `orch capture` returning nothing on failure is a bug; expect a concrete host/session/server
+  error instead.
+- If `send` fails, treat it as a transport/runtime problem first, not an invitation to restart.
+- OpenCode bootstrap or session-creation failures are infrastructure/runtime failures.
+- Provider/auth failures *inside* Claude/Codex/OpenCode are different from orch transport failures.
 
-## Quick Command Reference
+Recommended triage order:
+
+1. `orch capture <RUN_REF>`
+2. `orch ps`
+3. `orch show <RUN_REF> --json`
+4. inspect the host-specific runtime (`tmux`, `zellij`, worker status, OpenCode logs)
+
+## Workflow Tips
+
+- Use `orch send` to answer `waiting` runs.
+- Do not `stop` + `restart-from` a live run just because it asked a question.
+- Use `orch exec` for isolated test or git commands inside a run worktree.
+- Use `worker status --json` when debugging remote execution, host placement, or stale workers.
+
+## Quick Reference
 
 | Goal | Command |
 |------|---------|
-| Create issue | `orch issue create <ID> --title "..." --tag <tag>` |
+| Create issue | `orch issue create <ID> --title "..."` |
+| Start local worker to remote master | `ORCH_REMOTE=<master> orch worker start` |
+| Inspect worker | `ORCH_REMOTE=<master> orch worker status --json` |
 | Start run | `orch run <ISSUE>` |
-| Continue failed run | `orch restart-from <RUN_ID> --agent codex` |
-| List active | `orch ps --status running,blocked` |
-| Inspect run | `orch show <RUN>` |
-| Watch agent | `orch attach <RUN>` |
+| List live runs | `orch ps --status running,waiting,rate_limited` |
+| Inspect run metadata | `orch show <RUN> --json` |
 | Get output | `orch capture <RUN>` |
 | Send guidance | `orch send <RUN> "message"` |
-| Run tests | `orch exec <RUN> -- pytest` |
-| Stop run | `orch stop <RUN>` |
-| Mark done | `orch resolve <ISSUE>` |
-| TUI dashboard | `orch monitor` |
+| Attach interactively | `orch attach <RUN>` |
+| Run tests in worktree | `orch exec <RUN> -- <command>` |
+| Retry terminal run | `orch restart-from <RUN>` |
+| Stop stale run | `orch stop <RUN>` |
+| Resolve issue | `orch resolve <ISSUE>` |
 
-For detailed syntax, flags, and examples, see [reference.md](reference.md).
+For command syntax, flags, and richer examples, see [reference.md](reference.md).

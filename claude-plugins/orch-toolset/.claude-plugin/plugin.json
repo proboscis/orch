@@ -1,7 +1,7 @@
 {
   "name": "orch-toolset",
-  "version": "1.0.0",
-  "description": "Agent Skills for using the orch CLI to orchestrate LLM agent runs, manage issues, monitor agents, and coordinate multi-agent workflows",
+  "version": "1.1.0",
+  "description": "Agent Skills for using the orch CLI to manage issues, runs, workers, remote masters, and host-aware session control",
   "author": {
     "name": "Orch Maintainers",
     "email": "proboscis@users.noreply.github.com"

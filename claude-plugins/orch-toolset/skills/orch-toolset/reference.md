@@ -1,641 +1,516 @@
 # Orch Command Reference
 
-## Run References (RUN_REF)
+## Run References
 
-Commands that accept a RUN_REF understand multiple formats:
+Commands that accept a run reference understand:
 
-- `ISSUE_ID#RUN_ID` - Target specific run (e.g., `orch-055#20251223-165605`)
-- `ISSUE_ID` - Target latest run for that issue (e.g., `orch-055`)
-- `SHORT_ID` - First 6 hex chars of run ID (e.g., `a3b4c5`)
+- `ISSUE_ID#RUN_ID` for a specific run
+- `ISSUE_ID` for the latest run of an issue
+- short hex ID when unambiguous
 
 ## Global Flags
 
-All commands support these flags:
+Common flags across `orch` commands:
 
 | Flag | Description |
 |------|-------------|
-| `--vault PATH` | Vault path (or env `ORCH_VAULT`) |
-| `--backend file\|github\|linear` | Backend selection (file is default) |
-| `--json` | Machine-readable JSON output |
-| `--tsv` | TSV output (useful for fzf) |
-| `--quiet` | Suppress human output |
-| `--log-level` | error\|warn\|info\|debug |
-
-## Exit Codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 2 | Issue not found |
-| 3 | Worktree error |
-| 4 | Tmux error |
-| 5 | Agent launch error |
-| 6 | Run not found |
-| 7 | Question not found |
-| 10 | Internal error |
+| `--backend` | `file`, `github`, or `linear` |
+| `--project` | Project identity / normalized repo ID |
+| `--remote` | Remote daemon address (same as `ORCH_REMOTE`) |
+| `--json` | JSON output |
+| `--tsv` | TSV output |
+| `--quiet` | Suppress human-oriented output |
+| `--log-level` | `error`, `warn`, `info`, `debug` |
 
 ---
 
 ## Issue Management
 
-### orch issue create ISSUE_ID
+### `orch issue create [ISSUE_ID]`
 
-Create a new issue document.
+Create a new issue.
 
 ```bash
-# Basic usage
-orch issue create orch-055 --title "Create Claude Code plugin"
+# Local backend
+orch issue create plc-123 --title "Fix login timeout"
 
-# With full options
-orch issue create orch-055 \
-  --title "Create Claude Code plugin" \
-  --summary "Claude Code skill plugin for orch toolset" \
-  --body "Detailed description here..." \
-  --tag tooling --tag ux
-
-# Comma-separated tags
-orch issue create orch-055 --title "Fix bug" --tag bug,urgent
+# Add summary/body/tags
+orch issue create plc-123 \
+  --title "Fix login timeout" \
+  --summary "Login requests can hang for 30s" \
+  --body "Repro steps..." \
+  --tag bug --tag auth
 
 # Open editor after creation
-orch issue create orch-055 --edit
+orch issue create plc-123 --title "Draft issue" --edit
 ```
 
-**Flags:**
-| Flag | Description |
-|------|-------------|
-| `--title` | Issue title |
-| `--summary` | One-line summary |
-| `--body` | Detailed description |
-| `--tag` | Tags (repeatable, comma-separated) |
-| `--edit` | Open $EDITOR after creation |
+Notes:
 
-**Creates:** `issues/<ISSUE_ID>.md` with frontmatter:
-```yaml
----
-type: issue
-id: orch-055
-title: Create Claude Code plugin
-tags: [tooling, ux]
-status: open
-summary: ...
----
-```
+- Local backend requires `ISSUE_ID`.
+- GitHub backend can omit `ISSUE_ID` because GitHub assigns it.
 
-### orch issue list
+### `orch issue list`
 
-List all issues in vault.
+List issues, optionally filtering by status or tags.
 
 ```bash
-# All issues
 orch issue list
-
-# Filter by status
 orch issue list --status open
-
-# Filter by tags (AND - must have all)
 orch issue list --tag bug --tag urgent
-
-# Filter by tags (OR - has any)
 orch issue list --tag-any bug,enhancement
-
-# With run info
-orch issue list --with-runs
-
-# JSON output
 orch issue list --json
 ```
 
-**Flags:**
-| Flag | Description |
-|------|-------------|
-| `--status` | Filter by status (open/closed/resolved) |
-| `--tag` | Filter by tag (AND logic, repeatable) |
-| `--tag-any` | Filter by any tag (OR logic, comma-separated) |
-| `--with-runs` | Show active runs per issue |
+### `orch open ISSUE_ID|RUN_REF`
 
-### orch open ISSUE_ID|RUN_REF
-
-Open issue or run document in editor.
+Open an issue or run document in your editor or another app.
 
 ```bash
-# Open issue
-orch open orch-055
-
-# Open specific run
-orch open orch-055#20251223-165605
-
-# Use short ID
+orch open plc-123
+orch open plc-123#20260312-101500
 orch open a3b4c5
-
-# Open in Obsidian
-orch open orch-055 --app obsidian
-
-# Just print path (for scripting)
-orch open orch-055 --print-path
+orch open plc-123 --print-path
 ```
-
-**Flags:**
-| Flag | Description |
-|------|-------------|
-| `--app` | obsidian\|editor\|default |
-| `--print-path` | Print path without opening |
 
 ---
 
 ## Run Management
 
-### orch run ISSUE_ID
+### `orch run ISSUE_ID`
 
-Start a new run - creates worktree, launches agent in tmux, returns immediately.
-
-```bash
-# Basic usage (uses default agent: claude)
-orch run orch-055
-
-# Specify agent
-orch run orch-055 --agent codex
-orch run orch-055 --agent gemini
-orch run orch-055 --agent custom --agent-cmd "my-agent --flag"
-
-# Custom branch
-orch run orch-055 --branch "feature/my-branch"
-
-# Dry run (show what would happen)
-orch run orch-055 --dry-run
-
-# Skip PR creation instructions
-orch run orch-055 --no-pr
-
-# Specify profile
-orch run orch-055 --agent claude --profile my-profile
-```
-
-**Flags:**
-| Flag | Description |
-|------|-------------|
-| `--agent` | claude\|codex\|gemini\|custom |
-| `--agent-cmd` | Command for custom agent |
-| `--profile` | Agent profile to use |
-| `--run-id` | Manual run ID (default: YYYYMMDD-HHMMSS) |
-| `--base-branch` | Base branch (default: main) |
-| `--branch` | Custom branch name |
-| `--worktree-dir` | Worktree location (default: ~/.orch/worktrees) |
-| `--repo-root` | Explicit git root |
-| `--tmux / --no-tmux` | Enable/disable tmux (default: tmux) |
-| `--tmux-session` | Custom session name |
-| `--dry-run` | Show plan without executing |
-| `--no-pr` | Skip PR creation instructions |
-
-**Default Conventions:**
-- RUN_ID: `YYYYMMDD-HHMMSS`
-- Branch: `issue/<ISSUE_ID>/run-<RUN_ID>`
-- Worktree: `<worktree_dir>/<ISSUE_ID>/<SHORT_ID>_<AGENT>_<RUN_ID>`
-- Tmux session: `run-<ISSUE_ID>-<RUN_ID>`
-
-### orch restart-from RUN_REF|ISSUE_ID
-
-Resume from existing worktree/branch with a new run. **For failed/canceled/unknown runs ONLY.** Never use on `blocked` runs — those are waiting for user input via `orch send`, not stuck.
+Create a run, create its worktree, and launch the selected agent.
 
 ```bash
-# Restart latest run for issue
-orch restart-from orch-055
-
-# Restart specific run
-orch restart-from orch-055#20251223-165605
-
-# Restart with different agent
-orch restart-from orch-055 --agent codex
-
-# Restart from specific branch
-orch restart-from --branch "issue/orch-055/run-20251223" --issue orch-055
+orch run plc-123
+orch run plc-123 --agent codex
+orch run plc-123 --agent opencode --model anthropic/claude-opus-4-6 --model-variant max
+orch run plc-123 --on zeus
+orch run plc-123 --reuse
+orch run plc-123 --json
 ```
 
-**Flags:**
+Useful flags:
+
 | Flag | Description |
 |------|-------------|
-| `--agent` | Agent (default: previous run's agent) |
-| `--agent-cmd` | Custom agent command |
+| `--agent` | `claude`, `codex`, `gemini`, `opencode`, `custom` |
+| `--agent-cmd` | Command for `custom` agent |
+| `--base-branch` | Base branch for worktree |
+| `--branch` | Explicit branch name |
+| `--model` | OpenCode model (`provider/model`) |
+| `--model-variant` | OpenCode variant (`high`, `max`, etc.) |
+| `--multiplexer` | `tmux` or `zellij` |
+| `--no-pr` | Skip PR instructions in prompt |
+| `--on` | Target name from `config.targets` |
+| `--preset` | Named model preset from config |
 | `--profile` | Agent profile |
-| `--branch` | Specific branch to restart from |
-| `--issue` | Issue ID when using --branch |
-| `--tmux / --no-tmux` | Enable/disable tmux |
-| `--no-pr` | Skip PR instructions |
+| `--prompt-template` | Custom prompt template |
+| `--reuse` | Reuse latest `waiting` or `rate_limited` run |
+| `--run-id` | Explicit run ID |
+| `--session-name` | Explicit session name |
+| `--dry-run` | Show plan without executing |
 
-**Behavior:**
-- Fails if target run is still active (use `orch send` / `orch capture` to interact)
-- Reuses existing worktree and branch
-- Creates new run doc with `continued_from` reference
+Remote note:
 
-### orch ps
+- `--on <target>` chooses a configured execution target.
+- `ORCH_REMOTE=<master>` chooses which master daemon the CLI talks to.
+- Those are separate concerns.
 
-List runs with status information.
+### `orch restart-from [RUN_REF|ISSUE_ID]`
+
+Restart work from an existing run by reusing its worktree and branch.
+
+Use this only for terminal runs:
+
+- `failed`
+- `canceled`
+- `unknown`
+
+Do **not** use it for live runs:
+
+- `running`
+- `waiting`
+- `rate_limited`
+- `booting`
+- `queued`
+- `pr_open`
+
+Use `orch send` for `waiting` runs.
 
 ```bash
-# All recent runs
+orch restart-from plc-123
+orch restart-from plc-123#20260312-101500
+orch restart-from a3b4c5 --agent codex
+orch restart-from --branch "issue/plc-123/run-20260312-101500" --issue plc-123
+```
+
+### `orch ps`
+
+List runs with current status and execution-host information.
+
+```bash
 orch ps
-
-# Filter by status
-orch ps --status running
-orch ps --status running,waiting
-orch ps --status pr_open,done
-
-# Filter by issue
-orch ps --issue orch-055
-
-# Show all including resolved
+orch ps --status running,waiting,rate_limited
+orch ps --issue plc-123
 orch ps --all
-
-# Sort options
-orch ps --sort updated    # default
-orch ps --sort started
-
-# Machine-readable
 orch ps --json
-orch ps --tsv  # for fzf
+orch ps --tsv
 ```
 
-**Flags:**
-| Flag | Description |
-|------|-------------|
-| `--status` | Filter: queued,booting,running,waiting,rate_limited,pr_open,done,resolved,failed,canceled,unknown |
-| `--issue-status` | Filter by issue status (open/closed) |
-| `--issue` | Filter by issue ID |
-| `--limit N` | Max runs (default: 50) |
-| `--sort` | updated\|started |
-| `--since` | Only runs after timestamp |
-| `--absolute-time` | Show absolute timestamps |
-| `--all` | Include resolved runs |
+Current run statuses:
 
-**TSV Columns:**
+- `queued`
+- `booting`
+- `running`
+- `waiting`
+- `rate_limited`
+- `pr_open`
+- `done`
+- `failed`
+- `canceled`
+- `unknown`
+
+Important output semantics:
+
+- table output includes a `HOST` column for the actual execution host
+- JSON output includes `target_host`
+- `target_host` may be populated even when logical `target` is empty
+
+Example JSON fragment:
+
+```json
+{
+  "issue_id": "plc-123",
+  "run_id": "20260312-101500-codex",
+  "target": "",
+  "target_host": "mac-host",
+  "status": "running"
+}
 ```
-issue_id, issue_status, run_id, short_id, agent, status, updated_at, pr_url, branch, worktree_path, session_name
+
+TSV ordering begins with:
+
+```text
+issue_id  issue_status  run_id  short_id  agent  model  model_variant  target  target_host  status ...
 ```
 
-### orch show RUN_REF
+### `orch show RUN_REF`
 
-Inspect a run's details, events, and artifacts.
+Inspect run details, events, and artifacts.
 
 ```bash
-# Show run details
-orch show orch-055#20251223-165605
-
-# Use short ID
+orch show plc-123
+orch show plc-123#20260312-101500
 orch show a3b4c5
-
-# Custom tail length
-orch show orch-055 --tail 100
-
-# Only events
-orch show orch-055 --events-only
-
-# Show pending questions
-orch show orch-055 --questions
+orch show plc-123 --tail 100
+orch show plc-123 --events-only
+orch show plc-123 --json
 ```
 
-**Flags:**
-| Flag | Description |
-|------|-------------|
-| `--tail N` | Event tail length (default: 80) |
-| `--events-only` | Only show events |
-| `--questions` | Show unanswered questions |
+Use `show --json` when you need:
 
-### orch stop ISSUE_ID|RUN_REF|--all
+- `target_host`
+- `session_name`
+- `server_port`
+- `opencode_session_id`
+- artifact history
 
-Stop running agents and mark as canceled.
+### `orch stop [ISSUE_ID|ISSUE_ID#RUN_ID]`
+
+Stop runs and mark them canceled.
 
 ```bash
-# Stop all runs for an issue
-orch stop orch-055
-
-# Stop specific run
-orch stop orch-055#20251223-165605
-
-# Stop by short ID
+orch stop plc-123
+orch stop plc-123#20260312-101500
 orch stop a3b4c5
-
-# Stop all active runs
 orch stop --all
-
-# Force stop (even if session missing)
-orch stop orch-055 --force
+orch stop plc-123 --force
 ```
 
-**Flags:**
-| Flag | Description |
-|------|-------------|
-| `--all` | Stop all active runs |
-| `--force` | Force cancel even if session missing |
+Behavior:
 
-**Behavior:**
-- `ISSUE_ID` alone stops ALL active runs for that issue
-- Kills tmux session if exists
-- Appends `status=canceled` event
+- `ISSUE_ID` stops all active runs for that issue
+- `--force` can mark canceled even if the session is already gone
 
-### orch resolve ISSUE_ID
+### `orch resolve ISSUE_ID`
 
-Mark an issue as resolved.
+Mark the issue itself as resolved.
 
 ```bash
-# Resolve issue
-orch resolve orch-055
-
-# Force resolve (without completed runs)
-orch resolve orch-055 --force
+orch resolve plc-123
+orch resolve plc-123 --force
 ```
-
-**Flags:**
-| Flag | Description |
-|------|-------------|
-| `--force` | Allow resolving without completed runs |
-
-**Note:** This marks the *issue* status, not individual run status.
 
 ---
 
-## Monitoring
+## Worker Execution Plane
 
-### orch monitor
+### `orch worker start`
 
-Interactive TUI dashboard for managing all runs.
+Start the managed local worker process.
 
 ```bash
-# Start monitor
+# Start a local worker against the local daemon/master
+orch worker start
+
+# Start a local worker that registers to a remote master
+ORCH_REMOTE=zeus:7777 orch worker start
+
+# Start a specific worker ID
+ORCH_REMOTE=zeus:7777 orch worker start --worker-id host-mac
+```
+
+Important behavior:
+
+- `worker start` is local-host scoped
+- `ORCH_REMOTE=<master>` changes which master the local worker registers to
+- it does not start a worker on the remote host
+
+### `orch worker status`
+
+Inspect the managed local worker and its master registration.
+
+```bash
+ORCH_REMOTE=zeus:7777 orch worker status
+ORCH_REMOTE=zeus:7777 orch worker status --json
+```
+
+Interpretation:
+
+- `local`: local managed process state, PID, log path, last error
+- `master`: whether the worker is registered and active on the selected master
+
+Example JSON shape:
+
+```json
+{
+  "worker_id": "host-mac",
+  "local": {
+    "process_exists": true,
+    "state": "running"
+  },
+  "master": {
+    "state": "active"
+  }
+}
+```
+
+### `orch worker stop`
+
+Stop the managed local worker process.
+
+```bash
+ORCH_REMOTE=zeus:7777 orch worker stop
+ORCH_REMOTE=zeus:7777 orch worker stop --all
+ORCH_REMOTE=zeus:7777 orch worker stop --worker-id host-mac
+```
+
+---
+
+## Monitoring and Session Control
+
+### `orch monitor`
+
+Interactive monitor for issue/run management.
+
+```bash
 orch monitor
-
-# Filter to specific issue
-orch monitor --issue orch-055
-
-# Filter by status
+orch monitor --issue plc-123
 orch monitor --status running,waiting
-
-# Start and immediately attach
 orch monitor --attach
-
-# Start new run from monitor
 orch monitor --new
-
-# Specify agent for new runs
-orch monitor --agent codex
+orch monitor --new-control-agent
 ```
 
-**Flags:**
-| Flag | Description |
-|------|-------------|
-| `--issue` | Filter to specific issue |
-| `--status` | Filter by run status |
-| `--attach` | Immediately attach to run |
-| `--new` | Start a new run |
-| `--agent` | Agent for new runs |
+### `orch attach RUN_REF`
 
-**Keyboard Shortcuts:**
-| Key | Action |
-|-----|--------|
-| `1-9` | Attach to run by index |
-| `s` | Stop mode |
-| `n` | New run |
-| `r` | Refresh |
-| `f` | Filter (fzf) |
-| `q` | Quit |
-| `R` | Resolve issue |
-| `c` | Open control agent |
-| `Ctrl-b 0` | Return to dashboard |
-
-### orch attach RUN_REF
-
-Attach to agent's tmux session for direct interaction.
+Attach to the run's live session on its execution host.
 
 ```bash
-# Attach to run
-orch attach orch-055#20251223-165605
-
-# Use short ID
+orch attach plc-123#20260312-101500
 orch attach a3b4c5
-
-# Attach to specific window
-orch attach orch-055 --window agent
 ```
 
-**Flags:**
-| Flag | Description |
-|------|-------------|
-| `--pane` | log\|shell (reserved) |
-| `--window` | Specific window name |
+Current behavior:
 
-**Behavior:**
-- Attaches to existing session
-- If session missing but worktree exists, creates new session
-- Useful for image paste, complex interactions
+- for local runs, attaches locally
+- for remote runs, routes to the execution host over SSH
+- for `tmux` and `zellij`, attaches to the multiplexer session
+- for OpenCode, attaches to the OpenCode session/server
 
-### orch capture RUN_REF
+Headless note:
 
-Capture agent output without attaching.
+- in non-interactive environments, `attach` may only prove attach-path preflight
+
+### `orch capture RUN_REF`
+
+Capture run output without attaching.
 
 ```bash
-# Basic capture (100 lines)
-orch capture orch-055
-
-# More lines
-orch capture orch-055 --lines 200
-
-# JSON output
-orch capture orch-055 --json
-
-# Use short ID
+orch capture plc-123
+orch capture plc-123 --lines 200
+orch capture plc-123 --json
 orch capture a3b4c5
 ```
 
-**Flags:**
-| Flag | Description |
-|------|-------------|
-| `--lines N` | Number of lines (default: 100) |
-| `--json` | JSON output format |
+Current behavior:
 
-**Use cases:**
-- Monitor progress without interrupting
-- Feed output to other commands/scripts
-- Check for errors or completion
+- local runs capture locally
+- remote runs capture from the execution host
+- `opencode` captures transcript content
+- `tmux` / `zellij` captures pane output
 
----
+Fail-fast expectation:
 
-## Agent Communication
+- missing session/server should return an explicit error
+- capture should not silently return empty output on infrastructure failure
 
-### orch send RUN_REF MESSAGE
+### `orch send RUN_REF MESSAGE`
 
-Send text to a running agent via tmux.
+Send input to a live run.
 
 ```bash
-# Send guidance
-orch send orch-055 "Please focus on fixing the tests first"
-
-# Send without pressing Enter
-orch send orch-055 "partial input" --no-enter
-
-# Use short ID
+orch send plc-123 "Please focus on the tests first"
 orch send a3b4c5 "Continue with the implementation"
+orch send plc-123 "partial input" --no-enter
 ```
 
-**Flags:**
-| Flag | Description |
-|------|-------------|
-| `--no-enter` | Don't send Enter key after message |
+Behavior:
 
-**Best Practice:** Combine with `orch capture` for programmatic coordination:
-```bash
-# Check what agent is doing
-orch capture orch-055
+- `tmux` / `zellij`: sends keys through the multiplexer
+- `opencode`: sends via OpenCode HTTP API
+- `--no-enter` only matters for multiplexer-backed agents
 
-# Send guidance based on output
-orch send orch-055 "The test failure is in auth.go line 45"
-
-# Check response
-orch capture orch-055
-```
-
-### orch exec RUN_REF -- COMMAND [ARGS]
-
-Execute command in run's worktree environment.
+Best practice:
 
 ```bash
-# Run tests
-orch exec orch-055 -- pytest tests/
-
-# Run linter
-orch exec orch-055 -- go vet ./...
-
-# Git commands
-orch exec orch-055 -- git status
-
-# Custom environment
-orch exec orch-055 --env DEBUG=1 -- ./script.sh
-
-# Shell mode
-orch exec orch-055 --shell -- "ls -la && pwd"
-
-# Quiet mode (no extra output)
-orch exec orch-055 --quiet -- pytest
+orch capture plc-123
+orch send plc-123 "Please address the auth failure first"
+orch capture plc-123
 ```
 
-**Flags:**
-| Flag | Description |
-|------|-------------|
-| `--env KEY=VALUE` | Set environment variable (repeatable) |
-| `--no-orch-env` | Don't set ORCH_* variables |
-| `--shell` | Run through shell |
-| `--quiet` | Suppress orch output |
+### `orch exec RUN_REF -- COMMAND [ARGS...]`
 
-**Environment Variables Set:**
-- `ORCH_ISSUE_ID` - Current issue ID
-- `ORCH_RUN_ID` - Current run ID
-- `ORCH_RUN_PATH` - Path to run document
-- `ORCH_WORKTREE_PATH` - Worktree directory
-- `ORCH_BRANCH` - Git branch name
-- `ORCH_VAULT` - Vault path
+Run an arbitrary command inside the run worktree.
+
+```bash
+orch exec plc-123 -- uv run pytest
+orch exec plc-123 -- git status
+orch exec plc-123 --shell -- "echo $ORCH_ISSUE_ID && pwd"
+orch exec plc-123 --env DEBUG=1 -- ./script.sh
+```
 
 ---
 
 ## Maintenance
 
-### orch repair
+### `orch repair`
 
-Fix system state corruption.
+Repair known daemon and run-state inconsistencies.
 
 ```bash
-# Check problems without fixing
 orch repair --dry-run
-
-# Repair interactively
 orch repair
-
-# Force repair without confirmation
 orch repair --force
 ```
 
-**Flags:**
-| Flag | Description |
-|------|-------------|
-| `--dry-run` | Report problems only |
-| `--force` | No confirmation prompts |
+Typical uses:
 
-**Fixes:**
-- Restarts stuck daemon
-- Marks "running" runs with missing sessions as failed
-- Detects orphaned worktrees/sessions (warns)
-- Corrects inconsistent state
+- restart unhealthy daemon
+- mark stale `running` runs as failed when their session is gone
+- report orphaned sessions or worktrees
 
-### orch tick RUN_REF|--all
+### `orch tick [RUN_REF]`
 
-Resume waiting runs when questions are answered.
+Resume waiting runs when their questions are satisfied.
 
 ```bash
-# Tick specific run
-orch tick orch-055#20251223-165605
-
-# Tick all waiting runs
+orch tick plc-123#20260312-101500
 orch tick --all
-
-# Limit number processed
 orch tick --all --max 5
-
-# Specify agent for restart
-orch tick orch-055 --agent claude
+orch tick plc-123 --agent claude
 ```
 
-**Flags:**
-| Flag | Description |
-|------|-------------|
-| `--all` | Process all waiting runs |
-| `--only-waiting` | Only waiting (default with --all) |
-| `--agent` | Agent for restart |
-| `--max N` | Max runs to process |
-
-**Behavior:**
-- Reads run events for unanswered questions
-- If no questions pending, restarts agent
-- Otherwise, does nothing
+This is for `waiting` runs, not for general live-run control.
 
 ---
 
-## Examples by Use Case
+## Remote Execution Examples
 
-### Starting Fresh Work
+### Remote master, local worker
+
 ```bash
-orch issue create orch-100 --title "Add feature X" --body "Details..." --tag feature
-orch run orch-100
-orch ps --status running
+export ORCH_REMOTE=zeus:7777
+
+orch worker start
+orch worker status --json
+orch run plc-123 --agent codex
+orch ps --json
 ```
 
-### Monitoring Active Runs
+Expected interpretation:
+
+- worker process is on the local machine
+- master state is on `zeus:7777`
+- `ps` / `show --json` tell you the actual execution host via `HOST` / `target_host`
+
+### Operator-host control of remote run
+
 ```bash
-orch ps --status running,waiting
-orch capture a3b4c5 --lines 200
-orch monitor
+export ORCH_REMOTE=zeus:7777
+
+orch capture plc-123#20260312-101500
+orch send plc-123#20260312-101500 "Please reply with ACK"
+orch attach plc-123#20260312-101500
 ```
 
-### Guiding a Stuck Agent
+Requirements:
+
+- SSH reachability from operator host to execution host
+- matching multiplexer or OpenCode runtime on the execution host
+
+---
+
+## Troubleshooting
+
+### Run is `waiting`
+
+This is a live run, not a failed one.
+
+Use:
+
 ```bash
-orch capture orch-055
-# Review output, then send guidance
-orch send orch-055 "Focus on the auth module first"
+orch capture <RUN_REF>
+orch send <RUN_REF> "your answer"
 ```
 
-### Running Tests in Isolation
+Do not use:
+
 ```bash
-orch exec orch-055 -- pytest tests/ -v
-orch exec orch-055 -- go test ./...
+orch restart-from <RUN_REF>
 ```
 
-### Cleaning Up
-```bash
-orch stop orch-055  # Stop all runs for issue
-orch resolve orch-055  # Mark issue resolved
-orch repair --dry-run  # Check for problems
-```
+### `capture` / `send` fails
 
-### Control Agent Loop
-```bash
-orch issue list --status open
-orch ps --status running,waiting
-orch capture <waiting-run>
-orch send <waiting-run> "guidance"
-orch resolve <completed-issue>
-```
+Treat this as transport or runtime failure first:
+
+1. `orch capture <RUN_REF>`
+2. `orch ps`
+3. `orch show <RUN_REF> --json`
+4. inspect worker status, session host, and host-local runtime
+
+### OpenCode run fails
+
+Distinguish two failure classes:
+
+- **orch/runtime/bootstrap failure**
+  - session not created
+  - server not reachable
+  - explicit bootstrap/session error from orch
+- **provider/auth failure inside OpenCode**
+  - OpenCode session exists
+  - `attach` / `capture` / `send` work
+  - the UI shows provider/token/model errors
+
+Only the first class is an orch control-plane problem.
