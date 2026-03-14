@@ -17,6 +17,8 @@ By default this automation runs a PR-safe smoke subset:
 - `codex` via shim
 - `zellij` only when enabled / available
 - `opencode` only when explicitly enabled
+- real `claude` only when `RUN_REAL_CLAUDE_LANE=1`
+- real `codex` only when `RUN_REAL_CODEX_LANE=1`
 
 Automation lane planning:
 
@@ -179,25 +181,29 @@ RUN_TMUX="$(now_id)-tmux"
 OUT="$("$ORCH_BIN" --project "$PROJECT_ID" run e2e-tmux \
   --run-id "$RUN_TMUX" \
   --agent custom \
-  --agent-cmd 'echo tmux-lane-ready; sleep 30' \
+  --agent-cmd 'python3 -u /path/to/control-repl.py tmux' \
   --multiplexer tmux \
   --json)"
 run_and_assert_ok "$OUT"
 
 "$ORCH_BIN" --project "$PROJECT_ID" capture "e2e-tmux#$RUN_TMUX"
-"$ORCH_BIN" --project "$PROJECT_ID" send "e2e-tmux#$RUN_TMUX" "tmux-send-check"
+"$ORCH_BIN" --project "$PROJECT_ID" send "e2e-tmux#$RUN_TMUX" <<'EOF'
+tmux-send-line-1
+tmux-send-line-2
+EOF
 "$ORCH_BIN" --project "$PROJECT_ID" stop "e2e-tmux#$RUN_TMUX" --force
 
 # restart-from requires previous run to be stopped/canceled/done.
 "$ORCH_BIN" --project "$PROJECT_ID" restart-from "e2e-tmux#$RUN_TMUX" \
-  --agent-cmd 'echo tmux-lane-restart; sleep 10' \
+  --agent-cmd 'python3 -u /path/to/control-repl.py tmux-restart' \
   --json
 ```
 
 Expected:
 
 - `capture` returns non-empty session output
-- `send` succeeds without `session not found`
+- heredoc/stdin `send` succeeds without `session not found`
+- both multiline echo lines appear in `capture`
 - `restart-from` succeeds only after stop
 
 ## 7) Lane B: `zellij` + custom agent
@@ -208,17 +214,20 @@ RUN_ZELLIJ="$(now_id)-zellij"
 OUT="$("$ORCH_BIN" --project "$PROJECT_ID" run e2e-zellij \
   --run-id "$RUN_ZELLIJ" \
   --agent custom \
-  --agent-cmd 'echo zellij-lane-ready; sleep 30' \
+  --agent-cmd 'python3 -u /path/to/control-repl.py zellij' \
   --multiplexer zellij \
   --json)"
 run_and_assert_ok "$OUT"
 
 "$ORCH_BIN" --project "$PROJECT_ID" capture "e2e-zellij#$RUN_ZELLIJ"
-"$ORCH_BIN" --project "$PROJECT_ID" send "e2e-zellij#$RUN_ZELLIJ" "zellij-send-check"
+"$ORCH_BIN" --project "$PROJECT_ID" send "e2e-zellij#$RUN_ZELLIJ" <<'EOF'
+zellij-send-line-1
+zellij-send-line-2
+EOF
 "$ORCH_BIN" --project "$PROJECT_ID" stop "e2e-zellij#$RUN_ZELLIJ" --force
 
 "$ORCH_BIN" --project "$PROJECT_ID" restart-from "e2e-zellij#$RUN_ZELLIJ" \
-  --agent-cmd 'echo zellij-lane-restart; sleep 10' \
+  --agent-cmd 'python3 -u /path/to/control-repl.py zellij-restart' \
   --json
 ```
 
@@ -226,6 +235,8 @@ Expected:
 
 - `send` routes via run multiplexer (`zellij`) instead of daemon default
 - no fallback-to-tmux session lookup failure
+- heredoc/stdin send succeeds in smoke automation without transport errors
+- strict multiline preservation for zellij should be verified in lab/manual runs when capture is reliable
 
 ## 8) Lane C: `opencode`
 
@@ -296,11 +307,24 @@ RUN_CODEX="$(now_id)-codex"
 "$ORCH_BIN" --project "$PROJECT_ID" stop "e2e-codex#$RUN_CODEX" --force
 ```
 
+Optional real-agent automation:
+
+```bash
+RUN_REAL_CLAUDE_LANE=1 RUN_REAL_CODEX_LANE=1 ./scripts/e2e-backend-matrix-smoke.sh
+```
+
+Real-lane expectation:
+
+- `attach` reaches the live Claude/Codex TUI session
+- `capture` shows the ready marker from the issue prompt
+- heredoc `send` produces the ack marker and preserves the multiline payload
+
 Expected:
 
 - Real lanes: actual Claude/Codex TUI accepts attach/capture/send
 - Smoke lanes: `claude` send path uses standard `SendKeys` behavior
 - Smoke lanes: `codex` send path preserves codex submit behavior (`literal` + Enter on tmux)
+- Real lanes: heredoc/stdin send is validated against the live Claude/Codex session
 
 ## 10) Remote Host Matrix
 
@@ -318,6 +342,7 @@ Expected:
 - `orch ps` shows the actual execution host in `HOST` for both local and remote runs
 - Zeus OpenCode runs stay `running` / `waiting` after session creation when the session is still alive
 - `attach`, `capture`, and `send` all succeed in that matrix
+- local and remote run-control automation should use heredoc/stdin send for the multiline path
 - for headless automation, `attach` may complete as an interactive preflight
   rather than staying attached to the TUI
 

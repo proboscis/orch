@@ -337,6 +337,17 @@ func (t *TmuxMultiplexer) SendText(session, text string) error {
 	return t.runWithOptions([]string{"send-keys", "-t", session, text}, executor.RunOptions{Stderr: os.Stderr})
 }
 
+func (t *TmuxMultiplexer) SendBracketedPaste(session, text string) error {
+	bufferName := fmt.Sprintf("orch-send-%d", time.Now().UnixNano())
+	if err := t.runWithOptions([]string{"set-buffer", "-b", bufferName, text}, executor.RunOptions{Stderr: os.Stderr}); err != nil {
+		return err
+	}
+	defer func() {
+		_ = t.runWithOptions([]string{"delete-buffer", "-b", bufferName}, executor.RunOptions{Stderr: os.Stderr})
+	}()
+	return t.runWithOptions([]string{"paste-buffer", "-b", bufferName, "-p", "-t", session}, executor.RunOptions{Stderr: os.Stderr})
+}
+
 // CapturePane captures the content of a tmux pane.
 func (t *TmuxMultiplexer) CapturePane(session string, lines int) (string, error) {
 	startLine := fmt.Sprintf("-%d", lines)

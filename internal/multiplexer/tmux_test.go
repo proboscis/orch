@@ -515,6 +515,37 @@ func TestTmuxMultiplexer_SendKeysLiteral(t *testing.T) {
 	}
 }
 
+func TestTmuxMultiplexer_SendBracketedPaste(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}, {exitCode: 0}, {exitCode: 0}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	tm := NewTmuxMultiplexer()
+	if err := tm.SendBracketedPaste("sess", "hello\nworld"); err != nil {
+		t.Fatalf("SendBracketedPaste error: %v", err)
+	}
+
+	if len(exec.recorded) != 3 {
+		t.Fatalf("expected 3 calls, got %d", len(exec.recorded))
+	}
+	if got := exec.recorded[0].args; len(got) != 4 || got[0] != "set-buffer" || got[1] != "-b" || got[3] != "hello\nworld" {
+		t.Fatalf("set-buffer args = %v", got)
+	}
+	if got := exec.recorded[1].args; len(got) != 6 || got[0] != "paste-buffer" || got[1] != "-b" || got[3] != "-p" || got[4] != "-t" || got[5] != "sess" {
+		t.Fatalf("paste-buffer args = %v", got)
+	}
+	if exec.recorded[0].args[2] != exec.recorded[1].args[2] {
+		t.Fatalf("buffer names mismatch: set=%q paste=%q", exec.recorded[0].args[2], exec.recorded[1].args[2])
+	}
+	if got := exec.recorded[2].args; len(got) != 3 || got[0] != "delete-buffer" || got[1] != "-b" {
+		t.Fatalf("delete-buffer args = %v", got)
+	}
+	if exec.recorded[0].args[2] != exec.recorded[2].args[2] {
+		t.Fatalf("buffer names mismatch: set=%q delete=%q", exec.recorded[0].args[2], exec.recorded[2].args[2])
+	}
+}
+
 func TestTmuxMultiplexer_SendText(t *testing.T) {
 	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
 	orig := execCommand

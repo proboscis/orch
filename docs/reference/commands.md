@@ -334,6 +334,7 @@ orch stop --all
 
 Send a message to a running/waiting agent.
 This is the primary way to interact with waiting runs.
+You can pass the message inline or via redirected stdin/heredoc for multi-line input.
 
 If `orch send` fails, do not assume the run is dead:
 1. `orch capture <RUN_REF>`
@@ -345,7 +346,7 @@ If `orch send` fails, do not assume the run is dead:
 Do NOT use `orch restart-from` for send failures - the run is likely still alive.
 
 ```bash
-orch send RUN_REF MESSAGE [flags]
+orch send RUN_REF [MESSAGE] [flags]
 ```
 
 ### Examples
@@ -356,6 +357,12 @@ orch send my-issue "Please also add tests"
 
 # Send to specific run
 orch send my-issue#20260120-163045 "Focus on error handling"
+
+# Send multi-line feedback via heredoc
+orch send my-issue <<'EOF'
+Please fix the auth regression first.
+Then rerun the focused session tests.
+EOF
 ```
 
 ---

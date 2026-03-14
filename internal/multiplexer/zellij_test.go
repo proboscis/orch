@@ -219,6 +219,34 @@ func TestZellijMultiplexer_SendKeysLiteral(t *testing.T) {
 	}
 }
 
+func TestZellijMultiplexer_SendBracketedPaste(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}, {exitCode: 0}, {exitCode: 0}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	zm := NewZellijMultiplexer()
+	if err := zm.SendBracketedPaste("sess", "hello\nworld"); err != nil {
+		t.Fatalf("SendBracketedPaste error: %v", err)
+	}
+
+	if len(exec.recorded) != 3 {
+		t.Fatalf("expected 3 calls, got %d", len(exec.recorded))
+	}
+	first := exec.recorded[0]
+	if !equalArgs(first.args, []string{"--session", "sess", "action", "write", "27", "91", "50", "48", "48", "126"}) {
+		t.Fatalf("start write args = %v", first.args)
+	}
+	second := exec.recorded[1]
+	if !equalArgs(second.args, []string{"--session", "sess", "action", "write-chars", "--", "hello\nworld"}) {
+		t.Fatalf("write-chars args = %v", second.args)
+	}
+	third := exec.recorded[2]
+	if !equalArgs(third.args, []string{"--session", "sess", "action", "write", "27", "91", "50", "48", "49", "126"}) {
+		t.Fatalf("end write args = %v", third.args)
+	}
+}
+
 func TestZellijMultiplexer_SendKeys(t *testing.T) {
 	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}, {exitCode: 0}}}
 	orig := execCommand

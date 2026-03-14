@@ -115,6 +115,122 @@ func TestSendRemoteFromInfoTmux(t *testing.T) {
 	}
 }
 
+func TestSendRemoteFromInfoTmuxMultilineUsesBracketedPaste(t *testing.T) {
+	orig := runSSHOutputCommand
+	t.Cleanup(func() { runSSHOutputCommand = orig })
+
+	var gotArgs []string
+	runSSHOutputCommand = func(args []string) ([]byte, error) {
+		gotArgs = append([]string(nil), args...)
+		return nil, nil
+	}
+
+	err := sendRemoteFromInfo(&orchapi.AttachInfo{
+		IssueID:     "orch-3",
+		RunID:       "run-3",
+		SessionName: "sess-3",
+		TargetHost:  "user@mac",
+		Agent:       "codex",
+		Multiplexer: orchapi.MultiplexerTmux,
+	}, "line one\nline two", false)
+	if err != nil {
+		t.Fatalf("sendRemoteFromInfo() error = %v", err)
+	}
+
+	if len(gotArgs) < 5 {
+		t.Fatalf("unexpected ssh args: %v", gotArgs)
+	}
+	if gotArgs[0] != "-T" || gotArgs[1] != "user@mac" || gotArgs[2] != "sh" || gotArgs[3] != "-lc" {
+		t.Fatalf("unexpected ssh args prefix: %v", gotArgs)
+	}
+	script := gotArgs[4]
+	for _, want := range []string{
+		"set -e",
+		`buf="orch-send-$$"`,
+		`trap 'tmux delete-buffer -b "$buf" >/dev/null 2>&1 || true' EXIT`,
+		"tmux set-buffer -b \"$buf\" 'line one\nline two'",
+		"tmux paste-buffer -b \"$buf\" -p -t 'sess-3'",
+		"tmux send-keys -t 'sess-3' Enter",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("expected script to contain %q, got %s", want, script)
+		}
+	}
+}
+
+func TestSendRemoteFromInfoTmuxMultilineClaudeSendsSecondEnter(t *testing.T) {
+	orig := runSSHOutputCommand
+	t.Cleanup(func() { runSSHOutputCommand = orig })
+
+	var gotArgs []string
+	runSSHOutputCommand = func(args []string) ([]byte, error) {
+		gotArgs = append([]string(nil), args...)
+		return nil, nil
+	}
+
+	err := sendRemoteFromInfo(&orchapi.AttachInfo{
+		IssueID:     "orch-claude",
+		RunID:       "run-claude",
+		SessionName: "sess-claude",
+		TargetHost:  "user@mac",
+		Agent:       "claude",
+		Multiplexer: orchapi.MultiplexerTmux,
+	}, "line one\nline two", false)
+	if err != nil {
+		t.Fatalf("sendRemoteFromInfo() error = %v", err)
+	}
+
+	script := gotArgs[4]
+	if !strings.Contains(script, "sleep 0.1") {
+		t.Fatalf("expected claude multiline script to include second submit delay, got %s", script)
+	}
+	if strings.Count(script, "tmux send-keys -t 'sess-claude' Enter") != 2 {
+		t.Fatalf("expected claude multiline script to send Enter twice, got %s", script)
+	}
+}
+
+func TestSendRemoteFromInfoZellijMultilineUsesBracketedPaste(t *testing.T) {
+	orig := runSSHOutputCommand
+	t.Cleanup(func() { runSSHOutputCommand = orig })
+
+	var gotArgs []string
+	runSSHOutputCommand = func(args []string) ([]byte, error) {
+		gotArgs = append([]string(nil), args...)
+		return nil, nil
+	}
+
+	err := sendRemoteFromInfo(&orchapi.AttachInfo{
+		IssueID:     "orch-z",
+		RunID:       "run-z",
+		SessionName: "sess-z",
+		TargetHost:  "user@mac",
+		Agent:       "claude",
+		Multiplexer: orchapi.MultiplexerZellij,
+	}, "line one\nline two", false)
+	if err != nil {
+		t.Fatalf("sendRemoteFromInfo() error = %v", err)
+	}
+
+	if len(gotArgs) < 5 {
+		t.Fatalf("unexpected ssh args: %v", gotArgs)
+	}
+	if gotArgs[0] != "-T" || gotArgs[1] != "user@mac" || gotArgs[2] != "sh" || gotArgs[3] != "-lc" {
+		t.Fatalf("unexpected ssh args prefix: %v", gotArgs)
+	}
+	script := gotArgs[4]
+	for _, want := range []string{
+		"set -e",
+		"zellij --session 'sess-z' action write 27 91 50 48 48 126",
+		"zellij --session 'sess-z' action write-chars -- 'line one\nline two'",
+		"zellij --session 'sess-z' action write 27 91 50 48 49 126",
+		"zellij --session 'sess-z' action write 10",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("expected script to contain %q, got %s", want, script)
+		}
+	}
+}
+
 func TestSendRemoteFromInfoOpenCode(t *testing.T) {
 	orig := runSSHOutputCommand
 	t.Cleanup(func() { runSSHOutputCommand = orig })

@@ -99,6 +99,11 @@ orch attach my-issue
 
 ```bash
 orch send my-issue "Add more tests"
+
+orch send my-issue <<'EOF'
+Add more tests.
+Focus on the regression scenario first.
+EOF
 ```
 
 ## Troubleshooting

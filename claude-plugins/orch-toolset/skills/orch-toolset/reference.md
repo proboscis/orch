@@ -366,13 +366,17 @@ Fail-fast expectation:
 - missing session/server should return an explicit error
 - capture should not silently return empty output on infrastructure failure
 
-### `orch send RUN_REF MESSAGE`
+### `orch send RUN_REF [MESSAGE]`
 
 Send input to a live run.
 
 ```bash
 orch send plc-123 "Please focus on the tests first"
 orch send a3b4c5 "Continue with the implementation"
+orch send plc-123 <<'EOF'
+Please fix the auth failure first.
+Then rerun the focused tests.
+EOF
 orch send plc-123 "partial input" --no-enter
 ```
 
@@ -389,6 +393,9 @@ orch capture plc-123
 orch send plc-123 "Please address the auth failure first"
 orch capture plc-123
 ```
+
+If you omit `MESSAGE`, `orch send` reads from redirected stdin, which is useful
+for multi-line feedback via pipes or heredocs.
 
 ### `orch exec RUN_REF -- COMMAND [ARGS...]`
 

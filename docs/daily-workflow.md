@@ -139,6 +139,12 @@ orch send fix-login-timeout "Also add unit tests for the session module"
 
 # Provide context
 orch send fix-login-timeout "The config file is at config/auth.yaml"
+
+# Send multi-line feedback
+orch send fix-login-timeout <<'EOF'
+Please fix the failing login path first.
+Then rerun the auth-focused tests.
+EOF
 ```
 
 ### Using capture

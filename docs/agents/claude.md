@@ -174,6 +174,11 @@ Send input without attaching:
 
 ```bash
 orch send my-issue "Please also add documentation"
+
+orch send my-issue <<'EOF'
+Please also add documentation.
+Include the rollout steps in the PR body.
+EOF
 ```
 
 ## Troubleshooting

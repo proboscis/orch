@@ -71,6 +71,7 @@ var (
 	openCodeSendConfirmTimeout      = 600 * time.Millisecond
 	openCodeSendConfirmPollInterval = 200 * time.Millisecond
 	codexTmuxSubmitDelay            = 250 * time.Millisecond
+	claudeTmuxMultilineSubmitDelay  = 100 * time.Millisecond
 
 	getSendMultiplexer = func() sendMultiplexer {
 		return multiplexer.GetDefault()
@@ -2681,21 +2682,18 @@ func (s *SocketServer) processSendTmux(run *model.Run, message string, noEnter b
 		return &agent.SessionNotFoundError{SessionName: sessionName}
 	}
 
-	if noEnter {
-		if err := mux.SendKeysLiteral(sessionName, message); err != nil {
-			return fmt.Errorf("failed to send keys: %w", err)
-		}
-	} else if useCodexTmuxSubmitDelay(run, mux) {
-		if err := mux.SendKeysLiteral(sessionName, message); err != nil {
-			return fmt.Errorf("failed to send keys: %w", err)
-		}
-		time.Sleep(codexTmuxSubmitDelay)
+	submitDelay := time.Duration(0)
+	splitSubmit := !noEnter && useCodexTmuxSubmitDelay(run, mux)
+	if splitSubmit {
+		submitDelay = codexTmuxSubmitDelay
+	}
+	if err := multiplexer.SendMessage(mux, sessionName, message, noEnter, splitSubmit, submitDelay); err != nil {
+		return fmt.Errorf("failed to %w", err)
+	}
+	if shouldSendClaudeMultilineConfirm(run.Agent, mux.Type(), message, noEnter) {
+		time.Sleep(claudeTmuxMultilineSubmitDelay)
 		if err := mux.SendText(sessionName, tmuxSubmitKeyEnter); err != nil {
 			return fmt.Errorf("failed to send submit key: %w", err)
-		}
-	} else {
-		if err := mux.SendKeys(sessionName, message); err != nil {
-			return fmt.Errorf("failed to send keys: %w", err)
 		}
 	}
 
@@ -2775,6 +2773,13 @@ func useCodexTmuxSubmitDelay(run *model.Run, mux sendMultiplexer) bool {
 	}
 
 	return mux != nil && mux.Type() == multiplexer.TypeTmux
+}
+
+func shouldSendClaudeMultilineConfirm(agentName string, muxType multiplexer.Type, message string, noEnter bool) bool {
+	return !noEnter &&
+		muxType == multiplexer.TypeTmux &&
+		strings.EqualFold(agentName, string(agent.AgentClaude)) &&
+		multiplexer.NeedsBracketedPaste(message)
 }
 
 func (s *SocketServer) processSendMessage(st store.Store, params *SendMessageParams) error {

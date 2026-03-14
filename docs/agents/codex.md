@@ -119,6 +119,11 @@ orch attach my-issue
 
 ```bash
 orch send my-issue "Also add error handling"
+
+orch send my-issue <<'EOF'
+Also add error handling.
+Cover the new path with tests.
+EOF
 ```
 
 ## Troubleshooting

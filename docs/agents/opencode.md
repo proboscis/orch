@@ -204,6 +204,11 @@ orch attach my-issue
 
 ```bash
 orch send my-issue "Also update the documentation"
+
+orch send my-issue <<'EOF'
+Also update the documentation.
+Call out any new config requirements.
+EOF
 ```
 
 ### Capture output

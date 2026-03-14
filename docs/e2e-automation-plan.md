@@ -81,6 +81,7 @@ Must include:
   - `opencode`
   - `claude`
   - `codex`
+  - heredoc/stdin `orch send` checks for tmux/zellij and real Claude/Codex when enabled
 - run-control matrix where `attach` / `capture` / `send` all work across host boundaries
 - verify `orch ps` exposes the real execution host in `HOST` / `target_host`
 - verify Zeus OpenCode sessions stay alive after session creation instead of flipping to `failed`

@@ -102,7 +102,8 @@ sleep 1
 
 ISSUE_ID="${ISSUE_ID:-run-control-local}"
 RUN_ID="${RUN_ID:-$(date +%Y%m%d-%H%M%S)-local-control}"
-MESSAGE="matrix-local-message"
+MESSAGE_LINE_1="${MESSAGE_LINE_1:-matrix-local-line-1}"
+MESSAGE_LINE_2="${MESSAGE_LINE_2:-matrix-local-line-2}"
 
 "$ORCH_BIN" issue create "$ISSUE_ID" --title "Run control local matrix" >/dev/null
 
@@ -119,9 +120,17 @@ CAPTURE_CMD="\"$ORCH_BIN\" --project \"$PROJECT_ID\" capture \"$ISSUE_ID#$RUN_ID
 FIRST_CAPTURE="$(capture_until_contains "$CAPTURE_CMD" "READY")"
 printf '%s\n' "$FIRST_CAPTURE"
 
-"$ORCH_BIN" --project "$PROJECT_ID" send "$ISSUE_ID#$RUN_ID" "$MESSAGE" >/dev/null
-SECOND_CAPTURE="$(capture_until_contains "$CAPTURE_CMD" "ECHO:$MESSAGE")"
+SEND_OUT="$("$ORCH_BIN" --json --project "$PROJECT_ID" send "$ISSUE_ID#$RUN_ID" <<EOF
+$MESSAGE_LINE_1
+$MESSAGE_LINE_2
+EOF
+)"
+printf '%s\n' "$SEND_OUT"
+printf '%s' "$SEND_OUT" | jq -e '.ok == true' >/dev/null
+
+SECOND_CAPTURE="$(capture_until_contains "$CAPTURE_CMD" "ECHO:$MESSAGE_LINE_2")"
 printf '%s\n' "$SECOND_CAPTURE"
+printf '%s\n' "$SECOND_CAPTURE" | grep -F "ECHO:$MESSAGE_LINE_1" >/dev/null
 
 attach_expect_live "$ORCH_BIN" --project "$PROJECT_ID" attach "$ISSUE_ID#$RUN_ID"
 

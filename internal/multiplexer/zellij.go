@@ -287,6 +287,19 @@ func (z *ZellijMultiplexer) SendText(session, text string) error {
 	return z.SendKeysLiteral(session, text)
 }
 
+func (z *ZellijMultiplexer) SendBracketedPaste(session, text string) error {
+	session = shortenSessionName(session)
+	start := []string{"--session", session, "action", "write", "27", "91", "50", "48", "48", "126"}
+	if err := z.runWithOptions(start, executor.RunOptions{Stderr: os.Stderr}); err != nil {
+		return err
+	}
+	if err := z.SendKeysLiteral(session, text); err != nil {
+		return err
+	}
+	end := []string{"--session", session, "action", "write", "27", "91", "50", "48", "49", "126"}
+	return z.runWithOptions(end, executor.RunOptions{Stderr: os.Stderr})
+}
+
 func (z *ZellijMultiplexer) sendKey(session string, keyCode int) error {
 	session = shortenSessionName(session)
 	args := []string{"--session", session, "action", "write", strconv.Itoa(keyCode)}

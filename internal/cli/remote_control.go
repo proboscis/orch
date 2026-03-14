@@ -16,6 +16,7 @@ import (
 )
 
 const remoteCodexTmuxSubmitDelay = 250 * time.Millisecond
+const remoteClaudeTmuxMultilineSubmitDelay = 100 * time.Millisecond
 
 var runSSHOutputCommand = func(args []string) ([]byte, error) {
 	cmd := exec.Command("ssh", args...)
@@ -390,17 +391,19 @@ func sendLocalFromInfo(info *orchapi.AttachInfo, message string, noEnter bool) e
 		return fmt.Errorf("session %q not found for run %s#%s", sessionName, info.IssueID, info.RunID)
 	}
 
-	if noEnter {
-		return mux.SendKeysLiteral(sessionName, message)
+	submitDelay := time.Duration(0)
+	splitSubmit := strings.EqualFold(info.Agent, string(agent.AgentCodex)) && mux.Type() == multiplexer.TypeTmux && !noEnter
+	if splitSubmit {
+		submitDelay = remoteCodexTmuxSubmitDelay
 	}
-	if strings.EqualFold(info.Agent, string(agent.AgentCodex)) && mux.Type() == multiplexer.TypeTmux {
-		if err := mux.SendKeysLiteral(sessionName, message); err != nil {
-			return err
-		}
-		time.Sleep(remoteCodexTmuxSubmitDelay)
+	if err := multiplexer.SendMessage(mux, sessionName, message, noEnter, splitSubmit, submitDelay); err != nil {
+		return err
+	}
+	if shouldSendClaudeMultilineConfirm(info.Agent, mux.Type(), message, noEnter) {
+		time.Sleep(remoteClaudeTmuxMultilineSubmitDelay)
 		return mux.SendText(sessionName, "Enter")
 	}
-	return mux.SendKeys(sessionName, message)
+	return nil
 }
 
 func multiplexerForAttachInfo(info *orchapi.AttachInfo) (multiplexer.Multiplexer, error) {
@@ -425,6 +428,16 @@ func sendRemoteMultiplexerFromInfo(info *orchapi.AttachInfo, message string, noE
 	sessionName := sessionNameFromAttachInfo(info)
 	if sessionName == "" {
 		return fmt.Errorf("run %s#%s has no session name on host %s", info.IssueID, info.RunID, info.TargetHost)
+	}
+
+	if multiplexer.NeedsBracketedPaste(message) {
+		message = multiplexer.NormalizeLineEndings(message)
+		switch info.Multiplexer {
+		case orchapi.MultiplexerZellij:
+			return sendRemoteZellijBracketedPaste(info, sessionName, message, noEnter)
+		default:
+			return sendRemoteTmuxBracketedPaste(info, sessionName, message, noEnter)
+		}
 	}
 
 	switch info.Multiplexer {
@@ -452,6 +465,53 @@ func sendRemoteMultiplexerFromInfo(info *orchapi.AttachInfo, message string, noE
 		}
 		return nil
 	}
+}
+
+func sendRemoteTmuxBracketedPaste(info *orchapi.AttachInfo, sessionName, message string, noEnter bool) error {
+	lines := []string{
+		"set -e",
+		`buf="orch-send-$$"`,
+		`trap 'tmux delete-buffer -b "$buf" >/dev/null 2>&1 || true' EXIT`,
+		"tmux set-buffer -b \"$buf\" " + shellQuote(message),
+		"tmux paste-buffer -b \"$buf\" -p -t " + shellQuote(sessionName),
+	}
+	if !noEnter {
+		if strings.EqualFold(info.Agent, string(agent.AgentCodex)) {
+			lines = append(lines, "sleep 0.25")
+		}
+		lines = append(lines, "tmux send-keys -t "+shellQuote(sessionName)+" Enter")
+		if shouldSendClaudeMultilineConfirm(info.Agent, multiplexer.TypeTmux, message, noEnter) {
+			lines = append(lines, "sleep 0.1")
+			lines = append(lines, "tmux send-keys -t "+shellQuote(sessionName)+" Enter")
+		}
+	}
+	if _, err := runSSHScriptOutput(info.TargetHost, strings.Join(lines, "\n")); err != nil {
+		return fmt.Errorf("failed to send message to session %q on host %s: %w", sessionName, info.TargetHost, err)
+	}
+	return nil
+}
+
+func shouldSendClaudeMultilineConfirm(agentName string, muxType multiplexer.Type, message string, noEnter bool) bool {
+	return !noEnter &&
+		muxType == multiplexer.TypeTmux &&
+		strings.EqualFold(agentName, string(agent.AgentClaude)) &&
+		multiplexer.NeedsBracketedPaste(message)
+}
+
+func sendRemoteZellijBracketedPaste(info *orchapi.AttachInfo, sessionName, message string, noEnter bool) error {
+	lines := []string{
+		"set -e",
+		"zellij --session " + shellQuote(sessionName) + " action write 27 91 50 48 48 126",
+		"zellij --session " + shellQuote(sessionName) + " action write-chars -- " + shellQuote(message),
+		"zellij --session " + shellQuote(sessionName) + " action write 27 91 50 48 49 126",
+	}
+	if !noEnter {
+		lines = append(lines, "zellij --session "+shellQuote(sessionName)+" action write 10")
+	}
+	if _, err := runSSHScriptOutput(info.TargetHost, strings.Join(lines, "\n")); err != nil {
+		return fmt.Errorf("failed to send message to session %q on host %s: %w", sessionName, info.TargetHost, err)
+	}
+	return nil
 }
 
 func sendRemoteOpenCodeFromInfo(info *orchapi.AttachInfo, message string) error {

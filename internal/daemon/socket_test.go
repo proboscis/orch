@@ -5683,6 +5683,7 @@ type mockSendMux struct {
 	sendKeysCalls        []sendCall
 	sendKeysLiteralCalls []sendCall
 	sendTextCalls        []sendCall
+	sendBracketedPaste   []sendCall
 }
 
 func (m *mockSendMux) Type() multiplexer.Type {
@@ -5705,6 +5706,11 @@ func (m *mockSendMux) SendKeysLiteral(session, keys string) error {
 
 func (m *mockSendMux) SendText(session, text string) error {
 	m.sendTextCalls = append(m.sendTextCalls, sendCall{session: session, keys: text})
+	return m.sendErr
+}
+
+func (m *mockSendMux) SendBracketedPaste(session, text string) error {
+	m.sendBracketedPaste = append(m.sendBracketedPaste, sendCall{session: session, keys: text})
 	return m.sendErr
 }
 
@@ -5863,7 +5869,7 @@ func TestProcessSendTmuxNonCodexUsesSendKeys(t *testing.T) {
 		IssueID:     "issue-1",
 		RunID:       "run-1",
 		SessionName: "run-issue-1-run-1",
-		Agent:       string(agent.AgentClaude),
+		Agent:       string(agent.AgentGemini),
 	}
 
 	if err := server.processSendTmux(run, "continue", false); err != nil {
@@ -5881,6 +5887,76 @@ func TestProcessSendTmuxNonCodexUsesSendKeys(t *testing.T) {
 	}
 	if len(mockMux.sendTextCalls) != 0 {
 		t.Fatalf("SendText calls = %d, want 0", len(mockMux.sendTextCalls))
+	}
+}
+
+func TestProcessSendTmuxMultilineUsesBracketedPaste(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	mockMux := &mockSendMux{hasSession: true, muxType: multiplexer.TypeTmux}
+	prev := getSendMultiplexer
+	getSendMultiplexer = func() sendMultiplexer { return mockMux }
+	defer func() { getSendMultiplexer = prev }()
+
+	run := &model.Run{
+		IssueID:     "issue-1",
+		RunID:       "run-1",
+		SessionName: "run-issue-1-run-1",
+		Agent:       string(agent.AgentGemini),
+	}
+
+	if err := server.processSendTmux(run, "line one\nline two", false); err != nil {
+		t.Fatalf("processSendTmux() error = %v", err)
+	}
+
+	if len(mockMux.sendBracketedPaste) != 1 {
+		t.Fatalf("SendBracketedPaste calls = %d, want 1", len(mockMux.sendBracketedPaste))
+	}
+	if got := mockMux.sendBracketedPaste[0]; got.session != run.SessionName || got.keys != "line one\nline two" {
+		t.Fatalf("SendBracketedPaste call = (%q, %q), want (%q, %q)", got.session, got.keys, run.SessionName, "line one\nline two")
+	}
+	if len(mockMux.sendTextCalls) != 1 || mockMux.sendTextCalls[0].keys != tmuxSubmitKeyEnter {
+		t.Fatalf("SendText calls = %+v, want Enter", mockMux.sendTextCalls)
+	}
+	if len(mockMux.sendKeysCalls) != 0 || len(mockMux.sendKeysLiteralCalls) != 0 {
+		t.Fatalf("unexpected key calls: SendKeys=%d SendKeysLiteral=%d", len(mockMux.sendKeysCalls), len(mockMux.sendKeysLiteralCalls))
+	}
+}
+
+func TestProcessSendTmuxMultilineClaudeSendsSecondEnter(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	mockMux := &mockSendMux{hasSession: true, muxType: multiplexer.TypeTmux}
+	prev := getSendMultiplexer
+	prevDelay := claudeTmuxMultilineSubmitDelay
+	getSendMultiplexer = func() sendMultiplexer { return mockMux }
+	claudeTmuxMultilineSubmitDelay = 0
+	defer func() {
+		getSendMultiplexer = prev
+		claudeTmuxMultilineSubmitDelay = prevDelay
+	}()
+
+	run := &model.Run{
+		IssueID:     "issue-claude",
+		RunID:       "run-claude",
+		SessionName: "session-claude",
+		Agent:       string(agent.AgentClaude),
+	}
+
+	if err := server.processSendTmux(run, "line one\nline two", false); err != nil {
+		t.Fatalf("processSendTmux() error = %v", err)
+	}
+
+	if len(mockMux.sendBracketedPaste) != 1 {
+		t.Fatalf("SendBracketedPaste calls = %d, want 1", len(mockMux.sendBracketedPaste))
+	}
+	if len(mockMux.sendTextCalls) != 2 {
+		t.Fatalf("SendText calls = %d, want 2", len(mockMux.sendTextCalls))
+	}
+	if mockMux.sendTextCalls[0].keys != tmuxSubmitKeyEnter || mockMux.sendTextCalls[1].keys != tmuxSubmitKeyEnter {
+		t.Fatalf("SendText calls = %+v, want Enter twice", mockMux.sendTextCalls)
 	}
 }
 

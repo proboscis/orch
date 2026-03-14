@@ -159,7 +159,7 @@ Recommended triage order:
 | List live runs | `orch ps --status running,waiting,rate_limited` |
 | Inspect run metadata | `orch show <RUN> --json` |
 | Get output | `orch capture <RUN>` |
-| Send guidance | `orch send <RUN> "message"` |
+| Send guidance | `orch send <RUN> [message]` |
 | Attach interactively | `orch attach <RUN>` |
 | Run tests in worktree | `orch exec <RUN> -- <command>` |
 | Retry terminal run | `orch restart-from <RUN>` |

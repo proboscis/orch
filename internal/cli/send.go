@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/mattn/go-isatty"
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
@@ -22,12 +24,15 @@ func newSendCmd() *cobra.Command {
 	opts := &sendOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "send <RUN_REF> <MESSAGE>",
+		Use:   "send <RUN_REF> [MESSAGE]",
 		Short: "Send a message to a running agent",
 		Long: `Send a message to a running agent.
 
 This is the primary way to interact with waiting runs.
 Capture the latest output with orch capture first, then reply with orch send.
+
+Provide the message as an argument, or omit it and redirect stdin via a
+pipe/heredoc for multi-line input.
 
 For tmux-based agents (claude, codex, gemini), the message is sent via send-keys.
 For opencode agents, the message is sent via HTTP API.
@@ -51,14 +56,24 @@ Examples:
   # Send using short ID
   orch send a3b4c5 "Continue with the implementation"
 
+  # Send a multi-line message via heredoc
+  orch send orch-023 <<'EOF'
+  Please fix the failing login test.
+  Then rerun the focused auth suite.
+  EOF
+
   # Send text without pressing Enter (tmux agents only)
   orch send orch-023 "partial input" --no-enter
 
   # Validate the run is ready to receive messages (without sending)
-  orch send orch-023 "test" --dry-run`,
-		Args: cobra.ExactArgs(2),
+  orch send orch-023 --dry-run`,
+		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSend(args[0], args[1], opts)
+			message, err := resolveSendMessage(args, opts, os.Stdin, stdinIsTerminal(os.Stdin))
+			if err != nil {
+				return err
+			}
+			return runSend(args[0], message, opts)
 		},
 	}
 
@@ -66,6 +81,42 @@ Examples:
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Validate config without sending the message")
 
 	return cmd
+}
+
+func resolveSendMessage(args []string, opts *sendOptions, stdin io.Reader, stdinIsTTY bool) (string, error) {
+	if len(args) >= 2 {
+		return args[1], nil
+	}
+	if opts != nil && opts.DryRun {
+		return "", nil
+	}
+	if stdinIsTTY {
+		return "", fmt.Errorf("MESSAGE required: pass it as an argument or redirect stdin with a pipe/heredoc")
+	}
+
+	data, err := io.ReadAll(stdin)
+	if err != nil {
+		return "", fmt.Errorf("read stdin message: %w", err)
+	}
+	if len(data) == 0 {
+		return "", fmt.Errorf("MESSAGE required: stdin was empty")
+	}
+
+	return trimSingleTrailingNewline(string(data)), nil
+}
+
+func trimSingleTrailingNewline(message string) string {
+	message = strings.TrimSuffix(message, "\n")
+	message = strings.TrimSuffix(message, "\r")
+	return message
+}
+
+func stdinIsTerminal(file *os.File) bool {
+	if file == nil {
+		return true
+	}
+	fd := file.Fd()
+	return isatty.IsTerminal(fd) || isatty.IsCygwinTerminal(fd)
 }
 
 type sendResult struct {

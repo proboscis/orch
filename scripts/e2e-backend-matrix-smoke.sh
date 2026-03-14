@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/run-control-common.sh"
+
 export ROOT="${ROOT:-$(mktemp -d /tmp/orch-e2e-backends-XXXXXX)}"
 KEEP_ROOT="${KEEP_ROOT:-0}"
 ORCH_BIN="${ORCH_BIN:-}"
 RUN_ZELLIJ_LANE="${RUN_ZELLIJ_LANE:-auto}"
 RUN_OPENCODE_LANE="${RUN_OPENCODE_LANE:-0}"
+RUN_REAL_CLAUDE_LANE="${RUN_REAL_CLAUDE_LANE:-0}"
+RUN_REAL_CODEX_LANE="${RUN_REAL_CODEX_LANE:-0}"
 REQUIRE_TMUX="${REQUIRE_TMUX:-1}"
 
 cleanup() {
@@ -24,6 +29,8 @@ trap cleanup EXIT
 echo "ROOT=$ROOT"
 echo "RUN_ZELLIJ_LANE=$RUN_ZELLIJ_LANE"
 echo "RUN_OPENCODE_LANE=$RUN_OPENCODE_LANE"
+echo "RUN_REAL_CLAUDE_LANE=$RUN_REAL_CLAUDE_LANE"
+echo "RUN_REAL_CODEX_LANE=$RUN_REAL_CODEX_LANE"
 mkdir -p "$ROOT"/{home,runtime,state,data,bin,repo/.orch,issues-store/issues,issues-store/runs,origin/example}
 
 export HOME="$ROOT/home"
@@ -72,6 +79,39 @@ git -C "$PROJECT" commit -m "init" >/dev/null
 git -C "$PROJECT" push -u origin HEAD >/dev/null
 
 for lane in tmux zellij claude codex opencode; do
+  extra_body=""
+  case "$lane" in
+    claude)
+      extra_body=$(cat <<'EOF'
+
+When you start, reply with exactly:
+BACKEND_MATRIX_READY_CLAUDE
+
+Then wait for the next user message.
+
+When you receive the next user message:
+- reply with exactly `BACKEND_MATRIX_ACK_CLAUDE`
+- echo the full user message verbatim
+- then wait
+EOF
+)
+      ;;
+    codex)
+      extra_body=$(cat <<'EOF'
+
+When you start, reply with exactly:
+BACKEND_MATRIX_READY_CODEX
+
+Then wait for the next user message.
+
+When you receive the next user message:
+- reply with exactly `BACKEND_MATRIX_ACK_CODEX`
+- echo the full user message verbatim
+- then wait
+EOF
+)
+      ;;
+  esac
   cat > "$ISSUES/issues/e2e-$lane.md" <<EOF
 ---
 type: issue
@@ -81,6 +121,7 @@ status: open
 ---
 
 # Backend matrix lane $lane
+$extra_body
 EOF
 done
 
@@ -92,19 +133,44 @@ if ! command -v tmux >/dev/null 2>&1; then
     exit 1
   fi
 fi
+command -v python3 >/dev/null 2>&1 || { echo "python3 is required for backend smoke" >&2; exit 1; }
+command -v jq >/dev/null 2>&1 || { echo "jq is required for backend smoke" >&2; exit 1; }
 
+cat > "$ROOT/bin/control-repl.py" <<'EOF'
+#!/usr/bin/env python3
+import sys
+
+lane = sys.argv[1] if len(sys.argv) > 1 else "lane"
+print(f"READY:{lane}", flush=True)
+for line in sys.stdin:
+    text = line.rstrip("\r\n")
+    if not text:
+        continue
+    print(f"ECHO:{lane}:{text}", flush=True)
+    if text == "quit":
+        break
+EOF
+chmod +x "$ROOT/bin/control-repl.py"
+
+if [ "$RUN_REAL_CLAUDE_LANE" != "1" ]; then
 cat > "$ROOT/bin/claude" <<'EOF'
 #!/usr/bin/env bash
 printf 'fake claude ready\n'
 sleep 30
 EOF
+fi
+if [ "$RUN_REAL_CODEX_LANE" != "1" ]; then
 cat > "$ROOT/bin/codex" <<'EOF'
 #!/usr/bin/env bash
 printf 'fake codex ready\n'
 sleep 30
 EOF
-chmod +x "$ROOT/bin/claude" "$ROOT/bin/codex"
+fi
+chmod +x "$ROOT/bin"/claude "$ROOT/bin"/codex 2>/dev/null || true
 export PATH="$ROOT/bin:$PATH"
+
+[ "$RUN_REAL_CLAUDE_LANE" != "1" ] || command -v claude >/dev/null 2>&1 || { echo "RUN_REAL_CLAUDE_LANE=1 but claude not found" >&2; exit 1; }
+[ "$RUN_REAL_CODEX_LANE" != "1" ] || command -v codex >/dev/null 2>&1 || { echo "RUN_REAL_CODEX_LANE=1 but codex not found" >&2; exit 1; }
 
 "$ORCH_BIN" master start >/dev/null
 sleep 1
@@ -119,18 +185,33 @@ run_json_ok() {
 capture_contains() {
   local ref="$1"
   local marker="$2"
+  local attempts="${3:-5}"
+  local delay="${4:-1}"
   local out
   local attempt
-  for attempt in 1 2 3 4 5; do
+  for attempt in $(seq 1 "$attempts"); do
     out="$("$ORCH_BIN" --json --project "$PROJECT_ID" capture "$ref")"
     printf '%s\n' "$out"
     if printf '%s' "$out" | jq -e --arg marker "$marker" '.ok == true and (.content | contains($marker))' >/dev/null; then
       return 0
     fi
-    sleep 1
+    sleep "$delay"
   done
   echo "capture for $ref never contained marker: $marker" >&2
   return 1
+}
+
+maybe_accept_claude_trust_prompt() {
+  local ref="$1"
+  local session_name="$2"
+  local out
+
+  out="$("$ORCH_BIN" --json --project "$PROJECT_ID" capture "$ref")"
+  printf '%s\n' "$out"
+  if printf '%s' "$out" | jq -e '.ok == true and (.content | contains("Quick safety check"))' >/dev/null; then
+    tmux send-keys -t "$session_name" Enter
+    sleep 2
+  fi
 }
 
 capture_ok() {
@@ -146,6 +227,16 @@ send_ok() {
   local msg="$2"
   local out
   out="$("$ORCH_BIN" --json --project "$PROJECT_ID" send "$ref" "$msg")"
+  printf '%s\n' "$out"
+  run_json_ok "$out"
+}
+
+send_stdin_ok() {
+  local ref="$1"
+  local payload
+  local out
+  payload="$(cat)"
+  out="$(printf '%s' "$payload" | "$ORCH_BIN" --json --project "$PROJECT_ID" send "$ref")"
   printf '%s\n' "$out"
   run_json_ok "$out"
 }
@@ -169,15 +260,21 @@ RUN_TMUX="$(date +%Y%m%d-%H%M%S)-tmux"
 OUT_TMUX="$("$ORCH_BIN" --json --project "$PROJECT_ID" run e2e-tmux \
   --run-id "$RUN_TMUX" \
   --agent custom \
-  --agent-cmd 'printf tmux-lane-ready; sleep 30' \
+  --agent-cmd "python3 -u $ROOT/bin/control-repl.py tmux" \
   --multiplexer tmux)"
 printf '%s\n' "$OUT_TMUX"
 run_json_ok "$OUT_TMUX"
-capture_contains "e2e-tmux#$RUN_TMUX" "tmux-lane-ready"
-send_ok "e2e-tmux#$RUN_TMUX" "tmux-send-check"
+capture_contains "e2e-tmux#$RUN_TMUX" "READY:tmux"
+send_stdin_ok "e2e-tmux#$RUN_TMUX" <<'EOF'
+tmux-send-line-1
+tmux-send-line-2
+EOF
+TMUX_CAPTURE="$(capture_until_contains "\"$ORCH_BIN\" --project \"$PROJECT_ID\" capture \"e2e-tmux#$RUN_TMUX\" --lines 80" "ECHO:tmux:tmux-send-line-2" 30 1)"
+printf '%s\n' "$TMUX_CAPTURE"
+printf '%s\n' "$TMUX_CAPTURE" | grep -F "ECHO:tmux:tmux-send-line-1" >/dev/null
 stop_run "e2e-tmux#$RUN_TMUX"
-RESTART_TMUX="$(restart_ok "e2e-tmux#$RUN_TMUX" --agent custom --agent-cmd 'printf tmux-lane-restart; sleep 10' --multiplexer tmux)"
-capture_contains "$RESTART_TMUX" "tmux-lane-restart"
+RESTART_TMUX="$(restart_ok "e2e-tmux#$RUN_TMUX" --agent custom --agent-cmd "python3 -u $ROOT/bin/control-repl.py tmux-restart" --multiplexer tmux)"
+capture_contains "$RESTART_TMUX" "READY:tmux-restart"
 stop_run "$RESTART_TMUX"
 
 if [ "$RUN_ZELLIJ_LANE" = "1" ] || { [ "$RUN_ZELLIJ_LANE" = "auto" ] && command -v zellij >/dev/null 2>&1; }; then
@@ -186,14 +283,18 @@ if [ "$RUN_ZELLIJ_LANE" = "1" ] || { [ "$RUN_ZELLIJ_LANE" = "auto" ] && command 
   OUT_ZELLIJ="$("$ORCH_BIN" --json --project "$PROJECT_ID" run e2e-zellij \
     --run-id "$RUN_ZELLIJ" \
     --agent custom \
-    --agent-cmd 'printf zellij-lane-ready; sleep 30' \
+    --agent-cmd "python3 -u $ROOT/bin/control-repl.py zellij" \
     --multiplexer zellij)"
   printf '%s\n' "$OUT_ZELLIJ"
   run_json_ok "$OUT_ZELLIJ"
   capture_ok "e2e-zellij#$RUN_ZELLIJ"
-  send_ok "e2e-zellij#$RUN_ZELLIJ" "zellij-send-check"
+  send_stdin_ok "e2e-zellij#$RUN_ZELLIJ" <<'EOF'
+zellij-send-line-1
+zellij-send-line-2
+EOF
+  capture_ok "e2e-zellij#$RUN_ZELLIJ"
   stop_run "e2e-zellij#$RUN_ZELLIJ"
-  RESTART_ZELLIJ="$(restart_ok "e2e-zellij#$RUN_ZELLIJ" --agent custom --agent-cmd 'printf zellij-lane-restart; sleep 10' --multiplexer zellij)"
+  RESTART_ZELLIJ="$(restart_ok "e2e-zellij#$RUN_ZELLIJ" --agent custom --agent-cmd "python3 -u $ROOT/bin/control-repl.py zellij-restart" --multiplexer zellij)"
   capture_ok "$RESTART_ZELLIJ"
   stop_run "$RESTART_ZELLIJ"
 else
@@ -208,8 +309,21 @@ OUT_CLAUDE="$("$ORCH_BIN" --json --project "$PROJECT_ID" run e2e-claude \
   --multiplexer tmux)"
 printf '%s\n' "$OUT_CLAUDE"
 run_json_ok "$OUT_CLAUDE"
-capture_contains "e2e-claude#$RUN_CLAUDE" "fake claude ready"
-send_ok "e2e-claude#$RUN_CLAUDE" "claude-send-check"
+if [ "$RUN_REAL_CLAUDE_LANE" = "1" ]; then
+  CLAUDE_SESSION="$(printf '%s' "$OUT_CLAUDE" | jq -r '.session_name')"
+  maybe_accept_claude_trust_prompt "e2e-claude#$RUN_CLAUDE" "$CLAUDE_SESSION"
+  attach_expect_live "$ORCH_BIN" --project "$PROJECT_ID" attach "e2e-claude#$RUN_CLAUDE"
+  capture_contains "e2e-claude#$RUN_CLAUDE" "BACKEND_MATRIX_READY_CLAUDE" 60 2
+  send_stdin_ok "e2e-claude#$RUN_CLAUDE" <<'EOF'
+real-claude-line-1
+real-claude-line-2
+EOF
+  capture_contains "e2e-claude#$RUN_CLAUDE" "BACKEND_MATRIX_ACK_CLAUDE" 60 2
+  capture_contains "e2e-claude#$RUN_CLAUDE" "real-claude-line-2" 60 2
+else
+  capture_contains "e2e-claude#$RUN_CLAUDE" "fake claude ready"
+  send_ok "e2e-claude#$RUN_CLAUDE" "claude-send-check"
+fi
 stop_run "e2e-claude#$RUN_CLAUDE"
 
 echo "== codex lane =="
@@ -220,8 +334,19 @@ OUT_CODEX="$("$ORCH_BIN" --json --project "$PROJECT_ID" run e2e-codex \
   --multiplexer tmux)"
 printf '%s\n' "$OUT_CODEX"
 run_json_ok "$OUT_CODEX"
-capture_contains "e2e-codex#$RUN_CODEX" "fake codex ready"
-send_ok "e2e-codex#$RUN_CODEX" "codex-send-check"
+if [ "$RUN_REAL_CODEX_LANE" = "1" ]; then
+  attach_expect_live "$ORCH_BIN" --project "$PROJECT_ID" attach "e2e-codex#$RUN_CODEX"
+  capture_contains "e2e-codex#$RUN_CODEX" "BACKEND_MATRIX_READY_CODEX" 60 2
+  send_stdin_ok "e2e-codex#$RUN_CODEX" <<'EOF'
+real-codex-line-1
+real-codex-line-2
+EOF
+  capture_contains "e2e-codex#$RUN_CODEX" "BACKEND_MATRIX_ACK_CODEX" 60 2
+  capture_contains "e2e-codex#$RUN_CODEX" "real-codex-line-2" 60 2
+else
+  capture_contains "e2e-codex#$RUN_CODEX" "fake codex ready"
+  send_ok "e2e-codex#$RUN_CODEX" "codex-send-check"
+fi
 stop_run "e2e-codex#$RUN_CODEX"
 
 if [ "$RUN_OPENCODE_LANE" = "1" ]; then

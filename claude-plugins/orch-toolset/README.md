@@ -107,6 +107,12 @@ orch capture my-task --lines 200
 # Send guidance to waiting agent
 orch send my-task "Focus on the auth module"
 
+# Or send multi-line guidance
+orch send my-task <<'EOF'
+Focus on the auth module first.
+Then rerun the targeted tests.
+EOF
+
 # Run tests in isolation
 orch exec my-task -- pytest tests/
 

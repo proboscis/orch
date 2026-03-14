@@ -208,10 +208,11 @@ func (m *MuxManager) SendMessage(ctx context.Context, run *model.Run, message st
 		return &SessionNotFoundError{SessionName: m.SessionName}
 	}
 
-	if opts != nil && opts.NoEnter {
-		return mux.SendKeysLiteral(m.SessionName, message)
+	noEnter := opts != nil && opts.NoEnter
+	if err := multiplexer.SendMessage(mux, m.SessionName, message, noEnter, false, 0); err != nil {
+		return err
 	}
-	return mux.SendKeys(m.SessionName, message)
+	return nil
 }
 
 type OpenCodeManager struct {

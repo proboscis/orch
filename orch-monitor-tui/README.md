@@ -91,7 +91,7 @@ When run creates a PR:
 
 The control agent can:
 - `orch run <issue>` - Start a run
-- `orch send <run> "message"` - Send message to running agent
+- `orch send <run> [message]` - Send a message to a running agent, or read it from stdin/heredoc
 - `orch capture <run>` - Capture agent's last output
 - `orch stop <run>` - Stop a run
 - `orch ps` - List all runs
