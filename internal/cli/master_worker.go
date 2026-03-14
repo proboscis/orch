@@ -7,12 +7,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/s22625/orch/internal/daemon"
 	"github.com/s22625/orch/internal/worker"
 	"github.com/spf13/cobra"
 )
 
-var requireDaemonForWorker = requireDaemon
+var requireDaemonForWorker = func() (worker.Client, error) {
+	return requireDaemon()
+}
 var runExternalWorkerLoop = worker.RunExternalLoop
 
 func newMasterCmd() *cobra.Command {
@@ -251,20 +252,10 @@ func humanizeWorkerTime(ts time.Time) string {
 }
 
 func ensureLocalWorkerMaster() error {
-	client := daemon.NewProtoClientWithAddress("", "")
-	defer client.Close()
-
-	if client.IsAvailable() {
-		return nil
-	}
-	if _, err := daemon.StartInBackground(); err != nil {
+	client, err := requireDaemonForWorker()
+	if err != nil {
 		return fmt.Errorf("orch-master is not running locally and failed to start: %w", err)
 	}
-	for i := 0; i < 10; i++ {
-		time.Sleep(100 * time.Millisecond)
-		if client.IsAvailable() {
-			return nil
-		}
-	}
-	return fmt.Errorf("orch-master did not become available after starting")
+	defer client.Close()
+	return nil
 }

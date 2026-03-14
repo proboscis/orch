@@ -60,8 +60,8 @@ func TestWorkerRunCommandInvokesExternalLoop(t *testing.T) {
 		runExternalWorkerLoop = origRun
 	})
 
-	requireDaemonForWorker = func() (*daemon.ProtoClient, error) {
-		return &daemon.ProtoClient{}, nil
+	requireDaemonForWorker = func() (worker.Client, error) {
+		return &mockWorkerClient{}, nil
 	}
 
 	called := false
@@ -84,6 +84,32 @@ func TestWorkerRunCommandInvokesExternalLoop(t *testing.T) {
 	if got.WorkerID != "worker-1" || !got.Once || got.PollInterval != 300*time.Millisecond || got.HeartbeatInterval != 7*time.Second {
 		t.Fatalf("unexpected run config: %+v", got)
 	}
+}
+
+type mockWorkerClient struct{}
+
+func (m *mockWorkerClient) RegisterWorker(workerID, workerType, host, mode string) (*daemon.RegisterWorkerResponse, error) {
+	return nil, nil
+}
+
+func (m *mockWorkerClient) UnregisterWorker(workerID string) error {
+	return nil
+}
+
+func (m *mockWorkerClient) WorkerHeartbeat(workerID string) error {
+	return nil
+}
+
+func (m *mockWorkerClient) LeaseWork(workerID string) (*daemon.LeaseWorkResponse, error) {
+	return nil, nil
+}
+
+func (m *mockWorkerClient) AcknowledgeEffect(workerID, leaseID string, success bool, effectErr, resultJSON string) error {
+	return nil
+}
+
+func (m *mockWorkerClient) Close() error {
+	return nil
 }
 
 func TestRunWorkerStatusWithoutProjectRoot(t *testing.T) {
