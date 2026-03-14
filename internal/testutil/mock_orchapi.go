@@ -40,6 +40,9 @@ var _ orchapi.OrchAPI = &OrchAPIMock{}
 //			DeleteRunFunc: func(ctx context.Context, ref orchapi.RunRef, opts *orchapi.DeleteRunOptions) (*orchapi.DeleteRunResult, error) {
 //				panic("mock out the DeleteRun method")
 //			},
+//			CleanRunWorktreeFunc: func(ctx context.Context, ref orchapi.RunRef) (*orchapi.CleanRunWorktreeResult, error) {
+//				panic("mock out the CleanRunWorktree method")
+//			},
 //			EnsureOpenCodeServerFunc: func(ctx context.Context, projectRoot string) (*orchapi.OpenCodeServerInfo, error) {
 //				panic("mock out the EnsureOpenCodeServer method")
 //			},
@@ -154,6 +157,9 @@ type OrchAPIMock struct {
 
 	// DeleteRunFunc mocks the DeleteRun method.
 	DeleteRunFunc func(ctx context.Context, ref orchapi.RunRef, opts *orchapi.DeleteRunOptions) (*orchapi.DeleteRunResult, error)
+
+	// CleanRunWorktreeFunc mocks the CleanRunWorktree method.
+	CleanRunWorktreeFunc func(ctx context.Context, ref orchapi.RunRef) (*orchapi.CleanRunWorktreeResult, error)
 
 	// EnsureOpenCodeServerFunc mocks the EnsureOpenCodeServer method.
 	EnsureOpenCodeServerFunc func(ctx context.Context) (*orchapi.OpenCodeServerInfo, error)
@@ -298,6 +304,13 @@ type OrchAPIMock struct {
 			Ref orchapi.RunRef
 			// Opts is the opts argument value.
 			Opts *orchapi.DeleteRunOptions
+		}
+		// CleanRunWorktree holds details about calls to the CleanRunWorktree method.
+		CleanRunWorktree []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Ref is the ref argument value.
+			Ref orchapi.RunRef
 		}
 		// EnsureOpenCodeServer holds details about calls to the EnsureOpenCodeServer method.
 		EnsureOpenCodeServer []struct {
@@ -520,6 +533,7 @@ type OrchAPIMock struct {
 	lockCreateIssue          sync.RWMutex
 	lockCreateRun            sync.RWMutex
 	lockDeleteRun            sync.RWMutex
+	lockCleanRunWorktree     sync.RWMutex
 	lockEnsureOpenCodeServer sync.RWMutex
 	lockGetAttachInfo        sync.RWMutex
 	lockGetBranchState       sync.RWMutex
@@ -812,6 +826,42 @@ func (mock *OrchAPIMock) DeleteRunCalls() []struct {
 	mock.lockDeleteRun.RLock()
 	calls = mock.calls.DeleteRun
 	mock.lockDeleteRun.RUnlock()
+	return calls
+}
+
+// CleanRunWorktree calls CleanRunWorktreeFunc.
+func (mock *OrchAPIMock) CleanRunWorktree(ctx context.Context, ref orchapi.RunRef) (*orchapi.CleanRunWorktreeResult, error) {
+	if mock.CleanRunWorktreeFunc == nil {
+		panic("OrchAPIMock.CleanRunWorktreeFunc: method is nil but OrchAPI.CleanRunWorktree was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		Ref orchapi.RunRef
+	}{
+		Ctx: ctx,
+		Ref: ref,
+	}
+	mock.lockCleanRunWorktree.Lock()
+	mock.calls.CleanRunWorktree = append(mock.calls.CleanRunWorktree, callInfo)
+	mock.lockCleanRunWorktree.Unlock()
+	return mock.CleanRunWorktreeFunc(ctx, ref)
+}
+
+// CleanRunWorktreeCalls gets all the calls that were made to CleanRunWorktree.
+// Check the length with:
+//
+//	len(mockedOrchAPI.CleanRunWorktreeCalls())
+func (mock *OrchAPIMock) CleanRunWorktreeCalls() []struct {
+	Ctx context.Context
+	Ref orchapi.RunRef
+} {
+	var calls []struct {
+		Ctx context.Context
+		Ref orchapi.RunRef
+	}
+	mock.lockCleanRunWorktree.RLock()
+	calls = mock.calls.CleanRunWorktree
+	mock.lockCleanRunWorktree.RUnlock()
 	return calls
 }
 

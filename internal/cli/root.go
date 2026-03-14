@@ -139,6 +139,7 @@ func init() {
 	rootCmd.AddCommand(newWorkerCmd())
 	rootCmd.AddCommand(newDaemonRestartCmd())
 	rootCmd.AddCommand(newRepairCmd())
+	rootCmd.AddCommand(newCleanCmd())
 	rootCmd.AddCommand(newDeleteCmd())
 	rootCmd.AddCommand(newExecCmd())
 	rootCmd.AddCommand(newSendCmd())

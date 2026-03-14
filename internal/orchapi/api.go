@@ -151,6 +151,9 @@ type OrchAPI interface {
 	// DeleteRun deletes a run and its associated resources.
 	DeleteRun(ctx context.Context, ref RunRef, opts *DeleteRunOptions) (*DeleteRunResult, error)
 
+	// CleanRunWorktree removes a run's worktree while preserving the run record.
+	CleanRunWorktree(ctx context.Context, ref RunRef) (*CleanRunWorktreeResult, error)
+
 	// =========================================================================
 	// Issue File Operations
 	// =========================================================================

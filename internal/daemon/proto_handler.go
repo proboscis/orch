@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -162,6 +163,8 @@ func (s *SocketServer) handleProtoRequest(req *orchpb.Request) *orchpb.Response 
 		return s.handleProtoListRepos(r.ListRepos)
 	case *orchpb.Request_DeleteRun:
 		return s.handleProtoDeleteRun(r.DeleteRun)
+	case *orchpb.Request_CleanRunWorktree:
+		return s.handleProtoCleanRunWorktree(r.CleanRunWorktree)
 	case *orchpb.Request_UpdateIssue:
 		return s.handleProtoUpdateIssue(r.UpdateIssue)
 	case *orchpb.Request_ValidateIssueFiles:
@@ -211,6 +214,115 @@ func (s *SocketServer) handleProtoRequest(req *orchpb.Request) *orchpb.Response 
 	default:
 		return errorResponse("unknown request type")
 	}
+}
+
+func resolveRunForMutation(st store.Store, issueID, runID, shortID string) (*model.Run, error) {
+	if shortID != "" {
+		return st.GetRunByShortID(shortID)
+	}
+	return st.GetRun(&model.RunRef{IssueID: issueID, RunID: runID})
+}
+
+func (s *SocketServer) resolveMainRepoRootForRun(ctx *orchpb.RequestContext, run *model.Run) (string, error) {
+	if projectRoot := s.resolveProjectRootFromContextOrProto(ctx, ""); projectRoot != "" {
+		if repoRoot, err := git.FindMainRepoRoot(projectRoot); err == nil {
+			return repoRoot, nil
+		}
+		if repoRoot, err := git.FindRepoRoot(projectRoot); err == nil {
+			return repoRoot, nil
+		}
+	}
+
+	if run != nil && strings.TrimSpace(run.WorktreePath) != "" {
+		if repoRoot, err := git.FindMainRepoRoot(run.WorktreePath); err == nil {
+			return repoRoot, nil
+		}
+		if repoRoot, err := git.FindRepoRoot(run.WorktreePath); err == nil {
+			return repoRoot, nil
+		}
+	}
+
+	if repoRoot, err := git.FindMainRepoRoot(""); err == nil {
+		return repoRoot, nil
+	}
+	if repoRoot, err := git.FindRepoRoot(""); err == nil {
+		return repoRoot, nil
+	}
+
+	return "", fmt.Errorf("repo root not found")
+}
+
+func normalizeWorktreePathForComparison(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return filepath.Clean(resolved)
+	}
+
+	parent := filepath.Dir(path)
+	base := filepath.Base(path)
+	if resolvedParent, err := filepath.EvalSymlinks(parent); err == nil {
+		return filepath.Clean(filepath.Join(resolvedParent, base))
+	}
+
+	if absPath, err := filepath.Abs(path); err == nil {
+		return filepath.Clean(absPath)
+	}
+
+	return filepath.Clean(path)
+}
+
+func (s *SocketServer) removeRunWorktree(ctx *orchpb.RequestContext, run *model.Run) (removed bool, skipped bool, reason string, err error) {
+	if run == nil {
+		return false, false, "", fmt.Errorf("run is nil")
+	}
+
+	worktreePath := strings.TrimSpace(run.WorktreePath)
+	if worktreePath == "" {
+		return false, true, "run has no recorded worktree", nil
+	}
+
+	repoRoot, err := s.resolveMainRepoRootForRun(ctx, run)
+	if err != nil {
+		return false, false, "", fmt.Errorf("failed to resolve repo root for worktree cleanup: %w", err)
+	}
+
+	infos, err := git.ListWorktreeInfos(repoRoot)
+	if err != nil {
+		return false, false, "", fmt.Errorf("failed to list worktrees for %s: %w", repoRoot, err)
+	}
+
+	registered := false
+	normalizedWorktreePath := normalizeWorktreePathForComparison(worktreePath)
+	for _, info := range infos {
+		if normalizeWorktreePathForComparison(info.Path) == normalizedWorktreePath {
+			registered = true
+			break
+		}
+		if strings.TrimSpace(run.Branch) != "" && strings.TrimSpace(info.Branch) == strings.TrimSpace(run.Branch) {
+			registered = true
+			break
+		}
+	}
+
+	if !registered {
+		if _, statErr := os.Stat(worktreePath); statErr != nil {
+			if os.IsNotExist(statErr) {
+				return false, true, "worktree already absent", nil
+			}
+			return false, false, "", fmt.Errorf("failed to stat worktree %s: %w", worktreePath, statErr)
+		}
+		return false, false, "", fmt.Errorf("worktree path %s exists but is not registered in repo %s", worktreePath, repoRoot)
+	}
+
+	if err := git.RemoveWorktree(repoRoot, worktreePath); err != nil {
+		return false, false, "", fmt.Errorf("failed to remove worktree %s: %w", worktreePath, err)
+	}
+
+	return true, false, "", nil
 }
 
 func (s *SocketServer) sendProtoResponse(conn net.Conn, resp *orchpb.Response) {
@@ -2336,15 +2448,7 @@ func (s *SocketServer) handleProtoDeleteRun(req *orchpb.DeleteRunRequest) *orchp
 		return errorResponse("no store available")
 	}
 
-	var run *model.Run
-	var err error
-
-	if req.ShortId != "" {
-		run, err = st.GetRunByShortID(req.ShortId)
-	} else {
-		ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
-		run, err = st.GetRun(ref)
-	}
+	run, err := resolveRunForMutation(st, req.IssueId, req.RunId, req.ShortId)
 	if err != nil {
 		return errorResponse(fmt.Sprintf("run not found: %v", err))
 	}
@@ -2356,20 +2460,20 @@ func (s *SocketServer) handleProtoDeleteRun(req *orchpb.DeleteRunRequest) *orchp
 	}
 
 	if req.WithWorktree && run.WorktreePath != "" {
-		repoRoot, err := git.FindRepoRoot("")
-		if err == nil {
-			if git.RemoveWorktree(repoRoot, run.WorktreePath) == nil {
-				result.WorktreeRemoved = true
-			}
+		removed, _, _, cleanupErr := s.removeRunWorktree(req.Context, run)
+		if cleanupErr != nil {
+			return errorResponse(cleanupErr.Error())
 		}
+		result.WorktreeRemoved = removed
 	}
 
 	if req.WithBranch && run.Branch != "" {
-		repoRoot, err := git.FindRepoRoot("")
-		if err == nil {
-			if s.gitRunner.DeleteBranch(context.Background(), repoRoot, run.Branch) == nil {
-				result.BranchRemoved = true
-			}
+		repoRoot, repoErr := s.resolveMainRepoRootForRun(req.Context, run)
+		if repoErr != nil {
+			return errorResponse(fmt.Sprintf("failed to resolve repo root for branch cleanup: %v", repoErr))
+		}
+		if s.gitRunner.DeleteBranch(context.Background(), repoRoot, run.Branch) == nil {
+			result.BranchRemoved = true
 		}
 	}
 
@@ -2381,6 +2485,47 @@ func (s *SocketServer) handleProtoDeleteRun(req *orchpb.DeleteRunRequest) *orchp
 		Ok: true,
 		Response: &orchpb.Response_DeleteRun{
 			DeleteRun: result,
+		},
+	}
+}
+
+func (s *SocketServer) handleProtoCleanRunWorktree(req *orchpb.CleanRunWorktreeRequest) *orchpb.Response {
+	st := s.resolveStoreFromContextOrProto(req.Context, "")
+	if st == nil {
+		if projectID := projectIDFromContext(req.Context); projectID != "" {
+			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+		}
+		return errorResponse("no store available")
+	}
+
+	run, err := resolveRunForMutation(st, req.IssueId, req.RunId, req.ShortId)
+	if err != nil {
+		return errorResponse(fmt.Sprintf("run not found: %v", err))
+	}
+
+	if run.Status.IsActive() {
+		return errorResponse(fmt.Sprintf("cannot clean worktree for active run %s#%s (status=%s)", run.IssueID, run.RunID, run.Status))
+	}
+
+	removed, skipped, reason, err := s.removeRunWorktree(req.Context, run)
+	if err != nil {
+		return errorResponse(err.Error())
+	}
+
+	result := &orchpb.CleanRunWorktreeResponse{
+		IssueId:         run.IssueID,
+		RunId:           run.RunID,
+		ShortId:         run.ShortID(),
+		WorktreePath:    run.WorktreePath,
+		WorktreeRemoved: removed,
+		Skipped:         skipped,
+		Reason:          reason,
+	}
+
+	return &orchpb.Response{
+		Ok: true,
+		Response: &orchpb.Response_CleanRunWorktree{
+			CleanRunWorktree: result,
 		},
 	}
 }

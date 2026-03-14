@@ -325,6 +325,16 @@ type DeleteRunResult struct {
 	SessionKilled   bool
 }
 
+type CleanRunWorktreeResult struct {
+	IssueID         string
+	RunID           string
+	ShortID         string
+	WorktreePath    string
+	WorktreeRemoved bool
+	Skipped         bool
+	Reason          string
+}
+
 type UpdateIssueRequest struct {
 	Title   string
 	Summary string

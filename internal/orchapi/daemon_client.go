@@ -677,6 +677,22 @@ func (c *DaemonClient) DeleteRun(ctx context.Context, ref RunRef, opts *DeleteRu
 	}, nil
 }
 
+func (c *DaemonClient) CleanRunWorktree(ctx context.Context, ref RunRef) (*CleanRunWorktreeResult, error) {
+	resp, err := c.proto.CleanRunWorktree(ref.IssueID, ref.RunID, ref.ShortID)
+	if err != nil {
+		return nil, err
+	}
+	return &CleanRunWorktreeResult{
+		IssueID:         resp.IssueID,
+		RunID:           resp.RunID,
+		ShortID:         resp.ShortID,
+		WorktreePath:    resp.WorktreePath,
+		WorktreeRemoved: resp.WorktreeRemoved,
+		Skipped:         resp.Skipped,
+		Reason:          resp.Reason,
+	}, nil
+}
+
 func (c *DaemonClient) UpdateIssue(ctx context.Context, issueID string, req *UpdateIssueRequest) (*Issue, error) {
 	resp, err := c.proto.UpdateIssue(issueID, req.Title, req.Summary, req.Body, string(req.Status))
 	if err != nil {

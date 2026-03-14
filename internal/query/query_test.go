@@ -114,6 +114,9 @@ func (m *mockAPI) ResolveIssue(ctx context.Context, issueID string, force bool) 
 func (m *mockAPI) DeleteRun(ctx context.Context, ref orchapi.RunRef, opts *orchapi.DeleteRunOptions) (*orchapi.DeleteRunResult, error) {
 	return nil, nil
 }
+func (m *mockAPI) CleanRunWorktree(ctx context.Context, ref orchapi.RunRef) (*orchapi.CleanRunWorktreeResult, error) {
+	return nil, nil
+}
 func (m *mockAPI) UpdateIssue(ctx context.Context, issueID string, req *orchapi.UpdateIssueRequest) (*orchapi.Issue, error) {
 	return nil, nil
 }

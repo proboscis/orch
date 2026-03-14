@@ -239,8 +239,8 @@ orch stop fix-login-timeout
 # Or stop all runs
 orch stop --all
 
-# Clean up failed runs
-orch delete my-failed-run
+# Clean up failed worktrees without deleting run history
+orch clean my-failed-run
 ```
 
 ### Leaving runs overnight

@@ -563,6 +563,37 @@ orch delete RUN_REF [flags]
 
 ---
 
+## orch clean
+
+Remove run worktrees while preserving run history.
+
+```bash
+orch clean RUN_REF [flags]
+```
+
+Examples:
+
+```bash
+# Clean the latest failed/canceled run worktree for an issue
+orch clean my-issue
+
+# Clean all failed/canceled worktrees across all issues
+orch clean --all
+
+# Clean all failed/canceled worktrees for an issue
+orch clean my-issue --all
+
+# Include done runs explicitly
+orch clean my-issue --all --status failed,canceled,done
+
+# Preview cleanup before removing anything
+orch clean --older-than 7d --dry-run
+```
+
+By default, bulk cleanup targets `failed` and `canceled` runs only.
+
+---
+
 ## orch daemon
 
 Manage the background monitoring daemon.

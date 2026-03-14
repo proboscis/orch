@@ -325,6 +325,33 @@ func createGitRepoWithOrigin(t *testing.T, remoteURL string) string {
 	return repo
 }
 
+func initGitRepoWithCommit(t *testing.T) string {
+	t.Helper()
+
+	repo := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command(args[0], args[1:]...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%s failed: %v (%s)", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		}
+	}
+
+	run("git", "init", repo)
+	run("git", "-C", repo, "config", "user.email", "test@example.com")
+	run("git", "-C", repo, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("test\n"), 0644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	run("git", "-C", repo, "add", "README.md")
+	run("git", "-C", repo, "commit", "-m", "init")
+	run("git", "-C", repo, "branch", "-M", "main")
+	run("git", "-C", repo, "remote", "add", "origin", repo)
+	run("git", "-C", repo, "fetch", "origin")
+
+	return repo
+}
+
 func TestSocketServerStartStop(t *testing.T) {
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
@@ -1217,6 +1244,290 @@ func setupTestServer(t *testing.T, st *mockStore) (*SocketServer, func()) {
 	return server, func() {
 		server.Stop()
 		cleanup()
+	}
+}
+
+func TestHandleProtoCleanRunWorktreeRemovesWorktree(t *testing.T) {
+	repo := initGitRepoWithCommit(t)
+	issueID := "orch-clean"
+	runID := "20260314-120000"
+
+	worktreeRoot := filepath.Join(repo, ".git-worktrees")
+	worktree, err := git.CreateWorktree(&git.WorktreeConfig{
+		RepoRoot:    repo,
+		WorktreeDir: worktreeRoot,
+		IssueID:     issueID,
+		RunID:       runID,
+		Agent:       "codex",
+	})
+	if err != nil {
+		t.Fatalf("CreateWorktree() error = %v", err)
+	}
+
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			issueID + "#" + runID: {
+				IssueID:      issueID,
+				RunID:        runID,
+				Status:       model.StatusFailed,
+				WorktreePath: worktree.WorktreePath,
+				Branch:       worktree.Branch,
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, logger)
+	registerRepoContextForTest(t, server, testProjectID, repo, st)
+
+	resp := server.handleProtoCleanRunWorktree(&orchpb.CleanRunWorktreeRequest{
+		IssueId: issueID,
+		RunId:   runID,
+		Context: &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+	if !resp.Ok {
+		t.Fatalf("handleProtoCleanRunWorktree() error = %s", resp.Error)
+	}
+
+	cleanResp := resp.GetCleanRunWorktree()
+	if cleanResp == nil {
+		t.Fatal("expected clean_run_worktree response")
+	}
+	if !cleanResp.WorktreeRemoved {
+		t.Fatal("expected worktree_removed=true")
+	}
+	if cleanResp.Skipped {
+		t.Fatalf("expected skipped=false, got reason=%q", cleanResp.Reason)
+	}
+	if _, err := os.Stat(worktree.WorktreePath); !os.IsNotExist(err) {
+		t.Fatalf("worktree still exists after cleanup: %v", err)
+	}
+
+	trees, err := git.ListWorktrees(repo)
+	if err != nil {
+		t.Fatalf("ListWorktrees() error = %v", err)
+	}
+	for _, tree := range trees {
+		if tree == worktree.WorktreePath {
+			t.Fatalf("worktree %q still registered after cleanup", tree)
+		}
+	}
+}
+
+func TestHandleProtoCleanRunWorktreeRejectsActiveRun(t *testing.T) {
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			"orch-active#20260314-130000": {
+				IssueID:      "orch-active",
+				RunID:        "20260314-130000",
+				Status:       model.StatusRunning,
+				WorktreePath: "/tmp/orch-active",
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, logger)
+	registerRepoContextForTest(t, server, testProjectID, t.TempDir(), st)
+
+	resp := server.handleProtoCleanRunWorktree(&orchpb.CleanRunWorktreeRequest{
+		IssueId: "orch-active",
+		RunId:   "20260314-130000",
+		Context: &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+	if resp.Ok {
+		t.Fatal("expected active run cleanup to fail")
+	}
+	if !strings.Contains(resp.Error, "cannot clean worktree for active run") {
+		t.Fatalf("resp.Error = %q, want active-run cleanup error", resp.Error)
+	}
+}
+
+func TestHandleProtoCleanRunWorktreeRemovesMissingWorktreeRegistration(t *testing.T) {
+	repo := initGitRepoWithCommit(t)
+	issueID := "orch-missing"
+	runID := "20260314-140000"
+
+	worktreeRoot := filepath.Join(repo, ".git-worktrees")
+	worktree, err := git.CreateWorktree(&git.WorktreeConfig{
+		RepoRoot:    repo,
+		WorktreeDir: worktreeRoot,
+		IssueID:     issueID,
+		RunID:       runID,
+		Agent:       "codex",
+	})
+	if err != nil {
+		t.Fatalf("CreateWorktree() error = %v", err)
+	}
+	if err := os.RemoveAll(worktree.WorktreePath); err != nil {
+		t.Fatalf("RemoveAll(worktree) error = %v", err)
+	}
+
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			issueID + "#" + runID: {
+				IssueID:      issueID,
+				RunID:        runID,
+				Status:       model.StatusCanceled,
+				WorktreePath: worktree.WorktreePath,
+				Branch:       worktree.Branch,
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, logger)
+	registerRepoContextForTest(t, server, testProjectID, repo, st)
+
+	resp := server.handleProtoCleanRunWorktree(&orchpb.CleanRunWorktreeRequest{
+		IssueId: issueID,
+		RunId:   runID,
+		Context: &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+	if !resp.Ok {
+		t.Fatalf("handleProtoCleanRunWorktree() error = %s", resp.Error)
+	}
+
+	cleanResp := resp.GetCleanRunWorktree()
+	if cleanResp == nil {
+		t.Fatal("expected clean_run_worktree response")
+	}
+	if !cleanResp.WorktreeRemoved {
+		t.Fatal("expected worktree_removed=true")
+	}
+	if cleanResp.Skipped {
+		t.Fatalf("expected skipped=false, got reason=%q", cleanResp.Reason)
+	}
+
+	trees, err := git.ListWorktrees(repo)
+	if err != nil {
+		t.Fatalf("ListWorktrees() error = %v", err)
+	}
+	for _, tree := range trees {
+		if tree == worktree.WorktreePath {
+			t.Fatalf("worktree %q still registered after cleanup", tree)
+		}
+	}
+}
+
+func TestProtoClientCleanRunWorktreeDispatchesToHandler(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	repo := initGitRepoWithCommit(t)
+	issueID := "orch-dispatch"
+	runID := "20260314-150000"
+	worktreeRoot := filepath.Join(repo, ".git-worktrees")
+	worktree, err := git.CreateWorktree(&git.WorktreeConfig{
+		RepoRoot:    repo,
+		WorktreeDir: worktreeRoot,
+		IssueID:     issueID,
+		RunID:       runID,
+		Agent:       "codex",
+	})
+	if err != nil {
+		t.Fatalf("CreateWorktree() error = %v", err)
+	}
+
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			issueID + "#" + runID: {
+				IssueID:      issueID,
+				RunID:        runID,
+				Status:       model.StatusFailed,
+				WorktreePath: worktree.WorktreePath,
+				Branch:       worktree.Branch,
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, logger)
+	registerRepoContextForTest(t, server, testProjectID, repo, st)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	client := NewProtoClientWithAddress(testProjectID, "")
+	defer client.Close()
+
+	resp, err := client.CleanRunWorktree(issueID, runID, "")
+	if err != nil {
+		t.Fatalf("CleanRunWorktree() error = %v", err)
+	}
+	if !resp.WorktreeRemoved {
+		t.Fatal("expected worktree_removed=true")
+	}
+}
+
+func TestHandleProtoDeleteRunRemovesMissingWorktreeRegistration(t *testing.T) {
+	repo := initGitRepoWithCommit(t)
+	issueID := "orch-delete-missing"
+	runID := "20260314-160000"
+
+	worktreeRoot := filepath.Join(repo, ".git-worktrees")
+	worktree, err := git.CreateWorktree(&git.WorktreeConfig{
+		RepoRoot:    repo,
+		WorktreeDir: worktreeRoot,
+		IssueID:     issueID,
+		RunID:       runID,
+		Agent:       "codex",
+	})
+	if err != nil {
+		t.Fatalf("CreateWorktree() error = %v", err)
+	}
+	if err := os.RemoveAll(worktree.WorktreePath); err != nil {
+		t.Fatalf("RemoveAll(worktree) error = %v", err)
+	}
+
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			issueID + "#" + runID: {
+				IssueID:      issueID,
+				RunID:        runID,
+				Status:       model.StatusFailed,
+				WorktreePath: worktree.WorktreePath,
+				Branch:       worktree.Branch,
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, logger)
+	registerRepoContextForTest(t, server, testProjectID, repo, st)
+
+	resp := server.handleProtoDeleteRun(&orchpb.DeleteRunRequest{
+		IssueId:      issueID,
+		RunId:        runID,
+		WithWorktree: true,
+		Context:      &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+	if !resp.Ok {
+		t.Fatalf("handleProtoDeleteRun() error = %s", resp.Error)
+	}
+
+	deleteResp := resp.GetDeleteRun()
+	if deleteResp == nil {
+		t.Fatal("expected delete_run response")
+	}
+	if !deleteResp.WorktreeRemoved {
+		t.Fatal("expected worktree_removed=true")
+	}
+
+	trees, err := git.ListWorktrees(repo)
+	if err != nil {
+		t.Fatalf("ListWorktrees() error = %v", err)
+	}
+	for _, tree := range trees {
+		if tree == worktree.WorktreePath {
+			t.Fatalf("worktree %q still registered after delete cleanup", tree)
+		}
 	}
 }
 

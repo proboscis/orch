@@ -1643,6 +1643,53 @@ func (c *ProtoClient) DeleteRun(issueID, runID, shortID string, withWorktree, wi
 	}, nil
 }
 
+type CleanRunWorktreeResponse struct {
+	IssueID         string
+	RunID           string
+	ShortID         string
+	WorktreePath    string
+	WorktreeRemoved bool
+	Skipped         bool
+	Reason          string
+}
+
+func (c *ProtoClient) CleanRunWorktree(issueID, runID, shortID string) (*CleanRunWorktreeResponse, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_CleanRunWorktree{
+			CleanRunWorktree: &orchpb.CleanRunWorktreeRequest{
+				IssueId: issueID,
+				RunId:   runID,
+				ShortId: shortID,
+				Context: c.requestContext(c.projectRoot),
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	cleanResp := resp.GetCleanRunWorktree()
+	if cleanResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	return &CleanRunWorktreeResponse{
+		IssueID:         cleanResp.IssueId,
+		RunID:           cleanResp.RunId,
+		ShortID:         cleanResp.ShortId,
+		WorktreePath:    cleanResp.WorktreePath,
+		WorktreeRemoved: cleanResp.WorktreeRemoved,
+		Skipped:         cleanResp.Skipped,
+		Reason:          cleanResp.Reason,
+	}, nil
+}
+
 func (c *ProtoClient) UpdateIssue(issueID, title, summary, body, status string) (*IssueFull, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_UpdateIssue{

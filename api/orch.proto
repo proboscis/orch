@@ -588,6 +588,23 @@ message DeleteRunResponse {
   bool session_killed = 6;
 }
 
+message CleanRunWorktreeRequest {
+  string issue_id = 1;
+  string run_id = 2;
+  string short_id = 3;
+  RequestContext context = 4;
+}
+
+message CleanRunWorktreeResponse {
+  string issue_id = 1;
+  string run_id = 2;
+  string short_id = 3;
+  string worktree_path = 4;
+  bool worktree_removed = 5;
+  bool skipped = 6;
+  string reason = 7;
+}
+
 message UpdateIssueRequest {
   string issue_id = 2;
   string title = 3;
@@ -948,6 +965,7 @@ message Request {
     ListWorkersRequest list_workers = 51;
     LeaseWorkRequest lease_work = 52;
     AcknowledgeEffectRequest acknowledge_effect = 53;
+    CleanRunWorktreeRequest clean_run_worktree = 54;
   }
 }
 
@@ -1009,5 +1027,6 @@ message Response {
     ListWorkersResponse list_workers = 53;
     LeaseWorkResponse lease_work = 54;
     AcknowledgeEffectResponse acknowledge_effect = 55;
+    CleanRunWorktreeResponse clean_run_worktree = 56;
   }
 }
