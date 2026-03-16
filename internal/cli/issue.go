@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,11 +17,12 @@ import (
 )
 
 type issueCreateOptions struct {
-	Title   string
-	Summary string
-	Body    string
-	Edit    bool
-	Tags    []string
+	Title        string
+	Summary      string
+	Body         string
+	Edit         bool
+	Tags         []string
+	bodyProvided bool
 }
 
 func newIssueCmd() *cobra.Command {
@@ -51,10 +53,16 @@ func newIssueCreateCmd() *cobra.Command {
 
 For local backend, ISSUE_ID is required.
 For GitHub backend, ISSUE_ID is optional (GitHub assigns the number).
+Provide the issue body with --body, or omit it and redirect stdin via a
+pipe/heredoc for multi-line input.
 
 Examples:
   orch issue create fix-login-bug --title "Fix login timeout"
   orch issue create plc-123 --title "Add dark mode" --body "Users want dark mode support"
+  orch issue create my-issue --title "Add dark mode" <<'EOF'
+  Users want dark mode support.
+  Include settings persistence.
+  EOF
   orch issue create my-issue --edit  # Opens in $EDITOR
   orch issue create --title "GitHub issue"  # GitHub backend only`,
 		Args: cobra.MaximumNArgs(1),
@@ -63,6 +71,7 @@ Examples:
 			if len(args) > 0 {
 				issueID = args[0]
 			}
+			opts.bodyProvided = cmd.Flags().Changed("body")
 			return runIssueCreate(issueID, opts)
 		},
 	}
@@ -77,19 +86,16 @@ Examples:
 }
 
 func runIssueCreate(issueID string, opts *issueCreateOptions) error {
-	title := opts.Title
-	if title == "" && !opts.Edit {
-		fmt.Print("Title: ")
-		reader := bufio.NewReader(os.Stdin)
-		title, _ = reader.ReadString('\n')
-		title = strings.TrimSpace(title)
-	}
-	if title == "" {
-		title = issueID
-	}
+	return runIssueCreateWithInput(issueID, opts, os.Stdin, stdinIsTerminal(os.Stdin))
+}
 
+func runIssueCreateWithInput(issueID string, opts *issueCreateOptions, stdin io.Reader, stdinIsTTY bool) error {
 	if testBypassDaemon {
-		return runIssueCreateLocal(issueID, title, opts)
+		title, resolvedOpts, err := resolveIssueCreateInput(issueID, opts, stdin, stdinIsTTY)
+		if err != nil {
+			return err
+		}
+		return runIssueCreateLocal(issueID, title, resolvedOpts)
 	}
 
 	ctx := context.Background()
@@ -103,19 +109,24 @@ func runIssueCreate(issueID string, opts *issueCreateOptions) error {
 		return err
 	}
 
-	if opts.Edit && isGitHubBackend(cfg) {
-		return fmt.Errorf("--edit flag is not supported with GitHub backend")
+	if err := validateIssueCreateOptions(opts, cfg); err != nil {
+		return err
 	}
 
-	if opts.Edit {
-		return runIssueCreateWithEditor(api, issueID, title, opts)
+	title, resolvedOpts, err := resolveIssueCreateInput(issueID, opts, stdin, stdinIsTTY)
+	if err != nil {
+		return err
+	}
+
+	if resolvedOpts.Edit {
+		return runIssueCreateWithEditor(api, issueID, title, resolvedOpts)
 	}
 
 	issue, err := api.CreateIssue(ctx, &orchapi.CreateIssueRequest{
 		ID:    issueID,
 		Title: title,
-		Body:  opts.Body,
-		Tags:  opts.Tags,
+		Body:  resolvedOpts.Body,
+		Tags:  resolvedOpts.Tags,
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "already_exists") {
@@ -147,6 +158,46 @@ func runIssueCreate(issueID string, opts *issueCreateOptions) error {
 		fmt.Printf("  Path: %s\n", issue.Path)
 	}
 
+	return nil
+}
+
+func resolveIssueCreateInput(issueID string, opts *issueCreateOptions, stdin io.Reader, stdinIsTTY bool) (string, *issueCreateOptions, error) {
+	resolved := &issueCreateOptions{}
+	if opts != nil {
+		*resolved = *opts
+	}
+
+	if !resolved.bodyProvided && !stdinIsTTY {
+		data, err := io.ReadAll(stdin)
+		if err != nil {
+			return "", nil, fmt.Errorf("read stdin body: %w", err)
+		}
+		if len(data) > 0 {
+			resolved.Body = trimSingleTrailingNewline(string(data))
+		}
+	}
+
+	title := resolved.Title
+	if title == "" && !resolved.Edit && stdinIsTTY {
+		fmt.Print("Title: ")
+		reader := bufio.NewReader(stdin)
+		title, _ = reader.ReadString('\n')
+		title = strings.TrimSpace(title)
+	}
+	if title == "" {
+		title = issueID
+	}
+	if title == "" {
+		return "", nil, fmt.Errorf("title required: pass --title, provide ISSUE_ID, or run interactively")
+	}
+
+	return title, resolved, nil
+}
+
+func validateIssueCreateOptions(opts *issueCreateOptions, cfg *orchapi.Config) error {
+	if opts != nil && opts.Edit && isGitHubBackend(cfg) {
+		return fmt.Errorf("--edit flag is not supported with GitHub backend")
+	}
 	return nil
 }
 

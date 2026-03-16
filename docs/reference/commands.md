@@ -395,6 +395,9 @@ Manage issues.
 
 Create a new issue.
 
+You can pass the body with `--body` or via redirected stdin/heredoc for
+multi-line input.
+
 ```bash
 orch issue create ISSUE_ID [flags]
 ```
@@ -406,6 +409,16 @@ orch issue create ISSUE_ID [flags]
 | `--title <title>` | Issue title |
 | `--body <body>` | Issue body |
 | `--edit` | Open in editor after creation |
+
+#### Examples
+
+```bash
+orch issue create fix-login-bug --title "Fix login timeout"
+orch issue create my-issue --title "Add dark mode" <<'EOF'
+Users want dark mode support.
+Include settings persistence.
+EOF
+```
 
 ### orch issue list
 

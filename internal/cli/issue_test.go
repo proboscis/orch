@@ -1,11 +1,109 @@
 package cli
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/s22625/orch/internal/orchapi"
 )
+
+func TestNewIssueCreateCmdLongDescriptionGuidance(t *testing.T) {
+	cmd := newIssueCreateCmd()
+
+	if !strings.Contains(cmd.Long, "pipe/heredoc") {
+		t.Fatalf("expected issue create help to mention stdin usage")
+	}
+	if !strings.Contains(cmd.Long, "<<'EOF'") {
+		t.Fatalf("expected issue create help to include heredoc example")
+	}
+}
+
+func TestResolveIssueCreateInputReadsStdinBody(t *testing.T) {
+	title, opts, err := resolveIssueCreateInput("issue-1", &issueCreateOptions{
+		Title: "Issue title",
+	}, bytes.NewBufferString("line one\nline two\n"), false)
+	if err != nil {
+		t.Fatalf("resolveIssueCreateInput() error = %v, want nil", err)
+	}
+	if title != "Issue title" {
+		t.Fatalf("title = %q, want %q", title, "Issue title")
+	}
+	if opts.Body != "line one\nline two" {
+		t.Fatalf("body = %q, want %q", opts.Body, "line one\nline two")
+	}
+}
+
+func TestResolveIssueCreateInputPrefersBodyFlagOverStdin(t *testing.T) {
+	title, opts, err := resolveIssueCreateInput("issue-1", &issueCreateOptions{
+		Title:        "Issue title",
+		Body:         "flag body",
+		bodyProvided: true,
+	}, bytes.NewBufferString("stdin body\n"), false)
+	if err != nil {
+		t.Fatalf("resolveIssueCreateInput() error = %v, want nil", err)
+	}
+	if title != "Issue title" {
+		t.Fatalf("title = %q, want %q", title, "Issue title")
+	}
+	if opts.Body != "flag body" {
+		t.Fatalf("body = %q, want %q", opts.Body, "flag body")
+	}
+}
+
+func TestResolveIssueCreateInputPrefersExplicitEmptyBodyOverStdin(t *testing.T) {
+	title, opts, err := resolveIssueCreateInput("issue-1", &issueCreateOptions{
+		Title:        "Issue title",
+		Body:         "",
+		bodyProvided: true,
+	}, bytes.NewBufferString("stdin body\n"), false)
+	if err != nil {
+		t.Fatalf("resolveIssueCreateInput() error = %v, want nil", err)
+	}
+	if title != "Issue title" {
+		t.Fatalf("title = %q, want %q", title, "Issue title")
+	}
+	if opts.Body != "" {
+		t.Fatalf("body = %q, want empty", opts.Body)
+	}
+}
+
+func TestResolveIssueCreateInputPromptsForTitleOnTTY(t *testing.T) {
+	title, opts, err := resolveIssueCreateInput("", &issueCreateOptions{}, bytes.NewBufferString("Prompted title\n"), true)
+	if err != nil {
+		t.Fatalf("resolveIssueCreateInput() error = %v, want nil", err)
+	}
+	if title != "Prompted title" {
+		t.Fatalf("title = %q, want %q", title, "Prompted title")
+	}
+	if opts.Body != "" {
+		t.Fatalf("body = %q, want empty", opts.Body)
+	}
+}
+
+func TestResolveIssueCreateInputRejectsMissingNonInteractiveTitle(t *testing.T) {
+	_, _, err := resolveIssueCreateInput("", &issueCreateOptions{}, bytes.NewBufferString("body from stdin\n"), false)
+	if err == nil {
+		t.Fatal("resolveIssueCreateInput() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "title required") {
+		t.Fatalf("expected title guidance, got %v", err)
+	}
+}
+
+func TestValidateIssueCreateOptionsRejectsGitHubEdit(t *testing.T) {
+	err := validateIssueCreateOptions(&issueCreateOptions{Edit: true}, &orchapi.Config{
+		Issues: orchapi.IssuesConfig{Backend: "github"},
+	})
+	if err == nil {
+		t.Fatal("validateIssueCreateOptions() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "--edit flag is not supported with GitHub backend") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
 
 func setIssueRootConfig(t *testing.T, issuesRoot string) {
 	t.Helper()
@@ -84,6 +182,97 @@ func TestRunIssueCreateUsesVaultIssuesDir(t *testing.T) {
 	expected := filepath.Join(issuesDir, issueID+".md")
 	if _, err := os.Stat(expected); err != nil {
 		t.Fatalf("expected issue at %q: %v", expected, err)
+	}
+}
+
+func TestRunIssueCreateWithInputUsesRedirectedStdinAsBody(t *testing.T) {
+	vault := t.TempDir()
+	issuesDir := filepath.Join(vault, "Issues")
+	if err := os.MkdirAll(issuesDir, 0o755); err != nil {
+		t.Fatalf("mkdir Issues: %v", err)
+	}
+
+	prev := *globalOpts
+	globalOpts.JSON = false
+	globalOpts.Quiet = true
+	setIssueRootConfig(t, vault)
+	testBypassDaemon = true
+	t.Cleanup(func() {
+		*globalOpts = prev
+		testBypassDaemon = false
+	})
+
+	issueID := "issue-stdin"
+	if err := runIssueCreateWithInput(issueID, &issueCreateOptions{}, bytes.NewBufferString("line one\nline two\n"), false); err != nil {
+		t.Fatalf("runIssueCreateWithInput: %v", err)
+	}
+
+	issuePath := filepath.Join(issuesDir, issueID+".md")
+	content, err := os.ReadFile(issuePath)
+	if err != nil {
+		t.Fatalf("read issue file: %v", err)
+	}
+
+	text := string(content)
+	if !strings.Contains(text, "title: issue-stdin") {
+		t.Fatalf("issue file missing default title\ngot:\n%s", text)
+	}
+	if !strings.Contains(text, "line one\nline two\n") {
+		t.Fatalf("issue file missing redirected stdin body\ngot:\n%s", text)
+	}
+}
+
+func TestIssueCreateCmdExplicitEmptyBodySkipsRedirectedStdin(t *testing.T) {
+	vault := t.TempDir()
+	issuesDir := filepath.Join(vault, "Issues")
+	if err := os.MkdirAll(issuesDir, 0o755); err != nil {
+		t.Fatalf("mkdir Issues: %v", err)
+	}
+
+	stdinFile, err := os.CreateTemp(t.TempDir(), "issue-create-stdin-*.txt")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	if _, err := stdinFile.WriteString("stdin body should be ignored\n"); err != nil {
+		t.Fatalf("WriteString: %v", err)
+	}
+	if _, err := stdinFile.Seek(0, 0); err != nil {
+		t.Fatalf("Seek: %v", err)
+	}
+
+	prevStdin := os.Stdin
+	os.Stdin = stdinFile
+	t.Cleanup(func() { os.Stdin = prevStdin })
+	t.Cleanup(func() { _ = stdinFile.Close() })
+
+	prev := *globalOpts
+	globalOpts.JSON = false
+	globalOpts.Quiet = true
+	setIssueRootConfig(t, vault)
+	testBypassDaemon = true
+	t.Cleanup(func() {
+		*globalOpts = prev
+		testBypassDaemon = false
+	})
+
+	cmd := newIssueCreateCmd()
+	cmd.SetArgs([]string{"issue-empty-body", "--title", "Issue title", "--body", ""})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("cmd.Execute: %v", err)
+	}
+
+	issuePath := filepath.Join(issuesDir, "issue-empty-body.md")
+	content, err := os.ReadFile(issuePath)
+	if err != nil {
+		t.Fatalf("read issue file: %v", err)
+	}
+
+	text := string(content)
+	if strings.Contains(text, "stdin body should be ignored") {
+		t.Fatalf("issue file unexpectedly consumed redirected stdin\ngot:\n%s", text)
+	}
+	if !strings.Contains(text, "# Issue title\n\n") {
+		t.Fatalf("issue file missing title header\ngot:\n%s", text)
 	}
 }
 
