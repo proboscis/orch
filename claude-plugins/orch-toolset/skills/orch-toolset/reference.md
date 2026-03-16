@@ -30,16 +30,25 @@ Common flags across `orch` commands:
 
 Create a new issue.
 
+For multi-line issue bodies, prefer redirected stdin/heredoc over a long escaped
+`--body` string.
+
 ```bash
 # Local backend
 orch issue create plc-123 --title "Fix login timeout"
 
-# Add summary/body/tags
+# Add summary/tags with a multi-line body
 orch issue create plc-123 \
   --title "Fix login timeout" \
   --summary "Login requests can hang for 30s" \
-  --body "Repro steps..." \
-  --tag bug --tag auth
+  --tag bug --tag auth <<'EOF'
+Repro steps...
+Collect the auth logs.
+Confirm the timeout path.
+EOF
+
+# Short single-line body
+orch issue create plc-123 --title "Fix login timeout" --body "Repro steps..."
 
 # Open editor after creation
 orch issue create plc-123 --title "Draft issue" --edit

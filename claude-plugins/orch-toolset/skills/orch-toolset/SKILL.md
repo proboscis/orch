@@ -6,7 +6,7 @@ description: |
   restart-from, orch worker start/status/stop, orch attach/capture/send/exec, and remote execution
   via ORCH_REMOTE and target_host. Trigger terms: orch, orchestrator, worker, master, ORCH_REMOTE,
   target_host, run management, issue management, agent runs, worktree.
-version: 1.1.0
+version: 1.1.1
 ---
 
 # Orch Toolset
@@ -143,6 +143,8 @@ Recommended triage order:
 
 ## Workflow Tips
 
+- When issue bodies span multiple lines, prefer `orch issue create ... <<'EOF'` over a long escaped
+  `--body` string.
 - Use `orch send` to answer `waiting` runs.
 - Do not `stop` + `restart-from` a live run just because it asked a question.
 - Use `orch exec` for isolated test or git commands inside a run worktree.
@@ -152,7 +154,7 @@ Recommended triage order:
 
 | Goal | Command |
 |------|---------|
-| Create issue | `orch issue create <ID> --title "..."` |
+| Create issue | `orch issue create <ID> --title "..."` (`<<'EOF'` for multi-line body) |
 | Start local worker to remote master | `ORCH_REMOTE=<master> orch worker start` |
 | Inspect worker | `ORCH_REMOTE=<master> orch worker status --json` |
 | Start run | `orch run <ISSUE>` |
