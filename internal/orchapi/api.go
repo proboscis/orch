@@ -117,7 +117,7 @@ type OrchAPI interface {
 	CaptureSession(ctx context.Context, ref RunRef, lines int) (*CaptureResult, error)
 
 	// SendMessage sends a message/input to a run's session.
-	SendMessage(ctx context.Context, ref RunRef, message string) error
+	SendMessage(ctx context.Context, ref RunRef, message string, noEnter bool) error
 
 	// InjectInitialPrompt injects the initial prompt into a run's session.
 	// Handles both tmux and OpenCode agents through the daemon.

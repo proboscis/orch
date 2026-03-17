@@ -546,16 +546,18 @@ class CaptureSessionResponse(_message.Message):
     def __init__(self, content: _Optional[str] = ..., timestamp_unix: _Optional[int] = ..., source: _Optional[str] = ...) -> None: ...
 
 class SendMessageRequest(_message.Message):
-    __slots__ = ("issue_id", "run_id", "message", "context")
+    __slots__ = ("issue_id", "run_id", "message", "context", "no_enter")
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     MESSAGE_FIELD_NUMBER: _ClassVar[int]
     CONTEXT_FIELD_NUMBER: _ClassVar[int]
+    NO_ENTER_FIELD_NUMBER: _ClassVar[int]
     issue_id: str
     run_id: str
     message: str
     context: RequestContext
-    def __init__(self, issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., message: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
+    no_enter: bool
+    def __init__(self, issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., message: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ..., no_enter: _Optional[bool] = ...) -> None: ...
 
 class SendMessageResponse(_message.Message):
     __slots__ = ()

@@ -2805,6 +2805,7 @@ type SendMessageRequest struct {
 	RunId         string                 `protobuf:"bytes,3,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	Message       string                 `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
 	Context       *RequestContext        `protobuf:"bytes,5,opt,name=context,proto3" json:"context,omitempty"`
+	NoEnter       bool                   `protobuf:"varint,6,opt,name=no_enter,json=noEnter,proto3" json:"no_enter,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2865,6 +2866,13 @@ func (x *SendMessageRequest) GetContext() *RequestContext {
 		return x.Context
 	}
 	return nil
+}
+
+func (x *SendMessageRequest) GetNoEnter() bool {
+	if x != nil {
+		return x.NoEnter
+	}
+	return false
 }
 
 type SendMessageResponse struct {
@@ -10596,12 +10604,13 @@ const file_orch_proto_rawDesc = "" +
 	"\x16CaptureSessionResponse\x12\x18\n" +
 	"\acontent\x18\x01 \x01(\tR\acontent\x12%\n" +
 	"\x0etimestamp_unix\x18\x02 \x01(\x03R\rtimestampUnix\x12\x16\n" +
-	"\x06source\x18\x03 \x01(\tR\x06source\"\x93\x01\n" +
+	"\x06source\x18\x03 \x01(\tR\x06source\"\xae\x01\n" +
 	"\x12SendMessageRequest\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\x12\x18\n" +
 	"\amessage\x18\x04 \x01(\tR\amessage\x121\n" +
-	"\acontext\x18\x05 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"\x15\n" +
+	"\acontext\x18\x05 \x01(\v2\x17.orch.v1.RequestContextR\acontext\x12\x19\n" +
+	"\bno_enter\x18\x06 \x01(\bR\anoEnter\"\x15\n" +
 	"\x13SendMessageResponse\"z\n" +
 	"\x13GetDiffStatsRequest\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x15\n" +

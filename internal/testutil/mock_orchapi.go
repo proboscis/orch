@@ -106,7 +106,7 @@ var _ orchapi.OrchAPI = &OrchAPIMock{}
 //			ResolveRunFunc: func(ctx context.Context, ref orchapi.RunRef) (*orchapi.Run, error) {
 //				panic("mock out the ResolveRun method")
 //			},
-//			SendMessageFunc: func(ctx context.Context, ref orchapi.RunRef, message string) error {
+//			SendMessageFunc: func(ctx context.Context, ref orchapi.RunRef, message string, noEnter bool) error {
 //				panic("mock out the SendMessage method")
 //			},
 //			SetIssueStatusFunc: func(ctx context.Context, issueID string, status orchapi.IssueStatus) error {
@@ -225,7 +225,7 @@ type OrchAPIMock struct {
 	ResolveRunFunc func(ctx context.Context, ref orchapi.RunRef) (*orchapi.Run, error)
 
 	// SendMessageFunc mocks the SendMessage method.
-	SendMessageFunc func(ctx context.Context, ref orchapi.RunRef, message string) error
+	SendMessageFunc func(ctx context.Context, ref orchapi.RunRef, message string, noEnter bool) error
 
 	// SetIssueStatusFunc mocks the SetIssueStatus method.
 	SetIssueStatusFunc func(ctx context.Context, issueID string, status orchapi.IssueStatus) error
@@ -465,6 +465,8 @@ type OrchAPIMock struct {
 			Ref orchapi.RunRef
 			// Message is the message argument value.
 			Message string
+			// NoEnter is the noEnter argument value.
+			NoEnter bool
 		}
 		// SetIssueStatus holds details about calls to the SetIssueStatus method.
 		SetIssueStatus []struct {
@@ -1618,7 +1620,7 @@ func (mock *OrchAPIMock) ResolveRunCalls() []struct {
 }
 
 // SendMessage calls SendMessageFunc.
-func (mock *OrchAPIMock) SendMessage(ctx context.Context, ref orchapi.RunRef, message string) error {
+func (mock *OrchAPIMock) SendMessage(ctx context.Context, ref orchapi.RunRef, message string, noEnter bool) error {
 	if mock.SendMessageFunc == nil {
 		panic("OrchAPIMock.SendMessageFunc: method is nil but OrchAPI.SendMessage was just called")
 	}
@@ -1626,15 +1628,17 @@ func (mock *OrchAPIMock) SendMessage(ctx context.Context, ref orchapi.RunRef, me
 		Ctx     context.Context
 		Ref     orchapi.RunRef
 		Message string
+		NoEnter bool
 	}{
 		Ctx:     ctx,
 		Ref:     ref,
 		Message: message,
+		NoEnter: noEnter,
 	}
 	mock.lockSendMessage.Lock()
 	mock.calls.SendMessage = append(mock.calls.SendMessage, callInfo)
 	mock.lockSendMessage.Unlock()
-	return mock.SendMessageFunc(ctx, ref, message)
+	return mock.SendMessageFunc(ctx, ref, message, noEnter)
 }
 
 // SendMessageCalls gets all the calls that were made to SendMessage.
@@ -1645,11 +1649,13 @@ func (mock *OrchAPIMock) SendMessageCalls() []struct {
 	Ctx     context.Context
 	Ref     orchapi.RunRef
 	Message string
+	NoEnter bool
 } {
 	var calls []struct {
 		Ctx     context.Context
 		Ref     orchapi.RunRef
 		Message string
+		NoEnter bool
 	}
 	mock.lockSendMessage.RLock()
 	calls = mock.calls.SendMessage

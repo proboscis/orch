@@ -157,6 +157,7 @@ type Run struct {
 	WorktreePath      string
 	Target            string
 	TargetHost        string
+	TargetWorkerID    string
 	SessionName       string
 	Multiplexer       Multiplexer
 	PRUrl             string

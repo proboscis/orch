@@ -84,7 +84,7 @@ func RunExternalLoop(client Client, cfg RunConfig) (err error) {
 	}
 
 	if capClient, ok := client.(capabilityRegisterClient); ok {
-		if _, err := capClient.RegisterWorkerWithCapabilities(workerID, "executor", host, "external", []string{"start_run", "continue_run", "stop_run"}); err != nil {
+		if _, err := capClient.RegisterWorkerWithCapabilities(workerID, "executor", host, "external", []string{"capture_session", "continue_run", "get_branch_state", "get_diff", "get_diff_stats", "send_message", "start_run", "stop_run"}); err != nil {
 			return err
 		}
 	} else if _, err := client.RegisterWorker(workerID, "executor", host, "external"); err != nil {

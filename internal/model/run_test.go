@@ -113,7 +113,7 @@ func TestRunDeriveState(t *testing.T) {
 			{Timestamp: ts.Add(time.Second), Type: EventTypeStatus, Name: "running"},
 			{Timestamp: ts.Add(3 * time.Second), Type: EventTypeArtifact, Name: "worktree", Attrs: map[string]string{"path": "/tmp/wt"}},
 			{Timestamp: ts.Add(4 * time.Second), Type: EventTypeArtifact, Name: "branch", Attrs: map[string]string{"name": "feature/test"}},
-			{Timestamp: ts.Add(4500 * time.Millisecond), Type: EventTypeArtifact, Name: "target", Attrs: map[string]string{"name": "mac", "host": "mac"}},
+			{Timestamp: ts.Add(4500 * time.Millisecond), Type: EventTypeArtifact, Name: "target", Attrs: map[string]string{"name": "mac", "host": "mac", "worker_id": "host-mac"}},
 			{Timestamp: ts.Add(5 * time.Second), Type: EventTypeArtifact, Name: "session", Attrs: map[string]string{"name": "run-plc124"}},
 		},
 	}
@@ -134,6 +134,9 @@ func TestRunDeriveState(t *testing.T) {
 	}
 	if run.TargetHost != "mac" {
 		t.Errorf("TargetHost = %v, want mac", run.TargetHost)
+	}
+	if run.TargetWorkerID != "host-mac" {
+		t.Errorf("TargetWorkerID = %v, want host-mac", run.TargetWorkerID)
 	}
 	if run.SessionName != "run-plc124" {
 		t.Errorf("SessionName = %v, want run-plc124", run.SessionName)
@@ -182,6 +185,25 @@ func TestRunDeriveStateFallsBackToSessionHost(t *testing.T) {
 	}
 	if run.Multiplexer != "tmux" {
 		t.Errorf("Multiplexer = %v, want tmux", run.Multiplexer)
+	}
+}
+
+func TestRunDeriveStateFallsBackToSessionWorkerID(t *testing.T) {
+	ts := time.Now()
+	run := &Run{
+		IssueID: "plc127",
+		RunID:   "20231223",
+		Events: []*Event{
+			{Timestamp: ts, Type: EventTypeStatus, Name: "queued"},
+			{Timestamp: ts.Add(time.Second), Type: EventTypeArtifact, Name: "session", Attrs: map[string]string{"name": "run-plc127", "worker_id": "host-mac-host"}},
+			{Timestamp: ts.Add(2 * time.Second), Type: EventTypeStatus, Name: "running"},
+		},
+	}
+
+	run.DeriveState()
+
+	if run.TargetWorkerID != "host-mac-host" {
+		t.Errorf("TargetWorkerID = %v, want host-mac-host", run.TargetWorkerID)
 	}
 }
 

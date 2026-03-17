@@ -90,6 +90,7 @@ var (
 		}
 		return mux
 	}
+	currentDaemonHostname = os.Hostname
 )
 
 type sendMultiplexer interface {
@@ -2763,6 +2764,51 @@ func sessionArtifactAttrs(sessionName string, muxType multiplexer.Type, host, wo
 	return attrs
 }
 
+func isLocalExecutionHost(targetHost string) bool {
+	targetHost = strings.TrimSpace(targetHost)
+	if targetHost == "" {
+		return false
+	}
+	if targetHost == "localhost" || targetHost == "127.0.0.1" || targetHost == "::1" {
+		return true
+	}
+	if strings.Contains(targetHost, "@") {
+		return false
+	}
+
+	host, _ := currentDaemonHostname()
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return false
+	}
+
+	short := strings.Split(host, ".")[0]
+	targetShort := strings.Split(targetHost, ".")[0]
+	return strings.EqualFold(targetHost, host) || strings.EqualFold(targetShort, short)
+}
+
+func (s *SocketServer) runRequiresWorkerDelegation(run *model.Run, targetWorkerID string) bool {
+	if run == nil {
+		return false
+	}
+
+	targetWorkerID = strings.TrimSpace(targetWorkerID)
+	if targetWorkerID == "" {
+		targetWorkerID = strings.TrimSpace(run.TargetWorkerID)
+	}
+	if targetWorkerID != "" && strings.TrimSpace(s.currentWorkerID) != "" {
+		return targetWorkerID != strings.TrimSpace(s.currentWorkerID)
+	}
+
+	targetHost := strings.TrimSpace(run.TargetHost)
+	if targetHost != "" {
+		return !isLocalExecutionHost(targetHost)
+	}
+
+	target := strings.TrimSpace(run.Target)
+	return target != "" && target != "local"
+}
+
 func useCodexTmuxSubmitDelay(run *model.Run, mux sendMultiplexer) bool {
 	if run == nil || !strings.EqualFold(run.Agent, string(agent.AgentCodex)) {
 		return false
@@ -2791,14 +2837,14 @@ func (s *SocketServer) processSendMessage(st store.Store, params *SendMessagePar
 		return fmt.Errorf("run %s#%s not found: %w", params.IssueID, params.RunID, err)
 	}
 
-	if targetHost := strings.TrimSpace(run.TargetHost); targetHost != "" {
+	if targetHost := strings.TrimSpace(run.TargetHost); targetHost != "" && s.runRequiresWorkerDelegation(run, params.TargetWorkerID) {
 		return fmt.Errorf("run %s#%s is executing on remote host %q; use the CLI send path that routes to the target host", params.IssueID, params.RunID, targetHost)
 	}
 
 	if run.Agent == string(agent.AgentOpenCode) {
 		return s.processSendOpenCode(st, ref, run, params.Message)
 	}
-	return s.processSendTmux(run, params.Message, false)
+	return s.processSendTmux(run, params.Message, params.NoEnter)
 }
 
 func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {
@@ -3121,7 +3167,7 @@ func (s *SocketServer) handleGetIssue(req SendRequest, encoder *json.Encoder) {
 func SendViaDaemon(projectRoot, _ string, run *model.Run, message string, noEnter bool) error {
 	client := NewProtoClientLocal(projectRoot)
 	client.SetTimeout(35 * time.Second)
-	return client.SendMessage(run.IssueID, run.RunID, message)
+	return client.SendMessage(run.IssueID, run.RunID, message, noEnter)
 }
 
 // IsDaemonSocketAvailable checks if the global daemon socket exists.

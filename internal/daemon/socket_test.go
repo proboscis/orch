@@ -3959,7 +3959,7 @@ func TestCaptureSessionWithoutProjectContextAggregatesAcrossStores(t *testing.T)
 	}
 }
 
-func TestCaptureSessionRemoteTargetFailsClearly(t *testing.T) {
+func TestCaptureSessionRemoteTargetUsesWorkerLease(t *testing.T) {
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
 
@@ -3973,6 +3973,7 @@ func TestCaptureSessionRemoteTargetFailsClearly(t *testing.T) {
 				WorktreePath: "/tmp/capture-remote",
 				Agent:        "custom",
 				Multiplexer:  "tmux",
+				Target:       "mac",
 				TargetHost:   "mac-host",
 			},
 		},
@@ -3981,14 +3982,45 @@ func TestCaptureSessionRemoteTargetFailsClearly(t *testing.T) {
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
-	server.reposMu.Lock()
-	server.repos["project-remote"] = &RepoContext{RepoID: "project-remote", ProjectRoot: "/srv/repos/remote", Store: st}
-	server.reposMu.Unlock()
+	registerRepoContextForTest(t, server, "project-remote", "/srv/repos/remote", st)
+
+	workerID := HostWorkerID("mac-host")
+	if _, ttl := server.registerWorker(workerID, "external", "mac-host", "external", []string{"capture_session"}); ttl <= 0 {
+		t.Fatal("expected positive heartbeat ttl for capture worker")
+	}
 
 	if err := server.Start(); err != nil {
 		t.Fatalf("failed to start server: %v", err)
 	}
 	defer server.Stop()
+
+	go func() {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			lease := server.leaseWorkForWorker(workerID)
+			if lease == nil {
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+			if lease.Effect != "capture_session" {
+				_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, "unexpected effect", "")
+				return
+			}
+			if lease.Payload == nil || lease.Payload.CaptureSession == nil || lease.Payload.CaptureSession.TargetWorkerID != workerID {
+				_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, "unexpected capture payload", "")
+				return
+			}
+			resultJSON := EncodeWorkerEffectResult(&WorkerEffectResult{
+				CaptureResult: &CaptureSessionResult{
+					Content:       "remote capture",
+					TimestampUnix: 12345,
+					Source:        "tmux",
+				},
+			})
+			_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, true, "", resultJSON)
+			return
+		}
+	}()
 
 	resp := sendProtoRequest(t, &orchpb.Request{
 		Request: &orchpb.Request_CaptureSession{
@@ -4000,11 +4032,231 @@ func TestCaptureSessionRemoteTargetFailsClearly(t *testing.T) {
 		},
 	})
 
-	if resp.Ok {
-		t.Fatal("expected capture to fail for remote target run")
+	if !resp.Ok {
+		t.Fatalf("expected capture to succeed, got error: %s", resp.Error)
 	}
-	if !strings.Contains(resp.Error, "remote host") {
-		t.Fatalf("unexpected error: %s", resp.Error)
+	captureResp := resp.GetCaptureSession()
+	if captureResp == nil {
+		t.Fatal("expected CaptureSession response payload")
+	}
+	if captureResp.Content != "remote capture" || captureResp.Source != "tmux" || captureResp.TimestampUnix != 12345 {
+		t.Fatalf("unexpected capture response: %+v", captureResp)
+	}
+}
+
+func TestSendMessageRemoteTargetUsesWorkerLease(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			"issue-remote#run-remote": {
+				IssueID:     "issue-remote",
+				RunID:       "run-remote",
+				SessionName: "session-remote",
+				Agent:       string(agent.AgentClaude),
+				Target:      "mac",
+				TargetHost:  "mac-host",
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	registerRepoContextForTest(t, server, "project-remote", "/srv/repos/remote", st)
+	workerID := HostWorkerID("mac-host")
+	if _, ttl := server.registerWorker(workerID, "external", "mac-host", "external", []string{"send_message"}); ttl <= 0 {
+		t.Fatal("expected positive heartbeat ttl for send worker")
+	}
+
+	go func() {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			lease := server.leaseWorkForWorker(workerID)
+			if lease == nil {
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+			if lease.Effect != "send_message" {
+				_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, "unexpected effect", "")
+				return
+			}
+			if lease.Payload == nil || lease.Payload.SendMessage == nil {
+				_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, "missing send payload", "")
+				return
+			}
+			payload := lease.Payload.SendMessage
+			if payload.Message != "hello remote" || !payload.NoEnter || payload.TargetWorkerID != workerID {
+				_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, "unexpected send payload", "")
+				return
+			}
+			_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, true, "", "")
+			return
+		}
+	}()
+
+	resp := server.handleProtoSendMessage(&orchpb.SendMessageRequest{
+		IssueId: "issue-remote",
+		RunId:   "run-remote",
+		Message: "hello remote",
+		NoEnter: true,
+		Context: &orchpb.RequestContext{},
+	})
+	if !resp.Ok {
+		t.Fatalf("expected send_message to succeed, got error: %s", resp.Error)
+	}
+}
+
+func TestRemoteGitRequestsUseWorkerLease(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	tests := []struct {
+		name       string
+		capability string
+		request    *orchpb.Request
+		resultJSON string
+		assertResp func(t *testing.T, resp *orchpb.Response)
+	}{
+		{
+			name:       "diff stats",
+			capability: "get_diff_stats",
+			request: &orchpb.Request{
+				Request: &orchpb.Request_GetDiffStats{
+					GetDiffStats: &orchpb.GetDiffStatsRequest{
+						IssueId: "git-remote",
+						RunId:   "run-remote",
+						Context: &orchpb.RequestContext{},
+					},
+				},
+			},
+			resultJSON: EncodeWorkerEffectResult(&WorkerEffectResult{
+				DiffStatsResult: &GetDiffStatsResult{
+					Additions:    3,
+					Deletions:    1,
+					FilesChanged: 2,
+					Files:        []string{"a.txt", "b.txt"},
+				},
+			}),
+			assertResp: func(t *testing.T, resp *orchpb.Response) {
+				t.Helper()
+				stats := resp.GetGetDiffStats()
+				if stats == nil || stats.DiffStats == nil {
+					t.Fatal("expected diff stats response payload")
+				}
+				if stats.DiffStats.Additions != 3 || stats.DiffStats.Deletions != 1 || stats.DiffStats.FilesChanged != 2 {
+					t.Fatalf("unexpected diff stats: %+v", stats.DiffStats)
+				}
+			},
+		},
+		{
+			name:       "branch state",
+			capability: "get_branch_state",
+			request: &orchpb.Request{
+				Request: &orchpb.Request_GetBranchState{
+					GetBranchState: &orchpb.GetBranchStateRequest{
+						IssueId: "git-remote",
+						RunId:   "run-remote",
+						Context: &orchpb.RequestContext{},
+					},
+				},
+			},
+			resultJSON: EncodeWorkerEffectResult(&WorkerEffectResult{
+				BranchStateResult: &GetBranchStateResult{State: int32(orchpb.BranchState_BRANCH_STATE_DIRTY)},
+			}),
+			assertResp: func(t *testing.T, resp *orchpb.Response) {
+				t.Helper()
+				state := resp.GetGetBranchState()
+				if state == nil {
+					t.Fatal("expected branch state response payload")
+				}
+				if state.State != orchpb.BranchState_BRANCH_STATE_DIRTY {
+					t.Fatalf("branch state = %v, want DIRTY", state.State)
+				}
+			},
+		},
+		{
+			name:       "diff",
+			capability: "get_diff",
+			request: &orchpb.Request{
+				Request: &orchpb.Request_GetDiff{
+					GetDiff: &orchpb.GetDiffRequest{
+						IssueId: "git-remote",
+						RunId:   "run-remote",
+						Context: &orchpb.RequestContext{},
+					},
+				},
+			},
+			resultJSON: EncodeWorkerEffectResult(&WorkerEffectResult{
+				DiffResult: &GetDiffResult{Diff: "diff --git a/a.txt b/a.txt"},
+			}),
+			assertResp: func(t *testing.T, resp *orchpb.Response) {
+				t.Helper()
+				diff := resp.GetGetDiff()
+				if diff == nil {
+					t.Fatal("expected diff response payload")
+				}
+				if diff.Diff != "diff --git a/a.txt b/a.txt" {
+					t.Fatalf("unexpected diff payload: %q", diff.Diff)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := &mockStore{
+				runs: map[string]*model.Run{
+					"git-remote#run-remote": {
+						IssueID:      "git-remote",
+						RunID:        "run-remote",
+						Status:       model.StatusRunning,
+						UpdatedAt:    time.Now(),
+						WorktreePath: "/tmp/git-remote",
+						Branch:       "feature/remote",
+						Target:       "mac",
+						TargetHost:   "mac-host",
+					},
+				},
+				issues: map[string]*model.Issue{},
+			}
+
+			logger := log.New(io.Discard, "", 0)
+			server := NewSocketServer(nil, logger)
+			registerRepoContextForTest(t, server, "project-remote", "/srv/repos/remote", st)
+
+			workerID := HostWorkerID("mac-host")
+			if _, ttl := server.registerWorker(workerID, "external", "mac-host", "external", []string{tt.capability}); ttl <= 0 {
+				t.Fatal("expected positive heartbeat ttl for git worker")
+			}
+
+			if err := server.Start(); err != nil {
+				t.Fatalf("failed to start server: %v", err)
+			}
+			defer server.Stop()
+
+			go func() {
+				deadline := time.Now().Add(2 * time.Second)
+				for time.Now().Before(deadline) {
+					lease := server.leaseWorkForWorker(workerID)
+					if lease == nil {
+						time.Sleep(10 * time.Millisecond)
+						continue
+					}
+					if lease.Effect != tt.capability {
+						_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, "unexpected effect", "")
+						return
+					}
+					_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, true, "", tt.resultJSON)
+					return
+				}
+			}()
+
+			resp := sendProtoRequest(t, tt.request)
+			if !resp.Ok {
+				t.Fatalf("expected request to succeed, got error: %s", resp.Error)
+			}
+			tt.assertResp(t, resp)
+		})
 	}
 }
 
@@ -6066,6 +6318,10 @@ func TestProcessSendMessageClaudeAndCodexPaths(t *testing.T) {
 }
 
 func TestProcessSendMessageRemoteTargetFailsClearly(t *testing.T) {
+	origHost := currentDaemonHostname
+	currentDaemonHostname = func() (string, error) { return "master-host", nil }
+	defer func() { currentDaemonHostname = origHost }()
+
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
 
@@ -6088,5 +6344,128 @@ func TestProcessSendMessageRemoteTargetFailsClearly(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "remote host") || !strings.Contains(err.Error(), "mac-host") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestProcessSendMessageAllowsCurrentHostTarget(t *testing.T) {
+	origHost := currentDaemonHostname
+	currentDaemonHostname = func() (string, error) { return "mac-host", nil }
+	defer func() { currentDaemonHostname = origHost }()
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	mockMux := &mockSendMux{hasSession: true, muxType: multiplexer.TypeTmux}
+	prevMux := getSendMultiplexer
+	getSendMultiplexer = func() sendMultiplexer { return mockMux }
+	defer func() { getSendMultiplexer = prevMux }()
+
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			"issue-local#run-local": {
+				IssueID:     "issue-local",
+				RunID:       "run-local",
+				SessionName: "session-local",
+				Agent:       string(agent.AgentClaude),
+				TargetHost:  "mac-host",
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	err := server.processSendMessage(st, &SendMessageParams{
+		IssueID: "issue-local",
+		RunID:   "run-local",
+		Message: "hello",
+		NoEnter: true,
+	})
+	if err != nil {
+		t.Fatalf("processSendMessage() error = %v", err)
+	}
+	if len(mockMux.sendKeysLiteralCalls) != 1 || mockMux.sendKeysLiteralCalls[0].keys != "hello" {
+		t.Fatalf("unexpected SendKeysLiteral calls: %+v", mockMux.sendKeysLiteralCalls)
+	}
+	if len(mockMux.sendKeysCalls) != 0 || len(mockMux.sendTextCalls) != 0 {
+		t.Fatalf("unexpected key calls: SendKeys=%+v SendText=%+v", mockMux.sendKeysCalls, mockMux.sendTextCalls)
+	}
+}
+
+func TestProcessSendMessageUsesTargetWorkerIDOverride(t *testing.T) {
+	origHost := currentDaemonHostname
+	currentDaemonHostname = func() (string, error) { return "master-host", nil }
+	defer func() { currentDaemonHostname = origHost }()
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	server.SetWorkerIdentity("host-mac-prod", "actual-worker-host")
+
+	mockMux := &mockSendMux{hasSession: true, muxType: multiplexer.TypeTmux}
+	prevMux := getSendMultiplexer
+	getSendMultiplexer = func() sendMultiplexer { return mockMux }
+	defer func() { getSendMultiplexer = prevMux }()
+
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			"issue-override#run-override": {
+				IssueID:     "issue-override",
+				RunID:       "run-override",
+				SessionName: "session-override",
+				Agent:       string(agent.AgentClaude),
+				TargetHost:  "mac-alias",
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	err := server.processSendMessage(st, &SendMessageParams{
+		IssueID:        "issue-override",
+		RunID:          "run-override",
+		Message:        "hello override",
+		NoEnter:        true,
+		TargetWorkerID: "host-mac-prod",
+	})
+	if err != nil {
+		t.Fatalf("processSendMessage() error = %v", err)
+	}
+	if len(mockMux.sendKeysLiteralCalls) != 1 || mockMux.sendKeysLiteralCalls[0].keys != "hello override" {
+		t.Fatalf("unexpected SendKeysLiteral calls: %+v", mockMux.sendKeysLiteralCalls)
+	}
+}
+
+func TestResolveWorkerTargetForRunPrefersRecordedRunRouting(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ORCH_AGENT", "")
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	configBody := `targets:
+  - name: mac
+    host: new-host
+`
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(configBody), 0644); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	target, err := resolveWorkerTargetForRun(&resolvedProtoRun{
+		run: &model.Run{
+			IssueID:        "issue-1",
+			RunID:          "run-1",
+			Target:         "mac",
+			TargetHost:     "old-host",
+			TargetWorkerID: "host-old-host",
+		},
+		projectRoot: repo,
+	})
+	if err != nil {
+		t.Fatalf("resolveWorkerTargetForRun() error = %v", err)
+	}
+	if target.Host != "old-host" {
+		t.Fatalf("target host = %q, want old-host", target.Host)
+	}
+	if target.WorkerID != "host-old-host" {
+		t.Fatalf("target worker = %q, want host-old-host", target.WorkerID)
 	}
 }

@@ -172,10 +172,8 @@ func runSend(refStr, message string, opts *sendOptions) error {
 
 	if shouldHandleRunLocally(info) {
 		err = sendLocalFromInfo(info, message, opts.NoEnter)
-	} else if strings.TrimSpace(info.TargetHost) != "" {
-		err = sendRemoteFromInfo(info, message, opts.NoEnter)
 	} else {
-		err = api.SendMessage(ctx, ref, message)
+		err = api.SendMessage(ctx, ref, message, opts.NoEnter)
 	}
 	if err != nil {
 		formattedErr := formatSendFailureMessage(err, run)

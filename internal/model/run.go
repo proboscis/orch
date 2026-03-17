@@ -83,6 +83,7 @@ type Run struct {
 	WorktreePath      string
 	Target            string
 	TargetHost        string
+	TargetWorkerID    string
 	SessionName       string
 	MuxWindowID       string
 	Multiplexer       string
@@ -183,6 +184,11 @@ func (r *Run) DeriveState() {
 		} else if r.TargetHost == "" {
 			r.TargetHost = r.lastArtifactAttr("target", "host")
 		}
+		if workerID := target["worker_id"]; workerID != "" {
+			r.TargetWorkerID = workerID
+		} else if r.TargetWorkerID == "" {
+			r.TargetWorkerID = r.lastArtifactAttr("target", "worker_id")
+		}
 	}
 	if session, ok := artifacts["session"]; ok {
 		if sessionName := session["name"]; sessionName != "" {
@@ -198,6 +204,13 @@ func (r *Run) DeriveState() {
 				r.TargetHost = host
 			} else {
 				r.TargetHost = r.lastArtifactAttr("session", "host")
+			}
+		}
+		if r.TargetWorkerID == "" {
+			if workerID := session["worker_id"]; workerID != "" {
+				r.TargetWorkerID = workerID
+			} else {
+				r.TargetWorkerID = r.lastArtifactAttr("session", "worker_id")
 			}
 		}
 	}

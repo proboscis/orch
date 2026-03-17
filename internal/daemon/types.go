@@ -780,9 +780,11 @@ type ControlAgentConfigResult struct {
 }
 
 type SendMessageParams struct {
-	IssueID string
-	RunID   string
-	Message string
+	IssueID        string
+	RunID          string
+	Message        string
+	NoEnter        bool
+	TargetWorkerID string
 }
 
 type CreateIssueParams struct {

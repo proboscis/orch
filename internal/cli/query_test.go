@@ -94,7 +94,7 @@ func (m *mockQueryAPI) GetAttachInfo(ctx context.Context, ref orchapi.RunRef) (*
 func (m *mockQueryAPI) CaptureSession(ctx context.Context, ref orchapi.RunRef, lines int) (*orchapi.CaptureResult, error) {
 	return nil, nil
 }
-func (m *mockQueryAPI) SendMessage(ctx context.Context, ref orchapi.RunRef, message string) error {
+func (m *mockQueryAPI) SendMessage(ctx context.Context, ref orchapi.RunRef, message string, noEnter bool) error {
 	return nil
 }
 func (m *mockQueryAPI) GetDiffStats(ctx context.Context, ref orchapi.RunRef) (*orchapi.DiffStats, error) {

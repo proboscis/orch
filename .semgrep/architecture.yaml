@@ -2106,3 +2106,48 @@ rules:
     metadata:
       category: architecture
       violation: control-agent-split
+
+  # ---------------------------------------------------------------------------
+  # 13. Remote session control must route through daemon/worker protocol
+  # ---------------------------------------------------------------------------
+
+  - id: cli-no-direct-ssh-session-control
+    patterns:
+      - pattern: exec.Command("ssh", ...)
+    paths:
+      include:
+        - /internal/cli/
+      exclude:
+        - /internal/cli/*_test.go
+        - /internal/cli/attach.go
+    message: >
+      CLI must not invoke ssh directly for remote session control.
+      Route send/capture/git inspection through the daemon protobuf API so
+      worker routing, escaping, and errors stay centralized.
+      Interactive attach is the only current exception.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: daemon-bypass
+
+  - id: cli-no-remote-control-ssh-helpers
+    patterns:
+      - pattern-either:
+          - pattern: runSSHOutputArgs(...)
+          - pattern: runSSHScriptOutput(...)
+          - pattern: runRemotePython(...)
+    paths:
+      include:
+        - /internal/cli/
+      exclude:
+        - /internal/cli/*_test.go
+    message: >
+      CLI must not use ad hoc SSH helpers for remote session control.
+      Use orchapi.OrchAPI methods so the daemon owns host routing and
+      transport details.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: daemon-bypass

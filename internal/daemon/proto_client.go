@@ -2055,13 +2055,14 @@ func (c *ProtoClient) CaptureSession(issueID, runID string, lines int) (*Capture
 	}, nil
 }
 
-func (c *ProtoClient) SendMessage(issueID, runID, message string) error {
+func (c *ProtoClient) SendMessage(issueID, runID, message string, noEnter bool) error {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_SendMessage{
 			SendMessage: &orchpb.SendMessageRequest{
 				IssueId: issueID,
 				RunId:   runID,
 				Message: message,
+				NoEnter: noEnter,
 				Context: c.requestContext(c.projectRoot),
 			},
 		},

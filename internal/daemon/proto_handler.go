@@ -422,6 +422,145 @@ type runStoreEntry struct {
 	store store.Store
 }
 
+type resolvedProtoRun struct {
+	run         *model.Run
+	store       store.Store
+	projectID   string
+	projectRoot string
+}
+
+func (s *SocketServer) repoContextForStore(st store.Store) *RepoContext {
+	if st == nil {
+		return nil
+	}
+
+	s.reposMu.RLock()
+	defer s.reposMu.RUnlock()
+
+	for _, ctx := range s.repos {
+		if ctx == nil || ctx.Store == nil {
+			continue
+		}
+		if ctx.Store == st {
+			return ctx
+		}
+	}
+
+	return nil
+}
+
+func (s *SocketServer) resolveProtoRun(ctx *orchpb.RequestContext, issueID, runID string) (*resolvedProtoRun, *orchpb.Response) {
+	ref := &model.RunRef{IssueID: issueID, RunID: runID}
+	projectID := projectIDFromContext(ctx)
+
+	if projectID != "" {
+		st := s.resolveStoreFromContextOrProto(ctx, "")
+		if st == nil {
+			return nil, errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+		}
+		run, err := st.GetRun(ref)
+		if err != nil {
+			return nil, errorResponse("not_found")
+		}
+		repo := s.ensureRepoContextByID(projectID)
+		projectRoot := ""
+		if repo != nil {
+			projectRoot = strings.TrimSpace(repo.ProjectRoot)
+		}
+		return &resolvedProtoRun{
+			run:         run,
+			store:       st,
+			projectID:   projectID,
+			projectRoot: projectRoot,
+		}, nil
+	}
+
+	var resolved *resolvedProtoRun
+	for _, st := range s.listStores() {
+		run, err := st.GetRun(ref)
+		if err != nil {
+			if isStoreNotFoundError(err) {
+				continue
+			}
+			return nil, errorResponse("store_error")
+		}
+		if run == nil {
+			continue
+		}
+		if resolved != nil {
+			return nil, errorResponse("ambiguous_run_ref")
+		}
+		repo := s.repoContextForStore(st)
+		projectID := ""
+		projectRoot := ""
+		if repo != nil {
+			projectID = strings.TrimSpace(repo.RepoID)
+			projectRoot = strings.TrimSpace(repo.ProjectRoot)
+		}
+		resolved = &resolvedProtoRun{
+			run:         run,
+			store:       st,
+			projectID:   projectID,
+			projectRoot: projectRoot,
+		}
+	}
+
+	if resolved == nil {
+		return nil, errorResponse("not_found")
+	}
+
+	return resolved, nil
+}
+
+func resolveWorkerTargetForRun(runCtx *resolvedProtoRun) (*resolvedTarget, error) {
+	if runCtx == nil || runCtx.run == nil {
+		return nil, fmt.Errorf("run context required")
+	}
+
+	run := runCtx.run
+	targetName := strings.TrimSpace(run.Target)
+	targetHost := strings.TrimSpace(run.TargetHost)
+	targetWorkerID := strings.TrimSpace(run.TargetWorkerID)
+	if targetHost != "" || targetWorkerID != "" {
+		if targetWorkerID == "" && targetHost != "" {
+			targetWorkerID = HostWorkerID(targetHost)
+		}
+		if targetHost == "" && targetName != "" && targetName != "local" && strings.TrimSpace(runCtx.projectRoot) != "" {
+			target, err := resolveTargetForProjectRoot(runCtx.projectRoot, targetName)
+			if err == nil {
+				targetHost = target.Host
+			}
+		}
+		if targetHost == "" && targetWorkerID == "" {
+			return nil, fmt.Errorf("run %s#%s has no target host for remote execution", run.IssueID, run.RunID)
+		}
+		return &resolvedTarget{
+			Name:     targetName,
+			Host:     targetHost,
+			WorkerID: targetWorkerID,
+		}, nil
+	}
+
+	if targetName != "" && targetName != "local" && strings.TrimSpace(runCtx.projectRoot) != "" {
+		target, err := resolveTargetForProjectRoot(runCtx.projectRoot, targetName)
+		if err == nil {
+			return target, nil
+		}
+		if targetHost == "" {
+			return nil, err
+		}
+	}
+	if targetHost == "" {
+		return nil, fmt.Errorf("run %s#%s has no target host for remote execution", run.IssueID, run.RunID)
+	}
+
+	return &resolvedTarget{
+		Name:     targetName,
+		Host:     targetHost,
+		WorkerID: HostWorkerID(targetHost),
+	}, nil
+}
+
 func (s *SocketServer) handleProtoPing(_ *orchpb.PingRequest) *orchpb.Response {
 	return &orchpb.Response{
 		Ok: true,
@@ -1616,41 +1755,9 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 }
 
 func (s *SocketServer) handleProtoCaptureSession(req *orchpb.CaptureSessionRequest) *orchpb.Response {
-	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
-	projectID := projectIDFromContext(req.Context)
-
-	var run *model.Run
-	if projectID != "" {
-		st := s.resolveStoreFromContextOrProto(req.Context, "")
-		if st == nil {
-			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
-		}
-
-		resolved, err := st.GetRun(ref)
-		if err != nil {
-			return errorResponse("not_found")
-		}
-		run = resolved
-	} else {
-		for _, st := range s.listStores() {
-			resolved, err := st.GetRun(ref)
-			if err != nil {
-				if isStoreNotFoundError(err) {
-					continue
-				}
-				return errorResponse("store_error")
-			}
-			if resolved == nil {
-				continue
-			}
-			if run != nil {
-				return errorResponse("ambiguous_run_ref")
-			}
-			run = resolved
-		}
-		if run == nil {
-			return errorResponse("not_found")
-		}
+	runCtx, errResp := s.resolveProtoRun(req.Context, req.IssueId, req.RunId)
+	if errResp != nil {
+		return errResp
 	}
 
 	var content string
@@ -1661,15 +1768,53 @@ func (s *SocketServer) handleProtoCaptureSession(req *orchpb.CaptureSessionReque
 		lines = 100
 	}
 
-	if run.Agent == string(agent.AgentOpenCode) {
-		content, source, err = s.captureOpenCodeSession(run, lines)
+	if s.runRequiresWorkerDelegation(runCtx.run, "") {
+		if strings.TrimSpace(runCtx.projectID) == "" {
+			return errorResponse(fmt.Sprintf("no project context available for remote run %s#%s", runCtx.run.IssueID, runCtx.run.RunID))
+		}
+		target, err := resolveWorkerTargetForRun(runCtx)
 		if err != nil {
 			return errorResponse(err.Error())
 		}
-	} else if strings.TrimSpace(run.TargetHost) != "" {
-		return errorResponse(fmt.Sprintf("capture for run %s#%s is on remote host %q; use the CLI capture path that routes to the target host", run.IssueID, run.RunID, strings.TrimSpace(run.TargetHost)))
+		payload := &WorkerEffectPayload{
+			CaptureSession: &CaptureSessionPayload{
+				Lines:          lines,
+				Target:         strings.TrimSpace(runCtx.run.Target),
+				TargetHost:     target.Host,
+				TargetWorkerID: target.WorkerID,
+			},
+		}
+		completedLease, err := s.withWorkerLease(runCtx.projectID, "capture_session", runCtx.run.IssueID, runCtx.run.RunID, payload)
+		if err != nil {
+			return errorResponse(err.Error())
+		}
+		effectResult, err := decodeWorkerEffectResult(completedLease.ResultJSON)
+		if err != nil {
+			return errorResponse(err.Error())
+		}
+		if effectResult.CaptureResult == nil {
+			return errorResponse("worker lease completed without capture_result")
+		}
+
+		return &orchpb.Response{
+			Ok: true,
+			Response: &orchpb.Response_CaptureSession{
+				CaptureSession: &orchpb.CaptureSessionResponse{
+					Content:       sanitizeUTF8(effectResult.CaptureResult.Content),
+					TimestampUnix: effectResult.CaptureResult.TimestampUnix,
+					Source:        sanitizeUTF8(effectResult.CaptureResult.Source),
+				},
+			},
+		}
+	}
+
+	if runCtx.run.Agent == string(agent.AgentOpenCode) {
+		content, source, err = s.captureOpenCodeSession(runCtx.run, lines)
+		if err != nil {
+			return errorResponse(err.Error())
+		}
 	} else {
-		content, source, err = captureLocalMultiplexerSession(run, lines)
+		content, source, err = captureLocalMultiplexerSession(runCtx.run, lines)
 		if err != nil {
 			return errorResponse(err.Error())
 		}
@@ -1713,21 +1858,45 @@ func (s *SocketServer) captureOpenCodeSession(run *model.Run, lines int) (string
 }
 
 func (s *SocketServer) handleProtoSendMessage(req *orchpb.SendMessageRequest) *orchpb.Response {
-	st := s.resolveStoreFromContextOrProto(req.Context, "")
-	if st == nil {
-		if projectID := projectIDFromContext(req.Context); projectID != "" {
-			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+	runCtx, errResp := s.resolveProtoRun(req.Context, req.IssueId, req.RunId)
+	if errResp != nil {
+		return errResp
+	}
+
+	if s.runRequiresWorkerDelegation(runCtx.run, "") {
+		if strings.TrimSpace(runCtx.projectID) == "" {
+			return errorResponse(fmt.Sprintf("no project context available for remote run %s#%s", runCtx.run.IssueID, runCtx.run.RunID))
 		}
-		return errorResponse("no store available")
+		target, err := resolveWorkerTargetForRun(runCtx)
+		if err != nil {
+			return errorResponse(err.Error())
+		}
+		payload := &WorkerEffectPayload{
+			SendMessage: &SendMessagePayload{
+				Message:        req.Message,
+				NoEnter:        req.NoEnter,
+				Target:         strings.TrimSpace(runCtx.run.Target),
+				TargetHost:     target.Host,
+				TargetWorkerID: target.WorkerID,
+			},
+		}
+		if _, err := s.withWorkerLease(runCtx.projectID, "send_message", runCtx.run.IssueID, runCtx.run.RunID, payload); err != nil {
+			return errorResponse(err.Error())
+		}
+		return &orchpb.Response{
+			Ok:       true,
+			Response: &orchpb.Response_SendMessage{SendMessage: &orchpb.SendMessageResponse{}},
+		}
 	}
 
 	params := &SendMessageParams{
 		IssueID: req.IssueId,
 		RunID:   req.RunId,
 		Message: req.Message,
+		NoEnter: req.NoEnter,
 	}
 
-	if err := s.processSendMessage(st, params); err != nil {
+	if err := s.processSendMessage(runCtx.store, params); err != nil {
 		return errorResponse(err.Error())
 	}
 
@@ -1738,44 +1907,54 @@ func (s *SocketServer) handleProtoSendMessage(req *orchpb.SendMessageRequest) *o
 }
 
 func (s *SocketServer) handleProtoGetDiffStats(req *orchpb.GetDiffStatsRequest) *orchpb.Response {
-	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
-	projectID := projectIDFromContext(req.Context)
+	runCtx, errResp := s.resolveProtoRun(req.Context, req.IssueId, req.RunId)
+	if errResp != nil {
+		return errResp
+	}
 
-	var run *model.Run
-	if projectID != "" {
-		st := s.resolveStoreFromContextOrProto(req.Context, "")
-		if st == nil {
-			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+	if s.runRequiresWorkerDelegation(runCtx.run, "") {
+		if strings.TrimSpace(runCtx.projectID) == "" {
+			return errorResponse(fmt.Sprintf("no project context available for remote run %s#%s", runCtx.run.IssueID, runCtx.run.RunID))
 		}
-
-		resolved, err := st.GetRun(ref)
+		target, err := resolveWorkerTargetForRun(runCtx)
 		if err != nil {
-			return errorResponse("not_found")
+			return errorResponse(err.Error())
 		}
-		run = resolved
-	} else {
-		for _, st := range s.listStores() {
-			resolved, err := st.GetRun(ref)
-			if err != nil {
-				if isStoreNotFoundError(err) {
-					continue
-				}
-				return errorResponse("store_error")
-			}
-			if resolved == nil {
-				continue
-			}
-			if run != nil {
-				return errorResponse("ambiguous_run_ref")
-			}
-			run = resolved
+		payload := &WorkerEffectPayload{
+			GetDiffStats: &GetDiffStatsPayload{
+				Target:         strings.TrimSpace(runCtx.run.Target),
+				TargetHost:     target.Host,
+				TargetWorkerID: target.WorkerID,
+			},
 		}
-		if run == nil {
-			return errorResponse("not_found")
+		completedLease, err := s.withWorkerLease(runCtx.projectID, "get_diff_stats", runCtx.run.IssueID, runCtx.run.RunID, payload)
+		if err != nil {
+			return errorResponse(err.Error())
+		}
+		effectResult, err := decodeWorkerEffectResult(completedLease.ResultJSON)
+		if err != nil {
+			return errorResponse(err.Error())
+		}
+		if effectResult.DiffStatsResult == nil {
+			return errorResponse("worker lease completed without diff_stats_result")
+		}
+		stats := effectResult.DiffStatsResult
+		return &orchpb.Response{
+			Ok: true,
+			Response: &orchpb.Response_GetDiffStats{
+				GetDiffStats: &orchpb.GetDiffStatsResponse{
+					DiffStats: &orchpb.DiffStats{
+						Additions:    int32(stats.Additions),
+						Deletions:    int32(stats.Deletions),
+						FilesChanged: int32(stats.FilesChanged),
+						Files:        sanitizeUTF8Slice(stats.Files),
+					},
+				},
+			},
 		}
 	}
 
-	stats := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
+	stats := git.GetDiffStats(runCtx.run.WorktreePath, runCtx.run.Branch, "main")
 
 	return &orchpb.Response{
 		Ok: true,
@@ -1793,44 +1972,48 @@ func (s *SocketServer) handleProtoGetDiffStats(req *orchpb.GetDiffStatsRequest) 
 }
 
 func (s *SocketServer) handleProtoGetBranchState(req *orchpb.GetBranchStateRequest) *orchpb.Response {
-	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
-	projectID := projectIDFromContext(req.Context)
+	runCtx, errResp := s.resolveProtoRun(req.Context, req.IssueId, req.RunId)
+	if errResp != nil {
+		return errResp
+	}
 
-	var run *model.Run
-	if projectID != "" {
-		st := s.resolveStoreFromContextOrProto(req.Context, "")
-		if st == nil {
-			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+	if s.runRequiresWorkerDelegation(runCtx.run, "") {
+		if strings.TrimSpace(runCtx.projectID) == "" {
+			return errorResponse(fmt.Sprintf("no project context available for remote run %s#%s", runCtx.run.IssueID, runCtx.run.RunID))
 		}
-
-		resolved, err := st.GetRun(ref)
+		target, err := resolveWorkerTargetForRun(runCtx)
 		if err != nil {
-			return errorResponse("not_found")
+			return errorResponse(err.Error())
 		}
-		run = resolved
-	} else {
-		for _, st := range s.listStores() {
-			resolved, err := st.GetRun(ref)
-			if err != nil {
-				if isStoreNotFoundError(err) {
-					continue
-				}
-				return errorResponse("store_error")
-			}
-			if resolved == nil {
-				continue
-			}
-			if run != nil {
-				return errorResponse("ambiguous_run_ref")
-			}
-			run = resolved
+		payload := &WorkerEffectPayload{
+			GetBranchState: &GetBranchStatePayload{
+				Target:         strings.TrimSpace(runCtx.run.Target),
+				TargetHost:     target.Host,
+				TargetWorkerID: target.WorkerID,
+			},
 		}
-		if run == nil {
-			return errorResponse("not_found")
+		completedLease, err := s.withWorkerLease(runCtx.projectID, "get_branch_state", runCtx.run.IssueID, runCtx.run.RunID, payload)
+		if err != nil {
+			return errorResponse(err.Error())
+		}
+		effectResult, err := decodeWorkerEffectResult(completedLease.ResultJSON)
+		if err != nil {
+			return errorResponse(err.Error())
+		}
+		if effectResult.BranchStateResult == nil {
+			return errorResponse("worker lease completed without branch_state_result")
+		}
+		return &orchpb.Response{
+			Ok: true,
+			Response: &orchpb.Response_GetBranchState{
+				GetBranchState: &orchpb.GetBranchStateResponse{
+					State: orchpb.BranchState(effectResult.BranchStateResult.State),
+				},
+			},
 		}
 	}
 
-	state := computeBranchStateWithRunner(s.gitRunner, run.WorktreePath, run.Branch, "main")
+	state := computeBranchStateWithRunner(s.gitRunner, runCtx.run.WorktreePath, runCtx.run.Branch, "main")
 
 	return &orchpb.Response{
 		Ok: true,
@@ -1896,46 +2079,50 @@ func splitLines(s string) []string {
 }
 
 func (s *SocketServer) handleProtoGetDiff(req *orchpb.GetDiffRequest) *orchpb.Response {
-	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
-	projectID := projectIDFromContext(req.Context)
+	runCtx, errResp := s.resolveProtoRun(req.Context, req.IssueId, req.RunId)
+	if errResp != nil {
+		return errResp
+	}
 
-	var run *model.Run
-	if projectID != "" {
-		st := s.resolveStoreFromContextOrProto(req.Context, "")
-		if st == nil {
-			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+	if s.runRequiresWorkerDelegation(runCtx.run, "") {
+		if strings.TrimSpace(runCtx.projectID) == "" {
+			return errorResponse(fmt.Sprintf("no project context available for remote run %s#%s", runCtx.run.IssueID, runCtx.run.RunID))
 		}
-
-		resolved, err := st.GetRun(ref)
+		target, err := resolveWorkerTargetForRun(runCtx)
 		if err != nil {
-			return errorResponse("not_found")
+			return errorResponse(err.Error())
 		}
-		run = resolved
-	} else {
-		for _, st := range s.listStores() {
-			resolved, err := st.GetRun(ref)
-			if err != nil {
-				if isStoreNotFoundError(err) {
-					continue
-				}
-				return errorResponse("store_error")
-			}
-			if resolved == nil {
-				continue
-			}
-			if run != nil {
-				return errorResponse("ambiguous_run_ref")
-			}
-			run = resolved
+		payload := &WorkerEffectPayload{
+			GetDiff: &GetDiffPayload{
+				Target:         strings.TrimSpace(runCtx.run.Target),
+				TargetHost:     target.Host,
+				TargetWorkerID: target.WorkerID,
+			},
 		}
-		if run == nil {
-			return errorResponse("not_found")
+		completedLease, err := s.withWorkerLease(runCtx.projectID, "get_diff", runCtx.run.IssueID, runCtx.run.RunID, payload)
+		if err != nil {
+			return errorResponse(err.Error())
+		}
+		effectResult, err := decodeWorkerEffectResult(completedLease.ResultJSON)
+		if err != nil {
+			return errorResponse(err.Error())
+		}
+		if effectResult.DiffResult == nil {
+			return errorResponse("worker lease completed without diff_result")
+		}
+		return &orchpb.Response{
+			Ok: true,
+			Response: &orchpb.Response_GetDiff{
+				GetDiff: &orchpb.GetDiffResponse{
+					Diff: sanitizeUTF8(effectResult.DiffResult.Diff),
+				},
+			},
 		}
 	}
 
 	var diff string
-	if run.WorktreePath != "" && run.Branch != "" {
-		output, err := s.gitRunner.Diff(context.Background(), run.WorktreePath, "main..."+run.Branch)
+	if runCtx.run.WorktreePath != "" && runCtx.run.Branch != "" {
+		output, err := s.gitRunner.Diff(context.Background(), runCtx.run.WorktreePath, "main..."+runCtx.run.Branch)
 		if err == nil {
 			diff = output
 		}

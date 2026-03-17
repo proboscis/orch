@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 )
 
@@ -64,8 +66,17 @@ type WorkerEffectPayload struct {
 	StartRun          *StartRunOptions
 	ContinueRun       *ContinueRunOptions
 	StopRun           *StopRunPayload
+	CaptureSession    *CaptureSessionPayload
+	SendMessage       *SendMessagePayload
+	GetDiffStats      *GetDiffStatsPayload
+	GetBranchState    *GetBranchStatePayload
+	GetDiff           *GetDiffPayload
 	StartRunResult    *StartRunResult
 	ContinueRunResult *ContinueRunResult
+	CaptureResult     *CaptureSessionResult
+	DiffStatsResult   *GetDiffStatsResult
+	BranchStateResult *GetBranchStateResult
+	DiffResult        *GetDiffResult
 }
 
 type StopRunPayload struct {
@@ -75,14 +86,72 @@ type StopRunPayload struct {
 	TargetWorkerID string `json:"target_worker_id,omitempty"`
 }
 
+type CaptureSessionPayload struct {
+	Lines          int    `json:"lines,omitempty"`
+	Target         string `json:"target,omitempty"`
+	TargetHost     string `json:"target_host,omitempty"`
+	TargetWorkerID string `json:"target_worker_id,omitempty"`
+}
+
+type SendMessagePayload struct {
+	Message        string `json:"message,omitempty"`
+	NoEnter        bool   `json:"no_enter,omitempty"`
+	Target         string `json:"target,omitempty"`
+	TargetHost     string `json:"target_host,omitempty"`
+	TargetWorkerID string `json:"target_worker_id,omitempty"`
+}
+
+type GetDiffStatsPayload struct {
+	Target         string `json:"target,omitempty"`
+	TargetHost     string `json:"target_host,omitempty"`
+	TargetWorkerID string `json:"target_worker_id,omitempty"`
+}
+
+type GetBranchStatePayload struct {
+	Target         string `json:"target,omitempty"`
+	TargetHost     string `json:"target_host,omitempty"`
+	TargetWorkerID string `json:"target_worker_id,omitempty"`
+}
+
+type GetDiffPayload struct {
+	Target         string `json:"target,omitempty"`
+	TargetHost     string `json:"target_host,omitempty"`
+	TargetWorkerID string `json:"target_worker_id,omitempty"`
+}
+
+type CaptureSessionResult struct {
+	Content       string `json:"content,omitempty"`
+	TimestampUnix int64  `json:"timestamp_unix,omitempty"`
+	Source        string `json:"source,omitempty"`
+}
+
+type GetDiffStatsResult struct {
+	Additions    int      `json:"additions,omitempty"`
+	Deletions    int      `json:"deletions,omitempty"`
+	FilesChanged int      `json:"files_changed,omitempty"`
+	Files        []string `json:"files,omitempty"`
+}
+
+type GetBranchStateResult struct {
+	State int32 `json:"state,omitempty"`
+}
+
+type GetDiffResult struct {
+	Diff string `json:"diff,omitempty"`
+}
+
 type WorkerEffectResult struct {
-	StartRunResult    *StartRunResult    `json:"start_run_result,omitempty"`
-	ContinueRunResult *ContinueRunResult `json:"continue_run_result,omitempty"`
+	StartRunResult    *StartRunResult       `json:"start_run_result,omitempty"`
+	ContinueRunResult *ContinueRunResult    `json:"continue_run_result,omitempty"`
+	CaptureResult     *CaptureSessionResult `json:"capture_result,omitempty"`
+	DiffStatsResult   *GetDiffStatsResult   `json:"diff_stats_result,omitempty"`
+	BranchStateResult *GetBranchStateResult `json:"branch_state_result,omitempty"`
+	DiffResult        *GetDiffResult        `json:"diff_result,omitempty"`
 }
 
 func normalizeCapabilities(caps []string) []string {
 	if len(caps) == 0 {
-		return []string{"start_run", "continue_run", "stop_run"}
+		return []string{"capture_session", "continue_run", "get_branch_state", "get_diff", "get_diff_stats", "send_message", "start_run", "stop_run"}
 	}
 	set := make(map[string]struct{}, len(caps))
 	norm := make([]string, 0, len(caps))
@@ -98,7 +167,7 @@ func normalizeCapabilities(caps []string) []string {
 		norm = append(norm, c)
 	}
 	if len(norm) == 0 {
-		return []string{"start_run", "continue_run", "stop_run"}
+		return []string{"capture_session", "continue_run", "get_branch_state", "get_diff", "get_diff_stats", "send_message", "start_run", "stop_run"}
 	}
 	sort.Strings(norm)
 	return norm
@@ -353,6 +422,51 @@ func preferredWorkerPreferenceForPayload(payload *WorkerEffectPayload) (string, 
 		}
 		return defaultWorkerID(), false
 	}
+	if payload.CaptureSession != nil {
+		if workerID := strings.TrimSpace(payload.CaptureSession.TargetWorkerID); workerID != "" {
+			return workerID, true
+		}
+		if target := strings.TrimSpace(payload.CaptureSession.Target); target != "" && target != "local" {
+			return target, true
+		}
+		return defaultWorkerID(), false
+	}
+	if payload.SendMessage != nil {
+		if workerID := strings.TrimSpace(payload.SendMessage.TargetWorkerID); workerID != "" {
+			return workerID, true
+		}
+		if target := strings.TrimSpace(payload.SendMessage.Target); target != "" && target != "local" {
+			return target, true
+		}
+		return defaultWorkerID(), false
+	}
+	if payload.GetDiffStats != nil {
+		if workerID := strings.TrimSpace(payload.GetDiffStats.TargetWorkerID); workerID != "" {
+			return workerID, true
+		}
+		if target := strings.TrimSpace(payload.GetDiffStats.Target); target != "" && target != "local" {
+			return target, true
+		}
+		return defaultWorkerID(), false
+	}
+	if payload.GetBranchState != nil {
+		if workerID := strings.TrimSpace(payload.GetBranchState.TargetWorkerID); workerID != "" {
+			return workerID, true
+		}
+		if target := strings.TrimSpace(payload.GetBranchState.Target); target != "" && target != "local" {
+			return target, true
+		}
+		return defaultWorkerID(), false
+	}
+	if payload.GetDiff != nil {
+		if workerID := strings.TrimSpace(payload.GetDiff.TargetWorkerID); workerID != "" {
+			return workerID, true
+		}
+		if target := strings.TrimSpace(payload.GetDiff.Target); target != "" && target != "local" {
+			return target, true
+		}
+		return defaultWorkerID(), false
+	}
 	if payload.StopRun != nil {
 		if workerID := strings.TrimSpace(payload.StopRun.TargetWorkerID); workerID != "" {
 			return workerID, true
@@ -418,7 +532,12 @@ func marshalWorkerEffectResult(result *WorkerEffectResult) string {
 		return ""
 	}
 
-	if result.StartRunResult == nil && result.ContinueRunResult == nil {
+	if result.StartRunResult == nil &&
+		result.ContinueRunResult == nil &&
+		result.CaptureResult == nil &&
+		result.DiffStatsResult == nil &&
+		result.BranchStateResult == nil &&
+		result.DiffResult == nil {
 		return ""
 	}
 
@@ -504,6 +623,91 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 			return nil, err
 		}
 		return nil, nil
+	case "capture_session":
+		if lease.Payload == nil || lease.Payload.CaptureSession == nil {
+			return nil, fmt.Errorf("capture_session payload missing")
+		}
+		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: lease.IssueID, RunID: lease.RunID})
+		if err != nil {
+			return nil, fmt.Errorf("not_found")
+		}
+		lines := lease.Payload.CaptureSession.Lines
+		if lines <= 0 {
+			lines = 100
+		}
+
+		var content string
+		var source string
+		if run.Agent == "opencode" {
+			content, source, err = s.captureOpenCodeSession(run, lines)
+		} else {
+			content, source, err = captureLocalMultiplexerSession(run, lines)
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		return &WorkerEffectResult{
+			CaptureResult: &CaptureSessionResult{
+				Content:       content,
+				TimestampUnix: time.Now().Unix(),
+				Source:        source,
+			},
+		}, nil
+	case "send_message":
+		if lease.Payload == nil || lease.Payload.SendMessage == nil {
+			return nil, fmt.Errorf("send_message payload missing")
+		}
+		if err := s.processSendMessage(repoCtx.Store, &SendMessageParams{
+			IssueID:        lease.IssueID,
+			RunID:          lease.RunID,
+			Message:        lease.Payload.SendMessage.Message,
+			NoEnter:        lease.Payload.SendMessage.NoEnter,
+			TargetWorkerID: lease.Payload.SendMessage.TargetWorkerID,
+		}); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	case "get_diff_stats":
+		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: lease.IssueID, RunID: lease.RunID})
+		if err != nil {
+			return nil, fmt.Errorf("not_found")
+		}
+		stats := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
+		return &WorkerEffectResult{
+			DiffStatsResult: &GetDiffStatsResult{
+				Additions:    stats.Additions,
+				Deletions:    stats.Deletions,
+				FilesChanged: stats.FilesChanged,
+				Files:        append([]string(nil), stats.Files...),
+			},
+		}, nil
+	case "get_branch_state":
+		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: lease.IssueID, RunID: lease.RunID})
+		if err != nil {
+			return nil, fmt.Errorf("not_found")
+		}
+		state := computeBranchStateWithRunner(s.gitRunner, run.WorktreePath, run.Branch, "main")
+		return &WorkerEffectResult{
+			BranchStateResult: &GetBranchStateResult{State: int32(state)},
+		}, nil
+	case "get_diff":
+		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: lease.IssueID, RunID: lease.RunID})
+		if err != nil {
+			return nil, fmt.Errorf("not_found")
+		}
+
+		diff := ""
+		if run.WorktreePath != "" && run.Branch != "" {
+			output, err := s.gitRunner.Diff(context.Background(), run.WorktreePath, "main..."+run.Branch)
+			if err == nil {
+				diff = output
+			}
+		}
+
+		return &WorkerEffectResult{
+			DiffResult: &GetDiffResult{Diff: diff},
+		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported worker lease effect: %s", lease.Effect)
 	}

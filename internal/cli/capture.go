@@ -84,8 +84,6 @@ func runCapture(refStr string, opts *captureOptions) error {
 	var captureResult *orchapi.CaptureResult
 	if shouldHandleRunLocally(info) {
 		captureResult, err = captureLocalFromInfo(info, opts.Lines)
-	} else if strings.TrimSpace(info.TargetHost) != "" {
-		captureResult, err = captureRemoteFromInfo(info, opts.Lines)
 	} else {
 		captureResult, err = api.CaptureSession(ctx, ref, opts.Lines)
 	}

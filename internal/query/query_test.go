@@ -92,7 +92,7 @@ func (m *mockAPI) GetAttachInfo(ctx context.Context, ref orchapi.RunRef) (*orcha
 func (m *mockAPI) CaptureSession(ctx context.Context, ref orchapi.RunRef, lines int) (*orchapi.CaptureResult, error) {
 	return nil, nil
 }
-func (m *mockAPI) SendMessage(ctx context.Context, ref orchapi.RunRef, message string) error {
+func (m *mockAPI) SendMessage(ctx context.Context, ref orchapi.RunRef, message string, noEnter bool) error {
 	return nil
 }
 func (m *mockAPI) InjectInitialPrompt(ctx context.Context, ref orchapi.RunRef, prompt string) error {

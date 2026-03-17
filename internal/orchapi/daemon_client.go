@@ -376,13 +376,13 @@ func (c *DaemonClient) CaptureSession(ctx context.Context, ref RunRef, lines int
 	}, nil
 }
 
-func (c *DaemonClient) SendMessage(ctx context.Context, ref RunRef, message string) error {
+func (c *DaemonClient) SendMessage(ctx context.Context, ref RunRef, message string, noEnter bool) error {
 	run, err := c.ResolveRun(ctx, ref)
 	if err != nil {
 		return err
 	}
 
-	return c.proto.SendMessage(run.IssueID, run.RunID, message)
+	return c.proto.SendMessage(run.IssueID, run.RunID, message, noEnter)
 }
 
 func (c *DaemonClient) InjectInitialPrompt(ctx context.Context, ref RunRef, prompt string) error {
