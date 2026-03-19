@@ -130,6 +130,94 @@ This is a test issue.
 	}
 }
 
+func TestScanIssuesCapitalIssuesDir(t *testing.T) {
+	dir, err := os.MkdirTemp("", "orch-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	// Create only "Issues" (capital I, Obsidian convention) — no lowercase "issues"
+	os.MkdirAll(filepath.Join(dir, "Issues"), 0755)
+	os.MkdirAll(filepath.Join(dir, "runs"), 0755)
+
+	content := `---
+type: issue
+id: cap-test
+title: Capital Issues Dir
+status: open
+---
+
+# Capital Issues Dir
+`
+	path := filepath.Join(dir, "Issues", "cap-test.md")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := New(dir)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	issue, err := s.ResolveIssue("cap-test")
+	if err != nil {
+		t.Fatalf("ResolveIssue() error = %v", err)
+	}
+	if issue.ID != "cap-test" {
+		t.Errorf("ID = %v, want cap-test", issue.ID)
+	}
+	if issue.Title != "Capital Issues Dir" {
+		t.Errorf("Title = %v, want 'Capital Issues Dir'", issue.Title)
+	}
+}
+
+func TestCreateIssueCapitalIssuesDir(t *testing.T) {
+	dir, err := os.MkdirTemp("", "orch-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	// Pre-existing "Issues" dir (capital I)
+	os.MkdirAll(filepath.Join(dir, "Issues"), 0755)
+	os.MkdirAll(filepath.Join(dir, "runs"), 0755)
+
+	s, err := New(dir)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	issue := &model.Issue{
+		ID:     "new-cap",
+		Title:  "Created in Capital Dir",
+		Status: model.IssueStatusOpen,
+	}
+	if err := s.CreateIssue(issue); err != nil {
+		t.Fatalf("CreateIssue() error = %v", err)
+	}
+
+	// Verify the issue is readable via the store
+	resolved, err := s.ResolveIssue("new-cap")
+	if err != nil {
+		t.Fatalf("ResolveIssue() error = %v", err)
+	}
+	if resolved.Title != "Created in Capital Dir" {
+		t.Errorf("Title = %v, want 'Created in Capital Dir'", resolved.Title)
+	}
+
+	// On case-sensitive filesystems, verify the file lives under "Issues/" not "issues/"
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.EqualFold(e.Name(), "issues") && e.Name() != "Issues" {
+			t.Errorf("expected 'Issues' directory (capital I), found %q", e.Name())
+		}
+	}
+}
+
 func TestResolveIssueNotFound(t *testing.T) {
 	vault, cleanup := setupTestVault(t)
 	defer cleanup()

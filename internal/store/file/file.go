@@ -58,6 +58,15 @@ func (s *FileStore) RootPath() string {
 	return s.rootPath
 }
 
+// issuesDir returns the path to the issues directory, preferring "Issues"
+// (Obsidian convention) if it exists, falling back to "issues".
+func (s *FileStore) issuesDir() string {
+	if info, err := os.Stat(filepath.Join(s.rootPath, "Issues")); err == nil && info.IsDir() {
+		return filepath.Join(s.rootPath, "Issues")
+	}
+	return filepath.Join(s.rootPath, "issues")
+}
+
 // SetWarnFunc sets a function to receive warnings (e.g., for duplicate frontmatter).
 // If nil, warnings are suppressed. CLI can set this to print to stderr,
 // daemon can route to its logger.
@@ -251,7 +260,7 @@ func walkWithSymlinks(root string, walkFn filepath.WalkFunc) error {
 }
 
 func (s *FileStore) scanIssues() error {
-	issuesDir := filepath.Join(s.rootPath, "issues")
+	issuesDir := s.issuesDir()
 	issues := make(map[string]*model.Issue)
 
 	s.issueMu.Lock()
@@ -1161,7 +1170,7 @@ func (s *FileStore) CreateIssue(issue *model.Issue) error {
 		return fmt.Errorf("issue ID is required")
 	}
 
-	issuePath := filepath.Join(s.rootPath, "issues", issue.ID+".md")
+	issuePath := filepath.Join(s.issuesDir(), issue.ID+".md")
 	if _, err := os.Stat(issuePath); err == nil {
 		return fmt.Errorf("issue already exists: %s", issue.ID)
 	}
