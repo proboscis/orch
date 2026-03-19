@@ -268,8 +268,6 @@ rules:
         - /internal/cli/
       exclude:
         - /internal/cli/*_test.go
-        # Temporary issue #438 baseline until remote run control is daemon-backed.
-        - /internal/cli/remote_control.go
     message: >
       CLI must not create OpenCodeClient directly.
       All OpenCode interactions go through the daemon (EnsureOpenCodeServer, QueryOpenCodeServer).
@@ -405,18 +403,26 @@ rules:
     patterns:
       - pattern-either:
           - pattern: multiplexer.GetDefault()
+          - pattern: multiplexer.GetMultiplexer(...)
+          - pattern: multiplexer.SendMessage(...)
           - pattern: $MUX.SendKeys(...)
           - pattern: $MUX.SendKeysLiteral(...)
+          - pattern: $MUX.SendText(...)
+          - pattern: $MUX.CapturePane(...)
+          - pattern: $MUX.HasSession(...)
     paths:
       include:
         - /internal/cli/
       exclude:
         - /internal/cli/*_test.go
-        # Temporary issue #438 baseline until remote run control is daemon-backed.
-        - /internal/cli/remote_control.go
+        # attach.go needs direct multiplexer for interactive terminal attach (UI concern)
+        - /internal/cli/attach.go
+        # agent.go manages local control agent sessions (create/attach) — UI concern
+        - /internal/cli/agent.go
     message: >
-      CLI must not interact with multiplexer (tmux/zellij) directly for message sending.
-      Use daemon API for agent interactions. Attach is acceptable as a UI concern.
+      CLI must not interact with multiplexer (tmux/zellij) directly.
+      Send and capture must go through daemon API. Attach is the only
+      exception (interactive terminal is a UI concern).
     severity: ERROR
     languages: [go]
     metadata:
@@ -1893,8 +1899,6 @@ rules:
         - /internal/cli/
       exclude:
         - /internal/cli/*_test.go
-        # Temporary issue #438 baseline until remote run control is daemon-backed.
-        - /internal/cli/remote_control.go
     message: >
       CLI must not perform direct worktree filesystem checks. Use daemon-returned
       run metadata (worktree_exists/branch_state) via orchapi.
@@ -1967,8 +1971,6 @@ rules:
         - /internal/cli/attach.go
         - /internal/cli/agent.go
         - /internal/cli/diff.go
-        # Temporary issue #438 baseline until remote run control is daemon-backed.
-        - /internal/cli/remote_control.go
         # Monitor UI launcher exceptions
         - /internal/monitor/dashboard.go
         - /internal/monitor/issues_dashboard.go

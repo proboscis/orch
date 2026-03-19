@@ -148,33 +148,7 @@ func runSend(refStr, message string, opts *sendOptions) error {
 	}
 
 	ref := orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}
-	info, err := getRunAttachInfo(ctx, api, ref)
-	if err != nil {
-		formattedErr := formatSendFailureMessage(err, run)
-		exitCode := ExitAgentError
-		if strings.Contains(strings.ToLower(err.Error()), "session not found") {
-			exitCode = ExitTmuxError
-		}
-		if globalOpts.JSON {
-			result := map[string]interface{}{
-				"ok":    false,
-				"error": formattedErr,
-			}
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			enc.Encode(result)
-		} else {
-			fmt.Fprintf(os.Stderr, "error: %s\n", formattedErr)
-		}
-		os.Exit(exitCode)
-		return err
-	}
-
-	if shouldHandleRunLocally(info) {
-		err = sendLocalFromInfo(info, message, opts.NoEnter)
-	} else {
-		err = api.SendMessage(ctx, ref, message, opts.NoEnter)
-	}
+	err = api.SendMessage(ctx, ref, message, opts.NoEnter)
 	if err != nil {
 		formattedErr := formatSendFailureMessage(err, run)
 		exitCode := ExitAgentError

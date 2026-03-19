@@ -6039,11 +6039,14 @@ func TestProcessSendTmuxCodexSendsWithSubmit(t *testing.T) {
 	mockMux := &mockSendMux{hasSession: true, muxType: multiplexer.TypeTmux}
 	prev := getSendMultiplexer
 	prevDelay := codexTmuxSubmitDelay
+	prevExtraDelay := codexTmuxExtraEnterDelay
 	getSendMultiplexer = func() sendMultiplexer { return mockMux }
 	codexTmuxSubmitDelay = 0
+	codexTmuxExtraEnterDelay = 0
 	defer func() {
 		getSendMultiplexer = prev
 		codexTmuxSubmitDelay = prevDelay
+		codexTmuxExtraEnterDelay = prevExtraDelay
 	}()
 
 	run := &model.Run{
@@ -6063,11 +6066,13 @@ func TestProcessSendTmuxCodexSendsWithSubmit(t *testing.T) {
 	if got := mockMux.sendKeysLiteralCalls[0]; got.session != run.SessionName || got.keys != "please continue" {
 		t.Fatalf("SendKeysLiteral call = (%q, %q), want (%q, %q)", got.session, got.keys, run.SessionName, "please continue")
 	}
-	if len(mockMux.sendTextCalls) != 1 {
-		t.Fatalf("SendText calls = %d, want 1", len(mockMux.sendTextCalls))
+	if len(mockMux.sendTextCalls) != 2 {
+		t.Fatalf("SendText calls = %d, want 2 (initial Enter + extra Enter for codex)", len(mockMux.sendTextCalls))
 	}
-	if got := mockMux.sendTextCalls[0]; got.session != run.SessionName || got.keys != tmuxSubmitKeyEnter {
-		t.Fatalf("SendText call = (%q, %q), want (%q, %q)", got.session, got.keys, run.SessionName, tmuxSubmitKeyEnter)
+	for i, got := range mockMux.sendTextCalls {
+		if got.session != run.SessionName || got.keys != tmuxSubmitKeyEnter {
+			t.Fatalf("SendText call[%d] = (%q, %q), want (%q, %q)", i, got.session, got.keys, run.SessionName, tmuxSubmitKeyEnter)
+		}
 	}
 	if len(mockMux.sendKeysCalls) != 0 {
 		t.Fatalf("SendKeys calls = %d, want 0", len(mockMux.sendKeysCalls))
@@ -6263,11 +6268,14 @@ func TestProcessSendMessageClaudeAndCodexPaths(t *testing.T) {
 	mockMux := &mockSendMux{hasSession: true, muxType: multiplexer.TypeTmux}
 	prevMux := getSendMultiplexer
 	prevDelay := codexTmuxSubmitDelay
+	prevExtraDelay := codexTmuxExtraEnterDelay
 	getSendMultiplexer = func() sendMultiplexer { return mockMux }
 	codexTmuxSubmitDelay = 0
+	codexTmuxExtraEnterDelay = 0
 	defer func() {
 		getSendMultiplexer = prevMux
 		codexTmuxSubmitDelay = prevDelay
+		codexTmuxExtraEnterDelay = prevExtraDelay
 	}()
 
 	st := &mockStore{
@@ -6309,11 +6317,13 @@ func TestProcessSendMessageClaudeAndCodexPaths(t *testing.T) {
 		t.Fatalf("codex SendKeysLiteral call = (%q, %q), want (%q, %q)", got.session, got.keys, "session-codex", "codex message")
 	}
 
-	if len(mockMux.sendTextCalls) != 1 {
-		t.Fatalf("SendText calls = %d, want 1", len(mockMux.sendTextCalls))
+	if len(mockMux.sendTextCalls) != 2 {
+		t.Fatalf("SendText calls = %d, want 2 (initial Enter + extra Enter for codex)", len(mockMux.sendTextCalls))
 	}
-	if got := mockMux.sendTextCalls[0]; got.session != "session-codex" || got.keys != tmuxSubmitKeyEnter {
-		t.Fatalf("codex SendText call = (%q, %q), want (%q, %q)", got.session, got.keys, "session-codex", tmuxSubmitKeyEnter)
+	for i, got := range mockMux.sendTextCalls {
+		if got.session != "session-codex" || got.keys != tmuxSubmitKeyEnter {
+			t.Fatalf("codex SendText call[%d] = (%q, %q), want (%q, %q)", i, got.session, got.keys, "session-codex", tmuxSubmitKeyEnter)
+		}
 	}
 }
 

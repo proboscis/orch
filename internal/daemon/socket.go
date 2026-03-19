@@ -70,8 +70,9 @@ var (
 	// message was queued anyway before returning an error.
 	openCodeSendConfirmTimeout      = 600 * time.Millisecond
 	openCodeSendConfirmPollInterval = 200 * time.Millisecond
-	codexTmuxSubmitDelay            = 250 * time.Millisecond
-	claudeTmuxMultilineSubmitDelay  = 100 * time.Millisecond
+	codexTmuxSubmitDelay           = 250 * time.Millisecond
+	codexTmuxExtraEnterDelay       = 200 * time.Millisecond
+	claudeTmuxMultilineSubmitDelay = 100 * time.Millisecond
 
 	getSendMultiplexer = func() sendMultiplexer {
 		return multiplexer.GetDefault()
@@ -2684,12 +2685,21 @@ func (s *SocketServer) processSendTmux(run *model.Run, message string, noEnter b
 	}
 
 	submitDelay := time.Duration(0)
-	splitSubmit := !noEnter && useCodexTmuxSubmitDelay(run, mux)
+	isCodex := !noEnter && useCodexTmuxSubmitDelay(run, mux)
+	splitSubmit := isCodex
 	if splitSubmit {
 		submitDelay = codexTmuxSubmitDelay
 	}
 	if err := multiplexer.SendMessage(mux, sessionName, message, noEnter, splitSubmit, submitDelay); err != nil {
 		return fmt.Errorf("failed to %w", err)
+	}
+	// Codex TUI sometimes doesn't register the first Enter; send a second
+	// one after a short delay to ensure the message is actually submitted.
+	if isCodex {
+		time.Sleep(codexTmuxExtraEnterDelay)
+		if err := mux.SendText(sessionName, tmuxSubmitKeyEnter); err != nil {
+			return fmt.Errorf("failed to send extra enter for codex: %w", err)
+		}
 	}
 	if shouldSendClaudeMultilineConfirm(run.Agent, mux.Type(), message, noEnter) {
 		time.Sleep(claudeTmuxMultilineSubmitDelay)

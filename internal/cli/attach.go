@@ -116,14 +116,14 @@ func runAttachWithDeps(refStr string, opts *attachOptions, deps *attachDeps) err
 		return err
 	}
 
-	if !info.SessionExists && !shouldHandleRunLocally(info) {
+	if !info.SessionExists && !isLocalControlHost(info.TargetHost) {
 		fmt.Fprintf(deps.streams.stderr, "cannot attach: session not found (session: %s, worktree: %s)\n",
 			info.SessionName, info.WorktreePath)
 		deps.exit(ExitRunNotFound)
 		return fmt.Errorf("cannot attach: session not found")
 	}
 
-	if info.TargetHost != "" && !shouldHandleRunLocally(info) {
+	if info.TargetHost != "" && !isLocalControlHost(info.TargetHost) {
 		exitCode, attachErr := deps.attachRemote(info, deps.streams)
 		if exitCode != 0 {
 			deps.exit(exitCode)
