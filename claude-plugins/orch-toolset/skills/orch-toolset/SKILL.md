@@ -147,6 +147,10 @@ Recommended triage order:
   `--body` string.
 - Use `orch send` to answer `waiting` runs.
 - Do not `stop` + `restart-from` a live run just because it asked a question.
+- **NEVER stop or restart an agent because its context percentage is low.** Codex agents
+  have automatic context compaction — when context fills up, it compacts and the agent
+  continues working. Low context % (even 0-2%) does NOT mean the agent is dead. Only stop
+  if: user asks, `orch ps` shows `fail`/`done`/`cancel`, or the tmux process has exited.
 - Use `orch exec` for isolated test or git commands inside a run worktree.
 - Use `worker status --json` when debugging remote execution, host placement, or stale workers.
 
