@@ -24,9 +24,10 @@ import (
 )
 
 const (
-	DefaultInterval = 5 * time.Second
-	StallThreshold  = 60 * time.Second
-	FetchInterval   = 90 * time.Second
+	DefaultInterval    = 5 * time.Second
+	StallThreshold     = 60 * time.Second
+	FetchInterval      = 90 * time.Second
+	DefaultTCPListenAddr = "0.0.0.0:7777"
 )
 
 type Daemon struct {
@@ -438,7 +439,7 @@ func (d *Daemon) getOrCreateState(run *model.Run) *RunState {
 }
 
 func StartInBackground() (int, error) {
-	return StartInBackgroundWithListen("")
+	return StartInBackgroundWithListen(DefaultTCPListenAddr)
 }
 
 func StartInBackgroundWithListen(listenAddr string) (int, error) {

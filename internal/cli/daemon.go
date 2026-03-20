@@ -34,7 +34,7 @@ It runs automatically in the background when needed.`,
 		},
 	}
 	runCmd.Flags().BoolVar(&daemonDebugMode, "debug", false, "Enable verbose debug logging")
-	runCmd.Flags().StringVar(&daemonListenAddr, "listen", "", "Additional daemon listen address (e.g. tcp://0.0.0.0:7777)")
+	runCmd.Flags().StringVar(&daemonListenAddr, "listen", daemon.DefaultTCPListenAddr, "TCP listen address for remote clients")
 	cmd.AddCommand(runCmd)
 	cmd.AddCommand(newDaemonStartCmd())
 
@@ -178,7 +178,7 @@ Use --listen to additionally expose the proto API on TCP (e.g. for remote client
 		},
 	}
 
-	cmd.Flags().StringVar(&daemonListenAddr, "listen", "", "Additional daemon listen address (e.g. tcp://0.0.0.0:7777)")
+	cmd.Flags().StringVar(&daemonListenAddr, "listen", daemon.DefaultTCPListenAddr, "TCP listen address for remote clients")
 	return cmd
 }
 
