@@ -91,6 +91,9 @@ type Adapter interface {
 	// LaunchCommand returns the command to launch the agent
 	LaunchCommand(cfg *LaunchConfig) (string, error)
 
+	// ExtraEnv returns agent-specific environment variables to inject at launch.
+	ExtraEnv() []string
+
 	// IsAvailable checks if the agent CLI is available
 	IsAvailable() bool
 

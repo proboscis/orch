@@ -70,15 +70,15 @@ func TestOpenCodeHealthEndpoint(t *testing.T) {
 	}
 }
 
-func TestOpenCodeEnv(t *testing.T) {
+func TestOpenCodeExtraEnv(t *testing.T) {
 	adapter := &OpenCodeAdapter{}
-	env := adapter.Env()
+	env := adapter.ExtraEnv()
 	if len(env) != 1 {
-		t.Fatalf("Env() returned %d items, want 1", len(env))
+		t.Fatalf("ExtraEnv() returned %d items, want 1", len(env))
 	}
 	// Check that the permission env var is set
 	if env[0] == "" {
-		t.Fatal("Env()[0] is empty")
+		t.Fatal("ExtraEnv()[0] is empty")
 	}
 }
 

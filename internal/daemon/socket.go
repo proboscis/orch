@@ -70,9 +70,9 @@ var (
 	// message was queued anyway before returning an error.
 	openCodeSendConfirmTimeout      = 600 * time.Millisecond
 	openCodeSendConfirmPollInterval = 200 * time.Millisecond
-	codexTmuxSubmitDelay           = 250 * time.Millisecond
-	codexTmuxExtraEnterDelay       = 200 * time.Millisecond
-	claudeTmuxMultilineSubmitDelay = 100 * time.Millisecond
+	codexTmuxSubmitDelay            = 250 * time.Millisecond
+	codexTmuxExtraEnterDelay        = 200 * time.Millisecond
+	claudeTmuxMultilineSubmitDelay  = 100 * time.Millisecond
 
 	getSendMultiplexer = func() sendMultiplexer {
 		return multiplexer.GetDefault()
@@ -3407,9 +3407,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 
 	if !serverAlreadyRunning {
 		env := launchCfg.Env()
-		if opencodeAdapter, ok := adapter.(*agent.OpenCodeAdapter); ok {
-			env = append(env, opencodeAdapter.Env()...)
-		}
+		env = append(env, adapter.ExtraEnv()...)
 
 		err = mux.NewSession(&multiplexer.SessionConfig{
 			SessionName: sessionName,
@@ -3738,9 +3736,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 
 	if !serverAlreadyRunning {
 		env := launchCfg.Env()
-		if opencodeAdapter, ok := adapter.(*agent.OpenCodeAdapter); ok {
-			env = append(env, opencodeAdapter.Env()...)
-		}
+		env = append(env, adapter.ExtraEnv()...)
 
 		err = mux.NewSession(&multiplexer.SessionConfig{
 			SessionName: sessionName,
@@ -4071,9 +4067,7 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 
 	if !serverAlreadyRunning {
 		env := launchCfg.Env()
-		if opencodeAdapter, ok := adapter.(*agent.OpenCodeAdapter); ok {
-			env = append(env, opencodeAdapter.Env()...)
-		}
+		env = append(env, adapter.ExtraEnv()...)
 
 		err = mux.NewSession(&multiplexer.SessionConfig{
 			SessionName: sessionName,
@@ -4431,9 +4425,7 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 
 	if !serverAlreadyRunning {
 		env := launchCfg.Env()
-		if opencodeAdapter, ok := adapter.(*agent.OpenCodeAdapter); ok {
-			env = append(env, opencodeAdapter.Env()...)
-		}
+		env = append(env, adapter.ExtraEnv()...)
 
 		err = mux.NewSession(&multiplexer.SessionConfig{
 			SessionName: sessionName,

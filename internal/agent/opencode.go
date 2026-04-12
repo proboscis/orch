@@ -102,9 +102,9 @@ func (a *OpenCodeAdapter) HealthEndpoint(port int) string {
 	return fmt.Sprintf("http://127.0.0.1:%d/global/health", port)
 }
 
-// Env returns additional environment variables for opencode.
+// ExtraEnv returns additional environment variables for opencode.
 // Sets OPENCODE_PERMISSION for autonomous operation.
-func (a *OpenCodeAdapter) Env() []string {
+func (a *OpenCodeAdapter) ExtraEnv() []string {
 	return []string{
 		`OPENCODE_PERMISSION={"edit":"allow","bash":"allow","skill":"allow","webfetch":"allow","doom_loop":"allow","external_directory":"allow"}`,
 	}

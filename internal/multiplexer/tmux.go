@@ -94,6 +94,10 @@ func (t *TmuxMultiplexer) NewSession(cfg *SessionConfig) error {
 		"-s", cfg.SessionName,
 	}
 
+	for _, entry := range sessionExtraEnv(t.executor, cfg.Env) {
+		args = append(args, "-e", entry)
+	}
+
 	if cfg.WorkDir != "" {
 		args = append(args, "-c", cfg.WorkDir)
 	}
@@ -104,8 +108,7 @@ func (t *TmuxMultiplexer) NewSession(cfg *SessionConfig) error {
 		args = append(args, cfg.Command)
 	}
 
-	env := sessionEnv(t.executor, cfg.Env)
-	if err := t.runWithOptions(args, executor.RunOptions{Env: env, Stderr: os.Stderr}); err != nil {
+	if err := t.runWithOptions(args, executor.RunOptions{Stderr: os.Stderr}); err != nil {
 		return fmt.Errorf("failed to create tmux session: %w", err)
 	}
 
