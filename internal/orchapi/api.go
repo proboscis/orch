@@ -19,6 +19,7 @@ package orchapi
 
 import (
 	"context"
+	"time"
 )
 
 // OrchAPI is the unified interface for all orch CLI operations.
@@ -98,6 +99,10 @@ type OrchAPI interface {
 	// StopRun stops a running run.
 	// Sends interrupt to the agent and records cancel status.
 	StopRun(ctx context.Context, ref RunRef) error
+
+	// WaitForStatus blocks until a run reaches the requested status.
+	// Returns the latest run state when the condition is met.
+	WaitForStatus(ctx context.Context, ref RunRef, status RunStatus, timeout time.Duration) (*Run, error)
 
 	// AppendEvent appends an event to a run's event log.
 	AppendEvent(ctx context.Context, ref RunRef, event *Event) (*AppendEventResult, error)

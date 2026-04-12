@@ -125,6 +125,7 @@ func init() {
 	rootCmd.AddCommand(newIssueCmd())
 	rootCmd.AddCommand(newPsCmd())
 	rootCmd.AddCommand(newRunCmd())
+	rootCmd.AddCommand(newWaitCmd())
 	rootCmd.AddCommand(newRestartFromCmd())
 	rootCmd.AddCommand(newShowCmd())
 	rootCmd.AddCommand(newDiffCmd())

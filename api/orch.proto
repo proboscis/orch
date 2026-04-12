@@ -215,6 +215,20 @@ message ResolveRunRequest {
 
 message ResolveRunResponse {}
 
+message WaitForStatusRequest {
+  string issue_id = 2;
+  string run_id = 3;
+  string short_id = 4;
+  RunStatus until = 5;
+  int32 timeout_seconds = 6;
+  RequestContext context = 7;
+}
+
+message WaitForStatusResponse {
+  Run run = 1;
+  repeated Event events = 2;
+}
+
 // --- Issues ---
 
 message ListIssuesRequest {
@@ -919,6 +933,7 @@ message Request {
     StartRunRequest start_run = 4;
     StopRunRequest stop_run = 5;
     ResolveRunRequest resolve_run = 6;
+    WaitForStatusRequest wait_for_status = 55;
     ListIssuesRequest list_issues = 7;
     GetIssueRequest get_issue = 8;
     CreateIssueRequest create_issue = 9;
@@ -981,6 +996,7 @@ message Response {
     StartRunResponse start_run = 6;
     StopRunResponse stop_run = 7;
     ResolveRunResponse resolve_run = 8;
+    WaitForStatusResponse wait_for_status = 57;
     ListIssuesResponse list_issues = 9;
     GetIssueResponse get_issue = 10;
     CreateIssueResponse create_issue = 11;

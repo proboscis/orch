@@ -7,6 +7,7 @@ import (
 	"context"
 	"github.com/s22625/orch/internal/orchapi"
 	"sync"
+	"time"
 )
 
 // Ensure, that OrchAPIMock does implement orchapi.OrchAPI.
@@ -235,6 +236,9 @@ type OrchAPIMock struct {
 
 	// StopRunFunc mocks the StopRun method.
 	StopRunFunc func(ctx context.Context, ref orchapi.RunRef) error
+
+	// WaitForStatusFunc mocks the WaitForStatus method.
+	WaitForStatusFunc func(ctx context.Context, ref orchapi.RunRef, status orchapi.RunStatus, timeout time.Duration) (*orchapi.Run, error)
 
 	// UpdateIssueFunc mocks the UpdateIssue method.
 	UpdateIssueFunc func(ctx context.Context, issueID string, req *orchapi.UpdateIssueRequest) (*orchapi.Issue, error)
@@ -491,6 +495,17 @@ type OrchAPIMock struct {
 			// Ref is the ref argument value.
 			Ref orchapi.RunRef
 		}
+		// WaitForStatus holds details about calls to the WaitForStatus method.
+		WaitForStatus []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Ref is the ref argument value.
+			Ref orchapi.RunRef
+			// Status is the status argument value.
+			Status orchapi.RunStatus
+			// Timeout is the timeout argument value.
+			Timeout time.Duration
+		}
 		// UpdateIssue holds details about calls to the UpdateIssue method.
 		UpdateIssue []struct {
 			// Ctx is the ctx argument value.
@@ -561,6 +576,7 @@ type OrchAPIMock struct {
 	lockSetIssueStatus       sync.RWMutex
 	lockStartRun             sync.RWMutex
 	lockStopRun              sync.RWMutex
+	lockWaitForStatus        sync.RWMutex
 	lockUpdateIssue          sync.RWMutex
 	lockValidateIssueFiles   sync.RWMutex
 	lockWriteAgentPrompt     sync.RWMutex
@@ -1772,6 +1788,50 @@ func (mock *OrchAPIMock) StopRunCalls() []struct {
 	mock.lockStopRun.RLock()
 	calls = mock.calls.StopRun
 	mock.lockStopRun.RUnlock()
+	return calls
+}
+
+// WaitForStatus calls WaitForStatusFunc.
+func (mock *OrchAPIMock) WaitForStatus(ctx context.Context, ref orchapi.RunRef, status orchapi.RunStatus, timeout time.Duration) (*orchapi.Run, error) {
+	if mock.WaitForStatusFunc == nil {
+		panic("OrchAPIMock.WaitForStatusFunc: method is nil but OrchAPI.WaitForStatus was just called")
+	}
+	callInfo := struct {
+		Ctx     context.Context
+		Ref     orchapi.RunRef
+		Status  orchapi.RunStatus
+		Timeout time.Duration
+	}{
+		Ctx:     ctx,
+		Ref:     ref,
+		Status:  status,
+		Timeout: timeout,
+	}
+	mock.lockWaitForStatus.Lock()
+	mock.calls.WaitForStatus = append(mock.calls.WaitForStatus, callInfo)
+	mock.lockWaitForStatus.Unlock()
+	return mock.WaitForStatusFunc(ctx, ref, status, timeout)
+}
+
+// WaitForStatusCalls gets all the calls that were made to WaitForStatus.
+// Check the length with:
+//
+//	len(mockedOrchAPI.WaitForStatusCalls())
+func (mock *OrchAPIMock) WaitForStatusCalls() []struct {
+	Ctx     context.Context
+	Ref     orchapi.RunRef
+	Status  orchapi.RunStatus
+	Timeout time.Duration
+} {
+	var calls []struct {
+		Ctx     context.Context
+		Ref     orchapi.RunRef
+		Status  orchapi.RunStatus
+		Timeout time.Duration
+	}
+	mock.lockWaitForStatus.RLock()
+	calls = mock.calls.WaitForStatus
+	mock.lockWaitForStatus.RUnlock()
 	return calls
 }
 

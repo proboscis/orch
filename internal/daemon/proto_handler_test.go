@@ -234,6 +234,116 @@ func TestBuildAttachInfoResponse(t *testing.T) {
 	}
 }
 
+func TestHandleProtoWaitForStatusMatchesAfterStatusChange(t *testing.T) {
+	issueID := "orch-wait"
+	runID := "20260412-101500"
+	run := &model.Run{
+		IssueID:   issueID,
+		RunID:     runID,
+		Status:    model.StatusRunning,
+		UpdatedAt: time.Now(),
+	}
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			issueID + "#" + runID: run,
+		},
+	}
+	server := newTestServer(t, st)
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		run.Status = model.StatusPROpen
+		run.UpdatedAt = time.Now()
+	}()
+
+	resp := server.handleProtoWaitForStatus(&orchpb.WaitForStatusRequest{
+		ShortId:        run.ShortID(),
+		Until:          orchpb.RunStatus_RUN_STATUS_PR_OPEN,
+		TimeoutSeconds: 2,
+		Context:        &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+
+	if !resp.Ok {
+		t.Fatalf("expected ok response, got error: %s", resp.Error)
+	}
+
+	waitResp := resp.GetWaitForStatus()
+	if waitResp == nil || waitResp.Run == nil {
+		t.Fatal("expected wait_for_status response with run")
+	}
+	if waitResp.Run.IssueId != issueID || waitResp.Run.RunId != runID {
+		t.Fatalf("run = %s#%s, want %s#%s", waitResp.Run.IssueId, waitResp.Run.RunId, issueID, runID)
+	}
+	if waitResp.Run.Status != orchpb.RunStatus_RUN_STATUS_PR_OPEN {
+		t.Fatalf("status = %v, want %v", waitResp.Run.Status, orchpb.RunStatus_RUN_STATUS_PR_OPEN)
+	}
+}
+
+func TestHandleProtoWaitForStatusFailsOnUnexpectedTerminalStatus(t *testing.T) {
+	issueID := "orch-wait-terminal"
+	runID := "20260412-111500"
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			issueID + "#" + runID: {
+				IssueID:   issueID,
+				RunID:     runID,
+				Status:    model.StatusDone,
+				UpdatedAt: time.Now(),
+			},
+		},
+	}
+	server := newTestServer(t, st)
+
+	resp := server.handleProtoWaitForStatus(&orchpb.WaitForStatusRequest{
+		IssueId: issueID,
+		RunId:   runID,
+		Until:   orchpb.RunStatus_RUN_STATUS_FAILED,
+		Context: &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+
+	if resp.Ok {
+		t.Fatal("expected terminal mismatch to fail")
+	}
+	if want := "reached terminal status done before failed"; !strings.Contains(resp.Error, want) {
+		t.Fatalf("error = %q, want substring %q", resp.Error, want)
+	}
+}
+
+func TestHandleProtoWaitForStatusTimesOut(t *testing.T) {
+	issueID := "orch-wait-timeout"
+	runID := "20260412-121500"
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			issueID + "#" + runID: {
+				IssueID:   issueID,
+				RunID:     runID,
+				Status:    model.StatusRunning,
+				UpdatedAt: time.Now(),
+			},
+		},
+	}
+	server := newTestServer(t, st)
+
+	start := time.Now()
+	resp := server.handleProtoWaitForStatus(&orchpb.WaitForStatusRequest{
+		IssueId:        issueID,
+		RunId:          runID,
+		Until:          orchpb.RunStatus_RUN_STATUS_DONE,
+		TimeoutSeconds: 1,
+		Context:        &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+
+	if resp.Ok {
+		t.Fatal("expected timeout response to fail")
+	}
+	if elapsed := time.Since(start); elapsed < time.Second {
+		t.Fatalf("wait returned too early after %v", elapsed)
+	}
+	if want := "timeout waiting for " + issueID + "#" + runID + " to reach status done"; !strings.Contains(resp.Error, want) {
+		t.Fatalf("error = %q, want substring %q", resp.Error, want)
+	}
+}
+
 func TestIsOpenCodeRun(t *testing.T) {
 	tests := []struct {
 		name  string

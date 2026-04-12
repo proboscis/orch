@@ -85,6 +85,9 @@ func (m *mockQueryAPI) CreateRun(ctx context.Context, req *orchapi.CreateRunRequ
 	return nil, nil
 }
 func (m *mockQueryAPI) StopRun(ctx context.Context, ref orchapi.RunRef) error { return nil }
+func (m *mockQueryAPI) WaitForStatus(ctx context.Context, ref orchapi.RunRef, status orchapi.RunStatus, timeout time.Duration) (*orchapi.Run, error) {
+	return nil, nil
+}
 func (m *mockQueryAPI) AppendEvent(ctx context.Context, ref orchapi.RunRef, event *orchapi.Event) (*orchapi.AppendEventResult, error) {
 	return nil, nil
 }

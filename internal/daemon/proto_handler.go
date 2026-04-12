@@ -34,9 +34,10 @@ func generateMonitorID() string {
 }
 
 const (
-	maxProtoMessageSize = 10 * 1024 * 1024
-	listRunsTimingEnv   = "ORCH_DAEMON_LISTRUNS_TIMING"
-	protoConnIdleTTL    = 5 * time.Minute
+	maxProtoMessageSize       = 10 * 1024 * 1024
+	listRunsTimingEnv         = "ORCH_DAEMON_LISTRUNS_TIMING"
+	protoConnIdleTTL          = 5 * time.Minute
+	waitForStatusPollInterval = 250 * time.Millisecond
 )
 
 const listRunsSlowThreshold = 250 * time.Millisecond
@@ -115,6 +116,8 @@ func (s *SocketServer) handleProtoRequest(req *orchpb.Request) *orchpb.Response 
 		return s.handleProtoStopRun(r.StopRun)
 	case *orchpb.Request_ResolveRun:
 		return s.handleProtoResolveRun(r.ResolveRun)
+	case *orchpb.Request_WaitForStatus:
+		return s.handleProtoWaitForStatus(r.WaitForStatus)
 	case *orchpb.Request_ListIssues:
 		return s.handleProtoListIssues(r.ListIssues)
 	case *orchpb.Request_GetIssue:
@@ -510,6 +513,99 @@ func (s *SocketServer) resolveProtoRun(ctx *orchpb.RequestContext, issueID, runI
 	}
 
 	return resolved, nil
+}
+
+func (s *SocketServer) resolveProtoRunRef(ctx *orchpb.RequestContext, issueID, runID, shortID string) (*resolvedProtoRun, *orchpb.Response) {
+	shortID = strings.TrimSpace(shortID)
+	if shortID == "" {
+		if strings.TrimSpace(issueID) == "" {
+			return nil, errorResponse("run reference required")
+		}
+		return s.resolveProtoRun(ctx, issueID, runID)
+	}
+
+	projectID := projectIDFromContext(ctx)
+	if projectID != "" {
+		st := s.resolveStoreFromContextOrProto(ctx, "")
+		if st == nil {
+			return nil, errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+		}
+
+		run, err := st.GetRunByShortID(shortID)
+		if err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "ambiguous") {
+				return nil, errorResponse("ambiguous_short_id")
+			}
+			return nil, errorResponse("not_found")
+		}
+
+		repo := s.ensureRepoContextByID(projectID)
+		projectRoot := ""
+		if repo != nil {
+			projectRoot = strings.TrimSpace(repo.ProjectRoot)
+		}
+
+		return &resolvedProtoRun{
+			run:         run,
+			store:       st,
+			projectID:   projectID,
+			projectRoot: projectRoot,
+		}, nil
+	}
+
+	var resolved *resolvedProtoRun
+	for _, st := range s.listStores() {
+		run, err := st.GetRunByShortID(shortID)
+		if err != nil {
+			if isStoreNotFoundError(err) {
+				continue
+			}
+			if strings.Contains(strings.ToLower(err.Error()), "ambiguous") {
+				return nil, errorResponse("ambiguous_short_id")
+			}
+			return nil, errorResponse("store_error")
+		}
+		if run == nil {
+			continue
+		}
+		if resolved != nil {
+			return nil, errorResponse("ambiguous_short_id")
+		}
+		repo := s.repoContextForStore(st)
+		projectID := ""
+		projectRoot := ""
+		if repo != nil {
+			projectID = strings.TrimSpace(repo.RepoID)
+			projectRoot = strings.TrimSpace(repo.ProjectRoot)
+		}
+		resolved = &resolvedProtoRun{
+			run:         run,
+			store:       st,
+			projectID:   projectID,
+			projectRoot: projectRoot,
+		}
+	}
+
+	if resolved == nil {
+		return nil, errorResponse("not_found")
+	}
+
+	return resolved, nil
+}
+
+func waitableProtoRunStatus(status orchpb.RunStatus) (model.Status, bool) {
+	switch status {
+	case orchpb.RunStatus_RUN_STATUS_WAITING:
+		return model.StatusWaiting, true
+	case orchpb.RunStatus_RUN_STATUS_PR_OPEN:
+		return model.StatusPROpen, true
+	case orchpb.RunStatus_RUN_STATUS_DONE:
+		return model.StatusDone, true
+	case orchpb.RunStatus_RUN_STATUS_FAILED:
+		return model.StatusFailed, true
+	default:
+		return "", false
+	}
 }
 
 func resolveWorkerTargetForRun(runCtx *resolvedProtoRun) (*resolvedTarget, error) {
@@ -952,6 +1048,82 @@ func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Resp
 				Events: protoEvents,
 			},
 		},
+	}
+}
+
+func (s *SocketServer) handleProtoWaitForStatus(req *orchpb.WaitForStatusRequest) *orchpb.Response {
+	targetStatus, ok := waitableProtoRunStatus(req.Until)
+	if !ok {
+		return errorResponse("until must be one of: waiting, pr_open, done, failed")
+	}
+	if req.TimeoutSeconds < 0 {
+		return errorResponse("timeout_seconds must be >= 0")
+	}
+
+	runCtx, errResp := s.resolveProtoRunRef(req.Context, req.IssueId, req.RunId, req.ShortId)
+	if errResp != nil {
+		return errResp
+	}
+	if runCtx == nil || runCtx.run == nil || runCtx.store == nil {
+		return errorResponse("run not found")
+	}
+
+	ref := runCtx.run.Ref()
+	waitRef := ref.String()
+
+	var deadline time.Time
+	if req.TimeoutSeconds > 0 {
+		deadline = time.Now().Add(time.Duration(req.TimeoutSeconds) * time.Second)
+	}
+
+	for {
+		run, err := runCtx.store.GetRun(ref)
+		if err != nil {
+			if isStoreNotFoundError(err) {
+				return errorResponse(fmt.Sprintf("run not found while waiting: %s", waitRef))
+			}
+			return errorResponse(fmt.Sprintf("failed to reload run %s while waiting: %v", waitRef, err))
+		}
+		if run == nil {
+			return errorResponse(fmt.Sprintf("run not found while waiting: %s", waitRef))
+		}
+
+		if run.Status == targetStatus {
+			protoEvents := make([]*orchpb.Event, len(run.Events))
+			for i, e := range run.Events {
+				protoEvents[i] = modelEventToProto(e)
+			}
+
+			pr := modelRunToProto(run)
+			enrichRunProto(pr, run, s.gitRunner)
+
+			return &orchpb.Response{
+				Ok: true,
+				Response: &orchpb.Response_WaitForStatus{
+					WaitForStatus: &orchpb.WaitForStatusResponse{
+						Run:    pr,
+						Events: protoEvents,
+					},
+				},
+			}
+		}
+
+		if run.Status.IsTerminal() {
+			return errorResponse(fmt.Sprintf("run %s reached terminal status %s before %s", waitRef, run.Status, targetStatus))
+		}
+
+		if !deadline.IsZero() {
+			remaining := time.Until(deadline)
+			if remaining <= 0 {
+				return errorResponse(fmt.Sprintf("timeout waiting for %s to reach status %s (last status: %s)", waitRef, targetStatus, run.Status))
+			}
+			if remaining < waitForStatusPollInterval {
+				time.Sleep(remaining)
+				continue
+			}
+		}
+
+		time.Sleep(waitForStatusPollInterval)
 	}
 }
 

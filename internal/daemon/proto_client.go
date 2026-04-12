@@ -28,7 +28,10 @@ type ProtoClient struct {
 	conn net.Conn
 }
 
-const protoSendMessageTimeoutBuffer = 5 * time.Second
+const (
+	protoSendMessageTimeoutBuffer   = 5 * time.Second
+	protoWaitForStatusTimeoutBuffer = 5 * time.Second
+)
 
 var requestCounter uint64
 
@@ -117,6 +120,13 @@ func (c *ProtoClient) sendMessageTimeout() time.Duration {
 	return timeout
 }
 
+func (c *ProtoClient) waitForStatusRequestTimeout(timeoutSeconds int32) time.Duration {
+	if timeoutSeconds <= 0 {
+		return -1
+	}
+	return time.Duration(timeoutSeconds)*time.Second + protoWaitForStatusTimeoutBuffer
+}
+
 func (c *ProtoClient) IsAvailable() bool {
 	if c.daemonAddr != "" {
 		req := &orchpb.Request{Request: &orchpb.Request_Ping{Ping: &orchpb.PingRequest{}}}
@@ -147,16 +157,25 @@ func (c *ProtoClient) sendRequestWithTimeout(req *orchpb.Request, timeout time.D
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if timeout <= 0 {
+	if timeout == 0 {
 		timeout = c.timeout
 	}
+	useDeadline := timeout > 0
+	connectTimeout := timeout
+	if !useDeadline {
+		connectTimeout = c.timeout
+	}
 
-	conn, err := c.getOrConnectLocked(timeout)
+	conn, err := c.getOrConnectLocked(connectTimeout)
 	if err != nil {
 		return nil, err
 	}
 
-	_ = conn.SetDeadline(time.Now().Add(timeout))
+	if useDeadline {
+		_ = conn.SetDeadline(time.Now().Add(timeout))
+	} else {
+		_ = conn.SetDeadline(time.Time{})
+	}
 	resp, err := c.doSendRequest(conn, req)
 	if err == nil {
 		return resp, nil
@@ -165,12 +184,16 @@ func (c *ProtoClient) sendRequestWithTimeout(req *orchpb.Request, timeout time.D
 	// Connection might have gone stale (daemon restart, peer close, etc.).
 	c.resetConnLocked()
 
-	conn, reconnErr := c.getOrConnectLocked(timeout)
+	conn, reconnErr := c.getOrConnectLocked(connectTimeout)
 	if reconnErr != nil {
 		return nil, fmt.Errorf("daemon request failed: %w (reconnect failed: %v)", err, reconnErr)
 	}
 
-	_ = conn.SetDeadline(time.Now().Add(timeout))
+	if useDeadline {
+		_ = conn.SetDeadline(time.Now().Add(timeout))
+	} else {
+		_ = conn.SetDeadline(time.Time{})
+	}
 	resp, retryErr := c.doSendRequest(conn, req)
 	if retryErr != nil {
 		c.resetConnLocked()
@@ -420,6 +443,40 @@ func (c *ProtoClient) GetRunByShortID(shortID string) (*GetRunResponse, error) {
 	return &GetRunResponse{
 		OK:  true,
 		Run: protoRunToFull(getResp.Run, getResp.Events, loadConfigOrNil()),
+	}, nil
+}
+
+func (c *ProtoClient) WaitForStatus(issueID, runID, shortID, until string, timeoutSeconds int32) (*WaitForStatusResponse, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_WaitForStatus{
+			WaitForStatus: &orchpb.WaitForStatusRequest{
+				IssueId:        issueID,
+				RunId:          runID,
+				ShortId:        shortID,
+				Until:          stringToProtoRunStatus(until),
+				TimeoutSeconds: timeoutSeconds,
+				Context:        c.requestContext(c.projectRoot),
+			},
+		},
+	}
+
+	resp, err := c.sendRequestWithTimeout(req, c.waitForStatusRequestTimeout(timeoutSeconds))
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	waitResp := resp.GetWaitForStatus()
+	if waitResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	return &WaitForStatusResponse{
+		OK:  true,
+		Run: protoRunToFull(waitResp.Run, waitResp.Events, loadConfigOrNil()),
 	}, nil
 }
 

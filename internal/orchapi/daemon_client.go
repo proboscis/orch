@@ -306,6 +306,27 @@ func (c *DaemonClient) StopRun(ctx context.Context, ref RunRef) error {
 	return err
 }
 
+func (c *DaemonClient) WaitForStatus(ctx context.Context, ref RunRef, status RunStatus, timeout time.Duration) (*Run, error) {
+	if timeout < 0 {
+		return nil, fmt.Errorf("timeout must be >= 0")
+	}
+
+	var timeoutSeconds int32
+	if timeout > 0 {
+		timeoutSeconds = int32((timeout + time.Second - 1) / time.Second)
+	}
+
+	resp, err := c.proto.WaitForStatus(ref.IssueID, ref.RunID, ref.ShortID, string(status), timeoutSeconds)
+	if err != nil {
+		if isNotFoundError(err) {
+			return nil, RunNotFound(ref.String())
+		}
+		return nil, err
+	}
+
+	return runFromDaemonFull(resp.Run), nil
+}
+
 func (c *DaemonClient) AppendEvent(ctx context.Context, ref RunRef, event *Event) (*AppendEventResult, error) {
 	run, err := c.ResolveRun(ctx, ref)
 	if err != nil {
