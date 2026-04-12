@@ -165,6 +165,15 @@ type GetRunResponse struct {
 	Run   *RunFull `json:"run,omitempty"`
 }
 
+type WaitForRunsResponse struct {
+	OK     bool   `json:"ok"`
+	Error  string `json:"error,omitempty"`
+	RunID  string `json:"run_id,omitempty"`
+	Status string `json:"status,omitempty"`
+	Issue  string `json:"issue,omitempty"`
+	PRURL  string `json:"pr_url,omitempty"`
+}
+
 // RunFull is the full view of a run including events
 type RunFull struct {
 	IssueID           string         `json:"issue_id"`

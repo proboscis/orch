@@ -132,6 +132,7 @@ func init() {
 	rootCmd.AddCommand(newTickCmd())
 	rootCmd.AddCommand(newOpenCmd())
 	rootCmd.AddCommand(newStopCmd())
+	rootCmd.AddCommand(newWaitCmd())
 	rootCmd.AddCommand(newMonitorCmd())
 	rootCmd.AddCommand(newResolveCmd())
 	rootCmd.AddCommand(newDaemonCmd())

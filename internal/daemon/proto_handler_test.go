@@ -884,6 +884,125 @@ func TestSyncStartRunResultToMasterStorePreservesOpenCodeArtifacts(t *testing.T)
 	}
 }
 
+func TestHandleProtoWaitForRunsReturnsImmediatelyForShortID(t *testing.T) {
+	run := &model.Run{
+		IssueID: "issue-1",
+		RunID:   "20260101-010101",
+		Status:  model.StatusPROpen,
+		PRUrl:   "https://example.test/pr/123",
+	}
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			run.IssueID + "#" + run.RunID: run,
+		},
+	}
+	server := newTestServer(t, st)
+
+	resp := server.handleProtoWaitForRuns(&orchpb.WaitForRunsRequest{
+		RunRefs: []string{run.ShortID()},
+		Context: &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+	if !resp.Ok {
+		t.Fatalf("handleProtoWaitForRuns() error = %s", resp.Error)
+	}
+
+	waitResp := resp.GetWaitForRuns()
+	if waitResp == nil {
+		t.Fatal("expected WaitForRuns response payload")
+	}
+	if waitResp.RunId != run.ShortID() {
+		t.Fatalf("run_id = %q, want %q", waitResp.RunId, run.ShortID())
+	}
+	if waitResp.Status != string(model.StatusPROpen) {
+		t.Fatalf("status = %q, want %q", waitResp.Status, model.StatusPROpen)
+	}
+	if waitResp.Issue != run.IssueID {
+		t.Fatalf("issue = %q, want %q", waitResp.Issue, run.IssueID)
+	}
+	if waitResp.PrUrl != run.PRUrl {
+		t.Fatalf("pr_url = %q, want %q", waitResp.PrUrl, run.PRUrl)
+	}
+}
+
+func TestHandleProtoWaitForRunsWaitsForStatusChange(t *testing.T) {
+	origPollInterval := waitForRunsPollInterval
+	origTimeoutUnit := waitForRunsTimeoutUnit
+	waitForRunsPollInterval = 5 * time.Millisecond
+	waitForRunsTimeoutUnit = 10 * time.Millisecond
+	t.Cleanup(func() {
+		waitForRunsPollInterval = origPollInterval
+		waitForRunsTimeoutUnit = origTimeoutUnit
+	})
+
+	run := &model.Run{
+		IssueID: "issue-2",
+		RunID:   "20260101-020202",
+		Status:  model.StatusRunning,
+	}
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			run.IssueID + "#" + run.RunID: run,
+		},
+	}
+	server := newTestServer(t, st)
+
+	go func() {
+		time.Sleep(15 * time.Millisecond)
+		run.Status = model.StatusWaiting
+	}()
+
+	resp := server.handleProtoWaitForRuns(&orchpb.WaitForRunsRequest{
+		RunRefs: []string{run.IssueID + "#" + run.RunID},
+		Context: &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+	if !resp.Ok {
+		t.Fatalf("handleProtoWaitForRuns() error = %s", resp.Error)
+	}
+
+	waitResp := resp.GetWaitForRuns()
+	if waitResp == nil {
+		t.Fatal("expected WaitForRuns response payload")
+	}
+	if waitResp.Status != string(model.StatusWaiting) {
+		t.Fatalf("status = %q, want %q", waitResp.Status, model.StatusWaiting)
+	}
+}
+
+func TestHandleProtoWaitForRunsTimesOut(t *testing.T) {
+	origPollInterval := waitForRunsPollInterval
+	origTimeoutUnit := waitForRunsTimeoutUnit
+	waitForRunsPollInterval = 5 * time.Millisecond
+	waitForRunsTimeoutUnit = 10 * time.Millisecond
+	t.Cleanup(func() {
+		waitForRunsPollInterval = origPollInterval
+		waitForRunsTimeoutUnit = origTimeoutUnit
+	})
+
+	run := &model.Run{
+		IssueID: "issue-3",
+		RunID:   "20260101-030303",
+		Status:  model.StatusRunning,
+	}
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			run.IssueID + "#" + run.RunID: run,
+		},
+	}
+	server := newTestServer(t, st)
+
+	resp := server.handleProtoWaitForRuns(&orchpb.WaitForRunsRequest{
+		RunRefs:        []string{run.IssueID + "#" + run.RunID},
+		TimeoutSeconds: 3,
+		Context:        &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+	if resp.Ok {
+		t.Fatal("expected timeout error response")
+	}
+	if resp.Error != "timeout" {
+		t.Fatalf("error = %q, want %q", resp.Error, "timeout")
+	}
+}
+
 func containsWorkerID(workers []*orchpb.WorkerInfo, workerID string) bool {
 	for _, worker := range workers {
 		if worker.GetId() == workerID {

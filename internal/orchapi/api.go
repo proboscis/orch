@@ -102,6 +102,9 @@ type OrchAPI interface {
 	// AppendEvent appends an event to a run's event log.
 	AppendEvent(ctx context.Context, ref RunRef, event *Event) (*AppendEventResult, error)
 
+	// WaitForRuns blocks until any specified run leaves its active execution state.
+	WaitForRuns(ctx context.Context, refs []string, timeoutSeconds int) (*WaitForRunsResult, error)
+
 	// =========================================================================
 	// Session Operations
 	// =========================================================================

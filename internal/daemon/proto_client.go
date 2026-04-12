@@ -29,6 +29,7 @@ type ProtoClient struct {
 }
 
 const protoSendMessageTimeoutBuffer = 5 * time.Second
+const protoWaitForRunsTimeoutBuffer = 3 * time.Second
 
 var requestCounter uint64
 
@@ -144,6 +145,10 @@ func (c *ProtoClient) Close() error {
 // request paths. Excessive socket churn can cause memory blowups in host
 // security services that audit socket lifecycle events.
 func (c *ProtoClient) sendRequestWithTimeout(req *orchpb.Request, timeout time.Duration) (*orchpb.Response, error) {
+	return c.sendRequestWithOptions(req, timeout, false)
+}
+
+func (c *ProtoClient) sendRequestWithOptions(req *orchpb.Request, timeout time.Duration, noDeadline bool) (*orchpb.Response, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -156,7 +161,11 @@ func (c *ProtoClient) sendRequestWithTimeout(req *orchpb.Request, timeout time.D
 		return nil, err
 	}
 
-	_ = conn.SetDeadline(time.Now().Add(timeout))
+	if noDeadline {
+		_ = conn.SetDeadline(time.Time{})
+	} else {
+		_ = conn.SetDeadline(time.Now().Add(timeout))
+	}
 	resp, err := c.doSendRequest(conn, req)
 	if err == nil {
 		return resp, nil
@@ -170,7 +179,11 @@ func (c *ProtoClient) sendRequestWithTimeout(req *orchpb.Request, timeout time.D
 		return nil, fmt.Errorf("daemon request failed: %w (reconnect failed: %v)", err, reconnErr)
 	}
 
-	_ = conn.SetDeadline(time.Now().Add(timeout))
+	if noDeadline {
+		_ = conn.SetDeadline(time.Time{})
+	} else {
+		_ = conn.SetDeadline(time.Now().Add(timeout))
+	}
 	resp, retryErr := c.doSendRequest(conn, req)
 	if retryErr != nil {
 		c.resetConnLocked()
@@ -420,6 +433,46 @@ func (c *ProtoClient) GetRunByShortID(shortID string) (*GetRunResponse, error) {
 	return &GetRunResponse{
 		OK:  true,
 		Run: protoRunToFull(getResp.Run, getResp.Events, loadConfigOrNil()),
+	}, nil
+}
+
+func (c *ProtoClient) WaitForRuns(runRefs []string, timeoutSeconds int) (*WaitForRunsResponse, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_WaitForRuns{
+			WaitForRuns: &orchpb.WaitForRunsRequest{
+				RunRefs:        runRefs,
+				TimeoutSeconds: int32(timeoutSeconds),
+				Context:        c.requestContext(c.projectRoot),
+			},
+		},
+	}
+
+	requestTimeout := c.timeout
+	noDeadline := timeoutSeconds == 0
+	if timeoutSeconds > 0 {
+		requestTimeout = time.Duration(timeoutSeconds)*time.Second + protoWaitForRunsTimeoutBuffer
+	}
+
+	resp, err := c.sendRequestWithOptions(req, requestTimeout, noDeadline)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	waitResp := resp.GetWaitForRuns()
+	if waitResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	return &WaitForRunsResponse{
+		OK:     true,
+		RunID:  waitResp.RunId,
+		Status: waitResp.Status,
+		Issue:  waitResp.Issue,
+		PRURL:  waitResp.PrUrl,
 	}, nil
 }
 
