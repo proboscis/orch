@@ -9,6 +9,7 @@ var (
 	ErrAlreadyExists    = errors.New("already exists")
 	ErrSessionNotFound  = errors.New("session not found")
 	ErrDaemonNotRunning = errors.New("daemon not running")
+	ErrTimeout          = errors.New("timeout")
 )
 
 type NotFoundError struct {

@@ -215,6 +215,19 @@ message ResolveRunRequest {
 
 message ResolveRunResponse {}
 
+message WaitForRunsRequest {
+  repeated string run_refs = 2;
+  int32 timeout_seconds = 3;
+  RequestContext context = 4;
+}
+
+message WaitForRunsResponse {
+  string run_id = 1;
+  string status = 2;
+  string issue = 3;
+  string pr_url = 4;
+}
+
 // --- Issues ---
 
 message ListIssuesRequest {
@@ -967,6 +980,7 @@ message Request {
     LeaseWorkRequest lease_work = 52;
     AcknowledgeEffectRequest acknowledge_effect = 53;
     CleanRunWorktreeRequest clean_run_worktree = 54;
+    WaitForRunsRequest wait_for_runs = 55;
   }
 }
 
@@ -1029,5 +1043,6 @@ message Response {
     LeaseWorkResponse lease_work = 54;
     AcknowledgeEffectResponse acknowledge_effect = 55;
     CleanRunWorktreeResponse clean_run_worktree = 56;
+    WaitForRunsResponse wait_for_runs = 57;
   }
 }

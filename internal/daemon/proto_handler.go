@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -40,6 +41,10 @@ const (
 )
 
 const listRunsSlowThreshold = 250 * time.Millisecond
+
+var waitForRunsShortIDPattern = regexp.MustCompile(`^[0-9a-f]{2,6}$`)
+var waitForRunsPollInterval = 2 * time.Second
+var waitForRunsTimeoutUnit = time.Second
 
 // ARCHITECTURE NOTE (orch-447): this handler must support multiple request/
 // response exchanges on a single connection. If the daemon closes the
@@ -115,6 +120,8 @@ func (s *SocketServer) handleProtoRequest(req *orchpb.Request) *orchpb.Response 
 		return s.handleProtoStopRun(r.StopRun)
 	case *orchpb.Request_ResolveRun:
 		return s.handleProtoResolveRun(r.ResolveRun)
+	case *orchpb.Request_WaitForRuns:
+		return s.handleProtoWaitForRuns(r.WaitForRuns)
 	case *orchpb.Request_ListIssues:
 		return s.handleProtoListIssues(r.ListIssues)
 	case *orchpb.Request_GetIssue:
@@ -429,6 +436,12 @@ type resolvedProtoRun struct {
 	projectRoot string
 }
 
+type waitRunTarget struct {
+	ref   string
+	run   *model.Run
+	store store.Store
+}
+
 func (s *SocketServer) repoContextForStore(st store.Store) *RepoContext {
 	if st == nil {
 		return nil
@@ -507,6 +520,93 @@ func (s *SocketServer) resolveProtoRun(ctx *orchpb.RequestContext, issueID, runI
 
 	if resolved == nil {
 		return nil, errorResponse("not_found")
+	}
+
+	return resolved, nil
+}
+
+func isAmbiguousRunLookupError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "ambiguous")
+}
+
+func parseWaitRunRef(ref string) (*model.RunRef, string, error) {
+	trimmed := strings.TrimSpace(ref)
+	if trimmed == "" {
+		return nil, "", fmt.Errorf("run ref required")
+	}
+	if waitForRunsShortIDPattern.MatchString(trimmed) {
+		return nil, trimmed, nil
+	}
+
+	parsed, err := model.ParseRunRef(trimmed)
+	if err != nil {
+		return nil, "", err
+	}
+	if parsed == nil || parsed.RunID == "" {
+		return nil, "", fmt.Errorf("invalid run ref %q: use a short ID or ISSUE#RUN", trimmed)
+	}
+
+	return parsed, "", nil
+}
+
+func (s *SocketServer) resolveWaitRunTarget(ctx *orchpb.RequestContext, ref string) (*waitRunTarget, *orchpb.Response) {
+	runRef, shortID, err := parseWaitRunRef(ref)
+	if err != nil {
+		return nil, errorResponse(err.Error())
+	}
+
+	projectID := projectIDFromContext(ctx)
+	resolveInStore := func(st store.Store) (*model.Run, error) {
+		if shortID != "" {
+			return st.GetRunByShortID(shortID)
+		}
+		return st.GetRun(runRef)
+	}
+
+	if projectID != "" {
+		st := s.resolveStoreFromContextOrProto(ctx, "")
+		if st == nil {
+			return nil, errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
+		}
+		run, err := resolveInStore(st)
+		if err != nil {
+			if isStoreNotFoundError(err) {
+				return nil, errorResponse(fmt.Sprintf("run not found: %s", strings.TrimSpace(ref)))
+			}
+			if isAmbiguousRunLookupError(err) {
+				return nil, errorResponse(fmt.Sprintf("ambiguous run ref: %s", strings.TrimSpace(ref)))
+			}
+			return nil, errorResponse("store_error")
+		}
+		return &waitRunTarget{ref: strings.TrimSpace(ref), run: run, store: st}, nil
+	}
+
+	var resolved *waitRunTarget
+	for _, st := range s.listStores() {
+		run, err := resolveInStore(st)
+		if err != nil {
+			if isStoreNotFoundError(err) {
+				continue
+			}
+			if isAmbiguousRunLookupError(err) {
+				return nil, errorResponse(fmt.Sprintf("ambiguous run ref: %s", strings.TrimSpace(ref)))
+			}
+			return nil, errorResponse("store_error")
+		}
+		if run == nil {
+			continue
+		}
+		if resolved != nil {
+			return nil, errorResponse(fmt.Sprintf("ambiguous run ref: %s", strings.TrimSpace(ref)))
+		}
+		resolved = &waitRunTarget{ref: strings.TrimSpace(ref), run: run, store: st}
+	}
+
+	if resolved == nil {
+		return nil, errorResponse(fmt.Sprintf("run not found: %s", strings.TrimSpace(ref)))
 	}
 
 	return resolved, nil
@@ -896,6 +996,84 @@ func formatElapsedTime(startedAt, updatedAt time.Time, status model.Status) stri
 		return fmt.Sprintf("%dm%ds", minutes, seconds)
 	}
 	return fmt.Sprintf("%ds", seconds)
+}
+
+func waitForRunsStatusIsActive(status model.Status) bool {
+	switch status {
+	case model.StatusQueued, model.StatusBooting, model.StatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *SocketServer) handleProtoWaitForRuns(req *orchpb.WaitForRunsRequest) *orchpb.Response {
+	if req == nil || len(req.RunRefs) == 0 {
+		return errorResponse("run refs required")
+	}
+	if req.TimeoutSeconds < 0 {
+		return errorResponse("timeout_seconds must be >= 0")
+	}
+
+	targets := make([]*waitRunTarget, 0, len(req.RunRefs))
+	for _, ref := range req.RunRefs {
+		target, errResp := s.resolveWaitRunTarget(req.Context, ref)
+		if errResp != nil {
+			return errResp
+		}
+		targets = append(targets, target)
+	}
+
+	var deadline time.Time
+	if req.TimeoutSeconds > 0 {
+		deadline = time.Now().Add(time.Duration(req.TimeoutSeconds) * waitForRunsTimeoutUnit)
+	}
+
+	for {
+		for _, target := range targets {
+			if target == nil || target.store == nil || target.run == nil {
+				return errorResponse("invalid wait target")
+			}
+
+			current, err := target.store.GetRun(&model.RunRef{IssueID: target.run.IssueID, RunID: target.run.RunID})
+			if err != nil {
+				if isStoreNotFoundError(err) {
+					return errorResponse(fmt.Sprintf("run not found: %s", target.ref))
+				}
+				return errorResponse("store_error")
+			}
+			if current == nil {
+				return errorResponse(fmt.Sprintf("run not found: %s", target.ref))
+			}
+
+			if !waitForRunsStatusIsActive(current.Status) {
+				return &orchpb.Response{
+					Ok: true,
+					Response: &orchpb.Response_WaitForRuns{
+						WaitForRuns: &orchpb.WaitForRunsResponse{
+							RunId:  current.ShortID(),
+							Status: sanitizeUTF8(string(current.Status)),
+							Issue:  sanitizeUTF8(current.IssueID),
+							PrUrl:  sanitizeUTF8(current.PRUrl),
+						},
+					},
+				}
+			}
+		}
+
+		sleepFor := waitForRunsPollInterval
+		if !deadline.IsZero() {
+			remaining := time.Until(deadline)
+			if remaining <= 0 {
+				return errorResponse("timeout")
+			}
+			if remaining < sleepFor {
+				sleepFor = remaining
+			}
+		}
+
+		time.Sleep(sleepFor)
+	}
 }
 
 func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Response {

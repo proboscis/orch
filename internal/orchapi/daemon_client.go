@@ -321,6 +321,26 @@ func (c *DaemonClient) AppendEvent(ctx context.Context, ref RunRef, event *Event
 	}, nil
 }
 
+func (c *DaemonClient) WaitForRuns(ctx context.Context, refs []string, timeoutSeconds int) (*WaitForRunsResult, error) {
+	resp, err := c.proto.WaitForRuns(refs, timeoutSeconds)
+	if err != nil {
+		if isTimeoutError(err) {
+			return nil, fmt.Errorf("timed out waiting for runs: %w", ErrTimeout)
+		}
+		if isAmbiguousRefError(err) {
+			return nil, ErrAmbiguousRef
+		}
+		return nil, err
+	}
+
+	return &WaitForRunsResult{
+		RunID:   resp.RunID,
+		Status:  NormalizeRunStatus(resp.Status),
+		IssueID: resp.Issue,
+		PRURL:   resp.PRURL,
+	}, nil
+}
+
 func (c *DaemonClient) GetAttachInfo(ctx context.Context, ref RunRef) (*AttachInfo, error) {
 	resp, err := c.proto.GetAttachInfo(ref.IssueID, ref.RunID, ref.ShortID)
 	if err != nil {
@@ -500,7 +520,22 @@ func isNotFoundError(err error) bool {
 		return false
 	}
 	s := err.Error()
-	return s == "daemon error: not_found" || s == "daemon error: issue_not_found" || s == "daemon error: run_not_found"
+	return s == "daemon error: not_found" || s == "daemon error: issue_not_found" || s == "daemon error: run_not_found" || strings.HasPrefix(s, "daemon error: run not found:")
+}
+
+func isTimeoutError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return err.Error() == "daemon error: timeout"
+}
+
+func isAmbiguousRefError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "ambiguous short id") || strings.Contains(s, "ambiguous run ref")
 }
 
 func issueFromDaemon(iss *daemon.IssueFull) *Issue {

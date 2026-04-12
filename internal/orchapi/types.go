@@ -182,6 +182,13 @@ func (r *Run) Ref() RunRef {
 	return RunRef{IssueID: r.IssueID, RunID: r.RunID}
 }
 
+type WaitForRunsResult struct {
+	RunID   string
+	Status  RunStatus
+	IssueID string
+	PRURL   string
+}
+
 type Event struct {
 	Timestamp time.Time
 	Type      string

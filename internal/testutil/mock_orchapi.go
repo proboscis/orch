@@ -224,6 +224,9 @@ type OrchAPIMock struct {
 	// ResolveRunFunc mocks the ResolveRun method.
 	ResolveRunFunc func(ctx context.Context, ref orchapi.RunRef) (*orchapi.Run, error)
 
+	// WaitForRunsFunc mocks the WaitForRuns method.
+	WaitForRunsFunc func(ctx context.Context, refs []string, timeoutSeconds int) (*orchapi.WaitForRunsResult, error)
+
 	// SendMessageFunc mocks the SendMessage method.
 	SendMessageFunc func(ctx context.Context, ref orchapi.RunRef, message string, noEnter bool) error
 
@@ -457,6 +460,15 @@ type OrchAPIMock struct {
 			// Ref is the ref argument value.
 			Ref orchapi.RunRef
 		}
+		// WaitForRuns holds details about calls to the WaitForRuns method.
+		WaitForRuns []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Refs is the refs argument value.
+			Refs []string
+			// TimeoutSeconds is the timeoutSeconds argument value.
+			TimeoutSeconds int
+		}
 		// SendMessage holds details about calls to the SendMessage method.
 		SendMessage []struct {
 			// Ctx is the ctx argument value.
@@ -557,6 +569,7 @@ type OrchAPIMock struct {
 	lockRepairState          sync.RWMutex
 	lockResolveIssue         sync.RWMutex
 	lockResolveRun           sync.RWMutex
+	lockWaitForRuns          sync.RWMutex
 	lockSendMessage          sync.RWMutex
 	lockSetIssueStatus       sync.RWMutex
 	lockStartRun             sync.RWMutex
@@ -1364,6 +1377,46 @@ func (mock *OrchAPIMock) ListRunsCalls() []struct {
 	mock.lockListRuns.RLock()
 	calls = mock.calls.ListRuns
 	mock.lockListRuns.RUnlock()
+	return calls
+}
+
+// WaitForRuns calls WaitForRunsFunc.
+func (mock *OrchAPIMock) WaitForRuns(ctx context.Context, refs []string, timeoutSeconds int) (*orchapi.WaitForRunsResult, error) {
+	if mock.WaitForRunsFunc == nil {
+		panic("OrchAPIMock.WaitForRunsFunc: method is nil but OrchAPI.WaitForRuns was just called")
+	}
+	callInfo := struct {
+		Ctx            context.Context
+		Refs           []string
+		TimeoutSeconds int
+	}{
+		Ctx:            ctx,
+		Refs:           refs,
+		TimeoutSeconds: timeoutSeconds,
+	}
+	mock.lockWaitForRuns.Lock()
+	mock.calls.WaitForRuns = append(mock.calls.WaitForRuns, callInfo)
+	mock.lockWaitForRuns.Unlock()
+	return mock.WaitForRunsFunc(ctx, refs, timeoutSeconds)
+}
+
+// WaitForRunsCalls gets all the calls that were made to WaitForRuns.
+// Check the length with:
+//
+//	len(mockedOrchAPI.WaitForRunsCalls())
+func (mock *OrchAPIMock) WaitForRunsCalls() []struct {
+	Ctx            context.Context
+	Refs           []string
+	TimeoutSeconds int
+} {
+	var calls []struct {
+		Ctx            context.Context
+		Refs           []string
+		TimeoutSeconds int
+	}
+	mock.lockWaitForRuns.RLock()
+	calls = mock.calls.WaitForRuns
+	mock.lockWaitForRuns.RUnlock()
 	return calls
 }
 
