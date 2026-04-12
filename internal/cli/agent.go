@@ -362,6 +362,7 @@ func createMultiplexerSession(orchDir, projectRoot string, agentType agent.Agent
 		SessionName: controlAgentSessionName,
 		WorkDir:     workDir,
 		Command:     launchCmd,
+		Env:         adapter.ExtraEnv(),
 		WindowName:  "agent",
 	}
 

@@ -37,6 +37,10 @@ func (a *GeminiAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 	return strings.Join(args, " "), nil
 }
 
+func (a *GeminiAdapter) ExtraEnv() []string {
+	return nil
+}
+
 func (a *GeminiAdapter) PromptInjection() InjectionMethod {
 	return InjectionArg
 }

@@ -47,6 +47,10 @@ func (a *CodexAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 	return strings.Join(args, " "), nil
 }
 
+func (a *CodexAdapter) ExtraEnv() []string {
+	return nil
+}
+
 func (a *CodexAdapter) PromptInjection() InjectionMethod {
 	return InjectionArg
 }

@@ -176,11 +176,11 @@ func TestTmuxMultiplexer_NewSession(t *testing.T) {
 	}
 
 	first := exec.recorded[0]
-	if !equalArgs(first.args, []string{"new-session", "-d", "-s", "sess", "-c", "/work", "-n", "main", "echo hi"}) {
+	if !equalArgs(first.args, []string{"new-session", "-d", "-s", "sess", "-e", "FOO=bar", "-c", "/work", "-n", "main", "echo hi"}) {
 		t.Fatalf("new-session args = %v", first.args)
 	}
-	if !envHas(first.cmd.Env, "FOO=bar") {
-		t.Fatalf("missing env in new-session: %v", first.cmd.Env)
+	if envHas(first.cmd.Env, "FOO=bar") {
+		t.Fatalf("expected tmux session env to be passed via -e, not client env: %v", first.cmd.Env)
 	}
 }
 
@@ -207,11 +207,11 @@ func TestTmuxMultiplexer_NewSession_ShellCommandUsesSendKeys(t *testing.T) {
 	}
 
 	first := exec.recorded[0]
-	if !equalArgs(first.args, []string{"new-session", "-d", "-s", "sess", "-c", "/work", "-n", "main"}) {
+	if !equalArgs(first.args, []string{"new-session", "-d", "-s", "sess", "-e", "FOO=bar", "-c", "/work", "-n", "main"}) {
 		t.Fatalf("new-session args = %v", first.args)
 	}
-	if !envHas(first.cmd.Env, "FOO=bar") {
-		t.Fatalf("missing env in new-session: %v", first.cmd.Env)
+	if envHas(first.cmd.Env, "FOO=bar") {
+		t.Fatalf("expected tmux session env to be passed via -e, not client env: %v", first.cmd.Env)
 	}
 
 	second := exec.recorded[1]

@@ -48,6 +48,10 @@ func (a *ClaudeAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 	return strings.Join(args, " "), nil
 }
 
+func (a *ClaudeAdapter) ExtraEnv() []string {
+	return []string{"IS_DEMO=1"}
+}
+
 func (a *ClaudeAdapter) PromptInjection() InjectionMethod {
 	return InjectionArg
 }
