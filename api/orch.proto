@@ -880,6 +880,10 @@ message MonitorConfigProto {
   repeated string ps_columns = 1;
 }
 
+message PSConfigProto {
+  repeated string default_statuses = 1;
+}
+
 message GetConfigResponse {
   string agent = 1;
   string model = 2;
@@ -907,6 +911,7 @@ message GetConfigResponse {
   SlackConfigProto slack = 24;
   IssuesConfigProto issues = 25;
   GitHubConfigProto github = 26;
+  PSConfigProto ps = 27;
 }
 
 // --- Daemon Status ---

@@ -464,6 +464,10 @@ type MonitorConfig struct {
 	PSColumns []string
 }
 
+type PSConfig struct {
+	DefaultStatuses []string
+}
+
 type Config struct {
 	Agent               string
 	Model               string
@@ -482,6 +486,7 @@ type Config struct {
 	ControlModel        string
 	ControlModelVariant string
 	DiffTool            string
+	PS                  PSConfig
 	Monitor             MonitorConfig
 	Presets             []Preset
 	OpenCode            OpenCodeConfig

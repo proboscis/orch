@@ -192,6 +192,22 @@ slack:
     # - failed
 
 # =============================================================================
+# PS SETTINGS (for orch ps command)
+# =============================================================================
+
+ps:
+  # Default run statuses to show when --status is not specified.
+  # Use `orch ps --all` or an explicit `--status ...` to bypass this default.
+  # Plain table output shows excluded status counts at the end.
+  default_statuses:
+    - queued
+    - booting
+    - running
+    - waiting
+    - rate_limited
+    - pr_open
+
+# =============================================================================
 # MONITOR SETTINGS (for orch monitor command)
 # =============================================================================
 

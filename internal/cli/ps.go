@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -40,12 +41,25 @@ type agentAliveInfo struct {
 	known bool
 }
 
+type psExcludedStatusStats struct {
+	counts map[model.Status]int
+	total  int
+}
+
 type psDeps struct {
-	getAPI func() (orchapi.OrchAPI, error)
+	getAPI         func() (orchapi.OrchAPI, error)
+	getConfig      func(context.Context, orchapi.OrchAPI) (*orchapi.Config, error)
+	hasConfigScope func() bool
 }
 
 func defaultPsDeps() *psDeps {
-	return &psDeps{getAPI: getAPIForListing}
+	return &psDeps{
+		getAPI: getAPIForListing,
+		getConfig: func(ctx context.Context, api orchapi.OrchAPI) (*orchapi.Config, error) {
+			return api.GetConfig(ctx)
+		},
+		hasConfigScope: psHasConfigScope,
+	}
 }
 
 func newPsCmd() *cobra.Command {
@@ -60,7 +74,7 @@ func newPsCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringSliceVar(&opts.Status, "status", nil, "Filter by run status (queued,booting,running,waiting,rate_limited,pr_open,done,failed,canceled,unknown)")
+	cmd.Flags().StringSliceVar(&opts.Status, "status", nil, "Filter by run status (overrides ps.default_statuses config)")
 	cmd.Flags().StringSliceVar(&opts.IssueStatus, "issue-status", nil, "Filter by issue status (open,resolved,closed)")
 	cmd.Flags().StringVar(&opts.Issue, "issue", "", "Filter by issue ID")
 	cmd.Flags().IntVar(&opts.Limit, "limit", 50, "Maximum number of runs to show")
@@ -87,13 +101,18 @@ func runPsWithDeps(ctx context.Context, opts *psOptions, deps *psDeps) error {
 
 	requestedLimit := opts.Limit
 
-	statusFilter := make([]orchapi.RunStatus, len(opts.Status))
-	for i, s := range opts.Status {
+	effectiveStatuses, err := resolvePsStatusDefaults(ctx, opts, api, deps)
+	if err != nil {
+		return err
+	}
+
+	statusFilter := make([]orchapi.RunStatus, len(effectiveStatuses))
+	for i, s := range effectiveStatuses {
 		statusFilter[i] = orchapi.NormalizeRunStatus(s)
 	}
 
 	limit := opts.Limit
-	if len(opts.IssueStatus) > 0 || (!opts.All && len(opts.Status) == 0) {
+	if len(opts.IssueStatus) > 0 || (!opts.All && len(effectiveStatuses) == 0) {
 		limit = 0
 	}
 
@@ -126,6 +145,21 @@ func runPsWithDeps(ctx context.Context, opts *psOptions, deps *psDeps) error {
 		trimmed := strings.TrimSpace(status)
 		if trimmed != "" {
 			issueStatusFilter[trimmed] = true
+		}
+	}
+
+	var excludedStats *psExcludedStatusStats
+	if shouldShowPsExcludedStats(opts, effectiveStatuses) && !globalOpts.JSON && !globalOpts.TSV {
+		excludedStats, err = collectPsExcludedStatusStats(
+			ctx,
+			api,
+			opts,
+			statusFilter,
+			issueStatusFilter,
+			issueCache,
+		)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -181,7 +215,164 @@ func runPsWithDeps(ctx context.Context, opts *psOptions, deps *psDeps) error {
 		}
 	}
 
+	if excludedStats != nil {
+		printPsExcludedStatusStats(excludedStats)
+	}
+
 	return nil
+}
+
+func shouldShowPsExcludedStats(opts *psOptions, effectiveStatuses []string) bool {
+	return len(opts.Status) == 0 && !opts.All && len(effectiveStatuses) > 0
+}
+
+func collectPsExcludedStatusStats(
+	ctx context.Context,
+	api orchapi.OrchAPI,
+	opts *psOptions,
+	includedStatuses []orchapi.RunStatus,
+	issueStatusFilter map[string]bool,
+	issueCache map[string]psIssueInfo,
+) (*psExcludedStatusStats, error) {
+	included := make(map[model.Status]bool, len(includedStatuses))
+	for _, status := range includedStatuses {
+		included[model.NormalizeStatus(string(status))] = true
+	}
+
+	stats := &psExcludedStatusStats{
+		counts: make(map[model.Status]int),
+	}
+
+	cursor := ""
+	for {
+		result, err := api.ListRuns(ctx, &orchapi.ListRunsFilter{
+			IssueID: opts.Issue,
+			Limit:   psExcludedStatsPageLimit,
+			Cursor:  cursor,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to load ps excluded stats: %w", err)
+		}
+
+		for _, run := range result.Runs {
+			if len(issueStatusFilter) > 0 && !psRunMatchesIssueStatusFilter(ctx, api, issueCache, issueStatusFilter, run) {
+				continue
+			}
+
+			status := model.NormalizeStatus(string(run.Status))
+			if included[status] {
+				continue
+			}
+			stats.counts[status]++
+			stats.total++
+		}
+
+		if result.NextCursor == "" {
+			break
+		}
+		cursor = result.NextCursor
+	}
+
+	return stats, nil
+}
+
+func psRunMatchesIssueStatusFilter(
+	ctx context.Context,
+	api orchapi.OrchAPI,
+	issueCache map[string]psIssueInfo,
+	issueStatusFilter map[string]bool,
+	run *orchapi.Run,
+) bool {
+	issueStatus := strings.TrimSpace(run.IssueStatus)
+	if issueStatus == "" {
+		info := issueCache[run.IssueID]
+		if info.status == "" {
+			info = resolveIssueInfoAPI(ctx, api, issueCache, run.IssueID)
+		}
+		issueStatus = info.status
+	}
+
+	if _, ok := issueCache[run.IssueID]; !ok {
+		issueCache[run.IssueID] = psIssueInfo{
+			status:  issueStatus,
+			display: formatTopic(run.IssueTopic),
+		}
+	}
+
+	return issueStatusFilter[issueStatus]
+}
+
+func printPsExcludedStatusStats(stats *psExcludedStatusStats) {
+	if stats.total == 0 {
+		fmt.Println("Excluded by ps.default_statuses: none")
+		return
+	}
+
+	fmt.Printf(
+		"Excluded by ps.default_statuses: %s (%d total)\n",
+		formatPsExcludedStatusCounts(stats),
+		stats.total,
+	)
+}
+
+func formatPsExcludedStatusCounts(stats *psExcludedStatusStats) string {
+	type statusCount struct {
+		status model.Status
+		count  int
+	}
+
+	items := make([]statusCount, 0, len(stats.counts))
+	for status, count := range stats.counts {
+		items = append(items, statusCount{status: status, count: count})
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].count != items[j].count {
+			return items[i].count > items[j].count
+		}
+		return string(items[i].status) < string(items[j].status)
+	})
+
+	parts := make([]string, len(items))
+	for i, item := range items {
+		parts[i] = fmt.Sprintf("%s=%d", item.status, item.count)
+	}
+	return strings.Join(parts, " ")
+}
+
+func resolvePsStatusDefaults(
+	ctx context.Context,
+	opts *psOptions,
+	api orchapi.OrchAPI,
+	deps *psDeps,
+) ([]string, error) {
+	if len(opts.Status) > 0 || opts.All || deps.getConfig == nil {
+		return opts.Status, nil
+	}
+	if deps.hasConfigScope != nil && !deps.hasConfigScope() {
+		return opts.Status, nil
+	}
+	cfg, err := deps.getConfig(ctx, api)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load ps defaults: %w", err)
+	}
+	if cfg == nil || len(cfg.PS.DefaultStatuses) == 0 {
+		return opts.Status, nil
+	}
+	return cfg.PS.DefaultStatuses, nil
+}
+
+func psHasConfigScope() bool {
+	projectRoot, _, err := getProjectRootWithSource()
+	if err != nil {
+		projectRoot = ""
+	}
+
+	projectID, _, err := getProjectIDWithSource(projectRoot)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(projectID) != ""
 }
 
 func resolveIssueInfoAPI(ctx context.Context, api orchapi.OrchAPI, cache map[string]psIssueInfo, issueID string) psIssueInfo {
@@ -584,13 +775,14 @@ func visibleLen(s string) int {
 }
 
 const (
-	summaryMaxLen    = 40
-	topicMaxLen      = 30
-	topicMaxWords    = 5
-	branchMaxLen     = 24
-	worktreeMaxLen   = 40
-	targetMaxLen     = 16
-	targetHostMaxLen = 20
+	summaryMaxLen            = 40
+	topicMaxLen              = 30
+	topicMaxWords            = 5
+	branchMaxLen             = 24
+	worktreeMaxLen           = 40
+	targetMaxLen             = 16
+	targetHostMaxLen         = 20
+	psExcludedStatsPageLimit = 200
 )
 
 func shortAgentStatus(status model.Status) string {

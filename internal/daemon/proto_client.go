@@ -2463,6 +2463,9 @@ func (c *ProtoClient) GetConfig() (*ConfigResponse, error) {
 	if configResp.Monitor != nil {
 		cfg.Monitor.PSColumns = configResp.Monitor.PsColumns
 	}
+	if configResp.Ps != nil {
+		cfg.PS.DefaultStatuses = configResp.Ps.DefaultStatuses
+	}
 
 	for _, p := range configResp.Presets {
 		cfg.Presets = append(cfg.Presets, PresetConfig{

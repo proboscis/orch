@@ -862,6 +862,9 @@ func (c *DaemonClient) GetConfig(ctx context.Context) (*Config, error) {
 		ControlModel:        resp.ControlModel,
 		ControlModelVariant: resp.ControlModelVariant,
 		DiffTool:            resp.DiffTool,
+		PS: PSConfig{
+			DefaultStatuses: resp.PS.DefaultStatuses,
+		},
 		Monitor: MonitorConfig{
 			PSColumns: resp.Monitor.PSColumns,
 		},

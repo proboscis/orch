@@ -30,6 +30,11 @@ type MonitorIssueDefaultFilter struct {
 	TagMode string   `yaml:"tag_mode,omitempty"`
 }
 
+// PSConfig holds defaults for the orch ps command.
+type PSConfig struct {
+	DefaultStatuses []string `yaml:"default_statuses,omitempty"`
+}
+
 // OpenCodePreset defines a configurable opencode model+variant preset.
 // These presets appear in the monitor agent selection as "opencode:<name>".
 // Deprecated: Use Preset with Backend="opencode" instead.
@@ -163,6 +168,7 @@ type Config struct {
 	MonitorMultiplexer string           `yaml:"monitor_multiplexer"` // Multiplexer for orch-monitor: "zellij" (default) or "tmux"
 	AgentMultiplexer   string           `yaml:"agent_multiplexer"`   // Multiplexer for agent sessions: "tmux" (default) or "zellij"
 	NoPR               bool             `yaml:"no_pr"`
+	PS                 PSConfig         `yaml:"ps"`
 	Monitor            MonitorConfig    `yaml:"monitor"`
 	Presets            []Preset         `yaml:"presets"`
 	OpenCodePresets    []OpenCodePreset `yaml:"opencode_presets"` // Deprecated: use Presets instead
@@ -203,6 +209,7 @@ type fileConfig struct {
 	MonitorMultiplexer  string           `yaml:"monitor_multiplexer"`
 	AgentMultiplexer    string           `yaml:"agent_multiplexer"`
 	NoPR                *bool            `yaml:"no_pr"`
+	PS                  PSConfig         `yaml:"ps"`
 	Monitor             MonitorConfig    `yaml:"monitor"`
 	Presets             []Preset         `yaml:"presets"`
 	OpenCodePresets     []OpenCodePreset `yaml:"opencode_presets"`
@@ -426,6 +433,9 @@ func loadFromFile(path string, cfg *Config) error {
 	}
 	if fileCfg.NoPR != nil {
 		cfg.NoPR = *fileCfg.NoPR
+	}
+	if len(fileCfg.PS.DefaultStatuses) > 0 {
+		cfg.PS.DefaultStatuses = fileCfg.PS.DefaultStatuses
 	}
 	if len(fileCfg.Monitor.PSColumns) > 0 {
 		cfg.Monitor.PSColumns = fileCfg.Monitor.PSColumns

@@ -213,7 +213,7 @@ orch ps [flags]
 
 | Flag | Description |
 |------|-------------|
-| `--status <statuses>` | Filter by status (comma-separated) |
+| `--status <statuses>` | Filter by status (comma-separated); overrides `ps.default_statuses` |
 | `--issue-status <statuses>` | Filter by issue status |
 | `--issue <id>` | Show runs for specific issue only |
 | `--limit <n>` | Max runs to show (default: 50) |
@@ -222,11 +222,27 @@ orch ps [flags]
 | `--absolute-time` | Show absolute timestamps |
 | `--all` | Include resolved runs |
 
+When `ps.default_statuses` is active, plain table output ends with status counts for
+runs excluded by that default filter. `--all` and explicit `--status` bypass the
+default and do not show the excluded summary.
+
 ### Examples
 
 ```bash
 # List all active runs
 orch ps
+
+# Configure the default statuses shown by plain `orch ps`
+cat > .orch/config.yaml <<'YAML'
+ps:
+  default_statuses:
+    - queued
+    - booting
+    - running
+    - waiting
+    - rate_limited
+    - pr_open
+YAML
 
 # Filter by status
 orch ps --status running,waiting

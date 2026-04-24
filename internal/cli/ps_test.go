@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -47,6 +48,35 @@ func setupMockPsDeps(issuesRoot string) *psDeps {
 		getAPI: func() (orchapi.OrchAPI, error) {
 			return mock, nil
 		},
+	}
+}
+
+type recordingPsAPI struct {
+	orchapi.OrchAPI
+	filter  *orchapi.ListRunsFilter
+	filters []*orchapi.ListRunsFilter
+	results []*orchapi.ListRunsResult
+}
+
+func (m *recordingPsAPI) ListRuns(ctx context.Context, filter *orchapi.ListRunsFilter) (*orchapi.ListRunsResult, error) {
+	m.filter = filter
+	m.filters = append(m.filters, filter)
+	if len(m.results) == 0 {
+		return &orchapi.ListRunsResult{Runs: []*orchapi.Run{}}, nil
+	}
+	result := m.results[0]
+	m.results = m.results[1:]
+	return result, nil
+}
+
+func psTestRun(issueID string, runID string, status orchapi.RunStatus, when time.Time) *orchapi.Run {
+	return &orchapi.Run{
+		IssueID:     issueID,
+		RunID:       runID,
+		Status:      status,
+		IssueStatus: "open",
+		StartedAt:   when,
+		UpdatedAt:   when,
 	}
 }
 
@@ -590,6 +620,212 @@ func TestRunPsAllIncludesResolvedIssues(t *testing.T) {
 	}
 	if !found["issue-resolved"] || !found["issue-open"] {
 		t.Fatalf("missing issues in output: %#v", found)
+	}
+}
+
+func TestRunPsUsesConfiguredDefaultStatuses(t *testing.T) {
+	resetGlobalOpts(t)
+	globalOpts.JSON = true
+
+	api := &recordingPsAPI{}
+	deps := &psDeps{
+		getAPI: func() (orchapi.OrchAPI, error) {
+			return api, nil
+		},
+		getConfig: func(ctx context.Context, api orchapi.OrchAPI) (*orchapi.Config, error) {
+			return &orchapi.Config{
+				PS: orchapi.PSConfig{
+					DefaultStatuses: []string{"queued", "booting", "running", "waiting", "rate_limited", "pr_open"},
+				},
+			}, nil
+		},
+	}
+
+	captureStdout(t, func() {
+		if err := runPsWithDeps(context.Background(), &psOptions{Limit: 10}, deps); err != nil {
+			t.Fatalf("runPs: %v", err)
+		}
+	})
+
+	want := []orchapi.RunStatus{
+		orchapi.RunStatusQueued,
+		orchapi.RunStatusBooting,
+		orchapi.RunStatusRunning,
+		orchapi.RunStatusWaiting,
+		orchapi.RunStatusRateLimited,
+		orchapi.RunStatusPROpen,
+	}
+	if api.filter == nil || !reflect.DeepEqual(api.filter.Status, want) {
+		t.Fatalf("ListRuns status filter = %#v, want %#v", api.filter, want)
+	}
+}
+
+func TestRunPsShowsExcludedStatusStatsForConfiguredDefaultStatuses(t *testing.T) {
+	resetGlobalOpts(t)
+
+	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+	api := &recordingPsAPI{
+		results: []*orchapi.ListRunsResult{
+			{
+				Runs: []*orchapi.Run{
+					psTestRun("issue-1", "run-1", orchapi.RunStatusPROpen, now),
+				},
+			},
+			{
+				Runs: []*orchapi.Run{
+					psTestRun("issue-1", "run-1", orchapi.RunStatusPROpen, now),
+					psTestRun("issue-1", "run-2", orchapi.RunStatusCanceled, now),
+					psTestRun("issue-1", "run-3", orchapi.RunStatusCanceled, now),
+					psTestRun("issue-2", "run-4", orchapi.RunStatusDone, now),
+					psTestRun("issue-3", "run-5", orchapi.RunStatusFailed, now),
+				},
+			},
+		},
+	}
+	deps := &psDeps{
+		getAPI: func() (orchapi.OrchAPI, error) {
+			return api, nil
+		},
+		getConfig: func(ctx context.Context, api orchapi.OrchAPI) (*orchapi.Config, error) {
+			return &orchapi.Config{
+				PS: orchapi.PSConfig{
+					DefaultStatuses: []string{"queued", "booting", "running", "waiting", "rate_limited", "pr_open"},
+				},
+			}, nil
+		},
+		hasConfigScope: func() bool {
+			return true
+		},
+	}
+
+	out := captureStdout(t, func() {
+		if err := runPsWithDeps(context.Background(), &psOptions{Limit: 10}, deps); err != nil {
+			t.Fatalf("runPs: %v", err)
+		}
+	})
+
+	want := "Excluded by ps.default_statuses: canceled=2 done=1 failed=1 (4 total)"
+	if !strings.Contains(out, want) {
+		t.Fatalf("output missing excluded stats %q:\n%s", want, out)
+	}
+	if len(api.filters) != 2 {
+		t.Fatalf("ListRuns call count = %d, want 2", len(api.filters))
+	}
+	if len(api.filters[0].Status) == 0 {
+		t.Fatalf("first ListRuns call missing default status filter")
+	}
+	if len(api.filters[1].Status) != 0 || api.filters[1].Limit != psExcludedStatsPageLimit {
+		t.Fatalf("stats ListRuns filter = %#v, want unfiltered status with limit %d", api.filters[1], psExcludedStatsPageLimit)
+	}
+}
+
+func TestRunPsDoesNotShowExcludedStatusStatsForExplicitStatus(t *testing.T) {
+	resetGlobalOpts(t)
+
+	api := &recordingPsAPI{}
+	deps := &psDeps{
+		getAPI: func() (orchapi.OrchAPI, error) {
+			return api, nil
+		},
+		getConfig: func(ctx context.Context, api orchapi.OrchAPI) (*orchapi.Config, error) {
+			t.Fatal("getConfig should not be called when --status is explicit")
+			return nil, nil
+		},
+	}
+
+	out := captureStdout(t, func() {
+		if err := runPsWithDeps(context.Background(), &psOptions{Status: []string{"canceled"}, Limit: 10}, deps); err != nil {
+			t.Fatalf("runPs: %v", err)
+		}
+	})
+
+	if strings.Contains(out, "Excluded by ps.default_statuses") {
+		t.Fatalf("output should not include excluded stats:\n%s", out)
+	}
+	if len(api.filters) != 1 {
+		t.Fatalf("ListRuns call count = %d, want 1", len(api.filters))
+	}
+}
+
+func TestRunPsSkipsConfiguredDefaultStatusesWithoutProjectScope(t *testing.T) {
+	resetGlobalOpts(t)
+	globalOpts.JSON = true
+
+	api := &recordingPsAPI{}
+	deps := &psDeps{
+		getAPI: func() (orchapi.OrchAPI, error) {
+			return api, nil
+		},
+		getConfig: func(ctx context.Context, api orchapi.OrchAPI) (*orchapi.Config, error) {
+			t.Fatal("getConfig should not be called without project scope")
+			return nil, nil
+		},
+		hasConfigScope: func() bool {
+			return false
+		},
+	}
+
+	captureStdout(t, func() {
+		if err := runPsWithDeps(context.Background(), &psOptions{Limit: 10}, deps); err != nil {
+			t.Fatalf("runPs: %v", err)
+		}
+	})
+
+	if api.filter == nil || len(api.filter.Status) != 0 {
+		t.Fatalf("ListRuns status filter = %#v, want no status filter", api.filter)
+	}
+}
+
+func TestRunPsExplicitStatusOverridesConfiguredDefaultStatuses(t *testing.T) {
+	resetGlobalOpts(t)
+	globalOpts.JSON = true
+
+	api := &recordingPsAPI{}
+	deps := &psDeps{
+		getAPI: func() (orchapi.OrchAPI, error) {
+			return api, nil
+		},
+		getConfig: func(ctx context.Context, api orchapi.OrchAPI) (*orchapi.Config, error) {
+			t.Fatal("getConfig should not be called when --status is explicit")
+			return nil, nil
+		},
+	}
+
+	captureStdout(t, func() {
+		if err := runPsWithDeps(context.Background(), &psOptions{Status: []string{"done"}, Limit: 10}, deps); err != nil {
+			t.Fatalf("runPs: %v", err)
+		}
+	})
+
+	want := []orchapi.RunStatus{orchapi.RunStatusDone}
+	if api.filter == nil || !reflect.DeepEqual(api.filter.Status, want) {
+		t.Fatalf("ListRuns status filter = %#v, want %#v", api.filter, want)
+	}
+}
+
+func TestRunPsAllBypassesConfiguredDefaultStatuses(t *testing.T) {
+	resetGlobalOpts(t)
+	globalOpts.JSON = true
+
+	api := &recordingPsAPI{}
+	deps := &psDeps{
+		getAPI: func() (orchapi.OrchAPI, error) {
+			return api, nil
+		},
+		getConfig: func(ctx context.Context, api orchapi.OrchAPI) (*orchapi.Config, error) {
+			t.Fatal("getConfig should not be called with --all")
+			return nil, nil
+		},
+	}
+
+	captureStdout(t, func() {
+		if err := runPsWithDeps(context.Background(), &psOptions{All: true, Limit: 10}, deps); err != nil {
+			t.Fatalf("runPs: %v", err)
+		}
+	})
+
+	if api.filter == nil || len(api.filter.Status) != 0 {
+		t.Fatalf("ListRuns status filter = %#v, want no status filter", api.filter)
 	}
 }
 

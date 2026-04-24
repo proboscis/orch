@@ -3596,6 +3596,11 @@ func (s *SocketServer) handleProtoGetConfig(req *orchpb.GetConfigRequest) *orchp
 			PsColumns: cfg.Monitor.PSColumns,
 		}
 	}
+	if len(cfg.PS.DefaultStatuses) > 0 {
+		resp.Ps = &orchpb.PSConfigProto{
+			DefaultStatuses: cfg.PS.DefaultStatuses,
+		}
+	}
 
 	for _, p := range cfg.GetAllPresets() {
 		resp.Presets = append(resp.Presets, &orchpb.PresetProto{

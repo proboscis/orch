@@ -908,6 +908,10 @@ type MonitorConfigResponse struct {
 	PSColumns []string
 }
 
+type PSConfigResponse struct {
+	DefaultStatuses []string
+}
+
 type ConfigResponse struct {
 	Agent               string
 	Model               string
@@ -926,6 +930,7 @@ type ConfigResponse struct {
 	ControlModel        string
 	ControlModelVariant string
 	DiffTool            string
+	PS                  PSConfigResponse
 	Monitor             MonitorConfigResponse
 	Presets             []PresetConfig
 	OpenCode            OpenCodeConfigResponse
