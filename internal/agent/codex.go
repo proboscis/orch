@@ -37,6 +37,12 @@ func (a *CodexAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 		args = append(args, "--model", shellQuote(model))
 	}
 
+	// Variant maps to codex's reasoning-effort config key. Codex CLI supports
+	// `-c model_reasoning_effort=<level>` (low/medium/high/xhigh).
+	if variant := strings.TrimSpace(cfg.ModelVariant); variant != "" {
+		args = append(args, "-c", fmt.Sprintf("model_reasoning_effort=%s", shellQuote(variant)))
+	}
+
 	// Add the prompt
 	if cfg.Prompt != "" {
 		// Escape the prompt for shell

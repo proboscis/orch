@@ -81,6 +81,7 @@ type ClaudeConfig struct {
 // CodexConfig holds default configuration for the codex agent.
 type CodexConfig struct {
 	DefaultModel     string   `yaml:"default_model,omitempty"`
+	DefaultVariant   string   `yaml:"default_variant,omitempty"` // Reasoning effort (low/medium/high/xhigh); passed via `-c model_reasoning_effort`
 	PromptTemplate   string   `yaml:"prompt_template,omitempty"`
 	ExtraArgs        []string `yaml:"extra_args,omitempty"`         // Additional CLI args for run agents
 	ControlExtraArgs []string `yaml:"control_extra_args,omitempty"` // Additional CLI args for control agent
@@ -940,6 +941,8 @@ func (c *Config) ResolveModelAndVariant(agent, preset, reqModel, reqVariant stri
 		switch agent {
 		case "opencode":
 			variant = c.OpenCode.DefaultVariant
+		case "codex":
+			variant = c.Codex.DefaultVariant
 		}
 	}
 	if variant == "" {
@@ -973,6 +976,8 @@ func (c *Config) ResolveControlModelAndVariant(agent string) (string, string) {
 		switch agent {
 		case "opencode":
 			variant = c.OpenCode.DefaultVariant
+		case "codex":
+			variant = c.Codex.DefaultVariant
 		}
 	}
 	if variant == "" {
