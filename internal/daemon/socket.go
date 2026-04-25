@@ -1550,7 +1550,6 @@ func (s *SocketServer) ensureOpenCodeServerRunning(projectRoot string) (int, err
 	if err != nil {
 		return 0, fmt.Errorf("failed to start opencode server: %w", err)
 	}
-	srv.RepoID = repoID
 	srv.ProjectRoot = canonicalRoot
 
 	client := agent.NewOpenCodeClient(port)
@@ -1620,7 +1619,7 @@ func (s *SocketServer) startServerProcess(projectRoot string, port int) (*manage
 
 	startTime := time.Now()
 	srv := &managedServer{
-		RepoID:      "",
+		RepoID:      repoID,
 		ProjectRoot: projectRoot,
 		Port:        port,
 		Cmd:         cmd,
