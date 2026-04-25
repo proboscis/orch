@@ -179,12 +179,13 @@ func runRun(issueID string, opts *runOptions) error {
 	}
 
 	if !globalOpts.Quiet {
-		fmt.Printf("Run started: %s#%s\n", issueID, resp.RunID)
+		shortID := orchapi.ComputeShortID(issueID, resp.RunID)
+		fmt.Printf("Run started: %s#%s (%s)\n", issueID, resp.RunID, shortID)
 		fmt.Printf("  Branch:   %s\n", resp.Branch)
 		fmt.Printf("  Worktree: %s\n", resp.WorktreePath)
 		if resp.SessionName != "" {
 			fmt.Printf("  Session:  %s\n", resp.SessionName)
-			fmt.Printf("\nAttach with: orch attach %s#%s\n", issueID, resp.RunID)
+			fmt.Printf("\nAttach with: orch attach %s\n", shortID)
 		}
 	}
 
