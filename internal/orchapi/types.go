@@ -1,6 +1,8 @@
 package orchapi
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"regexp"
 	"strings"
@@ -125,6 +127,14 @@ func (r RunRef) String() string {
 		return r.IssueID
 	}
 	return fmt.Sprintf("%s#%s", r.IssueID, r.RunID)
+}
+
+// ComputeShortID returns the 6-char hex short ID derived from issueID#runID
+// via SHA-256. Mirrors model.GenerateShortID so callers (CLI hints,
+// notifications) present the same short reference users see in `orch ps`.
+func ComputeShortID(issueID, runID string) string {
+	h := sha256.Sum256([]byte(issueID + "#" + runID))
+	return hex.EncodeToString(h[:])[:6]
 }
 
 type Issue struct {

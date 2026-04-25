@@ -172,13 +172,14 @@ func runContinueWithDeps(ctx context.Context, refStr string, opts *continueOptio
 	}
 
 	if !globalOpts.Quiet {
-		fmt.Printf("Run restarted: %s#%s\n", resp.IssueID, resp.RunID)
+		shortID := orchapi.ComputeShortID(resp.IssueID, resp.RunID)
+		fmt.Printf("Run restarted: %s#%s (%s)\n", resp.IssueID, resp.RunID, shortID)
 		fmt.Printf("  Restarted from: %s\n", resp.ContinuedFrom)
 		fmt.Printf("  Branch:         %s\n", resp.Branch)
 		fmt.Printf("  Worktree:       %s\n", resp.WorktreePath)
 		if resp.SessionName != "" {
 			fmt.Printf("  Session:        %s\n", resp.SessionName)
-			fmt.Printf("\nAttach with: orch attach %s#%s\n", resp.IssueID, resp.RunID)
+			fmt.Printf("\nAttach with: orch attach %s\n", shortID)
 		}
 	}
 

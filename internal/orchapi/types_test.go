@@ -24,3 +24,24 @@ func TestNormalizeRunStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestComputeShortID(t *testing.T) {
+	// Equality with the daemon's computeShortID (FNV-1a over "issue#run")
+	// is critical: callers using ComputeShortID must match the short hex
+	// that ps/show display for the same run.
+	cases := []struct {
+		issueID string
+		runID   string
+		want    string
+	}{
+		{"TRD-081", "20260425-145017", "6c8807"},
+		{"TRD-081", "20260425-135017", "2fdb42"},
+	}
+	for _, c := range cases {
+		got := ComputeShortID(c.issueID, c.runID)
+		if got != c.want {
+			t.Errorf("ComputeShortID(%q, %q) = %q, want %q",
+				c.issueID, c.runID, got, c.want)
+		}
+	}
+}
