@@ -13,6 +13,7 @@ import (
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/pr"
+	"github.com/s22625/orch/internal/runevents"
 	"github.com/s22625/orch/internal/store"
 )
 
@@ -174,10 +175,18 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
 
 	if newStatus != "" && newStatus != run.Status {
 		d.logger.Printf("%s#%s: status change %s -> %s", run.IssueID, run.RunID, run.Status, newStatus)
+		prevStatus := run.Status
 		if err := d.updateStatus(run, newStatus, st); err != nil {
 			return err
 		}
-		d.notifyStatusChange(run, newStatus, output, st)
+		d.fireStatusChange(&runevents.StatusChangeEvent{
+			Run:        run,
+			From:       prevStatus,
+			To:         newStatus,
+			Source:     model.EventSourceDaemon,
+			LastOutput: output,
+			Store:      st,
+		})
 	}
 
 	return nil
@@ -463,38 +472,6 @@ func (d *Daemon) checkPRMergedWithURL(run *model.Run, st store.Store) (merged bo
 		return true, prInfo.URL
 	}
 	return false, ""
-}
-
-func (d *Daemon) notifyStatusChange(run *model.Run, newStatus model.Status, lastOutput string, st store.Store) {
-	if d.slackNotifier == nil || d.config == nil {
-		return
-	}
-
-	if !d.config.Slack.ShouldNotify(string(newStatus)) {
-		return
-	}
-
-	issueTitle := run.IssueID
-	if st != nil {
-		if issue, err := st.ResolveIssue(run.IssueID); err == nil && issue != nil {
-			if issue.Title != "" {
-				issueTitle = issue.Title
-			}
-		}
-	}
-
-	var err error
-	if newStatus == model.StatusWaiting || newStatus == model.StatusRateLimited {
-		err = d.slackNotifier.NotifyBlocked(run, issueTitle, lastOutput)
-	} else {
-		err = d.slackNotifier.NotifyStatusChange(run, issueTitle, newStatus)
-	}
-
-	if err != nil {
-		d.logger.Printf("%s#%s: failed to send slack notification: %v", run.IssueID, run.RunID, err)
-	} else {
-		d.logger.Printf("%s#%s: sent slack notification for status %s", run.IssueID, run.RunID, newStatus)
-	}
 }
 
 // inferStatusFromGitState infers a run's status from git state when the agent session

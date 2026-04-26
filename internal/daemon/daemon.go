@@ -18,6 +18,7 @@ import (
 	"github.com/s22625/orch/internal/github"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/notify"
+	"github.com/s22625/orch/internal/runevents"
 	"github.com/s22625/orch/internal/store"
 	"github.com/s22625/orch/internal/store/file"
 	"github.com/s22625/orch/internal/xdg"
@@ -46,16 +47,18 @@ type Daemon struct {
 	startupMtime   time.Time
 	staleLogged    bool
 
-	socketServer  *SocketServer
-	config        *config.Config
-	slackNotifier *notify.SlackNotifier
-	debugMode     bool
-	lockFile      *os.File
+	socketServer *SocketServer
+	config       *config.Config
+	debugMode    bool
+	lockFile     *os.File
 
 	githubBackend  *github.Backend
 	lastGitHubSync time.Time
 	gitHubSyncMu   sync.Mutex
 	listenAddr     string
+
+	statusListeners   []runevents.StatusChangeListener
+	statusListenersMu sync.RWMutex
 }
 
 // RunState tracks the monitoring state of a single run
@@ -139,7 +142,7 @@ func (d *Daemon) Run() error {
 	} else {
 		d.config = cfg
 		if cfg.Slack.IsConfigured() {
-			d.slackNotifier = notify.NewSlackNotifier(&cfg.Slack)
+			d.AddStatusChangeListener(notify.NewSlackStatusListener(notify.NewSlackNotifier(&cfg.Slack), d.logger))
 			d.logger.Printf("slack notifications enabled")
 		}
 		if cfg.IsGitHubBackend() {
