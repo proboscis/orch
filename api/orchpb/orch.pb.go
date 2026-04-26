@@ -3455,7 +3455,8 @@ type RunEventFrame struct {
 	FromStatus      RunStatus              `protobuf:"varint,4,opt,name=from_status,json=fromStatus,proto3,enum=orch.v1.RunStatus" json:"from_status,omitempty"`
 	ToStatus        RunStatus              `protobuf:"varint,5,opt,name=to_status,json=toStatus,proto3,enum=orch.v1.RunStatus" json:"to_status,omitempty"`
 	TimestampUnixMs int64                  `protobuf:"varint,6,opt,name=timestamp_unix_ms,json=timestampUnixMs,proto3" json:"timestamp_unix_ms,omitempty"`
-	Source          string                 `protobuf:"bytes,7,opt,name=source,proto3" json:"source,omitempty"` // "user" | "daemon" | "agent"
+	Source          string                 `protobuf:"bytes,7,opt,name=source,proto3" json:"source,omitempty"`                  // "user" | "daemon" | "agent"
+	ShortId         string                 `protobuf:"bytes,8,opt,name=short_id,json=shortId,proto3" json:"short_id,omitempty"` // 6-char sha256 hex of issue_id#run_id
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -3535,6 +3536,13 @@ func (x *RunEventFrame) GetTimestampUnixMs() int64 {
 func (x *RunEventFrame) GetSource() string {
 	if x != nil {
 		return x.Source
+	}
+	return ""
+}
+
+func (x *RunEventFrame) GetShortId() string {
+	if x != nil {
+		return x.ShortId
 	}
 	return ""
 }
@@ -11092,7 +11100,7 @@ const file_orch_proto_rawDesc = "" +
 	"\acontext\x18\x01 \x01(\v2\x17.orch.v1.RequestContextR\acontext\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\"\x14\n" +
-	"\x12StreamRunEventsAck\"\x8a\x02\n" +
+	"\x12StreamRunEventsAck\"\xa5\x02\n" +
 	"\rRunEventFrame\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x1d\n" +
@@ -11102,7 +11110,8 @@ const file_orch_proto_rawDesc = "" +
 	"fromStatus\x12/\n" +
 	"\tto_status\x18\x05 \x01(\x0e2\x12.orch.v1.RunStatusR\btoStatus\x12*\n" +
 	"\x11timestamp_unix_ms\x18\x06 \x01(\x03R\x0ftimestampUnixMs\x12\x16\n" +
-	"\x06source\x18\a \x01(\tR\x06source\"\x9e\x01\n" +
+	"\x06source\x18\a \x01(\tR\x06source\x12\x19\n" +
+	"\bshort_id\x18\b \x01(\tR\ashortId\"\x9e\x01\n" +
 	"\x16RegisterMonitorRequest\x12\x10\n" +
 	"\x03pid\x18\x01 \x01(\x05R\x03pid\x12!\n" +
 	"\fmonitor_type\x18\x02 \x01(\tR\vmonitorType\x12\x12\n" +

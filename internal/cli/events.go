@@ -89,6 +89,7 @@ type eventJSON struct {
 	Timestamp string `json:"timestamp"`
 	IssueID   string `json:"issue_id"`
 	RunID     string `json:"run_id"`
+	ShortID   string `json:"short_id"`
 	From      string `json:"from"`
 	To        string `json:"to"`
 	Source    string `json:"source"`
@@ -100,6 +101,7 @@ func eventToJSON(ev *orchapi.RunEvent) *eventJSON {
 		Timestamp: ev.Timestamp.UTC().Format(time.RFC3339Nano),
 		IssueID:   ev.IssueID,
 		RunID:     ev.RunID,
+		ShortID:   ev.ShortID,
 		From:      string(ev.From),
 		To:        string(ev.To),
 		Source:    ev.Source,

@@ -374,13 +374,22 @@ func (d *Daemon) updateStatus(run *model.Run, status model.Status, st store.Stor
 // publishRunEvent broadcasts a status transition to subscribers of the
 // daemon's run event bus. Safe to call when the socket server is not yet
 // constructed (test daemons): the call becomes a no-op.
+//
+// Skips emission when from == to to avoid leaking redundant updates
+// caused by callers that re-affirm a status (e.g. PR detection running
+// every cycle after RunState in-memory bookkeeping is reset by a
+// daemon restart).
 func (d *Daemon) publishRunEvent(run *model.Run, from, to model.Status, source model.EventSource) {
 	if d == nil || d.socketServer == nil || run == nil {
+		return
+	}
+	if from == to {
 		return
 	}
 	frame := &orchpb.RunEventFrame{
 		RunId:           run.RunID,
 		IssueId:         run.IssueID,
+		ShortId:         model.GenerateShortID(run.IssueID, run.RunID),
 		FromStatus:      modelStatusToProto(from),
 		ToStatus:        modelStatusToProto(to),
 		TimestampUnixMs: time.Now().UnixMilli(),

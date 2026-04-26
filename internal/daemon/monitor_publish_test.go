@@ -75,7 +75,60 @@ func TestUpdateStatus_PublishesTransitionToBus(t *testing.T) {
 		if ev.Source != string(model.EventSourceDaemon) {
 			t.Fatalf("source = %q, want %q", ev.Source, model.EventSourceDaemon)
 		}
+		expectedShort := model.GenerateShortID("issue-publish", "run-1")
+		if ev.ShortId != expectedShort {
+			t.Fatalf("short_id = %q, want %q", ev.ShortId, expectedShort)
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("no event received within timeout")
+	}
+}
+
+// TestUpdateStatus_SkipsRedundantPublish ensures that when daemon code
+// calls updateStatus with a status that already matches the run's stored
+// state, no proto event is emitted on the bus (the AppendEvent itself
+// may still record an audit line, but external observers should not see
+// transition noise).
+func TestUpdateStatus_SkipsRedundantPublish(t *testing.T) {
+	root := t.TempDir()
+	issuesRoot := filepath.Join(root, "issues")
+	if err := os.MkdirAll(issuesRoot, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	st, err := filestore.New(issuesRoot)
+	if err != nil {
+		t.Fatalf("filestore.New: %v", err)
+	}
+	if err := st.CreateIssue(&model.Issue{ID: "issue-skip", Title: "t", Status: model.IssueStatusOpen}); err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+	run, err := st.CreateRun("issue-skip", "run-1", nil)
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if err := st.AppendEvent(&model.RunRef{IssueID: run.IssueID, RunID: run.RunID}, model.NewStatusEvent(model.StatusPROpen)); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	srv := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	d := newTestDaemon()
+	d.socketServer = srv
+
+	sub := srv.RunEventBus().Subscribe(RunEventFilter{})
+	defer sub.Close()
+
+	current, err := st.GetRun(&model.RunRef{IssueID: run.IssueID, RunID: run.RunID})
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if err := d.updateStatus(current, model.StatusPROpen, st); err != nil {
+		t.Fatalf("updateStatus: %v", err)
+	}
+
+	select {
+	case ev := <-sub.Events():
+		t.Fatalf("expected no event for from==to publish, got %+v", ev)
+	case <-time.After(200 * time.Millisecond):
+		// expected: no event
 	}
 }
