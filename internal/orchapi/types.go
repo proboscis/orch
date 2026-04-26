@@ -142,6 +142,7 @@ type RunEvent struct {
 	Timestamp time.Time
 	IssueID   string
 	RunID     string
+	ShortID   string
 	From      RunStatus
 	To        RunStatus
 	Source    string // "user" | "daemon" | "agent"

@@ -61,6 +61,7 @@ func protoEventToOrchAPI(ev *orchpb.RunEventFrame) *RunEvent {
 		Timestamp: time.UnixMilli(ev.TimestampUnixMs),
 		IssueID:   ev.IssueId,
 		RunID:     ev.RunId,
+		ShortID:   ev.ShortId,
 		From:      protoRunStatusToDomain(ev.FromStatus),
 		To:        protoRunStatusToDomain(ev.ToStatus),
 		Source:    ev.Source,

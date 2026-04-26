@@ -401,6 +401,7 @@ message RunEventFrame {
   RunStatus to_status = 5;
   int64 timestamp_unix_ms = 6;
   string source = 7;          // "user" | "daemon" | "agent"
+  string short_id = 8;        // 6-char sha256 hex of issue_id#run_id
 }
 
 // --- Monitor Registration ---
