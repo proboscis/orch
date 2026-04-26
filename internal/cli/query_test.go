@@ -91,6 +91,9 @@ func (m *mockQueryAPI) AppendEvent(ctx context.Context, ref orchapi.RunRef, even
 func (m *mockQueryAPI) WaitForRuns(ctx context.Context, refs []string, timeoutSeconds int) (*orchapi.WaitForRunsResult, error) {
 	return nil, nil
 }
+func (m *mockQueryAPI) StreamRunEvents(ctx context.Context, filter *orchapi.RunEventFilter) (orchapi.RunEventStream, error) {
+	return nil, nil
+}
 func (m *mockQueryAPI) GetAttachInfo(ctx context.Context, ref orchapi.RunRef) (*orchapi.AttachInfo, error) {
 	return nil, nil
 }

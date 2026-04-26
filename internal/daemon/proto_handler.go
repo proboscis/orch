@@ -101,9 +101,98 @@ func (s *SocketServer) handleProtoConnection(conn net.Conn) {
 			return
 		}
 
+		// Streaming requests take over the connection and never return.
+		if streamReq, ok := req.Request.(*orchpb.Request_StreamRunEvents); ok {
+			s.handleProtoStreamRunEvents(conn, streamReq.StreamRunEvents)
+			return
+		}
+
 		resp := s.handleProtoRequest(&req)
 		s.sendProtoResponse(conn, resp)
 	}
+}
+
+// handleProtoStreamRunEvents holds the connection open and pushes one
+// Response per RunEventFrame as state transitions occur on the daemon.
+// The first response is a StreamRunEventsAck; subsequent responses each
+// carry one RunEvent. The loop exits when the client disconnects or the
+// daemon stops.
+func (s *SocketServer) handleProtoStreamRunEvents(conn net.Conn, req *orchpb.StreamRunEventsRequest) {
+	if req == nil {
+		s.sendProtoError(conn, "stream_run_events: nil request")
+		return
+	}
+	if s.runEventBus == nil {
+		s.sendProtoError(conn, "stream_run_events: bus not initialized")
+		return
+	}
+
+	filter := RunEventFilter{
+		IssueID: strings.TrimSpace(req.IssueId),
+		RunID:   strings.TrimSpace(req.RunId),
+	}
+	sub := s.runEventBus.Subscribe(filter)
+	defer sub.Close()
+
+	// Clear any read deadline; this connection is now write-only.
+	_ = conn.SetReadDeadline(time.Time{})
+
+	// Send Ack so the client knows the subscription is active.
+	ack := &orchpb.Response{
+		Ok:       true,
+		Response: &orchpb.Response_StreamRunEventsAck{StreamRunEventsAck: &orchpb.StreamRunEventsAck{}},
+	}
+	s.sendProtoResponse(conn, ack)
+
+	// Detect client disconnect by spawning a reader that returns when EOF.
+	disconnect := make(chan struct{})
+	go func() {
+		defer close(disconnect)
+		buf := make([]byte, 256)
+		for {
+			if _, err := conn.Read(buf); err != nil {
+				return
+			}
+		}
+	}()
+
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case <-disconnect:
+			return
+		case ev, ok := <-sub.Events():
+			if !ok {
+				return
+			}
+			frame := &orchpb.Response{
+				Ok:       true,
+				Response: &orchpb.Response_RunEvent{RunEvent: ev},
+			}
+			if err := s.writeProtoResponseChecked(conn, frame); err != nil {
+				return
+			}
+		}
+	}
+}
+
+// writeProtoResponseChecked is like sendProtoResponse but returns the
+// underlying write error so the streaming loop can detect a dead connection.
+func (s *SocketServer) writeProtoResponseChecked(conn net.Conn, resp *orchpb.Response) error {
+	data, err := proto.Marshal(resp)
+	if err != nil {
+		return err
+	}
+	lenBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(lenBuf, uint32(len(data)))
+	if _, err := conn.Write(lenBuf); err != nil {
+		return err
+	}
+	if _, err := conn.Write(data); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *SocketServer) handleProtoRequest(req *orchpb.Request) *orchpb.Response {

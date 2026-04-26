@@ -149,6 +149,7 @@ func init() {
 	rootCmd.AddCommand(newModelsCmd())
 	rootCmd.AddCommand(newNotifyCmd())
 	rootCmd.AddCommand(newLogCmd())
+	rootCmd.AddCommand(newEventsCmd())
 	rootCmd.AddCommand(newDebugCmd())
 	rootCmd.AddCommand(newQueryCmd())
 	rootCmd.AddCommand(newSchemaCmd())

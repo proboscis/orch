@@ -105,6 +105,12 @@ type OrchAPI interface {
 	// WaitForRuns blocks until any specified run leaves its active execution state.
 	WaitForRuns(ctx context.Context, refs []string, timeoutSeconds int) (*WaitForRunsResult, error)
 
+	// StreamRunEvents subscribes to run state transition events emitted by
+	// the daemon. The returned stream emits frames until Close is called or
+	// the daemon disconnects. Filter fields narrow the subscription; empty
+	// fields match any value.
+	StreamRunEvents(ctx context.Context, filter *RunEventFilter) (RunEventStream, error)
+
 	// =========================================================================
 	// Session Operations
 	// =========================================================================

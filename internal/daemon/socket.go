@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/s22625/orch/api/orchpb"
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/config"
 	"github.com/s22625/orch/internal/executor"
@@ -319,6 +320,8 @@ type SocketServer struct {
 
 	currentWorkerID   string
 	currentWorkerHost string
+
+	runEventBus *RunEventBus
 }
 
 type managedServer struct {
@@ -364,10 +367,28 @@ func NewSocketServer(factory StoreFactory, logger Logger) *SocketServer {
 		controlSessionLocks: make(map[string]*sync.Mutex),
 		openCodeServers:     make(map[string]*managedServer),
 		workerAuthToken:     strings.TrimSpace(os.Getenv("ORCH_WORKER_AUTH_TOKEN")),
+		runEventBus:         NewRunEventBus(),
 	}
 	s.gitRunner = git.NewRunner()
 	s.procManager = newSocketProcessManager(s)
 	return s
+}
+
+// PublishRunEvent broadcasts a RunEventFrame to all matching subscribers.
+// It never blocks; subscribers whose buffer is full miss the event.
+func (s *SocketServer) PublishRunEvent(ev *orchpb.RunEventFrame) {
+	if s == nil || s.runEventBus == nil {
+		return
+	}
+	s.runEventBus.Publish(ev)
+}
+
+// RunEventBus exposes the bus (used by streaming proto handler and tests).
+func (s *SocketServer) RunEventBus() *RunEventBus {
+	if s == nil {
+		return nil
+	}
+	return s.runEventBus
 }
 
 func (s *SocketServer) SetWorkerIdentity(workerID, host string) {
