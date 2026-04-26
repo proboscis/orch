@@ -137,6 +137,33 @@ func ComputeShortID(issueID, runID string) string {
 	return hex.EncodeToString(h[:])[:6]
 }
 
+// RunEvent is a single state transition observed for a run.
+type RunEvent struct {
+	Timestamp time.Time
+	IssueID   string
+	RunID     string
+	From      RunStatus
+	To        RunStatus
+	Source    string // "user" | "daemon" | "agent"
+	ProjectID string
+}
+
+// RunEventFilter narrows a subscription to events matching the given fields.
+// Empty fields match anything.
+type RunEventFilter struct {
+	IssueID string
+	RunID   string
+}
+
+// RunEventStream is a long-lived subscription to run state transitions.
+// Events emits frames until Close is called or the daemon disconnects;
+// after Events closes, Err returns any terminal error or nil for clean EOF.
+type RunEventStream interface {
+	Events() <-chan *RunEvent
+	Err() error
+	Close() error
+}
+
 type Issue struct {
 	ID          string
 	Title       string

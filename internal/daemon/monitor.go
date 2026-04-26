@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/s22625/orch/api/orchpb"
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
@@ -323,7 +324,9 @@ func (d *Daemon) updateStatus(run *model.Run, status model.Status, st store.Stor
 	ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
 
 	// Check current status - daemon cannot overwrite terminal states
+	var fromStatus model.Status
 	if currentRun, err := st.GetRun(ref); err == nil && currentRun != nil {
+		fromStatus = currentRun.Status
 		if !model.CanTransitionStatus(currentRun.Status, status, model.EventSourceDaemon) {
 			d.debug("%s#%s: daemon cannot transition from %s to %s", run.IssueID, run.RunID, currentRun.Status, status)
 			return nil
@@ -334,6 +337,8 @@ func (d *Daemon) updateStatus(run *model.Run, status model.Status, st store.Stor
 	if err := st.AppendEvent(ref, event); err != nil {
 		return err
 	}
+
+	d.publishRunEvent(run, fromStatus, status, model.EventSourceDaemon)
 
 	// Auto-resolve issue when run is done
 	if status == model.StatusDone {
@@ -355,6 +360,24 @@ func (d *Daemon) updateStatus(run *model.Run, status model.Status, st store.Stor
 	}
 
 	return nil
+}
+
+// publishRunEvent broadcasts a status transition to subscribers of the
+// daemon's run event bus. Safe to call when the socket server is not yet
+// constructed (test daemons): the call becomes a no-op.
+func (d *Daemon) publishRunEvent(run *model.Run, from, to model.Status, source model.EventSource) {
+	if d == nil || d.socketServer == nil || run == nil {
+		return
+	}
+	frame := &orchpb.RunEventFrame{
+		RunId:           run.RunID,
+		IssueId:         run.IssueID,
+		FromStatus:      modelStatusToProto(from),
+		ToStatus:        modelStatusToProto(to),
+		TimestampUnixMs: time.Now().UnixMilli(),
+		Source:          string(source),
+	}
+	d.socketServer.PublishRunEvent(frame)
 }
 
 // hashString returns a simple hash of a string

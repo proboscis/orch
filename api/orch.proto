@@ -379,6 +379,30 @@ message GetDiffResponse {
   string diff = 1;
 }
 
+// --- Run Event Stream ---
+// Subscriber-style API: client sends StreamRunEventsRequest, server replies
+// with one Response containing StreamRunEventsAck, then pushes one Response
+// per RunEventFrame as state transitions occur. The connection is held open
+// until the client disconnects.
+
+message StreamRunEventsRequest {
+  RequestContext context = 1;
+  string issue_id = 2;        // optional filter
+  string run_id = 3;          // optional filter
+}
+
+message StreamRunEventsAck {}
+
+message RunEventFrame {
+  string run_id = 1;
+  string issue_id = 2;
+  string project_id = 3;
+  RunStatus from_status = 4;
+  RunStatus to_status = 5;
+  int64 timestamp_unix_ms = 6;
+  string source = 7;          // "user" | "daemon" | "agent"
+}
+
 // --- Monitor Registration ---
 
 message RegisterMonitorRequest {
@@ -986,6 +1010,7 @@ message Request {
     AcknowledgeEffectRequest acknowledge_effect = 53;
     CleanRunWorktreeRequest clean_run_worktree = 54;
     WaitForRunsRequest wait_for_runs = 55;
+    StreamRunEventsRequest stream_run_events = 56;
   }
 }
 
@@ -1049,5 +1074,7 @@ message Response {
     AcknowledgeEffectResponse acknowledge_effect = 55;
     CleanRunWorktreeResponse clean_run_worktree = 56;
     WaitForRunsResponse wait_for_runs = 57;
+    StreamRunEventsAck stream_run_events_ack = 58;
+    RunEventFrame run_event = 59;
   }
 }

@@ -25,6 +25,9 @@ var _ orchapi.OrchAPI = &OrchAPIMock{}
 //			CaptureSessionFunc: func(ctx context.Context, ref orchapi.RunRef, lines int) (*orchapi.CaptureResult, error) {
 //				panic("mock out the CaptureSession method")
 //			},
+//			CleanRunWorktreeFunc: func(ctx context.Context, ref orchapi.RunRef) (*orchapi.CleanRunWorktreeResult, error) {
+//				panic("mock out the CleanRunWorktree method")
+//			},
 //			CloseIssueFunc: func(ctx context.Context, issueID string) error {
 //				panic("mock out the CloseIssue method")
 //			},
@@ -40,10 +43,7 @@ var _ orchapi.OrchAPI = &OrchAPIMock{}
 //			DeleteRunFunc: func(ctx context.Context, ref orchapi.RunRef, opts *orchapi.DeleteRunOptions) (*orchapi.DeleteRunResult, error) {
 //				panic("mock out the DeleteRun method")
 //			},
-//			CleanRunWorktreeFunc: func(ctx context.Context, ref orchapi.RunRef) (*orchapi.CleanRunWorktreeResult, error) {
-//				panic("mock out the CleanRunWorktree method")
-//			},
-//			EnsureOpenCodeServerFunc: func(ctx context.Context, projectRoot string) (*orchapi.OpenCodeServerInfo, error) {
+//			EnsureOpenCodeServerFunc: func(ctx context.Context) (*orchapi.OpenCodeServerInfo, error) {
 //				panic("mock out the EnsureOpenCodeServer method")
 //			},
 //			GetAttachInfoFunc: func(ctx context.Context, ref orchapi.RunRef) (*orchapi.AttachInfo, error) {
@@ -52,7 +52,7 @@ var _ orchapi.OrchAPI = &OrchAPIMock{}
 //			GetBranchStateFunc: func(ctx context.Context, ref orchapi.RunRef) (orchapi.BranchState, error) {
 //				panic("mock out the GetBranchState method")
 //			},
-//			GetConfigFunc: func(ctx context.Context, projectRoot string) (*orchapi.Config, error) {
+//			GetConfigFunc: func(ctx context.Context) (*orchapi.Config, error) {
 //				panic("mock out the GetConfig method")
 //			},
 //			GetDaemonLogFunc: func(ctx context.Context, lines int) (string, error) {
@@ -118,11 +118,17 @@ var _ orchapi.OrchAPI = &OrchAPIMock{}
 //			StopRunFunc: func(ctx context.Context, ref orchapi.RunRef) error {
 //				panic("mock out the StopRun method")
 //			},
+//			StreamRunEventsFunc: func(ctx context.Context, filter *orchapi.RunEventFilter) (orchapi.RunEventStream, error) {
+//				panic("mock out the StreamRunEvents method")
+//			},
 //			UpdateIssueFunc: func(ctx context.Context, issueID string, req *orchapi.UpdateIssueRequest) (*orchapi.Issue, error) {
 //				panic("mock out the UpdateIssue method")
 //			},
 //			ValidateIssueFilesFunc: func(ctx context.Context, issueID string) (*orchapi.ValidateIssueFilesResult, error) {
 //				panic("mock out the ValidateIssueFiles method")
+//			},
+//			WaitForRunsFunc: func(ctx context.Context, refs []string, timeoutSeconds int) (*orchapi.WaitForRunsResult, error) {
+//				panic("mock out the WaitForRuns method")
 //			},
 //			WriteAgentPromptFunc: func(ctx context.Context, ref orchapi.RunRef, content string) error {
 //				panic("mock out the WriteAgentPrompt method")
@@ -143,6 +149,9 @@ type OrchAPIMock struct {
 	// CaptureSessionFunc mocks the CaptureSession method.
 	CaptureSessionFunc func(ctx context.Context, ref orchapi.RunRef, lines int) (*orchapi.CaptureResult, error)
 
+	// CleanRunWorktreeFunc mocks the CleanRunWorktree method.
+	CleanRunWorktreeFunc func(ctx context.Context, ref orchapi.RunRef) (*orchapi.CleanRunWorktreeResult, error)
+
 	// CloseIssueFunc mocks the CloseIssue method.
 	CloseIssueFunc func(ctx context.Context, issueID string) error
 
@@ -157,9 +166,6 @@ type OrchAPIMock struct {
 
 	// DeleteRunFunc mocks the DeleteRun method.
 	DeleteRunFunc func(ctx context.Context, ref orchapi.RunRef, opts *orchapi.DeleteRunOptions) (*orchapi.DeleteRunResult, error)
-
-	// CleanRunWorktreeFunc mocks the CleanRunWorktree method.
-	CleanRunWorktreeFunc func(ctx context.Context, ref orchapi.RunRef) (*orchapi.CleanRunWorktreeResult, error)
 
 	// EnsureOpenCodeServerFunc mocks the EnsureOpenCodeServer method.
 	EnsureOpenCodeServerFunc func(ctx context.Context) (*orchapi.OpenCodeServerInfo, error)
@@ -224,9 +230,6 @@ type OrchAPIMock struct {
 	// ResolveRunFunc mocks the ResolveRun method.
 	ResolveRunFunc func(ctx context.Context, ref orchapi.RunRef) (*orchapi.Run, error)
 
-	// WaitForRunsFunc mocks the WaitForRuns method.
-	WaitForRunsFunc func(ctx context.Context, refs []string, timeoutSeconds int) (*orchapi.WaitForRunsResult, error)
-
 	// SendMessageFunc mocks the SendMessage method.
 	SendMessageFunc func(ctx context.Context, ref orchapi.RunRef, message string, noEnter bool) error
 
@@ -239,11 +242,17 @@ type OrchAPIMock struct {
 	// StopRunFunc mocks the StopRun method.
 	StopRunFunc func(ctx context.Context, ref orchapi.RunRef) error
 
+	// StreamRunEventsFunc mocks the StreamRunEvents method.
+	StreamRunEventsFunc func(ctx context.Context, filter *orchapi.RunEventFilter) (orchapi.RunEventStream, error)
+
 	// UpdateIssueFunc mocks the UpdateIssue method.
 	UpdateIssueFunc func(ctx context.Context, issueID string, req *orchapi.UpdateIssueRequest) (*orchapi.Issue, error)
 
 	// ValidateIssueFilesFunc mocks the ValidateIssueFiles method.
 	ValidateIssueFilesFunc func(ctx context.Context, issueID string) (*orchapi.ValidateIssueFilesResult, error)
+
+	// WaitForRunsFunc mocks the WaitForRuns method.
+	WaitForRunsFunc func(ctx context.Context, refs []string, timeoutSeconds int) (*orchapi.WaitForRunsResult, error)
 
 	// WriteAgentPromptFunc mocks the WriteAgentPrompt method.
 	WriteAgentPromptFunc func(ctx context.Context, ref orchapi.RunRef, content string) error
@@ -270,6 +279,13 @@ type OrchAPIMock struct {
 			Ref orchapi.RunRef
 			// Lines is the lines argument value.
 			Lines int
+		}
+		// CleanRunWorktree holds details about calls to the CleanRunWorktree method.
+		CleanRunWorktree []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Ref is the ref argument value.
+			Ref orchapi.RunRef
 		}
 		// CloseIssue holds details about calls to the CloseIssue method.
 		CloseIssue []struct {
@@ -307,13 +323,6 @@ type OrchAPIMock struct {
 			Ref orchapi.RunRef
 			// Opts is the opts argument value.
 			Opts *orchapi.DeleteRunOptions
-		}
-		// CleanRunWorktree holds details about calls to the CleanRunWorktree method.
-		CleanRunWorktree []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Ref is the ref argument value.
-			Ref orchapi.RunRef
 		}
 		// EnsureOpenCodeServer holds details about calls to the EnsureOpenCodeServer method.
 		EnsureOpenCodeServer []struct {
@@ -460,15 +469,6 @@ type OrchAPIMock struct {
 			// Ref is the ref argument value.
 			Ref orchapi.RunRef
 		}
-		// WaitForRuns holds details about calls to the WaitForRuns method.
-		WaitForRuns []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Refs is the refs argument value.
-			Refs []string
-			// TimeoutSeconds is the timeoutSeconds argument value.
-			TimeoutSeconds int
-		}
 		// SendMessage holds details about calls to the SendMessage method.
 		SendMessage []struct {
 			// Ctx is the ctx argument value.
@@ -503,6 +503,13 @@ type OrchAPIMock struct {
 			// Ref is the ref argument value.
 			Ref orchapi.RunRef
 		}
+		// StreamRunEvents holds details about calls to the StreamRunEvents method.
+		StreamRunEvents []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Filter is the filter argument value.
+			Filter *orchapi.RunEventFilter
+		}
 		// UpdateIssue holds details about calls to the UpdateIssue method.
 		UpdateIssue []struct {
 			// Ctx is the ctx argument value.
@@ -518,6 +525,15 @@ type OrchAPIMock struct {
 			Ctx context.Context
 			// IssueID is the issueID argument value.
 			IssueID string
+		}
+		// WaitForRuns holds details about calls to the WaitForRuns method.
+		WaitForRuns []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Refs is the refs argument value.
+			Refs []string
+			// TimeoutSeconds is the timeoutSeconds argument value.
+			TimeoutSeconds int
 		}
 		// WriteAgentPrompt holds details about calls to the WriteAgentPrompt method.
 		WriteAgentPrompt []struct {
@@ -542,12 +558,12 @@ type OrchAPIMock struct {
 	}
 	lockAppendEvent          sync.RWMutex
 	lockCaptureSession       sync.RWMutex
+	lockCleanRunWorktree     sync.RWMutex
 	lockCloseIssue           sync.RWMutex
 	lockContinueRun          sync.RWMutex
 	lockCreateIssue          sync.RWMutex
 	lockCreateRun            sync.RWMutex
 	lockDeleteRun            sync.RWMutex
-	lockCleanRunWorktree     sync.RWMutex
 	lockEnsureOpenCodeServer sync.RWMutex
 	lockGetAttachInfo        sync.RWMutex
 	lockGetBranchState       sync.RWMutex
@@ -569,13 +585,14 @@ type OrchAPIMock struct {
 	lockRepairState          sync.RWMutex
 	lockResolveIssue         sync.RWMutex
 	lockResolveRun           sync.RWMutex
-	lockWaitForRuns          sync.RWMutex
 	lockSendMessage          sync.RWMutex
 	lockSetIssueStatus       sync.RWMutex
 	lockStartRun             sync.RWMutex
 	lockStopRun              sync.RWMutex
+	lockStreamRunEvents      sync.RWMutex
 	lockUpdateIssue          sync.RWMutex
 	lockValidateIssueFiles   sync.RWMutex
+	lockWaitForRuns          sync.RWMutex
 	lockWriteAgentPrompt     sync.RWMutex
 	lockWriteFile            sync.RWMutex
 }
@@ -657,6 +674,42 @@ func (mock *OrchAPIMock) CaptureSessionCalls() []struct {
 	mock.lockCaptureSession.RLock()
 	calls = mock.calls.CaptureSession
 	mock.lockCaptureSession.RUnlock()
+	return calls
+}
+
+// CleanRunWorktree calls CleanRunWorktreeFunc.
+func (mock *OrchAPIMock) CleanRunWorktree(ctx context.Context, ref orchapi.RunRef) (*orchapi.CleanRunWorktreeResult, error) {
+	if mock.CleanRunWorktreeFunc == nil {
+		panic("OrchAPIMock.CleanRunWorktreeFunc: method is nil but OrchAPI.CleanRunWorktree was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		Ref orchapi.RunRef
+	}{
+		Ctx: ctx,
+		Ref: ref,
+	}
+	mock.lockCleanRunWorktree.Lock()
+	mock.calls.CleanRunWorktree = append(mock.calls.CleanRunWorktree, callInfo)
+	mock.lockCleanRunWorktree.Unlock()
+	return mock.CleanRunWorktreeFunc(ctx, ref)
+}
+
+// CleanRunWorktreeCalls gets all the calls that were made to CleanRunWorktree.
+// Check the length with:
+//
+//	len(mockedOrchAPI.CleanRunWorktreeCalls())
+func (mock *OrchAPIMock) CleanRunWorktreeCalls() []struct {
+	Ctx context.Context
+	Ref orchapi.RunRef
+} {
+	var calls []struct {
+		Ctx context.Context
+		Ref orchapi.RunRef
+	}
+	mock.lockCleanRunWorktree.RLock()
+	calls = mock.calls.CleanRunWorktree
+	mock.lockCleanRunWorktree.RUnlock()
 	return calls
 }
 
@@ -841,42 +894,6 @@ func (mock *OrchAPIMock) DeleteRunCalls() []struct {
 	mock.lockDeleteRun.RLock()
 	calls = mock.calls.DeleteRun
 	mock.lockDeleteRun.RUnlock()
-	return calls
-}
-
-// CleanRunWorktree calls CleanRunWorktreeFunc.
-func (mock *OrchAPIMock) CleanRunWorktree(ctx context.Context, ref orchapi.RunRef) (*orchapi.CleanRunWorktreeResult, error) {
-	if mock.CleanRunWorktreeFunc == nil {
-		panic("OrchAPIMock.CleanRunWorktreeFunc: method is nil but OrchAPI.CleanRunWorktree was just called")
-	}
-	callInfo := struct {
-		Ctx context.Context
-		Ref orchapi.RunRef
-	}{
-		Ctx: ctx,
-		Ref: ref,
-	}
-	mock.lockCleanRunWorktree.Lock()
-	mock.calls.CleanRunWorktree = append(mock.calls.CleanRunWorktree, callInfo)
-	mock.lockCleanRunWorktree.Unlock()
-	return mock.CleanRunWorktreeFunc(ctx, ref)
-}
-
-// CleanRunWorktreeCalls gets all the calls that were made to CleanRunWorktree.
-// Check the length with:
-//
-//	len(mockedOrchAPI.CleanRunWorktreeCalls())
-func (mock *OrchAPIMock) CleanRunWorktreeCalls() []struct {
-	Ctx context.Context
-	Ref orchapi.RunRef
-} {
-	var calls []struct {
-		Ctx context.Context
-		Ref orchapi.RunRef
-	}
-	mock.lockCleanRunWorktree.RLock()
-	calls = mock.calls.CleanRunWorktree
-	mock.lockCleanRunWorktree.RUnlock()
 	return calls
 }
 
@@ -1380,46 +1397,6 @@ func (mock *OrchAPIMock) ListRunsCalls() []struct {
 	return calls
 }
 
-// WaitForRuns calls WaitForRunsFunc.
-func (mock *OrchAPIMock) WaitForRuns(ctx context.Context, refs []string, timeoutSeconds int) (*orchapi.WaitForRunsResult, error) {
-	if mock.WaitForRunsFunc == nil {
-		panic("OrchAPIMock.WaitForRunsFunc: method is nil but OrchAPI.WaitForRuns was just called")
-	}
-	callInfo := struct {
-		Ctx            context.Context
-		Refs           []string
-		TimeoutSeconds int
-	}{
-		Ctx:            ctx,
-		Refs:           refs,
-		TimeoutSeconds: timeoutSeconds,
-	}
-	mock.lockWaitForRuns.Lock()
-	mock.calls.WaitForRuns = append(mock.calls.WaitForRuns, callInfo)
-	mock.lockWaitForRuns.Unlock()
-	return mock.WaitForRunsFunc(ctx, refs, timeoutSeconds)
-}
-
-// WaitForRunsCalls gets all the calls that were made to WaitForRuns.
-// Check the length with:
-//
-//	len(mockedOrchAPI.WaitForRunsCalls())
-func (mock *OrchAPIMock) WaitForRunsCalls() []struct {
-	Ctx            context.Context
-	Refs           []string
-	TimeoutSeconds int
-} {
-	var calls []struct {
-		Ctx            context.Context
-		Refs           []string
-		TimeoutSeconds int
-	}
-	mock.lockWaitForRuns.RLock()
-	calls = mock.calls.WaitForRuns
-	mock.lockWaitForRuns.RUnlock()
-	return calls
-}
-
 // Ping calls PingFunc.
 func (mock *OrchAPIMock) Ping(ctx context.Context) error {
 	if mock.PingFunc == nil {
@@ -1828,6 +1805,42 @@ func (mock *OrchAPIMock) StopRunCalls() []struct {
 	return calls
 }
 
+// StreamRunEvents calls StreamRunEventsFunc.
+func (mock *OrchAPIMock) StreamRunEvents(ctx context.Context, filter *orchapi.RunEventFilter) (orchapi.RunEventStream, error) {
+	if mock.StreamRunEventsFunc == nil {
+		panic("OrchAPIMock.StreamRunEventsFunc: method is nil but OrchAPI.StreamRunEvents was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Filter *orchapi.RunEventFilter
+	}{
+		Ctx:    ctx,
+		Filter: filter,
+	}
+	mock.lockStreamRunEvents.Lock()
+	mock.calls.StreamRunEvents = append(mock.calls.StreamRunEvents, callInfo)
+	mock.lockStreamRunEvents.Unlock()
+	return mock.StreamRunEventsFunc(ctx, filter)
+}
+
+// StreamRunEventsCalls gets all the calls that were made to StreamRunEvents.
+// Check the length with:
+//
+//	len(mockedOrchAPI.StreamRunEventsCalls())
+func (mock *OrchAPIMock) StreamRunEventsCalls() []struct {
+	Ctx    context.Context
+	Filter *orchapi.RunEventFilter
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Filter *orchapi.RunEventFilter
+	}
+	mock.lockStreamRunEvents.RLock()
+	calls = mock.calls.StreamRunEvents
+	mock.lockStreamRunEvents.RUnlock()
+	return calls
+}
+
 // UpdateIssue calls UpdateIssueFunc.
 func (mock *OrchAPIMock) UpdateIssue(ctx context.Context, issueID string, req *orchapi.UpdateIssueRequest) (*orchapi.Issue, error) {
 	if mock.UpdateIssueFunc == nil {
@@ -1901,6 +1914,46 @@ func (mock *OrchAPIMock) ValidateIssueFilesCalls() []struct {
 	mock.lockValidateIssueFiles.RLock()
 	calls = mock.calls.ValidateIssueFiles
 	mock.lockValidateIssueFiles.RUnlock()
+	return calls
+}
+
+// WaitForRuns calls WaitForRunsFunc.
+func (mock *OrchAPIMock) WaitForRuns(ctx context.Context, refs []string, timeoutSeconds int) (*orchapi.WaitForRunsResult, error) {
+	if mock.WaitForRunsFunc == nil {
+		panic("OrchAPIMock.WaitForRunsFunc: method is nil but OrchAPI.WaitForRuns was just called")
+	}
+	callInfo := struct {
+		Ctx            context.Context
+		Refs           []string
+		TimeoutSeconds int
+	}{
+		Ctx:            ctx,
+		Refs:           refs,
+		TimeoutSeconds: timeoutSeconds,
+	}
+	mock.lockWaitForRuns.Lock()
+	mock.calls.WaitForRuns = append(mock.calls.WaitForRuns, callInfo)
+	mock.lockWaitForRuns.Unlock()
+	return mock.WaitForRunsFunc(ctx, refs, timeoutSeconds)
+}
+
+// WaitForRunsCalls gets all the calls that were made to WaitForRuns.
+// Check the length with:
+//
+//	len(mockedOrchAPI.WaitForRunsCalls())
+func (mock *OrchAPIMock) WaitForRunsCalls() []struct {
+	Ctx            context.Context
+	Refs           []string
+	TimeoutSeconds int
+} {
+	var calls []struct {
+		Ctx            context.Context
+		Refs           []string
+		TimeoutSeconds int
+	}
+	mock.lockWaitForRuns.RLock()
+	calls = mock.calls.WaitForRuns
+	mock.lockWaitForRuns.RUnlock()
 	return calls
 }
 
