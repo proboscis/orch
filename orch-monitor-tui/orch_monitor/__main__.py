@@ -829,9 +829,16 @@ class ZellijLayoutLauncher:
         return self._healthy
 
     def has_session(self, session_name: str) -> bool:
+        # Count only LIVE sessions. zellij marks serialized/dead sessions as
+        # "EXITED - attach to resurrect"; `--short` lists them indistinguishably
+        # from live ones. If we treated a resurrectable session as present we would
+        # attach and zellij would RESURRECT command panes in a held
+        # ("Waiting to run") state instead of running the layout fresh.
+        import re
+
         try:
             result = subprocess.run(
-                ["zellij", "list-sessions", "--short"],
+                ["zellij", "list-sessions"],
                 capture_output=True,
                 text=True,
                 timeout=self.ZELLIJ_TIMEOUT_SEC,
@@ -841,8 +848,15 @@ class ZellijLayoutLauncher:
             return False
         if result.returncode != 0:
             return False
-        sessions = result.stdout.strip().split("\n")
-        return session_name in sessions
+        ansi = re.compile(r"\x1b\[[0-9;]*m")
+        for raw in result.stdout.splitlines():
+            line = ansi.sub("", raw).strip()
+            if not line:
+                continue
+            name = line.split()[0]
+            if name == session_name and "EXITED" not in line:
+                return True
+        return False
 
     def kill_session(self, session_name: str) -> None:
         try:
@@ -947,6 +961,21 @@ layout {{
             removed = env.pop(var, None)
             if removed is not None:
                 _launcher_logger.info(f"cleared env var {var}={removed}")
+
+        # We only reach a fresh launch when no LIVE session exists. Any same-named
+        # session here is serialized/resurrectable ("EXITED - attach to resurrect");
+        # delete it so the layout runs FRESH. Otherwise zellij resurrects the
+        # command panes in a held "Waiting to run" state (ignoring start_suspended).
+        try:
+            subprocess.run(
+                ["zellij", "delete-session", session_name, "--force"],
+                env=env,
+                capture_output=True,
+                timeout=self.ZELLIJ_TIMEOUT_SEC,
+            )
+            _launcher_logger.info(f"cleared resurrectable session {session_name}")
+        except Exception as e:
+            _launcher_logger.info(f"delete-session pre-clean skipped: {e}")
 
         cmd_str = (
             f"zellij --session {session_name} --new-session-with-layout {layout_path}"
