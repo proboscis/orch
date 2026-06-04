@@ -34,7 +34,13 @@ if [ -z "$ORCH_BIN" ]; then
 fi
 
 ORCH_REMOTE=skip "$ORCH_BIN" master start --listen "tcp://$REMOTE_ADDR" >/dev/null
-STATUS_OUT="$("$ORCH_BIN" --remote "$REMOTE_ADDR" master status)"
+STATUS_OUT=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if STATUS_OUT="$("$ORCH_BIN" --remote "$REMOTE_ADDR" master status 2>&1)"; then
+    break
+  fi
+  sleep 0.2
+done
 printf '%s\n' "$STATUS_OUT"
 printf '%s' "$STATUS_OUT" | grep "Status: running" >/dev/null
 

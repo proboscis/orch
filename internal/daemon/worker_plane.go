@@ -723,20 +723,24 @@ func (s *SocketServer) waitForWorkerLeaseCompletion(leaseID string, timeout time
 	for {
 		s.workerLeasesMu.RLock()
 		lease := s.workerLeases[leaseID]
+		var leaseSnapshot *WorkerLease
+		if lease != nil {
+			copy := *lease
+			leaseSnapshot = &copy
+		}
 		s.workerLeasesMu.RUnlock()
 
-		if lease == nil {
+		if leaseSnapshot == nil {
 			return nil, fmt.Errorf("lease not found: %s", leaseID)
 		}
-		if lease.Completed {
-			copy := *lease
-			if lease.Success {
-				return &copy, nil
+		if leaseSnapshot.Completed {
+			if leaseSnapshot.Success {
+				return leaseSnapshot, nil
 			}
-			if strings.TrimSpace(lease.Error) != "" {
-				return &copy, errors.New(lease.Error)
+			if strings.TrimSpace(leaseSnapshot.Error) != "" {
+				return leaseSnapshot, errors.New(leaseSnapshot.Error)
 			}
-			return &copy, fmt.Errorf("worker lease failed: %s", leaseID)
+			return leaseSnapshot, fmt.Errorf("worker lease failed: %s", leaseID)
 		}
 
 		if time.Now().After(deadline) {

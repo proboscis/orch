@@ -16,6 +16,25 @@ type timingTestLogger struct {
 	buf bytes.Buffer
 }
 
+type waitForRunsStatusStore struct {
+	mockStore
+	run   *model.Run
+	calls int
+}
+
+func (s *waitForRunsStatusStore) GetRun(ref *model.RunRef) (*model.Run, error) {
+	if s.run == nil || ref == nil || ref.String() != s.run.Ref().String() {
+		return nil, fmt.Errorf("run not found")
+	}
+
+	s.calls++
+	copy := *s.run
+	if s.calls > 1 {
+		copy.Status = model.StatusWaiting
+	}
+	return &copy, nil
+}
+
 func (l *timingTestLogger) Printf(format string, v ...interface{}) {
 	_, _ = fmt.Fprintf(&l.buf, format, v...)
 	l.buf.WriteByte('\n')
@@ -939,17 +958,15 @@ func TestHandleProtoWaitForRunsWaitsForStatusChange(t *testing.T) {
 		RunID:   "20260101-020202",
 		Status:  model.StatusRunning,
 	}
-	st := &mockStore{
-		runs: map[string]*model.Run{
-			run.Ref().String(): run,
+	st := &waitForRunsStatusStore{
+		mockStore: mockStore{
+			runs: map[string]*model.Run{
+				run.Ref().String(): run,
+			},
 		},
+		run: run,
 	}
 	server := newTestServer(t, st)
-
-	go func() {
-		time.Sleep(15 * time.Millisecond)
-		run.Status = model.StatusWaiting
-	}()
 
 	resp := server.handleProtoWaitForRuns(&orchpb.WaitForRunsRequest{
 		RunRefs: []string{run.Ref().String()},
