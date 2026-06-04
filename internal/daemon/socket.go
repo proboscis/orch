@@ -2353,6 +2353,7 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 	modelName := controlCfg.Model
 	modelVariant := controlCfg.ModelVariant
 	extraArgs := controlCfg.ExtraArgs
+	codexHome := controlCfg.CodexHome
 
 	aType, err := agent.ParseAgentType(agentName)
 	if err != nil {
@@ -2413,6 +2414,7 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 			Model:           modelName,
 			ModelVariant:    modelVariant,
 			ExtraArgs:       extraArgs,
+			CodexHome:       codexHome,
 		}
 
 		if agentName == "claude" && !newSession {
@@ -2489,12 +2491,22 @@ func (s *SocketServer) processControlAgentConfigCore(st store.Store, projectRoot
 
 	modelName, modelVariant := cfg.ResolveControlModelAndVariant(agentName)
 
+	// The control agent runs locally; enforce the default codex profile's
+	// AllowedTargets against the local daemon host and apply its CODEX_HOME
+	// account isolation. A disallowed local host (e.g. company profile on zeus)
+	// fails fast here rather than launching the company account on the wrong host.
+	codexHome, codexErr := resolveControlCodexHome(cfg, agentName)
+	if codexErr != nil {
+		return nil, codexErr
+	}
+
 	return &ControlAgentConfigResult{
 		PromptContent: string(promptContentBytes),
 		Agent:         agentName,
 		Model:         modelName,
 		ModelVariant:  modelVariant,
 		ExtraArgs:     cfg.GetControlExtraArgs(agentName),
+		CodexHome:     codexHome,
 	}, nil
 }
 
@@ -3727,6 +3739,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		Model:        runModel,
 		ModelVariant: runVariant,
 		ExtraArgs:    cfg.GetExtraArgs(agentName),
+		CodexHome:    opts.CodexHome,
 	}
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)
@@ -4075,6 +4088,7 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		Model:        runModel,
 		ModelVariant: runVariant,
 		ExtraArgs:    cfg.GetExtraArgs(agentName),
+		CodexHome:    opts.CodexHome,
 	}
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)

@@ -638,7 +638,8 @@
                           :agent r.agent
                           :model r.model
                           :model_variant r.model_variant
-                          :extra_args (list r.extra_args))))
+                          :extra_args (list r.extra_args)
+                          :codex_home r.codex_home)))
   
   (defn register-monitor [self pid monitor-type view project [session-name ""]]
     "Register monitor. Returns Result[str | None, ProtoDaemonError]."

@@ -273,6 +273,7 @@ func (c *DaemonClient) StartRun(ctx context.Context, req *StartRunRequest) (*Sta
 		Agent:          req.Agent,
 		AgentCmd:       req.AgentCmd,
 		AgentProfile:   req.AgentProfile,
+		CodexProfile:   req.CodexProfile,
 		Model:          req.Model,
 		ModelVariant:   req.ModelVariant,
 		Preset:         req.Preset,
@@ -948,6 +949,7 @@ func (c *DaemonClient) GetControlAgentConfig(ctx context.Context) (*ControlAgent
 		Model:         resp.Model,
 		ModelVariant:  resp.ModelVariant,
 		ExtraArgs:     resp.ExtraArgs,
+		CodexHome:     resp.CodexHome,
 	}, nil
 }
 
@@ -960,6 +962,7 @@ func (c *DaemonClient) ContinueRun(ctx context.Context, req *ContinueRunRequest)
 		Agent:          req.Agent,
 		AgentCmd:       req.AgentCmd,
 		AgentProfile:   req.AgentProfile,
+		CodexProfile:   req.CodexProfile,
 		WorktreeDir:    req.WorktreeDir,
 		NoPR:           req.NoPR,
 		PromptTemplate: req.PromptTemplate,

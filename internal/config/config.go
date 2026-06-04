@@ -78,6 +78,19 @@ type ClaudeConfig struct {
 	ControlExtraArgs []string `yaml:"control_extra_args,omitempty"` // Additional CLI args for control agent
 }
 
+// CodexProfile binds a codex "account" to an execution target and optional
+// CODEX_HOME auth directory. Profiles are selectable per run (--codex-profile)
+// and defaulted per project (codex.default_profile).
+type CodexProfile struct {
+	Target    string `yaml:"target,omitempty"`     // config.targets name to run on (e.g. "mac"); empty = master/local
+	CodexHome string `yaml:"codex_home,omitempty"` // CODEX_HOME for this profile; empty = agent default (~/.codex)
+	// AllowedTargets restricts which config.targets names this profile may run
+	// on (e.g. ["mac"]). These are target NAMES (matched against Target and
+	// `orch run --on`), not resolved hostnames. The local/master target is
+	// matched as "local". Empty list = any target allowed.
+	AllowedTargets []string `yaml:"allowed_targets,omitempty"`
+}
+
 // CodexConfig holds default configuration for the codex agent.
 type CodexConfig struct {
 	DefaultModel     string   `yaml:"default_model,omitempty"`
@@ -85,6 +98,13 @@ type CodexConfig struct {
 	PromptTemplate   string   `yaml:"prompt_template,omitempty"`
 	ExtraArgs        []string `yaml:"extra_args,omitempty"`         // Additional CLI args for run agents
 	ControlExtraArgs []string `yaml:"control_extra_args,omitempty"` // Additional CLI args for control agent
+
+	// DefaultProfile is the codex profile selected when --codex-profile is not
+	// provided for a run in this project.
+	DefaultProfile string `yaml:"default_profile,omitempty"`
+	// Profiles maps a profile name (e.g. "company"/"personal") to its execution
+	// binding (target + CODEX_HOME + allowed targets).
+	Profiles map[string]CodexProfile `yaml:"profiles,omitempty"`
 }
 
 // GeminiConfig holds default configuration for the gemini agent.
@@ -500,6 +520,12 @@ func loadFromFile(path string, cfg *Config) error {
 		if len(fileCfg.Codex.ControlExtraArgs) > 0 {
 			cfg.Codex.ControlExtraArgs = fileCfg.Codex.ControlExtraArgs
 		}
+		if fileCfg.Codex.DefaultProfile != "" {
+			cfg.Codex.DefaultProfile = fileCfg.Codex.DefaultProfile
+		}
+		if len(fileCfg.Codex.Profiles) > 0 {
+			cfg.Codex.Profiles = fileCfg.Codex.Profiles
+		}
 	}
 	if fileCfg.Gemini != nil {
 		if fileCfg.Gemini.PromptTemplate != "" {
@@ -733,6 +759,14 @@ func (c *Config) GetTarget(name string) *TargetConfig {
 		}
 	}
 	return nil
+}
+
+// GetCodexProfile returns the codex execution profile with the given name.
+// The bool result reports whether a profile with that name is configured;
+// callers must fail fast on a false result rather than silently defaulting.
+func (c *Config) GetCodexProfile(name string) (CodexProfile, bool) {
+	p, ok := c.Codex.Profiles[name]
+	return p, ok
 }
 
 // GetAllPresets returns all presets, merging new-style Presets with

@@ -126,9 +126,15 @@ func runAgent(opts *agentOptions) error {
 	var controlCfg *orchapi.ControlAgentConfig
 	if apiErr == nil {
 		if provider, ok := api.(controlAgentConfigProvider); ok {
-			if cfg, cfgErr := provider.GetControlAgentConfig(ctx); cfgErr == nil {
-				controlCfg = cfg
+			cfg, cfgErr := provider.GetControlAgentConfig(ctx)
+			if cfgErr != nil {
+				// The daemon is the source of truth for control-agent config and
+				// enforces the codex profile's AllowedTargets against the local
+				// host. Surface its fail-fast error (e.g. company control agent on
+				// a disallowed host) instead of silently launching without it.
+				return fmt.Errorf("failed to resolve control agent config: %w", cfgErr)
 			}
+			controlCfg = cfg
 		}
 	}
 
@@ -319,10 +325,11 @@ func createMultiplexerSession(orchDir, projectRoot string, agentType agent.Agent
 	}
 
 	// Get model settings from config (resolution via centralized method)
-	var modelName, modelVariant, profile string
+	var modelName, modelVariant, profile, codexHome string
 	var extraArgs []string
 	if controlCfg != nil {
 		extraArgs = append(extraArgs, controlCfg.ExtraArgs...)
+		codexHome = controlCfg.CodexHome
 	} else {
 		ctx := context.Background()
 		api, apiErr := getAPI()
@@ -343,6 +350,7 @@ func createMultiplexerSession(orchDir, projectRoot string, agentType agent.Agent
 		ModelVariant: modelVariant,
 		Profile:      profile,
 		ExtraArgs:    extraArgs,
+		CodexHome:    codexHome,
 	}
 
 	// Get launch command
@@ -357,12 +365,17 @@ func createMultiplexerSession(orchDir, projectRoot string, agentType agent.Agent
 		workDir = projectRoot
 	}
 
+	// Inject the control agent's CODEX_HOME (account isolation) into the session
+	// env so a codex control agent uses the configured profile's auth directory.
+	sessionEnv := adapter.ExtraEnv()
+	sessionEnv = append(sessionEnv, launchCfg.CodexHomeEnv()...)
+
 	// Create multiplexer session
 	sessionCfg := &multiplexer.SessionConfig{
 		SessionName: controlAgentSessionName,
 		WorkDir:     workDir,
 		Command:     launchCmd,
-		Env:         adapter.ExtraEnv(),
+		Env:         sessionEnv,
 		WindowName:  "agent",
 	}
 

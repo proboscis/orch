@@ -320,6 +320,7 @@ type StartRunRequest struct {
 	Agent          string
 	AgentCmd       string
 	AgentProfile   string
+	CodexProfile   string
 	Model          string
 	ModelVariant   string
 	BaseBranch     string
@@ -583,6 +584,9 @@ type ControlAgentConfig struct {
 	Model         string
 	ModelVariant  string
 	ExtraArgs     []string
+	// CodexHome is the resolved CODEX_HOME for a codex control agent (from the
+	// project's default codex profile). Empty means the agent default (~/.codex).
+	CodexHome string
 }
 
 type ContinueRunRequest struct {
@@ -593,6 +597,7 @@ type ContinueRunRequest struct {
 	Agent          string
 	AgentCmd       string
 	AgentProfile   string
+	CodexProfile   string
 	WorktreeDir    string
 	NoPR           bool
 	PromptTemplate string
