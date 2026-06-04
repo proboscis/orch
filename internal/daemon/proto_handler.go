@@ -1243,6 +1243,7 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		Agent:          req.Agent,
 		AgentCmd:       req.AgentCmd,
 		AgentProfile:   req.AgentProfile,
+		CodexProfile:   req.CodexProfile,
 		Model:          req.Model,
 		ModelVariant:   req.ModelVariant,
 		Preset:         req.Preset,
@@ -1257,8 +1258,20 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		Multiplexer:    req.Multiplexer,
 		Target:         req.Target,
 	}
-	if strings.TrimSpace(req.Target) != "" && strings.TrimSpace(req.Target) != "local" {
-		target, targetErr := resolveTargetForProjectRoot(projectRoot, req.Target)
+
+	// Resolve the codex execution profile before target resolution so a
+	// profile-bound target routes through the worker-delegation path, and so
+	// AllowedTargets is enforced at the authoritative master entry point.
+	profileCfg, profileCfgErr := loadConfigForProjectRoot(projectRoot)
+	if profileCfgErr != nil {
+		return errorResponse(fmt.Sprintf("failed to load config: %v", profileCfgErr))
+	}
+	if err := applyCodexProfile(profileCfg, opts); err != nil {
+		return errorResponse(err.Error())
+	}
+
+	if strings.TrimSpace(opts.Target) != "" && strings.TrimSpace(opts.Target) != "local" {
+		target, targetErr := resolveTargetForProjectRoot(projectRoot, opts.Target)
 		if targetErr != nil {
 			return errorResponse(targetErr.Error())
 		}
@@ -1494,6 +1507,7 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 		Agent:          req.Agent,
 		AgentCmd:       req.AgentCmd,
 		AgentProfile:   req.AgentProfile,
+		CodexProfile:   req.CodexProfile,
 		WorktreeDir:    req.WorktreeDir,
 		NoPR:           req.NoPr,
 		PromptTemplate: req.PromptTemplate,
@@ -1501,15 +1515,32 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 		Multiplexer:    req.Multiplexer,
 		SessionName:    req.SessionName,
 	}
+	// Inherit the prior run's target and agent so the codex profile constraint
+	// and CODEX_HOME are re-applied identically on restart-from/continue.
+	var fromRunAgent string
 	if req.ShortId != "" {
 		if run, err := st.GetRunByShortID(model.ShortID(req.ShortId)); err == nil && run != nil {
 			opts.Target = strings.TrimSpace(run.Target)
+			fromRunAgent = strings.TrimSpace(run.Agent)
 		}
 	} else if req.IssueId != "" && req.RunId != "" {
 		if run, err := st.GetRun(&model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}); err == nil && run != nil {
 			opts.Target = strings.TrimSpace(run.Target)
+			fromRunAgent = strings.TrimSpace(run.Agent)
 		}
 	}
+
+	// Resolve the codex execution profile before target resolution so a
+	// profile-bound target routes through the worker-delegation path, and so
+	// AllowedTargets is enforced + CODEX_HOME re-derived on every continue.
+	profileCfg, profileCfgErr := loadConfigForProjectRoot(projectRoot)
+	if profileCfgErr != nil {
+		return errorResponse(fmt.Sprintf("failed to load config: %v", profileCfgErr))
+	}
+	if err := applyCodexProfileContinue(profileCfg, opts, fromRunAgent); err != nil {
+		return errorResponse(err.Error())
+	}
+
 	if strings.TrimSpace(opts.Target) != "" && strings.TrimSpace(opts.Target) != "local" {
 		target, targetErr := resolveTargetForProjectRoot(projectRoot, opts.Target)
 		if targetErr != nil {
@@ -1895,6 +1926,7 @@ func (s *SocketServer) handleProtoGetControlAgentConfig(req *orchpb.GetControlAg
 				Model:         result.Model,
 				ModelVariant:  result.ModelVariant,
 				ExtraArgs:     result.ExtraArgs,
+				CodexHome:     result.CodexHome,
 			},
 		},
 	}

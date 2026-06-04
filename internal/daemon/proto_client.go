@@ -624,6 +624,7 @@ func (c *ProtoClient) StartRun(opts *StartRunOptions) (*StartRunResponse, error)
 				Agent:          opts.Agent,
 				AgentCmd:       opts.AgentCmd,
 				AgentProfile:   opts.AgentProfile,
+				CodexProfile:   opts.CodexProfile,
 				Model:          opts.Model,
 				ModelVariant:   opts.ModelVariant,
 				Preset:         opts.Preset,
@@ -677,6 +678,7 @@ func (c *ProtoClient) ContinueRun(opts *ContinueRunOptions) (*ContinueRunRespons
 				Agent:          opts.Agent,
 				AgentCmd:       opts.AgentCmd,
 				AgentProfile:   opts.AgentProfile,
+				CodexProfile:   opts.CodexProfile,
 				WorktreeDir:    opts.WorktreeDir,
 				NoPr:           opts.NoPR,
 				PromptTemplate: opts.PromptTemplate,
@@ -1203,6 +1205,7 @@ func (c *ProtoClient) GetControlAgentConfig() (*GetControlAgentConfigResponse, e
 		Model:         configResp.Model,
 		ModelVariant:  configResp.ModelVariant,
 		ExtraArgs:     configResp.ExtraArgs,
+		CodexHome:     configResp.CodexHome,
 	}, nil
 }
 

@@ -1,5 +1,9 @@
 # orch uses itself as the vault - issues live in this repo
-agent: opencode
+# Default to codex so the per-project codex profile (codex.default_profile)
+# engages on a plain `orch run`. The code default is "claude", so this must be
+# set explicitly rather than relying on the user's global config.
+agent: codex
+#agent: opencode
 #agent: claude
 worktree_dir: .git-worktrees
 base_branch: main
@@ -15,6 +19,28 @@ claude:
 opencode:
   default_model: openai/gpt-5.3-codex
   default_variant: xhigh
+
+# Codex execution profiles bind a codex "account" to an execution target and an
+# optional CODEX_HOME auth dir. For this repo (orch) the default profile is
+# "company", which is pinned to the "mac" target (the "zeus" machine is personal
+# and must NOT run the company codex account). "personal" may run anywhere.
+# allowed_targets entries are config.targets NAMES (not resolved hostnames).
+codex:
+  default_profile: company
+  profiles:
+    company:
+      target: mac
+      allowed_targets: [mac]
+    personal: {}
+
+# Execution targets referenced by codex profiles and `orch run --on <target>`.
+# Defined here so the company-on-mac requirement does not silently depend on a
+# user's global ~/.config/orch/config.yaml.
+targets:
+  - name: mac
+    host: CA-20035844  # this mac (os.Hostname); company codex profile runs here
+  - name: zeus
+    host: zeus
 
 issues:
   backend: local

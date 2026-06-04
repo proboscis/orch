@@ -605,6 +605,7 @@ type StartRunOptions struct {
 	Agent          string
 	AgentCmd       string
 	AgentProfile   string
+	CodexProfile   string
 	Model          string
 	ModelVariant   string
 	Preset         string
@@ -620,6 +621,9 @@ type StartRunOptions struct {
 	Target         string
 	TargetHost     string
 	TargetWorkerID string
+	// CodexHome is the resolved CODEX_HOME for the selected codex profile
+	// (after ~ expansion). Empty means use the agent default (~/.codex).
+	CodexHome string
 }
 
 type StartRunResponse struct {
@@ -654,6 +658,7 @@ type ContinueRunOptions struct {
 	Agent          string
 	AgentCmd       string
 	AgentProfile   string
+	CodexProfile   string
 	WorktreeDir    string
 	NoPR           bool
 	PromptTemplate string
@@ -663,6 +668,9 @@ type ContinueRunOptions struct {
 	Target         string
 	TargetHost     string
 	TargetWorkerID string
+	// CodexHome is the resolved CODEX_HOME for the selected codex profile
+	// (after ~ expansion). Empty means use the agent default (~/.codex).
+	CodexHome string
 }
 
 type ContinueRunResponse struct {
@@ -779,6 +787,7 @@ type GetControlAgentConfigResponse struct {
 	Model         string   `json:"model,omitempty"`
 	ModelVariant  string   `json:"model_variant,omitempty"`
 	ExtraArgs     []string `json:"extra_args,omitempty"`
+	CodexHome     string   `json:"codex_home,omitempty"`
 }
 
 type ControlAgentConfigResult struct {
@@ -787,6 +796,9 @@ type ControlAgentConfigResult struct {
 	Model         string
 	ModelVariant  string
 	ExtraArgs     []string
+	// CodexHome is the resolved CODEX_HOME for a codex control agent (from the
+	// project's default codex profile). Empty means the agent default (~/.codex).
+	CodexHome string
 }
 
 type SendMessageParams struct {

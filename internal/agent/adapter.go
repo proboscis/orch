@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
 // InjectionMethod specifies how the prompt should be sent to the agent
@@ -65,6 +66,7 @@ type LaunchConfig struct {
 	ModelVariant    string // Model variant (e.g., "max" for max thinking)
 	ContinueSession bool
 	ExtraArgs       []string // Additional CLI arguments from config
+	CodexHome       string   // CODEX_HOME for codex auth isolation; empty = agent default (~/.codex). Leading ~ expands to $HOME.
 }
 
 // Env returns the environment variables to pass to the agent
@@ -80,7 +82,40 @@ func (c *LaunchConfig) Env() []string {
 	if home := os.Getenv("HOME"); home != "" {
 		env = append(env, fmt.Sprintf("HOME=%s", home))
 	}
+	// Inject CODEX_HOME for codex auth isolation when a profile selects a
+	// specific auth directory.
+	env = append(env, c.CodexHomeEnv()...)
 	return env
+}
+
+// CodexHomeEnv returns the CODEX_HOME environment entry for the configured codex
+// auth directory, or an empty slice when none is set. A leading ~ expands to
+// $HOME. Empty injects nothing, which is safe for non-codex agents.
+func (c *LaunchConfig) CodexHomeEnv() []string {
+	if codexHome := expandCodexHome(c.CodexHome); codexHome != "" {
+		return []string{fmt.Sprintf("CODEX_HOME=%s", codexHome)}
+	}
+	return nil
+}
+
+// expandCodexHome expands a leading ~ in a CODEX_HOME path to $HOME.
+func expandCodexHome(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if path == "~" {
+		if home := os.Getenv("HOME"); home != "" {
+			return home
+		}
+		return path
+	}
+	if strings.HasPrefix(path, "~/") {
+		if home := os.Getenv("HOME"); home != "" {
+			return home + path[1:]
+		}
+	}
+	return path
 }
 
 // Adapter defines the interface for agent adapters
