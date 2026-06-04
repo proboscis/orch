@@ -5518,6 +5518,7 @@ func TestProcessStartRunCoreValidation(t *testing.T) {
 		}
 		opts := &StartRunOptions{
 			IssueID: "test-issue",
+			Agent:   "custom",
 		}
 		_, err := server.processStartRunCore(st, "", opts)
 		if err == nil {

@@ -59,6 +59,7 @@ func TestMain(m *testing.M) {
 	os.Setenv("XDG_CONFIG_HOME", configDir)
 	os.Unsetenv("ORCH_REMOTE")
 	os.Unsetenv("ORCH_PROJECT")
+	installFakeAgentBinaries(tmpDir)
 
 	addr, err := reserveLoopbackTCPAddr()
 	if err != nil {
@@ -101,6 +102,30 @@ func TestMain(m *testing.M) {
 	stopTestDaemon()
 	_ = os.RemoveAll(tmpDir)
 	os.Exit(code)
+}
+
+func installFakeAgentBinaries(root string) {
+	binDir := filepath.Join(root, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		panic("failed to create fake agent bin dir: " + err.Error())
+	}
+
+	for _, name := range []string{"claude", "codex"} {
+		path := filepath.Join(binDir, name)
+		script := fmt.Sprintf(`#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf 'fake %[1]s version\n'
+  exit 0
+fi
+printf 'fake %[1]s ready\n'
+sleep 30
+`, name)
+		if err := os.WriteFile(path, []byte(script), 0755); err != nil {
+			panic("failed to write fake " + name + ": " + err.Error())
+		}
+	}
+
+	os.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 func registerRepoOrPanic(projectRoot string) {
