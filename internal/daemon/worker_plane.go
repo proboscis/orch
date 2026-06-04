@@ -394,9 +394,12 @@ func (s *SocketServer) acquireWorkerLease(projectID, effect, issueID, runID stri
 
 	s.workerLeasesMu.Lock()
 	s.workerLeases[lease.LeaseID] = lease
+	// Copy under the lock: leaseWorkForWorker mutates the stored *lease
+	// (DispatchCount/ExpiresAt/PayloadJSON) under the same mutex, so reading
+	// *lease outside the lock is a data race (flaky under -race).
+	copy := *lease
 	s.workerLeasesMu.Unlock()
 
-	copy := *lease
 	return &copy, nil
 }
 
