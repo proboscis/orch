@@ -2,6 +2,8 @@ package orchapi
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"time"
 
 	"github.com/s22625/orch/api/orchpb"
@@ -15,10 +17,20 @@ type daemonRunEventStream struct {
 	raw    *daemon.RunEventStream
 	events chan *RunEvent
 	done   chan struct{}
+	mu     sync.Mutex
+	err    error
 }
 
 func (s *daemonRunEventStream) Events() <-chan *RunEvent { return s.events }
-func (s *daemonRunEventStream) Err() error               { return s.raw.Err() }
+func (s *daemonRunEventStream) Err() error {
+	s.mu.Lock()
+	err := s.err
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	return s.raw.Err()
+}
 func (s *daemonRunEventStream) Close() error {
 	err := s.raw.Close()
 	<-s.done
@@ -29,7 +41,20 @@ func (s *daemonRunEventStream) translateLoop() {
 	defer close(s.events)
 	defer close(s.done)
 	for ev := range s.raw.Events() {
-		s.events <- protoEventToOrchAPI(ev)
+		domainEvent, err := protoEventToOrchAPI(ev)
+		if err != nil {
+			s.setErr(err)
+			return
+		}
+		s.events <- domainEvent
+	}
+}
+
+func (s *daemonRunEventStream) setErr(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err == nil {
+		s.err = err
 	}
 }
 
@@ -54,10 +79,16 @@ func (c *DaemonClient) StreamRunEvents(ctx context.Context, filter *RunEventFilt
 	return stream, nil
 }
 
-func protoEventToOrchAPI(ev *orchpb.RunEventFrame) *RunEvent {
+func protoEventToOrchAPI(ev *orchpb.RunEventFrame) (*RunEvent, error) {
 	if ev == nil {
-		return nil
+		return nil, fmt.Errorf("nil run event frame")
 	}
+
+	projectID, err := model.NewProjectID(ev.ProjectId)
+	if err != nil {
+		return nil, fmt.Errorf("invalid project_id in run event %q: %w", ev.ProjectId, err)
+	}
+
 	return &RunEvent{
 		Timestamp: time.UnixMilli(ev.TimestampUnixMs),
 		IssueID:   model.IssueID(ev.IssueId),
@@ -66,8 +97,8 @@ func protoEventToOrchAPI(ev *orchpb.RunEventFrame) *RunEvent {
 		From:      protoRunStatusToDomain(ev.FromStatus),
 		To:        protoRunStatusToDomain(ev.ToStatus),
 		Source:    ev.Source,
-		ProjectID: model.ProjectID(ev.ProjectId),
-	}
+		ProjectID: projectID,
+	}, nil
 }
 
 func protoRunStatusToDomain(s orchpb.RunStatus) RunStatus {

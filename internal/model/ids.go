@@ -10,8 +10,7 @@ type IssueID string
 type RunID string
 type ShortID string
 type RepoID string
-
-type ProjectID = RepoID
+type ProjectID string
 
 func (id IssueID) String() string {
 	return string(id)
@@ -26,6 +25,10 @@ func (id ShortID) String() string {
 }
 
 func (id RepoID) String() string {
+	return string(id)
+}
+
+func (id ProjectID) String() string {
 	return string(id)
 }
 
@@ -68,6 +71,16 @@ func NewRepoID(input string) (RepoID, error) {
 	}
 
 	return "", fmt.Errorf("unable to parse repo identity: %s", input)
+}
+
+// NewProjectID normalizes a project identity using the same byte-compatible
+// repo-id normalization as NewRepoID while keeping a distinct domain type.
+func NewProjectID(input string) (ProjectID, error) {
+	repoID, err := NewRepoID(input)
+	if err != nil {
+		return "", err
+	}
+	return ProjectID(repoID.String()), nil
 }
 
 func newSanitizedRepoID(owner, repo, input string) (RepoID, error) {
