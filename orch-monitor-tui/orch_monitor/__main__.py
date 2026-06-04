@@ -42,7 +42,12 @@ def _spinner_context(message: str, enabled: bool = True):
 
 
 from .app import IssuesDashboard, OrchMonitorApp, RunsDashboard, setup_logging
-from .config import Config, resolve_project_identity, resolve_project_root_hint
+from .config import (
+    Config,
+    resolve_project_identity,
+    resolve_project_root_hint,
+    resolve_remote_addr,
+)
 from .proto_client import ProtoDaemonClient
 from .multiplexer import (
     InvalidMultiplexerConfigError,
@@ -276,7 +281,10 @@ def _get_daemon_client(project_root: Path | None) -> "ProtoDaemonClient | None":
         config = (
             Config.from_project_root(project_root) if project_root else Config.load()
         )
-        daemon = ProtoDaemonClient(config.socket_path, config.project_root)
+        remote_addr = resolve_remote_addr() or None
+        daemon = ProtoDaemonClient(
+            config.socket_path, config.project_root, remote_addr
+        )
         if daemon.is_available():
             return daemon
     except Exception as e:
@@ -549,6 +557,18 @@ def ensure_daemon(
         config = Config.from_project_root(project_root)
     else:
         config = Config.load()
+
+    remote_addr = resolve_remote_addr() or None
+    if remote_addr:
+        # Remote master: connect over TCP; never start a local daemon.
+        daemon = ProtoDaemonClient(config.socket_path, config.project_root, remote_addr)
+        if daemon.is_available():
+            return True, ""
+        return False, (
+            f"Remote orch daemon not reachable at {remote_addr} "
+            "(from --remote/ORCH_REMOTE/client.yaml remote.default)"
+        )
+
     daemon = ProtoDaemonClient(config.socket_path, config.project_root)
     socket_path = config.socket_path
 
@@ -686,6 +706,9 @@ class TmuxLayoutLauncher:
         env_export = ""
         if project_scope:
             env_export += f"export ORCH_PROJECT={shlex.quote(project_scope)}; "
+        remote_env = os.environ.get("ORCH_REMOTE")
+        if remote_env is not None:
+            env_export += f"export ORCH_REMOTE={shlex.quote(remote_env)}; "
 
         subprocess.run(
             [
@@ -1223,11 +1246,23 @@ def main():
         action="store_true",
         help="Enable verbose logging to stderr",
     )
+    parser.add_argument(
+        "--remote",
+        default=None,
+        help="Remote orch daemon/master address (host:port or alias). "
+        "Overrides ORCH_REMOTE / client.yaml remote.default. "
+        'Use --remote="" to force local.',
+    )
 
     args = parser.parse_args()
 
     if args.project:
         os.environ["ORCH_PROJECT"] = args.project
+
+    # Make the remote selection visible to child panes (which re-run this module)
+    # and to all client resolution within this process.
+    if args.remote is not None:
+        os.environ["ORCH_REMOTE"] = args.remote
 
     if args.verbose:
         import time as _time

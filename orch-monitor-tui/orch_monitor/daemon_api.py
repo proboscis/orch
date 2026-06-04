@@ -288,11 +288,25 @@ class DaemonOrchAPI:
             if project_root is None:
                 project_root = config.project_root
 
+        from .config import repo_id_from_project, resolve_remote_addr
+
+        # Route to a remote master (TCP) when configured (--remote/ORCH_REMOTE/
+        # client.yaml remote.default), mirroring the Go CLI. Empty = local socket.
+        self._remote_addr = resolve_remote_addr() or None
+
         self._socket_path = socket_path
         self._project_root = project_root or Path.cwd()
         self._project_scope = resolve_project_identity(project_root=self._project_root)
+        # Normalized daemon project id so list_issues/list_runs are scoped to this
+        # project (matches the Go CLI's RequestContext.project_id).
+        self._project_id = repo_id_from_project(self._project_root) or None
         self._base_branch = base_branch
-        self._daemon = ProtoDaemonClient(socket_path, self._project_root)
+        self._daemon = ProtoDaemonClient(
+            socket_path,
+            self._project_root,
+            self._remote_addr,
+            project_id=self._project_id,
+        )
         self._monitor_heartbeat: Optional[MonitorHeartbeat] = None
 
     def _build_orch_cmd(self) -> list[str]:
@@ -310,6 +324,15 @@ class DaemonOrchAPI:
     def ensure_running(self) -> Result[bool, OrchError]:
         if self._daemon.is_available():
             return Success(True)
+
+        if self._remote_addr:
+            # A remote master cannot be started locally; just report unreachable.
+            return Failure(
+                OrchError(
+                    f"Remote orch daemon not reachable at {self._remote_addr} "
+                    "(set via --remote/ORCH_REMOTE/client.yaml remote.default)"
+                )
+            )
 
         try:
             cmd = self._build_orch_cmd() + ["daemon", "start"]

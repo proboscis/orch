@@ -102,6 +102,97 @@ def resolve_project_identity(
     return _repo_url_from_git_remote(project_root)
 
 
+def _client_config_path() -> Path:
+    """Path to the global client config (~/.config/orch/client.yaml)."""
+    return Path.home() / ".config" / "orch" / "client.yaml"
+
+
+def _load_client_config() -> dict:
+    """Load ~/.config/orch/client.yaml. Missing/invalid file -> empty mapping."""
+    path = _client_config_path()
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f) or {}
+        return data if isinstance(data, dict) else {}
+    except FileNotFoundError:
+        return {}
+    except (OSError, yaml.YAMLError):
+        return {}
+
+
+def _resolve_remote_alias(value: str, client_cfg: dict) -> str:
+    """Resolve a host alias to its addr via remote.hosts, else return value as-is."""
+    v = (value or "").strip()
+    if not v:
+        return ""
+    remote = client_cfg.get("remote") or {}
+    hosts = remote.get("hosts") or {}
+    host = hosts.get(v)
+    if isinstance(host, dict):
+        addr = (host.get("addr") or "").strip()
+        if addr:
+            return addr
+    return v
+
+
+def resolve_remote_addr(
+    explicit_remote: Optional[str] = None,
+    explicit_set: bool = False,
+) -> str:
+    """Resolve the daemon remote address (host:port), mirroring the Go CLI.
+
+    Precedence: explicit --remote (even ""=force local) > ORCH_REMOTE env >
+    ~/.config/orch/client.yaml remote.default. Host aliases in remote.hosts are
+    resolved to their addr. Returns "" for local (unix-socket) mode.
+    """
+    client_cfg = _load_client_config()
+    if explicit_set:
+        return _resolve_remote_alias(explicit_remote or "", client_cfg)
+    env = (os.getenv("ORCH_REMOTE") or "").strip()
+    if env:
+        return _resolve_remote_alias(env, client_cfg)
+    remote = client_cfg.get("remote") or {}
+    return _resolve_remote_alias(remote.get("default") or "", client_cfg)
+
+
+def _parse_repo_id_from_url(url: str) -> str:
+    """Normalize a git remote URL to the daemon's repo id ("owner-repo").
+
+    Mirrors the Go xdg.ParseRepoID + sanitizeRepoID so project scoping matches
+    the daemon's project_id keys.
+    """
+    import re
+
+    u = (url or "").strip()
+    if not u:
+        return ""
+    m = re.match(r"^git@[^:]+:([^/]+)/([^/]+?)(?:\.git)?$", u)
+    if not m:
+        m = re.match(r"^(?:https?|git|ssh)://[^/]+/([^/]+)/([^/]+?)(?:\.git)?/?$", u)
+    if m:
+        owner, repo = m.group(1), m.group(2)
+    else:
+        cleaned = u[:-4] if u.endswith(".git") else u
+        parts = cleaned.split("/")
+        if len(parts) < 2:
+            return ""
+        owner, repo = parts[-2], parts[-1]
+        if ":" in owner:
+            owner = owner.rsplit(":", 1)[-1]
+    safe = lambda s: re.sub(r"[^a-zA-Z0-9_-]", "", s)
+    owner, repo = safe(owner), safe(repo)
+    if not owner or not repo:
+        return ""
+    return f"{owner}-{repo}"
+
+
+def repo_id_from_project(project_root: Optional[Path]) -> str:
+    """Resolve the daemon project_id ("owner-repo") for a project root, or ""."""
+    if project_root is None:
+        return ""
+    return _parse_repo_id_from_url(_repo_url_from_git_remote(Path(project_root)) or "")
+
+
 def _log_config_error(operation: str, error: str, orch_dir: Optional[Path]) -> None:
     if orch_dir is None:
         return

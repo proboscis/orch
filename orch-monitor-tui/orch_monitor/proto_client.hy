@@ -224,11 +224,31 @@
 ;; Proto Daemon Client
 ;; ============================================================================
 
+(defn _parse-host-port [addr]
+  "Parse a 'host:port' (optionally 'tcp://host:port') into #(host port)."
+  (setv a (.strip (str addr)))
+  (when (.startswith a "tcp://")
+    (setv a (cut a (len "tcp://") None)))
+  (setv idx (.rfind a ":"))
+  (when (< idx 0)
+    (raise (ValueError f"invalid remote address (expected host:port): {addr}")))
+  #((cut a 0 idx) (int (cut a (+ idx 1) None))))
+
 (defclass ProtoDaemonClient []
-  
-  (defn __init__ [self socket-path [project-root None] [timeout 30.0]]
+
+  (defn __init__ [self socket-path [project-root None] [remote-addr None] [timeout 30.0] [project-id None]]
     (setv self.socket-path socket-path)
     (setv self.project-root project-root)
+    ;; When remote-addr is set (host:port) the client dials TCP to a remote
+    ;; daemon/master instead of the local unix socket.
+    (setv self.remote-addr (if remote-addr (.strip (str remote-addr)) None))
+    (when (= self.remote-addr "")
+      (setv self.remote-addr None))
+    ;; Normalized daemon project id ("owner-repo") used to scope list_issues /
+    ;; list_runs to this project via RequestContext (matches the Go CLI).
+    (setv self.project-id (if project-id (.strip (str project-id)) None))
+    (when (= self.project-id "")
+      (setv self.project-id None))
     (setv self._timeout timeout)
     ;; Persistent connection state
     (setv self._socket None)
@@ -241,7 +261,8 @@
   (defn check-availability [self]
     "Active daemon availability check. Returns Result[bool, ProtoDaemonError]."
     (try
-      (_assert-socket-file self.socket-path)
+      (when (not self.remote-addr)
+        (_assert-socket-file self.socket-path))
       ;; Keep availability checks on the persistent client channel to avoid
       ;; separate one-shot socket churn.
       (setv req (pb.Request))
@@ -274,9 +295,14 @@
         (except [e Exception] None))
       (setv self._socket None))
     
-    (setv sock (socket.socket socket.AF_UNIX socket.SOCK_STREAM))
-    (.settimeout sock self._timeout)
-    (.connect sock (str self.socket-path))
+    (if self.remote-addr
+        (do
+          (setv #(host port) (_parse-host-port self.remote-addr))
+          (setv sock (socket.create_connection #(host port) :timeout self._timeout)))
+        (do
+          (setv sock (socket.socket socket.AF_UNIX socket.SOCK_STREAM))
+          (.settimeout sock self._timeout)
+          (.connect sock (str self.socket-path))))
     (setv self._socket sock)
     (setv self._connected True)
     (.debug _conn_logger "Established persistent connection to daemon"))
@@ -323,8 +349,9 @@
   
   (defn _send [self request]
     "Send request using persistent connection. Raises typed ProtoDaemonError on failure."
-    (_assert-socket-file self.socket-path)
-    
+    (when (not self.remote-addr)
+      (_assert-socket-file self.socket-path))
+
     (with [_ self._lock]
       (socket-send self.socket-path
         ;; Ensure we have a valid connection
@@ -397,6 +424,8 @@
              req.list_runs.text_search (or filters.text_search "")
              req.list_runs.time_range (or filters.time_range "")
              req.list_runs.limit MAX_PAGE_SIZE)
+      (when self.project-id
+        (setv req.list_runs.context.project_id self.project-id))
       (for [s filters.status]
         (.append req.list_runs.status (model-status->proto s)))
       (setv resp (._send-ok self req))
@@ -413,6 +442,8 @@
       (set-> req.list_issues.tags_mode (or filters.tags_mode "")
              req.list_issues.text_search (or filters.text_search "")
              req.list_issues.limit MAX_PAGE_SIZE)
+      (when self.project-id
+        (setv req.list_issues.context.project_id self.project-id))
       (for [s filters.status]
         (.append req.list_issues.status (model-issue-status->proto s)))
       (for [tag filters.tags]
@@ -633,9 +664,9 @@
 ;; Convenience: Create client with Result-based API
 ;; ============================================================================
 
-(defn create-client [socket-path [project-root None] [timeout 30.0]]
+(defn create-client [socket-path [project-root None] [remote-addr None] [timeout 30.0] [project-id None]]
   "Create a ProtoDaemonClient instance."
-  (ProtoDaemonClient socket-path project-root timeout))
+  (ProtoDaemonClient socket-path project-root remote-addr timeout project-id))
 
 
 ;; ============================================================================
