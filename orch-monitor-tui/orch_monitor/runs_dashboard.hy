@@ -125,6 +125,7 @@ DataTable {
   
   (setv BINDINGS [(Binding "question_mark" "help" "Help" :key_display "?")
                   (Binding "q" "quit" "Quit")
+                  (Binding "ctrl+c" "quit" "Quit" :priority True :show False)
                   (Binding "r" "refresh" "Refresh")
                   (Binding "enter" "attach" "Attach" :priority True)
                   (Binding "s" "stop" "Stop")

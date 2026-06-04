@@ -62,6 +62,7 @@
   
   (setv BINDINGS [(Binding "question_mark" "help" "Help" :key_display "?")
                   (Binding "q" "quit" "Quit")
+                  (Binding "ctrl+c" "quit" "Quit" :priority True :show False)
                   (Binding "r" "refresh" "Refresh")
                   (Binding "enter" "open_issue" "Open in Editor")
                   (Binding "n" "new_run" "New Run")
