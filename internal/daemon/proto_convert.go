@@ -111,32 +111,41 @@ func modelRunToProto(run *model.Run) *orchpb.Run {
 	}
 
 	protoRun := &orchpb.Run{
-		IssueId:           sanitizeUTF8(run.IssueID),
-		RunId:             sanitizeUTF8(run.RunID),
-		Status:            modelStatusToProto(run.Status),
-		Agent:             sanitizeUTF8(run.Agent),
-		Model:             sanitizeUTF8(run.Model),
-		Branch:            sanitizeUTF8(run.Branch),
-		WorktreePath:      sanitizeUTF8(run.WorktreePath),
-		Target:            sanitizeUTF8(run.Target),
-		TargetHost:        sanitizeUTF8(run.TargetHost),
-		PrUrl:             sanitizeUTF8(run.PRUrl),
-		StartedAtUnix:     run.StartedAt.Unix(),
-		UpdatedAtUnix:     run.UpdatedAt.Unix(),
-		ElapsedSeconds:    int32(run.UpdatedAt.Sub(run.StartedAt).Seconds()),
-		SessionName:       sanitizeUTF8(run.SessionName),
-		Multiplexer:       multiplexerToProto(run.Multiplexer),
-		ServerPort:        int32(run.ServerPort),
-		OpencodeSessionId: sanitizeUTF8(run.OpenCodeSessionID),
-		ContinuedFrom:     sanitizeUTF8(run.ContinuedFrom),
-		PrNumber:          int32(run.PRNumber),
-		PrState:           sanitizeUTF8(run.PRState),
-		Alive:             run.Alive,
-		AliveKnown:        run.AliveKnown,
-		WorktreeExists:    run.WorktreeExists,
+		IssueId:            sanitizeUTF8(run.IssueID),
+		RunId:              sanitizeUTF8(run.RunID),
+		Status:             modelStatusToProto(run.Status),
+		Agent:              sanitizeUTF8(run.Agent),
+		Model:              sanitizeUTF8(run.Model),
+		Branch:             sanitizeUTF8(run.Branch),
+		WorktreePath:       sanitizeUTF8(run.WorktreePath),
+		Target:             sanitizeUTF8(run.Target),
+		TargetHost:         sanitizeUTF8(run.TargetHost),
+		PrUrl:              sanitizeUTF8(run.PRUrl),
+		StartedAtUnix:      run.StartedAt.Unix(),
+		UpdatedAtUnix:      run.UpdatedAt.Unix(),
+		ElapsedSeconds:     int32(run.UpdatedAt.Sub(run.StartedAt).Seconds()),
+		SessionName:        sanitizeUTF8(run.SessionName),
+		Multiplexer:        multiplexerToProto(run.Multiplexer),
+		ServerPort:         int32(run.ServerPort),
+		OpencodeSessionId:  sanitizeUTF8(run.OpenCodeSessionID),
+		ContinuedFrom:      sanitizeUTF8(run.ContinuedFrom),
+		PrNumber:           int32(run.PRNumber),
+		PrState:            sanitizeUTF8(run.PRState),
+		Alive:              run.Alive,
+		AliveKnown:         run.AliveKnown,
+		WorktreeExists:     run.WorktreeExists,
 	}
 
 	return protoRun
+}
+
+func populateRunDisplayFields(run *orchpb.Run) {
+	if run == nil {
+		return
+	}
+	run.StatusDisplay = sanitizeUTF8(protoRunStatusToString(run.Status))
+	run.MultiplexerName = sanitizeUTF8(protoMultiplexerToString(run.Multiplexer))
+	run.BranchStateDisplay = sanitizeUTF8(protoBranchStateToString(run.BranchState))
 }
 
 func protoRunToModel(run *orchpb.Run) *model.Run {
@@ -170,7 +179,7 @@ func modelIssueToProto(issue *model.Issue) *orchpb.Issue {
 	if issue == nil {
 		return nil
 	}
-	return &orchpb.Issue{
+	protoIssue := &orchpb.Issue{
 		Id:             sanitizeUTF8(issue.ID),
 		Title:          sanitizeUTF8(issue.Title),
 		Topic:          sanitizeUTF8(issue.Topic),
@@ -182,6 +191,15 @@ func modelIssueToProto(issue *model.Issue) *orchpb.Issue {
 		ModifiedAtUnix: issue.ModifiedAt.Unix(),
 		BaseBranch:     sanitizeUTF8(issue.BaseBranch),
 	}
+	populateIssueDisplayFields(protoIssue)
+	return protoIssue
+}
+
+func populateIssueDisplayFields(issue *orchpb.Issue) {
+	if issue == nil {
+		return
+	}
+	issue.StatusDisplay = sanitizeUTF8(protoIssueStatusToString(issue.Status))
 }
 
 func protoIssueToModel(issue *orchpb.Issue) *model.Issue {

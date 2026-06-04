@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from orch_monitor.client_bootstrap import ClientBootstrap
 from orch_monitor.config import Config
 
 
@@ -23,9 +24,20 @@ def test_load_parses_control_agent_fields(tmp_path: Path, monkeypatch):
     )
 
     monkeypatch.chdir(repo)
+    monkeypatch.setattr(
+        "orch_monitor.config.load_client_bootstrap",
+        lambda: ClientBootstrap(
+            project_root=repo,
+            project_id="repoid:test-repo",
+            remote_addr=None,
+            socket_path=tmp_path / "orch.sock",
+            monitor_session_name="orch-monitor-test",
+        ),
+    )
     cfg = Config.load()
 
     assert cfg.agent == "opencode"
     assert cfg.control_agent == "claude"
     assert cfg.control_model == "anthropic/claude-opus-4-6"
     assert cfg.control_model_variant == "max"
+    assert cfg.socket_path == tmp_path / "orch.sock"

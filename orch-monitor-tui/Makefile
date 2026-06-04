@@ -1,10 +1,18 @@
-.PHONY: lint test install dev clean
+SEMGREP ?= $(shell command -v semgrep 2>/dev/null || echo $(HOME)/.local/bin/semgrep)
+
+.PHONY: lint lint-test test install dev clean
 
 # Run all linters
 lint:
+	@test -x "$(SEMGREP)" || uv tool install semgrep
 	@echo "Running semgrep architecture rules..."
-	semgrep --config .semgrep/architecture.yaml orch_monitor/
+	$(SEMGREP) --error --config .semgrep/architecture.yaml orch_monitor/
 	@echo "Lint passed!"
+
+lint-test:
+	@test -x "$(SEMGREP)" || uv tool install semgrep
+	@echo "Running semgrep architecture rule tests..."
+	uv run python .semgrep/check_architecture_fixtures.py "$(SEMGREP)"
 
 # Run tests
 test:

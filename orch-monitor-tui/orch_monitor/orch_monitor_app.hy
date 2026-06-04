@@ -37,9 +37,7 @@
 (import orch_monitor.types [RunFilterResult IssueFilterResult])
 (import orch_monitor.orch_api [OrchAPI create_orch_api])
 (import orch_monitor.orch_api [RunFilters :as ApiRunFilters
-                               RunStatus :as ApiRunStatus
-                               IssueFilters :as ApiIssueFilters
-                               IssueStatus :as ApiIssueStatus])
+                               IssueFilters :as ApiIssueFilters])
 (import orch_monitor.converters [api_runs_to_model :as _api_runs_to_model_runs
                                  api_issues_to_model :as _api_issues_to_model_issues])
 (import orch_monitor.confirm_screens [KillConfirmScreen CloseIssueConfirmScreen])
@@ -49,7 +47,7 @@
 (import orch_monitor.multiplexer [Multiplexer MultiplexerType
                                   detect_current_multiplexer get_multiplexer
                                   get_multiplexer_for_run get_multiplexer_type_from_run
-                                  get_session_name])
+                                  get_run_session_name])
 (import orch_monitor.widgets [DetailPanel IssueTable RunTable])
 (import orch_monitor.app_base [get-logger _log-error _build-orch-cmd
                                _get-editor-command _get-issue-file-path
@@ -97,11 +95,13 @@
   ;; Initialization
   ;; =========================================================================
   
-  (defn __init__ [self [project-root None] [auto-refresh True] [api None]]
+  (defn __init__ [self [project-root None] [auto-refresh True] [api None]
+                  [config None] [vault-path None]]
     (.__init__ (super))
-    (setv self.config (if project-root
-                          (Config.from_project_root project-root)
-                          (Config.load)))
+    (setv self.config (or config
+                          (if project-root
+                              (Config.from_project_root project-root)
+                              (Config.load))))
     (setv self.api (or api (create_orch_api self.config.socket_path
                                             self.config.project_root)))
     (setv self.runs [])
@@ -303,16 +303,10 @@
     
     ;; Fetch runs
     (setv run-filters self.filter_state.run_filters)
-    (setv status-filter [])
-    (for [s run-filters.statuses]
-      (with-fallback-silent "parse_run_status" None
-        (.append status-filter (ApiRunStatus s))))
-    (setv agent-filter (if (= (len run-filters.agents) 1)
-                           (get run-filters.agents 0)
-                           None))
+    (setv status-filter (list run-filters.statuses))
     (setv run-api-filters (ApiRunFilters
                             :status status-filter
-                            :agent agent-filter
+                            :agents (list run-filters.agents)
                             :text_search (or run-filters.text_search None)
                             :time_range (if (!= run-filters.time_range "all")
                                             run-filters.time_range
@@ -320,17 +314,10 @@
     (if-ok [runs-response (.list_runs self.api run-api-filters)]
       (setv runs (_api_runs_to_model_runs runs-response.runs))
       (setv error (str runs-response)))
-    (when-some [r runs]
-      (when (> (len run-filters.agents) 1)
-        (setv runs (lfor r runs :if (in r.agent run-filters.agents) r)))
-      (.sort runs :key (fn [r] (or r.updated_at r.started_at datetime.min)) :reverse True))
     
     ;; Fetch issues
     (setv issue-filters self.filter_state.issue_filters)
-    (setv issue-status-filter [])
-    (for [s issue-filters.statuses]
-      (with-fallback-silent "parse_issue_status" None
-        (.append issue-status-filter (ApiIssueStatus s))))
+    (setv issue-status-filter (list issue-filters.statuses))
     (setv issue-api-filters (ApiIssueFilters
                               :status issue-status-filter
                               :tags (if issue-filters.tags (list issue-filters.tags) [])
@@ -340,8 +327,6 @@
       (setv issues (_api_issues_to_model_issues issues-response.issues))
       (when-none error
         (setv error (str issues-response))))
-    (when-some [i issues]
-      (.sort issues :key (fn [i] i.id) :reverse True))
     
     (.call_from_thread self self._update_all_tables runs issues error))
   

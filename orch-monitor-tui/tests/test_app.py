@@ -363,9 +363,12 @@ class TestDataPopulation:
         """Test that empty daemon data shows empty table."""
         from orch_monitor.app import RunsDashboard
 
-        app = RunsDashboard(vault_path=mock_config.vault_path, auto_refresh=False)
-        app.daemon = empty_mock_daemon
-        app.config = mock_config
+        app = RunsDashboard(
+            config=mock_config,
+            api=empty_mock_daemon,
+            vault_path=mock_config.vault_path,
+            auto_refresh=False,
+        )
 
         async with app.run_test() as pilot:
             await pilot.pause()

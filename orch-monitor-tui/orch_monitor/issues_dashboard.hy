@@ -36,8 +36,7 @@
 (import orch_monitor.models [Issue IssueStatus])
 (import orch_monitor.types [IssueFilterResult])
 (import orch_monitor.orch_api [OrchAPI create_orch_api])
-(import orch_monitor.orch_api [IssueFilters :as ApiIssueFilters
-                               IssueStatus :as ApiIssueStatus])
+(import orch_monitor.orch_api [IssueFilters :as ApiIssueFilters])
 (import orch_monitor.converters [api_issues_to_model :as _api_issues_to_model_issues])
 (import orch_monitor.confirm_screens [CloseIssueConfirmScreen])
 (import orch_monitor.filter_screens [IssueFilterScreen])
@@ -75,11 +74,13 @@
   ;; Initialization
   ;; =========================================================================
   
-  (defn __init__ [self [project-root None] [auto-refresh True] [api None]]
+  (defn __init__ [self [project-root None] [auto-refresh True] [api None]
+                  [config None] [vault-path None]]
     (.__init__ (super))
-    (setv self.config (if project-root
-                          (Config.from_project_root project-root)
-                          (Config.load)))
+    (setv self.config (or config
+                          (if project-root
+                              (Config.from_project_root project-root)
+                              (Config.load))))
     (setv self.api (or api (create_orch_api self.config.socket_path
                                             self.config.project_root)))
     (setv self.issues [])
@@ -199,11 +200,7 @@
   
   (defn [(work :thread True :exclusive True)] _fetch_issues [self]
     (setv issue-filters self.filter_state.issue_filters)
-    (setv status-filter [])
-    (for [s issue-filters.statuses]
-      ;; Use with-fallback-silent for enum parsing
-      (with-fallback-silent "parse_issue_status" None
-        (.append status-filter (ApiIssueStatus s))))
+    (setv status-filter (list issue-filters.statuses))
     (setv filters (ApiIssueFilters
                     :status status-filter
                     :tags (if issue-filters.tags (list issue-filters.tags) [])
@@ -212,7 +209,6 @@
     (if-ok [response (.list_issues self.api filters)]
       (do
         (setv issues (_api_issues_to_model_issues response.issues))
-        (.sort issues :key (fn [i] i.id) :reverse True)
         (.call_from_thread self self._update_issues_table issues None))
       (.call_from_thread self self._update_issues_table None (str response))))
   

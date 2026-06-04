@@ -1219,7 +1219,10 @@
    Textual automatically awaits it - which triggers ScreenError. We must
    discard the return value so the handler returns None instead."
   `(do
-     (.dismiss ~self ~result)
+     (.call_later ~self (fn []
+                          (do
+                            (.dismiss ~self ~result)
+                            None)))
      None))
 
 (defmacro defon [event-spec name params #* body]
@@ -1387,7 +1390,7 @@
    
    Requires in file:
      - Imports: subprocess, detect_current_multiplexer, get_multiplexer,
-       MultiplexerType, get_multiplexer_type_from_run, get_session_name,
+       MultiplexerType, get_multiplexer_type_from_run, get_run_session_name,
        get_multiplexer_for_run, KillConfirmScreen, _build-orch-cmd, _input-has-focus
      - Macros: with-fallback, when-err
      - Instance attrs: self._runs_by_ref, self._highlighted_run_ref,
@@ -1413,7 +1416,7 @@
            (setv run-mux-type (get_multiplexer_type_from_run run))
            (when (= run-mux-type MultiplexerType.ZELLIJ)
              (setv current-session (.get_current_session current-mux))
-             (setv run-session (get_session_name run))
+             (setv run-session (get_run_session_name run))
              (when (and current-session run-session (!= current-session run-session))
                (setv cmd-str (.join " " attach-cmd))
                (.call_from_thread self self.notify
@@ -1480,7 +1483,7 @@
      ;; ===================== KILL SESSION =====================
      (defaction action_kill_session [self] [:require-run]
        "Show kill confirmation dialog for selected run."
-       (setv session-name (get_session_name run))
+       (setv session-name (get_run_session_name run))
        (when (not session-name)
          (.notify self "Run has no session" :severity "warning")
          (return))

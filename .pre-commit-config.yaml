@@ -10,7 +10,7 @@ repos:
 
       - id: tui-architecture-lint
         name: Python TUI Architecture Lint (semgrep)
-        entry: bash -c 'cd orch-monitor-tui && make lint'
+        entry: make -C orch-monitor-tui lint
         language: system
         pass_filenames: false
         files: ^orch-monitor-tui/orch_monitor/.*\.(py|hy)$

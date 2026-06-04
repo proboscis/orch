@@ -2,9 +2,13 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
+	"github.com/s22625/orch/internal/monitor"
+	"github.com/s22625/orch/internal/xdg"
 	"github.com/spf13/cobra"
 )
 
@@ -49,7 +53,68 @@ It shows:
 			return runDebug(args[0])
 		},
 	}
+	cmd.AddCommand(newDebugClientBootstrapCmd())
 	return cmd
+}
+
+type debugClientBootstrap struct {
+	ProjectRoot        string `json:"project_root"`
+	ProjectID          string `json:"project_id"`
+	RemoteAddr         string `json:"remote_addr"`
+	SocketPath         string `json:"socket_path"`
+	MonitorSessionName string `json:"monitor_session_name"`
+}
+
+func newDebugClientBootstrapCmd() *cobra.Command {
+	var jsonOut bool
+	cmd := &cobra.Command{
+		Use:    "client-bootstrap",
+		Short:  "Print client-side bootstrap values resolved by orch",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDebugClientBootstrap(jsonOut)
+		},
+	}
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Output JSON")
+	return cmd
+}
+
+func runDebugClientBootstrap(jsonOut bool) error {
+	projectRoot, _, err := getProjectRootWithSource()
+	if err != nil {
+		return err
+	}
+
+	projectID, _, err := getProjectIDWithSource(projectRoot)
+	if err != nil {
+		return err
+	}
+
+	sessionRoot := strings.TrimSpace(projectRoot)
+	if sessionRoot == "" {
+		return fmt.Errorf("project root is empty")
+	}
+
+	result := debugClientBootstrap{
+		ProjectRoot:        strings.TrimSpace(projectRoot),
+		ProjectID:          strings.TrimSpace(projectID),
+		RemoteAddr:         strings.TrimSpace(getRemoteAddr()),
+		SocketPath:         xdg.SocketPath(),
+		MonitorSessionName: monitor.SessionNameForProject(sessionRoot),
+	}
+
+	if jsonOut || globalOpts.JSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(result)
+	}
+
+	fmt.Printf("project_root: %s\n", result.ProjectRoot)
+	fmt.Printf("project_id: %s\n", result.ProjectID)
+	fmt.Printf("remote_addr: %s\n", result.RemoteAddr)
+	fmt.Printf("socket_path: %s\n", result.SocketPath)
+	fmt.Printf("monitor_session_name: %s\n", result.MonitorSessionName)
+	return nil
 }
 
 func runDebug(ref string) error {

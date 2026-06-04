@@ -287,9 +287,9 @@ func (m *Monitor) saveUISettings() {
 	_ = SaveUISettings(m.orchDir, settings)
 }
 
-// sessionNameForProject generates a unique monitor session name based on the project root path.
+// SessionNameForProject generates a unique monitor session name based on the project root path.
 // This ensures each project has its own monitor session.
-func sessionNameForProject(projectRoot string) string {
+func SessionNameForProject(projectRoot string) string {
 	if projectRoot == "" {
 		return defaultSessionName
 	}
@@ -333,6 +333,10 @@ func sessionNameForProject(projectRoot string) string {
 		}
 	}
 	return name
+}
+
+func sessionNameForProject(projectRoot string) string {
+	return SessionNameForProject(projectRoot)
 }
 
 const (

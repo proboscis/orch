@@ -191,10 +191,10 @@ class TestLocalSessionState:
             patch(
                 "orch_monitor.__main__.get_layout_launcher", return_value=mock_launcher
             ),
-            patch("orch_monitor.__main__.get_session_name", return_value="test-ses"),
         ):
             launch_monitor_layout(
                 project_root=tmp_path,
+                monitor_session_name="test-ses",
                 vault_path=tmp_path,
                 new=True,
                 new_control_agent=True,
@@ -219,11 +219,11 @@ class TestNewLayoutPreflightGuard:
             patch(
                 "orch_monitor.__main__.get_layout_launcher", return_value=mock_launcher
             ),
-            patch("orch_monitor.__main__.get_session_name", return_value="test-ses"),
             pytest.raises(SystemExit) as exc_info,
         ):
             launch_monitor_layout(
                 project_root=tmp_path,
+                monitor_session_name="test-ses",
                 vault_path=tmp_path,
                 new=True,
                 new_control_agent=False,
@@ -246,10 +246,10 @@ class TestNewLayoutPreflightGuard:
             patch(
                 "orch_monitor.__main__.get_layout_launcher", return_value=mock_launcher
             ),
-            patch("orch_monitor.__main__.get_session_name", return_value="test-ses"),
         ):
             launch_monitor_layout(
                 project_root=tmp_path,
+                monitor_session_name="test-ses",
                 vault_path=tmp_path,
                 new=True,
                 new_control_agent=False,

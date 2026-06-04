@@ -527,7 +527,7 @@ def validate_multiplexer_config(monitor_mux: MultiplexerType) -> None:
 # Convenience functions for working with Run objects
 
 
-def get_session_name(run) -> Optional[str]:
+def get_run_session_name(run) -> Optional[str]:
     """Get the session name from a run."""
     return run.session_name if run.session_name else None
 

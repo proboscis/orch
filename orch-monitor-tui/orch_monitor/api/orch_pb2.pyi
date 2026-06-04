@@ -84,7 +84,7 @@ class DiffStats(_message.Message):
     def __init__(self, additions: _Optional[int] = ..., deletions: _Optional[int] = ..., files_changed: _Optional[int] = ..., files: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class Run(_message.Message):
-    __slots__ = ("issue_id", "run_id", "status", "agent", "model", "branch", "worktree_path", "pr_url", "started_at_unix", "updated_at_unix", "elapsed_seconds", "elapsed_display", "diff_stats", "branch_state", "session_name", "multiplexer", "server_port", "opencode_session_id", "continued_from", "pr_number", "pr_state", "issue_status", "issue_topic", "alive", "alive_known", "worktree_exists", "target", "target_host")
+    __slots__ = ("issue_id", "run_id", "status", "agent", "model", "branch", "worktree_path", "pr_url", "started_at_unix", "updated_at_unix", "elapsed_seconds", "elapsed_display", "diff_stats", "branch_state", "session_name", "multiplexer", "server_port", "opencode_session_id", "continued_from", "pr_number", "pr_state", "issue_status", "issue_topic", "alive", "alive_known", "worktree_exists", "target", "target_host", "status_display", "multiplexer_name", "branch_state_display")
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
@@ -113,6 +113,9 @@ class Run(_message.Message):
     WORKTREE_EXISTS_FIELD_NUMBER: _ClassVar[int]
     TARGET_FIELD_NUMBER: _ClassVar[int]
     TARGET_HOST_FIELD_NUMBER: _ClassVar[int]
+    STATUS_DISPLAY_FIELD_NUMBER: _ClassVar[int]
+    MULTIPLEXER_NAME_FIELD_NUMBER: _ClassVar[int]
+    BRANCH_STATE_DISPLAY_FIELD_NUMBER: _ClassVar[int]
     issue_id: str
     run_id: str
     status: RunStatus
@@ -141,10 +144,13 @@ class Run(_message.Message):
     worktree_exists: bool
     target: str
     target_host: str
-    def __init__(self, issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., status: _Optional[_Union[RunStatus, str]] = ..., agent: _Optional[str] = ..., model: _Optional[str] = ..., branch: _Optional[str] = ..., worktree_path: _Optional[str] = ..., pr_url: _Optional[str] = ..., started_at_unix: _Optional[int] = ..., updated_at_unix: _Optional[int] = ..., elapsed_seconds: _Optional[int] = ..., elapsed_display: _Optional[str] = ..., diff_stats: _Optional[_Union[DiffStats, _Mapping]] = ..., branch_state: _Optional[_Union[BranchState, str]] = ..., session_name: _Optional[str] = ..., multiplexer: _Optional[_Union[Multiplexer, str]] = ..., server_port: _Optional[int] = ..., opencode_session_id: _Optional[str] = ..., continued_from: _Optional[str] = ..., pr_number: _Optional[int] = ..., pr_state: _Optional[str] = ..., issue_status: _Optional[str] = ..., issue_topic: _Optional[str] = ..., alive: _Optional[bool] = ..., alive_known: _Optional[bool] = ..., worktree_exists: _Optional[bool] = ..., target: _Optional[str] = ..., target_host: _Optional[str] = ...) -> None: ...
+    status_display: str
+    multiplexer_name: str
+    branch_state_display: str
+    def __init__(self, issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., status: _Optional[_Union[RunStatus, str]] = ..., agent: _Optional[str] = ..., model: _Optional[str] = ..., branch: _Optional[str] = ..., worktree_path: _Optional[str] = ..., pr_url: _Optional[str] = ..., started_at_unix: _Optional[int] = ..., updated_at_unix: _Optional[int] = ..., elapsed_seconds: _Optional[int] = ..., elapsed_display: _Optional[str] = ..., diff_stats: _Optional[_Union[DiffStats, _Mapping]] = ..., branch_state: _Optional[_Union[BranchState, str]] = ..., session_name: _Optional[str] = ..., multiplexer: _Optional[_Union[Multiplexer, str]] = ..., server_port: _Optional[int] = ..., opencode_session_id: _Optional[str] = ..., continued_from: _Optional[str] = ..., pr_number: _Optional[int] = ..., pr_state: _Optional[str] = ..., issue_status: _Optional[str] = ..., issue_topic: _Optional[str] = ..., alive: _Optional[bool] = ..., alive_known: _Optional[bool] = ..., worktree_exists: _Optional[bool] = ..., target: _Optional[str] = ..., target_host: _Optional[str] = ..., status_display: _Optional[str] = ..., multiplexer_name: _Optional[str] = ..., branch_state_display: _Optional[str] = ...) -> None: ...
 
 class Issue(_message.Message):
-    __slots__ = ("id", "title", "summary", "status", "tags", "body", "path", "modified_at_unix", "topic", "base_branch")
+    __slots__ = ("id", "title", "summary", "status", "tags", "body", "path", "modified_at_unix", "topic", "base_branch", "status_display")
     ID_FIELD_NUMBER: _ClassVar[int]
     TITLE_FIELD_NUMBER: _ClassVar[int]
     SUMMARY_FIELD_NUMBER: _ClassVar[int]
@@ -155,6 +161,7 @@ class Issue(_message.Message):
     MODIFIED_AT_UNIX_FIELD_NUMBER: _ClassVar[int]
     TOPIC_FIELD_NUMBER: _ClassVar[int]
     BASE_BRANCH_FIELD_NUMBER: _ClassVar[int]
+    STATUS_DISPLAY_FIELD_NUMBER: _ClassVar[int]
     id: str
     title: str
     summary: str
@@ -165,7 +172,8 @@ class Issue(_message.Message):
     modified_at_unix: int
     topic: str
     base_branch: str
-    def __init__(self, id: _Optional[str] = ..., title: _Optional[str] = ..., summary: _Optional[str] = ..., status: _Optional[_Union[IssueStatus, str]] = ..., tags: _Optional[_Iterable[str]] = ..., body: _Optional[str] = ..., path: _Optional[str] = ..., modified_at_unix: _Optional[int] = ..., topic: _Optional[str] = ..., base_branch: _Optional[str] = ...) -> None: ...
+    status_display: str
+    def __init__(self, id: _Optional[str] = ..., title: _Optional[str] = ..., summary: _Optional[str] = ..., status: _Optional[_Union[IssueStatus, str]] = ..., tags: _Optional[_Iterable[str]] = ..., body: _Optional[str] = ..., path: _Optional[str] = ..., modified_at_unix: _Optional[int] = ..., topic: _Optional[str] = ..., base_branch: _Optional[str] = ..., status_display: _Optional[str] = ...) -> None: ...
 
 class Event(_message.Message):
     __slots__ = ("timestamp_unix", "type", "name", "attrs")
@@ -209,7 +217,7 @@ class RequestContext(_message.Message):
     def __init__(self, project_id: _Optional[str] = ..., request_id: _Optional[str] = ..., client_id: _Optional[str] = ...) -> None: ...
 
 class ListRunsRequest(_message.Message):
-    __slots__ = ("issue_id", "status", "agent", "text_search", "time_range", "limit", "cursor", "older_than", "context")
+    __slots__ = ("issue_id", "status", "agent", "text_search", "time_range", "limit", "cursor", "older_than", "context", "status_text", "agents")
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
     AGENT_FIELD_NUMBER: _ClassVar[int]
@@ -219,6 +227,8 @@ class ListRunsRequest(_message.Message):
     CURSOR_FIELD_NUMBER: _ClassVar[int]
     OLDER_THAN_FIELD_NUMBER: _ClassVar[int]
     CONTEXT_FIELD_NUMBER: _ClassVar[int]
+    STATUS_TEXT_FIELD_NUMBER: _ClassVar[int]
+    AGENTS_FIELD_NUMBER: _ClassVar[int]
     issue_id: str
     status: _containers.RepeatedScalarFieldContainer[RunStatus]
     agent: str
@@ -228,7 +238,9 @@ class ListRunsRequest(_message.Message):
     cursor: str
     older_than: str
     context: RequestContext
-    def __init__(self, issue_id: _Optional[str] = ..., status: _Optional[_Iterable[_Union[RunStatus, str]]] = ..., agent: _Optional[str] = ..., text_search: _Optional[str] = ..., time_range: _Optional[str] = ..., limit: _Optional[int] = ..., cursor: _Optional[str] = ..., older_than: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
+    status_text: _containers.RepeatedScalarFieldContainer[str]
+    agents: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, issue_id: _Optional[str] = ..., status: _Optional[_Iterable[_Union[RunStatus, str]]] = ..., agent: _Optional[str] = ..., text_search: _Optional[str] = ..., time_range: _Optional[str] = ..., limit: _Optional[int] = ..., cursor: _Optional[str] = ..., older_than: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ..., status_text: _Optional[_Iterable[str]] = ..., agents: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class ListRunsResponse(_message.Message):
     __slots__ = ("runs", "total", "next_cursor")
@@ -394,7 +406,7 @@ class WaitForRunsResponse(_message.Message):
     def __init__(self, run_id: _Optional[str] = ..., status: _Optional[str] = ..., issue: _Optional[str] = ..., pr_url: _Optional[str] = ...) -> None: ...
 
 class ListIssuesRequest(_message.Message):
-    __slots__ = ("status", "tags", "tags_mode", "text_search", "limit", "cursor", "context")
+    __slots__ = ("status", "tags", "tags_mode", "text_search", "limit", "cursor", "context", "status_text")
     STATUS_FIELD_NUMBER: _ClassVar[int]
     TAGS_FIELD_NUMBER: _ClassVar[int]
     TAGS_MODE_FIELD_NUMBER: _ClassVar[int]
@@ -402,6 +414,7 @@ class ListIssuesRequest(_message.Message):
     LIMIT_FIELD_NUMBER: _ClassVar[int]
     CURSOR_FIELD_NUMBER: _ClassVar[int]
     CONTEXT_FIELD_NUMBER: _ClassVar[int]
+    STATUS_TEXT_FIELD_NUMBER: _ClassVar[int]
     status: _containers.RepeatedScalarFieldContainer[IssueStatus]
     tags: _containers.RepeatedScalarFieldContainer[str]
     tags_mode: str
@@ -409,7 +422,8 @@ class ListIssuesRequest(_message.Message):
     limit: int
     cursor: str
     context: RequestContext
-    def __init__(self, status: _Optional[_Iterable[_Union[IssueStatus, str]]] = ..., tags: _Optional[_Iterable[str]] = ..., tags_mode: _Optional[str] = ..., text_search: _Optional[str] = ..., limit: _Optional[int] = ..., cursor: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
+    status_text: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, status: _Optional[_Iterable[_Union[IssueStatus, str]]] = ..., tags: _Optional[_Iterable[str]] = ..., tags_mode: _Optional[str] = ..., text_search: _Optional[str] = ..., limit: _Optional[int] = ..., cursor: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ..., status_text: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class ListIssuesResponse(_message.Message):
     __slots__ = ("issues", "total", "next_cursor")
@@ -616,10 +630,12 @@ class GetBranchStateRequest(_message.Message):
     def __init__(self, issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
 
 class GetBranchStateResponse(_message.Message):
-    __slots__ = ("state",)
+    __slots__ = ("state", "state_display")
     STATE_FIELD_NUMBER: _ClassVar[int]
+    STATE_DISPLAY_FIELD_NUMBER: _ClassVar[int]
     state: BranchState
-    def __init__(self, state: _Optional[_Union[BranchState, str]] = ...) -> None: ...
+    state_display: str
+    def __init__(self, state: _Optional[_Union[BranchState, str]] = ..., state_display: _Optional[str] = ...) -> None: ...
 
 class GetDiffRequest(_message.Message):
     __slots__ = ("issue_id", "run_id", "context")

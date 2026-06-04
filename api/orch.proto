@@ -86,6 +86,9 @@ message Run {
   bool worktree_exists = 26;
   string target = 27;
   string target_host = 28;
+  string status_display = 29;
+  string multiplexer_name = 30;
+  string branch_state_display = 31;
 }
 
 message Issue {
@@ -99,6 +102,7 @@ message Issue {
   int64 modified_at_unix = 8;
   string topic = 9;
   string base_branch = 10;
+  string status_display = 11;
 }
 
 message Event {
@@ -138,6 +142,8 @@ message ListRunsRequest {
   string cursor = 8;
   string older_than = 9;  // ISO8601 timestamp - filter runs older than this time
   RequestContext context = 10;
+  repeated string status_text = 11;  // daemon-normalized status filter for thin clients
+  repeated string agents = 12;
 }
 
 message ListRunsResponse {
@@ -239,6 +245,7 @@ message ListIssuesRequest {
   int32 limit = 6;
   string cursor = 7;
   RequestContext context = 8;
+  repeated string status_text = 9;  // daemon-normalized status filter for thin clients
 }
 
 message ListIssuesResponse {
@@ -369,6 +376,7 @@ message GetBranchStateRequest {
 
 message GetBranchStateResponse {
   BranchState state = 1;
+  string state_display = 2;
 }
 
 message GetDiffRequest {

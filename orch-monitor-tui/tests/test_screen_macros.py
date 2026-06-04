@@ -23,17 +23,17 @@ def eval_hy(code: str):
 
 
 class TestSafeDismiss:
-    """safe-dismiss expands to (.call_later self (. self dismiss) result)."""
+    """safe-dismiss defers dismiss and discards dismiss()'s AwaitComplete."""
 
-    def test_call_later_receives_bound_method_and_arg(self):
-        """Verify safe-dismiss calls call_later with dismiss method and result."""
+    def test_call_later_callback_invokes_dismiss(self):
+        """Verify safe-dismiss schedules a callback that calls dismiss."""
         result = eval_hy("""
         (setv calls [])
         (defclass FakeScreen []
           (defn dismiss [self val]
             (.append calls #("dismiss" val)))
-          (defn call_later [self callback #* args]
-            (callback #* args)))
+          (defn call_later [self callback]
+            (callback)))
         (setv screen (FakeScreen))
         (safe-dismiss screen 42)
         calls

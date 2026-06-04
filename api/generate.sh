@@ -7,20 +7,26 @@ ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 # Ensure GOPATH/bin is in PATH for protoc-gen-go
 export PATH="${GOPATH:-$HOME/go}/bin:$PATH"
 
+if command -v protoc >/dev/null 2>&1; then
+  PROTOC=(protoc)
+else
+  PROTOC=(uv run --with grpcio-tools python -m grpc_tools.protoc)
+fi
+
 # Create output directories
 mkdir -p "$ROOT_DIR/api/orchpb"
 mkdir -p "$ROOT_DIR/orch-monitor-tui/orch_monitor/api"
 
 # Generate Go code
 # Using module mode to place output at api/orchpb/orch.pb.go
-protoc \
+"${PROTOC[@]}" \
   --go_out="$ROOT_DIR" \
   --go_opt=module=github.com/s22625/orch \
   -I "$SCRIPT_DIR" \
   "$SCRIPT_DIR/orch.proto"
 
 # Generate Python code
-protoc \
+"${PROTOC[@]}" \
   --python_out="$ROOT_DIR/orch-monitor-tui/orch_monitor/api" \
   --pyi_out="$ROOT_DIR/orch-monitor-tui/orch_monitor/api" \
   -I "$SCRIPT_DIR" \

@@ -11,6 +11,7 @@ TEST_GOMEMLIMIT ?= 2GiB
 TEST_MAX_FD ?= 256
 TEST_RUN ?= .
 TEST_LOCK_DIR ?= /tmp/orch-go-test.lock
+SEMGREP ?= $(shell command -v semgrep 2>/dev/null || echo $(HOME)/.local/bin/semgrep)
 
 all: install
 
@@ -74,8 +75,10 @@ test-compile:
 	ORCH_SAFE_CLI_TEST=1 GOGC=$(TEST_GOGC) GOMEMLIMIT=$(TEST_GOMEMLIMIT) go test -run '^$$' -p 1 -parallel 1 -timeout $(TEST_TIMEOUT) $(TEST_PKGS)
 
 lint:
-	@command -v semgrep >/dev/null 2>&1 || uv tool install semgrep
-	semgrep --error --config .semgrep/ ./internal/cli/ ./internal/monitor/ ./internal/daemon/ --exclude='*_test.go'
+	@test -x "$(SEMGREP)" || uv tool install semgrep
+	$(SEMGREP) --error --config .semgrep/ ./internal/cli/ ./internal/monitor/ ./internal/daemon/ --exclude='*_test.go'
+	$(MAKE) -C orch-monitor-tui lint
+	$(MAKE) -C orch-monitor-tui lint-test
 
 lint-install:
 	uv tool install semgrep

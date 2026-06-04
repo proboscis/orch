@@ -277,6 +277,7 @@ class TestZellijCommands:
                 ["zellij", "list-sessions"],
                 capture_output=True,
                 text=True,
+                timeout=5,
             )
             assert result is True
 
@@ -299,6 +300,7 @@ class TestZellijCommands:
             mock_run.assert_called_once_with(
                 ["zellij", "delete-session", "test-session", "--force"],
                 capture_output=True,
+                timeout=5,
             )
             assert result is True
 
@@ -395,6 +397,7 @@ class TestZellijCommands:
                 ["zellij", "action", "query-tab-names"],
                 capture_output=True,
                 text=True,
+                timeout=5,
             )
             assert result == ["tab1", "tab2", "edit-tab"]
 
@@ -441,6 +444,7 @@ class TestZellijCommands:
                 ["zellij", "action", "query-tab-names"],
                 capture_output=True,
                 text=True,
+                timeout=5,
             )
             assert calls[1] == call(
                 [
@@ -484,6 +488,7 @@ class TestZellijCommands:
                 ["zellij", "action", "query-tab-names"],
                 capture_output=True,
                 text=True,
+                timeout=5,
             )
             assert calls[1] == call(
                 ["zellij", "action", "go-to-tab-name", "edit-tab"],

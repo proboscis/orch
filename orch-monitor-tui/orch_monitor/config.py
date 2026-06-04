@@ -1,7 +1,5 @@
 """Configuration management for orch monitor."""
 
-import os
-import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -10,187 +8,13 @@ from typing import Optional
 import yaml
 
 from . import xdg
+from .client_bootstrap import load_client_bootstrap
 
 
 # Monitor-specific files (stored in project's .orch/ directory)
 MONITOR_FILTERS_FILE = "monitor-filters.yaml"
 MONITOR_LOG_FILE = "monitor-tui.log"
 ORCH_DIR = ".orch"
-
-
-def _looks_like_local_path(value: str) -> bool:
-    return (
-        value.startswith("/")
-        or value.startswith("./")
-        or value.startswith("../")
-        or value.startswith("~")
-        or os.sep in value
-    )
-
-
-def resolve_project_root_hint(project_value: Optional[str]) -> Optional[Path]:
-    """Resolve a local project root hint from explicit project input.
-
-    The new primary project selector is identity-based (ORCH_PROJECT/--project).
-    For local workflows, we still accept path-like values as hints.
-    """
-    if not project_value:
-        return None
-
-    value = project_value.strip()
-    if not value:
-        return None
-    if value.startswith("repoid:"):
-        return None
-    if not _looks_like_local_path(value):
-        return None
-
-    candidate = Path(value).expanduser()
-    if not candidate.is_absolute():
-        candidate = (Path.cwd() / candidate).resolve()
-    else:
-        candidate = candidate.resolve()
-
-    if candidate.is_dir():
-        return candidate
-    return None
-
-
-def _repo_url_from_git_remote(project_root: Path) -> Optional[str]:
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(project_root), "config", "--get", "remote.origin.url"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-
-    if result.returncode != 0:
-        return None
-    repo_url = result.stdout.strip()
-    if not repo_url:
-        return None
-    return repo_url
-
-
-def resolve_project_identity(
-    project_root: Optional[Path] = None,
-    explicit_project: Optional[str] = None,
-) -> Optional[str]:
-    """Resolve identity value for orch `--project`/`ORCH_PROJECT` scope."""
-
-    value = (explicit_project or "").strip()
-    if not value:
-        value = os.getenv("ORCH_PROJECT", "").strip()
-
-    if value:
-        if value.startswith("repoid:"):
-            value = value[len("repoid:") :].strip()
-
-        path_hint = resolve_project_root_hint(value)
-        if path_hint is not None:
-            return _repo_url_from_git_remote(path_hint)
-
-        return value
-
-    if project_root is None:
-        return None
-
-    return _repo_url_from_git_remote(project_root)
-
-
-def _client_config_path() -> Path:
-    """Path to the global client config (~/.config/orch/client.yaml)."""
-    return Path.home() / ".config" / "orch" / "client.yaml"
-
-
-def _load_client_config() -> dict:
-    """Load ~/.config/orch/client.yaml. Missing/invalid file -> empty mapping."""
-    path = _client_config_path()
-    try:
-        with open(path) as f:
-            data = yaml.safe_load(f) or {}
-        return data if isinstance(data, dict) else {}
-    except FileNotFoundError:
-        return {}
-    except (OSError, yaml.YAMLError):
-        return {}
-
-
-def _resolve_remote_alias(value: str, client_cfg: dict) -> str:
-    """Resolve a host alias to its addr via remote.hosts, else return value as-is."""
-    v = (value or "").strip()
-    if not v:
-        return ""
-    remote = client_cfg.get("remote") or {}
-    hosts = remote.get("hosts") or {}
-    host = hosts.get(v)
-    if isinstance(host, dict):
-        addr = (host.get("addr") or "").strip()
-        if addr:
-            return addr
-    return v
-
-
-def resolve_remote_addr(
-    explicit_remote: Optional[str] = None,
-    explicit_set: bool = False,
-) -> str:
-    """Resolve the daemon remote address (host:port), mirroring the Go CLI.
-
-    Precedence: explicit --remote (even ""=force local) > ORCH_REMOTE env >
-    ~/.config/orch/client.yaml remote.default. Host aliases in remote.hosts are
-    resolved to their addr. Returns "" for local (unix-socket) mode.
-    """
-    client_cfg = _load_client_config()
-    if explicit_set:
-        return _resolve_remote_alias(explicit_remote or "", client_cfg)
-    env = (os.getenv("ORCH_REMOTE") or "").strip()
-    if env:
-        return _resolve_remote_alias(env, client_cfg)
-    remote = client_cfg.get("remote") or {}
-    return _resolve_remote_alias(remote.get("default") or "", client_cfg)
-
-
-def _parse_repo_id_from_url(url: str) -> str:
-    """Normalize a git remote URL to the daemon's repo id ("owner-repo").
-
-    Mirrors the Go xdg.ParseRepoID + sanitizeRepoID so project scoping matches
-    the daemon's project_id keys.
-    """
-    import re
-
-    u = (url or "").strip()
-    if not u:
-        return ""
-    m = re.match(r"^git@[^:]+:([^/]+)/([^/]+?)(?:\.git)?$", u)
-    if not m:
-        m = re.match(r"^(?:https?|git|ssh)://[^/]+/([^/]+)/([^/]+?)(?:\.git)?/?$", u)
-    if m:
-        owner, repo = m.group(1), m.group(2)
-    else:
-        cleaned = u[:-4] if u.endswith(".git") else u
-        parts = cleaned.split("/")
-        if len(parts) < 2:
-            return ""
-        owner, repo = parts[-2], parts[-1]
-        if ":" in owner:
-            owner = owner.rsplit(":", 1)[-1]
-    safe = lambda s: re.sub(r"[^a-zA-Z0-9_-]", "", s)
-    owner, repo = safe(owner), safe(repo)
-    if not owner or not repo:
-        return ""
-    return f"{owner}-{repo}"
-
-
-def repo_id_from_project(project_root: Optional[Path]) -> str:
-    """Resolve the daemon project_id ("owner-repo") for a project root, or ""."""
-    if project_root is None:
-        return ""
-    return _parse_repo_id_from_url(_repo_url_from_git_remote(Path(project_root)) or "")
 
 
 def _log_config_error(operation: str, error: str, orch_dir: Optional[Path]) -> None:
@@ -392,6 +216,8 @@ class Config:
     base_branch: str = "main"
     pr_target_branch: str = "main"
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
+    socket_path_override: Optional[Path] = None
+    vault_path: Optional[Path] = None
 
     @property
     def orch_dir(self) -> Path:
@@ -400,8 +226,8 @@ class Config:
 
     @property
     def socket_path(self) -> Path:
-        """Return the global daemon socket path (XDG-compliant)."""
-        return xdg.socket_path()
+        """Return the daemon socket path resolved by orch client bootstrap."""
+        return self.socket_path_override or xdg.socket_path()
 
     @property
     def filters_path(self) -> Path:
@@ -505,12 +331,11 @@ class Config:
     def load(cls, config_path: Optional[Path] = None) -> "Config":
         data: dict = {}
         project_root: Optional[Path] = None
-        env_project = os.getenv("ORCH_PROJECT")
+        bootstrap = load_client_bootstrap()
 
-        hinted_root = resolve_project_root_hint(env_project)
-        if hinted_root and (hinted_root / ORCH_DIR).is_dir():
-            project_root = hinted_root
-            config_file = hinted_root / ORCH_DIR / "config.yaml"
+        if bootstrap.project_root and (bootstrap.project_root / ORCH_DIR).is_dir():
+            project_root = bootstrap.project_root
+            config_file = bootstrap.project_root / ORCH_DIR / "config.yaml"
             if config_file.exists():
                 with open(config_file) as f:
                     data = yaml.safe_load(f) or {}
@@ -539,10 +364,7 @@ class Config:
 
         return cls(
             project_root=project_root,
-            project=resolve_project_identity(
-                project_root=project_root, explicit_project=env_project
-            )
-            or "",
+            project=bootstrap.project_id,
             agent=data.get("agent", "claude"),
             control_agent=data.get("control_agent"),
             control_model=data.get("control_model"),
@@ -551,12 +373,11 @@ class Config:
             base_branch=data.get("base_branch", "main"),
             pr_target_branch=data.get("pr_target_branch", "main"),
             monitor=cls._parse_monitor_config(data.get("monitor", {})),
+            socket_path_override=bootstrap.socket_path,
         )
 
     @classmethod
     def from_project_root(cls, project_root: Path) -> "Config":
         config_file = project_root / ORCH_DIR / "config.yaml"
         config = cls.load(config_file)
-        if not config.project:
-            config.project = resolve_project_identity(project_root=project_root) or ""
         return config

@@ -16,7 +16,7 @@ import hy  # noqa: F401 - Enable Hy imports
 from returns.result import Failure, Result, Success
 
 # Import client from Hy module (returns Result types)
-from .config import resolve_project_identity
+from .client_bootstrap import load_client_bootstrap
 from .proto_client import ProtoDaemonClient
 
 # Import types/exceptions from types module
@@ -93,55 +93,19 @@ def _map_daemon_error(err: ProtoDaemonError) -> Failure:
 
 
 def _model_status_to_api(status: ModelStatus) -> RunStatus:
-    """Convert models.Status to orch_api.RunStatus."""
-    mapping = {
-        ModelStatus.QUEUED: RunStatus.QUEUED,
-        ModelStatus.BOOTING: RunStatus.BOOTING,
-        ModelStatus.RUNNING: RunStatus.RUNNING,
-        ModelStatus.WAITING: RunStatus.WAITING,
-        ModelStatus.RATE_LIMITED: RunStatus.RATE_LIMITED,
-        ModelStatus.PR_OPEN: RunStatus.PR_OPEN,
-        ModelStatus.DONE: RunStatus.DONE,
-        ModelStatus.FAILED: RunStatus.FAILED,
-        ModelStatus.CANCELED: RunStatus.CANCELED,
-        ModelStatus.UNKNOWN: RunStatus.UNKNOWN,
-    }
-    return mapping.get(status, RunStatus.UNKNOWN)
+    value = getattr(status, "value", str(status))
+    try:
+        return RunStatus(value)
+    except ValueError:
+        return RunStatus.UNKNOWN
 
 
 def _model_issue_status_to_api(status: ModelIssueStatus) -> IssueStatus:
-    """Convert models.IssueStatus to orch_api.IssueStatus."""
-    mapping = {
-        ModelIssueStatus.OPEN: IssueStatus.OPEN,
-        ModelIssueStatus.RESOLVED: IssueStatus.RESOLVED,
-        ModelIssueStatus.CLOSED: IssueStatus.CLOSED,
-    }
-    return mapping.get(status, IssueStatus.OPEN)
-
-
-def _api_run_status_to_model(status: RunStatus) -> ModelStatus:
-    mapping = {
-        RunStatus.QUEUED: ModelStatus.QUEUED,
-        RunStatus.BOOTING: ModelStatus.BOOTING,
-        RunStatus.RUNNING: ModelStatus.RUNNING,
-        RunStatus.WAITING: ModelStatus.WAITING,
-        RunStatus.RATE_LIMITED: ModelStatus.RATE_LIMITED,
-        RunStatus.PR_OPEN: ModelStatus.PR_OPEN,
-        RunStatus.DONE: ModelStatus.DONE,
-        RunStatus.FAILED: ModelStatus.FAILED,
-        RunStatus.CANCELED: ModelStatus.CANCELED,
-        RunStatus.UNKNOWN: ModelStatus.UNKNOWN,
-    }
-    return mapping.get(status, ModelStatus.UNKNOWN)
-
-
-def _api_issue_status_to_model(status: IssueStatus) -> ModelIssueStatus:
-    mapping = {
-        IssueStatus.OPEN: ModelIssueStatus.OPEN,
-        IssueStatus.RESOLVED: ModelIssueStatus.RESOLVED,
-        IssueStatus.CLOSED: ModelIssueStatus.CLOSED,
-    }
-    return mapping.get(status, ModelIssueStatus.OPEN)
+    value = getattr(status, "value", str(status))
+    try:
+        return IssueStatus(value)
+    except ValueError:
+        return IssueStatus.OPEN
 
 
 def _model_run_to_api(run: ModelRun) -> Run:
@@ -288,18 +252,13 @@ class DaemonOrchAPI:
             if project_root is None:
                 project_root = config.project_root
 
-        from .config import repo_id_from_project, resolve_remote_addr
-
-        # Route to a remote master (TCP) when configured (--remote/ORCH_REMOTE/
-        # client.yaml remote.default), mirroring the Go CLI. Empty = local socket.
-        self._remote_addr = resolve_remote_addr() or None
+        bootstrap = load_client_bootstrap()
 
         self._socket_path = socket_path
-        self._project_root = project_root or Path.cwd()
-        self._project_scope = resolve_project_identity(project_root=self._project_root)
-        # Normalized daemon project id so list_issues/list_runs are scoped to this
-        # project (matches the Go CLI's RequestContext.project_id).
-        self._project_id = repo_id_from_project(self._project_root) or None
+        self._project_root = project_root or bootstrap.project_root or Path.cwd()
+        self._remote_addr = bootstrap.remote_addr
+        self._project_scope = bootstrap.project_id
+        self._project_id = bootstrap.project_id or None
         self._base_branch = base_branch
         self._daemon = ProtoDaemonClient(
             socket_path,
@@ -365,11 +324,11 @@ class DaemonOrchAPI:
         try:
             daemon_filters = None
             if filters:
-                status_list = [_api_run_status_to_model(s) for s in filters.status]
                 daemon_filters = ProtoRunFilters(
                     issue_id=filters.issue_id,
-                    status=status_list,
+                    status=[getattr(s, "value", str(s)) for s in filters.status],
                     agent=filters.agent,
+                    agents=list(filters.agents or []),
                     text_search=filters.text_search,
                     time_range=filters.time_range,
                 )
@@ -432,9 +391,8 @@ class DaemonOrchAPI:
         try:
             daemon_filters = None
             if filters:
-                status_list = [_api_issue_status_to_model(s) for s in filters.status]
                 daemon_filters = ProtoIssueFilters(
-                    status=status_list,
+                    status=[getattr(s, "value", str(s)) for s in filters.status],
                     tags=filters.tags,
                     tags_mode=filters.tags_mode,
                     text_search=filters.text_search,

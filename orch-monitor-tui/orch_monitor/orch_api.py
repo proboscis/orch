@@ -105,15 +105,16 @@ class Issue:
 @dataclass
 class RunFilters:
     issue_id: Optional[str] = None
-    status: list[RunStatus] = field(default_factory=list)
+    status: list[str] = field(default_factory=list)
     agent: Optional[str] = None
+    agents: list[str] = field(default_factory=list)
     text_search: Optional[str] = None
     time_range: Optional[str] = None
 
 
 @dataclass
 class IssueFilters:
-    status: list[IssueStatus] = field(default_factory=list)
+    status: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
     tags_mode: str = "or"
     text_search: Optional[str] = None

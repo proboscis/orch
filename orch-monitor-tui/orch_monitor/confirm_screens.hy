@@ -9,7 +9,7 @@
 (import textual [on])
 
 (import orch_monitor.models [Run])
-(import orch_monitor.multiplexer [get_multiplexer_for_run get_session_name])
+(import orch_monitor.multiplexer [get_multiplexer_for_run get_run_session_name])
 
 ;; ============================================================================
 ;; KillConfirmScreen - Confirm killing a run's terminal session
@@ -65,7 +65,7 @@
   
   (defn compose [self]
     (setv mux-name self.multiplexer.name)
-    (setv session-name (or (get_session_name self.run) "N/A"))
+    (setv session-name (or (get_run_session_name self.run) "N/A"))
     (with [(Vertical :id "kill-dialog")]
       (yield (Label f"Kill {mux-name} session?" :id "kill-title"))
       (with [(Vertical :id "kill-details")]

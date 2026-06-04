@@ -11,7 +11,7 @@ import hy  # noqa: F401
 from .runs_dashboard import RunsDashboard, RUNS_DASHBOARD_CSS, COMMON_CSS
 from .issues_dashboard import IssuesDashboard
 from .orch_monitor_app import OrchMonitorApp, ORCH_MONITOR_CSS
-from .help_screen import OnboardingApp
+from .help_screen import HelpScreen, OnboardingApp
 from .filter_screens import RunFilterScreen, IssueFilterScreen
 from .confirm_screens import KillConfirmScreen, CloseIssueConfirmScreen
 from .agent_screen import AgentSelectScreen
@@ -40,28 +40,13 @@ from .app_base import (
 # Re-export types for backward compatibility
 from .types import RunFilterResult, IssueFilterResult
 
-# Re-export client-side filter functions (still useful)
-from .models import Run, Issue, Status, IssueStatus
-
-
-def filter_runs_client_side(runs: list[Run], filter_state) -> list[Run]:
-    """Filter runs by agent on client side."""
-    result = runs
-    if filter_state.agents:
-        result = [r for r in result if r.agent in filter_state.agents]
-    return result
-
-
-def filter_issues_client_side(issues: list[Issue], filter_state) -> list[Issue]:
-    """Filter issues on client side (currently a no-op)."""
-    return issues
-
 
 __all__ = [
     # Main App classes (from Hy)
     "RunsDashboard",
     "IssuesDashboard",
     "OrchMonitorApp",
+    "HelpScreen",
     "OnboardingApp",
     "RunFilterScreen",
     "IssueFilterScreen",
@@ -94,7 +79,4 @@ __all__ = [
     # Types
     "RunFilterResult",
     "IssueFilterResult",
-    # Filter functions
-    "filter_runs_client_side",
-    "filter_issues_client_side",
 ]

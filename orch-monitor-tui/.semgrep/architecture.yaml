@@ -247,3 +247,200 @@ rules:
       category: architecture
       layer: tui
       violation: control-agent-split
+
+  # =============================================================================
+  # Client/Protocol Single Source of Truth Guardrails
+  # =============================================================================
+  # The Go daemon/client bootstrap owns repo identity, remote routing, protocol
+  # display normalization, monitor session-name generation, sorting, and filtering.
+  # The TUI may request those values and render them, but must not re-derive them.
+
+  - id: tui-no-git-subprocess
+    patterns:
+      - pattern-regex: "subprocess\\.(run|Popen|check_output|check_call)\\s*\\(\\s*\\[\\s*[\"'](?:[^\"']*/)?git[\"']|\\(\\s*subprocess\\.(run|Popen|check-output|check-call)\\s+\\[\\s*[\"'](?:[^\"']*/)?git[\"']|subprocess\\.(run|Popen|check_output|check_call)\\s*\\(\\s*[\"'](?:[^\"']*[\\s;&|])?(?:[^\"']*/)?git(?:\\s|[\"'])|(?:cmd|command|args|argv)\\s*=\\s*\\[\\s*[\"'](?:[^\"']*/)?git[\"'][\\s\\S]{0,300}?subprocess\\.(run|Popen|check_output|check_call)\\s*\\(\\s*(?:cmd|command|args|argv)\\b"
+    paths:
+      include:
+        - "*.py"
+        - "*.hy"
+      exclude:
+        - "**/api/*"
+    message: |
+      TUI must not shell out to git. Git/repo state belongs to the Go daemon.
+      Request daemon/bootstrap data instead.
+    severity: ERROR
+    languages: [generic]
+    metadata:
+      category: architecture
+      layer: tui
+      violation: client-logic-ssot
+
+  - id: tui-no-local-repo-id-parsing
+    patterns:
+      - pattern-regex: "_parse_repo_id_from_url|repo_id_from_project|resolve_project_identity|remote\\.origin\\.url|git\\s+config\\s+--get\\s+remote\\.origin\\.url"
+    paths:
+      include:
+        - "*.py"
+        - "*.hy"
+      exclude:
+        - "**/api/*"
+    message: |
+      TUI must not parse repo IDs or git remote URLs locally.
+      Use the Go-resolved client bootstrap project_id.
+    severity: ERROR
+    languages: [generic]
+    metadata:
+      category: architecture
+      layer: tui
+      violation: client-logic-ssot
+
+  - id: tui-no-remote-addr-resolution
+    patterns:
+      - pattern-regex: "resolve_remote_addr|_resolve_remote_alias|remote_hosts|remote\\.hosts|_load_client_config"
+    paths:
+      include:
+        - "*.py"
+        - "*.hy"
+      exclude:
+        - "**/api/*"
+    message: |
+      TUI must not resolve remote daemon addresses locally.
+      Use the Go-resolved client bootstrap remote_addr.
+    severity: ERROR
+    languages: [generic]
+    metadata:
+      category: architecture
+      layer: tui
+      violation: client-logic-ssot
+
+  - id: tui-no-proto-status-remap
+    patterns:
+      - pattern-regex: "model-status->proto|proto-status->model|model-issue-status->proto|proto-issue-status->model|api_run_status_to_proto|api_issue_status_to_proto|RUN_STATUS_|ISSUE_STATUS_|\\bApiRunStatus\\b|\\bApiIssueStatus\\b"
+    paths:
+      include:
+        - "*.py"
+        - "*.hy"
+      exclude:
+        - "**/api/*"
+    message: |
+      TUI must not map protobuf status enums locally.
+      The daemon sends display status strings; the TUI only renders those values.
+    severity: ERROR
+    languages: [generic]
+    metadata:
+      category: architecture
+      layer: tui
+      violation: client-logic-ssot
+
+  - id: tui-no-proto-branch-mux-remap
+    patterns:
+      - pattern-regex: "proto-branch-state->str|proto-multiplexer->str|BRANCH_STATE_|MULTIPLEXER_"
+    paths:
+      include:
+        - "*.py"
+        - "*.hy"
+      exclude:
+        - "**/api/*"
+    message: |
+      TUI must not map protobuf branch-state or multiplexer enums locally.
+      The daemon sends display strings for branch state and multiplexer names.
+    severity: ERROR
+    languages: [generic]
+    metadata:
+      category: architecture
+      layer: tui
+      violation: client-logic-ssot
+
+  - id: tui-no-client-monitor-session-name-generation
+    patterns:
+      - pattern-regex: "SESSION_NAME_PREFIX|_SESSION_HASH_LEN|_SESSION_NAME_SAFETY|_max_session_name_len|def\\s+get_session_name\\s*\\(|def\\s+\\w*(?:session|monitor)\\w*\\s*\\([^)]*\\)\\s*:[\\s\\S]{0,500}?hashlib\\.(?:md5|sha1|sha224|sha256|sha384|sha512|blake2b|blake2s)|orch-monitor[^\\n]*hashlib\\.(?:md5|sha1|sha224|sha256|sha384|sha512|blake2b|blake2s)|hashlib\\.(?:md5|sha1|sha224|sha256|sha384|sha512|blake2b|blake2s)[^\\n]*orch-monitor"
+    paths:
+      include:
+        - "*.py"
+        - "*.hy"
+      exclude:
+        - "**/api/*"
+    message: |
+      TUI must not generate monitor multiplexer session names locally.
+      Use the Go-resolved client bootstrap monitor_session_name.
+    severity: ERROR
+    languages: [generic]
+    metadata:
+      category: architecture
+      layer: tui
+      violation: client-logic-ssot
+
+  - id: tui-no-client-side-run-sort
+    patterns:
+      - pattern-regex: "sorted\\s*\\(\\s*(runs|issues)\\b|\\b(runs|issues)\\.sort\\s*\\(|\\.sort\\s+(runs|issues)\\b"
+    paths:
+      include:
+        - "*.py"
+        - "*.hy"
+      exclude:
+        - "**/api/*"
+    message: |
+      TUI must not sort daemon data client-side.
+      Sorting belongs to the daemon so every client sees the same order.
+    severity: ERROR
+    languages: [generic]
+    metadata:
+      category: architecture
+      layer: tui
+      violation: client-logic-ssot
+
+  - id: tui-no-client-side-filtering
+    patterns:
+      - pattern-regex: "filter_runs_client_side|filter_issues_client_side|\\[[^\\]]+\\s+for\\s+\\w+\\s+in\\s+(runs|issues)\\s+if\\s+[^\\]]+\\]|for\\s+\\w+\\s+in\\s+(runs|issues)\\s*:[\\s\\S]{0,200}?if\\s+[^\\n:]+:[\\s\\S]{0,200}?\\.append\\s*\\(|:if\\s+\\(in\\s+[^\\)]*\\.agent"
+    paths:
+      include:
+        - "*.py"
+        - "*.hy"
+      exclude:
+        - "**/api/*"
+    message: |
+      TUI must not filter daemon runs/issues client-side.
+      Send status/agent/text filters to the daemon API.
+    severity: ERROR
+    languages: [generic]
+    metadata:
+      category: architecture
+      layer: tui
+      violation: client-logic-ssot
+
+  - id: tui-no-bare-except
+    patterns:
+      - pattern: |
+          try:
+            ...
+          except:
+            ...
+    paths:
+      include:
+        - "*.py"
+      exclude:
+        - "**/api/*"
+    message: |
+      Do not use bare except in TUI code. Catch a concrete exception type.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      category: safety
+      layer: tui
+      violation: silent-failure
+
+  - id: hy-tui-no-bare-except
+    patterns:
+      - pattern-regex: "\\(except\\s+\\[\\s*\\]"
+    paths:
+      include:
+        - "*.hy"
+      exclude:
+        - "**/api/*"
+    message: |
+      Do not use bare except in Hy TUI code. Catch a concrete exception type.
+    severity: ERROR
+    languages: [generic]
+    metadata:
+      category: safety
+      layer: tui
+      violation: silent-failure
