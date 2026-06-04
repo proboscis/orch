@@ -258,6 +258,17 @@
   (defn _project-root-str [self]
     (if self.project-root (str self.project-root) ""))
 
+  (defn _ctx-project-id [self [project-root None]]
+    "Resolve the daemon project_id (normalized repo id) for RequestContext scoping.
+    Prefers the client's configured project-id; otherwise normalizes a project root.
+    The daemon scopes start_run / control-agent RPCs by RequestContext.project_id;
+    these requests have NO project_root field."
+    (if self.project-id
+        self.project-id
+        (do
+          (import orch_monitor.config [repo_id_from_project])
+          (repo_id_from_project (or project-root self.project-root)))))
+
   (defn check-availability [self]
     "Active daemon availability check. Returns Result[bool, ProtoDaemonError]."
     (try
@@ -486,8 +497,10 @@
       (setv req (pb.Request))
       (set-> req.start_run.issue_id issue-id
              req.start_run.agent agent
-             req.start_run.model model
-             req.start_run.project_root (._project-root-str self))
+             req.start_run.model model)
+      (setv pid (._ctx-project-id self))
+      (when pid
+        (setv req.start_run.context.project_id pid))
       (setv sr (. (._send-ok self req) start_run))
       {"run_id" sr.run_id "branch" sr.branch 
        "worktree" sr.worktree_path "session_name" sr.session_name}))
@@ -594,9 +607,11 @@
     "Returns Result[ControlAgentLaunch | None, ProtoDaemonError]."
     (daemon-result "get_control_agent_launch"
       (setv req (pb.Request))
-      (set-> req.get_control_agent_launch.project_root project-root
-             req.get_control_agent_launch.agent agent-type
+      (set-> req.get_control_agent_launch.agent agent-type
              req.get_control_agent_launch.new_session new-session)
+      (setv pid (._ctx-project-id self project-root))
+      (when pid
+        (setv req.get_control_agent_launch.context.project_id pid))
       (setv resp (._send self req))
       (when (not resp.ok)
         (raise (ProtoDaemonError (or resp.error "Failed to get control agent launch"))))
@@ -612,7 +627,9 @@
     "Returns Result[ControlAgentConfig | None, ProtoDaemonError]."
     (daemon-result "get_control_agent_config"
       (setv req (pb.Request))
-      (set-> req.get_control_agent_config.project_root project-root)
+      (setv pid (._ctx-project-id self project-root))
+      (when pid
+        (setv req.get_control_agent_config.context.project_id pid))
       (setv resp (._send self req))
       (when (not resp.ok)
         (raise (ProtoDaemonError (or resp.error "Failed to get control agent config"))))
