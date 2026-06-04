@@ -105,8 +105,8 @@ func runTick(refStr string, opts *tickOptions) error {
 		// Only check blocked status for single-run case; --all already filters at daemon level
 		if !opts.All && opts.OnlyWaiting && run.Status != orchapi.RunStatusWaiting && run.Status != orchapi.RunStatusRateLimited {
 			result.Skipped = append(result.Skipped, skippedRun{
-				IssueID: run.IssueID,
-				RunID:   run.RunID,
+				IssueID: string(run.IssueID),
+				RunID:   string(run.RunID),
 				Reason:  fmt.Sprintf("status is %s, not waiting", run.Status),
 			})
 			continue
@@ -114,16 +114,16 @@ func runTick(refStr string, opts *tickOptions) error {
 
 		if err := resumeRun(ctx, api, run, opts.Agent); err != nil {
 			result.Skipped = append(result.Skipped, skippedRun{
-				IssueID: run.IssueID,
-				RunID:   run.RunID,
+				IssueID: string(run.IssueID),
+				RunID:   string(run.RunID),
 				Reason:  err.Error(),
 			})
 			continue
 		}
 
 		result.Processed = append(result.Processed, tickedRun{
-			IssueID: run.IssueID,
-			RunID:   run.RunID,
+			IssueID: string(run.IssueID),
+			RunID:   string(run.RunID),
 			Status:  string(orchapi.RunStatusRunning),
 		})
 	}

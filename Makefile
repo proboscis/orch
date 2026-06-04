@@ -75,7 +75,8 @@ test-compile:
 
 lint:
 	@command -v semgrep >/dev/null 2>&1 || uv tool install semgrep
-	semgrep --error --config .semgrep/ ./internal/cli/ ./internal/monitor/ ./internal/daemon/ --exclude='*_test.go'
+	semgrep test .semgrep/typed-id-rules
+	semgrep --error --config .semgrep/ ./internal/ --exclude='*_test.go'
 
 lint-install:
 	uv tool install semgrep

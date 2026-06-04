@@ -385,9 +385,9 @@ func RunToSummary(run *model.Run) *RunSummary {
 	prNumber, prState := lookupPRInfo(run)
 
 	return &RunSummary{
-		IssueID:           run.IssueID,
-		RunID:             run.RunID,
-		ShortID:           run.ShortID(),
+		IssueID:           string(run.IssueID),
+		RunID:             string(run.RunID),
+		ShortID:           string(run.ShortID()),
 		Status:            string(run.Status),
 		IsActive:          run.Status.IsActive(),
 		IsTerminal:        run.Status.IsTerminal(),
@@ -452,9 +452,9 @@ func RunToFull(run *model.Run) *RunFull {
 	prNumber, prState := lookupPRInfo(run)
 
 	return &RunFull{
-		IssueID:           run.IssueID,
-		RunID:             run.RunID,
-		ShortID:           run.ShortID(),
+		IssueID:           string(run.IssueID),
+		RunID:             string(run.RunID),
+		ShortID:           string(run.ShortID()),
 		Status:            string(run.Status),
 		IsActive:          run.Status.IsActive(),
 		IsTerminal:        run.Status.IsTerminal(),
@@ -506,7 +506,7 @@ func RunToFullWithAlive(run *model.Run, computeAlive func(*model.Run) bool) *Run
 // IssueToSummary converts a model.Issue to an IssueSummary
 func IssueToSummary(issue *model.Issue) *IssueSummary {
 	return &IssueSummary{
-		ID:         issue.ID,
+		ID:         string(issue.ID),
 		Title:      issue.Title,
 		Topic:      issue.Topic,
 		Summary:    issue.Summary,
@@ -520,7 +520,7 @@ func IssueToSummary(issue *model.Issue) *IssueSummary {
 // IssueToFull converts a model.Issue to an IssueFull
 func IssueToFull(issue *model.Issue) *IssueFull {
 	return &IssueFull{
-		ID:          issue.ID,
+		ID:          string(issue.ID),
 		Title:       issue.Title,
 		Topic:       issue.Topic,
 		Summary:     issue.Summary,
@@ -574,8 +574,8 @@ func SummaryToRun(s *RunSummary) *model.Run {
 	updatedAt, _ := time.Parse(time.RFC3339, s.UpdatedAt)
 
 	return &model.Run{
-		IssueID:      s.IssueID,
-		RunID:        s.RunID,
+		IssueID:      model.IssueID(s.IssueID),
+		RunID:        model.RunID(s.RunID),
 		Status:       model.NormalizeStatus(s.Status),
 		Phase:        model.Phase(s.Phase),
 		Agent:        s.Agent,
@@ -599,9 +599,9 @@ func SummaryAliveInfo(s *RunSummary) (alive bool, known bool) {
 }
 
 type StartRunOptions struct {
-	IssueID        string
+	IssueID        model.IssueID
 	IssueSnapshot  *model.Issue
-	RunID          string
+	RunID          model.RunID
 	Agent          string
 	AgentCmd       string
 	AgentProfile   string
@@ -634,7 +634,7 @@ type StartRunResponse struct {
 
 // StartRunResult holds the success data from a start_run operation (no OK/Error).
 type StartRunResult struct {
-	RunID             string
+	RunID             model.RunID
 	Branch            string
 	WorktreePath      string
 	SessionName       string
@@ -647,9 +647,9 @@ type StartRunResult struct {
 }
 
 type ContinueRunOptions struct {
-	IssueID        string
-	RunID          string
-	ShortID        string
+	IssueID        model.IssueID
+	RunID          model.RunID
+	ShortID        model.ShortID
 	Branch         string
 	Agent          string
 	AgentCmd       string
@@ -679,13 +679,13 @@ type ContinueRunResponse struct {
 
 // ContinueRunResult holds the success data from a continue_run operation (no OK/Error).
 type ContinueRunResult struct {
-	RunID             string
+	RunID             model.RunID
 	Branch            string
 	WorktreePath      string
 	SessionName       string
 	Status            string
 	ContinuedFrom     string
-	IssueID           string
+	IssueID           model.IssueID
 	Multiplexer       string
 	SessionHost       string
 	WorkerID          string

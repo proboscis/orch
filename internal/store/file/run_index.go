@@ -14,25 +14,25 @@ import (
 )
 
 type runIndexEntry struct {
-	IssueID           string       `json:"issue_id"`
-	RunID             string       `json:"run_id"`
-	Status            model.Status `json:"status"`
-	Agent             string       `json:"agent,omitempty"`
-	Target            string       `json:"target,omitempty"`
-	TargetHost        string       `json:"target_host,omitempty"`
-	TargetWorkerID    string       `json:"target_worker_id,omitempty"`
-	Model             string       `json:"model,omitempty"`
-	ModelVariant      string       `json:"model_variant,omitempty"`
-	Branch            string       `json:"branch,omitempty"`
-	WorktreePath      string       `json:"worktree_path,omitempty"`
-	SessionName       string       `json:"session_name,omitempty"`
-	Multiplexer       string       `json:"multiplexer,omitempty"`
-	PRUrl             string       `json:"pr_url,omitempty"`
-	ServerPort        int          `json:"server_port,omitempty"`
-	OpenCodeSessionID string       `json:"opencode_session_id,omitempty"`
-	StartedAt         time.Time    `json:"started_at"`
-	UpdatedAt         time.Time    `json:"updated_at"`
-	FileMtime         time.Time    `json:"file_mtime"`
+	IssueID           model.IssueID `json:"issue_id"`
+	RunID             model.RunID   `json:"run_id"`
+	Status            model.Status  `json:"status"`
+	Agent             string        `json:"agent,omitempty"`
+	Target            string        `json:"target,omitempty"`
+	TargetHost        string        `json:"target_host,omitempty"`
+	TargetWorkerID    string        `json:"target_worker_id,omitempty"`
+	Model             string        `json:"model,omitempty"`
+	ModelVariant      string        `json:"model_variant,omitempty"`
+	Branch            string        `json:"branch,omitempty"`
+	WorktreePath      string        `json:"worktree_path,omitempty"`
+	SessionName       string        `json:"session_name,omitempty"`
+	Multiplexer       string        `json:"multiplexer,omitempty"`
+	PRUrl             string        `json:"pr_url,omitempty"`
+	ServerPort        int           `json:"server_port,omitempty"`
+	OpenCodeSessionID string        `json:"opencode_session_id,omitempty"`
+	StartedAt         time.Time     `json:"started_at"`
+	UpdatedAt         time.Time     `json:"updated_at"`
+	FileMtime         time.Time     `json:"file_mtime"`
 }
 
 // UnmarshalJSON implements custom unmarshalling to support both the legacy
@@ -215,6 +215,7 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 	seenKeys := make(map[string]bool)
 
 	for _, issueID := range issueDirs {
+		typedIssueID := model.IssueID(issueID)
 		issueRunsDir := filepath.Join(runsRoot, issueID)
 		dirInfo, err := os.Stat(issueRunsDir)
 		if err != nil {
@@ -234,8 +235,8 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 				continue
 			}
 
-			runID := strings.TrimSuffix(e.Name(), ".md")
-			key := issueID + "/" + runID
+			runID := model.RunID(strings.TrimSuffix(e.Name(), ".md"))
+			key := issueID + "/" + string(runID)
 			runPath := filepath.Join(issueRunsDir, e.Name())
 
 			info, err := e.Info()
@@ -254,7 +255,7 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 				continue
 			}
 
-			run, err := s.loadRun(issueID, runID, runPath)
+			run, err := s.loadRun(typedIssueID, runID, runPath)
 			if err != nil {
 				continue
 			}
@@ -380,8 +381,8 @@ func matchesRunFilters(entry *runIndexEntry, statusSet map[model.Status]bool, si
 		return false
 	}
 	if textSearch != "" {
-		if !strings.Contains(strings.ToLower(entry.RunID), textSearch) &&
-			!strings.Contains(strings.ToLower(entry.IssueID), textSearch) &&
+		if !strings.Contains(strings.ToLower(string(entry.RunID)), textSearch) &&
+			!strings.Contains(strings.ToLower(string(entry.IssueID)), textSearch) &&
 			!strings.Contains(strings.ToLower(entry.Branch), textSearch) {
 			return false
 		}

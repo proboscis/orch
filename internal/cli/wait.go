@@ -95,9 +95,9 @@ func runWaitWithDeps(ctx context.Context, refs []string, opts *waitOptions, deps
 	}
 
 	return json.NewEncoder(deps.stdout).Encode(waitCommandResult{
-		RunID:  result.RunID,
+		RunID:  string(result.RunID),
 		Status: string(result.Status),
-		Issue:  result.IssueID,
+		Issue:  string(result.IssueID),
 		PRURL:  result.PRURL,
 	})
 }

@@ -619,8 +619,8 @@ func (c *ProtoClient) StartRun(opts *StartRunOptions) (*StartRunResponse, error)
 	req := &orchpb.Request{
 		Request: &orchpb.Request_StartRun{
 			StartRun: &orchpb.StartRunRequest{
-				IssueId:        opts.IssueID,
-				RunId:          opts.RunID,
+				IssueId:        string(opts.IssueID),
+				RunId:          string(opts.RunID),
 				Agent:          opts.Agent,
 				AgentCmd:       opts.AgentCmd,
 				AgentProfile:   opts.AgentProfile,
@@ -670,9 +670,9 @@ func (c *ProtoClient) ContinueRun(opts *ContinueRunOptions) (*ContinueRunRespons
 	req := &orchpb.Request{
 		Request: &orchpb.Request_ContinueRun{
 			ContinueRun: &orchpb.ContinueRunRequest{
-				IssueId:        opts.IssueID,
-				RunId:          opts.RunID,
-				ShortId:        opts.ShortID,
+				IssueId:        string(opts.IssueID),
+				RunId:          string(opts.RunID),
+				ShortId:        string(opts.ShortID),
 				Branch:         opts.Branch,
 				Agent:          opts.Agent,
 				AgentCmd:       opts.AgentCmd,

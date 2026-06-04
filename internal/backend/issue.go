@@ -15,10 +15,10 @@ type ListIssuesFilter struct {
 }
 
 type IssueBackend interface {
-	GetIssue(ctx context.Context, issueID string) (*model.Issue, error)
+	GetIssue(ctx context.Context, issueID model.IssueID) (*model.Issue, error)
 	ListIssues(ctx context.Context, filter *ListIssuesFilter) ([]*model.Issue, error)
 	CreateIssue(ctx context.Context, issue *model.Issue) (*model.Issue, error)
-	SetIssueStatus(ctx context.Context, issueID string, status model.IssueStatus) error
+	SetIssueStatus(ctx context.Context, issueID model.IssueID, status model.IssueStatus) error
 
 	SupportsCreate() bool
 	SupportsPR() bool

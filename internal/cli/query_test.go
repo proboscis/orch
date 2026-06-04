@@ -18,7 +18,7 @@ type mockQueryAPI struct {
 	runs   []*model.Run
 }
 
-func (m *mockQueryAPI) GetIssue(ctx context.Context, issueID string) (*orchapi.Issue, error) {
+func (m *mockQueryAPI) GetIssue(ctx context.Context, issueID model.IssueID) (*orchapi.Issue, error) {
 	return nil, nil
 }
 
@@ -38,17 +38,17 @@ func (m *mockQueryAPI) ListIssues(ctx context.Context, filter *orchapi.ListIssue
 func (m *mockQueryAPI) CreateIssue(ctx context.Context, req *orchapi.CreateIssueRequest) (*orchapi.Issue, error) {
 	return nil, nil
 }
-func (m *mockQueryAPI) SetIssueStatus(ctx context.Context, issueID string, status orchapi.IssueStatus) error {
+func (m *mockQueryAPI) SetIssueStatus(ctx context.Context, issueID model.IssueID, status orchapi.IssueStatus) error {
 	return nil
 }
-func (m *mockQueryAPI) CloseIssue(ctx context.Context, issueID string) error { return nil }
+func (m *mockQueryAPI) CloseIssue(ctx context.Context, issueID model.IssueID) error { return nil }
 func (m *mockQueryAPI) ResolveRun(ctx context.Context, ref orchapi.RunRef) (*orchapi.Run, error) {
 	return nil, nil
 }
-func (m *mockQueryAPI) GetRun(ctx context.Context, issueID, runID string) (*orchapi.Run, error) {
+func (m *mockQueryAPI) GetRun(ctx context.Context, issueID model.IssueID, runID model.RunID) (*orchapi.Run, error) {
 	return nil, nil
 }
-func (m *mockQueryAPI) GetLatestRun(ctx context.Context, issueID string) (*orchapi.Run, error) {
+func (m *mockQueryAPI) GetLatestRun(ctx context.Context, issueID model.IssueID) (*orchapi.Run, error) {
 	return nil, nil
 }
 
@@ -112,7 +112,7 @@ func (m *mockQueryAPI) GetBranchState(ctx context.Context, ref orchapi.RunRef) (
 func (m *mockQueryAPI) GetDiff(ctx context.Context, ref orchapi.RunRef) (string, error) {
 	return "", nil
 }
-func (m *mockQueryAPI) ResolveIssue(ctx context.Context, issueID string, force bool) error {
+func (m *mockQueryAPI) ResolveIssue(ctx context.Context, issueID model.IssueID, force bool) error {
 	return nil
 }
 func (m *mockQueryAPI) DeleteRun(ctx context.Context, ref orchapi.RunRef, opts *orchapi.DeleteRunOptions) (*orchapi.DeleteRunResult, error) {
@@ -121,10 +121,10 @@ func (m *mockQueryAPI) DeleteRun(ctx context.Context, ref orchapi.RunRef, opts *
 func (m *mockQueryAPI) CleanRunWorktree(ctx context.Context, ref orchapi.RunRef) (*orchapi.CleanRunWorktreeResult, error) {
 	return nil, nil
 }
-func (m *mockQueryAPI) UpdateIssue(ctx context.Context, issueID string, req *orchapi.UpdateIssueRequest) (*orchapi.Issue, error) {
+func (m *mockQueryAPI) UpdateIssue(ctx context.Context, issueID model.IssueID, req *orchapi.UpdateIssueRequest) (*orchapi.Issue, error) {
 	return nil, nil
 }
-func (m *mockQueryAPI) ValidateIssueFiles(ctx context.Context, issueID string) (*orchapi.ValidateIssueFilesResult, error) {
+func (m *mockQueryAPI) ValidateIssueFiles(ctx context.Context, issueID model.IssueID) (*orchapi.ValidateIssueFilesResult, error) {
 	return nil, nil
 }
 func (m *mockQueryAPI) WriteAgentPrompt(ctx context.Context, ref orchapi.RunRef, content string) error {

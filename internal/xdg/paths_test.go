@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/s22625/orch/internal/model"
 )
 
 func TestParseRepoID(t *testing.T) {
@@ -75,7 +77,7 @@ func TestParseRepoID(t *testing.T) {
 				t.Errorf("ParseRepoID() error = %v", err)
 				return
 			}
-			if got != tt.want {
+			if got != model.RepoID(tt.want) {
 				t.Errorf("ParseRepoID() = %q, want %q", got, tt.want)
 			}
 		})

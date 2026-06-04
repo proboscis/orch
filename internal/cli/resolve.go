@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
@@ -54,7 +55,7 @@ func runResolveWithDeps(ctx context.Context, issueID string, opts *resolveOption
 		return err
 	}
 
-	err = api.ResolveIssue(ctx, issueID, opts.Force)
+	err = api.ResolveIssue(ctx, model.IssueID(issueID), opts.Force)
 	if err != nil {
 		errStr := err.Error()
 		if strings.Contains(errStr, "not_found") || strings.Contains(errStr, "not found") {

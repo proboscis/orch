@@ -315,7 +315,7 @@ func (b *Backend) ghToIssue(gh *ghIssue) *model.Issue {
 	issueID := fmt.Sprintf("gh-%d", gh.Number)
 
 	return &model.Issue{
-		ID:      issueID,
+		ID:      model.IssueID(issueID),
 		Title:   gh.Title,
 		Summary: truncateSummary(gh.Title, 50),
 		Status:  status,

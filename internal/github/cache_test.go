@@ -221,7 +221,7 @@ func TestCacheClear(t *testing.T) {
 
 	for i := 1; i <= 5; i++ {
 		issue := &model.Issue{
-			ID:     "gh-" + string(rune('0'+i)),
+			ID:     model.IssueID("gh-" + string(rune('0'+i))),
 			Title:  "Issue",
 			Status: model.IssueStatusOpen,
 			Frontmatter: map[string]string{

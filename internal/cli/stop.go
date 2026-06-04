@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
@@ -96,7 +97,7 @@ func runStopWithDeps(ctx context.Context, refStr string, opts *stopOptions, deps
 	return nil
 }
 
-func stopAllForIssue(ctx context.Context, api orchapi.OrchAPI, issueID string, opts *stopOptions) error {
+func stopAllForIssue(ctx context.Context, api orchapi.OrchAPI, issueID model.IssueID, opts *stopOptions) error {
 	resp, err := api.ListRuns(ctx, &orchapi.ListRunsFilter{
 		IssueID: issueID,
 		Status: []orchapi.RunStatus{

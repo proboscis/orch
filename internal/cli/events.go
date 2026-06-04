@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
@@ -56,8 +57,8 @@ func runEventsStream(ctx context.Context, issueFilter, runFilter string) error {
 	}
 
 	filter := &orchapi.RunEventFilter{
-		IssueID: strings.TrimSpace(issueFilter),
-		RunID:   strings.TrimSpace(runFilter),
+		IssueID: model.IssueID(strings.TrimSpace(issueFilter)),
+		RunID:   model.RunID(strings.TrimSpace(runFilter)),
 	}
 
 	stream, err := api.StreamRunEvents(ctx, filter)
@@ -99,12 +100,12 @@ type eventJSON struct {
 func eventToJSON(ev *orchapi.RunEvent) *eventJSON {
 	return &eventJSON{
 		Timestamp: ev.Timestamp.UTC().Format(time.RFC3339Nano),
-		IssueID:   ev.IssueID,
-		RunID:     ev.RunID,
-		ShortID:   ev.ShortID,
+		IssueID:   string(ev.IssueID),
+		RunID:     string(ev.RunID),
+		ShortID:   string(ev.ShortID),
 		From:      string(ev.From),
 		To:        string(ev.To),
 		Source:    ev.Source,
-		ProjectID: ev.ProjectID,
+		ProjectID: string(ev.ProjectID),
 	}
 }

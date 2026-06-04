@@ -88,8 +88,8 @@ func outputCaptureResultAPI(run *orchapi.Run, resp *orchapi.CaptureResult, opts 
 	if globalOpts.JSON {
 		result := &captureResult{
 			OK:          true,
-			IssueID:     run.IssueID,
-			RunID:       run.RunID,
+			IssueID:     string(run.IssueID),
+			RunID:       string(run.RunID),
 			SessionName: run.SessionName,
 			Lines:       opts.Lines,
 			Content:     resp.Content,

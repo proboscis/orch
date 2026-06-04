@@ -314,9 +314,9 @@ func (s *SocketServer) handleProtoRequest(req *orchpb.Request) *orchpb.Response 
 
 func resolveRunForMutation(st store.Store, issueID, runID, shortID string) (*model.Run, error) {
 	if shortID != "" {
-		return st.GetRunByShortID(shortID)
+		return st.GetRunByShortID(model.ShortID(shortID))
 	}
-	return st.GetRun(&model.RunRef{IssueID: issueID, RunID: runID})
+	return st.GetRun(&model.RunRef{IssueID: model.IssueID(issueID), RunID: model.RunID(runID)})
 }
 
 func (s *SocketServer) resolveMainRepoRootForRun(ctx *orchpb.RequestContext, run *model.Run) (string, error) {
@@ -552,7 +552,7 @@ func (s *SocketServer) repoContextForStore(st store.Store) *RepoContext {
 }
 
 func (s *SocketServer) resolveProtoRun(ctx *orchpb.RequestContext, issueID, runID string) (*resolvedProtoRun, *orchpb.Response) {
-	ref := &model.RunRef{IssueID: issueID, RunID: runID}
+	ref := &model.RunRef{IssueID: model.IssueID(issueID), RunID: model.RunID(runID)}
 	projectID := projectIDFromContext(ctx)
 
 	if projectID != "" {
@@ -650,7 +650,7 @@ func (s *SocketServer) resolveWaitRunTarget(ctx *orchpb.RequestContext, ref stri
 	projectID := projectIDFromContext(ctx)
 	resolveInStore := func(st store.Store) (*model.Run, error) {
 		if shortID != "" {
-			return st.GetRunByShortID(shortID)
+			return st.GetRunByShortID(model.ShortID(shortID))
 		}
 		return st.GetRun(runRef)
 	}
@@ -764,7 +764,7 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 	projectID := projectIDFromContext(req.Context)
 
 	filter := &store.ListRunsFilter{
-		IssueID:    req.IssueId,
+		IssueID:    model.IssueID(req.IssueId),
 		Status:     protoRunStatusSliceToModel(req.Status),
 		Agent:      req.Agent,
 		TextSearch: req.TextSearch,
@@ -870,7 +870,7 @@ func applyIssueMetadataToRunEntries(entries []runStoreEntry, protoRuns []*orchpb
 		return
 	}
 
-	issuesByStore := make(map[store.Store]map[string]*model.Issue)
+	issuesByStore := make(map[store.Store]map[model.IssueID]*model.Issue)
 
 	for i, entry := range entries {
 		if i >= len(protoRuns) || protoRuns[i] == nil || entry.run == nil || entry.store == nil {
@@ -885,7 +885,7 @@ func applyIssueMetadataToRunEntries(entries []runStoreEntry, protoRuns []*orchpb
 				continue
 			}
 
-			byID = make(map[string]*model.Issue, len(issues))
+			byID = make(map[model.IssueID]*model.Issue, len(issues))
 			for _, issue := range issues {
 				if issue == nil {
 					continue
@@ -1140,9 +1140,9 @@ func (s *SocketServer) handleProtoWaitForRuns(req *orchpb.WaitForRunsRequest) *o
 					Ok: true,
 					Response: &orchpb.Response_WaitForRuns{
 						WaitForRuns: &orchpb.WaitForRunsResponse{
-							RunId:  current.ShortID(),
+							RunId:  string(current.ShortID()),
 							Status: sanitizeUTF8(string(current.Status)),
-							Issue:  sanitizeUTF8(current.IssueID),
+							Issue:  sanitizeUTF8(string(current.IssueID)),
 							PrUrl:  sanitizeUTF8(current.PRUrl),
 						},
 					},
@@ -1166,7 +1166,7 @@ func (s *SocketServer) handleProtoWaitForRuns(req *orchpb.WaitForRunsRequest) *o
 }
 
 func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Response {
-	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+	ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}
 	projectID := projectIDFromContext(req.Context)
 
 	var run *model.Run
@@ -1238,8 +1238,8 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 	st := repoCtx.Store
 
 	opts := &StartRunOptions{
-		IssueID:        req.IssueId,
-		RunID:          req.RunId,
+		IssueID:        model.IssueID(req.IssueId),
+		RunID:          model.RunID(req.RunId),
 		Agent:          req.Agent,
 		AgentCmd:       req.AgentCmd,
 		AgentProfile:   req.AgentProfile,
@@ -1266,7 +1266,7 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		opts.TargetWorkerID = target.WorkerID
 	}
 
-	if issue, err := st.ResolveIssue(req.IssueId); err == nil {
+	if issue, err := st.ResolveIssue(model.IssueID(req.IssueId)); err == nil {
 		opts.IssueSnapshot = issue
 	}
 
@@ -1294,7 +1294,7 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		Ok: true,
 		Response: &orchpb.Response_StartRun{
 			StartRun: &orchpb.StartRunResponse{
-				RunId:        result.RunID,
+				RunId:        string(result.RunID),
 				Branch:       result.Branch,
 				WorktreePath: result.WorktreePath,
 				SessionName:  result.SessionName,
@@ -1309,7 +1309,8 @@ func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orch
 		return nil
 	}
 
-	ref := &model.RunRef{IssueID: req.IssueId, RunID: result.RunID}
+	resultRunID := model.RunID(result.RunID)
+	ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: resultRunID}
 	run, err := st.GetRun(ref)
 	if err != nil {
 		metadata := map[string]string{}
@@ -1326,7 +1327,7 @@ func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orch
 			metadata["target"] = req.Target
 		}
 
-		run, err = st.CreateRun(req.IssueId, result.RunID, metadata)
+		run, err = st.CreateRun(model.IssueID(req.IssueId), resultRunID, metadata)
 		if err != nil {
 			return err
 		}
@@ -1394,7 +1395,9 @@ func (s *SocketServer) syncContinueRunResultToMasterStore(st store.Store, req *o
 		return nil
 	}
 
-	ref := &model.RunRef{IssueID: result.IssueID, RunID: result.RunID}
+	resultIssueID := model.IssueID(result.IssueID)
+	resultRunID := model.RunID(result.RunID)
+	ref := &model.RunRef{IssueID: resultIssueID, RunID: resultRunID}
 	run, err := st.GetRun(ref)
 	if err != nil {
 		metadata := map[string]string{}
@@ -1406,7 +1409,7 @@ func (s *SocketServer) syncContinueRunResultToMasterStore(st store.Store, req *o
 		} else if req.IssueId != "" && req.RunId != "" {
 			metadata["continued_from"] = fmt.Sprintf("%s#%s", req.IssueId, req.RunId)
 		}
-		run, err = st.CreateRun(result.IssueID, result.RunID, metadata)
+		run, err = st.CreateRun(resultIssueID, resultRunID, metadata)
 		if err != nil {
 			return err
 		}
@@ -1484,9 +1487,9 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 	st := repoCtx.Store
 
 	opts := &ContinueRunOptions{
-		IssueID:        req.IssueId,
-		RunID:          req.RunId,
-		ShortID:        req.ShortId,
+		IssueID:        model.IssueID(req.IssueId),
+		RunID:          model.RunID(req.RunId),
+		ShortID:        model.ShortID(req.ShortId),
 		Branch:         req.Branch,
 		Agent:          req.Agent,
 		AgentCmd:       req.AgentCmd,
@@ -1499,11 +1502,11 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 		SessionName:    req.SessionName,
 	}
 	if req.ShortId != "" {
-		if run, err := st.GetRunByShortID(req.ShortId); err == nil && run != nil {
+		if run, err := st.GetRunByShortID(model.ShortID(req.ShortId)); err == nil && run != nil {
 			opts.Target = strings.TrimSpace(run.Target)
 		}
 	} else if req.IssueId != "" && req.RunId != "" {
-		if run, err := st.GetRun(&model.RunRef{IssueID: req.IssueId, RunID: req.RunId}); err == nil && run != nil {
+		if run, err := st.GetRun(&model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}); err == nil && run != nil {
 			opts.Target = strings.TrimSpace(run.Target)
 		}
 	}
@@ -1537,13 +1540,13 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 		Ok: true,
 		Response: &orchpb.Response_ContinueRun{
 			ContinueRun: &orchpb.ContinueRunResponse{
-				RunId:         result.RunID,
+				RunId:         string(result.RunID),
 				Branch:        result.Branch,
 				WorktreePath:  result.WorktreePath,
 				SessionName:   result.SessionName,
 				Status:        result.Status,
 				ContinuedFrom: result.ContinuedFrom,
-				IssueId:       result.IssueID,
+				IssueId:       string(result.IssueID),
 			},
 		},
 	}
@@ -1560,7 +1563,7 @@ func (s *SocketServer) handleProtoStopRun(req *orchpb.StopRunRequest) *orchpb.Re
 	}
 	st := repoCtx.Store
 
-	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+	ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}
 	run, err := st.GetRun(ref)
 	if err != nil {
 		return errorResponse("not_found")
@@ -1580,7 +1583,7 @@ func (s *SocketServer) handleProtoStopRun(req *orchpb.StopRunRequest) *orchpb.Re
 		}
 		payload.StopRun = stopPayload
 	}
-	if _, err := s.withWorkerLease(projectID, "stop_run", run.IssueID, run.RunID, payload); err != nil {
+	if _, err := s.withWorkerLease(projectID, "stop_run", string(run.IssueID), string(run.RunID), payload); err != nil {
 		return errorResponse(err.Error())
 	}
 
@@ -1599,7 +1602,7 @@ func (s *SocketServer) handleProtoResolveRun(req *orchpb.ResolveRunRequest) *orc
 		return errorResponse("no store available")
 	}
 
-	if err := st.SetIssueStatus(req.IssueId, model.IssueStatusResolved); err != nil {
+	if err := st.SetIssueStatus(model.IssueID(req.IssueId), model.IssueStatusResolved); err != nil {
 		return errorResponse("store_error")
 	}
 
@@ -1670,7 +1673,7 @@ func (s *SocketServer) handleProtoListIssues(req *orchpb.ListIssuesRequest) *orc
 		search := strings.ToLower(req.TextSearch)
 		var filtered []*model.Issue
 		for _, issue := range issues {
-			if strings.Contains(strings.ToLower(issue.ID), search) ||
+			if strings.Contains(strings.ToLower(string(issue.ID)), search) ||
 				strings.Contains(strings.ToLower(issue.Title), search) ||
 				strings.Contains(strings.ToLower(issue.Summary), search) {
 				filtered = append(filtered, issue)
@@ -1731,14 +1734,14 @@ func (s *SocketServer) handleProtoGetIssue(req *orchpb.GetIssueRequest) *orchpb.
 			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
 		}
 
-		resolved, err := st.ResolveIssue(req.IssueId)
+		resolved, err := st.ResolveIssue(model.IssueID(req.IssueId))
 		if err != nil {
 			return errorResponse("not_found")
 		}
 		issue = resolved
 	} else {
 		for _, st := range s.listStores() {
-			resolved, err := st.ResolveIssue(req.IssueId)
+			resolved, err := st.ResolveIssue(model.IssueID(req.IssueId))
 			if err != nil {
 				if isStoreNotFoundError(err) {
 					continue
@@ -1809,7 +1812,7 @@ func (s *SocketServer) handleProtoCloseIssue(req *orchpb.CloseIssueRequest) *orc
 		return errorResponse("no store available")
 	}
 
-	if err := st.SetIssueStatus(req.IssueId, model.IssueStatusClosed); err != nil {
+	if err := st.SetIssueStatus(model.IssueID(req.IssueId), model.IssueStatusClosed); err != nil {
 		return errorResponse("not_found")
 	}
 
@@ -1909,9 +1912,9 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 
 		var err error
 		if req.ShortId != "" {
-			run, err = st.GetRunByShortID(req.ShortId)
+			run, err = st.GetRunByShortID(model.ShortID(req.ShortId))
 		} else {
-			ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+			ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}
 			run, err = st.GetRun(ref)
 		}
 		if err != nil {
@@ -1924,7 +1927,7 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 				err      error
 			)
 			if req.ShortId != "" {
-				resolved, err = st.GetRunByShortID(req.ShortId)
+				resolved, err = st.GetRunByShortID(model.ShortID(req.ShortId))
 				if err != nil {
 					if isStoreNotFoundError(err) {
 						continue
@@ -1935,7 +1938,7 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 					return errorResponse("store_error")
 				}
 			} else {
-				ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+				ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}
 				resolved, err = st.GetRun(ref)
 				if err != nil {
 					if isStoreNotFoundError(err) {
@@ -1969,8 +1972,8 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 		Agent:             run.Agent,
 		ServerPort:        int32(run.ServerPort),
 		OpencodeSessionId: run.OpenCodeSessionID,
-		IssueId:           run.IssueID,
-		RunId:             run.RunID,
+		IssueId:           string(run.IssueID),
+		RunId:             string(run.RunID),
 	}
 
 	if strings.TrimSpace(run.TargetHost) != "" {
@@ -2052,7 +2055,7 @@ func (s *SocketServer) handleProtoCaptureSession(req *orchpb.CaptureSessionReque
 				TargetWorkerID: target.WorkerID,
 			},
 		}
-		completedLease, err := s.withWorkerLease(runCtx.projectID, "capture_session", runCtx.run.IssueID, runCtx.run.RunID, payload)
+		completedLease, err := s.withWorkerLease(runCtx.projectID, "capture_session", string(runCtx.run.IssueID), string(runCtx.run.RunID), payload)
 		if err != nil {
 			return errorResponse(err.Error())
 		}
@@ -2148,7 +2151,7 @@ func (s *SocketServer) handleProtoSendMessage(req *orchpb.SendMessageRequest) *o
 				TargetWorkerID: target.WorkerID,
 			},
 		}
-		if _, err := s.withWorkerLease(runCtx.projectID, "send_message", runCtx.run.IssueID, runCtx.run.RunID, payload); err != nil {
+		if _, err := s.withWorkerLease(runCtx.projectID, "send_message", string(runCtx.run.IssueID), string(runCtx.run.RunID), payload); err != nil {
 			return errorResponse(err.Error())
 		}
 		return &orchpb.Response{
@@ -2195,7 +2198,7 @@ func (s *SocketServer) handleProtoGetDiffStats(req *orchpb.GetDiffStatsRequest) 
 				TargetWorkerID: target.WorkerID,
 			},
 		}
-		completedLease, err := s.withWorkerLease(runCtx.projectID, "get_diff_stats", runCtx.run.IssueID, runCtx.run.RunID, payload)
+		completedLease, err := s.withWorkerLease(runCtx.projectID, "get_diff_stats", string(runCtx.run.IssueID), string(runCtx.run.RunID), payload)
 		if err != nil {
 			return errorResponse(err.Error())
 		}
@@ -2260,7 +2263,7 @@ func (s *SocketServer) handleProtoGetBranchState(req *orchpb.GetBranchStateReque
 				TargetWorkerID: target.WorkerID,
 			},
 		}
-		completedLease, err := s.withWorkerLease(runCtx.projectID, "get_branch_state", runCtx.run.IssueID, runCtx.run.RunID, payload)
+		completedLease, err := s.withWorkerLease(runCtx.projectID, "get_branch_state", string(runCtx.run.IssueID), string(runCtx.run.RunID), payload)
 		if err != nil {
 			return errorResponse(err.Error())
 		}
@@ -2367,7 +2370,7 @@ func (s *SocketServer) handleProtoGetDiff(req *orchpb.GetDiffRequest) *orchpb.Re
 				TargetWorkerID: target.WorkerID,
 			},
 		}
-		completedLease, err := s.withWorkerLease(runCtx.projectID, "get_diff", runCtx.run.IssueID, runCtx.run.RunID, payload)
+		completedLease, err := s.withWorkerLease(runCtx.projectID, "get_diff", string(runCtx.run.IssueID), string(runCtx.run.RunID), payload)
 		if err != nil {
 			return errorResponse(err.Error())
 		}
@@ -2658,14 +2661,14 @@ func (s *SocketServer) handleProtoGetRunByShortID(req *orchpb.GetRunByShortIDReq
 			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
 		}
 
-		resolved, err := st.GetRunByShortID(req.ShortId)
+		resolved, err := st.GetRunByShortID(model.ShortID(req.ShortId))
 		if err != nil {
 			return errorResponse("not_found")
 		}
 		run = resolved
 	} else {
 		for _, st := range s.listStores() {
-			resolved, err := st.GetRunByShortID(req.ShortId)
+			resolved, err := st.GetRunByShortID(model.ShortID(req.ShortId))
 			if err != nil {
 				if isStoreNotFoundError(err) {
 					continue
@@ -2716,7 +2719,7 @@ func (s *SocketServer) handleProtoResolveIssue(req *orchpb.ResolveIssueRequest) 
 		return errorResponse("no store available")
 	}
 
-	if err := st.SetIssueStatus(req.IssueId, model.IssueStatusResolved); err != nil {
+	if err := st.SetIssueStatus(model.IssueID(req.IssueId), model.IssueStatusResolved); err != nil {
 		return errorResponse(err.Error())
 	}
 
@@ -2739,7 +2742,7 @@ func (s *SocketServer) handleProtoAppendEvent(req *orchpb.AppendEventRequest) *o
 		return errorResponse("no store available")
 	}
 
-	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+	ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}
 	event := model.NewEvent(model.EventType(req.EventType), req.EventName, req.EventAttrs)
 
 	if err := st.AppendEvent(ref, event); err != nil {
@@ -2803,7 +2806,7 @@ func (s *SocketServer) handleProtoRegisterRepo(req *orchpb.RegisterRepoRequest) 
 		if err != nil {
 			return errorResponse(fmt.Sprintf("invalid repo URL %q: %v", input, err))
 		}
-		repoID = strings.TrimSpace(parsedID)
+		repoID = strings.TrimSpace(string(parsedID))
 		repoURL = input
 		workspaceRoot, err := ensureManagedRepoWorkspace(repoID, repoURL)
 		if err != nil {
@@ -2909,9 +2912,9 @@ func (s *SocketServer) handleProtoDeleteRun(req *orchpb.DeleteRunRequest) *orchp
 	}
 
 	result := &orchpb.DeleteRunResponse{
-		IssueId: run.IssueID,
-		RunId:   run.RunID,
-		ShortId: run.ShortID(),
+		IssueId: string(run.IssueID),
+		RunId:   string(run.RunID),
+		ShortId: string(run.ShortID()),
 	}
 
 	if req.WithWorktree && run.WorktreePath != "" {
@@ -2968,9 +2971,9 @@ func (s *SocketServer) handleProtoCleanRunWorktree(req *orchpb.CleanRunWorktreeR
 	}
 
 	result := &orchpb.CleanRunWorktreeResponse{
-		IssueId:         run.IssueID,
-		RunId:           run.RunID,
-		ShortId:         run.ShortID(),
+		IssueId:         string(run.IssueID),
+		RunId:           string(run.RunID),
+		ShortId:         string(run.ShortID()),
 		WorktreePath:    run.WorktreePath,
 		WorktreeRemoved: removed,
 		Skipped:         skipped,
@@ -2994,7 +2997,7 @@ func (s *SocketServer) handleProtoUpdateIssue(req *orchpb.UpdateIssueRequest) *o
 		return errorResponse("no store available")
 	}
 
-	issue, err := st.ResolveIssue(req.IssueId)
+	issue, err := st.ResolveIssue(model.IssueID(req.IssueId))
 	if err != nil {
 		return errorResponse(fmt.Sprintf("issue not found: %v", err))
 	}
@@ -3036,7 +3039,7 @@ func (s *SocketServer) handleProtoValidateIssueFiles(req *orchpb.ValidateIssueFi
 			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
 		}
 
-		result, err := st.ValidateIssueFiles(req.IssueId)
+		result, err := st.ValidateIssueFiles(model.IssueID(req.IssueId))
 		if err != nil {
 			return errorResponse(fmt.Sprintf("validation failed: %v", err))
 		}
@@ -3049,7 +3052,7 @@ func (s *SocketServer) handleProtoValidateIssueFiles(req *orchpb.ValidateIssueFi
 	} else {
 		stores := s.listStores()
 		for _, st := range stores {
-			result, err := st.ValidateIssueFiles(req.IssueId)
+			result, err := st.ValidateIssueFiles(model.IssueID(req.IssueId))
 			if err != nil {
 				if req.IssueId != "" && isStoreNotFoundError(err) {
 					continue
@@ -3074,7 +3077,7 @@ func (s *SocketServer) handleProtoValidateIssueFiles(req *orchpb.ValidateIssueFi
 	for _, e := range aggregated.Errors {
 		item := &orchpb.ValidationResultItem{
 			File:    e.File,
-			IssueId: e.IssueID,
+			IssueId: string(e.IssueID),
 		}
 		for _, issue := range e.Errors {
 			item.Errors = append(item.Errors, &orchpb.ValidationIssue{
@@ -3089,7 +3092,7 @@ func (s *SocketServer) handleProtoValidateIssueFiles(req *orchpb.ValidateIssueFi
 
 	for _, d := range aggregated.Duplicates {
 		protoResult.Duplicates = append(protoResult.Duplicates, &orchpb.DuplicateIDItem{
-			Id:    d.ID,
+			Id:    string(d.ID),
 			Files: d.Files,
 		})
 	}
@@ -3115,9 +3118,9 @@ func (s *SocketServer) handleProtoWriteAgentPrompt(req *orchpb.WriteAgentPromptR
 	var err error
 
 	if req.ShortId != "" {
-		run, err = st.GetRunByShortID(req.ShortId)
+		run, err = st.GetRunByShortID(model.ShortID(req.ShortId))
 	} else {
-		ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+		ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}
 		run, err = st.GetRun(ref)
 	}
 	if err != nil {
@@ -3149,9 +3152,9 @@ func (s *SocketServer) handleProtoReadAgentPrompt(req *orchpb.ReadAgentPromptReq
 		}
 
 		if req.ShortId != "" {
-			run, err = st.GetRunByShortID(req.ShortId)
+			run, err = st.GetRunByShortID(model.ShortID(req.ShortId))
 		} else {
-			ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+			ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}
 			run, err = st.GetRun(ref)
 		}
 		if err != nil {
@@ -3165,7 +3168,7 @@ func (s *SocketServer) handleProtoReadAgentPrompt(req *orchpb.ReadAgentPromptReq
 			)
 
 			if req.ShortId != "" {
-				resolved, err = candidateStore.GetRunByShortID(req.ShortId)
+				resolved, err = candidateStore.GetRunByShortID(model.ShortID(req.ShortId))
 				if err != nil {
 					if isStoreNotFoundError(err) {
 						continue
@@ -3176,7 +3179,7 @@ func (s *SocketServer) handleProtoReadAgentPrompt(req *orchpb.ReadAgentPromptReq
 					return errorResponse(fmt.Sprintf("run lookup failed: %v", err))
 				}
 			} else {
-				ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+				ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}
 				resolved, err = candidateStore.GetRun(ref)
 				if err != nil {
 					if isStoreNotFoundError(err) {
@@ -3357,7 +3360,7 @@ func (s *SocketServer) handleProtoCreateRun(req *orchpb.CreateRunRequest) *orchp
 		return errorResponse("no store available")
 	}
 
-	run, err := st.CreateRun(req.IssueId, req.RunId, req.Metadata)
+	run, err := st.CreateRun(model.IssueID(req.IssueId), model.RunID(req.RunId), req.Metadata)
 	if err != nil {
 		return errorResponse(fmt.Sprintf("failed to create run: %v", err))
 	}
@@ -3366,8 +3369,8 @@ func (s *SocketServer) handleProtoCreateRun(req *orchpb.CreateRunRequest) *orchp
 		Ok: true,
 		Response: &orchpb.Response_CreateRun{
 			CreateRun: &orchpb.CreateRunResponse{
-				IssueId: run.IssueID,
-				RunId:   run.RunID,
+				IssueId: string(run.IssueID),
+				RunId:   string(run.RunID),
 				Path:    run.Path,
 			},
 		},
@@ -3383,7 +3386,7 @@ func (s *SocketServer) handleProtoInjectInitialPrompt(req *orchpb.InjectInitialP
 		return errorResponse("no store available")
 	}
 
-	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+	ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}
 	run, err := st.GetRun(ref)
 	if err != nil {
 		return errorResponse(fmt.Sprintf("run not found: %v", err))
@@ -3540,9 +3543,9 @@ func (s *SocketServer) handleProtoResumeRun(req *orchpb.ResumeRunRequest) *orchp
 	var err error
 
 	if req.ShortId != "" {
-		run, err = st.GetRunByShortID(req.ShortId)
+		run, err = st.GetRunByShortID(model.ShortID(req.ShortId))
 	} else {
-		ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+		ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}
 		run, err = st.GetRun(ref)
 	}
 	if err != nil {

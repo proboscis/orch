@@ -111,8 +111,8 @@ func modelRunToProto(run *model.Run) *orchpb.Run {
 	}
 
 	protoRun := &orchpb.Run{
-		IssueId:           sanitizeUTF8(run.IssueID),
-		RunId:             sanitizeUTF8(run.RunID),
+		IssueId:           sanitizeUTF8(string(run.IssueID)),
+		RunId:             sanitizeUTF8(string(run.RunID)),
 		Status:            modelStatusToProto(run.Status),
 		Agent:             sanitizeUTF8(run.Agent),
 		Model:             sanitizeUTF8(run.Model),
@@ -144,8 +144,8 @@ func protoRunToModel(run *orchpb.Run) *model.Run {
 		return nil
 	}
 	return &model.Run{
-		IssueID:           run.IssueId,
-		RunID:             run.RunId,
+		IssueID:           model.IssueID(run.IssueId),
+		RunID:             model.RunID(run.RunId),
 		Status:            protoStatusToModel(run.Status),
 		Agent:             run.Agent,
 		Model:             run.Model,
@@ -171,7 +171,7 @@ func modelIssueToProto(issue *model.Issue) *orchpb.Issue {
 		return nil
 	}
 	return &orchpb.Issue{
-		Id:             sanitizeUTF8(issue.ID),
+		Id:             sanitizeUTF8(string(issue.ID)),
 		Title:          sanitizeUTF8(issue.Title),
 		Topic:          sanitizeUTF8(issue.Topic),
 		Summary:        sanitizeUTF8(issue.Summary),
@@ -189,7 +189,7 @@ func protoIssueToModel(issue *orchpb.Issue) *model.Issue {
 		return nil
 	}
 	return &model.Issue{
-		ID:         issue.Id,
+		ID:         model.IssueID(issue.Id),
 		Title:      issue.Title,
 		Topic:      issue.Topic,
 		Summary:    issue.Summary,

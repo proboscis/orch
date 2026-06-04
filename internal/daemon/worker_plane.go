@@ -615,7 +615,7 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 		}
 		return &WorkerEffectResult{ContinueRunResult: result}, nil
 	case "stop_run":
-		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: lease.IssueID, RunID: lease.RunID})
+		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: model.IssueID(lease.IssueID), RunID: model.RunID(lease.RunID)})
 		if err != nil {
 			return nil, fmt.Errorf("not_found")
 		}
@@ -627,7 +627,7 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 		if lease.Payload == nil || lease.Payload.CaptureSession == nil {
 			return nil, fmt.Errorf("capture_session payload missing")
 		}
-		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: lease.IssueID, RunID: lease.RunID})
+		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: model.IssueID(lease.IssueID), RunID: model.RunID(lease.RunID)})
 		if err != nil {
 			return nil, fmt.Errorf("not_found")
 		}
@@ -669,7 +669,7 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 		}
 		return nil, nil
 	case "get_diff_stats":
-		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: lease.IssueID, RunID: lease.RunID})
+		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: model.IssueID(lease.IssueID), RunID: model.RunID(lease.RunID)})
 		if err != nil {
 			return nil, fmt.Errorf("not_found")
 		}
@@ -683,7 +683,7 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 			},
 		}, nil
 	case "get_branch_state":
-		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: lease.IssueID, RunID: lease.RunID})
+		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: model.IssueID(lease.IssueID), RunID: model.RunID(lease.RunID)})
 		if err != nil {
 			return nil, fmt.Errorf("not_found")
 		}
@@ -692,7 +692,7 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 			BranchStateResult: &GetBranchStateResult{State: int32(state)},
 		}, nil
 	case "get_diff":
-		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: lease.IssueID, RunID: lease.RunID})
+		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: model.IssueID(lease.IssueID), RunID: model.RunID(lease.RunID)})
 		if err != nil {
 			return nil, fmt.Errorf("not_found")
 		}
@@ -723,20 +723,24 @@ func (s *SocketServer) waitForWorkerLeaseCompletion(leaseID string, timeout time
 	for {
 		s.workerLeasesMu.RLock()
 		lease := s.workerLeases[leaseID]
+		var leaseSnapshot *WorkerLease
+		if lease != nil {
+			copy := *lease
+			leaseSnapshot = &copy
+		}
 		s.workerLeasesMu.RUnlock()
 
-		if lease == nil {
+		if leaseSnapshot == nil {
 			return nil, fmt.Errorf("lease not found: %s", leaseID)
 		}
-		if lease.Completed {
-			copy := *lease
-			if lease.Success {
-				return &copy, nil
+		if leaseSnapshot.Completed {
+			if leaseSnapshot.Success {
+				return leaseSnapshot, nil
 			}
-			if strings.TrimSpace(lease.Error) != "" {
-				return &copy, errors.New(lease.Error)
+			if strings.TrimSpace(leaseSnapshot.Error) != "" {
+				return leaseSnapshot, errors.New(leaseSnapshot.Error)
 			}
-			return &copy, fmt.Errorf("worker lease failed: %s", leaseID)
+			return leaseSnapshot, fmt.Errorf("worker lease failed: %s", leaseID)
 		}
 
 		if time.Now().After(deadline) {

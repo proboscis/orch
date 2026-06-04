@@ -84,8 +84,8 @@ func showJSON(run *orchapi.Run, opts *showOptions) error {
 		Events        []eventOutput `json:"events,omitempty"`
 	}{
 		OK:            true,
-		IssueID:       run.IssueID,
-		RunID:         run.RunID,
+		IssueID:       string(run.IssueID),
+		RunID:         string(run.RunID),
 		Status:        string(run.Status),
 		Phase:         string(run.Phase),
 		ContinuedFrom: run.ContinuedFrom,
