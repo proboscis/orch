@@ -336,9 +336,11 @@ func sessionNameForProject(projectRoot string) string {
 }
 
 const (
-	// zellijSockMaxLength mirrors zellij's ZELLIJ_SOCK_MAX_LENGTH (Unix sun_path
-	// limit). zellij errors when len(<socket_dir>/<name>) >= this value.
-	zellijSockMaxLength = 108
+	// zellijSockMaxLength is the real OS limit for sockaddr_un.sun_path: macOS = 104,
+	// Linux = 108. zellij validates --session against 108, but on macOS its server
+	// panics ("local socket name length exceeds capacity of sun_path") above 104, so
+	// we bound to the smaller value to be safe on both platforms.
+	zellijSockMaxLength = 104
 	// zellijContractDir mirrors zellij's CLIENT_SERVER_CONTRACT_DIR
 	// ("contract_version_<N>") appended to the socket base (~18 chars).
 	zellijContractDir = "contract_version_1"

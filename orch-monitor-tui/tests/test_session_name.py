@@ -9,10 +9,13 @@ from pathlib import Path
 
 import pytest
 
+import os
+
 from orch_monitor.__main__ import (
     SESSION_NAME_PREFIX,
     ZELLIJ_CONTRACT_DIR,
     ZELLIJ_SOCK_MAX_LENGTH,
+    _ensure_short_zellij_socket_dir,
     get_session_name,
 )
 
@@ -64,6 +67,31 @@ def test_always_within_socket_limit(repo_name, monkeypatch):
     name = get_session_name(Path("/work") / repo_name)
     assert _socket_path_len(name, sock_base) < ZELLIJ_SOCK_MAX_LENGTH
     assert name  # never empty
+
+
+def test_ensure_short_socket_dir_sets_when_unset(monkeypatch):
+    monkeypatch.delenv("ZELLIJ_SOCKET_DIR", raising=False)
+    base = _ensure_short_zellij_socket_dir()
+    assert base == os.environ["ZELLIJ_SOCKET_DIR"]
+    assert base.startswith("/tmp/zlj-")
+    # short enough to leave plenty of room for a name under the OS limit
+    assert len(base) + 1 + len(ZELLIJ_CONTRACT_DIR) + 1 < ZELLIJ_SOCK_MAX_LENGTH
+
+
+def test_ensure_short_socket_dir_respects_existing(monkeypatch):
+    monkeypatch.setenv("ZELLIJ_SOCKET_DIR", "/custom/sock")
+    assert _ensure_short_zellij_socket_dir() == "/custom/sock"
+    assert os.environ["ZELLIJ_SOCKET_DIR"] == "/custom/sock"
+
+
+def test_short_socket_dir_yields_full_name_for_long_repo(monkeypatch):
+    # With the short dir the budget is large enough that even a long macOS-uid path
+    # keeps the readable repo name (the user's original failing case).
+    monkeypatch.setenv("ZELLIJ_SOCKET_DIR", "/tmp/zlj-2145596008")
+    name = get_session_name(Path("/Users/s22625/repos/agent-control-plane"))
+    assert name == f"{SESSION_NAME_PREFIX}-agent-control-plane"
+    full = len("/tmp/zlj-2145596008") + 1 + len(ZELLIJ_CONTRACT_DIR) + 1 + len(name)
+    assert full < ZELLIJ_SOCK_MAX_LENGTH
 
 
 def test_invalid_chars_sanitized(tmp_path, monkeypatch):

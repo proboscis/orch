@@ -86,22 +86,41 @@ SESSION_NAME_PREFIX = "orch-monitor"
 CONTROL_PROMPT_FILE = "ORCH_CONTROL_PROMPT.md"
 
 
-# zellij rejects a session when len(<socket_dir>/<name>) >= this Unix sun_path limit.
-# Its own error ("session name must be less than 0 characters") is misleading: the
-# available-length math saturates to 0 the moment the limit is hit, so the real
-# constraint is the socket-dir length — which we account for below instead of using a
-# blind fixed cap.
-ZELLIJ_SOCK_MAX_LENGTH = 108
+# Real OS limit for sockaddr_un.sun_path: macOS = 104, Linux = 108. zellij validates
+# its --session name against 108, but on macOS the zellij *server* still panics with
+# "local socket name length exceeds capacity of sun_path" when the actual socket path
+# exceeds 104. Use the smaller value so generated names are safe on both platforms.
+ZELLIJ_SOCK_MAX_LENGTH = 104
 # zellij appends this contract dir to the socket base (CLIENT_SERVER_CONTRACT_DIR =
-# "contract_version_<N>"); 18 chars on current releases. A default macOS /var/folders
-# TMPDIR plus this subdir alone leaves only ~28 chars for the name, which is exactly
-# why the old fixed 28-char cap overflowed.
+# "contract_version_<N>"); 18 chars on current releases.
 ZELLIJ_CONTRACT_DIR = "contract_version_1"
 # Upper bound so names stay human-readable / tmux-friendly when the socket dir is
 # short. The same generated name is reused regardless of multiplexer.
 MAX_SESSION_NAME_LEN = 60
 _SESSION_HASH_LEN = 6
 _SESSION_NAME_SAFETY = 3
+
+
+def _ensure_short_zellij_socket_dir() -> str:
+    """Point zellij at a short, stable per-user socket dir (macOS sun_path workaround).
+
+    The default <tempdir>/zellij-<uid> path on macOS — a long /var/folders TMPDIR plus
+    a (potentially 10-digit) uid and the 18-char contract subdir — can leave too few
+    characters for ANY session name, making the zellij server panic on socket creation.
+    A short ZELLIJ_SOCKET_DIR reclaims that budget. Respects an existing value if the
+    user already set one. Sets os.environ so every child zellij invocation (new session,
+    list, attach, kill) agrees on the same dir. Returns the base (no contract subdir).
+    """
+    existing = os.environ.get("ZELLIJ_SOCKET_DIR")
+    if existing:
+        return existing
+    try:
+        uid = os.getuid()
+    except AttributeError:  # non-Unix
+        uid = 0
+    short = f"/tmp/zlj-{uid}"
+    os.environ["ZELLIJ_SOCKET_DIR"] = short
+    return short
 
 
 def _zellij_socket_dir() -> str:
@@ -123,10 +142,11 @@ def _zellij_socket_dir() -> str:
 
 
 def _max_session_name_len() -> int:
-    """Largest session name that fits zellij's socket-path limit, with a safety margin.
+    """Largest session name that fits the OS socket-path limit, with a safety margin.
 
-    Mirrors zellij's check: error when len(sock_dir + "/" + name) >= 108. Capped at
-    MAX_SESSION_NAME_LEN so short socket dirs still yield readable names.
+    Final socket path is len(sock_dir + "/" + name); keep it under
+    ZELLIJ_SOCK_MAX_LENGTH. Capped at MAX_SESSION_NAME_LEN so short socket dirs still
+    yield readable names.
     """
     budget = (
         ZELLIJ_SOCK_MAX_LENGTH
@@ -1037,6 +1057,13 @@ def launch_monitor_layout(
 
         launcher = get_layout_launcher(multiplexer)
         cwd = str(project_root) if project_root else os.getcwd()
+        # For zellij, ensure a short ZELLIJ_SOCKET_DIR before any zellij call so the
+        # socket path stays within the OS sun_path limit (macOS 104). This must run
+        # before get_session_name (budget) and before has_session/attach/launch so they
+        # all agree on the same socket dir.
+        if multiplexer == MultiplexerType.ZELLIJ:
+            sock_dir = _ensure_short_zellij_socket_dir()
+            _launcher_logger.info(f"using ZELLIJ_SOCKET_DIR={sock_dir}")
         session_name = get_session_name(project_root)
         _launcher_logger.info(f"session_name={session_name}, cwd={cwd}")
 
