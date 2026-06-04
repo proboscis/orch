@@ -118,7 +118,9 @@ func TestRunDeriveState(t *testing.T) {
 		},
 	}
 
-	run.DeriveState()
+	if err := run.DeriveState(); err != nil {
+		t.Fatalf("DeriveState() error = %v", err)
+	}
 
 	if run.Status != StatusRunning {
 		t.Errorf("Status = %v, want running", run.Status)
@@ -156,7 +158,9 @@ func TestRunDeriveStatePrefersLastNonEmptySessionMultiplexer(t *testing.T) {
 		},
 	}
 
-	run.DeriveState()
+	if err := run.DeriveState(); err != nil {
+		t.Fatalf("DeriveState() error = %v", err)
+	}
 
 	if run.SessionName != "run-plc125" {
 		t.Errorf("SessionName = %v, want run-plc125", run.SessionName)
@@ -178,7 +182,9 @@ func TestRunDeriveStateFallsBackToSessionHost(t *testing.T) {
 		},
 	}
 
-	run.DeriveState()
+	if err := run.DeriveState(); err != nil {
+		t.Fatalf("DeriveState() error = %v", err)
+	}
 
 	if run.TargetHost != "mac-host" {
 		t.Errorf("TargetHost = %v, want mac-host", run.TargetHost)
@@ -200,10 +206,26 @@ func TestRunDeriveStateFallsBackToSessionWorkerID(t *testing.T) {
 		},
 	}
 
-	run.DeriveState()
+	if err := run.DeriveState(); err != nil {
+		t.Fatalf("DeriveState() error = %v", err)
+	}
 
 	if run.TargetWorkerID != "host-mac-host" {
 		t.Errorf("TargetWorkerID = %v, want host-mac-host", run.TargetWorkerID)
+	}
+}
+
+func TestRunDeriveStateRejectsUnknownStatus(t *testing.T) {
+	run := &Run{
+		IssueID: "plc128",
+		RunID:   "20231224",
+		Events: []*Event{
+			{Timestamp: time.Now(), Type: EventTypeStatus, Name: "bogus"},
+		},
+	}
+
+	if err := run.DeriveState(); err == nil {
+		t.Fatal("DeriveState() error = nil, want unknown status error")
 	}
 }
 

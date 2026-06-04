@@ -16,8 +16,8 @@ func (d *Daemon) AddStatusChangeListener(l runevents.StatusChangeListener) {
 	d.statusListeners = append(d.statusListeners, l)
 }
 
-// fireStatusChange dispatches ev to every registered listener. A panic in one
-// listener is logged but does not stop subsequent listeners from running.
+// fireStatusChange dispatches ev to every registered listener. A panic in a
+// listener is logged and re-raised so listener failures are not hidden.
 func (d *Daemon) fireStatusChange(ev *runevents.StatusChangeEvent) {
 	if d == nil || ev == nil {
 		return
@@ -34,8 +34,8 @@ func (d *Daemon) fireStatusChange(ev *runevents.StatusChangeEvent) {
 
 func (d *Daemon) invokeListener(l runevents.StatusChangeListener, ev *runevents.StatusChangeEvent) {
 	defer func() {
-		if r := recover(); r != nil && d.logger != nil {
-			d.logger.Printf("status change listener panicked: %v", r)
+		if r := recover(); r != nil {
+			logAndRepanic(d.logger, "status change listener", r)
 		}
 	}()
 	l.OnStatusChange(ev)

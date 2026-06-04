@@ -9,17 +9,61 @@ func TestNormalizeRunStatus(t *testing.T) {
 	}{
 		{"blocked", RunStatusWaiting},
 		{"blocked_api", RunStatusRateLimited},
+		{"queued", RunStatusQueued},
+		{"booting", RunStatusBooting},
 		{"waiting", RunStatusWaiting},
 		{"rate_limited", RunStatusRateLimited},
 		{"running", RunStatusRunning},
+		{"pr_open", RunStatusPROpen},
 		{"done", RunStatusDone},
-		{"queued", RunStatusQueued},
+		{"failed", RunStatusFailed},
+		{"canceled", RunStatusCanceled},
+		{"unknown", RunStatusUnknown},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got := NormalizeRunStatus(tt.input)
+			got, err := NormalizeRunStatus(tt.input)
+			if err != nil {
+				t.Fatalf("NormalizeRunStatus(%q) error = %v", tt.input, err)
+			}
 			if got != tt.want {
 				t.Errorf("NormalizeRunStatus(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeRunStatusRoundTripsDeclaredStatuses(t *testing.T) {
+	statuses := []RunStatus{
+		RunStatusQueued,
+		RunStatusBooting,
+		RunStatusRunning,
+		RunStatusWaiting,
+		RunStatusRateLimited,
+		RunStatusPROpen,
+		RunStatusDone,
+		RunStatusFailed,
+		RunStatusCanceled,
+		RunStatusUnknown,
+	}
+	for _, want := range statuses {
+		t.Run(string(want), func(t *testing.T) {
+			got, err := NormalizeRunStatus(string(want))
+			if err != nil {
+				t.Fatalf("NormalizeRunStatus(%q) error = %v", want, err)
+			}
+			if got != want {
+				t.Fatalf("NormalizeRunStatus(%q) = %q, want %q", want, got, want)
+			}
+		})
+	}
+}
+
+func TestNormalizeRunStatusRejectsUnknown(t *testing.T) {
+	for _, input := range []string{"", "bogus", "fail", "cancel", "dry_run"} {
+		t.Run(input, func(t *testing.T) {
+			if got, err := NormalizeRunStatus(input); err == nil {
+				t.Fatalf("NormalizeRunStatus(%q) = %q, want error", input, got)
 			}
 		})
 	}

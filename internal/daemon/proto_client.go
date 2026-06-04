@@ -326,7 +326,11 @@ func (c *ProtoClient) ListRuns(filter *ListRunsFilter) (*ListRunsResponse, error
 
 	protoStatuses := make([]orchpb.RunStatus, 0, len(status))
 	for _, s := range status {
-		protoStatuses = append(protoStatuses, stringToProtoRunStatus(s))
+		protoStatus, err := stringToProtoRunStatus(s)
+		if err != nil {
+			return nil, err
+		}
+		protoStatuses = append(protoStatuses, protoStatus)
 	}
 
 	req := &orchpb.Request{
@@ -359,7 +363,11 @@ func (c *ProtoClient) ListRuns(filter *ListRunsFilter) (*ListRunsResponse, error
 
 	runs := make([]*RunSummary, len(listResp.Runs))
 	for i, r := range listResp.Runs {
-		runs[i] = protoRunToSummary(r, cfg)
+		run, err := protoRunToSummary(r, cfg)
+		if err != nil {
+			return nil, err
+		}
+		runs[i] = run
 	}
 
 	var nextCursor *string
@@ -400,9 +408,13 @@ func (c *ProtoClient) GetRun(issueID, runID string) (*GetRunResponse, error) {
 		return nil, fmt.Errorf("unexpected response type")
 	}
 
+	run, err := protoRunToFull(getResp.Run, getResp.Events, loadConfigOrNil())
+	if err != nil {
+		return nil, err
+	}
 	return &GetRunResponse{
 		OK:  true,
-		Run: protoRunToFull(getResp.Run, getResp.Events, loadConfigOrNil()),
+		Run: run,
 	}, nil
 }
 
@@ -430,9 +442,13 @@ func (c *ProtoClient) GetRunByShortID(shortID string) (*GetRunResponse, error) {
 		return nil, fmt.Errorf("unexpected response type")
 	}
 
+	run, err := protoRunToFull(getResp.Run, getResp.Events, loadConfigOrNil())
+	if err != nil {
+		return nil, err
+	}
 	return &GetRunResponse{
 		OK:  true,
-		Run: protoRunToFull(getResp.Run, getResp.Events, loadConfigOrNil()),
+		Run: run,
 	}, nil
 }
 
@@ -479,7 +495,11 @@ func (c *ProtoClient) WaitForRuns(runRefs []string, timeoutSeconds int) (*WaitFo
 func (c *ProtoClient) ListIssues(status []string, limit int, cursor string) (*ListIssuesResponse, error) {
 	protoStatuses := make([]orchpb.IssueStatus, 0, len(status))
 	for _, s := range status {
-		protoStatuses = append(protoStatuses, stringToProtoIssueStatus(s))
+		protoStatus, err := stringToProtoIssueStatus(s)
+		if err != nil {
+			return nil, err
+		}
+		protoStatuses = append(protoStatuses, protoStatus)
 	}
 
 	req := &orchpb.Request{
@@ -509,7 +529,11 @@ func (c *ProtoClient) ListIssues(status []string, limit int, cursor string) (*Li
 
 	issues := make([]*IssueSummary, len(listResp.Issues))
 	for i, iss := range listResp.Issues {
-		issues[i] = protoIssueToSummary(iss)
+		issue, err := protoIssueToSummary(iss)
+		if err != nil {
+			return nil, err
+		}
+		issues[i] = issue
 	}
 
 	var nextCursor *string
@@ -549,9 +573,13 @@ func (c *ProtoClient) GetIssue(issueID string) (*GetIssueResponse, error) {
 		return nil, fmt.Errorf("unexpected response type")
 	}
 
+	issue, err := protoIssueToFull(getResp.Issue)
+	if err != nil {
+		return nil, err
+	}
 	return &GetIssueResponse{
 		OK:    true,
-		Issue: protoIssueToFull(getResp.Issue),
+		Issue: issue,
 	}, nil
 }
 
@@ -1206,79 +1234,83 @@ func (c *ProtoClient) GetControlAgentConfig() (*GetControlAgentConfigResponse, e
 	}, nil
 }
 
-func stringToProtoRunStatus(s string) orchpb.RunStatus {
+func stringToProtoRunStatus(s string) (orchpb.RunStatus, error) {
 	switch s {
 	case "queued":
-		return orchpb.RunStatus_RUN_STATUS_QUEUED
+		return orchpb.RunStatus_RUN_STATUS_QUEUED, nil
 	case "booting":
-		return orchpb.RunStatus_RUN_STATUS_BOOTING
+		return orchpb.RunStatus_RUN_STATUS_BOOTING, nil
 	case "running":
-		return orchpb.RunStatus_RUN_STATUS_RUNNING
+		return orchpb.RunStatus_RUN_STATUS_RUNNING, nil
 	case "blocked", "waiting":
-		return orchpb.RunStatus_RUN_STATUS_WAITING
+		return orchpb.RunStatus_RUN_STATUS_WAITING, nil
 	case "blocked_api", "rate_limited":
-		return orchpb.RunStatus_RUN_STATUS_RATE_LIMITED
+		return orchpb.RunStatus_RUN_STATUS_RATE_LIMITED, nil
 	case "pr_open":
-		return orchpb.RunStatus_RUN_STATUS_PR_OPEN
+		return orchpb.RunStatus_RUN_STATUS_PR_OPEN, nil
 	case "done":
-		return orchpb.RunStatus_RUN_STATUS_DONE
+		return orchpb.RunStatus_RUN_STATUS_DONE, nil
 	case "failed":
-		return orchpb.RunStatus_RUN_STATUS_FAILED
+		return orchpb.RunStatus_RUN_STATUS_FAILED, nil
 	case "canceled":
-		return orchpb.RunStatus_RUN_STATUS_CANCELED
+		return orchpb.RunStatus_RUN_STATUS_CANCELED, nil
+	case "unknown":
+		return orchpb.RunStatus_RUN_STATUS_UNKNOWN, nil
 	default:
-		return orchpb.RunStatus_RUN_STATUS_UNSPECIFIED
+		return orchpb.RunStatus_RUN_STATUS_UNSPECIFIED, fmt.Errorf("unknown run status: %q", s)
 	}
 }
 
-func stringToProtoIssueStatus(s string) orchpb.IssueStatus {
+func stringToProtoIssueStatus(s string) (orchpb.IssueStatus, error) {
 	switch s {
 	case "open":
-		return orchpb.IssueStatus_ISSUE_STATUS_OPEN
+		return orchpb.IssueStatus_ISSUE_STATUS_OPEN, nil
 	case "resolved":
-		return orchpb.IssueStatus_ISSUE_STATUS_RESOLVED
+		return orchpb.IssueStatus_ISSUE_STATUS_RESOLVED, nil
 	case "closed":
-		return orchpb.IssueStatus_ISSUE_STATUS_CLOSED
+		return orchpb.IssueStatus_ISSUE_STATUS_CLOSED, nil
 	default:
-		return orchpb.IssueStatus_ISSUE_STATUS_UNSPECIFIED
+		return orchpb.IssueStatus_ISSUE_STATUS_UNSPECIFIED, fmt.Errorf("unknown issue status: %q", s)
 	}
 }
 
-func protoRunStatusToString(s orchpb.RunStatus) string {
+func protoRunStatusToString(s orchpb.RunStatus) (string, error) {
 	switch s {
 	case orchpb.RunStatus_RUN_STATUS_QUEUED:
-		return "queued"
+		return "queued", nil
 	case orchpb.RunStatus_RUN_STATUS_BOOTING:
-		return "booting"
+		return "booting", nil
 	case orchpb.RunStatus_RUN_STATUS_RUNNING:
-		return "running"
+		return "running", nil
 	case orchpb.RunStatus_RUN_STATUS_WAITING:
-		return "waiting"
+		return "waiting", nil
 	case orchpb.RunStatus_RUN_STATUS_RATE_LIMITED:
-		return "rate_limited"
+		return "rate_limited", nil
 	case orchpb.RunStatus_RUN_STATUS_PR_OPEN:
-		return "pr_open"
+		return "pr_open", nil
 	case orchpb.RunStatus_RUN_STATUS_DONE:
-		return "done"
+		return "done", nil
 	case orchpb.RunStatus_RUN_STATUS_FAILED:
-		return "failed"
+		return "failed", nil
 	case orchpb.RunStatus_RUN_STATUS_CANCELED:
-		return "canceled"
+		return "canceled", nil
+	case orchpb.RunStatus_RUN_STATUS_UNKNOWN:
+		return "unknown", nil
 	default:
-		return "unknown"
+		return "", fmt.Errorf("unknown proto run status: %s", s.String())
 	}
 }
 
-func protoIssueStatusToString(s orchpb.IssueStatus) string {
+func protoIssueStatusToString(s orchpb.IssueStatus) (string, error) {
 	switch s {
 	case orchpb.IssueStatus_ISSUE_STATUS_OPEN:
-		return "open"
+		return "open", nil
 	case orchpb.IssueStatus_ISSUE_STATUS_RESOLVED:
-		return "resolved"
+		return "resolved", nil
 	case orchpb.IssueStatus_ISSUE_STATUS_CLOSED:
-		return "closed"
+		return "closed", nil
 	default:
-		return "unknown"
+		return "", fmt.Errorf("unknown proto issue status: %s", s.String())
 	}
 }
 
@@ -1316,9 +1348,13 @@ func protoBranchStateToString(s orchpb.BranchState) string {
 	}
 }
 
-func protoRunToSummary(r *orchpb.Run, _ *config.Config) *RunSummary {
+func protoRunToSummary(r *orchpb.Run, _ *config.Config) (*RunSummary, error) {
 	if r == nil {
-		return nil
+		return nil, nil
+	}
+	status, err := protoRunStatusToString(r.Status)
+	if err != nil {
+		return nil, fmt.Errorf("invalid run status for %s#%s: %w", r.IssueId, r.RunId, err)
 	}
 
 	var diffStats *DiffStatsJSON
@@ -1335,7 +1371,7 @@ func protoRunToSummary(r *orchpb.Run, _ *config.Config) *RunSummary {
 		IssueID:           r.IssueId,
 		RunID:             r.RunId,
 		ShortID:           computeShortID(r.IssueId, r.RunId),
-		Status:            protoRunStatusToString(r.Status),
+		Status:            status,
 		Agent:             r.Agent,
 		Model:             r.Model,
 		Branch:            r.Branch,
@@ -1361,12 +1397,16 @@ func protoRunToSummary(r *orchpb.Run, _ *config.Config) *RunSummary {
 		StartedAt:         formatUnixTime(r.StartedAtUnix),
 		UpdatedAt:         formatUnixTime(r.UpdatedAtUnix),
 		URI:               fmt.Sprintf("orch://run/%s/%s", r.IssueId, r.RunId),
-	}
+	}, nil
 }
 
-func protoRunToFull(r *orchpb.Run, events []*orchpb.Event, _ *config.Config) *RunFull {
+func protoRunToFull(r *orchpb.Run, events []*orchpb.Event, _ *config.Config) (*RunFull, error) {
 	if r == nil {
-		return nil
+		return nil, nil
+	}
+	status, err := protoRunStatusToString(r.Status)
+	if err != nil {
+		return nil, fmt.Errorf("invalid run status for %s#%s: %w", r.IssueId, r.RunId, err)
 	}
 
 	var diffStats *DiffStatsJSON
@@ -1405,7 +1445,7 @@ func protoRunToFull(r *orchpb.Run, events []*orchpb.Event, _ *config.Config) *Ru
 		IssueID:           r.IssueId,
 		RunID:             r.RunId,
 		ShortID:           computeShortID(r.IssueId, r.RunId),
-		Status:            protoRunStatusToString(r.Status),
+		Status:            status,
 		Phase:             phase,
 		Agent:             r.Agent,
 		Model:             r.Model,
@@ -1434,7 +1474,7 @@ func protoRunToFull(r *orchpb.Run, events []*orchpb.Event, _ *config.Config) *Ru
 		UpdatedAt:         formatUnixTime(r.UpdatedAtUnix),
 		URI:               fmt.Sprintf("orch://run/%s/%s", r.IssueId, r.RunId),
 		Events:            eventJSON,
-	}
+	}, nil
 }
 
 func loadConfigOrNil() *config.Config {
@@ -1445,37 +1485,45 @@ func loadConfigOrNil() *config.Config {
 	return cfg
 }
 
-func protoIssueToSummary(i *orchpb.Issue) *IssueSummary {
+func protoIssueToSummary(i *orchpb.Issue) (*IssueSummary, error) {
 	if i == nil {
-		return nil
+		return nil, nil
+	}
+	status, err := protoIssueStatusToString(i.Status)
+	if err != nil {
+		return nil, fmt.Errorf("invalid issue status for %s: %w", i.Id, err)
 	}
 
 	return &IssueSummary{
 		ID:         i.Id,
 		Title:      i.Title,
 		Summary:    i.Summary,
-		Status:     protoIssueStatusToString(i.Status),
+		Status:     status,
 		Tags:       i.Tags,
 		URI:        fmt.Sprintf("orch://issue/%s", i.Id),
 		ModifiedAt: formatUnixTime(i.ModifiedAtUnix),
-	}
+	}, nil
 }
 
-func protoIssueToFull(i *orchpb.Issue) *IssueFull {
+func protoIssueToFull(i *orchpb.Issue) (*IssueFull, error) {
 	if i == nil {
-		return nil
+		return nil, nil
+	}
+	status, err := protoIssueStatusToString(i.Status)
+	if err != nil {
+		return nil, fmt.Errorf("invalid issue status for %s: %w", i.Id, err)
 	}
 
 	return &IssueFull{
 		ID:         i.Id,
 		Title:      i.Title,
 		Summary:    i.Summary,
-		Status:     protoIssueStatusToString(i.Status),
+		Status:     status,
 		Body:       i.Body,
 		Tags:       i.Tags,
 		BaseBranch: i.BaseBranch,
 		URI:        fmt.Sprintf("orch://issue/%s", i.Id),
-	}
+	}, nil
 }
 
 func computeShortID(issueID, runID string) string {
@@ -1773,7 +1821,7 @@ func (c *ProtoClient) UpdateIssue(issueID, title, summary, body, status string) 
 		return nil, fmt.Errorf("unexpected response type")
 	}
 
-	return protoIssueToFull(updateResp.Issue), nil
+	return protoIssueToFull(updateResp.Issue)
 }
 
 type ValidateIssueFilesResponse struct {

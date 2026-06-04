@@ -54,7 +54,8 @@
                  Status.PR_OPEN pb.RUN_STATUS_PR_OPEN
                  Status.DONE pb.RUN_STATUS_DONE
                  Status.FAILED pb.RUN_STATUS_FAILED
-                 Status.CANCELED pb.RUN_STATUS_CANCELED})
+                 Status.CANCELED pb.RUN_STATUS_CANCELED
+                 Status.UNKNOWN pb.RUN_STATUS_UNKNOWN})
   (.get mapping s pb.RUN_STATUS_UNSPECIFIED))
 
 (defn proto-status->model [s]
@@ -66,7 +67,8 @@
                  pb.RUN_STATUS_PR_OPEN Status.PR_OPEN
                  pb.RUN_STATUS_DONE Status.DONE
                  pb.RUN_STATUS_FAILED Status.FAILED
-                 pb.RUN_STATUS_CANCELED Status.CANCELED})
+                 pb.RUN_STATUS_CANCELED Status.CANCELED
+                 pb.RUN_STATUS_UNKNOWN Status.UNKNOWN})
   (.get mapping s Status.UNKNOWN))
 
 (defn model-issue-status->proto [s]

@@ -19,6 +19,7 @@ class RunStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     RUN_STATUS_DONE: _ClassVar[RunStatus]
     RUN_STATUS_FAILED: _ClassVar[RunStatus]
     RUN_STATUS_CANCELED: _ClassVar[RunStatus]
+    RUN_STATUS_UNKNOWN: _ClassVar[RunStatus]
 
 class IssueStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -54,6 +55,7 @@ RUN_STATUS_PR_OPEN: RunStatus
 RUN_STATUS_DONE: RunStatus
 RUN_STATUS_FAILED: RunStatus
 RUN_STATUS_CANCELED: RunStatus
+RUN_STATUS_UNKNOWN: RunStatus
 ISSUE_STATUS_UNSPECIFIED: IssueStatus
 ISSUE_STATUS_OPEN: IssueStatus
 ISSUE_STATUS_RESOLVED: IssueStatus

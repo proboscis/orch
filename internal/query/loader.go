@@ -3,6 +3,7 @@ package query
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/s22625/orch/internal/model"
@@ -18,7 +19,11 @@ func LoadIssues(db *DB, api orchapi.OrchAPI) error {
 	}
 
 	for _, issue := range result.Issues {
-		if err := insertIssue(db, apiIssueToModel(issue)); err != nil {
+		modelIssue, err := apiIssueToModel(issue)
+		if err != nil {
+			return err
+		}
+		if err := insertIssue(db, modelIssue); err != nil {
 			return err
 		}
 	}
@@ -62,7 +67,11 @@ func LoadRuns(db *DB, api orchapi.OrchAPI) error {
 	}
 
 	for _, run := range result.Runs {
-		if err := insertRun(db, apiRunToModel(run)); err != nil {
+		modelRun, err := apiRunToModel(run)
+		if err != nil {
+			return err
+		}
+		if err := insertRun(db, modelRun); err != nil {
 			return err
 		}
 	}
@@ -173,26 +182,34 @@ func LoadAll(db *DB, api orchapi.OrchAPI, opts *LoadOptions) error {
 	return nil
 }
 
-// apiIssueToModel converts orchapi.Issue to model.Issue
-func apiIssueToModel(i *orchapi.Issue) *model.Issue {
+// apiIssueToModel converts orchapi.Issue to model.Issue.
+func apiIssueToModel(i *orchapi.Issue) (*model.Issue, error) {
+	status, err := model.ParseIssueStatus(string(i.Status))
+	if err != nil {
+		return nil, fmt.Errorf("invalid issue status for %s: %w", i.ID, err)
+	}
 	return &model.Issue{
 		ID:      i.ID,
 		Title:   i.Title,
 		Topic:   i.Topic,
 		Summary: i.Summary,
-		Status:  model.IssueStatus(i.Status),
+		Status:  status,
 		Tags:    i.Tags,
 		Body:    i.Body,
 		Path:    i.Path,
-	}
+	}, nil
 }
 
-// apiRunToModel converts orchapi.Run to model.Run
-func apiRunToModel(r *orchapi.Run) *model.Run {
+// apiRunToModel converts orchapi.Run to model.Run.
+func apiRunToModel(r *orchapi.Run) (*model.Run, error) {
+	status, err := model.NormalizeStatus(string(r.Status))
+	if err != nil {
+		return nil, fmt.Errorf("invalid run status for %s#%s: %w", r.IssueID, r.RunID, err)
+	}
 	run := &model.Run{
 		IssueID:       r.IssueID,
 		RunID:         r.RunID,
-		Status:        model.NormalizeStatus(string(r.Status)),
+		Status:        status,
 		Phase:         model.Phase(r.Phase),
 		Agent:         r.Agent,
 		Model:         r.Model,
@@ -213,5 +230,5 @@ func apiRunToModel(r *orchapi.Run) *model.Run {
 			Attrs:     e.Attrs,
 		})
 	}
-	return run
+	return run, nil
 }

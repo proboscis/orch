@@ -270,22 +270,26 @@ func applyPromptDefaults(opts *promptOptions) *promptOptions {
 	return opts
 }
 
-func buildAgentPrompt(issue *model.Issue, opts *promptOptions) string {
+func buildAgentPrompt(issue *model.Issue, opts *promptOptions) (string, error) {
 	opts = applyPromptDefaults(opts)
 
 	if opts.PromptTemplate != "" {
-		if api, err := getAPIForListing(); err == nil {
-			ctx := context.Background()
-			if content, err := api.ReadFile(ctx, opts.PromptTemplate); err == nil {
-				return executeTemplate(string(content), issue, opts)
-			}
+		api, err := getAPIForListing()
+		if err != nil {
+			return "", fmt.Errorf("resolve API for prompt template %q: %w", opts.PromptTemplate, err)
 		}
+		ctx := context.Background()
+		content, err := api.ReadFile(ctx, opts.PromptTemplate)
+		if err != nil {
+			return "", fmt.Errorf("read prompt template %q: %w", opts.PromptTemplate, err)
+		}
+		return executeTemplate(string(content), issue, opts)
 	}
 
 	return executeTemplate(defaultPromptTemplate, issue, opts)
 }
 
-func executeTemplate(tmplStr string, issue *model.Issue, opts *promptOptions) string {
+func executeTemplate(tmplStr string, issue *model.Issue, opts *promptOptions) (string, error) {
 	opts = applyPromptDefaults(opts)
 
 	data := map[string]interface{}{
@@ -301,15 +305,15 @@ func executeTemplate(tmplStr string, issue *model.Issue, opts *promptOptions) st
 
 	tmpl, err := template.New("prompt").Parse(tmplStr)
 	if err != nil {
-		return buildSimplePrompt(issue, opts)
+		return "", fmt.Errorf("parse prompt template: %w", err)
 	}
 
 	var buf strings.Builder
 	if err := tmpl.Execute(&buf, data); err != nil {
-		return buildSimplePrompt(issue, opts)
+		return "", fmt.Errorf("execute prompt template: %w", err)
 	}
 
-	return buf.String()
+	return buf.String(), nil
 }
 
 func buildSimplePrompt(issue *model.Issue, opts *promptOptions) string {

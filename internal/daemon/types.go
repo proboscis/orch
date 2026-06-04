@@ -565,18 +565,22 @@ type OpenCodeServerInfo struct {
 
 // SummaryToRun converts a RunSummary back to a model.Run
 // This is used by orch ps to convert daemon API responses to model.Run for display
-func SummaryToRun(s *RunSummary) *model.Run {
+func SummaryToRun(s *RunSummary) (*model.Run, error) {
 	if s == nil {
-		return nil
+		return nil, nil
 	}
 
 	startedAt, _ := time.Parse(time.RFC3339, s.StartedAt)
 	updatedAt, _ := time.Parse(time.RFC3339, s.UpdatedAt)
+	status, err := model.NormalizeStatus(s.Status)
+	if err != nil {
+		return nil, fmt.Errorf("invalid run summary status for %s#%s: %w", s.IssueID, s.RunID, err)
+	}
 
 	return &model.Run{
 		IssueID:      s.IssueID,
 		RunID:        s.RunID,
-		Status:       model.NormalizeStatus(s.Status),
+		Status:       status,
 		Phase:        model.Phase(s.Phase),
 		Agent:        s.Agent,
 		Model:        s.Model,
@@ -587,7 +591,7 @@ func SummaryToRun(s *RunSummary) *model.Run {
 		PRUrl:        s.PRUrl,
 		StartedAt:    startedAt,
 		UpdatedAt:    updatedAt,
-	}
+	}, nil
 }
 
 // SummaryAliveInfo extracts alive info from a RunSummary

@@ -386,12 +386,20 @@ func (d *Daemon) publishRunEvent(run *model.Run, from, to model.Status, source m
 	if from == to {
 		return
 	}
+	fromProto, err := modelStatusToProto(from)
+	if err != nil {
+		panic(err)
+	}
+	toProto, err := modelStatusToProto(to)
+	if err != nil {
+		panic(err)
+	}
 	frame := &orchpb.RunEventFrame{
 		RunId:           run.RunID,
 		IssueId:         run.IssueID,
 		ShortId:         model.GenerateShortID(run.IssueID, run.RunID),
-		FromStatus:      modelStatusToProto(from),
-		ToStatus:        modelStatusToProto(to),
+		FromStatus:      fromProto,
+		ToStatus:        toProto,
 		TimestampUnixMs: time.Now().UnixMilli(),
 		Source:          string(source),
 	}

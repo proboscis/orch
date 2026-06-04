@@ -108,7 +108,11 @@ func runPsWithDeps(ctx context.Context, opts *psOptions, deps *psDeps) error {
 
 	statusFilter := make([]orchapi.RunStatus, len(effectiveStatuses))
 	for i, s := range effectiveStatuses {
-		statusFilter[i] = orchapi.NormalizeRunStatus(s)
+		status, err := orchapi.NormalizeRunStatus(s)
+		if err != nil {
+			return err
+		}
+		statusFilter[i] = status
 	}
 
 	limit := opts.Limit
@@ -132,7 +136,11 @@ func runPsWithDeps(ctx context.Context, opts *psOptions, deps *psDeps) error {
 	branchStateByRun := make(map[string]string, len(result.Runs))
 	issueCache := make(map[string]psIssueInfo, len(result.Runs))
 	for i, r := range result.Runs {
-		runs[i] = apiRunToModelRun(r)
+		run, err := apiRunToModelRun(r)
+		if err != nil {
+			return err
+		}
+		runs[i] = run
 		aliveByRun[r.RunID] = agentAliveInfo{alive: r.Alive, known: r.AliveKnown}
 		branchStateByRun[r.RunID] = string(r.BranchState)
 		if _, ok := issueCache[r.IssueID]; !ok {
@@ -236,7 +244,11 @@ func collectPsExcludedStatusStats(
 ) (*psExcludedStatusStats, error) {
 	included := make(map[model.Status]bool, len(includedStatuses))
 	for _, status := range includedStatuses {
-		included[model.NormalizeStatus(string(status))] = true
+		normalized, err := model.NormalizeStatus(string(status))
+		if err != nil {
+			return nil, fmt.Errorf("invalid included status %q: %w", status, err)
+		}
+		included[normalized] = true
 	}
 
 	stats := &psExcludedStatusStats{
@@ -259,7 +271,10 @@ func collectPsExcludedStatusStats(
 				continue
 			}
 
-			status := model.NormalizeStatus(string(run.Status))
+			status, err := model.NormalizeStatus(string(run.Status))
+			if err != nil {
+				return nil, fmt.Errorf("invalid run status for %s#%s: %w", run.IssueID, run.RunID, err)
+			}
 			if included[status] {
 				continue
 			}
@@ -1129,14 +1144,18 @@ func colorAlive(info agentAliveInfo) string {
 }
 
 // parseStatusList parses a comma-separated status list
-func parseStatusList(s string) []model.Status {
+func parseStatusList(s string) ([]model.Status, error) {
 	if s == "" {
-		return nil
+		return nil, nil
 	}
 	parts := strings.Split(s, ",")
 	statuses := make([]model.Status, len(parts))
 	for i, p := range parts {
-		statuses[i] = model.NormalizeStatus(strings.TrimSpace(p))
+		status, err := model.NormalizeStatus(strings.TrimSpace(p))
+		if err != nil {
+			return nil, err
+		}
+		statuses[i] = status
 	}
-	return statuses
+	return statuses, nil
 }

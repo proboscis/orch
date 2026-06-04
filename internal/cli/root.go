@@ -408,14 +408,18 @@ func resolveRunAPI(ctx context.Context, api orchapi.OrchAPI, refStr string) (*or
 	return api.ResolveRun(ctx, ref)
 }
 
-func apiRunToModelRun(r *orchapi.Run) *model.Run {
+func apiRunToModelRun(r *orchapi.Run) (*model.Run, error) {
 	if r == nil {
-		return nil
+		return nil, nil
+	}
+	status, err := model.NormalizeStatus(string(r.Status))
+	if err != nil {
+		return nil, fmt.Errorf("invalid run status for %s#%s: %w", r.IssueID, r.RunID, err)
 	}
 	return &model.Run{
 		IssueID:           r.IssueID,
 		RunID:             r.RunID,
-		Status:            model.NormalizeStatus(string(r.Status)),
+		Status:            status,
 		Agent:             r.Agent,
 		Model:             r.Model,
 		ModelVariant:      r.ModelVariant,
@@ -436,7 +440,7 @@ func apiRunToModelRun(r *orchapi.Run) *model.Run {
 		Alive:             r.Alive,
 		AliveKnown:        r.AliveKnown,
 		WorktreeExists:    r.WorktreeExists,
-	}
+	}, nil
 }
 
 func validateConfigForCommand() error {

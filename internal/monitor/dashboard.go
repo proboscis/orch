@@ -752,7 +752,12 @@ func (d *Dashboard) openIssueInNvimCmd(issueID string) tea.Cmd {
 			return errMsg{err: fmt.Errorf("could not resolve issue %s: %v", issueID, err)}
 		}
 	}
-	issue := apiIssueToModel(apiIssue)
+	issue, err := apiIssueToModel(apiIssue)
+	if err != nil {
+		return func() tea.Msg {
+			return errMsg{err: err}
+		}
+	}
 	if strings.TrimSpace(issue.Path) == "" {
 		return func() tea.Msg {
 			return errMsg{err: fmt.Errorf("issue %s has no file path", issueID)}

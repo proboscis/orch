@@ -81,7 +81,10 @@ func psTestRun(issueID string, runID string, status orchapi.RunStatus, when time
 }
 
 func TestParseStatusList(t *testing.T) {
-	statuses := parseStatusList("running, blocked ,done")
+	statuses, err := parseStatusList("running, blocked ,done")
+	if err != nil {
+		t.Fatalf("parseStatusList() error = %v", err)
+	}
 	want := []model.Status{model.StatusRunning, model.StatusWaiting, model.StatusDone}
 	if len(statuses) != len(want) {
 		t.Fatalf("got %d statuses, want %d", len(statuses), len(want))
@@ -120,7 +123,7 @@ func TestOutputTableTruncatesSummary(t *testing.T) {
 	}
 
 	longSummary := strings.Repeat("s", 60)
-	issueContent := fmt.Sprintf("---\ntype: issue\nsummary: %s\n---\n# Title\n", longSummary)
+	issueContent := fmt.Sprintf("---\ntype: issue\nstatus: open\nsummary: %s\n---\n# Title\n", longSummary)
 	if err := os.WriteFile(filepath.Join(issuesDir, "issue-1.md"), []byte(issueContent), 0644); err != nil {
 		t.Fatalf("write issue: %v", err)
 	}
@@ -168,7 +171,7 @@ func TestOutputTableUsesTopic(t *testing.T) {
 
 	topic := "one two three four five six"
 	summary := "unused-summary"
-	issueContent := fmt.Sprintf("---\ntype: issue\ntopic: %s\nsummary: %s\n---\n# Title\n", topic, summary)
+	issueContent := fmt.Sprintf("---\ntype: issue\nstatus: open\ntopic: %s\nsummary: %s\n---\n# Title\n", topic, summary)
 	if err := os.WriteFile(filepath.Join(issuesDir, "issue-1.md"), []byte(issueContent), 0644); err != nil {
 		t.Fatalf("write issue: %v", err)
 	}
@@ -218,7 +221,7 @@ func TestOutputTableTruncatesTopicChars(t *testing.T) {
 	}
 
 	longTopic := strings.Repeat("t", 35)
-	issueContent := fmt.Sprintf("---\ntype: issue\ntopic: %s\n---\n# Title\n", longTopic)
+	issueContent := fmt.Sprintf("---\ntype: issue\nstatus: open\ntopic: %s\n---\n# Title\n", longTopic)
 	if err := os.WriteFile(filepath.Join(issuesDir, "issue-1.md"), []byte(issueContent), 0644); err != nil {
 		t.Fatalf("write issue: %v", err)
 	}

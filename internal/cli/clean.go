@@ -270,7 +270,10 @@ func cleanStatusFilter(input string) ([]orchapi.RunStatus, error) {
 			part = string(orchapi.RunStatusCanceled)
 		}
 
-		status := orchapi.NormalizeRunStatus(part)
+		status, err := orchapi.NormalizeRunStatus(part)
+		if err != nil {
+			return nil, err
+		}
 		switch status {
 		case orchapi.RunStatusDone, orchapi.RunStatusFailed, orchapi.RunStatusCanceled:
 			if _, ok := seen[status]; ok {
@@ -278,7 +281,7 @@ func cleanStatusFilter(input string) ([]orchapi.RunStatus, error) {
 			}
 			seen[status] = struct{}{}
 			statuses = append(statuses, status)
-		case orchapi.RunStatusRunning, orchapi.RunStatusBooting, orchapi.RunStatusWaiting, orchapi.RunStatusRateLimited, orchapi.RunStatusQueued, orchapi.RunStatusPROpen:
+		case orchapi.RunStatusRunning, orchapi.RunStatusBooting, orchapi.RunStatusWaiting, orchapi.RunStatusRateLimited, orchapi.RunStatusQueued, orchapi.RunStatusPROpen, orchapi.RunStatusUnknown:
 			return nil, fmt.Errorf("cannot clean %s runs (use 'orch stop' first)", status)
 		default:
 			return nil, fmt.Errorf("unknown status: %s", part)

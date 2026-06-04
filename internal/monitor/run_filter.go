@@ -369,8 +369,7 @@ func (f RunFilter) FilterRows(rows []RunRow, now time.Time) []RunRow {
 			}
 		}
 		if f.IssueStatus != issueStatusAll {
-			status := model.ParseIssueStatus(row.IssueStatus)
-			if string(status) != f.IssueStatus {
+			if strings.ToLower(strings.TrimSpace(row.IssueStatus)) != f.IssueStatus {
 				continue
 			}
 		}

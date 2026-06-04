@@ -449,7 +449,11 @@ func runIssueList(opts *issueListOptions) error {
 func runIssueListViaAPI(ctx context.Context, api orchapi.OrchAPI, opts *issueListOptions) error {
 	var statusFilter []orchapi.IssueStatus
 	if opts.Status != "" {
-		statusFilter = []orchapi.IssueStatus{orchapi.IssueStatus(opts.Status)}
+		status, err := model.ParseIssueStatus(opts.Status)
+		if err != nil {
+			return err
+		}
+		statusFilter = []orchapi.IssueStatus{orchapi.IssueStatus(status)}
 	}
 
 	var allIssues []*orchapi.Issue

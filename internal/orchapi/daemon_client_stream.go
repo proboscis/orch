@@ -17,7 +17,7 @@ type daemonRunEventStream struct {
 }
 
 func (s *daemonRunEventStream) Events() <-chan *RunEvent { return s.events }
-func (s *daemonRunEventStream) Err() error                { return s.raw.Err() }
+func (s *daemonRunEventStream) Err() error               { return s.raw.Err() }
 func (s *daemonRunEventStream) Close() error {
 	err := s.raw.Close()
 	<-s.done
@@ -89,6 +89,8 @@ func protoRunStatusToDomain(s orchpb.RunStatus) RunStatus {
 		return RunStatusFailed
 	case orchpb.RunStatus_RUN_STATUS_CANCELED:
 		return RunStatusCanceled
+	case orchpb.RunStatus_RUN_STATUS_UNKNOWN:
+		return RunStatusUnknown
 	default:
 		return RunStatus("")
 	}
