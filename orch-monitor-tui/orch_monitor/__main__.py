@@ -908,15 +908,18 @@ layout {{
     }}
     tab name="monitor" {{
         pane split_direction="horizontal" {{
-            pane size="35%" command="bash" start_suspended=false {{
+            pane size="35%" command="bash" {{
                 args "-c" "{runs_cmd_escaped}"
+                start_suspended false
             }}
             pane split_direction="vertical" size="65%" {{
-                pane size="35%" command="bash" start_suspended=false {{
+                pane size="35%" command="bash" {{
                     args "-c" "{issues_cmd_escaped}"
+                    start_suspended false
                 }}
-                pane size="65%" focus=true command="bash" start_suspended=false {{
+                pane size="65%" focus=true command="bash" {{
                     args "-c" "{agent_cmd_escaped}"
+                    start_suspended false
                 }}
             }}
         }}
