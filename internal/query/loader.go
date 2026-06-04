@@ -118,7 +118,7 @@ func LoadEvents(db *DB, api orchapi.OrchAPI) error {
 				Name:      event.Name,
 				Attrs:     event.Attrs,
 			}
-			if err := insertEvent(db, run.IssueID, run.RunID, modelEvent); err != nil {
+			if err := insertEvent(db, run.IssueID.String(), run.RunID.String(), modelEvent); err != nil {
 				return err
 			}
 		}

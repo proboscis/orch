@@ -312,7 +312,7 @@ func (b *Backend) ghToIssue(gh *ghIssue) *model.Issue {
 		}
 	}
 
-	issueID := fmt.Sprintf("gh-%d", gh.Number)
+	issueID := model.NewIssueID(fmt.Sprintf("gh-%d", gh.Number))
 
 	return &model.Issue{
 		ID:      issueID,

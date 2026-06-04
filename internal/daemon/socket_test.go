@@ -88,8 +88,8 @@ type mockStore struct {
 	issues map[string]*model.Issue
 }
 
-func (m *mockStore) ResolveIssue(issueID string) (*model.Issue, error) {
-	if issue, ok := m.issues[issueID]; ok {
+func (m *mockStore) ResolveIssue(issueID model.IssueID) (*model.Issue, error) {
+	if issue, ok := m.issues[issueID.String()]; ok {
 		return issue, nil
 	}
 	return nil, os.ErrNotExist
@@ -103,11 +103,11 @@ func (m *mockStore) ListIssues() ([]*model.Issue, error) {
 	return issues, nil
 }
 
-func (m *mockStore) SetIssueStatus(issueID string, status model.IssueStatus) error {
+func (m *mockStore) SetIssueStatus(issueID model.IssueID, status model.IssueStatus) error {
 	return nil
 }
 
-func (m *mockStore) CreateRun(issueID, runID string, metadata map[string]string) (*model.Run, error) {
+func (m *mockStore) CreateRun(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
 	if m.runs == nil {
 		m.runs = make(map[string]*model.Run)
 	}
@@ -121,7 +121,7 @@ func (m *mockStore) CreateRun(issueID, runID string, metadata map[string]string)
 		ContinuedFrom: metadata["continued_from"],
 		Status:        model.StatusQueued,
 	}
-	m.runs[issueID+"#"+runID] = run
+	m.runs[run.Ref().String()] = run
 	return run, nil
 }
 
@@ -129,7 +129,7 @@ func (m *mockStore) AppendEvent(ref *model.RunRef, event *model.Event) error {
 	if m.runs == nil || ref == nil || event == nil {
 		return nil
 	}
-	if run, ok := m.runs[ref.IssueID+"#"+ref.RunID]; ok && run != nil {
+	if run, ok := m.runs[ref.String()]; ok && run != nil {
 		run.Events = append(run.Events, event)
 		run.DeriveState()
 	}
@@ -163,20 +163,20 @@ func (m *mockStore) ListRuns(filter *store.ListRunsFilter) ([]*model.Run, error)
 }
 
 func (m *mockStore) GetRun(ref *model.RunRef) (*model.Run, error) {
-	key := ref.IssueID + "#" + ref.RunID
+	key := ref.String()
 	if run, ok := m.runs[key]; ok {
 		return run, nil
 	}
 	return nil, os.ErrNotExist
 }
 
-func (m *mockStore) GetRunByShortID(shortID string) (*model.Run, error) {
+func (m *mockStore) GetRunByShortID(shortID model.ShortID) (*model.Run, error) {
 	var match *model.Run
 	for _, run := range m.runs {
 		if run == nil {
 			continue
 		}
-		if strings.HasPrefix(run.ShortID(), shortID) {
+		if strings.HasPrefix(run.ShortID().String(), shortID.String()) {
 			if match != nil {
 				return nil, fmt.Errorf("ambiguous short ID")
 			}
@@ -189,7 +189,7 @@ func (m *mockStore) GetRunByShortID(shortID string) (*model.Run, error) {
 	return match, nil
 }
 
-func (m *mockStore) GetLatestRun(issueID string) (*model.Run, error) {
+func (m *mockStore) GetLatestRun(issueID model.IssueID) (*model.Run, error) {
 	return nil, nil
 }
 
@@ -205,7 +205,7 @@ func (m *mockStore) UpdateIssue(issue *model.Issue) error {
 	return nil
 }
 
-func (m *mockStore) ValidateIssueFiles(issueID string) (*store.ValidationResult, error) {
+func (m *mockStore) ValidateIssueFiles(issueID model.IssueID) (*store.ValidationResult, error) {
 	return &store.ValidationResult{}, nil
 }
 
@@ -383,8 +383,8 @@ func TestWithWorkerLeaseUsesEmbeddedDispatcherRPCPath(t *testing.T) {
 	st := &mockStore{
 		runs: map[string]*model.Run{
 			issueID + "#" + runID: {
-				IssueID: issueID,
-				RunID:   runID,
+				IssueID: model.NewIssueID(issueID),
+				RunID:   model.NewRunID(runID),
 				Status:  model.StatusRunning,
 			},
 		},
@@ -836,6 +836,7 @@ func TestProcessSendOpenCodeReturnsAfterAck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to resolve repo id: %v", err)
 	}
+	repoIDString := repoID.String()
 
 	const bodyDelay = 600 * time.Millisecond
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -861,8 +862,8 @@ func TestProcessSendOpenCodeReturnsAfterAck(t *testing.T) {
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
-	server.openCodeServers[repoID] = &managedServer{
-		RepoID:      repoID,
+	server.openCodeServers[repoIDString] = &managedServer{
+		RepoID:      repoIDString,
 		ProjectRoot: projectRoot,
 		Port:        getPortFromURL(t, testServer.URL),
 		WaitResult:  make(chan error, 1),
@@ -904,6 +905,7 @@ func TestProcessSendOpenCodeTimesOutPromptlyWithoutAck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to resolve repo id: %v", err)
 	}
+	repoIDString := repoID.String()
 
 	const ackDelay = 300 * time.Millisecond
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -926,8 +928,8 @@ func TestProcessSendOpenCodeTimesOutPromptlyWithoutAck(t *testing.T) {
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
-	server.openCodeServers[repoID] = &managedServer{
-		RepoID:      repoID,
+	server.openCodeServers[repoIDString] = &managedServer{
+		RepoID:      repoIDString,
 		ProjectRoot: projectRoot,
 		Port:        getPortFromURL(t, testServer.URL),
 		WaitResult:  make(chan error, 1),
@@ -972,6 +974,7 @@ func TestProcessSendOpenCodeAckTimeoutButQueuedMessageSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to resolve repo id: %v", err)
 	}
+	repoIDString := repoID.String()
 
 	const ackDelay = 300 * time.Millisecond
 	var (
@@ -1033,8 +1036,8 @@ func TestProcessSendOpenCodeAckTimeoutButQueuedMessageSucceeds(t *testing.T) {
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
-	server.openCodeServers[repoID] = &managedServer{
-		RepoID:      repoID,
+	server.openCodeServers[repoIDString] = &managedServer{
+		RepoID:      repoIDString,
 		ProjectRoot: projectRoot,
 		Port:        getPortFromURL(t, testServer.URL),
 		WaitResult:  make(chan error, 1),
@@ -1256,8 +1259,8 @@ func TestHandleProtoCleanRunWorktreeRemovesWorktree(t *testing.T) {
 	worktree, err := git.CreateWorktree(&git.WorktreeConfig{
 		RepoRoot:    repo,
 		WorktreeDir: worktreeRoot,
-		IssueID:     issueID,
-		RunID:       runID,
+		IssueID:     model.NewIssueID(issueID),
+		RunID:       model.NewRunID(runID),
 		Agent:       "codex",
 	})
 	if err != nil {
@@ -1267,8 +1270,8 @@ func TestHandleProtoCleanRunWorktreeRemovesWorktree(t *testing.T) {
 	st := &mockStore{
 		runs: map[string]*model.Run{
 			issueID + "#" + runID: {
-				IssueID:      issueID,
-				RunID:        runID,
+				IssueID:      model.NewIssueID(issueID),
+				RunID:        model.NewRunID(runID),
 				Status:       model.StatusFailed,
 				WorktreePath: worktree.WorktreePath,
 				Branch:       worktree.Branch,
@@ -1354,8 +1357,8 @@ func TestHandleProtoCleanRunWorktreeRemovesMissingWorktreeRegistration(t *testin
 	worktree, err := git.CreateWorktree(&git.WorktreeConfig{
 		RepoRoot:    repo,
 		WorktreeDir: worktreeRoot,
-		IssueID:     issueID,
-		RunID:       runID,
+		IssueID:     model.NewIssueID(issueID),
+		RunID:       model.NewRunID(runID),
 		Agent:       "codex",
 	})
 	if err != nil {
@@ -1368,8 +1371,8 @@ func TestHandleProtoCleanRunWorktreeRemovesMissingWorktreeRegistration(t *testin
 	st := &mockStore{
 		runs: map[string]*model.Run{
 			issueID + "#" + runID: {
-				IssueID:      issueID,
-				RunID:        runID,
+				IssueID:      model.NewIssueID(issueID),
+				RunID:        model.NewRunID(runID),
 				Status:       model.StatusCanceled,
 				WorktreePath: worktree.WorktreePath,
 				Branch:       worktree.Branch,
@@ -1424,8 +1427,8 @@ func TestProtoClientCleanRunWorktreeDispatchesToHandler(t *testing.T) {
 	worktree, err := git.CreateWorktree(&git.WorktreeConfig{
 		RepoRoot:    repo,
 		WorktreeDir: worktreeRoot,
-		IssueID:     issueID,
-		RunID:       runID,
+		IssueID:     model.NewIssueID(issueID),
+		RunID:       model.NewRunID(runID),
 		Agent:       "codex",
 	})
 	if err != nil {
@@ -1435,8 +1438,8 @@ func TestProtoClientCleanRunWorktreeDispatchesToHandler(t *testing.T) {
 	st := &mockStore{
 		runs: map[string]*model.Run{
 			issueID + "#" + runID: {
-				IssueID:      issueID,
-				RunID:        runID,
+				IssueID:      model.NewIssueID(issueID),
+				RunID:        model.NewRunID(runID),
 				Status:       model.StatusFailed,
 				WorktreePath: worktree.WorktreePath,
 				Branch:       worktree.Branch,
@@ -1474,8 +1477,8 @@ func TestHandleProtoDeleteRunRemovesMissingWorktreeRegistration(t *testing.T) {
 	worktree, err := git.CreateWorktree(&git.WorktreeConfig{
 		RepoRoot:    repo,
 		WorktreeDir: worktreeRoot,
-		IssueID:     issueID,
-		RunID:       runID,
+		IssueID:     model.NewIssueID(issueID),
+		RunID:       model.NewRunID(runID),
 		Agent:       "codex",
 	})
 	if err != nil {
@@ -1488,8 +1491,8 @@ func TestHandleProtoDeleteRunRemovesMissingWorktreeRegistration(t *testing.T) {
 	st := &mockStore{
 		runs: map[string]*model.Run{
 			issueID + "#" + runID: {
-				IssueID:      issueID,
-				RunID:        runID,
+				IssueID:      model.NewIssueID(issueID),
+				RunID:        model.NewRunID(runID),
 				Status:       model.StatusFailed,
 				WorktreePath: worktree.WorktreePath,
 				Branch:       worktree.Branch,
@@ -3769,7 +3772,7 @@ func TestGetRunByShortIDWithoutProjectContextAggregatesAcrossStores(t *testing.T
 	resp := sendProtoRequest(t, &orchpb.Request{
 		Request: &orchpb.Request_GetRunByShortId{
 			GetRunByShortId: &orchpb.GetRunByShortIDRequest{
-				ShortId: runShortID,
+				ShortId: runShortID.String(),
 				Context: &orchpb.RequestContext{},
 			},
 		},
@@ -3880,7 +3883,7 @@ func TestGetAttachInfoByShortIDWithoutProjectContextAggregatesAcrossStores(t *te
 	resp := sendProtoRequest(t, &orchpb.Request{
 		Request: &orchpb.Request_GetAttachInfo{
 			GetAttachInfo: &orchpb.GetAttachInfoRequest{
-				ShortId: shortID,
+				ShortId: shortID.String(),
 				Context: &orchpb.RequestContext{},
 			},
 		},
@@ -5118,7 +5121,7 @@ type mockStoreWithValidation struct {
 	validationErr    error
 }
 
-func (m *mockStoreWithValidation) ValidateIssueFiles(issueID string) (*store.ValidationResult, error) {
+func (m *mockStoreWithValidation) ValidateIssueFiles(issueID model.IssueID) (*store.ValidationResult, error) {
 	if m.validationErr != nil {
 		return nil, m.validationErr
 	}
@@ -5135,7 +5138,7 @@ func (m *mockStoreWithPrompt) WriteAgentPrompt(ref *model.RunRef, content string
 	if ref == nil {
 		return fmt.Errorf("nil run ref")
 	}
-	key := ref.IssueID + "#" + ref.RunID
+	key := ref.String()
 	m.prompts[key] = content
 	return nil
 }
@@ -5144,20 +5147,20 @@ func (m *mockStoreWithPrompt) ReadAgentPrompt(ref *model.RunRef) (string, error)
 	if ref == nil {
 		return "", os.ErrNotExist
 	}
-	key := ref.IssueID + "#" + ref.RunID
+	key := ref.String()
 	if content, ok := m.prompts[key]; ok {
 		return content, nil
 	}
 	return "", os.ErrNotExist
 }
 
-func (m *mockStoreWithCapture) CreateRun(issueID, runID string, metadata map[string]string) (*model.Run, error) {
+func (m *mockStoreWithCapture) CreateRun(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
 	m.capturedMetadata = metadata
 	return &model.Run{
 		IssueID: issueID,
 		RunID:   runID,
 		Status:  model.StatusQueued,
-		Path:    "/test/runs/" + issueID + "/" + runID + ".md",
+		Path:    "/test/runs/" + issueID.String() + "/" + runID.String() + ".md",
 	}, nil
 }
 

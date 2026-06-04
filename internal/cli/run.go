@@ -98,9 +98,8 @@ type runResult struct {
 }
 
 func runRun(issueID string, opts *runOptions) error {
-	if model.IsGitHubIssueID(issueID) {
-		issueID = model.NormalizeGitHubIssueID(issueID)
-	}
+	normalizedIssueID := normalizeCLIIssueID(issueID)
+	issueID = normalizedIssueID.String()
 
 	_, _, rootErr := getProjectRootWithSource()
 	remoteMode := strings.TrimSpace(getRemoteAddr()) != ""
@@ -124,8 +123,8 @@ func runRun(issueID string, opts *runOptions) error {
 	applyConfigDefaults(opts, cfg, remoteMode)
 
 	resp, err := api.StartRun(ctx, &orchapi.StartRunRequest{
-		IssueID:        issueID,
-		RunID:          opts.RunID,
+		IssueID:        normalizedIssueID,
+		RunID:          model.NewRunID(opts.RunID),
 		Agent:          opts.Agent,
 		AgentCmd:       opts.AgentCmd,
 		AgentProfile:   opts.AgentProfile,
@@ -150,7 +149,7 @@ func runRun(issueID string, opts *runOptions) error {
 	result := &runResult{
 		OK:           true,
 		IssueID:      issueID,
-		RunID:        resp.RunID,
+		RunID:        resp.RunID.String(),
 		Branch:       resp.Branch,
 		WorktreePath: resp.WorktreePath,
 		SessionName:  resp.SessionName,
@@ -179,7 +178,7 @@ func runRun(issueID string, opts *runOptions) error {
 	}
 
 	if !globalOpts.Quiet {
-		shortID := orchapi.ComputeShortID(issueID, resp.RunID)
+		shortID := orchapi.ComputeShortID(normalizedIssueID, resp.RunID)
 		fmt.Printf("Run started: %s#%s (%s)\n", issueID, resp.RunID, shortID)
 		fmt.Printf("  Branch:   %s\n", resp.Branch)
 		fmt.Printf("  Worktree: %s\n", resp.WorktreePath)
@@ -221,7 +220,7 @@ func renderInitialPromptTemplate(tmplStr string, issue *model.Issue) string {
 	}
 
 	result := strings.ReplaceAll(tmplStr, "{{issue}}", issueContent)
-	result = strings.ReplaceAll(result, "{{issue_id}}", issue.ID)
+	result = strings.ReplaceAll(result, "{{issue_id}}", issue.ID.String())
 	result = strings.ReplaceAll(result, "{{issue_title}}", issue.Title)
 
 	return result
@@ -271,14 +270,29 @@ func applyPromptDefaults(opts *promptOptions) *promptOptions {
 }
 
 func buildAgentPrompt(issue *model.Issue, opts *promptOptions) string {
+	return buildAgentPromptWithTemplateReader(issue, opts, readPromptTemplateViaAPI)
+}
+
+type promptTemplateReader func(path string) (string, error)
+
+func readPromptTemplateViaAPI(path string) (string, error) {
+	api, err := getAPIForListing()
+	if err != nil {
+		return "", err
+	}
+	content, err := api.ReadFile(context.Background(), path)
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
+}
+
+func buildAgentPromptWithTemplateReader(issue *model.Issue, opts *promptOptions, readTemplate promptTemplateReader) string {
 	opts = applyPromptDefaults(opts)
 
 	if opts.PromptTemplate != "" {
-		if api, err := getAPIForListing(); err == nil {
-			ctx := context.Background()
-			if content, err := api.ReadFile(ctx, opts.PromptTemplate); err == nil {
-				return executeTemplate(string(content), issue, opts)
-			}
+		if content, err := readTemplate(opts.PromptTemplate); err == nil {
+			return executeTemplate(content, issue, opts)
 		}
 	}
 

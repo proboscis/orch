@@ -79,7 +79,7 @@ func runOpen(refStr string, opts *openOptions) error {
 			if err == nil && issue.Path != "" {
 				path = issue.Path
 			} else if err == nil && issuesRoot != "" {
-				path = filepath.Join(issuesRoot, "issues", issue.ID+".md")
+				path = filepath.Join(issuesRoot, "issues", issue.ID.String()+".md")
 			} else {
 				run, err := api.GetLatestRun(ctx, ref.IssueID)
 				if err != nil {
@@ -133,7 +133,7 @@ func deriveRunDocPath(ctx context.Context, api orchapi.OrchAPI, run *orchapi.Run
 		return ""
 	}
 	if issuesRoot != "" {
-		return filepath.Join(issuesRoot, "runs", run.IssueID, run.RunID+".md")
+		return filepath.Join(issuesRoot, "runs", run.IssueID.String(), run.RunID.String()+".md")
 	}
 
 	issue, err := api.GetIssue(ctx, run.IssueID)
@@ -146,7 +146,7 @@ func deriveRunDocPath(ctx context.Context, api orchapi.OrchAPI, run *orchapi.Run
 		return ""
 	}
 
-	return filepath.Join(derivedRoot, "runs", run.IssueID, run.RunID+".md")
+	return filepath.Join(derivedRoot, "runs", run.IssueID.String(), run.RunID.String()+".md")
 }
 
 func deriveIssuesRootFromPath(path string) string {

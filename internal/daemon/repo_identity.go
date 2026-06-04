@@ -12,7 +12,7 @@ func derivePortableRepoID(projectRoot string) string {
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(repoID)
+	return strings.TrimSpace(repoID.String())
 }
 
 func repoIDFromProjectSelector(value string) string {
@@ -26,7 +26,7 @@ func repoIDFromProjectSelector(value string) string {
 	if looksLikeRepoURL(target) {
 		repoID, err := xdg.ParseRepoID(target)
 		if err == nil {
-			return strings.TrimSpace(repoID)
+			return strings.TrimSpace(repoID.String())
 		}
 		return ""
 	}

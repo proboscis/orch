@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
@@ -136,9 +137,9 @@ func runContinueWithDeps(ctx context.Context, refStr string, opts *continueOptio
 	}
 
 	resp, err := api.ContinueRun(ctx, &orchapi.ContinueRunRequest{
-		IssueID:        issueID,
-		RunID:          runID,
-		ShortID:        shortID,
+		IssueID:        model.NewIssueID(issueID),
+		RunID:          model.NewRunID(runID),
+		ShortID:        model.NewShortID(shortID),
 		Branch:         normalizeBranchName(opts.Branch),
 		Agent:          opts.Agent,
 		AgentCmd:       opts.AgentCmd,
@@ -156,8 +157,8 @@ func runContinueWithDeps(ctx context.Context, refStr string, opts *continueOptio
 
 	result := &continueResult{
 		OK:            true,
-		IssueID:       resp.IssueID,
-		RunID:         resp.RunID,
+		IssueID:       resp.IssueID.String(),
+		RunID:         resp.RunID.String(),
 		Branch:        resp.Branch,
 		WorktreePath:  resp.WorktreePath,
 		SessionName:   resp.SessionName,

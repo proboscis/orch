@@ -243,7 +243,7 @@ func TestNewRunStatusNotImmediatelyDone(t *testing.T) {
 
 	run := &model.Run{
 		IssueID:           "orch-347-test",
-		RunID:             time.Now().Format("20060102-150405"),
+		RunID:             model.NewRunID(time.Now().Format("20060102-150405")),
 		Agent:             "opencode",
 		Status:            model.StatusBooting,
 		WorktreePath:      worktreePath,

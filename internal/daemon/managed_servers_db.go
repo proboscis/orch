@@ -204,7 +204,7 @@ func (s *managedServerStore) migrateManagedServersTable() error {
 		}
 
 		repoID, err := xdg.RepoIDStrict(projectRoot)
-		if err != nil || strings.TrimSpace(repoID) == "" {
+		if err != nil || strings.TrimSpace(repoID.String()) == "" {
 			continue
 		}
 
@@ -218,7 +218,7 @@ func (s *managedServerStore) migrateManagedServersTable() error {
 				log_path = excluded.log_path,
 				started_at = excluded.started_at,
 				last_healthy = excluded.last_healthy
-		`, strings.TrimSpace(repoID), projectRoot, pid, port, nullStringValue(logPath), startedAt, nullStringValue(lastHealthy)); err != nil {
+		`, strings.TrimSpace(repoID.String()), projectRoot, pid, port, nullStringValue(logPath), startedAt, nullStringValue(lastHealthy)); err != nil {
 			return fmt.Errorf("migrate managed_servers row for %s: %w", projectRoot, err)
 		}
 	}

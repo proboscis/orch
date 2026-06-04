@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
@@ -191,7 +192,7 @@ func runCleanAll(ctx context.Context, opts *cleanOptions, deps *cleanDeps) error
 	return cleanRuns(ctx, api, result.Runs, opts)
 }
 
-func cleanIssueRuns(ctx context.Context, api orchapi.OrchAPI, issueID string, opts *cleanOptions) error {
+func cleanIssueRuns(ctx context.Context, api orchapi.OrchAPI, issueID model.IssueID, opts *cleanOptions) error {
 	filter := &orchapi.ListRunsFilter{
 		IssueID: issueID,
 	}
@@ -225,7 +226,7 @@ func cleanIssueRuns(ctx context.Context, api orchapi.OrchAPI, issueID string, op
 	return cleanRuns(ctx, api, result.Runs, opts)
 }
 
-func cleanLatestIssueRun(ctx context.Context, api orchapi.OrchAPI, issueID string, opts *cleanOptions) error {
+func cleanLatestIssueRun(ctx context.Context, api orchapi.OrchAPI, issueID model.IssueID, opts *cleanOptions) error {
 	statuses, err := cleanStatusFilter(opts.Status)
 	if err != nil {
 		return err
@@ -341,9 +342,9 @@ func cleanRuns(ctx context.Context, api orchapi.OrchAPI, runs []*orchapi.Run, op
 
 		if cleaned.Skipped {
 			result.Skipped = append(result.Skipped, cleanSkippedRun{
-				IssueID: cleaned.IssueID,
-				RunID:   cleaned.RunID,
-				ShortID: cleaned.ShortID,
+				IssueID: cleaned.IssueID.String(),
+				RunID:   cleaned.RunID.String(),
+				ShortID: cleaned.ShortID.String(),
 				Reason:  cleaned.Reason,
 			})
 			if !globalOpts.Quiet && !globalOpts.JSON {
@@ -353,9 +354,9 @@ func cleanRuns(ctx context.Context, api orchapi.OrchAPI, runs []*orchapi.Run, op
 		}
 
 		result.Cleaned = append(result.Cleaned, cleanedRun{
-			IssueID:      cleaned.IssueID,
-			RunID:        cleaned.RunID,
-			ShortID:      cleaned.ShortID,
+			IssueID:      cleaned.IssueID.String(),
+			RunID:        cleaned.RunID.String(),
+			ShortID:      cleaned.ShortID.String(),
 			WorktreePath: cleaned.WorktreePath,
 		})
 		if !globalOpts.Quiet && !globalOpts.JSON {

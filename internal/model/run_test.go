@@ -63,10 +63,10 @@ func TestParseRunRef(t *testing.T) {
 				return
 			}
 			if !tt.wantErr {
-				if ref.IssueID != tt.issueID {
+				if ref.IssueID.String() != tt.issueID {
 					t.Errorf("IssueID = %v, want %v", ref.IssueID, tt.issueID)
 				}
-				if ref.RunID != tt.runID {
+				if ref.RunID.String() != tt.runID {
 					t.Errorf("RunID = %v, want %v", ref.RunID, tt.runID)
 				}
 			}
@@ -232,7 +232,7 @@ func TestGenerateSessionName(t *testing.T) {
 
 func TestGenerateWorktreeName(t *testing.T) {
 	got := GenerateWorktreeName("plc124", "20231220-100000", "claude")
-	want := GenerateShortID("plc124", "20231220-100000") + "_claude_20231220-100000"
+	want := GenerateShortID("plc124", "20231220-100000").String() + "_claude_20231220-100000"
 	if got != want {
 		t.Errorf("GenerateWorktreeName() = %v, want %v", got, want)
 	}

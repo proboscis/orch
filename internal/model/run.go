@@ -11,8 +11,8 @@ import (
 
 // RunRef represents a reference to a run (ISSUE_ID#RUN_ID)
 type RunRef struct {
-	IssueID string
-	RunID   string
+	IssueID IssueID
+	RunID   RunID
 }
 
 // ParseRunRef parses a RUN_REF string (ISSUE_ID#RUN_ID or just ISSUE_ID for latest)
@@ -24,17 +24,17 @@ func ParseRunRef(ref string) (*RunRef, error) {
 
 	lastHash := strings.LastIndex(ref, "#")
 	if lastHash == -1 {
-		return &RunRef{IssueID: ref}, nil
+		return &RunRef{IssueID: NewIssueID(ref)}, nil
 	}
 
 	candidate := ref[lastHash+1:]
 	if looksLikeRunID(candidate) {
 		return &RunRef{
-			IssueID: ref[:lastHash],
-			RunID:   candidate,
+			IssueID: NewIssueID(ref[:lastHash]),
+			RunID:   NewRunID(candidate),
 		}, nil
 	}
-	return &RunRef{IssueID: ref}, nil
+	return &RunRef{IssueID: NewIssueID(ref)}, nil
 }
 
 func looksLikeRunID(s string) bool {
@@ -52,9 +52,9 @@ func looksLikeRunID(s string) bool {
 // String returns the canonical RUN_REF format
 func (r *RunRef) String() string {
 	if r.RunID == "" {
-		return r.IssueID
+		return r.IssueID.String()
 	}
-	return r.IssueID + "#" + r.RunID
+	return r.IssueID.String() + "#" + r.RunID.String()
 }
 
 // IsLatest returns true if this ref points to the latest run (no RunID specified)
@@ -64,8 +64,8 @@ func (r *RunRef) IsLatest() bool {
 
 // Run represents a single execution of an issue
 type Run struct {
-	IssueID string
-	RunID   string
+	IssueID IssueID
+	RunID   RunID
 	Path    string // File path to run document
 
 	// Derived from events
@@ -113,18 +113,18 @@ func (r *Run) Ref() *RunRef {
 }
 
 // ShortID returns a 6-character hex identifier for the run (git-style)
-func (r *Run) ShortID() string {
+func (r *Run) ShortID() ShortID {
 	return GenerateShortID(r.IssueID, r.RunID)
 }
 
 // GenerateShortID generates a 6-char hex ID from issue and run IDs
-func GenerateShortID(issueID, runID string) string {
-	h := sha256.Sum256([]byte(issueID + "#" + runID))
-	return hex.EncodeToString(h[:])[:6]
+func GenerateShortID(issueID IssueID, runID RunID) ShortID {
+	h := sha256.Sum256([]byte(issueID.String() + "#" + runID.String()))
+	return ShortID(hex.EncodeToString(h[:])[:6])
 }
 
 // GenerateWorktreeName generates a worktree directory name using a short ID.
-func GenerateWorktreeName(issueID, runID, agent string) string {
+func GenerateWorktreeName(issueID IssueID, runID RunID, agent string) string {
 	agent = strings.TrimSpace(agent)
 	if agent == "" {
 		agent = "unknown"
@@ -260,16 +260,16 @@ func (r *Run) lastArtifactAttr(name, key string) string {
 }
 
 // GenerateRunID generates a run ID using the convention YYYYMMDD-HHMMSS
-func GenerateRunID() string {
-	return time.Now().Format("20060102-150405")
+func GenerateRunID() RunID {
+	return RunID(time.Now().Format("20060102-150405"))
 }
 
 // GenerateBranchName generates a branch name using the convention
-func GenerateBranchName(issueID, runID string) string {
+func GenerateBranchName(issueID IssueID, runID RunID) string {
 	return fmt.Sprintf("issue/%s/run-%s", issueID, runID)
 }
 
 // GenerateSessionName generates a session name using the convention
-func GenerateSessionName(issueID, runID string) string {
+func GenerateSessionName(issueID IssueID, runID RunID) string {
 	return fmt.Sprintf("run-%s-%s", issueID, runID)
 }

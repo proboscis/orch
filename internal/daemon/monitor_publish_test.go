@@ -75,7 +75,7 @@ func TestUpdateStatus_PublishesTransitionToBus(t *testing.T) {
 		if ev.Source != string(model.EventSourceDaemon) {
 			t.Fatalf("source = %q, want %q", ev.Source, model.EventSourceDaemon)
 		}
-		expectedShort := model.GenerateShortID("issue-publish", "run-1")
+		expectedShort := model.GenerateShortID("issue-publish", "run-1").String()
 		if ev.ShortId != expectedShort {
 			t.Fatalf("short_id = %q, want %q", ev.ShortId, expectedShort)
 		}

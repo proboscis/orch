@@ -20,7 +20,7 @@ func TestIsGitHubIssueID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got := IsGitHubIssueID(tt.input)
+			got := IsGitHubIssueID(NewIssueID(tt.input))
 			if got != tt.want {
 				t.Errorf("IsGitHubIssueID(%q) = %v, want %v", tt.input, got, tt.want)
 			}
@@ -43,8 +43,8 @@ func TestNormalizeGitHubIssueID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got := NormalizeGitHubIssueID(tt.input)
-			if got != tt.want {
+			got := NormalizeGitHubIssueID(NewIssueID(tt.input))
+			if got.String() != tt.want {
 				t.Errorf("NormalizeGitHubIssueID(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
@@ -69,7 +69,7 @@ func TestParseGitHubIssueNumber(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got, err := ParseGitHubIssueNumber(tt.input)
+			got, err := ParseGitHubIssueNumber(NewIssueID(tt.input))
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ParseGitHubIssueNumber(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
 				return

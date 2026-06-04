@@ -398,7 +398,7 @@ func (d *Dashboard) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if d.cursor >= 0 && d.cursor < len(d.runs) {
 			run := d.runs[d.cursor].Run
 			if run != nil {
-				return d, d.openIssueInNvimCmd(run.IssueID)
+				return d, d.openIssueInNvimCmd(run.IssueID.String())
 			}
 		}
 		d.message = "no run selected"
@@ -460,7 +460,7 @@ func (d *Dashboard) handleNewRunKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if d.newRun.cursor >= 0 && d.newRun.cursor < len(d.newRun.issues) {
 			issueID := d.newRun.issues[d.newRun.cursor].ID
 			d.mode = modeDashboard
-			return d, d.startRunCmd(issueID)
+			return d, d.startRunCmd(issueID.String())
 		}
 		return d, nil
 	}
@@ -469,7 +469,7 @@ func (d *Dashboard) handleNewRunKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if index >= 1 && index <= len(d.newRun.issues) {
 			issueID := d.newRun.issues[index-1].ID
 			d.mode = modeDashboard
-			return d, d.startRunCmd(issueID)
+			return d, d.startRunCmd(issueID.String())
 		}
 	}
 	return d, nil
@@ -606,11 +606,11 @@ func (d *Dashboard) startCapture() tea.Cmd {
 
 func (d *Dashboard) startIssueContent() tea.Cmd {
 	run := d.selectedRun()
-	if run == nil || strings.TrimSpace(run.IssueID) == "" {
+	if run == nil || strings.TrimSpace(run.IssueID.String()) == "" {
 		d.issue = issueState{message: "No issue content available."}
 		return nil
 	}
-	issueID := run.IssueID
+	issueID := run.IssueID.String()
 	if d.issue.issueID != issueID {
 		d.issue.content = ""
 	}
@@ -728,8 +728,8 @@ func (d *Dashboard) execShellCmd(run *model.Run) tea.Cmd {
 
 	windowName := fmt.Sprintf("exec-%s", run.ShortID())
 	env := []string{
-		fmt.Sprintf("ORCH_ISSUE_ID=%s", shellQuote(run.IssueID)),
-		fmt.Sprintf("ORCH_RUN_ID=%s", shellQuote(run.RunID)),
+		fmt.Sprintf("ORCH_ISSUE_ID=%s", shellQuote(run.IssueID.String())),
+		fmt.Sprintf("ORCH_RUN_ID=%s", shellQuote(run.RunID.String())),
 		fmt.Sprintf("ORCH_RUN_PATH=%s", shellQuote(run.Path)),
 		fmt.Sprintf("ORCH_WORKTREE_PATH=%s", shellQuote(worktreePath)),
 		fmt.Sprintf("ORCH_BRANCH=%s", shellQuote(run.Branch)),
@@ -746,7 +746,7 @@ func (d *Dashboard) execShellCmd(run *model.Run) tea.Cmd {
 
 func (d *Dashboard) openIssueInNvimCmd(issueID string) tea.Cmd {
 	ctx := context.Background()
-	apiIssue, err := d.monitor.api.GetIssue(ctx, issueID)
+	apiIssue, err := d.monitor.api.GetIssue(ctx, model.NewIssueID(issueID))
 	if err != nil || apiIssue == nil {
 		return func() tea.Msg {
 			return errMsg{err: fmt.Errorf("could not resolve issue %s: %v", issueID, err)}
@@ -1147,7 +1147,7 @@ func (d *Dashboard) renderDetails(maxLines int) string {
 		d.styles.Header.Render("DETAILS"),
 	}
 	lines = append(lines, wrapLabelValue("Run: ", run.Ref().String(), contentWidth)...)
-	lines = append(lines, wrapLabelValue("Issue: ", run.IssueID, contentWidth)...)
+	lines = append(lines, wrapLabelValue("Issue: ", run.IssueID.String(), contentWidth)...)
 	lines = append(lines, wrapLabelValue("Summary: ", summary, contentWidth)...)
 	lines = append(lines, wrapLabelValue("Target: ", target, contentWidth)...)
 	lines = append(lines, wrapLabelValue("Host: ", targetHost, contentWidth)...)
@@ -1171,7 +1171,7 @@ func (d *Dashboard) renderContext(height int) string {
 	issueLabel := "ISSUE"
 	captureLabel := "CAPTURE"
 	if run := d.selectedRun(); run != nil {
-		if strings.TrimSpace(run.IssueID) != "" {
+		if strings.TrimSpace(run.IssueID.String()) != "" {
 			issueLabel = fmt.Sprintf("ISSUE %s", run.IssueID)
 		}
 		captureLabel = fmt.Sprintf("CAPTURE %s", run.Ref().String())

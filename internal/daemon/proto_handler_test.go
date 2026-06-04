@@ -211,8 +211,8 @@ func TestBuildAttachInfoResponse(t *testing.T) {
 				Agent:             tt.run.Agent,
 				ServerPort:        int32(tt.run.ServerPort),
 				OpencodeSessionId: tt.run.OpenCodeSessionID,
-				IssueId:           tt.run.IssueID,
-				RunId:             tt.run.RunID,
+				IssueId:           tt.run.IssueID.String(),
+				RunId:             tt.run.RunID.String(),
 			}
 
 			if attachInfo.Agent != tt.want.agent {
@@ -893,13 +893,13 @@ func TestHandleProtoWaitForRunsReturnsImmediatelyForShortID(t *testing.T) {
 	}
 	st := &mockStore{
 		runs: map[string]*model.Run{
-			run.IssueID + "#" + run.RunID: run,
+			run.Ref().String(): run,
 		},
 	}
 	server := newTestServer(t, st)
 
 	resp := server.handleProtoWaitForRuns(&orchpb.WaitForRunsRequest{
-		RunRefs: []string{run.ShortID()},
+		RunRefs: []string{run.ShortID().String()},
 		Context: &orchpb.RequestContext{ProjectId: testProjectID},
 	})
 	if !resp.Ok {
@@ -910,13 +910,13 @@ func TestHandleProtoWaitForRunsReturnsImmediatelyForShortID(t *testing.T) {
 	if waitResp == nil {
 		t.Fatal("expected WaitForRuns response payload")
 	}
-	if waitResp.RunId != run.ShortID() {
-		t.Fatalf("run_id = %q, want %q", waitResp.RunId, run.ShortID())
+	if waitResp.RunId != run.ShortID().String() {
+		t.Fatalf("run_id = %q, want %q", waitResp.RunId, run.ShortID().String())
 	}
 	if waitResp.Status != string(model.StatusPROpen) {
 		t.Fatalf("status = %q, want %q", waitResp.Status, model.StatusPROpen)
 	}
-	if waitResp.Issue != run.IssueID {
+	if waitResp.Issue != run.IssueID.String() {
 		t.Fatalf("issue = %q, want %q", waitResp.Issue, run.IssueID)
 	}
 	if waitResp.PrUrl != run.PRUrl {
@@ -941,7 +941,7 @@ func TestHandleProtoWaitForRunsWaitsForStatusChange(t *testing.T) {
 	}
 	st := &mockStore{
 		runs: map[string]*model.Run{
-			run.IssueID + "#" + run.RunID: run,
+			run.Ref().String(): run,
 		},
 	}
 	server := newTestServer(t, st)
@@ -952,7 +952,7 @@ func TestHandleProtoWaitForRunsWaitsForStatusChange(t *testing.T) {
 	}()
 
 	resp := server.handleProtoWaitForRuns(&orchpb.WaitForRunsRequest{
-		RunRefs: []string{run.IssueID + "#" + run.RunID},
+		RunRefs: []string{run.Ref().String()},
 		Context: &orchpb.RequestContext{ProjectId: testProjectID},
 	})
 	if !resp.Ok {
@@ -985,13 +985,13 @@ func TestHandleProtoWaitForRunsTimesOut(t *testing.T) {
 	}
 	st := &mockStore{
 		runs: map[string]*model.Run{
-			run.IssueID + "#" + run.RunID: run,
+			run.Ref().String(): run,
 		},
 	}
 	server := newTestServer(t, st)
 
 	resp := server.handleProtoWaitForRuns(&orchpb.WaitForRunsRequest{
-		RunRefs:        []string{run.IssueID + "#" + run.RunID},
+		RunRefs:        []string{run.Ref().String()},
 		TimeoutSeconds: 3,
 		Context:        &orchpb.RequestContext{ProjectId: testProjectID},
 	})

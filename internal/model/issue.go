@@ -8,7 +8,7 @@ import (
 )
 
 type Issue struct {
-	ID          string
+	ID          IssueID
 	Title       string
 	Topic       string
 	Summary     string
@@ -37,7 +37,7 @@ func (i *Issue) RenderFrontmatter() string {
 	var sb strings.Builder
 	sb.WriteString("---\n")
 	sb.WriteString("type: issue\n")
-	sb.WriteString("id: " + QuoteYAMLValue(i.ID) + "\n")
+	sb.WriteString("id: " + QuoteYAMLValue(i.ID.String()) + "\n")
 	sb.WriteString("title: " + QuoteYAMLValue(i.Title) + "\n")
 	if i.Summary != "" {
 		sb.WriteString("summary: " + QuoteYAMLValue(i.Summary) + "\n")
@@ -53,39 +53,42 @@ func (i *Issue) RenderFrontmatter() string {
 	return sb.String()
 }
 
-func IsGitHubIssueID(id string) bool {
-	if strings.HasPrefix(id, "gh-") || strings.HasPrefix(id, "gh#") {
+func IsGitHubIssueID(id IssueID) bool {
+	idStr := id.String()
+	if strings.HasPrefix(idStr, "gh-") || strings.HasPrefix(idStr, "gh#") {
 		return true
 	}
-	if strings.HasPrefix(id, "#") {
-		_, err := strconv.Atoi(strings.TrimPrefix(id, "#"))
+	if strings.HasPrefix(idStr, "#") {
+		_, err := strconv.Atoi(strings.TrimPrefix(idStr, "#"))
 		return err == nil
 	}
-	_, err := strconv.Atoi(id)
+	_, err := strconv.Atoi(idStr)
 	return err == nil
 }
 
-func NormalizeGitHubIssueID(id string) string {
-	if strings.HasPrefix(id, "gh-") {
+func NormalizeGitHubIssueID(id IssueID) IssueID {
+	idStr := id.String()
+	if strings.HasPrefix(idStr, "gh-") {
 		return id
 	}
-	if strings.HasPrefix(id, "gh#") {
-		return "gh-" + strings.TrimPrefix(id, "gh#")
+	if strings.HasPrefix(idStr, "gh#") {
+		return IssueID("gh-" + strings.TrimPrefix(idStr, "gh#"))
 	}
-	id = strings.TrimPrefix(id, "#")
-	if _, err := strconv.Atoi(id); err == nil {
-		return "gh-" + id
+	idStr = strings.TrimPrefix(idStr, "#")
+	if _, err := strconv.Atoi(idStr); err == nil {
+		return IssueID("gh-" + idStr)
 	}
-	return id
+	return IssueID(idStr)
 }
 
-func ParseGitHubIssueNumber(id string) (int, error) {
-	id = strings.TrimPrefix(id, "gh-")
-	id = strings.TrimPrefix(id, "gh#")
-	id = strings.TrimPrefix(id, "#")
-	n, err := strconv.Atoi(id)
+func ParseGitHubIssueNumber(id IssueID) (int, error) {
+	idStr := id.String()
+	idStr = strings.TrimPrefix(idStr, "gh-")
+	idStr = strings.TrimPrefix(idStr, "gh#")
+	idStr = strings.TrimPrefix(idStr, "#")
+	n, err := strconv.Atoi(idStr)
 	if err != nil {
-		return 0, fmt.Errorf("invalid GitHub issue ID: %s", id)
+		return 0, fmt.Errorf("invalid GitHub issue ID: %s", idStr)
 	}
 	return n, nil
 }

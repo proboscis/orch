@@ -117,7 +117,7 @@ func runPsWithDeps(ctx context.Context, opts *psOptions, deps *psDeps) error {
 	}
 
 	filter := &orchapi.ListRunsFilter{
-		IssueID: opts.Issue,
+		IssueID: model.NewIssueID(opts.Issue),
 		Status:  statusFilter,
 		Limit:   limit,
 	}
@@ -133,10 +133,12 @@ func runPsWithDeps(ctx context.Context, opts *psOptions, deps *psDeps) error {
 	issueCache := make(map[string]psIssueInfo, len(result.Runs))
 	for i, r := range result.Runs {
 		runs[i] = apiRunToModelRun(r)
-		aliveByRun[r.RunID] = agentAliveInfo{alive: r.Alive, known: r.AliveKnown}
-		branchStateByRun[r.RunID] = string(r.BranchState)
-		if _, ok := issueCache[r.IssueID]; !ok {
-			issueCache[r.IssueID] = psIssueInfo{status: r.IssueStatus, display: formatTopic(r.IssueTopic)}
+		runID := r.RunID.String()
+		issueID := r.IssueID.String()
+		aliveByRun[runID] = agentAliveInfo{alive: r.Alive, known: r.AliveKnown}
+		branchStateByRun[runID] = string(r.BranchState)
+		if _, ok := issueCache[issueID]; !ok {
+			issueCache[issueID] = psIssueInfo{status: r.IssueStatus, display: formatTopic(r.IssueTopic)}
 		}
 	}
 
@@ -166,7 +168,8 @@ func runPsWithDeps(ctx context.Context, opts *psOptions, deps *psDeps) error {
 	if len(issueStatusFilter) > 0 {
 		filteredRuns := make([]*model.Run, 0, len(runs))
 		for _, r := range runs {
-			info := issueCache[r.IssueID]
+			issueID := r.IssueID.String()
+			info := issueCache[issueID]
 			if info.status == "" {
 				info = resolveIssueInfoAPI(ctx, api, issueCache, r.IssueID)
 			}
@@ -246,7 +249,7 @@ func collectPsExcludedStatusStats(
 	cursor := ""
 	for {
 		result, err := api.ListRuns(ctx, &orchapi.ListRunsFilter{
-			IssueID: opts.Issue,
+			IssueID: model.NewIssueID(opts.Issue),
 			Limit:   psExcludedStatsPageLimit,
 			Cursor:  cursor,
 		})
@@ -285,15 +288,17 @@ func psRunMatchesIssueStatusFilter(
 ) bool {
 	issueStatus := strings.TrimSpace(run.IssueStatus)
 	if issueStatus == "" {
-		info := issueCache[run.IssueID]
+		issueID := run.IssueID.String()
+		info := issueCache[issueID]
 		if info.status == "" {
 			info = resolveIssueInfoAPI(ctx, api, issueCache, run.IssueID)
 		}
 		issueStatus = info.status
 	}
 
-	if _, ok := issueCache[run.IssueID]; !ok {
-		issueCache[run.IssueID] = psIssueInfo{
+	issueID := run.IssueID.String()
+	if _, ok := issueCache[issueID]; !ok {
+		issueCache[issueID] = psIssueInfo{
 			status:  issueStatus,
 			display: formatTopic(run.IssueTopic),
 		}
@@ -375,21 +380,22 @@ func psHasConfigScope() bool {
 	return strings.TrimSpace(projectID) != ""
 }
 
-func resolveIssueInfoAPI(ctx context.Context, api orchapi.OrchAPI, cache map[string]psIssueInfo, issueID string) psIssueInfo {
-	if info, ok := cache[issueID]; ok {
+func resolveIssueInfoAPI(ctx context.Context, api orchapi.OrchAPI, cache map[string]psIssueInfo, issueID model.IssueID) psIssueInfo {
+	issueIDString := issueID.String()
+	if info, ok := cache[issueIDString]; ok {
 		return info
 	}
 
 	if api == nil {
 		info := psIssueInfo{}
-		cache[issueID] = info
+		cache[issueIDString] = info
 		return info
 	}
 
 	issue, err := api.GetIssue(ctx, issueID)
 	if err != nil || issue == nil {
 		info := psIssueInfo{}
-		cache[issueID] = info
+		cache[issueIDString] = info
 		return info
 	}
 
@@ -397,7 +403,7 @@ func resolveIssueInfoAPI(ctx context.Context, api orchapi.OrchAPI, cache map[str
 		status:  string(issue.Status),
 		display: formatIssueTopicAPI(issue),
 	}
-	cache[issueID] = info
+	cache[issueIDString] = info
 	return info
 }
 
@@ -469,28 +475,30 @@ func outputJSONWithIssueInfo(
 	}
 
 	for i, r := range runs {
+		runID := r.RunID.String()
+		issueID := r.IssueID.String()
 		issueStatus := ""
 		if issueCache != nil {
-			issueStatus = issueCache[r.IssueID].status
+			issueStatus = issueCache[issueID].status
 		}
 		aliveInfo := agentAliveInfo{}
 		if aliveByRun != nil {
-			aliveInfo = aliveByRun[r.RunID]
+			aliveInfo = aliveByRun[runID]
 		}
 		branchStatus := "-"
 		if branchStateByRun != nil {
-			if state := branchStateByRun[r.RunID]; state != "" {
+			if state := branchStateByRun[runID]; state != "" {
 				branchStatus = branchStatusFromGitState(state)
 			}
 		}
 		target := strings.TrimSpace(r.Target)
-		targetHost := strings.TrimSpace(targetHostByRun[r.RunID])
+		targetHost := strings.TrimSpace(targetHostByRun[runID])
 
 		output.Items[i] = runOutput{
-			IssueID:           r.IssueID,
+			IssueID:           issueID,
 			IssueStatus:       issueStatus,
-			RunID:             r.RunID,
-			ShortID:           r.ShortID(),
+			RunID:             runID,
+			ShortID:           r.ShortID().String(),
 			CLI:               r.Agent,
 			Model:             r.Model,
 			ModelVariant:      r.ModelVariant,
@@ -499,7 +507,7 @@ func outputJSONWithIssueInfo(
 			Status:            string(r.Status),
 			AgentStatus:       shortAgentStatus(r.Status),
 			BranchStatus:      branchStatus,
-			PRStatus:          prStatusFromRun(r, branchStateByRun[r.RunID]),
+			PRStatus:          prStatusFromRun(r, branchStateByRun[runID]),
 			AgentAlive:        formatAliveText(aliveInfo),
 			UpdatedAt:         r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			UpdatedAgo:        formatRelativeTime(r.UpdatedAt, now),
@@ -534,28 +542,30 @@ func outputTSVWithIssueInfo(
 	}
 
 	for _, r := range runs {
+		runID := r.RunID.String()
+		issueID := r.IssueID.String()
 		issueStatus := ""
 		if issueCache != nil {
-			issueStatus = issueCache[r.IssueID].status
+			issueStatus = issueCache[issueID].status
 		}
 		aliveInfo := agentAliveInfo{}
 		if aliveByRun != nil {
-			aliveInfo = aliveByRun[r.RunID]
+			aliveInfo = aliveByRun[runID]
 		}
 		branchStatus := "-"
 		if branchStateByRun != nil {
-			if state := branchStateByRun[r.RunID]; state != "" {
+			if state := branchStateByRun[runID]; state != "" {
 				branchStatus = branchStatusFromGitState(state)
 			}
 		}
 		target := strings.TrimSpace(r.Target)
-		targetHost := strings.TrimSpace(targetHostByRun[r.RunID])
+		targetHost := strings.TrimSpace(targetHostByRun[runID])
 
 		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			r.IssueID,
+			issueID,
 			issueStatus,
-			r.RunID,
-			r.ShortID(),
+			runID,
+			r.ShortID().String(),
 			r.Agent,
 			r.Model,
 			r.ModelVariant,
@@ -564,7 +574,7 @@ func outputTSVWithIssueInfo(
 			r.Status,
 			shortAgentStatus(r.Status),
 			branchStatus,
-			prStatusFromRun(r, branchStateByRun[r.RunID]),
+			prStatusFromRun(r, branchStateByRun[runID]),
 			formatAliveText(aliveInfo),
 			r.StartedAt.Format("2006-01-02T15:04:05Z07:00"),
 			r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
@@ -666,6 +676,8 @@ func outputTableWithGitStates(
 	var rows [][]string
 
 	for _, r := range runs {
+		runID := r.RunID.String()
+		issueID := r.IssueID.String()
 		started := formatRelativeTime(r.StartedAt, now)
 		if opts.AbsoluteTime {
 			started = r.StartedAt.Format("01-02 15:04")
@@ -674,12 +686,12 @@ func outputTableWithGitStates(
 		if opts.AbsoluteTime {
 			updated = r.UpdatedAt.Format("01-02 15:04")
 		}
-		displayID := r.ShortID()
+		displayID := r.ShortID().String()
 		if r.WorktreePath != "" && !r.WorktreeExists {
 			displayID += "*"
 		}
 
-		info := issueCache[r.IssueID]
+		info := issueCache[issueID]
 		display := info.display
 		if display == "" {
 			display = "-"
@@ -691,7 +703,7 @@ func outputTableWithGitStates(
 		}
 
 		gitState := "-"
-		if state, ok := gitStates[r.RunID]; ok {
+		if state, ok := gitStates[runID]; ok {
 			gitState = state
 		}
 
@@ -701,16 +713,16 @@ func outputTableWithGitStates(
 		cliDisplay := agent.AgentDisplayName(r.Agent, r.Model, r.ModelVariant)
 		modelDisplay := formatModelDisplay(r.Model, r.ModelVariant)
 		targetDisplay := formatTargetDisplay(r.Target, targetMaxLen)
-		targetHostDisplay := formatTargetDisplay(targetHostByRun[r.RunID], targetHostMaxLen)
+		targetHostDisplay := formatTargetDisplay(targetHostByRun[runID], targetHostMaxLen)
 		worktree := formatWorktreeDisplay(r.WorktreePath, worktreeMaxLen)
 		aliveInfo := agentAliveInfo{}
 		if aliveByRun != nil {
-			aliveInfo = aliveByRun[r.RunID]
+			aliveInfo = aliveByRun[runID]
 		}
 
 		rows = append(rows, []string{
 			displayID,
-			r.IssueID,
+			issueID,
 			issueStatus,
 			cliDisplay,
 			modelDisplay,
@@ -957,13 +969,13 @@ func resolveTargetHostByRun(runs []*model.Run) map[string]string {
 		}
 		targetHost := strings.TrimSpace(run.TargetHost)
 		if targetHost != "" {
-			resolved[run.RunID] = targetHost
+			resolved[run.RunID.String()] = targetHost
 			continue
 		}
 
 		targetName := strings.TrimSpace(run.Target)
 		if targetName != "" {
-			resolved[run.RunID] = targetName
+			resolved[run.RunID.String()] = targetName
 		}
 	}
 

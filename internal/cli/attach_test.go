@@ -140,8 +140,8 @@ func TestRunAttachWithDeps_SwitchesInsideMuxWithGeneratedSession(t *testing.T) {
 	runID := "20260101-030303"
 	api := &mockAttachAPI{
 		info: &orchapi.AttachInfo{
-			IssueID:       issueID,
-			RunID:         runID,
+			IssueID:       model.NewIssueID(issueID),
+			RunID:         model.NewRunID(runID),
 			Agent:         "claude",
 			SessionName:   "",
 			SessionExists: true,
@@ -161,7 +161,7 @@ func TestRunAttachWithDeps_SwitchesInsideMuxWithGeneratedSession(t *testing.T) {
 	if len(*exitCodes) != 0 {
 		t.Fatalf("exit codes = %v, want none", *exitCodes)
 	}
-	wantSession := model.GenerateSessionName(issueID, runID)
+	wantSession := model.GenerateSessionName(model.NewIssueID(issueID), model.NewRunID(runID))
 	if mux.switched != wantSession {
 		t.Fatalf("switched session = %q, want %q", mux.switched, wantSession)
 	}

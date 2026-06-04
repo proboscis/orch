@@ -108,7 +108,7 @@ func TestPopulateRunInfo_RespectsMaxFetches(t *testing.T) {
 	for i := range runs {
 		runs[i] = &model.Run{
 			IssueID: "test",
-			RunID:   fmt.Sprintf("run-%d", i),
+			RunID:   model.NewRunID(fmt.Sprintf("run-%d", i)),
 			Branch:  fmt.Sprintf("branch-%d", i),
 		}
 	}

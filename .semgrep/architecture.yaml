@@ -2153,3 +2153,28 @@ rules:
     metadata:
       category: architecture
       violation: daemon-bypass
+
+  # ---------------------------------------------------------------------------
+  # 14. Repo identifiers must be constructed through normalizing constructors
+  # ---------------------------------------------------------------------------
+
+  - id: no-raw-repoid-casts
+    patterns:
+      - pattern-either:
+          - pattern: model.RepoID(...)
+          - pattern: model.ProjectID(...)
+    paths:
+      include:
+        - /internal/
+      exclude:
+        - /internal/**/*_test.go
+        - /internal/model/ids.go
+    message: >
+      Do not construct RepoID/ProjectID with a raw type cast. These IDs are
+      on-disk keys and must pass through model.NewRepoID, model.NewProjectID,
+      model.NewNormalizedRepoID, or model.NewNormalizedProjectID.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: architecture
+      violation: repo-id-constructor-bypass

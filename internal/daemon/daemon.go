@@ -25,9 +25,9 @@ import (
 )
 
 const (
-	DefaultInterval    = 5 * time.Second
-	StallThreshold     = 60 * time.Second
-	FetchInterval      = 90 * time.Second
+	DefaultInterval      = 5 * time.Second
+	StallThreshold       = 60 * time.Second
+	FetchInterval        = 90 * time.Second
 	DefaultTCPListenAddr = "0.0.0.0:7777"
 )
 
@@ -414,7 +414,7 @@ func (d *Daemon) cleanupStates(activeRuns []*model.Run) {
 
 	activeKeys := make(map[string]bool)
 	for _, run := range activeRuns {
-		activeKeys[run.IssueID+"#"+run.RunID] = true
+		activeKeys[run.Ref().String()] = true
 	}
 
 	for key := range d.runStates {
@@ -429,7 +429,7 @@ func (d *Daemon) getOrCreateState(run *model.Run) *RunState {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	key := run.IssueID + "#" + run.RunID
+	key := run.Ref().String()
 	state, ok := d.runStates[key]
 	if !ok {
 		state = &RunState{

@@ -1,6 +1,10 @@
 package orchapi
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/s22625/orch/internal/model"
+)
 
 func TestNormalizeRunStatus(t *testing.T) {
 	tests := []struct {
@@ -38,8 +42,8 @@ func TestComputeShortID(t *testing.T) {
 		{"TRD-081", "20260425-135017", "2fdb42"},
 	}
 	for _, c := range cases {
-		got := ComputeShortID(c.issueID, c.runID)
-		if got != c.want {
+		got := ComputeShortID(model.NewIssueID(c.issueID), model.NewRunID(c.runID))
+		if got.String() != c.want {
 			t.Errorf("ComputeShortID(%q, %q) = %q, want %q",
 				c.issueID, c.runID, got, c.want)
 		}

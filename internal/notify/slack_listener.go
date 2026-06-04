@@ -39,7 +39,7 @@ func (l *SlackStatusListener) OnStatusChange(ev *runevents.StatusChangeEvent) {
 		return
 	}
 
-	issueTitle := ev.Run.IssueID
+	issueTitle := ev.Run.IssueID.String()
 	if ev.Store != nil {
 		if issue, err := ev.Store.ResolveIssue(ev.Run.IssueID); err == nil && issue != nil && issue.Title != "" {
 			issueTitle = issue.Title

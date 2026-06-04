@@ -7,9 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
+
+	"github.com/s22625/orch/internal/model"
 )
 
 const appName = "orch"
@@ -142,13 +143,13 @@ func DaemonDBPath() string {
 
 // RepoDataDir returns the data directory for a specific repo.
 // ~/.local/share/orch/{repoID}/
-func RepoDataDir(repoID string) string {
-	return filepath.Join(DataDir(), repoID)
+func RepoDataDir(repoID model.RepoID) string {
+	return filepath.Join(DataDir(), repoID.String())
 }
 
 // RepoRunsDir returns the runs directory for a specific repo.
 // ~/.local/share/orch/{repoID}/runs/
-func RepoRunsDir(repoID string) string {
+func RepoRunsDir(repoID model.RepoID) string {
 	return filepath.Join(RepoDataDir(repoID), "runs")
 }
 
@@ -190,17 +191,17 @@ func EnsureDataDir() error {
 
 // RepoID derives a repo identifier strictly from the git remote URL.
 // Returns "owner-repo" format (e.g., "proboscis-orch").
-func RepoID(projectRoot string) (string, error) {
+func RepoID(projectRoot string) (model.RepoID, error) {
 	return repoIDFromRemote(projectRoot)
 }
 
 // RepoIDStrict derives repo identifier strictly from git remote URL.
 // Unlike RepoID, it does not fall back to a path-derived identifier.
-func RepoIDStrict(projectRoot string) (string, error) {
+func RepoIDStrict(projectRoot string) (model.RepoID, error) {
 	return repoIDFromRemote(projectRoot)
 }
 
-func repoIDFromRemote(projectRoot string) (string, error) {
+func repoIDFromRemote(projectRoot string) (model.RepoID, error) {
 	cmd := exec.Command("git", "-C", projectRoot, "config", "--get", "remote.origin.url")
 	output, err := cmd.Output()
 	if err != nil {
@@ -227,47 +228,12 @@ func LegacyRepoID(projectRoot string) string {
 //   - git@github.com:owner/repo.git
 //   - git://github.com/owner/repo.git
 //   - ssh://git@github.com/owner/repo.git
-func ParseRepoID(remoteURL string) (string, error) {
-	if remoteURL == "" {
-		return "", fmt.Errorf("empty remote URL")
+func ParseRepoID(remoteURL string) (model.RepoID, error) {
+	repoID, err := model.NewRepoID(remoteURL)
+	if err != nil {
+		return "", fmt.Errorf("unable to parse remote URL: %s", remoteURL)
 	}
-
-	// SSH format: git@github.com:owner/repo.git
-	sshPattern := regexp.MustCompile(`^git@[^:]+:([^/]+)/([^/]+?)(?:\.git)?$`)
-	if matches := sshPattern.FindStringSubmatch(remoteURL); len(matches) == 3 {
-		return sanitizeRepoID(matches[1], matches[2]), nil
-	}
-
-	// HTTPS/Git format: https://github.com/owner/repo.git
-	httpsPattern := regexp.MustCompile(`^(?:https?|git|ssh)://[^/]+/([^/]+)/([^/]+?)(?:\.git)?/?$`)
-	if matches := httpsPattern.FindStringSubmatch(remoteURL); len(matches) == 3 {
-		return sanitizeRepoID(matches[1], matches[2]), nil
-	}
-
-	// Last resort: try to extract from path
-	// Remove .git suffix and split by /
-	cleaned := strings.TrimSuffix(remoteURL, ".git")
-	parts := strings.Split(cleaned, "/")
-	if len(parts) >= 2 {
-		owner := parts[len(parts)-2]
-		repo := parts[len(parts)-1]
-		// Handle colon in SSH format
-		if idx := strings.LastIndex(owner, ":"); idx != -1 {
-			owner = owner[idx+1:]
-		}
-		return sanitizeRepoID(owner, repo), nil
-	}
-
-	return "", fmt.Errorf("unable to parse remote URL: %s", remoteURL)
-}
-
-// sanitizeRepoID creates a safe directory name from owner and repo.
-func sanitizeRepoID(owner, repo string) string {
-	// Remove any unsafe characters, keeping alphanumeric, dash, underscore
-	safePattern := regexp.MustCompile(`[^a-zA-Z0-9_-]`)
-	safeOwner := safePattern.ReplaceAllString(owner, "")
-	safeRepo := safePattern.ReplaceAllString(repo, "")
-	return safeOwner + "-" + safeRepo
+	return repoID, nil
 }
 
 // LegacyOrchDir returns the legacy .orch directory path for a project.

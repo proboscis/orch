@@ -26,6 +26,14 @@ type issueCreateOptions struct {
 	bodyProvided bool
 }
 
+func normalizeCLIIssueID(issueID string) model.IssueID {
+	id := model.NewIssueID(issueID)
+	if model.IsGitHubIssueID(id) {
+		return model.NormalizeGitHubIssueID(id)
+	}
+	return id
+}
+
 func newIssueCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "issue",
@@ -125,7 +133,7 @@ func runIssueCreateWithInput(issueID string, opts *issueCreateOptions, stdin io.
 	}
 
 	issue, err := api.CreateIssue(ctx, &orchapi.CreateIssueRequest{
-		ID:         issueID,
+		ID:         model.NewIssueID(issueID),
 		Title:      title,
 		Body:       resolvedOpts.Body,
 		Tags:       resolvedOpts.Tags,
@@ -148,7 +156,7 @@ func runIssueCreateWithInput(issueID string, opts *issueCreateOptions, stdin io.
 			Path    string `json:"path"`
 		}{
 			OK:      true,
-			IssueID: issue.ID,
+			IssueID: issue.ID.String(),
 			Path:    issue.Path,
 		}
 		enc := json.NewEncoder(os.Stdout)
@@ -234,7 +242,7 @@ func runIssueCreateLocal(issueID, title string, opts *issueCreateOptions) error 
 	}
 
 	issueToWrite := &model.Issue{
-		ID:         issueID,
+		ID:         model.NewIssueID(issueID),
 		Title:      title,
 		Summary:    opts.Summary,
 		Status:     model.IssueStatusOpen,
@@ -304,7 +312,7 @@ func runIssueCreateWithEditor(api orchapi.OrchAPI, issueID, title string, opts *
 	}
 
 	issueToWrite := &model.Issue{
-		ID:         issueID,
+		ID:         model.NewIssueID(issueID),
 		Title:      title,
 		Summary:    opts.Summary,
 		Status:     model.IssueStatusOpen,
@@ -486,7 +494,8 @@ func runIssueListViaAPI(ctx context.Context, api orchapi.OrchAPI, opts *issueLis
 
 	runsByIssue := make(map[string][]*orchapi.Run)
 	for _, run := range runsResp.Runs {
-		runsByIssue[run.IssueID] = append(runsByIssue[run.IssueID], run)
+		issueID := run.IssueID.String()
+		runsByIssue[issueID] = append(runsByIssue[issueID], run)
 	}
 
 	var issueInfos []issueInfo
@@ -499,7 +508,7 @@ func runIssueListViaAPI(ctx context.Context, api orchapi.OrchAPI, opts *issueLis
 		}
 
 		info := issueInfo{
-			ID:         issue.ID,
+			ID:         issue.ID.String(),
 			Title:      issue.Title,
 			Summary:    issue.Summary,
 			Status:     string(issue.Status),
@@ -508,9 +517,9 @@ func runIssueListViaAPI(ctx context.Context, api orchapi.OrchAPI, opts *issueLis
 			ModifiedAt: issue.ModifiedAt.Format("2006-01-02T15:04:05Z07:00"),
 		}
 
-		for _, run := range runsByIssue[issue.ID] {
+		for _, run := range runsByIssue[issue.ID.String()] {
 			info.Runs = append(info.Runs, runSummary{
-				RunID:  run.RunID,
+				RunID:  run.RunID.String(),
 				Status: string(run.Status),
 			})
 		}
@@ -668,9 +677,8 @@ Examples:
 }
 
 func runIssueShow(issueID string, opts *issueShowOptions) error {
-	if model.IsGitHubIssueID(issueID) {
-		issueID = model.NormalizeGitHubIssueID(issueID)
-	}
+	normalizedIssueID := normalizeCLIIssueID(issueID)
+	issueID = normalizedIssueID.String()
 
 	ctx := context.Background()
 	api, err := getAPIForListing()
@@ -678,7 +686,7 @@ func runIssueShow(issueID string, opts *issueShowOptions) error {
 		return err
 	}
 
-	issue, err := api.GetIssue(ctx, issueID)
+	issue, err := api.GetIssue(ctx, normalizedIssueID)
 	if err != nil {
 		return err
 	}
@@ -749,9 +757,8 @@ Examples:
 }
 
 func runIssueEdit(issueID, title string) error {
-	if model.IsGitHubIssueID(issueID) {
-		issueID = model.NormalizeGitHubIssueID(issueID)
-	}
+	normalizedIssueID := normalizeCLIIssueID(issueID)
+	issueID = normalizedIssueID.String()
 
 	ctx := context.Background()
 	api, err := getAPI()
@@ -759,7 +766,7 @@ func runIssueEdit(issueID, title string) error {
 		return err
 	}
 
-	issue, err := api.GetIssue(ctx, issueID)
+	issue, err := api.GetIssue(ctx, normalizedIssueID)
 	if err != nil {
 		return err
 	}
@@ -850,9 +857,8 @@ Examples:
 }
 
 func runIssueClose(issueID string, opts *issueCloseOptions) error {
-	if model.IsGitHubIssueID(issueID) {
-		issueID = model.NormalizeGitHubIssueID(issueID)
-	}
+	normalizedIssueID := normalizeCLIIssueID(issueID)
+	issueID = normalizedIssueID.String()
 
 	ctx := context.Background()
 	api, err := getAPI()
@@ -860,7 +866,7 @@ func runIssueClose(issueID string, opts *issueCloseOptions) error {
 		return err
 	}
 
-	if err := api.CloseIssue(ctx, issueID); err != nil {
+	if err := api.CloseIssue(ctx, normalizedIssueID); err != nil {
 		return err
 	}
 

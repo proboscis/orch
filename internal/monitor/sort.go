@@ -182,7 +182,7 @@ func runRowRunID(row RunRow) string {
 	if row.Run == nil {
 		return ""
 	}
-	return row.Run.RunID
+	return row.Run.RunID.String()
 }
 
 func sortRunRows(rows []RunRow, key SortKey) {
@@ -422,22 +422,22 @@ func sortRuns(runs []*model.Run, key SortKey) {
 
 		switch key {
 		case SortByName:
-			if cmp := strings.Compare(a.IssueID, b.IssueID); cmp != 0 {
+			if cmp := strings.Compare(a.IssueID.String(), b.IssueID.String()); cmp != 0 {
 				return cmp < 0
 			}
-			if cmp := strings.Compare(a.RunID, b.RunID); cmp != 0 {
+			if cmp := strings.Compare(a.RunID.String(), b.RunID.String()); cmp != 0 {
 				return cmp < 0
 			}
-			return a.ShortID() < b.ShortID()
+			return a.ShortID().String() < b.ShortID().String()
 
 		case SortByIssue:
-			if cmp := strings.Compare(a.IssueID, b.IssueID); cmp != 0 {
+			if cmp := strings.Compare(a.IssueID.String(), b.IssueID.String()); cmp != 0 {
 				return cmp < 0
 			}
 			if !a.UpdatedAt.Equal(b.UpdatedAt) {
 				return a.UpdatedAt.After(b.UpdatedAt)
 			}
-			return a.ShortID() < b.ShortID()
+			return a.ShortID().String() < b.ShortID().String()
 
 		case SortByAgent:
 			if cmp := strings.Compare(a.Agent, b.Agent); cmp != 0 {
@@ -446,7 +446,7 @@ func sortRuns(runs []*model.Run, key SortKey) {
 			if !a.UpdatedAt.Equal(b.UpdatedAt) {
 				return a.UpdatedAt.After(b.UpdatedAt)
 			}
-			return a.ShortID() < b.ShortID()
+			return a.ShortID().String() < b.ShortID().String()
 
 		case SortByStatus:
 			if ar, br := runStatusRank(a.Status), runStatusRank(b.Status); ar != br {
@@ -455,19 +455,19 @@ func sortRuns(runs []*model.Run, key SortKey) {
 			if !a.UpdatedAt.Equal(b.UpdatedAt) {
 				return a.UpdatedAt.After(b.UpdatedAt)
 			}
-			if cmp := strings.Compare(a.IssueID, b.IssueID); cmp != 0 {
+			if cmp := strings.Compare(a.IssueID.String(), b.IssueID.String()); cmp != 0 {
 				return cmp < 0
 			}
-			return a.ShortID() < b.ShortID()
+			return a.ShortID().String() < b.ShortID().String()
 
 		case SortByStarted:
 			if !a.StartedAt.Equal(b.StartedAt) {
 				return a.StartedAt.After(b.StartedAt)
 			}
-			if cmp := strings.Compare(a.IssueID, b.IssueID); cmp != 0 {
+			if cmp := strings.Compare(a.IssueID.String(), b.IssueID.String()); cmp != 0 {
 				return cmp < 0
 			}
-			return a.ShortID() < b.ShortID()
+			return a.ShortID().String() < b.ShortID().String()
 
 		case SortByElapsed:
 			aElapsed := now.Sub(a.StartedAt)
@@ -475,10 +475,10 @@ func sortRuns(runs []*model.Run, key SortKey) {
 			if aElapsed != bElapsed {
 				return aElapsed > bElapsed
 			}
-			if cmp := strings.Compare(a.IssueID, b.IssueID); cmp != 0 {
+			if cmp := strings.Compare(a.IssueID.String(), b.IssueID.String()); cmp != 0 {
 				return cmp < 0
 			}
-			return a.ShortID() < b.ShortID()
+			return a.ShortID().String() < b.ShortID().String()
 
 		case SortByUpdated:
 			fallthrough
@@ -486,10 +486,10 @@ func sortRuns(runs []*model.Run, key SortKey) {
 			if !a.UpdatedAt.Equal(b.UpdatedAt) {
 				return a.UpdatedAt.After(b.UpdatedAt)
 			}
-			if cmp := strings.Compare(a.IssueID, b.IssueID); cmp != 0 {
+			if cmp := strings.Compare(a.IssueID.String(), b.IssueID.String()); cmp != 0 {
 				return cmp < 0
 			}
-			return a.ShortID() < b.ShortID()
+			return a.ShortID().String() < b.ShortID().String()
 		}
 	})
 }

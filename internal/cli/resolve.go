@@ -54,7 +54,10 @@ func runResolveWithDeps(ctx context.Context, issueID string, opts *resolveOption
 		return err
 	}
 
-	err = api.ResolveIssue(ctx, issueID, opts.Force)
+	normalizedIssueID := normalizeCLIIssueID(issueID)
+	issueID = normalizedIssueID.String()
+
+	err = api.ResolveIssue(ctx, normalizedIssueID, opts.Force)
 	if err != nil {
 		errStr := err.Error()
 		if strings.Contains(errStr, "not_found") || strings.Contains(errStr, "not found") {

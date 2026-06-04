@@ -206,7 +206,7 @@ func detectIssueIDConvention(issues []*model.Issue) (pattern, example, nextID st
 	// Extract all issue IDs
 	ids := make([]string, 0, len(issues))
 	for _, issue := range issues {
-		ids = append(ids, issue.ID)
+		ids = append(ids, issue.ID.String())
 	}
 
 	// Try to detect pattern: prefix-number (most common)
@@ -382,7 +382,7 @@ func buildControlAgentPromptViaAPI(ctx context.Context, api orchapi.OrchAPI, iss
 			title = title[:47] + "..."
 		}
 		issueInfos = append(issueInfos, IssueInfo{
-			ID:     issue.ID,
+			ID:     issue.ID.String(),
 			Status: status,
 			Title:  title,
 		})
@@ -391,8 +391,8 @@ func buildControlAgentPromptViaAPI(ctx context.Context, api orchapi.OrchAPI, iss
 	runInfos := make([]RunInfo, 0, len(runs))
 	for _, run := range runs {
 		runInfos = append(runInfos, RunInfo{
-			IssueID: run.IssueID,
-			ShortID: run.ShortID,
+			IssueID: run.IssueID.String(),
+			ShortID: run.ShortID.String(),
 			Status:  string(run.Status),
 		})
 	}
@@ -450,7 +450,7 @@ func detectIssueIDConventionFromAPI(issues []*orchapi.Issue) (pattern, example, 
 
 	ids := make([]string, 0, len(issues))
 	for _, issue := range issues {
-		ids = append(ids, issue.ID)
+		ids = append(ids, issue.ID.String())
 	}
 
 	prefixNumRegex := regexp.MustCompile(`^([a-zA-Z][\w-]*)-(\d+)$`)
@@ -510,8 +510,8 @@ func sortIssuesByID(issues []*model.Issue) {
 	prefixNumRegex := regexp.MustCompile(`^([a-zA-Z][\w-]*)-(\d+)$`)
 
 	sort.Slice(issues, func(i, j int) bool {
-		matchI := prefixNumRegex.FindStringSubmatch(issues[i].ID)
-		matchJ := prefixNumRegex.FindStringSubmatch(issues[j].ID)
+		matchI := prefixNumRegex.FindStringSubmatch(issues[i].ID.String())
+		matchJ := prefixNumRegex.FindStringSubmatch(issues[j].ID.String())
 
 		// If both match pattern, compare by prefix then number
 		if matchI != nil && matchJ != nil {
@@ -524,7 +524,7 @@ func sortIssuesByID(issues []*model.Issue) {
 		}
 
 		// Fall back to string comparison
-		return issues[i].ID < issues[j].ID
+		return issues[i].ID.String() < issues[j].ID.String()
 	})
 }
 

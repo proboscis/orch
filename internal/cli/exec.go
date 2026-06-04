@@ -147,7 +147,7 @@ func runExecWithDeps(ctx context.Context, refStr string, cmdArgs []string, opts 
 			fmt.Sprintf("ORCH_BRANCH=%s", run.Branch),
 		}
 		if issuesRoot != "" {
-			runPath := filepath.Join(issuesRoot, "runs", run.IssueID, run.RunID+".md")
+			runPath := filepath.Join(issuesRoot, "runs", run.IssueID.String(), run.RunID.String()+".md")
 			orchEnv = append(orchEnv, fmt.Sprintf("ORCH_RUN_PATH=%s", runPath))
 		}
 		env = append(env, orchEnv...)

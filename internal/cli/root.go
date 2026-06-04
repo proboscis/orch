@@ -238,7 +238,7 @@ func getProjectIDWithSource(projectRoot string) (string, bool, error) {
 		return "", false, err
 	}
 
-	return projectID, false, nil
+	return projectID.String(), false, nil
 }
 
 func resolveProjectIdentity(projectRoot string) (string, error) {
@@ -263,13 +263,17 @@ func normalizeProjectIdentityInput(project string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("invalid project identity %q: %w", project, err)
 		}
-		return normalized, nil
+		return normalized.String(), nil
 	}
 	if looksLikeProjectPath(project) {
 		return "", fmt.Errorf("project identity %q looks like a filesystem path; use git repo URL or normalized repo ID", project)
 	}
 
-	return project, nil
+	normalized, err := model.NewNormalizedRepoID(project)
+	if err != nil {
+		return "", fmt.Errorf("invalid project identity %q: %w", project, err)
+	}
+	return normalized.String(), nil
 }
 
 func looksLikeProjectRepoURL(project string) bool {

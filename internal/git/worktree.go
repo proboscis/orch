@@ -47,8 +47,8 @@ func runGitWithStderrWithExecutor(exec executor.Executor, args ...string) error 
 type WorktreeConfig struct {
 	RepoRoot     string
 	WorktreeDir  string
-	IssueID      string
-	RunID        string
+	IssueID      model.IssueID
+	RunID        model.RunID
 	Agent        string
 	BaseBranch   string
 	Branch       string
@@ -71,7 +71,7 @@ type WorktreeInfo struct {
 func normalizeWorktreePath(cfg *WorktreeConfig) error {
 	if cfg.WorktreePath == "" {
 		worktreeName := model.GenerateWorktreeName(cfg.IssueID, cfg.RunID, cfg.Agent)
-		cfg.WorktreePath = filepath.Join(cfg.WorktreeDir, cfg.IssueID, worktreeName)
+		cfg.WorktreePath = filepath.Join(cfg.WorktreeDir, cfg.IssueID.String(), worktreeName)
 	}
 
 	if filepath.IsAbs(cfg.WorktreePath) {

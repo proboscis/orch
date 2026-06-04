@@ -3,6 +3,8 @@ package agent
 import (
 	"fmt"
 	"os"
+
+	"github.com/s22625/orch/internal/model"
 )
 
 // InjectionMethod specifies how the prompt should be sent to the agent
@@ -51,8 +53,8 @@ type LaunchConfig struct {
 	Type            AgentType
 	CustomCmd       string // Used when Type is AgentCustom
 	WorkDir         string
-	IssueID         string
-	RunID           string
+	IssueID         model.IssueID
+	RunID           model.RunID
 	RunPath         string
 	IssuesRoot      string
 	Branch          string

@@ -134,8 +134,8 @@ func captureAllItemForRun(ctx context.Context, deps *captureDeps, api orchapi.Or
 	}
 
 	item := captureAllItem{
-		IssueID:     run.IssueID,
-		RunID:       run.RunID,
+		IssueID:     run.IssueID.String(),
+		RunID:       run.RunID.String(),
 		Status:      string(run.Status),
 		SessionName: sessionName,
 		Lines:       lines,

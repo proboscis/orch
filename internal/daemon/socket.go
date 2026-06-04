@@ -410,8 +410,8 @@ func (s *SocketServer) repoIDForProjectRoot(projectRoot string) (string, error) 
 		return "", fmt.Errorf("project_root required")
 	}
 
-	if repoID, err := xdg.RepoIDStrict(projectRoot); err == nil && strings.TrimSpace(repoID) != "" {
-		return strings.TrimSpace(repoID), nil
+	if repoID, err := xdg.RepoIDStrict(projectRoot); err == nil && strings.TrimSpace(repoID.String()) != "" {
+		return strings.TrimSpace(repoID.String()), nil
 	}
 
 	s.reposMu.RLock()
@@ -973,7 +973,7 @@ func (s *SocketServer) getOrCreateStore(issuesRoot, projectRoot string) store.St
 		}
 		if ctx.RepoID == "" && projectRoot != "" {
 			if id, err := xdg.RepoID(projectRoot); err == nil && id != "" {
-				ctx.RepoID = id
+				ctx.RepoID = id.String()
 			}
 		}
 		return ctx.Store
@@ -988,7 +988,7 @@ func (s *SocketServer) getOrCreateStore(issuesRoot, projectRoot string) store.St
 	repoID := ""
 	if projectRoot != "" {
 		if id, err := xdg.RepoID(projectRoot); err == nil && id != "" {
-			repoID = id
+			repoID = id.String()
 		}
 	}
 
@@ -1897,8 +1897,8 @@ func (s *SocketServer) resetManagedOpenCodeRuntime(projectRoot string) error {
 func (s *SocketServer) bootstrapOpenCodeRunSession(
 	st store.Store,
 	run *model.Run,
-	issueID string,
-	runID string,
+	issueID model.IssueID,
+	runID model.RunID,
 	launchCfg *agent.LaunchConfig,
 	timeout time.Duration,
 ) (int, string, error) {
@@ -2554,7 +2554,7 @@ func (s *SocketServer) processSend(req SendRequest) error {
 		return fmt.Errorf("no store available for project")
 	}
 
-	ref := &model.RunRef{IssueID: req.IssueID, RunID: req.RunID}
+	ref := &model.RunRef{IssueID: model.NewIssueID(req.IssueID), RunID: model.NewRunID(req.RunID)}
 	run, err := st.GetRun(ref)
 	if err != nil {
 		return fmt.Errorf("run %s#%s not found: %w", req.IssueID, req.RunID, err)
@@ -2906,7 +2906,7 @@ func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {
 			return
 		}
 		filter := &store.ListRunsFilter{
-			IssueID:    req.IssueID,
+			IssueID:    model.NewIssueID(req.IssueID),
 			Agent:      req.Agent,
 			TextSearch: req.TextSearch,
 			TimeRange:  req.TimeRange,
@@ -2972,7 +2972,7 @@ func (s *SocketServer) listAllRepoRuns(req SendRequest) ([]*model.Run, error) {
 	var allRuns []*model.Run
 	for _, st := range stores {
 		filter := &store.ListRunsFilter{
-			IssueID:    req.IssueID,
+			IssueID:    model.NewIssueID(req.IssueID),
 			Agent:      req.Agent,
 			TextSearch: req.TextSearch,
 			TimeRange:  req.TimeRange,
@@ -3065,7 +3065,7 @@ func (s *SocketServer) handleListIssues(req SendRequest, encoder *json.Encoder) 
 		search := strings.ToLower(req.TextSearch)
 		var filtered []*model.Issue
 		for _, issue := range issues {
-			if strings.Contains(strings.ToLower(issue.ID), search) ||
+			if strings.Contains(strings.ToLower(issue.ID.String()), search) ||
 				strings.Contains(strings.ToLower(issue.Title), search) ||
 				strings.Contains(strings.ToLower(issue.Summary), search) {
 				filtered = append(filtered, issue)
@@ -3143,7 +3143,7 @@ func (s *SocketServer) handleGetRun(req SendRequest, encoder *json.Encoder) {
 		return
 	}
 
-	ref := &model.RunRef{IssueID: req.IssueID, RunID: req.RunID}
+	ref := &model.RunRef{IssueID: model.NewIssueID(req.IssueID), RunID: model.NewRunID(req.RunID)}
 	run, err := st.GetRun(ref)
 	if err != nil {
 		s.logger.Printf("error getting run %s#%s: %v", req.IssueID, req.RunID, err)
@@ -3179,7 +3179,7 @@ func (s *SocketServer) handleGetIssue(req SendRequest, encoder *json.Encoder) {
 			encoder.Encode(GetIssueResponse{OK: false, Error: "no store available"})
 			return
 		}
-		issue, err = st.ResolveIssue(req.IssueID)
+		issue, err = st.ResolveIssue(model.NewIssueID(req.IssueID))
 	}
 
 	if err != nil {
@@ -3197,7 +3197,7 @@ func (s *SocketServer) handleGetIssue(req SendRequest, encoder *json.Encoder) {
 func SendViaDaemon(projectRoot, _ string, run *model.Run, message string, noEnter bool) error {
 	client := NewProtoClientLocal(projectRoot)
 	client.SetTimeout(35 * time.Second)
-	return client.SendMessage(run.IssueID, run.RunID, message, noEnter)
+	return client.SendMessage(run.IssueID.String(), run.RunID.String(), message, noEnter)
 }
 
 // IsDaemonSocketAvailable checks if the global daemon socket exists.
@@ -3212,6 +3212,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		encoder.Encode(StartRunResponse{OK: false, Error: "invalid_request: issue_id required"})
 		return
 	}
+	issueID := model.NewIssueID(req.IssueID)
 
 	st := s.resolveStore(req)
 	if st == nil {
@@ -3219,7 +3220,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		return
 	}
 
-	issue, err := st.ResolveIssue(req.IssueID)
+	issue, err := st.ResolveIssue(issueID)
 	if err != nil {
 		encoder.Encode(StartRunResponse{OK: false, Error: "issue not found: " + req.IssueID})
 		return
@@ -3257,10 +3258,10 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		return
 	}
 
-	runID := req.RunID
+	runID := model.NewRunID(req.RunID)
 	if runID == "" {
 		if req.Reuse {
-			runs, _ := st.ListRuns(&store.ListRunsFilter{IssueID: req.IssueID})
+			runs, _ := st.ListRuns(&store.ListRunsFilter{IssueID: issueID})
 			for _, r := range runs {
 				if r.Status == model.StatusWaiting || r.Status == model.StatusRateLimited {
 					runID = r.RunID
@@ -3274,9 +3275,9 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 	}
 	branch := req.Branch
 	if branch == "" {
-		branch = model.GenerateBranchName(req.IssueID, runID)
+		branch = model.GenerateBranchName(issueID, runID)
 	}
-	sessionName := model.GenerateSessionName(req.IssueID, runID)
+	sessionName := model.GenerateSessionName(issueID, runID)
 
 	repoRoot := s.resolveProjectRoot(req)
 
@@ -3294,18 +3295,18 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		worktreeDir = filepath.Join(home, ".orch", "worktrees")
 	}
 
-	worktreeName := model.GenerateWorktreeName(req.IssueID, runID, agentName)
+	worktreeName := model.GenerateWorktreeName(issueID, runID, agentName)
 	var worktreePath string
 	if filepath.IsAbs(worktreeDir) {
-		worktreePath = filepath.Join(worktreeDir, req.IssueID, worktreeName)
+		worktreePath = filepath.Join(worktreeDir, issueID.String(), worktreeName)
 	} else {
-		worktreePath = filepath.Join(repoRoot, worktreeDir, req.IssueID, worktreeName)
+		worktreePath = filepath.Join(repoRoot, worktreeDir, issueID.String(), worktreeName)
 	}
 
 	if req.DryRun {
 		encoder.Encode(StartRunResponse{
 			OK:           true,
-			RunID:        runID,
+			RunID:        runID.String(),
 			Branch:       branch,
 			WorktreePath: worktreePath,
 			SessionName:  sessionName,
@@ -3321,7 +3322,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 	if req.Model != "" {
 		metadata["model"] = req.Model
 	}
-	run, err := st.CreateRun(req.IssueID, runID, metadata)
+	run, err := st.CreateRun(issueID, runID, metadata)
 	if err != nil {
 		encoder.Encode(StartRunResponse{OK: false, Error: "failed to create run: " + err.Error()})
 		return
@@ -3334,7 +3335,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 	worktreeResult, err := git.CreateWorktree(&git.WorktreeConfig{
 		RepoRoot:    repoRoot,
 		WorktreeDir: worktreeDir,
-		IssueID:     req.IssueID,
+		IssueID:     issueID,
 		RunID:       runID,
 		Agent:       agentName,
 		BaseBranch:  baseBranch,
@@ -3368,7 +3369,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		Type:         agentType,
 		CustomCmd:    req.AgentCmd,
 		WorkDir:      worktreeResult.WorktreePath,
-		IssueID:      req.IssueID,
+		IssueID:      issueID,
 		RunID:        runID,
 		RunPath:      run.Path,
 		IssuesRoot:   st.RootPath(),
@@ -3454,7 +3455,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		}
 
 	case agent.InjectionHTTP:
-		_, _, err = s.bootstrapOpenCodeRunSession(st, run, req.IssueID, runID, launchCfg, 30*time.Second)
+		_, _, err = s.bootstrapOpenCodeRunSession(st, run, issueID, runID, launchCfg, 30*time.Second)
 		if err != nil {
 			encoder.Encode(StartRunResponse{OK: false, Error: err.Error()})
 			return
@@ -3467,7 +3468,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 
 	encoder.Encode(StartRunResponse{
 		OK:           true,
-		RunID:        runID,
+		RunID:        runID.String(),
 		Branch:       worktreeResult.Branch,
 		WorktreePath: worktreeResult.WorktreePath,
 		SessionName:  sessionName,
@@ -3518,7 +3519,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	}
 
 	issue := opts.IssueSnapshot
-	if issue == nil || strings.TrimSpace(issue.ID) != opts.IssueID {
+	if issue == nil || strings.TrimSpace(issue.ID.String()) != opts.IssueID.String() {
 		resolvedIssue, err := st.ResolveIssue(opts.IssueID)
 		if err != nil {
 			return nil, fmt.Errorf("issue not found: %s", opts.IssueID)
@@ -3634,9 +3635,9 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	worktreeName := model.GenerateWorktreeName(opts.IssueID, runID, agentName)
 	var worktreePath string
 	if filepath.IsAbs(worktreeDir) {
-		worktreePath = filepath.Join(worktreeDir, opts.IssueID, worktreeName)
+		worktreePath = filepath.Join(worktreeDir, opts.IssueID.String(), worktreeName)
 	} else {
-		worktreePath = filepath.Join(executionProjectRoot, worktreeDir, opts.IssueID, worktreeName)
+		worktreePath = filepath.Join(executionProjectRoot, worktreeDir, opts.IssueID.String(), worktreeName)
 	}
 
 	if opts.DryRun {
@@ -3846,7 +3847,7 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
-	var issueID string
+	var issueID model.IssueID
 	var branch string
 	var worktreePath string
 	var continuedFrom string
@@ -4188,7 +4189,7 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 		return
 	}
 
-	var issueID string
+	var issueID model.IssueID
 	var branch string
 	var worktreePath string
 	var continuedFrom string
@@ -4199,12 +4200,12 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 			encoder.Encode(ContinueRunResponse{OK: false, Error: "issue_id required with branch"})
 			return
 		}
-		issueID = req.IssueID
+		issueID = model.NewIssueID(req.IssueID)
 		branch = req.Branch
 
 		_, err := st.ResolveIssue(issueID)
 		if err != nil {
-			encoder.Encode(ContinueRunResponse{OK: false, Error: "issue not found: " + issueID})
+			encoder.Encode(ContinueRunResponse{OK: false, Error: "issue not found: " + issueID.String()})
 			return
 		}
 
@@ -4287,13 +4288,13 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 	} else {
 		var fromRun *model.Run
 		if req.ShortID != "" {
-			fromRun, err = st.GetRunByShortID(req.ShortID)
+			fromRun, err = st.GetRunByShortID(model.NewShortID(req.ShortID))
 			if err != nil {
 				encoder.Encode(ContinueRunResponse{OK: false, Error: "run not found: " + req.ShortID})
 				return
 			}
 		} else if req.IssueID != "" && req.RunID != "" {
-			ref := &model.RunRef{IssueID: req.IssueID, RunID: req.RunID}
+			ref := &model.RunRef{IssueID: model.NewIssueID(req.IssueID), RunID: model.NewRunID(req.RunID)}
 			fromRun, err = st.GetRun(ref)
 			if err != nil {
 				encoder.Encode(ContinueRunResponse{OK: false, Error: "run not found: " + req.IssueID + "#" + req.RunID})
@@ -4347,7 +4348,7 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 
 	issue, err := st.ResolveIssue(issueID)
 	if err != nil {
-		encoder.Encode(ContinueRunResponse{OK: false, Error: "issue not found: " + issueID})
+		encoder.Encode(ContinueRunResponse{OK: false, Error: "issue not found: " + issueID.String()})
 		return
 	}
 
@@ -4520,13 +4521,13 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 
 	encoder.Encode(ContinueRunResponse{
 		OK:            true,
-		RunID:         runID,
+		RunID:         runID.String(),
 		Branch:        branch,
 		WorktreePath:  worktreePath,
 		SessionName:   sessionName,
 		Status:        string(model.StatusRunning),
 		ContinuedFrom: continuedFrom,
-		IssueID:       issueID,
+		IssueID:       issueID.String(),
 	})
 }
 
@@ -4634,7 +4635,7 @@ func (s *SocketServer) handleStopRun(req SendRequest, encoder *json.Encoder) {
 	var stoppedRuns []string
 
 	if req.RunID != "" {
-		ref := &model.RunRef{IssueID: req.IssueID, RunID: req.RunID}
+		ref := &model.RunRef{IssueID: model.NewIssueID(req.IssueID), RunID: model.NewRunID(req.RunID)}
 		run, err := st.GetRun(ref)
 		if err != nil {
 			s.logger.Printf("error getting run %s#%s: %v", req.IssueID, req.RunID, err)
@@ -4646,10 +4647,10 @@ func (s *SocketServer) handleStopRun(req SendRequest, encoder *json.Encoder) {
 			encoder.Encode(StopRunResponse{OK: false, Error: err.Error()})
 			return
 		}
-		stoppedRuns = append(stoppedRuns, run.RunID)
+		stoppedRuns = append(stoppedRuns, run.RunID.String())
 	} else {
 		runs, err := st.ListRuns(&store.ListRunsFilter{
-			IssueID: req.IssueID,
+			IssueID: model.NewIssueID(req.IssueID),
 			Status:  []model.Status{model.StatusRunning, model.StatusBooting, model.StatusWaiting, model.StatusRateLimited, model.StatusQueued},
 		})
 		if err != nil {
@@ -4661,7 +4662,7 @@ func (s *SocketServer) handleStopRun(req SendRequest, encoder *json.Encoder) {
 			if err := s.stopSingleRun(run, st); err != nil {
 				s.logger.Printf("error stopping run %s#%s: %v", run.IssueID, run.RunID, err)
 			} else {
-				stoppedRuns = append(stoppedRuns, run.RunID)
+				stoppedRuns = append(stoppedRuns, run.RunID.String())
 			}
 		}
 	}
@@ -4727,7 +4728,7 @@ func (s *SocketServer) handleResolveIssue(req SendRequest, encoder *json.Encoder
 		return
 	}
 
-	issue, err := st.ResolveIssue(req.IssueID)
+	issue, err := st.ResolveIssue(model.NewIssueID(req.IssueID))
 	if err != nil {
 		s.logger.Printf("error getting issue %s: %v", req.IssueID, err)
 		encoder.Encode(ResolveIssueResponse{OK: false, Error: "not_found"})
@@ -4741,7 +4742,7 @@ func (s *SocketServer) handleResolveIssue(req SendRequest, encoder *json.Encoder
 
 	forceResolve := req.Force
 	if !forceResolve {
-		runs, err := st.ListRuns(&store.ListRunsFilter{IssueID: req.IssueID})
+		runs, err := st.ListRuns(&store.ListRunsFilter{IssueID: model.NewIssueID(req.IssueID)})
 		if err != nil {
 			s.logger.Printf("error listing runs for %s: %v", req.IssueID, err)
 			encoder.Encode(ResolveIssueResponse{OK: false, Error: "store_error"})
@@ -4762,7 +4763,7 @@ func (s *SocketServer) handleResolveIssue(req SendRequest, encoder *json.Encoder
 		}
 	}
 
-	if err := st.SetIssueStatus(req.IssueID, model.IssueStatusResolved); err != nil {
+	if err := st.SetIssueStatus(model.NewIssueID(req.IssueID), model.IssueStatusResolved); err != nil {
 		s.logger.Printf("error resolving issue %s: %v", req.IssueID, err)
 		encoder.Encode(ResolveIssueResponse{OK: false, Error: "store_error"})
 		return
@@ -4790,7 +4791,7 @@ func (s *SocketServer) handleCreateIssue(req SendRequest, encoder *json.Encoder)
 			return
 		}
 		s.logger.Printf("created GitHub issue: %s (%s)", issue.ID, issue.Path)
-		encoder.Encode(CreateIssueResponse{OK: true, IssueID: issue.ID, Path: issue.Path})
+		encoder.Encode(CreateIssueResponse{OK: true, IssueID: issue.ID.String(), Path: issue.Path})
 		return
 	}
 
@@ -4829,7 +4830,7 @@ func (s *SocketServer) handleCreateIssue(req SendRequest, encoder *json.Encoder)
 	}
 
 	issueToWrite := &model.Issue{
-		ID:         req.IssueID,
+		ID:         model.NewIssueID(req.IssueID),
 		Title:      title,
 		Summary:    req.Summary,
 		Status:     model.IssueStatusOpen,
@@ -4858,7 +4859,7 @@ func (s *SocketServer) handleCreateIssue(req SendRequest, encoder *json.Encoder)
 func (s *SocketServer) processCreateIssueCore(st store.Store, params *CreateIssueParams) (*CreateIssueResult, error) {
 	title := params.Title
 	if title == "" {
-		title = params.IssueID
+		title = params.IssueID.String()
 	}
 	if title == "" {
 		return nil, fmt.Errorf("invalid_request: title required")
@@ -4868,7 +4869,7 @@ func (s *SocketServer) processCreateIssueCore(st store.Store, params *CreateIssu
 		return nil, fmt.Errorf("invalid_request: issue_id required")
 	}
 
-	if strings.Contains(params.IssueID, "/") || strings.Contains(params.IssueID, "..") || strings.Contains(params.IssueID, "\\") {
+	if strings.Contains(params.IssueID.String(), "/") || strings.Contains(params.IssueID.String(), "..") || strings.Contains(params.IssueID.String(), "\\") {
 		return nil, fmt.Errorf("invalid_request: issue_id contains invalid characters")
 	}
 
@@ -4882,7 +4883,7 @@ func (s *SocketServer) processCreateIssueCore(st store.Store, params *CreateIssu
 		return nil, fmt.Errorf("io_error")
 	}
 
-	issuePath := filepath.Join(issuesDir, params.IssueID+".md")
+	issuePath := filepath.Join(issuesDir, params.IssueID.String()+".md")
 	if _, err := os.Stat(issuePath); err == nil {
 		return nil, fmt.Errorf("already_exists")
 	}
@@ -4911,7 +4912,7 @@ func (s *SocketServer) processCreateIssueCore(st store.Store, params *CreateIssu
 
 	s.logger.Printf("created issue: %s at %s", params.IssueID, issuePath)
 	return &CreateIssueResult{
-		IssueID: params.IssueID,
+		IssueID: params.IssueID.String(),
 		Path:    issuePath,
 	}, nil
 }
@@ -4923,7 +4924,7 @@ func (s *SocketServer) handleCloseIssue(req SendRequest, encoder *json.Encoder) 
 	}
 
 	if s.githubBackend != nil {
-		number, err := model.ParseGitHubIssueNumber(req.IssueID)
+		number, err := model.ParseGitHubIssueNumber(model.NewIssueID(req.IssueID))
 		if err != nil {
 			encoder.Encode(CloseIssueResponse{OK: false, Error: "invalid_issue_id: " + err.Error()})
 			return
@@ -4944,7 +4945,7 @@ func (s *SocketServer) handleCloseIssue(req SendRequest, encoder *json.Encoder) 
 		return
 	}
 
-	if err := st.SetIssueStatus(req.IssueID, model.IssueStatusClosed); err != nil {
+	if err := st.SetIssueStatus(model.NewIssueID(req.IssueID), model.IssueStatusClosed); err != nil {
 		s.logger.Printf("error closing issue %s: %v", req.IssueID, err)
 		encoder.Encode(CloseIssueResponse{OK: false, Error: "not_found"})
 		return
@@ -4965,12 +4966,12 @@ func (s *SocketServer) handleGetAttachInfo(req SendRequest, encoder *json.Encode
 	var err error
 
 	if req.RunID != "" {
-		ref := &model.RunRef{IssueID: req.IssueID, RunID: req.RunID}
+		ref := &model.RunRef{IssueID: model.NewIssueID(req.IssueID), RunID: model.NewRunID(req.RunID)}
 		run, err = st.GetRun(ref)
 	} else if req.ShortID != "" {
-		run, err = st.GetRunByShortID(req.ShortID)
+		run, err = st.GetRunByShortID(model.NewShortID(req.ShortID))
 	} else if req.IssueID != "" {
-		run, err = st.GetLatestRun(req.IssueID)
+		run, err = st.GetLatestRun(model.NewIssueID(req.IssueID))
 	} else {
 		encoder.Encode(GetAttachInfoResponse{OK: false, Error: "invalid_request: issue_id, run_id, or short_id required"})
 		return
@@ -4994,8 +4995,8 @@ func (s *SocketServer) handleGetAttachInfo(req SendRequest, encoder *json.Encode
 
 	encoder.Encode(GetAttachInfoResponse{
 		OK:                true,
-		IssueID:           run.IssueID,
-		RunID:             run.RunID,
+		IssueID:           run.IssueID.String(),
+		RunID:             run.RunID.String(),
 		Agent:             run.Agent,
 		SessionName:       sessionName,
 		Multiplexer:       run.Multiplexer,
@@ -5033,7 +5034,7 @@ func (s *SocketServer) handleGetRunByShortID(req SendRequest, encoder *json.Enco
 		return
 	}
 
-	run, err := st.GetRunByShortID(shortID)
+	run, err := st.GetRunByShortID(model.NewShortID(shortID))
 	if err != nil {
 		s.logger.Printf("error getting run by short id %s: %v", shortID, err)
 		encoder.Encode(GetRunResponse{OK: false, Error: "not_found"})
@@ -5270,7 +5271,7 @@ func (s *SocketServer) handleAppendEvent(req SendRequest, encoder *json.Encoder)
 		return
 	}
 
-	ref := &model.RunRef{IssueID: req.IssueID, RunID: req.RunID}
+	ref := &model.RunRef{IssueID: model.NewIssueID(req.IssueID), RunID: model.NewRunID(req.RunID)}
 	run, err := st.GetRun(ref)
 	if err != nil {
 		encoder.Encode(AppendEventResponse{OK: false, Error: "run not found"})

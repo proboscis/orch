@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/s22625/orch/internal/model"
 )
 
 func TestParseRepoID(t *testing.T) {
@@ -75,7 +77,7 @@ func TestParseRepoID(t *testing.T) {
 				t.Errorf("ParseRepoID() error = %v", err)
 				return
 			}
-			if got != tt.want {
+			if got.String() != tt.want {
 				t.Errorf("ParseRepoID() = %q, want %q", got, tt.want)
 			}
 		})
@@ -165,7 +167,11 @@ func TestRepoDataDir(t *testing.T) {
 	defer os.Setenv("XDG_DATA_HOME", original)
 
 	os.Setenv("XDG_DATA_HOME", "/home/test/.local/share")
-	got := RepoDataDir("proboscis-orch")
+	repoID, err := model.NewNormalizedRepoID("proboscis-orch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := RepoDataDir(repoID)
 	want := "/home/test/.local/share/orch/proboscis-orch"
 	if got != want {
 		t.Errorf("RepoDataDir() = %q, want %q", got, want)
@@ -177,7 +183,11 @@ func TestRepoRunsDir(t *testing.T) {
 	defer os.Setenv("XDG_DATA_HOME", original)
 
 	os.Setenv("XDG_DATA_HOME", "/home/test/.local/share")
-	got := RepoRunsDir("proboscis-orch")
+	repoID, err := model.NewNormalizedRepoID("proboscis-orch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := RepoRunsDir(repoID)
 	want := "/home/test/.local/share/orch/proboscis-orch/runs"
 	if got != want {
 		t.Errorf("RepoRunsDir() = %q, want %q", got, want)
@@ -201,25 +211,29 @@ func TestLegacyPaths(t *testing.T) {
 	}
 }
 
-func TestSanitizeRepoID(t *testing.T) {
+func TestNewRepoIDSanitizesUnsafeCharacters(t *testing.T) {
 	tests := []struct {
-		owner string
-		repo  string
-		want  string
+		remoteURL string
+		want      string
 	}{
-		{"owner", "repo", "owner-repo"},
-		{"my-org", "my-repo", "my-org-my-repo"},
-		{"owner_name", "repo_name", "owner_name-repo_name"},
-		{"owner/bad", "repo", "ownerbad-repo"}, // slashes removed
-		{"owner", "repo.git", "repogit-"},      // wait this is wrong
+		{"https://github.com/owner/repo.git", "owner-repo"},
+		{"https://github.com/my-org/my-repo.git", "my-org-my-repo"},
+		{"https://github.com/owner_name/repo_name.git", "owner_name-repo_name"},
+		{"https://github.com/owner.bad/repo.git", "ownerbad-repo"},
+		{"https://github.com/owner/repo bad.git", "owner-repobad"},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.owner+"/"+tt.repo, func(t *testing.T) {
-			got := sanitizeRepoID(tt.owner, tt.repo)
-			// Just check it doesn't have unsafe chars
-			if strings.ContainsAny(got, "/\\:*?\"<>|") {
-				t.Errorf("sanitizeRepoID(%q, %q) = %q contains unsafe characters", tt.owner, tt.repo, got)
+		t.Run(tt.remoteURL, func(t *testing.T) {
+			got, err := model.NewRepoID(tt.remoteURL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.String() != tt.want {
+				t.Fatalf("NewRepoID(%q) = %q, want %q", tt.remoteURL, got, tt.want)
+			}
+			if strings.ContainsAny(got.String(), "/\\:*?\"<>|") {
+				t.Errorf("NewRepoID(%q) = %q contains unsafe characters", tt.remoteURL, got)
 			}
 		})
 	}
@@ -248,8 +262,44 @@ func TestRepoIDUsesRemoteOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RepoID() unexpected error: %v", err)
 	}
-	if id != "example-repo-id" {
+	if id.String() != "example-repo-id" {
 		t.Fatalf("RepoID() = %q, want %q", id, "example-repo-id")
+	}
+}
+
+func TestRepoDataDirPreservesLegacyDottedRepoID(t *testing.T) {
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+
+	repo := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command(args[0], args[1:]...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%s failed: %v (%s)", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		}
+	}
+
+	run("git", "init", repo)
+	run("git", "-C", repo, "remote", "add", "origin", "git@github.com:my.org/my.repo.git")
+
+	id, err := RepoID(repo)
+	if err != nil {
+		t.Fatalf("RepoID() unexpected error: %v", err)
+	}
+	if id.String() != "myorg-myrepo" {
+		t.Fatalf("RepoID() = %q, want %q", id, "myorg-myrepo")
+	}
+
+	existingDir := filepath.Join(dataHome, "orch", "myorg-myrepo")
+	if err := os.MkdirAll(existingDir, 0755); err != nil {
+		t.Fatalf("create existing data dir: %v", err)
+	}
+	if got := RepoDataDir(id); got != existingDir {
+		t.Fatalf("RepoDataDir() = %q, want existing legacy dir %q", got, existingDir)
+	}
+	if _, err := os.Stat(RepoDataDir(id)); err != nil {
+		t.Fatalf("expected existing legacy data dir to resolve: %v", err)
 	}
 }
 
