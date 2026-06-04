@@ -134,18 +134,18 @@ type mockStoreForUpdate struct {
 	appendEventCalls int
 }
 
-func (m *mockStoreForUpdate) ResolveIssue(issueID string) (*model.Issue, error) {
+func (m *mockStoreForUpdate) ResolveIssue(issueID model.IssueID) (*model.Issue, error) {
 	if m.resolveIssueErr != nil {
 		return nil, m.resolveIssueErr
 	}
 	return m.issue, nil
 }
 
-func (m *mockStoreForUpdate) SetIssueStatus(issueID string, status model.IssueStatus) error {
+func (m *mockStoreForUpdate) SetIssueStatus(issueID model.IssueID, status model.IssueStatus) error {
 	m.setIssueStatusCalls = append(m.setIssueStatusCalls, struct {
 		issueID string
 		status  model.IssueStatus
-	}{issueID, status})
+	}{string(issueID), status})
 	return m.setIssueStatusErr
 }
 
@@ -155,17 +155,17 @@ func (m *mockStoreForUpdate) AppendEvent(ref *model.RunRef, event *model.Event) 
 }
 
 func (m *mockStoreForUpdate) ListIssues() ([]*model.Issue, error) { return nil, nil }
-func (m *mockStoreForUpdate) CreateRun(string, string, map[string]string) (*model.Run, error) {
+func (m *mockStoreForUpdate) CreateRun(model.IssueID, model.RunID, map[string]string) (*model.Run, error) {
 	return nil, nil
 }
 func (m *mockStoreForUpdate) ListRuns(*store.ListRunsFilter) ([]*model.Run, error) { return nil, nil }
 func (m *mockStoreForUpdate) GetRun(*model.RunRef) (*model.Run, error)             { return nil, nil }
-func (m *mockStoreForUpdate) GetRunByShortID(string) (*model.Run, error)           { return nil, nil }
-func (m *mockStoreForUpdate) GetLatestRun(string) (*model.Run, error)              { return nil, nil }
+func (m *mockStoreForUpdate) GetRunByShortID(model.ShortID) (*model.Run, error)    { return nil, nil }
+func (m *mockStoreForUpdate) GetLatestRun(model.IssueID) (*model.Run, error)       { return nil, nil }
 func (m *mockStoreForUpdate) RootPath() string                                     { return "" }
 func (m *mockStoreForUpdate) DeleteRun(ref *model.RunRef) error                    { return nil }
 func (m *mockStoreForUpdate) UpdateIssue(issue *model.Issue) error                 { return nil }
-func (m *mockStoreForUpdate) ValidateIssueFiles(issueID string) (*store.ValidationResult, error) {
+func (m *mockStoreForUpdate) ValidateIssueFiles(issueID model.IssueID) (*store.ValidationResult, error) {
 	return nil, nil
 }
 func (m *mockStoreForUpdate) WriteAgentPrompt(ref *model.RunRef, content string) error { return nil }
@@ -297,7 +297,7 @@ func TestMonitorRunSkipsCanceledStatus(t *testing.T) {
 		t.Errorf("expected no AppendEvent calls for canceled run, got %d", st.appendEventCalls)
 	}
 
-	state := d.runStates[run.IssueID+"#"+run.RunID]
+	state := d.runStates[run.Ref().String()]
 	if state != nil {
 		t.Error("expected no state to be created for canceled run")
 	}

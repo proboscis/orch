@@ -500,7 +500,7 @@ func TestGetRunByShortIDAmbiguous(t *testing.T) {
 	run3, _ := s.CreateRun("test456", "20231220-120000", nil)
 
 	// Find the shortest common prefix among all runs
-	ids := []string{run1.ShortID(), run2.ShortID(), run3.ShortID()}
+	ids := []string{string(run1.ShortID()), string(run2.ShortID()), string(run3.ShortID())}
 
 	// Find runs that share a common prefix (testing ambiguity)
 	// Try to find any 2-char prefix that matches multiple runs
@@ -520,7 +520,7 @@ func TestGetRunByShortIDAmbiguous(t *testing.T) {
 
 	if ambiguousPrefix != "" {
 		// Test that ambiguous prefix returns error
-		_, err := s.GetRunByShortID(ambiguousPrefix)
+		_, err := s.GetRunByShortID(model.ShortID(ambiguousPrefix))
 		if err == nil {
 			t.Error("expected error for ambiguous short ID prefix")
 		}
@@ -549,7 +549,7 @@ func TestGetRunByShortIDAmbiguousForced(t *testing.T) {
 	var runs []*model.Run
 	for i := 0; i < 20; i++ {
 		runID := fmt.Sprintf("20231220-%02d0000", i)
-		run, err := s.CreateRun("test", runID, nil)
+		run, err := s.CreateRun("test", model.RunID(runID), nil)
 		if err != nil {
 			t.Fatalf("failed to create run %d: %v", i, err)
 		}
@@ -559,7 +559,7 @@ func TestGetRunByShortIDAmbiguousForced(t *testing.T) {
 	// Find any prefix that has collisions
 	prefixCounts := make(map[string][]*model.Run)
 	for _, run := range runs {
-		prefix := run.ShortID()[:2]
+		prefix := string(run.ShortID())[:2]
 		prefixCounts[prefix] = append(prefixCounts[prefix], run)
 	}
 
@@ -576,7 +576,7 @@ func TestGetRunByShortIDAmbiguousForced(t *testing.T) {
 	}
 
 	// Test that ambiguous prefix returns error
-	_, err := s.GetRunByShortID(ambiguousPrefix)
+	_, err := s.GetRunByShortID(model.ShortID(ambiguousPrefix))
 	if err == nil {
 		t.Error("expected error for ambiguous short ID prefix")
 	}
@@ -665,15 +665,15 @@ func TestGitHubIssueIDAliasing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	run, err := s.GetLatestRun(canonicalIssueID)
+	run, err := s.GetLatestRun(model.IssueID(canonicalIssueID))
 	if err != nil {
 		t.Fatalf("GetLatestRun(%q) should find run in legacy dir %q: %v", canonicalIssueID, legacyIssueID, err)
 	}
-	if run.RunID != runID {
+	if run.RunID != model.RunID(runID) {
 		t.Errorf("expected run ID %s, got %s", runID, run.RunID)
 	}
 
-	runs, err := s.ListRuns(&store.ListRunsFilter{IssueID: canonicalIssueID})
+	runs, err := s.ListRuns(&store.ListRunsFilter{IssueID: model.IssueID(canonicalIssueID)})
 	if err != nil {
 		t.Fatalf("ListRuns(%q) error: %v", canonicalIssueID, err)
 	}
@@ -681,12 +681,12 @@ func TestGitHubIssueIDAliasing(t *testing.T) {
 		t.Errorf("expected 1 run, got %d", len(runs))
 	}
 
-	ref := &model.RunRef{IssueID: canonicalIssueID, RunID: runID}
+	ref := &model.RunRef{IssueID: model.IssueID(canonicalIssueID), RunID: model.RunID(runID)}
 	run, err = s.GetRun(ref)
 	if err != nil {
 		t.Fatalf("GetRun(%q#%s) error: %v", canonicalIssueID, runID, err)
 	}
-	if run.RunID != runID {
+	if run.RunID != model.RunID(runID) {
 		t.Errorf("expected run ID %s, got %s", runID, run.RunID)
 	}
 }
@@ -773,7 +773,7 @@ status: open
 	}
 
 	// Check tags were parsed correctly
-	issueMap := make(map[string]*model.Issue)
+	issueMap := make(map[model.IssueID]*model.Issue)
 	for _, issue := range issues {
 		issueMap[issue.ID] = issue
 	}
@@ -1440,7 +1440,7 @@ Note: This is just a note, not frontmatter.
 				warnings = append(warnings, fmt.Sprintf(format, args...))
 			})
 
-			issue, err := s.ResolveIssue(issueID)
+			issue, err := s.ResolveIssue(model.IssueID(issueID))
 			if err != nil {
 				t.Fatalf("ResolveIssue() error = %v", err)
 			}

@@ -615,7 +615,7 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 		}
 		return &WorkerEffectResult{ContinueRunResult: result}, nil
 	case "stop_run":
-		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: lease.IssueID, RunID: lease.RunID})
+		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: model.IssueID(lease.IssueID), RunID: model.RunID(lease.RunID)})
 		if err != nil {
 			return nil, fmt.Errorf("not_found")
 		}
@@ -627,7 +627,7 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 		if lease.Payload == nil || lease.Payload.CaptureSession == nil {
 			return nil, fmt.Errorf("capture_session payload missing")
 		}
-		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: lease.IssueID, RunID: lease.RunID})
+		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: model.IssueID(lease.IssueID), RunID: model.RunID(lease.RunID)})
 		if err != nil {
 			return nil, fmt.Errorf("not_found")
 		}
@@ -669,7 +669,7 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 		}
 		return nil, nil
 	case "get_diff_stats":
-		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: lease.IssueID, RunID: lease.RunID})
+		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: model.IssueID(lease.IssueID), RunID: model.RunID(lease.RunID)})
 		if err != nil {
 			return nil, fmt.Errorf("not_found")
 		}
@@ -683,7 +683,7 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 			},
 		}, nil
 	case "get_branch_state":
-		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: lease.IssueID, RunID: lease.RunID})
+		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: model.IssueID(lease.IssueID), RunID: model.RunID(lease.RunID)})
 		if err != nil {
 			return nil, fmt.Errorf("not_found")
 		}
@@ -692,7 +692,7 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 			BranchStateResult: &GetBranchStateResult{State: int32(state)},
 		}, nil
 	case "get_diff":
-		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: lease.IssueID, RunID: lease.RunID})
+		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: model.IssueID(lease.IssueID), RunID: model.RunID(lease.RunID)})
 		if err != nil {
 			return nil, fmt.Errorf("not_found")
 		}

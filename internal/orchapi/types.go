@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/s22625/orch/internal/model"
 )
 
 type IssueStatus string
@@ -63,9 +65,9 @@ const (
 //   - Full: IssueID + RunID (e.g., "my-task#20231220-100000")
 //   - Latest: IssueID only (resolves to latest run)
 type RunRef struct {
-	IssueID string
-	RunID   string
-	ShortID string
+	IssueID model.IssueID
+	RunID   model.RunID
+	ShortID model.ShortID
 }
 
 var shortIDRegex = regexp.MustCompile(`^[0-9a-f]{2,6}$`)
@@ -77,22 +79,22 @@ func ParseRunRef(s string) (RunRef, error) {
 	}
 
 	if shortIDRegex.MatchString(s) {
-		return RunRef{ShortID: s}, nil
+		return RunRef{ShortID: model.ShortID(s)}, nil
 	}
 
 	lastHash := strings.LastIndex(s, "#")
 	if lastHash == -1 {
-		return RunRef{IssueID: s}, nil
+		return RunRef{IssueID: model.IssueID(s)}, nil
 	}
 
 	candidate := s[lastHash+1:]
 	if looksLikeRunID(candidate) {
 		return RunRef{
-			IssueID: s[:lastHash],
-			RunID:   candidate,
+			IssueID: model.IssueID(s[:lastHash]),
+			RunID:   model.RunID(candidate),
 		}, nil
 	}
-	return RunRef{IssueID: s}, nil
+	return RunRef{IssueID: model.IssueID(s)}, nil
 }
 
 func looksLikeRunID(s string) bool {
@@ -121,10 +123,10 @@ func (r RunRef) IsFull() bool {
 
 func (r RunRef) String() string {
 	if r.ShortID != "" {
-		return r.ShortID
+		return string(r.ShortID)
 	}
 	if r.RunID == "" {
-		return r.IssueID
+		return string(r.IssueID)
 	}
 	return fmt.Sprintf("%s#%s", r.IssueID, r.RunID)
 }
@@ -132,28 +134,28 @@ func (r RunRef) String() string {
 // ComputeShortID returns the 6-char hex short ID derived from issueID#runID
 // via SHA-256. Mirrors model.GenerateShortID so callers (CLI hints,
 // notifications) present the same short reference users see in `orch ps`.
-func ComputeShortID(issueID, runID string) string {
-	h := sha256.Sum256([]byte(issueID + "#" + runID))
-	return hex.EncodeToString(h[:])[:6]
+func ComputeShortID(issueID model.IssueID, runID model.RunID) model.ShortID {
+	h := sha256.Sum256([]byte(string(issueID) + "#" + string(runID)))
+	return model.ShortID(hex.EncodeToString(h[:])[:6])
 }
 
 // RunEvent is a single state transition observed for a run.
 type RunEvent struct {
 	Timestamp time.Time
-	IssueID   string
-	RunID     string
-	ShortID   string
+	IssueID   model.IssueID
+	RunID     model.RunID
+	ShortID   model.ShortID
 	From      RunStatus
 	To        RunStatus
 	Source    string // "user" | "daemon" | "agent"
-	ProjectID string
+	ProjectID model.ProjectID
 }
 
 // RunEventFilter narrows a subscription to events matching the given fields.
 // Empty fields match anything.
 type RunEventFilter struct {
-	IssueID string
-	RunID   string
+	IssueID model.IssueID
+	RunID   model.RunID
 }
 
 // RunEventStream is a long-lived subscription to run state transitions.
@@ -166,7 +168,7 @@ type RunEventStream interface {
 }
 
 type Issue struct {
-	ID          string
+	ID          model.IssueID
 	Title       string
 	Topic       string
 	Summary     string
@@ -180,9 +182,9 @@ type Issue struct {
 }
 
 type Run struct {
-	IssueID           string
-	RunID             string
-	ShortID           string
+	IssueID           model.IssueID
+	RunID             model.RunID
+	ShortID           model.ShortID
 	IssueStatus       string
 	IssueTopic        string
 	Status            RunStatus
@@ -222,9 +224,9 @@ func (r *Run) Ref() RunRef {
 }
 
 type WaitForRunsResult struct {
-	RunID   string
+	RunID   model.RunID
 	Status  RunStatus
-	IssueID string
+	IssueID model.IssueID
 	PRURL   string
 }
 
@@ -243,9 +245,9 @@ type DiffStats struct {
 }
 
 type AttachInfo struct {
-	IssueID           string
-	RunID             string
-	ShortID           string
+	IssueID           model.IssueID
+	RunID             model.RunID
+	ShortID           model.ShortID
 	Agent             string
 	SessionName       string
 	Multiplexer       Multiplexer
@@ -288,7 +290,7 @@ type ListIssuesResult struct {
 }
 
 type CreateIssueRequest struct {
-	ID         string
+	ID         model.IssueID
 	Title      string
 	Body       string
 	Tags       []string
@@ -296,7 +298,7 @@ type CreateIssueRequest struct {
 }
 
 type ListRunsFilter struct {
-	IssueID    string
+	IssueID    model.IssueID
 	Status     []RunStatus
 	Agent      string
 	TextSearch string
@@ -313,8 +315,8 @@ type ListRunsResult struct {
 }
 
 type StartRunRequest struct {
-	IssueID        string
-	RunID          string
+	IssueID        model.IssueID
+	RunID          model.RunID
 	Agent          string
 	AgentCmd       string
 	AgentProfile   string
@@ -334,7 +336,7 @@ type StartRunRequest struct {
 }
 
 type StartRunResult struct {
-	RunID        string
+	RunID        model.RunID
 	Branch       string
 	WorktreePath string
 	SessionName  string
@@ -342,14 +344,14 @@ type StartRunResult struct {
 }
 
 type CreateRunRequest struct {
-	IssueID  string
-	RunID    string
+	IssueID  model.IssueID
+	RunID    model.RunID
 	Metadata map[string]string
 }
 
 type CreateRunResult struct {
-	IssueID string
-	RunID   string
+	IssueID model.IssueID
+	RunID   model.RunID
 	Path    string
 }
 
@@ -365,18 +367,18 @@ type DeleteRunOptions struct {
 }
 
 type DeleteRunResult struct {
-	IssueID         string
-	RunID           string
-	ShortID         string
+	IssueID         model.IssueID
+	RunID           model.RunID
+	ShortID         model.ShortID
 	WorktreeRemoved bool
 	BranchRemoved   bool
 	SessionKilled   bool
 }
 
 type CleanRunWorktreeResult struct {
-	IssueID         string
-	RunID           string
-	ShortID         string
+	IssueID         model.IssueID
+	RunID           model.RunID
+	ShortID         model.ShortID
 	WorktreePath    string
 	WorktreeRemoved bool
 	Skipped         bool
@@ -400,7 +402,7 @@ type ValidateIssueFilesResult struct {
 
 type ValidationResult struct {
 	File     string
-	IssueID  string
+	IssueID  model.IssueID
 	Errors   []ValidationIssue
 	Warnings []ValidationIssue
 }
@@ -413,7 +415,7 @@ type ValidationIssue struct {
 }
 
 type DuplicateID struct {
-	ID    string
+	ID    model.IssueID
 	Files []string
 }
 
@@ -584,9 +586,9 @@ type ControlAgentConfig struct {
 }
 
 type ContinueRunRequest struct {
-	IssueID        string
-	RunID          string
-	ShortID        string
+	IssueID        model.IssueID
+	RunID          model.RunID
+	ShortID        model.ShortID
 	Branch         string
 	Agent          string
 	AgentCmd       string
@@ -600,11 +602,11 @@ type ContinueRunRequest struct {
 }
 
 type ContinueRunResult struct {
-	RunID         string
+	RunID         model.RunID
 	Branch        string
 	WorktreePath  string
 	SessionName   string
 	Status        string
 	ContinuedFrom string
-	IssueID       string
+	IssueID       model.IssueID
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/s22625/orch/api/orchpb"
 	"github.com/s22625/orch/internal/daemon"
+	"github.com/s22625/orch/internal/model"
 )
 
 // daemonRunEventStream adapts a daemon.RunEventStream (proto-typed) into the
@@ -17,7 +18,7 @@ type daemonRunEventStream struct {
 }
 
 func (s *daemonRunEventStream) Events() <-chan *RunEvent { return s.events }
-func (s *daemonRunEventStream) Err() error                { return s.raw.Err() }
+func (s *daemonRunEventStream) Err() error               { return s.raw.Err() }
 func (s *daemonRunEventStream) Close() error {
 	err := s.raw.Close()
 	<-s.done
@@ -35,8 +36,8 @@ func (s *daemonRunEventStream) translateLoop() {
 func (c *DaemonClient) StreamRunEvents(ctx context.Context, filter *RunEventFilter) (RunEventStream, error) {
 	pbReq := &orchpb.StreamRunEventsRequest{}
 	if filter != nil {
-		pbReq.IssueId = filter.IssueID
-		pbReq.RunId = filter.RunID
+		pbReq.IssueId = string(filter.IssueID)
+		pbReq.RunId = string(filter.RunID)
 	}
 
 	raw, err := c.proto.StreamRunEvents(ctx, pbReq)
@@ -59,13 +60,13 @@ func protoEventToOrchAPI(ev *orchpb.RunEventFrame) *RunEvent {
 	}
 	return &RunEvent{
 		Timestamp: time.UnixMilli(ev.TimestampUnixMs),
-		IssueID:   ev.IssueId,
-		RunID:     ev.RunId,
-		ShortID:   ev.ShortId,
+		IssueID:   model.IssueID(ev.IssueId),
+		RunID:     model.RunID(ev.RunId),
+		ShortID:   model.ShortID(ev.ShortId),
 		From:      protoRunStatusToDomain(ev.FromStatus),
 		To:        protoRunStatusToDomain(ev.ToStatus),
 		Source:    ev.Source,
-		ProjectID: ev.ProjectId,
+		ProjectID: model.ProjectID(ev.ProjectId),
 	}
 }
 

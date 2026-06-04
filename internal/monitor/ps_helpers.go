@@ -152,7 +152,7 @@ func resolveTargetHostByRun(runs []*model.Run) map[string]string {
 		if targetHost == "" {
 			targetHost = targetName
 		}
-		resolved[run.RunID] = targetHost
+		resolved[string(run.RunID)] = targetHost
 	}
 
 	return resolved

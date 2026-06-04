@@ -21,7 +21,7 @@ type mockPsAPI struct {
 	issuesRoot string
 }
 
-func (m *mockPsAPI) GetIssue(ctx context.Context, issueID string) (*orchapi.Issue, error) {
+func (m *mockPsAPI) GetIssue(ctx context.Context, issueID model.IssueID) (*orchapi.Issue, error) {
 	st, err := filestore.New(m.issuesRoot)
 	if err != nil {
 		return nil, err
@@ -71,8 +71,8 @@ func (m *recordingPsAPI) ListRuns(ctx context.Context, filter *orchapi.ListRunsF
 
 func psTestRun(issueID string, runID string, status orchapi.RunStatus, when time.Time) *orchapi.Run {
 	return &orchapi.Run{
-		IssueID:     issueID,
-		RunID:       runID,
+		IssueID:     model.IssueID(issueID),
+		RunID:       model.RunID(runID),
 		Status:      status,
 		IssueStatus: "open",
 		StartedAt:   when,
@@ -384,7 +384,7 @@ func TestOutputJSON(t *testing.T) {
 		t.Fatalf("unexpected response: %+v", got)
 	}
 	item := got.Items[0]
-	if item.ShortID != run.ShortID() {
+	if item.ShortID != string(run.ShortID()) {
 		t.Fatalf("short_id = %q, want %q", item.ShortID, run.ShortID())
 	}
 	if item.IssueStatus != "" {

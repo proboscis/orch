@@ -19,6 +19,8 @@ package orchapi
 
 import (
 	"context"
+
+	"github.com/s22625/orch/internal/model"
 )
 
 // OrchAPI is the unified interface for all orch CLI operations.
@@ -39,7 +41,7 @@ type OrchAPI interface {
 
 	// GetIssue retrieves an issue by ID.
 	// Returns ErrNotFound if the issue does not exist.
-	GetIssue(ctx context.Context, issueID string) (*Issue, error)
+	GetIssue(ctx context.Context, issueID model.IssueID) (*Issue, error)
 
 	// ListIssues returns issues matching the filter.
 	// If filter is nil, returns all issues.
@@ -51,10 +53,10 @@ type OrchAPI interface {
 
 	// SetIssueStatus updates an issue's status.
 	// Returns ErrNotFound if the issue does not exist.
-	SetIssueStatus(ctx context.Context, issueID string, status IssueStatus) error
+	SetIssueStatus(ctx context.Context, issueID model.IssueID, status IssueStatus) error
 
 	// CloseIssue closes an issue (convenience wrapper for SetIssueStatus).
-	CloseIssue(ctx context.Context, issueID string) error
+	CloseIssue(ctx context.Context, issueID model.IssueID) error
 
 	// =========================================================================
 	// Runs - Resolution
@@ -73,11 +75,11 @@ type OrchAPI interface {
 
 	// GetRun retrieves a run by full issue_id and run_id.
 	// Prefer ResolveRun for user-facing lookups.
-	GetRun(ctx context.Context, issueID, runID string) (*Run, error)
+	GetRun(ctx context.Context, issueID model.IssueID, runID model.RunID) (*Run, error)
 
 	// GetLatestRun retrieves the most recent run for an issue.
 	// Returns ErrNotFound if the issue has no runs.
-	GetLatestRun(ctx context.Context, issueID string) (*Run, error)
+	GetLatestRun(ctx context.Context, issueID model.IssueID) (*Run, error)
 
 	// ListRuns returns runs matching the filter.
 	// If filter is nil, returns all runs.
@@ -151,7 +153,7 @@ type OrchAPI interface {
 
 	// ResolveIssue marks an issue as resolved and merges the latest run's branch.
 	// If force is true, skips confirmation checks.
-	ResolveIssue(ctx context.Context, issueID string, force bool) error
+	ResolveIssue(ctx context.Context, issueID model.IssueID, force bool) error
 
 	// =========================================================================
 	// Run Deletion
@@ -168,10 +170,10 @@ type OrchAPI interface {
 	// =========================================================================
 
 	// UpdateIssue updates an existing issue's content.
-	UpdateIssue(ctx context.Context, issueID string, req *UpdateIssueRequest) (*Issue, error)
+	UpdateIssue(ctx context.Context, issueID model.IssueID, req *UpdateIssueRequest) (*Issue, error)
 
 	// ValidateIssueFiles validates issue files for proper formatting.
-	ValidateIssueFiles(ctx context.Context, issueID string) (*ValidateIssueFilesResult, error)
+	ValidateIssueFiles(ctx context.Context, issueID model.IssueID) (*ValidateIssueFilesResult, error)
 
 	// =========================================================================
 	// Agent Prompt Operations

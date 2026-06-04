@@ -19,7 +19,7 @@ import (
 type FileStore struct {
 	rootPath    string
 	issueMu     sync.RWMutex
-	issueCache  map[string]*model.Issue // id -> issue
+	issueCache  map[model.IssueID]*model.Issue // id -> issue
 	cacheDirty  bool
 	warnFunc    func(format string, args ...any) // optional warning function
 	warnedFiles sync.Map                         // dedup warnings per file
@@ -47,7 +47,7 @@ func New(rootPath string) (*FileStore, error) {
 
 	return &FileStore{
 		rootPath:   absPath,
-		issueCache: make(map[string]*model.Issue),
+		issueCache: make(map[model.IssueID]*model.Issue),
 		cacheDirty: true,
 		// warnFunc defaults to nil (no warnings); set via SetWarnFunc
 	}, nil
@@ -261,7 +261,7 @@ func walkWithSymlinks(root string, walkFn filepath.WalkFunc) error {
 
 func (s *FileStore) scanIssues() error {
 	issuesDir := s.issuesDir()
-	issues := make(map[string]*model.Issue)
+	issues := make(map[model.IssueID]*model.Issue)
 
 	s.issueMu.Lock()
 	defer s.issueMu.Unlock()
@@ -430,6 +430,7 @@ func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
 	if issueID == "" {
 		issueID = strings.TrimSuffix(filepath.Base(path), ".md")
 	}
+	typedIssueID := model.IssueID(issueID)
 
 	// Get title
 	title := stringFM["title"]
@@ -468,7 +469,7 @@ func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
 	status := model.ParseIssueStatus(stringFM["status"])
 
 	return &model.Issue{
-		ID:          issueID,
+		ID:          typedIssueID,
 		Title:       title,
 		Topic:       topic,
 		Summary:     summary,
@@ -527,7 +528,7 @@ func (s *FileStore) markCacheDirty() {
 	s.issueMu.Unlock()
 }
 
-func (s *FileStore) issueFromCache(issueID string) (*model.Issue, bool) {
+func (s *FileStore) issueFromCache(issueID model.IssueID) (*model.Issue, bool) {
 	s.issueMu.RLock()
 	issue, ok := s.issueCache[issueID]
 	if !ok {
@@ -569,26 +570,27 @@ func cloneIssue(issue *model.Issue) *model.Issue {
 }
 
 // runPath returns the path to a run document
-func (s *FileStore) runPath(issueID, runID string) string {
-	return filepath.Join(s.resolveRunsDir(issueID), runID+".md")
+func (s *FileStore) runPath(issueID model.IssueID, runID model.RunID) string {
+	return filepath.Join(s.resolveRunsDir(issueID), string(runID)+".md")
 }
 
 // runsDir returns the path to the runs directory for an issue
-func (s *FileStore) runsDir(issueID string) string {
+func (s *FileStore) runsDir(issueID model.IssueID) string {
 	return s.resolveRunsDir(issueID)
 }
 
 // resolveRunsDir resolves the runs directory, checking both gh- and gh# formats for backward compat.
-func (s *FileStore) resolveRunsDir(issueID string) string {
+func (s *FileStore) resolveRunsDir(issueID model.IssueID) string {
+	issueIDStr := string(issueID)
 	runsRoot := filepath.Join(s.rootPath, "runs")
 
-	if strings.HasPrefix(issueID, "gh-") {
-		canonicalDir := filepath.Join(runsRoot, issueID)
+	if strings.HasPrefix(issueIDStr, "gh-") {
+		canonicalDir := filepath.Join(runsRoot, issueIDStr)
 		if _, err := os.Stat(canonicalDir); err == nil {
 			return canonicalDir
 		}
 
-		legacyID := "gh#" + strings.TrimPrefix(issueID, "gh-")
+		legacyID := "gh#" + strings.TrimPrefix(issueIDStr, "gh-")
 		legacyDir := filepath.Join(runsRoot, legacyID)
 		if _, err := os.Stat(legacyDir); err == nil {
 			return legacyDir
@@ -597,13 +599,13 @@ func (s *FileStore) resolveRunsDir(issueID string) string {
 		return canonicalDir
 	}
 
-	if strings.HasPrefix(issueID, "gh#") {
-		legacyDir := filepath.Join(runsRoot, issueID)
+	if strings.HasPrefix(issueIDStr, "gh#") {
+		legacyDir := filepath.Join(runsRoot, issueIDStr)
 		if _, err := os.Stat(legacyDir); err == nil {
 			return legacyDir
 		}
 
-		canonicalID := "gh-" + strings.TrimPrefix(issueID, "gh#")
+		canonicalID := "gh-" + strings.TrimPrefix(issueIDStr, "gh#")
 		canonicalDir := filepath.Join(runsRoot, canonicalID)
 		if _, err := os.Stat(canonicalDir); err == nil {
 			return canonicalDir
@@ -612,11 +614,11 @@ func (s *FileStore) resolveRunsDir(issueID string) string {
 		return legacyDir
 	}
 
-	return filepath.Join(runsRoot, issueID)
+	return filepath.Join(runsRoot, issueIDStr)
 }
 
 // ResolveIssue retrieves an issue by ID
-func (s *FileStore) ResolveIssue(issueID string) (*model.Issue, error) {
+func (s *FileStore) ResolveIssue(issueID model.IssueID) (*model.Issue, error) {
 	// Scan if cache is dirty
 	if s.isCacheDirty() {
 		if err := s.scanIssues(); err != nil {
@@ -655,9 +657,9 @@ func (s *FileStore) ListIssues() ([]*model.Issue, error) {
 }
 
 // CreateRun creates a new run for an issue
-func (s *FileStore) CreateRun(issueID, runID string, metadata map[string]string) (*model.Run, error) {
+func (s *FileStore) CreateRun(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
 	// Skip verification for GitHub issues - they're not local files
-	if !strings.HasPrefix(issueID, "gh-") && !strings.HasPrefix(issueID, "gh#") {
+	if !strings.HasPrefix(string(issueID), "gh-") && !strings.HasPrefix(string(issueID), "gh#") {
 		_, err := s.ResolveIssue(issueID)
 		if err != nil {
 			return nil, err
@@ -755,7 +757,7 @@ func (s *FileStore) GetRun(ref *model.RunRef) (*model.Run, error) {
 }
 
 // GetLatestRun retrieves the latest run for an issue
-func (s *FileStore) GetLatestRun(issueID string) (*model.Run, error) {
+func (s *FileStore) GetLatestRun(issueID model.IssueID) (*model.Run, error) {
 	runsDir := s.runsDir(issueID)
 	entries, err := os.ReadDir(runsDir)
 	if err != nil {
@@ -784,12 +786,13 @@ func (s *FileStore) GetLatestRun(issueID string) (*model.Run, error) {
 		return nil, fmt.Errorf("no runs found for issue: %s", issueID)
 	}
 
-	return s.loadRun(issueID, latestName, s.runPath(issueID, latestName))
+	runID := model.RunID(latestName)
+	return s.loadRun(issueID, runID, s.runPath(issueID, runID))
 }
 
 // GetRunByShortID finds a run by its short ID prefix (2-6 hex chars)
 // Returns an error if no match found or if multiple runs match (ambiguous)
-func (s *FileStore) GetRunByShortID(shortID string) (*model.Run, error) {
+func (s *FileStore) GetRunByShortID(shortID model.ShortID) (*model.Run, error) {
 	// List all runs and find matching short ID prefix
 	runs, err := s.ListRuns(&store.ListRunsFilter{})
 	if err != nil {
@@ -798,7 +801,7 @@ func (s *FileStore) GetRunByShortID(shortID string) (*model.Run, error) {
 
 	var matches []*model.Run
 	for _, run := range runs {
-		if strings.HasPrefix(run.ShortID(), shortID) {
+		if strings.HasPrefix(string(run.ShortID()), string(shortID)) {
 			matches = append(matches, run)
 		}
 
@@ -816,7 +819,7 @@ func (s *FileStore) GetRunByShortID(shortID string) (*model.Run, error) {
 }
 
 // formatAmbiguousError formats an error message for ambiguous short ID matches
-func formatAmbiguousError(shortID string, matches []*model.Run) error {
+func formatAmbiguousError(shortID model.ShortID, matches []*model.Run) error {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("ambiguous run ID '%s': matches %d runs\n", shortID, len(matches)))
 
@@ -841,7 +844,7 @@ func formatAmbiguousError(shortID string, matches []*model.Run) error {
 }
 
 // loadRun loads a run from its file
-func (s *FileStore) loadRun(issueID, runID, path string) (*model.Run, error) {
+func (s *FileStore) loadRun(issueID model.IssueID, runID model.RunID, path string) (*model.Run, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -928,7 +931,7 @@ func (s *FileStore) ListRuns(filter *store.ListRunsFilter) ([]*model.Run, error)
 }
 
 // SetIssueStatus updates the status of an issue in its frontmatter
-func (s *FileStore) SetIssueStatus(issueID string, status model.IssueStatus) error {
+func (s *FileStore) SetIssueStatus(issueID model.IssueID, status model.IssueStatus) error {
 	issue, err := s.ResolveIssue(issueID)
 	if err != nil {
 		return err
@@ -1077,7 +1080,7 @@ func (s *FileStore) UpdateIssue(issue *model.Issue) error {
 	return nil
 }
 
-func (s *FileStore) ValidateIssueFiles(issueID string) (*store.ValidationResult, error) {
+func (s *FileStore) ValidateIssueFiles(issueID model.IssueID) (*store.ValidationResult, error) {
 	result := &store.ValidationResult{}
 
 	var issues []*model.Issue
@@ -1097,7 +1100,7 @@ func (s *FileStore) ValidateIssueFiles(issueID string) (*store.ValidationResult,
 	}
 
 	result.Total = len(issues)
-	idMap := make(map[string][]string)
+	idMap := make(map[model.IssueID][]string)
 
 	for _, issue := range issues {
 		idMap[issue.ID] = append(idMap[issue.ID], issue.Path)
@@ -1171,7 +1174,7 @@ func (s *FileStore) CreateIssue(issue *model.Issue) error {
 		return fmt.Errorf("issue ID is required")
 	}
 
-	issuePath := filepath.Join(s.issuesDir(), issue.ID+".md")
+	issuePath := filepath.Join(s.issuesDir(), string(issue.ID)+".md")
 	if _, err := os.Stat(issuePath); err == nil {
 		return fmt.Errorf("issue already exists: %s", issue.ID)
 	}

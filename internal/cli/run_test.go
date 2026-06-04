@@ -176,8 +176,8 @@ func TestBuildAgentPromptCustomTemplate(t *testing.T) {
 
 	issue := &model.Issue{ID: "orch-3", Title: "Custom"}
 	prompt := buildAgentPrompt(issue, &promptOptions{PromptTemplate: tmplPath})
-	if !strings.Contains(prompt, "Reference to the issue: orch-3") {
-		t.Fatalf("expected fallback prompt to include issue reference, got: %q", prompt)
+	if prompt != "Issue: orch-3 - Custom" {
+		t.Fatalf("expected custom prompt template output, got: %q", prompt)
 	}
 }
 
