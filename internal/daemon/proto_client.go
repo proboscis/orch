@@ -555,15 +555,16 @@ func (c *ProtoClient) GetIssue(issueID string) (*GetIssueResponse, error) {
 	}, nil
 }
 
-func (c *ProtoClient) CreateIssue(issueID, title, summary, body string, tags []string) (*CreateIssueResponse, error) {
+func (c *ProtoClient) CreateIssue(issueID, title, summary, body string, tags []string, baseBranch string) (*CreateIssueResponse, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_CreateIssue{
 			CreateIssue: &orchpb.CreateIssueRequest{
-				IssueId: issueID,
-				Title:   title,
-				Body:    body,
-				Tags:    tags,
-				Context: c.requestContext(c.projectRoot),
+				IssueId:    issueID,
+				Title:      title,
+				Body:       body,
+				Tags:       tags,
+				BaseBranch: baseBranch,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}
@@ -1466,13 +1467,14 @@ func protoIssueToFull(i *orchpb.Issue) *IssueFull {
 	}
 
 	return &IssueFull{
-		ID:      i.Id,
-		Title:   i.Title,
-		Summary: i.Summary,
-		Status:  protoIssueStatusToString(i.Status),
-		Body:    i.Body,
-		Tags:    i.Tags,
-		URI:     fmt.Sprintf("orch://issue/%s", i.Id),
+		ID:         i.Id,
+		Title:      i.Title,
+		Summary:    i.Summary,
+		Status:     protoIssueStatusToString(i.Status),
+		Body:       i.Body,
+		Tags:       i.Tags,
+		BaseBranch: i.BaseBranch,
+		URI:        fmt.Sprintf("orch://issue/%s", i.Id),
 	}
 }
 

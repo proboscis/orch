@@ -3329,13 +3329,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 
 	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusQueued))
 
-	baseBranch := req.BaseBranch
-	if baseBranch == "" {
-		baseBranch = cfg.BaseBranch
-	}
-	if baseBranch == "" {
-		baseBranch = "main"
-	}
+	baseBranch := resolveBaseBranch(req.BaseBranch, issue, cfg)
 
 	worktreeResult, err := git.CreateWorktree(&git.WorktreeConfig{
 		RepoRoot:    repoRoot,
@@ -3356,7 +3350,8 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 	st.AppendEvent(run.Ref(), model.NewArtifactEvent("worktree", map[string]string{"path": worktreeResult.WorktreePath}))
 	st.AppendEvent(run.Ref(), model.NewArtifactEvent("branch", map[string]string{"name": worktreeResult.Branch}))
 
-	agentPrompt := s.buildRunPrompt(issue, st.RootPath(), req.NoPR, req.PromptTemplate, req.PRTargetBranch)
+	prTargetBranch := resolvePRTargetBranch(req.PRTargetBranch, baseBranch)
+	agentPrompt := s.buildRunPrompt(issue, st.RootPath(), req.NoPR, req.PromptTemplate, prTargetBranch)
 	promptPath := filepath.Join(worktreeResult.WorktreePath, "ORCH_PROMPT.md")
 	if err := os.WriteFile(promptPath, []byte(agentPrompt), 0644); err != nil {
 		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
@@ -3478,6 +3473,43 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		SessionName:  sessionName,
 		Status:       string(model.StatusRunning),
 	})
+}
+
+// resolveBaseBranch resolves the branch a new run's worktree is cut from.
+// Precedence: explicit (--base-branch) > issue-level (frontmatter base_branch) >
+// config base_branch > "main". The daemon is the single source of truth for this
+// resolution; clients must pass the explicit override unresolved (empty when unset).
+func resolveBaseBranch(explicit string, issue *model.Issue, cfg *config.Config) string {
+	if b := strings.TrimSpace(explicit); b != "" {
+		return b
+	}
+	if issue != nil {
+		if b := strings.TrimSpace(issue.BaseBranch); b != "" {
+			return b
+		}
+	}
+	if cfg != nil {
+		if b := strings.TrimSpace(cfg.BaseBranch); b != "" {
+			return b
+		}
+	}
+	return "main"
+}
+
+// resolvePRTargetBranch resolves the branch a run's PR targets.
+// Precedence: explicit (--pr-target-branch / config pr_target_branch) > the resolved
+// base branch (with any remote prefix stripped) > "main". This keeps "branch off
+// develop ⇒ PR back into develop" when no explicit target is given.
+func resolvePRTargetBranch(explicit, resolvedBaseBranch string) string {
+	if b := strings.TrimSpace(explicit); b != "" {
+		return b
+	}
+	if strings.TrimSpace(resolvedBaseBranch) != "" {
+		if _, branch := git.ParseRemoteBranch(resolvedBaseBranch); branch != "" {
+			return branch
+		}
+	}
+	return "main"
 }
 
 func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, opts *StartRunOptions) (*StartRunResult, error) {
@@ -3634,13 +3666,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 
 	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusQueued))
 
-	baseBranch := opts.BaseBranch
-	if baseBranch == "" {
-		baseBranch = cfg.BaseBranch
-	}
-	if baseBranch == "" {
-		baseBranch = "main"
-	}
+	baseBranch := resolveBaseBranch(opts.BaseBranch, issue, cfg)
 
 	worktreeResult, err := git.CreateWorktreeWithExecutor(&git.WorktreeConfig{
 		RepoRoot:    executionProjectRoot,
@@ -3670,7 +3696,8 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		st.AppendEvent(run.Ref(), model.NewArtifactEvent("target", targetAttrs))
 	}
 
-	agentPrompt := s.buildRunPrompt(issue, st.RootPath(), opts.NoPR, opts.PromptTemplate, opts.PRTargetBranch)
+	prTargetBranch := resolvePRTargetBranch(opts.PRTargetBranch, baseBranch)
+	agentPrompt := s.buildRunPrompt(issue, st.RootPath(), opts.NoPR, opts.PromptTemplate, prTargetBranch)
 	promptPath := filepath.Join(worktreeResult.WorktreePath, "ORCH_PROMPT.md")
 	if err := writeFileWithExecutor(runExecutor, promptPath, []byte(agentPrompt), 0644); err != nil {
 		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
@@ -4801,19 +4828,17 @@ func (s *SocketServer) handleCreateIssue(req SendRequest, encoder *json.Encoder)
 		return
 	}
 
+	issueToWrite := &model.Issue{
+		ID:         req.IssueID,
+		Title:      title,
+		Summary:    req.Summary,
+		Status:     model.IssueStatusOpen,
+		BaseBranch: req.BaseBranch,
+		Tags:       req.Tags,
+	}
 	var sb strings.Builder
-	sb.WriteString("---\n")
-	sb.WriteString("type: issue\n")
-	sb.WriteString("id: " + model.QuoteYAMLValue(req.IssueID) + "\n")
-	sb.WriteString("title: " + model.QuoteYAMLValue(title) + "\n")
-	if req.Summary != "" {
-		sb.WriteString("summary: " + model.QuoteYAMLValue(req.Summary) + "\n")
-	}
-	if len(req.Tags) > 0 {
-		sb.WriteString("tags: " + model.FormatTags(req.Tags) + "\n")
-	}
-	sb.WriteString("status: open\n")
-	sb.WriteString("---\n\n")
+	sb.WriteString(issueToWrite.RenderFrontmatter())
+	sb.WriteString("\n")
 	sb.WriteString("# " + title + "\n\n")
 	if req.Body != "" {
 		sb.WriteString(req.Body)
@@ -4862,19 +4887,17 @@ func (s *SocketServer) processCreateIssueCore(st store.Store, params *CreateIssu
 		return nil, fmt.Errorf("already_exists")
 	}
 
+	issueToWrite := &model.Issue{
+		ID:         params.IssueID,
+		Title:      title,
+		Summary:    params.Summary,
+		Status:     model.IssueStatusOpen,
+		BaseBranch: params.BaseBranch,
+		Tags:       params.Tags,
+	}
 	var sb strings.Builder
-	sb.WriteString("---\n")
-	sb.WriteString("type: issue\n")
-	sb.WriteString("id: " + model.QuoteYAMLValue(params.IssueID) + "\n")
-	sb.WriteString("title: " + model.QuoteYAMLValue(title) + "\n")
-	if params.Summary != "" {
-		sb.WriteString("summary: " + model.QuoteYAMLValue(params.Summary) + "\n")
-	}
-	if len(params.Tags) > 0 {
-		sb.WriteString("tags: " + model.FormatTags(params.Tags) + "\n")
-	}
-	sb.WriteString("status: open\n")
-	sb.WriteString("---\n\n")
+	sb.WriteString(issueToWrite.RenderFrontmatter())
+	sb.WriteString("\n")
 	sb.WriteString("# " + title + "\n\n")
 	if params.Body != "" {
 		sb.WriteString(params.Body)

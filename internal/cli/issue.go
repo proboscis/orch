@@ -22,6 +22,7 @@ type issueCreateOptions struct {
 	Body         string
 	Edit         bool
 	Tags         []string
+	BaseBranch   string
 	bodyProvided bool
 }
 
@@ -81,6 +82,7 @@ Examples:
 	cmd.Flags().StringVarP(&opts.Body, "body", "b", "", "Issue body/description")
 	cmd.Flags().BoolVarP(&opts.Edit, "edit", "e", false, "Open in $EDITOR after creation")
 	cmd.Flags().StringSliceVar(&opts.Tags, "tag", nil, "Tags for the issue (repeatable, comma-separated)")
+	cmd.Flags().StringVar(&opts.BaseBranch, "base-branch", "", "Base branch new runs for this issue branch off of (stored in frontmatter)")
 
 	return cmd
 }
@@ -123,10 +125,11 @@ func runIssueCreateWithInput(issueID string, opts *issueCreateOptions, stdin io.
 	}
 
 	issue, err := api.CreateIssue(ctx, &orchapi.CreateIssueRequest{
-		ID:    issueID,
-		Title: title,
-		Body:  resolvedOpts.Body,
-		Tags:  resolvedOpts.Tags,
+		ID:         issueID,
+		Title:      title,
+		Body:       resolvedOpts.Body,
+		Tags:       resolvedOpts.Tags,
+		BaseBranch: resolvedOpts.BaseBranch,
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "already_exists") {
@@ -230,19 +233,17 @@ func runIssueCreateLocal(issueID, title string, opts *issueCreateOptions) error 
 		return fmt.Errorf("issue already exists: %s", issueID)
 	}
 
+	issueToWrite := &model.Issue{
+		ID:         issueID,
+		Title:      title,
+		Summary:    opts.Summary,
+		Status:     model.IssueStatusOpen,
+		BaseBranch: opts.BaseBranch,
+		Tags:       opts.Tags,
+	}
 	var sb strings.Builder
-	sb.WriteString("---\n")
-	sb.WriteString("type: issue\n")
-	sb.WriteString(fmt.Sprintf("id: %s\n", model.QuoteYAMLValue(issueID)))
-	sb.WriteString(fmt.Sprintf("title: %s\n", model.QuoteYAMLValue(title)))
-	if opts.Summary != "" {
-		sb.WriteString(fmt.Sprintf("summary: %s\n", model.QuoteYAMLValue(opts.Summary)))
-	}
-	if len(opts.Tags) > 0 {
-		sb.WriteString(fmt.Sprintf("tags: %s\n", model.FormatTags(opts.Tags)))
-	}
-	sb.WriteString("status: open\n")
-	sb.WriteString("---\n\n")
+	sb.WriteString(issueToWrite.RenderFrontmatter())
+	sb.WriteString("\n")
 	sb.WriteString(fmt.Sprintf("# %s\n\n", title))
 
 	if opts.Body != "" {
@@ -302,19 +303,17 @@ func runIssueCreateWithEditor(api orchapi.OrchAPI, issueID, title string, opts *
 		return fmt.Errorf("issue already exists: %s", issueID)
 	}
 
+	issueToWrite := &model.Issue{
+		ID:         issueID,
+		Title:      title,
+		Summary:    opts.Summary,
+		Status:     model.IssueStatusOpen,
+		BaseBranch: opts.BaseBranch,
+		Tags:       opts.Tags,
+	}
 	var sb strings.Builder
-	sb.WriteString("---\n")
-	sb.WriteString("type: issue\n")
-	sb.WriteString(fmt.Sprintf("id: %s\n", model.QuoteYAMLValue(issueID)))
-	sb.WriteString(fmt.Sprintf("title: %s\n", model.QuoteYAMLValue(title)))
-	if opts.Summary != "" {
-		sb.WriteString(fmt.Sprintf("summary: %s\n", model.QuoteYAMLValue(opts.Summary)))
-	}
-	if len(opts.Tags) > 0 {
-		sb.WriteString(fmt.Sprintf("tags: %s\n", model.FormatTags(opts.Tags)))
-	}
-	sb.WriteString("status: open\n")
-	sb.WriteString("---\n\n")
+	sb.WriteString(issueToWrite.RenderFrontmatter())
+	sb.WriteString("\n")
 	sb.WriteString(fmt.Sprintf("# %s\n\n", title))
 
 	if opts.Body != "" {
@@ -710,6 +709,9 @@ func runIssueShow(issueID string, opts *issueShowOptions) error {
 	fmt.Printf("Status:  %s\n", issue.Status)
 	if issue.Summary != "" {
 		fmt.Printf("Summary: %s\n", issue.Summary)
+	}
+	if issue.BaseBranch != "" {
+		fmt.Printf("Base:    %s\n", issue.BaseBranch)
 	}
 	if url, ok := issue.Frontmatter["url"]; ok && url != "" {
 		fmt.Printf("URL:     %s\n", url)

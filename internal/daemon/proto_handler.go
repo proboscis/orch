@@ -1778,10 +1778,11 @@ func (s *SocketServer) handleProtoCreateIssue(req *orchpb.CreateIssueRequest) *o
 	}
 
 	params := &CreateIssueParams{
-		IssueID: req.IssueId,
-		Title:   req.Title,
-		Body:    req.Body,
-		Tags:    req.Tags,
+		IssueID:    req.IssueId,
+		Title:      req.Title,
+		Body:       req.Body,
+		Tags:       req.Tags,
+		BaseBranch: req.BaseBranch,
 	}
 
 	result, err := s.processCreateIssueCore(st, params)

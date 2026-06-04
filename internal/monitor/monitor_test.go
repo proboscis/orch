@@ -170,6 +170,31 @@ func TestSessionNameForProjectUniqueness(t *testing.T) {
 	}
 }
 
+// TestSessionNameFitsZellijSocketLimit ensures the generated name always fits
+// zellij's socket-path budget even with a long socket dir and a long repo name.
+// Regression for the "session name must be less than 0 characters" error.
+func TestSessionNameFitsZellijSocketLimit(t *testing.T) {
+	// Emulate a default macOS TMPDIR-derived socket dir that, combined with the
+	// 18-char contract subdir, previously overflowed for ~28-char names.
+	t.Setenv("ZELLIJ_SOCKET_DIR", "/var/folders/q2/8x7k2j9d5cl0abcd1234efgh5678/T/zellij-501")
+
+	for _, p := range []string{
+		"/work/x",
+		"/work/agent-control-plane",
+		"/work/this-is-a-really-really-long-monorepo-name-here",
+	} {
+		name := sessionNameForProject(p)
+		sockPath := zellijSocketDir() + "/" + name
+		if len(sockPath) >= zellijSockMaxLength {
+			t.Errorf("session name %q yields socket path of len %d >= %d for %q",
+				name, len(sockPath), zellijSockMaxLength, p)
+		}
+		if name == "" {
+			t.Errorf("empty session name for %q", p)
+		}
+	}
+}
+
 func TestFilterBranchesForIssue(t *testing.T) {
 	now := time.Now()
 	branches := map[string]time.Time{

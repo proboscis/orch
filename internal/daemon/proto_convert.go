@@ -180,6 +180,7 @@ func modelIssueToProto(issue *model.Issue) *orchpb.Issue {
 		Body:           sanitizeUTF8(issue.Body),
 		Path:           sanitizeUTF8(issue.Path),
 		ModifiedAtUnix: issue.ModifiedAt.Unix(),
+		BaseBranch:     sanitizeUTF8(issue.BaseBranch),
 	}
 }
 
@@ -196,6 +197,7 @@ func protoIssueToModel(issue *orchpb.Issue) *model.Issue {
 		Tags:       issue.Tags,
 		Body:       issue.Body,
 		Path:       issue.Path,
+		BaseBranch: issue.BaseBranch,
 		ModifiedAt: time.Unix(issue.ModifiedAtUnix, 0),
 	}
 }
