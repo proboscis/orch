@@ -314,7 +314,56 @@ func sessionNameForProject(projectRoot string) string {
 	baseName = strings.ReplaceAll(baseName, ".", "-")
 	baseName = strings.ReplaceAll(baseName, " ", "-")
 
-	return fmt.Sprintf("orch-%s-%s", baseName, shortHash)
+	name := fmt.Sprintf("orch-%s-%s", baseName, shortHash)
+
+	// Bound the name to zellij's socket-path limit. The same name is reused for
+	// tmux (which tolerates shorter names fine), so this is always safe to apply.
+	budget := maxSessionNameLen()
+	if len(name) > budget {
+		fixed := len("orch-") + 1 + len(shortHash) // "orch-" + "-" + hash
+		room := budget - fixed
+		if room < 1 {
+			// Even prefix+hash will not fit; fall back to a minimal hashed name.
+			name = "orch-" + shortHash
+		} else {
+			if room < len(baseName) {
+				baseName = baseName[:room]
+			}
+			name = fmt.Sprintf("orch-%s-%s", baseName, shortHash)
+		}
+	}
+	return name
+}
+
+const (
+	// zellijSockMaxLength mirrors zellij's ZELLIJ_SOCK_MAX_LENGTH (Unix sun_path
+	// limit). zellij errors when len(<socket_dir>/<name>) >= this value.
+	zellijSockMaxLength = 108
+	// zellijContractDir mirrors zellij's CLIENT_SERVER_CONTRACT_DIR
+	// ("contract_version_<N>") appended to the socket base (~18 chars).
+	zellijContractDir = "contract_version_1"
+	sessionNameSafety = 3
+)
+
+// zellijSocketDir replicates zellij's ZELLIJ_SOCK_DIR (socket base + contract
+// subdir): $ZELLIJ_SOCKET_DIR if set, else <tmpdir>/zellij-<uid>, then the
+// contract dir. See zellij-utils/src/consts.rs.
+func zellijSocketDir() string {
+	base := os.Getenv("ZELLIJ_SOCKET_DIR")
+	if base == "" {
+		base = filepath.Join(os.TempDir(), fmt.Sprintf("zellij-%d", os.Getuid()))
+	}
+	return filepath.Join(base, zellijContractDir)
+}
+
+// maxSessionNameLen is the largest session name that fits zellij's socket-path
+// limit, with a small safety margin.
+func maxSessionNameLen() int {
+	budget := zellijSockMaxLength - len(zellijSocketDir()) - 1 - sessionNameSafety
+	if budget < 1 {
+		budget = 1
+	}
+	return budget
 }
 
 func (m *Monitor) ensureDaemonHealthy() error {

@@ -174,6 +174,7 @@ type Issue struct {
 	Tags        []string
 	Body        string
 	Path        string
+	BaseBranch  string
 	Frontmatter map[string]string
 	ModifiedAt  time.Time
 }
@@ -287,10 +288,11 @@ type ListIssuesResult struct {
 }
 
 type CreateIssueRequest struct {
-	ID    string
-	Title string
-	Body  string
-	Tags  []string
+	ID         string
+	Title      string
+	Body       string
+	Tags       []string
+	BaseBranch string
 }
 
 type ListRunsFilter struct {

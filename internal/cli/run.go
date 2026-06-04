@@ -362,13 +362,11 @@ func applyConfigDefaults(opts *runOptions, cfg *orchapi.Config, remoteMode bool)
 		}
 	}
 
-	if opts.BaseBranch == "" {
-		if cfg.BaseBranch != "" {
-			opts.BaseBranch = cfg.BaseBranch
-		} else {
-			opts.BaseBranch = "main"
-		}
-	}
+	// Do NOT pre-fill the base branch here. The daemon owns base-branch
+	// resolution (explicit flag > issue-level base_branch > config > "main"); if
+	// the CLI filled in config/"main" the daemon could not tell "unset" from an
+	// explicit value and the per-issue base_branch would be shadowed. We pass
+	// opts.BaseBranch through verbatim (empty when --base-branch is not given).
 
 	if opts.Agent == "" {
 		if cfg.Agent != "" {

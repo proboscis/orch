@@ -16,8 +16,41 @@ type Issue struct {
 	Tags        []string
 	Body        string
 	Path        string
+	BaseBranch  string // Explicit root branch new runs branch off of (frontmatter: base_branch)
 	Frontmatter map[string]string
 	ModifiedAt  time.Time // File modification time for sorting
+}
+
+// RenderFrontmatter returns the YAML frontmatter block (including the leading and
+// trailing "---" fences and a trailing newline) for an issue Markdown file.
+//
+// This is the single source of truth for issue frontmatter serialization so that
+// every create path (CLI local/editor, daemon proto/legacy socket, FileStore)
+// writes a consistent set of fields. Callers append the body (and any "# title"
+// header) after this block.
+func (i *Issue) RenderFrontmatter() string {
+	status := i.Status
+	if status == "" {
+		status = IssueStatusOpen
+	}
+
+	var sb strings.Builder
+	sb.WriteString("---\n")
+	sb.WriteString("type: issue\n")
+	sb.WriteString("id: " + QuoteYAMLValue(i.ID) + "\n")
+	sb.WriteString("title: " + QuoteYAMLValue(i.Title) + "\n")
+	if i.Summary != "" {
+		sb.WriteString("summary: " + QuoteYAMLValue(i.Summary) + "\n")
+	}
+	sb.WriteString("status: " + string(status) + "\n")
+	if i.BaseBranch != "" {
+		sb.WriteString("base_branch: " + QuoteYAMLValue(i.BaseBranch) + "\n")
+	}
+	if len(i.Tags) > 0 {
+		sb.WriteString("tags: " + FormatTags(i.Tags) + "\n")
+	}
+	sb.WriteString("---\n")
+	return sb.String()
 }
 
 func IsGitHubIssueID(id string) bool {

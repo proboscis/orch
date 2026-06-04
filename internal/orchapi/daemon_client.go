@@ -138,15 +138,16 @@ func (c *DaemonClient) ListIssues(ctx context.Context, filter *ListIssuesFilter)
 }
 
 func (c *DaemonClient) CreateIssue(ctx context.Context, req *CreateIssueRequest) (*Issue, error) {
-	resp, err := c.proto.CreateIssue(req.ID, req.Title, "", req.Body, req.Tags)
+	resp, err := c.proto.CreateIssue(req.ID, req.Title, "", req.Body, req.Tags, req.BaseBranch)
 	if err != nil {
 		return nil, err
 	}
 	return &Issue{
-		ID:    resp.IssueID,
-		Path:  resp.Path,
-		Title: req.Title,
-		Body:  req.Body,
+		ID:         resp.IssueID,
+		Path:       resp.Path,
+		Title:      req.Title,
+		Body:       req.Body,
+		BaseBranch: req.BaseBranch,
 	}, nil
 }
 
@@ -550,6 +551,7 @@ func issueFromDaemon(iss *daemon.IssueFull) *Issue {
 		Status:      IssueStatus(iss.Status),
 		Tags:        iss.Tags,
 		Body:        iss.Body,
+		BaseBranch:  iss.BaseBranch,
 		Frontmatter: iss.Frontmatter,
 	}
 }

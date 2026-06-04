@@ -86,22 +86,89 @@ SESSION_NAME_PREFIX = "orch-monitor"
 CONTROL_PROMPT_FILE = "ORCH_CONTROL_PROMPT.md"
 
 
-MAX_SESSION_NAME_LEN = 28
+# zellij rejects a session when len(<socket_dir>/<name>) >= this Unix sun_path limit.
+# Its own error ("session name must be less than 0 characters") is misleading: the
+# available-length math saturates to 0 the moment the limit is hit, so the real
+# constraint is the socket-dir length — which we account for below instead of using a
+# blind fixed cap.
+ZELLIJ_SOCK_MAX_LENGTH = 108
+# zellij appends this contract dir to the socket base (CLIENT_SERVER_CONTRACT_DIR =
+# "contract_version_<N>"); 18 chars on current releases. A default macOS /var/folders
+# TMPDIR plus this subdir alone leaves only ~28 chars for the name, which is exactly
+# why the old fixed 28-char cap overflowed.
+ZELLIJ_CONTRACT_DIR = "contract_version_1"
+# Upper bound so names stay human-readable / tmux-friendly when the socket dir is
+# short. The same generated name is reused regardless of multiplexer.
+MAX_SESSION_NAME_LEN = 60
+_SESSION_HASH_LEN = 6
+_SESSION_NAME_SAFETY = 3
+
+
+def _zellij_socket_dir() -> str:
+    """Replicate zellij's ZELLIJ_SOCK_DIR (base + contract subdir).
+
+    Base is $ZELLIJ_SOCKET_DIR if set, else <tempdir>/zellij-<uid>, matching
+    zellij-utils/src/consts.rs.
+    """
+    import tempfile
+
+    base = os.environ.get("ZELLIJ_SOCKET_DIR")
+    if not base:
+        try:
+            uid = os.getuid()
+        except AttributeError:  # non-Unix; the socket-path limit does not apply
+            uid = 0
+        base = os.path.join(tempfile.gettempdir(), f"zellij-{uid}")
+    return os.path.join(base, ZELLIJ_CONTRACT_DIR)
+
+
+def _max_session_name_len() -> int:
+    """Largest session name that fits zellij's socket-path limit, with a safety margin.
+
+    Mirrors zellij's check: error when len(sock_dir + "/" + name) >= 108. Capped at
+    MAX_SESSION_NAME_LEN so short socket dirs still yield readable names.
+    """
+    budget = (
+        ZELLIJ_SOCK_MAX_LENGTH
+        - len(_zellij_socket_dir())
+        - 1  # the "/" separator before the session name
+        - _SESSION_NAME_SAFETY
+    )
+    return min(MAX_SESSION_NAME_LEN, budget)
 
 
 def get_session_name(vault_path: Path | None = None) -> str:
+    import hashlib
+
     base_path = vault_path if vault_path else Path.cwd()
     repo_name = base_path.resolve().name
     safe_name = "".join(c if c.isalnum() or c in "-_" else "-" for c in repo_name)
     full_name = f"{SESSION_NAME_PREFIX}-{safe_name}"
-    if len(full_name) > MAX_SESSION_NAME_LEN:
-        import hashlib
 
-        hash_suffix = hashlib.md5(safe_name.encode()).hexdigest()[:6]
-        prefix_len = MAX_SESSION_NAME_LEN - len(SESSION_NAME_PREFIX) - 1 - 7
-        truncated = safe_name[:prefix_len]
-        full_name = f"{SESSION_NAME_PREFIX}-{truncated}-{hash_suffix}"
-    return full_name
+    budget = _max_session_name_len()
+    if len(full_name) <= budget:
+        return full_name
+
+    # Too long for the (possibly long) zellij socket dir: keep a hash for uniqueness
+    # and truncate the readable portion so the whole name fits the budget.
+    hash_suffix = hashlib.md5(safe_name.encode()).hexdigest()[:_SESSION_HASH_LEN]
+    fixed = len(SESSION_NAME_PREFIX) + 1 + 1 + _SESSION_HASH_LEN  # prefix-…-hash
+    name_room = budget - fixed
+    if name_room >= 1:
+        return f"{SESSION_NAME_PREFIX}-{safe_name[:name_room]}-{hash_suffix}"
+
+    # Not even prefix+hash fits; drop the readable portion entirely.
+    minimal = f"{SESSION_NAME_PREFIX}-{hash_suffix}"
+    if len(minimal) <= budget:
+        return minimal
+
+    # Pathological socket dir — nothing reasonable fits. Fail fast with guidance.
+    raise RuntimeError(
+        "Cannot build a zellij session name within the socket-path limit "
+        f"(budget={budget} chars, socket dir={_zellij_socket_dir()!r}). "
+        "Use a shorter socket dir, e.g. `export ZELLIJ_SOCKET_DIR=/tmp/zj`, "
+        "or run with tmux: `orch-monitor -m tmux`."
+    )
 
 
 CONTROL_PROMPT_INSTRUCTION = f"ultrathink Please read '{CONTROL_PROMPT_FILE}' in the current directory and follow the instructions found there."

@@ -291,8 +291,11 @@ func TestApplyConfigDefaultsBaseBranch(t *testing.T) {
 	if _, err := applyPromptConfigDefaultsForTest(opts); err != nil {
 		t.Fatalf("applyPromptConfigDefaultsForTest: %v", err)
 	}
-	if opts.BaseBranch != "develop" {
-		t.Fatalf("BaseBranch = %q, want %q", opts.BaseBranch, "develop")
+	// BaseBranch is intentionally NOT pre-filled by the CLI: the daemon owns
+	// base-branch resolution (explicit flag > issue base_branch > config > "main")
+	// so the per-issue value is not shadowed. It stays empty (unset) here.
+	if opts.BaseBranch != "" {
+		t.Fatalf("BaseBranch = %q, want %q (resolved by daemon, not CLI)", opts.BaseBranch, "")
 	}
 	if opts.Agent != "codex" {
 		t.Fatalf("Agent = %q, want %q", opts.Agent, "codex")
@@ -358,8 +361,10 @@ func TestApplyConfigDefaultsFallbacks(t *testing.T) {
 	if _, err := applyPromptConfigDefaultsForTest(opts); err != nil {
 		t.Fatalf("applyPromptConfigDefaultsForTest: %v", err)
 	}
-	if opts.BaseBranch != "main" {
-		t.Fatalf("BaseBranch fallback = %q, want %q", opts.BaseBranch, "main")
+	// BaseBranch stays empty at the CLI layer; the daemon applies the "main"
+	// fallback (after the per-issue base_branch) so it is not resolved here.
+	if opts.BaseBranch != "" {
+		t.Fatalf("BaseBranch fallback = %q, want %q (resolved by daemon, not CLI)", opts.BaseBranch, "")
 	}
 	if opts.Agent != "claude" {
 		t.Fatalf("Agent fallback = %q, want %q", opts.Agent, "claude")

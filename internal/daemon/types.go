@@ -258,6 +258,7 @@ type IssueFull struct {
 	Status      string            `json:"status"`
 	Body        string            `json:"body"`
 	Tags        []string          `json:"tags,omitempty"`
+	BaseBranch  string            `json:"base_branch,omitempty"`
 	URI         string            `json:"uri"`
 	Frontmatter map[string]string `json:"frontmatter,omitempty"`
 }
@@ -797,11 +798,12 @@ type SendMessageParams struct {
 }
 
 type CreateIssueParams struct {
-	IssueID string
-	Title   string
-	Body    string
-	Summary string
-	Tags    []string
+	IssueID    string
+	Title      string
+	Body       string
+	Summary    string
+	Tags       []string
+	BaseBranch string
 }
 
 type CaptureSessionResponse struct {

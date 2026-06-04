@@ -598,6 +598,7 @@ type Issue struct {
 	Path           string                 `protobuf:"bytes,7,opt,name=path,proto3" json:"path,omitempty"`
 	ModifiedAtUnix int64                  `protobuf:"varint,8,opt,name=modified_at_unix,json=modifiedAtUnix,proto3" json:"modified_at_unix,omitempty"`
 	Topic          string                 `protobuf:"bytes,9,opt,name=topic,proto3" json:"topic,omitempty"`
+	BaseBranch     string                 `protobuf:"bytes,10,opt,name=base_branch,json=baseBranch,proto3" json:"base_branch,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -691,6 +692,13 @@ func (x *Issue) GetModifiedAtUnix() int64 {
 func (x *Issue) GetTopic() string {
 	if x != nil {
 		return x.Topic
+	}
+	return ""
+}
+
+func (x *Issue) GetBaseBranch() string {
+	if x != nil {
+		return x.BaseBranch
 	}
 	return ""
 }
@@ -2158,6 +2166,7 @@ type CreateIssueRequest struct {
 	Body          string                 `protobuf:"bytes,4,opt,name=body,proto3" json:"body,omitempty"`
 	Tags          []string               `protobuf:"bytes,5,rep,name=tags,proto3" json:"tags,omitempty"`
 	Context       *RequestContext        `protobuf:"bytes,6,opt,name=context,proto3" json:"context,omitempty"`
+	BaseBranch    string                 `protobuf:"bytes,7,opt,name=base_branch,json=baseBranch,proto3" json:"base_branch,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2225,6 +2234,13 @@ func (x *CreateIssueRequest) GetContext() *RequestContext {
 		return x.Context
 	}
 	return nil
+}
+
+func (x *CreateIssueRequest) GetBaseBranch() string {
+	if x != nil {
+		return x.BaseBranch
+	}
+	return ""
 }
 
 type CreateIssueResponse struct {
@@ -10874,7 +10890,7 @@ const file_orch_proto_rawDesc = "" +
 	"\x0fworktree_exists\x18\x1a \x01(\bR\x0eworktreeExists\x12\x16\n" +
 	"\x06target\x18\x1b \x01(\tR\x06target\x12\x1f\n" +
 	"\vtarget_host\x18\x1c \x01(\tR\n" +
-	"targetHost\"\xf1\x01\n" +
+	"targetHost\"\x92\x02\n" +
 	"\x05Issue\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x18\n" +
@@ -10884,7 +10900,10 @@ const file_orch_proto_rawDesc = "" +
 	"\x04body\x18\x06 \x01(\tR\x04body\x12\x12\n" +
 	"\x04path\x18\a \x01(\tR\x04path\x12(\n" +
 	"\x10modified_at_unix\x18\b \x01(\x03R\x0emodifiedAtUnix\x12\x14\n" +
-	"\x05topic\x18\t \x01(\tR\x05topic\"\xc1\x01\n" +
+	"\x05topic\x18\t \x01(\tR\x05topic\x12\x1f\n" +
+	"\vbase_branch\x18\n" +
+	" \x01(\tR\n" +
+	"baseBranch\"\xc1\x01\n" +
 	"\x05Event\x12%\n" +
 	"\x0etimestamp_unix\x18\x01 \x01(\x03R\rtimestampUnix\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x12\n" +
@@ -11007,13 +11026,15 @@ const file_orch_proto_rawDesc = "" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x121\n" +
 	"\acontext\x18\x03 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"8\n" +
 	"\x10GetIssueResponse\x12$\n" +
-	"\x05issue\x18\x01 \x01(\v2\x0e.orch.v1.IssueR\x05issue\"\xa0\x01\n" +
+	"\x05issue\x18\x01 \x01(\v2\x0e.orch.v1.IssueR\x05issue\"\xc1\x01\n" +
 	"\x12CreateIssueRequest\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x14\n" +
 	"\x05title\x18\x03 \x01(\tR\x05title\x12\x12\n" +
 	"\x04body\x18\x04 \x01(\tR\x04body\x12\x12\n" +
 	"\x04tags\x18\x05 \x03(\tR\x04tags\x121\n" +
-	"\acontext\x18\x06 \x01(\v2\x17.orch.v1.RequestContextR\acontext\")\n" +
+	"\acontext\x18\x06 \x01(\v2\x17.orch.v1.RequestContextR\acontext\x12\x1f\n" +
+	"\vbase_branch\x18\a \x01(\tR\n" +
+	"baseBranch\")\n" +
 	"\x13CreateIssueResponse\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\"a\n" +
 	"\x11CloseIssueRequest\x12\x19\n" +

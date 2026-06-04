@@ -476,6 +476,7 @@ func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
 		Body:        body,
 		Tags:        tags,
 		Path:        path,
+		BaseBranch:  stringFM["base_branch"],
 		Frontmatter: stringFM,
 	}, nil
 }
@@ -1180,18 +1181,8 @@ func (s *FileStore) CreateIssue(issue *model.Issue) error {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("---\n")
-	sb.WriteString(fmt.Sprintf("type: issue\n"))
-	sb.WriteString(fmt.Sprintf("id: %s\n", model.QuoteYAMLValue(issue.ID)))
-	sb.WriteString(fmt.Sprintf("title: %s\n", model.QuoteYAMLValue(issue.Title)))
-	if issue.Summary != "" {
-		sb.WriteString(fmt.Sprintf("summary: %s\n", model.QuoteYAMLValue(issue.Summary)))
-	}
-	sb.WriteString(fmt.Sprintf("status: %s\n", issue.Status))
-	if len(issue.Tags) > 0 {
-		sb.WriteString(fmt.Sprintf("tags: [%s]\n", strings.Join(issue.Tags, ", ")))
-	}
-	sb.WriteString("---\n\n")
+	sb.WriteString(issue.RenderFrontmatter())
+	sb.WriteString("\n")
 	if issue.Body != "" {
 		sb.WriteString(issue.Body)
 	}

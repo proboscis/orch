@@ -98,6 +98,7 @@ message Issue {
   string path = 7;
   int64 modified_at_unix = 8;
   string topic = 9;
+  string base_branch = 10;
 }
 
 message Event {
@@ -261,6 +262,7 @@ message CreateIssueRequest {
   string body = 4;
   repeated string tags = 5;
   RequestContext context = 6;
+  string base_branch = 7;
 }
 
 message CreateIssueResponse {
