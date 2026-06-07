@@ -1279,9 +1279,15 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		opts.TargetWorkerID = target.WorkerID
 	}
 
-	if issue, err := st.ResolveIssue(model.IssueID(req.IssueId)); err == nil {
-		opts.IssueSnapshot = issue
+	// Resolve the issue on the MASTER (issue-store SSOT) and carry the snapshot in
+	// the worker payload. Fail fast here, before delegating, so a missing issue
+	// surfaces on the master (where the store lives) instead of on a worker that may
+	// run on a different host and have no issue store at all.
+	issue, err := st.ResolveIssue(model.IssueID(req.IssueId))
+	if err != nil {
+		return errorResponse(fmt.Sprintf("issue not found: %s", req.IssueId))
 	}
+	opts.IssueSnapshot = issue
 
 	payload := &WorkerEffectPayload{StartRun: opts}
 	completedLease, err := s.withWorkerLease(projectID, "start_run", req.IssueId, req.RunId, payload)
@@ -1516,17 +1522,32 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 		SessionName:    req.SessionName,
 	}
 	// Inherit the prior run's target and agent so the codex profile constraint
-	// and CODEX_HOME are re-applied identically on restart-from/continue.
+	// and CODEX_HOME are re-applied identically on restart-from/continue. Also
+	// capture the issue ID so the master (issue-store SSOT) can resolve the issue
+	// and carry it in the worker payload below.
 	var fromRunAgent string
+	issueID := model.IssueID(req.IssueId)
 	if req.ShortId != "" {
-		if run, err := st.GetRunByShortID(model.ShortID(req.ShortId)); err == nil && run != nil {
-			opts.Target = strings.TrimSpace(run.Target)
-			fromRunAgent = strings.TrimSpace(run.Agent)
+		// The short-id mode derives the issue ID solely from the referenced run, so
+		// fail fast on the master if it cannot be resolved. Otherwise issueID would
+		// stay empty and the worker would fall back to its own-store ResolveIssue
+		// (which it may not have), producing a misleading error on the wrong host.
+		run, err := st.GetRunByShortID(model.ShortID(req.ShortId))
+		if err != nil || run == nil {
+			return errorResponse(fmt.Sprintf("run not found: %s", req.ShortId))
+		}
+		opts.Target = strings.TrimSpace(run.Target)
+		fromRunAgent = strings.TrimSpace(run.Agent)
+		if run.IssueID != "" {
+			issueID = run.IssueID
 		}
 	} else if req.IssueId != "" && req.RunId != "" {
 		if run, err := st.GetRun(&model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}); err == nil && run != nil {
 			opts.Target = strings.TrimSpace(run.Target)
 			fromRunAgent = strings.TrimSpace(run.Agent)
+			if run.IssueID != "" {
+				issueID = run.IssueID
+			}
 		}
 	}
 
@@ -1548,6 +1569,20 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 		}
 		opts.TargetHost = target.Host
 		opts.TargetWorkerID = target.WorkerID
+	}
+
+	// Resolve the issue on the MASTER (issue-store SSOT) and carry the snapshot in
+	// the worker payload. Fail fast here, before delegating, so a missing issue
+	// surfaces on the master instead of on a worker that may run on a different host
+	// and have no issue store. The issue ID is known for every continue mode: the
+	// branch/run-ref modes use req.IssueId, the short-id mode uses the resolved
+	// run's IssueID captured above.
+	if strings.TrimSpace(string(issueID)) != "" {
+		issue, err := st.ResolveIssue(issueID)
+		if err != nil {
+			return errorResponse(fmt.Sprintf("issue not found: %s", issueID))
+		}
+		opts.IssueSnapshot = issue
 	}
 
 	payload := &WorkerEffectPayload{ContinueRun: opts}

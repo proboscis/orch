@@ -28,6 +28,9 @@ var _ store.Store = &StoreMock{}
 //			CreateRunFunc: func(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
 //				panic("mock out the CreateRun method")
 //			},
+//			CreateRunForExistingIssueFunc: func(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
+//				panic("mock out the CreateRunForExistingIssue method")
+//			},
 //			DeleteRunFunc: func(ref *model.RunRef) error {
 //				panic("mock out the DeleteRun method")
 //			},
@@ -82,6 +85,9 @@ type StoreMock struct {
 
 	// CreateRunFunc mocks the CreateRun method.
 	CreateRunFunc func(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error)
+
+	// CreateRunForExistingIssueFunc mocks the CreateRunForExistingIssue method.
+	CreateRunForExistingIssueFunc func(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error)
 
 	// DeleteRunFunc mocks the DeleteRun method.
 	DeleteRunFunc func(ref *model.RunRef) error
@@ -138,6 +144,15 @@ type StoreMock struct {
 		}
 		// CreateRun holds details about calls to the CreateRun method.
 		CreateRun []struct {
+			// IssueID is the issueID argument value.
+			IssueID model.IssueID
+			// RunID is the runID argument value.
+			RunID model.RunID
+			// Metadata is the metadata argument value.
+			Metadata map[string]string
+		}
+		// CreateRunForExistingIssue holds details about calls to the CreateRunForExistingIssue method.
+		CreateRunForExistingIssue []struct {
 			// IssueID is the issueID argument value.
 			IssueID model.IssueID
 			// RunID is the runID argument value.
@@ -211,22 +226,23 @@ type StoreMock struct {
 			Content string
 		}
 	}
-	lockAppendEvent        sync.RWMutex
-	lockCreateIssue        sync.RWMutex
-	lockCreateRun          sync.RWMutex
-	lockDeleteRun          sync.RWMutex
-	lockGetLatestRun       sync.RWMutex
-	lockGetRun             sync.RWMutex
-	lockGetRunByShortID    sync.RWMutex
-	lockListIssues         sync.RWMutex
-	lockListRuns           sync.RWMutex
-	lockReadAgentPrompt    sync.RWMutex
-	lockResolveIssue       sync.RWMutex
-	lockRootPath           sync.RWMutex
-	lockSetIssueStatus     sync.RWMutex
-	lockUpdateIssue        sync.RWMutex
-	lockValidateIssueFiles sync.RWMutex
-	lockWriteAgentPrompt   sync.RWMutex
+	lockAppendEvent               sync.RWMutex
+	lockCreateIssue               sync.RWMutex
+	lockCreateRun                 sync.RWMutex
+	lockCreateRunForExistingIssue sync.RWMutex
+	lockDeleteRun                 sync.RWMutex
+	lockGetLatestRun              sync.RWMutex
+	lockGetRun                    sync.RWMutex
+	lockGetRunByShortID           sync.RWMutex
+	lockListIssues                sync.RWMutex
+	lockListRuns                  sync.RWMutex
+	lockReadAgentPrompt           sync.RWMutex
+	lockResolveIssue              sync.RWMutex
+	lockRootPath                  sync.RWMutex
+	lockSetIssueStatus            sync.RWMutex
+	lockUpdateIssue               sync.RWMutex
+	lockValidateIssueFiles        sync.RWMutex
+	lockWriteAgentPrompt          sync.RWMutex
 }
 
 // AppendEvent calls AppendEventFunc.
@@ -334,6 +350,46 @@ func (mock *StoreMock) CreateRunCalls() []struct {
 	mock.lockCreateRun.RLock()
 	calls = mock.calls.CreateRun
 	mock.lockCreateRun.RUnlock()
+	return calls
+}
+
+// CreateRunForExistingIssue calls CreateRunForExistingIssueFunc.
+func (mock *StoreMock) CreateRunForExistingIssue(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
+	if mock.CreateRunForExistingIssueFunc == nil {
+		panic("StoreMock.CreateRunForExistingIssueFunc: method is nil but Store.CreateRunForExistingIssue was just called")
+	}
+	callInfo := struct {
+		IssueID  model.IssueID
+		RunID    model.RunID
+		Metadata map[string]string
+	}{
+		IssueID:  issueID,
+		RunID:    runID,
+		Metadata: metadata,
+	}
+	mock.lockCreateRunForExistingIssue.Lock()
+	mock.calls.CreateRunForExistingIssue = append(mock.calls.CreateRunForExistingIssue, callInfo)
+	mock.lockCreateRunForExistingIssue.Unlock()
+	return mock.CreateRunForExistingIssueFunc(issueID, runID, metadata)
+}
+
+// CreateRunForExistingIssueCalls gets all the calls that were made to CreateRunForExistingIssue.
+// Check the length with:
+//
+//	len(mockedStore.CreateRunForExistingIssueCalls())
+func (mock *StoreMock) CreateRunForExistingIssueCalls() []struct {
+	IssueID  model.IssueID
+	RunID    model.RunID
+	Metadata map[string]string
+} {
+	var calls []struct {
+		IssueID  model.IssueID
+		RunID    model.RunID
+		Metadata map[string]string
+	}
+	mock.lockCreateRunForExistingIssue.RLock()
+	calls = mock.calls.CreateRunForExistingIssue
+	mock.lockCreateRunForExistingIssue.RUnlock()
 	return calls
 }
 

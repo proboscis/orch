@@ -3525,31 +3525,38 @@ func resolvePRTargetBranch(explicit, resolvedBaseBranch string) string {
 	return "main"
 }
 
+// createRunForIssue creates a run, choosing whether to verify the issue against
+// the local store. issuePreVerified is true on the worker-delegation path where
+// the master (issue-store SSOT) already resolved the issue and carried it in the
+// payload snapshot; in that case the worker must NOT re-verify against a store it
+// may not own (it can run on a different host than the master). On the
+// non-delegated direct/co-located path it verifies as usual.
+func createRunForIssue(st store.Store, issuePreVerified bool, issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
+	if issuePreVerified {
+		return st.CreateRunForExistingIssue(issueID, runID, metadata)
+	}
+	return st.CreateRun(issueID, runID, metadata)
+}
+
 func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, opts *StartRunOptions) (*StartRunResult, error) {
 	if opts.IssueID == "" {
 		return nil, fmt.Errorf("invalid_request: issue_id required")
 	}
 
+	// The issue is resolved by the MASTER (issue-store SSOT) and carried in
+	// opts.IssueSnapshot. The worker must NOT read the run's own issue from its
+	// local store: when the worker runs on a different host than the master it has
+	// no issue store at all. The delegation path (handleProtoStartRun) always sets
+	// IssueSnapshot. We only fall back to the local store for non-delegated direct
+	// calls (e.g. legacy/co-located in-process paths or tests), and never silently
+	// swallow a missing issue.
 	issue := opts.IssueSnapshot
-	if issue == nil || strings.TrimSpace(string(issue.ID)) != string(opts.IssueID) {
+	if issue == nil {
 		resolvedIssue, err := st.ResolveIssue(opts.IssueID)
 		if err != nil {
 			return nil, fmt.Errorf("issue not found: %s", opts.IssueID)
 		}
 		issue = resolvedIssue
-	}
-
-	if _, err := st.ResolveIssue(opts.IssueID); err != nil {
-		issueCopy := *issue
-		if issueCopy.ID == "" {
-			issueCopy.ID = opts.IssueID
-		}
-		if issueCopy.Status == "" {
-			issueCopy.Status = model.IssueStatusOpen
-		}
-		if err := st.CreateIssue(&issueCopy); err != nil {
-			return nil, fmt.Errorf("failed to sync issue for worker execution: %w", err)
-		}
 	}
 
 	cfg, err := loadConfigForProjectRoot(projectRoot)
@@ -3672,7 +3679,10 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	if targetName != "" {
 		metadata["target"] = targetName
 	}
-	run, err := st.CreateRun(opts.IssueID, runID, metadata)
+	// When the issue came from the master snapshot (worker-delegation path), the
+	// master has already verified it; the worker must not re-verify against a
+	// store it may not own. Otherwise (legacy direct/co-located call) verify.
+	run, err := createRunForIssue(st, opts.IssueSnapshot != nil, opts.IssueID, runID, metadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create run: %w", err)
 	}
@@ -3873,9 +3883,14 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		issueID = opts.IssueID
 		branch = opts.Branch
 
-		_, err := st.ResolveIssue(issueID)
-		if err != nil {
-			return nil, fmt.Errorf("issue not found: %s", issueID)
+		// The master (issue-store SSOT) already resolved and validated the issue
+		// and carried it in opts.IssueSnapshot. Only re-read the local store for
+		// non-delegated direct calls (no snapshot); never silently ignore a
+		// missing issue.
+		if opts.IssueSnapshot == nil {
+			if _, err := st.ResolveIssue(issueID); err != nil {
+				return nil, fmt.Errorf("issue not found: %s", issueID)
+			}
 		}
 
 		if projectRoot == "" {
@@ -3995,9 +4010,19 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		continuedFrom = fmt.Sprintf("%s#%s", fromRun.IssueID, fromRun.RunID)
 	}
 
-	issue, err := st.ResolveIssue(issueID)
-	if err != nil {
-		return nil, fmt.Errorf("issue not found: %s", issueID)
+	// The issue is resolved by the MASTER (issue-store SSOT) and carried in
+	// opts.IssueSnapshot; the worker must NOT read the run's own issue from its
+	// local store (it may have none when pinned to a different host than the
+	// master). The delegation path (handleProtoContinueRun) always sets the
+	// snapshot. Fall back to the local store only for non-delegated direct calls,
+	// and never silently swallow a missing issue.
+	issue := opts.IssueSnapshot
+	if issue == nil {
+		resolvedIssue, err := st.ResolveIssue(issueID)
+		if err != nil {
+			return nil, fmt.Errorf("issue not found: %s", issueID)
+		}
+		issue = resolvedIssue
 	}
 
 	agentName := opts.Agent
@@ -4038,7 +4063,10 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 	if targetName := strings.TrimSpace(opts.Target); targetName != "" {
 		metadata["target"] = targetName
 	}
-	run, err := st.CreateRun(issueID, runID, metadata)
+	// When the issue came from the master snapshot (worker-delegation path), the
+	// master has already verified it; the worker must not re-verify against a
+	// store it may not own. Otherwise (legacy direct/co-located call) verify.
+	run, err := createRunForIssue(st, opts.IssueSnapshot != nil, issueID, runID, metadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create run: %w", err)
 	}
