@@ -158,6 +158,9 @@ func (m *mockStoreForUpdate) ListIssues() ([]*model.Issue, error) { return nil, 
 func (m *mockStoreForUpdate) CreateRun(model.IssueID, model.RunID, map[string]string) (*model.Run, error) {
 	return nil, nil
 }
+func (m *mockStoreForUpdate) CreateRunForExistingIssue(model.IssueID, model.RunID, map[string]string) (*model.Run, error) {
+	return nil, nil
+}
 func (m *mockStoreForUpdate) ListRuns(*store.ListRunsFilter) ([]*model.Run, error) { return nil, nil }
 func (m *mockStoreForUpdate) GetRun(*model.RunRef) (*model.Run, error)             { return nil, nil }
 func (m *mockStoreForUpdate) GetRunByShortID(model.ShortID) (*model.Run, error)    { return nil, nil }

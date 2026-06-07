@@ -599,7 +599,11 @@ func SummaryAliveInfo(s *RunSummary) (alive bool, known bool) {
 }
 
 type StartRunOptions struct {
-	IssueID        model.IssueID
+	IssueID model.IssueID
+	// IssueSnapshot is the issue resolved by the MASTER (the issue-store SSOT) and
+	// carried in the worker payload so the worker never reads its own issue from a
+	// local store it may not have (e.g. a worker pinned to a different host than the
+	// master). The worker-delegation path in handleProtoStartRun always sets this.
 	IssueSnapshot  *model.Issue
 	RunID          model.RunID
 	Agent          string
@@ -651,7 +655,12 @@ type StartRunResult struct {
 }
 
 type ContinueRunOptions struct {
-	IssueID        model.IssueID
+	IssueID model.IssueID
+	// IssueSnapshot is the issue resolved by the MASTER (the issue-store SSOT) and
+	// carried in the worker payload so the worker never reads its own issue from a
+	// local store it may not have (e.g. a worker pinned to a different host than the
+	// master). The worker-delegation path in handleProtoContinueRun always sets this.
+	IssueSnapshot  *model.Issue
 	RunID          model.RunID
 	ShortID        model.ShortID
 	Branch         string

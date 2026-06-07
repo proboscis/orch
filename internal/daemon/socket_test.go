@@ -108,6 +108,21 @@ func (m *mockStore) SetIssueStatus(issueID model.IssueID, status model.IssueStat
 }
 
 func (m *mockStore) CreateRun(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
+	// Mirror FileStore: verify the issue exists for non-GitHub issues.
+	if !strings.HasPrefix(string(issueID), "gh-") && !strings.HasPrefix(string(issueID), "gh#") {
+		if _, err := m.ResolveIssue(issueID); err != nil {
+			return nil, fmt.Errorf("issue not found: %s", issueID)
+		}
+	}
+	return m.createRunDoc(issueID, runID, metadata)
+}
+
+func (m *mockStore) CreateRunForExistingIssue(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
+	// No issue verification: worker-delegated path.
+	return m.createRunDoc(issueID, runID, metadata)
+}
+
+func (m *mockStore) createRunDoc(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
 	if m.runs == nil {
 		m.runs = make(map[string]*model.Run)
 	}
@@ -652,7 +667,14 @@ func TestProtoContinueRunUsesExternalWorkerResultJSON(t *testing.T) {
 	defer cleanup()
 
 	projectID := testProjectID
-	st := &mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}}
+	st := &mockStore{
+		runs: map[string]*model.Run{},
+		issues: map[string]*model.Issue{
+			// The master (issue-store SSOT) resolves the issue before delegating to
+			// the worker, so the issue must exist on the master store.
+			"issue-cont": {ID: "issue-cont", Title: "Cont", Status: model.IssueStatusOpen},
+		},
+	}
 
 	server := newTestServer(t, st)
 	if err := server.Start(); err != nil {
@@ -5528,6 +5550,101 @@ func TestProcessStartRunCoreValidation(t *testing.T) {
 			t.Errorf("expected 'no project root available' error, got: %v", err)
 		}
 	})
+
+	t.Run("uses payload issue snapshot without reading worker store", func(t *testing.T) {
+		// A worker pinned to a different host than the master has no issue store.
+		// The master carries the resolved issue in opts.IssueSnapshot; the worker
+		// must consume it and never read its own store for the run's issue.
+		emptyStore := &mockStore{
+			runs:   make(map[string]*model.Run),
+			issues: make(map[string]*model.Issue), // intentionally empty: worker has no issue
+		}
+		opts := &StartRunOptions{
+			IssueID: "remote-issue",
+			Agent:   "custom",
+			IssueSnapshot: &model.Issue{
+				ID:     "remote-issue",
+				Title:  "Remote",
+				Body:   "do the thing",
+				Status: model.IssueStatusOpen,
+			},
+		}
+		// projectRoot="" makes the core fail at the next gate (project root). The
+		// point is that it gets PAST issue resolution: it must NOT fail
+		// "issue not found" even though the worker store is empty.
+		_, err := server.processStartRunCore(emptyStore, "", opts)
+		if err == nil {
+			t.Fatal("expected error at the project-root gate")
+		}
+		if strings.Contains(err.Error(), "issue not found") {
+			t.Fatalf("worker must use opts.IssueSnapshot, not read its empty store; got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "no project root available") {
+			t.Fatalf("expected to reach 'no project root available', got: %v", err)
+		}
+	})
+}
+
+// TestMasterFailsFastOnMissingIssueBeforeDelegation verifies that the master
+// (issue-store SSOT) rejects start/continue with an explicit "issue not found"
+// BEFORE delegating to a worker. This keeps the error on the master (where the
+// store lives) instead of on a worker that may run on a different host and have
+// no issue store at all. No worker is registered, so reaching delegation would
+// hang/fail differently; the assertion is that we never get there.
+func TestMasterFailsFastOnMissingIssueBeforeDelegation(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	st := &mockStore{
+		runs:   make(map[string]*model.Run),
+		issues: make(map[string]*model.Issue), // empty: issue does not exist on master
+	}
+	server := newTestServer(t, st)
+
+	t.Run("start_run", func(t *testing.T) {
+		resp := server.handleProtoStartRun(&orchpb.StartRunRequest{
+			IssueId: "missing-issue",
+			RunId:   "run-x",
+			Context: &orchpb.RequestContext{ProjectId: testProjectID},
+		})
+		if resp.Ok {
+			t.Fatalf("expected failure for missing issue, got ok response: %+v", resp)
+		}
+		if !strings.Contains(resp.Error, "issue not found: missing-issue") {
+			t.Fatalf("expected explicit 'issue not found: missing-issue', got: %q", resp.Error)
+		}
+	})
+
+	t.Run("continue_run", func(t *testing.T) {
+		resp := server.handleProtoContinueRun(&orchpb.ContinueRunRequest{
+			IssueId: "missing-issue",
+			RunId:   "run-x",
+			Branch:  "feature-branch",
+			Context: &orchpb.RequestContext{ProjectId: testProjectID},
+		})
+		if resp.Ok {
+			t.Fatalf("expected failure for missing issue, got ok response: %+v", resp)
+		}
+		if !strings.Contains(resp.Error, "issue not found: missing-issue") {
+			t.Fatalf("expected explicit 'issue not found: missing-issue', got: %q", resp.Error)
+		}
+	})
+
+	t.Run("continue_run short_id with no matching run fails fast on master", func(t *testing.T) {
+		// The short-id mode derives the issue ID from the referenced run; if the run
+		// is unknown to the master, fail fast here instead of delegating with an
+		// empty issue ID (which would mislead on the wrong host).
+		resp := server.handleProtoContinueRun(&orchpb.ContinueRunRequest{
+			ShortId: "deadbe",
+			Context: &orchpb.RequestContext{ProjectId: testProjectID},
+		})
+		if resp.Ok {
+			t.Fatalf("expected failure for unknown short id, got ok response: %+v", resp)
+		}
+		if !strings.Contains(resp.Error, "run not found: deadbe") {
+			t.Fatalf("expected explicit 'run not found: deadbe', got: %q", resp.Error)
+		}
+	})
 }
 
 func TestBootstrapOpenCodeRunSessionFailsFastOnCreateSessionError(t *testing.T) {
@@ -5764,6 +5881,59 @@ func TestProcessContinueRunCoreValidation(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "'orch restart-from' only supports failed, canceled, or unknown runs") {
 			t.Fatalf("expected restart-from terminal-state guidance, got: %s", err.Error())
+		}
+	})
+
+	t.Run("branch path uses payload issue snapshot without reading worker store", func(t *testing.T) {
+		// A worker pinned to a different host than the master has no issue store.
+		// The master carries the resolved issue in opts.IssueSnapshot; the worker
+		// must consume it and never read its own store for the run's issue.
+		emptyStore := &mockStore{
+			runs:   make(map[string]*model.Run),
+			issues: make(map[string]*model.Issue), // intentionally empty: worker has no issue
+		}
+		opts := &ContinueRunOptions{
+			Branch:  "feature-branch",
+			IssueID: "remote-issue",
+			IssueSnapshot: &model.Issue{
+				ID:     "remote-issue",
+				Title:  "Remote",
+				Body:   "do the thing",
+				Status: model.IssueStatusOpen,
+			},
+		}
+		// projectRoot="" makes the core fail at the next gate (project root). The
+		// point is that it gets PAST the branch-path issue validation: it must NOT
+		// fail "issue not found" even though the worker store is empty.
+		_, err := server.processContinueRunCore(emptyStore, "", opts)
+		if err == nil {
+			t.Fatal("expected error at the project-root gate")
+		}
+		if strings.Contains(err.Error(), "issue not found") {
+			t.Fatalf("worker must use opts.IssueSnapshot, not read its empty store; got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "no project root available") {
+			t.Fatalf("expected to reach 'no project root available', got: %v", err)
+		}
+	})
+
+	t.Run("branch path fails fast on missing issue when no snapshot", func(t *testing.T) {
+		emptyStore := &mockStore{
+			runs:   make(map[string]*model.Run),
+			issues: make(map[string]*model.Issue),
+		}
+		opts := &ContinueRunOptions{
+			Branch:  "feature-branch",
+			IssueID: "remote-issue",
+			// No IssueSnapshot: a non-delegated direct call falls back to the local
+			// store and must fail fast (never silently swallow a missing issue).
+		}
+		_, err := server.processContinueRunCore(emptyStore, "/project", opts)
+		if err == nil {
+			t.Fatal("expected 'issue not found' error")
+		}
+		if !strings.Contains(err.Error(), "issue not found") {
+			t.Fatalf("expected 'issue not found', got: %v", err)
 		}
 	})
 }

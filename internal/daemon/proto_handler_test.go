@@ -860,8 +860,12 @@ func TestWorkerLeaseRedispatchToSecondWorkerAfterExpiry(t *testing.T) {
 
 func TestSyncStartRunResultToMasterStorePreservesOpenCodeArtifacts(t *testing.T) {
 	st := &mockStore{
-		runs:   map[string]*model.Run{},
-		issues: map[string]*model.Issue{},
+		runs: map[string]*model.Run{},
+		issues: map[string]*model.Issue{
+			// The master store owns the issue; syncStartRunResultToMasterStore runs
+			// on the master and creates the run projection via the verifying CreateRun.
+			"issue-opencode-sync": {ID: "issue-opencode-sync", Status: model.IssueStatusOpen},
+		},
 	}
 	server := NewSocketServer(nil, &timingTestLogger{})
 

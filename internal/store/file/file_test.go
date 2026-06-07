@@ -288,6 +288,57 @@ func TestCreateRunDuplicate(t *testing.T) {
 	}
 }
 
+// TestCreateRunForExistingIssueSkipsIssueVerification proves the worker-delegation
+// path: a worker may have NO issue store (it can run on a different host than the
+// master), yet must still be able to create the run document because the master
+// (issue-store SSOT) already verified the issue. CreateRun must reject a missing
+// non-GitHub issue, while CreateRunForExistingIssue must succeed and land the run
+// document coherently at runs/<issueID>/<runID>.md even though the issue file is
+// absent.
+func TestCreateRunForExistingIssueSkipsIssueVerification(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	s, _ := New(vault)
+
+	// No issue created on this store: the worker has no issue store.
+	const issueID model.IssueID = "remote-local-issue" // non-gh id (would normally be verified)
+	const runID model.RunID = "20231220-100000"
+
+	// Verifying CreateRun must fail fast: the worker would have broken here before
+	// this fix (the old st.CreateIssue hack masked it).
+	if _, err := s.CreateRun(issueID, runID, nil); err == nil {
+		t.Fatal("expected CreateRun to fail for missing non-gh issue")
+	}
+
+	// CreateRunForExistingIssue bypasses verification and writes the run document.
+	run, err := s.CreateRunForExistingIssue(issueID, runID, map[string]string{"agent": "custom"})
+	if err != nil {
+		t.Fatalf("CreateRunForExistingIssue() error = %v", err)
+	}
+	if run.IssueID != issueID || run.RunID != runID {
+		t.Fatalf("run identity = %s#%s, want %s#%s", run.IssueID, run.RunID, issueID, runID)
+	}
+
+	// Run document must land coherently under runs/<issueID>/<runID>.md.
+	wantPath := filepath.Join(vault, "runs", string(issueID), string(runID)+".md")
+	if run.Path != wantPath {
+		t.Fatalf("run.Path = %q, want %q", run.Path, wantPath)
+	}
+	if _, err := os.Stat(run.Path); err != nil {
+		t.Fatalf("run document not created at %q: %v", run.Path, err)
+	}
+
+	// And it must be retrievable without the issue file present.
+	loaded, err := s.GetRun(run.Ref())
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if loaded.Agent != "custom" {
+		t.Fatalf("Agent = %q, want custom", loaded.Agent)
+	}
+}
+
 func TestAppendEvent(t *testing.T) {
 	vault, cleanup := setupTestVault(t)
 	defer cleanup()

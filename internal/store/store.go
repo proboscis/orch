@@ -36,8 +36,15 @@ type Store interface {
 	// SetIssueStatus updates an issue's status in frontmatter
 	SetIssueStatus(issueID model.IssueID, status model.IssueStatus) error
 
-	// CreateRun creates a new run for an issue
+	// CreateRun creates a new run for an issue, verifying the issue exists in this
+	// store first (non-GitHub issues). Use on the co-located/master path.
 	CreateRun(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error)
+
+	// CreateRunForExistingIssue creates a run WITHOUT verifying the issue against
+	// this store. It is for worker-delegated execution where the master (issue-store
+	// SSOT) has already resolved the issue and the worker may have no issue store of
+	// its own (e.g. pinned to a different host than the master).
+	CreateRunForExistingIssue(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error)
 
 	// AppendEvent appends an event to a run
 	AppendEvent(ref *model.RunRef, event *model.Event) error

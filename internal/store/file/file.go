@@ -656,7 +656,9 @@ func (s *FileStore) ListIssues() ([]*model.Issue, error) {
 	return issues, nil
 }
 
-// CreateRun creates a new run for an issue
+// CreateRun creates a new run for an issue, verifying the issue exists in this
+// store first (for non-GitHub issues). Use this on the co-located/master path
+// where this store owns the issue.
 func (s *FileStore) CreateRun(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
 	// Skip verification for GitHub issues - they're not local files
 	if !strings.HasPrefix(string(issueID), "gh-") && !strings.HasPrefix(string(issueID), "gh#") {
@@ -667,6 +669,24 @@ func (s *FileStore) CreateRun(issueID model.IssueID, runID model.RunID, metadata
 
 	}
 
+	return s.createRunDocument(issueID, runID, metadata)
+}
+
+// CreateRunForExistingIssue creates a run WITHOUT verifying the issue against
+// this store. It is for worker-delegated execution: a worker may run on a
+// different host than the master and therefore have no issue store at all, yet
+// the master (the issue-store SSOT) has already resolved and verified the issue
+// before delegating. The run document layout (runs/<issueID>/<runID>.md under
+// this store's root) does not depend on the issue file being present; the runs
+// directory is created as needed.
+func (s *FileStore) CreateRunForExistingIssue(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
+	return s.createRunDocument(issueID, runID, metadata)
+}
+
+// createRunDocument writes the run document and returns the run. It assumes the
+// issue has already been verified by the caller (or intentionally skipped for a
+// worker-delegated run / GitHub issue).
+func (s *FileStore) createRunDocument(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
 	// Create runs directory for issue if needed
 	runsDir := s.runsDir(issueID)
 	if err := os.MkdirAll(runsDir, 0755); err != nil {
