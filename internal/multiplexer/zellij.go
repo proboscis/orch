@@ -316,7 +316,9 @@ func (z *ZellijMultiplexer) CapturePane(session string, lines int) (string, erro
 	tmpFile.Close()
 	defer os.Remove(tmpPath)
 
-	args := []string{"--session", session, "action", "dump-screen", tmpPath}
+	// zellij 0.44+ takes the dump path via the --path flag; the old positional
+	// form (`dump-screen <path>`) is rejected ("argument ... wasn't expected").
+	args := []string{"--session", session, "action", "dump-screen", "--path", tmpPath}
 	if err := z.run(args...); err != nil {
 		return "", err
 	}
