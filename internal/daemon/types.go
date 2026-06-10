@@ -666,6 +666,7 @@ type ContinueRunOptions struct {
 	// local store it may not have (e.g. a worker pinned to a different host than the
 	// master). The worker-delegation path in handleProtoContinueRun always sets this.
 	IssueSnapshot  *model.Issue
+	RunSnapshot    *RunSnapshot
 	RunID          model.RunID
 	ShortID        model.ShortID
 	Branch         string
@@ -713,6 +714,27 @@ type ContinueRunResult struct {
 	WorkerID          string
 	ServerPort        int
 	OpenCodeSessionID string
+}
+
+type RunSnapshot struct {
+	IssueID           model.IssueID
+	RunID             model.RunID
+	Status            model.Status
+	Phase             model.Phase
+	Agent             string
+	Profile           string
+	Model             string
+	ModelVariant      string
+	Branch            string
+	WorktreePath      string
+	Target            string
+	TargetHost        string
+	TargetWorkerID    string
+	SessionName       string
+	Multiplexer       string
+	ServerPort        int
+	OpenCodeSessionID string
+	ContinuedFrom     string
 }
 
 type StopRunResponse struct {
