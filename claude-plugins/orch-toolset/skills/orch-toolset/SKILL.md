@@ -6,7 +6,7 @@ description: |
   restart-from, orch worker start/status/stop, orch attach/capture/send/exec, and remote execution
   via ORCH_REMOTE and target_host. Trigger terms: orch, orchestrator, worker, master, ORCH_REMOTE,
   target_host, run management, issue management, agent runs, worktree.
-version: 1.1.1
+version: 1.2.0
 ---
 
 # Orch Toolset
@@ -27,9 +27,22 @@ worktrees, and append-only run events.
 Important remote rule:
 
 - `ORCH_REMOTE=<master>` points the CLI and local worker at that master.
+- The default master can also be set durably in `client.yaml` — globally in
+  `~/.config/orch/client.yaml` or per-repo in `<repo>/.orch/client.yaml`:
+
+  ```yaml
+  remote:
+    default: "zeus:7777"
+  ```
+
 - It does **not** mean `worker start` happens on the remote host.
 - `orch worker start` is local-host scoped. The worker process is started on the machine where
   you run the command, then it connects to the configured master.
+- When talking to a remote master, pass `--project <origin URL>` (or set `ORCH_PROJECT`)
+  explicitly on every command. CWD-based inference resolves against the master's own context,
+  not your repo: observed with daemon @6b2bceb1, `issue list` without `--project` returned the
+  master repo's issues, and `issue create` fails with `project identity required` even inside
+  a git repo with `origin` set.
 
 ## Core Workflow
 
@@ -113,6 +126,38 @@ Interpretation:
 - the worker process started on **this** machine
 - the worker registered to `zeus:7777`
 - the run's `target_host` / `HOST` tells you where the session actually runs
+
+## Remote-Master Pitfalls (verified behaviors)
+
+- **Target resolution happens on the master.** `--on <target>` names are mapped to a host by
+  `config.targets` as loaded by the **master daemon**, and the resolved host is **baked into
+  the run at creation**. Fixing a client-side config does not change what new runs resolve to —
+  the master's config (on the master host) is what counts, and the daemon reads it at startup.
+- **Stale target host after a machine rename/migration**: `orch run` appears to succeed
+  (worktree created), but the session never launches, and `capture`/`send`/`stop` all fail with
+  `no active worker available for target "host-<old-hostname>"`. Fix: update `targets:` in the
+  config on the **master host**, then restart the master daemon.
+- **Runs created before the fix keep the stale baked host** and cannot even be stopped
+  normally. Recovery: temporarily register a worker under the old ID, stop, then remove it:
+
+  ```bash
+  orch worker start --worker-id host-<old-hostname>
+  orch stop <ISSUE> --force
+  orch worker stop --worker-id host-<old-hostname>
+  ```
+
+- **Workers do not reconnect forever.** A master restart or a network blip can leave the local
+  worker `exited` (see `Last Error` in `orch worker status`). Verify the worker at the start of
+  every orch session and run `orch worker start` again when needed.
+- **File-backend issue files live on the master's checkout** (e.g.
+  `~/repos/<repo>/VAULT/Issues/ISSUE-X.md` on the master host). From another host,
+  `orch open <ISSUE> --print-path` reports `not found` — read the issue via `orch issue list`
+  / `orch show` instead.
+- **Updating the master binary while its daemon runs** fails with `Text file busy` on `cp`;
+  use `rm <bin> && cp <new> <bin>` (the running process keeps its inode), then restart the
+  daemon deliberately. `orch repair`'s daemon restart operates on the operator host — restart a
+  remote master on its own host (`kill <pid>`, then
+  `nohup orch daemon run --listen 0.0.0.0:<port> ...` from the original working directory).
 
 ## Control-Agent Patterns
 

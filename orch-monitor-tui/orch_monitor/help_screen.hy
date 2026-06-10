@@ -181,7 +181,7 @@
         (yield (Static ""))
         (yield (Static "2. Create minimal config:"))
         (yield (Static "cat > .orch/config.yaml <<'EOF'" :classes "code-line"))
-        (yield (Static "agent: opencode" :classes "code-line"))
+        (yield (Static "agent: codex" :classes "code-line"))
         (yield (Static "EOF" :classes "code-line"))
         (yield (Static ""))
         (yield (Static "3. For full guided setup:"))
