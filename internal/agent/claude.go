@@ -30,6 +30,15 @@ func (a *ClaudeAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 		args = append(args, "--dangerously-skip-permissions")
 	}
 
+	// Route the resolved model/variant like the opencode adapter does:
+	// claude exposes them as --model and --effort (low|medium|high|xhigh|max).
+	if cfg.Model != "" {
+		args = append(args, "--model", cfg.Model)
+	}
+	if cfg.ModelVariant != "" {
+		args = append(args, "--effort", cfg.ModelVariant)
+	}
+
 	// NOTE: claude has no --profile flag. Profile selection happens entirely
 	// via the CLAUDE_CONFIG_DIR environment variable (LaunchConfig.Env), so
 	// cfg.Profile must never reach the command line.
