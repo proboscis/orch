@@ -352,3 +352,107 @@ func TestResolveControlCodexHome_UnknownDefaultProfileFailsFast(t *testing.T) {
 		t.Errorf("error = %q, want unknown codex profile", err.Error())
 	}
 }
+
+func TestApplyCodexProfile_WritesBackResolvedDefaultProfileName(t *testing.T) {
+	t.Setenv("HOME", "/home/tester")
+	cfg := newCodexProfileConfig()
+	opts := &StartRunOptions{Agent: "codex"} // no explicit profile -> default "company"
+
+	if err := applyCodexProfile(cfg, opts); err != nil {
+		t.Fatalf("applyCodexProfile error: %v", err)
+	}
+	if opts.CodexProfile != "company" {
+		t.Errorf("opts.CodexProfile = %q, want company (resolved default written back)", opts.CodexProfile)
+	}
+}
+
+func TestApplyCodexProfile_NonCodexAgentClearsRequestedProfile(t *testing.T) {
+	cfg := newCodexProfileConfig()
+	cfg.Agent = "opencode"
+	opts := &StartRunOptions{Agent: "opencode", CodexProfile: "company"}
+
+	if err := applyCodexProfile(cfg, opts); err != nil {
+		t.Fatalf("applyCodexProfile error: %v", err)
+	}
+	if opts.CodexProfile != "" {
+		t.Errorf("opts.CodexProfile = %q, want empty: a codex profile does not apply to a non-codex agent", opts.CodexProfile)
+	}
+}
+
+func TestApplyCodexProfileContinue_WritesBackResolvedProfileName(t *testing.T) {
+	t.Setenv("HOME", "/home/tester")
+	cfg := newCodexProfileConfig()
+	opts := &ContinueRunOptions{Target: "mac"} // agent inferred from prior run
+
+	if err := applyCodexProfileContinue(cfg, opts, "codex"); err != nil {
+		t.Fatalf("applyCodexProfileContinue error: %v", err)
+	}
+	if opts.CodexProfile != "company" {
+		t.Errorf("opts.CodexProfile = %q, want company (resolved default written back)", opts.CodexProfile)
+	}
+}
+
+func TestEffectiveAgentProfile_CodexProfileWins(t *testing.T) {
+	if got := effectiveAgentProfile("company", "my-claude-profile"); got != "company" {
+		t.Errorf("effectiveAgentProfile = %q, want company", got)
+	}
+	if got := effectiveAgentProfile("", "my-claude-profile"); got != "my-claude-profile" {
+		t.Errorf("effectiveAgentProfile = %q, want my-claude-profile", got)
+	}
+	if got := effectiveAgentProfile("  ", ""); got != "" {
+		t.Errorf("effectiveAgentProfile = %q, want empty", got)
+	}
+}
+
+func TestApplyCodexProfile_NonCodexAgentPreservesIncomingTarget(t *testing.T) {
+	// Regression: the no-op paths of resolveCodexProfile must not drop the
+	// caller's --on target (it was cleared for non-codex agents, masked by the
+	// master projection reading the raw request target).
+	cfg := newCodexProfileConfig()
+	cfg.Agent = "opencode"
+	opts := &StartRunOptions{Agent: "custom", Target: "zeus"}
+
+	if err := applyCodexProfile(cfg, opts); err != nil {
+		t.Fatalf("applyCodexProfile error: %v", err)
+	}
+	if opts.Target != "zeus" {
+		t.Errorf("opts.Target = %q, want zeus (caller target preserved for non-codex agent)", opts.Target)
+	}
+}
+
+func TestApplyCodexProfile_CodexWithoutProfilePreservesIncomingTarget(t *testing.T) {
+	cfg := &config.Config{Agent: "codex"} // codex but no profiles / default_profile
+	opts := &StartRunOptions{Agent: "codex", Target: "zeus"}
+
+	if err := applyCodexProfile(cfg, opts); err != nil {
+		t.Fatalf("applyCodexProfile error: %v", err)
+	}
+	if opts.Target != "zeus" {
+		t.Errorf("opts.Target = %q, want zeus (caller target preserved without profile)", opts.Target)
+	}
+}
+
+func TestApplyCodexProfileContinue_NonCodexAgentPreservesIncomingTarget(t *testing.T) {
+	cfg := newCodexProfileConfig()
+	opts := &ContinueRunOptions{Target: "zeus"}
+
+	if err := applyCodexProfileContinue(cfg, opts, "claude"); err != nil {
+		t.Fatalf("applyCodexProfileContinue error: %v", err)
+	}
+	if opts.Target != "zeus" {
+		t.Errorf("opts.Target = %q, want zeus (prior run target preserved for non-codex agent)", opts.Target)
+	}
+}
+
+func TestApplyCodexProfile_ExplicitLocalTargetNormalizedToEmpty(t *testing.T) {
+	cfg := newCodexProfileConfig()
+	cfg.Agent = "opencode"
+	opts := &StartRunOptions{Agent: "opencode", Target: "local"}
+
+	if err := applyCodexProfile(cfg, opts); err != nil {
+		t.Fatalf("applyCodexProfile error: %v", err)
+	}
+	if opts.Target != "" {
+		t.Errorf("opts.Target = %q, want empty (explicit local normalized)", opts.Target)
+	}
+}

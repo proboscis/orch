@@ -238,6 +238,7 @@ func TestCreateRun(t *testing.T) {
 	s, _ := New(vault)
 	metadata := map[string]string{
 		"agent":          "claude",
+		"profile":        "company",
 		"continued_from": "test123#20231220-090000",
 	}
 	run, err := s.CreateRun("test123", "20231220-100000", metadata)
@@ -263,6 +264,9 @@ func TestCreateRun(t *testing.T) {
 	}
 	if loaded.Agent != metadata["agent"] {
 		t.Errorf("Agent = %v, want %v", loaded.Agent, metadata["agent"])
+	}
+	if loaded.Profile != metadata["profile"] {
+		t.Errorf("Profile = %v, want %v", loaded.Profile, metadata["profile"])
 	}
 	if loaded.ContinuedFrom != metadata["continued_from"] {
 		t.Errorf("ContinuedFrom = %v, want %v", loaded.ContinuedFrom, metadata["continued_from"])

@@ -1304,7 +1304,8 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 	}
 
 	if !req.DryRun {
-		if err := s.syncStartRunResultToMasterStore(st, req, result); err != nil {
+		profile := effectiveAgentProfile(opts.CodexProfile, opts.AgentProfile)
+		if err := s.syncStartRunResultToMasterStore(st, req, result, opts.Target, profile); err != nil {
 			s.logger.Printf("warning: failed to sync start_run projection for %s#%s: %v", req.IssueId, result.RunID, err)
 		}
 	}
@@ -1323,11 +1324,16 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 	}
 }
 
-func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orchpb.StartRunRequest, result *StartRunResult) error {
+// syncStartRunResultToMasterStore projects a delegated start_run result onto the
+// master store. targetName and profile are the RESOLVED values from the start
+// options (after applyCodexProfile), not the raw request values: a codex profile
+// may inject the target and the default profile may apply without being requested.
+func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orchpb.StartRunRequest, result *StartRunResult, targetName, profile string) error {
 	if st == nil || result == nil {
 		return nil
 	}
 
+	targetName = strings.TrimSpace(targetName)
 	resultRunID := model.RunID(result.RunID)
 	ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: resultRunID}
 	run, err := st.GetRun(ref)
@@ -1342,8 +1348,11 @@ func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orch
 		if req.ModelVariant != "" {
 			metadata["model_variant"] = req.ModelVariant
 		}
-		if req.Target != "" {
-			metadata["target"] = req.Target
+		if targetName != "" {
+			metadata["target"] = targetName
+		}
+		if profile != "" {
+			metadata["profile"] = profile
 		}
 
 		run, err = st.CreateRun(model.IssueID(req.IssueId), resultRunID, metadata)
@@ -1388,7 +1397,7 @@ func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orch
 			"id": strings.TrimSpace(result.OpenCodeSessionID),
 		}))
 	}
-	if targetName := strings.TrimSpace(req.Target); targetName != "" {
+	if targetName != "" {
 		targetAttrs := map[string]string{"name": targetName}
 		if repoCtx := s.ensureRepoContextByID(projectIDFromContext(req.Context)); repoCtx != nil && strings.TrimSpace(repoCtx.ProjectRoot) != "" {
 			projectRoot := strings.TrimSpace(repoCtx.ProjectRoot)
@@ -1409,7 +1418,10 @@ func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orch
 	return nil
 }
 
-func (s *SocketServer) syncContinueRunResultToMasterStore(st store.Store, req *orchpb.ContinueRunRequest, result *ContinueRunResult, targetName string) error {
+// syncContinueRunResultToMasterStore projects a delegated continue_run result
+// onto the master store. targetName and profile are the RESOLVED values from the
+// continue options (after applyCodexProfileContinue), not the raw request values.
+func (s *SocketServer) syncContinueRunResultToMasterStore(st store.Store, req *orchpb.ContinueRunRequest, result *ContinueRunResult, targetName, profile string) error {
 	if st == nil || result == nil {
 		return nil
 	}
@@ -1427,6 +1439,12 @@ func (s *SocketServer) syncContinueRunResultToMasterStore(st store.Store, req *o
 			metadata["continued_from"] = req.ShortId
 		} else if req.IssueId != "" && req.RunId != "" {
 			metadata["continued_from"] = fmt.Sprintf("%s#%s", req.IssueId, req.RunId)
+		}
+		if targetName := strings.TrimSpace(targetName); targetName != "" {
+			metadata["target"] = targetName
+		}
+		if profile != "" {
+			metadata["profile"] = profile
 		}
 		run, err = st.CreateRun(resultIssueID, resultRunID, metadata)
 		if err != nil {
@@ -1598,7 +1616,7 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 	if result == nil {
 		return errorResponse("worker lease completed without continue_run result")
 	}
-	if err := s.syncContinueRunResultToMasterStore(st, req, result, opts.Target); err != nil {
+	if err := s.syncContinueRunResultToMasterStore(st, req, result, opts.Target, effectiveAgentProfile(opts.CodexProfile, opts.AgentProfile)); err != nil {
 		return errorResponse(fmt.Sprintf("failed to sync continue_run result to master store: %v", err))
 	}
 

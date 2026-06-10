@@ -77,6 +77,7 @@ type Run struct {
 
 	// Artifacts (from events)
 	Agent             string
+	Profile           string
 	Model             string
 	ModelVariant      string
 	Branch            string

@@ -130,6 +130,7 @@ type RunSummary struct {
 	IsTerminal        bool           `json:"is_terminal"`
 	Phase             string         `json:"phase,omitempty"`
 	Agent             string         `json:"agent"`
+	Profile           string         `json:"profile,omitempty"`
 	Model             string         `json:"model,omitempty"`
 	Branch            string         `json:"branch,omitempty"`
 	WorktreePath      string         `json:"worktree_path,omitempty"`
@@ -184,6 +185,7 @@ type RunFull struct {
 	IsTerminal        bool           `json:"is_terminal"`
 	Phase             string         `json:"phase,omitempty"`
 	Agent             string         `json:"agent"`
+	Profile           string         `json:"profile,omitempty"`
 	Model             string         `json:"model,omitempty"`
 	ModelVariant      string         `json:"model_variant,omitempty"`
 	Branch            string         `json:"branch,omitempty"`
@@ -393,6 +395,7 @@ func RunToSummary(run *model.Run) *RunSummary {
 		IsTerminal:        run.Status.IsTerminal(),
 		Phase:             string(run.Phase),
 		Agent:             run.Agent,
+		Profile:           run.Profile,
 		Model:             run.Model,
 		Branch:            run.Branch,
 		WorktreePath:      run.WorktreePath,
@@ -460,6 +463,7 @@ func RunToFull(run *model.Run) *RunFull {
 		IsTerminal:        run.Status.IsTerminal(),
 		Phase:             string(run.Phase),
 		Agent:             run.Agent,
+		Profile:           run.Profile,
 		Model:             run.Model,
 		ModelVariant:      run.ModelVariant,
 		Branch:            run.Branch,
@@ -579,6 +583,7 @@ func SummaryToRun(s *RunSummary) *model.Run {
 		Status:       model.NormalizeStatus(s.Status),
 		Phase:        model.Phase(s.Phase),
 		Agent:        s.Agent,
+		Profile:      s.Profile,
 		Model:        s.Model,
 		Branch:       s.Branch,
 		WorktreePath: s.WorktreePath,

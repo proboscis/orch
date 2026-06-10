@@ -357,8 +357,11 @@ type Run struct {
 	WorktreeExists    bool                   `protobuf:"varint,26,opt,name=worktree_exists,json=worktreeExists,proto3" json:"worktree_exists,omitempty"`
 	Target            string                 `protobuf:"bytes,27,opt,name=target,proto3" json:"target,omitempty"`
 	TargetHost        string                 `protobuf:"bytes,28,opt,name=target_host,json=targetHost,proto3" json:"target_host,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Profile identity the agent ran with: the resolved codex execution
+	// profile for codex runs, or the agent profile (e.g. claude --profile).
+	Profile       string `protobuf:"bytes,29,opt,name=profile,proto3" json:"profile,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Run) Reset() {
@@ -583,6 +586,13 @@ func (x *Run) GetTarget() string {
 func (x *Run) GetTargetHost() string {
 	if x != nil {
 		return x.TargetHost
+	}
+	return ""
+}
+
+func (x *Run) GetProfile() string {
+	if x != nil {
+		return x.Profile
 	}
 	return ""
 }
@@ -10879,7 +10889,7 @@ const file_orch_proto_rawDesc = "" +
 	"\tadditions\x18\x01 \x01(\x05R\tadditions\x12\x1c\n" +
 	"\tdeletions\x18\x02 \x01(\x05R\tdeletions\x12#\n" +
 	"\rfiles_changed\x18\x03 \x01(\x05R\ffilesChanged\x12\x14\n" +
-	"\x05files\x18\x04 \x03(\tR\x05files\"\xd9\a\n" +
+	"\x05files\x18\x04 \x03(\tR\x05files\"\xf3\a\n" +
 	"\x03Run\x12\x19\n" +
 	"\bissue_id\x18\x01 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12*\n" +
@@ -10914,7 +10924,8 @@ const file_orch_proto_rawDesc = "" +
 	"\x0fworktree_exists\x18\x1a \x01(\bR\x0eworktreeExists\x12\x16\n" +
 	"\x06target\x18\x1b \x01(\tR\x06target\x12\x1f\n" +
 	"\vtarget_host\x18\x1c \x01(\tR\n" +
-	"targetHost\"\x92\x02\n" +
+	"targetHost\x12\x18\n" +
+	"\aprofile\x18\x1d \x01(\tR\aprofile\"\x92\x02\n" +
 	"\x05Issue\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x18\n" +

@@ -192,6 +192,7 @@ type Run struct {
 	IsTerminal        bool
 	Phase             string
 	Agent             string
+	Profile           string
 	Model             string
 	ModelVariant      string
 	Branch            string

@@ -291,17 +291,19 @@ func TestOutputTableShowsNewColumns(t *testing.T) {
 	}
 
 	header := lines[0]
+	profileIdx := strings.Index(header, "PROFILE")
 	targetIdx := strings.Index(header, "TARGET")
 	hostIdx := strings.Index(header, "HOST")
 	agentIdx := strings.Index(header, "AGENT")
 	aliveIdx := strings.Index(header, "ALIVE")
 	branchIdx := strings.Index(header, "BRANCH")
 	worktreeIdx := strings.Index(header, "WORKTREE")
-	prIdx := strings.Index(header, "PR")
-	if targetIdx == -1 || hostIdx == -1 || agentIdx == -1 || aliveIdx == -1 || branchIdx == -1 || worktreeIdx == -1 || prIdx == -1 {
+	// "PROFILE" also contains "PR", so locate the PR column from the end.
+	prIdx := strings.LastIndex(header, "PR")
+	if profileIdx == -1 || targetIdx == -1 || hostIdx == -1 || agentIdx == -1 || aliveIdx == -1 || branchIdx == -1 || worktreeIdx == -1 || prIdx == -1 {
 		t.Fatalf("missing columns in header: %q", header)
 	}
-	if !(targetIdx < hostIdx && hostIdx < agentIdx && agentIdx < aliveIdx && aliveIdx < branchIdx && branchIdx < worktreeIdx && worktreeIdx < prIdx) {
+	if !(profileIdx < targetIdx && targetIdx < hostIdx && hostIdx < agentIdx && agentIdx < aliveIdx && aliveIdx < branchIdx && branchIdx < worktreeIdx && worktreeIdx < prIdx) {
 		t.Fatalf("unexpected header order: %q", header)
 	}
 
