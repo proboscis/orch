@@ -161,20 +161,29 @@ Interpretation:
 
 ## Model Routing for Runs
 
-`--agent codex` vs `--agent claude` is a quality decision, not a default:
+The choice is ALWAYS between exactly two models (never Opus, never Haiku):
 
-- **codex (cheap/fast tier)**: scope-bounded mechanical or test-verifiable
-  implementation — rename sweeps, fixture ports, wiring an explicitly
-  specified contract. ~2x faster; satisfies done conditions to the letter.
-- **claude frontier (Fable/Opus)**: design-seam issues — architecture
-  boundaries, contract migrations, invariant machinery, anything where the
-  issue's checklist is a projection of a deeper design. Empirical A/B on
-  the same issue (2026-06-11): codex met every done condition; claude
-  additionally found and fixed a latent bug the work exposed and migrated
-  without leaving dual surfaces. Blind codex-by-default yields
-  letter-satisfying, seam-blind results that cost more in review.
+- **gpt-5.5 (`--agent codex`)**: mundane mechanical work — rename sweeps,
+  fixture ports, wiring an explicitly specified contract. ~2x faster;
+  satisfies done conditions to the letter.
+- **Fable 5 (`--agent claude`, xhigh)**: architectural / complex /
+  invariant-touching issues — architecture boundaries, contract
+  migrations, invariant machinery, anything where the issue's checklist is
+  a projection of a deeper design. Empirical A/B on the same issue
+  (2026-06-11): gpt-5.5 met every done condition; Fable 5 additionally
+  found and fixed a latent bug the work exposed and migrated without
+  leaving dual surfaces. Blind gpt-5.5-by-default yields letter-satisfying,
+  seam-blind results that cost more in review.
 - Whoever dispatches owns this call per issue; when unsure, ask "does this
   issue touch a contract or just implement inside one?"
+- **Effort enforcement caveat**: orch launches claude WITHOUT
+  `CLAUDE_CONFIG_DIR` unless a claude profile with `config_dir` is set in
+  the master config — so it reads the bare `~/.claude/settings.json`,
+  which the cc multi-profile workflow never touches and which can drift.
+  Fable 5 must run at xhigh: verify `effortLevel` in `~/.claude/settings.json`
+  (or define an orch claude profile) before relying on a dispatched run's
+  effort. Verified incident 2026-06-11: all named profiles said xhigh while
+  `~/.claude` still said high; the orch run started at HIGH.
 
 ## Control-Agent Patterns
 
