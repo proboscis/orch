@@ -1,4 +1,4 @@
-.PHONY: all build install install-cli install-tui test test-fast test-compile lint lint-install clean kill-daemons update e2e-local-host-worker e2e-remote-smoke e2e-backend-smoke e2e-pr-ci e2e-target-host-worker e2e-target-host-worker-local e2e-zeus-full-flow e2e-run-control-local e2e-run-control-zeus e2e-run-control-matrix
+.PHONY: all build install install-cli install-tui deploy test test-fast test-compile lint lint-install clean kill-daemons update e2e-local-host-worker e2e-remote-smoke e2e-backend-smoke e2e-pr-ci e2e-target-host-worker e2e-target-host-worker-local e2e-zeus-full-flow e2e-run-control-local e2e-run-control-zeus e2e-run-control-matrix
 .DEFAULT_GOAL := install
 
 BINARY_NAME := orch
@@ -34,6 +34,12 @@ install-tui:
 
 # Install everything, then kill daemons (they restart on demand)
 install: install-cli install-tui kill-daemons
+
+# Full deploy: local install + remote binary install + restart remote
+# master/worker + restart local worker, in dependency order.
+# Override hosts via env: REMOTE_HOST=zeus MASTER_ADDR=zeus:7777 make deploy
+deploy:
+	./scripts/deploy-all.sh
 
 # Kill all orch daemons and opencode servers (clean slate)
 kill-daemons:
