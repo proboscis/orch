@@ -159,8 +159,29 @@ Interpretation:
   remote master on its own host (`kill <pid>`, then
   `nohup orch daemon run --listen 0.0.0.0:<port> ...` from the original working directory).
 
+## Model Routing for Runs
+
+`--agent codex` vs `--agent claude` is a quality decision, not a default:
+
+- **codex (cheap/fast tier)**: scope-bounded mechanical or test-verifiable
+  implementation — rename sweeps, fixture ports, wiring an explicitly
+  specified contract. ~2x faster; satisfies done conditions to the letter.
+- **claude frontier (Fable/Opus)**: design-seam issues — architecture
+  boundaries, contract migrations, invariant machinery, anything where the
+  issue's checklist is a projection of a deeper design. Empirical A/B on
+  the same issue (2026-06-11): codex met every done condition; claude
+  additionally found and fixed a latent bug the work exposed and migrated
+  without leaving dual surfaces. Blind codex-by-default yields
+  letter-satisfying, seam-blind results that cost more in review.
+- Whoever dispatches owns this call per issue; when unsure, ask "does this
+  issue touch a contract or just implement inside one?"
+
 ## Control-Agent Patterns
 
+- **Waiting for a run: `orch wait <RUN_REF> [--timeout N]` is the canonical way —
+  do NOT poll `orch ps` in a loop or hand-roll tmux watchers.** It blocks until
+  any specified run needs attention (waiting/pr_open/done/failed). Pair with a
+  background shell invocation to get a single completion notification.
 - Use `orch ps --status running,waiting,rate_limited` to focus on live work.
 - Use `orch capture` before `orch send`.
 - Use `orch show --json` when you need artifacts like `target_host`, `server_port`, or
@@ -209,6 +230,7 @@ Recommended triage order:
 | Start run | `orch run <ISSUE>` |
 | List live runs | `orch ps --status running,waiting,rate_limited` |
 | Inspect run metadata | `orch show <RUN> --json` |
+| Block until a run needs attention | `orch wait <RUN> [--timeout N]` (canonical; never poll) |
 | Get output | `orch capture <RUN>` |
 | Send guidance | `orch send <RUN> [message]` |
 | Attach interactively | `orch attach <RUN>` |
