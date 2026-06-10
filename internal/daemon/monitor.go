@@ -36,23 +36,45 @@ const (
 	remoteCaptureLines        = 200
 )
 
+type prOutcome string
+
+const (
+	prOutcomeUnknown prOutcome = "unknown"
+	prOutcomeOpen    prOutcome = "open"
+	prOutcomeMerged  prOutcome = "merged"
+	prOutcomeClosed  prOutcome = "closed"
+)
+
 func (d *Daemon) monitorRun(run *model.Run, st store.Store, projectID, projectRoot string) error {
-	if run.Status == model.StatusCanceled {
+	if run.Status.IsTerminal() {
 		return nil
 	}
 
 	state := d.getOrCreateState(run)
 	state.LastCheckAt = time.Now()
 
-	// orch-358: check for merged PR before dead checks
-	if run.Branch != "" {
-		if merged, prURL := d.checkPRMergedWithURL(run, st); merged {
+	// Check terminal PR outcomes before liveness/dead checks. Closed PRs are
+	// terminal too; leaving them in pr_open causes the watcher to poll forever.
+	if run.Branch != "" || run.PRUrl != "" {
+		outcome, prURL := d.checkPROutcome(run, st)
+		switch outcome {
+		case prOutcomeMerged:
 			if prURL != "" {
 				d.logger.Printf("%s#%s: detected merged PR (%s), transitioning to done", run.IssueID, run.RunID, prURL)
 			} else {
 				d.logger.Printf("%s#%s: detected merged PR, transitioning to done", run.IssueID, run.RunID)
 			}
 			return d.updateStatus(run, model.StatusDone, st)
+		case prOutcomeClosed:
+			if prURL != "" {
+				d.logger.Printf("%s#%s: detected closed PR (%s), transitioning to canceled", run.IssueID, run.RunID, prURL)
+			} else {
+				d.logger.Printf("%s#%s: detected closed PR, transitioning to canceled", run.IssueID, run.RunID)
+			}
+			if err := d.recordPRClosedEvent(run, prURL, st); err != nil {
+				return err
+			}
+			return d.updateStatus(run, model.StatusCanceled, st)
 		}
 	}
 
@@ -575,21 +597,29 @@ func (d *Daemon) recordPRArtifact(run *model.Run, prURL string, st store.Store) 
 	return st.AppendEvent(ref, event)
 }
 
-func (d *Daemon) checkPRMerged(run *model.Run) bool {
-	merged, _ := d.checkPRMergedWithURL(run, nil)
-	return merged
+func (d *Daemon) recordPRClosedEvent(run *model.Run, prURL string, st store.Store) error {
+	ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
+	attrs := map[string]string{}
+	if prURL != "" {
+		attrs["url"] = prURL
+	}
+	return st.AppendEvent(ref, model.NewArtifactEvent("pr_closed", attrs))
 }
 
-func (d *Daemon) checkPRMergedWithURL(run *model.Run, st store.Store) (merged bool, prURL string) {
+func (d *Daemon) checkPROutcome(run *model.Run, st store.Store) (prOutcome, string) {
 	if run.PRUrl != "" {
-		prInfo, err := pr.LookupCachedInfoByURL(run.PRUrl)
-		if err == nil && prInfo != nil && prInfo.State == "MERGED" {
-			return true, run.PRUrl
+		prInfo, err := d.lookupPRInfoByURL(run.PRUrl)
+		if err == nil && prInfo != nil {
+			prURL := prInfo.URL
+			if prURL == "" {
+				prURL = run.PRUrl
+			}
+			return prOutcomeFromInfo(prInfo), prURL
 		}
 	}
 
 	if run.Branch == "" {
-		return false, ""
+		return prOutcomeUnknown, ""
 	}
 
 	var repoRoot string
@@ -600,13 +630,13 @@ func (d *Daemon) checkPRMergedWithURL(run *model.Run, st store.Store) (merged bo
 	if repoRoot == "" || err != nil {
 		repoRoot, err = git.FindMainRepoRoot("")
 		if err != nil {
-			return false, ""
+			return prOutcomeUnknown, ""
 		}
 	}
 
-	prInfo, err := pr.LookupCachedInfo(repoRoot, run.Branch)
+	prInfo, err := d.lookupPRInfo(repoRoot, run.Branch)
 	if err != nil || prInfo == nil {
-		return false, ""
+		return prOutcomeUnknown, ""
 	}
 
 	if prInfo.URL != "" && run.PRUrl == "" && st != nil {
@@ -615,10 +645,50 @@ func (d *Daemon) checkPRMergedWithURL(run *model.Run, st store.Store) (merged bo
 		}
 	}
 
-	if prInfo.State == "MERGED" {
-		return true, prInfo.URL
+	return prOutcomeFromInfo(prInfo), prInfo.URL
+}
+
+func (d *Daemon) lookupPRInfo(repoRoot, branch string) (*pr.Info, error) {
+	if d.lookupPRInfoFn != nil {
+		return d.lookupPRInfoFn(repoRoot, branch)
 	}
-	return false, ""
+	return pr.LookupCachedInfo(repoRoot, branch)
+}
+
+func (d *Daemon) lookupPRInfoByURL(prURL string) (*pr.Info, error) {
+	if d.lookupPRInfoByURLFn != nil {
+		return d.lookupPRInfoByURLFn(prURL)
+	}
+	return pr.LookupCachedInfoByURL(prURL)
+}
+
+func prOutcomeFromInfo(prInfo *pr.Info) prOutcome {
+	if prInfo == nil {
+		return prOutcomeUnknown
+	}
+	switch strings.ToUpper(prInfo.State) {
+	case "OPEN":
+		return prOutcomeOpen
+	case "MERGED":
+		return prOutcomeMerged
+	case "CLOSED":
+		return prOutcomeClosed
+	default:
+		return prOutcomeUnknown
+	}
+}
+
+func statusFromPROutcome(outcome prOutcome) model.Status {
+	switch outcome {
+	case prOutcomeOpen:
+		return model.StatusPROpen
+	case prOutcomeMerged:
+		return model.StatusDone
+	case prOutcomeClosed:
+		return model.StatusCanceled
+	default:
+		return ""
+	}
 }
 
 // inferStatusFromGitState infers a run's status from git state when the agent session
@@ -638,7 +708,7 @@ func (d *Daemon) inferStatusFromGitState(run *model.Run, st store.Store, wasAliv
 	}
 
 	d.debug("%s#%s: infer: checking PR for branch %s", run.IssueID, run.RunID, run.Branch)
-	prInfo, err := pr.LookupCachedInfo(repoRoot, run.Branch)
+	prInfo, err := d.lookupPRInfo(repoRoot, run.Branch)
 	if err == nil && prInfo != nil && prInfo.URL != "" {
 		d.logger.Printf("%s#%s: infer: found PR %s (state=%s)", run.IssueID, run.RunID, prInfo.URL, prInfo.State)
 		if run.PRUrl == "" {
@@ -646,10 +716,9 @@ func (d *Daemon) inferStatusFromGitState(run *model.Run, st store.Store, wasAliv
 				d.logger.Printf("%s#%s: infer: failed to record PR: %v", run.IssueID, run.RunID, err)
 			}
 		}
-		if prInfo.State == "MERGED" {
-			return model.StatusDone
+		if status := statusFromPROutcome(prOutcomeFromInfo(prInfo)); status != "" {
+			return status
 		}
-		return model.StatusPROpen
 	}
 	if err != nil {
 		d.debug("%s#%s: infer: PR lookup error: %v", run.IssueID, run.RunID, err)
@@ -661,13 +730,12 @@ func (d *Daemon) inferStatusFromGitState(run *model.Run, st store.Store, wasAliv
 	// This handles cases where the local branch was deleted/rebased but PR still exists
 	if run.PRUrl != "" {
 		d.debug("%s#%s: infer: branch lookup failed, checking existing PR URL: %s", run.IssueID, run.RunID, run.PRUrl)
-		prInfo, err := pr.LookupCachedInfoByURL(run.PRUrl)
+		prInfo, err := d.lookupPRInfoByURL(run.PRUrl)
 		if err == nil && prInfo != nil {
 			d.logger.Printf("%s#%s: infer: PR %s state=%s (via URL lookup)", run.IssueID, run.RunID, prInfo.URL, prInfo.State)
-			if prInfo.State == "MERGED" {
-				return model.StatusDone
+			if status := statusFromPROutcome(prOutcomeFromInfo(prInfo)); status != "" {
+				return status
 			}
-			return model.StatusPROpen
 		}
 		if err != nil {
 			d.debug("%s#%s: infer: PR URL lookup error: %v", run.IssueID, run.RunID, err)

@@ -14,6 +14,7 @@ import (
 
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/internal/pr"
 	"github.com/s22625/orch/internal/store"
 )
 
@@ -307,21 +308,163 @@ func TestMonitorRunSkipsCanceledStatus(t *testing.T) {
 	}
 }
 
-func TestCheckPRMergedWithURLReturnsURLWhenFound(t *testing.T) {
+func TestCheckPROutcomeReturnsClosedWithURL(t *testing.T) {
 	d := newTestDaemon()
+	d.lookupPRInfoByURLFn = func(prURL string) (*pr.Info, error) {
+		return &pr.Info{URL: prURL, Number: 123, State: "CLOSED"}, nil
+	}
 	run := &model.Run{
 		IssueID: "test-issue",
 		RunID:   "run-1",
-		PRUrl:   "",
-		Branch:  "feature/test",
+		PRUrl:   "https://github.com/org/repo/pull/123",
 	}
 
-	merged, url := d.checkPRMergedWithURL(run, nil)
+	outcome, url := d.checkPROutcome(run, nil)
 
-	if merged && url == "" {
-		t.Error("expected non-empty URL when merged PR is found")
+	if outcome != prOutcomeClosed {
+		t.Fatalf("outcome = %s, want %s", outcome, prOutcomeClosed)
 	}
-	_ = merged
+	if url != run.PRUrl {
+		t.Fatalf("url = %q, want %q", url, run.PRUrl)
+	}
+}
+
+func TestMonitorRunClosedPRTransitionsToCanceledAndStopsPolling(t *testing.T) {
+	d := newTestDaemon()
+	prURL := "https://github.com/org/repo/pull/123"
+	lookups := 0
+	d.lookupPRInfoByURLFn = func(gotURL string) (*pr.Info, error) {
+		lookups++
+		if gotURL != prURL {
+			t.Fatalf("lookup URL = %q, want %q", gotURL, prURL)
+		}
+		return &pr.Info{URL: gotURL, Number: 123, State: "CLOSED"}, nil
+	}
+
+	run := &model.Run{
+		IssueID:   "test-issue",
+		RunID:     "run-1",
+		Status:    model.StatusPROpen,
+		PRUrl:     prURL,
+		UpdatedAt: time.Now().Add(-time.Hour),
+	}
+	st := &mockStoreRecordingEvents{
+		mockStoreForUpdate: mockStoreForUpdate{issue: &model.Issue{ID: "test-issue", Status: model.IssueStatusOpen}},
+		run:                run,
+	}
+
+	if err := d.monitorRun(run, st, "", ""); err != nil {
+		t.Fatalf("monitorRun() error = %v", err)
+	}
+
+	if run.Status != model.StatusCanceled {
+		t.Fatalf("run.Status = %s, want %s", run.Status, model.StatusCanceled)
+	}
+	if lookups != 1 {
+		t.Fatalf("expected one PR lookup, got %d", lookups)
+	}
+	if len(st.events) != 2 {
+		t.Fatalf("expected pr_closed artifact + canceled status events, got %d", len(st.events))
+	}
+	if st.events[0].Type != model.EventTypeArtifact || st.events[0].Name != "pr_closed" {
+		t.Fatalf("first event = %s/%s, want artifact/pr_closed", st.events[0].Type, st.events[0].Name)
+	}
+	if st.events[0].Attrs["url"] != prURL {
+		t.Fatalf("pr_closed url = %q, want %q", st.events[0].Attrs["url"], prURL)
+	}
+	if st.events[1].Type != model.EventTypeStatus || st.events[1].Name != string(model.StatusCanceled) {
+		t.Fatalf("second event = %s/%s, want status/%s", st.events[1].Type, st.events[1].Name, model.StatusCanceled)
+	}
+
+	eventsAfterFirstCycle := len(st.events)
+	updatedAfterFirstCycle := run.UpdatedAt
+	if err := d.monitorRun(run, st, "", ""); err != nil {
+		t.Fatalf("monitorRun() second cycle error = %v", err)
+	}
+	if len(st.events) != eventsAfterFirstCycle {
+		t.Fatalf("second cycle wrote %d new events", len(st.events)-eventsAfterFirstCycle)
+	}
+	if !run.UpdatedAt.Equal(updatedAfterFirstCycle) {
+		t.Fatalf("UpdatedAt moved on second cycle: got %s, want %s", run.UpdatedAt, updatedAfterFirstCycle)
+	}
+	if lookups != 1 {
+		t.Fatalf("terminal run should not be polled again, got %d lookups", lookups)
+	}
+}
+
+func TestMonitorRunMergedPRTransitionsToDone(t *testing.T) {
+	d := newTestDaemon()
+	prURL := "https://github.com/org/repo/pull/124"
+	d.lookupPRInfoByURLFn = func(gotURL string) (*pr.Info, error) {
+		if gotURL != prURL {
+			t.Fatalf("lookup URL = %q, want %q", gotURL, prURL)
+		}
+		return &pr.Info{URL: gotURL, Number: 124, State: "MERGED"}, nil
+	}
+
+	run := &model.Run{
+		IssueID: "test-issue",
+		RunID:   "run-1",
+		Status:  model.StatusPROpen,
+		PRUrl:   prURL,
+	}
+	st := &mockStoreRecordingEvents{
+		mockStoreForUpdate: mockStoreForUpdate{issue: &model.Issue{ID: "test-issue", Status: model.IssueStatusOpen}},
+		run:                run,
+	}
+
+	if err := d.monitorRun(run, st, "", ""); err != nil {
+		t.Fatalf("monitorRun() error = %v", err)
+	}
+
+	if run.Status != model.StatusDone {
+		t.Fatalf("run.Status = %s, want %s", run.Status, model.StatusDone)
+	}
+	if len(st.events) != 1 {
+		t.Fatalf("expected done status event only, got %d events", len(st.events))
+	}
+	if st.events[0].Type != model.EventTypeStatus || st.events[0].Name != string(model.StatusDone) {
+		t.Fatalf("event = %s/%s, want status/%s", st.events[0].Type, st.events[0].Name, model.StatusDone)
+	}
+}
+
+func TestInferStatusFromGitStateMapsPROutcomes(t *testing.T) {
+	tests := []struct {
+		name      string
+		prState   string
+		wantState model.Status
+	}{
+		{name: "open", prState: "OPEN", wantState: model.StatusPROpen},
+		{name: "merged", prState: "MERGED", wantState: model.StatusDone},
+		{name: "closed", prState: "CLOSED", wantState: model.StatusCanceled},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := newTestDaemon()
+			d.lookupPRInfoFn = func(repoRoot, branch string) (*pr.Info, error) {
+				if branch != "feature/test" {
+					t.Fatalf("branch = %q, want feature/test", branch)
+				}
+				return &pr.Info{URL: "https://github.com/org/repo/pull/125", Number: 125, State: tt.prState}, nil
+			}
+			run := &model.Run{
+				IssueID:      "test-issue",
+				RunID:        "run-1",
+				Branch:       "feature/test",
+				WorktreePath: ".",
+			}
+			st := &mockStoreRecordingEvents{
+				mockStoreForUpdate: mockStoreForUpdate{issue: &model.Issue{ID: "test-issue", Status: model.IssueStatusOpen}},
+				run:                run,
+			}
+
+			got := d.inferStatusFromGitState(run, st, true)
+			if got != tt.wantState {
+				t.Fatalf("inferStatusFromGitState() = %s, want %s", got, tt.wantState)
+			}
+		})
+	}
 }
 
 func TestCaptureFailureBackoffConnectionRefused(t *testing.T) {
@@ -528,11 +671,26 @@ func testPortFromURL(t *testing.T, rawURL string) int {
 
 type mockStoreRecordingEvents struct {
 	mockStoreForUpdate
+	run    *model.Run
 	events []*model.Event
+}
+
+func (m *mockStoreRecordingEvents) GetRun(ref *model.RunRef) (*model.Run, error) {
+	if m.run != nil {
+		return m.run, nil
+	}
+	return m.mockStoreForUpdate.GetRun(ref)
 }
 
 func (m *mockStoreRecordingEvents) AppendEvent(ref *model.RunRef, event *model.Event) error {
 	m.events = append(m.events, event)
+	if m.run != nil {
+		m.run.Events = append(m.run.Events, event)
+		m.run.UpdatedAt = event.Timestamp
+		if event.Type == model.EventTypeStatus {
+			m.run.Status = model.NormalizeStatus(event.Name)
+		}
+	}
 	return m.mockStoreForUpdate.AppendEvent(ref, event)
 }
 

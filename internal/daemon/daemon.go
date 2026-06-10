@@ -18,6 +18,7 @@ import (
 	"github.com/s22625/orch/internal/github"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/notify"
+	"github.com/s22625/orch/internal/pr"
 	"github.com/s22625/orch/internal/runevents"
 	"github.com/s22625/orch/internal/store"
 	"github.com/s22625/orch/internal/store/file"
@@ -64,6 +65,11 @@ type Daemon struct {
 	// host via the worker plane. Overridable in tests; defaults to the
 	// socket server's worker-lease capture.
 	remoteCaptureFn func(run *model.Run, projectID, projectRoot string, lines int) (string, error)
+
+	// PR lookup functions are overridable in tests; defaults use the cached
+	// PR package lookups.
+	lookupPRInfoFn      func(repoRoot, branch string) (*pr.Info, error)
+	lookupPRInfoByURLFn func(prURL string) (*pr.Info, error)
 }
 
 // RunState tracks the monitoring state of a single run
