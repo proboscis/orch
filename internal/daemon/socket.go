@@ -322,6 +322,12 @@ type SocketServer struct {
 	currentWorkerHost string
 
 	runEventBus *RunEventBus
+
+	// runLiveness, when set, exposes the daemon monitor's liveness view
+	// (last observation succeeded / run has been observed at all) so that
+	// list/get responses can report ALIVE for both local and worker-hosted
+	// runs. Wired by Daemon at startup.
+	runLiveness func(run *model.Run) (alive, known bool)
 }
 
 type managedServer struct {
@@ -845,8 +851,29 @@ func (s *SocketServer) GetAllRepoContexts() []*RepoContext {
 	s.reposMu.RLock()
 	defer s.reposMu.RUnlock()
 
+	// s.repos can alias one store under two keys: the repo ID and the
+	// issuesRoot cache key used by getOrCreateStore. Callers treat the
+	// result as "each repo once" (the monitor would otherwise observe every
+	// run twice per tick, double-counting dead checks and duplicating
+	// events), so collapse aliases to a single context, preferring the
+	// entry that carries project metadata.
 	contexts := make([]*RepoContext, 0, len(s.repos))
+	byStore := make(map[store.Store]int, len(s.repos))
 	for _, ctx := range s.repos {
+		if ctx == nil {
+			continue
+		}
+		if ctx.Store == nil {
+			contexts = append(contexts, ctx)
+			continue
+		}
+		if i, ok := byStore[ctx.Store]; ok {
+			if contexts[i].ProjectRoot == "" && ctx.ProjectRoot != "" {
+				contexts[i] = ctx
+			}
+			continue
+		}
+		byStore[ctx.Store] = len(contexts)
 		contexts = append(contexts, ctx)
 	}
 	return contexts

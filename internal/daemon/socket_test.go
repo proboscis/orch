@@ -263,6 +263,30 @@ func TestLegacySocketFilePath(t *testing.T) {
 	}
 }
 
+func TestGetAllRepoContextsCollapsesStoreAliases(t *testing.T) {
+	shared := &mockStoreForUpdate{}
+	other := &mockStoreForUpdate{}
+	s := &SocketServer{
+		repos: map[string]*RepoContext{
+			// getOrCreateStore caches the same store under its issuesRoot
+			// path and under the repo ID; the monitor must see it once.
+			"/home/u/repos/orch-issues": {Store: shared},
+			"proboscis-orch":            {Store: shared, RepoID: "proboscis-orch", ProjectRoot: "/home/u/repos/orch"},
+			"other-repo":                {Store: other, RepoID: "other-repo", ProjectRoot: "/home/u/repos/other"},
+		},
+	}
+
+	contexts := s.GetAllRepoContexts()
+	if len(contexts) != 2 {
+		t.Fatalf("expected aliases collapsed to 2 contexts, got %d", len(contexts))
+	}
+	for _, ctx := range contexts {
+		if ctx.Store == store.Store(shared) && ctx.ProjectRoot != "/home/u/repos/orch" {
+			t.Fatalf("expected the alias with project metadata to win, got %+v", ctx)
+		}
+	}
+}
+
 func randomID() string {
 	return time.Now().Format("150405") + "-" + randomString(4)
 }

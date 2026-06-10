@@ -176,6 +176,62 @@ func (m *mockStoreForUpdate) WriteAgentPrompt(ref *model.RunRef, content string)
 func (m *mockStoreForUpdate) ReadAgentPrompt(ref *model.RunRef) (string, error)        { return "", nil }
 func (m *mockStoreForUpdate) CreateIssue(issue *model.Issue) error                     { return nil }
 
+// mockStoreWithRun returns a fixed run from GetRun so updateStatus can see
+// the current persisted status.
+type mockStoreWithRun struct {
+	mockStoreForUpdate
+	run *model.Run
+}
+
+func (m *mockStoreWithRun) GetRun(*model.RunRef) (*model.Run, error) { return m.run, nil }
+
+func TestUpdateStatusSameStatusIsNoOp(t *testing.T) {
+	d := newTestDaemon()
+	run := &model.Run{IssueID: "i1", RunID: "r1", Status: model.StatusUnknown}
+	st := &mockStoreWithRun{
+		mockStoreForUpdate: mockStoreForUpdate{issue: &model.Issue{ID: "i1", Status: model.IssueStatusOpen}},
+		run:                run,
+	}
+
+	if err := d.updateStatus(run, model.StatusUnknown, st); err != nil {
+		t.Fatalf("updateStatus() error = %v", err)
+	}
+	if st.appendEventCalls != 0 {
+		t.Fatalf("re-affirming the current status must not append events, got %d", st.appendEventCalls)
+	}
+
+	if err := d.updateStatus(run, model.StatusPROpen, st); err != nil {
+		t.Fatalf("updateStatus() error = %v", err)
+	}
+	if st.appendEventCalls != 1 {
+		t.Fatalf("expected a real transition to append one event, got %d", st.appendEventCalls)
+	}
+}
+
+func TestRunLivenessFromMonitorState(t *testing.T) {
+	d := newTestDaemon()
+	run := &model.Run{IssueID: "i1", RunID: "r1"}
+
+	if alive, known := d.runLiveness(run); alive || known {
+		t.Fatalf("unobserved run must be unknown, got alive=%v known=%v", alive, known)
+	}
+
+	state := d.getOrCreateState(run)
+	if alive, known := d.runLiveness(run); alive || known {
+		t.Fatalf("run with no observations yet must stay unknown, got alive=%v known=%v", alive, known)
+	}
+
+	state.WasAlive = true
+	if alive, known := d.runLiveness(run); !alive || !known {
+		t.Fatalf("observed-alive run must report alive, got alive=%v known=%v", alive, known)
+	}
+
+	state.DeadCheckCount = 1
+	if alive, known := d.runLiveness(run); alive || !known {
+		t.Fatalf("run failing dead checks must report not alive, got alive=%v known=%v", alive, known)
+	}
+}
+
 func TestUpdateStatusAutoResolve(t *testing.T) {
 	tests := []struct {
 		name              string
@@ -630,6 +686,9 @@ func TestMonitorRemoteRunSessionGoneNeverAliveMarksUnknown(t *testing.T) {
 	mgr := agent.GetManager(run)
 
 	for i := 0; i < deadChecksBeforeFailed; i++ {
+		// A session-gone reply is a completed worker round-trip and is paced
+		// like a successful capture; rewind the pacing clock between checks.
+		state.RemoteCaptureAt = time.Now().Add(-2 * remoteCaptureInterval)
 		if err := d.monitorRemoteRun(run, st, "proj", "/root", state, mgr); err != nil {
 			t.Fatalf("monitorRemoteRun() call %d error = %v", i+1, err)
 		}
@@ -640,6 +699,87 @@ func TestMonitorRemoteRunSessionGoneNeverAliveMarksUnknown(t *testing.T) {
 	}
 	if st.appendEventCalls != 1 {
 		t.Fatalf("expected exactly one status event after dead checks, got %d", st.appendEventCalls)
+	}
+}
+
+func TestMonitorRemoteRunSessionGonePacesLeaseRoundTrips(t *testing.T) {
+	d := newTestDaemon()
+	captures := 0
+	d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (string, error) {
+		captures++
+		return "", errors.New("session run-ISSUE-REMOTE-1-run-1 not found (run may not be active)")
+	}
+
+	run := newRemoteTestRun(model.StatusRunning)
+	st := &mockStoreForUpdate{issue: &model.Issue{ID: "ISSUE-REMOTE-1", Status: model.IssueStatusOpen}}
+	state := d.getOrCreateState(run)
+	mgr := agent.GetManager(run)
+
+	for i := 0; i < 3; i++ {
+		if err := d.monitorRemoteRun(run, st, "proj", "/root", state, mgr); err != nil {
+			t.Fatalf("monitorRemoteRun() call %d error = %v", i+1, err)
+		}
+	}
+
+	if captures != 1 {
+		t.Fatalf("dead-session checks must be paced by the remote capture interval, got %d lease round-trips", captures)
+	}
+	if state.DeadCheckCount != 1 {
+		t.Fatalf("expected a single dead check within one interval, got %d", state.DeadCheckCount)
+	}
+}
+
+func TestMonitorRemoteRunSessionGoneWithRecordedPRInfersPROpen(t *testing.T) {
+	d := newTestDaemon()
+	d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (string, error) {
+		return "", errors.New("session run-ISSUE-REMOTE-1-run-1 not found (run may not be active)")
+	}
+
+	run := newRemoteTestRun(model.StatusRunning)
+	run.Branch = "issue/ISSUE-REMOTE-1/run-1"
+	// Non-GitHub URL keeps the lookup offline; the recorded PR itself is the
+	// completion evidence and must preserve pr_open.
+	run.PRUrl = "https://gitlab.com/org/repo/merge_requests/9"
+	st := &mockStoreRecordingEvents{mockStoreForUpdate: mockStoreForUpdate{issue: &model.Issue{ID: "ISSUE-REMOTE-1", Status: model.IssueStatusOpen}}}
+	state := d.getOrCreateState(run)
+	mgr := agent.GetManager(run)
+
+	for i := 0; i < deadChecksBeforeFailed; i++ {
+		state.RemoteCaptureAt = time.Now().Add(-2 * remoteCaptureInterval)
+		if err := d.monitorRemoteRun(run, st, "proj", "/root", state, mgr); err != nil {
+			t.Fatalf("monitorRemoteRun() call %d error = %v", i+1, err)
+		}
+	}
+
+	if len(st.events) != 1 {
+		t.Fatalf("expected exactly one status event, got %d", len(st.events))
+	}
+	if got := st.events[0].Name; got != string(model.StatusPROpen) {
+		t.Fatalf("expected pr_open inferred from recorded PR, got %s", got)
+	}
+}
+
+func TestMonitorRemoteRunSessionGoneNeverAliveWithinGraceWaits(t *testing.T) {
+	d := newTestDaemon()
+	d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (string, error) {
+		return "", errors.New("session run-ISSUE-REMOTE-1-run-1 not found (run may not be active)")
+	}
+
+	run := newRemoteTestRun(model.StatusBooting)
+	run.StartedAt = time.Now() // just booted: worker has not created the session yet
+	st := &mockStoreForUpdate{issue: &model.Issue{ID: "ISSUE-REMOTE-1", Status: model.IssueStatusOpen}}
+	state := d.getOrCreateState(run)
+	mgr := agent.GetManager(run)
+
+	for i := 0; i < deadChecksBeforeFailed+2; i++ {
+		state.RemoteCaptureAt = time.Now().Add(-2 * remoteCaptureInterval)
+		if err := d.monitorRemoteRun(run, st, "proj", "/root", state, mgr); err != nil {
+			t.Fatalf("monitorRemoteRun() call %d error = %v", i+1, err)
+		}
+	}
+
+	if st.appendEventCalls != 0 {
+		t.Fatalf("a booting run must not get an unknown verdict within the grace window, got %d status events", st.appendEventCalls)
 	}
 }
 
@@ -656,6 +796,7 @@ func TestMonitorRemoteRunSessionGoneAfterAliveMarksFailed(t *testing.T) {
 	mgr := agent.GetManager(run)
 
 	for i := 0; i < deadChecksBeforeFailed; i++ {
+		state.RemoteCaptureAt = time.Now().Add(-2 * remoteCaptureInterval)
 		if err := d.monitorRemoteRun(run, st, "proj", "/root", state, mgr); err != nil {
 			t.Fatalf("monitorRemoteRun() call %d error = %v", i+1, err)
 		}

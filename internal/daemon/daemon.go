@@ -195,6 +195,7 @@ func (d *Daemon) Run() error {
 	if d.listenAddr != "" {
 		d.socketServer.SetTCPListenAddr(d.listenAddr)
 	}
+	d.socketServer.runLiveness = d.runLiveness
 	d.socketServer.SetGitHubBackend(d.githubBackend)
 	if err := d.socketServer.Start(); err != nil {
 		d.logger.Printf("warning: failed to start socket server: %v", err)
@@ -433,6 +434,28 @@ func (d *Daemon) cleanupStates(activeRuns []*model.Run) {
 			delete(d.runStates, key)
 		}
 	}
+}
+
+// runLiveness reports the monitor's current view of a run's liveness.
+// alive means the last observation (local IsAlive or worker-lease capture)
+// succeeded; known means the monitor has actually observed the run at least
+// once — infra failures (worker offline) leave liveness unknown rather than
+// reporting a healthy session as dead.
+func (d *Daemon) runLiveness(run *model.Run) (alive, known bool) {
+	if run == nil {
+		return false, false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	state, ok := d.runStates[run.Ref().String()]
+	if !ok {
+		return false, false
+	}
+	if !state.WasAlive && state.DeadCheckCount == 0 {
+		return false, false
+	}
+	return state.WasAlive && state.DeadCheckCount == 0, true
 }
 
 // getOrCreateState gets or creates run state tracking
