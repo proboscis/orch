@@ -2312,6 +2312,11 @@ func (s *SocketServer) handleProtoSendMessage(req *orchpb.SendMessageRequest) *o
 		if _, err := s.withWorkerLease(runCtx.projectID, "send_message", string(runCtx.run.IssueID), string(runCtx.run.RunID), payload); err != nil {
 			return errorResponse(err.Error())
 		}
+		// --no-enter only types into the input box without submitting; the
+		// agent has not received anything, so the run is not resumed.
+		if !req.NoEnter {
+			s.markRunFeedbackSent(runCtx.store, runCtx.run)
+		}
 		return &orchpb.Response{
 			Ok:       true,
 			Response: &orchpb.Response_SendMessage{SendMessage: &orchpb.SendMessageResponse{}},

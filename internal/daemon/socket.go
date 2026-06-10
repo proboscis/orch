@@ -328,6 +328,13 @@ type SocketServer struct {
 	// list/get responses can report ALIVE for both local and worker-hosted
 	// runs. Wired by Daemon at startup.
 	runLiveness func(run *model.Run) (alive, known bool)
+
+	// onRunFeedback, when set, notifies the daemon monitor that feedback
+	// was just delivered to a run's agent session, so it can reset its
+	// prompt debounce: the idle prompt still on screen must not flip the
+	// run straight back to waiting before the agent starts working. Wired
+	// by Daemon at startup.
+	onRunFeedback func(run *model.Run)
 }
 
 type managedServer struct {
@@ -2911,9 +2918,60 @@ func (s *SocketServer) processSendMessage(st store.Store, params *SendMessagePar
 	}
 
 	if run.Agent == string(agent.AgentOpenCode) {
-		return s.processSendOpenCode(st, ref, run, params.Message)
+		if err := s.processSendOpenCode(st, ref, run, params.Message); err != nil {
+			return err
+		}
+	} else if err := s.processSendTmux(run, params.Message, params.NoEnter); err != nil {
+		return err
 	}
-	return s.processSendTmux(run, params.Message, params.NoEnter)
+
+	// --no-enter only types into the input box without submitting; the agent
+	// has not received anything, so the run is not resumed.
+	if !params.NoEnter {
+		s.markRunFeedbackSent(st, run)
+	}
+	return nil
+}
+
+// feedbackResumesRun reports whether a run in this status goes back to work
+// when the user sends feedback to its agent session. Boot statuses are
+// excluded (the boot flow owns the transition to running) and terminal
+// statuses stay terminal.
+func feedbackResumesRun(status model.Status) bool {
+	switch status {
+	case model.StatusWaiting, model.StatusPROpen, model.StatusRateLimited, model.StatusUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// markRunFeedbackSent transitions an idle/parked run back to running after
+// feedback was successfully delivered to its agent session. Send is the
+// running edge of the running ⟷ waiting lifecycle: without this transition
+// `orch wait` called right after `orch send` would see the stale pre-send
+// status (waiting/pr_open) and return immediately instead of blocking until
+// the agent next goes idle or the PR state changes.
+func (s *SocketServer) markRunFeedbackSent(st store.Store, run *model.Run) {
+	if st == nil || run == nil || !feedbackResumesRun(run.Status) {
+		return
+	}
+	if err := st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusRunning)); err != nil {
+		s.logger.Printf("%s#%s: failed to mark run running after feedback: %v", run.IssueID, run.RunID, err)
+		return
+	}
+	if s.onRunFeedback != nil {
+		s.onRunFeedback(run)
+	}
+	s.PublishRunEvent(&orchpb.RunEventFrame{
+		RunId:           string(run.RunID),
+		IssueId:         string(run.IssueID),
+		ShortId:         string(model.GenerateShortID(run.IssueID, run.RunID)),
+		FromStatus:      modelStatusToProto(run.Status),
+		ToStatus:        modelStatusToProto(model.StatusRunning),
+		TimestampUnixMs: time.Now().UnixMilli(),
+		Source:          string(model.EventSourceUser),
+	})
 }
 
 func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {

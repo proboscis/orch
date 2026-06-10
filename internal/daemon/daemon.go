@@ -196,6 +196,7 @@ func (d *Daemon) Run() error {
 		d.socketServer.SetTCPListenAddr(d.listenAddr)
 	}
 	d.socketServer.runLiveness = d.runLiveness
+	d.socketServer.onRunFeedback = d.noteRunFeedback
 	d.socketServer.SetGitHubBackend(d.githubBackend)
 	if err := d.socketServer.Start(); err != nil {
 		d.logger.Printf("warning: failed to start socket server: %v", err)
@@ -456,6 +457,22 @@ func (d *Daemon) runLiveness(run *model.Run) (alive, known bool) {
 		return false, false
 	}
 	return state.WasAlive && state.DeadCheckCount == 0, true
+}
+
+// noteRunFeedback resets a run's prompt debounce when feedback is delivered
+// to its agent session: the idle prompt may still be on screen for the next
+// capture or two, and must not flip the run straight back to waiting before
+// the agent starts working on the feedback.
+func (d *Daemon) noteRunFeedback(run *model.Run) {
+	if run == nil {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if state, ok := d.runStates[run.Ref().String()]; ok {
+		state.PromptStreak = 0
+	}
 }
 
 // getOrCreateState gets or creates run state tracking

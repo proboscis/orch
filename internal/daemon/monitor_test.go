@@ -208,6 +208,24 @@ func TestUpdateStatusSameStatusIsNoOp(t *testing.T) {
 	}
 }
 
+func TestNoteRunFeedbackResetsPromptDebounce(t *testing.T) {
+	d := newTestDaemon()
+	run := &model.Run{IssueID: "i1", RunID: "r1"}
+
+	state := d.getOrCreateState(run)
+	state.PromptStreak = 5 // idle at prompt for several captures
+
+	d.noteRunFeedback(run)
+
+	if state.PromptStreak != 0 {
+		t.Fatalf("expected prompt streak reset after feedback, got %d", state.PromptStreak)
+	}
+	// A lingering prompt on the very next capture must not be "stable" yet.
+	if state.recordPromptSignal(true) {
+		t.Fatal("single post-feedback prompt capture must not count as a stable prompt")
+	}
+}
+
 func TestRunLivenessFromMonitorState(t *testing.T) {
 	d := newTestDaemon()
 	run := &model.Run{IssueID: "i1", RunID: "r1"}

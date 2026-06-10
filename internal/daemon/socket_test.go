@@ -4103,6 +4103,7 @@ func TestSendMessageRemoteTargetUsesWorkerLease(t *testing.T) {
 				Agent:       string(agent.AgentClaude),
 				Target:      "mac",
 				TargetHost:  "mac-host",
+				Status:      model.StatusPROpen,
 			},
 		},
 		issues: map[string]*model.Issue{},
@@ -4131,7 +4132,7 @@ func TestSendMessageRemoteTargetUsesWorkerLease(t *testing.T) {
 				return
 			}
 			payload := lease.Payload.SendMessage
-			if payload.Message != "hello remote" || !payload.NoEnter || payload.TargetWorkerID != workerID {
+			if payload.Message != "hello remote" || payload.NoEnter || payload.TargetWorkerID != workerID {
 				_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, "unexpected send payload", "")
 				return
 			}
@@ -4144,11 +4145,52 @@ func TestSendMessageRemoteTargetUsesWorkerLease(t *testing.T) {
 		IssueId: "issue-remote",
 		RunId:   "run-remote",
 		Message: "hello remote",
-		NoEnter: true,
+		NoEnter: false,
 		Context: &orchpb.RequestContext{},
 	})
 	if !resp.Ok {
 		t.Fatalf("expected send_message to succeed, got error: %s", resp.Error)
+	}
+
+	// Feedback resumes the run: a pr_open run that just received input is
+	// working again, so `orch wait` blocks until the agent next goes idle.
+	if got := st.runs["issue-remote#run-remote"].Status; got != model.StatusRunning {
+		t.Fatalf("expected run marked running after feedback, got %s", got)
+	}
+}
+
+func TestMarkRunFeedbackSentTransitions(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	cases := []struct {
+		status model.Status
+		want   model.Status
+	}{
+		{model.StatusWaiting, model.StatusRunning},
+		{model.StatusPROpen, model.StatusRunning},
+		{model.StatusRateLimited, model.StatusRunning},
+		{model.StatusUnknown, model.StatusRunning},
+		{model.StatusRunning, model.StatusRunning}, // no duplicate event
+		{model.StatusBooting, model.StatusBooting}, // boot flow owns running
+		{model.StatusDone, model.StatusDone},       // terminal stays terminal
+		{model.StatusFailed, model.StatusFailed},
+	}
+
+	for _, tc := range cases {
+		run := &model.Run{IssueID: "i", RunID: "r", Status: tc.status}
+		st := &mockStore{runs: map[string]*model.Run{"i#r": run}, issues: map[string]*model.Issue{}}
+		feedbackNoted := false
+		server.onRunFeedback = func(*model.Run) { feedbackNoted = true }
+
+		server.markRunFeedbackSent(st, run)
+
+		if got := st.runs["i#r"].Status; got != tc.want {
+			t.Errorf("markRunFeedbackSent from %s: status = %s, want %s", tc.status, got, tc.want)
+		}
+		if wantNoted := tc.want == model.StatusRunning && tc.status != model.StatusRunning; feedbackNoted != wantNoted {
+			t.Errorf("markRunFeedbackSent from %s: feedback noted = %v, want %v", tc.status, feedbackNoted, wantNoted)
+		}
 	}
 }
 
