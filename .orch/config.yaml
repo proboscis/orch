@@ -15,6 +15,23 @@ claude:
   # control_extra_args: for control agent (orch agent)
   control_extra_args:
     - "--dangerously-skip-permissions"
+  # Claude execution profiles. Claude Code has no profile CLI flag; selection
+  # is entirely CLAUDE_CONFIG_DIR, which ~-expands on the EXECUTION host:
+  #   mac:  ca=~/.claude  cryptic=~/.config/claude-cryptic  personal=~/.config/claude-nameissoap
+  #   zeus: cryptic=~/.config/claude-cryptic (-> ~/.claude, the cryptic account)
+  #         personal=~/.config/claude-nameissoap (auth copied from mac)
+  # ca is the company account and must NOT run on zeus.
+  # Select per run with: orch run --agent claude --profile cryptic [--on zeus|mac]
+  default_profile: ca
+  profiles:
+    ca:
+      target: mac
+      allowed_targets: [mac]
+      # no config_dir: ca lives at the ecosystem default ~/.claude on the mac
+    cryptic:
+      config_dir: ~/.config/claude-cryptic
+    personal:
+      config_dir: ~/.config/claude-nameissoap
 
 opencode:
   default_model: openai/gpt-5.3-codex
