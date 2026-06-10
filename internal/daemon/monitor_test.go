@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/store"
 )
@@ -291,7 +292,7 @@ func TestMonitorRunSkipsCanceledStatus(t *testing.T) {
 		PRUrl:   "https://github.com/org/repo/pull/123",
 	}
 
-	err := d.monitorRun(run, st)
+	err := d.monitorRun(run, st, "", "")
 	if err != nil {
 		t.Fatalf("monitorRun() error = %v", err)
 	}
@@ -435,7 +436,7 @@ func TestMonitorRunOpenCodeCaptureSuccessResetsFailureState(t *testing.T) {
 	state.SuppressedCaptureLogs = 5
 
 	st := &mockStoreForUpdate{issue: &model.Issue{ID: "orch-427", Status: model.IssueStatusOpen}}
-	if err := d.monitorRun(run, st); err != nil {
+	if err := d.monitorRun(run, st, "", ""); err != nil {
 		t.Fatalf("monitorRun() error = %v", err)
 	}
 
@@ -495,7 +496,7 @@ func TestMonitorRunOpenCodeSessionAliveDespiteProjectMismatch(t *testing.T) {
 	state.DeadCheckCount = deadChecksBeforeFailed - 1
 
 	st := &mockStoreForUpdate{issue: &model.Issue{ID: "orch-437", Status: model.IssueStatusOpen}}
-	if err := d.monitorRun(run, st); err != nil {
+	if err := d.monitorRun(run, st, "", ""); err != nil {
 		t.Fatalf("monitorRun() error = %v", err)
 	}
 
@@ -521,4 +522,193 @@ func testPortFromURL(t *testing.T, rawURL string) int {
 		t.Fatalf("parse port: %v", err)
 	}
 	return port
+}
+
+// --- worker-delegated run monitoring (cross-host) ---
+
+type mockStoreRecordingEvents struct {
+	mockStoreForUpdate
+	events []*model.Event
+}
+
+func (m *mockStoreRecordingEvents) AppendEvent(ref *model.RunRef, event *model.Event) error {
+	m.events = append(m.events, event)
+	return m.mockStoreForUpdate.AppendEvent(ref, event)
+}
+
+func newRemoteTestRun(status model.Status) *model.Run {
+	return &model.Run{
+		IssueID:        "ISSUE-REMOTE-1",
+		RunID:          "run-1",
+		Agent:          "codex",
+		Status:         status,
+		Target:         "mac",
+		TargetHost:     "CA-1",
+		TargetWorkerID: "host-CA-1",
+		SessionName:    "run-ISSUE-REMOTE-1-run-1",
+		Multiplexer:    "tmux",
+	}
+}
+
+func TestMonitorRemoteRunDetectsPROpenFromWorkerCapture(t *testing.T) {
+	d := newTestDaemon()
+	captures := 0
+	d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (string, error) {
+		captures++
+		return "work done\nopened https://github.com/org/repo/pull/99 for review\n", nil
+	}
+
+	run := newRemoteTestRun(model.StatusRunning)
+	st := &mockStoreRecordingEvents{mockStoreForUpdate: mockStoreForUpdate{issue: &model.Issue{ID: "ISSUE-REMOTE-1", Status: model.IssueStatusOpen}}}
+	state := d.getOrCreateState(run)
+	mgr := agent.GetManager(run)
+
+	if err := d.monitorRemoteRun(run, st, "proj", "/root", state, mgr); err != nil {
+		t.Fatalf("monitorRemoteRun() error = %v", err)
+	}
+
+	if captures != 1 {
+		t.Fatalf("expected exactly one worker capture, got %d", captures)
+	}
+	if !state.WasAlive {
+		t.Fatal("expected successful capture to mark run alive")
+	}
+	if !state.PRRecorded {
+		t.Fatal("expected PR URL in captured output to be recorded")
+	}
+	if st.appendEventCalls != 2 {
+		t.Fatalf("expected artifact + status events, got %d AppendEvent calls", st.appendEventCalls)
+	}
+
+	// Within the remote capture interval the daemon must not issue another lease.
+	if err := d.monitorRemoteRun(run, st, "proj", "/root", state, mgr); err != nil {
+		t.Fatalf("monitorRemoteRun() second call error = %v", err)
+	}
+	if captures != 1 {
+		t.Fatalf("expected second call within interval to skip capture, got %d captures", captures)
+	}
+}
+
+func TestMonitorRemoteRunInfraErrorBacksOffWithoutDeathCount(t *testing.T) {
+	d := newTestDaemon()
+	d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (string, error) {
+		return "", errors.New(`no active worker available for target "host-CA-1"; start orch-worker with --worker-id host-CA-1 on the target host`)
+	}
+
+	run := newRemoteTestRun(model.StatusRunning)
+	st := &mockStoreForUpdate{issue: &model.Issue{ID: "ISSUE-REMOTE-1", Status: model.IssueStatusOpen}}
+	state := d.getOrCreateState(run)
+	mgr := agent.GetManager(run)
+
+	if err := d.monitorRemoteRun(run, st, "proj", "/root", state, mgr); err != nil {
+		t.Fatalf("monitorRemoteRun() error = %v", err)
+	}
+
+	if state.DeadCheckCount != 0 {
+		t.Fatalf("worker outage must not count toward agent death, got dead count %d", state.DeadCheckCount)
+	}
+	if st.appendEventCalls != 0 {
+		t.Fatalf("expected no status events on worker outage, got %d", st.appendEventCalls)
+	}
+	if state.CaptureFailureCount != 1 {
+		t.Fatalf("expected capture failure backoff to engage, got count %d", state.CaptureFailureCount)
+	}
+	if state.CaptureRetryAt.IsZero() {
+		t.Fatal("expected capture retry backoff to be scheduled")
+	}
+}
+
+func TestMonitorRemoteRunSessionGoneNeverAliveMarksUnknown(t *testing.T) {
+	d := newTestDaemon()
+	d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (string, error) {
+		return "", errors.New("session run-ISSUE-REMOTE-1-run-1 not found (run may not be active)")
+	}
+
+	run := newRemoteTestRun(model.StatusRunning)
+	st := &mockStoreRecordingEvents{mockStoreForUpdate: mockStoreForUpdate{issue: &model.Issue{ID: "ISSUE-REMOTE-1", Status: model.IssueStatusOpen}}}
+	state := d.getOrCreateState(run)
+	mgr := agent.GetManager(run)
+
+	for i := 0; i < deadChecksBeforeFailed; i++ {
+		if err := d.monitorRemoteRun(run, st, "proj", "/root", state, mgr); err != nil {
+			t.Fatalf("monitorRemoteRun() call %d error = %v", i+1, err)
+		}
+	}
+
+	if state.DeadCheckCount != deadChecksBeforeFailed {
+		t.Fatalf("expected %d dead checks, got %d", deadChecksBeforeFailed, state.DeadCheckCount)
+	}
+	if st.appendEventCalls != 1 {
+		t.Fatalf("expected exactly one status event after dead checks, got %d", st.appendEventCalls)
+	}
+}
+
+func TestMonitorRemoteRunSessionGoneAfterAliveMarksFailed(t *testing.T) {
+	d := newTestDaemon()
+	d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (string, error) {
+		return "", errors.New("not_found")
+	}
+
+	run := newRemoteTestRun(model.StatusRunning)
+	st := &mockStoreForUpdate{issue: &model.Issue{ID: "ISSUE-REMOTE-1", Status: model.IssueStatusOpen}}
+	state := d.getOrCreateState(run)
+	state.WasAlive = true
+	mgr := agent.GetManager(run)
+
+	for i := 0; i < deadChecksBeforeFailed; i++ {
+		if err := d.monitorRemoteRun(run, st, "proj", "/root", state, mgr); err != nil {
+			t.Fatalf("monitorRemoteRun() call %d error = %v", i+1, err)
+		}
+	}
+
+	if st.appendEventCalls != 1 {
+		t.Fatalf("expected exactly one failed status event, got %d", st.appendEventCalls)
+	}
+}
+
+func TestIsRemoteSessionGoneClassification(t *testing.T) {
+	gone := []string{
+		"not_found",
+		"session run-x-1 not found (run may not be active)",
+		"failed to capture session run-x-1: no server running on /tmp/tmux-501/default",
+		"can't find pane run-x-1",
+	}
+	for _, msg := range gone {
+		if !isRemoteSessionGone(errors.New(msg)) {
+			t.Errorf("expected session-gone classification for %q", msg)
+		}
+	}
+
+	infra := []string{
+		`no active worker available for target "host-CA-1"; start orch-worker with --worker-id host-CA-1 on the target host`,
+		"worker lease timed out: lease-123",
+		"lease not found: lease-123",
+		`no local project mapping for project_id "x" on worker "host-CA-1"; run 'orch --remote= daemon repo register /path/to/repo' on that host`,
+		"dial tcp 1.2.3.4:7777: connect: connection refused",
+	}
+	for _, msg := range infra {
+		if isRemoteSessionGone(errors.New(msg)) {
+			t.Errorf("expected infra classification for %q", msg)
+		}
+	}
+}
+
+func TestRunIsWorkerDelegatedGate(t *testing.T) {
+	d := newTestDaemon()
+	run := newRemoteTestRun(model.StatusRunning)
+
+	if d.runIsWorkerDelegated(run) {
+		t.Fatal("daemon without socket server must not delegate")
+	}
+
+	d.socketServer = &SocketServer{currentWorkerID: "host-zeus"}
+	if !d.runIsWorkerDelegated(run) {
+		t.Fatal("run targeting another worker must be delegated")
+	}
+
+	local := newRemoteTestRun(model.StatusRunning)
+	local.TargetWorkerID = "host-zeus"
+	if d.runIsWorkerDelegated(local) {
+		t.Fatal("run targeting the daemon's own worker must stay local")
+	}
 }
