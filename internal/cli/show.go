@@ -73,6 +73,8 @@ func showJSON(run *orchapi.Run, opts *showOptions) error {
 		RunID         string        `json:"run_id"`
 		Status        string        `json:"status"`
 		Phase         string        `json:"phase,omitempty"`
+		Agent         string        `json:"agent,omitempty"`
+		Profile       string        `json:"profile,omitempty"`
 		ContinuedFrom string        `json:"continued_from,omitempty"`
 		Branch        string        `json:"branch,omitempty"`
 		WorktreePath  string        `json:"worktree_path,omitempty"`
@@ -88,6 +90,8 @@ func showJSON(run *orchapi.Run, opts *showOptions) error {
 		RunID:         string(run.RunID),
 		Status:        string(run.Status),
 		Phase:         string(run.Phase),
+		Agent:         run.Agent,
+		Profile:       run.Profile,
 		ContinuedFrom: run.ContinuedFrom,
 		Branch:        run.Branch,
 		WorktreePath:  run.WorktreePath,
@@ -127,6 +131,12 @@ func showHuman(run *orchapi.Run, opts *showOptions) error {
 
 	// Artifacts
 	if !opts.EventsOnly {
+		if run.Agent != "" {
+			fmt.Printf("Agent:    %s\n", run.Agent)
+		}
+		if run.Profile != "" {
+			fmt.Printf("Profile:  %s\n", run.Profile)
+		}
 		if run.Branch != "" {
 			fmt.Printf("Branch:   %s\n", run.Branch)
 		}

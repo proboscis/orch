@@ -9,6 +9,9 @@ import (
 
 // codexProfileDecision is the resolved outcome of selecting a codex profile.
 type codexProfileDecision struct {
+	// ProfileName is the resolved profile name (explicit request or
+	// codex.default_profile fallback). Empty means no profile applies.
+	ProfileName string
 	// Target is the (possibly profile-injected) config.targets name the run
 	// should execute on. Empty means master/local execution.
 	Target string
@@ -64,6 +67,7 @@ func resolveCodexProfile(cfg *config.Config, agentName, profileNameReq, incoming
 	if !ok {
 		return decision, fmt.Errorf("unknown codex profile %q (configure it under codex.profiles)", profileName)
 	}
+	decision.ProfileName = profileName
 
 	// Start from the caller-specified target.
 	effectiveTarget := strings.TrimSpace(incomingTarget)
@@ -114,6 +118,11 @@ func applyCodexProfile(cfg *config.Config, opts *StartRunOptions) error {
 	if err != nil {
 		return err
 	}
+	// Bind the RESOLVED profile name back onto opts: it captures the
+	// default-profile fallback and clears a requested profile that does not
+	// apply (non-codex agent), so every downstream consumer (worker payload,
+	// run document) records the profile that actually took effect.
+	opts.CodexProfile = decision.ProfileName
 	opts.Target = decision.Target
 	if decision.CodexHome != "" {
 		opts.CodexHome = decision.CodexHome
@@ -145,11 +154,24 @@ func applyCodexProfileContinue(cfg *config.Config, opts *ContinueRunOptions, fro
 	if err != nil {
 		return err
 	}
+	// See applyCodexProfile: opts carries the resolved profile name forward.
+	opts.CodexProfile = decision.ProfileName
 	opts.Target = decision.Target
 	if decision.CodexHome != "" {
 		opts.CodexHome = decision.CodexHome
 	}
 	return nil
+}
+
+// effectiveAgentProfile returns the profile identity a run's agent executes
+// with: the resolved codex execution profile when set, otherwise the generic
+// agent profile (e.g. claude --profile). This is what gets persisted on the
+// run document and displayed by clients.
+func effectiveAgentProfile(codexProfile, agentProfile string) string {
+	if p := strings.TrimSpace(codexProfile); p != "" {
+		return p
+	}
+	return strings.TrimSpace(agentProfile)
 }
 
 // localTargetName maps the local daemon host to a config.targets NAME. It returns

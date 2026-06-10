@@ -84,7 +84,7 @@ class DiffStats(_message.Message):
     def __init__(self, additions: _Optional[int] = ..., deletions: _Optional[int] = ..., files_changed: _Optional[int] = ..., files: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class Run(_message.Message):
-    __slots__ = ("issue_id", "run_id", "status", "agent", "model", "branch", "worktree_path", "pr_url", "started_at_unix", "updated_at_unix", "elapsed_seconds", "elapsed_display", "diff_stats", "branch_state", "session_name", "multiplexer", "server_port", "opencode_session_id", "continued_from", "pr_number", "pr_state", "issue_status", "issue_topic", "alive", "alive_known", "worktree_exists", "target", "target_host")
+    __slots__ = ("issue_id", "run_id", "status", "agent", "model", "branch", "worktree_path", "pr_url", "started_at_unix", "updated_at_unix", "elapsed_seconds", "elapsed_display", "diff_stats", "branch_state", "session_name", "multiplexer", "server_port", "opencode_session_id", "continued_from", "pr_number", "pr_state", "issue_status", "issue_topic", "alive", "alive_known", "worktree_exists", "target", "target_host", "profile")
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
@@ -113,6 +113,7 @@ class Run(_message.Message):
     WORKTREE_EXISTS_FIELD_NUMBER: _ClassVar[int]
     TARGET_FIELD_NUMBER: _ClassVar[int]
     TARGET_HOST_FIELD_NUMBER: _ClassVar[int]
+    PROFILE_FIELD_NUMBER: _ClassVar[int]
     issue_id: str
     run_id: str
     status: RunStatus
@@ -141,7 +142,8 @@ class Run(_message.Message):
     worktree_exists: bool
     target: str
     target_host: str
-    def __init__(self, issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., status: _Optional[_Union[RunStatus, str]] = ..., agent: _Optional[str] = ..., model: _Optional[str] = ..., branch: _Optional[str] = ..., worktree_path: _Optional[str] = ..., pr_url: _Optional[str] = ..., started_at_unix: _Optional[int] = ..., updated_at_unix: _Optional[int] = ..., elapsed_seconds: _Optional[int] = ..., elapsed_display: _Optional[str] = ..., diff_stats: _Optional[_Union[DiffStats, _Mapping]] = ..., branch_state: _Optional[_Union[BranchState, str]] = ..., session_name: _Optional[str] = ..., multiplexer: _Optional[_Union[Multiplexer, str]] = ..., server_port: _Optional[int] = ..., opencode_session_id: _Optional[str] = ..., continued_from: _Optional[str] = ..., pr_number: _Optional[int] = ..., pr_state: _Optional[str] = ..., issue_status: _Optional[str] = ..., issue_topic: _Optional[str] = ..., alive: _Optional[bool] = ..., alive_known: _Optional[bool] = ..., worktree_exists: _Optional[bool] = ..., target: _Optional[str] = ..., target_host: _Optional[str] = ...) -> None: ...
+    profile: str
+    def __init__(self, issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., status: _Optional[_Union[RunStatus, str]] = ..., agent: _Optional[str] = ..., model: _Optional[str] = ..., branch: _Optional[str] = ..., worktree_path: _Optional[str] = ..., pr_url: _Optional[str] = ..., started_at_unix: _Optional[int] = ..., updated_at_unix: _Optional[int] = ..., elapsed_seconds: _Optional[int] = ..., elapsed_display: _Optional[str] = ..., diff_stats: _Optional[_Union[DiffStats, _Mapping]] = ..., branch_state: _Optional[_Union[BranchState, str]] = ..., session_name: _Optional[str] = ..., multiplexer: _Optional[_Union[Multiplexer, str]] = ..., server_port: _Optional[int] = ..., opencode_session_id: _Optional[str] = ..., continued_from: _Optional[str] = ..., pr_number: _Optional[int] = ..., pr_state: _Optional[str] = ..., issue_status: _Optional[str] = ..., issue_topic: _Optional[str] = ..., alive: _Optional[bool] = ..., alive_known: _Optional[bool] = ..., worktree_exists: _Optional[bool] = ..., target: _Optional[str] = ..., target_host: _Optional[str] = ..., profile: _Optional[str] = ...) -> None: ...
 
 class Issue(_message.Message):
     __slots__ = ("id", "title", "summary", "status", "tags", "body", "path", "modified_at_unix", "topic", "base_branch")

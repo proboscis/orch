@@ -444,6 +444,7 @@ func outputJSONWithIssueInfo(
 		RunID             string `json:"run_id"`
 		ShortID           string `json:"short_id"`
 		CLI               string `json:"cli,omitempty"`
+		Profile           string `json:"profile,omitempty"`
 		Model             string `json:"model,omitempty"`
 		ModelVariant      string `json:"model_variant,omitempty"`
 		Target            string `json:"target,omitempty"`
@@ -498,6 +499,7 @@ func outputJSONWithIssueInfo(
 			RunID:             runKey,
 			ShortID:           string(r.ShortID()),
 			CLI:               r.Agent,
+			Profile:           r.Profile,
 			Model:             r.Model,
 			ModelVariant:      r.ModelVariant,
 			Target:            target,
@@ -559,7 +561,7 @@ func outputTSVWithIssueInfo(
 		target := strings.TrimSpace(r.Target)
 		targetHost := strings.TrimSpace(targetHostByRun[runKey])
 
-		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			issueKey,
 			issueStatus,
 			runKey,
@@ -580,6 +582,7 @@ func outputTSVWithIssueInfo(
 			r.Branch,
 			r.WorktreePath,
 			r.SessionName,
+			r.Profile,
 		)
 	}
 	return nil
@@ -670,7 +673,7 @@ func outputTableWithGitStates(
 		targetHostByRun = resolveTargetHostByRun(runs)
 	}
 
-	headers := []string{"ID", "ISSUE", "ISSUE-ST", "CLI", "MODEL", "TARGET", "HOST", "AGENT", "ALIVE", "BRANCH", "WORKTREE", "PR", "STARTED", "UPDATED", "TOPIC"}
+	headers := []string{"ID", "ISSUE", "ISSUE-ST", "CLI", "PROFILE", "MODEL", "TARGET", "HOST", "AGENT", "ALIVE", "BRANCH", "WORKTREE", "PR", "STARTED", "UPDATED", "TOPIC"}
 	var rows [][]string
 
 	for _, r := range runs {
@@ -709,6 +712,7 @@ func outputTableWithGitStates(
 		prStatus := prStatusFromRun(r, gitState)
 
 		cliDisplay := agent.AgentDisplayName(r.Agent, r.Model, r.ModelVariant)
+		profileDisplay := formatProfileDisplay(r.Profile)
 		modelDisplay := formatModelDisplay(r.Model, r.ModelVariant)
 		targetDisplay := formatTargetDisplay(r.Target, targetMaxLen)
 		targetHostDisplay := formatTargetDisplay(targetHostByRun[runKey], targetHostMaxLen)
@@ -723,6 +727,7 @@ func outputTableWithGitStates(
 			issueKey,
 			issueStatus,
 			cliDisplay,
+			profileDisplay,
 			modelDisplay,
 			targetDisplay,
 			targetHostDisplay,
@@ -792,6 +797,7 @@ const (
 	worktreeMaxLen           = 40
 	targetMaxLen             = 16
 	targetHostMaxLen         = 20
+	profileMaxLen            = 16
 	psExcludedStatsPageLimit = 200
 )
 
@@ -929,6 +935,14 @@ func formatBranchDisplay(branch string, max int) string {
 		return branch
 	}
 	return truncateWithEllipsis(branch, max)
+}
+
+func formatProfileDisplay(profile string) string {
+	profile = strings.TrimSpace(profile)
+	if profile == "" {
+		return "-"
+	}
+	return truncateWithEllipsis(profile, profileMaxLen)
 }
 
 func formatTargetDisplay(target string, max int) string {

@@ -3334,6 +3334,9 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 	if req.Model != "" {
 		metadata["model"] = req.Model
 	}
+	if profile := strings.TrimSpace(req.AgentProfile); profile != "" {
+		metadata["profile"] = profile
+	}
 	run, err := st.CreateRun(issueID, runID, metadata)
 	if err != nil {
 		encoder.Encode(StartRunResponse{OK: false, Error: "failed to create run: " + err.Error()})
@@ -3678,6 +3681,9 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	}
 	if targetName != "" {
 		metadata["target"] = targetName
+	}
+	if profile := effectiveAgentProfile(opts.CodexProfile, opts.AgentProfile); profile != "" {
+		metadata["profile"] = profile
 	}
 	// When the issue came from the master snapshot (worker-delegation path), the
 	// master has already verified it; the worker must not re-verify against a
@@ -4063,6 +4069,9 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 	if targetName := strings.TrimSpace(opts.Target); targetName != "" {
 		metadata["target"] = targetName
 	}
+	if profile := effectiveAgentProfile(opts.CodexProfile, opts.AgentProfile); profile != "" {
+		metadata["profile"] = profile
+	}
 	// When the issue came from the master snapshot (worker-delegation path), the
 	// master has already verified it; the worker must not re-verify against a
 	// store it may not own. Otherwise (legacy direct/co-located call) verify.
@@ -4431,6 +4440,9 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 	metadata := map[string]string{
 		"agent":          agentName,
 		"continued_from": continuedFrom,
+	}
+	if profile := strings.TrimSpace(req.AgentProfile); profile != "" {
+		metadata["profile"] = profile
 	}
 	run, err := st.CreateRun(issueID, runID, metadata)
 	if err != nil {

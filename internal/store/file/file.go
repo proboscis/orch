@@ -902,6 +902,8 @@ func (s *FileStore) loadRun(issueID model.IssueID, runID model.RunID, path strin
 					switch key {
 					case "agent":
 						run.Agent = value
+					case "profile":
+						run.Profile = value
 					case "target":
 						run.Target = value
 					case "model":

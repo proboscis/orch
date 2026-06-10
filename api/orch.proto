@@ -86,6 +86,9 @@ message Run {
   bool worktree_exists = 26;
   string target = 27;
   string target_host = 28;
+  // Profile identity the agent ran with: the resolved codex execution
+  // profile for codex runs, or the agent profile (e.g. claude --profile).
+  string profile = 29;
 }
 
 message Issue {

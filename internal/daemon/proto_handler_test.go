@@ -884,7 +884,7 @@ func TestSyncStartRunResultToMasterStorePreservesOpenCodeArtifacts(t *testing.T)
 		WorkerID:          "host-mac-host",
 		ServerPort:        4111,
 		OpenCodeSessionID: "ses_sync",
-	})
+	}, "", "")
 	if err != nil {
 		t.Fatalf("syncStartRunResultToMasterStore() error = %v", err)
 	}
