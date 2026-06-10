@@ -403,3 +403,56 @@ func TestEffectiveAgentProfile_CodexProfileWins(t *testing.T) {
 		t.Errorf("effectiveAgentProfile = %q, want empty", got)
 	}
 }
+
+func TestApplyCodexProfile_NonCodexAgentPreservesIncomingTarget(t *testing.T) {
+	// Regression: the no-op paths of resolveCodexProfile must not drop the
+	// caller's --on target (it was cleared for non-codex agents, masked by the
+	// master projection reading the raw request target).
+	cfg := newCodexProfileConfig()
+	cfg.Agent = "opencode"
+	opts := &StartRunOptions{Agent: "custom", Target: "zeus"}
+
+	if err := applyCodexProfile(cfg, opts); err != nil {
+		t.Fatalf("applyCodexProfile error: %v", err)
+	}
+	if opts.Target != "zeus" {
+		t.Errorf("opts.Target = %q, want zeus (caller target preserved for non-codex agent)", opts.Target)
+	}
+}
+
+func TestApplyCodexProfile_CodexWithoutProfilePreservesIncomingTarget(t *testing.T) {
+	cfg := &config.Config{Agent: "codex"} // codex but no profiles / default_profile
+	opts := &StartRunOptions{Agent: "codex", Target: "zeus"}
+
+	if err := applyCodexProfile(cfg, opts); err != nil {
+		t.Fatalf("applyCodexProfile error: %v", err)
+	}
+	if opts.Target != "zeus" {
+		t.Errorf("opts.Target = %q, want zeus (caller target preserved without profile)", opts.Target)
+	}
+}
+
+func TestApplyCodexProfileContinue_NonCodexAgentPreservesIncomingTarget(t *testing.T) {
+	cfg := newCodexProfileConfig()
+	opts := &ContinueRunOptions{Target: "zeus"}
+
+	if err := applyCodexProfileContinue(cfg, opts, "claude"); err != nil {
+		t.Fatalf("applyCodexProfileContinue error: %v", err)
+	}
+	if opts.Target != "zeus" {
+		t.Errorf("opts.Target = %q, want zeus (prior run target preserved for non-codex agent)", opts.Target)
+	}
+}
+
+func TestApplyCodexProfile_ExplicitLocalTargetNormalizedToEmpty(t *testing.T) {
+	cfg := newCodexProfileConfig()
+	cfg.Agent = "opencode"
+	opts := &StartRunOptions{Agent: "opencode", Target: "local"}
+
+	if err := applyCodexProfile(cfg, opts); err != nil {
+		t.Fatalf("applyCodexProfile error: %v", err)
+	}
+	if opts.Target != "" {
+		t.Errorf("opts.Target = %q, want empty (explicit local normalized)", opts.Target)
+	}
+}

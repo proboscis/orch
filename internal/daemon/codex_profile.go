@@ -33,7 +33,10 @@ type codexProfileDecision struct {
 //   - incomingTarget: the target the caller specified (--on / prior run target).
 //
 // Behavior (fail-fast, no silent fallback):
-//   - No-op (returns zero decision, nil) unless agentName == "codex".
+//   - The decision ALWAYS carries the incoming target (normalized: "local" ->
+//     ""), so binding the decision onto opts never drops a caller-specified
+//     target — the no-op paths below differ only in not applying a profile.
+//   - No-op (no profile applied) unless agentName == "codex".
 //   - profileName = profileNameReq, falling back to cfg.Codex.DefaultProfile.
 //   - If profileName == "" -> no-op (codex without a configured profile).
 //   - If profileName is set but not present in cfg.Codex.Profiles -> error.
@@ -46,6 +49,16 @@ type codexProfileDecision struct {
 //   - If profile.CodexHome != "" -> decision.CodexHome = expanded CODEX_HOME.
 func resolveCodexProfile(cfg *config.Config, agentName, profileNameReq, incomingTarget string) (codexProfileDecision, error) {
 	var decision codexProfileDecision
+
+	// Start from the caller-specified target on EVERY path, including the
+	// no-profile no-ops: resolving a profile must never drop the target the
+	// caller asked for. A profile may only inject a target when none was given.
+	effectiveTarget := strings.TrimSpace(incomingTarget)
+	if effectiveTarget == "local" {
+		effectiveTarget = ""
+	}
+	decision.Target = effectiveTarget
+
 	if cfg == nil {
 		return decision, nil
 	}
@@ -68,13 +81,6 @@ func resolveCodexProfile(cfg *config.Config, agentName, profileNameReq, incoming
 		return decision, fmt.Errorf("unknown codex profile %q (configure it under codex.profiles)", profileName)
 	}
 	decision.ProfileName = profileName
-
-	// Start from the caller-specified target.
-	effectiveTarget := strings.TrimSpace(incomingTarget)
-	if effectiveTarget == "local" {
-		effectiveTarget = ""
-	}
-	decision.Target = effectiveTarget
 
 	// Apply the profile's target only when the caller did not specify one.
 	if effectiveTarget == "" && strings.TrimSpace(profile.Target) != "" {
