@@ -1332,14 +1332,17 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		Target:         req.Target,
 	}
 
-	// Resolve the codex execution profile before target resolution so a
-	// profile-bound target routes through the worker-delegation path, and so
-	// AllowedTargets is enforced at the authoritative master entry point.
+	// Resolve the execution profile (codex or claude) before target resolution
+	// so a profile-bound target routes through the worker-delegation path, and
+	// so AllowedTargets is enforced at the authoritative master entry point.
 	profileCfg, profileCfgErr := loadConfigForProjectRoot(projectRoot)
 	if profileCfgErr != nil {
 		return errorResponse(fmt.Sprintf("failed to load config: %v", profileCfgErr))
 	}
 	if err := applyCodexProfile(profileCfg, opts); err != nil {
+		return errorResponse(err.Error())
+	}
+	if err := applyClaudeProfile(profileCfg, opts); err != nil {
 		return errorResponse(err.Error())
 	}
 
@@ -1642,14 +1645,17 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 		}
 	}
 
-	// Resolve the codex execution profile before target resolution so a
-	// profile-bound target routes through the worker-delegation path, and so
-	// AllowedTargets is enforced + CODEX_HOME re-derived on every continue.
+	// Resolve the execution profile (codex or claude) before target resolution
+	// so a profile-bound target routes through the worker-delegation path, and
+	// so AllowedTargets is enforced + the auth dir re-derived on every continue.
 	profileCfg, profileCfgErr := loadConfigForProjectRoot(projectRoot)
 	if profileCfgErr != nil {
 		return errorResponse(fmt.Sprintf("failed to load config: %v", profileCfgErr))
 	}
 	if err := applyCodexProfileContinue(profileCfg, opts, fromRunAgent); err != nil {
+		return errorResponse(err.Error())
+	}
+	if err := applyClaudeProfileContinue(profileCfg, opts, fromRunAgent); err != nil {
 		return errorResponse(err.Error())
 	}
 

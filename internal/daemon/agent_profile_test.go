@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"os"
 	"strings"
 	"testing"
 
@@ -43,8 +42,8 @@ func TestApplyCodexProfile_DefaultProfileInjectsTargetAndCodexHome(t *testing.T)
 	if opts.Target != "mac" {
 		t.Errorf("opts.Target = %q, want mac (from default company profile)", opts.Target)
 	}
-	if opts.CodexHome != "/home/tester/.codex-company" {
-		t.Errorf("opts.CodexHome = %q, want /home/tester/.codex-company (expanded)", opts.CodexHome)
+	if opts.CodexHome != "~/.codex-company" {
+		t.Errorf("opts.CodexHome = %q, want ~/.codex-company verbatim (execution host expands ~)", opts.CodexHome)
 	}
 }
 
@@ -128,8 +127,8 @@ func TestApplyCodexProfile_ExplicitAllowedTargetPasses(t *testing.T) {
 	if opts.Target != "mac" {
 		t.Errorf("opts.Target = %q, want mac (explicit target preserved)", opts.Target)
 	}
-	if opts.CodexHome != "/home/tester/.codex-company" {
-		t.Errorf("opts.CodexHome = %q, want expanded company codex home", opts.CodexHome)
+	if opts.CodexHome != "~/.codex-company" {
+		t.Errorf("opts.CodexHome = %q, want company codex home verbatim", opts.CodexHome)
 	}
 }
 
@@ -181,18 +180,20 @@ func TestApplyCodexProfile_LocalDisallowedWhenAllowedTargetsSet(t *testing.T) {
 	}
 }
 
-// Guard: ExpandPath used by applyCodexProfile must expand ~ to HOME.
-func TestApplyCodexProfile_HomeEnvDriven(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
+// Guard: the configured codex_home must reach opts VERBATIM — never expanded
+// against the master's HOME. The same profile (~/.codex/profiles/personal)
+// points at a different absolute path on each host, so expansion belongs to
+// the execution host at launch (agent.LaunchConfig), and a master-side
+// expansion would corrupt worker-delegated runs.
+func TestApplyCodexProfile_CodexHomeNotExpandedOnMaster(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // a real HOME that must NOT leak into opts
 	cfg := newCodexProfileConfig()
 	opts := &StartRunOptions{Agent: "codex"}
 	if err := applyCodexProfile(cfg, opts); err != nil {
 		t.Fatalf("applyCodexProfile error: %v", err)
 	}
-	want := dir + string(os.PathSeparator) + ".codex-company"
-	if opts.CodexHome != want {
-		t.Errorf("opts.CodexHome = %q, want %q", opts.CodexHome, want)
+	if opts.CodexHome != "~/.codex-company" {
+		t.Errorf("opts.CodexHome = %q, want ~/.codex-company verbatim", opts.CodexHome)
 	}
 }
 
@@ -214,8 +215,8 @@ func TestApplyCodexProfileContinue_RestartCompanyEnforcesAndCarriesCodexHome(t *
 	if opts.Target != "mac" {
 		t.Errorf("opts.Target = %q, want mac", opts.Target)
 	}
-	if opts.CodexHome != "/home/tester/.codex-company" {
-		t.Errorf("opts.CodexHome = %q, want expanded company codex home on restart", opts.CodexHome)
+	if opts.CodexHome != "~/.codex-company" {
+		t.Errorf("opts.CodexHome = %q, want company codex home verbatim on restart", opts.CodexHome)
 	}
 }
 
@@ -454,5 +455,138 @@ func TestApplyCodexProfile_ExplicitLocalTargetNormalizedToEmpty(t *testing.T) {
 	}
 	if opts.Target != "" {
 		t.Errorf("opts.Target = %q, want empty (explicit local normalized)", opts.Target)
+	}
+}
+
+// --- claude execution profiles ---
+
+func newClaudeProfileConfig() *config.Config {
+	return &config.Config{
+		Agent: "claude",
+		Claude: config.ClaudeConfig{
+			DefaultProfile: "ca",
+			Profiles: map[string]config.ClaudeProfile{
+				"ca": {
+					Target:         "mac",
+					AllowedTargets: []string{"mac"},
+					// no config_dir: ca lives at the agent default (~/.claude)
+				},
+				"cryptic": {
+					ConfigDir: "~/.config/claude-cryptic",
+				},
+				"personal": {
+					ConfigDir: "~/.config/claude-nameissoap",
+				},
+			},
+		},
+		Targets: []config.TargetConfig{
+			{Name: "mac", Host: "CA-20022388"},
+			{Name: "zeus", Host: "zeus"},
+		},
+	}
+}
+
+func TestApplyClaudeProfile_DefaultProfileInjectsTarget(t *testing.T) {
+	cfg := newClaudeProfileConfig()
+	opts := &StartRunOptions{Agent: "claude"} // no explicit profile, no target
+
+	if err := applyClaudeProfile(cfg, opts); err != nil {
+		t.Fatalf("applyClaudeProfile error: %v", err)
+	}
+	if opts.AgentProfile != "ca" {
+		t.Errorf("opts.AgentProfile = %q, want ca (default profile written back)", opts.AgentProfile)
+	}
+	if opts.Target != "mac" {
+		t.Errorf("opts.Target = %q, want mac (from default ca profile)", opts.Target)
+	}
+	if opts.ClaudeConfigDir != "" {
+		t.Errorf("opts.ClaudeConfigDir = %q, want empty (ca uses the agent default dir)", opts.ClaudeConfigDir)
+	}
+}
+
+func TestApplyClaudeProfile_ExplicitProfileCarriesConfigDirVerbatim(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // must NOT leak into the config dir
+	cfg := newClaudeProfileConfig()
+	opts := &StartRunOptions{Agent: "claude", AgentProfile: "cryptic", Target: "zeus"}
+
+	if err := applyClaudeProfile(cfg, opts); err != nil {
+		t.Fatalf("applyClaudeProfile error: %v", err)
+	}
+	if opts.ClaudeConfigDir != "~/.config/claude-cryptic" {
+		t.Errorf("opts.ClaudeConfigDir = %q, want ~/.config/claude-cryptic verbatim (execution host expands ~)", opts.ClaudeConfigDir)
+	}
+	if opts.Target != "zeus" {
+		t.Errorf("opts.Target = %q, want zeus (unconstrained profile keeps caller target)", opts.Target)
+	}
+}
+
+func TestApplyClaudeProfile_DisallowedTargetFailsFast(t *testing.T) {
+	cfg := newClaudeProfileConfig()
+	opts := &StartRunOptions{Agent: "claude", AgentProfile: "ca", Target: "zeus"}
+
+	err := applyClaudeProfile(cfg, opts)
+	if err == nil {
+		t.Fatal("expected fail-fast launching ca profile on zeus, got nil")
+	}
+	if !strings.Contains(err.Error(), "zeus") {
+		t.Errorf("error = %q, want it to mention the disallowed target", err.Error())
+	}
+}
+
+func TestApplyClaudeProfile_UnknownProfileFailsFast(t *testing.T) {
+	cfg := newClaudeProfileConfig()
+	opts := &StartRunOptions{Agent: "claude", AgentProfile: "ghost"}
+
+	if err := applyClaudeProfile(cfg, opts); err == nil {
+		t.Fatal("expected fail-fast for unknown claude profile, got nil")
+	}
+}
+
+func TestApplyClaudeProfile_NonClaudeAgentIsUntouched(t *testing.T) {
+	cfg := newClaudeProfileConfig()
+	cfg.Agent = "codex"
+	opts := &StartRunOptions{Agent: "codex", AgentProfile: "anything", Target: "zeus"}
+
+	if err := applyClaudeProfile(cfg, opts); err != nil {
+		t.Fatalf("applyClaudeProfile error: %v", err)
+	}
+	if opts.AgentProfile != "anything" || opts.Target != "zeus" || opts.ClaudeConfigDir != "" {
+		t.Errorf("non-claude agent must be untouched, got AgentProfile=%q Target=%q ClaudeConfigDir=%q", opts.AgentProfile, opts.Target, opts.ClaudeConfigDir)
+	}
+}
+
+func TestApplyClaudeProfile_NoProfilesConfiguredIsNoOp(t *testing.T) {
+	cfg := &config.Config{Agent: "claude"} // no claude.profiles / default_profile
+	opts := &StartRunOptions{Agent: "claude"}
+
+	if err := applyClaudeProfile(cfg, opts); err != nil {
+		t.Fatalf("applyClaudeProfile error: %v", err)
+	}
+	if opts.AgentProfile != "" || opts.ClaudeConfigDir != "" {
+		t.Errorf("no profiles configured should be no-op, got AgentProfile=%q ClaudeConfigDir=%q", opts.AgentProfile, opts.ClaudeConfigDir)
+	}
+}
+
+// Restart-from must re-enforce the claude profile constraint and re-derive
+// CLAUDE_CONFIG_DIR even though the continue path infers the agent from the
+// prior run (opts.Agent is empty).
+func TestApplyClaudeProfileContinue_RestartCarriesConfigDir(t *testing.T) {
+	cfg := newClaudeProfileConfig()
+	opts := &ContinueRunOptions{AgentProfile: "personal", Target: "zeus"}
+
+	if err := applyClaudeProfileContinue(cfg, opts, "claude"); err != nil {
+		t.Fatalf("applyClaudeProfileContinue error: %v", err)
+	}
+	if opts.ClaudeConfigDir != "~/.config/claude-nameissoap" {
+		t.Errorf("opts.ClaudeConfigDir = %q, want personal config dir verbatim on restart", opts.ClaudeConfigDir)
+	}
+}
+
+func TestApplyClaudeProfileContinue_RestartDisallowedTargetFailsFast(t *testing.T) {
+	cfg := newClaudeProfileConfig()
+	opts := &ContinueRunOptions{AgentProfile: "ca", Target: "zeus"}
+
+	if err := applyClaudeProfileContinue(cfg, opts, "claude"); err == nil {
+		t.Fatal("expected fail-fast restarting ca claude run onto zeus, got nil")
 	}
 }
