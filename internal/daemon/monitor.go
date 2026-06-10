@@ -27,9 +27,16 @@ const (
 	captureRefusedBackoffMax       = 5 * time.Minute
 	captureRefusedNegativeCacheTTL = 30 * time.Second
 	waitingPromptStreakThreshold   = 2
+
+	// Worker-delegated runs are observed through capture_session leases,
+	// which cost a worker round-trip — poll them less often than local
+	// panes, and never block the monitor loop on a lease for long.
+	remoteCaptureInterval     = 15 * time.Second
+	remoteCaptureLeaseTimeout = 15 * time.Second
+	remoteCaptureLines        = 200
 )
 
-func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
+func (d *Daemon) monitorRun(run *model.Run, st store.Store, projectID, projectRoot string) error {
 	if run.Status == model.StatusCanceled {
 		return nil
 	}
@@ -50,6 +57,14 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
 	}
 
 	mgr := agent.GetManager(run)
+
+	// Runs executing on another host via the worker plane cannot be observed
+	// with local multiplexer calls: IsAlive/CaptureOutput would always fail
+	// and the run would sit in "agent not alive yet" forever. Route their
+	// liveness + capture through a worker lease instead.
+	if d.runIsWorkerDelegated(run) {
+		return d.monitorRemoteRun(run, st, projectID, projectRoot, state, mgr)
+	}
 
 	if mgr.IsAlive(run) {
 		state.WasAlive = true
@@ -130,6 +145,14 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
 	}
 	state.resetCaptureFailure()
 
+	return d.processRunOutput(run, st, state, mgr, output)
+}
+
+// processRunOutput runs the host-agnostic part of the monitor cycle on a
+// freshly captured session output: change hashing, prompt debouncing, PR-URL
+// detection, and agent status inference. Shared by local and worker-delegated
+// runs.
+func (d *Daemon) processRunOutput(run *model.Run, st store.Store, state *RunState, mgr agent.AgentManager, output string) error {
 	contentHash := hashContent(output)
 	outputChanged := contentHash != state.OutputHash
 	hasPrompt := mgr.DetectPrompt(output)
@@ -190,6 +213,121 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store) error {
 	}
 
 	return nil
+}
+
+// runIsWorkerDelegated reports whether the run executes on another host via
+// the worker plane, in which case local multiplexer liveness/capture cannot
+// observe it.
+func (d *Daemon) runIsWorkerDelegated(run *model.Run) bool {
+	if d.socketServer == nil {
+		return false
+	}
+	return d.socketServer.runRequiresWorkerDelegation(run, "")
+}
+
+// monitorRemoteRun observes a worker-hosted run by delegating capture_session
+// to the worker on the run's execution host. A successful capture doubles as
+// the liveness signal; the captured output then flows through the same
+// processing as local runs (PR detection, prompt/status inference).
+func (d *Daemon) monitorRemoteRun(run *model.Run, st store.Store, projectID, projectRoot string, state *RunState, mgr agent.AgentManager) error {
+	now := time.Now()
+
+	endpoint := "worker:" + remoteRunWorkerEndpoint(run)
+	if state.shouldSkipCapture(endpoint, now) {
+		return nil
+	}
+	if !state.RemoteCaptureAt.IsZero() && now.Sub(state.RemoteCaptureAt) < remoteCaptureInterval {
+		return nil
+	}
+
+	capture := d.remoteCaptureFn
+	if capture == nil {
+		if d.socketServer == nil {
+			return nil
+		}
+		capture = d.socketServer.captureRunOutputViaWorker
+	}
+
+	output, err := capture(run, projectID, projectRoot, remoteCaptureLines)
+	if err != nil {
+		if isRemoteSessionGone(err) {
+			state.DeadCheckCount++
+			if state.DeadCheckCount < deadChecksBeforeFailed {
+				d.logger.Printf("%s#%s: remote session not found on worker (check %d/%d): %v", run.IssueID, run.RunID, state.DeadCheckCount, deadChecksBeforeFailed, err)
+				return nil
+			}
+			if !state.WasAlive {
+				d.logger.Printf("%s#%s: remote agent never confirmed alive after %d checks, marking unknown", run.IssueID, run.RunID, state.DeadCheckCount)
+				return d.updateStatus(run, model.StatusUnknown, st)
+			}
+			d.logger.Printf("%s#%s: remote agent confirmed dead after %d checks, marking failed", run.IssueID, run.RunID, state.DeadCheckCount)
+			return d.updateStatus(run, model.StatusFailed, st)
+		}
+
+		// Worker-plane infrastructure failure (worker offline, lease
+		// timeout, missing project mapping): the session may be perfectly
+		// healthy on its host, so back off without dead-check counting.
+		retryAt, shouldLog, suppressed := state.recordCaptureFailure(endpoint, err, now)
+		if shouldLog {
+			retryIn := retryAt.Sub(now).Round(time.Second)
+			if retryIn < time.Second {
+				retryIn = time.Second
+			}
+			if suppressed > 0 {
+				d.logger.Printf("%s#%s: failed to capture remote output from %s: %v (next retry in %s, suppressed %d similar errors)", run.IssueID, run.RunID, endpoint, err, retryIn, suppressed)
+			} else {
+				d.logger.Printf("%s#%s: failed to capture remote output from %s: %v (next retry in %s)", run.IssueID, run.RunID, endpoint, err, retryIn)
+			}
+		}
+		return nil
+	}
+
+	state.resetCaptureFailure()
+	state.RemoteCaptureAt = now
+	state.WasAlive = true
+	state.DeadCheckCount = 0
+
+	return d.processRunOutput(run, st, state, mgr, output)
+}
+
+// remoteRunWorkerEndpoint identifies the worker/session pair a remote run is
+// observed through, for capture-failure backoff bookkeeping.
+func remoteRunWorkerEndpoint(run *model.Run) string {
+	workerID := strings.TrimSpace(run.TargetWorkerID)
+	if workerID == "" && strings.TrimSpace(run.TargetHost) != "" {
+		workerID = HostWorkerID(run.TargetHost)
+	}
+	if workerID == "" {
+		workerID = strings.TrimSpace(run.Target)
+	}
+	sessionName := run.SessionName
+	if sessionName == "" {
+		sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
+	}
+	return workerID + ":" + sessionName
+}
+
+// isRemoteSessionGone reports whether a worker-lease capture error means the
+// session (or its run record) is genuinely gone on the execution host. Worker
+// plane infrastructure errors must NOT count as agent death — default to
+// false for anything ambiguous.
+func isRemoteSessionGone(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "no local project mapping") ||
+		strings.Contains(msg, "no active worker available") ||
+		strings.Contains(msg, "worker lease timed out") ||
+		strings.Contains(msg, "lease not found") {
+		return false
+	}
+	return msg == "not_found" ||
+		strings.Contains(msg, "session_not_found") ||
+		strings.Contains(msg, "not found (run may not be active)") ||
+		strings.Contains(msg, "no server running") ||
+		strings.Contains(msg, "can't find pane") ||
+		strings.Contains(msg, "can't find session")
 }
 
 func captureEndpointKey(run *model.Run, mgr agent.AgentManager) string {

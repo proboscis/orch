@@ -705,8 +705,14 @@ func resolveWorkerTargetForRun(runCtx *resolvedProtoRun) (*resolvedTarget, error
 	if runCtx == nil || runCtx.run == nil {
 		return nil, fmt.Errorf("run context required")
 	}
+	return resolveWorkerTargetForRunFields(runCtx.run, runCtx.projectRoot)
+}
 
-	run := runCtx.run
+func resolveWorkerTargetForRunFields(run *model.Run, projectRoot string) (*resolvedTarget, error) {
+	if run == nil {
+		return nil, fmt.Errorf("run required")
+	}
+
 	targetName := strings.TrimSpace(run.Target)
 	targetHost := strings.TrimSpace(run.TargetHost)
 	targetWorkerID := strings.TrimSpace(run.TargetWorkerID)
@@ -714,8 +720,8 @@ func resolveWorkerTargetForRun(runCtx *resolvedProtoRun) (*resolvedTarget, error
 		if targetWorkerID == "" && targetHost != "" {
 			targetWorkerID = HostWorkerID(targetHost)
 		}
-		if targetHost == "" && targetName != "" && targetName != "local" && strings.TrimSpace(runCtx.projectRoot) != "" {
-			target, err := resolveTargetForProjectRoot(runCtx.projectRoot, targetName)
+		if targetHost == "" && targetName != "" && targetName != "local" && strings.TrimSpace(projectRoot) != "" {
+			target, err := resolveTargetForProjectRoot(projectRoot, targetName)
 			if err == nil {
 				targetHost = target.Host
 			}
@@ -730,8 +736,8 @@ func resolveWorkerTargetForRun(runCtx *resolvedProtoRun) (*resolvedTarget, error
 		}, nil
 	}
 
-	if targetName != "" && targetName != "local" && strings.TrimSpace(runCtx.projectRoot) != "" {
-		target, err := resolveTargetForProjectRoot(runCtx.projectRoot, targetName)
+	if targetName != "" && targetName != "local" && strings.TrimSpace(projectRoot) != "" {
+		target, err := resolveTargetForProjectRoot(projectRoot, targetName)
 		if err == nil {
 			return target, nil
 		}
@@ -748,6 +754,53 @@ func resolveWorkerTargetForRun(runCtx *resolvedProtoRun) (*resolvedTarget, error
 		Host:     targetHost,
 		WorkerID: HostWorkerID(targetHost),
 	}, nil
+}
+
+// captureRunOutputViaWorker captures session output for a run executing on
+// another host by delegating a capture_session effect to that host's worker.
+// Unlike the RPC path it waits with a short timeout so the daemon monitor
+// loop is never blocked for long.
+func (s *SocketServer) captureRunOutputViaWorker(run *model.Run, projectID, projectRoot string, lines int) (string, error) {
+	if run == nil {
+		return "", fmt.Errorf("run required")
+	}
+	if strings.TrimSpace(projectID) == "" {
+		return "", fmt.Errorf("no project context available for remote run %s#%s", run.IssueID, run.RunID)
+	}
+	if lines <= 0 {
+		lines = 100
+	}
+
+	target, err := resolveWorkerTargetForRunFields(run, projectRoot)
+	if err != nil {
+		return "", err
+	}
+
+	payload := &WorkerEffectPayload{
+		CaptureSession: &CaptureSessionPayload{
+			Lines:          lines,
+			Target:         strings.TrimSpace(run.Target),
+			TargetHost:     target.Host,
+			TargetWorkerID: target.WorkerID,
+		},
+	}
+
+	lease, err := s.acquireWorkerLease(projectID, "capture_session", string(run.IssueID), string(run.RunID), payload)
+	if err != nil {
+		return "", err
+	}
+	completedLease, err := s.waitForWorkerLeaseCompletion(lease.LeaseID, remoteCaptureLeaseTimeout)
+	if err != nil {
+		return "", err
+	}
+	effectResult, err := decodeWorkerEffectResult(completedLease.ResultJSON)
+	if err != nil {
+		return "", err
+	}
+	if effectResult.CaptureResult == nil {
+		return "", fmt.Errorf("worker lease completed without capture_result")
+	}
+	return effectResult.CaptureResult.Content, nil
 }
 
 func (s *SocketServer) handleProtoPing(_ *orchpb.PingRequest) *orchpb.Response {

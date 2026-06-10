@@ -59,6 +59,11 @@ type Daemon struct {
 
 	statusListeners   []runevents.StatusChangeListener
 	statusListenersMu sync.RWMutex
+
+	// remoteCaptureFn captures session output for runs executing on another
+	// host via the worker plane. Overridable in tests; defaults to the
+	// socket server's worker-lease capture.
+	remoteCaptureFn func(run *model.Run, projectID, projectRoot string, lines int) (string, error)
 }
 
 // RunState tracks the monitoring state of a single run
@@ -78,6 +83,10 @@ type RunState struct {
 	CaptureErrorKey       string
 	CaptureErrorLogAt     time.Time
 	SuppressedCaptureLogs int
+
+	// RemoteCaptureAt is when the last successful worker-plane capture
+	// happened for a remote run (used to throttle lease round-trips).
+	RemoteCaptureAt time.Time
 }
 
 func New(factory StoreFactory) *Daemon {
@@ -326,8 +335,10 @@ func (d *Daemon) monitorAll() {
 	}
 
 	type runWithStore struct {
-		run *model.Run
-		st  store.Store
+		run         *model.Run
+		st          store.Store
+		projectID   string
+		projectRoot string
 	}
 
 	var allRuns []*model.Run
@@ -346,7 +357,7 @@ func (d *Daemon) monitorAll() {
 		}
 		for _, run := range runs {
 			allRuns = append(allRuns, run)
-			runsWithStores = append(runsWithStores, runWithStore{run: run, st: ctx.Store})
+			runsWithStores = append(runsWithStores, runWithStore{run: run, st: ctx.Store, projectID: ctx.RepoID, projectRoot: ctx.ProjectRoot})
 		}
 	}
 
@@ -355,7 +366,7 @@ func (d *Daemon) monitorAll() {
 	}
 
 	for _, rws := range runsWithStores {
-		if err := d.monitorRun(rws.run, rws.st); err != nil {
+		if err := d.monitorRun(rws.run, rws.st, rws.projectID, rws.projectRoot); err != nil {
 			d.logger.Printf("error monitoring %s#%s: %v", rws.run.IssueID, rws.run.RunID, err)
 		}
 	}
