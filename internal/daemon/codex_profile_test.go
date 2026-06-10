@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"os"
 	"strings"
 	"testing"
 
@@ -43,8 +42,8 @@ func TestApplyCodexProfile_DefaultProfileInjectsTargetAndCodexHome(t *testing.T)
 	if opts.Target != "mac" {
 		t.Errorf("opts.Target = %q, want mac (from default company profile)", opts.Target)
 	}
-	if opts.CodexHome != "/home/tester/.codex-company" {
-		t.Errorf("opts.CodexHome = %q, want /home/tester/.codex-company (expanded)", opts.CodexHome)
+	if opts.CodexHome != "~/.codex-company" {
+		t.Errorf("opts.CodexHome = %q, want ~/.codex-company verbatim (execution host expands ~)", opts.CodexHome)
 	}
 }
 
@@ -128,8 +127,8 @@ func TestApplyCodexProfile_ExplicitAllowedTargetPasses(t *testing.T) {
 	if opts.Target != "mac" {
 		t.Errorf("opts.Target = %q, want mac (explicit target preserved)", opts.Target)
 	}
-	if opts.CodexHome != "/home/tester/.codex-company" {
-		t.Errorf("opts.CodexHome = %q, want expanded company codex home", opts.CodexHome)
+	if opts.CodexHome != "~/.codex-company" {
+		t.Errorf("opts.CodexHome = %q, want company codex home verbatim", opts.CodexHome)
 	}
 }
 
@@ -181,18 +180,20 @@ func TestApplyCodexProfile_LocalDisallowedWhenAllowedTargetsSet(t *testing.T) {
 	}
 }
 
-// Guard: ExpandPath used by applyCodexProfile must expand ~ to HOME.
-func TestApplyCodexProfile_HomeEnvDriven(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
+// Guard: the configured codex_home must reach opts VERBATIM — never expanded
+// against the master's HOME. The same profile (~/.codex/profiles/personal)
+// points at a different absolute path on each host, so expansion belongs to
+// the execution host at launch (agent.LaunchConfig), and a master-side
+// expansion would corrupt worker-delegated runs.
+func TestApplyCodexProfile_CodexHomeNotExpandedOnMaster(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // a real HOME that must NOT leak into opts
 	cfg := newCodexProfileConfig()
 	opts := &StartRunOptions{Agent: "codex"}
 	if err := applyCodexProfile(cfg, opts); err != nil {
 		t.Fatalf("applyCodexProfile error: %v", err)
 	}
-	want := dir + string(os.PathSeparator) + ".codex-company"
-	if opts.CodexHome != want {
-		t.Errorf("opts.CodexHome = %q, want %q", opts.CodexHome, want)
+	if opts.CodexHome != "~/.codex-company" {
+		t.Errorf("opts.CodexHome = %q, want ~/.codex-company verbatim", opts.CodexHome)
 	}
 }
 
@@ -214,8 +215,8 @@ func TestApplyCodexProfileContinue_RestartCompanyEnforcesAndCarriesCodexHome(t *
 	if opts.Target != "mac" {
 		t.Errorf("opts.Target = %q, want mac", opts.Target)
 	}
-	if opts.CodexHome != "/home/tester/.codex-company" {
-		t.Errorf("opts.CodexHome = %q, want expanded company codex home on restart", opts.CodexHome)
+	if opts.CodexHome != "~/.codex-company" {
+		t.Errorf("opts.CodexHome = %q, want company codex home verbatim on restart", opts.CodexHome)
 	}
 }
 

@@ -25,13 +25,23 @@ opencode:
 # "company", which is pinned to the "mac" target (the "zeus" machine is personal
 # and must NOT run the company codex account). "personal" may run anywhere.
 # allowed_targets entries are config.targets NAMES (not resolved hostnames).
+#
+# codex_home is passed to the EXECUTION host verbatim and ~ expands against
+# that host's HOME at launch, so the same profile works on every host that
+# provides the directory (cx multi-profile layout, per-profile auth.json):
+#   mac:  ~/.codex/profiles/{agent,company,personal}
+#   zeus: ~/.codex/profiles/personal only (zeus is personal-only; the company
+#         dir there deliberately has no auth.json)
+# Select per run with: orch run --codex-profile personal [--on zeus|mac]
 codex:
   default_profile: company
   profiles:
     company:
       target: mac
       allowed_targets: [mac]
-    personal: {}
+      codex_home: ~/.codex/profiles/company
+    personal:
+      codex_home: ~/.codex/profiles/personal
 
 # Execution targets referenced by codex profiles and `orch run --on <target>`.
 # Defined here so the company-on-mac requirement does not silently depend on a

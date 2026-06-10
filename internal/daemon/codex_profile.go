@@ -15,8 +15,11 @@ type codexProfileDecision struct {
 	// Target is the (possibly profile-injected) config.targets name the run
 	// should execute on. Empty means master/local execution.
 	Target string
-	// CodexHome is the CODEX_HOME for the selected profile (after ~ expansion).
-	// Empty means use the agent default (~/.codex).
+	// CodexHome is the CODEX_HOME for the selected profile, VERBATIM as
+	// configured: a leading ~ is expanded on the execution host at launch
+	// time (agent.LaunchConfig), never on the master, so the same profile
+	// works across hosts with different HOMEs. Empty means the agent
+	// default (~/.codex).
 	CodexHome string
 }
 
@@ -46,7 +49,8 @@ type codexProfileDecision struct {
 //     profile.Target); "local"/empty is the master/local target. If
 //     profile.AllowedTargets is non-empty and the effective target is not in it
 //     -> error.
-//   - If profile.CodexHome != "" -> decision.CodexHome = expanded CODEX_HOME.
+//   - If profile.CodexHome != "" -> decision.CodexHome = the configured path,
+//     verbatim (the execution host expands a leading ~ at launch).
 func resolveCodexProfile(cfg *config.Config, agentName, profileNameReq, incomingTarget string) (codexProfileDecision, error) {
 	var decision codexProfileDecision
 
@@ -96,8 +100,14 @@ func resolveCodexProfile(cfg *config.Config, agentName, profileNameReq, incoming
 		return decision, fmt.Errorf("codex profile %q may only run on targets %v, not %q", profileName, profile.AllowedTargets, targetLabel)
 	}
 
-	if strings.TrimSpace(profile.CodexHome) != "" {
-		decision.CodexHome = config.ExpandPath(strings.TrimSpace(profile.CodexHome), "")
+	if codexHome := strings.TrimSpace(profile.CodexHome); codexHome != "" {
+		// Pass the configured path through VERBATIM. A leading ~ must expand
+		// against the EXECUTION host's HOME (agent.LaunchConfig does this at
+		// launch), not against the master's: a profile like
+		// ~/.codex/profiles/personal points at a different absolute path on
+		// each host, and a worker-delegated run would otherwise receive the
+		// master's expansion.
+		decision.CodexHome = codexHome
 	}
 
 	return decision, nil
