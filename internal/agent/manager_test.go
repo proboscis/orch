@@ -228,6 +228,34 @@ func TestIsWaitingForInput(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "codex idle composer without footer hints",
+			// Recent codex builds show only "branch · cwd" in the footer —
+			// the composer line is the only idle marker (captured from a
+			// live run-...-20260610-201733 session).
+			output: strings.Join([]string{
+				"• 完了しました。pr_open の PR が CLOSED の場合に pr_closed event を記録して",
+				"  canceled へ遷移するようにし、draft PR を作成しました。",
+				"",
+				"────────────────────────────────",
+				"",
+				"› Summarize recent commits",
+				"",
+				"  issue/prwatch-closed-pr-terminal-transition/run-20260610-201733 · ~/repos/orc…",
+			}, "\n"),
+			want: true,
+		},
+		{
+			name: "codex working with echoed message and bare footer",
+			output: strings.Join([]string{
+				"› Status check: please run 'git log --oneline -1'",
+				"",
+				"• Working (7s • esc to interrupt)",
+				"",
+				"  issue/prwatch-closed-pr-terminal-transition/run-20260610-201733 · ~/repos/orc…",
+			}, "\n"),
+			want: false,
+		},
+		{
 			name:   "no prompt",
 			output: "Just some regular output\nwith no prompts",
 			want:   false,

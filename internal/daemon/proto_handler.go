@@ -897,6 +897,7 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 	protoRuns := make([]*orchpb.Run, len(paginatedRuns))
 	protoRuns = enrichRunsParallel(paginatedRuns, protoRuns)
 	applyIssueMetadataToRunEntries(paginatedEntries, protoRuns)
+	s.applyRunLiveness(paginatedRuns, protoRuns)
 	enrichDuration := time.Since(enrichStart)
 
 	s.maybeLogListRunsTiming(req, len(paginatedRuns), storeDuration, enrichDuration, time.Since(requestStart), nil)
@@ -1022,6 +1023,24 @@ func (s *SocketServer) maybeLogListRunsTiming(
 		hasOlderThan,
 		slow,
 	)
+}
+
+// applyRunLiveness stamps the monitor's liveness view onto proto runs. The
+// monitor is the single source of truth for liveness: it observes local runs
+// via the multiplexer and worker-hosted runs via capture leases, so this is
+// correct regardless of which host a run executes on.
+func (s *SocketServer) applyRunLiveness(runs []*model.Run, protoRuns []*orchpb.Run) {
+	if s.runLiveness == nil {
+		return
+	}
+	for i, run := range runs {
+		if i >= len(protoRuns) || protoRuns[i] == nil {
+			continue
+		}
+		alive, known := s.runLiveness(run)
+		protoRuns[i].Alive = alive
+		protoRuns[i].AliveKnown = known
+	}
 }
 
 func enrichRunProto(pr *orchpb.Run, run *model.Run, runner git.Runner) {
@@ -1263,6 +1282,7 @@ func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Resp
 
 	pr := modelRunToProto(run)
 	enrichRunProto(pr, run, s.gitRunner)
+	s.applyRunLiveness([]*model.Run{run}, []*orchpb.Run{pr})
 
 	return &orchpb.Response{
 		Ok: true,
@@ -2291,6 +2311,11 @@ func (s *SocketServer) handleProtoSendMessage(req *orchpb.SendMessageRequest) *o
 		}
 		if _, err := s.withWorkerLease(runCtx.projectID, "send_message", string(runCtx.run.IssueID), string(runCtx.run.RunID), payload); err != nil {
 			return errorResponse(err.Error())
+		}
+		// --no-enter only types into the input box without submitting; the
+		// agent has not received anything, so the run is not resumed.
+		if !req.NoEnter {
+			s.markRunFeedbackSent(runCtx.store, runCtx.run)
 		}
 		return &orchpb.Response{
 			Ok:       true,
