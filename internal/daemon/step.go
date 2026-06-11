@@ -1,0 +1,495 @@
+package daemon
+
+// This file is the pure decision core of the run monitor: the entire
+// observation → status-transition policy lives in stepRun and nowhere else.
+// Shells (monitorRun / monitorRemoteRun) only gather observations, execute
+// the returned effects, and own scheduling concerns (capture pacing, lease
+// backoff). The transition matrix encoded here is documented in
+// docs/design/run-state-machine.md — keep both in sync.
+//
+// stepRun is a pure function: no I/O, no logging, no clock reads (time is an
+// input). That is what makes the laws in step_test.go checkable by feeding
+// observation sequences without sessions, stores, or networks.
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/s22625/orch/internal/model"
+)
+
+// runView is the read-only projection of a run that transition policy may
+// depend on. It is derived from the store fold (run.DeriveState), never from
+// in-memory monitor bookkeeping.
+type runView struct {
+	Status    model.Status
+	Agent     string
+	Branch    string
+	PRUrl     string
+	StartedAt time.Time
+	IssueID   model.IssueID
+	RunID     model.RunID
+}
+
+func runViewOf(run *model.Run) runView {
+	return runView{
+		Status:    run.Status,
+		Agent:     run.Agent,
+		Branch:    run.Branch,
+		PRUrl:     run.PRUrl,
+		StartedAt: run.StartedAt,
+		IssueID:   run.IssueID,
+		RunID:     run.RunID,
+	}
+}
+
+// runCore holds the semantic monitor counters: the part of RunState that the
+// transition policy reads and writes. Scheduling state (capture backoff,
+// lease pacing) stays on RunState itself — when to observe is mechanism,
+// what an observation means is policy.
+type runCore struct {
+	LastOutput     string
+	LastOutputAt   time.Time
+	OutputHash     string
+	PromptStreak   int
+	PRRecorded     bool
+	WasAlive       bool
+	DeadCheckCount int
+}
+
+type obsKind int
+
+const (
+	// obsPRState reports the PR outcome for the run's branch/PR URL from the
+	// PR cache. DiscoveredPRURL carries a URL found via branch lookup when
+	// the run record has no PR URL yet.
+	obsPRState obsKind = iota
+	// obsSessionAlive reports one successful liveness observation (local
+	// IsAlive or successful worker-lease capture).
+	obsSessionAlive
+	// obsSessionGone reports one failed liveness observation. Remote marks
+	// which channel observed it: the no-evidence verdicts differ (see
+	// docs/design/run-state-machine.md §3).
+	obsSessionGone
+	// obsCaptured carries a captured session output plus the agent-specific
+	// signal precomputed by the gatherer.
+	obsCaptured
+	// obsGitEvidence is the response to effectGatherGitEvidence: the raw
+	// PR/git facts needed for a dead-session verdict.
+	obsGitEvidence
+)
+
+// agentSignal is the agent-specific reading of a captured output, gathered
+// impurely (opencode consults its server API) so stepRun stays pure.
+type agentSignal struct {
+	// Resolved means Status carries a fully resolved verdict ("" = none) and
+	// the mux heuristics below are not used. Set for opencode, whose manager
+	// resolves busy/idle/retry/gone itself.
+	Resolved bool
+	Status   model.Status
+
+	// Mux-agent string heuristics on the captured pane.
+	Exited        bool
+	Completed     bool
+	APILimited    bool
+	Failed        bool
+	PromptShowing bool
+}
+
+// gitEvidence is the raw fact set for a dead-session verdict, gathered by
+// the shell on request (effectGatherGitEvidence). The decision ladder over
+// these facts lives in stepRun.
+type gitEvidence struct {
+	BranchPRURL     string    // PR URL found via branch lookup ("" = none)
+	BranchPROutcome prOutcome // outcome of that PR (valid when BranchPRURL != "")
+	URLPRFound      bool      // run.PRUrl lookup succeeded
+	URLPROutcome    prOutcome // outcome of that PR (valid when URLPRFound)
+	RepoRootFound   bool
+	AheadKnown      bool // ahead count query succeeded
+	AheadCount      int
+	HasUncommitted  bool
+}
+
+type runObservation struct {
+	Kind obsKind
+
+	// obsPRState
+	PROutcome       prOutcome
+	PRURL           string
+	DiscoveredPRURL string
+
+	// obsSessionGone / obsGitEvidence
+	Remote bool
+
+	// obsCaptured
+	Output string
+	Signal agentSignal
+
+	// obsGitEvidence
+	Evidence gitEvidence
+}
+
+type effectKind int
+
+const (
+	// effectSetStatus appends a status event (executed by updateStatus,
+	// which keeps the store-level guard and same-status no-op as defense in
+	// depth beneath this matrix).
+	effectSetStatus effectKind = iota
+	// effectRecordPR appends a "pr" artifact. If the append fails, the
+	// executor vetoes the PRRecorded core flag so the next tick retries.
+	effectRecordPR
+	// effectRecordPRClosed appends a "pr_closed" artifact.
+	effectRecordPRClosed
+	// effectGatherGitEvidence asks the shell to gather gitEvidence and feed
+	// it back as an obsGitEvidence observation. The policy decides when
+	// evidence is needed; the shell never does.
+	effectGatherGitEvidence
+	// effectFireStatusChange dispatches the run-event listeners (Slack…).
+	// Emitted only on the agent-inference transition, matching historical
+	// behavior (see run-state-machine.md §4 I8).
+	effectFireStatusChange
+	// effectLog / effectDebugLog emit an operator log line.
+	effectLog
+	effectDebugLog
+)
+
+type runEffect struct {
+	Kind   effectKind
+	Status model.Status // effectSetStatus
+	From   model.Status // effectFireStatusChange
+	PRURL  string       // effectRecordPR / effectRecordPRClosed
+	Output string       // effectFireStatusChange
+	Msg    string       // effectLog / effectDebugLog
+}
+
+func logEffect(format string, args ...interface{}) runEffect {
+	return runEffect{Kind: effectLog, Msg: fmt.Sprintf(format, args...)}
+}
+
+func debugEffect(format string, args ...interface{}) runEffect {
+	return runEffect{Kind: effectDebugLog, Msg: fmt.Sprintf(format, args...)}
+}
+
+func setStatusEffect(status model.Status) runEffect {
+	return runEffect{Kind: effectSetStatus, Status: status}
+}
+
+// stepRun is the single transition function for the monitor plane:
+//
+//	stepRun(view, core, obs, now) → (core', effects)
+//
+// All status decisions driven by observations O1–O5 go through here. It must
+// stay pure — see the laws in step_test.go.
+func stepRun(view runView, core runCore, obs runObservation, now time.Time) (runCore, []runEffect) {
+	// Terminal states are exited only by user action (CanTransitionStatus);
+	// no observation may produce effects on them. Shells and updateStatus
+	// also guard this — encoding it here makes it a law of the pure core
+	// (step_test.go L4) instead of a property of call-site discipline.
+	if view.Status.IsTerminal() {
+		return core, nil
+	}
+
+	switch obs.Kind {
+	case obsPRState:
+		return stepPRState(view, core, obs)
+	case obsSessionAlive:
+		core.WasAlive = true
+		core.DeadCheckCount = 0
+		return core, nil
+	case obsSessionGone:
+		return stepSessionGone(view, core, obs)
+	case obsCaptured:
+		return stepCaptured(view, core, obs, now)
+	case obsGitEvidence:
+		return stepGitEvidence(view, core, obs, now)
+	default:
+		return core, nil
+	}
+}
+
+func stepPRState(view runView, core runCore, obs runObservation) (runCore, []runEffect) {
+	var effects []runEffect
+
+	// A PR discovered via branch lookup is recorded even when its outcome
+	// forces no transition (open PRs feed the ps PR column).
+	if obs.DiscoveredPRURL != "" && view.PRUrl == "" {
+		effects = append(effects, runEffect{Kind: effectRecordPR, PRURL: obs.DiscoveredPRURL})
+	}
+
+	switch obs.PROutcome {
+	case prOutcomeMerged:
+		if obs.PRURL != "" {
+			effects = append(effects, logEffect("%s#%s: detected merged PR (%s), transitioning to done", view.IssueID, view.RunID, obs.PRURL))
+		} else {
+			effects = append(effects, logEffect("%s#%s: detected merged PR, transitioning to done", view.IssueID, view.RunID))
+		}
+		effects = append(effects, setStatusEffect(model.StatusDone))
+	case prOutcomeClosed:
+		if obs.PRURL != "" {
+			effects = append(effects, logEffect("%s#%s: detected closed PR (%s), transitioning to canceled", view.IssueID, view.RunID, obs.PRURL))
+		} else {
+			effects = append(effects, logEffect("%s#%s: detected closed PR, transitioning to canceled", view.IssueID, view.RunID))
+		}
+		effects = append(effects, runEffect{Kind: effectRecordPRClosed, PRURL: obs.PRURL})
+		effects = append(effects, setStatusEffect(model.StatusCanceled))
+	}
+
+	return core, effects
+}
+
+func stepSessionGone(view runView, core runCore, obs runObservation) (runCore, []runEffect) {
+	core.DeadCheckCount++
+
+	if obs.Remote {
+		if core.DeadCheckCount < deadChecksBeforeFailed {
+			return core, []runEffect{logEffect("%s#%s: remote session not found on worker (check %d/%d)", view.IssueID, view.RunID, core.DeadCheckCount, deadChecksBeforeFailed)}
+		}
+		// The session is gone on the execution host. A gone session must
+		// never mask completed work: ask for PR/git evidence before any
+		// unknown/failed verdict.
+		return core, []runEffect{{Kind: effectGatherGitEvidence}}
+	}
+
+	if !core.WasAlive {
+		var effects []runEffect
+		if core.DeadCheckCount >= deadChecksBeforeFailed {
+			effects = append(effects, runEffect{Kind: effectGatherGitEvidence})
+			return core, effects
+		}
+		// Cadence-limited "still waiting for the session to appear" logging
+		// happens in stepGitEvidence once evidence attempts begin; below the
+		// threshold every check logs.
+		effects = append(effects, logEffect("%s#%s: agent not alive yet (never confirmed alive), waiting", view.IssueID, view.RunID))
+		return core, effects
+	}
+
+	if core.DeadCheckCount < deadChecksBeforeFailed {
+		return core, []runEffect{logEffect("%s#%s: agent not alive (%d/%d checks), waiting", view.IssueID, view.RunID, core.DeadCheckCount, deadChecksBeforeFailed)}
+	}
+	return core, []runEffect{{Kind: effectGatherGitEvidence}}
+}
+
+// stepGitEvidence is the dead-session verdict: the decision ladder formerly
+// inside inferStatusFromGitState plus the per-channel fallbacks from the
+// local/remote monitor paths.
+func stepGitEvidence(view runView, core runCore, obs runObservation, now time.Time) (runCore, []runEffect) {
+	inferred, effects := gitVerdict(view, core, obs.Evidence, now)
+
+	if inferred != "" {
+		if inferred != view.Status {
+			if obs.Remote {
+				effects = append(effects, logEffect("%s#%s: remote session gone, inferred status from git state: %s", view.IssueID, view.RunID, inferred))
+			} else if core.WasAlive {
+				effects = append(effects, logEffect("%s#%s: agent session gone, inferred status from git state: %s", view.IssueID, view.RunID, inferred))
+			} else {
+				effects = append(effects, logEffect("%s#%s: agent never confirmed alive, but inferred status from git state: %s", view.IssueID, view.RunID, inferred))
+			}
+		}
+		effects = append(effects, setStatusEffect(inferred))
+		return core, effects
+	}
+
+	// No evidence-based verdict. The fallback differs by channel and
+	// liveness history (run-state-machine.md §3).
+	if obs.Remote {
+		if !core.WasAlive {
+			if withinNeverAliveGraceAt(view.StartedAt, now) {
+				effects = append(effects, debugEffect("%s#%s: remote session not observable yet (within boot grace), waiting", view.IssueID, view.RunID))
+				return core, effects
+			}
+			if view.Status != model.StatusUnknown {
+				effects = append(effects, logEffect("%s#%s: remote agent never confirmed alive after %d checks, marking unknown", view.IssueID, view.RunID, core.DeadCheckCount))
+			}
+			effects = append(effects, setStatusEffect(model.StatusUnknown))
+			return core, effects
+		}
+		effects = append(effects, logEffect("%s#%s: remote agent confirmed dead after %d checks, marking failed", view.IssueID, view.RunID, core.DeadCheckCount))
+		effects = append(effects, setStatusEffect(model.StatusFailed))
+		return core, effects
+	}
+
+	if !core.WasAlive {
+		// Locally a never-alive run gets no unknown/failed verdict: keep
+		// waiting for the session, with cadence-limited logging.
+		if core.DeadCheckCount <= deadChecksBeforeFailed || core.DeadCheckCount%neverAliveLogEvery == 0 {
+			effects = append(effects, logEffect("%s#%s: agent not alive yet (never confirmed alive), waiting", view.IssueID, view.RunID))
+		} else {
+			effects = append(effects, debugEffect("%s#%s: agent not alive yet (never confirmed alive), waiting", view.IssueID, view.RunID))
+		}
+		return core, effects
+	}
+
+	if view.Agent == "opencode" {
+		effects = append(effects, logEffect("%s#%s: opencode session not found after %d checks, marking unknown", view.IssueID, view.RunID, core.DeadCheckCount))
+		effects = append(effects, setStatusEffect(model.StatusUnknown))
+		return core, effects
+	}
+	effects = append(effects, logEffect("%s#%s: agent confirmed dead after %d checks, marking failed", view.IssueID, view.RunID, core.DeadCheckCount))
+	effects = append(effects, setStatusEffect(model.StatusFailed))
+	return core, effects
+}
+
+// gitVerdict evaluates the evidence ladder. It returns "" when the evidence
+// supports no verdict; the caller applies the per-channel fallback.
+func gitVerdict(view runView, core runCore, ev gitEvidence, now time.Time) (model.Status, []runEffect) {
+	var effects []runEffect
+
+	if view.Branch == "" {
+		effects = append(effects, debugEffect("%s#%s: infer: skipping - branch=%q", view.IssueID, view.RunID, view.Branch))
+		return "", effects
+	}
+
+	if ev.BranchPRURL != "" {
+		effects = append(effects, debugEffect("%s#%s: infer: found PR %s (outcome=%s)", view.IssueID, view.RunID, ev.BranchPRURL, ev.BranchPROutcome))
+		if view.PRUrl == "" {
+			effects = append(effects, runEffect{Kind: effectRecordPR, PRURL: ev.BranchPRURL})
+		}
+		if status := statusFromPROutcome(ev.BranchPROutcome); status != "" {
+			return status, effects
+		}
+	}
+
+	// Branch lookup gave no verdict but the run already has a PR URL: check
+	// by URL (handles deleted/rebased local branches and worker-hosted runs
+	// whose repo is not visible from this host).
+	if view.PRUrl != "" {
+		if ev.URLPRFound {
+			if status := statusFromPROutcome(ev.URLPROutcome); status != "" {
+				return status, effects
+			}
+		}
+		// A PR is known to exist even though lookups failed: preserve
+		// pr_open rather than concluding unknown/failed.
+		effects = append(effects, debugEffect("%s#%s: infer: preserving pr_open status (PR URL exists but lookup failed)", view.IssueID, view.RunID))
+		return model.StatusPROpen, effects
+	}
+
+	if !ev.RepoRootFound {
+		effects = append(effects, debugEffect("%s#%s: infer: cannot find repo root", view.IssueID, view.RunID))
+		return "", effects
+	}
+	if !ev.AheadKnown {
+		effects = append(effects, debugEffect("%s#%s: infer: cannot get ahead count", view.IssueID, view.RunID))
+		return "", effects
+	}
+
+	effects = append(effects, debugEffect("%s#%s: infer: commits ahead=%d, uncommitted=%v", view.IssueID, view.RunID, ev.AheadCount, ev.HasUncommitted))
+	if ev.AheadCount > 0 || ev.HasUncommitted {
+		return model.StatusWaiting, effects
+	}
+
+	// No positive signals (no PR, no commits, clean worktree). The verdict
+	// depends on agent lifecycle: opencode exits when finished, so a gone
+	// session with no work distinguishes done/failed. Interactive agents
+	// (codex, claude) idle with their session open, so no verdict here.
+	if view.Agent != "opencode" {
+		return "", effects
+	}
+	if !core.WasAlive {
+		if withinNeverAliveGraceAt(view.StartedAt, now) {
+			effects = append(effects, debugEffect("%s#%s: infer: within boot grace, no verdict yet", view.IssueID, view.RunID))
+			return "", effects
+		}
+		return model.StatusFailed, effects
+	}
+	return model.StatusDone, effects
+}
+
+func stepCaptured(view runView, core runCore, obs runObservation, now time.Time) (runCore, []runEffect) {
+	var effects []runEffect
+
+	contentHash := hashContent(obs.Output)
+	outputChanged := contentHash != core.OutputHash
+
+	hasPrompt := obs.Signal.PromptShowing
+	streak, hasStablePrompt := recordPromptStreak(core.PromptStreak, hasPrompt)
+	core.PromptStreak = streak
+
+	if outputChanged {
+		core.OutputHash = contentHash
+		core.LastOutput = obs.Output
+		core.LastOutputAt = now
+	}
+
+	hashPreview := contentHash
+	if len(hashPreview) > 8 {
+		hashPreview = hashPreview[:8]
+	}
+	effects = append(effects, debugEffect("%s#%s: pane hash=%s changed=%t prompt=%t stable_prompt=%t streak=%d",
+		view.IssueID, view.RunID, hashPreview, outputChanged, hasPrompt, hasStablePrompt, core.PromptStreak))
+
+	if prURL := detectPRURL(obs.Output); prURL != "" && !core.PRRecorded {
+		core.PRRecorded = true
+		effects = append(effects,
+			logEffect("%s#%s: PR created: %s", view.IssueID, view.RunID, prURL),
+			runEffect{Kind: effectRecordPR, PRURL: prURL},
+			setStatusEffect(model.StatusPROpen),
+		)
+		return core, effects
+	}
+
+	newStatus := agentVerdict(view, obs.Signal, outputChanged, hasStablePrompt)
+	if newStatus != "" && newStatus != view.Status {
+		effects = append(effects,
+			logEffect("%s#%s: status change %s -> %s", view.IssueID, view.RunID, view.Status, newStatus),
+			setStatusEffect(newStatus),
+			runEffect{Kind: effectFireStatusChange, From: view.Status, Status: newStatus, Output: obs.Output},
+		)
+	}
+
+	return core, effects
+}
+
+// agentVerdict applies the agent-specific reading of a captured output. For
+// resolved signals (opencode) the gatherer already produced the verdict; for
+// mux agents the historical MuxManager.GetStatus precedence applies.
+func agentVerdict(view runView, sig agentSignal, outputChanged, hasStablePrompt bool) model.Status {
+	if sig.Resolved {
+		return sig.Status
+	}
+	switch {
+	case sig.Exited:
+		return model.StatusUnknown
+	case sig.Completed:
+		return model.StatusDone
+	case sig.APILimited:
+		return model.StatusRateLimited
+	case sig.Failed:
+		return model.StatusFailed
+	case hasStablePrompt:
+		return model.StatusWaiting
+	case outputChanged:
+		return model.StatusRunning
+	default:
+		return ""
+	}
+}
+
+// withinNeverAliveGraceAt is the pure form of withinNeverAliveGrace: a run
+// never observed alive gets neverAliveVerdictGrace from StartedAt before
+// dead checks may conclude unknown/failed.
+func withinNeverAliveGraceAt(startedAt, now time.Time) bool {
+	return !startedAt.IsZero() && now.Sub(startedAt) < neverAliveVerdictGrace
+}
+
+// effectsContain reports whether any effect has the given kind.
+func effectsContain(effects []runEffect, kind effectKind) bool {
+	for _, e := range effects {
+		if e.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// statusEffectOf reports whether the effects include a status transition
+// (used by shells to end the tick like the historical control flow did).
+func statusEffectOf(effects []runEffect) (model.Status, bool) {
+	for _, e := range effects {
+		if e.Kind == effectSetStatus {
+			return e.Status, true
+		}
+	}
+	return "", false
+}

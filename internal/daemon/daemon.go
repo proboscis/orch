@@ -72,16 +72,14 @@ type Daemon struct {
 	lookupPRInfoByURLFn func(prURL string) (*pr.Info, error)
 }
 
-// RunState tracks the monitoring state of a single run
+// RunState tracks the monitoring state of a single run. The embedded
+// runCore (step.go) holds the semantic counters that the pure transition
+// function reads and writes; the fields below are shell-owned scheduling
+// state (when to observe), which transition policy must not depend on.
 type RunState struct {
-	LastOutput     string
-	LastOutputAt   time.Time
-	LastCheckAt    time.Time
-	OutputHash     string
-	PromptStreak   int
-	PRRecorded     bool
-	WasAlive       bool
-	DeadCheckCount int
+	runCore
+
+	LastCheckAt time.Time
 
 	CaptureEndpoint       string
 	CaptureFailureCount   int
@@ -490,8 +488,9 @@ func (d *Daemon) getOrCreateState(run *model.Run) *RunState {
 	state, ok := d.runStates[key]
 	if !ok {
 		state = &RunState{
-			LastCheckAt:  time.Now(),
-			LastOutputAt: time.Now(), // Assume output is fresh when we start tracking
+			LastCheckAt: time.Now(),
+			// Assume output is fresh when we start tracking
+			runCore: runCore{LastOutputAt: time.Now()},
 		}
 		d.runStates[key] = state
 	}
