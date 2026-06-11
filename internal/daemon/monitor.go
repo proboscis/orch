@@ -1,5 +1,12 @@
 package daemon
 
+// Monitor-plane shells: gather observations about a run (PR cache, session
+// liveness, captured output, git evidence), feed them to the pure transition
+// function stepRun (step.go), and execute the returned effects. Transition
+// POLICY does not live in this file — only observation gathering, effect
+// execution, and scheduling concerns (capture pacing, lease backoff).
+// See docs/design/run-state-machine.md.
+
 import (
 	"crypto/md5"
 	"encoding/hex"
@@ -67,25 +74,18 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store, projectID, projectRo
 	// Check terminal PR outcomes before liveness/dead checks. Closed PRs are
 	// terminal too; leaving them in pr_open causes the watcher to poll forever.
 	if run.Branch != "" || run.PRUrl != "" {
-		outcome, prURL := d.checkPROutcome(run, st)
-		switch outcome {
-		case prOutcomeMerged:
-			if prURL != "" {
-				d.logger.Printf("%s#%s: detected merged PR (%s), transitioning to done", run.IssueID, run.RunID, prURL)
-			} else {
-				d.logger.Printf("%s#%s: detected merged PR, transitioning to done", run.IssueID, run.RunID)
-			}
-			return d.updateStatus(run, model.StatusDone, st)
-		case prOutcomeClosed:
-			if prURL != "" {
-				d.logger.Printf("%s#%s: detected closed PR (%s), transitioning to canceled", run.IssueID, run.RunID, prURL)
-			} else {
-				d.logger.Printf("%s#%s: detected closed PR, transitioning to canceled", run.IssueID, run.RunID)
-			}
-			if err := d.recordPRClosedEvent(run, prURL, st); err != nil {
-				return err
-			}
-			return d.updateStatus(run, model.StatusCanceled, st)
+		outcome, prURL, discovered := d.gatherPROutcome(run)
+		effects, err := d.applyStep(run, st, state, runObservation{
+			Kind:            obsPRState,
+			PROutcome:       outcome,
+			PRURL:           prURL,
+			DiscoveredPRURL: discovered,
+		}, projectRoot)
+		if err != nil {
+			return err
+		}
+		if _, transitioned := statusEffectOf(effects); transitioned {
+			return nil
 		}
 	}
 
@@ -99,68 +99,17 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store, projectID, projectRo
 		return d.monitorRemoteRun(run, st, projectID, projectRoot, state, mgr)
 	}
 
-	if mgr.IsAlive(run) {
-		state.WasAlive = true
-		state.DeadCheckCount = 0
-	} else {
-		state.DeadCheckCount++
-		opencodeLogPath := ""
-		if run.Agent == "opencode" {
-			opencodeLogPath = opencodeServerLogPath(run.WorktreePath)
-			if state.DeadCheckCount == 1 && opencodeLogPath != "" {
-				d.logger.Printf("%s#%s: opencode bootstrap logs: %s", run.IssueID, run.RunID, opencodeLogPath)
+	if !mgr.IsAlive(run) {
+		if run.Agent == "opencode" && state.DeadCheckCount == 0 {
+			if logPath := opencodeServerLogPath(run.WorktreePath); logPath != "" {
+				d.logger.Printf("%s#%s: opencode bootstrap logs: %s", run.IssueID, run.RunID, logPath)
 			}
 		}
-		if !state.WasAlive {
-			// Agent was never confirmed alive. Check for clear completion
-			// signals (merged/open PR, commits) before giving up — the daemon
-			// may have started after the agent finished. A gone session must
-			// never mask completed work, regardless of agent.
-			if state.DeadCheckCount >= deadChecksBeforeFailed {
-				inferredStatus := d.inferStatusFromGitState(run, st, false, projectRoot)
-				if inferredStatus != "" {
-					if inferredStatus != run.Status {
-						if opencodeLogPath != "" {
-							d.logger.Printf("%s#%s: agent never confirmed alive, but inferred status from git state: %s (opencode logs: %s)", run.IssueID, run.RunID, inferredStatus, opencodeLogPath)
-						} else {
-							d.logger.Printf("%s#%s: agent never confirmed alive, but inferred status from git state: %s", run.IssueID, run.RunID, inferredStatus)
-						}
-					}
-					return d.updateStatus(run, inferredStatus, st)
-				}
-			}
-			if state.DeadCheckCount <= deadChecksBeforeFailed || state.DeadCheckCount%neverAliveLogEvery == 0 {
-				d.logger.Printf("%s#%s: agent not alive yet (never confirmed alive), waiting", run.IssueID, run.RunID)
-			} else {
-				d.debug("%s#%s: agent not alive yet (never confirmed alive), waiting", run.IssueID, run.RunID)
-			}
-			return nil
-		}
-		if state.DeadCheckCount < deadChecksBeforeFailed {
-			d.logger.Printf("%s#%s: agent not alive (%d/%d checks), waiting", run.IssueID, run.RunID, state.DeadCheckCount, deadChecksBeforeFailed)
-			return nil
-		}
-		inferredStatus := d.inferStatusFromGitState(run, st, true, projectRoot)
-		if inferredStatus != "" {
-			if inferredStatus != run.Status {
-				if opencodeLogPath != "" {
-					d.logger.Printf("%s#%s: agent session gone, inferred status from git state: %s (opencode logs: %s)", run.IssueID, run.RunID, inferredStatus, opencodeLogPath)
-				} else {
-					d.logger.Printf("%s#%s: agent session gone, inferred status from git state: %s", run.IssueID, run.RunID, inferredStatus)
-				}
-			}
-			return d.updateStatus(run, inferredStatus, st)
-		}
-		if run.Agent == "opencode" {
-			if opencodeLogPath != "" {
-				d.logger.Printf("%s#%s: opencode session not found after %d checks, marking unknown (opencode logs: %s)", run.IssueID, run.RunID, state.DeadCheckCount, opencodeLogPath)
-			} else {
-				d.logger.Printf("%s#%s: opencode session not found after %d checks, marking unknown", run.IssueID, run.RunID, state.DeadCheckCount)
-			}
-			return d.updateStatus(run, model.StatusUnknown, st)
-		}
-		d.logger.Printf("%s#%s: agent confirmed dead after %d checks, marking failed", run.IssueID, run.RunID, state.DeadCheckCount)
-		return d.updateStatus(run, model.StatusFailed, st)
+		return d.applyGoneObservation(run, st, state, projectRoot, false)
+	}
+
+	if _, err := d.applyStep(run, st, state, runObservation{Kind: obsSessionAlive}, projectRoot); err != nil {
+		return err
 	}
 
 	now := time.Now()
@@ -190,71 +139,116 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store, projectID, projectRo
 	return d.processRunOutput(run, st, state, mgr, output)
 }
 
-// processRunOutput runs the host-agnostic part of the monitor cycle on a
-// freshly captured session output: change hashing, prompt debouncing, PR-URL
-// detection, and agent status inference. Shared by local and worker-delegated
-// runs.
+// processRunOutput feeds a freshly captured session output through stepRun:
+// change hashing, prompt debouncing, PR-URL detection, and agent status
+// inference all happen in the pure core. Shared by local and
+// worker-delegated runs.
 func (d *Daemon) processRunOutput(run *model.Run, st store.Store, state *RunState, mgr agent.AgentManager, output string) error {
-	contentHash := hashContent(output)
-	outputChanged := contentHash != state.OutputHash
-	hasPrompt := mgr.DetectPrompt(output)
-	hasStablePrompt := state.recordPromptSignal(hasPrompt)
+	signal := gatherAgentSignal(run, mgr, output)
+	_, err := d.applyStep(run, st, state, runObservation{
+		Kind:   obsCaptured,
+		Output: output,
+		Signal: signal,
+	}, "")
+	return err
+}
 
-	if outputChanged {
-		state.OutputHash = contentHash
-		state.LastOutput = output
-		state.LastOutputAt = time.Now()
+// gatherAgentSignal produces the agent-specific reading of a captured output
+// for stepRun. OpenCode resolves its verdict through the server API (impure,
+// so it must happen here); mux agents reduce to pure string heuristics whose
+// precedence stepRun applies together with hash/streak state.
+func gatherAgentSignal(run *model.Run, mgr agent.AgentManager, output string) agentSignal {
+	if _, ok := mgr.(*agent.OpenCodeManager); ok {
+		status := mgr.GetStatus(run, output, &agent.RunState{}, false, false)
+		return agentSignal{Resolved: true, Status: status}
 	}
-
-	if len(contentHash) > 8 {
-		d.debug("%s#%s: pane hash=%s changed=%t prompt=%t stable_prompt=%t streak=%d",
-			run.IssueID, run.RunID, contentHash[:8], outputChanged, hasPrompt, hasStablePrompt, state.PromptStreak)
-	} else {
-		d.debug("%s#%s: pane hash=%s changed=%t prompt=%t stable_prompt=%t streak=%d",
-			run.IssueID, run.RunID, contentHash, outputChanged, hasPrompt, hasStablePrompt, state.PromptStreak)
+	return agentSignal{
+		Exited:        agent.IsAgentExited(output),
+		Completed:     agent.IsCompleted(output),
+		APILimited:    agent.IsAPILimited(output),
+		Failed:        agent.IsFailed(output),
+		PromptShowing: mgr.DetectPrompt(output),
 	}
+}
 
-	if prURL := d.detectPRCreation(output); prURL != "" {
-		if !state.PRRecorded {
-			d.logger.Printf("%s#%s: PR created: %s", run.IssueID, run.RunID, prURL)
-			if err := d.recordPRArtifact(run, prURL, st); err != nil {
+// applyStep runs one observation through the pure transition function and
+// executes the resulting effects. The new core is committed even when an
+// effect fails (executors veto individual flags where a failed write must
+// retry — see applyRunEffects).
+func (d *Daemon) applyStep(run *model.Run, st store.Store, state *RunState, obs runObservation, projectRoot string) ([]runEffect, error) {
+	view := runViewOf(run)
+	core, effects := stepRun(view, state.runCore, obs, time.Now())
+	core, err := d.applyRunEffects(run, st, state.runCore, core, effects)
+	state.runCore = core
+	return effects, err
+}
+
+// applyRunEffects executes stepRun effects in order. effectGatherGitEvidence
+// is a shell-loop concern (applyGoneObservation) and is skipped here.
+func (d *Daemon) applyRunEffects(run *model.Run, st store.Store, oldCore, core runCore, effects []runEffect) (runCore, error) {
+	var firstErr error
+	statusWriteFailed := false
+	for _, e := range effects {
+		switch e.Kind {
+		case effectLog:
+			d.logger.Printf("%s", e.Msg)
+		case effectDebugLog:
+			d.debug("%s", e.Msg)
+		case effectRecordPR:
+			if err := d.recordPRArtifact(run, e.PRURL, st); err != nil {
 				d.logger.Printf("%s#%s: failed to record PR artifact: %v", run.IssueID, run.RunID, err)
-			} else {
-				state.PRRecorded = true
-				if err := d.updateStatus(run, model.StatusPROpen, st); err != nil {
-					d.logger.Printf("%s#%s: failed to update status to pr_open: %v", run.IssueID, run.RunID, err)
-				}
-				return nil
+				// The PRRecorded flag must reflect the store, not the
+				// intent: revert so the next capture retries the write.
+				core.PRRecorded = oldCore.PRRecorded
 			}
+		case effectRecordPRClosed:
+			if err := d.recordPRClosedEvent(run, e.PRURL, st); err != nil {
+				return core, err
+			}
+		case effectSetStatus:
+			if err := d.updateStatus(run, e.Status, st); err != nil {
+				statusWriteFailed = true
+				if firstErr == nil {
+					firstErr = err
+				}
+			}
+		case effectFireStatusChange:
+			if statusWriteFailed {
+				continue
+			}
+			d.fireStatusChange(&runevents.StatusChangeEvent{
+				Run:        run,
+				From:       e.From,
+				To:         e.Status,
+				Source:     model.EventSourceDaemon,
+				LastOutput: e.Output,
+				Store:      st,
+			})
+		case effectGatherGitEvidence:
+			// handled by applyGoneObservation
 		}
 	}
+	return core, firstErr
+}
 
-	agentState := &agent.RunState{
-		LastOutput:   state.LastOutput,
-		LastOutputAt: state.LastOutputAt,
-		LastCheckAt:  state.LastCheckAt,
-		OutputHash:   state.OutputHash,
-		PRRecorded:   state.PRRecorded,
+// applyGoneObservation feeds one dead check through stepRun and, when the
+// policy requests it, gathers git/PR evidence and feeds that back as a
+// second observation. The shell never decides whether evidence is needed.
+func (d *Daemon) applyGoneObservation(run *model.Run, st store.Store, state *RunState, projectRoot string, remote bool) error {
+	effects, err := d.applyStep(run, st, state, runObservation{Kind: obsSessionGone, Remote: remote}, projectRoot)
+	if err != nil {
+		return err
 	}
-	newStatus := mgr.GetStatus(run, output, agentState, outputChanged, hasStablePrompt)
-
-	if newStatus != "" && newStatus != run.Status {
-		d.logger.Printf("%s#%s: status change %s -> %s", run.IssueID, run.RunID, run.Status, newStatus)
-		prevStatus := run.Status
-		if err := d.updateStatus(run, newStatus, st); err != nil {
-			return err
-		}
-		d.fireStatusChange(&runevents.StatusChangeEvent{
-			Run:        run,
-			From:       prevStatus,
-			To:         newStatus,
-			Source:     model.EventSourceDaemon,
-			LastOutput: output,
-			Store:      st,
-		})
+	if !effectsContain(effects, effectGatherGitEvidence) {
+		return nil
 	}
-
-	return nil
+	evidence := d.gatherGitEvidence(run, projectRoot)
+	_, err = d.applyStep(run, st, state, runObservation{
+		Kind:     obsGitEvidence,
+		Evidence: evidence,
+		Remote:   remote,
+	}, projectRoot)
+	return err
 }
 
 // runIsWorkerDelegated reports whether the run executes on another host via
@@ -270,7 +264,7 @@ func (d *Daemon) runIsWorkerDelegated(run *model.Run) bool {
 // monitorRemoteRun observes a worker-hosted run by delegating capture_session
 // to the worker on the run's execution host. A successful capture doubles as
 // the liveness signal; the captured output then flows through the same
-// processing as local runs (PR detection, prompt/status inference).
+// stepRun processing as local runs.
 func (d *Daemon) monitorRemoteRun(run *model.Run, st store.Store, projectID, projectRoot string, state *RunState, mgr agent.AgentManager) error {
 	now := time.Now()
 
@@ -297,32 +291,7 @@ func (d *Daemon) monitorRemoteRun(run *model.Run, st store.Store, projectID, pro
 			// completed, so pace re-checks like successful captures instead
 			// of retrying every monitor tick.
 			state.RemoteCaptureAt = now
-			state.DeadCheckCount++
-			if state.DeadCheckCount < deadChecksBeforeFailed {
-				d.logger.Printf("%s#%s: remote session not found on worker (check %d/%d): %v", run.IssueID, run.RunID, state.DeadCheckCount, deadChecksBeforeFailed, err)
-				return nil
-			}
-			// The session is gone on the execution host. Same rule as local
-			// runs: a gone session must never mask completed work, so infer
-			// from PR/git state before falling back to unknown/failed.
-			if inferred := d.inferStatusFromGitState(run, st, state.WasAlive, projectRoot); inferred != "" {
-				if inferred != run.Status {
-					d.logger.Printf("%s#%s: remote session gone, inferred status from git state: %s", run.IssueID, run.RunID, inferred)
-				}
-				return d.updateStatus(run, inferred, st)
-			}
-			if !state.WasAlive {
-				if withinNeverAliveGrace(run) {
-					d.debug("%s#%s: remote session not observable yet (within boot grace), waiting", run.IssueID, run.RunID)
-					return nil
-				}
-				if run.Status != model.StatusUnknown {
-					d.logger.Printf("%s#%s: remote agent never confirmed alive after %d checks, marking unknown", run.IssueID, run.RunID, state.DeadCheckCount)
-				}
-				return d.updateStatus(run, model.StatusUnknown, st)
-			}
-			d.logger.Printf("%s#%s: remote agent confirmed dead after %d checks, marking failed", run.IssueID, run.RunID, state.DeadCheckCount)
-			return d.updateStatus(run, model.StatusFailed, st)
+			return d.applyGoneObservation(run, st, state, projectRoot, true)
 		}
 
 		// Worker-plane infrastructure failure (worker offline, lease
@@ -345,8 +314,10 @@ func (d *Daemon) monitorRemoteRun(run *model.Run, st store.Store, projectID, pro
 
 	state.resetCaptureFailure()
 	state.RemoteCaptureAt = now
-	state.WasAlive = true
-	state.DeadCheckCount = 0
+
+	if _, err := d.applyStep(run, st, state, runObservation{Kind: obsSessionAlive}, projectRoot); err != nil {
+		return err
+	}
 
 	return d.processRunOutput(run, st, state, mgr, output)
 }
@@ -466,14 +437,22 @@ func (s *RunState) resetCaptureFailure() {
 	s.SuppressedCaptureLogs = 0
 }
 
-func (s *RunState) recordPromptSignal(hasPrompt bool) bool {
+// recordPromptStreak is the pure prompt-debounce rule shared by stepRun and
+// RunState.recordPromptSignal: a prompt must persist for
+// waitingPromptStreakThreshold consecutive captures before it counts.
+func recordPromptStreak(streak int, hasPrompt bool) (int, bool) {
 	if hasPrompt {
-		s.PromptStreak++
+		streak++
 	} else {
-		s.PromptStreak = 0
+		streak = 0
 	}
+	return streak, hasPrompt && streak >= waitingPromptStreakThreshold
+}
 
-	return hasPrompt && s.PromptStreak >= waitingPromptStreakThreshold
+func (s *RunState) recordPromptSignal(hasPrompt bool) bool {
+	streak, stable := recordPromptStreak(s.PromptStreak, hasPrompt)
+	s.PromptStreak = streak
+	return stable
 }
 
 func captureBackoffDuration(err error, failures int) time.Duration {
@@ -528,6 +507,9 @@ func isConnectionRefusedError(err error) bool {
 	return strings.Contains(msg, "connection refused") || strings.Contains(msg, "econnrefused")
 }
 
+// updateStatus is the single executor for status transitions (effectSetStatus).
+// It re-checks the authoritative store state beneath the stepRun matrix:
+// terminal protection, transition legality, and the same-status no-op.
 func (d *Daemon) updateStatus(run *model.Run, status model.Status, st store.Store) error {
 	ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
 
@@ -623,15 +605,14 @@ func hashContent(output string) string {
 // prURLRegex matches GitHub/GitLab PR URLs
 var prURLRegex = regexp.MustCompile(`https://(?:github\.com|gitlab\.com)/[^\s]+/pull/\d+|https://(?:github\.com|gitlab\.com)/[^\s]+/merge_requests/\d+`)
 
-// detectPRCreation scans output for PR creation URLs
-// Returns the first PR URL found, or empty string if none
+// detectPRURL scans output for PR creation URLs and returns the first PR URL
+// found, or empty string if none.
+func detectPRURL(output string) string {
+	return prURLRegex.FindString(output)
+}
+
 func (d *Daemon) detectPRCreation(output string) string {
-	// Look for GitHub/GitLab PR URLs in the output
-	match := prURLRegex.FindString(output)
-	if match != "" {
-		return match
-	}
-	return ""
+	return detectPRURL(output)
 }
 
 func (d *Daemon) recordPRArtifact(run *model.Run, prURL string, st store.Store) error {
@@ -651,20 +632,24 @@ func (d *Daemon) recordPRClosedEvent(run *model.Run, prURL string, st store.Stor
 	return st.AppendEvent(ref, model.NewArtifactEvent("pr_closed", attrs))
 }
 
-func (d *Daemon) checkPROutcome(run *model.Run, st store.Store) (prOutcome, string) {
+// gatherPROutcome looks up the run's PR outcome (URL first, then branch).
+// Observation only: when a PR is discovered via branch lookup on a run with
+// no recorded PR URL, the URL is returned as discoveredURL and stepRun
+// decides whether to record it.
+func (d *Daemon) gatherPROutcome(run *model.Run) (outcome prOutcome, prURL, discoveredURL string) {
 	if run.PRUrl != "" {
 		prInfo, err := d.lookupPRInfoByURL(run.PRUrl)
 		if err == nil && prInfo != nil {
-			prURL := prInfo.URL
-			if prURL == "" {
-				prURL = run.PRUrl
+			url := prInfo.URL
+			if url == "" {
+				url = run.PRUrl
 			}
-			return prOutcomeFromInfo(prInfo), prURL
+			return prOutcomeFromInfo(prInfo), url, ""
 		}
 	}
 
 	if run.Branch == "" {
-		return prOutcomeUnknown, ""
+		return prOutcomeUnknown, "", ""
 	}
 
 	var repoRoot string
@@ -675,22 +660,33 @@ func (d *Daemon) checkPROutcome(run *model.Run, st store.Store) (prOutcome, stri
 	if repoRoot == "" || err != nil {
 		repoRoot, err = git.FindMainRepoRoot("")
 		if err != nil {
-			return prOutcomeUnknown, ""
+			return prOutcomeUnknown, "", ""
 		}
 	}
 
 	prInfo, err := d.lookupPRInfo(repoRoot, run.Branch)
 	if err != nil || prInfo == nil {
-		return prOutcomeUnknown, ""
+		return prOutcomeUnknown, "", ""
 	}
 
-	if prInfo.URL != "" && run.PRUrl == "" && st != nil {
-		if err := d.recordPRArtifact(run, prInfo.URL, st); err != nil {
+	if prInfo.URL != "" && run.PRUrl == "" {
+		discoveredURL = prInfo.URL
+	}
+
+	return prOutcomeFromInfo(prInfo), prInfo.URL, discoveredURL
+}
+
+// checkPROutcome preserves the historical gather+record behavior for callers
+// outside the stepRun flow (tests): it gathers the PR outcome and records a
+// discovered PR immediately.
+func (d *Daemon) checkPROutcome(run *model.Run, st store.Store) (prOutcome, string) {
+	outcome, prURL, discovered := d.gatherPROutcome(run)
+	if discovered != "" && st != nil {
+		if err := d.recordPRArtifact(run, discovered, st); err != nil {
 			d.logger.Printf("%s#%s: failed to record discovered PR: %v", run.IssueID, run.RunID, err)
 		}
 	}
-
-	return prOutcomeFromInfo(prInfo), prInfo.URL
+	return outcome, prURL
 }
 
 func (d *Daemon) lookupPRInfo(repoRoot, branch string) (*pr.Info, error) {
@@ -736,18 +732,18 @@ func statusFromPROutcome(outcome prOutcome) model.Status {
 	}
 }
 
-// inferStatusFromGitState infers a run's status from git state when the agent session
-// is no longer reachable. wasAlive indicates whether the agent was ever confirmed running.
-// When wasAlive is false and no work was done (0 commits, clean worktree), returns
-// StatusFailed rather than StatusDone — the agent never started, not "completed."
+// gatherGitEvidence collects the raw PR/git facts for a dead-session verdict
+// (obsGitEvidence). It mirrors the historical laziness of
+// inferStatusFromGitState: lookups stop as soon as the gitVerdict ladder
+// cannot need further facts.
 //
 // projectRoot is the repo root registered with the daemon for the run's
 // project; it is the lookup root for worker-hosted runs whose worktree lives
 // on the execution host and is not visible from this machine.
-func (d *Daemon) inferStatusFromGitState(run *model.Run, st store.Store, wasAlive bool, projectRoot string) model.Status {
+func (d *Daemon) gatherGitEvidence(run *model.Run, projectRoot string) gitEvidence {
+	ev := gitEvidence{}
 	if run.Branch == "" {
-		d.debug("%s#%s: infer: skipping - branch=%q worktree=%q", run.IssueID, run.RunID, run.Branch, run.WorktreePath)
-		return ""
+		return ev
 	}
 
 	repoRoot := ""
@@ -761,51 +757,38 @@ func (d *Daemon) inferStatusFromGitState(run *model.Run, st store.Store, wasAliv
 			repoRoot = root
 		}
 	}
+	ev.RepoRootFound = repoRoot != ""
 
 	if repoRoot != "" {
-		d.debug("%s#%s: infer: checking PR for branch %s", run.IssueID, run.RunID, run.Branch)
 		prInfo, err := d.lookupPRInfo(repoRoot, run.Branch)
 		if err == nil && prInfo != nil && prInfo.URL != "" {
-			d.debug("%s#%s: infer: found PR %s (state=%s)", run.IssueID, run.RunID, prInfo.URL, prInfo.State)
-			if run.PRUrl == "" {
-				if err := d.recordPRArtifact(run, prInfo.URL, st); err != nil {
-					d.logger.Printf("%s#%s: infer: failed to record PR: %v", run.IssueID, run.RunID, err)
-				}
-			}
-			if status := statusFromPROutcome(prOutcomeFromInfo(prInfo)); status != "" {
-				return status
+			ev.BranchPRURL = prInfo.URL
+			ev.BranchPROutcome = prOutcomeFromInfo(prInfo)
+			if statusFromPROutcome(ev.BranchPROutcome) != "" {
+				return ev
 			}
 		}
 		if err != nil {
 			d.debug("%s#%s: infer: PR lookup error: %v", run.IssueID, run.RunID, err)
-		} else {
-			d.debug("%s#%s: infer: no PR found", run.IssueID, run.RunID)
 		}
 	}
 
-	// If branch-based lookup failed but run already has a PR URL, check PR status by URL.
-	// This handles cases where the local branch was deleted/rebased but PR still exists,
-	// and worker-hosted runs whose worktree/repo is not visible from this host.
 	if run.PRUrl != "" {
-		d.debug("%s#%s: infer: branch lookup failed, checking existing PR URL: %s", run.IssueID, run.RunID, run.PRUrl)
 		prInfo, err := d.lookupPRInfoByURL(run.PRUrl)
 		if err == nil && prInfo != nil {
-			d.debug("%s#%s: infer: PR %s state=%s (via URL lookup)", run.IssueID, run.RunID, prInfo.URL, prInfo.State)
-			if status := statusFromPROutcome(prOutcomeFromInfo(prInfo)); status != "" {
-				return status
-			}
+			ev.URLPRFound = true
+			ev.URLPROutcome = prOutcomeFromInfo(prInfo)
 		}
 		if err != nil {
 			d.debug("%s#%s: infer: PR URL lookup error: %v", run.IssueID, run.RunID, err)
 		}
-		// If URL lookup also fails, preserve PR_OPEN status since we know a PR exists
-		d.debug("%s#%s: infer: preserving pr_open status (PR URL exists but lookup failed)", run.IssueID, run.RunID)
-		return model.StatusPROpen
+		// The verdict ladder ends at the PR-URL rung regardless of lookup
+		// success (it preserves pr_open) — no further facts needed.
+		return ev
 	}
 
 	if repoRoot == "" {
-		d.debug("%s#%s: infer: cannot find repo root (worktree=%q project_root=%q)", run.IssueID, run.RunID, run.WorktreePath, projectRoot)
-		return ""
+		return ev
 	}
 
 	baseBranch := "origin/main"
@@ -815,41 +798,40 @@ func (d *Daemon) inferStatusFromGitState(run *model.Run, st store.Store, wasAliv
 	}
 
 	aheadCount, err := git.GetAheadCount(repoRoot, run.Branch, baseBranch)
-	if err != nil {
-		d.debug("%s#%s: infer: cannot get ahead count: %v", run.IssueID, run.RunID, err)
-		return ""
+	if err == nil {
+		ev.AheadKnown = true
+		ev.AheadCount = aheadCount
 	}
+	ev.HasUncommitted = git.HasUncommittedChanges(run.WorktreePath)
 
-	hasUncommitted := git.HasUncommittedChanges(run.WorktreePath)
+	return ev
+}
 
-	d.debug("%s#%s: infer: commits ahead=%d, uncommitted=%v", run.IssueID, run.RunID, aheadCount, hasUncommitted)
-
-	if aheadCount > 0 || hasUncommitted {
-		return model.StatusWaiting
-	}
-
-	// No positive signals (no PR, no commits, clean worktree). The verdict
-	// depends on agent lifecycle: opencode exits when finished, so a gone
-	// session with no work means the run produced nothing. Interactive
-	// agents (codex, claude) keep their session open while idle, so a gone
-	// session with no work is not a completion signal — leave the verdict
-	// to the caller.
-	if run.Agent != "opencode" {
-		return ""
-	}
-	if !wasAlive {
-		if withinNeverAliveGrace(run) {
-			d.debug("%s#%s: infer: within boot grace, no verdict yet", run.IssueID, run.RunID)
-			return ""
+// inferStatusFromGitState infers a run's status from git state when the agent
+// session is no longer reachable. It is the historical entry point preserved
+// for callers outside the stepRun flow (tests): the decision ladder itself
+// lives in gitVerdict (step.go) so it cannot drift from the monitor plane.
+func (d *Daemon) inferStatusFromGitState(run *model.Run, st store.Store, wasAlive bool, projectRoot string) model.Status {
+	evidence := d.gatherGitEvidence(run, projectRoot)
+	status, effects := gitVerdict(runViewOf(run), runCore{WasAlive: wasAlive}, evidence, time.Now())
+	for _, e := range effects {
+		switch e.Kind {
+		case effectRecordPR:
+			if err := d.recordPRArtifact(run, e.PRURL, st); err != nil {
+				d.logger.Printf("%s#%s: infer: failed to record PR: %v", run.IssueID, run.RunID, err)
+			}
+		case effectLog:
+			d.logger.Printf("%s", e.Msg)
+		case effectDebugLog:
+			d.debug("%s", e.Msg)
 		}
-		return model.StatusFailed
 	}
-	return model.StatusDone
+	return status
 }
 
 // withinNeverAliveGrace reports whether a run that has never been observed
 // alive is still inside its boot grace window, during which dead checks must
 // not conclude a verdict.
 func withinNeverAliveGrace(run *model.Run) bool {
-	return !run.StartedAt.IsZero() && time.Since(run.StartedAt) < neverAliveVerdictGrace
+	return withinNeverAliveGraceAt(run.StartedAt, time.Now())
 }
