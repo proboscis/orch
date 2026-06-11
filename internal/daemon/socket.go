@@ -2913,12 +2913,23 @@ func (s *SocketServer) processSendMessage(st store.Store, params *SendMessagePar
 		return fmt.Errorf("run %s#%s not found: %w", params.IssueID, params.RunID, err)
 	}
 
+	return s.processSendMessageForRun(st, run, params)
+}
+
+func (s *SocketServer) processSendMessageForRun(st store.Store, run *model.Run, params *SendMessageParams) error {
+	if run == nil {
+		return fmt.Errorf("run required")
+	}
+	if params == nil {
+		return fmt.Errorf("send params required")
+	}
+
 	if targetHost := strings.TrimSpace(run.TargetHost); targetHost != "" && s.runRequiresWorkerDelegation(run, params.TargetWorkerID) {
-		return fmt.Errorf("run %s#%s is executing on remote host %q; use the CLI send path that routes to the target host", params.IssueID, params.RunID, targetHost)
+		return fmt.Errorf("run %s#%s is executing on remote host %q; use the CLI send path that routes to the target host", run.IssueID, run.RunID, targetHost)
 	}
 
 	if run.Agent == string(agent.AgentOpenCode) {
-		if err := s.processSendOpenCode(st, ref, run, params.Message); err != nil {
+		if err := s.processSendOpenCode(st, run.Ref(), run, params.Message); err != nil {
 			return err
 		}
 	} else if err := s.processSendTmux(run, params.Message, params.NoEnter); err != nil {
@@ -4053,15 +4064,23 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		continuedFrom = "branch:" + branch
 	} else {
 		var fromRun *model.Run
-		if opts.ShortID != "" {
+		if opts.RunSnapshot != nil {
+			fromRun, err = modelRunFromSnapshot(opts.RunSnapshot)
+			if err != nil {
+				return nil, err
+			}
+		} else if opts.ShortID != "" {
 			fromRun, err = st.GetRunByShortID(opts.ShortID)
 			if err != nil {
 				return nil, fmt.Errorf("run not found: %s", opts.ShortID)
 			}
-		} else if opts.IssueID != "" && opts.RunID != "" {
+		} else if opts.IssueID != "" {
 			ref := &model.RunRef{IssueID: opts.IssueID, RunID: opts.RunID}
 			fromRun, err = st.GetRun(ref)
 			if err != nil {
+				if opts.RunID == "" {
+					return nil, fmt.Errorf("run not found: %s", opts.IssueID)
+				}
 				return nil, fmt.Errorf("run not found: %s#%s", opts.IssueID, opts.RunID)
 			}
 		} else {
@@ -4820,6 +4839,21 @@ func (s *SocketServer) stopSingleRun(run *model.Run, st store.Store) error {
 		return nil
 	}
 
+	if err := s.stopRunSession(run); err != nil {
+		return err
+	}
+
+	return appendRunCanceledByUser(st, run)
+}
+
+func (s *SocketServer) stopRunSession(run *model.Run) error {
+	if run == nil {
+		return fmt.Errorf("run required")
+	}
+	if run.Status == model.StatusDone || run.Status == model.StatusFailed || run.Status == model.StatusCanceled {
+		return nil
+	}
+
 	if run.Agent == string(agent.AgentOpenCode) && run.ServerPort > 0 && run.OpenCodeSessionID != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -4848,12 +4882,24 @@ func (s *SocketServer) stopSingleRun(run *model.Run, st store.Store) error {
 		}
 	}
 
-	ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
-	event := &model.Event{
-		Timestamp: time.Now(),
-		Type:      "status",
-		Name:      string(model.StatusCanceled),
+	return nil
+}
+
+func appendRunCanceledByUser(st store.Store, run *model.Run) error {
+	if st == nil {
+		return fmt.Errorf("store required")
 	}
+	if run == nil {
+		return fmt.Errorf("run required")
+	}
+	if run.Status == model.StatusDone || run.Status == model.StatusFailed || run.Status == model.StatusCanceled {
+		return nil
+	}
+
+	ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
+	event := model.NewEvent(model.EventTypeStatus, string(model.StatusCanceled), map[string]string{
+		"source": string(model.EventSourceUser),
+	})
 	return st.AppendEvent(ref, event)
 }
 

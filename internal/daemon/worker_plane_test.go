@@ -197,6 +197,62 @@ targets:
 	}
 }
 
+func TestExecuteLeaseEffectStopRunUsesSnapshotWithEmptyWorkerRunStore(t *testing.T) {
+	projectRoot := t.TempDir()
+	issuesRoot := filepath.Join(projectRoot, "issues-store")
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0o755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(issuesRoot, "issues"), 0o755); err != nil {
+		t.Fatalf("mkdir issues root: %v", err)
+	}
+	configBody := "issues:\n  path: " + issuesRoot + "\n"
+	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), []byte(configBody), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	st, err := filestore.New(issuesRoot)
+	if err != nil {
+		t.Fatalf("filestore.New() error = %v", err)
+	}
+	if _, err := st.GetRun(&model.RunRef{IssueID: "legacy-issue", RunID: "legacy-run"}); err == nil {
+		t.Fatal("precondition failed: worker store unexpectedly has legacy run")
+	}
+
+	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, log.New(io.Discard, "", 0))
+	server.SetWorkerIdentity(HostWorkerID("dead-host"), "dead-host")
+	if _, err := server.registerRepoContext("project-legacy", projectRoot, "", st); err != nil {
+		t.Fatalf("registerRepoContext() error = %v", err)
+	}
+
+	lease := &WorkerLease{
+		LeaseID:   "lease-stop-snapshot",
+		WorkerID:  HostWorkerID("dead-host"),
+		ProjectID: "project-legacy",
+		Effect:    "stop_run",
+		IssueID:   "legacy-issue",
+		RunID:     "legacy-run",
+		Payload: &WorkerEffectPayload{
+			StopRun: &StopRunPayload{
+				TargetHost:     "dead-host",
+				TargetWorkerID: HostWorkerID("dead-host"),
+				RunSnapshot: &RunSnapshot{
+					IssueID:     "legacy-issue",
+					RunID:       "legacy-run",
+					Status:      model.StatusRunning,
+					Agent:       "custom",
+					SessionName: "legacy-session",
+					Multiplexer: "tmux",
+				},
+			},
+		},
+	}
+
+	if _, err := server.executeLeaseEffect(lease); err != nil {
+		t.Fatalf("executeLeaseEffect() must use RunSnapshot instead of worker store, got: %v", err)
+	}
+}
+
 // TestProcessStartRunCoreUsesSnapshotWithEmptyWorkerIssueStore is the authoritative
 // regression for the cross-machine worker bug: a worker pinned to a different host
 // than the master has an EMPTY issue store. The master (issue-store SSOT) resolves a

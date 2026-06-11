@@ -313,10 +313,40 @@ func (s *SocketServer) handleProtoRequest(req *orchpb.Request) *orchpb.Response 
 }
 
 func resolveRunForMutation(st store.Store, issueID, runID, shortID string) (*model.Run, error) {
+	if st == nil {
+		return nil, fmt.Errorf("store required")
+	}
+	issueID = strings.TrimSpace(issueID)
+	runID = strings.TrimSpace(runID)
+	shortID = strings.TrimSpace(shortID)
 	if shortID != "" {
 		return st.GetRunByShortID(model.ShortID(shortID))
 	}
+	if issueID == "" {
+		return nil, fmt.Errorf("run reference required")
+	}
 	return st.GetRun(&model.RunRef{IssueID: model.IssueID(issueID), RunID: model.RunID(runID)})
+}
+
+func masterRunNotFoundError(projectID, issueID, runID, shortID string, err error) string {
+	ref := strings.TrimSpace(shortID)
+	if ref == "" {
+		ref = strings.TrimSpace(issueID)
+		if strings.TrimSpace(runID) != "" {
+			ref = fmt.Sprintf("%s#%s", strings.TrimSpace(issueID), strings.TrimSpace(runID))
+		}
+	}
+	if ref == "" {
+		ref = "<empty>"
+	}
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		projectID = "<unknown>"
+	}
+	if err != nil && isAmbiguousRunLookupError(err) {
+		return fmt.Sprintf("ambiguous run ref in master store for project %q: %s", projectID, ref)
+	}
+	return fmt.Sprintf("run not in master store for project %q: %s", projectID, ref)
 }
 
 func (s *SocketServer) resolveMainRepoRootForRun(ctx *orchpb.RequestContext, run *model.Run) (string, error) {
@@ -560,9 +590,9 @@ func (s *SocketServer) resolveProtoRun(ctx *orchpb.RequestContext, issueID, runI
 		if st == nil {
 			return nil, errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
 		}
-		run, err := st.GetRun(ref)
+		run, err := resolveRunForMutation(st, issueID, runID, "")
 		if err != nil {
-			return nil, errorResponse("not_found")
+			return nil, errorResponse(masterRunNotFoundError(projectID, issueID, runID, "", err))
 		}
 		repo := s.ensureRepoContextByID(projectID)
 		projectRoot := ""
@@ -782,6 +812,7 @@ func (s *SocketServer) captureRunOutputViaWorker(run *model.Run, projectID, proj
 			Target:         strings.TrimSpace(run.Target),
 			TargetHost:     target.Host,
 			TargetWorkerID: target.WorkerID,
+			RunSnapshot:    newRunSnapshot(run),
 		},
 	}
 
@@ -1511,7 +1542,9 @@ func (s *SocketServer) syncContinueRunResultToMasterStore(st store.Store, req *o
 		if req.Agent != "" {
 			metadata["agent"] = req.Agent
 		}
-		if req.ShortId != "" {
+		if strings.TrimSpace(result.ContinuedFrom) != "" {
+			metadata["continued_from"] = strings.TrimSpace(result.ContinuedFrom)
+		} else if req.ShortId != "" {
 			metadata["continued_from"] = req.ShortId
 		} else if req.IssueId != "" && req.RunId != "" {
 			metadata["continued_from"] = fmt.Sprintf("%s#%s", req.IssueId, req.RunId)
@@ -1615,33 +1648,26 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 		Multiplexer:    req.Multiplexer,
 		SessionName:    req.SessionName,
 	}
-	// Inherit the prior run's target and agent so the codex profile constraint
-	// and CODEX_HOME are re-applied identically on restart-from/continue. Also
-	// capture the issue ID so the master (issue-store SSOT) can resolve the issue
-	// and carry it in the worker payload below.
+	// Inherit the prior run's target and agent from the master store so the codex
+	// profile constraint and CODEX_HOME are re-applied identically on
+	// restart-from/continue. The worker receives the resolved run snapshot and must
+	// not re-resolve this run against its own host-local store.
 	var fromRunAgent string
 	issueID := model.IssueID(req.IssueId)
-	if req.ShortId != "" {
-		// The short-id mode derives the issue ID solely from the referenced run, so
-		// fail fast on the master if it cannot be resolved. Otherwise issueID would
-		// stay empty and the worker would fall back to its own-store ResolveIssue
-		// (which it may not have), producing a misleading error on the wrong host.
-		run, err := st.GetRunByShortID(model.ShortID(req.ShortId))
+	if strings.TrimSpace(req.Branch) == "" {
+		run, err := resolveRunForMutation(st, req.IssueId, req.RunId, req.ShortId)
 		if err != nil || run == nil {
-			return errorResponse(fmt.Sprintf("run not found: %s", req.ShortId))
+			return errorResponse(masterRunNotFoundError(projectID, req.IssueId, req.RunId, req.ShortId, err))
 		}
+		opts.IssueID = run.IssueID
+		opts.RunID = run.RunID
 		opts.Target = strings.TrimSpace(run.Target)
+		opts.TargetHost = strings.TrimSpace(run.TargetHost)
+		opts.TargetWorkerID = strings.TrimSpace(run.TargetWorkerID)
+		opts.RunSnapshot = newRunSnapshot(run)
 		fromRunAgent = strings.TrimSpace(run.Agent)
 		if run.IssueID != "" {
 			issueID = run.IssueID
-		}
-	} else if req.IssueId != "" && req.RunId != "" {
-		if run, err := st.GetRun(&model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}); err == nil && run != nil {
-			opts.Target = strings.TrimSpace(run.Target)
-			fromRunAgent = strings.TrimSpace(run.Agent)
-			if run.IssueID != "" {
-				issueID = run.IssueID
-			}
 		}
 	}
 
@@ -1659,7 +1685,10 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 		return errorResponse(err.Error())
 	}
 
-	if strings.TrimSpace(opts.Target) != "" && strings.TrimSpace(opts.Target) != "local" {
+	if strings.TrimSpace(opts.TargetWorkerID) == "" && strings.TrimSpace(opts.TargetHost) != "" {
+		opts.TargetWorkerID = HostWorkerID(opts.TargetHost)
+	}
+	if strings.TrimSpace(opts.TargetHost) == "" && strings.TrimSpace(opts.TargetWorkerID) == "" && strings.TrimSpace(opts.Target) != "" && strings.TrimSpace(opts.Target) != "local" {
 		target, targetErr := resolveTargetForProjectRoot(projectRoot, opts.Target)
 		if targetErr != nil {
 			return errorResponse(targetErr.Error())
@@ -1683,7 +1712,7 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 	}
 
 	payload := &WorkerEffectPayload{ContinueRun: opts}
-	completedLease, err := s.withWorkerLease(projectID, "continue_run", req.IssueId, req.RunId, payload)
+	completedLease, err := s.withWorkerLease(projectID, "continue_run", string(opts.IssueID), string(opts.RunID), payload)
 	if err != nil {
 		return errorResponse(err.Error())
 	}
@@ -1726,28 +1755,43 @@ func (s *SocketServer) handleProtoStopRun(req *orchpb.StopRunRequest) *orchpb.Re
 	}
 	st := repoCtx.Store
 
-	ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}
-	run, err := st.GetRun(ref)
-	if err != nil {
-		return errorResponse("not_found")
+	run, err := resolveRunForMutation(st, req.IssueId, req.RunId, "")
+	if err != nil || run == nil {
+		return errorResponse(masterRunNotFoundError(projectID, req.IssueId, req.RunId, "", err))
 	}
+	runSnapshot := newRunSnapshot(run)
 
 	projectRoot := strings.TrimSpace(repoCtx.ProjectRoot)
-	payload := &WorkerEffectPayload{}
-	if strings.TrimSpace(projectRoot) != "" {
-		stopPayload := &StopRunPayload{ProjectRoot: projectRoot, Target: strings.TrimSpace(run.Target)}
-		if strings.TrimSpace(run.Target) != "" && strings.TrimSpace(run.Target) != "local" {
-			target, targetErr := resolveTargetForProjectRoot(projectRoot, run.Target)
-			if targetErr != nil {
-				return errorResponse(targetErr.Error())
-			}
+	sessionKillErr := error(nil)
+	if s.runRequiresWorkerDelegation(run, "") {
+		stopPayload := &StopRunPayload{
+			ProjectRoot: projectRoot,
+			Target:      strings.TrimSpace(run.Target),
+			RunSnapshot: runSnapshot,
+		}
+		if target, targetErr := resolveWorkerTargetForRunFields(run, projectRoot); targetErr == nil {
 			stopPayload.TargetHost = target.Host
 			stopPayload.TargetWorkerID = target.WorkerID
+		} else {
+			sessionKillErr = targetErr
 		}
-		payload.StopRun = stopPayload
+		if sessionKillErr == nil {
+			payload := &WorkerEffectPayload{StopRun: stopPayload}
+			if _, err := s.withWorkerLease(projectID, "stop_run", string(run.IssueID), string(run.RunID), payload); err != nil {
+				sessionKillErr = err
+			}
+		}
+	} else if restoredRun, restoreErr := modelRunFromSnapshot(runSnapshot); restoreErr != nil {
+		sessionKillErr = restoreErr
+	} else if err := s.stopRunSession(restoredRun); err != nil {
+		sessionKillErr = err
 	}
-	if _, err := s.withWorkerLease(projectID, "stop_run", string(run.IssueID), string(run.RunID), payload); err != nil {
-		return errorResponse(err.Error())
+
+	if sessionKillErr != nil {
+		s.logger.Printf("stop_run session kill skipped for %s#%s: %v", run.IssueID, run.RunID, sessionKillErr)
+	}
+	if err := appendRunCanceledByUser(st, run); err != nil {
+		return errorResponse(fmt.Sprintf("failed to mark run canceled in master store for project %q: %v", projectID, err))
 	}
 
 	return &orchpb.Response{
@@ -2217,6 +2261,7 @@ func (s *SocketServer) handleProtoCaptureSession(req *orchpb.CaptureSessionReque
 				Target:         strings.TrimSpace(runCtx.run.Target),
 				TargetHost:     target.Host,
 				TargetWorkerID: target.WorkerID,
+				RunSnapshot:    newRunSnapshot(runCtx.run),
 			},
 		}
 		completedLease, err := s.withWorkerLease(runCtx.projectID, "capture_session", string(runCtx.run.IssueID), string(runCtx.run.RunID), payload)
@@ -2313,6 +2358,7 @@ func (s *SocketServer) handleProtoSendMessage(req *orchpb.SendMessageRequest) *o
 				Target:         strings.TrimSpace(runCtx.run.Target),
 				TargetHost:     target.Host,
 				TargetWorkerID: target.WorkerID,
+				RunSnapshot:    newRunSnapshot(runCtx.run),
 			},
 		}
 		if _, err := s.withWorkerLease(runCtx.projectID, "send_message", string(runCtx.run.IssueID), string(runCtx.run.RunID), payload); err != nil {
@@ -2365,6 +2411,7 @@ func (s *SocketServer) handleProtoGetDiffStats(req *orchpb.GetDiffStatsRequest) 
 				Target:         strings.TrimSpace(runCtx.run.Target),
 				TargetHost:     target.Host,
 				TargetWorkerID: target.WorkerID,
+				RunSnapshot:    newRunSnapshot(runCtx.run),
 			},
 		}
 		completedLease, err := s.withWorkerLease(runCtx.projectID, "get_diff_stats", string(runCtx.run.IssueID), string(runCtx.run.RunID), payload)
@@ -2430,6 +2477,7 @@ func (s *SocketServer) handleProtoGetBranchState(req *orchpb.GetBranchStateReque
 				Target:         strings.TrimSpace(runCtx.run.Target),
 				TargetHost:     target.Host,
 				TargetWorkerID: target.WorkerID,
+				RunSnapshot:    newRunSnapshot(runCtx.run),
 			},
 		}
 		completedLease, err := s.withWorkerLease(runCtx.projectID, "get_branch_state", string(runCtx.run.IssueID), string(runCtx.run.RunID), payload)
@@ -2537,6 +2585,7 @@ func (s *SocketServer) handleProtoGetDiff(req *orchpb.GetDiffRequest) *orchpb.Re
 				Target:         strings.TrimSpace(runCtx.run.Target),
 				TargetHost:     target.Host,
 				TargetWorkerID: target.WorkerID,
+				RunSnapshot:    newRunSnapshot(runCtx.run),
 			},
 		}
 		completedLease, err := s.withWorkerLease(runCtx.projectID, "get_diff", string(runCtx.run.IssueID), string(runCtx.run.RunID), payload)

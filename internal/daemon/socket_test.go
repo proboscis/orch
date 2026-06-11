@@ -692,7 +692,16 @@ func TestProtoContinueRunUsesExternalWorkerResultJSON(t *testing.T) {
 
 	projectID := testProjectID
 	st := &mockStore{
-		runs: map[string]*model.Run{},
+		runs: map[string]*model.Run{
+			"issue-cont#run-prev": {
+				IssueID:      "issue-cont",
+				RunID:        "run-prev",
+				Status:       model.StatusFailed,
+				Agent:        "custom",
+				Branch:       "cont-branch",
+				WorktreePath: "/tmp/cont-prev",
+			},
+		},
 		issues: map[string]*model.Issue{
 			// The master (issue-store SSOT) resolves the issue before delegating to
 			// the worker, so the issue must exist on the master store.
@@ -734,7 +743,7 @@ func TestProtoContinueRunUsesExternalWorkerResultJSON(t *testing.T) {
 	resp := sendProtoRequest(t, &orchpb.Request{
 		Request: &orchpb.Request_ContinueRun{ContinueRun: &orchpb.ContinueRunRequest{
 			IssueId: "issue-cont",
-			RunId:   "run-cont",
+			RunId:   "run-prev",
 			Context: &orchpb.RequestContext{ProjectId: projectID},
 		}},
 	})
@@ -4056,6 +4065,10 @@ func TestCaptureSessionRemoteTargetUsesWorkerLease(t *testing.T) {
 				_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, "unexpected capture payload", "")
 				return
 			}
+			if lease.Payload.CaptureSession.RunSnapshot == nil || lease.Payload.CaptureSession.RunSnapshot.RunID != "run-remote" {
+				_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, "missing capture run snapshot", "")
+				return
+			}
 			resultJSON := EncodeWorkerEffectResult(&WorkerEffectResult{
 				CaptureResult: &CaptureSessionResult{
 					Content:       "remote capture",
@@ -4136,6 +4149,10 @@ func TestSendMessageRemoteTargetUsesWorkerLease(t *testing.T) {
 				_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, "unexpected send payload", "")
 				return
 			}
+			if payload.RunSnapshot == nil || payload.RunSnapshot.RunID != "run-remote" {
+				_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, "missing send run snapshot", "")
+				return
+			}
 			_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, true, "", "")
 			return
 		}
@@ -4192,6 +4209,27 @@ func TestMarkRunFeedbackSentTransitions(t *testing.T) {
 			t.Errorf("markRunFeedbackSent from %s: feedback noted = %v, want %v", tc.status, feedbackNoted, wantNoted)
 		}
 	}
+}
+
+func leaseRunSnapshot(lease *WorkerLease) *RunSnapshot {
+	if lease == nil || lease.Payload == nil {
+		return nil
+	}
+	switch lease.Effect {
+	case "get_diff_stats":
+		if lease.Payload.GetDiffStats != nil {
+			return lease.Payload.GetDiffStats.RunSnapshot
+		}
+	case "get_branch_state":
+		if lease.Payload.GetBranchState != nil {
+			return lease.Payload.GetBranchState.RunSnapshot
+		}
+	case "get_diff":
+		if lease.Payload.GetDiff != nil {
+			return lease.Payload.GetDiff.RunSnapshot
+		}
+	}
+	return nil
 }
 
 func TestRemoteGitRequestsUseWorkerLease(t *testing.T) {
@@ -4332,6 +4370,10 @@ func TestRemoteGitRequestsUseWorkerLease(t *testing.T) {
 					}
 					if lease.Effect != tt.capability {
 						_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, "unexpected effect", "")
+						return
+					}
+					if leaseRunSnapshot(lease) == nil || leaseRunSnapshot(lease).RunID != "run-remote" {
+						_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, "missing git run snapshot", "")
 						return
 					}
 					_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, true, "", tt.resultJSON)
@@ -5707,10 +5749,112 @@ func TestMasterFailsFastOnMissingIssueBeforeDelegation(t *testing.T) {
 		if resp.Ok {
 			t.Fatalf("expected failure for unknown short id, got ok response: %+v", resp)
 		}
-		if !strings.Contains(resp.Error, "run not found: deadbe") {
-			t.Fatalf("expected explicit 'run not found: deadbe', got: %q", resp.Error)
+		if !strings.Contains(resp.Error, `run not in master store for project "test-project": deadbe`) {
+			t.Fatalf("expected explicit master-store miss for deadbe, got: %q", resp.Error)
 		}
 	})
+}
+
+func TestRunMutationUsesMasterSnapshotAndHostAffinity(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	projectRoot := t.TempDir()
+	issuesRoot := filepath.Join(projectRoot, "issues-store")
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0o755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(issuesRoot, "issues"), 0o755); err != nil {
+		t.Fatalf("mkdir issues: %v", err)
+	}
+	configBody := "issues:\n  path: " + issuesRoot + "\n"
+	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), []byte(configBody), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	run := &model.Run{
+		IssueID:      "legacy-issue",
+		RunID:        "20260317-014743",
+		Status:       model.StatusPROpen,
+		Agent:        "custom",
+		Branch:       "issue/legacy/run",
+		WorktreePath: filepath.Join(projectRoot, "dead-worker-worktree"),
+		SessionName:  "legacy-session",
+		Multiplexer:  "tmux",
+		TargetHost:   "dead-host",
+	}
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			run.Ref().String(): run,
+		},
+		issues: map[string]*model.Issue{
+			"legacy-issue": {
+				ID:     "legacy-issue",
+				Title:  "Legacy issue",
+				Status: model.IssueStatusOpen,
+			},
+		},
+	}
+
+	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, log.New(io.Discard, "", 0))
+	registerRepoContextForTest(t, server, "project-legacy", projectRoot, st)
+
+	liveWorkerID := HostWorkerID("other-host")
+	if _, ttl := server.registerWorker(liveWorkerID, "external", "other-host", "external", []string{"continue_run", "stop_run"}); ttl <= 0 {
+		t.Fatal("expected positive heartbeat ttl for live worker")
+	}
+
+	ctx := &orchpb.RequestContext{ProjectId: "project-legacy"}
+	showResp := server.handleProtoGetRun(&orchpb.GetRunRequest{
+		IssueId: string(run.IssueID),
+		RunId:   string(run.RunID),
+		Context: ctx,
+	})
+	if !showResp.Ok {
+		t.Fatalf("precondition: show should see master run, got %q", showResp.Error)
+	}
+
+	listResp := server.handleProtoListRuns(&orchpb.ListRunsRequest{Context: ctx})
+	if !listResp.Ok || len(listResp.GetListRuns().GetRuns()) != 1 {
+		t.Fatalf("precondition: list should see master run, ok=%v error=%q runs=%d", listResp.Ok, listResp.Error, len(listResp.GetListRuns().GetRuns()))
+	}
+
+	stopResp := server.handleProtoStopRun(&orchpb.StopRunRequest{
+		IssueId: string(run.IssueID),
+		RunId:   string(run.RunID),
+		Context: ctx,
+	})
+	if !stopResp.Ok {
+		t.Fatalf("stop should mark master run canceled even without dead-host worker, got %q", stopResp.Error)
+	}
+	if run.Status != model.StatusCanceled {
+		t.Fatalf("run.Status = %q, want canceled", run.Status)
+	}
+	for _, lease := range server.listWorkerLeases(true) {
+		if lease.Effect == "stop_run" && lease.WorkerID == liveWorkerID {
+			t.Fatalf("stop_run must not route legacy dead-host run to live worker %q", liveWorkerID)
+		}
+	}
+
+	continueResp := server.handleProtoContinueRun(&orchpb.ContinueRunRequest{
+		IssueId: string(run.IssueID),
+		RunId:   string(run.RunID),
+		Context: ctx,
+	})
+	if continueResp.Ok {
+		t.Fatal("restart-from should fail while the run's recorded host has no live worker")
+	}
+	if !strings.Contains(continueResp.Error, `no active worker on host "dead-host"`) {
+		t.Fatalf("expected host-affinity error, got %q", continueResp.Error)
+	}
+	if strings.Contains(strings.ToLower(continueResp.Error), "not_found") || strings.Contains(strings.ToLower(continueResp.Error), "not found") {
+		t.Fatalf("restart-from must not surface worker-store not_found, got %q", continueResp.Error)
+	}
+	for _, lease := range server.listWorkerLeases(true) {
+		if lease.Effect == "continue_run" && lease.WorkerID == liveWorkerID {
+			t.Fatalf("continue_run must not route legacy dead-host run to live worker %q", liveWorkerID)
+		}
+	}
 }
 
 func TestBootstrapOpenCodeRunSessionFailsFastOnCreateSessionError(t *testing.T) {
@@ -6000,6 +6144,42 @@ func TestProcessContinueRunCoreValidation(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "issue not found") {
 			t.Fatalf("expected 'issue not found', got: %v", err)
+		}
+	})
+
+	t.Run("restart path uses payload run snapshot without reading worker store", func(t *testing.T) {
+		emptyStore := &mockStore{
+			runs:   make(map[string]*model.Run),
+			issues: make(map[string]*model.Issue),
+		}
+		opts := &ContinueRunOptions{
+			IssueID: "legacy-issue",
+			RunID:   "legacy-run",
+			IssueSnapshot: &model.Issue{
+				ID:     "legacy-issue",
+				Title:  "Legacy",
+				Status: model.IssueStatusOpen,
+			},
+			RunSnapshot: &RunSnapshot{
+				IssueID: "legacy-issue",
+				RunID:   "legacy-run",
+				Status:  model.StatusFailed,
+				Branch:  "issue/legacy",
+			},
+		}
+
+		_, err := server.processContinueRunCore(emptyStore, "/project", opts)
+		if err == nil {
+			t.Fatal("expected error after snapshot run resolution")
+		}
+		if strings.Contains(err.Error(), "run not found") {
+			t.Fatalf("worker must use opts.RunSnapshot, not read its empty store; got: %v", err)
+		}
+		if strings.Contains(err.Error(), "issue not found") {
+			t.Fatalf("worker must use opts.IssueSnapshot, not read its empty issue store; got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "has no worktree path") {
+			t.Fatalf("expected to reach worktree-path validation, got: %v", err)
 		}
 	})
 }
