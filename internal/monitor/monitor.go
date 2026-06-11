@@ -512,8 +512,14 @@ func (m *Monitor) RefreshIssues() ([]IssueRow, error) {
 	if err != nil {
 		return nil, err
 	}
-	issues := apiIssuesToModel(issuesResult.Issues)
-	runs := apiRunsToModel(runsResult.Runs)
+	issues, err := apiIssuesToModel(issuesResult.Issues)
+	if err != nil {
+		return nil, err
+	}
+	runs, err := apiRunsToModel(runsResult.Runs)
+	if err != nil {
+		return nil, err
+	}
 	return m.buildIssueRows(issues, runs), nil
 }
 
@@ -758,7 +764,7 @@ func (m *Monitor) ListIssues() ([]*model.Issue, error) {
 	if err != nil {
 		return nil, err
 	}
-	return apiIssuesToModel(result.Issues), nil
+	return apiIssuesToModel(result.Issues)
 }
 
 func (m *Monitor) ListRunsForIssue(issueID string) ([]*model.Run, error) {
@@ -770,7 +776,10 @@ func (m *Monitor) ListRunsForIssue(issueID string) ([]*model.Run, error) {
 	if err != nil {
 		return nil, err
 	}
-	runs := apiRunsToModel(result.Runs)
+	runs, err := apiRunsToModel(result.Runs)
+	if err != nil {
+		return nil, err
+	}
 	sortRuns(runs, m.runSort)
 	return runs, nil
 }
@@ -933,7 +942,11 @@ func (m *Monitor) loadRuns() ([]*RunWindow, error) {
 	filter := &orchapi.ListRunsFilter{
 		Limit: 100,
 	}
-	filter.Status = statusSliceAPI(m.runFilter.Statuses)
+	statuses, err := statusSliceAPI(m.runFilter.Statuses)
+	if err != nil {
+		return nil, err
+	}
+	filter.Status = statuses
 	if !m.runFilter.IsDefault() {
 		filter.Limit = 0
 	}
@@ -943,7 +956,10 @@ func (m *Monitor) loadRuns() ([]*RunWindow, error) {
 	if err != nil {
 		return nil, err
 	}
-	runs := apiRunsToModel(result.Runs)
+	runs, err := apiRunsToModel(result.Runs)
+	if err != nil {
+		return nil, err
+	}
 
 	runWindows := make([]*RunWindow, 0, len(runs))
 	for i, run := range runs {
@@ -977,9 +993,15 @@ func (m *Monitor) ensureRunSession(w *RunWindow) error {
 func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 	issueInfo := make(map[string]issueDisplay)
 	ctx := context.Background()
-	if issuesResult, err := m.api.ListIssues(ctx, nil); err == nil {
-		issueInfo = buildIssueDisplayMap(apiIssuesToModel(issuesResult.Issues))
+	issuesResult, err := m.api.ListIssues(ctx, nil)
+	if err != nil {
+		return nil, err
 	}
+	issues, err := apiIssuesToModel(issuesResult.Issues)
+	if err != nil {
+		return nil, err
+	}
+	issueInfo = buildIssueDisplayMap(issues)
 
 	runModels := make([]*model.Run, 0, len(windows))
 	for _, w := range windows {
@@ -1659,7 +1681,10 @@ func (m *Monitor) repairSwappedMonitorChat() error {
 		_ = m.mux.SetPaneTitle(chatPane.ID, chatPaneTitle)
 		return nil
 	}
-	run := apiRunToModel(apiRun)
+	run, err := apiRunToModel(apiRun)
+	if err != nil {
+		return err
+	}
 	sessionName := run.SessionName
 	if sessionName == "" {
 		sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
@@ -1867,41 +1892,42 @@ func (m *Monitor) unregisterFromDaemon() {
 	m.monitorID = ""
 }
 
-func apiIssuesToModel(issues []*orchapi.Issue) []*model.Issue {
+func apiIssuesToModel(issues []*orchapi.Issue) ([]*model.Issue, error) {
 	result := make([]*model.Issue, 0, len(issues))
 	for _, i := range issues {
-		result = append(result, &model.Issue{
-			ID:          i.ID,
-			Title:       i.Title,
-			Topic:       i.Topic,
-			Summary:     i.Summary,
-			Status:      model.IssueStatus(i.Status),
-			Tags:        i.Tags,
-			Body:        i.Body,
-			Path:        i.Path,
-			Frontmatter: i.Frontmatter,
-			ModifiedAt:  i.ModifiedAt,
-		})
+		issue, err := apiIssueToModel(i)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, issue)
 	}
-	return result
+	return result, nil
 }
 
-func apiRunsToModel(runs []*orchapi.Run) []*model.Run {
+func apiRunsToModel(runs []*orchapi.Run) ([]*model.Run, error) {
 	result := make([]*model.Run, 0, len(runs))
 	for _, r := range runs {
-		result = append(result, apiRunToModel(r))
+		run, err := apiRunToModel(r)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, run)
 	}
-	return result
+	return result, nil
 }
 
-func apiRunToModel(r *orchapi.Run) *model.Run {
+func apiRunToModel(r *orchapi.Run) (*model.Run, error) {
 	if r == nil {
-		return nil
+		return nil, nil
+	}
+	status, err := model.NormalizeStatus(string(r.Status))
+	if err != nil {
+		return nil, fmt.Errorf("invalid run status for %s#%s: %w", r.IssueID, r.RunID, err)
 	}
 	return &model.Run{
 		IssueID:           r.IssueID,
 		RunID:             r.RunID,
-		Status:            model.NormalizeStatus(string(r.Status)),
+		Status:            status,
 		Agent:             r.Agent,
 		Profile:           r.Profile,
 		Model:             r.Model,
@@ -1924,31 +1950,39 @@ func apiRunToModel(r *orchapi.Run) *model.Run {
 		Alive:             r.Alive,
 		AliveKnown:        r.AliveKnown,
 		WorktreeExists:    r.WorktreeExists,
-	}
+	}, nil
 }
 
-func apiIssueToModel(i *orchapi.Issue) *model.Issue {
+func apiIssueToModel(i *orchapi.Issue) (*model.Issue, error) {
 	if i == nil {
-		return nil
+		return nil, nil
+	}
+	status, err := model.ParseIssueStatus(string(i.Status))
+	if err != nil {
+		return nil, fmt.Errorf("invalid issue status for %s: %w", i.ID, err)
 	}
 	return &model.Issue{
 		ID:          i.ID,
 		Title:       i.Title,
 		Topic:       i.Topic,
 		Summary:     i.Summary,
-		Status:      model.IssueStatus(i.Status),
+		Status:      status,
 		Tags:        i.Tags,
 		Body:        i.Body,
 		Path:        i.Path,
 		Frontmatter: i.Frontmatter,
 		ModifiedAt:  i.ModifiedAt,
-	}
+	}, nil
 }
 
-func statusSliceAPI(set map[model.Status]bool) []orchapi.RunStatus {
+func statusSliceAPI(set map[model.Status]bool) ([]orchapi.RunStatus, error) {
 	result := make([]orchapi.RunStatus, 0, len(set))
 	for s := range set {
-		result = append(result, orchapi.NormalizeRunStatus(string(s)))
+		status, err := orchapi.NormalizeRunStatus(string(s))
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, status)
 	}
-	return result
+	return result, nil
 }

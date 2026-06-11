@@ -1,4 +1,4 @@
-.PHONY: all build install install-cli install-tui deploy test test-fast test-compile lint lint-install clean kill-daemons update e2e-local-host-worker e2e-remote-smoke e2e-backend-smoke e2e-pr-ci e2e-target-host-worker e2e-target-host-worker-local e2e-zeus-full-flow e2e-run-control-local e2e-run-control-zeus e2e-run-control-matrix
+.PHONY: all build install install-cli install-tui deploy test test-fast test-compile lint lint-fixtures lint-install clean kill-daemons update e2e-local-host-worker e2e-remote-smoke e2e-backend-smoke e2e-pr-ci e2e-target-host-worker e2e-target-host-worker-local e2e-zeus-full-flow e2e-run-control-local e2e-run-control-zeus e2e-run-control-matrix
 .DEFAULT_GOAL := install
 
 BINARY_NAME := orch
@@ -80,12 +80,29 @@ test-compile:
 	trap 'rmdir $(TEST_LOCK_DIR)' EXIT INT TERM; \
 	ORCH_SAFE_CLI_TEST=1 GOGC=$(TEST_GOGC) GOMEMLIMIT=$(TEST_GOMEMLIMIT) go test -run '^$$' -p 1 -parallel 1 -timeout $(TEST_TIMEOUT) $(TEST_PKGS)
 
-lint:
+lint: lint-fixtures
 	@test -x "$(SEMGREP)" || uv tool install semgrep
 	$(SEMGREP) test .semgrep/typed-id-rules
 	$(SEMGREP) --error --config .semgrep/ ./internal/ --exclude='*_test.go'
 	$(MAKE) -C orch-monitor-tui lint
 	$(MAKE) -C orch-monitor-tui lint-test
+
+lint-fixtures:
+	@test -x "$(SEMGREP)" || uv tool install semgrep
+	@tmp=$$(mktemp); \
+	if ! "$(SEMGREP)" --config .semgrep/architecture.yaml --json test/semgrep/internal/daemon/fail_fast_bad.go > "$$tmp"; then \
+		cat "$$tmp"; \
+		rm -f "$$tmp"; \
+		exit 1; \
+	fi; \
+	findings=$$(grep -o '"check_id"' "$$tmp" | wc -l | tr -d ' '); \
+	rm -f "$$tmp"; \
+	if [ "$$findings" -lt 20 ]; then \
+		echo "expected fail_fast_bad.go to produce at least 20 semgrep findings, got $$findings"; \
+		exit 1; \
+	fi; \
+	echo "semgrep bad fixture produced $$findings expected findings"
+	$(SEMGREP) --error --config .semgrep/architecture.yaml test/semgrep/internal/daemon/fail_fast_ok.go
 
 lint-install:
 	uv tool install semgrep

@@ -134,14 +134,14 @@ func GenerateWorktreeName(issueID IssueID, runID RunID, agent string) string {
 }
 
 // GetStatus derives status from events (last status event wins)
-func (r *Run) GetStatus() Status {
+func (r *Run) GetStatus() (Status, error) {
 	for i := len(r.Events) - 1; i >= 0; i-- {
 		e := r.Events[i]
 		if e.Type == EventTypeStatus {
 			return NormalizeStatus(e.Name)
 		}
 	}
-	return StatusQueued
+	return StatusQueued, nil
 }
 
 // GetPhase derives phase from events (last phase event wins).
@@ -167,8 +167,12 @@ func (r *Run) GetArtifacts() map[string]map[string]string {
 }
 
 // DeriveState updates Status and artifacts from events
-func (r *Run) DeriveState() {
-	r.Status = r.GetStatus()
+func (r *Run) DeriveState() error {
+	status, err := r.GetStatus()
+	if err != nil {
+		return fmt.Errorf("derive status for run %s: %w", r.Ref().String(), err)
+	}
+	r.Status = status
 	r.Phase = r.GetPhase()
 
 	artifacts := r.GetArtifacts()
@@ -245,6 +249,8 @@ func (r *Run) DeriveState() {
 		r.StartedAt = r.Events[0].Timestamp
 		r.UpdatedAt = r.Events[len(r.Events)-1].Timestamp
 	}
+
+	return nil
 }
 
 func (r *Run) lastArtifactAttr(name, key string) string {

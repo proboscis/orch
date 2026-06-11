@@ -1157,7 +1157,7 @@ func (s *SocketServer) Stop() {
 func (s *SocketServer) acceptLoop(listener net.Listener) {
 	defer func() {
 		if r := recover(); r != nil {
-			s.logger.Printf("PANIC in acceptLoop: %v", r)
+			logAndRepanic(s.logger, "acceptLoop", r)
 		}
 	}()
 
@@ -1813,7 +1813,7 @@ func (s *SocketServer) StartOpenCodeServerHealthCheck() {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				s.logger.Printf("PANIC in OpenCodeServerHealthCheck: %v", r)
+				logAndRepanic(s.logger, "OpenCodeServerHealthCheck", r)
 			}
 		}()
 
@@ -2974,12 +2974,20 @@ func (s *SocketServer) markRunFeedbackSent(st store.Store, run *model.Run) {
 	if s.onRunFeedback != nil {
 		s.onRunFeedback(run)
 	}
+	fromProto, err := modelStatusToProto(run.Status)
+	if err != nil {
+		panic(err)
+	}
+	toProto, err := modelStatusToProto(model.StatusRunning)
+	if err != nil {
+		panic(err)
+	}
 	s.PublishRunEvent(&orchpb.RunEventFrame{
 		RunId:           string(run.RunID),
 		IssueId:         string(run.IssueID),
 		ShortId:         string(model.GenerateShortID(run.IssueID, run.RunID)),
-		FromStatus:      modelStatusToProto(run.Status),
-		ToStatus:        modelStatusToProto(model.StatusRunning),
+		FromStatus:      fromProto,
+		ToStatus:        toProto,
 		TimestampUnixMs: time.Now().UnixMilli(),
 		Source:          string(model.EventSourceUser),
 	})
@@ -3021,7 +3029,12 @@ func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {
 			Limit:      0,
 		}
 		for _, status := range req.Status {
-			filter.Status = append(filter.Status, model.NormalizeStatus(status))
+			normalized, err := model.NormalizeStatus(status)
+			if err != nil {
+				encoder.Encode(ListRunsResponse{OK: false, Error: err.Error()})
+				return
+			}
+			filter.Status = append(filter.Status, normalized)
 		}
 		runs, err = st.ListRuns(filter)
 	}
@@ -3086,11 +3099,15 @@ func (s *SocketServer) listAllRepoRuns(req SendRequest) ([]*model.Run, error) {
 			TimeRange:  req.TimeRange,
 		}
 		for _, status := range req.Status {
-			filter.Status = append(filter.Status, model.NormalizeStatus(status))
+			normalized, err := model.NormalizeStatus(status)
+			if err != nil {
+				return nil, err
+			}
+			filter.Status = append(filter.Status, normalized)
 		}
 		runs, err := st.ListRuns(filter)
 		if err != nil {
-			continue
+			return nil, err
 		}
 		allRuns = append(allRuns, runs...)
 	}
@@ -4721,7 +4738,10 @@ func restartFromStatusDisplay(status model.Status) string {
 }
 
 func validateRestartFromStatus(run *model.Run) error {
-	status := model.NormalizeStatus(string(run.Status))
+	status, err := model.NormalizeStatus(string(run.Status))
+	if err != nil {
+		return fmt.Errorf("invalid run status for %s#%s: %w", run.IssueID, run.RunID, err)
+	}
 	if canRestartFromStatus(status) {
 		return nil
 	}
@@ -5420,7 +5440,7 @@ func (s *SocketServer) StartStaleMonitorCleanup() {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				s.logger.Printf("PANIC in StaleMonitorCleanup: %v", r)
+				logAndRepanic(s.logger, "StaleMonitorCleanup", r)
 			}
 		}()
 
@@ -5467,7 +5487,11 @@ func (s *SocketServer) handleAppendEvent(req SendRequest, encoder *json.Encoder)
 
 	source := model.EventSource(req.EventSource)
 	if req.EventType == "status" {
-		newStatus := model.NormalizeStatus(req.EventName)
+		newStatus, err := model.NormalizeStatus(req.EventName)
+		if err != nil {
+			encoder.Encode(AppendEventResponse{OK: false, Error: err.Error()})
+			return
+		}
 		if !model.CanTransitionStatus(run.Status, newStatus, source) {
 			reason := fmt.Sprintf("cannot transition from %s to %s (source=%s)", run.Status, newStatus, source)
 			s.logger.Printf("%s#%s: %s", req.IssueID, req.RunID, reason)

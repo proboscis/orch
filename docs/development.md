@@ -138,6 +138,11 @@ For direct CLI validation (without `go test`), see:
 - **Size**: Prefer small, focused PRs over large ones
 - **Tests**: Include tests for new functionality
 
+### Review Rubric
+
+Blocking gate:
+- **Fail-fast behavior**: The PR must not hide a failure, swallow an error, return placeholder/zero-value data on error, accept unknown enum values, or use an empty error branch. If any path would make a failed operation look successful or merely incomplete, block the merge until that path returns an explicit error naming the failing component.
+
 ## Releasing
 
 Releases are created by tagging main:

@@ -88,6 +88,95 @@ This is a test issue.
 	}
 }
 
+func TestListIssuesAcceptsLegacyAndEmptyStatuses(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	cases := map[string]model.IssueStatus{
+		"missing":     model.IssueStatusOpen,
+		"empty":       model.IssueStatusOpen,
+		"in-progress": model.IssueStatusOpen,
+		"blocked":     model.IssueStatusOpen,
+		"completed":   model.IssueStatusResolved,
+		"canceled":    model.IssueStatusClosed,
+	}
+	createTestIssue(t, vault, "missing", "---\ntype: issue\ntitle: Missing\n---\n# Missing")
+	createTestIssue(t, vault, "empty", "---\ntype: issue\ntitle: Empty\nstatus: \n---\n# Empty")
+	createTestIssue(t, vault, "in-progress", "---\ntype: issue\ntitle: In Progress\nstatus: in_progress\n---\n# In Progress")
+	createTestIssue(t, vault, "blocked", "---\ntype: issue\ntitle: Blocked\nstatus: blocked\n---\n# Blocked")
+	createTestIssue(t, vault, "completed", "---\ntype: issue\ntitle: Completed\nstatus: completed\n---\n# Completed")
+	createTestIssue(t, vault, "canceled", "---\ntype: issue\ntitle: Canceled\nstatus: canceled\n---\n# Canceled")
+
+	s, err := New(vault)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	issues, err := s.ListIssues()
+	if err != nil {
+		t.Fatalf("ListIssues() error = %v", err)
+	}
+	got := make(map[string]model.IssueStatus, len(issues))
+	for _, issue := range issues {
+		got[string(issue.ID)] = issue.Status
+	}
+	for id, want := range cases {
+		if got[id] != want {
+			t.Fatalf("issue %s status = %q, want %q", id, got[id], want)
+		}
+	}
+}
+
+func TestListIssuesSkipsMalformedNonIssueMarkdown(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	createTestIssue(t, vault, "valid", "---\ntype: issue\ntitle: Valid\n---\n# Valid")
+	if err := os.WriteFile(
+		filepath.Join(vault, "issues", "note.md"),
+		[]byte("---\ntitle: Note\ntags: [\n---\n# Note"),
+		0644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := New(vault)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	var warnings []string
+	s.SetWarnFunc(func(format string, args ...any) {
+		warnings = append(warnings, fmt.Sprintf(format, args...))
+	})
+
+	issues, err := s.ListIssues()
+	if err != nil {
+		t.Fatalf("ListIssues() error = %v", err)
+	}
+	if len(issues) != 1 || issues[0].ID != "valid" {
+		t.Fatalf("ListIssues() = %#v, want only valid", issues)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "skipping non-issue markdown") {
+		t.Fatalf("warnings = %#v, want malformed non-issue warning", warnings)
+	}
+}
+
+func TestListIssuesFailsMalformedIssueFrontmatter(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	createTestIssue(t, vault, "bad", "---\ntype: issue\ntitle: Bad\ntags: [\n---\n# Bad")
+
+	s, err := New(vault)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if _, err := s.ListIssues(); err == nil {
+		t.Fatal("ListIssues() error = nil, want malformed issue error")
+	}
+}
+
 func TestResolveIssueWithSymlinkedIssuesDir(t *testing.T) {
 	vault, cleanup := setupTestVault(t)
 	defer cleanup()

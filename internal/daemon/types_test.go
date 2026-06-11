@@ -171,9 +171,23 @@ func TestSummaryToRun(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			run := SummaryToRun(tt.summary)
+			run, err := SummaryToRun(tt.summary)
+			if err != nil {
+				t.Fatalf("SummaryToRun() error = %v", err)
+			}
 			tt.check(t, run)
 		})
+	}
+}
+
+func TestSummaryToRunRejectsUnknownStatus(t *testing.T) {
+	_, err := SummaryToRun(&RunSummary{
+		IssueID: "issue-bad",
+		RunID:   "run-bad",
+		Status:  "bogus",
+	})
+	if err == nil {
+		t.Fatal("SummaryToRun() error = nil, want unknown status error")
 	}
 }
 
@@ -194,7 +208,10 @@ func TestRunToSummaryRoundTrip(t *testing.T) {
 	}
 
 	summary := RunToSummary(original)
-	roundTripped := SummaryToRun(summary)
+	roundTripped, err := SummaryToRun(summary)
+	if err != nil {
+		t.Fatalf("SummaryToRun() error = %v", err)
+	}
 
 	if roundTripped.IssueID != original.IssueID {
 		t.Errorf("IssueID mismatch: got %q, want %q", roundTripped.IssueID, original.IssueID)

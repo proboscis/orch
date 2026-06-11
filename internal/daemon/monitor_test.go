@@ -762,7 +762,11 @@ func (m *mockStoreRecordingEvents) AppendEvent(ref *model.RunRef, event *model.E
 		m.run.Events = append(m.run.Events, event)
 		m.run.UpdatedAt = event.Timestamp
 		if event.Type == model.EventTypeStatus {
-			m.run.Status = model.NormalizeStatus(event.Name)
+			status, err := model.NormalizeStatus(event.Name)
+			if err != nil {
+				return err
+			}
+			m.run.Status = status
 		}
 	}
 	return m.mockStoreForUpdate.AppendEvent(ref, event)

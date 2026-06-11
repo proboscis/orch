@@ -131,11 +131,14 @@ func parseStatus(s string) ([]model.Status, error) {
 		return nil, nil
 	}
 
-	status := model.NormalizeStatus(s)
+	status, err := model.NormalizeStatus(s)
+	if err != nil {
+		return nil, err
+	}
 	switch status {
 	case model.StatusDone, model.StatusFailed, model.StatusCanceled:
 		return []model.Status{status}, nil
-	case model.StatusRunning, model.StatusBooting, model.StatusWaiting, model.StatusRateLimited, model.StatusQueued:
+	case model.StatusRunning, model.StatusBooting, model.StatusWaiting, model.StatusRateLimited, model.StatusQueued, model.StatusPROpen, model.StatusUnknown:
 		return nil, fmt.Errorf("cannot delete %s runs (use 'orch stop' first)", status)
 	default:
 		return nil, fmt.Errorf("unknown status: %s", s)
@@ -261,11 +264,14 @@ func parseStatusAPI(s string) ([]orchapi.RunStatus, error) {
 		return nil, nil
 	}
 
-	status := orchapi.NormalizeRunStatus(s)
+	status, err := orchapi.NormalizeRunStatus(s)
+	if err != nil {
+		return nil, err
+	}
 	switch status {
 	case orchapi.RunStatusDone, orchapi.RunStatusFailed, orchapi.RunStatusCanceled:
 		return []orchapi.RunStatus{status}, nil
-	case orchapi.RunStatusRunning, orchapi.RunStatusBooting, orchapi.RunStatusWaiting, orchapi.RunStatusRateLimited, orchapi.RunStatusQueued:
+	case orchapi.RunStatusRunning, orchapi.RunStatusBooting, orchapi.RunStatusWaiting, orchapi.RunStatusRateLimited, orchapi.RunStatusQueued, orchapi.RunStatusPROpen, orchapi.RunStatusUnknown:
 		return nil, fmt.Errorf("cannot delete %s runs (use 'orch stop' first)", status)
 	default:
 		return nil, fmt.Errorf("unknown status: %s", s)

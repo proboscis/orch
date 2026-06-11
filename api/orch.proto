@@ -19,6 +19,7 @@ enum RunStatus {
   RUN_STATUS_DONE = 7;
   RUN_STATUS_FAILED = 8;
   RUN_STATUS_CANCELED = 9;
+  RUN_STATUS_UNKNOWN = 10;
 }
 
 enum IssueStatus {

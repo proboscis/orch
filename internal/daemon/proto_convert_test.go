@@ -3,15 +3,15 @@ package daemon
 import (
 	"testing"
 
-	"github.com/s22625/orch/internal/model"
+	"github.com/s22625/orch/api/orchpb"
 )
 
 func TestPopulateRunDisplayFieldsUsesProtoEnums(t *testing.T) {
-	run := modelRunToProto(&model.Run{
-		Status:      model.Status("custom-run-status"),
-		Multiplexer: "custom-mux",
-		BranchState: "custom-branch-state",
-	})
+	run := &orchpb.Run{
+		Status:      orchpb.RunStatus_RUN_STATUS_UNKNOWN,
+		Multiplexer: orchpb.Multiplexer_MULTIPLEXER_UNSPECIFIED,
+		BranchState: orchpb.BranchState_BRANCH_STATE_UNSPECIFIED,
+	}
 
 	populateRunDisplayFields(run)
 
@@ -26,12 +26,11 @@ func TestPopulateRunDisplayFieldsUsesProtoEnums(t *testing.T) {
 	}
 }
 
-func TestModelIssueToProtoStatusDisplayUsesProtoEnum(t *testing.T) {
-	issue := modelIssueToProto(&model.Issue{
-		Status: model.IssueStatus("custom-issue-status"),
-	})
+func TestPopulateIssueDisplayFieldsUsesProtoEnum(t *testing.T) {
+	issue := &orchpb.Issue{Status: orchpb.IssueStatus_ISSUE_STATUS_UNSPECIFIED}
+	populateIssueDisplayFields(issue)
 
 	if issue.StatusDisplay != "" {
-		t.Fatalf("StatusDisplay = %q, want empty for unknown proto issue status", issue.StatusDisplay)
+		t.Fatalf("StatusDisplay = %q, want empty for unspecified proto issue status", issue.StatusDisplay)
 	}
 }

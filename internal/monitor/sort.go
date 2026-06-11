@@ -178,6 +178,14 @@ func issueStatusRank(status model.IssueStatus) int {
 	return len(issueStatusOrder) + 1
 }
 
+func mustParseIssueStatusForRow(rowID, status string) model.IssueStatus {
+	parsed, err := model.ParseIssueStatus(status)
+	if err != nil {
+		panic(fmt.Sprintf("invalid issue status for row %s: %v", rowID, err))
+	}
+	return parsed
+}
+
 func runRowRunID(row RunRow) string {
 	if row.Run == nil {
 		return ""
@@ -340,8 +348,8 @@ func sortIssueRowsWithDirection(rows []IssueRow, key SortKey, dir SortDirection)
 
 		switch key {
 		case SortByStatus:
-			aStatus := model.ParseIssueStatus(a.Status)
-			bStatus := model.ParseIssueStatus(b.Status)
+			aStatus := mustParseIssueStatusForRow(a.ID, a.Status)
+			bStatus := mustParseIssueStatusForRow(b.ID, b.Status)
 			if ar, br := issueStatusRank(aStatus), issueStatusRank(bStatus); ar != br {
 				return (ar < br) == (dir == SortAsc)
 			}

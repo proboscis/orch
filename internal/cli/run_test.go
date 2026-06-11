@@ -86,7 +86,10 @@ func TestBuildAgentPromptDefault(t *testing.T) {
 		Body:  "Body text",
 	}
 
-	prompt := buildAgentPrompt(issue, &promptOptions{})
+	prompt, err := buildAgentPrompt(issue, &promptOptions{})
+	if err != nil {
+		t.Fatalf("buildAgentPrompt failed: %v", err)
+	}
 	if !strings.Contains(prompt, issue.Body) {
 		t.Fatalf("prompt missing body: %q", prompt)
 	}
@@ -116,7 +119,10 @@ func TestBuildAgentPromptWithBaseBranch(t *testing.T) {
 		Body:  "Body text",
 	}
 
-	prompt := buildAgentPrompt(issue, &promptOptions{BaseBranch: "develop"})
+	prompt, err := buildAgentPrompt(issue, &promptOptions{BaseBranch: "develop"})
+	if err != nil {
+		t.Fatalf("buildAgentPrompt failed: %v", err)
+	}
 	if !strings.Contains(prompt, "create a pull request targeting `develop`") {
 		t.Fatalf("prompt missing base branch in PR instructions: %q", prompt)
 	}
@@ -124,7 +130,10 @@ func TestBuildAgentPromptWithBaseBranch(t *testing.T) {
 
 func TestBuildAgentPromptNoPR(t *testing.T) {
 	issue := &model.Issue{ID: "orch-2", Body: "Body"}
-	prompt := buildAgentPrompt(issue, &promptOptions{NoPR: true})
+	prompt, err := buildAgentPrompt(issue, &promptOptions{NoPR: true})
+	if err != nil {
+		t.Fatalf("buildAgentPrompt failed: %v", err)
+	}
 	if strings.Contains(prompt, "create a pull request") {
 		t.Fatalf("unexpected PR instructions: %q", prompt)
 	}
@@ -132,7 +141,10 @@ func TestBuildAgentPromptNoPR(t *testing.T) {
 
 func TestBuildAgentPromptTargetBranch(t *testing.T) {
 	issue := &model.Issue{ID: "orch-3", Body: "Body"}
-	prompt := buildAgentPrompt(issue, &promptOptions{PRTargetBranch: "develop"})
+	prompt, err := buildAgentPrompt(issue, &promptOptions{PRTargetBranch: "develop"})
+	if err != nil {
+		t.Fatalf("buildAgentPrompt failed: %v", err)
+	}
 	if !strings.Contains(prompt, "create a pull request targeting `develop`") {
 		t.Fatalf("prompt missing custom PR target branch: %q", prompt)
 	}
@@ -153,7 +165,10 @@ func TestBuildAgentPromptRespectsConfiguredTargetBranch(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			prompt := buildAgentPrompt(issue, &promptOptions{PRTargetBranch: tc.targetBranch})
+			prompt, err := buildAgentPrompt(issue, &promptOptions{PRTargetBranch: tc.targetBranch})
+			if err != nil {
+				t.Fatalf("buildAgentPrompt failed: %v", err)
+			}
 
 			expected := fmt.Sprintf("create a pull request targeting `%s`", tc.targetBranch)
 			if !strings.Contains(prompt, expected) {
@@ -169,17 +184,20 @@ func TestBuildAgentPromptRespectsConfiguredTargetBranch(t *testing.T) {
 
 func TestExecuteTemplateCustomTemplate(t *testing.T) {
 	issue := &model.Issue{ID: "orch-3", Title: "Custom"}
-	prompt := executeTemplate("Issue: {{.IssueID}} - {{.Title}}", issue, &promptOptions{})
+	prompt, err := executeTemplate("Issue: {{.IssueID}} - {{.Title}}", issue, &promptOptions{})
+	if err != nil {
+		t.Fatalf("executeTemplate failed: %v", err)
+	}
 	if prompt != "Issue: orch-3 - Custom" {
-		t.Fatalf("expected custom prompt template output, got: %q", prompt)
+		t.Fatalf("unexpected custom prompt: %q", prompt)
 	}
 }
 
-func TestExecuteTemplateFallback(t *testing.T) {
+func TestExecuteTemplateRejectsInvalidTemplate(t *testing.T) {
 	issue := &model.Issue{ID: "orch-4"}
-	prompt := executeTemplate("{{", issue, &promptOptions{})
-	if !strings.Contains(prompt, "You are working on issue: orch-4") {
-		t.Fatalf("unexpected fallback prompt: %q", prompt)
+	_, err := executeTemplate("{{", issue, &promptOptions{})
+	if err == nil {
+		t.Fatal("expected invalid template to fail")
 	}
 }
 

@@ -255,8 +255,8 @@ func TestQueryRuns(t *testing.T) {
 func TestQueryIssueTags(t *testing.T) {
 	api := &mockAPI{
 		issues: []*model.Issue{
-			{ID: "issue-1", Title: "CLI Issue", Tags: []string{"cli", "ux"}},
-			{ID: "issue-2", Title: "Query Issue", Tags: []string{"sql", "query"}},
+			{ID: "issue-1", Title: "CLI Issue", Status: model.IssueStatusOpen, Tags: []string{"cli", "ux"}},
+			{ID: "issue-2", Title: "Query Issue", Status: model.IssueStatusOpen, Tags: []string{"sql", "query"}},
 		},
 	}
 

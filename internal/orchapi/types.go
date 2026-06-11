@@ -31,16 +31,37 @@ const (
 	RunStatusDone        RunStatus = "done"
 	RunStatusFailed      RunStatus = "failed"
 	RunStatusCanceled    RunStatus = "canceled"
+	RunStatusUnknown     RunStatus = "unknown"
 )
 
-func NormalizeRunStatus(s string) RunStatus {
-	switch s {
+func NormalizeRunStatus(s string) (RunStatus, error) {
+	switch strings.TrimSpace(s) {
 	case "blocked":
-		return RunStatusWaiting
+		return RunStatusWaiting, nil
 	case "blocked_api":
-		return RunStatusRateLimited
+		return RunStatusRateLimited, nil
+	case string(RunStatusQueued):
+		return RunStatusQueued, nil
+	case string(RunStatusBooting):
+		return RunStatusBooting, nil
+	case string(RunStatusRunning):
+		return RunStatusRunning, nil
+	case string(RunStatusWaiting):
+		return RunStatusWaiting, nil
+	case string(RunStatusRateLimited):
+		return RunStatusRateLimited, nil
+	case string(RunStatusPROpen):
+		return RunStatusPROpen, nil
+	case string(RunStatusDone):
+		return RunStatusDone, nil
+	case string(RunStatusFailed):
+		return RunStatusFailed, nil
+	case string(RunStatusCanceled):
+		return RunStatusCanceled, nil
+	case string(RunStatusUnknown):
+		return RunStatusUnknown, nil
 	default:
-		return RunStatus(s)
+		return "", fmt.Errorf("unknown run status: %q", s)
 	}
 }
 

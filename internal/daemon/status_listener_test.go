@@ -31,7 +31,7 @@ func TestAddStatusChangeListener_FanoutPreservesOrder(t *testing.T) {
 	}
 }
 
-func TestFireStatusChange_PanicInListenerDoesNotStopOthers(t *testing.T) {
+func TestFireStatusChange_PanicInListenerRepanics(t *testing.T) {
 	d := newTestDaemon()
 	d.logger = log.New(io.Discard, "", 0)
 
@@ -43,14 +43,19 @@ func TestFireStatusChange_PanicInListenerDoesNotStopOthers(t *testing.T) {
 		atomic.StoreInt32(&ran, 1)
 	}))
 
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected listener panic to be re-raised")
+		}
+		if atomic.LoadInt32(&ran) != 0 {
+			t.Fatal("second listener was invoked after first listener panicked")
+		}
+	}()
+
 	d.fireStatusChange(&runevents.StatusChangeEvent{
 		Run: &model.Run{IssueID: "i", RunID: "r"},
 		To:  model.StatusDone,
 	})
-
-	if atomic.LoadInt32(&ran) != 1 {
-		t.Fatal("second listener was not invoked after first panicked")
-	}
 }
 
 func TestFireStatusChange_NilEventIsNoop(t *testing.T) {
