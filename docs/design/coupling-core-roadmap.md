@@ -185,13 +185,18 @@ run-state-machine.md と同じ playbook を適用する。
 
 | # | core | 4層の状態 | 守り | 閉鎖フェーズ |
 |---|------|----------|------|------------|
-| 1 | run status 遷移 | ADR✓ law✓(tested) runtime△ static✗ | A1 ルール | A1→B |
-| 2 | RunState vs event log(導出状態) | I2 open(doc に明記) | なし | C1 |
-| 3 | worker lease 所有権/ライフサイクル | 未文書化 | なし | E |
+| 1 | run status 遷移 | ADR✓ law✓(tested) runtime△ **static✓ (A1, 2026-06-12)** | `run-status-write-surface` ルール + 凍結 whitelist | B で whitelist→0 |
+| 2 | RunState vs event log(導出状態) | 決定済み **D-C1**(run-state-machine.md §7): 導出可能フィールドは fold、収束カウンタは ephemeral-by-law (L7) | なし(実装待ち) | C1 実装 |
+| 3 | worker lease 所有権/ライフサイクル | 調査完了(E1 doc)、law 候補 5 件ドラフト | なし | E2/E3 |
 | 4 | identity(typed IDs) | 型✓ + lint✓ | `.semgrep/typed-id-rules` | 完了 |
 | 5 | client/daemon 境界(読み取り) | semgrep ~60 ルール✓ | `make lint` + CI | 完了 |
-| 6 | cancellation/stop 意味論(W7/W8, PR close terminal) | step に部分統合 | terminal guard のみ | B2 |
-| 7 | エラー伝播 × append(fail-fast) | 4 箇所違反 | なし | A2 |
+| 6 | cancellation/stop 意味論(W7/W8, PR close terminal) | **disposition 決定済み**(run-state-machine.md §6): W7=ladder と統合、W8=v2 統合 | terminal guard + A1 凍結 | B1 後 |
+| 7 | エラー伝播 × append(fail-fast) | **修正済み (A2, 2026-06-12)** | `no-ignored-status-append` ルール | 完了 |
+
+進捗ログ:
+- 2026-06-12 Phase A 完了(PR #463): A1 ルール+46 サイト凍結 / A2 fail-fast 化 / A3 AGENTS.md routing。
+- 2026-06-12 Phase B 部分完了: B2 disposition 決定(run-state-machine.md §6)、B3 StopRun 動詞化(TUI のローカル mux kill + client append を撤去 — リモート run の stop が壊れていたバグも同時修正)。B3 ResolveRun は §6 の式で choice space を閉じ、verified issue 化。
+- 2026-06-12 C1/C3 の選択空間を閉鎖(run-state-machine.md §7 D-C1/D-C3、L7/L3' 制定)。実装は C フェーズ。
 
 ## 推奨順序と箱
 

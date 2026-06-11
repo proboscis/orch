@@ -209,4 +209,80 @@ distinction the law tests themselves forced:
 
 L1/L4 fix the 5,830-duplicate-event class structurally; L2 is the law the
 PR #458 inference fixes were converging toward; restart transparency (I2)
-remains an open law until monitor state is derived from the event log.
+remains an open law until monitor state is derived from the event log
+(resolved by decision D-C1 in §7).
+
+## 6. v2 disposition of the remaining writers (decided 2026-06-12)
+
+Phase A of the coupling-core roadmap closed the write surface mechanically
+(semgrep rule `run-status-write-surface`; every existing writer carries a
+frozen `nosemgrep` annotation). Each frozen writer now has an explicit
+disposition — integrate into `step()` or quarantine with a recorded
+rationale. *Undecided* is no longer a legal state for a status writer.
+
+| # | Site | Disposition | Rationale |
+|---|------|-------------|-----------|
+| W2–W5 | launch ladders (socket.go ×4) | **integrate — v2, first** | Four near-copies of one ladder; interleaves with monitor-plane transitions (booting/running races). Becomes launch-progress observations (O8) decided in `step()`, with the imperative bootstrap steps as effects. |
+| W7 | `failOpenCodeRunBootstrap` → failed | **integrate — with W2–W5** | The failure arm of the same ladder. |
+| W6 | feedback → running | **integrate — v2** | Already mutates `runCore` (PromptStreak reset, O6). Core state must change only through `step()`. |
+| W8 | `appendRunCanceledByUser` (`orch stop`) | **integrate — v2, after the ladder** | O7 (user stop) exists in the observation taxonomy; terminality (L4) should observe it. Single guarded site until then. |
+| W9 | master projections (proto_handler.go) | **quarantine — law boundary** | Replicates transitions already decided on the worker plane; carries no local policy. Guards: `CanTransitionStatus` + fail-fast appends (Phase A2). Law: a projection is status-preserving — it must never add inference in flight. |
+| W10 | external append API (`handleAppendEvent`) | **quarantine — law boundary** | User/agent escape hatch with caller-supplied source. Guard: `CanTransitionStatus` with caller source. `orch repair` (cli/repair.go) is its sanctioned client and stays. |
+| — | TUI `Monitor.StopRun` (client plane) | **removed — B3** | Now calls the daemon `StopRun` verb (host-aware session kill + daemon-side canceled append). |
+| — | TUI `Monitor.ResolveRun` (client plane) | **pending — B3 issue** | Daemon `ResolveRun` verb gains run-done semantics; see the equation below. |
+
+B3 ResolveRun equation (spec for the pending issue — the daemon verb, not
+the orchapi lookup of the same name):
+
+```
+ResolveRun(issue, run) ≡  append(run, done, source=user)   if ¬terminal(run)
+                          ; SetIssueStatus(issue, resolved)
+```
+
+Today `handleProtoResolveRun` implements only the second conjunct; the TUI
+implements both client-side. After the issue lands, exactly one
+implementation exists (daemon), and the TUI client calls it.
+
+## 7. Open-law decisions (decided 2026-06-12)
+
+### D-C1 — restart transparency without new persistence
+
+`runCore` fields fall into two classes, and the restart story differs:
+
+- **Derivable (fold of the event log)** — must be re-derived at monitor
+  registration, never mirrored:
+  - `WasAlive := ∃ status event ∈ {running, waiting, rate_limited, done}`
+  - `PRRecorded := ∃ artifact event of type pr` (also resolves I5)
+  - boot grace: derivable from the persisted `StartedAt`
+- **Ephemeral by law (bounded re-convergence)** — deliberately reset on
+  restart; L1b guarantees they re-converge within bounded ticks, and the
+  reset direction is safe (verdicts/debounce are *delayed*, never wrong):
+  `DeadCheckCount`, `PromptStreak`, `OutputHash`, `LastOutput*`.
+
+Rejected alternatives: (a) full observation replay (observations are not
+events; would require recording per-tick captures), (b) persisting counter
+changes as events (OutputHash churn would spam the log), (c) periodic
+snapshots (a second store of record — exactly the mirror this design
+forbids).
+
+| Law | Statement |
+|-----|-----------|
+| L7 restart transparency | for any observation sequence and any restart point, the sequence of *transition targets* is identical with and without the restart; only their timing may differ, by at most `max(deadCheckThreshold, waitingPromptStreakThreshold)` ticks |
+
+### D-C3 — never-alive verdict asymmetry resolved
+
+L3's pinned complement ("after grace, remote concludes `unknown`; local
+keeps waiting") is revised: **local and remote both conclude `unknown`
+after `neverAliveVerdictGrace`**. Rationale: I7 (a gone session must
+eventually produce a verdict) is a liveness requirement; the local
+keep-waiting behavior violates it for never-alive non-opencode runs, and
+the asymmetry was pinned in v1 only for behavior preservation. L3 reads
+after the change:
+
+| Law | Statement |
+|-----|-----------|
+| L3' grace (revised) | a never-alive run within `neverAliveVerdictGrace` never receives an `unknown`/`failed` verdict; after the grace, any plane concludes `unknown` on the standing evidence |
+
+I6 (queued runs are never monitored) remains a behavior fix tracked by the
+coupling-core roadmap Phase C2: `monitorAll` must include `queued` so that
+"every non-terminal run is eventually observed" holds.

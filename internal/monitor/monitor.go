@@ -574,27 +574,18 @@ func (m *Monitor) Quit() error {
 	return m.mux.KillSession(m.session)
 }
 
-// StopRun kills the run session and marks the run canceled.
+// StopRun stops the run through the daemon StopRun verb: the daemon owns
+// the host-aware session kill (worker lease for remote runs) and records
+// the user-sourced canceled status. The TUI must not kill sessions via the
+// local multiplexer or write status events itself.
 func (m *Monitor) StopRun(run *model.Run) error {
 	if run.Status.IsTerminal() {
 		return nil
 	}
 
-	sessionName := run.SessionName
-	if sessionName == "" {
-		sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
-	}
-
-	if m.mux.HasSession(sessionName) {
-		_ = m.mux.KillSession(sessionName)
-	}
-
 	ctx := context.Background()
 	ref := orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}
-	// Frozen client-plane status writer: scheduled to become a daemon API
-	// verb (coupling-core roadmap Phase B3). Do not copy this pattern.
-	_, err := m.api.AppendEvent(ctx, ref, &orchapi.Event{Type: "status", Name: string(model.StatusCanceled)}) // nosemgrep: run-status-write-surface
-	return err
+	return m.api.StopRun(ctx, ref)
 }
 
 func (m *Monitor) StartRun(issueID string, agentType string) (string, error) {
