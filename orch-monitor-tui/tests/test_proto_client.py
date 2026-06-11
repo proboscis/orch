@@ -15,10 +15,8 @@ import hy  # noqa: F401 - Enable Hy imports
 from orch_monitor.api import orch_pb2 as pb
 from orch_monitor.proto_client import (
     ProtoDaemonClient,
-    proto_branch_state_to_str as _proto_branch_state_to_str,
-    proto_multiplexer_to_str as _proto_multiplexer_to_str,
     proto_run_to_model as _proto_run_to_model,
-    proto_status_to_model as _proto_status_to_model,
+    display_status_to_model as _display_status_to_model,
 )
 from orch_monitor.models import Status
 from orch_monitor.types import (
@@ -28,63 +26,20 @@ from orch_monitor.types import (
 )
 
 
-class TestProtoBranchStateToStr:
-    def test_clean_state(self):
-        assert _proto_branch_state_to_str(pb.BRANCH_STATE_CLEAN) == "clean"
+class TestDisplayStatusToModel:
+    def test_display_statuses_come_from_daemon_strings(self):
+        assert _display_status_to_model("queued") == Status.QUEUED
+        assert _display_status_to_model("booting") == Status.BOOTING
+        assert _display_status_to_model("running") == Status.RUNNING
+        assert _display_status_to_model("waiting") == Status.WAITING
+        assert _display_status_to_model("rate_limited") == Status.RATE_LIMITED
+        assert _display_status_to_model("pr_open") == Status.PR_OPEN
+        assert _display_status_to_model("done") == Status.DONE
+        assert _display_status_to_model("failed") == Status.FAILED
+        assert _display_status_to_model("canceled") == Status.CANCELED
 
-    def test_dirty_state(self):
-        assert _proto_branch_state_to_str(pb.BRANCH_STATE_DIRTY) == "dirty"
-
-    def test_merged_state(self):
-        assert _proto_branch_state_to_str(pb.BRANCH_STATE_MERGED) == "merged"
-
-    def test_conflict_state(self):
-        assert _proto_branch_state_to_str(pb.BRANCH_STATE_CONFLICT) == "conflict"
-
-    def test_ahead_state(self):
-        assert _proto_branch_state_to_str(pb.BRANCH_STATE_AHEAD) == "ahead"
-
-    def test_behind_state(self):
-        assert _proto_branch_state_to_str(pb.BRANCH_STATE_BEHIND) == "behind"
-
-    def test_diverged_state(self):
-        assert _proto_branch_state_to_str(pb.BRANCH_STATE_DIVERGED) == "diverged"
-
-    def test_synced_state(self):
-        assert _proto_branch_state_to_str(pb.BRANCH_STATE_SYNCED) == "synced"
-
-    def test_unspecified_returns_empty(self):
-        assert _proto_branch_state_to_str(pb.BRANCH_STATE_UNSPECIFIED) == ""
-
-    def test_unknown_value_returns_empty(self):
-        assert _proto_branch_state_to_str(999) == ""
-
-
-class TestProtoMultiplexerToStr:
-    def test_tmux(self):
-        assert _proto_multiplexer_to_str(pb.MULTIPLEXER_TMUX) == "tmux"
-
-    def test_zellij(self):
-        assert _proto_multiplexer_to_str(pb.MULTIPLEXER_ZELLIJ) == "zellij"
-
-    def test_unspecified_returns_empty(self):
-        assert _proto_multiplexer_to_str(pb.MULTIPLEXER_UNSPECIFIED) == ""
-
-
-class TestProtoStatusToModel:
-    def test_all_known_statuses(self):
-        assert _proto_status_to_model(pb.RUN_STATUS_QUEUED) == Status.QUEUED
-        assert _proto_status_to_model(pb.RUN_STATUS_BOOTING) == Status.BOOTING
-        assert _proto_status_to_model(pb.RUN_STATUS_RUNNING) == Status.RUNNING
-        assert _proto_status_to_model(pb.RUN_STATUS_WAITING) == Status.WAITING
-        assert _proto_status_to_model(pb.RUN_STATUS_RATE_LIMITED) == Status.RATE_LIMITED
-        assert _proto_status_to_model(pb.RUN_STATUS_PR_OPEN) == Status.PR_OPEN
-        assert _proto_status_to_model(pb.RUN_STATUS_DONE) == Status.DONE
-        assert _proto_status_to_model(pb.RUN_STATUS_FAILED) == Status.FAILED
-        assert _proto_status_to_model(pb.RUN_STATUS_CANCELED) == Status.CANCELED
-
-    def test_unspecified_returns_unknown(self):
-        assert _proto_status_to_model(pb.RUN_STATUS_UNSPECIFIED) == Status.UNKNOWN
+    def test_empty_display_status_returns_unknown(self):
+        assert _display_status_to_model("") == Status.UNKNOWN
 
 
 class TestProtoRunToModel:
@@ -92,7 +47,7 @@ class TestProtoRunToModel:
         proto_run = pb.Run(
             issue_id="issue-123",
             run_id="run-456",
-            status=pb.RUN_STATUS_RUNNING,
+            status_display="running",
             agent="claude",
             model="sonnet",
             branch="feature/test",
@@ -128,7 +83,7 @@ class TestProtoRunToModel:
         proto_run = pb.Run(
             issue_id="test",
             run_id="001",
-            branch_state=pb.BRANCH_STATE_DIRTY,
+            branch_state_display="dirty",
         )
         run = _proto_run_to_model(proto_run)
 
@@ -167,7 +122,7 @@ class TestProtoRunToModel:
         proto_run = pb.Run(
             issue_id="test",
             run_id="001",
-            multiplexer=pb.MULTIPLEXER_TMUX,
+            multiplexer_name="tmux",
         )
         run = _proto_run_to_model(proto_run)
 
@@ -177,7 +132,7 @@ class TestProtoRunToModel:
         proto_run = pb.Run(
             issue_id="test",
             run_id="001",
-            multiplexer=pb.MULTIPLEXER_ZELLIJ,
+            multiplexer_name="zellij",
         )
         run = _proto_run_to_model(proto_run)
 

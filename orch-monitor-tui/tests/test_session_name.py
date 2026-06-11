@@ -1,72 +1,91 @@
-"""Tests for zellij-safe monitor session name generation.
+"""Tests for daemon-resolved monitor bootstrap values."""
 
-Regression coverage for the bug where a fixed 28-char cap produced names that
-overflowed zellij's socket-path limit, surfacing as the misleading
-``session name must be less than 0 characters`` error.
-"""
-
+import json
+import os
 from pathlib import Path
+from subprocess import CompletedProcess
 
 import pytest
 
-import os
-
+from orch_monitor import client_bootstrap
 from orch_monitor.__main__ import (
-    SESSION_NAME_PREFIX,
     ZELLIJ_CONTRACT_DIR,
     ZELLIJ_SOCK_MAX_LENGTH,
     _ensure_short_zellij_socket_dir,
-    get_session_name,
 )
+from orch_monitor.client_bootstrap import ClientBootstrapError, load_client_bootstrap
 
 
-def _socket_path_len(name: str, sock_base: str) -> int:
-    # Mirror zellij: len(<base>/<contract_dir>/<name>)
-    return len(sock_base) + 1 + len(ZELLIJ_CONTRACT_DIR) + 1 + len(name)
+def test_bootstrap_uses_go_resolved_monitor_session_name(monkeypatch):
+    load_client_bootstrap.cache_clear()
+    payload = {
+        "project_root": "/repo/orch",
+        "project_id": "repoid:owner-orch",
+        "remote_addr": "127.0.0.1:9000",
+        "socket_path": "/tmp/orch.sock",
+        "monitor_session_name": "orch-monitor-owner-orch",
+    }
+
+    def fake_run(*args, **kwargs):
+        return CompletedProcess(args[0], 0, stdout=json.dumps(payload), stderr="")
+
+    monkeypatch.setattr(client_bootstrap.subprocess, "run", fake_run)
+
+    bootstrap = load_client_bootstrap()
+
+    assert bootstrap.project_root == Path("/repo/orch")
+    assert bootstrap.project_id == "repoid:owner-orch"
+    assert bootstrap.remote_addr == "127.0.0.1:9000"
+    assert bootstrap.socket_path == Path("/tmp/orch.sock")
+    assert bootstrap.monitor_session_name == "orch-monitor-owner-orch"
 
 
-def test_short_dir_keeps_readable_name(tmp_path, monkeypatch):
-    monkeypatch.setenv("ZELLIJ_SOCKET_DIR", "/tmp/zj")
-    repo = tmp_path / "myrepo"
-    repo.mkdir()
-    name = get_session_name(repo)
-    assert name == f"{SESSION_NAME_PREFIX}-myrepo"
+def test_bootstrap_fails_fast_on_bad_cli(monkeypatch):
+    load_client_bootstrap.cache_clear()
+
+    def fake_run(*args, **kwargs):
+        return CompletedProcess(args[0], 1, stdout="", stderr="boom")
+
+    monkeypatch.setattr(client_bootstrap.subprocess, "run", fake_run)
+
+    with pytest.raises(ClientBootstrapError, match="boom"):
+        load_client_bootstrap()
 
 
-def test_long_name_truncates_with_hash(tmp_path, monkeypatch):
-    monkeypatch.setenv("ZELLIJ_SOCKET_DIR", "/tmp/zj")
-    repo = tmp_path / "a-very-long-repository-name-that-exceeds-the-budget-by-far"
-    repo.mkdir()
-    name = get_session_name(repo)
-    assert name.startswith(SESSION_NAME_PREFIX + "-")
-    # 6-char md5 suffix preserved for uniqueness
-    assert len(name.rsplit("-", 1)[-1]) == 6
+def test_bootstrap_failure_does_not_fallback_to_env(monkeypatch):
+    load_client_bootstrap.cache_clear()
+    monkeypatch.setenv("ORCH_PROJECT", "repoid:fallback")
+    monkeypatch.setenv("ORCH_REMOTE", "127.0.0.1:7777")
+
+    def fake_run(*args, **kwargs):
+        return CompletedProcess(args[0], 1, stdout="", stderr="unsupported")
+
+    monkeypatch.setattr(client_bootstrap.subprocess, "run", fake_run)
+
+    with pytest.raises(ClientBootstrapError, match="unsupported"):
+        load_client_bootstrap()
 
 
-def test_fits_default_macos_style_socket_dir(monkeypatch):
-    # Emulate a default macOS TMPDIR-derived socket dir (~length that previously
-    # made a 28-char name overflow once the 18-char contract subdir is added).
-    sock_base = "/var/folders/q2/8x7k2j9d5cl0abcd1234efgh5678/T/zellij-501"
-    monkeypatch.setenv("ZELLIJ_SOCKET_DIR", sock_base)
-    # The classic failing repo name.
-    name = get_session_name(Path("/work/agent-control-plane"))
-    assert _socket_path_len(name, sock_base) < ZELLIJ_SOCK_MAX_LENGTH
+def test_bootstrap_cache_has_single_required_path(monkeypatch):
+    load_client_bootstrap.cache_clear()
+    calls = 0
+    payload = {
+        "project_root": "/repo/orch",
+        "project_id": "repoid:owner-orch",
+        "remote_addr": "",
+        "socket_path": "/tmp/orch.sock",
+        "monitor_session_name": "orch-monitor-owner-orch",
+    }
 
+    def fake_run(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return CompletedProcess(args[0], 0, stdout=json.dumps(payload), stderr="")
 
-@pytest.mark.parametrize(
-    "repo_name",
-    [
-        "x",
-        "agent-control-plane",
-        "this-is-a-really-really-really-long-monorepo-name",
-    ],
-)
-def test_always_within_socket_limit(repo_name, monkeypatch):
-    sock_base = "/var/folders/q2/8x7k2j9d5cl0abcd1234efgh5678/T/zellij-501"
-    monkeypatch.setenv("ZELLIJ_SOCKET_DIR", sock_base)
-    name = get_session_name(Path("/work") / repo_name)
-    assert _socket_path_len(name, sock_base) < ZELLIJ_SOCK_MAX_LENGTH
-    assert name  # never empty
+    monkeypatch.setattr(client_bootstrap.subprocess, "run", fake_run)
+
+    assert load_client_bootstrap() is load_client_bootstrap()
+    assert calls == 1
 
 
 def test_ensure_short_socket_dir_sets_when_unset(monkeypatch):
@@ -74,7 +93,6 @@ def test_ensure_short_socket_dir_sets_when_unset(monkeypatch):
     base = _ensure_short_zellij_socket_dir()
     assert base == os.environ["ZELLIJ_SOCKET_DIR"]
     assert base.startswith("/tmp/zlj-")
-    # short enough to leave plenty of room for a name under the OS limit
     assert len(base) + 1 + len(ZELLIJ_CONTRACT_DIR) + 1 < ZELLIJ_SOCK_MAX_LENGTH
 
 
@@ -82,22 +100,3 @@ def test_ensure_short_socket_dir_respects_existing(monkeypatch):
     monkeypatch.setenv("ZELLIJ_SOCKET_DIR", "/custom/sock")
     assert _ensure_short_zellij_socket_dir() == "/custom/sock"
     assert os.environ["ZELLIJ_SOCKET_DIR"] == "/custom/sock"
-
-
-def test_short_socket_dir_yields_full_name_for_long_repo(monkeypatch):
-    # With the short dir the budget is large enough that even a long macOS-uid path
-    # keeps the readable repo name (the user's original failing case).
-    monkeypatch.setenv("ZELLIJ_SOCKET_DIR", "/tmp/zlj-2145596008")
-    name = get_session_name(Path("/Users/s22625/repos/agent-control-plane"))
-    assert name == f"{SESSION_NAME_PREFIX}-agent-control-plane"
-    full = len("/tmp/zlj-2145596008") + 1 + len(ZELLIJ_CONTRACT_DIR) + 1 + len(name)
-    assert full < ZELLIJ_SOCK_MAX_LENGTH
-
-
-def test_invalid_chars_sanitized(tmp_path, monkeypatch):
-    monkeypatch.setenv("ZELLIJ_SOCKET_DIR", "/tmp/zj")
-    repo = tmp_path / "weird.name with spaces"
-    repo.mkdir()
-    name = get_session_name(repo)
-    # only alnum, dash, underscore remain
-    assert all(c.isalnum() or c in "-_" for c in name)

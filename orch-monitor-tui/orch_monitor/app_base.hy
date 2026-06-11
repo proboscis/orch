@@ -51,10 +51,8 @@
                                DaemonNotRunningError :as ApiDaemonNotRunningError])
 (import orch_monitor.orch_api [Issue :as ApiIssue
                                IssueFilters :as ApiIssueFilters
-                               IssueStatus :as ApiIssueStatus
                                Run :as ApiRun
-                               RunFilters :as ApiRunFilters
-                               RunStatus :as ApiRunStatus])
+                               RunFilters :as ApiRunFilters])
 (import orch_monitor.converters [api_run_to_model :as _api_run_to_model
                                  api_runs_to_model :as _api_runs_to_model_runs
                                  api_issue_to_model :as _api_issue_to_model
@@ -62,8 +60,7 @@
 (import orch_monitor.confirm_screens [KillConfirmScreen CloseIssueConfirmScreen])
 (import orch_monitor.multiplexer [Multiplexer MultiplexerType
                                   detect_current_multiplexer get_multiplexer
-                                  get_multiplexer_for_run get_multiplexer_type_from_run
-                                  get_session_name])
+                                  get_multiplexer_for_run get_multiplexer_type_from_run])
 (import orch_monitor.widgets [DetailPanel IssueTable RunTable TabbedStatsPanel])
 
 ;; ============================================================================

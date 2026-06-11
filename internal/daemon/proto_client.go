@@ -1328,6 +1328,13 @@ func protoMultiplexerToString(m orchpb.Multiplexer) string {
 	}
 }
 
+func stringWithFallback(value, fallback string) string {
+	if strings.TrimSpace(value) != "" {
+		return value
+	}
+	return fallback
+}
+
 func protoBranchStateToString(s orchpb.BranchState) string {
 	switch s {
 	case orchpb.BranchState_BRANCH_STATE_CLEAN:
@@ -1374,7 +1381,7 @@ func protoRunToSummary(r *orchpb.Run, _ *config.Config) (*RunSummary, error) {
 		IssueID:           r.IssueId,
 		RunID:             r.RunId,
 		ShortID:           computeShortID(r.IssueId, r.RunId),
-		Status:            status,
+		Status:            stringWithFallback(r.StatusDisplay, status),
 		Agent:             r.Agent,
 		Profile:           r.Profile,
 		Model:             r.Model,
@@ -1383,7 +1390,7 @@ func protoRunToSummary(r *orchpb.Run, _ *config.Config) (*RunSummary, error) {
 		Target:            r.Target,
 		TargetHost:        strings.TrimSpace(r.TargetHost),
 		SessionName:       r.SessionName,
-		Multiplexer:       protoMultiplexerToString(r.Multiplexer),
+		Multiplexer:       stringWithFallback(r.MultiplexerName, protoMultiplexerToString(r.Multiplexer)),
 		PRUrl:             r.PrUrl,
 		PRNumber:          int(r.PrNumber),
 		PRState:           r.PrState,
@@ -1392,7 +1399,7 @@ func protoRunToSummary(r *orchpb.Run, _ *config.Config) (*RunSummary, error) {
 		IssueStatus:       r.IssueStatus,
 		IssueTopic:        r.IssueTopic,
 		DiffStats:         diffStats,
-		BranchState:       protoBranchStateToString(r.BranchState),
+		BranchState:       stringWithFallback(r.BranchStateDisplay, protoBranchStateToString(r.BranchState)),
 		ElapsedSeconds:    int(r.ElapsedSeconds),
 		ElapsedDisplay:    r.ElapsedDisplay,
 		Alive:             r.Alive,
@@ -1449,7 +1456,7 @@ func protoRunToFull(r *orchpb.Run, events []*orchpb.Event, _ *config.Config) (*R
 		IssueID:           r.IssueId,
 		RunID:             r.RunId,
 		ShortID:           computeShortID(r.IssueId, r.RunId),
-		Status:            status,
+		Status:            stringWithFallback(r.StatusDisplay, status),
 		Phase:             phase,
 		Agent:             r.Agent,
 		Profile:           r.Profile,
@@ -1459,7 +1466,7 @@ func protoRunToFull(r *orchpb.Run, events []*orchpb.Event, _ *config.Config) (*R
 		Target:            r.Target,
 		TargetHost:        strings.TrimSpace(r.TargetHost),
 		SessionName:       r.SessionName,
-		Multiplexer:       protoMultiplexerToString(r.Multiplexer),
+		Multiplexer:       stringWithFallback(r.MultiplexerName, protoMultiplexerToString(r.Multiplexer)),
 		PRUrl:             r.PrUrl,
 		PRNumber:          int(r.PrNumber),
 		PRState:           r.PrState,
@@ -1469,7 +1476,7 @@ func protoRunToFull(r *orchpb.Run, events []*orchpb.Event, _ *config.Config) (*R
 		IssueTopic:        r.IssueTopic,
 		ContinuedFrom:     r.ContinuedFrom,
 		DiffStats:         diffStats,
-		BranchState:       protoBranchStateToString(r.BranchState),
+		BranchState:       stringWithFallback(r.BranchStateDisplay, protoBranchStateToString(r.BranchState)),
 		ElapsedSeconds:    int(r.ElapsedSeconds),
 		ElapsedDisplay:    r.ElapsedDisplay,
 		Alive:             r.Alive,
@@ -1503,7 +1510,7 @@ func protoIssueToSummary(i *orchpb.Issue) (*IssueSummary, error) {
 		ID:         i.Id,
 		Title:      i.Title,
 		Summary:    i.Summary,
-		Status:     status,
+		Status:     stringWithFallback(i.StatusDisplay, status),
 		Tags:       i.Tags,
 		URI:        fmt.Sprintf("orch://issue/%s", i.Id),
 		ModifiedAt: formatUnixTime(i.ModifiedAtUnix),
@@ -1523,7 +1530,7 @@ func protoIssueToFull(i *orchpb.Issue) (*IssueFull, error) {
 		ID:         i.Id,
 		Title:      i.Title,
 		Summary:    i.Summary,
-		Status:     status,
+		Status:     stringWithFallback(i.StatusDisplay, status),
 		Body:       i.Body,
 		Tags:       i.Tags,
 		BaseBranch: i.BaseBranch,
@@ -2270,7 +2277,7 @@ func (c *ProtoClient) GetBranchState(issueID, runID string) (string, error) {
 		return "", fmt.Errorf("unexpected response type")
 	}
 
-	return protoBranchStateToString(branchResp.State), nil
+	return stringWithFallback(branchResp.StateDisplay, protoBranchStateToString(branchResp.State)), nil
 }
 
 func (c *ProtoClient) GetDiff(issueID, runID string) (string, error) {

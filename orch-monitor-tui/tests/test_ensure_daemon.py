@@ -5,6 +5,7 @@ from subprocess import CompletedProcess
 from unittest.mock import MagicMock
 
 from orch_monitor.__main__ import ensure_daemon
+from orch_monitor.client_bootstrap import ClientBootstrap
 from orch_monitor.config import Config
 
 
@@ -41,7 +42,14 @@ def test_ensure_daemon_auto_repair_recovers(monkeypatch):
 
     monkeypatch.setattr("orch_monitor.__main__.subprocess.run", mock_run)
 
-    ok, msg = ensure_daemon(project_root=project_root)
+    bootstrap = ClientBootstrap(
+        project_root=project_root,
+        project_id="repoid:test-project",
+        remote_addr=None,
+        socket_path=cfg.socket_path,
+        monitor_session_name="orch-monitor-test",
+    )
+    ok, msg = ensure_daemon(project_root=project_root, bootstrap=bootstrap)
     assert ok is True
     assert msg == ""
     assert any(cmd[-2:] == ["repair", "--force"] for cmd in commands)
@@ -72,7 +80,14 @@ def test_ensure_daemon_auto_repair_still_fails(monkeypatch):
 
     monkeypatch.setattr("orch_monitor.__main__.subprocess.run", mock_run)
 
-    ok, msg = ensure_daemon(project_root=project_root)
+    bootstrap = ClientBootstrap(
+        project_root=project_root,
+        project_id="repoid:test-project",
+        remote_addr=None,
+        socket_path=cfg.socket_path,
+        monitor_session_name="orch-monitor-test",
+    )
+    ok, msg = ensure_daemon(project_root=project_root, bootstrap=bootstrap)
     assert ok is False
     assert "after auto-repair" in msg
 

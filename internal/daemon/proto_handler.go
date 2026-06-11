@@ -847,13 +847,20 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 	requestStart := time.Now()
 	projectID := projectIDFromContext(req.Context)
 
-	statuses, err := protoRunStatusSliceToModel(req.Status)
+	statusFilter, err := protoRunStatusSliceToModel(req.Status)
 	if err != nil {
 		return errorResponse(err.Error())
 	}
+	for _, statusText := range req.StatusText {
+		status, err := model.NormalizeStatus(statusText)
+		if err != nil {
+			return errorResponse(err.Error())
+		}
+		statusFilter = append(statusFilter, status)
+	}
 	filter := &store.ListRunsFilter{
 		IssueID:    model.IssueID(req.IssueId),
-		Status:     statuses,
+		Status:     statusFilter,
 		Agent:      req.Agent,
 		TextSearch: req.TextSearch,
 		TimeRange:  req.TimeRange,
@@ -890,6 +897,24 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 		}
 	}
 	storeDuration := time.Since(storeStart)
+
+	if len(req.Agents) > 0 {
+		agentSet := make(map[string]bool, len(req.Agents))
+		for _, agent := range req.Agents {
+			if trimmed := strings.TrimSpace(agent); trimmed != "" {
+				agentSet[trimmed] = true
+			}
+		}
+		if len(agentSet) > 0 {
+			filtered := make([]runStoreEntry, 0, len(entries))
+			for _, entry := range entries {
+				if entry.run != nil && agentSet[strings.TrimSpace(entry.run.Agent)] {
+					filtered = append(filtered, entry)
+				}
+			}
+			entries = filtered
+		}
+	}
 
 	sort.Slice(entries, func(i, j int) bool {
 		left := entries[i].run
@@ -1095,6 +1120,7 @@ func enrichRunProto(pr *orchpb.Run, run *model.Run, runner git.Runner) {
 		}
 	}
 	pr.ElapsedDisplay = formatElapsedTime(run.StartedAt, run.UpdatedAt, run.Status)
+	populateRunDisplayFields(pr)
 }
 
 func enrichRunsParallel(runs []*model.Run, protoRuns []*orchpb.Run) ([]*orchpb.Run, error) {
@@ -1168,6 +1194,7 @@ func enrichRunsParallel(runs []*model.Run, protoRuns []*orchpb.Run) ([]*orchpb.R
 			proto.PrState = sanitizeUTF8(strings.ToLower(prInfo.State))
 		}
 
+		populateRunDisplayFields(proto)
 		protoRuns[i] = proto
 	}
 
@@ -1879,6 +1906,24 @@ func (s *SocketServer) handleProtoListIssues(req *orchpb.ListIssuesRequest) *orc
 		issues = filtered
 	}
 
+	if len(req.StatusText) > 0 {
+		statusSet := make(map[model.IssueStatus]bool)
+		for _, statusText := range req.StatusText {
+			status, err := model.ParseIssueStatus(statusText)
+			if err != nil {
+				return errorResponse(err.Error())
+			}
+			statusSet[status] = true
+		}
+		var filtered []*model.Issue
+		for _, issue := range issues {
+			if statusSet[issue.Status] {
+				filtered = append(filtered, issue)
+			}
+		}
+		issues = filtered
+	}
+
 	if len(req.Tags) > 0 {
 		tagSet := make(map[string]bool)
 		for _, t := range req.Tags {
@@ -2520,7 +2565,8 @@ func (s *SocketServer) handleProtoGetBranchState(req *orchpb.GetBranchStateReque
 			Ok: true,
 			Response: &orchpb.Response_GetBranchState{
 				GetBranchState: &orchpb.GetBranchStateResponse{
-					State: orchpb.BranchState(effectResult.BranchStateResult.State),
+					State:        orchpb.BranchState(effectResult.BranchStateResult.State),
+					StateDisplay: protoBranchStateToString(orchpb.BranchState(effectResult.BranchStateResult.State)),
 				},
 			},
 		}
@@ -2532,7 +2578,8 @@ func (s *SocketServer) handleProtoGetBranchState(req *orchpb.GetBranchStateReque
 		Ok: true,
 		Response: &orchpb.Response_GetBranchState{
 			GetBranchState: &orchpb.GetBranchStateResponse{
-				State: state,
+				State:        state,
+				StateDisplay: protoBranchStateToString(state),
 			},
 		},
 	}

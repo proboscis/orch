@@ -6,8 +6,14 @@ from typing import Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
+from returns.result import Success
 
 from orch_monitor.config import Config, FilterState, MonitorConfig
+from orch_monitor.orch_api import (
+    DiffStats as ApiDiffStats,
+    Run as ApiRun,
+    StartRunResult,
+)
 from orch_monitor.types import (
     ListIssuesResponse,
     ListRunsResponse,
@@ -169,31 +175,99 @@ class MockDaemonClient:
     def is_available(self) -> bool:
         return True
 
-    def list_runs(self, filters=None) -> ListRunsResponse:
-        return ListRunsResponse(
-            runs=self._runs,
-            next_cursor=None,
-            total=len(self._runs),
+    def _api_run(self, run: Run) -> ApiRun:
+        return ApiRun(
+            issue_id=run.issue_id,
+            run_id=run.run_id,
+            status=run.status.value,
+            agent=run.agent,
+            model=run.model,
+            branch=run.branch,
+            worktree_path=run.worktree_path,
+            pr_url=run.pr_url,
+            started_at=run.started_at,
+            updated_at=run.updated_at,
+            elapsed_seconds=run.elapsed_seconds,
+            elapsed_display=run.elapsed_display,
+            diff_stats=ApiDiffStats(
+                additions=run.additions,
+                deletions=run.deletions,
+                files_changed=run.files_changed,
+                file_list=list(run.files),
+            ),
+            branch_state=run.branch_state,
+            session_name=run.session_name,
+            multiplexer=run.multiplexer,
+            server_port=run.server_port,
+            opencode_session_id=run.opencode_session_id,
         )
 
-    def list_issues(self, filters=None) -> ListIssuesResponse:
-        return ListIssuesResponse(
-            issues=self._issues,
-            next_cursor=None,
-            total=len(self._issues),
+    def list_runs(self, filters=None):
+        return Success(
+            ListRunsResponse(
+                runs=[self._api_run(run) for run in self._runs],
+                next_cursor=None,
+                total=len(self._runs),
+            )
         )
 
-    def get_run(self, issue_id: str, run_id: str) -> Optional[Run]:
+    def list_issues(self, filters=None):
+        return Success(
+            ListIssuesResponse(
+                issues=self._issues,
+                next_cursor=None,
+                total=len(self._issues),
+            )
+        )
+
+    def get_run(self, issue_id: str, run_id: str):
         for run in self._runs:
             if run.issue_id == issue_id and run.run_id == run_id:
-                return run
-        return None
+                return Success(self._api_run(run))
+        return Success(None)
 
-    def get_issue(self, issue_id: str) -> Optional[Issue]:
+    def get_issue(self, issue_id: str):
         for issue in self._issues:
             if issue.id == issue_id:
-                return issue
-        return None
+                return Success(issue)
+        return Success(None)
+
+    def start_run(self, issue_id: str, agent: str = "", model: str = ""):
+        return Success(
+            StartRunResult(
+                run_id="20260115-999999",
+                branch=f"issue/{issue_id}",
+                worktree_path="/tmp/orch-test-worktree",
+            )
+        )
+
+    def stop_run(self, issue_id: str, run_id: str):
+        return Success(None)
+
+    def resolve_run(self, issue_id: str, run_id: str):
+        return Success(None)
+
+    def create_issue(self, issue_id: str, title: str, body: str):
+        return Success(None)
+
+    def close_issue(self, issue_id: str):
+        return Success(None)
+
+    def register_monitor(
+        self,
+        pid: int,
+        monitor_type: str,
+        view: str,
+        project: str,
+        session_name: str = "",
+    ):
+        return Success(f"monitor-{view}-{pid}")
+
+    def unregister_monitor(self, monitor_id: str):
+        return Success(None)
+
+    def heartbeat(self, monitor_id: str):
+        return Success(None)
 
     def close(self) -> None:
         pass
@@ -326,10 +400,11 @@ def app_with_mock_daemon(mock_daemon, mock_config, tmp_path):
 
     def _create_app(auto_refresh: bool = False):
         app = OrchMonitorApp(
-            vault_path=mock_config.vault_path, auto_refresh=auto_refresh
+            config=mock_config,
+            api=mock_daemon,
+            vault_path=mock_config.vault_path,
+            auto_refresh=auto_refresh,
         )
-        app.daemon = mock_daemon
-        app.config = mock_config
         return app
 
     return _create_app
@@ -342,10 +417,11 @@ def runs_dashboard_with_mock(mock_daemon, mock_config):
 
     def _create_app(auto_refresh: bool = False):
         app = RunsDashboard(
-            vault_path=mock_config.vault_path, auto_refresh=auto_refresh
+            config=mock_config,
+            api=mock_daemon,
+            vault_path=mock_config.vault_path,
+            auto_refresh=auto_refresh,
         )
-        app.daemon = mock_daemon
-        app.config = mock_config
         return app
 
     return _create_app
@@ -358,10 +434,11 @@ def issues_dashboard_with_mock(mock_daemon, mock_config):
 
     def _create_app(auto_refresh: bool = False):
         app = IssuesDashboard(
-            vault_path=mock_config.vault_path, auto_refresh=auto_refresh
+            config=mock_config,
+            api=mock_daemon,
+            vault_path=mock_config.vault_path,
+            auto_refresh=auto_refresh,
         )
-        app.daemon = mock_daemon
-        app.config = mock_config
         return app
 
     return _create_app

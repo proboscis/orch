@@ -38,8 +38,7 @@
 (import orch_monitor.models [DiffStats Run Status Issue])
 (import orch_monitor.types [RunFilterResult])
 (import orch_monitor.orch_api [OrchAPI create_orch_api])
-(import orch_monitor.orch_api [RunFilters :as ApiRunFilters
-                               RunStatus :as ApiRunStatus])
+(import orch_monitor.orch_api [RunFilters :as ApiRunFilters])
 (import orch_monitor.converters [api_runs_to_model :as _api_runs_to_model_runs
                                  api_issue_to_model :as _api_issue_to_model])
 (import orch_monitor.confirm_screens [KillConfirmScreen])
@@ -48,7 +47,7 @@
 (import orch_monitor.multiplexer [Multiplexer MultiplexerType
                                   detect_current_multiplexer get_multiplexer
                                   get_multiplexer_for_run get_multiplexer_type_from_run
-                                  get_session_name])
+                                  get_run_session_name])
 (import orch_monitor.widgets [RunTable TabbedStatsPanel model_display_name])
 (import orch_monitor.app_base [get-logger _log-error _build-orch-cmd _input-has-focus
                                AUTO_REFRESH_INTERVAL ELAPSED_UPDATE_INTERVAL AGENTS])
@@ -138,11 +137,13 @@ DataTable {
   ;; Initialization
   ;; =========================================================================
   
-  (defn __init__ [self [project-root None] [auto-refresh True] [api None]]
+  (defn __init__ [self [project-root None] [auto-refresh True] [api None]
+                  [config None] [vault-path None]]
     (.__init__ (super))
-    (setv self.config (if project-root
-                          (Config.from_project_root project-root)
-                          (Config.load)))
+    (setv self.config (or config
+                          (if project-root
+                              (Config.from_project_root project-root)
+                              (Config.load))))
     (setv self.api (or api (create_orch_api self.config.socket_path
                                             self.config.project_root)))
     (setv self.runs [])
@@ -284,16 +285,10 @@ DataTable {
   
   (defn [(work :thread True :exclusive True)] _fetch_runs [self]
     (setv run-filters self.filter_state.run_filters)
-    (setv status-filter [])
-    (for [s run-filters.statuses]
-      (with-fallback-silent "parse_status" None
-        (.append status-filter (ApiRunStatus s))))
-    (setv agent-filter (if (= (len run-filters.agents) 1)
-                           (get run-filters.agents 0)
-                           None))
+    (setv status-filter (list run-filters.statuses))
     (setv filters (ApiRunFilters
                     :status status-filter
-                    :agent agent-filter
+                    :agents (list run-filters.agents)
                     :text_search (or run-filters.text_search None)
                     :time_range (if (!= run-filters.time_range "all")
                                     run-filters.time_range
@@ -301,9 +296,6 @@ DataTable {
     (if-ok [response (.list_runs self.api filters)]
       (do
         (setv runs (_api_runs_to_model_runs response.runs))
-        (when (> (len run-filters.agents) 1)
-          (setv runs (lfor r runs :if (in r.agent run-filters.agents) r)))
-        (.sort runs :key (fn [r] (or r.updated_at r.started_at datetime.min)) :reverse True)
         (.call_from_thread self self._update_runs_table runs None))
       (.call_from_thread self self._update_runs_table None (str response))))
   

@@ -9,7 +9,7 @@ This module contains:
 from dataclasses import dataclass, field
 from typing import Optional
 
-from .models import Issue, IssueStatus, Run, Status
+from .models import Issue, Run
 
 
 # ============================================================================
@@ -71,8 +71,9 @@ class RunFilters:
     """Filters for listing runs."""
 
     issue_id: Optional[str] = None
-    status: list[Status] = field(default_factory=list)
+    status: list[str] = field(default_factory=list)
     agent: Optional[str] = None
+    agents: list[str] = field(default_factory=list)
     text_search: Optional[str] = None
     time_range: Optional[str] = None
 
@@ -81,7 +82,7 @@ class RunFilters:
 class IssueFilters:
     """Filters for listing issues."""
 
-    status: list[IssueStatus] = field(default_factory=list)
+    status: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
     tags_mode: Optional[str] = None
     text_search: Optional[str] = None

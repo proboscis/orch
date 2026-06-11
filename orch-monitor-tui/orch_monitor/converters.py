@@ -3,35 +3,24 @@
 from pathlib import Path
 
 from .orch_api import Issue as ApiIssue
-from .orch_api import IssueStatus as ApiIssueStatus
 from .orch_api import Run as ApiRun
-from .orch_api import RunStatus as ApiRunStatus
 from .models import Issue, IssueStatus, Run, Status
 
 
-def api_run_status_to_model(status: ApiRunStatus) -> Status:
-    mapping = {
-        ApiRunStatus.QUEUED: Status.QUEUED,
-        ApiRunStatus.BOOTING: Status.BOOTING,
-        ApiRunStatus.RUNNING: Status.RUNNING,
-        ApiRunStatus.WAITING: Status.WAITING,
-        ApiRunStatus.RATE_LIMITED: Status.RATE_LIMITED,
-        ApiRunStatus.PR_OPEN: Status.PR_OPEN,
-        ApiRunStatus.DONE: Status.DONE,
-        ApiRunStatus.FAILED: Status.FAILED,
-        ApiRunStatus.CANCELED: Status.CANCELED,
-        ApiRunStatus.UNKNOWN: Status.UNKNOWN,
-    }
-    return mapping.get(status, Status.UNKNOWN)
+def api_run_status_to_model(status: str) -> Status:
+    value = getattr(status, "value", str(status))
+    try:
+        return Status(value)
+    except ValueError:
+        return Status.UNKNOWN
 
 
-def api_issue_status_to_model(status: ApiIssueStatus) -> IssueStatus:
-    mapping = {
-        ApiIssueStatus.OPEN: IssueStatus.OPEN,
-        ApiIssueStatus.RESOLVED: IssueStatus.RESOLVED,
-        ApiIssueStatus.CLOSED: IssueStatus.CLOSED,
-    }
-    return mapping.get(status, IssueStatus.OPEN)
+def api_issue_status_to_model(status: str) -> IssueStatus:
+    value = getattr(status, "value", str(status))
+    try:
+        return IssueStatus(value)
+    except ValueError:
+        return IssueStatus.OPEN
 
 
 def api_run_to_model(api_run: ApiRun) -> Run:

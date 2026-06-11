@@ -45,60 +45,26 @@
 ;; Proto <-> Model Conversions
 ;; ============================================================================
 
-(defn model-status->proto [s]
-  (setv mapping {Status.QUEUED pb.RUN_STATUS_QUEUED
-                 Status.BOOTING pb.RUN_STATUS_BOOTING
-                 Status.RUNNING pb.RUN_STATUS_RUNNING
-                 Status.WAITING pb.RUN_STATUS_WAITING
-                 Status.RATE_LIMITED pb.RUN_STATUS_RATE_LIMITED
-                 Status.PR_OPEN pb.RUN_STATUS_PR_OPEN
-                 Status.DONE pb.RUN_STATUS_DONE
-                 Status.FAILED pb.RUN_STATUS_FAILED
-                 Status.CANCELED pb.RUN_STATUS_CANCELED
-                 Status.UNKNOWN pb.RUN_STATUS_UNKNOWN})
-  (.get mapping s pb.RUN_STATUS_UNSPECIFIED))
+(defn _enum-value [value]
+  (.strip (str (or (getattr value "value" value) ""))))
 
-(defn proto-status->model [s]
-  (setv mapping {pb.RUN_STATUS_QUEUED Status.QUEUED
-                 pb.RUN_STATUS_BOOTING Status.BOOTING
-                 pb.RUN_STATUS_RUNNING Status.RUNNING
-                 pb.RUN_STATUS_WAITING Status.WAITING
-                 pb.RUN_STATUS_RATE_LIMITED Status.RATE_LIMITED
-                 pb.RUN_STATUS_PR_OPEN Status.PR_OPEN
-                 pb.RUN_STATUS_DONE Status.DONE
-                 pb.RUN_STATUS_FAILED Status.FAILED
-                 pb.RUN_STATUS_CANCELED Status.CANCELED
-                 pb.RUN_STATUS_UNKNOWN Status.UNKNOWN})
-  (.get mapping s Status.UNKNOWN))
+(defn display-status->model [value]
+  (setv text (_enum-value value))
+  (when (= text "")
+    (setv text "unknown"))
+  (try
+    (Status text)
+    (except [e ValueError]
+      Status.UNKNOWN)))
 
-(defn model-issue-status->proto [s]
-  (setv mapping {IssueStatus.OPEN pb.ISSUE_STATUS_OPEN
-                 IssueStatus.RESOLVED pb.ISSUE_STATUS_RESOLVED
-                 IssueStatus.CLOSED pb.ISSUE_STATUS_CLOSED})
-  (.get mapping s pb.ISSUE_STATUS_UNSPECIFIED))
-
-(defn proto-issue-status->model [s]
-  (setv mapping {pb.ISSUE_STATUS_OPEN IssueStatus.OPEN
-                 pb.ISSUE_STATUS_RESOLVED IssueStatus.RESOLVED
-                 pb.ISSUE_STATUS_CLOSED IssueStatus.CLOSED})
-  (.get mapping s IssueStatus.OPEN))
-
-(defn proto-multiplexer->str [m]
-  (cond
-    (= m pb.MULTIPLEXER_TMUX) "tmux"
-    (= m pb.MULTIPLEXER_ZELLIJ) "zellij"
-    True ""))
-
-(defn proto-branch-state->str [s]
-  (setv mapping {pb.BRANCH_STATE_CLEAN "clean"
-                 pb.BRANCH_STATE_DIRTY "dirty"
-                 pb.BRANCH_STATE_MERGED "merged"
-                 pb.BRANCH_STATE_CONFLICT "conflict"
-                 pb.BRANCH_STATE_AHEAD "ahead"
-                 pb.BRANCH_STATE_BEHIND "behind"
-                 pb.BRANCH_STATE_DIVERGED "diverged"
-                 pb.BRANCH_STATE_SYNCED "synced"})
-  (.get mapping s ""))
+(defn display-issue-status->model [value]
+  (setv text (_enum-value value))
+  (when (= text "")
+    (setv text "open"))
+  (try
+    (IssueStatus text)
+    (except [e ValueError]
+      IssueStatus.OPEN)))
 
 ;; Go's time.Time{} zero value serializes to this Unix timestamp (year 0001 AD)
 (setv GO_ZERO_TIME -62135596800)
@@ -123,13 +89,13 @@
   (Run :issue_id r.issue_id
        :run_id r.run_id
        :path (Path)
-       :status (proto-status->model r.status)
+       :status (display-status->model r.status_display)
        :agent r.agent
        :model r.model
        :branch r.branch
        :worktree_path r.worktree_path
        :session_name r.session_name
-       :multiplexer (proto-multiplexer->str r.multiplexer)
+       :multiplexer r.multiplexer_name
        :pr_url r.pr_url
        :server_port r.server_port
        :opencode_session_id r.opencode_session_id
@@ -142,13 +108,13 @@
        :deletions deletions
        :files_changed files-changed
        :files files
-       :branch_state (proto-branch-state->str r.branch_state)))
+       :branch_state r.branch_state_display))
 
 (defn proto-issue->model [i]
   (Issue :id i.id
          :title i.title
          :summary i.summary
-         :status (proto-issue-status->model i.status)
+         :status (display-issue-status->model i.status_display)
          :tags (list i.tags)
          :body i.body
          :path (if i.path (Path i.path) (Path))
@@ -261,15 +227,8 @@
     (if self.project-root (str self.project-root) ""))
 
   (defn _ctx-project-id [self [project-root None]]
-    "Resolve the daemon project_id (normalized repo id) for RequestContext scoping.
-    Prefers the client's configured project-id; otherwise normalizes a project root.
-    The daemon scopes start_run / control-agent RPCs by RequestContext.project_id;
-    these requests have NO project_root field."
-    (if self.project-id
-        self.project-id
-        (do
-          (import orch_monitor.config [repo_id_from_project])
-          (repo_id_from_project (or project-root self.project-root)))))
+    "Return the daemon project_id supplied by the Go client bootstrap."
+    (or self.project-id ""))
 
   (defn check-availability [self]
     "Active daemon availability check. Returns Result[bool, ProtoDaemonError]."
@@ -440,7 +399,9 @@
       (when self.project-id
         (setv req.list_runs.context.project_id self.project-id))
       (for [s filters.status]
-        (.append req.list_runs.status (model-status->proto s)))
+        (.append req.list_runs.status_text (_enum-value s)))
+      (for [agent filters.agents]
+        (.append req.list_runs.agents agent))
       (setv resp (._send-ok self req))
       (ListRunsResponse 
         :runs (lfor r resp.list_runs.runs (proto-run->model r))
@@ -458,7 +419,7 @@
       (when self.project-id
         (setv req.list_issues.context.project_id self.project-id))
       (for [s filters.status]
-        (.append req.list_issues.status (model-issue-status->proto s)))
+        (.append req.list_issues.status_text (_enum-value s)))
       (for [tag filters.tags]
         (.append req.list_issues.tags tag))
       (setv resp (._send-ok self req))
@@ -551,7 +512,7 @@
       (setv resp (._send self req))
       (cond
         (and resp.ok (.HasField resp "get_branch_state"))
-        (proto-branch-state->str resp.get_branch_state.state)
+        resp.get_branch_state.state_display
         (not resp.ok) (raise (ProtoDaemonError (or resp.error "Failed to get branch state")))
         True "")))
   
@@ -693,13 +654,9 @@
 ;; Python-friendly aliases for converter functions
 ;; ============================================================================
 
-(setv proto_status_to_model proto-status->model)
-(setv proto_issue_status_to_model proto-issue-status->model)
-(setv proto_multiplexer_to_str proto-multiplexer->str)
-(setv proto_branch_state_to_str proto-branch-state->str)
 (setv proto_run_to_model proto-run->model)
 (setv proto_issue_to_model proto-issue->model)
 (setv proto_event_to_model proto-event->model)
-(setv model_status_to_proto model-status->proto)
-(setv model_issue_status_to_proto model-issue-status->proto)
+(setv display_status_to_model display-status->model)
+(setv display_issue_status_to_model display-issue-status->model)
 (setv safe_timestamp _safe-timestamp)

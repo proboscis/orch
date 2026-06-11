@@ -149,6 +149,29 @@ func modelRunToProto(run *model.Run) (*orchpb.Run, error) {
 	return protoRun, nil
 }
 
+func populateRunDisplayFields(run *orchpb.Run) {
+	if run == nil {
+		return
+	}
+	run.StatusDisplay = protoEnumDisplayString(protoRunStatusToString(run.Status))
+	run.MultiplexerName = protoDisplayString(protoMultiplexerToString(run.Multiplexer))
+	run.BranchStateDisplay = protoDisplayString(protoBranchStateToString(run.BranchState))
+}
+
+func protoEnumDisplayString(value string, err error) string {
+	if err != nil {
+		return ""
+	}
+	return protoDisplayString(value)
+}
+
+func protoDisplayString(value string) string {
+	if value == "" || value == "unknown" {
+		return ""
+	}
+	return sanitizeUTF8(value)
+}
+
 func protoRunToModel(run *orchpb.Run) (*model.Run, error) {
 	if run == nil {
 		return nil, nil
@@ -189,7 +212,7 @@ func modelIssueToProto(issue *model.Issue) (*orchpb.Issue, error) {
 	if err != nil {
 		return nil, fmt.Errorf("convert issue %s status: %w", issue.ID, err)
 	}
-	return &orchpb.Issue{
+	protoIssue := &orchpb.Issue{
 		Id:             sanitizeUTF8(string(issue.ID)),
 		Title:          sanitizeUTF8(issue.Title),
 		Topic:          sanitizeUTF8(issue.Topic),
@@ -200,7 +223,16 @@ func modelIssueToProto(issue *model.Issue) (*orchpb.Issue, error) {
 		Path:           sanitizeUTF8(issue.Path),
 		ModifiedAtUnix: issue.ModifiedAt.Unix(),
 		BaseBranch:     sanitizeUTF8(issue.BaseBranch),
-	}, nil
+	}
+	populateIssueDisplayFields(protoIssue)
+	return protoIssue, nil
+}
+
+func populateIssueDisplayFields(issue *orchpb.Issue) {
+	if issue == nil {
+		return
+	}
+	issue.StatusDisplay = protoEnumDisplayString(protoIssueStatusToString(issue.Status))
 }
 
 func protoIssueToModel(issue *orchpb.Issue) (*model.Issue, error) {

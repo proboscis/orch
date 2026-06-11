@@ -450,109 +450,17 @@ class TestDiffStatsModel:
 
 
 # ============================================================================
-# Git Diff Stats Function Tests
+# Daemon-owned Diff Stats Tests
 # ============================================================================
 
 
-class TestGetGitDiffStats:
-    """Tests for _get_git_diff_stats function."""
+class TestDaemonOwnedDiffStats:
+    """Diff stats are supplied by the daemon, not computed by the TUI."""
 
-    def test_returns_none_without_worktree(self):
-        """Test returns None when worktree_path is empty."""
-        from orch_monitor.app import _get_git_diff_stats
+    def test_app_does_not_export_client_git_diff_helper(self):
+        import orch_monitor.app as app
 
-        result = _get_git_diff_stats("", "feature-branch", "main")
-        assert result is None
-
-    def test_returns_none_without_branch(self):
-        """Test returns None when branch is empty."""
-        from orch_monitor.app import _get_git_diff_stats
-
-        result = _get_git_diff_stats("/tmp/test", "", "main")
-        assert result is None
-
-    def test_parses_numstat_output(self):
-        """Test parsing of git diff --numstat output."""
-        from unittest.mock import patch, MagicMock
-        from orch_monitor.app import (
-            _get_git_diff_stats,
-            _get_git_diff_stats_cached,
-            _diff_stats_cache_time,
-        )
-
-        # Clear cache
-        _get_git_diff_stats_cached.cache_clear()
-        _diff_stats_cache_time.clear()
-
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "10\t5\tsrc/main.py\n20\t3\tsrc/utils.py\n"
-
-        with patch("subprocess.run", return_value=mock_result):
-            result = _get_git_diff_stats("/tmp/test", "feature", "main")
-
-        assert result is not None
-        assert result.file_count == 2
-        assert result.total_additions == 30
-        assert result.total_deletions == 8
-        assert result.files[0].path == "src/main.py"
-        assert result.files[0].additions == 10
-        assert result.files[0].deletions == 5
-
-    def test_handles_binary_files(self):
-        """Test handling of binary files (shown as - -)."""
-        from unittest.mock import patch, MagicMock
-        from orch_monitor.app import (
-            _get_git_diff_stats,
-            _get_git_diff_stats_cached,
-            _diff_stats_cache_time,
-        )
-
-        # Clear cache
-        _get_git_diff_stats_cached.cache_clear()
-        _diff_stats_cache_time.clear()
-
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "-\t-\timage.png\n5\t2\tcode.py\n"
-
-        with patch("subprocess.run", return_value=mock_result):
-            result = _get_git_diff_stats("/tmp/test2", "feature", "main")
-
-        assert result is not None
-        assert result.file_count == 2
-        assert result.total_additions == 5
-        assert result.total_deletions == 2
-        # Binary file should have 0 additions/deletions
-        assert result.files[0].additions == 0
-        assert result.files[0].deletions == 0
-
-    def test_caches_results(self):
-        """Test that results are cached via LRU cache."""
-        from unittest.mock import patch, MagicMock
-        from orch_monitor.app import (
-            _get_git_diff_stats,
-            _get_git_diff_stats_cached,
-            _diff_stats_cache_time,
-        )
-
-        # Clear cache
-        _get_git_diff_stats_cached.cache_clear()
-        _diff_stats_cache_time.clear()
-
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "1\t1\tfile.py\n"
-
-        with patch("subprocess.run", return_value=mock_result) as mock_run:
-            # First call
-            result1 = _get_git_diff_stats("/tmp/cache_test", "feature", "main")
-            # Second call should use cache
-            result2 = _get_git_diff_stats("/tmp/cache_test", "feature", "main")
-
-        # Should only call subprocess once due to LRU cache
-        assert mock_run.call_count == 1
-        assert result1 == result2
+        assert not hasattr(app, "_get_git_diff_stats")
 
 
 class TestFormatChangedFilesLines:

@@ -362,9 +362,12 @@ type Run struct {
 	TargetHost        string                 `protobuf:"bytes,28,opt,name=target_host,json=targetHost,proto3" json:"target_host,omitempty"`
 	// Profile identity the agent ran with: the resolved codex execution
 	// profile for codex runs, or the agent profile (e.g. claude --profile).
-	Profile       string `protobuf:"bytes,29,opt,name=profile,proto3" json:"profile,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Profile            string `protobuf:"bytes,29,opt,name=profile,proto3" json:"profile,omitempty"`
+	StatusDisplay      string `protobuf:"bytes,30,opt,name=status_display,json=statusDisplay,proto3" json:"status_display,omitempty"`
+	MultiplexerName    string `protobuf:"bytes,31,opt,name=multiplexer_name,json=multiplexerName,proto3" json:"multiplexer_name,omitempty"`
+	BranchStateDisplay string `protobuf:"bytes,32,opt,name=branch_state_display,json=branchStateDisplay,proto3" json:"branch_state_display,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *Run) Reset() {
@@ -600,6 +603,27 @@ func (x *Run) GetProfile() string {
 	return ""
 }
 
+func (x *Run) GetStatusDisplay() string {
+	if x != nil {
+		return x.StatusDisplay
+	}
+	return ""
+}
+
+func (x *Run) GetMultiplexerName() string {
+	if x != nil {
+		return x.MultiplexerName
+	}
+	return ""
+}
+
+func (x *Run) GetBranchStateDisplay() string {
+	if x != nil {
+		return x.BranchStateDisplay
+	}
+	return ""
+}
+
 type Issue struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -612,6 +636,7 @@ type Issue struct {
 	ModifiedAtUnix int64                  `protobuf:"varint,8,opt,name=modified_at_unix,json=modifiedAtUnix,proto3" json:"modified_at_unix,omitempty"`
 	Topic          string                 `protobuf:"bytes,9,opt,name=topic,proto3" json:"topic,omitempty"`
 	BaseBranch     string                 `protobuf:"bytes,10,opt,name=base_branch,json=baseBranch,proto3" json:"base_branch,omitempty"`
+	StatusDisplay  string                 `protobuf:"bytes,11,opt,name=status_display,json=statusDisplay,proto3" json:"status_display,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -712,6 +737,13 @@ func (x *Issue) GetTopic() string {
 func (x *Issue) GetBaseBranch() string {
 	if x != nil {
 		return x.BaseBranch
+	}
+	return ""
+}
+
+func (x *Issue) GetStatusDisplay() string {
+	if x != nil {
+		return x.StatusDisplay
 	}
 	return ""
 }
@@ -943,6 +975,8 @@ type ListRunsRequest struct {
 	Cursor        string                 `protobuf:"bytes,8,opt,name=cursor,proto3" json:"cursor,omitempty"`
 	OlderThan     string                 `protobuf:"bytes,9,opt,name=older_than,json=olderThan,proto3" json:"older_than,omitempty"` // ISO8601 timestamp - filter runs older than this time
 	Context       *RequestContext        `protobuf:"bytes,10,opt,name=context,proto3" json:"context,omitempty"`
+	StatusText    []string               `protobuf:"bytes,11,rep,name=status_text,json=statusText,proto3" json:"status_text,omitempty"` // daemon-normalized status filter for thin clients
+	Agents        []string               `protobuf:"bytes,12,rep,name=agents,proto3" json:"agents,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1036,6 +1070,20 @@ func (x *ListRunsRequest) GetOlderThan() string {
 func (x *ListRunsRequest) GetContext() *RequestContext {
 	if x != nil {
 		return x.Context
+	}
+	return nil
+}
+
+func (x *ListRunsRequest) GetStatusText() []string {
+	if x != nil {
+		return x.StatusText
+	}
+	return nil
+}
+
+func (x *ListRunsRequest) GetAgents() []string {
+	if x != nil {
+		return x.Agents
 	}
 	return nil
 }
@@ -1941,6 +1989,7 @@ type ListIssuesRequest struct {
 	Limit         int32                  `protobuf:"varint,6,opt,name=limit,proto3" json:"limit,omitempty"`
 	Cursor        string                 `protobuf:"bytes,7,opt,name=cursor,proto3" json:"cursor,omitempty"`
 	Context       *RequestContext        `protobuf:"bytes,8,opt,name=context,proto3" json:"context,omitempty"`
+	StatusText    []string               `protobuf:"bytes,9,rep,name=status_text,json=statusText,proto3" json:"status_text,omitempty"` // daemon-normalized status filter for thin clients
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2020,6 +2069,13 @@ func (x *ListIssuesRequest) GetCursor() string {
 func (x *ListIssuesRequest) GetContext() *RequestContext {
 	if x != nil {
 		return x.Context
+	}
+	return nil
+}
+
+func (x *ListIssuesRequest) GetStatusText() []string {
+	if x != nil {
+		return x.StatusText
 	}
 	return nil
 }
@@ -3251,6 +3307,7 @@ func (x *GetBranchStateRequest) GetContext() *RequestContext {
 type GetBranchStateResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	State         BranchState            `protobuf:"varint,1,opt,name=state,proto3,enum=orch.v1.BranchState" json:"state,omitempty"`
+	StateDisplay  string                 `protobuf:"bytes,2,opt,name=state_display,json=stateDisplay,proto3" json:"state_display,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3290,6 +3347,13 @@ func (x *GetBranchStateResponse) GetState() BranchState {
 		return x.State
 	}
 	return BranchState_BRANCH_STATE_UNSPECIFIED
+}
+
+func (x *GetBranchStateResponse) GetStateDisplay() string {
+	if x != nil {
+		return x.StateDisplay
+	}
+	return ""
 }
 
 type GetDiffRequest struct {
@@ -10892,7 +10956,7 @@ const file_orch_proto_rawDesc = "" +
 	"\tadditions\x18\x01 \x01(\x05R\tadditions\x12\x1c\n" +
 	"\tdeletions\x18\x02 \x01(\x05R\tdeletions\x12#\n" +
 	"\rfiles_changed\x18\x03 \x01(\x05R\ffilesChanged\x12\x14\n" +
-	"\x05files\x18\x04 \x03(\tR\x05files\"\xf3\a\n" +
+	"\x05files\x18\x04 \x03(\tR\x05files\"\xf7\b\n" +
 	"\x03Run\x12\x19\n" +
 	"\bissue_id\x18\x01 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12*\n" +
@@ -10928,7 +10992,10 @@ const file_orch_proto_rawDesc = "" +
 	"\x06target\x18\x1b \x01(\tR\x06target\x12\x1f\n" +
 	"\vtarget_host\x18\x1c \x01(\tR\n" +
 	"targetHost\x12\x18\n" +
-	"\aprofile\x18\x1d \x01(\tR\aprofile\"\x92\x02\n" +
+	"\aprofile\x18\x1d \x01(\tR\aprofile\x12%\n" +
+	"\x0estatus_display\x18\x1e \x01(\tR\rstatusDisplay\x12)\n" +
+	"\x10multiplexer_name\x18\x1f \x01(\tR\x0fmultiplexerName\x120\n" +
+	"\x14branch_state_display\x18  \x01(\tR\x12branchStateDisplay\"\xb9\x02\n" +
 	"\x05Issue\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x18\n" +
@@ -10941,7 +11008,8 @@ const file_orch_proto_rawDesc = "" +
 	"\x05topic\x18\t \x01(\tR\x05topic\x12\x1f\n" +
 	"\vbase_branch\x18\n" +
 	" \x01(\tR\n" +
-	"baseBranch\"\xc1\x01\n" +
+	"baseBranch\x12%\n" +
+	"\x0estatus_display\x18\v \x01(\tR\rstatusDisplay\"\xc1\x01\n" +
 	"\x05Event\x12%\n" +
 	"\x0etimestamp_unix\x18\x01 \x01(\x03R\rtimestampUnix\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x12\n" +
@@ -10960,7 +11028,7 @@ const file_orch_proto_rawDesc = "" +
 	"project_id\x18\x01 \x01(\tR\tprojectId\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x02 \x01(\tR\trequestId\x12\x1b\n" +
-	"\tclient_id\x18\x03 \x01(\tR\bclientId\"\xae\x02\n" +
+	"\tclient_id\x18\x03 \x01(\tR\bclientId\"\xe7\x02\n" +
 	"\x0fListRunsRequest\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12*\n" +
 	"\x06status\x18\x03 \x03(\x0e2\x12.orch.v1.RunStatusR\x06status\x12\x14\n" +
@@ -10974,7 +11042,10 @@ const file_orch_proto_rawDesc = "" +
 	"\n" +
 	"older_than\x18\t \x01(\tR\tolderThan\x121\n" +
 	"\acontext\x18\n" +
-	" \x01(\v2\x17.orch.v1.RequestContextR\acontext\"k\n" +
+	" \x01(\v2\x17.orch.v1.RequestContextR\acontext\x12\x1f\n" +
+	"\vstatus_text\x18\v \x03(\tR\n" +
+	"statusText\x12\x16\n" +
+	"\x06agents\x18\f \x03(\tR\x06agents\"k\n" +
 	"\x10ListRunsResponse\x12 \n" +
 	"\x04runs\x18\x01 \x03(\v2\f.orch.v1.RunR\x04runs\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x05R\x05total\x12\x1f\n" +
@@ -11046,7 +11117,7 @@ const file_orch_proto_rawDesc = "" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x14\n" +
 	"\x05issue\x18\x03 \x01(\tR\x05issue\x12\x15\n" +
-	"\x06pr_url\x18\x04 \x01(\tR\x05prUrl\"\xf4\x01\n" +
+	"\x06pr_url\x18\x04 \x01(\tR\x05prUrl\"\x95\x02\n" +
 	"\x11ListIssuesRequest\x12,\n" +
 	"\x06status\x18\x02 \x03(\x0e2\x14.orch.v1.IssueStatusR\x06status\x12\x12\n" +
 	"\x04tags\x18\x03 \x03(\tR\x04tags\x12\x1b\n" +
@@ -11055,7 +11126,9 @@ const file_orch_proto_rawDesc = "" +
 	"textSearch\x12\x14\n" +
 	"\x05limit\x18\x06 \x01(\x05R\x05limit\x12\x16\n" +
 	"\x06cursor\x18\a \x01(\tR\x06cursor\x121\n" +
-	"\acontext\x18\b \x01(\v2\x17.orch.v1.RequestContextR\acontext\"s\n" +
+	"\acontext\x18\b \x01(\v2\x17.orch.v1.RequestContextR\acontext\x12\x1f\n" +
+	"\vstatus_text\x18\t \x03(\tR\n" +
+	"statusText\"s\n" +
 	"\x12ListIssuesResponse\x12&\n" +
 	"\x06issues\x18\x01 \x03(\v2\x0e.orch.v1.IssueR\x06issues\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x05R\x05total\x12\x1f\n" +
@@ -11149,9 +11222,10 @@ const file_orch_proto_rawDesc = "" +
 	"\x15GetBranchStateRequest\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\x121\n" +
-	"\acontext\x18\x04 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"D\n" +
+	"\acontext\x18\x04 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"i\n" +
 	"\x16GetBranchStateResponse\x12*\n" +
-	"\x05state\x18\x01 \x01(\x0e2\x14.orch.v1.BranchStateR\x05state\"u\n" +
+	"\x05state\x18\x01 \x01(\x0e2\x14.orch.v1.BranchStateR\x05state\x12#\n" +
+	"\rstate_display\x18\x02 \x01(\tR\fstateDisplay\"u\n" +
 	"\x0eGetDiffRequest\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\x121\n" +

@@ -42,12 +42,12 @@ def _spinner_context(message: str, enabled: bool = True):
 
 
 from .app import IssuesDashboard, OrchMonitorApp, RunsDashboard, setup_logging
-from .config import (
-    Config,
-    resolve_project_identity,
-    resolve_project_root_hint,
-    resolve_remote_addr,
+from .client_bootstrap import (
+    ClientBootstrap,
+    ClientBootstrapError,
+    load_client_bootstrap,
 )
+from .config import Config
 from .proto_client import ProtoDaemonClient
 from .multiplexer import (
     InvalidMultiplexerConfigError,
@@ -87,7 +87,6 @@ def _setup_launcher_logging() -> None:
     _launcher_logger.setLevel(logging.DEBUG)
 
 
-SESSION_NAME_PREFIX = "orch-monitor"
 CONTROL_PROMPT_FILE = "ORCH_CONTROL_PROMPT.md"
 
 
@@ -99,13 +98,6 @@ ZELLIJ_SOCK_MAX_LENGTH = 104
 # zellij appends this contract dir to the socket base (CLIENT_SERVER_CONTRACT_DIR =
 # "contract_version_<N>"); 18 chars on current releases.
 ZELLIJ_CONTRACT_DIR = "contract_version_1"
-# Upper bound so names stay human-readable / tmux-friendly when the socket dir is
-# short. The same generated name is reused regardless of multiplexer.
-MAX_SESSION_NAME_LEN = 60
-_SESSION_HASH_LEN = 6
-_SESSION_NAME_SAFETY = 3
-
-
 def _ensure_short_zellij_socket_dir() -> str:
     """Point zellij at a short, stable per-user socket dir (macOS sun_path workaround).
 
@@ -126,74 +118,6 @@ def _ensure_short_zellij_socket_dir() -> str:
     short = f"/tmp/zlj-{uid}"
     os.environ["ZELLIJ_SOCKET_DIR"] = short
     return short
-
-
-def _zellij_socket_dir() -> str:
-    """Replicate zellij's ZELLIJ_SOCK_DIR (base + contract subdir).
-
-    Base is $ZELLIJ_SOCKET_DIR if set, else <tempdir>/zellij-<uid>, matching
-    zellij-utils/src/consts.rs.
-    """
-    import tempfile
-
-    base = os.environ.get("ZELLIJ_SOCKET_DIR")
-    if not base:
-        try:
-            uid = os.getuid()
-        except AttributeError:  # non-Unix; the socket-path limit does not apply
-            uid = 0
-        base = os.path.join(tempfile.gettempdir(), f"zellij-{uid}")
-    return os.path.join(base, ZELLIJ_CONTRACT_DIR)
-
-
-def _max_session_name_len() -> int:
-    """Largest session name that fits the OS socket-path limit, with a safety margin.
-
-    Final socket path is len(sock_dir + "/" + name); keep it under
-    ZELLIJ_SOCK_MAX_LENGTH. Capped at MAX_SESSION_NAME_LEN so short socket dirs still
-    yield readable names.
-    """
-    budget = (
-        ZELLIJ_SOCK_MAX_LENGTH
-        - len(_zellij_socket_dir())
-        - 1  # the "/" separator before the session name
-        - _SESSION_NAME_SAFETY
-    )
-    return min(MAX_SESSION_NAME_LEN, budget)
-
-
-def get_session_name(vault_path: Path | None = None) -> str:
-    import hashlib
-
-    base_path = vault_path if vault_path else Path.cwd()
-    repo_name = base_path.resolve().name
-    safe_name = "".join(c if c.isalnum() or c in "-_" else "-" for c in repo_name)
-    full_name = f"{SESSION_NAME_PREFIX}-{safe_name}"
-
-    budget = _max_session_name_len()
-    if len(full_name) <= budget:
-        return full_name
-
-    # Too long for the (possibly long) zellij socket dir: keep a hash for uniqueness
-    # and truncate the readable portion so the whole name fits the budget.
-    hash_suffix = hashlib.md5(safe_name.encode()).hexdigest()[:_SESSION_HASH_LEN]
-    fixed = len(SESSION_NAME_PREFIX) + 1 + 1 + _SESSION_HASH_LEN  # prefix-…-hash
-    name_room = budget - fixed
-    if name_room >= 1:
-        return f"{SESSION_NAME_PREFIX}-{safe_name[:name_room]}-{hash_suffix}"
-
-    # Not even prefix+hash fits; drop the readable portion entirely.
-    minimal = f"{SESSION_NAME_PREFIX}-{hash_suffix}"
-    if len(minimal) <= budget:
-        return minimal
-
-    # Pathological socket dir — nothing reasonable fits. Fail fast with guidance.
-    raise RuntimeError(
-        "Cannot build a zellij session name within the socket-path limit "
-        f"(budget={budget} chars, socket dir={_zellij_socket_dir()!r}). "
-        "Use a shorter socket dir, e.g. `export ZELLIJ_SOCKET_DIR=/tmp/zj`, "
-        "or run with tmux: `orch-monitor -m tmux`."
-    )
 
 
 CONTROL_PROMPT_INSTRUCTION = f"ultrathink Please read '{CONTROL_PROMPT_FILE}' in the current directory and follow the instructions found there."
@@ -316,12 +240,17 @@ def _get_daemon_client(project_root: Path | None) -> "ProtoDaemonClient | None":
         config = (
             Config.from_project_root(project_root) if project_root else Config.load()
         )
-        remote_addr = resolve_remote_addr() or None
+        bootstrap = load_client_bootstrap()
         daemon = ProtoDaemonClient(
-            config.socket_path, config.project_root, remote_addr
+            config.socket_path,
+            config.project_root,
+            bootstrap.remote_addr,
+            project_id=bootstrap.project_id,
         )
         if daemon.is_available():
             return daemon
+    except ClientBootstrapError:
+        raise
     except Exception as e:
         _launcher_logger.warning(f"Failed to get daemon client: {e}")
     return None
@@ -335,6 +264,8 @@ def _get_orch_api(project_root: Path | None) -> OrchAPI | None:
         api = create_orch_api(config.socket_path, config.project_root)
         if api.is_available():
             return api
+    except ClientBootstrapError:
+        raise
     except Exception as e:
         _launcher_logger.warning(f"Failed to create OrchAPI: {e}")
     return None
@@ -452,61 +383,12 @@ def _resolve_local_control_agent_command(
     return command, resolved_agent, False
 
 
-def query_latest_opencode_session(
-    project_root: Path | None, server_url: str = "http://localhost:4096"
-) -> str | None:
-    import json
-    import urllib.request
-
-    directory = (
-        str(project_root.resolve()) if project_root else str(Path.cwd().resolve())
-    )
-    one_day_ago_ms = int((time.time() - 86400) * 1000)
-
-    try:
-        url = f"{server_url}/session?start={one_day_ago_ms}"
-        with urllib.request.urlopen(url, timeout=5) as response:
-            sessions = json.loads(response.read().decode())
-
-        matching = [
-            s
-            for s in sessions
-            if s.get("directory") == directory and s.get("parentID") is None
-        ]
-
-        if not matching:
-            _launcher_logger.warning(f"No sessions found for directory: {directory}")
-            return None
-
-        matching.sort(key=lambda s: s.get("time", {}).get("updated", 0), reverse=True)
-        session_id = matching[0]["id"]
-        _launcher_logger.info(f"Found latest session for {directory}: {session_id}")
-        return session_id
-    except Exception as e:
-        _launcher_logger.error(f"Failed to query opencode sessions: {e}")
-        return None
+def get_project_root(bootstrap: ClientBootstrap) -> Path | None:
+    return bootstrap.project_root
 
 
-def get_project_root(args) -> Path | None:
-    """Get local project root path from args/environment when available."""
-    if hasattr(args, "project") and args.project:
-        hinted_root = resolve_project_root_hint(args.project)
-        if hinted_root is not None:
-            return hinted_root
-
-    project_env = os.getenv("ORCH_PROJECT")
-    if project_env:
-        hinted_root = resolve_project_root_hint(project_env)
-        if hinted_root is not None:
-            return hinted_root
-    return None
-
-
-def get_project_scope(args, project_root: Path | None) -> str | None:
-    explicit_project = args.project if hasattr(args, "project") else None
-    return resolve_project_identity(
-        project_root=project_root, explicit_project=explicit_project
-    )
+def get_project_scope(bootstrap: ClientBootstrap) -> str | None:
+    return bootstrap.project_id or None
 
 
 DAEMON_STARTUP_TIMEOUT_SEC = 15
@@ -595,13 +477,15 @@ def _wait_for_daemon(daemon: ProtoDaemonClient) -> bool:
 def ensure_daemon(
     project_root: Path | None,
     project_scope: str | None = None,
+    bootstrap: ClientBootstrap | None = None,
 ) -> tuple[bool, str]:
     if project_root:
         config = Config.from_project_root(project_root)
     else:
         config = Config.load()
 
-    remote_addr = resolve_remote_addr() or None
+    bootstrap = bootstrap or load_client_bootstrap()
+    remote_addr = bootstrap.remote_addr
     if remote_addr:
         # Remote master: connect over TCP; never start a local daemon.
         daemon = ProtoDaemonClient(config.socket_path, config.project_root, remote_addr)
@@ -935,19 +819,14 @@ class ZellijLayoutLauncher:
         runs_cmd = f"{python_exec} -m orch_monitor --runs {orch_args}".strip()
         issues_cmd = f"{python_exec} -m orch_monitor --issues {orch_args}".strip()
 
-        agent_cmd = agent
-        need_capture_session = False
-
         daemon = _get_daemon_client(project_root)
-        agent_cmd, resolved_agent, used_fallback = _resolve_local_control_agent_command(
+        agent_cmd, _resolved_agent, _used_fallback = _resolve_local_control_agent_command(
             daemon=daemon,
             project_root=project_root,
             cwd=cwd,
             fallback_agent=agent,
             agent_override=agent_override,
         )
-        if used_fallback and agent_cmd != agent:
-            need_capture_session = True
 
         # Escape commands for KDL string literals (backslashes and double quotes)
         runs_cmd_escaped = _escape_kdl_string(runs_cmd)
@@ -1065,20 +944,6 @@ layout {{
                 if session_name in result.stdout.split("\n"):
                     break
 
-            # Capture session for fallback cases
-            if need_capture_session:
-                time.sleep(2)
-                if resolved_agent == "opencode":
-                    session_id = query_latest_opencode_session(project_root)
-                    if session_id:
-                        save_control_session(
-                            project_root, session_id, agent_type="opencode"
-                        )
-                elif resolved_agent == "claude":
-                    session_id = load_control_session(project_root, agent_type="claude")
-                    if session_id:
-                        _launcher_logger.info(f"Captured Claude session: {session_id}")
-
             os.execvp("zellij", ["zellij", "attach", session_name])
         else:
             os.execvp(
@@ -1108,6 +973,7 @@ def get_layout_launcher(mux_type: MultiplexerType) -> LayoutLauncher:
 def launch_monitor_layout(
     project_root: Path | None,
     project_scope: str | None = None,
+    monitor_session_name: str = "orch-monitor",
     vault_path: Path | None = None,
     agent: str = "opencode",
     new: bool = False,
@@ -1122,6 +988,7 @@ def launch_monitor_layout(
     Args:
         project_root: Path to project root
         project_scope: Project identity for orch CLI scoping
+        monitor_session_name: Multiplexer session name resolved by orch
         vault_path: Deprecated, unused compatibility argument
         agent: Agent command to use (default: opencode)
         new: If True, restart the layout (kill existing session)
@@ -1158,13 +1025,11 @@ def launch_monitor_layout(
         launcher = get_layout_launcher(multiplexer)
         cwd = str(project_root) if project_root else os.getcwd()
         # For zellij, ensure a short ZELLIJ_SOCKET_DIR before any zellij call so the
-        # socket path stays within the OS sun_path limit (macOS 104). This must run
-        # before get_session_name (budget) and before has_session/attach/launch so they
-        # all agree on the same socket dir.
+        # socket path stays within the OS sun_path limit (macOS 104).
         if multiplexer == MultiplexerType.ZELLIJ:
             sock_dir = _ensure_short_zellij_socket_dir()
             _launcher_logger.info(f"using ZELLIJ_SOCKET_DIR={sock_dir}")
-        session_name = get_session_name(project_root)
+        session_name = monitor_session_name
         _launcher_logger.info(f"session_name={session_name}, cwd={cwd}")
 
         # Phase 2: Check for existing session
@@ -1362,8 +1227,16 @@ def main():
         def _log(msg: str) -> None:
             pass
 
-    project_root = get_project_root(args)
-    project_scope = get_project_scope(args, project_root)
+    try:
+        bootstrap = load_client_bootstrap()
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    project_root = get_project_root(bootstrap)
+    project_scope = get_project_scope(bootstrap)
+    if project_scope:
+        os.environ["ORCH_PROJECT"] = project_scope
 
     # Determine if we should show spinners (only for layout mode, not single panes)
     show_spinner = not args.runs and not args.issues
@@ -1390,7 +1263,7 @@ def main():
 
     _log("ensuring daemon...")
     with _spinner_context("Connecting to daemon...", enabled=show_spinner):
-        success, error_msg = ensure_daemon(project_root, project_scope)
+        success, error_msg = ensure_daemon(project_root, project_scope, bootstrap)
     if not success:
         print(f"Error: {error_msg}", file=sys.stderr)
         print("Try running 'orch repair' to fix.", file=sys.stderr)
@@ -1425,14 +1298,15 @@ def main():
         agent_override = args.agent if args.agent is not None else ""
         _log(f"using agent: {agent}")
         launch_monitor_layout(
-            project_root,
-            project_scope,
-            None,
-            agent,
-            new,
-            args.new_control_agent,
-            agent_override,
-            mux_type,
+            project_root=project_root,
+            project_scope=project_scope,
+            monitor_session_name=bootstrap.monitor_session_name,
+            vault_path=None,
+            agent=agent,
+            new=new,
+            new_control_agent=args.new_control_agent,
+            agent_override=agent_override,
+            multiplexer=mux_type,
             log=_log,
         )
 

@@ -11,6 +11,7 @@ TEST_GOMEMLIMIT ?= 2GiB
 TEST_MAX_FD ?= 256
 TEST_RUN ?= .
 TEST_LOCK_DIR ?= /tmp/orch-go-test.lock
+SEMGREP ?= $(shell command -v semgrep 2>/dev/null || echo $(HOME)/.local/bin/semgrep)
 
 all: install
 
@@ -80,14 +81,16 @@ test-compile:
 	ORCH_SAFE_CLI_TEST=1 GOGC=$(TEST_GOGC) GOMEMLIMIT=$(TEST_GOMEMLIMIT) go test -run '^$$' -p 1 -parallel 1 -timeout $(TEST_TIMEOUT) $(TEST_PKGS)
 
 lint: lint-fixtures
-	@command -v semgrep >/dev/null 2>&1 || uv tool install semgrep
-	semgrep test .semgrep/typed-id-rules
-	semgrep --error --config .semgrep/ ./internal/ --exclude='*_test.go'
+	@test -x "$(SEMGREP)" || uv tool install semgrep
+	$(SEMGREP) test .semgrep/typed-id-rules
+	$(SEMGREP) --error --config .semgrep/ ./internal/ --exclude='*_test.go'
+	$(MAKE) -C orch-monitor-tui lint
+	$(MAKE) -C orch-monitor-tui lint-test
 
 lint-fixtures:
-	@command -v semgrep >/dev/null 2>&1 || uv tool install semgrep
+	@test -x "$(SEMGREP)" || uv tool install semgrep
 	@tmp=$$(mktemp); \
-	if ! semgrep --config .semgrep/architecture.yaml --json test/semgrep/internal/daemon/fail_fast_bad.go > "$$tmp"; then \
+	if ! "$(SEMGREP)" --config .semgrep/architecture.yaml --json test/semgrep/internal/daemon/fail_fast_bad.go > "$$tmp"; then \
 		cat "$$tmp"; \
 		rm -f "$$tmp"; \
 		exit 1; \
@@ -99,7 +102,7 @@ lint-fixtures:
 		exit 1; \
 	fi; \
 	echo "semgrep bad fixture produced $$findings expected findings"
-	semgrep --error --config .semgrep/architecture.yaml test/semgrep/internal/daemon/fail_fast_ok.go
+	$(SEMGREP) --error --config .semgrep/architecture.yaml test/semgrep/internal/daemon/fail_fast_ok.go
 
 lint-install:
 	uv tool install semgrep
