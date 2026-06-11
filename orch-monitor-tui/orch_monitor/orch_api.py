@@ -147,6 +147,11 @@ class ControlAgentConfig:
     model: str
     model_variant: str
     extra_args: list[str]
+    # CODEX_HOME for a codex control agent (from the project's default codex
+    # profile, after ~ expansion by the daemon). Empty means the agent default
+    # (~/.codex). The daemon enforces the profile's allowed_targets against the
+    # local host before returning this, so a disallowed host fails fast upstream.
+    codex_home: str = ""
 
 
 @dataclass

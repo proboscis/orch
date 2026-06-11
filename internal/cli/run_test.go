@@ -182,17 +182,11 @@ func TestBuildAgentPromptRespectsConfiguredTargetBranch(t *testing.T) {
 	}
 }
 
-func TestBuildAgentPromptCustomTemplate(t *testing.T) {
-	dir := t.TempDir()
-	tmplPath := filepath.Join(dir, "prompt.tmpl")
-	if err := os.WriteFile(tmplPath, []byte("Issue: {{.IssueID}} - {{.Title}}"), 0644); err != nil {
-		t.Fatalf("write template: %v", err)
-	}
-
+func TestExecuteTemplateCustomTemplate(t *testing.T) {
 	issue := &model.Issue{ID: "orch-3", Title: "Custom"}
-	prompt, err := buildAgentPrompt(issue, &promptOptions{PromptTemplate: tmplPath})
+	prompt, err := executeTemplate("Issue: {{.IssueID}} - {{.Title}}", issue, &promptOptions{})
 	if err != nil {
-		t.Fatalf("buildAgentPrompt failed: %v", err)
+		t.Fatalf("executeTemplate failed: %v", err)
 	}
 	if prompt != "Issue: orch-3 - Custom" {
 		t.Fatalf("unexpected custom prompt: %q", prompt)

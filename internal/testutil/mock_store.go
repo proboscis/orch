@@ -25,19 +25,22 @@ var _ store.Store = &StoreMock{}
 //			CreateIssueFunc: func(issue *model.Issue) error {
 //				panic("mock out the CreateIssue method")
 //			},
-//			CreateRunFunc: func(issueID string, runID string, metadata map[string]string) (*model.Run, error) {
+//			CreateRunFunc: func(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
 //				panic("mock out the CreateRun method")
+//			},
+//			CreateRunForExistingIssueFunc: func(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
+//				panic("mock out the CreateRunForExistingIssue method")
 //			},
 //			DeleteRunFunc: func(ref *model.RunRef) error {
 //				panic("mock out the DeleteRun method")
 //			},
-//			GetLatestRunFunc: func(issueID string) (*model.Run, error) {
+//			GetLatestRunFunc: func(issueID model.IssueID) (*model.Run, error) {
 //				panic("mock out the GetLatestRun method")
 //			},
 //			GetRunFunc: func(ref *model.RunRef) (*model.Run, error) {
 //				panic("mock out the GetRun method")
 //			},
-//			GetRunByShortIDFunc: func(shortID string) (*model.Run, error) {
+//			GetRunByShortIDFunc: func(shortID model.ShortID) (*model.Run, error) {
 //				panic("mock out the GetRunByShortID method")
 //			},
 //			ListIssuesFunc: func() ([]*model.Issue, error) {
@@ -49,19 +52,19 @@ var _ store.Store = &StoreMock{}
 //			ReadAgentPromptFunc: func(ref *model.RunRef) (string, error) {
 //				panic("mock out the ReadAgentPrompt method")
 //			},
-//			ResolveIssueFunc: func(issueID string) (*model.Issue, error) {
+//			ResolveIssueFunc: func(issueID model.IssueID) (*model.Issue, error) {
 //				panic("mock out the ResolveIssue method")
 //			},
 //			RootPathFunc: func() string {
 //				panic("mock out the RootPath method")
 //			},
-//			SetIssueStatusFunc: func(issueID string, status model.IssueStatus) error {
+//			SetIssueStatusFunc: func(issueID model.IssueID, status model.IssueStatus) error {
 //				panic("mock out the SetIssueStatus method")
 //			},
 //			UpdateIssueFunc: func(issue *model.Issue) error {
 //				panic("mock out the UpdateIssue method")
 //			},
-//			ValidateIssueFilesFunc: func(issueID string) (*store.ValidationResult, error) {
+//			ValidateIssueFilesFunc: func(issueID model.IssueID) (*store.ValidationResult, error) {
 //				panic("mock out the ValidateIssueFiles method")
 //			},
 //			WriteAgentPromptFunc: func(ref *model.RunRef, content string) error {
@@ -81,19 +84,22 @@ type StoreMock struct {
 	CreateIssueFunc func(issue *model.Issue) error
 
 	// CreateRunFunc mocks the CreateRun method.
-	CreateRunFunc func(issueID string, runID string, metadata map[string]string) (*model.Run, error)
+	CreateRunFunc func(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error)
+
+	// CreateRunForExistingIssueFunc mocks the CreateRunForExistingIssue method.
+	CreateRunForExistingIssueFunc func(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error)
 
 	// DeleteRunFunc mocks the DeleteRun method.
 	DeleteRunFunc func(ref *model.RunRef) error
 
 	// GetLatestRunFunc mocks the GetLatestRun method.
-	GetLatestRunFunc func(issueID string) (*model.Run, error)
+	GetLatestRunFunc func(issueID model.IssueID) (*model.Run, error)
 
 	// GetRunFunc mocks the GetRun method.
 	GetRunFunc func(ref *model.RunRef) (*model.Run, error)
 
 	// GetRunByShortIDFunc mocks the GetRunByShortID method.
-	GetRunByShortIDFunc func(shortID string) (*model.Run, error)
+	GetRunByShortIDFunc func(shortID model.ShortID) (*model.Run, error)
 
 	// ListIssuesFunc mocks the ListIssues method.
 	ListIssuesFunc func() ([]*model.Issue, error)
@@ -105,19 +111,19 @@ type StoreMock struct {
 	ReadAgentPromptFunc func(ref *model.RunRef) (string, error)
 
 	// ResolveIssueFunc mocks the ResolveIssue method.
-	ResolveIssueFunc func(issueID string) (*model.Issue, error)
+	ResolveIssueFunc func(issueID model.IssueID) (*model.Issue, error)
 
 	// RootPathFunc mocks the RootPath method.
 	RootPathFunc func() string
 
 	// SetIssueStatusFunc mocks the SetIssueStatus method.
-	SetIssueStatusFunc func(issueID string, status model.IssueStatus) error
+	SetIssueStatusFunc func(issueID model.IssueID, status model.IssueStatus) error
 
 	// UpdateIssueFunc mocks the UpdateIssue method.
 	UpdateIssueFunc func(issue *model.Issue) error
 
 	// ValidateIssueFilesFunc mocks the ValidateIssueFiles method.
-	ValidateIssueFilesFunc func(issueID string) (*store.ValidationResult, error)
+	ValidateIssueFilesFunc func(issueID model.IssueID) (*store.ValidationResult, error)
 
 	// WriteAgentPromptFunc mocks the WriteAgentPrompt method.
 	WriteAgentPromptFunc func(ref *model.RunRef, content string) error
@@ -139,9 +145,18 @@ type StoreMock struct {
 		// CreateRun holds details about calls to the CreateRun method.
 		CreateRun []struct {
 			// IssueID is the issueID argument value.
-			IssueID string
+			IssueID model.IssueID
 			// RunID is the runID argument value.
-			RunID string
+			RunID model.RunID
+			// Metadata is the metadata argument value.
+			Metadata map[string]string
+		}
+		// CreateRunForExistingIssue holds details about calls to the CreateRunForExistingIssue method.
+		CreateRunForExistingIssue []struct {
+			// IssueID is the issueID argument value.
+			IssueID model.IssueID
+			// RunID is the runID argument value.
+			RunID model.RunID
 			// Metadata is the metadata argument value.
 			Metadata map[string]string
 		}
@@ -153,7 +168,7 @@ type StoreMock struct {
 		// GetLatestRun holds details about calls to the GetLatestRun method.
 		GetLatestRun []struct {
 			// IssueID is the issueID argument value.
-			IssueID string
+			IssueID model.IssueID
 		}
 		// GetRun holds details about calls to the GetRun method.
 		GetRun []struct {
@@ -163,7 +178,7 @@ type StoreMock struct {
 		// GetRunByShortID holds details about calls to the GetRunByShortID method.
 		GetRunByShortID []struct {
 			// ShortID is the shortID argument value.
-			ShortID string
+			ShortID model.ShortID
 		}
 		// ListIssues holds details about calls to the ListIssues method.
 		ListIssues []struct {
@@ -181,7 +196,7 @@ type StoreMock struct {
 		// ResolveIssue holds details about calls to the ResolveIssue method.
 		ResolveIssue []struct {
 			// IssueID is the issueID argument value.
-			IssueID string
+			IssueID model.IssueID
 		}
 		// RootPath holds details about calls to the RootPath method.
 		RootPath []struct {
@@ -189,7 +204,7 @@ type StoreMock struct {
 		// SetIssueStatus holds details about calls to the SetIssueStatus method.
 		SetIssueStatus []struct {
 			// IssueID is the issueID argument value.
-			IssueID string
+			IssueID model.IssueID
 			// Status is the status argument value.
 			Status model.IssueStatus
 		}
@@ -201,7 +216,7 @@ type StoreMock struct {
 		// ValidateIssueFiles holds details about calls to the ValidateIssueFiles method.
 		ValidateIssueFiles []struct {
 			// IssueID is the issueID argument value.
-			IssueID string
+			IssueID model.IssueID
 		}
 		// WriteAgentPrompt holds details about calls to the WriteAgentPrompt method.
 		WriteAgentPrompt []struct {
@@ -211,22 +226,23 @@ type StoreMock struct {
 			Content string
 		}
 	}
-	lockAppendEvent        sync.RWMutex
-	lockCreateIssue        sync.RWMutex
-	lockCreateRun          sync.RWMutex
-	lockDeleteRun          sync.RWMutex
-	lockGetLatestRun       sync.RWMutex
-	lockGetRun             sync.RWMutex
-	lockGetRunByShortID    sync.RWMutex
-	lockListIssues         sync.RWMutex
-	lockListRuns           sync.RWMutex
-	lockReadAgentPrompt    sync.RWMutex
-	lockResolveIssue       sync.RWMutex
-	lockRootPath           sync.RWMutex
-	lockSetIssueStatus     sync.RWMutex
-	lockUpdateIssue        sync.RWMutex
-	lockValidateIssueFiles sync.RWMutex
-	lockWriteAgentPrompt   sync.RWMutex
+	lockAppendEvent               sync.RWMutex
+	lockCreateIssue               sync.RWMutex
+	lockCreateRun                 sync.RWMutex
+	lockCreateRunForExistingIssue sync.RWMutex
+	lockDeleteRun                 sync.RWMutex
+	lockGetLatestRun              sync.RWMutex
+	lockGetRun                    sync.RWMutex
+	lockGetRunByShortID           sync.RWMutex
+	lockListIssues                sync.RWMutex
+	lockListRuns                  sync.RWMutex
+	lockReadAgentPrompt           sync.RWMutex
+	lockResolveIssue              sync.RWMutex
+	lockRootPath                  sync.RWMutex
+	lockSetIssueStatus            sync.RWMutex
+	lockUpdateIssue               sync.RWMutex
+	lockValidateIssueFiles        sync.RWMutex
+	lockWriteAgentPrompt          sync.RWMutex
 }
 
 // AppendEvent calls AppendEventFunc.
@@ -298,13 +314,13 @@ func (mock *StoreMock) CreateIssueCalls() []struct {
 }
 
 // CreateRun calls CreateRunFunc.
-func (mock *StoreMock) CreateRun(issueID string, runID string, metadata map[string]string) (*model.Run, error) {
+func (mock *StoreMock) CreateRun(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
 	if mock.CreateRunFunc == nil {
 		panic("StoreMock.CreateRunFunc: method is nil but Store.CreateRun was just called")
 	}
 	callInfo := struct {
-		IssueID  string
-		RunID    string
+		IssueID  model.IssueID
+		RunID    model.RunID
 		Metadata map[string]string
 	}{
 		IssueID:  issueID,
@@ -322,18 +338,58 @@ func (mock *StoreMock) CreateRun(issueID string, runID string, metadata map[stri
 //
 //	len(mockedStore.CreateRunCalls())
 func (mock *StoreMock) CreateRunCalls() []struct {
-	IssueID  string
-	RunID    string
+	IssueID  model.IssueID
+	RunID    model.RunID
 	Metadata map[string]string
 } {
 	var calls []struct {
-		IssueID  string
-		RunID    string
+		IssueID  model.IssueID
+		RunID    model.RunID
 		Metadata map[string]string
 	}
 	mock.lockCreateRun.RLock()
 	calls = mock.calls.CreateRun
 	mock.lockCreateRun.RUnlock()
+	return calls
+}
+
+// CreateRunForExistingIssue calls CreateRunForExistingIssueFunc.
+func (mock *StoreMock) CreateRunForExistingIssue(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
+	if mock.CreateRunForExistingIssueFunc == nil {
+		panic("StoreMock.CreateRunForExistingIssueFunc: method is nil but Store.CreateRunForExistingIssue was just called")
+	}
+	callInfo := struct {
+		IssueID  model.IssueID
+		RunID    model.RunID
+		Metadata map[string]string
+	}{
+		IssueID:  issueID,
+		RunID:    runID,
+		Metadata: metadata,
+	}
+	mock.lockCreateRunForExistingIssue.Lock()
+	mock.calls.CreateRunForExistingIssue = append(mock.calls.CreateRunForExistingIssue, callInfo)
+	mock.lockCreateRunForExistingIssue.Unlock()
+	return mock.CreateRunForExistingIssueFunc(issueID, runID, metadata)
+}
+
+// CreateRunForExistingIssueCalls gets all the calls that were made to CreateRunForExistingIssue.
+// Check the length with:
+//
+//	len(mockedStore.CreateRunForExistingIssueCalls())
+func (mock *StoreMock) CreateRunForExistingIssueCalls() []struct {
+	IssueID  model.IssueID
+	RunID    model.RunID
+	Metadata map[string]string
+} {
+	var calls []struct {
+		IssueID  model.IssueID
+		RunID    model.RunID
+		Metadata map[string]string
+	}
+	mock.lockCreateRunForExistingIssue.RLock()
+	calls = mock.calls.CreateRunForExistingIssue
+	mock.lockCreateRunForExistingIssue.RUnlock()
 	return calls
 }
 
@@ -370,12 +426,12 @@ func (mock *StoreMock) DeleteRunCalls() []struct {
 }
 
 // GetLatestRun calls GetLatestRunFunc.
-func (mock *StoreMock) GetLatestRun(issueID string) (*model.Run, error) {
+func (mock *StoreMock) GetLatestRun(issueID model.IssueID) (*model.Run, error) {
 	if mock.GetLatestRunFunc == nil {
 		panic("StoreMock.GetLatestRunFunc: method is nil but Store.GetLatestRun was just called")
 	}
 	callInfo := struct {
-		IssueID string
+		IssueID model.IssueID
 	}{
 		IssueID: issueID,
 	}
@@ -390,10 +446,10 @@ func (mock *StoreMock) GetLatestRun(issueID string) (*model.Run, error) {
 //
 //	len(mockedStore.GetLatestRunCalls())
 func (mock *StoreMock) GetLatestRunCalls() []struct {
-	IssueID string
+	IssueID model.IssueID
 } {
 	var calls []struct {
-		IssueID string
+		IssueID model.IssueID
 	}
 	mock.lockGetLatestRun.RLock()
 	calls = mock.calls.GetLatestRun
@@ -434,12 +490,12 @@ func (mock *StoreMock) GetRunCalls() []struct {
 }
 
 // GetRunByShortID calls GetRunByShortIDFunc.
-func (mock *StoreMock) GetRunByShortID(shortID string) (*model.Run, error) {
+func (mock *StoreMock) GetRunByShortID(shortID model.ShortID) (*model.Run, error) {
 	if mock.GetRunByShortIDFunc == nil {
 		panic("StoreMock.GetRunByShortIDFunc: method is nil but Store.GetRunByShortID was just called")
 	}
 	callInfo := struct {
-		ShortID string
+		ShortID model.ShortID
 	}{
 		ShortID: shortID,
 	}
@@ -454,10 +510,10 @@ func (mock *StoreMock) GetRunByShortID(shortID string) (*model.Run, error) {
 //
 //	len(mockedStore.GetRunByShortIDCalls())
 func (mock *StoreMock) GetRunByShortIDCalls() []struct {
-	ShortID string
+	ShortID model.ShortID
 } {
 	var calls []struct {
-		ShortID string
+		ShortID model.ShortID
 	}
 	mock.lockGetRunByShortID.RLock()
 	calls = mock.calls.GetRunByShortID
@@ -557,12 +613,12 @@ func (mock *StoreMock) ReadAgentPromptCalls() []struct {
 }
 
 // ResolveIssue calls ResolveIssueFunc.
-func (mock *StoreMock) ResolveIssue(issueID string) (*model.Issue, error) {
+func (mock *StoreMock) ResolveIssue(issueID model.IssueID) (*model.Issue, error) {
 	if mock.ResolveIssueFunc == nil {
 		panic("StoreMock.ResolveIssueFunc: method is nil but Store.ResolveIssue was just called")
 	}
 	callInfo := struct {
-		IssueID string
+		IssueID model.IssueID
 	}{
 		IssueID: issueID,
 	}
@@ -577,10 +633,10 @@ func (mock *StoreMock) ResolveIssue(issueID string) (*model.Issue, error) {
 //
 //	len(mockedStore.ResolveIssueCalls())
 func (mock *StoreMock) ResolveIssueCalls() []struct {
-	IssueID string
+	IssueID model.IssueID
 } {
 	var calls []struct {
-		IssueID string
+		IssueID model.IssueID
 	}
 	mock.lockResolveIssue.RLock()
 	calls = mock.calls.ResolveIssue
@@ -616,12 +672,12 @@ func (mock *StoreMock) RootPathCalls() []struct {
 }
 
 // SetIssueStatus calls SetIssueStatusFunc.
-func (mock *StoreMock) SetIssueStatus(issueID string, status model.IssueStatus) error {
+func (mock *StoreMock) SetIssueStatus(issueID model.IssueID, status model.IssueStatus) error {
 	if mock.SetIssueStatusFunc == nil {
 		panic("StoreMock.SetIssueStatusFunc: method is nil but Store.SetIssueStatus was just called")
 	}
 	callInfo := struct {
-		IssueID string
+		IssueID model.IssueID
 		Status  model.IssueStatus
 	}{
 		IssueID: issueID,
@@ -638,11 +694,11 @@ func (mock *StoreMock) SetIssueStatus(issueID string, status model.IssueStatus) 
 //
 //	len(mockedStore.SetIssueStatusCalls())
 func (mock *StoreMock) SetIssueStatusCalls() []struct {
-	IssueID string
+	IssueID model.IssueID
 	Status  model.IssueStatus
 } {
 	var calls []struct {
-		IssueID string
+		IssueID model.IssueID
 		Status  model.IssueStatus
 	}
 	mock.lockSetIssueStatus.RLock()
@@ -684,12 +740,12 @@ func (mock *StoreMock) UpdateIssueCalls() []struct {
 }
 
 // ValidateIssueFiles calls ValidateIssueFilesFunc.
-func (mock *StoreMock) ValidateIssueFiles(issueID string) (*store.ValidationResult, error) {
+func (mock *StoreMock) ValidateIssueFiles(issueID model.IssueID) (*store.ValidationResult, error) {
 	if mock.ValidateIssueFilesFunc == nil {
 		panic("StoreMock.ValidateIssueFilesFunc: method is nil but Store.ValidateIssueFiles was just called")
 	}
 	callInfo := struct {
-		IssueID string
+		IssueID model.IssueID
 	}{
 		IssueID: issueID,
 	}
@@ -704,10 +760,10 @@ func (mock *StoreMock) ValidateIssueFiles(issueID string) (*store.ValidationResu
 //
 //	len(mockedStore.ValidateIssueFilesCalls())
 func (mock *StoreMock) ValidateIssueFilesCalls() []struct {
-	IssueID string
+	IssueID model.IssueID
 } {
 	var calls []struct {
-		IssueID string
+		IssueID model.IssueID
 	}
 	mock.lockValidateIssueFiles.RLock()
 	calls = mock.calls.ValidateIssueFiles

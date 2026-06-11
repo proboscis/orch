@@ -14,25 +14,26 @@ import (
 )
 
 type runIndexEntry struct {
-	IssueID           string       `json:"issue_id"`
-	RunID             string       `json:"run_id"`
-	Status            model.Status `json:"status"`
-	Agent             string       `json:"agent,omitempty"`
-	Target            string       `json:"target,omitempty"`
-	TargetHost        string       `json:"target_host,omitempty"`
-	TargetWorkerID    string       `json:"target_worker_id,omitempty"`
-	Model             string       `json:"model,omitempty"`
-	ModelVariant      string       `json:"model_variant,omitempty"`
-	Branch            string       `json:"branch,omitempty"`
-	WorktreePath      string       `json:"worktree_path,omitempty"`
-	SessionName       string       `json:"session_name,omitempty"`
-	Multiplexer       string       `json:"multiplexer,omitempty"`
-	PRUrl             string       `json:"pr_url,omitempty"`
-	ServerPort        int          `json:"server_port,omitempty"`
-	OpenCodeSessionID string       `json:"opencode_session_id,omitempty"`
-	StartedAt         time.Time    `json:"started_at"`
-	UpdatedAt         time.Time    `json:"updated_at"`
-	FileMtime         time.Time    `json:"file_mtime"`
+	IssueID           model.IssueID `json:"issue_id"`
+	RunID             model.RunID   `json:"run_id"`
+	Status            model.Status  `json:"status"`
+	Agent             string        `json:"agent,omitempty"`
+	Profile           string        `json:"profile,omitempty"`
+	Target            string        `json:"target,omitempty"`
+	TargetHost        string        `json:"target_host,omitempty"`
+	TargetWorkerID    string        `json:"target_worker_id,omitempty"`
+	Model             string        `json:"model,omitempty"`
+	ModelVariant      string        `json:"model_variant,omitempty"`
+	Branch            string        `json:"branch,omitempty"`
+	WorktreePath      string        `json:"worktree_path,omitempty"`
+	SessionName       string        `json:"session_name,omitempty"`
+	Multiplexer       string        `json:"multiplexer,omitempty"`
+	PRUrl             string        `json:"pr_url,omitempty"`
+	ServerPort        int           `json:"server_port,omitempty"`
+	OpenCodeSessionID string        `json:"opencode_session_id,omitempty"`
+	StartedAt         time.Time     `json:"started_at"`
+	UpdatedAt         time.Time     `json:"updated_at"`
+	FileMtime         time.Time     `json:"file_mtime"`
 }
 
 // UnmarshalJSON implements custom unmarshalling to support both the legacy
@@ -60,7 +61,10 @@ type runIndex struct {
 }
 
 const (
-	runIndexVersion  = 3
+	// Bump to invalidate persisted indexes whenever runIndexEntry gains a
+	// field: stale entries would otherwise silently serve runs with the new
+	// field empty (the index is the ListRuns source of truth).
+	runIndexVersion  = 4
 	runIndexFileName = ".orch_run_index.json"
 )
 
@@ -215,6 +219,7 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 	seenKeys := make(map[string]bool)
 
 	for _, issueID := range issueDirs {
+		typedIssueID := model.IssueID(issueID)
 		issueRunsDir := filepath.Join(runsRoot, issueID)
 		dirInfo, err := os.Stat(issueRunsDir)
 		if err != nil {
@@ -234,8 +239,8 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 				continue
 			}
 
-			runID := strings.TrimSuffix(e.Name(), ".md")
-			key := issueID + "/" + runID
+			runID := model.RunID(strings.TrimSuffix(e.Name(), ".md"))
+			key := issueID + "/" + string(runID)
 			runPath := filepath.Join(issueRunsDir, e.Name())
 
 			info, err := e.Info()
@@ -254,7 +259,7 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 				continue
 			}
 
-			run, err := s.loadRun(issueID, runID, runPath)
+			run, err := s.loadRun(typedIssueID, runID, runPath)
 			if err != nil {
 				continue
 			}
@@ -264,6 +269,7 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 				RunID:             run.RunID,
 				Status:            run.Status,
 				Agent:             run.Agent,
+				Profile:           run.Profile,
 				Target:            run.Target,
 				TargetHost:        run.TargetHost,
 				TargetWorkerID:    run.TargetWorkerID,
@@ -347,6 +353,7 @@ func runEntryEqual(a, b *runIndexEntry) bool {
 		a.RunID == b.RunID &&
 		a.Status == b.Status &&
 		a.Agent == b.Agent &&
+		a.Profile == b.Profile &&
 		a.Target == b.Target &&
 		a.TargetHost == b.TargetHost &&
 		a.TargetWorkerID == b.TargetWorkerID &&
@@ -380,8 +387,8 @@ func matchesRunFilters(entry *runIndexEntry, statusSet map[model.Status]bool, si
 		return false
 	}
 	if textSearch != "" {
-		if !strings.Contains(strings.ToLower(entry.RunID), textSearch) &&
-			!strings.Contains(strings.ToLower(entry.IssueID), textSearch) &&
+		if !strings.Contains(strings.ToLower(string(entry.RunID)), textSearch) &&
+			!strings.Contains(strings.ToLower(string(entry.IssueID)), textSearch) &&
 			!strings.Contains(strings.ToLower(entry.Branch), textSearch) {
 			return false
 		}
@@ -395,6 +402,7 @@ func entryToRun(e *runIndexEntry) *model.Run {
 		RunID:             e.RunID,
 		Status:            e.Status,
 		Agent:             e.Agent,
+		Profile:           e.Profile,
 		Target:            e.Target,
 		TargetHost:        e.TargetHost,
 		TargetWorkerID:    e.TargetWorkerID,

@@ -22,6 +22,26 @@ Common flags across `orch` commands:
 | `--quiet` | Suppress human-oriented output |
 | `--log-level` | `error`, `warn`, `info`, `debug` |
 
+## Client Config (`client.yaml`)
+
+The default master and named master aliases live in `client.yaml` — global at
+`~/.config/orch/client.yaml`, or per-repo at `<repo>/.orch/client.yaml`:
+
+```yaml
+remote:
+  default: "zeus:7777"
+  hosts:
+    zeus:
+      addr: "zeus:7777"
+    mac:
+      addr: "CA-20035844:7777"
+```
+
+Keep `hosts:` addresses in sync with actual hostnames — stale entries from a machine
+migration silently break routing. Execution-target name→host mapping is separate: that
+lives in `config.targets` of the **master's** config (see Remote-Master Pitfalls in
+SKILL.md).
+
 ---
 
 ## Issue Management
@@ -58,6 +78,12 @@ Notes:
 
 - Local backend requires `ISSUE_ID`.
 - GitHub backend can omit `ISSUE_ID` because GitHub assigns it.
+- **Requires explicit project identity**: pass `--project <origin URL>` (e.g.
+  `--project git@github.com:proboscis/proboscis-ema.git`) or set `ORCH_PROJECT`. Running
+  inside a git repo with `origin` set is NOT sufficient — observed failure
+  `project identity required` against daemon @6b2bceb1.
+- With a remote master and the file backend, the issue file is created on the **master's**
+  checkout of the project (e.g. `~/repos/<repo>/VAULT/Issues/ISSUE-X.md` on the master host).
 
 ### `orch issue list`
 
@@ -154,6 +180,31 @@ orch restart-from a3b4c5 --agent codex
 orch restart-from --branch "issue/plc-123/run-20260312-101500" --issue plc-123
 ```
 
+### `orch wait`
+
+Block until a run reaches a "needs attention" state (`waiting`, `pr_open`, `blocked`,
+`failed`, etc). This is the **canonical way to wait for an agent** — do not poll
+`orch ps` in a loop.
+
+```bash
+orch wait <RUN_REF>                          # block forever (no timeout)
+orch wait <RUN_REF> --timeout 300            # block up to 5 minutes
+orch wait <RUN_REF1> <RUN_REF2> ...          # wait on any of N runs
+```
+
+`<RUN_REF>` is the **short hash** (e.g. `1a6e1e`) — same id used by `orch send`.
+
+Output is a single JSON line on the run that triggered:
+
+```json
+{"run_id":"32c5b6","status":"waiting","issue":"unhandled-effect-class","pr_url":"https://github.com/proboscis/doeff/pull/399"}
+```
+
+Returns exit `0` immediately if the run is already in an attention state. Returns
+non-zero on timeout or invalid ref. **Use this instead of polling** — `orch ps`
+output contains ANSI color escapes even when piped, which silently breaks
+text-matching loops.
+
 ### `orch ps`
 
 List runs with current status and execution-host information.
@@ -185,6 +236,11 @@ Important output semantics:
 - table output includes a `HOST` column for the actual execution host
 - JSON output includes `target_host`
 - `target_host` may be populated even when logical `target` is empty
+- **default table output emits ANSI color escape codes even when stdout is not a TTY**
+  — text matching against words like `wait`/`run`/`done` will not work. Use
+  `orch ps --json` (no escapes) for parsing, or `orch wait` for blocking on state
+  changes. This bit a poll loop in `orch-review-loop`; the lesson is "don't parse
+  the table output, use JSON or `orch wait`".
 
 Example JSON fragment:
 

@@ -730,7 +730,7 @@ func (m *Monitor) CreateIssue(issueID, title string) (string, error) {
 
 func (m *Monitor) SetIssueStatus(issueID string, status model.IssueStatus) error {
 	ctx := context.Background()
-	return m.api.SetIssueStatus(ctx, issueID, orchapi.IssueStatus(status))
+	return m.api.SetIssueStatus(ctx, model.IssueID(issueID), orchapi.IssueStatus(status))
 }
 
 func (m *Monitor) ResolveRun(run *model.Run) error {
@@ -768,7 +768,7 @@ func (m *Monitor) ListRunsForIssue(issueID string) ([]*model.Run, error) {
 		return nil, fmt.Errorf("issue id is required")
 	}
 	ctx := context.Background()
-	result, err := m.api.ListRuns(ctx, &orchapi.ListRunsFilter{IssueID: issueID})
+	result, err := m.api.ListRuns(ctx, &orchapi.ListRunsFilter{IssueID: model.IssueID(issueID)})
 	if err != nil {
 		return nil, err
 	}
@@ -788,7 +788,7 @@ func (m *Monitor) ListBranchesForIssue(issueID string) ([]branchInfo, error) {
 	}
 
 	ctx := context.Background()
-	result, err := m.api.ListRuns(ctx, &orchapi.ListRunsFilter{IssueID: issueID})
+	result, err := m.api.ListRuns(ctx, &orchapi.ListRunsFilter{IssueID: model.IssueID(issueID)})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list runs: %w", err)
 	}
@@ -1012,7 +1012,7 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		if w == nil || w.Run == nil {
 			continue
 		}
-		info := issueInfo[w.Run.IssueID]
+		info := issueInfo[string(w.Run.IssueID)]
 		issueStatus := info.status
 		if issueStatus == "" {
 			issueStatus = "-"
@@ -1037,12 +1037,12 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		if merged == "" {
 			merged = "-"
 		}
-		shortID := w.Run.ShortID()
+		shortID := string(w.Run.ShortID())
 		if w.Run.WorktreePath != "" && !w.Run.WorktreeExists {
 			shortID += "*"
 		}
 		target := formatTargetDisplay(w.Run.Target, runTableTargetWidth)
-		targetHost := formatTargetDisplay(targetHostByRun[w.Run.RunID], runTableTargetHostWidth)
+		targetHost := formatTargetDisplay(targetHostByRun[string(w.Run.RunID)], runTableTargetHostWidth)
 		branch := formatBranchDisplay(w.Run.Branch, runTableBranchWidth)
 		worktree := formatWorktreeDisplay(w.Run.WorktreePath, runTableWorktreeWidth)
 
@@ -1051,7 +1051,7 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 		rows = append(rows, RunRow{
 			Index:        w.Index,
 			ShortID:      shortID,
-			IssueID:      w.Run.IssueID,
+			IssueID:      string(w.Run.IssueID),
 			IssueStatus:  issueStatus,
 			IssueSummary: info.summary,
 			Agent:        agentDisplay,
@@ -1079,7 +1079,7 @@ func (m *Monitor) buildRunRows(windows []*RunWindow) ([]RunRow, error) {
 func buildIssueDisplayMap(issues []*model.Issue) map[string]issueDisplay {
 	result := make(map[string]issueDisplay, len(issues))
 	for _, issue := range issues {
-		if issue == nil || strings.TrimSpace(issue.ID) == "" {
+		if issue == nil || strings.TrimSpace(string(issue.ID)) == "" {
 			continue
 		}
 
@@ -1096,7 +1096,7 @@ func buildIssueDisplayMap(issues []*model.Issue) map[string]issueDisplay {
 			summary = "-"
 		}
 
-		result[issue.ID] = issueDisplay{
+		result[string(issue.ID)] = issueDisplay{
 			status:  status,
 			topic:   topic,
 			summary: summary,
@@ -1121,7 +1121,8 @@ func runAliveLabel(run *model.Run) string {
 func (m *Monitor) buildIssueRows(issues []*model.Issue, runs []*model.Run) []IssueRow {
 	runsByIssue := make(map[string][]*model.Run)
 	for _, run := range runs {
-		runsByIssue[run.IssueID] = append(runsByIssue[run.IssueID], run)
+		issueID := string(run.IssueID)
+		runsByIssue[issueID] = append(runsByIssue[issueID], run)
 	}
 
 	rows := make([]IssueRow, 0, len(issues))
@@ -1141,7 +1142,7 @@ func (m *Monitor) buildIssueRows(issues []*model.Issue, runs []*model.Run) []Iss
 
 		var latest *model.Run
 		activeCount := 0
-		for _, run := range runsByIssue[issue.ID] {
+		for _, run := range runsByIssue[string(issue.ID)] {
 			if latest == nil || run.UpdatedAt.After(latest.UpdatedAt) {
 				latest = run
 			}
@@ -1152,14 +1153,14 @@ func (m *Monitor) buildIssueRows(issues []*model.Issue, runs []*model.Run) []Iss
 
 		row := IssueRow{
 			Index:      i + 1,
-			ID:         issue.ID,
+			ID:         string(issue.ID),
 			Status:     status,
 			Summary:    summary,
 			ActiveRuns: activeCount,
 			Issue:      issue,
 		}
 		if latest != nil {
-			row.LatestRunID = latest.RunID
+			row.LatestRunID = string(latest.RunID)
 			row.LatestStatus = latest.Status
 			row.LatestUpdated = latest.UpdatedAt
 		}
@@ -1924,6 +1925,7 @@ func apiRunToModel(r *orchapi.Run) (*model.Run, error) {
 		RunID:             r.RunID,
 		Status:            status,
 		Agent:             r.Agent,
+		Profile:           r.Profile,
 		Model:             r.Model,
 		ModelVariant:      r.ModelVariant,
 		Branch:            r.Branch,

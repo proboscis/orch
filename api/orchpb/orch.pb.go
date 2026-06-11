@@ -360,8 +360,11 @@ type Run struct {
 	WorktreeExists    bool                   `protobuf:"varint,26,opt,name=worktree_exists,json=worktreeExists,proto3" json:"worktree_exists,omitempty"`
 	Target            string                 `protobuf:"bytes,27,opt,name=target,proto3" json:"target,omitempty"`
 	TargetHost        string                 `protobuf:"bytes,28,opt,name=target_host,json=targetHost,proto3" json:"target_host,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Profile identity the agent ran with: the resolved codex execution
+	// profile for codex runs, or the agent profile (e.g. claude --profile).
+	Profile       string `protobuf:"bytes,29,opt,name=profile,proto3" json:"profile,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Run) Reset() {
@@ -586,6 +589,13 @@ func (x *Run) GetTarget() string {
 func (x *Run) GetTargetHost() string {
 	if x != nil {
 		return x.TargetHost
+	}
+	return ""
+}
+
+func (x *Run) GetProfile() string {
+	if x != nil {
+		return x.Profile
 	}
 	return ""
 }
@@ -1223,6 +1233,7 @@ type StartRunRequest struct {
 	Multiplexer    string                 `protobuf:"bytes,19,opt,name=multiplexer,proto3" json:"multiplexer,omitempty"`
 	Target         string                 `protobuf:"bytes,20,opt,name=target,proto3" json:"target,omitempty"`
 	Context        *RequestContext        `protobuf:"bytes,21,opt,name=context,proto3" json:"context,omitempty"`
+	CodexProfile   string                 `protobuf:"bytes,22,opt,name=codex_profile,json=codexProfile,proto3" json:"codex_profile,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1388,6 +1399,13 @@ func (x *StartRunRequest) GetContext() *RequestContext {
 		return x.Context
 	}
 	return nil
+}
+
+func (x *StartRunRequest) GetCodexProfile() string {
+	if x != nil {
+		return x.CodexProfile
+	}
+	return ""
 }
 
 type StartRunResponse struct {
@@ -2565,6 +2583,7 @@ type GetControlAgentConfigResponse struct {
 	Model         string                 `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
 	ModelVariant  string                 `protobuf:"bytes,4,opt,name=model_variant,json=modelVariant,proto3" json:"model_variant,omitempty"`
 	ExtraArgs     []string               `protobuf:"bytes,5,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
+	CodexHome     string                 `protobuf:"bytes,6,opt,name=codex_home,json=codexHome,proto3" json:"codex_home,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2632,6 +2651,13 @@ func (x *GetControlAgentConfigResponse) GetExtraArgs() []string {
 		return x.ExtraArgs
 	}
 	return nil
+}
+
+func (x *GetControlAgentConfigResponse) GetCodexHome() string {
+	if x != nil {
+		return x.CodexHome
+	}
+	return ""
 }
 
 type GetAttachInfoRequest struct {
@@ -7675,6 +7701,7 @@ type ContinueRunRequest struct {
 	PrTargetBranch string          `protobuf:"bytes,13,opt,name=pr_target_branch,json=prTargetBranch,proto3" json:"pr_target_branch,omitempty"`
 	Multiplexer    string          `protobuf:"bytes,14,opt,name=multiplexer,proto3" json:"multiplexer,omitempty"`
 	SessionName    string          `protobuf:"bytes,15,opt,name=session_name,json=sessionName,proto3" json:"session_name,omitempty"`
+	CodexProfile   string          `protobuf:"bytes,16,opt,name=codex_profile,json=codexProfile,proto3" json:"codex_profile,omitempty"`
 	Context        *RequestContext `protobuf:"bytes,17,opt,name=context,proto3" json:"context,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -7797,6 +7824,13 @@ func (x *ContinueRunRequest) GetMultiplexer() string {
 func (x *ContinueRunRequest) GetSessionName() string {
 	if x != nil {
 		return x.SessionName
+	}
+	return ""
+}
+
+func (x *ContinueRunRequest) GetCodexProfile() string {
+	if x != nil {
+		return x.CodexProfile
 	}
 	return ""
 }
@@ -10858,7 +10892,7 @@ const file_orch_proto_rawDesc = "" +
 	"\tadditions\x18\x01 \x01(\x05R\tadditions\x12\x1c\n" +
 	"\tdeletions\x18\x02 \x01(\x05R\tdeletions\x12#\n" +
 	"\rfiles_changed\x18\x03 \x01(\x05R\ffilesChanged\x12\x14\n" +
-	"\x05files\x18\x04 \x03(\tR\x05files\"\xd9\a\n" +
+	"\x05files\x18\x04 \x03(\tR\x05files\"\xf3\a\n" +
 	"\x03Run\x12\x19\n" +
 	"\bissue_id\x18\x01 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12*\n" +
@@ -10893,7 +10927,8 @@ const file_orch_proto_rawDesc = "" +
 	"\x0fworktree_exists\x18\x1a \x01(\bR\x0eworktreeExists\x12\x16\n" +
 	"\x06target\x18\x1b \x01(\tR\x06target\x12\x1f\n" +
 	"\vtarget_host\x18\x1c \x01(\tR\n" +
-	"targetHost\"\x92\x02\n" +
+	"targetHost\x12\x18\n" +
+	"\aprofile\x18\x1d \x01(\tR\aprofile\"\x92\x02\n" +
 	"\x05Issue\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x18\n" +
@@ -10951,7 +10986,7 @@ const file_orch_proto_rawDesc = "" +
 	"\acontext\x18\x04 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"X\n" +
 	"\x0eGetRunResponse\x12\x1e\n" +
 	"\x03run\x18\x01 \x01(\v2\f.orch.v1.RunR\x03run\x12&\n" +
-	"\x06events\x18\x02 \x03(\v2\x0e.orch.v1.EventR\x06events\"\xce\x04\n" +
+	"\x06events\x18\x02 \x03(\v2\x0e.orch.v1.EventR\x06events\"\xf3\x04\n" +
 	"\x0fStartRunRequest\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x14\n" +
 	"\x05agent\x18\x03 \x01(\tR\x05agent\x12\x14\n" +
@@ -10973,7 +11008,8 @@ const file_orch_proto_rawDesc = "" +
 	"\ragent_profile\x18\x12 \x01(\tR\fagentProfile\x12 \n" +
 	"\vmultiplexer\x18\x13 \x01(\tR\vmultiplexer\x12\x16\n" +
 	"\x06target\x18\x14 \x01(\tR\x06target\x121\n" +
-	"\acontext\x18\x15 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"\xa1\x01\n" +
+	"\acontext\x18\x15 \x01(\v2\x17.orch.v1.RequestContextR\acontext\x12#\n" +
+	"\rcodex_profile\x18\x16 \x01(\tR\fcodexProfile\"\xa1\x01\n" +
 	"\x10StartRunResponse\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
 	"\x06branch\x18\x02 \x01(\tR\x06branch\x12#\n" +
@@ -11058,14 +11094,16 @@ const file_orch_proto_rawDesc = "" +
 	"session_id\x18\x04 \x01(\tR\tsessionId\x12\x18\n" +
 	"\aresumed\x18\x05 \x01(\bR\aresumed\"Q\n" +
 	"\x1cGetControlAgentConfigRequest\x121\n" +
-	"\acontext\x18\x02 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"\xb6\x01\n" +
+	"\acontext\x18\x02 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"\xd5\x01\n" +
 	"\x1dGetControlAgentConfigResponse\x12%\n" +
 	"\x0eprompt_content\x18\x01 \x01(\tR\rpromptContent\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x14\n" +
 	"\x05model\x18\x03 \x01(\tR\x05model\x12#\n" +
 	"\rmodel_variant\x18\x04 \x01(\tR\fmodelVariant\x12\x1d\n" +
 	"\n" +
-	"extra_args\x18\x05 \x03(\tR\textraArgs\"\x96\x01\n" +
+	"extra_args\x18\x05 \x03(\tR\textraArgs\x12\x1d\n" +
+	"\n" +
+	"codex_home\x18\x06 \x01(\tR\tcodexHome\"\x96\x01\n" +
 	"\x14GetAttachInfoRequest\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\x12\x19\n" +
@@ -11420,7 +11458,7 @@ const file_orch_proto_rawDesc = "" +
 	"\x1bInjectInitialPromptResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x12\n" +
-	"\x04port\x18\x02 \x01(\x05R\x04port\"\xd4\x03\n" +
+	"\x04port\x18\x02 \x01(\x05R\x04port\"\xf9\x03\n" +
 	"\x12ContinueRunRequest\x12\x19\n" +
 	"\bissue_id\x18\x03 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x04 \x01(\tR\x05runId\x12\x19\n" +
@@ -11435,7 +11473,8 @@ const file_orch_proto_rawDesc = "" +
 	"\x0fprompt_template\x18\f \x01(\tR\x0epromptTemplate\x12(\n" +
 	"\x10pr_target_branch\x18\r \x01(\tR\x0eprTargetBranch\x12 \n" +
 	"\vmultiplexer\x18\x0e \x01(\tR\vmultiplexer\x12!\n" +
-	"\fsession_name\x18\x0f \x01(\tR\vsessionName\x121\n" +
+	"\fsession_name\x18\x0f \x01(\tR\vsessionName\x12#\n" +
+	"\rcodex_profile\x18\x10 \x01(\tR\fcodexProfile\x121\n" +
 	"\acontext\x18\x11 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"\xe6\x01\n" +
 	"\x13ContinueRunResponse\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +

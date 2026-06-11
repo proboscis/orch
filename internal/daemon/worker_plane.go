@@ -84,6 +84,7 @@ type StopRunPayload struct {
 	Target         string `json:"target,omitempty"`
 	TargetHost     string `json:"target_host,omitempty"`
 	TargetWorkerID string `json:"target_worker_id,omitempty"`
+	RunSnapshot    *RunSnapshot
 }
 
 type CaptureSessionPayload struct {
@@ -91,6 +92,7 @@ type CaptureSessionPayload struct {
 	Target         string `json:"target,omitempty"`
 	TargetHost     string `json:"target_host,omitempty"`
 	TargetWorkerID string `json:"target_worker_id,omitempty"`
+	RunSnapshot    *RunSnapshot
 }
 
 type SendMessagePayload struct {
@@ -99,24 +101,28 @@ type SendMessagePayload struct {
 	Target         string `json:"target,omitempty"`
 	TargetHost     string `json:"target_host,omitempty"`
 	TargetWorkerID string `json:"target_worker_id,omitempty"`
+	RunSnapshot    *RunSnapshot
 }
 
 type GetDiffStatsPayload struct {
 	Target         string `json:"target,omitempty"`
 	TargetHost     string `json:"target_host,omitempty"`
 	TargetWorkerID string `json:"target_worker_id,omitempty"`
+	RunSnapshot    *RunSnapshot
 }
 
 type GetBranchStatePayload struct {
 	Target         string `json:"target,omitempty"`
 	TargetHost     string `json:"target_host,omitempty"`
 	TargetWorkerID string `json:"target_worker_id,omitempty"`
+	RunSnapshot    *RunSnapshot
 }
 
 type GetDiffPayload struct {
 	Target         string `json:"target,omitempty"`
 	TargetHost     string `json:"target_host,omitempty"`
 	TargetWorkerID string `json:"target_worker_id,omitempty"`
+	RunSnapshot    *RunSnapshot
 }
 
 type CaptureSessionResult struct {
@@ -373,10 +379,48 @@ func (s *SocketServer) selectActiveWorkerForEffect(effect, requiredWorkerID stri
 	return &copy, nil
 }
 
+type noActiveWorkerForRunHostError struct {
+	Effect   string
+	IssueID  string
+	RunID    string
+	Host     string
+	WorkerID string
+}
+
+func (e *noActiveWorkerForRunHostError) Error() string {
+	host := strings.TrimSpace(e.Host)
+	workerID := strings.TrimSpace(e.WorkerID)
+	runRef := strings.TrimSpace(e.IssueID)
+	if strings.TrimSpace(e.RunID) != "" {
+		runRef = fmt.Sprintf("%s#%s", strings.TrimSpace(e.IssueID), strings.TrimSpace(e.RunID))
+	}
+	if host != "" && runRef != "" && strings.TrimSpace(e.Effect) != "start_run" {
+		return fmt.Sprintf("no active worker on host %q where run %s lives (worker_id %q); start orch worker on that host", host, runRef, workerID)
+	}
+	if host != "" {
+		return fmt.Sprintf("no active worker on host %q for target worker %q; start orch worker on that host", host, workerID)
+	}
+	return fmt.Sprintf("no active worker available for target worker %q; start orch worker on the target host", workerID)
+}
+
+func isNoActiveWorkerForRunHostError(err error) bool {
+	var targetErr *noActiveWorkerForRunHostError
+	return errors.As(err, &targetErr)
+}
+
 func (s *SocketServer) acquireWorkerLease(projectID, effect, issueID, runID string, payload *WorkerEffectPayload) (*WorkerLease, error) {
-	preferredWorkerID, strict := preferredWorkerPreferenceForPayload(payload)
+	preferredWorkerID, preferredHost, strict := preferredWorkerPreferenceForPayload(payload)
 	worker, err := s.selectActiveWorkerForEffect(effect, preferredWorkerID, strict)
 	if err != nil {
+		if strict && (strings.TrimSpace(preferredHost) != "" || strings.TrimSpace(preferredWorkerID) != "") {
+			return nil, &noActiveWorkerForRunHostError{
+				Effect:   strings.TrimSpace(effect),
+				IssueID:  strings.TrimSpace(issueID),
+				RunID:    strings.TrimSpace(runID),
+				Host:     strings.TrimSpace(preferredHost),
+				WorkerID: strings.TrimSpace(preferredWorkerID),
+			}
+		}
 		return nil, err
 	}
 
@@ -394,89 +438,116 @@ func (s *SocketServer) acquireWorkerLease(projectID, effect, issueID, runID stri
 
 	s.workerLeasesMu.Lock()
 	s.workerLeases[lease.LeaseID] = lease
+	// Copy under the lock: leaseWorkForWorker mutates the stored *lease
+	// (DispatchCount/ExpiresAt/PayloadJSON) under the same mutex, so reading
+	// *lease outside the lock is a data race (flaky under -race).
+	copy := *lease
 	s.workerLeasesMu.Unlock()
 
-	copy := *lease
 	return &copy, nil
 }
 
-func preferredWorkerPreferenceForPayload(payload *WorkerEffectPayload) (string, bool) {
+func preferredWorkerPreferenceForPayload(payload *WorkerEffectPayload) (string, string, bool) {
 	if payload == nil {
-		return defaultWorkerID(), false
+		return defaultWorkerID(), "", false
 	}
 	if payload.StartRun != nil {
 		if workerID := strings.TrimSpace(payload.StartRun.TargetWorkerID); workerID != "" {
-			return workerID, true
+			return workerID, strings.TrimSpace(payload.StartRun.TargetHost), true
+		}
+		if host := strings.TrimSpace(payload.StartRun.TargetHost); host != "" {
+			return HostWorkerID(host), host, true
 		}
 		if target := strings.TrimSpace(payload.StartRun.Target); target != "" && target != "local" {
-			return target, true
+			return target, strings.TrimSpace(payload.StartRun.TargetHost), true
 		}
-		return defaultWorkerID(), false
+		return defaultWorkerID(), "", false
 	}
 	if payload.ContinueRun != nil {
 		if workerID := strings.TrimSpace(payload.ContinueRun.TargetWorkerID); workerID != "" {
-			return workerID, true
+			return workerID, strings.TrimSpace(payload.ContinueRun.TargetHost), true
+		}
+		if host := strings.TrimSpace(payload.ContinueRun.TargetHost); host != "" {
+			return HostWorkerID(host), host, true
 		}
 		if target := strings.TrimSpace(payload.ContinueRun.Target); target != "" && target != "local" {
-			return target, true
+			return target, strings.TrimSpace(payload.ContinueRun.TargetHost), true
 		}
-		return defaultWorkerID(), false
+		return defaultWorkerID(), "", false
 	}
 	if payload.CaptureSession != nil {
 		if workerID := strings.TrimSpace(payload.CaptureSession.TargetWorkerID); workerID != "" {
-			return workerID, true
+			return workerID, strings.TrimSpace(payload.CaptureSession.TargetHost), true
+		}
+		if host := strings.TrimSpace(payload.CaptureSession.TargetHost); host != "" {
+			return HostWorkerID(host), host, true
 		}
 		if target := strings.TrimSpace(payload.CaptureSession.Target); target != "" && target != "local" {
-			return target, true
+			return target, strings.TrimSpace(payload.CaptureSession.TargetHost), true
 		}
-		return defaultWorkerID(), false
+		return defaultWorkerID(), "", false
 	}
 	if payload.SendMessage != nil {
 		if workerID := strings.TrimSpace(payload.SendMessage.TargetWorkerID); workerID != "" {
-			return workerID, true
+			return workerID, strings.TrimSpace(payload.SendMessage.TargetHost), true
+		}
+		if host := strings.TrimSpace(payload.SendMessage.TargetHost); host != "" {
+			return HostWorkerID(host), host, true
 		}
 		if target := strings.TrimSpace(payload.SendMessage.Target); target != "" && target != "local" {
-			return target, true
+			return target, strings.TrimSpace(payload.SendMessage.TargetHost), true
 		}
-		return defaultWorkerID(), false
+		return defaultWorkerID(), "", false
 	}
 	if payload.GetDiffStats != nil {
 		if workerID := strings.TrimSpace(payload.GetDiffStats.TargetWorkerID); workerID != "" {
-			return workerID, true
+			return workerID, strings.TrimSpace(payload.GetDiffStats.TargetHost), true
+		}
+		if host := strings.TrimSpace(payload.GetDiffStats.TargetHost); host != "" {
+			return HostWorkerID(host), host, true
 		}
 		if target := strings.TrimSpace(payload.GetDiffStats.Target); target != "" && target != "local" {
-			return target, true
+			return target, strings.TrimSpace(payload.GetDiffStats.TargetHost), true
 		}
-		return defaultWorkerID(), false
+		return defaultWorkerID(), "", false
 	}
 	if payload.GetBranchState != nil {
 		if workerID := strings.TrimSpace(payload.GetBranchState.TargetWorkerID); workerID != "" {
-			return workerID, true
+			return workerID, strings.TrimSpace(payload.GetBranchState.TargetHost), true
+		}
+		if host := strings.TrimSpace(payload.GetBranchState.TargetHost); host != "" {
+			return HostWorkerID(host), host, true
 		}
 		if target := strings.TrimSpace(payload.GetBranchState.Target); target != "" && target != "local" {
-			return target, true
+			return target, strings.TrimSpace(payload.GetBranchState.TargetHost), true
 		}
-		return defaultWorkerID(), false
+		return defaultWorkerID(), "", false
 	}
 	if payload.GetDiff != nil {
 		if workerID := strings.TrimSpace(payload.GetDiff.TargetWorkerID); workerID != "" {
-			return workerID, true
+			return workerID, strings.TrimSpace(payload.GetDiff.TargetHost), true
+		}
+		if host := strings.TrimSpace(payload.GetDiff.TargetHost); host != "" {
+			return HostWorkerID(host), host, true
 		}
 		if target := strings.TrimSpace(payload.GetDiff.Target); target != "" && target != "local" {
-			return target, true
+			return target, strings.TrimSpace(payload.GetDiff.TargetHost), true
 		}
-		return defaultWorkerID(), false
+		return defaultWorkerID(), "", false
 	}
 	if payload.StopRun != nil {
 		if workerID := strings.TrimSpace(payload.StopRun.TargetWorkerID); workerID != "" {
-			return workerID, true
+			return workerID, strings.TrimSpace(payload.StopRun.TargetHost), true
+		}
+		if host := strings.TrimSpace(payload.StopRun.TargetHost); host != "" {
+			return HostWorkerID(host), host, true
 		}
 		if target := strings.TrimSpace(payload.StopRun.Target); target != "" && target != "local" {
-			return target, true
+			return target, strings.TrimSpace(payload.StopRun.TargetHost), true
 		}
-		return defaultWorkerID(), false
+		return defaultWorkerID(), "", false
 	}
-	return defaultWorkerID(), false
+	return defaultWorkerID(), "", false
 }
 
 func (s *SocketServer) leaseWorkForWorker(workerID string) *WorkerLease {
@@ -570,6 +641,46 @@ func workerLocalProjectMappingError(projectID, workerID string) error {
 	return fmt.Errorf("no local project mapping for project_id %q on this worker; run 'orch --remote= daemon repo register /path/to/repo' on that host", projectID)
 }
 
+func runFromLeaseSnapshot(lease *WorkerLease) (*model.Run, error) {
+	if lease == nil || lease.Payload == nil {
+		return nil, fmt.Errorf("%s run_snapshot missing for leased run %s#%s", strings.TrimSpace(lease.Effect), strings.TrimSpace(lease.IssueID), strings.TrimSpace(lease.RunID))
+	}
+
+	var snapshot *RunSnapshot
+	switch strings.TrimSpace(lease.Effect) {
+	case "stop_run":
+		if lease.Payload.StopRun != nil {
+			snapshot = lease.Payload.StopRun.RunSnapshot
+		}
+	case "capture_session":
+		if lease.Payload.CaptureSession != nil {
+			snapshot = lease.Payload.CaptureSession.RunSnapshot
+		}
+	case "send_message":
+		if lease.Payload.SendMessage != nil {
+			snapshot = lease.Payload.SendMessage.RunSnapshot
+		}
+	case "get_diff_stats":
+		if lease.Payload.GetDiffStats != nil {
+			snapshot = lease.Payload.GetDiffStats.RunSnapshot
+		}
+	case "get_branch_state":
+		if lease.Payload.GetBranchState != nil {
+			snapshot = lease.Payload.GetBranchState.RunSnapshot
+		}
+	case "get_diff":
+		if lease.Payload.GetDiff != nil {
+			snapshot = lease.Payload.GetDiff.RunSnapshot
+		}
+	}
+
+	run, err := modelRunFromSnapshot(snapshot)
+	if err != nil {
+		return nil, fmt.Errorf("%s run_snapshot invalid for leased run %s#%s: %w", strings.TrimSpace(lease.Effect), strings.TrimSpace(lease.IssueID), strings.TrimSpace(lease.RunID), err)
+	}
+	return run, nil
+}
+
 func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResult, error) {
 	if lease == nil {
 		return nil, fmt.Errorf("lease required")
@@ -615,11 +726,11 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 		}
 		return &WorkerEffectResult{ContinueRunResult: result}, nil
 	case "stop_run":
-		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: lease.IssueID, RunID: lease.RunID})
+		run, err := runFromLeaseSnapshot(lease)
 		if err != nil {
-			return nil, fmt.Errorf("not_found")
+			return nil, err
 		}
-		if err := s.stopSingleRun(run, repoCtx.Store); err != nil {
+		if err := s.stopRunSession(run); err != nil {
 			return nil, err
 		}
 		return nil, nil
@@ -627,9 +738,9 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 		if lease.Payload == nil || lease.Payload.CaptureSession == nil {
 			return nil, fmt.Errorf("capture_session payload missing")
 		}
-		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: lease.IssueID, RunID: lease.RunID})
+		run, err := runFromLeaseSnapshot(lease)
 		if err != nil {
-			return nil, fmt.Errorf("not_found")
+			return nil, err
 		}
 		lines := lease.Payload.CaptureSession.Lines
 		if lines <= 0 {
@@ -658,7 +769,11 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 		if lease.Payload == nil || lease.Payload.SendMessage == nil {
 			return nil, fmt.Errorf("send_message payload missing")
 		}
-		if err := s.processSendMessage(repoCtx.Store, &SendMessageParams{
+		run, err := runFromLeaseSnapshot(lease)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.processSendMessageForRun(repoCtx.Store, run, &SendMessageParams{
 			IssueID:        lease.IssueID,
 			RunID:          lease.RunID,
 			Message:        lease.Payload.SendMessage.Message,
@@ -669,9 +784,9 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 		}
 		return nil, nil
 	case "get_diff_stats":
-		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: lease.IssueID, RunID: lease.RunID})
+		run, err := runFromLeaseSnapshot(lease)
 		if err != nil {
-			return nil, fmt.Errorf("not_found")
+			return nil, err
 		}
 		stats := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
 		return &WorkerEffectResult{
@@ -683,18 +798,18 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 			},
 		}, nil
 	case "get_branch_state":
-		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: lease.IssueID, RunID: lease.RunID})
+		run, err := runFromLeaseSnapshot(lease)
 		if err != nil {
-			return nil, fmt.Errorf("not_found")
+			return nil, err
 		}
 		state := computeBranchStateWithRunner(s.gitRunner, run.WorktreePath, run.Branch, "main")
 		return &WorkerEffectResult{
 			BranchStateResult: &GetBranchStateResult{State: int32(state)},
 		}, nil
 	case "get_diff":
-		run, err := repoCtx.Store.GetRun(&model.RunRef{IssueID: lease.IssueID, RunID: lease.RunID})
+		run, err := runFromLeaseSnapshot(lease)
 		if err != nil {
-			return nil, fmt.Errorf("not_found")
+			return nil, err
 		}
 
 		diff := ""
@@ -723,20 +838,24 @@ func (s *SocketServer) waitForWorkerLeaseCompletion(leaseID string, timeout time
 	for {
 		s.workerLeasesMu.RLock()
 		lease := s.workerLeases[leaseID]
+		var leaseSnapshot *WorkerLease
+		if lease != nil {
+			copy := *lease
+			leaseSnapshot = &copy
+		}
 		s.workerLeasesMu.RUnlock()
 
-		if lease == nil {
+		if leaseSnapshot == nil {
 			return nil, fmt.Errorf("lease not found: %s", leaseID)
 		}
-		if lease.Completed {
-			copy := *lease
-			if lease.Success {
-				return &copy, nil
+		if leaseSnapshot.Completed {
+			if leaseSnapshot.Success {
+				return leaseSnapshot, nil
 			}
-			if strings.TrimSpace(lease.Error) != "" {
-				return &copy, errors.New(lease.Error)
+			if strings.TrimSpace(leaseSnapshot.Error) != "" {
+				return leaseSnapshot, errors.New(leaseSnapshot.Error)
 			}
-			return &copy, fmt.Errorf("worker lease failed: %s", leaseID)
+			return leaseSnapshot, fmt.Errorf("worker lease failed: %s", leaseID)
 		}
 
 		if time.Now().After(deadline) {

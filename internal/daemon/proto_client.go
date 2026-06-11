@@ -647,11 +647,12 @@ func (c *ProtoClient) StartRun(opts *StartRunOptions) (*StartRunResponse, error)
 	req := &orchpb.Request{
 		Request: &orchpb.Request_StartRun{
 			StartRun: &orchpb.StartRunRequest{
-				IssueId:        opts.IssueID,
-				RunId:          opts.RunID,
+				IssueId:        string(opts.IssueID),
+				RunId:          string(opts.RunID),
 				Agent:          opts.Agent,
 				AgentCmd:       opts.AgentCmd,
 				AgentProfile:   opts.AgentProfile,
+				CodexProfile:   opts.CodexProfile,
 				Model:          opts.Model,
 				ModelVariant:   opts.ModelVariant,
 				Preset:         opts.Preset,
@@ -698,13 +699,14 @@ func (c *ProtoClient) ContinueRun(opts *ContinueRunOptions) (*ContinueRunRespons
 	req := &orchpb.Request{
 		Request: &orchpb.Request_ContinueRun{
 			ContinueRun: &orchpb.ContinueRunRequest{
-				IssueId:        opts.IssueID,
-				RunId:          opts.RunID,
-				ShortId:        opts.ShortID,
+				IssueId:        string(opts.IssueID),
+				RunId:          string(opts.RunID),
+				ShortId:        string(opts.ShortID),
 				Branch:         opts.Branch,
 				Agent:          opts.Agent,
 				AgentCmd:       opts.AgentCmd,
 				AgentProfile:   opts.AgentProfile,
+				CodexProfile:   opts.CodexProfile,
 				WorktreeDir:    opts.WorktreeDir,
 				NoPr:           opts.NoPR,
 				PromptTemplate: opts.PromptTemplate,
@@ -1231,6 +1233,7 @@ func (c *ProtoClient) GetControlAgentConfig() (*GetControlAgentConfigResponse, e
 		Model:         configResp.Model,
 		ModelVariant:  configResp.ModelVariant,
 		ExtraArgs:     configResp.ExtraArgs,
+		CodexHome:     configResp.CodexHome,
 	}, nil
 }
 
@@ -1373,6 +1376,7 @@ func protoRunToSummary(r *orchpb.Run, _ *config.Config) (*RunSummary, error) {
 		ShortID:           computeShortID(r.IssueId, r.RunId),
 		Status:            status,
 		Agent:             r.Agent,
+		Profile:           r.Profile,
 		Model:             r.Model,
 		Branch:            r.Branch,
 		WorktreePath:      r.WorktreePath,
@@ -1448,6 +1452,7 @@ func protoRunToFull(r *orchpb.Run, events []*orchpb.Event, _ *config.Config) (*R
 		Status:            status,
 		Phase:             phase,
 		Agent:             r.Agent,
+		Profile:           r.Profile,
 		Model:             r.Model,
 		Branch:            r.Branch,
 		WorktreePath:      r.WorktreePath,

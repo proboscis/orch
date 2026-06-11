@@ -120,10 +120,11 @@ func modelRunToProto(run *model.Run) (*orchpb.Run, error) {
 	}
 
 	protoRun := &orchpb.Run{
-		IssueId:           sanitizeUTF8(run.IssueID),
-		RunId:             sanitizeUTF8(run.RunID),
+		IssueId:           sanitizeUTF8(string(run.IssueID)),
+		RunId:             sanitizeUTF8(string(run.RunID)),
 		Status:            status,
 		Agent:             sanitizeUTF8(run.Agent),
+		Profile:           sanitizeUTF8(run.Profile),
 		Model:             sanitizeUTF8(run.Model),
 		Branch:            sanitizeUTF8(run.Branch),
 		WorktreePath:      sanitizeUTF8(run.WorktreePath),
@@ -157,10 +158,11 @@ func protoRunToModel(run *orchpb.Run) (*model.Run, error) {
 		return nil, fmt.Errorf("convert run %s#%s status: %w", run.IssueId, run.RunId, err)
 	}
 	return &model.Run{
-		IssueID:           run.IssueId,
-		RunID:             run.RunId,
+		IssueID:           model.IssueID(run.IssueId),
+		RunID:             model.RunID(run.RunId),
 		Status:            status,
 		Agent:             run.Agent,
+		Profile:           run.Profile,
 		Model:             run.Model,
 		Branch:            run.Branch,
 		WorktreePath:      run.WorktreePath,
@@ -188,7 +190,7 @@ func modelIssueToProto(issue *model.Issue) (*orchpb.Issue, error) {
 		return nil, fmt.Errorf("convert issue %s status: %w", issue.ID, err)
 	}
 	return &orchpb.Issue{
-		Id:             sanitizeUTF8(issue.ID),
+		Id:             sanitizeUTF8(string(issue.ID)),
 		Title:          sanitizeUTF8(issue.Title),
 		Topic:          sanitizeUTF8(issue.Topic),
 		Summary:        sanitizeUTF8(issue.Summary),
@@ -210,7 +212,7 @@ func protoIssueToModel(issue *orchpb.Issue) (*model.Issue, error) {
 		return nil, fmt.Errorf("convert issue %s status: %w", issue.Id, err)
 	}
 	return &model.Issue{
-		ID:         issue.Id,
+		ID:         model.IssueID(issue.Id),
 		Title:      issue.Title,
 		Topic:      issue.Topic,
 		Summary:    issue.Summary,

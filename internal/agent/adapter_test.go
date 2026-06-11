@@ -51,6 +51,79 @@ func TestLaunchConfigEnv(t *testing.T) {
 	assertEnvContains(t, env, "HOME=/tmp/home")
 }
 
+func TestLaunchConfigEnvCodexHomeAbsolute(t *testing.T) {
+	t.Setenv("HOME", "/tmp/home")
+
+	cfg := &LaunchConfig{
+		IssueID:   "issue",
+		RunID:     "run",
+		CodexHome: "/opt/codex-company",
+	}
+
+	env := cfg.Env()
+	assertEnvContains(t, env, "CODEX_HOME=/opt/codex-company")
+}
+
+func TestLaunchConfigEnvCodexHomeTildeExpansion(t *testing.T) {
+	t.Setenv("HOME", "/tmp/home")
+
+	cfg := &LaunchConfig{
+		IssueID:   "issue",
+		RunID:     "run",
+		CodexHome: "~/.codex-company",
+	}
+
+	env := cfg.Env()
+	assertEnvContains(t, env, "CODEX_HOME=/tmp/home/.codex-company")
+}
+
+func TestLaunchConfigEnvCodexHomeBareTilde(t *testing.T) {
+	t.Setenv("HOME", "/tmp/home")
+
+	cfg := &LaunchConfig{CodexHome: "~"}
+
+	env := cfg.Env()
+	assertEnvContains(t, env, "CODEX_HOME=/tmp/home")
+}
+
+func TestLaunchConfigEnvCodexHomeEmptyInjectsNothing(t *testing.T) {
+	t.Setenv("HOME", "/tmp/home")
+
+	cfg := &LaunchConfig{IssueID: "issue", RunID: "run"} // CodexHome empty
+
+	env := cfg.Env()
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "CODEX_HOME=") {
+			t.Fatalf("expected no CODEX_HOME entry, got %q", entry)
+		}
+	}
+}
+
+func TestLaunchConfigCodexHomeEnv(t *testing.T) {
+	t.Setenv("HOME", "/tmp/home")
+
+	// Tilde expansion.
+	got := (&LaunchConfig{CodexHome: "~/.codex-company"}).CodexHomeEnv()
+	if len(got) != 1 || got[0] != "CODEX_HOME=/tmp/home/.codex-company" {
+		t.Errorf("CodexHomeEnv(~/.codex-company) = %v, want [CODEX_HOME=/tmp/home/.codex-company]", got)
+	}
+
+	// Absolute path passes through.
+	got = (&LaunchConfig{CodexHome: "/opt/codex"}).CodexHomeEnv()
+	if len(got) != 1 || got[0] != "CODEX_HOME=/opt/codex" {
+		t.Errorf("CodexHomeEnv(/opt/codex) = %v, want [CODEX_HOME=/opt/codex]", got)
+	}
+
+	// Empty injects nothing.
+	if got := (&LaunchConfig{}).CodexHomeEnv(); len(got) != 0 {
+		t.Errorf("CodexHomeEnv(empty) = %v, want empty", got)
+	}
+
+	// Env() and CodexHomeEnv() agree on the CODEX_HOME entry.
+	full := (&LaunchConfig{CodexHome: "~/.codex-company"}).Env()
+	assertEnvContains(t, full, "CODEX_HOME=/tmp/home/.codex-company")
+}
+
 func TestGetAdapter(t *testing.T) {
 	cases := []AgentType{AgentClaude, AgentCodex, AgentGemini, AgentCustom}
 	for _, typ := range cases {

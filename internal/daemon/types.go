@@ -130,6 +130,7 @@ type RunSummary struct {
 	IsTerminal        bool           `json:"is_terminal"`
 	Phase             string         `json:"phase,omitempty"`
 	Agent             string         `json:"agent"`
+	Profile           string         `json:"profile,omitempty"`
 	Model             string         `json:"model,omitempty"`
 	Branch            string         `json:"branch,omitempty"`
 	WorktreePath      string         `json:"worktree_path,omitempty"`
@@ -184,6 +185,7 @@ type RunFull struct {
 	IsTerminal        bool           `json:"is_terminal"`
 	Phase             string         `json:"phase,omitempty"`
 	Agent             string         `json:"agent"`
+	Profile           string         `json:"profile,omitempty"`
 	Model             string         `json:"model,omitempty"`
 	ModelVariant      string         `json:"model_variant,omitempty"`
 	Branch            string         `json:"branch,omitempty"`
@@ -385,14 +387,15 @@ func RunToSummary(run *model.Run) *RunSummary {
 	prNumber, prState := lookupPRInfo(run)
 
 	return &RunSummary{
-		IssueID:           run.IssueID,
-		RunID:             run.RunID,
-		ShortID:           run.ShortID(),
+		IssueID:           string(run.IssueID),
+		RunID:             string(run.RunID),
+		ShortID:           string(run.ShortID()),
 		Status:            string(run.Status),
 		IsActive:          run.Status.IsActive(),
 		IsTerminal:        run.Status.IsTerminal(),
 		Phase:             string(run.Phase),
 		Agent:             run.Agent,
+		Profile:           run.Profile,
 		Model:             run.Model,
 		Branch:            run.Branch,
 		WorktreePath:      run.WorktreePath,
@@ -452,14 +455,15 @@ func RunToFull(run *model.Run) *RunFull {
 	prNumber, prState := lookupPRInfo(run)
 
 	return &RunFull{
-		IssueID:           run.IssueID,
-		RunID:             run.RunID,
-		ShortID:           run.ShortID(),
+		IssueID:           string(run.IssueID),
+		RunID:             string(run.RunID),
+		ShortID:           string(run.ShortID()),
 		Status:            string(run.Status),
 		IsActive:          run.Status.IsActive(),
 		IsTerminal:        run.Status.IsTerminal(),
 		Phase:             string(run.Phase),
 		Agent:             run.Agent,
+		Profile:           run.Profile,
 		Model:             run.Model,
 		ModelVariant:      run.ModelVariant,
 		Branch:            run.Branch,
@@ -506,7 +510,7 @@ func RunToFullWithAlive(run *model.Run, computeAlive func(*model.Run) bool) *Run
 // IssueToSummary converts a model.Issue to an IssueSummary
 func IssueToSummary(issue *model.Issue) *IssueSummary {
 	return &IssueSummary{
-		ID:         issue.ID,
+		ID:         string(issue.ID),
 		Title:      issue.Title,
 		Topic:      issue.Topic,
 		Summary:    issue.Summary,
@@ -520,7 +524,7 @@ func IssueToSummary(issue *model.Issue) *IssueSummary {
 // IssueToFull converts a model.Issue to an IssueFull
 func IssueToFull(issue *model.Issue) *IssueFull {
 	return &IssueFull{
-		ID:          issue.ID,
+		ID:          string(issue.ID),
 		Title:       issue.Title,
 		Topic:       issue.Topic,
 		Summary:     issue.Summary,
@@ -578,11 +582,12 @@ func SummaryToRun(s *RunSummary) (*model.Run, error) {
 	}
 
 	return &model.Run{
-		IssueID:      s.IssueID,
-		RunID:        s.RunID,
+		IssueID:      model.IssueID(s.IssueID),
+		RunID:        model.RunID(s.RunID),
 		Status:       status,
 		Phase:        model.Phase(s.Phase),
 		Agent:        s.Agent,
+		Profile:      s.Profile,
 		Model:        s.Model,
 		Branch:       s.Branch,
 		WorktreePath: s.WorktreePath,
@@ -603,12 +608,17 @@ func SummaryAliveInfo(s *RunSummary) (alive bool, known bool) {
 }
 
 type StartRunOptions struct {
-	IssueID        string
+	IssueID model.IssueID
+	// IssueSnapshot is the issue resolved by the MASTER (the issue-store SSOT) and
+	// carried in the worker payload so the worker never reads its own issue from a
+	// local store it may not have (e.g. a worker pinned to a different host than the
+	// master). The worker-delegation path in handleProtoStartRun always sets this.
 	IssueSnapshot  *model.Issue
-	RunID          string
+	RunID          model.RunID
 	Agent          string
 	AgentCmd       string
 	AgentProfile   string
+	CodexProfile   string
 	Model          string
 	ModelVariant   string
 	Preset         string
@@ -624,6 +634,14 @@ type StartRunOptions struct {
 	Target         string
 	TargetHost     string
 	TargetWorkerID string
+	// CodexHome is the CODEX_HOME for the selected codex profile, verbatim as
+	// configured (~ expands on the execution host at launch). Empty means use
+	// the agent default (~/.codex).
+	CodexHome string
+	// ClaudeConfigDir is the CLAUDE_CONFIG_DIR for the selected claude
+	// profile, verbatim as configured (~ expands on the execution host at
+	// launch). Empty means use the agent default (~/.claude).
+	ClaudeConfigDir string
 }
 
 type StartRunResponse struct {
@@ -638,7 +656,7 @@ type StartRunResponse struct {
 
 // StartRunResult holds the success data from a start_run operation (no OK/Error).
 type StartRunResult struct {
-	RunID             string
+	RunID             model.RunID
 	Branch            string
 	WorktreePath      string
 	SessionName       string
@@ -651,13 +669,20 @@ type StartRunResult struct {
 }
 
 type ContinueRunOptions struct {
-	IssueID        string
-	RunID          string
-	ShortID        string
+	IssueID model.IssueID
+	// IssueSnapshot is the issue resolved by the MASTER (the issue-store SSOT) and
+	// carried in the worker payload so the worker never reads its own issue from a
+	// local store it may not have (e.g. a worker pinned to a different host than the
+	// master). The worker-delegation path in handleProtoContinueRun always sets this.
+	IssueSnapshot  *model.Issue
+	RunSnapshot    *RunSnapshot
+	RunID          model.RunID
+	ShortID        model.ShortID
 	Branch         string
 	Agent          string
 	AgentCmd       string
 	AgentProfile   string
+	CodexProfile   string
 	WorktreeDir    string
 	NoPR           bool
 	PromptTemplate string
@@ -667,6 +692,14 @@ type ContinueRunOptions struct {
 	Target         string
 	TargetHost     string
 	TargetWorkerID string
+	// CodexHome is the CODEX_HOME for the selected codex profile, verbatim as
+	// configured (~ expands on the execution host at launch). Empty means use
+	// the agent default (~/.codex).
+	CodexHome string
+	// ClaudeConfigDir is the CLAUDE_CONFIG_DIR for the selected claude
+	// profile, verbatim as configured (~ expands on the execution host at
+	// launch). Empty means use the agent default (~/.claude).
+	ClaudeConfigDir string
 }
 
 type ContinueRunResponse struct {
@@ -683,18 +716,39 @@ type ContinueRunResponse struct {
 
 // ContinueRunResult holds the success data from a continue_run operation (no OK/Error).
 type ContinueRunResult struct {
-	RunID             string
+	RunID             model.RunID
 	Branch            string
 	WorktreePath      string
 	SessionName       string
 	Status            string
 	ContinuedFrom     string
-	IssueID           string
+	IssueID           model.IssueID
 	Multiplexer       string
 	SessionHost       string
 	WorkerID          string
 	ServerPort        int
 	OpenCodeSessionID string
+}
+
+type RunSnapshot struct {
+	IssueID           model.IssueID
+	RunID             model.RunID
+	Status            model.Status
+	Phase             model.Phase
+	Agent             string
+	Profile           string
+	Model             string
+	ModelVariant      string
+	Branch            string
+	WorktreePath      string
+	Target            string
+	TargetHost        string
+	TargetWorkerID    string
+	SessionName       string
+	Multiplexer       string
+	ServerPort        int
+	OpenCodeSessionID string
+	ContinuedFrom     string
 }
 
 type StopRunResponse struct {
@@ -783,6 +837,7 @@ type GetControlAgentConfigResponse struct {
 	Model         string   `json:"model,omitempty"`
 	ModelVariant  string   `json:"model_variant,omitempty"`
 	ExtraArgs     []string `json:"extra_args,omitempty"`
+	CodexHome     string   `json:"codex_home,omitempty"`
 }
 
 type ControlAgentConfigResult struct {
@@ -791,6 +846,9 @@ type ControlAgentConfigResult struct {
 	Model         string
 	ModelVariant  string
 	ExtraArgs     []string
+	// CodexHome is the resolved CODEX_HOME for a codex control agent (from the
+	// project's default codex profile). Empty means the agent default (~/.codex).
+	CodexHome string
 }
 
 type SendMessageParams struct {

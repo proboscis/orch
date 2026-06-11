@@ -6,7 +6,7 @@ import (
 
 // ListRunsFilter specifies criteria for filtering runs
 type ListRunsFilter struct {
-	IssueID    string
+	IssueID    model.IssueID
 	Status     []model.Status
 	Agent      string // Filter by agent name (e.g., "opencode", "claude")
 	TextSearch string // Search in run_id, issue_id, branch
@@ -28,16 +28,23 @@ type ListIssuesFilter struct {
 // Store defines the interface for knowledge store backends
 type Store interface {
 	// ResolveIssue retrieves an issue by ID (looks for type: issue frontmatter)
-	ResolveIssue(issueID string) (*model.Issue, error)
+	ResolveIssue(issueID model.IssueID) (*model.Issue, error)
 
 	// ListIssues returns all issues in the issues root
 	ListIssues() ([]*model.Issue, error)
 
 	// SetIssueStatus updates an issue's status in frontmatter
-	SetIssueStatus(issueID string, status model.IssueStatus) error
+	SetIssueStatus(issueID model.IssueID, status model.IssueStatus) error
 
-	// CreateRun creates a new run for an issue
-	CreateRun(issueID, runID string, metadata map[string]string) (*model.Run, error)
+	// CreateRun creates a new run for an issue, verifying the issue exists in this
+	// store first (non-GitHub issues). Use on the co-located/master path.
+	CreateRun(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error)
+
+	// CreateRunForExistingIssue creates a run WITHOUT verifying the issue against
+	// this store. It is for worker-delegated execution where the master (issue-store
+	// SSOT) has already resolved the issue and the worker may have no issue store of
+	// its own (e.g. pinned to a different host than the master).
+	CreateRunForExistingIssue(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error)
 
 	// AppendEvent appends an event to a run
 	AppendEvent(ref *model.RunRef, event *model.Event) error
@@ -50,10 +57,10 @@ type Store interface {
 
 	// GetRunByShortID finds a run by its short ID prefix (2-6 hex chars)
 	// Returns an error if no match found or if multiple runs match (ambiguous)
-	GetRunByShortID(shortID string) (*model.Run, error)
+	GetRunByShortID(shortID model.ShortID) (*model.Run, error)
 
 	// GetLatestRun retrieves the latest run for an issue
-	GetLatestRun(issueID string) (*model.Run, error)
+	GetLatestRun(issueID model.IssueID) (*model.Run, error)
 
 	// RootPath returns the issues root path (where issues and runs are stored)
 	RootPath() string
@@ -65,7 +72,7 @@ type Store interface {
 	UpdateIssue(issue *model.Issue) error
 
 	// ValidateIssueFiles validates issue files and returns results
-	ValidateIssueFiles(issueID string) (*ValidationResult, error)
+	ValidateIssueFiles(issueID model.IssueID) (*ValidationResult, error)
 
 	// WriteAgentPrompt writes the agent control prompt for a run
 	WriteAgentPrompt(ref *model.RunRef, content string) error
@@ -86,7 +93,7 @@ type ValidationResult struct {
 
 type ValidationResultItem struct {
 	File    string
-	IssueID string
+	IssueID model.IssueID
 	Errors  []ValidationIssue
 }
 
@@ -98,6 +105,6 @@ type ValidationIssue struct {
 }
 
 type DuplicateID struct {
-	ID    string
+	ID    model.IssueID
 	Files []string
 }

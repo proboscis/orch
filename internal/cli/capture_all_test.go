@@ -78,7 +78,7 @@ func (m *mockCaptureAllAPI) ListRuns(ctx context.Context, filter *orchapi.ListRu
 }
 
 func (m *mockCaptureAllAPI) CaptureSession(ctx context.Context, ref orchapi.RunRef, lines int) (*orchapi.CaptureResult, error) {
-	key := ref.IssueID + "#" + ref.RunID
+	key := ref.String()
 	m.capturedLines = append(m.capturedLines, lines)
 	if err, ok := m.captureErrors[key]; ok {
 		return nil, err

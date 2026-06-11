@@ -313,10 +313,40 @@ func (s *SocketServer) handleProtoRequest(req *orchpb.Request) *orchpb.Response 
 }
 
 func resolveRunForMutation(st store.Store, issueID, runID, shortID string) (*model.Run, error) {
-	if shortID != "" {
-		return st.GetRunByShortID(shortID)
+	if st == nil {
+		return nil, fmt.Errorf("store required")
 	}
-	return st.GetRun(&model.RunRef{IssueID: issueID, RunID: runID})
+	issueID = strings.TrimSpace(issueID)
+	runID = strings.TrimSpace(runID)
+	shortID = strings.TrimSpace(shortID)
+	if shortID != "" {
+		return st.GetRunByShortID(model.ShortID(shortID))
+	}
+	if issueID == "" {
+		return nil, fmt.Errorf("run reference required")
+	}
+	return st.GetRun(&model.RunRef{IssueID: model.IssueID(issueID), RunID: model.RunID(runID)})
+}
+
+func masterRunNotFoundError(projectID, issueID, runID, shortID string, err error) string {
+	ref := strings.TrimSpace(shortID)
+	if ref == "" {
+		ref = strings.TrimSpace(issueID)
+		if strings.TrimSpace(runID) != "" {
+			ref = fmt.Sprintf("%s#%s", strings.TrimSpace(issueID), strings.TrimSpace(runID))
+		}
+	}
+	if ref == "" {
+		ref = "<empty>"
+	}
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		projectID = "<unknown>"
+	}
+	if err != nil && isAmbiguousRunLookupError(err) {
+		return fmt.Sprintf("ambiguous run ref in master store for project %q: %s", projectID, ref)
+	}
+	return fmt.Sprintf("run not in master store for project %q: %s", projectID, ref)
 }
 
 func (s *SocketServer) resolveMainRepoRootForRun(ctx *orchpb.RequestContext, run *model.Run) (string, error) {
@@ -552,7 +582,7 @@ func (s *SocketServer) repoContextForStore(st store.Store) *RepoContext {
 }
 
 func (s *SocketServer) resolveProtoRun(ctx *orchpb.RequestContext, issueID, runID string) (*resolvedProtoRun, *orchpb.Response) {
-	ref := &model.RunRef{IssueID: issueID, RunID: runID}
+	ref := &model.RunRef{IssueID: model.IssueID(issueID), RunID: model.RunID(runID)}
 	projectID := projectIDFromContext(ctx)
 
 	if projectID != "" {
@@ -560,9 +590,9 @@ func (s *SocketServer) resolveProtoRun(ctx *orchpb.RequestContext, issueID, runI
 		if st == nil {
 			return nil, errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
 		}
-		run, err := st.GetRun(ref)
+		run, err := resolveRunForMutation(st, issueID, runID, "")
 		if err != nil {
-			return nil, errorResponse("not_found")
+			return nil, errorResponse(masterRunNotFoundError(projectID, issueID, runID, "", err))
 		}
 		repo := s.ensureRepoContextByID(projectID)
 		projectRoot := ""
@@ -650,7 +680,7 @@ func (s *SocketServer) resolveWaitRunTarget(ctx *orchpb.RequestContext, ref stri
 	projectID := projectIDFromContext(ctx)
 	resolveInStore := func(st store.Store) (*model.Run, error) {
 		if shortID != "" {
-			return st.GetRunByShortID(shortID)
+			return st.GetRunByShortID(model.ShortID(shortID))
 		}
 		return st.GetRun(runRef)
 	}
@@ -705,8 +735,14 @@ func resolveWorkerTargetForRun(runCtx *resolvedProtoRun) (*resolvedTarget, error
 	if runCtx == nil || runCtx.run == nil {
 		return nil, fmt.Errorf("run context required")
 	}
+	return resolveWorkerTargetForRunFields(runCtx.run, runCtx.projectRoot)
+}
 
-	run := runCtx.run
+func resolveWorkerTargetForRunFields(run *model.Run, projectRoot string) (*resolvedTarget, error) {
+	if run == nil {
+		return nil, fmt.Errorf("run required")
+	}
+
 	targetName := strings.TrimSpace(run.Target)
 	targetHost := strings.TrimSpace(run.TargetHost)
 	targetWorkerID := strings.TrimSpace(run.TargetWorkerID)
@@ -714,8 +750,8 @@ func resolveWorkerTargetForRun(runCtx *resolvedProtoRun) (*resolvedTarget, error
 		if targetWorkerID == "" && targetHost != "" {
 			targetWorkerID = HostWorkerID(targetHost)
 		}
-		if targetHost == "" && targetName != "" && targetName != "local" && strings.TrimSpace(runCtx.projectRoot) != "" {
-			target, err := resolveTargetForProjectRoot(runCtx.projectRoot, targetName)
+		if targetHost == "" && targetName != "" && targetName != "local" && strings.TrimSpace(projectRoot) != "" {
+			target, err := resolveTargetForProjectRoot(projectRoot, targetName)
 			if err == nil {
 				targetHost = target.Host
 			}
@@ -730,8 +766,8 @@ func resolveWorkerTargetForRun(runCtx *resolvedProtoRun) (*resolvedTarget, error
 		}, nil
 	}
 
-	if targetName != "" && targetName != "local" && strings.TrimSpace(runCtx.projectRoot) != "" {
-		target, err := resolveTargetForProjectRoot(runCtx.projectRoot, targetName)
+	if targetName != "" && targetName != "local" && strings.TrimSpace(projectRoot) != "" {
+		target, err := resolveTargetForProjectRoot(projectRoot, targetName)
 		if err == nil {
 			return target, nil
 		}
@@ -748,6 +784,54 @@ func resolveWorkerTargetForRun(runCtx *resolvedProtoRun) (*resolvedTarget, error
 		Host:     targetHost,
 		WorkerID: HostWorkerID(targetHost),
 	}, nil
+}
+
+// captureRunOutputViaWorker captures session output for a run executing on
+// another host by delegating a capture_session effect to that host's worker.
+// Unlike the RPC path it waits with a short timeout so the daemon monitor
+// loop is never blocked for long.
+func (s *SocketServer) captureRunOutputViaWorker(run *model.Run, projectID, projectRoot string, lines int) (string, error) {
+	if run == nil {
+		return "", fmt.Errorf("run required")
+	}
+	if strings.TrimSpace(projectID) == "" {
+		return "", fmt.Errorf("no project context available for remote run %s#%s", run.IssueID, run.RunID)
+	}
+	if lines <= 0 {
+		lines = 100
+	}
+
+	target, err := resolveWorkerTargetForRunFields(run, projectRoot)
+	if err != nil {
+		return "", err
+	}
+
+	payload := &WorkerEffectPayload{
+		CaptureSession: &CaptureSessionPayload{
+			Lines:          lines,
+			Target:         strings.TrimSpace(run.Target),
+			TargetHost:     target.Host,
+			TargetWorkerID: target.WorkerID,
+			RunSnapshot:    newRunSnapshot(run),
+		},
+	}
+
+	lease, err := s.acquireWorkerLease(projectID, "capture_session", string(run.IssueID), string(run.RunID), payload)
+	if err != nil {
+		return "", err
+	}
+	completedLease, err := s.waitForWorkerLeaseCompletion(lease.LeaseID, remoteCaptureLeaseTimeout)
+	if err != nil {
+		return "", err
+	}
+	effectResult, err := decodeWorkerEffectResult(completedLease.ResultJSON)
+	if err != nil {
+		return "", err
+	}
+	if effectResult.CaptureResult == nil {
+		return "", fmt.Errorf("worker lease completed without capture_result")
+	}
+	return effectResult.CaptureResult.Content, nil
 }
 
 func (s *SocketServer) handleProtoPing(_ *orchpb.PingRequest) *orchpb.Response {
@@ -768,7 +852,7 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 		return errorResponse(err.Error())
 	}
 	filter := &store.ListRunsFilter{
-		IssueID:    req.IssueId,
+		IssueID:    model.IssueID(req.IssueId),
 		Status:     statuses,
 		Agent:      req.Agent,
 		TextSearch: req.TextSearch,
@@ -851,6 +935,7 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 		return errorResponse(err.Error())
 	}
 	applyIssueMetadataToRunEntries(paginatedEntries, protoRuns)
+	s.applyRunLiveness(paginatedRuns, protoRuns)
 	enrichDuration := time.Since(enrichStart)
 
 	s.maybeLogListRunsTiming(req, len(paginatedRuns), storeDuration, enrichDuration, time.Since(requestStart), nil)
@@ -877,7 +962,7 @@ func applyIssueMetadataToRunEntries(entries []runStoreEntry, protoRuns []*orchpb
 		return
 	}
 
-	issuesByStore := make(map[store.Store]map[string]*model.Issue)
+	issuesByStore := make(map[store.Store]map[model.IssueID]*model.Issue)
 
 	for i, entry := range entries {
 		if i >= len(protoRuns) || protoRuns[i] == nil || entry.run == nil || entry.store == nil {
@@ -892,7 +977,7 @@ func applyIssueMetadataToRunEntries(entries []runStoreEntry, protoRuns []*orchpb
 				continue
 			}
 
-			byID = make(map[string]*model.Issue, len(issues))
+			byID = make(map[model.IssueID]*model.Issue, len(issues))
 			for _, issue := range issues {
 				if issue == nil {
 					continue
@@ -976,6 +1061,24 @@ func (s *SocketServer) maybeLogListRunsTiming(
 		hasOlderThan,
 		slow,
 	)
+}
+
+// applyRunLiveness stamps the monitor's liveness view onto proto runs. The
+// monitor is the single source of truth for liveness: it observes local runs
+// via the multiplexer and worker-hosted runs via capture leases, so this is
+// correct regardless of which host a run executes on.
+func (s *SocketServer) applyRunLiveness(runs []*model.Run, protoRuns []*orchpb.Run) {
+	if s.runLiveness == nil {
+		return
+	}
+	for i, run := range runs {
+		if i >= len(protoRuns) || protoRuns[i] == nil {
+			continue
+		}
+		alive, known := s.runLiveness(run)
+		protoRuns[i].Alive = alive
+		protoRuns[i].AliveKnown = known
+	}
 }
 
 func enrichRunProto(pr *orchpb.Run, run *model.Run, runner git.Runner) {
@@ -1150,9 +1253,9 @@ func (s *SocketServer) handleProtoWaitForRuns(req *orchpb.WaitForRunsRequest) *o
 					Ok: true,
 					Response: &orchpb.Response_WaitForRuns{
 						WaitForRuns: &orchpb.WaitForRunsResponse{
-							RunId:  current.ShortID(),
+							RunId:  string(current.ShortID()),
 							Status: sanitizeUTF8(string(current.Status)),
-							Issue:  sanitizeUTF8(current.IssueID),
+							Issue:  sanitizeUTF8(string(current.IssueID)),
 							PrUrl:  sanitizeUTF8(current.PRUrl),
 						},
 					},
@@ -1176,7 +1279,7 @@ func (s *SocketServer) handleProtoWaitForRuns(req *orchpb.WaitForRunsRequest) *o
 }
 
 func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Response {
-	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+	ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}
 	projectID := projectIDFromContext(req.Context)
 
 	var run *model.Run
@@ -1223,6 +1326,7 @@ func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Resp
 		return errorResponse(err.Error())
 	}
 	enrichRunProto(pr, run, s.gitRunner)
+	s.applyRunLiveness([]*model.Run{run}, []*orchpb.Run{pr})
 
 	return &orchpb.Response{
 		Ok: true,
@@ -1251,11 +1355,12 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 	st := repoCtx.Store
 
 	opts := &StartRunOptions{
-		IssueID:        req.IssueId,
-		RunID:          req.RunId,
+		IssueID:        model.IssueID(req.IssueId),
+		RunID:          model.RunID(req.RunId),
 		Agent:          req.Agent,
 		AgentCmd:       req.AgentCmd,
 		AgentProfile:   req.AgentProfile,
+		CodexProfile:   req.CodexProfile,
 		Model:          req.Model,
 		ModelVariant:   req.ModelVariant,
 		Preset:         req.Preset,
@@ -1270,8 +1375,23 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		Multiplexer:    req.Multiplexer,
 		Target:         req.Target,
 	}
-	if strings.TrimSpace(req.Target) != "" && strings.TrimSpace(req.Target) != "local" {
-		target, targetErr := resolveTargetForProjectRoot(projectRoot, req.Target)
+
+	// Resolve the execution profile (codex or claude) before target resolution
+	// so a profile-bound target routes through the worker-delegation path, and
+	// so AllowedTargets is enforced at the authoritative master entry point.
+	profileCfg, profileCfgErr := loadConfigForProjectRoot(projectRoot)
+	if profileCfgErr != nil {
+		return errorResponse(fmt.Sprintf("failed to load config: %v", profileCfgErr))
+	}
+	if err := applyCodexProfile(profileCfg, opts); err != nil {
+		return errorResponse(err.Error())
+	}
+	if err := applyClaudeProfile(profileCfg, opts); err != nil {
+		return errorResponse(err.Error())
+	}
+
+	if strings.TrimSpace(opts.Target) != "" && strings.TrimSpace(opts.Target) != "local" {
+		target, targetErr := resolveTargetForProjectRoot(projectRoot, opts.Target)
 		if targetErr != nil {
 			return errorResponse(targetErr.Error())
 		}
@@ -1279,9 +1399,15 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		opts.TargetWorkerID = target.WorkerID
 	}
 
-	if issue, err := st.ResolveIssue(req.IssueId); err == nil {
-		opts.IssueSnapshot = issue
+	// Resolve the issue on the MASTER (issue-store SSOT) and carry the snapshot in
+	// the worker payload. Fail fast here, before delegating, so a missing issue
+	// surfaces on the master (where the store lives) instead of on a worker that may
+	// run on a different host and have no issue store at all.
+	issue, err := st.ResolveIssue(model.IssueID(req.IssueId))
+	if err != nil {
+		return errorResponse(fmt.Sprintf("issue not found: %s", req.IssueId))
 	}
+	opts.IssueSnapshot = issue
 
 	payload := &WorkerEffectPayload{StartRun: opts}
 	completedLease, err := s.withWorkerLease(projectID, "start_run", req.IssueId, req.RunId, payload)
@@ -1298,7 +1424,8 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 	}
 
 	if !req.DryRun {
-		if err := s.syncStartRunResultToMasterStore(st, req, result); err != nil {
+		profile := effectiveAgentProfile(opts.CodexProfile, opts.AgentProfile)
+		if err := s.syncStartRunResultToMasterStore(st, req, result, opts.Target, profile); err != nil {
 			s.logger.Printf("warning: failed to sync start_run projection for %s#%s: %v", req.IssueId, result.RunID, err)
 		}
 	}
@@ -1307,7 +1434,7 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		Ok: true,
 		Response: &orchpb.Response_StartRun{
 			StartRun: &orchpb.StartRunResponse{
-				RunId:        result.RunID,
+				RunId:        string(result.RunID),
 				Branch:       result.Branch,
 				WorktreePath: result.WorktreePath,
 				SessionName:  result.SessionName,
@@ -1317,12 +1444,18 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 	}
 }
 
-func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orchpb.StartRunRequest, result *StartRunResult) error {
+// syncStartRunResultToMasterStore projects a delegated start_run result onto the
+// master store. targetName and profile are the RESOLVED values from the start
+// options (after applyCodexProfile), not the raw request values: a codex profile
+// may inject the target and the default profile may apply without being requested.
+func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orchpb.StartRunRequest, result *StartRunResult, targetName, profile string) error {
 	if st == nil || result == nil {
 		return nil
 	}
 
-	ref := &model.RunRef{IssueID: req.IssueId, RunID: result.RunID}
+	targetName = strings.TrimSpace(targetName)
+	resultRunID := model.RunID(result.RunID)
+	ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: resultRunID}
 	run, err := st.GetRun(ref)
 	if err != nil {
 		metadata := map[string]string{}
@@ -1335,11 +1468,14 @@ func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orch
 		if req.ModelVariant != "" {
 			metadata["model_variant"] = req.ModelVariant
 		}
-		if req.Target != "" {
-			metadata["target"] = req.Target
+		if targetName != "" {
+			metadata["target"] = targetName
+		}
+		if profile != "" {
+			metadata["profile"] = profile
 		}
 
-		run, err = st.CreateRun(req.IssueId, result.RunID, metadata)
+		run, err = st.CreateRun(model.IssueID(req.IssueId), resultRunID, metadata)
 		if err != nil {
 			return err
 		}
@@ -1381,7 +1517,7 @@ func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orch
 			"id": strings.TrimSpace(result.OpenCodeSessionID),
 		}))
 	}
-	if targetName := strings.TrimSpace(req.Target); targetName != "" {
+	if targetName != "" {
 		targetAttrs := map[string]string{"name": targetName}
 		if repoCtx := s.ensureRepoContextByID(projectIDFromContext(req.Context)); repoCtx != nil && strings.TrimSpace(repoCtx.ProjectRoot) != "" {
 			projectRoot := strings.TrimSpace(repoCtx.ProjectRoot)
@@ -1402,24 +1538,37 @@ func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orch
 	return nil
 }
 
-func (s *SocketServer) syncContinueRunResultToMasterStore(st store.Store, req *orchpb.ContinueRunRequest, result *ContinueRunResult, targetName string) error {
+// syncContinueRunResultToMasterStore projects a delegated continue_run result
+// onto the master store. targetName and profile are the RESOLVED values from the
+// continue options (after applyCodexProfileContinue), not the raw request values.
+func (s *SocketServer) syncContinueRunResultToMasterStore(st store.Store, req *orchpb.ContinueRunRequest, result *ContinueRunResult, targetName, profile string) error {
 	if st == nil || result == nil {
 		return nil
 	}
 
-	ref := &model.RunRef{IssueID: result.IssueID, RunID: result.RunID}
+	resultIssueID := model.IssueID(result.IssueID)
+	resultRunID := model.RunID(result.RunID)
+	ref := &model.RunRef{IssueID: resultIssueID, RunID: resultRunID}
 	run, err := st.GetRun(ref)
 	if err != nil {
 		metadata := map[string]string{}
 		if req.Agent != "" {
 			metadata["agent"] = req.Agent
 		}
-		if req.ShortId != "" {
+		if strings.TrimSpace(result.ContinuedFrom) != "" {
+			metadata["continued_from"] = strings.TrimSpace(result.ContinuedFrom)
+		} else if req.ShortId != "" {
 			metadata["continued_from"] = req.ShortId
 		} else if req.IssueId != "" && req.RunId != "" {
 			metadata["continued_from"] = fmt.Sprintf("%s#%s", req.IssueId, req.RunId)
 		}
-		run, err = st.CreateRun(result.IssueID, result.RunID, metadata)
+		if targetName := strings.TrimSpace(targetName); targetName != "" {
+			metadata["target"] = targetName
+		}
+		if profile != "" {
+			metadata["profile"] = profile
+		}
+		run, err = st.CreateRun(resultIssueID, resultRunID, metadata)
 		if err != nil {
 			return err
 		}
@@ -1497,13 +1646,14 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 	st := repoCtx.Store
 
 	opts := &ContinueRunOptions{
-		IssueID:        req.IssueId,
-		RunID:          req.RunId,
-		ShortID:        req.ShortId,
+		IssueID:        model.IssueID(req.IssueId),
+		RunID:          model.RunID(req.RunId),
+		ShortID:        model.ShortID(req.ShortId),
 		Branch:         req.Branch,
 		Agent:          req.Agent,
 		AgentCmd:       req.AgentCmd,
 		AgentProfile:   req.AgentProfile,
+		CodexProfile:   req.CodexProfile,
 		WorktreeDir:    req.WorktreeDir,
 		NoPR:           req.NoPr,
 		PromptTemplate: req.PromptTemplate,
@@ -1511,16 +1661,47 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 		Multiplexer:    req.Multiplexer,
 		SessionName:    req.SessionName,
 	}
-	if req.ShortId != "" {
-		if run, err := st.GetRunByShortID(req.ShortId); err == nil && run != nil {
-			opts.Target = strings.TrimSpace(run.Target)
+	// Inherit the prior run's target and agent from the master store so the codex
+	// profile constraint and CODEX_HOME are re-applied identically on
+	// restart-from/continue. The worker receives the resolved run snapshot and must
+	// not re-resolve this run against its own host-local store.
+	var fromRunAgent string
+	issueID := model.IssueID(req.IssueId)
+	if strings.TrimSpace(req.Branch) == "" {
+		run, err := resolveRunForMutation(st, req.IssueId, req.RunId, req.ShortId)
+		if err != nil || run == nil {
+			return errorResponse(masterRunNotFoundError(projectID, req.IssueId, req.RunId, req.ShortId, err))
 		}
-	} else if req.IssueId != "" && req.RunId != "" {
-		if run, err := st.GetRun(&model.RunRef{IssueID: req.IssueId, RunID: req.RunId}); err == nil && run != nil {
-			opts.Target = strings.TrimSpace(run.Target)
+		opts.IssueID = run.IssueID
+		opts.RunID = run.RunID
+		opts.Target = strings.TrimSpace(run.Target)
+		opts.TargetHost = strings.TrimSpace(run.TargetHost)
+		opts.TargetWorkerID = strings.TrimSpace(run.TargetWorkerID)
+		opts.RunSnapshot = newRunSnapshot(run)
+		fromRunAgent = strings.TrimSpace(run.Agent)
+		if run.IssueID != "" {
+			issueID = run.IssueID
 		}
 	}
-	if strings.TrimSpace(opts.Target) != "" && strings.TrimSpace(opts.Target) != "local" {
+
+	// Resolve the execution profile (codex or claude) before target resolution
+	// so a profile-bound target routes through the worker-delegation path, and
+	// so AllowedTargets is enforced + the auth dir re-derived on every continue.
+	profileCfg, profileCfgErr := loadConfigForProjectRoot(projectRoot)
+	if profileCfgErr != nil {
+		return errorResponse(fmt.Sprintf("failed to load config: %v", profileCfgErr))
+	}
+	if err := applyCodexProfileContinue(profileCfg, opts, fromRunAgent); err != nil {
+		return errorResponse(err.Error())
+	}
+	if err := applyClaudeProfileContinue(profileCfg, opts, fromRunAgent); err != nil {
+		return errorResponse(err.Error())
+	}
+
+	if strings.TrimSpace(opts.TargetWorkerID) == "" && strings.TrimSpace(opts.TargetHost) != "" {
+		opts.TargetWorkerID = HostWorkerID(opts.TargetHost)
+	}
+	if strings.TrimSpace(opts.TargetHost) == "" && strings.TrimSpace(opts.TargetWorkerID) == "" && strings.TrimSpace(opts.Target) != "" && strings.TrimSpace(opts.Target) != "local" {
 		target, targetErr := resolveTargetForProjectRoot(projectRoot, opts.Target)
 		if targetErr != nil {
 			return errorResponse(targetErr.Error())
@@ -1529,8 +1710,22 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 		opts.TargetWorkerID = target.WorkerID
 	}
 
+	// Resolve the issue on the MASTER (issue-store SSOT) and carry the snapshot in
+	// the worker payload. Fail fast here, before delegating, so a missing issue
+	// surfaces on the master instead of on a worker that may run on a different host
+	// and have no issue store. The issue ID is known for every continue mode: the
+	// branch/run-ref modes use req.IssueId, the short-id mode uses the resolved
+	// run's IssueID captured above.
+	if strings.TrimSpace(string(issueID)) != "" {
+		issue, err := st.ResolveIssue(issueID)
+		if err != nil {
+			return errorResponse(fmt.Sprintf("issue not found: %s", issueID))
+		}
+		opts.IssueSnapshot = issue
+	}
+
 	payload := &WorkerEffectPayload{ContinueRun: opts}
-	completedLease, err := s.withWorkerLease(projectID, "continue_run", req.IssueId, req.RunId, payload)
+	completedLease, err := s.withWorkerLease(projectID, "continue_run", string(opts.IssueID), string(opts.RunID), payload)
 	if err != nil {
 		return errorResponse(err.Error())
 	}
@@ -1542,7 +1737,7 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 	if result == nil {
 		return errorResponse("worker lease completed without continue_run result")
 	}
-	if err := s.syncContinueRunResultToMasterStore(st, req, result, opts.Target); err != nil {
+	if err := s.syncContinueRunResultToMasterStore(st, req, result, opts.Target, effectiveAgentProfile(opts.CodexProfile, opts.AgentProfile)); err != nil {
 		return errorResponse(fmt.Sprintf("failed to sync continue_run result to master store: %v", err))
 	}
 
@@ -1550,13 +1745,13 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 		Ok: true,
 		Response: &orchpb.Response_ContinueRun{
 			ContinueRun: &orchpb.ContinueRunResponse{
-				RunId:         result.RunID,
+				RunId:         string(result.RunID),
 				Branch:        result.Branch,
 				WorktreePath:  result.WorktreePath,
 				SessionName:   result.SessionName,
 				Status:        result.Status,
 				ContinuedFrom: result.ContinuedFrom,
-				IssueId:       result.IssueID,
+				IssueId:       string(result.IssueID),
 			},
 		},
 	}
@@ -1573,28 +1768,43 @@ func (s *SocketServer) handleProtoStopRun(req *orchpb.StopRunRequest) *orchpb.Re
 	}
 	st := repoCtx.Store
 
-	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
-	run, err := st.GetRun(ref)
-	if err != nil {
-		return errorResponse("not_found")
+	run, err := resolveRunForMutation(st, req.IssueId, req.RunId, "")
+	if err != nil || run == nil {
+		return errorResponse(masterRunNotFoundError(projectID, req.IssueId, req.RunId, "", err))
 	}
+	runSnapshot := newRunSnapshot(run)
 
 	projectRoot := strings.TrimSpace(repoCtx.ProjectRoot)
-	payload := &WorkerEffectPayload{}
-	if strings.TrimSpace(projectRoot) != "" {
-		stopPayload := &StopRunPayload{ProjectRoot: projectRoot, Target: strings.TrimSpace(run.Target)}
-		if strings.TrimSpace(run.Target) != "" && strings.TrimSpace(run.Target) != "local" {
-			target, targetErr := resolveTargetForProjectRoot(projectRoot, run.Target)
-			if targetErr != nil {
-				return errorResponse(targetErr.Error())
-			}
+	sessionKillErr := error(nil)
+	if s.runRequiresWorkerDelegation(run, "") {
+		stopPayload := &StopRunPayload{
+			ProjectRoot: projectRoot,
+			Target:      strings.TrimSpace(run.Target),
+			RunSnapshot: runSnapshot,
+		}
+		if target, targetErr := resolveWorkerTargetForRunFields(run, projectRoot); targetErr == nil {
 			stopPayload.TargetHost = target.Host
 			stopPayload.TargetWorkerID = target.WorkerID
+		} else {
+			sessionKillErr = targetErr
 		}
-		payload.StopRun = stopPayload
+		if sessionKillErr == nil {
+			payload := &WorkerEffectPayload{StopRun: stopPayload}
+			if _, err := s.withWorkerLease(projectID, "stop_run", string(run.IssueID), string(run.RunID), payload); err != nil {
+				sessionKillErr = err
+			}
+		}
+	} else if restoredRun, restoreErr := modelRunFromSnapshot(runSnapshot); restoreErr != nil {
+		sessionKillErr = restoreErr
+	} else if err := s.stopRunSession(restoredRun); err != nil {
+		sessionKillErr = err
 	}
-	if _, err := s.withWorkerLease(projectID, "stop_run", run.IssueID, run.RunID, payload); err != nil {
-		return errorResponse(err.Error())
+
+	if sessionKillErr != nil {
+		s.logger.Printf("stop_run session kill skipped for %s#%s: %v", run.IssueID, run.RunID, sessionKillErr)
+	}
+	if err := appendRunCanceledByUser(st, run); err != nil {
+		return errorResponse(fmt.Sprintf("failed to mark run canceled in master store for project %q: %v", projectID, err))
 	}
 
 	return &orchpb.Response{
@@ -1612,7 +1822,7 @@ func (s *SocketServer) handleProtoResolveRun(req *orchpb.ResolveRunRequest) *orc
 		return errorResponse("no store available")
 	}
 
-	if err := st.SetIssueStatus(req.IssueId, model.IssueStatusResolved); err != nil {
+	if err := st.SetIssueStatus(model.IssueID(req.IssueId), model.IssueStatusResolved); err != nil {
 		return errorResponse("store_error")
 	}
 
@@ -1687,7 +1897,7 @@ func (s *SocketServer) handleProtoListIssues(req *orchpb.ListIssuesRequest) *orc
 		search := strings.ToLower(req.TextSearch)
 		var filtered []*model.Issue
 		for _, issue := range issues {
-			if strings.Contains(strings.ToLower(issue.ID), search) ||
+			if strings.Contains(strings.ToLower(string(issue.ID)), search) ||
 				strings.Contains(strings.ToLower(issue.Title), search) ||
 				strings.Contains(strings.ToLower(issue.Summary), search) {
 				filtered = append(filtered, issue)
@@ -1752,14 +1962,14 @@ func (s *SocketServer) handleProtoGetIssue(req *orchpb.GetIssueRequest) *orchpb.
 			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
 		}
 
-		resolved, err := st.ResolveIssue(req.IssueId)
+		resolved, err := st.ResolveIssue(model.IssueID(req.IssueId))
 		if err != nil {
 			return errorResponse("not_found")
 		}
 		issue = resolved
 	} else {
 		for _, st := range s.listStores() {
-			resolved, err := st.ResolveIssue(req.IssueId)
+			resolved, err := st.ResolveIssue(model.IssueID(req.IssueId))
 			if err != nil {
 				if isStoreNotFoundError(err) {
 					continue
@@ -1834,7 +2044,7 @@ func (s *SocketServer) handleProtoCloseIssue(req *orchpb.CloseIssueRequest) *orc
 		return errorResponse("no store available")
 	}
 
-	if err := st.SetIssueStatus(req.IssueId, model.IssueStatusClosed); err != nil {
+	if err := st.SetIssueStatus(model.IssueID(req.IssueId), model.IssueStatusClosed); err != nil {
 		return errorResponse("not_found")
 	}
 
@@ -1917,6 +2127,7 @@ func (s *SocketServer) handleProtoGetControlAgentConfig(req *orchpb.GetControlAg
 				Model:         result.Model,
 				ModelVariant:  result.ModelVariant,
 				ExtraArgs:     result.ExtraArgs,
+				CodexHome:     result.CodexHome,
 			},
 		},
 	}
@@ -1934,9 +2145,9 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 
 		var err error
 		if req.ShortId != "" {
-			run, err = st.GetRunByShortID(req.ShortId)
+			run, err = st.GetRunByShortID(model.ShortID(req.ShortId))
 		} else {
-			ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+			ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}
 			run, err = st.GetRun(ref)
 		}
 		if err != nil {
@@ -1949,7 +2160,7 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 				err      error
 			)
 			if req.ShortId != "" {
-				resolved, err = st.GetRunByShortID(req.ShortId)
+				resolved, err = st.GetRunByShortID(model.ShortID(req.ShortId))
 				if err != nil {
 					if isStoreNotFoundError(err) {
 						continue
@@ -1960,7 +2171,7 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 					return errorResponse("store_error")
 				}
 			} else {
-				ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+				ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}
 				resolved, err = st.GetRun(ref)
 				if err != nil {
 					if isStoreNotFoundError(err) {
@@ -1994,8 +2205,8 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 		Agent:             run.Agent,
 		ServerPort:        int32(run.ServerPort),
 		OpencodeSessionId: run.OpenCodeSessionID,
-		IssueId:           run.IssueID,
-		RunId:             run.RunID,
+		IssueId:           string(run.IssueID),
+		RunId:             string(run.RunID),
 	}
 
 	if strings.TrimSpace(run.TargetHost) != "" {
@@ -2075,9 +2286,10 @@ func (s *SocketServer) handleProtoCaptureSession(req *orchpb.CaptureSessionReque
 				Target:         strings.TrimSpace(runCtx.run.Target),
 				TargetHost:     target.Host,
 				TargetWorkerID: target.WorkerID,
+				RunSnapshot:    newRunSnapshot(runCtx.run),
 			},
 		}
-		completedLease, err := s.withWorkerLease(runCtx.projectID, "capture_session", runCtx.run.IssueID, runCtx.run.RunID, payload)
+		completedLease, err := s.withWorkerLease(runCtx.projectID, "capture_session", string(runCtx.run.IssueID), string(runCtx.run.RunID), payload)
 		if err != nil {
 			return errorResponse(err.Error())
 		}
@@ -2171,10 +2383,16 @@ func (s *SocketServer) handleProtoSendMessage(req *orchpb.SendMessageRequest) *o
 				Target:         strings.TrimSpace(runCtx.run.Target),
 				TargetHost:     target.Host,
 				TargetWorkerID: target.WorkerID,
+				RunSnapshot:    newRunSnapshot(runCtx.run),
 			},
 		}
-		if _, err := s.withWorkerLease(runCtx.projectID, "send_message", runCtx.run.IssueID, runCtx.run.RunID, payload); err != nil {
+		if _, err := s.withWorkerLease(runCtx.projectID, "send_message", string(runCtx.run.IssueID), string(runCtx.run.RunID), payload); err != nil {
 			return errorResponse(err.Error())
+		}
+		// --no-enter only types into the input box without submitting; the
+		// agent has not received anything, so the run is not resumed.
+		if !req.NoEnter {
+			s.markRunFeedbackSent(runCtx.store, runCtx.run)
 		}
 		return &orchpb.Response{
 			Ok:       true,
@@ -2218,9 +2436,10 @@ func (s *SocketServer) handleProtoGetDiffStats(req *orchpb.GetDiffStatsRequest) 
 				Target:         strings.TrimSpace(runCtx.run.Target),
 				TargetHost:     target.Host,
 				TargetWorkerID: target.WorkerID,
+				RunSnapshot:    newRunSnapshot(runCtx.run),
 			},
 		}
-		completedLease, err := s.withWorkerLease(runCtx.projectID, "get_diff_stats", runCtx.run.IssueID, runCtx.run.RunID, payload)
+		completedLease, err := s.withWorkerLease(runCtx.projectID, "get_diff_stats", string(runCtx.run.IssueID), string(runCtx.run.RunID), payload)
 		if err != nil {
 			return errorResponse(err.Error())
 		}
@@ -2283,9 +2502,10 @@ func (s *SocketServer) handleProtoGetBranchState(req *orchpb.GetBranchStateReque
 				Target:         strings.TrimSpace(runCtx.run.Target),
 				TargetHost:     target.Host,
 				TargetWorkerID: target.WorkerID,
+				RunSnapshot:    newRunSnapshot(runCtx.run),
 			},
 		}
-		completedLease, err := s.withWorkerLease(runCtx.projectID, "get_branch_state", runCtx.run.IssueID, runCtx.run.RunID, payload)
+		completedLease, err := s.withWorkerLease(runCtx.projectID, "get_branch_state", string(runCtx.run.IssueID), string(runCtx.run.RunID), payload)
 		if err != nil {
 			return errorResponse(err.Error())
 		}
@@ -2390,9 +2610,10 @@ func (s *SocketServer) handleProtoGetDiff(req *orchpb.GetDiffRequest) *orchpb.Re
 				Target:         strings.TrimSpace(runCtx.run.Target),
 				TargetHost:     target.Host,
 				TargetWorkerID: target.WorkerID,
+				RunSnapshot:    newRunSnapshot(runCtx.run),
 			},
 		}
-		completedLease, err := s.withWorkerLease(runCtx.projectID, "get_diff", runCtx.run.IssueID, runCtx.run.RunID, payload)
+		completedLease, err := s.withWorkerLease(runCtx.projectID, "get_diff", string(runCtx.run.IssueID), string(runCtx.run.RunID), payload)
 		if err != nil {
 			return errorResponse(err.Error())
 		}
@@ -2683,14 +2904,14 @@ func (s *SocketServer) handleProtoGetRunByShortID(req *orchpb.GetRunByShortIDReq
 			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
 		}
 
-		resolved, err := st.GetRunByShortID(req.ShortId)
+		resolved, err := st.GetRunByShortID(model.ShortID(req.ShortId))
 		if err != nil {
 			return errorResponse("not_found")
 		}
 		run = resolved
 	} else {
 		for _, st := range s.listStores() {
-			resolved, err := st.GetRunByShortID(req.ShortId)
+			resolved, err := st.GetRunByShortID(model.ShortID(req.ShortId))
 			if err != nil {
 				if isStoreNotFoundError(err) {
 					continue
@@ -2744,7 +2965,7 @@ func (s *SocketServer) handleProtoResolveIssue(req *orchpb.ResolveIssueRequest) 
 		return errorResponse("no store available")
 	}
 
-	if err := st.SetIssueStatus(req.IssueId, model.IssueStatusResolved); err != nil {
+	if err := st.SetIssueStatus(model.IssueID(req.IssueId), model.IssueStatusResolved); err != nil {
 		return errorResponse(err.Error())
 	}
 
@@ -2767,7 +2988,7 @@ func (s *SocketServer) handleProtoAppendEvent(req *orchpb.AppendEventRequest) *o
 		return errorResponse("no store available")
 	}
 
-	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+	ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}
 	event := model.NewEvent(model.EventType(req.EventType), req.EventName, req.EventAttrs)
 
 	if err := st.AppendEvent(ref, event); err != nil {
@@ -2831,7 +3052,7 @@ func (s *SocketServer) handleProtoRegisterRepo(req *orchpb.RegisterRepoRequest) 
 		if err != nil {
 			return errorResponse(fmt.Sprintf("invalid repo URL %q: %v", input, err))
 		}
-		repoID = strings.TrimSpace(parsedID)
+		repoID = strings.TrimSpace(string(parsedID))
 		repoURL = input
 		workspaceRoot, err := ensureManagedRepoWorkspace(repoID, repoURL)
 		if err != nil {
@@ -2937,9 +3158,9 @@ func (s *SocketServer) handleProtoDeleteRun(req *orchpb.DeleteRunRequest) *orchp
 	}
 
 	result := &orchpb.DeleteRunResponse{
-		IssueId: run.IssueID,
-		RunId:   run.RunID,
-		ShortId: run.ShortID(),
+		IssueId: string(run.IssueID),
+		RunId:   string(run.RunID),
+		ShortId: string(run.ShortID()),
 	}
 
 	if req.WithWorktree && run.WorktreePath != "" {
@@ -2996,9 +3217,9 @@ func (s *SocketServer) handleProtoCleanRunWorktree(req *orchpb.CleanRunWorktreeR
 	}
 
 	result := &orchpb.CleanRunWorktreeResponse{
-		IssueId:         run.IssueID,
-		RunId:           run.RunID,
-		ShortId:         run.ShortID(),
+		IssueId:         string(run.IssueID),
+		RunId:           string(run.RunID),
+		ShortId:         string(run.ShortID()),
 		WorktreePath:    run.WorktreePath,
 		WorktreeRemoved: removed,
 		Skipped:         skipped,
@@ -3022,7 +3243,7 @@ func (s *SocketServer) handleProtoUpdateIssue(req *orchpb.UpdateIssueRequest) *o
 		return errorResponse("no store available")
 	}
 
-	issue, err := st.ResolveIssue(req.IssueId)
+	issue, err := st.ResolveIssue(model.IssueID(req.IssueId))
 	if err != nil {
 		return errorResponse(fmt.Sprintf("issue not found: %v", err))
 	}
@@ -3072,7 +3293,7 @@ func (s *SocketServer) handleProtoValidateIssueFiles(req *orchpb.ValidateIssueFi
 			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
 		}
 
-		result, err := st.ValidateIssueFiles(req.IssueId)
+		result, err := st.ValidateIssueFiles(model.IssueID(req.IssueId))
 		if err != nil {
 			return errorResponse(fmt.Sprintf("validation failed: %v", err))
 		}
@@ -3085,7 +3306,7 @@ func (s *SocketServer) handleProtoValidateIssueFiles(req *orchpb.ValidateIssueFi
 	} else {
 		stores := s.listStores()
 		for _, st := range stores {
-			result, err := st.ValidateIssueFiles(req.IssueId)
+			result, err := st.ValidateIssueFiles(model.IssueID(req.IssueId))
 			if err != nil {
 				if req.IssueId != "" && isStoreNotFoundError(err) {
 					continue
@@ -3110,7 +3331,7 @@ func (s *SocketServer) handleProtoValidateIssueFiles(req *orchpb.ValidateIssueFi
 	for _, e := range aggregated.Errors {
 		item := &orchpb.ValidationResultItem{
 			File:    e.File,
-			IssueId: e.IssueID,
+			IssueId: string(e.IssueID),
 		}
 		for _, issue := range e.Errors {
 			item.Errors = append(item.Errors, &orchpb.ValidationIssue{
@@ -3125,7 +3346,7 @@ func (s *SocketServer) handleProtoValidateIssueFiles(req *orchpb.ValidateIssueFi
 
 	for _, d := range aggregated.Duplicates {
 		protoResult.Duplicates = append(protoResult.Duplicates, &orchpb.DuplicateIDItem{
-			Id:    d.ID,
+			Id:    string(d.ID),
 			Files: d.Files,
 		})
 	}
@@ -3151,9 +3372,9 @@ func (s *SocketServer) handleProtoWriteAgentPrompt(req *orchpb.WriteAgentPromptR
 	var err error
 
 	if req.ShortId != "" {
-		run, err = st.GetRunByShortID(req.ShortId)
+		run, err = st.GetRunByShortID(model.ShortID(req.ShortId))
 	} else {
-		ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+		ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}
 		run, err = st.GetRun(ref)
 	}
 	if err != nil {
@@ -3185,9 +3406,9 @@ func (s *SocketServer) handleProtoReadAgentPrompt(req *orchpb.ReadAgentPromptReq
 		}
 
 		if req.ShortId != "" {
-			run, err = st.GetRunByShortID(req.ShortId)
+			run, err = st.GetRunByShortID(model.ShortID(req.ShortId))
 		} else {
-			ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+			ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}
 			run, err = st.GetRun(ref)
 		}
 		if err != nil {
@@ -3201,7 +3422,7 @@ func (s *SocketServer) handleProtoReadAgentPrompt(req *orchpb.ReadAgentPromptReq
 			)
 
 			if req.ShortId != "" {
-				resolved, err = candidateStore.GetRunByShortID(req.ShortId)
+				resolved, err = candidateStore.GetRunByShortID(model.ShortID(req.ShortId))
 				if err != nil {
 					if isStoreNotFoundError(err) {
 						continue
@@ -3212,7 +3433,7 @@ func (s *SocketServer) handleProtoReadAgentPrompt(req *orchpb.ReadAgentPromptReq
 					return errorResponse(fmt.Sprintf("run lookup failed: %v", err))
 				}
 			} else {
-				ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+				ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}
 				resolved, err = candidateStore.GetRun(ref)
 				if err != nil {
 					if isStoreNotFoundError(err) {
@@ -3393,7 +3614,7 @@ func (s *SocketServer) handleProtoCreateRun(req *orchpb.CreateRunRequest) *orchp
 		return errorResponse("no store available")
 	}
 
-	run, err := st.CreateRun(req.IssueId, req.RunId, req.Metadata)
+	run, err := st.CreateRun(model.IssueID(req.IssueId), model.RunID(req.RunId), req.Metadata)
 	if err != nil {
 		return errorResponse(fmt.Sprintf("failed to create run: %v", err))
 	}
@@ -3402,8 +3623,8 @@ func (s *SocketServer) handleProtoCreateRun(req *orchpb.CreateRunRequest) *orchp
 		Ok: true,
 		Response: &orchpb.Response_CreateRun{
 			CreateRun: &orchpb.CreateRunResponse{
-				IssueId: run.IssueID,
-				RunId:   run.RunID,
+				IssueId: string(run.IssueID),
+				RunId:   string(run.RunID),
 				Path:    run.Path,
 			},
 		},
@@ -3419,7 +3640,7 @@ func (s *SocketServer) handleProtoInjectInitialPrompt(req *orchpb.InjectInitialP
 		return errorResponse("no store available")
 	}
 
-	ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+	ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}
 	run, err := st.GetRun(ref)
 	if err != nil {
 		return errorResponse(fmt.Sprintf("run not found: %v", err))
@@ -3576,9 +3797,9 @@ func (s *SocketServer) handleProtoResumeRun(req *orchpb.ResumeRunRequest) *orchp
 	var err error
 
 	if req.ShortId != "" {
-		run, err = st.GetRunByShortID(req.ShortId)
+		run, err = st.GetRunByShortID(model.ShortID(req.ShortId))
 	} else {
-		ref := &model.RunRef{IssueID: req.IssueId, RunID: req.RunId}
+		ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}
 		run, err = st.GetRun(ref)
 	}
 	if err != nil {

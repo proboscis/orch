@@ -6,7 +6,7 @@ description: |
   restart-from, orch worker start/status/stop, orch attach/capture/send/exec, and remote execution
   via ORCH_REMOTE and target_host. Trigger terms: orch, orchestrator, worker, master, ORCH_REMOTE,
   target_host, run management, issue management, agent runs, worktree.
-version: 1.1.1
+version: 1.2.0
 ---
 
 # Orch Toolset
@@ -27,9 +27,22 @@ worktrees, and append-only run events.
 Important remote rule:
 
 - `ORCH_REMOTE=<master>` points the CLI and local worker at that master.
+- The default master can also be set durably in `client.yaml` — globally in
+  `~/.config/orch/client.yaml` or per-repo in `<repo>/.orch/client.yaml`:
+
+  ```yaml
+  remote:
+    default: "zeus:7777"
+  ```
+
 - It does **not** mean `worker start` happens on the remote host.
 - `orch worker start` is local-host scoped. The worker process is started on the machine where
   you run the command, then it connects to the configured master.
+- When talking to a remote master, pass `--project <origin URL>` (or set `ORCH_PROJECT`)
+  explicitly on every command. CWD-based inference resolves against the master's own context,
+  not your repo: observed with daemon @6b2bceb1, `issue list` without `--project` returned the
+  master repo's issues, and `issue create` fails with `project identity required` even inside
+  a git repo with `origin` set.
 
 ## Core Workflow
 
@@ -114,8 +127,70 @@ Interpretation:
 - the worker registered to `zeus:7777`
 - the run's `target_host` / `HOST` tells you where the session actually runs
 
+## Remote-Master Pitfalls (verified behaviors)
+
+- **Target resolution happens on the master.** `--on <target>` names are mapped to a host by
+  `config.targets` as loaded by the **master daemon**, and the resolved host is **baked into
+  the run at creation**. Fixing a client-side config does not change what new runs resolve to —
+  the master's config (on the master host) is what counts, and the daemon reads it at startup.
+- **Stale target host after a machine rename/migration**: `orch run` appears to succeed
+  (worktree created), but the session never launches, and `capture`/`send`/`stop` all fail with
+  `no active worker available for target "host-<old-hostname>"`. Fix: update `targets:` in the
+  config on the **master host**, then restart the master daemon.
+- **Runs created before the fix keep the stale baked host** and cannot even be stopped
+  normally. Recovery: temporarily register a worker under the old ID, stop, then remove it:
+
+  ```bash
+  orch worker start --worker-id host-<old-hostname>
+  orch stop <ISSUE> --force
+  orch worker stop --worker-id host-<old-hostname>
+  ```
+
+- **Workers do not reconnect forever.** A master restart or a network blip can leave the local
+  worker `exited` (see `Last Error` in `orch worker status`). Verify the worker at the start of
+  every orch session and run `orch worker start` again when needed.
+- **File-backend issue files live on the master's checkout** (e.g.
+  `~/repos/<repo>/VAULT/Issues/ISSUE-X.md` on the master host). From another host,
+  `orch open <ISSUE> --print-path` reports `not found` — read the issue via `orch issue list`
+  / `orch show` instead.
+- **Updating the master binary while its daemon runs** fails with `Text file busy` on `cp`;
+  use `rm <bin> && cp <new> <bin>` (the running process keeps its inode), then restart the
+  daemon deliberately. `orch repair`'s daemon restart operates on the operator host — restart a
+  remote master on its own host (`kill <pid>`, then
+  `nohup orch daemon run --listen 0.0.0.0:<port> ...` from the original working directory).
+
+## Model Routing for Runs
+
+The choice is ALWAYS between exactly two models (never Opus, never Haiku):
+
+- **gpt-5.5 (`--agent codex`)**: mundane mechanical work — rename sweeps,
+  fixture ports, wiring an explicitly specified contract. ~2x faster;
+  satisfies done conditions to the letter.
+- **Fable 5 (`--agent claude`, xhigh)**: architectural / complex /
+  invariant-touching issues — architecture boundaries, contract
+  migrations, invariant machinery, anything where the issue's checklist is
+  a projection of a deeper design. Empirical A/B on the same issue
+  (2026-06-11): gpt-5.5 met every done condition; Fable 5 additionally
+  found and fixed a latent bug the work exposed and migrated without
+  leaving dual surfaces. Blind gpt-5.5-by-default yields letter-satisfying,
+  seam-blind results that cost more in review.
+- Whoever dispatches owns this call per issue; when unsure, ask "does this
+  issue touch a contract or just implement inside one?"
+- **Effort enforcement caveat**: orch launches claude WITHOUT
+  `CLAUDE_CONFIG_DIR` unless a claude profile with `config_dir` is set in
+  the master config — so it reads the bare `~/.claude/settings.json`,
+  which the cc multi-profile workflow never touches and which can drift.
+  Fable 5 must run at xhigh: verify `effortLevel` in `~/.claude/settings.json`
+  (or define an orch claude profile) before relying on a dispatched run's
+  effort. Verified incident 2026-06-11: all named profiles said xhigh while
+  `~/.claude` still said high; the orch run started at HIGH.
+
 ## Control-Agent Patterns
 
+- **Waiting for a run: `orch wait <RUN_REF> [--timeout N]` is the canonical way —
+  do NOT poll `orch ps` in a loop or hand-roll tmux watchers.** It blocks until
+  any specified run needs attention (waiting/pr_open/done/failed). Pair with a
+  background shell invocation to get a single completion notification.
 - Use `orch ps --status running,waiting,rate_limited` to focus on live work.
 - Use `orch capture` before `orch send`.
 - Use `orch show --json` when you need artifacts like `target_host`, `server_port`, or
@@ -164,6 +239,7 @@ Recommended triage order:
 | Start run | `orch run <ISSUE>` |
 | List live runs | `orch ps --status running,waiting,rate_limited` |
 | Inspect run metadata | `orch show <RUN> --json` |
+| Block until a run needs attention | `orch wait <RUN> [--timeout N]` (canonical; never poll) |
 | Get output | `orch capture <RUN>` |
 | Send guidance | `orch send <RUN> [message]` |
 | Attach interactively | `orch attach <RUN>` |

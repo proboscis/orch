@@ -76,6 +76,42 @@ type ClaudeConfig struct {
 	PromptTemplate   string   `yaml:"prompt_template,omitempty"`
 	ExtraArgs        []string `yaml:"extra_args,omitempty"`         // Additional CLI args for run agents
 	ControlExtraArgs []string `yaml:"control_extra_args,omitempty"` // Additional CLI args for control agent
+
+	// DefaultProfile is the claude profile selected when --profile is not
+	// provided for a claude run in this project.
+	DefaultProfile string `yaml:"default_profile,omitempty"`
+	// Profiles maps a profile name (e.g. "ca"/"cryptic"/"personal") to its
+	// execution binding (target + CLAUDE_CONFIG_DIR + allowed targets).
+	Profiles map[string]ClaudeProfile `yaml:"profiles,omitempty"`
+}
+
+// ClaudeProfile binds a Claude Code "account" to an execution target and an
+// optional CLAUDE_CONFIG_DIR. Claude Code has no native profile flag; account
+// selection is done entirely via the CLAUDE_CONFIG_DIR environment variable,
+// which the execution host expands (a leading ~ resolves against that host's
+// HOME at launch). Profiles are selectable per run (--profile) and defaulted
+// per project (claude.default_profile).
+type ClaudeProfile struct {
+	Target    string `yaml:"target,omitempty"`     // config.targets name to run on (e.g. "mac"); empty = master/local
+	ConfigDir string `yaml:"config_dir,omitempty"` // CLAUDE_CONFIG_DIR for this profile; empty = agent default (~/.claude)
+	// AllowedTargets restricts which config.targets names this profile may run
+	// on. Target NAMES (matched against Target and `orch run --on`), not
+	// resolved hostnames. The local/master target is matched as "local".
+	// Empty list = any target allowed.
+	AllowedTargets []string `yaml:"allowed_targets,omitempty"`
+}
+
+// CodexProfile binds a codex "account" to an execution target and optional
+// CODEX_HOME auth directory. Profiles are selectable per run (--codex-profile)
+// and defaulted per project (codex.default_profile).
+type CodexProfile struct {
+	Target    string `yaml:"target,omitempty"`     // config.targets name to run on (e.g. "mac"); empty = master/local
+	CodexHome string `yaml:"codex_home,omitempty"` // CODEX_HOME for this profile; empty = agent default (~/.codex)
+	// AllowedTargets restricts which config.targets names this profile may run
+	// on (e.g. ["mac"]). These are target NAMES (matched against Target and
+	// `orch run --on`), not resolved hostnames. The local/master target is
+	// matched as "local". Empty list = any target allowed.
+	AllowedTargets []string `yaml:"allowed_targets,omitempty"`
 }
 
 // CodexConfig holds default configuration for the codex agent.
@@ -85,6 +121,13 @@ type CodexConfig struct {
 	PromptTemplate   string   `yaml:"prompt_template,omitempty"`
 	ExtraArgs        []string `yaml:"extra_args,omitempty"`         // Additional CLI args for run agents
 	ControlExtraArgs []string `yaml:"control_extra_args,omitempty"` // Additional CLI args for control agent
+
+	// DefaultProfile is the codex profile selected when --codex-profile is not
+	// provided for a run in this project.
+	DefaultProfile string `yaml:"default_profile,omitempty"`
+	// Profiles maps a profile name (e.g. "company"/"personal") to its execution
+	// binding (target + CODEX_HOME + allowed targets).
+	Profiles map[string]CodexProfile `yaml:"profiles,omitempty"`
 }
 
 // GeminiConfig holds default configuration for the gemini agent.
@@ -486,6 +529,12 @@ func loadFromFile(path string, cfg *Config) error {
 		if len(fileCfg.Claude.ControlExtraArgs) > 0 {
 			cfg.Claude.ControlExtraArgs = fileCfg.Claude.ControlExtraArgs
 		}
+		if fileCfg.Claude.DefaultProfile != "" {
+			cfg.Claude.DefaultProfile = fileCfg.Claude.DefaultProfile
+		}
+		if len(fileCfg.Claude.Profiles) > 0 {
+			cfg.Claude.Profiles = fileCfg.Claude.Profiles
+		}
 	}
 	if fileCfg.Codex != nil {
 		if fileCfg.Codex.DefaultModel != "" {
@@ -499,6 +548,12 @@ func loadFromFile(path string, cfg *Config) error {
 		}
 		if len(fileCfg.Codex.ControlExtraArgs) > 0 {
 			cfg.Codex.ControlExtraArgs = fileCfg.Codex.ControlExtraArgs
+		}
+		if fileCfg.Codex.DefaultProfile != "" {
+			cfg.Codex.DefaultProfile = fileCfg.Codex.DefaultProfile
+		}
+		if len(fileCfg.Codex.Profiles) > 0 {
+			cfg.Codex.Profiles = fileCfg.Codex.Profiles
 		}
 	}
 	if fileCfg.Gemini != nil {
@@ -733,6 +788,19 @@ func (c *Config) GetTarget(name string) *TargetConfig {
 		}
 	}
 	return nil
+}
+
+// GetCodexProfile returns the codex execution profile with the given name.
+// The bool result reports whether a profile with that name is configured;
+// callers must fail fast on a false result rather than silently defaulting.
+func (c *Config) GetCodexProfile(name string) (CodexProfile, bool) {
+	p, ok := c.Codex.Profiles[name]
+	return p, ok
+}
+
+func (c *Config) GetClaudeProfile(name string) (ClaudeProfile, bool) {
+	p, ok := c.Claude.Profiles[name]
+	return p, ok
 }
 
 // GetAllPresets returns all presets, merging new-style Presets with

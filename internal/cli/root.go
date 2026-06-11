@@ -238,7 +238,7 @@ func getProjectIDWithSource(projectRoot string) (string, bool, error) {
 		return "", false, err
 	}
 
-	return projectID, false, nil
+	return string(projectID), false, nil
 }
 
 func resolveProjectIdentity(projectRoot string) (string, error) {
@@ -263,7 +263,7 @@ func normalizeProjectIdentityInput(project string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("invalid project identity %q: %w", project, err)
 		}
-		return normalized, nil
+		return string(normalized), nil
 	}
 	if looksLikeProjectPath(project) {
 		return "", fmt.Errorf("project identity %q looks like a filesystem path; use git repo URL or normalized repo ID", project)
@@ -421,6 +421,7 @@ func apiRunToModelRun(r *orchapi.Run) (*model.Run, error) {
 		RunID:             r.RunID,
 		Status:            status,
 		Agent:             r.Agent,
+		Profile:           r.Profile,
 		Model:             r.Model,
 		ModelVariant:      r.ModelVariant,
 		Branch:            r.Branch,

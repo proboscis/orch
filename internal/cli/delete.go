@@ -171,7 +171,7 @@ func runDelete(refStr string, opts *deleteOptions) error {
 	return deleteRuns(ctx, api, []*orchapi.Run{run}, opts)
 }
 
-func deleteIssueRuns(ctx context.Context, api orchapi.OrchAPI, issueID string, opts *deleteOptions) error {
+func deleteIssueRuns(ctx context.Context, api orchapi.OrchAPI, issueID model.IssueID, opts *deleteOptions) error {
 	filter := &orchapi.ListRunsFilter{
 		IssueID: issueID,
 	}
@@ -340,9 +340,9 @@ func deleteRuns(ctx context.Context, api orchapi.OrchAPI, runs []*orchapi.Run, o
 			}
 		} else {
 			result.Deleted = append(result.Deleted, deletedRun{
-				IssueID:         deleteResult.IssueID,
-				RunID:           deleteResult.RunID,
-				ShortID:         deleteResult.ShortID,
+				IssueID:         string(deleteResult.IssueID),
+				RunID:           string(deleteResult.RunID),
+				ShortID:         string(deleteResult.ShortID),
 				WorktreeRemoved: deleteResult.WorktreeRemoved,
 				BranchRemoved:   deleteResult.BranchRemoved,
 				SessionKilled:   deleteResult.SessionKilled,

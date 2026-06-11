@@ -18,6 +18,7 @@ import (
 	"github.com/s22625/orch/internal/github"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/notify"
+	"github.com/s22625/orch/internal/pr"
 	"github.com/s22625/orch/internal/runevents"
 	"github.com/s22625/orch/internal/store"
 	"github.com/s22625/orch/internal/store/file"
@@ -59,6 +60,16 @@ type Daemon struct {
 
 	statusListeners   []runevents.StatusChangeListener
 	statusListenersMu sync.RWMutex
+
+	// remoteCaptureFn captures session output for runs executing on another
+	// host via the worker plane. Overridable in tests; defaults to the
+	// socket server's worker-lease capture.
+	remoteCaptureFn func(run *model.Run, projectID, projectRoot string, lines int) (string, error)
+
+	// PR lookup functions are overridable in tests; defaults use the cached
+	// PR package lookups.
+	lookupPRInfoFn      func(repoRoot, branch string) (*pr.Info, error)
+	lookupPRInfoByURLFn func(prURL string) (*pr.Info, error)
 }
 
 // RunState tracks the monitoring state of a single run
@@ -78,6 +89,10 @@ type RunState struct {
 	CaptureErrorKey       string
 	CaptureErrorLogAt     time.Time
 	SuppressedCaptureLogs int
+
+	// RemoteCaptureAt is when the last successful worker-plane capture
+	// happened for a remote run (used to throttle lease round-trips).
+	RemoteCaptureAt time.Time
 }
 
 func New(factory StoreFactory) *Daemon {
@@ -186,6 +201,8 @@ func (d *Daemon) Run() error {
 	if d.listenAddr != "" {
 		d.socketServer.SetTCPListenAddr(d.listenAddr)
 	}
+	d.socketServer.runLiveness = d.runLiveness
+	d.socketServer.onRunFeedback = d.noteRunFeedback
 	d.socketServer.SetGitHubBackend(d.githubBackend)
 	if err := d.socketServer.Start(); err != nil {
 		d.logger.Printf("warning: failed to start socket server: %v", err)
@@ -326,8 +343,10 @@ func (d *Daemon) monitorAll() {
 	}
 
 	type runWithStore struct {
-		run *model.Run
-		st  store.Store
+		run         *model.Run
+		st          store.Store
+		projectID   string
+		projectRoot string
 	}
 
 	var allRuns []*model.Run
@@ -346,7 +365,7 @@ func (d *Daemon) monitorAll() {
 		}
 		for _, run := range runs {
 			allRuns = append(allRuns, run)
-			runsWithStores = append(runsWithStores, runWithStore{run: run, st: ctx.Store})
+			runsWithStores = append(runsWithStores, runWithStore{run: run, st: ctx.Store, projectID: ctx.RepoID, projectRoot: ctx.ProjectRoot})
 		}
 	}
 
@@ -355,7 +374,7 @@ func (d *Daemon) monitorAll() {
 	}
 
 	for _, rws := range runsWithStores {
-		if err := d.monitorRun(rws.run, rws.st); err != nil {
+		if err := d.monitorRun(rws.run, rws.st, rws.projectID, rws.projectRoot); err != nil {
 			d.logger.Printf("error monitoring %s#%s: %v", rws.run.IssueID, rws.run.RunID, err)
 		}
 	}
@@ -414,7 +433,7 @@ func (d *Daemon) cleanupStates(activeRuns []*model.Run) {
 
 	activeKeys := make(map[string]bool)
 	for _, run := range activeRuns {
-		activeKeys[run.IssueID+"#"+run.RunID] = true
+		activeKeys[run.Ref().String()] = true
 	}
 
 	for key := range d.runStates {
@@ -424,12 +443,50 @@ func (d *Daemon) cleanupStates(activeRuns []*model.Run) {
 	}
 }
 
+// runLiveness reports the monitor's current view of a run's liveness.
+// alive means the last observation (local IsAlive or worker-lease capture)
+// succeeded; known means the monitor has actually observed the run at least
+// once — infra failures (worker offline) leave liveness unknown rather than
+// reporting a healthy session as dead.
+func (d *Daemon) runLiveness(run *model.Run) (alive, known bool) {
+	if run == nil {
+		return false, false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	state, ok := d.runStates[run.Ref().String()]
+	if !ok {
+		return false, false
+	}
+	if !state.WasAlive && state.DeadCheckCount == 0 {
+		return false, false
+	}
+	return state.WasAlive && state.DeadCheckCount == 0, true
+}
+
+// noteRunFeedback resets a run's prompt debounce when feedback is delivered
+// to its agent session: the idle prompt may still be on screen for the next
+// capture or two, and must not flip the run straight back to waiting before
+// the agent starts working on the feedback.
+func (d *Daemon) noteRunFeedback(run *model.Run) {
+	if run == nil {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if state, ok := d.runStates[run.Ref().String()]; ok {
+		state.PromptStreak = 0
+	}
+}
+
 // getOrCreateState gets or creates run state tracking
 func (d *Daemon) getOrCreateState(run *model.Run) *RunState {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	key := run.IssueID + "#" + run.RunID
+	key := run.Ref().String()
 	state, ok := d.runStates[key]
 	if !ok {
 		state = &RunState{

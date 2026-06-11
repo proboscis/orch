@@ -84,6 +84,7 @@ git -C "$PROJECT" config user.email e2e@example.com
 git -C "$PROJECT" config user.name E2E
 
 git init --bare "$ROOT/origin/example/run-control-local.git" >/dev/null
+git -C "$ROOT/origin/example/run-control-local.git" symbolic-ref HEAD refs/heads/main
 REPO_URL="file://$ROOT/origin/example/run-control-local.git"
 PROJECT_ID="example-run-control-local"
 

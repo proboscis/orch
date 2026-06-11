@@ -98,7 +98,7 @@ func TestSortIssuesByID(t *testing.T) {
 
 	expected := []string{"orch-001", "orch-002", "orch-005", "orch-010"}
 	for i, issue := range issues {
-		if issue.ID != expected[i] {
+		if issue.ID != model.IssueID(expected[i]) {
 			t.Errorf("issues[%d].ID = %q, want %q", i, issue.ID, expected[i])
 		}
 	}

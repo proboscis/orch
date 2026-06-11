@@ -70,6 +70,7 @@ git -C "$PROJECT" config user.email e2e@example.com
 git -C "$PROJECT" config user.name E2E
 
 git init --bare "$ROOT/origin/example/backend-matrix.git" >/dev/null
+git -C "$ROOT/origin/example/backend-matrix.git" symbolic-ref HEAD refs/heads/main
 REPO_URL="file://$ROOT/origin/example/backend-matrix.git"
 PROJECT_ID="example-backend-matrix"
 
@@ -172,7 +173,7 @@ export PATH="$ROOT/bin:$PATH"
 [ "$RUN_REAL_CLAUDE_LANE" != "1" ] || command -v claude >/dev/null 2>&1 || { echo "RUN_REAL_CLAUDE_LANE=1 but claude not found" >&2; exit 1; }
 [ "$RUN_REAL_CODEX_LANE" != "1" ] || command -v codex >/dev/null 2>&1 || { echo "RUN_REAL_CODEX_LANE=1 but codex not found" >&2; exit 1; }
 
-"$ORCH_BIN" master start >/dev/null
+"$ORCH_BIN" master start --listen "tcp://127.0.0.1:0" >/dev/null
 sleep 1
 "$ORCH_BIN" worker start >/dev/null
 sleep 2

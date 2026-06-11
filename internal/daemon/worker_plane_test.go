@@ -196,3 +196,127 @@ targets:
 		t.Fatalf("worktree path = %q, want local project-root-based path", result.StartRunResult.WorktreePath)
 	}
 }
+
+func TestExecuteLeaseEffectStopRunUsesSnapshotWithEmptyWorkerRunStore(t *testing.T) {
+	projectRoot := t.TempDir()
+	issuesRoot := filepath.Join(projectRoot, "issues-store")
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0o755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(issuesRoot, "issues"), 0o755); err != nil {
+		t.Fatalf("mkdir issues root: %v", err)
+	}
+	configBody := "issues:\n  path: " + issuesRoot + "\n"
+	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), []byte(configBody), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	st, err := filestore.New(issuesRoot)
+	if err != nil {
+		t.Fatalf("filestore.New() error = %v", err)
+	}
+	if _, err := st.GetRun(&model.RunRef{IssueID: "legacy-issue", RunID: "legacy-run"}); err == nil {
+		t.Fatal("precondition failed: worker store unexpectedly has legacy run")
+	}
+
+	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, log.New(io.Discard, "", 0))
+	server.SetWorkerIdentity(HostWorkerID("dead-host"), "dead-host")
+	if _, err := server.registerRepoContext("project-legacy", projectRoot, "", st); err != nil {
+		t.Fatalf("registerRepoContext() error = %v", err)
+	}
+
+	lease := &WorkerLease{
+		LeaseID:   "lease-stop-snapshot",
+		WorkerID:  HostWorkerID("dead-host"),
+		ProjectID: "project-legacy",
+		Effect:    "stop_run",
+		IssueID:   "legacy-issue",
+		RunID:     "legacy-run",
+		Payload: &WorkerEffectPayload{
+			StopRun: &StopRunPayload{
+				TargetHost:     "dead-host",
+				TargetWorkerID: HostWorkerID("dead-host"),
+				RunSnapshot: &RunSnapshot{
+					IssueID:     "legacy-issue",
+					RunID:       "legacy-run",
+					Status:      model.StatusRunning,
+					Agent:       "custom",
+					SessionName: "legacy-session",
+					Multiplexer: "tmux",
+				},
+			},
+		},
+	}
+
+	if _, err := server.executeLeaseEffect(lease); err != nil {
+		t.Fatalf("executeLeaseEffect() must use RunSnapshot instead of worker store, got: %v", err)
+	}
+}
+
+// TestProcessStartRunCoreUsesSnapshotWithEmptyWorkerIssueStore is the authoritative
+// regression for the cross-machine worker bug: a worker pinned to a different host
+// than the master has an EMPTY issue store. The master (issue-store SSOT) resolves a
+// non-GitHub issue and carries it in opts.IssueSnapshot. processStartRunCore must get
+// PAST issue resolution AND past st.CreateRun (which previously called ResolveIssue
+// internally and failed "issue not found") by using CreateRunForExistingIssue, then
+// reach worktree creation / booting. The run document must land even though the
+// worker's issue store has no issue file.
+func TestProcessStartRunCoreUsesSnapshotWithEmptyWorkerIssueStore(t *testing.T) {
+	// Real git repo so worktree creation (which happens AFTER st.CreateRun) can run.
+	projectRoot := createGitRepoWithOrigin(t, "https://github.com/example/snapshot-worker.git")
+
+	// FileStore with an EMPTY issues store: the worker has no issue file at all.
+	issuesRoot := filepath.Join(projectRoot, "issues-store")
+	if err := os.MkdirAll(filepath.Join(issuesRoot, "issues"), 0o755); err != nil {
+		t.Fatalf("mkdir issues root: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0o755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	configBody := "issues:\n  path: " + issuesRoot + "\nworktree_dir: worktrees\n"
+	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), []byte(configBody), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	st, err := filestore.New(issuesRoot)
+	if err != nil {
+		t.Fatalf("filestore.New() error = %v", err)
+	}
+	// Sanity: the issue genuinely does not exist on the worker store.
+	if _, err := st.ResolveIssue("remote-issue"); err == nil {
+		t.Fatal("precondition failed: worker store unexpectedly has the issue")
+	}
+
+	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, log.New(io.Discard, "", 0))
+
+	const issueID model.IssueID = "remote-issue" // non-gh id: CreateRun would verify it
+	const runID model.RunID = "20231220-101010"
+	opts := &StartRunOptions{
+		IssueID:     issueID,
+		RunID:       runID,
+		Agent:       "custom",
+		AgentCmd:    "true",
+		Multiplexer: "tmux",
+		// Master-resolved snapshot: this is what the worker must consume.
+		IssueSnapshot: &model.Issue{
+			ID:     issueID,
+			Title:  "Remote",
+			Body:   "do the thing",
+			Status: model.IssueStatusOpen,
+		},
+	}
+
+	// The call may still fail LATER (multiplexer/session launch is environment
+	// dependent), but it must NOT fail at issue resolution or at st.CreateRun.
+	_, err = server.processStartRunCore(st, projectRoot, opts)
+	if err != nil && strings.Contains(err.Error(), "issue not found") {
+		t.Fatalf("worker must use opts.IssueSnapshot and CreateRunForExistingIssue, not verify against its empty store; got: %v", err)
+	}
+
+	// The run document must have landed coherently under runs/<issueID>/<runID>.md,
+	// proving st.CreateRun's verification gate was bypassed without an issue file.
+	runDoc := filepath.Join(issuesRoot, "runs", string(issueID), string(runID)+".md")
+	if _, statErr := os.Stat(runDoc); statErr != nil {
+		t.Fatalf("expected run document at %q (CreateRun gate must be bypassed); stat err=%v; core err=%v", runDoc, statErr, err)
+	}
+}

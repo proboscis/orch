@@ -1,0 +1,22 @@
+rules:
+  - id: no-raw-model-repo-project-id-conversion
+    pattern-either:
+      - pattern: model.RepoID(...)
+      - pattern: model.ProjectID(...)
+    paths:
+      include:
+        - /internal/
+        - /.semgrep/typed-id-rules/
+      exclude:
+        - /internal/model/
+        - /internal/xdg/
+    message: >
+      Do not construct model.RepoID or model.ProjectID with a raw type
+      conversion. Repo/project identities must go through model.NewRepoID,
+      model.NewProjectID, or the xdg repo identity helpers so URL/path inputs
+      are normalized and degenerate IDs fail fast.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: invariant
+      violation: raw-typed-id-conversion

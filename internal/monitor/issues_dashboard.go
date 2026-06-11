@@ -1066,7 +1066,7 @@ func (d *IssueDashboard) renderDetails(maxLines int) string {
 
 	title := issue.Issue.Title
 	if strings.TrimSpace(title) == "" {
-		title = issue.Issue.ID
+		title = string(issue.Issue.ID)
 	}
 
 	contentWidth := d.safeWidth()

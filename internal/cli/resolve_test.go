@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/orchapi"
 )
 
@@ -17,7 +18,7 @@ type mockResolveAPI struct {
 	hasCompletedRun map[string]bool
 }
 
-func (m *mockResolveAPI) ResolveIssue(ctx context.Context, issueID string, force bool) error {
+func (m *mockResolveAPI) ResolveIssue(ctx context.Context, issueID model.IssueID, force bool) error {
 	if m.resolved == nil {
 		m.resolved = make(map[string]bool)
 	}
@@ -25,17 +26,19 @@ func (m *mockResolveAPI) ResolveIssue(ctx context.Context, issueID string, force
 		m.hasCompletedRun = make(map[string]bool)
 	}
 
-	if !m.hasCompletedRun[issueID] && !force {
+	issueKey := string(issueID)
+	if !m.hasCompletedRun[issueKey] && !force {
 		return errors.New("no completed runs")
 	}
 
-	m.resolved[issueID] = true
+	m.resolved[issueKey] = true
 	return nil
 }
 
-func (m *mockResolveAPI) GetIssue(ctx context.Context, issueID string) (*orchapi.Issue, error) {
+func (m *mockResolveAPI) GetIssue(ctx context.Context, issueID model.IssueID) (*orchapi.Issue, error) {
 	status := orchapi.IssueStatusOpen
-	if m.resolved != nil && m.resolved[issueID] {
+	issueKey := string(issueID)
+	if m.resolved != nil && m.resolved[issueKey] {
 		status = orchapi.IssueStatusResolved
 	}
 	return &orchapi.Issue{ID: issueID, Status: status}, nil

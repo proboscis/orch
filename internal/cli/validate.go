@@ -7,6 +7,7 @@ import (
 	"os"
 	"sort"
 
+	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
@@ -96,7 +97,7 @@ func runValidateIssueFiles(issueID string) error {
 		return err
 	}
 
-	apiResult, err := api.ValidateIssueFiles(context.Background(), issueID)
+	apiResult, err := api.ValidateIssueFiles(context.Background(), model.IssueID(issueID))
 	if err != nil {
 		return err
 	}
@@ -137,7 +138,7 @@ func convertValidationResults(results []*orchapi.ValidationResult) []*Validation
 		}
 		out = append(out, &ValidationResult{
 			File:     result.File,
-			IssueID:  result.IssueID,
+			IssueID:  string(result.IssueID),
 			Errors:   convertValidationIssues(result.Errors),
 			Warnings: convertValidationIssues(result.Warnings),
 		})
@@ -171,7 +172,7 @@ func convertDuplicateIDs(duplicates []orchapi.DuplicateID) []DuplicateID {
 
 	out := make([]DuplicateID, 0, len(duplicates))
 	for _, duplicate := range duplicates {
-		out = append(out, DuplicateID{ID: duplicate.ID, Files: duplicate.Files})
+		out = append(out, DuplicateID{ID: string(duplicate.ID), Files: duplicate.Files})
 	}
 
 	return out

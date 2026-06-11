@@ -206,7 +206,7 @@ func detectIssueIDConvention(issues []*model.Issue) (pattern, example, nextID st
 	// Extract all issue IDs
 	ids := make([]string, 0, len(issues))
 	for _, issue := range issues {
-		ids = append(ids, issue.ID)
+		ids = append(ids, string(issue.ID))
 	}
 
 	// Try to detect pattern: prefix-number (most common)
@@ -382,7 +382,7 @@ func buildControlAgentPromptViaAPI(ctx context.Context, api orchapi.OrchAPI, iss
 			title = title[:47] + "..."
 		}
 		issueInfos = append(issueInfos, IssueInfo{
-			ID:     issue.ID,
+			ID:     string(issue.ID),
 			Status: status,
 			Title:  title,
 		})
@@ -391,8 +391,8 @@ func buildControlAgentPromptViaAPI(ctx context.Context, api orchapi.OrchAPI, iss
 	runInfos := make([]RunInfo, 0, len(runs))
 	for _, run := range runs {
 		runInfos = append(runInfos, RunInfo{
-			IssueID: run.IssueID,
-			ShortID: run.ShortID,
+			IssueID: string(run.IssueID),
+			ShortID: string(run.ShortID),
 			Status:  string(run.Status),
 		})
 	}
@@ -450,7 +450,7 @@ func detectIssueIDConventionFromAPI(issues []*orchapi.Issue) (pattern, example, 
 
 	ids := make([]string, 0, len(issues))
 	for _, issue := range issues {
-		ids = append(ids, issue.ID)
+		ids = append(ids, string(issue.ID))
 	}
 
 	prefixNumRegex := regexp.MustCompile(`^([a-zA-Z][\w-]*)-(\d+)$`)
@@ -510,8 +510,8 @@ func sortIssuesByID(issues []*model.Issue) {
 	prefixNumRegex := regexp.MustCompile(`^([a-zA-Z][\w-]*)-(\d+)$`)
 
 	sort.Slice(issues, func(i, j int) bool {
-		matchI := prefixNumRegex.FindStringSubmatch(issues[i].ID)
-		matchJ := prefixNumRegex.FindStringSubmatch(issues[j].ID)
+		matchI := prefixNumRegex.FindStringSubmatch(string(issues[i].ID))
+		matchJ := prefixNumRegex.FindStringSubmatch(string(issues[j].ID))
 
 		// If both match pattern, compare by prefix then number
 		if matchI != nil && matchJ != nil {

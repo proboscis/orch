@@ -198,6 +198,7 @@ func TestRunToSummaryRoundTrip(t *testing.T) {
 		Status:       model.StatusWaiting,
 		Phase:        model.PhasePlan,
 		Agent:        "opencode",
+		Profile:      "company",
 		Model:        "gpt-4",
 		Branch:       "fix/bug-123",
 		WorktreePath: "/home/user/worktrees/fix-bug",
@@ -226,6 +227,9 @@ func TestRunToSummaryRoundTrip(t *testing.T) {
 	}
 	if roundTripped.Agent != original.Agent {
 		t.Errorf("Agent mismatch: got %q, want %q", roundTripped.Agent, original.Agent)
+	}
+	if roundTripped.Profile != original.Profile {
+		t.Errorf("Profile mismatch: got %q, want %q", roundTripped.Profile, original.Profile)
 	}
 	if roundTripped.Model != original.Model {
 		t.Errorf("Model mismatch: got %q, want %q", roundTripped.Model, original.Model)

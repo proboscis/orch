@@ -176,8 +176,8 @@ func runSend(refStr, message string, opts *sendOptions) error {
 
 	result := &sendResult{
 		OK:      true,
-		IssueID: run.IssueID,
-		RunID:   run.RunID,
+		IssueID: string(run.IssueID),
+		RunID:   string(run.RunID),
 		Message: message,
 	}
 
@@ -203,9 +203,9 @@ func formatSendFailureMessage(err error, run *orchapi.Run) string {
 	promptPath := "ORCH_PROMPT.md"
 	if run != nil {
 		if run.IssueID != "" && run.RunID != "" {
-			runRef = run.IssueID + "#" + run.RunID
+			runRef = fmt.Sprintf("%s#%s", run.IssueID, run.RunID)
 		} else if run.IssueID != "" {
-			runRef = run.IssueID
+			runRef = string(run.IssueID)
 		}
 		if run.WorktreePath != "" {
 			promptPath = filepath.Join(run.WorktreePath, "ORCH_PROMPT.md")

@@ -1,11 +1,26 @@
 package agent
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
+func withFakeOpenCodeBinary(t *testing.T) {
+	t.Helper()
+
+	binDir := t.TempDir()
+	binPath := filepath.Join(binDir, "opencode")
+	if err := os.WriteFile(binPath, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatalf("write fake opencode: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
 func TestOpenCodeLaunchCommand(t *testing.T) {
+	withFakeOpenCodeBinary(t)
+
 	adapter := &OpenCodeAdapter{}
 
 	tests := []struct {
@@ -103,6 +118,8 @@ func TestGetAdapterOpenCode(t *testing.T) {
 }
 
 func TestOpenCodeContinueSession(t *testing.T) {
+	withFakeOpenCodeBinary(t)
+
 	adapter := &OpenCodeAdapter{}
 
 	tests := []struct {

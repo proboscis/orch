@@ -64,12 +64,17 @@ This creates the structure:
 
 Create .orch/config.yaml:
 
-    agent: opencode
+    agent: codex
+
+    codex:
+      default_model: openai/gpt-5.5
+      default_variant: xhigh
 
     opencode:
-      default_model: anthropic/claude-opus-4-5
+      default_model: anthropic/claude-opus-4-6
       default_variant: max
 
+Agents: codex, opencode, claude, gemini (override per run with 'orch run --agent').
 Available model format: <provider>/<model-id>
 
 Providers: anthropic, openai, google, etc.
@@ -125,9 +130,9 @@ Interact with the agent:
     ------      -------                   ------
     running     Agent is working          Wait or 'attach' to watch
     waiting     Agent needs input         'attach' to help
-    done        Work complete             Review the PR
-    failed      Error occurred            Check logs, retry
-    resolved    Run completed and acked   No action needed
+    pr_open     PR created                Review the PR
+    done        Work complete             'orch resolve <issue>' to ack
+    failed      Error occurred            Check logs, 'restart-from'
 
 To check why a run is waiting:
 
@@ -141,13 +146,13 @@ Fix daemon, orphaned sessions, stale states:
 
     orch repair
 
-Check daemon status:
+List running daemons:
 
-    orch daemon status
+    orch daemon list
 
-Restart daemon:
+Kill a stuck daemon (it restarts on demand; 'orch repair' also covers this):
 
-    orch daemon restart
+    orch daemon kill
 
 View run logs:
 
@@ -231,7 +236,33 @@ The Development Loop:
 
 Run multiple issues in parallel - each gets its own git worktree!
 
+--------------------------------------------------------------------------------
+9. REMOTE MASTER (MULTI-HOST)
+--------------------------------------------------------------------------------
+
+Point every command at a shared master daemon via client.yaml
+(global: ~/.config/orch/client.yaml, or per-repo: .orch/client.yaml):
+
+    remote:
+      default: "zeus:7777"
+
+Each host that should execute runs needs a local worker registered to the
+master:
+
+    orch worker start
+    orch worker status
+
+Notes for remote mode:
+
+  - 'orch run --on <target>' names are resolved by the MASTER's config.targets,
+    and the resolved host is baked into the run at creation. Keep hostnames
+    current and restart the master daemon after changing them.
+  - Pass --project <origin URL> explicitly (or set ORCH_PROJECT); 'issue create'
+    does not infer it from your CWD.
+  - With the file backend, issue files are created on the master's checkout of
+    the project.
+
 ================================================================================
-For more information, see: https://github.com/s22625/orch
+For more information, see: https://github.com/proboscis/orch
 ================================================================================
 `

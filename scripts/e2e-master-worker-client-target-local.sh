@@ -31,6 +31,9 @@ cleanup() {
       "$ORCH_BIN" --project "$PROJECT_ID" stop "target-local-live-2#$RUN_ID_2" --force >/dev/null 2>&1 || true
     fi
     "$ORCH_BIN" master kill >/dev/null 2>&1 || true
+    if [ -n "${TARGET_ENV_PREFIX:-}" ]; then
+      env $TARGET_ENV_PREFIX "$ORCH_BIN" master kill >/dev/null 2>&1 || true
+    fi
   fi
   if [ -n "${TARGET_WORKER_PID:-}" ]; then
     kill "$TARGET_WORKER_PID" >/dev/null 2>&1 || true
@@ -143,6 +146,7 @@ git -C "$MASTER_PROJECT" config user.email e2e@example.com
 git -C "$MASTER_PROJECT" config user.name E2E
 
 git init --bare "$ROOT/origin/example/target-local-repo.git" >/dev/null
+git -C "$ROOT/origin/example/target-local-repo.git" symbolic-ref HEAD refs/heads/main
 REPO_URL="file://$ROOT/origin/example/target-local-repo.git"
 PROJECT_ID="example-target-local-repo"
 
@@ -157,14 +161,20 @@ cd "$MASTER_PROJECT"
 echo "== master and target worker =="
 "$ORCH_BIN" master start --listen "tcp://$MASTER_REMOTE_ADDR" >/dev/null
 sleep 1
+env $TARGET_ENV_PREFIX "$ORCH_BIN" master start --listen "tcp://127.0.0.1:0" >/dev/null
 env $TARGET_ENV_PREFIX "$ORCH_BIN" --remote= daemon repo register "$TARGET_PROJECT" >/dev/null
 env $TARGET_ENV_PREFIX ORCH_REMOTE="$MASTER_REMOTE_ADDR" "$ORCH_BIN" worker run --worker-id "$TARGET_WORKER_ID" >"$ROOT/target-worker.log" 2>&1 &
 TARGET_WORKER_PID=$!
 sleep 2
 
-WORKER_JSON="$("$ORCH_BIN" worker status --json)"
+WORKER_JSON="$("$ORCH_BIN" worker status --json --worker-id "$TARGET_WORKER_ID")"
 printf '%s\n' "$WORKER_JSON"
-printf '%s' "$WORKER_JSON" | jq -e --arg worker "$TARGET_WORKER_ID" '(.workers | length) == 1 and (.workers[0].id == $worker)' >/dev/null
+printf '%s' "$WORKER_JSON" | jq -e --arg worker "$TARGET_WORKER_ID" '
+  .ok == true and
+  (.worker_id | startswith("host-")) and
+  .master.state == "active" and
+  .master.registration.id == $worker
+' >/dev/null
 
 echo "== repo mapping =="
 REGISTER_OUT="$("$ORCH_BIN" daemon repo register "$REPO_URL")"

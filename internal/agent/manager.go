@@ -482,6 +482,17 @@ func IsWaitingForInput(output string) bool {
 			return true
 		}
 	}
+
+	// Recent codex builds render an idle footer with no shortcut hints
+	// (just "branch · cwd"), so none of the patterns above can match. The
+	// composer line — "› ..." with U+203A — is the stable idle marker.
+	// Echoed user messages share the prefix, but the busy markers above
+	// already returned false while the agent is actively working.
+	for _, line := range strings.Split(lines, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "›") {
+			return true
+		}
+	}
 	return false
 }
 

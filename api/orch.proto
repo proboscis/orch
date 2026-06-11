@@ -87,6 +87,9 @@ message Run {
   bool worktree_exists = 26;
   string target = 27;
   string target_host = 28;
+  // Profile identity the agent ran with: the resolved codex execution
+  // profile for codex runs, or the agent profile (e.g. claude --profile).
+  string profile = 29;
 }
 
 message Issue {
@@ -178,6 +181,7 @@ message StartRunRequest {
   string multiplexer = 19;
   string target = 20;
   RequestContext context = 21;
+  string codex_profile = 22;
 }
 
 message StartRunResponse {
@@ -303,6 +307,7 @@ message GetControlAgentConfigResponse {
   string model = 3;
   string model_variant = 4;
   repeated string extra_args = 5;
+  string codex_home = 6;
 }
 
 // --- Session Operations ---
@@ -830,6 +835,7 @@ message ContinueRunRequest {
   string pr_target_branch = 13;
   string multiplexer = 14;
   string session_name = 15;
+  string codex_profile = 16;
   RequestContext context = 17;
 }
 
