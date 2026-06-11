@@ -30,10 +30,9 @@ func (a *ClaudeAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 		args = append(args, "--dangerously-skip-permissions")
 	}
 
-	// Add profile if specified
-	if cfg.Profile != "" {
-		args = append(args, "--profile", cfg.Profile)
-	}
+	// NOTE: claude has no --profile flag. Profile selection happens entirely
+	// via the CLAUDE_CONFIG_DIR environment variable (LaunchConfig.Env), so
+	// cfg.Profile must never reach the command line.
 
 	// Add resume flag if applicable
 	if cfg.Resume && cfg.SessionName != "" {

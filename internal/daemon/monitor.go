@@ -34,6 +34,17 @@ const (
 	remoteCaptureInterval     = 15 * time.Second
 	remoteCaptureLeaseTimeout = 15 * time.Second
 	remoteCaptureLines        = 200
+
+	// A run that was never observed alive gets this long from StartedAt
+	// before dead checks may conclude a verdict (unknown/failed): worker
+	// delegation, worktree setup, and agent boot all happen before the
+	// session becomes observable, and a premature verdict makes
+	// `orch wait` fire spuriously on a run that is still booting.
+	neverAliveVerdictGrace = 3 * time.Minute
+
+	// How often to re-log the "never confirmed alive" wait for a run whose
+	// session has not appeared (once per ~10 minutes at 5s ticks).
+	neverAliveLogEvery = 120
 )
 
 type prOutcome string
@@ -101,37 +112,46 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store, projectID, projectRo
 			}
 		}
 		if !state.WasAlive {
-			// Agent was never confirmed alive. For opencode runs, check if there are
-			// clear completion signals (merged PR, clean worktree) before giving up.
-			// This handles cases where the daemon started after the agent finished.
-			if run.Agent == "opencode" && state.DeadCheckCount >= deadChecksBeforeFailed {
-				inferredStatus := d.inferStatusFromGitState(run, st, false)
+			// Agent was never confirmed alive. Check for clear completion
+			// signals (merged/open PR, commits) before giving up — the daemon
+			// may have started after the agent finished. A gone session must
+			// never mask completed work, regardless of agent.
+			if state.DeadCheckCount >= deadChecksBeforeFailed {
+				inferredStatus := d.inferStatusFromGitState(run, st, false, projectRoot)
 				if inferredStatus != "" {
-					if opencodeLogPath != "" {
-						d.logger.Printf("%s#%s: agent never confirmed alive, but inferred status from git state: %s (opencode logs: %s)", run.IssueID, run.RunID, inferredStatus, opencodeLogPath)
-					} else {
-						d.logger.Printf("%s#%s: agent never confirmed alive, but inferred status from git state: %s", run.IssueID, run.RunID, inferredStatus)
+					if inferredStatus != run.Status {
+						if opencodeLogPath != "" {
+							d.logger.Printf("%s#%s: agent never confirmed alive, but inferred status from git state: %s (opencode logs: %s)", run.IssueID, run.RunID, inferredStatus, opencodeLogPath)
+						} else {
+							d.logger.Printf("%s#%s: agent never confirmed alive, but inferred status from git state: %s", run.IssueID, run.RunID, inferredStatus)
+						}
 					}
 					return d.updateStatus(run, inferredStatus, st)
 				}
 			}
-			d.logger.Printf("%s#%s: agent not alive yet (never confirmed alive), waiting", run.IssueID, run.RunID)
+			if state.DeadCheckCount <= deadChecksBeforeFailed || state.DeadCheckCount%neverAliveLogEvery == 0 {
+				d.logger.Printf("%s#%s: agent not alive yet (never confirmed alive), waiting", run.IssueID, run.RunID)
+			} else {
+				d.debug("%s#%s: agent not alive yet (never confirmed alive), waiting", run.IssueID, run.RunID)
+			}
 			return nil
 		}
 		if state.DeadCheckCount < deadChecksBeforeFailed {
 			d.logger.Printf("%s#%s: agent not alive (%d/%d checks), waiting", run.IssueID, run.RunID, state.DeadCheckCount, deadChecksBeforeFailed)
 			return nil
 		}
-		if run.Agent == "opencode" {
-			inferredStatus := d.inferStatusFromGitState(run, st, true)
-			if inferredStatus != "" {
+		inferredStatus := d.inferStatusFromGitState(run, st, true, projectRoot)
+		if inferredStatus != "" {
+			if inferredStatus != run.Status {
 				if opencodeLogPath != "" {
-					d.logger.Printf("%s#%s: opencode session gone, inferred status from git state: %s (opencode logs: %s)", run.IssueID, run.RunID, inferredStatus, opencodeLogPath)
+					d.logger.Printf("%s#%s: agent session gone, inferred status from git state: %s (opencode logs: %s)", run.IssueID, run.RunID, inferredStatus, opencodeLogPath)
 				} else {
-					d.logger.Printf("%s#%s: opencode session gone, inferred status from git state: %s", run.IssueID, run.RunID, inferredStatus)
+					d.logger.Printf("%s#%s: agent session gone, inferred status from git state: %s", run.IssueID, run.RunID, inferredStatus)
 				}
-				return d.updateStatus(run, inferredStatus, st)
 			}
+			return d.updateStatus(run, inferredStatus, st)
+		}
+		if run.Agent == "opencode" {
 			if opencodeLogPath != "" {
 				d.logger.Printf("%s#%s: opencode session not found after %d checks, marking unknown (opencode logs: %s)", run.IssueID, run.RunID, state.DeadCheckCount, opencodeLogPath)
 			} else {
@@ -273,13 +293,32 @@ func (d *Daemon) monitorRemoteRun(run *model.Run, st store.Store, projectID, pro
 	output, err := capture(run, projectID, projectRoot, remoteCaptureLines)
 	if err != nil {
 		if isRemoteSessionGone(err) {
+			// The worker answered authoritatively: the lease round-trip
+			// completed, so pace re-checks like successful captures instead
+			// of retrying every monitor tick.
+			state.RemoteCaptureAt = now
 			state.DeadCheckCount++
 			if state.DeadCheckCount < deadChecksBeforeFailed {
 				d.logger.Printf("%s#%s: remote session not found on worker (check %d/%d): %v", run.IssueID, run.RunID, state.DeadCheckCount, deadChecksBeforeFailed, err)
 				return nil
 			}
+			// The session is gone on the execution host. Same rule as local
+			// runs: a gone session must never mask completed work, so infer
+			// from PR/git state before falling back to unknown/failed.
+			if inferred := d.inferStatusFromGitState(run, st, state.WasAlive, projectRoot); inferred != "" {
+				if inferred != run.Status {
+					d.logger.Printf("%s#%s: remote session gone, inferred status from git state: %s", run.IssueID, run.RunID, inferred)
+				}
+				return d.updateStatus(run, inferred, st)
+			}
 			if !state.WasAlive {
-				d.logger.Printf("%s#%s: remote agent never confirmed alive after %d checks, marking unknown", run.IssueID, run.RunID, state.DeadCheckCount)
+				if withinNeverAliveGrace(run) {
+					d.debug("%s#%s: remote session not observable yet (within boot grace), waiting", run.IssueID, run.RunID)
+					return nil
+				}
+				if run.Status != model.StatusUnknown {
+					d.logger.Printf("%s#%s: remote agent never confirmed alive after %d checks, marking unknown", run.IssueID, run.RunID, state.DeadCheckCount)
+				}
 				return d.updateStatus(run, model.StatusUnknown, st)
 			}
 			d.logger.Printf("%s#%s: remote agent confirmed dead after %d checks, marking failed", run.IssueID, run.RunID, state.DeadCheckCount)
@@ -496,6 +535,12 @@ func (d *Daemon) updateStatus(run *model.Run, status model.Status, st store.Stor
 	var fromStatus model.Status
 	if currentRun, err := st.GetRun(ref); err == nil && currentRun != nil {
 		fromStatus = currentRun.Status
+		// Re-affirming the current status is a no-op: appending duplicate
+		// status events bloats the run record and churns UpdatedAt, which
+		// breaks recency display/sorting for every client.
+		if fromStatus == status {
+			return nil
+		}
 		if !model.CanTransitionStatus(currentRun.Status, status, model.EventSourceDaemon) {
 			d.debug("%s#%s: daemon cannot transition from %s to %s", run.IssueID, run.RunID, currentRun.Status, status)
 			return nil
@@ -695,44 +740,57 @@ func statusFromPROutcome(outcome prOutcome) model.Status {
 // is no longer reachable. wasAlive indicates whether the agent was ever confirmed running.
 // When wasAlive is false and no work was done (0 commits, clean worktree), returns
 // StatusFailed rather than StatusDone — the agent never started, not "completed."
-func (d *Daemon) inferStatusFromGitState(run *model.Run, st store.Store, wasAlive bool) model.Status {
-	if run.Branch == "" || run.WorktreePath == "" {
+//
+// projectRoot is the repo root registered with the daemon for the run's
+// project; it is the lookup root for worker-hosted runs whose worktree lives
+// on the execution host and is not visible from this machine.
+func (d *Daemon) inferStatusFromGitState(run *model.Run, st store.Store, wasAlive bool, projectRoot string) model.Status {
+	if run.Branch == "" {
 		d.debug("%s#%s: infer: skipping - branch=%q worktree=%q", run.IssueID, run.RunID, run.Branch, run.WorktreePath)
 		return ""
 	}
 
-	repoRoot, err := git.FindMainRepoRoot(run.WorktreePath)
-	if err != nil {
-		d.logger.Printf("%s#%s: infer: cannot find repo root: %v", run.IssueID, run.RunID, err)
-		return ""
+	repoRoot := ""
+	if run.WorktreePath != "" {
+		if root, err := git.FindMainRepoRoot(run.WorktreePath); err == nil {
+			repoRoot = root
+		}
+	}
+	if repoRoot == "" && projectRoot != "" {
+		if root, err := git.FindMainRepoRoot(projectRoot); err == nil {
+			repoRoot = root
+		}
 	}
 
-	d.debug("%s#%s: infer: checking PR for branch %s", run.IssueID, run.RunID, run.Branch)
-	prInfo, err := d.lookupPRInfo(repoRoot, run.Branch)
-	if err == nil && prInfo != nil && prInfo.URL != "" {
-		d.logger.Printf("%s#%s: infer: found PR %s (state=%s)", run.IssueID, run.RunID, prInfo.URL, prInfo.State)
-		if run.PRUrl == "" {
-			if err := d.recordPRArtifact(run, prInfo.URL, st); err != nil {
-				d.logger.Printf("%s#%s: infer: failed to record PR: %v", run.IssueID, run.RunID, err)
+	if repoRoot != "" {
+		d.debug("%s#%s: infer: checking PR for branch %s", run.IssueID, run.RunID, run.Branch)
+		prInfo, err := d.lookupPRInfo(repoRoot, run.Branch)
+		if err == nil && prInfo != nil && prInfo.URL != "" {
+			d.debug("%s#%s: infer: found PR %s (state=%s)", run.IssueID, run.RunID, prInfo.URL, prInfo.State)
+			if run.PRUrl == "" {
+				if err := d.recordPRArtifact(run, prInfo.URL, st); err != nil {
+					d.logger.Printf("%s#%s: infer: failed to record PR: %v", run.IssueID, run.RunID, err)
+				}
+			}
+			if status := statusFromPROutcome(prOutcomeFromInfo(prInfo)); status != "" {
+				return status
 			}
 		}
-		if status := statusFromPROutcome(prOutcomeFromInfo(prInfo)); status != "" {
-			return status
+		if err != nil {
+			d.debug("%s#%s: infer: PR lookup error: %v", run.IssueID, run.RunID, err)
+		} else {
+			d.debug("%s#%s: infer: no PR found", run.IssueID, run.RunID)
 		}
 	}
-	if err != nil {
-		d.debug("%s#%s: infer: PR lookup error: %v", run.IssueID, run.RunID, err)
-	} else {
-		d.debug("%s#%s: infer: no PR found", run.IssueID, run.RunID)
-	}
 
-	// If branch-based lookup failed but run already has a PR URL, check PR status by URL
-	// This handles cases where the local branch was deleted/rebased but PR still exists
+	// If branch-based lookup failed but run already has a PR URL, check PR status by URL.
+	// This handles cases where the local branch was deleted/rebased but PR still exists,
+	// and worker-hosted runs whose worktree/repo is not visible from this host.
 	if run.PRUrl != "" {
 		d.debug("%s#%s: infer: branch lookup failed, checking existing PR URL: %s", run.IssueID, run.RunID, run.PRUrl)
 		prInfo, err := d.lookupPRInfoByURL(run.PRUrl)
 		if err == nil && prInfo != nil {
-			d.logger.Printf("%s#%s: infer: PR %s state=%s (via URL lookup)", run.IssueID, run.RunID, prInfo.URL, prInfo.State)
+			d.debug("%s#%s: infer: PR %s state=%s (via URL lookup)", run.IssueID, run.RunID, prInfo.URL, prInfo.State)
 			if status := statusFromPROutcome(prOutcomeFromInfo(prInfo)); status != "" {
 				return status
 			}
@@ -745,6 +803,11 @@ func (d *Daemon) inferStatusFromGitState(run *model.Run, st store.Store, wasAliv
 		return model.StatusPROpen
 	}
 
+	if repoRoot == "" {
+		d.debug("%s#%s: infer: cannot find repo root (worktree=%q project_root=%q)", run.IssueID, run.RunID, run.WorktreePath, projectRoot)
+		return ""
+	}
+
 	baseBranch := "origin/main"
 	if d.config != nil && d.config.BaseBranch != "" {
 		remote, branch := git.ParseRemoteBranch(d.config.BaseBranch)
@@ -753,20 +816,40 @@ func (d *Daemon) inferStatusFromGitState(run *model.Run, st store.Store, wasAliv
 
 	aheadCount, err := git.GetAheadCount(repoRoot, run.Branch, baseBranch)
 	if err != nil {
-		d.logger.Printf("%s#%s: infer: cannot get ahead count: %v", run.IssueID, run.RunID, err)
+		d.debug("%s#%s: infer: cannot get ahead count: %v", run.IssueID, run.RunID, err)
 		return ""
 	}
 
 	hasUncommitted := git.HasUncommittedChanges(run.WorktreePath)
 
-	d.logger.Printf("%s#%s: infer: commits ahead=%d, uncommitted=%v", run.IssueID, run.RunID, aheadCount, hasUncommitted)
+	d.debug("%s#%s: infer: commits ahead=%d, uncommitted=%v", run.IssueID, run.RunID, aheadCount, hasUncommitted)
 
 	if aheadCount > 0 || hasUncommitted {
 		return model.StatusWaiting
 	}
 
+	// No positive signals (no PR, no commits, clean worktree). The verdict
+	// depends on agent lifecycle: opencode exits when finished, so a gone
+	// session with no work means the run produced nothing. Interactive
+	// agents (codex, claude) keep their session open while idle, so a gone
+	// session with no work is not a completion signal — leave the verdict
+	// to the caller.
+	if run.Agent != "opencode" {
+		return ""
+	}
 	if !wasAlive {
+		if withinNeverAliveGrace(run) {
+			d.debug("%s#%s: infer: within boot grace, no verdict yet", run.IssueID, run.RunID)
+			return ""
+		}
 		return model.StatusFailed
 	}
 	return model.StatusDone
+}
+
+// withinNeverAliveGrace reports whether a run that has never been observed
+// alive is still inside its boot grace window, during which dead checks must
+// not conclude a verdict.
+func withinNeverAliveGrace(run *model.Run) bool {
+	return !run.StartedAt.IsZero() && time.Since(run.StartedAt) < neverAliveVerdictGrace
 }
