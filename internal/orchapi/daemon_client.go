@@ -287,6 +287,7 @@ func (c *DaemonClient) StartRun(ctx context.Context, req *StartRunRequest) (*Sta
 		Reuse:          req.Reuse,
 		Multiplexer:    req.Multiplexer,
 		Target:         req.Target,
+		NoSession:      req.NoSession,
 	})
 	if err != nil {
 		return nil, err
@@ -976,6 +977,7 @@ func (c *DaemonClient) ContinueRun(ctx context.Context, req *ContinueRunRequest)
 		PRTargetBranch: req.PRTargetBranch,
 		Multiplexer:    req.Multiplexer,
 		SessionName:    req.SessionName,
+		NoSession:      req.NoSession,
 	})
 	if err != nil {
 		return nil, err

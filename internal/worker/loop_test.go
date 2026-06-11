@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -8,6 +9,8 @@ import (
 )
 
 type mockClient struct {
+	mu          sync.Mutex
+	heartbeats  int
 	registered  bool
 	acked       bool
 	lease       *daemon.WorkerLease
@@ -35,6 +38,8 @@ func (m *mockCapClient) RegisterWorkerWithCapabilities(workerID, workerType, hos
 }
 
 func (m *mockClient) RegisterWorker(workerID, workerType, host, mode string) (*daemon.RegisterWorkerResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.regErr != nil {
 		return nil, m.regErr
 	}
@@ -47,14 +52,27 @@ func (m *mockClient) RegisterWorker(workerID, workerType, host, mode string) (*d
 }
 
 func (m *mockClient) UnregisterWorker(workerID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.unregCalled = true
 	return m.unregErr
 }
 func (m *mockClient) WorkerHeartbeat(workerID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.heartbeats++
 	return m.hbErr
 }
 
+func (m *mockClient) heartbeatCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.heartbeats
+}
+
 func (m *mockClient) LeaseWork(workerID string) (*daemon.LeaseWorkResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.leaseErr != nil {
 		return nil, m.leaseErr
 	}
@@ -67,6 +85,8 @@ func (m *mockClient) LeaseWork(workerID string) (*daemon.LeaseWorkResponse, erro
 }
 
 func (m *mockClient) AcknowledgeEffect(workerID, leaseID string, success bool, effectErr, resultJSON string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.ackErr != nil {
 		return m.ackErr
 	}
@@ -189,3 +209,59 @@ func TestRunExternalLoopDefaultsWorkerIDToStableHostIdentity(t *testing.T) {
 type assertErr string
 
 func (e assertErr) Error() string { return string(e) }
+
+// blockingExecutor blocks lease execution until released, simulating a
+// long-running effect (e.g. a slow session launch).
+type blockingExecutor struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (b *blockingExecutor) ExecuteWorkerLease(lease *daemon.WorkerLease) (*daemon.WorkerEffectResult, error) {
+	close(b.started)
+	<-b.release
+	return &daemon.WorkerEffectResult{}, nil
+}
+
+// Heartbeats must keep flowing while an effect executes: a worker that goes
+// silent during a long lease looks dead to the master, which then refuses
+// new leases ("no active workers available") and fails the very lease the
+// worker is still executing.
+func TestRunExternalLoopHeartbeatsDuringEffectExecution(t *testing.T) {
+	origNew := newLeaseExecutor
+	t.Cleanup(func() { newLeaseExecutor = origNew })
+	blocking := &blockingExecutor{started: make(chan struct{}), release: make(chan struct{})}
+	newLeaseExecutor = func(string, string) leaseExecutor { return blocking }
+
+	client := &mockClient{lease: &daemon.WorkerLease{LeaseID: "lease-1", WorkerID: "w1", Effect: "start_run", Payload: &daemon.WorkerEffectPayload{StartRun: &daemon.StartRunOptions{}}}}
+
+	loopDone := make(chan error, 1)
+	go func() {
+		loopDone <- RunExternalLoop(client, RunConfig{WorkerID: "w1", Once: true, PollInterval: 5 * time.Millisecond, HeartbeatInterval: 10 * time.Millisecond})
+	}()
+
+	select {
+	case <-blocking.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("lease execution never started")
+	}
+
+	before := client.heartbeatCount()
+	deadline := time.Now().Add(5 * time.Second)
+	for client.heartbeatCount() < before+3 {
+		if time.Now().After(deadline) {
+			t.Fatalf("heartbeats stalled during effect execution: %d -> %d", before, client.heartbeatCount())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	close(blocking.release)
+	select {
+	case err := <-loopDone:
+		if err != nil {
+			t.Fatalf("RunExternalLoop() error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("loop did not finish after effect release")
+	}
+}

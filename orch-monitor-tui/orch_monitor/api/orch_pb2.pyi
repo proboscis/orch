@@ -275,7 +275,7 @@ class GetRunResponse(_message.Message):
     def __init__(self, run: _Optional[_Union[Run, _Mapping]] = ..., events: _Optional[_Iterable[_Union[Event, _Mapping]]] = ...) -> None: ...
 
 class StartRunRequest(_message.Message):
-    __slots__ = ("issue_id", "agent", "model", "model_variant", "base_branch", "preset", "branch", "worktree_dir", "no_pr", "prompt_template", "pr_target_branch", "dry_run", "reuse", "run_id", "agent_cmd", "agent_profile", "multiplexer", "target", "context", "codex_profile")
+    __slots__ = ("issue_id", "agent", "model", "model_variant", "base_branch", "preset", "branch", "worktree_dir", "no_pr", "prompt_template", "pr_target_branch", "dry_run", "reuse", "run_id", "agent_cmd", "agent_profile", "multiplexer", "target", "context", "codex_profile", "no_session")
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     AGENT_FIELD_NUMBER: _ClassVar[int]
     MODEL_FIELD_NUMBER: _ClassVar[int]
@@ -296,6 +296,7 @@ class StartRunRequest(_message.Message):
     TARGET_FIELD_NUMBER: _ClassVar[int]
     CONTEXT_FIELD_NUMBER: _ClassVar[int]
     CODEX_PROFILE_FIELD_NUMBER: _ClassVar[int]
+    NO_SESSION_FIELD_NUMBER: _ClassVar[int]
     issue_id: str
     agent: str
     model: str
@@ -316,7 +317,8 @@ class StartRunRequest(_message.Message):
     target: str
     context: RequestContext
     codex_profile: str
-    def __init__(self, issue_id: _Optional[str] = ..., agent: _Optional[str] = ..., model: _Optional[str] = ..., model_variant: _Optional[str] = ..., base_branch: _Optional[str] = ..., preset: _Optional[str] = ..., branch: _Optional[str] = ..., worktree_dir: _Optional[str] = ..., no_pr: _Optional[bool] = ..., prompt_template: _Optional[str] = ..., pr_target_branch: _Optional[str] = ..., dry_run: _Optional[bool] = ..., reuse: _Optional[bool] = ..., run_id: _Optional[str] = ..., agent_cmd: _Optional[str] = ..., agent_profile: _Optional[str] = ..., multiplexer: _Optional[str] = ..., target: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ..., codex_profile: _Optional[str] = ...) -> None: ...
+    no_session: bool
+    def __init__(self, issue_id: _Optional[str] = ..., agent: _Optional[str] = ..., model: _Optional[str] = ..., model_variant: _Optional[str] = ..., base_branch: _Optional[str] = ..., preset: _Optional[str] = ..., branch: _Optional[str] = ..., worktree_dir: _Optional[str] = ..., no_pr: _Optional[bool] = ..., prompt_template: _Optional[str] = ..., pr_target_branch: _Optional[str] = ..., dry_run: _Optional[bool] = ..., reuse: _Optional[bool] = ..., run_id: _Optional[str] = ..., agent_cmd: _Optional[str] = ..., agent_profile: _Optional[str] = ..., multiplexer: _Optional[str] = ..., target: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ..., codex_profile: _Optional[str] = ..., no_session: _Optional[bool] = ...) -> None: ...
 
 class StartRunResponse(_message.Message):
     __slots__ = ("run_id", "branch", "worktree_path", "session_name", "status")
@@ -1371,7 +1373,7 @@ class InjectInitialPromptResponse(_message.Message):
     def __init__(self, session_id: _Optional[str] = ..., port: _Optional[int] = ...) -> None: ...
 
 class ContinueRunRequest(_message.Message):
-    __slots__ = ("issue_id", "run_id", "short_id", "branch", "agent", "agent_cmd", "agent_profile", "worktree_dir", "no_pr", "prompt_template", "pr_target_branch", "multiplexer", "session_name", "codex_profile", "context")
+    __slots__ = ("issue_id", "run_id", "short_id", "branch", "agent", "agent_cmd", "agent_profile", "worktree_dir", "no_pr", "prompt_template", "pr_target_branch", "multiplexer", "session_name", "codex_profile", "context", "no_session")
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     SHORT_ID_FIELD_NUMBER: _ClassVar[int]
@@ -1387,6 +1389,7 @@ class ContinueRunRequest(_message.Message):
     SESSION_NAME_FIELD_NUMBER: _ClassVar[int]
     CODEX_PROFILE_FIELD_NUMBER: _ClassVar[int]
     CONTEXT_FIELD_NUMBER: _ClassVar[int]
+    NO_SESSION_FIELD_NUMBER: _ClassVar[int]
     issue_id: str
     run_id: str
     short_id: str
@@ -1402,7 +1405,8 @@ class ContinueRunRequest(_message.Message):
     session_name: str
     codex_profile: str
     context: RequestContext
-    def __init__(self, issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., short_id: _Optional[str] = ..., branch: _Optional[str] = ..., agent: _Optional[str] = ..., agent_cmd: _Optional[str] = ..., agent_profile: _Optional[str] = ..., worktree_dir: _Optional[str] = ..., no_pr: _Optional[bool] = ..., prompt_template: _Optional[str] = ..., pr_target_branch: _Optional[str] = ..., multiplexer: _Optional[str] = ..., session_name: _Optional[str] = ..., codex_profile: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
+    no_session: bool
+    def __init__(self, issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., short_id: _Optional[str] = ..., branch: _Optional[str] = ..., agent: _Optional[str] = ..., agent_cmd: _Optional[str] = ..., agent_profile: _Optional[str] = ..., worktree_dir: _Optional[str] = ..., no_pr: _Optional[bool] = ..., prompt_template: _Optional[str] = ..., pr_target_branch: _Optional[str] = ..., multiplexer: _Optional[str] = ..., session_name: _Optional[str] = ..., codex_profile: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ..., no_session: _Optional[bool] = ...) -> None: ...
 
 class ContinueRunResponse(_message.Message):
     __slots__ = ("run_id", "branch", "worktree_path", "session_name", "status", "continued_from", "issue_id")

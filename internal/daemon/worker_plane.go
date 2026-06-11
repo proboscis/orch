@@ -862,6 +862,20 @@ func (s *SocketServer) waitForWorkerLeaseCompletion(leaseID string, timeout time
 			return nil, fmt.Errorf("worker lease timed out: %s", leaseID)
 		}
 
+		// Fail fast when the executing worker disappears: without this the
+		// master silently waits out the full lease timeout for a completion
+		// that can never arrive, and the caller sees a generic timeout
+		// instead of the real failure. Workers heartbeat on a dedicated
+		// goroutine even while executing effects, so an expired heartbeat
+		// here means the worker process is genuinely gone.
+		s.workersMu.RLock()
+		executingWorker := s.workers[leaseSnapshot.WorkerID]
+		workerAlive := s.workerIsActive(executingWorker, time.Now())
+		s.workersMu.RUnlock()
+		if !workerAlive {
+			return nil, fmt.Errorf("worker %s lost while executing lease %s (heartbeat expired, effect %s); the effect may still be running on its host — check `orch worker status` there", leaseSnapshot.WorkerID, leaseID, leaseSnapshot.Effect)
+		}
+
 		time.Sleep(100 * time.Millisecond)
 	}
 }

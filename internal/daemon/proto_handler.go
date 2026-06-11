@@ -1401,6 +1401,7 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		Reuse:          req.Reuse,
 		Multiplexer:    req.Multiplexer,
 		Target:         req.Target,
+		NoSession:      req.NoSession,
 	}
 
 	// Resolve the execution profile (codex or claude) before target resolution
@@ -1687,6 +1688,7 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 		PRTargetBranch: req.PrTargetBranch,
 		Multiplexer:    req.Multiplexer,
 		SessionName:    req.SessionName,
+		NoSession:      req.NoSession,
 	}
 	// Inherit the prior run's target and agent from the master store so the codex
 	// profile constraint and CODEX_HOME are re-applied identically on

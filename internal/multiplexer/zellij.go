@@ -15,6 +15,18 @@ import (
 
 const zellijMaxSessionNameLen = 25
 
+// zellijCommandTimeout bounds every non-interactive zellij CLI invocation.
+// `zellij attach --create-background` has been observed to hang forever in
+// some environments (TTY-less daemon/worker processes with fresh XDG dirs),
+// and an unbounded multiplexer call freezes the entire worker control path —
+// the worker keeps heartbeating but never completes or acknowledges its
+// lease. A bounded call turns that hang into an explicit error instead.
+const zellijCommandTimeout = 30 * time.Second
+
+func zellijCommandContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), zellijCommandTimeout)
+}
+
 func unsupportedErr(feature string) error {
 	return fmt.Errorf("%w: %s", ErrUnsupported, feature)
 }
@@ -55,17 +67,29 @@ func NewZellijMultiplexerWithExecutor(exec executor.Executor) *ZellijMultiplexer
 }
 
 func (z *ZellijMultiplexer) run(args ...string) error {
-	_, _, err := z.executor.RunCommand(context.Background(), "zellij", args, executor.RunOptions{})
+	ctx, cancel := zellijCommandContext()
+	defer cancel()
+	_, _, err := z.executor.RunCommand(ctx, "zellij", args, executor.RunOptions{})
 	return err
 }
 
 func (z *ZellijMultiplexer) output(args ...string) ([]byte, error) {
-	output, _, err := z.executor.RunCommand(context.Background(), "zellij", args, executor.RunOptions{})
+	ctx, cancel := zellijCommandContext()
+	defer cancel()
+	output, _, err := z.executor.RunCommand(ctx, "zellij", args, executor.RunOptions{})
 	return output, err
 }
 
 func (z *ZellijMultiplexer) runWithOptions(args []string, opts executor.RunOptions) error {
-	_, _, err := z.executor.RunCommand(context.Background(), "zellij", args, opts)
+	ctx, cancel := zellijCommandContext()
+	defer cancel()
+	return z.runWithOptionsContext(ctx, args, opts)
+}
+
+// runWithOptionsContext is the unbounded variant for interactive commands
+// (attach) that legitimately run as long as the user stays attached.
+func (z *ZellijMultiplexer) runWithOptionsContext(ctx context.Context, args []string, opts executor.RunOptions) error {
+	_, _, err := z.executor.RunCommand(ctx, "zellij", args, opts)
 	return err
 }
 
@@ -136,7 +160,8 @@ func (z *ZellijMultiplexer) waitForSession(name string, timeout time.Duration) e
 
 func (z *ZellijMultiplexer) AttachSession(session string) error {
 	session = shortenSessionName(session)
-	return z.runWithOptions(
+	return z.runWithOptionsContext(
+		context.Background(),
 		[]string{"attach", session},
 		executor.RunOptions{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr},
 	)
