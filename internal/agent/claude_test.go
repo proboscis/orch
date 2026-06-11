@@ -63,6 +63,24 @@ func TestClaudeConfigDirEnvInjection(t *testing.T) {
 	}
 }
 
+func TestClaudeLaunchCommandModelAndEffort(t *testing.T) {
+	adapter := &ClaudeAdapter{}
+	cfg := &LaunchConfig{
+		Prompt:       "hello",
+		Model:        "claude-fable-5",
+		ModelVariant: "xhigh",
+	}
+
+	cmd, err := adapter.LaunchCommand(cfg)
+	if err != nil {
+		t.Fatalf("LaunchCommand error: %v", err)
+	}
+	want := "claude --dangerously-skip-permissions --model claude-fable-5 --effort xhigh \"hello\""
+	if cmd != want {
+		t.Fatalf("command = %q, want %q", cmd, want)
+	}
+}
+
 func TestClaudeExtraEnv(t *testing.T) {
 	adapter := &ClaudeAdapter{}
 	env := adapter.ExtraEnv()
