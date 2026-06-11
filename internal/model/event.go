@@ -35,14 +35,34 @@ const (
 	StatusUnknown     Status = "unknown" // Agent exited unexpectedly, shell prompt showing
 )
 
-func NormalizeStatus(s string) Status {
-	switch s {
+func NormalizeStatus(s string) (Status, error) {
+	switch strings.TrimSpace(s) {
 	case "blocked":
-		return StatusWaiting
+		return StatusWaiting, nil
 	case "blocked_api":
-		return StatusRateLimited
+		return StatusRateLimited, nil
+	case string(StatusQueued):
+		return StatusQueued, nil
+	case string(StatusBooting):
+		return StatusBooting, nil
+	case string(StatusRunning):
+		return StatusRunning, nil
+	case string(StatusWaiting):
+		return StatusWaiting, nil
+	case string(StatusRateLimited):
+		return StatusRateLimited, nil
+	case string(StatusPROpen):
+		return StatusPROpen, nil
+	case string(StatusDone):
+		return StatusDone, nil
+	case string(StatusFailed):
+		return StatusFailed, nil
+	case string(StatusCanceled):
+		return StatusCanceled, nil
+	case string(StatusUnknown):
+		return StatusUnknown, nil
 	default:
-		return Status(s)
+		return "", fmt.Errorf("unknown run status: %q", s)
 	}
 }
 
@@ -84,28 +104,32 @@ const (
 	IssueStatusClosed   IssueStatus = "closed"   // Issue is closed/archived
 )
 
-// ParseIssueStatus converts a string to IssueStatus, returning IssueStatusOpen for unknown values
-func ParseIssueStatus(s string) IssueStatus {
-	switch s {
+// ParseIssueStatus converts a string to IssueStatus.
+func ParseIssueStatus(s string) (IssueStatus, error) {
+	switch strings.TrimSpace(s) {
+	case "":
+		return IssueStatusOpen, nil
 	case string(IssueStatusOpen):
-		return IssueStatusOpen
+		return IssueStatusOpen, nil
+	case "in_progress", "blocked":
+		return IssueStatusOpen, nil
 	case string(IssueStatusResolved):
-		return IssueStatusResolved
+		return IssueStatusResolved, nil
+	case "completed":
+		return IssueStatusResolved, nil
 	case string(IssueStatusClosed):
-		return IssueStatusClosed
+		return IssueStatusClosed, nil
+	case "canceled":
+		return IssueStatusClosed, nil
 	default:
-		return IssueStatusOpen // Default to open for backwards compatibility
+		return "", fmt.Errorf("unknown issue status: %q", s)
 	}
 }
 
 // IsValidIssueStatus checks if a string is a valid IssueStatus
 func IsValidIssueStatus(s string) bool {
-	switch s {
-	case string(IssueStatusOpen), string(IssueStatusResolved), string(IssueStatusClosed):
-		return true
-	default:
-		return false
-	}
+	_, err := ParseIssueStatus(s)
+	return err == nil
 }
 
 // Phase values

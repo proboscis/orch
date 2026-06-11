@@ -423,13 +423,13 @@ func createTestIssueInVault(t *testing.T, vaultRoot, id, content string) {
 		}
 	}
 	path := filepath.Join(vaultRoot, "issues", id+".md")
-	content = ensureIssueType(content)
+	content = ensureIssueFrontmatterDefaults(content)
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func ensureIssueType(content string) string {
+func ensureIssueFrontmatterDefaults(content string) string {
 	lines := strings.Split(content, "\n")
 	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
 		return content
@@ -446,16 +446,28 @@ func ensureIssueType(content string) string {
 		return content
 	}
 
-	for i := 1; i < frontmatterEnd; i++ {
-		if strings.HasPrefix(strings.TrimSpace(lines[i]), "type:") {
-			return content
-		}
+	insertions := []string{}
+	if !frontmatterHasKey(lines, frontmatterEnd, "type") {
+		insertions = append(insertions, "type: issue")
+	}
+	if len(insertions) == 0 {
+		return content
 	}
 
 	updated := append([]string{}, lines[:1]...)
-	updated = append(updated, "type: issue")
+	updated = append(updated, insertions...)
 	updated = append(updated, lines[1:]...)
 	return strings.Join(updated, "\n")
+}
+
+func frontmatterHasKey(lines []string, frontmatterEnd int, key string) bool {
+	prefix := key + ":"
+	for i := 1; i < frontmatterEnd; i++ {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestPsRemoteWithRepoIDProjectRootOutsideRepo(t *testing.T) {

@@ -39,10 +39,14 @@ func modelRunFromSnapshot(snapshot *RunSnapshot) (*model.Run, error) {
 	if snapshot.IssueID == "" || snapshot.RunID == "" {
 		return nil, fmt.Errorf("run_snapshot missing issue_id or run_id")
 	}
+	status, err := model.NormalizeStatus(string(snapshot.Status))
+	if err != nil {
+		return nil, fmt.Errorf("run_snapshot %s#%s invalid status: %w", snapshot.IssueID, snapshot.RunID, err)
+	}
 	return &model.Run{
 		IssueID:           snapshot.IssueID,
 		RunID:             snapshot.RunID,
-		Status:            model.NormalizeStatus(string(snapshot.Status)),
+		Status:            status,
 		Phase:             snapshot.Phase,
 		Agent:             snapshot.Agent,
 		Profile:           snapshot.Profile,

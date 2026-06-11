@@ -121,6 +121,8 @@ func protoRunStatusToDomain(s orchpb.RunStatus) RunStatus {
 		return RunStatusFailed
 	case orchpb.RunStatus_RUN_STATUS_CANCELED:
 		return RunStatusCanceled
+	case orchpb.RunStatus_RUN_STATUS_UNKNOWN:
+		return RunStatusUnknown
 	default:
 		return RunStatus("")
 	}

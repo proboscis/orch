@@ -336,9 +336,14 @@ func (c *DaemonClient) WaitForRuns(ctx context.Context, refs []string, timeoutSe
 		return nil, err
 	}
 
+	status, err := NormalizeRunStatus(resp.Status)
+	if err != nil {
+		return nil, fmt.Errorf("invalid wait status from daemon: %w", err)
+	}
+
 	return &WaitForRunsResult{
 		RunID:   model.RunID(resp.RunID),
-		Status:  NormalizeRunStatus(resp.Status),
+		Status:  status,
 		IssueID: model.IssueID(resp.Issue),
 		PRURL:   resp.PRURL,
 	}, nil

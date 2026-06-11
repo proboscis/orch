@@ -275,14 +275,17 @@ func (s *FileStore) scanIssues() error {
 	// Use walkWithSymlinks to support symlinked issues directories
 	err := walkWithSymlinks(issuesDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil
+			return fmt.Errorf("failed to scan issue path %s: %w", path, err)
 		}
 		if info.IsDir() || !strings.HasSuffix(info.Name(), ".md") {
 			return nil
 		}
 
 		issue, err := s.parseIssueFile(path)
-		if err != nil || issue == nil {
+		if err != nil {
+			return fmt.Errorf("failed to parse issue file %s: %w", path, err)
+		}
+		if issue == nil {
 			return nil
 		}
 
@@ -332,8 +335,7 @@ func extractFrontmatter(content []byte) (map[string]interface{}, map[string]stri
 	// Parse with yaml.v3 to properly handle multi-line YAML lists
 	var yamlFM map[string]interface{}
 	if err := yaml.Unmarshal([]byte(fmContent), &yamlFM); err != nil {
-		// Fall back to simple parsing if YAML fails
-		yamlFM = make(map[string]interface{})
+		return nil, nil, 0, fmt.Errorf("invalid frontmatter YAML: %w", err)
 	}
 
 	// Also create string map for backward compatibility
@@ -365,6 +367,28 @@ func extractFrontmatter(content []byte) (map[string]interface{}, map[string]stri
 	}
 
 	return yamlFM, stringFM, bodyStart, nil
+}
+
+func frontmatterDeclaresIssue(content []byte) bool {
+	lines := strings.Split(string(content), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return false
+	}
+
+	for i := 1; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+		if line == "---" {
+			return false
+		}
+		if !strings.HasPrefix(line, "type:") {
+			continue
+		}
+		value := strings.TrimSpace(strings.TrimPrefix(line, "type:"))
+		value = strings.Trim(value, `"'`)
+		return value == "issue"
+	}
+
+	return false
 }
 
 // parseTagsFromYAML extracts tags from YAML-parsed frontmatter.
@@ -404,10 +428,16 @@ func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
 		return nil, err
 	}
 
+	declaresIssue := frontmatterDeclaresIssue(content)
+
 	// Parse frontmatter using YAML parser for proper multi-line support
 	yamlFM, stringFM, bodyStart, err := extractFrontmatter(content)
 	if err != nil {
-		return nil, err
+		if declaresIssue {
+			return nil, err
+		}
+		s.warnOnce(path, "orch: warning: skipping non-issue markdown with invalid frontmatter %s: %v\n", filepath.Base(path), err)
+		return nil, nil
 	}
 	if yamlFM == nil {
 		return nil, nil // No frontmatter
@@ -466,7 +496,10 @@ func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
 
 	// Get tags using YAML-aware parsing (handles multi-line YAML lists)
 	tags := parseTagsFromYAML(yamlFM)
-	status := model.ParseIssueStatus(stringFM["status"])
+	status, err := model.ParseIssueStatus(stringFM["status"])
+	if err != nil {
+		return nil, err
+	}
 
 	return &model.Issue{
 		ID:          typedIssueID,
@@ -737,7 +770,10 @@ func (s *FileStore) AppendEvent(ref *model.RunRef, event *model.Event) error {
 	}
 
 	if event.Type == model.EventTypeStatus {
-		newStatus := model.NormalizeStatus(event.Name)
+		newStatus, err := model.NormalizeStatus(event.Name)
+		if err != nil {
+			return fmt.Errorf("invalid status event for %s: %w", run.Ref().String(), err)
+		}
 		source := model.EventSource(event.Attrs["source"])
 		if source == "" {
 			source = model.EventSourceDaemon
@@ -936,7 +972,9 @@ func (s *FileStore) loadRun(issueID model.IssueID, runID model.RunID, path strin
 
 	}
 
-	run.DeriveState()
+	if err := run.DeriveState(); err != nil {
+		return nil, fmt.Errorf("failed to derive run state from %s: %w", path, err)
+	}
 
 	// Resolve relative worktree paths against the vault path
 	// This handles runs created before worktree paths were made absolute

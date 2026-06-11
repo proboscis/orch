@@ -93,7 +93,10 @@ func TestModelIssueToProto_SanitizesInvalidTextFields(t *testing.T) {
 		ModifiedAt: time.Unix(1, 0),
 	}
 
-	protoIssue := modelIssueToProto(issue)
+	protoIssue, err := modelIssueToProto(issue)
+	if err != nil {
+		t.Fatalf("modelIssueToProto() error = %v", err)
+	}
 
 	if !utf8.ValidString(protoIssue.Title) || !utf8.ValidString(protoIssue.Summary) || !utf8.ValidString(protoIssue.Body) || !utf8.ValidString(protoIssue.Topic) {
 		t.Fatalf("modelIssueToProto() returned invalid UTF-8 in text fields")

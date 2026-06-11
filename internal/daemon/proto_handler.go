@@ -55,7 +55,7 @@ func (s *SocketServer) handleProtoConnection(conn net.Conn) {
 	defer conn.Close()
 	defer func() {
 		if r := recover(); r != nil {
-			s.logger.Printf("PANIC in handleProtoConnection: %v", r)
+			logAndRepanic(s.logger, "handleProtoConnection", r)
 		}
 	}()
 
@@ -847,9 +847,13 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 	requestStart := time.Now()
 	projectID := projectIDFromContext(req.Context)
 
+	statuses, err := protoRunStatusSliceToModel(req.Status)
+	if err != nil {
+		return errorResponse(err.Error())
+	}
 	filter := &store.ListRunsFilter{
 		IssueID:    model.IssueID(req.IssueId),
-		Status:     protoRunStatusSliceToModel(req.Status),
+		Status:     statuses,
 		Agent:      req.Agent,
 		TextSearch: req.TextSearch,
 		TimeRange:  req.TimeRange,
@@ -926,7 +930,10 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 
 	enrichStart := time.Now()
 	protoRuns := make([]*orchpb.Run, len(paginatedRuns))
-	protoRuns = enrichRunsParallel(paginatedRuns, protoRuns)
+	protoRuns, err = enrichRunsParallel(paginatedRuns, protoRuns)
+	if err != nil {
+		return errorResponse(err.Error())
+	}
 	applyIssueMetadataToRunEntries(paginatedEntries, protoRuns)
 	s.applyRunLiveness(paginatedRuns, protoRuns)
 	enrichDuration := time.Since(enrichStart)
@@ -1090,9 +1097,9 @@ func enrichRunProto(pr *orchpb.Run, run *model.Run, runner git.Runner) {
 	pr.ElapsedDisplay = formatElapsedTime(run.StartedAt, run.UpdatedAt, run.Status)
 }
 
-func enrichRunsParallel(runs []*model.Run, protoRuns []*orchpb.Run) []*orchpb.Run {
+func enrichRunsParallel(runs []*model.Run, protoRuns []*orchpb.Run) ([]*orchpb.Run, error) {
 	if len(runs) == 0 {
-		return protoRuns
+		return protoRuns, nil
 	}
 
 	worktrees := make([]struct {
@@ -1118,7 +1125,10 @@ func enrichRunsParallel(runs []*model.Run, protoRuns []*orchpb.Run) []*orchpb.Ru
 	prInfoMap := pr.PopulateRunInfo(runs)
 
 	for i, run := range runs {
-		proto := modelRunToProto(run)
+		proto, err := modelRunToProto(run)
+		if err != nil {
+			return nil, err
+		}
 		proto.ElapsedDisplay = formatElapsedTime(run.StartedAt, run.UpdatedAt, run.Status)
 
 		if status, ok := statusMap[run.WorktreePath]; ok {
@@ -1161,7 +1171,7 @@ func enrichRunsParallel(runs []*model.Run, protoRuns []*orchpb.Run) []*orchpb.Ru
 		protoRuns[i] = proto
 	}
 
-	return protoRuns
+	return protoRuns, nil
 }
 
 func formatElapsedTime(startedAt, updatedAt time.Time, status model.Status) string {
@@ -1311,7 +1321,10 @@ func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Resp
 		protoEvents[i] = modelEventToProto(e)
 	}
 
-	pr := modelRunToProto(run)
+	pr, err := modelRunToProto(run)
+	if err != nil {
+		return errorResponse(err.Error())
+	}
 	enrichRunProto(pr, run, s.gitRunner)
 	s.applyRunLiveness([]*model.Run{run}, []*orchpb.Run{pr})
 
@@ -1516,9 +1529,9 @@ func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orch
 		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("target", targetAttrs))
 	}
 
-	status := model.NormalizeStatus(result.Status)
-	if status == "" {
-		status = model.StatusRunning
+	status, err := model.NormalizeStatus(result.Status)
+	if err != nil {
+		return fmt.Errorf("invalid start_run worker result status for %s#%s: %w", req.IssueId, result.RunID, err)
 	}
 	_ = st.AppendEvent(run.Ref(), model.NewStatusEvent(status))
 
@@ -1609,9 +1622,9 @@ func (s *SocketServer) syncContinueRunResultToMasterStore(st store.Store, req *o
 		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("target", targetAttrs))
 	}
 
-	status := model.NormalizeStatus(result.Status)
-	if status == "" {
-		status = model.StatusRunning
+	status, err := model.NormalizeStatus(result.Status)
+	if err != nil {
+		return fmt.Errorf("invalid continue_run worker result status for %s#%s: %w", result.IssueID, result.RunID, err)
 	}
 	_ = st.AppendEvent(run.Ref(), model.NewStatusEvent(status))
 	return nil
@@ -1851,7 +1864,11 @@ func (s *SocketServer) handleProtoListIssues(req *orchpb.ListIssuesRequest) *orc
 	if len(req.Status) > 0 {
 		statusSet := make(map[model.IssueStatus]bool)
 		for _, st := range req.Status {
-			statusSet[protoIssueStatusToModel(st)] = true
+			status, err := protoIssueStatusToModel(st)
+			if err != nil {
+				return errorResponse(err.Error())
+			}
+			statusSet[status] = true
 		}
 		var filtered []*model.Issue
 		for _, issue := range issues {
@@ -1911,7 +1928,11 @@ func (s *SocketServer) handleProtoListIssues(req *orchpb.ListIssuesRequest) *orc
 
 	protoIssues := make([]*orchpb.Issue, len(paginatedIssues))
 	for i, issue := range paginatedIssues {
-		protoIssues[i] = modelIssueToProto(issue)
+		protoIssue, err := modelIssueToProto(issue)
+		if err != nil {
+			return errorResponse(err.Error())
+		}
+		protoIssues[i] = protoIssue
 	}
 
 	var nextCursor string
@@ -1968,11 +1989,15 @@ func (s *SocketServer) handleProtoGetIssue(req *orchpb.GetIssueRequest) *orchpb.
 		}
 	}
 
+	protoIssue, err := modelIssueToProto(issue)
+	if err != nil {
+		return errorResponse(err.Error())
+	}
 	return &orchpb.Response{
 		Ok: true,
 		Response: &orchpb.Response_GetIssue{
 			GetIssue: &orchpb.GetIssueResponse{
-				Issue: modelIssueToProto(issue),
+				Issue: protoIssue,
 			},
 		},
 	}
@@ -2909,7 +2934,10 @@ func (s *SocketServer) handleProtoGetRunByShortID(req *orchpb.GetRunByShortIDReq
 		}
 	}
 
-	pr := modelRunToProto(run)
+	pr, err := modelRunToProto(run)
+	if err != nil {
+		return errorResponse(err.Error())
+	}
 	enrichRunProto(pr, run, s.gitRunner)
 
 	protoEvents := make([]*orchpb.Event, len(run.Events))
@@ -3230,18 +3258,26 @@ func (s *SocketServer) handleProtoUpdateIssue(req *orchpb.UpdateIssueRequest) *o
 		issue.Body = req.Body
 	}
 	if req.Status != "" {
-		issue.Status = model.IssueStatus(req.Status)
+		status, err := model.ParseIssueStatus(req.Status)
+		if err != nil {
+			return errorResponse(err.Error())
+		}
+		issue.Status = status
 	}
 
 	if err := st.UpdateIssue(issue); err != nil {
 		return errorResponse(fmt.Sprintf("failed to update issue: %v", err))
 	}
 
+	protoIssue, err := modelIssueToProto(issue)
+	if err != nil {
+		return errorResponse(err.Error())
+	}
 	return &orchpb.Response{
 		Ok: true,
 		Response: &orchpb.Response_UpdateIssue{
 			UpdateIssue: &orchpb.UpdateIssueResponse{
-				Issue: modelIssueToProto(issue),
+				Issue: protoIssue,
 			},
 		},
 	}

@@ -161,7 +161,10 @@ func (d *Dashboard) activateFilterRow() (tea.Model, tea.Cmd) {
 			d.filter.Statuses = allStatusSet()
 			return d, nil
 		}
-		status := model.NormalizeStatus(row.value)
+		status, err := model.NormalizeStatus(row.value)
+		if err != nil {
+			panic(err)
+		}
 		if d.filter.Statuses == nil {
 			d.filter.Statuses = make(map[model.Status]bool)
 		}

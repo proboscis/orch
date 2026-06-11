@@ -123,9 +123,14 @@ func showJSON(run *orchapi.Run, opts *showOptions) error {
 }
 
 func showHuman(run *orchapi.Run, opts *showOptions) error {
+	status, err := model.NormalizeStatus(string(run.Status))
+	if err != nil {
+		return fmt.Errorf("invalid run status for %s#%s: %w", run.IssueID, run.RunID, err)
+	}
+
 	// Header
 	fmt.Printf("Run: %s#%s\n", run.IssueID, run.RunID)
-	fmt.Printf("Status: %s", colorStatus(model.NormalizeStatus(string(run.Status))))
+	fmt.Printf("Status: %s", colorStatus(status))
 	fmt.Println()
 	fmt.Println(strings.Repeat("-", 60))
 

@@ -109,6 +109,25 @@ func TestRunFilterRows(t *testing.T) {
 	}
 }
 
+func TestRunFilterRowsIssueStatusSkipsSentinel(t *testing.T) {
+	now := time.Now()
+	filter := DefaultRunFilter()
+	filter.IssueStatus = issueStatusOpen
+
+	rows := []RunRow{
+		{IssueID: "gh-1", Status: model.StatusRunning, IssueStatus: "-", Updated: now},
+		{IssueID: "orch-1", Status: model.StatusRunning, IssueStatus: "open", Updated: now},
+	}
+
+	filtered := filter.FilterRows(rows, now)
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(filtered))
+	}
+	if filtered[0].IssueID != "orch-1" {
+		t.Fatalf("expected orch-1, got %s", filtered[0].IssueID)
+	}
+}
+
 func TestRunFilterRowsRegex(t *testing.T) {
 	now := time.Now()
 	re, _, err := compileIssueQuery("/orch-\\d+/")

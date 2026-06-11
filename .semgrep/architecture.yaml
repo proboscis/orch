@@ -2153,3 +2153,136 @@ rules:
     metadata:
       category: architecture
       violation: daemon-bypass
+
+  # ---------------------------------------------------------------------------
+  # 14. Fail-fast guardrails
+  # ---------------------------------------------------------------------------
+
+  - id: daemon-no-swallowed-recover
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern: |
+                  if $R := recover(); $R != nil {
+                    ...
+                  }
+              - pattern-not: |
+                  if $R := recover(); $R != nil {
+                    ...
+                    panic($R)
+                    ...
+                  }
+              - pattern-not: |
+                  if $R := recover(); $R != nil {
+                    ...
+                    logAndRepanic(..., $R)
+                    ...
+                  }
+              - pattern-not: |
+                  if $R := recover(); $R != nil {
+                    ...
+                    os.Exit(...)
+                    ...
+                  }
+          - patterns:
+              - pattern: recover()
+              - pattern-not-inside: |
+                  if $R := recover(); $R != nil {
+                    ...
+                  }
+    paths:
+      include:
+        - /internal/daemon/
+        - /test/semgrep/internal/daemon/
+      exclude:
+        - /internal/daemon/*_test.go
+    message: >
+      Daemon recover() must not swallow panics. Log and re-panic via
+      logAndRepanic(), call panic(r), or terminate explicitly so failures are
+      visible instead of silently hidden.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: fail-fast
+      violation: swallowed-recover
+
+  - id: fail-fast-no-discard-status-parse-error
+    patterns:
+      - pattern-either:
+          - pattern: $VALUE, _ = model.NormalizeStatus(...)
+          - pattern: $VALUE, _ := model.NormalizeStatus(...)
+          - pattern: $VALUE, _ = model.ParseIssueStatus(...)
+          - pattern: $VALUE, _ := model.ParseIssueStatus(...)
+          - pattern: $VALUE, _ = orchapi.NormalizeRunStatus(...)
+          - pattern: $VALUE, _ := orchapi.NormalizeRunStatus(...)
+          - pattern: $VALUE, _ = modelStatusToProto(...)
+          - pattern: $VALUE, _ := modelStatusToProto(...)
+          - pattern: $VALUE, _ = protoStatusToModel(...)
+          - pattern: $VALUE, _ := protoStatusToModel(...)
+          - pattern: $VALUE, _ = modelIssueStatusToProto(...)
+          - pattern: $VALUE, _ := modelIssueStatusToProto(...)
+          - pattern: $VALUE, _ = protoIssueStatusToModel(...)
+          - pattern: $VALUE, _ := protoIssueStatusToModel(...)
+          - pattern: $VALUE, _ = modelRunToProto(...)
+          - pattern: $VALUE, _ := modelRunToProto(...)
+          - pattern: $VALUE, _ = modelIssueToProto(...)
+          - pattern: $VALUE, _ := modelIssueToProto(...)
+          - pattern: $VALUE, _ = protoRunToModel(...)
+          - pattern: $VALUE, _ := protoRunToModel(...)
+          - pattern: $VALUE, _ = protoIssueToModel(...)
+          - pattern: $VALUE, _ := protoIssueToModel(...)
+          - pattern: $VALUE, _ = protoRunStatusSliceToModel(...)
+          - pattern: $VALUE, _ := protoRunStatusSliceToModel(...)
+          - pattern: $VALUE, _ = protoIssueStatusSliceToModel(...)
+          - pattern: $VALUE, _ := protoIssueStatusSliceToModel(...)
+          - pattern: $VALUE, _ = stringToProtoRunStatus(...)
+          - pattern: $VALUE, _ := stringToProtoRunStatus(...)
+          - pattern: $VALUE, _ = stringToProtoIssueStatus(...)
+          - pattern: $VALUE, _ := stringToProtoIssueStatus(...)
+          - pattern: $VALUE, _ = protoRunStatusToString(...)
+          - pattern: $VALUE, _ := protoRunStatusToString(...)
+          - pattern: $VALUE, _ = protoIssueStatusToString(...)
+          - pattern: $VALUE, _ := protoIssueStatusToString(...)
+          - pattern: $VALUE, _ = protoRunToSummary(...)
+          - pattern: $VALUE, _ := protoRunToSummary(...)
+          - pattern: $VALUE, _ = protoRunToFull(...)
+          - pattern: $VALUE, _ := protoRunToFull(...)
+          - pattern: $VALUE, _ = protoIssueToSummary(...)
+          - pattern: $VALUE, _ := protoIssueToSummary(...)
+          - pattern: $VALUE, _ = protoIssueToFull(...)
+          - pattern: $VALUE, _ := protoIssueToFull(...)
+          - pattern: _, _ = model.NormalizeStatus(...)
+          - pattern: _, _ = model.ParseIssueStatus(...)
+          - pattern: _, _ = orchapi.NormalizeRunStatus(...)
+          - pattern: _, _ = modelStatusToProto(...)
+          - pattern: _, _ = protoStatusToModel(...)
+          - pattern: _, _ = modelIssueStatusToProto(...)
+          - pattern: _, _ = protoIssueStatusToModel(...)
+          - pattern: _, _ = modelRunToProto(...)
+          - pattern: _, _ = modelIssueToProto(...)
+          - pattern: _, _ = protoRunToModel(...)
+          - pattern: _, _ = protoIssueToModel(...)
+          - pattern: _, _ = protoRunStatusSliceToModel(...)
+          - pattern: _, _ = protoIssueStatusSliceToModel(...)
+          - pattern: _, _ = stringToProtoRunStatus(...)
+          - pattern: _, _ = stringToProtoIssueStatus(...)
+          - pattern: _, _ = protoRunStatusToString(...)
+          - pattern: _, _ = protoIssueStatusToString(...)
+          - pattern: _, _ = protoRunToSummary(...)
+          - pattern: _, _ = protoRunToFull(...)
+          - pattern: _, _ = protoIssueToSummary(...)
+          - pattern: _, _ = protoIssueToFull(...)
+    paths:
+      include:
+        - /internal/
+        - /test/semgrep/internal/
+      exclude:
+        - /internal/**/*_test.go
+    message: >
+      Do not discard errors from status/enum parser and proto conversion calls.
+      Unknown enum values must fail fast instead of being accepted or hidden.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: fail-fast
+      violation: discarded-parse-error

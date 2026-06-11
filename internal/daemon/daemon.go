@@ -331,7 +331,7 @@ func (d *Daemon) restartWithNewBinary() error {
 func (d *Daemon) safeMonitorAll() {
 	defer func() {
 		if r := recover(); r != nil {
-			d.logger.Printf("PANIC in monitorAll: %v", r)
+			logAndRepanic(d.logger, "monitorAll", r)
 		}
 	}()
 	d.monitorAll()
@@ -579,7 +579,7 @@ func (d *Daemon) gitHubPollingLoop() {
 	defer d.wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
-			d.logger.Printf("PANIC in gitHubPollingLoop: %v", r)
+			logAndRepanic(d.logger, "gitHubPollingLoop", r)
 		}
 	}()
 

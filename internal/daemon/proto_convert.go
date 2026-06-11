@@ -1,85 +1,90 @@
 package daemon
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/s22625/orch/api/orchpb"
 	"github.com/s22625/orch/internal/model"
 )
 
-func modelStatusToProto(s model.Status) orchpb.RunStatus {
+func modelStatusToProto(s model.Status) (orchpb.RunStatus, error) {
 	switch s {
 	case model.StatusQueued:
-		return orchpb.RunStatus_RUN_STATUS_QUEUED
+		return orchpb.RunStatus_RUN_STATUS_QUEUED, nil
 	case model.StatusBooting:
-		return orchpb.RunStatus_RUN_STATUS_BOOTING
+		return orchpb.RunStatus_RUN_STATUS_BOOTING, nil
 	case model.StatusRunning:
-		return orchpb.RunStatus_RUN_STATUS_RUNNING
+		return orchpb.RunStatus_RUN_STATUS_RUNNING, nil
 	case model.StatusWaiting:
-		return orchpb.RunStatus_RUN_STATUS_WAITING
+		return orchpb.RunStatus_RUN_STATUS_WAITING, nil
 	case model.StatusRateLimited:
-		return orchpb.RunStatus_RUN_STATUS_RATE_LIMITED
+		return orchpb.RunStatus_RUN_STATUS_RATE_LIMITED, nil
 	case model.StatusPROpen:
-		return orchpb.RunStatus_RUN_STATUS_PR_OPEN
+		return orchpb.RunStatus_RUN_STATUS_PR_OPEN, nil
 	case model.StatusDone:
-		return orchpb.RunStatus_RUN_STATUS_DONE
+		return orchpb.RunStatus_RUN_STATUS_DONE, nil
 	case model.StatusFailed:
-		return orchpb.RunStatus_RUN_STATUS_FAILED
+		return orchpb.RunStatus_RUN_STATUS_FAILED, nil
 	case model.StatusCanceled:
-		return orchpb.RunStatus_RUN_STATUS_CANCELED
+		return orchpb.RunStatus_RUN_STATUS_CANCELED, nil
+	case model.StatusUnknown:
+		return orchpb.RunStatus_RUN_STATUS_UNKNOWN, nil
 	default:
-		return orchpb.RunStatus_RUN_STATUS_UNSPECIFIED
+		return orchpb.RunStatus_RUN_STATUS_UNSPECIFIED, fmt.Errorf("unknown model run status: %q", s)
 	}
 }
 
-func protoStatusToModel(s orchpb.RunStatus) model.Status {
+func protoStatusToModel(s orchpb.RunStatus) (model.Status, error) {
 	switch s {
 	case orchpb.RunStatus_RUN_STATUS_QUEUED:
-		return model.StatusQueued
+		return model.StatusQueued, nil
 	case orchpb.RunStatus_RUN_STATUS_BOOTING:
-		return model.StatusBooting
+		return model.StatusBooting, nil
 	case orchpb.RunStatus_RUN_STATUS_RUNNING:
-		return model.StatusRunning
+		return model.StatusRunning, nil
 	case orchpb.RunStatus_RUN_STATUS_WAITING:
-		return model.StatusWaiting
+		return model.StatusWaiting, nil
 	case orchpb.RunStatus_RUN_STATUS_RATE_LIMITED:
-		return model.StatusRateLimited
+		return model.StatusRateLimited, nil
 	case orchpb.RunStatus_RUN_STATUS_PR_OPEN:
-		return model.StatusPROpen
+		return model.StatusPROpen, nil
 	case orchpb.RunStatus_RUN_STATUS_DONE:
-		return model.StatusDone
+		return model.StatusDone, nil
 	case orchpb.RunStatus_RUN_STATUS_FAILED:
-		return model.StatusFailed
+		return model.StatusFailed, nil
 	case orchpb.RunStatus_RUN_STATUS_CANCELED:
-		return model.StatusCanceled
+		return model.StatusCanceled, nil
+	case orchpb.RunStatus_RUN_STATUS_UNKNOWN:
+		return model.StatusUnknown, nil
 	default:
-		return model.StatusQueued
+		return "", fmt.Errorf("unknown proto run status: %s", s.String())
 	}
 }
 
-func modelIssueStatusToProto(s model.IssueStatus) orchpb.IssueStatus {
+func modelIssueStatusToProto(s model.IssueStatus) (orchpb.IssueStatus, error) {
 	switch s {
 	case model.IssueStatusOpen:
-		return orchpb.IssueStatus_ISSUE_STATUS_OPEN
+		return orchpb.IssueStatus_ISSUE_STATUS_OPEN, nil
 	case model.IssueStatusResolved:
-		return orchpb.IssueStatus_ISSUE_STATUS_RESOLVED
+		return orchpb.IssueStatus_ISSUE_STATUS_RESOLVED, nil
 	case model.IssueStatusClosed:
-		return orchpb.IssueStatus_ISSUE_STATUS_CLOSED
+		return orchpb.IssueStatus_ISSUE_STATUS_CLOSED, nil
 	default:
-		return orchpb.IssueStatus_ISSUE_STATUS_UNSPECIFIED
+		return orchpb.IssueStatus_ISSUE_STATUS_UNSPECIFIED, fmt.Errorf("unknown model issue status: %q", s)
 	}
 }
 
-func protoIssueStatusToModel(s orchpb.IssueStatus) model.IssueStatus {
+func protoIssueStatusToModel(s orchpb.IssueStatus) (model.IssueStatus, error) {
 	switch s {
 	case orchpb.IssueStatus_ISSUE_STATUS_OPEN:
-		return model.IssueStatusOpen
+		return model.IssueStatusOpen, nil
 	case orchpb.IssueStatus_ISSUE_STATUS_RESOLVED:
-		return model.IssueStatusResolved
+		return model.IssueStatusResolved, nil
 	case orchpb.IssueStatus_ISSUE_STATUS_CLOSED:
-		return model.IssueStatusClosed
+		return model.IssueStatusClosed, nil
 	default:
-		return model.IssueStatusOpen
+		return "", fmt.Errorf("unknown proto issue status: %s", s.String())
 	}
 }
 
@@ -105,15 +110,19 @@ func protoToMultiplexer(mux orchpb.Multiplexer) string {
 	}
 }
 
-func modelRunToProto(run *model.Run) *orchpb.Run {
+func modelRunToProto(run *model.Run) (*orchpb.Run, error) {
 	if run == nil {
-		return nil
+		return nil, nil
+	}
+	status, err := modelStatusToProto(run.Status)
+	if err != nil {
+		return nil, fmt.Errorf("convert run %s#%s status: %w", run.IssueID, run.RunID, err)
 	}
 
 	protoRun := &orchpb.Run{
 		IssueId:           sanitizeUTF8(string(run.IssueID)),
 		RunId:             sanitizeUTF8(string(run.RunID)),
-		Status:            modelStatusToProto(run.Status),
+		Status:            status,
 		Agent:             sanitizeUTF8(run.Agent),
 		Profile:           sanitizeUTF8(run.Profile),
 		Model:             sanitizeUTF8(run.Model),
@@ -137,17 +146,21 @@ func modelRunToProto(run *model.Run) *orchpb.Run {
 		WorktreeExists:    run.WorktreeExists,
 	}
 
-	return protoRun
+	return protoRun, nil
 }
 
-func protoRunToModel(run *orchpb.Run) *model.Run {
+func protoRunToModel(run *orchpb.Run) (*model.Run, error) {
 	if run == nil {
-		return nil
+		return nil, nil
+	}
+	status, err := protoStatusToModel(run.Status)
+	if err != nil {
+		return nil, fmt.Errorf("convert run %s#%s status: %w", run.IssueId, run.RunId, err)
 	}
 	return &model.Run{
 		IssueID:           model.IssueID(run.IssueId),
 		RunID:             model.RunID(run.RunId),
-		Status:            protoStatusToModel(run.Status),
+		Status:            status,
 		Agent:             run.Agent,
 		Profile:           run.Profile,
 		Model:             run.Model,
@@ -165,43 +178,51 @@ func protoRunToModel(run *orchpb.Run) *model.Run {
 		ServerPort:        int(run.ServerPort),
 		OpenCodeSessionID: run.OpencodeSessionId,
 		ContinuedFrom:     run.ContinuedFrom,
-	}
+	}, nil
 }
 
-func modelIssueToProto(issue *model.Issue) *orchpb.Issue {
+func modelIssueToProto(issue *model.Issue) (*orchpb.Issue, error) {
 	if issue == nil {
-		return nil
+		return nil, nil
+	}
+	status, err := modelIssueStatusToProto(issue.Status)
+	if err != nil {
+		return nil, fmt.Errorf("convert issue %s status: %w", issue.ID, err)
 	}
 	return &orchpb.Issue{
 		Id:             sanitizeUTF8(string(issue.ID)),
 		Title:          sanitizeUTF8(issue.Title),
 		Topic:          sanitizeUTF8(issue.Topic),
 		Summary:        sanitizeUTF8(issue.Summary),
-		Status:         modelIssueStatusToProto(issue.Status),
+		Status:         status,
 		Tags:           sanitizeUTF8Slice(issue.Tags),
 		Body:           sanitizeUTF8(issue.Body),
 		Path:           sanitizeUTF8(issue.Path),
 		ModifiedAtUnix: issue.ModifiedAt.Unix(),
 		BaseBranch:     sanitizeUTF8(issue.BaseBranch),
-	}
+	}, nil
 }
 
-func protoIssueToModel(issue *orchpb.Issue) *model.Issue {
+func protoIssueToModel(issue *orchpb.Issue) (*model.Issue, error) {
 	if issue == nil {
-		return nil
+		return nil, nil
+	}
+	status, err := protoIssueStatusToModel(issue.Status)
+	if err != nil {
+		return nil, fmt.Errorf("convert issue %s status: %w", issue.Id, err)
 	}
 	return &model.Issue{
 		ID:         model.IssueID(issue.Id),
 		Title:      issue.Title,
 		Topic:      issue.Topic,
 		Summary:    issue.Summary,
-		Status:     protoIssueStatusToModel(issue.Status),
+		Status:     status,
 		Tags:       issue.Tags,
 		Body:       issue.Body,
 		Path:       issue.Path,
 		BaseBranch: issue.BaseBranch,
 		ModifiedAt: time.Unix(issue.ModifiedAtUnix, 0),
-	}
+	}, nil
 }
 
 func modelEventToProto(event *model.Event) *orchpb.Event {
@@ -228,18 +249,26 @@ func protoEventToModel(event *orchpb.Event) *model.Event {
 	}
 }
 
-func protoRunStatusSliceToModel(statuses []orchpb.RunStatus) []model.Status {
+func protoRunStatusSliceToModel(statuses []orchpb.RunStatus) ([]model.Status, error) {
 	result := make([]model.Status, len(statuses))
 	for i, s := range statuses {
-		result[i] = protoStatusToModel(s)
+		status, err := protoStatusToModel(s)
+		if err != nil {
+			return nil, err
+		}
+		result[i] = status
 	}
-	return result
+	return result, nil
 }
 
-func protoIssueStatusSliceToModel(statuses []orchpb.IssueStatus) []model.IssueStatus {
+func protoIssueStatusSliceToModel(statuses []orchpb.IssueStatus) ([]model.IssueStatus, error) {
 	result := make([]model.IssueStatus, len(statuses))
 	for i, s := range statuses {
-		result[i] = protoIssueStatusToModel(s)
+		status, err := protoIssueStatusToModel(s)
+		if err != nil {
+			return nil, err
+		}
+		result[i] = status
 	}
-	return result
+	return result, nil
 }
