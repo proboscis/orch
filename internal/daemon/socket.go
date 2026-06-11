@@ -322,6 +322,19 @@ type SocketServer struct {
 	currentWorkerHost string
 
 	runEventBus *RunEventBus
+
+	// runLiveness, when set, exposes the daemon monitor's liveness view
+	// (last observation succeeded / run has been observed at all) so that
+	// list/get responses can report ALIVE for both local and worker-hosted
+	// runs. Wired by Daemon at startup.
+	runLiveness func(run *model.Run) (alive, known bool)
+
+	// onRunFeedback, when set, notifies the daemon monitor that feedback
+	// was just delivered to a run's agent session, so it can reset its
+	// prompt debounce: the idle prompt still on screen must not flip the
+	// run straight back to waiting before the agent starts working. Wired
+	// by Daemon at startup.
+	onRunFeedback func(run *model.Run)
 }
 
 type managedServer struct {
@@ -845,8 +858,29 @@ func (s *SocketServer) GetAllRepoContexts() []*RepoContext {
 	s.reposMu.RLock()
 	defer s.reposMu.RUnlock()
 
+	// s.repos can alias one store under two keys: the repo ID and the
+	// issuesRoot cache key used by getOrCreateStore. Callers treat the
+	// result as "each repo once" (the monitor would otherwise observe every
+	// run twice per tick, double-counting dead checks and duplicating
+	// events), so collapse aliases to a single context, preferring the
+	// entry that carries project metadata.
 	contexts := make([]*RepoContext, 0, len(s.repos))
+	byStore := make(map[store.Store]int, len(s.repos))
 	for _, ctx := range s.repos {
+		if ctx == nil {
+			continue
+		}
+		if ctx.Store == nil {
+			contexts = append(contexts, ctx)
+			continue
+		}
+		if i, ok := byStore[ctx.Store]; ok {
+			if contexts[i].ProjectRoot == "" && ctx.ProjectRoot != "" {
+				contexts[i] = ctx
+			}
+			continue
+		}
+		byStore[ctx.Store] = len(contexts)
 		contexts = append(contexts, ctx)
 	}
 	return contexts
@@ -2895,9 +2929,60 @@ func (s *SocketServer) processSendMessageForRun(st store.Store, run *model.Run, 
 	}
 
 	if run.Agent == string(agent.AgentOpenCode) {
-		return s.processSendOpenCode(st, run.Ref(), run, params.Message)
+		if err := s.processSendOpenCode(st, run.Ref(), run, params.Message); err != nil {
+			return err
+		}
+	} else if err := s.processSendTmux(run, params.Message, params.NoEnter); err != nil {
+		return err
 	}
-	return s.processSendTmux(run, params.Message, params.NoEnter)
+
+	// --no-enter only types into the input box without submitting; the agent
+	// has not received anything, so the run is not resumed.
+	if !params.NoEnter {
+		s.markRunFeedbackSent(st, run)
+	}
+	return nil
+}
+
+// feedbackResumesRun reports whether a run in this status goes back to work
+// when the user sends feedback to its agent session. Boot statuses are
+// excluded (the boot flow owns the transition to running) and terminal
+// statuses stay terminal.
+func feedbackResumesRun(status model.Status) bool {
+	switch status {
+	case model.StatusWaiting, model.StatusPROpen, model.StatusRateLimited, model.StatusUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// markRunFeedbackSent transitions an idle/parked run back to running after
+// feedback was successfully delivered to its agent session. Send is the
+// running edge of the running ⟷ waiting lifecycle: without this transition
+// `orch wait` called right after `orch send` would see the stale pre-send
+// status (waiting/pr_open) and return immediately instead of blocking until
+// the agent next goes idle or the PR state changes.
+func (s *SocketServer) markRunFeedbackSent(st store.Store, run *model.Run) {
+	if st == nil || run == nil || !feedbackResumesRun(run.Status) {
+		return
+	}
+	if err := st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusRunning)); err != nil {
+		s.logger.Printf("%s#%s: failed to mark run running after feedback: %v", run.IssueID, run.RunID, err)
+		return
+	}
+	if s.onRunFeedback != nil {
+		s.onRunFeedback(run)
+	}
+	s.PublishRunEvent(&orchpb.RunEventFrame{
+		RunId:           string(run.RunID),
+		IssueId:         string(run.IssueID),
+		ShortId:         string(model.GenerateShortID(run.IssueID, run.RunID)),
+		FromStatus:      modelStatusToProto(run.Status),
+		ToStatus:        modelStatusToProto(model.StatusRunning),
+		TimestampUnixMs: time.Now().UnixMilli(),
+		Source:          string(model.EventSourceUser),
+	})
 }
 
 func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {
@@ -3752,21 +3837,22 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	opencodeSessionID := ""
 
 	launchCfg := &agent.LaunchConfig{
-		Type:         agentType,
-		CustomCmd:    opts.AgentCmd,
-		WorkDir:      worktreeResult.WorktreePath,
-		IssueID:      string(opts.IssueID),
-		RunID:        string(runID),
-		RunPath:      run.Path,
-		IssuesRoot:   st.RootPath(),
-		Branch:       worktreeResult.Branch,
-		Prompt:       initialPrompt,
-		Profile:      opts.AgentProfile,
-		Port:         agent.OpenCodeServerPortStart,
-		Model:        runModel,
-		ModelVariant: runVariant,
-		ExtraArgs:    cfg.GetExtraArgs(agentName),
-		CodexHome:    opts.CodexHome,
+		Type:            agentType,
+		CustomCmd:       opts.AgentCmd,
+		WorkDir:         worktreeResult.WorktreePath,
+		IssueID:         string(opts.IssueID),
+		RunID:           string(runID),
+		RunPath:         run.Path,
+		IssuesRoot:      st.RootPath(),
+		Branch:          worktreeResult.Branch,
+		Prompt:          initialPrompt,
+		Profile:         opts.AgentProfile,
+		Port:            agent.OpenCodeServerPortStart,
+		Model:           runModel,
+		ModelVariant:    runVariant,
+		ExtraArgs:       cfg.GetExtraArgs(agentName),
+		CodexHome:       opts.CodexHome,
+		ClaudeConfigDir: opts.ClaudeConfigDir,
 	}
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)
@@ -4130,21 +4216,22 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 	opencodeSessionID := ""
 
 	launchCfg := &agent.LaunchConfig{
-		Type:         agentType,
-		CustomCmd:    opts.AgentCmd,
-		WorkDir:      worktreePath,
-		IssueID:      string(issueID),
-		RunID:        string(runID),
-		RunPath:      run.Path,
-		IssuesRoot:   st.RootPath(),
-		Branch:       branch,
-		Prompt:       continuePrompt,
-		Profile:      opts.AgentProfile,
-		Port:         agent.OpenCodeServerPortStart,
-		Model:        runModel,
-		ModelVariant: runVariant,
-		ExtraArgs:    cfg.GetExtraArgs(agentName),
-		CodexHome:    opts.CodexHome,
+		Type:            agentType,
+		CustomCmd:       opts.AgentCmd,
+		WorkDir:         worktreePath,
+		IssueID:         string(issueID),
+		RunID:           string(runID),
+		RunPath:         run.Path,
+		IssuesRoot:      st.RootPath(),
+		Branch:          branch,
+		Prompt:          continuePrompt,
+		Profile:         opts.AgentProfile,
+		Port:            agent.OpenCodeServerPortStart,
+		Model:           runModel,
+		ModelVariant:    runVariant,
+		ExtraArgs:       cfg.GetExtraArgs(agentName),
+		CodexHome:       opts.CodexHome,
+		ClaudeConfigDir: opts.ClaudeConfigDir,
 	}
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)

@@ -24,7 +24,7 @@ func TestClaudeLaunchCommand(t *testing.T) {
 	adapter := &ClaudeAdapter{}
 	cfg := &LaunchConfig{
 		Prompt:      "hello",
-		Profile:     "work",
+		Profile:     "work", // display-only: claude has no --profile flag
 		Resume:      true,
 		SessionName: "session-1",
 	}
@@ -33,9 +33,33 @@ func TestClaudeLaunchCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LaunchCommand error: %v", err)
 	}
-	want := "claude --dangerously-skip-permissions --profile work --resume session-1 \"hello\""
+	// The profile must NOT reach the command line — claude has no --profile
+	// flag and would refuse to start. Profile selection is CLAUDE_CONFIG_DIR.
+	want := "claude --dangerously-skip-permissions --resume session-1 \"hello\""
 	if cmd != want {
 		t.Fatalf("command = %q, want %q", cmd, want)
+	}
+}
+
+func TestClaudeConfigDirEnvInjection(t *testing.T) {
+	t.Setenv("HOME", "/home/exec-host")
+	cfg := &LaunchConfig{ClaudeConfigDir: "~/.config/claude-cryptic"}
+
+	env := cfg.Env()
+	want := "CLAUDE_CONFIG_DIR=/home/exec-host/.config/claude-cryptic"
+	found := false
+	for _, e := range env {
+		if e == want {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("Env() = %v, want it to contain %q (expanded on the execution host)", env, want)
+	}
+
+	// No profile dir configured -> no CLAUDE_CONFIG_DIR injected (agent default).
+	if entries := (&LaunchConfig{}).ClaudeConfigDirEnv(); len(entries) != 0 {
+		t.Fatalf("ClaudeConfigDirEnv() with no dir = %v, want empty", entries)
 	}
 }
 

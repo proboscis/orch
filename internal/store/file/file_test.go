@@ -442,6 +442,35 @@ func TestListRuns(t *testing.T) {
 	}
 }
 
+// Guard: ListRuns serves runs through the persisted run index — every field a
+// client renders (here: the codex execution profile) must survive the
+// run-doc -> index entry -> model.Run round trip, or `orch ps` silently shows
+// it empty while the run document has it.
+func TestListRunsCarriesProfileThroughIndex(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	createTestIssue(t, vault, "prof-issue", "---\ntype: issue\ntitle: Test\n---\n# Test")
+
+	s, _ := New(vault)
+	if _, err := s.CreateRun("prof-issue", "20231220-100000", map[string]string{"profile": "personal"}); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	for i := 0; i < 2; i++ { // second pass serves from the cached index
+		runs, err := s.ListRuns(nil)
+		if err != nil {
+			t.Fatalf("ListRuns() pass %d error = %v", i+1, err)
+		}
+		if len(runs) != 1 {
+			t.Fatalf("ListRuns() pass %d returned %d runs, want 1", i+1, len(runs))
+		}
+		if runs[0].Profile != "personal" {
+			t.Fatalf("ListRuns() pass %d Profile = %q, want personal", i+1, runs[0].Profile)
+		}
+	}
+}
+
 func TestListRunsWithStatusFilter(t *testing.T) {
 	vault, cleanup := setupTestVault(t)
 	defer cleanup()

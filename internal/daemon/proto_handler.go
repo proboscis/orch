@@ -928,6 +928,7 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 	protoRuns := make([]*orchpb.Run, len(paginatedRuns))
 	protoRuns = enrichRunsParallel(paginatedRuns, protoRuns)
 	applyIssueMetadataToRunEntries(paginatedEntries, protoRuns)
+	s.applyRunLiveness(paginatedRuns, protoRuns)
 	enrichDuration := time.Since(enrichStart)
 
 	s.maybeLogListRunsTiming(req, len(paginatedRuns), storeDuration, enrichDuration, time.Since(requestStart), nil)
@@ -1053,6 +1054,24 @@ func (s *SocketServer) maybeLogListRunsTiming(
 		hasOlderThan,
 		slow,
 	)
+}
+
+// applyRunLiveness stamps the monitor's liveness view onto proto runs. The
+// monitor is the single source of truth for liveness: it observes local runs
+// via the multiplexer and worker-hosted runs via capture leases, so this is
+// correct regardless of which host a run executes on.
+func (s *SocketServer) applyRunLiveness(runs []*model.Run, protoRuns []*orchpb.Run) {
+	if s.runLiveness == nil {
+		return
+	}
+	for i, run := range runs {
+		if i >= len(protoRuns) || protoRuns[i] == nil {
+			continue
+		}
+		alive, known := s.runLiveness(run)
+		protoRuns[i].Alive = alive
+		protoRuns[i].AliveKnown = known
+	}
 }
 
 func enrichRunProto(pr *orchpb.Run, run *model.Run, runner git.Runner) {
@@ -1294,6 +1313,7 @@ func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Resp
 
 	pr := modelRunToProto(run)
 	enrichRunProto(pr, run, s.gitRunner)
+	s.applyRunLiveness([]*model.Run{run}, []*orchpb.Run{pr})
 
 	return &orchpb.Response{
 		Ok: true,
@@ -1343,14 +1363,17 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		Target:         req.Target,
 	}
 
-	// Resolve the codex execution profile before target resolution so a
-	// profile-bound target routes through the worker-delegation path, and so
-	// AllowedTargets is enforced at the authoritative master entry point.
+	// Resolve the execution profile (codex or claude) before target resolution
+	// so a profile-bound target routes through the worker-delegation path, and
+	// so AllowedTargets is enforced at the authoritative master entry point.
 	profileCfg, profileCfgErr := loadConfigForProjectRoot(projectRoot)
 	if profileCfgErr != nil {
 		return errorResponse(fmt.Sprintf("failed to load config: %v", profileCfgErr))
 	}
 	if err := applyCodexProfile(profileCfg, opts); err != nil {
+		return errorResponse(err.Error())
+	}
+	if err := applyClaudeProfile(profileCfg, opts); err != nil {
 		return errorResponse(err.Error())
 	}
 
@@ -1648,14 +1671,17 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 		}
 	}
 
-	// Resolve the codex execution profile before target resolution so a
-	// profile-bound target routes through the worker-delegation path, and so
-	// AllowedTargets is enforced + CODEX_HOME re-derived on every continue.
+	// Resolve the execution profile (codex or claude) before target resolution
+	// so a profile-bound target routes through the worker-delegation path, and
+	// so AllowedTargets is enforced + the auth dir re-derived on every continue.
 	profileCfg, profileCfgErr := loadConfigForProjectRoot(projectRoot)
 	if profileCfgErr != nil {
 		return errorResponse(fmt.Sprintf("failed to load config: %v", profileCfgErr))
 	}
 	if err := applyCodexProfileContinue(profileCfg, opts, fromRunAgent); err != nil {
+		return errorResponse(err.Error())
+	}
+	if err := applyClaudeProfileContinue(profileCfg, opts, fromRunAgent); err != nil {
 		return errorResponse(err.Error())
 	}
 
@@ -2337,6 +2363,11 @@ func (s *SocketServer) handleProtoSendMessage(req *orchpb.SendMessageRequest) *o
 		}
 		if _, err := s.withWorkerLease(runCtx.projectID, "send_message", string(runCtx.run.IssueID), string(runCtx.run.RunID), payload); err != nil {
 			return errorResponse(err.Error())
+		}
+		// --no-enter only types into the input box without submitting; the
+		// agent has not received anything, so the run is not resumed.
+		if !req.NoEnter {
+			s.markRunFeedbackSent(runCtx.store, runCtx.run)
 		}
 		return &orchpb.Response{
 			Ok:       true,

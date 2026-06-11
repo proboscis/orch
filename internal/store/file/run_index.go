@@ -18,6 +18,7 @@ type runIndexEntry struct {
 	RunID             model.RunID   `json:"run_id"`
 	Status            model.Status  `json:"status"`
 	Agent             string        `json:"agent,omitempty"`
+	Profile           string        `json:"profile,omitempty"`
 	Target            string        `json:"target,omitempty"`
 	TargetHost        string        `json:"target_host,omitempty"`
 	TargetWorkerID    string        `json:"target_worker_id,omitempty"`
@@ -60,7 +61,10 @@ type runIndex struct {
 }
 
 const (
-	runIndexVersion  = 3
+	// Bump to invalidate persisted indexes whenever runIndexEntry gains a
+	// field: stale entries would otherwise silently serve runs with the new
+	// field empty (the index is the ListRuns source of truth).
+	runIndexVersion  = 4
 	runIndexFileName = ".orch_run_index.json"
 )
 
@@ -265,6 +269,7 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 				RunID:             run.RunID,
 				Status:            run.Status,
 				Agent:             run.Agent,
+				Profile:           run.Profile,
 				Target:            run.Target,
 				TargetHost:        run.TargetHost,
 				TargetWorkerID:    run.TargetWorkerID,
@@ -348,6 +353,7 @@ func runEntryEqual(a, b *runIndexEntry) bool {
 		a.RunID == b.RunID &&
 		a.Status == b.Status &&
 		a.Agent == b.Agent &&
+		a.Profile == b.Profile &&
 		a.Target == b.Target &&
 		a.TargetHost == b.TargetHost &&
 		a.TargetWorkerID == b.TargetWorkerID &&
@@ -396,6 +402,7 @@ func entryToRun(e *runIndexEntry) *model.Run {
 		RunID:             e.RunID,
 		Status:            e.Status,
 		Agent:             e.Agent,
+		Profile:           e.Profile,
 		Target:            e.Target,
 		TargetHost:        e.TargetHost,
 		TargetWorkerID:    e.TargetWorkerID,

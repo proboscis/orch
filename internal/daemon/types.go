@@ -630,9 +630,14 @@ type StartRunOptions struct {
 	Target         string
 	TargetHost     string
 	TargetWorkerID string
-	// CodexHome is the resolved CODEX_HOME for the selected codex profile
-	// (after ~ expansion). Empty means use the agent default (~/.codex).
+	// CodexHome is the CODEX_HOME for the selected codex profile, verbatim as
+	// configured (~ expands on the execution host at launch). Empty means use
+	// the agent default (~/.codex).
 	CodexHome string
+	// ClaudeConfigDir is the CLAUDE_CONFIG_DIR for the selected claude
+	// profile, verbatim as configured (~ expands on the execution host at
+	// launch). Empty means use the agent default (~/.claude).
+	ClaudeConfigDir string
 }
 
 type StartRunResponse struct {
@@ -683,9 +688,14 @@ type ContinueRunOptions struct {
 	Target         string
 	TargetHost     string
 	TargetWorkerID string
-	// CodexHome is the resolved CODEX_HOME for the selected codex profile
-	// (after ~ expansion). Empty means use the agent default (~/.codex).
+	// CodexHome is the CODEX_HOME for the selected codex profile, verbatim as
+	// configured (~ expands on the execution host at launch). Empty means use
+	// the agent default (~/.codex).
 	CodexHome string
+	// ClaudeConfigDir is the CLAUDE_CONFIG_DIR for the selected claude
+	// profile, verbatim as configured (~ expands on the execution host at
+	// launch). Empty means use the agent default (~/.claude).
+	ClaudeConfigDir string
 }
 
 type ContinueRunResponse struct {
