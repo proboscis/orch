@@ -1510,7 +1510,9 @@ func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orch
 		if run == nil {
 			return fmt.Errorf("store returned nil run for %s#%s", req.IssueId, result.RunID)
 		}
-		_ = st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusQueued))
+		if err := st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusQueued)); err != nil { // nosemgrep: run-status-write-surface
+			return fmt.Errorf("failed to record queued status for %s#%s: %w", req.IssueId, result.RunID, err)
+		}
 	}
 	if run == nil {
 		return fmt.Errorf("run unavailable for %s#%s", req.IssueId, result.RunID)
@@ -1561,7 +1563,9 @@ func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orch
 	if err != nil {
 		return fmt.Errorf("invalid start_run worker result status for %s#%s: %w", req.IssueId, result.RunID, err)
 	}
-	_ = st.AppendEvent(run.Ref(), model.NewStatusEvent(status))
+	if err := st.AppendEvent(run.Ref(), model.NewStatusEvent(status)); err != nil { // nosemgrep: run-status-write-surface
+		return fmt.Errorf("failed to record status %s for %s#%s: %w", status, req.IssueId, result.RunID, err)
+	}
 
 	return nil
 }
@@ -1603,7 +1607,9 @@ func (s *SocketServer) syncContinueRunResultToMasterStore(st store.Store, req *o
 		if run == nil {
 			return fmt.Errorf("store returned nil run for %s#%s", result.IssueID, result.RunID)
 		}
-		_ = st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusQueued))
+		if err := st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusQueued)); err != nil { // nosemgrep: run-status-write-surface
+			return fmt.Errorf("failed to record queued status for %s#%s: %w", result.IssueID, result.RunID, err)
+		}
 	}
 	if run == nil {
 		return fmt.Errorf("run unavailable for %s#%s", result.IssueID, result.RunID)
@@ -1654,7 +1660,9 @@ func (s *SocketServer) syncContinueRunResultToMasterStore(st store.Store, req *o
 	if err != nil {
 		return fmt.Errorf("invalid continue_run worker result status for %s#%s: %w", result.IssueID, result.RunID, err)
 	}
-	_ = st.AppendEvent(run.Ref(), model.NewStatusEvent(status))
+	if err := st.AppendEvent(run.Ref(), model.NewStatusEvent(status)); err != nil { // nosemgrep: run-status-write-surface
+		return fmt.Errorf("failed to record status %s for %s#%s: %w", status, result.IssueID, result.RunID, err)
+	}
 	return nil
 }
 

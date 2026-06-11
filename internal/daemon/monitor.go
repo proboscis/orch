@@ -529,7 +529,12 @@ func (d *Daemon) updateStatus(run *model.Run, status model.Status, st store.Stor
 		}
 	}
 
-	event := model.NewStatusEvent(status)
+	// The sanctioned single writer for monitor-plane status transitions:
+	// every transition decided by step() is committed here, and only here
+	// (docs/design/run-state-machine.md). All other status writers are
+	// frozen legacy, enumerated by `nosemgrep: run-status-write-surface`
+	// annotations, and shrink toward zero (coupling-core roadmap Phase B).
+	event := model.NewStatusEvent(status) // nosemgrep: run-status-write-surface
 	if err := st.AppendEvent(ref, event); err != nil {
 		return err
 	}

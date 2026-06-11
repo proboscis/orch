@@ -1,0 +1,52 @@
+rules:
+  - id: run-status-write-surface
+    pattern-either:
+      - pattern: model.NewStatusEvent(...)
+      - pattern: model.NewEvent(model.EventTypeStatus, ...)
+      - pattern: model.NewEvent("status", ...)
+      - pattern-regex: 'Type:\s*"status"'
+      - pattern-regex: 'Type:\s*(model\.)?EventTypeStatus\b'
+    paths:
+      include:
+        - /internal/
+        - /.semgrep/run-status-write-surface/
+      exclude:
+        - /internal/model/
+    message: >
+      Run status transitions must flow through the step() executor
+      (Daemon.updateStatus in internal/daemon/monitor.go). Constructing or
+      appending a run status event anywhere else bypasses the transition
+      policy encoded in step() — debounce, grace windows, terminality, and
+      duplicate suppression (docs/design/run-state-machine.md). Existing
+      writers are frozen with `nosemgrep: run-status-write-surface`
+      annotations and shrink toward zero (docs/design/coupling-core-roadmap.md
+      Phase B). Do not add a new writer: extend step() with a new observation
+      or effect instead.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: invariant
+      violation: run-status-write-outside-step
+
+  - id: no-ignored-status-append
+    pattern-either:
+      - pattern: _ = $ST.AppendEvent($REF, model.NewStatusEvent(...))
+      - pattern: _ = $ST.AppendEvent($REF, model.NewEvent(model.EventTypeStatus, ...))
+      - pattern: _, _ = $API.AppendEvent(...)
+    paths:
+      include:
+        - /internal/
+        - /.semgrep/run-status-write-surface/
+      exclude:
+        - /internal/model/
+    message: >
+      Do not discard the error from a status-event append. A swallowed append
+      means the daemon believes a transition happened while the store
+      disagrees — silent divergence between the event log (store of record)
+      and in-memory state. Propagate the error (fail-fast), or on
+      error-recording paths log it explicitly with run context.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: fail-fast
+      violation: ignored-status-append-error
