@@ -320,3 +320,38 @@ func TestProcessStartRunCoreUsesSnapshotWithEmptyWorkerIssueStore(t *testing.T) 
 		t.Fatalf("expected run document at %q (CreateRun gate must be bypassed); stat err=%v; core err=%v", runDoc, statErr, err)
 	}
 }
+
+// A lease whose executing worker stops heartbeating can never complete; the
+// master must fail fast with the real cause instead of silently waiting out
+// the full lease timeout (callers' request deadlines expire first and they
+// see a generic timeout or a misleading worker-selection error).
+func TestWaitForWorkerLeaseCompletionFailsFastWhenWorkerLost(t *testing.T) {
+	server := NewSocketServer(func(issuesRoot string) (store.Store, error) {
+		return filestore.New(issuesRoot)
+	}, log.New(io.Discard, "", 0))
+	if _, ttl := server.registerWorker("worker-lost", "external", "localhost", "external", []string{"continue_run"}); ttl <= 0 {
+		t.Fatal("expected positive heartbeat ttl for test worker")
+	}
+
+	lease, err := server.acquireWorkerLease("project-test", "continue_run", "orch-9", "run-9", nil)
+	if err != nil {
+		t.Fatalf("acquireWorkerLease() error = %v", err)
+	}
+
+	// Simulate the worker process dying mid-execution: heartbeat expires.
+	server.workersMu.Lock()
+	server.workers["worker-lost"].LastHeartbeat = time.Now().Add(-2 * workerHeartbeatTTL)
+	server.workersMu.Unlock()
+
+	start := time.Now()
+	_, err = server.waitForWorkerLeaseCompletion(lease.LeaseID, time.Minute)
+	if err == nil {
+		t.Fatal("expected error when executing worker is lost")
+	}
+	if !strings.Contains(err.Error(), "lost while executing lease") {
+		t.Fatalf("error = %v, want worker-lost failure", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("fail-fast took %s, want well under the lease timeout", elapsed)
+	}
+}

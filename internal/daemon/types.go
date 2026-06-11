@@ -634,6 +634,10 @@ type StartRunOptions struct {
 	Target         string
 	TargetHost     string
 	TargetWorkerID string
+	// NoSession skips multiplexer session creation and prompt injection: the
+	// run record, worktree, and branch are prepared but no agent is launched
+	// (CLI --tmux=false).
+	NoSession bool
 	// CodexHome is the CODEX_HOME for the selected codex profile, verbatim as
 	// configured (~ expands on the execution host at launch). Empty means use
 	// the agent default (~/.codex).
@@ -692,6 +696,10 @@ type ContinueRunOptions struct {
 	Target         string
 	TargetHost     string
 	TargetWorkerID string
+	// NoSession skips multiplexer session creation and prompt injection: the
+	// run record, worktree, and branch are prepared but no agent is launched
+	// (CLI --tmux=false).
+	NoSession bool
 	// CodexHome is the CODEX_HOME for the selected codex profile, verbatim as
 	// configured (~ expands on the execution host at launch). Empty means use
 	// the agent default (~/.codex).

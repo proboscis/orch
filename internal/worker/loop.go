@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -97,9 +98,44 @@ func RunExternalLoop(client Client, cfg RunConfig) (err error) {
 
 	executor := newLeaseExecutor(workerID, host)
 
-	heartbeatTicker := time.NewTicker(heartbeatInterval)
+	// Heartbeats run on their own goroutine so a long-running effect
+	// execution cannot starve them: a worker that stops heartbeating while
+	// busy looks dead to the master, which then refuses new leases with
+	// "no active workers available" and fails the lease the worker is still
+	// faithfully executing. The proto client serializes concurrent requests
+	// internally.
+	heartbeatStop := make(chan struct{})
+	heartbeatErrCh := make(chan error, 1)
+	var heartbeatDone sync.WaitGroup
+	heartbeatDone.Add(1)
+	go func() {
+		defer heartbeatDone.Done()
+		ticker := time.NewTicker(heartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-heartbeatStop:
+				return
+			case <-ticker.C:
+				if err := client.WorkerHeartbeat(workerID); err != nil {
+					select {
+					case heartbeatErrCh <- err:
+					default:
+					}
+					return
+				}
+				if runtimeState != nil {
+					runtimeState.markHeartbeat()
+				}
+			}
+		}
+	}()
+	// LIFO: close the stop channel first, then wait for the goroutine to
+	// finish so no heartbeat call races the caller after return.
+	defer heartbeatDone.Wait()
+	defer close(heartbeatStop)
+
 	pollTicker := time.NewTicker(pollInterval)
-	defer heartbeatTicker.Stop()
 	defer pollTicker.Stop()
 
 	sigCh := make(chan os.Signal, 1)
@@ -110,13 +146,8 @@ func RunExternalLoop(client Client, cfg RunConfig) (err error) {
 		select {
 		case <-sigCh:
 			return nil
-		case <-heartbeatTicker.C:
-			if err := client.WorkerHeartbeat(workerID); err != nil {
-				return err
-			}
-			if runtimeState != nil {
-				runtimeState.markHeartbeat()
-			}
+		case err := <-heartbeatErrCh:
+			return err
 		case <-pollTicker.C:
 			leaseResp, err := client.LeaseWork(workerID)
 			if err != nil {

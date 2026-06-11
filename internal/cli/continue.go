@@ -153,6 +153,7 @@ func runContinueWithDeps(ctx context.Context, refStr string, opts *continueOptio
 		PRTargetBranch: opts.PRTargetBranch,
 		Multiplexer:    opts.Multiplexer,
 		SessionName:    opts.SessionName,
+		NoSession:      !opts.Tmux,
 	})
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)

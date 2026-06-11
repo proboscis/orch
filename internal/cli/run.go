@@ -145,6 +145,7 @@ func runRun(issueID string, opts *runOptions) error {
 		Reuse:          opts.Reuse,
 		Multiplexer:    opts.Multiplexer,
 		Target:         opts.On,
+		NoSession:      !opts.Tmux,
 	})
 	if err != nil {
 		return exitWithCode(err, ExitInternalError)

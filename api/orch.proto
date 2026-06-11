@@ -188,6 +188,10 @@ message StartRunRequest {
   string target = 20;
   RequestContext context = 21;
   string codex_profile = 22;
+  // no_session skips multiplexer session creation and prompt injection: the
+  // run record, worktree, and branch are prepared but no agent is launched
+  // (CLI --tmux=false).
+  bool no_session = 23;
 }
 
 message StartRunResponse {
@@ -845,6 +849,10 @@ message ContinueRunRequest {
   string session_name = 15;
   string codex_profile = 16;
   RequestContext context = 17;
+  // no_session skips multiplexer session creation and prompt injection: the
+  // run record, worktree, and branch are prepared but no agent is launched
+  // (CLI --tmux=false).
+  bool no_session = 18;
 }
 
 message ContinueRunResponse {

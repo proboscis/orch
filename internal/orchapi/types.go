@@ -356,6 +356,9 @@ type StartRunRequest struct {
 	Multiplexer    string
 	Target         string
 	Preset         string
+	// NoSession prepares the run record, worktree, and branch without
+	// creating a multiplexer session or launching the agent (CLI --tmux=false).
+	NoSession bool
 }
 
 type StartRunResult struct {
@@ -626,6 +629,9 @@ type ContinueRunRequest struct {
 	PRTargetBranch string
 	Multiplexer    string
 	SessionName    string
+	// NoSession prepares the run record, worktree, and branch without
+	// creating a multiplexer session or launching the agent (CLI --tmux=false).
+	NoSession bool
 }
 
 type ContinueRunResult struct {

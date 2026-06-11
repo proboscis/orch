@@ -3881,6 +3881,24 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 
 	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusBooting))
 
+	if opts.NoSession {
+		// --tmux=false: the workspace (run record, worktree, branch, prompt
+		// file) is prepared but no multiplexer session is created and no
+		// agent is launched. SessionName stays empty so no session artifact
+		// is recorded anywhere and attach/send fail with a clear
+		// session-not-found error instead of pointing at a ghost session.
+		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusRunning))
+		s.logger.Printf("started run without session: %s#%s (agent=%s, worktree=%s)", opts.IssueID, runID, agentName, worktreeResult.WorktreePath)
+		return &StartRunResult{
+			RunID:        runID,
+			Branch:       worktreeResult.Branch,
+			WorktreePath: worktreeResult.WorktreePath,
+			Status:       string(model.StatusRunning),
+			SessionHost:  strings.TrimSpace(s.currentWorkerHost),
+			WorkerID:     strings.TrimSpace(s.currentWorkerID),
+		}, nil
+	}
+
 	muxType, _ := multiplexer.ParseType(opts.Multiplexer)
 
 	var mux multiplexer.Multiplexer
@@ -4259,6 +4277,26 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 	}
 
 	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusBooting))
+
+	if opts.NoSession {
+		// --tmux=false: the workspace (run record, worktree, branch, prompt
+		// file) is prepared but no multiplexer session is created and no
+		// agent is launched. SessionName stays empty so no session artifact
+		// is recorded anywhere and attach/send fail with a clear
+		// session-not-found error instead of pointing at a ghost session.
+		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusRunning))
+		s.logger.Printf("continued run without session: %s#%s from %s (agent=%s, worktree=%s)", issueID, runID, continuedFrom, agentName, worktreePath)
+		return &ContinueRunResult{
+			RunID:         runID,
+			Branch:        branch,
+			WorktreePath:  worktreePath,
+			Status:        string(model.StatusRunning),
+			ContinuedFrom: continuedFrom,
+			IssueID:       issueID,
+			SessionHost:   strings.TrimSpace(s.currentWorkerHost),
+			WorkerID:      strings.TrimSpace(s.currentWorkerID),
+		}, nil
+	}
 
 	muxType, _ := multiplexer.ParseType(opts.Multiplexer)
 
