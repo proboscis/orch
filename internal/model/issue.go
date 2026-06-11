@@ -8,7 +8,7 @@ import (
 )
 
 type Issue struct {
-	ID          string
+	ID          IssueID
 	Title       string
 	Topic       string
 	Summary     string
@@ -37,7 +37,7 @@ func (i *Issue) RenderFrontmatter() string {
 	var sb strings.Builder
 	sb.WriteString("---\n")
 	sb.WriteString("type: issue\n")
-	sb.WriteString("id: " + QuoteYAMLValue(i.ID) + "\n")
+	sb.WriteString("id: " + QuoteYAMLValue(string(i.ID)) + "\n")
 	sb.WriteString("title: " + QuoteYAMLValue(i.Title) + "\n")
 	if i.Summary != "" {
 		sb.WriteString("summary: " + QuoteYAMLValue(i.Summary) + "\n")

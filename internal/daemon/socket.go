@@ -322,6 +322,19 @@ type SocketServer struct {
 	currentWorkerHost string
 
 	runEventBus *RunEventBus
+
+	// runLiveness, when set, exposes the daemon monitor's liveness view
+	// (last observation succeeded / run has been observed at all) so that
+	// list/get responses can report ALIVE for both local and worker-hosted
+	// runs. Wired by Daemon at startup.
+	runLiveness func(run *model.Run) (alive, known bool)
+
+	// onRunFeedback, when set, notifies the daemon monitor that feedback
+	// was just delivered to a run's agent session, so it can reset its
+	// prompt debounce: the idle prompt still on screen must not flip the
+	// run straight back to waiting before the agent starts working. Wired
+	// by Daemon at startup.
+	onRunFeedback func(run *model.Run)
 }
 
 type managedServer struct {
@@ -410,8 +423,8 @@ func (s *SocketServer) repoIDForProjectRoot(projectRoot string) (string, error) 
 		return "", fmt.Errorf("project_root required")
 	}
 
-	if repoID, err := xdg.RepoIDStrict(projectRoot); err == nil && strings.TrimSpace(repoID) != "" {
-		return strings.TrimSpace(repoID), nil
+	if repoID, err := xdg.RepoIDStrict(projectRoot); err == nil && strings.TrimSpace(string(repoID)) != "" {
+		return strings.TrimSpace(string(repoID)), nil
 	}
 
 	s.reposMu.RLock()
@@ -845,8 +858,29 @@ func (s *SocketServer) GetAllRepoContexts() []*RepoContext {
 	s.reposMu.RLock()
 	defer s.reposMu.RUnlock()
 
+	// s.repos can alias one store under two keys: the repo ID and the
+	// issuesRoot cache key used by getOrCreateStore. Callers treat the
+	// result as "each repo once" (the monitor would otherwise observe every
+	// run twice per tick, double-counting dead checks and duplicating
+	// events), so collapse aliases to a single context, preferring the
+	// entry that carries project metadata.
 	contexts := make([]*RepoContext, 0, len(s.repos))
+	byStore := make(map[store.Store]int, len(s.repos))
 	for _, ctx := range s.repos {
+		if ctx == nil {
+			continue
+		}
+		if ctx.Store == nil {
+			contexts = append(contexts, ctx)
+			continue
+		}
+		if i, ok := byStore[ctx.Store]; ok {
+			if contexts[i].ProjectRoot == "" && ctx.ProjectRoot != "" {
+				contexts[i] = ctx
+			}
+			continue
+		}
+		byStore[ctx.Store] = len(contexts)
 		contexts = append(contexts, ctx)
 	}
 	return contexts
@@ -973,7 +1007,7 @@ func (s *SocketServer) getOrCreateStore(issuesRoot, projectRoot string) store.St
 		}
 		if ctx.RepoID == "" && projectRoot != "" {
 			if id, err := xdg.RepoID(projectRoot); err == nil && id != "" {
-				ctx.RepoID = id
+				ctx.RepoID = string(id)
 			}
 		}
 		return ctx.Store
@@ -988,7 +1022,7 @@ func (s *SocketServer) getOrCreateStore(issuesRoot, projectRoot string) store.St
 	repoID := ""
 	if projectRoot != "" {
 		if id, err := xdg.RepoID(projectRoot); err == nil && id != "" {
-			repoID = id
+			repoID = string(id)
 		}
 	}
 
@@ -1897,8 +1931,8 @@ func (s *SocketServer) resetManagedOpenCodeRuntime(projectRoot string) error {
 func (s *SocketServer) bootstrapOpenCodeRunSession(
 	st store.Store,
 	run *model.Run,
-	issueID string,
-	runID string,
+	issueID model.IssueID,
+	runID model.RunID,
 	launchCfg *agent.LaunchConfig,
 	timeout time.Duration,
 ) (int, string, error) {
@@ -2353,6 +2387,7 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 	modelName := controlCfg.Model
 	modelVariant := controlCfg.ModelVariant
 	extraArgs := controlCfg.ExtraArgs
+	codexHome := controlCfg.CodexHome
 
 	aType, err := agent.ParseAgentType(agentName)
 	if err != nil {
@@ -2413,6 +2448,7 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 			Model:           modelName,
 			ModelVariant:    modelVariant,
 			ExtraArgs:       extraArgs,
+			CodexHome:       codexHome,
 		}
 
 		if agentName == "claude" && !newSession {
@@ -2489,12 +2525,22 @@ func (s *SocketServer) processControlAgentConfigCore(st store.Store, projectRoot
 
 	modelName, modelVariant := cfg.ResolveControlModelAndVariant(agentName)
 
+	// The control agent runs locally; enforce the default codex profile's
+	// AllowedTargets against the local daemon host and apply its CODEX_HOME
+	// account isolation. A disallowed local host (e.g. company profile on zeus)
+	// fails fast here rather than launching the company account on the wrong host.
+	codexHome, codexErr := resolveControlCodexHome(cfg, agentName)
+	if codexErr != nil {
+		return nil, codexErr
+	}
+
 	return &ControlAgentConfigResult{
 		PromptContent: string(promptContentBytes),
 		Agent:         agentName,
 		Model:         modelName,
 		ModelVariant:  modelVariant,
 		ExtraArgs:     cfg.GetControlExtraArgs(agentName),
+		CodexHome:     codexHome,
 	}, nil
 }
 
@@ -2554,7 +2600,7 @@ func (s *SocketServer) processSend(req SendRequest) error {
 		return fmt.Errorf("no store available for project")
 	}
 
-	ref := &model.RunRef{IssueID: req.IssueID, RunID: req.RunID}
+	ref := &model.RunRef{IssueID: model.IssueID(req.IssueID), RunID: model.RunID(req.RunID)}
 	run, err := st.GetRun(ref)
 	if err != nil {
 		return fmt.Errorf("run %s#%s not found: %w", req.IssueID, req.RunID, err)
@@ -2861,20 +2907,82 @@ func shouldSendClaudeMultilineConfirm(agentName string, muxType multiplexer.Type
 func (s *SocketServer) processSendMessage(st store.Store, params *SendMessageParams) error {
 	s.logger.Printf("processing send for %s#%s", params.IssueID, params.RunID)
 
-	ref := &model.RunRef{IssueID: params.IssueID, RunID: params.RunID}
+	ref := &model.RunRef{IssueID: model.IssueID(params.IssueID), RunID: model.RunID(params.RunID)}
 	run, err := st.GetRun(ref)
 	if err != nil {
 		return fmt.Errorf("run %s#%s not found: %w", params.IssueID, params.RunID, err)
 	}
 
+	return s.processSendMessageForRun(st, run, params)
+}
+
+func (s *SocketServer) processSendMessageForRun(st store.Store, run *model.Run, params *SendMessageParams) error {
+	if run == nil {
+		return fmt.Errorf("run required")
+	}
+	if params == nil {
+		return fmt.Errorf("send params required")
+	}
+
 	if targetHost := strings.TrimSpace(run.TargetHost); targetHost != "" && s.runRequiresWorkerDelegation(run, params.TargetWorkerID) {
-		return fmt.Errorf("run %s#%s is executing on remote host %q; use the CLI send path that routes to the target host", params.IssueID, params.RunID, targetHost)
+		return fmt.Errorf("run %s#%s is executing on remote host %q; use the CLI send path that routes to the target host", run.IssueID, run.RunID, targetHost)
 	}
 
 	if run.Agent == string(agent.AgentOpenCode) {
-		return s.processSendOpenCode(st, ref, run, params.Message)
+		if err := s.processSendOpenCode(st, run.Ref(), run, params.Message); err != nil {
+			return err
+		}
+	} else if err := s.processSendTmux(run, params.Message, params.NoEnter); err != nil {
+		return err
 	}
-	return s.processSendTmux(run, params.Message, params.NoEnter)
+
+	// --no-enter only types into the input box without submitting; the agent
+	// has not received anything, so the run is not resumed.
+	if !params.NoEnter {
+		s.markRunFeedbackSent(st, run)
+	}
+	return nil
+}
+
+// feedbackResumesRun reports whether a run in this status goes back to work
+// when the user sends feedback to its agent session. Boot statuses are
+// excluded (the boot flow owns the transition to running) and terminal
+// statuses stay terminal.
+func feedbackResumesRun(status model.Status) bool {
+	switch status {
+	case model.StatusWaiting, model.StatusPROpen, model.StatusRateLimited, model.StatusUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// markRunFeedbackSent transitions an idle/parked run back to running after
+// feedback was successfully delivered to its agent session. Send is the
+// running edge of the running ⟷ waiting lifecycle: without this transition
+// `orch wait` called right after `orch send` would see the stale pre-send
+// status (waiting/pr_open) and return immediately instead of blocking until
+// the agent next goes idle or the PR state changes.
+func (s *SocketServer) markRunFeedbackSent(st store.Store, run *model.Run) {
+	if st == nil || run == nil || !feedbackResumesRun(run.Status) {
+		return
+	}
+	if err := st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusRunning)); err != nil {
+		s.logger.Printf("%s#%s: failed to mark run running after feedback: %v", run.IssueID, run.RunID, err)
+		return
+	}
+	if s.onRunFeedback != nil {
+		s.onRunFeedback(run)
+	}
+	s.PublishRunEvent(&orchpb.RunEventFrame{
+		RunId:           string(run.RunID),
+		IssueId:         string(run.IssueID),
+		ShortId:         string(model.GenerateShortID(run.IssueID, run.RunID)),
+		FromStatus:      modelStatusToProto(run.Status),
+		ToStatus:        modelStatusToProto(model.StatusRunning),
+		TimestampUnixMs: time.Now().UnixMilli(),
+		Source:          string(model.EventSourceUser),
+	})
 }
 
 func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {
@@ -2906,7 +3014,7 @@ func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {
 			return
 		}
 		filter := &store.ListRunsFilter{
-			IssueID:    req.IssueID,
+			IssueID:    model.IssueID(req.IssueID),
 			Agent:      req.Agent,
 			TextSearch: req.TextSearch,
 			TimeRange:  req.TimeRange,
@@ -2972,7 +3080,7 @@ func (s *SocketServer) listAllRepoRuns(req SendRequest) ([]*model.Run, error) {
 	var allRuns []*model.Run
 	for _, st := range stores {
 		filter := &store.ListRunsFilter{
-			IssueID:    req.IssueID,
+			IssueID:    model.IssueID(req.IssueID),
 			Agent:      req.Agent,
 			TextSearch: req.TextSearch,
 			TimeRange:  req.TimeRange,
@@ -3065,7 +3173,7 @@ func (s *SocketServer) handleListIssues(req SendRequest, encoder *json.Encoder) 
 		search := strings.ToLower(req.TextSearch)
 		var filtered []*model.Issue
 		for _, issue := range issues {
-			if strings.Contains(strings.ToLower(issue.ID), search) ||
+			if strings.Contains(strings.ToLower(string(issue.ID)), search) ||
 				strings.Contains(strings.ToLower(issue.Title), search) ||
 				strings.Contains(strings.ToLower(issue.Summary), search) {
 				filtered = append(filtered, issue)
@@ -3143,7 +3251,7 @@ func (s *SocketServer) handleGetRun(req SendRequest, encoder *json.Encoder) {
 		return
 	}
 
-	ref := &model.RunRef{IssueID: req.IssueID, RunID: req.RunID}
+	ref := &model.RunRef{IssueID: model.IssueID(req.IssueID), RunID: model.RunID(req.RunID)}
 	run, err := st.GetRun(ref)
 	if err != nil {
 		s.logger.Printf("error getting run %s#%s: %v", req.IssueID, req.RunID, err)
@@ -3179,7 +3287,7 @@ func (s *SocketServer) handleGetIssue(req SendRequest, encoder *json.Encoder) {
 			encoder.Encode(GetIssueResponse{OK: false, Error: "no store available"})
 			return
 		}
-		issue, err = st.ResolveIssue(req.IssueID)
+		issue, err = st.ResolveIssue(model.IssueID(req.IssueID))
 	}
 
 	if err != nil {
@@ -3197,7 +3305,7 @@ func (s *SocketServer) handleGetIssue(req SendRequest, encoder *json.Encoder) {
 func SendViaDaemon(projectRoot, _ string, run *model.Run, message string, noEnter bool) error {
 	client := NewProtoClientLocal(projectRoot)
 	client.SetTimeout(35 * time.Second)
-	return client.SendMessage(run.IssueID, run.RunID, message, noEnter)
+	return client.SendMessage(string(run.IssueID), string(run.RunID), message, noEnter)
 }
 
 // IsDaemonSocketAvailable checks if the global daemon socket exists.
@@ -3212,6 +3320,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		encoder.Encode(StartRunResponse{OK: false, Error: "invalid_request: issue_id required"})
 		return
 	}
+	issueID := model.IssueID(req.IssueID)
 
 	st := s.resolveStore(req)
 	if st == nil {
@@ -3219,7 +3328,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		return
 	}
 
-	issue, err := st.ResolveIssue(req.IssueID)
+	issue, err := st.ResolveIssue(issueID)
 	if err != nil {
 		encoder.Encode(StartRunResponse{OK: false, Error: "issue not found: " + req.IssueID})
 		return
@@ -3257,10 +3366,10 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		return
 	}
 
-	runID := req.RunID
+	runID := model.RunID(req.RunID)
 	if runID == "" {
 		if req.Reuse {
-			runs, _ := st.ListRuns(&store.ListRunsFilter{IssueID: req.IssueID})
+			runs, _ := st.ListRuns(&store.ListRunsFilter{IssueID: issueID})
 			for _, r := range runs {
 				if r.Status == model.StatusWaiting || r.Status == model.StatusRateLimited {
 					runID = r.RunID
@@ -3274,9 +3383,9 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 	}
 	branch := req.Branch
 	if branch == "" {
-		branch = model.GenerateBranchName(req.IssueID, runID)
+		branch = model.GenerateBranchName(issueID, runID)
 	}
-	sessionName := model.GenerateSessionName(req.IssueID, runID)
+	sessionName := model.GenerateSessionName(issueID, runID)
 
 	repoRoot := s.resolveProjectRoot(req)
 
@@ -3294,18 +3403,18 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		worktreeDir = filepath.Join(home, ".orch", "worktrees")
 	}
 
-	worktreeName := model.GenerateWorktreeName(req.IssueID, runID, agentName)
+	worktreeName := model.GenerateWorktreeName(issueID, runID, agentName)
 	var worktreePath string
 	if filepath.IsAbs(worktreeDir) {
-		worktreePath = filepath.Join(worktreeDir, req.IssueID, worktreeName)
+		worktreePath = filepath.Join(worktreeDir, string(issueID), worktreeName)
 	} else {
-		worktreePath = filepath.Join(repoRoot, worktreeDir, req.IssueID, worktreeName)
+		worktreePath = filepath.Join(repoRoot, worktreeDir, string(issueID), worktreeName)
 	}
 
 	if req.DryRun {
 		encoder.Encode(StartRunResponse{
 			OK:           true,
-			RunID:        runID,
+			RunID:        string(runID),
 			Branch:       branch,
 			WorktreePath: worktreePath,
 			SessionName:  sessionName,
@@ -3321,7 +3430,10 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 	if req.Model != "" {
 		metadata["model"] = req.Model
 	}
-	run, err := st.CreateRun(req.IssueID, runID, metadata)
+	if profile := strings.TrimSpace(req.AgentProfile); profile != "" {
+		metadata["profile"] = profile
+	}
+	run, err := st.CreateRun(issueID, runID, metadata)
 	if err != nil {
 		encoder.Encode(StartRunResponse{OK: false, Error: "failed to create run: " + err.Error()})
 		return
@@ -3334,7 +3446,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 	worktreeResult, err := git.CreateWorktree(&git.WorktreeConfig{
 		RepoRoot:    repoRoot,
 		WorktreeDir: worktreeDir,
-		IssueID:     req.IssueID,
+		IssueID:     issueID,
 		RunID:       runID,
 		Agent:       agentName,
 		BaseBranch:  baseBranch,
@@ -3368,8 +3480,8 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		Type:         agentType,
 		CustomCmd:    req.AgentCmd,
 		WorkDir:      worktreeResult.WorktreePath,
-		IssueID:      req.IssueID,
-		RunID:        runID,
+		IssueID:      string(issueID),
+		RunID:        string(runID),
 		RunPath:      run.Path,
 		IssuesRoot:   st.RootPath(),
 		Branch:       worktreeResult.Branch,
@@ -3454,7 +3566,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		}
 
 	case agent.InjectionHTTP:
-		_, _, err = s.bootstrapOpenCodeRunSession(st, run, req.IssueID, runID, launchCfg, 30*time.Second)
+		_, _, err = s.bootstrapOpenCodeRunSession(st, run, issueID, runID, launchCfg, 30*time.Second)
 		if err != nil {
 			encoder.Encode(StartRunResponse{OK: false, Error: err.Error()})
 			return
@@ -3467,7 +3579,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 
 	encoder.Encode(StartRunResponse{
 		OK:           true,
-		RunID:        runID,
+		RunID:        string(runID),
 		Branch:       worktreeResult.Branch,
 		WorktreePath: worktreeResult.WorktreePath,
 		SessionName:  sessionName,
@@ -3512,31 +3624,38 @@ func resolvePRTargetBranch(explicit, resolvedBaseBranch string) string {
 	return "main"
 }
 
+// createRunForIssue creates a run, choosing whether to verify the issue against
+// the local store. issuePreVerified is true on the worker-delegation path where
+// the master (issue-store SSOT) already resolved the issue and carried it in the
+// payload snapshot; in that case the worker must NOT re-verify against a store it
+// may not own (it can run on a different host than the master). On the
+// non-delegated direct/co-located path it verifies as usual.
+func createRunForIssue(st store.Store, issuePreVerified bool, issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
+	if issuePreVerified {
+		return st.CreateRunForExistingIssue(issueID, runID, metadata)
+	}
+	return st.CreateRun(issueID, runID, metadata)
+}
+
 func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, opts *StartRunOptions) (*StartRunResult, error) {
 	if opts.IssueID == "" {
 		return nil, fmt.Errorf("invalid_request: issue_id required")
 	}
 
+	// The issue is resolved by the MASTER (issue-store SSOT) and carried in
+	// opts.IssueSnapshot. The worker must NOT read the run's own issue from its
+	// local store: when the worker runs on a different host than the master it has
+	// no issue store at all. The delegation path (handleProtoStartRun) always sets
+	// IssueSnapshot. We only fall back to the local store for non-delegated direct
+	// calls (e.g. legacy/co-located in-process paths or tests), and never silently
+	// swallow a missing issue.
 	issue := opts.IssueSnapshot
-	if issue == nil || strings.TrimSpace(issue.ID) != opts.IssueID {
+	if issue == nil {
 		resolvedIssue, err := st.ResolveIssue(opts.IssueID)
 		if err != nil {
 			return nil, fmt.Errorf("issue not found: %s", opts.IssueID)
 		}
 		issue = resolvedIssue
-	}
-
-	if _, err := st.ResolveIssue(opts.IssueID); err != nil {
-		issueCopy := *issue
-		if issueCopy.ID == "" {
-			issueCopy.ID = opts.IssueID
-		}
-		if issueCopy.Status == "" {
-			issueCopy.Status = model.IssueStatusOpen
-		}
-		if err := st.CreateIssue(&issueCopy); err != nil {
-			return nil, fmt.Errorf("failed to sync issue for worker execution: %w", err)
-		}
 	}
 
 	cfg, err := loadConfigForProjectRoot(projectRoot)
@@ -3634,9 +3753,9 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	worktreeName := model.GenerateWorktreeName(opts.IssueID, runID, agentName)
 	var worktreePath string
 	if filepath.IsAbs(worktreeDir) {
-		worktreePath = filepath.Join(worktreeDir, opts.IssueID, worktreeName)
+		worktreePath = filepath.Join(worktreeDir, string(opts.IssueID), worktreeName)
 	} else {
-		worktreePath = filepath.Join(executionProjectRoot, worktreeDir, opts.IssueID, worktreeName)
+		worktreePath = filepath.Join(executionProjectRoot, worktreeDir, string(opts.IssueID), worktreeName)
 	}
 
 	if opts.DryRun {
@@ -3659,7 +3778,13 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	if targetName != "" {
 		metadata["target"] = targetName
 	}
-	run, err := st.CreateRun(opts.IssueID, runID, metadata)
+	if profile := effectiveAgentProfile(opts.CodexProfile, opts.AgentProfile); profile != "" {
+		metadata["profile"] = profile
+	}
+	// When the issue came from the master snapshot (worker-delegation path), the
+	// master has already verified it; the worker must not re-verify against a
+	// store it may not own. Otherwise (legacy direct/co-located call) verify.
+	run, err := createRunForIssue(st, opts.IssueSnapshot != nil, opts.IssueID, runID, metadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create run: %w", err)
 	}
@@ -3712,20 +3837,22 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	opencodeSessionID := ""
 
 	launchCfg := &agent.LaunchConfig{
-		Type:         agentType,
-		CustomCmd:    opts.AgentCmd,
-		WorkDir:      worktreeResult.WorktreePath,
-		IssueID:      opts.IssueID,
-		RunID:        runID,
-		RunPath:      run.Path,
-		IssuesRoot:   st.RootPath(),
-		Branch:       worktreeResult.Branch,
-		Prompt:       initialPrompt,
-		Profile:      opts.AgentProfile,
-		Port:         agent.OpenCodeServerPortStart,
-		Model:        runModel,
-		ModelVariant: runVariant,
-		ExtraArgs:    cfg.GetExtraArgs(agentName),
+		Type:            agentType,
+		CustomCmd:       opts.AgentCmd,
+		WorkDir:         worktreeResult.WorktreePath,
+		IssueID:         string(opts.IssueID),
+		RunID:           string(runID),
+		RunPath:         run.Path,
+		IssuesRoot:      st.RootPath(),
+		Branch:          worktreeResult.Branch,
+		Prompt:          initialPrompt,
+		Profile:         opts.AgentProfile,
+		Port:            agent.OpenCodeServerPortStart,
+		Model:           runModel,
+		ModelVariant:    runVariant,
+		ExtraArgs:       cfg.GetExtraArgs(agentName),
+		CodexHome:       opts.CodexHome,
+		ClaudeConfigDir: opts.ClaudeConfigDir,
 	}
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)
@@ -3846,7 +3973,7 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
-	var issueID string
+	var issueID model.IssueID
 	var branch string
 	var worktreePath string
 	var continuedFrom string
@@ -3859,9 +3986,14 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		issueID = opts.IssueID
 		branch = opts.Branch
 
-		_, err := st.ResolveIssue(issueID)
-		if err != nil {
-			return nil, fmt.Errorf("issue not found: %s", issueID)
+		// The master (issue-store SSOT) already resolved and validated the issue
+		// and carried it in opts.IssueSnapshot. Only re-read the local store for
+		// non-delegated direct calls (no snapshot); never silently ignore a
+		// missing issue.
+		if opts.IssueSnapshot == nil {
+			if _, err := st.ResolveIssue(issueID); err != nil {
+				return nil, fmt.Errorf("issue not found: %s", issueID)
+			}
 		}
 
 		if projectRoot == "" {
@@ -3932,15 +4064,23 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		continuedFrom = "branch:" + branch
 	} else {
 		var fromRun *model.Run
-		if opts.ShortID != "" {
+		if opts.RunSnapshot != nil {
+			fromRun, err = modelRunFromSnapshot(opts.RunSnapshot)
+			if err != nil {
+				return nil, err
+			}
+		} else if opts.ShortID != "" {
 			fromRun, err = st.GetRunByShortID(opts.ShortID)
 			if err != nil {
 				return nil, fmt.Errorf("run not found: %s", opts.ShortID)
 			}
-		} else if opts.IssueID != "" && opts.RunID != "" {
+		} else if opts.IssueID != "" {
 			ref := &model.RunRef{IssueID: opts.IssueID, RunID: opts.RunID}
 			fromRun, err = st.GetRun(ref)
 			if err != nil {
+				if opts.RunID == "" {
+					return nil, fmt.Errorf("run not found: %s", opts.IssueID)
+				}
 				return nil, fmt.Errorf("run not found: %s#%s", opts.IssueID, opts.RunID)
 			}
 		} else {
@@ -3981,9 +4121,19 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		continuedFrom = fmt.Sprintf("%s#%s", fromRun.IssueID, fromRun.RunID)
 	}
 
-	issue, err := st.ResolveIssue(issueID)
-	if err != nil {
-		return nil, fmt.Errorf("issue not found: %s", issueID)
+	// The issue is resolved by the MASTER (issue-store SSOT) and carried in
+	// opts.IssueSnapshot; the worker must NOT read the run's own issue from its
+	// local store (it may have none when pinned to a different host than the
+	// master). The delegation path (handleProtoContinueRun) always sets the
+	// snapshot. Fall back to the local store only for non-delegated direct calls,
+	// and never silently swallow a missing issue.
+	issue := opts.IssueSnapshot
+	if issue == nil {
+		resolvedIssue, err := st.ResolveIssue(issueID)
+		if err != nil {
+			return nil, fmt.Errorf("issue not found: %s", issueID)
+		}
+		issue = resolvedIssue
 	}
 
 	agentName := opts.Agent
@@ -4024,7 +4174,13 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 	if targetName := strings.TrimSpace(opts.Target); targetName != "" {
 		metadata["target"] = targetName
 	}
-	run, err := st.CreateRun(issueID, runID, metadata)
+	if profile := effectiveAgentProfile(opts.CodexProfile, opts.AgentProfile); profile != "" {
+		metadata["profile"] = profile
+	}
+	// When the issue came from the master snapshot (worker-delegation path), the
+	// master has already verified it; the worker must not re-verify against a
+	// store it may not own. Otherwise (legacy direct/co-located call) verify.
+	run, err := createRunForIssue(st, opts.IssueSnapshot != nil, issueID, runID, metadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create run: %w", err)
 	}
@@ -4060,20 +4216,22 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 	opencodeSessionID := ""
 
 	launchCfg := &agent.LaunchConfig{
-		Type:         agentType,
-		CustomCmd:    opts.AgentCmd,
-		WorkDir:      worktreePath,
-		IssueID:      issueID,
-		RunID:        runID,
-		RunPath:      run.Path,
-		IssuesRoot:   st.RootPath(),
-		Branch:       branch,
-		Prompt:       continuePrompt,
-		Profile:      opts.AgentProfile,
-		Port:         agent.OpenCodeServerPortStart,
-		Model:        runModel,
-		ModelVariant: runVariant,
-		ExtraArgs:    cfg.GetExtraArgs(agentName),
+		Type:            agentType,
+		CustomCmd:       opts.AgentCmd,
+		WorkDir:         worktreePath,
+		IssueID:         string(issueID),
+		RunID:           string(runID),
+		RunPath:         run.Path,
+		IssuesRoot:      st.RootPath(),
+		Branch:          branch,
+		Prompt:          continuePrompt,
+		Profile:         opts.AgentProfile,
+		Port:            agent.OpenCodeServerPortStart,
+		Model:           runModel,
+		ModelVariant:    runVariant,
+		ExtraArgs:       cfg.GetExtraArgs(agentName),
+		CodexHome:       opts.CodexHome,
+		ClaudeConfigDir: opts.ClaudeConfigDir,
 	}
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)
@@ -4188,7 +4346,7 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 		return
 	}
 
-	var issueID string
+	var issueID model.IssueID
 	var branch string
 	var worktreePath string
 	var continuedFrom string
@@ -4199,12 +4357,12 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 			encoder.Encode(ContinueRunResponse{OK: false, Error: "issue_id required with branch"})
 			return
 		}
-		issueID = req.IssueID
+		issueID = model.IssueID(req.IssueID)
 		branch = req.Branch
 
 		_, err := st.ResolveIssue(issueID)
 		if err != nil {
-			encoder.Encode(ContinueRunResponse{OK: false, Error: "issue not found: " + issueID})
+			encoder.Encode(ContinueRunResponse{OK: false, Error: "issue not found: " + string(issueID)})
 			return
 		}
 
@@ -4287,13 +4445,13 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 	} else {
 		var fromRun *model.Run
 		if req.ShortID != "" {
-			fromRun, err = st.GetRunByShortID(req.ShortID)
+			fromRun, err = st.GetRunByShortID(model.ShortID(req.ShortID))
 			if err != nil {
 				encoder.Encode(ContinueRunResponse{OK: false, Error: "run not found: " + req.ShortID})
 				return
 			}
 		} else if req.IssueID != "" && req.RunID != "" {
-			ref := &model.RunRef{IssueID: req.IssueID, RunID: req.RunID}
+			ref := &model.RunRef{IssueID: model.IssueID(req.IssueID), RunID: model.RunID(req.RunID)}
 			fromRun, err = st.GetRun(ref)
 			if err != nil {
 				encoder.Encode(ContinueRunResponse{OK: false, Error: "run not found: " + req.IssueID + "#" + req.RunID})
@@ -4347,7 +4505,7 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 
 	issue, err := st.ResolveIssue(issueID)
 	if err != nil {
-		encoder.Encode(ContinueRunResponse{OK: false, Error: "issue not found: " + issueID})
+		encoder.Encode(ContinueRunResponse{OK: false, Error: "issue not found: " + string(issueID)})
 		return
 	}
 
@@ -4389,6 +4547,9 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 		"agent":          agentName,
 		"continued_from": continuedFrom,
 	}
+	if profile := strings.TrimSpace(req.AgentProfile); profile != "" {
+		metadata["profile"] = profile
+	}
 	run, err := st.CreateRun(issueID, runID, metadata)
 	if err != nil {
 		encoder.Encode(ContinueRunResponse{OK: false, Error: "failed to create run: " + err.Error()})
@@ -4418,8 +4579,8 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 		Type:         agentType,
 		CustomCmd:    req.AgentCmd,
 		WorkDir:      worktreePath,
-		IssueID:      issueID,
-		RunID:        runID,
+		IssueID:      string(issueID),
+		RunID:        string(runID),
 		RunPath:      run.Path,
 		IssuesRoot:   st.RootPath(),
 		Branch:       branch,
@@ -4520,13 +4681,13 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 
 	encoder.Encode(ContinueRunResponse{
 		OK:            true,
-		RunID:         runID,
+		RunID:         string(runID),
 		Branch:        branch,
 		WorktreePath:  worktreePath,
 		SessionName:   sessionName,
 		Status:        string(model.StatusRunning),
 		ContinuedFrom: continuedFrom,
-		IssueID:       issueID,
+		IssueID:       string(issueID),
 	})
 }
 
@@ -4634,7 +4795,7 @@ func (s *SocketServer) handleStopRun(req SendRequest, encoder *json.Encoder) {
 	var stoppedRuns []string
 
 	if req.RunID != "" {
-		ref := &model.RunRef{IssueID: req.IssueID, RunID: req.RunID}
+		ref := &model.RunRef{IssueID: model.IssueID(req.IssueID), RunID: model.RunID(req.RunID)}
 		run, err := st.GetRun(ref)
 		if err != nil {
 			s.logger.Printf("error getting run %s#%s: %v", req.IssueID, req.RunID, err)
@@ -4646,10 +4807,10 @@ func (s *SocketServer) handleStopRun(req SendRequest, encoder *json.Encoder) {
 			encoder.Encode(StopRunResponse{OK: false, Error: err.Error()})
 			return
 		}
-		stoppedRuns = append(stoppedRuns, run.RunID)
+		stoppedRuns = append(stoppedRuns, string(run.RunID))
 	} else {
 		runs, err := st.ListRuns(&store.ListRunsFilter{
-			IssueID: req.IssueID,
+			IssueID: model.IssueID(req.IssueID),
 			Status:  []model.Status{model.StatusRunning, model.StatusBooting, model.StatusWaiting, model.StatusRateLimited, model.StatusQueued},
 		})
 		if err != nil {
@@ -4661,7 +4822,7 @@ func (s *SocketServer) handleStopRun(req SendRequest, encoder *json.Encoder) {
 			if err := s.stopSingleRun(run, st); err != nil {
 				s.logger.Printf("error stopping run %s#%s: %v", run.IssueID, run.RunID, err)
 			} else {
-				stoppedRuns = append(stoppedRuns, run.RunID)
+				stoppedRuns = append(stoppedRuns, string(run.RunID))
 			}
 		}
 	}
@@ -4674,6 +4835,21 @@ func (s *SocketServer) handleStopRun(req SendRequest, encoder *json.Encoder) {
 }
 
 func (s *SocketServer) stopSingleRun(run *model.Run, st store.Store) error {
+	if run.Status == model.StatusDone || run.Status == model.StatusFailed || run.Status == model.StatusCanceled {
+		return nil
+	}
+
+	if err := s.stopRunSession(run); err != nil {
+		return err
+	}
+
+	return appendRunCanceledByUser(st, run)
+}
+
+func (s *SocketServer) stopRunSession(run *model.Run) error {
+	if run == nil {
+		return fmt.Errorf("run required")
+	}
 	if run.Status == model.StatusDone || run.Status == model.StatusFailed || run.Status == model.StatusCanceled {
 		return nil
 	}
@@ -4706,12 +4882,24 @@ func (s *SocketServer) stopSingleRun(run *model.Run, st store.Store) error {
 		}
 	}
 
-	ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
-	event := &model.Event{
-		Timestamp: time.Now(),
-		Type:      "status",
-		Name:      string(model.StatusCanceled),
+	return nil
+}
+
+func appendRunCanceledByUser(st store.Store, run *model.Run) error {
+	if st == nil {
+		return fmt.Errorf("store required")
 	}
+	if run == nil {
+		return fmt.Errorf("run required")
+	}
+	if run.Status == model.StatusDone || run.Status == model.StatusFailed || run.Status == model.StatusCanceled {
+		return nil
+	}
+
+	ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
+	event := model.NewEvent(model.EventTypeStatus, string(model.StatusCanceled), map[string]string{
+		"source": string(model.EventSourceUser),
+	})
 	return st.AppendEvent(ref, event)
 }
 
@@ -4727,7 +4915,7 @@ func (s *SocketServer) handleResolveIssue(req SendRequest, encoder *json.Encoder
 		return
 	}
 
-	issue, err := st.ResolveIssue(req.IssueID)
+	issue, err := st.ResolveIssue(model.IssueID(req.IssueID))
 	if err != nil {
 		s.logger.Printf("error getting issue %s: %v", req.IssueID, err)
 		encoder.Encode(ResolveIssueResponse{OK: false, Error: "not_found"})
@@ -4741,7 +4929,7 @@ func (s *SocketServer) handleResolveIssue(req SendRequest, encoder *json.Encoder
 
 	forceResolve := req.Force
 	if !forceResolve {
-		runs, err := st.ListRuns(&store.ListRunsFilter{IssueID: req.IssueID})
+		runs, err := st.ListRuns(&store.ListRunsFilter{IssueID: model.IssueID(req.IssueID)})
 		if err != nil {
 			s.logger.Printf("error listing runs for %s: %v", req.IssueID, err)
 			encoder.Encode(ResolveIssueResponse{OK: false, Error: "store_error"})
@@ -4762,7 +4950,7 @@ func (s *SocketServer) handleResolveIssue(req SendRequest, encoder *json.Encoder
 		}
 	}
 
-	if err := st.SetIssueStatus(req.IssueID, model.IssueStatusResolved); err != nil {
+	if err := st.SetIssueStatus(model.IssueID(req.IssueID), model.IssueStatusResolved); err != nil {
 		s.logger.Printf("error resolving issue %s: %v", req.IssueID, err)
 		encoder.Encode(ResolveIssueResponse{OK: false, Error: "store_error"})
 		return
@@ -4790,7 +4978,7 @@ func (s *SocketServer) handleCreateIssue(req SendRequest, encoder *json.Encoder)
 			return
 		}
 		s.logger.Printf("created GitHub issue: %s (%s)", issue.ID, issue.Path)
-		encoder.Encode(CreateIssueResponse{OK: true, IssueID: issue.ID, Path: issue.Path})
+		encoder.Encode(CreateIssueResponse{OK: true, IssueID: string(issue.ID), Path: issue.Path})
 		return
 	}
 
@@ -4829,7 +5017,7 @@ func (s *SocketServer) handleCreateIssue(req SendRequest, encoder *json.Encoder)
 	}
 
 	issueToWrite := &model.Issue{
-		ID:         req.IssueID,
+		ID:         model.IssueID(req.IssueID),
 		Title:      title,
 		Summary:    req.Summary,
 		Status:     model.IssueStatusOpen,
@@ -4888,7 +5076,7 @@ func (s *SocketServer) processCreateIssueCore(st store.Store, params *CreateIssu
 	}
 
 	issueToWrite := &model.Issue{
-		ID:         params.IssueID,
+		ID:         model.IssueID(params.IssueID),
 		Title:      title,
 		Summary:    params.Summary,
 		Status:     model.IssueStatusOpen,
@@ -4944,7 +5132,7 @@ func (s *SocketServer) handleCloseIssue(req SendRequest, encoder *json.Encoder) 
 		return
 	}
 
-	if err := st.SetIssueStatus(req.IssueID, model.IssueStatusClosed); err != nil {
+	if err := st.SetIssueStatus(model.IssueID(req.IssueID), model.IssueStatusClosed); err != nil {
 		s.logger.Printf("error closing issue %s: %v", req.IssueID, err)
 		encoder.Encode(CloseIssueResponse{OK: false, Error: "not_found"})
 		return
@@ -4965,12 +5153,12 @@ func (s *SocketServer) handleGetAttachInfo(req SendRequest, encoder *json.Encode
 	var err error
 
 	if req.RunID != "" {
-		ref := &model.RunRef{IssueID: req.IssueID, RunID: req.RunID}
+		ref := &model.RunRef{IssueID: model.IssueID(req.IssueID), RunID: model.RunID(req.RunID)}
 		run, err = st.GetRun(ref)
 	} else if req.ShortID != "" {
-		run, err = st.GetRunByShortID(req.ShortID)
+		run, err = st.GetRunByShortID(model.ShortID(req.ShortID))
 	} else if req.IssueID != "" {
-		run, err = st.GetLatestRun(req.IssueID)
+		run, err = st.GetLatestRun(model.IssueID(req.IssueID))
 	} else {
 		encoder.Encode(GetAttachInfoResponse{OK: false, Error: "invalid_request: issue_id, run_id, or short_id required"})
 		return
@@ -4994,8 +5182,8 @@ func (s *SocketServer) handleGetAttachInfo(req SendRequest, encoder *json.Encode
 
 	encoder.Encode(GetAttachInfoResponse{
 		OK:                true,
-		IssueID:           run.IssueID,
-		RunID:             run.RunID,
+		IssueID:           string(run.IssueID),
+		RunID:             string(run.RunID),
 		Agent:             run.Agent,
 		SessionName:       sessionName,
 		Multiplexer:       run.Multiplexer,
@@ -5033,7 +5221,7 @@ func (s *SocketServer) handleGetRunByShortID(req SendRequest, encoder *json.Enco
 		return
 	}
 
-	run, err := st.GetRunByShortID(shortID)
+	run, err := st.GetRunByShortID(model.ShortID(shortID))
 	if err != nil {
 		s.logger.Printf("error getting run by short id %s: %v", shortID, err)
 		encoder.Encode(GetRunResponse{OK: false, Error: "not_found"})
@@ -5270,7 +5458,7 @@ func (s *SocketServer) handleAppendEvent(req SendRequest, encoder *json.Encoder)
 		return
 	}
 
-	ref := &model.RunRef{IssueID: req.IssueID, RunID: req.RunID}
+	ref := &model.RunRef{IssueID: model.IssueID(req.IssueID), RunID: model.RunID(req.RunID)}
 	run, err := st.GetRun(ref)
 	if err != nil {
 		encoder.Encode(AppendEventResponse{OK: false, Error: "run not found"})

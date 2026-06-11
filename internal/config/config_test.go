@@ -1435,3 +1435,107 @@ func TestGetIssuesPath(t *testing.T) {
 		})
 	}
 }
+
+func TestCodexProfilesParseAndGetCodexProfile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	yaml := "agent: codex\n" +
+		"codex:\n" +
+		"  default_profile: company\n" +
+		"  profiles:\n" +
+		"    company:\n" +
+		"      target: mac\n" +
+		"      codex_home: ~/.codex-company\n" +
+		"      allowed_targets: [mac]\n" +
+		"    personal: {}\n"
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(yaml), 0644); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	cfg, err := LoadFromProjectRoot(repo)
+	if err != nil {
+		t.Fatalf("LoadFromProjectRoot error: %v", err)
+	}
+
+	if cfg.Codex.DefaultProfile != "company" {
+		t.Fatalf("DefaultProfile = %q, want company", cfg.Codex.DefaultProfile)
+	}
+
+	company, ok := cfg.GetCodexProfile("company")
+	if !ok {
+		t.Fatal("company profile not found")
+	}
+	if company.Target != "mac" {
+		t.Errorf("company.Target = %q, want mac", company.Target)
+	}
+	if company.CodexHome != "~/.codex-company" {
+		t.Errorf("company.CodexHome = %q, want ~/.codex-company (no expansion in config)", company.CodexHome)
+	}
+	if len(company.AllowedTargets) != 1 || company.AllowedTargets[0] != "mac" {
+		t.Errorf("company.AllowedTargets = %v, want [mac]", company.AllowedTargets)
+	}
+
+	personal, ok := cfg.GetCodexProfile("personal")
+	if !ok {
+		t.Fatal("personal profile not found")
+	}
+	if personal.Target != "" || personal.CodexHome != "" || len(personal.AllowedTargets) != 0 {
+		t.Errorf("personal profile should be empty, got %+v", personal)
+	}
+
+	if _, ok := cfg.GetCodexProfile("nonexistent"); ok {
+		t.Error("GetCodexProfile(nonexistent) returned ok=true, want false")
+	}
+}
+
+func TestCodexProfilesRepoPrecedenceMerge(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Global config defines a default_profile and a "personal" profile.
+	globalDir := filepath.Join(home, ".config", "orch")
+	if err := os.MkdirAll(globalDir, 0755); err != nil {
+		t.Fatalf("mkdir global: %v", err)
+	}
+	globalYAML := "agent: codex\n" +
+		"codex:\n" +
+		"  default_profile: personal\n" +
+		"  profiles:\n" +
+		"    personal: {}\n"
+	if err := os.WriteFile(filepath.Join(globalDir, "config.yaml"), []byte(globalYAML), 0644); err != nil {
+		t.Fatalf("write global config: %v", err)
+	}
+
+	// Repo config overrides default_profile and replaces the profiles map.
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".orch"), 0755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	repoYAML := "codex:\n" +
+		"  default_profile: company\n" +
+		"  profiles:\n" +
+		"    company:\n" +
+		"      target: mac\n" +
+		"      allowed_targets: [mac]\n"
+	if err := os.WriteFile(filepath.Join(repo, ".orch", "config.yaml"), []byte(repoYAML), 0644); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	cfg, err := LoadFromProjectRoot(repo)
+	if err != nil {
+		t.Fatalf("LoadFromProjectRoot error: %v", err)
+	}
+
+	// Repo-local precedence: default_profile and profiles come from repo.
+	if cfg.Codex.DefaultProfile != "company" {
+		t.Fatalf("DefaultProfile = %q, want company (repo precedence)", cfg.Codex.DefaultProfile)
+	}
+	if _, ok := cfg.GetCodexProfile("company"); !ok {
+		t.Error("company profile should be present from repo config")
+	}
+}

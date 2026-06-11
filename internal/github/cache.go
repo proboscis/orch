@@ -217,7 +217,7 @@ func (c *IssueCache) buildIssue(issueID, title, status, body, labels, url string
 	}
 
 	return &model.Issue{
-		ID:          issueID,
+		ID:          model.IssueID(issueID),
 		Title:       title,
 		Summary:     summary,
 		Status:      model.IssueStatus(status),

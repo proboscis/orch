@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/s22625/orch/internal/daemon"
+	"github.com/s22625/orch/internal/model"
 )
 
 type DaemonClient struct {
@@ -91,11 +92,11 @@ func (c *DaemonClient) EnsureDaemonHealthy(ctx context.Context) error {
 	return fmt.Errorf("daemon did not become healthy within %v", daemonRepairTimeout)
 }
 
-func (c *DaemonClient) GetIssue(ctx context.Context, issueID string) (*Issue, error) {
-	resp, err := c.proto.GetIssue(issueID)
+func (c *DaemonClient) GetIssue(ctx context.Context, issueID model.IssueID) (*Issue, error) {
+	resp, err := c.proto.GetIssue(string(issueID))
 	if err != nil {
 		if isNotFoundError(err) {
-			return nil, IssueNotFound(issueID)
+			return nil, IssueNotFound(string(issueID))
 		}
 		return nil, err
 	}
@@ -138,12 +139,12 @@ func (c *DaemonClient) ListIssues(ctx context.Context, filter *ListIssuesFilter)
 }
 
 func (c *DaemonClient) CreateIssue(ctx context.Context, req *CreateIssueRequest) (*Issue, error) {
-	resp, err := c.proto.CreateIssue(req.ID, req.Title, "", req.Body, req.Tags, req.BaseBranch)
+	resp, err := c.proto.CreateIssue(string(req.ID), req.Title, "", req.Body, req.Tags, req.BaseBranch)
 	if err != nil {
 		return nil, err
 	}
 	return &Issue{
-		ID:         resp.IssueID,
+		ID:         model.IssueID(resp.IssueID),
 		Path:       resp.Path,
 		Title:      req.Title,
 		Body:       req.Body,
@@ -151,25 +152,25 @@ func (c *DaemonClient) CreateIssue(ctx context.Context, req *CreateIssueRequest)
 	}, nil
 }
 
-func (c *DaemonClient) SetIssueStatus(ctx context.Context, issueID string, status IssueStatus) error {
+func (c *DaemonClient) SetIssueStatus(ctx context.Context, issueID model.IssueID, status IssueStatus) error {
 	if status == IssueStatusClosed || status == IssueStatusResolved {
-		_, err := c.proto.CloseIssue(issueID, "")
+		_, err := c.proto.CloseIssue(string(issueID), "")
 		return err
 	}
 	return errors.New("only close/resolved status supported via daemon")
 }
 
-func (c *DaemonClient) CloseIssue(ctx context.Context, issueID string) error {
-	_, err := c.proto.CloseIssue(issueID, "")
+func (c *DaemonClient) CloseIssue(ctx context.Context, issueID model.IssueID) error {
+	_, err := c.proto.CloseIssue(string(issueID), "")
 	return err
 }
 
 func (c *DaemonClient) ResolveRun(ctx context.Context, ref RunRef) (*Run, error) {
 	if ref.ShortID != "" {
-		resp, err := c.proto.GetRunByShortID(ref.ShortID)
+		resp, err := c.proto.GetRunByShortID(string(ref.ShortID))
 		if err != nil {
 			if isNotFoundError(err) {
-				return nil, RunNotFound(ref.ShortID)
+				return nil, RunNotFound(string(ref.ShortID))
 			}
 			return nil, err
 		}
@@ -177,7 +178,7 @@ func (c *DaemonClient) ResolveRun(ctx context.Context, ref RunRef) (*Run, error)
 	}
 
 	if ref.RunID != "" {
-		resp, err := c.proto.GetRun(ref.IssueID, ref.RunID)
+		resp, err := c.proto.GetRun(string(ref.IssueID), string(ref.RunID))
 		if err != nil {
 			if isNotFoundError(err) {
 				return nil, RunNotFound(ref.String())
@@ -187,12 +188,12 @@ func (c *DaemonClient) ResolveRun(ctx context.Context, ref RunRef) (*Run, error)
 		return runFromDaemonFull(resp.Run), nil
 	}
 
-	runs, err := c.proto.ListRuns(&daemon.ListRunsFilter{IssueID: ref.IssueID, Limit: 1})
+	runs, err := c.proto.ListRuns(&daemon.ListRunsFilter{IssueID: string(ref.IssueID), Limit: 1})
 	if err != nil {
 		return nil, err
 	}
 	if len(runs.Runs) == 0 {
-		return nil, RunNotFound(ref.IssueID)
+		return nil, RunNotFound(string(ref.IssueID))
 	}
 	resp, err := c.proto.GetRun(runs.Runs[0].IssueID, runs.Runs[0].RunID)
 	if err != nil {
@@ -201,24 +202,24 @@ func (c *DaemonClient) ResolveRun(ctx context.Context, ref RunRef) (*Run, error)
 	return runFromDaemonFull(resp.Run), nil
 }
 
-func (c *DaemonClient) GetRun(ctx context.Context, issueID, runID string) (*Run, error) {
-	resp, err := c.proto.GetRun(issueID, runID)
+func (c *DaemonClient) GetRun(ctx context.Context, issueID model.IssueID, runID model.RunID) (*Run, error) {
+	resp, err := c.proto.GetRun(string(issueID), string(runID))
 	if err != nil {
 		if isNotFoundError(err) {
-			return nil, RunNotFound(issueID + "#" + runID)
+			return nil, RunNotFound(string(issueID) + "#" + string(runID))
 		}
 		return nil, err
 	}
 	return runFromDaemonFull(resp.Run), nil
 }
 
-func (c *DaemonClient) GetLatestRun(ctx context.Context, issueID string) (*Run, error) {
-	runs, err := c.proto.ListRuns(&daemon.ListRunsFilter{IssueID: issueID, Limit: 1})
+func (c *DaemonClient) GetLatestRun(ctx context.Context, issueID model.IssueID) (*Run, error) {
+	runs, err := c.proto.ListRuns(&daemon.ListRunsFilter{IssueID: string(issueID), Limit: 1})
 	if err != nil {
 		return nil, err
 	}
 	if len(runs.Runs) == 0 {
-		return nil, RunNotFound(issueID)
+		return nil, RunNotFound(string(issueID))
 	}
 	resp, err := c.proto.GetRun(runs.Runs[0].IssueID, runs.Runs[0].RunID)
 	if err != nil {
@@ -235,7 +236,7 @@ func (c *DaemonClient) ListRuns(ctx context.Context, filter *ListRunsFilter) (*L
 			statuses[i] = string(s)
 		}
 		protoFilter = &daemon.ListRunsFilter{
-			IssueID:   filter.IssueID,
+			IssueID:   string(filter.IssueID),
 			Status:    statuses,
 			Limit:     filter.Limit,
 			Cursor:    filter.Cursor,
@@ -272,6 +273,7 @@ func (c *DaemonClient) StartRun(ctx context.Context, req *StartRunRequest) (*Sta
 		Agent:          req.Agent,
 		AgentCmd:       req.AgentCmd,
 		AgentProfile:   req.AgentProfile,
+		CodexProfile:   req.CodexProfile,
 		Model:          req.Model,
 		ModelVariant:   req.ModelVariant,
 		Preset:         req.Preset,
@@ -290,7 +292,7 @@ func (c *DaemonClient) StartRun(ctx context.Context, req *StartRunRequest) (*Sta
 		return nil, err
 	}
 	return &StartRunResult{
-		RunID:        resp.RunID,
+		RunID:        model.RunID(resp.RunID),
 		Branch:       resp.Branch,
 		WorktreePath: resp.WorktreePath,
 		SessionName:  resp.SessionName,
@@ -303,7 +305,7 @@ func (c *DaemonClient) StopRun(ctx context.Context, ref RunRef) error {
 	if err != nil {
 		return err
 	}
-	_, err = c.proto.StopRun(run.IssueID, run.RunID, false)
+	_, err = c.proto.StopRun(string(run.IssueID), string(run.RunID), false)
 	return err
 }
 
@@ -312,7 +314,7 @@ func (c *DaemonClient) AppendEvent(ctx context.Context, ref RunRef, event *Event
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.proto.AppendEvent(run.IssueID, run.RunID, event.Type, event.Name, event.Attrs, "cli")
+	resp, err := c.proto.AppendEvent(string(run.IssueID), string(run.RunID), event.Type, event.Name, event.Attrs, "cli")
 	if err != nil {
 		return nil, err
 	}
@@ -335,15 +337,15 @@ func (c *DaemonClient) WaitForRuns(ctx context.Context, refs []string, timeoutSe
 	}
 
 	return &WaitForRunsResult{
-		RunID:   resp.RunID,
+		RunID:   model.RunID(resp.RunID),
 		Status:  NormalizeRunStatus(resp.Status),
-		IssueID: resp.Issue,
+		IssueID: model.IssueID(resp.Issue),
 		PRURL:   resp.PRURL,
 	}, nil
 }
 
 func (c *DaemonClient) GetAttachInfo(ctx context.Context, ref RunRef) (*AttachInfo, error) {
-	resp, err := c.proto.GetAttachInfo(ref.IssueID, ref.RunID, ref.ShortID)
+	resp, err := c.proto.GetAttachInfo(string(ref.IssueID), string(ref.RunID), string(ref.ShortID))
 	if err != nil {
 		if isNotFoundError(err) {
 			return nil, RunNotFound(ref.String())
@@ -353,8 +355,8 @@ func (c *DaemonClient) GetAttachInfo(ctx context.Context, ref RunRef) (*AttachIn
 	if !resp.OK {
 		if resp.Error == "session_not_found" || resp.Error == "no sessions" {
 			return &AttachInfo{
-				IssueID:       resp.IssueID,
-				RunID:         resp.RunID,
+				IssueID:       model.IssueID(resp.IssueID),
+				RunID:         model.RunID(resp.RunID),
 				SessionName:   resp.SessionName,
 				Multiplexer:   Multiplexer(resp.Multiplexer),
 				WorktreePath:  resp.WorktreePath,
@@ -365,8 +367,8 @@ func (c *DaemonClient) GetAttachInfo(ctx context.Context, ref RunRef) (*AttachIn
 		return nil, errors.New(resp.Error)
 	}
 	return &AttachInfo{
-		IssueID:           resp.IssueID,
-		RunID:             resp.RunID,
+		IssueID:           model.IssueID(resp.IssueID),
+		RunID:             model.RunID(resp.RunID),
 		Agent:             resp.Agent,
 		SessionName:       resp.SessionName,
 		Multiplexer:       Multiplexer(resp.Multiplexer),
@@ -385,7 +387,7 @@ func (c *DaemonClient) CaptureSession(ctx context.Context, ref RunRef, lines int
 		return nil, err
 	}
 
-	resp, err := c.proto.CaptureSession(run.IssueID, run.RunID, lines)
+	resp, err := c.proto.CaptureSession(string(run.IssueID), string(run.RunID), lines)
 	if err != nil {
 		return nil, err
 	}
@@ -403,7 +405,7 @@ func (c *DaemonClient) SendMessage(ctx context.Context, ref RunRef, message stri
 		return err
 	}
 
-	return c.proto.SendMessage(run.IssueID, run.RunID, message, noEnter)
+	return c.proto.SendMessage(string(run.IssueID), string(run.RunID), message, noEnter)
 }
 
 func (c *DaemonClient) InjectInitialPrompt(ctx context.Context, ref RunRef, prompt string) error {
@@ -412,7 +414,7 @@ func (c *DaemonClient) InjectInitialPrompt(ctx context.Context, ref RunRef, prom
 		return err
 	}
 
-	return c.proto.InjectInitialPrompt(run.IssueID, run.RunID, prompt)
+	return c.proto.InjectInitialPrompt(string(run.IssueID), string(run.RunID), prompt)
 }
 
 func (c *DaemonClient) GetDiffStats(ctx context.Context, ref RunRef) (*DiffStats, error) {
@@ -421,7 +423,7 @@ func (c *DaemonClient) GetDiffStats(ctx context.Context, ref RunRef) (*DiffStats
 		return nil, err
 	}
 
-	resp, err := c.proto.GetDiffStats(run.IssueID, run.RunID)
+	resp, err := c.proto.GetDiffStats(string(run.IssueID), string(run.RunID))
 	if err != nil {
 		return nil, err
 	}
@@ -440,7 +442,7 @@ func (c *DaemonClient) GetBranchState(ctx context.Context, ref RunRef) (BranchSt
 		return "", err
 	}
 
-	state, err := c.proto.GetBranchState(run.IssueID, run.RunID)
+	state, err := c.proto.GetBranchState(string(run.IssueID), string(run.RunID))
 	if err != nil {
 		return "", err
 	}
@@ -454,11 +456,11 @@ func (c *DaemonClient) GetDiff(ctx context.Context, ref RunRef) (string, error) 
 		return "", err
 	}
 
-	return c.proto.GetDiff(run.IssueID, run.RunID)
+	return c.proto.GetDiff(string(run.IssueID), string(run.RunID))
 }
 
-func (c *DaemonClient) ResolveIssue(ctx context.Context, issueID string, force bool) error {
-	_, err := c.proto.ResolveIssue(issueID, force)
+func (c *DaemonClient) ResolveIssue(ctx context.Context, issueID model.IssueID, force bool) error {
+	_, err := c.proto.ResolveIssue(string(issueID), force)
 	return err
 }
 
@@ -544,7 +546,7 @@ func issueFromDaemon(iss *daemon.IssueFull) *Issue {
 		return nil
 	}
 	return &Issue{
-		ID:          iss.ID,
+		ID:          model.IssueID(iss.ID),
 		Title:       iss.Title,
 		Topic:       iss.Topic,
 		Summary:     iss.Summary,
@@ -565,7 +567,7 @@ func issueSummaryToIssue(iss *daemon.IssueSummary) *Issue {
 		modTime, _ = time.Parse(time.RFC3339, iss.ModifiedAt)
 	}
 	return &Issue{
-		ID:         iss.ID,
+		ID:         model.IssueID(iss.ID),
 		Title:      iss.Title,
 		Topic:      iss.Topic,
 		Summary:    iss.Summary,
@@ -609,9 +611,9 @@ func runFromDaemonFull(r *daemon.RunFull) *Run {
 		}
 	}
 	return &Run{
-		IssueID:           r.IssueID,
-		RunID:             r.RunID,
-		ShortID:           r.ShortID,
+		IssueID:           model.IssueID(r.IssueID),
+		RunID:             model.RunID(r.RunID),
+		ShortID:           model.ShortID(r.ShortID),
 		IssueStatus:       r.IssueStatus,
 		IssueTopic:        r.IssueTopic,
 		Status:            RunStatus(r.Status),
@@ -619,6 +621,7 @@ func runFromDaemonFull(r *daemon.RunFull) *Run {
 		IsTerminal:        r.IsTerminal,
 		Phase:             r.Phase,
 		Agent:             r.Agent,
+		Profile:           r.Profile,
 		Model:             r.Model,
 		ModelVariant:      r.ModelVariant,
 		Branch:            r.Branch,
@@ -664,9 +667,9 @@ func runFromDaemonSummary(r *daemon.RunSummary) *Run {
 		}
 	}
 	return &Run{
-		IssueID:           r.IssueID,
-		RunID:             r.RunID,
-		ShortID:           r.ShortID,
+		IssueID:           model.IssueID(r.IssueID),
+		RunID:             model.RunID(r.RunID),
+		ShortID:           model.ShortID(r.ShortID),
 		IssueStatus:       r.IssueStatus,
 		IssueTopic:        r.IssueTopic,
 		Status:            RunStatus(r.Status),
@@ -674,6 +677,7 @@ func runFromDaemonSummary(r *daemon.RunSummary) *Run {
 		IsTerminal:        r.IsTerminal,
 		Phase:             r.Phase,
 		Agent:             r.Agent,
+		Profile:           r.Profile,
 		Model:             r.Model,
 		Branch:            r.Branch,
 		WorktreePath:      r.WorktreePath,
@@ -700,14 +704,14 @@ func (c *DaemonClient) DeleteRun(ctx context.Context, ref RunRef, opts *DeleteRu
 	if opts == nil {
 		opts = &DeleteRunOptions{}
 	}
-	resp, err := c.proto.DeleteRun(ref.IssueID, ref.RunID, ref.ShortID, opts.WithWorktree, opts.WithBranch, opts.Force)
+	resp, err := c.proto.DeleteRun(string(ref.IssueID), string(ref.RunID), string(ref.ShortID), opts.WithWorktree, opts.WithBranch, opts.Force)
 	if err != nil {
 		return nil, err
 	}
 	return &DeleteRunResult{
-		IssueID:         resp.IssueID,
-		RunID:           resp.RunID,
-		ShortID:         resp.ShortID,
+		IssueID:         model.IssueID(resp.IssueID),
+		RunID:           model.RunID(resp.RunID),
+		ShortID:         model.ShortID(resp.ShortID),
 		WorktreeRemoved: resp.WorktreeRemoved,
 		BranchRemoved:   resp.BranchRemoved,
 		SessionKilled:   resp.SessionKilled,
@@ -715,14 +719,14 @@ func (c *DaemonClient) DeleteRun(ctx context.Context, ref RunRef, opts *DeleteRu
 }
 
 func (c *DaemonClient) CleanRunWorktree(ctx context.Context, ref RunRef) (*CleanRunWorktreeResult, error) {
-	resp, err := c.proto.CleanRunWorktree(ref.IssueID, ref.RunID, ref.ShortID)
+	resp, err := c.proto.CleanRunWorktree(string(ref.IssueID), string(ref.RunID), string(ref.ShortID))
 	if err != nil {
 		return nil, err
 	}
 	return &CleanRunWorktreeResult{
-		IssueID:         resp.IssueID,
-		RunID:           resp.RunID,
-		ShortID:         resp.ShortID,
+		IssueID:         model.IssueID(resp.IssueID),
+		RunID:           model.RunID(resp.RunID),
+		ShortID:         model.ShortID(resp.ShortID),
 		WorktreePath:    resp.WorktreePath,
 		WorktreeRemoved: resp.WorktreeRemoved,
 		Skipped:         resp.Skipped,
@@ -730,16 +734,16 @@ func (c *DaemonClient) CleanRunWorktree(ctx context.Context, ref RunRef) (*Clean
 	}, nil
 }
 
-func (c *DaemonClient) UpdateIssue(ctx context.Context, issueID string, req *UpdateIssueRequest) (*Issue, error) {
-	resp, err := c.proto.UpdateIssue(issueID, req.Title, req.Summary, req.Body, string(req.Status))
+func (c *DaemonClient) UpdateIssue(ctx context.Context, issueID model.IssueID, req *UpdateIssueRequest) (*Issue, error) {
+	resp, err := c.proto.UpdateIssue(string(issueID), req.Title, req.Summary, req.Body, string(req.Status))
 	if err != nil {
 		return nil, err
 	}
 	return issueFromDaemon(resp), nil
 }
 
-func (c *DaemonClient) ValidateIssueFiles(ctx context.Context, issueID string) (*ValidateIssueFilesResult, error) {
-	resp, err := c.proto.ValidateIssueFiles(issueID)
+func (c *DaemonClient) ValidateIssueFiles(ctx context.Context, issueID model.IssueID) (*ValidateIssueFilesResult, error) {
+	resp, err := c.proto.ValidateIssueFiles(string(issueID))
 	if err != nil {
 		return nil, err
 	}
@@ -750,7 +754,7 @@ func (c *DaemonClient) ValidateIssueFiles(ctx context.Context, issueID string) (
 	for _, e := range resp.Errors {
 		vr := &ValidationResult{
 			File:    e.File,
-			IssueID: e.IssueID,
+			IssueID: model.IssueID(e.IssueID),
 		}
 		for _, issue := range e.Errors {
 			vr.Errors = append(vr.Errors, ValidationIssue{
@@ -773,7 +777,7 @@ func (c *DaemonClient) ValidateIssueFiles(ctx context.Context, issueID string) (
 	for _, w := range resp.Warnings {
 		vr := &ValidationResult{
 			File:    w.File,
-			IssueID: w.IssueID,
+			IssueID: model.IssueID(w.IssueID),
 		}
 		for _, issue := range w.Warnings {
 			vr.Warnings = append(vr.Warnings, ValidationIssue{
@@ -787,7 +791,7 @@ func (c *DaemonClient) ValidateIssueFiles(ctx context.Context, issueID string) (
 	}
 	for _, d := range resp.Duplicates {
 		result.Duplicates = append(result.Duplicates, DuplicateID{
-			ID:    d.ID,
+			ID:    model.IssueID(d.ID),
 			Files: d.Files,
 		})
 	}
@@ -795,11 +799,11 @@ func (c *DaemonClient) ValidateIssueFiles(ctx context.Context, issueID string) (
 }
 
 func (c *DaemonClient) WriteAgentPrompt(ctx context.Context, ref RunRef, content string) error {
-	return c.proto.WriteAgentPrompt(ref.IssueID, ref.RunID, ref.ShortID, content)
+	return c.proto.WriteAgentPrompt(string(ref.IssueID), string(ref.RunID), string(ref.ShortID), content)
 }
 
 func (c *DaemonClient) ReadAgentPrompt(ctx context.Context, ref RunRef) (string, error) {
-	return c.proto.ReadAgentPrompt(ref.IssueID, ref.RunID, ref.ShortID)
+	return c.proto.ReadAgentPrompt(string(ref.IssueID), string(ref.RunID), string(ref.ShortID))
 }
 
 func (c *DaemonClient) RepairState(ctx context.Context, opts *RepairOptions) (*RepairResult, error) {
@@ -830,13 +834,13 @@ func (c *DaemonClient) WriteFile(ctx context.Context, path string, content []byt
 }
 
 func (c *DaemonClient) CreateRun(ctx context.Context, req *CreateRunRequest) (*CreateRunResult, error) {
-	resp, err := c.proto.CreateRun(req.IssueID, req.RunID, req.Metadata)
+	resp, err := c.proto.CreateRun(string(req.IssueID), string(req.RunID), req.Metadata)
 	if err != nil {
 		return nil, err
 	}
 	return &CreateRunResult{
-		IssueID: resp.IssueId,
-		RunID:   resp.RunId,
+		IssueID: model.IssueID(resp.IssueId),
+		RunID:   model.RunID(resp.RunId),
 		Path:    resp.Path,
 	}, nil
 }
@@ -947,6 +951,7 @@ func (c *DaemonClient) GetControlAgentConfig(ctx context.Context) (*ControlAgent
 		Model:         resp.Model,
 		ModelVariant:  resp.ModelVariant,
 		ExtraArgs:     resp.ExtraArgs,
+		CodexHome:     resp.CodexHome,
 	}, nil
 }
 
@@ -959,6 +964,7 @@ func (c *DaemonClient) ContinueRun(ctx context.Context, req *ContinueRunRequest)
 		Agent:          req.Agent,
 		AgentCmd:       req.AgentCmd,
 		AgentProfile:   req.AgentProfile,
+		CodexProfile:   req.CodexProfile,
 		WorktreeDir:    req.WorktreeDir,
 		NoPR:           req.NoPR,
 		PromptTemplate: req.PromptTemplate,
@@ -970,13 +976,13 @@ func (c *DaemonClient) ContinueRun(ctx context.Context, req *ContinueRunRequest)
 		return nil, err
 	}
 	return &ContinueRunResult{
-		RunID:         resp.RunID,
+		RunID:         model.RunID(resp.RunID),
 		Branch:        resp.Branch,
 		WorktreePath:  resp.WorktreePath,
 		SessionName:   resp.SessionName,
 		Status:        resp.Status,
 		ContinuedFrom: resp.ContinuedFrom,
-		IssueID:       resp.IssueID,
+		IssueID:       model.IssueID(resp.IssueID),
 	}, nil
 }
 

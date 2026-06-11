@@ -639,3 +639,32 @@ func TestShortenSessionName_UniqueForDifferentInputs(t *testing.T) {
 		t.Errorf("different inputs produced same output: %q", result1)
 	}
 }
+
+func TestZellijMultiplexer_CapturePane_UsesPathFlag(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	zm := NewZellijMultiplexer()
+	if _, err := zm.CapturePane("sess", 10); err != nil {
+		t.Fatalf("CapturePane error: %v", err)
+	}
+
+	call := exec.recorded[0]
+	idx := -1
+	for i, a := range call.args {
+		if a == "dump-screen" {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatalf("expected dump-screen action; got args: %v", call.args)
+	}
+	// zellij 0.44+ rejects a positional path; the dump path must be passed via
+	// the --path flag immediately after the action (regression guard).
+	if idx+1 >= len(call.args) || call.args[idx+1] != "--path" {
+		t.Fatalf("dump-screen must be followed by --path flag (zellij 0.44+), not a positional path; got args: %v", call.args)
+	}
+}

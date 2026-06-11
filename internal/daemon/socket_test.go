@@ -88,8 +88,8 @@ type mockStore struct {
 	issues map[string]*model.Issue
 }
 
-func (m *mockStore) ResolveIssue(issueID string) (*model.Issue, error) {
-	if issue, ok := m.issues[issueID]; ok {
+func (m *mockStore) ResolveIssue(issueID model.IssueID) (*model.Issue, error) {
+	if issue, ok := m.issues[string(issueID)]; ok {
 		return issue, nil
 	}
 	return nil, os.ErrNotExist
@@ -103,11 +103,26 @@ func (m *mockStore) ListIssues() ([]*model.Issue, error) {
 	return issues, nil
 }
 
-func (m *mockStore) SetIssueStatus(issueID string, status model.IssueStatus) error {
+func (m *mockStore) SetIssueStatus(issueID model.IssueID, status model.IssueStatus) error {
 	return nil
 }
 
-func (m *mockStore) CreateRun(issueID, runID string, metadata map[string]string) (*model.Run, error) {
+func (m *mockStore) CreateRun(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
+	// Mirror FileStore: verify the issue exists for non-GitHub issues.
+	if !strings.HasPrefix(string(issueID), "gh-") && !strings.HasPrefix(string(issueID), "gh#") {
+		if _, err := m.ResolveIssue(issueID); err != nil {
+			return nil, fmt.Errorf("issue not found: %s", issueID)
+		}
+	}
+	return m.createRunDoc(issueID, runID, metadata)
+}
+
+func (m *mockStore) CreateRunForExistingIssue(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
+	// No issue verification: worker-delegated path.
+	return m.createRunDoc(issueID, runID, metadata)
+}
+
+func (m *mockStore) createRunDoc(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
 	if m.runs == nil {
 		m.runs = make(map[string]*model.Run)
 	}
@@ -121,7 +136,7 @@ func (m *mockStore) CreateRun(issueID, runID string, metadata map[string]string)
 		ContinuedFrom: metadata["continued_from"],
 		Status:        model.StatusQueued,
 	}
-	m.runs[issueID+"#"+runID] = run
+	m.runs[run.Ref().String()] = run
 	return run, nil
 }
 
@@ -129,7 +144,7 @@ func (m *mockStore) AppendEvent(ref *model.RunRef, event *model.Event) error {
 	if m.runs == nil || ref == nil || event == nil {
 		return nil
 	}
-	if run, ok := m.runs[ref.IssueID+"#"+ref.RunID]; ok && run != nil {
+	if run, ok := m.runs[ref.String()]; ok && run != nil {
 		run.Events = append(run.Events, event)
 		run.DeriveState()
 	}
@@ -163,20 +178,20 @@ func (m *mockStore) ListRuns(filter *store.ListRunsFilter) ([]*model.Run, error)
 }
 
 func (m *mockStore) GetRun(ref *model.RunRef) (*model.Run, error) {
-	key := ref.IssueID + "#" + ref.RunID
+	key := ref.String()
 	if run, ok := m.runs[key]; ok {
 		return run, nil
 	}
 	return nil, os.ErrNotExist
 }
 
-func (m *mockStore) GetRunByShortID(shortID string) (*model.Run, error) {
+func (m *mockStore) GetRunByShortID(shortID model.ShortID) (*model.Run, error) {
 	var match *model.Run
 	for _, run := range m.runs {
 		if run == nil {
 			continue
 		}
-		if strings.HasPrefix(run.ShortID(), shortID) {
+		if strings.HasPrefix(string(run.ShortID()), string(shortID)) {
 			if match != nil {
 				return nil, fmt.Errorf("ambiguous short ID")
 			}
@@ -189,7 +204,7 @@ func (m *mockStore) GetRunByShortID(shortID string) (*model.Run, error) {
 	return match, nil
 }
 
-func (m *mockStore) GetLatestRun(issueID string) (*model.Run, error) {
+func (m *mockStore) GetLatestRun(issueID model.IssueID) (*model.Run, error) {
 	return nil, nil
 }
 
@@ -205,7 +220,7 @@ func (m *mockStore) UpdateIssue(issue *model.Issue) error {
 	return nil
 }
 
-func (m *mockStore) ValidateIssueFiles(issueID string) (*store.ValidationResult, error) {
+func (m *mockStore) ValidateIssueFiles(issueID model.IssueID) (*store.ValidationResult, error) {
 	return &store.ValidationResult{}, nil
 }
 
@@ -245,6 +260,30 @@ func TestLegacySocketFilePath(t *testing.T) {
 	expected := "/vault/.orch/daemon.sock"
 	if path != expected {
 		t.Errorf("expected %s, got %s", expected, path)
+	}
+}
+
+func TestGetAllRepoContextsCollapsesStoreAliases(t *testing.T) {
+	shared := &mockStoreForUpdate{}
+	other := &mockStoreForUpdate{}
+	s := &SocketServer{
+		repos: map[string]*RepoContext{
+			// getOrCreateStore caches the same store under its issuesRoot
+			// path and under the repo ID; the monitor must see it once.
+			"/home/u/repos/orch-issues": {Store: shared},
+			"proboscis-orch":            {Store: shared, RepoID: "proboscis-orch", ProjectRoot: "/home/u/repos/orch"},
+			"other-repo":                {Store: other, RepoID: "other-repo", ProjectRoot: "/home/u/repos/other"},
+		},
+	}
+
+	contexts := s.GetAllRepoContexts()
+	if len(contexts) != 2 {
+		t.Fatalf("expected aliases collapsed to 2 contexts, got %d", len(contexts))
+	}
+	for _, ctx := range contexts {
+		if ctx.Store == store.Store(shared) && ctx.ProjectRoot != "/home/u/repos/orch" {
+			t.Fatalf("expected the alias with project metadata to win, got %+v", ctx)
+		}
 	}
 }
 
@@ -383,8 +422,8 @@ func TestWithWorkerLeaseUsesEmbeddedDispatcherRPCPath(t *testing.T) {
 	st := &mockStore{
 		runs: map[string]*model.Run{
 			issueID + "#" + runID: {
-				IssueID: issueID,
-				RunID:   runID,
+				IssueID: model.IssueID(issueID),
+				RunID:   model.RunID(runID),
 				Status:  model.StatusRunning,
 			},
 		},
@@ -652,7 +691,23 @@ func TestProtoContinueRunUsesExternalWorkerResultJSON(t *testing.T) {
 	defer cleanup()
 
 	projectID := testProjectID
-	st := &mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}}
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			"issue-cont#run-prev": {
+				IssueID:      "issue-cont",
+				RunID:        "run-prev",
+				Status:       model.StatusFailed,
+				Agent:        "custom",
+				Branch:       "cont-branch",
+				WorktreePath: "/tmp/cont-prev",
+			},
+		},
+		issues: map[string]*model.Issue{
+			// The master (issue-store SSOT) resolves the issue before delegating to
+			// the worker, so the issue must exist on the master store.
+			"issue-cont": {ID: "issue-cont", Title: "Cont", Status: model.IssueStatusOpen},
+		},
+	}
 
 	server := newTestServer(t, st)
 	if err := server.Start(); err != nil {
@@ -688,7 +743,7 @@ func TestProtoContinueRunUsesExternalWorkerResultJSON(t *testing.T) {
 	resp := sendProtoRequest(t, &orchpb.Request{
 		Request: &orchpb.Request_ContinueRun{ContinueRun: &orchpb.ContinueRunRequest{
 			IssueId: "issue-cont",
-			RunId:   "run-cont",
+			RunId:   "run-prev",
 			Context: &orchpb.RequestContext{ProjectId: projectID},
 		}},
 	})
@@ -861,8 +916,8 @@ func TestProcessSendOpenCodeReturnsAfterAck(t *testing.T) {
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
-	server.openCodeServers[repoID] = &managedServer{
-		RepoID:      repoID,
+	server.openCodeServers[string(repoID)] = &managedServer{
+		RepoID:      string(repoID),
 		ProjectRoot: projectRoot,
 		Port:        getPortFromURL(t, testServer.URL),
 		WaitResult:  make(chan error, 1),
@@ -926,8 +981,8 @@ func TestProcessSendOpenCodeTimesOutPromptlyWithoutAck(t *testing.T) {
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
-	server.openCodeServers[repoID] = &managedServer{
-		RepoID:      repoID,
+	server.openCodeServers[string(repoID)] = &managedServer{
+		RepoID:      string(repoID),
 		ProjectRoot: projectRoot,
 		Port:        getPortFromURL(t, testServer.URL),
 		WaitResult:  make(chan error, 1),
@@ -1033,8 +1088,8 @@ func TestProcessSendOpenCodeAckTimeoutButQueuedMessageSucceeds(t *testing.T) {
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
-	server.openCodeServers[repoID] = &managedServer{
-		RepoID:      repoID,
+	server.openCodeServers[string(repoID)] = &managedServer{
+		RepoID:      string(repoID),
 		ProjectRoot: projectRoot,
 		Port:        getPortFromURL(t, testServer.URL),
 		WaitResult:  make(chan error, 1),
@@ -1256,8 +1311,8 @@ func TestHandleProtoCleanRunWorktreeRemovesWorktree(t *testing.T) {
 	worktree, err := git.CreateWorktree(&git.WorktreeConfig{
 		RepoRoot:    repo,
 		WorktreeDir: worktreeRoot,
-		IssueID:     issueID,
-		RunID:       runID,
+		IssueID:     model.IssueID(issueID),
+		RunID:       model.RunID(runID),
 		Agent:       "codex",
 	})
 	if err != nil {
@@ -1267,8 +1322,8 @@ func TestHandleProtoCleanRunWorktreeRemovesWorktree(t *testing.T) {
 	st := &mockStore{
 		runs: map[string]*model.Run{
 			issueID + "#" + runID: {
-				IssueID:      issueID,
-				RunID:        runID,
+				IssueID:      model.IssueID(issueID),
+				RunID:        model.RunID(runID),
 				Status:       model.StatusFailed,
 				WorktreePath: worktree.WorktreePath,
 				Branch:       worktree.Branch,
@@ -1319,8 +1374,8 @@ func TestHandleProtoCleanRunWorktreeRejectsActiveRun(t *testing.T) {
 	st := &mockStore{
 		runs: map[string]*model.Run{
 			"orch-active#20260314-130000": {
-				IssueID:      "orch-active",
-				RunID:        "20260314-130000",
+				IssueID:      model.IssueID("orch-active"),
+				RunID:        model.RunID("20260314-130000"),
 				Status:       model.StatusRunning,
 				WorktreePath: "/tmp/orch-active",
 			},
@@ -1354,8 +1409,8 @@ func TestHandleProtoCleanRunWorktreeRemovesMissingWorktreeRegistration(t *testin
 	worktree, err := git.CreateWorktree(&git.WorktreeConfig{
 		RepoRoot:    repo,
 		WorktreeDir: worktreeRoot,
-		IssueID:     issueID,
-		RunID:       runID,
+		IssueID:     model.IssueID(issueID),
+		RunID:       model.RunID(runID),
 		Agent:       "codex",
 	})
 	if err != nil {
@@ -1368,8 +1423,8 @@ func TestHandleProtoCleanRunWorktreeRemovesMissingWorktreeRegistration(t *testin
 	st := &mockStore{
 		runs: map[string]*model.Run{
 			issueID + "#" + runID: {
-				IssueID:      issueID,
-				RunID:        runID,
+				IssueID:      model.IssueID(issueID),
+				RunID:        model.RunID(runID),
 				Status:       model.StatusCanceled,
 				WorktreePath: worktree.WorktreePath,
 				Branch:       worktree.Branch,
@@ -1424,8 +1479,8 @@ func TestProtoClientCleanRunWorktreeDispatchesToHandler(t *testing.T) {
 	worktree, err := git.CreateWorktree(&git.WorktreeConfig{
 		RepoRoot:    repo,
 		WorktreeDir: worktreeRoot,
-		IssueID:     issueID,
-		RunID:       runID,
+		IssueID:     model.IssueID(issueID),
+		RunID:       model.RunID(runID),
 		Agent:       "codex",
 	})
 	if err != nil {
@@ -1435,8 +1490,8 @@ func TestProtoClientCleanRunWorktreeDispatchesToHandler(t *testing.T) {
 	st := &mockStore{
 		runs: map[string]*model.Run{
 			issueID + "#" + runID: {
-				IssueID:      issueID,
-				RunID:        runID,
+				IssueID:      model.IssueID(issueID),
+				RunID:        model.RunID(runID),
 				Status:       model.StatusFailed,
 				WorktreePath: worktree.WorktreePath,
 				Branch:       worktree.Branch,
@@ -1474,8 +1529,8 @@ func TestHandleProtoDeleteRunRemovesMissingWorktreeRegistration(t *testing.T) {
 	worktree, err := git.CreateWorktree(&git.WorktreeConfig{
 		RepoRoot:    repo,
 		WorktreeDir: worktreeRoot,
-		IssueID:     issueID,
-		RunID:       runID,
+		IssueID:     model.IssueID(issueID),
+		RunID:       model.RunID(runID),
 		Agent:       "codex",
 	})
 	if err != nil {
@@ -1488,8 +1543,8 @@ func TestHandleProtoDeleteRunRemovesMissingWorktreeRegistration(t *testing.T) {
 	st := &mockStore{
 		runs: map[string]*model.Run{
 			issueID + "#" + runID: {
-				IssueID:      issueID,
-				RunID:        runID,
+				IssueID:      model.IssueID(issueID),
+				RunID:        model.RunID(runID),
 				Status:       model.StatusFailed,
 				WorktreePath: worktree.WorktreePath,
 				Branch:       worktree.Branch,
@@ -3769,7 +3824,7 @@ func TestGetRunByShortIDWithoutProjectContextAggregatesAcrossStores(t *testing.T
 	resp := sendProtoRequest(t, &orchpb.Request{
 		Request: &orchpb.Request_GetRunByShortId{
 			GetRunByShortId: &orchpb.GetRunByShortIDRequest{
-				ShortId: runShortID,
+				ShortId: string(runShortID),
 				Context: &orchpb.RequestContext{},
 			},
 		},
@@ -3880,7 +3935,7 @@ func TestGetAttachInfoByShortIDWithoutProjectContextAggregatesAcrossStores(t *te
 	resp := sendProtoRequest(t, &orchpb.Request{
 		Request: &orchpb.Request_GetAttachInfo{
 			GetAttachInfo: &orchpb.GetAttachInfoRequest{
-				ShortId: shortID,
+				ShortId: string(shortID),
 				Context: &orchpb.RequestContext{},
 			},
 		},
@@ -4010,6 +4065,10 @@ func TestCaptureSessionRemoteTargetUsesWorkerLease(t *testing.T) {
 				_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, "unexpected capture payload", "")
 				return
 			}
+			if lease.Payload.CaptureSession.RunSnapshot == nil || lease.Payload.CaptureSession.RunSnapshot.RunID != "run-remote" {
+				_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, "missing capture run snapshot", "")
+				return
+			}
 			resultJSON := EncodeWorkerEffectResult(&WorkerEffectResult{
 				CaptureResult: &CaptureSessionResult{
 					Content:       "remote capture",
@@ -4057,6 +4116,7 @@ func TestSendMessageRemoteTargetUsesWorkerLease(t *testing.T) {
 				Agent:       string(agent.AgentClaude),
 				Target:      "mac",
 				TargetHost:  "mac-host",
+				Status:      model.StatusPROpen,
 			},
 		},
 		issues: map[string]*model.Issue{},
@@ -4085,8 +4145,12 @@ func TestSendMessageRemoteTargetUsesWorkerLease(t *testing.T) {
 				return
 			}
 			payload := lease.Payload.SendMessage
-			if payload.Message != "hello remote" || !payload.NoEnter || payload.TargetWorkerID != workerID {
+			if payload.Message != "hello remote" || payload.NoEnter || payload.TargetWorkerID != workerID {
 				_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, "unexpected send payload", "")
+				return
+			}
+			if payload.RunSnapshot == nil || payload.RunSnapshot.RunID != "run-remote" {
+				_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, "missing send run snapshot", "")
 				return
 			}
 			_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, true, "", "")
@@ -4098,12 +4162,74 @@ func TestSendMessageRemoteTargetUsesWorkerLease(t *testing.T) {
 		IssueId: "issue-remote",
 		RunId:   "run-remote",
 		Message: "hello remote",
-		NoEnter: true,
+		NoEnter: false,
 		Context: &orchpb.RequestContext{},
 	})
 	if !resp.Ok {
 		t.Fatalf("expected send_message to succeed, got error: %s", resp.Error)
 	}
+
+	// Feedback resumes the run: a pr_open run that just received input is
+	// working again, so `orch wait` blocks until the agent next goes idle.
+	if got := st.runs["issue-remote#run-remote"].Status; got != model.StatusRunning {
+		t.Fatalf("expected run marked running after feedback, got %s", got)
+	}
+}
+
+func TestMarkRunFeedbackSentTransitions(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+
+	cases := []struct {
+		status model.Status
+		want   model.Status
+	}{
+		{model.StatusWaiting, model.StatusRunning},
+		{model.StatusPROpen, model.StatusRunning},
+		{model.StatusRateLimited, model.StatusRunning},
+		{model.StatusUnknown, model.StatusRunning},
+		{model.StatusRunning, model.StatusRunning}, // no duplicate event
+		{model.StatusBooting, model.StatusBooting}, // boot flow owns running
+		{model.StatusDone, model.StatusDone},       // terminal stays terminal
+		{model.StatusFailed, model.StatusFailed},
+	}
+
+	for _, tc := range cases {
+		run := &model.Run{IssueID: "i", RunID: "r", Status: tc.status}
+		st := &mockStore{runs: map[string]*model.Run{"i#r": run}, issues: map[string]*model.Issue{}}
+		feedbackNoted := false
+		server.onRunFeedback = func(*model.Run) { feedbackNoted = true }
+
+		server.markRunFeedbackSent(st, run)
+
+		if got := st.runs["i#r"].Status; got != tc.want {
+			t.Errorf("markRunFeedbackSent from %s: status = %s, want %s", tc.status, got, tc.want)
+		}
+		if wantNoted := tc.want == model.StatusRunning && tc.status != model.StatusRunning; feedbackNoted != wantNoted {
+			t.Errorf("markRunFeedbackSent from %s: feedback noted = %v, want %v", tc.status, feedbackNoted, wantNoted)
+		}
+	}
+}
+
+func leaseRunSnapshot(lease *WorkerLease) *RunSnapshot {
+	if lease == nil || lease.Payload == nil {
+		return nil
+	}
+	switch lease.Effect {
+	case "get_diff_stats":
+		if lease.Payload.GetDiffStats != nil {
+			return lease.Payload.GetDiffStats.RunSnapshot
+		}
+	case "get_branch_state":
+		if lease.Payload.GetBranchState != nil {
+			return lease.Payload.GetBranchState.RunSnapshot
+		}
+	case "get_diff":
+		if lease.Payload.GetDiff != nil {
+			return lease.Payload.GetDiff.RunSnapshot
+		}
+	}
+	return nil
 }
 
 func TestRemoteGitRequestsUseWorkerLease(t *testing.T) {
@@ -4244,6 +4370,10 @@ func TestRemoteGitRequestsUseWorkerLease(t *testing.T) {
 					}
 					if lease.Effect != tt.capability {
 						_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, "unexpected effect", "")
+						return
+					}
+					if leaseRunSnapshot(lease) == nil || leaseRunSnapshot(lease).RunID != "run-remote" {
+						_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, "missing git run snapshot", "")
 						return
 					}
 					_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, true, "", tt.resultJSON)
@@ -5118,7 +5248,7 @@ type mockStoreWithValidation struct {
 	validationErr    error
 }
 
-func (m *mockStoreWithValidation) ValidateIssueFiles(issueID string) (*store.ValidationResult, error) {
+func (m *mockStoreWithValidation) ValidateIssueFiles(issueID model.IssueID) (*store.ValidationResult, error) {
 	if m.validationErr != nil {
 		return nil, m.validationErr
 	}
@@ -5135,7 +5265,7 @@ func (m *mockStoreWithPrompt) WriteAgentPrompt(ref *model.RunRef, content string
 	if ref == nil {
 		return fmt.Errorf("nil run ref")
 	}
-	key := ref.IssueID + "#" + ref.RunID
+	key := ref.String()
 	m.prompts[key] = content
 	return nil
 }
@@ -5144,20 +5274,20 @@ func (m *mockStoreWithPrompt) ReadAgentPrompt(ref *model.RunRef) (string, error)
 	if ref == nil {
 		return "", os.ErrNotExist
 	}
-	key := ref.IssueID + "#" + ref.RunID
+	key := ref.String()
 	if content, ok := m.prompts[key]; ok {
 		return content, nil
 	}
 	return "", os.ErrNotExist
 }
 
-func (m *mockStoreWithCapture) CreateRun(issueID, runID string, metadata map[string]string) (*model.Run, error) {
+func (m *mockStoreWithCapture) CreateRun(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
 	m.capturedMetadata = metadata
 	return &model.Run{
 		IssueID: issueID,
 		RunID:   runID,
 		Status:  model.StatusQueued,
-		Path:    "/test/runs/" + issueID + "/" + runID + ".md",
+		Path:    "/test/runs/" + string(issueID) + "/" + string(runID) + ".md",
 	}, nil
 }
 
@@ -5518,6 +5648,7 @@ func TestProcessStartRunCoreValidation(t *testing.T) {
 		}
 		opts := &StartRunOptions{
 			IssueID: "test-issue",
+			Agent:   "custom",
 		}
 		_, err := server.processStartRunCore(st, "", opts)
 		if err == nil {
@@ -5527,6 +5658,203 @@ func TestProcessStartRunCoreValidation(t *testing.T) {
 			t.Errorf("expected 'no project root available' error, got: %v", err)
 		}
 	})
+
+	t.Run("uses payload issue snapshot without reading worker store", func(t *testing.T) {
+		// A worker pinned to a different host than the master has no issue store.
+		// The master carries the resolved issue in opts.IssueSnapshot; the worker
+		// must consume it and never read its own store for the run's issue.
+		emptyStore := &mockStore{
+			runs:   make(map[string]*model.Run),
+			issues: make(map[string]*model.Issue), // intentionally empty: worker has no issue
+		}
+		opts := &StartRunOptions{
+			IssueID: "remote-issue",
+			Agent:   "custom",
+			IssueSnapshot: &model.Issue{
+				ID:     "remote-issue",
+				Title:  "Remote",
+				Body:   "do the thing",
+				Status: model.IssueStatusOpen,
+			},
+		}
+		// projectRoot="" makes the core fail at the next gate (project root). The
+		// point is that it gets PAST issue resolution: it must NOT fail
+		// "issue not found" even though the worker store is empty.
+		_, err := server.processStartRunCore(emptyStore, "", opts)
+		if err == nil {
+			t.Fatal("expected error at the project-root gate")
+		}
+		if strings.Contains(err.Error(), "issue not found") {
+			t.Fatalf("worker must use opts.IssueSnapshot, not read its empty store; got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "no project root available") {
+			t.Fatalf("expected to reach 'no project root available', got: %v", err)
+		}
+	})
+}
+
+// TestMasterFailsFastOnMissingIssueBeforeDelegation verifies that the master
+// (issue-store SSOT) rejects start/continue with an explicit "issue not found"
+// BEFORE delegating to a worker. This keeps the error on the master (where the
+// store lives) instead of on a worker that may run on a different host and have
+// no issue store at all. No worker is registered, so reaching delegation would
+// hang/fail differently; the assertion is that we never get there.
+func TestMasterFailsFastOnMissingIssueBeforeDelegation(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	st := &mockStore{
+		runs:   make(map[string]*model.Run),
+		issues: make(map[string]*model.Issue), // empty: issue does not exist on master
+	}
+	server := newTestServer(t, st)
+
+	t.Run("start_run", func(t *testing.T) {
+		resp := server.handleProtoStartRun(&orchpb.StartRunRequest{
+			IssueId: "missing-issue",
+			RunId:   "run-x",
+			Context: &orchpb.RequestContext{ProjectId: testProjectID},
+		})
+		if resp.Ok {
+			t.Fatalf("expected failure for missing issue, got ok response: %+v", resp)
+		}
+		if !strings.Contains(resp.Error, "issue not found: missing-issue") {
+			t.Fatalf("expected explicit 'issue not found: missing-issue', got: %q", resp.Error)
+		}
+	})
+
+	t.Run("continue_run", func(t *testing.T) {
+		resp := server.handleProtoContinueRun(&orchpb.ContinueRunRequest{
+			IssueId: "missing-issue",
+			RunId:   "run-x",
+			Branch:  "feature-branch",
+			Context: &orchpb.RequestContext{ProjectId: testProjectID},
+		})
+		if resp.Ok {
+			t.Fatalf("expected failure for missing issue, got ok response: %+v", resp)
+		}
+		if !strings.Contains(resp.Error, "issue not found: missing-issue") {
+			t.Fatalf("expected explicit 'issue not found: missing-issue', got: %q", resp.Error)
+		}
+	})
+
+	t.Run("continue_run short_id with no matching run fails fast on master", func(t *testing.T) {
+		// The short-id mode derives the issue ID from the referenced run; if the run
+		// is unknown to the master, fail fast here instead of delegating with an
+		// empty issue ID (which would mislead on the wrong host).
+		resp := server.handleProtoContinueRun(&orchpb.ContinueRunRequest{
+			ShortId: "deadbe",
+			Context: &orchpb.RequestContext{ProjectId: testProjectID},
+		})
+		if resp.Ok {
+			t.Fatalf("expected failure for unknown short id, got ok response: %+v", resp)
+		}
+		if !strings.Contains(resp.Error, `run not in master store for project "test-project": deadbe`) {
+			t.Fatalf("expected explicit master-store miss for deadbe, got: %q", resp.Error)
+		}
+	})
+}
+
+func TestRunMutationUsesMasterSnapshotAndHostAffinity(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	projectRoot := t.TempDir()
+	issuesRoot := filepath.Join(projectRoot, "issues-store")
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0o755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(issuesRoot, "issues"), 0o755); err != nil {
+		t.Fatalf("mkdir issues: %v", err)
+	}
+	configBody := "issues:\n  path: " + issuesRoot + "\n"
+	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), []byte(configBody), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	run := &model.Run{
+		IssueID:      "legacy-issue",
+		RunID:        "20260317-014743",
+		Status:       model.StatusPROpen,
+		Agent:        "custom",
+		Branch:       "issue/legacy/run",
+		WorktreePath: filepath.Join(projectRoot, "dead-worker-worktree"),
+		SessionName:  "legacy-session",
+		Multiplexer:  "tmux",
+		TargetHost:   "dead-host",
+	}
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			run.Ref().String(): run,
+		},
+		issues: map[string]*model.Issue{
+			"legacy-issue": {
+				ID:     "legacy-issue",
+				Title:  "Legacy issue",
+				Status: model.IssueStatusOpen,
+			},
+		},
+	}
+
+	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, log.New(io.Discard, "", 0))
+	registerRepoContextForTest(t, server, "project-legacy", projectRoot, st)
+
+	liveWorkerID := HostWorkerID("other-host")
+	if _, ttl := server.registerWorker(liveWorkerID, "external", "other-host", "external", []string{"continue_run", "stop_run"}); ttl <= 0 {
+		t.Fatal("expected positive heartbeat ttl for live worker")
+	}
+
+	ctx := &orchpb.RequestContext{ProjectId: "project-legacy"}
+	showResp := server.handleProtoGetRun(&orchpb.GetRunRequest{
+		IssueId: string(run.IssueID),
+		RunId:   string(run.RunID),
+		Context: ctx,
+	})
+	if !showResp.Ok {
+		t.Fatalf("precondition: show should see master run, got %q", showResp.Error)
+	}
+
+	listResp := server.handleProtoListRuns(&orchpb.ListRunsRequest{Context: ctx})
+	if !listResp.Ok || len(listResp.GetListRuns().GetRuns()) != 1 {
+		t.Fatalf("precondition: list should see master run, ok=%v error=%q runs=%d", listResp.Ok, listResp.Error, len(listResp.GetListRuns().GetRuns()))
+	}
+
+	stopResp := server.handleProtoStopRun(&orchpb.StopRunRequest{
+		IssueId: string(run.IssueID),
+		RunId:   string(run.RunID),
+		Context: ctx,
+	})
+	if !stopResp.Ok {
+		t.Fatalf("stop should mark master run canceled even without dead-host worker, got %q", stopResp.Error)
+	}
+	if run.Status != model.StatusCanceled {
+		t.Fatalf("run.Status = %q, want canceled", run.Status)
+	}
+	for _, lease := range server.listWorkerLeases(true) {
+		if lease.Effect == "stop_run" && lease.WorkerID == liveWorkerID {
+			t.Fatalf("stop_run must not route legacy dead-host run to live worker %q", liveWorkerID)
+		}
+	}
+
+	continueResp := server.handleProtoContinueRun(&orchpb.ContinueRunRequest{
+		IssueId: string(run.IssueID),
+		RunId:   string(run.RunID),
+		Context: ctx,
+	})
+	if continueResp.Ok {
+		t.Fatal("restart-from should fail while the run's recorded host has no live worker")
+	}
+	if !strings.Contains(continueResp.Error, `no active worker on host "dead-host"`) {
+		t.Fatalf("expected host-affinity error, got %q", continueResp.Error)
+	}
+	if strings.Contains(strings.ToLower(continueResp.Error), "not_found") || strings.Contains(strings.ToLower(continueResp.Error), "not found") {
+		t.Fatalf("restart-from must not surface worker-store not_found, got %q", continueResp.Error)
+	}
+	for _, lease := range server.listWorkerLeases(true) {
+		if lease.Effect == "continue_run" && lease.WorkerID == liveWorkerID {
+			t.Fatalf("continue_run must not route legacy dead-host run to live worker %q", liveWorkerID)
+		}
+	}
 }
 
 func TestBootstrapOpenCodeRunSessionFailsFastOnCreateSessionError(t *testing.T) {
@@ -5763,6 +6091,95 @@ func TestProcessContinueRunCoreValidation(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "'orch restart-from' only supports failed, canceled, or unknown runs") {
 			t.Fatalf("expected restart-from terminal-state guidance, got: %s", err.Error())
+		}
+	})
+
+	t.Run("branch path uses payload issue snapshot without reading worker store", func(t *testing.T) {
+		// A worker pinned to a different host than the master has no issue store.
+		// The master carries the resolved issue in opts.IssueSnapshot; the worker
+		// must consume it and never read its own store for the run's issue.
+		emptyStore := &mockStore{
+			runs:   make(map[string]*model.Run),
+			issues: make(map[string]*model.Issue), // intentionally empty: worker has no issue
+		}
+		opts := &ContinueRunOptions{
+			Branch:  "feature-branch",
+			IssueID: "remote-issue",
+			IssueSnapshot: &model.Issue{
+				ID:     "remote-issue",
+				Title:  "Remote",
+				Body:   "do the thing",
+				Status: model.IssueStatusOpen,
+			},
+		}
+		// projectRoot="" makes the core fail at the next gate (project root). The
+		// point is that it gets PAST the branch-path issue validation: it must NOT
+		// fail "issue not found" even though the worker store is empty.
+		_, err := server.processContinueRunCore(emptyStore, "", opts)
+		if err == nil {
+			t.Fatal("expected error at the project-root gate")
+		}
+		if strings.Contains(err.Error(), "issue not found") {
+			t.Fatalf("worker must use opts.IssueSnapshot, not read its empty store; got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "no project root available") {
+			t.Fatalf("expected to reach 'no project root available', got: %v", err)
+		}
+	})
+
+	t.Run("branch path fails fast on missing issue when no snapshot", func(t *testing.T) {
+		emptyStore := &mockStore{
+			runs:   make(map[string]*model.Run),
+			issues: make(map[string]*model.Issue),
+		}
+		opts := &ContinueRunOptions{
+			Branch:  "feature-branch",
+			IssueID: "remote-issue",
+			// No IssueSnapshot: a non-delegated direct call falls back to the local
+			// store and must fail fast (never silently swallow a missing issue).
+		}
+		_, err := server.processContinueRunCore(emptyStore, "/project", opts)
+		if err == nil {
+			t.Fatal("expected 'issue not found' error")
+		}
+		if !strings.Contains(err.Error(), "issue not found") {
+			t.Fatalf("expected 'issue not found', got: %v", err)
+		}
+	})
+
+	t.Run("restart path uses payload run snapshot without reading worker store", func(t *testing.T) {
+		emptyStore := &mockStore{
+			runs:   make(map[string]*model.Run),
+			issues: make(map[string]*model.Issue),
+		}
+		opts := &ContinueRunOptions{
+			IssueID: "legacy-issue",
+			RunID:   "legacy-run",
+			IssueSnapshot: &model.Issue{
+				ID:     "legacy-issue",
+				Title:  "Legacy",
+				Status: model.IssueStatusOpen,
+			},
+			RunSnapshot: &RunSnapshot{
+				IssueID: "legacy-issue",
+				RunID:   "legacy-run",
+				Status:  model.StatusFailed,
+				Branch:  "issue/legacy",
+			},
+		}
+
+		_, err := server.processContinueRunCore(emptyStore, "/project", opts)
+		if err == nil {
+			t.Fatal("expected error after snapshot run resolution")
+		}
+		if strings.Contains(err.Error(), "run not found") {
+			t.Fatalf("worker must use opts.RunSnapshot, not read its empty store; got: %v", err)
+		}
+		if strings.Contains(err.Error(), "issue not found") {
+			t.Fatalf("worker must use opts.IssueSnapshot, not read its empty issue store; got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "has no worktree path") {
+			t.Fatalf("expected to reach worktree-path validation, got: %v", err)
 		}
 	})
 }

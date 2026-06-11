@@ -146,15 +146,50 @@ def _normalize_codex_model(model: str) -> str:
     return model
 
 
+class ControlAgentLaunchError(Exception):
+    """Raised when the daemon refuses to launch the control agent (policy).
+
+    The daemon is the source of truth for the codex profile's allowed_targets
+    constraint; when the local host is not allowed for the resolved profile, the
+    daemon fails fast and the TUI must surface that error instead of silently
+    launching a fallback command on the wrong host.
+    """
+
+
+# Stable marker present in the daemon's codex-profile host-constraint error. Used
+# to distinguish an authoritative policy denial (must surface, never launch) from
+# a generic/transient config RPC failure (tolerated → local fallback).
+_CODEX_PROFILE_DENIAL_MARKER = "may only run on targets"
+
+
+def _is_codex_profile_denial(message: str) -> bool:
+    return _CODEX_PROFILE_DENIAL_MARKER in (message or "")
+
+
+def _codex_home_env_prefix(codex_home: str) -> str:
+    """Return a shell `export CODEX_HOME=...; ` prefix, or "" when unset.
+
+    The daemon already expands ~ in codex_home, so the value is used verbatim.
+    This mirrors the Go `orch agent` path, which injects CODEX_HOME into the
+    control-agent session env for codex auth isolation.
+    """
+    codex_home = (codex_home or "").strip()
+    if not codex_home:
+        return ""
+    return f"export CODEX_HOME={shlex.quote(codex_home)}; "
+
+
 def _build_local_control_agent_command(
     agent: str,
     model: str = "",
     model_variant: str = "",
     extra_args: list[str] | None = None,
+    codex_home: str = "",
 ) -> str:
     prompt = CONTROL_PROMPT_INSTRUCTION
     args: list[str] = []
     extras = [a for a in (extra_args or []) if a]
+    env_prefix = _codex_home_env_prefix(codex_home)
 
     if agent == "opencode":
         args = ["opencode"]
@@ -165,7 +200,7 @@ def _build_local_control_agent_command(
             args.extend(["--model", model])
         if model_variant:
             args.extend(["--model-variant", model_variant])
-        return shlex.join(args)
+        return env_prefix + shlex.join(args)
 
     if agent == "claude":
         args = ["claude"]
@@ -174,7 +209,7 @@ def _build_local_control_agent_command(
         else:
             args.append("--dangerously-skip-permissions")
         args.append(prompt)
-        return shlex.join(args)
+        return env_prefix + shlex.join(args)
 
     if agent == "codex":
         args = ["codex"]
@@ -186,7 +221,7 @@ def _build_local_control_agent_command(
         if normalized_model:
             args.extend(["--model", normalized_model])
         args.append(prompt)
-        return shlex.join(args)
+        return env_prefix + shlex.join(args)
 
     if agent == "gemini":
         args = ["gemini"]
@@ -195,9 +230,9 @@ def _build_local_control_agent_command(
         else:
             args.append("--yolo")
         args.extend(["--prompt-interactive", prompt])
-        return shlex.join(args)
+        return env_prefix + shlex.join(args)
 
-    return _build_fallback_control_agent_command(agent)
+    return env_prefix + _build_fallback_control_agent_command(agent)
 
 
 def _get_daemon_client(project_root: Path | None) -> "ProtoDaemonClient | None":
@@ -308,8 +343,15 @@ def _resolve_local_control_agent_command(
     project_str = str(project_root) if project_root else str(Path.cwd())
     config_result = daemon.get_control_agent_config(project_str)
     if isinstance(config_result, Failure):
+        failure_msg = str(config_result.failure())
+        # The daemon enforces the codex profile's allowed_targets against the
+        # local host. A policy denial (e.g. company control agent on zeus) must
+        # be surfaced and must NOT fall back to launching on the wrong host.
+        # Generic/transient RPC failures remain fallback-eligible for resilience.
+        if _is_codex_profile_denial(failure_msg):
+            raise ControlAgentLaunchError(failure_msg)
         _launcher_logger.warning(
-            f"Failed to get control agent config from daemon: {config_result.failure()}"
+            f"Failed to get control agent config from daemon: {failure_msg}"
         )
         return fallback_cmd, fallback_agent, True
 
@@ -331,11 +373,12 @@ def _resolve_local_control_agent_command(
         model=cfg.model,
         model_variant=cfg.model_variant,
         extra_args=list(cfg.extra_args or []),
+        codex_home=getattr(cfg, "codex_home", "") or "",
     )
     _launcher_logger.info(
         "Using local control launch from config: "
         f"agent={resolved_agent}, model={cfg.model}, variant={cfg.model_variant}, "
-        f"extra_args={len(cfg.extra_args or [])}"
+        f"extra_args={len(cfg.extra_args or [])}, codex_home={'set' if getattr(cfg, 'codex_home', '') else 'unset'}"
     )
     return command, resolved_agent, False
 
@@ -594,6 +637,23 @@ class TmuxLayoutLauncher:
         if remote_env is not None:
             env_export += f"export ORCH_REMOTE={shlex.quote(remote_env)}; "
 
+        # Resolve control config from daemon BEFORE creating any tmux panes, so a
+        # policy denial (codex profile allowed_targets) fails fast without leaving
+        # a half-built session. May raise ControlAgentLaunchError.
+        agent_cmd = agent
+        need_capture_session = False
+
+        daemon = _get_daemon_client(project_root)
+        agent_cmd, resolved_agent, used_fallback = _resolve_local_control_agent_command(
+            daemon=daemon,
+            project_root=project_root,
+            cwd=cwd,
+            fallback_agent=agent,
+            agent_override=agent_override,
+        )
+        if used_fallback and agent_cmd != agent:
+            need_capture_session = True
+
         subprocess.run(
             [
                 "tmux",
@@ -647,16 +707,6 @@ class TmuxLayoutLauncher:
             f'{env_export}"{python_exec}" -m orch_monitor --issues {orch_args}'.strip()
         )
 
-        # Resolve control config from daemon and build launch command locally.
-        daemon = _get_daemon_client(project_root)
-        agent_cmd, _resolved_agent, _used_fallback = _resolve_local_control_agent_command(
-            daemon=daemon,
-            project_root=project_root,
-            cwd=cwd,
-            fallback_agent=agent,
-            agent_override=agent_override,
-        )
-
         subprocess.run(
             ["tmux", "send-keys", "-t", f"{session_name}:0.0", runs_cmd, "Enter"]
         )
@@ -666,6 +716,21 @@ class TmuxLayoutLauncher:
         subprocess.run(
             ["tmux", "send-keys", "-t", f"{session_name}:0.2", agent_cmd, "Enter"]
         )
+
+        # Capture session for fallback cases
+        if need_capture_session:
+            _launcher_logger.info(f"Waiting to capture {resolved_agent} session ID...")
+            time.sleep(3)
+            if resolved_agent == "opencode":
+                session_id = query_latest_opencode_session(project_root)
+                if session_id:
+                    save_control_session(
+                        project_root, session_id, agent_type="opencode"
+                    )
+            elif resolved_agent == "claude":
+                session_id = load_control_session(project_root, agent_type="claude")
+                if session_id:
+                    _launcher_logger.info(f"Captured Claude session: {session_id}")
 
         subprocess.run(["tmux", "select-pane", "-t", f"{session_name}:0.2"])
 
@@ -1065,16 +1130,24 @@ def launch_monitor_layout(
     if show_spinner:
         _console.print(f"[dim]Starting orch-monitor in {multiplexer.value}...[/dim]")
     _launcher_logger.info("launching layout...")
-    launcher.launch_layout(
-        session_name,
-        project_root,
-        None,
-        agent,
-        cwd,
-        new_control_agent,
-        agent_override=agent_override,
-        project_scope=project_scope,
-    )
+    try:
+        launcher.launch_layout(
+            session_name,
+            project_root,
+            None,
+            agent,
+            cwd,
+            new_control_agent,
+            agent_override=agent_override,
+            project_scope=project_scope,
+        )
+    except ControlAgentLaunchError as e:
+        # Daemon refused the control-agent launch (codex profile allowed_targets
+        # constraint). Surface the fail-fast error rather than launching on a
+        # disallowed host.
+        _launcher_logger.error(f"control agent launch refused by daemon: {e}")
+        _console.print(f"[red]Error:[/red] {e}")
+        sys.exit(1)
     _launcher_logger.info("launch complete")
 
 

@@ -22,6 +22,7 @@ type runOptions struct {
 	Agent          string
 	AgentCmd       string
 	AgentProfile   string
+	CodexProfile   string
 	BaseBranch     string
 	Branch         string
 	WorktreeDir    string
@@ -68,6 +69,7 @@ Debug output can be enabled with --verbose, --log-level debug, or ORCH_DEBUG=1.`
 	cmd.Flags().StringVar(&opts.Agent, "agent", "", "Agent type (claude|codex|gemini|opencode|custom)")
 	cmd.Flags().StringVar(&opts.AgentCmd, "agent-cmd", "", "Custom agent command (when --agent=custom)")
 	cmd.Flags().StringVar(&opts.AgentProfile, "profile", "", "Agent profile (e.g., claude --profile)")
+	cmd.Flags().StringVar(&opts.CodexProfile, "codex-profile", "", "Codex execution profile from config (codex.profiles); defaults to codex.default_profile")
 	cmd.Flags().StringVar(&opts.BaseBranch, "base-branch", "", "Base branch for worktree")
 	cmd.Flags().StringVar(&opts.Branch, "branch", "", "Branch name (default: issue/<ID>/run-<RUN_ID>)")
 	cmd.Flags().BoolVar(&opts.Tmux, "tmux", true, "Run in terminal multiplexer session")
@@ -124,11 +126,12 @@ func runRun(issueID string, opts *runOptions) error {
 	applyConfigDefaults(opts, cfg, remoteMode)
 
 	resp, err := api.StartRun(ctx, &orchapi.StartRunRequest{
-		IssueID:        issueID,
-		RunID:          opts.RunID,
+		IssueID:        model.IssueID(issueID),
+		RunID:          model.RunID(opts.RunID),
 		Agent:          opts.Agent,
 		AgentCmd:       opts.AgentCmd,
 		AgentProfile:   opts.AgentProfile,
+		CodexProfile:   opts.CodexProfile,
 		Model:          opts.Model,
 		ModelVariant:   opts.ModelVariant,
 		Preset:         opts.Preset,
@@ -150,7 +153,7 @@ func runRun(issueID string, opts *runOptions) error {
 	result := &runResult{
 		OK:           true,
 		IssueID:      issueID,
-		RunID:        resp.RunID,
+		RunID:        string(resp.RunID),
 		Branch:       resp.Branch,
 		WorktreePath: resp.WorktreePath,
 		SessionName:  resp.SessionName,
@@ -179,7 +182,7 @@ func runRun(issueID string, opts *runOptions) error {
 	}
 
 	if !globalOpts.Quiet {
-		shortID := orchapi.ComputeShortID(issueID, resp.RunID)
+		shortID := orchapi.ComputeShortID(model.IssueID(issueID), resp.RunID)
 		fmt.Printf("Run started: %s#%s (%s)\n", issueID, resp.RunID, shortID)
 		fmt.Printf("  Branch:   %s\n", resp.Branch)
 		fmt.Printf("  Worktree: %s\n", resp.WorktreePath)
@@ -221,7 +224,7 @@ func renderInitialPromptTemplate(tmplStr string, issue *model.Issue) string {
 	}
 
 	result := strings.ReplaceAll(tmplStr, "{{issue}}", issueContent)
-	result = strings.ReplaceAll(result, "{{issue_id}}", issue.ID)
+	result = strings.ReplaceAll(result, "{{issue_id}}", string(issue.ID))
 	result = strings.ReplaceAll(result, "{{issue_title}}", issue.Title)
 
 	return result

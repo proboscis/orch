@@ -80,6 +80,7 @@ git -C "$PROJECT" config user.email e2e@example.com
 git -C "$PROJECT" config user.name E2E
 
 git init --bare "$ROOT/origin/example/manual-e2e-repo.git" >/dev/null
+git -C "$ROOT/origin/example/manual-e2e-repo.git" symbolic-ref HEAD refs/heads/main
 REPO_URL="file://$ROOT/origin/example/manual-e2e-repo.git"
 PROJECT_ID="example-manual-e2e-repo"
 
@@ -97,7 +98,7 @@ printf '%s\n' "$MASTER_STATUS_BEFORE"
 printf '%s\n' "$WORKER_STATUS_BEFORE"
 printf '%s' "$MASTER_STATUS_BEFORE" | grep 'Status: not running' >/dev/null
 
-"$ORCH_BIN" master start >/dev/null
+"$ORCH_BIN" master start --listen "tcp://127.0.0.1:0" >/dev/null
 sleep 1
 "$ORCH_BIN" worker start >/dev/null
 sleep 2
@@ -108,7 +109,12 @@ WORKER_STATUS_AFTER_2="$("$ORCH_BIN" worker status)"
 printf '%s\n' "$WORKER_STATUS_AFTER_2"
 WORKER_JSON="$("$ORCH_BIN" worker status --json)"
 printf '%s\n' "$WORKER_JSON"
-printf '%s' "$WORKER_JSON" | jq -e '(.workers | length) == 1 and (.workers[0].id | startswith("host-"))' >/dev/null
+printf '%s' "$WORKER_JSON" | jq -e '
+  .ok == true and
+  (.worker_id | startswith("host-")) and
+  .local.process_exists == true and
+  .master.state == "active"
+' >/dev/null
 
 echo "== repo mapping =="
 REGISTER_OUT="$("$ORCH_BIN" daemon repo register "$REPO_URL")"

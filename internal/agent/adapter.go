@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
 // InjectionMethod specifies how the prompt should be sent to the agent
@@ -59,12 +60,14 @@ type LaunchConfig struct {
 	Prompt          string // Initial prompt/instruction for the agent
 	Resume          bool   // Whether to resume an existing session
 	SessionName     string // For agents that support session naming
-	Profile         string // Profile name for agents that support it (e.g., claude --profile)
+	Profile         string // Resolved execution profile name (recorded for display; no agent CLI consumes it directly)
 	Port            int    // Port for HTTP-based agents (e.g., opencode)
 	Model           string // Model in provider/model format (e.g., anthropic/claude-opus-4-5)
 	ModelVariant    string // Model variant (e.g., "max" for max thinking)
 	ContinueSession bool
 	ExtraArgs       []string // Additional CLI arguments from config
+	CodexHome       string   // CODEX_HOME for codex auth isolation; empty = agent default (~/.codex). Leading ~ expands to $HOME.
+	ClaudeConfigDir string   // CLAUDE_CONFIG_DIR for claude auth isolation; empty = agent default (~/.claude). Leading ~ expands to $HOME.
 }
 
 // Env returns the environment variables to pass to the agent
@@ -80,7 +83,53 @@ func (c *LaunchConfig) Env() []string {
 	if home := os.Getenv("HOME"); home != "" {
 		env = append(env, fmt.Sprintf("HOME=%s", home))
 	}
+	// Inject the profile auth directories when a profile selects one. The ~
+	// expansion happens HERE, on the execution host, so master-resolved
+	// profiles stay portable across hosts with different HOMEs.
+	env = append(env, c.CodexHomeEnv()...)
+	env = append(env, c.ClaudeConfigDirEnv()...)
 	return env
+}
+
+// CodexHomeEnv returns the CODEX_HOME environment entry for the configured codex
+// auth directory, or an empty slice when none is set. A leading ~ expands to
+// $HOME. Empty injects nothing, which is safe for non-codex agents.
+func (c *LaunchConfig) CodexHomeEnv() []string {
+	if codexHome := expandHomePath(c.CodexHome); codexHome != "" {
+		return []string{fmt.Sprintf("CODEX_HOME=%s", codexHome)}
+	}
+	return nil
+}
+
+// ClaudeConfigDirEnv returns the CLAUDE_CONFIG_DIR environment entry for the
+// configured claude profile directory, or an empty slice when none is set. A
+// leading ~ expands to $HOME. Empty injects nothing, which is safe for
+// non-claude agents.
+func (c *LaunchConfig) ClaudeConfigDirEnv() []string {
+	if configDir := expandHomePath(c.ClaudeConfigDir); configDir != "" {
+		return []string{fmt.Sprintf("CLAUDE_CONFIG_DIR=%s", configDir)}
+	}
+	return nil
+}
+
+// expandHomePath expands a leading ~ in a path to $HOME.
+func expandHomePath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if path == "~" {
+		if home := os.Getenv("HOME"); home != "" {
+			return home
+		}
+		return path
+	}
+	if strings.HasPrefix(path, "~/") {
+		if home := os.Getenv("HOME"); home != "" {
+			return home + path[1:]
+		}
+	}
+	return path
 }
 
 // Adapter defines the interface for agent adapters

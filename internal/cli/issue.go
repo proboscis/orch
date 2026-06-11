@@ -125,7 +125,7 @@ func runIssueCreateWithInput(issueID string, opts *issueCreateOptions, stdin io.
 	}
 
 	issue, err := api.CreateIssue(ctx, &orchapi.CreateIssueRequest{
-		ID:         issueID,
+		ID:         model.IssueID(issueID),
 		Title:      title,
 		Body:       resolvedOpts.Body,
 		Tags:       resolvedOpts.Tags,
@@ -148,7 +148,7 @@ func runIssueCreateWithInput(issueID string, opts *issueCreateOptions, stdin io.
 			Path    string `json:"path"`
 		}{
 			OK:      true,
-			IssueID: issue.ID,
+			IssueID: string(issue.ID),
 			Path:    issue.Path,
 		}
 		enc := json.NewEncoder(os.Stdout)
@@ -234,7 +234,7 @@ func runIssueCreateLocal(issueID, title string, opts *issueCreateOptions) error 
 	}
 
 	issueToWrite := &model.Issue{
-		ID:         issueID,
+		ID:         model.IssueID(issueID),
 		Title:      title,
 		Summary:    opts.Summary,
 		Status:     model.IssueStatusOpen,
@@ -304,7 +304,7 @@ func runIssueCreateWithEditor(api orchapi.OrchAPI, issueID, title string, opts *
 	}
 
 	issueToWrite := &model.Issue{
-		ID:         issueID,
+		ID:         model.IssueID(issueID),
 		Title:      title,
 		Summary:    opts.Summary,
 		Status:     model.IssueStatusOpen,
@@ -486,7 +486,8 @@ func runIssueListViaAPI(ctx context.Context, api orchapi.OrchAPI, opts *issueLis
 
 	runsByIssue := make(map[string][]*orchapi.Run)
 	for _, run := range runsResp.Runs {
-		runsByIssue[run.IssueID] = append(runsByIssue[run.IssueID], run)
+		issueID := string(run.IssueID)
+		runsByIssue[issueID] = append(runsByIssue[issueID], run)
 	}
 
 	var issueInfos []issueInfo
@@ -499,7 +500,7 @@ func runIssueListViaAPI(ctx context.Context, api orchapi.OrchAPI, opts *issueLis
 		}
 
 		info := issueInfo{
-			ID:         issue.ID,
+			ID:         string(issue.ID),
 			Title:      issue.Title,
 			Summary:    issue.Summary,
 			Status:     string(issue.Status),
@@ -508,9 +509,9 @@ func runIssueListViaAPI(ctx context.Context, api orchapi.OrchAPI, opts *issueLis
 			ModifiedAt: issue.ModifiedAt.Format("2006-01-02T15:04:05Z07:00"),
 		}
 
-		for _, run := range runsByIssue[issue.ID] {
+		for _, run := range runsByIssue[string(issue.ID)] {
 			info.Runs = append(info.Runs, runSummary{
-				RunID:  run.RunID,
+				RunID:  string(run.RunID),
 				Status: string(run.Status),
 			})
 		}
@@ -678,7 +679,7 @@ func runIssueShow(issueID string, opts *issueShowOptions) error {
 		return err
 	}
 
-	issue, err := api.GetIssue(ctx, issueID)
+	issue, err := api.GetIssue(ctx, model.IssueID(issueID))
 	if err != nil {
 		return err
 	}
@@ -759,7 +760,7 @@ func runIssueEdit(issueID, title string) error {
 		return err
 	}
 
-	issue, err := api.GetIssue(ctx, issueID)
+	issue, err := api.GetIssue(ctx, model.IssueID(issueID))
 	if err != nil {
 		return err
 	}
@@ -860,7 +861,7 @@ func runIssueClose(issueID string, opts *issueCloseOptions) error {
 		return err
 	}
 
-	if err := api.CloseIssue(ctx, issueID); err != nil {
+	if err := api.CloseIssue(ctx, model.IssueID(issueID)); err != nil {
 		return err
 	}
 

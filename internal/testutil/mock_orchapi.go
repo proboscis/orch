@@ -5,6 +5,7 @@ package testutil
 
 import (
 	"context"
+	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/orchapi"
 	"sync"
 )
@@ -28,7 +29,7 @@ var _ orchapi.OrchAPI = &OrchAPIMock{}
 //			CleanRunWorktreeFunc: func(ctx context.Context, ref orchapi.RunRef) (*orchapi.CleanRunWorktreeResult, error) {
 //				panic("mock out the CleanRunWorktree method")
 //			},
-//			CloseIssueFunc: func(ctx context.Context, issueID string) error {
+//			CloseIssueFunc: func(ctx context.Context, issueID model.IssueID) error {
 //				panic("mock out the CloseIssue method")
 //			},
 //			ContinueRunFunc: func(ctx context.Context, req *orchapi.ContinueRunRequest) (*orchapi.ContinueRunResult, error) {
@@ -67,13 +68,13 @@ var _ orchapi.OrchAPI = &OrchAPIMock{}
 //			GetDiffStatsFunc: func(ctx context.Context, ref orchapi.RunRef) (*orchapi.DiffStats, error) {
 //				panic("mock out the GetDiffStats method")
 //			},
-//			GetIssueFunc: func(ctx context.Context, issueID string) (*orchapi.Issue, error) {
+//			GetIssueFunc: func(ctx context.Context, issueID model.IssueID) (*orchapi.Issue, error) {
 //				panic("mock out the GetIssue method")
 //			},
-//			GetLatestRunFunc: func(ctx context.Context, issueID string) (*orchapi.Run, error) {
+//			GetLatestRunFunc: func(ctx context.Context, issueID model.IssueID) (*orchapi.Run, error) {
 //				panic("mock out the GetLatestRun method")
 //			},
-//			GetRunFunc: func(ctx context.Context, issueID string, runID string) (*orchapi.Run, error) {
+//			GetRunFunc: func(ctx context.Context, issueID model.IssueID, runID model.RunID) (*orchapi.Run, error) {
 //				panic("mock out the GetRun method")
 //			},
 //			InjectInitialPromptFunc: func(ctx context.Context, ref orchapi.RunRef, prompt string) error {
@@ -100,7 +101,7 @@ var _ orchapi.OrchAPI = &OrchAPIMock{}
 //			RepairStateFunc: func(ctx context.Context, opts *orchapi.RepairOptions) (*orchapi.RepairResult, error) {
 //				panic("mock out the RepairState method")
 //			},
-//			ResolveIssueFunc: func(ctx context.Context, issueID string, force bool) error {
+//			ResolveIssueFunc: func(ctx context.Context, issueID model.IssueID, force bool) error {
 //				panic("mock out the ResolveIssue method")
 //			},
 //			ResolveRunFunc: func(ctx context.Context, ref orchapi.RunRef) (*orchapi.Run, error) {
@@ -109,7 +110,7 @@ var _ orchapi.OrchAPI = &OrchAPIMock{}
 //			SendMessageFunc: func(ctx context.Context, ref orchapi.RunRef, message string, noEnter bool) error {
 //				panic("mock out the SendMessage method")
 //			},
-//			SetIssueStatusFunc: func(ctx context.Context, issueID string, status orchapi.IssueStatus) error {
+//			SetIssueStatusFunc: func(ctx context.Context, issueID model.IssueID, status orchapi.IssueStatus) error {
 //				panic("mock out the SetIssueStatus method")
 //			},
 //			StartRunFunc: func(ctx context.Context, req *orchapi.StartRunRequest) (*orchapi.StartRunResult, error) {
@@ -121,10 +122,10 @@ var _ orchapi.OrchAPI = &OrchAPIMock{}
 //			StreamRunEventsFunc: func(ctx context.Context, filter *orchapi.RunEventFilter) (orchapi.RunEventStream, error) {
 //				panic("mock out the StreamRunEvents method")
 //			},
-//			UpdateIssueFunc: func(ctx context.Context, issueID string, req *orchapi.UpdateIssueRequest) (*orchapi.Issue, error) {
+//			UpdateIssueFunc: func(ctx context.Context, issueID model.IssueID, req *orchapi.UpdateIssueRequest) (*orchapi.Issue, error) {
 //				panic("mock out the UpdateIssue method")
 //			},
-//			ValidateIssueFilesFunc: func(ctx context.Context, issueID string) (*orchapi.ValidateIssueFilesResult, error) {
+//			ValidateIssueFilesFunc: func(ctx context.Context, issueID model.IssueID) (*orchapi.ValidateIssueFilesResult, error) {
 //				panic("mock out the ValidateIssueFiles method")
 //			},
 //			WaitForRunsFunc: func(ctx context.Context, refs []string, timeoutSeconds int) (*orchapi.WaitForRunsResult, error) {
@@ -153,7 +154,7 @@ type OrchAPIMock struct {
 	CleanRunWorktreeFunc func(ctx context.Context, ref orchapi.RunRef) (*orchapi.CleanRunWorktreeResult, error)
 
 	// CloseIssueFunc mocks the CloseIssue method.
-	CloseIssueFunc func(ctx context.Context, issueID string) error
+	CloseIssueFunc func(ctx context.Context, issueID model.IssueID) error
 
 	// ContinueRunFunc mocks the ContinueRun method.
 	ContinueRunFunc func(ctx context.Context, req *orchapi.ContinueRunRequest) (*orchapi.ContinueRunResult, error)
@@ -192,13 +193,13 @@ type OrchAPIMock struct {
 	GetDiffStatsFunc func(ctx context.Context, ref orchapi.RunRef) (*orchapi.DiffStats, error)
 
 	// GetIssueFunc mocks the GetIssue method.
-	GetIssueFunc func(ctx context.Context, issueID string) (*orchapi.Issue, error)
+	GetIssueFunc func(ctx context.Context, issueID model.IssueID) (*orchapi.Issue, error)
 
 	// GetLatestRunFunc mocks the GetLatestRun method.
-	GetLatestRunFunc func(ctx context.Context, issueID string) (*orchapi.Run, error)
+	GetLatestRunFunc func(ctx context.Context, issueID model.IssueID) (*orchapi.Run, error)
 
 	// GetRunFunc mocks the GetRun method.
-	GetRunFunc func(ctx context.Context, issueID string, runID string) (*orchapi.Run, error)
+	GetRunFunc func(ctx context.Context, issueID model.IssueID, runID model.RunID) (*orchapi.Run, error)
 
 	// InjectInitialPromptFunc mocks the InjectInitialPrompt method.
 	InjectInitialPromptFunc func(ctx context.Context, ref orchapi.RunRef, prompt string) error
@@ -225,7 +226,7 @@ type OrchAPIMock struct {
 	RepairStateFunc func(ctx context.Context, opts *orchapi.RepairOptions) (*orchapi.RepairResult, error)
 
 	// ResolveIssueFunc mocks the ResolveIssue method.
-	ResolveIssueFunc func(ctx context.Context, issueID string, force bool) error
+	ResolveIssueFunc func(ctx context.Context, issueID model.IssueID, force bool) error
 
 	// ResolveRunFunc mocks the ResolveRun method.
 	ResolveRunFunc func(ctx context.Context, ref orchapi.RunRef) (*orchapi.Run, error)
@@ -234,7 +235,7 @@ type OrchAPIMock struct {
 	SendMessageFunc func(ctx context.Context, ref orchapi.RunRef, message string, noEnter bool) error
 
 	// SetIssueStatusFunc mocks the SetIssueStatus method.
-	SetIssueStatusFunc func(ctx context.Context, issueID string, status orchapi.IssueStatus) error
+	SetIssueStatusFunc func(ctx context.Context, issueID model.IssueID, status orchapi.IssueStatus) error
 
 	// StartRunFunc mocks the StartRun method.
 	StartRunFunc func(ctx context.Context, req *orchapi.StartRunRequest) (*orchapi.StartRunResult, error)
@@ -246,10 +247,10 @@ type OrchAPIMock struct {
 	StreamRunEventsFunc func(ctx context.Context, filter *orchapi.RunEventFilter) (orchapi.RunEventStream, error)
 
 	// UpdateIssueFunc mocks the UpdateIssue method.
-	UpdateIssueFunc func(ctx context.Context, issueID string, req *orchapi.UpdateIssueRequest) (*orchapi.Issue, error)
+	UpdateIssueFunc func(ctx context.Context, issueID model.IssueID, req *orchapi.UpdateIssueRequest) (*orchapi.Issue, error)
 
 	// ValidateIssueFilesFunc mocks the ValidateIssueFiles method.
-	ValidateIssueFilesFunc func(ctx context.Context, issueID string) (*orchapi.ValidateIssueFilesResult, error)
+	ValidateIssueFilesFunc func(ctx context.Context, issueID model.IssueID) (*orchapi.ValidateIssueFilesResult, error)
 
 	// WaitForRunsFunc mocks the WaitForRuns method.
 	WaitForRunsFunc func(ctx context.Context, refs []string, timeoutSeconds int) (*orchapi.WaitForRunsResult, error)
@@ -292,7 +293,7 @@ type OrchAPIMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// IssueID is the issueID argument value.
-			IssueID string
+			IssueID model.IssueID
 		}
 		// ContinueRun holds details about calls to the ContinueRun method.
 		ContinueRun []struct {
@@ -379,23 +380,23 @@ type OrchAPIMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// IssueID is the issueID argument value.
-			IssueID string
+			IssueID model.IssueID
 		}
 		// GetLatestRun holds details about calls to the GetLatestRun method.
 		GetLatestRun []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// IssueID is the issueID argument value.
-			IssueID string
+			IssueID model.IssueID
 		}
 		// GetRun holds details about calls to the GetRun method.
 		GetRun []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// IssueID is the issueID argument value.
-			IssueID string
+			IssueID model.IssueID
 			// RunID is the runID argument value.
-			RunID string
+			RunID model.RunID
 		}
 		// InjectInitialPrompt holds details about calls to the InjectInitialPrompt method.
 		InjectInitialPrompt []struct {
@@ -458,7 +459,7 @@ type OrchAPIMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// IssueID is the issueID argument value.
-			IssueID string
+			IssueID model.IssueID
 			// Force is the force argument value.
 			Force bool
 		}
@@ -485,7 +486,7 @@ type OrchAPIMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// IssueID is the issueID argument value.
-			IssueID string
+			IssueID model.IssueID
 			// Status is the status argument value.
 			Status orchapi.IssueStatus
 		}
@@ -515,7 +516,7 @@ type OrchAPIMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// IssueID is the issueID argument value.
-			IssueID string
+			IssueID model.IssueID
 			// Req is the req argument value.
 			Req *orchapi.UpdateIssueRequest
 		}
@@ -524,7 +525,7 @@ type OrchAPIMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// IssueID is the issueID argument value.
-			IssueID string
+			IssueID model.IssueID
 		}
 		// WaitForRuns holds details about calls to the WaitForRuns method.
 		WaitForRuns []struct {
@@ -714,13 +715,13 @@ func (mock *OrchAPIMock) CleanRunWorktreeCalls() []struct {
 }
 
 // CloseIssue calls CloseIssueFunc.
-func (mock *OrchAPIMock) CloseIssue(ctx context.Context, issueID string) error {
+func (mock *OrchAPIMock) CloseIssue(ctx context.Context, issueID model.IssueID) error {
 	if mock.CloseIssueFunc == nil {
 		panic("OrchAPIMock.CloseIssueFunc: method is nil but OrchAPI.CloseIssue was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
-		IssueID string
+		IssueID model.IssueID
 	}{
 		Ctx:     ctx,
 		IssueID: issueID,
@@ -737,11 +738,11 @@ func (mock *OrchAPIMock) CloseIssue(ctx context.Context, issueID string) error {
 //	len(mockedOrchAPI.CloseIssueCalls())
 func (mock *OrchAPIMock) CloseIssueCalls() []struct {
 	Ctx     context.Context
-	IssueID string
+	IssueID model.IssueID
 } {
 	var calls []struct {
 		Ctx     context.Context
-		IssueID string
+		IssueID model.IssueID
 	}
 	mock.lockCloseIssue.RLock()
 	calls = mock.calls.CloseIssue
@@ -1174,13 +1175,13 @@ func (mock *OrchAPIMock) GetDiffStatsCalls() []struct {
 }
 
 // GetIssue calls GetIssueFunc.
-func (mock *OrchAPIMock) GetIssue(ctx context.Context, issueID string) (*orchapi.Issue, error) {
+func (mock *OrchAPIMock) GetIssue(ctx context.Context, issueID model.IssueID) (*orchapi.Issue, error) {
 	if mock.GetIssueFunc == nil {
 		panic("OrchAPIMock.GetIssueFunc: method is nil but OrchAPI.GetIssue was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
-		IssueID string
+		IssueID model.IssueID
 	}{
 		Ctx:     ctx,
 		IssueID: issueID,
@@ -1197,11 +1198,11 @@ func (mock *OrchAPIMock) GetIssue(ctx context.Context, issueID string) (*orchapi
 //	len(mockedOrchAPI.GetIssueCalls())
 func (mock *OrchAPIMock) GetIssueCalls() []struct {
 	Ctx     context.Context
-	IssueID string
+	IssueID model.IssueID
 } {
 	var calls []struct {
 		Ctx     context.Context
-		IssueID string
+		IssueID model.IssueID
 	}
 	mock.lockGetIssue.RLock()
 	calls = mock.calls.GetIssue
@@ -1210,13 +1211,13 @@ func (mock *OrchAPIMock) GetIssueCalls() []struct {
 }
 
 // GetLatestRun calls GetLatestRunFunc.
-func (mock *OrchAPIMock) GetLatestRun(ctx context.Context, issueID string) (*orchapi.Run, error) {
+func (mock *OrchAPIMock) GetLatestRun(ctx context.Context, issueID model.IssueID) (*orchapi.Run, error) {
 	if mock.GetLatestRunFunc == nil {
 		panic("OrchAPIMock.GetLatestRunFunc: method is nil but OrchAPI.GetLatestRun was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
-		IssueID string
+		IssueID model.IssueID
 	}{
 		Ctx:     ctx,
 		IssueID: issueID,
@@ -1233,11 +1234,11 @@ func (mock *OrchAPIMock) GetLatestRun(ctx context.Context, issueID string) (*orc
 //	len(mockedOrchAPI.GetLatestRunCalls())
 func (mock *OrchAPIMock) GetLatestRunCalls() []struct {
 	Ctx     context.Context
-	IssueID string
+	IssueID model.IssueID
 } {
 	var calls []struct {
 		Ctx     context.Context
-		IssueID string
+		IssueID model.IssueID
 	}
 	mock.lockGetLatestRun.RLock()
 	calls = mock.calls.GetLatestRun
@@ -1246,14 +1247,14 @@ func (mock *OrchAPIMock) GetLatestRunCalls() []struct {
 }
 
 // GetRun calls GetRunFunc.
-func (mock *OrchAPIMock) GetRun(ctx context.Context, issueID string, runID string) (*orchapi.Run, error) {
+func (mock *OrchAPIMock) GetRun(ctx context.Context, issueID model.IssueID, runID model.RunID) (*orchapi.Run, error) {
 	if mock.GetRunFunc == nil {
 		panic("OrchAPIMock.GetRunFunc: method is nil but OrchAPI.GetRun was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
-		IssueID string
-		RunID   string
+		IssueID model.IssueID
+		RunID   model.RunID
 	}{
 		Ctx:     ctx,
 		IssueID: issueID,
@@ -1271,13 +1272,13 @@ func (mock *OrchAPIMock) GetRun(ctx context.Context, issueID string, runID strin
 //	len(mockedOrchAPI.GetRunCalls())
 func (mock *OrchAPIMock) GetRunCalls() []struct {
 	Ctx     context.Context
-	IssueID string
-	RunID   string
+	IssueID model.IssueID
+	RunID   model.RunID
 } {
 	var calls []struct {
 		Ctx     context.Context
-		IssueID string
-		RunID   string
+		IssueID model.IssueID
+		RunID   model.RunID
 	}
 	mock.lockGetRun.RLock()
 	calls = mock.calls.GetRun
@@ -1574,13 +1575,13 @@ func (mock *OrchAPIMock) RepairStateCalls() []struct {
 }
 
 // ResolveIssue calls ResolveIssueFunc.
-func (mock *OrchAPIMock) ResolveIssue(ctx context.Context, issueID string, force bool) error {
+func (mock *OrchAPIMock) ResolveIssue(ctx context.Context, issueID model.IssueID, force bool) error {
 	if mock.ResolveIssueFunc == nil {
 		panic("OrchAPIMock.ResolveIssueFunc: method is nil but OrchAPI.ResolveIssue was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
-		IssueID string
+		IssueID model.IssueID
 		Force   bool
 	}{
 		Ctx:     ctx,
@@ -1599,12 +1600,12 @@ func (mock *OrchAPIMock) ResolveIssue(ctx context.Context, issueID string, force
 //	len(mockedOrchAPI.ResolveIssueCalls())
 func (mock *OrchAPIMock) ResolveIssueCalls() []struct {
 	Ctx     context.Context
-	IssueID string
+	IssueID model.IssueID
 	Force   bool
 } {
 	var calls []struct {
 		Ctx     context.Context
-		IssueID string
+		IssueID model.IssueID
 		Force   bool
 	}
 	mock.lockResolveIssue.RLock()
@@ -1694,13 +1695,13 @@ func (mock *OrchAPIMock) SendMessageCalls() []struct {
 }
 
 // SetIssueStatus calls SetIssueStatusFunc.
-func (mock *OrchAPIMock) SetIssueStatus(ctx context.Context, issueID string, status orchapi.IssueStatus) error {
+func (mock *OrchAPIMock) SetIssueStatus(ctx context.Context, issueID model.IssueID, status orchapi.IssueStatus) error {
 	if mock.SetIssueStatusFunc == nil {
 		panic("OrchAPIMock.SetIssueStatusFunc: method is nil but OrchAPI.SetIssueStatus was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
-		IssueID string
+		IssueID model.IssueID
 		Status  orchapi.IssueStatus
 	}{
 		Ctx:     ctx,
@@ -1719,12 +1720,12 @@ func (mock *OrchAPIMock) SetIssueStatus(ctx context.Context, issueID string, sta
 //	len(mockedOrchAPI.SetIssueStatusCalls())
 func (mock *OrchAPIMock) SetIssueStatusCalls() []struct {
 	Ctx     context.Context
-	IssueID string
+	IssueID model.IssueID
 	Status  orchapi.IssueStatus
 } {
 	var calls []struct {
 		Ctx     context.Context
-		IssueID string
+		IssueID model.IssueID
 		Status  orchapi.IssueStatus
 	}
 	mock.lockSetIssueStatus.RLock()
@@ -1842,13 +1843,13 @@ func (mock *OrchAPIMock) StreamRunEventsCalls() []struct {
 }
 
 // UpdateIssue calls UpdateIssueFunc.
-func (mock *OrchAPIMock) UpdateIssue(ctx context.Context, issueID string, req *orchapi.UpdateIssueRequest) (*orchapi.Issue, error) {
+func (mock *OrchAPIMock) UpdateIssue(ctx context.Context, issueID model.IssueID, req *orchapi.UpdateIssueRequest) (*orchapi.Issue, error) {
 	if mock.UpdateIssueFunc == nil {
 		panic("OrchAPIMock.UpdateIssueFunc: method is nil but OrchAPI.UpdateIssue was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
-		IssueID string
+		IssueID model.IssueID
 		Req     *orchapi.UpdateIssueRequest
 	}{
 		Ctx:     ctx,
@@ -1867,12 +1868,12 @@ func (mock *OrchAPIMock) UpdateIssue(ctx context.Context, issueID string, req *o
 //	len(mockedOrchAPI.UpdateIssueCalls())
 func (mock *OrchAPIMock) UpdateIssueCalls() []struct {
 	Ctx     context.Context
-	IssueID string
+	IssueID model.IssueID
 	Req     *orchapi.UpdateIssueRequest
 } {
 	var calls []struct {
 		Ctx     context.Context
-		IssueID string
+		IssueID model.IssueID
 		Req     *orchapi.UpdateIssueRequest
 	}
 	mock.lockUpdateIssue.RLock()
@@ -1882,13 +1883,13 @@ func (mock *OrchAPIMock) UpdateIssueCalls() []struct {
 }
 
 // ValidateIssueFiles calls ValidateIssueFilesFunc.
-func (mock *OrchAPIMock) ValidateIssueFiles(ctx context.Context, issueID string) (*orchapi.ValidateIssueFilesResult, error) {
+func (mock *OrchAPIMock) ValidateIssueFiles(ctx context.Context, issueID model.IssueID) (*orchapi.ValidateIssueFilesResult, error) {
 	if mock.ValidateIssueFilesFunc == nil {
 		panic("OrchAPIMock.ValidateIssueFilesFunc: method is nil but OrchAPI.ValidateIssueFiles was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
-		IssueID string
+		IssueID model.IssueID
 	}{
 		Ctx:     ctx,
 		IssueID: issueID,
@@ -1905,11 +1906,11 @@ func (mock *OrchAPIMock) ValidateIssueFiles(ctx context.Context, issueID string)
 //	len(mockedOrchAPI.ValidateIssueFilesCalls())
 func (mock *OrchAPIMock) ValidateIssueFilesCalls() []struct {
 	Ctx     context.Context
-	IssueID string
+	IssueID model.IssueID
 } {
 	var calls []struct {
 		Ctx     context.Context
-		IssueID string
+		IssueID model.IssueID
 	}
 	mock.lockValidateIssueFiles.RLock()
 	calls = mock.calls.ValidateIssueFiles

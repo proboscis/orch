@@ -472,6 +472,7 @@ class DaemonOrchAPI:
                 model=cfg.model or "",
                 model_variant=cfg.model_variant or "",
                 extra_args=list(cfg.extra_args or []),
+                codex_home=getattr(cfg, "codex_home", "") or "",
             )
         )
 

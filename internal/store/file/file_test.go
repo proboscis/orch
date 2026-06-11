@@ -238,6 +238,7 @@ func TestCreateRun(t *testing.T) {
 	s, _ := New(vault)
 	metadata := map[string]string{
 		"agent":          "claude",
+		"profile":        "company",
 		"continued_from": "test123#20231220-090000",
 	}
 	run, err := s.CreateRun("test123", "20231220-100000", metadata)
@@ -264,6 +265,9 @@ func TestCreateRun(t *testing.T) {
 	if loaded.Agent != metadata["agent"] {
 		t.Errorf("Agent = %v, want %v", loaded.Agent, metadata["agent"])
 	}
+	if loaded.Profile != metadata["profile"] {
+		t.Errorf("Profile = %v, want %v", loaded.Profile, metadata["profile"])
+	}
 	if loaded.ContinuedFrom != metadata["continued_from"] {
 		t.Errorf("ContinuedFrom = %v, want %v", loaded.ContinuedFrom, metadata["continued_from"])
 	}
@@ -285,6 +289,57 @@ func TestCreateRunDuplicate(t *testing.T) {
 	_, err = s.CreateRun("test123", "20231220-100000", nil)
 	if err == nil {
 		t.Error("expected error for duplicate run")
+	}
+}
+
+// TestCreateRunForExistingIssueSkipsIssueVerification proves the worker-delegation
+// path: a worker may have NO issue store (it can run on a different host than the
+// master), yet must still be able to create the run document because the master
+// (issue-store SSOT) already verified the issue. CreateRun must reject a missing
+// non-GitHub issue, while CreateRunForExistingIssue must succeed and land the run
+// document coherently at runs/<issueID>/<runID>.md even though the issue file is
+// absent.
+func TestCreateRunForExistingIssueSkipsIssueVerification(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	s, _ := New(vault)
+
+	// No issue created on this store: the worker has no issue store.
+	const issueID model.IssueID = "remote-local-issue" // non-gh id (would normally be verified)
+	const runID model.RunID = "20231220-100000"
+
+	// Verifying CreateRun must fail fast: the worker would have broken here before
+	// this fix (the old st.CreateIssue hack masked it).
+	if _, err := s.CreateRun(issueID, runID, nil); err == nil {
+		t.Fatal("expected CreateRun to fail for missing non-gh issue")
+	}
+
+	// CreateRunForExistingIssue bypasses verification and writes the run document.
+	run, err := s.CreateRunForExistingIssue(issueID, runID, map[string]string{"agent": "custom"})
+	if err != nil {
+		t.Fatalf("CreateRunForExistingIssue() error = %v", err)
+	}
+	if run.IssueID != issueID || run.RunID != runID {
+		t.Fatalf("run identity = %s#%s, want %s#%s", run.IssueID, run.RunID, issueID, runID)
+	}
+
+	// Run document must land coherently under runs/<issueID>/<runID>.md.
+	wantPath := filepath.Join(vault, "runs", string(issueID), string(runID)+".md")
+	if run.Path != wantPath {
+		t.Fatalf("run.Path = %q, want %q", run.Path, wantPath)
+	}
+	if _, err := os.Stat(run.Path); err != nil {
+		t.Fatalf("run document not created at %q: %v", run.Path, err)
+	}
+
+	// And it must be retrievable without the issue file present.
+	loaded, err := s.GetRun(run.Ref())
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if loaded.Agent != "custom" {
+		t.Fatalf("Agent = %q, want custom", loaded.Agent)
 	}
 }
 
@@ -384,6 +439,35 @@ func TestListRuns(t *testing.T) {
 	runs, _ = s.ListRuns(&store.ListRunsFilter{Limit: 1})
 	if len(runs) != 1 {
 		t.Errorf("expected 1 run with limit, got %d", len(runs))
+	}
+}
+
+// Guard: ListRuns serves runs through the persisted run index — every field a
+// client renders (here: the codex execution profile) must survive the
+// run-doc -> index entry -> model.Run round trip, or `orch ps` silently shows
+// it empty while the run document has it.
+func TestListRunsCarriesProfileThroughIndex(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	createTestIssue(t, vault, "prof-issue", "---\ntype: issue\ntitle: Test\n---\n# Test")
+
+	s, _ := New(vault)
+	if _, err := s.CreateRun("prof-issue", "20231220-100000", map[string]string{"profile": "personal"}); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	for i := 0; i < 2; i++ { // second pass serves from the cached index
+		runs, err := s.ListRuns(nil)
+		if err != nil {
+			t.Fatalf("ListRuns() pass %d error = %v", i+1, err)
+		}
+		if len(runs) != 1 {
+			t.Fatalf("ListRuns() pass %d returned %d runs, want 1", i+1, len(runs))
+		}
+		if runs[0].Profile != "personal" {
+			t.Fatalf("ListRuns() pass %d Profile = %q, want personal", i+1, runs[0].Profile)
+		}
 	}
 }
 
@@ -500,7 +584,7 @@ func TestGetRunByShortIDAmbiguous(t *testing.T) {
 	run3, _ := s.CreateRun("test456", "20231220-120000", nil)
 
 	// Find the shortest common prefix among all runs
-	ids := []string{run1.ShortID(), run2.ShortID(), run3.ShortID()}
+	ids := []string{string(run1.ShortID()), string(run2.ShortID()), string(run3.ShortID())}
 
 	// Find runs that share a common prefix (testing ambiguity)
 	// Try to find any 2-char prefix that matches multiple runs
@@ -520,7 +604,7 @@ func TestGetRunByShortIDAmbiguous(t *testing.T) {
 
 	if ambiguousPrefix != "" {
 		// Test that ambiguous prefix returns error
-		_, err := s.GetRunByShortID(ambiguousPrefix)
+		_, err := s.GetRunByShortID(model.ShortID(ambiguousPrefix))
 		if err == nil {
 			t.Error("expected error for ambiguous short ID prefix")
 		}
@@ -549,7 +633,7 @@ func TestGetRunByShortIDAmbiguousForced(t *testing.T) {
 	var runs []*model.Run
 	for i := 0; i < 20; i++ {
 		runID := fmt.Sprintf("20231220-%02d0000", i)
-		run, err := s.CreateRun("test", runID, nil)
+		run, err := s.CreateRun("test", model.RunID(runID), nil)
 		if err != nil {
 			t.Fatalf("failed to create run %d: %v", i, err)
 		}
@@ -559,7 +643,7 @@ func TestGetRunByShortIDAmbiguousForced(t *testing.T) {
 	// Find any prefix that has collisions
 	prefixCounts := make(map[string][]*model.Run)
 	for _, run := range runs {
-		prefix := run.ShortID()[:2]
+		prefix := string(run.ShortID())[:2]
 		prefixCounts[prefix] = append(prefixCounts[prefix], run)
 	}
 
@@ -576,7 +660,7 @@ func TestGetRunByShortIDAmbiguousForced(t *testing.T) {
 	}
 
 	// Test that ambiguous prefix returns error
-	_, err := s.GetRunByShortID(ambiguousPrefix)
+	_, err := s.GetRunByShortID(model.ShortID(ambiguousPrefix))
 	if err == nil {
 		t.Error("expected error for ambiguous short ID prefix")
 	}
@@ -665,15 +749,15 @@ func TestGitHubIssueIDAliasing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	run, err := s.GetLatestRun(canonicalIssueID)
+	run, err := s.GetLatestRun(model.IssueID(canonicalIssueID))
 	if err != nil {
 		t.Fatalf("GetLatestRun(%q) should find run in legacy dir %q: %v", canonicalIssueID, legacyIssueID, err)
 	}
-	if run.RunID != runID {
+	if run.RunID != model.RunID(runID) {
 		t.Errorf("expected run ID %s, got %s", runID, run.RunID)
 	}
 
-	runs, err := s.ListRuns(&store.ListRunsFilter{IssueID: canonicalIssueID})
+	runs, err := s.ListRuns(&store.ListRunsFilter{IssueID: model.IssueID(canonicalIssueID)})
 	if err != nil {
 		t.Fatalf("ListRuns(%q) error: %v", canonicalIssueID, err)
 	}
@@ -681,12 +765,12 @@ func TestGitHubIssueIDAliasing(t *testing.T) {
 		t.Errorf("expected 1 run, got %d", len(runs))
 	}
 
-	ref := &model.RunRef{IssueID: canonicalIssueID, RunID: runID}
+	ref := &model.RunRef{IssueID: model.IssueID(canonicalIssueID), RunID: model.RunID(runID)}
 	run, err = s.GetRun(ref)
 	if err != nil {
 		t.Fatalf("GetRun(%q#%s) error: %v", canonicalIssueID, runID, err)
 	}
-	if run.RunID != runID {
+	if run.RunID != model.RunID(runID) {
 		t.Errorf("expected run ID %s, got %s", runID, run.RunID)
 	}
 }
@@ -773,7 +857,7 @@ status: open
 	}
 
 	// Check tags were parsed correctly
-	issueMap := make(map[string]*model.Issue)
+	issueMap := make(map[model.IssueID]*model.Issue)
 	for _, issue := range issues {
 		issueMap[issue.ID] = issue
 	}
@@ -1440,7 +1524,7 @@ Note: This is just a note, not frontmatter.
 				warnings = append(warnings, fmt.Sprintf(format, args...))
 			})
 
-			issue, err := s.ResolveIssue(issueID)
+			issue, err := s.ResolveIssue(model.IssueID(issueID))
 			if err != nil {
 				t.Fatalf("ResolveIssue() error = %v", err)
 			}
