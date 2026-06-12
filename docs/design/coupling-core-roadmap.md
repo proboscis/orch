@@ -200,7 +200,9 @@ run-state-machine.md と同じ playbook を適用する。
 - 2026-06-12 Phase C 実装完了(PR #467): C3 = L3' 対称化(I7 解消)、C1 = initialRunCore で fold 導出(I2/I5 解消)。C2/C4 は issue 委譲済み(inv-monitor-queued-orphans / inv-fire-status-change-all)。
 - 2026-06-12 Phase D1 完了(PR #466): step_sim_test.go 観測スクリプト replay、5 シナリオで matrix と実装の一致を検証。D2(過去 issue の観測語彙カバレッジ)は未着手。
 - 2026-06-12 Phase E1+E3 完了(PR #465 / #468): docs/design/worker-lease.md(LW1-LW5、LL1-LL5 draft)+ `.semgrep/worker-lease-mutation/` ルール(lease map 変異を worker_plane.go に限定、現状違反ゼロの純粋な柵)。残: E2(LL1-LL5 の property test 化)。
-- 残作業: B1(launch ladder 統合 — whitelist 45→0、フル文脈の frontier 箱)、E2、D2、issue 4 件の消化。
+- 2026-06-12 Phase E2 完了(PR #469): LL 法テスト一式 + **LL3 実バグ修正**(acknowledgeWorkerLease が確定済み判定を無条件上書きしていた → first-verdict-wins の冪等 no-op に)。LL1/LL5 は既存テストでカバー済みと判定。
+- 2026-06-12 Phase D2 完了(PR #470): docs/design/observation-coverage.md — 過去 21 修正の転記で完全表現 61.9% + 補語彙で 100%。判定: 語彙は健全、欠落はすべて infrastructure 面(意図的スコープ境界)。O11–O14 拡張バックログを記録。
+- 残作業: **B1 のみ**(launch ladder W2–W5 統合 — whitelist 45→0。socket.go の 4 重 ladder 解体なのでフル文脈の新セッションで着手すること)+ issue 4 件の消化(inv-never-alive-local-unknown は PR #467 で解決済み、run 起動不要)。
 
 ## 推奨順序と箱
 
