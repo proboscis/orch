@@ -1,0 +1,25 @@
+rules:
+  - id: worker-lease-mutation-surface
+    pattern-either:
+      - pattern: $S.workerLeases[$K] = $V
+      - pattern: delete($S.workerLeases, $K)
+      - pattern: $S.workers[$K] = $V
+      - pattern: delete($S.workers, $K)
+    paths:
+      include:
+        - /internal/
+        - /.semgrep/worker-lease-mutation/
+      exclude:
+        - /internal/daemon/worker_plane.go
+    message: >
+      Worker and lease registry mutations are confined to
+      internal/daemon/worker_plane.go (write surface LW1-LW5 in
+      docs/design/worker-lease.md). Mutating s.workers or s.workerLeases
+      anywhere else bypasses the locking discipline and the
+      ownership/lifecycle rules of the worker-lease coupling core. Add a
+      function to worker_plane.go instead.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: invariant
+      violation: lease-mutation-outside-worker-plane
