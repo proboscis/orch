@@ -75,8 +75,8 @@ Facts the daemon can notice about a run, with their sources:
 ## 3. Current transition matrix (monitor plane)
 
 States: `queued, booting, running, waiting, rate_limited, pr_open, unknown`
-(active) and `done, failed, canceled` (terminal). The monitor only lists
-non-terminal runs **except `queued`** (see I6).
+(active) and `done, failed, canceled` (terminal). The monitor lists every
+non-terminal run, including `queued` (see I6).
 
 Per tick, observations are evaluated in this order; the first terminal
 transition ends the tick:
@@ -133,14 +133,14 @@ O8 launch progress           (launch ladder W2–W5)                 queued → 
 | I3 | `PromptStreak >= 2` required before `waiting` (debounce); reset on feedback | holds (W6 + `noteRunFeedback`) |
 | I4 | duplicate status events must not accumulate | enforced only in W1 (same-status no-op); W2–W9 rely on transition legality alone |
 | I5 | `PRRecorded` dedupes `pr` artifacts | holds across restarts since D-C1 (§7, 2026-06-12): derived from existing `pr` artifacts at registration |
-| I6 | every non-terminal run is eventually observed | **violated for `queued`**: `monitorAll` does not list `queued`, so a run orphaned before `booting` (e.g. daemon crash mid-launch) is never monitored again |
+| I6 | every non-terminal run is eventually observed | holds since `monitorAll` lists `queued` as well as the other non-terminal states, so a run orphaned before `booting` still reaches the monitor plane |
 | I7 | a gone session must eventually produce a verdict | holds since L3' (§7 D-C3, 2026-06-12): both planes conclude `unknown` after the never-alive grace |
 | I8 | status-change listeners observe every transition | violated: only the O4 agent-inference path fires `fireStatusChange` |
 
-I2, I5 (via D-C1) and I7 (via D-C3) were resolved on 2026-06-12. I4's
-broader guarantee arrives with the Phase B write-surface consolidation;
-I6 and I8 are tracked as coupling-core roadmap issues
-(`inv-monitor-queued-orphans`, `inv-fire-status-change-all`).
+I2, I5 (via D-C1), I7 (via D-C3), and I6
+(`inv-monitor-queued-orphans`) were resolved on 2026-06-12. I4's broader
+guarantee arrives with the Phase B write-surface consolidation; I8 is tracked
+as the coupling-core roadmap issue `inv-fire-status-change-all`.
 
 ## 5. `step()` v1 — scope and design decisions
 
@@ -301,6 +301,6 @@ after the change:
 |-----|-----------|
 | L3' grace (revised) | a never-alive run within `neverAliveVerdictGrace` never receives an `unknown`/`failed` verdict; after the grace, any plane concludes `unknown` on the standing evidence |
 
-I6 (queued runs are never monitored) remains a behavior fix tracked by the
-coupling-core roadmap Phase C2: `monitorAll` must include `queued` so that
-"every non-terminal run is eventually observed" holds.
+I6 is resolved by listing `queued` runs in `monitorAll`: a run orphaned before
+`booting` enters the same monitor plane and follows L3' (no verdict within
+`neverAliveVerdictGrace`; `unknown` after grace on standing dead evidence).
