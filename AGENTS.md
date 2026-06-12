@@ -62,12 +62,14 @@ verified issue. Core surfaces today:
 - `internal/model/event.go`, `internal/model/run.go` (event fold = store of
   record)
 
-**Status write surface.** Run status events are appended in exactly one
-sanctioned place: `Daemon.updateStatus`. The semgrep rule
+**Status write surface.** Run status events are constructed in exactly one
+sanctioned place: `commitRunStatus` (`internal/daemon/status_commit.go`),
+driven by its two executors — `Daemon.updateStatus` (monitor plane) and
+`SocketServer.reportLaunchProgress` (launch plane, O8). The semgrep rule
 `run-status-write-surface` enforces this; the `nosemgrep` annotations on
-existing writers are frozen legacy and may only shrink. Never add a new
-writer or a new `nosemgrep` annotation — extend `step()` with a new
-observation or effect instead.
+the remaining legacy writers (W6/W8/W9/W10/ResolveRun) are frozen and may
+only shrink. Never add a new writer or a new `nosemgrep` annotation —
+extend `step()` with a new observation or effect instead.
 
 **Tripwire checklist for reviewing delegated PRs.** Any single hit means
 stop and re-route to frontier + human:

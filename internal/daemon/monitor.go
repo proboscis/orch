@@ -204,6 +204,10 @@ func (d *Daemon) applyRunEffects(run *model.Run, st store.Store, oldCore, core r
 			if err := d.recordPRClosedEvent(run, e.PRURL, st); err != nil {
 				return core, err
 			}
+		case effectRecordError:
+			if err := st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(e.Msg)); err != nil {
+				d.logger.Printf("%s#%s: failed to record error artifact: %v", run.IssueID, run.RunID, err)
+			}
 		case effectSetStatus:
 			if err := d.updateStatus(run, e.Status, e.Reason, st, e.Output); err != nil {
 				if firstErr == nil {
@@ -493,39 +497,20 @@ func isConnectionRefusedError(err error) bool {
 	return strings.Contains(msg, "connection refused") || strings.Contains(msg, "econnrefused")
 }
 
-// updateStatus is the single executor for status transitions (effectSetStatus).
-// It re-checks the authoritative store state beneath the stepRun matrix:
-// terminal protection, transition legality, and the same-status no-op.
+// updateStatus is the monitor-plane executor for status transitions
+// (effectSetStatus): commitRunStatus owns the store-level guards and the
+// append itself; this wrapper adds the monitor-plane consequences (event-bus
+// publish, issue auto-resolve, status-change listeners).
 // reason, when non-empty, is recorded on the status event as the
 // machine-readable verdict reason (model.AttrStatusReason).
 // lastOutput rides along as the listener notification payload.
 func (d *Daemon) updateStatus(run *model.Run, status model.Status, reason string, st store.Store, lastOutput string) error {
-	ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
-
-	// Check current status - daemon cannot overwrite terminal states
-	var fromStatus model.Status
-	if currentRun, err := st.GetRun(ref); err == nil && currentRun != nil {
-		fromStatus = currentRun.Status
-		// Re-affirming the current status is a no-op: appending duplicate
-		// status events bloats the run record and churns UpdatedAt, which
-		// breaks recency display/sorting for every client.
-		if fromStatus == status {
-			return nil
-		}
-		if !model.CanTransitionStatus(currentRun.Status, status, model.EventSourceDaemon) {
-			d.debug("%s#%s: daemon cannot transition from %s to %s", run.IssueID, run.RunID, currentRun.Status, status)
-			return nil
-		}
-	}
-
-	// The sanctioned single writer for monitor-plane status transitions:
-	// every transition decided by step() is committed here, and only here
-	// (docs/design/run-state-machine.md). All other status writers are
-	// frozen legacy, enumerated by `nosemgrep: run-status-write-surface`
-	// annotations, and shrink toward zero (coupling-core roadmap Phase B).
-	event := model.NewStatusEventWithReason(status, reason) // nosemgrep: run-status-write-surface
-	if err := st.AppendEvent(ref, event); err != nil {
+	fromStatus, committed, err := commitRunStatus(st, run, status, reason, d.debug)
+	if err != nil {
 		return err
+	}
+	if !committed {
+		return nil
 	}
 
 	d.publishRunEvent(run, fromStatus, status, model.EventSourceDaemon)

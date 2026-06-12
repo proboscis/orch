@@ -6,6 +6,7 @@ package daemon
 // are documented in docs/design/run-state-machine.md §5.
 
 import (
+	"fmt"
 	"math/rand"
 	"reflect"
 	"testing"
@@ -75,6 +76,13 @@ func stepTestObservations(now time.Time) []runObservation {
 		runObservation{Kind: obsCaptured, Output: "exited", Signal: agentSignal{Exited: true}},
 		runObservation{Kind: obsCaptured, Output: "busy", Signal: agentSignal{Resolved: true, Status: model.StatusRunning}},
 		runObservation{Kind: obsCaptured, Output: "idle", Signal: agentSignal{Resolved: true, Status: model.StatusWaiting}},
+	)
+	obs = append(obs,
+		runObservation{Kind: obsLaunchProgress, Launch: launchReached(stageRunCreated)},
+		runObservation{Kind: obsLaunchProgress, Launch: launchReached(stageLaunchReady)},
+		runObservation{Kind: obsLaunchProgress, Launch: launchReached(stageWorkspaceOnly)},
+		runObservation{Kind: obsLaunchProgress, Launch: launchReached(stageAgentStarted)},
+		runObservation{Kind: obsLaunchProgress, Launch: launchFailed("session", fmt.Errorf("session create failed"))},
 	)
 	return obs
 }
@@ -150,7 +158,7 @@ func TestStepLawDeterminism(t *testing.T) {
 // repetition legitimately advances debounce/dead counters.
 func isFactObservation(obs runObservation) bool {
 	switch obs.Kind {
-	case obsPRState, obsGitEvidence, obsSessionAlive:
+	case obsPRState, obsGitEvidence, obsSessionAlive, obsLaunchProgress:
 		return true
 	default:
 		return false
@@ -569,5 +577,71 @@ func TestStepRandomWalkTerminalAbsorption(t *testing.T) {
 				terminalAt = i
 			}
 		}
+	}
+}
+
+// O8 launch progress: stages map to exactly the ladder statuses, and
+// re-affirming the current status is silent — the implicit initial `queued`
+// (the fold default) is never duplicated as an event
+// (run-state-machine.md §7 D-B1).
+func TestStepLaunchProgressStageMapping(t *testing.T) {
+	now := time.Now()
+	cases := []struct {
+		stage launchStage
+		want  model.Status
+	}{
+		{stageRunCreated, model.StatusQueued},
+		{stageLaunchReady, model.StatusBooting},
+		{stageWorkspaceOnly, model.StatusRunning},
+		{stageAgentStarted, model.StatusRunning},
+	}
+	for _, tc := range cases {
+		// waiting stands in for any non-terminal, non-target status: the
+		// reuse path relaunches waiting runs through the same ladder.
+		view := stepTestView(model.StatusWaiting, "codex", now.Add(-time.Minute))
+		obs := runObservation{Kind: obsLaunchProgress, Launch: launchReached(tc.stage)}
+		_, effects := stepRun(view, runCore{}, obs, now)
+		got, ok := statusEffectOf(effects)
+		if !ok || got != tc.want {
+			t.Fatalf("stage %d: status effect = %v (present=%t), want %s", tc.stage, got, ok, tc.want)
+		}
+
+		view.Status = tc.want
+		_, effects = stepRun(view, runCore{}, obs, now)
+		if len(effects) != 0 {
+			t.Fatalf("stage %d at %s: re-affirmation produced effects %+v", tc.stage, tc.want, effects)
+		}
+	}
+}
+
+// O8 launch failure: the error artifact precedes the failed verdict, the
+// verdict carries the machine-readable reason launch_<step>, and an unnamed
+// step falls back to launch_bootstrap.
+func TestStepLaunchFailureCarriesReason(t *testing.T) {
+	now := time.Now()
+	view := stepTestView(model.StatusBooting, "codex", now.Add(-time.Minute))
+
+	obs := runObservation{Kind: obsLaunchProgress, Launch: launchFailed("session", fmt.Errorf("tmux exploded"))}
+	_, effects := stepRun(view, runCore{}, obs, now)
+	if len(effects) != 3 {
+		t.Fatalf("expected [recordError, setStatus, log], got %+v", effects)
+	}
+	if effects[0].Kind != effectRecordError || effects[0].Msg != "tmux exploded" {
+		t.Fatalf("first effect = %+v, want error artifact carrying the bootstrap error", effects[0])
+	}
+	if effects[1].Kind != effectSetStatus || effects[1].Status != model.StatusFailed || effects[1].Reason != "launch_session" {
+		t.Fatalf("second effect = %+v, want failed with reason launch_session", effects[1])
+	}
+	if effects[2].Kind != effectLog {
+		t.Fatalf("third effect = %+v, want log", effects[2])
+	}
+
+	// No detail → no artifact; no step name → the bootstrap fallback reason.
+	_, effects = stepRun(view, runCore{}, runObservation{Kind: obsLaunchProgress, Launch: launchSignal{Failed: true}}, now)
+	if len(effects) != 2 {
+		t.Fatalf("expected [setStatus, log], got %+v", effects)
+	}
+	if effects[0].Kind != effectSetStatus || effects[0].Status != model.StatusFailed || effects[0].Reason != "launch_bootstrap" {
+		t.Fatalf("first effect = %+v, want failed with reason launch_bootstrap", effects[0])
 	}
 }

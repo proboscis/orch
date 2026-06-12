@@ -27,21 +27,27 @@ windows, inference — lives in the writers:
 
 | # | Site | Transitions written | Guards |
 |---|------|---------------------|--------|
-| W1 | `monitor.go updateStatus` (sole monitor-plane writer) | all monitor inferences | terminal check, `CanTransitionStatus`, same-status no-op, auto-resolve issue on `done`, `publishRunEvent`, `fireStatusChange` after append |
-| W2 | `socket.go handleStartRun` (legacy JSON path) | `queued` → (`failed` per setup step) → `booting` → `failed`/`running` | store-level only; append errors ignored |
-| W3 | `socket.go processStartRunCore` (worker/master core) | same ladder as W2 | same |
-| W4 | `socket.go processContinueRunCore` | same ladder | same |
-| W5 | `socket.go handleContinueRun` (legacy JSON path) | same ladder | same |
+| W1 | `monitor.go updateStatus` (monitor-plane executor over `commitRunStatus`) | all monitor inferences | `commitRunStatus` guards; auto-resolve issue on `done`, `publishRunEvent`, `fireStatusChange` after commit |
+| W2–W5 | launch ladders (`handleStartRun` / `processStartRunCore` / `processContinueRunCore` / `handleContinueRun`) | **no direct writes since D-B1 (2026-06-13)**: milestones/failures are O8 observations; `stepLaunchProgress` decides, `reportLaunchProgress` executes via `commitRunStatus` | `commitRunStatus` guards (policy-level same-status no-op on top) |
 | W6 | `socket.go markRunFeedbackSent` | `waiting/pr_open/rate_limited/unknown` → `running` | `feedbackResumesRun` predicate; fires `onRunFeedback` (PromptStreak reset), `fireStatusChange`, `PublishRunEvent` after append |
-| W7 | `socket.go failOpenCodeRunBootstrap` | → `failed` | none |
+| W7 | `socket.go failOpenCodeRunBootstrap` | **no direct writes since D-B1**: routes `launchFailed("opencode_bootstrap")` through O8 | same as W2–W5 |
 | W8 | `socket.go appendRunCanceledByUser` (`orch stop`) | → `canceled` (`source=user`) | skip if terminal |
 | W9 | `proto_handler.go syncStartRunResultToMasterStore` / `syncContinueRunResultToMasterStore` | `queued` (if record missing) + result status (default `running`) | store-level only |
 | W10 | `socket.go handleAppendEvent` (external append API; agent self-report) | arbitrary, caller-supplied source | `CanTransitionStatus` with caller source |
 
 Notes:
 
-- W2–W5 are four near-copies of the same launch ladder (legacy + core ×
-  start/continue) — the "same pattern repeated" crystallization signal.
+- Status events are **constructed in exactly one place**: `commitRunStatus`
+  (`status_commit.go`), which owns the terminal check, `CanTransitionStatus`,
+  the same-status no-op, and the append. Its two sanctioned executors are
+  W1 (`updateStatus`, monitor plane) and `reportLaunchProgress`
+  (launch plane, usable in the worker process where no `Daemon` exists).
+  The remaining annotated writers (W6, W8, W9, W10, `ResolveRun`) are the
+  frozen legacy / law-boundary set.
+- W2–W5 remain four near-copies of the same *imperative bootstrap* (legacy +
+  core × start/continue), but since D-B1 they carry no transition policy:
+  every status decision flows through `stepLaunchProgress`. Collapsing the
+  four control flows themselves is the remaining v2 work.
 - Worker-hosted runs are dual-written: the worker executes W3/W4/W6 against
   its **local** store (`worker_plane.go executeLeaseEffect`), while the master
   store receives a projection (W9) and is then maintained by the master's
@@ -69,7 +75,7 @@ Facts the daemon can notice about a run, with their sources:
 | O5 | git evidence (PR info, ahead count, uncommitted changes) | gh cache + git, gathered only after a dead verdict is near | subprocess |
 | O6 | user feedback delivered (`orch send` without `--no-enter`) | send paths | — |
 | O7 | user stop | stop path | — |
-| O8 | launch lifecycle progress (worktree created, session created, …) | launch ladders | — |
+| O8 | launch lifecycle progress (`launchSignal`: stage milestone or failed step) | launch ladders via `reportLaunchProgress` | — |
 | O9 | time | `now` vs `StartedAt` (boot grace), tick cadence, backoff timers | — |
 | O10 | agent self-report | `handleAppendEvent` | — |
 
@@ -122,7 +128,13 @@ O4 captured + agent verdict:     (mux: 優先順位順)
 O6 feedback delivered        status ∈ {waiting,pr_open,            → running (+PromptStreak reset)
                              rate_limited,unknown}
 O7 user stop                 非terminal                            → canceled (source=user)
-O8 launch progress           (launch ladder W2–W5)                 queued → booting → running / failed
+O8 launch progress           stageRunCreated                       → queued
+   (W2–W5/W7 →               stageLaunchReady                      → booting
+    stepLaunchProgress)      stageWorkspaceOnly / stageAgentStarted → running
+                             bootstrap step failed                 → failed
+                               (reason launch_<step>; error artifact first)
+   terminal view は L4 で吸収(store guard が拒否していた旧挙動と同値)。
+   同値 status への再到達は無発行(L1a — 暗黙の初期 queued は二重化しない)。
 ```
 
 ## 4. Implicit invariants of in-memory monitor state (`RunState`)
@@ -212,6 +224,7 @@ distinction the law tests themselves forced:
 | L5 verdict requires evidence | `obsSessionGone` never emits a status directly; it requests git evidence exactly when the dead-check threshold is reached |
 | L6 debounce | `waiting` via prompt requires ≥ `waitingPromptStreakThreshold` consecutive prompt observations; any busy capture resets the streak |
 | L8 listener commit point | every committed W1 status transition fires exactly one status-change listener event after `AppendEvent` succeeds; duplicate-status no-ops and failed appends fire none |
+| L9 launch failure reason | a launch-failure verdict (O8) always carries the machine-readable reason `launch_<step>`, preceded by an error artifact recording the bootstrap error; launch milestones on a terminal or already-reached status emit nothing |
 
 ### Status reasons (verdict payload)
 
@@ -225,6 +238,7 @@ travels as a machine-readable `reason` attribute on the status event
 | `never_alive` | L3' grace expiry, either plane | infrastructure problem (binary/auth/mux env); fix the host before retrying |
 | `session_lost` | opencode session not found after dead checks | backend lost observability; backend-specific triage |
 | `agent_exited` | capture verdict: process exited, shell prompt showing | check transcript/worktree; retry plausible |
+| `launch_<step>` | O8 bootstrap failure (`failed` verdict); `<step>` ∈ worktree, prompt, agent_command, multiplexer, opencode_server, session, opencode_bootstrap, bootstrap | the named bootstrap step broke; the paired error artifact carries the detail |
 
 `orch ps` renders the reason inline (`unknown(never_alive)`); the event log
 carries it as `reason=…`; `StatusChangeEvent.Reason` exposes it to listeners.
@@ -244,8 +258,8 @@ rationale. *Undecided* is no longer a legal state for a status writer.
 
 | # | Site | Disposition | Rationale |
 |---|------|-------------|-----------|
-| W2–W5 | launch ladders (socket.go ×4) | **integrate — v2, first** | Four near-copies of one ladder; interleaves with monitor-plane transitions (booting/running races). Becomes launch-progress observations (O8) decided in `step()`, with the imperative bootstrap steps as effects. |
-| W7 | `failOpenCodeRunBootstrap` → failed | **integrate — with W2–W5** | The failure arm of the same ladder. |
+| W2–W5 | launch ladders (socket.go ×4) | **integrated — D-B1 (2026-06-13)** | Transition policy moved to `stepLaunchProgress` (O8); ladders report milestones/failures via `reportLaunchProgress`, commits go through `commitRunStatus`. The four imperative control flows remain to be collapsed in v2. |
+| W7 | `failOpenCodeRunBootstrap` → failed | **integrated — D-B1 (2026-06-13)** | Routes `launchFailed("opencode_bootstrap")` through the same O8 path. |
 | W6 | feedback → running | **integrate — v2** | Already mutates `runCore` (PromptStreak reset, O6). Core state must change only through `step()`. Until then, the legacy writer emits `fireStatusChange` after its append to preserve listener coverage. |
 | W8 | `appendRunCanceledByUser` (`orch stop`) | **integrate — v2, after the ladder** | O7 (user stop) exists in the observation taxonomy; terminality (L4) should observe it. Single guarded site until then. |
 | W9 | master projections (proto_handler.go) | **quarantine — law boundary** | Replicates transitions already decided on the worker plane; carries no local policy. Guards: `CanTransitionStatus` + fail-fast appends (Phase A2). Law: a projection is status-preserving — it must never add inference in flight. |
@@ -325,3 +339,46 @@ W6 feedback resume is still a legacy writer until O6 enters `step()` v2, so
 it bridges into the same listener fanout immediately after its append. This
 keeps `orch send` resume notifications consistent with W1 without changing
 the transition policy matrix.
+
+### D-B1 — launch ladders integrated as O8 observations (implemented 2026-06-13)
+
+The four launch ladders (W2–W5) and their failure arm (W7) no longer write
+status events. Each milestone or failure is reported as an O8 observation
+(`launchSignal`) to `reportLaunchProgress`, which feeds it through the pure
+policy `stepLaunchProgress` and executes the effects. The imperative
+bootstrap (worktree, prompt file, multiplexer, server, session) stays where
+it was — only the transition *decisions* moved, exactly the
+mechanism/policy split of D2 in §5.
+
+Decisions taken:
+
+- **Single constructor.** `Daemon.updateStatus` no longer owns the append:
+  its guard/append core was extracted to `commitRunStatus`
+  (`status_commit.go`), the one place that constructs status events. The
+  launch executor calls the same function, so the worker process (which has
+  a `SocketServer` but no `Daemon`) commits through the identical guards.
+- **Stage vocabulary, not statuses, in the observation.** The ladders report
+  `stageRunCreated / stageLaunchReady / stageWorkspaceOnly /
+  stageAgentStarted` or `launchFailed(step, err)`; the stage→status mapping
+  is policy. `stageWorkspaceOnly` is the `--tmux=false` arm: workspace
+  prepared, no agent launched, run handed to the monitor plane as `running`.
+- **Terminal absorption replaces guard reliance.** A launch observation on a
+  terminal view is absorbed by the stepRun L4 guard. Previously those
+  appends were silently *rejected* by the store guard (daemon source on a
+  terminal run); the fold outcome is identical, but the no-write is now a
+  policy decision instead of a discarded error. All ladders operate on
+  freshly created runs (continue creates a new run linked by
+  `continued_from`), so this arm only fires when a user cancels mid-boot.
+- **The implicit initial `queued` is no longer materialized.** A fresh run's
+  fold already yields `queued` (the `GetStatus` default); the policy-level
+  same-status no-op therefore skips the event the ladders used to append
+  right after `CreateRun`. One less redundant event, no fold change.
+- **Failure verdicts gained machine-readable reasons** (`launch_<step>`,
+  L9) and keep the error-artifact-then-verdict order of the old ladders.
+- **Listener scope unchanged.** `reportLaunchProgress` does not fire
+  `fireStatusChange` / `publishRunEvent`: launch transitions were never
+  listener-visible, and widening I8's scope is a separate decision from
+  removing the write surface. The asymmetry is recorded in §1 notes.
+
+Whitelist meter: 47 → 10 annotations (socket.go 40 → 3; the remaining three
+are W6, W8 and `appendRunResolvedByUser`, all with §6 dispositions).

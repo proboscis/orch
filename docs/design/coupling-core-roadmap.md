@@ -71,13 +71,16 @@ run-state-machine.md が「v2 候補」と明記した W2–W10 の統合。
 A1 の whitelist がフェーズの進捗メーター(縮んで空になったら完了)。
 
 ### B1. launch ladder W2–W5 → step 統合【frontier】
-- `socket.go` / `proto_handler.go` の起動段階遷移
-  (queued → booting → running/failed)を launch-progress 観測(O8)として
-  step に流す。imperative bootstrap は効果(effect)として残し、
-  遷移の決定だけを step に移す。
-- 対象: socket.go:1896,2970,3459,3474,3487,3516,3564,3593,4321,4340 /
-  proto_handler.go:1513,1564,1606,1657
-- exit: whitelist から daemon 内の該当行が消える。
+- 実装済み(2026-06-13, run-state-machine.md §7 D-B1): W2–W5/W7 の全 37
+  append サイトを O8 観測(`launchSignal`)化。遷移決定は純粋な
+  `stepLaunchProgress`、実行は `reportLaunchProgress`(worker プロセスでも
+  動く launch 面実行器)。updateStatus の guard/append 核は
+  `commitRunStatus`(status_commit.go)へ抽出され、status イベント構築点は
+  文字通り 1 箇所になった。失敗 verdict は `launch_<step>` reason を獲得
+  (L9)。whitelist 47 → 10。
+- proto_handler.go の 4 サイトは §6 の W9 disposition(quarantine — law
+  boundary)に従い対象外(本節の旧記述は disposition 決定前のもの)。
+- 残 v2: 4 重 imperative bootstrap の制御フロー自体の統合。
 
 ### B2. W6 feedback / W8 stop / W9 master projection / W10 external append【frontier 判断 → codex 実装可】
 - 各サイトを「step の観測に統合する」か「明示隔離(理由を
@@ -190,12 +193,12 @@ run-state-machine.md と同じ playbook を適用する。
 
 | # | core | 4層の状態 | 守り | 閉鎖フェーズ |
 |---|------|----------|------|------------|
-| 1 | run status 遷移 | ADR✓ law✓(tested) runtime△ **static✓ (A1, 2026-06-12)** | `run-status-write-surface` ルール + 凍結 whitelist | B で whitelist→0 |
+| 1 | run status 遷移 | ADR✓ law✓(tested) runtime△ **static✓ (A1, 2026-06-12)** | `run-status-write-surface` ルール + 凍結 whitelist | **B1 済(47→10, 2026-06-13)**; 残は v2(W6/W8)+ 法境界(W9/W10) |
 | 2 | RunState vs event log(導出状態) | 決定済み **D-C1**(run-state-machine.md §7): 導出可能フィールドは fold、収束カウンタは ephemeral-by-law (L7) | なし(実装待ち) | C1 実装 |
 | 3 | worker lease 所有権/ライフサイクル | 調査完了(E1 doc)、law 候補 5 件ドラフト | なし | E2/E3 |
 | 4 | identity(typed IDs) | 型✓ + lint✓ | `.semgrep/typed-id-rules` | 完了 |
 | 5 | client/daemon 境界(読み取り) | semgrep ~60 ルール✓ | `make lint` + CI | 完了 |
-| 6 | cancellation/stop 意味論(W7/W8, PR close terminal) | **disposition 決定済み**(run-state-machine.md §6): W7=ladder と統合、W8=v2 統合 | terminal guard + A1 凍結 | B1 後 |
+| 6 | cancellation/stop 意味論(W7/W8, PR close terminal) | **disposition 決定済み**(run-state-machine.md §6): W7=ladder と統合、W8=v2 統合 | terminal guard + A1 凍結 | W7 統合済(D-B1); W8 は v2 |
 | 7 | エラー伝播 × append(fail-fast) | **修正済み (A2, 2026-06-12)** | `no-ignored-status-append` ルール | 完了 |
 
 進捗ログ:
@@ -207,7 +210,9 @@ run-state-machine.md と同じ playbook を適用する。
 - 2026-06-12 Phase E1+E3 完了(PR #465 / #468): docs/design/worker-lease.md(LW1-LW5、LL1-LL5 draft)+ `.semgrep/worker-lease-mutation/` ルール(lease map 変異を worker_plane.go に限定、現状違反ゼロの純粋な柵)。残: E2(LL1-LL5 の property test 化)。
 - 2026-06-12 Phase E2 完了(PR #469): LL 法テスト一式 + **LL3 実バグ修正**(acknowledgeWorkerLease が確定済み判定を無条件上書きしていた → first-verdict-wins の冪等 no-op に)。LL1/LL5 は既存テストでカバー済みと判定。
 - 2026-06-12 Phase D2 完了(PR #470): docs/design/observation-coverage.md — 過去 21 修正の転記で完全表現 61.9% + 補語彙で 100%。判定: 語彙は健全、欠落はすべて infrastructure 面(意図的スコープ境界)。O11–O14 拡張バックログを記録。
-- 残作業: **B1 のみ**(launch ladder W2–W5 統合 — whitelist 45→0。socket.go の 4 重 ladder 解体なのでフル文脈の新セッションで着手すること)+ issue 4 件の消化(inv-never-alive-local-unknown は PR #467 で解決済み、run 起動不要)。
+- 2026-06-12 委譲 3 issue 完遂: inv-resolve-run-verb(PR #473)/ inv-monitor-queued-orphans(PR #471, I6 解消)/ inv-fire-status-change-all(PR #472, I8 解消 + L8 制定)。全 merge・issue resolved。
+- 2026-06-13 **Phase B1 完了**: W2–W5/W7 の 37 サイトを O8 観測化(stepLaunchProgress + reportLaunchProgress)、`commitRunStatus` 抽出で status イベント構築点が正確に 1 箇所に。launch 失敗 verdict に `launch_<step>` reason(L9 制定)。whitelist 47 → 10(残 = W6/W8/ResolveRun/W9×4/W10 repair — 全て §6 disposition 済み)。run-state-machine.md §1/§2/§3/§5/§6/§7 D-B1 同梱。
+- 残作業: v2(4 重 bootstrap 制御フローの統合、W6/W8 の step 統合)。whitelist のさらなる縮小はそこで。
 
 ## 推奨順序と箱
 

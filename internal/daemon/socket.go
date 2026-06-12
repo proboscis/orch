@@ -1891,21 +1891,49 @@ func (s *SocketServer) getOpenCodeServerPort(projectRoot string) int {
 	return 0
 }
 
+// reportLaunchProgress feeds one launch-ladder observation (O8) through the
+// pure transition policy (stepLaunchProgress) and executes its effects
+// against st. It is the launch-plane executor — the counterpart of
+// Daemon.applyRunEffects — shared by the master socket handlers and the
+// worker plane, which runs without a Daemon. Commit failures are logged,
+// never fatal to the bootstrap: the monitor plane re-converges the status
+// fold on its next observation (run-state-machine.md L1b).
+func (s *SocketServer) reportLaunchProgress(st store.Store, run *model.Run, sig launchSignal) {
+	if st == nil || run == nil {
+		return
+	}
+	// Policy reads the store-derived view, not the caller's in-hand run,
+	// which goes stale between milestones. commitRunStatus re-checks the
+	// store again beneath the policy as defense in depth.
+	view := runViewOf(run)
+	if current, err := st.GetRun(run.Ref()); err == nil && current != nil {
+		view = runViewOf(current)
+	}
+	_, effects := stepRun(view, runCore{}, runObservation{Kind: obsLaunchProgress, Launch: sig}, time.Now())
+	for _, e := range effects {
+		switch e.Kind {
+		case effectRecordError:
+			if err := st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(e.Msg)); err != nil {
+				s.logger.Printf("%s#%s: failed to record error artifact: %v", run.IssueID, run.RunID, err)
+			}
+		case effectSetStatus:
+			if _, _, err := commitRunStatus(st, run, e.Status, e.Reason, nil); err != nil {
+				s.logger.Printf("%s#%s: failed to record %s status: %v", run.IssueID, run.RunID, e.Status, err)
+			}
+		case effectLog:
+			s.logger.Printf("%s", e.Msg)
+		}
+	}
+}
+
 func (s *SocketServer) failOpenCodeRunBootstrap(st store.Store, run *model.Run, err error) error {
 	if err == nil {
 		return nil
 	}
-	msg := err.Error()
-	s.logger.Printf(msg)
 	if st != nil && run != nil {
-		// Error-recording path: the original bootstrap error must be returned,
-		// so append failures are surfaced in the log instead of swallowed.
-		if appendErr := st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(msg)); appendErr != nil {
-			s.logger.Printf("%s#%s: failed to record error artifact: %v", run.IssueID, run.RunID, appendErr)
-		}
-		if appendErr := st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed)); appendErr != nil { // nosemgrep: run-status-write-surface
-			s.logger.Printf("%s#%s: failed to record failed status: %v", run.IssueID, run.RunID, appendErr)
-		}
+		s.reportLaunchProgress(st, run, launchFailed("opencode_bootstrap", err))
+	} else {
+		s.logger.Printf(err.Error())
 	}
 	return err
 }
@@ -3478,7 +3506,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		return
 	}
 
-	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusQueued)) // nosemgrep: run-status-write-surface
+	s.reportLaunchProgress(st, run, launchReached(stageRunCreated))
 
 	baseBranch := resolveBaseBranch(req.BaseBranch, issue, cfg)
 
@@ -3492,8 +3520,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		Branch:      branch,
 	})
 	if err != nil {
-		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
-		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed)) // nosemgrep: run-status-write-surface
+		s.reportLaunchProgress(st, run, launchFailed("worktree", err))
 		encoder.Encode(StartRunResponse{OK: false, Error: "failed to create worktree: " + err.Error()})
 		return
 	}
@@ -3505,8 +3532,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 	agentPrompt := s.buildRunPrompt(issue, st.RootPath(), req.NoPR, req.PromptTemplate, prTargetBranch)
 	promptPath := filepath.Join(worktreeResult.WorktreePath, "ORCH_PROMPT.md")
 	if err := os.WriteFile(promptPath, []byte(agentPrompt), 0644); err != nil {
-		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
-		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed)) // nosemgrep: run-status-write-surface
+		s.reportLaunchProgress(st, run, launchFailed("prompt", err))
 		encoder.Encode(StartRunResponse{OK: false, Error: "failed to write prompt file: " + err.Error()})
 		return
 	}
@@ -3534,13 +3560,12 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)
 	if err != nil {
-		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
-		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed)) // nosemgrep: run-status-write-surface
+		s.reportLaunchProgress(st, run, launchFailed("agent_command", err))
 		encoder.Encode(StartRunResponse{OK: false, Error: "failed to build agent command: " + err.Error()})
 		return
 	}
 
-	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusBooting)) // nosemgrep: run-status-write-surface
+	s.reportLaunchProgress(st, run, launchReached(stageLaunchReady))
 
 	muxType, _ := multiplexer.ParseType(req.Multiplexer)
 
@@ -3552,8 +3577,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 	}
 
 	if mux == nil {
-		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent("no multiplexer available"))
-		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed)) // nosemgrep: run-status-write-surface
+		s.reportLaunchProgress(st, run, launchFailed("multiplexer", fmt.Errorf("no multiplexer available")))
 		encoder.Encode(StartRunResponse{OK: false, Error: "no terminal multiplexer available"})
 		return
 	}
@@ -3562,8 +3586,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 	if adapter.PromptInjection() == agent.InjectionHTTP {
 		resp, err := s.ensureOpenCodeServerRunning(worktreeResult.WorktreePath)
 		if err != nil {
-			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
-			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed)) // nosemgrep: run-status-write-surface
+			s.reportLaunchProgress(st, run, launchFailed("opencode_server", err))
 			encoder.Encode(StartRunResponse{OK: false, Error: "failed to start opencode server: " + err.Error()})
 			return
 		}
@@ -3582,8 +3605,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 			Env:         env,
 		})
 		if err != nil {
-			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
-			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed)) // nosemgrep: run-status-write-surface
+			s.reportLaunchProgress(st, run, launchFailed("session", err))
 			encoder.Encode(StartRunResponse{OK: false, Error: "failed to create session: " + err.Error()})
 			return
 		}
@@ -3612,7 +3634,7 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		}
 	}
 
-	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusRunning)) // nosemgrep: run-status-write-surface
+	s.reportLaunchProgress(st, run, launchReached(stageAgentStarted))
 
 	s.logger.Printf("started run: %s#%s (agent=%s, worktree=%s)", req.IssueID, runID, agentName, worktreeResult.WorktreePath)
 
@@ -3828,7 +3850,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		return nil, fmt.Errorf("failed to create run: %w", err)
 	}
 
-	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusQueued)) // nosemgrep: run-status-write-surface
+	s.reportLaunchProgress(st, run, launchReached(stageRunCreated))
 
 	baseBranch := resolveBaseBranch(opts.BaseBranch, issue, cfg)
 
@@ -3842,8 +3864,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		Branch:      branch,
 	}, runExecutor)
 	if err != nil {
-		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
-		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed)) // nosemgrep: run-status-write-surface
+		s.reportLaunchProgress(st, run, launchFailed("worktree", err))
 		return nil, fmt.Errorf("failed to create worktree: %w", err)
 	}
 
@@ -3864,8 +3885,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	agentPrompt := s.buildRunPrompt(issue, st.RootPath(), opts.NoPR, opts.PromptTemplate, prTargetBranch)
 	promptPath := filepath.Join(worktreeResult.WorktreePath, "ORCH_PROMPT.md")
 	if err := writeFileWithExecutor(runExecutor, promptPath, []byte(agentPrompt), 0644); err != nil {
-		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
-		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed)) // nosemgrep: run-status-write-surface
+		s.reportLaunchProgress(st, run, launchFailed("prompt", err))
 		return nil, fmt.Errorf("failed to write prompt file: %w", err)
 	}
 
@@ -3896,12 +3916,11 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)
 	if err != nil {
-		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
-		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed)) // nosemgrep: run-status-write-surface
+		s.reportLaunchProgress(st, run, launchFailed("agent_command", err))
 		return nil, fmt.Errorf("failed to build agent command: %w", err)
 	}
 
-	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusBooting)) // nosemgrep: run-status-write-surface
+	s.reportLaunchProgress(st, run, launchReached(stageLaunchReady))
 
 	if opts.NoSession {
 		// --tmux=false: the workspace (run record, worktree, branch, prompt
@@ -3909,7 +3928,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		// agent is launched. SessionName stays empty so no session artifact
 		// is recorded anywhere and attach/send fail with a clear
 		// session-not-found error instead of pointing at a ghost session.
-		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusRunning)) // nosemgrep: run-status-write-surface
+		s.reportLaunchProgress(st, run, launchReached(stageWorkspaceOnly))
 		s.logger.Printf("started run without session: %s#%s (agent=%s, worktree=%s)", opts.IssueID, runID, agentName, worktreeResult.WorktreePath)
 		return &StartRunResult{
 			RunID:        runID,
@@ -3948,8 +3967,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	}
 
 	if mux == nil {
-		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent("no multiplexer available"))
-		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed)) // nosemgrep: run-status-write-surface
+		s.reportLaunchProgress(st, run, launchFailed("multiplexer", fmt.Errorf("no multiplexer available")))
 		return nil, fmt.Errorf("no terminal multiplexer available")
 	}
 
@@ -3957,8 +3975,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	if adapter.PromptInjection() == agent.InjectionHTTP {
 		resp, err := s.ensureOpenCodeServerRunning(worktreeResult.WorktreePath)
 		if err != nil {
-			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
-			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed)) // nosemgrep: run-status-write-surface
+			s.reportLaunchProgress(st, run, launchFailed("opencode_server", err))
 			return nil, fmt.Errorf("failed to start opencode server: %w", err)
 		}
 		serverAlreadyRunning = true
@@ -3976,8 +3993,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 			Env:         env,
 		})
 		if err != nil {
-			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
-			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed)) // nosemgrep: run-status-write-surface
+			s.reportLaunchProgress(st, run, launchFailed("session", err))
 			return nil, fmt.Errorf("failed to create session: %w", err)
 		}
 
@@ -4005,7 +4021,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		}
 	}
 
-	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusRunning)) // nosemgrep: run-status-write-surface
+	s.reportLaunchProgress(st, run, launchReached(stageAgentStarted))
 
 	s.logger.Printf("started run: %s#%s (agent=%s, worktree=%s)", opts.IssueID, runID, agentName, worktreeResult.WorktreePath)
 
@@ -4242,7 +4258,7 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		return nil, fmt.Errorf("failed to create run: %w", err)
 	}
 
-	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusQueued)) // nosemgrep: run-status-write-surface
+	s.reportLaunchProgress(st, run, launchReached(stageRunCreated))
 	st.AppendEvent(run.Ref(), model.NewArtifactEvent("worktree", map[string]string{"path": worktreePath}))
 	st.AppendEvent(run.Ref(), model.NewArtifactEvent("branch", map[string]string{"name": branch}))
 	if targetName := strings.TrimSpace(opts.Target); targetName != "" {
@@ -4260,8 +4276,7 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 	if _, err := os.Stat(promptPath); os.IsNotExist(err) {
 		agentPrompt := s.buildRunPrompt(issue, st.RootPath(), opts.NoPR, opts.PromptTemplate, opts.PRTargetBranch)
 		if err := os.WriteFile(promptPath, []byte(agentPrompt), 0644); err != nil {
-			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
-			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed)) // nosemgrep: run-status-write-surface
+			s.reportLaunchProgress(st, run, launchFailed("prompt", err))
 			return nil, fmt.Errorf("failed to write prompt file: %w", err)
 		}
 	}
@@ -4293,12 +4308,11 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)
 	if err != nil {
-		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
-		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed)) // nosemgrep: run-status-write-surface
+		s.reportLaunchProgress(st, run, launchFailed("agent_command", err))
 		return nil, fmt.Errorf("failed to build agent command: %w", err)
 	}
 
-	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusBooting)) // nosemgrep: run-status-write-surface
+	s.reportLaunchProgress(st, run, launchReached(stageLaunchReady))
 
 	if opts.NoSession {
 		// --tmux=false: the workspace (run record, worktree, branch, prompt
@@ -4306,7 +4320,7 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		// agent is launched. SessionName stays empty so no session artifact
 		// is recorded anywhere and attach/send fail with a clear
 		// session-not-found error instead of pointing at a ghost session.
-		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusRunning)) // nosemgrep: run-status-write-surface
+		s.reportLaunchProgress(st, run, launchReached(stageWorkspaceOnly))
 		s.logger.Printf("continued run without session: %s#%s from %s (agent=%s, worktree=%s)", issueID, runID, continuedFrom, agentName, worktreePath)
 		return &ContinueRunResult{
 			RunID:         runID,
@@ -4330,8 +4344,7 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 	}
 
 	if mux == nil {
-		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent("no multiplexer available"))
-		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed)) // nosemgrep: run-status-write-surface
+		s.reportLaunchProgress(st, run, launchFailed("multiplexer", fmt.Errorf("no multiplexer available")))
 		return nil, fmt.Errorf("no terminal multiplexer available")
 	}
 
@@ -4339,8 +4352,7 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 	if adapter.PromptInjection() == agent.InjectionHTTP {
 		resp, err := s.ensureOpenCodeServerRunning(worktreePath)
 		if err != nil {
-			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
-			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed)) // nosemgrep: run-status-write-surface
+			s.reportLaunchProgress(st, run, launchFailed("opencode_server", err))
 			return nil, fmt.Errorf("failed to start opencode server: %w", err)
 		}
 		serverAlreadyRunning = true
@@ -4358,8 +4370,7 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 			Env:         env,
 		})
 		if err != nil {
-			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
-			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed)) // nosemgrep: run-status-write-surface
+			s.reportLaunchProgress(st, run, launchFailed("session", err))
 			return nil, fmt.Errorf("failed to create session: %w", err)
 		}
 
@@ -4389,7 +4400,7 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		}
 	}
 
-	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusRunning)) // nosemgrep: run-status-write-surface
+	s.reportLaunchProgress(st, run, launchReached(stageAgentStarted))
 
 	s.logger.Printf("continued run: %s#%s from %s (agent=%s, worktree=%s)", issueID, runID, continuedFrom, agentName, worktreePath)
 
@@ -4633,7 +4644,7 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 		return
 	}
 
-	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusQueued)) // nosemgrep: run-status-write-surface
+	s.reportLaunchProgress(st, run, launchReached(stageRunCreated))
 	st.AppendEvent(run.Ref(), model.NewArtifactEvent("worktree", map[string]string{"path": worktreePath}))
 	st.AppendEvent(run.Ref(), model.NewArtifactEvent("branch", map[string]string{"name": branch}))
 
@@ -4641,8 +4652,7 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 	if _, err := os.Stat(promptPath); os.IsNotExist(err) {
 		agentPrompt := s.buildRunPrompt(issue, st.RootPath(), req.NoPR, req.PromptTemplate, req.PRTargetBranch)
 		if err := os.WriteFile(promptPath, []byte(agentPrompt), 0644); err != nil {
-			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
-			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed)) // nosemgrep: run-status-write-surface
+			s.reportLaunchProgress(st, run, launchFailed("prompt", err))
 			encoder.Encode(ContinueRunResponse{OK: false, Error: "failed to write prompt file: " + err.Error()})
 			return
 		}
@@ -4671,13 +4681,12 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)
 	if err != nil {
-		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
-		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed)) // nosemgrep: run-status-write-surface
+		s.reportLaunchProgress(st, run, launchFailed("agent_command", err))
 		encoder.Encode(ContinueRunResponse{OK: false, Error: "failed to build agent command: " + err.Error()})
 		return
 	}
 
-	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusBooting)) // nosemgrep: run-status-write-surface
+	s.reportLaunchProgress(st, run, launchReached(stageLaunchReady))
 
 	muxType, _ := multiplexer.ParseType(req.Multiplexer)
 
@@ -4689,8 +4698,7 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 	}
 
 	if mux == nil {
-		st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent("no multiplexer available"))
-		st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed)) // nosemgrep: run-status-write-surface
+		s.reportLaunchProgress(st, run, launchFailed("multiplexer", fmt.Errorf("no multiplexer available")))
 		encoder.Encode(ContinueRunResponse{OK: false, Error: "no terminal multiplexer available"})
 		return
 	}
@@ -4699,8 +4707,7 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 	if adapter.PromptInjection() == agent.InjectionHTTP {
 		resp, err := s.ensureOpenCodeServerRunning(worktreePath)
 		if err != nil {
-			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
-			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed)) // nosemgrep: run-status-write-surface
+			s.reportLaunchProgress(st, run, launchFailed("opencode_server", err))
 			encoder.Encode(ContinueRunResponse{OK: false, Error: "failed to start opencode server: " + err.Error()})
 			return
 		}
@@ -4719,8 +4726,7 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 			Env:         env,
 		})
 		if err != nil {
-			st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(err.Error()))
-			st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusFailed)) // nosemgrep: run-status-write-surface
+			s.reportLaunchProgress(st, run, launchFailed("session", err))
 			encoder.Encode(ContinueRunResponse{OK: false, Error: "failed to create session: " + err.Error()})
 			return
 		}
@@ -4752,7 +4758,7 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 		}
 	}
 
-	st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusRunning)) // nosemgrep: run-status-write-surface
+	s.reportLaunchProgress(st, run, launchReached(stageAgentStarted))
 
 	s.logger.Printf("continued run: %s#%s from %s (agent=%s, worktree=%s)", issueID, runID, continuedFrom, agentName, worktreePath)
 
