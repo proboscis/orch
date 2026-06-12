@@ -197,6 +197,10 @@ run-state-machine.md と同じ playbook を適用する。
 - 2026-06-12 Phase A 完了(PR #463): A1 ルール+46 サイト凍結 / A2 fail-fast 化 / A3 AGENTS.md routing。
 - 2026-06-12 Phase B 部分完了: B2 disposition 決定(run-state-machine.md §6)、B3 StopRun 動詞化(TUI のローカル mux kill + client append を撤去 — リモート run の stop が壊れていたバグも同時修正)。B3 ResolveRun は §6 の式で choice space を閉じ、verified issue 化。
 - 2026-06-12 C1/C3 の選択空間を閉鎖(run-state-machine.md §7 D-C1/D-C3、L7/L3' 制定)。実装は C フェーズ。
+- 2026-06-12 Phase C 実装完了(PR #467): C3 = L3' 対称化(I7 解消)、C1 = initialRunCore で fold 導出(I2/I5 解消)。C2/C4 は issue 委譲済み(inv-monitor-queued-orphans / inv-fire-status-change-all)。
+- 2026-06-12 Phase D1 完了(PR #466): step_sim_test.go 観測スクリプト replay、5 シナリオで matrix と実装の一致を検証。D2(過去 issue の観測語彙カバレッジ)は未着手。
+- 2026-06-12 Phase E1+E3 完了(PR #465 / #468): docs/design/worker-lease.md(LW1-LW5、LL1-LL5 draft)+ `.semgrep/worker-lease-mutation/` ルール(lease map 変異を worker_plane.go に限定、現状違反ゼロの純粋な柵)。残: E2(LL1-LL5 の property test 化)。
+- 残作業: B1(launch ladder 統合 — whitelist 45→0、フル文脈の frontier 箱)、E2、D2、issue 4 件の消化。
 
 ## 推奨順序と箱
 
