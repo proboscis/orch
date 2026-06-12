@@ -99,7 +99,8 @@ O3 session gone, count ≥ 3   → O5 git evidence を収集して判定:
    O5: no signal, agent=opencode, never-alive, grace内             遷移なし
    O5: no signal, agent≠opencode:
        local,  was-alive                                           → failed
-       local,  never-alive                                         遷移なし (永遠に待つ — I7)
+       local,  never-alive, grace内                                 遷移なし
+       local,  never-alive, grace超過                               → unknown (L3', §7 D-C3)
        remote, was-alive                                           → failed
        remote, never-alive, grace内                                 遷移なし
        remote, never-alive, grace超過                               → unknown
@@ -128,17 +129,18 @@ O8 launch progress           (launch ladder W2–W5)                 queued → 
 | # | Invariant | Status |
 |---|-----------|--------|
 | I1 | `DeadCheckCount == 0` ⇔ last observation was alive; `>= 3` consecutive dead checks ⇒ verdict allowed | holds, but scattered across two paths |
-| I2 | `WasAlive` is monotone (never unset) **within one daemon process** | violated across restarts: RunState is in-memory, so a restart resets boot grace, dead counts, and prompt debounce |
+| I2 | `WasAlive` is monotone (never unset) | holds across restarts since D-C1 (§7, 2026-06-12): `WasAlive`/`PRRecorded` are re-derived from the event log at registration; the ephemeral counters reset by design and re-converge (L7) |
 | I3 | `PromptStreak >= 2` required before `waiting` (debounce); reset on feedback | holds (W6 + `noteRunFeedback`) |
 | I4 | duplicate status events must not accumulate | enforced only in W1 (same-status no-op); W2–W9 rely on transition legality alone |
-| I5 | `PRRecorded` dedupes `pr` artifacts | in-memory only: after a daemon restart, a PR URL still visible in the pane appends one duplicate `pr` artifact |
+| I5 | `PRRecorded` dedupes `pr` artifacts | holds across restarts since D-C1 (§7, 2026-06-12): derived from existing `pr` artifacts at registration |
 | I6 | every non-terminal run is eventually observed | **violated for `queued`**: `monitorAll` does not list `queued`, so a run orphaned before `booting` (e.g. daemon crash mid-launch) is never monitored again |
-| I7 | a gone session must eventually produce a verdict | **violated locally** for never-alive non-opencode runs: no unknown/failed verdict is ever issued (remote path issues `unknown` after grace — asymmetric) |
+| I7 | a gone session must eventually produce a verdict | holds since L3' (§7 D-C3, 2026-06-12): both planes conclude `unknown` after the never-alive grace |
 | I8 | status-change listeners observe every transition | violated: only the O4 agent-inference path fires `fireStatusChange` |
 
-I2 is the standing argument for deriving monitor state from the event log
-(state = fold) in a later phase; I5–I8 are candidate behavior fixes that are
-**not** part of the v1 behavior-preserving refactor.
+I2, I5 (via D-C1) and I7 (via D-C3) were resolved on 2026-06-12. I4's
+broader guarantee arrives with the Phase B write-surface consolidation;
+I6 and I8 are tracked as coupling-core roadmap issues
+(`inv-monitor-queued-orphans`, `inv-fire-status-change-all`).
 
 ## 5. `step()` v1 — scope and design decisions
 
@@ -202,7 +204,7 @@ distinction the law tests themselves forced:
 | L1a idempotency (facts) | re-applying a fact observation after its transition committed never yields a different target |
 | L1b fixed point (streams) | repeating one stream observation reaches a quiet fixed point after boundedly many steps (no oscillation) |
 | L2 order-independent convergence | {session gone ×3 + git evidence, PR merged/closed} in any interleaving converge to the same terminal status |
-| L3 grace | a never-alive run within `neverAliveVerdictGrace` never receives an `unknown`/`failed` verdict, on any observation sequence (complement: after grace, remote concludes `unknown`; local keeps waiting — the §3 asymmetry, pinned) |
+| L3' grace | a never-alive run within `neverAliveVerdictGrace` never receives an `unknown`/`failed` verdict, on any observation sequence; after the grace, any plane concludes `unknown` on the standing evidence (revised from v1's pinned asymmetry by §7 D-C3) |
 | L4 terminality | from a terminal status, `step` emits no effect and no core change for any observation |
 | L5 verdict requires evidence | `obsSessionGone` never emits a status directly; it requests git evidence exactly when the dead-check threshold is reached |
 | L6 debounce | `waiting` via prompt requires ≥ `waitingPromptStreakThreshold` consecutive prompt observations; any busy capture resets the streak |
@@ -245,7 +247,7 @@ implementation exists (daemon), and the TUI client calls it.
 
 ## 7. Open-law decisions (decided 2026-06-12)
 
-### D-C1 — restart transparency without new persistence
+### D-C1 — restart transparency without new persistence (implemented 2026-06-12)
 
 `runCore` fields fall into two classes, and the restart story differs:
 
@@ -269,7 +271,7 @@ forbids).
 |-----|-----------|
 | L7 restart transparency | for any observation sequence and any restart point, the sequence of *transition targets* is identical with and without the restart; only their timing may differ, by at most `max(deadCheckThreshold, waitingPromptStreakThreshold)` ticks |
 
-### D-C3 — never-alive verdict asymmetry resolved
+### D-C3 — never-alive verdict asymmetry resolved (implemented 2026-06-12)
 
 L3's pinned complement ("after grace, remote concludes `unknown`; local
 keeps waiting") is revised: **local and remote both conclude `unknown`
