@@ -898,6 +898,15 @@ func (s *SocketServer) acknowledgeWorkerLease(workerID, leaseID string, success 
 		return fmt.Errorf("lease worker mismatch")
 	}
 
+	if lease.Completed {
+		// LL3 completion finality (docs/design/worker-lease.md §7): the first
+		// verdict wins. A late or duplicate ack — an at-least-once RPC retry,
+		// or a re-dispatched executor finishing after its successor — must
+		// not rewrite a committed verdict; acknowledging a completed lease is
+		// an idempotent no-op.
+		return nil
+	}
+
 	lease.Completed = true
 	lease.CompletedAt = time.Now()
 	lease.Success = success
