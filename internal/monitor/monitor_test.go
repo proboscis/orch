@@ -85,6 +85,8 @@ func TestBuildIssueDisplayMap(t *testing.T) {
 }
 
 func TestSessionNameForProject(t *testing.T) {
+	t.Setenv("ZELLIJ_SOCKET_DIR", "/tmp/zellij-test")
+
 	tests := []struct {
 		name        string
 		projectPath string

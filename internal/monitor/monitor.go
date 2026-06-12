@@ -738,16 +738,8 @@ func (m *Monitor) ResolveRun(run *model.Run) error {
 	ctx := context.Background()
 	ref := orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}
 
-	if !run.Status.IsTerminal() {
-		// Frozen client-plane status writer: scheduled to become a daemon API
-		// verb (coupling-core roadmap Phase B3). Do not copy this pattern.
-		if _, err := m.api.AppendEvent(ctx, ref, &orchapi.Event{Type: "status", Name: string(model.StatusDone)}); err != nil { // nosemgrep: run-status-write-surface
-			return fmt.Errorf("failed to mark run as done: %w", err)
-		}
-	}
-
-	if err := m.api.SetIssueStatus(ctx, run.IssueID, orchapi.IssueStatusResolved); err != nil {
-		return fmt.Errorf("failed to resolve issue: %w", err)
+	if err := m.api.MarkRunResolved(ctx, ref); err != nil {
+		return fmt.Errorf("failed to resolve run: %w", err)
 	}
 
 	return nil

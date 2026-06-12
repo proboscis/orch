@@ -1851,16 +1851,26 @@ func (s *SocketServer) handleProtoStopRun(req *orchpb.StopRunRequest) *orchpb.Re
 }
 
 func (s *SocketServer) handleProtoResolveRun(req *orchpb.ResolveRunRequest) *orchpb.Response {
+	projectID := projectIDFromContext(req.Context)
 	st := s.resolveStoreFromContextOrProto(req.Context, "")
 	if st == nil {
-		if projectID := projectIDFromContext(req.Context); projectID != "" {
+		if projectID != "" {
 			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
 		}
 		return errorResponse("no store available")
 	}
 
-	if err := st.SetIssueStatus(model.IssueID(req.IssueId), model.IssueStatusResolved); err != nil {
-		return errorResponse("store_error")
+	run, err := resolveRunForMutation(st, req.IssueId, req.RunId, "")
+	if err != nil || run == nil {
+		return errorResponse(masterRunNotFoundError(projectID, req.IssueId, req.RunId, "", err))
+	}
+
+	if err := appendRunResolvedByUser(st, run); err != nil {
+		return errorResponse(fmt.Sprintf("failed to mark run done in master store for project %q: %v", projectID, err))
+	}
+
+	if err := st.SetIssueStatus(run.IssueID, model.IssueStatusResolved); err != nil {
+		return errorResponse(fmt.Sprintf("failed to resolve issue %s: %v", run.IssueID, err))
 	}
 
 	return &orchpb.Response{

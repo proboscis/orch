@@ -22,6 +22,57 @@ type waitForRunsStatusStore struct {
 	calls int
 }
 
+type resolveRunTestStore struct {
+	mockStore
+	appendErr          error
+	setIssueErr        error
+	latestRun          *model.Run
+	appendCalls        []resolveRunAppendCall
+	setIssueStatusCall []resolveRunSetIssueStatusCall
+}
+
+type resolveRunAppendCall struct {
+	ref   model.RunRef
+	event *model.Event
+}
+
+type resolveRunSetIssueStatusCall struct {
+	issueID model.IssueID
+	status  model.IssueStatus
+}
+
+func (s *resolveRunTestStore) GetRun(ref *model.RunRef) (*model.Run, error) {
+	if ref == nil {
+		return nil, fmt.Errorf("run reference required")
+	}
+	if ref.IsLatest() {
+		return s.GetLatestRun(ref.IssueID)
+	}
+	return s.mockStore.GetRun(ref)
+}
+
+func (s *resolveRunTestStore) GetLatestRun(issueID model.IssueID) (*model.Run, error) {
+	if s.latestRun != nil && s.latestRun.IssueID == issueID {
+		return s.latestRun, nil
+	}
+	return nil, fmt.Errorf("no runs found for issue: %s", issueID)
+}
+
+func (s *resolveRunTestStore) AppendEvent(ref *model.RunRef, event *model.Event) error {
+	if ref != nil && event != nil {
+		s.appendCalls = append(s.appendCalls, resolveRunAppendCall{ref: *ref, event: event})
+	}
+	if s.appendErr != nil {
+		return s.appendErr
+	}
+	return s.mockStore.AppendEvent(ref, event)
+}
+
+func (s *resolveRunTestStore) SetIssueStatus(issueID model.IssueID, status model.IssueStatus) error {
+	s.setIssueStatusCall = append(s.setIssueStatusCall, resolveRunSetIssueStatusCall{issueID: issueID, status: status})
+	return s.setIssueErr
+}
+
 func (s *waitForRunsStatusStore) GetRun(ref *model.RunRef) (*model.Run, error) {
 	if s.run == nil || ref == nil || ref.String() != s.run.Ref().String() {
 		return nil, fmt.Errorf("run not found")
@@ -42,6 +93,143 @@ func (l *timingTestLogger) Printf(format string, v ...interface{}) {
 
 func (l *timingTestLogger) String() string {
 	return l.buf.String()
+}
+
+func newResolveRunHandlerTestServer(t *testing.T, st *resolveRunTestStore) (*SocketServer, *orchpb.RequestContext) {
+	t.Helper()
+
+	server := NewSocketServer(nil, nil)
+	registerRepoContextForTest(t, server, "project-resolve-run", t.TempDir(), st)
+	return server, &orchpb.RequestContext{ProjectId: "project-resolve-run"}
+}
+
+func TestHandleProtoResolveRunAppendsDoneAndResolvesIssue(t *testing.T) {
+	run := &model.Run{IssueID: "orch-1", RunID: "run-1", Status: model.StatusRunning}
+	st := &resolveRunTestStore{
+		mockStore: mockStore{runs: map[string]*model.Run{run.Ref().String(): run}},
+	}
+	server, ctx := newResolveRunHandlerTestServer(t, st)
+
+	resp := server.handleProtoResolveRun(&orchpb.ResolveRunRequest{
+		IssueId: string(run.IssueID),
+		RunId:   string(run.RunID),
+		Context: ctx,
+	})
+
+	if !resp.Ok {
+		t.Fatalf("handleProtoResolveRun() ok=false error=%q", resp.Error)
+	}
+	if run.Status != model.StatusDone {
+		t.Fatalf("run.Status = %q, want %q", run.Status, model.StatusDone)
+	}
+	if len(st.appendCalls) != 1 {
+		t.Fatalf("append call count = %d, want 1", len(st.appendCalls))
+	}
+	call := st.appendCalls[0]
+	if call.ref.IssueID != run.IssueID || call.ref.RunID != run.RunID {
+		t.Fatalf("append ref = %s, want %s", call.ref.String(), run.Ref().String())
+	}
+	if call.event.Type != model.EventTypeStatus || call.event.Name != string(model.StatusDone) {
+		t.Fatalf("append event = %s/%s, want status/done", call.event.Type, call.event.Name)
+	}
+	if got := call.event.Attrs["source"]; got != string(model.EventSourceUser) {
+		t.Fatalf("append event source = %q, want %q", got, model.EventSourceUser)
+	}
+	if len(st.setIssueStatusCall) != 1 {
+		t.Fatalf("set issue status call count = %d, want 1", len(st.setIssueStatusCall))
+	}
+	if got := st.setIssueStatusCall[0]; got.issueID != run.IssueID || got.status != model.IssueStatusResolved {
+		t.Fatalf("set issue status = %s/%s, want %s/%s", got.issueID, got.status, run.IssueID, model.IssueStatusResolved)
+	}
+}
+
+func TestHandleProtoResolveRunTerminalOnlyResolvesIssue(t *testing.T) {
+	run := &model.Run{IssueID: "orch-2", RunID: "run-2", Status: model.StatusDone}
+	st := &resolveRunTestStore{
+		mockStore: mockStore{runs: map[string]*model.Run{run.Ref().String(): run}},
+	}
+	server, ctx := newResolveRunHandlerTestServer(t, st)
+
+	resp := server.handleProtoResolveRun(&orchpb.ResolveRunRequest{
+		IssueId: string(run.IssueID),
+		RunId:   string(run.RunID),
+		Context: ctx,
+	})
+
+	if !resp.Ok {
+		t.Fatalf("handleProtoResolveRun() ok=false error=%q", resp.Error)
+	}
+	if len(st.appendCalls) != 0 {
+		t.Fatalf("append call count = %d, want 0 for terminal run", len(st.appendCalls))
+	}
+	if len(st.setIssueStatusCall) != 1 {
+		t.Fatalf("set issue status call count = %d, want 1", len(st.setIssueStatusCall))
+	}
+	if got := st.setIssueStatusCall[0]; got.issueID != run.IssueID || got.status != model.IssueStatusResolved {
+		t.Fatalf("set issue status = %s/%s, want %s/%s", got.issueID, got.status, run.IssueID, model.IssueStatusResolved)
+	}
+}
+
+func TestHandleProtoResolveRunAppendFailureFailsResponse(t *testing.T) {
+	run := &model.Run{IssueID: "orch-3", RunID: "run-3", Status: model.StatusRunning}
+	st := &resolveRunTestStore{
+		mockStore: mockStore{runs: map[string]*model.Run{run.Ref().String(): run}},
+		appendErr: errors.New("append boom"),
+	}
+	server, ctx := newResolveRunHandlerTestServer(t, st)
+
+	resp := server.handleProtoResolveRun(&orchpb.ResolveRunRequest{
+		IssueId: string(run.IssueID),
+		RunId:   string(run.RunID),
+		Context: ctx,
+	})
+
+	if resp.Ok {
+		t.Fatal("handleProtoResolveRun() ok=true, want failure")
+	}
+	if !strings.Contains(resp.Error, "failed to mark run done") || !strings.Contains(resp.Error, "append boom") {
+		t.Fatalf("error = %q, want append failure detail", resp.Error)
+	}
+	if len(st.setIssueStatusCall) != 0 {
+		t.Fatalf("set issue status call count = %d, want 0 after append failure", len(st.setIssueStatusCall))
+	}
+	if run.Status != model.StatusRunning {
+		t.Fatalf("run.Status = %q, want unchanged %q", run.Status, model.StatusRunning)
+	}
+}
+
+func TestHandleProtoResolveRunEmptyRunIDResolvesLatestRun(t *testing.T) {
+	older := &model.Run{IssueID: "orch-4", RunID: "run-1", Status: model.StatusRunning}
+	latest := &model.Run{IssueID: "orch-4", RunID: "run-2", Status: model.StatusWaiting}
+	st := &resolveRunTestStore{
+		mockStore: mockStore{runs: map[string]*model.Run{
+			older.Ref().String():  older,
+			latest.Ref().String(): latest,
+		}},
+		latestRun: latest,
+	}
+	server, ctx := newResolveRunHandlerTestServer(t, st)
+
+	resp := server.handleProtoResolveRun(&orchpb.ResolveRunRequest{
+		IssueId: string(latest.IssueID),
+		Context: ctx,
+	})
+
+	if !resp.Ok {
+		t.Fatalf("handleProtoResolveRun() ok=false error=%q", resp.Error)
+	}
+	if latest.Status != model.StatusDone {
+		t.Fatalf("latest.Status = %q, want %q", latest.Status, model.StatusDone)
+	}
+	if older.Status != model.StatusRunning {
+		t.Fatalf("older.Status = %q, want unchanged %q", older.Status, model.StatusRunning)
+	}
+	if len(st.appendCalls) != 1 || st.appendCalls[0].ref.RunID != latest.RunID {
+		t.Fatalf("append calls = %+v, want exactly latest run %s", st.appendCalls, latest.RunID)
+	}
+	if len(st.setIssueStatusCall) != 1 || st.setIssueStatusCall[0].issueID != latest.IssueID {
+		t.Fatalf("set issue status calls = %+v, want latest issue %s", st.setIssueStatusCall, latest.IssueID)
+	}
 }
 
 func TestDaemonListRunsTimingEnabled(t *testing.T) {

@@ -86,6 +86,9 @@ var _ orchapi.OrchAPI = &OrchAPIMock{}
 //			ListRunsFunc: func(ctx context.Context, filter *orchapi.ListRunsFilter) (*orchapi.ListRunsResult, error) {
 //				panic("mock out the ListRuns method")
 //			},
+//			MarkRunResolvedFunc: func(ctx context.Context, ref orchapi.RunRef) error {
+//				panic("mock out the MarkRunResolved method")
+//			},
 //			PingFunc: func(ctx context.Context) error {
 //				panic("mock out the Ping method")
 //			},
@@ -209,6 +212,9 @@ type OrchAPIMock struct {
 
 	// ListRunsFunc mocks the ListRuns method.
 	ListRunsFunc func(ctx context.Context, filter *orchapi.ListRunsFilter) (*orchapi.ListRunsResult, error)
+
+	// MarkRunResolvedFunc mocks the MarkRunResolved method.
+	MarkRunResolvedFunc func(ctx context.Context, ref orchapi.RunRef) error
 
 	// PingFunc mocks the Ping method.
 	PingFunc func(ctx context.Context) error
@@ -421,6 +427,13 @@ type OrchAPIMock struct {
 			// Filter is the filter argument value.
 			Filter *orchapi.ListRunsFilter
 		}
+		// MarkRunResolved holds details about calls to the MarkRunResolved method.
+		MarkRunResolved []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Ref is the ref argument value.
+			Ref orchapi.RunRef
+		}
 		// Ping holds details about calls to the Ping method.
 		Ping []struct {
 			// Ctx is the ctx argument value.
@@ -579,6 +592,7 @@ type OrchAPIMock struct {
 	lockInjectInitialPrompt  sync.RWMutex
 	lockListIssues           sync.RWMutex
 	lockListRuns             sync.RWMutex
+	lockMarkRunResolved      sync.RWMutex
 	lockPing                 sync.RWMutex
 	lockQueryOpenCodeServer  sync.RWMutex
 	lockReadAgentPrompt      sync.RWMutex
@@ -1395,6 +1409,42 @@ func (mock *OrchAPIMock) ListRunsCalls() []struct {
 	mock.lockListRuns.RLock()
 	calls = mock.calls.ListRuns
 	mock.lockListRuns.RUnlock()
+	return calls
+}
+
+// MarkRunResolved calls MarkRunResolvedFunc.
+func (mock *OrchAPIMock) MarkRunResolved(ctx context.Context, ref orchapi.RunRef) error {
+	if mock.MarkRunResolvedFunc == nil {
+		panic("OrchAPIMock.MarkRunResolvedFunc: method is nil but OrchAPI.MarkRunResolved was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		Ref orchapi.RunRef
+	}{
+		Ctx: ctx,
+		Ref: ref,
+	}
+	mock.lockMarkRunResolved.Lock()
+	mock.calls.MarkRunResolved = append(mock.calls.MarkRunResolved, callInfo)
+	mock.lockMarkRunResolved.Unlock()
+	return mock.MarkRunResolvedFunc(ctx, ref)
+}
+
+// MarkRunResolvedCalls gets all the calls that were made to MarkRunResolved.
+// Check the length with:
+//
+//	len(mockedOrchAPI.MarkRunResolvedCalls())
+func (mock *OrchAPIMock) MarkRunResolvedCalls() []struct {
+	Ctx context.Context
+	Ref orchapi.RunRef
+} {
+	var calls []struct {
+		Ctx context.Context
+		Ref orchapi.RunRef
+	}
+	mock.lockMarkRunResolved.RLock()
+	calls = mock.calls.MarkRunResolved
+	mock.lockMarkRunResolved.RUnlock()
 	return calls
 }
 
