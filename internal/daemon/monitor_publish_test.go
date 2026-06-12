@@ -57,7 +57,7 @@ func TestUpdateStatus_PublishesTransitionToBus(t *testing.T) {
 		t.Fatalf("seeded status not running: %q", current.Status)
 	}
 
-	if err := d.updateStatus(current, model.StatusWaiting, "", st); err != nil {
+	if err := d.updateStatus(current, model.StatusWaiting, "", st, ""); err != nil {
 		t.Fatalf("updateStatus: %v", err)
 	}
 
@@ -121,7 +121,7 @@ func TestUpdateStatus_SkipsRedundantPublish(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRun: %v", err)
 	}
-	if err := d.updateStatus(current, model.StatusPROpen, "", st); err != nil {
+	if err := d.updateStatus(current, model.StatusPROpen, "", st, ""); err != nil {
 		t.Fatalf("updateStatus: %v", err)
 	}
 

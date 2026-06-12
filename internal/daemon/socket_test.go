@@ -29,6 +29,7 @@ import (
 	"github.com/s22625/orch/internal/git"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
+	"github.com/s22625/orch/internal/runevents"
 	"github.com/s22625/orch/internal/store"
 	"github.com/s22625/orch/internal/xdg"
 	"google.golang.org/protobuf/proto"
@@ -4198,15 +4199,43 @@ func TestMarkRunFeedbackSentTransitions(t *testing.T) {
 		run := &model.Run{IssueID: "i", RunID: "r", Status: tc.status}
 		st := &mockStore{runs: map[string]*model.Run{"i#r": run}, issues: map[string]*model.Issue{}}
 		feedbackNoted := false
+		var statusChanges []*runevents.StatusChangeEvent
 		server.onRunFeedback = func(*model.Run) { feedbackNoted = true }
+		server.onStatusChange = func(ev *runevents.StatusChangeEvent) {
+			copy := *ev
+			statusChanges = append(statusChanges, &copy)
+		}
 
 		server.markRunFeedbackSent(st, run)
 
 		if got := st.runs["i#r"].Status; got != tc.want {
 			t.Errorf("markRunFeedbackSent from %s: status = %s, want %s", tc.status, got, tc.want)
 		}
-		if wantNoted := tc.want == model.StatusRunning && tc.status != model.StatusRunning; feedbackNoted != wantNoted {
-			t.Errorf("markRunFeedbackSent from %s: feedback noted = %v, want %v", tc.status, feedbackNoted, wantNoted)
+		wantTransition := tc.want == model.StatusRunning && tc.status != model.StatusRunning
+		if feedbackNoted != wantTransition {
+			t.Errorf("markRunFeedbackSent from %s: feedback noted = %v, want %v", tc.status, feedbackNoted, wantTransition)
+		}
+		if wantTransition {
+			if len(statusChanges) != 1 {
+				t.Fatalf("markRunFeedbackSent from %s: listener events = %d, want 1", tc.status, len(statusChanges))
+			}
+			ev := statusChanges[0]
+			if ev.Run != run {
+				t.Fatalf("markRunFeedbackSent from %s: listener received wrong run", tc.status)
+			}
+			if ev.From != tc.status || ev.To != model.StatusRunning {
+				t.Fatalf("markRunFeedbackSent from %s: listener transition = %s -> %s, want %s -> %s",
+					tc.status, ev.From, ev.To, tc.status, model.StatusRunning)
+			}
+			if ev.Source != model.EventSourceUser {
+				t.Fatalf("markRunFeedbackSent from %s: listener source = %s, want %s",
+					tc.status, ev.Source, model.EventSourceUser)
+			}
+			if ev.Store != st {
+				t.Fatalf("markRunFeedbackSent from %s: listener received wrong store", tc.status)
+			}
+		} else if len(statusChanges) != 0 {
+			t.Fatalf("markRunFeedbackSent from %s: listener events = %d, want 0", tc.status, len(statusChanges))
 		}
 	}
 }

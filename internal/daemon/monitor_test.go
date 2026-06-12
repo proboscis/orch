@@ -15,6 +15,7 @@ import (
 	"github.com/s22625/orch/internal/agent"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/pr"
+	"github.com/s22625/orch/internal/runevents"
 	"github.com/s22625/orch/internal/store"
 )
 
@@ -195,19 +196,125 @@ func TestUpdateStatusSameStatusIsNoOp(t *testing.T) {
 		mockStoreForUpdate: mockStoreForUpdate{issue: &model.Issue{ID: "i1", Status: model.IssueStatusOpen}},
 		run:                run,
 	}
+	listenerCalls := 0
+	d.AddStatusChangeListener(runevents.StatusChangeListenerFunc(func(_ *runevents.StatusChangeEvent) {
+		listenerCalls++
+	}))
 
-	if err := d.updateStatus(run, model.StatusUnknown, "", st); err != nil {
+	if err := d.updateStatus(run, model.StatusUnknown, "", st, "ignored"); err != nil {
 		t.Fatalf("updateStatus() error = %v", err)
 	}
 	if st.appendEventCalls != 0 {
 		t.Fatalf("re-affirming the current status must not append events, got %d", st.appendEventCalls)
 	}
+	if listenerCalls != 0 {
+		t.Fatalf("re-affirming the current status must not fire listeners, got %d", listenerCalls)
+	}
 
-	if err := d.updateStatus(run, model.StatusPROpen, "", st); err != nil {
+	if err := d.updateStatus(run, model.StatusPROpen, "", st, ""); err != nil {
 		t.Fatalf("updateStatus() error = %v", err)
 	}
 	if st.appendEventCalls != 1 {
 		t.Fatalf("expected a real transition to append one event, got %d", st.appendEventCalls)
+	}
+	if listenerCalls != 1 {
+		t.Fatalf("expected a real transition to fire one listener event, got %d", listenerCalls)
+	}
+}
+
+func TestStatusChangeListenersFireOnceForMonitorTransitionPaths(t *testing.T) {
+	tests := []struct {
+		name       string
+		run        *model.Run
+		setupState func(*RunState)
+		obs        runObservation
+		wantFrom   model.Status
+		wantTo     model.Status
+		wantOutput string
+	}{
+		{
+			name: "agent inference",
+			run:  &model.Run{IssueID: "i-infer", RunID: "r1", Agent: "opencode", Status: model.StatusRunning},
+			obs: runObservation{
+				Kind:   obsCaptured,
+				Output: "agent is idle and waiting",
+				Signal: agentSignal{Resolved: true, Status: model.StatusWaiting},
+			},
+			wantFrom:   model.StatusRunning,
+			wantTo:     model.StatusWaiting,
+			wantOutput: "agent is idle and waiting",
+		},
+		{
+			name: "PR closed terminal",
+			run: &model.Run{
+				IssueID: "i-pr",
+				RunID:   "r1",
+				Status:  model.StatusPROpen,
+				PRUrl:   "https://github.com/org/repo/pull/7",
+			},
+			obs: runObservation{
+				Kind:      obsPRState,
+				PROutcome: prOutcomeClosed,
+				PRURL:     "https://github.com/org/repo/pull/7",
+			},
+			wantFrom: model.StatusPROpen,
+			wantTo:   model.StatusCanceled,
+		},
+		{
+			name: "dead-session verdict",
+			run:  &model.Run{IssueID: "i-dead", RunID: "r1", Agent: "codex", Status: model.StatusRunning, StartedAt: time.Now().Add(-time.Hour)},
+			setupState: func(state *RunState) {
+				state.WasAlive = true
+				state.DeadCheckCount = deadChecksBeforeFailed
+			},
+			obs:      runObservation{Kind: obsGitEvidence},
+			wantFrom: model.StatusRunning,
+			wantTo:   model.StatusFailed,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := newTestDaemon()
+			st := &mockStoreRecordingEvents{
+				mockStoreForUpdate: mockStoreForUpdate{issue: &model.Issue{ID: tt.run.IssueID, Status: model.IssueStatusOpen}},
+				run:                tt.run,
+			}
+			state := d.getOrCreateState(tt.run)
+			if tt.setupState != nil {
+				tt.setupState(state)
+			}
+
+			var events []*runevents.StatusChangeEvent
+			d.AddStatusChangeListener(runevents.StatusChangeListenerFunc(func(ev *runevents.StatusChangeEvent) {
+				copy := *ev
+				events = append(events, &copy)
+			}))
+
+			if _, err := d.applyStep(tt.run, st, state, tt.obs, ""); err != nil {
+				t.Fatalf("applyStep() error = %v", err)
+			}
+
+			if len(events) != 1 {
+				t.Fatalf("expected exactly one status listener event, got %d", len(events))
+			}
+			ev := events[0]
+			if ev.Run != tt.run {
+				t.Fatal("listener received the wrong run pointer")
+			}
+			if ev.From != tt.wantFrom || ev.To != tt.wantTo {
+				t.Fatalf("listener transition = %s -> %s, want %s -> %s", ev.From, ev.To, tt.wantFrom, tt.wantTo)
+			}
+			if ev.Source != model.EventSourceDaemon {
+				t.Fatalf("listener source = %s, want %s", ev.Source, model.EventSourceDaemon)
+			}
+			if ev.Store != st {
+				t.Fatal("listener received the wrong store")
+			}
+			if ev.LastOutput != tt.wantOutput {
+				t.Fatalf("listener LastOutput = %q, want %q", ev.LastOutput, tt.wantOutput)
+			}
+		})
 	}
 }
 
@@ -221,7 +328,7 @@ func TestUpdateStatusPersistsReason(t *testing.T) {
 		run:                run,
 	}
 
-	if err := d.updateStatus(run, model.StatusUnknown, model.StatusReasonNeverAlive, st); err != nil {
+	if err := d.updateStatus(run, model.StatusUnknown, model.StatusReasonNeverAlive, st, ""); err != nil {
 		t.Fatalf("updateStatus() error = %v", err)
 	}
 	ev := st.lastAppendedEvent
@@ -235,7 +342,7 @@ func TestUpdateStatusPersistsReason(t *testing.T) {
 	// An empty reason must not introduce an attrs map entry.
 	run2 := &model.Run{IssueID: "i1", RunID: "r2", Status: model.StatusRunning}
 	st.run = run2
-	if err := d.updateStatus(run2, model.StatusWaiting, "", st); err != nil {
+	if err := d.updateStatus(run2, model.StatusWaiting, "", st, ""); err != nil {
 		t.Fatalf("updateStatus() error = %v", err)
 	}
 	if _, ok := st.lastAppendedEvent.Attrs[model.AttrStatusReason]; ok {
@@ -332,7 +439,7 @@ func TestUpdateStatusAutoResolve(t *testing.T) {
 			}
 			run := &model.Run{IssueID: "test-issue", RunID: "run-1"}
 
-			err := d.updateStatus(run, tt.status, "", st)
+			err := d.updateStatus(run, tt.status, "", st, "")
 			if err != nil {
 				t.Fatalf("updateStatus() error = %v", err)
 			}
@@ -361,7 +468,7 @@ func TestUpdateStatusSetIssueStatusErrorSwallowed(t *testing.T) {
 	}
 	run := &model.Run{IssueID: "test-issue", RunID: "run-1"}
 
-	err := d.updateStatus(run, model.StatusDone, "", st)
+	err := d.updateStatus(run, model.StatusDone, "", st, "")
 	if err != nil {
 		t.Fatalf("updateStatus() should not fail when SetIssueStatus fails, got error = %v", err)
 	}
@@ -377,8 +484,12 @@ func TestUpdateStatusAppendEventError(t *testing.T) {
 		appendEventErr: io.ErrUnexpectedEOF,
 	}
 	run := &model.Run{IssueID: "test-issue", RunID: "run-1"}
+	listenerCalls := 0
+	d.AddStatusChangeListener(runevents.StatusChangeListenerFunc(func(_ *runevents.StatusChangeEvent) {
+		listenerCalls++
+	}))
 
-	err := d.updateStatus(run, model.StatusDone, "", st)
+	err := d.updateStatus(run, model.StatusDone, "", st, "")
 	if err == nil {
 		t.Fatal("updateStatus() should fail when AppendEvent fails")
 	}
@@ -386,6 +497,9 @@ func TestUpdateStatusAppendEventError(t *testing.T) {
 	// SetIssueStatus should not be called if AppendEvent fails
 	if len(st.setIssueStatusCalls) != 0 {
 		t.Errorf("expected SetIssueStatus not to be called when AppendEvent fails, got %d calls", len(st.setIssueStatusCalls))
+	}
+	if listenerCalls != 0 {
+		t.Fatalf("expected listener not to fire when AppendEvent fails, got %d calls", listenerCalls)
 	}
 }
 
