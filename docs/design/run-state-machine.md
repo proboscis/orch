@@ -209,6 +209,22 @@ distinction the law tests themselves forced:
 | L5 verdict requires evidence | `obsSessionGone` never emits a status directly; it requests git evidence exactly when the dead-check threshold is reached |
 | L6 debounce | `waiting` via prompt requires ≥ `waitingPromptStreakThreshold` consecutive prompt observations; any busy capture resets the streak |
 
+### Status reasons (verdict payload)
+
+The status vocabulary is a closed set; *why* an `unknown` verdict was reached
+travels as a machine-readable `reason` attribute on the status event
+(`model.AttrStatusReason` — the k8s `phase`+`reason` pattern). Every
+`unknown` verdict emitted by `step()` carries one:
+
+| reason | emitted by | operator response |
+|--------|-----------|-------------------|
+| `never_alive` | L3' grace expiry, either plane | infrastructure problem (binary/auth/mux env); fix the host before retrying |
+| `session_lost` | opencode session not found after dead checks | backend lost observability; backend-specific triage |
+| `agent_exited` | capture verdict: process exited, shell prompt showing | check transcript/worktree; retry plausible |
+
+`orch ps` renders the reason inline (`unknown(never_alive)`); the event log
+carries it as `reason=…`; `StatusChangeEvent.Reason` exposes it to listeners.
+
 L1/L4 fix the 5,830-duplicate-event class structurally; L2 is the law the
 PR #458 inference fixes were converging toward; restart transparency (I2)
 remains an open law until monitor state is derived from the event log

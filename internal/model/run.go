@@ -144,6 +144,19 @@ func (r *Run) GetStatus() (Status, error) {
 	return StatusQueued, nil
 }
 
+// StatusReason derives the machine-readable reason attached to the run's
+// most recent status event (same derivation rule as GetStatus: last status
+// event wins). Empty when the verdict carried no reason.
+func (r *Run) StatusReason() string {
+	for i := len(r.Events) - 1; i >= 0; i-- {
+		e := r.Events[i]
+		if e.Type == EventTypeStatus {
+			return e.Attrs[AttrStatusReason]
+		}
+	}
+	return ""
+}
+
 // GetPhase derives phase from events (last phase event wins).
 func (r *Run) GetPhase() Phase {
 	for i := len(r.Events) - 1; i >= 0; i-- {

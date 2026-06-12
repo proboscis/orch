@@ -519,7 +519,7 @@ func outputJSONWithIssueInfo(
 			ModelVariant:      r.ModelVariant,
 			Target:            target,
 			TargetHost:        targetHost,
-			Status:            string(r.Status),
+			Status:            statusWithReason(r),
 			AgentStatus:       shortAgentStatus(r.Status),
 			BranchStatus:      branchStatus,
 			PRStatus:          prStatusFromRun(r, branchStateByRun[runKey]),
@@ -841,6 +841,16 @@ func shortAgentStatus(status model.Status) string {
 	default:
 		return "?"
 	}
+}
+
+// statusWithReason renders the run status with its machine-readable verdict
+// reason when one was recorded, e.g. "unknown(never_alive)" — so triage from
+// `orch ps` does not require opening the run record.
+func statusWithReason(r *model.Run) string {
+	if reason := r.StatusReason(); reason != "" {
+		return fmt.Sprintf("%s(%s)", r.Status, reason)
+	}
+	return string(r.Status)
 }
 
 func prStatusFromRun(r *model.Run, gitState string) string {

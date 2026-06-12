@@ -249,6 +249,36 @@ func NewStatusEvent(status Status) *Event {
 	return NewEvent(EventTypeStatus, string(status), nil)
 }
 
+// AttrStatusReason is the event attribute carrying the machine-readable
+// reason for a status verdict. The status vocabulary itself is a closed set;
+// discrimination of *why* a verdict was reached travels as payload, the way
+// Kubernetes keeps `phase` tiny and puts `reason` beside it.
+const AttrStatusReason = "reason"
+
+// Reasons attached to StatusUnknown verdicts (docs/design/run-state-machine.md §5).
+const (
+	// StatusReasonNeverAlive: the agent was never observed alive and the boot
+	// grace expired — an infrastructure problem (binary/auth/mux env); retry
+	// is futile until the host is fixed.
+	StatusReasonNeverAlive = "never_alive"
+	// StatusReasonSessionLost: the agent was alive but the backend lost
+	// observability of its session.
+	StatusReasonSessionLost = "session_lost"
+	// StatusReasonAgentExited: the agent process exited without a verdict,
+	// shell prompt showing — check the transcript/worktree; retry plausible.
+	StatusReasonAgentExited = "agent_exited"
+)
+
+// NewStatusEventWithReason creates a status change event carrying a
+// machine-readable reason attribute. An empty reason degrades to
+// NewStatusEvent.
+func NewStatusEventWithReason(status Status, reason string) *Event {
+	if reason == "" {
+		return NewStatusEvent(status)
+	}
+	return NewEvent(EventTypeStatus, string(status), map[string]string{AttrStatusReason: reason})
+}
+
 // NewPhaseEvent creates a phase change event
 func NewPhaseEvent(phase Phase) *Event {
 	return NewEvent(EventTypePhase, string(phase), nil)

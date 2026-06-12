@@ -9,6 +9,11 @@ func badConstructStatusEvent() {
 	_ = model.NewStatusEvent(model.StatusRunning)
 }
 
+func badConstructStatusEventWithReason() {
+	// ruleid: run-status-write-surface
+	_ = model.NewStatusEventWithReason(model.StatusUnknown, model.StatusReasonNeverAlive)
+}
+
 func badConstructViaNewEvent() {
 	// ruleid: run-status-write-surface
 	_ = model.NewEvent(model.EventTypeStatus, "done", nil)
