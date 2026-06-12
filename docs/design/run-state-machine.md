@@ -27,12 +27,12 @@ windows, inference — lives in the writers:
 
 | # | Site | Transitions written | Guards |
 |---|------|---------------------|--------|
-| W1 | `monitor.go updateStatus` (sole monitor-plane writer) | all monitor inferences | terminal check, `CanTransitionStatus`, same-status no-op, auto-resolve issue on `done`, `publishRunEvent` |
+| W1 | `monitor.go updateStatus` (sole monitor-plane writer) | all monitor inferences | terminal check, `CanTransitionStatus`, same-status no-op, auto-resolve issue on `done`, `publishRunEvent`, `fireStatusChange` after append |
 | W2 | `socket.go handleStartRun` (legacy JSON path) | `queued` → (`failed` per setup step) → `booting` → `failed`/`running` | store-level only; append errors ignored |
 | W3 | `socket.go processStartRunCore` (worker/master core) | same ladder as W2 | same |
 | W4 | `socket.go processContinueRunCore` | same ladder | same |
 | W5 | `socket.go handleContinueRun` (legacy JSON path) | same ladder | same |
-| W6 | `socket.go markRunFeedbackSent` | `waiting/pr_open/rate_limited/unknown` → `running` | `feedbackResumesRun` predicate; fires `onRunFeedback` (PromptStreak reset), `PublishRunEvent` |
+| W6 | `socket.go markRunFeedbackSent` | `waiting/pr_open/rate_limited/unknown` → `running` | `feedbackResumesRun` predicate; fires `onRunFeedback` (PromptStreak reset), `fireStatusChange`, `PublishRunEvent` after append |
 | W7 | `socket.go failOpenCodeRunBootstrap` | → `failed` | none |
 | W8 | `socket.go appendRunCanceledByUser` (`orch stop`) | → `canceled` (`source=user`) | skip if terminal |
 | W9 | `proto_handler.go syncStartRunResultToMasterStore` / `syncContinueRunResultToMasterStore` | `queued` (if record missing) + result status (default `running`) | store-level only |
@@ -47,9 +47,10 @@ Notes:
   store receives a projection (W9) and is then maintained by the master's
   monitor (W1 via capture leases). There is no synchronization invariant
   between the two stores; the master store is the client-visible SSOT.
-- `fireStatusChange` (Slack listeners) is invoked **only** for the
-  agent-inference transition inside `processRunOutput` — not for PR
-  merged/closed, dead-session verdicts, launch, feedback, or stop.
+- `fireStatusChange` (Slack listeners) is invoked after committed W1
+  monitor-plane transitions in `updateStatus`, so O1/O3/O4/O5 transitions
+  share the same listener fanout. W6 feedback resume bridges into the same
+  fanout after its legacy append until O6 is integrated into `step()` v2.
 
 ## 2. Observation taxonomy
 
@@ -116,7 +117,7 @@ O4 captured + agent verdict:     (mux: 優先順位順)
    output changed                                                  → running
    (opencode: busy→running, idle→waiting, retry→rate_limited,
     gone→unknown; booting/queued→running)
-   上記の遷移時のみ fireStatusChange (Slack等)
+   status append 成功後に updateStatus が fireStatusChange (Slack等)
 
 O6 feedback delivered        status ∈ {waiting,pr_open,            → running (+PromptStreak reset)
                              rate_limited,unknown}
@@ -135,12 +136,14 @@ O8 launch progress           (launch ladder W2–W5)                 queued → 
 | I5 | `PRRecorded` dedupes `pr` artifacts | holds across restarts since D-C1 (§7, 2026-06-12): derived from existing `pr` artifacts at registration |
 | I6 | every non-terminal run is eventually observed | holds since `monitorAll` lists `queued` as well as the other non-terminal states, so a run orphaned before `booting` still reaches the monitor plane |
 | I7 | a gone session must eventually produce a verdict | holds since L3' (§7 D-C3, 2026-06-12): both planes conclude `unknown` after the never-alive grace |
-| I8 | status-change listeners observe every transition | violated: only the O4 agent-inference path fires `fireStatusChange` |
+| I8 | status-change listeners observe every committed W1 transition | holds since D-C4 (§7, 2026-06-12): `updateStatus` fires once after a successful status append; same-status no-ops and append failures fire nothing |
 
-I2, I5 (via D-C1), I7 (via D-C3), and I6
-(`inv-monitor-queued-orphans`) were resolved on 2026-06-12. I4's broader
-guarantee arrives with the Phase B write-surface consolidation; I8 is tracked
-as the coupling-core roadmap issue `inv-fire-status-change-all`.
+I2, I5 (via D-C1), I7 (via D-C3), I6 (`inv-monitor-queued-orphans`) and
+I8 (D-C4, `inv-fire-status-change-all`) were resolved on 2026-06-12. I4's
+broader guarantee arrives with the Phase B write-surface consolidation.
+W6 feedback resume also fires the listener after its committed append; the
+remaining launch/stop legacy writers stay in the v2 disposition table until
+they are integrated into `step()`.
 
 ## 5. `step()` v1 — scope and design decisions
 
@@ -208,6 +211,7 @@ distinction the law tests themselves forced:
 | L4 terminality | from a terminal status, `step` emits no effect and no core change for any observation |
 | L5 verdict requires evidence | `obsSessionGone` never emits a status directly; it requests git evidence exactly when the dead-check threshold is reached |
 | L6 debounce | `waiting` via prompt requires ≥ `waitingPromptStreakThreshold` consecutive prompt observations; any busy capture resets the streak |
+| L8 listener commit point | every committed W1 status transition fires exactly one status-change listener event after `AppendEvent` succeeds; duplicate-status no-ops and failed appends fire none |
 
 ### Status reasons (verdict payload)
 
@@ -242,7 +246,7 @@ rationale. *Undecided* is no longer a legal state for a status writer.
 |---|------|-------------|-----------|
 | W2–W5 | launch ladders (socket.go ×4) | **integrate — v2, first** | Four near-copies of one ladder; interleaves with monitor-plane transitions (booting/running races). Becomes launch-progress observations (O8) decided in `step()`, with the imperative bootstrap steps as effects. |
 | W7 | `failOpenCodeRunBootstrap` → failed | **integrate — with W2–W5** | The failure arm of the same ladder. |
-| W6 | feedback → running | **integrate — v2** | Already mutates `runCore` (PromptStreak reset, O6). Core state must change only through `step()`. |
+| W6 | feedback → running | **integrate — v2** | Already mutates `runCore` (PromptStreak reset, O6). Core state must change only through `step()`. Until then, the legacy writer emits `fireStatusChange` after its append to preserve listener coverage. |
 | W8 | `appendRunCanceledByUser` (`orch stop`) | **integrate — v2, after the ladder** | O7 (user stop) exists in the observation taxonomy; terminality (L4) should observe it. Single guarded site until then. |
 | W9 | master projections (proto_handler.go) | **quarantine — law boundary** | Replicates transitions already decided on the worker plane; carries no local policy. Guards: `CanTransitionStatus` + fail-fast appends (Phase A2). Law: a projection is status-preserving — it must never add inference in flight. |
 | W10 | external append API (`handleAppendEvent`) | **quarantine — law boundary** | User/agent escape hatch with caller-supplied source. Guard: `CanTransitionStatus` with caller source. `orch repair` (cli/repair.go) is its sanctioned client and stays. |
@@ -304,3 +308,20 @@ after the change:
 I6 is resolved by listing `queued` runs in `monitorAll`: a run orphaned before
 `booting` enters the same monitor plane and follows L3' (no verdict within
 `neverAliveVerdictGrace`; `unknown` after grace on standing dead evidence).
+
+### D-C4 — listener dispatch moved to the commit point (implemented 2026-06-12)
+
+`fireStatusChange` is no longer a separate `step()` effect emitted only by
+O4 agent inference. W1 (`Daemon.updateStatus`) now dispatches listeners
+after the status event append succeeds, using the store-derived `from`
+status and the requested `to` status. This makes listener delivery follow
+the event log: if the append fails, no listener fires; if the transition is a
+same-status no-op, no listener fires; otherwise exactly one listener event is
+emitted for the committed W1 transition. The event carries the verdict
+`reason` (model.AttrStatusReason) alongside `from`/`to`, so listeners (Slack…)
+can render `unknown(never_alive)` without reading the run record.
+
+W6 feedback resume is still a legacy writer until O6 enters `step()` v2, so
+it bridges into the same listener fanout immediately after its append. This
+keeps `orch send` resume notifications consistent with W1 without changing
+the transition policy matrix.

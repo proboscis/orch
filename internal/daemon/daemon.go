@@ -201,6 +201,7 @@ func (d *Daemon) Run() error {
 	}
 	d.socketServer.runLiveness = d.runLiveness
 	d.socketServer.onRunFeedback = d.noteRunFeedback
+	d.socketServer.onStatusChange = d.fireStatusChange
 	d.socketServer.SetGitHubBackend(d.githubBackend)
 	if err := d.socketServer.Start(); err != nil {
 		d.logger.Printf("warning: failed to start socket server: %v", err)

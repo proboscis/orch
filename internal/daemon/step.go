@@ -172,10 +172,6 @@ const (
 	// it back as an obsGitEvidence observation. The policy decides when
 	// evidence is needed; the shell never does.
 	effectGatherGitEvidence
-	// effectFireStatusChange dispatches the run-event listeners (Slack…).
-	// Emitted only on the agent-inference transition, matching historical
-	// behavior (see run-state-machine.md §4 I8).
-	effectFireStatusChange
 	// effectLog / effectDebugLog emit an operator log line.
 	effectLog
 	effectDebugLog
@@ -184,11 +180,10 @@ const (
 type runEffect struct {
 	Kind   effectKind
 	Status model.Status // effectSetStatus
-	From   model.Status // effectFireStatusChange
 	PRURL  string       // effectRecordPR / effectRecordPRClosed
-	Output string       // effectFireStatusChange
+	Output string       // effectSetStatus listener payload context
 	Msg    string       // effectLog / effectDebugLog
-	Reason string       // effectSetStatus / effectFireStatusChange: machine-readable verdict reason
+	Reason string       // effectSetStatus: machine-readable verdict reason (model.AttrStatusReason)
 }
 
 func logEffect(format string, args ...interface{}) runEffect {
@@ -207,6 +202,12 @@ func setStatusEffect(status model.Status) runEffect {
 // attached to the resulting status event (model.AttrStatusReason).
 func setStatusReasonEffect(status model.Status, reason string) runEffect {
 	return runEffect{Kind: effectSetStatus, Status: status, Reason: reason}
+}
+
+// setStatusEffectWithOutput is setStatusEffect carrying the captured output
+// as the listener notification payload.
+func setStatusEffectWithOutput(status model.Status, output string) runEffect {
+	return runEffect{Kind: effectSetStatus, Status: status, Output: output}
 }
 
 // stepRun is the single transition function for the monitor plane:
@@ -467,7 +468,7 @@ func stepCaptured(view runView, core runCore, obs runObservation, now time.Time)
 		effects = append(effects,
 			logEffect("%s#%s: PR created: %s", view.IssueID, view.RunID, prURL),
 			runEffect{Kind: effectRecordPR, PRURL: prURL},
-			setStatusEffect(model.StatusPROpen),
+			setStatusEffectWithOutput(model.StatusPROpen, obs.Output),
 		)
 		return core, effects
 	}
@@ -476,8 +477,7 @@ func stepCaptured(view runView, core runCore, obs runObservation, now time.Time)
 	if newStatus != "" && newStatus != view.Status {
 		effects = append(effects,
 			logEffect("%s#%s: status change %s -> %s", view.IssueID, view.RunID, view.Status, newStatus),
-			setStatusReasonEffect(newStatus, reason),
-			runEffect{Kind: effectFireStatusChange, From: view.Status, Status: newStatus, Output: obs.Output, Reason: reason},
+			runEffect{Kind: effectSetStatus, Status: newStatus, Output: obs.Output, Reason: reason},
 		)
 	}
 

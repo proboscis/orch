@@ -27,6 +27,7 @@ import (
 	"github.com/s22625/orch/internal/github"
 	"github.com/s22625/orch/internal/model"
 	"github.com/s22625/orch/internal/multiplexer"
+	"github.com/s22625/orch/internal/runevents"
 	"github.com/s22625/orch/internal/store"
 	"github.com/s22625/orch/internal/xdg"
 	"gopkg.in/yaml.v3"
@@ -335,6 +336,11 @@ type SocketServer struct {
 	// run straight back to waiting before the agent starts working. Wired
 	// by Daemon at startup.
 	onRunFeedback func(run *model.Run)
+
+	// onStatusChange, when set, fans committed non-monitor status
+	// transitions into the daemon's in-process listeners. Monitor-plane
+	// transitions are emitted by Daemon.updateStatus.
+	onStatusChange func(ev *runevents.StatusChangeEvent)
 }
 
 type managedServer struct {
@@ -2973,6 +2979,7 @@ func (s *SocketServer) markRunFeedbackSent(st store.Store, run *model.Run) {
 	if st == nil || run == nil || !feedbackResumesRun(run.Status) {
 		return
 	}
+	fromStatus := run.Status
 	if err := st.AppendEvent(run.Ref(), model.NewStatusEvent(model.StatusRunning)); err != nil { // nosemgrep: run-status-write-surface
 		s.logger.Printf("%s#%s: failed to mark run running after feedback: %v", run.IssueID, run.RunID, err)
 		return
@@ -2980,7 +2987,16 @@ func (s *SocketServer) markRunFeedbackSent(st store.Store, run *model.Run) {
 	if s.onRunFeedback != nil {
 		s.onRunFeedback(run)
 	}
-	fromProto, err := modelStatusToProto(run.Status)
+	if s.onStatusChange != nil {
+		s.onStatusChange(&runevents.StatusChangeEvent{
+			Run:    run,
+			From:   fromStatus,
+			To:     model.StatusRunning,
+			Source: model.EventSourceUser,
+			Store:  st,
+		})
+	}
+	fromProto, err := modelStatusToProto(fromStatus)
 	if err != nil {
 		panic(err)
 	}

@@ -187,7 +187,6 @@ func (d *Daemon) applyStep(run *model.Run, st store.Store, state *RunState, obs 
 // is a shell-loop concern (applyGoneObservation) and is skipped here.
 func (d *Daemon) applyRunEffects(run *model.Run, st store.Store, oldCore, core runCore, effects []runEffect) (runCore, error) {
 	var firstErr error
-	statusWriteFailed := false
 	for _, e := range effects {
 		switch e.Kind {
 		case effectLog:
@@ -206,25 +205,11 @@ func (d *Daemon) applyRunEffects(run *model.Run, st store.Store, oldCore, core r
 				return core, err
 			}
 		case effectSetStatus:
-			if err := d.updateStatus(run, e.Status, e.Reason, st); err != nil {
-				statusWriteFailed = true
+			if err := d.updateStatus(run, e.Status, e.Reason, st, e.Output); err != nil {
 				if firstErr == nil {
 					firstErr = err
 				}
 			}
-		case effectFireStatusChange:
-			if statusWriteFailed {
-				continue
-			}
-			d.fireStatusChange(&runevents.StatusChangeEvent{
-				Run:        run,
-				From:       e.From,
-				To:         e.Status,
-				Reason:     e.Reason,
-				Source:     model.EventSourceDaemon,
-				LastOutput: e.Output,
-				Store:      st,
-			})
 		case effectGatherGitEvidence:
 			// handled by applyGoneObservation
 		}
@@ -513,7 +498,8 @@ func isConnectionRefusedError(err error) bool {
 // terminal protection, transition legality, and the same-status no-op.
 // reason, when non-empty, is recorded on the status event as the
 // machine-readable verdict reason (model.AttrStatusReason).
-func (d *Daemon) updateStatus(run *model.Run, status model.Status, reason string, st store.Store) error {
+// lastOutput rides along as the listener notification payload.
+func (d *Daemon) updateStatus(run *model.Run, status model.Status, reason string, st store.Store, lastOutput string) error {
 	ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
 
 	// Check current status - daemon cannot overwrite terminal states
@@ -562,6 +548,16 @@ func (d *Daemon) updateStatus(run *model.Run, status model.Status, reason string
 			}
 		}
 	}
+
+	d.fireStatusChange(&runevents.StatusChangeEvent{
+		Run:        run,
+		From:       fromStatus,
+		To:         status,
+		Reason:     reason,
+		Source:     model.EventSourceDaemon,
+		LastOutput: lastOutput,
+		Store:      st,
+	})
 
 	return nil
 }

@@ -122,9 +122,14 @@ A1 の whitelist がフェーズの進捗メーター(縮んで空になった�
   (推奨: local も grace 後 `unknown`)。L3 を改定し test 更新。
 
 ### C4. I8 — fireStatusChange の全遷移発火【codex】
-- 通知発火を step の効果実行器に移し、O4 経路だけでなく
-  すべての遷移で listener が発火することを test 化。B 完了後は自然に
-  落ちてくる作業。
+- 実装済み(2026-06-12, inv-fire-status-change-all): 通知発火を
+  O4 固有効果から W1 commit point (`Daemon.updateStatus`) に移し、
+  append 成功後に一回だけ listener が発火することを test 化。
+  PR close / dead verdict / agent inference / duplicate no-op / append 失敗を
+  検証対象に含める。
+- W6 feedback resume は v2 統合までの橋渡しとして legacy append 成功後に
+  同じ listener fanout を呼ぶ。W2–W5/W8 は Phase B/v2 の書き込み面統合で
+  W1/O7/O8 に吸収する。
 
 ### C5. I5 — PR artifact dedup の永続化【C1 から従属】
 - `PRRecorded` を event log からの導出に置き換え(C1 の系)。
