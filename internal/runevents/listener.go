@@ -24,6 +24,7 @@ type StatusChangeEvent struct {
 	Run        *model.Run
 	From       model.Status
 	To         model.Status
+	Reason     string // machine-readable verdict reason (model.AttrStatusReason); may be empty
 	Source     model.EventSource
 	LastOutput string
 	Store      store.Store

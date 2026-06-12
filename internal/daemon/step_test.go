@@ -341,6 +341,64 @@ func TestStepNeverAliveVerdictAfterGrace(t *testing.T) {
 	}
 }
 
+// Status-reason payload (run-state-machine.md §5 "Status reasons"): every
+// unknown verdict emitted by step() carries a machine-readable reason.
+func TestStepUnknownVerdictsCarryReason(t *testing.T) {
+	now := time.Now()
+	startedAt := now.Add(-2 * neverAliveVerdictGrace)
+
+	unknownReason := func(view runView, core runCore, remote bool) string {
+		t.Helper()
+		for i := 0; i < deadChecksBeforeFailed+1; i++ {
+			var effects []runEffect
+			core, effects = stepRun(view, core, runObservation{Kind: obsSessionGone, Remote: remote}, now)
+			if reason, ok := unknownReasonOf(effects); ok {
+				return reason
+			}
+			view = foldStatus(view, effects)
+			if effectsContain(effects, effectGatherGitEvidence) {
+				core, effects = stepRun(view, core, runObservation{Kind: obsGitEvidence, Remote: remote, Evidence: gitEvidence{RepoRootFound: true}}, now)
+				if reason, ok := unknownReasonOf(effects); ok {
+					return reason
+				}
+				view = foldStatus(view, effects)
+			}
+		}
+		t.Fatalf("no unknown verdict emitted (remote=%t agent=%s)", remote, view.Agent)
+		return ""
+	}
+
+	// L3' never-alive arms, both planes.
+	if got := unknownReason(stepTestView(model.StatusBooting, "codex", startedAt), runCore{}, true); got != model.StatusReasonNeverAlive {
+		t.Fatalf("remote never-alive reason = %q, want %q", got, model.StatusReasonNeverAlive)
+	}
+	if got := unknownReason(stepTestView(model.StatusBooting, "codex", startedAt), runCore{}, false); got != model.StatusReasonNeverAlive {
+		t.Fatalf("local never-alive reason = %q, want %q", got, model.StatusReasonNeverAlive)
+	}
+
+	// opencode session-lost arm (was alive, local plane).
+	if got := unknownReason(stepTestView(model.StatusRunning, "opencode", startedAt), runCore{WasAlive: true}, false); got != model.StatusReasonSessionLost {
+		t.Fatalf("opencode session-lost reason = %q, want %q", got, model.StatusReasonSessionLost)
+	}
+
+	// Capture verdict: agent exited, shell prompt showing.
+	status, reason := agentVerdict(stepTestView(model.StatusRunning, "codex", startedAt), agentSignal{Exited: true}, false, false)
+	if status != model.StatusUnknown || reason != model.StatusReasonAgentExited {
+		t.Fatalf("exited verdict = (%s, %q), want (unknown, %q)", status, reason, model.StatusReasonAgentExited)
+	}
+}
+
+// unknownReasonOf returns the Reason of the first effectSetStatus carrying
+// StatusUnknown, if any.
+func unknownReasonOf(effects []runEffect) (string, bool) {
+	for _, e := range effects {
+		if e.Kind == effectSetStatus && e.Status == model.StatusUnknown {
+			return e.Reason, true
+		}
+	}
+	return "", false
+}
+
 // D-C1 (run-state-machine.md §7): the fold-derivable runCore fields are
 // reconstructed from the event log at monitor registration; the ephemeral
 // counters start at zero.

@@ -188,6 +188,7 @@ type runEffect struct {
 	PRURL  string       // effectRecordPR / effectRecordPRClosed
 	Output string       // effectFireStatusChange
 	Msg    string       // effectLog / effectDebugLog
+	Reason string       // effectSetStatus / effectFireStatusChange: machine-readable verdict reason
 }
 
 func logEffect(format string, args ...interface{}) runEffect {
@@ -200,6 +201,12 @@ func debugEffect(format string, args ...interface{}) runEffect {
 
 func setStatusEffect(status model.Status) runEffect {
 	return runEffect{Kind: effectSetStatus, Status: status}
+}
+
+// setStatusReasonEffect is setStatusEffect with a machine-readable reason
+// attached to the resulting status event (model.AttrStatusReason).
+func setStatusReasonEffect(status model.Status, reason string) runEffect {
+	return runEffect{Kind: effectSetStatus, Status: status, Reason: reason}
 }
 
 // stepRun is the single transition function for the monitor plane:
@@ -328,7 +335,7 @@ func stepGitEvidence(view runView, core runCore, obs runObservation, now time.Ti
 			if view.Status != model.StatusUnknown {
 				effects = append(effects, logEffect("%s#%s: remote agent never confirmed alive after %d checks, marking unknown", view.IssueID, view.RunID, core.DeadCheckCount))
 			}
-			effects = append(effects, setStatusEffect(model.StatusUnknown))
+			effects = append(effects, setStatusReasonEffect(model.StatusUnknown, model.StatusReasonNeverAlive))
 			return core, effects
 		}
 		effects = append(effects, logEffect("%s#%s: remote agent confirmed dead after %d checks, marking failed", view.IssueID, view.RunID, core.DeadCheckCount))
@@ -352,13 +359,13 @@ func stepGitEvidence(view runView, core runCore, obs runObservation, now time.Ti
 		if view.Status != model.StatusUnknown {
 			effects = append(effects, logEffect("%s#%s: agent never confirmed alive after %d checks, marking unknown", view.IssueID, view.RunID, core.DeadCheckCount))
 		}
-		effects = append(effects, setStatusEffect(model.StatusUnknown))
+		effects = append(effects, setStatusReasonEffect(model.StatusUnknown, model.StatusReasonNeverAlive))
 		return core, effects
 	}
 
 	if view.Agent == "opencode" {
 		effects = append(effects, logEffect("%s#%s: opencode session not found after %d checks, marking unknown", view.IssueID, view.RunID, core.DeadCheckCount))
-		effects = append(effects, setStatusEffect(model.StatusUnknown))
+		effects = append(effects, setStatusReasonEffect(model.StatusUnknown, model.StatusReasonSessionLost))
 		return core, effects
 	}
 	effects = append(effects, logEffect("%s#%s: agent confirmed dead after %d checks, marking failed", view.IssueID, view.RunID, core.DeadCheckCount))
@@ -465,12 +472,12 @@ func stepCaptured(view runView, core runCore, obs runObservation, now time.Time)
 		return core, effects
 	}
 
-	newStatus := agentVerdict(view, obs.Signal, outputChanged, hasStablePrompt)
+	newStatus, reason := agentVerdict(view, obs.Signal, outputChanged, hasStablePrompt)
 	if newStatus != "" && newStatus != view.Status {
 		effects = append(effects,
 			logEffect("%s#%s: status change %s -> %s", view.IssueID, view.RunID, view.Status, newStatus),
-			setStatusEffect(newStatus),
-			runEffect{Kind: effectFireStatusChange, From: view.Status, Status: newStatus, Output: obs.Output},
+			setStatusReasonEffect(newStatus, reason),
+			runEffect{Kind: effectFireStatusChange, From: view.Status, Status: newStatus, Output: obs.Output, Reason: reason},
 		)
 	}
 
@@ -480,25 +487,27 @@ func stepCaptured(view runView, core runCore, obs runObservation, now time.Time)
 // agentVerdict applies the agent-specific reading of a captured output. For
 // resolved signals (opencode) the gatherer already produced the verdict; for
 // mux agents the historical MuxManager.GetStatus precedence applies.
-func agentVerdict(view runView, sig agentSignal, outputChanged, hasStablePrompt bool) model.Status {
+// The second return value is the machine-readable reason for the verdict
+// (model.AttrStatusReason); empty for self-explanatory statuses.
+func agentVerdict(view runView, sig agentSignal, outputChanged, hasStablePrompt bool) (model.Status, string) {
 	if sig.Resolved {
-		return sig.Status
+		return sig.Status, ""
 	}
 	switch {
 	case sig.Exited:
-		return model.StatusUnknown
+		return model.StatusUnknown, model.StatusReasonAgentExited
 	case sig.Completed:
-		return model.StatusDone
+		return model.StatusDone, ""
 	case sig.APILimited:
-		return model.StatusRateLimited
+		return model.StatusRateLimited, ""
 	case sig.Failed:
-		return model.StatusFailed
+		return model.StatusFailed, ""
 	case hasStablePrompt:
-		return model.StatusWaiting
+		return model.StatusWaiting, ""
 	case outputChanged:
-		return model.StatusRunning
+		return model.StatusRunning, ""
 	default:
-		return ""
+		return "", ""
 	}
 }
 

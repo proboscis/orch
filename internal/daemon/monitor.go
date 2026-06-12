@@ -206,7 +206,7 @@ func (d *Daemon) applyRunEffects(run *model.Run, st store.Store, oldCore, core r
 				return core, err
 			}
 		case effectSetStatus:
-			if err := d.updateStatus(run, e.Status, st); err != nil {
+			if err := d.updateStatus(run, e.Status, e.Reason, st); err != nil {
 				statusWriteFailed = true
 				if firstErr == nil {
 					firstErr = err
@@ -220,6 +220,7 @@ func (d *Daemon) applyRunEffects(run *model.Run, st store.Store, oldCore, core r
 				Run:        run,
 				From:       e.From,
 				To:         e.Status,
+				Reason:     e.Reason,
 				Source:     model.EventSourceDaemon,
 				LastOutput: e.Output,
 				Store:      st,
@@ -510,7 +511,9 @@ func isConnectionRefusedError(err error) bool {
 // updateStatus is the single executor for status transitions (effectSetStatus).
 // It re-checks the authoritative store state beneath the stepRun matrix:
 // terminal protection, transition legality, and the same-status no-op.
-func (d *Daemon) updateStatus(run *model.Run, status model.Status, st store.Store) error {
+// reason, when non-empty, is recorded on the status event as the
+// machine-readable verdict reason (model.AttrStatusReason).
+func (d *Daemon) updateStatus(run *model.Run, status model.Status, reason string, st store.Store) error {
 	ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
 
 	// Check current status - daemon cannot overwrite terminal states
@@ -534,7 +537,7 @@ func (d *Daemon) updateStatus(run *model.Run, status model.Status, st store.Stor
 	// (docs/design/run-state-machine.md). All other status writers are
 	// frozen legacy, enumerated by `nosemgrep: run-status-write-surface`
 	// annotations, and shrink toward zero (coupling-core roadmap Phase B).
-	event := model.NewStatusEvent(status) // nosemgrep: run-status-write-surface
+	event := model.NewStatusEventWithReason(status, reason) // nosemgrep: run-status-write-surface
 	if err := st.AppendEvent(ref, event); err != nil {
 		return err
 	}

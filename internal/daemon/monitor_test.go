@@ -134,6 +134,7 @@ type mockStoreForUpdate struct {
 		status  model.IssueStatus
 	}
 	appendEventCalls int
+	lastAppendedEvent *model.Event
 }
 
 func (m *mockStoreForUpdate) ResolveIssue(issueID model.IssueID) (*model.Issue, error) {
@@ -153,6 +154,7 @@ func (m *mockStoreForUpdate) SetIssueStatus(issueID model.IssueID, status model.
 
 func (m *mockStoreForUpdate) AppendEvent(ref *model.RunRef, event *model.Event) error {
 	m.appendEventCalls++
+	m.lastAppendedEvent = event
 	return m.appendEventErr
 }
 
@@ -194,18 +196,50 @@ func TestUpdateStatusSameStatusIsNoOp(t *testing.T) {
 		run:                run,
 	}
 
-	if err := d.updateStatus(run, model.StatusUnknown, st); err != nil {
+	if err := d.updateStatus(run, model.StatusUnknown, "", st); err != nil {
 		t.Fatalf("updateStatus() error = %v", err)
 	}
 	if st.appendEventCalls != 0 {
 		t.Fatalf("re-affirming the current status must not append events, got %d", st.appendEventCalls)
 	}
 
-	if err := d.updateStatus(run, model.StatusPROpen, st); err != nil {
+	if err := d.updateStatus(run, model.StatusPROpen, "", st); err != nil {
 		t.Fatalf("updateStatus() error = %v", err)
 	}
 	if st.appendEventCalls != 1 {
 		t.Fatalf("expected a real transition to append one event, got %d", st.appendEventCalls)
+	}
+}
+
+// updateStatus persists the verdict reason as the status event's
+// model.AttrStatusReason attribute (run-state-machine.md §5 "Status reasons").
+func TestUpdateStatusPersistsReason(t *testing.T) {
+	d := newTestDaemon()
+	run := &model.Run{IssueID: "i1", RunID: "r1", Status: model.StatusRunning}
+	st := &mockStoreWithRun{
+		mockStoreForUpdate: mockStoreForUpdate{issue: &model.Issue{ID: "i1", Status: model.IssueStatusOpen}},
+		run:                run,
+	}
+
+	if err := d.updateStatus(run, model.StatusUnknown, model.StatusReasonNeverAlive, st); err != nil {
+		t.Fatalf("updateStatus() error = %v", err)
+	}
+	ev := st.lastAppendedEvent
+	if ev == nil || ev.Type != model.EventTypeStatus {
+		t.Fatalf("expected a status event append, got %+v", ev)
+	}
+	if got := ev.Attrs[model.AttrStatusReason]; got != model.StatusReasonNeverAlive {
+		t.Fatalf("status event reason = %q, want %q", got, model.StatusReasonNeverAlive)
+	}
+
+	// An empty reason must not introduce an attrs map entry.
+	run2 := &model.Run{IssueID: "i1", RunID: "r2", Status: model.StatusRunning}
+	st.run = run2
+	if err := d.updateStatus(run2, model.StatusWaiting, "", st); err != nil {
+		t.Fatalf("updateStatus() error = %v", err)
+	}
+	if _, ok := st.lastAppendedEvent.Attrs[model.AttrStatusReason]; ok {
+		t.Fatalf("empty reason must not write a reason attribute, got %+v", st.lastAppendedEvent.Attrs)
 	}
 }
 
@@ -298,7 +332,7 @@ func TestUpdateStatusAutoResolve(t *testing.T) {
 			}
 			run := &model.Run{IssueID: "test-issue", RunID: "run-1"}
 
-			err := d.updateStatus(run, tt.status, st)
+			err := d.updateStatus(run, tt.status, "", st)
 			if err != nil {
 				t.Fatalf("updateStatus() error = %v", err)
 			}
@@ -327,7 +361,7 @@ func TestUpdateStatusSetIssueStatusErrorSwallowed(t *testing.T) {
 	}
 	run := &model.Run{IssueID: "test-issue", RunID: "run-1"}
 
-	err := d.updateStatus(run, model.StatusDone, st)
+	err := d.updateStatus(run, model.StatusDone, "", st)
 	if err != nil {
 		t.Fatalf("updateStatus() should not fail when SetIssueStatus fails, got error = %v", err)
 	}
@@ -344,7 +378,7 @@ func TestUpdateStatusAppendEventError(t *testing.T) {
 	}
 	run := &model.Run{IssueID: "test-issue", RunID: "run-1"}
 
-	err := d.updateStatus(run, model.StatusDone, st)
+	err := d.updateStatus(run, model.StatusDone, "", st)
 	if err == nil {
 		t.Fatal("updateStatus() should fail when AppendEvent fails")
 	}

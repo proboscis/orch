@@ -2,6 +2,7 @@ rules:
   - id: run-status-write-surface
     pattern-either:
       - pattern: model.NewStatusEvent(...)
+      - pattern: model.NewStatusEventWithReason(...)
       - pattern: model.NewEvent(model.EventTypeStatus, ...)
       - pattern: model.NewEvent("status", ...)
       - pattern-regex: 'Type:\s*"status"'
@@ -31,6 +32,7 @@ rules:
   - id: no-ignored-status-append
     pattern-either:
       - pattern: _ = $ST.AppendEvent($REF, model.NewStatusEvent(...))
+      - pattern: _ = $ST.AppendEvent($REF, model.NewStatusEventWithReason(...))
       - pattern: _ = $ST.AppendEvent($REF, model.NewEvent(model.EventTypeStatus, ...))
       - pattern: _, _ = $API.AppendEvent(...)
     paths:
