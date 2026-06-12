@@ -104,6 +104,11 @@ const (
 	// obsGitEvidence is the response to effectGatherGitEvidence: the raw
 	// PR/git facts needed for a dead-session verdict.
 	obsGitEvidence
+	// obsLaunchProgress reports a launch-ladder milestone or bootstrap
+	// failure (O8). The bootstrap shells (socket.go start/continue handlers)
+	// stay imperative, but every status transition they used to write
+	// directly is decided here instead (run-state-machine.md §7 D-B1).
+	obsLaunchProgress
 )
 
 // agentSignal is the agent-specific reading of a captured output, gathered
@@ -137,6 +142,53 @@ type gitEvidence struct {
 	HasUncommitted  bool
 }
 
+// launchStage is the launch-ladder milestone vocabulary (O8). The stages are
+// facts about how far the bootstrap got; mapping a stage to a run status is
+// transition policy and lives in stepLaunchProgress, not at the call sites.
+type launchStage int
+
+const (
+	// stageRunCreated: the run record was created (or re-targeted by a
+	// continue) and the launch was accepted.
+	stageRunCreated launchStage = iota
+	// stageLaunchReady: the agent launch command is fully resolved and the
+	// imperative bootstrap (multiplexer, server, session) is about to run.
+	stageLaunchReady
+	// stageWorkspaceOnly: the workspace (run record, worktree, branch,
+	// prompt file) was prepared and, by request (NoSession), no multiplexer
+	// session or agent was launched. The run still counts as running: the
+	// monitor plane owns it from here.
+	stageWorkspaceOnly
+	// stageAgentStarted: the session exists and the initial prompt was
+	// handed to the agent.
+	stageAgentStarted
+)
+
+// launchSignal is one O8 observation: either a milestone reached or a
+// bootstrap failure. Step is the machine-readable name of the failed
+// bootstrap step; it becomes the status reason `launch_<step>`. Err is the
+// human-readable detail, recorded as an error artifact.
+type launchSignal struct {
+	Stage  launchStage
+	Failed bool
+	Step   string
+	Err    string
+}
+
+// launchReached builds the milestone form of a launch observation.
+func launchReached(stage launchStage) launchSignal {
+	return launchSignal{Stage: stage}
+}
+
+// launchFailed builds the failure form of a launch observation.
+func launchFailed(step string, err error) launchSignal {
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	return launchSignal{Failed: true, Step: step, Err: msg}
+}
+
 type runObservation struct {
 	Kind obsKind
 
@@ -154,6 +206,9 @@ type runObservation struct {
 
 	// obsGitEvidence
 	Evidence gitEvidence
+
+	// obsLaunchProgress
+	Launch launchSignal
 }
 
 type effectKind int
@@ -172,6 +227,10 @@ const (
 	// it back as an obsGitEvidence observation. The policy decides when
 	// evidence is needed; the shell never does.
 	effectGatherGitEvidence
+	// effectRecordError appends an error artifact (Msg carries the detail).
+	// Emitted before the failed-status effect so the artifact order matches
+	// the historical ladder behavior.
+	effectRecordError
 	// effectLog / effectDebugLog emit an operator log line.
 	effectLog
 	effectDebugLog
@@ -238,9 +297,68 @@ func stepRun(view runView, core runCore, obs runObservation, now time.Time) (run
 		return stepCaptured(view, core, obs, now)
 	case obsGitEvidence:
 		return stepGitEvidence(view, core, obs, now)
+	case obsLaunchProgress:
+		return stepLaunchProgress(view, core, obs)
 	default:
 		return core, nil
 	}
+}
+
+// stepLaunchProgress decides the launch-plane transitions (O8):
+//
+//	stageRunCreated    → queued
+//	stageLaunchReady   → booting
+//	stageWorkspaceOnly → running
+//	stageAgentStarted  → running
+//	failure            → failed (reason launch_<step>, error artifact first)
+//
+// The policy depends only on view.Status and the signal — never on the
+// monitor core, which the launch shells do not hold. Terminal views never
+// reach here (L4 guard in stepRun): a (re)launch against a terminal run
+// leaves the fold untouched, matching the store-level guard that already
+// rejected those appends. Re-affirming the current status emits nothing
+// (L1a), so the implicit initial `queued` (the fold default) is never
+// duplicated as an event.
+func stepLaunchProgress(view runView, core runCore, obs runObservation) (runCore, []runEffect) {
+	sig := obs.Launch
+
+	if sig.Failed {
+		step := sig.Step
+		if step == "" {
+			step = "bootstrap"
+		}
+		var effects []runEffect
+		if sig.Err != "" {
+			effects = append(effects, runEffect{Kind: effectRecordError, Msg: sig.Err})
+		}
+		effects = append(effects,
+			setStatusReasonEffect(model.StatusFailed, launchFailureReason(step)),
+			logEffect("%s#%s: launch failed at %s: %s", view.IssueID, view.RunID, step, sig.Err),
+		)
+		return core, effects
+	}
+
+	var target model.Status
+	switch sig.Stage {
+	case stageRunCreated:
+		target = model.StatusQueued
+	case stageLaunchReady:
+		target = model.StatusBooting
+	case stageWorkspaceOnly, stageAgentStarted:
+		target = model.StatusRunning
+	default:
+		return core, nil
+	}
+	if target == view.Status {
+		return core, nil
+	}
+	return core, []runEffect{setStatusEffect(target)}
+}
+
+// launchFailureReason is the machine-readable reason family for launch
+// failures: `launch_<step>` (run-state-machine.md §5 status reasons).
+func launchFailureReason(step string) string {
+	return "launch_" + step
 }
 
 func stepPRState(view runView, core runCore, obs runObservation) (runCore, []runEffect) {
