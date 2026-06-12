@@ -591,7 +591,9 @@ func (m *Monitor) StopRun(run *model.Run) error {
 
 	ctx := context.Background()
 	ref := orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}
-	_, err := m.api.AppendEvent(ctx, ref, &orchapi.Event{Type: "status", Name: string(model.StatusCanceled)})
+	// Frozen client-plane status writer: scheduled to become a daemon API
+	// verb (coupling-core roadmap Phase B3). Do not copy this pattern.
+	_, err := m.api.AppendEvent(ctx, ref, &orchapi.Event{Type: "status", Name: string(model.StatusCanceled)}) // nosemgrep: run-status-write-surface
 	return err
 }
 
@@ -746,7 +748,9 @@ func (m *Monitor) ResolveRun(run *model.Run) error {
 	ref := orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}
 
 	if !run.Status.IsTerminal() {
-		if _, err := m.api.AppendEvent(ctx, ref, &orchapi.Event{Type: "status", Name: string(model.StatusDone)}); err != nil {
+		// Frozen client-plane status writer: scheduled to become a daemon API
+		// verb (coupling-core roadmap Phase B3). Do not copy this pattern.
+		if _, err := m.api.AppendEvent(ctx, ref, &orchapi.Event{Type: "status", Name: string(model.StatusDone)}); err != nil { // nosemgrep: run-status-write-surface
 			return fmt.Errorf("failed to mark run as done: %w", err)
 		}
 	}

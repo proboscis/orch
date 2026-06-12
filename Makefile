@@ -83,6 +83,7 @@ test-compile:
 lint: lint-fixtures
 	@test -x "$(SEMGREP)" || uv tool install semgrep
 	$(SEMGREP) test .semgrep/typed-id-rules
+	$(SEMGREP) test .semgrep/run-status-write-surface
 	$(SEMGREP) --error --config .semgrep/ ./internal/ --exclude='*_test.go'
 	$(MAKE) -C orch-monitor-tui lint
 	$(MAKE) -C orch-monitor-tui lint-test

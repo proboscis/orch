@@ -203,8 +203,10 @@ func repairStaleRunsAPI(ctx context.Context, api orchapi.OrchAPI, opts *repairOp
 		}
 
 		ref := orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}
+		// Frozen client-plane status writer: scheduled to become a daemon API
+		// verb (coupling-core roadmap Phase B3). Do not copy this pattern.
 		event := &orchapi.Event{
-			Type: "status",
+			Type: "status", // nosemgrep: run-status-write-surface
 			Name: string(newStatus),
 		}
 		if _, err := api.AppendEvent(ctx, ref, event); err != nil {

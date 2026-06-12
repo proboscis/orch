@@ -41,6 +41,53 @@ Examples:
 - Bad: `orch send` reports success when the remote control path was never reached.
 - Good: `orch send` fails with the exact host/session/opencode error and the next diagnostic step.
 
+### Coupling Cores and Change Routing
+
+Some clusters of design decisions in this codebase are mutually constraining:
+changing one silently invalidates the others' premises. These coupling cores
+are inventoried in [docs/design/coupling-core-roadmap.md](docs/design/coupling-core-roadmap.md)
+(the watchlist table). The run-status transition core is specified in
+[docs/design/run-state-machine.md](docs/design/run-state-machine.md).
+
+**Routing rule.** Work that touches a core goes to a frontier model plus a
+human reviewer, and ships its law/spec/invariant revision in the same change
+set. Work outside the cores can be delegated to sub-frontier agents as a
+verified issue. Core surfaces today:
+
+- `internal/daemon/step.go`, `internal/daemon/monitor.go` (transition policy
+  and its executor)
+- `internal/daemon/socket.go`, `internal/daemon/proto_handler.go` launch
+  ladders (frozen status writers, Phase B consolidation)
+- `internal/daemon/worker_plane.go` (worker lease ownership and heartbeats)
+- `internal/model/event.go`, `internal/model/run.go` (event fold = store of
+  record)
+
+**Status write surface.** Run status events are appended in exactly one
+sanctioned place: `Daemon.updateStatus`. The semgrep rule
+`run-status-write-surface` enforces this; the `nosemgrep` annotations on
+existing writers are frozen legacy and may only shrink. Never add a new
+writer or a new `nosemgrep` annotation — extend `step()` with a new
+observation or effect instead.
+
+**Tripwire checklist for reviewing delegated PRs.** Any single hit means
+stop and re-route to frontier + human:
+
+- a new ID type for something that previously had no identity
+- a new registry / lookup side-table mapping an id to a live object
+- a shared mutable flag synchronizing two copies of state
+- a clone/copy of something conceptually move-only or single-owner
+- a cache or accumulated field mirroring live state
+- a "keep in sync" comment between two representations
+- a new `nosemgrep` annotation on any architecture rule
+
+**Choice-space gate.** Do not delegate work near a core until the choice
+space is closed: enumerate the options as explicit equations/laws and fill
+the spec holes first. A delegate fills any open classification space with
+the cheapest compliant answer.
+
+**Burn-in loop.** When the same review comment repeats about three times,
+encode it as a semgrep rule or convention here instead of repeating it.
+
 ## Working with Conflicting PRs
 
 When your PR has conflicts with main after other PRs are merged:
