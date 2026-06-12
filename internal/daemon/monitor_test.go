@@ -772,6 +772,37 @@ func (m *mockStoreRecordingEvents) AppendEvent(ref *model.RunRef, event *model.E
 	return m.mockStoreForUpdate.AppendEvent(ref, event)
 }
 
+type mockStoreForMonitorAll struct {
+	mockStoreRecordingEvents
+	listRunsFilters []*store.ListRunsFilter
+}
+
+func (m *mockStoreForMonitorAll) ListRuns(filter *store.ListRunsFilter) ([]*model.Run, error) {
+	if filter == nil {
+		filter = &store.ListRunsFilter{}
+	}
+	filterCopy := *filter
+	filterCopy.Status = append([]model.Status(nil), filter.Status...)
+	m.listRunsFilters = append(m.listRunsFilters, &filterCopy)
+
+	if m.run == nil {
+		return nil, nil
+	}
+	if len(filter.Status) > 0 && !statusListContains(filter.Status, m.run.Status) {
+		return nil, nil
+	}
+	return []*model.Run{m.run}, nil
+}
+
+func statusListContains(statuses []model.Status, status model.Status) bool {
+	for _, candidate := range statuses {
+		if candidate == status {
+			return true
+		}
+	}
+	return false
+}
+
 func newRemoteTestRun(status model.Status) *model.Run {
 	return &model.Run{
 		IssueID:        "ISSUE-REMOTE-1",
@@ -783,6 +814,84 @@ func newRemoteTestRun(status model.Status) *model.Run {
 		TargetWorkerID: "host-CA-1",
 		SessionName:    "run-ISSUE-REMOTE-1-run-1",
 		Multiplexer:    "tmux",
+	}
+}
+
+func TestMonitorAllObservesQueuedNeverAliveRun(t *testing.T) {
+	cases := []struct {
+		name        string
+		startedAt   time.Time
+		wantUnknown bool
+	}{
+		{
+			name:      "inside grace",
+			startedAt: time.Now(),
+		},
+		{
+			name:        "after grace",
+			startedAt:   time.Now().Add(-2 * neverAliveVerdictGrace),
+			wantUnknown: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newTestDaemon()
+			d.socketServer = NewSocketServer(func(string) (store.Store, error) {
+				return nil, nil
+			}, d.logger)
+			d.socketServer.currentWorkerID = "host-local"
+
+			run := newRemoteTestRun(model.StatusQueued)
+			run.IssueID = "ISSUE-QUEUED-1"
+			run.RunID = model.RunID("run-" + strings.ReplaceAll(tc.name, " ", "-"))
+			run.StartedAt = tc.startedAt
+			run.Branch = ""
+			run.PRUrl = ""
+
+			st := &mockStoreForMonitorAll{
+				mockStoreRecordingEvents: mockStoreRecordingEvents{
+					mockStoreForUpdate: mockStoreForUpdate{
+						issue: &model.Issue{ID: run.IssueID, Status: model.IssueStatusOpen},
+					},
+					run: run,
+				},
+			}
+			registerRepoContextForTest(t, d.socketServer, "project-queued", "", st)
+
+			captures := 0
+			d.remoteCaptureFn = func(*model.Run, string, string, int) (string, error) {
+				captures++
+				return "", errors.New("session_not_found")
+			}
+
+			for i := 0; i < deadChecksBeforeFailed; i++ {
+				d.monitorAll()
+				if state := d.runStates[run.Ref().String()]; state != nil {
+					state.RemoteCaptureAt = time.Time{}
+				}
+			}
+
+			if len(st.listRunsFilters) == 0 {
+				t.Fatal("monitorAll must list runs from the repo store")
+			}
+			if !statusListContains(st.listRunsFilters[0].Status, model.StatusQueued) {
+				t.Fatalf("monitorAll status filter = %v, want queued included", st.listRunsFilters[0].Status)
+			}
+			if captures != deadChecksBeforeFailed {
+				t.Fatalf("queued run must be observed each dead check, got %d captures want %d", captures, deadChecksBeforeFailed)
+			}
+
+			gotUnknown := false
+			for _, event := range st.events {
+				if event.Type == model.EventTypeStatus && event.Name == string(model.StatusUnknown) {
+					gotUnknown = true
+				}
+			}
+			if gotUnknown != tc.wantUnknown {
+				t.Fatalf("unknown status event = %t, want %t", gotUnknown, tc.wantUnknown)
+			}
+		})
 	}
 }
 
