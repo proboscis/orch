@@ -489,8 +489,10 @@ func (d *Daemon) getOrCreateState(run *model.Run) *RunState {
 	if !ok {
 		state = &RunState{
 			LastCheckAt: time.Now(),
-			// Assume output is fresh when we start tracking
-			runCore: runCore{LastOutputAt: time.Now()},
+			// Fold-derivable core fields come from the event log (D-C1/L7);
+			// ephemeral counters start at zero and re-converge (L1b). Output
+			// freshness is assumed at tracking start.
+			runCore: initialRunCore(run, time.Now()),
 		}
 		d.runStates[key] = state
 	}

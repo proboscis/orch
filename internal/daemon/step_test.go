@@ -311,9 +311,9 @@ func TestStepLawNeverAliveGrace(t *testing.T) {
 	}
 }
 
-// L3 complement: after the grace expires, the remote channel does conclude
-// unknown for a never-alive run with no git evidence, and the local channel
-// still waits (asymmetry documented in run-state-machine.md §3).
+// L3' complement (run-state-machine.md §7 D-C3): after the grace expires,
+// BOTH channels conclude unknown for a never-alive run with no git
+// evidence — v1's pinned local keep-waiting asymmetry is resolved.
 func TestStepNeverAliveVerdictAfterGrace(t *testing.T) {
 	now := time.Now()
 	startedAt := now.Add(-2 * neverAliveVerdictGrace)
@@ -336,8 +336,82 @@ func TestStepNeverAliveVerdictAfterGrace(t *testing.T) {
 	if status, transitioned := run(true); !transitioned || status != model.StatusUnknown {
 		t.Fatalf("remote never-alive after grace: status=%s, want unknown", status)
 	}
-	if _, transitioned := run(false); transitioned {
-		t.Fatalf("local never-alive run must keep waiting for its session (no verdict)")
+	if status, transitioned := run(false); !transitioned || status != model.StatusUnknown {
+		t.Fatalf("local never-alive after grace: status=%s, want unknown", status)
+	}
+}
+
+// D-C1 (run-state-machine.md §7): the fold-derivable runCore fields are
+// reconstructed from the event log at monitor registration; the ephemeral
+// counters start at zero.
+func TestInitialRunCoreDerivation(t *testing.T) {
+	now := time.Now()
+	cases := []struct {
+		name      string
+		events    []*model.Event
+		wantAlive bool
+		wantPRRec bool
+	}{
+		{"empty log", nil, false, false},
+		{"queued and booting only", []*model.Event{
+			model.NewStatusEvent(model.StatusQueued),
+			model.NewStatusEvent(model.StatusBooting),
+		}, false, false},
+		{"reached running", []*model.Event{
+			model.NewStatusEvent(model.StatusQueued),
+			model.NewStatusEvent(model.StatusRunning),
+		}, true, false},
+		{"pr artifact recorded", []*model.Event{
+			model.NewStatusEvent(model.StatusRunning),
+			model.NewArtifactEvent("pr", map[string]string{"url": "https://github.com/o/r/pull/1"}),
+		}, true, true},
+		{"failed while never alive", []*model.Event{
+			model.NewStatusEvent(model.StatusQueued),
+			model.NewStatusEvent(model.StatusFailed),
+		}, false, false},
+	}
+	for _, tc := range cases {
+		run := &model.Run{Events: tc.events}
+		core := initialRunCore(run, now)
+		if core.WasAlive != tc.wantAlive || core.PRRecorded != tc.wantPRRec {
+			t.Fatalf("%s: WasAlive=%t PRRecorded=%t, want %t/%t",
+				tc.name, core.WasAlive, core.PRRecorded, tc.wantAlive, tc.wantPRRec)
+		}
+		if core.DeadCheckCount != 0 || core.PromptStreak != 0 || core.OutputHash != "" {
+			t.Fatalf("%s: ephemeral counters must start at zero", tc.name)
+		}
+		if !core.LastOutputAt.Equal(now) {
+			t.Fatalf("%s: LastOutputAt = %v, want %v", tc.name, core.LastOutputAt, now)
+		}
+	}
+}
+
+// L7 restart transparency (the I2 fix): after a daemon restart, a run whose
+// log shows it was alive folds WasAlive back, so a gone session is judged a
+// real death (failed) rather than a never-alive boot (unknown).
+func TestInitialRunCoreRestoresLivenessAcrossRestart(t *testing.T) {
+	now := time.Now()
+	startedAt := now.Add(-2 * neverAliveVerdictGrace)
+
+	run := &model.Run{Events: []*model.Event{
+		model.NewStatusEvent(model.StatusQueued),
+		model.NewStatusEvent(model.StatusRunning),
+	}}
+	core := initialRunCore(run, now)
+
+	view := stepTestView(model.StatusRunning, "codex", startedAt)
+	var effects []runEffect
+	for i := 0; i < deadChecksBeforeFailed; i++ {
+		core, effects = stepRun(view, core, runObservation{Kind: obsSessionGone}, now)
+		view = foldStatus(view, effects)
+	}
+	if !effectsContain(effects, effectGatherGitEvidence) {
+		t.Fatalf("expected evidence request at the dead-check threshold")
+	}
+	_, effects = stepRun(view, core, runObservation{Kind: obsGitEvidence, Evidence: gitEvidence{RepoRootFound: true}}, now)
+	view = foldStatus(view, effects)
+	if view.Status != model.StatusFailed {
+		t.Fatalf("was-alive run after restart judged %s, want failed", view.Status)
 	}
 }
 

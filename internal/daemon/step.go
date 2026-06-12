@@ -57,6 +57,33 @@ type runCore struct {
 	DeadCheckCount int
 }
 
+// initialRunCore derives the fold-derivable runCore fields from the run's
+// event log (run-state-machine.md §7 D-C1 / L7). WasAlive folds from any
+// alive-implying status event, PRRecorded from an existing pr artifact, so
+// neither survives only in daemon memory (the I2/I5 fix). The remaining
+// counters are ephemeral by law: they reset to zero and re-converge within
+// bounded ticks (L1b), delaying verdicts/debounce but never changing them.
+func initialRunCore(run *model.Run, now time.Time) runCore {
+	core := runCore{LastOutputAt: now}
+	for _, e := range run.Events {
+		if e == nil {
+			continue
+		}
+		switch e.Type {
+		case model.EventTypeStatus:
+			switch model.Status(e.Name) {
+			case model.StatusRunning, model.StatusWaiting, model.StatusRateLimited, model.StatusDone:
+				core.WasAlive = true
+			}
+		case model.EventTypeArtifact:
+			if e.Name == "pr" {
+				core.PRRecorded = true
+			}
+		}
+	}
+	return core
+}
+
 type obsKind int
 
 const (
@@ -310,13 +337,22 @@ func stepGitEvidence(view runView, core runCore, obs runObservation, now time.Ti
 	}
 
 	if !core.WasAlive {
-		// Locally a never-alive run gets no unknown/failed verdict: keep
-		// waiting for the session, with cadence-limited logging.
-		if core.DeadCheckCount <= deadChecksBeforeFailed || core.DeadCheckCount%neverAliveLogEvery == 0 {
-			effects = append(effects, logEffect("%s#%s: agent not alive yet (never confirmed alive), waiting", view.IssueID, view.RunID))
-		} else {
-			effects = append(effects, debugEffect("%s#%s: agent not alive yet (never confirmed alive), waiting", view.IssueID, view.RunID))
+		// L3' (run-state-machine.md §7 D-C3): a never-alive run gets no
+		// verdict within the boot grace; past it, the local plane concludes
+		// unknown exactly like the remote plane, so I7 (a gone session must
+		// eventually produce a verdict) holds locally too.
+		if withinNeverAliveGraceAt(view.StartedAt, now) {
+			if core.DeadCheckCount <= deadChecksBeforeFailed || core.DeadCheckCount%neverAliveLogEvery == 0 {
+				effects = append(effects, logEffect("%s#%s: agent not alive yet (never confirmed alive), waiting", view.IssueID, view.RunID))
+			} else {
+				effects = append(effects, debugEffect("%s#%s: agent not alive yet (never confirmed alive), waiting", view.IssueID, view.RunID))
+			}
+			return core, effects
 		}
+		if view.Status != model.StatusUnknown {
+			effects = append(effects, logEffect("%s#%s: agent never confirmed alive after %d checks, marking unknown", view.IssueID, view.RunID, core.DeadCheckCount))
+		}
+		effects = append(effects, setStatusEffect(model.StatusUnknown))
 		return core, effects
 	}
 
