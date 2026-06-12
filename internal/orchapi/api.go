@@ -101,6 +101,9 @@ type OrchAPI interface {
 	// Sends interrupt to the agent and records cancel status.
 	StopRun(ctx context.Context, ref RunRef) error
 
+	// MarkRunResolved marks a run done when it is non-terminal and resolves its issue.
+	MarkRunResolved(ctx context.Context, ref RunRef) error
+
 	// AppendEvent appends an event to a run's event log.
 	AppendEvent(ctx context.Context, ref RunRef, event *Event) (*AppendEventResult, error)
 

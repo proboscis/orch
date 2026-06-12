@@ -4967,6 +4967,24 @@ func appendRunCanceledByUser(st store.Store, run *model.Run) error {
 	return st.AppendEvent(ref, event)
 }
 
+func appendRunResolvedByUser(st store.Store, run *model.Run) error {
+	if st == nil {
+		return fmt.Errorf("store required")
+	}
+	if run == nil {
+		return fmt.Errorf("run required")
+	}
+	if run.Status == model.StatusDone || run.Status == model.StatusFailed || run.Status == model.StatusCanceled {
+		return nil
+	}
+
+	ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
+	event := model.NewEvent(model.EventTypeStatus, string(model.StatusDone), map[string]string{ // nosemgrep: run-status-write-surface
+		"source": string(model.EventSourceUser),
+	})
+	return st.AppendEvent(ref, event)
+}
+
 func (s *SocketServer) handleResolveIssue(req SendRequest, encoder *json.Encoder) {
 	if req.IssueID == "" {
 		encoder.Encode(ResolveIssueResponse{OK: false, Error: "invalid_request: issue_id required"})

@@ -766,6 +766,11 @@ type StopRunResponse struct {
 	StoppedCount int      `json:"stopped_count"`
 }
 
+type ResolveRunResponse struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
 type ResolveIssueResponse struct {
 	OK      bool   `json:"ok"`
 	Error   string `json:"error,omitempty"`

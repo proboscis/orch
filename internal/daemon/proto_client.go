@@ -772,6 +772,33 @@ func (c *ProtoClient) StopRun(issueID, runID string, force bool) (*StopRunRespon
 	}, nil
 }
 
+func (c *ProtoClient) ResolveRun(issueID, runID string) (*ResolveRunResponse, error) {
+	req := &orchpb.Request{
+		Request: &orchpb.Request_ResolveRun{
+			ResolveRun: &orchpb.ResolveRunRequest{
+				IssueId: issueID,
+				RunId:   runID,
+				Context: c.requestContext(c.projectRoot),
+			},
+		},
+	}
+
+	resp, err := c.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Ok {
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+	}
+
+	if resp.GetResolveRun() == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	return &ResolveRunResponse{OK: true}, nil
+}
+
 func (c *ProtoClient) ResolveIssue(issueID string, force bool) (*ResolveIssueResponse, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_ResolveIssue{

@@ -310,6 +310,15 @@ func (c *DaemonClient) StopRun(ctx context.Context, ref RunRef) error {
 	return err
 }
 
+func (c *DaemonClient) MarkRunResolved(ctx context.Context, ref RunRef) error {
+	run, err := c.ResolveRun(ctx, ref)
+	if err != nil {
+		return err
+	}
+	_, err = c.proto.ResolveRun(string(run.IssueID), string(run.RunID))
+	return err
+}
+
 func (c *DaemonClient) AppendEvent(ctx context.Context, ref RunRef, event *Event) (*AppendEventResult, error) {
 	run, err := c.ResolveRun(ctx, ref)
 	if err != nil {
