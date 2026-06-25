@@ -496,7 +496,7 @@ func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
 
 	// Get tags using YAML-aware parsing (handles multi-line YAML lists)
 	tags := parseTagsFromYAML(yamlFM)
-	status, err := model.ParseIssueStatus(stringFM["status"])
+	status, err := parseFileIssueStatus(stringFM["status"])
 	if err != nil {
 		return nil, err
 	}
@@ -513,6 +513,24 @@ func (s *FileStore) parseIssueFile(path string) (*model.Issue, error) {
 		BaseBranch:  stringFM["base_branch"],
 		Frontmatter: stringFM,
 	}, nil
+}
+
+func parseFileIssueStatus(value string) (model.IssueStatus, error) {
+	status, err := model.ParseIssueStatus(value)
+	if err == nil {
+		return status, nil
+	}
+
+	switch strings.TrimSpace(value) {
+	case "in-progress", "proposed", "reopened":
+		return model.IssueStatusOpen, nil
+	case "done":
+		return model.IssueStatusResolved, nil
+	case "cancelled", "cannot-reproduce", "closed-negative", "closed_negative", "deferred", "deprioritized":
+		return model.IssueStatusClosed, nil
+	default:
+		return "", err
+	}
 }
 
 // parseTags parses tags from frontmatter value.

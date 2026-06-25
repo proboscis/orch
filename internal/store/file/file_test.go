@@ -93,19 +93,31 @@ func TestListIssuesAcceptsLegacyAndEmptyStatuses(t *testing.T) {
 	defer cleanup()
 
 	cases := map[string]model.IssueStatus{
-		"missing":     model.IssueStatusOpen,
-		"empty":       model.IssueStatusOpen,
-		"in-progress": model.IssueStatusOpen,
-		"blocked":     model.IssueStatusOpen,
-		"completed":   model.IssueStatusResolved,
-		"canceled":    model.IssueStatusClosed,
+		"missing":          model.IssueStatusOpen,
+		"empty":            model.IssueStatusOpen,
+		"in_progress":      model.IssueStatusOpen,
+		"in-progress":      model.IssueStatusOpen,
+		"blocked":          model.IssueStatusOpen,
+		"proposed":         model.IssueStatusOpen,
+		"reopened":         model.IssueStatusOpen,
+		"completed":        model.IssueStatusResolved,
+		"done":             model.IssueStatusResolved,
+		"canceled":         model.IssueStatusClosed,
+		"cancelled":        model.IssueStatusClosed,
+		"cannot-reproduce": model.IssueStatusClosed,
+		"closed-negative":  model.IssueStatusClosed,
+		"closed_negative":  model.IssueStatusClosed,
+		"deferred":         model.IssueStatusClosed,
+		"deprioritized":    model.IssueStatusClosed,
 	}
 	createTestIssue(t, vault, "missing", "---\ntype: issue\ntitle: Missing\n---\n# Missing")
 	createTestIssue(t, vault, "empty", "---\ntype: issue\ntitle: Empty\nstatus: \n---\n# Empty")
-	createTestIssue(t, vault, "in-progress", "---\ntype: issue\ntitle: In Progress\nstatus: in_progress\n---\n# In Progress")
-	createTestIssue(t, vault, "blocked", "---\ntype: issue\ntitle: Blocked\nstatus: blocked\n---\n# Blocked")
-	createTestIssue(t, vault, "completed", "---\ntype: issue\ntitle: Completed\nstatus: completed\n---\n# Completed")
-	createTestIssue(t, vault, "canceled", "---\ntype: issue\ntitle: Canceled\nstatus: canceled\n---\n# Canceled")
+	for id := range cases {
+		if id == "missing" || id == "empty" {
+			continue
+		}
+		createTestIssue(t, vault, id, fmt.Sprintf("---\ntype: issue\ntitle: %s\nstatus: %s\n---\n# %s", id, id, id))
+	}
 
 	s, err := New(vault)
 	if err != nil {
@@ -124,6 +136,22 @@ func TestListIssuesAcceptsLegacyAndEmptyStatuses(t *testing.T) {
 		if got[id] != want {
 			t.Fatalf("issue %s status = %q, want %q", id, got[id], want)
 		}
+	}
+}
+
+func TestListIssuesRejectsUnknownIssueStatus(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	createTestIssue(t, vault, "unknown-status", "---\ntype: issue\ntitle: Unknown\nstatus: custom-blocked\n---\n# Unknown")
+
+	s, err := New(vault)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if _, err := s.ListIssues(); err == nil {
+		t.Fatal("ListIssues() error = nil, want unknown issue status error")
 	}
 }
 
