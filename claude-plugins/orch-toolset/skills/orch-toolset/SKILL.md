@@ -6,7 +6,7 @@ description: |
   restart-from, orch worker start/status/stop, orch attach/capture/send/exec, and remote execution
   via ORCH_REMOTE and target_host. Trigger terms: orch, orchestrator, worker, master, ORCH_REMOTE,
   target_host, run management, issue management, agent runs, worktree.
-version: 1.2.0
+version: 1.3.0
 ---
 
 # Orch Toolset
@@ -54,6 +54,41 @@ Important remote rule:
 5. Interact with the live run via `orch capture`, `orch send`, and `orch attach`.
 6. Use `orch stop` only for actually stale or canceled work. Use `orch restart-from` only for
    failed, canceled, or unknown runs. Mark completed work with `orch resolve`.
+
+## Branch Resolution for `orch run` (verified 2026-07-05, doeff)
+
+`orch run` creates the run's worktree branch (`issue/<ID>/run-<RUN_ID>`) from
+`--base-branch` (default: `base_branch` in `.orch/config.yaml`). The critical,
+verified behavior:
+
+- **orch fetches origin and prefers the ORIGIN ref when a branch of that name
+  exists on the remote — even when the local branch in `workspace.root` is
+  ahead.** Observed: local `adr0035-byte-faithful-transport` was at a newer tip
+  with local-only commits; origin had the same branch name at a stale tip; the
+  run's worktree silently came up at the stale origin tip, missing every
+  local-only commit. There is no warning — the run boots and the agent simply
+  finds the files missing. `orch ps` shows `branch_status: diverged`, which is
+  easy to misread as normal.
+- **To base a run on local-only commits, create a local alias branch whose
+  name does NOT exist on origin** and pass that:
+
+  ```bash
+  git -C <workspace.root> branch -f run-base-<topic> <local-tip>
+  orch run <ISSUE> --base-branch run-base-<topic> ...
+  ```
+
+  With no matching origin ref, orch resolves the local ref. Pushing the real
+  branch is NOT the fix when it carries commits that must not be published.
+- **ALWAYS verify the worktree base immediately after dispatch** — before the
+  agent burns tokens on a wrong tree:
+
+  ```bash
+  git -C <worktree_path> log --oneline -1   # must equal the intended base tip
+  ```
+
+- When the base carries unpublished commits, pass `--no-pr` AND state
+  "never push, never open a PR" in the issue body — the default prompt
+  template instructs agents to open PRs, which would publish the base.
 
 ## Run States
 
@@ -137,6 +172,14 @@ Interpretation:
   (worktree created), but the session never launches, and `capture`/`send`/`stop` all fail with
   `no active worker available for target "host-<old-hostname>"`. Fix: update `targets:` in the
   config on the **master host**, then restart the master daemon.
+- **Per-project `.orch/config.yaml` is ALSO a target source and can shadow the fixed global
+  config** (verified 2026-07-05, doeff): the global `~/.config/orch/config.yaml` on the master
+  had the corrected host, but runs for one project still resolved the old hostname because the
+  project checkout's `.orch/config.yaml` `targets:` still carried it. After a host rename, sweep
+  `targets:` in EVERY registered project checkout on the master
+  (`grep -rn "<old-host>" ~/repos/*/.orch/config.yaml`), not just the global config. Unlike the
+  global config (read at daemon startup), the project config is re-read per run — fixing the
+  file takes effect immediately, no daemon restart needed.
 - **Runs created before the fix keep the stale baked host** and cannot even be stopped
   normally. Recovery: temporarily register a worker under the old ID, stop, then remove it:
 
@@ -158,6 +201,141 @@ Interpretation:
   daemon deliberately. `orch repair`'s daemon restart operates on the operator host — restart a
   remote master on its own host (`kill <pid>`, then
   `nohup orch daemon run --listen 0.0.0.0:<port> ...` from the original working directory).
+- **`pkill` self-match footgun when restarting the daemon over ssh** (verified 2026-07-05):
+  `ssh <master> 'pkill -f "orch daemon run"; ...start...'` kills the wrapper `bash -c` itself —
+  its cmdline contains the pattern — so the shell dies before the start half runs. Use a
+  self-safe regex (`pkill -f "orch daemon ru[n]"`) and split kill / start into separate ssh
+  invocations; start with `ssh -f <master> 'nohup ... < /dev/null &'` so it detaches cleanly.
+- **`agent not available: claude` from the worker** means the worker's PATH lacks the agent
+  binary. The worker inherits PATH from the shell that started it; a worker started from a
+  non-interactive ssh shell typically misses `~/.local/bin`. Fix:
+  `orch worker stop`, then `export PATH="$HOME/.local/bin:$PATH"; orch worker start`.
+- **Execution-host toolchain rots silently — verify it before dispatching** (verified
+  2026-07-05, zeus): (a) the claude native-install `~/.local/bin/claude` symlink can dangle
+  after a version GC (`claude --version` via the absolute path is the check; rerun the
+  installer to fix); (b) a missing multiplexer binary (tmux uninstalled) makes the run stick
+  at `running`/ALIVE `no` with the worker log ending right after "Preparing worktree" and
+  `capture` failing `session ... not found` — no explicit error anywhere. Check
+  `tmux -V` / `zellij --version` on the execution host when a run creates a worktree but never
+  opens a session.
+- **File-backend issue store is fail-loud on ANY malformed issue file** (verified
+  2026-07-05, doeff-VAULT): a single file with broken frontmatter YAML (e.g. an unquoted
+  colon in `title:`) or a status outside `open|closed|resolved` (seen: `done`,
+  `in_progress`, `superseded`) makes EVERY `issue list`/`issue create` fail with the opaque
+  `daemon error: store_error`. Diagnosis: the master's `~/Library/Logs/orch/daemon.log`
+  (macOS) names the offending file (`failed to parse issue file ...`). Fix the file; there
+  may be several — repeat until clean, or pre-scan all frontmatter with a YAML parser.
+- **`orch wait` flaps on claude runs**: claude's TUI shows the `❯` input box at every turn
+  boundary, which the status detector reads as `waiting`, so `orch wait` returns while the
+  agent is actively thinking/working. Before acting on a wait return, `orch capture` — a
+  spinner ("thinking…", token counters advancing) means the run is alive; re-arm the wait
+  or poll `orch ps --json` (`.items[] | select(.short_id==...)`) for a genuinely terminal
+  status (`done`/`failed`/`canceled`).
+- **Daemon restart races its own pid lock** (macOS: `~/Library/Caches/orch/run/daemon.lock`):
+  `kill <pid>` followed immediately by `orch daemon run` fails with
+  "daemon already running (pid=<old>)" and exits. Wait 1-2s after the kill before starting.
+  The daemon logs to `~/Library/Logs/orch/daemon.log` regardless of where stdout is
+  redirected — an empty nohup log does not mean it isn't logging.
+- **Worker registration to the daemon's own host over Tailscale can be RST**
+  (verified 2026-07-05, mac master): with the daemon listening on `[::]:7777`,
+  `ORCH_REMOTE=<own-hostname>:7777` resolved to the host's Tailscale IP and the hairpin
+  connection was reset (`worker start` dies with exit status 10, "connection reset by
+  peer"). Register the same-host worker via `ORCH_REMOTE=127.0.0.1:7777` instead — the
+  worker id is derived from the hostname either way, so `--on <target>` still matches.
+
+## Project Mapping — register a new repo on the master (verified 2026-07-03, ACP onboarding)
+
+`no store available for project_id "X" (register daemon project mapping)` or
+`unknown project_id "X"` means the master has no project config for that repo.
+There is **no `orch project` CLI subcommand** — registration is manual file
+placement on the **master host**. THREE pieces are required:
+
+1. **A checkout of the repo on the master host** — this becomes `workspace.root`;
+   runs create worktrees from it. Verify the master host can reach the remote first
+   (`git ls-remote <origin-url> HEAD`).
+2. **`.orch/config.yaml` inside that checkout** — supplies the issue store and run
+   defaults (this is what `LoadFromProjectRoot(workspace.root)` reads; without a
+   loadable config here, store resolution fails with the same "no store" error):
+
+   ```yaml
+   targets:
+     - name: zeus
+       host: zeus
+   agent: codex
+   base_branch: main
+   pr_target_branch: main
+   issues:
+     backend: local
+     path: ~/repos/<repo>-issues     # external dir (doeff-VAULT / orch-issues / acp-issues
+                                     # pattern); in-repo VAULT also works (proboscis-ema)
+   github:
+     owner: <org>
+     repo: <repo>
+   ```
+
+   If `issues.path` is omitted it defaults to `~/.local/share/orch/<owner>-<repo>`.
+   Issue files land under the path's `Issues/` subdir if it already exists
+   (Obsidian convention), else `issues/` is used/created. `.orch/` is typically
+   gitignored — the config stays local to the master checkout.
+3. **`~/.config/orch/projects/<project_id>.yaml` on the master host**:
+
+   ```yaml
+   version: 1
+   project_id: CyberAgentAILab-agent-control-plane
+   display_name: agent-control-plane
+   workspace:
+       root: /home/kento/repos/agent-control-plane
+   ```
+
+   `project_id` is the normalized origin URL, `<org>-<repo>`
+   (`git@github.com:CyberAgentAILab/agent-control-plane.git` →
+   `CyberAgentAILab-agent-control-plane`). `project_id` and `workspace.root` are
+   required; a mapping whose root doesn't exist is silently broken (same "no
+   store available" error even though the yaml is present).
+
+Verified behaviors:
+
+- **No daemon restart needed** — unlike `config.targets` (read at startup only),
+  the project registry is re-read from `~/.config/orch/projects/` on a lookup
+  miss (`ensureRepoStoreByID` → `loadRepoRegistry`). Place the files, then verify.
+- **Verification oracle**: `orch issue list --project <origin URL>` →
+  `No issues found` = mapping works; the "no store available" error = a piece is
+  still missing or `workspace.root` / its `.orch/config.yaml` is broken.
+
+## Claude Profiles for Runs (verified 2026-07-05)
+
+`orch run --agent claude --profile <name>` selects a Claude Code account via
+`CLAUDE_CONFIG_DIR` (Claude Code has no native profile flag). Verified behaviors:
+
+- **Profiles must be declared in the MASTER config** (`~/.config/orch/config.yaml` on the
+  master host) under `claude.profiles`. An undeclared name fails fast:
+  `unknown claude profile "X" (configure it under claude.profiles)` — and with no `claude:`
+  section at all, EVERY `--profile` fails this way. Declaration shape:
+
+  ```yaml
+  claude:
+    profiles:
+      nameissoap:
+        config_dir: ~/.config/claude-nameissoap   # ~ expands on the EXECUTION host
+      cryptic:
+        config_dir: ~/.config/claude-cryptic
+        # optional: target: zeus / allowed_targets: [zeus]
+  ```
+
+- The daemon reads this at startup only — **restart the master daemon after adding profiles**.
+- The resolved profile/model are visible in `orch ps` (`PROFILE` / `MODEL` columns) — verify
+  them there instead of trusting the launch command.
+- **The profile's own hooks run inside the dispatched session.** A `UserPromptSubmit` guard
+  hook in the profile's `settings.json` can block the initial ORCH_PROMPT ("Operation stopped
+  by hook") and park the run at `waiting` forever. Verified: a model-provenance guard plus
+  `"model": "sonnet"` in profile settings deadlocks a fresh session launched with
+  `--model claude-fable-5` (fresh transcripts have no assistant message to verify against).
+  Before dispatching on a profile, check its `settings.json` for hooks and for a `model` key
+  that conflicts with the run's `--model`.
+- **Account billing/allowance state gates the model at first prompt**: e.g. Fable 5 on an
+  account with exhausted allowance shows an interactive "usage credits" dialog and the run
+  parks. This is account state, not an orch failure — resolve on the account (or change
+  model/profile) rather than restarting the run.
 
 ## Model Routing for Runs
 

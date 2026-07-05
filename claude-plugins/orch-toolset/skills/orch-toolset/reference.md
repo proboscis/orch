@@ -84,6 +84,10 @@ Notes:
   `project identity required` against daemon @6b2bceb1.
 - With a remote master and the file backend, the issue file is created on the **master's**
   checkout of the project (e.g. `~/repos/<repo>/VAULT/Issues/ISSUE-X.md` on the master host).
+- `no store available for project_id "X" (register daemon project mapping)` means the repo
+  is not registered on the master — see **Project Mapping** in SKILL.md for the 3-file
+  registration procedure (checkout + `.orch/config.yaml` + `~/.config/orch/projects/<id>.yaml`;
+  no daemon restart needed).
 
 ### `orch issue list`
 
@@ -131,7 +135,7 @@ Useful flags:
 |------|-------------|
 | `--agent` | `claude`, `codex`, `gemini`, `opencode`, `custom` |
 | `--agent-cmd` | Command for `custom` agent |
-| `--base-branch` | Base branch for worktree |
+| `--base-branch` | Base branch for worktree. ⚠ resolves the ORIGIN ref when the name exists on the remote, even if the local branch is ahead — for local-only bases use an alias branch that exists only locally (see SKILL.md「Branch Resolution」) |
 | `--branch` | Explicit branch name |
 | `--model` | OpenCode model (`provider/model`) |
 | `--model-variant` | OpenCode variant (`high`, `max`, etc.) |
