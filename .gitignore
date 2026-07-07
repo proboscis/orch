@@ -2,11 +2,17 @@
 
 # orch run logs (when using repo as vault)
 /runs/
-/.orch/daemon.*
-/.orch/config.yaml
-/.orch/control-session.json
-/.orch/github-cache.db*
-/.orch/monitor-filters.yaml
+
+# Local orch config/runtime files. Keep .orch/config.example.yaml tracked.
+**/.orch/config.yaml
+**/.orch/daemon.*
+**/.orch/*.log
+**/.orch/*.pid
+**/.orch/control-session.json
+**/.orch/github-cache.db*
+**/.orch/cache/
+**/.orch/cache/**
+**/.orch/monitor-filters.yaml
 /.orch_run_index.json
 ORCH_PROMPT.md
 orch

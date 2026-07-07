@@ -1,0 +1,76 @@
+# Copy this file to .orch/config.yaml and edit it for your machine.
+# Keep config.yaml untracked; it contains local paths, host names, and account bindings.
+
+# Default agent for new runs. Valid values include claude, codex, opencode,
+# gemini, and custom.
+agent: codex
+
+# Branch new run branches are created from.
+base_branch: main
+
+# Branch opened pull requests should target by default.
+pr_target_branch: main
+
+# Directory where orch creates per-run git worktrees. Relative paths are
+# resolved from the repository root; absolute paths are also accepted.
+worktree_dir: .git-worktrees
+
+# Issue storage configuration.
+issues:
+  # Backend for issue data. Use local for markdown files, or github for
+  # GitHub Issues integration.
+  backend: local
+  # Path used by the local backend. Replace this with a path that exists on
+  # your machine, or omit it to use orch's default local storage path.
+  path: ~/path/to/orch-issues
+
+# GitHub repository metadata. Required when using the github issues backend
+# and used by PR-related workflows.
+github:
+  # Repository owner or organization.
+  owner: example-owner
+  # Repository name.
+  repo: example-repo
+
+# Execution targets referenced by agent profiles and `orch run --on <target>`.
+# Target names are local aliases; host values should be real hostnames in your
+# environment.
+targets:
+  - name: local-machine
+    host: workstation.example.com
+  - name: remote-worker
+    host: worker.example.com
+
+# Claude Code profile examples. Claude account selection is controlled through
+# CLAUDE_CONFIG_DIR via config_dir.
+claude:
+  # Profile selected when `orch run --agent claude` has no `--profile`.
+  default_profile: default
+  profiles:
+    default:
+      # Run this profile on a configured target. Omit target to run locally.
+      target: local-machine
+      # Restrict where this profile may run. Empty or omitted means any target.
+      allowed_targets: [local-machine]
+      # CLAUDE_CONFIG_DIR on the execution host. Omit to use Claude's default.
+      config_dir: ~/.claude
+    alternate:
+      # Example of a second Claude account/config directory.
+      config_dir: ~/.config/claude-alternate
+
+# Codex profile examples. Codex account selection is controlled through
+# CODEX_HOME via codex_home.
+codex:
+  # Profile selected when no `--codex-profile` is provided.
+  default_profile: default
+  profiles:
+    default:
+      # Run this profile on a configured target. Omit target to run locally.
+      target: local-machine
+      # Restrict where this profile may run. Empty or omitted means any target.
+      allowed_targets: [local-machine]
+      # CODEX_HOME on the execution host. Omit to use Codex's default.
+      codex_home: ~/.codex
+    alternate:
+      # Example of a second Codex account/config directory.
+      codex_home: ~/.codex/profiles/alternate
