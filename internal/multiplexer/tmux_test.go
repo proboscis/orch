@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -155,8 +154,8 @@ func TestTmuxMultiplexer_HasSession(t *testing.T) {
 	if call.name != "tmux" {
 		t.Fatalf("command = %q, want %q", call.name, "tmux")
 	}
-	if !equalArgs(call.args, []string{"has-session", "-t", "demo"}) {
-		t.Fatalf("args = %v, want %v", call.args, []string{"has-session", "-t", "demo"})
+	if !equalArgs(call.args, []string{"has-session", "-t", "=demo"}) {
+		t.Fatalf("args = %v, want %v", call.args, []string{"has-session", "-t", "=demo"})
 	}
 }
 
@@ -199,7 +198,11 @@ func TestTmuxMultiplexer_IgnoresInheritedTmuxEnvForSessionLifecycle(t *testing.T
 
 	session := fmt.Sprintf("orch-test-%d-%d", os.Getpid(), time.Now().UnixNano())
 	foreignSession := session + "-foreign"
-	foreignSocket := filepath.Join(t.TempDir(), "foreign")
+	// Unix socket paths are capped (~104 bytes on macOS); t.TempDir() under
+	// /var/folders exceeds it and silently degraded this test to a skip on
+	// dev machines. Use a short /tmp path with explicit cleanup instead.
+	foreignSocket := fmt.Sprintf("/tmp/orch-mux-t-%d", os.Getpid())
+	t.Cleanup(func() { _ = os.Remove(foreignSocket) })
 
 	if out, err := cleanTmuxCommand("-S", foreignSocket, "new-session", "-d", "-s", foreignSession, "sleep 60").CombinedOutput(); err != nil {
 		t.Skipf("tmux foreign server unavailable: %v (%s)", err, out)
@@ -208,7 +211,7 @@ func TestTmuxMultiplexer_IgnoresInheritedTmuxEnvForSessionLifecycle(t *testing.T
 		_ = cleanTmuxCommand("-S", foreignSocket, "kill-server").Run()
 	})
 	t.Cleanup(func() {
-		_ = cleanTmuxCommand("kill-session", "-t", session).Run()
+		_ = cleanTmuxCommand("kill-session", "-t", "="+session).Run()
 	})
 
 	t.Setenv("TMUX", foreignSocket+",123,0")
@@ -322,7 +325,7 @@ func TestTmuxMultiplexer_KillSession(t *testing.T) {
 	}
 
 	call := exec.recorded[0]
-	if !equalArgs(call.args, []string{"kill-session", "-t", "sess"}) {
+	if !equalArgs(call.args, []string{"kill-session", "-t", "=sess"}) {
 		t.Fatalf("kill-session args = %v", call.args)
 	}
 }
@@ -903,11 +906,15 @@ func cleanTmuxCommand(args ...string) *exec.Cmd {
 }
 
 func cleanTmuxHasSession(session string) bool {
-	return cleanTmuxCommand("has-session", "-t", session).Run() == nil
+	// "=" disables tmux prefix matching: without it, the foreign server's
+	// "<session>-foreign" session false-positives an existence check for
+	// "<session>" (this exact bug made the lifecycle test report the scrub
+	// as broken on CI).
+	return cleanTmuxCommand("has-session", "-t", "="+session).Run() == nil
 }
 
 func cleanTmuxHasSessionOnSocket(socket, session string) bool {
-	return cleanTmuxCommand("-S", socket, "has-session", "-t", session).Run() == nil
+	return cleanTmuxCommand("-S", socket, "has-session", "-t", "="+session).Run() == nil
 }
 
 func envHas(env []string, want string) bool {

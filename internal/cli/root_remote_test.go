@@ -198,7 +198,12 @@ func TestDefaultGetAPIWithOptionsRemoteAllowsGitDerivedProjectIdentity(t *testin
 	origRemote := globalOpts.Remote
 	origFlag := remoteFlagWasSet
 	globalOpts.Project = ""
-	globalOpts.Remote = "zeus:7777"
+	// Unreachable-but-resolvable address: identity resolution happens before
+	// the dial, so passing it means the error (if any) is a reachability
+	// error, never "project identity required". A live daemon must not be a
+	// test dependency (the previous "zeus:7777" only worked on the author's
+	// machine).
+	globalOpts.Remote = "127.0.0.1:1"
 	remoteFlagWasSet = true
 	t.Cleanup(func() {
 		globalOpts.Project = origProject
@@ -206,12 +211,9 @@ func TestDefaultGetAPIWithOptionsRemoteAllowsGitDerivedProjectIdentity(t *testin
 		remoteFlagWasSet = origFlag
 	})
 
-	api, err := defaultGetAPIWithOptions(true)
-	if err != nil {
+	_, err := defaultGetAPIWithOptions(true)
+	if err != nil && strings.Contains(err.Error(), "project identity required") {
 		t.Fatalf("expected git-derived project identity to pass in remote mode, got: %v", err)
-	}
-	if api == nil {
-		t.Fatal("expected non-nil API client")
 	}
 }
 
@@ -222,7 +224,7 @@ func TestDefaultGetAPIWithOptionsRemoteAllowsExplicitProjectFlag(t *testing.T) {
 	origRemote := globalOpts.Remote
 	origFlag := remoteFlagWasSet
 	globalOpts.Project = "example-" + filepath.Base(repo)
-	globalOpts.Remote = "zeus:7777"
+	globalOpts.Remote = "127.0.0.1:1"
 	remoteFlagWasSet = true
 	t.Cleanup(func() {
 		globalOpts.Project = origProject
@@ -230,12 +232,9 @@ func TestDefaultGetAPIWithOptionsRemoteAllowsExplicitProjectFlag(t *testing.T) {
 		remoteFlagWasSet = origFlag
 	})
 
-	api, err := defaultGetAPIWithOptions(true)
-	if err != nil {
+	_, err := defaultGetAPIWithOptions(true)
+	if err != nil && strings.Contains(err.Error(), "project identity required") {
 		t.Fatalf("expected explicit project to pass in remote mode, got: %v", err)
-	}
-	if api == nil {
-		t.Fatal("expected non-nil API client")
 	}
 }
 

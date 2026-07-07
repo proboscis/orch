@@ -93,9 +93,18 @@ func (t *TmuxMultiplexer) IsInsideSession() bool {
 	return os.Getenv("TMUX") != ""
 }
 
-// HasSession checks if a tmux session exists.
+// HasSession checks if a tmux session exists. The target is exact-matched
+// ("=" prefix): tmux's default prefix matching would report a session named
+// "<name>-suffix" as a hit for "<name>", which turns existence checks and
+// the daemon's aliveness verdicts into false positives.
 func (t *TmuxMultiplexer) HasSession(name string) bool {
-	return t.run("has-session", "-t", name) == nil
+	return t.run("has-session", "-t", exactSessionTarget(name)) == nil
+}
+
+// exactSessionTarget disables tmux prefix/fnmatch target resolution so a
+// bare session name only ever matches itself.
+func exactSessionTarget(name string) string {
+	return "=" + name
 }
 
 // NewSession creates a new tmux session.
@@ -146,7 +155,7 @@ func (t *TmuxMultiplexer) AttachSession(session string) error {
 
 // KillSession kills a tmux session.
 func (t *TmuxMultiplexer) KillSession(session string) error {
-	return t.runWithOptions([]string{"kill-session", "-t", session}, executor.RunOptions{Stderr: os.Stderr})
+	return t.runWithOptions([]string{"kill-session", "-t", exactSessionTarget(session)}, executor.RunOptions{Stderr: os.Stderr})
 }
 
 // ListSessions returns all tmux session names.
