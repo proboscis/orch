@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -15,13 +16,12 @@ const controlAgentSessionName = "orch-control-agent"
 
 // hasSession checks if a multiplexer session exists
 func hasSession(name string) bool {
-	cmd := exec.Command("tmux", "has-session", "-t", name)
-	return cmd.Run() == nil
+	return tmuxCmd("has-session", "-t", name).Run() == nil
 }
 
 // killSession kills a multiplexer session if it exists
 func killSession(name string) {
-	exec.Command("tmux", "kill-session", "-t", name).Run()
+	tmuxCmd("kill-session", "-t", name).Run()
 }
 
 // setupAgentTest creates necessary directories and returns cleanup function
@@ -49,7 +49,23 @@ func setupAgentTest(t *testing.T) (orchDir string, cleanup func()) {
 	return orchDir, cleanup
 }
 
-// runAgentCommand runs orch agent and waits for session creation
+// requireAgentBinary skips the test when the given agent CLI is not in PATH,
+// so the test never passes or fails accidentally on hosts without it.
+// (TestMain installs fake claude/codex shims, so within this suite the
+// binaries are normally present.)
+func requireAgentBinary(t *testing.T, name string) {
+	t.Helper()
+	if !hasBinary(name) {
+		t.Skipf("%s binary not available in PATH", name)
+	}
+}
+
+// runAgentCommand runs `orch agent` with the given args and returns an error
+// if the command failed before reaching its final interactive attach step.
+// The test harness has no TTY, so even a fully successful launch exits
+// non-zero when tmux attach-session reports "not a terminal"; that expected
+// attach failure is not an error, but everything before it (session
+// creation, state save) is.
 func runAgentCommand(t *testing.T, args ...string) error {
 	t.Helper()
 	ensureRepoMapping(t, testRepo, testVault)
@@ -60,15 +76,19 @@ func runAgentCommand(t *testing.T, args ...string) error {
 
 	cmd := exec.Command(orchBinary, fullArgs...)
 	cmd.Dir = testRepo
-	env := make([]string, 0, len(os.Environ())+2)
+	env := make([]string, 0, len(os.Environ())+1)
 	for _, kv := range os.Environ() {
 		if strings.HasPrefix(kv, "ORCH_REMOTE=") || strings.HasPrefix(kv, "ORCH_PROJECT=") {
 			continue
 		}
 		env = append(env, kv)
 	}
-	env = append(env, "ORCH_PROJECT=", "TMUX=")
+	env = append(env, "ORCH_PROJECT=")
 	cmd.Env = env
+
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
 
 	done := make(chan error, 1)
 	go func() {
@@ -77,7 +97,16 @@ func runAgentCommand(t *testing.T, args ...string) error {
 
 	select {
 	case err := <-done:
-		return err
+		if err == nil {
+			return nil
+		}
+		if strings.Contains(output.String(), "Attaching to") {
+			// The command reached the attach step, so session creation
+			// and state save succeeded; only the interactive attach
+			// failed, which is unavoidable without a TTY.
+			return nil
+		}
+		return fmt.Errorf("orch agent %v failed: %w\noutput:\n%s", args, err, output.String())
 	case <-time.After(5 * time.Second):
 		cmd.Process.Kill()
 		return nil
@@ -115,13 +144,16 @@ func TestAgentClaudeCreatesMultiplexerSession(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not available")
 	}
+	requireAgentBinary(t, "claude")
 
 	orchDir, cleanup := setupAgentTest(t)
 	defer cleanup()
 
 	writeAgentConfig(t, orchDir, "claude", "tmux")
 
-	_ = runAgentCommand(t, "--backend", "claude")
+	if err := runAgentCommand(t, "--backend", "claude"); err != nil {
+		t.Fatal(err)
+	}
 
 	time.Sleep(500 * time.Millisecond)
 
@@ -217,14 +249,14 @@ func TestAgentAttachesToExistingMultiplexerSession(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not available")
 	}
+	requireAgentBinary(t, "claude")
 
 	orchDir, cleanup := setupAgentTest(t)
 	defer cleanup()
 
 	writeAgentConfig(t, orchDir, "claude", "tmux")
 
-	cmd := exec.Command("tmux", "new-session", "-d", "-s", controlAgentSessionName)
-	if err := cmd.Run(); err != nil {
+	if err := tmuxCmd("new-session", "-d", "-s", controlAgentSessionName).Run(); err != nil {
 		t.Fatalf("failed to create initial session: %v", err)
 	}
 
@@ -239,7 +271,9 @@ func TestAgentAttachesToExistingMultiplexerSession(t *testing.T) {
 		t.Fatalf("failed to write state: %v", err)
 	}
 
-	_ = runAgentCommand(t, "--backend", "claude")
+	if err := runAgentCommand(t, "--backend", "claude"); err != nil {
+		t.Fatal(err)
+	}
 
 	if !hasSession(controlAgentSessionName) {
 		t.Error("expected session to still exist")
@@ -256,13 +290,14 @@ func TestAgentNewForcesNewMultiplexerSession(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not available")
 	}
+	requireAgentBinary(t, "claude")
 
 	orchDir, cleanup := setupAgentTest(t)
 	defer cleanup()
 
 	writeAgentConfig(t, orchDir, "claude", "tmux")
 
-	exec.Command("tmux", "new-session", "-d", "-s", controlAgentSessionName).Run()
+	tmuxCmd("new-session", "-d", "-s", controlAgentSessionName).Run()
 
 	stateFile := filepath.Join(orchDir, "control-agent.json")
 	oldState := `{
@@ -273,7 +308,9 @@ func TestAgentNewForcesNewMultiplexerSession(t *testing.T) {
 	}`
 	os.WriteFile(stateFile, []byte(oldState), 0644)
 
-	_ = runAgentCommand(t, "--backend", "claude", "--new")
+	if err := runAgentCommand(t, "--backend", "claude", "--new"); err != nil {
+		t.Fatal(err)
+	}
 
 	time.Sleep(500 * time.Millisecond)
 
@@ -303,7 +340,7 @@ func TestAgentKillTerminatesMultiplexerSession(t *testing.T) {
 
 	writeAgentConfig(t, orchDir, "claude", "tmux")
 
-	exec.Command("tmux", "new-session", "-d", "-s", controlAgentSessionName).Run()
+	tmuxCmd("new-session", "-d", "-s", controlAgentSessionName).Run()
 
 	stateFile := filepath.Join(orchDir, "control-agent.json")
 	state := `{
@@ -333,13 +370,16 @@ func TestAgentStatePersistence(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not available")
 	}
+	requireAgentBinary(t, "claude")
 
 	orchDir, cleanup := setupAgentTest(t)
 	defer cleanup()
 
 	writeAgentConfig(t, orchDir, "claude", "tmux")
 
-	_ = runAgentCommand(t, "--backend", "claude")
+	if err := runAgentCommand(t, "--backend", "claude"); err != nil {
+		t.Fatal(err)
+	}
 
 	time.Sleep(500 * time.Millisecond)
 

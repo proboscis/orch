@@ -59,6 +59,15 @@ func TestMain(m *testing.M) {
 	os.Setenv("XDG_CONFIG_HOME", configDir)
 	os.Unsetenv("ORCH_REMOTE")
 	os.Unsetenv("ORCH_PROJECT")
+	// The suite creates and inspects tmux sessions on the default tmux
+	// server. When `go test` itself runs inside a tmux client (e.g. an
+	// agent pane on a private socket), an inherited $TMUX would make every
+	// child process target that outer server, while orch-created sessions
+	// land on the default server — assertions and cleanup would silently
+	// look at the wrong server. Unset it once here so the whole suite
+	// (test process, in-process worker, daemon and CLI subprocesses)
+	// behaves identically to a plain shell or CI.
+	os.Unsetenv("TMUX")
 	installFakeAgentBinaries(tmpDir)
 
 	addr, err := reserveLoopbackTCPAddr()
@@ -1311,10 +1320,27 @@ func TestOpenPrintPath(t *testing.T) {
 	}
 }
 
+// tmuxCmd builds a tmux command that never inherits $TMUX, so test-side tmux
+// invocations always target the same (default) tmux server that orch-launched
+// sessions live on, even when the test process runs inside a tmux session.
+// TestMain also unsets TMUX process-wide; this helper keeps every direct tmux
+// invocation correct by construction.
+func tmuxCmd(args ...string) *exec.Cmd {
+	cmd := exec.Command("tmux", args...)
+	env := make([]string, 0, len(os.Environ()))
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "TMUX=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	cmd.Env = env
+	return cmd
+}
+
 // Skip tmux tests if tmux is not available
 func hasTmux() bool {
-	cmd := exec.Command("tmux", "-V")
-	return cmd.Run() == nil
+	return tmuxCmd("-V").Run() == nil
 }
 
 func hasBinary(name string) bool {
@@ -1323,7 +1349,7 @@ func hasBinary(name string) bool {
 }
 
 func tmuxGlobalOption(name string) (string, error) {
-	out, err := exec.Command("tmux", "show-option", "-g", "-v", name).CombinedOutput()
+	out, err := tmuxCmd("show-option", "-g", "-v", name).CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("show-option %s failed: %w (%s)", name, err, strings.TrimSpace(string(out)))
 	}
@@ -1331,7 +1357,7 @@ func tmuxGlobalOption(name string) (string, error) {
 }
 
 func setTmuxGlobalOption(name, value string) error {
-	out, err := exec.Command("tmux", "set-option", "-g", name, value).CombinedOutput()
+	out, err := tmuxCmd("set-option", "-g", name, value).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("set-option %s failed: %w (%s)", name, err, strings.TrimSpace(string(out)))
 	}
@@ -1466,7 +1492,7 @@ func TestRunWithTmux(t *testing.T) {
 
 	// Clean up: kill the tmux session
 	if result.SessionName != "" {
-		exec.Command("tmux", "kill-session", "-t", result.SessionName).Run()
+		tmuxCmd("kill-session", "-t", result.SessionName).Run()
 	}
 
 	// Clean up: remove worktree
@@ -1507,7 +1533,7 @@ sleep 2
 		t.Fatalf("write fake agent: %v", err)
 	}
 
-	_ = exec.Command("tmux", "start-server").Run()
+	_ = tmuxCmd("start-server").Run()
 	defaultShell, err := tmuxGlobalOption("default-shell")
 	if err != nil {
 		t.Skipf("unable to read tmux default-shell: %v", err)
@@ -1568,7 +1594,7 @@ sleep 2
 	if !found {
 		pane := ""
 		if result.SessionName != "" {
-			if out, err := exec.Command("tmux", "capture-pane", "-t", result.SessionName, "-p", "-S", "-50").CombinedOutput(); err == nil {
+			if out, err := tmuxCmd("capture-pane", "-t", result.SessionName, "-p", "-S", "-50").CombinedOutput(); err == nil {
 				pane = string(out)
 			}
 		}
