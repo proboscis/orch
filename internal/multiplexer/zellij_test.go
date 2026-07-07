@@ -141,6 +141,26 @@ func TestZellijMultiplexer_KillSession(t *testing.T) {
 	}
 }
 
+func TestZellijMultiplexer_ControlCommandsScrubInheritedZellijEnv(t *testing.T) {
+	t.Setenv("ZELLIJ", "1")
+	t.Setenv("ZELLIJ_SESSION_NAME", "foreign-session")
+
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	zm := NewZellijMultiplexer()
+	if err := zm.KillSession("sess"); err != nil {
+		t.Fatalf("KillSession error: %v", err)
+	}
+
+	env := exec.recorded[0].cmd.Env
+	if envHasKey(env, "ZELLIJ") || envHasKey(env, "ZELLIJ_SESSION_NAME") {
+		t.Fatalf("zellij control command inherited zellij env: %v", env)
+	}
+}
+
 func TestZellijMultiplexer_NewWindow(t *testing.T) {
 	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
 	orig := execCommand

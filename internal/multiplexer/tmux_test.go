@@ -1,12 +1,16 @@
 package multiplexer
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
+	"time"
 )
 
 type fakeCall struct {
@@ -33,13 +37,16 @@ func (f *fakeExecutor) Command(name string, args ...string) *exec.Cmd {
 	}
 	f.index++
 
-	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess", "--", name)
-	cmd.Args = append(cmd.Args, args...)
-	cmd.Env = append(os.Environ(),
-		"GO_WANT_HELPER_PROCESS=1",
-		fmt.Sprintf("FAKE_CMD_OUTPUT=%s", call.output),
-		fmt.Sprintf("FAKE_CMD_EXIT_CODE=%d", call.exitCode),
+	cmd := exec.Command(
+		os.Args[0],
+		"-test.run=TestHelperProcess",
+		"--",
+		"__orch_multiplexer_helper__",
+		base64.StdEncoding.EncodeToString([]byte(call.output)),
+		fmt.Sprintf("%d", call.exitCode),
+		name,
 	)
+	cmd.Args = append(cmd.Args, args...)
 
 	rec := recordedCall{name: name, args: append([]string(nil), args...), cmd: cmd}
 	f.recorded = append(f.recorded, rec)
@@ -47,22 +54,34 @@ func (f *fakeExecutor) Command(name string, args ...string) *exec.Cmd {
 }
 
 func TestHelperProcess(t *testing.T) {
-	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
+	output, code, ok := helperProcessPayload()
+	if !ok {
 		return
 	}
 
-	if output := os.Getenv("FAKE_CMD_OUTPUT"); output != "" {
+	if output != "" {
 		_, _ = fmt.Fprint(os.Stdout, output)
 	}
 
-	code := 0
-	if raw := os.Getenv("FAKE_CMD_EXIT_CODE"); raw != "" {
-		if v, err := strconv.Atoi(raw); err == nil {
-			code = v
-		}
-	}
-
 	os.Exit(code)
+}
+
+func helperProcessPayload() (string, int, bool) {
+	for i, arg := range os.Args {
+		if arg != "--" || i+4 >= len(os.Args) || os.Args[i+1] != "__orch_multiplexer_helper__" {
+			continue
+		}
+		outputBytes, err := base64.StdEncoding.DecodeString(os.Args[i+2])
+		if err != nil {
+			return "", 2, true
+		}
+		code, err := strconv.Atoi(os.Args[i+3])
+		if err != nil {
+			return "", 2, true
+		}
+		return string(outputBytes), code, true
+	}
+	return "", 0, false
 }
 
 func TestTmuxMultiplexer_Type(t *testing.T) {
@@ -150,6 +169,73 @@ func TestTmuxMultiplexer_HasSession_Missing(t *testing.T) {
 	tm := NewTmuxMultiplexer()
 	if tm.HasSession("demo") {
 		t.Fatal("expected session to be missing")
+	}
+}
+
+func TestTmuxMultiplexer_ControlCommandsScrubInheritedTmuxEnv(t *testing.T) {
+	t.Setenv("TMUX", "/tmp/foreign-tmux,123,0")
+	t.Setenv("TMUX_PANE", "%999")
+
+	exec := &fakeExecutor{calls: []fakeCall{{exitCode: 0}}}
+	orig := execCommand
+	execCommand = exec.Command
+	t.Cleanup(func() { execCommand = orig })
+
+	tm := NewTmuxMultiplexer()
+	if !tm.HasSession("demo") {
+		t.Fatal("expected session to exist")
+	}
+
+	env := exec.recorded[0].cmd.Env
+	if envHasKey(env, "TMUX") || envHasKey(env, "TMUX_PANE") {
+		t.Fatalf("tmux control command inherited tmux env: %v", env)
+	}
+}
+
+func TestTmuxMultiplexer_IgnoresInheritedTmuxEnvForSessionLifecycle(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not installed")
+	}
+
+	session := fmt.Sprintf("orch-test-%d-%d", os.Getpid(), time.Now().UnixNano())
+	foreignSession := session + "-foreign"
+	foreignSocket := filepath.Join(t.TempDir(), "foreign")
+
+	if out, err := cleanTmuxCommand("-S", foreignSocket, "new-session", "-d", "-s", foreignSession, "sleep 60").CombinedOutput(); err != nil {
+		t.Skipf("tmux foreign server unavailable: %v (%s)", err, out)
+	}
+	t.Cleanup(func() {
+		_ = cleanTmuxCommand("-S", foreignSocket, "kill-server").Run()
+	})
+	t.Cleanup(func() {
+		_ = cleanTmuxCommand("kill-session", "-t", session).Run()
+	})
+
+	t.Setenv("TMUX", foreignSocket+",123,0")
+	t.Setenv("TMUX_PANE", "%999")
+
+	tm := NewTmuxMultiplexer()
+	if err := tm.NewSession(&SessionConfig{SessionName: session, Command: "sleep 60"}); err != nil {
+		t.Fatalf("NewSession() with inherited TMUX error = %v", err)
+	}
+	if !tm.HasSession(session) {
+		t.Fatal("HasSession() did not find the created session")
+	}
+	if !cleanTmuxHasSession(session) {
+		t.Fatal("TMUX-clean observer did not find the created session on the default tmux server")
+	}
+	if cleanTmuxHasSessionOnSocket(foreignSocket, session) {
+		t.Fatal("session was created on the inherited foreign tmux server")
+	}
+
+	if err := tm.KillSession(session); err != nil {
+		t.Fatalf("KillSession() with inherited TMUX error = %v", err)
+	}
+	if cleanTmuxHasSession(session) {
+		t.Fatal("TMUX-clean observer still sees session after KillSession")
+	}
+	if tm.HasSession(session) {
+		t.Fatal("HasSession() still sees session after KillSession")
 	}
 }
 
@@ -810,9 +896,32 @@ func equalArgs(got, want []string) bool {
 	return true
 }
 
+func cleanTmuxCommand(args ...string) *exec.Cmd {
+	cmd := exec.Command("tmux", args...)
+	cmd.Env = scrubEnvEntries(os.Environ(), tmuxControlEnvVars)
+	return cmd
+}
+
+func cleanTmuxHasSession(session string) bool {
+	return cleanTmuxCommand("has-session", "-t", session).Run() == nil
+}
+
+func cleanTmuxHasSessionOnSocket(socket, session string) bool {
+	return cleanTmuxCommand("-S", socket, "has-session", "-t", session).Run() == nil
+}
+
 func envHas(env []string, want string) bool {
 	for _, entry := range env {
 		if entry == want {
+			return true
+		}
+	}
+	return false
+}
+
+func envHasKey(env []string, key string) bool {
+	for _, entry := range env {
+		if strings.HasPrefix(entry, key+"=") {
 			return true
 		}
 	}

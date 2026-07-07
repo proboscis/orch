@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -63,6 +64,11 @@ func TestWorkerCommandRegistersRunSubcommand(t *testing.T) {
 }
 
 func TestWorkerRunCommandInvokesExternalLoop(t *testing.T) {
+	t.Setenv("TMUX", "/tmp/foreign,123,0")
+	t.Setenv("TMUX_PANE", "%999")
+	t.Setenv("ZELLIJ", "1")
+	t.Setenv("ZELLIJ_SESSION_NAME", "foreign")
+
 	origRequire := requireDaemonForWorker
 	origRun := runExternalWorkerLoop
 	t.Cleanup(func() {
@@ -71,6 +77,11 @@ func TestWorkerRunCommandInvokesExternalLoop(t *testing.T) {
 	})
 
 	requireDaemonForWorker = func() (worker.Client, error) {
+		for _, key := range []string{"TMUX", "TMUX_PANE", "ZELLIJ", "ZELLIJ_SESSION_NAME"} {
+			if _, ok := os.LookupEnv(key); ok {
+				t.Fatalf("worker run reached daemon setup with %s still set", key)
+			}
+		}
 		return &mockWorkerClient{}, nil
 	}
 

@@ -192,6 +192,9 @@ Interpretation:
 - **Workers do not reconnect forever.** A master restart or a network blip can leave the local
   worker `exited` (see `Last Error` in `orch worker status`). Verify the worker at the start of
   every orch session and run `orch worker start` again when needed.
+- **Pre-fix workers can inherit a foreign tmux server.** If operating an old binary, start workers
+  from a clean env (`env -u TMUX -u TMUX_PANE orch worker start`) so run sessions do not land on
+  an unrelated app's tmux socket.
 - **File-backend issue files live on the master's checkout** (e.g.
   `~/repos/<repo>/VAULT/Issues/ISSUE-X.md` on the master host). From another host,
   `orch open <ISSUE> --print-path` reports `not found` — read the issue via `orch issue list`

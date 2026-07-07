@@ -183,6 +183,45 @@ func TestStatusManagedReportsUnmanagedRegistration(t *testing.T) {
 	}
 }
 
+func TestMergeManagedEnvScrubsMultiplexerVars(t *testing.T) {
+	profile := managedProfile{
+		StatePath:  "/tmp/state.json",
+		PIDPath:    "/tmp/worker.pid",
+		RemoteAddr: "zeus:7777",
+		LogPath:    "/tmp/worker.log",
+	}
+	env := mergeManagedEnv(
+		[]string{
+			"PATH=/bin",
+			"TMUX=/private/tmp/tmux-501/agent-deck,123,0",
+			"ZELLIJ=1",
+			managedWorkerStateEnv + "=/old/state.json",
+		},
+		[]string{
+			"FOO=bar",
+			"TMUX_PANE=%1",
+			"ZELLIJ_SESSION_NAME=foreign",
+		},
+		profile,
+	)
+
+	joined := strings.Join(env, "\n")
+	for _, key := range workerMultiplexerEnvKeys {
+		if strings.Contains(joined, key+"=") {
+			t.Fatalf("managed worker env leaked %s: %v", key, env)
+		}
+	}
+	if !strings.Contains(joined, "PATH=/bin") || !strings.Contains(joined, "FOO=bar") {
+		t.Fatalf("managed worker env dropped non-multiplexer entries: %v", env)
+	}
+	if strings.Contains(joined, managedWorkerStateEnv+"=/old/state.json") {
+		t.Fatalf("managed worker env kept stale runtime state entry: %v", env)
+	}
+	if !strings.Contains(joined, managedWorkerStateEnv+"="+profile.StatePath) {
+		t.Fatalf("managed worker env missing runtime state path: %v", env)
+	}
+}
+
 func setManagedWorkerTestEnv(t *testing.T) {
 	t.Helper()
 

@@ -164,6 +164,8 @@ func TestErrUnsupported(t *testing.T) {
 
 func TestSessionEnvForLocalExecutorIncludesProcessEnv(t *testing.T) {
 	t.Setenv("ORCH_TEST_ENV", "local-value")
+	t.Setenv("TMUX", "/tmp/foreign,123,0")
+	t.Setenv("ZELLIJ", "1")
 
 	env := sessionEnv(executor.NewLocalExecutor(), []string{"FOO=bar"})
 	joined := strings.Join(env, "\n")
@@ -172,6 +174,9 @@ func TestSessionEnvForLocalExecutorIncludesProcessEnv(t *testing.T) {
 	}
 	if !strings.Contains(joined, "FOO=bar") {
 		t.Fatalf("expected local env to include extra env, got %v", env)
+	}
+	if strings.Contains(joined, "TMUX=/tmp/foreign") || strings.Contains(joined, "ZELLIJ=1") {
+		t.Fatalf("expected local session env to scrub multiplexer env, got %v", env)
 	}
 }
 
@@ -191,5 +196,18 @@ func TestSessionEnvForSSHExecutorDoesNotLeakProcessEnv(t *testing.T) {
 	}
 	if _, ok := os.LookupEnv("ORCH_TEST_ENV"); !ok {
 		t.Fatal("expected test env to stay set in process")
+	}
+}
+
+func TestControlCommandEnvForSSHUsesRemoteEnvUnsets(t *testing.T) {
+	env := controlCommandEnv(executor.NewSSHExecutor("mac-e2e"), []string{"FOO=bar", "TMUX=bad"}, tmuxControlEnvVars)
+	want := []string{"-u", "TMUX", "-u", "TMUX_PANE", "FOO=bar"}
+	if len(env) != len(want) {
+		t.Fatalf("env len = %d, want %d: %v", len(env), len(want), env)
+	}
+	for i := range want {
+		if env[i] != want[i] {
+			t.Fatalf("env = %v, want %v", env, want)
+		}
 	}
 }
