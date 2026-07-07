@@ -328,10 +328,10 @@ install_agent() {
     fi
     
     info "Installing ${name}..."
-    if npm install -g "$package" 2>/dev/null; then
+    if npm install -g "$package"; then
         success "Installed ${name}"
     else
-        warn "Failed to install ${name}"
+        warn "Failed to install ${name} from npm package ${package}"
     fi
 }
 
@@ -346,8 +346,8 @@ install_agents_interactive() {
     echo "  These tools let orch run AI agents in your terminal."
     echo ""
     
-    if ask_yes_no "Install opencode (Anthropic)?"; then
-        install_agent "opencode" "@anthropics/opencode"
+    if ask_yes_no "Install OpenCode?"; then
+        install_agent "opencode" "opencode-ai"
     fi
     
     if ask_yes_no "Install claude (Anthropic Claude Code)?"; then
@@ -371,7 +371,7 @@ install_agents_auto() {
         INSTALL_GEMINI=true
     fi
     
-    [ "$INSTALL_OPENCODE" = true ] && install_agent "opencode" "@anthropics/opencode"
+    [ "$INSTALL_OPENCODE" = true ] && install_agent "opencode" "opencode-ai"
     [ "$INSTALL_CLAUDE" = true ] && install_agent "claude" "@anthropic-ai/claude-code"
     [ "$INSTALL_CODEX" = true ] && install_agent "codex" "@openai/codex"
     [ "$INSTALL_GEMINI" = true ] && install_agent "gemini" "@google/gemini-cli"

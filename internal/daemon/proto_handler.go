@@ -1520,10 +1520,10 @@ func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orch
 	}
 
 	if result.WorktreePath != "" {
-		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("worktree", map[string]string{"path": result.WorktreePath}))
+		s.appendArtifactEventBestEffort(st, run.Ref(), "worktree", map[string]string{"path": result.WorktreePath})
 	}
 	if result.Branch != "" {
-		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("branch", map[string]string{"name": result.Branch}))
+		s.appendArtifactEventBestEffort(st, run.Ref(), "branch", map[string]string{"name": result.Branch})
 	}
 	if result.SessionName != "" {
 		attrs := map[string]string{"name": result.SessionName}
@@ -1536,17 +1536,17 @@ func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orch
 		if strings.TrimSpace(result.WorkerID) != "" {
 			attrs["worker_id"] = strings.TrimSpace(result.WorkerID)
 		}
-		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", attrs))
+		s.appendArtifactEventBestEffort(st, run.Ref(), "session", attrs)
 	}
 	if result.ServerPort > 0 {
-		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
+		s.appendArtifactEventBestEffort(st, run.Ref(), "server", map[string]string{
 			"port": fmt.Sprintf("%d", result.ServerPort),
-		}))
+		})
 	}
 	if strings.TrimSpace(result.OpenCodeSessionID) != "" {
-		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("opencode_session", map[string]string{
+		s.appendArtifactEventBestEffort(st, run.Ref(), "opencode_session", map[string]string{
 			"id": strings.TrimSpace(result.OpenCodeSessionID),
-		}))
+		})
 	}
 	if targetName != "" {
 		targetAttrs := map[string]string{"name": targetName}
@@ -1557,7 +1557,7 @@ func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orch
 				targetAttrs["worker_id"] = target.WorkerID
 			}
 		}
-		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("target", targetAttrs))
+		s.appendArtifactEventBestEffort(st, run.Ref(), "target", targetAttrs)
 	}
 
 	status, err := model.NormalizeStatus(result.Status)
@@ -1617,10 +1617,10 @@ func (s *SocketServer) syncContinueRunResultToMasterStore(st store.Store, req *o
 	}
 
 	if result.WorktreePath != "" {
-		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("worktree", map[string]string{"path": result.WorktreePath}))
+		s.appendArtifactEventBestEffort(st, run.Ref(), "worktree", map[string]string{"path": result.WorktreePath})
 	}
 	if result.Branch != "" {
-		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("branch", map[string]string{"name": result.Branch}))
+		s.appendArtifactEventBestEffort(st, run.Ref(), "branch", map[string]string{"name": result.Branch})
 	}
 	if result.SessionName != "" {
 		attrs := map[string]string{"name": result.SessionName}
@@ -1633,17 +1633,17 @@ func (s *SocketServer) syncContinueRunResultToMasterStore(st store.Store, req *o
 		if strings.TrimSpace(result.WorkerID) != "" {
 			attrs["worker_id"] = strings.TrimSpace(result.WorkerID)
 		}
-		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("session", attrs))
+		s.appendArtifactEventBestEffort(st, run.Ref(), "session", attrs)
 	}
 	if result.ServerPort > 0 {
-		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
+		s.appendArtifactEventBestEffort(st, run.Ref(), "server", map[string]string{
 			"port": fmt.Sprintf("%d", result.ServerPort),
-		}))
+		})
 	}
 	if strings.TrimSpace(result.OpenCodeSessionID) != "" {
-		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("opencode_session", map[string]string{
+		s.appendArtifactEventBestEffort(st, run.Ref(), "opencode_session", map[string]string{
 			"id": strings.TrimSpace(result.OpenCodeSessionID),
-		}))
+		})
 	}
 	if targetName = strings.TrimSpace(targetName); targetName != "" {
 		targetAttrs := map[string]string{"name": targetName}
@@ -1654,7 +1654,7 @@ func (s *SocketServer) syncContinueRunResultToMasterStore(st store.Store, req *o
 				targetAttrs["worker_id"] = target.WorkerID
 			}
 		}
-		_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("target", targetAttrs))
+		s.appendArtifactEventBestEffort(st, run.Ref(), "target", targetAttrs)
 	}
 
 	status, err := model.NormalizeStatus(result.Status)

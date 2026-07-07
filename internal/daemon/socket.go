@@ -1993,9 +1993,9 @@ func (s *SocketServer) bootstrapOpenCodeRunSession(
 		return 0, "", s.failOpenCodeRunBootstrap(st, run, fmt.Errorf("server health check failed: %w", err))
 	}
 
-	_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
+	s.appendArtifactEventBestEffort(st, run.Ref(), "server", map[string]string{
 		"port": fmt.Sprintf("%d", port),
-	}))
+	})
 
 	session, err := client.CreateSession(ctx, fmt.Sprintf("%s#%s", issueID, runID), launchCfg.WorkDir)
 	if err != nil && isOpenCodeSQLiteIOError(err) {
@@ -2012,9 +2012,9 @@ func (s *SocketServer) bootstrapOpenCodeRunSession(
 			if waitErr := client.WaitForHealthy(ctx, timeout); waitErr != nil {
 				err = fmt.Errorf("server health check failed after sqlite reset: %w", waitErr)
 			} else {
-				_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("server", map[string]string{
+				s.appendArtifactEventBestEffort(st, run.Ref(), "server", map[string]string{
 					"port": fmt.Sprintf("%d", port),
-				}))
+				})
 				session, err = client.CreateSession(ctx, fmt.Sprintf("%s#%s", issueID, runID), launchCfg.WorkDir)
 			}
 		}
@@ -2023,9 +2023,9 @@ func (s *SocketServer) bootstrapOpenCodeRunSession(
 		return port, "", s.failOpenCodeRunBootstrap(st, run, fmt.Errorf("failed to create opencode session: %w", err))
 	}
 
-	_ = st.AppendEvent(run.Ref(), model.NewArtifactEvent("opencode_session", map[string]string{
+	s.appendArtifactEventBestEffort(st, run.Ref(), "opencode_session", map[string]string{
 		"id": session.ID,
-	}))
+	})
 
 	if strings.TrimSpace(launchCfg.Prompt) == "" {
 		return port, session.ID, nil

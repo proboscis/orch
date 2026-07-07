@@ -1095,6 +1095,58 @@ func TestSyncStartRunResultToMasterStorePreservesOpenCodeArtifacts(t *testing.T)
 	}
 }
 
+type artifactFailingStore struct {
+	mockStore
+	appendErr error
+}
+
+func (s *artifactFailingStore) AppendEvent(ref *model.RunRef, event *model.Event) error {
+	if event != nil && event.Type == model.EventTypeArtifact {
+		return s.appendErr
+	}
+	return s.mockStore.AppendEvent(ref, event)
+}
+
+func TestSyncStartRunResultToMasterStoreLogsArtifactAppendFailure(t *testing.T) {
+	st := &artifactFailingStore{
+		mockStore: mockStore{
+			runs: map[string]*model.Run{},
+			issues: map[string]*model.Issue{
+				"issue-artifact-log": {ID: "issue-artifact-log", Status: model.IssueStatusOpen},
+			},
+		},
+		appendErr: errors.New("artifact append failed"),
+	}
+	logger := &timingTestLogger{}
+	server := NewSocketServer(nil, logger)
+
+	err := server.syncStartRunResultToMasterStore(st, &orchpb.StartRunRequest{
+		IssueId: "issue-artifact-log",
+		Agent:   "opencode",
+	}, &StartRunResult{
+		RunID:        "run-artifact-log",
+		WorktreePath: "/tmp/artifact-log",
+		Status:       string(model.StatusRunning),
+	}, "", "")
+	if err != nil {
+		t.Fatalf("syncStartRunResultToMasterStore() error = %v", err)
+	}
+
+	logOutput := logger.String()
+	wantLog := "issue-artifact-log#run-artifact-log: failed to record worktree artifact: artifact append failed"
+	if !strings.Contains(logOutput, wantLog) {
+		t.Fatalf("log output %q does not contain %q", logOutput, wantLog)
+	}
+
+	run, err := st.GetRun(&model.RunRef{IssueID: "issue-artifact-log", RunID: "run-artifact-log"})
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if run.Status != model.StatusRunning {
+		t.Fatalf("run.Status = %q, want %q", run.Status, model.StatusRunning)
+	}
+}
+
 func TestHandleProtoWaitForRunsReturnsImmediatelyForShortID(t *testing.T) {
 	run := &model.Run{
 		IssueID: "issue-1",
