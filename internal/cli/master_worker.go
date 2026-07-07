@@ -132,6 +132,9 @@ func runWorkerStatus(workerID string) error {
 		if !status.Local.LastHeartbeatAt.IsZero() {
 			fmt.Printf("Last Heartbeat: %s\n", humanizeWorkerTime(status.Local.LastHeartbeatAt))
 		}
+		if !status.Local.ReconnectingSince.IsZero() {
+			fmt.Printf("Reconnecting Since: %s\n", status.Local.ReconnectingSince.Format(time.RFC3339))
+		}
 		if !status.Local.ExitedAt.IsZero() {
 			fmt.Printf("Exited: %s\n", status.Local.ExitedAt.Format(time.RFC3339))
 		}

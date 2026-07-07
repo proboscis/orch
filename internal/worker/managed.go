@@ -24,6 +24,7 @@ const (
 	localProcessStateMissing      = "missing"
 	localProcessStateStarting     = "starting"
 	localProcessStateRunning      = "running"
+	localProcessStateReconnecting = "reconnecting"
 	localProcessStateStopped      = "stopped"
 	localProcessStateExited       = "exited"
 	localProcessStateUnmanaged    = "unmanaged"
@@ -65,25 +66,27 @@ type ManagedState struct {
 	LogPath         string    `json:"log_path,omitempty"`
 	PID             int       `json:"pid,omitempty"`
 	ProcessState    string    `json:"process_state,omitempty"`
-	StartedAt       time.Time `json:"started_at,omitempty"`
-	RegisteredAt    time.Time `json:"registered_at,omitempty"`
-	LastHeartbeatAt time.Time `json:"last_heartbeat_at,omitempty"`
-	ExitedAt        time.Time `json:"exited_at,omitempty"`
-	LastError       string    `json:"last_error,omitempty"`
-	UpdatedAt       time.Time `json:"updated_at,omitempty"`
+	StartedAt         time.Time `json:"started_at,omitempty"`
+	RegisteredAt      time.Time `json:"registered_at,omitempty"`
+	LastHeartbeatAt   time.Time `json:"last_heartbeat_at,omitempty"`
+	ReconnectingSince time.Time `json:"reconnecting_since,omitempty"`
+	ExitedAt          time.Time `json:"exited_at,omitempty"`
+	LastError         string    `json:"last_error,omitempty"`
+	UpdatedAt         time.Time `json:"updated_at,omitempty"`
 }
 
 type ManagedLocalStatus struct {
-	Managed         bool      `json:"managed"`
-	ProcessExists   bool      `json:"process_exists"`
-	State           string    `json:"state"`
-	PID             int       `json:"pid,omitempty"`
-	LogPath         string    `json:"log_path,omitempty"`
-	StartedAt       time.Time `json:"started_at,omitempty"`
-	RegisteredAt    time.Time `json:"registered_at,omitempty"`
-	LastHeartbeatAt time.Time `json:"last_heartbeat_at,omitempty"`
-	ExitedAt        time.Time `json:"exited_at,omitempty"`
-	LastError       string    `json:"last_error,omitempty"`
+	Managed           bool      `json:"managed"`
+	ProcessExists     bool      `json:"process_exists"`
+	State             string    `json:"state"`
+	PID               int       `json:"pid,omitempty"`
+	LogPath           string    `json:"log_path,omitempty"`
+	StartedAt         time.Time `json:"started_at,omitempty"`
+	RegisteredAt      time.Time `json:"registered_at,omitempty"`
+	LastHeartbeatAt   time.Time `json:"last_heartbeat_at,omitempty"`
+	ReconnectingSince time.Time `json:"reconnecting_since,omitempty"`
+	ExitedAt          time.Time `json:"exited_at,omitempty"`
+	LastError         string    `json:"last_error,omitempty"`
 }
 
 type ManagedMasterStatus struct {
@@ -267,6 +270,7 @@ func StatusManaged(opts ManagedOptions) (*ManagedStatus, error) {
 		local.StartedAt = state.StartedAt
 		local.RegisteredAt = state.RegisteredAt
 		local.LastHeartbeatAt = state.LastHeartbeatAt
+		local.ReconnectingSince = state.ReconnectingSince
 		local.ExitedAt = state.ExitedAt
 		local.LastError = state.LastError
 	}
@@ -304,6 +308,12 @@ func StatusManaged(opts ManagedOptions) (*ManagedStatus, error) {
 	}
 	if local.Managed && local.ProcessExists && master.State == masterStateNotRegistered {
 		diagnostic = fmt.Sprintf("local worker process %q is running but has not registered with orch-master profile %q", profile.WorkerID, managedProfileDisplay(profile.RemoteAddr))
+	}
+	if local.Managed && local.ProcessExists && local.State == localProcessStateReconnecting {
+		diagnostic = fmt.Sprintf("worker %q is reconnecting to orch-master profile %q since %s", profile.WorkerID, managedProfileDisplay(profile.RemoteAddr), local.ReconnectingSince.Format(time.RFC3339))
+		if strings.TrimSpace(local.LastError) != "" {
+			diagnostic += "; last error: " + strings.TrimSpace(local.LastError)
+		}
 	}
 	if local.Managed && !local.ProcessExists && strings.TrimSpace(local.LastError) != "" {
 		diagnostic = local.LastError
@@ -695,6 +705,7 @@ func (w *managedRuntimeStateWriter) markStarting(workerID string) {
 		if state.StartedAt.IsZero() {
 			state.StartedAt = managedWorkerNow()
 		}
+		state.ReconnectingSince = time.Time{}
 		state.ExitedAt = time.Time{}
 		state.LastError = ""
 	})
@@ -721,8 +732,33 @@ func (w *managedRuntimeStateWriter) markRegistered() {
 			state.RegisteredAt = now
 		}
 		state.LastHeartbeatAt = now
+		state.ReconnectingSince = time.Time{}
 		state.ExitedAt = time.Time{}
 		state.LastError = ""
+	})
+}
+
+// markReconnecting records that the worker lost its master connection and is
+// retrying with backoff, so `orch worker status` shows "reconnecting since
+// ... last error ..." instead of a dead-looking exited state.
+func (w *managedRuntimeStateWriter) markReconnecting(err error) {
+	if w == nil {
+		return
+	}
+	now := managedWorkerNow()
+	_ = updateManagedState(w.statePath, func(state *ManagedState) {
+		state.WorkerID = w.workerID
+		state.RemoteAddr = w.remoteAddr
+		state.LogPath = w.logPath
+		state.PID = w.pid
+		if state.ProcessState != localProcessStateReconnecting || state.ReconnectingSince.IsZero() {
+			state.ReconnectingSince = now
+		}
+		state.ProcessState = localProcessStateReconnecting
+		state.ExitedAt = time.Time{}
+		if err != nil {
+			state.LastError = err.Error()
+		}
 	})
 }
 
@@ -746,6 +782,7 @@ func (w *managedRuntimeStateWriter) markExited(err error) {
 	now := managedWorkerNow()
 	_ = updateManagedState(w.statePath, func(state *ManagedState) {
 		state.ExitedAt = now
+		state.ReconnectingSince = time.Time{}
 		state.ProcessState = localProcessStateStopped
 		if err != nil {
 			state.ProcessState = localProcessStateExited
