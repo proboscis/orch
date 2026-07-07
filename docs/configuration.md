@@ -20,10 +20,10 @@ When using a remote daemon, configure the client target in
 ```yaml
 # ~/.config/orch/client.yaml
 remote:
-  default: zeus
+  default: primary
   hosts:
-    zeus:
-      addr: zeus:7777
+    primary:
+      addr: master-host:7777
     cloud:
       addr: 10.0.0.5:7777
 ```
@@ -48,8 +48,8 @@ On the server side, expose the daemon over TCP and register the repository URL:
 orch daemon start --listen tcp://0.0.0.0:7777
 
 # From client machine
-orch --remote zeus:7777 daemon repo register https://github.com/your-org/your-project.git
-orch --remote zeus:7777 daemon repo list
+orch --remote master-host:7777 daemon repo register https://github.com/your-org/your-project.git
+orch --remote master-host:7777 daemon repo list
 ```
 
 In remote mode, orch resolves project identity from `--project`/`ORCH_PROJECT`
@@ -257,7 +257,7 @@ All settings can be configured via environment variables:
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `ORCH_PROJECT` | Project identity (repo ID or URL) | `your-org-your-repo` |
-| `ORCH_REMOTE` | Remote daemon address | `zeus:7777` |
+| `ORCH_REMOTE` | Remote daemon address | `master-host:7777` |
 | `ORCH_AGENT` | Default agent | `claude` |
 | `ORCH_BACKEND` | Backend type | `file` |
 | `ORCH_MODEL` | Default model | `anthropic/claude-opus-4-5` |

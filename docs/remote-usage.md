@@ -10,11 +10,11 @@ daemon is the source of truth for runs/issues state and resolves project
 identity through repo mappings.
 
 ```text
-Local client                  Remote host
-┌──────────────────────┐      ┌────────────────────────────────────┐
-│ orch CLI / monitor   │ TCP  │ orch daemon (--listen)            │
-│ --remote zeus:7777   │─────▶│ repo mapping: repoid -> path      │
-└──────────────────────┘      └────────────────────────────────────┘
+Local client                         Remote host
+┌──────────────────────────────┐      ┌────────────────────────────────────┐
+│ orch CLI / monitor           │ TCP  │ orch daemon (--listen)            │
+│ --remote master-host:7777    │─────▶│ repo mapping: repoid -> path      │
+└──────────────────────────────┘      └────────────────────────────────────┘
 ```
 
 ## Prerequisites
@@ -46,8 +46,8 @@ orch daemon start --listen tcp://0.0.0.0:7777
 
 ```bash
 # From client (or server), point to remote daemon
-orch --remote zeus:7777 daemon repo register https://github.com/your-org/your-project.git
-orch --remote zeus:7777 daemon repo list
+orch --remote master-host:7777 daemon repo register https://github.com/your-org/your-project.git
+orch --remote master-host:7777 daemon repo list
 ```
 
 If repo mappings are missing, remote commands fail with a store/project mapping
@@ -58,13 +58,13 @@ error.
 ### Option A: per-command remote flag
 
 ```bash
-orch --remote zeus:7777 ps
+orch --remote master-host:7777 ps
 ```
 
 ### Option B: environment variable
 
 ```bash
-export ORCH_REMOTE=zeus:7777
+export ORCH_REMOTE=master-host:7777
 orch ps
 ```
 
@@ -73,10 +73,10 @@ orch ps
 ```yaml
 # ~/.config/orch/client.yaml
 remote:
-  default: zeus
+  default: primary
   hosts:
-    zeus:
-      addr: zeus:7777
+    primary:
+      addr: master-host:7777
 ```
 
 ```bash
@@ -94,15 +94,15 @@ orch --remote "" ps
 
 ```bash
 # Start a run remotely
-orch --remote zeus:7777 --project yourorg-yourrepo run my-issue
+orch --remote master-host:7777 --project yourorg-yourrepo run my-issue
 
 # Monitor runs
-orch --remote zeus:7777 --project yourorg-yourrepo ps
+orch --remote master-host:7777 --project yourorg-yourrepo ps
 
 # Attach/send/capture as usual
-orch --remote zeus:7777 --project yourorg-yourrepo attach my-issue
-orch --remote zeus:7777 --project yourorg-yourrepo send my-issue "please include tests"
-orch --remote zeus:7777 --project yourorg-yourrepo capture my-issue
+orch --remote master-host:7777 --project yourorg-yourrepo attach my-issue
+orch --remote master-host:7777 --project yourorg-yourrepo send my-issue "please include tests"
+orch --remote master-host:7777 --project yourorg-yourrepo capture my-issue
 ```
 
 ## Important Behavior in Remote Mode
@@ -115,7 +115,7 @@ orch --remote zeus:7777 --project yourorg-yourrepo capture my-issue
 ### Cannot connect to daemon
 
 ```bash
-orch --remote zeus:7777 daemon status
+orch --remote master-host:7777 daemon status
 ```
 
 Verify listener and network path to the remote host.
@@ -123,19 +123,19 @@ Verify listener and network path to the remote host.
 ### "No store available" / project mapping errors
 
 ```bash
-orch --remote zeus:7777 daemon repo list
+orch --remote master-host:7777 daemon repo list
 ```
 
 If missing, register the repository URL on the remote daemon:
 
 ```bash
-orch --remote zeus:7777 daemon repo register https://github.com/your-org/your-project.git
+orch --remote master-host:7777 daemon repo register https://github.com/your-org/your-project.git
 ```
 
 Then scope runtime commands by project identity (repo ID):
 
 ```bash
-orch --remote zeus:7777 --project yourorg-yourrepo ps --json
+orch --remote master-host:7777 --project yourorg-yourrepo ps --json
 ```
 
 ### "Issue not found" during `run` with remote master + external worker
@@ -149,11 +149,11 @@ Checklist:
 
 ```bash
 # master-side mapping exists
-orch --remote zeus:7777 daemon repo list
+orch --remote master-host:7777 daemon repo list
 
 # run this on the worker host; it reports the local background process plus
 # that worker's registration state on the configured master
-orch --remote zeus:7777 worker status --json
+orch --remote master-host:7777 worker status --json
 ```
 
 Then confirm worker host project/config alignment (`--project`, `.orch/config.yaml`,
