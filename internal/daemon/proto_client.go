@@ -224,7 +224,7 @@ func (c *ProtoClient) dialTarget() (string, string, error) {
 	if strings.HasPrefix(addr, "tcp://") {
 		hostPort := strings.TrimPrefix(addr, "tcp://")
 		if hostPort == "" {
-			return "", "", fmt.Errorf("invalid daemon address: %q", c.daemonAddr)
+			return "", "", &ClientConfigError{Message: fmt.Sprintf("invalid daemon address: %q", c.daemonAddr)}
 		}
 		return "tcp", hostPort, nil
 	}
@@ -232,13 +232,13 @@ func (c *ProtoClient) dialTarget() (string, string, error) {
 	if strings.HasPrefix(addr, "unix://") {
 		socketPath := strings.TrimPrefix(addr, "unix://")
 		if socketPath == "" {
-			return "", "", fmt.Errorf("invalid daemon address: %q", c.daemonAddr)
+			return "", "", &ClientConfigError{Message: fmt.Sprintf("invalid daemon address: %q", c.daemonAddr)}
 		}
 		return "unix", socketPath, nil
 	}
 
 	if strings.Contains(addr, "://") {
-		return "", "", fmt.Errorf("unsupported daemon address scheme: %q", c.daemonAddr)
+		return "", "", &ClientConfigError{Message: fmt.Sprintf("unsupported daemon address scheme: %q", c.daemonAddr)}
 	}
 
 	return "tcp", addr, nil
@@ -1062,7 +1062,7 @@ func (c *ProtoClient) RegisterWorkerWithCapabilities(workerID, workerType, host,
 	}
 
 	if !resp.Ok {
-		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+		return nil, &WorkerRPCRejectedError{Message: resp.Error}
 	}
 
 	regResp := resp.GetRegisterWorker()
@@ -1089,7 +1089,7 @@ func (c *ProtoClient) UnregisterWorker(workerID string) error {
 		return err
 	}
 	if !resp.Ok {
-		return fmt.Errorf("daemon error: %s", resp.Error)
+		return &WorkerRPCRejectedError{Message: resp.Error}
 	}
 	return nil
 }
@@ -1106,7 +1106,7 @@ func (c *ProtoClient) WorkerHeartbeat(workerID string) error {
 		return err
 	}
 	if !resp.Ok {
-		return fmt.Errorf("daemon error: %s", resp.Error)
+		return &WorkerRPCRejectedError{Message: resp.Error}
 	}
 	return nil
 }
@@ -1158,7 +1158,7 @@ func (c *ProtoClient) LeaseWork(workerID string) (*LeaseWorkResponse, error) {
 		return nil, err
 	}
 	if !resp.Ok {
-		return nil, fmt.Errorf("daemon error: %s", resp.Error)
+		return nil, &WorkerRPCRejectedError{Message: resp.Error}
 	}
 
 	leaseResp := resp.GetLeaseWork()
@@ -1210,7 +1210,7 @@ func (c *ProtoClient) AcknowledgeEffect(workerID, leaseID string, success bool, 
 		return err
 	}
 	if !resp.Ok {
-		return fmt.Errorf("daemon error: %s", resp.Error)
+		return &WorkerRPCRejectedError{Message: resp.Error}
 	}
 	return nil
 }
