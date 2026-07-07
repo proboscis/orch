@@ -45,6 +45,12 @@ type GlobalOptions struct {
 var globalOpts = &GlobalOptions{}
 var remoteFlagWasSet bool
 
+const (
+	commandGroupCore     = "core"
+	commandGroupSetupOps = "setup-ops"
+	commandGroupAdvanced = "advanced"
+)
+
 var noDaemonCommands = map[string]bool{
 	"show":                 true,
 	"daemon":               true,
@@ -121,41 +127,58 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&globalOpts.Quiet, "quiet", false, "Suppress human-readable output")
 	rootCmd.PersistentFlags().StringVar(&globalOpts.LogLevel, "log-level", "warn", "Log level (error|warn|info|debug)")
 
+	rootCmd.AddGroup(
+		&cobra.Group{ID: commandGroupCore, Title: "Core Commands:"},
+		&cobra.Group{ID: commandGroupSetupOps, Title: "Setup & Ops Commands:"},
+		&cobra.Group{ID: commandGroupAdvanced, Title: "Advanced Commands:"},
+	)
+	rootCmd.SetHelpCommandGroupID(commandGroupCore)
+	rootCmd.SetCompletionCommandGroupID(commandGroupAdvanced)
+
 	// Add subcommands
-	rootCmd.AddCommand(newIssueCmd())
-	rootCmd.AddCommand(newPsCmd())
-	rootCmd.AddCommand(newRunCmd())
-	rootCmd.AddCommand(newRestartFromCmd())
-	rootCmd.AddCommand(newShowCmd())
-	rootCmd.AddCommand(newDiffCmd())
-	rootCmd.AddCommand(newAttachCmd())
-	rootCmd.AddCommand(newTickCmd())
-	rootCmd.AddCommand(newOpenCmd())
-	rootCmd.AddCommand(newStopCmd())
-	rootCmd.AddCommand(newWaitCmd())
-	rootCmd.AddCommand(newMonitorCmd())
-	rootCmd.AddCommand(newResolveCmd())
-	rootCmd.AddCommand(newDaemonCmd())
-	rootCmd.AddCommand(newMasterCmd())
-	rootCmd.AddCommand(newWorkerCmd())
-	rootCmd.AddCommand(newDaemonRestartCmd())
-	rootCmd.AddCommand(newRepairCmd())
-	rootCmd.AddCommand(newCleanCmd())
-	rootCmd.AddCommand(newDeleteCmd())
-	rootCmd.AddCommand(newExecCmd())
-	rootCmd.AddCommand(newSendCmd())
-	rootCmd.AddCommand(newCaptureCmd())
-	rootCmd.AddCommand(newCaptureAllCmd())
-	rootCmd.AddCommand(newModelsCmd())
-	rootCmd.AddCommand(newNotifyCmd())
-	rootCmd.AddCommand(newLogCmd())
-	rootCmd.AddCommand(newEventsCmd())
-	rootCmd.AddCommand(newDebugCmd())
-	rootCmd.AddCommand(newQueryCmd())
-	rootCmd.AddCommand(newSchemaCmd())
-	rootCmd.AddCommand(newTutorialCmd())
-	rootCmd.AddCommand(newAgentCmd())
-	rootCmd.AddCommand(newValidateIssueFilesCmd())
+	rootCmd.AddCommand(
+		withCommandGroup(newIssueCmd(), commandGroupCore),
+		withCommandGroup(newPsCmd(), commandGroupCore),
+		withCommandGroup(newRunCmd(), commandGroupCore),
+		withCommandGroup(newShowCmd(), commandGroupCore),
+		withCommandGroup(newDiffCmd(), commandGroupCore),
+		withCommandGroup(newAttachCmd(), commandGroupCore),
+		withCommandGroup(newOpenCmd(), commandGroupCore),
+		withCommandGroup(newStopCmd(), commandGroupCore),
+		withCommandGroup(newWaitCmd(), commandGroupCore),
+		withCommandGroup(newMonitorCmd(), commandGroupCore),
+		withCommandGroup(newResolveCmd(), commandGroupCore),
+		withCommandGroup(newSendCmd(), commandGroupCore),
+		withCommandGroup(newCaptureCmd(), commandGroupCore),
+
+		withCommandGroup(newDaemonCmd(), commandGroupSetupOps),
+		withCommandGroup(newMasterCmd(), commandGroupSetupOps),
+		withCommandGroup(newWorkerCmd(), commandGroupSetupOps),
+		withCommandGroup(newDaemonRestartCmd(), commandGroupSetupOps),
+		withCommandGroup(newRepairCmd(), commandGroupSetupOps),
+		withCommandGroup(newTutorialCmd(), commandGroupSetupOps),
+		withCommandGroup(newCleanCmd(), commandGroupSetupOps),
+		withCommandGroup(newDeleteCmd(), commandGroupSetupOps),
+		withCommandGroup(newNotifyCmd(), commandGroupSetupOps),
+
+		withCommandGroup(newTickCmd(), commandGroupAdvanced),
+		withCommandGroup(newRestartFromCmd(), commandGroupAdvanced),
+		withCommandGroup(newExecCmd(), commandGroupAdvanced),
+		withCommandGroup(newCaptureAllCmd(), commandGroupAdvanced),
+		withCommandGroup(newModelsCmd(), commandGroupAdvanced),
+		withCommandGroup(newLogCmd(), commandGroupAdvanced),
+		withCommandGroup(newEventsCmd(), commandGroupAdvanced),
+		withCommandGroup(newDebugCmd(), commandGroupAdvanced),
+		withCommandGroup(newQueryCmd(), commandGroupAdvanced),
+		withCommandGroup(newSchemaCmd(), commandGroupAdvanced),
+		withCommandGroup(newAgentCmd(), commandGroupAdvanced),
+		withCommandGroup(newValidateIssueFilesCmd(), commandGroupAdvanced),
+	)
+}
+
+func withCommandGroup(cmd *cobra.Command, groupID string) *cobra.Command {
+	cmd.GroupID = groupID
+	return cmd
 }
 
 // Execute runs the root command

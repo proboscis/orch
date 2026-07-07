@@ -18,7 +18,7 @@ This tutorial covers:
   - Basic workflow commands
   - Run statuses and what they mean
   - Troubleshooting tips
-  - orch-monitor TUI workflow and keybindings`,
+  - Monitoring options and TUI keybindings`,
 		Run: func(cmd *cobra.Command, args []string) {
 			printTutorial()
 		},
@@ -122,6 +122,11 @@ Interact with the agent:
 	orch restart-from <run> Restart from a failed/canceled/unknown run
     orch capture <run>      Capture agent session to markdown
 
+Note: 'orch monitor' is the built-in Go TUI shipped with the orch CLI.
+'orch-monitor' is the optional standalone Python TUI installed from
+orch-monitor-tui; both inspect the same daemon state, but they are separate
+frontends.
+
 --------------------------------------------------------------------------------
 5. RUN STATUSES
 --------------------------------------------------------------------------------
@@ -184,7 +189,9 @@ Capture all completed runs:
 8. ORCH-MONITOR TUI
 --------------------------------------------------------------------------------
 
-orch-monitor is a terminal UI for managing issue-driven development.
+orch-monitor is the optional standalone Python terminal UI for managing
+issue-driven development. It is separate from the built-in 'orch monitor'
+command.
 
 Launch the TUI:
 
@@ -244,7 +251,7 @@ Point every command at a shared master daemon via client.yaml
 (global: ~/.config/orch/client.yaml, or per-repo: .orch/client.yaml):
 
     remote:
-      default: "zeus:7777"
+      default: "<master-host>:7777"
 
 Each host that should execute runs needs a local worker registered to the
 master:

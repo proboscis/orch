@@ -2,6 +2,11 @@
 
 orch-monitor is a terminal user interface (TUI) for managing orch issues and runs visually. It provides a dashboard view of your workflow and integrates with the control agent for chat-based management.
 
+`orch monitor` and `orch-monitor` are separate frontends. `orch monitor` is the
+built-in Go TUI shipped as an `orch` subcommand, while `orch-monitor` is the
+optional standalone Python TUI installed from `orch-monitor-tui`. Both read the
+same daemon state, but they have separate binaries, launch flows, and docs.
+
 ## Installation
 
 The TUI is packaged separately and can be installed with uv:

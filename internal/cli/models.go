@@ -25,7 +25,7 @@ func newModelsCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "models",
-		Short: "List available models for opencode",
+		Short: "List opencode provider models",
 		Long: `List available models and variants for the opencode agent.
 
 Requires a running opencode server. If no server is running, start one with:

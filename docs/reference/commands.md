@@ -704,7 +704,7 @@ orch log [flags]
 
 ## orch models
 
-List available models for opencode.
+List opencode provider models.
 
 ```bash
 orch models

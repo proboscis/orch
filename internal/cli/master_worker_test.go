@@ -14,12 +14,16 @@ func TestRootRegistersMasterAndWorkerCommands(t *testing.T) {
 		t.Fatal("expected root commands to be initialized")
 	}
 
+	var masterCmdLong string
+	masterHidden := false
 	hasMaster := false
 	hasWorker := false
 	for _, cmd := range rootCmd.Commands() {
 		switch cmd.Name() {
 		case "master":
 			hasMaster = true
+			masterHidden = cmd.Hidden
+			masterCmdLong = cmd.Long
 		case "worker":
 			hasWorker = true
 		}
@@ -27,6 +31,12 @@ func TestRootRegistersMasterAndWorkerCommands(t *testing.T) {
 
 	if !hasMaster {
 		t.Fatal("expected root command to include 'master'")
+	}
+	if !masterHidden {
+		t.Fatal("expected 'master' command to be hidden from help")
+	}
+	if !strings.Contains(masterCmdLong, "canonical command name is 'orch daemon'") {
+		t.Fatalf("expected master help to point at canonical daemon command, got: %s", masterCmdLong)
 	}
 	if !hasWorker {
 		t.Fatal("expected root command to include 'worker'")
