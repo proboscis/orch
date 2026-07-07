@@ -215,8 +215,12 @@ func runOpenCodeAgent(orchDir, projectRoot string, opts *agentOptions, controlCf
 			CreatedAt: time.Now(),
 			SessionID: newSessionID,
 		}
+		// Without the state file, later `orch agent` invocations cannot
+		// resume this session, so a failed save is a real error, not a
+		// warning (fail-fast charter).
 		if err := saveControlAgentState(orchDir, newState); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to save state: %v\n", err)
+			return fmt.Errorf("failed to save control agent state to %s: %w",
+				filepath.Join(orchDir, controlAgentFileName), err)
 		}
 		fmt.Fprintf(os.Stderr, "Creating opencode session: %s\n", newSessionID)
 	}
@@ -393,8 +397,12 @@ func createMultiplexerSession(orchDir, projectRoot string, agentType agent.Agent
 		Multiplexer:        string(mux.Type()),
 	}
 
+	// Without the state file, later `orch agent` / `orch agent --kill`
+	// invocations cannot manage the session, so a failed save is a real
+	// error, not a warning (fail-fast charter).
 	if err := saveControlAgentState(orchDir, state); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: failed to save state: %v\n", err)
+		return fmt.Errorf("session %q was created on %s, but saving control agent state to %s failed: %w",
+			controlAgentSessionName, mux.Type(), filepath.Join(orchDir, controlAgentFileName), err)
 	}
 
 	if promptPath != "" {

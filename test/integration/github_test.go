@@ -553,6 +553,6 @@ github:
 	}
 
 	if runResult.SessionName != "" {
-		exec.Command("tmux", "kill-session", "-t", runResult.SessionName).Run()
+		tmuxCmd("kill-session", "-t", runResult.SessionName).Run()
 	}
 }
