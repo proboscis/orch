@@ -20,10 +20,11 @@ func newMasterCmd() *cobra.Command {
 	cmd := newDaemonCmd()
 	cmd.Use = "master"
 	cmd.Short = "Manage orch-master control plane"
+	cmd.Hidden = true
 	cmd.Long = `Manage orch-master control plane.
 
-This command is the preferred cluster terminology. It is behaviorally equivalent
-to 'orch daemon'.`
+The canonical command name is 'orch daemon'. 'orch master' is kept as a hidden
+compatibility alias for existing deployments.`
 	return cmd
 }
 
@@ -34,8 +35,8 @@ func newWorkerCmd() *cobra.Command {
 		Long: `Manage orch-worker execution plane.
 
 Workers run as long-lived host managers and execute work assigned by
-orch-master via worker protocol APIs. Zeus single-host mode is implemented as
-co-located master+worker with the same semantics as distributed mode.`,
+orch-master via worker protocol APIs. Single-host mode is implemented as
+co-located daemon+worker with the same semantics as distributed mode.`,
 	}
 
 	cmd.AddCommand(newWorkerStatusCmd())
