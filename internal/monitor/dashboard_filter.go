@@ -163,7 +163,8 @@ func (d *Dashboard) activateFilterRow() (tea.Model, tea.Cmd) {
 		}
 		status, err := model.NormalizeStatus(row.value)
 		if err != nil {
-			panic(err)
+			d.message = fmt.Sprintf("invalid status filter %q: %v", row.value, err)
+			return d, nil
 		}
 		if d.filter.Statuses == nil {
 			d.filter.Statuses = make(map[model.Status]bool)

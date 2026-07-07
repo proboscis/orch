@@ -887,7 +887,11 @@ func (d *IssueDashboard) applyFilter() {
 
 	filtered := make([]IssueRow, 0, len(d.issues))
 	for _, issue := range d.issues {
-		status := mustParseIssueStatusForRow(issue.ID, issue.Status)
+		status, ok := parseIssueStatusForRow(issue.ID, issue.Status)
+		if !ok {
+			filtered = append(filtered, issue)
+			continue
+		}
 		if status == model.IssueStatusResolved && !d.filter.showResolved {
 			continue
 		}

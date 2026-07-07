@@ -217,6 +217,7 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 	validEntries := make(map[string]*runIndexEntry)
 	indexDirty := false
 	seenKeys := make(map[string]bool)
+	failedLoadCount := 0
 
 	for _, issueID := range issueDirs {
 		typedIssueID := model.IssueID(issueID)
@@ -261,6 +262,12 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 
 			run, err := s.loadRun(typedIssueID, runID, runPath)
 			if err != nil {
+				failedLoadCount++
+				s.warnOnce(runPath, "orch: warning: failed to load run file %s for run %s#%s: %v\n", runPath, issueID, runID, err)
+				if _, exists := idx.Entries[key]; exists {
+					delete(idx.Entries, key)
+					indexDirty = true
+				}
 				continue
 			}
 
@@ -330,6 +337,10 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 
 	if indexDirty {
 		s.saveRunIndex(idx)
+	}
+
+	if failedLoadCount > 0 {
+		s.warn("orch: warning: %d run files failed to load - see daemon log\n", failedLoadCount)
 	}
 
 	runs := make([]*model.Run, 0, len(validEntries))
