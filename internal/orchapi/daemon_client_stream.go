@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/s22625/orch/api/orchpb"
-	"github.com/s22625/orch/internal/daemon"
-	"github.com/s22625/orch/internal/model"
+	"github.com/proboscis/orch/api/orchpb"
+	"github.com/proboscis/orch/internal/daemon"
+	"github.com/proboscis/orch/internal/model"
 )
 
 // daemonRunEventStream adapts a daemon.RunEventStream (proto-typed) into the

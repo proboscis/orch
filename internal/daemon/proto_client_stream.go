@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/s22625/orch/api/orchpb"
+	"github.com/proboscis/orch/api/orchpb"
 	"google.golang.org/protobuf/proto"
 )
 

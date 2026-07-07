@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/store"
+	"github.com/proboscis/orch/internal/model"
+	"github.com/proboscis/orch/internal/store"
 )
 
 type runIndexEntry struct {

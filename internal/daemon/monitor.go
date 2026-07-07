@@ -15,13 +15,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/s22625/orch/api/orchpb"
-	"github.com/s22625/orch/internal/agent"
-	"github.com/s22625/orch/internal/git"
-	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/pr"
-	"github.com/s22625/orch/internal/runevents"
-	"github.com/s22625/orch/internal/store"
+	"github.com/proboscis/orch/api/orchpb"
+	"github.com/proboscis/orch/internal/agent"
+	"github.com/proboscis/orch/internal/git"
+	"github.com/proboscis/orch/internal/model"
+	"github.com/proboscis/orch/internal/pr"
+	"github.com/proboscis/orch/internal/runevents"
+	"github.com/proboscis/orch/internal/store"
 )
 
 const deadChecksBeforeFailed = 3

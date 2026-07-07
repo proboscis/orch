@@ -10,8 +10,8 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/orchapi"
+	"github.com/proboscis/orch/internal/model"
+	"github.com/proboscis/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
 

@@ -8,8 +8,8 @@
 package runevents
 
 import (
-	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/store"
+	"github.com/proboscis/orch/internal/model"
+	"github.com/proboscis/orch/internal/store"
 )
 
 // StatusChangeEvent carries the rich, in-process context for a run status

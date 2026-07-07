@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/s22625/orch/api/orchpb"
-	"github.com/s22625/orch/internal/model"
-	filestore "github.com/s22625/orch/internal/store/file"
+	"github.com/proboscis/orch/api/orchpb"
+	"github.com/proboscis/orch/internal/model"
+	filestore "github.com/proboscis/orch/internal/store/file"
 )
 
 // TestUpdateStatus_PublishesTransitionToBus is the missing end-to-end

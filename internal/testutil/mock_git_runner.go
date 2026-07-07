@@ -5,7 +5,7 @@ package testutil
 
 import (
 	"context"
-	"github.com/s22625/orch/internal/git"
+	"github.com/proboscis/orch/internal/git"
 	"sync"
 )
 

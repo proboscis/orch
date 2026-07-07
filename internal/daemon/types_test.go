@@ -3,7 +3,7 @@ package daemon
 import (
 	"testing"
 
-	"github.com/s22625/orch/internal/model"
+	"github.com/proboscis/orch/internal/model"
 )
 
 func TestFileURI(t *testing.T) {

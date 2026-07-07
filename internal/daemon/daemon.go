@@ -13,16 +13,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/s22625/orch/internal/config"
-	"github.com/s22625/orch/internal/git"
-	"github.com/s22625/orch/internal/github"
-	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/notify"
-	"github.com/s22625/orch/internal/pr"
-	"github.com/s22625/orch/internal/runevents"
-	"github.com/s22625/orch/internal/store"
-	"github.com/s22625/orch/internal/store/file"
-	"github.com/s22625/orch/internal/xdg"
+	"github.com/proboscis/orch/internal/config"
+	"github.com/proboscis/orch/internal/git"
+	"github.com/proboscis/orch/internal/github"
+	"github.com/proboscis/orch/internal/model"
+	"github.com/proboscis/orch/internal/notify"
+	"github.com/proboscis/orch/internal/pr"
+	"github.com/proboscis/orch/internal/runevents"
+	"github.com/proboscis/orch/internal/store"
+	"github.com/proboscis/orch/internal/store/file"
+	"github.com/proboscis/orch/internal/xdg"
 )
 
 const (

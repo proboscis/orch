@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/s22625/orch/internal/monitor"
-	"github.com/s22625/orch/internal/xdg"
+	"github.com/proboscis/orch/internal/monitor"
+	"github.com/proboscis/orch/internal/xdg"
 	"github.com/spf13/cobra"
 )
 

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/s22625/orch/internal/config"
-	"github.com/s22625/orch/internal/model"
+	"github.com/proboscis/orch/internal/config"
+	"github.com/proboscis/orch/internal/model"
 )
 
 type Backend struct {

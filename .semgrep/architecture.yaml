@@ -24,7 +24,7 @@ rules:
       - pattern: |
           import (
             ...
-            "github.com/s22625/orch/internal/git"
+            "github.com/proboscis/orch/internal/git"
             ...
           )
     paths:
@@ -47,7 +47,7 @@ rules:
       - pattern: |
           import (
             ...
-            "github.com/s22625/orch/internal/pr"
+            "github.com/proboscis/orch/internal/pr"
             ...
           )
     paths:
@@ -69,7 +69,7 @@ rules:
       - pattern: |
           import (
             ...
-            "github.com/s22625/orch/internal/store"
+            "github.com/proboscis/orch/internal/store"
             ...
           )
     paths:
@@ -90,7 +90,7 @@ rules:
       - pattern: |
           import (
             ...
-            "github.com/s22625/orch/internal/store/file"
+            "github.com/proboscis/orch/internal/store/file"
             ...
           )
     paths:
@@ -111,7 +111,7 @@ rules:
       - pattern: |
           import (
             ...
-            "github.com/s22625/orch/internal/config"
+            "github.com/proboscis/orch/internal/config"
             ...
           )
     paths:
@@ -139,7 +139,7 @@ rules:
       - pattern: |
           import (
             ...
-            "github.com/s22625/orch/internal/daemon"
+            "github.com/proboscis/orch/internal/daemon"
             ...
           )
     paths:
@@ -438,7 +438,7 @@ rules:
       - pattern: |
           import (
             ...
-            "github.com/s22625/orch/internal/git"
+            "github.com/proboscis/orch/internal/git"
             ...
           )
     paths:
@@ -460,7 +460,7 @@ rules:
       - pattern: |
           import (
             ...
-            "github.com/s22625/orch/internal/pr"
+            "github.com/proboscis/orch/internal/pr"
             ...
           )
     paths:
@@ -534,7 +534,7 @@ rules:
       - pattern: |
           import (
             ...
-            "github.com/s22625/orch/internal/agent"
+            "github.com/proboscis/orch/internal/agent"
             ...
           )
     paths:
@@ -554,7 +554,7 @@ rules:
       - pattern: |
           import (
             ...
-            "github.com/s22625/orch/internal/multiplexer"
+            "github.com/proboscis/orch/internal/multiplexer"
             ...
           )
     paths:
@@ -1847,7 +1847,7 @@ rules:
       - pattern: |
           import (
             ...
-            "github.com/s22625/orch/internal/daemon"
+            "github.com/proboscis/orch/internal/daemon"
             ...
           )
     paths:
@@ -1869,7 +1869,7 @@ rules:
       - pattern: |
           import (
             ...
-            "github.com/s22625/orch/internal/store"
+            "github.com/proboscis/orch/internal/store"
             ...
           )
     paths:
@@ -1934,7 +1934,7 @@ rules:
       - pattern: |
           import (
             ...
-            "github.com/s22625/orch/internal/tmux"
+            "github.com/proboscis/orch/internal/tmux"
             ...
           )
     paths:

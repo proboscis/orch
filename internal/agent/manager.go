@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/multiplexer"
+	"github.com/proboscis/orch/internal/model"
+	"github.com/proboscis/orch/internal/multiplexer"
 )
 
 type muxCache struct {
@@ -389,7 +389,7 @@ func (m *OpenCodeManager) sessionExists(ctx context.Context, client *OpenCodeCli
 	// Use GetSessionsForDirectory with the run's worktree path for consistent session detection.
 	// OpenCode scopes sessions by project (directory). Without the directory header,
 	// sessions created with worktree paths won't be found.
-	// See: https://github.com/s22625/orch/issues/347
+	// See: https://github.com/proboscis/orch/issues/347
 	sessions, err := client.GetSessionsForDirectory(ctx, m.Directory)
 	if err != nil {
 		return false

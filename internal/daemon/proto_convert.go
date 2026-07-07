@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/s22625/orch/api/orchpb"
-	"github.com/s22625/orch/internal/model"
+	"github.com/proboscis/orch/api/orchpb"
+	"github.com/proboscis/orch/internal/model"
 )
 
 func modelStatusToProto(s model.Status) (orchpb.RunStatus, error) {

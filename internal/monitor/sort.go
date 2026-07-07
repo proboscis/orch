@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/s22625/orch/internal/model"
+	"github.com/proboscis/orch/internal/model"
 )
 
 // SortKey defines the supported sort keys for monitor panes.

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/s22625/orch/internal/model"
+	"github.com/proboscis/orch/internal/model"
 )
 
 func TestParseFilterDuration(t *testing.T) {

@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/s22625/orch/internal/agent"
-	"github.com/s22625/orch/internal/config"
+	"github.com/proboscis/orch/internal/agent"
+	"github.com/proboscis/orch/internal/config"
 )
 
 type ColumnID string

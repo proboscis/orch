@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/s22625/orch/internal/query"
+	"github.com/proboscis/orch/internal/query"
 )
 
 func TestSchemaCommand_ListAll(t *testing.T) {

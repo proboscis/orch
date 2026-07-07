@@ -3,8 +3,8 @@ package notify
 import (
 	"log"
 
-	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/runevents"
+	"github.com/proboscis/orch/internal/model"
+	"github.com/proboscis/orch/internal/runevents"
 )
 
 // SlackStatusListener adapts a SlackNotifier to runevents.StatusChangeListener.

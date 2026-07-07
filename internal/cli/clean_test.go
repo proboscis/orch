@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/s22625/orch/internal/orchapi"
-	"github.com/s22625/orch/internal/testutil"
+	"github.com/proboscis/orch/internal/orchapi"
+	"github.com/proboscis/orch/internal/testutil"
 )
 
 func TestCleanStatusFilterDefaultsToFailedAndCanceled(t *testing.T) {

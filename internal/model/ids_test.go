@@ -129,7 +129,7 @@ func TestNewProjectIDNormalizesLikeRepoID(t *testing.T) {
 func TestNewRepoIDRejectsRawStringAtCompileTime(t *testing.T) {
 	runCompileFailTest(t, "raw-string-repo-id", `package compilefail
 
-import "github.com/s22625/orch/internal/model"
+import "github.com/proboscis/orch/internal/model"
 
 func acceptsRepoID(model.RepoID) {}
 
@@ -143,7 +143,7 @@ func bad() {
 func TestProjectIDIsDistinctFromRepoIDAtCompileTime(t *testing.T) {
 	runCompileFailTest(t, "repo-id-is-not-project-id", `package compilefail
 
-import "github.com/s22625/orch/internal/model"
+import "github.com/proboscis/orch/internal/model"
 
 func acceptsProjectID(model.ProjectID) {}
 
@@ -164,13 +164,13 @@ func runCompileFailTest(t *testing.T, name, badSource string, wantFragments ...s
 	}
 
 	goMod := strings.Join([]string{
-		"module github.com/s22625/orch/compilefail",
+		"module github.com/proboscis/orch/compilefail",
 		"",
 		"go 1.25.3",
 		"",
-		"require github.com/s22625/orch v0.0.0",
+		"require github.com/proboscis/orch v0.0.0",
 		"",
-		"replace github.com/s22625/orch => " + filepath.ToSlash(repoRoot),
+		"replace github.com/proboscis/orch => " + filepath.ToSlash(repoRoot),
 		"",
 	}, "\n")
 	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte(goMod), 0644); err != nil {

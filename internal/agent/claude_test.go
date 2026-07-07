@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/s22625/orch/internal/multiplexer"
+	"github.com/proboscis/orch/internal/multiplexer"
 )
 
 func TestDoubleQuote(t *testing.T) {

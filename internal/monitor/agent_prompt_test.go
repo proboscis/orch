@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/s22625/orch/internal/model"
+	"github.com/proboscis/orch/internal/model"
 )
 
 func TestDetectIssueIDConvention(t *testing.T) {

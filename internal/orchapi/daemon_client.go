@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/s22625/orch/internal/daemon"
-	"github.com/s22625/orch/internal/model"
+	"github.com/proboscis/orch/internal/daemon"
+	"github.com/proboscis/orch/internal/model"
 )
 
 type DaemonClient struct {

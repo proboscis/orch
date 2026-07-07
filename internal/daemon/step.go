@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/s22625/orch/internal/model"
+	"github.com/proboscis/orch/internal/model"
 )
 
 // runView is the read-only projection of a run that transition policy may

@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/s22625/orch/internal/agent"
-	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/pr"
-	"github.com/s22625/orch/internal/runevents"
-	"github.com/s22625/orch/internal/store"
+	"github.com/proboscis/orch/internal/agent"
+	"github.com/proboscis/orch/internal/model"
+	"github.com/proboscis/orch/internal/pr"
+	"github.com/proboscis/orch/internal/runevents"
+	"github.com/proboscis/orch/internal/store"
 )
 
 func newTestDaemon() *Daemon {

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/s22625/orch/internal/config"
+	"github.com/proboscis/orch/internal/config"
 )
 
 func newCodexProfileConfig() *config.Config {

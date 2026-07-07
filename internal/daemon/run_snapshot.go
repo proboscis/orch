@@ -3,7 +3,7 @@ package daemon
 import (
 	"fmt"
 
-	"github.com/s22625/orch/internal/model"
+	"github.com/proboscis/orch/internal/model"
 )
 
 func newRunSnapshot(run *model.Run) *RunSnapshot {

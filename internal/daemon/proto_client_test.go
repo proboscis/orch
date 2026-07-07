@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	orchpb "github.com/s22625/orch/api/orchpb"
-	"github.com/s22625/orch/internal/xdg"
+	orchpb "github.com/proboscis/orch/api/orchpb"
+	"github.com/proboscis/orch/internal/xdg"
 )
 
 func TestProtoBranchStateToString(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/s22625/orch/internal/executor"
+	"github.com/proboscis/orch/internal/executor"
 )
 
 func sessionEnv(exec executor.Executor, extra []string) []string {

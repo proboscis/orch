@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/s22625/orch/internal/xdg"
+	"github.com/proboscis/orch/internal/xdg"
 )
 
 func TestPIDFileOperations(t *testing.T) {

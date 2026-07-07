@@ -3,7 +3,7 @@ package backend
 import (
 	"context"
 
-	"github.com/s22625/orch/internal/model"
+	"github.com/proboscis/orch/internal/model"
 )
 
 type ListRunsFilter struct {

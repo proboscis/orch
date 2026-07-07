@@ -6,7 +6,7 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/s22625/orch/internal/orchapi"
+	"github.com/proboscis/orch/internal/orchapi"
 	"github.com/spf13/cobra"
 )
 

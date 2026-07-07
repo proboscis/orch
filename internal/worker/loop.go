@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/s22625/orch/internal/daemon"
-	"github.com/s22625/orch/internal/store"
-	filestore "github.com/s22625/orch/internal/store/file"
+	"github.com/proboscis/orch/internal/daemon"
+	"github.com/proboscis/orch/internal/store"
+	filestore "github.com/proboscis/orch/internal/store/file"
 )
 
 var currentWorkerHostname = os.Hostname

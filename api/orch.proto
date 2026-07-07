@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package orch.v1;
 
-option go_package = "github.com/s22625/orch/api/orchpb";
+option go_package = "github.com/proboscis/orch/api/orchpb";
 
 // =============================================================================
 // Enums

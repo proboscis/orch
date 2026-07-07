@@ -21,7 +21,7 @@ mkdir -p "$ROOT_DIR/orch-monitor-tui/orch_monitor/api"
 # Using module mode to place output at api/orchpb/orch.pb.go
 "${PROTOC[@]}" \
   --go_out="$ROOT_DIR" \
-  --go_opt=module=github.com/s22625/orch \
+  --go_opt=module=github.com/proboscis/orch \
   -I "$SCRIPT_DIR" \
   "$SCRIPT_DIR/orch.proto"
 

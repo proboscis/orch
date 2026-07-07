@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/s22625/orch/internal/executor"
+	"github.com/proboscis/orch/internal/executor"
 )
 
 func TestParseType(t *testing.T) {
