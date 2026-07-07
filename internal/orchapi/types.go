@@ -603,6 +603,11 @@ type DaemonStatus struct {
 	Version string
 }
 
+type PingStatus struct {
+	OK      bool
+	Version string
+}
+
 type ControlAgentConfig struct {
 	PromptContent string
 	Agent         string

@@ -30,6 +30,7 @@ INSTALL_ALL_AGENTS=false
 # Skip flags
 SKIP_TUI=false
 SKIP_COMPLETIONS=false
+NO_DAEMON_RESTART=false
 
 # Detected values
 OS=""
@@ -68,6 +69,25 @@ ask_yes_no() {
 }
 
 command_exists() { command -v "$1" &>/dev/null; }
+
+installed_orch_version() {
+    local version_out
+    version_out=$("${INSTALL_DIR}/orch" --version 2>/dev/null | head -n1 | awk '{print $NF}' || true)
+    [ -n "$version_out" ] && echo "$version_out" || echo "unknown"
+}
+
+orch_daemon_running() {
+    if command_exists pgrep && pgrep -f "[o]rch daemon run" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    if [ -x "${INSTALL_DIR}/orch" ]; then
+        "${INSTALL_DIR}/orch" daemon status 2>/dev/null | grep -q "Status: running"
+        return $?
+    fi
+
+    return 1
+}
 
 #------------------------------------------------------------------------------
 # Detection functions
@@ -232,6 +252,25 @@ install_orch_binary() {
     
     success "Installed orch to ${INSTALL_DIR}/orch"
     rm -rf "$tmp_dir"
+}
+
+restart_daemon_after_upgrade() {
+    if [ "$NO_DAEMON_RESTART" = true ]; then
+        warn "Skipping daemon restart (--no-daemon-restart)"
+        return 0
+    fi
+
+    if ! orch_daemon_running; then
+        success "No running orch daemon found; restart not needed"
+        return 0
+    fi
+
+    info "Restarting running orch daemon..."
+    if "${INSTALL_DIR}/orch" daemon-restart; then
+        success "Restarted orch daemon"
+    else
+        warn "Could not restart orch daemon automatically; run: ${INSTALL_DIR}/orch daemon-restart"
+    fi
 }
 
 install_uv() {
@@ -466,6 +505,7 @@ show_plan() {
     echo "    - orch CLI ${version} -> ${INSTALL_DIR}/orch"
     [ "$SKIP_TUI" = false ] && echo "    - orch-monitor TUI (via uv)"
     [ -n "$SHELL_NAME" ] && [ "$SKIP_COMPLETIONS" = false ] && echo "    - shell completions for ${SHELL_NAME}"
+    [ "$NO_DAEMON_RESTART" = false ] && echo "    - restart running orch daemon after upgrade"
     echo ""
 }
 
@@ -488,6 +528,7 @@ Options:
     --uninstall         Uninstall orch
     --skip-tui          Skip orch-monitor TUI
     --skip-completions  Skip shell completions
+    --no-daemon-restart Do not restart a running orch daemon after upgrade
     --install-dir DIR   Install directory (default: ~/.local/bin)
     -h, --help          Show this help
 
@@ -521,6 +562,7 @@ parse_args() {
             --all) INSTALL_ALL_AGENTS=true; shift ;;
             --skip-tui) SKIP_TUI=true; shift ;;
             --skip-completions) SKIP_COMPLETIONS=true; shift ;;
+            --no-daemon-restart) NO_DAEMON_RESTART=true; shift ;;
             --install-dir) INSTALL_DIR="$2"; shift 2 ;;
             -h|--help) show_help; exit 0 ;;
             *) die "Unknown option: $1" ;;
@@ -541,7 +583,7 @@ main() {
     # Check existing installation
     if [ -f "${INSTALL_DIR}/orch" ]; then
         local cur_ver
-        cur_ver=$("${INSTALL_DIR}/orch" --version 2>/dev/null | awk '{print $NF}' || echo "unknown")
+        cur_ver=$(installed_orch_version)
         warn "orch already installed (${cur_ver})"
         confirm "Reinstall/upgrade?" || { echo "Aborted."; exit 0; }
     fi
@@ -556,6 +598,7 @@ main() {
     
     echo ""
     install_orch_binary "$version"
+    restart_daemon_after_upgrade
     install_orch_monitor
     
     # Agent installation

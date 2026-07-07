@@ -1025,3 +1025,8 @@ type DaemonStatusResponse struct {
 	LogPath string
 	Version string
 }
+
+type PingResponse struct {
+	OK      bool
+	Version string
+}

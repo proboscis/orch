@@ -11,6 +11,7 @@ import (
 	"github.com/proboscis/orch/internal/config"
 	"github.com/proboscis/orch/internal/model"
 	"github.com/proboscis/orch/internal/orchapi"
+	buildversion "github.com/proboscis/orch/internal/version"
 	"github.com/proboscis/orch/internal/xdg"
 	"github.com/spf13/cobra"
 )
@@ -73,12 +74,18 @@ var noDaemonCommands = map[string]bool{
 	"tutorial":             true,
 	"agent":                true,
 	"validate-issue-files": true,
+	"version":              true,
+}
+
+var noConfigValidationCommands = map[string]bool{
+	"version": true,
 }
 
 // rootCmd represents the base command
 var rootCmd = &cobra.Command{
-	Use:   "orch",
-	Short: "Orchestrator for multiple LLM CLIs",
+	Use:     "orch",
+	Short:   "Orchestrator for multiple LLM CLIs",
+	Version: buildversion.Version,
 	Long: `orch is an orchestrator for managing multiple LLM CLIs (claude/codex/gemini)
 using a unified vocabulary of issue/run/event.
 
@@ -89,8 +96,10 @@ It operates non-interactively by default, using events to track state
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		remoteFlagWasSet = cmd.Flags().Changed("remote") || cmd.PersistentFlags().Changed("remote")
 
-		if err := validateConfigForCommand(); err != nil {
-			return err
+		if shouldValidateConfigForCommand(cmd) {
+			if err := validateConfigForCommand(); err != nil {
+				return err
+			}
 		}
 
 		// Auto-start daemon for most commands.
@@ -114,6 +123,15 @@ func shouldAutoStartDaemonForCommand(cmd *cobra.Command, remoteAddr string) bool
 		}
 	}
 
+	return true
+}
+
+func shouldValidateConfigForCommand(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		if noConfigValidationCommands[c.Name()] {
+			return false
+		}
+	}
 	return true
 }
 
@@ -157,6 +175,7 @@ func init() {
 		withCommandGroup(newDaemonRestartCmd(), commandGroupSetupOps),
 		withCommandGroup(newRepairCmd(), commandGroupSetupOps),
 		withCommandGroup(newTutorialCmd(), commandGroupSetupOps),
+		withCommandGroup(newVersionCmd(), commandGroupSetupOps),
 		withCommandGroup(newCleanCmd(), commandGroupSetupOps),
 		withCommandGroup(newDeleteCmd(), commandGroupSetupOps),
 		withCommandGroup(newNotifyCmd(), commandGroupSetupOps),
@@ -418,6 +437,9 @@ func defaultGetAPIWithOptions(requireProjectRoot bool) (orchapi.OrchAPI, error) 
 	client := orchapi.NewDaemonClientWithAddress(clientProjectScope, remoteAddr)
 	if remoteAddr == "" && !client.IsAvailable() {
 		ensureDaemon()
+	}
+	if err := pingAPIWithVersionCheck(context.Background(), client); err != nil && remoteAddr != "" {
+		return nil, fmt.Errorf("remote daemon %s is not reachable: %w", remoteAddr, err)
 	}
 
 	return client, nil
