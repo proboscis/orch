@@ -1,10 +1,12 @@
 package daemon
 
 import (
+	"bytes"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -81,6 +83,61 @@ func TestUpdateStatus_PublishesTransitionToBus(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("no event received within timeout")
+	}
+}
+
+// TestPublishRunEvent_VocabularyDriftSkipsNotPanics feeds a status with no
+// proto mapping through the monitor-plane publish path (both the from and
+// the to arm) and asserts the drift rule of
+// docs/design/run-state-machine.md §8: no panic (the old behavior panicked
+// here and killed the daemon), an ERROR naming the run ref and the
+// offending status is logged, no frame is published for the drifted run,
+// and a subsequent healthy run's publish is unaffected.
+func TestPublishRunEvent_VocabularyDriftSkipsNotPanics(t *testing.T) {
+	var logBuf bytes.Buffer
+	srv := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	d := newTestDaemon()
+	d.logger = log.New(&logBuf, "", 0)
+	d.socketServer = srv
+
+	sub := srv.RunEventBus().Subscribe(RunEventFilter{})
+	defer sub.Close()
+
+	drifted := &model.Run{IssueID: "issue-drift", RunID: "run-drift"}
+	unmapped := model.Status("status-from-the-future")
+
+	// Old behavior: either of these calls panics and the test fails.
+	d.publishRunEvent(drifted, unmapped, model.StatusRunning, model.EventSourceDaemon)
+	d.publishRunEvent(drifted, model.StatusRunning, unmapped, model.EventSourceDaemon)
+
+	logged := logBuf.String()
+	if got := strings.Count(logged, "ERROR issue-drift#run-drift"); got != 2 {
+		t.Fatalf("ERROR log lines naming the run ref = %d, want 2; log:\n%s", got, logged)
+	}
+	if !strings.Contains(logged, "status-from-the-future") {
+		t.Fatalf("log does not name the offending status:\n%s", logged)
+	}
+
+	select {
+	case ev := <-sub.Events():
+		t.Fatalf("expected no event for drifted status, got %+v", ev)
+	case <-time.After(200 * time.Millisecond):
+		// expected: publish skipped
+	}
+
+	// Other runs' updates are unaffected on the same tick.
+	healthy := &model.Run{IssueID: "issue-healthy", RunID: "run-1"}
+	d.publishRunEvent(healthy, model.StatusRunning, model.StatusWaiting, model.EventSourceDaemon)
+	select {
+	case ev := <-sub.Events():
+		if ev.IssueId != "issue-healthy" || ev.RunId != "run-1" {
+			t.Fatalf("unexpected ids: %+v", ev)
+		}
+		if ev.FromStatus != orchpb.RunStatus_RUN_STATUS_RUNNING || ev.ToStatus != orchpb.RunStatus_RUN_STATUS_WAITING {
+			t.Fatalf("unexpected transition: %+v", ev)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("healthy run publish blocked after drift skip")
 	}
 }
 

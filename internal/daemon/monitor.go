@@ -562,13 +562,18 @@ func (d *Daemon) publishRunEvent(run *model.Run, from, to model.Status, source m
 	if from == to {
 		return
 	}
+	// Vocabulary drift (a status with no proto mapping) degrades to skip+log
+	// per docs/design/run-state-machine.md §8: this run's publish is dropped
+	// for this tick, no status is invented, and the daemon stays alive.
 	fromProto, err := modelStatusToProto(from)
 	if err != nil {
-		panic(err)
+		d.logger.Printf("ERROR %s#%s: skipping run event publish: %v", run.IssueID, run.RunID, err)
+		return
 	}
 	toProto, err := modelStatusToProto(to)
 	if err != nil {
-		panic(err)
+		d.logger.Printf("ERROR %s#%s: skipping run event publish: %v", run.IssueID, run.RunID, err)
+		return
 	}
 	frame := &orchpb.RunEventFrame{
 		RunId:           string(run.RunID),

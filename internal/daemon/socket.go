@@ -3024,13 +3024,24 @@ func (s *SocketServer) markRunFeedbackSent(st store.Store, run *model.Run) {
 			Store:  st,
 		})
 	}
+	s.publishFeedbackResume(run, fromStatus)
+}
+
+// publishFeedbackResume broadcasts the feedback-driven resume transition
+// (fromStatus -> running) on the run event bus. Vocabulary drift (a status
+// with no proto mapping) degrades to skip+log per
+// docs/design/run-state-machine.md §8: this run's publish is dropped for
+// this tick, no status is invented, and the daemon stays alive.
+func (s *SocketServer) publishFeedbackResume(run *model.Run, fromStatus model.Status) {
 	fromProto, err := modelStatusToProto(fromStatus)
 	if err != nil {
-		panic(err)
+		s.logger.Printf("ERROR %s#%s: skipping feedback resume publish: %v", run.IssueID, run.RunID, err)
+		return
 	}
 	toProto, err := modelStatusToProto(model.StatusRunning)
 	if err != nil {
-		panic(err)
+		s.logger.Printf("ERROR %s#%s: skipping feedback resume publish: %v", run.IssueID, run.RunID, err)
+		return
 	}
 	s.PublishRunEvent(&orchpb.RunEventFrame{
 		RunId:           string(run.RunID),

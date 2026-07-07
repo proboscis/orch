@@ -4240,6 +4240,59 @@ func TestMarkRunFeedbackSentTransitions(t *testing.T) {
 	}
 }
 
+// TestPublishFeedbackResume_VocabularyDriftSkipsNotPanics feeds a status
+// with no proto mapping through the socket-plane publish path and asserts
+// the drift rule of docs/design/run-state-machine.md §8: no panic (the old
+// behavior panicked here and killed the daemon), an ERROR naming the run
+// ref and the offending status is logged, no frame is published for the
+// drifted run, and another run's feedback-resume publish is unaffected.
+func TestPublishFeedbackResume_VocabularyDriftSkipsNotPanics(t *testing.T) {
+	var logBuf bytes.Buffer
+	server := NewSocketServer(nil, log.New(&logBuf, "", 0))
+
+	sub := server.RunEventBus().Subscribe(RunEventFilter{})
+	defer sub.Close()
+
+	drifted := &model.Run{IssueID: "i-drift", RunID: "r-drift"}
+	// Old behavior: this call panics and the test fails.
+	server.publishFeedbackResume(drifted, model.Status("status-from-the-future"))
+
+	logged := logBuf.String()
+	if !strings.Contains(logged, "ERROR i-drift#r-drift") {
+		t.Fatalf("ERROR log line does not name the run ref:\n%s", logged)
+	}
+	if !strings.Contains(logged, "status-from-the-future") {
+		t.Fatalf("log does not name the offending status:\n%s", logged)
+	}
+
+	select {
+	case ev := <-sub.Events():
+		t.Fatalf("expected no event for drifted status, got %+v", ev)
+	case <-time.After(200 * time.Millisecond):
+		// expected: publish skipped
+	}
+
+	// Other runs' updates are unaffected: a healthy run resumed by feedback
+	// still publishes through the full markRunFeedbackSent path.
+	healthy := &model.Run{IssueID: "i", RunID: "r", Status: model.StatusWaiting}
+	st := &mockStore{runs: map[string]*model.Run{"i#r": healthy}, issues: map[string]*model.Issue{}}
+	server.markRunFeedbackSent(st, healthy)
+	select {
+	case ev := <-sub.Events():
+		if ev.IssueId != "i" || ev.RunId != "r" {
+			t.Fatalf("unexpected ids: %+v", ev)
+		}
+		if ev.FromStatus != orchpb.RunStatus_RUN_STATUS_WAITING || ev.ToStatus != orchpb.RunStatus_RUN_STATUS_RUNNING {
+			t.Fatalf("unexpected transition: %+v", ev)
+		}
+		if ev.Source != string(model.EventSourceUser) {
+			t.Fatalf("source = %q, want %q", ev.Source, model.EventSourceUser)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("healthy feedback-resume publish blocked after drift skip")
+	}
+}
+
 func leaseRunSnapshot(lease *WorkerLease) *RunSnapshot {
 	if lease == nil || lease.Payload == nil {
 		return nil

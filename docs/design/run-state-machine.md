@@ -382,3 +382,24 @@ Decisions taken:
 
 Whitelist meter: 47 → 10 annotations (socket.go 40 → 3; the remaining three
 are W6, W8 and `appendRunResolvedByUser`, all with §6 dispositions).
+
+## 8. Vocabulary drift at serialization boundaries (decided 2026-07-07)
+
+**Rule: vocabulary drift at serialization boundaries degrades to skip+log —
+never panics, never invents a status.**
+
+The status vocabulary can drift ahead of the proto map (newer binary wrote,
+older binary reads, or vice versa; there is no CLI/daemon version handshake).
+The conversion layer (`internal/daemon/proto_convert.go` —
+`modelStatusToProto` and friends) returns `(value, error)` for an unmapped
+status; it never panics. Callers at serialization boundaries (event-bus
+publish in `Daemon.publishRunEvent`, `SocketServer.publishFeedbackResume`)
+handle the error by logging an ERROR naming the run ref and the offending
+status, then skipping that run's notification for that tick. No status event
+is written, no synthetic status (e.g. `unknown`) is substituted, and the
+daemon stays alive — one drifted run must not stop monitoring for all runs.
+
+This does not weaken fail-fast elsewhere: recover wrappers still re-panic
+(`logAndRepanic`), the transition policy (`step()`) and the status write
+surface (`commitRunStatus`) are untouched, and discarding conversion errors
+remains banned by the `fail-fast-no-discard-status-parse-error` semgrep rule.
