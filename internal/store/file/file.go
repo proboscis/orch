@@ -85,6 +85,13 @@ func (s *FileStore) warnOnce(path, format string, args ...any) {
 	s.warnFunc(format, args...)
 }
 
+func (s *FileStore) warn(format string, args ...any) {
+	if s.warnFunc == nil {
+		return
+	}
+	s.warnFunc(format, args...)
+}
+
 // frontmatterKeys are known keys that strongly indicate real frontmatter
 var frontmatterKeys = map[string]bool{
 	"type": true, "id": true, "title": true, "status": true,

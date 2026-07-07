@@ -1,6 +1,9 @@
 package monitor
 
 import (
+	"bytes"
+	"log"
+	"strings"
 	"testing"
 	"time"
 
@@ -262,6 +265,55 @@ func TestSortIssueRows(t *testing.T) {
 	}
 	if rows[0].Index != 1 || rows[3].Index != 4 {
 		t.Fatalf("SortByUpdated index mismatch: got %d..%d", rows[0].Index, rows[3].Index)
+	}
+}
+
+func TestSortIssueRowsUnknownStatusSortsLastAndDisplaysRaw(t *testing.T) {
+	base := time.Date(2024, 1, 2, 9, 0, 0, 0, time.UTC)
+	var logOutput bytes.Buffer
+	originalLogWriter := log.Writer()
+	originalLogFlags := log.Flags()
+	log.SetOutput(&logOutput)
+	log.SetFlags(0)
+	defer func() {
+		log.SetOutput(originalLogWriter)
+		log.SetFlags(originalLogFlags)
+	}()
+
+	rows := []IssueRow{
+		{ID: "orch-unknown", Status: "triaged", LatestUpdated: base.Add(4 * time.Hour)},
+		{ID: "orch-closed", Status: string(model.IssueStatusClosed), LatestUpdated: base.Add(3 * time.Hour)},
+		{ID: "orch-open", Status: string(model.IssueStatusOpen), LatestUpdated: base},
+	}
+
+	sortIssueRows(rows, SortByStatus)
+	if rows[0].ID != "orch-open" || rows[1].ID != "orch-closed" || rows[2].ID != "orch-unknown" {
+		t.Fatalf("SortByStatus order mismatch: got %s, %s, %s", rows[0].ID, rows[1].ID, rows[2].ID)
+	}
+	if rows[2].Status != "triaged" {
+		t.Fatalf("unknown issue status was rewritten: got %q", rows[2].Status)
+	}
+
+	d := &IssueDashboard{styles: DefaultStyles()}
+	rendered := d.renderRow(3, 12, 12, 10, 6, 20,
+		"3", rows[2].ID, rows[2].Status, "-", "0", "unknown status",
+		false, &rows[2])
+	if !strings.Contains(rendered, "triaged") {
+		t.Fatalf("rendered row does not contain raw status %q: %q", rows[2].Status, rendered)
+	}
+
+	rows = []IssueRow{
+		{ID: "orch-unknown", Status: "triaged", LatestUpdated: base.Add(4 * time.Hour)},
+		{ID: "orch-closed", Status: string(model.IssueStatusClosed), LatestUpdated: base.Add(3 * time.Hour)},
+		{ID: "orch-open", Status: string(model.IssueStatusOpen), LatestUpdated: base},
+	}
+	sortIssueRowsWithDirection(rows, SortByStatus, SortDesc)
+	if rows[2].ID != "orch-unknown" {
+		t.Fatalf("SortByStatus descending should keep unknown status last, got last row %s", rows[2].ID)
+	}
+
+	if got := strings.Count(logOutput.String(), "invalid issue status for row orch-unknown"); got != 1 {
+		t.Fatalf("invalid issue status warning count = %d, want 1; log output: %q", got, logOutput.String())
 	}
 }
 

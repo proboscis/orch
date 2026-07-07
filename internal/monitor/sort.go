@@ -2,8 +2,10 @@ package monitor
 
 import (
 	"fmt"
+	"log"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/proboscis/orch/internal/model"
@@ -164,6 +166,10 @@ var issueStatusOrder = map[model.IssueStatus]int{
 	model.IssueStatusClosed:   2,
 }
 
+const issueStatusInvalidRank = 1 << 30
+
+var invalidIssueStatusWarnings sync.Map
+
 func runStatusRank(status model.Status) int {
 	if rank, ok := runStatusOrder[status]; ok {
 		return rank
@@ -178,12 +184,29 @@ func issueStatusRank(status model.IssueStatus) int {
 	return len(issueStatusOrder) + 1
 }
 
-func mustParseIssueStatusForRow(rowID, status string) model.IssueStatus {
+func parseIssueStatusForRow(rowID, status string) (model.IssueStatus, bool) {
 	parsed, err := model.ParseIssueStatus(status)
 	if err != nil {
-		panic(fmt.Sprintf("invalid issue status for row %s: %v", rowID, err))
+		warnInvalidIssueStatusForRow(rowID, status, err)
+		return "", false
 	}
-	return parsed
+	return parsed, true
+}
+
+func issueStatusRankForRow(rowID, status string) int {
+	parsed, ok := parseIssueStatusForRow(rowID, status)
+	if !ok {
+		return issueStatusInvalidRank
+	}
+	return issueStatusRank(parsed)
+}
+
+func warnInvalidIssueStatusForRow(rowID, status string, err error) {
+	key := rowID + "\x00" + status
+	if _, loaded := invalidIssueStatusWarnings.LoadOrStore(key, struct{}{}); loaded {
+		return
+	}
+	log.Printf("orch monitor: warning: invalid issue status for row %s: %v (displaying raw status %q)", rowID, err, status)
 }
 
 func runRowRunID(row RunRow) string {
@@ -348,9 +371,14 @@ func sortIssueRowsWithDirection(rows []IssueRow, key SortKey, dir SortDirection)
 
 		switch key {
 		case SortByStatus:
-			aStatus := mustParseIssueStatusForRow(a.ID, a.Status)
-			bStatus := mustParseIssueStatusForRow(b.ID, b.Status)
-			if ar, br := issueStatusRank(aStatus), issueStatusRank(bStatus); ar != br {
+			ar, br := issueStatusRankForRow(a.ID, a.Status), issueStatusRankForRow(b.ID, b.Status)
+			if ar != br {
+				if ar == issueStatusInvalidRank {
+					return false
+				}
+				if br == issueStatusInvalidRank {
+					return true
+				}
 				return (ar < br) == (dir == SortAsc)
 			}
 			if a.LatestUpdated.IsZero() != b.LatestUpdated.IsZero() {

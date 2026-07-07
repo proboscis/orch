@@ -588,6 +588,65 @@ func TestListRunsCarriesProfileThroughIndex(t *testing.T) {
 	}
 }
 
+func TestListRunsWarnsAndSkipsUnloadableRun(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	createTestIssue(t, vault, "test123", "---\ntype: issue\ntitle: Test\n---\n# Test")
+
+	s, _ := New(vault)
+	goodRun, err := s.CreateRun("test123", "20231220-100000", nil)
+	if err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	badRunID := model.RunID("20231220-110000")
+	badRunPath := filepath.Join(vault, "runs", "test123", string(badRunID)+".md")
+	badRunContent := `---
+issue: test123
+run: 20231220-110000
+created: 2023-12-20T11:00:00Z
+---
+
+# Events
+
+- 2023-12-20T11:00:00Z | status | vaporized
+`
+	if err := os.WriteFile(badRunPath, []byte(badRunContent), 0644); err != nil {
+		t.Fatalf("write bad run file: %v", err)
+	}
+
+	var warnings []string
+	s.SetWarnFunc(func(format string, args ...any) {
+		warnings = append(warnings, fmt.Sprintf(format, args...))
+	})
+
+	runs, err := s.ListRuns(nil)
+	if err != nil {
+		t.Fatalf("ListRuns() error = %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("ListRuns() returned %d runs, want only the loadable run", len(runs))
+	}
+	if runs[0].RunID != goodRun.RunID {
+		t.Fatalf("ListRuns() returned run %s, want %s", runs[0].RunID, goodRun.RunID)
+	}
+
+	joinedWarnings := strings.Join(warnings, "")
+	if !strings.Contains(joinedWarnings, badRunPath) {
+		t.Fatalf("warning did not name bad run path %q: %q", badRunPath, joinedWarnings)
+	}
+	if !strings.Contains(joinedWarnings, "test123#20231220-110000") {
+		t.Fatalf("warning did not name bad run id: %q", joinedWarnings)
+	}
+	if !strings.Contains(joinedWarnings, "unknown run status") {
+		t.Fatalf("warning did not include load error: %q", joinedWarnings)
+	}
+	if !strings.Contains(joinedWarnings, "1 run files failed to load - see daemon log") {
+		t.Fatalf("aggregate load warning missing: %q", joinedWarnings)
+	}
+}
+
 func TestListRunsWithStatusFilter(t *testing.T) {
 	vault, cleanup := setupTestVault(t)
 	defer cleanup()
