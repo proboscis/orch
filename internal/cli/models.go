@@ -62,6 +62,10 @@ func runModels(opts *modelsOptions) error {
 	defer cancel()
 
 	api := orchapi.NewDaemonClientWithAddress("", getRemoteAddr())
+	if err := pingAPIWithVersionCheck(ctx, api); err != nil {
+		return fmt.Errorf("failed to reach daemon: %w", err)
+	}
+
 	result, err := api.QueryOpenCodeServer(ctx, opts.Port)
 	if err != nil {
 		return fmt.Errorf("failed to query opencode server: %w", err)

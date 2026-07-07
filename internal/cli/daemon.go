@@ -9,11 +9,25 @@ import (
 	"time"
 
 	"github.com/proboscis/orch/internal/daemon"
+	buildversion "github.com/proboscis/orch/internal/version"
 	"github.com/spf13/cobra"
 )
 
 var daemonDebugMode bool
 var daemonListenAddr string
+
+type daemonVersionPinger interface {
+	PingStatus() (*daemon.PingResponse, error)
+}
+
+func pingDaemonWithVersionCheck(client daemonVersionPinger) error {
+	resp, err := client.PingStatus()
+	if err != nil {
+		return err
+	}
+	warnIfDaemonVersionMismatch(resp.Version)
+	return nil
+}
 
 func newDaemonCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -86,7 +100,7 @@ func requireDaemonAdminClient() (*daemon.ProtoClient, error) {
 	remoteAddr := getRemoteAddr()
 	if remoteAddr != "" {
 		client := daemon.NewProtoClientWithAddress("", remoteAddr)
-		if err := client.Ping(); err != nil {
+		if err := pingDaemonWithVersionCheck(client); err != nil {
 			_ = client.Close()
 			return nil, fmt.Errorf("remote daemon %s is not reachable: %w", remoteAddr, err)
 		}
@@ -95,6 +109,10 @@ func requireDaemonAdminClient() (*daemon.ProtoClient, error) {
 
 	client := daemon.NewProtoClientWithAddress("", "")
 	if client.IsAvailable() {
+		if err := pingDaemonWithVersionCheck(client); err != nil {
+			_ = client.Close()
+			return nil, fmt.Errorf("daemon is not reachable: %w", err)
+		}
 		return client, nil
 	}
 
@@ -106,6 +124,10 @@ func requireDaemonAdminClient() (*daemon.ProtoClient, error) {
 	for i := 0; i < 10; i++ {
 		time.Sleep(100 * time.Millisecond)
 		if client.IsAvailable() {
+			if err := pingDaemonWithVersionCheck(client); err != nil {
+				_ = client.Close()
+				return nil, fmt.Errorf("daemon started but is not reachable: %w", err)
+			}
 			return client, nil
 		}
 	}
@@ -312,15 +334,27 @@ func runDaemonStatus() error {
 		client := daemon.NewProtoClientWithAddress("", remoteAddr)
 		defer client.Close()
 
-		if err := client.Ping(); err != nil {
+		if err := pingDaemonWithVersionCheck(client); err != nil {
 			return fmt.Errorf("remote daemon %s is not reachable: %w", remoteAddr, err)
 		}
 
-		fmt.Printf("Status: running (remote=%s)\n", remoteAddr)
+		status, err := client.GetDaemonStatus()
+		if err != nil {
+			return fmt.Errorf("failed to get remote daemon status from %s: %w", remoteAddr, err)
+		}
+
+		warnIfDaemonVersionMismatch(status.Version)
+		fmt.Printf("CLI Version: %s\n", buildversion.Version)
+		fmt.Printf("Daemon Version: %s\n", status.Version)
+		fmt.Printf("Status: running (remote=%s, pid=%d)\n", remoteAddr, status.PID)
+		fmt.Printf("Log: %s\n", status.LogPath)
 		return nil
 	}
 
+	fmt.Printf("CLI Version: %s\n", buildversion.Version)
+
 	if !daemon.IsRunning("") {
+		fmt.Println("Daemon Version: not running")
 		fmt.Println("Status: not running")
 		return nil
 	}
@@ -330,8 +364,18 @@ func runDaemonStatus() error {
 
 	if daemon.IsDaemonSocketAvailable("") {
 		fmt.Println("Socket: available")
+		client := daemon.NewProtoClientWithAddress("", "")
+		defer client.Close()
+		status, err := client.GetDaemonStatus()
+		if err != nil {
+			fmt.Printf("Daemon Version: unavailable (%v)\n", err)
+		} else {
+			warnIfDaemonVersionMismatch(status.Version)
+			fmt.Printf("Daemon Version: %s\n", status.Version)
+		}
 	} else {
 		fmt.Println("Socket: unavailable")
+		fmt.Println("Daemon Version: unavailable (socket unavailable)")
 	}
 
 	if meta, err := daemon.ReadMetadata(""); err == nil {
@@ -437,7 +481,7 @@ func requireDaemon() (*daemon.ProtoClient, error) {
 
 	if remoteAddr != "" {
 		client := daemon.NewProtoClientWithAddress(projectRoot, remoteAddr)
-		if err := client.Ping(); err != nil {
+		if err := pingDaemonWithVersionCheck(client); err != nil {
 			_ = client.Close()
 			return nil, fmt.Errorf("remote daemon %s is not reachable: %w", remoteAddr, err)
 		}
@@ -446,6 +490,10 @@ func requireDaemon() (*daemon.ProtoClient, error) {
 
 	client := daemon.NewProtoClientLocal(projectRoot)
 	if client.IsAvailable() {
+		if err := pingDaemonWithVersionCheck(client); err != nil {
+			_ = client.Close()
+			return nil, fmt.Errorf("daemon is not reachable: %w", err)
+		}
 		return client, nil
 	}
 
@@ -457,6 +505,10 @@ func requireDaemon() (*daemon.ProtoClient, error) {
 	for i := 0; i < 10; i++ {
 		time.Sleep(100 * time.Millisecond)
 		if client.IsAvailable() {
+			if err := pingDaemonWithVersionCheck(client); err != nil {
+				_ = client.Close()
+				return nil, fmt.Errorf("daemon started but is not reachable: %w", err)
+			}
 			return client, nil
 		}
 	}

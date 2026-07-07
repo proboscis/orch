@@ -4,6 +4,10 @@
 BINARY_NAME := orch
 INSTALL_DIR := $(HOME)/.local/bin
 UNAME_S := $(shell uname -s)
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS := -X github.com/proboscis/orch/internal/version.Version=$(VERSION) -X github.com/proboscis/orch/internal/version.Commit=$(COMMIT) -X github.com/proboscis/orch/internal/version.BuildDate=$(BUILD_DATE)
 TEST_PKGS ?= ./...
 TEST_TIMEOUT ?= 20m
 TEST_GOGC ?= 50
@@ -17,7 +21,7 @@ all: install
 
 # Build Go binary
 build:
-	go build -o $(BINARY_NAME) ./cmd/orch
+	go build -ldflags "$(LDFLAGS)" -o $(BINARY_NAME) ./cmd/orch
 
 # Install Go CLI + daemon
 install-cli: build

@@ -44,6 +44,17 @@ func (c *DaemonClient) Ping(ctx context.Context) error {
 	return c.proto.Ping()
 }
 
+func (c *DaemonClient) PingStatus(ctx context.Context) (*PingStatus, error) {
+	resp, err := c.proto.PingStatus()
+	if err != nil {
+		return nil, err
+	}
+	return &PingStatus{
+		OK:      resp.OK,
+		Version: resp.Version,
+	}, nil
+}
+
 func (c *DaemonClient) EnsureDaemonHealthy(ctx context.Context) error {
 	if c.isRemote() {
 		if err := c.proto.Ping(); err != nil {

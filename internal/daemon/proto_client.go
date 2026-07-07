@@ -292,21 +292,38 @@ func (c *ProtoClient) doSendRequest(conn net.Conn, req *orchpb.Request) (*orchpb
 	return &resp, nil
 }
 
-func (c *ProtoClient) Ping() error {
+func (c *ProtoClient) PingStatus() (*PingResponse, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_Ping{Ping: &orchpb.PingRequest{}},
 	}
 
 	resp, err := c.sendRequest(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if !resp.Ok {
-		return fmt.Errorf("daemon error: %s", resp.Error)
+		return nil, fmt.Errorf("daemon error: %s", resp.Error)
 	}
 
-	return nil
+	pingResp := resp.GetPing()
+	if pingResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
+	if !pingResp.GetOk() {
+		return nil, fmt.Errorf("daemon ping returned not ok")
+	}
+
+	return &PingResponse{
+		OK:      pingResp.GetOk(),
+		Version: pingResp.GetVersion(),
+	}, nil
+}
+
+func (c *ProtoClient) Ping() error {
+	_, err := c.PingStatus()
+	return err
 }
 
 func (c *ProtoClient) ListRuns(filter *ListRunsFilter) (*ListRunsResponse, error) {

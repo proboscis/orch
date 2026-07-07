@@ -24,6 +24,7 @@ import (
 	"github.com/proboscis/orch/internal/multiplexer"
 	"github.com/proboscis/orch/internal/pr"
 	"github.com/proboscis/orch/internal/store"
+	buildversion "github.com/proboscis/orch/internal/version"
 	"github.com/proboscis/orch/internal/xdg"
 	"google.golang.org/protobuf/proto"
 )
@@ -838,7 +839,7 @@ func (s *SocketServer) handleProtoPing(_ *orchpb.PingRequest) *orchpb.Response {
 	return &orchpb.Response{
 		Ok: true,
 		Response: &orchpb.Response_Ping{
-			Ping: &orchpb.PingResponse{Ok: true, Version: "1.0.0"},
+			Ping: &orchpb.PingResponse{Ok: true, Version: buildversion.Version},
 		},
 	}
 }
@@ -4088,7 +4089,7 @@ func (s *SocketServer) handleProtoGetDaemonStatus(_ *orchpb.GetDaemonStatusReque
 				Running: true,
 				Pid:     int32(os.Getpid()),
 				LogPath: LogFilePath(""),
-				Version: "1.0.0",
+				Version: buildversion.Version,
 			},
 		},
 	}
