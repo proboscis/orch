@@ -687,6 +687,8 @@ type ContinueRunOptions struct {
 	AgentCmd       string
 	AgentProfile   string
 	CodexProfile   string
+	Model          string
+	ModelVariant   string
 	WorktreeDir    string
 	NoPR           bool
 	PromptTemplate string

@@ -131,6 +131,7 @@ func (m *mockStore) createRunDoc(issueID model.IssueID, runID model.RunID, metad
 		IssueID:       issueID,
 		RunID:         runID,
 		Agent:         metadata["agent"],
+		Profile:       metadata["profile"],
 		Model:         metadata["model"],
 		ModelVariant:  metadata["model_variant"],
 		Target:        metadata["target"],
@@ -773,6 +774,222 @@ func TestProtoContinueRunUsesExternalWorkerResultJSON(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected continue_run lease assigned to external worker")
+	}
+}
+
+func TestProtoContinueRunInheritsSourceExecutionDefaults(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	projectRoot := t.TempDir()
+	issuesRoot := filepath.Join(projectRoot, "issues-store")
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0o755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(issuesRoot, "issues"), 0o755); err != nil {
+		t.Fatalf("mkdir issues: %v", err)
+	}
+	configBody := fmt.Sprintf(`agent: codex
+model: cfg-model
+model_variant: cfg-variant
+monitor_multiplexer: tmux
+agent_multiplexer: zellij
+issues:
+  path: %s
+codex:
+  default_profile: company
+  profiles:
+    company:
+      target: mac
+      codex_home: ~/.codex-company
+    personal:
+      target: mac
+      codex_home: ~/.codex-personal
+targets:
+  - name: mac
+    host: mac-host
+`, issuesRoot)
+	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), []byte(configBody), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	tests := []struct {
+		name            string
+		run             *model.Run
+		req             *orchpb.ContinueRunRequest
+		wantProfile     string
+		wantCodexHome   string
+		wantMultiplexer string
+		wantModel       string
+		wantVariant     string
+	}{
+		{
+			name: "source run wins over config defaults",
+			run: &model.Run{
+				IssueID:        "issue-cont",
+				RunID:          "run-prev-inherit",
+				Status:         model.StatusFailed,
+				Agent:          "codex",
+				Profile:        "personal",
+				Model:          "source-model",
+				ModelVariant:   "source-variant",
+				Branch:         "cont-branch",
+				WorktreePath:   "/tmp/cont-prev",
+				Target:         "mac",
+				TargetHost:     "mac-host",
+				TargetWorkerID: HostWorkerID("mac-host"),
+				Multiplexer:    "tmux",
+			},
+			req: &orchpb.ContinueRunRequest{
+				IssueId: "issue-cont",
+				RunId:   "run-prev-inherit",
+			},
+			wantProfile:     "personal",
+			wantCodexHome:   "~/.codex-personal",
+			wantMultiplexer: "tmux",
+			wantModel:       "source-model",
+			wantVariant:     "source-variant",
+		},
+		{
+			name: "explicit flags override source run",
+			run: &model.Run{
+				IssueID:        "issue-cont",
+				RunID:          "run-prev-override",
+				Status:         model.StatusFailed,
+				Agent:          "codex",
+				Profile:        "personal",
+				Model:          "source-model",
+				ModelVariant:   "source-variant",
+				Branch:         "cont-branch",
+				WorktreePath:   "/tmp/cont-prev",
+				Target:         "mac",
+				TargetHost:     "mac-host",
+				TargetWorkerID: HostWorkerID("mac-host"),
+				Multiplexer:    "tmux",
+			},
+			req: &orchpb.ContinueRunRequest{
+				IssueId:      "issue-cont",
+				RunId:        "run-prev-override",
+				CodexProfile: "company",
+				Multiplexer:  "zellij",
+			},
+			wantProfile:     "company",
+			wantCodexHome:   "~/.codex-company",
+			wantMultiplexer: "zellij",
+			wantModel:       "source-model",
+			wantVariant:     "source-variant",
+		},
+		{
+			name: "missing source records fall back to config defaults",
+			run: &model.Run{
+				IssueID:      "issue-cont",
+				RunID:        "run-prev-default",
+				Status:       model.StatusFailed,
+				Agent:        "codex",
+				Branch:       "cont-branch",
+				WorktreePath: "/tmp/cont-prev",
+			},
+			req: &orchpb.ContinueRunRequest{
+				IssueId: "issue-cont",
+				RunId:   "run-prev-default",
+			},
+			wantProfile:     "company",
+			wantCodexHome:   "~/.codex-company",
+			wantMultiplexer: "zellij",
+			wantModel:       "cfg-model",
+			wantVariant:     "cfg-variant",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := &mockStore{
+				runs: map[string]*model.Run{
+					tt.run.Ref().String(): tt.run,
+				},
+				issues: map[string]*model.Issue{
+					"issue-cont": {ID: "issue-cont", Title: "Cont", Status: model.IssueStatusOpen},
+				},
+			}
+			server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, log.New(io.Discard, "", 0))
+			registerRepoContextForTest(t, server, testProjectID, projectRoot, st)
+			if err := server.Start(); err != nil {
+				t.Fatalf("failed to start server: %v", err)
+			}
+			defer server.Stop()
+
+			client := NewProtoClientWithAddress("", "")
+			defer client.Close()
+
+			workerID := HostWorkerID("mac-host")
+			if _, err := client.RegisterWorker(workerID, "executor", "mac-host", "external"); err != nil {
+				t.Fatalf("register external worker failed: %v", err)
+			}
+			defer client.UnregisterWorker(workerID)
+
+			resultRunID := "run-cont-" + strings.TrimPrefix(string(tt.run.RunID), "run-prev-")
+			resultJSON := fmt.Sprintf(`{"continue_run_result":{"RunID":%q,"Branch":"cont-branch","WorktreePath":"/tmp/cont","SessionName":"sess-cont","Status":"running","ContinuedFrom":%q,"IssueID":"issue-cont","Multiplexer":%q}}`, resultRunID, tt.run.Ref().String(), tt.wantMultiplexer)
+			cmd := exec.Command(os.Args[0], "-test.run=TestExternalWorkerHelperProcess")
+			var outBuf bytes.Buffer
+			cmd.Stdout = &outBuf
+			cmd.Stderr = &outBuf
+			cmd.Env = append(os.Environ(),
+				"ORCH_WORKER_HELPER=1",
+				"ORCH_WORKER_ID="+workerID,
+				"ORCH_WORKER_HELPER_MODE=success",
+				"ORCH_WORKER_EXPECT_EFFECT=continue_run",
+				"ORCH_WORKER_HELPER_RESULT_JSON="+resultJSON,
+			)
+			if err := cmd.Start(); err != nil {
+				t.Fatalf("failed to start helper process: %v", err)
+			}
+
+			tt.req.Context = &orchpb.RequestContext{ProjectId: testProjectID}
+			resp := sendProtoRequest(t, &orchpb.Request{
+				Request: &orchpb.Request_ContinueRun{ContinueRun: tt.req},
+			})
+
+			if err := cmd.Wait(); err != nil {
+				t.Fatalf("helper process failed: %v, output: %s", err, outBuf.String())
+			}
+			if !resp.Ok || resp.GetContinueRun() == nil {
+				t.Fatalf("expected successful continue_run response, got ok=%v error=%q", resp.Ok, resp.Error)
+			}
+
+			var payload *ContinueRunOptions
+			for _, lease := range server.listWorkerLeases(true) {
+				if lease.Effect == "continue_run" && lease.IssueID == "issue-cont" && lease.Payload != nil {
+					payload = lease.Payload.ContinueRun
+					break
+				}
+			}
+			if payload == nil {
+				t.Fatal("expected continue_run payload")
+			}
+			if payload.CodexProfile != tt.wantProfile {
+				t.Fatalf("payload.CodexProfile = %q, want %q", payload.CodexProfile, tt.wantProfile)
+			}
+			if payload.CodexHome != tt.wantCodexHome {
+				t.Fatalf("payload.CodexHome = %q, want %q", payload.CodexHome, tt.wantCodexHome)
+			}
+			if payload.Multiplexer != tt.wantMultiplexer {
+				t.Fatalf("payload.Multiplexer = %q, want %q", payload.Multiplexer, tt.wantMultiplexer)
+			}
+			if payload.Model != tt.wantModel || payload.ModelVariant != tt.wantVariant {
+				t.Fatalf("payload model = (%q, %q), want (%q, %q)", payload.Model, payload.ModelVariant, tt.wantModel, tt.wantVariant)
+			}
+			if payload.Target != "mac" || payload.TargetHost != "mac-host" || payload.TargetWorkerID != HostWorkerID("mac-host") {
+				t.Fatalf("payload target = (%q, %q, %q), want mac/mac-host/%s", payload.Target, payload.TargetHost, payload.TargetWorkerID, HostWorkerID("mac-host"))
+			}
+
+			projected, err := st.GetRun(&model.RunRef{IssueID: "issue-cont", RunID: model.RunID(resultRunID)})
+			if err != nil {
+				t.Fatalf("expected projected master run: %v", err)
+			}
+			if projected.Agent != "codex" || projected.Profile != tt.wantProfile || projected.Model != tt.wantModel || projected.ModelVariant != tt.wantVariant {
+				t.Fatalf("projected run execution identity = agent=%q profile=%q model=%q variant=%q", projected.Agent, projected.Profile, projected.Model, projected.ModelVariant)
+			}
+		})
 	}
 }
 
@@ -5835,6 +6052,67 @@ func TestMasterFailsFastOnMissingIssueBeforeDelegation(t *testing.T) {
 			t.Fatalf("expected explicit master-store miss for deadbe, got: %q", resp.Error)
 		}
 	})
+}
+
+func TestProtoContinueRunFailsFastOnUnknownInheritedProfileBeforeDelegation(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+
+	projectRoot := t.TempDir()
+	issuesRoot := filepath.Join(projectRoot, "issues-store")
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0o755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(issuesRoot, "issues"), 0o755); err != nil {
+		t.Fatalf("mkdir issues: %v", err)
+	}
+	configBody := fmt.Sprintf(`agent: codex
+issues:
+  path: %s
+codex:
+  default_profile: company
+  profiles:
+    company:
+      codex_home: ~/.codex-company
+`, issuesRoot)
+	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), []byte(configBody), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	run := &model.Run{
+		IssueID:      "issue-cont",
+		RunID:        "run-prev",
+		Status:       model.StatusFailed,
+		Agent:        "codex",
+		Profile:      "ghost",
+		Branch:       "cont-branch",
+		WorktreePath: "/tmp/cont-prev",
+	}
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			run.Ref().String(): run,
+		},
+		issues: map[string]*model.Issue{
+			"issue-cont": {ID: "issue-cont", Title: "Cont", Status: model.IssueStatusOpen},
+		},
+	}
+	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, log.New(io.Discard, "", 0))
+	registerRepoContextForTest(t, server, testProjectID, projectRoot, st)
+
+	resp := server.handleProtoContinueRun(&orchpb.ContinueRunRequest{
+		IssueId: "issue-cont",
+		RunId:   "run-prev",
+		Context: &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+	if resp.Ok {
+		t.Fatalf("expected unknown inherited profile failure, got ok response: %+v", resp)
+	}
+	if !strings.Contains(resp.Error, `unknown codex profile "ghost"`) {
+		t.Fatalf("expected unknown inherited profile error, got %q", resp.Error)
+	}
+	if leases := server.listWorkerLeases(true); len(leases) != 0 {
+		t.Fatalf("expected fail-fast before worker delegation, got %d leases", len(leases))
+	}
 }
 
 func TestRunMutationUsesMasterSnapshotAndHostAffinity(t *testing.T) {
