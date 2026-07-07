@@ -6,7 +6,7 @@ This guide will take you from zero to your first working agent run in about 5 mi
 
 Before installing orch, ensure you have:
 
-1. **Go 1.22+** - For building orch from source (or use pre-built binaries)
+1. **Go 1.25+** - For building orch from source (or use pre-built binaries)
 2. **tmux** or **zellij** - Terminal multiplexer for agent sessions
 3. **An LLM CLI** - At least one of:
    - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`)
@@ -14,6 +14,8 @@ Before installing orch, ensure you have:
    - [Codex](https://github.com/openai/codex) (`codex`)
    - [Gemini CLI](https://github.com/google/gemini-cli) (`gemini`)
 4. **Git** - For worktree management
+5. **GitHub CLI** (`gh`) - Required for the PR workflow. Run `gh auth login` before creating PRs.
+6. **uv** - Required only when installing or developing the Python TUI (`orch-monitor`)
 
 ### Quick prerequisite check
 
@@ -26,6 +28,9 @@ tmux -V
 
 # Verify your LLM CLI (example with claude)
 claude --version
+
+# Verify GitHub CLI authentication for PR workflows
+gh auth status
 ```
 
 ## Installation
@@ -53,6 +58,22 @@ sudo mv orch /usr/local/bin/
 
 ```bash
 go install github.com/proboscis/orch/cmd/orch@latest
+```
+
+### Option 3: Build from a local checkout
+
+For the CLI and daemon only:
+
+```bash
+make build
+make install-cli
+```
+
+The default `make` target installs both the CLI and the Python TUI. It requires
+`uv` because it runs the TUI installer:
+
+```bash
+make
 ```
 
 ### Verify installation
