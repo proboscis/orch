@@ -69,14 +69,14 @@ func NewZellijMultiplexerWithExecutor(exec executor.Executor) *ZellijMultiplexer
 func (z *ZellijMultiplexer) run(args ...string) error {
 	ctx, cancel := zellijCommandContext()
 	defer cancel()
-	_, _, err := z.executor.RunCommand(ctx, "zellij", args, executor.RunOptions{})
+	_, _, err := z.executor.RunCommand(ctx, "zellij", args, zellijControlOptions(z.executor, executor.RunOptions{}))
 	return err
 }
 
 func (z *ZellijMultiplexer) output(args ...string) ([]byte, error) {
 	ctx, cancel := zellijCommandContext()
 	defer cancel()
-	output, _, err := z.executor.RunCommand(ctx, "zellij", args, executor.RunOptions{})
+	output, _, err := z.executor.RunCommand(ctx, "zellij", args, zellijControlOptions(z.executor, executor.RunOptions{}))
 	return output, err
 }
 
@@ -89,6 +89,7 @@ func (z *ZellijMultiplexer) runWithOptions(args []string, opts executor.RunOptio
 // runWithOptionsContext is the unbounded variant for interactive commands
 // (attach) that legitimately run as long as the user stays attached.
 func (z *ZellijMultiplexer) runWithOptionsContext(ctx context.Context, args []string, opts executor.RunOptions) error {
+	opts = zellijControlOptions(z.executor, opts)
 	_, _, err := z.executor.RunCommand(ctx, "zellij", args, opts)
 	return err
 }
@@ -101,6 +102,8 @@ func (z *ZellijMultiplexer) IsAvailable() bool {
 	return z.run("--version") == nil
 }
 
+// IsInsideSession is an intentional caller-session exception for attach UX.
+// Zellij exposes the current session through environment variables.
 func (z *ZellijMultiplexer) IsInsideSession() bool {
 	return os.Getenv("ZELLIJ") != ""
 }
@@ -418,6 +421,7 @@ func (z *ZellijMultiplexer) SwitchClient(session string) error {
 }
 
 func (z *ZellijMultiplexer) CurrentSession() (string, error) {
+	// CurrentSession is the paired caller-session exception for SwitchClient.
 	if name := os.Getenv("ZELLIJ_SESSION_NAME"); name != "" {
 		return name, nil
 	}

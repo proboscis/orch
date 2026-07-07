@@ -50,18 +50,31 @@ func NewTmuxMultiplexerWithExecutor(exec executor.Executor) *TmuxMultiplexer {
 }
 
 func (t *TmuxMultiplexer) run(args ...string) error {
-	_, _, err := t.executor.RunCommand(context.Background(), "tmux", args, executor.RunOptions{})
+	_, _, err := t.executor.RunCommand(context.Background(), "tmux", args, tmuxControlOptions(t.executor, executor.RunOptions{}))
 	return err
 }
 
 func (t *TmuxMultiplexer) output(args ...string) ([]byte, error) {
-	output, _, err := t.executor.RunCommand(context.Background(), "tmux", args, executor.RunOptions{})
+	output, _, err := t.executor.RunCommand(context.Background(), "tmux", args, tmuxControlOptions(t.executor, executor.RunOptions{}))
 	return output, err
 }
 
 func (t *TmuxMultiplexer) runWithOptions(args []string, opts executor.RunOptions) error {
+	opts = tmuxControlOptions(t.executor, opts)
 	_, _, err := t.executor.RunCommand(context.Background(), "tmux", args, opts)
 	return err
+}
+
+// Caller-session operations are intentionally limited to attach UX: these
+// commands must see TMUX so tmux can identify the user's current client.
+func (t *TmuxMultiplexer) runWithCallerSessionEnv(args []string, opts executor.RunOptions) error {
+	_, _, err := t.executor.RunCommand(context.Background(), "tmux", args, opts)
+	return err
+}
+
+func (t *TmuxMultiplexer) outputWithCallerSessionEnv(args ...string) ([]byte, error) {
+	output, _, err := t.executor.RunCommand(context.Background(), "tmux", args, executor.RunOptions{})
+	return output, err
 }
 
 // Type returns the multiplexer type.
@@ -74,7 +87,8 @@ func (t *TmuxMultiplexer) IsAvailable() bool {
 	return t.run("-V") == nil
 }
 
-// IsInsideSession returns true if we're currently inside a tmux session.
+// IsInsideSession is an intentional caller-session exception for attach UX.
+// It reads TMUX to decide whether orch should switch the current client.
 func (t *TmuxMultiplexer) IsInsideSession() bool {
 	return os.Getenv("TMUX") != ""
 }
@@ -390,12 +404,12 @@ func (t *TmuxMultiplexer) WaitForReady(session, pattern string, timeout time.Dur
 
 // SwitchClient switches the active tmux client to a session.
 func (t *TmuxMultiplexer) SwitchClient(session string) error {
-	return t.runWithOptions([]string{"switch-client", "-t", session}, executor.RunOptions{Stderr: os.Stderr})
+	return t.runWithCallerSessionEnv([]string{"switch-client", "-t", session}, executor.RunOptions{Stderr: os.Stderr})
 }
 
-// CurrentSession returns the name of the current tmux session.
+// CurrentSession is an intentional caller-session exception for monitor/attach UX.
 func (t *TmuxMultiplexer) CurrentSession() (string, error) {
-	output, err := t.output("display-message", "-p", "#{session_name}")
+	output, err := t.outputWithCallerSessionEnv("display-message", "-p", "#{session_name}")
 	if err != nil {
 		return "", err
 	}

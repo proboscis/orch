@@ -400,12 +400,12 @@ func mergeManagedEnv(base, extra []string, profile managedProfile) []string {
 		managedWorkerLogPathEnv + "=",
 	}
 	for _, kv := range base {
-		if hasAnyPrefix(kv, omitPrefixes) {
+		if hasAnyPrefix(kv, omitPrefixes) || workerEnvEntryHasAnyKey(kv, workerMultiplexerEnvKeys) {
 			continue
 		}
 		filtered = append(filtered, kv)
 	}
-	filtered = append(filtered, extra...)
+	filtered = append(filtered, scrubWorkerMultiplexerEnvEntries(extra)...)
 	filtered = append(filtered,
 		managedWorkerStateEnv+"="+profile.StatePath,
 		managedWorkerPIDEnv+"="+profile.PIDPath,

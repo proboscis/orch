@@ -57,6 +57,8 @@ func newWorkerRunCmd() *cobra.Command {
 		Use:   "run",
 		Short: "Run long-lived orch-worker host loop",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			worker.ScrubInheritedMultiplexerEnv()
+
 			client, err := requireDaemonForWorker()
 			if err != nil {
 				return err
