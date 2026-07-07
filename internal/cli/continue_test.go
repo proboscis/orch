@@ -2,6 +2,7 @@ package cli
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/proboscis/orch/internal/orchapi"
@@ -15,6 +16,17 @@ func TestRestartFromCommandDoesNotExposePathSelectorFlags(t *testing.T) {
 	}
 	if flag := cmd.Flags().Lookup("worktree-dir"); flag != nil {
 		t.Fatalf("unexpected worktree-dir flag: %#v", flag)
+	}
+}
+
+func TestRestartFromCodexProfileHelpMatchesInheritanceSemantics(t *testing.T) {
+	cmd := newRestartFromCmd()
+	flag := cmd.Flags().Lookup("codex-profile")
+	if flag == nil {
+		t.Fatal("expected --codex-profile flag")
+	}
+	if !strings.Contains(flag.Usage, "defaults to the prior run's profile, then codex.default_profile") {
+		t.Fatalf("codex-profile help = %q, want source-run profile before config default", flag.Usage)
 	}
 }
 

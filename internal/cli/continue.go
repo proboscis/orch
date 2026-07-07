@@ -77,7 +77,7 @@ Use --branch with an issue ID to restart from an untracked branch.`,
 	cmd.Flags().StringVar(&opts.Agent, "agent", "", "Agent type (claude|codex|gemini|custom)")
 	cmd.Flags().StringVar(&opts.AgentCmd, "agent-cmd", "", "Custom agent command (when --agent=custom)")
 	cmd.Flags().StringVar(&opts.AgentProfile, "profile", "", "Agent profile (e.g., claude --profile)")
-	cmd.Flags().StringVar(&opts.CodexProfile, "codex-profile", "", "Codex execution profile from config (codex.profiles); defaults to the prior run's profile via codex.default_profile")
+	cmd.Flags().StringVar(&opts.CodexProfile, "codex-profile", "", "Codex execution profile from config (codex.profiles); defaults to the prior run's profile, then codex.default_profile")
 	cmd.Flags().BoolVar(&opts.Tmux, "tmux", true, "Run in tmux session")
 	cmd.Flags().StringVar(&opts.SessionName, "session-name", "", "Session name (default: run-<ISSUE>-<RUN>)")
 	cmd.Flags().StringVar(&opts.Multiplexer, "multiplexer", "", "Terminal multiplexer (tmux|zellij)")

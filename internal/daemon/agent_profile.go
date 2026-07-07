@@ -232,14 +232,21 @@ func applyClaudeProfile(cfg *config.Config, opts *StartRunOptions) error {
 	return nil
 }
 
-// applyCodexProfileContinue resolves the codex profile for a continue/restart-from
-// request and binds the decision onto opts.
-func applyCodexProfileContinue(cfg *config.Config, opts *ContinueRunOptions, fromRunAgent string) error {
+// applyCodexProfileContinue resolves the codex profile for a
+// continue/restart-from request and binds the decision onto opts. When the
+// caller did not explicitly request a codex profile, a codex source run's
+// recorded profile wins over codex.default_profile.
+func applyCodexProfileContinue(cfg *config.Config, opts *ContinueRunOptions, fromRunAgent, fromRunProfile string) error {
 	if cfg == nil || opts == nil {
 		return nil
 	}
 
-	decision, err := resolveCodexProfile(cfg, effectiveContinueAgent(cfg, opts.Agent, fromRunAgent), opts.CodexProfile, opts.Target)
+	profileReq := strings.TrimSpace(opts.CodexProfile)
+	if profileReq == "" && strings.TrimSpace(fromRunAgent) == "codex" {
+		profileReq = strings.TrimSpace(fromRunProfile)
+	}
+
+	decision, err := resolveCodexProfile(cfg, effectiveContinueAgent(cfg, opts.Agent, fromRunAgent), profileReq, opts.Target)
 	if err != nil {
 		return err
 	}
@@ -253,8 +260,10 @@ func applyCodexProfileContinue(cfg *config.Config, opts *ContinueRunOptions, fro
 }
 
 // applyClaudeProfileContinue resolves the claude profile for a
-// continue/restart-from request and binds the decision onto opts.
-func applyClaudeProfileContinue(cfg *config.Config, opts *ContinueRunOptions, fromRunAgent string) error {
+// continue/restart-from request and binds the decision onto opts. When the
+// caller did not explicitly request a claude profile, a claude source run's
+// recorded profile wins over claude.default_profile.
+func applyClaudeProfileContinue(cfg *config.Config, opts *ContinueRunOptions, fromRunAgent, fromRunProfile string) error {
 	if cfg == nil || opts == nil {
 		return nil
 	}
@@ -262,7 +271,12 @@ func applyClaudeProfileContinue(cfg *config.Config, opts *ContinueRunOptions, fr
 		return nil
 	}
 
-	decision, err := resolveClaudeProfile(cfg, "claude", opts.AgentProfile, opts.Target)
+	profileReq := strings.TrimSpace(opts.AgentProfile)
+	if profileReq == "" && strings.TrimSpace(fromRunAgent) == "claude" {
+		profileReq = strings.TrimSpace(fromRunProfile)
+	}
+
+	decision, err := resolveClaudeProfile(cfg, "claude", profileReq, opts.Target)
 	if err != nil {
 		return err
 	}

@@ -1572,9 +1572,9 @@ func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orch
 }
 
 // syncContinueRunResultToMasterStore projects a delegated continue_run result
-// onto the master store. targetName and profile are the RESOLVED values from the
-// continue options (after applyCodexProfileContinue), not the raw request values.
-func (s *SocketServer) syncContinueRunResultToMasterStore(st store.Store, req *orchpb.ContinueRunRequest, result *ContinueRunResult, targetName, profile string) error {
+// onto the master store. targetName/profile/agent/model are the RESOLVED values
+// from the continue options, not the raw request values.
+func (s *SocketServer) syncContinueRunResultToMasterStore(st store.Store, req *orchpb.ContinueRunRequest, result *ContinueRunResult, targetName, profile, agentName, modelName, modelVariant string) error {
 	if st == nil || result == nil {
 		return nil
 	}
@@ -1585,7 +1585,9 @@ func (s *SocketServer) syncContinueRunResultToMasterStore(st store.Store, req *o
 	run, err := st.GetRun(ref)
 	if err != nil {
 		metadata := map[string]string{}
-		if req.Agent != "" {
+		if agentName := strings.TrimSpace(agentName); agentName != "" {
+			metadata["agent"] = agentName
+		} else if req.Agent != "" {
 			metadata["agent"] = req.Agent
 		}
 		if strings.TrimSpace(result.ContinuedFrom) != "" {
@@ -1600,6 +1602,12 @@ func (s *SocketServer) syncContinueRunResultToMasterStore(st store.Store, req *o
 		}
 		if profile != "" {
 			metadata["profile"] = profile
+		}
+		if modelName := strings.TrimSpace(modelName); modelName != "" {
+			metadata["model"] = modelName
+		}
+		if modelVariant := strings.TrimSpace(modelVariant); modelVariant != "" {
+			metadata["model_variant"] = modelVariant
 		}
 		run, err = st.CreateRun(resultIssueID, resultRunID, metadata)
 		if err != nil {
@@ -1699,11 +1707,12 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 		SessionName:    req.SessionName,
 		NoSession:      req.NoSession,
 	}
-	// Inherit the prior run's target and agent from the master store so the codex
-	// profile constraint and CODEX_HOME are re-applied identically on
+	// Inherit the prior run's execution identity from the master store so profile,
+	// target, model, and multiplexer constraints are re-applied identically on
 	// restart-from/continue. The worker receives the resolved run snapshot and must
 	// not re-resolve this run against its own host-local store.
 	var fromRunAgent string
+	var fromRunProfile string
 	issueID := model.IssueID(req.IssueId)
 	if strings.TrimSpace(req.Branch) == "" {
 		run, err := resolveRunForMutation(st, req.IssueId, req.RunId, req.ShortId)
@@ -1717,6 +1726,16 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 		opts.TargetWorkerID = strings.TrimSpace(run.TargetWorkerID)
 		opts.RunSnapshot = newRunSnapshot(run)
 		fromRunAgent = strings.TrimSpace(run.Agent)
+		fromRunProfile = strings.TrimSpace(run.Profile)
+		if strings.TrimSpace(opts.Multiplexer) == "" {
+			opts.Multiplexer = strings.TrimSpace(run.Multiplexer)
+		}
+		if strings.TrimSpace(opts.Model) == "" {
+			opts.Model = strings.TrimSpace(run.Model)
+		}
+		if strings.TrimSpace(opts.ModelVariant) == "" {
+			opts.ModelVariant = strings.TrimSpace(run.ModelVariant)
+		}
 		if run.IssueID != "" {
 			issueID = run.IssueID
 		}
@@ -1729,12 +1748,17 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 	if profileCfgErr != nil {
 		return errorResponse(fmt.Sprintf("failed to load config: %v", profileCfgErr))
 	}
-	if err := applyCodexProfileContinue(profileCfg, opts, fromRunAgent); err != nil {
+	if strings.TrimSpace(opts.Multiplexer) == "" {
+		opts.Multiplexer = strings.TrimSpace(profileCfg.GetAgentMultiplexer())
+	}
+	if err := applyCodexProfileContinue(profileCfg, opts, fromRunAgent, fromRunProfile); err != nil {
 		return errorResponse(err.Error())
 	}
-	if err := applyClaudeProfileContinue(profileCfg, opts, fromRunAgent); err != nil {
+	if err := applyClaudeProfileContinue(profileCfg, opts, fromRunAgent, fromRunProfile); err != nil {
 		return errorResponse(err.Error())
 	}
+	resolvedAgent := effectiveContinueAgent(profileCfg, opts.Agent, fromRunAgent)
+	opts.Model, opts.ModelVariant = profileCfg.ResolveModelAndVariant(resolvedAgent, "", opts.Model, opts.ModelVariant)
 
 	if strings.TrimSpace(opts.TargetWorkerID) == "" && strings.TrimSpace(opts.TargetHost) != "" {
 		opts.TargetWorkerID = HostWorkerID(opts.TargetHost)
@@ -1775,7 +1799,7 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 	if result == nil {
 		return errorResponse("worker lease completed without continue_run result")
 	}
-	if err := s.syncContinueRunResultToMasterStore(st, req, result, opts.Target, effectiveAgentProfile(opts.CodexProfile, opts.AgentProfile)); err != nil {
+	if err := s.syncContinueRunResultToMasterStore(st, req, result, opts.Target, effectiveAgentProfile(opts.CodexProfile, opts.AgentProfile), resolvedAgent, opts.Model, opts.ModelVariant); err != nil {
 		return errorResponse(fmt.Sprintf("failed to sync continue_run result to master store: %v", err))
 	}
 

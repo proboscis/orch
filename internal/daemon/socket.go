@@ -4062,6 +4062,9 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 	var worktreePath string
 	var continuedFrom string
 	var fromRunAgent string
+	var fromRunModel string
+	var fromRunModelVariant string
+	var fromRunMultiplexer string
 
 	if opts.Branch != "" {
 		if opts.IssueID == "" {
@@ -4202,6 +4205,18 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		branch = fromRun.Branch
 		worktreePath = fromRun.WorktreePath
 		fromRunAgent = fromRun.Agent
+		fromRunModel = strings.TrimSpace(fromRun.Model)
+		fromRunModelVariant = strings.TrimSpace(fromRun.ModelVariant)
+		fromRunMultiplexer = strings.TrimSpace(fromRun.Multiplexer)
+		if strings.TrimSpace(opts.Target) == "" {
+			opts.Target = strings.TrimSpace(fromRun.Target)
+		}
+		if strings.TrimSpace(opts.TargetHost) == "" {
+			opts.TargetHost = strings.TrimSpace(fromRun.TargetHost)
+		}
+		if strings.TrimSpace(opts.TargetWorkerID) == "" {
+			opts.TargetWorkerID = strings.TrimSpace(fromRun.TargetWorkerID)
+		}
 		continuedFrom = fmt.Sprintf("%s#%s", fromRun.IssueID, fromRun.RunID)
 	}
 
@@ -4245,6 +4260,18 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		return nil, fmt.Errorf("agent not available: %s", agentName)
 	}
 
+	reqModel := strings.TrimSpace(opts.Model)
+	if reqModel == "" {
+		reqModel = fromRunModel
+	}
+	reqModelVariant := strings.TrimSpace(opts.ModelVariant)
+	if reqModelVariant == "" {
+		reqModelVariant = fromRunModelVariant
+	}
+	runModel, runVariant := cfg.ResolveModelAndVariant(agentName, "", reqModel, reqModelVariant)
+	opts.Model = runModel
+	opts.ModelVariant = runVariant
+
 	runID := model.GenerateRunID()
 	sessionName := opts.SessionName
 	if sessionName == "" {
@@ -4260,6 +4287,12 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 	}
 	if profile := effectiveAgentProfile(opts.CodexProfile, opts.AgentProfile); profile != "" {
 		metadata["profile"] = profile
+	}
+	if runModel != "" {
+		metadata["model"] = runModel
+	}
+	if runVariant != "" {
+		metadata["model_variant"] = runVariant
 	}
 	// When the issue came from the master snapshot (worker-delegation path), the
 	// master has already verified it; the worker must not re-verify against a
@@ -4294,7 +4327,6 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 
 	continuePrompt := fmt.Sprintf("ultrathink Please read 'ORCH_PROMPT.md' in the current directory and follow the instructions found there.\nThis run continues from %s. Use the existing worktree and branch and resume from the current state.", continuedFrom)
 
-	runModel, runVariant := cfg.ResolveModelAndVariant(agentName, "", "", "")
 	serverPort := 0
 	opencodeSessionID := ""
 
@@ -4345,7 +4377,20 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		}, nil
 	}
 
-	muxType, _ := multiplexer.ParseType(opts.Multiplexer)
+	effectiveMux := strings.TrimSpace(opts.Multiplexer)
+	if effectiveMux == "" {
+		effectiveMux = fromRunMultiplexer
+	}
+	if effectiveMux == "" {
+		effectiveMux = strings.TrimSpace(cfg.GetAgentMultiplexer())
+	}
+	opts.Multiplexer = effectiveMux
+
+	muxType, parseMuxErr := multiplexer.ParseType(effectiveMux)
+	if parseMuxErr != nil {
+		s.reportLaunchProgress(st, run, launchFailed("multiplexer", parseMuxErr))
+		return nil, fmt.Errorf("invalid multiplexer %q: %w", effectiveMux, parseMuxErr)
+	}
 
 	var mux multiplexer.Multiplexer
 	if muxType == multiplexer.TypeAuto {

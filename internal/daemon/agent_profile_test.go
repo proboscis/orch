@@ -209,7 +209,7 @@ func TestApplyCodexProfileContinue_RestartCompanyEnforcesAndCarriesCodexHome(t *
 	// prior run (codex), and the prior run's target (mac) inherited.
 	opts := &ContinueRunOptions{Target: "mac"}
 
-	if err := applyCodexProfileContinue(cfg, opts, "codex"); err != nil {
+	if err := applyCodexProfileContinue(cfg, opts, "codex", ""); err != nil {
 		t.Fatalf("applyCodexProfileContinue error: %v", err)
 	}
 	if opts.Target != "mac" {
@@ -226,7 +226,7 @@ func TestApplyCodexProfileContinue_RestartDisallowedTargetFailsFast(t *testing.T
 	cfg := newCodexProfileConfig()
 	opts := &ContinueRunOptions{CodexProfile: "company", Target: "zeus"}
 
-	err := applyCodexProfileContinue(cfg, opts, "codex")
+	err := applyCodexProfileContinue(cfg, opts, "codex", "")
 	if err == nil {
 		t.Fatal("expected fail-fast restarting company run onto zeus, got nil")
 	}
@@ -241,7 +241,7 @@ func TestApplyCodexProfileContinue_NonCodexPriorAgentIsNoOp(t *testing.T) {
 	cfg := newCodexProfileConfig()
 	opts := &ContinueRunOptions{}
 
-	if err := applyCodexProfileContinue(cfg, opts, "opencode"); err != nil {
+	if err := applyCodexProfileContinue(cfg, opts, "opencode", ""); err != nil {
 		t.Fatalf("applyCodexProfileContinue error: %v", err)
 	}
 	if opts.Target != "" || opts.CodexHome != "" {
@@ -256,11 +256,54 @@ func TestApplyCodexProfileContinue_DefaultProfileInjectsTarget(t *testing.T) {
 	cfg := newCodexProfileConfig()
 	opts := &ContinueRunOptions{} // no target inherited
 
-	if err := applyCodexProfileContinue(cfg, opts, "codex"); err != nil {
+	if err := applyCodexProfileContinue(cfg, opts, "codex", ""); err != nil {
 		t.Fatalf("applyCodexProfileContinue error: %v", err)
 	}
 	if opts.Target != "mac" {
 		t.Errorf("opts.Target = %q, want mac (default company profile injected on restart)", opts.Target)
+	}
+}
+
+func TestApplyCodexProfileContinue_InheritedProfileOverridesDefault(t *testing.T) {
+	cfg := newCodexProfileConfig()
+	opts := &ContinueRunOptions{}
+
+	if err := applyCodexProfileContinue(cfg, opts, "codex", "personal"); err != nil {
+		t.Fatalf("applyCodexProfileContinue error: %v", err)
+	}
+	if opts.CodexProfile != "personal" {
+		t.Errorf("opts.CodexProfile = %q, want inherited personal profile", opts.CodexProfile)
+	}
+	if opts.Target != "" {
+		t.Errorf("opts.Target = %q, want empty: inherited personal profile has no target", opts.Target)
+	}
+	if opts.CodexHome != "" {
+		t.Errorf("opts.CodexHome = %q, want empty: inherited personal profile uses agent default", opts.CodexHome)
+	}
+}
+
+func TestApplyCodexProfileContinue_ExplicitProfileOverridesInherited(t *testing.T) {
+	cfg := newCodexProfileConfig()
+	opts := &ContinueRunOptions{CodexProfile: "company", Target: "mac"}
+
+	if err := applyCodexProfileContinue(cfg, opts, "codex", "personal"); err != nil {
+		t.Fatalf("applyCodexProfileContinue error: %v", err)
+	}
+	if opts.CodexProfile != "company" {
+		t.Errorf("opts.CodexProfile = %q, want explicit company profile", opts.CodexProfile)
+	}
+}
+
+func TestApplyCodexProfileContinue_UnknownInheritedProfileFailsFast(t *testing.T) {
+	cfg := newCodexProfileConfig()
+	opts := &ContinueRunOptions{}
+
+	err := applyCodexProfileContinue(cfg, opts, "codex", "ghost")
+	if err == nil {
+		t.Fatal("expected fail-fast for unknown inherited codex profile, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown codex profile") || !strings.Contains(err.Error(), "ghost") {
+		t.Errorf("error = %q, want it to name inherited unknown profile ghost", err.Error())
 	}
 }
 
@@ -385,7 +428,7 @@ func TestApplyCodexProfileContinue_WritesBackResolvedProfileName(t *testing.T) {
 	cfg := newCodexProfileConfig()
 	opts := &ContinueRunOptions{Target: "mac"} // agent inferred from prior run
 
-	if err := applyCodexProfileContinue(cfg, opts, "codex"); err != nil {
+	if err := applyCodexProfileContinue(cfg, opts, "codex", ""); err != nil {
 		t.Fatalf("applyCodexProfileContinue error: %v", err)
 	}
 	if opts.CodexProfile != "company" {
@@ -437,7 +480,7 @@ func TestApplyCodexProfileContinue_NonCodexAgentPreservesIncomingTarget(t *testi
 	cfg := newCodexProfileConfig()
 	opts := &ContinueRunOptions{Target: "zeus"}
 
-	if err := applyCodexProfileContinue(cfg, opts, "claude"); err != nil {
+	if err := applyCodexProfileContinue(cfg, opts, "claude", ""); err != nil {
 		t.Fatalf("applyCodexProfileContinue error: %v", err)
 	}
 	if opts.Target != "zeus" {
@@ -574,7 +617,7 @@ func TestApplyClaudeProfileContinue_RestartCarriesConfigDir(t *testing.T) {
 	cfg := newClaudeProfileConfig()
 	opts := &ContinueRunOptions{AgentProfile: "personal", Target: "zeus"}
 
-	if err := applyClaudeProfileContinue(cfg, opts, "claude"); err != nil {
+	if err := applyClaudeProfileContinue(cfg, opts, "claude", ""); err != nil {
 		t.Fatalf("applyClaudeProfileContinue error: %v", err)
 	}
 	if opts.ClaudeConfigDir != "~/.config/claude-nameissoap" {
@@ -582,11 +625,26 @@ func TestApplyClaudeProfileContinue_RestartCarriesConfigDir(t *testing.T) {
 	}
 }
 
+func TestApplyClaudeProfileContinue_InheritedProfileOverridesDefault(t *testing.T) {
+	cfg := newClaudeProfileConfig()
+	opts := &ContinueRunOptions{}
+
+	if err := applyClaudeProfileContinue(cfg, opts, "claude", "personal"); err != nil {
+		t.Fatalf("applyClaudeProfileContinue error: %v", err)
+	}
+	if opts.AgentProfile != "personal" {
+		t.Errorf("opts.AgentProfile = %q, want inherited personal profile", opts.AgentProfile)
+	}
+	if opts.ClaudeConfigDir != "~/.config/claude-nameissoap" {
+		t.Errorf("opts.ClaudeConfigDir = %q, want inherited personal config dir", opts.ClaudeConfigDir)
+	}
+}
+
 func TestApplyClaudeProfileContinue_RestartDisallowedTargetFailsFast(t *testing.T) {
 	cfg := newClaudeProfileConfig()
 	opts := &ContinueRunOptions{AgentProfile: "ca", Target: "zeus"}
 
-	if err := applyClaudeProfileContinue(cfg, opts, "claude"); err == nil {
+	if err := applyClaudeProfileContinue(cfg, opts, "claude", ""); err == nil {
 		t.Fatal("expected fail-fast restarting ca claude run onto zeus, got nil")
 	}
 }
