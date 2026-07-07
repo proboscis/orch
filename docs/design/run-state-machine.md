@@ -403,3 +403,339 @@ This does not weaken fail-fast elsewhere: recover wrappers still re-panic
 (`logAndRepanic`), the transition policy (`step()`) and the status write
 surface (`commitRunStatus`) are untouched, and discarding conversion errors
 remains banned by the `fail-fast-no-discard-status-parse-error` semgrep rule.
+
+## 9. Interactive gates — parked-at-gate detection (designed 2026-07-07)
+
+Status: **design — accepted pending human review; no implementation yet.**
+All matrix rows, reason-table rows, and core fields in this section are
+deltas to fold into §2/§3/§4/§5 when the implementation issue lands; the
+tables above still describe the code on main.
+
+Trigger — live incident 2026-07-07: two codex runs sat ~2 hours at the
+codex login screen ("Sign in with ChatGPT") while `orch ps` reported
+`running` / ALIVE yes and `orch wait` never fired. Same class: codex
+workspace-trust prompt ("Do you trust the contents of this directory?"),
+claude folder-trust prompt, account-credit dialogs.
+
+### 9.1 The gap
+
+A pre-agent interactive gate renders a full-screen dialog that matches
+neither the busy markers nor the prompt patterns of `IsWaitingForInput`
+(`internal/agent/manager.go`), and its pane content is stable, so
+`stepCaptured` derives no verdict at all:
+
+```
+tick   capture pane              prompt reading      stepCaptured outcome
+──────────────────────────────────────────────────────────────────────────
+t0     "Sign in with ChatGPT…"   false (no pattern)  hash new → (already running)
+t1     same                      false               hash same, no prompt → no effect
+t2…tN  same                      false               no effect — forever
+──────────────────────────────────────────────────────────────────────────
+ps: running / ALIVE yes          orch wait: never fires          2h stall
+```
+
+The run is indistinguishable from productive work in every client. This is
+a *false negative* of the waiting detection: the agent is waiting for human
+input, just not at its normal composer prompt.
+
+### 9.2 Observation definition — O4e gate reading (Q1)
+
+Choice space and decision:
+
+| option | verdict | rationale |
+|--------|---------|-----------|
+| new top-level obsKind (`obsGate`) | rejected | same source, cost, and pacing as O4 capture; a separate kind would need its own gathering loop and duplicate the capture pacing mechanism for no policy gain |
+| fold gate strings into the existing promptPatterns | rejected | loses the gate *kind* (no reason on the event), and the remedies differ (`orch send` clears a prompt, only `orch attach` clears a gate); the false-positive budget (9.5) also demands stronger per-pattern evidence than the generic prompt heuristics carry |
+| **O4e derived reading + kind-tagged input-request streak** | **adopted** | a gate is another *derived reading of a captured pane* (peer of O4a–O4d); the debounce is the existing prompt-streak mechanism generalized over reading kinds |
+
+Definition. `agentSignal` gains one field:
+
+- `Gate string` — the gate kind detected on this capture (`""` = none),
+  produced by a new gather-side method `AgentManager.DetectGate(output)`.
+  The busy-marker veto of `IsWaitingForInput` applies to gate detection
+  identically (a pane showing "esc to interrupt" is never a gate).
+
+`runCore` generalizes the prompt streak into a kind-tagged input-request
+streak: `{PromptStreak int}` → `{ReadingKind string; ReadingStreak int}`
+with `ReadingKind ∈ {"", "prompt", "gate:<kind>"}`. Consecutive captures
+with the same reading advance the streak; any different reading (including
+"" = busy/none) resets it. Both fields are **ephemeral by law** (§7 D-C1
+list amended): reset on restart, bounded re-convergence, delay-only.
+
+So the answer to "new observation kind or generalization?" is precisely:
+*at the taxonomy level a new derived reading inside O4; at the debounce
+level a generalization of the L6 prompt streak* — L6 becomes the
+`reading = prompt` special case of L10a below.
+
+### 9.3 Status mapping (Q2)
+
+| option | verdict | rationale |
+|--------|---------|-----------|
+| new status `gated` | rejected | the status vocabulary is a closed set with real drift cost (§8): every client, the proto map, and the W9 projection must learn it; it buys nothing a reason does not |
+| keep `running`, surface in ps TOPIC | rejected | TOPIC is issue-plane, not run-plane; `orch wait` and Slack listeners key off status transitions, and the incident's core complaint is that neither fired |
+| `unknown` + reason | rejected | the state is precisely known — this is the opposite of unknown |
+| **`waiting` + reason `gate_<kind>`** | **adopted** | it *is* waiting for human input; `orch wait` fires, listeners notify, ps renders `waiting(gate_login)` inline — the k8s phase+reason pattern already adopted in §5 (`launch_<step>` family precedent) |
+
+Reason vocabulary delta for the §5 table:
+
+| reason | emitted by | operator response |
+|--------|-----------|-------------------|
+| `gate_<kind>` (`gate_login`, `gate_trust`, `gate_credit`, …) | O4e gate reading confirmed by L10a | `orch attach` and complete the gate interactively; `orch send` will NOT clear it — the run re-asserts `waiting(gate_<kind>)` while the gate persists |
+
+**D-G1 — same-status no-op compares (status, reason).** Today
+`commitRunStatus` no-ops on equal *status*. A run already `waiting`
+(reason `""`, normal prompt) that then hits a gate would keep a stale
+reason forever under status-only comparison. Decision: the no-op predicate
+becomes the pair `(status, reason)`; a confirmed reading change re-appends
+and fires the listener once (L8 unchanged: fire iff append committed).
+Oscillation is bounded by the streak: flipping the reason requires a full
+threshold of consecutive opposite readings (L10a), which means the pane
+content itself changed — i.e. someone interacted.
+
+Recorded asymmetry with agent-prompt waiting: O6 feedback (`orch send`)
+resumes `waiting → running` and resets the streak exactly as today, but a
+standing gate re-confirms after one threshold and the run returns to
+`waiting(gate_<kind>)`. This is self-correcting and intentional — it is
+the signal that send did not help. (Note: sending Enter into a trust
+prompt could *accept* it; whether send should refuse gated runs is a
+policy question deliberately left out of this core — it belongs to the
+send path, not the transition matrix.)
+
+### 9.4 Where the patterns live (Q3)
+
+| option | verdict | rationale |
+|--------|---------|-----------|
+| runtime-loadable config (patterns as shipped data files) | rejected (v1) | an untested pattern violates the false-positive budget: config files cannot carry the mandatory pane fixture that proves a pattern against a real screen; also adds a distribution/merge mechanism. Revisit only if gate churn across agent versions becomes frequent enough to outpace releases |
+| per-backend code heuristics (another `IsWaitingForInput`-style function) | rejected | contribution requires understanding heuristic precedence; rows cannot be mechanically audited for the conjunction arity the FP budget demands |
+| **compiled-in declarative table, per backend** (`internal/agent/gates.go`) | **adopted** | contribution = append one row + one fixture; a meta-test audits every row mechanically |
+
+Row shape (design-level): `{Kind string; All []string}` — `All` is a
+conjunctive set of **≥ 2** lowercase substrings that must co-occur within
+the last 40 lines of the pane (same window as `IsWaitingForInput`).
+Mandatory per row, enforced by a table-driven meta-test:
+
+- ≥ 2 conjunctive substrings (no single-string rows);
+- ≥ 1 positive fixture: a **real captured pane** checked into testdata —
+  patterns must never be written from memory of what a screen "probably
+  says";
+- the fixture asserts the full reading precedence end-to-end (the gate
+  wins over exited/completed/api-limited/failed on that pane), not just
+  the substring match.
+
+Backends contribute rows without touching any writer surface: `DetectGate`
+is gather-side observation vocabulary; every transition still flows
+through `stepRun` → `commitRunStatus`. opencode contributes no rows — it
+is observed via its server API, and its login problems surface as O8
+bootstrap failures (`launch_opencode_server` / `launch_opencode_bootstrap`).
+
+### 9.5 False-positive budget and laws (Q4)
+
+Cost asymmetry: a misfire flips `running → waiting` wrongly (spurious
+wait/notify, and automated feedback flows may write into a busy agent); a
+miss reproduces the incident (hours of invisible stall). The evidence
+stack for a gate verdict is therefore:
+
+```
+busy veto  ∧  conjunctive row (≥2 co-occurring substrings, last 40 lines)
+           ∧  same-kind streak ≥ waitingPromptStreakThreshold
+```
+
+Output-hash stability was considered as an additional gate (a real gate is
+a static screen) and **rejected as a requirement**: gates that animate
+(e.g. a spinner while polling for browser sign-in) would never confirm,
+and that false negative *is* the incident class this section exists to
+kill. It remains available as an optional per-row strengthening flag if a
+specific row proves noisy in practice.
+
+| Law | Statement |
+|-----|-----------|
+| L10a gate debounce (generalizes L6) | a `waiting` verdict with reason `gate_<kind>` requires ≥ `waitingPromptStreakThreshold` consecutive captures whose input-request reading is the same `gate:<kind>`; any busy capture or different reading resets the streak. L6 is the `reading = prompt` special case |
+| L10b reading precedence | busy veto > gate > {exited, completed, api-limited, failed} > prompt > output-changed. A curated conjunctive row outranks the loose generic heuristics; each row's fixture locks its intended winner. (This deliberately lets a future `gate_credit` row override `IsAPILimited` on account-credit dialogs — a credit dialog needs a human, not a rate-limit wait) |
+| L10c reason fidelity | the `waiting` reason always reflects the latest *confirmed* reading; a confirmed reading change re-appends under D-G1 and fires exactly one listener event (L8) |
+
+Counterexamples (must become fixtures/property tests at implementation):
+
+1. **Incident replay**: codex login pane, stable, no busy marker →
+   `waiting(gate_login)` within ~2 capture ticks (≈30–45 s at remote
+   pacing). The old behavior (no verdict, 2 h stall) is the bug.
+2. **Busy transcript quoting gate text**: an agent working on gate
+   detection prints "Sign in with ChatGPT" into its transcript while
+   "esc to interrupt" is visible → busy veto, no gate, streak reset.
+3. **Idle agent whose last output quotes gate text** at its normal
+   composer prompt: conjunctive rows must require screen-only co-strings;
+   if a row nevertheless misfires, the status is still `waiting`
+   (correct — the agent *is* idle), only the reason is wrong. Bounded
+   residual harm, recorded.
+4. **Alternating readings** (prompt ↔ gate): the status flips at most once
+   per threshold of ticks and only tracks confirmed readings (L10a);
+   reasons never flap tick-by-tick (D-G1 + streak).
+5. **Gate completed by the user**: output changes, reading changes →
+   streak reset → `running` on the next changed capture. No stale
+   `waiting(gate_*)` persists.
+
+### 9.6 Follow-up (do not implement in this issue)
+
+One implementation issue, **frontier + human** (touches `step.go`,
+`stepCaptured` precedence, `commitRunStatus` no-op predicate, and the
+`AgentManager` interface — all core surfaces): `agentSignal.Gate`,
+`DetectGate` + gate table + fixtures + meta-test, kind-tagged streak in
+`runCore`, D-G1 pair no-op, L10 property tests in `step_test.go`, §2/§3/
+§4/§5 fold-in. Real gate screens must be captured for fixtures *before*
+the pattern rows are written.
+
+## 10. Observation-channel health — death verdicts require attestation (designed 2026-07-07)
+
+Status: **design — accepted pending human review; no implementation yet.**
+Deltas to fold into §2/§3/§4/§5 at implementation time.
+
+Trigger — live incident 2026-07-07 22:53: two ALIVE runs (agents actively
+working, sessions intact on the default tmux server) were marked `failed`
+after "remote session not found on worker (3/3)". The freshly restarted
+worker process had inherited `TMUX=<agent-deck socket>` (pre-#483 binary
+rebuilds env in the managed spawn path), so its has-session/capture looked
+at a **different tmux server** than the one hosting the sessions:
+
+```
+default tmux server            agent-deck tmux server
+┌────────────────────┐         ┌────────────────────┐
+│ orch-xxx  (alive)  │         │ (agent-deck's own  │
+│ orch-yyy  (alive)  │         │  sessions)         │
+└────────────────────┘         └─────────▲──────────┘
+          ▲                              │ TMUX inherited
+          │ nobody looks here            │
+    old worker (gone)              new worker ──"not found"×3──► master ──► failed ✗
+```
+
+The daemon treated three consistent not-found responses from a
+**misconfigured observer** as evidence of death. Two aggravating facts:
+
+- `isRemoteSessionGone` (`internal/daemon/monitor.go`) classifies by
+  English substring matching (including "no server running") — fragile
+  across locales, and it conflates *observer misconfiguration* with
+  *session death*.
+- Git corroboration is structurally blind for worker-hosted runs: the
+  master's `gatherGitEvidence` cannot see the worker-side worktree, so
+  `HasUncommittedChanges`/ahead-count return nothing even while the agent
+  is mid-commit.
+
+### 10.1 Principle
+
+**A death verdict requires positive evidence from an attested observation
+channel. N consecutive not-founds from a channel that has never seen this
+run alive is testimony, not evidence.**
+
+L3' is the run-scoped special case (never alive *anywhere* ⇒ at most
+`unknown`); this section generalizes it to per-(run, observer-instance)
+attestation. The unifying reading: `failed` claims "the work stopped";
+`unknown` claims "we cannot see". A channel that never saw the session can
+only ever support the second claim.
+
+### 10.2 Observation definition — O3 refined
+
+`obsSessionGone` (and the `obsGitEvidence` follow-up it triggers) gains
+structured fields; `obsSessionAlive` gains the first:
+
+- **ObserverID** — identity of the observing channel *instance*:
+  `worker:<worker_id>:<instance_nonce>` for lease-routed observation
+  (nonce freshly generated per worker process start, carried **in the
+  lease result payload**, not looked up from the registry — the registry
+  preserves `RegisteredAt` across re-registration and a lease answer may
+  race a re-register), or `local:<daemon_instance_nonce>` for local mux
+  observation. No such generation concept exists today; this introduces
+  it.
+- **GoneClass ∈ {session_absent, server_absent, unclassified}** — decided
+  **where the facts are local** (the worker for remote runs, the daemon
+  shell for local runs) and shipped as structured data. `session_absent`:
+  the mux server responded and the target session is missing.
+  `server_absent`: no mux server on the socket this observer controls.
+  `unclassified`: legacy/unknown responses. GoneClass is *diagnostic
+  payload* (logs, error artifacts, operator hints) — the verification
+  predicate is attestation (10.3), not the class. This retires
+  `isRemoteSessionGone`'s substring matching (L11d).
+
+`runCore` gains two fields, both **ephemeral by law** (§7 D-C1 amended;
+reset direction analyzed in L7' below):
+
+- `AliveObserver string` — ObserverID of the most recent successful
+  alive/capture observation of this run ("" = none since restart).
+- `DeadCheckObserver string` — ObserverID owning the current dead-check
+  streak.
+
+### 10.3 Transition law
+
+| Law | Statement |
+|-----|-----------|
+| L11a streak continuity | `DeadCheckCount` accumulates only while the observation's ObserverID equals `DeadCheckObserver`; a gone observation from a different observer restarts the streak at 1 (and re-owns it). A dead-check streak is evidence only within a single observer generation |
+| L11b attestation | the no-evidence fallback death verdicts (`failed`; opencode's `unknown(session_lost)`) require the concluding observation's ObserverID == `AliveObserver` ≠ "" — *the channel pronouncing death must be the channel that last saw this run alive*. Evidence-ladder verdicts (done/canceled/pr_open/waiting from PR/git facts) are channel-independent and unaffected |
+| L11c unverified fallback | the same standing evidence from an unattested channel concludes at most `unknown(observer_unverified)` once the dead-check threshold has passed (never-alive runs additionally keep the L3' grace). Never `failed`. Recovery is automatic: `unknown` is non-terminal, and any successful capture re-attests the channel (sets `AliveObserver`) and resumes normal inference (O4 output-changed → running, O6 feedback → running) |
+| L11d classification locality | gone-class and observer identity are decided at the observing side and travel as structured payload; master-side natural-language matching on error strings is retired. Legacy responses without observer context are `unclassified` ⇒ unattested ⇒ at most `unknown` (safe mixed-version degradation; the version handshake surfaces the stale worker) |
+| L7' verdict-strength monotonicity (amends L7) | a restart of the master or of an observer may *soften or delay* a would-be `failed` into `unknown(observer_unverified)` (until the channel re-attests); it must never strengthen, terminalize, or invent a verdict. L7's target-equality clause is relaxed exactly this far and no further |
+
+Reason vocabulary delta for the §5 table:
+
+| reason | emitted by | operator response |
+|--------|-----------|-------------------|
+| `observer_unverified` | L11c: dead-check threshold reached through an unattested channel | the observer cannot see the session — check the worker/daemon mux environment (TMUX socket, #483 class) and worker process; the run self-recovers on the next successful capture |
+
+Invariant delta for the §4 table:
+
+| # | Invariant |
+|---|-----------|
+| I9 | no `failed` is ever written on the sole testimony of a channel that never observed this run alive |
+
+### 10.4 Choice space of Addendum 2, closed
+
+| candidate | verdict | rationale |
+|-----------|---------|-----------|
+| (a) reset DeadCheckCount when the observer generation changes | adopted (L11a) — but **insufficient alone**: in the incident all three not-founds came from the *same new* worker instance; a reset at the generation boundary changes nothing there | correct streak hygiene, wrong lever for the incident |
+| (b) corroborating evidence before `failed` | adopted in two parts: the PR/git evidence ladder already corroborates and stays first (channel-independent); worker-side git evidence for worker-hosted runs is a **separate follow-up issue** (the master is structurally blind to the worker's worktree — `get_diff_stats`/`get_branch_state` capabilities already exist to close this). The "session-created-by-worker generation match" variant is subsumed by attestation: a creator observes its own session immediately, so it attests itself | |
+| (c) observer changed + not found ⇒ `unknown`, not `failed` | adopted in generalized form: the predicate is not "changed" but "**unattested for this run**" (L11b/L11c) | "changed" misses the incident (the new observer's streak was internally consistent) |
+| channel-level attestation ("observer saw ≥ 1 session of any kind") | **rejected** — two killing counterexamples: (i) the poisoned socket can contain *foreign* sessions (agent-deck's own), so ListSessions non-emptiness attests nothing; (ii) a poisoned worker that *launches a new run* creates and sees that session on the wrong server, attesting itself channel-wide while still blind to every pre-existing run. Attestation must be per-(run, observer-instance) | this is the cheaper design that almost worked; recorded so it is not re-proposed |
+
+### 10.5 Counterexamples
+
+1. **Incident replay**: restarted worker, poisoned TMUX → its not-founds
+   carry a fresh ObserverID with `AliveObserver` pointing at the dead old
+   instance (or "" after a master restart) → unattested → after 3 checks
+   `unknown(observer_unverified)`, never `failed`. Operator fixes the env
+   / worker restarts clean → first successful capture re-attests →
+   `running`. No terminal status was ever written.
+2. **Legitimate death under a steady observer**: the worker that has been
+   capturing the run all along reports not-found ×3 → ObserverID ==
+   AliveObserver → attested → evidence ladder → `failed` (or the ladder's
+   done/waiting). Behavior unchanged from today.
+3. **tmux server exits because the last session closed** (was-alive run,
+   no work product): same long-lived observer reports `server_absent` →
+   still attested (class is diagnostic, not the predicate) → `failed` as
+   today. GoneClass only changes the log line.
+4. **Worker restart races a genuine run death** (single-run host): the new
+   instance never saw the run alive → `unknown(observer_unverified)`
+   instead of `failed`. Accepted softening under L7' — a false `failed`
+   (the incident) is strictly worse than a delayed `unknown` that a human
+   or `orch repair` resolves.
+5. **Master restart mid-streak**: `AliveObserver`/`DeadCheckObserver`/
+   `DeadCheckCount` reset → verdicts delayed until the channel re-attests;
+   for a genuinely dead session the channel never re-attests and the run
+   concludes `unknown(observer_unverified)` rather than `failed` —
+   accepted under L7' (today's fold-derived `WasAlive` would have allowed
+   `failed` on hearsay; that is exactly the pattern this section retires
+   for fallback verdicts).
+6. **Mixed-version fleet**: an old worker reports plain error strings →
+   `unclassified`, no ObserverID → unattested → at most `unknown`. Safe
+   degradation; upgrade restores `failed` capability.
+
+### 10.6 Follow-ups (do not implement in this issue)
+
+- Implementation issue, **frontier + human** (touches `step.go`,
+  `monitor.go`, `worker_plane.go`, proto lease payloads — core surfaces):
+  worker instance nonce + observer context in lease results, local-plane
+  observer identity, `runCore` fields, L11 arms in `stepSessionGone`/
+  `stepGitEvidence`, retirement of `isRemoteSessionGone`, L11/L7'/I9
+  property tests, §2/§3/§4/§5 fold-in.
+- Separate issue (delegable once specced): worker-side git corroboration
+  for worker-hosted dead verdicts via existing `get_diff_stats`/
+  `get_branch_state` capabilities (closes the corroboration blindness
+  noted in 10.0; benefits the attested path too).
+- Cross-reference: this partially delivers the O12 (worker presence)
+  backlog item of `docs/design/observation-coverage.md` by surfacing
+  observer identity to `step()` as observation payload.
