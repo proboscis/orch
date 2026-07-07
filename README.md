@@ -11,7 +11,7 @@ orch runs AI coding agents non-interactively in the background, creating isolate
 curl -sSL https://raw.githubusercontent.com/proboscis/orch/main/install.sh | bash
 
 # Or with Go
-# go install github.com/proboscis/orch/cmd/orch@latest
+go install github.com/proboscis/orch/cmd/orch@latest
 
 # Create an issue
 mkdir -p issues && cat > issues/my-task.md << 'EOF'

@@ -12,9 +12,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/s22625/orch/api/orchpb"
-	"github.com/s22625/orch/internal/config"
-	"github.com/s22625/orch/internal/xdg"
+	"github.com/proboscis/orch/api/orchpb"
+	"github.com/proboscis/orch/internal/config"
+	"github.com/proboscis/orch/internal/xdg"
 	"google.golang.org/protobuf/proto"
 )
 

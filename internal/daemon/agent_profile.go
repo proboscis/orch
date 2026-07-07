@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/s22625/orch/internal/config"
+	"github.com/proboscis/orch/internal/config"
 )
 
 // agentProfileDecision is the resolved outcome of selecting an execution

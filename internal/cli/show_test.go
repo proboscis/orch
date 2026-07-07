@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/s22625/orch/internal/orchapi"
+	"github.com/proboscis/orch/internal/orchapi"
 )
 
 func TestShowJSONIncludesEvents(t *testing.T) {

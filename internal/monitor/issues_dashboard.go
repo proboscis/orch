@@ -12,7 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
-	"github.com/s22625/orch/internal/model"
+	"github.com/proboscis/orch/internal/model"
 )
 
 type issueDashboardMode int

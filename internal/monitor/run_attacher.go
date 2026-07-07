@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/s22625/orch/internal/agent"
-	"github.com/s22625/orch/internal/model"
+	"github.com/proboscis/orch/internal/agent"
+	"github.com/proboscis/orch/internal/model"
 )
 
 type RunAttacher interface {

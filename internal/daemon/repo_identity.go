@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/s22625/orch/internal/xdg"
+	"github.com/proboscis/orch/internal/xdg"
 )
 
 func derivePortableRepoID(projectRoot string) string {

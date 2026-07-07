@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/orchapi"
-	"github.com/s22625/orch/internal/query"
+	"github.com/proboscis/orch/internal/model"
+	"github.com/proboscis/orch/internal/orchapi"
+	"github.com/proboscis/orch/internal/query"
 )
 
 // mockQueryAPI implements orchapi.OrchAPI for query testing (minimal implementation)

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/s22625/orch/internal/daemon"
+	"github.com/proboscis/orch/internal/daemon"
 )
 
 type mockClient struct {

@@ -1,6 +1,6 @@
 package typedids
 
-import "github.com/s22625/orch/internal/model"
+import "github.com/proboscis/orch/internal/model"
 
 func rawConversionsAreBanned() {
 	// ruleid: no-raw-model-repo-project-id-conversion

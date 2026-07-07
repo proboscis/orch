@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/s22625/orch/internal/executor"
-	"github.com/s22625/orch/internal/model"
+	"github.com/proboscis/orch/internal/executor"
+	"github.com/proboscis/orch/internal/model"
 )
 
 var execCommand = exec.Command

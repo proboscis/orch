@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/s22625/orch/internal/model"
+	"github.com/proboscis/orch/internal/model"
 )
 
 func (m *Monitor) IssueContent(issueID string) (string, error) {

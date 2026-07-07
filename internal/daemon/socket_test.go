@@ -24,14 +24,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/s22625/orch/api/orchpb"
-	"github.com/s22625/orch/internal/agent"
-	"github.com/s22625/orch/internal/git"
-	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/multiplexer"
-	"github.com/s22625/orch/internal/runevents"
-	"github.com/s22625/orch/internal/store"
-	"github.com/s22625/orch/internal/xdg"
+	"github.com/proboscis/orch/api/orchpb"
+	"github.com/proboscis/orch/internal/agent"
+	"github.com/proboscis/orch/internal/git"
+	"github.com/proboscis/orch/internal/model"
+	"github.com/proboscis/orch/internal/multiplexer"
+	"github.com/proboscis/orch/internal/runevents"
+	"github.com/proboscis/orch/internal/store"
+	"github.com/proboscis/orch/internal/xdg"
 	"google.golang.org/protobuf/proto"
 )
 

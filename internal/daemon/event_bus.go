@@ -3,7 +3,7 @@ package daemon
 import (
 	"sync"
 
-	"github.com/s22625/orch/api/orchpb"
+	"github.com/proboscis/orch/api/orchpb"
 )
 
 // runEventSubscriberBufferSize bounds each subscriber's channel.

@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/s22625/orch/internal/xdg"
+	"github.com/proboscis/orch/internal/xdg"
 )
 
 func setupManagedServerDBEnv(t *testing.T) {

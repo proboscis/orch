@@ -11847,7 +11847,7 @@ const file_orch_proto_rawDesc = "" +
 	"\vMultiplexer\x12\x1b\n" +
 	"\x17MULTIPLEXER_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10MULTIPLEXER_TMUX\x10\x01\x12\x16\n" +
-	"\x12MULTIPLEXER_ZELLIJ\x10\x02B#Z!github.com/s22625/orch/api/orchpbb\x06proto3"
+	"\x12MULTIPLEXER_ZELLIJ\x10\x02B&Z$github.com/proboscis/orch/api/orchpbb\x06proto3"
 
 var (
 	file_orch_proto_rawDescOnce sync.Once

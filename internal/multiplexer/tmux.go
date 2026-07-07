@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/s22625/orch/internal/executor"
+	"github.com/proboscis/orch/internal/executor"
 )
 
 var execCommand = exec.Command

@@ -3,7 +3,7 @@ package cli
 import (
 	"os"
 
-	"github.com/s22625/orch/internal/query"
+	"github.com/proboscis/orch/internal/query"
 	"github.com/spf13/cobra"
 )
 

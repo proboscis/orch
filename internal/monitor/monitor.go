@@ -14,12 +14,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/s22625/orch/internal/agent"
-	"github.com/s22625/orch/internal/config"
-	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/multiplexer"
-	"github.com/s22625/orch/internal/orchapi"
-	"github.com/s22625/orch/internal/xdg"
+	"github.com/proboscis/orch/internal/agent"
+	"github.com/proboscis/orch/internal/config"
+	"github.com/proboscis/orch/internal/model"
+	"github.com/proboscis/orch/internal/multiplexer"
+	"github.com/proboscis/orch/internal/orchapi"
+	"github.com/proboscis/orch/internal/xdg"
 )
 
 const (

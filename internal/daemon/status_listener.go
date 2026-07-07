@@ -1,7 +1,7 @@
 package daemon
 
 import (
-	"github.com/s22625/orch/internal/runevents"
+	"github.com/proboscis/orch/internal/runevents"
 )
 
 // AddStatusChangeListener registers a listener that will be invoked for every

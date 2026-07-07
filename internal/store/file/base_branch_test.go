@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/s22625/orch/internal/model"
+	"github.com/proboscis/orch/internal/model"
 )
 
 // TestCreateIssueBaseBranchRoundTrip verifies that an issue's base_branch is

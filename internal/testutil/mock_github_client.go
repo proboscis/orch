@@ -4,7 +4,7 @@
 package testutil
 
 import (
-	"github.com/s22625/orch/internal/github"
+	"github.com/proboscis/orch/internal/github"
 	"sync"
 )
 

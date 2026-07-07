@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/s22625/orch/internal/model"
+	"github.com/proboscis/orch/internal/model"
 )
 
 type runFilterState struct {

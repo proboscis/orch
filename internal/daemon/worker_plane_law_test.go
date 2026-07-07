@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/s22625/orch/internal/store"
-	filestore "github.com/s22625/orch/internal/store/file"
+	"github.com/proboscis/orch/internal/store"
+	filestore "github.com/proboscis/orch/internal/store/file"
 )
 
 func newLeaseLawServer(t *testing.T, workerID string, effects []string) *SocketServer {

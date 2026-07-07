@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/s22625/orch/internal/daemon"
-	"github.com/s22625/orch/internal/worker"
-	"github.com/s22625/orch/internal/xdg"
+	"github.com/proboscis/orch/internal/daemon"
+	"github.com/proboscis/orch/internal/worker"
+	"github.com/proboscis/orch/internal/xdg"
 )
 
 var (

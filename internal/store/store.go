@@ -1,7 +1,7 @@
 package store
 
 import (
-	"github.com/s22625/orch/internal/model"
+	"github.com/proboscis/orch/internal/model"
 )
 
 // ListRunsFilter specifies criteria for filtering runs

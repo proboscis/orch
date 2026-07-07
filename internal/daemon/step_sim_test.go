@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/s22625/orch/internal/model"
+	"github.com/proboscis/orch/internal/model"
 )
 
 // simStep is one scripted tick: advance the simulated clock, then feed one

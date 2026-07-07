@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/s22625/orch/internal/model"
-	"github.com/s22625/orch/internal/orchapi"
-	filestore "github.com/s22625/orch/internal/store/file"
+	"github.com/proboscis/orch/internal/model"
+	"github.com/proboscis/orch/internal/orchapi"
+	filestore "github.com/proboscis/orch/internal/store/file"
 )
 
 type mockPsAPI struct {

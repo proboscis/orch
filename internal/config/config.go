@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/s22625/orch/internal/git"
+	"github.com/proboscis/orch/internal/git"
 	"gopkg.in/yaml.v3"
 )
 

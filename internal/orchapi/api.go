@@ -20,7 +20,7 @@ package orchapi
 import (
 	"context"
 
-	"github.com/s22625/orch/internal/model"
+	"github.com/proboscis/orch/internal/model"
 )
 
 // OrchAPI is the unified interface for all orch CLI operations.

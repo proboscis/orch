@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/s22625/orch/internal/agent"
-	"github.com/s22625/orch/internal/xdg"
+	"github.com/proboscis/orch/internal/agent"
+	"github.com/proboscis/orch/internal/xdg"
 	_ "modernc.org/sqlite"
 )
 

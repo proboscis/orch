@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/s22625/orch/api/orchpb"
+	"github.com/proboscis/orch/api/orchpb"
 )
 
 func TestRunEventBus_DeliversToMatchingSubscribers(t *testing.T) {

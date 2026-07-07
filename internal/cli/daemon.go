@@ -8,7 +8,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/s22625/orch/internal/daemon"
+	"github.com/proboscis/orch/internal/daemon"
 	"github.com/spf13/cobra"
 )
 
