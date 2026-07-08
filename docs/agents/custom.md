@@ -4,53 +4,42 @@ orch supports custom agents, allowing you to use any CLI tool as an agent backen
 
 ## Overview
 
-Custom agents are external processes that:
-1. Accept a prompt as input
-2. Work on the task
-3. Exit when done (or wait for input)
+A custom agent is an arbitrary shell command that orch runs inside the run's
+multiplexer session, with the run worktree as the working directory:
 
-orch manages the tmux session and monitors the agent's state.
+1. orch creates the worktree and writes the task prompt to `ORCH_PROMPT.md`
+2. orch starts the session and runs your command in the worktree
+3. Your command reads `ORCH_PROMPT.md` (and the `ORCH_*` environment
+   variables), works on the task, and exits
 
-## Configuration
+There is no `custom:` section in `.orch/config.yaml`. The command is provided
+per run with the `--agent-cmd` flag.
 
-### Command-line usage
+## Usage
 
 ```bash
 orch run my-issue --agent custom --agent-cmd "my-agent run"
 ```
 
-### Config file
+`--agent-cmd` is required when `--agent custom` is used; orch fails fast
+without it.
 
-```yaml
-# .orch/config.yaml
-agent: custom
+## Task Input: ORCH_PROMPT.md
 
-custom:
-  command: my-agent run
-  prompt_template: "{{issue}}"
-```
-
-## Creating a Custom Agent
-
-A custom agent is any CLI tool that can accept a prompt and work on it.
-
-### Basic requirements
-
-1. Accept prompt as command-line argument or stdin
-2. Run in a terminal (tmux compatible)
-3. Exit with code 0 on success
-4. Exit with non-zero code on failure
-
-### Example: Simple wrapper script
+orch does not pass the prompt to your command as an argument or via stdin.
+Before launching the command, orch writes the rendered prompt (issue content
+plus instructions) to `ORCH_PROMPT.md` in the worktree root. Since your command
+starts with the worktree as its working directory, read it from the current
+directory:
 
 ```bash
 #!/bin/bash
 # my-agent.sh - Simple custom agent wrapper
 
-PROMPT="$1"
+PROMPT="$(cat ORCH_PROMPT.md)"
 
 # Your custom logic here
-echo "Working on: $PROMPT"
+echo "Working on: $ORCH_ISSUE_ID"
 
 # Call your actual agent/tool
 my-internal-tool --prompt "$PROMPT"
@@ -61,37 +50,8 @@ exit $?
 
 Usage:
 
-```yaml
-custom:
-  command: /path/to/my-agent.sh
-```
-
-### Example: Python agent wrapper
-
-```python
-#!/usr/bin/env python3
-"""Custom agent wrapper for orch."""
-
-import sys
-import subprocess
-
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: my-agent <prompt>")
-        sys.exit(1)
-    
-    prompt = sys.argv[1]
-    
-    # Your custom agent logic
-    result = call_your_model(prompt)
-    
-    # Apply changes, etc.
-    apply_result(result)
-    
-    sys.exit(0)
-
-if __name__ == "__main__":
-    main()
+```bash
+orch run my-issue --agent custom --agent-cmd "/path/to/my-agent.sh"
 ```
 
 ## Environment Variables
@@ -115,177 +75,75 @@ echo "Issue: $ORCH_ISSUE_ID"
 echo "Branch: $ORCH_BRANCH"
 ```
 
-## Prompt Handling
+## Creating a Custom Agent
 
-### As command argument
+A custom agent is any CLI tool that can read the task input and work on it.
 
-Most agents accept the prompt as a command-line argument:
+### Basic requirements
 
-```yaml
-custom:
-  command: my-agent
-  # orch runs: my-agent "the prompt"
-```
+1. Read the task from `ORCH_PROMPT.md` in the working directory
+2. Run in a terminal (tmux compatible)
+3. Exit with code 0 on success
+4. Exit with non-zero code on failure
 
-### As stdin
+### Example: Python agent wrapper
 
-For agents that read from stdin:
+```python
+#!/usr/bin/env python3
+"""Custom agent wrapper for orch."""
 
-```yaml
-custom:
-  command: my-agent --stdin
-  prompt_via_stdin: true
-  # orch pipes prompt to stdin
-```
+import os
+import sys
+from pathlib import Path
 
-### As file
+def main():
+    prompt = Path("ORCH_PROMPT.md").read_text()
+    branch = os.environ["ORCH_BRANCH"]
 
-For agents that read from a file:
+    # Your custom agent logic
+    result = call_your_model(prompt)
 
-```yaml
-custom:
-  command: my-agent --prompt-file ${PROMPT_FILE}
-  prompt_via_file: true
-  # orch writes prompt to PROMPT_FILE and sets environment variable
-```
+    # Apply changes, commit to branch, etc.
+    apply_result(result, branch)
 
-## State Detection
+    sys.exit(0)
 
-orch monitors custom agents the same way as built-in agents, looking for:
-
-### Completion patterns
-
-Configure patterns that indicate success:
-
-```yaml
-custom:
-  command: my-agent
-  completion_patterns:
-    - "Task completed successfully"
-    - "Done!"
-    - "PR created:"
-```
-
-### Error patterns
-
-Configure patterns that indicate failure:
-
-```yaml
-custom:
-  command: my-agent
-  error_patterns:
-    - "Error:"
-    - "Failed:"
-    - "Exception:"
-```
-
-### Blocked patterns
-
-Configure patterns that indicate the agent needs input:
-
-```yaml
-custom:
-  command: my-agent
-  blocked_patterns:
-    - "Waiting for input"
-    - "Please provide:"
-    - "?"
+if __name__ == "__main__":
+    main()
 ```
 
 ## Examples
 
 ### Local LLM wrapper
 
-```yaml
-custom:
-  command: ollama run codellama
-  prompt_template: "{{issue}}"
+```bash
+orch run code-issue --agent custom --agent-cmd "/path/to/ollama-agent.sh"
 ```
-
-### API-based agent
-
-```yaml
-custom:
-  command: ./scripts/api-agent.sh
-  env:
-    API_KEY: ${MY_API_KEY}
-    API_URL: https://my-api.example.com
-```
-
-### Multi-tool agent
-
-```yaml
-custom:
-  command: ./scripts/multi-tool-agent.sh
-  prompt_template: |
-    Task: {{issue_title}}
-    
-    {{issue}}
-    
-    Available tools: git, make, docker
-```
-
-### Specialized domain agent
-
-```yaml
-custom:
-  command: terraform-agent
-  prompt_template: |
-    Infrastructure task: {{issue_title}}
-    
-    {{issue}}
-    
-    Use Terraform to implement this infrastructure change.
-```
-
-## Advanced Configuration
-
-### Multiple custom agents
-
-Define different custom agents for different purposes:
-
-```yaml
-# In presets
-presets:
-  terraform:
-    agent: custom
-    agent_cmd: terraform-agent
-  
-  kubernetes:
-    agent: custom
-    agent_cmd: k8s-agent
-  
-  local-llm:
-    agent: custom
-    agent_cmd: ollama run codellama
-```
-
-Use with:
 
 ```bash
-orch run --preset terraform infra-issue
-orch run --preset local-llm code-issue
+#!/bin/bash
+# ollama-agent.sh
+ollama run codellama "$(cat ORCH_PROMPT.md)"
 ```
 
-### Startup script
+### Specialized domain agents
 
-Run setup before the agent:
+Use different commands for different kinds of issues:
 
-```yaml
-custom:
-  setup_script: ./scripts/agent-setup.sh
-  command: my-agent
+```bash
+orch run infra-issue --agent custom --agent-cmd "terraform-agent"
+orch run k8s-issue --agent custom --agent-cmd "k8s-agent"
 ```
 
-### Cleanup script
+## State Detection
 
-Run cleanup after the agent:
+orch monitors the session's terminal output the same way as built-in agents.
+Completion, error, and blocked patterns are not configurable for custom agents,
+so:
 
-```yaml
-custom:
-  command: my-agent
-  cleanup_script: ./scripts/agent-cleanup.sh
-```
+1. Make your agent output clear status messages
+2. Use proper exit codes (0 = success)
+3. Check daemon logs if state looks wrong: `tail -f ~/Library/Logs/orch/daemon.log` (Linux: `~/.local/state/orch/daemon.log`)
 
 ## Troubleshooting
 
@@ -301,13 +159,6 @@ Debug:
 ```bash
 orch run --verbose my-issue --agent custom --agent-cmd "my-agent"
 ```
-
-### State not detected
-
-If orch can't detect your agent's state:
-1. Configure explicit completion/error patterns
-2. Ensure agent outputs recognizable messages
-3. Check daemon logs: `tail -f ~/Library/Logs/orch/daemon.log   # Linux: ~/.local/state/orch/daemon.log`
 
 ### Environment issues
 

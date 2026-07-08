@@ -184,13 +184,13 @@ Existing violations are tracked; do not add new ones.
 - TUI changes should be manually tested with `orch monitor`
 
 Canonical E2E instruction docs:
-- [docs/e2e-master-worker-client.md](docs/e2e-master-worker-client.md)
-- [docs/e2e-backend-matrix.md](docs/e2e-backend-matrix.md)
-- [docs/e2e-automation-plan.md](docs/e2e-automation-plan.md)
+- [docs/development/e2e-master-worker-client.md](docs/development/e2e-master-worker-client.md)
+- [docs/development/e2e-backend-matrix.md](docs/development/e2e-backend-matrix.md)
+- [docs/development/e2e-automation-plan.md](docs/development/e2e-automation-plan.md)
 
 Use those files as the source of truth for E2E validation requirements. In
 particular, backend/session-control changes must follow the real-agent matrix in
-`docs/e2e-backend-matrix.md`, not a reduced `custom`-only substitute.
+`docs/development/e2e-backend-matrix.md`, not a reduced `custom`-only substitute.
 
 ## Common Issues
 

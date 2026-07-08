@@ -26,10 +26,11 @@ orch q "SELECT * FROM runs" --format tsv
 |--------|------|-------------|
 | id | TEXT | Issue ID (primary key) |
 | title | TEXT | Issue title |
-| status | TEXT | Issue status (open, closed, etc.) |
+| topic | TEXT | Issue topic |
+| summary | TEXT | Short summary |
+| status | TEXT | Issue status (open, resolved, closed) |
+| body | TEXT | Issue body (markdown) |
 | path | TEXT | File path |
-| created | TEXT | Created timestamp |
-| updated | TEXT | Updated timestamp |
 
 #### `runs`
 
@@ -38,14 +39,18 @@ orch q "SELECT * FROM runs" --format tsv
 | issue_id | TEXT | Parent issue ID |
 | run_id | TEXT | Run ID (timestamp) |
 | hex_id | TEXT | Short hex ID (6 chars) |
-| agent | TEXT | Agent type |
 | status | TEXT | Run status |
-| worktree | TEXT | Worktree path |
+| phase | TEXT | Current phase |
+| agent | TEXT | Agent type |
+| model | TEXT | Model name |
+| model_variant | TEXT | Model variant |
 | branch | TEXT | Git branch |
+| worktree_path | TEXT | Worktree path |
 | session_name | TEXT | Multiplexer session name |
 | pr_url | TEXT | Pull request URL |
-| created | TEXT | Created timestamp |
-| updated | TEXT | Updated timestamp |
+| started_at | TEXT | First event timestamp |
+| updated_at | TEXT | Last event timestamp |
+| continued_from | TEXT | Run this run was restarted from |
 
 #### `issue_tags`
 
@@ -58,11 +63,13 @@ orch q "SELECT * FROM runs" --format tsv
 
 | Column | Type | Description |
 |--------|------|-------------|
+| issue_id | TEXT | Parent issue ID |
 | run_id | TEXT | Parent run ID |
 | timestamp | TEXT | Event timestamp |
 | type | TEXT | Event type |
 | name | TEXT | Event name |
-| data | TEXT | Additional data (JSON) |
+| attrs | TEXT | Event attributes (JSON) |
+| raw | TEXT | Original event line |
 
 ### Views
 
@@ -138,10 +145,10 @@ SELECT
   issue_id,
   run_id,
   hex_id,
-  updated
+  updated_at
 FROM runs
 WHERE status IN ('waiting', 'rate_limited')
-ORDER BY updated DESC;
+ORDER BY updated_at DESC;
 
 -- Runs with PRs
 SELECT 
@@ -157,11 +164,11 @@ SELECT
   run_id,
   agent,
   status,
-  created,
-  updated
+  started_at,
+  updated_at
 FROM runs
 WHERE issue_id = 'my-issue'
-ORDER BY created DESC;
+ORDER BY started_at DESC;
 
 -- Status distribution
 SELECT 
@@ -185,11 +192,11 @@ GROUP BY agent;
 
 -- Daily run counts
 SELECT 
-  DATE(created) as day,
+  DATE(started_at) as day,
   COUNT(*) as runs,
   SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as completed
 FROM runs
-GROUP BY DATE(created)
+GROUP BY DATE(started_at)
 ORDER BY day DESC
 LIMIT 14;
 
@@ -251,7 +258,7 @@ SELECT
   e.run_id,
   r.issue_id,
   e.timestamp,
-  e.data
+  e.attrs
 FROM events e
 JOIN runs r ON e.run_id = r.run_id
 WHERE e.type = 'artifact' AND e.name = 'pr';
@@ -354,7 +361,7 @@ SELECT COALESCE(pr_url, 'no PR') FROM runs;
 
 -- Date filtering
 SELECT * FROM runs
-WHERE created > datetime('now', '-7 days');
+WHERE started_at > datetime('now', '-7 days');
 
 -- Pattern matching
 SELECT * FROM issues

@@ -14,25 +14,27 @@ This skill provides Claude Code with comprehensive knowledge about using the **o
 
 ## Installation
 
-### Option 1: Symlink (Recommended)
+### Recommended: One-line agent install
 
-Create a symlink from the orch repo to your Claude Code skills directory:
+Paste this into your coding agent (Claude Code, Codex, OpenCode, ...):
+
+```
+Fetch https://raw.githubusercontent.com/proboscis/orch/main/docs/agent-install.md and follow it exactly: install the orch binary, install the orch skill into this agent, then walk me through my first orch run interactively.
+```
+
+The [Agent Install Runbook](../../docs/agent-install.md) installs the orch
+binary and copies this skill into the agent's skills directory.
+
+### Manual / dev install
+
+From a local checkout, symlink the skill into your Claude Code skills
+directory (edits in the repo are picked up without reinstalling):
 
 ```bash
 ln -s /path/to/orch/claude-plugins/orch-toolset/skills/orch-toolset ~/.claude/skills/orch-toolset
 ```
 
-### Option 2: Copy
-
-Copy the skill directory:
-
-```bash
-cp -r /path/to/orch/claude-plugins/orch-toolset/skills/orch-toolset ~/.claude/skills/
-```
-
-### Option 3: Load as Plugin (Per-Session)
-
-Load the entire plugin for a single session:
+Or load the entire plugin for a single session:
 
 ```bash
 claude --plugin-dir /path/to/orch/claude-plugins/orch-toolset

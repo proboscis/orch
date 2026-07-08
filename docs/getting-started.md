@@ -38,7 +38,16 @@ gh auth status
 
 ## Installation
 
-### Option 1: Download pre-built binary (recommended)
+### Option 1: Install script (recommended)
+
+```bash
+curl -sSL https://raw.githubusercontent.com/proboscis/orch/main/install.sh | bash
+```
+
+Prefer to have your AI agent do the whole setup (binary + skill + guided
+first run)? Follow the [Agent Install Runbook](./agent-install.md) instead.
+
+### Option 2: Download pre-built binary
 
 ```bash
 # macOS (Apple Silicon)
@@ -57,13 +66,13 @@ chmod +x orch
 sudo mv orch /usr/local/bin/
 ```
 
-### Option 2: Install from source
+### Option 3: Install from source
 
 ```bash
 go install github.com/proboscis/orch/cmd/orch@latest
 ```
 
-### Option 3: Build from a local checkout
+### Option 4: Build from a local checkout
 
 For the CLI and daemon only:
 
@@ -302,7 +311,7 @@ orch stop my-first-issue#20260120-163045
 - Learn the [core concepts](./concepts.md) (Issue, Run, Event, etc.)
 - Set up [remote usage](./remote-usage.md) for server-based orchestration
 - Configure [different agents](./agents/claude.md)
-- Set up [backend integrations](./backends/file.md) (GitHub, Linear)
+- Set up [backend integrations](./backends/file.md) (GitHub)
 - Explore all [CLI commands](./reference/commands.md)
 - Use [SQL queries](./reference/query.md) to analyze your runs
 

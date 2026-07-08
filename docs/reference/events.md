@@ -30,25 +30,46 @@ Tracks run state changes. These events determine the current status of a run.
 | `queued` | Run created, waiting to start | `status \| queued \|` |
 | `booting` | Agent is starting | `status \| booting \| agent=claude` |
 | `running` | Agent is working | `status \| running \|` |
-| `waiting` | Needs human input | `status \| waiting \| reason=question` |
+| `waiting` | Needs human input | `status \| waiting \| reason=gate_login` |
 | `rate_limited` | API/rate limit issue | `status \| rate_limited \| error=rate_limit` |
 | `pr_open` | PR created | `status \| pr_open \|` |
 | `done` | Completed successfully | `status \| done \|` |
 | `failed` | Error occurred | `status \| failed \| error=...` |
 | `canceled` | Manually stopped | `status \| canceled \|` |
-| `unknown` | Agent exited unexpectedly | `status \| unknown \|` |
+| `unknown` | Agent exited unexpectedly | `status \| unknown \| reason=agent_exited` |
+
+#### Status reasons
+
+Status events may carry a machine-readable `reason` attribute
+(`model.AttrStatusReason`) explaining why the verdict was reached.
+`orch ps` renders it inline, e.g. `unknown(never_alive)` or `waiting(gate_login)`.
+
+| Reason | Attached to | Description |
+|--------|-------------|-------------|
+| `never_alive` | `unknown` | Agent was never observed alive and the boot grace expired |
+| `session_lost` | `unknown` | Agent was alive but the backend lost observability of its session |
+| `agent_exited` | `unknown` | Agent process exited without a verdict, shell prompt showing |
+| `observer_unverified` | `unknown` | Dead-check threshold reached via an observation channel that never saw this run alive |
+| `launch_<step>` | `failed` | Launch failed at the named bootstrap step |
+| `gate_<kind>` | `waiting` | Run is stopped at an interactive gate (e.g. `gate_login`, `gate_trust`) |
 
 ### artifact
 
-Records outputs and resources created during the run.
+Records outputs and resources created during the run. These names are
+consumed by the run state fold (`DeriveState`) to populate run fields.
 
 | Name | Description | Example |
 |------|-------------|---------|
 | `worktree` | Git worktree path | `artifact \| worktree \| path=/path/to/worktree` |
 | `branch` | Git branch name | `artifact \| branch \| name=issue/x/run-y` |
+| `target` | Execution target (host/worker) | `artifact \| target \| name=zeus \| host=zeus \| worker_id=...` |
+| `session` | Multiplexer session | `artifact \| session \| name=run-x-y \| multiplexer=tmux` |
+| `window` | Multiplexer window ID | `artifact \| window \| id=@42` |
 | `pr` | Pull request URL | `artifact \| pr \| url=https://github.com/.../pull/42` |
-| `commit` | Commit hash | `artifact \| commit \| sha=abc123` |
-| `file` | File created/modified | `artifact \| file \| path=src/foo.ts` |
+| `server` | opencode server port | `artifact \| server \| port=4096` |
+| `opencode_session` | opencode session ID | `artifact \| opencode_session \| id=ses_abc123` |
+| `agent_model` | Model reported by the agent | `artifact \| agent_model \| model=... \| variant=...` |
+| `error` | Persisted error message | `artifact \| error \| message="..."` |
 
 ### phase
 
@@ -96,18 +117,6 @@ Example:
 ```
 - 2026-01-20T17:00:00+09:00 | note | manual_fix | text="Fixed import manually"
 ```
-
-### monitor
-
-Daemon-generated observations about agent activity.
-
-| Name | Description |
-|------|-------------|
-| `working` | Output is actively flowing |
-| `stalling` | No output for N seconds |
-| `idle` | Agent appears idle |
-
-These are informational and don't affect run status directly.
 
 ## Event Flow Example
 
