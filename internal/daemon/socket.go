@@ -321,6 +321,9 @@ type SocketServer struct {
 
 	currentWorkerID   string
 	currentWorkerHost string
+	// instanceNonce makes this process a distinct observation-channel
+	// instance (§10.2): observerID() = worker:<id>:<nonce> / local:<nonce>.
+	instanceNonce string
 
 	runEventBus *RunEventBus
 
@@ -387,6 +390,7 @@ func NewSocketServer(factory StoreFactory, logger Logger) *SocketServer {
 		openCodeServers:     make(map[string]*managedServer),
 		workerAuthToken:     strings.TrimSpace(os.Getenv("ORCH_WORKER_AUTH_TOKEN")),
 		runEventBus:         NewRunEventBus(),
+		instanceNonce:       generateMonitorID()[:12],
 	}
 	s.gitRunner = git.NewRunner()
 	s.procManager = newSocketProcessManager(s)

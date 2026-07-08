@@ -65,8 +65,8 @@ Facts the daemon can notice about a run, with their sources:
 | Obs | Fact | Source | Cost |
 |-----|------|--------|------|
 | O1 | PR outcome (`open/merged/closed/unknown`) + URL | gh cache via `PRUrl` or branch lookup | cached |
-| O2 | session alive | local mux `IsAlive` / successful lease capture | cheap / lease RTT |
-| O3 | session gone (one dead check) | local `IsAlive=false` / lease `session_not_found` | same |
+| O2 | session alive + ObserverID of the observing channel instance (§10.2) | local mux `IsAlive` / successful lease capture (`CaptureSessionResult.ObserverID`) | cheap / lease RTT |
+| O3 | session gone (one dead check) + ObserverID + GoneClass ∈ {session_absent, server_absent, unclassified}, classified observation-side (§10.2, L11d) | local `IsAlive=false` / structured lease gone verdict (`CaptureSessionResult.Gone`); legacy error strings → unattested unclassified | same |
 | O4 | captured output | local `CapturePane` / `capture_session` lease | cheap / lease RTT (paced 15s) |
 | O4a | — derived: output changed | content hash vs `OutputHash` (excludes status-bar lines) | pure |
 | O4b | — derived: prompt showing (mux agents) | `IsWaitingForInput` string heuristics | pure |
@@ -102,16 +102,18 @@ O3 session gone, count ≥ 3   → O5 git evidence を収集して判定:
    O5: PRUrl set, lookup ok                                        → done/canceled/pr_open
    O5: PRUrl set, lookup fail                                      → pr_open (PR存在は既知)
    O5: commits ahead > 0 or uncommitted                            → waiting
-   O5: no signal, agent=opencode, was-alive                        → done   (opencodeは完了でexitする)
-   O5: no signal, agent=opencode, never-alive, grace超過           → failed
+   O5: no signal, agent=opencode, was-alive, attested              → unknown (session_lost)
+   O5: no signal, agent=opencode, was-alive, unattested            → unknown (observer_unverified, L11c)
+   O5: no signal, agent=opencode, never-alive, grace超過           → failed (evidence ladder: 完了時exitする
+                                                                     agentの無成果+never-alive)
    O5: no signal, agent=opencode, never-alive, grace内             遷移なし
    O5: no signal, agent≠opencode:
-       local,  was-alive                                           → failed
-       local,  never-alive, grace内                                 遷移なし
-       local,  never-alive, grace超過                               → unknown (L3', §7 D-C3)
-       remote, was-alive                                           → failed
-       remote, never-alive, grace内                                 遷移なし
-       remote, never-alive, grace超過                               → unknown
+       was-alive, attested (local/remote共通)                       → failed
+       was-alive, unattested (L11b/c: 死亡宣告chが最後にalive目撃    → unknown (observer_unverified)
+                  したchでない、または観測者不明)
+       never-alive, grace内 (local/remote共通)                      遷移なし
+       never-alive, grace超過                                       → unknown (never_alive; L3', §7 D-C3)
+   attested ⇔ DeadCheckObserver ≠ "" ∧ DeadCheckObserver == AliveObserver
 
 O2 session alive                                                   カウンタreset, WasAlive=true
 O4 captured + PR URL in output   未記録                            → pr_open (+pr artifact)
@@ -153,6 +155,7 @@ O8 launch progress           stageRunCreated                       → queued
 | I6 | every non-terminal run is eventually observed | holds since `monitorAll` lists `queued` as well as the other non-terminal states, so a run orphaned before `booting` still reaches the monitor plane |
 | I7 | a gone session must eventually produce a verdict | holds since L3' (§7 D-C3, 2026-06-12): both planes conclude `unknown` after the never-alive grace |
 | I8 | status-change listeners observe every committed W1 transition | holds since D-C4 (§7, 2026-06-12): `updateStatus` fires once after a successful status append; same-status no-ops and append failures fire nothing |
+| I9 | no `failed` is ever written on the sole testimony of a channel that never observed this run alive | holds since §10 (2026-07-08): the no-evidence fallback verdicts require attestation (L11b); property-swept in `step_observer_test.go` |
 
 I2, I5 (via D-C1), I7 (via D-C3), I6 (`inv-monitor-queued-orphans`) and
 I8 (D-C4, `inv-fire-status-change-all`) were resolved on 2026-06-12. I4's
@@ -232,6 +235,10 @@ distinction the law tests themselves forced:
 | L10a gate debounce (generalizes L6) | a `waiting` verdict with reason `gate_<kind>` requires ≥ `waitingPromptStreakThreshold` consecutive captures whose input-request reading is the same `gate:<kind>`; any busy capture or different reading resets the streak |
 | L10b reading precedence | busy veto > gate > {exited, completed, api-limited, failed} > prompt > output-changed; an unconfirmed gate reading masks every lower reading; each gate row's fixture locks its intended winner end-to-end |
 | L10c reason fidelity | the `waiting` reason always reflects the latest *confirmed* reading; a confirmed reading change re-appends under D-G1 and fires exactly one listener event (L8) |
+| L11a streak continuity | `DeadCheckCount` accumulates only while the observation's ObserverID equals `DeadCheckObserver`; a gone observation from a different observer restarts the streak at 1 (and re-owns it) |
+| L11b attestation | the no-evidence fallback death verdicts (`failed`; opencode's `unknown(session_lost)`) require `DeadCheckObserver == AliveObserver ≠ ""` — the channel pronouncing death must be the channel that last saw this run alive. Evidence-ladder verdicts are channel-independent and unaffected |
+| L11c unverified fallback | the same standing evidence from an unattested channel concludes at most `unknown(observer_unverified)`; never `failed`. Recovery is automatic: any successful capture re-attests the channel |
+| L11d classification locality | gone-class and observer identity are decided at the observing side and travel as structured lease payload; master-side natural-language matching is a frozen legacy shim (`legacyRemoteSessionGone`) that can only feed unattested observations and shrinks to deletion |
 
 ### Status reasons (verdict payload)
 
@@ -247,6 +254,7 @@ travels as a machine-readable `reason` attribute on the status event
 | `agent_exited` | capture verdict: process exited, shell prompt showing | check transcript/worktree; retry plausible |
 | `launch_<step>` | O8 bootstrap failure (`failed` verdict); `<step>` ∈ worktree, prompt, agent_command, multiplexer, opencode_server, session, opencode_bootstrap, bootstrap | the named bootstrap step broke; the paired error artifact carries the detail |
 | `gate_<kind>` (`gate_login`, `gate_trust`, …) | O4e gate reading confirmed by L10a (`waiting` verdict) | `orch attach` and complete the gate interactively; `orch send` will NOT clear it — the run re-asserts `waiting(gate_<kind>)` while the gate persists |
+| `observer_unverified` | L11c: dead-check threshold reached through an unattested channel | the observer cannot see the session — check the worker/daemon mux environment (TMUX socket, #483 class) and worker process; the run self-recovers on the next successful capture |
 
 `orch ps` renders the reason inline (`unknown(never_alive)`); the event log
 carries it as `reason=…`; `StatusChangeEvent.Reason` exposes it to listeners.
@@ -301,7 +309,10 @@ implementation exists (daemon), and the TUI client calls it.
 - **Ephemeral by law (bounded re-convergence)** — deliberately reset on
   restart; L1b guarantees they re-converge within bounded ticks, and the
   reset direction is safe (verdicts/debounce are *delayed*, never wrong):
-  `DeadCheckCount`, `PromptStreak`, `OutputHash`, `LastOutput*`.
+  `DeadCheckCount`, `ReadingKind`/`ReadingStreak` (§9), `OutputHash`,
+  `LastOutput*`, `AliveObserver`/`DeadCheckObserver` (§10 — their reset
+  direction is governed by L7': a restart may soften or delay a would-be
+  `failed` into `unknown(observer_unverified)`, never strengthen).
 
 Rejected alternatives: (a) full observation replay (observations are not
 events; would require recording per-tick captures), (b) persisting counter
@@ -312,6 +323,7 @@ forbids).
 | Law | Statement |
 |-----|-----------|
 | L7 restart transparency | for any observation sequence and any restart point, the sequence of *transition targets* is identical with and without the restart; only their timing may differ, by at most `max(deadCheckThreshold, waitingPromptStreakThreshold)` ticks |
+| L7' verdict-strength monotonicity (amends L7, §10) | a restart of the master or of an observer may *soften or delay* a would-be `failed` into `unknown(observer_unverified)` (until the channel re-attests); it must never strengthen, terminalize, or invent a verdict. L7's target-equality clause is relaxed exactly this far and no further |
 
 ### D-C3 — never-alive verdict asymmetry resolved (implemented 2026-06-12)
 
@@ -596,8 +608,13 @@ before the pattern rows were written, as required.
 
 ## 10. Observation-channel health — death verdicts require attestation (designed 2026-07-07)
 
-Status: **design — accepted pending human review; no implementation yet.**
-Deltas to fold into §2/§3/§4/§5 at implementation time.
+Status: **implemented 2026-07-08.** The deltas of this section are folded
+into §2 (O2/O3 observer fields), §3 (attestation arms of the O5 fallback),
+§4 (I9), §5 (L11a–d, `observer_unverified` reason row), and §7 (D-C1
+ephemeral list, L7'); this section remains as the design record. Observer
+identity is generated per process (`SocketServer.instanceNonce`,
+`Daemon.instanceNonce`), carried in `CaptureSessionResult`; laws are
+property tests in `internal/daemon/step_observer_test.go`.
 
 Trigger — live incident 2026-07-07 22:53: two ALIVE runs (agents actively
 working, sessions intact on the default tmux server) were marked `failed`
@@ -735,16 +752,19 @@ Invariant delta for the §4 table:
    `unclassified`, no ObserverID → unattested → at most `unknown`. Safe
    degradation; upgrade restores `failed` capability.
 
-### 10.6 Follow-ups (do not implement in this issue)
+### 10.6 Follow-ups
 
-- Implementation issue, **frontier + human** (touches `step.go`,
-  `monitor.go`, `worker_plane.go`, proto lease payloads — core surfaces):
-  worker instance nonce + observer context in lease results, local-plane
-  observer identity, `runCore` fields, L11 arms in `stepSessionGone`/
-  `stepGitEvidence`, retirement of `isRemoteSessionGone`, L11/L7'/I9
-  property tests, §2/§3/§4/§5 fold-in.
-- Separate issue (delegable once specced): worker-side git corroboration
-  for worker-hosted dead verdicts via existing `get_diff_stats`/
+- ~~Implementation issue~~ **implemented 2026-07-08**, frontier + human
+  in-session: worker instance nonce + observer context in lease results
+  (`CaptureSessionResult.ObserverID`/`Gone` — JSON lease payload, no proto
+  change needed), local-plane observer identity, `runCore` fields, L11 arms
+  in `stepSessionGone`/`stepGitEvidence`, `isRemoteSessionGone` demoted to
+  the frozen `legacyRemoteSessionGone` shim (unattested-only, deletable
+  once no pre-attestation workers remain), L11/L7'/I9 property tests,
+  §2/§3/§4/§5 fold-in.
+- Separate issue (delegable once specced, still open —
+  `worker-side-git-corroboration`): worker-side git corroboration for
+  worker-hosted dead verdicts via existing `get_diff_stats`/
   `get_branch_state` capabilities (closes the corroboration blindness
   noted in 10.0; benefits the attested path too).
 - Cross-reference: this partially delivers the O12 (worker presence)

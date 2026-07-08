@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/proboscis/orch/internal/agent"
 	"github.com/proboscis/orch/internal/git"
 	"github.com/proboscis/orch/internal/model"
 )
@@ -129,7 +130,33 @@ type CaptureSessionResult struct {
 	Content       string `json:"content,omitempty"`
 	TimestampUnix int64  `json:"timestamp_unix,omitempty"`
 	Source        string `json:"source,omitempty"`
+	// ObserverID identifies the observing channel INSTANCE
+	// (worker:<id>:<nonce> / local:<nonce>), carried in the lease result
+	// rather than looked up from the registry: a lease answer may race a
+	// re-register, and the registry preserves RegisteredAt across it
+	// (run-state-machine.md §10.2).
+	ObserverID string `json:"observer_id,omitempty"`
+	// Gone, when set, reports that the observing side determined the
+	// session is gone (L11d classification locality): the capture lease
+	// SUCCEEDS with this structured verdict instead of failing with an
+	// error string the master would have to parse.
+	Gone *SessionGoneResult `json:"gone,omitempty"`
 }
+
+// SessionGoneResult classifies a gone observation where the facts are local
+// (run-state-machine.md §10.2). The class is diagnostic payload — the
+// verification predicate is attestation (L11b), never the class.
+type SessionGoneResult struct {
+	Class string `json:"class"`
+}
+
+// Gone-class vocabulary (§10.2). unclassified covers legacy/unknown
+// responses and is always unattested-safe: at most unknown.
+const (
+	goneClassSessionAbsent = "session_absent"
+	goneClassServerAbsent  = "server_absent"
+	goneClassUnclassified  = "unclassified"
+)
 
 type GetDiffStatsResult struct {
 	Additions    int      `json:"additions,omitempty"`
@@ -632,6 +659,49 @@ func decodeWorkerEffectResult(resultJSON string) (*WorkerEffectResult, error) {
 	return &result, nil
 }
 
+// classifyCaptureGone maps a capture error to a gone class ("" = not a gone
+// verdict: an infrastructure failure the lease reports as a plain error).
+// Classification happens on the observing side, where the mux socket the
+// error refers to is the one this process actually controls (L11d) — the
+// 2026-07-07 incident was a master classifying a poisoned worker's error
+// strings as session death.
+func classifyCaptureGone(run *model.Run, err error) string {
+	if err == nil {
+		return ""
+	}
+	var notFound *agent.SessionNotFoundError
+	if errors.As(err, &notFound) {
+		// Distinguish a responding mux server that lacks the session from
+		// no server on this observer's socket at all. Diagnostic only: the
+		// verification predicate is attestation, not the class.
+		mux := resolveCaptureMultiplexer(run)
+		lister, ok := mux.(interface{ ListSessions() ([]string, error) })
+		if !ok {
+			return goneClassUnclassified
+		}
+		if _, lerr := lister.ListSessions(); lerr != nil {
+			return goneClassServerAbsent
+		}
+		return goneClassSessionAbsent
+	}
+	var stopped *agent.ServerStoppedError
+	if errors.As(err, &stopped) {
+		return goneClassServerAbsent
+	}
+	return ""
+}
+
+// observerID identifies this process as an observation-channel instance
+// (run-state-machine.md §10.2). The nonce is generated once per process
+// start, so a restarted worker/daemon is a NEW observer that must re-attest
+// before its dead checks can support a failed verdict (L11b).
+func (s *SocketServer) observerID() string {
+	if strings.TrimSpace(s.currentWorkerID) != "" {
+		return "worker:" + strings.TrimSpace(s.currentWorkerID) + ":" + s.instanceNonce
+	}
+	return "local:" + s.instanceNonce
+}
+
 func workerLocalProjectMappingError(projectID, workerID string) error {
 	projectID = strings.TrimSpace(projectID)
 	workerID = strings.TrimSpace(workerID)
@@ -755,6 +825,19 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 			content, source, err = captureLocalMultiplexerSession(run, lines)
 		}
 		if err != nil {
+			// Session-gone is decided here, where the facts are local
+			// (L11d): the lease succeeds with a structured verdict. Only
+			// infrastructure failures (transient capture errors) still fail
+			// the lease.
+			if goneClass := classifyCaptureGone(run, err); goneClass != "" {
+				return &WorkerEffectResult{
+					CaptureResult: &CaptureSessionResult{
+						TimestampUnix: time.Now().Unix(),
+						ObserverID:    s.observerID(),
+						Gone:          &SessionGoneResult{Class: goneClass},
+					},
+				}, nil
+			}
 			return nil, err
 		}
 
@@ -763,6 +846,7 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 				Content:       content,
 				TimestampUnix: time.Now().Unix(),
 				Source:        source,
+				ObserverID:    s.observerID(),
 			},
 		}, nil
 	case "send_message":

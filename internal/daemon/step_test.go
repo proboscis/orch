@@ -365,11 +365,11 @@ func TestStepUnknownVerdictsCarryReason(t *testing.T) {
 	now := time.Now()
 	startedAt := now.Add(-2 * neverAliveVerdictGrace)
 
-	unknownReason := func(view runView, core runCore, remote bool) string {
+	unknownReason := func(view runView, core runCore, remote bool, observer string) string {
 		t.Helper()
 		for i := 0; i < deadChecksBeforeFailed+1; i++ {
 			var effects []runEffect
-			core, effects = stepRun(view, core, runObservation{Kind: obsSessionGone, Remote: remote}, now)
+			core, effects = stepRun(view, core, runObservation{Kind: obsSessionGone, Remote: remote, Observer: observer}, now)
 			if reason, ok := unknownReasonOf(effects); ok {
 				return reason
 			}
@@ -387,16 +387,25 @@ func TestStepUnknownVerdictsCarryReason(t *testing.T) {
 	}
 
 	// L3' never-alive arms, both planes.
-	if got := unknownReason(stepTestView(model.StatusBooting, "codex", startedAt), runCore{}, true); got != model.StatusReasonNeverAlive {
+	if got := unknownReason(stepTestView(model.StatusBooting, "codex", startedAt), runCore{}, true, "obs-1"); got != model.StatusReasonNeverAlive {
 		t.Fatalf("remote never-alive reason = %q, want %q", got, model.StatusReasonNeverAlive)
 	}
-	if got := unknownReason(stepTestView(model.StatusBooting, "codex", startedAt), runCore{}, false); got != model.StatusReasonNeverAlive {
+	if got := unknownReason(stepTestView(model.StatusBooting, "codex", startedAt), runCore{}, false, "obs-1"); got != model.StatusReasonNeverAlive {
 		t.Fatalf("local never-alive reason = %q, want %q", got, model.StatusReasonNeverAlive)
 	}
 
-	// opencode session-lost arm (was alive, local plane).
-	if got := unknownReason(stepTestView(model.StatusRunning, "opencode", startedAt), runCore{WasAlive: true}, false); got != model.StatusReasonSessionLost {
+	// opencode session-lost arm (was alive, local plane, attested channel).
+	if got := unknownReason(stepTestView(model.StatusRunning, "opencode", startedAt), runCore{WasAlive: true, AliveObserver: "obs-1"}, false, "obs-1"); got != model.StatusReasonSessionLost {
 		t.Fatalf("opencode session-lost reason = %q, want %q", got, model.StatusReasonSessionLost)
+	}
+
+	// L11c: the same standing evidence through an UNATTESTED channel (the
+	// observer never saw this run alive) concludes observer_unverified.
+	if got := unknownReason(stepTestView(model.StatusRunning, "opencode", startedAt), runCore{WasAlive: true, AliveObserver: "obs-old"}, false, "obs-new"); got != model.StatusReasonObserverUnverified {
+		t.Fatalf("opencode unattested reason = %q, want %q", got, model.StatusReasonObserverUnverified)
+	}
+	if got := unknownReason(stepTestView(model.StatusRunning, "codex", startedAt), runCore{WasAlive: true, AliveObserver: "obs-old"}, true, "obs-new"); got != model.StatusReasonObserverUnverified {
+		t.Fatalf("remote unattested reason = %q, want %q", got, model.StatusReasonObserverUnverified)
 	}
 
 	// Capture verdict: agent exited, shell prompt showing.
@@ -462,9 +471,15 @@ func TestInitialRunCoreDerivation(t *testing.T) {
 	}
 }
 
-// L7 restart transparency (the I2 fix): after a daemon restart, a run whose
-// log shows it was alive folds WasAlive back, so a gone session is judged a
-// real death (failed) rather than a never-alive boot (unknown).
+// L7 restart transparency (the I2 fix) + L7' verdict-strength monotonicity
+// (§10.5 counterexample 5): after a daemon restart, a run whose log shows it
+// was alive folds WasAlive back — it is never misjudged as a never-alive
+// boot. But the restart also reset AliveObserver, so the post-restart
+// channel is unattested: the gone verdict softens to
+// unknown(observer_unverified) instead of failed. Today's fold-derived
+// WasAlive alone would have allowed failed on hearsay — the pattern §10
+// retires. Once the channel re-attests (one successful capture), the same
+// evidence concludes failed again.
 func TestInitialRunCoreRestoresLivenessAcrossRestart(t *testing.T) {
 	now := time.Now()
 	startedAt := now.Add(-2 * neverAliveVerdictGrace)
@@ -474,20 +489,40 @@ func TestInitialRunCoreRestoresLivenessAcrossRestart(t *testing.T) {
 		model.NewStatusEvent(model.StatusRunning),
 	}}
 	core := initialRunCore(run, now)
+	if !core.WasAlive {
+		t.Fatal("WasAlive must fold back from the event log (L7/I2)")
+	}
+	if core.AliveObserver != "" || core.DeadCheckObserver != "" {
+		t.Fatal("observer attestation must NOT survive a restart (ephemeral by law)")
+	}
 
 	view := stepTestView(model.StatusRunning, "codex", startedAt)
 	var effects []runEffect
 	for i := 0; i < deadChecksBeforeFailed; i++ {
-		core, effects = stepRun(view, core, runObservation{Kind: obsSessionGone}, now)
+		core, effects = stepRun(view, core, runObservation{Kind: obsSessionGone, Observer: "local:new"}, now)
 		view = foldStatus(view, effects)
 	}
 	if !effectsContain(effects, effectGatherGitEvidence) {
 		t.Fatalf("expected evidence request at the dead-check threshold")
 	}
+	core, effects = stepRun(view, core, runObservation{Kind: obsGitEvidence, Evidence: gitEvidence{RepoRootFound: true}}, now)
+	view = foldStatus(view, effects)
+	if view.Status != model.StatusUnknown || view.StatusReason != model.StatusReasonObserverUnverified {
+		t.Fatalf("post-restart gone run judged %s(%s), want unknown(observer_unverified) (L7')", view.Status, view.StatusReason)
+	}
+
+	// The channel re-attests with one successful observation; the same
+	// standing evidence now concludes failed (attested death, L11b).
+	core, effects = stepRun(view, core, runObservation{Kind: obsSessionAlive, Observer: "local:new"}, now)
+	view = foldStatus(view, effects)
+	for i := 0; i < deadChecksBeforeFailed; i++ {
+		core, effects = stepRun(view, core, runObservation{Kind: obsSessionGone, Observer: "local:new"}, now)
+		view = foldStatus(view, effects)
+	}
 	_, effects = stepRun(view, core, runObservation{Kind: obsGitEvidence, Evidence: gitEvidence{RepoRootFound: true}}, now)
 	view = foldStatus(view, effects)
 	if view.Status != model.StatusFailed {
-		t.Fatalf("was-alive run after restart judged %s, want failed", view.Status)
+		t.Fatalf("re-attested channel's verdict = %s, want failed", view.Status)
 	}
 }
 

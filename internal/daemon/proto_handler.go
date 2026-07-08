@@ -790,13 +790,15 @@ func resolveWorkerTargetForRunFields(run *model.Run, projectRoot string) (*resol
 // captureRunOutputViaWorker captures session output for a run executing on
 // another host by delegating a capture_session effect to that host's worker.
 // Unlike the RPC path it waits with a short timeout so the daemon monitor
-// loop is never blocked for long.
-func (s *SocketServer) captureRunOutputViaWorker(run *model.Run, projectID, projectRoot string, lines int) (string, error) {
+// loop is never blocked for long. The result carries the worker's observer
+// identity and, when the worker determined the session is gone, its
+// structured gone verdict (§10.2) — the caller must check result.Gone.
+func (s *SocketServer) captureRunOutputViaWorker(run *model.Run, projectID, projectRoot string, lines int) (*CaptureSessionResult, error) {
 	if run == nil {
-		return "", fmt.Errorf("run required")
+		return nil, fmt.Errorf("run required")
 	}
 	if strings.TrimSpace(projectID) == "" {
-		return "", fmt.Errorf("no project context available for remote run %s#%s", run.IssueID, run.RunID)
+		return nil, fmt.Errorf("no project context available for remote run %s#%s", run.IssueID, run.RunID)
 	}
 	if lines <= 0 {
 		lines = 100
@@ -804,7 +806,7 @@ func (s *SocketServer) captureRunOutputViaWorker(run *model.Run, projectID, proj
 
 	target, err := resolveWorkerTargetForRunFields(run, projectRoot)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	payload := &WorkerEffectPayload{
@@ -819,20 +821,20 @@ func (s *SocketServer) captureRunOutputViaWorker(run *model.Run, projectID, proj
 
 	lease, err := s.acquireWorkerLease(projectID, "capture_session", string(run.IssueID), string(run.RunID), payload)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	completedLease, err := s.waitForWorkerLeaseCompletion(lease.LeaseID, remoteCaptureLeaseTimeout)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	effectResult, err := decodeWorkerEffectResult(completedLease.ResultJSON)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if effectResult.CaptureResult == nil {
-		return "", fmt.Errorf("worker lease completed without capture_result")
+		return nil, fmt.Errorf("worker lease completed without capture_result")
 	}
-	return effectResult.CaptureResult.Content, nil
+	return effectResult.CaptureResult, nil
 }
 
 func (s *SocketServer) handleProtoPing(_ *orchpb.PingRequest) *orchpb.Response {
@@ -2389,6 +2391,12 @@ func (s *SocketServer) handleProtoCaptureSession(req *orchpb.CaptureSessionReque
 		}
 		if effectResult.CaptureResult == nil {
 			return errorResponse("worker lease completed without capture_result")
+		}
+		if gone := effectResult.CaptureResult.Gone; gone != nil {
+			// Fail fast: a structured gone verdict must never surface as a
+			// silent empty capture to the client.
+			return errorResponse(fmt.Sprintf("session not found on worker %s for run %s#%s (%s)",
+				target.WorkerID, runCtx.run.IssueID, runCtx.run.RunID, gone.Class))
 		}
 
 		return &orchpb.Response{

@@ -67,6 +67,14 @@ type runCore struct {
 	PRRecorded     bool
 	WasAlive       bool
 	DeadCheckCount int
+	// AliveObserver is the ObserverID of the most recent successful
+	// alive/capture observation ("" = none since restart); DeadCheckObserver
+	// owns the current dead-check streak (run-state-machine.md §10.2). Both
+	// are ephemeral by law (§7 D-C1): a restart may soften or delay a
+	// would-be failed into unknown(observer_unverified) — never strengthen
+	// (L7').
+	AliveObserver     string
+	DeadCheckObserver string
 }
 
 // initialRunCore derives the fold-derivable runCore fields from the run's
@@ -216,6 +224,15 @@ type runObservation struct {
 	// obsSessionGone / obsGitEvidence
 	Remote bool
 
+	// obsSessionAlive / obsSessionGone: identity of the observing channel
+	// instance (worker:<id>:<nonce> / local:<nonce>; "" = legacy channel
+	// without observer context, which can never attest — §10.2).
+	Observer string
+	// obsSessionGone: observation-side gone classification
+	// (session_absent / server_absent / unclassified). Diagnostic payload
+	// only — the verification predicate is attestation, not the class.
+	GoneClass string
+
 	// obsCaptured
 	Output string
 	Signal agentSignal
@@ -306,6 +323,11 @@ func stepRun(view runView, core runCore, obs runObservation, now time.Time) (run
 	case obsSessionAlive:
 		core.WasAlive = true
 		core.DeadCheckCount = 0
+		core.DeadCheckObserver = ""
+		// A successful observation attests the channel for this run (L11b):
+		// only the channel that last saw the run alive may pronounce the
+		// no-evidence death verdicts.
+		core.AliveObserver = obs.Observer
 		return core, nil
 	case obsSessionGone:
 		return stepSessionGone(view, core, obs)
@@ -408,11 +430,19 @@ func stepPRState(view runView, core runCore, obs runObservation) (runCore, []run
 }
 
 func stepSessionGone(view runView, core runCore, obs runObservation) (runCore, []runEffect) {
-	core.DeadCheckCount++
+	// L11a streak continuity: a dead-check streak is evidence only within a
+	// single observer generation. A gone observation from a different
+	// observer restarts the streak at 1 and re-owns it.
+	if obs.Observer != core.DeadCheckObserver {
+		core.DeadCheckObserver = obs.Observer
+		core.DeadCheckCount = 1
+	} else {
+		core.DeadCheckCount++
+	}
 
 	if obs.Remote {
 		if core.DeadCheckCount < deadChecksBeforeFailed {
-			return core, []runEffect{logEffect("%s#%s: remote session not found on worker (check %d/%d)", view.IssueID, view.RunID, core.DeadCheckCount, deadChecksBeforeFailed)}
+			return core, []runEffect{logEffect("%s#%s: remote session not found on worker (check %d/%d, observer=%s, class=%s)", view.IssueID, view.RunID, core.DeadCheckCount, deadChecksBeforeFailed, obs.Observer, obs.GoneClass)}
 		}
 		// The session is gone on the execution host. A gone session must
 		// never mask completed work: ask for PR/git evidence before any
@@ -460,7 +490,13 @@ func stepGitEvidence(view runView, core runCore, obs runObservation, now time.Ti
 	}
 
 	// No evidence-based verdict. The fallback differs by channel and
-	// liveness history (run-state-machine.md §3).
+	// liveness history (run-state-machine.md §3), and every no-evidence
+	// death verdict additionally requires attestation (L11b): the channel
+	// pronouncing death must be the channel that last saw this run alive.
+	// N consecutive not-founds from a channel that never saw this run alive
+	// is testimony, not evidence (§10.1, I9).
+	attested := core.DeadCheckObserver != "" && core.DeadCheckObserver == core.AliveObserver
+
 	if obs.Remote {
 		if !core.WasAlive {
 			if withinNeverAliveGraceAt(view.StartedAt, now) {
@@ -472,6 +508,9 @@ func stepGitEvidence(view runView, core runCore, obs runObservation, now time.Ti
 			}
 			effects = append(effects, setStatusReasonEffect(model.StatusUnknown, model.StatusReasonNeverAlive))
 			return core, effects
+		}
+		if !attested {
+			return core, appendUnattestedVerdict(view, core, effects)
 		}
 		effects = append(effects, logEffect("%s#%s: remote agent confirmed dead after %d checks, marking failed", view.IssueID, view.RunID, core.DeadCheckCount))
 		effects = append(effects, setStatusEffect(model.StatusFailed))
@@ -498,6 +537,9 @@ func stepGitEvidence(view runView, core runCore, obs runObservation, now time.Ti
 		return core, effects
 	}
 
+	if !attested {
+		return core, appendUnattestedVerdict(view, core, effects)
+	}
 	if view.Agent == "opencode" {
 		effects = append(effects, logEffect("%s#%s: opencode session not found after %d checks, marking unknown", view.IssueID, view.RunID, core.DeadCheckCount))
 		effects = append(effects, setStatusReasonEffect(model.StatusUnknown, model.StatusReasonSessionLost))
@@ -506,6 +548,19 @@ func stepGitEvidence(view runView, core runCore, obs runObservation, now time.Ti
 	effects = append(effects, logEffect("%s#%s: agent confirmed dead after %d checks, marking failed", view.IssueID, view.RunID, core.DeadCheckCount))
 	effects = append(effects, setStatusEffect(model.StatusFailed))
 	return core, effects
+}
+
+// appendUnattestedVerdict is the L11c arm: the dead-check threshold passed
+// through a channel that never observed this run alive, so the standing
+// evidence supports at most unknown(observer_unverified) — never failed.
+// Recovery is automatic: unknown is non-terminal, and any successful capture
+// re-attests the channel and resumes normal inference.
+func appendUnattestedVerdict(view runView, core runCore, effects []runEffect) []runEffect {
+	if view.Status != model.StatusUnknown || view.StatusReason != model.StatusReasonObserverUnverified {
+		effects = append(effects, logEffect("%s#%s: session gone after %d checks, but observer %q never saw this run alive (last alive observer %q) — marking unknown, not failed",
+			view.IssueID, view.RunID, core.DeadCheckCount, core.DeadCheckObserver, core.AliveObserver))
+	}
+	return append(effects, setStatusReasonEffect(model.StatusUnknown, model.StatusReasonObserverUnverified))
 }
 
 // gitVerdict evaluates the evidence ladder. It returns "" when the evidence

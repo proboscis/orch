@@ -279,6 +279,10 @@ func TestStatusChangeListenersFireOnceForMonitorTransitionPaths(t *testing.T) {
 			setupState: func(state *RunState) {
 				state.WasAlive = true
 				state.DeadCheckCount = deadChecksBeforeFailed
+				// Attested channel (L11b): the observer owning the dead-check
+				// streak is the one that last saw the run alive.
+				state.AliveObserver = "local:n1"
+				state.DeadCheckObserver = "local:n1"
 			},
 			obs:      runObservation{Kind: obsGitEvidence},
 			wantFrom: model.StatusRunning,
@@ -1022,9 +1026,12 @@ func TestMonitorAllObservesQueuedNeverAliveRun(t *testing.T) {
 			registerRepoContextForTest(t, d.socketServer, "project-queued", "", st)
 
 			captures := 0
-			d.remoteCaptureFn = func(*model.Run, string, string, int) (string, error) {
+			d.remoteCaptureFn = func(*model.Run, string, string, int) (*CaptureSessionResult, error) {
 				captures++
-				return "", errors.New("session_not_found")
+				return &CaptureSessionResult{
+					ObserverID: "worker:host-local:n1",
+					Gone:       &SessionGoneResult{Class: goneClassSessionAbsent},
+				}, nil
 			}
 
 			for i := 0; i < deadChecksBeforeFailed; i++ {
@@ -1060,9 +1067,12 @@ func TestMonitorAllObservesQueuedNeverAliveRun(t *testing.T) {
 func TestMonitorRemoteRunDetectsPROpenFromWorkerCapture(t *testing.T) {
 	d := newTestDaemon()
 	captures := 0
-	d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (string, error) {
+	d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (*CaptureSessionResult, error) {
 		captures++
-		return "work done\nopened https://github.com/org/repo/pull/99 for review\n", nil
+		return &CaptureSessionResult{
+			Content:    "work done\nopened https://github.com/org/repo/pull/99 for review\n",
+			ObserverID: "worker:host-CA-1:n1",
+		}, nil
 	}
 
 	run := newRemoteTestRun(model.StatusRunning)
@@ -1098,8 +1108,8 @@ func TestMonitorRemoteRunDetectsPROpenFromWorkerCapture(t *testing.T) {
 
 func TestMonitorRemoteRunInfraErrorBacksOffWithoutDeathCount(t *testing.T) {
 	d := newTestDaemon()
-	d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (string, error) {
-		return "", errors.New(`no active worker available for target "host-CA-1"; start orch-worker with --worker-id host-CA-1 on the target host`)
+	d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (*CaptureSessionResult, error) {
+		return nil, errors.New(`no active worker available for target "host-CA-1"; start orch-worker with --worker-id host-CA-1 on the target host`)
 	}
 
 	run := newRemoteTestRun(model.StatusRunning)
@@ -1127,8 +1137,11 @@ func TestMonitorRemoteRunInfraErrorBacksOffWithoutDeathCount(t *testing.T) {
 
 func TestMonitorRemoteRunSessionGoneNeverAliveMarksUnknown(t *testing.T) {
 	d := newTestDaemon()
-	d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (string, error) {
-		return "", errors.New("session run-ISSUE-REMOTE-1-run-1 not found (run may not be active)")
+	d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (*CaptureSessionResult, error) {
+		return &CaptureSessionResult{
+			ObserverID: "worker:host-CA-1:n1",
+			Gone:       &SessionGoneResult{Class: goneClassSessionAbsent},
+		}, nil
 	}
 
 	run := newRemoteTestRun(model.StatusRunning)
@@ -1156,9 +1169,12 @@ func TestMonitorRemoteRunSessionGoneNeverAliveMarksUnknown(t *testing.T) {
 func TestMonitorRemoteRunSessionGonePacesLeaseRoundTrips(t *testing.T) {
 	d := newTestDaemon()
 	captures := 0
-	d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (string, error) {
+	d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (*CaptureSessionResult, error) {
 		captures++
-		return "", errors.New("session run-ISSUE-REMOTE-1-run-1 not found (run may not be active)")
+		return &CaptureSessionResult{
+			ObserverID: "worker:host-CA-1:n1",
+			Gone:       &SessionGoneResult{Class: goneClassSessionAbsent},
+		}, nil
 	}
 
 	run := newRemoteTestRun(model.StatusRunning)
@@ -1182,8 +1198,11 @@ func TestMonitorRemoteRunSessionGonePacesLeaseRoundTrips(t *testing.T) {
 
 func TestMonitorRemoteRunSessionGoneWithRecordedPRInfersPROpen(t *testing.T) {
 	d := newTestDaemon()
-	d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (string, error) {
-		return "", errors.New("session run-ISSUE-REMOTE-1-run-1 not found (run may not be active)")
+	d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (*CaptureSessionResult, error) {
+		return &CaptureSessionResult{
+			ObserverID: "worker:host-CA-1:n1",
+			Gone:       &SessionGoneResult{Class: goneClassSessionAbsent},
+		}, nil
 	}
 
 	run := newRemoteTestRun(model.StatusRunning)
@@ -1212,8 +1231,11 @@ func TestMonitorRemoteRunSessionGoneWithRecordedPRInfersPROpen(t *testing.T) {
 
 func TestMonitorRemoteRunSessionGoneNeverAliveWithinGraceWaits(t *testing.T) {
 	d := newTestDaemon()
-	d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (string, error) {
-		return "", errors.New("session run-ISSUE-REMOTE-1-run-1 not found (run may not be active)")
+	d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (*CaptureSessionResult, error) {
+		return &CaptureSessionResult{
+			ObserverID: "worker:host-CA-1:n1",
+			Gone:       &SessionGoneResult{Class: goneClassSessionAbsent},
+		}, nil
 	}
 
 	run := newRemoteTestRun(model.StatusBooting)
@@ -1234,16 +1256,72 @@ func TestMonitorRemoteRunSessionGoneNeverAliveWithinGraceWaits(t *testing.T) {
 	}
 }
 
+// The worker that has been capturing the run all along reports it gone: the
+// channel is attested, so the death verdict concludes failed exactly as
+// before §10 (counterexample 10.5#2).
 func TestMonitorRemoteRunSessionGoneAfterAliveMarksFailed(t *testing.T) {
 	d := newTestDaemon()
-	d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (string, error) {
-		return "", errors.New("not_found")
+	observer := "worker:host-CA-1:n1"
+	alive := true
+	d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (*CaptureSessionResult, error) {
+		if alive {
+			return &CaptureSessionResult{Content: "agent working", ObserverID: observer}, nil
+		}
+		return &CaptureSessionResult{
+			ObserverID: observer,
+			Gone:       &SessionGoneResult{Class: goneClassSessionAbsent},
+		}, nil
 	}
 
 	run := newRemoteTestRun(model.StatusRunning)
-	st := &mockStoreForUpdate{issue: &model.Issue{ID: "ISSUE-REMOTE-1", Status: model.IssueStatusOpen}}
+	st := &mockStoreRecordingEvents{mockStoreForUpdate: mockStoreForUpdate{issue: &model.Issue{ID: "ISSUE-REMOTE-1", Status: model.IssueStatusOpen}}}
+	state := d.getOrCreateState(run)
+	mgr := agent.GetManager(run)
+
+	// One successful capture attests the channel for this run.
+	if err := d.monitorRemoteRun(run, st, "proj", "/root", state, mgr); err != nil {
+		t.Fatalf("monitorRemoteRun() alive capture error = %v", err)
+	}
+	if state.AliveObserver != observer {
+		t.Fatalf("AliveObserver = %q, want %q", state.AliveObserver, observer)
+	}
+
+	alive = false
+	for i := 0; i < deadChecksBeforeFailed; i++ {
+		state.RemoteCaptureAt = time.Now().Add(-2 * remoteCaptureInterval)
+		if err := d.monitorRemoteRun(run, st, "proj", "/root", state, mgr); err != nil {
+			t.Fatalf("monitorRemoteRun() call %d error = %v", i+1, err)
+		}
+	}
+
+	var failed bool
+	for _, event := range st.events {
+		if event.Type == model.EventTypeStatus && event.Name == string(model.StatusFailed) {
+			failed = true
+		}
+	}
+	if !failed {
+		t.Fatalf("attested dead channel must conclude failed, events=%+v", st.events)
+	}
+}
+
+// I9/L11c: the same gone reports from a channel that NEVER saw this run
+// alive (fresh worker instance after a restart, poisoned mux socket — the
+// 2026-07-07 incident) conclude unknown(observer_unverified), never failed.
+func TestMonitorRemoteRunSessionGoneUnattestedObserverMarksUnknown(t *testing.T) {
+	d := newTestDaemon()
+	d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (*CaptureSessionResult, error) {
+		return &CaptureSessionResult{
+			ObserverID: "worker:host-CA-1:fresh-instance",
+			Gone:       &SessionGoneResult{Class: goneClassServerAbsent},
+		}, nil
+	}
+
+	run := newRemoteTestRun(model.StatusRunning)
+	st := &mockStoreRecordingEvents{mockStoreForUpdate: mockStoreForUpdate{issue: &model.Issue{ID: "ISSUE-REMOTE-1", Status: model.IssueStatusOpen}}}
 	state := d.getOrCreateState(run)
 	state.WasAlive = true
+	state.AliveObserver = "worker:host-CA-1:dead-old-instance"
 	mgr := agent.GetManager(run)
 
 	for i := 0; i < deadChecksBeforeFailed; i++ {
@@ -1253,12 +1331,24 @@ func TestMonitorRemoteRunSessionGoneAfterAliveMarksFailed(t *testing.T) {
 		}
 	}
 
-	if st.appendEventCalls != 1 {
-		t.Fatalf("expected exactly one failed status event, got %d", st.appendEventCalls)
+	for _, event := range st.events {
+		if event.Type == model.EventTypeStatus && event.Name == string(model.StatusFailed) {
+			t.Fatalf("unattested observer produced a failed verdict (I9 violation): %+v", st.events)
+		}
+	}
+	var unverified bool
+	for _, event := range st.events {
+		if event.Type == model.EventTypeStatus && event.Name == string(model.StatusUnknown) &&
+			event.Attrs[model.AttrStatusReason] == model.StatusReasonObserverUnverified {
+			unverified = true
+		}
+	}
+	if !unverified {
+		t.Fatalf("expected unknown(observer_unverified), events=%+v", st.events)
 	}
 }
 
-func TestIsRemoteSessionGoneClassification(t *testing.T) {
+func TestLegacyRemoteSessionGoneClassification(t *testing.T) {
 	gone := []string{
 		"not_found",
 		"session run-x-1 not found (run may not be active)",
@@ -1266,7 +1356,7 @@ func TestIsRemoteSessionGoneClassification(t *testing.T) {
 		"can't find pane run-x-1",
 	}
 	for _, msg := range gone {
-		if !isRemoteSessionGone(errors.New(msg)) {
+		if !legacyRemoteSessionGone(errors.New(msg)) {
 			t.Errorf("expected session-gone classification for %q", msg)
 		}
 	}
@@ -1279,7 +1369,7 @@ func TestIsRemoteSessionGoneClassification(t *testing.T) {
 		"dial tcp 1.2.3.4:7777: connect: connection refused",
 	}
 	for _, msg := range infra {
-		if isRemoteSessionGone(errors.New(msg)) {
+		if legacyRemoteSessionGone(errors.New(msg)) {
 			t.Errorf("expected infra classification for %q", msg)
 		}
 	}

@@ -63,8 +63,15 @@ type Daemon struct {
 
 	// remoteCaptureFn captures session output for runs executing on another
 	// host via the worker plane. Overridable in tests; defaults to the
-	// socket server's worker-lease capture.
-	remoteCaptureFn func(run *model.Run, projectID, projectRoot string, lines int) (string, error)
+	// socket server's worker-lease capture. The result carries the worker's
+	// observer identity and structured gone verdicts (§10.2).
+	remoteCaptureFn func(run *model.Run, projectID, projectRoot string, lines int) (*CaptureSessionResult, error)
+
+	// instanceNonce makes this daemon process a distinct local observation
+	// channel: localObserverID() = local:<nonce> (§10.2). Regenerated per
+	// process start, so a restarted daemon re-attests before its dead
+	// checks can support a failed verdict (L7').
+	instanceNonce string
 
 	// PR lookup functions are overridable in tests; defaults use the cached
 	// PR package lookups.
@@ -101,7 +108,14 @@ func New(factory StoreFactory) *Daemon {
 		runStates:     make(map[string]*RunState),
 		lastFetchAt:   make(map[string]time.Time),
 		fetchInFlight: make(map[string]bool),
+		instanceNonce: generateMonitorID()[:12],
 	}
+}
+
+// localObserverID identifies this daemon process as the local observation
+// channel instance (run-state-machine.md §10.2).
+func (d *Daemon) localObserverID() string {
+	return "local:" + d.instanceNonce
 }
 
 // SetInterval sets the monitoring interval
