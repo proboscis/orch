@@ -55,6 +55,16 @@ orch --remote master-host:7777 daemon repo list
 In remote mode, orch resolves project identity from `--project`/`ORCH_PROJECT`
 and daemon repo mappings.
 
+Note: repo registration is not remote-specific — the **local** daemon needs it
+too. For a local checkout, register by path from the repository root:
+
+```bash
+orch daemon repo register "$(pwd)"
+```
+
+The mapping lands in `~/.config/orch/projects/<project_id>.yaml` (project_id =
+origin URL normalized to `<owner>-<repo>`) and takes effect immediately.
+
 ## Quick Start
 
 Create `.orch/config.yaml` in your project root:

@@ -13,7 +13,10 @@ Before installing orch, ensure you have:
    - [OpenCode](https://github.com/sst/opencode) (`opencode`)
    - [Codex](https://github.com/openai/codex) (`codex`)
    - [Gemini CLI](https://github.com/google/gemini-cli) (`gemini`)
-4. **Git** - For worktree management
+4. **Git** - For worktree management. Your repository must have an `origin`
+   remote — orch derives the project identity from its URL. (For a local
+   sandbox the URL does not need to exist on GitHub; it is used as an
+   identity.)
 5. **GitHub CLI** (`gh`) - Required for the PR workflow. Run `gh auth login` before creating PRs.
 6. **uv** - Required only when installing or developing the Python TUI (`orch-monitor`)
 
@@ -99,6 +102,22 @@ base_branch: main
 EOF
 ```
 
+### Register the project with the daemon (required)
+
+The daemon resolves every command through a project identity derived from
+your `origin` remote URL (normalized to `<owner>-<repo>`). Map that identity
+to your checkout once:
+
+```bash
+orch daemon repo register "$(pwd)"
+# => Registered repo mapping: <owner>-<repo> -> /path/to/your/repo
+```
+
+Without this mapping, commands fail with
+`unknown project_id "…" (register daemon project mapping)`. The mapping is
+stored in `~/.config/orch/projects/<project_id>.yaml` and takes effect
+immediately — no daemon restart needed.
+
 ### Setting up the issues directory
 
 orch needs a place to store issues. Configure it in `.orch/config.yaml`.
@@ -129,6 +148,12 @@ issues:
   path: ./issues
 EOF
 ```
+
+Note: the store keeps issue files under an `issues/` subdirectory of the
+configured path (or `Issues/` if one already exists) — with the config above,
+`orch issue create` writes to `./issues/issues/<id>.md`. Prefer
+`orch issue create` over placing files by hand so they land where the store
+actually reads them.
 
 ## Create your first issue
 
@@ -161,6 +186,20 @@ Or use the CLI:
 orch issue create my-first-issue --title "Add a hello world function" --edit
 ```
 
+## Start the local worker (required)
+
+The daemon starts automatically on your first orch command, but the
+**worker** — the process that actually launches agent sessions — does not:
+
+```bash
+orch worker start
+orch worker status   # expect: Local Process: running / Master Registration: active
+```
+
+Without a worker, `orch run` fails with `no active workers available`.
+Workers do not survive reboots — re-run `orch worker start` after restarting
+your machine.
+
 ## Run your first agent
 
 Start an agent to work on the issue:
@@ -176,6 +215,19 @@ This will:
 4. Send the issue content as the initial prompt
 
 The command returns immediately - the agent runs in the background.
+
+### First run: expect a trust prompt
+
+On a fresh machine or directory, agent CLIs show a one-time interactive gate
+(e.g. "Do you trust the contents of this directory?") and the run parks at
+`waiting`. This is the normal interaction loop, not a failure:
+
+```bash
+orch capture my-first-issue   # see what the agent is asking
+orch send my-first-issue ""   # empty message = press Enter (accept the default)
+# or take over the terminal directly:
+orch attach my-first-issue    # answer, then detach with Ctrl+B D
+```
 
 ## Check status
 
@@ -198,7 +250,7 @@ my-first-issue   running  20260120-163045     claude  2m ago
 | `queued` | Run created, starting soon |
 | `booting` | Agent is launching |
 | `running` | Agent is actively working |
-| `waiting` | Agent needs your input |
+| `waiting` | The agent's input box is free — it needs your input, or just finished its turn (`orch capture` to tell which) |
 | `pr_open` | Agent created a PR |
 | `done` | Task completed |
 | `failed` | Something went wrong |
@@ -316,6 +368,24 @@ orch diff --stat my-issue
 
 ## Troubleshooting
 
+### `project identity required: failed to resolve git remote`
+
+The repository has no `origin` remote, or you ran the command outside the
+repository. Add a remote (`git remote add origin …`) and run orch commands
+from inside the repo — they are project-scoped by your current directory.
+Alternatively set `ORCH_PROJECT` explicitly.
+
+### `unknown project_id "…" (register daemon project mapping)`
+
+The project is not registered with the daemon. Run
+`orch daemon repo register "$(pwd)"` from the repository root (see
+[Register the project with the daemon](#register-the-project-with-the-daemon-required)).
+
+### `no active workers available`
+
+The local worker is not running (it does not survive reboots). Run
+`orch worker start`.
+
 ### Run fails immediately
 
 Enable debug output:
@@ -345,6 +415,12 @@ orch repair
 
 ### Check daemon logs
 
+The daemon is global (one per machine, not per project):
+
 ```bash
-tail -f .orch/daemon.log
+# macOS
+tail -f ~/Library/Logs/orch/daemon.log
+
+# Linux (XDG state dir)
+tail -f ~/.local/state/orch/daemon.log
 ```
