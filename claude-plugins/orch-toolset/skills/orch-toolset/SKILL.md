@@ -6,7 +6,7 @@ description: |
   restart-from, orch worker start/status/stop, orch attach/capture/send/exec, and remote execution
   via ORCH_REMOTE and target_host. Trigger terms: orch, orchestrator, worker, master, ORCH_REMOTE,
   target_host, run management, issue management, agent runs, worktree.
-version: 1.3.0
+version: 1.4.0
 ---
 
 # Orch Toolset
@@ -32,7 +32,7 @@ Important remote rule:
 
   ```yaml
   remote:
-    default: "zeus:7777"
+    default: "master-host:7777"
   ```
 
 - It does **not** mean `worker start` happens on the remote host.
@@ -44,11 +44,37 @@ Important remote rule:
   master repo's issues, and `issue create` fails with `project identity required` even inside
   a git repo with `origin` set.
 
+## Local Single-Machine Setup (required once per repo — verified 2026-07-08)
+
+Three requirements hold even with NO remote master, and their absence is the
+most common first-run failure:
+
+1. **`origin` remote required.** Project identity is derived from the origin
+   URL (normalized `<owner>-<repo>`). Without one, every command fails with
+   `project identity required`. The URL need not exist on GitHub for local
+   testing — it is used as an identity.
+2. **Project registration required.** The daemon (local or remote) resolves
+   commands through a registry mapping. Register the checkout by path:
+   `orch daemon repo register "$(pwd)"` — writes
+   `~/.config/orch/projects/<project_id>.yaml`, effective immediately, no
+   daemon restart. Missing → `unknown project_id "…" (register daemon project
+   mapping)`.
+3. **Worker required even for purely local runs.** The daemon auto-starts on
+   the first command; the worker does not, and it does not survive reboots.
+   Missing → `orch run` fails with `no active workers available`. Fix:
+   `orch worker start`, verify with `orch worker status`.
+
+Also expect the agent CLI's one-time trust dialog on a fresh
+machine/directory: the run parks at `waiting` right after boot; read it with
+`orch capture <run>` and accept with `orch send <run> ""` (empty message =
+Enter).
+
 ## Core Workflow
 
 1. Create or inspect the issue with `orch issue create`, `orch issue list`, or `orch open`.
-2. If using a remote master, start or verify the **local** worker first:
-   `ORCH_REMOTE=<master> orch worker start`
+2. Ensure the worker is up first — required for local AND remote execution:
+   `orch worker start` / `orch worker status` (with a remote master:
+   `ORCH_REMOTE=<master> orch worker start`).
 3. Start work with `orch run <issue-id>`.
 4. Track state with `orch ps` and inspect details with `orch show`.
 5. Interact with the live run via `orch capture`, `orch send`, and `orch attach`.
