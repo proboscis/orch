@@ -4,6 +4,18 @@ Orchestrator for managing multiple LLM CLIs (Claude, Codex, Gemini, OpenCode) us
 
 orch runs AI coding agents non-interactively in the background, creating isolated git worktrees for each task. Check status with `orch ps`, interact when needed with `orch attach`.
 
+## Install via your AI agent (one line)
+
+Paste this into your coding agent (Claude Code, Codex, OpenCode, …):
+
+```
+Fetch https://raw.githubusercontent.com/proboscis/orch/main/docs/agent-install.md and follow it exactly: install the orch binary, install the orch skill into this agent, then walk me through my first orch run interactively.
+```
+
+The agent installs the binary, installs the [orch skill](./claude-plugins/orch-toolset/skills/orch-toolset/SKILL.md)
+into its own skills directory (so every future session knows orch), and then
+runs the first tutorial together with you. Manual setup is below.
+
 ## Quick Start
 
 ```bash
@@ -40,6 +52,7 @@ orch attach my-task
 | Guide | Description |
 |-------|-------------|
 | **[Getting Started](./docs/getting-started.md)** | Install → First issue → First run → See it work |
+| **[Agent Install Runbook](./docs/agent-install.md)** | One-liner setup executed by your own AI agent (binary + skill + guided first run) |
 | **[ローカルクイックスタート (日本語)](./docs/local-quickstart.ja.md)** | 1 台のマシンで試す最短経路(クラスタ設定なし) |
 | **[Remote Usage](./docs/remote-usage.md)** | Run orch against a remote daemon over TCP |
 | **[Daily Workflow](./docs/daily-workflow.md)** | Morning routine, parallel runs, reviewing PRs |
