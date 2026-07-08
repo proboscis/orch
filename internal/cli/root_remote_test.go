@@ -87,9 +87,9 @@ func withRepoProjectScope(t *testing.T) string {
 func TestResolveRemoteAddrPrecedence(t *testing.T) {
 	clientCfg := &config.ClientConfig{
 		Remote: config.ClientRemoteConfig{
-			Default: "zeus",
+			Default: "remotebox",
 			Hosts: map[string]config.ClientRemoteHost{
-				"zeus":  {Addr: "zeus:7777"},
+				"remotebox":  {Addr: "remotebox:7777"},
 				"cloud": {Addr: "10.0.0.5:7777"},
 			},
 		},
@@ -120,15 +120,15 @@ func TestResolveRemoteAddrPrecedence(t *testing.T) {
 			name:        "env alias resolves when flag not set",
 			flagValue:   "",
 			flagChanged: false,
-			envValue:    "zeus",
-			want:        "zeus:7777",
+			envValue:    "remotebox",
+			want:        "remotebox:7777",
 		},
 		{
 			name:        "client default applies when no flag or env",
 			flagValue:   "",
 			flagChanged: false,
 			envValue:    "",
-			want:        "zeus:7777",
+			want:        "remotebox:7777",
 		},
 		{
 			name:        "raw address passes through",
@@ -175,7 +175,7 @@ func TestDefaultGetAPIWithOptionsRequiresProjectScopeRemote(t *testing.T) {
 
 	origRemote := globalOpts.Remote
 	origFlag := remoteFlagWasSet
-	globalOpts.Remote = "zeus:7777"
+	globalOpts.Remote = "remotebox:7777"
 	remoteFlagWasSet = true
 	t.Cleanup(func() {
 		globalOpts.Remote = origRemote
@@ -201,7 +201,7 @@ func TestDefaultGetAPIWithOptionsRemoteAllowsGitDerivedProjectIdentity(t *testin
 	// Unreachable-but-resolvable address: identity resolution happens before
 	// the dial, so passing it means the error (if any) is a reachability
 	// error, never "project identity required". A live daemon must not be a
-	// test dependency (the previous "zeus:7777" only worked on the author's
+	// test dependency (the previous "remotebox:7777" only worked on the author's
 	// machine).
 	globalOpts.Remote = "127.0.0.1:1"
 	remoteFlagWasSet = true

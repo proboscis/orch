@@ -5,21 +5,21 @@ set -euo pipefail
 #
 #   1. local:  build + install CLI/TUI, kill local daemons (make install;
 #              daemons restart on demand with the new binary)
-#   2. remote: cross-compile + install the orch binary (install-orch-zeus.sh)
+#   2. remote: cross-compile + install the orch binary (install-orch-remote.sh)
 #   3. remote: restart master + worker so they run the new binary (a running
 #              master/worker keeps the old binary until restarted)
 #   4. local:  restart the local worker — it loses its master connection and
 #              exits when the remote master restarts, so it must come back last
 #
 # Configuration (env):
-#   REMOTE_HOST     ssh host running the remote master+worker (default: zeus)
-#   MASTER_ADDR     master address the LOCAL worker connects to (default: zeus:7777)
+#   REMOTE_HOST     ssh host running the remote master+worker (required)
+#   MASTER_ADDR     master address the LOCAL worker connects to (default: $REMOTE_HOST:7777)
 #   REMOTE_ORCH     orch binary path on the remote (default: ~/.local/bin/orch)
 #   ORCH_LOCAL_BIN  locally installed orch binary (default: ~/.local/bin/orch)
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REMOTE_HOST="${REMOTE_HOST:-zeus}"
-MASTER_ADDR="${MASTER_ADDR:-zeus:7777}"
+REMOTE_HOST="${REMOTE_HOST:?set REMOTE_HOST to the ssh host of the remote master}"
+MASTER_ADDR="${MASTER_ADDR:-$REMOTE_HOST:7777}"
 REMOTE_ORCH="${REMOTE_ORCH:-~/.local/bin/orch}"
 ORCH_LOCAL_BIN="${ORCH_LOCAL_BIN:-$HOME/.local/bin/orch}"
 
@@ -49,7 +49,7 @@ echo "== [1/4] local install (CLI + TUI, restart local daemons) =="
 make install
 
 echo "== [2/4] remote binary install ($REMOTE_HOST) =="
-REMOTE_HOST="$REMOTE_HOST" ./scripts/install-orch-zeus.sh
+REMOTE_HOST="$REMOTE_HOST" ./scripts/install-orch-remote.sh
 
 echo "== [3/4] restart remote master + worker ($REMOTE_HOST) =="
 ssh "$REMOTE_HOST" "

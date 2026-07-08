@@ -26,7 +26,7 @@ manual fallback when those contracts are unavailable
 
 ### 1. PR CI
 
-Goal: catch regressions on every PR without depending on Zeus, GitHub write
+Goal: catch regressions on every PR without depending on the remote host, GitHub write
 access, or paid backend availability.
 
 Must include:
@@ -63,7 +63,7 @@ Goal: validate real distributed topology and real integrations.
 
 Must include:
 
-- real Zeus full flow
+- real the remote host full flow
   - start master/worker
   - register repo
   - run
@@ -71,7 +71,7 @@ Must include:
   - close PR
   - stop run
 - real target-host flow
-  - Zeus master
+  - the remote host master
   - remote target worker
   - `--on <target>`
   - worker-local `project_id -> local repo root` registration on the target host
@@ -84,14 +84,14 @@ Must include:
   - heredoc/stdin `orch send` checks for tmux/zellij and real Claude/Codex when enabled
 - run-control matrix where `attach` / `capture` / `send` all work across host boundaries
 - verify `orch ps` exposes the real execution host in `HOST` / `target_host`
-- verify Zeus OpenCode sessions stay alive after session creation instead of flipping to `failed`
+- verify the remote host OpenCode sessions stay alive after session creation instead of flipping to `failed`
 
 Entrypoints:
 
-- `scripts/e2e-master-worker-client-zeus.sh`
+- `scripts/e2e-master-worker-client-remote-full.sh`
 - `scripts/e2e-master-worker-client-target.sh`
 - `scripts/e2e-backend-matrix-smoke.sh` with real backend lanes enabled
-- `scripts/e2e-run-control-zeus.sh`
+- `scripts/e2e-run-control-remote.sh`
 - `scripts/e2e-run-control-matrix.sh`
 
 Expected environment:
@@ -118,7 +118,7 @@ Manual docs remain:
 | `docs/development/e2e-master-worker-client.md` 1-5b | yes | PR CI | `scripts/e2e-master-worker-client-local.sh` |
 | `docs/development/e2e-master-worker-client.md` 6 | yes | PR CI | `scripts/e2e-master-worker-client-remote-smoke.sh` |
 | `docs/development/e2e-master-worker-client.md` 7 | yes | PR CI | handled by each script cleanup |
-| `docs/development/e2e-master-worker-client.md` 8 | yes | Nightly / Lab | `scripts/e2e-master-worker-client-zeus.sh` |
+| `docs/development/e2e-master-worker-client.md` 8 | yes | Nightly / Lab | `scripts/e2e-master-worker-client-remote-full.sh` |
 | `docs/development/e2e-master-worker-client.md` 9 | yes | PR CI + Nightly / Lab | `scripts/e2e-backend-matrix-smoke.sh` |
 | `docs/development/e2e-master-worker-client.md` 10 | yes | PR CI + Nightly / Lab | `scripts/e2e-master-worker-client-target-local.sh`, `scripts/e2e-master-worker-client-target.sh` |
 
@@ -146,14 +146,14 @@ Implemented:
 - `scripts/e2e-master-worker-client-remote-smoke.sh`
 - `scripts/e2e-master-worker-client-target-local.sh`
 - `scripts/e2e-master-worker-client-target.sh`
-- `scripts/e2e-master-worker-client-zeus.sh`
+- `scripts/e2e-master-worker-client-remote-full.sh`
 - `scripts/e2e-backend-matrix-smoke.sh`
 - `scripts/e2e-run-control-local.sh`
-- `scripts/e2e-run-control-zeus.sh`
+- `scripts/e2e-run-control-remote.sh`
 - `scripts/e2e-run-control-matrix.sh`
 
 Next operational step:
 
 - wire `scripts/e2e-pr-ci.sh` into PR CI
-- run Zeus/target/backend real lanes from a nightly or lab environment with the
+- run the remote host/target/backend real lanes from a nightly or lab environment with the
   required secrets and host contracts

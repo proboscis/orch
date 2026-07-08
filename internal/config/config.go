@@ -80,7 +80,7 @@ type ClaudeConfig struct {
 	// DefaultProfile is the claude profile selected when --profile is not
 	// provided for a claude run in this project.
 	DefaultProfile string `yaml:"default_profile,omitempty"`
-	// Profiles maps a profile name (e.g. "ca"/"cryptic"/"personal") to its
+	// Profiles maps a profile name (e.g. "work"/"personal") to its
 	// execution binding (target + CLAUDE_CONFIG_DIR + allowed targets).
 	Profiles map[string]ClaudeProfile `yaml:"profiles,omitempty"`
 }

@@ -233,7 +233,7 @@ func TestRunExternalLoopExitsOnClientConfigError(t *testing.T) {
 	t.Cleanup(func() { newLeaseExecutor = origNew })
 	newLeaseExecutor = func(string, string) leaseExecutor { return &mockExecutor{} }
 
-	client := &mockClient{regErr: &daemon.ClientConfigError{Message: `unsupported daemon address scheme: "grpc://zeus"`}}
+	client := &mockClient{regErr: &daemon.ClientConfigError{Message: `unsupported daemon address scheme: "grpc://remotebox"`}}
 	done := make(chan error, 1)
 	go func() {
 		done <- RunExternalLoop(client, RunConfig{
@@ -299,7 +299,7 @@ func TestRunExternalLoopSurvivesOutageAndReconnects(t *testing.T) {
 	waitFor(func() bool { return client.heartbeatCount() >= 1 }, "initial heartbeat")
 
 	// Master outage: every RPC fails the way a dropped TCP connection does.
-	connErr := assertErr("daemon request failed: failed to read response length: read tcp: i/o timeout (reconnect failed: dial tcp zeus:7777: i/o timeout)")
+	connErr := assertErr("daemon request failed: failed to read response length: read tcp: i/o timeout (reconnect failed: dial tcp remotebox:7777: i/o timeout)")
 	client.setConnectivity(connErr)
 	attemptsAtOutage := len(client.registerAttempts())
 
@@ -420,7 +420,7 @@ func TestRunExternalLoopDefaultsWorkerIDToStableHostIdentity(t *testing.T) {
 		currentWorkerHostname = origHost
 	})
 	newLeaseExecutor = func(string, string) leaseExecutor { return &mockExecutor{} }
-	currentWorkerHostname = func() (string, error) { return "zeus", nil }
+	currentWorkerHostname = func() (string, error) { return "remotebox", nil }
 
 	client := &mockClient{}
 	err := RunExternalLoop(client, RunConfig{Once: true, PollInterval: 10 * time.Millisecond, HeartbeatInterval: time.Second})
@@ -430,8 +430,8 @@ func TestRunExternalLoopDefaultsWorkerIDToStableHostIdentity(t *testing.T) {
 	if !client.registered {
 		t.Fatal("expected worker registration")
 	}
-	if client.workerID != "host-zeus" {
-		t.Fatalf("workerID = %q, want %q", client.workerID, "host-zeus")
+	if client.workerID != "host-remotebox" {
+		t.Fatalf("workerID = %q, want %q", client.workerID, "host-remotebox")
 	}
 }
 

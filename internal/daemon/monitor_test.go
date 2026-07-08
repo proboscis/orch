@@ -867,7 +867,7 @@ func TestMonitorRunOpenCodeSessionAliveDespiteProjectMismatch(t *testing.T) {
 	d := newTestDaemon()
 	run := &model.Run{
 		IssueID:           "orch-437",
-		RunID:             "run-zeus-opencode",
+		RunID:             "run-remotebox-opencode",
 		Agent:             "opencode",
 		Status:            model.StatusWaiting,
 		WorktreePath:      worktreePath,
@@ -1383,13 +1383,13 @@ func TestRunIsWorkerDelegatedGate(t *testing.T) {
 		t.Fatal("daemon without socket server must not delegate")
 	}
 
-	d.socketServer = &SocketServer{currentWorkerID: "host-zeus"}
+	d.socketServer = &SocketServer{currentWorkerID: "host-remotebox"}
 	if !d.runIsWorkerDelegated(run) {
 		t.Fatal("run targeting another worker must be delegated")
 	}
 
 	local := newRemoteTestRun(model.StatusRunning)
-	local.TargetWorkerID = "host-zeus"
+	local.TargetWorkerID = "host-remotebox"
 	if d.runIsWorkerDelegated(local) {
 		t.Fatal("run targeting the daemon's own worker must stay local")
 	}

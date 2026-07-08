@@ -320,7 +320,7 @@ func localTargetName(cfg *config.Config) string {
 // local host is mapped to its config.targets name (or "local"); if the profile
 // constrains AllowedTargets and the local target is not allowed, this fails fast
 // and returns no CODEX_HOME (e.g. a company control agent must not launch on
-// zeus). Returns an explicit error if the configured default profile name does
+// a disallowed host). Returns an explicit error if the configured default profile name does
 // not exist (fail-fast, no silent fallback).
 func resolveControlCodexHome(cfg *config.Config, agentName string) (string, error) {
 	if cfg == nil {

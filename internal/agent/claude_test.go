@@ -43,10 +43,10 @@ func TestClaudeLaunchCommand(t *testing.T) {
 
 func TestClaudeConfigDirEnvInjection(t *testing.T) {
 	t.Setenv("HOME", "/home/exec-host")
-	cfg := &LaunchConfig{ClaudeConfigDir: "~/.config/claude-cryptic"}
+	cfg := &LaunchConfig{ClaudeConfigDir: "~/.config/claude-work"}
 
 	env := cfg.Env()
-	want := "CLAUDE_CONFIG_DIR=/home/exec-host/.config/claude-cryptic"
+	want := "CLAUDE_CONFIG_DIR=/home/exec-host/.config/claude-work"
 	found := false
 	for _, e := range env {
 		if e == want {

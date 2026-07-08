@@ -1,4 +1,4 @@
-.PHONY: all build install install-cli install-tui deploy test test-fast test-compile lint lint-fixtures lint-install clean kill-daemons update e2e-local-host-worker e2e-remote-smoke e2e-backend-smoke e2e-pr-ci e2e-target-host-worker e2e-target-host-worker-local e2e-zeus-full-flow e2e-run-control-local e2e-run-control-zeus e2e-run-control-matrix
+.PHONY: all build install install-cli install-tui deploy test test-fast test-compile lint lint-fixtures lint-install clean kill-daemons update e2e-local-host-worker e2e-remote-smoke e2e-backend-smoke e2e-pr-ci e2e-target-host-worker e2e-target-host-worker-local e2e-remote-full-flow e2e-run-control-local e2e-run-control-remote e2e-run-control-matrix
 .DEFAULT_GOAL := install
 
 BINARY_NAME := orch
@@ -42,7 +42,7 @@ install: install-cli install-tui kill-daemons
 
 # Full deploy: local install + remote binary install + restart remote
 # master/worker + restart local worker, in dependency order.
-# Override hosts via env: REMOTE_HOST=zeus MASTER_ADDR=zeus:7777 make deploy
+# Override hosts via env: REMOTE_HOST=<host> MASTER_ADDR=<host>:7777 make deploy
 deploy:
 	./scripts/deploy-all.sh
 
@@ -136,14 +136,14 @@ e2e-target-host-worker:
 e2e-target-host-worker-local:
 	./scripts/e2e-master-worker-client-target-local.sh
 
-e2e-zeus-full-flow:
-	./scripts/e2e-master-worker-client-zeus.sh
+e2e-remote-full-flow:
+	./scripts/e2e-master-worker-client-remote-full.sh
 
 e2e-run-control-local:
 	./scripts/e2e-run-control-local.sh
 
-e2e-run-control-zeus:
-	./scripts/e2e-run-control-zeus.sh
+e2e-run-control-remote:
+	./scripts/e2e-run-control-remote.sh
 
 e2e-run-control-matrix:
 	./scripts/e2e-run-control-matrix.sh

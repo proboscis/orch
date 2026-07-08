@@ -7,8 +7,8 @@ echo "== local run-control matrix =="
 "$SCRIPT_DIR/e2e-run-control-local.sh"
 
 if [ "${RUN_REMOTE_MATRIX:-1}" = "1" ]; then
-  echo "== zeus run-control matrix =="
-  "$SCRIPT_DIR/e2e-run-control-zeus.sh"
+  echo "== remote run-control matrix =="
+  "$SCRIPT_DIR/e2e-run-control-remote.sh"
 else
   echo "Skipping remote matrix because RUN_REMOTE_MATRIX=0"
 fi

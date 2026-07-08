@@ -2571,7 +2571,7 @@ func (s *SocketServer) processControlAgentConfigCore(st store.Store, projectRoot
 
 	// The control agent runs locally; enforce the default codex profile's
 	// AllowedTargets against the local daemon host and apply its CODEX_HOME
-	// account isolation. A disallowed local host (e.g. company profile on zeus)
+	// account isolation. A disallowed local host (e.g. a company profile on a personal host)
 	// fails fast here rather than launching the company account on the wrong host.
 	codexHome, codexErr := resolveControlCodexHome(cfg, agentName)
 	if codexErr != nil {

@@ -344,7 +344,7 @@ func TestOutputJSON(t *testing.T) {
 		IssueID:      "issue-1",
 		RunID:        "run-1",
 		Status:       model.StatusRunning,
-		Target:       "zeus",
+		Target:       "remotebox",
 		Branch:       "branch",
 		WorktreePath: "/tmp/worktree",
 		SessionName:  "session",
@@ -407,11 +407,11 @@ func TestOutputJSON(t *testing.T) {
 	if item.PRStatus != "open" {
 		t.Fatalf("pr_status = %q, want %q", item.PRStatus, "open")
 	}
-	if item.Target != "zeus" {
-		t.Fatalf("target = %q, want %q", item.Target, "zeus")
+	if item.Target != "remotebox" {
+		t.Fatalf("target = %q, want %q", item.Target, "remotebox")
 	}
-	if item.TargetHost != "zeus" {
-		t.Fatalf("target_host = %q, want %q", item.TargetHost, "zeus")
+	if item.TargetHost != "remotebox" {
+		t.Fatalf("target_host = %q, want %q", item.TargetHost, "remotebox")
 	}
 }
 

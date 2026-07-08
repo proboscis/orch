@@ -29,10 +29,10 @@ func TestLoadClientAndResolveRemote(t *testing.T) {
 	}
 
 	content := []byte(`remote:
-  default: zeus
+  default: remotebox
   hosts:
-    zeus:
-      addr: zeus:7777
+    remotebox:
+      addr: remotebox:7777
     cloud:
       addr: 10.0.0.5:7777
 `)
@@ -45,8 +45,8 @@ func TestLoadClientAndResolveRemote(t *testing.T) {
 		t.Fatalf("LoadClient error: %v", err)
 	}
 
-	if got := cfg.ResolveRemote(cfg.Remote.Default); got != "zeus:7777" {
-		t.Fatalf("ResolveRemote(default) = %q, want zeus:7777", got)
+	if got := cfg.ResolveRemote(cfg.Remote.Default); got != "remotebox:7777" {
+		t.Fatalf("ResolveRemote(default) = %q, want remotebox:7777", got)
 	}
 	if got := cfg.ResolveRemote("cloud"); got != "10.0.0.5:7777" {
 		t.Fatalf("ResolveRemote(cloud) = %q, want 10.0.0.5:7777", got)
@@ -67,7 +67,7 @@ func TestLoadClientRejectsHostWithoutAddr(t *testing.T) {
 
 	content := []byte(`remote:
   hosts:
-    zeus:
+    remotebox:
       addr: ""
 `)
 	if err := os.WriteFile(filepath.Join(cfgDir, "client.yaml"), content, 0o644); err != nil {

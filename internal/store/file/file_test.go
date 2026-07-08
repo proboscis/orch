@@ -1340,7 +1340,7 @@ func TestListRunsIncludesExecutionHostFromSessionArtifact(t *testing.T) {
 		Name: "session",
 		Attrs: map[string]string{
 			"name":        "run-host-issue-20260312-100000",
-			"host":        "zeus",
+			"host":        "remotebox",
 			"multiplexer": "tmux",
 		},
 	})
@@ -1357,8 +1357,8 @@ func TestListRunsIncludesExecutionHostFromSessionArtifact(t *testing.T) {
 	if len(runs) != 1 {
 		t.Fatalf("expected 1 run, got %d", len(runs))
 	}
-	if runs[0].TargetHost != "zeus" {
-		t.Fatalf("TargetHost = %q, want %q", runs[0].TargetHost, "zeus")
+	if runs[0].TargetHost != "remotebox" {
+		t.Fatalf("TargetHost = %q, want %q", runs[0].TargetHost, "remotebox")
 	}
 
 	indexPath := filepath.Join(vault, ".orch_run_index.json")
@@ -1366,7 +1366,7 @@ func TestListRunsIncludesExecutionHostFromSessionArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read index file: %v", err)
 	}
-	if !strings.Contains(string(data), `"target_host":"zeus"`) {
+	if !strings.Contains(string(data), `"target_host":"remotebox"`) {
 		t.Fatalf("expected run index to persist target_host, got %s", string(data))
 	}
 }
