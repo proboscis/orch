@@ -13,16 +13,14 @@ curl -sSL https://raw.githubusercontent.com/proboscis/orch/main/install.sh | bas
 # Or with Go
 go install github.com/proboscis/orch/cmd/orch@latest
 
+# One-time, inside your git repo (needs an `origin` remote — orch derives
+# project identity from its URL):
+mkdir -p .orch && printf 'agent: claude\nbase_branch: main\n' > .orch/config.yaml
+orch daemon repo register "$(pwd)"   # map project identity -> this checkout
+orch worker start                    # launches agent sessions; required even locally
+
 # Create an issue
-mkdir -p issues && cat > issues/my-task.md << 'EOF'
----
-type: issue
-id: my-task
-title: Add hello world function
-status: open
----
-Add a hello world function to the project.
-EOF
+orch issue create my-task --title "Add hello world function"
 
 # Run an agent
 orch run my-task
@@ -34,13 +32,15 @@ orch ps
 orch attach my-task
 ```
 
-**[Read the full Getting Started guide](./docs/getting-started.md)**
+**[Read the full Getting Started guide](./docs/getting-started.md)** —
+日本語版のローカル入門は **[ローカルクイックスタート](./docs/local-quickstart.ja.md)**。
 
 ## Documentation
 
 | Guide | Description |
 |-------|-------------|
 | **[Getting Started](./docs/getting-started.md)** | Install → First issue → First run → See it work |
+| **[ローカルクイックスタート (日本語)](./docs/local-quickstart.ja.md)** | 1 台のマシンで試す最短経路(クラスタ設定なし) |
 | **[Remote Usage](./docs/remote-usage.md)** | Run orch against a remote daemon over TCP |
 | **[Daily Workflow](./docs/daily-workflow.md)** | Morning routine, parallel runs, reviewing PRs |
 | **[orch-monitor TUI](./docs/orch-monitor.md)** | Visual dashboard for managing issues and runs |
