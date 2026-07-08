@@ -213,6 +213,7 @@ run-state-machine.md と同じ playbook を適用する。
 - 2026-06-12 委譲 3 issue 完遂: inv-resolve-run-verb(PR #473)/ inv-monitor-queued-orphans(PR #471, I6 解消)/ inv-fire-status-change-all(PR #472, I8 解消 + L8 制定)。全 merge・issue resolved。
 - 2026-06-13 **Phase B1 完了**: W2–W5/W7 の 37 サイトを O8 観測化(stepLaunchProgress + reportLaunchProgress)、`commitRunStatus` 抽出で status イベント構築点が正確に 1 箇所に。launch 失敗 verdict に `launch_<step>` reason(L9 制定)。whitelist 47 → 10(残 = W6/W8/ResolveRun/W9×4/W10 repair — 全て §6 disposition 済み)。run-state-machine.md §1/§2/§3/§5/§6/§7 D-B1 同梱。
 - 残作業: v2(4 重 bootstrap 制御フローの統合、W6/W8 の step 統合)。whitelist のさらなる縮小はそこで。
+- 2026-07-07 run-state-machine.md §9/§10 設計追加(issue beta-stalled-agent-detection): §9 = interactive gate 検出(O4e 派生読み取り + kind 付き streak、waiting + `gate_<kind>` reason、L10a–c、D-G1 (status,reason) no-op)、§10 = observer attestation(O3 精緻化 + ObserverID/GoneClass、L11a–d、L7' 強度単調性、I9)。2026-07-07 の 2 インシデント(codex login 2h 停滞 / TMUX 汚染 worker による誤 failed)の choice space を閉鎖。実装 issue は human review 後(両方コア面 = frontier + human)。
 
 ## 推奨順序と箱
 
