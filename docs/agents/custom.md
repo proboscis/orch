@@ -307,7 +307,7 @@ orch run --verbose my-issue --agent custom --agent-cmd "my-agent"
 If orch can't detect your agent's state:
 1. Configure explicit completion/error patterns
 2. Ensure agent outputs recognizable messages
-3. Check daemon logs: `tail -f .orch/daemon.log`
+3. Check daemon logs: `tail -f ~/Library/Logs/orch/daemon.log   # Linux: ~/.local/state/orch/daemon.log`
 
 ### Environment issues
 

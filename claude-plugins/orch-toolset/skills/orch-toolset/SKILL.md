@@ -81,7 +81,7 @@ Enter).
 6. Use `orch stop` only for actually stale or canceled work. Use `orch restart-from` only for
    failed, canceled, or unknown runs. Mark completed work with `orch resolve`.
 
-## Branch Resolution for `orch run` (verified 2026-07-05, doeff)
+## Branch Resolution for `orch run` (verified 2026-07-05)
 
 `orch run` creates the run's worktree branch (`issue/<ID>/run-<RUN_ID>`) from
 `--base-branch` (default: `base_branch` in `.orch/config.yaml`). The critical,
@@ -175,7 +175,7 @@ What to expect:
 Remote example:
 
 ```bash
-export ORCH_REMOTE=zeus:7777
+export ORCH_REMOTE=master-host:7777
 orch worker start
 orch worker status --json
 orch run plc-123
@@ -185,7 +185,7 @@ orch ps --json
 Interpretation:
 
 - the worker process started on **this** machine
-- the worker registered to `zeus:7777`
+- the worker registered to `master-host:7777`
 - the run's `target_host` / `HOST` tells you where the session actually runs
 
 ## Remote-Master Pitfalls (verified behaviors)
@@ -199,7 +199,7 @@ Interpretation:
   `no active worker available for target "host-<old-hostname>"`. Fix: update `targets:` in the
   config on the **master host**, then restart the master daemon.
 - **Per-project `.orch/config.yaml` is ALSO a target source and can shadow the fixed global
-  config** (verified 2026-07-05, doeff): the global `~/.config/orch/config.yaml` on the master
+  config** (verified 2026-07-05): the global `~/.config/orch/config.yaml` on the master
   had the corrected host, but runs for one project still resolved the old hostname because the
   project checkout's `.orch/config.yaml` `targets:` still carried it. After a host rename, sweep
   `targets:` in EVERY registered project checkout on the master
@@ -240,7 +240,7 @@ Interpretation:
   non-interactive ssh shell typically misses `~/.local/bin`. Fix:
   `orch worker stop`, then `export PATH="$HOME/.local/bin:$PATH"; orch worker start`.
 - **Execution-host toolchain rots silently — verify it before dispatching** (verified
-  2026-07-05, zeus): (a) the claude native-install `~/.local/bin/claude` symlink can dangle
+  2026-07-05, remote Linux host): (a) the claude native-install `~/.local/bin/claude` symlink can dangle
   after a version GC (`claude --version` via the absolute path is the check; rerun the
   installer to fix); (b) a missing multiplexer binary (tmux uninstalled) makes the run stick
   at `running`/ALIVE `no` with the worker log ending right after "Preparing worktree" and
@@ -248,7 +248,7 @@ Interpretation:
   `tmux -V` / `zellij --version` on the execution host when a run creates a worktree but never
   opens a session.
 - **File-backend issue store is fail-loud on ANY malformed issue file** (verified
-  2026-07-05, doeff-VAULT): a single file with broken frontmatter YAML (e.g. an unquoted
+  2026-07-05): a single file with broken frontmatter YAML (e.g. an unquoted
   colon in `title:`) or a status outside `open|closed|resolved` (seen: `done`,
   `in_progress`, `superseded`) makes EVERY `issue list`/`issue create` fail with the opaque
   `daemon error: store_error`. Diagnosis: the master's `~/Library/Logs/orch/daemon.log`
@@ -288,15 +288,15 @@ placement on the **master host**. THREE pieces are required:
 
    ```yaml
    targets:
-     - name: zeus
-       host: zeus
+     - name: remote
+       host: remote-host
    agent: codex
    base_branch: main
    pr_target_branch: main
    issues:
      backend: local
-     path: ~/repos/<repo>-issues     # external dir (doeff-VAULT / orch-issues / acp-issues
-                                     # pattern); in-repo VAULT also works (proboscis-ema)
+     path: ~/repos/<repo>-issues     # external issues dir (Obsidian-vault
+                                     # pattern); an in-repo vault dir also works
    github:
      owner: <org>
      repo: <repo>
@@ -310,15 +310,15 @@ placement on the **master host**. THREE pieces are required:
 
    ```yaml
    version: 1
-   project_id: CyberAgentAILab-agent-control-plane
-   display_name: agent-control-plane
+   project_id: your-org-your-repo
+   display_name: your-repo
    workspace:
-       root: /home/kento/repos/agent-control-plane
+       root: /home/user/repos/your-repo
    ```
 
    `project_id` is the normalized origin URL, `<org>-<repo>`
-   (`git@github.com:CyberAgentAILab/agent-control-plane.git` →
-   `CyberAgentAILab-agent-control-plane`). `project_id` and `workspace.root` are
+   (`git@github.com:your-org/your-repo.git` →
+   `your-org-your-repo`). `project_id` and `workspace.root` are
    required; a mapping whose root doesn't exist is silently broken (same "no
    store available" error even though the yaml is present).
 
@@ -344,11 +344,11 @@ Verified behaviors:
   ```yaml
   claude:
     profiles:
-      nameissoap:
-        config_dir: ~/.config/claude-nameissoap   # ~ expands on the EXECUTION host
-      cryptic:
-        config_dir: ~/.config/claude-cryptic
-        # optional: target: zeus / allowed_targets: [zeus]
+      personal:
+        config_dir: ~/.config/claude-personal   # ~ expands on the EXECUTION host
+      work:
+        config_dir: ~/.config/claude-work
+        # optional: target: remote / allowed_targets: [remote]
   ```
 
 - The daemon reads this at startup only — **restart the master daemon after adding profiles**.

@@ -267,7 +267,7 @@ slack:
 
 ### Handling failed runs
 
-1. Check daemon logs: `tail .orch/daemon.log`
+1. Check daemon logs: `tail ~/Library/Logs/orch/daemon.log  # Linux: ~/.local/state/orch/daemon.log`
 2. Attach to see error: `orch attach run-ref`
 3. Check if issue is retriable
 4. Use `orch restart-from` to retry from last state

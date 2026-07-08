@@ -192,7 +192,7 @@ EOF
 
 2. Check daemon logs:
    ```bash
-   tail -f .orch/daemon.log
+   tail -f ~/Library/Logs/orch/daemon.log   # Linux: ~/.local/state/orch/daemon.log
    ```
 
 3. Attach and check Claude's state:
