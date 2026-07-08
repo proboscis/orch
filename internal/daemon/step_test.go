@@ -74,6 +74,8 @@ func stepTestObservations(now time.Time) []runObservation {
 		runObservation{Kind: obsCaptured, Output: "❯ ", Signal: agentSignal{PromptShowing: true}},
 		runObservation{Kind: obsCaptured, Output: "done", Signal: agentSignal{Completed: true}},
 		runObservation{Kind: obsCaptured, Output: "exited", Signal: agentSignal{Exited: true}},
+		runObservation{Kind: obsCaptured, Output: "sign in with chatgpt\npress enter to continue", Signal: agentSignal{Gate: "login"}},
+		runObservation{Kind: obsCaptured, Output: "do you trust the contents of this directory?", Signal: agentSignal{Gate: "trust", Exited: true}},
 		runObservation{Kind: obsCaptured, Output: "busy", Signal: agentSignal{Resolved: true, Status: model.StatusRunning}},
 		runObservation{Kind: obsCaptured, Output: "idle", Signal: agentSignal{Resolved: true, Status: model.StatusWaiting}},
 	)
@@ -91,11 +93,15 @@ func stepTestCores() []runCore {
 	var cores []runCore
 	for _, wasAlive := range []bool{false, true} {
 		for _, dead := range []int{0, 1, 2, 3, 4} {
-			for _, streak := range []int{0, 1, 2} {
+			for _, reading := range []struct {
+				kind   string
+				streak int
+			}{{"", 0}, {"prompt", 1}, {"prompt", 2}, {"gate:login", 1}, {"gate:login", 2}} {
 				cores = append(cores, runCore{
 					WasAlive:       wasAlive,
 					DeadCheckCount: dead,
-					PromptStreak:   streak,
+					ReadingKind:    reading.kind,
+					ReadingStreak:  reading.streak,
 				})
 			}
 		}
@@ -104,10 +110,14 @@ func stepTestCores() []runCore {
 }
 
 // foldStatus applies the setStatus effects of one step to the view, the way
-// a committed store write would before the next observation.
+// a committed store write would before the next observation. The reason
+// folds with the status: the pair is the D-G1 identity.
 func foldStatus(view runView, effects []runEffect) runView {
-	if status, ok := statusEffectOf(effects); ok {
-		view.Status = status
+	for _, e := range effects {
+		if e.Kind == effectSetStatus {
+			view.Status = e.Status
+			view.StatusReason = e.Reason
+		}
 	}
 	return view
 }
@@ -390,7 +400,7 @@ func TestStepUnknownVerdictsCarryReason(t *testing.T) {
 	}
 
 	// Capture verdict: agent exited, shell prompt showing.
-	status, reason := agentVerdict(stepTestView(model.StatusRunning, "codex", startedAt), agentSignal{Exited: true}, false, false)
+	status, reason := agentVerdict(stepTestView(model.StatusRunning, "codex", startedAt), agentSignal{Exited: true}, false, "")
 	if status != model.StatusUnknown || reason != model.StatusReasonAgentExited {
 		t.Fatalf("exited verdict = (%s, %q), want (unknown, %q)", status, reason, model.StatusReasonAgentExited)
 	}
@@ -443,7 +453,7 @@ func TestInitialRunCoreDerivation(t *testing.T) {
 			t.Fatalf("%s: WasAlive=%t PRRecorded=%t, want %t/%t",
 				tc.name, core.WasAlive, core.PRRecorded, tc.wantAlive, tc.wantPRRec)
 		}
-		if core.DeadCheckCount != 0 || core.PromptStreak != 0 || core.OutputHash != "" {
+		if core.DeadCheckCount != 0 || core.ReadingKind != "" || core.ReadingStreak != 0 || core.OutputHash != "" {
 			t.Fatalf("%s: ephemeral counters must start at zero", tc.name)
 		}
 		if !core.LastOutputAt.Equal(now) {
@@ -526,7 +536,7 @@ func TestStepLawPromptDebounce(t *testing.T) {
 	var effects []runEffect
 	core, effects = stepRun(view, core, prompt, now)
 	if status, ok := statusEffectOf(effects); ok && status == model.StatusWaiting {
-		t.Fatalf("waiting after a single prompt observation (streak=%d)", core.PromptStreak)
+		t.Fatalf("waiting after a single prompt observation (streak=%d)", core.ReadingStreak)
 	}
 	view = foldStatus(view, effects)
 
@@ -541,12 +551,12 @@ func TestStepLawPromptDebounce(t *testing.T) {
 	// straight back to waiting.
 	core, effects = stepRun(view, core, busy, now)
 	view = foldStatus(view, effects)
-	if core.PromptStreak != 0 {
-		t.Fatalf("busy capture did not reset streak: %d", core.PromptStreak)
+	if core.ReadingKind != "" || core.ReadingStreak != 0 {
+		t.Fatalf("busy capture did not reset streak: (%q, %d)", core.ReadingKind, core.ReadingStreak)
 	}
 	core, effects = stepRun(view, core, prompt, now)
 	if status, ok := statusEffectOf(effects); ok && status == model.StatusWaiting {
-		t.Fatalf("waiting after streak reset + one prompt (streak=%d)", core.PromptStreak)
+		t.Fatalf("waiting after streak reset + one prompt (streak=%d)", core.ReadingStreak)
 	}
 }
 

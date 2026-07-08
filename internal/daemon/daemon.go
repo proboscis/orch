@@ -464,10 +464,12 @@ func (d *Daemon) runLiveness(run *model.Run) (alive, known bool) {
 	return state.WasAlive && state.DeadCheckCount == 0, true
 }
 
-// noteRunFeedback resets a run's prompt debounce when feedback is delivered
-// to its agent session: the idle prompt may still be on screen for the next
-// capture or two, and must not flip the run straight back to waiting before
-// the agent starts working on the feedback.
+// noteRunFeedback resets a run's input-reading debounce when feedback is
+// delivered to its agent session: the idle prompt may still be on screen for
+// the next capture or two, and must not flip the run straight back to
+// waiting before the agent starts working on the feedback. A standing gate
+// re-confirms after one streak threshold and returns the run to
+// waiting(gate_<kind>) — that is the signal that send did not help (§9.3).
 func (d *Daemon) noteRunFeedback(run *model.Run) {
 	if run == nil {
 		return
@@ -476,7 +478,8 @@ func (d *Daemon) noteRunFeedback(run *model.Run) {
 	defer d.mu.Unlock()
 
 	if state, ok := d.runStates[run.Ref().String()]; ok {
-		state.PromptStreak = 0
+		state.ReadingKind = ""
+		state.ReadingStreak = 0
 	}
 }
 

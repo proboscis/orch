@@ -37,28 +37,41 @@ func TestHashContentIgnoresStatusBar(t *testing.T) {
 	}
 }
 
-func TestRunStateRecordPromptSignalDebounce(t *testing.T) {
+func TestRunStateRecordInputReadingDebounce(t *testing.T) {
 	state := &RunState{}
 
-	if state.recordPromptSignal(true) {
+	if state.recordInputReading("prompt") {
 		t.Fatal("expected first prompt observation to be unstable")
 	}
-	if state.PromptStreak != 1 {
-		t.Fatalf("prompt streak after first prompt = %d, want 1", state.PromptStreak)
+	if state.ReadingKind != "prompt" || state.ReadingStreak != 1 {
+		t.Fatalf("reading after first prompt = (%q, %d), want (prompt, 1)", state.ReadingKind, state.ReadingStreak)
 	}
 
-	if !state.recordPromptSignal(true) {
+	if !state.recordInputReading("prompt") {
 		t.Fatal("expected second consecutive prompt observation to become stable")
 	}
-	if state.PromptStreak != 2 {
-		t.Fatalf("prompt streak after second prompt = %d, want 2", state.PromptStreak)
+	if state.ReadingStreak != 2 {
+		t.Fatalf("streak after second prompt = %d, want 2", state.ReadingStreak)
 	}
 
-	if state.recordPromptSignal(false) {
-		t.Fatal("expected non-prompt observation to clear stable state")
+	if state.recordInputReading("") {
+		t.Fatal("expected busy/none observation to clear stable state")
 	}
-	if state.PromptStreak != 0 {
-		t.Fatalf("prompt streak after reset = %d, want 0", state.PromptStreak)
+	if state.ReadingKind != "" || state.ReadingStreak != 0 {
+		t.Fatalf("reading after reset = (%q, %d), want (\"\", 0)", state.ReadingKind, state.ReadingStreak)
+	}
+
+	// A reading-kind change restarts the streak at 1 (L10a): a gate right
+	// after a prompt must re-earn its confirmation.
+	state.recordInputReading("prompt")
+	if state.recordInputReading("gate:login") {
+		t.Fatal("kind change must not be confirmed immediately")
+	}
+	if state.ReadingKind != "gate:login" || state.ReadingStreak != 1 {
+		t.Fatalf("reading after kind change = (%q, %d), want (gate:login, 1)", state.ReadingKind, state.ReadingStreak)
+	}
+	if !state.recordInputReading("gate:login") {
+		t.Fatal("expected second consecutive gate observation to become stable")
 	}
 }
 
@@ -355,15 +368,16 @@ func TestNoteRunFeedbackResetsPromptDebounce(t *testing.T) {
 	run := &model.Run{IssueID: "i1", RunID: "r1"}
 
 	state := d.getOrCreateState(run)
-	state.PromptStreak = 5 // idle at prompt for several captures
+	state.ReadingKind = "prompt"
+	state.ReadingStreak = 5 // idle at prompt for several captures
 
 	d.noteRunFeedback(run)
 
-	if state.PromptStreak != 0 {
-		t.Fatalf("expected prompt streak reset after feedback, got %d", state.PromptStreak)
+	if state.ReadingKind != "" || state.ReadingStreak != 0 {
+		t.Fatalf("expected input-reading reset after feedback, got (%q, %d)", state.ReadingKind, state.ReadingStreak)
 	}
 	// A lingering prompt on the very next capture must not be "stable" yet.
-	if state.recordPromptSignal(true) {
+	if state.recordInputReading("prompt") {
 		t.Fatal("single post-feedback prompt capture must not count as a stable prompt")
 	}
 }

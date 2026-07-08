@@ -72,6 +72,7 @@ Facts the daemon can notice about a run, with their sources:
 | O4b | — derived: prompt showing (mux agents) | `IsWaitingForInput` string heuristics | pure |
 | O4c | — derived: agent verdict (exited/completed/api-limited/failed) | mux string heuristics; opencode session-status HTTP API (busy/idle/retry/gone) | pure / HTTP |
 | O4d | — derived: PR URL in output | regex | pure |
+| O4e | — derived: interactive gate showing (kind) | `DetectGate` declarative table (`internal/agent/gates.go`), busy veto shared with O4b (§9) | pure |
 | O5 | git evidence (PR info, ahead count, uncommitted changes) | gh cache + git, gathered only after a dead verdict is near | subprocess |
 | O6 | user feedback delivered (`orch send` without `--no-enter`) | send paths | — |
 | O7 | user stop | stop path | — |
@@ -114,7 +115,9 @@ O3 session gone, count ≥ 3   → O5 git evidence を収集して判定:
 
 O2 session alive                                                   カウンタreset, WasAlive=true
 O4 captured + PR URL in output   未記録                            → pr_open (+pr artifact)
-O4 captured + agent verdict:     (mux: 優先順位順)
+O4 captured + agent verdict:     (mux: 優先順位順 — L10b)
+   gate reading streak ≥ 2 (O4e)                                   → waiting (reason gate_<kind>)
+   gate reading streak < 2                                         遷移なし (未確定gateは下位読みを全てマスク)
    exited                                                          → unknown
    completed                                                       → done
    api-limited                                                     → rate_limited
@@ -124,8 +127,9 @@ O4 captured + agent verdict:     (mux: 優先順位順)
    (opencode: busy→running, idle→waiting, retry→rate_limited,
     gone→unknown; booting/queued→running)
    status append 成功後に updateStatus が fireStatusChange (Slack等)
+   同status・reason違いの確定読み変化は再append (D-G1, §9.3)
 
-O6 feedback delivered        status ∈ {waiting,pr_open,            → running (+PromptStreak reset)
+O6 feedback delivered        status ∈ {waiting,pr_open,            → running (+reading streak reset)
                              rate_limited,unknown}
 O7 user stop                 非terminal                            → canceled (source=user)
 O8 launch progress           stageRunCreated                       → queued
@@ -143,8 +147,8 @@ O8 launch progress           stageRunCreated                       → queued
 |---|-----------|--------|
 | I1 | `DeadCheckCount == 0` ⇔ last observation was alive; `>= 3` consecutive dead checks ⇒ verdict allowed | holds, but scattered across two paths |
 | I2 | `WasAlive` is monotone (never unset) | holds across restarts since D-C1 (§7, 2026-06-12): `WasAlive`/`PRRecorded` are re-derived from the event log at registration; the ephemeral counters reset by design and re-converge (L7) |
-| I3 | `PromptStreak >= 2` required before `waiting` (debounce); reset on feedback | holds (W6 + `noteRunFeedback`) |
-| I4 | duplicate status events must not accumulate | enforced only in W1 (same-status no-op); W2–W9 rely on transition legality alone |
+| I3 | `ReadingStreak >= 2` on the same `ReadingKind` required before `waiting` (kind-tagged debounce since §9: kinds `prompt`, `gate:<kind>`); reset on feedback | holds (W6 + `noteRunFeedback`) |
+| I4 | duplicate status events must not accumulate | enforced only in W1 (same-(status, reason) pair no-op since D-G1, §9.3); W2–W9 rely on transition legality alone |
 | I5 | `PRRecorded` dedupes `pr` artifacts | holds across restarts since D-C1 (§7, 2026-06-12): derived from existing `pr` artifacts at registration |
 | I6 | every non-terminal run is eventually observed | holds since `monitorAll` lists `queued` as well as the other non-terminal states, so a run orphaned before `booting` still reaches the monitor plane |
 | I7 | a gone session must eventually produce a verdict | holds since L3' (§7 D-C3, 2026-06-12): both planes conclude `unknown` after the never-alive grace |
@@ -184,11 +188,11 @@ append (W10).
         └── capture pacing, backoff, lease scheduling stay in the shell (mechanism)
 ```
 
-- `runView` — read-only run fields the policy needs (status, agent, branch,
-  PR URL, StartedAt).
+- `runView` — read-only run fields the policy needs (status, status reason,
+  agent, branch, PR URL, StartedAt).
 - `runCore` — the semantic counters (`WasAlive`, `DeadCheckCount`,
-  `PromptStreak`, `OutputHash`, `LastOutput*`, `PRRecorded`), embedded in
-  `RunState` so existing field accesses keep working. Capture backoff and
+  `ReadingKind`/`ReadingStreak`, `OutputHash`, `LastOutput*`, `PRRecorded`),
+  embedded in `RunState` so existing field accesses keep working. Capture backoff and
   lease pacing fields remain shell-owned: *when* to observe is mechanism,
   *what an observation means* is policy.
 - Expensive git/PR evidence is requested by `step` via an effect
@@ -200,8 +204,8 @@ append (W10).
   an equivalent in-memory rollback; a failed status append could leak
   hash/streak updates — the commit rule makes retry uniform.)
 - `updateStatus` remains the single executor for status effects, keeping the
-  store-level guard, same-status no-op, auto-resolve, and event publication
-  as defense in depth beneath the matrix.
+  store-level guard, same-(status, reason) no-op (D-G1), auto-resolve, and
+  event publication as defense in depth beneath the matrix.
 
 ### Laws (encoded as property tests in `step_test.go`)
 
@@ -222,9 +226,12 @@ distinction the law tests themselves forced:
 | L3' grace | a never-alive run within `neverAliveVerdictGrace` never receives an `unknown`/`failed` verdict, on any observation sequence; after the grace, any plane concludes `unknown` on the standing evidence (revised from v1's pinned asymmetry by §7 D-C3) |
 | L4 terminality | from a terminal status, `step` emits no effect and no core change for any observation |
 | L5 verdict requires evidence | `obsSessionGone` never emits a status directly; it requests git evidence exactly when the dead-check threshold is reached |
-| L6 debounce | `waiting` via prompt requires ≥ `waitingPromptStreakThreshold` consecutive prompt observations; any busy capture resets the streak |
-| L8 listener commit point | every committed W1 status transition fires exactly one status-change listener event after `AppendEvent` succeeds; duplicate-status no-ops and failed appends fire none |
+| L6 debounce | `waiting` via prompt requires ≥ `waitingPromptStreakThreshold` consecutive prompt observations; any busy capture resets the streak. Since §9 this is the `reading = prompt` special case of L10a |
+| L8 listener commit point | every committed W1 status transition fires exactly one status-change listener event after `AppendEvent` succeeds; duplicate-(status, reason) no-ops and failed appends fire none |
 | L9 launch failure reason | a launch-failure verdict (O8) always carries the machine-readable reason `launch_<step>`, preceded by an error artifact recording the bootstrap error; launch milestones on a terminal or already-reached status emit nothing |
+| L10a gate debounce (generalizes L6) | a `waiting` verdict with reason `gate_<kind>` requires ≥ `waitingPromptStreakThreshold` consecutive captures whose input-request reading is the same `gate:<kind>`; any busy capture or different reading resets the streak |
+| L10b reading precedence | busy veto > gate > {exited, completed, api-limited, failed} > prompt > output-changed; an unconfirmed gate reading masks every lower reading; each gate row's fixture locks its intended winner end-to-end |
+| L10c reason fidelity | the `waiting` reason always reflects the latest *confirmed* reading; a confirmed reading change re-appends under D-G1 and fires exactly one listener event (L8) |
 
 ### Status reasons (verdict payload)
 
@@ -239,6 +246,7 @@ travels as a machine-readable `reason` attribute on the status event
 | `session_lost` | opencode session not found after dead checks | backend lost observability; backend-specific triage |
 | `agent_exited` | capture verdict: process exited, shell prompt showing | check transcript/worktree; retry plausible |
 | `launch_<step>` | O8 bootstrap failure (`failed` verdict); `<step>` ∈ worktree, prompt, agent_command, multiplexer, opencode_server, session, opencode_bootstrap, bootstrap | the named bootstrap step broke; the paired error artifact carries the detail |
+| `gate_<kind>` (`gate_login`, `gate_trust`, …) | O4e gate reading confirmed by L10a (`waiting` verdict) | `orch attach` and complete the gate interactively; `orch send` will NOT clear it — the run re-asserts `waiting(gate_<kind>)` while the gate persists |
 
 `orch ps` renders the reason inline (`unknown(never_alive)`); the event log
 carries it as `reason=…`; `StatusChangeEvent.Reason` exposes it to listeners.
@@ -406,10 +414,12 @@ remains banned by the `fail-fast-no-discard-status-parse-error` semgrep rule.
 
 ## 9. Interactive gates — parked-at-gate detection (designed 2026-07-07)
 
-Status: **design — accepted pending human review; no implementation yet.**
-All matrix rows, reason-table rows, and core fields in this section are
-deltas to fold into §2/§3/§4/§5 when the implementation issue lands; the
-tables above still describe the code on main.
+Status: **implemented 2026-07-08.** The deltas of this section are folded
+into §2 (O4e), §3 (gate rows, D-G1 re-append), §4 (I3/I4), and §5 (L10a–c,
+`gate_<kind>` reason row); this section remains as the design record. Gate
+rules live in `internal/agent/gates.go` with real-pane fixtures under
+`internal/agent/testdata/gates/`; laws L10a–c are property tests in
+`internal/daemon/step_gate_test.go`.
 
 Trigger — live incident 2026-07-07: two codex runs sat ~2 hours at the
 codex login screen ("Sign in with ChatGPT") while `orch ps` reported
@@ -573,15 +583,16 @@ Counterexamples (must become fixtures/property tests at implementation):
    streak reset → `running` on the next changed capture. No stale
    `waiting(gate_*)` persists.
 
-### 9.6 Follow-up (do not implement in this issue)
+### 9.6 Follow-up (implemented 2026-07-08)
 
-One implementation issue, **frontier + human** (touches `step.go`,
-`stepCaptured` precedence, `commitRunStatus` no-op predicate, and the
-`AgentManager` interface — all core surfaces): `agentSignal.Gate`,
-`DetectGate` + gate table + fixtures + meta-test, kind-tagged streak in
-`runCore`, D-G1 pair no-op, L10 property tests in `step_test.go`, §2/§3/
-§4/§5 fold-in. Real gate screens must be captured for fixtures *before*
-the pattern rows are written.
+Implemented as designed, frontier + human in-session: `agentSignal.Gate`,
+`DetectGate` + gate table + fixtures + meta-test (`internal/agent/gates.go`,
+`gates_test.go`), kind-tagged streak in `runCore`
+(`ReadingKind`/`ReadingStreak`), D-G1 pair no-op in `commitRunStatus` and
+`runView.StatusReason` in the pure core, L10 property tests
+(`step_gate_test.go`), §2/§3/§4/§5 fold-in. All three fixture screens
+(codex login, codex trust, claude trust) were captured from real tmux panes
+before the pattern rows were written, as required.
 
 ## 10. Observation-channel health — death verdicts require attestation (designed 2026-07-07)
 

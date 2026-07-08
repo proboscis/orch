@@ -168,6 +168,7 @@ func gatherAgentSignal(run *model.Run, mgr agent.AgentManager, output string) ag
 		APILimited:    agent.IsAPILimited(output),
 		Failed:        agent.IsFailed(output),
 		PromptShowing: mgr.DetectPrompt(output),
+		Gate:          mgr.DetectGate(output),
 	}
 }
 
@@ -427,22 +428,27 @@ func (s *RunState) resetCaptureFailure() {
 	s.SuppressedCaptureLogs = 0
 }
 
-// recordPromptStreak is the pure prompt-debounce rule shared by stepRun and
-// RunState.recordPromptSignal: a prompt must persist for
-// waitingPromptStreakThreshold consecutive captures before it counts.
-func recordPromptStreak(streak int, hasPrompt bool) (int, bool) {
-	if hasPrompt {
-		streak++
-	} else {
-		streak = 0
+// recordInputReadingStreak is the pure input-request debounce rule (L10a,
+// generalizing the L6 prompt streak over reading kinds): a reading must
+// persist for waitingPromptStreakThreshold consecutive captures of the SAME
+// kind before it counts; any different reading (including "" = busy/none)
+// resets the streak. L6 is the reading = "prompt" special case.
+func recordInputReadingStreak(prevKind string, prevStreak int, reading string) (string, int, bool) {
+	if reading == "" {
+		return "", 0, false
 	}
-	return streak, hasPrompt && streak >= waitingPromptStreakThreshold
+	streak := 1
+	if reading == prevKind {
+		streak = prevStreak + 1
+	}
+	return reading, streak, streak >= waitingPromptStreakThreshold
 }
 
-func (s *RunState) recordPromptSignal(hasPrompt bool) bool {
-	streak, stable := recordPromptStreak(s.PromptStreak, hasPrompt)
-	s.PromptStreak = streak
-	return stable
+func (s *RunState) recordInputReading(reading string) bool {
+	kind, streak, confirmed := recordInputReadingStreak(s.ReadingKind, s.ReadingStreak, reading)
+	s.ReadingKind = kind
+	s.ReadingStreak = streak
+	return confirmed
 }
 
 func captureBackoffDuration(err error, failures int) time.Duration {

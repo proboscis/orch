@@ -114,6 +114,9 @@ type AgentManager interface {
 	GetStatus(run *model.Run, output string, state *RunState, outputChanged, hasPrompt bool) model.Status
 	CaptureOutput(run *model.Run) (string, error)
 	DetectPrompt(output string) bool
+	// DetectGate reports the interactive gate kind visible on a captured
+	// output ("" = none) — run-state-machine.md §9 observation O4e.
+	DetectGate(output string) string
 	SendMessage(ctx context.Context, run *model.Run, message string, opts *SendOptions) error
 }
 
@@ -130,7 +133,7 @@ func GetManager(run *model.Run) AgentManager {
 			RunRef:    run.Ref().String(),
 		}
 	}
-	return &MuxManager{SessionName: getSessionName(run)}
+	return &MuxManager{SessionName: getSessionName(run), Agent: run.Agent}
 }
 
 func getSessionName(run *model.Run) string {
@@ -142,6 +145,9 @@ func getSessionName(run *model.Run) string {
 
 type MuxManager struct {
 	SessionName string
+	// Agent is the backend name (model.Run.Agent); it selects the gate-rule
+	// table for DetectGate. Empty = no gate detection.
+	Agent string
 }
 
 func (m *MuxManager) IsAlive(run *model.Run) bool {
@@ -178,6 +184,10 @@ func (m *MuxManager) CaptureOutput(run *model.Run) (string, error) {
 
 func (m *MuxManager) DetectPrompt(output string) bool {
 	return IsWaitingForInput(output)
+}
+
+func (m *MuxManager) DetectGate(output string) string {
+	return DetectGate(m.Agent, output)
 }
 
 func (m *MuxManager) GetStatus(run *model.Run, output string, state *RunState, outputChanged, hasPrompt bool) model.Status {
@@ -308,6 +318,12 @@ func FormatOpenCodeMessages(messages []Message, maxLines int) string {
 
 func (m *OpenCodeManager) DetectPrompt(output string) bool {
 	return false
+}
+
+// DetectGate always reports none: opencode is observed via its server API,
+// and its login problems surface as O8 bootstrap failures instead.
+func (m *OpenCodeManager) DetectGate(output string) string {
+	return ""
 }
 
 const recentActivityThreshold = 30 * time.Second
@@ -446,16 +462,10 @@ func IsWaitingForInput(output string) bool {
 	lines := strings.ToLower(getLastLines(output, 40))
 
 	// Codex keeps shortcut hints visible even while actively working.
-	// Treat explicit in-progress markers as stronger signals than prompt hints.
-	busyPatterns := []string{
-		"esc to interrupt",
-		"working (",
-		"background terminal running",
-	}
-	for _, pattern := range busyPatterns {
-		if strings.Contains(lines, pattern) {
-			return false
-		}
+	// Treat explicit in-progress markers as stronger signals than prompt
+	// hints. The same veto applies to gate detection (gates.go).
+	if hasBusyMarker(lines) {
+		return false
 	}
 
 	promptPatterns := []string{
