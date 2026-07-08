@@ -68,7 +68,7 @@ bad
   run          -> "no active workers available"
 
 good
-  worker start -> "managed worker host-zeus exited before registering ..."
+  worker start -> "managed worker host-remote exited before registering ..."
                 -> "check /.../orch/workers/<profile>.log ..."
-                -> "run orch --remote=... worker run --worker-id host-zeus manually ..."
+                -> "run orch --remote=... worker run --worker-id host-remote manually ..."
 ```

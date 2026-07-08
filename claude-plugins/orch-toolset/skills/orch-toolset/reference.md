@@ -29,12 +29,12 @@ The default master and named master aliases live in `client.yaml` — global at
 
 ```yaml
 remote:
-  default: "zeus:7777"
+  default: "master-host:7777"
   hosts:
-    zeus:
-      addr: "zeus:7777"
+    primary:
+      addr: "master-host:7777"
     mac:
-      addr: "CA-20035844:7777"
+      addr: "laptop-host:7777"
 ```
 
 Keep `hosts:` addresses in sync with actual hostnames — stale entries from a machine
@@ -79,7 +79,7 @@ Notes:
 - Local backend requires `ISSUE_ID`.
 - GitHub backend can omit `ISSUE_ID` because GitHub assigns it.
 - **Requires explicit project identity**: pass `--project <origin URL>` (e.g.
-  `--project git@github.com:proboscis/proboscis-ema.git`) or set `ORCH_PROJECT`. Running
+  `--project git@github.com:your-org/your-repo.git`) or set `ORCH_PROJECT`. Running
   inside a git repo with `origin` set is NOT sufficient — observed failure
   `project identity required` against daemon @6b2bceb1.
 - With a remote master and the file backend, the issue file is created on the **master's**
@@ -124,7 +124,7 @@ Create a run, create its worktree, and launch the selected agent.
 orch run plc-123
 orch run plc-123 --agent codex
 orch run plc-123 --agent opencode --model anthropic/claude-opus-4-6 --model-variant max
-orch run plc-123 --on zeus
+orch run plc-123 --on remote
 orch run plc-123 --reuse
 orch run plc-123 --json
 ```
@@ -186,7 +186,7 @@ orch restart-from --branch "issue/plc-123/run-20260312-101500" --issue plc-123
 
 ### `orch wait`
 
-Block until a run reaches a "needs attention" state (`waiting`, `pr_open`, `blocked`,
+Block until a run reaches a "needs attention" state (`waiting`, `pr_open`,
 `failed`, etc). This is the **canonical way to wait for an agent** — do not poll
 `orch ps` in a loop.
 
@@ -201,7 +201,7 @@ orch wait <RUN_REF1> <RUN_REF2> ...          # wait on any of N runs
 Output is a single JSON line on the run that triggered:
 
 ```json
-{"run_id":"32c5b6","status":"waiting","issue":"unhandled-effect-class","pr_url":"https://github.com/proboscis/doeff/pull/399"}
+{"run_id":"32c5b6","status":"waiting","issue":"my-issue","pr_url":"https://github.com/your-org/your-repo/pull/399"}
 ```
 
 Returns exit `0` immediately if the run is already in an attention state. Returns
@@ -324,10 +324,10 @@ Start the managed local worker process.
 orch worker start
 
 # Start a local worker that registers to a remote master
-ORCH_REMOTE=zeus:7777 orch worker start
+ORCH_REMOTE=master-host:7777 orch worker start
 
 # Start a specific worker ID
-ORCH_REMOTE=zeus:7777 orch worker start --worker-id host-mac
+ORCH_REMOTE=master-host:7777 orch worker start --worker-id host-mac
 ```
 
 Important behavior:
@@ -341,8 +341,8 @@ Important behavior:
 Inspect the managed local worker and its master registration.
 
 ```bash
-ORCH_REMOTE=zeus:7777 orch worker status
-ORCH_REMOTE=zeus:7777 orch worker status --json
+ORCH_REMOTE=master-host:7777 orch worker status
+ORCH_REMOTE=master-host:7777 orch worker status --json
 ```
 
 Interpretation:
@@ -370,9 +370,9 @@ Example JSON shape:
 Stop the managed local worker process.
 
 ```bash
-ORCH_REMOTE=zeus:7777 orch worker stop
-ORCH_REMOTE=zeus:7777 orch worker stop --all
-ORCH_REMOTE=zeus:7777 orch worker stop --worker-id host-mac
+ORCH_REMOTE=master-host:7777 orch worker stop
+ORCH_REMOTE=master-host:7777 orch worker stop --all
+ORCH_REMOTE=master-host:7777 orch worker stop --worker-id host-mac
 ```
 
 ---
@@ -517,7 +517,7 @@ This is for `waiting` runs, not for general live-run control.
 ### Remote master, local worker
 
 ```bash
-export ORCH_REMOTE=zeus:7777
+export ORCH_REMOTE=master-host:7777
 
 orch worker start
 orch worker status --json
@@ -528,13 +528,13 @@ orch ps --json
 Expected interpretation:
 
 - worker process is on the local machine
-- master state is on `zeus:7777`
+- master state is on `master-host:7777`
 - `ps` / `show --json` tell you the actual execution host via `HOST` / `target_host`
 
 ### Operator-host control of remote run
 
 ```bash
-export ORCH_REMOTE=zeus:7777
+export ORCH_REMOTE=master-host:7777
 
 orch capture plc-123#20260312-101500
 orch send plc-123#20260312-101500 "Please reply with ACK"

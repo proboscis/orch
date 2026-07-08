@@ -281,9 +281,9 @@ Automation entrypoint:
 Target used in examples:
 
 - host: `zeus`
-- repo: `/home/kento/repos/doeff`
-- issues path: use the actual `issues.path` from `/home/kento/repos/doeff/.orch/config.yaml`
-  (for example `/home/kento/repos/doeff-VAULT`)
+- repo: `/home/user/repos/doeff`
+- issues path: use the actual `issues.path` from `/home/user/repos/doeff/.orch/config.yaml`
+  (for example `/home/user/repos/doeff-VAULT`)
 
 ```bash
 TS="$(date +%Y%m%d-%H%M%S)"
@@ -302,7 +302,7 @@ ssh zeus "$ENV_PREFIX orch master status"
 ssh zeus "$ENV_PREFIX orch worker status"
 
 # create sample issue
-ssh zeus "cat > /home/kento/repos/doeff-VAULT/issues/$ISSUE_ID.md <<'EOF'
+ssh zeus "cat > /home/user/repos/doeff-VAULT/issues/$ISSUE_ID.md <<'EOF'
 ---
 type: issue
 id: $ISSUE_ID
@@ -319,7 +319,7 @@ EOF"
 # If the managed clone created from the repo URL does not contain the required
 # project config (for example `.orch/config.yaml` is not committed), register
 # the operational project root instead.
-ssh zeus "$ENV_PREFIX orch daemon repo register /home/kento/repos/doeff"
+ssh zeus "$ENV_PREFIX orch daemon repo register /home/user/repos/doeff"
 
 # runtime commands use repo identity scope
 PROJECT_ID="proboscis-doeff"
@@ -340,7 +340,7 @@ gh pr create --repo proboscis/doeff --title 'chore(e2e): sample zeus run $ISSUE_
 EOF
 chmod +x /tmp/orch-zeus-agent-$ISSUE_ID.sh"
 
-ssh zeus "$ENV_PREFIX bash -lc 'cd /home/kento/repos/doeff && orch --project $PROJECT_ID run $ISSUE_ID --run-id $RUN_ID --agent custom --agent-cmd '\\''bash /tmp/orch-zeus-agent-$ISSUE_ID.sh'\\'' --json'"
+ssh zeus "$ENV_PREFIX bash -lc 'cd /home/user/repos/doeff && orch --project $PROJECT_ID run $ISSUE_ID --run-id $RUN_ID --agent custom --agent-cmd '\\''bash /tmp/orch-zeus-agent-$ISSUE_ID.sh'\\'' --json'"
 
 # find and close the sample PR
 BRANCH="issue/$ISSUE_ID/run-$RUN_ID"
@@ -351,7 +351,7 @@ ssh zeus "gh pr close <PR_NUMBER> --repo proboscis/doeff --comment 'Closing samp
 ssh zeus "$ENV_PREFIX orch --project $PROJECT_ID stop $ISSUE_ID#$RUN_ID --force"
 
 # cleanup
-ssh zeus "rm -f /home/kento/repos/doeff-VAULT/issues/$ISSUE_ID.md /tmp/orch-zeus-agent-$ISSUE_ID.sh"
+ssh zeus "rm -f /home/user/repos/doeff-VAULT/issues/$ISSUE_ID.md /tmp/orch-zeus-agent-$ISSUE_ID.sh"
 ssh zeus "$ENV_PREFIX orch worker stop --all"
 ```
 
@@ -437,7 +437,7 @@ PROJECT_ID="proboscis-doeff"
 BRANCH="issue/$ISSUE_ID/run-$RUN_ID"
 
 # create sample issue in the Zeus-backed issue store
-ssh zeus "cat > /home/kento/repos/doeff-VAULT/issues/$ISSUE_ID.md <<'EOF'
+ssh zeus "cat > /home/user/repos/doeff-VAULT/issues/$ISSUE_ID.md <<'EOF'
 ---
 type: issue
 id: $ISSUE_ID
@@ -449,7 +449,7 @@ status: open
 EOF"
 
 # ensure Zeus resolves project identity to the operational root it should use
-ssh zeus 'orch daemon repo register /home/kento/repos/doeff'
+ssh zeus 'orch daemon repo register /home/user/repos/doeff'
 
 # ensure the target Mac worker is connected to Zeus
 # normal case: start the default host worker on the target host
@@ -462,7 +462,7 @@ ssh mac 'ORCH_REMOTE=zeus:7777 orch worker status'
 # Run from the operational project root on Zeus so the daemon can discover the
 # correct project config for local-mode CLI execution before dispatching to the
 # remote target.
-ssh zeus "cd /home/kento/repos/doeff && orch --project $PROJECT_ID run $ISSUE_ID \
+ssh zeus "cd /home/user/repos/doeff && orch --project $PROJECT_ID run $ISSUE_ID \
   --run-id $RUN_ID \
   --on mac \
   --agent custom \
@@ -479,7 +479,7 @@ ssh zeus "orch --project $PROJECT_ID capture $ISSUE_ID#$RUN_ID"
 # stop and clean up
 ssh zeus "orch --project $PROJECT_ID stop $ISSUE_ID#$RUN_ID --force"
 ssh mac 'ORCH_REMOTE=zeus:7777 orch worker stop --all'
-ssh zeus "rm -f /home/kento/repos/doeff-VAULT/issues/$ISSUE_ID.md"
+ssh zeus "rm -f /home/user/repos/doeff-VAULT/issues/$ISSUE_ID.md"
 ```
 
 Expected outcomes:
