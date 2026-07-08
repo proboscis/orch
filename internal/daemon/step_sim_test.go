@@ -93,8 +93,8 @@ func TestSimPromptDebounceAndStreakReset(t *testing.T) {
 	simAssert(t, res,
 		[]model.Status{model.StatusWaiting, model.StatusRunning},
 		model.StatusRunning)
-	if res.core.PromptStreak != 1 {
-		t.Fatalf("PromptStreak = %d, want 1", res.core.PromptStreak)
+	if res.core.ReadingKind != "prompt" || res.core.ReadingStreak != 1 {
+		t.Fatalf("reading = (%q, %d), want (prompt, 1)", res.core.ReadingKind, res.core.ReadingStreak)
 	}
 }
 

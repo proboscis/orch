@@ -105,10 +105,10 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store, projectID, projectRo
 				d.logger.Printf("%s#%s: opencode bootstrap logs: %s", run.IssueID, run.RunID, logPath)
 			}
 		}
-		return d.applyGoneObservation(run, st, state, projectRoot, false)
+		return d.applyGoneObservation(run, st, state, projectRoot, false, d.localObserverID(), localGoneClass(run))
 	}
 
-	if _, err := d.applyStep(run, st, state, runObservation{Kind: obsSessionAlive}, projectRoot); err != nil {
+	if _, err := d.applyStep(run, st, state, runObservation{Kind: obsSessionAlive, Observer: d.localObserverID()}, projectRoot); err != nil {
 		return err
 	}
 
@@ -168,6 +168,7 @@ func gatherAgentSignal(run *model.Run, mgr agent.AgentManager, output string) ag
 		APILimited:    agent.IsAPILimited(output),
 		Failed:        agent.IsFailed(output),
 		PromptShowing: mgr.DetectPrompt(output),
+		Gate:          mgr.DetectGate(output),
 	}
 }
 
@@ -224,8 +225,15 @@ func (d *Daemon) applyRunEffects(run *model.Run, st store.Store, oldCore, core r
 // applyGoneObservation feeds one dead check through stepRun and, when the
 // policy requests it, gathers git/PR evidence and feeds that back as a
 // second observation. The shell never decides whether evidence is needed.
-func (d *Daemon) applyGoneObservation(run *model.Run, st store.Store, state *RunState, projectRoot string, remote bool) error {
-	effects, err := d.applyStep(run, st, state, runObservation{Kind: obsSessionGone, Remote: remote}, projectRoot)
+// observer/goneClass carry the observing channel's identity and its local
+// classification (§10.2) — attestation over them is stepRun policy.
+func (d *Daemon) applyGoneObservation(run *model.Run, st store.Store, state *RunState, projectRoot string, remote bool, observer, goneClass string) error {
+	effects, err := d.applyStep(run, st, state, runObservation{
+		Kind:      obsSessionGone,
+		Remote:    remote,
+		Observer:  observer,
+		GoneClass: goneClass,
+	}, projectRoot)
 	if err != nil {
 		return err
 	}
@@ -274,14 +282,17 @@ func (d *Daemon) monitorRemoteRun(run *model.Run, st store.Store, projectID, pro
 		capture = d.socketServer.captureRunOutputViaWorker
 	}
 
-	output, err := capture(run, projectID, projectRoot, remoteCaptureLines)
+	result, err := capture(run, projectID, projectRoot, remoteCaptureLines)
 	if err != nil {
-		if isRemoteSessionGone(err) {
-			// The worker answered authoritatively: the lease round-trip
-			// completed, so pace re-checks like successful captures instead
-			// of retrying every monitor tick.
+		if legacyRemoteSessionGone(err) {
+			// Legacy shim: an old worker without observer context reported
+			// the session gone as an error string. The observation carries
+			// no ObserverID, so it can never attest — it supports at most
+			// unknown(observer_unverified) (L11d safe degradation). The
+			// lease round-trip completed, so pace re-checks like successful
+			// captures instead of retrying every monitor tick.
 			state.RemoteCaptureAt = now
-			return d.applyGoneObservation(run, st, state, projectRoot, true)
+			return d.applyGoneObservation(run, st, state, projectRoot, true, "", goneClassUnclassified)
 		}
 
 		// Worker-plane infrastructure failure (worker offline, lease
@@ -301,15 +312,26 @@ func (d *Daemon) monitorRemoteRun(run *model.Run, st store.Store, projectID, pro
 		}
 		return nil
 	}
+	if result == nil {
+		return nil
+	}
+
+	if result.Gone != nil {
+		// The worker classified the session as gone where the facts are
+		// local (L11d) and identified itself; whether its testimony can
+		// support a death verdict is attestation policy in stepRun (L11a-c).
+		state.RemoteCaptureAt = now
+		return d.applyGoneObservation(run, st, state, projectRoot, true, result.ObserverID, result.Gone.Class)
+	}
 
 	state.resetCaptureFailure()
 	state.RemoteCaptureAt = now
 
-	if _, err := d.applyStep(run, st, state, runObservation{Kind: obsSessionAlive}, projectRoot); err != nil {
+	if _, err := d.applyStep(run, st, state, runObservation{Kind: obsSessionAlive, Observer: result.ObserverID}, projectRoot); err != nil {
 		return err
 	}
 
-	return d.processRunOutput(run, st, state, mgr, output)
+	return d.processRunOutput(run, st, state, mgr, result.Content)
 }
 
 // remoteRunWorkerEndpoint identifies the worker/session pair a remote run is
@@ -329,11 +351,14 @@ func remoteRunWorkerEndpoint(run *model.Run) string {
 	return workerID + ":" + sessionName
 }
 
-// isRemoteSessionGone reports whether a worker-lease capture error means the
-// session (or its run record) is genuinely gone on the execution host. Worker
-// plane infrastructure errors must NOT count as agent death — default to
-// false for anything ambiguous.
-func isRemoteSessionGone(err error) bool {
+// legacyRemoteSessionGone is the DEPRECATED string-matching shim for workers
+// that predate structured gone verdicts (§10.2). New workers classify gone
+// observations locally and ship them as CaptureSessionResult.Gone; errors
+// matched here carry no observer context, so they can never attest a death —
+// the resulting observation concludes at most unknown(observer_unverified)
+// (L11d). Delete this once no pre-attestation workers remain; never extend
+// the pattern list.
+func legacyRemoteSessionGone(err error) bool {
 	if err == nil {
 		return false
 	}
@@ -350,6 +375,24 @@ func isRemoteSessionGone(err error) bool {
 		strings.Contains(msg, "no server running") ||
 		strings.Contains(msg, "can't find pane") ||
 		strings.Contains(msg, "can't find session")
+}
+
+// localGoneClass classifies a local-plane gone observation from the daemon
+// shell's own mux view (§10.2 — decided where the facts are local).
+// Diagnostic payload only.
+func localGoneClass(run *model.Run) string {
+	if run.Agent == string(agent.AgentOpenCode) {
+		// The opencode manager conflates server-down and session-missing in
+		// its boolean IsAlive; leave the class open rather than guess.
+		return goneClassUnclassified
+	}
+	sessions, _ := agent.GetMuxCache()
+	if sessions == nil {
+		// The session list itself could not be obtained: no mux server on
+		// this daemon's socket.
+		return goneClassServerAbsent
+	}
+	return goneClassSessionAbsent
 }
 
 func captureEndpointKey(run *model.Run, mgr agent.AgentManager) string {
@@ -427,22 +470,27 @@ func (s *RunState) resetCaptureFailure() {
 	s.SuppressedCaptureLogs = 0
 }
 
-// recordPromptStreak is the pure prompt-debounce rule shared by stepRun and
-// RunState.recordPromptSignal: a prompt must persist for
-// waitingPromptStreakThreshold consecutive captures before it counts.
-func recordPromptStreak(streak int, hasPrompt bool) (int, bool) {
-	if hasPrompt {
-		streak++
-	} else {
-		streak = 0
+// recordInputReadingStreak is the pure input-request debounce rule (L10a,
+// generalizing the L6 prompt streak over reading kinds): a reading must
+// persist for waitingPromptStreakThreshold consecutive captures of the SAME
+// kind before it counts; any different reading (including "" = busy/none)
+// resets the streak. L6 is the reading = "prompt" special case.
+func recordInputReadingStreak(prevKind string, prevStreak int, reading string) (string, int, bool) {
+	if reading == "" {
+		return "", 0, false
 	}
-	return streak, hasPrompt && streak >= waitingPromptStreakThreshold
+	streak := 1
+	if reading == prevKind {
+		streak = prevStreak + 1
+	}
+	return reading, streak, streak >= waitingPromptStreakThreshold
 }
 
-func (s *RunState) recordPromptSignal(hasPrompt bool) bool {
-	streak, stable := recordPromptStreak(s.PromptStreak, hasPrompt)
-	s.PromptStreak = streak
-	return stable
+func (s *RunState) recordInputReading(reading string) bool {
+	kind, streak, confirmed := recordInputReadingStreak(s.ReadingKind, s.ReadingStreak, reading)
+	s.ReadingKind = kind
+	s.ReadingStreak = streak
+	return confirmed
 }
 
 func captureBackoffDuration(err error, failures int) time.Duration {

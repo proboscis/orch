@@ -267,6 +267,11 @@ const (
 	// StatusReasonAgentExited: the agent process exited without a verdict,
 	// shell prompt showing — check the transcript/worktree; retry plausible.
 	StatusReasonAgentExited = "agent_exited"
+	// StatusReasonObserverUnverified: the dead-check threshold was reached
+	// through an observation channel that never saw this run alive (L11c) —
+	// check the worker/daemon mux environment; the run self-recovers on the
+	// next successful capture.
+	StatusReasonObserverUnverified = "observer_unverified"
 )
 
 // NewStatusEventWithReason creates a status change event carrying a

@@ -63,8 +63,15 @@ type Daemon struct {
 
 	// remoteCaptureFn captures session output for runs executing on another
 	// host via the worker plane. Overridable in tests; defaults to the
-	// socket server's worker-lease capture.
-	remoteCaptureFn func(run *model.Run, projectID, projectRoot string, lines int) (string, error)
+	// socket server's worker-lease capture. The result carries the worker's
+	// observer identity and structured gone verdicts (§10.2).
+	remoteCaptureFn func(run *model.Run, projectID, projectRoot string, lines int) (*CaptureSessionResult, error)
+
+	// instanceNonce makes this daemon process a distinct local observation
+	// channel: localObserverID() = local:<nonce> (§10.2). Regenerated per
+	// process start, so a restarted daemon re-attests before its dead
+	// checks can support a failed verdict (L7').
+	instanceNonce string
 
 	// PR lookup functions are overridable in tests; defaults use the cached
 	// PR package lookups.
@@ -101,7 +108,14 @@ func New(factory StoreFactory) *Daemon {
 		runStates:     make(map[string]*RunState),
 		lastFetchAt:   make(map[string]time.Time),
 		fetchInFlight: make(map[string]bool),
+		instanceNonce: generateMonitorID()[:12],
 	}
+}
+
+// localObserverID identifies this daemon process as the local observation
+// channel instance (run-state-machine.md §10.2).
+func (d *Daemon) localObserverID() string {
+	return "local:" + d.instanceNonce
 }
 
 // SetInterval sets the monitoring interval
@@ -464,10 +478,12 @@ func (d *Daemon) runLiveness(run *model.Run) (alive, known bool) {
 	return state.WasAlive && state.DeadCheckCount == 0, true
 }
 
-// noteRunFeedback resets a run's prompt debounce when feedback is delivered
-// to its agent session: the idle prompt may still be on screen for the next
-// capture or two, and must not flip the run straight back to waiting before
-// the agent starts working on the feedback.
+// noteRunFeedback resets a run's input-reading debounce when feedback is
+// delivered to its agent session: the idle prompt may still be on screen for
+// the next capture or two, and must not flip the run straight back to
+// waiting before the agent starts working on the feedback. A standing gate
+// re-confirms after one streak threshold and returns the run to
+// waiting(gate_<kind>) — that is the signal that send did not help (§9.3).
 func (d *Daemon) noteRunFeedback(run *model.Run) {
 	if run == nil {
 		return
@@ -476,7 +492,8 @@ func (d *Daemon) noteRunFeedback(run *model.Run) {
 	defer d.mu.Unlock()
 
 	if state, ok := d.runStates[run.Ref().String()]; ok {
-		state.PromptStreak = 0
+		state.ReadingKind = ""
+		state.ReadingStreak = 0
 	}
 }
 

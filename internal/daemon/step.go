@@ -22,24 +22,30 @@ import (
 // depend on. It is derived from the store fold (run.DeriveState), never from
 // in-memory monitor bookkeeping.
 type runView struct {
-	Status    model.Status
-	Agent     string
-	Branch    string
-	PRUrl     string
-	StartedAt time.Time
-	IssueID   model.IssueID
-	RunID     model.RunID
+	Status model.Status
+	// StatusReason is the machine-readable reason on the run's current
+	// status event ("" = none). The pair (Status, StatusReason) is the
+	// no-op identity for status writes (§9.3 D-G1): a confirmed reading
+	// change re-appends even when the status itself is unchanged.
+	StatusReason string
+	Agent        string
+	Branch       string
+	PRUrl        string
+	StartedAt    time.Time
+	IssueID      model.IssueID
+	RunID        model.RunID
 }
 
 func runViewOf(run *model.Run) runView {
 	return runView{
-		Status:    run.Status,
-		Agent:     run.Agent,
-		Branch:    run.Branch,
-		PRUrl:     run.PRUrl,
-		StartedAt: run.StartedAt,
-		IssueID:   run.IssueID,
-		RunID:     run.RunID,
+		Status:       run.Status,
+		StatusReason: run.StatusReason(),
+		Agent:        run.Agent,
+		Branch:       run.Branch,
+		PRUrl:        run.PRUrl,
+		StartedAt:    run.StartedAt,
+		IssueID:      run.IssueID,
+		RunID:        run.RunID,
 	}
 }
 
@@ -48,13 +54,27 @@ func runViewOf(run *model.Run) runView {
 // lease pacing) stays on RunState itself — when to observe is mechanism,
 // what an observation means is policy.
 type runCore struct {
-	LastOutput     string
-	LastOutputAt   time.Time
-	OutputHash     string
-	PromptStreak   int
+	LastOutput   string
+	LastOutputAt time.Time
+	OutputHash   string
+	// ReadingKind/ReadingStreak are the kind-tagged input-request streak
+	// (run-state-machine.md §9.2): ReadingKind ∈ {"", "prompt",
+	// "gate:<kind>"}; consecutive captures with the same reading advance the
+	// streak, any different reading (including "" = busy/none) resets it.
+	// Both are ephemeral by law (§7 D-C1): reset on restart, delay-only.
+	ReadingKind    string
+	ReadingStreak  int
 	PRRecorded     bool
 	WasAlive       bool
 	DeadCheckCount int
+	// AliveObserver is the ObserverID of the most recent successful
+	// alive/capture observation ("" = none since restart); DeadCheckObserver
+	// owns the current dead-check streak (run-state-machine.md §10.2). Both
+	// are ephemeral by law (§7 D-C1): a restart may soften or delay a
+	// would-be failed into unknown(observer_unverified) — never strengthen
+	// (L7').
+	AliveObserver     string
+	DeadCheckObserver string
 }
 
 // initialRunCore derives the fold-derivable runCore fields from the run's
@@ -126,6 +146,10 @@ type agentSignal struct {
 	APILimited    bool
 	Failed        bool
 	PromptShowing bool
+	// Gate is the interactive-gate kind detected on this capture ("" =
+	// none), produced by AgentManager.DetectGate (O4e). The busy-marker veto
+	// is applied gather-side, identically to PromptShowing.
+	Gate string
 }
 
 // gitEvidence is the raw fact set for a dead-session verdict, gathered by
@@ -199,6 +223,15 @@ type runObservation struct {
 
 	// obsSessionGone / obsGitEvidence
 	Remote bool
+
+	// obsSessionAlive / obsSessionGone: identity of the observing channel
+	// instance (worker:<id>:<nonce> / local:<nonce>; "" = legacy channel
+	// without observer context, which can never attest — §10.2).
+	Observer string
+	// obsSessionGone: observation-side gone classification
+	// (session_absent / server_absent / unclassified). Diagnostic payload
+	// only — the verification predicate is attestation, not the class.
+	GoneClass string
 
 	// obsCaptured
 	Output string
@@ -290,6 +323,11 @@ func stepRun(view runView, core runCore, obs runObservation, now time.Time) (run
 	case obsSessionAlive:
 		core.WasAlive = true
 		core.DeadCheckCount = 0
+		core.DeadCheckObserver = ""
+		// A successful observation attests the channel for this run (L11b):
+		// only the channel that last saw the run alive may pronounce the
+		// no-evidence death verdicts.
+		core.AliveObserver = obs.Observer
 		return core, nil
 	case obsSessionGone:
 		return stepSessionGone(view, core, obs)
@@ -392,11 +430,19 @@ func stepPRState(view runView, core runCore, obs runObservation) (runCore, []run
 }
 
 func stepSessionGone(view runView, core runCore, obs runObservation) (runCore, []runEffect) {
-	core.DeadCheckCount++
+	// L11a streak continuity: a dead-check streak is evidence only within a
+	// single observer generation. A gone observation from a different
+	// observer restarts the streak at 1 and re-owns it.
+	if obs.Observer != core.DeadCheckObserver {
+		core.DeadCheckObserver = obs.Observer
+		core.DeadCheckCount = 1
+	} else {
+		core.DeadCheckCount++
+	}
 
 	if obs.Remote {
 		if core.DeadCheckCount < deadChecksBeforeFailed {
-			return core, []runEffect{logEffect("%s#%s: remote session not found on worker (check %d/%d)", view.IssueID, view.RunID, core.DeadCheckCount, deadChecksBeforeFailed)}
+			return core, []runEffect{logEffect("%s#%s: remote session not found on worker (check %d/%d, observer=%s, class=%s)", view.IssueID, view.RunID, core.DeadCheckCount, deadChecksBeforeFailed, obs.Observer, obs.GoneClass)}
 		}
 		// The session is gone on the execution host. A gone session must
 		// never mask completed work: ask for PR/git evidence before any
@@ -444,7 +490,13 @@ func stepGitEvidence(view runView, core runCore, obs runObservation, now time.Ti
 	}
 
 	// No evidence-based verdict. The fallback differs by channel and
-	// liveness history (run-state-machine.md §3).
+	// liveness history (run-state-machine.md §3), and every no-evidence
+	// death verdict additionally requires attestation (L11b): the channel
+	// pronouncing death must be the channel that last saw this run alive.
+	// N consecutive not-founds from a channel that never saw this run alive
+	// is testimony, not evidence (§10.1, I9).
+	attested := core.DeadCheckObserver != "" && core.DeadCheckObserver == core.AliveObserver
+
 	if obs.Remote {
 		if !core.WasAlive {
 			if withinNeverAliveGraceAt(view.StartedAt, now) {
@@ -456,6 +508,9 @@ func stepGitEvidence(view runView, core runCore, obs runObservation, now time.Ti
 			}
 			effects = append(effects, setStatusReasonEffect(model.StatusUnknown, model.StatusReasonNeverAlive))
 			return core, effects
+		}
+		if !attested {
+			return core, appendUnattestedVerdict(view, core, effects)
 		}
 		effects = append(effects, logEffect("%s#%s: remote agent confirmed dead after %d checks, marking failed", view.IssueID, view.RunID, core.DeadCheckCount))
 		effects = append(effects, setStatusEffect(model.StatusFailed))
@@ -482,6 +537,9 @@ func stepGitEvidence(view runView, core runCore, obs runObservation, now time.Ti
 		return core, effects
 	}
 
+	if !attested {
+		return core, appendUnattestedVerdict(view, core, effects)
+	}
 	if view.Agent == "opencode" {
 		effects = append(effects, logEffect("%s#%s: opencode session not found after %d checks, marking unknown", view.IssueID, view.RunID, core.DeadCheckCount))
 		effects = append(effects, setStatusReasonEffect(model.StatusUnknown, model.StatusReasonSessionLost))
@@ -490,6 +548,19 @@ func stepGitEvidence(view runView, core runCore, obs runObservation, now time.Ti
 	effects = append(effects, logEffect("%s#%s: agent confirmed dead after %d checks, marking failed", view.IssueID, view.RunID, core.DeadCheckCount))
 	effects = append(effects, setStatusEffect(model.StatusFailed))
 	return core, effects
+}
+
+// appendUnattestedVerdict is the L11c arm: the dead-check threshold passed
+// through a channel that never observed this run alive, so the standing
+// evidence supports at most unknown(observer_unverified) — never failed.
+// Recovery is automatic: unknown is non-terminal, and any successful capture
+// re-attests the channel and resumes normal inference.
+func appendUnattestedVerdict(view runView, core runCore, effects []runEffect) []runEffect {
+	if view.Status != model.StatusUnknown || view.StatusReason != model.StatusReasonObserverUnverified {
+		effects = append(effects, logEffect("%s#%s: session gone after %d checks, but observer %q never saw this run alive (last alive observer %q) — marking unknown, not failed",
+			view.IssueID, view.RunID, core.DeadCheckCount, core.DeadCheckObserver, core.AliveObserver))
+	}
+	return append(effects, setStatusReasonEffect(model.StatusUnknown, model.StatusReasonObserverUnverified))
 }
 
 // gitVerdict evaluates the evidence ladder. It returns "" when the evidence
@@ -564,9 +635,14 @@ func stepCaptured(view runView, core runCore, obs runObservation, now time.Time)
 	contentHash := hashContent(obs.Output)
 	outputChanged := contentHash != core.OutputHash
 
-	hasPrompt := obs.Signal.PromptShowing
-	streak, hasStablePrompt := recordPromptStreak(core.PromptStreak, hasPrompt)
-	core.PromptStreak = streak
+	reading := inputReading(obs.Signal)
+	kind, streak, confirmed := recordInputReadingStreak(core.ReadingKind, core.ReadingStreak, reading)
+	core.ReadingKind = kind
+	core.ReadingStreak = streak
+	confirmedReading := ""
+	if confirmed {
+		confirmedReading = reading
+	}
 
 	if outputChanged {
 		core.OutputHash = contentHash
@@ -578,8 +654,8 @@ func stepCaptured(view runView, core runCore, obs runObservation, now time.Time)
 	if len(hashPreview) > 8 {
 		hashPreview = hashPreview[:8]
 	}
-	effects = append(effects, debugEffect("%s#%s: pane hash=%s changed=%t prompt=%t stable_prompt=%t streak=%d",
-		view.IssueID, view.RunID, hashPreview, outputChanged, hasPrompt, hasStablePrompt, core.PromptStreak))
+	effects = append(effects, debugEffect("%s#%s: pane hash=%s changed=%t reading=%q confirmed=%q streak=%d",
+		view.IssueID, view.RunID, hashPreview, outputChanged, reading, confirmedReading, core.ReadingStreak))
 
 	if prURL := detectPRURL(obs.Output); prURL != "" && !core.PRRecorded {
 		core.PRRecorded = true
@@ -591,10 +667,10 @@ func stepCaptured(view runView, core runCore, obs runObservation, now time.Time)
 		return core, effects
 	}
 
-	newStatus, reason := agentVerdict(view, obs.Signal, outputChanged, hasStablePrompt)
-	if newStatus != "" && newStatus != view.Status {
+	newStatus, reason := agentVerdict(view, obs.Signal, outputChanged, confirmedReading)
+	if newStatus != "" && (newStatus != view.Status || reason != view.StatusReason) {
 		effects = append(effects,
-			logEffect("%s#%s: status change %s -> %s", view.IssueID, view.RunID, view.Status, newStatus),
+			logEffect("%s#%s: status change %s -> %s", view.IssueID, view.RunID, view.Status, statusWithReason(newStatus, reason)),
 			runEffect{Kind: effectSetStatus, Status: newStatus, Output: obs.Output, Reason: reason},
 		)
 	}
@@ -602,14 +678,53 @@ func stepCaptured(view runView, core runCore, obs runObservation, now time.Time)
 	return core, effects
 }
 
+// inputReading classifies a capture's input-request reading (§9.2): a gate
+// outranks the generic prompt heuristics (L10b), busy/none is "".
+func inputReading(sig agentSignal) string {
+	if sig.Gate != "" {
+		return "gate:" + sig.Gate
+	}
+	if sig.PromptShowing {
+		return "prompt"
+	}
+	return ""
+}
+
+// gateStatusReason is the machine-readable reason family for confirmed gate
+// readings: `gate_<kind>` (run-state-machine.md §5 status reasons).
+func gateStatusReason(kind string) string {
+	return "gate_" + kind
+}
+
+// statusWithReason renders a status plus its non-empty reason for log lines.
+func statusWithReason(status model.Status, reason string) string {
+	if reason == "" {
+		return string(status)
+	}
+	return fmt.Sprintf("%s(%s)", status, reason)
+}
+
 // agentVerdict applies the agent-specific reading of a captured output. For
 // resolved signals (opencode) the gatherer already produced the verdict; for
-// mux agents the historical MuxManager.GetStatus precedence applies.
-// The second return value is the machine-readable reason for the verdict
-// (model.AttrStatusReason); empty for self-explanatory statuses.
-func agentVerdict(view runView, sig agentSignal, outputChanged, hasStablePrompt bool) (model.Status, string) {
+// mux agents the reading precedence is L10b:
+//
+//	busy veto > gate > {exited, completed, api-limited, failed} > prompt
+//	          > output-changed
+//
+// A gate reading present on this capture masks every lower reading even
+// before its streak confirms (a curated conjunctive row outranks the loose
+// generic heuristics); the waiting verdict itself only fires once confirmed
+// (L10a). The second return value is the machine-readable reason for the
+// verdict (model.AttrStatusReason); empty for self-explanatory statuses.
+func agentVerdict(view runView, sig agentSignal, outputChanged bool, confirmedReading string) (model.Status, string) {
 	if sig.Resolved {
 		return sig.Status, ""
+	}
+	if sig.Gate != "" {
+		if confirmedReading == "gate:"+sig.Gate {
+			return model.StatusWaiting, gateStatusReason(sig.Gate)
+		}
+		return "", ""
 	}
 	switch {
 	case sig.Exited:
@@ -620,7 +735,7 @@ func agentVerdict(view runView, sig agentSignal, outputChanged, hasStablePrompt 
 		return model.StatusRateLimited, ""
 	case sig.Failed:
 		return model.StatusFailed, ""
-	case hasStablePrompt:
+	case confirmedReading == "prompt":
 		return model.StatusWaiting, ""
 	case outputChanged:
 		return model.StatusRunning, ""

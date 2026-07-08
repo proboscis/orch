@@ -29,10 +29,14 @@ func commitRunStatus(st store.Store, run *model.Run, status model.Status, reason
 	var fromStatus model.Status
 	if currentRun, err := st.GetRun(ref); err == nil && currentRun != nil {
 		fromStatus = currentRun.Status
-		// Re-affirming the current status is a no-op: appending duplicate
-		// status events bloats the run record and churns UpdatedAt, which
-		// breaks recency display/sorting for every client.
-		if fromStatus == status {
+		// Re-affirming the current (status, reason) pair is a no-op:
+		// appending duplicate status events bloats the run record and churns
+		// UpdatedAt, which breaks recency display/sorting for every client.
+		// The no-op identity is the PAIR (§9.3 D-G1): a run already waiting
+		// on its normal prompt that then hits a gate must not keep a stale
+		// reason forever, so a confirmed reading change re-appends and fires
+		// the listener once (L8/L10c).
+		if fromStatus == status && currentRun.StatusReason() == reason {
 			return fromStatus, false, nil
 		}
 		if !model.CanTransitionStatus(currentRun.Status, status, model.EventSourceDaemon) {
