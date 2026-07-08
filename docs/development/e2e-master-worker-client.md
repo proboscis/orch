@@ -51,9 +51,9 @@ Automation-first entrypoint for same-machine target-host simulation:
 
 - `scripts/e2e-master-worker-client-target-local.sh`
 
-Parameterized automation entrypoint for the real Zeus full flow:
+Parameterized automation entrypoint for the real the remote host full flow:
 
-- `scripts/e2e-master-worker-client-zeus.sh`
+- `scripts/e2e-master-worker-client-remote-full.sh`
 
 For targets that need custom SSH flags or a nonstandard port, prefer passing a
 full command via `TARGET_SSH_CMD` instead of relying on a simple host alias.
@@ -270,47 +270,47 @@ chmod -R u+w "$ROOT" || true
 rm -rf "$ROOT"
 ```
 
-## 8) Zeus Full Flow (Master + Worker + Run + PR + Close + Stop)
+## 8) the remote host Full Flow (Master + Worker + Run + PR + Close + Stop)
 
 Use this when you want a true end-to-end check against a real remote host.
 
 Automation entrypoint:
 
-- `scripts/e2e-master-worker-client-zeus.sh`
+- `scripts/e2e-master-worker-client-remote-full.sh`
 
 Target used in examples:
 
-- host: `zeus`
+- host: `<remote-host>`
 - repo: `/home/user/repos/doeff`
 - issues path: use the actual `issues.path` from `/home/user/repos/doeff/.orch/config.yaml`
   (for example `/home/user/repos/doeff-VAULT`)
 
 ```bash
 TS="$(date +%Y%m%d-%H%M%S)"
-ISSUE_ID="zeus-e2e-$TS"
+ISSUE_ID="<remote-host>-e2e-$TS"
 RUN_ID="$TS-sample"
-E2E_ROOT="/tmp/orch-zeus-e2e-$TS"
+E2E_ROOT="/tmp/orch-<remote-host>-e2e-$TS"
 
-ssh zeus "mkdir -p $E2E_ROOT/runtime $E2E_ROOT/state $E2E_ROOT/data"
+ssh <remote-host> "mkdir -p $E2E_ROOT/runtime $E2E_ROOT/state $E2E_ROOT/data"
 
 ENV_PREFIX="XDG_RUNTIME_DIR=$E2E_ROOT/runtime XDG_STATE_HOME=$E2E_ROOT/state XDG_DATA_HOME=$E2E_ROOT/data XDG_CONFIG_HOME=$E2E_ROOT/config"
 
-# launch master and worker on Zeus
-ssh zeus "$ENV_PREFIX orch master start"
-ssh zeus "$ENV_PREFIX orch worker start"
-ssh zeus "$ENV_PREFIX orch master status"
-ssh zeus "$ENV_PREFIX orch worker status"
+# launch master and worker on the remote host
+ssh <remote-host> "$ENV_PREFIX orch master start"
+ssh <remote-host> "$ENV_PREFIX orch worker start"
+ssh <remote-host> "$ENV_PREFIX orch master status"
+ssh <remote-host> "$ENV_PREFIX orch worker status"
 
 # create sample issue
-ssh zeus "cat > /home/user/repos/doeff-VAULT/issues/$ISSUE_ID.md <<'EOF'
+ssh <remote-host> "cat > /home/user/repos/doeff-VAULT/issues/$ISSUE_ID.md <<'EOF'
 ---
 type: issue
 id: $ISSUE_ID
-title: Zeus E2E sample
+title: the remote host E2E sample
 status: open
 ---
 
-# Zeus E2E sample
+# the remote host E2E sample
 EOF"
 
 # register repo mapping for strict project_id routing
@@ -319,40 +319,40 @@ EOF"
 # If the managed clone created from the repo URL does not contain the required
 # project config (for example `.orch/config.yaml` is not committed), register
 # the operational project root instead.
-ssh zeus "$ENV_PREFIX orch daemon repo register /home/user/repos/doeff"
+ssh <remote-host> "$ENV_PREFIX orch daemon repo register /home/user/repos/doeff"
 
 # runtime commands use repo identity scope
 PROJECT_ID="proboscis-doeff"
 
 # run with custom agent that makes a commit and creates a PR
-ssh zeus "cat > /tmp/orch-zeus-agent-$ISSUE_ID.sh <<'EOF'
+ssh <remote-host> "cat > /tmp/orch-<remote-host>-agent-$ISSUE_ID.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 mkdir -p e2e
 cat > e2e/$ISSUE_ID.md <<'EOT'
-# Zeus E2E sample change
+# the remote host E2E sample change
 EOT
 git add e2e/$ISSUE_ID.md
-git commit -m 'chore(e2e): sample zeus run $ISSUE_ID'
+git commit -m 'chore(e2e): sample <remote-host> run $ISSUE_ID'
 git push -u origin HEAD
 branch=$(git rev-parse --abbrev-ref HEAD)
-gh pr create --repo proboscis/doeff --title 'chore(e2e): sample zeus run $ISSUE_ID' --body 'Automated sample PR from Zeus manual E2E.' --base main --head "$branch"
+gh pr create --repo proboscis/doeff --title 'chore(e2e): sample <remote-host> run $ISSUE_ID' --body 'Automated sample PR from the remote host manual E2E.' --base main --head "$branch"
 EOF
-chmod +x /tmp/orch-zeus-agent-$ISSUE_ID.sh"
+chmod +x /tmp/orch-<remote-host>-agent-$ISSUE_ID.sh"
 
-ssh zeus "$ENV_PREFIX bash -lc 'cd /home/user/repos/doeff && orch --project $PROJECT_ID run $ISSUE_ID --run-id $RUN_ID --agent custom --agent-cmd '\\''bash /tmp/orch-zeus-agent-$ISSUE_ID.sh'\\'' --json'"
+ssh <remote-host> "$ENV_PREFIX bash -lc 'cd /home/user/repos/doeff && orch --project $PROJECT_ID run $ISSUE_ID --run-id $RUN_ID --agent custom --agent-cmd '\\''bash /tmp/orch-<remote-host>-agent-$ISSUE_ID.sh'\\'' --json'"
 
 # find and close the sample PR
 BRANCH="issue/$ISSUE_ID/run-$RUN_ID"
-ssh zeus "gh pr list --repo proboscis/doeff --head $BRANCH --state open --json number,url"
-ssh zeus "gh pr close <PR_NUMBER> --repo proboscis/doeff --comment 'Closing sample Zeus E2E PR.' --delete-branch"
+ssh <remote-host> "gh pr list --repo proboscis/doeff --head $BRANCH --state open --json number,url"
+ssh <remote-host> "gh pr close <PR_NUMBER> --repo proboscis/doeff --comment 'Closing sample the remote host E2E PR.' --delete-branch"
 
 # stop the run at the end
-ssh zeus "$ENV_PREFIX orch --project $PROJECT_ID stop $ISSUE_ID#$RUN_ID --force"
+ssh <remote-host> "$ENV_PREFIX orch --project $PROJECT_ID stop $ISSUE_ID#$RUN_ID --force"
 
 # cleanup
-ssh zeus "rm -f /home/user/repos/doeff-VAULT/issues/$ISSUE_ID.md /tmp/orch-zeus-agent-$ISSUE_ID.sh"
-ssh zeus "$ENV_PREFIX orch worker stop --all"
+ssh <remote-host> "rm -f /home/user/repos/doeff-VAULT/issues/$ISSUE_ID.md /tmp/orch-<remote-host>-agent-$ISSUE_ID.sh"
+ssh <remote-host> "$ENV_PREFIX orch worker stop --all"
 ```
 
 Expected outcomes:
@@ -362,7 +362,7 @@ Expected outcomes:
 - a PR is created for the run branch
 - PR is closed successfully
 - `orch stop <issue#run>` succeeds
-- If you run Zeus in an isolated XDG sandbox, include `XDG_CONFIG_HOME` in the
+- If you run the remote host in an isolated XDG sandbox, include `XDG_CONFIG_HOME` in the
   environment prefix; otherwise daemon project mappings from `~/.config/orch/projects`
   may leak into the test
 - For file-backend projects whose config is not committed into the repo clone,
@@ -398,22 +398,22 @@ Minimum acceptance criteria:
 
 If you only run `docs/development/e2e-master-worker-client.md`, backend coverage is incomplete.
 
-## 10) Zeus Master + Mac Target Flow (`--on mac`)
+## 10) the remote host Master + Mac Target Flow (`--on mac`)
 
 Use this when you want to verify the case where the control plane stays on
-Zeus, but the run itself executes on a Mac target instead of on Zeus.
+the remote host, but the run itself executes on a Mac target instead of on the remote host.
 
 Additional prerequisites:
 
-- Zeus-side project config includes a `targets` entry for the target Mac
-- the SSH host alias resolves from Zeus before running orch
+- the remote host-side project config includes a `targets` entry for the target Mac
+- the SSH host alias resolves from the remote host before running orch
 - the target Mac has the same project cloned locally
 - the target Mac has the required runtime dependencies installed (`git`, chosen
   multiplexer, agent binary)
 - the target Mac runs one long-lived `orch-worker` for that host/profile
 - the target Mac has a local repo registration for the same `project_id`
 
-Example target config on Zeus:
+Example target config on the remote host:
 
 ```yaml
 targets:
@@ -436,8 +436,8 @@ RUN_ID="$TS-mac"
 PROJECT_ID="proboscis-doeff"
 BRANCH="issue/$ISSUE_ID/run-$RUN_ID"
 
-# create sample issue in the Zeus-backed issue store
-ssh zeus "cat > /home/user/repos/doeff-VAULT/issues/$ISSUE_ID.md <<'EOF'
+# create sample issue in the the remote host-backed issue store
+ssh <remote-host> "cat > /home/user/repos/doeff-VAULT/issues/$ISSUE_ID.md <<'EOF'
 ---
 type: issue
 id: $ISSUE_ID
@@ -448,21 +448,21 @@ status: open
 # Mac target E2E sample
 EOF"
 
-# ensure Zeus resolves project identity to the operational root it should use
-ssh zeus 'orch daemon repo register /home/user/repos/doeff'
+# ensure the remote host resolves project identity to the operational root it should use
+ssh <remote-host> 'orch daemon repo register /home/user/repos/doeff'
 
-# ensure the target Mac worker is connected to Zeus
+# ensure the target Mac worker is connected to the remote host
 # normal case: start the default host worker on the target host
 ssh mac 'orch --remote= daemon repo register /Users/<user>/repos/doeff'
-ssh mac 'ORCH_REMOTE=zeus:7777 orch worker start'
-ssh mac 'ORCH_REMOTE=zeus:7777 orch worker status'
+ssh mac 'ORCH_REMOTE=<remote-host>:7777 orch worker start'
+ssh mac 'ORCH_REMOTE=<remote-host>:7777 orch worker status'
 
 # run on the Mac target
 #
-# Run from the operational project root on Zeus so the daemon can discover the
+# Run from the operational project root on the remote host so the daemon can discover the
 # correct project config for local-mode CLI execution before dispatching to the
 # remote target.
-ssh zeus "cd /home/user/repos/doeff && orch --project $PROJECT_ID run $ISSUE_ID \
+ssh <remote-host> "cd /home/user/repos/doeff && orch --project $PROJECT_ID run $ISSUE_ID \
   --run-id $RUN_ID \
   --on mac \
   --agent custom \
@@ -470,16 +470,16 @@ ssh zeus "cd /home/user/repos/doeff && orch --project $PROJECT_ID run $ISSUE_ID 
   --json"
 
 # verify the run is tracked as a Mac-targeted run
-ssh zeus "orch --project $PROJECT_ID ps --issue $ISSUE_ID --json"
-ssh zeus "orch --project $PROJECT_ID show $ISSUE_ID#$RUN_ID --json"
+ssh <remote-host> "orch --project $PROJECT_ID ps --issue $ISSUE_ID --json"
+ssh <remote-host> "orch --project $PROJECT_ID show $ISSUE_ID#$RUN_ID --json"
 
 # optional but recommended: capture the remote session output
-ssh zeus "orch --project $PROJECT_ID capture $ISSUE_ID#$RUN_ID"
+ssh <remote-host> "orch --project $PROJECT_ID capture $ISSUE_ID#$RUN_ID"
 
 # stop and clean up
-ssh zeus "orch --project $PROJECT_ID stop $ISSUE_ID#$RUN_ID --force"
-ssh mac 'ORCH_REMOTE=zeus:7777 orch worker stop --all'
-ssh zeus "rm -f /home/user/repos/doeff-VAULT/issues/$ISSUE_ID.md"
+ssh <remote-host> "orch --project $PROJECT_ID stop $ISSUE_ID#$RUN_ID --force"
+ssh mac 'ORCH_REMOTE=<remote-host>:7777 orch worker stop --all'
+ssh <remote-host> "rm -f /home/user/repos/doeff-VAULT/issues/$ISSUE_ID.md"
 ```
 
 Expected outcomes:
@@ -493,7 +493,7 @@ Expected outcomes:
 - repeated `orch worker start` on the Mac target should not create duplicate
   workers for the same host/profile
 - `orch worker status` on the Mac target should show the Mac local process state
-  and the Zeus registration state for the same worker profile
+  and the the remote host registration state for the same worker profile
 - If the target host cannot resolve the requested multiplexer in its remote SSH
   PATH, expect session creation to fail with `failed to create tmux session` or
   the equivalent multiplexer error
@@ -501,7 +501,7 @@ Expected outcomes:
 This is the minimum manual check for the user story:
 
 ```text
-master = zeus
+master = <remote-host>
 run target = mac
 ```
 
@@ -513,9 +513,9 @@ run target = mac
 - For file-backend projects, ensure the issue file is created under the actual
   `issues.path` configured for the project being tested.
 - For `--on mac` validation, ensure the target host has a local repo mapping for
-  the same `project_id`. A repo identity mapping on Zeus does not provision the
+  the same `project_id`. A repo identity mapping on the remote host does not provision the
   worker host automatically.
-- For `--on mac`, verify plain SSH first from Zeus (`ssh <target> 'command -v tmux; hostname'`)
+- For `--on mac`, verify plain SSH first from the remote host (`ssh <target> 'command -v tmux; hostname'`)
   before attributing failures to orch itself.
 - If the target host identity in config (`targets[].host`) does not match the hostname
   the worker auto-detects, start the worker with an explicit `--worker-id` that

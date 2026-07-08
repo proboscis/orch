@@ -28,7 +28,7 @@ func TestShouldAutoStartDaemonForCommand(t *testing.T) {
 		want       bool
 	}{
 		{name: "run local autostarts", cmd: run, remoteAddr: "", want: true},
-		{name: "run remote skips autostart", cmd: run, remoteAddr: "zeus:7777", want: false},
+		{name: "run remote skips autostart", cmd: run, remoteAddr: "remotebox:7777", want: false},
 		{name: "master start skips autostart", cmd: start, remoteAddr: "", want: false},
 		{name: "master command skips autostart", cmd: master, remoteAddr: "", want: false},
 		{name: "issue list keeps existing skip behavior", cmd: list, remoteAddr: "", want: false},

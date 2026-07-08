@@ -26,7 +26,7 @@ func newCodexProfileConfig() *config.Config {
 			// "CA-20022388" so AllowedTargets is matched against target names,
 			// not hostnames.
 			{Name: "mac", Host: "CA-20022388"},
-			{Name: "zeus", Host: "zeus"},
+			{Name: "remotebox", Host: "remotebox"},
 		},
 	}
 }
@@ -78,15 +78,15 @@ func TestApplyCodexProfile_UnknownProfileFailsFast(t *testing.T) {
 
 func TestApplyCodexProfile_DisallowedTargetFailsFast(t *testing.T) {
 	cfg := newCodexProfileConfig()
-	// Company profile only allows mac, but caller pins target=zeus.
-	opts := &StartRunOptions{Agent: "codex", CodexProfile: "company", Target: "zeus"}
+	// Company profile only allows mac, but caller pins target=remotebox.
+	opts := &StartRunOptions{Agent: "codex", CodexProfile: "company", Target: "remotebox"}
 
 	err := applyCodexProfile(cfg, opts)
 	if err == nil {
-		t.Fatal("expected fail-fast for company profile on disallowed target zeus, got nil")
+		t.Fatal("expected fail-fast for company profile on disallowed target remotebox, got nil")
 	}
-	if !strings.Contains(err.Error(), "company") || !strings.Contains(err.Error(), "zeus") {
-		t.Errorf("error = %q, want it to name profile company and target zeus", err.Error())
+	if !strings.Contains(err.Error(), "company") || !strings.Contains(err.Error(), "remotebox") {
+		t.Errorf("error = %q, want it to name profile company and target remotebox", err.Error())
 	}
 }
 
@@ -221,17 +221,17 @@ func TestApplyCodexProfileContinue_RestartCompanyEnforcesAndCarriesCodexHome(t *
 }
 
 // Restart-from must fail fast if the inherited/overridden target is disallowed
-// for the profile (e.g. a company run somehow pointed at zeus).
+// for the profile (e.g. a company run somehow pointed at remotebox).
 func TestApplyCodexProfileContinue_RestartDisallowedTargetFailsFast(t *testing.T) {
 	cfg := newCodexProfileConfig()
-	opts := &ContinueRunOptions{CodexProfile: "company", Target: "zeus"}
+	opts := &ContinueRunOptions{CodexProfile: "company", Target: "remotebox"}
 
 	err := applyCodexProfileContinue(cfg, opts, "codex", "")
 	if err == nil {
-		t.Fatal("expected fail-fast restarting company run onto zeus, got nil")
+		t.Fatal("expected fail-fast restarting company run onto remotebox, got nil")
 	}
-	if !strings.Contains(err.Error(), "company") || !strings.Contains(err.Error(), "zeus") {
-		t.Errorf("error = %q, want it to name profile company and target zeus", err.Error())
+	if !strings.Contains(err.Error(), "company") || !strings.Contains(err.Error(), "remotebox") {
+		t.Errorf("error = %q, want it to name profile company and target remotebox", err.Error())
 	}
 }
 
@@ -330,23 +330,23 @@ func TestResolveControlCodexHome_AllowedLocalHostSetsCodexHome(t *testing.T) {
 	}
 }
 
-// On a disallowed local host (zeus), a company control agent must FAIL FAST and
-// return NO CODEX_HOME (the company account must not launch on zeus).
+// On a disallowed local host (remotebox), a company control agent must FAIL FAST and
+// return NO CODEX_HOME (the company account must not launch on remotebox).
 func TestResolveControlCodexHome_DisallowedLocalHostFailsFast(t *testing.T) {
 	t.Setenv("HOME", "/home/tester")
 	cfg := newCodexProfileConfig() // company profile: target mac, allowed_targets [mac]
 
-	// Local daemon host resolves to the "zeus" target (host zeus).
+	// Local daemon host resolves to the "remotebox" target (host remotebox).
 	origHost := currentDaemonHostname
-	currentDaemonHostname = func() (string, error) { return "zeus", nil }
+	currentDaemonHostname = func() (string, error) { return "remotebox", nil }
 	t.Cleanup(func() { currentDaemonHostname = origHost })
 
 	home, err := resolveControlCodexHome(cfg, "codex")
 	if err == nil {
-		t.Fatal("expected fail-fast for company control agent on zeus, got nil")
+		t.Fatal("expected fail-fast for company control agent on remotebox, got nil")
 	}
-	if !strings.Contains(err.Error(), "company") || !strings.Contains(err.Error(), "zeus") {
-		t.Errorf("error = %q, want it to name profile company and target zeus", err.Error())
+	if !strings.Contains(err.Error(), "company") || !strings.Contains(err.Error(), "remotebox") {
+		t.Errorf("error = %q, want it to name profile company and target remotebox", err.Error())
 	}
 	if home != "" {
 		t.Errorf("CODEX_HOME = %q, want empty on disallowed host (must not hand back company home)", home)
@@ -454,37 +454,37 @@ func TestApplyCodexProfile_NonCodexAgentPreservesIncomingTarget(t *testing.T) {
 	// master projection reading the raw request target).
 	cfg := newCodexProfileConfig()
 	cfg.Agent = "opencode"
-	opts := &StartRunOptions{Agent: "custom", Target: "zeus"}
+	opts := &StartRunOptions{Agent: "custom", Target: "remotebox"}
 
 	if err := applyCodexProfile(cfg, opts); err != nil {
 		t.Fatalf("applyCodexProfile error: %v", err)
 	}
-	if opts.Target != "zeus" {
-		t.Errorf("opts.Target = %q, want zeus (caller target preserved for non-codex agent)", opts.Target)
+	if opts.Target != "remotebox" {
+		t.Errorf("opts.Target = %q, want remotebox (caller target preserved for non-codex agent)", opts.Target)
 	}
 }
 
 func TestApplyCodexProfile_CodexWithoutProfilePreservesIncomingTarget(t *testing.T) {
 	cfg := &config.Config{Agent: "codex"} // codex but no profiles / default_profile
-	opts := &StartRunOptions{Agent: "codex", Target: "zeus"}
+	opts := &StartRunOptions{Agent: "codex", Target: "remotebox"}
 
 	if err := applyCodexProfile(cfg, opts); err != nil {
 		t.Fatalf("applyCodexProfile error: %v", err)
 	}
-	if opts.Target != "zeus" {
-		t.Errorf("opts.Target = %q, want zeus (caller target preserved without profile)", opts.Target)
+	if opts.Target != "remotebox" {
+		t.Errorf("opts.Target = %q, want remotebox (caller target preserved without profile)", opts.Target)
 	}
 }
 
 func TestApplyCodexProfileContinue_NonCodexAgentPreservesIncomingTarget(t *testing.T) {
 	cfg := newCodexProfileConfig()
-	opts := &ContinueRunOptions{Target: "zeus"}
+	opts := &ContinueRunOptions{Target: "remotebox"}
 
 	if err := applyCodexProfileContinue(cfg, opts, "claude", ""); err != nil {
 		t.Fatalf("applyCodexProfileContinue error: %v", err)
 	}
-	if opts.Target != "zeus" {
-		t.Errorf("opts.Target = %q, want zeus (prior run target preserved for non-codex agent)", opts.Target)
+	if opts.Target != "remotebox" {
+		t.Errorf("opts.Target = %q, want remotebox (prior run target preserved for non-codex agent)", opts.Target)
 	}
 }
 
@@ -507,24 +507,24 @@ func newClaudeProfileConfig() *config.Config {
 	return &config.Config{
 		Agent: "claude",
 		Claude: config.ClaudeConfig{
-			DefaultProfile: "ca",
+			DefaultProfile: "corp",
 			Profiles: map[string]config.ClaudeProfile{
-				"ca": {
+				"corp": {
 					Target:         "mac",
 					AllowedTargets: []string{"mac"},
 					// no config_dir: ca lives at the agent default (~/.claude)
 				},
-				"cryptic": {
-					ConfigDir: "~/.config/claude-cryptic",
+				"work": {
+					ConfigDir: "~/.config/claude-work",
 				},
 				"personal": {
-					ConfigDir: "~/.config/claude-nameissoap",
+					ConfigDir: "~/.config/claude-personal",
 				},
 			},
 		},
 		Targets: []config.TargetConfig{
 			{Name: "mac", Host: "CA-20022388"},
-			{Name: "zeus", Host: "zeus"},
+			{Name: "remotebox", Host: "remotebox"},
 		},
 	}
 }
@@ -536,7 +536,7 @@ func TestApplyClaudeProfile_DefaultProfileInjectsTarget(t *testing.T) {
 	if err := applyClaudeProfile(cfg, opts); err != nil {
 		t.Fatalf("applyClaudeProfile error: %v", err)
 	}
-	if opts.AgentProfile != "ca" {
+	if opts.AgentProfile != "corp" {
 		t.Errorf("opts.AgentProfile = %q, want ca (default profile written back)", opts.AgentProfile)
 	}
 	if opts.Target != "mac" {
@@ -550,28 +550,28 @@ func TestApplyClaudeProfile_DefaultProfileInjectsTarget(t *testing.T) {
 func TestApplyClaudeProfile_ExplicitProfileCarriesConfigDirVerbatim(t *testing.T) {
 	t.Setenv("HOME", t.TempDir()) // must NOT leak into the config dir
 	cfg := newClaudeProfileConfig()
-	opts := &StartRunOptions{Agent: "claude", AgentProfile: "cryptic", Target: "zeus"}
+	opts := &StartRunOptions{Agent: "claude", AgentProfile: "work", Target: "remotebox"}
 
 	if err := applyClaudeProfile(cfg, opts); err != nil {
 		t.Fatalf("applyClaudeProfile error: %v", err)
 	}
-	if opts.ClaudeConfigDir != "~/.config/claude-cryptic" {
-		t.Errorf("opts.ClaudeConfigDir = %q, want ~/.config/claude-cryptic verbatim (execution host expands ~)", opts.ClaudeConfigDir)
+	if opts.ClaudeConfigDir != "~/.config/claude-work" {
+		t.Errorf("opts.ClaudeConfigDir = %q, want ~/.config/claude-work verbatim (execution host expands ~)", opts.ClaudeConfigDir)
 	}
-	if opts.Target != "zeus" {
-		t.Errorf("opts.Target = %q, want zeus (unconstrained profile keeps caller target)", opts.Target)
+	if opts.Target != "remotebox" {
+		t.Errorf("opts.Target = %q, want remotebox (unconstrained profile keeps caller target)", opts.Target)
 	}
 }
 
 func TestApplyClaudeProfile_DisallowedTargetFailsFast(t *testing.T) {
 	cfg := newClaudeProfileConfig()
-	opts := &StartRunOptions{Agent: "claude", AgentProfile: "ca", Target: "zeus"}
+	opts := &StartRunOptions{Agent: "claude", AgentProfile: "corp", Target: "remotebox"}
 
 	err := applyClaudeProfile(cfg, opts)
 	if err == nil {
-		t.Fatal("expected fail-fast launching ca profile on zeus, got nil")
+		t.Fatal("expected fail-fast launching corp profile on remotebox, got nil")
 	}
-	if !strings.Contains(err.Error(), "zeus") {
+	if !strings.Contains(err.Error(), "remotebox") {
 		t.Errorf("error = %q, want it to mention the disallowed target", err.Error())
 	}
 }
@@ -588,12 +588,12 @@ func TestApplyClaudeProfile_UnknownProfileFailsFast(t *testing.T) {
 func TestApplyClaudeProfile_NonClaudeAgentIsUntouched(t *testing.T) {
 	cfg := newClaudeProfileConfig()
 	cfg.Agent = "codex"
-	opts := &StartRunOptions{Agent: "codex", AgentProfile: "anything", Target: "zeus"}
+	opts := &StartRunOptions{Agent: "codex", AgentProfile: "anything", Target: "remotebox"}
 
 	if err := applyClaudeProfile(cfg, opts); err != nil {
 		t.Fatalf("applyClaudeProfile error: %v", err)
 	}
-	if opts.AgentProfile != "anything" || opts.Target != "zeus" || opts.ClaudeConfigDir != "" {
+	if opts.AgentProfile != "anything" || opts.Target != "remotebox" || opts.ClaudeConfigDir != "" {
 		t.Errorf("non-claude agent must be untouched, got AgentProfile=%q Target=%q ClaudeConfigDir=%q", opts.AgentProfile, opts.Target, opts.ClaudeConfigDir)
 	}
 }
@@ -615,12 +615,12 @@ func TestApplyClaudeProfile_NoProfilesConfiguredIsNoOp(t *testing.T) {
 // prior run (opts.Agent is empty).
 func TestApplyClaudeProfileContinue_RestartCarriesConfigDir(t *testing.T) {
 	cfg := newClaudeProfileConfig()
-	opts := &ContinueRunOptions{AgentProfile: "personal", Target: "zeus"}
+	opts := &ContinueRunOptions{AgentProfile: "personal", Target: "remotebox"}
 
 	if err := applyClaudeProfileContinue(cfg, opts, "claude", ""); err != nil {
 		t.Fatalf("applyClaudeProfileContinue error: %v", err)
 	}
-	if opts.ClaudeConfigDir != "~/.config/claude-nameissoap" {
+	if opts.ClaudeConfigDir != "~/.config/claude-personal" {
 		t.Errorf("opts.ClaudeConfigDir = %q, want personal config dir verbatim on restart", opts.ClaudeConfigDir)
 	}
 }
@@ -635,16 +635,16 @@ func TestApplyClaudeProfileContinue_InheritedProfileOverridesDefault(t *testing.
 	if opts.AgentProfile != "personal" {
 		t.Errorf("opts.AgentProfile = %q, want inherited personal profile", opts.AgentProfile)
 	}
-	if opts.ClaudeConfigDir != "~/.config/claude-nameissoap" {
+	if opts.ClaudeConfigDir != "~/.config/claude-personal" {
 		t.Errorf("opts.ClaudeConfigDir = %q, want inherited personal config dir", opts.ClaudeConfigDir)
 	}
 }
 
 func TestApplyClaudeProfileContinue_RestartDisallowedTargetFailsFast(t *testing.T) {
 	cfg := newClaudeProfileConfig()
-	opts := &ContinueRunOptions{AgentProfile: "ca", Target: "zeus"}
+	opts := &ContinueRunOptions{AgentProfile: "corp", Target: "remotebox"}
 
 	if err := applyClaudeProfileContinue(cfg, opts, "claude", ""); err == nil {
-		t.Fatal("expected fail-fast restarting ca claude run onto zeus, got nil")
+		t.Fatal("expected fail-fast restarting corp claude run onto remotebox, got nil")
 	}
 }

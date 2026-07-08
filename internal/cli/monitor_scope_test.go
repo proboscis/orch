@@ -48,7 +48,7 @@ func TestResolveMonitorProjectScopeRemoteDropsImplicitCWDProject(t *testing.T) {
 	origRemote := globalOpts.Remote
 	origFlag := remoteFlagWasSet
 	globalOpts.Project = ""
-	globalOpts.Remote = "zeus:7777"
+	globalOpts.Remote = "remotebox:7777"
 	remoteFlagWasSet = true
 	t.Cleanup(func() {
 		globalOpts.Project = origProject
@@ -75,7 +75,7 @@ func TestResolveMonitorProjectScopeRemoteKeepsExplicitProject(t *testing.T) {
 	origRemote := globalOpts.Remote
 	origFlag := remoteFlagWasSet
 	globalOpts.Project = "example-" + filepath.Base(repo)
-	globalOpts.Remote = "zeus:7777"
+	globalOpts.Remote = "remotebox:7777"
 	remoteFlagWasSet = true
 	t.Cleanup(func() {
 		globalOpts.Project = origProject

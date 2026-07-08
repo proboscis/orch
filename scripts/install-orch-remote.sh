@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REMOTE_HOST="${REMOTE_HOST:-zeus}"
+REMOTE_HOST="${REMOTE_HOST:?set REMOTE_HOST to the ssh host of the remote master}"
 REMOTE_INSTALL_DIR="${REMOTE_INSTALL_DIR:-~/.local/bin}"
 REMOTE_TMP="/tmp/orch.$USER.$$"
 TMP_BIN="$(mktemp "${TMPDIR:-/tmp}/orch-linux-amd64.XXXXXX")"

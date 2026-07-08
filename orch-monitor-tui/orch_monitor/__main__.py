@@ -345,7 +345,7 @@ def _resolve_local_control_agent_command(
     if isinstance(config_result, Failure):
         failure_msg = str(config_result.failure())
         # The daemon enforces the codex profile's allowed_targets against the
-        # local host. A policy denial (e.g. company control agent on zeus) must
+        # local host. A policy denial (e.g. a company control agent on a personal host) must
         # be surfaced and must NOT fall back to launching on the wrong host.
         # Generic/transient RPC failures remain fallback-eligible for resilience.
         if _is_codex_profile_denial(failure_msg):

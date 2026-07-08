@@ -235,7 +235,7 @@ class TestControlAgentHostConstraintFailFast:
         mock_daemon.is_available.return_value = True
         mock_daemon.get_control_agent_config.return_value = Failure(
             'codex profile "company" may only run on targets [mac], '
-            'not local host (target "zeus"); the control agent runs locally'
+            'not local host (target "remotebox"); the control agent runs locally'
         )
         return mock_daemon
 
@@ -254,7 +254,7 @@ class TestControlAgentHostConstraintFailFast:
                 agent_override="",
             )
         assert "company" in str(exc.value)
-        assert "zeus" in str(exc.value)
+        assert "remotebox" in str(exc.value)
 
     def test_tmux_launch_does_not_send_agent_command_on_denial(self):
         from orch_monitor.__main__ import (
@@ -289,7 +289,7 @@ class TestControlAgentHostConstraintFailFast:
                 )
 
         # Fail-fast happens before any tmux session/pane is created or any agent
-        # command is sent — the company codex account must not launch on zeus.
+        # command is sent — the company codex account must not launch on remotebox.
         assert not any("new-session" in cmd for cmd in commands_sent)
         assert not any("send-keys" in cmd for cmd in commands_sent)
 

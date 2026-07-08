@@ -75,7 +75,7 @@ func TestWorkerProfileDefaultDistributedDoesNotRegisterEmbeddedWorker(t *testing
 
 func TestWorkerSchedulingUsesExplicitExternalWorkersOnly(t *testing.T) {
 	orig := currentHostname
-	currentHostname = func() (string, error) { return "zeus", nil }
+	currentHostname = func() (string, error) { return "remotebox", nil }
 	t.Cleanup(func() { currentHostname = orig })
 
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
@@ -83,22 +83,22 @@ func TestWorkerSchedulingUsesExplicitExternalWorkersOnly(t *testing.T) {
 		t.Fatal("expected no implicit workers in distributed profile")
 	}
 
-	if _, ttl := server.registerWorker("host-zeus", "external", "localhost", "external", []string{"stop_run"}); ttl <= 0 {
+	if _, ttl := server.registerWorker("host-remotebox", "external", "localhost", "external", []string{"stop_run"}); ttl <= 0 {
 		t.Fatal("expected positive heartbeat ttl for external registration")
 	}
 	lease, err := server.acquireWorkerLease("project-test", "stop_run", "issue-x", "run-x", nil)
 	if err != nil {
 		t.Fatalf("acquireWorkerLease() error = %v", err)
 	}
-	if lease.WorkerID != "host-zeus" {
-		t.Fatalf("lease worker = %q, want host-zeus", lease.WorkerID)
+	if lease.WorkerID != "host-remotebox" {
+		t.Fatalf("lease worker = %q, want host-remotebox", lease.WorkerID)
 	}
 }
 
 func TestWorkerSchedulingPrefersTargetNamedWorker(t *testing.T) {
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
-	if _, ttl := server.registerWorker("host-zeus", "external", "zeus", "external", []string{"start_run"}); ttl <= 0 {
-		t.Fatal("expected positive heartbeat ttl for zeus worker")
+	if _, ttl := server.registerWorker("host-remotebox", "external", "remotebox", "external", []string{"start_run"}); ttl <= 0 {
+		t.Fatal("expected positive heartbeat ttl for remotebox worker")
 	}
 	targetWorkerID := HostWorkerID("mac-host")
 	if _, ttl := server.registerWorker(targetWorkerID, "external", "mac-host", "external", []string{"start_run"}); ttl <= 0 {
@@ -117,8 +117,8 @@ func TestWorkerSchedulingPrefersTargetNamedWorker(t *testing.T) {
 
 func TestWorkerSchedulingFailsWhenTargetWorkerMissing(t *testing.T) {
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
-	if _, ttl := server.registerWorker("host-zeus", "external", "zeus", "external", []string{"start_run"}); ttl <= 0 {
-		t.Fatal("expected positive heartbeat ttl for zeus worker")
+	if _, ttl := server.registerWorker("host-remotebox", "external", "remotebox", "external", []string{"start_run"}); ttl <= 0 {
+		t.Fatal("expected positive heartbeat ttl for remotebox worker")
 	}
 
 	payload := &WorkerEffectPayload{StartRun: &StartRunOptions{Target: "mac", TargetHost: "mac-host", TargetWorkerID: HostWorkerID("mac-host")}}

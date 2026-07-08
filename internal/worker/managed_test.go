@@ -67,7 +67,7 @@ func TestStartManagedFailsFastWhenProcessExitsBeforeRegister(t *testing.T) {
 		return nil, nil
 	}
 
-	_, err := StartManaged(ManagedOptions{WorkerID: "worker-fail", RemoteAddr: "zeus:7777"})
+	_, err := StartManaged(ManagedOptions{WorkerID: "worker-fail", RemoteAddr: "remotebox:7777"})
 	if err == nil {
 		t.Fatal("expected StartManaged to fail")
 	}
@@ -75,7 +75,7 @@ func TestStartManagedFailsFastWhenProcessExitsBeforeRegister(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	status, err := StatusManaged(ManagedOptions{WorkerID: "worker-fail", RemoteAddr: "zeus:7777"})
+	status, err := StatusManaged(ManagedOptions{WorkerID: "worker-fail", RemoteAddr: "remotebox:7777"})
 	if err != nil {
 		t.Fatalf("StatusManaged() error = %v", err)
 	}
@@ -99,7 +99,7 @@ func TestStartStatusStopManagedUsesPersistentLocalState(t *testing.T) {
 	managedWorkerLaunchConfig = helperManagedWorkerLaunchConfig("registered")
 	lookupManagedWorkerRegistration = lookupRegistrationFromManagedState
 
-	opts := ManagedOptions{WorkerID: "worker-live", RemoteAddr: "zeus:7777"}
+	opts := ManagedOptions{WorkerID: "worker-live", RemoteAddr: "remotebox:7777"}
 	start, err := StartManaged(opts)
 	if err != nil {
 		t.Fatalf("StartManaged() error = %v", err)
@@ -171,7 +171,7 @@ func TestStatusManagedReportsUnmanagedRegistration(t *testing.T) {
 		}, nil
 	}
 
-	status, err := StatusManaged(ManagedOptions{WorkerID: "worker-unmanaged", RemoteAddr: "zeus:7777"})
+	status, err := StatusManaged(ManagedOptions{WorkerID: "worker-unmanaged", RemoteAddr: "remotebox:7777"})
 	if err != nil {
 		t.Fatalf("StatusManaged() error = %v", err)
 	}
@@ -187,7 +187,7 @@ func TestMergeManagedEnvScrubsMultiplexerVars(t *testing.T) {
 	profile := managedProfile{
 		StatePath:  "/tmp/state.json",
 		PIDPath:    "/tmp/worker.pid",
-		RemoteAddr: "zeus:7777",
+		RemoteAddr: "remotebox:7777",
 		LogPath:    "/tmp/worker.log",
 	}
 	env := mergeManagedEnv(
