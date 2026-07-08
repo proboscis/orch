@@ -89,14 +89,21 @@ Some models support variants for different configurations:
 
 ## How orch uses OpenCode
 
-When starting a run, orch:
+Unlike other agents, OpenCode runs as a headless HTTP server — the prompt is
+never passed on the command line, and there is no `--variant` CLI flag. When
+starting a run, orch:
 
-1. Creates a tmux session
-2. Changes to the worktree directory
-3. Launches opencode with model and prompt:
+1. Creates the worktree and writes `ORCH_PROMPT.md` into it
+2. Starts an OpenCode server in the worktree:
    ```bash
-   opencode --model anthropic/claude-opus-4-5 --variant max "prompt..."
+   opencode serve --port <port> --hostname 0.0.0.0
    ```
+3. Waits for the server's health endpoint, creates a session over the HTTP API,
+   and injects the prompt — together with the resolved model and variant — via
+   an HTTP message
+
+`orch attach` opens the OpenCode TUI connected to the running server
+(`opencode attach http://127.0.0.1:<port>`).
 
 ## Agent Detection
 
@@ -126,15 +133,15 @@ opencode:
   default_variant: default
 
 presets:
-  thorough:
-    agent: opencode
+  - name: thorough
+    backend: opencode
     model: anthropic/claude-opus-4-5
-    model_variant: max
-  
-  fast:
-    agent: opencode
+    variant: max
+
+  - name: fast
+    backend: opencode
     model: anthropic/claude-sonnet-4
-    model_variant: fast
+    variant: fast
 ```
 
 Use presets:
@@ -279,33 +286,15 @@ Check system resources and try with a smaller model variant.
 
 ## Advanced Configuration
 
-### Custom environment
+### Extra CLI arguments
+
+Pass additional flags to the `opencode serve` command:
 
 ```yaml
 opencode:
-  env:
-    ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-    OPENCODE_CONFIG: ~/.opencode/config.yaml
-```
-
-### Model-specific settings
-
-Configure different prompts for different models:
-
-```yaml
-opencode:
-  default_model: anthropic/claude-opus-4-5
-  
-  model_settings:
-    "anthropic/claude-opus-4-5":
-      prompt_template: |
-        ultrawork Be thorough and comprehensive.
-        {{issue}}
-    
-    "anthropic/claude-sonnet-4":
-      prompt_template: |
-        Be concise but complete.
-        {{issue}}
+  extra_args:
+    - --log-level
+    - DEBUG
 ```
 
 ## Comparison with Claude

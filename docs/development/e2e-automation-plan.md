@@ -108,19 +108,19 @@ Goal: preserve an operator procedure when automation contracts are unavailable.
 
 Manual docs remain:
 
-- [docs/e2e-master-worker-client.md](./e2e-master-worker-client.md)
-- [docs/e2e-backend-matrix.md](./e2e-backend-matrix.md)
+- [docs/development/e2e-master-worker-client.md](./e2e-master-worker-client.md)
+- [docs/development/e2e-backend-matrix.md](./e2e-backend-matrix.md)
 
 ## Mapping From Manual Sections
 
 | Manual section | Automatable | Lane | Entrypoint |
 |---|---|---|---|
-| `docs/e2e-master-worker-client.md` 1-5b | yes | PR CI | `scripts/e2e-master-worker-client-local.sh` |
-| `docs/e2e-master-worker-client.md` 6 | yes | PR CI | `scripts/e2e-master-worker-client-remote-smoke.sh` |
-| `docs/e2e-master-worker-client.md` 7 | yes | PR CI | handled by each script cleanup |
-| `docs/e2e-master-worker-client.md` 8 | yes | Nightly / Lab | `scripts/e2e-master-worker-client-zeus.sh` |
-| `docs/e2e-master-worker-client.md` 9 | yes | PR CI + Nightly / Lab | `scripts/e2e-backend-matrix-smoke.sh` |
-| `docs/e2e-master-worker-client.md` 10 | yes | PR CI + Nightly / Lab | `scripts/e2e-master-worker-client-target-local.sh`, `scripts/e2e-master-worker-client-target.sh` |
+| `docs/development/e2e-master-worker-client.md` 1-5b | yes | PR CI | `scripts/e2e-master-worker-client-local.sh` |
+| `docs/development/e2e-master-worker-client.md` 6 | yes | PR CI | `scripts/e2e-master-worker-client-remote-smoke.sh` |
+| `docs/development/e2e-master-worker-client.md` 7 | yes | PR CI | handled by each script cleanup |
+| `docs/development/e2e-master-worker-client.md` 8 | yes | Nightly / Lab | `scripts/e2e-master-worker-client-zeus.sh` |
+| `docs/development/e2e-master-worker-client.md` 9 | yes | PR CI + Nightly / Lab | `scripts/e2e-backend-matrix-smoke.sh` |
+| `docs/development/e2e-master-worker-client.md` 10 | yes | PR CI + Nightly / Lab | `scripts/e2e-master-worker-client-target-local.sh`, `scripts/e2e-master-worker-client-target.sh` |
 
 ## Exit Criteria
 

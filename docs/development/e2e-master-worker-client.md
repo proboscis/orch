@@ -28,8 +28,8 @@ Backend-specific run/attach/send/capture behavior is covered by the companion ch
 
 Treat both files together as the complete manual E2E suite:
 
-- `docs/e2e-master-worker-client.md`
-- `docs/e2e-backend-matrix.md`
+- `docs/development/e2e-master-worker-client.md`
+- `docs/development/e2e-backend-matrix.md`
 
 Automation lane planning lives in:
 
@@ -385,7 +385,7 @@ Use:
 
 ```bash
 # companion checklist
-sed -n '1,260p' docs/e2e-backend-matrix.md
+sed -n '1,260p' docs/development/e2e-backend-matrix.md
 ```
 
 Minimum acceptance criteria:
@@ -396,7 +396,7 @@ Minimum acceptance criteria:
 - `claude`: `run`, `capture`, `send`, `stop`
 - `codex`: `run`, `capture`, `send`, `stop`
 
-If you only run `docs/e2e-master-worker-client.md`, backend coverage is incomplete.
+If you only run `docs/development/e2e-master-worker-client.md`, backend coverage is incomplete.
 
 ## 10) Zeus Master + Mac Target Flow (`--on mac`)
 

@@ -117,7 +117,7 @@ multiplexer: tmux
 # =============================================================================
 
 issues:
-  # Backend type: local, github, or linear
+  # Backend type: local or github
   backend: local
   
   # For local backend: path to issues directory
@@ -171,14 +171,6 @@ github:
   owner: your-org
   repo: your-repo
   poll_interval: 300  # seconds between polling for updates
-
-# =============================================================================
-# LINEAR BACKEND (when issues.backend: linear)
-# =============================================================================
-
-linear:
-  team_id: YOUR_TEAM_ID
-  api_key: ${LINEAR_API_KEY}  # Use environment variable
 
 # =============================================================================
 # NOTIFICATIONS
@@ -245,18 +237,16 @@ control_model_variant: default
 # =============================================================================
 
 presets:
-  opus-max:
-    agent: opencode
+  - name: opus-max
+    backend: opencode
     model: anthropic/claude-opus-4-5
-    model_variant: max
-  
-  sonnet-fast:
-    agent: opencode
+    variant: max
+  - name: sonnet-fast
+    backend: opencode
     model: anthropic/claude-sonnet-4
-    model_variant: default
-  
-  codex-high:
-    agent: codex
+    variant: default
+  - name: codex-high
+    backend: codex
     model: o3
 ```
 
@@ -269,7 +259,7 @@ All settings can be configured via environment variables:
 | `ORCH_PROJECT` | Project identity (repo ID or URL) | `your-org-your-repo` |
 | `ORCH_REMOTE` | Remote daemon address | `master-host:7777` |
 | `ORCH_AGENT` | Default agent | `claude` |
-| `ORCH_BACKEND` | Backend type | `file` |
+| `ORCH_ISSUES_BACKEND` | Issue store backend (`local` or `github`) | `local` |
 | `ORCH_MODEL` | Default model | `anthropic/claude-opus-4-5` |
 | `ORCH_MODEL_VARIANT` | Model variant | `max` |
 | `ORCH_MULTIPLEXER` | Terminal multiplexer | `tmux` |
@@ -423,11 +413,11 @@ opencode:
   default_variant: default
 
 presets:
-  fast:
+  - name: fast
     model: anthropic/claude-sonnet-4
-  thorough:
+  - name: thorough
     model: anthropic/claude-opus-4-5
-    model_variant: max
+    variant: max
 ```
 
 Use presets:

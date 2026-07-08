@@ -2,8 +2,6 @@
 
 Gemini is Google's AI assistant. orch supports Gemini CLI as an agent option.
 
-> **Note:** Gemini support is currently in development. Some features may not be fully implemented.
-
 ## Prerequisites
 
 Install the Gemini CLI:
@@ -50,10 +48,14 @@ When starting a run, orch:
 
 1. Creates a tmux session
 2. Changes to the worktree directory
-3. Launches gemini with the prompt:
+3. Launches gemini in yolo mode with the prompt:
    ```bash
-   gemini "Your prompt here..."
+   gemini --yolo --prompt-interactive "Your prompt here..."
    ```
+
+`--yolo` is the default for autonomous operation (replaced entirely if
+`gemini.extra_args` is configured), and the prompt is passed via
+`--prompt-interactive` so the session stays interactive after the initial task.
 
 ## Environment Variables
 

@@ -14,7 +14,7 @@ Common flags across `orch` commands:
 
 | Flag | Description |
 |------|-------------|
-| `--backend` | `file`, `github`, or `linear` |
+| `--backend` | Issue store backend: `local` or `github` |
 | `--project` | Project identity / normalized repo ID |
 | `--remote` | Remote daemon address (same as `ORCH_REMOTE`) |
 | `--json` | JSON output |

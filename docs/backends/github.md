@@ -25,6 +25,23 @@ github:
   poll_interval: 300  # Check for updates every 5 minutes
 ```
 
+### Full reference
+
+The `github` section supports exactly these keys:
+
+```yaml
+github:
+  owner: your-org        # GitHub repository owner (required)
+  repo: your-repo        # GitHub repository name (required)
+  label_filter: orch     # Only sync issues carrying this label (optional)
+  poll_interval: 300     # Seconds between GitHub polls (default: 300)
+  status_labels:         # Map GitHub labels to orch issue statuses (optional)
+    "status:resolved": resolved
+```
+
+See [Label Filtering](#label-filtering) and [Status Labels](#status-labels)
+below for what `label_filter` and `status_labels` do.
+
 ### Authentication
 
 The GitHub backend uses the `gh` CLI for authentication. Ensure you're logged in:
@@ -51,146 +68,88 @@ Required token permissions:
 
 ### Starting a run from GitHub Issue
 
-```bash
-# Use the issue number
-orch run 42
+Issues synced from GitHub get orch IDs of the form `gh-<number>`:
 
-# Or the full issue reference
-orch run my-org/my-repo#42
+```bash
+# Run GitHub issue #42
+orch run gh-42
 ```
 
 ### Listing issues
 
 ```bash
-# List open issues
+# List synced issues
 orch issue list
 
-# Filter by label
-orch issue list --label bug
+# Filter by status
+orch issue list --status open
 
-# Filter by assignee
-orch issue list --assignee @me
+# Force a refresh from GitHub
+orch issue sync
 ```
 
 ### How it works
 
-1. `orch run 42` fetches issue #42 from GitHub
-2. Creates a worktree and branch as usual
-3. Agent works on the issue
-4. When agent creates a PR, it references the issue
-5. Run status updates can optionally be posted as comments
+1. The daemon polls GitHub every `poll_interval` seconds (default: 300) and caches issues locally
+2. `orch run gh-42` resolves issue #42 from the local cache
+3. Creates a worktree and branch as usual
+4. Agent works on the issue
+5. When the agent creates a PR, it can reference the issue (e.g. `Closes #42`)
 
-## Issue Labels
+## Label Filtering
 
-You can use labels to organize and filter issues:
-
-```bash
-# Run issues with specific label
-orch run --label orch-ready 42
-```
-
-Configure auto-labels in config:
+`label_filter` restricts which GitHub issues orch sees. It is a single label
+name:
 
 ```yaml
 github:
   owner: my-org
   repo: my-repo
-  labels:
-    ready: "orch:ready"      # Issues ready for agents
-    in_progress: "orch:wip"  # Issue has active run
-    done: "orch:done"        # Completed by agent
+  label_filter: orch   # Only sync issues carrying the "orch" label
 ```
+
+When set:
+
+- Syncing (the daemon's polling loop, `orch issue sync`) only fetches issues
+  that carry this label
+- `orch issue create` automatically adds this label to new GitHub issues, so
+  issues created through orch stay visible to orch
+
+## Status Labels
+
+`status_labels` maps GitHub label names to orch issue statuses (`open`,
+`resolved`, `closed`). During sync, an issue carrying a mapped label takes
+the mapped status instead of the plain GitHub open/closed state:
+
+```yaml
+github:
+  owner: my-org
+  repo: my-repo
+  status_labels:
+    "status:resolved": resolved
+    "status:archived": closed
+```
+
+With this config, a GitHub issue labeled `status:resolved` shows up as
+`resolved` in `orch issue list` even while it is still open on GitHub.
+Issues with no mapped label fall back to `open` (GitHub open) or `closed`
+(GitHub closed).
 
 ## Pull Request Integration
 
-When an agent creates a PR:
-
-- PR description references the issue: `Closes #42`
-- Run status links to the PR
-- Issue can be auto-closed when PR merges
-
-Configure PR behavior:
-
-```yaml
-github:
-  owner: my-org
-  repo: my-repo
-  pr:
-    auto_link: true      # Link PR to issue
-    auto_close: true     # Close issue on PR merge
-    target_branch: main  # Default PR target
-```
-
-## Status Updates
-
-Optionally post run status as issue comments:
-
-```yaml
-github:
-  owner: my-org
-  repo: my-repo
-  comments:
-    enabled: true
-    on_start: true      # Comment when run starts
-    on_waiting: true     # Comment when input needed
-    on_complete: true   # Comment with results
-```
-
-Example comment:
-
-```markdown
-🤖 **orch run started**
-
-- Run ID: `20260120-163045`
-- Agent: claude
-- Branch: `issue/42/run-20260120-163045`
-
-Status: running
-```
-
-## Filtering Issues
-
-### By labels
-
-```yaml
-github:
-  owner: my-org
-  repo: my-repo
-  filter:
-    labels:
-      - bug
-      - enhancement
-    exclude_labels:
-      - wontfix
-      - duplicate
-```
-
-### By milestone
-
-```yaml
-github:
-  filter:
-    milestone: "v2.0"
-```
-
-### By assignee
-
-```yaml
-github:
-  filter:
-    assignee: "@me"  # Issues assigned to authenticated user
-```
+When an agent creates a PR whose description references the issue (e.g.
+`Closes #42`), GitHub automatically closes the issue when the PR merges.
+The PR itself is tracked on the run — `orch ps` shows it in the PR column.
 
 ## Run Storage
 
-Even with GitHub backend, run logs are stored locally:
+Even with GitHub backend, run records are stored locally in the issues root
+(`issues.path`, or `~/.local/share/orch/<owner>-<repo>` by default):
 
 ```
-.orch/
-├── config.yaml
-├── daemon.log
+<issues root>/
 └── runs/
-    └── 42/
+    └── gh-42/
         └── 20260120-163045.md
 ```
 
@@ -198,22 +157,6 @@ This ensures:
 - Fast access to run history
 - Offline access to logs
 - No GitHub API limits for log access
-
-## Hybrid Mode
-
-Use GitHub for issues but local files for additional context:
-
-```yaml
-issues:
-  backend: github
-  local_context: ./context/  # Additional local markdown files
-
-github:
-  owner: my-org
-  repo: my-repo
-```
-
-Local context files can be referenced in issue prompts but aren't synced to GitHub.
 
 ## Best Practices
 
@@ -226,7 +169,7 @@ Create GitHub issue templates that work well with agents:
 ---
 name: Agent Task
 about: Task for orch agents
-labels: orch:ready
+labels: orch  # Match your label_filter so orch picks the issue up
 ---
 
 ## Summary

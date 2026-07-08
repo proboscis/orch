@@ -8,7 +8,7 @@ These flags work with all commands:
 
 | Flag | Description |
 |------|-------------|
-| `--backend <type>` | Backend type: `file`, `github`, `linear` (default: `file`) |
+| `--backend <type>` | Issue store backend: `local`, `github` (normally set via `issues.backend` in config) |
 | `--project <id-or-url>` | Project identity (repo ID or git remote URL, or `ORCH_PROJECT`) |
 | `--remote <addr>` | Connect to remote daemon address (or `ORCH_REMOTE`) |
 | `--json` | Output in JSON format |
@@ -28,6 +28,7 @@ These flags work with all commands:
 | 5 | Agent launch error |
 | 6 | Run not found |
 | 7 | Question not found |
+| 8 | Run ended |
 | 10 | Internal error |
 
 ---
@@ -130,19 +131,21 @@ orch run ISSUE_ID [flags]
 | `--agent-cmd <cmd>` | Custom agent command (with `--agent custom`) |
 | `--base-branch <branch>` | Base branch for worktree (default: `main`) |
 | `--branch <name>` | Branch name (default: `issue/<ID>/run-<RUN_ID>`) |
+| `--codex-profile <name>` | Codex execution profile from config (`codex.profiles`) |
 | `--dry-run` | Show what would be done without doing it |
 | `--model <model>` | Model for opencode (e.g., `anthropic/claude-opus-4-5`) |
 | `--model-variant <variant>` | Model variant (e.g., `max`) |
 | `--multiplexer <type>` | Terminal multiplexer: `tmux`, `zellij` |
 | `--new` | Always create a new run (default) |
 | `--no-pr` | Skip PR creation instructions in prompt |
+| `--on <target>` | Target name from config targets for remote execution |
 | `--preset <name>` | Use named preset from config |
 | `--profile <name>` | Agent profile |
 | `--prompt-template <file>` | Custom prompt template file |
 | `--reuse` | Reuse latest run if waiting |
 | `--run-id <id>` | Manually specify run ID |
+| `--session-name <name>` | Session name (default: `run-<ISSUE>-<RUN>`) |
 | `--tmux` | Run in tmux session (default: true) |
-| `--tmux-session <name>` | Session name |
 | `-v, --verbose` | Enable debug output |
 
 ### Examples
@@ -179,12 +182,14 @@ orch restart-from RUN_REF|ISSUE_ID [flags]
 | `--agent <type>` | Agent type |
 | `--agent-cmd <cmd>` | Custom agent command |
 | `--branch <name>` | Restart from existing branch |
+| `--codex-profile <name>` | Codex execution profile from config (`codex.profiles`; default: prior run's profile) |
 | `--issue <id>` | Issue ID (with `--branch`) |
+| `--multiplexer <type>` | Terminal multiplexer: `tmux`, `zellij` |
 | `--no-pr` | Skip PR creation instructions |
 | `--profile <name>` | Agent profile |
 | `--prompt-template <file>` | Custom prompt template |
+| `--session-name <name>` | Session name (default: `run-<ISSUE>-<RUN>`) |
 | `--tmux` | Run in tmux (default: true) |
-| `--tmux-session <name>` | Session name |
 
 ### Examples
 
@@ -221,6 +226,9 @@ orch ps [flags]
 | `--since <timestamp>` | Show runs since timestamp |
 | `--absolute-time` | Show absolute timestamps |
 | `--all` | Include resolved runs |
+| `--no-alive` | Skip agent alive checks for faster listing |
+| `--no-git` | Skip git merge state checks for faster listing |
+| `-v, --verbose` | Show additional debug info (daemon log location) |
 
 When `ps.default_statuses` is active, plain table output ends with status counts for
 runs excluded by that default filter. `--all` and explicit `--status` bypass the
@@ -269,7 +277,6 @@ orch show RUN_REF [flags]
 | Flag | Description |
 |------|-------------|
 | `--tail <n>` | Number of events to show (default: 80) |
-| `--questions` | Show only unanswered questions |
 | `--events-only` | Show only events |
 
 ### Examples
@@ -383,6 +390,32 @@ EOF
 
 ---
 
+## orch wait
+
+Block until any specified run needs attention.
+
+```bash
+orch wait RUN_REF [RUN_REF...] [flags]
+```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--timeout <seconds>` | Timeout in seconds (0 = unlimited) |
+
+### Examples
+
+```bash
+# Wait for the latest run of an issue
+orch wait my-issue
+
+# Wait for several runs with a 10-minute timeout
+orch wait abc123 def456 --timeout 600
+```
+
+---
+
 ## orch capture
 
 Capture current output from a running agent.
@@ -422,9 +455,12 @@ orch issue create ISSUE_ID [flags]
 
 | Flag | Description |
 |------|-------------|
-| `--title <title>` | Issue title |
-| `--body <body>` | Issue body |
-| `--edit` | Open in editor after creation |
+| `-t, --title <title>` | Issue title |
+| `-b, --body <body>` | Issue body |
+| `-s, --summary <text>` | Short summary for display (~50 chars) |
+| `--base-branch <branch>` | Base branch new runs for this issue branch off of |
+| `--tag <tags>` | Tags for the issue (repeatable, comma-separated) |
+| `-e, --edit` | Open in editor after creation |
 
 #### Examples
 
@@ -448,8 +484,96 @@ orch issue list [flags]
 
 | Flag | Description |
 |------|-------------|
-| `--status <status>` | Filter by status |
-| `--with-runs` | Show active runs for each issue |
+| `-s, --status <status>` | Filter by status (open, closed, resolved) |
+| `--tag <tags>` | Filter by tag (AND logic, repeatable) |
+| `--tag-any <tags>` | Filter by any tag (OR logic, comma-separated) |
+| `--no-path` | Hide the PATH column |
+
+### orch issue show
+
+Show issue details.
+
+```bash
+orch issue show ISSUE_ID [flags]
+```
+
+#### Flags
+
+| Flag | Description |
+|------|-------------|
+| `-w, --web` | Open in browser |
+
+### orch issue edit
+
+Edit an issue.
+
+```bash
+orch issue edit ISSUE_ID [flags]
+```
+
+#### Flags
+
+| Flag | Description |
+|------|-------------|
+| `-t, --title <title>` | Update title directly without opening editor |
+
+### orch issue close
+
+Close an issue.
+
+```bash
+orch issue close ISSUE_ID [flags]
+```
+
+#### Flags
+
+| Flag | Description |
+|------|-------------|
+| `-c, --comment <text>` | Add a closing comment |
+
+### orch issue open
+
+Open issue in browser.
+
+```bash
+orch issue open ISSUE_ID
+```
+
+### orch issue sync
+
+Sync issues from GitHub.
+
+```bash
+orch issue sync
+```
+
+---
+
+## orch validate-issue-files
+
+Validate all issue files or a specific issue for proper formatting.
+
+```bash
+orch validate-issue-files [ISSUE_ID] [flags]
+```
+
+Errors (blocking): invalid YAML frontmatter, missing `id` or `title`,
+invalid status, duplicate issue IDs, file/ID mismatch.
+Warnings (non-blocking): missing status, empty body, very long title,
+missing type, unusual characters in ID.
+
+### Examples
+
+```bash
+# Validate all issues
+orch validate-issue-files
+
+# Validate a specific issue
+orch validate-issue-files orch-123
+
+# JSON output for tooling
+orch validate-issue-files --json
+```
 
 ---
 
@@ -502,7 +626,7 @@ orch resolve ISSUE_ID [flags]
 Resume waiting runs.
 
 ```bash
-orch tick RUN_REF|--all [flags]
+orch tick [RUN_REF] [flags]
 ```
 
 ### Flags
@@ -565,7 +689,47 @@ Interactive TUI for monitoring runs.
 
 ```bash
 orch monitor [flags]
+orch monitor [command]
 ```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `-a, --agent <type>` | Control agent to launch in monitor chat pane |
+| `--attach` | Attach to existing monitor session if present |
+| `--issue <id>` | Filter to specific issue |
+| `--new` | Restart layout only, preserving control agent session |
+| `--new-control-agent` | Also restart control agent session (implies `--new` for layout) |
+| `--sort-issues <field>` | Sort issues by: `name`, `status`, `title`, `priority`, `updated` (default: `name`) |
+| `--sort-runs <field>` | Sort runs by: `updated`, `started`, `status`, `issue`, `agent`, `elapsed`, `name` (default: `updated`) |
+| `--status <statuses>` | Filter by status |
+
+### orch monitor list
+
+List running monitor instances.
+
+```bash
+orch monitor list [flags]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--all` | List monitors from all projects |
+| `--json` | Output in JSON format |
+
+### orch monitor kill
+
+Kill monitor instances.
+
+```bash
+orch monitor kill [MONITOR_ID] [flags]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--all` | Kill all monitors for explicit project scope |
+| `--global` | With `--all`, kill monitors from all projects |
 
 ---
 
@@ -646,7 +810,7 @@ orch daemon start
 
 | Flag | Description |
 |------|-------------|
-| `--listen <addr>` | Additional daemon listen address for remote clients (example: `tcp://0.0.0.0:7777`) |
+| `--listen <addr>` | TCP listen address for remote clients (default: `0.0.0.0:7777`) |
 
 ### orch daemon kill
 
@@ -654,6 +818,14 @@ Kill running daemon(s).
 
 ```bash
 orch daemon kill
+```
+
+### orch daemon list
+
+List all running daemons.
+
+```bash
+orch daemon list
 ```
 
 ### orch daemon status
@@ -682,12 +854,107 @@ orch daemon repo list
 
 ---
 
+## orch worker
+
+Manage the orch-worker execution plane.
+
+Workers run as long-lived host managers and execute work assigned by
+orch-master via worker protocol APIs. Single-host mode is implemented as
+co-located daemon+worker with the same semantics as distributed mode.
+
+### orch worker run
+
+Run the long-lived orch-worker host loop.
+
+```bash
+orch worker run [flags]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--heartbeat-interval <dur>` | Worker heartbeat interval (default: `5s`) |
+| `--once` | Process at most one lease before exiting |
+| `--poll-interval <dur>` | Lease poll interval (default: `200ms`) |
+| `--worker-id <id>` | Worker ID for registration |
+
+### orch worker start
+
+Start a managed orch-worker host process.
+
+```bash
+orch worker start [flags]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--worker-id <id>` | Worker ID to start (default: local host worker) |
+
+### orch worker status
+
+Show orch-worker status.
+
+```bash
+orch worker status [flags]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--worker-id <id>` | Worker ID to inspect (default: local host worker) |
+
+### orch worker stop
+
+Stop a managed orch-worker host process.
+
+```bash
+orch worker stop [flags]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--all` | Stop all managed workers |
+| `--worker-id <id>` | Worker ID to stop (default: local host worker) |
+
+---
+
 ## orch debug
 
 Debug a run by showing daemon perspective.
 
 ```bash
 orch debug RUN_REF
+```
+
+---
+
+## orch events
+
+Stream run state transition events emitted by the daemon.
+
+Each event is printed as a single JSON line on stdout. The stream stays
+open until interrupted (Ctrl-C) or the daemon disconnects. Useful for
+building external integrations (status mirrors, custom notifiers) that
+react to run state changes without polling.
+
+```bash
+orch events -f [flags]
+```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `-f, --follow` | Stream events as they occur (required) |
+| `--issue <id>` | Only emit events for this issue ID |
+| `--run <id>` | Only emit events for this run ID |
+
+### Examples
+
+```bash
+# Stream all run state transitions
+orch events -f
+
+# Only events for one issue
+orch events -f --issue my-issue
 ```
 
 ---
@@ -728,6 +995,16 @@ Show setup guide and usage reference.
 
 ```bash
 orch tutorial
+```
+
+---
+
+## orch version
+
+Print orch version information.
+
+```bash
+orch version
 ```
 
 ---

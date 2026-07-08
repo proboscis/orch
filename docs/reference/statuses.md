@@ -19,7 +19,7 @@ stateDiagram-v2
     running --> canceled: orch stop
     running --> unknown: agent exited unexpectedly
 
-    waiting --> running: input provided (orch attach)
+    waiting --> running: input provided (orch send / orch tick)
     waiting --> canceled: orch stop
 
     rate_limited --> running: issue resolved
@@ -77,7 +77,7 @@ Agent needs human input to continue.
 | Aspect | Details |
 |--------|---------|
 | What's happening | Agent asking a question or waiting for decision |
-| User action | `orch attach` to provide input |
+| User action | `orch send` to provide input, or `orch tick` to resume (`orch attach` for direct interaction) |
 | Next status | `running` (after input) |
 
 Common reasons for waiting:
@@ -156,6 +156,20 @@ The daemon detects this by:
 1. No Claude/agent UI elements visible
 2. Shell prompt visible (agent exited to shell)
 
+## Status Reasons
+
+Some status verdicts carry a machine-readable `reason` attribute on the
+status event. `orch ps` renders it inline, e.g. `unknown(never_alive)` or
+`waiting(gate_login)`.
+
+| Status | Reasons | Meaning |
+|--------|---------|---------|
+| `unknown` | `never_alive`, `session_lost`, `agent_exited`, `observer_unverified` | Why observability was lost: agent never seen alive (boot grace expired), backend lost the session, agent exited to shell, or the dead-check fired via an observer that never saw this run alive |
+| `failed` | `launch_<step>` | Launch failed at the named bootstrap step |
+| `waiting` | `gate_<kind>` | Stopped at an interactive gate (e.g. `gate_login`, `gate_trust`) |
+
+See [Event Reference](./events.md) for the full reason vocabulary.
+
 ## Status Queries
 
 ### Filter runs by status
@@ -187,7 +201,7 @@ SELECT
   issue_id,
   run_id,
   status,
-  datetime('now') - created as duration_seconds
+  datetime('now') - started_at as duration_seconds
 FROM runs
 WHERE status = 'running';
 
@@ -262,7 +276,7 @@ slack:
 
 1. Check `orch ps` regularly
 2. Set up Slack notifications for `waiting`
-3. Use `orch attach` to provide input
+3. Use `orch send` to provide input (`orch attach` for direct interaction)
 4. Document common questions in issue templates
 
 ### Handling failed runs

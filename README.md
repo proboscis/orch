@@ -66,7 +66,6 @@ orch attach my-task
 |---------|-------------|
 | [File](./docs/backends/file.md) | Local markdown files (default) |
 | [GitHub](./docs/backends/github.md) | GitHub Issues integration |
-| [Linear](./docs/backends/linear.md) | Linear integration |
 
 ### Agents
 
@@ -120,7 +119,7 @@ User interacts: orch attach my-issue
 
 ## Contributing
 
-See the **[Development Guide](./docs/development.md)** for:
+See the **[Development Guide](./docs/development/README.md)** for:
 - Versioning philosophy (Semver)
 - Trunk-based development workflow
 - Branch naming conventions

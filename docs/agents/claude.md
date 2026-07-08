@@ -54,9 +54,10 @@ When starting a run, orch:
 2. Changes to the worktree directory
 3. Launches claude with the prompt:
    ```bash
-   claude "Your prompt here..."
+   claude --dangerously-skip-permissions [--model <model>] [--effort <variant>] "Your prompt here..."
    ```
 4. By default, uses `--dangerously-skip-permissions` for non-interactive use
+5. Passes the resolved model and variant (if configured) as `--model` and `--effort`
 
 ## Agent Detection
 
@@ -122,17 +123,37 @@ claude:
 
 ## Profiles
 
-Use Claude profiles for different configurations:
+The claude CLI has no `--profile` flag. orch implements profiles by setting the
+`CLAUDE_CONFIG_DIR` environment variable for the agent process: each entry in
+`claude.profiles` binds a profile name to a config directory (a separate Claude
+account/configuration).
+
+```yaml
+claude:
+  # Profile selected when --profile is not given
+  default_profile: work
+  profiles:
+    work:
+      config_dir: ~/.config/claude-work
+    personal:
+      config_dir: ~/.claude
+```
+
+Select a profile per run with orch's `--profile` flag:
 
 ```bash
 orch run --agent claude --profile work my-issue
 ```
 
-Configure default profile:
+Profiles can also pin execution targets (see `.orch/config.example.yaml`):
 
 ```yaml
 claude:
-  profile: work
+  profiles:
+    work:
+      target: remote-worker            # config.targets name; omit to run locally
+      allowed_targets: [remote-worker] # restrict where this profile may run
+      config_dir: ~/.config/claude-work
 ```
 
 ## Permissions
@@ -202,16 +223,29 @@ EOF
 
 ### Permission errors
 
-If Claude keeps asking for permissions:
+orch passes `--dangerously-skip-permissions` by default. If Claude keeps asking
+for permissions, check whether `claude.extra_args` is set in your config —
+configured extra args replace the default flags, so include the permission flag
+yourself:
 
 ```yaml
 claude:
-  skip_permissions: true  # Ensure this is enabled
+  extra_args:
+    - --dangerously-skip-permissions
 ```
 
 ### Model selection
 
-Claude Code automatically uses the appropriate model. Model selection is handled by Claude Code's own configuration, not orch.
+orch passes the resolved model and variant to the claude CLI:
+
+```bash
+claude --dangerously-skip-permissions --model claude-fable-5 --effort high "prompt..."
+```
+
+- `--model` comes from `orch run --model`, a preset `model`, or the top-level `model` config key
+- `--effort` comes from `orch run --model-variant`, a preset `variant`, or the top-level `model_variant` config key (valid values: `low|medium|high|xhigh|max`)
+
+If neither is configured, claude falls back to its own default model.
 
 ### API errors
 
@@ -223,24 +257,18 @@ If you see API rate limits or authentication errors:
 
 ## Advanced Configuration
 
-### Custom startup command
+### Extra CLI arguments
 
-For special requirements:
-
-```yaml
-claude:
-  command: claude --profile work --dangerously-skip-permissions
-```
-
-### Environment variables
-
-Pass environment to Claude:
+For special requirements, pass additional flags to the claude CLI. Note that
+`extra_args` replaces the default flags, so include
+`--dangerously-skip-permissions` yourself if you still want it:
 
 ```yaml
 claude:
-  env:
-    ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-    CLAUDE_CONFIG_DIR: ~/.claude
+  extra_args:
+    - --dangerously-skip-permissions
+    - --add-dir
+    - /path/to/shared
 ```
 
 ### Working with the Claude UI

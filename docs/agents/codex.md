@@ -1,8 +1,6 @@
 # Codex Agent
 
-Codex is OpenAI's coding-focused AI assistant. orch supports Codex as an agent option.
-
-> **Note:** Codex support is currently in development. Some features may not be fully implemented.
+Codex is OpenAI's coding-focused AI assistant. orch supports Codex as a first-class agent.
 
 ## Prerequisites
 
@@ -25,6 +23,16 @@ codex --version
 agent: codex
 ```
 
+### With model configuration
+
+```yaml
+agent: codex
+
+codex:
+  default_model: gpt-5.3-codex
+  default_variant: xhigh  # reasoning effort: low|medium|high|xhigh
+```
+
 ### With custom prompt
 
 ```yaml
@@ -45,6 +53,9 @@ orch run my-issue
 
 # Explicitly specify codex
 orch run --agent codex my-issue
+
+# With specific model and reasoning effort
+orch run --agent codex --model gpt-5.3-codex --model-variant high my-issue
 ```
 
 ## How orch uses Codex
@@ -53,10 +64,17 @@ When starting a run, orch:
 
 1. Creates a tmux session
 2. Changes to the worktree directory  
-3. Launches codex with the prompt:
+3. Launches codex in yolo mode with the prompt:
    ```bash
-   codex "Your prompt here..."
+   codex --yolo [--model <model>] [-c model_reasoning_effort=<variant>] 'Your prompt here...'
    ```
+
+`--yolo` is the default for autonomous operation (replaced entirely if
+`codex.extra_args` is configured). When a model is configured, orch passes it as
+`--model`, stripping any `provider/` prefix from orch-style model IDs
+(`openai/gpt-5.3-codex` becomes `gpt-5.3-codex`). When a variant is configured,
+orch passes it as the reasoning-effort config override
+`-c model_reasoning_effort=<level>` (`low|medium|high|xhigh`).
 
 ## Prompt Best Practices
 
@@ -97,6 +115,41 @@ codex:
     - Follow existing patterns in the codebase
     - Add comments for complex logic
     - Include tests for new functionality
+```
+
+## Profiles
+
+The codex CLI is not passed a profile flag. orch implements profiles by setting
+the `CODEX_HOME` environment variable for the agent process: each entry in
+`codex.profiles` binds a profile name to a `CODEX_HOME` directory, isolating
+authentication (separate Codex accounts).
+
+```yaml
+codex:
+  # Profile selected when --codex-profile is not given
+  default_profile: company
+  profiles:
+    company:
+      codex_home: ~/.codex/profiles/company
+    personal:
+      codex_home: ~/.codex
+```
+
+Select a profile per run with the `--codex-profile` flag:
+
+```bash
+orch run --agent codex --codex-profile personal my-issue
+```
+
+Profiles can also pin execution targets (see `.orch/config.example.yaml`):
+
+```yaml
+codex:
+  profiles:
+    company:
+      target: remote-worker            # config.targets name; omit to run locally
+      allowed_targets: [remote-worker] # restrict where this profile may run
+      codex_home: ~/.codex/profiles/company
 ```
 
 ## Environment Variables

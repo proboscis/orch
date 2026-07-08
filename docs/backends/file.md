@@ -234,9 +234,9 @@ If you keep issues in your repo but don't want to commit run logs:
 issues/runs/
 ```
 
-## Migration from GitHub/Linear
+## Migration from GitHub
 
-If you're moving from an external backend to files:
+If you're moving from the GitHub backend to files:
 
 ```bash
 # Export issues (hypothetical command)
@@ -256,10 +256,12 @@ Check that your file has:
 
 ### Can't find runs
 
-Runs are stored in `runs/<issue-id>/` within the issues root:
+Runs are stored in `runs/<issue-id>/` within the issues root — the
+`issues.path` from `.orch/config.yaml`, or
+`~/.local/share/orch/<owner>-<repo>` when no path is configured:
 
 ```bash
-ls -la $(orch --print-issues-root)/runs/
+ls -la ~/orch-issues/runs/
 ```
 
 ### Permission errors
