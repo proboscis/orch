@@ -43,6 +43,10 @@ This guide covers setup and basic usage.
 1. INITIAL SETUP
 --------------------------------------------------------------------------------
 
+Prerequisite: your repo needs an 'origin' remote — orch derives the project
+identity from its URL (normalized to <owner>-<repo>). Without one, every
+command fails with 'project identity required'.
+
 Create config directory in your repo root:
 
     mkdir -p .orch
@@ -57,6 +61,19 @@ This creates the structure:
     ~/my-project-issues/
     ├── issues/       # issue markdown files
     └── runs/         # run logs (auto-created)
+
+Register the project with the daemon (required — maps the identity to this
+checkout, stored in ~/.config/orch/projects/<project_id>.yaml, effective
+immediately):
+
+    orch daemon repo register "$(pwd)"
+
+Start the local worker (required even for purely local runs — the daemon
+starts automatically on your first command, the worker does not, and it does
+not survive reboots):
+
+    orch worker start
+    orch worker status
 
 --------------------------------------------------------------------------------
 2. CONFIGURE DEFAULT AGENT AND MODEL
@@ -88,9 +105,16 @@ Create an issue:
 
     orch issue create my-001 --title "My first task" --body "Description here"
 
-Or manually create ~/my-project-issues/issues/my-001.md:
+Or manually create ~/my-project-issues/issues/my-001.md — YAML frontmatter is
+required, and the store is strict about it (one malformed file breaks every
+issue command; status must be open/closed/resolved):
 
-    # My first task
+    ---
+    type: issue
+    id: my-001
+    title: My first task
+    status: open
+    ---
 
     Description here.
 
@@ -101,6 +125,13 @@ Start a run:
 Check status:
 
     orch ps
+
+First run on a fresh machine: the agent CLI shows a one-time trust prompt
+("Do you trust the contents of this directory?") and the run parks at
+'waiting'. This is the normal interaction loop, not a failure:
+
+    orch capture my-001     # see what the agent is asking
+    orch send my-001 ""     # empty message = press Enter (accept the default)
 
 Interact with the agent:
 
@@ -134,18 +165,32 @@ frontends.
     Status      Meaning                   Action
     ------      -------                   ------
     running     Agent is working          Wait or 'attach' to watch
-    waiting     Agent needs input         'attach' to help
+    waiting     Input box is free: needs  'capture' to read, then
+                input OR finished a turn  'send'/'attach' to answer
     pr_open     PR created                Review the PR
     done        Work complete             'orch resolve <issue>' to ack
     failed      Error occurred            Check logs, 'restart-from'
 
 To check why a run is waiting:
 
+    orch capture <run>
     orch show <run>
 
 --------------------------------------------------------------------------------
 6. WHEN THINGS GO WRONG
 --------------------------------------------------------------------------------
+
+'no active workers available' — the worker is not running (it does not
+survive reboots):
+
+    orch worker start
+
+'project identity required' — no 'origin' remote, or you are outside the
+repo (commands are project-scoped by your current directory).
+
+'unknown project_id "..." (register daemon project mapping)':
+
+    orch daemon repo register "$(pwd)"
 
 Fix daemon, orphaned sessions, stale states:
 
@@ -253,8 +298,8 @@ Point every command at a shared master daemon via client.yaml
     remote:
       default: "<master-host>:7777"
 
-Each host that should execute runs needs a local worker registered to the
-master:
+As with local use, each host that should execute runs needs its own worker —
+started on that host, registered to the master:
 
     orch worker start
     orch worker status
