@@ -72,6 +72,14 @@ func (s *SocketServer) ensureColocatedWorker() error {
 	return spawn()
 }
 
+// colocatedWorkerStartArgs builds the argv for the colocated `worker start`.
+// The explicit `--remote=` (set-but-empty flag) forces registration to THIS
+// master through the local socket: an inherited ORCH_REMOTE or a client.yaml
+// `remote.default` would otherwise send the worker to a different master.
+func colocatedWorkerStartArgs() []string {
+	return []string{"--remote=", "worker", "start", "--worker-id", defaultWorkerID()}
+}
+
 // spawnColocatedWorkerProcess execs this binary's own `worker start`, which
 // carries every managed-worker semantic (idempotency, split-brain guard,
 // stale-PID recovery, state/pid/log file conventions) and exits zero only
@@ -92,9 +100,10 @@ func spawnColocatedWorkerProcess() error {
 	ctx, cancel := context.WithTimeout(context.Background(), colocatedWorkerStartTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, exe, "worker", "start", "--worker-id", defaultWorkerID())
-	// The colocated worker must register to THIS master through the local
-	// socket, never to whatever ORCH_REMOTE the daemon process inherited.
+	cmd := exec.CommandContext(ctx, exe, colocatedWorkerStartArgs()...)
+	// Also scrub the env for defense in depth (the explicit flag is what
+	// actually forces local mode; an empty env value would be skipped in
+	// favor of a client.yaml remote default).
 	cmd.Env = append(os.Environ(), "ORCH_REMOTE=")
 	out, err := cmd.CombinedOutput()
 	if err != nil {

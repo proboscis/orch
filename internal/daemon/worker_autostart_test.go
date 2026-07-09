@@ -95,6 +95,24 @@ func TestAcquireLeaseAutostartDisabledByEnv(t *testing.T) {
 	}
 }
 
+// The colocated worker must register to THIS master: the argv carries an
+// explicit set-but-empty --remote= flag, because an empty ORCH_REMOTE env is
+// skipped in favor of any client.yaml remote.default (observed on a machine
+// with a global default pointing at a cluster master).
+func TestColocatedWorkerStartArgsForceLocalMaster(t *testing.T) {
+	args := colocatedWorkerStartArgs()
+	if len(args) == 0 || args[0] != "--remote=" {
+		t.Fatalf("colocatedWorkerStartArgs() = %v, must start with explicit --remote= to force the local master", args)
+	}
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "worker start") {
+		t.Fatalf("colocatedWorkerStartArgs() = %v, must invoke worker start", args)
+	}
+	if !strings.Contains(joined, "--worker-id "+defaultWorkerID()) {
+		t.Fatalf("colocatedWorkerStartArgs() = %v, must pin the host worker id", args)
+	}
+}
+
 // Autostart failure keeps the original no-worker error AND surfaces why the
 // self-heal did not happen.
 func TestAcquireLeaseAutostartFailurePropagates(t *testing.T) {
