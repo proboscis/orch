@@ -313,6 +313,11 @@ type SocketServer struct {
 	workerLeasesMu  sync.RWMutex
 	workerAuthToken string
 
+	// ADR-0002 colocated worker autostart. spawnColocatedWorker is a test
+	// seam; nil means spawnColocatedWorkerProcess.
+	workerAutostartMu    sync.Mutex
+	spawnColocatedWorker func() error
+
 	controlSessionLocks   map[string]*sync.Mutex
 	controlSessionLocksMu sync.Mutex
 

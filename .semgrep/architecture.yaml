@@ -1964,6 +1964,7 @@ rules:
         # Daemon-managed process lifecycle exceptions
         - /internal/daemon/daemon.go
         - /internal/daemon/socket.go
+        - /internal/daemon/worker_autostart.go
         # CLI UX/runtime exceptions
         - /internal/cli/exec.go
         - /internal/cli/log.go
