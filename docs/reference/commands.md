@@ -879,7 +879,10 @@ orch worker run [flags]
 
 ### orch worker start
 
-Start a managed orch-worker host process.
+Start a managed orch-worker host process. Usually automatic since v1.5
+(ADR-0002): the master auto-starts its colocated worker on demand, and run
+dispatch to a remote master auto-starts the local worker for it. Manual start
+remains for other hosts and for `ORCH_WORKER_AUTOSTART=0`.
 
 ```bash
 orch worker start [flags]

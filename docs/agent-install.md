@@ -88,10 +88,9 @@ git add -A && git commit -m "init orch sandbox"
 Then walk through this sequence, explaining each step:
 
 ```bash
-# 1. One-time wiring (both REQUIRED — most common first-run failures)
+# 1. One-time wiring (REQUIRED — the most common first-run failure)
 orch daemon repo register "$(pwd)"   # maps project identity -> this checkout
-orch worker start                     # launches agent sessions; not automatic;
-orch worker status                    # does not survive reboots
+# (daemon and worker auto-start on demand; `orch worker status` shows them)
 
 # 2. Describe a task and launch an agent on it
 orch issue create hello-world --title "Add a hello world script" \
@@ -129,7 +128,7 @@ the agent commit, push, and open a PR — the run then parks at `pr_open`.
 |-------|-----|
 | `project identity required` | repo has no `origin` remote, or you are outside the repo |
 | `unknown project_id "…"` | run `orch daemon repo register "$(pwd)"` |
-| `no active workers available` | run `orch worker start` |
+| `no active workers available` | should not happen locally (workers auto-start); check `ORCH_WORKER_AUTOSTART`, or run `orch worker start` |
 | `store_error` on issue commands | a malformed issue file; frontmatter `status` must be open/closed/resolved |
 
 ## Step 5 — Wrap up

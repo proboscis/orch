@@ -71,11 +71,16 @@ disjoint at the syntax level: `orch show 3f2a91c8` can only mean an issue,
 
 ### 4. Creation guard
 
-`issue create` (and implicit issue creation on `CreateRun`) rejects new issue
-IDs matching `^[0-9a-f]{2,64}$` — such names would be shadowed by the run
-short ID grammar (2–6) or collide with issue hex refs (7+). Pre-existing
-issues with hex-lookalike names keep working because exact match has priority.
-The error message suggests a non-hex prefix (e.g. `issue-0001`).
+New issue IDs matching `^[0-9a-f]{2,64}$` are rejected — such names would be
+shadowed by the run short ID grammar (2–6) or collide with issue hex refs
+(7+). The guard lives once in `model.ValidateNewIssueID`, and every issue
+write site calls it: `FileStore.CreateIssue`, the daemon's proto and legacy
+create cores, and the CLI local-bypass and `--edit` paths (issue files are
+written by five independent sites; a store-only guard was bypassed in live
+testing). Pre-existing issues with hex-lookalike names keep working because
+exact match has priority. The error message suggests a non-hex prefix
+(e.g. `issue-0001`). `CreateRun` never creates issues implicitly — it
+verifies the issue exists.
 
 ### 5. Display
 

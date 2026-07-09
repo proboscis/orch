@@ -186,8 +186,9 @@ Two long-lived processes cooperate to execute runs:
 - The **daemon** (master) owns all issue/run/event state and resolves project
   identities. It starts automatically on your first orch command.
 - The **worker** launches and supervises the actual agent sessions on its
-  host. It does **not** start automatically — run `orch worker start` once per
-  boot. Without a worker, `orch run` fails with `no active workers available`.
+  host. It auto-starts on demand when a run targets the master's own host
+  (ADR-0002); other hosts need an explicit `orch worker start`.
+  `ORCH_WORKER_AUTOSTART=0` restores fully manual worker management.
 
 On a single machine you run both locally and never notice the split. The same
 model scales to multiple hosts: workers on other machines register to one

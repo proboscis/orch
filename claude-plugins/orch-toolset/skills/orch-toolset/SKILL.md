@@ -6,7 +6,7 @@ description: |
   restart-from, orch worker start/status/stop, orch attach/capture/send/exec, and remote execution
   via ORCH_REMOTE and target_host. Trigger terms: orch, orchestrator, worker, master, ORCH_REMOTE,
   target_host, run management, issue management, agent runs, worktree.
-version: 1.4.0
+version: 1.5.0
 ---
 
 # Orch Toolset
@@ -19,6 +19,12 @@ worktrees, and append-only run events.
 - **Issue**: unit of work specification.
 - **Run**: one execution attempt for an issue.
 - **RUN_REF**: `ISSUE_ID#RUN_ID`, `ISSUE_ID` for latest run, or short hex ID.
+- **Issue hex ID (ADR-0001, v1.5+)**: every issue also has a derived hex ID —
+  `sha256(issue name)`, shown 8-chars by `orch issue list`. Any unique 7-64
+  char hex prefix works wherever an issue is named (`orch run 3f2a91c8`,
+  `orch issue show 3f2a91c8`, `orch capture 3f2a91c8`). 2-6 hex chars remain
+  run short IDs — the grammars are disjoint by construction. New issue names
+  of 2-64 pure hex chars are rejected at creation.
 - **Master**: the daemon endpoint that stores issue/run state.
 - **Worker**: a long-lived host-local executor process that registers to a master.
 - **Execution host**: the host where the run session actually lives. `orch ps` shows this in
@@ -59,10 +65,14 @@ most common first-run failure:
    `~/.config/orch/projects/<project_id>.yaml`, effective immediately, no
    daemon restart. Missing → `unknown project_id "…" (register daemon project
    mapping)`.
-3. **Worker required even for purely local runs.** The daemon auto-starts on
-   the first command; the worker does not, and it does not survive reboots.
-   Missing → `orch run` fails with `no active workers available`. Fix:
-   `orch worker start`, verify with `orch worker status`.
+3. **Workers auto-start on demand (ADR-0002, v1.5+).** The daemon auto-starts
+   on the first command, and when a run targets the master's own host the
+   master auto-starts its colocated worker (reboots included). `orch run`
+   against a remote master also auto-starts the local worker for that master.
+   Only OTHER hosts still need a manual `orch worker start`. If
+   `no active workers available` appears anyway, check `ORCH_WORKER_AUTOSTART`
+   (0 = disabled) and the daemon log. On pre-1.5 binaries all workers are
+   manual.
 
 Also expect the agent CLI's one-time trust dialog on a fresh
 machine/directory: the run parks at `waiting` right after boot; read it with
@@ -72,13 +82,12 @@ Enter).
 ## Core Workflow
 
 1. Create or inspect the issue with `orch issue create`, `orch issue list`, or `orch open`.
-2. Ensure the worker is up first — required for local AND remote execution:
-   `orch worker start` / `orch worker status` (with a remote master:
-   `ORCH_REMOTE=<master> orch worker start`).
-3. Start work with `orch run <issue-id>`.
-4. Track state with `orch ps` and inspect details with `orch show`.
-5. Interact with the live run via `orch capture`, `orch send`, and `orch attach`.
-6. Use `orch stop` only for actually stale or canceled work. Use `orch restart-from` only for
+2. Start work with `orch run <issue-id>` — workers auto-start on demand
+   (v1.5+); `orch worker status` shows them. Hosts other than the master and
+   your own machine still need `ORCH_REMOTE=<master> orch worker start` there.
+3. Track state with `orch ps` and inspect details with `orch show`.
+4. Interact with the live run via `orch capture`, `orch send`, and `orch attach`.
+5. Use `orch stop` only for actually stale or canceled work. Use `orch restart-from` only for
    failed, canceled, or unknown runs. Mark completed work with `orch resolve`.
 
 ## Branch Resolution for `orch run` (verified 2026-07-05)

@@ -67,20 +67,19 @@ daemon の再起動は不要です。登録内容は
 > **補足**: issue ファイルは `path` 直下ではなく `<path>/issues/`
 > (`Issues/` ディレクトリが既にあればそちら)に作られます。
 
-## 3. ローカル worker の起動(必須)
+## 3. daemon と worker は自動起動
 
-daemon は最初の orch コマンドで自動起動しますが、**agent セッションを
-実際に起動する worker は自動では立ち上がりません**。worker なしで
-`orch run` すると `no active workers available` で失敗します。
+daemon は最初の orch コマンドで自動起動します。**agent セッションを
+実際に起動する worker も、run がこのホストを対象にした時点で daemon が
+自動起動します**(ADR-0002)— マシン再起動後も同様で、手動の
+`orch worker start` は不要です。状態確認は:
 
 ```bash
-orch worker start
 orch worker status   # Local Process: running / Master Registration: active を確認
 ```
 
-worker はマシンの再起動後には残りません。突然 run が
-`no active workers available` で失敗するようになったら
-`orch worker start` を再実行してください。
+自動起動を止めたい場合は `ORCH_WORKER_AUTOSTART=0` を設定し、従来どおり
+`orch worker start` で手動管理してください。
 
 ## 4. ゴールデンパス
 
@@ -95,6 +94,9 @@ orch issue create hello-world --title "Add a hello world script" << 'EOF'
 Create hello.py at the repository root that prints "Hello, World!" when run
 with python3. Keep it to a few lines. Do not create anything else.
 EOF
+
+# (create の出力に 8 桁の hex ID が表示されます。7 桁以上の一意な hex prefix は
+#  issue 名の代わりにどのコマンドでも使えます: orch run <hex> / orch issue show <hex>)
 
 # 2. agent を起動する(--no-pr: まずは PR なしで)
 orch run hello-world --no-pr
@@ -150,7 +152,7 @@ agent は commit → push → PR 作成まで行い、run は `pr_open` であ�
 |------|------|------|
 | `project identity required: failed to resolve git remote` | origin remote が無い、または repo の外で実行 | `git remote add origin …`、repo 内に `cd`(または `ORCH_PROJECT` を設定) |
 | `unknown project_id "…" (register daemon project mapping)` | 手順 2 の登録漏れ | `orch daemon repo register "$(pwd)"` |
-| `no active workers available` | worker 未起動(再起動後を含む) | `orch worker start` |
+| `no active workers available` | 対象ホストに worker が居ない(自ホストなら本来自動起動する) | daemon ログと `ORCH_WORKER_AUTOSTART` を確認、または `orch worker start` |
 | `capture`/`send` が `run not found` | 別プロジェクトのディレクトリに居る(CWD でプロジェクト解決) | サンドボックス repo に `cd` してから実行 |
 | 起動直後から `waiting` のまま | agent の trust/onboarding ダイアログ | `orch capture` で確認 → `orch send <run> ""` か `orch attach` |
 | すべての issue コマンドが `daemon error: store_error` | 壊れた issue ファイルが 1 つでもあると store 全体が fail-loud | frontmatter の `status` は `open`/`closed`/`resolved` のみ。daemon ログ(macOS: `~/Library/Logs/orch/daemon.log`、Linux: `~/.local/state/orch/daemon.log`)が対象ファイル名を報告する |

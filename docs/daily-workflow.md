@@ -7,9 +7,8 @@ This guide covers typical day-to-day usage patterns for working with orch and AI
 Start your day by checking what happened overnight:
 
 ```bash
-# Verify the worker is alive first — workers do not survive reboots,
-# and without one every `orch run` fails with `no active workers available`
-orch worker status   # if not running: orch worker start
+# Workers auto-start on demand (ADR-0002); check state any time with
+orch worker status
 
 # Check status of all runs
 orch ps

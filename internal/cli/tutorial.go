@@ -68,12 +68,14 @@ immediately):
 
     orch daemon repo register "$(pwd)"
 
-Start the local worker (required even for purely local runs — the daemon
-starts automatically on your first command, the worker does not, and it does
-not survive reboots):
+The daemon starts automatically on your first command, and the worker — the
+process that launches agent sessions — auto-starts on demand when a run
+targets this host (ADR-0002), including after reboots. Verify with:
 
-    orch worker start
     orch worker status
+
+(Set ORCH_WORKER_AUTOSTART=0 to disable autostart and manage workers by hand
+with 'orch worker start'.)
 
 --------------------------------------------------------------------------------
 2. CONFIGURE DEFAULT AGENT AND MODEL
@@ -104,6 +106,12 @@ Use 'orch models' to list available models (requires opencode server).
 Create an issue:
 
     orch issue create my-001 --title "My first task" --body "Description here"
+
+Every issue also gets a derived hex ID (shown by 'orch issue list'); any
+unique prefix of 7+ chars works wherever an issue is named — 'orch run
+3f2a91c8', 'orch issue show 3f2a91c8', 'orch capture 3f2a91c8' (ADR-0001).
+Names consisting purely of 2-64 hex chars are rejected at creation to keep
+the grammar unambiguous.
 
 Or manually create ~/my-project-issues/issues/my-001.md — YAML frontmatter is
 required, and the store is strict about it (one malformed file breaks every
@@ -180,8 +188,9 @@ To check why a run is waiting:
 6. WHEN THINGS GO WRONG
 --------------------------------------------------------------------------------
 
-'no active workers available' — the worker is not running (it does not
-survive reboots):
+'no active workers available' — the target host has no worker. On the
+master's own host workers auto-start; if you still see this, check
+ORCH_WORKER_AUTOSTART and the daemon log, or start one by hand:
 
     orch worker start
 
@@ -298,8 +307,10 @@ Point every command at a shared master daemon via client.yaml
     remote:
       default: "<master-host>:7777"
 
-As with local use, each host that should execute runs needs its own worker —
-started on that host, registered to the master:
+Each additional host that should execute runs needs its own worker, started
+on that host and registered to the master (the master auto-starts a worker
+for its own host, and 'orch run' against a remote master auto-starts one on
+your machine — other hosts are manual):
 
     orch worker start
     orch worker status
