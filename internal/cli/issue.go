@@ -145,10 +145,12 @@ func runIssueCreateWithInput(issueID string, opts *issueCreateOptions, stdin io.
 		output := struct {
 			OK      bool   `json:"ok"`
 			IssueID string `json:"issue_id"`
+			HexID   string `json:"hex_id"`
 			Path    string `json:"path"`
 		}{
 			OK:      true,
 			IssueID: string(issue.ID),
+			HexID:   model.IssueShortHexID(model.IssueID(string(issue.ID))),
 			Path:    issue.Path,
 		}
 		enc := json.NewEncoder(os.Stdout)
@@ -157,7 +159,7 @@ func runIssueCreateWithInput(issueID string, opts *issueCreateOptions, stdin io.
 	}
 
 	if !globalOpts.Quiet {
-		fmt.Printf("Created issue: %s\n", issue.ID)
+		fmt.Printf("Created issue: %s (%s)\n", issue.ID, model.IssueShortHexID(model.IssueID(string(issue.ID))))
 		fmt.Printf("  Path: %s\n", issue.Path)
 	}
 
@@ -426,6 +428,7 @@ type runSummary struct {
 
 type issueInfo struct {
 	ID         string       `json:"id"`
+	HexID      string       `json:"hex_id"`
 	Title      string       `json:"title"`
 	Summary    string       `json:"summary,omitempty"`
 	Status     string       `json:"status"`
@@ -505,6 +508,7 @@ func runIssueListViaAPI(ctx context.Context, api orchapi.OrchAPI, opts *issueLis
 
 		info := issueInfo{
 			ID:         string(issue.ID),
+			HexID:      model.IssueShortHexID(model.IssueID(issue.ID)),
 			Title:      issue.Title,
 			Summary:    issue.Summary,
 			Status:     string(issue.Status),
@@ -549,9 +553,9 @@ func outputIssueList(issueInfos []issueInfo, opts *issueListOptions) error {
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	if opts.NoPath {
-		fmt.Fprintln(w, "ID\tSTATUS\tSUMMARY\tRUNS")
+		fmt.Fprintln(w, "ID\tNAME\tSTATUS\tSUMMARY\tRUNS")
 	} else {
-		fmt.Fprintln(w, "ID\tSTATUS\tSUMMARY\tRUNS\tPATH")
+		fmt.Fprintln(w, "ID\tNAME\tSTATUS\tSUMMARY\tRUNS\tPATH")
 	}
 	for _, issue := range issueInfos {
 		runsSummary := "-"
@@ -569,13 +573,13 @@ func outputIssueList(issueInfos []issueInfo, opts *issueListOptions) error {
 			summary = summary[:37] + "..."
 		}
 		if opts.NoPath {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", issue.ID, status, summary, runsSummary)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", issue.HexID, issue.ID, status, summary, runsSummary)
 		} else {
 			path := issue.Path
 			if path == "" {
 				path = "-"
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", issue.ID, status, summary, runsSummary, path)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", issue.HexID, issue.ID, status, summary, runsSummary, path)
 		}
 	}
 	w.Flush()
@@ -710,6 +714,7 @@ func runIssueShow(issueID string, opts *issueShowOptions) error {
 	}
 
 	fmt.Printf("ID:      %s\n", issue.ID)
+	fmt.Printf("Hex:     %s\n", model.IssueHexID(model.IssueID(string(issue.ID))))
 	fmt.Printf("Title:   %s\n", issue.Title)
 	fmt.Printf("Status:  %s\n", issue.Status)
 	if issue.Summary != "" {

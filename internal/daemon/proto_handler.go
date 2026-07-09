@@ -1438,6 +1438,11 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 	if err != nil {
 		return errorResponse(fmt.Sprintf("issue not found: %s", req.IssueId))
 	}
+	// The request may carry an issue hex ref (ADR-0001). Everything downstream
+	// — worker payload, run directories, lease keys, master projections — must
+	// see the canonical issue ID, never the hex spelling.
+	req.IssueId = string(issue.ID)
+	opts.IssueID = issue.ID
 	opts.IssueSnapshot = issue
 
 	payload := &WorkerEffectPayload{StartRun: opts}

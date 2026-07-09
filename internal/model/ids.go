@@ -1,6 +1,8 @@
 package model
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"regexp"
 	"strings"
@@ -30,6 +32,40 @@ func (id RepoID) String() string {
 
 func (id ProjectID) String() string {
 	return string(id)
+}
+
+// ADR-0001 grammar partition: 2-6 lowercase hex chars are run short IDs,
+// 7-64 are issue hex refs. Both patterns are anchored to keep the two
+// namespaces disjoint at the syntax level.
+var (
+	issueHexRefPattern    = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
+	hexLikeIssueIDPattern = regexp.MustCompile(`^[0-9a-f]{2,64}$`)
+)
+
+// IssueHexID returns the derived hex ID of an issue (ADR-0001): the
+// lowercase hex sha256 of the issue ID string. It is never stored — any
+// party holding the issue ID can compute it.
+func IssueHexID(issueID IssueID) string {
+	h := sha256.Sum256([]byte(issueID))
+	return hex.EncodeToString(h[:])
+}
+
+// IssueShortHexID returns the 8-char display form of the issue hex ID.
+func IssueShortHexID(issueID IssueID) string {
+	return IssueHexID(issueID)[:8]
+}
+
+// IsIssueHexRef reports whether s is syntactically an issue hex reference
+// (unique-prefix lookups accept 7 to 64 hex chars).
+func IsIssueHexRef(s string) bool {
+	return issueHexRefPattern.MatchString(s)
+}
+
+// IsHexLikeIssueID reports whether id would be shadowed by the run short ID
+// grammar or collide with issue hex refs, and must therefore be rejected as
+// a new issue ID (ADR-0001 creation guard).
+func IsHexLikeIssueID(id string) bool {
+	return hexLikeIssueIDPattern.MatchString(id)
 }
 
 var (

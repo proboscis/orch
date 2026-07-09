@@ -675,8 +675,70 @@ func (s *FileStore) resolveRunsDir(issueID model.IssueID) string {
 	return filepath.Join(runsRoot, issueIDStr)
 }
 
-// ResolveIssue retrieves an issue by ID
+// canonicalIssueID maps an issue hex ref (ADR-0001) to the canonical issue
+// ID. Anything that is not syntactically a hex ref passes through untouched,
+// as does an exact issue ID that happens to look like one (exact match always
+// wins) and a ref that matches nothing (so downstream not-found errors keep
+// reporting what the caller typed). A ref matching more than one issue fails
+// loud with the candidate list.
+func (s *FileStore) canonicalIssueID(issueID model.IssueID) (model.IssueID, error) {
+	if !model.IsIssueHexRef(string(issueID)) {
+		return issueID, nil
+	}
+
+	if s.isCacheDirty() {
+		if err := s.scanIssues(); err != nil {
+			return "", err
+		}
+	}
+
+	if _, ok := s.issueFromCache(issueID); ok {
+		return issueID, nil
+	}
+
+	matches := s.issuesMatchingHexRef(string(issueID))
+	if len(matches) == 0 {
+		// The file may have been added since the last scan; rescan once.
+		s.markCacheDirty()
+		if err := s.scanIssues(); err != nil {
+			return "", err
+		}
+		matches = s.issuesMatchingHexRef(string(issueID))
+	}
+
+	switch len(matches) {
+	case 0:
+		return issueID, nil
+	case 1:
+		return matches[0].ID, nil
+	default:
+		names := make([]string, 0, len(matches))
+		for _, issue := range matches {
+			names = append(names, fmt.Sprintf("%s (%s)", issue.ID, model.IssueShortHexID(issue.ID)))
+		}
+		sort.Strings(names)
+		return "", fmt.Errorf("ambiguous issue hex ref %s: matches %s", issueID, strings.Join(names, ", "))
+	}
+}
+
+func (s *FileStore) issuesMatchingHexRef(ref string) []*model.Issue {
+	var matches []*model.Issue
+	for _, issue := range s.issuesFromCache() {
+		if strings.HasPrefix(model.IssueHexID(issue.ID), ref) {
+			matches = append(matches, issue)
+		}
+	}
+	return matches
+}
+
+// ResolveIssue retrieves an issue by ID or by issue hex ref (ADR-0001)
 func (s *FileStore) ResolveIssue(issueID model.IssueID) (*model.Issue, error) {
+	canonical, err := s.canonicalIssueID(issueID)
+	if err != nil {
+		return nil, err
+	}
+	issueID = canonical
+
 	// Scan if cache is dirty
 	if s.isCacheDirty() {
 		if err := s.scanIssues(); err != nil {
@@ -720,11 +782,12 @@ func (s *FileStore) ListIssues() ([]*model.Issue, error) {
 func (s *FileStore) CreateRun(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
 	// Skip verification for GitHub issues - they're not local files
 	if !strings.HasPrefix(string(issueID), "gh-") && !strings.HasPrefix(string(issueID), "gh#") {
-		_, err := s.ResolveIssue(issueID)
+		issue, err := s.ResolveIssue(issueID)
 		if err != nil {
 			return nil, err
 		}
-
+		// A hex ref (ADR-0001) must never become a run directory name.
+		issueID = issue.ID
 	}
 
 	return s.createRunDocument(issueID, runID, metadata)
@@ -738,7 +801,11 @@ func (s *FileStore) CreateRun(issueID model.IssueID, runID model.RunID, metadata
 // this store's root) does not depend on the issue file being present; the runs
 // directory is created as needed.
 func (s *FileStore) CreateRunForExistingIssue(issueID model.IssueID, runID model.RunID, metadata map[string]string) (*model.Run, error) {
-	return s.createRunDocument(issueID, runID, metadata)
+	canonical, err := s.canonicalIssueID(issueID)
+	if err != nil {
+		return nil, err
+	}
+	return s.createRunDocument(canonical, runID, metadata)
 }
 
 // createRunDocument writes the run document and returns the run. It assumes the
@@ -833,12 +900,23 @@ func (s *FileStore) GetRun(ref *model.RunRef) (*model.Run, error) {
 		return s.GetLatestRun(ref.IssueID)
 	}
 
-	runPath := s.runPath(ref.IssueID, ref.RunID)
-	return s.loadRun(ref.IssueID, ref.RunID, runPath)
+	issueID, err := s.canonicalIssueID(ref.IssueID)
+	if err != nil {
+		return nil, err
+	}
+
+	runPath := s.runPath(issueID, ref.RunID)
+	return s.loadRun(issueID, ref.RunID, runPath)
 }
 
 // GetLatestRun retrieves the latest run for an issue
 func (s *FileStore) GetLatestRun(issueID model.IssueID) (*model.Run, error) {
+	canonical, err := s.canonicalIssueID(issueID)
+	if err != nil {
+		return nil, err
+	}
+	issueID = canonical
+
 	runsDir := s.runsDir(issueID)
 	entries, err := os.ReadDir(runsDir)
 	if err != nil {
@@ -1012,6 +1090,17 @@ func (s *FileStore) loadRun(issueID model.IssueID, runID model.RunID, path strin
 
 // ListRuns lists runs matching the filter
 func (s *FileStore) ListRuns(filter *store.ListRunsFilter) ([]*model.Run, error) {
+	if filter != nil && filter.IssueID != "" {
+		canonical, err := s.canonicalIssueID(filter.IssueID)
+		if err != nil {
+			return nil, err
+		}
+		if canonical != filter.IssueID {
+			scoped := *filter
+			scoped.IssueID = canonical
+			filter = &scoped
+		}
+	}
 	return s.listRunsIndexed(filter)
 }
 
@@ -1076,7 +1165,11 @@ func (s *FileStore) SetIssueStatus(issueID model.IssueID, status model.IssueStat
 }
 
 func (s *FileStore) DeleteRun(ref *model.RunRef) error {
-	runPath := s.runPath(ref.IssueID, ref.RunID)
+	issueID, err := s.canonicalIssueID(ref.IssueID)
+	if err != nil {
+		return err
+	}
+	runPath := s.runPath(issueID, ref.RunID)
 	if _, err := os.Stat(runPath); os.IsNotExist(err) {
 		return fmt.Errorf("run not found: %s#%s", ref.IssueID, ref.RunID)
 	}
@@ -1257,6 +1350,12 @@ func (s *FileStore) ReadAgentPrompt(ref *model.RunRef) (string, error) {
 func (s *FileStore) CreateIssue(issue *model.Issue) error {
 	if issue.ID == "" {
 		return fmt.Errorf("issue ID is required")
+	}
+
+	if model.IsHexLikeIssueID(string(issue.ID)) {
+		return fmt.Errorf(
+			"issue ID %q is reserved by the hex ref grammar (ADR-0001): names of 2-64 hex chars collide with run short IDs or issue hex IDs; use a non-hex name such as %q",
+			issue.ID, "issue-"+string(issue.ID))
 	}
 
 	issuePath := filepath.Join(s.issuesDir(), string(issue.ID)+".md")
