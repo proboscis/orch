@@ -138,6 +138,8 @@ func runContinueWithDeps(ctx context.Context, refStr string, opts *continueOptio
 		}
 	}
 
+	ensureLocalWorkerForRemoteMaster(getRemoteAddr())
+
 	resp, err := api.ContinueRun(ctx, &orchapi.ContinueRunRequest{
 		IssueID:        model.IssueID(issueID),
 		RunID:          model.RunID(runID),

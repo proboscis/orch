@@ -211,6 +211,10 @@ func isGitHubBackend(cfg *orchapi.Config) bool {
 }
 
 func runIssueCreateLocal(issueID, title string, opts *issueCreateOptions) error {
+	if err := model.ValidateNewIssueID(issueID); err != nil {
+		return err
+	}
+
 	projectRoot, err := getProjectRoot()
 	if err != nil {
 		return err
@@ -281,6 +285,10 @@ func runIssueCreateLocal(issueID, title string, opts *issueCreateOptions) error 
 }
 
 func runIssueCreateWithEditor(api orchapi.OrchAPI, issueID, title string, opts *issueCreateOptions) error {
+	if err := model.ValidateNewIssueID(issueID); err != nil {
+		return err
+	}
+
 	projectRoot, err := getProjectRoot()
 	if err != nil {
 		return err

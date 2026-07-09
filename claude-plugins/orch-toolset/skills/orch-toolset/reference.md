@@ -317,7 +317,10 @@ orch resolve plc-123 --force
 
 ### `orch worker start`
 
-Start the managed local worker process.
+Start the managed local worker process. Since v1.5 (ADR-0002) this is usually
+automatic: the master auto-starts its colocated worker on demand, and
+`orch run` against a remote master auto-starts the local worker for it.
+Manual start remains for other hosts and for `ORCH_WORKER_AUTOSTART=0`.
 
 ```bash
 # Start a local worker against the local daemon/master

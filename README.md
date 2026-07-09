@@ -29,7 +29,7 @@ go install github.com/proboscis/orch/cmd/orch@latest
 # project identity from its URL):
 mkdir -p .orch && printf 'agent: claude\nbase_branch: main\n' > .orch/config.yaml
 orch daemon repo register "$(pwd)"   # map project identity -> this checkout
-orch worker start                    # launches agent sessions; required even locally
+# (daemon and worker start automatically on demand — no manual process management)
 
 # Create an issue
 orch issue create my-task --title "Add hello world function"

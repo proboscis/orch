@@ -195,19 +195,18 @@ Or use the CLI:
 orch issue create my-first-issue --title "Add a hello world function" --edit
 ```
 
-## Start the local worker (required)
+## Daemon and worker start automatically
 
-The daemon starts automatically on your first orch command, but the
-**worker** — the process that actually launches agent sessions — does not:
+The daemon starts on your first orch command, and the **worker** — the
+process that actually launches agent sessions — auto-starts on demand when a
+run targets this host (ADR-0002), including after reboots. Verify with:
 
 ```bash
-orch worker start
 orch worker status   # expect: Local Process: running / Master Registration: active
 ```
 
-Without a worker, `orch run` fails with `no active workers available`.
-Workers do not survive reboots — re-run `orch worker start` after restarting
-your machine.
+Set `ORCH_WORKER_AUTOSTART=0` to disable autostart and manage workers by hand
+with `orch worker start`.
 
 ## Run your first agent
 
@@ -392,8 +391,9 @@ The project is not registered with the daemon. Run
 
 ### `no active workers available`
 
-The local worker is not running (it does not survive reboots). Run
-`orch worker start`.
+The target host has no worker. On the master's own host workers auto-start
+(ADR-0002); if you still see this, check `ORCH_WORKER_AUTOSTART` and the
+daemon log, or run `orch worker start` by hand.
 
 ### Run fails immediately
 

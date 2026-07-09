@@ -313,6 +313,11 @@ type SocketServer struct {
 	workerLeasesMu  sync.RWMutex
 	workerAuthToken string
 
+	// ADR-0002 colocated worker autostart. spawnColocatedWorker is a test
+	// seam; nil means spawnColocatedWorkerProcess.
+	workerAutostartMu    sync.Mutex
+	spawnColocatedWorker func() error
+
 	controlSessionLocks   map[string]*sync.Mutex
 	controlSessionLocksMu sync.Mutex
 
@@ -5156,6 +5161,11 @@ func (s *SocketServer) handleCreateIssue(req SendRequest, encoder *json.Encoder)
 		return
 	}
 
+	if err := model.ValidateNewIssueID(req.IssueID); err != nil {
+		encoder.Encode(CreateIssueResponse{OK: false, Error: fmt.Sprintf("invalid_request: %v", err)})
+		return
+	}
+
 	st := s.resolveStore(req)
 	if st == nil {
 		encoder.Encode(CreateIssueResponse{OK: false, Error: "no store available"})
@@ -5222,6 +5232,10 @@ func (s *SocketServer) processCreateIssueCore(st store.Store, params *CreateIssu
 
 	if strings.Contains(params.IssueID, "/") || strings.Contains(params.IssueID, "..") || strings.Contains(params.IssueID, "\\") {
 		return nil, fmt.Errorf("invalid_request: issue_id contains invalid characters")
+	}
+
+	if err := model.ValidateNewIssueID(params.IssueID); err != nil {
+		return nil, fmt.Errorf("invalid_request: %v", err)
 	}
 
 	issuesRoot := st.RootPath()

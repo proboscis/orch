@@ -125,6 +125,8 @@ func runRun(issueID string, opts *runOptions) error {
 
 	applyConfigDefaults(opts, cfg, remoteMode)
 
+	ensureLocalWorkerForRemoteMaster(getRemoteAddr())
+
 	resp, err := api.StartRun(ctx, &orchapi.StartRunRequest{
 		IssueID:        model.IssueID(issueID),
 		RunID:          model.RunID(opts.RunID),

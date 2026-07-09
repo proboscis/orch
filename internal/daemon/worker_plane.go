@@ -1000,7 +1000,7 @@ func (s *SocketServer) acknowledgeWorkerLease(workerID, leaseID string, success 
 }
 
 func (s *SocketServer) withWorkerLease(projectID, effect, issueID, runID string, payload *WorkerEffectPayload) (*WorkerLease, error) {
-	lease, err := s.acquireWorkerLease(projectID, effect, issueID, runID, payload)
+	lease, err := s.acquireWorkerLeaseWithAutostart(projectID, effect, issueID, runID, payload)
 	if err != nil {
 		return nil, err
 	}

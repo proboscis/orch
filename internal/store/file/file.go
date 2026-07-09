@@ -1352,10 +1352,8 @@ func (s *FileStore) CreateIssue(issue *model.Issue) error {
 		return fmt.Errorf("issue ID is required")
 	}
 
-	if model.IsHexLikeIssueID(string(issue.ID)) {
-		return fmt.Errorf(
-			"issue ID %q is reserved by the hex ref grammar (ADR-0001): names of 2-64 hex chars collide with run short IDs or issue hex IDs; use a non-hex name such as %q",
-			issue.ID, "issue-"+string(issue.ID))
+	if err := model.ValidateNewIssueID(string(issue.ID)); err != nil {
+		return err
 	}
 
 	issuePath := filepath.Join(s.issuesDir(), string(issue.ID)+".md")
