@@ -59,6 +59,17 @@ func TestIsIssueHexRef(t *testing.T) {
 	}
 }
 
+// ValidateNewIssueID is the single creation-guard entry point every issue
+// write site must call (store, daemon cores, CLI local/editor paths).
+func TestValidateNewIssueID(t *testing.T) {
+	if err := ValidateNewIssueID("beef"); err == nil {
+		t.Fatal("ValidateNewIssueID(beef) = nil, want hex-lookalike rejection")
+	}
+	if err := ValidateNewIssueID("issue-0001"); err != nil {
+		t.Fatalf("ValidateNewIssueID(issue-0001) = %v, want nil", err)
+	}
+}
+
 // ADR-0001 creation guard: new issue IDs that consist purely of 2-64 hex
 // chars would be shadowed by the run short ID grammar or collide with issue
 // hex refs, so they are rejected at creation time.

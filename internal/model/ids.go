@@ -68,6 +68,20 @@ func IsHexLikeIssueID(id string) bool {
 	return hexLikeIssueIDPattern.MatchString(id)
 }
 
+// ValidateNewIssueID is the ADR-0001 creation guard. Issue files are written
+// by several independent sites (file store, daemon create cores, CLI
+// local/editor paths) — every one of them must call this before writing.
+// Pre-existing hex-lookalike issues keep resolving via exact-match priority;
+// only creation is guarded.
+func ValidateNewIssueID(id string) error {
+	if IsHexLikeIssueID(id) {
+		return fmt.Errorf(
+			"issue ID %q is reserved by the hex ref grammar (ADR-0001): names of 2-64 hex chars collide with run short IDs or issue hex IDs; use a non-hex name such as %q",
+			id, "issue-"+id)
+	}
+	return nil
+}
+
 var (
 	repoIDSshPattern        = regexp.MustCompile(`^git@[^:]+:([^/]+)/([^/]+?)(?:\.git)?$`)
 	repoIDURLPattern        = regexp.MustCompile(`^(?:https?|git|ssh)://[^/]+/([^/]+)/([^/]+?)(?:\.git)?/?$`)
