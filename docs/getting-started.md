@@ -326,9 +326,15 @@ A visual dashboard for managing issues and runs:
 # Install the TUI
 uv tool install ./orch-monitor-tui
 
-# Launch it
-orch-monitor --new
+# Launch or attach to it
+orch-monitor
+
+# Restart with a fresh layout and control agent session
+orch-monitor --new-control-agent
 ```
+
+Use bare `orch-monitor` for the first launch. The `--new` flag only restarts
+the layout while resuming an existing control agent session.
 
 Features:
 - See all issues and runs at a glance

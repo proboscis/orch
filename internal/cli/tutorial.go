@@ -249,7 +249,8 @@ command.
 
 Launch the TUI:
 
-    orch-monitor --new      # Start fresh session
+    orch-monitor                      # First launch or attach
+    orch-monitor --new-control-agent  # Replace layout and control agent session
 
 Quick Start:
   1. Navigate with arrow keys, Tab to switch panels

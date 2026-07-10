@@ -169,7 +169,7 @@ Existing violations are tracked; do not add new ones.
 - Use the established error handling conventions
 - Run `go build ./...` and `go test ./...` before creating PRs
 - Run `make lint` to check for architecture boundary violations
-- Proto changes require regeneration: `make proto`
+- Proto changes require regeneration: `./api/generate.sh`
 
 ### Python (orch-monitor-tui)
 
@@ -180,7 +180,8 @@ Existing violations are tracked; do not add new ones.
 ## Testing
 
 - Unit tests are required for new daemon functionality
-- Integration tests in `internal/e2e/` for end-to-end flows
+- Integration tests live in `test/integration/`; end-to-end flows are scripted
+  in `scripts/e2e-*.sh`
 - TUI changes should be manually tested with `orch monitor`
 
 Canonical E2E instruction docs:
@@ -207,7 +208,7 @@ The opencode server may have stopped while the run shows as "waiting".
 
 After modifying `api/orch.proto`:
 ```bash
-make proto  # Regenerates Go and Python bindings
+./api/generate.sh  # Regenerates Go and Python bindings
 ```
 
 ### Worktree issues

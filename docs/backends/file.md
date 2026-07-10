@@ -187,8 +187,8 @@ orch issue list
 # Filtered by status
 orch issue list --status open
 
-# With run information
-orch issue list --with-runs
+# Show the latest run for an issue
+orch show my-issue
 ```
 
 ## Best Practices
