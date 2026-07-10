@@ -19,7 +19,7 @@ import (
 
 // newControlAgentPolicyServer starts a socket server whose project config has
 // a codex control agent with the company profile locked to the "mac" target
-// (host CA-20035844); a second "zeus" target exists but is not allowed.
+// (host BUILD-HOST-01); a second "remote" target exists but is not allowed.
 func newControlAgentPolicyServer(t *testing.T) *SocketServer {
 	t.Helper()
 	cleanup := setupXDGTestEnv(t)
@@ -40,9 +40,9 @@ codex:
       allowed_targets: [mac]
 targets:
   - name: mac
-    host: CA-20035844
-  - name: zeus
-    host: zeus
+    host: BUILD-HOST-01
+  - name: remote
+    host: remote-host
 `)
 	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), configYAML, 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -71,12 +71,12 @@ func controlAgentConfigRequest(clientHost string) *orchpb.Request {
 }
 
 // The reported false denial: client on the allowed mac target, daemon on
-// zeus. The RPC must succeed and return the codex_home VERBATIM.
+// remote-host. The RPC must succeed and return the codex_home VERBATIM.
 func TestProtoGetControlAgentConfig_ClientHostOnAllowedTargetIsAllowed(t *testing.T) {
 	newControlAgentPolicyServer(t)
-	setDaemonHostname(t, "zeus")
+	setDaemonHostname(t, "remote-host")
 
-	resp := sendProtoRequest(t, controlAgentConfigRequest("CA-20035844"))
+	resp := sendProtoRequest(t, controlAgentConfigRequest("BUILD-HOST-01"))
 	if !resp.Ok {
 		t.Fatalf("expected ok response for client on allowed target, got error: %s", resp.Error)
 	}
@@ -89,18 +89,18 @@ func TestProtoGetControlAgentConfig_ClientHostOnAllowedTargetIsAllowed(t *testin
 	}
 }
 
-// The policy hole: client on zeus (disallowed), daemon on the allowed mac
+// The policy hole: client on remote-host (disallowed), daemon on the allowed mac
 // target. The RPC must be DENIED and the error must name the client host,
 // the resolved target, and the allowed targets.
 func TestProtoGetControlAgentConfig_ClientHostOnDisallowedTargetIsDenied(t *testing.T) {
 	newControlAgentPolicyServer(t)
-	setDaemonHostname(t, "CA-20035844")
+	setDaemonHostname(t, "BUILD-HOST-01")
 
-	resp := sendProtoRequest(t, controlAgentConfigRequest("zeus"))
+	resp := sendProtoRequest(t, controlAgentConfigRequest("remote-host"))
 	if resp.Ok {
 		t.Fatal("expected policy denial for client on disallowed host, got ok")
 	}
-	for _, want := range []string{"may only run on targets", "[mac]", `"zeus"`} {
+	for _, want := range []string{"may only run on targets", "[mac]", `"remote"`} {
 		if !strings.Contains(resp.Error, want) {
 			t.Errorf("error = %q, want it to contain %q", resp.Error, want)
 		}
@@ -111,17 +111,17 @@ func TestProtoGetControlAgentConfig_ClientHostOnDisallowedTargetIsDenied(t *test
 // the daemon host, exactly as before.
 func TestProtoGetControlAgentConfig_EmptyClientHostEnforcesDaemonHost(t *testing.T) {
 	newControlAgentPolicyServer(t)
-	setDaemonHostname(t, "zeus")
+	setDaemonHostname(t, "remote-host")
 
 	resp := sendProtoRequest(t, controlAgentConfigRequest(""))
 	if resp.Ok {
 		t.Fatal("expected denial: empty client_host must fall back to the (disallowed) daemon host")
 	}
-	if !strings.Contains(resp.Error, "zeus") {
-		t.Errorf("error = %q, want it to name the daemon host zeus", resp.Error)
+	if !strings.Contains(resp.Error, "remote-host") {
+		t.Errorf("error = %q, want it to name the daemon host remote-host", resp.Error)
 	}
 
-	setDaemonHostname(t, "CA-20035844")
+	setDaemonHostname(t, "BUILD-HOST-01")
 	resp = sendProtoRequest(t, controlAgentConfigRequest(""))
 	if !resp.Ok {
 		t.Fatalf("expected ok: empty client_host with daemon on the allowed target, got error: %s", resp.Error)
@@ -133,20 +133,20 @@ func TestProtoGetControlAgentConfig_EmptyClientHostEnforcesDaemonHost(t *testing
 // so this holds regardless of codex availability on the test host).
 func TestProtoGetControlAgentLaunch_ClientHostOnDisallowedTargetIsDenied(t *testing.T) {
 	newControlAgentPolicyServer(t)
-	setDaemonHostname(t, "CA-20035844")
+	setDaemonHostname(t, "BUILD-HOST-01")
 
 	resp := sendProtoRequest(t, &orchpb.Request{
 		Request: &orchpb.Request_GetControlAgentLaunch{
 			GetControlAgentLaunch: &orchpb.GetControlAgentLaunchRequest{
 				Context:    &orchpb.RequestContext{ProjectId: "project-ctx"},
-				ClientHost: "zeus",
+				ClientHost: "remote-host",
 			},
 		},
 	})
 	if resp.Ok {
 		t.Fatal("expected policy denial for launch RPC with client on disallowed host, got ok")
 	}
-	for _, want := range []string{"may only run on targets", "[mac]", `"zeus"`} {
+	for _, want := range []string{"may only run on targets", "[mac]", `"remote"`} {
 		if !strings.Contains(resp.Error, want) {
 			t.Errorf("error = %q, want it to contain %q", resp.Error, want)
 		}

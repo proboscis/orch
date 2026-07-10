@@ -56,6 +56,6 @@ roadmap からの相互参照がない → watchlist 更新時にクロスリフ
 ## 他リポジトリへの示唆
 
 orch の「fixture つき semgrep + law テスト + anti-drop 収集 + CI 配線」の構成は、
-ACP(CI ゼロ)・doeff(cargo feature 未配線)・proboscis-ema(CI が消滅パスを参照)が
+ACP(CI ゼロ)・doeff(cargo feature 未配線)・a sibling project(CI が消滅パスを参照)が
 そのまま輸入すべき参照実装。特に SpecInventorySpec 型の anti-drop ratchet は
 ACP の Hy runner `TEST-MODULES` 手動リスト問題への直接の解。

@@ -1,4 +1,4 @@
-> You are in /private/tmp/claude-2145596008/-Users-s22625-repos-orch/78ae59d0-0a
+> You are in /private/tmp/sample-2145596008/-Users-tester-repos-demo/78ae59d0-0a
 
   Do you trust the contents of this directory? Working with untrusted contents
   comes with higher risk of prompt injection. Trusting the directory allows

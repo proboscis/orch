@@ -62,7 +62,7 @@ consumed by the run state fold (`DeriveState`) to populate run fields.
 |------|-------------|---------|
 | `worktree` | Git worktree path | `artifact \| worktree \| path=/path/to/worktree` |
 | `branch` | Git branch name | `artifact \| branch \| name=issue/x/run-y` |
-| `target` | Execution target (host/worker) | `artifact \| target \| name=zeus \| host=zeus \| worker_id=...` |
+| `target` | Execution target (host/worker) | `artifact \| target \| name=remote \| host=remote-host \| worker_id=...` |
 | `session` | Multiplexer session | `artifact \| session \| name=run-x-y \| multiplexer=tmux` |
 | `window` | Multiplexer window ID | `artifact \| window \| id=@42` |
 | `pr` | Pull request URL | `artifact \| pr \| url=https://github.com/.../pull/42` |

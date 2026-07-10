@@ -23,9 +23,9 @@ func newCodexProfileConfig() *config.Config {
 		},
 		Targets: []config.TargetConfig{
 			// Target NAME "mac" deliberately differs from its resolved host
-			// "CA-20022388" so AllowedTargets is matched against target names,
+			// "BUILD-HOST-01" so AllowedTargets is matched against target names,
 			// not hostnames.
-			{Name: "mac", Host: "CA-20022388"},
+			{Name: "mac", Host: "BUILD-HOST-01"},
 			{Name: "remotebox", Host: "remotebox"},
 		},
 	}
@@ -91,9 +91,9 @@ func TestApplyCodexProfile_DisallowedTargetFailsFast(t *testing.T) {
 }
 
 // Regression guard: AllowedTargets compares target NAMES, not resolved hosts.
-// The company profile allows target name "mac" (whose host is "CA-20022388").
+// The company profile allows target name "mac" (whose host is "BUILD-HOST-01").
 // A run pinned to target name "mac" must pass; a run pinned to the raw host
-// string "CA-20022388" (not a valid target name) must be rejected. This ensures
+// string "BUILD-HOST-01" (not a valid target name) must be rejected. This ensures
 // the name-vs-host semantic mismatch cannot silently regress.
 func TestApplyCodexProfile_AllowedTargetsAreNamesNotHosts(t *testing.T) {
 	cfg := newCodexProfileConfig()
@@ -105,13 +105,13 @@ func TestApplyCodexProfile_AllowedTargetsAreNamesNotHosts(t *testing.T) {
 	}
 
 	// The resolved host string is NOT a target name and must be rejected.
-	host := &StartRunOptions{Agent: "codex", CodexProfile: "company", Target: "CA-20022388"}
+	host := &StartRunOptions{Agent: "codex", CodexProfile: "company", Target: "BUILD-HOST-01"}
 	err := applyCodexProfile(cfg, host)
 	if err == nil {
 		t.Fatal("expected fail-fast when Target is a hostname rather than the allowed target name, got nil")
 	}
-	if !strings.Contains(err.Error(), "CA-20022388") {
-		t.Errorf("error = %q, want it to name the rejected value CA-20022388", err.Error())
+	if !strings.Contains(err.Error(), "BUILD-HOST-01") {
+		t.Errorf("error = %q, want it to name the rejected value BUILD-HOST-01", err.Error())
 	}
 }
 
@@ -318,14 +318,14 @@ func setDaemonHostname(t *testing.T, host string) {
 }
 
 // The control agent executes on the CLIENT host. A client on an allowed
-// target (mac, host CA-20022388) must be ALLOWED even when the DAEMON runs on
+// target (mac, host BUILD-HOST-01) must be ALLOWED even when the DAEMON runs on
 // a disallowed host (remotebox) — regression for the reported false denial
-// (mac client against the zeus master).
+// (mac client against the remote master).
 func TestResolveControlCodexHome_ClientOnAllowedTargetDaemonElsewhereIsAllowed(t *testing.T) {
 	cfg := newCodexProfileConfig() // company profile: allowed_targets [mac]
 	setDaemonHostname(t, "remotebox")
 
-	home, err := resolveControlCodexHome(cfg, "codex", "CA-20022388")
+	home, err := resolveControlCodexHome(cfg, "codex", "BUILD-HOST-01")
 	if err != nil {
 		t.Fatalf("resolveControlCodexHome error: %v (client host is the allowed mac target; the daemon host must not be enforced)", err)
 	}
@@ -339,7 +339,7 @@ func TestResolveControlCodexHome_ClientOnAllowedTargetDaemonElsewhereIsAllowed(t
 // launch on the personal machine because only the daemon host was checked.
 func TestResolveControlCodexHome_ClientOnDisallowedHostDaemonAllowedIsDenied(t *testing.T) {
 	cfg := newCodexProfileConfig()
-	setDaemonHostname(t, "CA-20022388") // daemon on the allowed mac target
+	setDaemonHostname(t, "BUILD-HOST-01") // daemon on the allowed mac target
 
 	home, err := resolveControlCodexHome(cfg, "codex", "remotebox")
 	if err == nil {
@@ -359,7 +359,7 @@ func TestResolveControlCodexHome_ClientOnDisallowedHostDaemonAllowedIsDenied(t *
 // DENIED (fail-closed); the error names the client host and allowed targets.
 func TestResolveControlCodexHome_UnmappedClientHostFailsClosed(t *testing.T) {
 	cfg := newCodexProfileConfig()
-	setDaemonHostname(t, "CA-20022388")
+	setDaemonHostname(t, "BUILD-HOST-01")
 
 	_, err := resolveControlCodexHome(cfg, "codex", "some-other-laptop")
 	if err == nil {
@@ -376,7 +376,7 @@ func TestResolveControlCodexHome_UnmappedClientHostFailsClosed(t *testing.T) {
 // host (back-compat): allowed when the daemon is on the allowed target...
 func TestResolveControlCodexHome_EmptyClientHostUsesDaemonHost(t *testing.T) {
 	cfg := newCodexProfileConfig()
-	setDaemonHostname(t, "CA-20022388")
+	setDaemonHostname(t, "BUILD-HOST-01")
 
 	home, err := resolveControlCodexHome(cfg, "codex", "")
 	if err != nil {
@@ -405,12 +405,12 @@ func TestResolveControlCodexHome_EmptyClientHostDaemonDisallowedIsDenied(t *test
 }
 
 // Client hostnames match targets with the same short-hostname/case-insensitive
-// semantics as isLocalExecutionHost (e.g. mDNS-style "CA-20022388.local").
+// semantics as isLocalExecutionHost (e.g. mDNS-style "BUILD-HOST-01.local").
 func TestResolveControlCodexHome_ClientHostShortNameMatch(t *testing.T) {
 	cfg := newCodexProfileConfig()
 	setDaemonHostname(t, "remotebox")
 
-	home, err := resolveControlCodexHome(cfg, "codex", "ca-20022388.local")
+	home, err := resolveControlCodexHome(cfg, "codex", "build-host-01.local")
 	if err != nil {
 		t.Fatalf("resolveControlCodexHome error: %v (short-name match must resolve to mac)", err)
 	}
@@ -426,7 +426,7 @@ func TestResolveControlCodexHome_CodexHomeVerbatim(t *testing.T) {
 	cfg := newCodexProfileConfig()
 	setDaemonHostname(t, "remotebox")
 
-	home, err := resolveControlCodexHome(cfg, "codex", "CA-20022388")
+	home, err := resolveControlCodexHome(cfg, "codex", "BUILD-HOST-01")
 	if err != nil {
 		t.Fatalf("resolveControlCodexHome error: %v", err)
 	}
@@ -463,7 +463,7 @@ func TestResolveControlCodexHome_UnknownDefaultProfileFailsFast(t *testing.T) {
 // localTargetName is the daemon-host specialization of targetNameForHost.
 func TestTargetNameForHost_DaemonHostEqualsLocalTargetName(t *testing.T) {
 	cfg := newCodexProfileConfig()
-	for _, host := range []string{"CA-20022388", "remotebox", "unmapped-host"} {
+	for _, host := range []string{"BUILD-HOST-01", "remotebox", "unmapped-host"} {
 		setDaemonHostname(t, host)
 		if got, want := localTargetName(cfg), targetNameForHost(cfg, host); got != want {
 			t.Errorf("localTargetName = %q, targetNameForHost(%q) = %q, want equal", got, host, want)
@@ -477,12 +477,12 @@ func TestTargetNameForHost_LoopbackTargetMatchesDaemonHostOnly(t *testing.T) {
 	cfg := &config.Config{
 		Targets: []config.TargetConfig{{Name: "master", Host: "localhost"}},
 	}
-	setDaemonHostname(t, "zeus")
+	setDaemonHostname(t, "remote-host")
 
-	if got := targetNameForHost(cfg, "zeus"); got != "master" {
+	if got := targetNameForHost(cfg, "remote-host"); got != "master" {
 		t.Errorf("targetNameForHost(daemon host) = %q, want master (loopback target designates the daemon machine)", got)
 	}
-	if got := targetNameForHost(cfg, "CA-20022388"); got != "local" {
+	if got := targetNameForHost(cfg, "BUILD-HOST-01"); got != "local" {
 		t.Errorf("targetNameForHost(other client) = %q, want local (loopback must not match a remote client)", got)
 	}
 }
@@ -613,7 +613,7 @@ func newClaudeProfileConfig() *config.Config {
 			},
 		},
 		Targets: []config.TargetConfig{
-			{Name: "mac", Host: "CA-20022388"},
+			{Name: "mac", Host: "BUILD-HOST-01"},
 			{Name: "remotebox", Host: "remotebox"},
 		},
 	}

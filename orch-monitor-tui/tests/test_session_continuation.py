@@ -254,7 +254,7 @@ class TestControlAgentHostConstraintFailFast:
         # the CLIENT host the control agent would execute on.
         mock_daemon.get_control_agent_config.return_value = Failure(
             'codex profile "company" may only run on targets [mac]; '
-            'the control agent executes on host "zeus" (target "zeus"), '
+            'the control agent executes on host "remote-host" (target "remote"), '
             "which is not allowed"
         )
         return mock_daemon
@@ -274,7 +274,7 @@ class TestControlAgentHostConstraintFailFast:
                 agent_override="",
             )
         assert "company" in str(exc.value)
-        assert "zeus" in str(exc.value)
+        assert "remote-host" in str(exc.value)
 
     def test_tmux_launch_does_not_send_agent_command_on_denial(self):
         from orch_monitor.__main__ import (
@@ -397,7 +397,7 @@ class TestControlAgentHostConstraintFailFast:
                 )
         output = buf.getvalue()
         assert "may only run on targets [mac]" in output
-        assert 'executes on host "zeus"' in output
+        assert 'executes on host "remote-host"' in output
 
 
 class TestLocalSessionState:

@@ -128,4 +128,4 @@ attach_expect_live "$ORCH_BIN" --remote "$REMOTE_HOST:7777" --project "$PROJECT_
 "$ORCH_BIN" --remote "$REMOTE_HOST:7777" --project "$PROJECT_ID" send "$ISSUE_ID#$RUN_ID" quit >/dev/null || true
 "$ORCH_BIN" --remote "$REMOTE_HOST:7777" --project "$PROJECT_ID" stop "$ISSUE_ID#$RUN_ID" --force >/dev/null
 
-echo "RUN_CONTROL_ZEUS_E2E_OK"
+echo "RUN_CONTROL_REMOTE_E2E_OK"

@@ -333,7 +333,7 @@ func targetNameForHost(cfg *config.Config, host string) string {
 
 // hostNamesEqual reports whether two hostnames identify the same machine:
 // case-insensitive on the full name or on the short (first-label) name, so
-// "CA-20035844" matches "ca-20035844.local".
+// "BUILD-HOST-01" matches "build-host-01.local".
 func hostNamesEqual(a, b string) bool {
 	a = strings.TrimSpace(a)
 	b = strings.TrimSpace(b)
