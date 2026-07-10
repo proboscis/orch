@@ -79,7 +79,7 @@ Extended issues view with computed columns:
 
 | Column | Description |
 |--------|-------------|
-| (all from issues) | Base issue columns |
+| (all from issues except `body`) | Base issue columns except the Markdown body |
 | run_count | Number of runs for this issue |
 | tags | Comma-separated tags |
 

@@ -29,15 +29,22 @@ orch-monitor --help
 ## Launching
 
 ```bash
-# Start the TUI
+# Start the TUI for the first time, or attach to an existing session
 orch-monitor
 
-# Start with a fresh control agent session
+# Restart the layout and resume an existing control agent session
 orch-monitor --new
+
+# Restart with a fresh layout and control agent session
+orch-monitor --new-control-agent
 
 # Specify a project identity (repo URL or repoid)
 orch-monitor --project github.com/owner/repo
 ```
+
+Use bare `orch-monitor` for the first launch. `--new` requires an existing
+control agent session to resume; use `--new-control-agent` when you want to
+replace that session too.
 
 ## Interface Overview
 
@@ -187,7 +194,7 @@ Agent: You can press 'd' while a run is selected in the Runs panel,
 
 1. **Launch orch-monitor**
    ```bash
-   orch-monitor --new
+   orch-monitor
    ```
 
 2. **Create an issue via control agent**
@@ -237,7 +244,7 @@ If the TUI seems unresponsive:
 If control agent isn't responding:
 1. It may be thinking - wait a moment
 2. Press `Ctrl+L` to clear and try again
-3. Restart with `--new` flag
+3. Restart with the `--new-control-agent` flag
 
 ## Configuration
 

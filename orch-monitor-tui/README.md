@@ -40,7 +40,10 @@ mkdir -p .orch
 ### 2. Launch orch-monitor
 
 ```bash
-orch-monitor --new  # Start fresh session
+orch-monitor  # First launch, or attach to an existing session
+
+# To replace both the layout and control agent session:
+orch-monitor --new-control-agent
 ```
 
 ### 3. Meet the Control Agent
