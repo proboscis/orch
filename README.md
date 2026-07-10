@@ -59,6 +59,7 @@ orch attach my-task
 | **[orch-monitor TUI](./docs/orch-monitor.md)** | Visual dashboard for managing issues and runs |
 | **[Core Concepts](./docs/concepts.md)** | Issue, Run, Event, Status, Worktree explained |
 | **[Configuration](./docs/configuration.md)** | All config options with examples |
+| **Architecture Decision Records** | [ADR-0001: issue hex IDs](./docs/adr/ADR-0001-issue-hex-ids.md) · [ADR-0002: worker autostart](./docs/adr/ADR-0002-idempotent-worker-autostart.md) |
 
 ### Backends
 
@@ -96,15 +97,15 @@ orch attach my-task
 ```
 User runs: orch run my-issue
   → Creates worktree + branch
-  → Starts agent in tmux session
+  → Starts agent in a terminal multiplexer (tmux or zellij)
   → Returns immediately (non-blocking)
 
 User checks: orch ps
   → Shows all runs with status
 
 User interacts: orch attach my-issue
-  → Connects to tmux session
-  → Ctrl+B D to detach
+  → Connects to the terminal multiplexer session
+  → Detach with Ctrl+B D (tmux) or Ctrl+O D (zellij)
 ```
 
 ## Status Quick Reference

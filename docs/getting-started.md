@@ -26,8 +26,8 @@ Before installing orch, ensure you have:
 # Verify Go
 go version
 
-# Verify tmux
-tmux -V
+# Verify the terminal multiplexer you plan to use
+tmux -V                 # or: zellij --version
 
 # Verify your LLM CLI (example with claude)
 claude --version
@@ -158,42 +158,35 @@ issues:
 EOF
 ```
 
-Note: the store keeps issue files under an `issues/` subdirectory of the
-configured path (or `Issues/` if one already exists) — with the config above,
-`orch issue create` writes to `./issues/issues/<id>.md`. Prefer
-`orch issue create` over placing files by hand so they land where the store
-actually reads them.
-
 ## Create your first issue
 
-An issue is a markdown file describing a task for the agent:
+Create issues through the CLI so orch validates them and writes them to the
+configured issue store:
 
 ```bash
-# Create an issue file
-cat > ~/orch-issues/issues/my-first-issue.md << 'EOF'
----
-type: issue
-id: my-first-issue
-title: Add a hello world function
-status: open
----
-
-# Add a hello world function
-
+orch issue create my-first-issue --title "Add a hello world function" <<'EOF'
 Create a simple function in this repository that prints "Hello, World!".
 
-## Requirements
-- Create a new file with appropriate naming for the project
-- The function should be callable
-- Add a brief comment explaining what it does
+Requirements:
+- Create a new file with an appropriate name for the project.
+- Make the function callable.
+- Add a brief comment explaining what it does.
 EOF
 ```
 
-Or use the CLI:
+Use `--edit` instead when you want to write the body in your editor:
 
 ```bash
 orch issue create my-first-issue --title "Add a hello world function" --edit
 ```
+
+### Advanced: issue file layout
+
+The file backend stores generated documents under an `issues/` subdirectory
+of the configured `issues.path`, or under `Issues/` when that directory already
+exists. For example, `path: ./issues` normally stores this issue at
+`./issues/issues/my-first-issue.md`. Treat this as storage detail; use
+`orch issue create`, `orch issue show`, and `orch issue list` for normal work.
 
 ## Daemon and worker start automatically
 
@@ -213,13 +206,17 @@ with `orch worker start`.
 Start an agent to work on the issue:
 
 ```bash
-orch run my-first-issue
+orch run my-first-issue --no-pr
 ```
 
+`--no-pr` keeps this first exercise local. Omit it in a repository where you
+want the agent to commit, push, and open a pull request.
+
 This will:
+
 1. Create a new git worktree for isolation
 2. Create a new git branch
-3. Start a tmux session with your configured agent
+3. Start your configured agent in a terminal multiplexer (tmux or zellij)
 4. Send the issue content as the initial prompt
 
 The command returns immediately - the agent runs in the background.
@@ -234,7 +231,7 @@ On a fresh machine or directory, agent CLIs show a one-time interactive gate
 orch capture my-first-issue   # see what the agent is asking
 orch send my-first-issue ""   # empty message = press Enter (accept the default)
 # or take over the terminal directly:
-orch attach my-first-issue    # answer, then detach with Ctrl+B D
+orch attach my-first-issue    # answer, then detach (see below)
 ```
 
 ## Check status
@@ -245,11 +242,9 @@ See what's running:
 orch ps
 ```
 
-Example output:
-```
-ISSUE            STATUS   RUN                 AGENT   UPDATED
-my-first-issue   running  20260120-163045     claude  2m ago
-```
+The run normally moves through `booting` and `running`, then reaches
+`waiting` when the agent's input box is available. Use `orch capture` before
+deciding whether it needs an answer or has finished its turn.
 
 ### Status meanings
 
@@ -265,27 +260,30 @@ my-first-issue   running  20260120-163045     claude  2m ago
 
 ## Interact with the agent
 
-Attach to the agent's terminal session:
+Attach to the agent's terminal multiplexer session:
 
 ```bash
 orch attach my-first-issue
 ```
 
-This opens the tmux session where you can:
+This opens the tmux or zellij session where you can:
+
 - Watch the agent work in real-time
 - Type messages to the agent
 - Paste images (if the agent supports it)
 - Provide input when the agent asks questions
 
-**Detach without stopping the agent**: Press `Ctrl+B` then `D`
+**Detach without stopping the agent**: press `Ctrl+B` then `D` in tmux, or
+`Ctrl+O` then `D` in zellij.
 
 ## See the result
 
-When the agent finishes (status becomes `done` or `pr_open`):
+Wait for the agent to finish its current turn, then read its report before
+inspecting the result:
 
 ```bash
-# Check final status
-orch ps
+orch wait my-first-issue --timeout 600
+orch capture my-first-issue
 
 # View run details
 orch show my-first-issue
@@ -303,6 +301,9 @@ orch stop my-first-issue
 
 # Stop a specific run
 orch stop my-first-issue#20260120-163045
+
+# Mark the issue complete when you have accepted the result
+orch resolve my-first-issue
 ```
 
 ## Next steps

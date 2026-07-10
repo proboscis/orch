@@ -22,6 +22,7 @@ Pick your path by what you are trying to do.
 |---|---|
 | Agents | [Claude](./agents/claude.md) · [Codex](./agents/codex.md) · [OpenCode](./agents/opencode.md) · [Gemini](./agents/gemini.md) · [Custom](./agents/custom.md) |
 | Issue backends | [File](./backends/file.md) · [GitHub](./backends/github.md) |
+| Architecture decisions | [ADR-0001: issue hex IDs](./adr/ADR-0001-issue-hex-ids.md) · [ADR-0002: worker autostart](./adr/ADR-0002-idempotent-worker-autostart.md) |
 | Reference | [Commands](./reference/commands.md) · [Statuses](./reference/statuses.md) · [Events](./reference/events.md) · [SQL Queries](./reference/query.md) |
 
 ## Contribute to orch
@@ -35,6 +36,10 @@ rubric) and the canonical E2E validation docs
 Agent-facing instructions live in [AGENTS.md](../AGENTS.md) at the repo root.
 
 ## Internal design records
+
+Architecture decisions live under [adr/](./adr/); start with
+[ADR-0001](./adr/ADR-0001-issue-hex-ids.md) for issue identity and
+[ADR-0002](./adr/ADR-0002-idempotent-worker-autostart.md) for worker startup.
 
 Everything under [design/](./design/) documents the coupling cores and their
 laws — most importantly the run-status law book

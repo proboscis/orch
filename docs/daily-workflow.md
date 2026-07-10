@@ -1,6 +1,9 @@
 # Daily Workflow with orch
 
-This guide covers typical day-to-day usage patterns for working with orch and AI agents.
+This guide covers recurring work after orch is installed and your first run
+works. For the canonical create → run → observe → interact loop, start with
+[Getting Started](./getting-started.md) or the validated Japanese
+[local quickstart](./local-quickstart.ja.md).
 
 ## Morning Routine
 
@@ -32,56 +35,22 @@ gh pr view <pr-number> --web
 
 ## Starting New Work
 
-### 1. Create an Issue
-
-Issues define what you want the agent to accomplish:
+Create and edit a focused issue, then start its run:
 
 ```bash
-# Create and edit an issue
 orch issue create fix-login-timeout --title "Fix login session timeout" --edit
-```
-
-This opens your editor. Write a clear task description:
-
-```markdown
----
-type: issue
-id: fix-login-timeout
-title: Fix login session timeout
-status: open
----
-
-# Fix login session timeout
-
-Users report being logged out after 5 minutes of inactivity.
-
-## Current Behavior
-- Session expires after 5 minutes
-- No warning before logout
-
-## Expected Behavior  
-- Session should last 30 minutes
-- Show warning 5 minutes before expiry
-
-## Files to check
-- src/auth/session.ts
-- src/middleware/auth.ts
-```
-
-### 2. Start a Run
-
-```bash
-# Start an agent working on the issue
 orch run fix-login-timeout
 
-# With a specific agent
+# Alternatives: select an agent or enable verbose diagnostics
+# (run only the variant you need)
 orch run --agent opencode fix-login-timeout
-
-# With verbose output for debugging
 orch run --verbose fix-login-timeout
 ```
 
-The agent starts working in the background. You can continue with other tasks.
+The agent works in an isolated worktree in the background. Put current
+behavior, expected behavior, relevant files, and verification requirements in
+the issue body; the first-run guides cover heredoc creation, local `--no-pr`
+runs, and trust prompts in detail.
 
 ## Monitoring Progress
 
@@ -98,15 +67,9 @@ orch ps --status running,waiting
 orch show fix-login-timeout
 ```
 
-### Status Meanings
-
-| Status | What it means | Your action |
-|--------|---------------|-------------|
-| `running` | Agent is actively working | Wait, or watch with `attach` |
-| `waiting` | Agent needs input or is stuck | Use `attach` or `send` to help |
-| `pr_open` | Agent created a PR | Review the PR |
-| `done` | Work completed successfully | Celebrate! |
-| `failed` | Something went wrong | Check logs, possibly restart |
+For the complete status vocabulary and transition rules, see
+[Statuses](./reference/statuses.md). A `waiting` run may need input or may have
+finished its turn; use `orch capture` to distinguish the two.
 
 ## Interacting with Agents
 
@@ -114,6 +77,7 @@ orch show fix-login-timeout
 
 | Situation | Use | Why |
 |-----------|-----|-----|
+| Need to inspect a `waiting` run | `capture` | Read the current terminal without taking it over |
 | Need to have a conversation | `attach` | Interactive back-and-forth |
 | Agent is stuck on something | `attach` | See what's happening, provide guidance |
 | Quick instruction or clarification | `send` | Don't need to watch the response |
@@ -260,60 +224,6 @@ It's often fine to leave agents running overnight:
 - PRs will be ready for review
 
 Just be mindful of API costs for long-running agents.
-
-## Example Day
-
-```bash
-# === Morning ===
-
-# Check overnight progress
-orch ps
-
-# Two runs finished with PRs
-orch diff fix-bug-123
-orch diff add-feature-x
-gh pr view 42 --web
-gh pr view 43 --web
-
-# === Start new work ===
-
-# Create today's tasks
-orch issue create optimize-db-queries --title "Optimize slow database queries" --edit
-orch issue create update-deps --title "Update npm dependencies" --edit
-
-# Start the agents
-orch run optimize-db-queries
-orch run update-deps
-
-# === Midday check ===
-
-orch ps
-# ISSUE                STATUS   RUN                 AGENT   UPDATED
-# optimize-db-queries  running  20260115-093012     claude  5m ago
-# update-deps          waiting  20260115-093045     claude  2m ago
-
-# Help the waiting agent
-orch attach update-deps
-# Agent: "Should I update React to v19 or stay on v18?"
-# You: "Stay on v18 for now, we're not ready for the migration"
-
-# === Afternoon ===
-
-orch ps
-# ISSUE                STATUS   RUN                 AGENT   UPDATED
-# optimize-db-queries  pr_open  20260115-093012     claude  1h ago
-# update-deps          running  20260115-093045     claude  30m ago
-
-# Review the finished PR
-orch diff optimize-db-queries
-gh pr view 45
-
-# === End of day ===
-
-orch ps
-# Both done with PRs
-# Review tomorrow, signing off
-```
 
 ## Next Steps
 
