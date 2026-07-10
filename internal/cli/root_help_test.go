@@ -64,3 +64,9 @@ func TestRootDoesNotExposeRemovedMonitorCommand(t *testing.T) {
 		}
 	}
 }
+
+func TestRootDoesNotExposeRemovedBackendFlag(t *testing.T) {
+	if flag := rootCmd.PersistentFlags().Lookup("backend"); flag != nil {
+		t.Fatalf("removed global backend flag is still registered: %s", flag.Name)
+	}
+}

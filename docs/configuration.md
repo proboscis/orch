@@ -6,7 +6,7 @@ orch uses a layered configuration system with sensible defaults. Configuration c
 
 Settings are resolved in this order (highest priority first):
 
-1. **Command-line flags** (`--agent`, `--backend`, etc.)
+1. **Command-line flags** (`--project`, `--remote`, etc.)
 2. **Project config** (`.orch/config.yaml` in current or parent directory)
 3. **Environment variables** (`ORCH_AGENT`, etc.)
 4. **Global config** (`~/.config/orch/config.yaml`)

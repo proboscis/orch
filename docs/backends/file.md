@@ -248,8 +248,8 @@ issues/runs/
 If you're moving from the GitHub backend to files:
 
 ```bash
-# Export issues (hypothetical command)
-orch issue export --backend github --output ./issues/
+# Export issues after selecting the GitHub issue backend in config (hypothetical command)
+orch issue export --output ./issues/
 
 # Or manually create issue files for each ticket
 ```
