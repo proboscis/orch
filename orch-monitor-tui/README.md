@@ -1,289 +1,218 @@
-# Orch Monitor TUI (Python/Textual)
+# orch-monitor
 
-Python Textual-based terminal user interface for orch.
+`orch-monitor` is orch's Python/Textual terminal user interface. It presents
+daemon-backed Runs and Issues dashboards and launches a control-agent terminal
+beside them in a tmux or Zellij session.
 
-## Features
+This is the only orch TUI. The former Go `orch monitor` subcommand has been
+removed; use the standalone `orch-monitor` executable.
 
-- **Issue Dashboard**: View all issues with status filtering
-- **Run Dashboard**: Monitor active and completed runs with real-time status
-- **Detail Panels**: View issue content and run events
-- **Keybindings**: Quick navigation and actions
-- **Real-time Updates**: Automatic refresh with daemon-based data
-- **Multiplexer Support**: Works with both tmux and zellij
+## Install
 
-## Quick Start (Onboarding)
-
-New to orch-monitor? Here's how to get started:
-
-1. **Install orch-monitor**: `uv tool install /path/to/orch/orch-monitor-tui`
-2. **Launch the TUI**: `orch-monitor` (or `orch-monitor --new-control-agent` for fresh start)
-3. **Press `?`** to see all keybindings and workflow tips
-4. **Navigate** with arrow keys, **Tab** to switch panels
-5. **Start a run** on an issue with `n`, select an agent
-6. **Monitor progress** in the Runs panel
-7. **Attach** to a running agent with `a` or Enter
-
-> **Tip**: Press `?` anytime within the TUI for a quick reference of keybindings and workflow.
-
-## Workflow Guide
-
-This section describes the end-to-end workflow for using orch-monitor TUI with the control agent to manage issue-driven development.
-
-### 1. Setup Repository with Orch
+From the orch repository root, install the CLI and TUI together:
 
 ```bash
-cd your-repo
-mkdir -p .orch
-# Configure `.orch/config.yaml` with agent/runtime preferences.
+make install
 ```
 
-### 2. Launch orch-monitor
+Or install only this package:
 
 ```bash
-orch-monitor  # First launch, or attach to an existing session
-
-# To replace both the layout and control agent session:
-orch-monitor --new-control-agent
+uv tool install ./orch-monitor-tui
 ```
 
-### 3. Meet the Control Agent
+The package exposes the `orch-monitor` console script.
 
-The control agent runs in the bottom pane. You can:
-- Ask how to use orch-monitor
-- Get help with commands
-- Discuss project plans
+## Start
 
-### 4. Create Issues via Discussion
-
-Talk with the control agent to create issue files:
-- Describe what you want to build
-- Control agent creates the issue markdown file
-- Issue appears in the **Issues Panel** (left side)
-
-### 5. Start a Run
-
-Multiple ways to start a run on an issue:
-- **Click** on an issue in the Issues panel
-- **Arrow keys + `n`** to select issue and start new run
-- **Ask control agent**: "run orch-123"
-
-Select your agent: claude / opencode / codex
-
-### 6. Monitor the Run
-
-The run appears in the **Runs Panel** (top):
-- Watch status: queued → booting → running → pr_open → done
-- See elapsed time, agent, branch info
-
-### 7. Interact with Running Agents
-
-While a run is active:
-- **Select run + Enter** or **click**: Attach to see agent output
-- **`a`**: Attach to selected run's terminal session
-- Ask control agent to send messages via `orch send`
-
-### 8. Review and Merge
-
-When run creates a PR:
-- Status shows `pr_open`
-- Review the PR on GitHub
-- Ask control agent to review the work
-- Merge when satisfied
-
-### 9. Control Agent Commands
-
-The control agent can:
-- `orch run <issue>` - Start a run
-- `orch send <run> [message]` - Send a message to a running agent, or read it from stdin/heredoc
-- `orch capture <run>` - Capture agent's last output
-- `orch stop <run>` - Stop a run
-- `orch ps` - List all runs
-- Review work and provide feedback
-
-### 10. Parallel Development
-
-Run multiple issues in parallel:
-- Each run gets its own git worktree
-- Agents work independently
-- Monitor all runs from single TUI
-- Merge PRs as they complete
-
-### The Development Loop
-
-```
-Create Issue → Start Run → Monitor → Review PR → Merge → Repeat
-     ↑                                                    |
-     └────────────────────────────────────────────────────┘
-```
-
-Enjoy making as many issue files with control agent and running them in parallel on worktrees!
-
-## Prerequisites
-
-The TUI requires the orch daemon to be running. The daemon starts automatically when you run any `orch` command (e.g., `orch ps`).
-
-```
-+-----------------------------+
-|     Python Textual TUI      |
-|        DaemonClient         |
-+-----------+-----------------+
-            | Unix socket (JSON)
-            v
-+-----------------------------+
-|         Go Daemon           |
-|   (single source of truth)  |
-+-----------------------------+
-```
-
-## Installation
-
-```bash
-uv tool install /path/to/orch/orch-monitor-tui
-```
-
-Or from git:
-
-```bash
-uv tool install "git+https://github.com/proboscis/orch#subdirectory=orch-monitor-tui"
-```
-
-## Usage
-
-Run from any directory (uses `ORCH_PROJECT` or `.orch/config.yaml`):
+Use the bare command for the first launch:
 
 ```bash
 orch-monitor
 ```
 
-Or pin a project explicitly:
+The launcher resolves the project and daemon, then opens this multiplexer
+layout:
 
-```bash
-orch-monitor --project github.com/owner/repo
+```text
++---------------------------+------------------------------+
+| Runs dashboard            | Issues dashboard             |
+|                           +------------------------------+
+|                           | Control agent terminal       |
++---------------------------+------------------------------+
 ```
 
-### Terminal Multiplexer
+Bare `orch-monitor` attaches when the project already has a live monitor
+session.
 
-By default, orch-monitor auto-detects the multiplexer (prefers the one you're inside, or falls back to tmux):
-
-```bash
-# Use tmux (default)
-orch-monitor
-
-# Use zellij
-orch-monitor --multiplexer zellij
-orch-monitor -m zellij
-
-# Or set via environment variable
-export ORCH_MULTIPLEXER=zellij
-orch-monitor
-```
-
-### Session Management
+### Layout and control-agent restarts
 
 ```bash
-# Restart layout only (preserves control agent session/conversation)
+# Replace the layout and resume its saved control-agent session.
 orch-monitor --new
 
-# Restart both layout AND control agent (fresh start)
+# Replace both the layout and control-agent session.
 orch-monitor --new-control-agent
-
-# Or explicitly combine flags
-orch-monitor --new --new-control-agent
 ```
 
-The `--new` flag restarts the multiplexer layout while preserving your control agent's conversation context. This is useful when:
-- Layout gets corrupted or panes are misaligned
-- You want to refresh the TUI panels without losing your chat history
+When replacing an existing layout, `--new` requires a usable saved session in
+`.orch/control-session.json`. It fails before killing the current layout when
+that state is missing. `--new-control-agent` implies `--new` and clears the old
+control-agent state intentionally.
 
-Use `--new-control-agent` when you want a completely fresh start, including a new control agent session.
+The launcher requests repository context and control-agent configuration from
+the daemon, writes the returned content to `ORCH_CONTROL_PROMPT.md`, and asks
+the selected agent to read it. Both this generated prompt and
+`.orch/control-session.json` are ignored by Git.
 
-### Other Options
+## Launcher options
+
+| Option | Purpose |
+|--------|---------|
+| `--project PROJECT` | Select a project by Git repository URL or normalized repository ID. |
+| `--runs` | Open only the Runs dashboard. |
+| `--issues` | Open only the Issues dashboard. |
+| `--agent AGENT` | Override the configured control agent. |
+| `--new` | Recreate the layout while retaining the saved control-agent session. |
+| `--new-control-agent` | Recreate the layout and control-agent session. |
+| `--multiplexer {tmux,zellij}`, `-m` | Override multiplexer selection. |
+| `--verbose`, `-v` | Print launcher diagnostics to standard error. |
+| `--remote ADDRESS` | Override remote daemon routing; an empty value forces local routing. |
+| `--list` | List registered monitor instances for the project. |
+| `--kill MONITOR_ID` | Kill one registered monitor instance. |
+| `--kill-all` | Kill all registered monitor instances for the project. |
+
+For example:
 
 ```bash
-# Use a different control agent
-orch-monitor --agent claude
-```
-
-If the daemon is not running, the TUI will show an error notification. Start the daemon with:
-
-```bash
-orch ps
-```
-
-### Development
-
-```bash
-cd orch-monitor-tui
-uv sync
-uv run python -m orch_monitor
+orch-monitor --project github.com/proboscis/orch
+orch-monitor --multiplexer tmux
+orch-monitor --remote master.example:7777 --list
 ```
 
 ## Keybindings
 
+All dashboard applications bind `?` for help, `q` to quit, `Ctrl+C` to quit
+with priority, and `r` to refresh. Run and issue tables support `j`/`k` for row
+movement and `g`/`G` for top and bottom.
+
+### Combined application
+
+`OrchMonitorApp` is the reusable combined application. The default
+multiplexer layout runs the separate Runs and Issues applications documented
+below.
+
 | Key | Action |
 |-----|--------|
-| `?` | Show help screen with keybindings and workflow tips |
-| `q` | Quit |
-| `r` | Refresh data |
-| `tab` | Switch between Runs/Issues tabs |
-| `f` | Filter runs by status |
-| `ctrl+f` | Clear all filters |
-| `up/down` | Navigate list |
-| `enter` | Select item (attach to run / open issue in `$EDITOR`*) |
-| `a` | Attach to selected run's session |
-| `s` | Stop selected run |
-| `X` | Kill session (force terminate) |
-| `n` | Create new run for selected issue |
-| `o` | Open issue in `$EDITOR`* |
-| `x` | Close issue |
+| `Enter` | Select the highlighted run or issue. |
+| `a` | Attach to a run. |
+| `s` | Stop a run. |
+| `X` | Kill a run's terminal session. |
+| `n` | Start a run for an issue. |
+| `o` | Open an issue in the editor. |
+| `x` | Close an issue. |
+| `f` | Filter the focused table. |
+| `Ctrl+f` | Clear filters on the focused table. |
+| `d` | Show a run diff. |
+| `Tab` | Switch between Runs and Issues. |
 
-*When running inside a multiplexer (tmux/zellij), opening issues in `$EDITOR` creates a new multiplexer tab/window, allowing you to edit without leaving the monitor. Outside a multiplexer, the TUI suspends while the editor is open.
+### Runs pane (`--runs`)
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Attach to the highlighted run. |
+| `s` | Stop the highlighted run. |
+| `X` | Kill the highlighted run's terminal session. |
+| `f` | Open run filters. |
+| `Ctrl+f` | Clear run filters. |
+| `d` | Show the highlighted run's diff. |
+
+The Runs pane uses `Enter`, not `a`, for attach. The `a` binding exists on the
+combined application.
+
+### Issues pane (`--issues`)
+
+| Key | Action |
+|-----|--------|
+| `Enter`, `o` | Open the highlighted issue in the editor. |
+| `n` | Open the agent selector for a new run. |
+| `x` | Close the highlighted issue. |
+| `f` | Open issue filters. |
+| `Ctrl+f` | Clear issue filters. |
+
+The agent selector uses `Esc` to cancel, `Enter` to confirm, `j`/`k` to move,
+and `1` through `9` for quick selection.
+
+The Runs detail panel uses `Tab` to move between tabs, `1`/`2`/`3` for Stats,
+Issue, and Changes, `j`/`k` or arrows to scroll, and `g`/`G` for top and bottom.
+
+## Status display
+
+| Status | Short display | Color |
+|--------|---------------|-------|
+| `queued` | `queue` | white |
+| `booting` | `boot` | green |
+| `running` | `run` | green |
+| `waiting` | `wait` | yellow |
+| `rate_limited` | `rlimit` | yellow |
+| `pr_open` | `pr` | cyan |
+| `done` | `done` | blue |
+| `failed` | `fail` | red |
+| `canceled` | `cancel` | dim |
+| `unknown` | `?` | magenta |
 
 ## Configuration
 
-The TUI respects the same configuration as the Go `orch` CLI:
+The TUI uses orch project/client resolution and reads `.orch/config.yaml`.
+Monitor defaults are nested under `monitor`:
 
-- `ORCH_PROJECT` environment variable (project identity: repo URL or normalized repo ID)
-- `.orch/config.yaml` found by searching upward from current directory
-- `.orch/config.yaml` in the selected project workspace
+```yaml
+monitor:
+  default_run_statuses:
+    - queued
+    - booting
+    - running
+    - waiting
+    - rate_limited
+    - pr_open
+  default_issue_statuses:
+    - open
+  default_issue_filter:
+    tags:
+      - active
+    tag_mode: any  # any = OR, all = AND
+```
+
+These defaults initialize the UI when `.orch/monitor-filters.yaml` does not
+exist. Interactive filter changes are persisted in that file and take
+precedence on later launches.
 
 ## Architecture
 
+The daemon is the authoritative source for issue, run, monitor, and Git state.
+The TUI requests state and actions through the daemon API and keeps display
+formatting, control-agent session persistence, and terminal interaction local.
+
+```text
++----------------------+       daemon API       +----------------------+
+| Textual dashboards   | <--------------------> | orch daemon          |
+| + layout launcher    |                        | authoritative state  |
++----------------------+                        +----------------------+
 ```
-orch_monitor/
-  __init__.py    - Package initialization
-  __main__.py    - Entry point and layout launchers
-  app.py         - Main Textual application (RunsDashboard, IssuesDashboard, OrchMonitorApp)
-  config.py      - Configuration management and socket path resolution
-  daemon.py      - DaemonClient for communicating with Go daemon via Unix socket
-  models.py      - Data models (Issue, Run, Event, Status)
-  multiplexer.py - Multiplexer abstraction (Strategy pattern for tmux/zellij)
-  widgets.py     - Custom Textual widgets (RunTable, IssueTable, DetailPanel)
+
+`orch_monitor/app.py` re-exports the Hy dashboard implementations;
+`orch_monitor/__main__.py` provides the console entrypoint and layout
+launchers. `widgets.py` contains the tables and detail tabs, while
+`multiplexer.py` implements tmux and Zellij integration.
+
+## Development
+
+```bash
+cd orch-monitor-tui
+uv sync --all-extras
+uv run python -m orch_monitor --help
+uv run pytest tests/ -v
 ```
 
-The TUI uses a daemon-centric architecture:
-- Runs/issues data comes from the Go daemon via Unix socket
-- Control-agent prompt/config comes from daemon (`get_control_agent_config`)
-- Control-agent session file is managed locally at `.orch/control-session.json`
-- Automatic refresh via polling (configurable interval)
-
-## Daemon Communication
-
-The TUI communicates with the orch daemon via Unix socket at `$PROJECT_ROOT/.orch/daemon.sock`:
-
-- `list_runs` - List all runs with optional status filter
-- `list_issues` - List all issues
-- `get_run` - Get details for a specific run
-- `get_issue` - Get details for a specific issue
-- `get_control_agent_config` - Fetch control-agent prompt and launch config
-- `send` - Send a message to a running agent
-
-## Differences from Go Monitor
-
-This Python TUI provides a simpler, more focused interface:
-
-- No integrated chat pane (use `orch attach` for direct interaction)
-- Simplified layout with tabs instead of multi-pane tmux windows
-- Focus on monitoring and quick actions
-
-The Go monitor remains available for users who prefer the integrated experience.
+See the [full orch-monitor guide](../docs/orch-monitor.md) for workflow details
+and the complete binding reference.

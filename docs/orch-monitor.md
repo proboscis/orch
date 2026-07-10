@@ -1,292 +1,303 @@
 # orch-monitor TUI
 
-orch-monitor is a terminal user interface (TUI) for managing orch issues and runs visually. It provides a dashboard view of your workflow and integrates with the control agent for chat-based management.
+`orch-monitor` is orch's terminal user interface. It is implemented in Python
+with Textual and displays run and issue state supplied by the orch daemon. The
+default launcher also opens a control-agent terminal beside the dashboards.
 
-`orch-monitor` is the standalone Python TUI installed from `orch-monitor-tui`.
-It reads run, issue, and monitor-instance state from the orch daemon.
+The former Go `orch monitor` subcommand has been removed. Use the standalone
+`orch-monitor` executable for all TUI and monitor-instance operations.
 
 ## Installation
 
-The TUI is packaged separately and can be installed with uv:
+From the orch repository root, `make install` installs both the Go CLI and the
+Python TUI. Its `install-tui` dependency reinstalls the local TUI package:
 
 ```bash
-# Install from the orch-monitor-tui directory
-uv tool install ./orch-monitor-tui
-
-# Or install in development mode
-cd orch-monitor-tui
-uv pip install -e .
+make install
 ```
 
-Verify installation:
+To install only the TUI with uv:
+
+```bash
+uv tool install ./orch-monitor-tui
+```
+
+Confirm that the executable is available:
 
 ```bash
 orch-monitor --help
 ```
 
-## Launching
+## First launch
+
+Start with the bare command:
 
 ```bash
-# Start the TUI for the first time, or attach to an existing session
 orch-monitor
+```
 
-# Restart the layout and resume an existing control agent session
+On first use, the launcher connects to the daemon, resolves the current
+project, creates a tmux or Zellij session, and opens three working areas:
+
+```text
++---------------------------+------------------------------+
+| Runs dashboard            | Issues dashboard             |
+|                           +------------------------------+
+|                           | Control agent terminal       |
++---------------------------+------------------------------+
+```
+
+If that monitor session already exists, bare `orch-monitor` attaches to it.
+The control agent is a real terminal pane managed by the Python launcher; it is
+not a chat widget inside either Textual dashboard.
+
+### Restarting sessions
+
+Use `--new` to replace the multiplexer layout while preserving the saved
+control-agent session:
+
+```bash
 orch-monitor --new
+```
 
-# Restart with a fresh layout and control agent session
+When an existing layout is being replaced, `--new` first requires a resumable
+control-agent ID in `.orch/control-session.json`. If the file has no usable
+session, the command exits with an error before destroying the current layout.
+Use bare `orch-monitor` to attach to the layout as-is, or use
+`--new-control-agent` to deliberately start over.
+
+Use `--new-control-agent` to replace both the layout and control-agent session:
+
+```bash
 orch-monitor --new-control-agent
-
-# Specify a project identity (repo URL or repoid)
-orch-monitor --project github.com/owner/repo
 ```
 
-Use bare `orch-monitor` for the first launch. `--new` requires an existing
-control agent session to resume; use `--new-control-agent` when you want to
-replace that session too.
+This option implies `--new` and clears the saved control-agent session before
+launching the replacement layout.
 
-## Managing monitor instances
+## Command-line options
 
-The daemon tracks running monitor instances. Management commands are scoped to
-the resolved project identity, including when `--project` or `ORCH_PROJECT` is
-used.
+| Option | Behavior |
+|--------|----------|
+| `--project PROJECT` | Select a project by Git repository URL or normalized repository ID. |
+| `--runs` | Run only the Runs Textual dashboard; used by a multiplexer pane and useful for focused testing. |
+| `--issues` | Run only the Issues Textual dashboard; used by a multiplexer pane and useful for focused testing. |
+| `--agent AGENT` | Override the configured control-agent command. |
+| `--new` | Restart an existing layout and preserve its saved control-agent session. |
+| `--new-control-agent` | Restart the layout with a fresh control-agent session. |
+| `--multiplexer {tmux,zellij}`, `-m` | Override automatic multiplexer selection. |
+| `--verbose`, `-v` | Print launcher timing and diagnostic messages to standard error. |
+| `--remote ADDRESS` | Use a remote daemon address or alias, overriding `ORCH_REMOTE` and the client default. An empty value forces local routing. |
+| `--list` | List monitor instances registered for the selected project. |
+| `--kill MONITOR_ID` | Kill one registered monitor instance. |
+| `--kill-all` | Kill every registered monitor instance for the selected project. |
+
+`--list`, `--kill`, and `--kill-all` are mutually exclusive. Their project
+scope is resolved in the same way as the TUI, including `--project` and remote
+client configuration.
+
+Examples:
 
 ```bash
-# List registered monitors for the current project
-orch-monitor --list
-
-# Stop one monitor and its multiplexer session
-orch-monitor --kill MONITOR_ID
-
-# Stop every registered monitor for the current project
-orch-monitor --kill-all
-```
-
-`--list` prints each monitor's ID, PID, project, view, multiplexer session, and
-last heartbeat time. Use an ID from this output with `--kill`.
-
-These commands use the same daemon routing as the TUI. Pass `--remote` or set
-`ORCH_REMOTE` to manage monitors registered with a remote daemon:
-
-```bash
+orch-monitor --project github.com/proboscis/orch
+orch-monitor --multiplexer tmux
+orch-monitor --remote master.example:7777
 orch-monitor --remote master.example:7777 --list
-orch-monitor --remote master.example:7777 --kill MONITOR_ID
+orch-monitor --kill MONITOR_ID
 ```
-
-## Interface Overview
-
-The TUI is divided into three main panels:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         orch-monitor                            │
-├─────────────────────────┬───────────────────────────────────────┤
-│                         │                                       │
-│   Issues Panel          │   Runs Panel                          │
-│                         │                                       │
-│   > fix-bug-123        │   20260115-093012  running   5m ago   │
-│     add-feature-x       │   20260115-091530  pr_open   1h ago   │
-│     optimize-db         │                                       │
-│     update-deps         │                                       │
-│                         │                                       │
-├─────────────────────────┴───────────────────────────────────────┤
-│                                                                 │
-│   Control Agent Panel                                           │
-│                                                                 │
-│   Agent: How can I help you today?                              │
-│   You: Create an issue for fixing the login timeout             │
-│   Agent: I'll create that issue for you...                      │
-│                                                                 │
-│   > _                                                           │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Issues Panel (Left)
-
-Displays all issues in your issues directory:
-- Navigate with `j`/`k` or arrow keys
-- Selected issue highlighted with `>`
-- Shows issue status via color coding
-
-### Runs Panel (Right)
-
-Shows runs for the selected issue:
-- Lists all runs with their status and last update time
-- Automatically updates as runs progress
-- Empty if no runs exist for selected issue
-
-### Control Agent Panel (Bottom)
-
-Interactive chat with the control agent:
-- Type messages to create issues, start runs, check status
-- Agent can perform orch operations on your behalf
-- Maintains conversation history within the session
 
 ## Keybindings
 
-### Global
+The tables below are generated from the binding declarations in
+`orch_monitor_app.hy`, `runs_dashboard.hy`, `issues_dashboard.hy`,
+`agent_screen.hy`, and `widgets.py`.
+
+### Combined dashboard application
+
+These are the bindings on the reusable `OrchMonitorApp`. The default
+multiplexer layout runs the separate Runs and Issues applications documented
+below. In the combined application, the action selected by a key such as
+`Enter`, `f`, or `Ctrl+f` depends on which table has focus.
 
 | Key | Action |
 |-----|--------|
-| `?` | Show help overlay |
-| `Tab` | Switch focus between panels |
-| `q` | Quit orch-monitor |
-| `Ctrl+C` | Force quit |
+| `?` | Open help. |
+| `q` | Quit. |
+| `Ctrl+C` | Quit with priority. |
+| `r` | Refresh data. |
+| `Enter` | Select the highlighted run or issue. |
+| `a` | Attach to the highlighted run. |
+| `s` | Stop the highlighted run. |
+| `X` | Kill the highlighted run's terminal session. |
+| `n` | Start a new run for the highlighted issue. |
+| `o` | Open the highlighted issue in the editor. |
+| `x` | Close the highlighted issue. |
+| `f` | Open the filter for the focused table. |
+| `Ctrl+f` | Clear filters for the focused table. |
+| `d` | Show the highlighted run's diff. |
+| `Tab` | Switch focus between Runs and Issues. |
 
-### Issues Panel
-
-| Key | Action |
-|-----|--------|
-| `j` / `↓` | Move to next issue |
-| `k` / `↑` | Move to previous issue |
-| `Enter` | Focus on runs for this issue |
-| `n` | Start a new run for selected issue |
-| `e` | Edit the selected issue |
-| `r` | Refresh issues list |
-
-### Runs Panel
-
-| Key | Action |
-|-----|--------|
-| `j` / `↓` | Move to next run |
-| `k` / `↑` | Move to previous run |
-| `Enter` / `a` | Attach to selected run |
-| `d` | Show diff for selected run |
-| `s` | Stop selected run |
-| `l` | View run logs/events |
-| `c` | Continue selected run |
-| `r` | Refresh runs list |
-
-### Control Agent Panel
+### Runs dashboard (`--runs`)
 
 | Key | Action |
 |-----|--------|
-| `Enter` | Send message |
-| `Ctrl+L` | Clear chat history |
-| `Esc` | Return focus to issues panel |
+| `?` | Open help. |
+| `q` | Quit. |
+| `Ctrl+C` | Quit with priority. |
+| `r` | Refresh runs. |
+| `Enter` | Attach to the highlighted run. |
+| `s` | Stop the highlighted run. |
+| `X` | Kill the highlighted run's terminal session. |
+| `f` | Open run filters. |
+| `Ctrl+f` | Clear run filters. |
+| `d` | Show the highlighted run's diff. |
 
-## Status Colors
+The standalone Runs pane does not bind `a`; use `Enter` to attach there. The
+`a` binding belongs to the combined application.
 
-The TUI uses colors to indicate run status at a glance:
+### Issues dashboard (`--issues`)
 
-| Color | Status | Meaning |
-|-------|--------|---------|
-| 🟢 Green | `running` | Agent is actively working |
-| 🟡 Yellow | `waiting` | Agent needs your input |
-| 🔵 Blue | `pr_open` | PR created, ready for review |
-| ⚪ White | `done` | Completed successfully |
-| 🔴 Red | `failed` | Error occurred |
-| ⚫ Gray | `queued` | Waiting to start |
+| Key | Action |
+|-----|--------|
+| `?` | Open help. |
+| `q` | Quit. |
+| `Ctrl+C` | Quit with priority. |
+| `r` | Refresh issues. |
+| `Enter` | Open the highlighted issue in the editor. |
+| `o` | Open the highlighted issue in the editor. |
+| `n` | Start a new run for the highlighted issue. |
+| `x` | Close the highlighted issue. |
+| `f` | Open issue filters. |
+| `Ctrl+f` | Clear issue filters. |
 
-## Working with the Control Agent
+Run and issue tables also support `j`/`k` for row movement and `g`/`G` for the
+top and bottom. Textual's normal arrow-key table navigation remains available.
 
-The control agent understands natural language for common operations:
+### Agent selection screen
 
-### Creating Issues
+Pressing `n` on an issue opens the agent selector.
 
-```
-You: Create an issue to fix the login timeout bug
-Agent: I'll create that issue. What details should I include?
-You: Session expires after 5 minutes, should be 30. Check src/auth/
-Agent: Created issue 'fix-login-timeout'. Would you like me to start a run?
-```
+| Key | Action |
+|-----|--------|
+| `Esc` | Cancel. |
+| `Enter` | Start with the selected agent or preset. |
+| `j`, `k` | Move down or up. |
+| `1` through `9` | Immediately select the corresponding entry. |
 
-### Starting Runs
+### Run detail tabs
 
-```
-You: Start a run for fix-login-timeout
-Agent: Starting run for fix-login-timeout with claude agent...
-       Run 20260115-142030 is now running.
-```
+The Runs dashboard detail area has Stats, Issue, and Changes tabs.
 
-### Checking Status
+| Key | Action |
+|-----|--------|
+| `Tab` | Select the next detail tab. |
+| `1` | Select Stats. |
+| `2` | Select Issue. |
+| `3` | Select Changes. |
+| `j`, `Down` | Scroll down. |
+| `k`, `Up` | Scroll up. |
+| `g` | Jump to the top. |
+| `G` | Jump to the bottom. |
 
-```
-You: What's running right now?
-Agent: You have 2 active runs:
-       - fix-login-timeout: running (started 10m ago)
-       - update-deps: waiting (needs input about React version)
-```
+## Status colors
 
-### Getting Help
+The Runs table shortens status names and applies the following colors:
 
-```
-You: How do I see the diff for a completed run?
-Agent: You can press 'd' while a run is selected in the Runs panel,
-       or from the command line: orch diff <run-ref>
-```
+| Status | Display | Color | Meaning |
+|--------|---------|-------|---------|
+| `queued` | `queue` | white | The run is waiting to start. |
+| `booting` | `boot` | green | The agent is starting. |
+| `running` | `run` | green | The agent is working. |
+| `waiting` | `wait` | yellow | The agent is waiting for input. |
+| `rate_limited` | `rlimit` | yellow | Progress is paused by an API rate limit. |
+| `pr_open` | `pr` | cyan | The run has an open pull request. |
+| `done` | `done` | blue | The run completed. |
+| `failed` | `fail` | red | The run failed. |
+| `canceled` | `cancel` | dim | The run was canceled. |
+| `unknown` | `?` | magenta | The daemon returned an unclassified run state. |
 
-## Workflow Example
+## Filters and configuration
 
-1. **Launch orch-monitor**
-   ```bash
-   orch-monitor
-   ```
+Press `f` in a dashboard to edit filters. Filter state is persisted in
+`.orch/monitor-filters.yaml`; `Ctrl+f` clears the filters for the focused
+dashboard.
 
-2. **Create an issue via control agent**
-   - Focus on the control agent panel (Tab)
-   - Type: "Create an issue to add dark mode support"
-   - Provide details when prompted
-
-3. **Start a run**
-   - Select the new issue in the Issues panel
-   - Press `n` to start a new run
-   - Or ask the control agent: "Start a run for add-dark-mode"
-
-4. **Monitor progress**
-   - Watch the status change in the Runs panel
-   - Status updates automatically
-
-5. **Help if waiting**
-   - If status turns yellow (waiting), press `a` to attach
-   - Provide the needed input
-   - Press `Ctrl+B D` to detach
-
-6. **Review when done**
-   - When status turns blue (pr_open), press `d` to see diff
-   - Review and merge the PR
-
-## Tips
-
-### Efficient Navigation
-
-- Use `Tab` to quickly switch between panels
-- `j`/`k` for vim-style navigation
-- `?` anytime you forget a keybinding
-
-### Multi-tasking
-
-- Start several runs, then monitor all from one place
-- Control agent can manage multiple issues while you watch progress
-- Use the Runs panel to quickly switch between active runs
-
-### Troubleshooting
-
-If the TUI seems unresponsive:
-1. Press `r` to refresh the current panel
-2. Check if a run is actually waiting (`orch ps` in another terminal)
-3. Try `q` and restart if needed
-
-If control agent isn't responding:
-1. It may be thinking - wait a moment
-2. Press `Ctrl+L` to clear and try again
-3. Restart with the `--new-control-agent` flag
-
-## Configuration
-
-The TUI respects orch configuration from `.orch/config.yaml`:
+The `monitor` section of `.orch/config.yaml` supplies initial filters when no
+persisted monitor filter file exists. `monitor.default_issue_filter` can
+select issue tags and choose OR or AND matching:
 
 ```yaml
-# Affects TUI behavior
-agent: claude          # Default agent for new runs
-base_branch: main      # Default base branch
+monitor:
+  default_run_statuses:
+    - queued
+    - booting
+    - running
+    - waiting
+    - rate_limited
+    - pr_open
+  default_issue_statuses:
+    - open
+  default_issue_filter:
+    tags:
+      - active
+    tag_mode: any  # any = OR, all = AND
 ```
 
-The monitor resolves configuration from `ORCH_PROJECT` and
-`.orch/config.yaml` (`issues.path`).
+Once filters have been saved interactively, the persisted file takes
+precedence over these defaults.
 
-## See Also
+## Control agent
 
-- [Daily Workflow](./daily-workflow.md) - Command-line workflow patterns
-- [Commands Reference](./reference/commands.md) - Full CLI reference
-- [orch agent](./reference/commands.md#orch-agent) - Standalone control agent
+During a normal daemon-backed layout launch, the launcher requests the
+control-agent configuration and repository context from the daemon. It writes
+the returned prompt to `ORCH_CONTROL_PROMPT.md` in the project root, then starts
+the configured agent with an instruction to read that file. The generated
+prompt is runtime state and is ignored by Git.
+
+The resumable control-agent ID is stored locally in:
+
+```text
+.orch/control-session.json
+```
+
+The file records `session_id` and `agent_type`. `--new` checks it before
+replacing an existing layout; `--new-control-agent` clears it. The file is also
+ignored by Git.
+
+The control agent can run non-interactive orch commands such as `orch issue
+create`, `orch run`, `orch ps`, `orch capture`, `orch send`, and `orch stop`.
+Use the pane as an agent terminal; its input behavior is provided by the
+selected agent, not by Textual keybindings.
+
+## Architecture
+
+The daemon is the source of truth for run, issue, monitor, and Git state. The
+Python processes request data and actions through the daemon API; they keep
+display formatting, control-agent session persistence, and terminal
+interaction in the client.
+
+```text
++-------------------+       daemon API       +----------------------+
+| Python Textual UI | <--------------------> | orch daemon          |
+| + layout launcher |                        | authoritative state  |
++-------------------+                        +----------------------+
+```
+
+The launcher automatically reconnects to or starts the daemon when necessary.
+If startup or repair fails, it exits with the daemon error and suggests
+`orch repair`.
+
+## Typical workflow
+
+1. Launch with `orch-monitor`.
+2. Select the Issues pane and highlight an issue.
+3. Press `n`, then select an agent with `Enter` or `1` through `9`.
+4. Watch the run in the Runs pane.
+5. Press `Enter` in the Runs pane to attach when interaction is needed.
+6. Press `d` to inspect the run diff.
+
+## See also
+
+- [Configuration](./configuration.md)
+- [Command reference](./reference/commands.md)
+- [Daily workflow](./daily-workflow.md)
