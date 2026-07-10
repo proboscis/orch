@@ -160,6 +160,6 @@ agent は commit → push → PR 作成まで行い、run は `pr_open` であ�
 ## 6. 今回あえて使わなかったもの
 
 `client.yaml`、`ORCH_REMOTE`、`config.targets`、`--on <target>`、SSH —
-これらはすべてマルチホスト(クラスタ)運用のための構成要素で、ローカル
-テストには不要です。クラスタ構成は [Remote Usage](./remote-usage.md) を
-参照してください。
+これらはすべてマルチホスト(クラスタ)運用のための構成要素です。
+**マルチホストは次のマイルストーンで、今回の beta の対象外**です。
+beta では単機構成だけを使ってください(将来の参考: [Remote Usage](./remote-usage.md))。

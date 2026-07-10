@@ -211,7 +211,8 @@ Two long-lived processes cooperate to execute runs:
 
 On a single machine you run both locally and never notice the split. The same
 model scales to multiple hosts: workers on other machines register to one
-daemon (see [Remote Usage](./remote-usage.md)).
+daemon (see [Remote Usage](./remote-usage.md)) — multi-host is the next
+milestone and out of scope for the current beta.
 
 ### RUN_REF
 

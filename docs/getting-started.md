@@ -310,7 +310,8 @@ orch resolve my-first-issue
 ## Next steps
 
 - Learn the [core concepts](./concepts.md) (Issue, Run, Event, etc.)
-- Set up [remote usage](./remote-usage.md) for server-based orchestration
+- [Remote usage](./remote-usage.md) (multi-host) is the next milestone — out
+  of scope for the current beta
 - Configure [different agents](./agents/claude.md)
 - Set up [backend integrations](./backends/file.md) (GitHub)
 - Explore all [CLI commands](./reference/commands.md)

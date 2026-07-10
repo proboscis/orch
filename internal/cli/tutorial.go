@@ -296,8 +296,12 @@ The Development Loop:
 Run multiple issues in parallel - each gets its own git worktree!
 
 --------------------------------------------------------------------------------
-9. REMOTE MASTER (MULTI-HOST)
+9. REMOTE MASTER (MULTI-HOST) — NEXT MILESTONE, OUT OF BETA SCOPE
 --------------------------------------------------------------------------------
+
+Multi-host mode (a shared master with workers on several machines) exists in
+the code but is the NEXT MILESTONE: it is not part of the current beta and
+not yet supported. The beta covers single-machine use only. For the curious:
 
 Point every command at a shared master daemon via client.yaml
 (global: ~/.config/orch/client.yaml, or per-repo: .orch/client.yaml):

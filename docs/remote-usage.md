@@ -1,5 +1,9 @@
 # Remote Usage with orch
 
+> **Next milestone — out of beta scope.** Multi-host mode works and is used in
+> development, but the current beta covers **single-machine use only**. Expect
+> rough edges here and no support until the multi-host milestone lands.
+
 This guide shows how to run orch against a remote daemon over TCP while keeping
 the same daily `orch` workflow from your local machine.
 
