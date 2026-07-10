@@ -298,6 +298,12 @@ message GetControlAgentLaunchRequest {
   string agent = 2;
   bool new_session = 3;
   RequestContext context = 4;
+  // Hostname of the CLIENT that will exec the control agent (the control
+  // agent runs on the client host, not the daemon host). The daemon maps it
+  // to a config.targets name and enforces the codex profile's
+  // allowed_targets against it. Empty/absent (old client) -> the daemon
+  // falls back to enforcing against its own host.
+  string client_host = 5;
 }
 
 message GetControlAgentLaunchResponse {
@@ -310,6 +316,12 @@ message GetControlAgentLaunchResponse {
 
 message GetControlAgentConfigRequest {
   RequestContext context = 2;
+  // Hostname of the CLIENT that will exec the control agent (the control
+  // agent runs on the client host, not the daemon host). The daemon maps it
+  // to a config.targets name and enforces the codex profile's
+  // allowed_targets against it. Empty/absent (old client) -> the daemon
+  // falls back to enforcing against its own host.
+  string client_host = 3;
 }
 
 message GetControlAgentConfigResponse {
@@ -318,6 +330,9 @@ message GetControlAgentConfigResponse {
   string model = 3;
   string model_variant = 4;
   repeated string extra_args = 5;
+  // CODEX_HOME for the control agent, VERBATIM as configured: a leading ~ is
+  // expanded by the CLIENT against its own HOME at use time, never by the
+  // daemon, so the same profile works across hosts with different HOMEs.
   string codex_home = 6;
 }
 

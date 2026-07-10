@@ -309,72 +309,135 @@ func TestApplyCodexProfileContinue_UnknownInheritedProfileFailsFast(t *testing.T
 
 // --- control agent path ---
 
-// The control agent runs locally and MUST enforce AllowedTargets against the
-// local daemon host: on an allowed host (mac) it proceeds and returns the
-// company CODEX_HOME.
-func TestResolveControlCodexHome_AllowedLocalHostSetsCodexHome(t *testing.T) {
-	t.Setenv("HOME", "/home/tester")
-	cfg := newCodexProfileConfig() // company profile: target mac, allowed_targets [mac]
-
-	// Local daemon host resolves to the "mac" target (host CA-20022388).
+// setDaemonHostname stubs the daemon's hostname for the test.
+func setDaemonHostname(t *testing.T, host string) {
+	t.Helper()
 	origHost := currentDaemonHostname
-	currentDaemonHostname = func() (string, error) { return "CA-20022388", nil }
+	currentDaemonHostname = func() (string, error) { return host, nil }
 	t.Cleanup(func() { currentDaemonHostname = origHost })
+}
 
-	home, err := resolveControlCodexHome(cfg, "codex")
+// The control agent executes on the CLIENT host. A client on an allowed
+// target (mac, host CA-20022388) must be ALLOWED even when the DAEMON runs on
+// a disallowed host (remotebox) — regression for the reported false denial
+// (mac client against the zeus master).
+func TestResolveControlCodexHome_ClientOnAllowedTargetDaemonElsewhereIsAllowed(t *testing.T) {
+	cfg := newCodexProfileConfig() // company profile: allowed_targets [mac]
+	setDaemonHostname(t, "remotebox")
+
+	home, err := resolveControlCodexHome(cfg, "codex", "CA-20022388")
 	if err != nil {
-		t.Fatalf("resolveControlCodexHome error: %v", err)
+		t.Fatalf("resolveControlCodexHome error: %v (client host is the allowed mac target; the daemon host must not be enforced)", err)
 	}
-	if home != "/home/tester/.codex-company" {
-		t.Errorf("control CODEX_HOME = %q, want /home/tester/.codex-company on allowed host", home)
+	if home != "~/.codex-company" {
+		t.Errorf("control CODEX_HOME = %q, want ~/.codex-company VERBATIM (client expands ~)", home)
 	}
 }
 
-// On a disallowed local host (remotebox), a company control agent must FAIL FAST and
-// return NO CODEX_HOME (the company account must not launch on remotebox).
-func TestResolveControlCodexHome_DisallowedLocalHostFailsFast(t *testing.T) {
-	t.Setenv("HOME", "/home/tester")
-	cfg := newCodexProfileConfig() // company profile: target mac, allowed_targets [mac]
+// A client on a disallowed host must be DENIED even when the DAEMON runs on
+// the allowed target — closes the policy hole where the company account could
+// launch on the personal machine because only the daemon host was checked.
+func TestResolveControlCodexHome_ClientOnDisallowedHostDaemonAllowedIsDenied(t *testing.T) {
+	cfg := newCodexProfileConfig()
+	setDaemonHostname(t, "CA-20022388") // daemon on the allowed mac target
 
-	// Local daemon host resolves to the "remotebox" target (host remotebox).
-	origHost := currentDaemonHostname
-	currentDaemonHostname = func() (string, error) { return "remotebox", nil }
-	t.Cleanup(func() { currentDaemonHostname = origHost })
-
-	home, err := resolveControlCodexHome(cfg, "codex")
+	home, err := resolveControlCodexHome(cfg, "codex", "remotebox")
 	if err == nil {
-		t.Fatal("expected fail-fast for company control agent on remotebox, got nil")
+		t.Fatal("expected fail-fast for company control agent on client host remotebox, got nil")
+	}
+	if home != "" {
+		t.Errorf("CODEX_HOME = %q, want empty on denial (must not hand back company home)", home)
+	}
+	for _, want := range []string{"company", "remotebox", "[mac]", "may only run on targets"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want it to contain %q", err.Error(), want)
+		}
+	}
+}
+
+// A client host that matches no configured target maps to "local" and is
+// DENIED (fail-closed); the error names the client host and allowed targets.
+func TestResolveControlCodexHome_UnmappedClientHostFailsClosed(t *testing.T) {
+	cfg := newCodexProfileConfig()
+	setDaemonHostname(t, "CA-20022388")
+
+	_, err := resolveControlCodexHome(cfg, "codex", "some-other-laptop")
+	if err == nil {
+		t.Fatal("expected fail-fast when client host maps to no target, got nil")
+	}
+	for _, want := range []string{"some-other-laptop", `"local"`, "[mac]"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want it to contain %q", err.Error(), want)
+		}
+	}
+}
+
+// Empty client_host (old client) falls back to enforcing against the DAEMON
+// host (back-compat): allowed when the daemon is on the allowed target...
+func TestResolveControlCodexHome_EmptyClientHostUsesDaemonHost(t *testing.T) {
+	cfg := newCodexProfileConfig()
+	setDaemonHostname(t, "CA-20022388")
+
+	home, err := resolveControlCodexHome(cfg, "codex", "")
+	if err != nil {
+		t.Fatalf("resolveControlCodexHome error: %v (daemon host is the allowed mac target)", err)
+	}
+	if home != "~/.codex-company" {
+		t.Errorf("control CODEX_HOME = %q, want ~/.codex-company verbatim", home)
+	}
+}
+
+// ...and denied when the daemon is on a disallowed host.
+func TestResolveControlCodexHome_EmptyClientHostDaemonDisallowedIsDenied(t *testing.T) {
+	cfg := newCodexProfileConfig()
+	setDaemonHostname(t, "remotebox")
+
+	home, err := resolveControlCodexHome(cfg, "codex", "")
+	if err == nil {
+		t.Fatal("expected fail-fast for company control agent with daemon on remotebox, got nil")
 	}
 	if !strings.Contains(err.Error(), "company") || !strings.Contains(err.Error(), "remotebox") {
-		t.Errorf("error = %q, want it to name profile company and target remotebox", err.Error())
+		t.Errorf("error = %q, want it to name profile company and host remotebox", err.Error())
 	}
 	if home != "" {
 		t.Errorf("CODEX_HOME = %q, want empty on disallowed host (must not hand back company home)", home)
 	}
 }
 
-// When the local host matches no configured target, it maps to "local"; a
-// company profile that only allows mac must reject the bare local host too.
-func TestResolveControlCodexHome_UnmatchedLocalHostMapsToLocalAndFailsFast(t *testing.T) {
-	t.Setenv("HOME", "/home/tester")
+// Client hostnames match targets with the same short-hostname/case-insensitive
+// semantics as isLocalExecutionHost (e.g. mDNS-style "CA-20022388.local").
+func TestResolveControlCodexHome_ClientHostShortNameMatch(t *testing.T) {
 	cfg := newCodexProfileConfig()
+	setDaemonHostname(t, "remotebox")
 
-	origHost := currentDaemonHostname
-	currentDaemonHostname = func() (string, error) { return "some-other-laptop", nil }
-	t.Cleanup(func() { currentDaemonHostname = origHost })
-
-	_, err := resolveControlCodexHome(cfg, "codex")
-	if err == nil {
-		t.Fatal("expected fail-fast when local host maps to 'local' and is not allowed, got nil")
+	home, err := resolveControlCodexHome(cfg, "codex", "ca-20022388.local")
+	if err != nil {
+		t.Fatalf("resolveControlCodexHome error: %v (short-name match must resolve to mac)", err)
 	}
-	if !strings.Contains(err.Error(), "local") {
-		t.Errorf("error = %q, want it to mention local", err.Error())
+	if home != "~/.codex-company" {
+		t.Errorf("control CODEX_HOME = %q, want ~/.codex-company", home)
+	}
+}
+
+// codex_home is returned VERBATIM: never expanded against the daemon's HOME
+// (a remote master would bake a daemon-shaped path into the client env).
+func TestResolveControlCodexHome_CodexHomeVerbatim(t *testing.T) {
+	t.Setenv("HOME", "/home/daemon-side")
+	cfg := newCodexProfileConfig()
+	setDaemonHostname(t, "remotebox")
+
+	home, err := resolveControlCodexHome(cfg, "codex", "CA-20022388")
+	if err != nil {
+		t.Fatalf("resolveControlCodexHome error: %v", err)
+	}
+	if home != "~/.codex-company" {
+		t.Errorf("control CODEX_HOME = %q, want leading ~ preserved (no daemon-side expansion)", home)
 	}
 }
 
 func TestResolveControlCodexHome_NonCodexIsNoOp(t *testing.T) {
 	cfg := newCodexProfileConfig()
-	home, err := resolveControlCodexHome(cfg, "opencode")
+	home, err := resolveControlCodexHome(cfg, "opencode", "")
 	if err != nil {
 		t.Fatalf("resolveControlCodexHome error: %v", err)
 	}
@@ -388,12 +451,39 @@ func TestResolveControlCodexHome_UnknownDefaultProfileFailsFast(t *testing.T) {
 		Agent: "codex",
 		Codex: config.CodexConfig{DefaultProfile: "ghost"},
 	}
-	_, err := resolveControlCodexHome(cfg, "codex")
+	_, err := resolveControlCodexHome(cfg, "codex", "")
 	if err == nil {
 		t.Fatal("expected fail-fast for unknown default control profile, got nil")
 	}
 	if !strings.Contains(err.Error(), "unknown codex profile") {
 		t.Errorf("error = %q, want unknown codex profile", err.Error())
+	}
+}
+
+// localTargetName is the daemon-host specialization of targetNameForHost.
+func TestTargetNameForHost_DaemonHostEqualsLocalTargetName(t *testing.T) {
+	cfg := newCodexProfileConfig()
+	for _, host := range []string{"CA-20022388", "remotebox", "unmapped-host"} {
+		setDaemonHostname(t, host)
+		if got, want := localTargetName(cfg), targetNameForHost(cfg, host); got != want {
+			t.Errorf("localTargetName = %q, targetNameForHost(%q) = %q, want equal", got, host, want)
+		}
+	}
+}
+
+// Loopback target hosts designate the daemon's machine: they match the daemon
+// hostname but never a different client host.
+func TestTargetNameForHost_LoopbackTargetMatchesDaemonHostOnly(t *testing.T) {
+	cfg := &config.Config{
+		Targets: []config.TargetConfig{{Name: "master", Host: "localhost"}},
+	}
+	setDaemonHostname(t, "zeus")
+
+	if got := targetNameForHost(cfg, "zeus"); got != "master" {
+		t.Errorf("targetNameForHost(daemon host) = %q, want master (loopback target designates the daemon machine)", got)
+	}
+	if got := targetNameForHost(cfg, "CA-20022388"); got != "local" {
+		t.Errorf("targetNameForHost(other client) = %q, want local (loopback must not match a remote client)", got)
 	}
 }
 

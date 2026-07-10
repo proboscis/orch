@@ -567,11 +567,15 @@
     True)
   
   (defn get-control-agent-launch [self project-root [agent-type ""] [new-session False]]
-    "Returns Result[ControlAgentLaunch | None, ProtoDaemonError]."
+    "Returns Result[ControlAgentLaunch | None, ProtoDaemonError].
+
+    Sends client_host: the control agent is exec'd on THIS host, so the daemon
+    enforces the codex profile's allowed_targets against it, not its own host."
     (daemon-result "get_control_agent_launch"
       (setv req (pb.Request))
       (set-> req.get_control_agent_launch.agent agent-type
-             req.get_control_agent_launch.new_session new-session)
+             req.get_control_agent_launch.new_session new-session
+             req.get_control_agent_launch.client_host (socket.gethostname))
       (setv pid (._ctx-project-id self project-root))
       (when pid
         (setv req.get_control_agent_launch.context.project_id pid))
@@ -587,9 +591,13 @@
                           :resumed r.resumed)))
 
   (defn get-control-agent-config [self project-root]
-    "Returns Result[ControlAgentConfig | None, ProtoDaemonError]."
+    "Returns Result[ControlAgentConfig | None, ProtoDaemonError].
+
+    Sends client_host: the control agent is exec'd on THIS host, so the daemon
+    enforces the codex profile's allowed_targets against it, not its own host."
     (daemon-result "get_control_agent_config"
       (setv req (pb.Request))
+      (setv req.get_control_agent_config.client_host (socket.gethostname))
       (setv pid (._ctx-project-id self project-root))
       (when pid
         (setv req.get_control_agent_config.context.project_id pid))

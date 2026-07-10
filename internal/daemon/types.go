@@ -833,6 +833,10 @@ type ControlAgentLaunchParams struct {
 	ProjectRoot string
 	Agent       string
 	NewSession  bool
+	// ClientHost is the hostname of the client that will exec the control
+	// agent. Empty (old client) -> the codex profile's AllowedTargets are
+	// enforced against the daemon host (back-compat).
+	ClientHost string
 }
 
 type ControlAgentLaunchResult struct {
@@ -862,7 +866,9 @@ type ControlAgentConfigResult struct {
 	ModelVariant  string
 	ExtraArgs     []string
 	// CodexHome is the resolved CODEX_HOME for a codex control agent (from the
-	// project's default codex profile). Empty means the agent default (~/.codex).
+	// project's default codex profile), VERBATIM as configured: a leading ~ is
+	// expanded by the CLIENT against its own HOME at use time, never by the
+	// daemon. Empty means the agent default (~/.codex).
 	CodexHome string
 }
 

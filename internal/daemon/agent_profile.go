@@ -299,30 +299,76 @@ func effectiveAgentProfile(codexProfile, agentProfile string) string {
 	return strings.TrimSpace(agentProfile)
 }
 
-// localTargetName maps the local daemon host to a config.targets NAME. It returns
-// the name of the first target whose Host resolves to the local daemon host (via
-// isLocalExecutionHost), or "local" when no configured target matches the local
-// host (the bare local target identity).
-func localTargetName(cfg *config.Config) string {
-	if cfg != nil {
-		for _, t := range cfg.Targets {
-			if isLocalExecutionHost(strings.TrimSpace(t.Host)) {
+// targetNameForHost maps an execution host to a config.targets NAME. It
+// returns the name of the first target whose Host matches the given host —
+// same short-hostname/case-insensitive semantics as isLocalExecutionHost, but
+// compared against the GIVEN host instead of the daemon's — or "local" when no
+// configured target matches (the bare local target identity). Loopback target
+// hosts (localhost/127.0.0.1/::1) designate the daemon's machine, so they
+// match only when the given host is the daemon host.
+// Invariant: localTargetName(cfg) == targetNameForHost(cfg, daemonHostname).
+func targetNameForHost(cfg *config.Config, host string) string {
+	host = strings.TrimSpace(host)
+	if cfg == nil || host == "" {
+		return "local"
+	}
+	for _, t := range cfg.Targets {
+		targetHost := strings.TrimSpace(t.Host)
+		if targetHost == "" || strings.Contains(targetHost, "@") {
+			continue
+		}
+		if targetHost == "localhost" || targetHost == "127.0.0.1" || targetHost == "::1" {
+			daemonHost, _ := currentDaemonHostname()
+			if hostNamesEqual(daemonHost, host) {
 				return strings.TrimSpace(t.Name)
 			}
+			continue
+		}
+		if hostNamesEqual(targetHost, host) {
+			return strings.TrimSpace(t.Name)
 		}
 	}
 	return "local"
 }
 
-// resolveControlCodexHome resolves the CODEX_HOME for the control agent based on
-// the project's default codex profile AND enforces the profile's AllowedTargets
-// against the LOCAL daemon host. The control agent always runs locally, so the
-// local host is mapped to its config.targets name (or "local"); if the profile
-// constrains AllowedTargets and the local target is not allowed, this fails fast
+// hostNamesEqual reports whether two hostnames identify the same machine:
+// case-insensitive on the full name or on the short (first-label) name, so
+// "CA-20035844" matches "ca-20035844.local".
+func hostNamesEqual(a, b string) bool {
+	a = strings.TrimSpace(a)
+	b = strings.TrimSpace(b)
+	if a == "" || b == "" {
+		return false
+	}
+	if strings.EqualFold(a, b) {
+		return true
+	}
+	return strings.EqualFold(strings.Split(a, ".")[0], strings.Split(b, ".")[0])
+}
+
+// localTargetName maps the local daemon host to a config.targets NAME, or
+// "local" when no configured target matches. It is the daemon-host
+// specialization of targetNameForHost.
+func localTargetName(cfg *config.Config) string {
+	host, _ := currentDaemonHostname()
+	return targetNameForHost(cfg, host)
+}
+
+// resolveControlCodexHome resolves the CODEX_HOME for the control agent based
+// on the project's default codex profile AND enforces the profile's
+// AllowedTargets against the host that will EXECUTE the control agent. The
+// control agent runs on the CLIENT host (orch-monitor / the CLI build and exec
+// the command there), which equals the daemon host only in the single-machine
+// setup; clientHost is the client-reported hostname, and an empty clientHost
+// (old client) falls back to enforcing against the daemon host (back-compat).
+// The host is mapped to its config.targets name (or "local"); if the profile
+// constrains AllowedTargets and that target is not allowed, this fails fast
 // and returns no CODEX_HOME (e.g. a company control agent must not launch on
-// a disallowed host). Returns an explicit error if the configured default profile name does
+// a disallowed host). The returned CODEX_HOME is VERBATIM as configured: a
+// leading ~ is expanded on the executing (client) host at use time, never
+// here. Returns an explicit error if the configured default profile name does
 // not exist (fail-fast, no silent fallback).
-func resolveControlCodexHome(cfg *config.Config, agentName string) (string, error) {
+func resolveControlCodexHome(cfg *config.Config, agentName, clientHost string) (string, error) {
 	if cfg == nil {
 		return "", nil
 	}
@@ -338,20 +384,21 @@ func resolveControlCodexHome(cfg *config.Config, agentName string) (string, erro
 		return "", fmt.Errorf("unknown codex profile %q (configure it under codex.profiles)", profileName)
 	}
 
-	// Enforce AllowedTargets against the local daemon host (the control agent is
-	// always local). The bare local host maps to its config.targets name, or
-	// "local" when no target matches.
 	if len(profile.AllowedTargets) > 0 {
-		localTarget := localTargetName(cfg)
-		if !targetInList(localTarget, profile.AllowedTargets) {
-			return "", fmt.Errorf("codex profile %q may only run on targets %v, not local host (target %q); the control agent runs locally and cannot launch this profile on this host", profileName, profile.AllowedTargets, localTarget)
+		host := strings.TrimSpace(clientHost)
+		if host == "" {
+			// Back-compat: old clients don't report their host; enforce
+			// against the daemon host as before.
+			host, _ = currentDaemonHostname()
+			host = strings.TrimSpace(host)
+		}
+		targetName := targetNameForHost(cfg, host)
+		if !targetInList(targetName, profile.AllowedTargets) {
+			return "", fmt.Errorf("codex profile %q may only run on targets %v; the control agent executes on host %q (target %q), which is not allowed", profileName, profile.AllowedTargets, host, targetName)
 		}
 	}
 
-	if strings.TrimSpace(profile.CodexHome) == "" {
-		return "", nil
-	}
-	return config.ExpandPath(strings.TrimSpace(profile.CodexHome), ""), nil
+	return strings.TrimSpace(profile.CodexHome), nil
 }
 
 func targetInList(target string, allowed []string) bool {
