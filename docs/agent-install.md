@@ -140,4 +140,5 @@ Tell the user:
 - deeper docs: [Getting Started](./getting-started.md),
   [ローカルクイックスタート (日本語)](./local-quickstart.ja.md),
   [Daily Workflow](./daily-workflow.md), and
-  [Remote Usage](./remote-usage.md) for multi-host clusters.
+  [Remote Usage](./remote-usage.md) is the next milestone (multi-host —
+  out of scope for the current beta).

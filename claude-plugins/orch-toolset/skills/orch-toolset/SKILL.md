@@ -6,7 +6,7 @@ description: |
   restart-from, orch worker start/status/stop, orch attach/capture/send/exec, and remote execution
   via ORCH_REMOTE and target_host. Trigger terms: orch, orchestrator, worker, master, ORCH_REMOTE,
   target_host, run management, issue management, agent runs, worktree.
-version: 1.5.0
+version: 1.5.1
 ---
 
 # Orch Toolset
@@ -29,6 +29,10 @@ worktrees, and append-only run events.
 - **Worker**: a long-lived host-local executor process that registers to a master.
 - **Execution host**: the host where the run session actually lives. `orch ps` shows this in
   the `HOST` column, and JSON output exposes it as `target_host`.
+
+Beta scope note: multi-host / remote-master operation is the NEXT MILESTONE —
+out of scope for the current beta (beta = single machine, zero process
+management). The remote knowledge below is for maintainer/cluster use.
 
 Important remote rule:
 
