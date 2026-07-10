@@ -151,6 +151,21 @@ func normalizeTCPListenAddr(raw string) (string, error) {
 	return addr, nil
 }
 
+// isLoopbackListenAddr reports whether a normalized host:port listen address
+// binds only the loopback interface. An empty host (":7777") binds every
+// interface and is NOT loopback.
+func isLoopbackListenAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 type SendRequest struct {
 	Type        string   `json:"type"`
 	IssueID     string   `json:"issue_id"`
@@ -1146,6 +1161,9 @@ func (s *SocketServer) Start() error {
 		}
 		s.tcpListener = tcpListener
 		s.logger.Printf("socket server listening on tcp://%s", tcpListener.Addr().String())
+		if !isLoopbackListenAddr(tcpAddr) {
+			s.logger.Printf("WARNING: TCP control socket bound to non-loopback %s — any host that can reach this port has full unauthenticated control of this daemon (multi-host opt-in, ADR-0003)", tcpAddr)
+		}
 		go s.acceptLoop(tcpListener)
 	}
 
@@ -1663,7 +1681,10 @@ func (s *SocketServer) startServerProcess(projectRoot string, port int) (*manage
 		return nil, fmt.Errorf("failed to create log file: %w", err)
 	}
 
-	cmd := exec.Command(opencodeBin, "serve", "--port", fmt.Sprintf("%d", port), "--hostname", "0.0.0.0")
+	// Loopback only: every consumer (prompt injection, opencode attach,
+	// orch models) connects via 127.0.0.1 on the same host, and the server
+	// is unauthenticated (ADR-0003).
+	cmd := exec.Command(opencodeBin, "serve", "--port", fmt.Sprintf("%d", port), "--hostname", "127.0.0.1")
 	cmd.Dir = projectRoot
 	repoID, err := s.repoIDForProjectRoot(projectRoot)
 	if err != nil {

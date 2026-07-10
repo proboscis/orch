@@ -14,12 +14,16 @@ set -euo pipefail
 # Configuration (env):
 #   REMOTE_HOST     ssh host running the remote master+worker (required)
 #   MASTER_ADDR     master address the LOCAL worker connects to (default: $REMOTE_HOST:7777)
+#   MASTER_LISTEN   listen address for the remote master (default: 0.0.0.0:7777).
+#                   The daemon default is loopback-only (ADR-0003); running this
+#                   multi-host deploy script is the explicit opt-in.
 #   REMOTE_ORCH     orch binary path on the remote (default: ~/.local/bin/orch)
 #   ORCH_LOCAL_BIN  locally installed orch binary (default: ~/.local/bin/orch)
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REMOTE_HOST="${REMOTE_HOST:?set REMOTE_HOST to the ssh host of the remote master}"
 MASTER_ADDR="${MASTER_ADDR:-$REMOTE_HOST:7777}"
+MASTER_LISTEN="${MASTER_LISTEN:-0.0.0.0:7777}"
 REMOTE_ORCH="${REMOTE_ORCH:-~/.local/bin/orch}"
 ORCH_LOCAL_BIN="${ORCH_LOCAL_BIN:-$HOME/.local/bin/orch}"
 
@@ -57,7 +61,7 @@ ssh "$REMOTE_HOST" "
   $REMOTE_ORCH worker stop >/dev/null 2>&1 || true
   $REMOTE_ORCH master kill >/dev/null 2>&1 || true
   sleep 1
-  $REMOTE_ORCH master start
+  $REMOTE_ORCH master start --listen tcp://$MASTER_LISTEN
   sleep 2
   $REMOTE_ORCH worker start
 "

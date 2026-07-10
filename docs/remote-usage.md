@@ -12,7 +12,7 @@ identity through repo mappings.
 ```text
 Local client                         Remote host
 ┌──────────────────────────────┐      ┌────────────────────────────────────┐
-│ orch CLI / monitor           │ TCP  │ orch daemon (0.0.0.0:7777 default)│
+│ orch CLI / monitor           │ TCP  │ orch daemon (--listen opt-in)     │
 │ --remote master-host:7777    │─────▶│ repo mapping: repoid -> path      │
 └──────────────────────────────┘      └────────────────────────────────────┘
 ```
@@ -35,25 +35,26 @@ orch --version
 
 ## Server Setup
 
-### 1. Confirm or restrict the TCP listener
+### 1. Opt in to the TCP listener (multi-host is opt-in — ADR-0003)
 
-The daemon listens on `0.0.0.0:7777` by default. This also applies when an
-ordinary orch command auto-starts the daemon; `--listen` is not required to
-enable remote access.
-
-```bash
-# On remote server: starts with the default 0.0.0.0:7777 listener
-orch daemon start
-```
-
-This default exposes the orch TCP API on every network interface. Limit port
-`7777` to trusted networks with a firewall, or restart the daemon on a more
-restrictive address. For an SSH-tunnel-only setup, bind to loopback:
+By default the daemon binds `127.0.0.1:7777` (loopback only), including when
+an ordinary orch command auto-starts it. Nothing is reachable from other
+hosts until you opt in. The TCP API is **unauthenticated**: whoever can
+reach the port controls the daemon, so bind the narrowest interface that
+works and keep port `7777` limited to trusted networks (VPN/Tailscale or a
+firewall).
 
 ```bash
+# On the server that should act as master — explicit multi-host opt-in:
 orch daemon kill
-orch daemon start --listen tcp://127.0.0.1:7777
+orch daemon start --listen tcp://0.0.0.0:7777
+
+# Better: bind a specific trusted interface (e.g. the Tailscale address)
+orch daemon start --listen tcp://100.64.0.12:7777
 ```
+
+The daemon logs a warning whenever it binds a non-loopback address. For an
+SSH-tunnel-only setup, keep the loopback default and tunnel port 7777.
 
 ### 2. Register repository URL for remote resolution
 
