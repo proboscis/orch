@@ -194,8 +194,8 @@ run-state-machine.md と同じ playbook を適用する。
 | # | core | 4層の状態 | 守り | 閉鎖フェーズ |
 |---|------|----------|------|------------|
 | 1 | run status 遷移 | ADR✓ law✓(tested) runtime△ **static✓ (A1, 2026-06-12)** | `run-status-write-surface` ルール + 凍結 whitelist | **B1 済(47→10, 2026-06-13)**; 残は v2(W6/W8)+ 法境界(W9/W10) |
-| 2 | RunState vs event log(導出状態) | 決定済み **D-C1**(run-state-machine.md §7): 導出可能フィールドは fold、収束カウンタは ephemeral-by-law (L7) | なし(実装待ち) | C1 実装 |
-| 3 | worker lease 所有権/ライフサイクル | 調査完了(E1 doc)、law 候補 5 件ドラフト | なし | E2/E3 |
+| 2 | RunState vs event log(導出状態) | **D-C1 実装済み**: 導出可能フィールドは `initialRunCore` で fold (`internal/daemon/step.go:86`)、収束カウンタは ephemeral-by-law (L7) | L7 の**振る舞い検査のみ**: `TestInitialRunCoreDerivation` (`internal/daemon/step_test.go:480`) / `TestInitialRunCoreRestoresLivenessAcrossRestart` (`internal/daemon/step_test.go:531`)。永続ミラー追加を止める静的ガードは issue `run-state-c2-derived-state-static-guard` で制定中 | C1 完了(PR #467); static は同 issue 待ち |
+| 3 | worker lease 所有権/ライフサイクル | E1 doc + LL1–LL5 law 検証 + E3 static guard 実装済み | `worker-lease-mutation-surface` (`.semgrep/worker-lease-mutation/worker_lease_mutation.yaml:2`) + `TestLeaseLawCompletionFinality` (`internal/daemon/worker_plane_law_test.go:45`) / `TestLeaseLawDispatchExclusiveUntilExpiry` (`internal/daemon/worker_plane_law_test.go:73`) / `TestLeaseLawNoDispatchAfterCompletion` (`internal/daemon/worker_plane_law_test.go:100`) / `TestLeaseLawRestartAmnesiaFailsFast` (`internal/daemon/worker_plane_law_test.go:125`) / `TestLeaseLawRandomWalkInvariants` (`internal/daemon/worker_plane_law_test.go:141`) + LL1 `TestWaitForWorkerLeaseCompletionFailsFastWhenWorkerLost` (`internal/daemon/worker_plane_test.go:328`) / LL5 `TestExecuteLeaseEffectStopRunUsesSnapshotWithEmptyWorkerRunStore` (`internal/daemon/worker_plane_test.go:200`) | E1/E3 完了(PR #465/#468); E2 完了(PR #469) |
 | 4 | identity(typed IDs) | 型✓ + lint✓ | `.semgrep/typed-id-rules` | 完了 |
 | 5 | client/daemon 境界(読み取り) | semgrep ~60 ルール✓ | `make lint` + CI | 完了 |
 | 6 | cancellation/stop 意味論(W7/W8, PR close terminal) | **disposition 決定済み**(run-state-machine.md §6): W7=ladder と統合、W8=v2 統合 | terminal guard + A1 凍結 | W7 統合済(D-B1); W8 は v2 |
@@ -228,3 +228,24 @@ Day 7–8     : D1 → D2
 codex に切り出せる verified issue 候補: A2 実装、B3 の機械的移植、
 C2、C4、D2 転記。それ以外(A1, B1, B2 判断, C1, C3, D1 設計, E 全部)は
 frontier + human。
+
+## Watchlist 外 enforcement の相互参照
+
+2026-07-02 の侵食監査で「宣言なき検査」と分類されたルール群は、上の
+coupling-core watchlist とは別の spec/issue から導入された回帰防止策である。
+いずれも `.semgrep/architecture.yaml` から `make lint` に配線されている。
+由来と現行ルールの対応を次に固定する。
+
+| 由来 spec/issue | 現行 enforcement | watchlist との関係 |
+|-----------------|------------------|--------------------|
+| SPEC-12 cluster identity/global-listing routing | `daemon-proto-no-legacy-store-resolution-call` から `cli-validate-issue-files-must-use-listing-api` までの 28 ルール (`.semgrep/architecture.yaml:633-1197`; `cluster-identity-routing` / `cluster-global-listing` / `cluster-global-read`) | client/daemon 境界(#5)の cluster routing 拡張。独立した coupling core の宣言ではない |
+| `orch-447` socket churn | `no-raw-unix-socket-dial` (`.semgrep/architecture.yaml:1718`) / `no-oneshot-health-probe-socket` (`.semgrep/architecture.yaml:1744`) | persistent connection の回帰防止 |
+| `orch-450` PR-cache rate limit | `daemon-no-uncached-pr-lookup` (`.semgrep/architecture.yaml:1774`) / `daemon-no-uncached-pr-lookup-by-url` (`.semgrep/architecture.yaml:1797`) | daemon 所有の cache/rate-limit 境界 |
+| identity-collision (`orch-422`) | `daemon-no-repoid-basename-fallback` (`.semgrep/architecture.yaml:1580`) / `daemon-no-implicit-repoid-fallback` (`.semgrep/architecture.yaml:1599`) | typed identity(#4)を repo ID 導出へ補強 |
+| transport field-overload | `daemon-proto-no-message-overload-model` / `daemon-proto-no-message-overload-tmux` / `daemon-socket-no-message-model-consumption` / `daemon-socket-no-message-tmux-consumption` (`.semgrep/architecture.yaml:1510,1526,1542,1558`) | protobuf field の単一意味を守る transport contract |
+| remote-session-control (GitHub #439) | `cli-no-direct-ssh-session-control` (`.semgrep/architecture.yaml:1821`) / `cli-no-remote-control-ssh-helpers` (`.semgrep/architecture.yaml:1841`) | host routing を daemon/worker protocol に限定 |
+| exec boundary / legacy tmux (`orch-443`) | `no-legacy-tmux-import` (`.semgrep/architecture.yaml:1665`) / `no-raw-exec-in-boundary-layers` (`.semgrep/architecture.yaml:1686`) | multiplexer/exec の境界回帰防止 |
+
+監査時点の control-agent-split 検査は旧 Go monitor CLI 専用だったため、
+Go monitor 撤去(2026-07-10)と同時にルールも削除済みであり、現行 enforcement
+としては数えない。
