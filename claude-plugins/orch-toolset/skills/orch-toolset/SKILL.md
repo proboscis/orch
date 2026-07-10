@@ -6,7 +6,7 @@ description: |
   restart-from, orch worker start/status/stop, orch attach/capture/send/exec, and remote execution
   via ORCH_REMOTE and target_host. Trigger terms: orch, orchestrator, worker, master, ORCH_REMOTE,
   target_host, run management, issue management, agent runs, worktree.
-version: 1.5.1
+version: 1.5.2
 ---
 
 # Orch Toolset
@@ -438,6 +438,11 @@ Recommended triage order:
 
 ## Workflow Tips
 
+- **The issue body is the worker agent's ONLY context.** Write it as a complete
+  brief — goal, constraints, acceptance criteria, verification — never a
+  one-line `--body`. Humans author bodies in their editor
+  (`orch issue create <id> --title "..." --edit` / `orch issue edit <id>`);
+  agents author them via heredoc.
 - When issue bodies span multiple lines, prefer `orch issue create ... <<'EOF'` over a long escaped
   `--body` string.
 - Use `orch send` to answer `waiting` runs.

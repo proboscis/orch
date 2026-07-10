@@ -92,9 +92,27 @@ Then walk through this sequence, explaining each step:
 orch daemon repo register "$(pwd)"   # maps project identity -> this checkout
 # (daemon and worker auto-start on demand; `orch worker status` shows them)
 
-# 2. Describe a task and launch an agent on it
-orch issue create hello-world --title "Add a hello world script" \
-  --body "Create hello.py at the repo root that prints Hello, World!"
+# 2. Describe a task. THE ISSUE BODY IS THE WORKER AGENT'S ONLY CONTEXT —
+#    write it as a complete brief (goal, constraints, acceptance criteria,
+#    how to verify). Never cram it into a one-line --body. As the agent,
+#    author it with a heredoc; tell the user that when THEY write issues by
+#    hand, `orch issue create <id> --title "..." --edit` (or
+#    `orch issue edit <id>` later) opens their $EDITOR instead.
+orch issue create hello-world --title "Add a hello world script" <<'EOF'
+## Goal
+Create hello.py at the repository root that prints exactly "Hello, World!".
+
+## Constraints
+- Python 3, standard library only, a few lines.
+- Do not create or modify anything else.
+
+## Acceptance criteria
+- `python3 hello.py` outputs `Hello, World!` and exits 0.
+
+## Verification
+Run `python3 hello.py` and show the output in your final report.
+EOF
+
 orch run hello-world --no-pr          # drop --no-pr when the repo really exists on GitHub
 
 # 3. Observe

@@ -13,11 +13,17 @@ import (
 func TestNewIssueCreateCmdLongDescriptionGuidance(t *testing.T) {
 	cmd := newIssueCreateCmd()
 
-	if !strings.Contains(cmd.Long, "pipe/heredoc") {
+	if !strings.Contains(cmd.Long, "stdin (heredoc)") {
 		t.Fatalf("expected issue create help to mention stdin usage")
 	}
 	if !strings.Contains(cmd.Long, "<<'EOF'") {
 		t.Fatalf("expected issue create help to include heredoc example")
+	}
+	if !strings.Contains(cmd.Long, "ONLY context") {
+		t.Fatalf("expected issue create help to teach that the body is the worker's only context")
+	}
+	if !strings.Contains(cmd.Long, "--edit") {
+		t.Fatalf("expected issue create help to lead humans to $EDITOR via --edit")
 	}
 }
 

@@ -103,9 +103,18 @@ Use 'orch models' to list available models (requires opencode server).
 3. FIRST RUN
 --------------------------------------------------------------------------------
 
-Create an issue:
+Create an issue. THE ISSUE BODY IS THE WORKER AGENT'S ONLY CONTEXT — write a
+complete brief (goal, constraints, acceptance criteria, how to verify), never
+a one-line description. Writing by hand? Use your editor:
 
-    orch issue create my-001 --title "My first task" --body "Description here"
+    orch issue create my-001 --title "My first task" --edit
+
+Scripts and agents pipe the body via heredoc instead:
+
+    orch issue create my-001 --title "My first task" <<'EOF'
+    ## Goal
+    ...full brief: constraints, acceptance criteria, verification...
+    EOF
 
 Every issue also gets a derived hex ID (shown by 'orch issue list'); any
 unique prefix of 7+ chars works wherever an issue is named — 'orch run
