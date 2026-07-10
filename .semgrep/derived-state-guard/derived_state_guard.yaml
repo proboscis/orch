@@ -1,0 +1,128 @@
+rules:
+  # WL#2 store-of-record vs derived-state guard (coupling-core-roadmap.md
+  # watchlist row 2, run-state-machine.md §7 D-C1).
+  #
+  # Law: the event log is the only persistent representation of run state.
+  # Monitor state (runCore) is either fold-derived from the event log
+  # (initialRunCore) or ephemeral-by-law (L7) — a persisted aggregate,
+  # counter-as-event, or snapshot mirror is a second store of record and is
+  # forbidden. D-C1 records the rejected alternatives these rules pin down:
+  # (b) persisting counter changes as events, (c) periodic snapshots.
+  # The companion golden test (internal/daemon/derived_state_guard_test.go)
+  # forces every new runCore/RunState field into one of the legal classes.
+
+  - id: run-event-vocabulary-closed
+    pattern-either:
+      # A new EventType constant (or typed literal) outside the closed
+      # vocabulary. The value, not the constant name, is the law.
+      - pattern-regex: '(?:model\.)?EventType\s*=\s*"(?!(?:status|phase|artifact|test|note)")'
+      # Literal conversions minting a novel event type at a use site.
+      # Dynamic conversions (the store parser, the external-append law
+      # boundary W10 in run-state-machine.md §6) take variables, not
+      # literals, and are intentionally not matched here.
+      - patterns:
+          - pattern-either:
+              - pattern: model.EventType("$VAL")
+              - pattern: EventType("$VAL")
+              - pattern: model.NewEvent("$VAL", ...)
+              - pattern: NewEvent("$VAL", ...)
+          - metavariable-regex:
+              metavariable: $VAL
+              regex: '^(?!(status|phase|artifact|test|note)$).*'
+    paths:
+      include:
+        - /internal/
+        - /.semgrep/derived-state-guard/
+    message: >
+      The persistent event vocabulary is closed: status, phase, artifact,
+      test, note (internal/model/event.go). A new event type is a change to
+      the store of record — the primary erosion vector here is persisting a
+      monitor counter or snapshot as a new event kind, which D-C1
+      (docs/design/run-state-machine.md §7) explicitly rejected. If the
+      vocabulary genuinely needs to grow, revise this rule's allowlist and
+      run-state-machine.md in the same change set (frontier + human review;
+      AGENTS.md routing rule).
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: invariant
+      violation: event-vocabulary-extension
+
+  - id: no-monitor-counter-in-event
+    patterns:
+      - pattern-either:
+          - pattern-inside: model.NewEvent(...)
+          - pattern-inside: model.NewStatusEvent(...)
+          - pattern-inside: model.NewStatusEventWithReason(...)
+          - pattern-inside: model.NewPhaseEvent(...)
+          - pattern-inside: model.NewArtifactEvent(...)
+          - pattern-inside: model.NewErrorArtifactEvent(...)
+          - pattern-inside: $ST.AppendEvent(...)
+      - pattern: $STATE.$FIELD
+      - metavariable-regex:
+          metavariable: $FIELD
+          regex: '^(WasAlive|PRRecorded|DeadCheckCount|ReadingKind|ReadingStreak|OutputHash|LastOutput|LastOutputAt|AliveObserver|DeadCheckObserver)$'
+    paths:
+      include:
+        - /internal/daemon/
+        - /.semgrep/derived-state-guard/
+    message: >
+      A runCore monitor counter is flowing into a persisted event. runCore
+      fields are derived state — fold-derived (WasAlive, PRRecorded) or
+      ephemeral-by-law (the counters; run-state-machine.md §7 D-C1 / L7).
+      Writing one into the event log persists an aggregate the fold does not
+      own: the log stops being the single store of record, and restart
+      re-derivation (initialRunCore) silently diverges from it. Diagnostic
+      logging of counters is fine; appending them is not. If a value must
+      survive restarts, make it an event the fold derives *from*, not a
+      mirror of the fold's output.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: invariant
+      violation: counter-as-event
+
+  - id: run-core-hydration-surface
+    pattern-either:
+      # Writing a semantic monitor field (or replacing the embedded core
+      # wholesale) outside the sanctioned surface: the pure transition
+      # policy + fold in step.go. The frozen shell-side writers carry
+      # `nosemgrep: run-core-hydration-surface` annotations and may only
+      # shrink (monitor.go applyStep commit / PRRecorded store-truth revert,
+      # daemon.go noteRunFeedback debounce reset).
+      - patterns:
+          - pattern-either:
+              - pattern: $X.$FIELD = $V
+              - pattern: $X.$FIELD += $V
+              - pattern: $X.$FIELD++
+          - metavariable-regex:
+              metavariable: $FIELD
+              regex: '^(runCore|WasAlive|PRRecorded|DeadCheckCount|ReadingKind|ReadingStreak|OutputHash|LastOutput|LastOutputAt|AliveObserver|DeadCheckObserver)$'
+      # Constructing a non-zero runCore literal outside step.go builds
+      # monitor state from something other than the fold — the snapshot
+      # read-back shape. The zero literal runCore{} carries no state and
+      # stays legal (the launch plane steps with an empty core).
+      - patterns:
+          - pattern: runCore{...}
+          - pattern-not: runCore{}
+    paths:
+      include:
+        - /internal/daemon/
+        - /.semgrep/derived-state-guard/
+      exclude:
+        - /internal/daemon/step.go
+    message: >
+      runCore may only be hydrated by the fold (initialRunCore) and mutated
+      by the pure transition policy (stepRun), both in
+      internal/daemon/step.go (run-state-machine.md §7 D-C1). Assigning a
+      monitor field or building a non-zero runCore elsewhere is the
+      snapshot-read-back shape: state enters the monitor from something
+      other than the event log, creating a second store of record. Extend
+      step() with a new observation instead; if a field must survive
+      restarts, derive it in initialRunCore from events the log already
+      carries.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: invariant
+      violation: run-core-hydration-outside-fold

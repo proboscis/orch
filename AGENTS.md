@@ -71,6 +71,17 @@ the remaining legacy writers (W6/W8/W9/W10/ResolveRun) are frozen and may
 only shrink. Never add a new writer or a new `nosemgrep` annotation —
 extend `step()` with a new observation or effect instead.
 
+**Derived-state surface.** The event log is the only persistent
+representation of run state; monitor state (`runCore` in
+`internal/daemon/step.go`) is either fold-derived by `initialRunCore` or
+ephemeral-by-law (run-state-machine.md §7 D-C1). The semgrep rules in
+`.semgrep/derived-state-guard/` (closed event vocabulary, no counter into
+an event, core hydration confined to step.go) and the golden allowlist
+test `internal/daemon/derived_state_guard_test.go` enforce this. Never
+persist a counter/snapshot of monitor state — if a value must survive
+restarts, derive it in `initialRunCore` from events the log already
+carries.
+
 **Tripwire checklist for reviewing delegated PRs.** Any single hit means
 stop and re-route to frontier + human:
 

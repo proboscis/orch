@@ -320,6 +320,21 @@ changes as events (OutputHash churn would spam the log), (c) periodic
 snapshots (a second store of record — exactly the mirror this design
 forbids).
 
+Static guard (2026-07-11, erosion-audit-2026-07-02 gap #1): the rejected
+alternatives are now machine-enforced by `.semgrep/derived-state-guard/`
+— `run-event-vocabulary-closed` and `no-monitor-counter-in-event` pin
+down (b) (the event vocabulary is a closed set, and no `runCore` field
+may flow into an event constructor or `AppendEvent`), and
+`run-core-hydration-surface` pins down (c) (core field writes and
+non-zero `runCore` literals are confined to step.go, so state cannot
+enter the monitor from anything but the fold). The golden allowlist test
+(`internal/daemon/derived_state_guard_test.go`) forces every new
+`runCore`/`RunState` field into one of the legal classes above and
+rejects struct tags, so "correctly synchronized mirror" is not something
+a delegate can add without revising this law. L7 remains the behavioral
+complement; the guard exists because a correctly synchronized mirror
+passes L7.
+
 | Law | Statement |
 |-----|-----------|
 | L7 restart transparency | for any observation sequence and any restart point, the sequence of *transition targets* is identical with and without the restart; only their timing may differ, by at most `max(deadCheckThreshold, waitingPromptStreakThreshold)` ticks |
