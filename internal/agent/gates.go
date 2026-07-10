@@ -69,9 +69,36 @@ var busyMarkers = []string{
 	"background terminal running",
 }
 
+// claudeSpinnerGlyphs are the animation frames of Claude Code's activity
+// spinner. The spinner line ("· Architecting… (2m 54s · ↓ 7.8k tokens)")
+// carries no stable keyword — the verb rotates freely and some UI variants
+// render no "esc to interrupt" hint anywhere on the pane — so the glyph
+// prefix plus the "… (" duration marker is the invariant. Real captured
+// fixture: testdata/busy/claude_spinner_xhigh.txt (2026-07-11 incident:
+// a working Fable run concluded waiting for 2+ ticks).
+var claudeSpinnerGlyphs = []string{"· ", "✢ ", "✳ ", "✶ ", "✻ ", "✽ "}
+
+func isSpinnerLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if !strings.Contains(trimmed, "… (") {
+		return false
+	}
+	for _, glyph := range claudeSpinnerGlyphs {
+		if strings.HasPrefix(trimmed, glyph) {
+			return true
+		}
+	}
+	return false
+}
+
 func hasBusyMarker(lowerLines string) bool {
 	for _, pattern := range busyMarkers {
 		if strings.Contains(lowerLines, pattern) {
+			return true
+		}
+	}
+	for _, line := range strings.Split(lowerLines, "\n") {
+		if isSpinnerLine(line) {
 			return true
 		}
 	}
