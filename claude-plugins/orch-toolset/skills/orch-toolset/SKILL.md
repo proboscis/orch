@@ -6,7 +6,7 @@ description: |
   restart-from, orch worker start/status/stop, orch attach/capture/send/exec, and remote execution
   via ORCH_REMOTE and target_host. Trigger terms: orch, orchestrator, worker, master, ORCH_REMOTE,
   target_host, run management, issue management, agent runs, worktree.
-version: 1.5.2
+version: 1.5.3
 ---
 
 # Orch Toolset
@@ -29,6 +29,28 @@ worktrees, and append-only run events.
 - **Worker**: a long-lived host-local executor process that registers to a master.
 - **Execution host**: the host where the run session actually lives. `orch ps` shows this in
   the `HOST` column, and JSON output exposes it as `target_host`.
+
+## Issue Body = the Worker's Brief (REQUIRED structure)
+
+The issue body is the ONLY context the worker agent receives — it cannot see
+your conversation, other issues, or your intent. Author every issue as a
+complete, self-contained brief with these sections:
+
+- `## Goal` — what must exist or change when the run is done, and why.
+- `## Context` — repo-specific facts the worker cannot infer: relevant files,
+  prior decisions, links to specs/ADRs.
+- `## Constraints` — what must NOT change; dependency/style/scope limits;
+  explicit anti-patterns to avoid.
+- `## Acceptance criteria` — enumerated, mechanically checkable conditions
+  for "done".
+- `## Verification` — the exact commands/tests that must pass, and what
+  evidence the final report must show.
+- `## Out of scope` (optional) — explicitly deferred work.
+
+Authoring mechanics: humans write the body in $EDITOR
+(`orch issue create <id> --title "..." --edit` / `orch issue edit <id>`);
+agents and scripts pipe the brief via heredoc (`<<'EOF'`). Never a one-line
+`--body`.
 
 Beta scope note: multi-host / remote-master operation is the NEXT MILESTONE —
 out of scope for the current beta (beta = single machine, zero process
