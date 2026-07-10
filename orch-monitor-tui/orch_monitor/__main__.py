@@ -10,12 +10,14 @@ import subprocess
 import sys
 import time
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
 
 import hy  # noqa: F401 - Enable Hy imports
 from rich.console import Console
 from rich.markup import escape as rich_escape
+from returns.result import Failure
 
 # Shared console for startup output
 _console = Console(stderr=True)
@@ -57,7 +59,7 @@ from .multiplexer import (
     get_multiplexer,
     validate_multiplexer_config,
 )
-from .orch_api import OrchAPI, create_orch_api
+from .orch_api import MonitorInfo, MonitorManagementAPI, OrchAPI, create_orch_api
 
 
 def _escape_kdl_string(s: str) -> str:
@@ -1168,7 +1170,7 @@ def launch_monitor_layout(
     _launcher_logger.info("launch complete")
 
 
-def main():
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Orch monitor TUI")
     parser.add_argument(
         "--project",
@@ -1221,6 +1223,110 @@ def main():
         'Use --remote="" to force local.',
     )
 
+    monitor_actions = parser.add_mutually_exclusive_group()
+    monitor_actions.add_argument(
+        "--list",
+        action="store_true",
+        dest="list_monitors",
+        help="List monitor instances registered for this project",
+    )
+    monitor_actions.add_argument(
+        "--kill",
+        metavar="MONITOR_ID",
+        dest="kill_monitor",
+        help="Kill one registered monitor instance",
+    )
+    monitor_actions.add_argument(
+        "--kill-all",
+        action="store_true",
+        help="Kill all registered monitor instances for this project",
+    )
+    return parser
+
+
+def _format_last_seen(last_seen_unix: int) -> str:
+    if last_seen_unix <= 0:
+        return "-"
+    return (
+        datetime.fromtimestamp(last_seen_unix, tz=timezone.utc)
+        .isoformat(timespec="seconds")
+        .replace("+00:00", "Z")
+    )
+
+
+def _print_monitor_table(monitors: list[MonitorInfo]) -> None:
+    if not monitors:
+        print("No monitors running")
+        return
+
+    headers: tuple[str, ...] = (
+        "ID",
+        "PID",
+        "PROJECT",
+        "VIEW",
+        "SESSION",
+        "LAST_SEEN",
+    )
+    rows: list[tuple[str, ...]] = [
+        (
+            monitor.id,
+            str(monitor.pid),
+            monitor.project or "-",
+            monitor.view or "-",
+            monitor.session_name or "-",
+            _format_last_seen(monitor.last_seen_unix),
+        )
+        for monitor in monitors
+    ]
+    widths: list[int] = [
+        max(len(header), *(len(row[index]) for row in rows))
+        for index, header in enumerate(headers)
+    ]
+
+    def format_row(row: tuple[str, ...]) -> str:
+        return "  ".join(
+            value.ljust(widths[index]) for index, value in enumerate(row)
+        ).rstrip()
+
+    print(format_row(headers))
+    for row in rows:
+        print(format_row(row))
+
+
+def _run_monitor_action(
+    api: MonitorManagementAPI, args: argparse.Namespace, project_scope: str
+) -> int:
+    if args.list_monitors:
+        list_result = api.list_monitors(project_scope)
+        if isinstance(list_result, Failure):
+            print(f"Error: {list_result.failure()}", file=sys.stderr)
+            return 1
+        _print_monitor_table(list_result.unwrap())
+        return 0
+
+    monitor_id: str = args.kill_monitor or ""
+    kill_all: bool = args.kill_all
+    kill_result = api.kill_monitor(monitor_id, kill_all, project_scope)
+    if isinstance(kill_result, Failure):
+        print(f"Error: {kill_result.failure()}", file=sys.stderr)
+        return 1
+
+    killed_count: int = kill_result.unwrap()
+    if killed_count == 0:
+        target: str = f"project {project_scope}" if kill_all else monitor_id
+        print(f"Error: no registered monitor found for {target}", file=sys.stderr)
+        return 1
+    if kill_all:
+        noun: str = "monitor" if killed_count == 1 else "monitors"
+        print(f"Killed {killed_count} {noun} for project {project_scope}")
+    else:
+        print(f"Killed monitor: {monitor_id}")
+    return 0
+
+
+def main() -> None:
+    parser = _build_parser()
+
     args = parser.parse_args()
 
     if args.project:
@@ -1254,6 +1360,24 @@ def main():
     project_scope = get_project_scope(bootstrap)
     if project_scope:
         os.environ["ORCH_PROJECT"] = project_scope
+
+    monitor_action_requested: bool = bool(
+        args.list_monitors or args.kill_monitor or args.kill_all
+    )
+    if monitor_action_requested:
+        success, error_msg = ensure_daemon(project_root, project_scope, bootstrap)
+        if not success:
+            print(f"Error: {error_msg}", file=sys.stderr)
+            sys.exit(1)
+        api = create_orch_api(
+            bootstrap.socket_path,
+            project_root,
+            fallback_to_cli=False,
+        )
+        exit_code: int = _run_monitor_action(api, args, project_scope or "")
+        if exit_code:
+            sys.exit(exit_code)
+        return
 
     # Determine if we should show spinners (only for layout mode, not single panes)
     show_spinner = not args.runs and not args.issues

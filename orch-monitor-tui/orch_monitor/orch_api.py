@@ -132,6 +132,16 @@ class ListIssuesResponse:
     total: int
 
 
+@dataclass(frozen=True)
+class MonitorInfo:
+    id: str
+    pid: int
+    project: str
+    view: str
+    session_name: str
+    last_seen_unix: int
+
+
 @dataclass
 class ControlAgentLaunch:
     command: str
@@ -175,6 +185,15 @@ class StartRunResult:
     run_id: str
     branch: str
     worktree_path: str
+
+
+class MonitorManagementAPI(Protocol):
+    def list_monitors(
+        self, project: str, list_all: bool = False
+    ) -> Result[list[MonitorInfo], OrchError]: ...
+    def kill_monitor(
+        self, monitor_id: str, kill_all: bool, project: str
+    ) -> Result[int, OrchError]: ...
 
 
 @runtime_checkable
@@ -250,6 +269,12 @@ class OrchAPI(Protocol):
     ) -> Result[str, OrchError]: ...
     def unregister_monitor(self, monitor_id: str) -> Result[None, OrchError]: ...
     def heartbeat(self, monitor_id: str) -> Result[None, OrchError]: ...
+    def list_monitors(
+        self, project: str, list_all: bool = False
+    ) -> Result[list[MonitorInfo], OrchError]: ...
+    def kill_monitor(
+        self, monitor_id: str, kill_all: bool, project: str
+    ) -> Result[int, OrchError]: ...
 
 
 def create_orch_api(

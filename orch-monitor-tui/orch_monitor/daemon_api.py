@@ -47,6 +47,7 @@ from .orch_api import (
     IssueStatus,
     ListIssuesResponse,
     ListRunsResponse,
+    MonitorInfo,
     NotFoundError,
     OrchError,
     Run,
@@ -162,27 +163,36 @@ class MonitorHeartbeat:
         self._client = client
         self._project = project
         self._view = view
+        self._pid: Optional[int] = None
         self._monitor_id: Optional[str] = None
         self._session_name: str = ""
         self._heartbeat_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
-    def start(self, session_name: str = "") -> Optional[str]:
+    def start(
+        self,
+        session_name: str = "",
+        pid: Optional[int] = None,
+        monitor_id: Optional[str] = None,
+    ) -> Optional[str]:
         import os
 
-        if not self._client.is_available():
+        if monitor_id is None and not self._client.is_available():
             return None
 
+        self._pid = pid if pid is not None else os.getpid()
         self._session_name = session_name
-        result = self._client.register_monitor(
-            pid=os.getpid(),
-            monitor_type="python",
-            view=self._view,
-            project=self._project,
-            session_name=session_name,
-        )
-        if isinstance(result, Success):
-            self._monitor_id = result.unwrap()
+        self._monitor_id = monitor_id
+        if self._monitor_id is None:
+            result = self._client.register_monitor(
+                pid=self._pid,
+                monitor_type="python",
+                view=self._view,
+                project=self._project,
+                session_name=session_name,
+            )
+            if isinstance(result, Success):
+                self._monitor_id = result.unwrap()
 
         if self._monitor_id:
             self._start_heartbeat_thread()
@@ -223,7 +233,7 @@ class MonitorHeartbeat:
                 success = isinstance(result, Success) and result.unwrap()
                 if not success:
                     reg_result = self._client.register_monitor(
-                        pid=os.getpid(),
+                        pid=self._pid if self._pid is not None else os.getpid(),
                         monitor_type="python",
                         view=self._view,
                         project=self._project,
@@ -259,6 +269,7 @@ class DaemonOrchAPI:
         self._remote_addr = bootstrap.remote_addr
         self._project_scope = bootstrap.project_id
         self._project_id = bootstrap.project_id or None
+        self._monitor_session_name = bootstrap.monitor_session_name
         self._base_branch = base_branch
         self._daemon = ProtoDaemonClient(
             socket_path,
@@ -583,12 +594,14 @@ class DaemonOrchAPI:
         project: str,
         session_name: str = "",
     ) -> Result[str, OrchError]:
+        project_scope = self._project_scope or project
+        resolved_session_name = session_name or self._monitor_session_name
         result = self._daemon.register_monitor(
             pid=pid,
             monitor_type=monitor_type,
             view=view,
-            project=project,
-            session_name=session_name,
+            project=project_scope,
+            session_name=resolved_session_name,
         )
         if isinstance(result, Failure):
             return _map_daemon_error(result.failure())
@@ -596,8 +609,10 @@ class DaemonOrchAPI:
         if monitor_id is None:
             return Failure(OrchError("Failed to register monitor"))
 
-        self._monitor_heartbeat = MonitorHeartbeat(self._daemon, project, view)
-        self._monitor_heartbeat.start(session_name)
+        self._monitor_heartbeat = MonitorHeartbeat(
+            self._daemon, project_scope, view
+        )
+        self._monitor_heartbeat.start(resolved_session_name, pid, monitor_id)
 
         return Success(monitor_id)
 
@@ -605,6 +620,7 @@ class DaemonOrchAPI:
         if self._monitor_heartbeat:
             self._monitor_heartbeat.stop()
             self._monitor_heartbeat = None
+            return Success(None)
 
         result = self._daemon.unregister_monitor(monitor_id)
         if isinstance(result, Failure):
@@ -622,3 +638,30 @@ class DaemonOrchAPI:
         if not success:
             return Failure(OrchError("Heartbeat failed"))
         return Success(None)
+
+    def list_monitors(
+        self, project: str, list_all: bool = False
+    ) -> Result[list[MonitorInfo], OrchError]:
+        result = self._daemon.list_monitors(project, list_all)
+        if isinstance(result, Failure):
+            return _map_daemon_error(result.failure())
+        monitors = [
+            MonitorInfo(
+                id=monitor.id,
+                pid=monitor.pid,
+                project=monitor.project,
+                view=monitor.view,
+                session_name=monitor.session_name,
+                last_seen_unix=monitor.last_heartbeat_unix,
+            )
+            for monitor in result.unwrap()
+        ]
+        return Success(monitors)
+
+    def kill_monitor(
+        self, monitor_id: str, kill_all: bool, project: str
+    ) -> Result[int, OrchError]:
+        result = self._daemon.kill_monitor(monitor_id, kill_all, project)
+        if isinstance(result, Failure):
+            return _map_daemon_error(result.failure())
+        return Success(result.unwrap())

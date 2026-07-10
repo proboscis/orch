@@ -32,9 +32,13 @@ def _resolve_orch_binary() -> str:
 @lru_cache(maxsize=1)
 def load_client_bootstrap() -> ClientBootstrap:
     orch_bin = _resolve_orch_binary()
+    command: list[str] = [orch_bin]
+    if "ORCH_REMOTE" in os.environ:
+        command.extend(["--remote", os.environ["ORCH_REMOTE"]])
+    command.extend(["debug", "client-bootstrap", "--json"])
     try:
         result = subprocess.run(
-            [orch_bin, "debug", "client-bootstrap", "--json"],
+            command,
             capture_output=True,
             text=True,
             timeout=5,

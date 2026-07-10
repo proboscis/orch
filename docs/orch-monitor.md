@@ -2,10 +2,8 @@
 
 orch-monitor is a terminal user interface (TUI) for managing orch issues and runs visually. It provides a dashboard view of your workflow and integrates with the control agent for chat-based management.
 
-`orch monitor` and `orch-monitor` are separate frontends. `orch monitor` is the
-built-in Go TUI shipped as an `orch` subcommand, while `orch-monitor` is the
-optional standalone Python TUI installed from `orch-monitor-tui`. Both read the
-same daemon state, but they have separate binaries, launch flows, and docs.
+`orch-monitor` is the standalone Python TUI installed from `orch-monitor-tui`.
+It reads run, issue, and monitor-instance state from the orch daemon.
 
 ## Installation
 
@@ -45,6 +43,34 @@ orch-monitor --project github.com/owner/repo
 Use bare `orch-monitor` for the first launch. `--new` requires an existing
 control agent session to resume; use `--new-control-agent` when you want to
 replace that session too.
+
+## Managing monitor instances
+
+The daemon tracks running monitor instances. Management commands are scoped to
+the resolved project identity, including when `--project` or `ORCH_PROJECT` is
+used.
+
+```bash
+# List registered monitors for the current project
+orch-monitor --list
+
+# Stop one monitor and its multiplexer session
+orch-monitor --kill MONITOR_ID
+
+# Stop every registered monitor for the current project
+orch-monitor --kill-all
+```
+
+`--list` prints each monitor's ID, PID, project, view, multiplexer session, and
+last heartbeat time. Use an ID from this output with `--kill`.
+
+These commands use the same daemon routing as the TUI. Pass `--remote` or set
+`ORCH_REMOTE` to manage monitors registered with a remote daemon:
+
+```bash
+orch-monitor --remote master.example:7777 --list
+orch-monitor --remote master.example:7777 --kill MONITOR_ID
+```
 
 ## Interface Overview
 
