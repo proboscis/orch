@@ -226,6 +226,23 @@ class TestControlAgentCodexHome:
         assert "CODEX_HOME" not in cmd
         assert cmd.startswith("codex")
 
+    def test_codex_home_env_prefix_expands_tilde_against_local_home(
+        self, monkeypatch, tmp_path
+    ):
+        """The daemon returns codex_home verbatim; ~ expands against the HOME
+        of THIS host (which executes the control agent), never the daemon's."""
+        from orch_monitor.__main__ import _codex_home_env_prefix
+
+        monkeypatch.setenv("HOME", str(tmp_path))
+        prefix = _codex_home_env_prefix("~/.codex/profiles/company")
+        assert prefix == f"export CODEX_HOME={tmp_path}/.codex/profiles/company; "
+
+    def test_codex_home_env_prefix_absolute_path_verbatim(self):
+        from orch_monitor.__main__ import _codex_home_env_prefix
+
+        prefix = _codex_home_env_prefix("/home/tester/.codex-company")
+        assert prefix == "export CODEX_HOME=/home/tester/.codex-company; "
+
 
 class TestControlAgentHostConstraintFailFast:
     """Daemon-enforced codex profile allowed_targets denial must surface, not launch."""
@@ -233,9 +250,12 @@ class TestControlAgentHostConstraintFailFast:
     def _denial_daemon(self):
         mock_daemon = MagicMock()
         mock_daemon.is_available.return_value = True
+        # The daemon's actual denial format: allowed targets in [brackets] and
+        # the CLIENT host the control agent would execute on.
         mock_daemon.get_control_agent_config.return_value = Failure(
-            'codex profile "company" may only run on targets [mac], '
-            'not local host (target "remotebox"); the control agent runs locally'
+            'codex profile "company" may only run on targets [mac]; '
+            'the control agent executes on host "zeus" (target "zeus"), '
+            "which is not allowed"
         )
         return mock_daemon
 
@@ -254,7 +274,7 @@ class TestControlAgentHostConstraintFailFast:
                 agent_override="",
             )
         assert "company" in str(exc.value)
-        assert "remotebox" in str(exc.value)
+        assert "zeus" in str(exc.value)
 
     def test_tmux_launch_does_not_send_agent_command_on_denial(self):
         from orch_monitor.__main__ import (
@@ -331,6 +351,53 @@ class TestControlAgentHostConstraintFailFast:
                     show_spinner=False,
                 )
         assert exc.value.code == 1
+
+    def test_denial_error_bracketed_targets_reach_console_verbatim(self):
+        """Rich must not swallow [bracketed] segments of the daemon error.
+
+        The daemon's denial names the allowed targets as e.g. "[mac]"; without
+        markup escaping Rich parses that as a tag and silently drops it — the
+        single most actionable part of the error (fail-clearly violation).
+        """
+        import io
+
+        from rich.console import Console
+
+        from orch_monitor import __main__ as m
+
+        denial = self._denial_daemon()
+
+        class _DenyingLauncher:
+            def has_session(self, session_name):
+                return False
+
+            def launch_layout(self, *args, **kwargs):
+                m._resolve_local_control_agent_command(
+                    daemon=denial,
+                    project_root=Path("/tmp/test"),
+                    cwd="/tmp/test",
+                    fallback_agent="codex",
+                    agent_override="",
+                )
+
+        buf = io.StringIO()
+        console = Console(file=buf, force_terminal=False, width=500)
+        with (
+            patch.object(m, "get_layout_launcher", return_value=_DenyingLauncher()),
+            patch.object(m, "validate_multiplexer_config"),
+            patch.object(m, "_console", console),
+        ):
+            with pytest.raises(SystemExit):
+                m.launch_monitor_layout(
+                    project_root=Path("/tmp/test"),
+                    monitor_session_name="test-session",
+                    agent="codex",
+                    multiplexer=MultiplexerType.TMUX,
+                    show_spinner=False,
+                )
+        output = buf.getvalue()
+        assert "may only run on targets [mac]" in output
+        assert 'executes on host "zeus"' in output
 
 
 class TestLocalSessionState:

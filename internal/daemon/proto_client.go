@@ -1222,6 +1222,7 @@ func (c *ProtoClient) GetControlAgentLaunch(agentType string, newSession bool) (
 				Agent:      agentType,
 				NewSession: newSession,
 				Context:    c.requestContext(c.projectRoot),
+				ClientHost: clientHostname(),
 			},
 		},
 	}
@@ -1249,11 +1250,23 @@ func (c *ProtoClient) GetControlAgentLaunch(agentType string, newSession bool) (
 	}, nil
 }
 
+// clientHostname reports this process's hostname for the control-agent RPCs:
+// the control agent is exec'd on THIS host, so the daemon must enforce the
+// codex profile's AllowedTargets against it, not against the daemon host.
+func clientHostname() string {
+	host, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(host)
+}
+
 func (c *ProtoClient) GetControlAgentConfig() (*GetControlAgentConfigResponse, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_GetControlAgentConfig{
 			GetControlAgentConfig: &orchpb.GetControlAgentConfigRequest{
-				Context: c.requestContext(c.projectRoot),
+				Context:    c.requestContext(c.projectRoot),
+				ClientHost: clientHostname(),
 			},
 		},
 	}

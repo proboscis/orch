@@ -2427,7 +2427,7 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 		return nil, fmt.Errorf("project_root required")
 	}
 
-	controlCfg, err := s.processControlAgentConfigCore(st, params.ProjectRoot, params.Agent)
+	controlCfg, err := s.processControlAgentConfigCore(st, params.ProjectRoot, params.Agent, params.ClientHost)
 	if err != nil {
 		return nil, err
 	}
@@ -2539,7 +2539,7 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 	}, nil
 }
 
-func (s *SocketServer) processControlAgentConfigCore(st store.Store, projectRoot, agentOverride string) (*ControlAgentConfigResult, error) {
+func (s *SocketServer) processControlAgentConfigCore(st store.Store, projectRoot, agentOverride, clientHost string) (*ControlAgentConfigResult, error) {
 	if projectRoot == "" {
 		return nil, fmt.Errorf("project_root required")
 	}
@@ -2574,11 +2574,15 @@ func (s *SocketServer) processControlAgentConfigCore(st store.Store, projectRoot
 
 	modelName, modelVariant := cfg.ResolveControlModelAndVariant(agentName)
 
-	// The control agent runs locally; enforce the default codex profile's
-	// AllowedTargets against the local daemon host and apply its CODEX_HOME
-	// account isolation. A disallowed local host (e.g. a company profile on a personal host)
-	// fails fast here rather than launching the company account on the wrong host.
-	codexHome, codexErr := resolveControlCodexHome(cfg, agentName)
+	// The control agent runs on the CLIENT host (the caller of this RPC), which
+	// equals the daemon host only in the single-machine setup. Enforce the
+	// default codex profile's AllowedTargets against the client-reported host
+	// (falling back to the daemon host for old clients) and apply its
+	// CODEX_HOME account isolation. A disallowed host (e.g. a company profile
+	// on a personal host) fails fast here rather than launching the company
+	// account on the wrong host. The returned CODEX_HOME is verbatim; the
+	// client expands a leading ~ against its own HOME.
+	codexHome, codexErr := resolveControlCodexHome(cfg, agentName, clientHost)
 	if codexErr != nil {
 		return nil, codexErr
 	}
@@ -2902,14 +2906,7 @@ func isLocalExecutionHost(targetHost string) bool {
 	}
 
 	host, _ := currentDaemonHostname()
-	host = strings.TrimSpace(host)
-	if host == "" {
-		return false
-	}
-
-	short := strings.Split(host, ".")[0]
-	targetShort := strings.Split(targetHost, ".")[0]
-	return strings.EqualFold(targetHost, host) || strings.EqualFold(targetShort, short)
+	return hostNamesEqual(targetHost, host)
 }
 
 func (s *SocketServer) runRequiresWorkerDelegation(run *model.Run, targetWorkerID string) bool {

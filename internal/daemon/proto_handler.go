@@ -2172,6 +2172,7 @@ func (s *SocketServer) handleProtoGetControlAgentLaunch(req *orchpb.GetControlAg
 		ProjectRoot: projectRoot,
 		Agent:       req.Agent,
 		NewSession:  req.NewSession,
+		ClientHost:  req.ClientHost,
 	}
 
 	result, err := s.processControlAgentLaunchCore(st, params)
@@ -2210,7 +2211,7 @@ func (s *SocketServer) handleProtoGetControlAgentConfig(req *orchpb.GetControlAg
 		return errorResponse("no store available")
 	}
 
-	result, err := s.processControlAgentConfigCore(st, projectRoot, "")
+	result, err := s.processControlAgentConfigCore(st, projectRoot, "", req.ClientHost)
 	if err != nil {
 		return errorResponse(err.Error())
 	}

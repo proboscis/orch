@@ -15,6 +15,7 @@ from typing import Protocol
 
 import hy  # noqa: F401 - Enable Hy imports
 from rich.console import Console
+from rich.markup import escape as rich_escape
 
 # Shared console for startup output
 _console = Console(stderr=True)
@@ -150,9 +151,11 @@ class ControlAgentLaunchError(Exception):
     """Raised when the daemon refuses to launch the control agent (policy).
 
     The daemon is the source of truth for the codex profile's allowed_targets
-    constraint; when the local host is not allowed for the resolved profile, the
-    daemon fails fast and the TUI must surface that error instead of silently
-    launching a fallback command on the wrong host.
+    constraint, enforced against THIS client host (sent as client_host on the
+    config RPC — the control agent executes here, not on the daemon host).
+    When this host is not allowed for the resolved profile, the daemon fails
+    fast and the TUI must surface that error instead of silently launching a
+    fallback command on the wrong host.
     """
 
 
@@ -169,13 +172,16 @@ def _is_codex_profile_denial(message: str) -> bool:
 def _codex_home_env_prefix(codex_home: str) -> str:
     """Return a shell `export CODEX_HOME=...; ` prefix, or "" when unset.
 
-    The daemon already expands ~ in codex_home, so the value is used verbatim.
-    This mirrors the Go `orch agent` path, which injects CODEX_HOME into the
-    control-agent session env for codex auth isolation.
+    The daemon returns codex_home VERBATIM (no ~ expansion on the daemon host,
+    which may be a remote master with a different HOME). A leading ~ is
+    expanded HERE, against the local HOME of the host that executes the
+    control agent. This mirrors the Go `orch agent` path, which expands ~ in
+    LaunchConfig.CodexHomeEnv on the executing host.
     """
     codex_home = (codex_home or "").strip()
     if not codex_home:
         return ""
+    codex_home = str(Path(codex_home).expanduser())
     return f"export CODEX_HOME={shlex.quote(codex_home)}; "
 
 
@@ -344,9 +350,10 @@ def _resolve_local_control_agent_command(
     config_result = daemon.get_control_agent_config(project_str)
     if isinstance(config_result, Failure):
         failure_msg = str(config_result.failure())
-        # The daemon enforces the codex profile's allowed_targets against the
-        # local host. A policy denial (e.g. a company control agent on a personal host) must
-        # be surfaced and must NOT fall back to launching on the wrong host.
+        # The daemon enforces the codex profile's allowed_targets against THIS
+        # client host (the control agent executes here). A policy denial (e.g.
+        # a company control agent on a disallowed host) must be surfaced and
+        # must NOT fall back to launching on the wrong host.
         # Generic/transient RPC failures remain fallback-eligible for resilience.
         if _is_codex_profile_denial(failure_msg):
             raise ControlAgentLaunchError(failure_msg)
@@ -1019,7 +1026,10 @@ def launch_monitor_layout(
             validate_multiplexer_config(multiplexer)
         except InvalidMultiplexerConfigError as e:
             _launcher_logger.error(str(e))
-            _console.print(f"[red]Error:[/red] {e}")
+            # rich_escape: daemon/exception text may contain [bracketed] segments
+            # (e.g. the allowed-targets list) that Rich would parse as markup
+            # tags and silently drop (fail-clearly violation).
+            _console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
             sys.exit(1)
 
         launcher = get_layout_launcher(multiplexer)
@@ -1071,20 +1081,26 @@ def launch_monitor_layout(
                     )
                     _console.print("")
                     _console.print("[dim]Diagnostic details:[/dim]")
-                    _console.print(f"[dim]  project_root: {project_str}[/dim]")
-                    _console.print(f"[dim]  agent: {agent_override or '(auto)'}[/dim]")
-                    _console.print(f"[dim]  session_file: {session_file}[/dim]")
+                    _console.print(
+                        f"[dim]  project_root: {rich_escape(project_str)}[/dim]"
+                    )
+                    _console.print(
+                        f"[dim]  agent: {rich_escape(agent_override or '(auto)')}[/dim]"
+                    )
+                    _console.print(
+                        f"[dim]  session_file: {rich_escape(str(session_file))}[/dim]"
+                    )
                     _console.print(
                         f"[dim]  session_file exists: {session_file.exists()}[/dim]"
                     )
                     if session_file.exists():
                         try:
                             _console.print(
-                                f"[dim]  session_file content: {session_file.read_text().strip()}[/dim]"
+                                f"[dim]  session_file content: {rich_escape(session_file.read_text().strip())}[/dim]"
                             )
                         except Exception as read_err:
                             _console.print(
-                                f"[dim]  session_file read error: {read_err}[/dim]"
+                                f"[dim]  session_file read error: {rich_escape(str(read_err))}[/dim]"
                             )
                     _console.print("")
                     _console.print(
@@ -1096,7 +1112,7 @@ def launch_monitor_layout(
                     sys.exit(1)
 
                 _console.print(
-                    f"[dim]Resuming control agent session: {session_id}[/dim]"
+                    f"[dim]Resuming control agent session: {rich_escape(session_id)}[/dim]"
                 )
 
             with _spinner_context("Restarting session...", enabled=show_spinner):
@@ -1106,7 +1122,7 @@ def launch_monitor_layout(
         else:
             if show_spinner:
                 _console.print(
-                    f"[dim]Attaching to existing session:[/dim] {session_name}"
+                    f"[dim]Attaching to existing session:[/dim] {rich_escape(session_name)}"
                 )
             _launcher_logger.info("attaching to existing session...")
             launcher.attach_session(session_name)
@@ -1144,9 +1160,10 @@ def launch_monitor_layout(
     except ControlAgentLaunchError as e:
         # Daemon refused the control-agent launch (codex profile allowed_targets
         # constraint). Surface the fail-fast error rather than launching on a
-        # disallowed host.
+        # disallowed host. rich_escape: the denial names the allowed targets as
+        # "[mac]", which Rich would otherwise parse as a markup tag and drop.
         _launcher_logger.error(f"control agent launch refused by daemon: {e}")
-        _console.print(f"[red]Error:[/red] {e}")
+        _console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
         sys.exit(1)
     _launcher_logger.info("launch complete")
 

@@ -492,14 +492,16 @@ class CloseIssueResponse(_message.Message):
     def __init__(self) -> None: ...
 
 class GetControlAgentLaunchRequest(_message.Message):
-    __slots__ = ("agent", "new_session", "context")
+    __slots__ = ("agent", "new_session", "context", "client_host")
     AGENT_FIELD_NUMBER: _ClassVar[int]
     NEW_SESSION_FIELD_NUMBER: _ClassVar[int]
     CONTEXT_FIELD_NUMBER: _ClassVar[int]
+    CLIENT_HOST_FIELD_NUMBER: _ClassVar[int]
     agent: str
     new_session: bool
     context: RequestContext
-    def __init__(self, agent: _Optional[str] = ..., new_session: _Optional[bool] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
+    client_host: str
+    def __init__(self, agent: _Optional[str] = ..., new_session: _Optional[bool] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ..., client_host: _Optional[str] = ...) -> None: ...
 
 class GetControlAgentLaunchResponse(_message.Message):
     __slots__ = ("command", "prompt_file", "port", "session_id", "resumed")
@@ -516,10 +518,12 @@ class GetControlAgentLaunchResponse(_message.Message):
     def __init__(self, command: _Optional[str] = ..., prompt_file: _Optional[str] = ..., port: _Optional[int] = ..., session_id: _Optional[str] = ..., resumed: _Optional[bool] = ...) -> None: ...
 
 class GetControlAgentConfigRequest(_message.Message):
-    __slots__ = ("context",)
+    __slots__ = ("context", "client_host")
     CONTEXT_FIELD_NUMBER: _ClassVar[int]
+    CLIENT_HOST_FIELD_NUMBER: _ClassVar[int]
     context: RequestContext
-    def __init__(self, context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
+    client_host: str
+    def __init__(self, context: _Optional[_Union[RequestContext, _Mapping]] = ..., client_host: _Optional[str] = ...) -> None: ...
 
 class GetControlAgentConfigResponse(_message.Message):
     __slots__ = ("prompt_content", "agent", "model", "model_variant", "extra_args", "codex_home")

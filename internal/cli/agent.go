@@ -129,9 +129,11 @@ func runAgent(opts *agentOptions) error {
 			cfg, cfgErr := provider.GetControlAgentConfig(ctx)
 			if cfgErr != nil {
 				// The daemon is the source of truth for control-agent config and
-				// enforces the codex profile's AllowedTargets against the local
-				// host. Surface its fail-fast error (e.g. company control agent on
-				// a disallowed host) instead of silently launching without it.
+				// enforces the codex profile's AllowedTargets against THIS client
+				// host (sent as client_host on the RPC — the control agent executes
+				// here, not on the daemon host). Surface its fail-fast error (e.g.
+				// company control agent on a disallowed host) instead of silently
+				// launching without it.
 				return fmt.Errorf("failed to resolve control agent config: %w", cfgErr)
 			}
 			controlCfg = cfg

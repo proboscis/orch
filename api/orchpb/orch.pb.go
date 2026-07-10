@@ -2464,10 +2464,16 @@ func (*CloseIssueResponse) Descriptor() ([]byte, []int) {
 }
 
 type GetControlAgentLaunchRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Agent         string                 `protobuf:"bytes,2,opt,name=agent,proto3" json:"agent,omitempty"`
-	NewSession    bool                   `protobuf:"varint,3,opt,name=new_session,json=newSession,proto3" json:"new_session,omitempty"`
-	Context       *RequestContext        `protobuf:"bytes,4,opt,name=context,proto3" json:"context,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Agent      string                 `protobuf:"bytes,2,opt,name=agent,proto3" json:"agent,omitempty"`
+	NewSession bool                   `protobuf:"varint,3,opt,name=new_session,json=newSession,proto3" json:"new_session,omitempty"`
+	Context    *RequestContext        `protobuf:"bytes,4,opt,name=context,proto3" json:"context,omitempty"`
+	// Hostname of the CLIENT that will exec the control agent (the control
+	// agent runs on the client host, not the daemon host). The daemon maps it
+	// to a config.targets name and enforces the codex profile's
+	// allowed_targets against it. Empty/absent (old client) -> the daemon
+	// falls back to enforcing against its own host.
+	ClientHost    string `protobuf:"bytes,5,opt,name=client_host,json=clientHost,proto3" json:"client_host,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2521,6 +2527,13 @@ func (x *GetControlAgentLaunchRequest) GetContext() *RequestContext {
 		return x.Context
 	}
 	return nil
+}
+
+func (x *GetControlAgentLaunchRequest) GetClientHost() string {
+	if x != nil {
+		return x.ClientHost
+	}
+	return ""
 }
 
 type GetControlAgentLaunchResponse struct {
@@ -2600,8 +2613,14 @@ func (x *GetControlAgentLaunchResponse) GetResumed() bool {
 }
 
 type GetControlAgentConfigRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Context       *RequestContext        `protobuf:"bytes,2,opt,name=context,proto3" json:"context,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Context *RequestContext        `protobuf:"bytes,2,opt,name=context,proto3" json:"context,omitempty"`
+	// Hostname of the CLIENT that will exec the control agent (the control
+	// agent runs on the client host, not the daemon host). The daemon maps it
+	// to a config.targets name and enforces the codex profile's
+	// allowed_targets against it. Empty/absent (old client) -> the daemon
+	// falls back to enforcing against its own host.
+	ClientHost    string `protobuf:"bytes,3,opt,name=client_host,json=clientHost,proto3" json:"client_host,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2643,6 +2662,13 @@ func (x *GetControlAgentConfigRequest) GetContext() *RequestContext {
 	return nil
 }
 
+func (x *GetControlAgentConfigRequest) GetClientHost() string {
+	if x != nil {
+		return x.ClientHost
+	}
+	return ""
+}
+
 type GetControlAgentConfigResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	PromptContent string                 `protobuf:"bytes,1,opt,name=prompt_content,json=promptContent,proto3" json:"prompt_content,omitempty"`
@@ -2650,7 +2676,10 @@ type GetControlAgentConfigResponse struct {
 	Model         string                 `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
 	ModelVariant  string                 `protobuf:"bytes,4,opt,name=model_variant,json=modelVariant,proto3" json:"model_variant,omitempty"`
 	ExtraArgs     []string               `protobuf:"bytes,5,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
-	CodexHome     string                 `protobuf:"bytes,6,opt,name=codex_home,json=codexHome,proto3" json:"codex_home,omitempty"`
+	// CODEX_HOME for the control agent, VERBATIM as configured: a leading ~ is
+	// expanded by the CLIENT against its own HOME at use time, never by the
+	// daemon, so the same profile works across hosts with different HOMEs.
+	CodexHome     string `protobuf:"bytes,6,opt,name=codex_home,json=codexHome,proto3" json:"codex_home,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -11176,12 +11205,14 @@ const file_orch_proto_rawDesc = "" +
 	"\x11CloseIssueRequest\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x121\n" +
 	"\acontext\x18\x03 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"\x14\n" +
-	"\x12CloseIssueResponse\"\x88\x01\n" +
+	"\x12CloseIssueResponse\"\xa9\x01\n" +
 	"\x1cGetControlAgentLaunchRequest\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x1f\n" +
 	"\vnew_session\x18\x03 \x01(\bR\n" +
 	"newSession\x121\n" +
-	"\acontext\x18\x04 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"\xa7\x01\n" +
+	"\acontext\x18\x04 \x01(\v2\x17.orch.v1.RequestContextR\acontext\x12\x1f\n" +
+	"\vclient_host\x18\x05 \x01(\tR\n" +
+	"clientHost\"\xa7\x01\n" +
 	"\x1dGetControlAgentLaunchResponse\x12\x18\n" +
 	"\acommand\x18\x01 \x01(\tR\acommand\x12\x1f\n" +
 	"\vprompt_file\x18\x02 \x01(\tR\n" +
@@ -11189,9 +11220,11 @@ const file_orch_proto_rawDesc = "" +
 	"\x04port\x18\x03 \x01(\x05R\x04port\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x04 \x01(\tR\tsessionId\x12\x18\n" +
-	"\aresumed\x18\x05 \x01(\bR\aresumed\"Q\n" +
+	"\aresumed\x18\x05 \x01(\bR\aresumed\"r\n" +
 	"\x1cGetControlAgentConfigRequest\x121\n" +
-	"\acontext\x18\x02 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"\xd5\x01\n" +
+	"\acontext\x18\x02 \x01(\v2\x17.orch.v1.RequestContextR\acontext\x12\x1f\n" +
+	"\vclient_host\x18\x03 \x01(\tR\n" +
+	"clientHost\"\xd5\x01\n" +
 	"\x1dGetControlAgentConfigResponse\x12%\n" +
 	"\x0eprompt_content\x18\x01 \x01(\tR\rpromptContent\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x14\n" +
