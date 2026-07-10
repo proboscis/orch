@@ -41,7 +41,7 @@ orch daemon repo register "$(pwd)"   # map project identity -> this checkout
 orch issue create my-task --title "Add hello world function"
 
 # Run an agent
-orch run my-task
+orch run my-task --no-pr
 
 # Check status
 orch ps
@@ -49,6 +49,10 @@ orch ps
 # Interact when needed
 orch attach my-task
 ```
+
+`--no-pr` keeps this first exercise local when `origin` does not point to a
+real GitHub repository. Drop the flag once a real GitHub remote exists and
+`gh` is authenticated so the agent can push and open a pull request.
 
 **[Read the full Getting Started guide](./docs/getting-started.md)** —
 日本語版のローカル入門は **[ローカルクイックスタート](./docs/local-quickstart.ja.md)**。

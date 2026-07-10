@@ -92,16 +92,20 @@ func TestRunDaemonKillProjectFlagWarnsButIgnored(t *testing.T) {
 	}
 }
 
-func TestDaemonRepoRegisterCommandUsesRepoURLIdentity(t *testing.T) {
+func TestDaemonRepoRegisterCommandDocumentsProjectPath(t *testing.T) {
 	cmd := newDaemonRepoRegisterCmd()
 
-	if cmd.Use != "register REPO_URL" {
-		t.Fatalf("Use = %q, want %q", cmd.Use, "register REPO_URL")
+	if cmd.Use != "register PROJECT_PATH" {
+		t.Fatalf("Use = %q, want %q", cmd.Use, "register PROJECT_PATH")
 	}
-	if !strings.Contains(strings.ToLower(cmd.Short), "repository url") {
-		t.Fatalf("Short = %q, want repository URL guidance", cmd.Short)
+	helpText := strings.ToLower(strings.Join([]string{cmd.Short, cmd.Long, cmd.Example}, "\n"))
+	if !strings.Contains(helpText, "local checkout path") {
+		t.Fatalf("help text should describe a local checkout path, got %q", helpText)
 	}
-	if strings.Contains(strings.ToLower(cmd.Short), "project root") {
-		t.Fatalf("Short should not mention project root, got %q", cmd.Short)
+	if !strings.Contains(cmd.Example, `orch daemon repo register "$(pwd)"`) {
+		t.Fatalf("Example = %q, want a local checkout example", cmd.Example)
+	}
+	if strings.Contains(helpText, "repo_url") || strings.Contains(helpText, "repository url") {
+		t.Fatalf("help text should not describe the argument as a repository URL, got %q", helpText)
 	}
 }

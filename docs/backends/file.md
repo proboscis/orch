@@ -245,14 +245,13 @@ issues/runs/
 
 ## Migration from GitHub
 
-If you're moving from the GitHub backend to files:
-
-```bash
-# Export issues after selecting the GitHub issue backend in config (hypothetical command)
-orch issue export --output ./issues/
-
-# Or manually create issue files for each ticket
-```
+If you're moving from the GitHub backend to files, first configure the local
+backend and its `issues.path`. Then create one Markdown file for each ticket
+under `<issues.path>/issues/`, copying the issue title, status, and body into
+the frontmatter and Markdown format shown in [Issue File Format](#issue-file-format).
+When `issues.path` is omitted, use the default issues root shown in
+[Configuration](#configuration). Run `orch issue list` afterward to verify
+that orch detects every migrated issue.
 
 ## Troubleshooting
 

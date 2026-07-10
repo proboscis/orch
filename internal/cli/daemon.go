@@ -77,9 +77,14 @@ Mappings connect repo URL identities to daemon-managed project workspaces.`,
 
 func newDaemonRepoRegisterCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "register REPO_URL",
-		Short: "Register a repository URL for remote project identity",
-		Args:  cobra.ExactArgs(1),
+		Use:   "register PROJECT_PATH",
+		Short: "Register a local checkout path for project identity",
+		Long: `Register a local Git checkout path with the daemon.
+
+The daemon reads the checkout's origin remote to derive the project identity.
+PROJECT_PATH must exist on the daemon host.`,
+		Example: `  orch daemon repo register "$(pwd)"`,
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDaemonRepoRegister(args[0])
 		},
