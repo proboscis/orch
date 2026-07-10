@@ -40,6 +40,7 @@ const (
 	// panes, and never block the monitor loop on a lease for long.
 	remoteCaptureInterval     = 15 * time.Second
 	remoteCaptureLeaseTimeout = 15 * time.Second
+	remoteGitEvidenceTimeout  = 15 * time.Second
 	remoteCaptureLines        = 200
 
 	// A run that was never observed alive gets this long from StartedAt
@@ -105,7 +106,7 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store, projectID, projectRo
 				d.logger.Printf("%s#%s: opencode bootstrap logs: %s", run.IssueID, run.RunID, logPath)
 			}
 		}
-		return d.applyGoneObservation(run, st, state, projectRoot, false, d.localObserverID(), localGoneClass(run))
+		return d.applyGoneObservation(run, st, state, projectID, projectRoot, false, d.localObserverID(), localGoneClass(run))
 	}
 
 	if _, err := d.applyStep(run, st, state, runObservation{Kind: obsSessionAlive, Observer: d.localObserverID()}, projectRoot); err != nil {
@@ -227,7 +228,7 @@ func (d *Daemon) applyRunEffects(run *model.Run, st store.Store, oldCore, core r
 // second observation. The shell never decides whether evidence is needed.
 // observer/goneClass carry the observing channel's identity and its local
 // classification (§10.2) — attestation over them is stepRun policy.
-func (d *Daemon) applyGoneObservation(run *model.Run, st store.Store, state *RunState, projectRoot string, remote bool, observer, goneClass string) error {
+func (d *Daemon) applyGoneObservation(run *model.Run, st store.Store, state *RunState, projectID, projectRoot string, remote bool, observer, goneClass string) error {
 	effects, err := d.applyStep(run, st, state, runObservation{
 		Kind:      obsSessionGone,
 		Remote:    remote,
@@ -240,7 +241,10 @@ func (d *Daemon) applyGoneObservation(run *model.Run, st store.Store, state *Run
 	if !effectsContain(effects, effectGatherGitEvidence) {
 		return nil
 	}
-	evidence := d.gatherGitEvidence(run, projectRoot)
+	evidence, err := d.gatherGitEvidence(run, projectID, projectRoot)
+	if err != nil {
+		return err
+	}
 	_, err = d.applyStep(run, st, state, runObservation{
 		Kind:     obsGitEvidence,
 		Evidence: evidence,
@@ -292,7 +296,7 @@ func (d *Daemon) monitorRemoteRun(run *model.Run, st store.Store, projectID, pro
 			// lease round-trip completed, so pace re-checks like successful
 			// captures instead of retrying every monitor tick.
 			state.RemoteCaptureAt = now
-			return d.applyGoneObservation(run, st, state, projectRoot, true, "", goneClassUnclassified)
+			return d.applyGoneObservation(run, st, state, projectID, projectRoot, true, "", goneClassUnclassified)
 		}
 
 		// Worker-plane infrastructure failure (worker offline, lease
@@ -321,7 +325,7 @@ func (d *Daemon) monitorRemoteRun(run *model.Run, st store.Store, projectID, pro
 		// local (L11d) and identified itself; whether its testimony can
 		// support a death verdict is attestation policy in stepRun (L11a-c).
 		state.RemoteCaptureAt = now
-		return d.applyGoneObservation(run, st, state, projectRoot, true, result.ObserverID, result.Gone.Class)
+		return d.applyGoneObservation(run, st, state, projectID, projectRoot, true, result.ObserverID, result.Gone.Class)
 	}
 
 	state.resetCaptureFailure()
@@ -790,10 +794,10 @@ func statusFromPROutcome(outcome prOutcome) model.Status {
 // projectRoot is the repo root registered with the daemon for the run's
 // project; it is the lookup root for worker-hosted runs whose worktree lives
 // on the execution host and is not visible from this machine.
-func (d *Daemon) gatherGitEvidence(run *model.Run, projectRoot string) gitEvidence {
+func (d *Daemon) gatherGitEvidence(run *model.Run, projectID, projectRoot string) (gitEvidence, error) {
 	ev := gitEvidence{}
 	if run.Branch == "" {
-		return ev
+		return ev, nil
 	}
 
 	repoRoot := ""
@@ -815,7 +819,7 @@ func (d *Daemon) gatherGitEvidence(run *model.Run, projectRoot string) gitEviden
 			ev.BranchPRURL = prInfo.URL
 			ev.BranchPROutcome = prOutcomeFromInfo(prInfo)
 			if statusFromPROutcome(ev.BranchPROutcome) != "" {
-				return ev
+				return ev, nil
 			}
 		}
 		if err != nil {
@@ -834,11 +838,20 @@ func (d *Daemon) gatherGitEvidence(run *model.Run, projectRoot string) gitEviden
 		}
 		// The verdict ladder ends at the PR-URL rung regardless of lookup
 		// success (it preserves pr_open) — no further facts needed.
-		return ev
+		return ev, nil
+	}
+
+	if d.runIsWorkerDelegated(run) {
+		stats, branchState, err := d.socketServer.getRunGitStateViaWorker(run, projectID, projectRoot)
+		if err != nil {
+			return ev, err
+		}
+		applyWorkerGitState(&ev, stats, branchState)
+		return ev, nil
 	}
 
 	if repoRoot == "" {
-		return ev
+		return ev, nil
 	}
 
 	baseBranch := "origin/main"
@@ -854,7 +867,41 @@ func (d *Daemon) gatherGitEvidence(run *model.Run, projectRoot string) gitEviden
 	}
 	ev.HasUncommitted = git.HasUncommittedChanges(run.WorktreePath)
 
-	return ev
+	return ev, nil
+}
+
+// applyWorkerGitState translates the existing worker get_diff_stats and
+// get_branch_state results into O5's established gitEvidence vocabulary.
+// The pure verdict policy only needs a positive ahead signal, so the worker's
+// changed-file count occupies AheadCount when an exact commit count is not
+// exposed by the existing lease capability.
+func applyWorkerGitState(ev *gitEvidence, stats *GetDiffStatsResult, branchState *GetBranchStateResult) {
+	state := orchpb.BranchState(branchState.State)
+	changedFiles := stats.FilesChanged
+	if changedFiles == 0 && (stats.Additions != 0 || stats.Deletions != 0 || len(stats.Files) != 0) {
+		changedFiles = 1
+	}
+
+	ev.RepoRootFound = state != orchpb.BranchState_BRANCH_STATE_UNSPECIFIED || changedFiles > 0
+	if !ev.RepoRootFound {
+		return
+	}
+
+	ev.AheadKnown = true
+	ev.AheadCount = changedFiles
+	ev.HasUncommitted = state == orchpb.BranchState_BRANCH_STATE_DIRTY
+
+	// Current workers report DIRTY/MERGED/CLEAN, while the proto vocabulary
+	// also permits richer ahead/diverged/conflict states. Preserve positive
+	// evidence if a newer worker returns one of those states without stats.
+	switch state {
+	case orchpb.BranchState_BRANCH_STATE_AHEAD,
+		orchpb.BranchState_BRANCH_STATE_DIVERGED,
+		orchpb.BranchState_BRANCH_STATE_CONFLICT:
+		if ev.AheadCount == 0 {
+			ev.AheadCount = 1
+		}
+	}
 }
 
 // inferStatusFromGitState infers a run's status from git state when the agent
@@ -862,7 +909,11 @@ func (d *Daemon) gatherGitEvidence(run *model.Run, projectRoot string) gitEviden
 // for callers outside the stepRun flow (tests): the decision ladder itself
 // lives in gitVerdict (step.go) so it cannot drift from the monitor plane.
 func (d *Daemon) inferStatusFromGitState(run *model.Run, st store.Store, wasAlive bool, projectRoot string) model.Status {
-	evidence := d.gatherGitEvidence(run, projectRoot)
+	evidence, err := d.gatherGitEvidence(run, "", projectRoot)
+	if err != nil {
+		d.debug("%s#%s: infer: git evidence error: %v", run.IssueID, run.RunID, err)
+		return ""
+	}
 	status, effects := gitVerdict(runViewOf(run), runCore{WasAlive: wasAlive}, evidence, time.Now())
 	for _, e := range effects {
 		switch e.Kind {

@@ -73,7 +73,7 @@ Facts the daemon can notice about a run, with their sources:
 | O4c | — derived: agent verdict (exited/completed/api-limited/failed) | mux string heuristics; opencode session-status HTTP API (busy/idle/retry/gone) | pure / HTTP |
 | O4d | — derived: PR URL in output | regex | pure |
 | O4e | — derived: interactive gate showing (kind) | `DetectGate` declarative table (`internal/agent/gates.go`), busy veto shared with O4b (§9) | pure |
-| O5 | git evidence (PR info, ahead count, uncommitted changes) | gh cache + git, gathered only after a dead verdict is near | subprocess |
+| O5 | git evidence (PR info, ahead count, uncommitted changes) | gh cache + local git, or worker `get_diff_stats`/`get_branch_state` leases for worker-hosted runs; gathered only after a dead verdict is near | subprocess / lease RTT |
 | O6 | user feedback delivered (`orch send` without `--no-enter`) | send paths | — |
 | O7 | user stop | stop path | — |
 | O8 | launch lifecycle progress (`launchSignal`: stage milestone or failed step) | launch ladders via `reportLaunchProgress` | — |
@@ -716,7 +716,7 @@ Invariant delta for the §4 table:
 | candidate | verdict | rationale |
 |-----------|---------|-----------|
 | (a) reset DeadCheckCount when the observer generation changes | adopted (L11a) — but **insufficient alone**: in the incident all three not-founds came from the *same new* worker instance; a reset at the generation boundary changes nothing there | correct streak hygiene, wrong lever for the incident |
-| (b) corroborating evidence before `failed` | adopted in two parts: the PR/git evidence ladder already corroborates and stays first (channel-independent); worker-side git evidence for worker-hosted runs is a **separate follow-up issue** (the master is structurally blind to the worker's worktree — `get_diff_stats`/`get_branch_state` capabilities already exist to close this). The "session-created-by-worker generation match" variant is subsumed by attestation: a creator observes its own session immediately, so it attests itself | |
+| (b) corroborating evidence before `failed` | adopted in two parts: the PR/git evidence ladder already corroborates and stays first (channel-independent); worker-side git evidence for worker-hosted runs was delivered as the **separate follow-up issue** recorded in §10.6 (the master is structurally blind to the worker's worktree, so `get_diff_stats`/`get_branch_state` leases close this). The "session-created-by-worker generation match" variant is subsumed by attestation: a creator observes its own session immediately, so it attests itself | |
 | (c) observer changed + not found ⇒ `unknown`, not `failed` | adopted in generalized form: the predicate is not "changed" but "**unattested for this run**" (L11b/L11c) | "changed" misses the incident (the new observer's streak was internally consistent) |
 | channel-level attestation ("observer saw ≥ 1 session of any kind") | **rejected** — two killing counterexamples: (i) the poisoned socket can contain *foreign* sessions (agent-deck's own), so ListSessions non-emptiness attests nothing; (ii) a poisoned worker that *launches a new run* creates and sees that session on the wrong server, attesting itself channel-wide while still blind to every pre-existing run. Attestation must be per-(run, observer-instance) | this is the cheaper design that almost worked; recorded so it is not re-proposed |
 
@@ -762,11 +762,12 @@ Invariant delta for the §4 table:
   the frozen `legacyRemoteSessionGone` shim (unattested-only, deletable
   once no pre-attestation workers remain), L11/L7'/I9 property tests,
   §2/§3/§4/§5 fold-in.
-- Separate issue (delegable once specced, still open —
-  `worker-side-git-corroboration`): worker-side git corroboration for
-  worker-hosted dead verdicts via existing `get_diff_stats`/
-  `get_branch_state` capabilities (closes the corroboration blindness
-  noted in 10.0; benefits the attested path too).
+- ~~Separate issue~~ **implemented 2026-07-10**
+  (`worker-side-git-corroboration`): worker-hosted O5 gathering routes the
+  ahead/diff and dirty-tree facts through the existing `get_diff_stats` and
+  `get_branch_state` leases. Lease failure produces no empty evidence
+  observation, so infrastructure blindness cannot become a death verdict;
+  the resulting facts still enter `step()` only as `obsGitEvidence`.
 - Cross-reference: this partially delivers the O12 (worker presence)
   backlog item of `docs/design/observation-coverage.md` by surfacing
   observer identity to `step()` as observation payload.

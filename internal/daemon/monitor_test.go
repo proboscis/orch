@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/proboscis/orch/api/orchpb"
 	"github.com/proboscis/orch/internal/agent"
 	"github.com/proboscis/orch/internal/model"
 	"github.com/proboscis/orch/internal/pr"
@@ -980,6 +981,179 @@ func newRemoteTestRun(status model.Status) *model.Run {
 		TargetWorkerID: "host-CA-1",
 		SessionName:    "run-ISSUE-REMOTE-1-run-1",
 		Multiplexer:    "tmux",
+	}
+}
+
+func TestMonitorRemoteRunUsesWorkerGitEvidenceForDeadVerdict(t *testing.T) {
+	tests := []struct {
+		name        string
+		branchState orchpb.BranchState
+		diffStats   *GetDiffStatsResult
+		wantStatus  model.Status
+	}{
+		{
+			name:        "uncommitted worker changes keep run waiting",
+			branchState: orchpb.BranchState_BRANCH_STATE_DIRTY,
+			diffStats:   &GetDiffStatsResult{},
+			wantStatus:  model.StatusWaiting,
+		},
+		{
+			name:        "clean worker tree preserves dead-session fallback",
+			branchState: orchpb.BranchState_BRANCH_STATE_CLEAN,
+			diffStats:   &GetDiffStatsResult{},
+			wantStatus:  model.StatusFailed,
+		},
+		{
+			name:        "committed worker diff keeps run waiting",
+			branchState: orchpb.BranchState_BRANCH_STATE_CLEAN,
+			diffStats:   &GetDiffStatsResult{Additions: 3, FilesChanged: 1, Files: []string{"worker.go"}},
+			wantStatus:  model.StatusWaiting,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := newTestDaemon()
+			server := NewSocketServer(nil, d.logger)
+			d.socketServer = server
+
+			workerID := HostWorkerID("CA-1")
+			if _, ttl := server.registerWorker(workerID, "executor", "CA-1", "external", []string{"get_diff_stats", "get_branch_state"}); ttl <= 0 {
+				t.Fatal("expected positive heartbeat TTL for git-evidence worker")
+			}
+
+			observer := "worker:host-CA-1:n1"
+			alive := true
+			d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (*CaptureSessionResult, error) {
+				if alive {
+					return &CaptureSessionResult{Content: "agent working", ObserverID: observer}, nil
+				}
+				return &CaptureSessionResult{
+					ObserverID: observer,
+					Gone:       &SessionGoneResult{Class: goneClassSessionAbsent},
+				}, nil
+			}
+
+			run := newRemoteTestRun(model.StatusRunning)
+			run.Branch = "feature/worker-evidence"
+			run.WorktreePath = "/worker-only/worktree"
+			run.StartedAt = time.Now().Add(-time.Hour)
+			st := &mockStoreRecordingEvents{
+				mockStoreForUpdate: mockStoreForUpdate{issue: &model.Issue{ID: run.IssueID, Status: model.IssueStatusOpen}},
+				run:                run,
+			}
+			state := d.getOrCreateState(run)
+			mgr := agent.GetManager(run)
+
+			// First attest the same worker observation channel that will report
+			// the session gone.
+			if err := d.monitorRemoteRun(run, st, "project-worker", "/master/without-worker-worktree", state, mgr); err != nil {
+				t.Fatalf("monitorRemoteRun() alive capture error = %v", err)
+			}
+			alive = false
+
+			leaseResults := make(chan error, 1)
+			go func() {
+				seen := 0
+				deadline := time.Now().Add(5 * time.Second)
+				for seen < 2 && time.Now().Before(deadline) {
+					lease := server.leaseWorkForWorker(workerID)
+					if lease == nil {
+						time.Sleep(10 * time.Millisecond)
+						continue
+					}
+
+					var result *WorkerEffectResult
+					switch lease.Effect {
+					case "get_diff_stats":
+						result = &WorkerEffectResult{DiffStatsResult: tt.diffStats}
+					case "get_branch_state":
+						result = &WorkerEffectResult{BranchStateResult: &GetBranchStateResult{State: int32(tt.branchState)}}
+					default:
+						leaseResults <- errors.New("monitor dispatched an unexpected worker effect: " + lease.Effect)
+						return
+					}
+					if err := server.acknowledgeWorkerLease(workerID, lease.LeaseID, true, "", EncodeWorkerEffectResult(result)); err != nil {
+						leaseResults <- err
+						return
+					}
+					seen++
+				}
+				if seen != 2 {
+					leaseResults <- errors.New("timed out waiting for both worker git-evidence leases")
+					return
+				}
+				leaseResults <- nil
+			}()
+
+			for i := 0; i < deadChecksBeforeFailed; i++ {
+				state.RemoteCaptureAt = time.Now().Add(-2 * remoteCaptureInterval)
+				if err := d.monitorRemoteRun(run, st, "project-worker", "/master/without-worker-worktree", state, mgr); err != nil {
+					t.Fatalf("monitorRemoteRun() dead check %d error = %v", i+1, err)
+				}
+			}
+
+			if err := <-leaseResults; err != nil {
+				t.Fatal(err)
+			}
+			if run.Status != tt.wantStatus {
+				t.Fatalf("run.Status = %s, want %s", run.Status, tt.wantStatus)
+			}
+			if len(st.events) != 1 || st.events[0].Type != model.EventTypeStatus || st.events[0].Name != string(tt.wantStatus) {
+				t.Fatalf("status events = %+v, want exactly one %s event", st.events, tt.wantStatus)
+			}
+		})
+	}
+}
+
+func TestMonitorRemoteRunWorkerGitEvidenceFailureDoesNotVerdict(t *testing.T) {
+	d := newTestDaemon()
+	d.socketServer = NewSocketServer(nil, d.logger)
+
+	observer := "worker:host-CA-1:n1"
+	alive := true
+	d.remoteCaptureFn = func(run *model.Run, projectID, projectRoot string, lines int) (*CaptureSessionResult, error) {
+		if alive {
+			return &CaptureSessionResult{Content: "agent working", ObserverID: observer}, nil
+		}
+		return &CaptureSessionResult{
+			ObserverID: observer,
+			Gone:       &SessionGoneResult{Class: goneClassSessionAbsent},
+		}, nil
+	}
+
+	run := newRemoteTestRun(model.StatusRunning)
+	run.Branch = "feature/worker-evidence-error"
+	run.WorktreePath = "/worker-only/worktree"
+	run.StartedAt = time.Now().Add(-time.Hour)
+	st := &mockStoreRecordingEvents{
+		mockStoreForUpdate: mockStoreForUpdate{issue: &model.Issue{ID: run.IssueID, Status: model.IssueStatusOpen}},
+		run:                run,
+	}
+	state := d.getOrCreateState(run)
+	mgr := agent.GetManager(run)
+
+	if err := d.monitorRemoteRun(run, st, "project-worker", "/master/without-worker-worktree", state, mgr); err != nil {
+		t.Fatalf("monitorRemoteRun() alive capture error = %v", err)
+	}
+	alive = false
+
+	for i := 0; i < deadChecksBeforeFailed-1; i++ {
+		state.RemoteCaptureAt = time.Now().Add(-2 * remoteCaptureInterval)
+		if err := d.monitorRemoteRun(run, st, "project-worker", "/master/without-worker-worktree", state, mgr); err != nil {
+			t.Fatalf("monitorRemoteRun() early dead check %d error = %v", i+1, err)
+		}
+	}
+	state.RemoteCaptureAt = time.Now().Add(-2 * remoteCaptureInterval)
+	err := d.monitorRemoteRun(run, st, "project-worker", "/master/without-worker-worktree", state, mgr)
+	if err == nil || !strings.Contains(err.Error(), "worker get_diff_stats lease") {
+		t.Fatalf("monitorRemoteRun() error = %v, want explicit get_diff_stats lease error", err)
+	}
+	if run.Status != model.StatusRunning {
+		t.Fatalf("run.Status = %s, want running after evidence infrastructure failure", run.Status)
+	}
+	if len(st.events) != 0 {
+		t.Fatalf("evidence infrastructure failure must not produce a status event, got %+v", st.events)
 	}
 }
 
