@@ -453,9 +453,9 @@ ssh <remote-host> 'orch daemon repo register /home/user/repos/doeff'
 
 # ensure the target Mac worker is connected to the remote host
 # normal case: start the default host worker on the target host
-ssh your-remote-host 'orch --remote= daemon repo register /Users/<user>/repos/doeff'
-ssh your-remote-host 'ORCH_REMOTE=<remote-host>:7777 orch worker start'
-ssh your-remote-host 'ORCH_REMOTE=<remote-host>:7777 orch worker status'
+ssh <worker-host> 'orch --remote= daemon repo register /Users/<user>/repos/doeff'
+ssh <worker-host> 'ORCH_REMOTE=<remote-host>:7777 orch worker start'
+ssh <worker-host> 'ORCH_REMOTE=<remote-host>:7777 orch worker status'
 
 # run on the Mac target
 #
@@ -478,7 +478,7 @@ ssh <remote-host> "orch --project $PROJECT_ID capture $ISSUE_ID#$RUN_ID"
 
 # stop and clean up
 ssh <remote-host> "orch --project $PROJECT_ID stop $ISSUE_ID#$RUN_ID --force"
-ssh your-remote-host 'ORCH_REMOTE=<remote-host>:7777 orch worker stop --all'
+ssh <worker-host> 'ORCH_REMOTE=<remote-host>:7777 orch worker stop --all'
 ssh <remote-host> "rm -f /home/user/repos/doeff-VAULT/issues/$ISSUE_ID.md"
 ```
 
