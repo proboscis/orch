@@ -26,10 +26,14 @@ import (
 )
 
 const (
-	DefaultInterval      = 5 * time.Second
-	StallThreshold       = 60 * time.Second
-	FetchInterval        = 90 * time.Second
-	DefaultTCPListenAddr = "0.0.0.0:7777"
+	DefaultInterval = 5 * time.Second
+	StallThreshold  = 60 * time.Second
+	FetchInterval   = 90 * time.Second
+	// DefaultTCPListenAddr binds the daemon's TCP control socket to loopback
+	// only. The socket is unauthenticated, so exposing it beyond the local
+	// host is an explicit multi-host opt-in: start the master with
+	// --listen tcp://0.0.0.0:7777 (or a specific interface). ADR-0003.
+	DefaultTCPListenAddr = "127.0.0.1:7777"
 )
 
 type Daemon struct {

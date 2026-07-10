@@ -834,7 +834,7 @@ orch daemon start
 
 | Flag | Description |
 |------|-------------|
-| `--listen <addr>` | TCP listen address for remote clients (default: `0.0.0.0:7777`) |
+| `--listen <addr>` | TCP listen address for remote clients (default: `127.0.0.1:7777` — loopback only; multi-host requires an explicit non-loopback address, e.g. `tcp://0.0.0.0:7777`, ADR-0003) |
 
 ### orch daemon kill
 

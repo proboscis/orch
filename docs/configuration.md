@@ -41,8 +41,10 @@ orch --remote cloud ps
 orch --remote "" ps
 ```
 
-The daemon listens on `0.0.0.0:7777` by default, including when a command
-auto-starts it. Register the repository URL on the server-side daemon:
+The daemon's TCP listener binds loopback (`127.0.0.1:7777`) by default —
+remote access is an explicit opt-in: start the master with
+`--listen tcp://0.0.0.0:7777` (ADR-0003). Register the repository URL on
+the server-side daemon:
 
 ```bash
 # From client machine

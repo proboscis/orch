@@ -31,7 +31,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-ssh "$REMOTE_HOST" "$ZEUS_ENV_PREFIX $ZEUS_ORCH_BIN master start" >/dev/null
+ssh "$REMOTE_HOST" "$ZEUS_ENV_PREFIX $ZEUS_ORCH_BIN master start --listen tcp://0.0.0.0:7777" >/dev/null
 ssh "$REMOTE_HOST" "$ZEUS_ENV_PREFIX $ZEUS_ORCH_BIN worker start" >/dev/null
 ssh "$REMOTE_HOST" "$ZEUS_ENV_PREFIX $ZEUS_ORCH_BIN master status"
 ssh "$REMOTE_HOST" "$ZEUS_ENV_PREFIX $ZEUS_ORCH_BIN worker status"
