@@ -38,6 +38,17 @@ func TestHashContentIgnoresStatusBar(t *testing.T) {
 	}
 }
 
+// recordInputReading drives the pure debounce rule against a RunState. It
+// lives in the test file because production core mutation is confined to
+// step.go (semgrep run-core-hydration-surface); the monitor plane reads the
+// streak through stepRun, never through this helper.
+func (s *RunState) recordInputReading(reading string) bool {
+	kind, streak, confirmed := recordInputReadingStreak(s.ReadingKind, s.ReadingStreak, reading)
+	s.ReadingKind = kind
+	s.ReadingStreak = streak
+	return confirmed
+}
+
 func TestRunStateRecordInputReadingDebounce(t *testing.T) {
 	state := &RunState{}
 

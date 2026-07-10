@@ -496,8 +496,8 @@ func (d *Daemon) noteRunFeedback(run *model.Run) {
 	defer d.mu.Unlock()
 
 	if state, ok := d.runStates[run.Ref().String()]; ok {
-		state.ReadingKind = ""
-		state.ReadingStreak = 0
+		state.ReadingKind = ""  // nosemgrep: run-core-hydration-surface -- W6 feedback debounce reset (§9.3); folds into step() with O6 in v2
+		state.ReadingStreak = 0 // nosemgrep: run-core-hydration-surface -- W6 feedback debounce reset (§9.3); folds into step() with O6 in v2
 	}
 }
 

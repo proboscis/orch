@@ -217,7 +217,7 @@ func (d *Daemon) applyStep(run *model.Run, st store.Store, state *RunState, obs 
 	view := runViewOf(run)
 	core, effects := stepRun(view, state.runCore, obs, time.Now())
 	core, err := d.applyRunEffects(run, st, state.runCore, core, effects)
-	state.runCore = core
+	state.runCore = core // nosemgrep: run-core-hydration-surface -- the sanctioned commit point: core stepped by stepRun
 	return effects, err
 }
 
@@ -236,7 +236,7 @@ func (d *Daemon) applyRunEffects(run *model.Run, st store.Store, oldCore, core r
 				d.logger.Printf("%s#%s: failed to record PR artifact: %v", run.IssueID, run.RunID, err)
 				// The PRRecorded flag must reflect the store, not the
 				// intent: revert so the next capture retries the write.
-				core.PRRecorded = oldCore.PRRecorded
+				core.PRRecorded = oldCore.PRRecorded // nosemgrep: run-core-hydration-surface -- store-truth revert: a failed append must retry
 			}
 		case effectRecordPRClosed:
 			if err := d.recordPRClosedEvent(run, e.PRURL, st); err != nil {
@@ -524,13 +524,6 @@ func recordInputReadingStreak(prevKind string, prevStreak int, reading string) (
 		streak = prevStreak + 1
 	}
 	return reading, streak, streak >= waitingPromptStreakThreshold
-}
-
-func (s *RunState) recordInputReading(reading string) bool {
-	kind, streak, confirmed := recordInputReadingStreak(s.ReadingKind, s.ReadingStreak, reading)
-	s.ReadingKind = kind
-	s.ReadingStreak = streak
-	return confirmed
 }
 
 func captureBackoffDuration(err error, failures int) time.Duration {
@@ -968,7 +961,7 @@ func (d *Daemon) inferStatusFromGitState(run *model.Run, st store.Store, wasAliv
 		d.debug("%s#%s: infer: git evidence error: %v", run.IssueID, run.RunID, err)
 		return ""
 	}
-	status, effects := gitVerdict(runViewOf(run), runCore{WasAlive: wasAlive}, evidence, time.Now())
+	status, effects := gitVerdict(runViewOf(run), runCore{WasAlive: wasAlive}, evidence, time.Now()) // nosemgrep: run-core-hydration-surface -- historical test entry point adapter (see doc comment); state never leaves this call
 	for _, e := range effects {
 		switch e.Kind {
 		case effectRecordPR:
