@@ -236,6 +236,11 @@ type runObservation struct {
 	// obsCaptured
 	Output string
 	Signal agentSignal
+	// CapturedPRURL is a PR URL scraped from the pane that the gatherer has
+	// already verified against the run: the PR's headRefName equals the
+	// run's non-empty branch artifact (pr-attach law, run-state-machine.md
+	// §11). stepRun must never adopt a PR URL from raw Output.
+	CapturedPRURL string
 
 	// obsGitEvidence
 	Evidence gitEvidence
@@ -657,7 +662,7 @@ func stepCaptured(view runView, core runCore, obs runObservation, now time.Time)
 	effects = append(effects, debugEffect("%s#%s: pane hash=%s changed=%t reading=%q confirmed=%q streak=%d",
 		view.IssueID, view.RunID, hashPreview, outputChanged, reading, confirmedReading, core.ReadingStreak))
 
-	if prURL := detectPRURL(obs.Output); prURL != "" && !core.PRRecorded {
+	if prURL := obs.CapturedPRURL; prURL != "" && !core.PRRecorded {
 		core.PRRecorded = true
 		effects = append(effects,
 			logEffect("%s#%s: PR created: %s", view.IssueID, view.RunID, prURL),

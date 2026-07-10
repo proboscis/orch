@@ -426,6 +426,54 @@ func unknownReasonOf(effects []runEffect) (string, bool) {
 	return "", false
 }
 
+// L-PR1 (run-state-machine.md §11): stepRun must never adopt a PR URL from
+// raw captured output — only a gatherer-verified CapturedPRURL may attach,
+// and it latches PRRecorded.
+func TestStepCapturedPRAttachLaw(t *testing.T) {
+	now := time.Now()
+	view := runView{Status: model.StatusRunning, Agent: "codex", Branch: "issue/i/run-1", IssueID: "i", RunID: "run-1"}
+
+	// Raw output containing a PR URL but no verified CapturedPRURL: no attach.
+	core, effects := stepRun(view, runCore{WasAlive: true}, runObservation{
+		Kind:   obsCaptured,
+		Output: "merged https://github.com/o/r/pull/499 earlier today",
+	}, now)
+	if core.PRRecorded {
+		t.Fatal("unverified pane URL must not latch PRRecorded")
+	}
+	for _, e := range effects {
+		if e.Kind == effectRecordPR {
+			t.Fatalf("unverified pane URL must not emit effectRecordPR (got %s)", e.PRURL)
+		}
+		if e.Kind == effectSetStatus && e.Status == model.StatusPROpen {
+			t.Fatal("unverified pane URL must not transition to pr_open")
+		}
+	}
+
+	// Gatherer-verified URL: attach + pr_open + latch.
+	verified := "https://github.com/o/r/pull/7"
+	core, effects = stepRun(view, runCore{WasAlive: true}, runObservation{
+		Kind:          obsCaptured,
+		Output:        "opened " + verified + " for review\n",
+		CapturedPRURL: verified,
+	}, now)
+	if !core.PRRecorded {
+		t.Fatal("verified CapturedPRURL must latch PRRecorded")
+	}
+	var gotRecord, gotPROpen bool
+	for _, e := range effects {
+		if e.Kind == effectRecordPR && e.PRURL == verified {
+			gotRecord = true
+		}
+		if e.Kind == effectSetStatus && e.Status == model.StatusPROpen {
+			gotPROpen = true
+		}
+	}
+	if !gotRecord || !gotPROpen {
+		t.Fatalf("verified CapturedPRURL must record PR and set pr_open (record=%t pr_open=%t)", gotRecord, gotPROpen)
+	}
+}
+
 // D-C1 (run-state-machine.md §7): the fold-derivable runCore fields are
 // reconstructed from the event log at monitor registration; the ephemeral
 // counters start at zero.

@@ -1248,8 +1248,14 @@ func TestMonitorRemoteRunDetectsPROpenFromWorkerCapture(t *testing.T) {
 			ObserverID: "worker:host-CA-1:n1",
 		}, nil
 	}
+	// pr-attach law (run-state-machine.md §11): the scraped URL only attaches
+	// because its head branch matches the run's branch artifact.
+	d.lookupPRInfoByURLFn = func(prURL string) (*pr.Info, error) {
+		return &pr.Info{URL: prURL, Number: 99, State: "OPEN", HeadRefName: "issue/ISSUE-REMOTE-1/run-1"}, nil
+	}
 
 	run := newRemoteTestRun(model.StatusRunning)
+	run.Branch = "issue/ISSUE-REMOTE-1/run-1"
 	st := &mockStoreRecordingEvents{mockStoreForUpdate: mockStoreForUpdate{issue: &model.Issue{ID: "ISSUE-REMOTE-1", Status: model.IssueStatusOpen}}}
 	state := d.getOrCreateState(run)
 	mgr := agent.GetManager(run)
@@ -1277,6 +1283,86 @@ func TestMonitorRemoteRunDetectsPROpenFromWorkerCapture(t *testing.T) {
 	}
 	if captures != 1 {
 		t.Fatalf("expected second call within interval to skip capture, got %d captures", captures)
+	}
+}
+
+// L-PR1 (run-state-machine.md §11) — gatherer verification: a scraped PR URL
+// belongs to a run iff the PR head branch equals the run's non-empty branch.
+func TestVerifyScrapedPRURL(t *testing.T) {
+	d := newTestDaemon()
+	run := &model.Run{IssueID: "i", RunID: "r", Branch: "issue/i/run-r"}
+
+	d.lookupPRInfoByURLFn = func(prURL string) (*pr.Info, error) {
+		return &pr.Info{URL: prURL, State: "OPEN", HeadRefName: "issue/i/run-r"}, nil
+	}
+	if !d.verifyScrapedPRURL(run, "https://github.com/o/r/pull/7") {
+		t.Fatal("matching head branch must verify")
+	}
+
+	d.lookupPRInfoByURLFn = func(prURL string) (*pr.Info, error) {
+		return &pr.Info{URL: prURL, State: "OPEN", HeadRefName: "issue/other/run-x"}, nil
+	}
+	if d.verifyScrapedPRURL(run, "https://github.com/o/r/pull/499") {
+		t.Fatal("foreign head branch must not verify")
+	}
+
+	d.lookupPRInfoByURLFn = func(prURL string) (*pr.Info, error) {
+		return nil, errors.New("gh unavailable")
+	}
+	if d.verifyScrapedPRURL(run, "https://github.com/o/r/pull/7") {
+		t.Fatal("unverifiable head must not verify")
+	}
+
+	noBranch := &model.Run{IssueID: "i", RunID: "r"}
+	looked := false
+	d.lookupPRInfoByURLFn = func(prURL string) (*pr.Info, error) {
+		looked = true
+		return nil, nil
+	}
+	if d.verifyScrapedPRURL(noBranch, "https://github.com/o/r/pull/7") {
+		t.Fatal("run without branch artifact must never adopt a scraped URL")
+	}
+	if looked {
+		t.Fatal("empty-branch run must be refused before any lookup")
+	}
+}
+
+// L-PR1 (run-state-machine.md §11) — executor choke point: recordPRArtifact
+// refuses foreign or unverifiable PRs and empty-branch runs.
+func TestRecordPRArtifactEnforcesPRAttachLaw(t *testing.T) {
+	d := newTestDaemon()
+	st := &mockStoreRecordingEvents{mockStoreForUpdate: mockStoreForUpdate{issue: &model.Issue{ID: "i", Status: model.IssueStatusOpen}}}
+
+	if err := d.recordPRArtifact(&model.Run{IssueID: "i", RunID: "r"}, "https://github.com/o/r/pull/7", st); err == nil {
+		t.Fatal("empty-branch run must be refused")
+	}
+
+	run := &model.Run{IssueID: "i", RunID: "r", Branch: "issue/i/run-r"}
+	d.lookupPRInfoByURLFn = func(prURL string) (*pr.Info, error) {
+		return &pr.Info{URL: prURL, State: "OPEN", HeadRefName: "issue/other/run-x"}, nil
+	}
+	if err := d.recordPRArtifact(run, "https://github.com/o/r/pull/499", st); err == nil {
+		t.Fatal("foreign PR must be refused")
+	}
+	if len(st.events) != 0 {
+		t.Fatalf("refused PR must not append events, got %d", len(st.events))
+	}
+
+	d.lookupPRInfoByURLFn = func(prURL string) (*pr.Info, error) {
+		return nil, errors.New("gh unavailable")
+	}
+	if err := d.recordPRArtifact(run, "https://github.com/o/r/pull/7", st); err == nil {
+		t.Fatal("unverifiable head must be refused")
+	}
+
+	d.lookupPRInfoByURLFn = func(prURL string) (*pr.Info, error) {
+		return &pr.Info{URL: prURL, State: "OPEN", HeadRefName: "issue/i/run-r"}, nil
+	}
+	if err := d.recordPRArtifact(run, "https://github.com/o/r/pull/7", st); err != nil {
+		t.Fatalf("matching PR must record: %v", err)
+	}
+	if len(st.events) != 1 || st.events[0].Name != "pr" {
+		t.Fatalf("expected exactly one pr artifact event, got %+v", st.events)
 	}
 }
 

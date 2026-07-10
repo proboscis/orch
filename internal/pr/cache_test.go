@@ -39,7 +39,7 @@ func (f *fakeGitHubClient) RunInDir(dir string, args ...string) ([]byte, error) 
 func TestLookupInfoWithClient_UsesInjectedClient(t *testing.T) {
 	client := &fakeGitHubClient{
 		available: true,
-		output:    []byte(`[{"url":"https://github.com/acme/repo/pull/7","number":7,"state":"OPEN"}]`),
+		output:    []byte(`[{"url":"https://github.com/acme/repo/pull/7","number":7,"state":"OPEN","headRefName":"feature/test"}]`),
 	}
 
 	info, err := LookupInfoWithClient(client, "/tmp/repo", "feature/test")
@@ -68,7 +68,7 @@ func TestPopulateRunInfoWithClient_UsesInjectedClient(t *testing.T) {
 
 	client := &fakeGitHubClient{
 		available: true,
-		output:    []byte(`[{"url":"https://github.com/acme/repo/pull/19","number":19,"state":"OPEN"}]`),
+		output:    []byte(`[{"url":"https://github.com/acme/repo/pull/19","number":19,"state":"OPEN","headRefName":"feature/test"}]`),
 	}
 
 	runs := []*model.Run{
@@ -101,7 +101,7 @@ func TestPopulateRunInfo_RespectsMaxFetches(t *testing.T) {
 
 	client := &fakeGitHubClient{
 		available: true,
-		output:    []byte(`[{"url":"https://github.com/acme/repo/pull/1","number":1,"state":"OPEN"}]`),
+		output:    []byte(`[{"url":"https://github.com/acme/repo/pull/1","number":1,"state":"OPEN","headRefName":"feature/test"}]`),
 	}
 
 	runs := make([]*model.Run, 6)
@@ -126,7 +126,7 @@ func TestPopulateRunInfo_RespectsMinFetchInterval(t *testing.T) {
 
 	client := &fakeGitHubClient{
 		available: true,
-		output:    []byte(`[{"url":"https://github.com/acme/repo/pull/1","number":1,"state":"OPEN"}]`),
+		output:    []byte(`[{"url":"https://github.com/acme/repo/pull/1","number":1,"state":"OPEN","headRefName":"feature/test"}]`),
 	}
 
 	runs := []*model.Run{
@@ -163,10 +163,11 @@ func TestPopulateRunInfo_CacheHitSkipsAPI(t *testing.T) {
 	preCached := cache{
 		Entries: map[string]cacheEntry{
 			branch: {
-				URL:       "https://github.com/acme/repo/pull/77",
-				Number:    77,
-				State:     "OPEN",
-				CheckedAt: time.Now(),
+				URL:         "https://github.com/acme/repo/pull/77",
+				Number:      77,
+				State:       "OPEN",
+				HeadRefName: branch,
+				CheckedAt:   time.Now(),
 			},
 		},
 	}
@@ -204,7 +205,7 @@ func TestLookupInfoWithClient_MustUseCache(t *testing.T) {
 
 	client := &fakeGitHubClient{
 		available: true,
-		output:    []byte(`[{"url":"https://github.com/acme/repo/pull/42","number":42,"state":"OPEN"}]`),
+		output:    []byte(`[{"url":"https://github.com/acme/repo/pull/42","number":42,"state":"OPEN","headRefName":"feature/must-cache"}]`),
 	}
 	repoRoot := t.TempDir()
 	branch := "feature/must-cache"
@@ -249,10 +250,11 @@ func TestLookupInfoWithClient_CacheHitSkipsAPI(t *testing.T) {
 		LastFetch: time.Now(),
 		Entries: map[string]cacheEntry{
 			branch: {
-				URL:       "https://github.com/acme/repo/pull/99",
-				Number:    99,
-				State:     "MERGED",
-				CheckedAt: time.Now(),
+				URL:         "https://github.com/acme/repo/pull/99",
+				Number:      99,
+				State:       "MERGED",
+				HeadRefName: branch,
+				CheckedAt:   time.Now(),
 			},
 		},
 	}
@@ -260,7 +262,7 @@ func TestLookupInfoWithClient_CacheHitSkipsAPI(t *testing.T) {
 
 	client := &fakeGitHubClient{
 		available: true,
-		output:    []byte(`[{"url":"https://github.com/acme/repo/pull/999","number":999,"state":"OPEN"}]`),
+		output:    []byte(`[{"url":"https://github.com/acme/repo/pull/999","number":999,"state":"OPEN","headRefName":"feature/cache-hit"}]`),
 	}
 
 	info, err := LookupInfoWithClient(client, repoRoot, branch)
@@ -292,7 +294,7 @@ func TestLookupInfoByURL_MustUseCache(t *testing.T) {
 
 	client := &fakeGitHubClient{
 		available: true,
-		output:    []byte(`{"url":"https://github.com/acme/repo/pull/42","number":42,"state":"OPEN"}`),
+		output:    []byte(`{"url":"https://github.com/acme/repo/pull/42","number":42,"state":"OPEN","headRefName":"feature/by-url"}`),
 	}
 	ghClient = client
 
@@ -332,7 +334,7 @@ func TestLookupInfoByURL_CacheHitSkipsAPI(t *testing.T) {
 
 	client := &fakeGitHubClient{
 		available: true,
-		output:    []byte(`{"url":"https://github.com/acme/repo/pull/55","number":55,"state":"MERGED"}`),
+		output:    []byte(`{"url":"https://github.com/acme/repo/pull/55","number":55,"state":"MERGED","headRefName":"feature/url-hit"}`),
 	}
 	ghClient = client
 
@@ -402,12 +404,34 @@ func TestOpenPRCacheExpiresFast(t *testing.T) {
 func TestMergedPRCacheStaysFresh(t *testing.T) {
 	now := time.Now()
 	entry := cacheEntry{
-		URL:       "https://github.com/acme/repo/pull/1",
-		Number:    1,
-		State:     "MERGED",
-		CheckedAt: now.Add(-1 * time.Hour),
+		URL:         "https://github.com/acme/repo/pull/1",
+		Number:      1,
+		State:       "MERGED",
+		HeadRefName: "feature/merged",
+		CheckedAt:   now.Add(-1 * time.Hour),
 	}
 	if !isCacheEntryFresh(entry, now) {
 		t.Fatal("MERGED PR cached 1 hour ago should still be fresh")
+	}
+}
+
+// L-PR1 (run-state-machine.md §11): entries persisted before the pr-attach
+// law (URL set, head branch missing) cannot answer ownership checks and are
+// treated as stale so they refetch.
+func TestPreLawCacheEntryIsStale(t *testing.T) {
+	now := time.Now()
+	entry := cacheEntry{
+		URL:       "https://github.com/acme/repo/pull/1",
+		Number:    1,
+		State:     "MERGED",
+		CheckedAt: now.Add(-1 * time.Minute),
+	}
+	if isCacheEntryFresh(entry, now) {
+		t.Fatal("entry without HeadRefName must be stale regardless of TTL")
+	}
+	// Negative entries (no PR found) carry no URL and stay cacheable.
+	negative := cacheEntry{CheckedAt: now.Add(-1 * time.Second)}
+	if !isCacheEntryFresh(negative, now) {
+		t.Fatal("negative cache entry must remain fresh")
 	}
 }

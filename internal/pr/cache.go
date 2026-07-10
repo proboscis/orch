@@ -29,19 +29,21 @@ var ghClient = github.NewCLIClient()
 
 // Info holds details about a pull request.
 type Info struct {
-	URL    string
-	Number int
-	State  string // OPEN, MERGED, CLOSED
+	URL         string
+	Number      int
+	State       string // OPEN, MERGED, CLOSED
+	HeadRefName string // PR head branch; required to verify a PR belongs to a run (pr-attach law)
 }
 
 // InfoMap holds PR information keyed by branch name.
 type InfoMap map[string]*Info
 
 type cacheEntry struct {
-	URL       string    `json:"url,omitempty"`
-	Number    int       `json:"number,omitempty"`
-	State     string    `json:"state,omitempty"`
-	CheckedAt time.Time `json:"checked_at"`
+	URL         string    `json:"url,omitempty"`
+	Number      int       `json:"number,omitempty"`
+	State       string    `json:"state,omitempty"`
+	HeadRefName string    `json:"head_ref_name,omitempty"`
+	CheckedAt   time.Time `json:"checked_at"`
 }
 
 type cache struct {
@@ -185,6 +187,11 @@ func isCacheEntryFresh(entry cacheEntry, now time.Time) bool {
 	if entry.CheckedAt.IsZero() {
 		return false
 	}
+	// Entries persisted before the pr-attach law carry no head branch and
+	// cannot answer ownership checks — treat them as stale so they refetch.
+	if entry.URL != "" && entry.HeadRefName == "" {
+		return false
+	}
 	return now.Sub(entry.CheckedAt) < cacheEntryTTL(entry)
 }
 
@@ -193,9 +200,10 @@ func infoFromCacheEntry(entry cacheEntry) *Info {
 		return nil
 	}
 	return &Info{
-		URL:    entry.URL,
-		Number: entry.Number,
-		State:  entry.State,
+		URL:         entry.URL,
+		Number:      entry.Number,
+		State:       entry.State,
+		HeadRefName: entry.HeadRefName,
 	}
 }
 
@@ -208,6 +216,7 @@ func saveLookupCacheEntry(c *cache, key string, info *Info, checkedAt time.Time)
 		entry.URL = info.URL
 		entry.Number = info.Number
 		entry.State = info.State
+		entry.HeadRefName = info.HeadRefName
 	}
 	c.Entries[key] = entry
 	if info != nil && info.URL != "" {
@@ -230,15 +239,16 @@ func lookupInfo(client github.Client, repoRoot, branch string) (*Info, error) {
 	if client == nil {
 		client = ghClient
 	}
-	output, err := client.RunInDir(repoRoot, "pr", "list", "--head", branch, "--state", "all", "--json", "url,number,state", "--limit", "1")
+	output, err := client.RunInDir(repoRoot, "pr", "list", "--head", branch, "--state", "all", "--json", "url,number,state,headRefName", "--limit", "1")
 	if err != nil {
 		return nil, err
 	}
 
 	var prs []struct {
-		URL    string `json:"url"`
-		Number int    `json:"number"`
-		State  string `json:"state"`
+		URL         string `json:"url"`
+		Number      int    `json:"number"`
+		State       string `json:"state"`
+		HeadRefName string `json:"headRefName"`
 	}
 	if err := json.Unmarshal(output, &prs); err != nil {
 		return nil, err
@@ -247,9 +257,10 @@ func lookupInfo(client github.Client, repoRoot, branch string) (*Info, error) {
 		return nil, nil
 	}
 	return &Info{
-		URL:    prs[0].URL,
-		Number: prs[0].Number,
-		State:  prs[0].State,
+		URL:         prs[0].URL,
+		Number:      prs[0].Number,
+		State:       prs[0].State,
+		HeadRefName: prs[0].HeadRefName,
 	}, nil
 }
 
@@ -257,24 +268,26 @@ func lookupInfoByURL(client github.Client, prURL string) (*Info, error) {
 	if client == nil {
 		client = ghClient
 	}
-	output, err := client.Run("pr", "view", prURL, "--json", "url,number,state")
+	output, err := client.Run("pr", "view", prURL, "--json", "url,number,state,headRefName")
 	if err != nil {
 		return nil, err
 	}
 
 	var pr struct {
-		URL    string `json:"url"`
-		Number int    `json:"number"`
-		State  string `json:"state"`
+		URL         string `json:"url"`
+		Number      int    `json:"number"`
+		State       string `json:"state"`
+		HeadRefName string `json:"headRefName"`
 	}
 	if err := json.Unmarshal(output, &pr); err != nil {
 		return nil, err
 	}
 
 	return &Info{
-		URL:    pr.URL,
-		Number: pr.Number,
-		State:  pr.State,
+		URL:         pr.URL,
+		Number:      pr.Number,
+		State:       pr.State,
+		HeadRefName: pr.HeadRefName,
 	}, nil
 }
 
