@@ -771,3 +771,53 @@ Invariant delta for the §4 table:
 - Cross-reference: this partially delivers the O12 (worker presence)
   backlog item of `docs/design/observation-coverage.md` by surfacing
   observer identity to `step()` as observation payload.
+
+## 11. PR attachment law (pr-attach, decided 2026-07-10)
+
+Incident: the captured-pane PR scrape (`detectPRURL` over raw O4 output)
+attached any `…/pull/N` URL visible in a run's terminal to that run — with no
+ownership check. A foreign PR (#499) attached to a fresh run, and when that
+PR merged, the URL-keyed outcome lookup folded `pr_open → done` and
+auto-resolved the run's issue (`updateStatus` → `SetIssueStatus(resolved)`).
+A foreign merge corrupted the store of record of an unrelated run.
+
+### 11.1 Law
+
+> **L-PR1 (pr-attach).** A `pr` artifact may be appended to a run **iff** the
+> PR's `headRefName` equals the run's `branch` artifact and that branch is
+> non-empty. A run with no branch artifact never receives a `pr` artifact.
+
+Corollary: every status transition driven by PR state (`pr_open`,
+merged → `done`, closed → `canceled`) is downstream of L-PR1, because each
+one keys off `run.PRUrl`, which folds only from `pr` artifacts.
+
+### 11.2 Enforcement (two layers, gather-impure / decide-pure preserved)
+
+1. **Gatherer** — `processRunOutput` scrapes the pane and verifies ownership
+   via `verifyScrapedPRURL` (`gh pr view <url> --json …,headRefName`, cached)
+   before threading the URL into the observation as
+   `obsCaptured.CapturedPRURL`. `stepRun` never sees an unverified URL and
+   never scrapes `obs.Output` itself.
+2. **Executor choke point** — `recordPRArtifact`, the single executor for
+   `effectRecordPR` (producers: verified pane scrape, branch-scoped
+   `DiscoveredPRURL`, branch-scoped `gitVerdict`), re-verifies L-PR1 and
+   refuses with an explicit error on mismatch, empty branch, or
+   unverifiable head. The existing `PRRecorded` veto turns a refusal into
+   a retry on the next capture, so transient lookup failures self-heal.
+
+Cache note: `pr.Info`/`cacheEntry` gained `HeadRefName`; entries persisted
+before this law (URL set, head empty) are treated as stale and refetched.
+
+Accepted narrowing: GitLab merge-request URLs can no longer attach via the
+pane scrape (`gh` cannot resolve their head branch). PR outcome tracking was
+already GitHub-only, so no working behavior is lost.
+
+### 11.3 Violation tests
+
+- `step_test.go` — a captured observation whose raw `Output` contains a PR
+  URL but whose `CapturedPRURL` is empty emits no `effectRecordPR` and no
+  `pr_open`; a verified `CapturedPRURL` emits both and latches `PRRecorded`.
+- `monitor_test.go` — `verifyScrapedPRURL` accepts only head == branch;
+  `recordPRArtifact` refuses foreign/unverifiable URLs and empty-branch runs.
+- `pr/cache_test.go` — `HeadRefName` round-trips through lookup and cache;
+  pre-law entries are treated as stale.

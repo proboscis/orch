@@ -10,6 +10,7 @@ package daemon
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -146,12 +147,47 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store, projectID, projectRo
 // worker-delegated runs.
 func (d *Daemon) processRunOutput(run *model.Run, st store.Store, state *RunState, mgr agent.AgentManager, output string) error {
 	signal := gatherAgentSignal(run, mgr, output)
-	_, err := d.applyStep(run, st, state, runObservation{
+	obs := runObservation{
 		Kind:   obsCaptured,
 		Output: output,
 		Signal: signal,
-	}, "")
+	}
+	// PR-URL detection is a scrape over arbitrary pane text: anything the
+	// agent prints (git log, gh output, prompt context) can contain a PR
+	// URL that belongs to a different run. Verify ownership here, impurely,
+	// so the pure core only ever sees a URL that satisfies the pr-attach
+	// law (headRefName == run branch, non-empty).
+	if !state.runCore.PRRecorded && run.PRUrl == "" {
+		if url := detectPRURL(output); url != "" && d.verifyScrapedPRURL(run, url) {
+			obs.CapturedPRURL = url
+		}
+	}
+	_, err := d.applyStep(run, st, state, obs, "")
 	return err
+}
+
+// verifyScrapedPRURL reports whether a PR URL scraped from a run's pane
+// actually belongs to that run: the PR's head branch must equal the run's
+// recorded branch artifact (pr-attach law, run-state-machine.md §11). A run
+// without a branch artifact can never adopt a scraped URL, and a URL whose
+// head branch cannot be resolved (lookup error, foreign host) is treated as
+// not verified — the next capture retries.
+func (d *Daemon) verifyScrapedPRURL(run *model.Run, url string) bool {
+	if run.Branch == "" {
+		d.debug("%s#%s: ignoring scraped PR URL %s: run has no branch artifact", run.IssueID, run.RunID, url)
+		return false
+	}
+	info, err := d.lookupPRInfoByURL(url)
+	if err != nil || info == nil {
+		d.debug("%s#%s: ignoring scraped PR URL %s: head branch unverifiable (err=%v)", run.IssueID, run.RunID, url, err)
+		return false
+	}
+	if info.HeadRefName != run.Branch {
+		d.logger.Printf("%s#%s: ignoring scraped PR URL %s: head %q does not match run branch %q (pr-attach law)",
+			run.IssueID, run.RunID, url, info.HeadRefName, run.Branch)
+		return false
+	}
+	return true
 }
 
 // gatherAgentSignal produces the agent-specific reading of a captured output
@@ -669,7 +705,25 @@ func (d *Daemon) detectPRCreation(output string) string {
 	return detectPRURL(output)
 }
 
+// recordPRArtifact is the single executor for effectRecordPR. It re-verifies
+// the pr-attach law (run-state-machine.md §11) as defense-in-depth so that no
+// current or future effect producer can attach a PR whose head branch does
+// not match the run's branch artifact.
 func (d *Daemon) recordPRArtifact(run *model.Run, prURL string, st store.Store) error {
+	if run.Branch == "" {
+		return fmt.Errorf("refusing to record PR %s: run has no branch artifact (pr-attach law)", prURL)
+	}
+	info, err := d.lookupPRInfoByURL(prURL)
+	if err != nil {
+		return fmt.Errorf("refusing to record PR %s: head branch unverifiable: %w", prURL, err)
+	}
+	if info == nil || info.HeadRefName != run.Branch {
+		head := ""
+		if info != nil {
+			head = info.HeadRefName
+		}
+		return fmt.Errorf("refusing to record PR %s: head %q does not match run branch %q (pr-attach law)", prURL, head, run.Branch)
+	}
 	ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
 	event := model.NewArtifactEvent("pr", map[string]string{
 		"url": prURL,
