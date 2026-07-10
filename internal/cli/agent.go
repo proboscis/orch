@@ -365,6 +365,13 @@ func createMultiplexerSession(orchDir, projectRoot string, agentType agent.Agent
 		return fmt.Errorf("failed to create launch command: %w", err)
 	}
 
+	// The control agent bypasses the run launch ladder, so it needs its own
+	// fail-fast: a codex control agent with an empty CODEX_HOME would park
+	// at the sign-in wizard inside the new session.
+	if err := agent.AuthPreflight(launchCfg); err != nil {
+		return fmt.Errorf("control agent auth preflight failed: %w", err)
+	}
+
 	// Get working directory
 	workDir, err := os.Getwd()
 	if err != nil {
