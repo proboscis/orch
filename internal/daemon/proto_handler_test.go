@@ -4,16 +4,233 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
 	orchpb "github.com/proboscis/orch/api/orchpb"
 	"github.com/proboscis/orch/internal/model"
+	"github.com/proboscis/orch/internal/multiplexer"
 )
 
 type timingTestLogger struct {
 	buf bytes.Buffer
+}
+
+func TestHandleProtoListMonitorsScopesAndSortsInDaemon(t *testing.T) {
+	server := newTestServer(t, &mockStore{})
+	baseTime := time.Unix(1_700_000_000, 0)
+	server.monitors = map[string]*MonitorConnection{
+		"newer": {
+			ID:        "newer",
+			PID:       202,
+			Project:   "project-a",
+			View:      "issues",
+			StartedAt: baseTime.Add(time.Minute),
+			LastSeen:  baseTime.Add(time.Minute),
+		},
+		"other-project": {
+			ID:        "other-project",
+			PID:       303,
+			Project:   "project-b",
+			View:      "runs",
+			StartedAt: baseTime.Add(-time.Minute),
+			LastSeen:  baseTime.Add(-time.Minute),
+		},
+		"older": {
+			ID:          "older",
+			PID:         101,
+			Project:     "project-a",
+			View:        "runs",
+			SessionName: "orch-monitor-project-a",
+			StartedAt:   baseTime,
+			LastSeen:    baseTime,
+		},
+	}
+
+	resp := server.handleProtoListMonitors(&orchpb.ListMonitorsRequest{
+		Project: "project-a",
+	})
+
+	if !resp.Ok {
+		t.Fatalf("handleProtoListMonitors() error = %s", resp.Error)
+	}
+	monitors := resp.GetListMonitors().GetMonitors()
+	if len(monitors) != 2 {
+		t.Fatalf("monitor count = %d, want 2", len(monitors))
+	}
+	if monitors[0].GetId() != "older" || monitors[1].GetId() != "newer" {
+		t.Fatalf("monitor order = [%s, %s], want [older, newer]", monitors[0].GetId(), monitors[1].GetId())
+	}
+	if monitors[0].GetSessionName() != "orch-monitor-project-a" {
+		t.Fatalf("session_name = %q, want orch-monitor-project-a", monitors[0].GetSessionName())
+	}
+}
+
+func TestHandleProtoListMonitorsRejectsEmptyProjectScope(t *testing.T) {
+	server := newTestServer(t, &mockStore{})
+	server.monitors = map[string]*MonitorConnection{
+		"project-a": {ID: "project-a", Project: "project-a"},
+		"project-b": {ID: "project-b", Project: "project-b"},
+	}
+
+	resp := server.handleProtoListMonitors(&orchpb.ListMonitorsRequest{})
+
+	if resp.Ok {
+		t.Fatal("empty project scope unexpectedly listed every monitor")
+	}
+	if !strings.Contains(resp.Error, "requires a project scope") {
+		t.Fatalf("error = %q, want actionable project-scope error", resp.Error)
+	}
+}
+
+func TestHandleProtoKillMonitorRejectsEmptyProjectScope(t *testing.T) {
+	server := newTestServer(t, &mockStore{})
+	server.monitors = map[string]*MonitorConnection{
+		"project-a": {ID: "project-a", PID: -1, Project: "project-a"},
+		"project-b": {ID: "project-b", PID: -1, Project: "project-b"},
+	}
+
+	resp := server.handleProtoKillMonitor(&orchpb.KillMonitorRequest{All: true})
+
+	if resp.Ok {
+		t.Fatal("empty project scope unexpectedly killed every monitor")
+	}
+	if !strings.Contains(resp.Error, "kill_all requires a project scope") {
+		t.Fatalf("error = %q, want actionable project-scope error", resp.Error)
+	}
+	server.monitorsMu.RLock()
+	remainingRegistrations := len(server.monitors)
+	server.monitorsMu.RUnlock()
+	if remainingRegistrations != 2 {
+		t.Fatalf("registrations after rejected kill = %d, want 2", remainingRegistrations)
+	}
+}
+
+func TestHandleProtoKillMonitorTerminatesRegisteredProcess(t *testing.T) {
+	server := newTestServer(t, &mockStore{})
+	process := exec.Command("sleep", "30")
+	if err := process.Start(); err != nil {
+		t.Fatalf("start monitor process: %v", err)
+	}
+	processDone := make(chan error, 1)
+	go func() {
+		processDone <- process.Wait()
+	}()
+	t.Cleanup(func() {
+		if process.Process != nil {
+			_ = process.Process.Kill()
+		}
+		select {
+		case <-processDone:
+		default:
+		}
+	})
+
+	server.monitors = map[string]*MonitorConnection{
+		"mon-123": {
+			ID:          "mon-123",
+			PID:         process.Process.Pid,
+			Project:     "project-a",
+			View:        "runs",
+			SessionName: "missing-test-session",
+			StartedAt:   time.Now(),
+			LastSeen:    time.Now(),
+		},
+		"mon-sibling": {
+			ID:          "mon-sibling",
+			PID:         -1,
+			Project:     "project-a",
+			View:        "issues",
+			SessionName: "missing-test-session",
+			StartedAt:   time.Now(),
+			LastSeen:    time.Now(),
+		},
+	}
+
+	resp := server.handleProtoKillMonitor(&orchpb.KillMonitorRequest{
+		MonitorId: "mon-123",
+		Project:   "project-a",
+	})
+
+	if !resp.Ok {
+		t.Fatalf("handleProtoKillMonitor() error = %s", resp.Error)
+	}
+	if got := resp.GetKillMonitor().GetKilledCount(); got != 2 {
+		t.Fatalf("killed_count = %d, want 2 registrations in the session", got)
+	}
+	select {
+	case <-processDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("registered monitor process was not terminated")
+	}
+	server.monitorsMu.RLock()
+	remainingRegistrations := len(server.monitors)
+	server.monitorsMu.RUnlock()
+	if remainingRegistrations != 0 {
+		t.Fatalf("%d registrations remain for killed session", remainingRegistrations)
+	}
+}
+
+func TestCleanupStaleMonitorsStillRemovesOnlyExpiredHeartbeats(t *testing.T) {
+	server := newTestServer(t, &mockStore{})
+	now := time.Now()
+	server.monitors = map[string]*MonitorConnection{
+		"stale": {
+			ID:       "stale",
+			PID:      101,
+			LastSeen: now.Add(-61 * time.Second),
+		},
+		"fresh": {
+			ID:       "fresh",
+			PID:      202,
+			LastSeen: now.Add(-59 * time.Second),
+		},
+	}
+
+	server.cleanupStaleMonitors()
+
+	server.monitorsMu.RLock()
+	_, staleExists := server.monitors["stale"]
+	_, freshExists := server.monitors["fresh"]
+	server.monitorsMu.RUnlock()
+	if staleExists {
+		t.Fatal("stale monitor remains registered")
+	}
+	if !freshExists {
+		t.Fatal("fresh monitor was incorrectly reaped")
+	}
+}
+
+func TestKillMonitorSessionRemovesTmuxSession(t *testing.T) {
+	mux := multiplexer.NewTmuxMultiplexer()
+	if !mux.IsAvailable() {
+		t.Skip("tmux is not available")
+	}
+	sessionName := fmt.Sprintf("orch-monitor-kill-test-%d", time.Now().UnixNano())
+	if err := mux.NewSession(&multiplexer.SessionConfig{
+		SessionName: sessionName,
+		Command:     "sleep 30",
+	}); err != nil {
+		t.Fatalf("create tmux session: %v", err)
+	}
+	t.Cleanup(func() {
+		if mux.HasSession(sessionName) {
+			_ = mux.KillSession(sessionName)
+		}
+	})
+
+	killed, err := killMonitorSession(sessionName)
+	if err != nil {
+		t.Fatalf("killMonitorSession() error = %v", err)
+	}
+	if !killed {
+		t.Fatal("killMonitorSession() reported no matching session")
+	}
+	if mux.HasSession(sessionName) {
+		t.Fatal("tmux session remains after killMonitorSession()")
+	}
 }
 
 type waitForRunsStatusStore struct {

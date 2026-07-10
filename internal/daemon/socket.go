@@ -5572,6 +5572,18 @@ func (s *SocketServer) handleKillMonitor(req SendRequest, encoder *json.Encoder)
 }
 
 func (s *SocketServer) killMonitorProcess(conn *MonitorConnection) error {
+	if conn.SessionName != "" {
+		killed, err := killMonitorSession(conn.SessionName)
+		if err != nil {
+			return err
+		}
+		if killed {
+			s.logger.Printf("killed monitor session %s for %s", conn.SessionName, conn.ID)
+			return nil
+		}
+		s.logger.Printf("monitor session %s not found for %s; falling back to pid %d", conn.SessionName, conn.ID, conn.PID)
+	}
+
 	if conn.PID <= 0 {
 		return fmt.Errorf("invalid pid")
 	}
@@ -5589,6 +5601,37 @@ func (s *SocketServer) killMonitorProcess(conn *MonitorConnection) error {
 		return err
 	}
 	return nil
+}
+
+func killMonitorSession(sessionName string) (bool, error) {
+	preferredType := multiplexer.GetDefault().Type()
+	multiplexerTypes := []multiplexer.Type{preferredType}
+	for _, candidate := range []multiplexer.Type{
+		multiplexer.TypeTmux,
+		multiplexer.TypeZellij,
+	} {
+		if candidate != preferredType {
+			multiplexerTypes = append(multiplexerTypes, candidate)
+		}
+	}
+
+	for _, multiplexerType := range multiplexerTypes {
+		mux, err := multiplexer.GetMultiplexer(multiplexerType)
+		if err != nil || mux == nil || !mux.HasSession(sessionName) {
+			continue
+		}
+		if err := mux.KillSession(sessionName); err != nil {
+			return false, fmt.Errorf(
+				"failed to kill %s session %s: %w",
+				multiplexerType,
+				sessionName,
+				err,
+			)
+		}
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (s *SocketServer) StartStaleMonitorCleanup() {

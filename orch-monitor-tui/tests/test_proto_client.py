@@ -337,3 +337,62 @@ class TestProtoDaemonAvailability:
             if socket_path.exists():
                 socket_path.unlink(missing_ok=True)
             shutil.rmtree(socket_dir, ignore_errors=True)
+
+
+class TestProtoMonitorManagement:
+    def test_list_monitors_sends_project_scope(self):
+        client = ProtoDaemonClient(Path("/tmp/unused.sock"), None)
+        captured_requests: list[pb.Request] = []
+
+        def fake_send(request: pb.Request) -> pb.Response:
+            captured_requests.append(request)
+            return pb.Response(
+                ok=True,
+                list_monitors=pb.ListMonitorsResponse(
+                    monitors=[
+                        pb.MonitorInfo(
+                            id="mon-123",
+                            pid=123,
+                            project="proboscis-orch",
+                            view="runs",
+                            session_name="orch-monitor-test",
+                            last_heartbeat_unix=1_700_000_000,
+                        )
+                    ]
+                ),
+            )
+
+        client._send = fake_send
+
+        result = client.list_monitors("proboscis-orch", False)
+
+        assert isinstance(result, Success)
+        assert [monitor.id for monitor in result.unwrap()] == ["mon-123"]
+        assert len(captured_requests) == 1
+        request = captured_requests[0]
+        assert request.WhichOneof("request") == "list_monitors"
+        assert request.list_monitors.project == "proboscis-orch"
+        assert request.list_monitors.all is False
+
+    def test_kill_monitor_sends_scoped_request(self):
+        client = ProtoDaemonClient(Path("/tmp/unused.sock"), None)
+        captured_requests: list[pb.Request] = []
+
+        def fake_send(request: pb.Request) -> pb.Response:
+            captured_requests.append(request)
+            return pb.Response(
+                ok=True,
+                kill_monitor=pb.KillMonitorResponse(killed_count=2),
+            )
+
+        client._send = fake_send
+
+        result = client.kill_monitor("", True, "proboscis-orch")
+
+        assert result == Success(2)
+        assert len(captured_requests) == 1
+        request = captured_requests[0]
+        assert request.WhichOneof("request") == "kill_monitor"
+        assert request.kill_monitor.monitor_id == ""
+        assert request.kill_monitor.all is True
+        assert request.kill_monitor.project == "proboscis-orch"

@@ -40,6 +40,42 @@ def test_bootstrap_uses_go_resolved_monitor_session_name(monkeypatch):
     assert bootstrap.monitor_session_name == "orch-monitor-owner-orch"
 
 
+@pytest.mark.parametrize(
+    "remote_override",
+    ["", "master.example:7777"],
+)
+def test_bootstrap_passes_explicit_remote_override(
+    monkeypatch, remote_override: str
+) -> None:
+    load_client_bootstrap.cache_clear()
+    monkeypatch.setenv("ORCH_REMOTE", remote_override)
+    payload = {
+        "project_root": "/repo/orch",
+        "project_id": "repoid:owner-orch",
+        "remote_addr": remote_override,
+        "socket_path": "/tmp/orch.sock",
+        "monitor_session_name": "orch-monitor-owner-orch",
+    }
+    captured_commands: list[list[str]] = []
+
+    def fake_run(command: list[str], **kwargs):
+        captured_commands.append(command)
+        return CompletedProcess(command, 0, stdout=json.dumps(payload), stderr="")
+
+    monkeypatch.setattr(client_bootstrap.subprocess, "run", fake_run)
+
+    load_client_bootstrap()
+
+    assert len(captured_commands) == 1
+    assert captured_commands[0][1:] == [
+        "--remote",
+        remote_override,
+        "debug",
+        "client-bootstrap",
+        "--json",
+    ]
+
+
 def test_bootstrap_fails_fast_on_bad_cli(monkeypatch):
     load_client_bootstrap.cache_clear()
 

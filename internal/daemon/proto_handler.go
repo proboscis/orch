@@ -2809,14 +2809,31 @@ func (s *SocketServer) handleProtoHeartbeat(req *orchpb.HeartbeatRequest) *orchp
 }
 
 func (s *SocketServer) handleProtoListMonitors(req *orchpb.ListMonitorsRequest) *orchpb.Response {
-	s.monitorsMu.RLock()
-	defer s.monitorsMu.RUnlock()
+	project := strings.TrimSpace(req.Project)
+	if !req.All && project == "" {
+		return errorResponse("list_monitors requires a project scope; pass all to list across projects")
+	}
 
-	var monitors []*orchpb.MonitorInfo
+	s.monitorsMu.RLock()
+	monitorConnections := make([]MonitorConnection, 0, len(s.monitors))
 	for _, conn := range s.monitors {
-		if !req.All && req.Project != "" && conn.Project != req.Project {
+		if !req.All && conn.Project != project {
 			continue
 		}
+		monitorConnections = append(monitorConnections, *conn)
+	}
+	s.monitorsMu.RUnlock()
+
+	sort.Slice(monitorConnections, func(i, j int) bool {
+		if monitorConnections[i].StartedAt.Equal(monitorConnections[j].StartedAt) {
+			return monitorConnections[i].ID < monitorConnections[j].ID
+		}
+		return monitorConnections[i].StartedAt.Before(monitorConnections[j].StartedAt)
+	})
+
+	monitors := make([]*orchpb.MonitorInfo, 0, len(monitorConnections))
+	for i := range monitorConnections {
+		conn := &monitorConnections[i]
 		monitors = append(monitors, &orchpb.MonitorInfo{
 			Id:                conn.ID,
 			Pid:               int32(conn.PID),
@@ -2840,24 +2857,60 @@ func (s *SocketServer) handleProtoListMonitors(req *orchpb.ListMonitorsRequest) 
 }
 
 func (s *SocketServer) handleProtoKillMonitor(req *orchpb.KillMonitorRequest) *orchpb.Response {
-	s.monitorsMu.Lock()
-	defer s.monitorsMu.Unlock()
+	if req.MonitorId == "" && !req.All {
+		return errorResponse("monitor_id required or use --all")
+	}
+	project := strings.TrimSpace(req.Project)
+	if req.MonitorId == "" && req.All && !req.Global && project == "" {
+		return errorResponse("kill_all requires a project scope; pass global to kill across projects")
+	}
+
+	s.monitorsMu.RLock()
+	toKill := make([]MonitorConnection, 0)
+	if req.MonitorId != "" {
+		if conn, ok := s.monitors[req.MonitorId]; ok {
+			toKill = append(toKill, *conn)
+		}
+	} else {
+		for _, conn := range s.monitors {
+			if req.Global || conn.Project == project {
+				toKill = append(toKill, *conn)
+			}
+		}
+	}
+	s.monitorsMu.RUnlock()
+
+	if len(toKill) == 0 && req.MonitorId != "" {
+		return errorResponse(fmt.Sprintf("monitor not found: %s", req.MonitorId))
+	}
 
 	var killedCount int32
-
-	if req.MonitorId != "" {
-		if _, ok := s.monitors[req.MonitorId]; ok {
-			delete(s.monitors, req.MonitorId)
-			killedCount = 1
+	for i := range toKill {
+		conn := &toKill[i]
+		s.monitorsMu.RLock()
+		_, stillRegistered := s.monitors[conn.ID]
+		s.monitorsMu.RUnlock()
+		if !stillRegistered {
+			continue
 		}
-	} else if req.All {
-		for id, conn := range s.monitors {
-			if req.Global || (req.Project != "" && conn.Project == req.Project) || req.Project == "" {
+		if err := s.killMonitorProcess(conn); err != nil {
+			return errorResponse(fmt.Sprintf(
+				"failed to kill monitor %s after killing %d monitor registrations: %v",
+				conn.ID,
+				killedCount,
+				err,
+			))
+		}
+		s.monitorsMu.Lock()
+		for id, registered := range s.monitors {
+			if id == conn.ID || (conn.SessionName != "" && registered.SessionName == conn.SessionName) {
 				delete(s.monitors, id)
 				killedCount++
 			}
 		}
+		s.monitorsMu.Unlock()
 	}
+	s.logger.Printf("killed %d monitor registrations (project=%s, all=%t)", killedCount, project, req.All)
 
 	return &orchpb.Response{
 		Ok: true,

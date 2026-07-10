@@ -634,6 +634,25 @@
     (setv req.heartbeat.monitor_id monitor-id)
     (._send-ok self req "Heartbeat failed")
     True)
+
+  (defn list-monitors [self project [list-all False]]
+    "List registered monitors. Returns Result[list[MonitorInfo], ProtoDaemonError]."
+    (daemon-result "list_monitors"
+      (setv req (pb.Request))
+      (set-> req.list_monitors.project project
+             req.list_monitors.all list-all)
+      (setv resp (._send-ok self req "Failed to list monitors"))
+      (list resp.list_monitors.monitors)))
+
+  (defn kill-monitor [self monitor-id kill-all project]
+    "Kill registered monitors. Returns Result[int, ProtoDaemonError]."
+    (daemon-result "kill_monitor"
+      (setv req (pb.Request))
+      (set-> req.kill_monitor.monitor_id monitor-id
+             req.kill_monitor.all kill-all
+             req.kill_monitor.project project)
+      (setv resp (._send-ok self req "Failed to kill monitor"))
+      resp.kill_monitor.killed_count))
   
   (defn close [self]
     "Close the persistent connection."
