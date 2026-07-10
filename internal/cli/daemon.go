@@ -192,9 +192,10 @@ func newDaemonStartCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "Start the daemon in the background",
-		Long: `Start the orch daemon in the background.
+		Long: fmt.Sprintf(`Start the orch daemon in the background.
 
-Use --listen to additionally expose the proto API on TCP (e.g. for remote clients).`,
+The proto API listens on %s by default. Use --listen to bind it to another
+address, such as tcp://127.0.0.1:7777 for SSH-tunnel-only access.`, daemon.DefaultTCPListenAddr),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDaemonStart()
 		},

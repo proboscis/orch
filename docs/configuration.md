@@ -7,8 +7,8 @@ orch uses a layered configuration system with sensible defaults. Configuration c
 Settings are resolved in this order (highest priority first):
 
 1. **Command-line flags** (`--agent`, `--backend`, etc.)
-2. **Environment variables** (`ORCH_AGENT`, etc.)
-3. **Project config** (`.orch/config.yaml` in current or parent directory)
+2. **Project config** (`.orch/config.yaml` in current or parent directory)
+3. **Environment variables** (`ORCH_AGENT`, etc.)
 4. **Global config** (`~/.config/orch/config.yaml`)
 5. **Built-in defaults**
 
@@ -41,15 +41,22 @@ orch --remote cloud ps
 orch --remote "" ps
 ```
 
-On the server side, expose the daemon over TCP and register the repository URL:
+The daemon listens on `0.0.0.0:7777` by default, including when a command
+auto-starts it. Register the repository URL on the server-side daemon:
 
 ```bash
-# On remote server
-orch daemon start --listen tcp://0.0.0.0:7777
-
 # From client machine
 orch --remote master-host:7777 daemon repo register https://github.com/your-org/your-project.git
 orch --remote master-host:7777 daemon repo list
+```
+
+Because the default exposes the TCP API on every network interface, limit
+access with a firewall or restart the daemon bound to a trusted interface. For
+example, use loopback when clients connect through an SSH tunnel:
+
+```bash
+orch daemon kill
+orch daemon start --listen tcp://127.0.0.1:7777
 ```
 
 In remote mode, orch resolves project identity from `--project`/`ORCH_PROJECT`
@@ -265,6 +272,7 @@ All settings can be configured via environment variables:
 | `ORCH_MULTIPLEXER` | Terminal multiplexer | `tmux` |
 | `ORCH_LOG_LEVEL` | Logging verbosity | `debug` |
 | `ORCH_PR_TARGET_BRANCH` | PR target branch | `develop` |
+| `ORCH_WORKER_AUTOSTART` | Set to `0` to disable worker autostart | `0` |
 | `ORCH_DEBUG` | Enable debug mode | `1` |
 | `ORCH_SLACK_WEBHOOK_URL` | Slack webhook | `https://hooks.slack.com/...` |
 | `ORCH_SLACK_BOT_TOKEN` | Slack bot token | `xoxb-...` |

@@ -12,7 +12,7 @@ identity through repo mappings.
 ```text
 Local client                         Remote host
 ┌──────────────────────────────┐      ┌────────────────────────────────────┐
-│ orch CLI / monitor           │ TCP  │ orch daemon (--listen)            │
+│ orch CLI / monitor           │ TCP  │ orch daemon (0.0.0.0:7777 default)│
 │ --remote master-host:7777    │─────▶│ repo mapping: repoid -> path      │
 └──────────────────────────────┘      └────────────────────────────────────┘
 ```
@@ -21,7 +21,7 @@ Local client                         Remote host
 
 1. orch installed on client and server.
 2. Network route to server (VPN/Tailscale/SSH tunnel).
-3. Project repository is available on the remote host.
+3. The project repository is available on each host that may execute work.
 
 ### Quick checks
 
@@ -35,11 +35,24 @@ orch --version
 
 ## Server Setup
 
-### 1. Start daemon with TCP listener
+### 1. Confirm or restrict the TCP listener
+
+The daemon listens on `0.0.0.0:7777` by default. This also applies when an
+ordinary orch command auto-starts the daemon; `--listen` is not required to
+enable remote access.
 
 ```bash
-# On remote server
-orch daemon start --listen tcp://0.0.0.0:7777
+# On remote server: starts with the default 0.0.0.0:7777 listener
+orch daemon start
+```
+
+This default exposes the orch TCP API on every network interface. Limit port
+`7777` to trusted networks with a firewall, or restart the daemon on a more
+restrictive address. For an SSH-tunnel-only setup, bind to loopback:
+
+```bash
+orch daemon kill
+orch daemon start --listen tcp://127.0.0.1:7777
 ```
 
 ### 2. Register repository URL for remote resolution
@@ -109,6 +122,13 @@ orch --remote master-host:7777 --project yourorg-yourrepo capture my-issue
 
 - `--project` / `ORCH_PROJECT` provides project identity scope.
 - Remote commands depend on daemon-side repo registration (`daemon repo register`).
+- Before `orch run` dispatches to a remote master, the client idempotently
+  starts its local managed worker and registers it to that master. The client
+  host can therefore execute untargeted runs from that master.
+- Set `ORCH_WORKER_AUTOSTART=0` on the client to disable that pre-dispatch
+  worker start. The same setting on the master disables automatic startup of
+  its colocated worker; workers must then be started manually with
+  `orch worker start`.
 
 ## Troubleshooting
 
@@ -138,26 +158,26 @@ Then scope runtime commands by project identity (repo ID):
 orch --remote master-host:7777 --project yourorg-yourrepo ps --json
 ```
 
-### "Issue not found" during `run` with remote master + external worker
+### Issue resolution and worker project mappings
 
-When worker execution happens on a different host than the master, the worker must
-be able to resolve the project root and issue content referenced by the lease.
-If the worker cannot read those issue files, `run` can fail with `issue not found`
-even when `issue show` succeeds on the master.
-
-Checklist:
+The master resolves the issue before dispatch and sends an issue snapshot in
+the worker lease. A worker does not need a duplicate copy of the master's
+issue file. If `run` reports `issue not found`, verify that the issue exists in
+the selected project on the master:
 
 ```bash
-# master-side mapping exists
 orch --remote master-host:7777 daemon repo list
-
-# run this on the worker host; it reports the local background process plus
-# that worker's registration state on the configured master
-orch --remote master-host:7777 worker status --json
+orch --remote master-host:7777 --project yourorg-yourrepo issue show my-issue
 ```
 
-Then confirm worker host project/config alignment (`--project`, `.orch/config.yaml`,
-and `issues.path`) for the same project identity.
+The executing worker does still need a local checkout registered under the
+same project identity. If it reports `no local project mapping`, run this on
+that worker host from the checkout:
+
+```bash
+orch --remote="" daemon repo register "$(pwd)"
+orch --remote master-host:7777 worker status --json
+```
 
 ## See Also
 
