@@ -582,6 +582,19 @@ func (s *SocketServer) repoContextForStore(st store.Store) *RepoContext {
 	return nil
 }
 
+func (s *SocketServer) storeOperationError(st store.Store, projectID, operation string, err error) string {
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		if repo := s.repoContextForStore(st); repo != nil {
+			projectID = strings.TrimSpace(repo.RepoID)
+		}
+	}
+	if projectID == "" {
+		projectID = "<unknown>"
+	}
+	return fmt.Sprintf("store %s failed for project %q: %v", operation, projectID, err)
+}
+
 func (s *SocketServer) resolveProtoRun(ctx *orchpb.RequestContext, issueID, runID string) (*resolvedProtoRun, *orchpb.Response) {
 	ref := &model.RunRef{IssueID: model.IssueID(issueID), RunID: model.RunID(runID)}
 	projectID := projectIDFromContext(ctx)
@@ -615,13 +628,13 @@ func (s *SocketServer) resolveProtoRun(ctx *orchpb.RequestContext, issueID, runI
 			if isStoreNotFoundError(err) {
 				continue
 			}
-			return nil, errorResponse("store_error")
+			return nil, errorResponse(s.storeOperationError(st, "", "run lookup", err))
 		}
 		if run == nil {
 			continue
 		}
 		if resolved != nil {
-			return nil, errorResponse("ambiguous_run_ref")
+			return nil, errorResponse(fmt.Sprintf("ambiguous run ref: %s#%s", issueID, runID))
 		}
 		repo := s.repoContextForStore(st)
 		projectID := ""
@@ -699,7 +712,7 @@ func (s *SocketServer) resolveWaitRunTarget(ctx *orchpb.RequestContext, ref stri
 			if isAmbiguousRunLookupError(err) {
 				return nil, errorResponse(fmt.Sprintf("ambiguous run ref: %s", strings.TrimSpace(ref)))
 			}
-			return nil, errorResponse("store_error")
+			return nil, errorResponse(s.storeOperationError(st, projectID, "run lookup", err))
 		}
 		return &waitRunTarget{ref: strings.TrimSpace(ref), run: run, store: st}, nil
 	}
@@ -714,7 +727,7 @@ func (s *SocketServer) resolveWaitRunTarget(ctx *orchpb.RequestContext, ref stri
 			if isAmbiguousRunLookupError(err) {
 				return nil, errorResponse(fmt.Sprintf("ambiguous run ref: %s", strings.TrimSpace(ref)))
 			}
-			return nil, errorResponse("store_error")
+			return nil, errorResponse(s.storeOperationError(st, "", "run lookup", err))
 		}
 		if run == nil {
 			continue
@@ -881,7 +894,7 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 		if err != nil {
 			storeDuration := time.Since(storeStart)
 			s.maybeLogListRunsTiming(req, 0, storeDuration, 0, time.Since(requestStart), err)
-			return errorResponse("store_error")
+			return errorResponse(s.storeOperationError(st, projectID, "list runs", err))
 		}
 		for _, run := range runs {
 			entries = append(entries, runStoreEntry{run: run, store: st})
@@ -892,7 +905,7 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 			if err != nil {
 				storeDuration := time.Since(storeStart)
 				s.maybeLogListRunsTiming(req, 0, storeDuration, 0, time.Since(requestStart), err)
-				return errorResponse("store_error")
+				return errorResponse(s.storeOperationError(st, "", "list runs", err))
 			}
 			for _, run := range runs {
 				entries = append(entries, runStoreEntry{run: run, store: st})
@@ -1109,10 +1122,13 @@ func (s *SocketServer) applyRunLiveness(runs []*model.Run, protoRuns []*orchpb.R
 	}
 }
 
-func enrichRunProto(pr *orchpb.Run, run *model.Run, runner git.Runner) {
+func enrichRunProto(pr *orchpb.Run, run *model.Run, runner git.Runner) error {
 	if run.WorktreePath != "" && run.Branch != "" {
 		pr.BranchState = computeBranchState(run.WorktreePath, run.Branch, "main", runner)
-		stats := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
+		stats, err := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
+		if err != nil {
+			return err
+		}
 		if stats.Additions > 0 || stats.Deletions > 0 || stats.FilesChanged > 0 {
 			pr.DiffStats = &orchpb.DiffStats{
 				Additions:    int32(stats.Additions),
@@ -1124,6 +1140,16 @@ func enrichRunProto(pr *orchpb.Run, run *model.Run, runner git.Runner) {
 	}
 	pr.ElapsedDisplay = formatElapsedTime(run.StartedAt, run.UpdatedAt, run.Status)
 	populateRunDisplayFields(pr)
+	return nil
+}
+
+func (s *SocketServer) enrichRunProtoForResponse(pr *orchpb.Run, run *model.Run) error {
+	if s.runRequiresWorkerDelegation(run, "") {
+		pr.ElapsedDisplay = formatElapsedTime(run.StartedAt, run.UpdatedAt, run.Status)
+		populateRunDisplayFields(pr)
+		return nil
+	}
+	return enrichRunProto(pr, run, s.gitRunner)
 }
 
 func enrichRunsParallel(runs []*model.Run, protoRuns []*orchpb.Run) ([]*orchpb.Run, error) {
@@ -1272,7 +1298,7 @@ func (s *SocketServer) handleProtoWaitForRuns(req *orchpb.WaitForRunsRequest) *o
 				if isStoreNotFoundError(err) {
 					return errorResponse(fmt.Sprintf("run not found: %s", target.ref))
 				}
-				return errorResponse("store_error")
+				return errorResponse(s.storeOperationError(target.store, "", "run refresh", err))
 			}
 			if current == nil {
 				return errorResponse(fmt.Sprintf("run not found: %s", target.ref))
@@ -1331,13 +1357,13 @@ func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Resp
 				if isStoreNotFoundError(err) {
 					continue
 				}
-				return errorResponse("store_error")
+				return errorResponse(s.storeOperationError(st, "", "run lookup", err))
 			}
 			if resolved == nil {
 				continue
 			}
 			if run != nil {
-				return errorResponse("ambiguous_run_ref")
+				return errorResponse(fmt.Sprintf("ambiguous run ref: %s#%s", req.IssueId, req.RunId))
 			}
 			run = resolved
 		}
@@ -1355,7 +1381,9 @@ func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Resp
 	if err != nil {
 		return errorResponse(err.Error())
 	}
-	enrichRunProto(pr, run, s.gitRunner)
+	if err := s.enrichRunProtoForResponse(pr, run); err != nil {
+		return errorResponse(err.Error())
+	}
 	s.applyRunLiveness([]*model.Run{run}, []*orchpb.Run{pr})
 
 	return &orchpb.Response{
@@ -1923,14 +1951,14 @@ func (s *SocketServer) handleProtoListIssues(req *orchpb.ListIssuesRequest) *orc
 
 		list, err := st.ListIssues()
 		if err != nil {
-			return errorResponse("store_error")
+			return errorResponse(s.storeOperationError(st, projectID, "list issues", err))
 		}
 		issues = append(issues, list...)
 	} else {
 		for _, st := range s.listStores() {
 			list, err := st.ListIssues()
 			if err != nil {
-				return errorResponse("store_error")
+				return errorResponse(s.storeOperationError(st, "", "list issues", err))
 			}
 			issues = append(issues, list...)
 		}
@@ -2071,7 +2099,7 @@ func (s *SocketServer) handleProtoGetIssue(req *orchpb.GetIssueRequest) *orchpb.
 				if isStoreNotFoundError(err) {
 					continue
 				}
-				return errorResponse("store_error")
+				return errorResponse(s.storeOperationError(st, "", "issue lookup", err))
 			}
 			if resolved == nil {
 				continue
@@ -2264,9 +2292,9 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 						continue
 					}
 					if strings.Contains(strings.ToLower(err.Error()), "ambiguous") {
-						return errorResponse("ambiguous_short_id")
+						return errorResponse(fmt.Sprintf("ambiguous short id: %s", req.ShortId))
 					}
-					return errorResponse("store_error")
+					return errorResponse(s.storeOperationError(st, "", "short run lookup", err))
 				}
 			} else {
 				ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}
@@ -2275,7 +2303,7 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 					if isStoreNotFoundError(err) {
 						continue
 					}
-					return errorResponse("store_error")
+					return errorResponse(s.storeOperationError(st, "", "run lookup", err))
 				}
 			}
 
@@ -2284,9 +2312,9 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 			}
 			if run != nil {
 				if req.ShortId != "" {
-					return errorResponse("ambiguous_short_id")
+					return errorResponse(fmt.Sprintf("ambiguous short id: %s", req.ShortId))
 				}
-				return errorResponse("ambiguous_run_ref")
+				return errorResponse(fmt.Sprintf("ambiguous run ref: %s#%s", req.IssueId, req.RunId))
 			}
 			run = resolved
 		}
@@ -2335,9 +2363,15 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 			}
 		}
 	} else if attachInfo.TargetHost == "" {
-		muxType, _ := multiplexer.ParseType(run.Multiplexer)
-		mux, _ := multiplexer.GetMultiplexer(muxType)
-		if mux != nil && !mux.HasSession(sessionName) {
+		muxType, err := multiplexer.ParseType(run.Multiplexer)
+		if err != nil {
+			return errorResponse(fmt.Sprintf("invalid multiplexer type %q for run %s#%s: %v", run.Multiplexer, run.IssueID, run.RunID, err))
+		}
+		mux, err := multiplexer.GetMultiplexer(muxType)
+		if err != nil {
+			return errorResponse(fmt.Sprintf("multiplexer %q unavailable for run %s#%s: %v", muxType, run.IssueID, run.RunID, err))
+		}
+		if !mux.HasSession(sessionName) {
 			return &orchpb.Response{
 				Ok:    false,
 				Error: "session_not_found",
@@ -2570,7 +2604,10 @@ func (s *SocketServer) handleProtoGetDiffStats(req *orchpb.GetDiffStatsRequest) 
 		}
 	}
 
-	stats := git.GetDiffStats(runCtx.run.WorktreePath, runCtx.run.Branch, "main")
+	stats, err := git.GetDiffStats(runCtx.run.WorktreePath, runCtx.run.Branch, "main")
+	if err != nil {
+		return errorResponse(err.Error())
+	}
 
 	return &orchpb.Response{
 		Ok: true,
@@ -3076,15 +3113,15 @@ func (s *SocketServer) handleProtoGetRunByShortID(req *orchpb.GetRunByShortIDReq
 					continue
 				}
 				if strings.Contains(strings.ToLower(err.Error()), "ambiguous") {
-					return errorResponse("ambiguous_short_id")
+					return errorResponse(fmt.Sprintf("ambiguous short id: %s", req.ShortId))
 				}
-				return errorResponse("store_error")
+				return errorResponse(s.storeOperationError(st, "", "short run lookup", err))
 			}
 			if resolved == nil {
 				continue
 			}
 			if run != nil {
-				return errorResponse("ambiguous_short_id")
+				return errorResponse(fmt.Sprintf("ambiguous short id: %s", req.ShortId))
 			}
 			run = resolved
 		}
@@ -3097,7 +3134,9 @@ func (s *SocketServer) handleProtoGetRunByShortID(req *orchpb.GetRunByShortIDReq
 	if err != nil {
 		return errorResponse(err.Error())
 	}
-	enrichRunProto(pr, run, s.gitRunner)
+	if err := s.enrichRunProtoForResponse(pr, run); err != nil {
+		return errorResponse(err.Error())
+	}
 
 	protoEvents := make([]*orchpb.Event, len(run.Events))
 	for i, e := range run.Events {
@@ -3587,9 +3626,9 @@ func (s *SocketServer) handleProtoReadAgentPrompt(req *orchpb.ReadAgentPromptReq
 						continue
 					}
 					if strings.Contains(strings.ToLower(err.Error()), "ambiguous") {
-						return errorResponse("ambiguous_short_id")
+						return errorResponse(fmt.Sprintf("ambiguous short id: %s", req.ShortId))
 					}
-					return errorResponse(fmt.Sprintf("run lookup failed: %v", err))
+					return errorResponse(s.storeOperationError(candidateStore, "", "short run lookup", err))
 				}
 			} else {
 				ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}
@@ -3607,9 +3646,9 @@ func (s *SocketServer) handleProtoReadAgentPrompt(req *orchpb.ReadAgentPromptReq
 			}
 			if run != nil {
 				if req.ShortId != "" {
-					return errorResponse("ambiguous_short_id")
+					return errorResponse(fmt.Sprintf("ambiguous short id: %s", req.ShortId))
 				}
-				return errorResponse("ambiguous_run_ref")
+				return errorResponse(fmt.Sprintf("ambiguous run ref: %s#%s", req.IssueId, req.RunId))
 			}
 			run = resolved
 			st = candidateStore

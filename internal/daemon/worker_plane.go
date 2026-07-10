@@ -872,7 +872,10 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 		if err != nil {
 			return nil, err
 		}
-		stats := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
+		stats, err := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
+		if err != nil {
+			return nil, err
+		}
 		return &WorkerEffectResult{
 			DiffStatsResult: &GetDiffStatsResult{
 				Additions:    stats.Additions,

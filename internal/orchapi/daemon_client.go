@@ -183,7 +183,7 @@ func (c *DaemonClient) ResolveRun(ctx context.Context, ref RunRef) (*Run, error)
 			if isNotFoundError(err) {
 				return nil, RunNotFound(string(ref.ShortID))
 			}
-			return nil, err
+			return nil, mapAmbiguousRefError(err)
 		}
 		return runFromDaemonFull(resp.Run), nil
 	}
@@ -194,7 +194,7 @@ func (c *DaemonClient) ResolveRun(ctx context.Context, ref RunRef) (*Run, error)
 			if isNotFoundError(err) {
 				return nil, RunNotFound(ref.String())
 			}
-			return nil, err
+			return nil, mapAmbiguousRefError(err)
 		}
 		return runFromDaemonFull(resp.Run), nil
 	}
@@ -208,7 +208,7 @@ func (c *DaemonClient) ResolveRun(ctx context.Context, ref RunRef) (*Run, error)
 	}
 	resp, err := c.proto.GetRun(runs.Runs[0].IssueID, runs.Runs[0].RunID)
 	if err != nil {
-		return nil, err
+		return nil, mapAmbiguousRefError(err)
 	}
 	return runFromDaemonFull(resp.Run), nil
 }
@@ -219,7 +219,7 @@ func (c *DaemonClient) GetRun(ctx context.Context, issueID model.IssueID, runID 
 		if isNotFoundError(err) {
 			return nil, RunNotFound(string(issueID) + "#" + string(runID))
 		}
-		return nil, err
+		return nil, mapAmbiguousRefError(err)
 	}
 	return runFromDaemonFull(resp.Run), nil
 }
@@ -351,10 +351,7 @@ func (c *DaemonClient) WaitForRuns(ctx context.Context, refs []string, timeoutSe
 		if isTimeoutError(err) {
 			return nil, fmt.Errorf("timed out waiting for runs: %w", ErrTimeout)
 		}
-		if isAmbiguousRefError(err) {
-			return nil, ErrAmbiguousRef
-		}
-		return nil, err
+		return nil, mapAmbiguousRefError(err)
 	}
 
 	status, err := NormalizeRunStatus(resp.Status)
@@ -376,7 +373,7 @@ func (c *DaemonClient) GetAttachInfo(ctx context.Context, ref RunRef) (*AttachIn
 		if isNotFoundError(err) {
 			return nil, RunNotFound(ref.String())
 		}
-		return nil, err
+		return nil, mapAmbiguousRefError(err)
 	}
 	if !resp.OK {
 		if resp.Error == "session_not_found" || resp.Error == "no sessions" {
@@ -564,7 +561,17 @@ func isAmbiguousRefError(err error) bool {
 		return false
 	}
 	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "ambiguous short id") || strings.Contains(s, "ambiguous run ref")
+	return strings.Contains(s, "ambiguous short id") ||
+		strings.Contains(s, "ambiguous run ref") ||
+		strings.Contains(s, "ambiguous_short_id") ||
+		strings.Contains(s, "ambiguous_run_ref")
+}
+
+func mapAmbiguousRefError(err error) error {
+	if isAmbiguousRefError(err) {
+		return ErrAmbiguousRef
+	}
+	return err
 }
 
 func issueFromDaemon(iss *daemon.IssueFull) *Issue {

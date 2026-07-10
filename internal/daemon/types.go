@@ -379,8 +379,11 @@ func computeWorktreeExists(path string) bool {
 }
 
 // RunToSummary converts a model.Run to a RunSummary
-func RunToSummary(run *model.Run) *RunSummary {
-	diffStats := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
+func RunToSummary(run *model.Run) (*RunSummary, error) {
+	diffStats, err := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
+	if err != nil {
+		return nil, err
+	}
 
 	elapsedSeconds, elapsedDisplay := computeElapsed(run)
 	branchState := computeBranchStateString(run)
@@ -424,21 +427,24 @@ func RunToSummary(run *model.Run) *RunSummary {
 		StartedAt:      formatTime(run.StartedAt),
 		UpdatedAt:      formatTime(run.UpdatedAt),
 		URI:            FileURI(run.Path),
-	}
+	}, nil
 }
 
 // RunToSummaryWithAlive converts a model.Run to a RunSummary with alive status computed.
 // This function requires the agent package and should be called when alive status is needed.
-func RunToSummaryWithAlive(run *model.Run, computeAlive func(*model.Run) bool) *RunSummary {
-	summary := RunToSummary(run)
+func RunToSummaryWithAlive(run *model.Run, computeAlive func(*model.Run) bool) (*RunSummary, error) {
+	summary, err := RunToSummary(run)
+	if err != nil {
+		return nil, err
+	}
 	if computeAlive != nil {
 		summary.Alive = computeAlive(run)
 		summary.AliveKnown = true
 	}
-	return summary
+	return summary, nil
 }
 
-func RunToFull(run *model.Run) *RunFull {
+func RunToFull(run *model.Run) (*RunFull, error) {
 	events := make([]*EventJSON, len(run.Events))
 	for i, e := range run.Events {
 		events[i] = &EventJSON{
@@ -449,7 +455,10 @@ func RunToFull(run *model.Run) *RunFull {
 		}
 	}
 
-	diffStats := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
+	diffStats, err := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
+	if err != nil {
+		return nil, err
+	}
 	elapsedSeconds, elapsedDisplay := computeElapsed(run)
 	branchState := computeBranchStateString(run)
 	prNumber, prState := lookupPRInfo(run)
@@ -494,17 +503,20 @@ func RunToFull(run *model.Run) *RunFull {
 		UpdatedAt:      formatTime(run.UpdatedAt),
 		URI:            FileURI(run.Path),
 		Events:         events,
-	}
+	}, nil
 }
 
 // RunToFullWithAlive converts a model.Run to a RunFull with alive status computed.
-func RunToFullWithAlive(run *model.Run, computeAlive func(*model.Run) bool) *RunFull {
-	full := RunToFull(run)
+func RunToFullWithAlive(run *model.Run, computeAlive func(*model.Run) bool) (*RunFull, error) {
+	full, err := RunToFull(run)
+	if err != nil {
+		return nil, err
+	}
 	if computeAlive != nil {
 		full.Alive = computeAlive(run)
 		full.AliveKnown = true
 	}
-	return full
+	return full, nil
 }
 
 // IssueToSummary converts a model.Issue to an IssueSummary

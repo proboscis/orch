@@ -3101,6 +3101,7 @@ func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {
 
 	// If --all flag is set, aggregate runs from all repos
 	var runs []*model.Run
+	var selectedStore store.Store
 	if req.All {
 		runs, err = s.listAllRepoRuns(req)
 	} else {
@@ -3109,6 +3110,7 @@ func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {
 			encoder.Encode(ListRunsResponse{OK: false, Error: "no store available"})
 			return
 		}
+		selectedStore = st
 		filter := &store.ListRunsFilter{
 			IssueID:    model.IssueID(req.IssueID),
 			Agent:      req.Agent,
@@ -3129,7 +3131,11 @@ func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {
 
 	if err != nil {
 		s.logger.Printf("error listing runs: %v", err)
-		encoder.Encode(ListRunsResponse{OK: false, Error: "store_error"})
+		errorMessage := err.Error()
+		if selectedStore != nil {
+			errorMessage = s.storeOperationError(selectedStore, req.RepoID, "list runs", err)
+		}
+		encoder.Encode(ListRunsResponse{OK: false, Error: errorMessage})
 		return
 	}
 
@@ -3151,7 +3157,12 @@ func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {
 
 	summaries := make([]*RunSummary, len(paginatedRuns))
 	for i, run := range paginatedRuns {
-		summaries[i] = RunToSummaryWithAlive(run, computeAlive)
+		summary, err := RunToSummaryWithAlive(run, computeAlive)
+		if err != nil {
+			encoder.Encode(ListRunsResponse{OK: false, Error: err.Error()})
+			return
+		}
+		summaries[i] = summary
 	}
 
 	var nextCursor *string
@@ -3195,7 +3206,7 @@ func (s *SocketServer) listAllRepoRuns(req SendRequest) ([]*model.Run, error) {
 		}
 		runs, err := st.ListRuns(filter)
 		if err != nil {
-			return nil, err
+			return nil, errors.New(s.storeOperationError(st, "", "list runs", err))
 		}
 		allRuns = append(allRuns, runs...)
 	}
@@ -3226,6 +3237,7 @@ func (s *SocketServer) handleListIssues(req SendRequest, encoder *json.Encoder) 
 	}
 
 	var issues []*model.Issue
+	var selectedStore store.Store
 	if s.githubBackend != nil {
 		issues, err = s.githubBackend.ListFromCache()
 	} else {
@@ -3234,11 +3246,16 @@ func (s *SocketServer) handleListIssues(req SendRequest, encoder *json.Encoder) 
 			encoder.Encode(ListIssuesResponse{OK: false, Error: "no store available"})
 			return
 		}
+		selectedStore = st
 		issues, err = st.ListIssues()
 	}
 	if err != nil {
 		s.logger.Printf("error listing issues: %v", err)
-		encoder.Encode(ListIssuesResponse{OK: false, Error: "store_error"})
+		errorMessage := fmt.Sprintf("github issue cache list failed: %v", err)
+		if selectedStore != nil {
+			errorMessage = s.storeOperationError(selectedStore, req.RepoID, "list issues", err)
+		}
+		encoder.Encode(ListIssuesResponse{OK: false, Error: errorMessage})
 		return
 	}
 
@@ -3369,10 +3386,13 @@ func (s *SocketServer) handleGetRun(req SendRequest, encoder *json.Encoder) {
 		return manager.IsAlive(r)
 	}
 
-	encoder.Encode(GetRunResponse{
-		OK:  true,
-		Run: RunToFullWithAlive(run, computeAlive),
-	})
+	full, err := RunToFullWithAlive(run, computeAlive)
+	if err != nil {
+		encoder.Encode(GetRunResponse{OK: false, Error: err.Error()})
+		return
+	}
+
+	encoder.Encode(GetRunResponse{OK: true, Run: full})
 }
 
 func (s *SocketServer) handleGetIssue(req SendRequest, encoder *json.Encoder) {
@@ -5000,7 +5020,7 @@ func (s *SocketServer) handleStopRun(req SendRequest, encoder *json.Encoder) {
 		})
 		if err != nil {
 			s.logger.Printf("error listing runs for %s: %v", req.IssueID, err)
-			encoder.Encode(StopRunResponse{OK: false, Error: "store_error"})
+			encoder.Encode(StopRunResponse{OK: false, Error: s.storeOperationError(st, req.RepoID, "list runs", err)})
 			return
 		}
 		for _, run := range runs {
@@ -5135,7 +5155,7 @@ func (s *SocketServer) handleResolveIssue(req SendRequest, encoder *json.Encoder
 		runs, err := st.ListRuns(&store.ListRunsFilter{IssueID: model.IssueID(req.IssueID)})
 		if err != nil {
 			s.logger.Printf("error listing runs for %s: %v", req.IssueID, err)
-			encoder.Encode(ResolveIssueResponse{OK: false, Error: "store_error"})
+			encoder.Encode(ResolveIssueResponse{OK: false, Error: s.storeOperationError(st, req.RepoID, "list runs", err)})
 			return
 		}
 
@@ -5155,7 +5175,7 @@ func (s *SocketServer) handleResolveIssue(req SendRequest, encoder *json.Encoder
 
 	if err := st.SetIssueStatus(model.IssueID(req.IssueID), model.IssueStatusResolved); err != nil {
 		s.logger.Printf("error resolving issue %s: %v", req.IssueID, err)
-		encoder.Encode(ResolveIssueResponse{OK: false, Error: "store_error"})
+		encoder.Encode(ResolveIssueResponse{OK: false, Error: s.storeOperationError(st, req.RepoID, "set issue status", err)})
 		return
 	}
 
@@ -5440,10 +5460,13 @@ func (s *SocketServer) handleGetRunByShortID(req SendRequest, encoder *json.Enco
 		return
 	}
 
-	encoder.Encode(GetRunResponse{
-		OK:  true,
-		Run: RunToFull(run),
-	})
+	full, err := RunToFull(run)
+	if err != nil {
+		encoder.Encode(GetRunResponse{OK: false, Error: err.Error()})
+		return
+	}
+
+	encoder.Encode(GetRunResponse{OK: true, Run: full})
 }
 
 func (s *SocketServer) handleRegisterMonitor(req SendRequest, encoder *json.Encoder) {
