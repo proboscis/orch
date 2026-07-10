@@ -21,7 +21,8 @@ issues:
   path: ~/orch-issues
 ```
 
-Configure `issues.path` in `.orch/config.yaml` (recommended).
+`issues.path` is optional. When it is omitted, orch stores issues under
+`~/.local/share/orch/<repo-id>`.
 
 ### In-repo issues
 
@@ -122,32 +123,40 @@ Run files are created automatically by `orch run` and contain:
 
 ```yaml
 ---
-issue_id: fix-login-bug
-run_id: 20260120-163045
-agent: claude
-status: running
-worktree: /Users/me/.orch/worktrees/fix-login-bug/abc123_claude_20260120-163045
-branch: issue/fix-login-bug/run-20260120-163045
-session_name: run-fix-login-bug-20260120-163045
+issue: fix-login-bug
+run: 20260120-163045
 created: 2026-01-20T16:30:45+09:00
+agent: claude
+model: claude-opus-4-6
+model_variant: high
+target: mac
+profile: company
 ---
 ```
+
+The required run identity fields are `issue`, `run`, and `created`. Launch
+metadata such as `agent`, `model`, `model_variant`, `target`, and `profile` is
+included when supplied. Live state is not duplicated in frontmatter:
+`worktree`, `branch`, `session`, and `status` are derived from body events.
 
 ### Event log (body)
 
 ```markdown
-# Run: fix-login-bug#20260120-163045
+# Events
 
-## Events
-
-- 2026-01-20T16:30:45+09:00 | status | queued |
+- 2026-01-20T16:30:45+09:00 | status | queued
 - 2026-01-20T16:30:46+09:00 | status | booting | agent=claude
 - 2026-01-20T16:30:50+09:00 | artifact | worktree | path=/Users/me/.orch/worktrees/...
 - 2026-01-20T16:30:51+09:00 | artifact | branch | name=issue/fix-login-bug/run-20260120-163045
-- 2026-01-20T16:30:52+09:00 | status | running |
+- 2026-01-20T16:30:51+09:00 | artifact | session | name=run-fix-login-bug-20260120-163045 | multiplexer=tmux
+- 2026-01-20T16:30:52+09:00 | status | running
 - 2026-01-20T16:45:30+09:00 | artifact | pr | url=https://github.com/org/repo/pull/42
-- 2026-01-20T16:45:31+09:00 | status | pr_open |
+- 2026-01-20T16:45:31+09:00 | status | pr_open
 ```
+
+The body begins with one `# Events` heading. Event attributes add another
+pipe-delimited field; events without attributes end after the event name and
+have no trailing `|`.
 
 ## Creating Issues
 

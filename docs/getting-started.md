@@ -127,9 +127,10 @@ Without this mapping, commands fail with
 stored in `~/.config/orch/projects/<project_id>.yaml` and takes effect
 immediately — no daemon restart needed.
 
-### Setting up the issues directory
+### Setting up the issues directory (optional)
 
-orch needs a place to store issues. Configure it in `.orch/config.yaml`.
+By default, orch stores issues in `~/.local/share/orch/<repo-id>`. Configure
+`issues.path` in `.orch/config.yaml` only when you want a different location.
 
 **Option A: Use a separate issues directory (recommended for teams)**
 

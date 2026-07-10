@@ -116,8 +116,24 @@ pr_target_branch: develop
 # Directory for worktrees (default: ~/.orch/worktrees)
 worktree_dir: ~/.orch/worktrees
 
-# Terminal multiplexer: tmux or zellij (default: tmux)
-multiplexer: tmux
+# Multiplexer for agent sessions: tmux or zellij (default: tmux)
+agent_multiplexer: tmux
+
+# Multiplexer for orch monitor: zellij or tmux (default: zellij)
+monitor_multiplexer: zellij
+
+# `multiplexer` is a deprecated compatibility key. Use the two keys above.
+
+# =============================================================================
+# EXECUTION TARGETS
+# =============================================================================
+
+# Named worker hosts used by `orch run --on <name>`
+targets:
+  - name: mac
+    host: mac-host
+  - name: linux
+    host: linux-host
 
 # =============================================================================
 # ISSUES BACKEND
@@ -127,8 +143,9 @@ issues:
   # Backend type: local or github
   backend: local
   
-  # For local backend: path to issues directory
-  path: ~/orch-issues
+  # Optional path for the local backend. When omitted, defaults to
+  # ~/.local/share/orch/<repo-id>.
+  # path: ~/orch-issues
   
   # Alternative: path relative to project root
   # path: ./issues
@@ -234,6 +251,12 @@ monitor:
   default_issue_statuses:
     - open
 
+  # Initial issue tag filter (`any` = OR, `all` = AND)
+  default_issue_filter:
+    tags:
+      - active
+    tag_mode: any
+
 # Control agent settings (for interactive control from monitor)
 control_agent: opencode
 control_model: opus
@@ -269,19 +292,60 @@ All settings can be configured via environment variables:
 | `ORCH_ISSUES_BACKEND` | Issue store backend (`local` or `github`) | `local` |
 | `ORCH_MODEL` | Default model | `anthropic/claude-opus-4-5` |
 | `ORCH_MODEL_VARIANT` | Model variant | `max` |
-| `ORCH_MULTIPLEXER` | Terminal multiplexer | `tmux` |
+| `ORCH_WORKTREE_DIR` | Directory in which run worktrees are created | `~/.orch/worktrees` |
+| `ORCH_BASE_BRANCH` | Default base branch | `main` |
 | `ORCH_LOG_LEVEL` | Logging verbosity | `debug` |
 | `ORCH_PR_TARGET_BRANCH` | PR target branch | `develop` |
+| `ORCH_PROMPT_TEMPLATE` | Global prompt template content | `Read ORCH_PROMPT.md` |
+| `ORCH_AGENT_MULTIPLEXER` | Multiplexer for agent sessions | `tmux` |
+| `ORCH_MONITOR_MULTIPLEXER` | Multiplexer for `orch monitor` | `zellij` |
+| `ORCH_MULTIPLEXER` | Deprecated multiplexer compatibility setting | `tmux` |
+| `ORCH_NO_PR` | Omit PR creation instructions (`true`, `1`, or `yes`) | `true` |
+| `ORCH_OPENCODE_DEFAULT_MODEL` | Default OpenCode model | `anthropic/claude-opus-4-5` |
+| `ORCH_OPENCODE_DEFAULT_VARIANT` | Default OpenCode model variant | `max` |
+| `ORCH_CODEX_DEFAULT_MODEL` | Default Codex model | `gpt-5.2-codex` |
+| `ORCH_DEFAULT_PRESET` | Preset used when `--preset` is omitted | `opus-max` |
+| `ORCH_CONTROL_AGENT` | Agent used by the interactive control agent | `opencode` |
+| `ORCH_CONTROL_MODEL` | Model used by the interactive control agent | `opus` |
+| `ORCH_CONTROL_MODEL_VARIANT` | Control-agent model variant | `default` |
 | `ORCH_WORKER_AUTOSTART` | Set to `0` to disable worker autostart | `0` |
 | `ORCH_DEBUG` | Enable debug mode | `1` |
 | `ORCH_SLACK_WEBHOOK_URL` | Slack webhook | `https://hooks.slack.com/...` |
 | `ORCH_SLACK_BOT_TOKEN` | Slack bot token | `xoxb-...` |
 | `ORCH_SLACK_CHANNEL` | Slack channel | `#notifications` |
+| `ORCH_GITHUB_OWNER` | GitHub issue-backend repository owner | `your-org` |
+| `ORCH_GITHUB_REPO` | GitHub issue-backend repository name | `your-repo` |
+| `ORCH_GITHUB_LABEL_FILTER` | Only sync GitHub issues with this label | `orch` |
 
 ### Removed Variables
 
 `ORCH_VAULT` and `ORCH_ISSUES_ROOT` are no longer used at runtime.
 Configure issue storage with `issues.path` in `.orch/config.yaml`.
+
+## Execution Targets
+
+`targets` is the routing table for multi-host execution. Each entry maps the
+stable name used by users and profiles to the host identity of a registered
+worker. The daemon resolves this table, records the selected target in the run
+event stream, and routes later session-control operations to the same host.
+
+```yaml
+targets:
+  - name: mac
+    host: mac-host
+  - name: gpu
+    host: gpu-worker-01
+```
+
+Select a target when starting a run:
+
+```bash
+orch run --on mac my-issue
+```
+
+Both `name` and `host` are required and must be non-empty. `local` is reserved
+for the daemon's local worker and does not need a `targets` entry. Target names
+are also used by agent-profile `target` and `allowed_targets` settings.
 
 ## Prompt Templates
 
@@ -324,13 +388,19 @@ opencode:
     {{issue}}
 ```
 
-## Terminal Multiplexer
+## Terminal Multiplexers
 
-orch supports both tmux (default) and zellij:
+Agent sessions and the monitor have separate multiplexer settings. Agent
+sessions default to tmux; `orch monitor` defaults to zellij.
 
 ```yaml
-multiplexer: zellij
+agent_multiplexer: tmux
+monitor_multiplexer: zellij
 ```
+
+The old `multiplexer` key is deprecated. It remains a compatibility fallback
+for the monitor but does not override the agent-session default; use
+`agent_multiplexer` for runs.
 
 Or per-command:
 
@@ -339,10 +409,9 @@ orch run --multiplexer zellij my-issue
 ```
 
 **Detach keys:**
+
 - tmux: `Ctrl+B D`
 - zellij: `Ctrl+O D`
-
-**Note:** Some features like `orch monitor` require tmux for multi-pane layouts.
 
 ## Slack Notifications
 
@@ -406,9 +475,15 @@ github:
 
 slack:
   enabled: true
-  webhook_url: ${SLACK_WEBHOOK_URL}
   notify_on:
     - waiting
+```
+
+Set the webhook through the supported environment override (config-file
+`${...}` interpolation is not performed):
+
+```bash
+export ORCH_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/XXX/YYY/ZZZ
 ```
 
 ### Multiple models

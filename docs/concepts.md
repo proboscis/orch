@@ -60,6 +60,20 @@ A **single execution attempt** for an issue.
 - `worktree` - Isolated git working directory
 - `branch` - Git branch for this run
 
+### Issue Hex ID
+
+Every file-backend issue also has a deterministic hex identifier defined by
+[ADR-0001](./adr/ADR-0001-issue-hex-ids.md): the lowercase SHA-256 hash of its
+human-readable issue ID.
+
+- The CLI displays the first 8 characters (for example, `afa27b44`).
+- Any unique lowercase prefix from 7 through 64 characters can be used
+  anywhere an issue ID is accepted.
+- Prefixes of 2 through 6 characters remain reserved for run short IDs, so
+  issue and run references are unambiguous.
+- An ambiguous issue prefix fails with the matching issue names; extend the
+  prefix to disambiguate it.
+
 ### Event
 
 An **append-only record** in a run's log.
@@ -85,13 +99,18 @@ stateDiagram-v2
     [*] --> queued: orch run
     queued --> booting: agent starting
     booting --> running: agent ready
+    booting --> failed: launch error
     running --> waiting: needs input
+    running --> rate_limited: API/rate limit issue
     running --> pr_open: PR created
     running --> done: complete
     running --> failed: error
     running --> canceled: stopped
+    running --> unknown: agent exited unexpectedly
     waiting --> running: input provided
     waiting --> canceled: stopped
+    rate_limited --> running: issue resolved
+    rate_limited --> canceled: stopped
     pr_open --> done: PR merged
     done --> [*]
     failed --> [*]
@@ -131,7 +150,7 @@ A **git worktree** created for each run.
 
 - Provides complete isolation from other runs
 - Each run works on its own copy of the codebase
-- Located in `~/.orch/worktrees/<issue>/<run>/` by default
+- Located in `~/.orch/worktrees/<issue>/<shortid>_<agent>_<runid>/` by default
 - Automatically created by `orch run`
 - Can be reused with `orch restart-from`
 

@@ -10,6 +10,7 @@ stateDiagram-v2
 
     queued --> booting: agent starting
     booting --> running: agent ready
+    booting --> failed: launch error
 
     running --> waiting: needs human input
     running --> rate_limited: API/rate limit issue
@@ -201,7 +202,7 @@ SELECT
   issue_id,
   run_id,
   status,
-  datetime('now') - started_at as duration_seconds
+  ROUND((julianday('now') - julianday(started_at)) * 86400) AS duration_seconds
 FROM runs
 WHERE status = 'running';
 
