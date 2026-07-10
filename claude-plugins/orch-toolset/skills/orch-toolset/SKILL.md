@@ -6,7 +6,7 @@ description: |
   restart-from, orch worker start/status/stop, orch attach/capture/send/exec, and remote execution
   via ORCH_REMOTE and target_host. Trigger terms: orch, orchestrator, worker, master, ORCH_REMOTE,
   target_host, run management, issue management, agent runs, worktree.
-version: 1.5.3
+version: 1.5.4
 ---
 
 # Orch Toolset
@@ -112,7 +112,10 @@ Enter).
    (v1.5+); `orch worker status` shows them. Hosts other than the master and
    your own machine still need `ORCH_REMOTE=<master> orch worker start` there.
 3. Track state with `orch ps` and inspect details with `orch show`.
-4. Interact with the live run via `orch capture`, `orch send`, and `orch attach`.
+4. Interact with the live run via `orch capture` and `orch send`. `orch attach`
+   is a HUMAN handoff — as an AI agent, NEVER run `orch attach` or
+   `orch monitor` yourself: they open interactive TUIs that hang a
+   non-interactive session. Suggest them to the user instead.
 5. Use `orch stop` only for actually stale or canceled work. Use `orch restart-from` only for
    failed, canceled, or unknown runs. Mark completed work with `orch resolve`.
 
@@ -169,6 +172,10 @@ Use the current run states only:
 Operational guidance:
 
 - `waiting`: run is alive and waiting for user input. Use `orch send`.
+- `pr_open`: the agent committed, pushed, and opened a PR — the default daily
+  flow (pass `--no-pr` to skip it, e.g. for sandboxes or unpublished bases).
+  Review the PR; send fixes back with `orch send`; after merge/close, mark the
+  issue done with `orch resolve <issue>`.
 - `rate_limited`: run is alive but blocked on provider/API pacing. Do not restart it blindly.
 - `running`, `waiting`, and `rate_limited` are all live states. Do not use `orch restart-from`
   on them.
@@ -222,6 +229,22 @@ Interpretation:
 - the worker process started on **this** machine
 - the worker registered to `master-host:7777`
 - the run's `target_host` / `HOST` tells you where the session actually runs
+
+## Local Gotchas (single-machine too — not remote-specific)
+
+- **File-backend issue store is fail-loud on ANY malformed issue file** (verified
+  2026-07-05): a single file with broken frontmatter YAML (e.g. an unquoted
+  colon in `title:`) or a status outside `open|closed|resolved` (seen: `done`,
+  `in_progress`, `superseded`) makes EVERY `issue list`/`issue create` fail with the opaque
+  `daemon error: store_error`. Diagnosis: the master's `~/Library/Logs/orch/daemon.log`
+  (macOS) names the offending file (`failed to parse issue file ...`). Fix the file; there
+  may be several — repeat until clean, or pre-scan all frontmatter with a YAML parser.
+- **`orch wait` flaps on claude runs**: claude's TUI shows the `❯` input box at every turn
+  boundary, which the status detector reads as `waiting`, so `orch wait` returns while the
+  agent is actively thinking/working. Before acting on a wait return, `orch capture` — a
+  spinner ("thinking…", token counters advancing) means the run is alive; re-arm the wait
+  or poll `orch ps --json` (`.items[] | select(.short_id==...)`) for a genuinely terminal
+  status (`done`/`failed`/`canceled`).
 
 ## Remote-Master Pitfalls (verified behaviors)
 
@@ -282,19 +305,6 @@ Interpretation:
   `capture` failing `session ... not found` — no explicit error anywhere. Check
   `tmux -V` / `zellij --version` on the execution host when a run creates a worktree but never
   opens a session.
-- **File-backend issue store is fail-loud on ANY malformed issue file** (verified
-  2026-07-05): a single file with broken frontmatter YAML (e.g. an unquoted
-  colon in `title:`) or a status outside `open|closed|resolved` (seen: `done`,
-  `in_progress`, `superseded`) makes EVERY `issue list`/`issue create` fail with the opaque
-  `daemon error: store_error`. Diagnosis: the master's `~/Library/Logs/orch/daemon.log`
-  (macOS) names the offending file (`failed to parse issue file ...`). Fix the file; there
-  may be several — repeat until clean, or pre-scan all frontmatter with a YAML parser.
-- **`orch wait` flaps on claude runs**: claude's TUI shows the `❯` input box at every turn
-  boundary, which the status detector reads as `waiting`, so `orch wait` returns while the
-  agent is actively thinking/working. Before acting on a wait return, `orch capture` — a
-  spinner ("thinking…", token counters advancing) means the run is alive; re-arm the wait
-  or poll `orch ps --json` (`.items[] | select(.short_id==...)`) for a genuinely terminal
-  status (`done`/`failed`/`canceled`).
 - **Daemon restart races its own pid lock** (macOS: `~/Library/Caches/orch/run/daemon.lock`):
   `kill <pid>` followed immediately by `orch daemon run` fails with
   "daemon already running (pid=<old>)" and exits. Wait 1-2s after the kill before starting.
