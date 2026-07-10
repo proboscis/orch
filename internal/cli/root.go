@@ -164,7 +164,6 @@ func init() {
 		withCommandGroup(newOpenCmd(), commandGroupCore),
 		withCommandGroup(newStopCmd(), commandGroupCore),
 		withCommandGroup(newWaitCmd(), commandGroupCore),
-		withCommandGroup(newMonitorCmd(), commandGroupCore),
 		withCommandGroup(newResolveCmd(), commandGroupCore),
 		withCommandGroup(newSendCmd(), commandGroupCore),
 		withCommandGroup(newCaptureCmd(), commandGroupCore),

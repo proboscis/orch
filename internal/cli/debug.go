@@ -2,12 +2,14 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
-	"github.com/proboscis/orch/internal/monitor"
 	"github.com/proboscis/orch/internal/xdg"
 	"github.com/spf13/cobra"
 )
@@ -100,7 +102,7 @@ func runDebugClientBootstrap(jsonOut bool) error {
 		ProjectID:          strings.TrimSpace(projectID),
 		RemoteAddr:         strings.TrimSpace(getRemoteAddr()),
 		SocketPath:         xdg.SocketPath(),
-		MonitorSessionName: monitor.SessionNameForProject(sessionRoot),
+		MonitorSessionName: monitorSessionNameForProject(sessionRoot),
 	}
 
 	if jsonOut || globalOpts.JSON {
@@ -115,6 +117,65 @@ func runDebugClientBootstrap(jsonOut bool) error {
 	fmt.Printf("socket_path: %s\n", result.SocketPath)
 	fmt.Printf("monitor_session_name: %s\n", result.MonitorSessionName)
 	return nil
+}
+
+const (
+	defaultMonitorSessionName = "orch-monitor"
+	zellijSockMaxLength       = 104
+	zellijContractDir         = "contract_version_1"
+	sessionNameSafety         = 3
+)
+
+// monitorSessionNameForProject preserves the session-name contract consumed by
+// the standalone Python orch-monitor client bootstrap.
+func monitorSessionNameForProject(projectRoot string) string {
+	if projectRoot == "" {
+		return defaultMonitorSessionName
+	}
+
+	absPath, err := filepath.Abs(projectRoot)
+	if err != nil {
+		absPath = projectRoot
+	}
+	if resolved, err := filepath.EvalSymlinks(absPath); err == nil {
+		absPath = resolved
+	}
+
+	hash := sha256.Sum256([]byte(absPath))
+	shortHash := hex.EncodeToString(hash[:])[:6]
+	baseName := strings.NewReplacer(".", "-", " ", "-").Replace(filepath.Base(absPath))
+	name := fmt.Sprintf("orch-%s-%s", baseName, shortHash)
+
+	budget := maxMonitorSessionNameLen()
+	if len(name) <= budget {
+		return name
+	}
+
+	fixed := len("orch-") + 1 + len(shortHash)
+	room := budget - fixed
+	if room < 1 {
+		return "orch-" + shortHash
+	}
+	if room < len(baseName) {
+		baseName = baseName[:room]
+	}
+	return fmt.Sprintf("orch-%s-%s", baseName, shortHash)
+}
+
+func zellijSocketDir() string {
+	base := os.Getenv("ZELLIJ_SOCKET_DIR")
+	if base == "" {
+		base = filepath.Join(os.TempDir(), fmt.Sprintf("zellij-%d", os.Getuid()))
+	}
+	return filepath.Join(base, zellijContractDir)
+}
+
+func maxMonitorSessionNameLen() int {
+	budget := zellijSockMaxLength - len(zellijSocketDir()) - 1 - sessionNameSafety
+	if budget < 1 {
+		return 1
+	}
+	return budget
 }
 
 func runDebug(ref string) error {

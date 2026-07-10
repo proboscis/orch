@@ -4087,7 +4087,6 @@ func (s *SocketServer) handleProtoGetConfig(req *orchpb.GetConfigRequest) *orchp
 		LogLevel:            cfg.LogLevel,
 		PromptTemplate:      cfg.PromptTemplate,
 		Multiplexer:         cfg.Multiplexer,
-		MonitorMultiplexer:  cfg.MonitorMultiplexer,
 		AgentMultiplexer:    cfg.AgentMultiplexer,
 		NoPr:                cfg.NoPR,
 		DefaultPreset:       cfg.DefaultPreset,
@@ -4097,11 +4096,6 @@ func (s *SocketServer) handleProtoGetConfig(req *orchpb.GetConfigRequest) *orchp
 		DiffTool:            cfg.DiffTool,
 	}
 
-	if len(cfg.Monitor.PSColumns) > 0 {
-		resp.Monitor = &orchpb.MonitorConfigProto{
-			PsColumns: cfg.Monitor.PSColumns,
-		}
-	}
 	if len(cfg.PS.DefaultStatuses) > 0 {
 		resp.Ps = &orchpb.PSConfigProto{
 			DefaultStatuses: cfg.PS.DefaultStatuses,

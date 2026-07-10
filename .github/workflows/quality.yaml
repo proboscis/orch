@@ -46,7 +46,7 @@ jobs:
         run: go test ./...
 
       - name: Run race tests on core packages
-        run: go test -race ./internal/daemon ./internal/monitor ./internal/cli
+        run: go test -race ./internal/daemon ./internal/cli
 
   e2e-pr-ci:
     name: E2E PR CI

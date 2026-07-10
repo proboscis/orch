@@ -298,4 +298,4 @@ while true; do
 done
 ```
 
-Or use `orch monitor` for an interactive TUI.
+Or use `orch-monitor` for an interactive TUI.

@@ -528,10 +528,6 @@ type GitHubConfig struct {
 	StatusLabels map[string]string
 }
 
-type MonitorConfig struct {
-	PSColumns []string
-}
-
 type PSConfig struct {
 	DefaultStatuses []string
 }
@@ -546,7 +542,6 @@ type Config struct {
 	LogLevel            string
 	PromptTemplate      string
 	Multiplexer         string
-	MonitorMultiplexer  string
 	AgentMultiplexer    string
 	NoPR                bool
 	DefaultPreset       string
@@ -555,7 +550,6 @@ type Config struct {
 	ControlModelVariant string
 	DiffTool            string
 	PS                  PSConfig
-	Monitor             MonitorConfig
 	Presets             []Preset
 	OpenCode            OpenCodeConfig
 	Claude              ClaudeConfig

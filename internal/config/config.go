@@ -12,14 +12,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// MonitorConfig holds configuration for the monitor dashboard.
+// MonitorConfig holds defaults consumed directly by the Python orch-monitor.
 type MonitorConfig struct {
-	// PSColumns defines which columns to show and in what order.
-	// Available columns: index, id, issue, issue_status, agent, status, alive,
-	// branch, worktree, pr, merged, updated, topic
-	PSColumns []string `yaml:"ps_columns,omitempty"`
-
-	// Python monitor-tui defaults (accepted for cross-client config compatibility).
 	DefaultRunStatuses   []string                  `yaml:"default_run_statuses,omitempty"`
 	DefaultIssueStatuses []string                  `yaml:"default_issue_statuses,omitempty"`
 	DefaultIssueFilter   MonitorIssueDefaultFilter `yaml:"default_issue_filter,omitempty"`
@@ -200,33 +194,32 @@ func (s *SlackConfig) IsConfigured() bool {
 
 // Config holds orch configuration
 type Config struct {
-	Agent              string           `yaml:"agent"`
-	Model              string           `yaml:"model"`
-	ModelVariant       string           `yaml:"model_variant"`
-	WorktreeDir        string           `yaml:"worktree_dir"`
-	BaseBranch         string           `yaml:"base_branch"`
-	PRTargetBranch     string           `yaml:"pr_target_branch"`
-	LogLevel           string           `yaml:"log_level"`
-	PromptTemplate     string           `yaml:"prompt_template"`
-	Multiplexer        string           `yaml:"multiplexer"`         // Deprecated: use MonitorMultiplexer/AgentMultiplexer
-	MonitorMultiplexer string           `yaml:"monitor_multiplexer"` // Multiplexer for orch-monitor: "zellij" (default) or "tmux"
-	AgentMultiplexer   string           `yaml:"agent_multiplexer"`   // Multiplexer for agent sessions: "tmux" (default) or "zellij"
-	NoPR               bool             `yaml:"no_pr"`
-	PS                 PSConfig         `yaml:"ps"`
-	Monitor            MonitorConfig    `yaml:"monitor"`
-	Presets            []Preset         `yaml:"presets"`
-	OpenCodePresets    []OpenCodePreset `yaml:"opencode_presets"` // Deprecated: use Presets instead
-	OpenCode           OpenCodeConfig   `yaml:"opencode"`
-	Claude             ClaudeConfig     `yaml:"claude"`
-	Codex              CodexConfig      `yaml:"codex"`
-	Gemini             GeminiConfig     `yaml:"gemini"`
-	DefaultPreset      string           `yaml:"default_preset"` // Default preset to use when no --preset flag is provided
-	Slack              SlackConfig      `yaml:"slack"`
-	Issues             IssuesConfig     `yaml:"issues"`
-	GitHub             GitHubConfig     `yaml:"github"`
-	Targets            []TargetConfig   `yaml:"targets,omitempty"`
+	Agent            string           `yaml:"agent"`
+	Model            string           `yaml:"model"`
+	ModelVariant     string           `yaml:"model_variant"`
+	WorktreeDir      string           `yaml:"worktree_dir"`
+	BaseBranch       string           `yaml:"base_branch"`
+	PRTargetBranch   string           `yaml:"pr_target_branch"`
+	LogLevel         string           `yaml:"log_level"`
+	PromptTemplate   string           `yaml:"prompt_template"`
+	Multiplexer      string           `yaml:"multiplexer"`       // Deprecated: use AgentMultiplexer
+	AgentMultiplexer string           `yaml:"agent_multiplexer"` // Multiplexer for agent sessions: "tmux" (default) or "zellij"
+	NoPR             bool             `yaml:"no_pr"`
+	PS               PSConfig         `yaml:"ps"`
+	Monitor          MonitorConfig    `yaml:"monitor"`
+	Presets          []Preset         `yaml:"presets"`
+	OpenCodePresets  []OpenCodePreset `yaml:"opencode_presets"` // Deprecated: use Presets instead
+	OpenCode         OpenCodeConfig   `yaml:"opencode"`
+	Claude           ClaudeConfig     `yaml:"claude"`
+	Codex            CodexConfig      `yaml:"codex"`
+	Gemini           GeminiConfig     `yaml:"gemini"`
+	DefaultPreset    string           `yaml:"default_preset"` // Default preset to use when no --preset flag is provided
+	Slack            SlackConfig      `yaml:"slack"`
+	Issues           IssuesConfig     `yaml:"issues"`
+	GitHub           GitHubConfig     `yaml:"github"`
+	Targets          []TargetConfig   `yaml:"targets,omitempty"`
 
-	// Control agent settings (for orch monitor 'c' keybinding)
+	// Control agent settings used by orch agent and the Python orch-monitor.
 	// Falls back to run agent defaults if not set
 	ControlAgent        string `yaml:"control_agent"`
 	ControlModel        string `yaml:"control_model"`
@@ -250,7 +243,6 @@ type fileConfig struct {
 	LogLevel            string           `yaml:"log_level"`
 	PromptTemplate      string           `yaml:"prompt_template"`
 	Multiplexer         string           `yaml:"multiplexer"`
-	MonitorMultiplexer  string           `yaml:"monitor_multiplexer"`
 	AgentMultiplexer    string           `yaml:"agent_multiplexer"`
 	NoPR                *bool            `yaml:"no_pr"`
 	PS                  PSConfig         `yaml:"ps"`
@@ -469,9 +461,6 @@ func loadFromFile(path string, cfg *Config) error {
 	if fileCfg.Multiplexer != "" {
 		cfg.Multiplexer = fileCfg.Multiplexer
 	}
-	if fileCfg.MonitorMultiplexer != "" {
-		cfg.MonitorMultiplexer = fileCfg.MonitorMultiplexer
-	}
 	if fileCfg.AgentMultiplexer != "" {
 		cfg.AgentMultiplexer = fileCfg.AgentMultiplexer
 	}
@@ -480,9 +469,6 @@ func loadFromFile(path string, cfg *Config) error {
 	}
 	if len(fileCfg.PS.DefaultStatuses) > 0 {
 		cfg.PS.DefaultStatuses = fileCfg.PS.DefaultStatuses
-	}
-	if len(fileCfg.Monitor.PSColumns) > 0 {
-		cfg.Monitor.PSColumns = fileCfg.Monitor.PSColumns
 	}
 	if len(fileCfg.Monitor.DefaultRunStatuses) > 0 {
 		cfg.Monitor.DefaultRunStatuses = fileCfg.Monitor.DefaultRunStatuses
@@ -693,9 +679,6 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("ORCH_MULTIPLEXER"); v != "" {
 		cfg.Multiplexer = v
 	}
-	if v := os.Getenv("ORCH_MONITOR_MULTIPLEXER"); v != "" {
-		cfg.MonitorMultiplexer = v
-	}
 	if v := os.Getenv("ORCH_AGENT_MULTIPLEXER"); v != "" {
 		cfg.AgentMultiplexer = v
 	}
@@ -900,9 +883,6 @@ func (c *Config) Validate() error {
 	if c.Multiplexer != "" && !validLegacyMultiplexers[c.Multiplexer] {
 		errs = append(errs, fmt.Sprintf("multiplexer must be one of %s (got %q)", joinAllowedKeys(validLegacyMultiplexers), c.Multiplexer))
 	}
-	if c.MonitorMultiplexer != "" && !validMultiplexers[c.MonitorMultiplexer] {
-		errs = append(errs, fmt.Sprintf("monitor_multiplexer must be one of %s (got %q)", joinAllowedKeys(validMultiplexers), c.MonitorMultiplexer))
-	}
 	if c.AgentMultiplexer != "" && !validMultiplexers[c.AgentMultiplexer] {
 		errs = append(errs, fmt.Sprintf("agent_multiplexer must be one of %s (got %q)", joinAllowedKeys(validMultiplexers), c.AgentMultiplexer))
 	}
@@ -936,10 +916,6 @@ func (c *Config) Validate() error {
 			errs = append(errs, fmt.Sprintf("target %q host must not be empty", target.Name))
 		}
 	}
-	if err := c.ValidateMultiplexerConfig(); err != nil {
-		errs = append(errs, err.Error())
-	}
-
 	if len(errs) > 0 {
 		return fmt.Errorf("invalid config: %s", strings.Join(errs, "; "))
 	}
@@ -1117,42 +1093,13 @@ func (c *Config) GetMultiplexer() string {
 	return "auto"
 }
 
-// GetMonitorMultiplexer returns the multiplexer for orch-monitor (default: zellij)
-func (c *Config) GetMonitorMultiplexer() string {
-	if c.MonitorMultiplexer != "" {
-		return c.MonitorMultiplexer
-	}
-	// Fall back to legacy Multiplexer if set
-	if c.Multiplexer != "" {
-		return c.Multiplexer
-	}
-	return "zellij"
-}
-
 // GetAgentMultiplexer returns the multiplexer for agent sessions (default: tmux)
-// Note: Does NOT fall back to legacy Multiplexer field - agents must use tmux
-// by default to allow attach from Zellij monitor (cross-session Zellij doesn't work)
+// Note: Does NOT fall back to the legacy Multiplexer field.
 func (c *Config) GetAgentMultiplexer() string {
 	if c.AgentMultiplexer != "" {
 		return c.AgentMultiplexer
 	}
 	return "tmux"
-}
-
-// ErrInvalidMultiplexerConfig is returned when monitor and agent multiplexer
-// configuration is invalid (e.g., both set to zellij)
-var ErrInvalidMultiplexerConfig = fmt.Errorf("invalid multiplexer configuration")
-
-// ValidateMultiplexerConfig checks if the multiplexer configuration is valid.
-// Returns an error if monitor=zellij and agent=zellij (cross-session attach doesn't work).
-func (c *Config) ValidateMultiplexerConfig() error {
-	monitorMux := c.GetMonitorMultiplexer()
-	agentMux := c.GetAgentMultiplexer()
-
-	if monitorMux == "zellij" && agentMux == "zellij" {
-		return fmt.Errorf("%w: monitor_multiplexer=zellij with agent_multiplexer=zellij is not supported (cross-session Zellij attach doesn't work). Use agent_multiplexer=tmux instead", ErrInvalidMultiplexerConfig)
-	}
-	return nil
 }
 
 // GetBaseBranch returns the base branch with a default of "main"

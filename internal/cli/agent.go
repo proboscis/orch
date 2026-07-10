@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/proboscis/orch/internal/agent"
-	"github.com/proboscis/orch/internal/monitor"
+	"github.com/proboscis/orch/internal/controlagent"
 	"github.com/proboscis/orch/internal/multiplexer"
 	"github.com/proboscis/orch/internal/orchapi"
 	"github.com/spf13/cobra"
@@ -83,7 +83,7 @@ func runAgent(opts *agentOptions) error {
 	ctx := context.Background()
 	api, apiErr := getAPI()
 
-	orchDir := monitor.GetOrchDir(projectRoot)
+	orchDir := filepath.Join(projectRoot, ".orch")
 
 	// Handle --kill flag
 	if opts.Kill {
@@ -200,7 +200,7 @@ func runOpenCodeAgent(orchDir, projectRoot string, opts *agentOptions, controlCf
 	}
 
 	// Add prompt instruction
-	args = append(args, "--prompt", monitor.GetControlPromptInstruction())
+	args = append(args, "--prompt", controlagent.GetControlPromptInstruction())
 
 	if promptPath != "" {
 		fmt.Fprintf(os.Stderr, "Control prompt: %s\n", promptPath)
@@ -210,7 +210,7 @@ func runOpenCodeAgent(orchDir, projectRoot string, opts *agentOptions, controlCf
 	if state == nil || opts.New {
 		// Generate a session ID for opencode to use
 		newSessionID := fmt.Sprintf("orch-control-%d", time.Now().Unix())
-		args = []string{"--session", newSessionID, "--prompt", monitor.GetControlPromptInstruction()}
+		args = []string{"--session", newSessionID, "--prompt", controlagent.GetControlPromptInstruction()}
 
 		newState := &ControlAgentState{
 			Backend:   "opencode",
@@ -351,7 +351,7 @@ func createMultiplexerSession(orchDir, projectRoot string, agentType agent.Agent
 	launchCfg := &agent.LaunchConfig{
 		Type:         agentType,
 		IssuesRoot:   issuesRoot,
-		Prompt:       monitor.GetControlPromptInstruction(),
+		Prompt:       controlagent.GetControlPromptInstruction(),
 		Model:        modelName,
 		ModelVariant: modelVariant,
 		Profile:      profile,
@@ -533,7 +533,7 @@ func writeControlPromptViaAPI(issuesRoot string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to get API: %w", err)
 	}
-	return monitor.WriteControlPromptFileViaAPI(ctx, api, issuesRoot)
+	return controlagent.WriteControlPromptFileViaAPI(ctx, api, issuesRoot)
 }
 
 func writeControlPromptContentViaAPI(promptContent string) (string, error) {

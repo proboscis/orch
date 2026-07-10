@@ -941,10 +941,6 @@ message GitHubConfigProto {
   map<string, string> status_labels = 5;
 }
 
-message MonitorConfigProto {
-  repeated string ps_columns = 1;
-}
-
 message PSConfigProto {
   repeated string default_statuses = 1;
 }
@@ -959,7 +955,6 @@ message GetConfigResponse {
   string log_level = 7;
   string prompt_template = 8;
   string multiplexer = 9;
-  string monitor_multiplexer = 10;
   string agent_multiplexer = 11;
   bool no_pr = 12;
   string default_preset = 13;
@@ -967,7 +962,6 @@ message GetConfigResponse {
   string control_model = 15;
   string control_model_variant = 16;
   string diff_tool = 17;
-  MonitorConfigProto monitor = 18;
   repeated PresetProto presets = 19;
   OpenCodeConfigProto opencode = 20;
   ClaudeConfigProto claude = 21;
@@ -977,6 +971,8 @@ message GetConfigResponse {
   IssuesConfigProto issues = 25;
   GitHubConfigProto github = 26;
   PSConfigProto ps = 27;
+  reserved 10, 18;
+  reserved "monitor_multiplexer", "monitor";
 }
 
 // --- Daemon Status ---

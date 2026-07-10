@@ -1537,12 +1537,6 @@ class GitHubConfigProto(_message.Message):
     status_labels: _containers.ScalarMap[str, str]
     def __init__(self, owner: _Optional[str] = ..., repo: _Optional[str] = ..., label_filter: _Optional[str] = ..., poll_interval: _Optional[int] = ..., status_labels: _Optional[_Mapping[str, str]] = ...) -> None: ...
 
-class MonitorConfigProto(_message.Message):
-    __slots__ = ("ps_columns",)
-    PS_COLUMNS_FIELD_NUMBER: _ClassVar[int]
-    ps_columns: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, ps_columns: _Optional[_Iterable[str]] = ...) -> None: ...
-
 class PSConfigProto(_message.Message):
     __slots__ = ("default_statuses",)
     DEFAULT_STATUSES_FIELD_NUMBER: _ClassVar[int]
@@ -1550,7 +1544,7 @@ class PSConfigProto(_message.Message):
     def __init__(self, default_statuses: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class GetConfigResponse(_message.Message):
-    __slots__ = ("agent", "model", "model_variant", "worktree_dir", "base_branch", "pr_target_branch", "log_level", "prompt_template", "multiplexer", "monitor_multiplexer", "agent_multiplexer", "no_pr", "default_preset", "control_agent", "control_model", "control_model_variant", "diff_tool", "monitor", "presets", "opencode", "claude", "codex", "gemini", "slack", "issues", "github", "ps")
+    __slots__ = ("agent", "model", "model_variant", "worktree_dir", "base_branch", "pr_target_branch", "log_level", "prompt_template", "multiplexer", "agent_multiplexer", "no_pr", "default_preset", "control_agent", "control_model", "control_model_variant", "diff_tool", "presets", "opencode", "claude", "codex", "gemini", "slack", "issues", "github", "ps")
     AGENT_FIELD_NUMBER: _ClassVar[int]
     MODEL_FIELD_NUMBER: _ClassVar[int]
     MODEL_VARIANT_FIELD_NUMBER: _ClassVar[int]
@@ -1560,7 +1554,6 @@ class GetConfigResponse(_message.Message):
     LOG_LEVEL_FIELD_NUMBER: _ClassVar[int]
     PROMPT_TEMPLATE_FIELD_NUMBER: _ClassVar[int]
     MULTIPLEXER_FIELD_NUMBER: _ClassVar[int]
-    MONITOR_MULTIPLEXER_FIELD_NUMBER: _ClassVar[int]
     AGENT_MULTIPLEXER_FIELD_NUMBER: _ClassVar[int]
     NO_PR_FIELD_NUMBER: _ClassVar[int]
     DEFAULT_PRESET_FIELD_NUMBER: _ClassVar[int]
@@ -1568,7 +1561,6 @@ class GetConfigResponse(_message.Message):
     CONTROL_MODEL_FIELD_NUMBER: _ClassVar[int]
     CONTROL_MODEL_VARIANT_FIELD_NUMBER: _ClassVar[int]
     DIFF_TOOL_FIELD_NUMBER: _ClassVar[int]
-    MONITOR_FIELD_NUMBER: _ClassVar[int]
     PRESETS_FIELD_NUMBER: _ClassVar[int]
     OPENCODE_FIELD_NUMBER: _ClassVar[int]
     CLAUDE_FIELD_NUMBER: _ClassVar[int]
@@ -1587,7 +1579,6 @@ class GetConfigResponse(_message.Message):
     log_level: str
     prompt_template: str
     multiplexer: str
-    monitor_multiplexer: str
     agent_multiplexer: str
     no_pr: bool
     default_preset: str
@@ -1595,7 +1586,6 @@ class GetConfigResponse(_message.Message):
     control_model: str
     control_model_variant: str
     diff_tool: str
-    monitor: MonitorConfigProto
     presets: _containers.RepeatedCompositeFieldContainer[PresetProto]
     opencode: OpenCodeConfigProto
     claude: ClaudeConfigProto
@@ -1605,7 +1595,7 @@ class GetConfigResponse(_message.Message):
     issues: IssuesConfigProto
     github: GitHubConfigProto
     ps: PSConfigProto
-    def __init__(self, agent: _Optional[str] = ..., model: _Optional[str] = ..., model_variant: _Optional[str] = ..., worktree_dir: _Optional[str] = ..., base_branch: _Optional[str] = ..., pr_target_branch: _Optional[str] = ..., log_level: _Optional[str] = ..., prompt_template: _Optional[str] = ..., multiplexer: _Optional[str] = ..., monitor_multiplexer: _Optional[str] = ..., agent_multiplexer: _Optional[str] = ..., no_pr: _Optional[bool] = ..., default_preset: _Optional[str] = ..., control_agent: _Optional[str] = ..., control_model: _Optional[str] = ..., control_model_variant: _Optional[str] = ..., diff_tool: _Optional[str] = ..., monitor: _Optional[_Union[MonitorConfigProto, _Mapping]] = ..., presets: _Optional[_Iterable[_Union[PresetProto, _Mapping]]] = ..., opencode: _Optional[_Union[OpenCodeConfigProto, _Mapping]] = ..., claude: _Optional[_Union[ClaudeConfigProto, _Mapping]] = ..., codex: _Optional[_Union[CodexConfigProto, _Mapping]] = ..., gemini: _Optional[_Union[GeminiConfigProto, _Mapping]] = ..., slack: _Optional[_Union[SlackConfigProto, _Mapping]] = ..., issues: _Optional[_Union[IssuesConfigProto, _Mapping]] = ..., github: _Optional[_Union[GitHubConfigProto, _Mapping]] = ..., ps: _Optional[_Union[PSConfigProto, _Mapping]] = ...) -> None: ...
+    def __init__(self, agent: _Optional[str] = ..., model: _Optional[str] = ..., model_variant: _Optional[str] = ..., worktree_dir: _Optional[str] = ..., base_branch: _Optional[str] = ..., pr_target_branch: _Optional[str] = ..., log_level: _Optional[str] = ..., prompt_template: _Optional[str] = ..., multiplexer: _Optional[str] = ..., agent_multiplexer: _Optional[str] = ..., no_pr: _Optional[bool] = ..., default_preset: _Optional[str] = ..., control_agent: _Optional[str] = ..., control_model: _Optional[str] = ..., control_model_variant: _Optional[str] = ..., diff_tool: _Optional[str] = ..., presets: _Optional[_Iterable[_Union[PresetProto, _Mapping]]] = ..., opencode: _Optional[_Union[OpenCodeConfigProto, _Mapping]] = ..., claude: _Optional[_Union[ClaudeConfigProto, _Mapping]] = ..., codex: _Optional[_Union[CodexConfigProto, _Mapping]] = ..., gemini: _Optional[_Union[GeminiConfigProto, _Mapping]] = ..., slack: _Optional[_Union[SlackConfigProto, _Mapping]] = ..., issues: _Optional[_Union[IssuesConfigProto, _Mapping]] = ..., github: _Optional[_Union[GitHubConfigProto, _Mapping]] = ..., ps: _Optional[_Union[PSConfigProto, _Mapping]] = ...) -> None: ...
 
 class GetDaemonStatusRequest(_message.Message):
     __slots__ = ()

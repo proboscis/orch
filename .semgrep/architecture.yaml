@@ -150,12 +150,12 @@ rules:
         # Bootstrap/management exceptions
         - /internal/cli/root.go
         - /internal/cli/daemon.go
-        - /internal/cli/monitor.go
         - /internal/cli/repair.go
     message: >
       CLI should use orchapi.OrchAPI interface (via getAPI()), not the daemon package.
       Direct daemon access bypasses the API abstraction layer.
-      Exceptions: root.go (ensureDaemon), daemon.go (daemon commands), monitor.go (monitor launch), repair.go (daemon lifecycle management).
+      Exceptions: root.go (ensureDaemon), daemon.go (daemon commands), and
+      repair.go (daemon lifecycle management).
     severity: ERROR
     languages: [go]
     metadata:
@@ -423,102 +423,6 @@ rules:
       CLI must not interact with multiplexer (tmux/zellij) directly.
       Send and capture must go through daemon API. Attach is the only
       exception (interactive terminal is a UI concern).
-    severity: ERROR
-    languages: [go]
-    metadata:
-      category: architecture
-      violation: daemon-bypass
-
-  # ---------------------------------------------------------------------------
-  # 4. Monitor boundary rules (same principles apply)
-  # ---------------------------------------------------------------------------
-
-  - id: monitor-no-git-import
-    patterns:
-      - pattern: |
-          import (
-            ...
-            "github.com/proboscis/orch/internal/git"
-            ...
-          )
-    paths:
-      include:
-        - /internal/monitor/
-      exclude:
-        - /internal/monitor/*_test.go
-    message: >
-      Monitor must not import internal/git. All git operations must go through
-      the daemon API.
-    severity: ERROR
-    languages: [go]
-    metadata:
-      category: architecture
-      violation: daemon-bypass
-
-  - id: monitor-no-pr-import
-    patterns:
-      - pattern: |
-          import (
-            ...
-            "github.com/proboscis/orch/internal/pr"
-            ...
-          )
-    paths:
-      include:
-        - /internal/monitor/
-      exclude:
-        - /internal/monitor/*_test.go
-    message: >
-      Monitor must not import internal/pr. PR operations must go through the daemon API.
-    severity: ERROR
-    languages: [go]
-    metadata:
-      category: architecture
-      violation: daemon-bypass
-
-  - id: monitor-no-exec-git
-    patterns:
-      - pattern: exec.Command("git", ...)
-    paths:
-      include:
-        - /internal/monitor/
-      exclude:
-        - /internal/monitor/*_test.go
-    message: >
-      Monitor must not shell out to git. Use daemon API for git operations.
-    severity: ERROR
-    languages: [go]
-    metadata:
-      category: architecture
-      violation: daemon-bypass
-
-  - id: monitor-no-exec-gh
-    patterns:
-      - pattern: exec.Command("gh", ...)
-    paths:
-      include:
-        - /internal/monitor/
-      exclude:
-        - /internal/monitor/*_test.go
-    message: >
-      Monitor must not shell out to 'gh' CLI. PR/GitHub operations must go
-      through the daemon API.
-    severity: ERROR
-    languages: [go]
-    metadata:
-      category: architecture
-      violation: daemon-bypass
-
-  - id: monitor-no-pr-lookup
-    patterns:
-      - pattern: pr.LookupInfo(...)
-    paths:
-      include:
-        - /internal/monitor/
-      exclude:
-        - /internal/monitor/*_test.go
-    message: >
-      Monitor must not call pr.LookupInfo() directly. PR lookups go through the daemon.
     severity: ERROR
     languages: [go]
     metadata:
@@ -1334,114 +1238,6 @@ rules:
       category: architecture
       violation: cluster-project-scope
 
-  - id: cli-monitor-list-must-not-hardfail-on-missing-project-root
-    patterns:
-      - pattern: |
-          projectRoot, err := getProjectRoot()
-          if err != nil {
-            return err
-          }
-      - pattern-inside: |
-          func runMonitorList(opts *monitorListOptions) error {
-            ...
-          }
-    paths:
-      include:
-        - /internal/cli/monitor.go
-    message: >
-      SPEC-12 acceptance guardrail: monitor list should tolerate missing project root
-      and still operate in master-global mode outside repos.
-    severity: ERROR
-    languages: [go]
-    metadata:
-      category: architecture
-      violation: cluster-global-read
-
-  - id: cli-monitor-kill-must-not-hardfail-on-missing-project-root
-    patterns:
-      - pattern: |
-          projectRoot, err := getProjectRoot()
-          if err != nil {
-            return err
-          }
-      - pattern-inside: |
-          func runMonitorKill(monitorID string, opts *monitorKillOptions) error {
-            ...
-          }
-    paths:
-      include:
-        - /internal/cli/monitor.go
-    message: >
-      SPEC-12 acceptance guardrail: monitor kill should tolerate missing project root
-      (monitor id/global modes) outside repos.
-    severity: ERROR
-    languages: [go]
-    metadata:
-      category: architecture
-      violation: cluster-global-read
-
-  - id: cli-monitor-list-must-not-infer-project-scope-from-cwd
-    patterns:
-      - pattern-inside: |
-          func runMonitorList(opts *monitorListOptions) error {
-            ...
-          }
-      - pattern: getProjectRoot()
-    paths:
-      include:
-        - /internal/cli/monitor.go
-    message: >
-      Phase-3 guardrail: `orch monitor list` must not infer project scope directly
-      from cwd. Use resolveMonitorProjectScope()/getProjectRootWithSource() so
-      monitor scope is only applied when project root is explicit.
-    severity: ERROR
-    languages: [go]
-    metadata:
-      category: architecture
-      violation: cluster-project-scope
-
-  - id: cli-monitor-kill-must-not-infer-project-scope-from-cwd
-    patterns:
-      - pattern-inside: |
-          func runMonitorKill(monitorID string, opts *monitorKillOptions) error {
-            ...
-          }
-      - pattern: getProjectRoot()
-    paths:
-      include:
-        - /internal/cli/monitor.go
-    message: >
-      Phase-3 guardrail: `orch monitor kill` must not infer project scope directly
-      from cwd. Use resolveMonitorProjectScope()/getProjectRootWithSource() so
-      monitor scope is only applied when project root is explicit.
-    severity: ERROR
-    languages: [go]
-    metadata:
-      category: architecture
-      violation: cluster-project-scope
-
-  - id: cli-monitor-scope-must-not-be-remote-only
-    patterns:
-      - pattern-inside: |
-          func resolveMonitorProjectScope() (string, bool, bool) {
-            ...
-          }
-      - pattern: |
-          if remote && !explicitProjectRoot {
-            ...
-          }
-    paths:
-      include:
-        - /internal/cli/monitor.go
-    message: >
-      Phase-3 guardrail: dropping implicit cwd scope must apply uniformly, not only
-      in remote transport mode.
-    severity: ERROR
-    languages: [go]
-    metadata:
-      category: architecture
-      violation: cluster-project-scope
-
   - id: cli-run-must-not-infer-repo-root-from-cwd
     patterns:
       - pattern-inside: |
@@ -1493,25 +1289,6 @@ rules:
     message: >
       Phase-3 guardrail: `orch exec` must not infer project scope from cwd when
       resolving relative worktree paths. Use explicit project scope resolution.
-    severity: ERROR
-    languages: [go]
-    metadata:
-      category: architecture
-      violation: cluster-project-scope
-
-  - id: cli-monitor-main-must-not-infer-project-scope-from-cwd
-    patterns:
-      - pattern-inside: |
-          func runMonitor(opts *monitorOptions) error {
-            ...
-          }
-      - pattern: getProjectRoot()
-    paths:
-      include:
-        - /internal/cli/monitor.go
-    message: >
-      Phase-3 guardrail: interactive `orch monitor` must not infer project scope
-      from cwd. Require explicit project scope (`--project`/`ORCH_PROJECT`).
     severity: ERROR
     languages: [go]
     metadata:
@@ -1842,50 +1619,6 @@ rules:
   # 9. Incremental migration guardrails (prevent boundary debt expansion)
   # ---------------------------------------------------------------------------
 
-  - id: monitor-no-daemon-import-incremental
-    patterns:
-      - pattern: |
-          import (
-            ...
-            "github.com/proboscis/orch/internal/daemon"
-            ...
-          )
-    paths:
-      include:
-        - /internal/monitor/
-      exclude:
-        - /internal/monitor/*_test.go
-    message: >
-      Monitor should not import internal/daemon directly. Use orchapi as the
-      boundary and move daemon lifecycle/health operations behind API methods.
-    severity: ERROR
-    languages: [go]
-    metadata:
-      category: architecture
-      violation: abstraction-bypass
-
-  - id: monitor-no-store-import-incremental
-    patterns:
-      - pattern: |
-          import (
-            ...
-            "github.com/proboscis/orch/internal/store"
-            ...
-          )
-    paths:
-      include:
-        - /internal/monitor/
-      exclude:
-        - /internal/monitor/*_test.go
-    message: >
-      Monitor should not import internal/store directly. Store access must be
-      daemon-owned and exposed via orchapi.
-    severity: ERROR
-    languages: [go]
-    metadata:
-      category: architecture
-      violation: daemon-bypass
-
   - id: cli-no-worktree-fs-check-incremental
     patterns:
       - pattern-either:
@@ -1959,7 +1692,6 @@ rules:
       include:
         - /internal/daemon/
         - /internal/cli/
-        - /internal/monitor/
       exclude:
         # Daemon-managed process lifecycle exceptions
         - /internal/daemon/daemon.go
@@ -1972,13 +1704,9 @@ rules:
         - /internal/cli/attach.go
         - /internal/cli/agent.go
         - /internal/cli/diff.go
-        # Monitor UI launcher exceptions
-        - /internal/monitor/dashboard.go
-        - /internal/monitor/issues_dashboard.go
-        - /internal/monitor/monitor.go
         - "*_test.go"
     message: >
-      Raw exec.Command/exec.CommandContext in daemon/cli/monitor layers.
+      Raw exec.Command/exec.CommandContext in daemon/CLI layers.
       Use the appropriate interface: git.Runner, github.Client, ProcessManager,
       multiplexer.Multiplexer, orchapi.OrchAPI, or agent.Adapter.
     severity: ERROR
@@ -1995,7 +1723,6 @@ rules:
     paths:
       include:
         - /internal/cli/
-        - /internal/monitor/
         - /internal/orchapi/
         - /internal/daemon/
       exclude:
@@ -2003,7 +1730,6 @@ rules:
         - /internal/daemon/startup_recovery.go
         - /internal/daemon/*_test.go
         - /internal/cli/*_test.go
-        - /internal/monitor/*_test.go
         - /internal/orchapi/*_test.go
     message: >
       CRITICAL (orch-447): do not create raw Unix socket connections in client
@@ -2087,28 +1813,6 @@ rules:
     metadata:
       category: architecture
       violation: rate-limit-bypass
-
-  # ---------------------------------------------------------------------------
-  # 12. Control-agent split guardrails (remote-safe monitor architecture)
-  # ---------------------------------------------------------------------------
-
-  - id: monitor-no-control-agent-launch-rpc
-    patterns:
-      - pattern: $API.GetControlAgentLaunch(...)
-    paths:
-      include:
-        - /internal/monitor/
-      exclude:
-        - /internal/monitor/*_test.go
-    message: >
-      Monitor must not call GetControlAgentLaunch() directly.
-      For remote-safe architecture, monitor should use GetControlAgentConfig()
-      and manage local control-agent session lifecycle client-side.
-    severity: ERROR
-    languages: [go]
-    metadata:
-      category: architecture
-      violation: control-agent-split
 
   # ---------------------------------------------------------------------------
   # 13. Remote session control must route through daemon/worker protocol

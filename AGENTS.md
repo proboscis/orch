@@ -153,11 +153,10 @@ The daemon boundary is mechanically enforced via semgrep rules in `.semgrep/arch
 make lint          # Strict architecture lint (exits non-zero on violations)
 ```
 
-**Before creating PRs that touch `internal/cli/` or `internal/monitor/`**, run `make lint` and ensure you are not introducing new violations. The rules enforce:
+**Before creating PRs that touch `internal/cli/`**, run `make lint` and ensure you are not introducing new violations. The rules enforce:
 - CLI must not import `internal/git`, `internal/pr`, `internal/store`
 - CLI must not shell out to `git` or call git functions directly
 - CLI must use `orchapi.OrchAPI` (via `getAPI()`), not `daemon` package directly
-- Monitor must not import `internal/git`, `internal/pr`, or shell out to `git`/`gh`
 
 Existing violations are tracked; do not add new ones.
 
@@ -182,7 +181,7 @@ Existing violations are tracked; do not add new ones.
 - Unit tests are required for new daemon functionality
 - Integration tests live in `test/integration/`; end-to-end flows are scripted
   in `scripts/e2e-*.sh`
-- TUI changes should be manually tested with `orch monitor`
+- TUI changes should be manually tested with `orch-monitor`
 
 Canonical E2E instruction docs:
 - [docs/development/e2e-master-worker-client.md](docs/development/e2e-master-worker-client.md)

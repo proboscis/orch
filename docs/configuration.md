@@ -119,10 +119,7 @@ worktree_dir: ~/.orch/worktrees
 # Multiplexer for agent sessions: tmux or zellij (default: tmux)
 agent_multiplexer: tmux
 
-# Multiplexer for orch monitor: zellij or tmux (default: zellij)
-monitor_multiplexer: zellij
-
-# `multiplexer` is a deprecated compatibility key. Use the two keys above.
+# `multiplexer` is a deprecated compatibility key. Use `agent_multiplexer`.
 
 # =============================================================================
 # EXECUTION TARGETS
@@ -234,7 +231,7 @@ ps:
     - pr_open
 
 # =============================================================================
-# MONITOR SETTINGS (for orch monitor command)
+# MONITOR SETTINGS (for the Python orch-monitor TUI)
 # =============================================================================
 
 monitor:
@@ -298,7 +295,7 @@ All settings can be configured via environment variables:
 | `ORCH_PR_TARGET_BRANCH` | PR target branch | `develop` |
 | `ORCH_PROMPT_TEMPLATE` | Global prompt template content | `Read ORCH_PROMPT.md` |
 | `ORCH_AGENT_MULTIPLEXER` | Multiplexer for agent sessions | `tmux` |
-| `ORCH_MONITOR_MULTIPLEXER` | Multiplexer for `orch monitor` | `zellij` |
+| `ORCH_MONITOR_MULTIPLEXER` | Multiplexer for Python `orch-monitor` | `zellij` |
 | `ORCH_MULTIPLEXER` | Deprecated multiplexer compatibility setting | `tmux` |
 | `ORCH_NO_PR` | Omit PR creation instructions (`true`, `1`, or `yes`) | `true` |
 | `ORCH_OPENCODE_DEFAULT_MODEL` | Default OpenCode model | `anthropic/claude-opus-4-5` |
@@ -390,17 +387,15 @@ opencode:
 
 ## Terminal Multiplexers
 
-Agent sessions and the monitor have separate multiplexer settings. Agent
-sessions default to tmux; `orch monitor` defaults to zellij.
+Agent sessions and the Python `orch-monitor` TUI have separate multiplexer
+settings. Agent sessions default to tmux; the Python TUI auto-detects its
+environment and otherwise defaults to zellij.
 
 ```yaml
 agent_multiplexer: tmux
-monitor_multiplexer: zellij
 ```
 
-The old `multiplexer` key is deprecated. It remains a compatibility fallback
-for the monitor but does not override the agent-session default; use
-`agent_multiplexer` for runs.
+The old `multiplexer` key is deprecated; use `agent_multiplexer` for runs.
 
 Or per-command:
 

@@ -2571,7 +2571,6 @@ func (c *ProtoClient) GetConfig() (*ConfigResponse, error) {
 		LogLevel:            configResp.LogLevel,
 		PromptTemplate:      configResp.PromptTemplate,
 		Multiplexer:         configResp.Multiplexer,
-		MonitorMultiplexer:  configResp.MonitorMultiplexer,
 		AgentMultiplexer:    configResp.AgentMultiplexer,
 		NoPR:                configResp.NoPr,
 		DefaultPreset:       configResp.DefaultPreset,
@@ -2581,9 +2580,6 @@ func (c *ProtoClient) GetConfig() (*ConfigResponse, error) {
 		DiffTool:            configResp.DiffTool,
 	}
 
-	if configResp.Monitor != nil {
-		cfg.Monitor.PSColumns = configResp.Monitor.PsColumns
-	}
 	if configResp.Ps != nil {
 		cfg.PS.DefaultStatuses = configResp.Ps.DefaultStatuses
 	}

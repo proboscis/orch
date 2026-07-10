@@ -1,4 +1,4 @@
-"""Entry point for orch monitor TUI."""
+"""Entry point for the orch-monitor TUI."""
 
 import argparse
 import json

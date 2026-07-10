@@ -1,4 +1,4 @@
-"""Configuration management for orch monitor."""
+"""Configuration management for orch-monitor."""
 
 from dataclasses import dataclass, field
 from datetime import datetime

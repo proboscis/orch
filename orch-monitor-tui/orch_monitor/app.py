@@ -1,4 +1,4 @@
-"""Main Textual app for orch monitor.
+"""Main Textual app for orch-monitor.
 
 This module re-exports classes from Hy implementations that use
 macro-based error handling to enforce no-silent-error patterns.
