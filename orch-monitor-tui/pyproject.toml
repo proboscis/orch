@@ -1,7 +1,7 @@
 [project]
 name = "orch-monitor"
 version = "0.2.0"
-description = "Python Textual-based TUI for orch monitor (daemon-only architecture)"
+description = "Python Textual-based orch TUI (daemon-only architecture)"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

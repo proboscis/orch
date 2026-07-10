@@ -56,3 +56,11 @@ func TestVisibleRootCommandsBelongToGroups(t *testing.T) {
 		}
 	}
 }
+
+func TestRootDoesNotExposeRemovedMonitorCommand(t *testing.T) {
+	for _, cmd := range rootCmd.Commands() {
+		if cmd.Name() == "monitor" {
+			t.Fatal("removed monitor command is still registered")
+		}
+	}
+}

@@ -1,4 +1,4 @@
-"""Custom widgets for orch monitor TUI."""
+"""Custom widgets for the orch-monitor TUI."""
 
 from typing import Optional
 

@@ -1,4 +1,4 @@
-package monitor
+package controlagent
 
 import (
 	"context"
@@ -6,13 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"text/template"
 
 	"github.com/proboscis/orch/internal/config"
-	"github.com/proboscis/orch/internal/model"
 	"github.com/proboscis/orch/internal/orchapi"
 )
 
@@ -116,7 +114,7 @@ Run these commands directly using bash (do not use any special protocol):
 ### Interactive Commands (DO NOT USE)
 The following commands are interactive and will hang if called by an AI agent:
 - ` + "`orch attach`" + ` - interactive tmux session (for humans only)
-- ` + "`orch monitor`" + ` - interactive TUI (for humans only)
+- ` + "`orch-monitor`" + ` - interactive Python TUI (for humans only)
 
 ## Troubleshooting
 
@@ -190,73 +188,6 @@ type RunInfo struct {
 	IssueID string
 	ShortID string
 	Status  string
-}
-
-// detectIssueIDConvention analyzes existing issue IDs to detect the naming pattern
-func detectIssueIDConvention(issues []*model.Issue) (pattern, example, nextID string) {
-	// Default fallback
-	pattern = "<prefix>-<number> (e.g., proj-001, issue-42)"
-	example = "orch-001"
-	nextID = "orch-001"
-
-	if len(issues) == 0 {
-		return
-	}
-
-	// Extract all issue IDs
-	ids := make([]string, 0, len(issues))
-	for _, issue := range issues {
-		ids = append(ids, string(issue.ID))
-	}
-
-	// Try to detect pattern: prefix-number (most common)
-	prefixNumRegex := regexp.MustCompile(`^([a-zA-Z][\w-]*)-(\d+)$`)
-
-	prefixCounts := make(map[string]int)
-	maxNums := make(map[string]int)
-
-	for _, id := range ids {
-		matches := prefixNumRegex.FindStringSubmatch(id)
-		if matches != nil {
-			prefix := matches[1]
-			num, _ := strconv.Atoi(matches[2])
-			prefixCounts[prefix]++
-			if num > maxNums[prefix] {
-				maxNums[prefix] = num
-			}
-		}
-	}
-
-	// Find most common prefix
-	var mostCommonPrefix string
-	maxCount := 0
-	for prefix, count := range prefixCounts {
-		if count > maxCount {
-			maxCount = count
-			mostCommonPrefix = prefix
-		}
-	}
-
-	if mostCommonPrefix != "" {
-		// Determine padding width from existing IDs
-		padWidth := 3 // default
-		for _, id := range ids {
-			matches := prefixNumRegex.FindStringSubmatch(id)
-			if matches != nil && matches[1] == mostCommonPrefix {
-				numStr := matches[2]
-				if len(numStr) > padWidth {
-					padWidth = len(numStr)
-				}
-			}
-		}
-
-		pattern = fmt.Sprintf("%s-<number> (zero-padded to %d digits)", mostCommonPrefix, padWidth)
-		example = fmt.Sprintf("%s-%0*d", mostCommonPrefix, padWidth, 1)
-		nextNum := maxNums[mostCommonPrefix] + 1
-		nextID = fmt.Sprintf("%s-%0*d", mostCommonPrefix, padWidth, nextNum)
-	}
-
-	return
 }
 
 // getGitBranch is intentionally empty — git operations go through daemon API.
@@ -503,36 +434,4 @@ func detectIssueIDConventionFromAPI(issues []*orchapi.Issue) (pattern, example, 
 // GetControlPromptInstruction returns the instruction for reading the prompt file
 func GetControlPromptInstruction() string {
 	return controlPromptFileInstruction
-}
-
-// sortIssuesByID sorts issues by their numeric ID if they follow prefix-number pattern
-func sortIssuesByID(issues []*model.Issue) {
-	prefixNumRegex := regexp.MustCompile(`^([a-zA-Z][\w-]*)-(\d+)$`)
-
-	sort.Slice(issues, func(i, j int) bool {
-		matchI := prefixNumRegex.FindStringSubmatch(string(issues[i].ID))
-		matchJ := prefixNumRegex.FindStringSubmatch(string(issues[j].ID))
-
-		// If both match pattern, compare by prefix then number
-		if matchI != nil && matchJ != nil {
-			if matchI[1] != matchJ[1] {
-				return matchI[1] < matchJ[1]
-			}
-			numI, _ := strconv.Atoi(matchI[2])
-			numJ, _ := strconv.Atoi(matchJ[2])
-			return numI < numJ
-		}
-
-		// Fall back to string comparison
-		return issues[i].ID < issues[j].ID
-	})
-}
-
-func fallbackChatCommand(reason string) string {
-	msg := "Agent chat unavailable"
-	if strings.TrimSpace(reason) != "" {
-		msg = fmt.Sprintf("Agent chat unavailable: %s", reason)
-	}
-	cmd := fmt.Sprintf("echo %s; exec ${SHELL:-sh}", shellQuote(msg))
-	return fmt.Sprintf("sh -c %s", shellQuote(cmd))
 }

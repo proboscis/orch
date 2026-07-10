@@ -16,7 +16,7 @@ Pick your path by what you are trying to do.
 | [Core Concepts](./concepts.md) | Issue, Run, Event, Status, Worktree |
 | [Configuration](./configuration.md) | All config options with examples |
 | [Remote Usage](./remote-usage.md) | Run orch against a remote daemon over TCP |
-| [orch-monitor TUI](./orch-monitor.md) | Visual dashboard for issues and runs |
+| [Python orch-monitor TUI](./orch-monitor.md) | Visual dashboard for issues and runs |
 
 | Details | |
 |---|---|

@@ -1,6 +1,6 @@
 # Orch Monitor TUI (Python/Textual)
 
-Python Textual-based terminal user interface for `orch monitor`.
+Python Textual-based terminal user interface for orch.
 
 ## Features
 

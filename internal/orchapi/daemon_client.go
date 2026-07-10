@@ -886,7 +886,6 @@ func (c *DaemonClient) GetConfig(ctx context.Context) (*Config, error) {
 		LogLevel:            resp.LogLevel,
 		PromptTemplate:      resp.PromptTemplate,
 		Multiplexer:         resp.Multiplexer,
-		MonitorMultiplexer:  resp.MonitorMultiplexer,
 		AgentMultiplexer:    resp.AgentMultiplexer,
 		NoPR:                resp.NoPR,
 		DefaultPreset:       resp.DefaultPreset,
@@ -896,9 +895,6 @@ func (c *DaemonClient) GetConfig(ctx context.Context) (*Config, error) {
 		DiffTool:            resp.DiffTool,
 		PS: PSConfig{
 			DefaultStatuses: resp.PS.DefaultStatuses,
-		},
-		Monitor: MonitorConfig{
-			PSColumns: resp.Monitor.PSColumns,
 		},
 		OpenCode: OpenCodeConfig{
 			DefaultModel:     resp.OpenCode.DefaultModel,

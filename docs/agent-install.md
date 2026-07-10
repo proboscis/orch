@@ -10,7 +10,7 @@ and ask before anything irreversible. The end state is:
    future session knows how to drive orch,
 3. the user has completed one real orch run, guided by you.
 
-Do NOT run `orch attach` or `orch monitor` yourself — they are interactive
+Do NOT run `orch attach` or `orch-monitor` yourself — they are interactive
 and will hang a non-interactive agent. Use `orch capture` and `orch send`
 instead; offer `attach` to the user as a command *they* can type.
 

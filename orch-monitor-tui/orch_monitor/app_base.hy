@@ -1,4 +1,4 @@
-;; Main Textual app for orch monitor
+;; Main Textual app for orch-monitor
 ;; Rewritten in Hy for consistent error handling via macros
 
 (require orch_monitor.macros [with-fallback with-fallback-silent must-succeed])

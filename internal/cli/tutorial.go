@@ -156,15 +156,13 @@ Interact with the agent:
     orch attach <run>       Interact with running agent
     orch stop <issue>       Stop all runs for an issue
     orch send <run> "msg"   Send message to running agent
-    orch monitor            TUI dashboard for all runs
+    orch-monitor            Python TUI dashboard for all runs
     orch show <issue>       Show issue details
 	orch restart-from <run> Restart from a failed/canceled/unknown run
     orch capture <run>      Capture agent session to markdown
 
-Note: 'orch monitor' is the built-in Go TUI shipped with the orch CLI.
-'orch-monitor' is the optional standalone Python TUI installed from
-orch-monitor-tui; both inspect the same daemon state, but they are separate
-frontends.
+Note: 'orch-monitor' is the standalone Python TUI installed from
+orch-monitor-tui.
 
 --------------------------------------------------------------------------------
 5. RUN STATUSES
@@ -243,9 +241,8 @@ Capture all completed runs:
 8. ORCH-MONITOR TUI
 --------------------------------------------------------------------------------
 
-orch-monitor is the optional standalone Python terminal UI for managing
-issue-driven development. It is separate from the built-in 'orch monitor'
-command.
+orch-monitor is the standalone Python terminal UI for managing
+issue-driven development.
 
 Launch the TUI:
 

@@ -137,7 +137,7 @@ orch run k8s-issue --agent custom --agent-cmd "k8s-agent"
 
 ## State Detection
 
-orch monitors the session's terminal output the same way as built-in agents.
+orch observes the session's terminal output the same way as built-in agents.
 Completion, error, and blocked patterns are not configurable for custom agents,
 so:
 

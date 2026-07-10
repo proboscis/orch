@@ -717,53 +717,11 @@ show its columns.
 
 ---
 
-## orch monitor
+## Monitor TUI migration
 
-Interactive TUI for monitoring runs.
-
-```bash
-orch monitor [flags]
-orch monitor [command]
-```
-
-### Flags
-
-| Flag | Description |
-|------|-------------|
-| `-a, --agent <type>` | Control agent to launch in monitor chat pane |
-| `--attach` | Attach to existing monitor session if present |
-| `--issue <id>` | Filter to specific issue |
-| `--new` | Restart layout only, preserving control agent session |
-| `--new-control-agent` | Also restart control agent session (implies `--new` for layout) |
-| `--sort-issues <field>` | Sort issues by: `name`, `status`, `title`, `priority`, `updated` (default: `name`) |
-| `--sort-runs <field>` | Sort runs by: `updated`, `started`, `status`, `issue`, `agent`, `elapsed`, `name` (default: `updated`) |
-| `--status <statuses>` | Filter by status |
-
-### orch monitor list
-
-List running monitor instances.
-
-```bash
-orch monitor list [flags]
-```
-
-| Flag | Description |
-|------|-------------|
-| `--all` | List monitors from all projects |
-| `--json` | Output in JSON format |
-
-### orch monitor kill
-
-Kill monitor instances.
-
-```bash
-orch monitor kill [MONITOR_ID] [flags]
-```
-
-| Flag | Description |
-|------|-------------|
-| `--all` | Kill all monitors for explicit project scope |
-| `--global` | With `--all`, kill monitors from all projects |
+The former Go monitor subcommand, including its `list` and `kill` variants,
+has been removed. Use the standalone Python `orch-monitor` binary instead; see
+the [orch-monitor TUI guide](../orch-monitor.md) for installation and usage.
 
 ---
 

@@ -12,8 +12,8 @@ Basis: /coupling-core 診断 (2026-06-12)。`docs/design/run-state-machine.md`
 - step() v1 マージ済み。law L1–L6 は `internal/daemon/step_test.go` の
   9 本の property test で機械検証済み。
 - **未閉鎖**: status イベント書き込み面が step 実行器の外に 15+ 箇所
-  (socket.go ×10, proto_handler.go ×4, internal/monitor/monitor.go ×2,
-  cli/tick.go, cli/repair.go)。これを守る semgrep ルールが無い。
+  (socket.go ×10, proto_handler.go ×4, cli/tick.go, cli/repair.go)。
+  旧 Go TUI の 2 writer は TUI 廃止と同時に撤去済み。
 - proto_handler.go の 4 箇所が `_ = st.AppendEvent(...)` でエラー握り潰し。
 - I2(再起動透過性)・I5–I8 は doc 自身が違反と明記。
 - worker lease は churn(PR #457/#461, c5aba240)があるのに ADR/law 無し。
@@ -91,13 +91,13 @@ A1 の whitelist がフェーズの進捗メーター(縮んで空になった�
   であることを明記。
 
 ### B3. クライアント面からの status 書き込み撤去【API 設計=frontier / 移植=codex】
-- 対象: `internal/monitor/monitor.go:594`(canceled), `:749`(done)、
-  `cli/tick.go:163`、`cli/repair.go:207`
+- 対象: `cli/tick.go:163`、`cli/repair.go:207`。旧 Go TUI の
+  canceled/done writer は TUI 廃止と同時に撤去済み。
 - クライアントが status イベントを組み立てるのをやめ、意味のある
   daemon API 動詞(CancelRun / ResolveRun / Repair)に置き換える。
   「状態計算は daemon」の境界の書き込み版。
 - 成果物: API 動詞 + `.semgrep/` ルール `client-no-status-append`
-  (internal/cli, internal/monitor での Type:"status" append 禁止)。
+  (internal/cli での Type:"status" append 禁止)。
 - exit: status イベントの append 箇所が正確に 1(step 実行器)。
 
 ---

@@ -792,7 +792,6 @@ func TestProtoContinueRunInheritsSourceExecutionDefaults(t *testing.T) {
 	configBody := fmt.Sprintf(`agent: codex
 model: cfg-model
 model_variant: cfg-variant
-monitor_multiplexer: tmux
 agent_multiplexer: zellij
 issues:
   path: %s

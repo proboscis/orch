@@ -382,17 +382,17 @@ ORCH_REMOTE=master-host:7777 orch worker stop --worker-id host-mac
 
 ## Monitoring and Session Control
 
-### `orch monitor`
+### `orch-monitor`
 
-Interactive monitor for issue/run management.
+Standalone Python monitor for issue/run management.
 
 ```bash
-orch monitor
-orch monitor --issue plc-123
-orch monitor --status running,waiting
-orch monitor --attach
-orch monitor --new
-orch monitor --new-control-agent
+orch-monitor
+orch-monitor --project github.com/owner/repo
+orch-monitor --agent codex
+orch-monitor --new
+orch-monitor --new-control-agent
+orch-monitor --multiplexer tmux
 ```
 
 ### `orch attach RUN_REF`

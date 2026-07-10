@@ -2379,7 +2379,7 @@ Run these commands directly using bash (do not use any special protocol):
 ### Interactive Commands (DO NOT USE)
 The following commands are interactive and will hang if called by an AI agent:
 - `+"`orch attach`"+` - interactive tmux session (for humans only)
-- `+"`orch monitor`"+` - interactive TUI (for humans only)
+- `+"`orch-monitor`"+` - interactive Python TUI (for humans only)
 
 ## Troubleshooting
 
