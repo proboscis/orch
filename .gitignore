@@ -5,6 +5,8 @@
 
 # Local orch config/runtime files. Keep .orch/config.example.yaml tracked.
 **/.orch/config.yaml
+**/.orch/client.yaml
+**/.orch/*.bak
 **/.orch/daemon.*
 **/.orch/*.log
 **/.orch/*.pid
