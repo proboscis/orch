@@ -12,6 +12,7 @@ import (
 type fakeGitHubClient struct {
 	available bool
 	output    []byte
+	outputs   [][]byte
 	err       error
 
 	lastDir   string
@@ -23,17 +24,24 @@ func (f *fakeGitHubClient) IsAvailable() bool {
 	return f.available
 }
 
-func (f *fakeGitHubClient) Run(args ...string) ([]byte, error) {
+func (f *fakeGitHubClient) nextOutput() []byte {
+	callIndex := f.callCount
 	f.callCount++
+	if callIndex < len(f.outputs) {
+		return f.outputs[callIndex]
+	}
+	return f.output
+}
+
+func (f *fakeGitHubClient) Run(args ...string) ([]byte, error) {
 	f.lastArgs = append([]string(nil), args...)
-	return f.output, f.err
+	return f.nextOutput(), f.err
 }
 
 func (f *fakeGitHubClient) RunInDir(dir string, args ...string) ([]byte, error) {
-	f.callCount++
 	f.lastDir = dir
 	f.lastArgs = append([]string(nil), args...)
-	return f.output, f.err
+	return f.nextOutput(), f.err
 }
 
 func TestLookupInfoWithClient_UsesInjectedClient(t *testing.T) {
@@ -121,7 +129,7 @@ func TestPopulateRunInfo_RespectsMaxFetches(t *testing.T) {
 	}
 }
 
-func TestPopulateRunInfo_RespectsMinFetchInterval(t *testing.T) {
+func TestPopulateRunInfo_SameKeyCacheHitSkipsFetch(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 
 	client := &fakeGitHubClient{
@@ -137,13 +145,234 @@ func TestPopulateRunInfo_RespectsMinFetchInterval(t *testing.T) {
 	firstCallCount := client.callCount
 
 	runs2 := []*model.Run{
-		{IssueID: "test", RunID: "run-2", Branch: "branch-b"},
+		{IssueID: "test", RunID: "run-2", Branch: "branch-a"},
 	}
 	PopulateRunInfoWithClient(client, runs2)
 
 	if client.callCount != firstCallCount {
 		t.Fatalf("expected 0 additional API calls within cacheMinFetchInterval, got %d",
 			client.callCount-firstCallCount)
+	}
+}
+
+func TestShouldThrottleFetch_IsScopedPerKey(t *testing.T) {
+	now := time.Date(2026, 7, 11, 0, 0, 0, 0, time.UTC)
+	c := cache{
+		// A recent legacy file-wide timestamp must not throttle any key.
+		LastFetch: now,
+		LastFetchByKey: map[string]time.Time{
+			"recent": now.Add(-cacheMinFetchInterval + time.Second),
+			"ready":  now.Add(-cacheMinFetchInterval),
+		},
+	}
+
+	if !shouldThrottleFetch(c, "recent", now) {
+		t.Fatal("same key must be throttled within cacheMinFetchInterval")
+	}
+	if shouldThrottleFetch(c, "ready", now) {
+		t.Fatal("same key must be fetchable at cacheMinFetchInterval")
+	}
+	if shouldThrottleFetch(c, "other", now) {
+		t.Fatal("one key's fetch must not throttle a different key")
+	}
+}
+
+func TestLookupInfoByURL_ExpiredKeysDoNotStarveEachOther(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	now := time.Date(2026, 7, 11, 0, 0, 0, 0, time.UTC)
+	nowFunc := func() time.Time { return now }
+	cachePath, err := getCachePath(globalURLCacheScope)
+	if err != nil {
+		t.Fatalf("getCachePath: %v", err)
+	}
+
+	urls := []string{
+		"https://github.com/acme/repo/pull/101",
+		"https://github.com/acme/repo/pull/102",
+		"https://github.com/acme/repo/pull/103",
+	}
+	entries := make(map[string]cacheEntry, len(urls))
+	for i, prURL := range urls {
+		entries[urlCacheKey(prURL)] = cacheEntry{
+			URL:         prURL,
+			Number:      101 + i,
+			State:       "OPEN",
+			HeadRefName: fmt.Sprintf("feature/%d", 101+i),
+			CheckedAt:   now.Add(-cacheHitActiveTTL - time.Second),
+		}
+	}
+	saveCache(cachePath, cache{
+		// Under the old file-wide throttle, only the first key would fetch:
+		// its fetch moved LastFetch to now and blocked the remaining keys.
+		LastFetch: now.Add(-cacheMinFetchInterval),
+		Entries:   entries,
+	})
+
+	client := &fakeGitHubClient{
+		available: true,
+		outputs: [][]byte{
+			[]byte(`{"url":"https://github.com/acme/repo/pull/101","number":101,"state":"OPEN","headRefName":"feature/101"}`),
+			[]byte(`{"url":"https://github.com/acme/repo/pull/102","number":102,"state":"OPEN","headRefName":"feature/102"}`),
+			[]byte(`{"url":"https://github.com/acme/repo/pull/103","number":103,"state":"OPEN","headRefName":"feature/103"}`),
+		},
+	}
+	for _, prURL := range urls {
+		info, lookupErr := lookupInfoByURLWithCache(client, cachePath, prURL, nowFunc)
+		if lookupErr != nil {
+			t.Fatalf("lookupInfoByURLWithCache(%q): %v", prURL, lookupErr)
+		}
+		if info == nil {
+			t.Fatalf("lookupInfoByURLWithCache(%q) returned nil", prURL)
+		}
+		if info.URL != prURL {
+			t.Fatalf("lookupInfoByURLWithCache(%q) returned URL %q", prURL, info.URL)
+		}
+	}
+
+	if client.callCount != len(urls) {
+		t.Fatalf("expected every expired key to fetch once; got %d calls for %d keys", client.callCount, len(urls))
+	}
+	stored := loadCache(cachePath)
+	for _, prURL := range urls {
+		key := urlCacheKey(prURL)
+		if got := stored.LastFetchByKey[key]; !got.Equal(now) {
+			t.Errorf("LastFetchByKey[%q] = %v, want %v", key, got, now)
+		}
+	}
+}
+
+func TestPopulateRunInfo_ExpiredBranchesDoNotStarveEachOther(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	repoRoot, err := git.FindMainRepoRoot("")
+	if err != nil {
+		t.Skip("no git repo root available")
+	}
+	now := time.Date(2026, 7, 11, 0, 0, 0, 0, time.UTC)
+	cachePath, err := getCachePath(repoRoot)
+	if err != nil {
+		t.Fatalf("getCachePath: %v", err)
+	}
+
+	branches := []string{"feature/301", "feature/302", "feature/303"}
+	entries := make(map[string]cacheEntry, len(branches))
+	runs := make([]*model.Run, len(branches))
+	for i, branch := range branches {
+		entries[branch] = cacheEntry{
+			URL:         fmt.Sprintf("https://github.com/acme/repo/pull/%d", 301+i),
+			Number:      301 + i,
+			State:       "OPEN",
+			HeadRefName: branch,
+			CheckedAt:   now.Add(-cacheHitActiveTTL - time.Second),
+		}
+		runs[i] = &model.Run{IssueID: "test", RunID: model.RunID(fmt.Sprintf("run-%d", i)), Branch: branch}
+	}
+	saveCache(cachePath, cache{
+		LastFetch: now.Add(-cacheMinFetchInterval),
+		Entries:   entries,
+	})
+
+	client := &fakeGitHubClient{
+		available: true,
+		outputs: [][]byte{
+			[]byte(`[{"url":"https://github.com/acme/repo/pull/301","number":301,"state":"OPEN","headRefName":"feature/301"}]`),
+			[]byte(`[{"url":"https://github.com/acme/repo/pull/302","number":302,"state":"OPEN","headRefName":"feature/302"}]`),
+			[]byte(`[{"url":"https://github.com/acme/repo/pull/303","number":303,"state":"OPEN","headRefName":"feature/303"}]`),
+		},
+	}
+	infoMap := populateRunInfoWithClient(client, runs, func() time.Time { return now })
+
+	if client.callCount != len(branches) {
+		t.Fatalf("expected every expired branch to fetch once; got %d calls for %d keys", client.callCount, len(branches))
+	}
+	for _, branch := range branches {
+		if infoMap[branch] == nil {
+			t.Errorf("missing refreshed info for branch %q", branch)
+		}
+	}
+}
+
+func TestLookupInfoByURL_ThrottleReturnsStaleEntry(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	now := time.Date(2026, 7, 11, 0, 0, 0, 0, time.UTC)
+	cachePath, err := getCachePath(globalURLCacheScope)
+	if err != nil {
+		t.Fatalf("getCachePath: %v", err)
+	}
+	prURL := "https://github.com/acme/repo/pull/201"
+	key := urlCacheKey(prURL)
+	saveCache(cachePath, cache{
+		Entries: map[string]cacheEntry{
+			key: {
+				URL:         prURL,
+				Number:      201,
+				State:       "OPEN",
+				HeadRefName: "feature/201",
+				CheckedAt:   now.Add(-cacheHitActiveTTL - time.Second),
+			},
+		},
+	})
+
+	client := &fakeGitHubClient{available: true, err: fmt.Errorf("GitHub unavailable")}
+	info, err := lookupInfoByURLWithCache(client, cachePath, prURL, func() time.Time { return now })
+	if err == nil {
+		t.Fatal("first stale lookup must report the fetch error")
+	}
+	if info != nil {
+		t.Fatalf("failed fetch returned unexpected info: %#v", info)
+	}
+
+	// The failed attempt is now throttled for this key. It must retain and
+	// return the prior OPEN state rather than looking like a cache miss.
+	info, err = lookupInfoByURLWithCache(client, cachePath, prURL, func() time.Time { return now })
+	if err != nil {
+		t.Fatalf("lookupInfoByURLWithCache: %v", err)
+	}
+	if info == nil || info.State != "OPEN" || info.Number != 201 {
+		t.Fatalf("expected stale OPEN entry while throttled, got %#v", info)
+	}
+	if client.callCount != 1 {
+		t.Fatalf("throttled lookup made an additional API call; total = %d, want 1", client.callCount)
+	}
+}
+
+func TestLookupInfoByURL_PreLawEntryBypassesThrottle(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	now := time.Date(2026, 7, 11, 0, 0, 0, 0, time.UTC)
+	cachePath, err := getCachePath(globalURLCacheScope)
+	if err != nil {
+		t.Fatalf("getCachePath: %v", err)
+	}
+	prURL := "https://github.com/acme/repo/pull/401"
+	key := urlCacheKey(prURL)
+	saveCache(cachePath, cache{
+		LastFetchByKey: map[string]time.Time{key: now.Add(-time.Second)},
+		Entries: map[string]cacheEntry{
+			key: {
+				URL:       prURL,
+				Number:    401,
+				State:     "OPEN",
+				CheckedAt: now.Add(-time.Second),
+			},
+		},
+	})
+
+	client := &fakeGitHubClient{
+		available: true,
+		output:    []byte(`{"url":"https://github.com/acme/repo/pull/401","number":401,"state":"OPEN","headRefName":"feature/401"}`),
+	}
+	info, err := lookupInfoByURLWithCache(client, cachePath, prURL, func() time.Time { return now })
+	if err != nil {
+		t.Fatalf("lookupInfoByURLWithCache: %v", err)
+	}
+	if info == nil || info.HeadRefName != "feature/401" {
+		t.Fatalf("expected pre-law entry to be refetched with head branch, got %#v", info)
+	}
+	if client.callCount != 1 {
+		t.Fatalf("pre-law entry made %d API calls, want 1", client.callCount)
 	}
 }
 

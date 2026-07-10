@@ -47,8 +47,12 @@ type cacheEntry struct {
 }
 
 type cache struct {
-	LastFetch time.Time             `json:"last_fetch"`
-	Entries   map[string]cacheEntry `json:"entries"`
+	// LastFetch is a deprecated on-disk field retained during migration.
+	// Throttling must never use this file-wide timestamp: doing so lets one hot
+	// key starve every other key in the shared cache file.
+	LastFetch      time.Time             `json:"last_fetch,omitempty"`
+	LastFetchByKey map[string]time.Time  `json:"last_fetch_by_key,omitempty"`
+	Entries        map[string]cacheEntry `json:"entries"`
 }
 
 // PopulateRunInfo populates PR URLs and returns PR info for each run's branch.
@@ -59,6 +63,10 @@ func PopulateRunInfo(runs []*model.Run) InfoMap {
 // PopulateRunInfoWithClient populates PR URLs and returns PR info for each run's
 // branch using the provided GitHub client.
 func PopulateRunInfoWithClient(client github.Client, runs []*model.Run) InfoMap {
+	return populateRunInfoWithClient(client, runs, time.Now)
+}
+
+func populateRunInfoWithClient(client github.Client, runs []*model.Run, now func() time.Time) InfoMap {
 	prInfoMap := make(InfoMap)
 	if len(runs) == 0 {
 		return prInfoMap
@@ -87,12 +95,8 @@ func PopulateRunInfoWithClient(client github.Client, runs []*model.Run) InfoMap 
 		c.Entries = make(map[string]cacheEntry)
 	}
 
-	now := time.Now()
-	applyCachedInfo(runs, c, now, prInfoMap)
-
-	if time.Since(c.LastFetch) < cacheMinFetchInterval {
-		return prInfoMap
-	}
+	currentTime := now()
+	applyCachedInfo(runs, c, currentTime, prInfoMap)
 
 	dirty := false
 	fetches := 0
@@ -105,15 +109,12 @@ func PopulateRunInfoWithClient(client github.Client, runs []*model.Run) InfoMap 
 			continue
 		}
 
-		if entry, ok := c.Entries[r.Branch]; ok {
-			if isCacheEntryFresh(entry, now) {
-				info := infoFromCacheEntry(entry)
-				if info != nil {
-					r.PRUrl = info.URL
-					prInfoMap[r.Branch] = info
-				}
-				continue
+		if info, handled := cachedInfoForLookup(c, r.Branch, currentTime); handled {
+			if info != nil {
+				r.PRUrl = info.URL
+				prInfoMap[r.Branch] = info
 			}
+			continue
 		}
 
 		if fetches >= cacheMaxFetches {
@@ -121,12 +122,18 @@ func PopulateRunInfoWithClient(client github.Client, runs []*model.Run) InfoMap 
 		}
 
 		info, err := lookupInfo(client, repoRoot, r.Branch)
-		fetchTime := time.Now()
-		c.LastFetch = fetchTime
+		fetchTime := now()
+		recordFetch(&c, r.Branch, fetchTime)
 		fetches++
 		dirty = true
 
-		if err != nil || info == nil {
+		if err != nil {
+			// Keep the last known PR state. The per-key fetch timestamp will
+			// throttle an immediate retry, which can then return this stale
+			// entry instead of degrading the result to unknown.
+			continue
+		}
+		if info == nil {
 			c.Entries[r.Branch] = cacheEntry{CheckedAt: fetchTime}
 			continue
 		}
@@ -189,10 +196,14 @@ func isCacheEntryFresh(entry cacheEntry, now time.Time) bool {
 	}
 	// Entries persisted before the pr-attach law carry no head branch and
 	// cannot answer ownership checks — treat them as stale so they refetch.
-	if entry.URL != "" && entry.HeadRefName == "" {
+	if isPreLawCacheEntry(entry) {
 		return false
 	}
 	return now.Sub(entry.CheckedAt) < cacheEntryTTL(entry)
+}
+
+func isPreLawCacheEntry(entry cacheEntry) bool {
+	return entry.URL != "" && entry.HeadRefName == ""
 }
 
 func infoFromCacheEntry(entry cacheEntry) *Info {
@@ -224,11 +235,38 @@ func saveLookupCacheEntry(c *cache, key string, info *Info, checkedAt time.Time)
 	}
 }
 
-func shouldThrottleFetch(c cache, now time.Time) bool {
-	if c.LastFetch.IsZero() {
+func recordFetch(c *cache, key string, fetchedAt time.Time) {
+	if c.LastFetchByKey == nil {
+		c.LastFetchByKey = make(map[string]time.Time)
+	}
+	c.LastFetchByKey[key] = fetchedAt
+}
+
+func shouldThrottleFetch(c cache, key string, now time.Time) bool {
+	lastFetch := c.LastFetchByKey[key]
+	if lastFetch.IsZero() {
 		return false
 	}
-	return now.Sub(c.LastFetch) < cacheMinFetchInterval
+	return now.Sub(lastFetch) < cacheMinFetchInterval
+}
+
+func cachedInfoForLookup(c cache, key string, now time.Time) (*Info, bool) {
+	entry, cached := c.Entries[key]
+	if cached && isCacheEntryFresh(entry, now) {
+		return infoFromCacheEntry(entry), true
+	}
+	if !shouldThrottleFetch(c, key, now) {
+		return nil, false
+	}
+	// Pre-law entries cannot prove PR ownership and must be refetched even if
+	// a persisted per-key timestamp would otherwise throttle the lookup.
+	if cached && isPreLawCacheEntry(entry) {
+		return nil, false
+	}
+	// A throttled lookup still has information: preserve the last known PR
+	// state instead of degrading it to an unknown result. For a cached miss,
+	// info remains nil while handled distinguishes it from a fetchable miss.
+	return infoFromCacheEntry(entry), true
 }
 
 func urlCacheKey(prURL string) string {
@@ -330,17 +368,16 @@ func LookupInfoWithClient(client github.Client, repoRoot, branch string) (*Info,
 
 	c := loadCache(cachePath)
 	now := time.Now()
-	if entry, ok := c.Entries[branch]; ok && isCacheEntryFresh(entry, now) {
-		return infoFromCacheEntry(entry), nil
-	}
-	if shouldThrottleFetch(c, now) {
-		return nil, nil
+	if cachedInfo, handled := cachedInfoForLookup(c, branch, now); handled {
+		return cachedInfo, nil
 	}
 
 	info, err := lookupInfo(client, repoRoot, branch)
 	fetchTime := time.Now()
-	c.LastFetch = fetchTime
-	saveLookupCacheEntry(&c, branch, info, fetchTime)
+	recordFetch(&c, branch, fetchTime)
+	if err == nil {
+		saveLookupCacheEntry(&c, branch, info, fetchTime)
+	}
 	saveCache(cachePath, c)
 
 	if err != nil {
@@ -367,21 +404,23 @@ func LookupInfoByURL(prURL string) (*Info, error) {
 	if err != nil {
 		return lookupInfoByURL(ghClient, prURL)
 	}
+	return lookupInfoByURLWithCache(ghClient, cachePath, prURL, time.Now)
+}
 
+func lookupInfoByURLWithCache(client github.Client, cachePath, prURL string, now func() time.Time) (*Info, error) {
 	c := loadCache(cachePath)
 	cacheKey := urlCacheKey(prURL)
-	now := time.Now()
-	if entry, ok := c.Entries[cacheKey]; ok && isCacheEntryFresh(entry, now) {
-		return infoFromCacheEntry(entry), nil
-	}
-	if shouldThrottleFetch(c, now) {
-		return nil, nil
+	currentTime := now()
+	if cachedInfo, handled := cachedInfoForLookup(c, cacheKey, currentTime); handled {
+		return cachedInfo, nil
 	}
 
-	info, err := lookupInfoByURL(ghClient, prURL)
-	fetchTime := time.Now()
-	c.LastFetch = fetchTime
-	saveLookupCacheEntry(&c, cacheKey, info, fetchTime)
+	info, err := lookupInfoByURL(client, prURL)
+	fetchTime := now()
+	recordFetch(&c, cacheKey, fetchTime)
+	if err == nil {
+		saveLookupCacheEntry(&c, cacheKey, info, fetchTime)
+	}
 	saveCache(cachePath, c)
 
 	if err != nil {
