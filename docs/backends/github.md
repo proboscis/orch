@@ -206,9 +206,15 @@ github:
 
 slack:
   enabled: true
-  webhook_url: ${SLACK_WEBHOOK}
   notify_on:
     - waiting
+```
+
+Set `ORCH_SLACK_WEBHOOK_URL` in the orch process environment; YAML
+`${...}` interpolation is not supported:
+
+```bash
+export ORCH_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/XXX/YYY/ZZZ
 ```
 
 ## Limitations

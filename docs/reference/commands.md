@@ -8,7 +8,7 @@ These flags work with all commands:
 
 | Flag | Description |
 |------|-------------|
-| `--backend <type>` | Issue store backend: `local`, `github` (normally set via `issues.backend` in config) |
+| `--backend <type>` | Issue store backend: `file` (default), `local`, or `github` (normally set via `issues.backend` in config) |
 | `--project <id-or-url>` | Project identity (repo ID or git remote URL, or `ORCH_PROJECT`) |
 | `--remote <addr>` | Connect to remote daemon address (or `ORCH_REMOTE`) |
 | `--json` | Output in JSON format |
@@ -129,7 +129,7 @@ orch run ISSUE_ID [flags]
 |------|-------------|
 | `--agent <type>` | Agent: `claude`, `codex`, `gemini`, `opencode`, `custom` |
 | `--agent-cmd <cmd>` | Custom agent command (with `--agent custom`) |
-| `--base-branch <branch>` | Base branch for worktree (default: `main`) |
+| `--base-branch <branch>` | Explicit base branch for the worktree; when omitted, the daemon checks issue `base_branch`, config `base_branch`, then `main` |
 | `--branch <name>` | Branch name (default: `issue/<ID>/run-<RUN_ID>`) |
 | `--codex-profile <name>` | Codex execution profile from config (`codex.profiles`) |
 | `--dry-run` | Show what would be done without doing it |
@@ -142,7 +142,7 @@ orch run ISSUE_ID [flags]
 | `--preset <name>` | Use named preset from config |
 | `--profile <name>` | Agent profile |
 | `--prompt-template <file>` | Custom prompt template file |
-| `--reuse` | Reuse latest run if waiting |
+| `--reuse` | Reuse the latest run if it is `waiting` or `rate_limited` |
 | `--run-id <id>` | Manually specify run ID |
 | `--session-name <name>` | Session name (default: `run-<ISSUE>-<RUN>`) |
 | `--tmux` | Run in tmux session (default: true) |
@@ -225,7 +225,7 @@ orch ps [flags]
 | `--sort <field>` | Sort by: `updated`, `started` |
 | `--since <timestamp>` | Show runs since timestamp |
 | `--absolute-time` | Show absolute timestamps |
-| `--all` | Include resolved runs |
+| `-a, --all` | Include resolved runs |
 | `--no-alive` | Skip agent alive checks for faster listing |
 | `--no-git` | Skip git merge state checks for faster listing |
 | `-v, --verbose` | Show additional debug info (daemon log location) |
@@ -372,6 +372,13 @@ Do NOT use `orch restart-from` for send failures - the run is likely still alive
 orch send RUN_REF [MESSAGE] [flags]
 ```
 
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--no-enter` | Do not press Enter after sending (ignored for opencode agents) |
+| `--dry-run` | Validate the run and control path without sending a message |
+
 ### Examples
 
 ```bash
@@ -424,6 +431,12 @@ Capture current output from a running agent.
 orch capture RUN_REF [flags]
 ```
 
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--lines <n>` | Number of lines to capture (default: `100`) |
+
 ---
 
 ## orch capture-all
@@ -433,6 +446,12 @@ Capture output from all running agents.
 ```bash
 orch capture-all [flags]
 ```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--lines <n>` | Number of lines to capture per agent (default: `100`) |
 
 ---
 
@@ -619,6 +638,12 @@ Mark an issue as resolved.
 orch resolve ISSUE_ID [flags]
 ```
 
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--force` | Resolve even if the issue has no completed runs |
+
 ---
 
 ## orch tick
@@ -634,7 +659,7 @@ orch tick [RUN_REF] [flags]
 | Flag | Description |
 |------|-------------|
 | `--all` | Process all waiting runs |
-| `--only-waiting` | Only process waiting runs |
+| `--only-waiting` | Only process waiting or rate-limited runs (default: `true`) |
 | `--agent <type>` | Agent for resumption |
 | `--max <n>` | Max runs to process |
 
@@ -678,8 +703,17 @@ See [Query Reference](./query.md) for detailed SQL examples.
 Show database schema for SQL queries.
 
 ```bash
-orch schema
+orch schema [table] [flags]
 ```
+
+Omit `table` to list all tables and views, or provide a table/view name to
+show its columns.
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `-f, --format <format>` | Output format: `table`, `json`, or `tsv` (default: `table`) |
 
 ---
 
@@ -741,6 +775,15 @@ Execute a command in a run's worktree.
 orch exec RUN_REF -- COMMAND [args...]
 ```
 
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--env <KEY=VALUE>` | Add an environment variable; may be repeated |
+| `--no-orch-env` | Do not inject the run's `ORCH_*` environment variables |
+| `--shell` | Run the command through `sh -c` |
+| `--quiet` | Suppress human-readable output |
+
 ### Examples
 
 ```bash
@@ -755,11 +798,25 @@ orch exec my-issue -- git status
 
 ## orch delete
 
-Delete runs and their resources.
+Delete runs and their resources. **This command is destructive:** run records
+are removed, and worktrees or branches are also removed when their respective
+flags are supplied. Use `--dry-run` to inspect the selection first.
 
 ```bash
-orch delete RUN_REF [flags]
+orch delete [RUN_REF | ISSUE_ID] [flags]
 ```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--all` | Delete all matching runs for the specified issue |
+| `--force` | Skip the confirmation prompt |
+| `--dry-run` | Show what would be deleted without deleting it |
+| `--with-worktree` | Also remove each run's git worktree |
+| `--with-branch` | Also remove each run's git branch |
+| `--older-than <duration>` | Delete runs older than a duration such as `7d`, `2w`, or `1m` |
+| `--status <status>` | Only delete runs in `done`, `failed`, or `canceled` status |
 
 ---
 
@@ -768,8 +825,18 @@ orch delete RUN_REF [flags]
 Remove run worktrees while preserving run history.
 
 ```bash
-orch clean RUN_REF [flags]
+orch clean [RUN_REF | ISSUE_ID] [flags]
 ```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--all` | Clean all matching runs, globally or for the specified issue |
+| `--older-than <duration>` | Clean runs older than a duration such as `7d`, `2w`, or `1m` |
+| `--status <statuses>` | Comma-separated statuses to clean: `failed`, `canceled`, or `done` |
+| `--force` | Skip the confirmation prompt |
+| `--dry-run` | Show what would be cleaned without removing worktrees |
 
 Examples:
 
@@ -819,6 +886,12 @@ Kill running daemon(s).
 ```bash
 orch daemon kill
 ```
+
+#### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--all` | Kill all running daemons (an alias for the global-daemon behavior) |
 
 ### orch daemon list
 
@@ -924,8 +997,14 @@ orch worker stop [flags]
 Debug a run by showing daemon perspective.
 
 ```bash
-orch debug RUN_REF
+orch debug RUN_REF [flags]
 ```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Request JSON output |
 
 ---
 
@@ -964,11 +1043,18 @@ orch events -f --issue my-issue
 
 ## orch log
 
-View orch logs.
+View orch logs. The `daemon` subcommand reads the global daemon log.
 
 ```bash
-orch log [flags]
+orch log daemon [flags]
 ```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `-f, --follow` | Follow daemon log output |
+| `-n, --lines <n>` | Number of lines to show (default: `100`) |
 
 ---
 
@@ -977,8 +1063,15 @@ orch log [flags]
 List opencode provider models.
 
 ```bash
-orch models
+orch models [flags]
 ```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--port <port>` | OpenCode server port (default: `4096`) |
+| `--timeout <seconds>` | Request timeout in seconds (default: `5`) |
 
 ---
 
@@ -989,6 +1082,18 @@ Notification management commands.
 ```bash
 orch notify [subcommand]
 ```
+
+### orch notify test
+
+Send a test notification using the configured Slack notifier.
+
+```bash
+orch notify test [flags]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-m, --message <text>` | Custom test message |
 
 ---
 

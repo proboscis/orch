@@ -449,14 +449,12 @@ create_default_config() {
 # orch configuration
 # https://github.com/proboscis/orch
 
-multiplexer: tmux
+agent_multiplexer: tmux
 
-# llm:
-#   provider: openai
-#   model: gpt-4
-
+# issues.path is optional. When omitted, orch uses
+# ~/.local/share/orch/<repo-id>.
 # issues:
-#   root: ~/repos/my-issues
+#   path: ~/repos/my-issues
 EOF
     success "Created ${CONFIG_DIR}/config.yaml"
 }
