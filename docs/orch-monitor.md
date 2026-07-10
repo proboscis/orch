@@ -40,11 +40,11 @@ On first use, the launcher connects to the daemon, resolves the current
 project, creates a tmux or Zellij session, and opens three working areas:
 
 ```text
-+---------------------------+------------------------------+
-| Runs dashboard            | Issues dashboard             |
-|                           +------------------------------+
-|                           | Control agent terminal       |
-+---------------------------+------------------------------+
++------------------------------------------+
+| Runs dashboard (full width)              |
++---------------+--------------------------+
+| Issues        | Control agent terminal   |
++---------------+--------------------------+
 ```
 
 If that monitor session already exists, bare `orch-monitor` attaches to it.
@@ -235,6 +235,7 @@ monitor:
     - waiting
     - rate_limited
     - pr_open
+    - failed
   default_issue_statuses:
     - open
   default_issue_filter:

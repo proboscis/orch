@@ -35,11 +35,11 @@ The launcher resolves the project and daemon, then opens this multiplexer
 layout:
 
 ```text
-+---------------------------+------------------------------+
-| Runs dashboard            | Issues dashboard             |
-|                           +------------------------------+
-|                           | Control agent terminal       |
-+---------------------------+------------------------------+
++------------------------------------------+
+| Runs dashboard (full width)              |
++---------------+--------------------------+
+| Issues        | Control agent terminal   |
++---------------+--------------------------+
 ```
 
 Bare `orch-monitor` attaches when the project already has a live monitor
@@ -175,6 +175,7 @@ monitor:
     - waiting
     - rate_limited
     - pr_open
+    - failed
   default_issue_statuses:
     - open
   default_issue_filter:
