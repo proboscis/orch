@@ -868,10 +868,11 @@ orch daemon status
 
 ### orch daemon repo register
 
-Register a repository URL for remote project identity mapping.
+Register a local Git checkout path for project identity mapping. The path must
+exist on the daemon host.
 
 ```bash
-orch daemon repo register REPO_URL
+orch daemon repo register "$(pwd)"
 ```
 
 ### orch daemon repo list

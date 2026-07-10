@@ -336,8 +336,9 @@ orch-monitor
 orch-monitor --new-control-agent
 ```
 
-Use bare `orch-monitor` for the first launch. The `--new` flag only restarts
-the layout while resuming an existing control agent session.
+Use bare `orch-monitor` for the first launch. `--new-control-agent` restarts
+both the layout and the control agent session. To restart only the layout and
+resume the saved control agent session, use `orch-monitor --new`.
 
 Features:
 - See all issues and runs at a glance

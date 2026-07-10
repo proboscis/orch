@@ -175,13 +175,6 @@ Events are typically created automatically by:
 - The monitoring daemon
 - Agent completion detection
 
-### Manual event (future)
-
-```bash
-# Planned but not yet implemented
-orch event append my-issue#20260120-163000 --type note --name comment --text "..."
-```
-
 ## Event Storage
 
 Events are stored as part of the run markdown file:
