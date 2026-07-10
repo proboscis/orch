@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -164,4 +165,61 @@ func assertEnvContains(t *testing.T, env []string, want string) {
 		}
 	}
 	t.Fatalf("env missing %q in %s", want, strings.Join(env, ", "))
+}
+
+// Fail-fast law (run-state-machine.md §5 L9, launch step agent_auth): a codex
+// launch with an explicitly configured CODEX_HOME that cannot authenticate
+// must fail at preflight instead of parking at the sign-in wizard.
+func TestAuthPreflight(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("CODEX_API_KEY", "")
+
+	authed := t.TempDir()
+	if err := os.WriteFile(authed+"/auth.json", []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	empty := t.TempDir()
+
+	if err := AuthPreflight(nil); err != nil {
+		t.Fatalf("nil config must pass: %v", err)
+	}
+	if err := AuthPreflight(&LaunchConfig{Type: AgentClaude, CodexHome: empty}); err != nil {
+		t.Fatalf("non-codex agent must pass: %v", err)
+	}
+	if err := AuthPreflight(&LaunchConfig{Type: AgentCodex}); err != nil {
+		t.Fatalf("codex without configured CODEX_HOME must pass (agent default not second-guessed): %v", err)
+	}
+	if err := AuthPreflight(&LaunchConfig{Type: AgentCodex, CodexHome: authed}); err != nil {
+		t.Fatalf("codex with auth.json must pass: %v", err)
+	}
+
+	err := AuthPreflight(&LaunchConfig{Type: AgentCodex, CodexHome: empty})
+	if err == nil {
+		t.Fatal("codex with empty CODEX_HOME must fail preflight")
+	}
+	if !strings.Contains(err.Error(), empty) || !strings.Contains(err.Error(), "auth.json") {
+		t.Fatalf("preflight error must name the concrete path, got: %v", err)
+	}
+
+	// ~ expansion happens against the execution host's HOME.
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+	if err := os.MkdirAll(fakeHome+"/.codex/profiles/p", 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := AuthPreflight(&LaunchConfig{Type: AgentCodex, CodexHome: "~/.codex/profiles/p"}); err == nil {
+		t.Fatal("tilde CODEX_HOME without auth.json must fail preflight")
+	}
+	if err := os.WriteFile(fakeHome+"/.codex/profiles/p/auth.json", []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := AuthPreflight(&LaunchConfig{Type: AgentCodex, CodexHome: "~/.codex/profiles/p"}); err != nil {
+		t.Fatalf("tilde CODEX_HOME with auth.json must pass: %v", err)
+	}
+
+	// An API key in the environment authenticates codex without auth.json.
+	t.Setenv("OPENAI_API_KEY", "sk-test")
+	if err := AuthPreflight(&LaunchConfig{Type: AgentCodex, CodexHome: empty}); err != nil {
+		t.Fatalf("API key in env must skip the auth.json requirement: %v", err)
+	}
 }

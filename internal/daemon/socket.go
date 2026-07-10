@@ -3957,6 +3957,14 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		}, nil
 	}
 
+	// Fail fast before spawning anything when the configured credential dir
+	// cannot authenticate the agent (launch ladder step agent_auth). This
+	// runs on the execution host, so it stats the filesystem the agent sees.
+	if err := agent.AuthPreflight(launchCfg); err != nil {
+		s.reportLaunchProgress(st, run, launchFailed("agent_auth", err))
+		return nil, err
+	}
+
 	muxType, _ := multiplexer.ParseType(opts.Multiplexer)
 
 	var mux multiplexer.Multiplexer
@@ -4396,6 +4404,14 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 	if parseMuxErr != nil {
 		s.reportLaunchProgress(st, run, launchFailed("multiplexer", parseMuxErr))
 		return nil, fmt.Errorf("invalid multiplexer %q: %w", effectiveMux, parseMuxErr)
+	}
+
+	// Fail fast before spawning anything when the configured credential dir
+	// cannot authenticate the agent (launch ladder step agent_auth). This
+	// runs on the execution host, so it stats the filesystem the agent sees.
+	if err := agent.AuthPreflight(launchCfg); err != nil {
+		s.reportLaunchProgress(st, run, launchFailed("agent_auth", err))
+		return nil, err
 	}
 
 	var mux multiplexer.Multiplexer

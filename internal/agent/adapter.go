@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -110,6 +111,31 @@ func (c *LaunchConfig) ClaudeConfigDirEnv() []string {
 		return []string{fmt.Sprintf("CLAUDE_CONFIG_DIR=%s", configDir)}
 	}
 	return nil
+}
+
+// AuthPreflight verifies, on the execution host, that the launch config's
+// credential directory can actually authenticate the agent. Without this
+// check a codex launched with an empty CODEX_HOME parks forever at the
+// sign-in wizard while the run reports a live status (fail-fast: the launch
+// must fail with the concrete profile path instead). Only codex with an
+// explicitly configured CODEX_HOME is checked; agents using their own
+// default directories are not second-guessed. An API key in the inherited
+// environment also authenticates codex, so its presence skips the check
+// (this can only loosen the preflight, never fail a working setup).
+func AuthPreflight(cfg *LaunchConfig) error {
+	if cfg == nil || cfg.Type != AgentCodex || strings.TrimSpace(cfg.CodexHome) == "" {
+		return nil
+	}
+	home := expandHomePath(cfg.CodexHome)
+	if _, err := os.Stat(filepath.Join(home, "auth.json")); err == nil {
+		return nil
+	}
+	for _, v := range []string{"OPENAI_API_KEY", "CODEX_API_KEY"} {
+		if os.Getenv(v) != "" {
+			return nil
+		}
+	}
+	return fmt.Errorf("codex auth missing: no auth.json in CODEX_HOME %s (configured as %q) and no OPENAI_API_KEY/CODEX_API_KEY in the environment; run: CODEX_HOME=%s codex login", home, cfg.CodexHome, home)
 }
 
 // expandHomePath expands a leading ~ in a path to $HOME.

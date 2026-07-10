@@ -737,4 +737,13 @@ func TestStepLaunchFailureCarriesReason(t *testing.T) {
 	if effects[0].Kind != effectSetStatus || effects[0].Status != model.StatusFailed || effects[0].Reason != "launch_bootstrap" {
 		t.Fatalf("first effect = %+v, want failed with reason launch_bootstrap", effects[0])
 	}
+
+	// agent_auth preflight failure (fail-fast on unusable credential dir)
+	// rides the same generic ladder: failed(launch_agent_auth) + error artifact.
+	obs = runObservation{Kind: obsLaunchProgress, Launch: launchFailed("agent_auth", fmt.Errorf("codex auth missing: no auth.json"))}
+	_, effects = stepRun(view, runCore{}, obs, now)
+	if len(effects) != 3 || effects[0].Kind != effectRecordError ||
+		effects[1].Kind != effectSetStatus || effects[1].Status != model.StatusFailed || effects[1].Reason != "launch_agent_auth" {
+		t.Fatalf("agent_auth failure = %+v, want error artifact + failed(launch_agent_auth)", effects)
+	}
 }

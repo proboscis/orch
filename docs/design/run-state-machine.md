@@ -252,7 +252,7 @@ travels as a machine-readable `reason` attribute on the status event
 | `never_alive` | L3' grace expiry, either plane | infrastructure problem (binary/auth/mux env); fix the host before retrying |
 | `session_lost` | opencode session not found after dead checks | backend lost observability; backend-specific triage |
 | `agent_exited` | capture verdict: process exited, shell prompt showing | check transcript/worktree; retry plausible |
-| `launch_<step>` | O8 bootstrap failure (`failed` verdict); `<step>` ∈ worktree, prompt, agent_command, multiplexer, opencode_server, session, opencode_bootstrap, bootstrap | the named bootstrap step broke; the paired error artifact carries the detail |
+| `launch_<step>` | O8 bootstrap failure (`failed` verdict); `<step>` ∈ worktree, prompt, agent_command, agent_auth, multiplexer, opencode_server, session, opencode_bootstrap, bootstrap | the named bootstrap step broke; the paired error artifact carries the detail |
 | `gate_<kind>` (`gate_login`, `gate_trust`, …) | O4e gate reading confirmed by L10a (`waiting` verdict) | `orch attach` and complete the gate interactively; `orch send` will NOT clear it — the run re-asserts `waiting(gate_<kind>)` while the gate persists |
 | `observer_unverified` | L11c: dead-check threshold reached through an unattested channel | the observer cannot see the session — check the worker/daemon mux environment (TMUX socket, #483 class) and worker process; the run self-recovers on the next successful capture |
 
@@ -403,7 +403,35 @@ Decisions taken:
 Whitelist meter: 47 → 10 annotations (socket.go 40 → 3; the remaining three
 are W6, W8 and `appendRunResolvedByUser`, all with §6 dispositions).
 
-## 8. Vocabulary drift at serialization boundaries (decided 2026-07-07)
+### D-B2 — agent_auth launch preflight (implemented 2026-07-10)
+
+Incident: six codex runs launched with a CODEX_HOME whose `auth.json` was
+missing. Each codex parked at the sign-in wizard; the runs reported live
+statuses for hours. Fail-fast demands the launch itself refuse.
+
+- **New ladder step `agent_auth`** between `stageLaunchReady` and the
+  multiplexer/spawn block, in both `processStartRunCore` and
+  `processContinueRunCore` (these execute on the worker, i.e. the execution
+  host, so `agent.AuthPreflight` stats exactly the filesystem the agent will
+  see, after the same `~` expansion the env injection uses). Failure emits
+  `launchFailed("agent_auth", err)` → `failed(launch_agent_auth)` through
+  the frozen O8 writer; no new status-write surface.
+- **Scope:** codex with an explicitly configured CODEX_HOME only. Agent
+  defaults (`~/.codex`) are not second-guessed, and an API key in the
+  environment (`OPENAI_API_KEY`/`CODEX_API_KEY`) satisfies the check —
+  loosening only, so a working setup can never be failed by preflight.
+  The `NoSession` workspace-only path skips it (no agent launches). The
+  control agent (`cli/agent.go`) bypasses the ladder and got its own
+  fail-fast at its launch site.
+- **Decision — the sign-in wizard itself stays `waiting(gate_login)`.**
+  The wizard is already detected by the §9 gate engine (`gates.go` login
+  rule; the fixture IS this screen). Reclassifying a confirmed boot-time
+  `gate:login` to `failed` was considered and rejected: the gate state is
+  recoverable (`orch attach` + device-code login persists into the shared
+  CODEX_HOME), and killing the session would destroy exactly that recovery
+  path. The unrecoverable case — no credentials at all — is now caught
+  before spawn by `agent_auth`; a wizard that appears despite passing
+  preflight (expired/invalid `auth.json`) is a genuine human gate.
 
 **Rule: vocabulary drift at serialization boundaries degrades to skip+log —
 never panics, never invents a status.**
