@@ -2,7 +2,7 @@
 ────────────────────────────────────────────────────────────────────────────────
  Accessing workspace:
 
- /private/tmp/claude-2145596008/-Users-s22625-repos-orch/78ae59d0-0a34-46cc-93a
+ /private/tmp/sample-2145596008/-Users-tester-repos-demo/78ae59d0-0a34-46cc-93a
  e-f9cc248d9cc7/scratchpad/gate-trust-claude
 
  Quick safety check: Is this a project you created or one you trust? (Like your

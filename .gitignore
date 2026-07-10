@@ -17,12 +17,9 @@
 **/.orch/monitor-filters.yaml
 /.orch_run_index.json
 ORCH_PROMPT.md
-orch
+/orch
 ORCH_CONTROL_PROMPT.md
+.claude/settings.local.json
 vscode-orch/node_modules/
 vscode-orch/package-lock.json
 notes/
-
-# Build artifacts
-orch-core/target/
-orch-monitor-tui/orch_vault_rs/

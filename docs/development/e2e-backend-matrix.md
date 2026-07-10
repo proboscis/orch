@@ -338,9 +338,9 @@ actual target-host run:
 Expected:
 
 - local-host matrix passes
-- remote Zeus matrix passes
+- remote-host matrix passes
 - `orch ps` shows the actual execution host in `HOST` for both local and remote runs
-- Zeus OpenCode runs stay `running` / `waiting` after session creation when the session is still alive
+- Remote OpenCode runs stay `running` / `waiting` after session creation when the session is still alive
 - `attach`, `capture`, and `send` all succeed in that matrix
 - local and remote run-control automation should use heredoc/stdin send for the multiline path
 - for headless automation, `attach` may complete as an interactive preflight
