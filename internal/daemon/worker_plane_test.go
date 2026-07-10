@@ -253,6 +253,39 @@ func TestExecuteLeaseEffectStopRunUsesSnapshotWithEmptyWorkerRunStore(t *testing
 	}
 }
 
+func TestExecuteLeaseEffectGetDiffStatsPropagatesGitFailure(t *testing.T) {
+	missingWorktree := filepath.Join(t.TempDir(), "missing-worktree")
+	st := &mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}}
+	server := newTestServer(t, st)
+	lease := &WorkerLease{
+		LeaseID:   "lease-diff-stats-failure",
+		WorkerID:  "worker-local",
+		ProjectID: testProjectID,
+		Effect:    "get_diff_stats",
+		IssueID:   "issue-diff",
+		RunID:     "run-diff",
+		Payload: &WorkerEffectPayload{
+			GetDiffStats: &GetDiffStatsPayload{
+				RunSnapshot: &RunSnapshot{
+					IssueID:      "issue-diff",
+					RunID:        "run-diff",
+					Status:       model.StatusRunning,
+					Branch:       "feature/diff",
+					WorktreePath: missingWorktree,
+				},
+			},
+		},
+	}
+
+	result, err := server.executeLeaseEffect(lease)
+	if err == nil {
+		t.Fatalf("executeLeaseEffect() result = %#v, error = nil; want explicit git failure", result)
+	}
+	if !strings.Contains(err.Error(), missingWorktree) || !strings.Contains(err.Error(), "no such file") {
+		t.Fatalf("executeLeaseEffect() error = %q, want worktree path and underlying cause", err)
+	}
+}
+
 // TestProcessStartRunCoreUsesSnapshotWithEmptyWorkerIssueStore is the authoritative
 // regression for the cross-machine worker bug: a worker pinned to a different host
 // than the master has an EMPTY issue store. The master (issue-store SSOT) resolves a

@@ -192,6 +192,7 @@ func TestSummaryToRunRejectsUnknownStatus(t *testing.T) {
 }
 
 func TestRunToSummaryRoundTrip(t *testing.T) {
+	worktreePath := initGitRepoWithCommit(t)
 	original := &model.Run{
 		IssueID:      "issue-roundtrip",
 		RunID:        "run-roundtrip-123",
@@ -200,14 +201,17 @@ func TestRunToSummaryRoundTrip(t *testing.T) {
 		Agent:        "opencode",
 		Profile:      "company",
 		Model:        "gpt-4",
-		Branch:       "fix/bug-123",
-		WorktreePath: "/home/user/worktrees/fix-bug",
+		Branch:       "main",
+		WorktreePath: worktreePath,
 		SessionName:  "orch-roundtrip",
 		Multiplexer:  "tmux",
 		PRUrl:        "",
 	}
 
-	summary := RunToSummary(original)
+	summary, err := RunToSummary(original)
+	if err != nil {
+		t.Fatalf("RunToSummary() error = %v", err)
+	}
 	roundTripped, err := SummaryToRun(summary)
 	if err != nil {
 		t.Fatalf("SummaryToRun() error = %v", err)

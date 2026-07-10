@@ -195,6 +195,49 @@ func TestRunAttachWithDeps_NoMultiplexerExits(t *testing.T) {
 	}
 }
 
+func TestRunAttachWithDeps_InvalidConfiguredMultiplexerFails(t *testing.T) {
+	api := &mockAttachAPI{
+		cfg: &orchapi.Config{AgentMultiplexer: "screen"},
+		info: &orchapi.AttachInfo{
+			IssueID:       "orch-4",
+			RunID:         "20260101-040405",
+			Agent:         "claude",
+			SessionExists: true,
+		},
+	}
+	deps, _, exitCodes := newAttachDepsForTest(api)
+
+	err := runAttachWithDeps("orch-4#20260101-040405", &attachOptions{}, deps)
+	if err == nil || !strings.Contains(err.Error(), "invalid agent_multiplexer") || !strings.Contains(err.Error(), "screen") {
+		t.Fatalf("runAttachWithDeps() error = %v, want invalid agent_multiplexer with configured value", err)
+	}
+	if len(*exitCodes) != 0 {
+		t.Fatalf("exit codes = %v, want none", *exitCodes)
+	}
+}
+
+func TestRunAttachWithDeps_InvalidRunMultiplexerFails(t *testing.T) {
+	api := &mockAttachAPI{
+		cfg: &orchapi.Config{AgentMultiplexer: "tmux"},
+		info: &orchapi.AttachInfo{
+			IssueID:       "orch-4",
+			RunID:         "20260101-040406",
+			Agent:         "claude",
+			SessionExists: true,
+			Multiplexer:   orchapi.Multiplexer("screen"),
+		},
+	}
+	deps, _, exitCodes := newAttachDepsForTest(api)
+
+	err := runAttachWithDeps("orch-4#20260101-040406", &attachOptions{}, deps)
+	if err == nil || !strings.Contains(err.Error(), "invalid multiplexer") || !strings.Contains(err.Error(), "screen") {
+		t.Fatalf("runAttachWithDeps() error = %v, want invalid run multiplexer with stored value", err)
+	}
+	if len(*exitCodes) != 0 {
+		t.Fatalf("exit codes = %v, want none", *exitCodes)
+	}
+}
+
 func TestAttachOpenCodeFromInfoWithExecutor_NoServerOrSession(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	code, err := attachOpenCodeFromInfoWithExecutor(&orchapi.AttachInfo{

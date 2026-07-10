@@ -150,9 +150,15 @@ func runAttachWithDeps(refStr string, opts *attachOptions, deps *attachDeps) err
 	if cfg != nil {
 		muxSetting = cfg.AgentMultiplexer
 	}
-	muxType, _ := deps.parseMuxType(muxSetting)
+	muxType, err := deps.parseMuxType(muxSetting)
+	if err != nil {
+		return fmt.Errorf("invalid agent_multiplexer %q: %w", muxSetting, err)
+	}
 	if info.Multiplexer != "" {
-		muxType, _ = deps.parseMuxType(string(info.Multiplexer))
+		muxType, err = deps.parseMuxType(string(info.Multiplexer))
+		if err != nil {
+			return fmt.Errorf("invalid multiplexer %q for run %s#%s: %w", info.Multiplexer, info.IssueID, info.RunID, err)
+		}
 	}
 
 	var mux attachSessionMux

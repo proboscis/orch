@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -91,21 +92,31 @@ func TestParseDiffNumstat(t *testing.T) {
 }
 
 func TestGetDiffStats_EmptyInputs(t *testing.T) {
-	stats := GetDiffStats("", "", "")
+	stats, err := GetDiffStats("", "", "")
+	if err != nil {
+		t.Fatalf("GetDiffStats() error = %v, want nil", err)
+	}
 	if stats.Additions != 0 || stats.Deletions != 0 {
 		t.Errorf("Expected zero stats for empty inputs, got +%d -%d", stats.Additions, stats.Deletions)
 	}
 
-	stats = GetDiffStats("/some/path", "", "main")
+	stats, err = GetDiffStats("/some/path", "", "main")
+	if err != nil {
+		t.Fatalf("GetDiffStats() error = %v, want nil", err)
+	}
 	if stats.Additions != 0 || stats.Deletions != 0 {
 		t.Errorf("Expected zero stats for empty branch, got +%d -%d", stats.Additions, stats.Deletions)
 	}
 }
 
 func TestGetDiffStats_NonexistentPath(t *testing.T) {
-	stats := GetDiffStats("/nonexistent/path/that/does/not/exist", "feature", "main")
-	if stats.Additions != 0 || stats.Deletions != 0 {
-		t.Errorf("Expected zero stats for nonexistent path, got +%d -%d", stats.Additions, stats.Deletions)
+	path := "/nonexistent/path/that/does/not/exist"
+	_, err := GetDiffStats(path, "feature", "main")
+	if err == nil {
+		t.Fatal("GetDiffStats() error = nil, want explicit filesystem error")
+	}
+	if !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "no such file") {
+		t.Fatalf("GetDiffStats() error = %q, want worktree path and underlying cause", err)
 	}
 }
 
@@ -147,7 +158,10 @@ func TestGetDiffStats_RealRepo(t *testing.T) {
 	runGit("add", ".")
 	runGit("commit", "-m", "add new file")
 
-	stats := getDiffStatsInternal(tmpDir, "main", "feature")
+	stats, err := getDiffStatsInternal(tmpDir, "main", "feature")
+	if err != nil {
+		t.Fatalf("getDiffStatsInternal() error = %v", err)
+	}
 	t.Logf("Got stats: +%d -%d", stats.Additions, stats.Deletions)
 
 	if stats.Additions != 3 {

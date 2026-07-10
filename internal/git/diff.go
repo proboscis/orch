@@ -1,6 +1,7 @@
 package git
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
@@ -17,15 +18,16 @@ type DiffStats struct {
 
 // GetDiffStats calculates the diff stats for a worktree compared to its base branch.
 // It returns the total additions and deletions across all files.
-// If the calculation fails, it returns zero stats (non-fatal).
-func GetDiffStats(worktreePath, branch, baseBranch string) DiffStats {
+// Missing run metadata produces empty stats; filesystem and git failures are
+// returned so callers cannot mistake unavailable evidence for a clean tree.
+func GetDiffStats(worktreePath, branch, baseBranch string) (DiffStats, error) {
 	if worktreePath == "" || branch == "" {
-		return DiffStats{}
+		return DiffStats{}, nil
 	}
 
 	// Check if worktree exists
-	if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
-		return DiffStats{}
+	if _, err := os.Stat(worktreePath); err != nil {
+		return DiffStats{}, fmt.Errorf("get diff stats for worktree %q: stat failed: %w", worktreePath, err)
 	}
 
 	if baseBranch == "" {
@@ -37,50 +39,79 @@ func GetDiffStats(worktreePath, branch, baseBranch string) DiffStats {
 	remoteBranchRef := RemoteBranchRef(remote, base)
 
 	// Try with remote ref first (three-dot syntax for merge-base comparison)
-	stats := getDiffStatsInternal(worktreePath, remoteBranchRef, branch)
+	stats, remoteErr := getDiffStatsInternal(worktreePath, remoteBranchRef, branch)
 	if stats.Additions > 0 || stats.Deletions > 0 {
-		return stats
+		return stats, nil
 	}
 
 	// Fallback: try with local base branch
-	stats = getDiffStatsInternal(worktreePath, base, branch)
+	stats, localErr := getDiffStatsInternal(worktreePath, base, branch)
 	if stats.Additions > 0 || stats.Deletions > 0 {
-		return stats
+		return stats, nil
+	}
+	if remoteErr != nil && localErr != nil {
+		return DiffStats{}, fmt.Errorf(
+			"get diff stats for worktree %q: remote comparison failed: %v; local comparison failed: %v",
+			worktreePath,
+			remoteErr,
+			localErr,
+		)
 	}
 
 	// Final fallback: diff against HEAD (uncommitted changes)
-	return getUncommittedDiffStats(worktreePath)
+	stats, err := getUncommittedDiffStats(worktreePath)
+	if err != nil {
+		return DiffStats{}, fmt.Errorf("get diff stats for worktree %q: %w", worktreePath, err)
+	}
+	return stats, nil
 }
 
 // getDiffStatsInternal runs git diff --numstat and parses the output.
-func getDiffStatsInternal(worktreePath, from, to string) DiffStats {
+func getDiffStatsInternal(worktreePath, from, to string) (DiffStats, error) {
 	// Use three-dot syntax for merge-base comparison
 	diffRange := from + "..." + to
 	cmd := exec.Command("git", "-C", worktreePath, "diff", "--numstat", diffRange)
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// Try two-dot syntax as fallback
+		threeDotErr := commandError(err, output)
 		diffRange = from + ".." + to
 		cmd = exec.Command("git", "-C", worktreePath, "diff", "--numstat", diffRange)
-		output, err = cmd.Output()
+		output, err = cmd.CombinedOutput()
 		if err != nil {
-			return DiffStats{}
+			return DiffStats{}, fmt.Errorf(
+				"git diff %q failed with three-dot (%v) and two-dot (%v)",
+				from+" to "+to,
+				threeDotErr,
+				commandError(err, output),
+			)
 		}
 	}
 
-	return parseDiffNumstat(string(output))
+	return parseDiffNumstat(string(output)), nil
 }
 
 // getUncommittedDiffStats gets stats for uncommitted changes in the worktree.
-func getUncommittedDiffStats(worktreePath string) DiffStats {
+func getUncommittedDiffStats(worktreePath string) (DiffStats, error) {
 	// Get both staged and unstaged changes
 	cmd := exec.Command("git", "-C", worktreePath, "diff", "--numstat", "HEAD")
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return DiffStats{}
+		return DiffStats{}, fmt.Errorf("git diff against HEAD failed: %v", commandError(err, output))
 	}
 
-	return parseDiffNumstat(string(output))
+	return parseDiffNumstat(string(output)), nil
+}
+
+func commandError(err error, output []byte) error {
+	detail := strings.TrimSpace(string(output))
+	if detail == "" {
+		return err
+	}
+	if newline := strings.IndexByte(detail, '\n'); newline >= 0 {
+		detail = detail[:newline]
+	}
+	return fmt.Errorf("%w: %s", err, detail)
 }
 
 func parseDiffNumstat(output string) DiffStats {
@@ -122,15 +153,19 @@ func GetDiffStatsForRuns(runs []struct {
 	WorktreePath string
 	Branch       string
 	BaseBranch   string
-}) map[string]DiffStats {
+}) (map[string]DiffStats, error) {
 	results := make(map[string]DiffStats)
 
 	for _, run := range runs {
 		if run.WorktreePath == "" {
 			continue
 		}
-		results[run.WorktreePath] = GetDiffStats(run.WorktreePath, run.Branch, run.BaseBranch)
+		stats, err := GetDiffStats(run.WorktreePath, run.Branch, run.BaseBranch)
+		if err != nil {
+			return nil, err
+		}
+		results[run.WorktreePath] = stats
 	}
 
-	return results
+	return results, nil
 }

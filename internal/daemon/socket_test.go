@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -87,6 +88,15 @@ func TestExternalWorkerHelperProcess(t *testing.T) {
 type mockStore struct {
 	runs   map[string]*model.Run
 	issues map[string]*model.Issue
+}
+
+type listRunsErrorStore struct {
+	*mockStore
+	err error
+}
+
+func (s *listRunsErrorStore) ListRuns(*store.ListRunsFilter) ([]*model.Run, error) {
+	return nil, s.err
 }
 
 func (m *mockStore) ResolveIssue(issueID model.IssueID) (*model.Issue, error) {
@@ -2211,6 +2221,7 @@ func TestListRunsPaginationContract(t *testing.T) {
 }
 
 func TestGetRunAPI(t *testing.T) {
+	worktreePath := initGitRepoWithCommit(t)
 	st := &mockStore{
 		runs: map[string]*model.Run{
 			"orch-001#20250117-010000": {
@@ -2220,8 +2231,8 @@ func TestGetRunAPI(t *testing.T) {
 				Agent:             "opencode",
 				Model:             "anthropic/claude-sonnet-4",
 				ModelVariant:      "high",
-				Branch:            "orch-001-feature",
-				WorktreePath:      "/repo/worktrees/orch-001",
+				Branch:            "main",
+				WorktreePath:      worktreePath,
 				ServerPort:        8080,
 				OpenCodeSessionID: "sess_xxx",
 				Path:              "/vault/runs/orch-001/20250117-010000.md",
@@ -3726,6 +3737,29 @@ func TestListRunsWithRequestContextProjectID(t *testing.T) {
 	}
 }
 
+func TestListRunsStoreFailureIncludesProjectAndCause(t *testing.T) {
+	cause := errors.New("corrupt run index")
+	st := &listRunsErrorStore{
+		mockStore: &mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}},
+		err:       cause,
+	}
+	server := newTestServer(t, st)
+
+	resp := server.handleProtoListRuns(&orchpb.ListRunsRequest{
+		Context: &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+
+	if resp.Ok {
+		t.Fatalf("handleProtoListRuns() Ok = true, want false")
+	}
+	if !strings.Contains(resp.Error, testProjectID) || !strings.Contains(resp.Error, cause.Error()) {
+		t.Fatalf("handleProtoListRuns() error = %q, want project ID and underlying cause", resp.Error)
+	}
+	if resp.Error == "store_error" {
+		t.Fatal("handleProtoListRuns() returned opaque store_error token")
+	}
+}
+
 func TestListRunsWithoutProjectContextAggregatesAcrossStores(t *testing.T) {
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
@@ -3898,6 +3932,36 @@ func TestListIssuesUnknownProjectContextReturnsProjectScopedError(t *testing.T) 
 	expected := "no store available for project_id \"missing-project\" (register daemon project mapping)"
 	if resp.Error != expected {
 		t.Fatalf("expected %q, got %q", expected, resp.Error)
+	}
+}
+
+func TestRunLookupWithoutProjectContextReturnsSpacedAmbiguousMessages(t *testing.T) {
+	runA := &model.Run{IssueID: "ambiguous-issue", RunID: "ambiguous-run"}
+	runB := &model.Run{IssueID: "ambiguous-issue", RunID: "ambiguous-run"}
+	stA := &mockStore{runs: map[string]*model.Run{runA.Ref().String(): runA}, issues: map[string]*model.Issue{}}
+	stB := &mockStore{runs: map[string]*model.Run{runB.Ref().String(): runB}, issues: map[string]*model.Issue{}}
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	registerRepoContextForTest(t, server, "project-a", "/srv/repos/a", stA)
+	registerRepoContextForTest(t, server, "project-b", "/srv/repos/b", stB)
+
+	fullResp := server.handleProtoGetRun(&orchpb.GetRunRequest{
+		IssueId: string(runA.IssueID),
+		RunId:   string(runA.RunID),
+		Context: &orchpb.RequestContext{},
+	})
+	fullMessage := fmt.Sprintf("ambiguous run ref: %s#%s", runA.IssueID, runA.RunID)
+	if fullResp.Ok || fullResp.Error != fullMessage {
+		t.Fatalf("full-ref response: ok=%v error=%q, want %q", fullResp.Ok, fullResp.Error, fullMessage)
+	}
+
+	shortID := string(runA.ShortID())
+	shortResp := server.handleProtoGetRunByShortID(&orchpb.GetRunByShortIDRequest{
+		ShortId: shortID,
+		Context: &orchpb.RequestContext{},
+	})
+	shortMessage := fmt.Sprintf("ambiguous short id: %s", shortID)
+	if shortResp.Ok || shortResp.Error != shortMessage {
+		t.Fatalf("short-ref response: ok=%v error=%q, want %q", shortResp.Ok, shortResp.Error, shortMessage)
 	}
 }
 
@@ -4111,6 +4175,62 @@ func TestGetAttachInfoWithoutProjectContextAggregatesAcrossStores(t *testing.T) 
 	}
 	if attachResp.IssueId != "attach-issue" || attachResp.RunId != "attach-run" {
 		t.Fatalf("unexpected attach payload: issue=%q run=%q", attachResp.IssueId, attachResp.RunId)
+	}
+}
+
+func TestGetAttachInfoInvalidMultiplexerReturnsExplicitError(t *testing.T) {
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			"attach-issue#attach-run": {
+				IssueID:     "attach-issue",
+				RunID:       "attach-run",
+				Agent:       "claude",
+				Multiplexer: "screen",
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+	server := newTestServer(t, st)
+
+	resp := server.handleProtoGetAttachInfo(&orchpb.GetAttachInfoRequest{
+		IssueId: "attach-issue",
+		RunId:   "attach-run",
+		Context: &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+
+	if resp.Ok {
+		t.Fatal("handleProtoGetAttachInfo() Ok = true, want false")
+	}
+	if !strings.Contains(resp.Error, "screen") || !strings.Contains(resp.Error, "unknown multiplexer type") {
+		t.Fatalf("handleProtoGetAttachInfo() error = %q, want multiplexer type and cause", resp.Error)
+	}
+}
+
+func TestGetAttachInfoUnavailableMultiplexerReturnsExplicitError(t *testing.T) {
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			"attach-issue#attach-run": {
+				IssueID:     "attach-issue",
+				RunID:       "attach-run",
+				Agent:       "claude",
+				Multiplexer: "auto",
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+	server := newTestServer(t, st)
+
+	resp := server.handleProtoGetAttachInfo(&orchpb.GetAttachInfoRequest{
+		IssueId: "attach-issue",
+		RunId:   "attach-run",
+		Context: &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+
+	if resp.Ok {
+		t.Fatal("handleProtoGetAttachInfo() Ok = true, want false")
+	}
+	if !strings.Contains(resp.Error, `multiplexer "auto" unavailable`) || !strings.Contains(resp.Error, "unknown multiplexer type: auto") {
+		t.Fatalf("handleProtoGetAttachInfo() error = %q, want unavailable multiplexer type and cause", resp.Error)
 	}
 }
 
@@ -4688,9 +4808,10 @@ func TestRemoteGitRequestsUseWorkerLease(t *testing.T) {
 	}
 }
 
-func TestGetDiffStatsWithoutProjectContextAggregatesAcrossStores(t *testing.T) {
+func TestGetDiffStatsGitFailureReturnsExplicitError(t *testing.T) {
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
+	nonGitWorktree := t.TempDir()
 
 	stA := &mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}}
 	stB := &mockStore{
@@ -4700,7 +4821,7 @@ func TestGetDiffStatsWithoutProjectContextAggregatesAcrossStores(t *testing.T) {
 				RunID:        "diffstats-run",
 				Status:       model.StatusRunning,
 				UpdatedAt:    time.Now(),
-				WorktreePath: "/tmp/diffstats-missing",
+				WorktreePath: nonGitWorktree,
 				Branch:       "feature/diffstats",
 			},
 		},
@@ -4729,12 +4850,11 @@ func TestGetDiffStatsWithoutProjectContextAggregatesAcrossStores(t *testing.T) {
 		},
 	})
 
-	if !resp.Ok {
-		t.Fatalf("expected ok response, got error: %s", resp.Error)
+	if resp.Ok {
+		t.Fatal("expected git failure response, got ok=true")
 	}
-	statsResp := resp.GetGetDiffStats()
-	if statsResp == nil || statsResp.DiffStats == nil {
-		t.Fatal("expected GetDiffStats response payload")
+	if !strings.Contains(resp.Error, nonGitWorktree) || !strings.Contains(strings.ToLower(resp.Error), "not a git repository") {
+		t.Fatalf("error = %q, want worktree path and underlying git/filesystem cause", resp.Error)
 	}
 }
 
