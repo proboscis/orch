@@ -3,6 +3,7 @@
 import argparse
 import os
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 from returns.result import Failure, Result, Success
@@ -113,8 +114,29 @@ def test_kill_all_is_project_scoped(capsys) -> None:
     assert exit_code == 0
     assert api.kill_calls == [("", True, "proboscis-orch")]
     assert capsys.readouterr().out == (
-        "Killed 2 monitors for project proboscis-orch\n"
+        "Killed 2 monitor registrations for project proboscis-orch\n"
     )
+
+
+@pytest.mark.parametrize(
+    "action_args",
+    [
+        {"list_monitors": True},
+        {"kill_monitor": "mon-123"},
+        {"kill_all": True},
+    ],
+)
+def test_monitor_actions_reject_empty_project_scope(
+    action_args: dict[str, object], capsys
+) -> None:
+    api = _FakeMonitorAPI()
+
+    exit_code: int = _run_monitor_action(api, _args(**action_args), "")
+
+    assert exit_code == 1
+    assert api.list_calls == []
+    assert api.kill_calls == []
+    assert "project scope required" in capsys.readouterr().err
 
 
 def test_monitor_action_surfaces_daemon_failure(capsys) -> None:
@@ -171,3 +193,36 @@ def test_main_routes_list_through_remote_bootstrap(monkeypatch, tmp_path: Path) 
     main()
 
     assert api.list_calls == [("proboscis-orch", False)]
+
+
+def test_main_rejects_empty_scope_before_starting_daemon(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    monkeypatch.delenv("ORCH_PROJECT", raising=False)
+    bootstrap = ClientBootstrap(
+        project_root=tmp_path,
+        project_id="",
+        remote_addr=None,
+        socket_path=tmp_path / "daemon.sock",
+        monitor_session_name="orch-monitor-unknown",
+    )
+    ensure_daemon = MagicMock()
+    create_orch_api = MagicMock()
+    monkeypatch.setattr("sys.argv", ["orch-monitor", "--kill-all"])
+    monkeypatch.setattr(
+        "orch_monitor.__main__.load_client_bootstrap",
+        lambda: bootstrap,
+    )
+    monkeypatch.setattr("orch_monitor.__main__.ensure_daemon", ensure_daemon)
+    monkeypatch.setattr(
+        "orch_monitor.__main__.create_orch_api",
+        create_orch_api,
+    )
+
+    with pytest.raises(SystemExit) as exit_info:
+        main()
+
+    assert exit_info.value.code == 1
+    ensure_daemon.assert_not_called()
+    create_orch_api.assert_not_called()
+    assert "project scope required" in capsys.readouterr().err

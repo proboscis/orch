@@ -2809,10 +2809,15 @@ func (s *SocketServer) handleProtoHeartbeat(req *orchpb.HeartbeatRequest) *orchp
 }
 
 func (s *SocketServer) handleProtoListMonitors(req *orchpb.ListMonitorsRequest) *orchpb.Response {
+	project := strings.TrimSpace(req.Project)
+	if !req.All && project == "" {
+		return errorResponse("list_monitors requires a project scope; pass all to list across projects")
+	}
+
 	s.monitorsMu.RLock()
 	monitorConnections := make([]MonitorConnection, 0, len(s.monitors))
 	for _, conn := range s.monitors {
-		if !req.All && req.Project != "" && conn.Project != req.Project {
+		if !req.All && conn.Project != project {
 			continue
 		}
 		monitorConnections = append(monitorConnections, *conn)
@@ -2855,6 +2860,10 @@ func (s *SocketServer) handleProtoKillMonitor(req *orchpb.KillMonitorRequest) *o
 	if req.MonitorId == "" && !req.All {
 		return errorResponse("monitor_id required or use --all")
 	}
+	project := strings.TrimSpace(req.Project)
+	if req.MonitorId == "" && req.All && !req.Global && project == "" {
+		return errorResponse("kill_all requires a project scope; pass global to kill across projects")
+	}
 
 	s.monitorsMu.RLock()
 	toKill := make([]MonitorConnection, 0)
@@ -2864,7 +2873,7 @@ func (s *SocketServer) handleProtoKillMonitor(req *orchpb.KillMonitorRequest) *o
 		}
 	} else {
 		for _, conn := range s.monitors {
-			if req.Global || req.Project == "" || conn.Project == req.Project {
+			if req.Global || conn.Project == project {
 				toKill = append(toKill, *conn)
 			}
 		}
@@ -2885,7 +2894,12 @@ func (s *SocketServer) handleProtoKillMonitor(req *orchpb.KillMonitorRequest) *o
 			continue
 		}
 		if err := s.killMonitorProcess(conn); err != nil {
-			return errorResponse(fmt.Sprintf("failed to kill monitor %s: %v", conn.ID, err))
+			return errorResponse(fmt.Sprintf(
+				"failed to kill monitor %s after killing %d monitor registrations: %v",
+				conn.ID,
+				killedCount,
+				err,
+			))
 		}
 		s.monitorsMu.Lock()
 		for id, registered := range s.monitors {
@@ -2896,7 +2910,7 @@ func (s *SocketServer) handleProtoKillMonitor(req *orchpb.KillMonitorRequest) *o
 		}
 		s.monitorsMu.Unlock()
 	}
-	s.logger.Printf("killed %d monitor registrations (project=%s, all=%t)", killedCount, req.Project, req.All)
+	s.logger.Printf("killed %d monitor registrations (project=%s, all=%t)", killedCount, project, req.All)
 
 	return &orchpb.Response{
 		Ok: true,

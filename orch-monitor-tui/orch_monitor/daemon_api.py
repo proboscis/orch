@@ -15,6 +15,12 @@ import hy  # noqa: F401 - Enable Hy imports
 
 from returns.result import Failure, Result, Success
 
+from orch_monitor.multiplexer import (
+    MultiplexerType,
+    detect_current_multiplexer,
+    get_multiplexer,
+)
+
 # Import client from Hy module (returns Result types)
 from .client_bootstrap import load_client_bootstrap
 from .proto_client import ProtoDaemonClient
@@ -59,6 +65,34 @@ from .orch_api import (
 from .orch_api import DaemonNotRunningError as ApiDaemonNotRunningError
 
 _logger = logging.getLogger("orch_monitor.daemon_api")
+
+
+def _verified_monitor_session_name(expected_session_name: str) -> str:
+    """Return the expected session only when this process is inside it."""
+    expected_session: str = expected_session_name.strip()
+    if not expected_session:
+        return ""
+
+    current_multiplexer_type: Optional[MultiplexerType]
+    current_multiplexer_type = detect_current_multiplexer()
+    if current_multiplexer_type is None:
+        return ""
+
+    try:
+        current_session: Optional[str] = get_multiplexer(
+            current_multiplexer_type
+        ).get_current_session()
+    except OSError as error:
+        _logger.warning(
+            "Failed to identify current %s session: %s",
+            current_multiplexer_type.value,
+            error,
+        )
+        return ""
+
+    if (current_session or "").strip() != expected_session:
+        return ""
+    return expected_session
 
 
 def _map_proto_error(err: Exception) -> Failure:
@@ -199,12 +233,18 @@ class MonitorHeartbeat:
 
         return self._monitor_id
 
-    def stop(self) -> None:
+    def stop(self) -> Result[bool, ProtoDaemonError]:
         self._stop_heartbeat_thread()
 
-        if self._monitor_id and self._client.is_available():
-            self._client.unregister_monitor(self._monitor_id)
+        if not self._monitor_id:
+            return Success(True)
+
+        result: Result[bool, ProtoDaemonError] = self._client.unregister_monitor(
+            self._monitor_id
+        )
+        if isinstance(result, Success) and result.unwrap():
             self._monitor_id = None
+        return result
 
     def _start_heartbeat_thread(self) -> None:
         if self._heartbeat_thread is not None:
@@ -594,8 +634,12 @@ class DaemonOrchAPI:
         project: str,
         session_name: str = "",
     ) -> Result[str, OrchError]:
-        project_scope = self._project_scope or project
-        resolved_session_name = session_name or self._monitor_session_name
+        project_scope: str = self._project_scope or project
+        expected_session_name: str = session_name or self._monitor_session_name
+        resolved_session_name: str = _verified_monitor_session_name(
+            expected_session_name
+        )
+        result: Result[Optional[str], ProtoDaemonError]
         result = self._daemon.register_monitor(
             pid=pid,
             monitor_type=monitor_type,
@@ -618,8 +662,12 @@ class DaemonOrchAPI:
 
     def unregister_monitor(self, monitor_id: str) -> Result[None, OrchError]:
         if self._monitor_heartbeat:
-            self._monitor_heartbeat.stop()
+            result: Result[bool, ProtoDaemonError] = self._monitor_heartbeat.stop()
             self._monitor_heartbeat = None
+            if isinstance(result, Failure):
+                return _map_daemon_error(result.failure())
+            if not result.unwrap():
+                return Failure(OrchError("Failed to unregister monitor"))
             return Success(None)
 
         result = self._daemon.unregister_monitor(monitor_id)

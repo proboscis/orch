@@ -91,6 +91,9 @@ def _setup_launcher_logging() -> None:
 
 
 CONTROL_PROMPT_FILE = "ORCH_CONTROL_PROMPT.md"
+MONITOR_PROJECT_SCOPE_ERROR = (
+    "project scope required for monitor management; set --project/ORCH_PROJECT"
+)
 
 
 # Real OS limit for sockaddr_un.sun_path: macOS = 104, Linux = 108. zellij validates
@@ -1296,6 +1299,10 @@ def _print_monitor_table(monitors: list[MonitorInfo]) -> None:
 def _run_monitor_action(
     api: MonitorManagementAPI, args: argparse.Namespace, project_scope: str
 ) -> int:
+    if not project_scope.strip():
+        print(f"Error: {MONITOR_PROJECT_SCOPE_ERROR}", file=sys.stderr)
+        return 1
+
     if args.list_monitors:
         list_result = api.list_monitors(project_scope)
         if isinstance(list_result, Failure):
@@ -1317,7 +1324,11 @@ def _run_monitor_action(
         print(f"Error: no registered monitor found for {target}", file=sys.stderr)
         return 1
     if kill_all:
-        noun: str = "monitor" if killed_count == 1 else "monitors"
+        noun: str = (
+            "monitor registration"
+            if killed_count == 1
+            else "monitor registrations"
+        )
         print(f"Killed {killed_count} {noun} for project {project_scope}")
     else:
         print(f"Killed monitor: {monitor_id}")
@@ -1365,6 +1376,9 @@ def main() -> None:
         args.list_monitors or args.kill_monitor or args.kill_all
     )
     if monitor_action_requested:
+        if not (project_scope or "").strip():
+            print(f"Error: {MONITOR_PROJECT_SCOPE_ERROR}", file=sys.stderr)
+            sys.exit(1)
         success, error_msg = ensure_daemon(project_root, project_scope, bootstrap)
         if not success:
             print(f"Error: {error_msg}", file=sys.stderr)

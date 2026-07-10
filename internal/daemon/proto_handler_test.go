@@ -68,6 +68,46 @@ func TestHandleProtoListMonitorsScopesAndSortsInDaemon(t *testing.T) {
 	}
 }
 
+func TestHandleProtoListMonitorsRejectsEmptyProjectScope(t *testing.T) {
+	server := newTestServer(t, &mockStore{})
+	server.monitors = map[string]*MonitorConnection{
+		"project-a": {ID: "project-a", Project: "project-a"},
+		"project-b": {ID: "project-b", Project: "project-b"},
+	}
+
+	resp := server.handleProtoListMonitors(&orchpb.ListMonitorsRequest{})
+
+	if resp.Ok {
+		t.Fatal("empty project scope unexpectedly listed every monitor")
+	}
+	if !strings.Contains(resp.Error, "requires a project scope") {
+		t.Fatalf("error = %q, want actionable project-scope error", resp.Error)
+	}
+}
+
+func TestHandleProtoKillMonitorRejectsEmptyProjectScope(t *testing.T) {
+	server := newTestServer(t, &mockStore{})
+	server.monitors = map[string]*MonitorConnection{
+		"project-a": {ID: "project-a", PID: -1, Project: "project-a"},
+		"project-b": {ID: "project-b", PID: -1, Project: "project-b"},
+	}
+
+	resp := server.handleProtoKillMonitor(&orchpb.KillMonitorRequest{All: true})
+
+	if resp.Ok {
+		t.Fatal("empty project scope unexpectedly killed every monitor")
+	}
+	if !strings.Contains(resp.Error, "kill_all requires a project scope") {
+		t.Fatalf("error = %q, want actionable project-scope error", resp.Error)
+	}
+	server.monitorsMu.RLock()
+	remainingRegistrations := len(server.monitors)
+	server.monitorsMu.RUnlock()
+	if remainingRegistrations != 2 {
+		t.Fatalf("registrations after rejected kill = %d, want 2", remainingRegistrations)
+	}
+}
+
 func TestHandleProtoKillMonitorTerminatesRegisteredProcess(t *testing.T) {
 	server := newTestServer(t, &mockStore{})
 	process := exec.Command("sleep", "30")
