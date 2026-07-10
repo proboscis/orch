@@ -15,7 +15,7 @@ orch runs AI coding agents non-interactively in the background, creating isolate
 Paste this into your coding agent (Claude Code, Codex, OpenCode, …):
 
 ```
-Fetch https://raw.githubusercontent.com/proboscis/orch/main/docs/agent-install.md and follow it exactly: install the orch binary, install the orch skill into this agent, then walk me through my first orch run interactively.
+Fetch https://github.com/proboscis/orch/releases/latest/download/agent-install.md and follow it exactly: install the orch binary, install the orch skill into this agent, then walk me through my first orch run interactively.
 ```
 
 The agent installs the binary, installs the [orch skill](./claude-plugins/orch-toolset/skills/orch-toolset/SKILL.md)

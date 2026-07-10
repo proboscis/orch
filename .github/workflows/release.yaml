@@ -45,6 +45,7 @@ jobs:
     needs: [build-go]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -58,7 +59,12 @@ jobs:
           cd ..
       - uses: softprops/action-gh-release@v2
         with:
+          # The agent-install runbook ships with each release so the README
+          # one-liner (releases/latest/download/agent-install.md) always
+          # matches the released binary, never a moving main.
           files: |
-            orch-*
+            orch-darwin-*
+            orch-linux-*
             checksums.txt
+            docs/agent-install.md
           generate_release_notes: true
