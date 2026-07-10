@@ -36,7 +36,6 @@ type GlobalOptions struct {
 	Project     string
 	ProjectRoot string // deprecated compatibility field
 	Remote      string
-	Backend     string
 	JSON        bool
 	TSV         bool
 	Quiet       bool
@@ -139,7 +138,6 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&globalOpts.Project, "project", "", "Project identity (git repo URL or normalized repo ID; or set ORCH_PROJECT)")
 	rootCmd.PersistentFlags().StringVar(&globalOpts.Remote, "remote", "", "Connect to remote daemon address (or set ORCH_REMOTE)")
 
-	rootCmd.PersistentFlags().StringVar(&globalOpts.Backend, "backend", "file", "Issue store backend (local|github)")
 	rootCmd.PersistentFlags().BoolVar(&globalOpts.JSON, "json", false, "Output in JSON format")
 	rootCmd.PersistentFlags().BoolVar(&globalOpts.TSV, "tsv", false, "Output in TSV format (for fzf)")
 	rootCmd.PersistentFlags().BoolVar(&globalOpts.Quiet, "quiet", false, "Suppress human-readable output")

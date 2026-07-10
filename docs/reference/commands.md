@@ -8,7 +8,6 @@ These flags work with all commands:
 
 | Flag | Description |
 |------|-------------|
-| `--backend <type>` | Issue store backend: `file` (default), `local`, or `github` (normally set via `issues.backend` in config) |
 | `--project <id-or-url>` | Project identity (repo ID or git remote URL, or `ORCH_PROJECT`) |
 | `--remote <addr>` | Connect to remote daemon address (or `ORCH_REMOTE`) |
 | `--json` | Output in JSON format |
