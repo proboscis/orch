@@ -89,10 +89,17 @@ orch のコマンドはカレントディレクトリからプロジェクトを
 ```bash
 cd ~/orch-sandbox
 
-# 1. タスクを issue として記述する
+# 1. タスクを issue として記述する。issue 本文は worker agent が読む
+#    唯一のコンテキスト — 目的・制約・受け入れ条件・検証方法まで書いた
+#    「完全なブリーフ」にする(1 行の説明で済ませない)。
+#    手で書くなら --edit で $EDITOR を開くのが楽:
+#      orch issue create hello-world --title "..." --edit
+#    エージェントやスクリプトが書くなら heredoc で:
 orch issue create hello-world --title "Add a hello world script" << 'EOF'
 Create hello.py at the repository root that prints "Hello, World!" when run
 with python3. Keep it to a few lines. Do not create anything else.
+
+Acceptance: `python3 hello.py` prints exactly "Hello, World!" and exits 0.
 EOF
 
 # (create の出力に 8 桁の hex ID が表示されます。7 桁以上の一意な hex prefix は

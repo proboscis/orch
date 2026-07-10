@@ -54,17 +54,21 @@ func newIssueCreateCmd() *cobra.Command {
 
 For local backend, ISSUE_ID is required.
 For GitHub backend, ISSUE_ID is optional (GitHub assigns the number).
-Provide the issue body with --body, or omit it and redirect stdin via a
-pipe/heredoc for multi-line input.
+
+The issue body is the worker agent's ONLY context — write a complete brief
+(goal, constraints, acceptance criteria, how to verify), not a one-liner.
+Write it in $EDITOR with --edit, or pipe it via stdin (heredoc) when an
+agent or script authors the issue; --body suits short bodies only.
 
 Examples:
-  orch issue create fix-login-bug --title "Fix login timeout"
-  orch issue create plc-123 --title "Add dark mode" --body "Users want dark mode support"
+  orch issue create my-issue --title "Add dark mode" --edit   # opens $EDITOR
   orch issue create my-issue --title "Add dark mode" <<'EOF'
-  Users want dark mode support.
-  Include settings persistence.
+  ## Goal
+  Users want dark mode support, persisted in settings.
+  ## Acceptance criteria
+  ...
   EOF
-  orch issue create my-issue --edit  # Opens in $EDITOR
+  orch issue create fix-login-bug --title "Fix login timeout"
   orch issue create --title "GitHub issue"  # GitHub backend only`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

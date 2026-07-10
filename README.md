@@ -37,8 +37,9 @@ mkdir -p .orch && printf 'agent: claude\nbase_branch: main\n' > .orch/config.yam
 orch daemon repo register "$(pwd)"   # map project identity -> this checkout
 # (daemon and worker start automatically on demand — no manual process management)
 
-# Create an issue
-orch issue create my-task --title "Add hello world function"
+# Create an issue — the body is the worker agent's ONLY context, so write a
+# complete brief (goal, constraints, acceptance criteria) in your editor:
+orch issue create my-task --title "Add hello world function" --edit
 
 # Run an agent
 orch run my-task --no-pr

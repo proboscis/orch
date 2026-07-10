@@ -162,7 +162,10 @@ EOF
 ## Create your first issue
 
 Create issues through the CLI so orch validates them and writes them to the
-configured issue store:
+configured issue store. **The issue body is the worker agent's only context**
+— write a complete brief (goal, constraints, acceptance criteria, how to
+verify), never a one-line description. Heredoc works well when an agent or
+script authors the issue:
 
 ```bash
 orch issue create my-first-issue --title "Add a hello world function" <<'EOF'
