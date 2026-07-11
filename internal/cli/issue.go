@@ -746,7 +746,7 @@ func runIssueShow(issueID string, opts *issueShowOptions) error {
 }
 
 func newIssueEditCmd() *cobra.Command {
-	var title string
+	opts := &issueEditOptions{}
 
 	cmd := &cobra.Command{
 		Use:   "edit ISSUE_ID",
@@ -754,30 +754,81 @@ func newIssueEditCmd() *cobra.Command {
 		Long: `Edit an issue in $EDITOR, then sync changes back.
 
 For GitHub issues, changes are pushed to GitHub.
-For local issues, the file is edited directly.
+For local issues, a temporary copy is edited and submitted through the daemon.
 
 Examples:
-  orch issue edit 123                    # Open issue in $EDITOR
-  orch issue edit gh-123 --title "New"   # Update title directly`,
+  orch issue edit my-issue                         # Open body in $EDITOR
+  orch issue edit my-issue --title "New"           # Update title directly
+  orch issue edit my-issue --body "replacement"    # Replace body
+  printf '\n## Note\ntext\n' | orch issue edit my-issue --append-body -`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runIssueEdit(args[0], title)
+			opts.titleProvided = cmd.Flags().Changed("title")
+			opts.bodyProvided = cmd.Flags().Changed("body")
+			opts.appendBodyProvided = cmd.Flags().Changed("append-body")
+			return runIssueEdit(args[0], opts)
 		},
 	}
 
-	cmd.Flags().StringVarP(&title, "title", "t", "", "Update title directly without opening editor")
+	cmd.Flags().StringVarP(&opts.Title, "title", "t", "", "Update title directly without opening editor")
+	cmd.Flags().StringVarP(&opts.Body, "body", "b", "", "Replace body with text, or - to read from stdin")
+	cmd.Flags().StringVar(&opts.AppendBody, "append-body", "", "Append text to body, or - to read from stdin")
 
 	return cmd
 }
 
-func runIssueEdit(issueID, title string) error {
+type issueEditOptions struct {
+	Title              string
+	Body               string
+	AppendBody         string
+	titleProvided      bool
+	bodyProvided       bool
+	appendBodyProvided bool
+}
+
+func runIssueEdit(issueID string, opts *issueEditOptions) error {
+	api, err := getAPI()
+	if err != nil {
+		return err
+	}
+	return runIssueEditWithInput(issueID, opts, os.Stdin, api, openInEditor)
+}
+
+func runIssueEditWithInput(issueID string, opts *issueEditOptions, stdin io.Reader, api orchapi.OrchAPI, editor func(string) error) error {
 	if model.IsGitHubIssueID(issueID) {
 		issueID = model.NormalizeGitHubIssueID(issueID)
 	}
+	if opts == nil {
+		opts = &issueEditOptions{}
+	}
+	if opts.bodyProvided && opts.appendBodyProvided {
+		return fmt.Errorf("--body and --append-body are mutually exclusive")
+	}
+	if opts.titleProvided && strings.TrimSpace(opts.Title) == "" {
+		return fmt.Errorf("--title must not be empty")
+	}
 
 	ctx := context.Background()
-	api, err := getAPI()
-	if err != nil {
+	request := &orchapi.UpdateIssueRequest{}
+	if opts.titleProvided {
+		request.Title = &opts.Title
+	}
+	if opts.bodyProvided {
+		body, err := resolveIssueEditText("--body", opts.Body, stdin)
+		if err != nil {
+			return err
+		}
+		request.Body = &body
+	}
+	if opts.appendBodyProvided {
+		appendBody, err := resolveIssueEditText("--append-body", opts.AppendBody, stdin)
+		if err != nil {
+			return err
+		}
+		request.AppendBody = &appendBody
+	}
+	if opts.titleProvided || opts.bodyProvided || opts.appendBodyProvided {
+		_, err := api.UpdateIssue(ctx, model.IssueID(issueID), request)
 		return err
 	}
 
@@ -790,20 +841,51 @@ func runIssueEdit(issueID, title string) error {
 		return fmt.Errorf("issue not found: %s", issueID)
 	}
 
-	if title != "" {
-		return fmt.Errorf("--title update not yet implemented for local issues; edit the file directly: %s", issue.Path)
-	}
-
 	path := issue.Path
-	if strings.HasPrefix(path, "file://") {
-		path = strings.TrimPrefix(path, "file://")
-	}
-
 	if strings.HasPrefix(path, "https://") {
 		return editGitHubIssue(api, issueID, issue)
 	}
 
-	return openInEditor(path)
+	return editLocalIssueBody(ctx, api, issueID, issue, editor)
+}
+
+func resolveIssueEditText(flagName, value string, stdin io.Reader) (string, error) {
+	if value != "-" {
+		return value, nil
+	}
+	content, err := io.ReadAll(stdin)
+	if err != nil {
+		return "", fmt.Errorf("read %s from stdin: %w", flagName, err)
+	}
+	return string(content), nil
+}
+
+func editLocalIssueBody(ctx context.Context, api orchapi.OrchAPI, issueID string, issue *orchapi.Issue, editor func(string) error) error {
+	tmpFile, err := os.CreateTemp("", "orch-issue-edit-*.md")
+	if err != nil {
+		return fmt.Errorf("create temporary issue copy: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := tmpFile.WriteString(issue.Body); err != nil {
+		_ = tmpFile.Close()
+		return fmt.Errorf("write temporary issue copy: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("close temporary issue copy: %w", err)
+	}
+	if err := editor(tmpPath); err != nil {
+		return err
+	}
+
+	body, err := os.ReadFile(tmpPath)
+	if err != nil {
+		return fmt.Errorf("read edited temporary issue copy: %w", err)
+	}
+	updatedBody := string(body)
+	_, err = api.UpdateIssue(ctx, model.IssueID(issueID), &orchapi.UpdateIssueRequest{Body: &updatedBody})
+	return err
 }
 
 func editGitHubIssue(api orchapi.OrchAPI, issueID string, issue *orchapi.Issue) error {

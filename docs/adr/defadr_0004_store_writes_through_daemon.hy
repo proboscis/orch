@@ -41,15 +41,11 @@
          [(counterexample "issue file changed on disk; orch issue show silently returns the cached pre-change body (2026-07-12, required a master restart to surface)")])]
   :enforcement
     [(defsemgrep adr0004-cli-no-editor-on-store-path
-       :languages ["go"]
-       :message "ADR-0004 R2: the CLI must not open a store file in $EDITOR; edit a daemon-fetched temp copy and submit through a daemon verb"
-       :pattern "openInEditor($ISSUE.Path)"
-       ;; inline fixtures need explicit .go paths: doeff-adr's extension map
-       ;; has no "go" entry and would write .txt, which semgrep skips
-       :bad [{"relative-path" "bad/run_issue_edit.go"
-              "source" "package cli\n\nfunc runIssueEdit(issue *Issue) error {\n\treturn openInEditor(issue.Path)\n}\n"}]
-       :good [{"relative-path" "good/edit_via_daemon.go"
-               "source" "package cli\n\nfunc editIssueViaDaemon(issue *Issue) error {\n\ttmp := writeTempCopy(issue)\n\tif err := openInEditor(tmp); err != nil {\n\t\treturn err\n\t}\n\treturn submitIssueUpdate(issue.ID, tmp)\n}\n"}])
+       "adr0004-cli-no-editor-on-store-path"
+       [{"relative-path" "internal/cli/bad/run_issue_edit.go"
+         "source" "package cli\n\nfunc runIssueEdit(issue *Issue) error {\n\treturn openInEditor(issue.Path)\n}\n"}]
+       [{"relative-path" "internal/cli/good/edit_via_daemon.go"
+         "source" "package cli\n\nfunc editIssueViaDaemon(issue *Issue) error {\n\ttmp := writeTempCopy(issue)\n\tif err := openInEditor(tmp); err != nil {\n\t\treturn err\n\t}\n\treturn submitIssueUpdate(issue.ID, tmp)\n}\n"}])
      (defsemgrep adr0004-no-edit-the-file-directly-advice
        :languages ["generic"]
        :message "ADR-0004 R1: never instruct users to edit store files directly; point them at the daemon verb instead"

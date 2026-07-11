@@ -6067,11 +6067,10 @@ func (x *CleanRunWorktreeResponse) GetReason() string {
 type UpdateIssueRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	IssueId       string                 `protobuf:"bytes,2,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"`
-	Title         string                 `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`
-	Summary       string                 `protobuf:"bytes,4,opt,name=summary,proto3" json:"summary,omitempty"`
-	Body          string                 `protobuf:"bytes,5,opt,name=body,proto3" json:"body,omitempty"`
-	Status        string                 `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
+	Title         *string                `protobuf:"bytes,3,opt,name=title,proto3,oneof" json:"title,omitempty"`
+	Body          *string                `protobuf:"bytes,5,opt,name=body,proto3,oneof" json:"body,omitempty"`
 	Context       *RequestContext        `protobuf:"bytes,7,opt,name=context,proto3" json:"context,omitempty"`
+	AppendBody    *string                `protobuf:"bytes,8,opt,name=append_body,json=appendBody,proto3,oneof" json:"append_body,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6114,29 +6113,15 @@ func (x *UpdateIssueRequest) GetIssueId() string {
 }
 
 func (x *UpdateIssueRequest) GetTitle() string {
-	if x != nil {
-		return x.Title
-	}
-	return ""
-}
-
-func (x *UpdateIssueRequest) GetSummary() string {
-	if x != nil {
-		return x.Summary
+	if x != nil && x.Title != nil {
+		return *x.Title
 	}
 	return ""
 }
 
 func (x *UpdateIssueRequest) GetBody() string {
-	if x != nil {
-		return x.Body
-	}
-	return ""
-}
-
-func (x *UpdateIssueRequest) GetStatus() string {
-	if x != nil {
-		return x.Status
+	if x != nil && x.Body != nil {
+		return *x.Body
 	}
 	return ""
 }
@@ -6146,6 +6131,13 @@ func (x *UpdateIssueRequest) GetContext() *RequestContext {
 		return x.Context
 	}
 	return nil
+}
+
+func (x *UpdateIssueRequest) GetAppendBody() string {
+	if x != nil && x.AppendBody != nil {
+		return *x.AppendBody
+	}
+	return ""
 }
 
 type UpdateIssueResponse struct {
@@ -11416,14 +11408,17 @@ const file_orch_proto_rawDesc = "" +
 	"\rworktree_path\x18\x04 \x01(\tR\fworktreePath\x12)\n" +
 	"\x10worktree_removed\x18\x05 \x01(\bR\x0fworktreeRemoved\x12\x18\n" +
 	"\askipped\x18\x06 \x01(\bR\askipped\x12\x16\n" +
-	"\x06reason\x18\a \x01(\tR\x06reason\"\xbe\x01\n" +
+	"\x06reason\x18\a \x01(\tR\x06reason\"\xeb\x01\n" +
 	"\x12UpdateIssueRequest\x12\x19\n" +
-	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x14\n" +
-	"\x05title\x18\x03 \x01(\tR\x05title\x12\x18\n" +
-	"\asummary\x18\x04 \x01(\tR\asummary\x12\x12\n" +
-	"\x04body\x18\x05 \x01(\tR\x04body\x12\x16\n" +
-	"\x06status\x18\x06 \x01(\tR\x06status\x121\n" +
-	"\acontext\x18\a \x01(\v2\x17.orch.v1.RequestContextR\acontext\";\n" +
+	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x19\n" +
+	"\x05title\x18\x03 \x01(\tH\x00R\x05title\x88\x01\x01\x12\x17\n" +
+	"\x04body\x18\x05 \x01(\tH\x01R\x04body\x88\x01\x01\x121\n" +
+	"\acontext\x18\a \x01(\v2\x17.orch.v1.RequestContextR\acontext\x12$\n" +
+	"\vappend_body\x18\b \x01(\tH\x02R\n" +
+	"appendBody\x88\x01\x01B\b\n" +
+	"\x06_titleB\a\n" +
+	"\x05_bodyB\x0e\n" +
+	"\f_append_bodyJ\x04\b\x04\x10\x05J\x04\b\x06\x10\a\";\n" +
 	"\x13UpdateIssueResponse\x12$\n" +
 	"\x05issue\x18\x01 \x01(\v2\x0e.orch.v1.IssueR\x05issue\"i\n" +
 	"\x19ValidateIssueFilesRequest\x12\x19\n" +
@@ -12185,6 +12180,7 @@ func file_orch_proto_init() {
 	if File_orch_proto != nil {
 		return
 	}
+	file_orch_proto_msgTypes[89].OneofWrappers = []any{}
 	file_orch_proto_msgTypes[135].OneofWrappers = []any{
 		(*Request_Ping)(nil),
 		(*Request_ListRuns)(nil),

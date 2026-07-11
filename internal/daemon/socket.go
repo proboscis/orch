@@ -3417,7 +3417,11 @@ func (s *SocketServer) handleGetIssue(req SendRequest, encoder *json.Encoder) {
 
 	if err != nil {
 		s.logger.Printf("error getting issue %s: %v", req.IssueID, err)
-		encoder.Encode(GetIssueResponse{OK: false, Error: "not_found"})
+		if isStoreNotFoundError(err) {
+			encoder.Encode(GetIssueResponse{OK: false, Error: "not_found"})
+		} else {
+			encoder.Encode(GetIssueResponse{OK: false, Error: err.Error()})
+		}
 		return
 	}
 
@@ -3455,7 +3459,11 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 
 	issue, err := st.ResolveIssue(issueID)
 	if err != nil {
-		encoder.Encode(StartRunResponse{OK: false, Error: "issue not found: " + req.IssueID})
+		if isStoreNotFoundError(err) {
+			encoder.Encode(StartRunResponse{OK: false, Error: "issue not found: " + req.IssueID})
+		} else {
+			encoder.Encode(StartRunResponse{OK: false, Error: s.storeOperationError(st, req.RepoID, "start run issue lookup", err)})
+		}
 		return
 	}
 
@@ -3772,7 +3780,10 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	if issue == nil {
 		resolvedIssue, err := st.ResolveIssue(opts.IssueID)
 		if err != nil {
-			return nil, fmt.Errorf("issue not found: %s", opts.IssueID)
+			if isStoreNotFoundError(err) {
+				return nil, fmt.Errorf("issue not found: %s", opts.IssueID)
+			}
+			return nil, fmt.Errorf("start run issue lookup failed for %s: %w", opts.IssueID, err)
 		}
 		issue = resolvedIssue
 	}
@@ -4134,7 +4145,10 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		// missing issue.
 		if opts.IssueSnapshot == nil {
 			if _, err := st.ResolveIssue(issueID); err != nil {
-				return nil, fmt.Errorf("issue not found: %s", issueID)
+				if isStoreNotFoundError(err) {
+					return nil, fmt.Errorf("issue not found: %s", issueID)
+				}
+				return nil, fmt.Errorf("continue run issue lookup failed for %s: %w", issueID, err)
 			}
 		}
 
@@ -4285,7 +4299,10 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 	if issue == nil {
 		resolvedIssue, err := st.ResolveIssue(issueID)
 		if err != nil {
-			return nil, fmt.Errorf("issue not found: %s", issueID)
+			if isStoreNotFoundError(err) {
+				return nil, fmt.Errorf("issue not found: %s", issueID)
+			}
+			return nil, fmt.Errorf("continue run issue lookup failed for %s: %w", issueID, err)
 		}
 		issue = resolvedIssue
 	}
@@ -4569,7 +4586,11 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 
 		_, err := st.ResolveIssue(issueID)
 		if err != nil {
-			encoder.Encode(ContinueRunResponse{OK: false, Error: "issue not found: " + string(issueID)})
+			if isStoreNotFoundError(err) {
+				encoder.Encode(ContinueRunResponse{OK: false, Error: "issue not found: " + string(issueID)})
+			} else {
+				encoder.Encode(ContinueRunResponse{OK: false, Error: s.storeOperationError(st, req.RepoID, "continue run issue lookup", err)})
+			}
 			return
 		}
 
@@ -4712,7 +4733,11 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 
 	issue, err := st.ResolveIssue(issueID)
 	if err != nil {
-		encoder.Encode(ContinueRunResponse{OK: false, Error: "issue not found: " + string(issueID)})
+		if isStoreNotFoundError(err) {
+			encoder.Encode(ContinueRunResponse{OK: false, Error: "issue not found: " + string(issueID)})
+		} else {
+			encoder.Encode(ContinueRunResponse{OK: false, Error: s.storeOperationError(st, req.RepoID, "continue run issue lookup", err)})
+		}
 		return
 	}
 
@@ -5158,7 +5183,11 @@ func (s *SocketServer) handleResolveIssue(req SendRequest, encoder *json.Encoder
 	issue, err := st.ResolveIssue(model.IssueID(req.IssueID))
 	if err != nil {
 		s.logger.Printf("error getting issue %s: %v", req.IssueID, err)
-		encoder.Encode(ResolveIssueResponse{OK: false, Error: "not_found"})
+		if isStoreNotFoundError(err) {
+			encoder.Encode(ResolveIssueResponse{OK: false, Error: "not_found"})
+		} else {
+			encoder.Encode(ResolveIssueResponse{OK: false, Error: s.storeOperationError(st, req.RepoID, "resolve issue lookup", err)})
+		}
 		return
 	}
 
@@ -5383,7 +5412,11 @@ func (s *SocketServer) handleCloseIssue(req SendRequest, encoder *json.Encoder) 
 
 	if err := st.SetIssueStatus(model.IssueID(req.IssueID), model.IssueStatusClosed); err != nil {
 		s.logger.Printf("error closing issue %s: %v", req.IssueID, err)
-		encoder.Encode(CloseIssueResponse{OK: false, Error: "not_found"})
+		if isStoreNotFoundError(err) {
+			encoder.Encode(CloseIssueResponse{OK: false, Error: "not_found"})
+		} else {
+			encoder.Encode(CloseIssueResponse{OK: false, Error: s.storeOperationError(st, req.RepoID, "close issue", err)})
+		}
 		return
 	}
 

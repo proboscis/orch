@@ -1094,20 +1094,18 @@ class CleanRunWorktreeResponse(_message.Message):
     def __init__(self, issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., short_id: _Optional[str] = ..., worktree_path: _Optional[str] = ..., worktree_removed: _Optional[bool] = ..., skipped: _Optional[bool] = ..., reason: _Optional[str] = ...) -> None: ...
 
 class UpdateIssueRequest(_message.Message):
-    __slots__ = ("issue_id", "title", "summary", "body", "status", "context")
+    __slots__ = ("issue_id", "title", "body", "context", "append_body")
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     TITLE_FIELD_NUMBER: _ClassVar[int]
-    SUMMARY_FIELD_NUMBER: _ClassVar[int]
     BODY_FIELD_NUMBER: _ClassVar[int]
-    STATUS_FIELD_NUMBER: _ClassVar[int]
     CONTEXT_FIELD_NUMBER: _ClassVar[int]
+    APPEND_BODY_FIELD_NUMBER: _ClassVar[int]
     issue_id: str
     title: str
-    summary: str
     body: str
-    status: str
     context: RequestContext
-    def __init__(self, issue_id: _Optional[str] = ..., title: _Optional[str] = ..., summary: _Optional[str] = ..., body: _Optional[str] = ..., status: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
+    append_body: str
+    def __init__(self, issue_id: _Optional[str] = ..., title: _Optional[str] = ..., body: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ..., append_body: _Optional[str] = ...) -> None: ...
 
 class UpdateIssueResponse(_message.Message):
     __slots__ = ("issue",)

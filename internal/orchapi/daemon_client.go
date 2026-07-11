@@ -768,7 +768,7 @@ func (c *DaemonClient) CleanRunWorktree(ctx context.Context, ref RunRef) (*Clean
 }
 
 func (c *DaemonClient) UpdateIssue(ctx context.Context, issueID model.IssueID, req *UpdateIssueRequest) (*Issue, error) {
-	resp, err := c.proto.UpdateIssue(string(issueID), req.Title, req.Summary, req.Body, string(req.Status))
+	resp, err := c.proto.UpdateIssue(string(issueID), req.Title, req.Body, req.AppendBody)
 	if err != nil {
 		return nil, err
 	}

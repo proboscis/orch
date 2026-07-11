@@ -1464,7 +1464,10 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 	// run on a different host and have no issue store at all.
 	issue, err := st.ResolveIssue(model.IssueID(req.IssueId))
 	if err != nil {
-		return errorResponse(fmt.Sprintf("issue not found: %s", req.IssueId))
+		if isStoreNotFoundError(err) {
+			return errorResponse(fmt.Sprintf("issue not found: %s", req.IssueId))
+		}
+		return errorResponse(s.storeOperationError(st, projectID, "start run issue lookup", err))
 	}
 	// The request may carry an issue hex ref (ADR-0001). Everything downstream
 	// — worker payload, run directories, lease keys, master projections — must
@@ -1816,7 +1819,10 @@ func (s *SocketServer) handleProtoContinueRun(req *orchpb.ContinueRunRequest) *o
 	if strings.TrimSpace(string(issueID)) != "" {
 		issue, err := st.ResolveIssue(issueID)
 		if err != nil {
-			return errorResponse(fmt.Sprintf("issue not found: %s", issueID))
+			if isStoreNotFoundError(err) {
+				return errorResponse(fmt.Sprintf("issue not found: %s", issueID))
+			}
+			return errorResponse(s.storeOperationError(st, projectID, "continue run issue lookup", err))
 		}
 		opts.IssueSnapshot = issue
 	}
@@ -2089,7 +2095,10 @@ func (s *SocketServer) handleProtoGetIssue(req *orchpb.GetIssueRequest) *orchpb.
 
 		resolved, err := st.ResolveIssue(model.IssueID(req.IssueId))
 		if err != nil {
-			return errorResponse("not_found")
+			if isStoreNotFoundError(err) {
+				return errorResponse("not_found")
+			}
+			return errorResponse(s.storeOperationError(st, projectID, "issue lookup", err))
 		}
 		issue = resolved
 	} else {
@@ -2170,7 +2179,10 @@ func (s *SocketServer) handleProtoCloseIssue(req *orchpb.CloseIssueRequest) *orc
 	}
 
 	if err := st.SetIssueStatus(model.IssueID(req.IssueId), model.IssueStatusClosed); err != nil {
-		return errorResponse("not_found")
+		if isStoreNotFoundError(err) {
+			return errorResponse("not_found")
+		}
+		return errorResponse(s.storeOperationError(st, projectIDFromContext(req.Context), "close issue", err))
 	}
 
 	return &orchpb.Response{
@@ -3433,6 +3445,19 @@ func (s *SocketServer) handleProtoCleanRunWorktree(req *orchpb.CleanRunWorktreeR
 }
 
 func (s *SocketServer) handleProtoUpdateIssue(req *orchpb.UpdateIssueRequest) *orchpb.Response {
+	if req == nil || strings.TrimSpace(req.IssueId) == "" {
+		return errorResponse("invalid_request: issue_id required")
+	}
+	if req.Body != nil && req.AppendBody != nil {
+		return errorResponse("invalid_request: body and append_body are mutually exclusive")
+	}
+	if req.Title == nil && req.Body == nil && req.AppendBody == nil {
+		return errorResponse("invalid_request: at least one of title, body, or append_body is required")
+	}
+	if req.Title != nil && strings.TrimSpace(req.GetTitle()) == "" {
+		return errorResponse("invalid_request: title must not be empty")
+	}
+
 	st := s.resolveStoreFromContextOrProto(req.Context, "")
 	if st == nil {
 		if projectID := projectIDFromContext(req.Context); projectID != "" {
@@ -3443,24 +3468,20 @@ func (s *SocketServer) handleProtoUpdateIssue(req *orchpb.UpdateIssueRequest) *o
 
 	issue, err := st.ResolveIssue(model.IssueID(req.IssueId))
 	if err != nil {
-		return errorResponse(fmt.Sprintf("issue not found: %v", err))
+		if isStoreNotFoundError(err) {
+			return errorResponse(fmt.Sprintf("issue not found: %v", err))
+		}
+		return errorResponse(s.storeOperationError(st, projectIDFromContext(req.Context), "issue update lookup", err))
 	}
 
-	if req.Title != "" {
-		issue.Title = req.Title
+	if req.Title != nil {
+		issue.Title = req.GetTitle()
 	}
-	if req.Summary != "" {
-		issue.Summary = req.Summary
+	if req.Body != nil {
+		issue.Body = req.GetBody()
 	}
-	if req.Body != "" {
-		issue.Body = req.Body
-	}
-	if req.Status != "" {
-		status, err := model.ParseIssueStatus(req.Status)
-		if err != nil {
-			return errorResponse(err.Error())
-		}
-		issue.Status = status
+	if req.AppendBody != nil {
+		issue.Body += req.GetAppendBody()
 	}
 
 	if err := st.UpdateIssue(issue); err != nil {

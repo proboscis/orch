@@ -17,12 +17,19 @@ import (
 
 // FileStore implements store.Store using the filesystem
 type FileStore struct {
-	rootPath    string
-	issueMu     sync.RWMutex
-	issueCache  map[model.IssueID]*model.Issue // id -> issue
-	cacheDirty  bool
-	warnFunc    func(format string, args ...any) // optional warning function
-	warnedFiles sync.Map                         // dedup warnings per file
+	rootPath             string
+	issueMu              sync.RWMutex
+	issueCache           map[model.IssueID]*model.Issue // id -> issue
+	issueFileStates      map[string]issueFileState      // path -> daemon-observed state
+	issueScanInitialized bool
+	cacheDirty           bool
+	warnFunc             func(format string, args ...any) // optional warning function
+	warnedFiles          sync.Map                         // dedup warnings per file
+}
+
+type issueFileState struct {
+	modTime time.Time
+	size    int64
 }
 
 // New creates a new FileStore
@@ -46,9 +53,10 @@ func New(rootPath string) (*FileStore, error) {
 	}
 
 	return &FileStore{
-		rootPath:   absPath,
-		issueCache: make(map[model.IssueID]*model.Issue),
-		cacheDirty: true,
+		rootPath:        absPath,
+		issueCache:      make(map[model.IssueID]*model.Issue),
+		issueFileStates: make(map[string]issueFileState),
+		cacheDirty:      true,
 		// warnFunc defaults to nil (no warnings); set via SetWarnFunc
 	}, nil
 }
@@ -269,12 +277,21 @@ func walkWithSymlinks(root string, walkFn filepath.WalkFunc) error {
 func (s *FileStore) scanIssues() error {
 	issuesDir := s.issuesDir()
 	issues := make(map[model.IssueID]*model.Issue)
+	fileStates := make(map[string]issueFileState)
+	seenIssueFiles := make(map[string]struct{})
 
 	s.issueMu.Lock()
 	defer s.issueMu.Unlock()
 
 	if _, err := os.Stat(issuesDir); os.IsNotExist(err) {
+		if s.issueScanInitialized && len(s.issueFileStates) > 0 {
+			for path := range s.issueFileStates {
+				return storeDriftError(path)
+			}
+		}
 		s.issueCache = issues
+		s.issueFileStates = fileStates
+		s.issueScanInitialized = true
 		s.cacheDirty = false
 		return nil
 	}
@@ -287,6 +304,9 @@ func (s *FileStore) scanIssues() error {
 		if info.IsDir() || !strings.HasSuffix(info.Name(), ".md") {
 			return nil
 		}
+		if expected, ok := s.issueFileStates[path]; ok && !expected.matches(info) {
+			return storeDriftError(path)
+		}
 
 		issue, err := s.parseIssueFile(path)
 		if err != nil {
@@ -295,9 +315,14 @@ func (s *FileStore) scanIssues() error {
 		if issue == nil {
 			return nil
 		}
+		if _, known := s.issueFileStates[path]; !known && s.issueScanInitialized {
+			return storeDriftError(path)
+		}
 
 		issue.ModifiedAt = info.ModTime()
 		issues[issue.ID] = issue
+		fileStates[path] = issueFileStateFromInfo(info)
+		seenIssueFiles[path] = struct{}{}
 		return nil
 	})
 
@@ -305,9 +330,61 @@ func (s *FileStore) scanIssues() error {
 		s.cacheDirty = true
 		return err
 	}
+	if s.issueScanInitialized {
+		for path := range s.issueFileStates {
+			if _, ok := seenIssueFiles[path]; !ok {
+				return storeDriftError(path)
+			}
+		}
+	}
 
 	s.issueCache = issues
+	s.issueFileStates = fileStates
+	s.issueScanInitialized = true
 	s.cacheDirty = false
+	return nil
+}
+
+func issueFileStateFromInfo(info os.FileInfo) issueFileState {
+	return issueFileState{modTime: info.ModTime(), size: info.Size()}
+}
+
+func (state issueFileState) matches(info os.FileInfo) bool {
+	return state.modTime.Equal(info.ModTime()) && state.size == info.Size()
+}
+
+func storeDriftError(path string) error {
+	return fmt.Errorf("store drift detected: %s was modified outside the daemon (ADR-0004); restart the daemon to adopt the external change", path)
+}
+
+func (s *FileStore) verifyIssueFile(path string) error {
+	s.issueMu.RLock()
+	defer s.issueMu.RUnlock()
+	return s.verifyIssueFileLocked(path)
+}
+
+func (s *FileStore) verifyIssueFileLocked(path string) error {
+	expected, ok := s.issueFileStates[path]
+	if !ok {
+		if s.issueScanInitialized {
+			return storeDriftError(path)
+		}
+		return nil
+	}
+	info, err := os.Stat(path)
+	if err != nil || !expected.matches(info) {
+		return storeDriftError(path)
+	}
+	return nil
+}
+
+func (s *FileStore) recordIssueFileWriteLocked(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("failed to stat daemon-written issue file %s: %w", path, err)
+	}
+	s.issueFileStates[path] = issueFileStateFromInfo(info)
+	s.cacheDirty = true
 	return nil
 }
 
@@ -761,6 +838,9 @@ func (s *FileStore) ResolveIssue(issueID model.IssueID) (*model.Issue, error) {
 		}
 
 	}
+	if err := s.verifyIssueFile(issue.Path); err != nil {
+		return nil, err
+	}
 
 	return issue, nil
 }
@@ -1110,6 +1190,11 @@ func (s *FileStore) SetIssueStatus(issueID model.IssueID, status model.IssueStat
 	if err != nil {
 		return err
 	}
+	s.issueMu.Lock()
+	defer s.issueMu.Unlock()
+	if err := s.verifyIssueFileLocked(issue.Path); err != nil {
+		return err
+	}
 
 	content, err := os.ReadFile(issue.Path)
 	if err != nil {
@@ -1159,9 +1244,7 @@ func (s *FileStore) SetIssueStatus(issueID model.IssueID, status model.IssueStat
 		return fmt.Errorf("failed to write issue file: %w", err)
 	}
 
-	s.markCacheDirty()
-
-	return nil
+	return s.recordIssueFileWriteLocked(issue.Path)
 }
 
 func (s *FileStore) DeleteRun(ref *model.RunRef) error {
@@ -1191,6 +1274,11 @@ func (s *FileStore) UpdateIssue(issue *model.Issue) error {
 	if issue.Path == "" {
 		return fmt.Errorf("issue path is empty")
 	}
+	s.issueMu.Lock()
+	defer s.issueMu.Unlock()
+	if err := s.verifyIssueFileLocked(issue.Path); err != nil {
+		return err
+	}
 
 	content, err := os.ReadFile(issue.Path)
 	if err != nil {
@@ -1198,64 +1286,65 @@ func (s *FileStore) UpdateIssue(issue *model.Issue) error {
 	}
 
 	lines := strings.Split(string(content), "\n")
-	var newLines []string
-	inFrontmatter := false
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return fmt.Errorf("issue file has no frontmatter: %s", issue.Path)
+	}
+
+	var frontmatter []string
+	frontmatter = append(frontmatter, lines[0])
 	foundTitle := false
 	foundSummary := false
 	foundStatus := false
-
-	for _, line := range lines {
+	closedFrontmatter := false
+	for _, line := range lines[1:] {
 		if strings.TrimSpace(line) == "---" {
-			if !inFrontmatter {
-				inFrontmatter = true
-				newLines = append(newLines, line)
-				continue
-			} else {
-				if issue.Title != "" && !foundTitle {
-					newLines = append(newLines, fmt.Sprintf("title: %s", issue.Title))
-				}
-				if issue.Summary != "" && !foundSummary {
-					newLines = append(newLines, fmt.Sprintf("summary: %s", issue.Summary))
-				}
-				if issue.Status != "" && !foundStatus {
-					newLines = append(newLines, fmt.Sprintf("status: %s", issue.Status))
-				}
-				newLines = append(newLines, line)
-				inFrontmatter = false
-				continue
+			if issue.Title != "" && !foundTitle {
+				frontmatter = append(frontmatter, "title: "+model.QuoteYAMLValue(issue.Title))
 			}
+			if issue.Summary != "" && !foundSummary {
+				frontmatter = append(frontmatter, "summary: "+model.QuoteYAMLValue(issue.Summary))
+			}
+			if issue.Status != "" && !foundStatus {
+				frontmatter = append(frontmatter, fmt.Sprintf("status: %s", issue.Status))
+			}
+			frontmatter = append(frontmatter, line)
+			closedFrontmatter = true
+			break
 		}
 
-		if inFrontmatter {
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 {
-				key := strings.TrimSpace(parts[0])
-				if key == "title" && issue.Title != "" {
-					newLines = append(newLines, fmt.Sprintf("title: %s", issue.Title))
-					foundTitle = true
-					continue
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) == 2 {
+			switch strings.TrimSpace(parts[0]) {
+			case "title":
+				frontmatter = append(frontmatter, "title: "+model.QuoteYAMLValue(issue.Title))
+				foundTitle = true
+				continue
+			case "summary":
+				if issue.Summary != "" {
+					frontmatter = append(frontmatter, "summary: "+model.QuoteYAMLValue(issue.Summary))
+				} else {
+					frontmatter = append(frontmatter, line)
 				}
-				if key == "summary" && issue.Summary != "" {
-					newLines = append(newLines, fmt.Sprintf("summary: %s", issue.Summary))
-					foundSummary = true
-					continue
-				}
-				if key == "status" && issue.Status != "" {
-					newLines = append(newLines, fmt.Sprintf("status: %s", issue.Status))
-					foundStatus = true
-					continue
-				}
+				foundSummary = true
+				continue
+			case "status":
+				frontmatter = append(frontmatter, fmt.Sprintf("status: %s", issue.Status))
+				foundStatus = true
+				continue
 			}
 		}
-		newLines = append(newLines, line)
+		frontmatter = append(frontmatter, line)
+	}
+	if !closedFrontmatter {
+		return fmt.Errorf("issue file has unterminated frontmatter: %s", issue.Path)
 	}
 
-	if err := os.WriteFile(issue.Path, []byte(strings.Join(newLines, "\n")), 0644); err != nil {
+	updated := strings.Join(frontmatter, "\n") + "\n" + issue.Body
+	if err := os.WriteFile(issue.Path, []byte(updated), 0644); err != nil {
 		return fmt.Errorf("failed to write issue file: %w", err)
 	}
 
-	s.markCacheDirty()
-	return nil
+	return s.recordIssueFileWriteLocked(issue.Path)
 }
 
 func (s *FileStore) ValidateIssueFiles(issueID model.IssueID) (*store.ValidationResult, error) {
@@ -1377,8 +1466,9 @@ func (s *FileStore) CreateIssue(issue *model.Issue) error {
 	}
 
 	issue.Path = issuePath
-	s.markCacheDirty()
-	return nil
+	s.issueMu.Lock()
+	defer s.issueMu.Unlock()
+	return s.recordIssueFileWriteLocked(issuePath)
 }
 
 var _ store.Store = (*FileStore)(nil)

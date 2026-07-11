@@ -94,6 +94,7 @@ lint: lint-fixtures
 	$(SEMGREP) test .semgrep/run-status-write-surface
 	$(SEMGREP) test .semgrep/worker-lease-mutation
 	$(SEMGREP) test .semgrep/derived-state-guard
+	$(SEMGREP) test .semgrep/adr0004-cli-no-editor-on-store-path
 	$(SEMGREP) --error --config .semgrep/ ./internal/ --exclude='*_test.go'
 	$(MAKE) -C orch-monitor-tui lint
 	$(MAKE) -C orch-monitor-tui lint-test
