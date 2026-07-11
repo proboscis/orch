@@ -75,6 +75,14 @@ type runCore struct {
 	// (L7').
 	AliveObserver     string
 	DeadCheckObserver string
+	// PRMismatchURL/PRMismatchHead latch the most recent pr-attach refusal
+	// (L-PR2): set from a captured refusal observation, replaced by a newer
+	// refusal, cleared when a verified PR records (PRRecorded). Ephemeral by
+	// law (§7 D-C1): after a restart the pane recapture re-observes the URL
+	// while it is still visible; once it scrolls away the diagnostic reason
+	// quietly expires — a delayed/omitted reason, never a changed verdict.
+	PRMismatchURL  string
+	PRMismatchHead string
 }
 
 // initialRunCore derives the fold-derivable runCore fields from the run's
@@ -241,6 +249,17 @@ type runObservation struct {
 	// run's non-empty branch artifact (pr-attach law, run-state-machine.md
 	// §11). stepRun must never adopt a PR URL from raw Output.
 	CapturedPRURL string
+	// RefusedPRURL/RefusedPRHead carry a scraped PR URL the gatherer REFUSED
+	// under the pr-attach law: the URL's verified head branch differs from
+	// the run branch (L-PR2, §11). Lookup failures are not refusals — only a
+	// positively-verified mismatch reaches the core. RefusedPRNoticeSent
+	// reports whether the run's event log already records a daemon notice
+	// for exactly this URL (L-N1); the gatherer derives it from note events
+	// so the once-only guarantee survives restarts without a persisted
+	// counter.
+	RefusedPRURL        string
+	RefusedPRHead       string
+	RefusedPRNoticeSent bool
 
 	// obsGitEvidence
 	Evidence gitEvidence
@@ -272,12 +291,21 @@ const (
 	// effectLog / effectDebugLog emit an operator log line.
 	effectLog
 	effectDebugLog
+	// effectSendAgentNotice delivers a daemon-authored corrective message to
+	// the run's agent session (L-N1..L-N3, run-state-machine.md §11): today
+	// the only notice is the pr-attach refusal. The executor sends first,
+	// then appends the note event that makes the notice fold-visible; a
+	// failed send leaves no note, so the next confirmed-idle capture
+	// retries. The effect never carries runCore values beyond the refusal
+	// payload the observation itself supplied.
+	effectSendAgentNotice
 )
 
 type runEffect struct {
 	Kind   effectKind
 	Status model.Status // effectSetStatus
-	PRURL  string       // effectRecordPR / effectRecordPRClosed
+	PRURL  string       // effectRecordPR / effectRecordPRClosed / effectSendAgentNotice
+	PRHead string       // effectSendAgentNotice: verified head of the refused PR
 	Output string       // effectSetStatus listener payload context
 	Msg    string       // effectLog / effectDebugLog
 	Reason string       // effectSetStatus: machine-readable verdict reason (model.AttrStatusReason)
@@ -664,6 +692,10 @@ func stepCaptured(view runView, core runCore, obs runObservation, now time.Time)
 
 	if prURL := obs.CapturedPRURL; prURL != "" && !core.PRRecorded {
 		core.PRRecorded = true
+		// A verified PR resolves any outstanding pr-attach refusal (L-PR2):
+		// the agent's work is now tracked, the diagnostic latch is done.
+		core.PRMismatchURL = ""
+		core.PRMismatchHead = ""
 		effects = append(effects,
 			logEffect("%s#%s: PR created: %s", view.IssueID, view.RunID, prURL),
 			runEffect{Kind: effectRecordPR, PRURL: prURL},
@@ -672,12 +704,43 @@ func stepCaptured(view runView, core runCore, obs runObservation, now time.Time)
 		return core, effects
 	}
 
+	// Latch a pr-attach refusal (L-PR2). A newer refused URL replaces the
+	// latch; the latch clears only through a verified PR (above). Recorded
+	// runs need no diagnostic: their PR column is already truthful.
+	if obs.RefusedPRURL != "" && !core.PRRecorded {
+		core.PRMismatchURL = obs.RefusedPRURL
+		core.PRMismatchHead = obs.RefusedPRHead
+	}
+
 	newStatus, reason := agentVerdict(view, obs.Signal, outputChanged, confirmedReading)
+	// A waiting verdict with no stronger reason surfaces the outstanding
+	// refusal as pr_branch_mismatch (L-PR2): the agent believes it opened a
+	// PR, orch shows why that PR is not being tracked. Gate reasons and the
+	// resolved/agent-specific verdicts stay untouched.
+	if newStatus == model.StatusWaiting && reason == "" && core.PRMismatchURL != "" && !core.PRRecorded {
+		reason = model.StatusReasonPRBranchMismatch
+	}
 	if newStatus != "" && (newStatus != view.Status || reason != view.StatusReason) {
 		effects = append(effects,
 			logEffect("%s#%s: status change %s -> %s", view.IssueID, view.RunID, view.Status, statusWithReason(newStatus, reason)),
 			runEffect{Kind: effectSetStatus, Status: newStatus, Output: obs.Output, Reason: reason},
 		)
+	}
+
+	// Daemon notice for the refused PR (L-N1..L-N3): at most one notice per
+	// (run, refused URL) — the gatherer folds sent notices from note events
+	// (L-N1) — delivered only to a confirmed-idle composer (the same L10a
+	// streak that gates the waiting verdict; never type into a working pane,
+	// L-N2), and never as a status change of its own (L-N3; the send path's
+	// feedback-resume semantics apply, exactly as for user feedback).
+	if core.PRMismatchURL != "" && !core.PRRecorded &&
+		obs.RefusedPRURL == core.PRMismatchURL && !obs.RefusedPRNoticeSent &&
+		confirmedReading == "prompt" {
+		effects = append(effects, runEffect{
+			Kind:   effectSendAgentNotice,
+			PRURL:  core.PRMismatchURL,
+			PRHead: core.PRMismatchHead,
+		})
 	}
 
 	return core, effects

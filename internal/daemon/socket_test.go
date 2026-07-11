@@ -7375,3 +7375,37 @@ func TestResolveWorkerTargetForRunPrefersRecordedRunRouting(t *testing.T) {
 		t.Fatalf("target worker = %q, want host-old-host", target.WorkerID)
 	}
 }
+
+// Branch discipline in the generated prompt (run-state-machine.md §11
+// prevention layer): the agent is told its run branch, the exact push
+// command, and — when a PR is expected — that the PR head must be that
+// branch.
+func TestBuildRunPromptBranchDiscipline(t *testing.T) {
+	s := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	issue := &model.Issue{ID: "issue-1", Body: "do the thing"}
+
+	prompt := s.buildRunPrompt(issue, "/tmp/issues", false, "", "main", "issue/x/run-1")
+	for _, want := range []string{
+		"already on branch `issue/x/run-1`",
+		"do NOT create or switch branches",
+		"git push origin HEAD:issue/x/run-1",
+		"Open the pull request FROM `issue/x/run-1`",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+
+	noPR := s.buildRunPrompt(issue, "/tmp/issues", true, "", "main", "issue/x/run-1")
+	if !strings.Contains(noPR, "git push origin HEAD:issue/x/run-1") {
+		t.Fatal("no-PR prompt must keep the push instruction")
+	}
+	if strings.Contains(noPR, "Open the pull request FROM") {
+		t.Fatal("no-PR prompt must not instruct opening a PR")
+	}
+
+	noBranch := s.buildRunPrompt(issue, "/tmp/issues", false, "", "main", "")
+	if strings.Contains(noBranch, "## Git workflow") {
+		t.Fatal("empty branch must omit the git workflow section")
+	}
+}

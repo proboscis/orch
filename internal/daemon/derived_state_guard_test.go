@@ -37,6 +37,8 @@ var runCoreFieldClasses = map[string]string{
 	"DeadCheckCount":    "ephemeral",
 	"AliveObserver":     "ephemeral",
 	"DeadCheckObserver": "ephemeral",
+	"PRMismatchURL":     "ephemeral",
+	"PRMismatchHead":    "ephemeral",
 }
 
 var runStateSchedulingFields = map[string]bool{
