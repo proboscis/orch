@@ -45,6 +45,10 @@ func setIsolatedXDG(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(base, "data"))
 	t.Setenv("ORCH_REMOTE", "")
 	t.Setenv("ORCH_PROJECT", "")
+	// cwd is a config input too (.orch/config.yaml and .orch/client.yaml are
+	// discovered by walking up) — without this, tests inherit whatever repo
+	// the developer runs them from.
+	t.Chdir(base)
 }
 
 func TestRunDaemonStatusWithoutProjectRoot(t *testing.T) {

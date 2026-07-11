@@ -88,8 +88,13 @@ orch ps
 
 ### Option C: persistent client config (recommended)
 
+Global (`~/.config/orch/client.yaml`) or per repository
+(`<repo>/.orch/client.yaml`, discovered by walking up from the current
+directory). Per-repo values override the global ones field-wise
+(`remote.default` when non-empty; host aliases merged, per-repo wins).
+
 ```yaml
-# ~/.config/orch/client.yaml
+# ~/.config/orch/client.yaml or <repo>/.orch/client.yaml
 remote:
   default: primary
   hosts:

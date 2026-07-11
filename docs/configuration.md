@@ -15,10 +15,12 @@ Settings are resolved in this order (highest priority first):
 ## Remote Configuration
 
 When using a remote daemon, configure the client target in
-`~/.config/orch/client.yaml`.
+`~/.config/orch/client.yaml` (global), or per repository in
+`.orch/client.yaml` (discovered by walking up from the current directory,
+like `.orch/config.yaml`).
 
 ```yaml
-# ~/.config/orch/client.yaml
+# ~/.config/orch/client.yaml or <repo>/.orch/client.yaml
 remote:
   default: primary
   hosts:
@@ -27,6 +29,15 @@ remote:
     cloud:
       addr: 10.0.0.5:7777
 ```
+
+Per-repo values win field-wise: a non-empty `remote.default` overrides the
+global one, and host aliases are merged with per-repo entries taking
+precedence. The full resolution order for the remote address is `--remote`
+flag > `ORCH_REMOTE` > per-repo `client.yaml` > global `client.yaml`.
+
+A committed `.orch/client.yaml` redirects every orch command run inside that
+checkout, so review it like code when cloning; for machine-specific values,
+keep the file untracked (gitignored) instead of committing it.
 
 You can then run remote commands without passing `--remote` each time:
 
@@ -52,13 +63,12 @@ orch --remote master-host:7777 daemon repo register https://github.com/your-org/
 orch --remote master-host:7777 daemon repo list
 ```
 
-Because the default exposes the TCP API on every network interface, limit
-access with a firewall or restart the daemon bound to a trusted interface. For
-example, use loopback when clients connect through an SSH tunnel:
+Opting into `0.0.0.0` exposes the TCP API on every network interface — limit
+access with a firewall, or keep the loopback default and let clients connect
+through an SSH tunnel instead:
 
 ```bash
-orch daemon kill
-orch daemon start --listen tcp://127.0.0.1:7777
+ssh -L 7777:127.0.0.1:7777 master-host   # then: orch --remote localhost:7777 ps
 ```
 
 In remote mode, orch resolves project identity from `--project`/`ORCH_PROJECT`
