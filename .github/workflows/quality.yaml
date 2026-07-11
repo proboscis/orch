@@ -29,6 +29,20 @@ jobs:
       - name: Run architecture lint
         run: make lint
 
+  adr-enforcement:
+    name: ADR Enforcement
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Run executable ADRs (doeff-adr)
+        run: uv run --group dev pytest docs/adr -q
+
   tests:
     name: Test Suite
     runs-on: ubuntu-latest

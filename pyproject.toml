@@ -1,0 +1,21 @@
+[project]
+name = "orch-adr"
+version = "0.0.0"
+description = "Executable ADR collection for orch (doeff-adr defadr modules under docs/adr)"
+requires-python = ">=3.11"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "doeff-adr",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+doeff-adr = { git = "https://github.com/proboscis/doeff", subdirectory = "packages/doeff-adr", rev = "678c18405145e64aee24ee0339c8de14b43d810e" }
+
+[tool.pytest.ini_options]
+testpaths = ["docs/adr"]
