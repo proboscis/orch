@@ -22,7 +22,7 @@ Pick your path by what you are trying to do.
 |---|---|
 | Agents | [Claude](./agents/claude.md) · [Codex](./agents/codex.md) · [OpenCode](./agents/opencode.md) · [Gemini](./agents/gemini.md) · [Custom](./agents/custom.md) |
 | Issue backends | [File](./backends/file.md) · [GitHub](./backends/github.md) |
-| Architecture decisions | [ADR-0001: issue hex IDs](./adr/ADR-0001-issue-hex-ids.md) · [ADR-0002: worker autostart](./adr/ADR-0002-idempotent-worker-autostart.md) · [ADR-0003: loopback-default listen](./adr/ADR-0003-loopback-default-listen.md) |
+| Architecture decisions | [ADR-0001: issue hex IDs](./adr/ADR-0001-issue-hex-ids.md) · [ADR-0002: worker autostart](./adr/ADR-0002-idempotent-worker-autostart.md) · [ADR-0003: loopback-default listen](./adr/ADR-0003-loopback-default-listen.md) · [ADR-0004: store writes through daemon](./adr/defadr_0004_store_writes_through_daemon.hy) (executable) |
 | Reference | [Commands](./reference/commands.md) · [Statuses](./reference/statuses.md) · [Events](./reference/events.md) · [SQL Queries](./reference/query.md) |
 
 ## Contribute to orch

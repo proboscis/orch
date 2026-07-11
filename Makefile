@@ -46,6 +46,10 @@ install: install-cli install-tui kill-daemons
 deploy:
 	./scripts/deploy-all.sh
 
+# Run the executable ADRs (doeff-adr defadr modules under docs/adr)
+adr:
+	uv run --group dev pytest docs/adr -q
+
 # Kill all orch daemons and opencode servers (clean slate)
 kill-daemons:
 	@echo "Killing all orch daemons and opencode servers..."

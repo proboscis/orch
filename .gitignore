@@ -23,3 +23,5 @@ ORCH_CONTROL_PROMPT.md
 vscode-orch/node_modules/
 vscode-orch/package-lock.json
 notes/
+.venv
+!uv.lock

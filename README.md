@@ -70,7 +70,7 @@ real GitHub repository. Drop the flag once a real GitHub remote exists and
 | **[orch-monitor TUI](./docs/orch-monitor.md)** | Visual dashboard for managing issues and runs |
 | **[Core Concepts](./docs/concepts.md)** | Issue, Run, Event, Status, Worktree explained |
 | **[Configuration](./docs/configuration.md)** | All config options with examples |
-| **Architecture Decision Records** | [ADR-0001: issue hex IDs](./docs/adr/ADR-0001-issue-hex-ids.md) · [ADR-0002: worker autostart](./docs/adr/ADR-0002-idempotent-worker-autostart.md) |
+| **Architecture Decision Records** | [ADR-0001: issue hex IDs](./docs/adr/ADR-0001-issue-hex-ids.md) · [ADR-0002: worker autostart](./docs/adr/ADR-0002-idempotent-worker-autostart.md) · [ADR-0003: loopback-default listen](./docs/adr/ADR-0003-loopback-default-listen.md) · [ADR-0004: store writes through daemon](./docs/adr/defadr_0004_store_writes_through_daemon.hy) |
 
 ### Backends
 
