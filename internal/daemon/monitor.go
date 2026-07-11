@@ -152,6 +152,9 @@ func (d *Daemon) processRunOutput(run *model.Run, st store.Store, state *RunStat
 		Output: output,
 		Signal: signal,
 	}
+	if signal.Gate != "" {
+		obs.GateAckSent = runHasGateAck(run, signal.Gate)
+	}
 	// PR-URL detection is a scrape over arbitrary pane text: anything the
 	// agent prints (git log, gh output, prompt context) can contain a PR
 	// URL that belongs to a different run. Verify ownership here, impurely,
@@ -200,6 +203,20 @@ func (d *Daemon) classifyScrapedPRURL(run *model.Run, url string) (bool, string)
 	return true, info.HeadRefName
 }
 
+// runHasGateAck reports whether the run's event log already records a daemon
+// gate acknowledgement for the given gate kind (L-G1 once-only fold).
+func runHasGateAck(run *model.Run, gateKind string) bool {
+	for _, e := range run.Events {
+		if e == nil || e.Type != model.EventTypeNote || e.Name != model.DaemonNoticeEventName {
+			continue
+		}
+		if e.Attrs["kind"] == "gate_ack" && e.Attrs["gate"] == gateKind {
+			return true
+		}
+	}
+	return false
+}
+
 // runHasDaemonNotice reports whether the run's event log already records a
 // delivered daemon notice of the given kind for the given URL (L-N1). The
 // note event is the store of record for the once-only guarantee; no counter
@@ -225,13 +242,15 @@ func gatherAgentSignal(run *model.Run, mgr agent.AgentManager, output string) ag
 		status := mgr.GetStatus(run, output, &agent.RunState{}, false, false)
 		return agentSignal{Resolved: true, Status: status}
 	}
+	gate := mgr.DetectGate(output)
 	return agentSignal{
 		Exited:        agent.IsAgentExited(output),
 		Completed:     agent.IsCompleted(output),
 		APILimited:    agent.IsAPILimited(output),
 		Failed:        agent.IsFailed(output),
 		PromptShowing: mgr.DetectPrompt(output),
-		Gate:          mgr.DetectGate(output),
+		Gate:          gate,
+		GateAutoAck:   agent.GateAutoAck(run.Agent, gate),
 	}
 }
 
@@ -305,11 +324,16 @@ func (d *Daemon) applyRunEffects(run *model.Run, st store.Store, oldCore, core r
 // failed send must stay retryable, while a failed record after a successful
 // send merely risks one duplicate notice (logged loudly below).
 func (d *Daemon) sendAgentNotice(run *model.Run, st store.Store, projectID, projectRoot string, e runEffect) error {
-	message := fmt.Sprintf(
-		"[orch] Your PR %s was opened from branch %q, but this run's branch is %q. "+
-			"orch tracks a PR only when its head branch equals the run branch (pr-attach law), so that PR is currently untracked. "+
-			"Please push your work to the run branch (git push origin HEAD:%s) and open the PR from it (close the mismatched one).",
-		e.PRURL, e.PRHead, run.Branch, run.Branch)
+	// Gate acknowledgement (L-G1): the "message" is a bare Enter — an empty
+	// send accepts the gate's default answer (trust dialogs preselect Yes).
+	message := ""
+	if e.GateKind == "" {
+		message = fmt.Sprintf(
+			"[orch] Your PR %s was opened from branch %q, but this run's branch is %q. "+
+				"orch tracks a PR only when its head branch equals the run branch (pr-attach law), so that PR is currently untracked. "+
+				"Please push your work to the run branch (git push origin HEAD:%s) and open the PR from it (close the mismatched one).",
+			e.PRURL, e.PRHead, run.Branch, run.Branch)
+	}
 
 	s := d.socketServer
 	if s == nil {
@@ -333,11 +357,16 @@ func (d *Daemon) sendAgentNotice(run *model.Run, st store.Store, projectID, proj
 		}
 	}
 
-	notice := model.NewDaemonNoticeEvent(model.StatusReasonPRBranchMismatch, map[string]string{
-		"url":        e.PRURL,
-		"head":       e.PRHead,
-		"run_branch": run.Branch,
-	})
+	var notice *model.Event
+	if e.GateKind != "" {
+		notice = model.NewDaemonNoticeEvent("gate_ack", map[string]string{"gate": e.GateKind})
+	} else {
+		notice = model.NewDaemonNoticeEvent(model.StatusReasonPRBranchMismatch, map[string]string{
+			"url":        e.PRURL,
+			"head":       e.PRHead,
+			"run_branch": run.Branch,
+		})
+	}
 	if err := st.AppendEvent(run.Ref(), notice); err != nil {
 		// The agent HAS the message; only the once-only bookkeeping failed.
 		// The next idle capture may deliver a duplicate — visible and
@@ -345,7 +374,11 @@ func (d *Daemon) sendAgentNotice(run *model.Run, st store.Store, projectID, proj
 		d.logger.Printf("%s#%s: notice delivered but note event append failed (duplicate possible): %v", run.IssueID, run.RunID, err)
 		return nil
 	}
-	d.logger.Printf("%s#%s: daemon notice delivered: PR %s head %q does not match run branch %q", run.IssueID, run.RunID, e.PRURL, e.PRHead, run.Branch)
+	if e.GateKind != "" {
+		d.logger.Printf("%s#%s: gate %q auto-acknowledged (L-G1: once per run; a recurring gate waits for a human)", run.IssueID, run.RunID, e.GateKind)
+	} else {
+		d.logger.Printf("%s#%s: daemon notice delivered: PR %s head %q does not match run branch %q", run.IssueID, run.RunID, e.PRURL, e.PRHead, run.Branch)
+	}
 	return nil
 }
 

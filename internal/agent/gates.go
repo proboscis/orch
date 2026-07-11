@@ -34,10 +34,15 @@ const (
 
 // gateRule declares one gate screen: the gate is detected when ALL substrings
 // co-occur (lowercased) within the last gateWindowLines lines of the pane and
-// no busy marker is visible.
+// no busy marker is visible. AutoAck marks gates the daemon may acknowledge
+// itself, once per run, by sending Enter (run-state-machine.md §9.6 L-G1):
+// trust dialogs qualify because dispatching a run into a worktree IS the
+// operator's trust decision. Login gates must NEVER be AutoAck — credentials
+// belong to humans (TestGateRuleTable enforces this mechanically).
 type gateRule struct {
-	Kind string
-	All  []string
+	Kind    string
+	All     []string
+	AutoAck bool
 }
 
 // gateWindowLines matches the IsWaitingForInput window so gate and prompt
@@ -53,11 +58,13 @@ var gateRules = map[string][]gateRule{
 		// the ChatGPT sign-in menu.
 		{Kind: GateLogin, All: []string{"sign in with chatgpt", "press enter to continue"}},
 		// testdata/gates/codex_trust.txt — codex in an untrusted directory.
-		{Kind: GateTrust, All: []string{"do you trust the contents of this directory", "press enter to continue"}},
+		// Enter accepts the default "Yes, continue".
+		{Kind: GateTrust, All: []string{"do you trust the contents of this directory", "press enter to continue"}, AutoAck: true},
 	},
 	string(AgentClaude): {
 		// testdata/gates/claude_trust.txt — claude code folder-trust dialog.
-		{Kind: GateTrust, All: []string{"is this a project you created or one you trust", "yes, i trust this folder"}},
+		// Enter accepts the default "Yes, I trust this folder".
+		{Kind: GateTrust, All: []string{"is this a project you created or one you trust", "yes, i trust this folder"}, AutoAck: true},
 	},
 }
 
@@ -100,6 +107,21 @@ func hasBusyMarker(lowerLines string) bool {
 	for _, line := range strings.Split(lowerLines, "\n") {
 		if isSpinnerLine(line) {
 			return true
+		}
+	}
+	return false
+}
+
+// GateAutoAck reports whether the given gate kind is declared auto-
+// acknowledgeable for the agent (§9.6 L-G1). It consults the same rule
+// table as DetectGate so policy and detection cannot drift apart.
+func GateAutoAck(agentName, kind string) bool {
+	if kind == "" {
+		return false
+	}
+	for _, rule := range gateRules[agentName] {
+		if rule.Kind == kind {
+			return rule.AutoAck
 		}
 	}
 	return false

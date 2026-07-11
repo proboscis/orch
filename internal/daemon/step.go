@@ -156,8 +156,12 @@ type agentSignal struct {
 	PromptShowing bool
 	// Gate is the interactive-gate kind detected on this capture ("" =
 	// none), produced by AgentManager.DetectGate (O4e). The busy-marker veto
-	// is applied gather-side, identically to PromptShowing.
-	Gate string
+	// is applied gather-side, identically to PromptShowing. GateAutoAck
+	// mirrors the gate table's AutoAck declaration for this kind (§9.6):
+	// policy metadata gathered alongside the reading so stepRun never
+	// consults the table itself.
+	Gate        string
+	GateAutoAck bool
 }
 
 // gitEvidence is the raw fact set for a dead-session verdict, gathered by
@@ -260,6 +264,10 @@ type runObservation struct {
 	RefusedPRURL        string
 	RefusedPRHead       string
 	RefusedPRNoticeSent bool
+	// GateAckSent reports whether the run's event log already records a
+	// daemon gate acknowledgement for the CURRENTLY detected gate kind
+	// (L-G1 once-only fold; gatherer-derived like RefusedPRNoticeSent).
+	GateAckSent bool
 
 	// obsGitEvidence
 	Evidence gitEvidence
@@ -302,13 +310,14 @@ const (
 )
 
 type runEffect struct {
-	Kind   effectKind
-	Status model.Status // effectSetStatus
-	PRURL  string       // effectRecordPR / effectRecordPRClosed / effectSendAgentNotice
-	PRHead string       // effectSendAgentNotice: verified head of the refused PR
-	Output string       // effectSetStatus listener payload context
-	Msg    string       // effectLog / effectDebugLog
-	Reason string       // effectSetStatus: machine-readable verdict reason (model.AttrStatusReason)
+	Kind     effectKind
+	Status   model.Status // effectSetStatus
+	PRURL    string       // effectRecordPR / effectRecordPRClosed / effectSendAgentNotice
+	PRHead   string       // effectSendAgentNotice: verified head of the refused PR
+	GateKind string       // effectSendAgentNotice: gate to acknowledge (L-G1); "" = PR-mismatch notice
+	Output   string       // effectSetStatus listener payload context
+	Msg      string       // effectLog / effectDebugLog
+	Reason   string       // effectSetStatus: machine-readable verdict reason (model.AttrStatusReason)
 }
 
 func logEffect(format string, args ...interface{}) runEffect {
@@ -725,6 +734,22 @@ func stepCaptured(view runView, core runCore, obs runObservation, now time.Time)
 			logEffect("%s#%s: status change %s -> %s", view.IssueID, view.RunID, view.Status, statusWithReason(newStatus, reason)),
 			runEffect{Kind: effectSetStatus, Status: newStatus, Output: obs.Output, Reason: reason},
 		)
+	}
+
+	// Gate auto-ack (L-G1, §9.6): a confirmed AutoAck-gate reading is
+	// acknowledged by the daemon exactly once per (run, gate kind) — the
+	// gate_ack note event is the fold-visible ledger. The waiting(gate_)
+	// verdict above still fires on the same tick, so the event log keeps an
+	// honest trail (waiting(gate_trust) -> ack -> running via the send
+	// path's feedback-resume). A gate that REAPPEARS after its one ack
+	// stays waiting(gate_<kind>) for a human: ack loops are structurally
+	// impossible. Non-AutoAck gates (login) never reach this block.
+	if obs.Signal.Gate != "" && obs.Signal.GateAutoAck && !obs.GateAckSent &&
+		confirmedReading == "gate:"+obs.Signal.Gate {
+		effects = append(effects, runEffect{
+			Kind:     effectSendAgentNotice,
+			GateKind: obs.Signal.Gate,
+		})
 	}
 
 	// Daemon notice for the refused PR (L-N1..L-N3): at most one notice per

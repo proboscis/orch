@@ -31,6 +31,9 @@ func TestGateRuleTable(t *testing.T) {
 				if len(rule.All) < 2 {
 					t.Fatalf("rule %s/%s has %d substrings; the false-positive budget requires >= 2 conjunctive substrings", agentName, rule.Kind, len(rule.All))
 				}
+				if rule.Kind == GateLogin && rule.AutoAck {
+					t.Fatalf("rule %s/%s: login gates must NEVER be AutoAck — credentials belong to humans (L-G1)", agentName, rule.Kind)
+				}
 				for _, sub := range rule.All {
 					if sub != strings.ToLower(sub) {
 						t.Fatalf("rule %s/%s substring %q is not lowercase; matching lowercases the pane first", agentName, rule.Kind, sub)

@@ -236,6 +236,7 @@ distinction the law tests themselves forced:
 | L10a gate debounce (generalizes L6) | a `waiting` verdict with reason `gate_<kind>` requires ≥ `waitingPromptStreakThreshold` consecutive captures whose input-request reading is the same `gate:<kind>`; any busy capture or different reading resets the streak |
 | L10b reading precedence | busy veto > gate > {exited, completed, api-limited, failed} > prompt > output-changed; an unconfirmed gate reading masks every lower reading; each gate row's fixture locks its intended winner end-to-end |
 | L10c reason fidelity | the `waiting` reason always reflects the latest *confirmed* reading; a confirmed reading change re-appends under D-G1 and fires exactly one listener event (L8) |
+| L-G1 gate auto-ack (§9.7) | a confirmed AutoAck-gate reading is acknowledged by the daemon exactly once per (run, gate kind) via a bare Enter on the send path; the `gate_ack` note event is the fold-visible ledger; a reappearing gate waits for a human; login gates are never AutoAck |
 | L11a streak continuity | `DeadCheckCount` accumulates only while the observation's ObserverID equals `DeadCheckObserver`; a gone observation from a different observer restarts the streak at 1 (and re-owns it) |
 | L11b attestation | the no-evidence fallback death verdicts (`failed`; opencode's `unknown(session_lost)`) require `DeadCheckObserver == AliveObserver ≠ ""` — the channel pronouncing death must be the channel that last saw this run alive. Evidence-ladder verdicts are channel-independent and unaffected |
 | L11c unverified fallback | the same standing evidence from an unattested channel concludes at most `unknown(observer_unverified)`; never `failed`. Recovery is automatic: any successful capture re-attests the channel |
@@ -619,6 +620,7 @@ specific row proves noisy in practice.
 | L10a gate debounce (generalizes L6) | a `waiting` verdict with reason `gate_<kind>` requires ≥ `waitingPromptStreakThreshold` consecutive captures whose input-request reading is the same `gate:<kind>`; any busy capture or different reading resets the streak. L6 is the `reading = prompt` special case |
 | L10b reading precedence | busy veto > gate > {exited, completed, api-limited, failed} > prompt > output-changed. A curated conjunctive row outranks the loose generic heuristics; each row's fixture locks its intended winner. (This deliberately lets a future `gate_credit` row override `IsAPILimited` on account-credit dialogs — a credit dialog needs a human, not a rate-limit wait) |
 | L10c reason fidelity | the `waiting` reason always reflects the latest *confirmed* reading; a confirmed reading change re-appends under D-G1 and fires exactly one listener event (L8) |
+| L-G1 gate auto-ack (§9.7) | a confirmed AutoAck-gate reading is acknowledged by the daemon exactly once per (run, gate kind) via a bare Enter on the send path; the `gate_ack` note event is the fold-visible ledger; a reappearing gate waits for a human; login gates are never AutoAck |
 
 Counterexamples (must become fixtures/property tests at implementation):
 
@@ -650,6 +652,35 @@ Implemented as designed, frontier + human in-session: `agentSignal.Gate`,
 (`step_gate_test.go`), §2/§3/§4/§5 fold-in. All three fixture screens
 (codex login, codex trust, claude trust) were captured from real tmux panes
 before the pattern rows were written, as required.
+
+### 9.7 Gate auto-acknowledgement (L-G1, decided 2026-07-12)
+
+Incident: a codex trust dialog parked a dispatched run and an operator had
+to send Enter by hand. Detection (§9.1–9.5) had made the gate visible in
+under a minute — but visibility of a question whose answer is already known
+is still toil. Dispatching a run into a daemon-created worktree IS the
+operator's trust decision; asking the operator to repeat it is ceremony.
+
+> **L-G1 (gate auto-ack).** A confirmed AutoAck-gate reading (same L10a
+> streak that gates the `waiting(gate_<kind>)` verdict) is acknowledged by
+> the daemon exactly once per (run, gate kind): a bare Enter through the
+> send path, accepting the gate's preselected default. The ledger for
+> "acknowledged" is the `daemon_notice` note event (`kind=gate_ack`,
+> `attrs.gate=<kind>`), folded back by the gatherer — so the guarantee
+> survives restarts, and a gate that REAPPEARS after its one ack stays
+> `waiting(gate_<kind>)` for a human: acknowledgement loops are
+> structurally impossible. Which gates are AutoAck is declared on the gate
+> rule table itself (`gateRule.AutoAck` — trust: yes); **login gates are
+> never AutoAck** — credentials belong to humans, and the gates meta-test
+> enforces the exclusion mechanically.
+
+The `waiting(gate_<kind>)` verdict still fires on the ack tick, so the
+event log keeps an honest trail: `waiting(gate_trust)` → gate_ack note →
+`running` (the send path's feedback-resume, identical to a user
+`orch send run ""`). Rejected alternative: pre-seeding trust into the
+agent CLI's own config files before launch — it depends on third-party
+config formats that drift across versions and break silently; the ack
+path stays inside orch's own machinery and works for any mux agent.
 
 ## 10. Observation-channel health — death verdicts require attestation (designed 2026-07-07)
 
