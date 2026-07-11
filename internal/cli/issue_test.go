@@ -114,6 +114,67 @@ func TestValidateIssueCreateOptionsRejectsGitHubEdit(t *testing.T) {
 	}
 }
 
+func TestRunIssueCreateWithEditorUsesCreateAndUpdateVerbsOnly(t *testing.T) {
+	const (
+		issueID   = "create-edit-test"
+		storePath = "/remote/store/Issues/create-edit-test.md"
+	)
+	var calls []string
+	var updateBody *string
+	api := &testutil.OrchAPIMock{
+		CreateIssueFunc: func(_ context.Context, req *orchapi.CreateIssueRequest) (*orchapi.Issue, error) {
+			calls = append(calls, "create")
+			if req.ID != issueID || req.Title != "Create Edit" || req.Body != "seed body" {
+				t.Fatalf("CreateIssue request = %#v", req)
+			}
+			return &orchapi.Issue{ID: req.ID, Path: storePath}, nil
+		},
+		GetIssueFunc: func(_ context.Context, gotID model.IssueID) (*orchapi.Issue, error) {
+			calls = append(calls, "get")
+			if gotID != issueID {
+				t.Fatalf("GetIssue(%q), want %q", gotID, issueID)
+			}
+			return &orchapi.Issue{ID: gotID, Path: storePath, Body: "# Create Edit\n\nseed body\n"}, nil
+		},
+		UpdateIssueFunc: func(_ context.Context, gotID model.IssueID, req *orchapi.UpdateIssueRequest) (*orchapi.Issue, error) {
+			calls = append(calls, "update")
+			if gotID != issueID {
+				t.Fatalf("UpdateIssue(%q), want %q", gotID, issueID)
+			}
+			updateBody = req.Body
+			return &orchapi.Issue{ID: gotID}, nil
+		},
+		WriteFileFunc: func(context.Context, string, []byte, uint32) error {
+			t.Fatal("WriteFile must not be used for issue create --edit")
+			return nil
+		},
+	}
+
+	previous := *globalOpts
+	globalOpts.Quiet = true
+	t.Cleanup(func() { *globalOpts = previous })
+	editor := func(path string) error {
+		if path == storePath {
+			t.Fatalf("editor received store path %q", path)
+		}
+		return os.WriteFile(path, []byte("# Create Edit\n\nedited body\n"), 0600)
+	}
+
+	err := runIssueCreateWithEditorUsing(api, issueID, "Create Edit", &issueCreateOptions{
+		Body: "seed body",
+		Edit: true,
+	}, editor)
+	if err != nil {
+		t.Fatalf("runIssueCreateWithEditorUsing() error = %v", err)
+	}
+	if strings.Join(calls, ",") != "create,get,update" {
+		t.Fatalf("API calls = %v, want CreateIssue -> GetIssue -> UpdateIssue", calls)
+	}
+	if updateBody == nil || *updateBody != "# Create Edit\n\nedited body\n" {
+		t.Fatalf("UpdateIssue body = %#v", updateBody)
+	}
+}
+
 func setIssueRootConfig(t *testing.T, issuesRoot string) {
 	t.Helper()
 

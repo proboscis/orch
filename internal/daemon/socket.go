@@ -5272,49 +5272,20 @@ func (s *SocketServer) handleCreateIssue(req SendRequest, encoder *json.Encoder)
 		return
 	}
 
-	// Use vault path for file-based issues (not project root)
-	issuesRoot := st.RootPath()
-	issuesDir := filepath.Join(issuesRoot, "issues")
-	if _, err := os.Stat(filepath.Join(issuesRoot, "Issues")); err == nil {
-		issuesDir = filepath.Join(issuesRoot, "Issues")
-	}
-	if err := os.MkdirAll(issuesDir, 0755); err != nil {
-		s.logger.Printf("error creating issues directory: %v", err)
-		encoder.Encode(CreateIssueResponse{OK: false, Error: "io_error"})
-		return
-	}
-
-	issuePath := filepath.Join(issuesDir, req.IssueID+".md")
-	if _, err := os.Stat(issuePath); err == nil {
-		encoder.Encode(CreateIssueResponse{OK: false, Error: "already_exists"})
-		return
-	}
-
-	issueToWrite := &model.Issue{
-		ID:         model.IssueID(req.IssueID),
+	result, err := s.processCreateIssueCore(st, &CreateIssueParams{
+		IssueID:    req.IssueID,
 		Title:      title,
 		Summary:    req.Summary,
-		Status:     model.IssueStatusOpen,
-		BaseBranch: req.BaseBranch,
+		Body:       req.Body,
 		Tags:       req.Tags,
-	}
-	var sb strings.Builder
-	sb.WriteString(issueToWrite.RenderFrontmatter())
-	sb.WriteString("\n")
-	sb.WriteString("# " + title + "\n\n")
-	if req.Body != "" {
-		sb.WriteString(req.Body)
-		sb.WriteString("\n")
-	}
-
-	if err := os.WriteFile(issuePath, []byte(sb.String()), 0644); err != nil {
-		s.logger.Printf("error writing issue file: %v", err)
-		encoder.Encode(CreateIssueResponse{OK: false, Error: "io_error"})
+		BaseBranch: req.BaseBranch,
+	})
+	if err != nil {
+		encoder.Encode(CreateIssueResponse{OK: false, Error: err.Error()})
 		return
 	}
 
-	s.logger.Printf("created issue: %s at %s", req.IssueID, issuePath)
-	encoder.Encode(CreateIssueResponse{OK: true, IssueID: req.IssueID, Path: issuePath})
+	encoder.Encode(CreateIssueResponse{OK: true, IssueID: result.IssueID, Path: result.Path})
 }
 
 func (s *SocketServer) processCreateIssueCore(st store.Store, params *CreateIssueParams) (*CreateIssueResult, error) {
@@ -5338,21 +5309,6 @@ func (s *SocketServer) processCreateIssueCore(st store.Store, params *CreateIssu
 		return nil, fmt.Errorf("invalid_request: %v", err)
 	}
 
-	issuesRoot := st.RootPath()
-	issuesDir := filepath.Join(issuesRoot, "issues")
-	if _, err := os.Stat(filepath.Join(issuesRoot, "Issues")); err == nil {
-		issuesDir = filepath.Join(issuesRoot, "Issues")
-	}
-	if err := os.MkdirAll(issuesDir, 0755); err != nil {
-		s.logger.Printf("error creating issues directory: %v", err)
-		return nil, fmt.Errorf("io_error")
-	}
-
-	issuePath := filepath.Join(issuesDir, params.IssueID+".md")
-	if _, err := os.Stat(issuePath); err == nil {
-		return nil, fmt.Errorf("already_exists")
-	}
-
 	issueToWrite := &model.Issue{
 		ID:         model.IssueID(params.IssueID),
 		Title:      title,
@@ -5361,24 +5317,22 @@ func (s *SocketServer) processCreateIssueCore(st store.Store, params *CreateIssu
 		BaseBranch: params.BaseBranch,
 		Tags:       params.Tags,
 	}
-	var sb strings.Builder
-	sb.WriteString(issueToWrite.RenderFrontmatter())
-	sb.WriteString("\n")
-	sb.WriteString("# " + title + "\n\n")
+	var body strings.Builder
+	body.WriteString("# " + title + "\n\n")
 	if params.Body != "" {
-		sb.WriteString(params.Body)
-		sb.WriteString("\n")
+		body.WriteString(params.Body)
+		body.WriteString("\n")
+	}
+	issueToWrite.Body = body.String()
+
+	if err := st.CreateIssue(issueToWrite); err != nil {
+		return nil, err
 	}
 
-	if err := os.WriteFile(issuePath, []byte(sb.String()), 0644); err != nil {
-		s.logger.Printf("error writing issue file: %v", err)
-		return nil, fmt.Errorf("io_error")
-	}
-
-	s.logger.Printf("created issue: %s at %s", params.IssueID, issuePath)
+	s.logger.Printf("created issue: %s at %s", params.IssueID, issueToWrite.Path)
 	return &CreateIssueResult{
 		IssueID: params.IssueID,
-		Path:    issuePath,
+		Path:    issueToWrite.Path,
 	}, nil
 }
 

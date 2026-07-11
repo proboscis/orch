@@ -69,8 +69,19 @@ func (s *FileStore) RootPath() string {
 // issuesDir returns the path to the issues directory, preferring "Issues"
 // (Obsidian convention) if it exists, falling back to "issues".
 func (s *FileStore) issuesDir() string {
-	if info, err := os.Stat(filepath.Join(s.rootPath, "Issues")); err == nil && info.IsDir() {
-		return filepath.Join(s.rootPath, "Issues")
+	entries, err := os.ReadDir(s.rootPath)
+	if err == nil {
+		for _, name := range []string{"Issues", "issues"} {
+			for _, entry := range entries {
+				if entry.Name() != name {
+					continue
+				}
+				path := filepath.Join(s.rootPath, name)
+				if info, statErr := os.Stat(path); statErr == nil && info.IsDir() {
+					return path
+				}
+			}
+		}
 	}
 	return filepath.Join(s.rootPath, "issues")
 }

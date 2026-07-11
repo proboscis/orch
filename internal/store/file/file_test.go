@@ -47,6 +47,21 @@ func TestNew(t *testing.T) {
 	}
 }
 
+func TestIssuesDirPreservesExactExistingCase(t *testing.T) {
+	vault := t.TempDir()
+	lowercase := filepath.Join(vault, "issues")
+	if err := os.Mkdir(lowercase, 0755); err != nil {
+		t.Fatalf("mkdir issues: %v", err)
+	}
+	st, err := New(vault)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if got := st.issuesDir(); got != lowercase {
+		t.Fatalf("issuesDir() = %q, want exact existing path %q", got, lowercase)
+	}
+}
+
 func TestNewInvalidPath(t *testing.T) {
 	_, err := New("/nonexistent/path")
 	if err == nil {

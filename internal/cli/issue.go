@@ -289,61 +289,35 @@ func runIssueCreateLocal(issueID, title string, opts *issueCreateOptions) error 
 }
 
 func runIssueCreateWithEditor(api orchapi.OrchAPI, issueID, title string, opts *issueCreateOptions) error {
+	return runIssueCreateWithEditorUsing(api, issueID, title, opts, openInEditor)
+}
+
+func runIssueCreateWithEditorUsing(api orchapi.OrchAPI, issueID, title string, opts *issueCreateOptions, editor func(string) error) error {
 	if err := model.ValidateNewIssueID(issueID); err != nil {
 		return err
 	}
 
-	projectRoot, err := getProjectRoot()
-	if err != nil {
-		return err
-	}
-	issuesRoot, err := getIssuesRootForProject(projectRoot)
-	if err != nil {
-		return err
-	}
-
-	issuesDir, err := resolveIssuesDir(issuesRoot)
-	if err != nil {
-		return err
-	}
-
-	if err := os.MkdirAll(issuesDir, 0755); err != nil {
-		return fmt.Errorf("failed to create issues directory: %w", err)
-	}
-
-	issuePath := filepath.Join(issuesDir, issueID+".md")
-
-	if _, err := os.Stat(issuePath); err == nil {
-		return fmt.Errorf("issue already exists: %s", issueID)
-	}
-
-	issueToWrite := &model.Issue{
+	ctx := context.Background()
+	created, err := api.CreateIssue(ctx, &orchapi.CreateIssueRequest{
 		ID:         model.IssueID(issueID),
 		Title:      title,
-		Summary:    opts.Summary,
-		Status:     model.IssueStatusOpen,
-		BaseBranch: opts.BaseBranch,
+		Body:       opts.Body,
 		Tags:       opts.Tags,
-	}
-	var sb strings.Builder
-	sb.WriteString(issueToWrite.RenderFrontmatter())
-	sb.WriteString("\n")
-	sb.WriteString(fmt.Sprintf("# %s\n\n", title))
-
-	if opts.Body != "" {
-		sb.WriteString(opts.Body)
-		sb.WriteString("\n")
-	}
-
-	ctx := context.Background()
-	if err := api.WriteFile(ctx, issuePath, []byte(sb.String()), 0644); err != nil {
+		BaseBranch: opts.BaseBranch,
+	})
+	if err != nil {
 		return fmt.Errorf("failed to create issue: %w", err)
 	}
 
-	if opts.Edit && !testBypassDaemon {
-		if err := openInEditor(issuePath); err != nil {
-			return fmt.Errorf("failed to open editor: %w", err)
-		}
+	issue, err := api.GetIssue(ctx, model.IssueID(issueID))
+	if err != nil {
+		return fmt.Errorf("failed to fetch created issue: %w", err)
+	}
+	if issue == nil {
+		return fmt.Errorf("created issue not found: %s", issueID)
+	}
+	if err := editLocalIssueBody(ctx, api, issueID, issue, editor); err != nil {
+		return fmt.Errorf("failed to edit created issue: %w", err)
 	}
 
 	if globalOpts.JSON {
@@ -354,7 +328,7 @@ func runIssueCreateWithEditor(api orchapi.OrchAPI, issueID, title string, opts *
 		}{
 			OK:      true,
 			IssueID: issueID,
-			Path:    issuePath,
+			Path:    created.Path,
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -363,7 +337,7 @@ func runIssueCreateWithEditor(api orchapi.OrchAPI, issueID, title string, opts *
 
 	if !globalOpts.Quiet {
 		fmt.Printf("Created issue: %s\n", issueID)
-		fmt.Printf("  Path: %s\n", issuePath)
+		fmt.Printf("  Path: %s\n", created.Path)
 	}
 
 	return nil
