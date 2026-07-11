@@ -251,3 +251,74 @@ func TestGateFixturePrecedence(t *testing.T) {
 		})
 	}
 }
+
+// L-G1 (§9.6): a confirmed AutoAck-gate reading is acknowledged by the daemon
+// exactly once per (run, gate kind); login gates are never acknowledged; a
+// gate that reappears after its one ack waits for a human.
+func TestStepLawGateAutoAck(t *testing.T) {
+	now := time.Now()
+	view := stepTestView(model.StatusRunning, "codex", now.Add(-time.Hour))
+
+	trust := runObservation{
+		Kind:   obsCaptured,
+		Output: "do you trust the contents of this directory\npress enter to continue",
+		Signal: agentSignal{Gate: "trust", GateAutoAck: true},
+	}
+
+	// Tick 1: unconfirmed — no verdict, no ack (the same L10a streak gates both).
+	core := runCore{WasAlive: true}
+	var effects []runEffect
+	core, effects = stepRun(view, core, trust, now)
+	for _, e := range effects {
+		if e.Kind == effectSendAgentNotice {
+			t.Fatal("ack before the gate reading confirms (L-G1/L10a violation)")
+		}
+	}
+
+	// Tick 2: confirmed — waiting(gate_trust) AND exactly one ack effect.
+	core, effects = stepRun(view, core, trust, now)
+	if status, reason, ok := statusReasonEffectOf(effects); !ok || status != model.StatusWaiting || reason != "gate_trust" {
+		t.Fatalf("confirmed trust gate = (%v %q %t), want waiting(gate_trust)", status, reason, ok)
+	}
+	acks := 0
+	for _, e := range effects {
+		if e.Kind == effectSendAgentNotice {
+			acks++
+			if e.GateKind != "trust" {
+				t.Fatalf("ack effect GateKind = %q, want trust", e.GateKind)
+			}
+		}
+	}
+	if acks != 1 {
+		t.Fatalf("confirmed AutoAck gate must emit exactly one ack effect, got %d", acks)
+	}
+
+	// After the gate_ack note event folds in, the reappearing gate stays
+	// waiting for a human — no second ack, ever (loop-impossibility).
+	acked := trust
+	acked.GateAckSent = true
+	core, effects = stepRun(view, core, acked, now)
+	for _, e := range effects {
+		if e.Kind == effectSendAgentNotice {
+			t.Fatal("second ack for the same (run, gate kind) (L-G1 violation)")
+		}
+	}
+
+	// Login gates: never acknowledged, regardless of confirmation.
+	login := runObservation{
+		Kind:   obsCaptured,
+		Output: "sign in with chatgpt\npress enter to continue",
+		Signal: agentSignal{Gate: "login", GateAutoAck: false},
+	}
+	core = runCore{WasAlive: true}
+	core, _ = stepRun(view, core, login, now)
+	core, effects = stepRun(view, core, login, now)
+	for _, e := range effects {
+		if e.Kind == effectSendAgentNotice {
+			t.Fatal("login gate acknowledged — credentials belong to humans (L-G1 violation)")
+		}
+	}
+	if status, reason, ok := statusReasonEffectOf(effects); !ok || status != model.StatusWaiting || reason != "gate_login" {
+		t.Fatalf("login gate must still conclude waiting(gate_login), got (%v %q %t)", status, reason, ok)
+	}
+}
