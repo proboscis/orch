@@ -9,6 +9,7 @@ dependencies = []
 dev = [
     "pytest>=8",
     "doeff-adr",
+    "semgrep>=1.80",
 ]
 
 [tool.uv]
