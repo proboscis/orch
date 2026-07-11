@@ -8,11 +8,20 @@ Before installing orch, ensure you have:
 
 1. **Go 1.25+** - For building orch from source (or use pre-built binaries)
 2. **tmux** or **zellij** - Terminal multiplexer for agent sessions
-3. **An LLM CLI** - At least one of:
+3. **An LLM CLI, logged in** - At least one of:
    - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`)
    - [OpenCode](https://github.com/sst/opencode) (`opencode`)
    - [Codex](https://github.com/openai/codex) (`codex`)
    - [Gemini CLI](https://github.com/google/gemini-cli) (`gemini`)
+
+   Launch the CLI once and complete its login (e.g. `codex login`, or answer
+   `claude`'s first-run prompts) before your first orch run — orch starts the
+   CLI for you but never manages its credentials. A codex run launched with
+   missing credentials fails at launch and names the expected auth path; a
+   login screen that still appears is reported as `waiting` with reason
+   `gate_login`. To run multiple accounts of the same CLI (or pin an account
+   to specific machines), see the Profiles section of your agent's guide
+   ([Claude](./agents/claude.md#profiles), [Codex](./agents/codex.md#profiles)).
 4. **Git** - For worktree management. Your repository must have an `origin`
    remote — orch derives the project identity from its URL. (For a local
    sandbox the URL does not need to exist on GitHub; it is used as an
