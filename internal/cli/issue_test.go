@@ -2,12 +2,15 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/proboscis/orch/internal/model"
 	"github.com/proboscis/orch/internal/orchapi"
+	"github.com/proboscis/orch/internal/testutil"
 )
 
 func TestNewIssueCreateCmdLongDescriptionGuidance(t *testing.T) {
@@ -108,6 +111,67 @@ func TestValidateIssueCreateOptionsRejectsGitHubEdit(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--edit flag is not supported with GitHub backend") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunIssueCreateWithEditorUsesCreateAndUpdateVerbsOnly(t *testing.T) {
+	const (
+		issueID   = "create-edit-test"
+		storePath = "/remote/store/Issues/create-edit-test.md"
+	)
+	var calls []string
+	var updateBody *string
+	api := &testutil.OrchAPIMock{
+		CreateIssueFunc: func(_ context.Context, req *orchapi.CreateIssueRequest) (*orchapi.Issue, error) {
+			calls = append(calls, "create")
+			if req.ID != issueID || req.Title != "Create Edit" || req.Body != "seed body" {
+				t.Fatalf("CreateIssue request = %#v", req)
+			}
+			return &orchapi.Issue{ID: req.ID, Path: storePath}, nil
+		},
+		GetIssueFunc: func(_ context.Context, gotID model.IssueID) (*orchapi.Issue, error) {
+			calls = append(calls, "get")
+			if gotID != issueID {
+				t.Fatalf("GetIssue(%q), want %q", gotID, issueID)
+			}
+			return &orchapi.Issue{ID: gotID, Path: storePath, Body: "# Create Edit\n\nseed body\n"}, nil
+		},
+		UpdateIssueFunc: func(_ context.Context, gotID model.IssueID, req *orchapi.UpdateIssueRequest) (*orchapi.Issue, error) {
+			calls = append(calls, "update")
+			if gotID != issueID {
+				t.Fatalf("UpdateIssue(%q), want %q", gotID, issueID)
+			}
+			updateBody = req.Body
+			return &orchapi.Issue{ID: gotID}, nil
+		},
+		WriteFileFunc: func(context.Context, string, []byte, uint32) error {
+			t.Fatal("WriteFile must not be used for issue create --edit")
+			return nil
+		},
+	}
+
+	previous := *globalOpts
+	globalOpts.Quiet = true
+	t.Cleanup(func() { *globalOpts = previous })
+	editor := func(path string) error {
+		if path == storePath {
+			t.Fatalf("editor received store path %q", path)
+		}
+		return os.WriteFile(path, []byte("# Create Edit\n\nedited body\n"), 0600)
+	}
+
+	err := runIssueCreateWithEditorUsing(api, issueID, "Create Edit", &issueCreateOptions{
+		Body: "seed body",
+		Edit: true,
+	}, editor)
+	if err != nil {
+		t.Fatalf("runIssueCreateWithEditorUsing() error = %v", err)
+	}
+	if strings.Join(calls, ",") != "create,get,update" {
+		t.Fatalf("API calls = %v, want CreateIssue -> GetIssue -> UpdateIssue", calls)
+	}
+	if updateBody == nil || *updateBody != "# Create Edit\n\nedited body\n" {
+		t.Fatalf("UpdateIssue body = %#v", updateBody)
 	}
 }
 
@@ -279,6 +343,88 @@ func TestIssueCreateCmdExplicitEmptyBodySkipsRedirectedStdin(t *testing.T) {
 	}
 	if !strings.Contains(text, "# Issue title\n\n") {
 		t.Fatalf("issue file missing title header\ngot:\n%s", text)
+	}
+}
+
+func TestRunIssueEditAppendBodyFromStdinUsesDaemonUpdate(t *testing.T) {
+	var gotIssueID model.IssueID
+	var gotRequest *orchapi.UpdateIssueRequest
+	api := &testutil.OrchAPIMock{
+		UpdateIssueFunc: func(_ context.Context, issueID model.IssueID, req *orchapi.UpdateIssueRequest) (*orchapi.Issue, error) {
+			gotIssueID = issueID
+			gotRequest = req
+			return &orchapi.Issue{ID: issueID}, nil
+		},
+	}
+	editorCalled := false
+	err := runIssueEditWithInput("local-issue", &issueEditOptions{
+		AppendBody:         "-",
+		appendBodyProvided: true,
+	}, bytes.NewBufferString("\n## Note\nremote-safe\n"), api, func(string) error {
+		editorCalled = true
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("runIssueEditWithInput() error = %v", err)
+	}
+	if editorCalled {
+		t.Fatal("editor was called for non-interactive append")
+	}
+	if gotIssueID != "local-issue" || gotRequest == nil || gotRequest.AppendBody == nil {
+		t.Fatalf("daemon update = issue %q request %#v", gotIssueID, gotRequest)
+	}
+	if got := *gotRequest.AppendBody; got != "\n## Note\nremote-safe\n" {
+		t.Fatalf("append body = %q", got)
+	}
+}
+
+func TestRunIssueEditInteractiveUsesTemporaryCopyAndDaemonUpdate(t *testing.T) {
+	issue := &orchapi.Issue{
+		ID:   "local-issue",
+		Body: "original body\n",
+		Path: "file:///remote/store/Issues/local-issue.md",
+	}
+	var gotBody *string
+	api := &testutil.OrchAPIMock{
+		GetIssueFunc: func(_ context.Context, issueID model.IssueID) (*orchapi.Issue, error) {
+			if issueID != issue.ID {
+				t.Fatalf("GetIssue(%q), want %q", issueID, issue.ID)
+			}
+			return issue, nil
+		},
+		UpdateIssueFunc: func(_ context.Context, issueID model.IssueID, req *orchapi.UpdateIssueRequest) (*orchapi.Issue, error) {
+			if issueID != issue.ID {
+				t.Fatalf("UpdateIssue(%q), want %q", issueID, issue.ID)
+			}
+			gotBody = req.Body
+			return issue, nil
+		},
+	}
+
+	var tempPath string
+	editor := func(path string) error {
+		tempPath = path
+		if path == strings.TrimPrefix(issue.Path, "file://") {
+			t.Fatalf("editor received store path %q", path)
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if string(content) != issue.Body {
+			t.Fatalf("temporary body = %q, want %q", content, issue.Body)
+		}
+		return os.WriteFile(path, []byte("edited body\n"), 0600)
+	}
+
+	if err := runIssueEditWithInput("local-issue", &issueEditOptions{}, strings.NewReader(""), api, editor); err != nil {
+		t.Fatalf("runIssueEditWithInput() error = %v", err)
+	}
+	if gotBody == nil || *gotBody != "edited body\n" {
+		t.Fatalf("daemon replacement body = %#v", gotBody)
+	}
+	if _, err := os.Stat(tempPath); !os.IsNotExist(err) {
+		t.Fatalf("temporary file still exists at %q: %v", tempPath, err)
 	}
 }
 

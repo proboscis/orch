@@ -86,8 +86,9 @@ func TestExternalWorkerHelperProcess(t *testing.T) {
 }
 
 type mockStore struct {
-	runs   map[string]*model.Run
-	issues map[string]*model.Issue
+	runs         map[string]*model.Run
+	issues       map[string]*model.Issue
+	updatedIssue *model.Issue
 }
 
 type listRunsErrorStore struct {
@@ -97,6 +98,24 @@ type listRunsErrorStore struct {
 
 func (s *listRunsErrorStore) ListRuns(*store.ListRunsFilter) ([]*model.Run, error) {
 	return nil, s.err
+}
+
+type resolveIssueErrorStore struct {
+	*mockStore
+	err error
+}
+
+func (s *resolveIssueErrorStore) ResolveIssue(model.IssueID) (*model.Issue, error) {
+	return nil, s.err
+}
+
+type setIssueStatusErrorStore struct {
+	*mockStore
+	err error
+}
+
+func (s *setIssueStatusErrorStore) SetIssueStatus(model.IssueID, model.IssueStatus) error {
+	return s.err
 }
 
 func (m *mockStore) ResolveIssue(issueID model.IssueID) (*model.Issue, error) {
@@ -229,6 +248,8 @@ func (m *mockStore) DeleteRun(ref *model.RunRef) error {
 }
 
 func (m *mockStore) UpdateIssue(issue *model.Issue) error {
+	clone := *issue
+	m.updatedIssue = &clone
 	return nil
 }
 
@@ -2526,6 +2547,95 @@ func TestGetIssueAPI(t *testing.T) {
 			t.Error("expected error message")
 		}
 	})
+}
+
+func TestUpdateIssueContentAPI(t *testing.T) {
+	st := &mockStore{
+		issues: map[string]*model.Issue{
+			"orch-001": {
+				ID:     "orch-001",
+				Title:  "Old title",
+				Status: model.IssueStatusOpen,
+				Body:   "old body",
+				Path:   "/vault/issues/orch-001.md",
+			},
+		},
+	}
+	server := newTestServer(t, st)
+	ctx := &orchpb.RequestContext{ProjectId: testProjectID}
+
+	appendBody := "\nappended"
+	resp := server.handleProtoUpdateIssue(&orchpb.UpdateIssueRequest{
+		IssueId:    "orch-001",
+		AppendBody: &appendBody,
+		Context:    ctx,
+	})
+	if !resp.Ok {
+		t.Fatalf("append body failed: %s", resp.Error)
+	}
+	if st.updatedIssue == nil || st.updatedIssue.Body != "old body\nappended" {
+		t.Fatalf("updated body = %#v, want appended body", st.updatedIssue)
+	}
+	if st.updatedIssue.Status != model.IssueStatusOpen {
+		t.Fatalf("status changed during content update: %s", st.updatedIssue.Status)
+	}
+
+	emptyBody := ""
+	resp = server.handleProtoUpdateIssue(&orchpb.UpdateIssueRequest{
+		IssueId: "orch-001",
+		Body:    &emptyBody,
+		Context: ctx,
+	})
+	if !resp.Ok {
+		t.Fatalf("empty body replacement failed: %s", resp.Error)
+	}
+	if st.updatedIssue == nil || st.updatedIssue.Body != "" {
+		t.Fatalf("updated body = %#v, want explicit empty body", st.updatedIssue)
+	}
+
+	resp = server.handleProtoUpdateIssue(&orchpb.UpdateIssueRequest{
+		IssueId:    "orch-001",
+		Body:       &emptyBody,
+		AppendBody: &appendBody,
+		Context:    ctx,
+	})
+	if resp.Ok || !strings.Contains(resp.Error, "mutually exclusive") {
+		t.Fatalf("body plus append response = %+v, want explicit rejection", resp)
+	}
+}
+
+func TestGetIssueAPIPropagatesStoreDrift(t *testing.T) {
+	drift := errors.New("store drift detected: /vault/Issues/orch-001.md was modified outside the daemon (ADR-0004); restart the daemon to adopt the external change")
+	st := &resolveIssueErrorStore{mockStore: &mockStore{}, err: drift}
+	server := newTestServer(t, st)
+
+	resp := server.handleProtoGetIssue(&orchpb.GetIssueRequest{
+		IssueId: "orch-001",
+		Context: &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+	if resp.Ok {
+		t.Fatal("GetIssue response OK = true, want drift failure")
+	}
+	if !strings.Contains(resp.Error, "/vault/Issues/orch-001.md") || !strings.Contains(resp.Error, "ADR-0004") {
+		t.Fatalf("GetIssue error = %q, want drift path and ADR-0004", resp.Error)
+	}
+}
+
+func TestCloseIssueAPIPropagatesStoreDrift(t *testing.T) {
+	drift := errors.New("store drift detected: /vault/Issues/orch-001.md was modified outside the daemon (ADR-0004); restart the daemon to adopt the external change")
+	st := &setIssueStatusErrorStore{mockStore: &mockStore{}, err: drift}
+	server := newTestServer(t, st)
+
+	resp := server.handleProtoCloseIssue(&orchpb.CloseIssueRequest{
+		IssueId: "orch-001",
+		Context: &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+	if resp.Ok {
+		t.Fatal("CloseIssue response OK = true, want drift failure")
+	}
+	if !strings.Contains(resp.Error, "/vault/Issues/orch-001.md") || !strings.Contains(resp.Error, "ADR-0004") {
+		t.Fatalf("CloseIssue error = %q, want drift path and ADR-0004", resp.Error)
+	}
 }
 
 func TestCursorEncoding(t *testing.T) {
@@ -5462,6 +5572,7 @@ func TestContextEnabledHandlersUnknownProjectReturnProjectScopedStoreError(t *te
 	defer server.Stop()
 
 	missing := &orchpb.RequestContext{ProjectId: "missing-project"}
+	newTitle := "new"
 	tests := []struct {
 		name string
 		req  *orchpb.Request
@@ -5504,7 +5615,7 @@ func TestContextEnabledHandlersUnknownProjectReturnProjectScopedStoreError(t *te
 		},
 		{
 			name: "update-issue",
-			req:  &orchpb.Request{Request: &orchpb.Request_UpdateIssue{UpdateIssue: &orchpb.UpdateIssueRequest{IssueId: "i", Title: "new", Context: missing}}},
+			req:  &orchpb.Request{Request: &orchpb.Request_UpdateIssue{UpdateIssue: &orchpb.UpdateIssueRequest{IssueId: "i", Title: &newTitle, Context: missing}}},
 		},
 		{
 			name: "get-attach-info",

@@ -47,6 +47,21 @@ func TestNew(t *testing.T) {
 	}
 }
 
+func TestIssuesDirPreservesExactExistingCase(t *testing.T) {
+	vault := t.TempDir()
+	lowercase := filepath.Join(vault, "issues")
+	if err := os.Mkdir(lowercase, 0755); err != nil {
+		t.Fatalf("mkdir issues: %v", err)
+	}
+	st, err := New(vault)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if got := st.issuesDir(); got != lowercase {
+		t.Fatalf("issuesDir() = %q, want exact existing path %q", got, lowercase)
+	}
+}
+
 func TestNewInvalidPath(t *testing.T) {
 	_, err := New("/nonexistent/path")
 	if err == nil {
@@ -85,6 +100,77 @@ This is a test issue.
 	}
 	if issue.Topic != "Short topic" {
 		t.Errorf("Topic = %v, want Short topic", issue.Topic)
+	}
+}
+
+func TestResolveIssueFailsFastOnExternalDriftAndRestartAdopts(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	content := "---\ntype: issue\nid: drift-test\ntitle: Drift Test\nstatus: open\n---\n\noriginal body\n"
+	createTestIssue(t, vault, "drift-test", content)
+	path := filepath.Join(vault, "issues", "drift-test.md")
+
+	st, err := New(vault)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	initial, err := st.ResolveIssue("drift-test")
+	if err != nil {
+		t.Fatalf("initial ResolveIssue() error = %v", err)
+	}
+
+	externallyEdited := content + "external edit\n"
+	if err := os.WriteFile(path, []byte(externallyEdited), 0644); err != nil {
+		t.Fatalf("external edit: %v", err)
+	}
+
+	if _, err := st.ResolveIssue("drift-test"); err == nil {
+		t.Fatal("ResolveIssue() after external edit error = nil, want drift failure")
+	} else {
+		if !strings.Contains(err.Error(), initial.Path) || !strings.Contains(err.Error(), "ADR-0004") {
+			t.Fatalf("drift error = %q, want file path and ADR-0004", err)
+		}
+	}
+
+	restarted, err := New(vault)
+	if err != nil {
+		t.Fatalf("restart New() error = %v", err)
+	}
+	issue, err := restarted.ResolveIssue("drift-test")
+	if err != nil {
+		t.Fatalf("ResolveIssue() after restart error = %v", err)
+	}
+	if !strings.Contains(issue.Body, "external edit") {
+		t.Fatalf("body after restart = %q, want adopted external edit", issue.Body)
+	}
+}
+
+func TestUpdateIssueRecordsDaemonWriteAndRefreshesBody(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	createTestIssue(t, vault, "update-test", "---\ntype: issue\nid: update-test\ntitle: Old\nstatus: open\n---\n\nold body\n")
+	st, err := New(vault)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	issue, err := st.ResolveIssue("update-test")
+	if err != nil {
+		t.Fatalf("ResolveIssue() error = %v", err)
+	}
+	issue.Title = "New: quoted"
+	issue.Body = "\nreplacement body\n"
+	if err := st.UpdateIssue(issue); err != nil {
+		t.Fatalf("UpdateIssue() error = %v", err)
+	}
+
+	updated, err := st.ResolveIssue("update-test")
+	if err != nil {
+		t.Fatalf("ResolveIssue() after daemon write error = %v", err)
+	}
+	if updated.Title != "New: quoted" || updated.Body != "\nreplacement body\n" {
+		t.Fatalf("updated issue = title %q body %q", updated.Title, updated.Body)
 	}
 }
 

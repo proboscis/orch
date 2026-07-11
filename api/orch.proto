@@ -681,11 +681,12 @@ message CleanRunWorktreeResponse {
 
 message UpdateIssueRequest {
   string issue_id = 2;
-  string title = 3;
-  string summary = 4;
-  string body = 5;
-  string status = 6;
+  optional string title = 3;
+  reserved 4;
+  optional string body = 5;
+  reserved 6;
   RequestContext context = 7;
+  optional string append_body = 8;
 }
 
 message UpdateIssueResponse {

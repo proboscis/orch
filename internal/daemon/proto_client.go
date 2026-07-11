@@ -1864,16 +1864,15 @@ func (c *ProtoClient) CleanRunWorktree(issueID, runID, shortID string) (*CleanRu
 	}, nil
 }
 
-func (c *ProtoClient) UpdateIssue(issueID, title, summary, body, status string) (*IssueFull, error) {
+func (c *ProtoClient) UpdateIssue(issueID string, title, body, appendBody *string) (*IssueFull, error) {
 	req := &orchpb.Request{
 		Request: &orchpb.Request_UpdateIssue{
 			UpdateIssue: &orchpb.UpdateIssueRequest{
-				IssueId: issueID,
-				Title:   title,
-				Summary: summary,
-				Body:    body,
-				Status:  status,
-				Context: c.requestContext(c.projectRoot),
+				IssueId:    issueID,
+				Title:      title,
+				Body:       body,
+				AppendBody: appendBody,
+				Context:    c.requestContext(c.projectRoot),
 			},
 		},
 	}

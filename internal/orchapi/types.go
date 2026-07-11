@@ -412,10 +412,9 @@ type CleanRunWorktreeResult struct {
 }
 
 type UpdateIssueRequest struct {
-	Title   string
-	Summary string
-	Body    string
-	Status  IssueStatus
+	Title      *string
+	Body       *string
+	AppendBody *string
 }
 
 type ValidateIssueFilesResult struct {

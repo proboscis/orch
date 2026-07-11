@@ -419,7 +419,62 @@ func runGitCmd(t *testing.T, dir string, args ...string) string {
 }
 
 func createTestIssue(t *testing.T, id, content string) {
-	createTestIssueInVault(t, testVault, id, content)
+	t.Helper()
+	title, status, body := parseIssueFixture(id, ensureIssueFrontmatterDefaults(content))
+	client := daemon.NewProtoClient(testRepo)
+	defer client.Close()
+	if _, err := client.CreateIssue(id, title, "", body, nil, ""); err != nil {
+		t.Fatalf("create issue %s through daemon: %v", id, err)
+	}
+	switch status {
+	case "resolved":
+		if _, err := client.ResolveIssue(id, true); err != nil {
+			t.Fatalf("resolve issue %s through daemon: %v", id, err)
+		}
+	case "closed":
+		if _, err := client.CloseIssue(id, ""); err != nil {
+			t.Fatalf("close issue %s through daemon: %v", id, err)
+		}
+	}
+}
+
+func parseIssueFixture(id, content string) (title, status, body string) {
+	title = id
+	status = "open"
+	lines := strings.Split(content, "\n")
+	frontmatterEnd := -1
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			frontmatterEnd = i
+			break
+		}
+		parts := strings.SplitN(lines[i], ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		switch strings.TrimSpace(parts[0]) {
+		case "title":
+			title = strings.Trim(strings.TrimSpace(parts[1]), `"'`)
+		case "status":
+			status = strings.Trim(strings.TrimSpace(parts[1]), `"'`)
+		}
+	}
+	if frontmatterEnd == -1 || frontmatterEnd+1 >= len(lines) {
+		return title, status, ""
+	}
+
+	bodyLines := append([]string(nil), lines[frontmatterEnd+1:]...)
+	for len(bodyLines) > 0 && strings.TrimSpace(bodyLines[0]) == "" {
+		bodyLines = bodyLines[1:]
+	}
+	if len(bodyLines) > 0 && strings.TrimSpace(bodyLines[0]) == "# "+title {
+		bodyLines = bodyLines[1:]
+		for len(bodyLines) > 0 && strings.TrimSpace(bodyLines[0]) == "" {
+			bodyLines = bodyLines[1:]
+		}
+	}
+	body = strings.TrimSuffix(strings.Join(bodyLines, "\n"), "\n")
+	return title, status, body
 }
 
 func createTestIssueInVault(t *testing.T, vaultRoot, id, content string) {

@@ -3417,7 +3417,11 @@ func (s *SocketServer) handleGetIssue(req SendRequest, encoder *json.Encoder) {
 
 	if err != nil {
 		s.logger.Printf("error getting issue %s: %v", req.IssueID, err)
-		encoder.Encode(GetIssueResponse{OK: false, Error: "not_found"})
+		if isStoreNotFoundError(err) {
+			encoder.Encode(GetIssueResponse{OK: false, Error: "not_found"})
+		} else {
+			encoder.Encode(GetIssueResponse{OK: false, Error: err.Error()})
+		}
 		return
 	}
 
@@ -3455,7 +3459,11 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 
 	issue, err := st.ResolveIssue(issueID)
 	if err != nil {
-		encoder.Encode(StartRunResponse{OK: false, Error: "issue not found: " + req.IssueID})
+		if isStoreNotFoundError(err) {
+			encoder.Encode(StartRunResponse{OK: false, Error: "issue not found: " + req.IssueID})
+		} else {
+			encoder.Encode(StartRunResponse{OK: false, Error: s.storeOperationError(st, req.RepoID, "start run issue lookup", err)})
+		}
 		return
 	}
 
@@ -3772,7 +3780,10 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	if issue == nil {
 		resolvedIssue, err := st.ResolveIssue(opts.IssueID)
 		if err != nil {
-			return nil, fmt.Errorf("issue not found: %s", opts.IssueID)
+			if isStoreNotFoundError(err) {
+				return nil, fmt.Errorf("issue not found: %s", opts.IssueID)
+			}
+			return nil, fmt.Errorf("start run issue lookup failed for %s: %w", opts.IssueID, err)
 		}
 		issue = resolvedIssue
 	}
@@ -4134,7 +4145,10 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		// missing issue.
 		if opts.IssueSnapshot == nil {
 			if _, err := st.ResolveIssue(issueID); err != nil {
-				return nil, fmt.Errorf("issue not found: %s", issueID)
+				if isStoreNotFoundError(err) {
+					return nil, fmt.Errorf("issue not found: %s", issueID)
+				}
+				return nil, fmt.Errorf("continue run issue lookup failed for %s: %w", issueID, err)
 			}
 		}
 
@@ -4285,7 +4299,10 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 	if issue == nil {
 		resolvedIssue, err := st.ResolveIssue(issueID)
 		if err != nil {
-			return nil, fmt.Errorf("issue not found: %s", issueID)
+			if isStoreNotFoundError(err) {
+				return nil, fmt.Errorf("issue not found: %s", issueID)
+			}
+			return nil, fmt.Errorf("continue run issue lookup failed for %s: %w", issueID, err)
 		}
 		issue = resolvedIssue
 	}
@@ -4569,7 +4586,11 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 
 		_, err := st.ResolveIssue(issueID)
 		if err != nil {
-			encoder.Encode(ContinueRunResponse{OK: false, Error: "issue not found: " + string(issueID)})
+			if isStoreNotFoundError(err) {
+				encoder.Encode(ContinueRunResponse{OK: false, Error: "issue not found: " + string(issueID)})
+			} else {
+				encoder.Encode(ContinueRunResponse{OK: false, Error: s.storeOperationError(st, req.RepoID, "continue run issue lookup", err)})
+			}
 			return
 		}
 
@@ -4712,7 +4733,11 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 
 	issue, err := st.ResolveIssue(issueID)
 	if err != nil {
-		encoder.Encode(ContinueRunResponse{OK: false, Error: "issue not found: " + string(issueID)})
+		if isStoreNotFoundError(err) {
+			encoder.Encode(ContinueRunResponse{OK: false, Error: "issue not found: " + string(issueID)})
+		} else {
+			encoder.Encode(ContinueRunResponse{OK: false, Error: s.storeOperationError(st, req.RepoID, "continue run issue lookup", err)})
+		}
 		return
 	}
 
@@ -5158,7 +5183,11 @@ func (s *SocketServer) handleResolveIssue(req SendRequest, encoder *json.Encoder
 	issue, err := st.ResolveIssue(model.IssueID(req.IssueID))
 	if err != nil {
 		s.logger.Printf("error getting issue %s: %v", req.IssueID, err)
-		encoder.Encode(ResolveIssueResponse{OK: false, Error: "not_found"})
+		if isStoreNotFoundError(err) {
+			encoder.Encode(ResolveIssueResponse{OK: false, Error: "not_found"})
+		} else {
+			encoder.Encode(ResolveIssueResponse{OK: false, Error: s.storeOperationError(st, req.RepoID, "resolve issue lookup", err)})
+		}
 		return
 	}
 
@@ -5243,49 +5272,20 @@ func (s *SocketServer) handleCreateIssue(req SendRequest, encoder *json.Encoder)
 		return
 	}
 
-	// Use vault path for file-based issues (not project root)
-	issuesRoot := st.RootPath()
-	issuesDir := filepath.Join(issuesRoot, "issues")
-	if _, err := os.Stat(filepath.Join(issuesRoot, "Issues")); err == nil {
-		issuesDir = filepath.Join(issuesRoot, "Issues")
-	}
-	if err := os.MkdirAll(issuesDir, 0755); err != nil {
-		s.logger.Printf("error creating issues directory: %v", err)
-		encoder.Encode(CreateIssueResponse{OK: false, Error: "io_error"})
-		return
-	}
-
-	issuePath := filepath.Join(issuesDir, req.IssueID+".md")
-	if _, err := os.Stat(issuePath); err == nil {
-		encoder.Encode(CreateIssueResponse{OK: false, Error: "already_exists"})
-		return
-	}
-
-	issueToWrite := &model.Issue{
-		ID:         model.IssueID(req.IssueID),
+	result, err := s.processCreateIssueCore(st, &CreateIssueParams{
+		IssueID:    req.IssueID,
 		Title:      title,
 		Summary:    req.Summary,
-		Status:     model.IssueStatusOpen,
-		BaseBranch: req.BaseBranch,
+		Body:       req.Body,
 		Tags:       req.Tags,
-	}
-	var sb strings.Builder
-	sb.WriteString(issueToWrite.RenderFrontmatter())
-	sb.WriteString("\n")
-	sb.WriteString("# " + title + "\n\n")
-	if req.Body != "" {
-		sb.WriteString(req.Body)
-		sb.WriteString("\n")
-	}
-
-	if err := os.WriteFile(issuePath, []byte(sb.String()), 0644); err != nil {
-		s.logger.Printf("error writing issue file: %v", err)
-		encoder.Encode(CreateIssueResponse{OK: false, Error: "io_error"})
+		BaseBranch: req.BaseBranch,
+	})
+	if err != nil {
+		encoder.Encode(CreateIssueResponse{OK: false, Error: err.Error()})
 		return
 	}
 
-	s.logger.Printf("created issue: %s at %s", req.IssueID, issuePath)
-	encoder.Encode(CreateIssueResponse{OK: true, IssueID: req.IssueID, Path: issuePath})
+	encoder.Encode(CreateIssueResponse{OK: true, IssueID: result.IssueID, Path: result.Path})
 }
 
 func (s *SocketServer) processCreateIssueCore(st store.Store, params *CreateIssueParams) (*CreateIssueResult, error) {
@@ -5309,21 +5309,6 @@ func (s *SocketServer) processCreateIssueCore(st store.Store, params *CreateIssu
 		return nil, fmt.Errorf("invalid_request: %v", err)
 	}
 
-	issuesRoot := st.RootPath()
-	issuesDir := filepath.Join(issuesRoot, "issues")
-	if _, err := os.Stat(filepath.Join(issuesRoot, "Issues")); err == nil {
-		issuesDir = filepath.Join(issuesRoot, "Issues")
-	}
-	if err := os.MkdirAll(issuesDir, 0755); err != nil {
-		s.logger.Printf("error creating issues directory: %v", err)
-		return nil, fmt.Errorf("io_error")
-	}
-
-	issuePath := filepath.Join(issuesDir, params.IssueID+".md")
-	if _, err := os.Stat(issuePath); err == nil {
-		return nil, fmt.Errorf("already_exists")
-	}
-
 	issueToWrite := &model.Issue{
 		ID:         model.IssueID(params.IssueID),
 		Title:      title,
@@ -5332,24 +5317,22 @@ func (s *SocketServer) processCreateIssueCore(st store.Store, params *CreateIssu
 		BaseBranch: params.BaseBranch,
 		Tags:       params.Tags,
 	}
-	var sb strings.Builder
-	sb.WriteString(issueToWrite.RenderFrontmatter())
-	sb.WriteString("\n")
-	sb.WriteString("# " + title + "\n\n")
+	var body strings.Builder
+	body.WriteString("# " + title + "\n\n")
 	if params.Body != "" {
-		sb.WriteString(params.Body)
-		sb.WriteString("\n")
+		body.WriteString(params.Body)
+		body.WriteString("\n")
+	}
+	issueToWrite.Body = body.String()
+
+	if err := st.CreateIssue(issueToWrite); err != nil {
+		return nil, err
 	}
 
-	if err := os.WriteFile(issuePath, []byte(sb.String()), 0644); err != nil {
-		s.logger.Printf("error writing issue file: %v", err)
-		return nil, fmt.Errorf("io_error")
-	}
-
-	s.logger.Printf("created issue: %s at %s", params.IssueID, issuePath)
+	s.logger.Printf("created issue: %s at %s", params.IssueID, issueToWrite.Path)
 	return &CreateIssueResult{
 		IssueID: params.IssueID,
-		Path:    issuePath,
+		Path:    issueToWrite.Path,
 	}, nil
 }
 
@@ -5383,7 +5366,11 @@ func (s *SocketServer) handleCloseIssue(req SendRequest, encoder *json.Encoder) 
 
 	if err := st.SetIssueStatus(model.IssueID(req.IssueID), model.IssueStatusClosed); err != nil {
 		s.logger.Printf("error closing issue %s: %v", req.IssueID, err)
-		encoder.Encode(CloseIssueResponse{OK: false, Error: "not_found"})
+		if isStoreNotFoundError(err) {
+			encoder.Encode(CloseIssueResponse{OK: false, Error: "not_found"})
+		} else {
+			encoder.Encode(CloseIssueResponse{OK: false, Error: s.storeOperationError(st, req.RepoID, "close issue", err)})
+		}
 		return
 	}
 
