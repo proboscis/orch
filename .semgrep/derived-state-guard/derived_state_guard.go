@@ -55,6 +55,14 @@ func badCounterSmuggledIntoReason(core runCore) {
 	_ = model.NewStatusEventWithReason(model.StatusUnknown, fmt.Sprintf("streak_%d", core.ReadingStreak))
 }
 
+func badRefusalLatchPersistedAsEvent(st Store, ref Ref, core runCore) error {
+	// The refusal latch is ephemeral diagnostic state; the once-only notice
+	// bookkeeping is the daemon_notice note event built from the EFFECT
+	// payload (observation-supplied), never from the core latch.
+	// ruleid: no-monitor-counter-in-event
+	return st.AppendEvent(ref, model.NewArtifactEvent("refused_pr", map[string]string{"url": core.PRMismatchURL}))
+}
+
 func okArtifactWithoutMonitorState(prURL string) {
 	// ok: no-monitor-counter-in-event
 	_ = model.NewArtifactEvent("pr", map[string]string{"url": prURL})
@@ -77,6 +85,15 @@ func badSnapshotReadBack(state *RunState, snap persistedSnapshot) {
 func badIncrementOutsidePolicy(state *RunState) {
 	// ruleid: run-core-hydration-surface
 	state.DeadCheckCount++
+}
+
+func badRefusalLatchOutsidePolicy(state *RunState, url, head string) {
+	// The pr-attach refusal latch (L-PR2) is policy state: only stepRun may
+	// set or clear it. A shell writing it is the same snapshot shape.
+	// ruleid: run-core-hydration-surface
+	state.PRMismatchURL = url
+	// ruleid: run-core-hydration-surface
+	state.PRMismatchHead = head
 }
 
 func badWholesaleCoreReplacement(state *RunState, loaded runCore) {

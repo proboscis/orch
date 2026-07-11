@@ -61,7 +61,7 @@ rules:
       - pattern: $STATE.$FIELD
       - metavariable-regex:
           metavariable: $FIELD
-          regex: '^(WasAlive|PRRecorded|DeadCheckCount|ReadingKind|ReadingStreak|OutputHash|LastOutput|LastOutputAt|AliveObserver|DeadCheckObserver)$'
+          regex: '^(WasAlive|PRRecorded|DeadCheckCount|ReadingKind|ReadingStreak|OutputHash|LastOutput|LastOutputAt|AliveObserver|DeadCheckObserver|PRMismatchURL|PRMismatchHead)$'
     paths:
       include:
         - /internal/daemon/
@@ -97,7 +97,7 @@ rules:
               - pattern: $X.$FIELD++
           - metavariable-regex:
               metavariable: $FIELD
-              regex: '^(runCore|WasAlive|PRRecorded|DeadCheckCount|ReadingKind|ReadingStreak|OutputHash|LastOutput|LastOutputAt|AliveObserver|DeadCheckObserver)$'
+              regex: '^(runCore|WasAlive|PRRecorded|DeadCheckCount|ReadingKind|ReadingStreak|OutputHash|LastOutput|LastOutputAt|AliveObserver|DeadCheckObserver|PRMismatchURL|PRMismatchHead)$'
       # Constructing a non-zero runCore literal outside step.go builds
       # monitor state from something other than the fold — the snapshot
       # read-back shape. The zero literal runCore{} carries no state and

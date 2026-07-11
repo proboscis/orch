@@ -116,7 +116,8 @@ O3 session gone, count ≥ 3   → O5 git evidence を収集して判定:
    attested ⇔ DeadCheckObserver ≠ "" ∧ DeadCheckObserver == AliveObserver
 
 O2 session alive                                                   カウンタreset, WasAlive=true
-O4 captured + PR URL in output   未記録                            → pr_open (+pr artifact)
+O4 captured + PR URL in output   未記録・head=branch検証済         → pr_open (+pr artifact)
+O4 captured + PR URL拒否済み     (L-PR2 latch)                     waiting時 reason pr_branch_mismatch; 確定idle+未通知 → daemon notice (L-N1..3)
 O4 captured + agent verdict:     (mux: 優先順位順 — L10b)
    gate reading streak ≥ 2 (O4e)                                   → waiting (reason gate_<kind>)
    gate reading streak < 2                                         遷移なし (未確定gateは下位読みを全てマスク)
@@ -255,6 +256,7 @@ travels as a machine-readable `reason` attribute on the status event
 | `launch_<step>` | O8 bootstrap failure (`failed` verdict); `<step>` ∈ worktree, prompt, agent_command, agent_auth, multiplexer, opencode_server, session, opencode_bootstrap, bootstrap | the named bootstrap step broke; the paired error artifact carries the detail |
 | `gate_<kind>` (`gate_login`, `gate_trust`, …) | O4e gate reading confirmed by L10a (`waiting` verdict) | `orch attach` and complete the gate interactively; `orch send` will NOT clear it — the run re-asserts `waiting(gate_<kind>)` while the gate persists |
 | `observer_unverified` | L11c: dead-check threshold reached through an unattested channel | the observer cannot see the session — check the worker/daemon mux environment (TMUX socket, #483 class) and worker process; the run self-recovers on the next successful capture |
+| `pr_branch_mismatch` | L-PR2 (§11.4): the agent's PR head is not the run branch, so L-PR1 refuses to track it | the daemon notice (L-N1) already told the agent the exact push command; if the run stays parked, `orch send` the correction or repoint the PR head manually |
 
 `orch ps` renders the reason inline (`unknown(never_alive)`); the event log
 carries it as `reason=…`; `StatusChangeEvent.Reason` exposes it to listeners.
@@ -837,10 +839,12 @@ one keys off `run.PRUrl`, which folds only from `pr` artifacts.
 ### 11.2 Enforcement (two layers, gather-impure / decide-pure preserved)
 
 1. **Gatherer** — `processRunOutput` scrapes the pane and verifies ownership
-   via `verifyScrapedPRURL` (`gh pr view <url> --json …,headRefName`, cached)
-   before threading the URL into the observation as
-   `obsCaptured.CapturedPRURL`. `stepRun` never sees an unverified URL and
-   never scrapes `obs.Output` itself.
+   via `classifyScrapedPRURL` (`gh pr view <url> --json …,headRefName`,
+   cached) before threading the URL into the observation as
+   `obsCaptured.CapturedPRURL`. A positively-verified MISMATCH threads as
+   the refusal payload (`RefusedPRURL`/`RefusedPRHead`/`RefusedPRNoticeSent`,
+   §11.4) instead. `stepRun` never sees an unverified URL and never scrapes
+   `obs.Output` itself.
 2. **Executor choke point** — `recordPRArtifact`, the single executor for
    `effectRecordPR` (producers: verified pane scrape, branch-scoped
    `DiscoveredPRURL`, branch-scoped `gitVerdict`), re-verifies L-PR1 and
@@ -864,3 +868,65 @@ already GitHub-only, so no working behavior is lost.
   `recordPRArtifact` refuses foreign/unverifiable URLs and empty-branch runs.
 - `pr/cache_test.go` — `HeadRefName` round-trips through lookup and cache;
   pre-law entries are treated as stale.
+
+### 11.4 Refusal diagnostics (L-PR2, decided 2026-07-11)
+
+Incident: a codex run opened its PR from a self-invented branch. L-PR1
+correctly refused the attachment — and then the information died: the master
+log repeated the refusal every capture tick, the run idled `waiting` with no
+reason, the agent believed it was done, and `orch ps` showed no PR. The law
+held; nobody was told.
+
+> **L-PR2 (refusal visibility).** A positively-verified pr-attach refusal is
+> an observation, not a log line. It latches on the core
+> (`PRMismatchURL`/`PRMismatchHead`, ephemeral by D-C1) and every `waiting`
+> verdict without a stronger reason surfaces it as reason
+> `pr_branch_mismatch` until the latch resolves. The latch resolves through
+> a verified PR recording (`PRRecorded`) or is replaced by a newer refusal.
+> Lookup failures are not refusals: only a resolved head that differs from
+> the run branch may latch.
+
+Precedence: gate reasons (L10b) outrank the mismatch diagnostic; resolved
+(opencode) and agent-specific verdict reasons are untouched — the diagnostic
+only fills an otherwise-empty `waiting` reason.
+
+### 11.5 Daemon notice (L-N1..L-N3, decided 2026-07-11)
+
+The daemon may deliver a corrective message to the run's agent session —
+today only for the pr-attach refusal. This makes the daemon a conversation
+participant, so the autonomy is fenced by law:
+
+> **L-N1 (once per subject).** At most one notice per (run, refused URL).
+> The store of record for "sent" is the `daemon_notice` note event
+> (closed vocabulary; attrs `kind`/`url`/`head`/`run_branch`) — the gatherer
+> folds it into `obs.RefusedPRNoticeSent`, so the guarantee survives
+> restarts without a persisted counter. Deliveries count, not attempts: a
+> failed send appends no note and retries on the next confirmed-idle
+> capture. A delivered send whose note append fails may produce one
+> duplicate notice (logged loudly) — visible noise over silent loss.
+
+> **L-N2 (idle-only).** A notice is emitted only when the input-request
+> reading is a confirmed `prompt` (the same L10a streak that gates the
+> waiting verdict) and the refusal is current on that capture. Never type
+> into a working pane.
+
+> **L-N3 (no status authority).** The notice effect changes no status.
+> Delivery rides the existing send path, so its feedback-resume semantics
+> (waiting → running via `markRunFeedbackSent`) are exactly those of a user
+> `orch send` — no new status writer.
+
+Executor: `sendAgentNotice` (monitor plane) routes local runs through
+`processSendMessageForRun` and worker-delegated runs through the existing
+`send_message` lease (`sendMessageViaWorker`), then appends the note event.
+Send first, record second (L-N1 failure semantics above).
+
+Prevention layer: `buildRunPrompt` now states the run branch, forbids
+creating/switching branches, gives the exact `git push origin HEAD:<branch>`
+command, and — when a PR is expected — requires the PR head to be the run
+branch.
+
+Violation tests: `step_pr_mismatch_test.go` (L-PR2 reason, gate precedence,
+latch clearing, L-N1 once-only, L-N2 idle-only, L-N3 same-tick separation,
+2026-07-11 incident replay), `monitor_test.go` (refusal threading, note-event
+fold, failed-delivery retryability), `socket_test.go` (prompt branch
+discipline).

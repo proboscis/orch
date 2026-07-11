@@ -1299,29 +1299,31 @@ func TestMonitorRemoteRunDetectsPROpenFromWorkerCapture(t *testing.T) {
 
 // L-PR1 (run-state-machine.md §11) — gatherer verification: a scraped PR URL
 // belongs to a run iff the PR head branch equals the run's non-empty branch.
-func TestVerifyScrapedPRURL(t *testing.T) {
+// L-PR2: a positively-resolved mismatch reports the foreign head (a refusal
+// observation); an unverifiable URL reports nothing.
+func TestClassifyScrapedPRURL(t *testing.T) {
 	d := newTestDaemon()
 	run := &model.Run{IssueID: "i", RunID: "r", Branch: "issue/i/run-r"}
 
 	d.lookupPRInfoByURLFn = func(prURL string) (*pr.Info, error) {
 		return &pr.Info{URL: prURL, State: "OPEN", HeadRefName: "issue/i/run-r"}, nil
 	}
-	if !d.verifyScrapedPRURL(run, "https://github.com/o/r/pull/7") {
-		t.Fatal("matching head branch must verify")
+	if ok, head := d.classifyScrapedPRURL(run, "https://github.com/o/r/pull/7"); !ok || head != "issue/i/run-r" {
+		t.Fatalf("matching head branch must verify, got (%t, %q)", ok, head)
 	}
 
 	d.lookupPRInfoByURLFn = func(prURL string) (*pr.Info, error) {
 		return &pr.Info{URL: prURL, State: "OPEN", HeadRefName: "issue/other/run-x"}, nil
 	}
-	if d.verifyScrapedPRURL(run, "https://github.com/o/r/pull/499") {
-		t.Fatal("foreign head branch must not verify")
+	if ok, head := d.classifyScrapedPRURL(run, "https://github.com/o/r/pull/499"); ok || head != "issue/other/run-x" {
+		t.Fatalf("foreign head branch must be a refusal carrying the head, got (%t, %q)", ok, head)
 	}
 
 	d.lookupPRInfoByURLFn = func(prURL string) (*pr.Info, error) {
 		return nil, errors.New("gh unavailable")
 	}
-	if d.verifyScrapedPRURL(run, "https://github.com/o/r/pull/7") {
-		t.Fatal("unverifiable head must not verify")
+	if ok, head := d.classifyScrapedPRURL(run, "https://github.com/o/r/pull/7"); ok || head != "" {
+		t.Fatalf("unverifiable head must neither verify nor refuse, got (%t, %q)", ok, head)
 	}
 
 	noBranch := &model.Run{IssueID: "i", RunID: "r"}
@@ -1330,8 +1332,8 @@ func TestVerifyScrapedPRURL(t *testing.T) {
 		looked = true
 		return nil, nil
 	}
-	if d.verifyScrapedPRURL(noBranch, "https://github.com/o/r/pull/7") {
-		t.Fatal("run without branch artifact must never adopt a scraped URL")
+	if ok, head := d.classifyScrapedPRURL(noBranch, "https://github.com/o/r/pull/7"); ok || head != "" {
+		t.Fatalf("run without branch artifact must never adopt a scraped URL, got (%t, %q)", ok, head)
 	}
 	if looked {
 		t.Fatal("empty-branch run must be refused before any lookup")
@@ -1663,5 +1665,67 @@ func TestRunIsWorkerDelegatedGate(t *testing.T) {
 	local.TargetWorkerID = "host-remotebox"
 	if d.runIsWorkerDelegated(local) {
 		t.Fatal("run targeting the daemon's own worker must stay local")
+	}
+}
+
+// L-PR2 gatherer threading: a scraped URL whose verified head mismatches the
+// run branch becomes a refusal observation (latch + reason visible), and the
+// once-only notice bookkeeping folds from the run's note events (L-N1).
+func TestProcessRunOutputThreadsRefusalObservation(t *testing.T) {
+	d := newTestDaemon()
+	run := &model.Run{IssueID: "i", RunID: "r", Agent: "custom", Status: model.StatusRunning, Branch: "issue/i/run-r"}
+	st := &mockStoreRecordingEvents{
+		mockStoreForUpdate: mockStoreForUpdate{issue: &model.Issue{ID: run.IssueID, Status: model.IssueStatusOpen}},
+		run:                run,
+	}
+	d.lookupPRInfoByURLFn = func(prURL string) (*pr.Info, error) {
+		return &pr.Info{URL: prURL, State: "OPEN", HeadRefName: "fix/foreign"}, nil
+	}
+	state := d.getOrCreateState(run)
+	mgr := agent.GetManager(run)
+
+	output := "opened https://github.com/o/r/pull/534\n❯ "
+	if err := d.processRunOutput(run, st, state, mgr, "project-x", output); err != nil {
+		t.Fatalf("processRunOutput() error = %v", err)
+	}
+	if state.runCore.PRMismatchURL != "https://github.com/o/r/pull/534" || state.runCore.PRMismatchHead != "fix/foreign" {
+		t.Fatalf("refusal latch = (%q, %q), want the scraped URL and its foreign head",
+			state.runCore.PRMismatchURL, state.runCore.PRMismatchHead)
+	}
+
+	// The delivered-notice note event flips the fold-derived bookkeeping.
+	if runHasDaemonNotice(run, model.StatusReasonPRBranchMismatch, "https://github.com/o/r/pull/534") {
+		t.Fatal("no notice recorded yet")
+	}
+	run.Events = append(run.Events, model.NewDaemonNoticeEvent(model.StatusReasonPRBranchMismatch, map[string]string{
+		"url": "https://github.com/o/r/pull/534", "head": "fix/foreign", "run_branch": run.Branch,
+	}))
+	if !runHasDaemonNotice(run, model.StatusReasonPRBranchMismatch, "https://github.com/o/r/pull/534") {
+		t.Fatal("note event must mark the notice as sent (L-N1 fold)")
+	}
+	if runHasDaemonNotice(run, model.StatusReasonPRBranchMismatch, "https://github.com/o/r/pull/999") {
+		t.Fatal("a different URL must not inherit the sent flag")
+	}
+}
+
+// A failed notice delivery appends no note event (retryable, L-N1 counts
+// deliveries, not attempts).
+func TestSendAgentNoticeFailureAppendsNoNote(t *testing.T) {
+	d := newTestDaemon() // no socketServer wired
+	run := &model.Run{IssueID: "i", RunID: "r", Agent: "custom", Status: model.StatusRunning, Branch: "issue/i/run-r"}
+	st := &mockStoreRecordingEvents{
+		mockStoreForUpdate: mockStoreForUpdate{issue: &model.Issue{ID: run.IssueID, Status: model.IssueStatusOpen}},
+		run:                run,
+	}
+	err := d.sendAgentNotice(run, st, "project-x", "", runEffect{
+		Kind: effectSendAgentNotice, PRURL: "https://github.com/o/r/pull/534", PRHead: "fix/foreign",
+	})
+	if err == nil {
+		t.Fatal("delivery without a send path must fail explicitly")
+	}
+	for _, e := range st.events {
+		if e.Type == model.EventTypeNote {
+			t.Fatalf("failed delivery must not record a note event, got %+v", e)
+		}
 	}
 }

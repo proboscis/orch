@@ -272,7 +272,30 @@ const (
 	// check the worker/daemon mux environment; the run self-recovers on the
 	// next successful capture.
 	StatusReasonObserverUnverified = "observer_unverified"
+	// StatusReasonPRBranchMismatch: the agent opened a PR from a branch that
+	// is not the run branch, so the pr-attach law (L-PR1) refuses to track
+	// it (docs/design/run-state-machine.md §11 L-PR2). The run idles waiting
+	// while its work sits in an untracked PR; the daemon notice (L-N1) tells
+	// the agent how to repoint it.
+	StatusReasonPRBranchMismatch = "pr_branch_mismatch"
 )
+
+// DaemonNoticeEventName is the note-event name for daemon-authored messages
+// delivered to a run's agent session (run-state-machine.md §11 L-N1): the
+// note records that the notice was sent, making the once-per-(run,subject)
+// guarantee fold-derivable. Attrs: "kind" (notice family), "url"/"head"
+// (subject payload for pr_branch_mismatch).
+const DaemonNoticeEventName = "daemon_notice"
+
+// NewDaemonNoticeEvent records a delivered daemon notice (note event, closed
+// vocabulary). kind names the notice family; attrs carry the subject.
+func NewDaemonNoticeEvent(kind string, attrs map[string]string) *Event {
+	all := map[string]string{"kind": kind}
+	for k, v := range attrs {
+		all[k] = v
+	}
+	return NewEvent(EventTypeNote, DaemonNoticeEventName, all)
+}
 
 // NewStatusEventWithReason creates a status change event carrying a
 // machine-readable reason attribute. An empty reason degrades to

@@ -75,3 +75,33 @@ func (s *SocketServer) runGitEvidenceLease(run *model.Run, projectID, effect str
 	}
 	return result, nil
 }
+
+// sendMessageViaWorker delivers a message to a worker-hosted run's agent
+// session through the existing send_message lease capability — the same
+// route `orch send` takes for remote runs. Used by the monitor plane to
+// deliver daemon notices (run-state-machine.md §11 L-N1..L-N3).
+func (s *SocketServer) sendMessageViaWorker(run *model.Run, projectID, projectRoot, message string) error {
+	if run == nil {
+		return fmt.Errorf("run required")
+	}
+	if strings.TrimSpace(projectID) == "" {
+		return fmt.Errorf("no project context available for remote run %s#%s", run.IssueID, run.RunID)
+	}
+	target, err := resolveWorkerTargetForRunFields(run, projectRoot)
+	if err != nil {
+		return err
+	}
+	payload := &WorkerEffectPayload{
+		SendMessage: &SendMessagePayload{
+			Message:        message,
+			Target:         strings.TrimSpace(run.Target),
+			TargetHost:     target.Host,
+			TargetWorkerID: target.WorkerID,
+			RunSnapshot:    newRunSnapshot(run),
+		},
+	}
+	if _, err := s.runGitEvidenceLease(run, projectID, "send_message", payload); err != nil {
+		return err
+	}
+	return nil
+}

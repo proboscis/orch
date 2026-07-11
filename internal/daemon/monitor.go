@@ -138,14 +138,14 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store, projectID, projectRo
 	}
 	state.resetCaptureFailure()
 
-	return d.processRunOutput(run, st, state, mgr, output)
+	return d.processRunOutput(run, st, state, mgr, projectID, output)
 }
 
 // processRunOutput feeds a freshly captured session output through stepRun:
 // change hashing, prompt debouncing, PR-URL detection, and agent status
 // inference all happen in the pure core. Shared by local and
 // worker-delegated runs.
-func (d *Daemon) processRunOutput(run *model.Run, st store.Store, state *RunState, mgr agent.AgentManager, output string) error {
+func (d *Daemon) processRunOutput(run *model.Run, st store.Store, state *RunState, mgr agent.AgentManager, projectID string, output string) error {
 	signal := gatherAgentSignal(run, mgr, output)
 	obs := runObservation{
 		Kind:   obsCaptured,
@@ -156,38 +156,64 @@ func (d *Daemon) processRunOutput(run *model.Run, st store.Store, state *RunStat
 	// agent prints (git log, gh output, prompt context) can contain a PR
 	// URL that belongs to a different run. Verify ownership here, impurely,
 	// so the pure core only ever sees a URL that satisfies the pr-attach
-	// law (headRefName == run branch, non-empty).
+	// law (headRefName == run branch, non-empty). A positively-verified
+	// MISMATCH is itself an observation (L-PR2): the refusal payload lets
+	// the policy surface the reason and notify the agent.
 	if !state.runCore.PRRecorded && run.PRUrl == "" {
-		if url := detectPRURL(output); url != "" && d.verifyScrapedPRURL(run, url) {
-			obs.CapturedPRURL = url
+		if url := detectPRURL(output); url != "" {
+			verified, head := d.classifyScrapedPRURL(run, url)
+			switch {
+			case verified:
+				obs.CapturedPRURL = url
+			case head != "":
+				obs.RefusedPRURL = url
+				obs.RefusedPRHead = head
+				obs.RefusedPRNoticeSent = runHasDaemonNotice(run, model.StatusReasonPRBranchMismatch, url)
+			}
 		}
 	}
-	_, err := d.applyStep(run, st, state, obs, "")
+	_, err := d.applyStepInProject(run, st, state, obs, projectID, "")
 	return err
 }
 
-// verifyScrapedPRURL reports whether a PR URL scraped from a run's pane
-// actually belongs to that run: the PR's head branch must equal the run's
-// recorded branch artifact (pr-attach law, run-state-machine.md §11). A run
-// without a branch artifact can never adopt a scraped URL, and a URL whose
-// head branch cannot be resolved (lookup error, foreign host) is treated as
-// not verified — the next capture retries.
-func (d *Daemon) verifyScrapedPRURL(run *model.Run, url string) bool {
+// classifyScrapedPRURL verifies a PR URL scraped from a run's pane against
+// the pr-attach law (run-state-machine.md §11): verified means the PR's head
+// branch equals the run's recorded branch artifact. A positively-resolved
+// mismatch returns (false, head) so the caller can observe the refusal
+// (L-PR2); an unverifiable URL (no branch artifact, lookup error, foreign
+// host) returns (false, "") — not a refusal, the next capture retries.
+func (d *Daemon) classifyScrapedPRURL(run *model.Run, url string) (bool, string) {
 	if run.Branch == "" {
 		d.debug("%s#%s: ignoring scraped PR URL %s: run has no branch artifact", run.IssueID, run.RunID, url)
-		return false
+		return false, ""
 	}
 	info, err := d.lookupPRInfoByURL(url)
 	if err != nil || info == nil {
 		d.debug("%s#%s: ignoring scraped PR URL %s: head branch unverifiable (err=%v)", run.IssueID, run.RunID, url, err)
-		return false
+		return false, ""
 	}
 	if info.HeadRefName != run.Branch {
 		d.logger.Printf("%s#%s: ignoring scraped PR URL %s: head %q does not match run branch %q (pr-attach law)",
 			run.IssueID, run.RunID, url, info.HeadRefName, run.Branch)
-		return false
+		return false, info.HeadRefName
 	}
-	return true
+	return true, info.HeadRefName
+}
+
+// runHasDaemonNotice reports whether the run's event log already records a
+// delivered daemon notice of the given kind for the given URL (L-N1). The
+// note event is the store of record for the once-only guarantee; no counter
+// survives in monitor memory.
+func runHasDaemonNotice(run *model.Run, kind, url string) bool {
+	for _, e := range run.Events {
+		if e == nil || e.Type != model.EventTypeNote || e.Name != model.DaemonNoticeEventName {
+			continue
+		}
+		if e.Attrs["kind"] == kind && e.Attrs["url"] == url {
+			return true
+		}
+	}
+	return false
 }
 
 // gatherAgentSignal produces the agent-specific reading of a captured output
@@ -214,16 +240,23 @@ func gatherAgentSignal(run *model.Run, mgr agent.AgentManager, output string) ag
 // effect fails (executors veto individual flags where a failed write must
 // retry — see applyRunEffects).
 func (d *Daemon) applyStep(run *model.Run, st store.Store, state *RunState, obs runObservation, projectRoot string) ([]runEffect, error) {
+	return d.applyStepInProject(run, st, state, obs, "", projectRoot)
+}
+
+// applyStepInProject is applyStep with project routing context: effects that
+// must reach the run's execution host (effectSendAgentNotice on a
+// worker-delegated run) need the projectID for the worker lease.
+func (d *Daemon) applyStepInProject(run *model.Run, st store.Store, state *RunState, obs runObservation, projectID, projectRoot string) ([]runEffect, error) {
 	view := runViewOf(run)
 	core, effects := stepRun(view, state.runCore, obs, time.Now())
-	core, err := d.applyRunEffects(run, st, state.runCore, core, effects)
+	core, err := d.applyRunEffects(run, st, state.runCore, core, effects, projectID, projectRoot)
 	state.runCore = core // nosemgrep: run-core-hydration-surface -- the sanctioned commit point: core stepped by stepRun
 	return effects, err
 }
 
 // applyRunEffects executes stepRun effects in order. effectGatherGitEvidence
 // is a shell-loop concern (applyGoneObservation) and is skipped here.
-func (d *Daemon) applyRunEffects(run *model.Run, st store.Store, oldCore, core runCore, effects []runEffect) (runCore, error) {
+func (d *Daemon) applyRunEffects(run *model.Run, st store.Store, oldCore, core runCore, effects []runEffect, projectID, projectRoot string) (runCore, error) {
 	var firstErr error
 	for _, e := range effects {
 		switch e.Kind {
@@ -254,9 +287,66 @@ func (d *Daemon) applyRunEffects(run *model.Run, st store.Store, oldCore, core r
 			}
 		case effectGatherGitEvidence:
 			// handled by applyGoneObservation
+		case effectSendAgentNotice:
+			if err := d.sendAgentNotice(run, st, projectID, projectRoot, e); err != nil {
+				// A failed delivery appends no note event, so the next
+				// confirmed-idle capture retries (L-N1 counts sent notices,
+				// not attempts).
+				d.logger.Printf("%s#%s: failed to deliver daemon notice for %s: %v", run.IssueID, run.RunID, e.PRURL, err)
+			}
 		}
 	}
 	return core, firstErr
+}
+
+// sendAgentNotice delivers a daemon-authored corrective message to the run's
+// agent session (run-state-machine.md §11 L-N1..L-N3) and records the note
+// event that makes the delivery fold-visible. Send first, record second: a
+// failed send must stay retryable, while a failed record after a successful
+// send merely risks one duplicate notice (logged loudly below).
+func (d *Daemon) sendAgentNotice(run *model.Run, st store.Store, projectID, projectRoot string, e runEffect) error {
+	message := fmt.Sprintf(
+		"[orch] Your PR %s was opened from branch %q, but this run's branch is %q. "+
+			"orch tracks a PR only when its head branch equals the run branch (pr-attach law), so that PR is currently untracked. "+
+			"Please push your work to the run branch (git push origin HEAD:%s) and open the PR from it (close the mismatched one).",
+		e.PRURL, e.PRHead, run.Branch, run.Branch)
+
+	s := d.socketServer
+	if s == nil {
+		return fmt.Errorf("no socket server available to deliver agent notice")
+	}
+	if d.runIsWorkerDelegated(run) {
+		if strings.TrimSpace(projectID) == "" {
+			return fmt.Errorf("no project context available for remote run %s#%s", run.IssueID, run.RunID)
+		}
+		if err := s.sendMessageViaWorker(run, projectID, projectRoot, message); err != nil {
+			return err
+		}
+		s.markRunFeedbackSent(st, run)
+	} else {
+		if err := s.processSendMessageForRun(st, run, &SendMessageParams{
+			IssueID: string(run.IssueID),
+			RunID:   string(run.RunID),
+			Message: message,
+		}); err != nil {
+			return err
+		}
+	}
+
+	notice := model.NewDaemonNoticeEvent(model.StatusReasonPRBranchMismatch, map[string]string{
+		"url":        e.PRURL,
+		"head":       e.PRHead,
+		"run_branch": run.Branch,
+	})
+	if err := st.AppendEvent(run.Ref(), notice); err != nil {
+		// The agent HAS the message; only the once-only bookkeeping failed.
+		// The next idle capture may deliver a duplicate — visible and
+		// harmless, unlike silently losing the notice.
+		d.logger.Printf("%s#%s: notice delivered but note event append failed (duplicate possible): %v", run.IssueID, run.RunID, err)
+		return nil
+	}
+	d.logger.Printf("%s#%s: daemon notice delivered: PR %s head %q does not match run branch %q", run.IssueID, run.RunID, e.PRURL, e.PRHead, run.Branch)
+	return nil
 }
 
 // applyGoneObservation feeds one dead check through stepRun and, when the
@@ -371,7 +461,7 @@ func (d *Daemon) monitorRemoteRun(run *model.Run, st store.Store, projectID, pro
 		return err
 	}
 
-	return d.processRunOutput(run, st, state, mgr, result.Content)
+	return d.processRunOutput(run, st, state, mgr, projectID, result.Content)
 }
 
 // remoteRunWorkerEndpoint identifies the worker/session pair a remote run is
