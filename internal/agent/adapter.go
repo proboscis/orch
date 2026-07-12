@@ -69,6 +69,7 @@ type LaunchConfig struct {
 	ExtraArgs       []string // Additional CLI arguments from config
 	CodexHome       string   // CODEX_HOME for codex auth isolation; empty = agent default (~/.codex). Leading ~ expands to $HOME.
 	ClaudeConfigDir string   // CLAUDE_CONFIG_DIR for claude auth isolation; empty = agent default (~/.claude). Leading ~ expands to $HOME.
+	AgentSessionID  string   // Agent-native session id minted by orch at launch (ADR-0005 R1); claude pins it via --session-id. Distinct from SessionName, which is the multiplexer session (and the agent-native id only on the control-agent path).
 }
 
 // Env returns the environment variables to pass to the agent

@@ -93,6 +93,10 @@ type Run struct {
 	PRState           string
 	ServerPort        int
 	OpenCodeSessionID string
+	// Agent-native session identity (ADR-0005 R1), folded from the latest
+	// agent_session artifact event: claude session UUID / codex rollout id.
+	AgentSessionID         string
+	AgentSessionGeneration int
 
 	// Frontmatter metadata
 	ContinuedFrom string
@@ -247,6 +251,14 @@ func (r *Run) DeriveState() error {
 	}
 	if opencodeSession, ok := artifacts["opencode_session"]; ok {
 		r.OpenCodeSessionID = opencodeSession["id"]
+	}
+	if agentSession, ok := artifacts["agent_session"]; ok {
+		// GetArtifacts keeps the last artifact per name, so a revive's
+		// higher-generation agent_session supersedes the launch one.
+		r.AgentSessionID = agentSession["id"]
+		if generation, err := strconv.Atoi(agentSession["generation"]); err == nil {
+			r.AgentSessionGeneration = generation
+		}
 	}
 	if agentModel, ok := artifacts["agent_model"]; ok {
 		if r.Model == "" {

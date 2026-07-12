@@ -366,8 +366,12 @@ type Run struct {
 	StatusDisplay      string `protobuf:"bytes,30,opt,name=status_display,json=statusDisplay,proto3" json:"status_display,omitempty"`
 	MultiplexerName    string `protobuf:"bytes,31,opt,name=multiplexer_name,json=multiplexerName,proto3" json:"multiplexer_name,omitempty"`
 	BranchStateDisplay string `protobuf:"bytes,32,opt,name=branch_state_display,json=branchStateDisplay,proto3" json:"branch_state_display,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Agent-native session identity (ADR-0005 R1), folded from the latest
+	// agent_session artifact: claude session UUID / codex rollout id.
+	AgentSessionId         string `protobuf:"bytes,33,opt,name=agent_session_id,json=agentSessionId,proto3" json:"agent_session_id,omitempty"`
+	AgentSessionGeneration int32  `protobuf:"varint,34,opt,name=agent_session_generation,json=agentSessionGeneration,proto3" json:"agent_session_generation,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *Run) Reset() {
@@ -622,6 +626,20 @@ func (x *Run) GetBranchStateDisplay() string {
 		return x.BranchStateDisplay
 	}
 	return ""
+}
+
+func (x *Run) GetAgentSessionId() string {
+	if x != nil {
+		return x.AgentSessionId
+	}
+	return ""
+}
+
+func (x *Run) GetAgentSessionGeneration() int32 {
+	if x != nil {
+		return x.AgentSessionGeneration
+	}
+	return 0
 }
 
 type Issue struct {
@@ -10795,7 +10813,7 @@ const file_orch_proto_rawDesc = "" +
 	"\tadditions\x18\x01 \x01(\x05R\tadditions\x12\x1c\n" +
 	"\tdeletions\x18\x02 \x01(\x05R\tdeletions\x12#\n" +
 	"\rfiles_changed\x18\x03 \x01(\x05R\ffilesChanged\x12\x14\n" +
-	"\x05files\x18\x04 \x03(\tR\x05files\"\xf7\b\n" +
+	"\x05files\x18\x04 \x03(\tR\x05files\"\xdb\t\n" +
 	"\x03Run\x12\x19\n" +
 	"\bissue_id\x18\x01 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12*\n" +
@@ -10834,7 +10852,9 @@ const file_orch_proto_rawDesc = "" +
 	"\aprofile\x18\x1d \x01(\tR\aprofile\x12%\n" +
 	"\x0estatus_display\x18\x1e \x01(\tR\rstatusDisplay\x12)\n" +
 	"\x10multiplexer_name\x18\x1f \x01(\tR\x0fmultiplexerName\x120\n" +
-	"\x14branch_state_display\x18  \x01(\tR\x12branchStateDisplay\"\xb9\x02\n" +
+	"\x14branch_state_display\x18  \x01(\tR\x12branchStateDisplay\x12(\n" +
+	"\x10agent_session_id\x18! \x01(\tR\x0eagentSessionId\x128\n" +
+	"\x18agent_session_generation\x18\" \x01(\x05R\x16agentSessionGeneration\"\xb9\x02\n" +
 	"\x05Issue\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x18\n" +

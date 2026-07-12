@@ -43,6 +43,13 @@ func (a *ClaudeAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 	// via the CLAUDE_CONFIG_DIR environment variable (LaunchConfig.Env), so
 	// cfg.Profile must never reach the command line.
 
+	// ADR-0005 R1: pin the agent-native session id at launch so the
+	// transcript is addressable for reap/revive. Resume reuses an existing
+	// session, so the two flags are mutually exclusive; resume wins.
+	if cfg.AgentSessionID != "" && !cfg.Resume {
+		args = append(args, "--session-id", cfg.AgentSessionID)
+	}
+
 	// Add resume flag if applicable
 	if cfg.Resume && cfg.SessionName != "" {
 		args = append(args, "--resume", cfg.SessionName)

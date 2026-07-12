@@ -228,17 +228,21 @@ type Run struct {
 	PRState           string
 	ServerPort        int
 	OpenCodeSessionID string
-	ContinuedFrom     string
-	DiffStats         *DiffStats
-	BranchState       BranchState
-	ElapsedSeconds    int
-	ElapsedDisplay    string
-	Alive             bool
-	AliveKnown        bool
-	WorktreeExists    bool
-	StartedAt         time.Time
-	UpdatedAt         time.Time
-	Events            []*Event
+	// Agent-native session identity (ADR-0005 R1): claude session UUID /
+	// codex rollout id, folded from the latest agent_session artifact.
+	AgentSessionID         string
+	AgentSessionGeneration int
+	ContinuedFrom          string
+	DiffStats              *DiffStats
+	BranchState            BranchState
+	ElapsedSeconds         int
+	ElapsedDisplay         string
+	Alive                  bool
+	AliveKnown             bool
+	WorktreeExists         bool
+	StartedAt              time.Time
+	UpdatedAt              time.Time
+	Events                 []*Event
 }
 
 func (r *Run) Ref() RunRef {

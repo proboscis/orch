@@ -3982,6 +3982,11 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		CodexHome:       opts.CodexHome,
 		ClaudeConfigDir: opts.ClaudeConfigDir,
 	}
+	if agentType == agent.AgentClaude {
+		// ADR-0005 R1: mint the claude session id here so the same value
+		// reaches the argv (--session-id) and the agent_session artifact.
+		launchCfg.AgentSessionID = agent.NewAgentSessionID()
+	}
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)
 	if err != nil {
@@ -4100,6 +4105,11 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 
 	s.reportLaunchProgress(st, run, launchReached(stageAgentStarted))
 
+	// ADR-0005 R1: record the agent-native session identity after the agent
+	// has started. codex resolution may block up to its retry budget; the
+	// run is already reported started, only this RPC's response waits.
+	agentSession := s.recordAgentSessionIdentity(st, run, launchCfg)
+
 	s.logger.Printf("started run: %s#%s (agent=%s, worktree=%s)", opts.IssueID, runID, agentName, worktreeResult.WorktreePath)
 
 	return &StartRunResult{
@@ -4113,6 +4123,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		WorkerID:          strings.TrimSpace(s.currentWorkerID),
 		ServerPort:        serverPort,
 		OpenCodeSessionID: opencodeSessionID,
+		AgentSession:      agentSession,
 	}, nil
 }
 
@@ -4420,6 +4431,11 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		CodexHome:       opts.CodexHome,
 		ClaudeConfigDir: opts.ClaudeConfigDir,
 	}
+	if agentType == agent.AgentClaude {
+		// ADR-0005 R1: continue launches a fresh claude session for a NEW
+		// run record, so it mints a fresh id (generation restarts at 1).
+		launchCfg.AgentSessionID = agent.NewAgentSessionID()
+	}
 
 	agentCmd, err := adapter.LaunchCommand(launchCfg)
 	if err != nil {
@@ -4538,6 +4554,10 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 
 	s.reportLaunchProgress(st, run, launchReached(stageAgentStarted))
 
+	// ADR-0005 R1: record the agent-native session identity after the agent
+	// has started (see processStartRunCore).
+	agentSession := s.recordAgentSessionIdentity(st, run, launchCfg)
+
 	s.logger.Printf("continued run: %s#%s from %s (agent=%s, worktree=%s)", issueID, runID, continuedFrom, agentName, worktreePath)
 
 	return &ContinueRunResult{
@@ -4553,6 +4573,7 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		WorkerID:          strings.TrimSpace(s.currentWorkerID),
 		ServerPort:        serverPort,
 		OpenCodeSessionID: opencodeSessionID,
+		AgentSession:      agentSession,
 	}, nil
 }
 
