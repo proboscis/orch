@@ -156,6 +156,10 @@ chmod +x "$ROOT/bin/control-repl.py"
 if [ "$RUN_REAL_CLAUDE_LANE" != "1" ]; then
 cat > "$ROOT/bin/claude" <<'EOF'
 #!/usr/bin/env bash
+if [ "${1:-}" = "--version" ]; then
+  echo "fake claude 0.0"
+  exit 0
+fi
 printf 'fake claude ready\n'
 sleep 30
 EOF
@@ -163,6 +167,19 @@ fi
 if [ "$RUN_REAL_CODEX_LANE" != "1" ]; then
 cat > "$ROOT/bin/codex" <<'EOF'
 #!/usr/bin/env bash
+if [ "${1:-}" = "--version" ]; then
+  echo "fake codex 0.0"
+  exit 0
+fi
+# Mimic the real codex boot contract (ADR-0005 R1): codex writes a rollout
+# file with session_meta {id, cwd} at boot. The launch ladder resolves the
+# run's agent_session identity from it; a fake that skips this blocks the
+# ladder for its full retry budget and the lane times out.
+codex_home="${CODEX_HOME:-$HOME/.codex}"
+day="$(date +%Y/%m/%d)"
+mkdir -p "$codex_home/sessions/$day"
+printf '{"timestamp":"t","type":"session_meta","payload":{"id":"fake-codex-%s","cwd":"%s"}}\n' "$$" "$PWD" \
+  > "$codex_home/sessions/$day/rollout-fake-$$.jsonl"
 printf 'fake codex ready\n'
 sleep 30
 EOF
@@ -325,6 +342,10 @@ else
   capture_contains "e2e-claude#$RUN_CLAUDE" "fake claude ready"
   send_ok "e2e-claude#$RUN_CLAUDE" "claude-send-check"
 fi
+# ADR-0005 R1: a claude run records its minted session UUID as agent_session.
+SHOW_CLAUDE="$("$ORCH_BIN" --json --project "$PROJECT_ID" show "e2e-claude#$RUN_CLAUDE")"
+printf '%s\n' "$SHOW_CLAUDE" | jq -e '(.agent_session_id | length) > 0 and .agent_session_generation == 1' >/dev/null \
+  || { echo "claude run missing agent_session identity: $SHOW_CLAUDE" >&2; exit 1; }
 stop_run "e2e-claude#$RUN_CLAUDE"
 
 echo "== codex lane =="
@@ -348,6 +369,10 @@ else
   capture_contains "e2e-codex#$RUN_CODEX" "fake codex ready"
   send_ok "e2e-codex#$RUN_CODEX" "codex-send-check"
 fi
+# ADR-0005 R1: a codex run's identity is resolved from the boot rollout.
+SHOW_CODEX="$("$ORCH_BIN" --json --project "$PROJECT_ID" show "e2e-codex#$RUN_CODEX")"
+printf '%s\n' "$SHOW_CODEX" | jq -e '(.agent_session_id | length) > 0 and .agent_session_generation == 1' >/dev/null \
+  || { echo "codex run missing agent_session identity: $SHOW_CODEX" >&2; exit 1; }
 stop_run "e2e-codex#$RUN_CODEX"
 
 if [ "$RUN_OPENCODE_LANE" = "1" ]; then
