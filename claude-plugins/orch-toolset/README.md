@@ -93,7 +93,7 @@ Comprehensive command reference including:
 | Run Management | `orch run`, `orch restart-from`, `orch ps`, `orch show`, `orch stop`, `orch resolve` |
 | Monitoring | `orch-monitor`, `orch attach`, `orch capture` |
 | Agent Communication | `orch send`, `orch exec` |
-| Maintenance | `orch repair`, `orch tick` |
+| Maintenance | `orch repair` |
 
 ## Quick Start Examples
 

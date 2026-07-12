@@ -499,21 +499,6 @@ Typical uses:
 - mark stale `running` runs as failed when their session is gone
 - report orphaned sessions or worktrees
 
-### `orch tick [RUN_REF]`
-
-Resume waiting runs when their questions are satisfied.
-
-```bash
-orch tick plc-123#20260312-101500
-orch tick --all
-orch tick --all --max 5
-orch tick plc-123 --agent claude
-```
-
-This is for `waiting` runs, not for general live-run control.
-
----
-
 ## Remote Execution Examples
 
 ### Remote master, local worker

@@ -1,0 +1,19 @@
+rules:
+  - id: adr0005-tick-stays-dead
+    languages: [generic]
+    message: >
+      ADR-0005 R7: orch tick was removed because its resume event had zero
+      consumers; agents are controlled via orch send. Do not reintroduce it.
+    pattern: orch tick
+    paths:
+      include:
+        - /docs/
+        - /claude-plugins/
+        - /.semgrep/adr0005-tick-stays-dead/
+      exclude:
+        - /docs/adr/
+        - /docs/orch-2026-07-13-run-session-lifecycle-architecture-plan.md
+    severity: ERROR
+    metadata:
+      category: invariant
+      violation: dead-tick-command-reintroduced

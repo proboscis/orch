@@ -1504,10 +1504,6 @@ func ensureRequestContext(req *orchpb.Request) {
 		if r.ReadAgentPrompt != nil && r.ReadAgentPrompt.Context == nil {
 			r.ReadAgentPrompt.Context = newCtx()
 		}
-	case *orchpb.Request_ResumeRun:
-		if r.ResumeRun != nil && r.ResumeRun.Context == nil {
-			r.ResumeRun.Context = newCtx()
-		}
 	case *orchpb.Request_CreateRun:
 		if r.CreateRun != nil && r.CreateRun.Context == nil {
 			r.CreateRun.Context = newCtx()
@@ -5656,10 +5652,6 @@ func TestContextEnabledHandlersUnknownProjectReturnProjectScopedStoreError(t *te
 		{
 			name: "read-agent-prompt",
 			req:  &orchpb.Request{Request: &orchpb.Request_ReadAgentPrompt{ReadAgentPrompt: &orchpb.ReadAgentPromptRequest{IssueId: "i", RunId: "r", Context: missing}}},
-		},
-		{
-			name: "resume-run",
-			req:  &orchpb.Request{Request: &orchpb.Request_ResumeRun{ResumeRun: &orchpb.ResumeRunRequest{IssueId: "i", RunId: "r", Context: missing}}},
 		},
 		{
 			name: "create-run",

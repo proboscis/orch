@@ -177,7 +177,6 @@ func init() {
 		withCommandGroup(newDeleteCmd(), commandGroupSetupOps),
 		withCommandGroup(newNotifyCmd(), commandGroupSetupOps),
 
-		withCommandGroup(newTickCmd(), commandGroupAdvanced),
 		withCommandGroup(newRestartFromCmd(), commandGroupAdvanced),
 		withCommandGroup(newExecCmd(), commandGroupAdvanced),
 		withCommandGroup(newCaptureAllCmd(), commandGroupAdvanced),

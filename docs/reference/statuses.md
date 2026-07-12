@@ -20,7 +20,7 @@ stateDiagram-v2
     running --> canceled: orch stop
     running --> unknown: agent exited unexpectedly
 
-    waiting --> running: input provided (orch send / orch tick)
+    waiting --> running: input provided (orch send)
     waiting --> canceled: orch stop
 
     rate_limited --> running: issue resolved
@@ -78,7 +78,7 @@ Agent needs human input to continue.
 | Aspect | Details |
 |--------|---------|
 | What's happening | Agent asking a question or waiting for decision |
-| User action | `orch send` to provide input, or `orch tick` to resume (`orch attach` for direct interaction) |
+| User action | `orch send` to provide input (`orch attach` for direct interaction) |
 | Next status | `running` (after input) |
 
 Common reasons for waiting:
