@@ -145,6 +145,78 @@ func TestRunDeriveState(t *testing.T) {
 	}
 }
 
+func TestRunDeriveStateAgentSession(t *testing.T) {
+	ts := time.Now()
+	run := &Run{
+		IssueID: "plc130",
+		RunID:   "20260713",
+		Events: []*Event{
+			{Timestamp: ts, Type: EventTypeStatus, Name: "running"},
+			{Timestamp: ts.Add(time.Second), Type: EventTypeArtifact, Name: "agent_session", Attrs: map[string]string{"backend": "claude", "id": "11111111-1111-1111-1111-111111111111", "generation": "1"}},
+		},
+	}
+
+	if err := run.DeriveState(); err != nil {
+		t.Fatalf("DeriveState() error = %v", err)
+	}
+
+	if run.AgentSessionID != "11111111-1111-1111-1111-111111111111" {
+		t.Errorf("AgentSessionID = %q, want the recorded artifact id", run.AgentSessionID)
+	}
+	if run.AgentSessionGeneration != 1 {
+		t.Errorf("AgentSessionGeneration = %d, want 1", run.AgentSessionGeneration)
+	}
+}
+
+func TestRunDeriveStateAgentSessionLatestWins(t *testing.T) {
+	// ADR-0005 R5: revive appends a new-generation agent_session artifact;
+	// the fold must take the LATEST one, never the first.
+	ts := time.Now()
+	run := &Run{
+		IssueID: "plc131",
+		RunID:   "20260713",
+		Events: []*Event{
+			{Timestamp: ts, Type: EventTypeStatus, Name: "running"},
+			{Timestamp: ts.Add(time.Second), Type: EventTypeArtifact, Name: "agent_session", Attrs: map[string]string{"backend": "claude", "id": "gen-one-id", "generation": "1"}},
+			{Timestamp: ts.Add(2 * time.Second), Type: EventTypeArtifact, Name: "agent_session", Attrs: map[string]string{"backend": "claude", "id": "gen-two-id", "generation": "2"}},
+		},
+	}
+
+	if err := run.DeriveState(); err != nil {
+		t.Fatalf("DeriveState() error = %v", err)
+	}
+
+	if run.AgentSessionID != "gen-two-id" {
+		t.Errorf("AgentSessionID = %q, want gen-two-id (latest artifact wins)", run.AgentSessionID)
+	}
+	if run.AgentSessionGeneration != 2 {
+		t.Errorf("AgentSessionGeneration = %d, want 2", run.AgentSessionGeneration)
+	}
+}
+
+func TestRunDeriveStateAgentSessionMalformedGeneration(t *testing.T) {
+	ts := time.Now()
+	run := &Run{
+		IssueID: "plc132",
+		RunID:   "20260713",
+		Events: []*Event{
+			{Timestamp: ts, Type: EventTypeStatus, Name: "running"},
+			{Timestamp: ts.Add(time.Second), Type: EventTypeArtifact, Name: "agent_session", Attrs: map[string]string{"backend": "codex", "id": "codex-rollout-id", "generation": "not-a-number"}},
+		},
+	}
+
+	if err := run.DeriveState(); err != nil {
+		t.Fatalf("DeriveState() error = %v", err)
+	}
+
+	if run.AgentSessionID != "codex-rollout-id" {
+		t.Errorf("AgentSessionID = %q, want codex-rollout-id (id folds even when generation is malformed)", run.AgentSessionID)
+	}
+	if run.AgentSessionGeneration != 0 {
+		t.Errorf("AgentSessionGeneration = %d, want 0 for malformed generation", run.AgentSessionGeneration)
+	}
+}
+
 func TestRunDeriveStatePrefersLastNonEmptySessionMultiplexer(t *testing.T) {
 	ts := time.Now()
 	run := &Run{

@@ -41,6 +41,46 @@ func TestClaudeLaunchCommand(t *testing.T) {
 	}
 }
 
+func TestClaudeLaunchCommandAgentSessionID(t *testing.T) {
+	// ADR-0005 R1: orch mints the claude session UUID and pins it with
+	// --session-id so the transcript is addressable for reap/revive.
+	adapter := &ClaudeAdapter{}
+	cfg := &LaunchConfig{
+		Prompt:         "hello",
+		AgentSessionID: "11111111-1111-1111-1111-111111111111",
+	}
+
+	cmd, err := adapter.LaunchCommand(cfg)
+	if err != nil {
+		t.Fatalf("LaunchCommand error: %v", err)
+	}
+	want := "claude --dangerously-skip-permissions --session-id 11111111-1111-1111-1111-111111111111 \"hello\""
+	if cmd != want {
+		t.Fatalf("command = %q, want %q", cmd, want)
+	}
+}
+
+func TestClaudeLaunchCommandResumeExcludesAgentSessionID(t *testing.T) {
+	// --resume reuses an existing session; pinning a fresh --session-id at
+	// the same time would conflict, so resume wins and the mint is dropped.
+	adapter := &ClaudeAdapter{}
+	cfg := &LaunchConfig{
+		Prompt:         "hello",
+		Resume:         true,
+		SessionName:    "session-1",
+		AgentSessionID: "11111111-1111-1111-1111-111111111111",
+	}
+
+	cmd, err := adapter.LaunchCommand(cfg)
+	if err != nil {
+		t.Fatalf("LaunchCommand error: %v", err)
+	}
+	want := "claude --dangerously-skip-permissions --resume session-1 \"hello\""
+	if cmd != want {
+		t.Fatalf("command = %q, want %q", cmd, want)
+	}
+}
+
 func TestClaudeConfigDirEnvInjection(t *testing.T) {
 	t.Setenv("HOME", "/home/exec-host")
 	cfg := &LaunchConfig{ClaudeConfigDir: "~/.config/claude-work"}

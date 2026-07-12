@@ -31,6 +31,8 @@ type runIndexEntry struct {
 	PRUrl             string        `json:"pr_url,omitempty"`
 	ServerPort        int           `json:"server_port,omitempty"`
 	OpenCodeSessionID string        `json:"opencode_session_id,omitempty"`
+	AgentSessionID    string        `json:"agent_session_id,omitempty"`
+	AgentSessionGen   int           `json:"agent_session_generation,omitempty"`
 	StartedAt         time.Time     `json:"started_at"`
 	UpdatedAt         time.Time     `json:"updated_at"`
 	FileMtime         time.Time     `json:"file_mtime"`
@@ -64,7 +66,7 @@ const (
 	// Bump to invalidate persisted indexes whenever runIndexEntry gains a
 	// field: stale entries would otherwise silently serve runs with the new
 	// field empty (the index is the ListRuns source of truth).
-	runIndexVersion  = 4
+	runIndexVersion  = 5
 	runIndexFileName = ".orch_run_index.json"
 )
 
@@ -289,6 +291,8 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 				PRUrl:             run.PRUrl,
 				ServerPort:        run.ServerPort,
 				OpenCodeSessionID: run.OpenCodeSessionID,
+				AgentSessionID:    run.AgentSessionID,
+				AgentSessionGen:   run.AgentSessionGeneration,
 				StartedAt:         run.StartedAt,
 				UpdatedAt:         run.UpdatedAt,
 				FileMtime:         fileMtime,
@@ -377,6 +381,8 @@ func runEntryEqual(a, b *runIndexEntry) bool {
 		a.PRUrl == b.PRUrl &&
 		a.ServerPort == b.ServerPort &&
 		a.OpenCodeSessionID == b.OpenCodeSessionID &&
+		a.AgentSessionID == b.AgentSessionID &&
+		a.AgentSessionGen == b.AgentSessionGen &&
 		a.StartedAt.Equal(b.StartedAt) &&
 		a.UpdatedAt.Equal(b.UpdatedAt)
 }
@@ -409,25 +415,27 @@ func matchesRunFilters(entry *runIndexEntry, statusSet map[model.Status]bool, si
 
 func entryToRun(e *runIndexEntry) *model.Run {
 	return &model.Run{
-		IssueID:           e.IssueID,
-		RunID:             e.RunID,
-		Status:            e.Status,
-		Agent:             e.Agent,
-		Profile:           e.Profile,
-		Target:            e.Target,
-		TargetHost:        e.TargetHost,
-		TargetWorkerID:    e.TargetWorkerID,
-		Model:             e.Model,
-		ModelVariant:      e.ModelVariant,
-		Branch:            e.Branch,
-		WorktreePath:      e.WorktreePath,
-		SessionName:       e.SessionName,
-		Multiplexer:       e.Multiplexer,
-		PRUrl:             e.PRUrl,
-		ServerPort:        e.ServerPort,
-		OpenCodeSessionID: e.OpenCodeSessionID,
-		StartedAt:         e.StartedAt,
-		UpdatedAt:         e.UpdatedAt,
+		IssueID:                e.IssueID,
+		RunID:                  e.RunID,
+		Status:                 e.Status,
+		Agent:                  e.Agent,
+		Profile:                e.Profile,
+		Target:                 e.Target,
+		TargetHost:             e.TargetHost,
+		TargetWorkerID:         e.TargetWorkerID,
+		Model:                  e.Model,
+		ModelVariant:           e.ModelVariant,
+		Branch:                 e.Branch,
+		WorktreePath:           e.WorktreePath,
+		SessionName:            e.SessionName,
+		Multiplexer:            e.Multiplexer,
+		PRUrl:                  e.PRUrl,
+		ServerPort:             e.ServerPort,
+		OpenCodeSessionID:      e.OpenCodeSessionID,
+		AgentSessionID:         e.AgentSessionID,
+		AgentSessionGeneration: e.AgentSessionGen,
+		StartedAt:              e.StartedAt,
+		UpdatedAt:              e.UpdatedAt,
 	}
 }
 

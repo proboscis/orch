@@ -1584,6 +1584,7 @@ func (s *SocketServer) syncStartRunResultToMasterStore(st store.Store, req *orch
 			"id": strings.TrimSpace(result.OpenCodeSessionID),
 		})
 	}
+	s.projectAgentSessionToMasterStore(st, run, result.AgentSession)
 	if targetName != "" {
 		targetAttrs := map[string]string{"name": targetName}
 		if repoCtx := s.ensureRepoContextByID(projectIDFromContext(req.Context)); repoCtx != nil && strings.TrimSpace(repoCtx.ProjectRoot) != "" {
@@ -1689,6 +1690,7 @@ func (s *SocketServer) syncContinueRunResultToMasterStore(st store.Store, req *o
 			"id": strings.TrimSpace(result.OpenCodeSessionID),
 		})
 	}
+	s.projectAgentSessionToMasterStore(st, run, result.AgentSession)
 	if targetName = strings.TrimSpace(targetName); targetName != "" {
 		targetAttrs := map[string]string{"name": targetName}
 		if repoCtx := s.ensureRepoContextByID(projectIDFromContext(req.Context)); repoCtx != nil && strings.TrimSpace(repoCtx.ProjectRoot) != "" {

@@ -93,6 +93,10 @@ message Run {
   string status_display = 30;
   string multiplexer_name = 31;
   string branch_state_display = 32;
+  // Agent-native session identity (ADR-0005 R1), folded from the latest
+  // agent_session artifact: claude session UUID / codex rollout id.
+  string agent_session_id = 33;
+  int32 agent_session_generation = 34;
 }
 
 message Issue {

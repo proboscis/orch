@@ -143,6 +143,8 @@ type RunSummary struct {
 	PRState           string         `json:"pr_state,omitempty"`
 	ServerPort        int            `json:"server_port,omitempty"`
 	OpenCodeSessionID string         `json:"opencode_session_id,omitempty"`
+	AgentSessionID    string         `json:"agent_session_id,omitempty"`
+	AgentSessionGen   int            `json:"agent_session_generation,omitempty"`
 	IssueStatus       string         `json:"issue_status,omitempty"`
 	IssueTopic        string         `json:"issue_topic,omitempty"`
 	Additions         int            `json:"additions"`
@@ -199,6 +201,8 @@ type RunFull struct {
 	PRState           string         `json:"pr_state,omitempty"`
 	ServerPort        int            `json:"server_port,omitempty"`
 	OpenCodeSessionID string         `json:"opencode_session_id,omitempty"`
+	AgentSessionID    string         `json:"agent_session_id,omitempty"`
+	AgentSessionGen   int            `json:"agent_session_generation,omitempty"`
 	IssueStatus       string         `json:"issue_status,omitempty"`
 	IssueTopic        string         `json:"issue_topic,omitempty"`
 	ContinuedFrom     string         `json:"continued_from,omitempty"`
@@ -411,6 +415,8 @@ func RunToSummary(run *model.Run) (*RunSummary, error) {
 		PRState:           prState,
 		ServerPort:        run.ServerPort,
 		OpenCodeSessionID: run.OpenCodeSessionID,
+		AgentSessionID:    run.AgentSessionID,
+		AgentSessionGen:   run.AgentSessionGeneration,
 		Additions:         diffStats.Additions,
 		Deletions:         diffStats.Deletions,
 		DiffStats: &DiffStatsJSON{
@@ -486,6 +492,8 @@ func RunToFull(run *model.Run) (*RunFull, error) {
 		PRState:           prState,
 		ServerPort:        run.ServerPort,
 		OpenCodeSessionID: run.OpenCodeSessionID,
+		AgentSessionID:    run.AgentSessionID,
+		AgentSessionGen:   run.AgentSessionGeneration,
 		ContinuedFrom:     run.ContinuedFrom,
 		DiffStats: &DiffStatsJSON{
 			Additions:    diffStats.Additions,
@@ -670,6 +678,19 @@ type StartRunResponse struct {
 	Status       string `json:"status,omitempty"`
 }
 
+// AgentSessionResult carries the ADR-0005 R1 agent-native session identity
+// fact (or its recorded miss) from the execution host's launch ladder back
+// to the master projection, the same way OpenCodeSessionID travels.
+type AgentSessionResult struct {
+	Backend    string
+	ID         string
+	Generation int
+	// Unresolved is the agent_session_unresolved message already recorded as
+	// an error artifact on the execution host; the master mirrors it so the
+	// miss is loud on the store of record too. Empty when ID is set.
+	Unresolved string
+}
+
 // StartRunResult holds the success data from a start_run operation (no OK/Error).
 type StartRunResult struct {
 	RunID             model.RunID
@@ -682,6 +703,7 @@ type StartRunResult struct {
 	WorkerID          string
 	ServerPort        int
 	OpenCodeSessionID string
+	AgentSession      *AgentSessionResult
 }
 
 type ContinueRunOptions struct {
@@ -750,27 +772,30 @@ type ContinueRunResult struct {
 	WorkerID          string
 	ServerPort        int
 	OpenCodeSessionID string
+	AgentSession      *AgentSessionResult
 }
 
 type RunSnapshot struct {
-	IssueID           model.IssueID
-	RunID             model.RunID
-	Status            model.Status
-	Phase             model.Phase
-	Agent             string
-	Profile           string
-	Model             string
-	ModelVariant      string
-	Branch            string
-	WorktreePath      string
-	Target            string
-	TargetHost        string
-	TargetWorkerID    string
-	SessionName       string
-	Multiplexer       string
-	ServerPort        int
-	OpenCodeSessionID string
-	ContinuedFrom     string
+	IssueID                model.IssueID
+	RunID                  model.RunID
+	Status                 model.Status
+	Phase                  model.Phase
+	Agent                  string
+	Profile                string
+	Model                  string
+	ModelVariant           string
+	Branch                 string
+	WorktreePath           string
+	Target                 string
+	TargetHost             string
+	TargetWorkerID         string
+	SessionName            string
+	Multiplexer            string
+	ServerPort             int
+	OpenCodeSessionID      string
+	ContinuedFrom          string
+	AgentSessionID         string
+	AgentSessionGeneration int
 }
 
 type StopRunResponse struct {

@@ -1457,6 +1457,62 @@ func TestListRunsIncludesExecutionHostFromSessionArtifact(t *testing.T) {
 	}
 }
 
+func TestListRunsCarriesAgentSessionThroughIndex(t *testing.T) {
+	// ADR-0005 R1: ListRuns serves from the run index cache, so the
+	// agent_session identity must survive the index round-trip like
+	// opencode_session does — otherwise ps/query see an empty identity.
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	createTestIssue(t, vault, "as-issue", "---\ntype: issue\ntitle: AS issue\n---\n# AS issue")
+
+	s, _ := New(vault)
+	run, err := s.CreateRun("as-issue", "20260713-100000", nil)
+	if err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	err = s.AppendEvent(run.Ref(), &model.Event{
+		Type: model.EventTypeArtifact,
+		Name: "agent_session",
+		Attrs: map[string]string{
+			"backend":    "claude",
+			"id":         "33333333-3333-3333-3333-333333333333",
+			"generation": "1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("AppendEvent() error = %v", err)
+	}
+
+	InvalidateRunIndex()
+
+	runs, err := s.ListRuns(nil)
+	if err != nil {
+		t.Fatalf("ListRuns() error = %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(runs))
+	}
+	if runs[0].AgentSessionID != "33333333-3333-3333-3333-333333333333" {
+		t.Fatalf("AgentSessionID = %q, want the recorded id (fresh load)", runs[0].AgentSessionID)
+	}
+	if runs[0].AgentSessionGeneration != 1 {
+		t.Fatalf("AgentSessionGeneration = %d, want 1 (fresh load)", runs[0].AgentSessionGeneration)
+	}
+
+	// Second list serves from the persisted index entry (unchanged mtime):
+	// the identity must still be there.
+	InvalidateRunIndex()
+	runs, err = s.ListRuns(nil)
+	if err != nil {
+		t.Fatalf("ListRuns() (cached) error = %v", err)
+	}
+	if len(runs) != 1 || runs[0].AgentSessionID != "33333333-3333-3333-3333-333333333333" || runs[0].AgentSessionGeneration != 1 {
+		t.Fatalf("cached index lost agent_session: id=%q gen=%d", runs[0].AgentSessionID, runs[0].AgentSessionGeneration)
+	}
+}
+
 func TestRunIndexCleanupWhenDirectoryDeleted(t *testing.T) {
 	vault, cleanup := setupTestVault(t)
 	defer cleanup()

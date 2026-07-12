@@ -68,38 +68,42 @@ func showJSON(run *orchapi.Run, opts *showOptions) error {
 	}
 
 	output := struct {
-		OK            bool          `json:"ok"`
-		IssueID       string        `json:"issue_id"`
-		RunID         string        `json:"run_id"`
-		Status        string        `json:"status"`
-		Phase         string        `json:"phase,omitempty"`
-		Agent         string        `json:"agent,omitempty"`
-		Profile       string        `json:"profile,omitempty"`
-		ContinuedFrom string        `json:"continued_from,omitempty"`
-		Branch        string        `json:"branch,omitempty"`
-		WorktreePath  string        `json:"worktree_path,omitempty"`
-		Target        string        `json:"target,omitempty"`
-		TargetHost    string        `json:"target_host,omitempty"`
-		SessionName   string        `json:"session_name,omitempty"`
-		Multiplexer   string        `json:"multiplexer,omitempty"`
-		PRUrl         string        `json:"pr_url,omitempty"`
-		Events        []eventOutput `json:"events,omitempty"`
+		OK              bool          `json:"ok"`
+		IssueID         string        `json:"issue_id"`
+		RunID           string        `json:"run_id"`
+		Status          string        `json:"status"`
+		Phase           string        `json:"phase,omitempty"`
+		Agent           string        `json:"agent,omitempty"`
+		Profile         string        `json:"profile,omitempty"`
+		ContinuedFrom   string        `json:"continued_from,omitempty"`
+		Branch          string        `json:"branch,omitempty"`
+		WorktreePath    string        `json:"worktree_path,omitempty"`
+		Target          string        `json:"target,omitempty"`
+		TargetHost      string        `json:"target_host,omitempty"`
+		SessionName     string        `json:"session_name,omitempty"`
+		Multiplexer     string        `json:"multiplexer,omitempty"`
+		PRUrl           string        `json:"pr_url,omitempty"`
+		AgentSessionID  string        `json:"agent_session_id,omitempty"`
+		AgentSessionGen int           `json:"agent_session_generation,omitempty"`
+		Events          []eventOutput `json:"events,omitempty"`
 	}{
-		OK:            true,
-		IssueID:       string(run.IssueID),
-		RunID:         string(run.RunID),
-		Status:        string(run.Status),
-		Phase:         string(run.Phase),
-		Agent:         run.Agent,
-		Profile:       run.Profile,
-		ContinuedFrom: run.ContinuedFrom,
-		Branch:        run.Branch,
-		WorktreePath:  run.WorktreePath,
-		Target:        run.Target,
-		TargetHost:    run.TargetHost,
-		SessionName:   run.SessionName,
-		Multiplexer:   string(run.Multiplexer),
-		PRUrl:         run.PRUrl,
+		OK:              true,
+		IssueID:         string(run.IssueID),
+		RunID:           string(run.RunID),
+		Status:          string(run.Status),
+		Phase:           string(run.Phase),
+		Agent:           run.Agent,
+		Profile:         run.Profile,
+		ContinuedFrom:   run.ContinuedFrom,
+		Branch:          run.Branch,
+		WorktreePath:    run.WorktreePath,
+		Target:          run.Target,
+		TargetHost:      run.TargetHost,
+		SessionName:     run.SessionName,
+		Multiplexer:     string(run.Multiplexer),
+		PRUrl:           run.PRUrl,
+		AgentSessionID:  run.AgentSessionID,
+		AgentSessionGen: run.AgentSessionGeneration,
 	}
 
 	// Add events (tail)
