@@ -161,6 +161,38 @@ func (r *Run) StatusReason() string {
 	return ""
 }
 
+// ReapedSessionGeneration returns the highest agent-session generation this
+// run's event log records as reaped (daemon_notice kind=session_reaped,
+// ADR-0005 R3), 0 when none. The reaper appends the note BEFORE killing the
+// session, so "gone because the daemon killed it" is always fold-derivable
+// on every channel and survives restarts (D-C1: view-derived, no core state).
+func (r *Run) ReapedSessionGeneration() int {
+	gen := 0
+	for _, e := range r.Events {
+		if e.Type != EventTypeNote || e.Name != DaemonNoticeEventName {
+			continue
+		}
+		if e.Attrs["kind"] != "session_reaped" {
+			continue
+		}
+		if g, err := strconv.Atoi(e.Attrs["generation"]); err == nil && g > gen {
+			gen = g
+		}
+	}
+	return gen
+}
+
+// SessionReaped reports whether the run's CURRENT agent-session generation is
+// recorded as reaped (ADR-0005 LS3): the daemon itself destroyed the session,
+// so its absence is expected, not evidence. A revive dissolves the latch by
+// recording a higher-generation agent_session artifact (R5). The zero
+// AgentSessionGeneration arm is defensive: a reap note with no recorded
+// identity still absorbs — the safe direction is delaying verdicts (L7').
+func (r *Run) SessionReaped() bool {
+	g := r.ReapedSessionGeneration()
+	return g > 0 && g >= r.AgentSessionGeneration
+}
+
 // GetPhase derives phase from events (last phase event wins).
 func (r *Run) GetPhase() Phase {
 	for i := len(r.Events) - 1; i >= 0; i-- {

@@ -34,18 +34,28 @@ type runView struct {
 	StartedAt    time.Time
 	IssueID      model.IssueID
 	RunID        model.RunID
+	// AgentSessionGeneration is the run's current agent-native session
+	// generation (agent_session artifact fold, ADR-0005 R1; 0 = none
+	// recorded). ReapedGeneration is the highest generation recorded as
+	// reaped (session_reaped daemon_notice fold, R3). Both are view-derived
+	// from the event log (D-C1), never core state; together they encode the
+	// LS3 latch evaluated by sessionReaped().
+	AgentSessionGeneration int
+	ReapedGeneration       int
 }
 
 func runViewOf(run *model.Run) runView {
 	return runView{
-		Status:       run.Status,
-		StatusReason: run.StatusReason(),
-		Agent:        run.Agent,
-		Branch:       run.Branch,
-		PRUrl:        run.PRUrl,
-		StartedAt:    run.StartedAt,
-		IssueID:      run.IssueID,
-		RunID:        run.RunID,
+		Status:                 run.Status,
+		StatusReason:           run.StatusReason(),
+		Agent:                  run.Agent,
+		Branch:                 run.Branch,
+		PRUrl:                  run.PRUrl,
+		StartedAt:              run.StartedAt,
+		IssueID:                run.IssueID,
+		RunID:                  run.RunID,
+		AgentSessionGeneration: run.AgentSessionGeneration,
+		ReapedGeneration:       run.ReapedSessionGeneration(),
 	}
 }
 
@@ -471,7 +481,28 @@ func stepPRState(view runView, core runCore, obs runObservation) (runCore, []run
 	return core, effects
 }
 
+// sessionReaped evaluates the LS3 latch (ADR-0005, run-state-machine.md §12)
+// on the view: the run's current session generation is recorded as reaped, so
+// its absence is the daemon's own doing, not evidence about the work. A
+// revive dissolves the latch by recording a higher-generation agent_session
+// artifact. The zero-identity arm (ReapedGeneration > 0, AgentSessionGeneration
+// == 0) absorbs too — the safe direction is delaying verdicts (L7').
+func sessionReaped(view runView) bool {
+	return view.ReapedGeneration > 0 && view.ReapedGeneration >= view.AgentSessionGeneration
+}
+
 func stepSessionGone(view runView, core runCore, obs runObservation) (runCore, []runEffect) {
+	// L-S3 reap absorption (ADR-0005 LS3, §12): a gone observation for a
+	// session generation the daemon itself reaped is EXPECTED. It advances
+	// no dead-check streak, requests no evidence, and emits no verdict —
+	// otherwise the reaper's own monitor would manufacture false failed
+	// verdicts from attested gone streaks (LS3's counterexample). The core
+	// is returned untouched so the streak state is exactly as if the
+	// observation had not happened.
+	if sessionReaped(view) {
+		return core, []runEffect{debugEffect("%s#%s: session gone but generation %d is reaped (L-S3), absorbing", view.IssueID, view.RunID, view.ReapedGeneration)}
+	}
+
 	// L11a streak continuity: a dead-check streak is evidence only within a
 	// single observer generation. A gone observation from a different
 	// observer restarts the streak at 1 and re-owns it.
