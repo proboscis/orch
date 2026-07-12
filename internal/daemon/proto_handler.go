@@ -284,8 +284,6 @@ func (s *SocketServer) handleProtoRequest(req *orchpb.Request) *orchpb.Response 
 		return s.handleProtoKillSession(r.KillSession)
 	case *orchpb.Request_ListSessions:
 		return s.handleProtoListSessions(r.ListSessions)
-	case *orchpb.Request_ResumeRun:
-		return s.handleProtoResumeRun(r.ResumeRun)
 	case *orchpb.Request_QueryOpencodeServer:
 		return s.handleProtoQueryOpenCodeServer(r.QueryOpencodeServer)
 	case *orchpb.Request_InjectInitialPrompt:
@@ -3998,48 +3996,6 @@ func (s *SocketServer) handleProtoListSessions(req *orchpb.ListSessionsRequest) 
 		Response: &orchpb.Response_ListSessions{
 			ListSessions: &orchpb.ListSessionsResponse{
 				Sessions: sanitizeUTF8Slice(sessions),
-			},
-		},
-	}
-}
-
-func (s *SocketServer) handleProtoResumeRun(req *orchpb.ResumeRunRequest) *orchpb.Response {
-	st := s.resolveStoreFromContextOrProto(req.Context, "")
-	if st == nil {
-		if projectID := projectIDFromContext(req.Context); projectID != "" {
-			return errorResponse(fmt.Sprintf("no store available for project_id %q (register daemon project mapping)", projectID))
-		}
-		return errorResponse("no store available")
-	}
-
-	var run *model.Run
-	var err error
-
-	if req.ShortId != "" {
-		run, err = st.GetRunByShortID(model.ShortID(req.ShortId))
-	} else {
-		ref := &model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}
-		run, err = st.GetRun(ref)
-	}
-	if err != nil {
-		return errorResponse(fmt.Sprintf("run not found: %v", err))
-	}
-
-	sessionName := run.SessionName
-	if sessionName == "" {
-		sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
-	}
-
-	mux := multiplexer.GetDefault()
-	if err := mux.SendKeys(sessionName, ""); err != nil {
-		return errorResponse(fmt.Sprintf("failed to resume run: %v", err))
-	}
-
-	return &orchpb.Response{
-		Ok: true,
-		Response: &orchpb.Response_ResumeRun{
-			ResumeRun: &orchpb.ResumeRunResponse{
-				SessionName: sessionName,
 			},
 		},
 	}

@@ -645,25 +645,6 @@ orch resolve ISSUE_ID [flags]
 
 ---
 
-## orch tick
-
-Resume waiting runs.
-
-```bash
-orch tick [RUN_REF] [flags]
-```
-
-### Flags
-
-| Flag | Description |
-|------|-------------|
-| `--all` | Process all waiting runs |
-| `--only-waiting` | Only process waiting or rate-limited runs (default: `true`) |
-| `--agent <type>` | Agent for resumption |
-| `--max <n>` | Max runs to process |
-
----
-
 ## orch query
 
 Query issues and runs using SQL.

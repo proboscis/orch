@@ -2439,41 +2439,6 @@ func (c *ProtoClient) ListSessions(muxType string) ([]string, error) {
 	return listResp.Sessions, nil
 }
 
-type ResumeRunResponse struct {
-	SessionName string
-}
-
-func (c *ProtoClient) ResumeRun(issueID, runID, shortID string) (*ResumeRunResponse, error) {
-	req := &orchpb.Request{
-		Request: &orchpb.Request_ResumeRun{
-			ResumeRun: &orchpb.ResumeRunRequest{
-				IssueId: issueID,
-				RunId:   runID,
-				ShortId: shortID,
-				Context: c.requestContext(c.projectRoot),
-			},
-		},
-	}
-
-	resp, err := c.sendRequest(req)
-	if err != nil {
-		return nil, err
-	}
-
-	if !resp.Ok {
-		return nil, fmt.Errorf("daemon error: %s", resp.Error)
-	}
-
-	resumeResp := resp.GetResumeRun()
-	if resumeResp == nil {
-		return nil, fmt.Errorf("unexpected response type")
-	}
-
-	return &ResumeRunResponse{
-		SessionName: resumeResp.SessionName,
-	}, nil
-}
-
 type ProviderInfo struct {
 	ID     string
 	Name   string
