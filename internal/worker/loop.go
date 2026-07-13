@@ -214,7 +214,7 @@ func RunExternalLoop(client Client, cfg RunConfig) (err error) {
 // error otherwise; the caller decides between reconnecting and exiting.
 func runWorkerSession(client Client, cfg RunConfig, workerID, host string, executor leaseExecutor, runtimeState *managedRuntimeStateWriter, sigCh <-chan os.Signal, resuming bool, registered *bool) error {
 	if capClient, ok := client.(capabilityRegisterClient); ok {
-		if _, err := capClient.RegisterWorkerWithCapabilities(workerID, "executor", host, "external", []string{"capture_session", "continue_run", "get_branch_state", "get_diff", "get_diff_stats", "send_message", "start_run", "stop_run"}); err != nil {
+		if _, err := capClient.RegisterWorkerWithCapabilities(workerID, "executor", host, "external", []string{"capture_session", "continue_run", "get_branch_state", "get_diff", "get_diff_stats", "run_worktree", "send_message", "start_run", "stop_run"}); err != nil {
 			return classifyRegisterError(err)
 		}
 	} else if _, err := client.RegisterWorker(workerID, "executor", host, "external"); err != nil {

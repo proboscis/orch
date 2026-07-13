@@ -1644,6 +1644,206 @@ func TestHandleProtoCleanRunWorktreeRejectsActiveRun(t *testing.T) {
 	}
 }
 
+func TestRemoteGetRunReportsWorkerObservedWorktreeExists(t *testing.T) {
+	repo := initGitRepoWithCommit(t)
+	const (
+		issueID = "orch-remote-debug"
+		runID   = "20260713-170000"
+		host    = "mac-host"
+	)
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			issueID + "#" + runID: {
+				IssueID:        model.IssueID(issueID),
+				RunID:          model.RunID(runID),
+				Status:         model.StatusCanceled,
+				WorktreePath:   "/Users/runner/orch-worktrees/remote-debug",
+				Branch:         "issue/orch-remote-debug/run-20260713-170000",
+				Target:         "mac",
+				TargetHost:     host,
+				TargetWorkerID: HostWorkerID(host),
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, log.New(io.Discard, "", 0))
+	registerRepoContextForTest(t, server, testProjectID, repo, st)
+	workerID := HostWorkerID(host)
+	if _, ttl := server.registerWorker(workerID, "executor", host, "external", []string{"run_worktree"}); ttl <= 0 {
+		t.Fatal("expected positive heartbeat ttl for worktree worker")
+	}
+
+	go func() {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			lease := server.leaseWorkForWorker(workerID)
+			if lease == nil {
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+			_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, true, "", `{"run_worktree_result":{"exists":true,"registered":true}}`)
+			return
+		}
+	}()
+
+	resp := server.handleProtoGetRun(&orchpb.GetRunRequest{
+		IssueId: issueID,
+		RunId:   runID,
+		Context: &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+	if !resp.Ok {
+		t.Fatalf("handleProtoGetRun() error = %s", resp.Error)
+	}
+	got := resp.GetGetRun().GetRun()
+	if got == nil {
+		t.Fatal("expected get_run payload")
+	}
+	if !got.WorktreeExists {
+		t.Fatalf("worktree_exists = false, want worker-observed true for %s", got.WorktreePath)
+	}
+
+	go func() {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			lease := server.leaseWorkForWorker(workerID)
+			if lease == nil {
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+			_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, true, "", `{"run_worktree_result":{"exists":true,"registered":true}}`)
+			return
+		}
+	}()
+	listResp := server.handleProtoListRuns(&orchpb.ListRunsRequest{
+		Context: &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+	if !listResp.Ok {
+		t.Fatalf("handleProtoListRuns() error = %s", listResp.Error)
+	}
+	listedRuns := listResp.GetListRuns().GetRuns()
+	if len(listedRuns) != 1 || !listedRuns[0].WorktreeExists {
+		t.Fatalf("listed runs = %+v, want one worker-observed existing worktree", listedRuns)
+	}
+}
+
+func TestRemoteGetRunWorktreeObservationFailureIsExplicit(t *testing.T) {
+	repo := initGitRepoWithCommit(t)
+	const (
+		issueID = "orch-remote-debug-error"
+		runID   = "20260713-170500"
+		host    = "mac-host"
+	)
+	worktreePath := "/Users/runner/orch-worktrees/remote-debug-error"
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			issueID + "#" + runID: {
+				IssueID:        model.IssueID(issueID),
+				RunID:          model.RunID(runID),
+				Status:         model.StatusCanceled,
+				WorktreePath:   worktreePath,
+				TargetHost:     host,
+				TargetWorkerID: HostWorkerID(host),
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, log.New(io.Discard, "", 0))
+	registerRepoContextForTest(t, server, testProjectID, repo, st)
+	workerID := HostWorkerID(host)
+	if _, ttl := server.registerWorker(workerID, "executor", host, "external", []string{"run_worktree"}); ttl <= 0 {
+		t.Fatal("expected positive heartbeat ttl for worktree worker")
+	}
+
+	go func() {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			lease := server.leaseWorkForWorker(workerID)
+			if lease == nil {
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+			_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, "failed to stat "+worktreePath+": permission denied", "")
+			return
+		}
+	}()
+
+	resp := server.handleProtoGetRun(&orchpb.GetRunRequest{
+		IssueId: issueID,
+		RunId:   runID,
+		Context: &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+	if resp.Ok {
+		t.Fatalf("handleProtoGetRun() unexpectedly succeeded with worktree_exists=%v", resp.GetGetRun().GetRun().GetWorktreeExists())
+	}
+	for _, want := range []string{"worktree inspect", "execution host " + host, worktreePath, "permission denied"} {
+		if !strings.Contains(resp.Error, want) {
+			t.Fatalf("resp.Error = %q, want %q", resp.Error, want)
+		}
+	}
+}
+
+func TestRemoteCleanRunWorktreeUsesExecutionHostWorker(t *testing.T) {
+	repo := initGitRepoWithCommit(t)
+	const (
+		issueID = "orch-remote-clean"
+		runID   = "20260713-171000"
+		host    = "mac-host"
+	)
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			issueID + "#" + runID: {
+				IssueID:        model.IssueID(issueID),
+				RunID:          model.RunID(runID),
+				Status:         model.StatusCanceled,
+				WorktreePath:   "/Users/runner/orch-worktrees/remote-clean",
+				Branch:         "issue/orch-remote-clean/run-20260713-171000",
+				Target:         "mac",
+				TargetHost:     host,
+				TargetWorkerID: HostWorkerID(host),
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+
+	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, log.New(io.Discard, "", 0))
+	registerRepoContextForTest(t, server, testProjectID, repo, st)
+	workerID := HostWorkerID(host)
+	if _, ttl := server.registerWorker(workerID, "executor", host, "external", []string{"run_worktree"}); ttl <= 0 {
+		t.Fatal("expected positive heartbeat ttl for worktree worker")
+	}
+
+	go func() {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			lease := server.leaseWorkForWorker(workerID)
+			if lease == nil {
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+			_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, true, "", `{"run_worktree_result":{"exists":true,"registered":true,"removed":true}}`)
+			return
+		}
+	}()
+
+	resp := server.handleProtoCleanRunWorktree(&orchpb.CleanRunWorktreeRequest{
+		IssueId: issueID,
+		RunId:   runID,
+		Context: &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+	if !resp.Ok {
+		t.Fatalf("handleProtoCleanRunWorktree() error = %s", resp.Error)
+	}
+	cleanResp := resp.GetCleanRunWorktree()
+	if cleanResp == nil {
+		t.Fatal("expected clean_run_worktree response")
+	}
+	if !cleanResp.WorktreeRemoved || cleanResp.Skipped {
+		t.Fatalf("remote cleanup result = %+v, want worker removal", cleanResp)
+	}
+}
+
 func TestHandleProtoCleanRunWorktreeRemovesMissingWorktreeRegistration(t *testing.T) {
 	repo := initGitRepoWithCommit(t)
 	issueID := "orch-missing"
@@ -6496,13 +6696,13 @@ func TestRunMutationUsesMasterSnapshotAndHostAffinity(t *testing.T) {
 		RunId:   string(run.RunID),
 		Context: ctx,
 	})
-	if !showResp.Ok {
-		t.Fatalf("precondition: show should see master run, got %q", showResp.Error)
+	if showResp.Ok || !strings.Contains(showResp.Error, `execution host dead-host`) {
+		t.Fatalf("show must fail clearly when worktree host is unavailable, ok=%v error=%q", showResp.Ok, showResp.Error)
 	}
 
 	listResp := server.handleProtoListRuns(&orchpb.ListRunsRequest{Context: ctx})
-	if !listResp.Ok || len(listResp.GetListRuns().GetRuns()) != 1 {
-		t.Fatalf("precondition: list should see master run, ok=%v error=%q runs=%d", listResp.Ok, listResp.Error, len(listResp.GetListRuns().GetRuns()))
+	if listResp.Ok || !strings.Contains(listResp.Error, `execution host dead-host`) {
+		t.Fatalf("list must fail clearly when worktree host is unavailable, ok=%v error=%q", listResp.Ok, listResp.Error)
 	}
 
 	stopResp := server.handleProtoStopRun(&orchpb.StopRunRequest{

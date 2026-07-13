@@ -3158,6 +3158,12 @@ func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {
 
 	summaries := make([]*RunSummary, len(paginatedRuns))
 	for i, run := range paginatedRuns {
+		worktreeResult, err := s.runWorktreeOperation(s.worktreeRequestContext(req.RepoID, selectedStore), run, runWorktreeInspect)
+		if err != nil {
+			encoder.Encode(ListRunsResponse{OK: false, Error: err.Error()})
+			return
+		}
+		run.WorktreeExists = worktreeResult.Exists
 		summary, err := RunToSummaryWithAlive(run, computeAlive)
 		if err != nil {
 			encoder.Encode(ListRunsResponse{OK: false, Error: err.Error()})
@@ -3386,6 +3392,12 @@ func (s *SocketServer) handleGetRun(req SendRequest, encoder *json.Encoder) {
 		manager := agent.GetManager(r)
 		return manager.IsAlive(r)
 	}
+	worktreeResult, err := s.runWorktreeOperation(s.worktreeRequestContext(req.RepoID, st), run, runWorktreeInspect)
+	if err != nil {
+		encoder.Encode(GetRunResponse{OK: false, Error: err.Error()})
+		return
+	}
+	run.WorktreeExists = worktreeResult.Exists
 
 	full, err := RunToFullWithAlive(run, computeAlive)
 	if err != nil {
@@ -5511,6 +5523,12 @@ func (s *SocketServer) handleGetRunByShortID(req SendRequest, encoder *json.Enco
 		encoder.Encode(GetRunResponse{OK: false, Error: "not_found"})
 		return
 	}
+	worktreeResult, err := s.runWorktreeOperation(s.worktreeRequestContext(req.RepoID, st), run, runWorktreeInspect)
+	if err != nil {
+		encoder.Encode(GetRunResponse{OK: false, Error: err.Error()})
+		return
+	}
+	run.WorktreeExists = worktreeResult.Exists
 
 	full, err := RunToFull(run)
 	if err != nil {

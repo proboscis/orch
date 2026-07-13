@@ -401,53 +401,11 @@ func normalizeWorktreePathForComparison(path string) string {
 }
 
 func (s *SocketServer) removeRunWorktree(ctx *orchpb.RequestContext, run *model.Run) (removed bool, skipped bool, reason string, err error) {
-	if run == nil {
-		return false, false, "", fmt.Errorf("run is nil")
-	}
-
-	worktreePath := strings.TrimSpace(run.WorktreePath)
-	if worktreePath == "" {
-		return false, true, "run has no recorded worktree", nil
-	}
-
-	repoRoot, err := s.resolveMainRepoRootForRun(ctx, run)
+	result, err := s.runWorktreeOperation(ctx, run, runWorktreeRemove)
 	if err != nil {
-		return false, false, "", fmt.Errorf("failed to resolve repo root for worktree cleanup: %w", err)
+		return false, false, "", err
 	}
-
-	infos, err := git.ListWorktreeInfos(repoRoot)
-	if err != nil {
-		return false, false, "", fmt.Errorf("failed to list worktrees for %s: %w", repoRoot, err)
-	}
-
-	registered := false
-	normalizedWorktreePath := normalizeWorktreePathForComparison(worktreePath)
-	for _, info := range infos {
-		if normalizeWorktreePathForComparison(info.Path) == normalizedWorktreePath {
-			registered = true
-			break
-		}
-		if strings.TrimSpace(run.Branch) != "" && strings.TrimSpace(info.Branch) == strings.TrimSpace(run.Branch) {
-			registered = true
-			break
-		}
-	}
-
-	if !registered {
-		if _, statErr := os.Stat(worktreePath); statErr != nil {
-			if os.IsNotExist(statErr) {
-				return false, true, "worktree already absent", nil
-			}
-			return false, false, "", fmt.Errorf("failed to stat worktree %s: %w", worktreePath, statErr)
-		}
-		return false, false, "", fmt.Errorf("worktree path %s exists but is not registered in repo %s", worktreePath, repoRoot)
-	}
-
-	if err := git.RemoveWorktree(repoRoot, worktreePath); err != nil {
-		return false, false, "", fmt.Errorf("failed to remove worktree %s: %w", worktreePath, err)
-	}
-
-	return true, false, "", nil
+	return result.Removed, result.Skipped, result.Reason, nil
 }
 
 func (s *SocketServer) sendProtoResponse(conn net.Conn, resp *orchpb.Response) {
@@ -973,6 +931,9 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 	if err != nil {
 		return errorResponse(err.Error())
 	}
+	if err := s.enrichRunWorktreeStates(paginatedEntries, protoRuns); err != nil {
+		return errorResponse(err.Error())
+	}
 	applyIssueMetadataToRunEntries(paginatedEntries, protoRuns)
 	s.applyRunLiveness(paginatedRuns, protoRuns)
 	enrichDuration := time.Since(enrichStart)
@@ -1141,13 +1102,34 @@ func enrichRunProto(pr *orchpb.Run, run *model.Run, runner git.Runner) error {
 	return nil
 }
 
-func (s *SocketServer) enrichRunProtoForResponse(pr *orchpb.Run, run *model.Run) error {
+func (s *SocketServer) enrichRunProtoForResponse(ctx *orchpb.RequestContext, pr *orchpb.Run, run *model.Run) error {
+	worktreeResult, err := s.runWorktreeOperation(ctx, run, runWorktreeInspect)
+	if err != nil {
+		return err
+	}
+	pr.WorktreeExists = worktreeResult.Exists
+
 	if s.runRequiresWorkerDelegation(run, "") {
 		pr.ElapsedDisplay = formatElapsedTime(run.StartedAt, run.UpdatedAt, run.Status)
 		populateRunDisplayFields(pr)
 		return nil
 	}
 	return enrichRunProto(pr, run, s.gitRunner)
+}
+
+func (s *SocketServer) enrichRunWorktreeStates(entries []runStoreEntry, protoRuns []*orchpb.Run) error {
+	for i, entry := range entries {
+		if i >= len(protoRuns) || protoRuns[i] == nil || entry.run == nil {
+			continue
+		}
+		ctx := s.worktreeRequestContext("", entry.store)
+		result, err := s.runWorktreeOperation(ctx, entry.run, runWorktreeInspect)
+		if err != nil {
+			return fmt.Errorf("inspect worktree for run %s#%s: %w", entry.run.IssueID, entry.run.RunID, err)
+		}
+		protoRuns[i].WorktreeExists = result.Exists
+	}
+	return nil
 }
 
 func enrichRunsParallel(runs []*model.Run, protoRuns []*orchpb.Run) ([]*orchpb.Run, error) {
@@ -1379,7 +1361,7 @@ func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Resp
 	if err != nil {
 		return errorResponse(err.Error())
 	}
-	if err := s.enrichRunProtoForResponse(pr, run); err != nil {
+	if err := s.enrichRunProtoForResponse(req.Context, pr, run); err != nil {
 		return errorResponse(err.Error())
 	}
 	s.applyRunLiveness([]*model.Run{run}, []*orchpb.Run{pr})
@@ -3149,7 +3131,7 @@ func (s *SocketServer) handleProtoGetRunByShortID(req *orchpb.GetRunByShortIDReq
 	if err != nil {
 		return errorResponse(err.Error())
 	}
-	if err := s.enrichRunProtoForResponse(pr, run); err != nil {
+	if err := s.enrichRunProtoForResponse(req.Context, pr, run); err != nil {
 		return errorResponse(err.Error())
 	}
 
