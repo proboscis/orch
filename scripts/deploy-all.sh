@@ -227,10 +227,9 @@ if [[ -n "$local_previous_log" && -f "$local_previous_log" ]]; then
 fi
 local_restart_script='
   set -e
-  ORCH_REMOTE="$1"
   ORCH_LOCAL_BIN="$2"
-  "$ORCH_LOCAL_BIN" worker stop >/dev/null 2>&1 || true
-  "$ORCH_LOCAL_BIN" worker start
+  ORCH_REMOTE="$1" "$ORCH_LOCAL_BIN" worker stop >/dev/null 2>&1 || true
+  ORCH_REMOTE="$1" "$ORCH_LOCAL_BIN" worker start
 '
 local_restart_output="$("$LOCAL_LOGIN_SHELL" -lc "$local_restart_script" orch "$MASTER_ADDR" "$ORCH_LOCAL_BIN")"
 printf '%s\n' "$local_restart_output"
