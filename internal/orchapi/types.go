@@ -366,7 +366,9 @@ type StartRunRequest struct {
 }
 
 type StartRunResult struct {
+	IssueID      model.IssueID
 	RunID        model.RunID
+	ShortID      model.ShortID
 	Branch       string
 	WorktreePath string
 	SessionName  string

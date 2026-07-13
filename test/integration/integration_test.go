@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/proboscis/orch/internal/daemon"
+	"github.com/proboscis/orch/internal/model"
 	"github.com/proboscis/orch/internal/worker"
 	"github.com/proboscis/orch/internal/xdg"
 )
@@ -1223,6 +1224,72 @@ func TestRunDryRun(t *testing.T) {
 	entries, _ := os.ReadDir(runDir)
 	if len(entries) > 0 {
 		t.Error("expected no runs to be created in dry-run mode")
+	}
+}
+
+func TestRunByIssueHexPrintsResolvableShortID(t *testing.T) {
+	issueID := "run-by-issue-hex"
+	runID := "hex-short-id-" + time.Now().Format("20060102-150405.000000000")
+	createTestIssue(t, issueID, "---\ntype: issue\nid: run-by-issue-hex\ntitle: Run by issue hex\n---\n# Run by issue hex")
+
+	issueHex := model.IssueShortHexID(model.IssueID(issueID))
+	runOutput, err := runOrch(t, "run", issueHex, "--run-id", runID, "--tmux=false")
+	if err != nil {
+		t.Fatalf("run by issue hex failed: %v\nOutput: %s", err, runOutput)
+	}
+
+	prefix := fmt.Sprintf("Run started: %s#%s (", issueID, runID)
+	start := strings.Index(runOutput, prefix)
+	if start == -1 {
+		t.Fatalf("run output missing canonical run reference %q:\n%s", prefix, runOutput)
+	}
+	shortStart := start + len(prefix)
+	shortEnd := strings.Index(runOutput[shortStart:], ")")
+	if shortEnd == -1 {
+		t.Fatalf("run output missing short-id terminator:\n%s", runOutput)
+	}
+	printedShortID := runOutput[shortStart : shortStart+shortEnd]
+
+	psOutput, err := runOrch(t, "ps", "--all", "--issue", issueID, "--json")
+	if err != nil {
+		t.Fatalf("ps failed: %v\nOutput: %s", err, psOutput)
+	}
+	var psResult struct {
+		Items []struct {
+			RunID   string `json:"run_id"`
+			ShortID string `json:"short_id"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(psOutput), &psResult); err != nil {
+		t.Fatalf("failed to parse ps JSON: %v\nOutput: %s", err, psOutput)
+	}
+	var psShortID string
+	for _, item := range psResult.Items {
+		if item.RunID == runID {
+			psShortID = item.ShortID
+			break
+		}
+	}
+	if psShortID == "" {
+		t.Fatalf("ps did not list run %s:\n%s", runID, psOutput)
+	}
+	if printedShortID != psShortID {
+		t.Fatalf("printed short id = %q, ps short id = %q", printedShortID, psShortID)
+	}
+
+	showOutput, err := runOrch(t, "show", printedShortID, "--json")
+	if err != nil {
+		t.Fatalf("show could not resolve printed short id %s: %v\nOutput: %s", printedShortID, err, showOutput)
+	}
+	var shown struct {
+		IssueID string `json:"issue_id"`
+		RunID   string `json:"run_id"`
+	}
+	if err := json.Unmarshal([]byte(showOutput), &shown); err != nil {
+		t.Fatalf("failed to parse show JSON: %v\nOutput: %s", err, showOutput)
+	}
+	if shown.IssueID != issueID || shown.RunID != runID {
+		t.Fatalf("show resolved %s#%s, want %s#%s", shown.IssueID, shown.RunID, issueID, runID)
 	}
 }
 

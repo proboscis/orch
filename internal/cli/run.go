@@ -91,6 +91,7 @@ type runResult struct {
 	OK           bool   `json:"ok"`
 	IssueID      string `json:"issue_id"`
 	RunID        string `json:"run_id"`
+	ShortID      string `json:"short_id"`
 	RunPath      string `json:"run_path"`
 	Branch       string `json:"branch"`
 	WorktreePath string `json:"worktree_path"`
@@ -155,8 +156,9 @@ func runRun(issueID string, opts *runOptions) error {
 
 	result := &runResult{
 		OK:           true,
-		IssueID:      issueID,
+		IssueID:      string(resp.IssueID),
 		RunID:        string(resp.RunID),
+		ShortID:      string(resp.ShortID),
 		Branch:       resp.Branch,
 		WorktreePath: resp.WorktreePath,
 		SessionName:  resp.SessionName,
@@ -170,7 +172,7 @@ func runRun(issueID string, opts *runOptions) error {
 			return enc.Encode(result)
 		}
 		fmt.Printf("Would create run:\n")
-		fmt.Printf("  Issue:     %s\n", issueID)
+		fmt.Printf("  Issue:     %s\n", resp.IssueID)
 		fmt.Printf("  Run ID:    %s\n", resp.RunID)
 		fmt.Printf("  Branch:    %s\n", resp.Branch)
 		fmt.Printf("  Worktree:  %s\n", resp.WorktreePath)
@@ -185,13 +187,12 @@ func runRun(issueID string, opts *runOptions) error {
 	}
 
 	if !globalOpts.Quiet {
-		shortID := orchapi.ComputeShortID(model.IssueID(issueID), resp.RunID)
-		fmt.Printf("Run started: %s#%s (%s)\n", issueID, resp.RunID, shortID)
+		fmt.Printf("Run started: %s#%s (%s)\n", resp.IssueID, resp.RunID, resp.ShortID)
 		fmt.Printf("  Branch:   %s\n", resp.Branch)
 		fmt.Printf("  Worktree: %s\n", resp.WorktreePath)
 		if resp.SessionName != "" {
 			fmt.Printf("  Session:  %s\n", resp.SessionName)
-			fmt.Printf("\nAttach with: orch attach %s\n", shortID)
+			fmt.Printf("\nAttach with: orch attach %s\n", resp.ShortID)
 		}
 	}
 

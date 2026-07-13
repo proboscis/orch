@@ -1492,6 +1492,8 @@ type StartRunResponse struct {
 	WorktreePath  string                 `protobuf:"bytes,3,opt,name=worktree_path,json=worktreePath,proto3" json:"worktree_path,omitempty"`
 	SessionName   string                 `protobuf:"bytes,4,opt,name=session_name,json=sessionName,proto3" json:"session_name,omitempty"`
 	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
+	IssueId       string                 `protobuf:"bytes,6,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"` // Canonical issue ID after resolving issue hex refs.
+	ShortId       string                 `protobuf:"bytes,7,opt,name=short_id,json=shortId,proto3" json:"short_id,omitempty"` // Daemon-derived ID for this canonical issue_id#run_id.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1557,6 +1559,20 @@ func (x *StartRunResponse) GetSessionName() string {
 func (x *StartRunResponse) GetStatus() string {
 	if x != nil {
 		return x.Status
+	}
+	return ""
+}
+
+func (x *StartRunResponse) GetIssueId() string {
+	if x != nil {
+		return x.IssueId
+	}
+	return ""
+}
+
+func (x *StartRunResponse) GetShortId() string {
+	if x != nil {
+		return x.ShortId
 	}
 	return ""
 }
@@ -10941,13 +10957,15 @@ const file_orch_proto_rawDesc = "" +
 	"\acontext\x18\x15 \x01(\v2\x17.orch.v1.RequestContextR\acontext\x12#\n" +
 	"\rcodex_profile\x18\x16 \x01(\tR\fcodexProfile\x12\x1d\n" +
 	"\n" +
-	"no_session\x18\x17 \x01(\bR\tnoSession\"\xa1\x01\n" +
+	"no_session\x18\x17 \x01(\bR\tnoSession\"\xd7\x01\n" +
 	"\x10StartRunResponse\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
 	"\x06branch\x18\x02 \x01(\tR\x06branch\x12#\n" +
 	"\rworktree_path\x18\x03 \x01(\tR\fworktreePath\x12!\n" +
 	"\fsession_name\x18\x04 \x01(\tR\vsessionName\x12\x16\n" +
-	"\x06status\x18\x05 \x01(\tR\x06status\"\xf9\x01\n" +
+	"\x06status\x18\x05 \x01(\tR\x06status\x12\x19\n" +
+	"\bissue_id\x18\x06 \x01(\tR\aissueId\x12\x19\n" +
+	"\bshort_id\x18\a \x01(\tR\ashortId\"\xf9\x01\n" +
 	"\x10CreateRunRequest\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\x12C\n" +

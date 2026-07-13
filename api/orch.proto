@@ -204,6 +204,8 @@ message StartRunResponse {
   string worktree_path = 3;
   string session_name = 4;
   string status = 5;
+  string issue_id = 6;  // Canonical issue ID after resolving issue hex refs.
+  string short_id = 7;  // Daemon-derived ID for this canonical issue_id#run_id.
 }
 
 message CreateRunRequest {
