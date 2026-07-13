@@ -309,6 +309,15 @@ type SocketServer struct {
 	gitRunner     git.Runner
 	procManager   ProcessManager
 
+	// runLifecycleLocks serializes the two master-side actors that create or
+	// destroy a run's session — the reaper's kill (including its pending
+	// retry) and the revive boot (run-state-machine.md §13). Both act on the
+	// generation-invariant session NAME, so an unserialized reaper working
+	// from a stale row can destroy a session a concurrent revive just booted
+	// (observed live 2026-07-13: revive g4 and a pending-g3 reap in the same
+	// second). Keyed by run ref string; entries are tiny and never collected.
+	runLifecycleLocks sync.Map
+
 	managedServerStore *managedServerStore
 
 	repos                map[string]*RepoContext

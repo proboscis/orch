@@ -112,23 +112,31 @@ func (d *Daemon) reapAllAt(now time.Time) {
 			if listedRun == nil {
 				continue
 			}
-			// ListRuns may be served by an index/projection that omits the run
-			// document path. Re-read the authoritative run before persisting a
-			// sidecar and before evaluating the newest event-log interlocks.
-			run, err := repoCtx.Store.GetRun(listedRun.Ref())
+			// Serialize the whole decide-observe-kill against revive
+			// (run-state-machine.md §13): the kill targets the generation-
+			// invariant session name, so deciding from a row read outside
+			// the lock can destroy a session a concurrent revive just
+			// booted. The authoritative re-read below MUST happen inside
+			// the lock for the same reason (it also covers index-served
+			// ListRuns rows that omit the run document path and the newest
+			// event-log interlocks).
+			outcome, err := func() (reapRunOutcome, error) {
+				unlock := d.socketServer.lockRunLifecycle(listedRun.Ref().String())
+				defer unlock()
+				run, err := repoCtx.Store.GetRun(listedRun.Ref())
+				if err != nil {
+					return reapRunOutcome{}, fmt.Errorf("load authoritative run: %w", err)
+				}
+				return reapRun(run, issueStatuses[run.IssueID], repoCtx.Store, repoCtx.RepoID, repoCtx.ProjectRoot, reaperCfg, now, deps)
+			}()
 			if err != nil {
-				d.logReaper("session reaper failed to load authoritative run %s: %v", listedRun.Ref().String(), err)
-				continue
-			}
-			outcome, err := reapRun(run, issueStatuses[run.IssueID], repoCtx.Store, repoCtx.RepoID, repoCtx.ProjectRoot, reaperCfg, now, deps)
-			if err != nil {
-				d.logReaper("session reaper failed for %s: %v", run.Ref().String(), err)
+				d.logReaper("session reaper failed for %s: %v", listedRun.Ref().String(), err)
 				continue
 			}
 			if outcome.KeptReason != "" {
-				d.logReaper("session reaper kept %s (%s): %s", run.Ref().String(), outcome.Reason, outcome.KeptReason)
+				d.logReaper("session reaper kept %s (%s): %s", listedRun.Ref().String(), outcome.Reason, outcome.KeptReason)
 			} else if outcome.Reaped {
-				d.logReaper("session reaper reaped %s (%s)", run.Ref().String(), outcome.Reason)
+				d.logReaper("session reaper reaped %s (%s)", listedRun.Ref().String(), outcome.Reason)
 			}
 		}
 	}
@@ -202,15 +210,28 @@ func reapRun(
 	if err := validateReaperMultiplexer(run); err != nil {
 		return outcome, err
 	}
+	if deps.Observe == nil || deps.Persist == nil {
+		return outcome, fmt.Errorf("session reaper dependencies incomplete")
+	}
 	if pendingKill {
+		// The retry arm re-OBSERVES before killing: with idempotent kills a
+		// blind retry would log "reaped" every pass forever on an absent
+		// session, and — worse — a stale pending decision could destroy a
+		// session a newer generation just booted (the per-run lifecycle lock
+		// closes that race; the observation keeps the retry quiet once the
+		// kill goal already holds).
+		observation, err := deps.Observe(run, projectID, projectRoot)
+		if err != nil {
+			return outcome, err
+		}
+		if !observation.SessionAlive {
+			return outcome, nil
+		}
 		if err := attemptReaperKill(run, st, projectID, projectRoot, deps.Kill); err != nil {
 			return outcome, err
 		}
 		outcome.Reaped = true
 		return outcome, nil
-	}
-	if deps.Observe == nil || deps.Persist == nil {
-		return outcome, fmt.Errorf("session reaper dependencies incomplete")
 	}
 
 	observation, err := deps.Observe(run, projectID, projectRoot)

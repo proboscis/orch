@@ -254,15 +254,19 @@ func TestSessionReaperKillFailureRecordsErrorAndRetriesNextPass(t *testing.T) {
 	if snapshotArtifacts != 1 || reapNotes != 1 || errorArtifacts != 1 {
 		t.Fatalf("bounded retry ledger: snapshots=%d reap_notes=%d errors=%d, want 1 each", snapshotArtifacts, reapNotes, errorArtifacts)
 	}
-	if observeCalls != 1 || persistCalls != 1 || killCalls != 2 {
-		t.Fatalf("retry calls: observe=%d persist=%d kill=%d, want 1,1,2", observeCalls, persistCalls, killCalls)
+	// The retry arm re-OBSERVES before each kill attempt (§13.1: quiet no-op
+	// once the session is gone; the per-run lock makes a live observation
+	// provably the decision row's own generation) — but it never re-persists
+	// or re-appends, so the ledger stays bounded.
+	if observeCalls != 2 || persistCalls != 1 || killCalls != 2 {
+		t.Fatalf("retry calls: observe=%d persist=%d kill=%d, want 2,1,2", observeCalls, persistCalls, killCalls)
 	}
 
 	outcome, err := reapRun(afterTwoFailures, model.IssueStatusOpen, st, "project", t.TempDir(), cfg, now.Add(2*time.Minute), deps)
 	if err != nil {
 		t.Fatalf("successful retry reap error = %v", err)
 	}
-	if !outcome.Reaped || killCalls != 3 || observeCalls != 1 || persistCalls != 1 {
+	if !outcome.Reaped || killCalls != 3 || observeCalls != 3 || persistCalls != 1 {
 		t.Fatalf("successful retry outcome=%#v observe=%d persist=%d kill=%d", outcome, observeCalls, persistCalls, killCalls)
 	}
 

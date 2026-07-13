@@ -1052,3 +1052,21 @@ latch dissolution, user-sourced re-entry, each precondition's typed
 failure, pending-kill collision), the L4' matrix case in
 `TestStepTerminalAbsorbsAllObservationsExceptReviveMilestone`, and the
 adapter argv contracts in `internal/agent/{claude,codex}_test.go`.
+
+### §13.1 Reap↔revive serialization (added 2026-07-13, after a live race)
+
+Both master-side session-lifecycle actors — the reaper's kill (including its
+pending retry) and the revive boot — target the generation-INVARIANT session
+name. Observed live (revive-gate-live, 2026-07-13): a reaper pass that read
+its row before a concurrent revive landed killed the generation-4 session it
+had just booted, in the same second.
+
+Law (L-S4): a reap kill and a revive never interleave for the same run; each
+re-derives its decision from the authoritative run UNDER a shared per-run
+lock (`SocketServer.runLifecycleLocks`), so a kill decision can never outlive
+a generation change. The pending-kill retry additionally re-OBSERVES before
+killing: an absent session means the kill goal already holds (quiet no-op —
+idempotent kills otherwise turn the retry into an every-pass "reaped" log),
+and a live session under the lock is provably the decision row's own
+generation. Tests: `TestReaperPendingKillIsQuietWhenSessionAbsent`,
+`TestReviveReloadsRunUnderLifecycleLock` (internal/daemon).
