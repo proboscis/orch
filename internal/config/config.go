@@ -149,6 +149,42 @@ type GitHubConfig struct {
 	StatusLabels map[string]string `yaml:"status_labels,omitempty"` // Map GitHub labels to status (e.g., "status:resolved" -> "resolved")
 }
 
+const (
+	DefaultReaperTerminalGraceMinutes      = 10
+	DefaultReaperResolvedIssueGraceMinutes = 60
+	DefaultReaperIdleTTLHours              = 168
+)
+
+// ReaperConfig controls the daemon's ADR-0005 session lifecycle reconciler.
+// Zero grace/TTL values are valid and useful for deterministic incident replay;
+// negative values are rejected by Validate.
+type ReaperConfig struct {
+	TerminalGraceMinutes      int  `yaml:"terminal_grace_minutes"`
+	ResolvedIssueGraceMinutes int  `yaml:"resolved_issue_grace_minutes"`
+	IdleTTLHours              int  `yaml:"idle_ttl_hours"`
+	Enabled                   bool `yaml:"enabled"`
+}
+
+// DefaultReaperConfig returns the safe default lifecycle policy from ADR-0005
+// R2. It returns a value so callers cannot mutate shared defaults.
+func DefaultReaperConfig() ReaperConfig {
+	return ReaperConfig{
+		TerminalGraceMinutes:      DefaultReaperTerminalGraceMinutes,
+		ResolvedIssueGraceMinutes: DefaultReaperResolvedIssueGraceMinutes,
+		IdleTTLHours:              DefaultReaperIdleTTLHours,
+		Enabled:                   true,
+	}
+}
+
+// fileReaperConfig uses pointers so layered files merge per field and an
+// explicit `enabled: false` remains distinguishable from an omitted key.
+type fileReaperConfig struct {
+	TerminalGraceMinutes      *int  `yaml:"terminal_grace_minutes"`
+	ResolvedIssueGraceMinutes *int  `yaml:"resolved_issue_grace_minutes"`
+	IdleTTLHours              *int  `yaml:"idle_ttl_hours"`
+	Enabled                   *bool `yaml:"enabled"`
+}
+
 // IsConfigured returns true if GitHub backend has minimal required config.
 func (g *GitHubConfig) IsConfigured() bool {
 	return g.Owner != "" && g.Repo != ""
@@ -217,6 +253,7 @@ type Config struct {
 	Slack            SlackConfig      `yaml:"slack"`
 	Issues           IssuesConfig     `yaml:"issues"`
 	GitHub           GitHubConfig     `yaml:"github"`
+	Reaper           ReaperConfig     `yaml:"reaper"`
 	Targets          []TargetConfig   `yaml:"targets,omitempty"`
 
 	// Control agent settings used by orch agent and the Python orch-monitor.
@@ -230,38 +267,39 @@ type Config struct {
 }
 
 type fileConfig struct {
-	Vault               string           `yaml:"vault"`
-	VaultLegacy         string           `yaml:"Vault"`
-	DefaultVault        string           `yaml:"default_vault"`
-	Agent               string           `yaml:"agent"`
-	Model               string           `yaml:"model"`
-	ModelVariant        string           `yaml:"model_variant"`
-	WorktreeDir         string           `yaml:"worktree_dir"`
-	WorktreeDirLegacy   string           `yaml:"worktree_root"`
-	BaseBranch          string           `yaml:"base_branch"`
-	PRTargetBranch      string           `yaml:"pr_target_branch"`
-	LogLevel            string           `yaml:"log_level"`
-	PromptTemplate      string           `yaml:"prompt_template"`
-	Multiplexer         string           `yaml:"multiplexer"`
-	AgentMultiplexer    string           `yaml:"agent_multiplexer"`
-	NoPR                *bool            `yaml:"no_pr"`
-	PS                  PSConfig         `yaml:"ps"`
-	Monitor             MonitorConfig    `yaml:"monitor"`
-	Presets             []Preset         `yaml:"presets"`
-	OpenCodePresets     []OpenCodePreset `yaml:"opencode_presets"`
-	OpenCode            *OpenCodeConfig  `yaml:"opencode"`
-	Claude              *ClaudeConfig    `yaml:"claude"`
-	Codex               *CodexConfig     `yaml:"codex"`
-	Gemini              *GeminiConfig    `yaml:"gemini"`
-	DefaultPreset       string           `yaml:"default_preset"`
-	Slack               *SlackConfig     `yaml:"slack"`
-	Issues              *IssuesConfig    `yaml:"issues"`
-	GitHub              *GitHubConfig    `yaml:"github"`
-	Targets             []TargetConfig   `yaml:"targets"`
-	ControlAgent        string           `yaml:"control_agent"`
-	ControlModel        string           `yaml:"control_model"`
-	ControlModelVariant string           `yaml:"control_model_variant"`
-	DiffTool            string           `yaml:"diff_tool"`
+	Vault               string            `yaml:"vault"`
+	VaultLegacy         string            `yaml:"Vault"`
+	DefaultVault        string            `yaml:"default_vault"`
+	Agent               string            `yaml:"agent"`
+	Model               string            `yaml:"model"`
+	ModelVariant        string            `yaml:"model_variant"`
+	WorktreeDir         string            `yaml:"worktree_dir"`
+	WorktreeDirLegacy   string            `yaml:"worktree_root"`
+	BaseBranch          string            `yaml:"base_branch"`
+	PRTargetBranch      string            `yaml:"pr_target_branch"`
+	LogLevel            string            `yaml:"log_level"`
+	PromptTemplate      string            `yaml:"prompt_template"`
+	Multiplexer         string            `yaml:"multiplexer"`
+	AgentMultiplexer    string            `yaml:"agent_multiplexer"`
+	NoPR                *bool             `yaml:"no_pr"`
+	PS                  PSConfig          `yaml:"ps"`
+	Monitor             MonitorConfig     `yaml:"monitor"`
+	Presets             []Preset          `yaml:"presets"`
+	OpenCodePresets     []OpenCodePreset  `yaml:"opencode_presets"`
+	OpenCode            *OpenCodeConfig   `yaml:"opencode"`
+	Claude              *ClaudeConfig     `yaml:"claude"`
+	Codex               *CodexConfig      `yaml:"codex"`
+	Gemini              *GeminiConfig     `yaml:"gemini"`
+	DefaultPreset       string            `yaml:"default_preset"`
+	Slack               *SlackConfig      `yaml:"slack"`
+	Issues              *IssuesConfig     `yaml:"issues"`
+	GitHub              *GitHubConfig     `yaml:"github"`
+	Reaper              *fileReaperConfig `yaml:"reaper"`
+	Targets             []TargetConfig    `yaml:"targets"`
+	ControlAgent        string            `yaml:"control_agent"`
+	ControlModel        string            `yaml:"control_model"`
+	ControlModelVariant string            `yaml:"control_model_variant"`
+	DiffTool            string            `yaml:"diff_tool"`
 }
 
 // configFile is the name of the config file
@@ -273,7 +311,7 @@ const configFile = "config.yaml"
 // 3. Environment variables
 // 4. Global ~/.config/orch/config.yaml
 func Load() (*Config, error) {
-	cfg := &Config{}
+	cfg := &Config{Reaper: DefaultReaperConfig()}
 
 	// Load global config first (lowest precedence)
 	globalPath := globalConfigPath()
@@ -305,7 +343,7 @@ func Load() (*Config, error) {
 }
 
 func LoadFromProjectRoot(projectRoot string) (*Config, error) {
-	cfg := &Config{}
+	cfg := &Config{Reaper: DefaultReaperConfig()}
 
 	globalPath := globalConfigPath()
 	if globalPath != "" {
@@ -582,6 +620,20 @@ func loadFromFile(path string, cfg *Config) error {
 		}
 		if len(fileCfg.GitHub.StatusLabels) > 0 {
 			cfg.GitHub.StatusLabels = fileCfg.GitHub.StatusLabels
+		}
+	}
+	if fileCfg.Reaper != nil {
+		if fileCfg.Reaper.TerminalGraceMinutes != nil {
+			cfg.Reaper.TerminalGraceMinutes = *fileCfg.Reaper.TerminalGraceMinutes
+		}
+		if fileCfg.Reaper.ResolvedIssueGraceMinutes != nil {
+			cfg.Reaper.ResolvedIssueGraceMinutes = *fileCfg.Reaper.ResolvedIssueGraceMinutes
+		}
+		if fileCfg.Reaper.IdleTTLHours != nil {
+			cfg.Reaper.IdleTTLHours = *fileCfg.Reaper.IdleTTLHours
+		}
+		if fileCfg.Reaper.Enabled != nil {
+			cfg.Reaper.Enabled = *fileCfg.Reaper.Enabled
 		}
 	}
 	if fileCfg.ControlAgent != "" {
@@ -885,6 +937,15 @@ func (c *Config) Validate() error {
 	}
 	if c.AgentMultiplexer != "" && !validMultiplexers[c.AgentMultiplexer] {
 		errs = append(errs, fmt.Sprintf("agent_multiplexer must be one of %s (got %q)", joinAllowedKeys(validMultiplexers), c.AgentMultiplexer))
+	}
+	if c.Reaper.TerminalGraceMinutes < 0 {
+		errs = append(errs, "reaper.terminal_grace_minutes must be >= 0")
+	}
+	if c.Reaper.ResolvedIssueGraceMinutes < 0 {
+		errs = append(errs, "reaper.resolved_issue_grace_minutes must be >= 0")
+	}
+	if c.Reaper.IdleTTLHours < 0 {
+		errs = append(errs, "reaper.idle_ttl_hours must be >= 0")
 	}
 	for _, status := range c.Slack.NotifyOn {
 		if !validSlackNotifyStatuses[status] {

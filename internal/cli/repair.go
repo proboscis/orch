@@ -29,7 +29,7 @@ func newRepairCmd() *cobra.Command {
 This command will:
 - Restart the daemon if it's not running or unhealthy
 - Mark "running" runs with no tmux session as failed
-- Report orphaned sessions and worktrees`,
+- Report orphaned, terminal-but-alive, and unreapable-kept sessions`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runRepair(opts)
 		},
@@ -95,7 +95,7 @@ func runRepair(opts *repairOptions) error {
 			problemsFixed += repairResult.ProblemsFixed
 		}
 		for _, detail := range repairResult.Details {
-			if strings.Contains(detail, "orphaned") {
+			if strings.Contains(detail, "session") {
 				fmt.Printf("  %s\n", detail)
 			}
 		}

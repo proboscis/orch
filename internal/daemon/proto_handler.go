@@ -3719,20 +3719,26 @@ func (s *SocketServer) handleProtoRepairState(req *orchpb.RepairStateRequest) *o
 		}
 	}
 
-	// Repair orphaned sessions
-	orphaned := s.findOrphanedSessions()
-	if len(orphaned) > 0 {
-		result.ProblemsFound += int32(len(orphaned))
-		for _, sessionName := range orphaned {
-			result.Details = append(result.Details, fmt.Sprintf("orphaned session: %s", sessionName))
-			if !req.DryRun && req.Force {
-				mux := multiplexer.GetDefault()
-				if err := mux.KillSession(sessionName); err == nil {
-					result.ProblemsFixed++
-					result.Details = append(result.Details, fmt.Sprintf("killed orphaned session: %s", sessionName))
-				}
-			}
+	findings, findingsErr := s.findSessionRepairFindings(time.Now())
+	if findingsErr != nil {
+		result.ProblemsFound++
+		result.Details = append(result.Details, fmt.Sprintf("session inventory error: %v", findingsErr))
+	}
+	result.ProblemsFound += int32(len(findings))
+	for _, finding := range findings {
+		result.Details = append(result.Details, finding.detail())
+		// Status-aware findings are reports for the reaper/operator. Only truly
+		// orphaned sessions retain repair --force's existing destructive action.
+		if finding.Kind != sessionRepairOrphaned || req.DryRun || !req.Force {
+			continue
 		}
+		mux := multiplexer.GetDefault()
+		if err := mux.KillSession(finding.SessionName); err != nil {
+			result.Details = append(result.Details, fmt.Sprintf("failed to kill orphaned session %s: %v", finding.SessionName, err))
+			continue
+		}
+		result.ProblemsFixed++
+		result.Details = append(result.Details, fmt.Sprintf("killed orphaned session: %s", finding.SessionName))
 	}
 
 	return &orchpb.Response{
@@ -3743,43 +3749,171 @@ func (s *SocketServer) handleProtoRepairState(req *orchpb.RepairStateRequest) *o
 	}
 }
 
-func (s *SocketServer) findOrphanedSessions() []string {
+type sessionRepairKind string
+
+const (
+	sessionRepairOrphaned       sessionRepairKind = "orphaned"
+	sessionRepairTerminalAlive  sessionRepairKind = "terminal-but-alive"
+	sessionRepairUnreapableKept sessionRepairKind = "unreapable-kept"
+)
+
+type sessionRepairFinding struct {
+	Kind        sessionRepairKind
+	SessionName string
+	RunRef      string
+	Status      model.Status
+	Reason      string
+}
+
+func (f sessionRepairFinding) detail() string {
+	switch f.Kind {
+	case sessionRepairTerminalAlive:
+		return fmt.Sprintf("terminal-but-alive session: %s (run=%s status=%s)", f.SessionName, f.RunRef, f.Status)
+	case sessionRepairUnreapableKept:
+		return fmt.Sprintf("unreapable-kept session: %s (run=%s status=%s reason=%s)", f.SessionName, f.RunRef, f.Status, f.Reason)
+	default:
+		return fmt.Sprintf("orphaned session: %s", f.SessionName)
+	}
+}
+
+type repairRunContext struct {
+	run         *model.Run
+	issueStatus model.IssueStatus
+	reaper      config.ReaperConfig
+}
+
+func (s *SocketServer) findSessionRepairFindings(now time.Time) ([]sessionRepairFinding, error) {
 	mux := multiplexer.GetDefault()
 	sessions, err := mux.ListSessions()
-	if err != nil || len(sessions) == 0 {
-		return nil
+	if err != nil {
+		return nil, fmt.Errorf("list multiplexer sessions: %w", err)
+	}
+	if len(sessions) == 0 {
+		return nil, nil
+	}
+	return s.classifySessionRepairFindings(sessions, now)
+}
+
+func (s *SocketServer) classifySessionRepairFindings(sessions []string, now time.Time) ([]sessionRepairFinding, error) {
+	repoContexts := s.GetAllRepoContexts()
+	if len(repoContexts) == 0 {
+		return nil, fmt.Errorf("no registered repository stores; cannot classify %d live sessions", len(sessions))
 	}
 
-	stores := s.listStores()
-	if len(stores) == 0 {
-		return nil
-	}
-
-	expectedSessions := make(map[string]bool)
-	for _, st := range stores {
-		runs, err := st.ListRuns(&store.ListRunsFilter{})
-		if err != nil {
+	runsBySession := make(map[string]repairRunContext)
+	var inventoryErrs []error
+	for _, repoCtx := range repoContexts {
+		if repoCtx == nil || repoCtx.Store == nil {
 			continue
 		}
-		for _, run := range runs {
-			sessionName := run.SessionName
-			if sessionName == "" {
-				sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
+		runs, err := repoCtx.Store.ListRuns(&store.ListRunsFilter{})
+		if err != nil {
+			inventoryErrs = append(inventoryErrs, fmt.Errorf("list runs for project %s: %w", repoCtx.RepoID, err))
+			continue
+		}
+
+		issueStatuses := make(map[model.IssueID]model.IssueStatus)
+		issues, err := repoCtx.Store.ListIssues()
+		if err != nil {
+			inventoryErrs = append(inventoryErrs, fmt.Errorf("list issues for project %s: %w", repoCtx.RepoID, err))
+		} else {
+			for _, issue := range issues {
+				if issue != nil {
+					issueStatuses[issue.ID] = issue.Status
+				}
 			}
-			expectedSessions[sessionName] = true
+		}
+
+		reaperCfg := config.DefaultReaperConfig()
+		if strings.TrimSpace(repoCtx.ProjectRoot) != "" {
+			cfg, err := config.LoadFromProjectRoot(repoCtx.ProjectRoot)
+			if err != nil {
+				inventoryErrs = append(inventoryErrs, fmt.Errorf("load reaper config for project %s: %w", repoCtx.RepoID, err))
+			} else {
+				reaperCfg = cfg.Reaper
+			}
+		}
+
+		for _, listedRun := range runs {
+			if listedRun == nil {
+				continue
+			}
+			// Repair classification needs event-ledger facts such as
+			// worktree_removed and a pending session_reaped retry. ListRuns is
+			// index-backed and intentionally omits Events, so classify only the
+			// authoritative run document.
+			run, err := repoCtx.Store.GetRun(listedRun.Ref())
+			if err != nil {
+				inventoryErrs = append(inventoryErrs, fmt.Errorf("load run %s for project %s: %w", listedRun.Ref().String(), repoCtx.RepoID, err))
+				continue
+			}
+			sessionName := model.GenerateSessionName(run.IssueID, run.RunID)
+			if run.SessionName != "" && run.SessionName != sessionName {
+				continue
+			}
+			if _, duplicate := runsBySession[sessionName]; duplicate {
+				inventoryErrs = append(inventoryErrs, fmt.Errorf("session %s maps to multiple runs", sessionName))
+				continue
+			}
+			runsBySession[sessionName] = repairRunContext{
+				run:         run,
+				issueStatus: issueStatuses[run.IssueID],
+				reaper:      reaperCfg,
+			}
 		}
 	}
 
-	var orphaned []string
+	var findings []sessionRepairFinding
 	for _, sess := range sessions {
-		if len(sess) > 4 && sess[:4] == "run-" {
-			if !expectedSessions[sess] {
-				orphaned = append(orphaned, sess)
+		if !strings.HasPrefix(sess, "run-") {
+			continue
+		}
+		runCtx, ok := runsBySession[sess]
+		if !ok {
+			findings = append(findings, sessionRepairFinding{Kind: sessionRepairOrphaned, SessionName: sess})
+			continue
+		}
+		run := runCtx.run
+		if run.Status.IsTerminal() {
+			findings = append(findings, sessionRepairFinding{
+				Kind: sessionRepairTerminalAlive, SessionName: sess, RunRef: run.Ref().String(), Status: run.Status,
+			})
+		}
+		if !runCtx.reaper.Enabled {
+			continue
+		}
+		if _, due := reapReasonForRun(run, runCtx.issueStatus, runCtx.reaper, now); !due {
+			continue
+		}
+		keptReason := reapInterlockProblem(run)
+		if keptReason == "" {
+			if routingErr := validateReaperMultiplexer(run); routingErr != nil {
+				keptReason = routingErr.Error()
 			}
+		}
+		if keptReason == "" {
+			exists, existsErr := worktreeDirectoryExists(run.WorktreePath)
+			switch {
+			case existsErr != nil:
+				keptReason = fmt.Sprintf("worktree check failed: %v", existsErr)
+			case !exists:
+				keptReason = fmt.Sprintf("worktree does not exist: %s", run.WorktreePath)
+			}
+		}
+		if keptReason != "" {
+			findings = append(findings, sessionRepairFinding{
+				Kind: sessionRepairUnreapableKept, SessionName: sess, RunRef: run.Ref().String(), Status: run.Status, Reason: keptReason,
+			})
 		}
 	}
 
-	return orphaned
+	sort.Slice(findings, func(i, j int) bool {
+		if findings[i].SessionName == findings[j].SessionName {
+			return findings[i].Kind < findings[j].Kind
+		}
+		return findings[i].SessionName < findings[j].SessionName
+	})
+	return findings, errors.Join(inventoryErrs...)
 }
 
 func (s *SocketServer) handleProtoGetDaemonLog(req *orchpb.GetDaemonLogRequest) *orchpb.Response {

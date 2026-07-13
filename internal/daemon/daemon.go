@@ -45,6 +45,7 @@ type Daemon struct {
 
 	runStates     map[string]*RunState
 	lastFetchAt   map[string]time.Time
+	lastReapAt    map[string]time.Time
 	fetchInFlight map[string]bool
 	mu            sync.Mutex
 
@@ -111,6 +112,7 @@ func New(factory StoreFactory) *Daemon {
 		stopCh:        make(chan struct{}),
 		runStates:     make(map[string]*RunState),
 		lastFetchAt:   make(map[string]time.Time),
+		lastReapAt:    make(map[string]time.Time),
 		fetchInFlight: make(map[string]bool),
 		instanceNonce: generateMonitorID()[:12],
 	}
@@ -237,11 +239,13 @@ func (d *Daemon) Run() error {
 	defer ticker.Stop()
 
 	d.safeMonitorAll()
+	d.safeReapAll()
 
 	for {
 		select {
 		case <-ticker.C:
 			d.safeMonitorAll()
+			d.safeReapAll()
 			d.checkBinaryStaleness()
 		case sig := <-sigCh:
 			if sig == syscall.SIGHUP {
