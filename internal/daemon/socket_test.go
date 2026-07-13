@@ -105,6 +105,24 @@ type resolveIssueErrorStore struct {
 	err error
 }
 
+type orderedDeleteStore struct {
+	store.Store
+	beforeDelete <-chan struct{}
+	deleteCalls  int
+}
+
+func (s *orderedDeleteStore) DeleteRun(ref *model.RunRef) error {
+	if s.beforeDelete != nil {
+		select {
+		case <-s.beforeDelete:
+		default:
+			return fmt.Errorf("delete called before session kill completed")
+		}
+	}
+	s.deleteCalls++
+	return s.Store.DeleteRun(ref)
+}
+
 func (s *resolveIssueErrorStore) ResolveIssue(model.IssueID) (*model.Issue, error) {
 	return nil, s.err
 }
@@ -1571,6 +1589,7 @@ func TestHandleProtoCleanRunWorktreeRemovesWorktree(t *testing.T) {
 				Status:       model.StatusFailed,
 				WorktreePath: worktree.WorktreePath,
 				Branch:       worktree.Branch,
+				Events:       []*model.Event{model.NewStatusEvent(model.StatusFailed)},
 			},
 		},
 		issues: map[string]*model.Issue{},
@@ -1611,6 +1630,37 @@ func TestHandleProtoCleanRunWorktreeRemovesWorktree(t *testing.T) {
 		if tree == worktree.WorktreePath {
 			t.Fatalf("worktree %q still registered after cleanup", tree)
 		}
+	}
+
+	assertSingleWorktreeRemovedNote(t, st.runs[issueID+"#"+runID], worktree.WorktreePath)
+
+	secondResp := server.handleProtoCleanRunWorktree(&orchpb.CleanRunWorktreeRequest{
+		IssueId: issueID,
+		RunId:   runID,
+		Context: &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+	if !secondResp.Ok {
+		t.Fatalf("second handleProtoCleanRunWorktree() error = %s", secondResp.Error)
+	}
+	if second := secondResp.GetCleanRunWorktree(); second == nil || !second.Skipped || second.Reason != "worktree already absent" {
+		t.Fatalf("second cleanup result = %+v, want already-absent skip", second)
+	}
+	assertSingleWorktreeRemovedNote(t, st.runs[issueID+"#"+runID], worktree.WorktreePath)
+}
+
+func assertSingleWorktreeRemovedNote(t *testing.T, run *model.Run, wantPath string) {
+	t.Helper()
+	var notes []*model.Event
+	for _, event := range run.Events {
+		if event != nil && event.Type == model.EventTypeNote && event.Name == model.DaemonNoticeEventName && event.Attrs["kind"] == "worktree_removed" {
+			notes = append(notes, event)
+		}
+	}
+	if len(notes) != 1 {
+		t.Fatalf("worktree_removed notes = %d, want exactly 1; events=%#v", len(notes), run.Events)
+	}
+	if got := notes[0].Attrs["path"]; got != wantPath {
+		t.Fatalf("worktree_removed path = %q, want %q", got, wantPath)
 	}
 }
 
@@ -1819,6 +1869,7 @@ func TestRemoteCleanRunWorktreeUsesExecutionHostWorker(t *testing.T) {
 	if !cleanResp.WorktreeRemoved || cleanResp.Skipped {
 		t.Fatalf("remote cleanup result = %+v, want worker removal", cleanResp)
 	}
+	assertSingleWorktreeRemovedNote(t, st.runs[issueID+"#"+runID], "/Users/runner/orch-worktrees/remote-clean")
 }
 
 func TestHandleProtoCleanRunWorktreeRemovesMissingWorktreeRegistration(t *testing.T) {
@@ -1969,6 +2020,7 @@ func TestHandleProtoDeleteRunRemovesMissingWorktreeRegistration(t *testing.T) {
 				Status:       model.StatusFailed,
 				WorktreePath: worktree.WorktreePath,
 				Branch:       worktree.Branch,
+				Multiplexer:  "tmux",
 			},
 		},
 		issues: map[string]*model.Issue{},
@@ -1995,6 +2047,9 @@ func TestHandleProtoDeleteRunRemovesMissingWorktreeRegistration(t *testing.T) {
 	if !deleteResp.WorktreeRemoved {
 		t.Fatal("expected worktree_removed=true")
 	}
+	if !deleteResp.SessionKilled {
+		t.Fatal("expected successful missing-session kill to permit deletion")
+	}
 
 	trees, err := git.ListWorktrees(repo)
 	if err != nil {
@@ -2004,6 +2059,145 @@ func TestHandleProtoDeleteRunRemovesMissingWorktreeRegistration(t *testing.T) {
 		if tree == worktree.WorktreePath {
 			t.Fatalf("worktree %q still registered after delete cleanup", tree)
 		}
+	}
+}
+
+func TestHandleProtoDeleteRunKillsRemoteSessionBeforeDeletingRecord(t *testing.T) {
+	repo := initGitRepoWithCommit(t)
+	const (
+		issueID = "orch-delete-remote"
+		runID   = "20260713-190000"
+		host    = "delete-remote-host"
+	)
+	baseStore := &mockStore{
+		runs: map[string]*model.Run{
+			issueID + "#" + runID: {
+				IssueID:        model.IssueID(issueID),
+				RunID:          model.RunID(runID),
+				Status:         model.StatusRunning,
+				Multiplexer:    "tmux",
+				Target:         "remote",
+				TargetHost:     host,
+				TargetWorkerID: HostWorkerID(host),
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+	killCompleted := make(chan struct{})
+	st := &orderedDeleteStore{Store: baseStore, beforeDelete: killCompleted}
+	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, log.New(io.Discard, "", 0))
+	registerRepoContextForTest(t, server, testProjectID, repo, st)
+	workerID := HostWorkerID(host)
+	if _, ttl := server.registerWorker(workerID, "executor", host, "external", []string{"stop_run"}); ttl <= 0 {
+		t.Fatal("expected positive heartbeat ttl for stop worker")
+	}
+
+	leaseChecked := make(chan error, 1)
+	go func() {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			lease := server.leaseWorkForWorker(workerID)
+			if lease == nil {
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+			if lease.Effect != "stop_run" || lease.Payload == nil || lease.Payload.StopRun == nil {
+				err := fmt.Errorf("delete lease = %#v, want stop_run payload", lease)
+				_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, err.Error(), "")
+				leaseChecked <- err
+				return
+			}
+			payload := lease.Payload.StopRun
+			if !payload.ReapSession || payload.RunSnapshot == nil || payload.RunSnapshot.IssueID != issueID || payload.RunSnapshot.RunID != runID {
+				err := fmt.Errorf("stop_run payload = %#v, want ReapSession run snapshot", payload)
+				_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, err.Error(), "")
+				leaseChecked <- err
+				return
+			}
+			close(killCompleted)
+			_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, true, "", "")
+			leaseChecked <- nil
+			return
+		}
+		leaseChecked <- fmt.Errorf("timed out waiting for delete stop_run lease")
+	}()
+
+	resp := server.handleProtoDeleteRun(&orchpb.DeleteRunRequest{
+		IssueId: issueID,
+		RunId:   runID,
+		Context: &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+	if err := <-leaseChecked; err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Ok {
+		t.Fatalf("handleProtoDeleteRun() error = %s", resp.Error)
+	}
+	if st.deleteCalls != 1 {
+		t.Fatalf("DeleteRun calls = %d, want 1 after kill", st.deleteCalls)
+	}
+	if result := resp.GetDeleteRun(); result == nil || !result.SessionKilled {
+		t.Fatalf("delete result = %+v, want session_killed", result)
+	}
+}
+
+func TestHandleProtoDeleteRunKillFailurePreservesRecord(t *testing.T) {
+	repo := initGitRepoWithCommit(t)
+	const (
+		issueID = "orch-delete-kill-failure"
+		runID   = "20260713-190500"
+		host    = "delete-failure-host"
+	)
+	baseStore := &mockStore{
+		runs: map[string]*model.Run{
+			issueID + "#" + runID: {
+				IssueID:        model.IssueID(issueID),
+				RunID:          model.RunID(runID),
+				Status:         model.StatusFailed,
+				Multiplexer:    "tmux",
+				TargetHost:     host,
+				TargetWorkerID: HostWorkerID(host),
+			},
+		},
+		issues: map[string]*model.Issue{},
+	}
+	st := &orderedDeleteStore{Store: baseStore}
+	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, log.New(io.Discard, "", 0))
+	registerRepoContextForTest(t, server, testProjectID, repo, st)
+	workerID := HostWorkerID(host)
+	if _, ttl := server.registerWorker(workerID, "executor", host, "external", []string{"stop_run"}); ttl <= 0 {
+		t.Fatal("expected positive heartbeat ttl for stop worker")
+	}
+
+	go func() {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			lease := server.leaseWorkForWorker(workerID)
+			if lease == nil {
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+			_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, "injected multiplexer kill failure", "")
+			return
+		}
+	}()
+
+	resp := server.handleProtoDeleteRun(&orchpb.DeleteRunRequest{
+		IssueId: issueID,
+		RunId:   runID,
+		Context: &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+	if resp.Ok {
+		t.Fatal("expected delete to fail when session kill fails")
+	}
+	if !strings.Contains(resp.Error, "injected multiplexer kill failure") {
+		t.Fatalf("delete error = %q, want kill cause", resp.Error)
+	}
+	if st.deleteCalls != 0 {
+		t.Fatalf("DeleteRun calls = %d, want 0 after kill failure", st.deleteCalls)
+	}
+	if _, err := baseStore.GetRun(&model.RunRef{IssueID: issueID, RunID: runID}); err != nil {
+		t.Fatalf("run record missing after kill failure: %v", err)
 	}
 }
 
@@ -7062,6 +7256,27 @@ func TestProcessContinueRunCoreValidation(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "has no worktree path") {
 			t.Fatalf("expected to reach worktree-path validation, got: %v", err)
+		}
+	})
+
+	t.Run("missing worktree names branch recreation escape", func(t *testing.T) {
+		worktreePath := filepath.Join(t.TempDir(), "removed-worktree")
+		branch := "issue/orch-restart/run-removed"
+		st.runs["orch-restart#run-removed"] = &model.Run{
+			IssueID:      "orch-restart",
+			RunID:        "run-removed",
+			Status:       model.StatusFailed,
+			WorktreePath: worktreePath,
+			Branch:       branch,
+		}
+
+		_, err := server.processContinueRunCore(st, "/project", &ContinueRunOptions{
+			IssueID: "orch-restart",
+			RunID:   "run-removed",
+		})
+		want := fmt.Sprintf("worktree %s no longer exists; use restart-from --branch %s to recreate one", worktreePath, branch)
+		if err == nil || err.Error() != want {
+			t.Fatalf("restart-from error = %v, want %q", err, want)
 		}
 	})
 }
