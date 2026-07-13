@@ -97,6 +97,11 @@ type Run struct {
 	// agent_session artifact event: claude session UUID / codex rollout id.
 	AgentSessionID         string
 	AgentSessionGeneration int
+	// SessionState is the daemon-derived ADR-0005 lifecycle classification.
+	// FileStore also carries it through its disposable run index because index
+	// entries intentionally omit Events.
+	SessionState       SessionState
+	SessionStateDetail string
 
 	// Frontmatter metadata
 	ContinuedFrom string
@@ -189,6 +194,12 @@ func (r *Run) ReapedSessionGeneration() int {
 // AgentSessionGeneration arm is defensive: a reap note with no recorded
 // identity still absorbs — the safe direction is delaying verdicts (L7').
 func (r *Run) SessionReaped() bool {
+	// An index-served Run has no Events. Its lifecycle classification is a
+	// versioned, rebuildable cache of the same event fold, so retain the latch
+	// without inventing a second persistent state representation.
+	if len(r.Events) == 0 {
+		return r.SessionState == SessionStateReapedRevivable || r.SessionState == SessionStateReapedUnrevivable
+	}
 	g := r.ReapedSessionGeneration()
 	return g > 0 && g >= r.AgentSessionGeneration
 }

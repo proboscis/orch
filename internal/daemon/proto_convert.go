@@ -6,6 +6,7 @@ import (
 
 	"github.com/proboscis/orch/api/orchpb"
 	"github.com/proboscis/orch/internal/model"
+	"github.com/proboscis/orch/internal/sessionlifecycle"
 )
 
 func modelStatusToProto(s model.Status) (orchpb.RunStatus, error) {
@@ -118,6 +119,7 @@ func modelRunToProto(run *model.Run) (*orchpb.Run, error) {
 	if err != nil {
 		return nil, fmt.Errorf("convert run %s#%s status: %w", run.IssueID, run.RunID, err)
 	}
+	sessionlifecycle.Apply(run)
 
 	protoRun := &orchpb.Run{
 		IssueId:                sanitizeUTF8(string(run.IssueID)),
@@ -146,6 +148,8 @@ func modelRunToProto(run *model.Run) (*orchpb.Run, error) {
 		WorktreeExists:         run.WorktreeExists,
 		AgentSessionId:         sanitizeUTF8(run.AgentSessionID),
 		AgentSessionGeneration: int32(run.AgentSessionGeneration),
+		SessionState:           sanitizeUTF8(string(run.SessionState)),
+		SessionStateDetail:     sanitizeUTF8(run.SessionStateDetail),
 	}
 
 	return protoRun, nil
@@ -205,6 +209,8 @@ func protoRunToModel(run *orchpb.Run) (*model.Run, error) {
 		ContinuedFrom:          run.ContinuedFrom,
 		AgentSessionID:         run.AgentSessionId,
 		AgentSessionGeneration: int(run.AgentSessionGeneration),
+		SessionState:           model.SessionState(run.SessionState),
+		SessionStateDetail:     run.SessionStateDetail,
 	}, nil
 }
 
