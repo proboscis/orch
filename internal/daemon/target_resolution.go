@@ -13,6 +13,32 @@ type resolvedTarget struct {
 	WorkerID string
 }
 
+// resolveStartRunWorkerTarget resolves every start_run to an execution worker
+// before lease acquisition. An empty or "local" target means the master's
+// colocated worker; it must not remain unconstrained and fall back to an
+// arbitrary registered worker.
+func resolveStartRunWorkerTarget(projectRoot, targetName string) (*resolvedTarget, error) {
+	targetName = strings.TrimSpace(targetName)
+	if targetName != "" && targetName != "local" {
+		return resolveTargetForProjectRoot(projectRoot, targetName)
+	}
+
+	host, err := currentHostname()
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve local start_run worker host: %w", err)
+	}
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return nil, fmt.Errorf("failed to resolve local start_run worker host: hostname is empty")
+	}
+
+	return &resolvedTarget{
+		Name:     targetName,
+		Host:     host,
+		WorkerID: HostWorkerID(host),
+	}, nil
+}
+
 func resolveTargetForProjectRoot(projectRoot, targetName string) (*resolvedTarget, error) {
 	targetName = strings.TrimSpace(targetName)
 	if targetName == "" || targetName == "local" {

@@ -641,7 +641,7 @@ func TestWithWorkerLeaseExternalProcessSuccessResultPath(t *testing.T) {
 	}
 }
 
-func TestProtoStartRunUsesExternalWorkerResultJSON(t *testing.T) {
+func TestProtoStartRunUsesResolvedDefaultWorkerResultJSON(t *testing.T) {
 	cleanup := setupXDGTestEnv(t)
 	defer cleanup()
 
@@ -662,9 +662,9 @@ func TestProtoStartRunUsesExternalWorkerResultJSON(t *testing.T) {
 	client := NewProtoClientWithAddress("", "")
 	defer client.Close()
 
-	workerID := "external-helper-worker-start"
+	workerID := defaultWorkerID()
 	if _, err := client.RegisterWorker(workerID, "executor", "localhost", "external"); err != nil {
-		t.Fatalf("register external worker failed: %v", err)
+		t.Fatalf("register default worker failed: %v", err)
 	}
 	defer client.UnregisterWorker(workerID)
 
@@ -715,7 +715,7 @@ func TestProtoStartRunUsesExternalWorkerResultJSON(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatal("expected start_run lease assigned to external worker")
+		t.Fatal("expected start_run lease assigned to resolved default worker")
 	}
 }
 
@@ -5855,7 +5855,7 @@ func TestProtoStartRunFieldMapping(t *testing.T) {
 		// If it fails with "agent not available", that's expected in CI without claude installed.
 		// The key contract test is that Model is NOT in Message.
 		errMsg := resp.Error
-		if errMsg != "agent not available: claude" && errMsg != "no project root available" && !strings.Contains(errMsg, "no active workers available") {
+		if errMsg != "agent not available: claude" && errMsg != "no project root available" && !strings.Contains(errMsg, "no active worker on host") {
 			t.Fatalf("unexpected error: %s", errMsg)
 		}
 	}
@@ -6212,6 +6212,81 @@ func TestProcessStartRunCoreValidation(t *testing.T) {
 			t.Fatalf("expected to reach 'no project root available', got: %v", err)
 		}
 	})
+}
+
+func TestLegacyStartRunAvailabilityCheckUsesExecutionTarget(t *testing.T) {
+	projectRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0o755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), []byte("agent: claude\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Chdir(projectRoot)
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	issue := &model.Issue{ID: "availability-check", Title: "availability check"}
+	st := &mockStore{
+		runs:   make(map[string]*model.Run),
+		issues: map[string]*model.Issue{string(issue.ID): issue},
+	}
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	registerRepoContextForTest(t, server, "availability-project", projectRoot, st)
+
+	run := func(target string) StartRunResponse {
+		t.Helper()
+		var response bytes.Buffer
+		server.handleStartRun(SendRequest{
+			IssueID:   string(issue.ID),
+			RepoID:    "availability-project",
+			AgentType: "claude",
+			Target:    target,
+			DryRun:    true,
+		}, json.NewEncoder(&response))
+		var got StartRunResponse
+		if err := json.Unmarshal(response.Bytes(), &got); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		return got
+	}
+
+	if got := run("mac"); !got.OK {
+		t.Fatalf("remote-target dry run failed on master availability check: %s", got.Error)
+	}
+	if got := run("local"); got.OK || got.Error != "agent not available: claude" {
+		t.Fatalf("local-target response = %+v, want explicit unavailable error", got)
+	}
+}
+
+func TestProcessStartRunCoreAvailabilityErrorNamesEvaluatingWorker(t *testing.T) {
+	projectRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0o755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), []byte("agent: claude\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	server.SetWorkerIdentity("host-zeus", "zeus")
+	issue := &model.Issue{ID: "availability-context", Title: "availability context"}
+	_, err := server.processStartRunCore(&mockStore{}, projectRoot, &StartRunOptions{
+		IssueID:        issue.ID,
+		IssueSnapshot:  issue,
+		Agent:          "claude",
+		TargetHost:     "zeus",
+		TargetWorkerID: "host-zeus",
+	})
+	if err == nil {
+		t.Fatal("processStartRunCore() error = nil, want unavailable agent error")
+	}
+	want := "agent not available: claude (worker host-zeus, host zeus)"
+	if err.Error() != want {
+		t.Fatalf("processStartRunCore() error = %q, want %q", err, want)
+	}
 }
 
 // TestMasterFailsFastOnMissingIssueBeforeDelegation verifies that the master

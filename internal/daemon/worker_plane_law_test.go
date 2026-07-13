@@ -1,6 +1,6 @@
 package daemon
 
-// Law tests for the worker-lease core (LL1–LL5 drafted in
+// Law tests for the worker-lease core (LL1–LL6 drafted in
 // docs/design/worker-lease.md; Phase E2 of the coupling-core roadmap).
 // LL1 (liveness fail-fast) is covered by
 // TestWaitForWorkerLeaseCompletionFailsFastWhenWorkerLost; LL5 (snapshot
@@ -132,6 +132,40 @@ func TestLeaseLawRestartAmnesiaFailsFast(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Fatalf("amnesia failure took %s, want immediate", elapsed)
+	}
+}
+
+// LL6 target confinement: an implicit local start resolves to the master's
+// host worker before lease acquisition and cannot fall back to another active
+// worker, regardless of registration/heartbeat order.
+func TestLeaseLawImplicitLocalStartIsConfinedToMasterWorker(t *testing.T) {
+	origHostname := currentHostname
+	currentHostname = func() (string, error) { return "master-host", nil }
+	t.Cleanup(func() { currentHostname = origHostname })
+
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	if _, ttl := server.registerWorker("host-master-host", "external", "master-host", "external", []string{"start_run"}); ttl <= 0 {
+		t.Fatal("expected positive heartbeat ttl for master worker")
+	}
+	time.Sleep(time.Millisecond)
+	if _, ttl := server.registerWorker("host-agent-ready", "external", "agent-ready", "external", []string{"start_run"}); ttl <= 0 {
+		t.Fatal("expected positive heartbeat ttl for remote worker")
+	}
+
+	target, err := resolveStartRunWorkerTarget("", "")
+	if err != nil {
+		t.Fatalf("resolveStartRunWorkerTarget() error = %v", err)
+	}
+	payload := &WorkerEffectPayload{StartRun: &StartRunOptions{
+		TargetHost:     target.Host,
+		TargetWorkerID: target.WorkerID,
+	}}
+	lease, err := server.acquireWorkerLease("project-test", "start_run", "orch-ll6", "run-ll6", payload)
+	if err != nil {
+		t.Fatalf("acquireWorkerLease() error = %v", err)
+	}
+	if lease.WorkerID != "host-master-host" {
+		t.Fatalf("lease worker = %q, want resolved default worker %q", lease.WorkerID, "host-master-host")
 	}
 }
 
