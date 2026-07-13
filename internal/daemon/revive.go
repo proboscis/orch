@@ -3,6 +3,7 @@ package daemon
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/proboscis/orch/internal/agent"
@@ -232,6 +233,21 @@ func (s *SocketServer) reviveRunForVerb(st store.Store, projectID, projectRoot s
 	if st == nil || run == nil {
 		return fmt.Errorf("store and run required")
 	}
+
+	// Serialize against the reaper's kill (run-state-machine.md §13): both
+	// actors target the generation-invariant session name, so they must
+	// re-derive their decision under the same per-run lock. Re-read the
+	// authoritative run inside the lock — the caller's row may be stale.
+	unlock := s.lockRunLifecycle(run.Ref().String())
+	defer unlock()
+	if fresh, err := st.GetRun(run.Ref()); err == nil && fresh != nil {
+		run = fresh
+	}
+	if !run.SessionReaped() {
+		// A concurrent revive won the lock first; the session exists again.
+		return nil
+	}
+
 	if err := checkRevivePreconditions(run); err != nil {
 		return err
 	}
@@ -293,6 +309,15 @@ func (s *SocketServer) reviveRunForVerb(st store.Store, projectID, projectRoot s
 	s.reportLaunchProgress(st, run, launchReached(stageSessionRevived))
 	s.logger.Printf("%s#%s: revived session %s (agent=%s generation=%d)", run.IssueID, run.RunID, result.SessionName, run.Agent, result.Generation)
 	return nil
+}
+
+// lockRunLifecycle acquires the per-run session-lifecycle lock shared by the
+// reaper's kill path and the revive boot; the returned func releases it.
+func (s *SocketServer) lockRunLifecycle(ref string) func() {
+	muIface, _ := s.runLifecycleLocks.LoadOrStore(ref, &sync.Mutex{})
+	mu := muIface.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 // reviveIfReaped is the send/attach entry hook: a run whose CURRENT

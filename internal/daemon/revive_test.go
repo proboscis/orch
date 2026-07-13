@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/proboscis/orch/internal/config"
 	"github.com/proboscis/orch/internal/model"
 	"github.com/proboscis/orch/internal/multiplexer"
 	"github.com/proboscis/orch/internal/store"
@@ -325,5 +326,45 @@ func TestReviveReadyTimeoutCleansUpHalfBootedSession(t *testing.T) {
 	}
 	if !fresh.SessionReaped() || fresh.AgentSessionGeneration != 1 {
 		t.Fatalf("failed revive must leave the latch intact (gen=%d reaped=%v)", fresh.AgentSessionGeneration, fresh.SessionReaped())
+	}
+}
+
+func TestReaperPendingKillIsQuietWhenSessionAbsent(t *testing.T) {
+	st, run := createReapedTestRun(t, "codex", true)
+	killCalls := 0
+	deps := sessionReaperDeps{
+		Observe: func(*model.Run, string, string) (reaperSessionObservation, error) {
+			return reaperSessionObservation{WorktreeExists: true, SessionAlive: false}, nil
+		},
+		Persist: persistSessionSnapshot,
+		Kill:    func(*model.Run, string, string) error { killCalls++; return nil },
+	}
+	outcome, err := reapRun(run, model.IssueStatusOpen, st, "project", t.TempDir(), config.DefaultReaperConfig(), time.Now(), deps)
+	if err != nil {
+		t.Fatalf("reapRun() error = %v", err)
+	}
+	if !outcome.Due || outcome.Reaped || killCalls != 0 {
+		t.Fatalf("pending retry on an absent session must be a quiet no-op (due=%v reaped=%v kills=%d)", outcome.Due, outcome.Reaped, killCalls)
+	}
+}
+
+func TestReviveReloadsRunUnderLifecycleLock(t *testing.T) {
+	// The caller hands revive a STALE row that still folds as reaped; the
+	// authoritative store already has the generation-2 identity (a concurrent
+	// revive won). Under the lock the fresh row must win: no second boot.
+	st, run := createReapedTestRun(t, "claude", true)
+	stale := run
+	if err := st.AppendEvent(run.Ref(), model.NewArtifactEvent("agent_session", map[string]string{"backend": "claude", "id": "conv-8888", "generation": "2"})); err != nil {
+		t.Fatalf("AppendEvent() error = %v", err)
+	}
+	mux := &mockReviveMux{}
+	withMockReviveMux(t, mux)
+	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, log.New(io.Discard, "", 0))
+
+	if err := server.reviveRunForVerb(st, "project", t.TempDir(), stale); err != nil {
+		t.Fatalf("reviveRunForVerb() on stale row error = %v", err)
+	}
+	if len(mux.booted) != 0 {
+		t.Fatal("revive must re-read under the lock and skip the boot when the latch is already dissolved")
 	}
 }
