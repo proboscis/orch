@@ -299,14 +299,15 @@ func TestOutputTableShowsNewColumns(t *testing.T) {
 	hostIdx := strings.Index(header, "HOST")
 	agentIdx := strings.Index(header, "AGENT")
 	aliveIdx := strings.Index(header, "ALIVE")
+	sessionIdx := strings.Index(header, "SESSION")
 	branchIdx := strings.Index(header, "BRANCH")
 	worktreeIdx := strings.Index(header, "WORKTREE")
 	// "PROFILE" also contains "PR", so locate the PR column from the end.
 	prIdx := strings.LastIndex(header, "PR")
-	if profileIdx == -1 || targetIdx == -1 || hostIdx == -1 || agentIdx == -1 || aliveIdx == -1 || branchIdx == -1 || worktreeIdx == -1 || prIdx == -1 {
+	if profileIdx == -1 || targetIdx == -1 || hostIdx == -1 || agentIdx == -1 || aliveIdx == -1 || sessionIdx == -1 || branchIdx == -1 || worktreeIdx == -1 || prIdx == -1 {
 		t.Fatalf("missing columns in header: %q", header)
 	}
-	if !(profileIdx < targetIdx && targetIdx < hostIdx && hostIdx < agentIdx && agentIdx < aliveIdx && aliveIdx < branchIdx && branchIdx < worktreeIdx && worktreeIdx < prIdx) {
+	if !(profileIdx < targetIdx && targetIdx < hostIdx && hostIdx < agentIdx && agentIdx < aliveIdx && aliveIdx < sessionIdx && sessionIdx < branchIdx && branchIdx < worktreeIdx && worktreeIdx < prIdx) {
 		t.Fatalf("unexpected header order: %q", header)
 	}
 
@@ -412,6 +413,51 @@ func TestOutputJSON(t *testing.T) {
 	}
 	if item.TargetHost != "remotebox" {
 		t.Fatalf("target_host = %q, want %q", item.TargetHost, "remotebox")
+	}
+}
+
+func TestOutputJSONExposesClosedSessionStateVocabulary(t *testing.T) {
+	now := time.Date(2026, 7, 13, 10, 11, 12, 0, time.UTC)
+	runs := []*model.Run{
+		{IssueID: "issue-live", RunID: "run-live", Status: model.StatusRunning, SessionState: model.SessionStateLive, StartedAt: now, UpdatedAt: now},
+		{IssueID: "issue-revivable", RunID: "run-revivable", Status: model.StatusRunning, SessionState: model.SessionStateReapedRevivable, StartedAt: now, UpdatedAt: now},
+		{IssueID: "issue-unrevivable", RunID: "run-unrevivable", Status: model.StatusRunning, SessionState: model.SessionStateReapedUnrevivable, StartedAt: now, UpdatedAt: now},
+	}
+
+	out := captureStdout(t, func() {
+		if err := outputJSON(runs, now); err != nil {
+			t.Fatalf("outputJSON() error = %v", err)
+		}
+	})
+	var got struct {
+		Items []struct {
+			SessionState string `json:"session_state"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	want := []string{"live", "reaped(revivable)", "reaped(unrevivable)"}
+	for i, state := range want {
+		if got.Items[i].SessionState != state {
+			t.Fatalf("items[%d].session_state = %q, want %q", i, got.Items[i].SessionState, state)
+		}
+	}
+}
+
+func TestAPIRunToModelRunCarriesDaemonSessionState(t *testing.T) {
+	got, err := apiRunToModelRun(&orchapi.Run{
+		IssueID:            "issue-1",
+		RunID:              "run-1",
+		Status:             orchapi.RunStatusRunning,
+		SessionState:       model.SessionStateReapedUnrevivable,
+		SessionStateDetail: "missing identity",
+	})
+	if err != nil {
+		t.Fatalf("apiRunToModelRun() error = %v", err)
+	}
+	if got.SessionState != model.SessionStateReapedUnrevivable || got.SessionStateDetail != "missing identity" {
+		t.Fatalf("session lifecycle = %q detail=%q", got.SessionState, got.SessionStateDetail)
 	}
 }
 

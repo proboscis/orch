@@ -1306,7 +1306,7 @@ func (s *SocketServer) handleProtoWaitForRuns(req *orchpb.WaitForRunsRequest) *o
 				return errorResponse(fmt.Sprintf("run not found: %s", target.ref))
 			}
 
-			if !waitForRunsStatusIsActive(current.Status) {
+			if current.SessionReaped() || !waitForRunsStatusIsActive(current.Status) {
 				return &orchpb.Response{
 					Ok: true,
 					Response: &orchpb.Response_WaitForRuns{
@@ -2433,6 +2433,22 @@ func (s *SocketServer) handleProtoCaptureSession(req *orchpb.CaptureSessionReque
 	runCtx, errResp := s.resolveProtoRun(req.Context, req.IssueId, req.RunId)
 	if errResp != nil {
 		return errResp
+	}
+	if runCtx.run.SessionReaped() {
+		content, timestamp, err := loadReapedSessionSnapshot(runCtx.run)
+		if err != nil {
+			return errorResponse(err.Error())
+		}
+		return &orchpb.Response{
+			Ok: true,
+			Response: &orchpb.Response_CaptureSession{
+				CaptureSession: &orchpb.CaptureSessionResponse{
+					Content:       sanitizeUTF8(content),
+					TimestampUnix: timestamp.Unix(),
+					Source:        "session_snapshot",
+				},
+			},
+		}
 	}
 
 	var content string

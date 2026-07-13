@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/proboscis/orch/internal/model"
+	"github.com/proboscis/orch/internal/orchapi"
 	"github.com/proboscis/orch/internal/xdg"
 	"github.com/spf13/cobra"
 )
@@ -189,6 +191,24 @@ func runDebug(ref string) error {
 	if err != nil {
 		return fmt.Errorf("run not found: %w", err)
 	}
+	outputDebugRun(run)
+
+	fmt.Printf("--- Daemon Info ---\n")
+	daemonStatus, err := api.GetDaemonStatus(ctx)
+	if err != nil {
+		fmt.Printf("Daemon Running: unknown (error: %v)\n", err)
+	} else {
+		fmt.Printf("Daemon Running: %v\n", daemonStatus.Running)
+		if daemonStatus.Running {
+			fmt.Printf("Daemon PID: %d\n", daemonStatus.PID)
+		}
+		fmt.Printf("Daemon Log: %s\n", daemonStatus.LogPath)
+	}
+
+	return nil
+}
+
+func outputDebugRun(run *orchapi.Run) {
 
 	fmt.Printf("=== Debug Info for %s#%s ===\n\n", run.IssueID, run.RunID)
 
@@ -202,6 +222,10 @@ func runDebug(ref string) error {
 	fmt.Println()
 
 	fmt.Printf("--- Agent Status ---\n")
+	fmt.Printf("Session State: %s\n", run.SessionState)
+	if run.SessionState == model.SessionStateReapedUnrevivable && run.SessionStateDetail != "" {
+		fmt.Printf("Session State Detail: %s\n", run.SessionStateDetail)
+	}
 	if run.AliveKnown {
 		fmt.Printf("Agent Alive: %v\n", run.Alive)
 	} else {
@@ -236,17 +260,4 @@ func runDebug(ref string) error {
 	}
 	fmt.Println()
 
-	fmt.Printf("--- Daemon Info ---\n")
-	daemonStatus, err := api.GetDaemonStatus(ctx)
-	if err != nil {
-		fmt.Printf("Daemon Running: unknown (error: %v)\n", err)
-	} else {
-		fmt.Printf("Daemon Running: %v\n", daemonStatus.Running)
-		if daemonStatus.Running {
-			fmt.Printf("Daemon PID: %d\n", daemonStatus.PID)
-		}
-		fmt.Printf("Daemon Log: %s\n", daemonStatus.LogPath)
-	}
-
-	return nil
 }

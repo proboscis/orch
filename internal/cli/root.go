@@ -478,6 +478,8 @@ func apiRunToModelRun(r *orchapi.Run) (*model.Run, error) {
 		OpenCodeSessionID:      r.OpenCodeSessionID,
 		AgentSessionID:         r.AgentSessionID,
 		AgentSessionGeneration: r.AgentSessionGeneration,
+		SessionState:           r.SessionState,
+		SessionStateDetail:     r.SessionStateDetail,
 		ContinuedFrom:          r.ContinuedFrom,
 		StartedAt:              r.StartedAt,
 		UpdatedAt:              r.UpdatedAt,

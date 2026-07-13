@@ -85,6 +85,7 @@ func showJSON(run *orchapi.Run, opts *showOptions) error {
 		PRUrl           string        `json:"pr_url,omitempty"`
 		AgentSessionID  string        `json:"agent_session_id,omitempty"`
 		AgentSessionGen int           `json:"agent_session_generation,omitempty"`
+		SessionState    string        `json:"session_state"`
 		Events          []eventOutput `json:"events,omitempty"`
 	}{
 		OK:              true,
@@ -104,6 +105,7 @@ func showJSON(run *orchapi.Run, opts *showOptions) error {
 		PRUrl:           run.PRUrl,
 		AgentSessionID:  run.AgentSessionID,
 		AgentSessionGen: run.AgentSessionGeneration,
+		SessionState:    string(run.SessionState),
 	}
 
 	// Add events (tail)
@@ -136,6 +138,7 @@ func showHuman(run *orchapi.Run, opts *showOptions) error {
 	fmt.Printf("Run: %s#%s\n", run.IssueID, run.RunID)
 	fmt.Printf("Status: %s", colorStatus(status))
 	fmt.Println()
+	fmt.Printf("Session State: %s\n", run.SessionState)
 	fmt.Println(strings.Repeat("-", 60))
 
 	// Artifacts
