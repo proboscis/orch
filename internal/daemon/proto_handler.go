@@ -408,6 +408,46 @@ func (s *SocketServer) removeRunWorktree(ctx *orchpb.RequestContext, run *model.
 	return result.Removed, result.Skipped, result.Reason, nil
 }
 
+func (s *SocketServer) killRunSessionForDelete(ctx *orchpb.RequestContext, run *model.Run) error {
+	if run == nil {
+		return fmt.Errorf("run required")
+	}
+
+	if !s.runRequiresWorkerDelegation(run, "") {
+		if err := killLocalSessionForReap(run); err != nil {
+			return fmt.Errorf("kill session for run %s before delete: %w", run.Ref().String(), err)
+		}
+		return nil
+	}
+
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return fmt.Errorf("no project context available to kill session for remote run %s before delete", run.Ref().String())
+	}
+	projectRoot := s.resolveProjectRootFromContextOrProto(ctx, "")
+	if err := s.killRemoteSessionForReap(run, projectID, projectRoot); err != nil {
+		return fmt.Errorf("kill session for run %s before delete: %w", run.Ref().String(), err)
+	}
+	return nil
+}
+
+func appendWorktreeRemovedNote(st store.Store, run *model.Run) error {
+	if st == nil {
+		return fmt.Errorf("master store required")
+	}
+	if run == nil {
+		return fmt.Errorf("run required")
+	}
+	path := run.WorktreePath
+	if strings.TrimSpace(path) == "" || runHasWorktreeRemovedNote(run) {
+		return nil
+	}
+	if err := st.AppendEvent(run.Ref(), model.NewDaemonNoticeEvent("worktree_removed", map[string]string{"path": path})); err != nil {
+		return fmt.Errorf("append worktree_removed note for %s to master store: %w", run.Ref().String(), err)
+	}
+	return nil
+}
+
 func (s *SocketServer) sendProtoResponse(conn net.Conn, resp *orchpb.Response) {
 	data, err := proto.Marshal(resp)
 	if err != nil {
@@ -3369,6 +3409,11 @@ func (s *SocketServer) handleProtoDeleteRun(req *orchpb.DeleteRunRequest) *orchp
 		ShortId: string(run.ShortID()),
 	}
 
+	if err := s.killRunSessionForDelete(req.Context, run); err != nil {
+		return errorResponse(err.Error())
+	}
+	result.SessionKilled = true
+
 	if req.WithWorktree && run.WorktreePath != "" {
 		removed, _, _, cleanupErr := s.removeRunWorktree(req.Context, run)
 		if cleanupErr != nil {
@@ -3419,6 +3464,9 @@ func (s *SocketServer) handleProtoCleanRunWorktree(req *orchpb.CleanRunWorktreeR
 
 	removed, skipped, reason, err := s.removeRunWorktree(req.Context, run)
 	if err != nil {
+		return errorResponse(err.Error())
+	}
+	if err := appendWorktreeRemovedNote(st, run); err != nil {
 		return errorResponse(err.Error())
 	}
 

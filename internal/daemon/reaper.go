@@ -488,6 +488,9 @@ func killLocalSessionForReap(run *model.Run) error {
 		return err
 	}
 	sessionName := model.GenerateSessionName(run.IssueID, run.RunID)
+	if !mux.HasSession(sessionName) {
+		return nil
+	}
 	if err := mux.KillSession(sessionName); err != nil {
 		return fmt.Errorf("multiplexer %s: %w", run.Multiplexer, err)
 	}
@@ -496,6 +499,13 @@ func killLocalSessionForReap(run *model.Run) error {
 
 func (d *Daemon) killRemoteSessionForReap(run *model.Run, projectID, projectRoot string) error {
 	if d.socketServer == nil {
+		return fmt.Errorf("socket server unavailable for worker-hosted run %s", run.Ref().String())
+	}
+	return d.socketServer.killRemoteSessionForReap(run, projectID, projectRoot)
+}
+
+func (s *SocketServer) killRemoteSessionForReap(run *model.Run, projectID, projectRoot string) error {
+	if s == nil {
 		return fmt.Errorf("socket server unavailable for worker-hosted run %s", run.Ref().String())
 	}
 	target, err := resolveWorkerTargetForRunFields(run, projectRoot)
@@ -512,8 +522,14 @@ func (d *Daemon) killRemoteSessionForReap(run *model.Run, projectID, projectRoot
 			ReapSession:    true,
 		},
 	}
-	_, err = d.socketServer.withWorkerLease(projectID, "stop_run", string(run.IssueID), string(run.RunID), payload)
-	return err
+	if _, err := s.withWorkerLease(projectID, "stop_run", string(run.IssueID), string(run.RunID), payload); err != nil {
+		executionHost := strings.TrimSpace(target.Host)
+		if executionHost == "" {
+			executionHost = strings.TrimSpace(target.WorkerID)
+		}
+		return fmt.Errorf("execution host %s: %w", executionHost, err)
+	}
+	return nil
 }
 
 func reaperMultiplexerForRun(run *model.Run) (reaperMultiplexer, error) {
