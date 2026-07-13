@@ -211,8 +211,10 @@ Two long-lived processes cooperate to execute runs:
 
 On a single machine you run both locally and never notice the split. The same
 model scales to multiple hosts: workers on other machines register to one
-daemon (see [Remote Usage](./remote-usage.md)) — multi-host is the next
-milestone and out of scope for the current beta.
+daemon (see [Remote Usage](./remote-usage.md)) — multi-host works, but is
+outside the supported scope of the current beta. A run without `--on` always
+executes on the master's own host worker; other hosts must be targeted
+explicitly.
 
 ### RUN_REF
 

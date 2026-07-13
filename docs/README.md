@@ -15,7 +15,7 @@ Pick your path by what you are trying to do.
 | [Daily Workflow](./daily-workflow.md) | Morning routine, parallel runs, reviewing PRs |
 | [Core Concepts](./concepts.md) | Issue, Run, Event, Status, Worktree |
 | [Configuration](./configuration.md) | All config options with examples |
-| [Remote Usage](./remote-usage.md) | Multi-host mode — next milestone, out of beta scope |
+| [Remote Usage](./remote-usage.md) | Multi-host mode — works, outside the supported beta scope |
 | [Python orch-monitor TUI](./orch-monitor.md) | Visual dashboard for issues and runs |
 
 | Details | |

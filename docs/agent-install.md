@@ -120,13 +120,13 @@ orch ps                               # booting -> running -> waiting
 orch capture hello-world              # read the agent's screen
 ```
 
-**Expect a trust prompt on the first run**: the agent CLI asks
-"Do you trust the contents of this directory?" and the run parks at
-`waiting`. Show the user the captured screen, then answer it:
-
-```bash
-orch send hello-world ""              # empty message = press Enter (accept default)
-```
+**Trust prompts are handled automatically**: on the first run the agent CLI
+may ask "Do you trust the contents of this directory?" — the daemon detects
+this gate and acknowledges it itself, once per run (recorded as a `gate_ack`
+event). You do NOT need to answer it. Only **login gates** park the run: if
+`orch ps` shows `waiting` with reason `gate_login`, the agent CLI is not
+logged in — show the user the captured screen and have THEM log in via
+`orch attach` (credentials belong to humans, never type them yourself).
 
 Wait for the turn to finish and show the user the result:
 
@@ -146,8 +146,9 @@ the agent commit, push, and open a PR — the run then parks at `pr_open`.
 |-------|-----|
 | `project identity required` | repo has no `origin` remote, or you are outside the repo |
 | `unknown project_id "…"` | run `orch daemon repo register "$(pwd)"` |
-| `no active workers available` | should not happen locally (workers auto-start); check `ORCH_WORKER_AUTOSTART`, or run `orch worker start` |
-| `store_error` on issue commands | a malformed issue file; frontmatter `status` must be open/closed/resolved |
+| `no active worker on host "…"` | should not happen locally (workers auto-start); check `ORCH_WORKER_AUTOSTART`, or run `orch worker start` |
+| `agent not available: … (worker …, host …; probe "…"; PATH=…)` | the named worker cannot run that agent CLI — the probe and PATH in the error say why; fix PATH or log in on that host, then restart the worker from a login shell |
+| `store … failed for project "…"` on issue commands | a malformed issue file (the error names it); frontmatter `status` must be open/closed/resolved |
 
 ## Step 5 — Wrap up
 
@@ -158,5 +159,5 @@ Tell the user:
 - deeper docs: [Getting Started](./getting-started.md),
   [ローカルクイックスタート (日本語)](./local-quickstart.ja.md),
   [Daily Workflow](./daily-workflow.md), and
-  [Remote Usage](./remote-usage.md) is the next milestone (multi-host —
-  out of scope for the current beta).
+  [Remote Usage](./remote-usage.md) (multi-host — works, but outside the
+  supported beta scope).

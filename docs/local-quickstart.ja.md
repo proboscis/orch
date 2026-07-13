@@ -113,17 +113,20 @@ orch ps                      # booting → running → waiting と遷移する
 orch capture hello-world     # agent のターミナル画面のスナップショット
 ```
 
-### 初回 run では agent が trust 確認を出す
+### 初回 run の trust 確認は daemon が自動応答する
 
 まっさらなマシン/ディレクトリでは、agent CLI が初回に対話ゲート
-(「Do you trust the contents of this directory?」など)を表示し、run は
-`waiting` で停止します。これは故障ではなく、orch の対話ループそのものです:
+(「Do you trust the contents of this directory?」など)を表示しますが、
+**trust ゲートは daemon が検知して run ごとに1回だけ自動で Enter を送り**、
+run は自動的に続行します(`gate_ack` イベントとして記録)。手動対応は不要です。
+
+**ログインゲートだけは例外**です: agent CLI が未ログインだと run は
+`waiting`(reason `gate_login`)で停止したままになります。認証情報は人間の
+ものなので、直接対応してください:
 
 ```bash
 orch capture hello-world     # 何を聞かれているか確認する
-orch send hello-world ""     # 空メッセージ = Enter 送信(デフォルト選択を受理)
-# あるいはターミナルを直接操作する:
-orch attach hello-world      # 対話後、Ctrl+B D でデタッチ
+orch attach hello-world      # ログインを済ませ、Ctrl+B D でデタッチ
 ```
 
 ### 完了を待って結果を確認する
@@ -132,8 +135,8 @@ orch attach hello-world      # 対話後、Ctrl+B D でデタッチ
 orch wait hello-world --timeout 600
 ```
 
-`waiting` は「agent の入力欄が空いている」ことを意味します — trust ゲート
-通過後の `waiting` は通常「agent がそのターンを終えた」合図です。
+`waiting` は「agent の入力欄が空いている」ことを意味します — 通常は
+「agent がそのターンを終えた」合図です。
 **結論を出す前に必ず `orch capture` で agent の報告を読んでください。**
 成果物は隔離された worktree にあります(パスは `orch ps` /
 `orch show hello-world` で表示されます):

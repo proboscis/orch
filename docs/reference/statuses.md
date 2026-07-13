@@ -167,7 +167,8 @@ status event. `orch ps` renders it inline, e.g. `unknown(never_alive)` or
 |--------|---------|---------|
 | `unknown` | `never_alive`, `session_lost`, `agent_exited`, `observer_unverified` | Why observability was lost: agent never seen alive (boot grace expired), backend lost the session, agent exited to shell, or the dead-check fired via an observer that never saw this run alive |
 | `failed` | `launch_<step>` | Launch failed at the named bootstrap step |
-| `waiting` | `gate_<kind>` | Stopped at an interactive gate (e.g. `gate_login`, `gate_trust`) |
+| `waiting` | `gate_<kind>` | Stopped at an interactive gate (e.g. `gate_login`, `gate_trust`; trust gates are auto-acknowledged by the daemon once per run) |
+| `waiting` | `pr_branch_mismatch` | Agent opened a PR from a branch other than the run's assigned branch; the work sits in a PR the daemon refused to attach (the daemon also sends the agent a one-time corrective notice) |
 
 See [Event Reference](./events.md) for the full reason vocabulary.
 

@@ -51,7 +51,8 @@ Status events may carry a machine-readable `reason` attribute
 | `agent_exited` | `unknown` | Agent process exited without a verdict, shell prompt showing |
 | `observer_unverified` | `unknown` | Dead-check threshold reached via an observation channel that never saw this run alive |
 | `launch_<step>` | `failed` | Launch failed at the named bootstrap step |
-| `gate_<kind>` | `waiting` | Run is stopped at an interactive gate (e.g. `gate_login`, `gate_trust`) |
+| `gate_<kind>` | `waiting` | Run is stopped at an interactive gate (e.g. `gate_login`, `gate_trust`; trust gates are auto-acknowledged by the daemon once per run) |
+| `pr_branch_mismatch` | `waiting` | Agent opened a PR from a branch other than the run's assigned branch; the PR was not attached to the run |
 
 ### artifact
 
@@ -107,7 +108,7 @@ Examples:
 
 ### note
 
-Human-added notes or comments.
+Human-added notes or comments, plus daemon-authored notices.
 
 ```
 - <ts> | note | <title> | text="..."
@@ -116,6 +117,16 @@ Human-added notes or comments.
 Example:
 ```
 - 2026-01-20T17:00:00+09:00 | note | manual_fix | text="Fixed import manually"
+```
+
+The daemon records its own one-time interventions as `daemon_notice` note
+events. Current kinds: `gate_ack` (the daemon auto-acknowledged a trust gate
+by sending Enter) and `pr_branch_mismatch` (the daemon sent the agent a
+corrective message about a PR opened from the wrong branch). These serve as
+the once-only ledger — a notice is never re-sent for the same cause.
+
+```
+- <ts> | note | daemon_notice | kind=gate_ack gate=trust
 ```
 
 ## Event Flow Example

@@ -1,8 +1,9 @@
 # Remote Usage with orch
 
-> **Next milestone — out of beta scope.** Multi-host mode works and is used in
-> development, but the current beta covers **single-machine use only**. Expect
-> rough edges here and no support until the multi-host milestone lands.
+> **Works, but outside the supported beta scope.** Multi-host mode works and
+> is used in development daily; everything below is accurate. The current
+> beta's *support* scope is single-machine use only — multi-host issues are
+> welcome as reports but are not covered until the multi-host milestone lands.
 
 This guide shows how to run orch against a remote daemon over TCP while keeping
 the same daily `orch` workflow from your local machine.
@@ -132,9 +133,13 @@ orch --remote master-host:7777 --project yourorg-yourrepo capture my-issue
 
 - `--project` / `ORCH_PROJECT` provides project identity scope.
 - Remote commands depend on daemon-side repo registration (`daemon repo register`).
+- An untargeted `orch run` (no `--on`) always executes on the **master's own
+  host worker** — never on an arbitrary registered worker (worker-lease law
+  LL6). To execute on your client host (or any other host), name it
+  explicitly with `--on <target>` using a target from `.orch/config.yaml`.
 - Before `orch run` dispatches to a remote master, the client idempotently
-  starts its local managed worker and registers it to that master. The client
-  host can therefore execute untargeted runs from that master.
+  starts its local managed worker and registers it to that master, so an
+  explicitly targeted run can land on the client host without manual setup.
 - Set `ORCH_WORKER_AUTOSTART=0` on the client to disable that pre-dispatch
   worker start. The same setting on the master disables automatic startup of
   its colocated worker; workers must then be started manually with

@@ -523,10 +523,15 @@ orch issue show ISSUE_ID [flags]
 
 ### orch issue edit
 
-Edit an issue.
+Edit an issue. Without flags, opens the body in `$EDITOR` (the edit is applied
+through the daemon — never edit store files directly, ADR-0004).
 
 ```bash
 orch issue edit ISSUE_ID [flags]
+
+# Non-interactive body edits (for scripts and agents):
+orch issue edit my-issue --body "replacement body"
+printf '\n## Update\nnew findings\n' | orch issue edit my-issue --append-body -
 ```
 
 #### Flags
@@ -534,6 +539,8 @@ orch issue edit ISSUE_ID [flags]
 | Flag | Description |
 |------|-------------|
 | `-t, --title <title>` | Update title directly without opening editor |
+| `-b, --body <text\|->` | Replace the body with text, or `-` to read from stdin |
+| `--append-body <text\|->` | Append text to the body, or `-` to read from stdin (mutually exclusive with `--body`) |
 
 ### orch issue close
 
@@ -891,7 +898,7 @@ orch worker run [flags]
 
 ### orch worker start
 
-Start a managed orch-worker host process. Usually automatic since v1.5
+Start a managed orch-worker host process. Usually automatic
 (ADR-0002): the master auto-starts its colocated worker on demand, and run
 dispatch to a remote master auto-starts the local worker for it. Manual start
 remains for other hosts and for `ORCH_WORKER_AUTOSTART=0`.
