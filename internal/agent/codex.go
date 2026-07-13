@@ -41,6 +41,19 @@ func (a *CodexAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 		args = append(args, "-c", fmt.Sprintf("model_reasoning_effort=%s", shellQuote(variant)))
 	}
 
+	// ADR-0005 R5: revive resumes the recorded agent-native session in place.
+	// Codex CLI usage is `codex [OPTIONS] <COMMAND> [ARGS]`, so the resume
+	// subcommand goes after the root options. Resuming appends to the
+	// existing rollout — the session id stays the durable conversation
+	// identity across generations (docs/design/revive-physics.md).
+	if cfg.Resume {
+		id := strings.TrimSpace(cfg.AgentSessionID)
+		if id == "" {
+			return "", fmt.Errorf("codex resume requires the recorded agent session id (ADR-0005 LS5)")
+		}
+		args = append(args, "resume", shellQuote(id))
+	}
+
 	// Add the prompt
 	if cfg.Prompt != "" {
 		// Escape the prompt for shell

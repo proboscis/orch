@@ -1947,7 +1947,7 @@ func (s *SocketServer) reportLaunchProgress(st store.Store, run *model.Run, sig 
 				s.logger.Printf("%s#%s: failed to record error artifact: %v", run.IssueID, run.RunID, err)
 			}
 		case effectSetStatus:
-			if _, _, err := commitRunStatus(st, run, e.Status, e.Reason, nil); err != nil {
+			if _, _, err := commitRunStatusFromSource(st, run, e.Status, e.Reason, e.Source, nil); err != nil {
 				s.logger.Printf("%s#%s: failed to record %s status: %v", run.IssueID, run.RunID, e.Status, err)
 			}
 		case effectLog:
@@ -2523,17 +2523,20 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 		}
 
 		if agentName == "claude" && !newSession {
+			// Resume carries the agent-native session id in AgentSessionID
+			// (the adapter's --resume argument); SessionName stays the
+			// multiplexer-session concern everywhere, control path included.
 			stored := s.getStoredControlSession(params.ProjectRoot)
 			if stored != "" {
 				launchCfg.Resume = true
-				launchCfg.SessionName = stored
+				launchCfg.AgentSessionID = stored
 				sessionID = stored
 				resumed = true
 			} else {
 				discovered := s.discoverClaudeSession(params.ProjectRoot)
 				if discovered != "" {
 					launchCfg.Resume = true
-					launchCfg.SessionName = discovered
+					launchCfg.AgentSessionID = discovered
 					sessionID = discovered
 					resumed = true
 					s.saveControlSession(params.ProjectRoot, discovered, "claude")

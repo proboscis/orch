@@ -40,7 +40,7 @@
      (rule R2 "daemon reaper reconciler: a self-throttled sibling pass in the daemon tick loop enumerates ALL runs (including terminal) per repo context and kills run-* sessions whose run is (a) terminal for > terminal grace (default 10min), (b) of a resolved issue and idle > resolved grace (default 1h), or (c) idle > TTL (default 7d, idle = run.UpdatedAt age). Policy keys live in a reaper: config section (pointer-merge, KnownFields)")
      (rule R3 "reap protocol, in order: persist a final pane capture (sidecar file under the run log dir + artifact event session_snapshot) → append note session_reaped (attrs: reason, session_name, generation) → KillSession. A failed kill is an error artifact and a retry on the next pass — never a warning-and-forget")
      (rule R4 "reap interlock: the reaper kills only sessions whose run has a recorded agent_session (or backend opencode) AND an existing worktree (no worktree_removed note); anything else is kept alive and REPORTED (repair output + reaper log). Unrevivable garbage is a human decision, not a default")
-     (rule R5 "revive is in-place and entered only via send/attach: on a reaped run, orch send / orch attach re-boot the same run — same run record, same session name, agent resumed natively (claude --resume <chain tip> / codex resume <id>) in the same worktree — then append note session_revived plus a new-generation agent_session artifact. Terminal runs re-enter via a user-sourced status event (CanTransitionStatus already permits user-sourced terminal exit). Preconditions are stored facts (LS5); a missing one fails fast naming the fact and pointing at restart-from --branch")
+     (rule R5 "revive is in-place and entered only via send/attach: on a reaped run, orch send / orch attach re-boot the same run — same run record, same session name, agent resumed natively (claude --resume <id> / codex ... resume <id>) in the same worktree — then the MASTER appends note session_revived plus the generation+1 agent_session artifact (worker does only the physical boot + codex identity re-resolution; ADR-0004). Measured physics (docs/design/revive-physics.md, 2026-07-13): the id is STABLE across generations — claude --resume appends to the same transcript and the CLI rejects --session-id alongside --resume (--fork-session is new-conversation semantics and is never used by revive); codex resume continues the existing rollout, re-verified by the R1 discovery arm. Terminal runs re-enter via the launch-plane milestone stageSessionRevived, whose commit carries source=user (the one user-sourced observation in the vocabulary — run-state-machine.md §13, L4 refinement). Preconditions are stored facts (LS5); a missing one fails fast naming the fact and pointing at restart-from --branch")
      (rule R6 "observers never boot: capture/capture-all/ps/show/wait/diff/events/query/debug perform no launch; capture on a reaped run serves the persisted session_snapshot with an explicit 'reaped at <ts>' notice. ps/show/debug surface the session state (live / reaped(revivable) / reaped(unrevivable))")
      (rule R7 "orch tick is removed — command, registration, docs, and the dead 'resume' event vocabulary; the unused proto ResumeRun RPC goes with it. No compat shim: agents are controlled via orch send (its own help already says so)")
      (rule R8 "clean appends a worktree_removed note event so unrevivability becomes a stored fact; delete kills the session (via the R3 protocol) before removing the run record; an empty Multiplexer field on a kill path is an error, not a skip")]
@@ -70,7 +70,19 @@
      (law kill-failures-are-loud
        :statement "a failed KillSession yields an error artifact and a retry on the next reaper pass; canceled/deleted is never recorded as achieved when the kill failed silently"
        :counterexamples
-         [(counterexample "socket.go:5126 warning-lognil-return: stop reports canceled, session lives on (observed pre-ADR behavior)")])]
+         [(counterexample "socket.go:5126 warning-lognil-return: stop reports canceled, session lives on (observed pre-ADR behavior)")])
+     (law revive-is-the-only-terminal-exit-observation
+       :statement "terminal views absorb every observation except the O8 stageSessionRevived milestone, whose single effect is a running commit carried with source=user; no daemon-sourced observation ever exits a terminal status (L4 refinement, run-state-machine.md §13)"
+       :counterexamples
+         [(counterexample "a daemon-sourced launch milestone (stageAgentStarted) on a done run re-enters running — the terminality law dissolves and every autonomous inference can resurrect finished runs")
+          (counterexample "revive commits running WITHOUT source=user — the store guard rejects the terminal exit, or worse, a future guard change lets daemon writes exit terminal states")]
+       :enforcement-note "internal/daemon/revive_test.go TestStepTerminalAbsorbsAllObservationsExceptReviveMilestone (matrix), store-side guard internal/store/file/file.go CanTransitionStatus on Attrs[source]")
+     (law conversation-identity-durable
+       :statement "the agent_session id is constant across generations: revive resumes the SAME conversation identity and increments only the generation; revive never uses --fork-session (fork = new conversation, not an incarnation)"
+       :counterexamples
+         [(counterexample "revive forks the claude conversation to obtain a fresh mintable id — the user believes the agent continues its conversation; the original conversation is silently abandoned as a dead branch")
+          (counterexample "revive records generation+1 with a GUESSED codex id instead of re-running the discovery arm — a wrong id makes the next reap destroy an unresumable session")]
+       :enforcement-note "internal/agent/claude_test.go / codex_test.go resume argv contracts; internal/daemon/revive_test.go identity fold assertions; measured physics docs/design/revive-physics.md")]
   :enforcement
     [(defsemgrep adr0005-no-warning-only-kill-failure
        :languages ["generic"]
@@ -83,5 +95,11 @@
        :message "ADR-0005 R7: orch tick was removed (its resume event had zero consumers); agents are controlled via orch send — do not reintroduce"
        :pattern "orch tick"
        :bad ["Use `orch tick --all` to resume waiting runs."]
-       :good ["Use `orch send <RUN_REF> <message>` to answer waiting runs."])]
+       :good ["Use `orch send <RUN_REF> <message>` to answer waiting runs."])
+     (defsemgrep adr0005-revive-never-forks
+       :languages ["generic"]
+       :message "ADR-0005 conversation-identity-durable: revive resumes the SAME conversation identity; --fork-session is new-conversation semantics (measured physics, docs/design/revive-physics.md) and must never appear on a resume/revive argv path"
+       :pattern "\"--fork-session\""
+       :bad ["args = append(args, \"--resume\", id, \"--fork-session\")"]
+       :good ["args = append(args, \"--resume\", id)"])]
   :plans ["docs/orch-2026-07-13-run-session-lifecycle-architecture-plan.md"])

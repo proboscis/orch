@@ -2240,6 +2240,7 @@ func (s *SocketServer) handleProtoGetControlAgentConfig(req *orchpb.GetControlAg
 
 func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest) *orchpb.Response {
 	var run *model.Run
+	var runStore store.Store
 	projectID := projectIDFromContext(req.Context)
 
 	if projectID != "" {
@@ -2258,6 +2259,7 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 		if err != nil {
 			return errorResponse("not_found")
 		}
+		runStore = st
 	} else {
 		for _, st := range s.listStores() {
 			var (
@@ -2296,11 +2298,28 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 				return errorResponse(fmt.Sprintf("ambiguous run ref: %s#%s", req.IssueId, req.RunId))
 			}
 			run = resolved
+			runStore = st
 		}
 		if run == nil {
 			return errorResponse("not_found")
 		}
 	}
+
+	// ADR-0005 R5: attach is a revive entry verb — a reaped session is
+	// re-booted in place before the client is handed its attach target, so
+	// attach never points at a session the daemon itself destroyed.
+	reviveProjectRoot := ""
+	if repo := s.repoContextForStore(runStore); repo != nil {
+		reviveProjectRoot = repo.ProjectRoot
+		if strings.TrimSpace(projectID) == "" {
+			projectID = repo.RepoID
+		}
+	}
+	revivedRun, reviveErr := s.reviveIfReaped(runStore, projectID, reviveProjectRoot, run)
+	if reviveErr != nil {
+		return errorResponse(reviveErr.Error())
+	}
+	run = revivedRun
 
 	attachInfo := &orchpb.GetAttachInfoResponse{
 		Command:           []string{"orch", "attach", fmt.Sprintf("%s#%s", run.IssueID, run.RunID)},
@@ -2484,6 +2503,16 @@ func (s *SocketServer) handleProtoSendMessage(req *orchpb.SendMessageRequest) *o
 	if errResp != nil {
 		return errResp
 	}
+
+	// ADR-0005 R5: send is a revive entry verb — a reaped session is re-booted
+	// in place before the message is delivered. A failed precondition (LS5)
+	// surfaces as an explicit error naming the missing fact; the message is
+	// never dropped into a silent fresh context.
+	revived, err := s.reviveIfReaped(runCtx.store, runCtx.projectID, runCtx.projectRoot, runCtx.run)
+	if err != nil {
+		return errorResponse(err.Error())
+	}
+	runCtx.run = revived
 
 	if s.runRequiresWorkerDelegation(runCtx.run, "") {
 		if strings.TrimSpace(runCtx.projectID) == "" {

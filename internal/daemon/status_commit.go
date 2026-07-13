@@ -23,9 +23,23 @@ import (
 // absorbed (same-status no-op, or illegal for the daemon source); the
 // caller must not publish or notify in that case.
 func commitRunStatus(st store.Store, run *model.Run, status model.Status, reason string, debugf func(format string, args ...interface{})) (model.Status, bool, error) {
-	ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
+	return commitRunStatusFromSource(st, run, status, reason, model.EventSourceDaemon, debugf)
+}
 
-	// Check current status - daemon cannot overwrite terminal states
+// commitRunStatusFromSource is commitRunStatus with an explicit event
+// source. The only non-daemon source today is the revive ladder (ADR-0005
+// R5): terminal re-entry via send/attach is a user command, and the store's
+// append guard requires source=user for a terminal exit. The source travels
+// on the status event (model.AttrStatusSource) so the store re-validates the
+// same fact this function checked.
+func commitRunStatusFromSource(st store.Store, run *model.Run, status model.Status, reason string, source model.EventSource, debugf func(format string, args ...interface{})) (model.Status, bool, error) {
+	ref := &model.RunRef{IssueID: run.IssueID, RunID: run.RunID}
+	if source == "" {
+		source = model.EventSourceDaemon
+	}
+
+	// Check current status - the daemon source cannot overwrite terminal
+	// states; a user source may (CanTransitionStatus).
 	var fromStatus model.Status
 	if currentRun, err := st.GetRun(ref); err == nil && currentRun != nil {
 		fromStatus = currentRun.Status
@@ -39,15 +53,15 @@ func commitRunStatus(st store.Store, run *model.Run, status model.Status, reason
 		if fromStatus == status && currentRun.StatusReason() == reason {
 			return fromStatus, false, nil
 		}
-		if !model.CanTransitionStatus(currentRun.Status, status, model.EventSourceDaemon) {
+		if !model.CanTransitionStatus(currentRun.Status, status, source) {
 			if debugf != nil {
-				debugf("%s#%s: daemon cannot transition from %s to %s", run.IssueID, run.RunID, currentRun.Status, status)
+				debugf("%s#%s: %s source cannot transition from %s to %s", run.IssueID, run.RunID, source, currentRun.Status, status)
 			}
 			return fromStatus, false, nil
 		}
 	}
 
-	event := model.NewStatusEventWithReason(status, reason) // nosemgrep: run-status-write-surface
+	event := model.NewStatusEventWithReasonAndSource(status, reason, source) // nosemgrep: run-status-write-surface
 	if err := st.AppendEvent(ref, event); err != nil {
 		return fromStatus, false, err
 	}

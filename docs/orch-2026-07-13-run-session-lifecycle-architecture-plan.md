@@ -1,6 +1,6 @@
 # orch run-session lifecycle — master plan (2026-07-13)
 
-Status: in progress — Stage 0 / Stage 1 / T2c merged(PR #531 / #532 / #533、2026-07-13)。残 = Stage 2(reaper)・Stage 3(revive)・Stage 4(観測面)。
+Status: in progress — Stage 0 / Stage 1 / T2c merged(PR #531 / #532 / #533)、Stage 2 merged(PR #542、隔離 e2e `scripts/e2e-session-reaper.sh` green・実機 deploy 済み 2026-07-13)。Stage 3: T3a はブランチ `adr0005-t3a-revive`(本 plan と同一 change set)、T3b/T3c は issue 委譲中。残 = T3a merge・T3b/T3c merge・Stage 4(観測面)。
 Basis: ADR-0005 (`docs/adr/defadr_0005_run_session_lifecycle.hy`)。
 2026-07-11 インシデント(terminal run のセッション 25 個が最大 5.5 日生存、
 CPU 4 コア焼却、`orch repair --force` で回収不能)の根本対策。
@@ -18,8 +18,9 @@ CPU 4 コア焼却、`orch repair --force` で回収不能)の根本対策。
 
 | 種別 | パス / 参照 |
 |------|------------|
-| 本 ADR(executable) | `docs/adr/defadr_0005_run_session_lifecycle.hy` |
-| 遷移コア spec | `docs/design/run-state-machine.md`(§2 O2/O3、§5 L4、§9.7/§11.5 note-ledger 先例) |
+| 本 ADR(executable) | `docs/adr/defadr_0005_run_session_lifecycle.hy`(R5 精緻化 + L4'/identity 法 + fork 禁止 defsemgrep は adr0005-t3a-revive で追記) |
+| 遷移コア spec | `docs/design/run-state-machine.md`(§2 O2/O3、§5 L4(2026-07-13 精密化)、§9.7/§11.5 note-ledger 先例、§12 L-S3、§13 revive) |
+| revive の実 CLI 物理(実測) | `docs/design/revive-physics.md`(claude --resume 同一 transcript 追記・--session-id 併用不可、codex resume rollout 継続。2026-07-13 実測) |
 | watchlist | `docs/design/coupling-core-roadmap.md`(WL#1/#2、B3 に cli/tick.go 言及) |
 | 先行 ADR | `docs/adr/ADR-0001..0003.md`、`docs/adr/defadr_0004_store_writes_through_daemon.hy` |
 | 接地調査(4 subagent、2026-07-12) | 本ファイル「Current state」表に転記済み(file:line) |
@@ -88,13 +89,13 @@ ADR-0005 (law LS1-LS6)
 | T1a | R1 | claude: launch で UUID 発番、`--session-id` 付与(agent/claude.go)+ `agent_session` artifact append(launch ladder、error-artifact 先例に倣う) | 起動後の run record に claude session id が無い(test: DeriveState fold) | LaunchConfig 拡張 + artifact append + fold(model/run.go、opencode_session 同型) | **done**(PR #532) |
 | T1b | R1 | codex: boot 後 `$CODEX_HOME/sessions/**/rollout-*.jsonl` 先頭行 `payload.cwd == worktree_path` で id 解決 → 同 artifact | codex run に識別子無し | boot 後 resolver(リトライ付き、見つからなければ error artifact = unreapable) | **done**(PR #532) |
 | T1c | R1 | model.Run/orchapi.Run/RunSnapshot/query DDL+loader+view に AgentSessionID 面出し | query で引けない | F4 の opencode_session 配線の複製 | **done**(PR #532、file store run index cache の拡張 + version bump 4→5 込み) |
-| T2a | R2 | reaper reconciler: daemon tick 兄弟パス + `reaper:` config(terminal_grace=10m, resolved_grace=1h, idle_ttl=168h)+ 全 status ListRuns + issue status 参照 | 2026-07-11 再現: terminal run のセッションが grace 後も生存 | 新パス(status 書込なし、note/artifact のみ) | todo |
-| T2b | R3/F11 | reap protocol: CapturePane→sidecar file + `session_snapshot` artifact → `session_reaped` note → KillSession。失敗= error artifact+retry | kill 前に note が無い/失敗が warning | 実装順序を test で固定 | todo |
+| T2a | R2 | reaper reconciler: daemon tick 兄弟パス + `reaper:` config(terminal_grace=10m, resolved_grace=1h, idle_ttl=168h)+ 全 status ListRuns + issue status 参照 | 2026-07-11 再現: terminal run のセッションが grace 後も生存 | 新パス(status 書込なし、note/artifact のみ) | **done**(PR #542、retry の unbounded-append 修正込み) |
+| T2b | R3/F11 | reap protocol: CapturePane→sidecar file + `session_snapshot` artifact → `session_reaped` note → KillSession。失敗= error artifact+retry | kill 前に note が無い/失敗が warning | 実装順序を test で固定 | **done**(PR #542、隔離 e2e green) |
 | T2c | LS3 | gatherer が session_reaped/revived note を fold→観測に注入、step() O3 腕が reap 済み世代の gone を吸収(dead-check 不進行)。**コア変更: frontier+human** | reap→3 gone→偽 failed | run-state-machine.md §改訂同梱 + step property test | **done**(PR #533、§12 L-S3) |
-| T2d | F3 | findOrphanedSessions を status-aware に(terminal run のセッション報告)+ repair help の worktree 虚偽記載修正 | 25 個が repair で報告されない | expected 集合に status 条件 | todo |
-| T3a | R5 | send/attach auto-revive: reaped 判定→前提検証(stored facts)→同名セッション再 boot(claude --resume chain-tip / codex resume)→ `session_revived` note + 新世代 agent_session → 送信続行。terminal は source=user status event で再入 | reaped run へ send がエラー/黙って新規文脈 | daemon 側 revive 経路(launch ladder 変種) | todo |
-| T3b | R8 | delete が kill(R3 経由)してから record 削除。clean が `worktree_removed` note 記録。restart-from(run 参照)の worktree 消失エラーに `--branch` 導線明記 | delete 後セッション残存 / clean 後 revive が黙って fresh | 各 handler 修正 | todo |
-| T3c | F6 | kill 失敗 fail-fast 化(socket.go:5126 warning 撲滅、Multiplexer 空=error)+ `adr0005-no-warning-only-kill-failure` semgrep live 化 | 既存 bad fixture | エラー伝播 + semgrep | todo |
+| T2d | F3 | findOrphanedSessions を status-aware に(terminal run のセッション報告)+ repair help の worktree 虚偽記載修正 | 25 個が repair で報告されない | expected 集合に status 条件 | **done**(PR #542)。残欠陥は issue `repair-tmux-no-server-phantom-error`(tmux no-server の幻エラー + inventory の master-host 限定)に切出し・委譲中 |
+| T3a | R5 | send/attach auto-revive: reaped 判定→前提検証(stored facts)→同名セッション再 boot(claude `--resume <id>` / codex `resume <id>`、id は世代を跨いで不変 — revive-physics.md 実測)→ master が `session_revived` note + 世代+1 agent_session → `stageSessionRevived`(source=user、L4' 例外)で再入 → 送信続行 | reaped run へ send がエラー/黙って新規文脈 | daemon 側 revive 経路(launch ladder 変種)+ `revive_run` lease | **implemented on branch `adr0005-t3a-revive`**(コード+テスト+spec §13+physics 記録+本 ADR 改訂、フルスイート green)。残: lint → PR → レビュー → merge |
+| T3b | R8 | delete が kill(R3 経由)してから record 削除。clean が `worktree_removed` note 記録(daemon_notice 形、master 書き)。restart-from(run 参照)の worktree 消失エラーに `--branch` 導線明記 | delete 後セッション残存 / clean 後 revive が黙って fresh | 各 handler 修正 | **dispatched**(issue `adr0005-s3-delete-clean-ledger`、run c604ca、codex) |
+| T3c | F6 | kill 失敗 fail-fast 化(socket.go:5126 warning 撲滅、Multiplexer 空=error)+ `adr0005-no-warning-only-kill-failure` semgrep live 化 | 既存 bad fixture | エラー伝播 + semgrep | **dispatched**(issue `adr0005-s3-kill-failfast`、run 1494a8、codex) |
 | T4a | R6 | ps/show/debug に session 状態列(live/reaped(revivable)/reaped(unrevivable))。capture は snapshot+reaped 通知を返す。wait は reaped=帰着扱い | reaped run が ALIVE - としか見えない | daemon 計算(client 側導出禁止の既存境界に従う) | todo |
 | T4b | R6 | query runs テーブルに agent_session_id / session_state 列 | SQL で引けない | schema.go+loader.go+view | todo |
 
@@ -122,8 +123,16 @@ ADR-0005 (law LS1-LS6)
 | worker-core | T1a/T1b/T2a/T2b/T3a 実装 | daemon/agent | frontier(orch run --agent claude fable xhigh 委譲可 — 決定は ADR で閉鎖済み) | 順次 | red→green |
 | reviewer | 各 PR の adversarial review(tripwire checklist) | read-only | codex(cx read-only) | 各 stage 後 | verdict |
 
-実装は orch 自身の issue/run で回す(dogfood)。コア面 T2c だけは
+実装は orch 自身の issue/run で回す(dogfood)。コア面 T2c と T3a は
 orch 委譲せず親セッション(frontier+human)で行う。
+
+Routing 実績(2026-07-13、model-routing の A/B 証跡): Stage 2(T2a/T2b/T2d、
+choice space 閉鎖済み verified issue)は codex(gpt-5.6)が実装し、frontier
+レビューで required 修正 1 件(kill-retry の unbounded ledger append —
+過去の 5,830 重複イベントと同類)を検出・修正させて merge。柵(status write
+surface / derived-state guard / tripwire)はすべて守られていた。結論: 柵の
+外の verified issue は sub-frontier 委譲で成立、ただし unbounded-growth 類の
+時間軸バグは frontier レビューが引き続き必須。
 
 ## Non-goals
 
@@ -139,7 +148,13 @@ orch 委譲せず親セッション(frontier+human)で行う。
 
 ## Immediate next action
 
-(2026-07-13 更新)Stage 0 / Stage 1 / T2c は merge 済み。次は Stage 2:
-issue `adr0005-s2-session-reaper`(verified issue、前提 PR #533 merge 済み)を
-orch run で dispatch。merge 後 Stage 3(T3a はコア隣接 = frontier + 人間、
-T3b/T3c は委譲)→ Stage 4。beta 配布は Stage 4 完了後。
+(2026-07-13 二度目の更新)Stage 0/1/2 + T2c merge 済み(reaper は実機配備・
+隔離 e2e green)。**今**: (1) ブランチ `adr0005-t3a-revive` を lint → PR →
+frontier+human レビュー → merge(T3a 本体 + spec §13 + revive-physics.md +
+本 ADR 改訂が同一 change set)。(2) 委譲中 run のレビュー・merge:
+T3b(c604ca)/ T3c(1494a8)/ repair-phantom(21169e)— tripwire checklist
+準拠、kill 経路と revive 前提条件の整合(T3b の worktree_removed 形 =
+daemon_notice)を重点確認。(3) 完了後 Stage 4(T4a/T4b)を verified issue 化
+して委譲 → merge → deploy-all → 完成 gate 5/7 の実機確認(reaped→send→
+revived→応答)→ beta 配布可能。cryptic の Fable 週次残量が細い間、orch run
+の claude レーンは ca-pro(要 zeus 側 config 追加)か codex を使う。

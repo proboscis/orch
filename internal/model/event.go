@@ -249,6 +249,13 @@ func NewStatusEvent(status Status) *Event {
 	return NewEvent(EventTypeStatus, string(status), nil)
 }
 
+// AttrStatusSource is the event attribute carrying the EventSource of a
+// status transition. The store's append guard reads it to decide terminal-
+// exit legality (CanTransitionStatus); an absent attribute means daemon.
+// Today the only writer of a non-daemon source is the revive ladder
+// (ADR-0005 R5): terminal re-entry via send/attach is a user command.
+const AttrStatusSource = "source"
+
 // AttrStatusReason is the event attribute carrying the machine-readable
 // reason for a status verdict. The status vocabulary itself is a closed set;
 // discrimination of *why* a verdict was reached travels as payload, the way
@@ -305,6 +312,22 @@ func NewStatusEventWithReason(status Status, reason string) *Event {
 		return NewStatusEvent(status)
 	}
 	return NewEvent(EventTypeStatus, string(status), map[string]string{AttrStatusReason: reason})
+}
+
+// NewStatusEventWithReasonAndSource is NewStatusEventWithReason with an
+// explicit event source recorded on the event (AttrStatusSource). The store
+// append guard validates terminal-exit legality from that attribute; a
+// daemon source degrades to the attribute-less form so existing events stay
+// byte-identical.
+func NewStatusEventWithReasonAndSource(status Status, reason string, source EventSource) *Event {
+	if source == "" || source == EventSourceDaemon {
+		return NewStatusEventWithReason(status, reason)
+	}
+	attrs := map[string]string{AttrStatusSource: string(source)}
+	if reason != "" {
+		attrs[AttrStatusReason] = reason
+	}
+	return NewEvent(EventTypeStatus, string(status), attrs)
 }
 
 // NewPhaseEvent creates a phase change event
