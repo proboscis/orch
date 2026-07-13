@@ -72,12 +72,14 @@ type WorkerEffectPayload struct {
 	GetDiffStats      *GetDiffStatsPayload
 	GetBranchState    *GetBranchStatePayload
 	GetDiff           *GetDiffPayload
+	RunWorktree       *RunWorktreePayload
 	StartRunResult    *StartRunResult
 	ContinueRunResult *ContinueRunResult
 	CaptureResult     *CaptureSessionResult
 	DiffStatsResult   *GetDiffStatsResult
 	BranchStateResult *GetBranchStateResult
 	DiffResult        *GetDiffResult
+	RunWorktreeResult *RunWorktreeResult
 }
 
 type StopRunPayload struct {
@@ -120,6 +122,14 @@ type GetBranchStatePayload struct {
 }
 
 type GetDiffPayload struct {
+	Target         string `json:"target,omitempty"`
+	TargetHost     string `json:"target_host,omitempty"`
+	TargetWorkerID string `json:"target_worker_id,omitempty"`
+	RunSnapshot    *RunSnapshot
+}
+
+type RunWorktreePayload struct {
+	Operation      string `json:"operation"`
 	Target         string `json:"target,omitempty"`
 	TargetHost     string `json:"target_host,omitempty"`
 	TargetWorkerID string `json:"target_worker_id,omitempty"`
@@ -173,6 +183,14 @@ type GetDiffResult struct {
 	Diff string `json:"diff,omitempty"`
 }
 
+type RunWorktreeResult struct {
+	Exists     bool   `json:"exists"`
+	Registered bool   `json:"registered"`
+	Removed    bool   `json:"removed,omitempty"`
+	Skipped    bool   `json:"skipped,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+}
+
 type WorkerEffectResult struct {
 	StartRunResult    *StartRunResult       `json:"start_run_result,omitempty"`
 	ContinueRunResult *ContinueRunResult    `json:"continue_run_result,omitempty"`
@@ -180,11 +198,12 @@ type WorkerEffectResult struct {
 	DiffStatsResult   *GetDiffStatsResult   `json:"diff_stats_result,omitempty"`
 	BranchStateResult *GetBranchStateResult `json:"branch_state_result,omitempty"`
 	DiffResult        *GetDiffResult        `json:"diff_result,omitempty"`
+	RunWorktreeResult *RunWorktreeResult    `json:"run_worktree_result,omitempty"`
 }
 
 func normalizeCapabilities(caps []string) []string {
 	if len(caps) == 0 {
-		return []string{"capture_session", "continue_run", "get_branch_state", "get_diff", "get_diff_stats", "send_message", "start_run", "stop_run"}
+		return []string{"capture_session", "continue_run", "get_branch_state", "get_diff", "get_diff_stats", "run_worktree", "send_message", "start_run", "stop_run"}
 	}
 	set := make(map[string]struct{}, len(caps))
 	norm := make([]string, 0, len(caps))
@@ -200,7 +219,7 @@ func normalizeCapabilities(caps []string) []string {
 		norm = append(norm, c)
 	}
 	if len(norm) == 0 {
-		return []string{"capture_session", "continue_run", "get_branch_state", "get_diff", "get_diff_stats", "send_message", "start_run", "stop_run"}
+		return []string{"capture_session", "continue_run", "get_branch_state", "get_diff", "get_diff_stats", "run_worktree", "send_message", "start_run", "stop_run"}
 	}
 	sort.Strings(norm)
 	return norm
@@ -562,6 +581,18 @@ func preferredWorkerPreferenceForPayload(payload *WorkerEffectPayload) (string, 
 		}
 		return defaultWorkerID(), "", false
 	}
+	if payload.RunWorktree != nil {
+		if workerID := strings.TrimSpace(payload.RunWorktree.TargetWorkerID); workerID != "" {
+			return workerID, strings.TrimSpace(payload.RunWorktree.TargetHost), true
+		}
+		if host := strings.TrimSpace(payload.RunWorktree.TargetHost); host != "" {
+			return HostWorkerID(host), host, true
+		}
+		if target := strings.TrimSpace(payload.RunWorktree.Target); target != "" && target != "local" {
+			return target, strings.TrimSpace(payload.RunWorktree.TargetHost), true
+		}
+		return defaultWorkerID(), "", false
+	}
 	if payload.StopRun != nil {
 		if workerID := strings.TrimSpace(payload.StopRun.TargetWorkerID); workerID != "" {
 			return workerID, strings.TrimSpace(payload.StopRun.TargetHost), true
@@ -635,7 +666,8 @@ func marshalWorkerEffectResult(result *WorkerEffectResult) string {
 		result.CaptureResult == nil &&
 		result.DiffStatsResult == nil &&
 		result.BranchStateResult == nil &&
-		result.DiffResult == nil {
+		result.DiffResult == nil &&
+		result.RunWorktreeResult == nil {
 		return ""
 	}
 
@@ -741,6 +773,10 @@ func runFromLeaseSnapshot(lease *WorkerLease) (*model.Run, error) {
 	case "get_diff":
 		if lease.Payload.GetDiff != nil {
 			snapshot = lease.Payload.GetDiff.RunSnapshot
+		}
+	case "run_worktree":
+		if lease.Payload.RunWorktree != nil {
+			snapshot = lease.Payload.RunWorktree.RunSnapshot
 		}
 	}
 
@@ -910,6 +946,19 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 		return &WorkerEffectResult{
 			DiffResult: &GetDiffResult{Diff: diff},
 		}, nil
+	case "run_worktree":
+		if lease.Payload == nil || lease.Payload.RunWorktree == nil {
+			return nil, fmt.Errorf("run_worktree payload missing")
+		}
+		run, err := runFromLeaseSnapshot(lease)
+		if err != nil {
+			return nil, err
+		}
+		result, err := executeRunWorktreeOperation(repoCtx.ProjectRoot, run, lease.Payload.RunWorktree.Operation)
+		if err != nil {
+			return nil, err
+		}
+		return &WorkerEffectResult{RunWorktreeResult: result}, nil
 	default:
 		return nil, fmt.Errorf("unsupported worker lease effect: %s", lease.Effect)
 	}

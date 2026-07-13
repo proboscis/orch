@@ -1,7 +1,7 @@
 # Worker Lease — Survey and Law Candidates
 
-Status: survey (E1); laws are DRAFT pending verification (E2)
-Date: 2026-06-12
+Status: E1/E2 verified; maintained as the worker-lease law record
+Date: 2026-06-12; updated 2026-07-13 (LL7)
 
 Mirror of `run-state-machine.md` §1–4 for the second coupling core: worker
 lease ownership, heartbeats, and their coupling to the run state machine.
@@ -30,8 +30,8 @@ per-iteration `workerIsActive` check that fails the wait early), and
 Entry points: every host-routed RPC goes through `withWorkerLease`
 (`worker_plane.go:909-921`, acquire + wait, 10min timeout) —
 start_run, continue_run, stop_run, capture_session, send_message,
-get_diff(-stats), get_branch_state (`proto_handler.go:1441,1757,1822,
-2339,2436,2489,2555,2665`), plus `captureRunOutputViaWorker`
+get_diff(-stats), get_branch_state, run_worktree (`proto_handler.go` and
+`run_worktree.go`), plus `captureRunOutputViaWorker`
 (`proto_handler.go:819-823`, 15s capture timeout per `monitor.go:42`).
 
 ## 2. Ownership / lifecycle
@@ -82,6 +82,26 @@ lease failure (capture)        lease failure (start/continue/stop)
 This is the correct mechanism/policy split and must be preserved by E2/E3:
 **a lease is infrastructure; only its observable consequences are policy.**
 
+Worktree facts obey the same boundary. A run worktree belongs to its execution
+host, not to the master that stores the run record:
+
+```
+ObserveSingleRunWorktree(r) = stat(worker(r.TargetHost), r.WorktreePath)
+CleanWorktree(r)            = remove(worker(r.TargetHost), repo(r), r.WorktreePath)
+worker unavailable or observation error => explicit error
+                                           != WorktreeExists(false)
+                                           != skipped("worktree already absent")
+ListRuns.WorktreeExists(r) = unpopulated
+```
+
+The last inequality is the fail-clearly part of LL7: absence is a worker-local
+observation, never a master-side inference from a path in another filesystem
+namespace. Live inspection is deliberately confined to single-run reads and
+mutations. List paths do not issue one synchronous lease per run: doing so
+amplifies latency, saturates the worker lease plane under polling clients, and
+makes one unavailable historical worker fail the whole list. Any future list
+enrichment must use a batched per-host operation rather than per-run leases.
+
 ## 5. Store-of-record
 
 - Lease records: **memory only**, by design (a lease is a short-lived
@@ -120,13 +140,16 @@ This is the correct mechanism/policy split and must be preserved by E2/E3:
 | LL4 restart amnesia is safe | master restart ⇒ all leases forgotten; every caller observes failure within its timeout; no run transition is *decided* by lease state alone (only via observations, §4) |
 | LL5 snapshot sufficiency | a worker executes any effect using only the lease payload (RunSnapshot); it never reads its local store for master-owned runs (PR #457's contract) |
 | LL6 start target confinement | every `start_run` resolves a `TargetWorkerID` before lease acquisition; empty/`local` targets resolve to the master's host worker, named targets resolve through `config.targets`, and neither may fall back to another worker |
+| LL7 worktree host confinement | single-run worktree inspect/remove executes on the run's target worker; an unavailable worker or failed stat/git operation is returned with host/cause and is never converted to `exists=false` or an absent skip; list paths leave worktree existence unpopulated pending a batched per-host operation |
 
-## Next (E2/E3)
+## Verification and maintenance
 
-1. Verify LL1–LL5 against the code; promote to laws with property tests
-   (the `step_test.go` style: enumerate interleavings of heartbeat /
-   dispatch / ack / restart).
-2. Decide the single-holder-per-run question (LL candidate or explicit
-   non-goal with rationale).
-3. Static guard: semgrep rule confining lease-map mutation to
-   worker_plane.go (mirror of `run-status-write-surface`).
+LL1–LL6 are covered by `worker_plane_law_test.go` and the focused worker-plane
+tests named in `coupling-core-roadmap.md`. LL7 is covered at both sides of the
+boundary: `TestExecuteLeaseEffectRunWorktreeInspectsAndRemovesRegisteredWorktree`
+executes against a real registered worktree, while
+`TestRemoteGetRunReportsWorkerObservedWorktreeExists`,
+`TestRemoteCleanRunWorktreeUsesExecutionHostWorker`, and
+`TestRemoteGetRunWorktreeObservationFailureIsExplicit` prove master routing and
+fail-clear propagation. Lease-map mutation remains confined by the
+`worker-lease-mutation-surface` semgrep rule.

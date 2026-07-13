@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -374,14 +373,6 @@ func computeBranchStateString(run *model.Run) string {
 	}
 }
 
-func computeWorktreeExists(path string) bool {
-	if path == "" {
-		return false
-	}
-	_, err := os.Stat(path)
-	return err == nil
-}
-
 // RunToSummary converts a model.Run to a RunSummary
 func RunToSummary(run *model.Run) (*RunSummary, error) {
 	diffStats, err := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
@@ -429,7 +420,7 @@ func RunToSummary(run *model.Run) (*RunSummary, error) {
 		ElapsedDisplay: elapsedDisplay,
 		Alive:          false,
 		AliveKnown:     false,
-		WorktreeExists: computeWorktreeExists(run.WorktreePath),
+		WorktreeExists: run.WorktreeExists,
 		StartedAt:      formatTime(run.StartedAt),
 		UpdatedAt:      formatTime(run.UpdatedAt),
 		URI:            FileURI(run.Path),
@@ -506,7 +497,7 @@ func RunToFull(run *model.Run) (*RunFull, error) {
 		ElapsedDisplay: elapsedDisplay,
 		Alive:          false,
 		AliveKnown:     false,
-		WorktreeExists: computeWorktreeExists(run.WorktreePath),
+		WorktreeExists: run.WorktreeExists,
 		StartedAt:      formatTime(run.StartedAt),
 		UpdatedAt:      formatTime(run.UpdatedAt),
 		URI:            FileURI(run.Path),

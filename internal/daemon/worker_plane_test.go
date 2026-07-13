@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/proboscis/orch/internal/git"
 	"github.com/proboscis/orch/internal/model"
 	"github.com/proboscis/orch/internal/store"
 	filestore "github.com/proboscis/orch/internal/store/file"
@@ -283,6 +284,90 @@ func TestExecuteLeaseEffectGetDiffStatsPropagatesGitFailure(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), missingWorktree) || !strings.Contains(err.Error(), "no such file") {
 		t.Fatalf("executeLeaseEffect() error = %q, want worktree path and underlying cause", err)
+	}
+}
+
+func TestExecuteLeaseEffectRunWorktreeInspectsAndRemovesRegisteredWorktree(t *testing.T) {
+	repo := initGitRepoWithCommit(t)
+	const (
+		projectID = "project-run-worktree"
+		issueID   = "issue-run-worktree"
+		runID     = "20260713-172000"
+	)
+	worktree, err := git.CreateWorktree(&git.WorktreeConfig{
+		RepoRoot:    repo,
+		WorktreeDir: filepath.Join(repo, ".git-worktrees"),
+		IssueID:     model.IssueID(issueID),
+		RunID:       model.RunID(runID),
+		Agent:       "custom",
+	})
+	if err != nil {
+		t.Fatalf("CreateWorktree() error = %v", err)
+	}
+
+	st := &mockStore{runs: map[string]*model.Run{}, issues: map[string]*model.Issue{}}
+	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, log.New(io.Discard, "", 0))
+	server.SetWorkerIdentity(HostWorkerID("mac-host"), "mac-host")
+	registerRepoContextForTest(t, server, projectID, repo, st)
+
+	snapshot := &RunSnapshot{
+		IssueID:      model.IssueID(issueID),
+		RunID:        model.RunID(runID),
+		Status:       model.StatusCanceled,
+		Branch:       worktree.Branch,
+		WorktreePath: worktree.WorktreePath,
+		TargetHost:   "mac-host",
+	}
+	inspectLease := &WorkerLease{
+		LeaseID:   "lease-run-worktree-inspect",
+		WorkerID:  HostWorkerID("mac-host"),
+		ProjectID: projectID,
+		Effect:    "run_worktree",
+		IssueID:   issueID,
+		RunID:     runID,
+		Payload: &WorkerEffectPayload{RunWorktree: &RunWorktreePayload{
+			Operation:   runWorktreeInspect,
+			RunSnapshot: snapshot,
+		}},
+	}
+	inspectResult, err := server.executeLeaseEffect(inspectLease)
+	if err != nil {
+		t.Fatalf("inspect executeLeaseEffect() error = %v", err)
+	}
+	if inspectResult == nil || inspectResult.RunWorktreeResult == nil || !inspectResult.RunWorktreeResult.Exists {
+		t.Fatalf("inspect result = %#v, want exists=true", inspectResult)
+	}
+
+	removeLease := &WorkerLease{
+		LeaseID:   "lease-run-worktree-remove",
+		WorkerID:  HostWorkerID("mac-host"),
+		ProjectID: projectID,
+		Effect:    "run_worktree",
+		IssueID:   issueID,
+		RunID:     runID,
+		Payload: &WorkerEffectPayload{RunWorktree: &RunWorktreePayload{
+			Operation:   runWorktreeRemove,
+			RunSnapshot: snapshot,
+		}},
+	}
+	removeResult, err := server.executeLeaseEffect(removeLease)
+	if err != nil {
+		t.Fatalf("remove executeLeaseEffect() error = %v", err)
+	}
+	if removeResult == nil || removeResult.RunWorktreeResult == nil || !removeResult.RunWorktreeResult.Removed {
+		t.Fatalf("remove result = %#v, want removed=true", removeResult)
+	}
+	if _, err := os.Stat(worktree.WorktreePath); !os.IsNotExist(err) {
+		t.Fatalf("worktree still exists after worker removal: %v", err)
+	}
+	worktrees, err := git.ListWorktrees(repo)
+	if err != nil {
+		t.Fatalf("ListWorktrees() error = %v", err)
+	}
+	for _, path := range worktrees {
+		if path == worktree.WorktreePath {
+			t.Fatalf("worktree %q still registered after worker removal", path)
+		}
 	}
 }
 
