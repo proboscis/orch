@@ -88,6 +88,9 @@ type StopRunPayload struct {
 	TargetHost     string `json:"target_host,omitempty"`
 	TargetWorkerID string `json:"target_worker_id,omitempty"`
 	RunSnapshot    *RunSnapshot
+	// ReapSession selects ADR-0005's session-only kill. The worker must not
+	// append a status event; the master already recorded snapshot + reap note.
+	ReapSession bool `json:"reap_session,omitempty"`
 }
 
 type CaptureSessionPayload struct {
@@ -96,6 +99,9 @@ type CaptureSessionPayload struct {
 	TargetHost     string `json:"target_host,omitempty"`
 	TargetWorkerID string `json:"target_worker_id,omitempty"`
 	RunSnapshot    *RunSnapshot
+	// CheckWorktree asks the execution host to attest the ADR-0005 R4
+	// worktree interlock before any session is reaped.
+	CheckWorktree bool `json:"check_worktree,omitempty"`
 }
 
 type SendMessagePayload struct {
@@ -137,9 +143,11 @@ type RunWorktreePayload struct {
 }
 
 type CaptureSessionResult struct {
-	Content       string `json:"content,omitempty"`
-	TimestampUnix int64  `json:"timestamp_unix,omitempty"`
-	Source        string `json:"source,omitempty"`
+	Content         string `json:"content,omitempty"`
+	TimestampUnix   int64  `json:"timestamp_unix,omitempty"`
+	Source          string `json:"source,omitempty"`
+	WorktreeChecked bool   `json:"worktree_checked,omitempty"`
+	WorktreeExists  bool   `json:"worktree_exists,omitempty"`
 	// ObserverID identifies the observing channel INSTANCE
 	// (worker:<id>:<nonce> / local:<nonce>), carried in the lease result
 	// rather than looked up from the registry: a lease answer may race a
@@ -836,6 +844,12 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 		if err != nil {
 			return nil, err
 		}
+		if lease.Payload != nil && lease.Payload.StopRun != nil && lease.Payload.StopRun.ReapSession {
+			if err := killLocalSessionForReap(run); err != nil {
+				return nil, err
+			}
+			return nil, nil
+		}
 		if err := s.stopRunSession(run); err != nil {
 			return nil, err
 		}
@@ -853,6 +867,24 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 			lines = 100
 		}
 
+		worktreeChecked := lease.Payload.CaptureSession.CheckWorktree
+		worktreeExists := false
+		if worktreeChecked {
+			worktreeExists, err = worktreeDirectoryExists(run.WorktreePath)
+			if err != nil {
+				return nil, fmt.Errorf("check worktree %s: %w", run.WorktreePath, err)
+			}
+			if !worktreeExists {
+				return &WorkerEffectResult{
+					CaptureResult: &CaptureSessionResult{
+						TimestampUnix:   time.Now().Unix(),
+						ObserverID:      s.observerID(),
+						WorktreeChecked: true,
+					},
+				}, nil
+			}
+		}
+
 		var content string
 		var source string
 		if run.Agent == "opencode" {
@@ -868,9 +900,11 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 			if goneClass := classifyCaptureGone(run, err); goneClass != "" {
 				return &WorkerEffectResult{
 					CaptureResult: &CaptureSessionResult{
-						TimestampUnix: time.Now().Unix(),
-						ObserverID:    s.observerID(),
-						Gone:          &SessionGoneResult{Class: goneClass},
+						TimestampUnix:   time.Now().Unix(),
+						ObserverID:      s.observerID(),
+						Gone:            &SessionGoneResult{Class: goneClass},
+						WorktreeChecked: worktreeChecked,
+						WorktreeExists:  worktreeExists,
 					},
 				}, nil
 			}
@@ -879,10 +913,12 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 
 		return &WorkerEffectResult{
 			CaptureResult: &CaptureSessionResult{
-				Content:       content,
-				TimestampUnix: time.Now().Unix(),
-				Source:        source,
-				ObserverID:    s.observerID(),
+				Content:         content,
+				TimestampUnix:   time.Now().Unix(),
+				Source:          source,
+				ObserverID:      s.observerID(),
+				WorktreeChecked: worktreeChecked,
+				WorktreeExists:  worktreeExists,
 			},
 		}, nil
 	case "send_message":
