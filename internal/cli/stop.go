@@ -49,7 +49,7 @@ If the run is already stopped (done/failed/canceled), this is a no-op.`,
 	}
 
 	cmd.Flags().BoolVar(&opts.All, "all", false, "Stop all running runs")
-	cmd.Flags().BoolVar(&opts.Force, "force", false, "Force stop even if session doesn't exist")
+	cmd.Flags().BoolVar(&opts.Force, "force", false, "Mark canceled even if stopping the session fails")
 
 	return cmd
 }
@@ -84,11 +84,11 @@ func runStopWithDeps(ctx context.Context, refStr string, opts *stopOptions, deps
 		return stopAllForIssue(ctx, api, run.IssueID, opts)
 	}
 
-	if err := api.StopRun(ctx, orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(ExitInternalError)
+	result, err := api.StopRun(ctx, orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}, opts.Force)
+	if err != nil {
 		return err
 	}
+	reportStopWarning(result)
 
 	if !globalOpts.Quiet {
 		fmt.Printf("stopped: %s#%s\n", run.IssueID, run.RunID)
@@ -120,10 +120,14 @@ func stopAllForIssue(ctx context.Context, api orchapi.OrchAPI, issueID model.Iss
 	}
 
 	stoppedCount := 0
+	var stopErrors []error
 	for _, run := range resp.Runs {
-		if err := api.StopRun(ctx, orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}); err != nil {
+		result, err := api.StopRun(ctx, orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}, opts.Force)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to stop %s#%s: %v\n", run.IssueID, run.RunID, err)
+			stopErrors = append(stopErrors, fmt.Errorf("stop %s#%s: %w", run.IssueID, run.RunID, err))
 		} else {
+			reportStopWarning(result)
 			stoppedCount++
 			if !globalOpts.Quiet {
 				fmt.Printf("stopped: %s#%s\n", run.IssueID, run.RunID)
@@ -135,7 +139,7 @@ func stopAllForIssue(ctx context.Context, api orchapi.OrchAPI, issueID model.Iss
 		fmt.Printf("stopped %d runs for %s\n", stoppedCount, issueID)
 	}
 
-	return nil
+	return errors.Join(stopErrors...)
 }
 
 func runStopAll(opts *stopOptions) error {
@@ -170,10 +174,14 @@ func runStopAllWithDeps(ctx context.Context, opts *stopOptions, deps *stopDeps) 
 	}
 
 	stoppedCount := 0
+	var stopErrors []error
 	for _, run := range resp.Runs {
-		if err := api.StopRun(ctx, orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}); err != nil {
+		result, err := api.StopRun(ctx, orchapi.RunRef{IssueID: run.IssueID, RunID: run.RunID}, opts.Force)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to stop %s#%s: %v\n", run.IssueID, run.RunID, err)
+			stopErrors = append(stopErrors, fmt.Errorf("stop %s#%s: %w", run.IssueID, run.RunID, err))
 		} else {
+			reportStopWarning(result)
 			stoppedCount++
 			if !globalOpts.Quiet {
 				fmt.Printf("stopped: %s#%s\n", run.IssueID, run.RunID)
@@ -181,5 +189,11 @@ func runStopAllWithDeps(ctx context.Context, opts *stopOptions, deps *stopDeps) 
 		}
 	}
 
-	return nil
+	return errors.Join(stopErrors...)
+}
+
+func reportStopWarning(result *orchapi.StopRunResult) {
+	if result != nil && result.Warning != "" {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", result.Warning)
+	}
 }

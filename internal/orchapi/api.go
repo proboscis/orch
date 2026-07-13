@@ -97,9 +97,9 @@ type OrchAPI interface {
 	// Used by restart-from command to create runs that reuse existing worktrees.
 	CreateRun(ctx context.Context, req *CreateRunRequest) (*CreateRunResult, error)
 
-	// StopRun stops a running run.
-	// Sends interrupt to the agent and records cancel status.
-	StopRun(ctx context.Context, ref RunRef) error
+	// StopRun stops a running run. Force allows the canceled status to be
+	// recorded after a session-kill failure, which is returned as a warning.
+	StopRun(ctx context.Context, ref RunRef, force bool) (*StopRunResult, error)
 
 	// MarkRunResolved marks a run done when it is non-terminal and resolves its issue.
 	MarkRunResolved(ctx context.Context, ref RunRef) error

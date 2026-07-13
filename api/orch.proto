@@ -227,9 +227,12 @@ message StopRunRequest {
   string issue_id = 2;
   string run_id = 3;
   RequestContext context = 4;
+  bool force = 5;
 }
 
-message StopRunResponse {}
+message StopRunResponse {
+  string warning = 1;
+}
 
 message ResolveRunRequest {
   string issue_id = 2;
