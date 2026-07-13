@@ -179,7 +179,11 @@ func reapRun(
 	now time.Time,
 	deps sessionReaperDeps,
 ) (reapRunOutcome, error) {
-	reason, due := reapReasonForRun(run, issueStatus, reaperCfg, now)
+	reason, pendingKill := pendingReapReason(run)
+	due := pendingKill
+	if !pendingKill {
+		reason, due = reapReasonForRun(run, issueStatus, reaperCfg, now)
+	}
 	outcome := reapRunOutcome{Due: due, Reason: reason}
 	if !due {
 		return outcome, nil
@@ -187,7 +191,7 @@ func reapRun(
 	if st == nil {
 		return outcome, fmt.Errorf("store required")
 	}
-	if deps.Observe == nil || deps.Persist == nil || deps.Kill == nil {
+	if deps.Kill == nil {
 		return outcome, fmt.Errorf("session reaper dependencies incomplete")
 	}
 
@@ -197,6 +201,16 @@ func reapRun(
 	}
 	if err := validateReaperMultiplexer(run); err != nil {
 		return outcome, err
+	}
+	if pendingKill {
+		if err := attemptReaperKill(run, st, projectID, projectRoot, deps.Kill); err != nil {
+			return outcome, err
+		}
+		outcome.Reaped = true
+		return outcome, nil
+	}
+	if deps.Observe == nil || deps.Persist == nil {
+		return outcome, fmt.Errorf("session reaper dependencies incomplete")
 	}
 
 	observation, err := deps.Observe(run, projectID, projectRoot)
@@ -229,17 +243,48 @@ func reapRun(
 		return outcome, fmt.Errorf("record session_reaped note: %w", err)
 	}
 
-	if err := deps.Kill(run, projectID, projectRoot); err != nil {
-		killErr := fmt.Errorf("kill session %s for %s: %w", sessionName, run.Ref().String(), err)
-		artifactErr := st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(killErr.Error()))
-		if artifactErr != nil {
-			return outcome, errors.Join(killErr, fmt.Errorf("record kill error artifact: %w", artifactErr))
-		}
-		return outcome, killErr
+	if err := attemptReaperKill(run, st, projectID, projectRoot, deps.Kill); err != nil {
+		return outcome, err
 	}
 
 	outcome.Reaped = true
 	return outcome, nil
+}
+
+func attemptReaperKill(
+	run *model.Run,
+	st store.Store,
+	projectID, projectRoot string,
+	kill func(run *model.Run, projectID, projectRoot string) error,
+) error {
+	sessionName := model.GenerateSessionName(run.IssueID, run.RunID)
+	if err := kill(run, projectID, projectRoot); err != nil {
+		killErr := fmt.Errorf("kill session %s for %s: %w", sessionName, run.Ref().String(), err)
+		// The returned error is logged on every pass. Keep only the first
+		// durable copy of a repeated failure so a broken multiplexer cannot
+		// grow the event ledger without bound once the reap note is pending.
+		if mostRecentErrorArtifactMessage(run) == killErr.Error() {
+			return killErr
+		}
+		if artifactErr := st.AppendEvent(run.Ref(), model.NewErrorArtifactEvent(killErr.Error())); artifactErr != nil {
+			return errors.Join(killErr, fmt.Errorf("record kill error artifact: %w", artifactErr))
+		}
+		return killErr
+	}
+	return nil
+}
+
+func mostRecentErrorArtifactMessage(run *model.Run) string {
+	if run == nil {
+		return ""
+	}
+	for i := len(run.Events) - 1; i >= 0; i-- {
+		event := run.Events[i]
+		if event != nil && event.Type == model.EventTypeArtifact && event.Name == "error" {
+			return event.Attrs["message"]
+		}
+	}
+	return ""
 }
 
 func reapReasonForRun(run *model.Run, issueStatus model.IssueStatus, cfg config.ReaperConfig, now time.Time) (reapReason, bool) {

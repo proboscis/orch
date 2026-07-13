@@ -195,15 +195,21 @@ func TestSessionReaperKillFailureRecordsErrorAndRetriesNextPass(t *testing.T) {
 	st, run := createReaperTestRun(t, model.StatusDone, now.Add(-time.Hour), true)
 	cfg := config.DefaultReaperConfig()
 	cfg.TerminalGraceMinutes = 0
+	observeCalls := 0
+	persistCalls := 0
 	killCalls := 0
 	deps := sessionReaperDeps{
 		Observe: func(*model.Run, string, string) (reaperSessionObservation, error) {
+			observeCalls++
 			return reaperSessionObservation{Content: "retry snapshot", SessionAlive: true, WorktreeExists: true}, nil
 		},
-		Persist: persistSessionSnapshot,
+		Persist: func(run *model.Run, content string, now time.Time) (string, error) {
+			persistCalls++
+			return persistSessionSnapshot(run, content, now)
+		},
 		Kill: func(*model.Run, string, string) error {
 			killCalls++
-			if killCalls == 1 {
+			if killCalls <= 2 {
 				return errors.New("injected mux failure")
 			}
 			return nil
@@ -220,26 +226,50 @@ func TestSessionReaperKillFailureRecordsErrorAndRetriesNextPass(t *testing.T) {
 	if retryRun.UpdatedAt.Before(now) {
 		t.Fatalf("precondition: error artifact did not refresh UpdatedAt: %s", retryRun.UpdatedAt)
 	}
-	outcome, err := reapRun(retryRun, model.IssueStatusOpen, st, "project", t.TempDir(), cfg, now.Add(time.Minute), deps)
-	if err != nil {
-		t.Fatalf("retry reap error = %v", err)
+	eventsAfterFirstFailure := len(retryRun.Events)
+	if _, err := reapRun(retryRun, model.IssueStatusOpen, st, "project", t.TempDir(), cfg, now.Add(time.Minute), deps); err == nil || !strings.Contains(err.Error(), "injected mux failure") {
+		t.Fatalf("second reap error = %v", err)
 	}
-	if !outcome.Reaped || killCalls != 2 {
-		t.Fatalf("retry outcome = %#v killCalls=%d", outcome, killCalls)
+
+	afterTwoFailures, err := st.GetRun(run.Ref())
+	if err != nil {
+		t.Fatalf("GetRun() after second failure error = %v", err)
+	}
+	if len(afterTwoFailures.Events) != eventsAfterFirstFailure {
+		t.Fatalf("second identical failure appended events: first=%d second=%d", eventsAfterFirstFailure, len(afterTwoFailures.Events))
+	}
+	var snapshotArtifacts, reapNotes, errorArtifacts int
+	for _, event := range afterTwoFailures.Events {
+		switch {
+		case event.Type == model.EventTypeArtifact && event.Name == "session_snapshot":
+			snapshotArtifacts++
+		case event.Type == model.EventTypeNote && event.Name == model.DaemonNoticeEventName && event.Attrs["kind"] == "session_reaped":
+			reapNotes++
+		case event.Type == model.EventTypeArtifact && event.Name == "error":
+			errorArtifacts++
+		}
+	}
+	if snapshotArtifacts != 1 || reapNotes != 1 || errorArtifacts != 1 {
+		t.Fatalf("bounded retry ledger: snapshots=%d reap_notes=%d errors=%d, want 1 each", snapshotArtifacts, reapNotes, errorArtifacts)
+	}
+	if observeCalls != 1 || persistCalls != 1 || killCalls != 2 {
+		t.Fatalf("retry calls: observe=%d persist=%d kill=%d, want 1,1,2", observeCalls, persistCalls, killCalls)
+	}
+
+	outcome, err := reapRun(afterTwoFailures, model.IssueStatusOpen, st, "project", t.TempDir(), cfg, now.Add(2*time.Minute), deps)
+	if err != nil {
+		t.Fatalf("successful retry reap error = %v", err)
+	}
+	if !outcome.Reaped || killCalls != 3 || observeCalls != 1 || persistCalls != 1 {
+		t.Fatalf("successful retry outcome=%#v observe=%d persist=%d kill=%d", outcome, observeCalls, persistCalls, killCalls)
 	}
 
 	reloaded, err := st.GetRun(run.Ref())
 	if err != nil {
-		t.Fatalf("GetRun() after retry error = %v", err)
+		t.Fatalf("GetRun() after successful retry error = %v", err)
 	}
-	foundError := false
-	for _, event := range reloaded.Events {
-		if event.Type == model.EventTypeArtifact && event.Name == "error" && strings.Contains(event.Attrs["message"], "injected mux failure") {
-			foundError = true
-		}
-	}
-	if !foundError {
-		t.Fatal("kill failure error artifact not found")
+	if len(reloaded.Events) != eventsAfterFirstFailure {
+		t.Fatalf("successful kill-only retry appended events: before=%d after=%d", eventsAfterFirstFailure, len(reloaded.Events))
 	}
 }
 
