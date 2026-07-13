@@ -175,7 +175,7 @@ func TestStepLawPRMismatchNoticeIsNotAStatusChange(t *testing.T) {
 	}
 }
 
-// Incident replay (2026-07-11, proboscis-ema ISSUE-TRD-162 run 5516c4): the
+// Incident replay (2026-07-11, downstream repo ISSUE-TRD-162 run 5516c4): the
 // agent worked, printed a PR URL from a self-invented branch, and idled. Old
 // behavior: waiting with no reason, no feedback, daemon log spam only. New
 // behavior: waiting(pr_branch_mismatch) + exactly one corrective notice; the

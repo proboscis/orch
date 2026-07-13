@@ -24,12 +24,18 @@ runs the first tutorial together with you. Manual setup is below.
 
 ## Quick Start
 
+Prerequisites: a git repository with an `origin` remote, `tmux` (or `zellij`),
+and at least one agent CLI installed **and logged in** (`claude`, `codex`,
+`opencode`, or `gemini`). Full checklist:
+[Prerequisites](./docs/getting-started.md#prerequisites).
+
 ```bash
-# Install (recommended)
+# Install (recommended) — installs to ~/.local/bin. If `orch` is not found
+# afterwards, open a new shell (or source your shell rc) first.
 curl -sSL https://raw.githubusercontent.com/proboscis/orch/main/install.sh | bash
 
-# Or with Go
-go install github.com/proboscis/orch/cmd/orch@latest
+# Or with Go — pin the tag: @latest resolves to the last non-beta release
+go install github.com/proboscis/orch/cmd/orch@v1.7.0-beta
 
 # One-time, inside your git repo (needs an `origin` remote — orch derives
 # project identity from its URL):
@@ -38,7 +44,8 @@ orch daemon repo register "$(pwd)"   # map project identity -> this checkout
 # (daemon and worker start automatically on demand — no manual process management)
 
 # Create an issue — the body is the worker agent's ONLY context, so write a
-# complete brief (goal, constraints, acceptance criteria) in your editor:
+# complete brief (goal, constraints, acceptance criteria) in your editor.
+# --edit opens $EDITOR (falls back to vim); non-interactive: --body "..."
 orch issue create my-task --title "Add hello world function" --edit
 
 # Run an agent
@@ -123,6 +130,8 @@ User interacts: orch attach my-issue
 
 | Status | Meaning | User Action |
 |--------|---------|-------------|
+| `queued` | Run created, agent not started yet | Wait (transitions quickly) |
+| `booting` | Agent is starting up | Wait |
 | `running` | Agent is working | Wait, or attach to watch |
 | `waiting` | Agent needs input | `orch attach` to help |
 | `pr_open` | PR created | Review the PR |

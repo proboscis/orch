@@ -13,7 +13,7 @@
   :status "accepted"
   :scope ["internal/store/file" "internal/cli/issue.go" "internal/daemon"]
   :problem
-    [(fact "agents committed store files via git PRs while orch wrote the same files directly; the proboscis-ema store checkout drifted 340 commits from main and served a resolved issue as open for a month"
+    [(fact "agents committed store files via git PRs while orch wrote the same files directly; a downstream project's store checkout drifted 340 commits from main and served a resolved issue as open for a month"
            :evidence "ISSUE-TRD-162 re-dispatched 2026-07-11 although PR #534 merged 2026-06-12")
      (fact "an operator ssh-append to an issue file stayed invisible to every daemon read until a master restart: FileStore marks its cache dirty only on its OWN writes"
            :evidence "internal/store/file/file.go markCacheDirty call sites; incident 2026-07-12")
@@ -34,7 +34,7 @@
        :counterexamples
          [(counterexample "operator appends a section to an issue .md over ssh; daemon serves the pre-edit body indefinitely (2026-07-12)")
           (counterexample "CLI opens the store file in $EDITOR and saves (runIssueEdit local path)")
-          (counterexample "agent commits VAULT/Issues/*.md in a PR; merge rewrites store files behind the daemon (proboscis-ema, 2026-06..07)")])
+          (counterexample "agent commits VAULT/Issues/*.md in a PR; merge rewrites store files behind the daemon (downstream project, 2026-06..07)")])
      (law drift-fail-fast
        :statement "observed_file_state != cache_state => operation fails with an ADR-0004 violation error naming the file (never silent-stale, never silent-adopt)"
        :counterexamples

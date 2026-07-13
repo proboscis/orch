@@ -15,7 +15,7 @@ Basis: /coupling-core 診断 (2026-06-12)。`docs/design/run-state-machine.md`
   (socket.go ×10, proto_handler.go ×4, cli/tick.go [ADR-0005 Stage 0 で撤去済み],
   cli/repair.go)。
   旧 Go TUI の 2 writer は TUI 廃止と同時に撤去済み。
-- proto_handler.go の 4 箇所が `_ = st.AppendEvent(...)` でエラー握り潰し。
+- proto_handler.go の 4 箇所が `_ = st.AppendEvent(...)` でエラーを黙殺。
 - I2(再起動透過性)・I5–I8 は doc 自身が違反と明記。
 - worker lease は churn(PR #457/#461, c5aba240)があるのに ADR/law 無し。
 - CI: `.github/workflows/quality.yaml` が `make lint`(semgrep)を実行済み
@@ -49,13 +49,13 @@ S4 入場条件「watchlist 全項目が 4 層固定 or 明示隔離」の最小
   「凍結された負債」として列挙 — 新規追加だけが落ちる。
 - exit: 16 箇所目の writer を足した PR が `make lint` で落ちる。
 
-### A2. AppendEvent エラー握り潰しの根絶【決定=frontier / 実装=codex】
+### A2. AppendEvent エラー黙殺の根絶【決定=frontier / 実装=codex】
 - 対象: `proto_handler.go:1513,1564,1606,1657` の `_ = st.AppendEvent(...)`
 - 決定事項(frontier): 失敗時の伝播先 — リクエスト失敗にするか、
   error artifact + ログにするか。fail-fast 原則に従い前者を既定とする。
 - 成果物: 4 箇所の修正 + `.semgrep/` ルール `no-ignored-append-event`
   (`_ = $ST.AppendEvent(...)` パターン禁止)。
-- exit: 握り潰しが lint で再発不能。
+- exit: エラー黙殺が lint で再発不能。
 
 ### A3. routing rule の明文化【frontier、1h】
 - 成果物: `AGENTS.md` に追記 — コア面
