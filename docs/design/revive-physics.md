@@ -45,3 +45,16 @@ codex は同日の doeff ADR-DOE-AGENTS-006 Phase 0 プローブ、codex 0.144.1
 - doeff ADR-DOE-AGENTS-006 の存在論(会話 = 耐久エンティティ、session 行 =
   incarnation)と同型。backend を doeff-sessionhost に差し替える将来の
   メジャー版でも、この意味論はそのまま移行する。
+
+## revive 後の send-keys レース(2026-07-13 実機ゲート検証での実測)
+
+- fresh launch は prompt を **argv** で渡すため REPL の入力受付を待つ必要が
+  ないが、revive の保留メッセージは boot 後に **send-keys** で配送される。
+  resume 中(数秒)の端末に打鍵されたキーは REPL の入力欄が存在する前に
+  素の端末へ流れて**失われる**。実測: 質問文が codex バナーの**上**に
+  生エコーとして表示され、入力としては受理されなかった(revive-gate-live
+  run dfb9f5、第2世代)。
+- 対策(実装済み): revive は resumed REPL が入力プロンプトを描画するまで
+  待って初めて完了とする。マーカー実測値: claude = `❯`、codex 0.144 = `›`。
+  タイムアウト時は半起動セッションを kill して(reaped・セッション無しの
+  一貫状態へ戻し)fail-clearly — 次の send が再試行できる。
