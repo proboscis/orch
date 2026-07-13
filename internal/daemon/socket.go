@@ -5097,6 +5097,8 @@ func (s *SocketServer) handleStopRun(req SendRequest, encoder *json.Encoder) {
 	}
 
 	var stoppedRuns []string
+	var warnings []string
+	var stopErrors []error
 
 	if req.RunID != "" {
 		ref := &model.RunRef{IssueID: model.IssueID(req.IssueID), RunID: model.RunID(req.RunID)}
@@ -5106,10 +5108,14 @@ func (s *SocketServer) handleStopRun(req SendRequest, encoder *json.Encoder) {
 			encoder.Encode(StopRunResponse{OK: false, Error: "not_found"})
 			return
 		}
-		if err := s.stopSingleRun(run, st); err != nil {
+		warning, err := s.stopSingleRun(run, st, req.Force)
+		if err != nil {
 			s.logger.Printf("error stopping run %s#%s: %v", req.IssueID, req.RunID, err)
 			encoder.Encode(StopRunResponse{OK: false, Error: err.Error()})
 			return
+		}
+		if warning != "" {
+			warnings = append(warnings, warning)
 		}
 		stoppedRuns = append(stoppedRuns, string(run.RunID))
 	} else {
@@ -5123,31 +5129,63 @@ func (s *SocketServer) handleStopRun(req SendRequest, encoder *json.Encoder) {
 			return
 		}
 		for _, run := range runs {
-			if err := s.stopSingleRun(run, st); err != nil {
+			warning, err := s.stopSingleRun(run, st, req.Force)
+			if err != nil {
 				s.logger.Printf("error stopping run %s#%s: %v", run.IssueID, run.RunID, err)
+				stopErrors = append(stopErrors, fmt.Errorf("stop %s: %w", run.Ref().String(), err))
 			} else {
+				if warning != "" {
+					warnings = append(warnings, warning)
+				}
 				stoppedRuns = append(stoppedRuns, string(run.RunID))
 			}
 		}
 	}
 
+	if len(stopErrors) > 0 {
+		encoder.Encode(StopRunResponse{
+			OK:           false,
+			Error:        errors.Join(stopErrors...).Error(),
+			Warnings:     warnings,
+			StoppedRuns:  stoppedRuns,
+			StoppedCount: len(stoppedRuns),
+		})
+		return
+	}
+
 	encoder.Encode(StopRunResponse{
 		OK:           true,
+		Warnings:     warnings,
 		StoppedRuns:  stoppedRuns,
 		StoppedCount: len(stoppedRuns),
 	})
 }
 
-func (s *SocketServer) stopSingleRun(run *model.Run, st store.Store) error {
+func (s *SocketServer) stopSingleRun(run *model.Run, st store.Store, force bool) (string, error) {
 	if run.Status == model.StatusDone || run.Status == model.StatusFailed || run.Status == model.StatusCanceled {
-		return nil
+		return "", nil
 	}
 
-	if err := s.stopRunSession(run); err != nil {
-		return err
-	}
+	return finalizeStoppedRun(st, run, force, s.stopRunSession(run))
+}
 
-	return appendRunCanceledByUser(st, run)
+func finalizeStoppedRun(st store.Store, run *model.Run, force bool, sessionKillErr error) (string, error) {
+	if sessionKillErr != nil && !force {
+		return "", sessionKillErr
+	}
+	if err := appendRunCanceledByUser(st, run); err != nil {
+		if sessionKillErr != nil {
+			return "", errors.Join(sessionKillErr, err)
+		}
+		return "", err
+	}
+	if sessionKillErr == nil {
+		return "", nil
+	}
+	return fmt.Sprintf(
+		"session kill failed for run %s; run marked canceled because --force: %v",
+		run.Ref().String(), sessionKillErr,
+	), nil
 }
 
 func (s *SocketServer) stopRunSession(run *model.Run) error {
@@ -5163,10 +5201,9 @@ func (s *SocketServer) stopRunSession(run *model.Run) error {
 		defer cancel()
 		client := agent.NewOpenCodeClient(run.ServerPort)
 		if err := client.Abort(ctx, run.OpenCodeSessionID); err != nil {
-			s.logger.Printf("warning: failed to cancel opencode session %s: %v", run.OpenCodeSessionID, err)
-		} else {
-			s.logger.Printf("canceled opencode session %s for %s#%s", run.OpenCodeSessionID, run.IssueID, run.RunID)
+			return fmt.Errorf("cancel opencode session %q for run %s: %w", run.OpenCodeSessionID, run.Ref().String(), err)
 		}
+		s.logger.Printf("canceled opencode session %s for %s#%s", run.OpenCodeSessionID, run.IssueID, run.RunID)
 	} else {
 		if run.Agent == string(agent.AgentOpenCode) {
 			s.logger.Printf("debug: skipping opencode API cancel (port=%d, session=%q), falling back to multiplexer",
@@ -5177,16 +5214,41 @@ func (s *SocketServer) stopRunSession(run *model.Run) error {
 			sessionName = model.GenerateSessionName(run.IssueID, run.RunID)
 		}
 
-		muxType, _ := multiplexer.ParseType(run.Multiplexer)
-		mux, _ := multiplexer.GetMultiplexer(muxType)
-		if mux != nil && mux.HasSession(sessionName) {
-			if err := mux.KillSession(sessionName); err != nil {
-				s.logger.Printf("warning: failed to kill session %s: %v", sessionName, err)
-			}
+		muxType, err := validateStopMultiplexer(run)
+		if err != nil {
+			return err
+		}
+		mux, err := multiplexer.GetMultiplexer(muxType)
+		if err != nil {
+			return fmt.Errorf("resolve Multiplexer field %q for run %s: %w", run.Multiplexer, run.Ref().String(), err)
+		}
+		if mux == nil {
+			return fmt.Errorf("resolve Multiplexer field %q for run %s: no multiplexer returned", run.Multiplexer, run.Ref().String())
+		}
+		if err := mux.KillSession(sessionName); err != nil {
+			return fmt.Errorf("kill session %q for run %s using Multiplexer field %q: %w", sessionName, run.Ref().String(), run.Multiplexer, err)
 		}
 	}
 
 	return nil
+}
+
+func validateStopMultiplexer(run *model.Run) (multiplexer.Type, error) {
+	if run == nil {
+		return "", fmt.Errorf("run required")
+	}
+	raw := strings.TrimSpace(run.Multiplexer)
+	if raw == "" {
+		return "", fmt.Errorf("run %s has empty Multiplexer field; refusing session stop", run.Ref().String())
+	}
+	muxType, err := multiplexer.ParseType(raw)
+	if err != nil {
+		return "", fmt.Errorf("run %s has invalid Multiplexer field %q: %w", run.Ref().String(), raw, err)
+	}
+	if muxType == multiplexer.TypeAuto {
+		return "", fmt.Errorf("run %s has non-concrete Multiplexer field %q; refusing session stop", run.Ref().String(), raw)
+	}
+	return muxType, nil
 }
 
 func appendRunCanceledByUser(st store.Store, run *model.Run) error {

@@ -6164,9 +6164,12 @@ func TestStopSingleRunOpencode(t *testing.T) {
 			OpenCodeSessionID: "sess_123",
 		}
 
-		err := server.stopSingleRun(run, st)
+		warning, err := server.stopSingleRun(run, st, false)
 		if err != nil {
 			t.Fatalf("stopSingleRun() error = %v", err)
+		}
+		if warning != "" {
+			t.Fatalf("stopSingleRun() warning = %q", warning)
 		}
 
 		if !abortCalled {
@@ -6184,7 +6187,7 @@ func TestStopSingleRunOpencode(t *testing.T) {
 		}
 	})
 
-	t.Run("opencode run without session falls back to multiplexer", func(t *testing.T) {
+	t.Run("opencode fallback rejects empty multiplexer", func(t *testing.T) {
 		st.appendedEvents = nil
 
 		logger := log.New(io.Discard, "", 0)
@@ -6199,17 +6202,21 @@ func TestStopSingleRunOpencode(t *testing.T) {
 			OpenCodeSessionID: "",
 		}
 
-		err := server.stopSingleRun(run, st)
-		if err != nil {
-			t.Fatalf("stopSingleRun() error = %v", err)
+		_, err := server.stopSingleRun(run, st, false)
+		if err == nil {
+			t.Fatal("stopSingleRun() error = nil, want empty Multiplexer field error")
 		}
-
-		if len(st.appendedEvents) != 1 {
-			t.Fatalf("expected 1 event appended, got %d", len(st.appendedEvents))
+		for _, want := range []string{"test-issue#run-2", "empty Multiplexer field"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("stopSingleRun() error = %q, want substring %q", err, want)
+			}
+		}
+		if len(st.appendedEvents) != 0 {
+			t.Fatalf("expected no event on multiplexer validation error, got %d", len(st.appendedEvents))
 		}
 	})
 
-	t.Run("abort error still appends canceled event", func(t *testing.T) {
+	t.Run("abort error propagates without canceled event", func(t *testing.T) {
 		st.appendedEvents = nil
 
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -6230,17 +6237,19 @@ func TestStopSingleRunOpencode(t *testing.T) {
 			OpenCodeSessionID: "sess_456",
 		}
 
-		err := server.stopSingleRun(run, st)
-		if err != nil {
-			t.Fatalf("stopSingleRun() error = %v", err)
+		_, err := server.stopSingleRun(run, st, false)
+		if err == nil {
+			t.Fatal("stopSingleRun() error = nil, want opencode abort error")
 		}
-
-		if len(st.appendedEvents) != 1 {
-			t.Fatalf("expected 1 event appended even on abort error, got %d", len(st.appendedEvents))
+		if !strings.Contains(err.Error(), `cancel opencode session "sess_456" for run test-issue#run-3`) {
+			t.Fatalf("stopSingleRun() error = %q, want run and opencode session", err)
+		}
+		if len(st.appendedEvents) != 0 {
+			t.Fatalf("expected no event on abort error, got %d", len(st.appendedEvents))
 		}
 	})
 
-	t.Run("non-opencode run uses multiplexer kill", func(t *testing.T) {
+	t.Run("non-concrete multiplexer errors", func(t *testing.T) {
 		st.appendedEvents = nil
 
 		logger := log.New(io.Discard, "", 0)
@@ -6252,15 +6261,18 @@ func TestStopSingleRunOpencode(t *testing.T) {
 			Status:      model.StatusRunning,
 			Agent:       "claude",
 			SessionName: "test-session",
+			Multiplexer: "auto",
 		}
 
-		err := server.stopSingleRun(run, st)
-		if err != nil {
-			t.Fatalf("stopSingleRun() error = %v", err)
+		_, err := server.stopSingleRun(run, st, false)
+		if err == nil {
+			t.Fatal("stopSingleRun() error = nil, want non-concrete Multiplexer field error")
 		}
-
-		if len(st.appendedEvents) != 1 {
-			t.Fatalf("expected 1 event appended, got %d", len(st.appendedEvents))
+		if !strings.Contains(err.Error(), `non-concrete Multiplexer field "auto"`) {
+			t.Fatalf("stopSingleRun() error = %q, want non-concrete Multiplexer field", err)
+		}
+		if len(st.appendedEvents) != 0 {
+			t.Fatalf("expected no event on multiplexer validation error, got %d", len(st.appendedEvents))
 		}
 	})
 
@@ -6278,9 +6290,12 @@ func TestStopSingleRunOpencode(t *testing.T) {
 				Agent:   "opencode",
 			}
 
-			err := server.stopSingleRun(run, st)
+			warning, err := server.stopSingleRun(run, st, false)
 			if err != nil {
 				t.Fatalf("stopSingleRun() error = %v for status %s", err, status)
+			}
+			if warning != "" {
+				t.Fatalf("stopSingleRun() warning = %q for status %s", warning, status)
 			}
 		}
 
@@ -6288,6 +6303,70 @@ func TestStopSingleRunOpencode(t *testing.T) {
 			t.Errorf("expected no events for terminal statuses, got %d", len(st.appendedEvents))
 		}
 	})
+}
+
+func TestHandleProtoStopRunKillFailurePolicy(t *testing.T) {
+	binDir := t.TempDir()
+	tmuxPath := filepath.Join(binDir, "tmux")
+	if err := os.WriteFile(tmuxPath, []byte("#!/bin/sh\necho simulated kill failure >&2\nexit 23\n"), 0o755); err != nil {
+		t.Fatalf("write fake tmux: %v", err)
+	}
+	t.Setenv("PATH", binDir)
+
+	run := &model.Run{
+		IssueID:     "stop-kill-failure",
+		RunID:       "run-1",
+		Status:      model.StatusRunning,
+		Agent:       "claude",
+		SessionName: "run-stop-kill-failure-run-1",
+		Multiplexer: "tmux",
+	}
+	st := &mockStore{
+		runs:   map[string]*model.Run{run.Ref().String(): run},
+		issues: make(map[string]*model.Issue),
+	}
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	registerRepoContextForTest(t, server, "stop-project", t.TempDir(), st)
+	ctx := &orchpb.RequestContext{ProjectId: "stop-project"}
+
+	resp := server.handleProtoStopRun(&orchpb.StopRunRequest{
+		IssueId: string(run.IssueID),
+		RunId:   string(run.RunID),
+		Context: ctx,
+	})
+	if resp.Ok {
+		t.Fatal("default stop succeeded despite multiplexer kill failure")
+	}
+	for _, want := range []string{`kill session "run-stop-kill-failure-run-1"`, "stop-kill-failure#run-1", "exit status 23"} {
+		if !strings.Contains(resp.Error, want) {
+			t.Fatalf("default stop error = %q, want substring %q", resp.Error, want)
+		}
+	}
+	if run.Status != model.StatusRunning {
+		t.Fatalf("default stop changed status to %q after kill failure, want running", run.Status)
+	}
+
+	resp = server.handleProtoStopRun(&orchpb.StopRunRequest{
+		IssueId: string(run.IssueID),
+		RunId:   string(run.RunID),
+		Force:   true,
+		Context: ctx,
+	})
+	if !resp.Ok {
+		t.Fatalf("forced stop failed: %s", resp.Error)
+	}
+	stopResp := resp.GetStopRun()
+	if stopResp == nil {
+		t.Fatal("forced stop response missing stop_run payload")
+	}
+	for _, want := range []string{"session kill failed", "stop-kill-failure#run-1", "marked canceled because --force", "exit status 23"} {
+		if !strings.Contains(stopResp.Warning, want) {
+			t.Fatalf("forced stop warning = %q, want substring %q", stopResp.Warning, want)
+		}
+	}
+	if run.Status != model.StatusCanceled {
+		t.Fatalf("forced stop status = %q, want canceled", run.Status)
+	}
 }
 
 func getPortFromURL(t *testing.T, rawURL string) int {
@@ -6704,10 +6783,14 @@ func TestRunMutationUsesMasterSnapshotAndHostAffinity(t *testing.T) {
 	stopResp := server.handleProtoStopRun(&orchpb.StopRunRequest{
 		IssueId: string(run.IssueID),
 		RunId:   string(run.RunID),
+		Force:   true,
 		Context: ctx,
 	})
 	if !stopResp.Ok {
-		t.Fatalf("stop should mark master run canceled even without dead-host worker, got %q", stopResp.Error)
+		t.Fatalf("forced stop should mark master run canceled even without dead-host worker, got %q", stopResp.Error)
+	}
+	if warning := stopResp.GetStopRun().GetWarning(); !strings.Contains(warning, "marked canceled because --force") {
+		t.Fatalf("forced stop warning = %q, want kill failure surfaced", warning)
 	}
 	if run.Status != model.StatusCanceled {
 		t.Fatalf("run.Status = %q, want canceled", run.Status)

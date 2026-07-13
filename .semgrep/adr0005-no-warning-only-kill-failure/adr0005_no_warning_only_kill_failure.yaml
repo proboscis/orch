@@ -1,19 +1,4 @@
 rules:
-  - id: adr0004-cli-no-editor-on-store-path
-    pattern: openInEditor($ISSUE.Path)
-    paths:
-      include:
-        - /internal/cli/
-        - /.semgrep/adr0004-cli-no-editor-on-store-path/
-    message: >
-      ADR-0004 R2: the CLI must not open a store file in $EDITOR. Edit a
-      daemon-fetched temporary copy and submit the content through UpdateIssue.
-    severity: ERROR
-    languages: [go]
-    metadata:
-      category: invariant
-      violation: cli-editor-on-store-path
-
   - id: adr0005-no-warning-only-kill-failure
     languages: [go]
     message: >

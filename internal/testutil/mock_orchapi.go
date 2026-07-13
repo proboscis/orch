@@ -119,7 +119,7 @@ var _ orchapi.OrchAPI = &OrchAPIMock{}
 //			StartRunFunc: func(ctx context.Context, req *orchapi.StartRunRequest) (*orchapi.StartRunResult, error) {
 //				panic("mock out the StartRun method")
 //			},
-//			StopRunFunc: func(ctx context.Context, ref orchapi.RunRef) error {
+//			StopRunFunc: func(ctx context.Context, ref orchapi.RunRef, force bool) (*orchapi.StopRunResult, error) {
 //				panic("mock out the StopRun method")
 //			},
 //			StreamRunEventsFunc: func(ctx context.Context, filter *orchapi.RunEventFilter) (orchapi.RunEventStream, error) {
@@ -247,7 +247,7 @@ type OrchAPIMock struct {
 	StartRunFunc func(ctx context.Context, req *orchapi.StartRunRequest) (*orchapi.StartRunResult, error)
 
 	// StopRunFunc mocks the StopRun method.
-	StopRunFunc func(ctx context.Context, ref orchapi.RunRef) error
+	StopRunFunc func(ctx context.Context, ref orchapi.RunRef, force bool) (*orchapi.StopRunResult, error)
 
 	// StreamRunEventsFunc mocks the StreamRunEvents method.
 	StreamRunEventsFunc func(ctx context.Context, filter *orchapi.RunEventFilter) (orchapi.RunEventStream, error)
@@ -516,6 +516,8 @@ type OrchAPIMock struct {
 			Ctx context.Context
 			// Ref is the ref argument value.
 			Ref orchapi.RunRef
+			// Force is the force argument value.
+			Force bool
 		}
 		// StreamRunEvents holds details about calls to the StreamRunEvents method.
 		StreamRunEvents []struct {
@@ -1821,21 +1823,23 @@ func (mock *OrchAPIMock) StartRunCalls() []struct {
 }
 
 // StopRun calls StopRunFunc.
-func (mock *OrchAPIMock) StopRun(ctx context.Context, ref orchapi.RunRef) error {
+func (mock *OrchAPIMock) StopRun(ctx context.Context, ref orchapi.RunRef, force bool) (*orchapi.StopRunResult, error) {
 	if mock.StopRunFunc == nil {
 		panic("OrchAPIMock.StopRunFunc: method is nil but OrchAPI.StopRun was just called")
 	}
 	callInfo := struct {
-		Ctx context.Context
-		Ref orchapi.RunRef
+		Ctx   context.Context
+		Ref   orchapi.RunRef
+		Force bool
 	}{
-		Ctx: ctx,
-		Ref: ref,
+		Ctx:   ctx,
+		Ref:   ref,
+		Force: force,
 	}
 	mock.lockStopRun.Lock()
 	mock.calls.StopRun = append(mock.calls.StopRun, callInfo)
 	mock.lockStopRun.Unlock()
-	return mock.StopRunFunc(ctx, ref)
+	return mock.StopRunFunc(ctx, ref, force)
 }
 
 // StopRunCalls gets all the calls that were made to StopRun.
@@ -1843,12 +1847,14 @@ func (mock *OrchAPIMock) StopRun(ctx context.Context, ref orchapi.RunRef) error 
 //
 //	len(mockedOrchAPI.StopRunCalls())
 func (mock *OrchAPIMock) StopRunCalls() []struct {
-	Ctx context.Context
-	Ref orchapi.RunRef
+	Ctx   context.Context
+	Ref   orchapi.RunRef
+	Force bool
 } {
 	var calls []struct {
-		Ctx context.Context
-		Ref orchapi.RunRef
+		Ctx   context.Context
+		Ref   orchapi.RunRef
+		Force bool
 	}
 	mock.lockStopRun.RLock()
 	calls = mock.calls.StopRun

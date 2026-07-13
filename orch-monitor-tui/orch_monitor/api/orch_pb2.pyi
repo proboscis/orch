@@ -372,18 +372,22 @@ class CreateRunResponse(_message.Message):
     def __init__(self, issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., path: _Optional[str] = ...) -> None: ...
 
 class StopRunRequest(_message.Message):
-    __slots__ = ("issue_id", "run_id", "context")
+    __slots__ = ("issue_id", "run_id", "context", "force")
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     CONTEXT_FIELD_NUMBER: _ClassVar[int]
+    FORCE_FIELD_NUMBER: _ClassVar[int]
     issue_id: str
     run_id: str
     context: RequestContext
-    def __init__(self, issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
+    force: bool
+    def __init__(self, issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ..., force: _Optional[bool] = ...) -> None: ...
 
 class StopRunResponse(_message.Message):
-    __slots__ = ()
-    def __init__(self) -> None: ...
+    __slots__ = ("warning",)
+    WARNING_FIELD_NUMBER: _ClassVar[int]
+    warning: str
+    def __init__(self, warning: _Optional[str] = ...) -> None: ...
 
 class ResolveRunRequest(_message.Message):
     __slots__ = ("issue_id", "run_id", "context")

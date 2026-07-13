@@ -219,6 +219,11 @@ func TestExecuteLeaseEffectStopRunUsesSnapshotWithEmptyWorkerRunStore(t *testing
 	if _, err := st.GetRun(&model.RunRef{IssueID: "legacy-issue", RunID: "legacy-run"}); err == nil {
 		t.Fatal("precondition failed: worker store unexpectedly has legacy run")
 	}
+	binDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(binDir, "tmux"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write fake tmux: %v", err)
+	}
+	t.Setenv("PATH", binDir)
 
 	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, log.New(io.Discard, "", 0))
 	server.SetWorkerIdentity(HostWorkerID("dead-host"), "dead-host")

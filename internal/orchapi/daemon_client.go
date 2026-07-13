@@ -314,13 +314,16 @@ func (c *DaemonClient) StartRun(ctx context.Context, req *StartRunRequest) (*Sta
 	}, nil
 }
 
-func (c *DaemonClient) StopRun(ctx context.Context, ref RunRef) error {
+func (c *DaemonClient) StopRun(ctx context.Context, ref RunRef, force bool) (*StopRunResult, error) {
 	run, err := c.ResolveRun(ctx, ref)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	_, err = c.proto.StopRun(string(run.IssueID), string(run.RunID), false)
-	return err
+	resp, err := c.proto.StopRun(string(run.IssueID), string(run.RunID), force)
+	if err != nil {
+		return nil, err
+	}
+	return &StopRunResult{Warning: resp.Warning}, nil
 }
 
 func (c *DaemonClient) MarkRunResolved(ctx context.Context, ref RunRef) error {

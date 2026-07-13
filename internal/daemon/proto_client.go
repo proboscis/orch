@@ -771,6 +771,7 @@ func (c *ProtoClient) StopRun(issueID, runID string, force bool) (*StopRunRespon
 			StopRun: &orchpb.StopRunRequest{
 				IssueId: issueID,
 				RunId:   runID,
+				Force:   force,
 				Context: c.requestContext(c.projectRoot),
 			},
 		},
@@ -785,8 +786,14 @@ func (c *ProtoClient) StopRun(issueID, runID string, force bool) (*StopRunRespon
 		return nil, fmt.Errorf("daemon error: %s", resp.Error)
 	}
 
+	stopResp := resp.GetStopRun()
+	if stopResp == nil {
+		return nil, fmt.Errorf("unexpected response type")
+	}
+
 	return &StopRunResponse{
 		OK:           true,
+		Warning:      stopResp.Warning,
 		StoppedCount: 1,
 	}, nil
 }

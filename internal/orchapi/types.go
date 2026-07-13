@@ -387,6 +387,10 @@ type CreateRunResult struct {
 	Path    string
 }
 
+type StopRunResult struct {
+	Warning string
+}
+
 type AppendEventResult struct {
 	Skipped bool
 	Reason  string

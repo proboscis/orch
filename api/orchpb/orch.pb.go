@@ -1710,6 +1710,7 @@ type StopRunRequest struct {
 	IssueId       string                 `protobuf:"bytes,2,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"`
 	RunId         string                 `protobuf:"bytes,3,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	Context       *RequestContext        `protobuf:"bytes,4,opt,name=context,proto3" json:"context,omitempty"`
+	Force         bool                   `protobuf:"varint,5,opt,name=force,proto3" json:"force,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1765,8 +1766,16 @@ func (x *StopRunRequest) GetContext() *RequestContext {
 	return nil
 }
 
+func (x *StopRunRequest) GetForce() bool {
+	if x != nil {
+		return x.Force
+	}
+	return false
+}
+
 type StopRunResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	Warning       string                 `protobuf:"bytes,1,opt,name=warning,proto3" json:"warning,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1799,6 +1808,13 @@ func (x *StopRunResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use StopRunResponse.ProtoReflect.Descriptor instead.
 func (*StopRunResponse) Descriptor() ([]byte, []int) {
 	return file_orch_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *StopRunResponse) GetWarning() string {
+	if x != nil {
+		return x.Warning
+	}
+	return ""
 }
 
 type ResolveRunRequest struct {
@@ -10977,12 +10993,14 @@ const file_orch_proto_rawDesc = "" +
 	"\x11CreateRunResponse\x12\x19\n" +
 	"\bissue_id\x18\x01 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x12\n" +
-	"\x04path\x18\x03 \x01(\tR\x04path\"u\n" +
+	"\x04path\x18\x03 \x01(\tR\x04path\"\x8b\x01\n" +
 	"\x0eStopRunRequest\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\x121\n" +
-	"\acontext\x18\x04 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"\x11\n" +
-	"\x0fStopRunResponse\"x\n" +
+	"\acontext\x18\x04 \x01(\v2\x17.orch.v1.RequestContextR\acontext\x12\x14\n" +
+	"\x05force\x18\x05 \x01(\bR\x05force\"+\n" +
+	"\x0fStopRunResponse\x12\x18\n" +
+	"\awarning\x18\x01 \x01(\tR\awarning\"x\n" +
 	"\x11ResolveRunRequest\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\x121\n" +
