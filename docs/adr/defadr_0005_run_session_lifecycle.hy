@@ -85,11 +85,11 @@
        :enforcement-note "internal/agent/claude_test.go / codex_test.go resume argv contracts; internal/daemon/revive_test.go identity fold assertions; measured physics docs/design/revive-physics.md")]
   :enforcement
     [(defsemgrep adr0005-no-warning-only-kill-failure
-       :languages ["generic"]
-       :message "ADR-0005 R3/LS6: a failed session kill must produce an error artifact and retry, never a warning-only log"
-       :pattern "warning: failed to kill session"
-       :bad ["s.logger.Printf(\"warning: failed to kill session %s: %v\", sessionName, err)\nreturn nil"]
-       :good ["return fmt.Errorf(\"kill session %s: %w (ADR-0005: reaper will retry; recorded as error artifact)\", sessionName, err)"])
+       "adr0005-no-warning-only-kill-failure"
+       [{"relative-path" "internal/daemon/bad_stop_kill.go"
+         "source" "if err := mux.KillSession(sessionName); err != nil {\n  logger.Printf(\"warning: failed to kill session %s: %v\", sessionName, err)\n}\nreturn nil\n"}]
+       [{"relative-path" "internal/daemon/good_stop_kill.go"
+         "source" "if err := mux.KillSession(sessionName); err != nil {\n  return fmt.Errorf(\"kill session %s: %w\", sessionName, err)\n}\nreturn nil\n"}])
      (defsemgrep adr0005-tick-stays-dead
        :languages ["generic"]
        :message "ADR-0005 R7: orch tick was removed (its resume event had zero consumers); agents are controlled via orch send — do not reintroduce"

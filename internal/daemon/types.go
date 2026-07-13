@@ -805,6 +805,8 @@ type RunSnapshot struct {
 type StopRunResponse struct {
 	OK           bool     `json:"ok"`
 	Error        string   `json:"error,omitempty"`
+	Warning      string   `json:"warning,omitempty"`
+	Warnings     []string `json:"warnings,omitempty"`
 	StoppedRuns  []string `json:"stopped_runs,omitempty"`
 	StoppedCount int      `json:"stopped_count"`
 }

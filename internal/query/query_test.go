@@ -63,14 +63,17 @@ func (m *mockAPI) ListRuns(ctx context.Context, filter *orchapi.ListRunsFilter) 
 			})
 		}
 		runs = append(runs, &orchapi.Run{
-			IssueID:   r.IssueID,
-			RunID:     r.RunID,
-			Status:    orchapi.RunStatus(r.Status),
-			Phase:     string(r.Phase),
-			Agent:     r.Agent,
-			StartedAt: r.StartedAt,
-			UpdatedAt: r.UpdatedAt,
-			Events:    events,
+			IssueID:                r.IssueID,
+			RunID:                  r.RunID,
+			Status:                 orchapi.RunStatus(r.Status),
+			Phase:                  string(r.Phase),
+			Agent:                  r.Agent,
+			AgentSessionID:         r.AgentSessionID,
+			SessionState:           r.SessionState,
+			AgentSessionGeneration: r.AgentSessionGeneration,
+			StartedAt:              r.StartedAt,
+			UpdatedAt:              r.UpdatedAt,
+			Events:                 events,
 		})
 	}
 	return &orchapi.ListRunsResult{Runs: runs}, nil
@@ -82,7 +85,9 @@ func (m *mockAPI) StartRun(ctx context.Context, req *orchapi.StartRunRequest) (*
 func (m *mockAPI) CreateRun(ctx context.Context, req *orchapi.CreateRunRequest) (*orchapi.CreateRunResult, error) {
 	return nil, nil
 }
-func (m *mockAPI) StopRun(ctx context.Context, ref orchapi.RunRef) error { return nil }
+func (m *mockAPI) StopRun(ctx context.Context, ref orchapi.RunRef, force bool) (*orchapi.StopRunResult, error) {
+	return &orchapi.StopRunResult{}, nil
+}
 func (m *mockAPI) MarkRunResolved(ctx context.Context, ref orchapi.RunRef) error {
 	return nil
 }
@@ -326,6 +331,49 @@ func TestQueryViews(t *testing.T) {
 
 	if len(result.Rows) != 2 {
 		t.Errorf("expected 2 rows from runs_v, got %d", len(result.Rows))
+	}
+}
+
+func TestQueryRunsExposeAgentSessionLifecycle(t *testing.T) {
+	now := time.Now()
+	api := &mockAPI{
+		issues: []*model.Issue{
+			{ID: "issue-1", Title: "Test Issue", Status: model.IssueStatusOpen},
+		},
+		runs: []*model.Run{
+			{
+				IssueID:                "issue-1",
+				RunID:                  "run-1",
+				Status:                 model.StatusDone,
+				AgentSessionID:         "33333333-3333-3333-3333-333333333333",
+				SessionState:           "reaped(revivable)",
+				AgentSessionGeneration: 1,
+				StartedAt:              now,
+				UpdatedAt:              now,
+			},
+		},
+	}
+
+	engine, err := NewEngine(api, nil)
+	if err != nil {
+		t.Fatalf("NewEngine failed: %v", err)
+	}
+	defer engine.Close()
+
+	for _, table := range []string{"runs", "runs_v"} {
+		result, err := engine.Execute("SELECT agent_session_id, session_state FROM " + table)
+		if err != nil {
+			t.Fatalf("Execute %s lifecycle query failed: %v", table, err)
+		}
+		if len(result.Rows) != 1 {
+			t.Fatalf("%s lifecycle query returned %d rows, want 1", table, len(result.Rows))
+		}
+		if got := result.Rows[0][0]; got != "33333333-3333-3333-3333-333333333333" {
+			t.Errorf("%s agent_session_id = %v, want recorded identity", table, got)
+		}
+		if got := result.Rows[0][1]; got != "reaped(revivable)" {
+			t.Errorf("%s session_state = %v, want reaped(revivable)", table, got)
+		}
 	}
 }
 

@@ -1910,16 +1910,17 @@ func (s *SocketServer) handleProtoStopRun(req *orchpb.StopRunRequest) *orchpb.Re
 		sessionKillErr = err
 	}
 
-	if sessionKillErr != nil {
-		s.logger.Printf("stop_run session kill skipped for %s#%s: %v", run.IssueID, run.RunID, sessionKillErr)
+	warning, err := finalizeStoppedRun(st, run, req.Force, sessionKillErr)
+	if err != nil {
+		return errorResponse(fmt.Sprintf("failed to stop run %s: %v", run.Ref().String(), err))
 	}
-	if err := appendRunCanceledByUser(st, run); err != nil {
-		return errorResponse(fmt.Sprintf("failed to mark run canceled in master store for project %q: %v", projectID, err))
+	if warning != "" {
+		s.logger.Printf("stop_run forced cancellation: %s", warning)
 	}
 
 	return &orchpb.Response{
 		Ok:       true,
-		Response: &orchpb.Response_StopRun{StopRun: &orchpb.StopRunResponse{}},
+		Response: &orchpb.Response_StopRun{StopRun: &orchpb.StopRunResponse{Warning: warning}},
 	}
 }
 
