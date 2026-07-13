@@ -1,10 +1,18 @@
 # orch run-session lifecycle — master plan (2026-07-13)
 
-Status: planning complete / implementation not started
+Status: in progress — Stage 0 / Stage 1 / T2c merged(PR #531 / #532 / #533、2026-07-13)。残 = Stage 2(reaper)・Stage 3(revive)・Stage 4(観測面)。
 Basis: ADR-0005 (`docs/adr/defadr_0005_run_session_lifecycle.hy`)。
 2026-07-11 インシデント(terminal run のセッション 25 個が最大 5.5 日生存、
 CPU 4 コア焼却、`orch repair --force` で回収不能)の根本対策。
 設計議論はユーザー + frontier で 2026-07-12..13 に確定済み。
+
+> **2026-07-13 追記(所有者裁定)**: P-1/P-2(coupling-core-roadmap.md)の
+> 根治方向 — orch backend の doeff-sessionhost 化 — は合意済みだが、
+> **beta 期間中は現行 backend を維持**し、差し替えは beta 後の大型
+> バージョンアップとして行う。本 plan の残 stage(2〜4)は現行 backend の
+> 枠内で beta 配布前に完遂する。前提工事(ADR-DOE-AGENTS-006
+> conversation/resume/fork + S21 conformance)は doeff 側 main に merge 済み
+> (doeff PR #517/#518/#519)。
 
 ## Source of truth
 
@@ -76,13 +84,13 @@ ADR-0005 (law LS1-LS6)
 
 | ID | source | 作業 | red counterexample | green 機構 | status |
 |----|--------|------|--------------------|-----------|--------|
-| T0a | R7/F5 | cli/tick.go + tick_test.go + root.go:180 登録 + integration test + docs(commands/statuses/roadmap/plugin reference)撤去。proto ResumeRun RPC 撤去 | docs に `orch tick` が残る(semgrep bad fixture) | 削除 + `adr0005-tick-stays-dead` | todo |
-| T1a | R1 | claude: launch で UUID 発番、`--session-id` 付与(agent/claude.go)+ `agent_session` artifact append(launch ladder、error-artifact 先例に倣う) | 起動後の run record に claude session id が無い(test: DeriveState fold) | LaunchConfig 拡張 + artifact append + fold(model/run.go、opencode_session 同型) | todo |
-| T1b | R1 | codex: boot 後 `$CODEX_HOME/sessions/**/rollout-*.jsonl` 先頭行 `payload.cwd == worktree_path` で id 解決 → 同 artifact | codex run に識別子無し | boot 後 resolver(リトライ付き、見つからなければ error artifact = unreapable) | todo |
-| T1c | R1 | model.Run/orchapi.Run/RunSnapshot/query DDL+loader+view に AgentSessionID 面出し | query で引けない | F4 の opencode_session 配線の複製 | todo |
+| T0a | R7/F5 | cli/tick.go + tick_test.go + root.go:180 登録 + integration test + docs(commands/statuses/roadmap/plugin reference)撤去。proto ResumeRun RPC 撤去 | docs に `orch tick` が残る(semgrep bad fixture) | 削除 + `adr0005-tick-stays-dead` | **done**(PR #531) |
+| T1a | R1 | claude: launch で UUID 発番、`--session-id` 付与(agent/claude.go)+ `agent_session` artifact append(launch ladder、error-artifact 先例に倣う) | 起動後の run record に claude session id が無い(test: DeriveState fold) | LaunchConfig 拡張 + artifact append + fold(model/run.go、opencode_session 同型) | **done**(PR #532) |
+| T1b | R1 | codex: boot 後 `$CODEX_HOME/sessions/**/rollout-*.jsonl` 先頭行 `payload.cwd == worktree_path` で id 解決 → 同 artifact | codex run に識別子無し | boot 後 resolver(リトライ付き、見つからなければ error artifact = unreapable) | **done**(PR #532) |
+| T1c | R1 | model.Run/orchapi.Run/RunSnapshot/query DDL+loader+view に AgentSessionID 面出し | query で引けない | F4 の opencode_session 配線の複製 | **done**(PR #532、file store run index cache の拡張 + version bump 4→5 込み) |
 | T2a | R2 | reaper reconciler: daemon tick 兄弟パス + `reaper:` config(terminal_grace=10m, resolved_grace=1h, idle_ttl=168h)+ 全 status ListRuns + issue status 参照 | 2026-07-11 再現: terminal run のセッションが grace 後も生存 | 新パス(status 書込なし、note/artifact のみ) | todo |
 | T2b | R3/F11 | reap protocol: CapturePane→sidecar file + `session_snapshot` artifact → `session_reaped` note → KillSession。失敗= error artifact+retry | kill 前に note が無い/失敗が warning | 実装順序を test で固定 | todo |
-| T2c | LS3 | gatherer が session_reaped/revived note を fold→観測に注入、step() O3 腕が reap 済み世代の gone を吸収(dead-check 不進行)。**コア変更: frontier+human** | reap→3 gone→偽 failed | run-state-machine.md §改訂同梱 + step property test | todo |
+| T2c | LS3 | gatherer が session_reaped/revived note を fold→観測に注入、step() O3 腕が reap 済み世代の gone を吸収(dead-check 不進行)。**コア変更: frontier+human** | reap→3 gone→偽 failed | run-state-machine.md §改訂同梱 + step property test | **done**(PR #533、§12 L-S3) |
 | T2d | F3 | findOrphanedSessions を status-aware に(terminal run のセッション報告)+ repair help の worktree 虚偽記載修正 | 25 個が repair で報告されない | expected 集合に status 条件 | todo |
 | T3a | R5 | send/attach auto-revive: reaped 判定→前提検証(stored facts)→同名セッション再 boot(claude --resume chain-tip / codex resume)→ `session_revived` note + 新世代 agent_session → 送信続行。terminal は source=user status event で再入 | reaped run へ send がエラー/黙って新規文脈 | daemon 側 revive 経路(launch ladder 変種) | todo |
 | T3b | R8 | delete が kill(R3 経由)してから record 削除。clean が `worktree_removed` note 記録。restart-from(run 参照)の worktree 消失エラーに `--branch` 導線明記 | delete 後セッション残存 / clean 後 revive が黙って fresh | 各 handler 修正 | todo |
@@ -131,7 +139,7 @@ orch 委譲せず親セッション(frontier+human)で行う。
 
 ## Immediate next action
 
-Stage 0(T0a)の red を立てる: `adr0005-tick-stays-dead` の bad fixture が
-現 docs に実在することを確認(`rg -n "orch tick" docs claude-plugins`)→
-tick 撤去 issue を作成し orch run で委譲。並行して Stage 1 の red
-(agent_session fold test)を書き始める。
+(2026-07-13 更新)Stage 0 / Stage 1 / T2c は merge 済み。次は Stage 2:
+issue `adr0005-s2-session-reaper`(verified issue、前提 PR #533 merge 済み)を
+orch run で dispatch。merge 後 Stage 3(T3a はコア隣接 = frontier + 人間、
+T3b/T3c は委譲)→ Stage 4。beta 配布は Stage 4 完了後。
