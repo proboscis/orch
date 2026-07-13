@@ -5225,8 +5225,10 @@ func (s *SocketServer) stopRunSession(run *model.Run) error {
 		if mux == nil {
 			return fmt.Errorf("resolve Multiplexer field %q for run %s: no multiplexer returned", run.Multiplexer, run.Ref().String())
 		}
-		if err := mux.KillSession(sessionName); err != nil {
-			return fmt.Errorf("kill session %q for run %s using Multiplexer field %q: %w", sessionName, run.Ref().String(), run.Multiplexer, err)
+		if mux.HasSession(sessionName) {
+			if err := mux.KillSession(sessionName); err != nil {
+				return fmt.Errorf("kill session %q for run %s using Multiplexer field %q: %w", sessionName, run.Ref().String(), run.Multiplexer, err)
+			}
 		}
 	}
 

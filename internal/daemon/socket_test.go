@@ -6308,7 +6308,7 @@ func TestStopSingleRunOpencode(t *testing.T) {
 func TestHandleProtoStopRunKillFailurePolicy(t *testing.T) {
 	binDir := t.TempDir()
 	tmuxPath := filepath.Join(binDir, "tmux")
-	if err := os.WriteFile(tmuxPath, []byte("#!/bin/sh\necho simulated kill failure >&2\nexit 23\n"), 0o755); err != nil {
+	if err := os.WriteFile(tmuxPath, []byte("#!/bin/sh\nif [ \"$1\" = \"has-session\" ]; then\n  exit 0\nfi\necho simulated kill failure >&2\nexit 23\n"), 0o755); err != nil {
 		t.Fatalf("write fake tmux: %v", err)
 	}
 	t.Setenv("PATH", binDir)
@@ -6366,6 +6366,56 @@ func TestHandleProtoStopRunKillFailurePolicy(t *testing.T) {
 	}
 	if run.Status != model.StatusCanceled {
 		t.Fatalf("forced stop status = %q, want canceled", run.Status)
+	}
+}
+
+func TestHandleProtoStopRunReapedMissingSessionIsIdempotentSuccess(t *testing.T) {
+	binDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(binDir, "tmux"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatalf("write fake tmux: %v", err)
+	}
+	t.Setenv("PATH", binDir)
+
+	now := time.Now().UTC()
+	run := &model.Run{
+		IssueID:     "stop-reaped",
+		RunID:       "run-1",
+		Agent:       "claude",
+		SessionName: "run-stop-reaped-run-1",
+		Multiplexer: "tmux",
+		Events: []*model.Event{
+			{Timestamp: now.Add(-3 * time.Second), Type: model.EventTypeStatus, Name: string(model.StatusWaiting), Attrs: map[string]string{"source": string(model.EventSourceDaemon)}},
+			{Timestamp: now.Add(-2 * time.Second), Type: model.EventTypeArtifact, Name: "agent_session", Attrs: map[string]string{"backend": "claude", "id": "conv-reaped", "generation": "1"}},
+			{Timestamp: now.Add(-time.Second), Type: model.EventTypeNote, Name: model.DaemonNoticeEventName, Attrs: map[string]string{"kind": "session_reaped", "generation": "1", "session_name": "run-stop-reaped-run-1", "reason": "idle_ttl"}},
+		},
+	}
+	if err := run.DeriveState(); err != nil {
+		t.Fatalf("DeriveState() error = %v", err)
+	}
+	if run.Status != model.StatusWaiting || !run.SessionReaped() {
+		t.Fatalf("precondition: status=%q reaped=%v, want waiting reaped run", run.Status, run.SessionReaped())
+	}
+
+	st := &mockStore{
+		runs:   map[string]*model.Run{run.Ref().String(): run},
+		issues: make(map[string]*model.Issue),
+	}
+	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
+	registerRepoContextForTest(t, server, "stop-reaped-project", t.TempDir(), st)
+
+	resp := server.handleProtoStopRun(&orchpb.StopRunRequest{
+		IssueId: string(run.IssueID),
+		RunId:   string(run.RunID),
+		Context: &orchpb.RequestContext{ProjectId: "stop-reaped-project"},
+	})
+	if !resp.Ok {
+		t.Fatalf("default stop of reaped run failed: %s", resp.Error)
+	}
+	if warning := resp.GetStopRun().GetWarning(); warning != "" {
+		t.Fatalf("default stop warning = %q, want none for absent session", warning)
+	}
+	if run.Status != model.StatusCanceled {
+		t.Fatalf("default stop status = %q, want canceled", run.Status)
 	}
 }
 
