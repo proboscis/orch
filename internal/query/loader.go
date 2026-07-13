@@ -81,8 +81,8 @@ func LoadRuns(db *DB, api orchapi.OrchAPI) error {
 
 func insertRun(db *DB, run *model.Run) error {
 	query := `INSERT INTO runs (issue_id, run_id, hex_id, status, phase, agent, model, model_variant,
-		branch, worktree_path, session_name, agent_session_id, agent_session_generation, pr_url, started_at, updated_at, continued_from)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		branch, worktree_path, session_name, agent_session_id, session_state, agent_session_generation, pr_url, started_at, updated_at, continued_from)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	var startedAt, updatedAt string
 	if !run.StartedAt.IsZero() {
@@ -105,6 +105,7 @@ func insertRun(db *DB, run *model.Run) error {
 		run.WorktreePath,
 		run.SessionName,
 		run.AgentSessionID,
+		run.SessionState,
 		run.AgentSessionGeneration,
 		run.PRUrl,
 		startedAt,
@@ -220,6 +221,7 @@ func apiRunToModel(r *orchapi.Run) (*model.Run, error) {
 		WorktreePath:           r.WorktreePath,
 		SessionName:            r.SessionName,
 		AgentSessionID:         r.AgentSessionID,
+		SessionState:           r.SessionState,
 		AgentSessionGeneration: r.AgentSessionGeneration,
 		PRUrl:                  r.PRUrl,
 		ContinuedFrom:          r.ContinuedFrom,

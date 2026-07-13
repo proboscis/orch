@@ -1,11 +1,13 @@
 package file
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/proboscis/orch/internal/model"
 	"github.com/proboscis/orch/internal/store"
@@ -1510,6 +1512,81 @@ func TestListRunsCarriesAgentSessionThroughIndex(t *testing.T) {
 	}
 	if len(runs) != 1 || runs[0].AgentSessionID != "33333333-3333-3333-3333-333333333333" || runs[0].AgentSessionGeneration != 1 {
 		t.Fatalf("cached index lost agent_session: id=%q gen=%d", runs[0].AgentSessionID, runs[0].AgentSessionGeneration)
+	}
+}
+
+func TestListRunsCarriesSessionStateThroughIndexAndReindexesVersion5(t *testing.T) {
+	vault, cleanup := setupTestVault(t)
+	defer cleanup()
+
+	createTestIssue(t, vault, "session-state-issue", "---\ntype: issue\ntitle: Session state issue\n---\n# Session state issue")
+	s, _ := New(vault)
+	run, err := s.CreateRun("session-state-issue", "20260713-101112", map[string]string{"agent": "codex"})
+	if err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+	events := []*model.Event{
+		{Type: model.EventTypeArtifact, Name: "worktree", Attrs: map[string]string{"path": t.TempDir()}},
+		{Type: model.EventTypeArtifact, Name: "session", Attrs: map[string]string{"name": model.GenerateSessionName(run.IssueID, run.RunID), "multiplexer": "tmux"}},
+		{Type: model.EventTypeArtifact, Name: "agent_session", Attrs: map[string]string{"backend": "codex", "id": "rollout-session-state", "generation": "1"}},
+		{Type: model.EventTypeNote, Name: model.DaemonNoticeEventName, Attrs: map[string]string{"kind": "session_reaped", "generation": "1", "reason": "idle_ttl"}},
+	}
+	for _, event := range events {
+		if err := s.AppendEvent(run.Ref(), event); err != nil {
+			t.Fatalf("AppendEvent(%s) error = %v", event.Name, err)
+		}
+	}
+
+	runPath := filepath.Join(vault, "runs", "session-state-issue", "20260713-101112.md")
+	info, err := os.Stat(runPath)
+	if err != nil {
+		t.Fatalf("Stat(run) error = %v", err)
+	}
+	stale := &runIndex{
+		Version: 5,
+		Entries: map[string]*runIndexEntry{
+			"session-state-issue/20260713-101112": {
+				IssueID:   run.IssueID,
+				RunID:     run.RunID,
+				Status:    model.StatusQueued,
+				FileMtime: info.ModTime(),
+			},
+		},
+		DirMtimes: map[string]time.Time{},
+	}
+	data, err := json.Marshal(stale)
+	if err != nil {
+		t.Fatalf("Marshal(stale index) error = %v", err)
+	}
+	indexPath := filepath.Join(vault, runIndexFileName)
+	if err := os.WriteFile(indexPath, data, 0o644); err != nil {
+		t.Fatalf("WriteFile(stale index) error = %v", err)
+	}
+	InvalidateRunIndex()
+
+	runs, err := s.ListRuns(nil)
+	if err != nil {
+		t.Fatalf("ListRuns() reindex error = %v", err)
+	}
+	if len(runs) != 1 || runs[0].SessionState != model.SessionStateReapedRevivable || !runs[0].SessionReaped() {
+		t.Fatalf("reindexed session state = %q reaped=%v, want %q/true", runs[0].SessionState, runs[0].SessionReaped(), model.SessionStateReapedRevivable)
+	}
+
+	// An unchanged-mtime second pass comes from the eventless persisted entry.
+	InvalidateRunIndex()
+	runs, err = s.ListRuns(nil)
+	if err != nil {
+		t.Fatalf("ListRuns() cached error = %v", err)
+	}
+	if len(runs) != 1 || runs[0].SessionState != model.SessionStateReapedRevivable || !runs[0].SessionReaped() {
+		t.Fatalf("cached session state = %q reaped=%v, want %q/true", runs[0].SessionState, runs[0].SessionReaped(), model.SessionStateReapedRevivable)
+	}
+	data, err = os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatalf("ReadFile(index) error = %v", err)
+	}
+	if !strings.Contains(string(data), `"version":6`) || !strings.Contains(string(data), `"session_state":"reaped(revivable)"`) {
+		t.Fatalf("rebuilt index missing v6 session_state: %s", data)
 	}
 }
 
