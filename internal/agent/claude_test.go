@@ -23,10 +23,11 @@ func TestDoubleQuote(t *testing.T) {
 func TestClaudeLaunchCommand(t *testing.T) {
 	adapter := &ClaudeAdapter{}
 	cfg := &LaunchConfig{
-		Prompt:      "hello",
-		Profile:     "work", // display-only: claude has no --profile flag
-		Resume:      true,
-		SessionName: "session-1",
+		Prompt:         "hello",
+		Profile:        "work", // display-only: claude has no --profile flag
+		Resume:         true,
+		AgentSessionID: "11111111-1111-1111-1111-111111111111",
+		SessionName:    "session-1", // multiplexer session; must NOT reach --resume
 	}
 
 	cmd, err := adapter.LaunchCommand(cfg)
@@ -35,9 +36,22 @@ func TestClaudeLaunchCommand(t *testing.T) {
 	}
 	// The profile must NOT reach the command line — claude has no --profile
 	// flag and would refuse to start. Profile selection is CLAUDE_CONFIG_DIR.
-	want := "claude --dangerously-skip-permissions --resume session-1 \"hello\""
+	// Resume targets the AGENT-NATIVE id (ADR-0005 R5), never the
+	// multiplexer session name.
+	want := "claude --dangerously-skip-permissions --resume 11111111-1111-1111-1111-111111111111 \"hello\""
 	if cmd != want {
 		t.Fatalf("command = %q, want %q", cmd, want)
+	}
+}
+
+func TestClaudeLaunchCommandResumeWithoutIdentityFailsFast(t *testing.T) {
+	// ADR-0005 LS5: resume without a recorded agent-native id has no valid
+	// argv (claude --resume expects the session UUID, not a tmux name);
+	// building one silently would boot a fresh context.
+	adapter := &ClaudeAdapter{}
+	cfg := &LaunchConfig{Resume: true, SessionName: "session-1"}
+	if _, err := adapter.LaunchCommand(cfg); err == nil {
+		t.Fatal("resume without AgentSessionID must fail")
 	}
 }
 
@@ -60,14 +74,15 @@ func TestClaudeLaunchCommandAgentSessionID(t *testing.T) {
 	}
 }
 
-func TestClaudeLaunchCommandResumeExcludesAgentSessionID(t *testing.T) {
-	// --resume reuses an existing session; pinning a fresh --session-id at
-	// the same time would conflict, so resume wins and the mint is dropped.
+func TestClaudeLaunchCommandResumeExcludesSessionIDFlag(t *testing.T) {
+	// The claude CLI rejects --session-id alongside --resume (it requires
+	// --fork-session, which is new-conversation semantics). Resume therefore
+	// carries the id ONLY through --resume — measured physics recorded in
+	// docs/design/revive-physics.md.
 	adapter := &ClaudeAdapter{}
 	cfg := &LaunchConfig{
 		Prompt:         "hello",
 		Resume:         true,
-		SessionName:    "session-1",
 		AgentSessionID: "11111111-1111-1111-1111-111111111111",
 	}
 
@@ -75,7 +90,7 @@ func TestClaudeLaunchCommandResumeExcludesAgentSessionID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LaunchCommand error: %v", err)
 	}
-	want := "claude --dangerously-skip-permissions --resume session-1 \"hello\""
+	want := "claude --dangerously-skip-permissions --resume 11111111-1111-1111-1111-111111111111 \"hello\""
 	if cmd != want {
 		t.Fatalf("command = %q, want %q", cmd, want)
 	}

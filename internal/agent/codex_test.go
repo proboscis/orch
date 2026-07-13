@@ -105,3 +105,30 @@ func TestCodexModelName(t *testing.T) {
 		})
 	}
 }
+
+func TestCodexLaunchCommandResumeAppendsSubcommand(t *testing.T) {
+	// ADR-0005 R5: codex revive resumes the recorded rollout. Root options
+	// precede the subcommand (`codex [OPTIONS] <COMMAND> [ARGS]`), and the
+	// resume id is the agent-native identity, never the tmux session name.
+	adapter := &CodexAdapter{}
+	cfg := &LaunchConfig{
+		Resume:         true,
+		AgentSessionID: "019f5a57-6d94-78e0-8f88-2db9a64a5be6",
+		SessionName:    "run-x-y",
+	}
+	cmd, err := adapter.LaunchCommand(cfg)
+	if err != nil {
+		t.Fatalf("LaunchCommand error: %v", err)
+	}
+	want := "codex --yolo resume 019f5a57-6d94-78e0-8f88-2db9a64a5be6"
+	if cmd != want {
+		t.Fatalf("command = %q, want %q", cmd, want)
+	}
+}
+
+func TestCodexLaunchCommandResumeWithoutIdentityFailsFast(t *testing.T) {
+	adapter := &CodexAdapter{}
+	if _, err := adapter.LaunchCommand(&LaunchConfig{Resume: true}); err == nil {
+		t.Fatal("codex resume without AgentSessionID must fail")
+	}
+}

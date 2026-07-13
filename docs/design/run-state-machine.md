@@ -229,11 +229,11 @@ distinction the law tests themselves forced:
 | L1b fixed point (streams) | repeating one stream observation reaches a quiet fixed point after boundedly many steps (no oscillation) |
 | L2 order-independent convergence | {session gone ×3 + git evidence, PR merged/closed} in any interleaving converge to the same terminal status |
 | L3' grace | a never-alive run within `neverAliveVerdictGrace` never receives an `unknown`/`failed` verdict, on any observation sequence; after the grace, any plane concludes `unknown` on the standing evidence (revised from v1's pinned asymmetry by §7 D-C3) |
-| L4 terminality | from a terminal status, `step` emits no effect and no core change for any observation |
+| L4 terminality (refined 2026-07-13, §13) | from a terminal status, `step` emits no effect and no core change for any observation, EXCEPT the revive milestone (O8 `stageSessionRevived`) — the one user-sourced observation in the vocabulary (revive is entered only via the user verbs send/attach, ADR-0005 R5), whose single effect is a user-sourced `running` commit |
 | L5 verdict requires evidence | `obsSessionGone` never emits a status directly; it requests git evidence exactly when the dead-check threshold is reached |
 | L6 debounce | `waiting` via prompt requires ≥ `waitingPromptStreakThreshold` consecutive prompt observations; any busy capture resets the streak. Since §9 this is the `reading = prompt` special case of L10a |
 | L8 listener commit point | every committed W1 status transition fires exactly one status-change listener event after `AppendEvent` succeeds; duplicate-(status, reason) no-ops and failed appends fire none |
-| L9 launch failure reason | a launch-failure verdict (O8) always carries the machine-readable reason `launch_<step>`, preceded by an error artifact recording the bootstrap error; launch milestones on a terminal or already-reached status emit nothing |
+| L9 launch failure reason | a launch-failure verdict (O8) always carries the machine-readable reason `launch_<step>`, preceded by an error artifact recording the bootstrap error; launch milestones on a terminal or already-reached status emit nothing (sole exception: `stageSessionRevived`, L4 refinement / §13) |
 | L10a gate debounce (generalizes L6) | a `waiting` verdict with reason `gate_<kind>` requires ≥ `waitingPromptStreakThreshold` consecutive captures whose input-request reading is the same `gate:<kind>`; any busy capture or different reading resets the streak |
 | L10b reading precedence | busy veto > gate > {exited, completed, api-limited, failed} > prompt > output-changed; an unconfirmed gate reading masks every lower reading; each gate row's fixture locks its intended winner end-to-end |
 | L10c reason fidelity | the `waiting` reason always reflects the latest *confirmed* reading; a confirmed reading change re-appends under D-G1 and fires exactly one listener event (L8) |
@@ -1004,3 +1004,51 @@ mechanism and carries no policy. Property tests:
 `internal/daemon/step_reap_test.go` (absorption across agents × channels ×
 thresholds, revive dissolution, latch boundaries), fold tests:
 `internal/model/run_reap_test.go`.
+
+## 13. Revive — in-place re-boot of a reaped session (ADR-0005 R5, decided 2026-07-13)
+
+Entry is exactly the user verbs `{send, attach}` (R6): observation verbs
+never boot. The master decides revivability from STORED FACTS alone (LS5) —
+`agent_session` identity recorded, worktree recorded, no `worktree_removed`
+note, concrete multiplexer — and a missing fact fails fast NAMING the fact
+and pointing at `restart-from --branch`, never probing, never dropping the
+message into a silent fresh context.
+
+Planes and ownership (ADR-0004): the EXECUTION HOST does only the physical
+part — host-local checks (worktree present; session not already alive, which
+would mean a pending reap-kill retry to fail clearly against), native-resume
+boot in the same worktree under the same session name, and the codex
+identity re-resolution (the T1b arm re-run). The MASTER alone writes the
+ledger, in this order:
+
+1. `daemon_notice(kind=session_revived, generation=N+1)` — the narrative
+   marker the gatherer folds alongside `session_reaped` (§12);
+2. `agent_session` artifact `(id, generation=N+1)` — dissolves the L-S3
+   latch (§12); the id is UNCHANGED across generations (measured physics:
+   `docs/design/revive-physics.md` — claude `--resume <id>` appends to the
+   same transcript, and `--session-id` cannot be combined with `--resume`;
+   codex `resume <id>` continues the existing rollout). The generation is
+   the incarnation counter over a durable conversation identity;
+3. the status re-entry via the launch plane: O8 gains the milestone
+   `stageSessionRevived`, whose single effect is a `running` commit carried
+   with `source=user` (`model.AttrStatusSource` on the event; the store
+   append guard re-validates terminal-exit legality from the same
+   attribute). This is the L4 refinement: the revive milestone is the one
+   user-sourced observation, so it alone escapes terminal absorption —
+   `CanTransitionStatus` has permitted user-sourced terminal exits all
+   along; the launch plane now has the one sanctioned way to say it.
+
+After the milestone the monitor plane owns the run again: the dissolved
+latch makes session observations evidence once more, and a revived run that
+sits idle simply re-derives `waiting` through the ordinary O4 readings.
+
+Worker routing: worker-hosted runs revive through the `revive_run` lease
+effect (payload mirrors stop/capture; the result carries the re-resolved
+identity back for the master's ledger writes). Local runs run the same
+physical function in-process.
+
+Tests: `internal/daemon/revive_test.go` (native-resume argv, ledger order,
+latch dissolution, user-sourced re-entry, each precondition's typed
+failure, pending-kill collision), the L4' matrix case in
+`TestStepTerminalAbsorbsAllObservationsExceptReviveMilestone`, and the
+adapter argv contracts in `internal/agent/{claude,codex}_test.go`.

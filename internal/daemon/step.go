@@ -208,6 +208,14 @@ const (
 	// stageAgentStarted: the session exists and the initial prompt was
 	// handed to the agent.
 	stageAgentStarted
+	// stageSessionRevived: a reaped session was re-booted in place with the
+	// agent's native resume (ADR-0005 R5, entered only via send/attach).
+	// Its status commit carries source=user — revive is a user command, and
+	// terminal re-entry is legal exactly for the user source (F12 /
+	// CanTransitionStatus). After this milestone the monitor plane owns the
+	// run again; the dissolved L-S3 latch (higher-generation agent_session)
+	// makes its session observations evidence once more.
+	stageSessionRevived
 )
 
 // launchSignal is one O8 observation: either a milestone reached or a
@@ -328,6 +336,11 @@ type runEffect struct {
 	Output   string       // effectSetStatus listener payload context
 	Msg      string       // effectLog / effectDebugLog
 	Reason   string       // effectSetStatus: machine-readable verdict reason (model.AttrStatusReason)
+	// Source marks the EventSource of an effectSetStatus commit; empty means
+	// daemon. The only non-daemon producer is the revive milestone (L4'
+	// refinement, ADR-0005 R5) — user-sourced because revive is entered only
+	// via the user verbs send/attach, and terminal exit requires that source.
+	Source model.EventSource
 }
 
 func logEffect(format string, args ...interface{}) runEffect {
@@ -365,7 +378,15 @@ func stepRun(view runView, core runCore, obs runObservation, now time.Time) (run
 	// no observation may produce effects on them. Shells and updateStatus
 	// also guard this — encoding it here makes it a law of the pure core
 	// (step_test.go L4) instead of a property of call-site discipline.
+	//
+	// L4 refinement (ADR-0005 R5): the ONE user-sourced observation in the
+	// vocabulary is the revive milestone — send/attach re-booting a reaped
+	// session is a user command, and terminal re-entry is legal exactly for
+	// the user source. Every other observation stays absorbed.
 	if view.Status.IsTerminal() {
+		if obs.Kind == obsLaunchProgress && !obs.Launch.Failed && obs.Launch.Stage == stageSessionRevived {
+			return stepLaunchProgress(view, core, obs)
+		}
 		return core, nil
 	}
 
@@ -429,6 +450,7 @@ func stepLaunchProgress(view runView, core runCore, obs runObservation) (runCore
 	}
 
 	var target model.Status
+	source := model.EventSourceDaemon
 	switch sig.Stage {
 	case stageRunCreated:
 		target = model.StatusQueued
@@ -436,13 +458,18 @@ func stepLaunchProgress(view runView, core runCore, obs runObservation) (runCore
 		target = model.StatusBooting
 	case stageWorkspaceOnly, stageAgentStarted:
 		target = model.StatusRunning
+	case stageSessionRevived:
+		// ADR-0005 R5: revive is user-entered (send/attach); the user source
+		// is what legalizes the terminal exit (L4' / CanTransitionStatus).
+		target = model.StatusRunning
+		source = model.EventSourceUser
 	default:
 		return core, nil
 	}
 	if target == view.Status {
 		return core, nil
 	}
-	return core, []runEffect{setStatusEffect(target)}
+	return core, []runEffect{{Kind: effectSetStatus, Status: target, Source: source}}
 }
 
 // launchFailureReason is the machine-readable reason family for launch

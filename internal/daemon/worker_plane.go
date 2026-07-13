@@ -73,6 +73,7 @@ type WorkerEffectPayload struct {
 	GetBranchState    *GetBranchStatePayload
 	GetDiff           *GetDiffPayload
 	RunWorktree       *RunWorktreePayload
+	ReviveRun         *ReviveRunPayload
 	StartRunResult    *StartRunResult
 	ContinueRunResult *ContinueRunResult
 	CaptureResult     *CaptureSessionResult
@@ -136,6 +137,18 @@ type GetDiffPayload struct {
 
 type RunWorktreePayload struct {
 	Operation      string `json:"operation"`
+	Target         string `json:"target,omitempty"`
+	TargetHost     string `json:"target_host,omitempty"`
+	TargetWorkerID string `json:"target_worker_id,omitempty"`
+	RunSnapshot    *RunSnapshot
+}
+
+// ReviveRunPayload asks the execution host to re-boot a reaped run's session
+// in place with the agent's native resume (ADR-0005 R5). The worker performs
+// ONLY the physical boot and identity re-resolution; every ledger write
+// (session_revived note, agent_session generation, status re-entry) belongs
+// to the master (ADR-0004).
+type ReviveRunPayload struct {
 	Target         string `json:"target,omitempty"`
 	TargetHost     string `json:"target_host,omitempty"`
 	TargetWorkerID string `json:"target_worker_id,omitempty"`
@@ -207,11 +220,21 @@ type WorkerEffectResult struct {
 	BranchStateResult *GetBranchStateResult `json:"branch_state_result,omitempty"`
 	DiffResult        *GetDiffResult        `json:"diff_result,omitempty"`
 	RunWorktreeResult *RunWorktreeResult    `json:"run_worktree_result,omitempty"`
+	ReviveRunResult   *ReviveRunResult      `json:"revive_run_result,omitempty"`
+}
+
+// ReviveRunResult carries the execution host's physical revive outcome back
+// to the master, which alone writes the ledger facts derived from it.
+type ReviveRunResult struct {
+	AgentSessionID string `json:"agent_session_id"`
+	Generation     int    `json:"generation"`
+	SessionName    string `json:"session_name"`
+	Multiplexer    string `json:"multiplexer,omitempty"`
 }
 
 func normalizeCapabilities(caps []string) []string {
 	if len(caps) == 0 {
-		return []string{"capture_session", "continue_run", "get_branch_state", "get_diff", "get_diff_stats", "run_worktree", "send_message", "start_run", "stop_run"}
+		return []string{"capture_session", "continue_run", "get_branch_state", "get_diff", "get_diff_stats", "revive_run", "run_worktree", "send_message", "start_run", "stop_run"}
 	}
 	set := make(map[string]struct{}, len(caps))
 	norm := make([]string, 0, len(caps))
@@ -601,6 +624,18 @@ func preferredWorkerPreferenceForPayload(payload *WorkerEffectPayload) (string, 
 		}
 		return defaultWorkerID(), "", false
 	}
+	if payload.ReviveRun != nil {
+		if workerID := strings.TrimSpace(payload.ReviveRun.TargetWorkerID); workerID != "" {
+			return workerID, strings.TrimSpace(payload.ReviveRun.TargetHost), true
+		}
+		if host := strings.TrimSpace(payload.ReviveRun.TargetHost); host != "" {
+			return HostWorkerID(host), host, true
+		}
+		if target := strings.TrimSpace(payload.ReviveRun.Target); target != "" && target != "local" {
+			return target, strings.TrimSpace(payload.ReviveRun.TargetHost), true
+		}
+		return defaultWorkerID(), "", false
+	}
 	if payload.StopRun != nil {
 		if workerID := strings.TrimSpace(payload.StopRun.TargetWorkerID); workerID != "" {
 			return workerID, strings.TrimSpace(payload.StopRun.TargetHost), true
@@ -675,7 +710,8 @@ func marshalWorkerEffectResult(result *WorkerEffectResult) string {
 		result.DiffStatsResult == nil &&
 		result.BranchStateResult == nil &&
 		result.DiffResult == nil &&
-		result.RunWorktreeResult == nil {
+		result.RunWorktreeResult == nil &&
+		result.ReviveRunResult == nil {
 		return ""
 	}
 
@@ -785,6 +821,10 @@ func runFromLeaseSnapshot(lease *WorkerLease) (*model.Run, error) {
 	case "run_worktree":
 		if lease.Payload.RunWorktree != nil {
 			snapshot = lease.Payload.RunWorktree.RunSnapshot
+		}
+	case "revive_run":
+		if lease.Payload.ReviveRun != nil {
+			snapshot = lease.Payload.ReviveRun.RunSnapshot
 		}
 	}
 
@@ -995,6 +1035,19 @@ func (s *SocketServer) executeLeaseEffect(lease *WorkerLease) (*WorkerEffectResu
 			return nil, err
 		}
 		return &WorkerEffectResult{RunWorktreeResult: result}, nil
+	case "revive_run":
+		if lease.Payload == nil || lease.Payload.ReviveRun == nil {
+			return nil, fmt.Errorf("revive_run payload missing")
+		}
+		run, err := runFromLeaseSnapshot(lease)
+		if err != nil {
+			return nil, err
+		}
+		result, err := s.revivePhysical(run, repoCtx.ProjectRoot)
+		if err != nil {
+			return nil, err
+		}
+		return &WorkerEffectResult{ReviveRunResult: result}, nil
 	default:
 		return nil, fmt.Errorf("unsupported worker lease effect: %s", lease.Effect)
 	}

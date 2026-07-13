@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
 )
 
@@ -41,16 +42,21 @@ func (a *ClaudeAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
 	// via the CLAUDE_CONFIG_DIR environment variable (LaunchConfig.Env), so
 	// cfg.Profile must never reach the command line.
 
-	// ADR-0005 R1: pin the agent-native session id at launch so the
-	// transcript is addressable for reap/revive. Resume reuses an existing
-	// session, so the two flags are mutually exclusive; resume wins.
-	if cfg.AgentSessionID != "" && !cfg.Resume {
+	// ADR-0005 R1/R5: at launch, pin the agent-native session id so the
+	// transcript is addressable for reap/revive (--session-id). On revive,
+	// resume that SAME id: `claude --resume <id>` appends to the existing
+	// transcript — identity is stable across generations, and the CLI
+	// rejects --session-id alongside --resume (it requires --fork-session,
+	// which is new-conversation semantics, not revive). Measured physics:
+	// docs/design/revive-physics.md.
+	if cfg.Resume {
+		id := strings.TrimSpace(cfg.AgentSessionID)
+		if id == "" {
+			return "", fmt.Errorf("claude resume requires the recorded agent session id (ADR-0005 LS5)")
+		}
+		args = append(args, "--resume", id)
+	} else if cfg.AgentSessionID != "" {
 		args = append(args, "--session-id", cfg.AgentSessionID)
-	}
-
-	// Add resume flag if applicable
-	if cfg.Resume && cfg.SessionName != "" {
-		args = append(args, "--resume", cfg.SessionName)
 	}
 
 	// Add prompt as positional argument (must be last, in double quotes)
