@@ -133,6 +133,24 @@ agent_multiplexer: tmux
 
 # `multiplexer` is a deprecated compatibility key. Use `agent_multiplexer`.
 
+# Default model / reasoning-effort variant for runs (per-agent defaults below
+# take precedence; --model / --model-variant flags override everything)
+model: claude-opus-4-5
+model_variant: max
+
+# Skip PR creation by default (equivalent to always passing --no-pr)
+no_pr: false
+
+# Default preset name from `presets:` applied when `orch run` has no
+# agent/model flags
+default_preset: main
+
+# CLI log level: debug, info, warn, error
+log_level: info
+
+# External diff tool for `orch diff --tool` (e.g. "cursor --diff")
+diff_tool: "cursor --diff"
+
 # =============================================================================
 # EXECUTION TARGETS
 # =============================================================================
@@ -176,16 +194,43 @@ claude:
   prompt_template: |
     ultrathink Please read 'ORCH_PROMPT.md' in the current directory.
     {{issue}}
+  # Extra CLI args appended to every launch / control-agent launch
+  extra_args: ["--dangerously-skip-permissions"]
+  control_extra_args: []
+  # Multi-account profiles: each maps to a CLAUDE_CONFIG_DIR and may be
+  # pinned to targets (see .orch/config.example.yaml for a full example)
+  default_profile: personal
+  profiles:
+    personal:
+      config_dir: ~/.claude-personal
+      target: mac              # optional: default target for this profile
+      allowed_targets: [mac]   # optional: hosts this profile may run on
+    work:
+      config_dir: ~/.claude-work
 
 # Codex configuration
 codex:
+  default_model: gpt-5.2-codex   # default model for codex runs
+  default_variant: high          # default reasoning effort
   prompt_template: |
     Think step by step. Follow best practices.
     {{issue}}
+  extra_args: []
+  control_extra_args: []
+  # Multi-account profiles: each maps to a CODEX_HOME directory
+  default_profile: personal
+  profiles:
+    personal:
+      codex_home: ~/.codex
+    company:
+      codex_home: ~/.codex-profiles/company
+      allowed_targets: [mac]
 
 # Gemini configuration
 gemini:
   prompt_template: "{{issue}}"
+  extra_args: []
+  control_extra_args: []
 
 # =============================================================================
 # PROMPT TEMPLATES
@@ -204,6 +249,13 @@ github:
   owner: your-org
   repo: your-repo
   poll_interval: 300  # seconds between polling for updates
+  # Only sync issues carrying this label (also: ORCH_GITHUB_LABEL_FILTER)
+  label_filter: orch
+  # Map GitHub labels to orch issue statuses (label -> status); when set,
+  # resolving an issue applies the matching label
+  status_labels:
+    "status:open": open
+    "status:resolved": resolved
 
 # =============================================================================
 # NOTIFICATIONS
@@ -219,10 +271,14 @@ slack:
   # bot_token: xoxb-your-bot-token
   # channel: "#orch-notifications"
   
-  # Events that trigger notifications
+  # Events that trigger notifications.
+  # Valid: waiting, blocked, rate_limited, blocked_api, done, failed.
+  # When omitted, defaults to: waiting, blocked, rate_limited, blocked_api.
   notify_on:
     - waiting
     - rate_limited
+    # - blocked
+    # - blocked_api
     # - done
     # - failed
 
@@ -287,6 +343,11 @@ presets:
   - name: codex-high
     backend: codex
     model: o3
+  - name: claude-work
+    backend: claude
+    model: claude-opus-4-5
+    variant: max
+    profile: work   # claude/codex profile name (see profiles above)
 ```
 
 ## Environment Variables

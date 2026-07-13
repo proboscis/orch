@@ -234,17 +234,22 @@ This will:
 
 The command returns immediately - the agent runs in the background.
 
-### First run: expect a trust prompt
+### First run: trust prompts are answered automatically
 
 On a fresh machine or directory, agent CLIs show a one-time interactive gate
-(e.g. "Do you trust the contents of this directory?") and the run parks at
-`waiting`. This is the normal interaction loop, not a failure:
+(e.g. "Do you trust the contents of this directory?"). The daemon detects
+trust gates and acknowledges them itself, once per run — dispatching a run
+into a worktree IS the operator's trust decision, so nothing parks. You may
+briefly see `waiting` with reason `gate_trust` before it clears; the
+acknowledgement is recorded as a `gate_ack` event on the run.
+
+**Login gates are different**: if the agent CLI is not logged in, the run
+parks at `waiting` with reason `gate_login` and stays there — credentials
+belong to humans. Handle it directly:
 
 ```bash
 orch capture my-first-issue   # see what the agent is asking
-orch send my-first-issue ""   # empty message = press Enter (accept the default)
-# or take over the terminal directly:
-orch attach my-first-issue    # answer, then detach (see below)
+orch attach my-first-issue    # log in interactively, then detach (see below)
 ```
 
 ## Check status
@@ -322,8 +327,8 @@ orch resolve my-first-issue
 ## Next steps
 
 - Learn the [core concepts](./concepts.md) (Issue, Run, Event, etc.)
-- [Remote usage](./remote-usage.md) (multi-host) is the next milestone — out
-  of scope for the current beta
+- [Remote usage](./remote-usage.md) (multi-host) — works, but outside the
+  supported beta scope
 - Configure [different agents](./agents/claude.md)
 - Set up [backend integrations](./backends/file.md) (GitHub)
 - Explore all [CLI commands](./reference/commands.md)

@@ -4,11 +4,11 @@ Orchestrator for managing multiple LLM CLIs (Claude, Codex, Gemini, OpenCode) us
 
 orch runs AI coding agents non-interactively in the background, creating isolated git worktrees for each task. Check status with `orch ps`, interact when needed with `orch attach`.
 
-> **Beta scope: single machine.** The current beta covers running orch on one
-> machine (daemon, worker, and agents all local — zero process management
-> needed). Multi-host / cluster mode (remote masters, `ORCH_REMOTE`,
-> `--on <target>`) exists in the code but is the **next milestone**: not part
-> of the beta, not yet supported.
+> **Beta support scope: single machine.** The current beta covers running orch
+> on one machine (daemon, worker, and agents all local — zero process
+> management needed). Multi-host / cluster mode (remote masters, `ORCH_REMOTE`,
+> `--on <target>`) works and is used in development, but it is **outside the
+> supported beta scope** until the multi-host milestone lands.
 
 ## Install via your AI agent (one line)
 
@@ -65,7 +65,7 @@ real GitHub repository. Drop the flag once a real GitHub remote exists and
 | **[Getting Started](./docs/getting-started.md)** | Install → First issue → First run → See it work |
 | **[Agent Install Runbook](./docs/agent-install.md)** | One-liner setup executed by your own AI agent (binary + skill + guided first run) |
 | **[ローカルクイックスタート (日本語)](./docs/local-quickstart.ja.md)** | 1 台のマシンで試す最短経路(クラスタ設定なし) |
-| **[Remote Usage](./docs/remote-usage.md)** | Multi-host mode — next milestone, out of beta scope |
+| **[Remote Usage](./docs/remote-usage.md)** | Multi-host mode — works, outside the supported beta scope |
 | **[Daily Workflow](./docs/daily-workflow.md)** | Morning routine, parallel runs, reviewing PRs |
 | **[orch-monitor TUI](./docs/orch-monitor.md)** | Visual dashboard for managing issues and runs |
 | **[Core Concepts](./docs/concepts.md)** | Issue, Run, Event, Status, Worktree explained |
@@ -148,4 +148,6 @@ See [GitHub Releases](https://github.com/proboscis/orch/releases) for binaries.
 
 ## License
 
-MIT
+License: TBD. During the beta, orch is provided for **evaluation purposes
+only** — no license is granted yet, and redistribution is not permitted.
+A license will be chosen before general availability.
