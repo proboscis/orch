@@ -1,6 +1,7 @@
 package multiplexer
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -160,22 +161,38 @@ func (t *TmuxMultiplexer) KillSession(session string) error {
 
 // ListSessions returns all tmux session names.
 func (t *TmuxMultiplexer) ListSessions() ([]string, error) {
-	output, err := t.output("list-sessions", "-F", "#{session_name}")
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	_, _, err := t.executor.RunCommand(
+		context.Background(),
+		"tmux",
+		[]string{"list-sessions", "-F", "#{session_name}"},
+		tmuxControlOptions(t.executor, executor.RunOptions{Stdout: &stdout, Stderr: &stderr}),
+	)
 	if err != nil {
-		// tmux returns error if no sessions exist
-		if strings.Contains(err.Error(), "no server running") {
+		stderrText := strings.TrimSpace(stderr.String())
+		if tmuxServerIsAbsent(stderrText) {
 			return nil, nil
+		}
+		if stderrText != "" {
+			return nil, fmt.Errorf("%w: %s", err, stderrText)
 		}
 		return nil, err
 	}
 
 	var sessions []string
-	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(stdout.String()), "\n") {
 		if line != "" {
 			sessions = append(sessions, line)
 		}
 	}
 	return sessions, nil
+}
+
+func tmuxServerIsAbsent(stderr string) bool {
+	stderr = strings.TrimSpace(stderr)
+	return strings.Contains(stderr, "no server running") ||
+		(strings.HasPrefix(stderr, "error connecting to ") && strings.HasSuffix(stderr, "(No such file or directory)"))
 }
 
 // ListWindows returns windows for a session.

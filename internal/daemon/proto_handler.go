@@ -3663,7 +3663,9 @@ func (s *SocketServer) handleProtoReadAgentPrompt(req *orchpb.ReadAgentPromptReq
 }
 
 func (s *SocketServer) handleProtoRepairState(req *orchpb.RepairStateRequest) *orchpb.Response {
-	result := &orchpb.RepairStateResponse{}
+	result := &orchpb.RepairStateResponse{
+		Details: []string{"session inventory scope: master host only"},
+	}
 
 	if err := CleanupStaleRegistrations(); err != nil {
 		result.Details = append(result.Details, fmt.Sprintf("registry cleanup error: %v", err))
@@ -3744,6 +3746,8 @@ type repairRunContext struct {
 	run         *model.Run
 	issueStatus model.IssueStatus
 	reaper      config.ReaperConfig
+	projectID   string
+	store       store.Store
 }
 
 func (s *SocketServer) findSessionRepairFindings(now time.Time) ([]sessionRepairFinding, error) {
@@ -3823,6 +3827,8 @@ func (s *SocketServer) classifySessionRepairFindings(sessions []string, now time
 				run:         run,
 				issueStatus: issueStatuses[run.IssueID],
 				reaper:      reaperCfg,
+				projectID:   repoCtx.RepoID,
+				store:       repoCtx.Store,
 			}
 		}
 	}
@@ -3856,11 +3862,17 @@ func (s *SocketServer) classifySessionRepairFindings(sessions []string, now time
 			}
 		}
 		if keptReason == "" {
-			exists, existsErr := worktreeDirectoryExists(run.WorktreePath)
+			worktreeResult, existsErr := s.runWorktreeOperation(
+				s.worktreeRequestContext(runCtx.projectID, runCtx.store),
+				run,
+				runWorktreeInspect,
+			)
 			switch {
 			case existsErr != nil:
 				keptReason = fmt.Sprintf("worktree check failed: %v", existsErr)
-			case !exists:
+			case worktreeResult == nil:
+				keptReason = "worktree check failed: inspect returned no result"
+			case !worktreeResult.Exists:
 				keptReason = fmt.Sprintf("worktree does not exist: %s", run.WorktreePath)
 			}
 		}
