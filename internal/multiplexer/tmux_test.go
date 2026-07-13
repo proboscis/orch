@@ -10,10 +10,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/proboscis/orch/internal/executor"
 )
 
 type fakeCall struct {
 	output   string
+	stderr   string
 	exitCode int
 }
 
@@ -42,6 +45,7 @@ func (f *fakeExecutor) Command(name string, args ...string) *exec.Cmd {
 		"--",
 		"__orch_multiplexer_helper__",
 		base64.StdEncoding.EncodeToString([]byte(call.output)),
+		base64.StdEncoding.EncodeToString([]byte(call.stderr)),
 		fmt.Sprintf("%d", call.exitCode),
 		name,
 	)
@@ -53,7 +57,7 @@ func (f *fakeExecutor) Command(name string, args ...string) *exec.Cmd {
 }
 
 func TestHelperProcess(t *testing.T) {
-	output, code, ok := helperProcessPayload()
+	output, stderr, code, ok := helperProcessPayload()
 	if !ok {
 		return
 	}
@@ -61,26 +65,33 @@ func TestHelperProcess(t *testing.T) {
 	if output != "" {
 		_, _ = fmt.Fprint(os.Stdout, output)
 	}
+	if stderr != "" {
+		_, _ = fmt.Fprint(os.Stderr, stderr)
+	}
 
 	os.Exit(code)
 }
 
-func helperProcessPayload() (string, int, bool) {
+func helperProcessPayload() (string, string, int, bool) {
 	for i, arg := range os.Args {
-		if arg != "--" || i+4 >= len(os.Args) || os.Args[i+1] != "__orch_multiplexer_helper__" {
+		if arg != "--" || i+5 >= len(os.Args) || os.Args[i+1] != "__orch_multiplexer_helper__" {
 			continue
 		}
 		outputBytes, err := base64.StdEncoding.DecodeString(os.Args[i+2])
 		if err != nil {
-			return "", 2, true
+			return "", "", 2, true
 		}
-		code, err := strconv.Atoi(os.Args[i+3])
+		stderrBytes, err := base64.StdEncoding.DecodeString(os.Args[i+3])
 		if err != nil {
-			return "", 2, true
+			return "", "", 2, true
 		}
-		return string(outputBytes), code, true
+		code, err := strconv.Atoi(os.Args[i+4])
+		if err != nil {
+			return "", "", 2, true
+		}
+		return string(outputBytes), string(stderrBytes), code, true
 	}
-	return "", 0, false
+	return "", "", 0, false
 }
 
 func TestTmuxMultiplexer_Type(t *testing.T) {
@@ -348,6 +359,43 @@ func TestTmuxMultiplexer_ListSessions(t *testing.T) {
 	call := exec.recorded[0]
 	if !equalArgs(call.args, []string{"list-sessions", "-F", "#{session_name}"}) {
 		t.Fatalf("list-sessions args = %v", call.args)
+	}
+}
+
+func TestTmuxMultiplexer_ListSessions_NoServerIsEmpty(t *testing.T) {
+	for _, stderr := range []string{
+		"no server running on /tmp/tmux-1000/default\n",
+		"error connecting to /tmp/tmux-1000/default (No such file or directory)\n",
+	} {
+		t.Run(strings.TrimSpace(stderr), func(t *testing.T) {
+			exec := &fakeExecutor{calls: []fakeCall{{stderr: stderr, exitCode: 1}}}
+			tm := NewTmuxMultiplexerWithExecutor(executor.NewCommandFuncExecutor(exec.Command))
+
+			sessions, err := tm.ListSessions()
+			if err != nil {
+				t.Fatalf("ListSessions() error = %v, want nil", err)
+			}
+			if len(sessions) != 0 {
+				t.Fatalf("ListSessions() = %v, want empty", sessions)
+			}
+		})
+	}
+}
+
+func TestTmuxMultiplexer_ListSessions_OtherExitOneIsError(t *testing.T) {
+	exec := &fakeExecutor{calls: []fakeCall{{
+		output:   "no server running is stdout, not the failure reason\n",
+		stderr:   "permission denied\n",
+		exitCode: 1,
+	}}}
+	tm := NewTmuxMultiplexerWithExecutor(executor.NewCommandFuncExecutor(exec.Command))
+
+	_, err := tm.ListSessions()
+	if err == nil {
+		t.Fatal("ListSessions() error = nil, want exit-1 failure")
+	}
+	if !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("ListSessions() error = %q, want stderr cause", err)
 	}
 }
 

@@ -6,10 +6,12 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/proboscis/orch/api/orchpb"
 	"github.com/proboscis/orch/internal/config"
 	"github.com/proboscis/orch/internal/model"
 	"github.com/proboscis/orch/internal/store"
@@ -452,5 +454,89 @@ func TestRepairReportsTerminalAliveAndUnreapableKeptSessions(t *testing.T) {
 		if finding.Kind == sessionRepairUnreapableKept && !strings.Contains(finding.Reason, "identity is not recorded") {
 			t.Fatalf("unreapable reason = %q", finding.Reason)
 		}
+	}
+}
+
+func TestRepairUsesExecutionHostWorktreeObservation(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	projectRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".orch"), 0o755); err != nil {
+		t.Fatalf("mkdir .orch: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), []byte("reaper:\n  idle_ttl_hours: 168\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	st, err := filestore.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("filestore.New() error = %v", err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	run := createRepairFindingRun(t, st, "repair-remote", "20260713-120004", model.StatusWaiting, now.Add(-8*24*time.Hour), true)
+	const host = "mac-host"
+	workerID := HostWorkerID(host)
+	if err := st.AppendEvent(run.Ref(), &model.Event{
+		Timestamp: now.Add(-8*24*time.Hour - 4*time.Second),
+		Type:      model.EventTypeArtifact,
+		Name:      "target",
+		Attrs: map[string]string{
+			"name":      "mac",
+			"host":      host,
+			"worker_id": workerID,
+		},
+	}); err != nil {
+		t.Fatalf("AppendEvent(target) error = %v", err)
+	}
+	run, err = st.GetRun(run.Ref())
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+
+	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, log.New(io.Discard, "", 0))
+	if _, err := server.registerRepoContext("repair-project", projectRoot, "", st); err != nil {
+		t.Fatalf("registerRepoContext() error = %v", err)
+	}
+	if _, ttl := server.registerWorker(workerID, "executor", host, "external", []string{"run_worktree"}); ttl <= 0 {
+		t.Fatal("expected positive heartbeat ttl for worktree worker")
+	}
+
+	go func() {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			lease := server.leaseWorkForWorker(workerID)
+			if lease == nil {
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+			_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, false, "failed to stat "+run.WorktreePath+": permission denied", "")
+			return
+		}
+	}()
+
+	findings, err := server.classifySessionRepairFindings([]string{model.GenerateSessionName(run.IssueID, run.RunID)}, now)
+	if err != nil {
+		t.Fatalf("classifySessionRepairFindings() error = %v", err)
+	}
+	if len(findings) != 1 || findings[0].Kind != sessionRepairUnreapableKept {
+		t.Fatalf("findings = %#v, want one unreapable-kept finding", findings)
+	}
+	for _, want := range []string{"worktree check failed", "execution host " + host, run.WorktreePath, "permission denied"} {
+		if !strings.Contains(findings[0].Reason, want) {
+			t.Fatalf("finding reason = %q, want worker-derived %q", findings[0].Reason, want)
+		}
+	}
+}
+
+func TestRepairStateReportsMasterHostOnlySessionInventoryScope(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	server := NewSocketServer(func(string) (store.Store, error) { return nil, errors.New("unused") }, log.New(io.Discard, "", 0))
+
+	resp := server.handleProtoRepairState(&orchpb.RepairStateRequest{DryRun: true})
+	if !resp.Ok {
+		t.Fatalf("handleProtoRepairState() error = %s", resp.Error)
+	}
+	details := resp.GetRepairState().GetDetails()
+	if !slices.Contains(details, "session inventory scope: master host only") {
+		t.Fatalf("repair details = %q, want master-host-only scope", details)
 	}
 }
